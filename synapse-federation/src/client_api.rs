@@ -87,6 +87,7 @@ pub trait FederationClientApi: Send + Sync {
         destination: &str,
         room_id: &str,
         event_id: &str,
+        room_version: &str,
         event: &serde_json::Value,
     ) -> Result<InviteResponse, FederationClientError>;
 
@@ -290,9 +291,10 @@ impl FederationClientApi for FederationClient {
         destination: &str,
         room_id: &str,
         event_id: &str,
+        room_version: &str,
         event: &serde_json::Value,
     ) -> Result<InviteResponse, FederationClientError> {
-        FederationClient::invite(self, destination, room_id, event_id, event).await
+        FederationClient::invite(self, destination, room_id, event_id, room_version, event).await
     }
 
     async fn get_state(&self, destination: &str, room_id: &str) -> Result<StateResponse, FederationClientError> {

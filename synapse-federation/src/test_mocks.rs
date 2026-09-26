@@ -237,6 +237,7 @@ impl crate::client_api::FederationClientApi for MockFederationClient {
         _destination: &str,
         room_id: &str,
         _event_id: &str,
+        _room_version: &str,
         _event: &serde_json::Value,
     ) -> Result<InviteResponse, FederationClientError> {
         self.invite_responses

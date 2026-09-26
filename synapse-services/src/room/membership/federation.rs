@@ -527,8 +527,37 @@ impl MembershipService {
         let federation_client = self.require_federation_client().await?;
 
         // Build the invite event with complete PDU graph fields (MSC4311).
-        let event_id = generate_event_id(&self.server_name);
+        //
+        // U-13: the PDU is assembled by the single assembler and its identity is
+        // derived from it — a hand-written `event_id` is wrong for v3+ (the
+        // reference hash is the identity) and, because the signer no longer
+        // covers `event_id` for v3+, the field would make the receiver recompute
+        // different bytes than we signed.
+        let placeholder_event_id = generate_event_id(&self.server_name);
         let now = current_timestamp_millis();
+
+        // Resolve the room version first: it decides whether the PDU carries an
+        // `event_id` at all, and it drives the signature material. Never guess.
+        let room_version = match self.room_storage.get_room_version_only(room_id).await {
+            Ok(Some(version)) => version,
+            Ok(None) => {
+                ::tracing::warn!(
+                    room_id = %room_id,
+                    destination = %destination,
+                    "room version unknown; refusing to sign the federation invite"
+                );
+                return Err(ApiError::bad_request("Room version unknown for federated invite".to_string()));
+            }
+            Err(e) => {
+                ::tracing::warn!(
+                    room_id = %room_id,
+                    destination = %destination,
+                    error = %e,
+                    "failed to read room version; refusing to sign the federation invite"
+                );
+                return Err(ApiError::internal_with_cause("Failed to read room version", e));
+            }
+        };
 
         // Fail-closed: if the room's graph cannot be read, refuse to send the
         // invite — fabricating `prev_events: []` / `depth: 1` would make the
@@ -559,53 +588,44 @@ impl MembershipService {
         let auth_events = vec![create_event_id];
         let prev_events = extremities;
 
-        let mut invite_event = json!({
-            "event_id": event_id,
-            "room_id": room_id,
-            "sender": inviter_id,
-            "user_id": inviter_id,
-            "type": "m.room.member",
-            "content": {
-                "membership": "invite",
-                "displayname": invitee_id
-                    .trim_start_matches('@')
-                    .split(':')
-                    .next()
-                    .unwrap_or(invitee_id),
-            },
-            "state_key": invitee_id,
-            "origin_server_ts": now,
-            "origin": self.server_name,
-            "prev_events": prev_events,
-            "auth_events": auth_events,
-            "depth": depth,
+        let invite_content = json!({
+            "membership": "invite",
+            "displayname": invitee_id
+                .trim_start_matches('@')
+                .split(':')
+                .next()
+                .unwrap_or(invitee_id),
         });
 
-        // 2. Resolve the room version that drives the signature material. This
-        //    invite re-sends an event for a room this server already knows, so
-        //    the stored room version is authoritative; never guess.
-        let room_version = match self.room_storage.get_room_version_only(room_id).await {
-            Ok(Some(version)) => version,
-            Ok(None) => {
-                ::tracing::warn!(
-                    room_id = %room_id,
-                    destination = %destination,
-                    "room version unknown; refusing to sign the federation invite"
-                );
-                return Err(ApiError::bad_request("Room version unknown for federated invite".to_string()));
-            }
-            Err(e) => {
-                ::tracing::warn!(
-                    room_id = %room_id,
-                    destination = %destination,
-                    error = %e,
-                    "failed to read room version; refusing to sign the federation invite"
-                );
-                return Err(ApiError::internal_with_cause("Failed to read room version", e));
-            }
+        let invite_parts = synapse_common::pdu::PduParts {
+            room_version: &room_version,
+            // v1/v2 only: `build_pdu` drops it for v3+, where the reference
+            // hash is the identity.
+            event_id: Some(placeholder_event_id.as_str()),
+            room_id,
+            sender: inviter_id,
+            event_type: "m.room.member",
+            content: &invite_content,
+            state_key: Some(invitee_id),
+            origin_server_ts: now,
+            origin: &self.server_name,
+            depth,
+            prev_events: &prev_events,
+            auth_events: &auth_events,
+            redacts: None,
         };
 
-        // 3. Sign the event locally.
+        let finalized = synapse_federation::event_finalize::finalize_local_pdu(&invite_parts)
+            .map_err(|e| ApiError::internal(format!("Failed to finalize invite event: {e}")))?;
+        let event_id = finalized.event_id.clone();
+
+        let mut invite_event = synapse_common::pdu::build_pdu(&invite_parts);
+        if let Some(object) = invite_event.as_object_mut() {
+            object.insert("hashes".to_string(), finalized.hashes.clone());
+        }
+
+        // Sign the event locally (the material is derived from the same PDU the
+        // peer will receive).
         let signing_key = self.require_signing_key().await?;
         sign_and_hash_event(
             &room_version,
@@ -616,9 +636,12 @@ impl MembershipService {
         )
         .map_err(|e| ApiError::internal(format!("Failed to sign invite event: {e}")))?;
 
-        // 3. Call invite on the remote server.
-        let invite_response =
-            federation_client.invite(&destination, room_id, &event_id, &invite_event).await.map_err(|e| {
+        // Call invite on the remote server (the body carries the PDU plus the
+        // room version — see `FederationClient::invite`).
+        let invite_response = federation_client
+            .invite(&destination, room_id, &event_id, &room_version, &invite_event)
+            .await
+            .map_err(|e| {
                 ::tracing::warn!(error = %e, destination = %destination, "federation invite failed");
                 ApiError::bad_request(format!("Remote server rejected invite: {e}"))
             })?;

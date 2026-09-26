@@ -105,10 +105,53 @@ pub(super) async fn send_transaction(
     let pdus_to_process = &pdus[..pdus.len().min(max_pdus)];
 
     for pdu in pdus_to_process {
-        let event_id = pdu
-            .get("event_id")
-            .and_then(|v| v.as_str())
-            .map_or_else(|| format!("${}", synapse_common::crypto::generate_event_id(origin)), |s| s.to_string());
+        // Identity and signature material both depend on the room version: a
+        // v3+ PDU carries no `event_id` (the receiver derives the reference
+        // hash) and redaction — hence the signed bytes — differs per version.
+        // The version is never guessed: an unresolvable one rejects this PDU
+        // only, and the rest of the transaction still processes.
+        let room_version = match inbound_pdu_room_version(&ctx, pdu).await {
+            Ok(version) => version,
+            Err(error) => {
+                super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
+                ::tracing::warn!(
+                    target: "security_audit",
+                    event = "federation_pdu_room_version_unresolvable",
+                    origin = origin,
+                    error = %error,
+                    "Inbound PDU room version could not be resolved — rejecting"
+                );
+                results.push(json!({
+                    "event_id": carried_event_id_label(pdu),
+                    "error": error
+                }));
+                continue;
+            }
+        };
+
+        // The receiver must arrive at the same ID the sender computed.  For v3+
+        // that is the reference hash of *this* PDU; inventing an ID (the
+        // previous `format!("${}", generate_event_id(..))` produced `$$…`) made
+        // every later `prev_events` reference to the event dangle.
+        let event_id = match synapse_common::event_id::resolve_received_event_id(&room_version, pdu) {
+            Ok(event_id) => event_id,
+            Err(error) => {
+                super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
+                ::tracing::warn!(
+                    target: "security_audit",
+                    event = "federation_pdu_event_id_unresolvable",
+                    origin = origin,
+                    room_version = %room_version,
+                    error = %error,
+                    "Inbound PDU has no derivable event ID — rejecting"
+                );
+                results.push(json!({
+                    "event_id": carried_event_id_label(pdu),
+                    "error": error.to_string()
+                }));
+                continue;
+            }
+        };
 
         if let Err(e) = crate::federation::signing::check_pdu_size_limits(pdu) {
             super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
@@ -144,7 +187,7 @@ pub(super) async fn send_transaction(
             continue;
         }
 
-        if let Err(e) = verify_pdu_sender_signature(&ctx, pdu).await {
+        if let Err(e) = verify_pdu_sender_signature(&ctx, &room_version, pdu).await {
             super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
             ::tracing::warn!(
                 target: "security_audit",
@@ -349,11 +392,34 @@ pub(super) async fn send_transaction(
                                     // Best-effort persist: extract fields and
                                     // store via create_event_with_graph so the
                                     // fetched events also populate event_edges.
-                                    if let Some(missing_event_id) = missing_pdu.get("event_id").and_then(|v| v.as_str())
+                                    //
+                                    // U-13: gap-fill PDUs have the same identity
+                                    // rule as transaction PDUs.  Previously this
+                                    // required a top-level `event_id`, so every
+                                    // v3+ gap-fill event was silently skipped.
+                                    let missing_event_id = match synapse_common::event_id::resolve_received_event_id(
+                                        &room_version,
+                                        missing_pdu,
+                                    ) {
+                                        Ok(event_id) => event_id,
+                                        Err(error) => {
+                                            ::tracing::warn!(
+                                                target: "security_audit",
+                                                event = "federation_missing_event_id_unresolvable",
+                                                request_id = %request_id,
+                                                txn_id = %txn_id,
+                                                origin = origin,
+                                                room_version = %room_version,
+                                                error = %error,
+                                                "Gap-fill PDU has no derivable event ID — skipping"
+                                            );
+                                            continue;
+                                        }
+                                    };
                                     {
                                         // Skip if already exists (race or duplicate).
                                         if gap_fill_already_persisted(
-                                            ctx.room_service.messaging().get_event_record(missing_event_id).await,
+                                            ctx.room_service.messaging().get_event_record(&missing_event_id).await,
                                         )? {
                                             continue;
                                         }
@@ -371,7 +437,7 @@ pub(super) async fn send_transaction(
                                                 request_id = %request_id,
                                                 txn_id = %txn_id,
                                                 origin = origin,
-                                                event_id = missing_event_id,
+                                                event_id = %missing_event_id,
                                                 error = %e,
                                                 "Missing event PDU exceeded size limits — skipping"
                                             );
@@ -387,21 +453,23 @@ pub(super) async fn send_transaction(
                                                 request_id = %request_id,
                                                 txn_id = %txn_id,
                                                 origin = origin,
-                                                event_id = missing_event_id,
+                                                event_id = %missing_event_id,
                                                 error = %e,
                                                 "Missing event PDU content hash verification failed — skipping"
                                             );
                                             continue;
                                         }
 
-                                        if let Err(e) = verify_pdu_sender_signature(&ctx, missing_pdu).await {
+                                        if let Err(e) =
+                                            verify_pdu_sender_signature(&ctx, &room_version, missing_pdu).await
+                                        {
                                             ::tracing::warn!(
                                                 target: "security_audit",
                                                 event = "federation_missing_event_signature_invalid",
                                                 request_id = %request_id,
                                                 txn_id = %txn_id,
                                                 origin = origin,
-                                                event_id = missing_event_id,
+                                                event_id = %missing_event_id,
                                                 error = %e,
                                                 "Missing event PDU sender signature verification failed — skipping"
                                             );
@@ -435,7 +503,7 @@ pub(super) async fn send_transaction(
                                             missing_pdu.get("depth").and_then(|v| v.as_i64()).unwrap_or(0);
 
                                         let missing_params = synapse_services::event::CreateEventParams {
-                                            event_id: missing_event_id.to_string(),
+                                            event_id: missing_event_id.clone(),
                                             room_id: missing_room_id.to_string(),
                                             user_id: missing_user_id.to_string(),
                                             event_type: missing_event_type.to_string(),
@@ -460,7 +528,7 @@ pub(super) async fn send_transaction(
                                                 request_id = %request_id,
                                                 txn_id = %txn_id,
                                                 origin = origin,
-                                                event_id = missing_event_id,
+                                                event_id = %missing_event_id,
                                                 error = %e,
                                                 "Failed to persist gap-filled event"
                                             );
@@ -636,7 +704,45 @@ fn validate_inbound_transaction_pdu<'a>(authenticated_origin: &str, pdu: &'a Val
     Ok((room_id, sender, event_type, state_key))
 }
 
-async fn verify_pdu_sender_signature(ctx: &FederationContext, pdu: &Value) -> Result<(), String> {
+/// Best-effort label for an inbound PDU in a per-PDU error entry.
+///
+/// v3+ PDUs carry no `event_id`, so an entry that has to report an error before
+/// the ID is derivable cannot name the event; the response shape keeps the key
+/// present with an explicit marker rather than inventing an ID.
+fn carried_event_id_label(pdu: &Value) -> String {
+    pdu.get("event_id").and_then(Value::as_str).unwrap_or("<underivable>").to_string()
+}
+
+/// Resolve the room version an inbound PDU must be processed under.
+///
+/// There is deliberately **no default**: the version selects the redaction rules
+/// used for the reference hash (v3+) and for the signature material, so guessing
+/// one would either reject valid events or accept invalid ones.
+///
+/// Sources, in order:
+/// 1. an `m.room.create` PDU states its own version in `content.room_version`
+///    (current spec) or the legacy top-level `room_version` — needed because the
+///    room row does not exist yet when the create event arrives;
+/// 2. otherwise the locally recorded version for the PDU's `room_id`.
+async fn inbound_pdu_room_version(ctx: &FederationContext, pdu: &Value) -> Result<String, String> {
+    if pdu.get("type").and_then(Value::as_str) == Some("m.room.create") {
+        if let Some(version) = pdu.get("content").and_then(|c| c.get("room_version")).and_then(Value::as_str) {
+            return Ok(version.to_string());
+        }
+        if let Some(version) = pdu.get("room_version").and_then(Value::as_str) {
+            return Ok(version.to_string());
+        }
+    }
+
+    let room_id = pdu.get("room_id").and_then(Value::as_str).ok_or_else(|| "PDU has no room_id".to_string())?;
+    match ctx.room_service.state().get_room_version(room_id).await {
+        Ok(Some(version)) => Ok(version),
+        Ok(None) => Err(format!("no room version recorded for {room_id}")),
+        Err(error) => Err(format!("failed to read room version for {room_id}: {error}")),
+    }
+}
+
+async fn verify_pdu_sender_signature(ctx: &FederationContext, room_version: &str, pdu: &Value) -> Result<(), String> {
     let sender = pdu.get("sender").and_then(|v| v.as_str()).ok_or_else(|| "Missing sender on PDU".to_string())?;
     let sender_server =
         super::sender_server_name(sender).ok_or_else(|| format!("Unparseable sender mxid: {sender}"))?;
@@ -651,17 +757,12 @@ async fn verify_pdu_sender_signature(ctx: &FederationContext, pdu: &Value) -> Re
         return Err(format!("PDU signatures.{sender_server} is empty"));
     }
 
-    let mut signing_payload = pdu.clone();
-    if let Some(obj) = signing_payload.as_object_mut() {
-        obj.remove("signatures");
-        obj.remove("unsigned");
-    }
-    let signed_bytes = match synapse_common::canonical_json_bytes(&signing_payload) {
-        Ok(b) => b,
-        Err(e) => {
-            return Err(format!("Canonical JSON error for PDU signature verification: {e}"));
-        }
-    };
+    // The signed bytes come from the same definition the signer uses
+    // (`signature_material_bytes`): redaction per room version, minus
+    // `age_ts`/`unsigned`, minus `event_id` for v3+.  Canonicalising the raw PDU
+    // here (the previous behaviour) meant our own valid signatures failed our
+    // own verification.
+    let signed_bytes = synapse_federation::signing::signature_material_bytes(room_version, pdu)?;
 
     let mut last_error: Option<String> = None;
     for (key_id, sig_value) in server_sigs {

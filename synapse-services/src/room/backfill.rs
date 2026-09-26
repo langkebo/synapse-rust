@@ -85,21 +85,23 @@ pub fn check_backfill_cooldown(room_id: &str) -> bool {
 
 /// P1a 修复：批量存在性检查（替代循环内逐 PDU `get_event` 的 N+1 查询）。
 ///
-/// 收集 PDU 中的全部有效 `event_id`，一次 `find_missing_event_ids`
-/// （底层 `WHERE event_id = ANY($1)`）得出本地缺失集合。持久化循环用该
-/// 集合做 O(1) 去重，并在持久化成功后从集合移除对应 ID，以保持
-/// "批内重复 PDU 静默跳过"的原语义。
+/// 调用方先为每个 PDU 解析出规范事件 ID（v3+ 无 `event_id`，须按 reference
+/// hash 推导，见 `resolve_received_event_id`），这里再把这些 ID 一次交给
+/// `find_missing_event_ids`（底层 `WHERE event_id = ANY($1)`）。持久化循环用
+/// 返回集合做 O(1) 去重，并在持久化成功后移除对应 ID，以保持"批内重复 PDU
+/// 静默跳过"的原语义。
+///
+/// 只接收**已解析**的 ID：此前这里直接从 PDU 里读 `event_id`，于是 v3+ 的
+/// 每个 PDU 都收集不到 ID ⇒ 缺失集合为空 ⇒ 回填把整批事件静默跳过。
 async fn compute_missing_event_ids(
     event_reader: &Arc<dyn synapse_storage::event::EventReader>,
-    pdus: &[serde_json::Value],
+    event_ids: &[String],
 ) -> ApiResult<std::collections::HashSet<String>> {
-    let event_ids: Vec<String> =
-        pdus.iter().filter_map(|pdu| pdu.get("event_id").and_then(|v| v.as_str()).map(String::from)).collect();
     if event_ids.is_empty() {
         return Ok(std::collections::HashSet::new());
     }
     let missing = event_reader
-        .find_missing_event_ids(&event_ids)
+        .find_missing_event_ids(event_ids)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to batch-check existing events for backfill", e))?;
     Ok(missing.into_iter().collect())
@@ -202,17 +204,43 @@ impl RoomService {
             //
             //    P1a 修复：一次性批量查询缺失集合（此前循环内逐 PDU 一次
             //    `get_event`，100 个 PDU = 100 次串行 DB 往返）。
-            let mut missing_ids = compute_missing_event_ids(&self.event_reader, &response.pdus).await?;
+            //
+            //    U-13：v3+ 的 PDU **不带** `event_id`，必须按 reference hash
+            //    推导。此前这里（以及 `compute_missing_event_ids`）只读
+            //    `event_id` 字段 ⇒ v3+ 的每个回填 PDU 都被当成"缺 ID"跳过，
+            //    回填对现代房间等于完全不工作；而签名校验也必须按房间版本
+            //    的 redaction 取签名字节，所以房间版本在这里解析一次。
+            let room_version = self
+                .room_storage
+                .get_room_version_only(room_id)
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to read room version for backfill", e))?
+                .ok_or_else(|| ApiError::bad_request(format!("Backfill requested for unknown room {room_id}")))?;
+
+            let resolved: Vec<(String, &serde_json::Value)> = response
+                .pdus
+                .iter()
+                .filter_map(|pdu| match synapse_common::event_id::resolve_received_event_id(&room_version, pdu) {
+                    Ok(event_id) => Some((event_id, pdu)),
+                    Err(error) => {
+                        ::tracing::warn!(
+                            target: "security_audit",
+                            event = "backfill_pdu_event_id_unresolvable",
+                            room_id = %room_id,
+                            candidate = %candidate,
+                            room_version = %room_version,
+                            error = %error,
+                            "Backfill PDU has no derivable event ID — skipping"
+                        );
+                        None
+                    }
+                })
+                .collect();
+            let resolved_ids: Vec<String> = resolved.iter().map(|(event_id, _)| event_id.clone()).collect();
+            let mut missing_ids = compute_missing_event_ids(&self.event_reader, &resolved_ids).await?;
             let mut persisted = 0usize;
-            for pdu in &response.pdus {
-                let Some(event_id) = pdu.get("event_id").and_then(|v| v.as_str()) else {
-                    ::tracing::warn!(
-                        room_id = %room_id,
-                        candidate = %candidate,
-                        "Backfill PDU missing event_id; skipping"
-                    );
-                    continue;
-                };
+            for (event_id, pdu) in &resolved {
+                let event_id = event_id.as_str();
 
                 // Skip if already present locally (O(1) 内存判断；持久化成功后
                 // 从集合移除，保持批内重复 PDU 静默跳过的原语义).
@@ -250,7 +278,7 @@ impl RoomService {
                     continue;
                 }
 
-                if let Err(e) = verify_pdu_signature_with_client(federation_client.as_ref(), pdu).await {
+                if let Err(e) = verify_pdu_signature_with_client(federation_client.as_ref(), &room_version, pdu).await {
                     ::tracing::warn!(
                         target: "security_audit",
                         event = "backfill_pdu_signature_invalid",
@@ -387,15 +415,16 @@ mod tests {
         store.seed_events(vec![seeded_event("$existing1"), seeded_event("$existing2")]).await;
         let reader: Arc<dyn EventReader> = Arc::new(store);
 
-        let pdus = vec![
-            serde_json::json!({"event_id": "$existing1"}), // 已存在 → 不在缺失集
-            serde_json::json!({"event_id": "$new1"}),      // 缺失
-            serde_json::json!({"event_id": "$new2"}),      // 缺失
-            serde_json::json!({"no_event_id": true}),      // 无 event_id → 不进入缺失集（循环内单独跳过）
-            serde_json::json!({"event_id": "$new1"}),      // 批内重复 → 仍在缺失集（持久化后由循环移除）
+        // U-13：调用方先为每个 PDU 解析出规范 ID（v3+ 由 reference hash 推导），
+        // 再交给这里批量查询；无 ID 的 PDU 在解析阶段就被跳过，不会到达此处。
+        let resolved_ids = vec![
+            "$existing1".to_string(), // 已存在 → 不在缺失集
+            "$new1".to_string(),      // 缺失
+            "$new2".to_string(),      // 缺失
+            "$new1".to_string(),      // 批内重复 → 仍在缺失集（持久化后由循环移除）
         ];
 
-        let missing = compute_missing_event_ids(&reader, &pdus).await.expect("batch query must succeed");
+        let missing = compute_missing_event_ids(&reader, &resolved_ids).await.expect("batch query must succeed");
 
         assert!(missing.contains("$new1"));
         assert!(missing.contains("$new2"));
@@ -410,8 +439,8 @@ mod tests {
         store.seed_events(vec![seeded_event("$a"), seeded_event("$b")]).await;
         let reader: Arc<dyn EventReader> = Arc::new(store);
 
-        let pdus = vec![serde_json::json!({"event_id": "$a"}), serde_json::json!({"event_id": "$b"})];
-        let missing = compute_missing_event_ids(&reader, &pdus).await.unwrap();
+        let resolved_ids = vec!["$a".to_string(), "$b".to_string()];
+        let missing = compute_missing_event_ids(&reader, &resolved_ids).await.unwrap();
         assert!(missing.is_empty());
     }
 

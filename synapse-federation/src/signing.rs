@@ -183,18 +183,63 @@ pub fn check_event_federate(room_create_event: &Value) -> bool {
     room_create_event.get("content").and_then(|c| c.get("m.federate")).and_then(|f| f.as_bool()).unwrap_or(true)
 }
 
+/// The exact bytes that are **signed and verified** for a PDU.
+///
+/// Upstream reference (element-hq/synapse release-v1.161
+/// `synapse/crypto/event_signing.py::compute_event_signature`):
+/// `redact_event_dict(room_version, event_dict)`, then pop `age_ts`, then pop
+/// `unsigned`.
+///
+/// Two details are protocol, not style:
+///
+/// * the **redaction** step is applied to what is signed, so an event whose
+///   content redaction clears (an `m.room.message` body) signs a different byte
+///   string than its unredacted form;
+/// * `event_id` is dropped for v3+.  A v3+ federated PDU carries no `event_id`
+///   at all (spec room v3 "Event format"), so a signature that covered one could
+///   never be reproduced by a receiver — which is exactly how the previous
+///   verifier (which canonicalised the raw dict) and the previous signer (which
+///   did not redact) both diverged from upstream.
+///
+/// `signatures` is retained by redaction; both the signer and the verifier strip
+/// it afterwards via [`CanonicalEvent::from_event`].  `origin` is retained for
+/// v1–v10 and dropped by redaction for v11+, also matching upstream.
+///
+/// **One implementation, two callers**: `sign_and_hash_event` and every PDU
+/// signature verifier must use this function.  Re-deriving the material at a
+/// verification site is what made our own signatures unverifiable.
+pub fn signature_material(room_version: &str, event: &Value) -> Result<Value, String> {
+    let mut material =
+        redact_event(room_version, event).map_err(|e| format!("Failed to redact event for signature material: {e}"))?;
+    if let Some(obj) = material.as_object_mut() {
+        obj.remove("age_ts");
+        obj.remove("unsigned");
+        if !event_id_is_a_pdu_field(room_version) {
+            obj.remove("event_id");
+        }
+    }
+    Ok(material)
+}
+
+/// The canonical bytes a PDU signature covers: [`signature_material`] run
+/// through the same `CanonicalEvent` the signer uses, so signing and verifying
+/// cannot drift apart.
+pub fn signature_material_bytes(room_version: &str, event: &Value) -> Result<Vec<u8>, String> {
+    let material = signature_material(room_version, event)?;
+    let canonical = CanonicalEvent::from_event(&material)
+        .map_err(|e| format!("Canonical JSON error for signature material: {e}"))?;
+    Ok(canonical.canonical_bytes().to_vec())
+}
+
 /// Sign and hash a locally-produced PDU so it can be federated to remote
 /// servers.
 ///
 /// This function:
 /// 1. Computes and inserts the `hashes.sha256` content hash over the
 ///    **unredacted** event ([`compute_event_content_hash`]).
-/// 2. Builds the signature material the way upstream Synapse
-///    `synapse/crypto/event_signing.py::compute_event_signature` does:
-///    `redact_event(room_version, event)`, then remove `age_ts` and `unsigned`,
-///    then — for v3+ — remove `event_id` (v3+ PDUs do not carry it, so it must
-///    not be signed; v1/v2 keep it, and the upstream known-answer vectors prove
-///    it).
+/// 2. Builds the signature material with [`signature_material`] — the single
+///    definition of what a PDU signature covers (redaction per room version,
+///    minus `age_ts`/`unsigned`, minus `event_id` for v3+).
 /// 3. Signs that material and writes the signature back into the original
 ///    `event`.
 ///
@@ -229,17 +274,8 @@ pub fn sign_and_hash_event(
         }
     }
 
-    // 2. Signature material: the redacted PDU (this already drops the top-level
-    //    `age_ts` and every field redaction does not retain).
-    let mut material =
-        redact_event(room_version, event).map_err(|e| format!("Failed to redact event for signing: {e}"))?;
-    if let Some(obj) = material.as_object_mut() {
-        obj.remove("age_ts");
-        obj.remove("unsigned");
-        if !event_id_is_a_pdu_field(room_version) {
-            obj.remove("event_id");
-        }
-    }
+    // 2. Signature material: the single definition shared with the verifiers.
+    let material = signature_material(room_version, event)?;
 
     // 3. Compute canonical form of the material once, then sign using the
     //    cached form.  `CanonicalEvent::from_event` strips `signatures`
@@ -269,13 +305,23 @@ pub fn sender_server_name(sender: &str) -> Option<&str> {
 ///
 /// This is the backfill/outbound counterpart to the inbound transaction
 /// path's `verify_pdu_sender_signature` (which uses the `FederationContext`
-/// cache).  Both perform the same cryptographic check: the PDU must carry
-/// at least one valid ed25519 signature from the sender's home server.
+/// cache).  Both perform the same cryptographic check: the PDU must carry at
+/// least one valid ed25519 signature from the sender's home server — **over the
+/// same bytes [`sign_and_hash_event`] signed** ([`signature_material_bytes`]).
+///
+/// Before U-13 this canonicalised the raw PDU minus `signatures`/`unsigned`,
+/// which is *not* what upstream signs: redaction changes the bytes.  The result
+/// was that a signature produced by our own signer (correct, redacted) failed
+/// our own verifier.
+///
+/// `room_version` is required and must never be guessed: redaction — hence the
+/// signed bytes — differs per version.
 ///
 /// The real `FederationClient::get_server_keys` already validates the
 /// server-key self-signature (FED-01), so keys returned here are trusted.
 pub async fn verify_pdu_signature_with_client(
     federation_client: &dyn crate::client_api::FederationClientApi,
+    room_version: &str,
     pdu: &Value,
 ) -> Result<(), String> {
     let sender = pdu.get("sender").and_then(|v| v.as_str()).ok_or_else(|| "Missing sender on PDU".to_string())?;
@@ -291,14 +337,8 @@ pub async fn verify_pdu_signature_with_client(
         return Err(format!("PDU signatures.{sender_server} is empty"));
     }
 
-    // Compute signed bytes: canonical JSON without signatures/unsigned.
-    let mut signing_payload = pdu.clone();
-    if let Some(obj) = signing_payload.as_object_mut() {
-        obj.remove("signatures");
-        obj.remove("unsigned");
-    }
-    let signed_bytes = synapse_common::canonical_json_bytes(&signing_payload)
-        .map_err(|e| format!("Canonical JSON error for PDU signature verification: {e}"))?;
+    // Signed bytes: the single definition, shared with the signer.
+    let signed_bytes = signature_material_bytes(room_version, pdu)?;
 
     // Fetch server keys — try cache first, then fetch from remote.
     let server_keys = match federation_client.get_cached_key(sender_server).await {
@@ -743,10 +783,15 @@ mod tests {
         }
     }
 
-    /// Helper: sign a PDU with the given key, matching the Matrix spec's
-    /// signing algorithm (canonical JSON without signatures/unsigned).
+    /// Helper: sign a PDU the way production does.
+    ///
+    /// U-13: this used a bare `sign_json` (no per-room-version redaction), which
+    /// is exactly why the verifier's incorrect byte computation was invisible
+    /// here — signer and verifier were both wrong in the same direction. It now
+    /// goes through [`sign_and_hash_event`], so the verifier must accept what the
+    /// server actually emits.
     fn sign_pdu(server_name: &str, key_id: &str, secret_b64: &str, pdu: &mut Value) {
-        sign_json(server_name, key_id, secret_b64, pdu).unwrap();
+        sign_and_hash_event("10", server_name, key_id, secret_b64, pdu).unwrap();
     }
 
     #[tokio::test]
@@ -769,8 +814,39 @@ mod tests {
         let mock = MockFederationClient::new("local.test");
         mock.seed_server_keys(server_name, make_server_keys(server_name, key_id, &signing_key)).await;
 
-        let result = verify_pdu_signature_with_client(&mock, &pdu).await;
+        let result = verify_pdu_signature_with_client(&mock, "10", &pdu).await;
         assert!(result.is_ok(), "valid PDU signature should verify: {:?}", result.err());
+    }
+
+    /// The verifier must reject a signature that covers the **unredacted** bytes
+    /// — the material both halves used before U-13.  Without this, signer and
+    /// verifier could drift apart again and every other test would still pass
+    /// (they would agree on the wrong bytes).
+    #[tokio::test]
+    async fn test_verify_pdu_signature_rejects_unredacted_material() {
+        let (secret_b64, signing_key) = generate_test_key();
+        let server_name = "example.com";
+        let key_id = "ed25519:1";
+
+        let mut pdu = serde_json::json!({
+            "event_id": "$evt:example.com",
+            "type": "m.room.message",
+            "room_id": "!room:example.com",
+            "sender": "@user:example.com",
+            "content": {"body": "hello"},
+            "origin": "example.com",
+            "origin_server_ts": 1000,
+        });
+        // Old-style material: canonical JSON minus signatures/unsigned, with no
+        // per-room-version redaction.  `m.room.message` content is cleared by
+        // redaction, so this cannot be what a peer verifies.
+        sign_json(server_name, key_id, &secret_b64, &mut pdu).unwrap();
+
+        let mock = MockFederationClient::new("local.test");
+        mock.seed_server_keys(server_name, make_server_keys(server_name, key_id, &signing_key)).await;
+
+        let result = verify_pdu_signature_with_client(&mock, "10", &pdu).await;
+        assert!(result.is_err(), "a signature over the unredacted event must not verify: {result:?}");
     }
 
     #[tokio::test]
@@ -790,13 +866,17 @@ mod tests {
         });
         sign_pdu(server_name, key_id, &secret_b64, &mut pdu);
 
-        // Tamper with the content after signing.
-        pdu["content"]["body"] = serde_json::Value::String("tampered".to_string());
+        // Tamper with a field that **redaction retains**.  `content` is
+        // deliberately outside the signed bytes (upstream redaction clears
+        // `m.room.message` content); its integrity is covered by
+        // `hashes.sha256` / `verify_event_content_hash` instead, so tampering
+        // the body must *not* fail signature verification.
+        pdu["origin_server_ts"] = serde_json::json!(1001);
 
         let mock = MockFederationClient::new("local.test");
         mock.seed_server_keys(server_name, make_server_keys(server_name, key_id, &signing_key)).await;
 
-        let result = verify_pdu_signature_with_client(&mock, &pdu).await;
+        let result = verify_pdu_signature_with_client(&mock, "10", &pdu).await;
         assert!(result.is_err(), "tampered PDU should fail signature verification");
     }
 
@@ -811,7 +891,7 @@ mod tests {
         });
 
         let mock = MockFederationClient::new("local.test");
-        let result = verify_pdu_signature_with_client(&mock, &pdu).await;
+        let result = verify_pdu_signature_with_client(&mock, "10", &pdu).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("signatures"));
     }
@@ -843,7 +923,7 @@ mod tests {
         let mock = MockFederationClient::new("local.test");
         mock.seed_server_keys(server_name, make_server_keys(server_name, key_id, &wrong_signing_key)).await;
 
-        let result = verify_pdu_signature_with_client(&mock, &pdu).await;
+        let result = verify_pdu_signature_with_client(&mock, "10", &pdu).await;
         assert!(result.is_err(), "PDU signed with different key should fail");
     }
 

@@ -52,6 +52,20 @@ pub enum EventIdError {
     /// The redacted event could not be encoded as canonical JSON.
     #[error("canonical JSON encoding failed: {0}")]
     CanonicalJson(String),
+    /// A v3+ (reference-hash) PDU carried an explicit `event_id`.
+    ///
+    /// Upstream rejects this outright; accepting it would mean trusting a
+    /// sender-supplied identity instead of deriving it.
+    #[error("room version {room_version} events must not carry an explicit event_id (got {event_id})")]
+    UnexpectedEventId {
+        /// The room version whose event format was violated.
+        room_version: String,
+        /// The carried value, for the log line.
+        event_id: String,
+    },
+    /// A v1/v2 PDU arrived without the sender-assigned `event_id`.
+    #[error("room version {0} events must carry a server-assigned event_id")]
+    MissingEventId(String),
 }
 
 /// Returns `true` when `room_version` derives event IDs from the reference hash
@@ -111,6 +125,42 @@ pub fn encode_reference_hash_event_id(room_version: &str, hash: &[u8]) -> Result
 pub fn compute_event_id(room_version: &str, event: &Value) -> Result<String, EventIdError> {
     let hash = compute_reference_hash(room_version, event)?;
     encode_reference_hash_event_id(room_version, &hash)
+}
+
+/// Resolves the event ID of an event **received from another server**.
+///
+/// This is the inbound mirror of the local write path's `finalize_event_id`:
+/// the receiver must arrive at the same identity the sender computed.
+///
+/// * **v3+**: the PDU carries **no** `event_id` (spec room v3 "Event format":
+///   "the `event_id` field is no longer included. A server receiving an event
+///   should compute the relevant event ID for itself"), so the ID is the
+///   reference hash of the received event.  A PDU that *does* carry one is
+///   malformed — upstream `synapse_rust.events.Event` refuses it outright
+///   (`"v2/v3 events must not have an explicit event_id"`, verified against
+///   matrix-synapse 1.161.0) — and is rejected here rather than trusted.
+/// * **v1/v2**: the sender-assigned `event_id` is authoritative and required.
+///
+/// Callers must never fabricate an ID for a PDU that cannot supply one: a
+/// fabricated ID would not match the one the sender will use in `prev_events`,
+/// so every later reference to that event would dangle.
+pub fn resolve_received_event_id(room_version: &str, event: &Value) -> Result<String, EventIdError> {
+    let carried = event.get("event_id").and_then(Value::as_str);
+
+    if uses_reference_hash_event_id(room_version) {
+        if let Some(carried) = carried {
+            return Err(EventIdError::UnexpectedEventId {
+                room_version: room_version.to_string(),
+                event_id: carried.to_string(),
+            });
+        }
+        return compute_event_id(room_version, event);
+    }
+
+    match carried {
+        Some(carried) => Ok(carried.to_string()),
+        None => Err(EventIdError::MissingEventId(room_version.to_string())),
+    }
 }
 
 #[cfg(test)]
@@ -277,5 +327,45 @@ mod tests {
             encode_reference_hash_event_id("13", &hash).unwrap_err(),
             EventIdError::UnknownRoomVersion("13".to_string())
         );
+    }
+
+    // ── resolve_received_event_id (inbound identity) ──────────────────
+
+    /// v3+ PDUs carry no `event_id`: the receiver derives it, and the derived
+    /// value is exactly what the local write path would have produced for the
+    /// same bytes (upstream known-answer vector).
+    #[test]
+    fn received_v3_plus_pdu_derives_the_reference_hash() {
+        let event = synapse_vector_event();
+        assert!(event.get("event_id").is_none(), "the upstream vector carries no event_id");
+        assert_eq!(resolve_received_event_id("10", &event).unwrap(), SYNAPSE_V10_EVENT_ID);
+        assert_eq!(resolve_received_event_id("3", &event).unwrap(), SYNAPSE_V3_EVENT_ID);
+    }
+
+    /// A v3+ PDU that carries `event_id` is malformed; upstream refuses to
+    /// parse it, so trusting the field would let a sender pick its own identity.
+    #[test]
+    fn received_v3_plus_pdu_rejects_a_carried_event_id() {
+        let mut event = synapse_vector_event();
+        event["event_id"] = serde_json::json!("$attacker_chosen:example.com");
+        assert_eq!(
+            resolve_received_event_id("10", &event).unwrap_err(),
+            EventIdError::UnexpectedEventId {
+                room_version: "10".to_string(),
+                event_id: "$attacker_chosen:example.com".to_string(),
+            }
+        );
+    }
+
+    /// v1/v2 keep the sender-assigned ID, and it is required.
+    #[test]
+    fn received_v1_v2_pdu_uses_the_carried_id_and_requires_it() {
+        let mut event = synapse_vector_event();
+        event["event_id"] = serde_json::json!("$0:example.com");
+        assert_eq!(resolve_received_event_id("1", &event).unwrap(), "$0:example.com");
+        assert_eq!(resolve_received_event_id("2", &event).unwrap(), "$0:example.com");
+
+        event.as_object_mut().unwrap().remove("event_id");
+        assert_eq!(resolve_received_event_id("2", &event).unwrap_err(), EventIdError::MissingEventId("2".to_string()));
     }
 }

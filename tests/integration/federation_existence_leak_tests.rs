@@ -322,17 +322,23 @@ async fn send_leave_v2_no_existence_leak_remote_server() {
 // Tests: invite_v2 existence leak
 // ---------------------------------------------------------------------------
 
-/// Build a valid m.room.member invite event body for invite_v2.
-fn build_invite_event_body(room_id: &str, event_id: &str, sender: &str, invitee: &str, origin: &str) -> Value {
+/// Build a v2 invite request body: `{"event": …, "room_version": …}`.
+///
+/// The v2 body is **not** the bare event — upstream `FederationV2InviteServlet`
+/// reads `content["event"]` and `content["room_version"]`, and a v3+ PDU carries
+/// neither a version nor an `event_id` of its own (the receiver derives the ID).
+fn build_invite_event_body(room_id: &str, sender: &str, invitee: &str, origin: &str, room_version: &str) -> Value {
     json!({
-        "type": "m.room.member",
-        "content": { "membership": "invite" },
-        "sender": sender,
-        "state_key": invitee,
-        "room_id": room_id,
-        "event_id": event_id,
-        "origin": origin,
-        "origin_server_ts": chrono::Utc::now().timestamp_millis()
+        "event": {
+            "type": "m.room.member",
+            "content": { "membership": "invite" },
+            "sender": sender,
+            "state_key": invitee,
+            "room_id": room_id,
+            "origin": origin,
+            "origin_server_ts": chrono::Utc::now().timestamp_millis()
+        },
+        "room_version": room_version
     })
 }
 
@@ -363,7 +369,7 @@ async fn invite_v2_no_existence_leak_remote_server() {
     let inviter = "@inviter:remote.example";
     let invitee = "@invitee:localhost";
     let event_id = "$invite_evt_001:remote.example";
-    let body = build_invite_event_body(&private_room_id, event_id, inviter, invitee, remote_origin);
+    let body = build_invite_event_body(&private_room_id, inviter, invitee, remote_origin, "12");
     let uri = format!("/_matrix/federation/v2/invite/{}/{}", private_room_id, event_id);
     let request =
         signed_fed_request_as("PUT", &uri, remote_origin, "localhost", remote_key_id, &remote_signing_key, Some(&body));
@@ -374,7 +380,7 @@ async fn invite_v2_no_existence_leak_remote_server() {
     // 3. Remote server attempts invite_v2 on a non-existent room.
     let nonexistent_room = "!nonexistent_room:localhost";
     let event_id_2 = "$invite_evt_002:remote.example";
-    let body_2 = build_invite_event_body(nonexistent_room, event_id_2, inviter, invitee, remote_origin);
+    let body_2 = build_invite_event_body(nonexistent_room, inviter, invitee, remote_origin, "12");
     let uri_2 = format!("/_matrix/federation/v2/invite/{}/{}", nonexistent_room, event_id_2);
     let request_2 = signed_fed_request_as(
         "PUT",

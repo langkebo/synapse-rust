@@ -98,69 +98,146 @@ pub(crate) async fn invite_v2(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     headers: HeaderMap,
-    Path((room_id, event_id)): Path<(String, String)>,
+    Path((room_id, path_event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
-    if let Some(origin) = body.get("origin").and_then(|v| v.as_str()) {
+
+    // The v2 request body is `{"event": …, "room_version": …, "invite_room_state": …}`
+    // (spec `PUT /_matrix/federation/v2/invite`; upstream
+    // `FederationV2InviteServlet`), **not** the bare event.  `room_version` is
+    // the only source of the version for a v3+ PDU, which carries neither a
+    // version nor an `event_id` of its own.
+    let event = body.get("event").ok_or_else(|| ApiError::bad_request("Missing event in invite body".to_string()))?;
+    let room_version = body
+        .get("room_version")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ApiError::bad_request("Missing room_version in invite body".to_string()))?
+        .to_string();
+
+    if let Some(origin) = event.get("origin").and_then(|v| v.as_str()) {
         super::validate_federation_origin(&auth.origin, Some(origin))?;
     }
-    let (sender, state_key) = validate_federation_invite_event(&auth.origin, &room_id, &event_id, &body)?;
-    // OPT-017: Check room access BEFORE room version to prevent existence leaking.
+    let (sender, state_key) = validate_federation_invite_event(&auth.origin, &room_id, event)?;
+
+    // Everything that could reveal whether the room exists happens *after* the
+    // access check below, and the check comes before any ID/version work
+    // (OPT-017: no existence leak through error codes).
     super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
-    let _room_version = federatable_room_version(&ctx, &room_id).await?;
-    let content = body.get("content").cloned().unwrap_or(json!({}));
+
+    // If we know the room, the version we were told must be the one we have on
+    // record — otherwise our own ID/signature computation would diverge from the
+    // sender's.
+    match ctx.room_service.state().get_room_version(&room_id).await {
+        Ok(Some(local_version)) if local_version != room_version => {
+            return Err(ApiError::bad_request(format!(
+                "invite room_version {room_version} does not match the local room version {local_version}"
+            )));
+        }
+        Ok(_) => {}
+        Err(e) => {
+            return Err(ApiError::internal_with_cause("Failed to read room version", e));
+        }
+    }
+
+    // The event ID is the sender's: v3+ derive it from the received PDU, v1/v2
+    // carry it.  Never invent one, and never let the write path re-derive a
+    // different one.
+    let persisted_event_id = synapse_common::event_id::resolve_received_event_id(&room_version, event)
+        .map_err(|e| ApiError::bad_request(format!("Cannot derive the invited event's ID: {e}")))?;
+
+    // v1/v2 keep the sender-assigned ID, and the request path must agree with it.
+    if !synapse_common::event_id::uses_reference_hash_event_id(&room_version) && persisted_event_id != path_event_id {
+        return Err(ApiError::bad_request("Invite event_id does not match the request path".to_string()));
+    }
+
+    let content = event.get("content").cloned().unwrap_or(json!({}));
 
     // Same gate as the client invite path — see `thirdparty_invite`.
     ctx.room_service.membership().authorize_invite_policy(&room_id, sender, state_key).await?;
 
     let content_for_as = content.clone();
 
+    // The received PDU's graph position is authoritative: persisting through the
+    // explicit-graph path keeps the sender's ID and DAG fields byte-faithful
+    // (`create_event` would re-derive an ID from *our* state and disagree).
+    let depth = event.get("depth").and_then(Value::as_i64);
+    let prev_events = event_id_array(event, "prev_events");
+    let auth_events = event_id_array(event, "auth_events");
+    let (Some(depth), Some(prev_events), Some(auth_events)) = (depth, prev_events, auth_events) else {
+        return Err(ApiError::bad_request(
+            "Invite PDU is missing depth/prev_events/auth_events; refusing to persist it under a fabricated DAG position"
+                .to_string(),
+        ));
+    };
+
     let params = synapse_services::event::CreateEventParams {
-        event_id: event_id.clone(),
+        event_id: persisted_event_id.clone(),
         room_id: room_id.clone(),
         user_id: sender.to_string(),
         event_type: "m.room.member".to_string(),
         content,
         state_key: Some(state_key.to_string()),
-        origin_server_ts: body.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(current_timestamp_millis()),
+        origin_server_ts: event
+            .get("origin_server_ts")
+            .and_then(|v| v.as_i64())
+            .unwrap_or_else(current_timestamp_millis),
         redacts: None,
     };
 
-    ctx.room_service
+    let stored = ctx
+        .room_service
         .messaging()
-        .create_event(params, None)
+        .create_event_with_graph(params, &prev_events, &auth_events, depth, None)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to create invite event", e))?;
 
     // F-03: add local server signature so other origins can verify the
     // invite. We reconstruct the minimal PDU that was persisted.
     let mut pdu = json!({
-        "event_id": event_id,
+        "event_id": stored.event_id,
         "room_id": room_id,
         "sender": sender,
         "type": "m.room.member",
         "state_key": state_key,
         "content": content_for_as,
-        "origin_server_ts": body.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(current_timestamp_millis()),
+        "origin_server_ts": stored.origin_server_ts,
         "origin": auth.origin,
     });
-    re_sign_pdu_locally(&ctx, &event_id, &mut pdu).await;
+    re_sign_pdu_locally(&ctx, &stored.event_id, &mut pdu).await;
 
-    dispatch_federation_member_event_to_appservice(&ctx, &event_id, &room_id, sender, &content_for_as, Some(state_key))
-        .await;
+    dispatch_federation_member_event_to_appservice(
+        &ctx,
+        &stored.event_id,
+        &room_id,
+        sender,
+        &content_for_as,
+        Some(state_key),
+    )
+    .await;
 
     ::tracing::info!(
         request_id = %request_id,
         origin = %auth.origin,
         room_id = %room_id,
-        event_id = %event_id,
+        event_id = %stored.event_id,
         "Processed v2 invite"
     );
 
     Ok(Json(json!({
-        "event_id": event_id
+        "event_id": stored.event_id
     })))
+}
+
+/// Collect a PDU's `field` array of event IDs, or `None` when the key is absent.
+///
+/// `Some(vec![])` (an explicitly empty list) is preserved: for a create event an
+/// empty `prev_events` is legitimate, whereas a missing key is not.
+fn event_id_array(event: &Value, field: &str) -> Option<Vec<String>> {
+    event
+        .get(field)
+        .and_then(|v| v.as_array())
+        .map(|array| array.iter().filter_map(|v| v.as_str().map(String::from)).collect())
 }
 
 /// See [`invite`].
@@ -175,7 +252,7 @@ pub(crate) async fn invite(
     if let Some(origin) = body.get("origin").and_then(|v| v.as_str()) {
         super::validate_federation_origin(&auth.origin, Some(origin))?;
     }
-    validate_federation_invite_event(&auth.origin, &room_id, &event_id, &body)?;
+    validate_federation_invite_event(&auth.origin, &room_id, &body)?;
     // OPT-017: Check room access BEFORE room version to prevent existence leaking.
     super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
     let _room_version = federatable_room_version(&ctx, &room_id).await?;
@@ -226,7 +303,6 @@ pub(crate) async fn exchange_third_party_invite(
         "sender": sender,
         "origin": auth.origin,
         "origin_server_ts": origin_server_ts,
-        "room_version": room_version,
         "state_key": state_key,
         "content": content,
     });
@@ -260,7 +336,6 @@ pub(crate) async fn exchange_third_party_invite(
 fn validate_federation_invite_event<'a>(
     authenticated_origin: &str,
     room_id: &str,
-    event_id: &str,
     event: &'a Value,
 ) -> Result<(&'a str, &'a str), ApiError> {
     let sender = event
@@ -282,13 +357,15 @@ fn validate_federation_invite_event<'a>(
         return Err(ApiError::bad_request("Invite event room_id does not match request path".to_string()));
     }
 
-    let event_event_id = event
-        .get("event_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Missing event_id in invite event".to_string()))?;
-    if event_event_id != event_id {
-        return Err(ApiError::bad_request("Invite event event_id does not match request path".to_string()));
-    }
+    // There is deliberately **no** top-level `event_id` check here.
+    //
+    // Room version 3 removed `event_id` from federated PDUs ("A server receiving
+    // an event should compute the relevant event ID for itself"), so a compliant
+    // v3+ invite carries none — requiring it rejected every upstream invite.
+    // Upstream's `FederationV2InviteServlet` does not compare the path segment
+    // with the body either (`# TODO(paul): assert that event_id parsed from path
+    // actually match those given in content`).  The v1/v2 case is checked by the
+    // caller with the derived ID instead (see `invite_v2`).
 
     let event_type = event
         .get("type")
