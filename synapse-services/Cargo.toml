@@ -88,6 +88,7 @@ regex = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 
 url = { workspace = true }
+webp-animation = "0.10.0"
 
 [dev-dependencies]
 # atexit hook for the schema janitor: registered by this crate's **test** build only

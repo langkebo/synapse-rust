@@ -564,16 +564,13 @@ impl MediaService {
         let target_width = target_width.min(MAX_THUMB_OUTPUT_DIMENSION);
         let target_height = target_height.min(MAX_THUMB_OUTPUT_DIMENSION);
 
-        // Phase 1: Animated thumbnail support
-        // When animated=true and source is animated (GIF/WebP), extract first frame
-        // and generate static thumbnail (degradation strategy). Full animated WebP
-        // encoding will be added in Phase 2 when we introduce webp-animation crate.
+        // Phase 1/2: Animated thumbnail support
+        // When animated=true and source is animated (GIF/WebP):
+        //   - Phase 1: Extract first frame → static JPEG (degradation)
+        //   - Phase 2: Decode all frames → animated WebP (full implementation)
         if animated && Self::is_animated_image(image_data) {
-            ::tracing::info!(
-                "Source image detected as animated; generating first-frame static thumbnail (Phase 1 degradation)"
-            );
-            // Extract first frame and generate static thumbnail from it
-            return Self::generate_first_frame_thumbnail(image_data, target_width, target_height, method);
+            ::tracing::info!("Source image detected as animated; generating animated thumbnail");
+            return Self::generate_animated_thumbnail(image_data, target_width, target_height, method);
         }
 
         let mut reader = ImageReader::new(std::io::Cursor::new(image_data))
@@ -627,8 +624,10 @@ impl MediaService {
         false
     }
 
-    /// Phase 1: Generate thumbnail from first frame of animated image
-    /// Extracts first frame and processes it as a static image (degradation strategy)
+    /// Phase 1 fallback: Generate thumbnail from first frame of animated image
+    /// Extracts first frame and processes it as a static image (degradation strategy).
+    /// Retained for potential use as pure WebP encoding fallback without image crate dependency.
+    #[allow(dead_code)]
     fn generate_first_frame_thumbnail(
         image_data: &[u8],
         target_width: u32,
@@ -690,6 +689,142 @@ impl MediaService {
             .map_err(|e| ApiError::internal_with_cause("Failed to encode thumbnail", e))?;
 
         Ok(output)
+    }
+
+    /// Phase 2: Generate animated WebP thumbnail from all frames
+    /// Decodes all frames, processes each frame (resize/crop), and encodes as animated WebP
+    fn generate_animated_thumbnail(
+        image_data: &[u8],
+        target_width: u32,
+        target_height: u32,
+        method: ThumbnailMethod,
+    ) -> Result<Vec<u8>, ApiError> {
+        use webp_animation::Encoder;
+
+        // Review #1: Decompression bomb protection
+        const MAX_IMAGE_DIMENSION: u32 = 8192;
+
+        // MEDIA-01 (P1): Thumbnail output size limit
+        const MAX_THUMB_OUTPUT_DIMENSION: u32 = 2048;
+        let target_width = target_width.min(MAX_THUMB_OUTPUT_DIMENSION);
+        let target_height = target_height.min(MAX_THUMB_OUTPUT_DIMENSION);
+
+        // Decode all frames from source (GIF or WebP)
+        let frames = Self::decode_all_frames(image_data, MAX_IMAGE_DIMENSION)?;
+
+        if frames.is_empty() {
+            return Err(ApiError::internal("No frames decoded from animated image"));
+        }
+
+        // Extract delays from original frames before consuming them
+        let delays_ms: Vec<i32> = frames
+            .iter()
+            .map(|frame| {
+                let delay = frame.delay();
+                let (num, denom) = delay.numer_denom_ms();
+                if denom == 0 {
+                    100 // Default 100ms if delay is invalid
+                } else {
+                    ((num as u64 * 1000) / (denom as u64)).clamp(10, 5000) as i32
+                }
+            })
+            .collect();
+
+        // Determine output dimensions from the first frame (after transformation)
+        let first_frame = &frames[0];
+        let first_img = DynamicImage::ImageRgba8(first_frame.buffer().clone());
+        let first_transformed = Self::process_thumbnail_image(first_img, target_width, target_height, method);
+        let (out_w, out_h) = (first_transformed.width(), first_transformed.height());
+
+        // Initialize WebP animation encoder
+        let mut encoder = Encoder::new((out_w, out_h))
+            .map_err(|e| ApiError::internal_with_cause("Failed to initialize WebP animation encoder", e))?;
+
+        // Process each frame: resize/crop and add to encoder with cumulative timestamps
+        let mut current_timestamp: i32 = 0;
+        for (idx, frame) in frames.iter().enumerate() {
+            let img = DynamicImage::ImageRgba8(frame.buffer().clone());
+            let transformed = Self::process_thumbnail_image(img, target_width, target_height, method);
+
+            // Ensure consistent dimensions (crop if slightly different)
+            let final_img = if transformed.width() != out_w || transformed.height() != out_h {
+                transformed.resize_exact(out_w, out_h, image::imageops::FilterType::Lanczos3)
+            } else {
+                transformed
+            };
+
+            let rgba_data = final_img
+                .as_rgba8()
+                .ok_or_else(|| ApiError::internal("Failed to convert frame to RGBA8 for WebP encoding"))?;
+            let rgba_bytes = rgba_data.as_raw().to_vec();
+
+            let duration_ms = delays_ms.get(idx).copied().unwrap_or(100);
+            current_timestamp += duration_ms;
+
+            encoder
+                .add_frame(&rgba_bytes, current_timestamp)
+                .map_err(|e| ApiError::internal_with_cause("Failed to add frame to WebP encoder", e))?;
+
+            ::tracing::debug!(
+                "Added frame {}/{} with timestamp {}ms to animated WebP encoder",
+                idx + 1,
+                frames.len(),
+                current_timestamp
+            );
+        }
+
+        // Finalize and get WebP data
+        let final_timestamp = current_timestamp + 100; // Ensure last frame is displayed
+        let webp_data = encoder
+            .finalize(final_timestamp)
+            .map_err(|e| ApiError::internal_with_cause("Failed to finalize animated WebP encoding", e))?;
+
+        ::tracing::info!(
+            "Successfully generated animated WebP thumbnail with {} frames, {} bytes output",
+            frames.len(),
+            webp_data.len()
+        );
+
+        Ok(webp_data.to_vec())
+    }
+
+    /// Helper function to decode all frames from animated image (GIF or WebP)
+    fn decode_all_frames(image_data: &[u8], max_dimension: u32) -> Result<Vec<image::Frame>, ApiError> {
+        use image::{AnimationDecoder, ImageReader, Limits};
+        use std::io::Cursor;
+
+        // Try GIF first
+        if let Ok(gif_decoder) = image::codecs::gif::GifDecoder::new(Cursor::new(image_data)) {
+            let frames: Vec<image::Frame> = gif_decoder
+                .into_frames()
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| ApiError::internal_with_cause("Failed to decode GIF frames", e))?;
+            return Ok(frames);
+        }
+
+        // Try WebP
+        if let Ok(webp_decoder) = image::codecs::webp::WebPDecoder::new(Cursor::new(image_data)) {
+            let frames: Vec<image::Frame> = webp_decoder
+                .into_frames()
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| ApiError::internal_with_cause("Failed to decode WebP frames", e))?;
+            return Ok(frames);
+        }
+
+        // Fallback: treat as single-frame static image
+        let mut reader = ImageReader::new(Cursor::new(image_data))
+            .with_guessed_format()
+            .map_err(|e| ApiError::bad_request(format!("Unsupported image format: {e}")))?;
+
+        let mut limits = Limits::default();
+        limits.max_image_width = Some(max_dimension);
+        limits.max_image_height = Some(max_dimension);
+        reader.limits(limits);
+
+        let img = reader.decode().map_err(|e| ApiError::bad_request(format!("Invalid image data: {e}")))?;
+
+        // Single frame (non-animated)
+        Ok(vec![image::Frame::new(img.into_rgba8())])
     }
 
     /// Helper function to process a DynamicImage into a thumbnail
