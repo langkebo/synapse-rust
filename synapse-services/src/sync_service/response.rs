@@ -190,10 +190,7 @@ impl SyncService {
                     Some(SyncRoomSection::Leave) => state_events
                         .into_iter()
                         .filter(|event| {
-                            event
-                                .get("origin_server_ts")
-                                .and_then(|v| v.as_i64())
-                                .map_or(false, |ts| ts > state_after_ts)
+                            event.get("origin_server_ts").and_then(|v| v.as_i64()).is_some_and(|ts| ts > state_after_ts)
                         })
                         .collect::<Vec<_>>(),
                     _ => state_events,
@@ -946,7 +943,7 @@ mod tests {
         let filtered: Vec<Value> = state_events
             .into_iter()
             .filter(|event| {
-                event.get("origin_server_ts").and_then(|v| v.as_i64()).map_or(false, |ts| ts > state_after_ts)
+                event.get("origin_server_ts").and_then(|v| v.as_i64()).is_some_and(|ts| ts > state_after_ts)
             })
             .collect();
         assert_eq!(filtered.len(), 1);
@@ -960,7 +957,7 @@ mod tests {
         let state_events = vec![make_state_event_value("$old:ex.com", "m.room.member", 1000)];
         let state_after_ts = 1500i64;
         // Simulating join room (NOT filtered — only Leave rooms are filtered):
-        let filtered = if let Some(ts) = Some(state_after_ts) {
+        let filtered = if let Some(_state_after_ts) = Some(state_after_ts) {
             // In real code, this would be filtered only for Leave rooms.
             // Here we simulate the "no filter for join" path.
             state_events // join room → pass through unfiltered
@@ -982,7 +979,7 @@ mod tests {
             state_events
                 .into_iter()
                 .filter(|event| {
-                    event.get("origin_server_ts").and_then(|v| v.as_i64()).map_or(false, |event_ts| event_ts > ts)
+                    event.get("origin_server_ts").and_then(|v| v.as_i64()).is_some_and(|event_ts| event_ts > ts)
                 })
                 .collect()
         } else {
