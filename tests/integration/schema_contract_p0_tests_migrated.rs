@@ -77,13 +77,17 @@ async fn cleanup_space_fixtures(pool: &sqlx::PgPool, space_id: &str, user_ids: &
 }
 
 async fn assert_table_exists(pool: &sqlx::PgPool, table_name: &str) {
-    // Use unqualified name so to_regclass resolves via search_path (test_XXX, public).
-    let regclass: Option<String> = sqlx::query_scalar("SELECT to_regclass($1)::text")
-        .bind(table_name)
-        .fetch_one(pool)
-        .await
-        .expect("Failed to query table existence");
-    assert!(regclass.is_some(), "Expected table '{table_name}' to exist, got: None");
+    // ⚠️ 锚定**当前 schema**（`current_schema()` = 本用例克隆出的 `test_XXX`）。
+    // **不要**用裸 `to_regclass($1)`：它会沿 search_path 回退到 `public`，于是
+    // "baseline 里已删除、但长期库的 public 里还留着"的表会让断言**假绿**
+    // （§7 D-57；实测 `search_index` 就是这么在本地骗过两条用例的）。
+    let regclass: Option<String> =
+        sqlx::query_scalar("SELECT to_regclass(format('%I.%I', current_schema(), $1))::text")
+            .bind(table_name)
+            .fetch_one(pool)
+            .await
+            .expect("Failed to query table existence");
+    assert!(regclass.is_some(), "Expected table '{table_name}' to exist in the current schema, got: None");
 }
 
 async fn assert_column(
