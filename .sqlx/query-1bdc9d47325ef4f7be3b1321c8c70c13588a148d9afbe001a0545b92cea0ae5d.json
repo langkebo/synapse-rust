@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, max_lifetime, min_lifetime, is_expire_on_clients, created_ts, updated_ts FROM server_retention_policy ORDER BY id LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "max_lifetime",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "min_lifetime",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_expire_on_clients",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "1bdc9d47325ef4f7be3b1321c8c70c13588a148d9afbe001a0545b92cea0ae5d"
+}

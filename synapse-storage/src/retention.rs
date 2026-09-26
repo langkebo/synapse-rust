@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, PgPool};
+use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
 /// The `RoomRetentionPolicy` struct.
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoomRetentionPolicy {
     /// The `id` field.
     pub id: i64,
@@ -25,7 +25,7 @@ pub struct RoomRetentionPolicy {
 }
 
 /// The `ServerRetentionPolicy` struct.
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerRetentionPolicy {
     /// The `id` field.
     pub id: i64,
@@ -45,7 +45,8 @@ pub struct ServerRetentionPolicy {
 ///
 /// Deliberately not `FromRow`: its table (`retention_cleanup_logs`) was dropped in v10
 /// and nothing loads this type from SQL — `run_cleanup` only *constructs* it as a
-/// result. The two structs above still derive it because `query_as` uses them.
+/// result. The two structs above no longer derive it either: they are only ever loaded
+/// through `query_as!`, which maps columns by name without `FromRow` (C30).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RetentionCleanupLog {
     /// The `id` field.
@@ -135,8 +136,9 @@ impl RetentionStorage {
     ) -> Result<RoomRetentionPolicy, sqlx::Error> {
         let now = current_timestamp_millis();
 
-        let row = sqlx::query_as::<_, RoomRetentionPolicy>(
-            r"
+        let row = sqlx::query_as!(
+            RoomRetentionPolicy,
+            r#"
             INSERT INTO room_retention_policies (
                 room_id, max_lifetime, min_lifetime, is_expire_on_clients, is_server_default, created_ts, updated_ts
             )
@@ -147,13 +149,13 @@ impl RetentionStorage {
                 is_expire_on_clients = EXCLUDED.is_expire_on_clients,
                 updated_ts = EXCLUDED.updated_ts
             RETURNING id, room_id, max_lifetime, min_lifetime, is_expire_on_clients, is_server_default, created_ts, updated_ts
-            ",
+            "#,
+            &request.room_id,
+            request.max_lifetime,
+            request.min_lifetime.unwrap_or(0),
+            request.is_expire_on_clients.unwrap_or(false),
+            now,
         )
-        .bind(&request.room_id)
-        .bind(request.max_lifetime)
-        .bind(request.min_lifetime.unwrap_or(0))
-        .bind(request.is_expire_on_clients.unwrap_or(false))
-        .bind(now)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -162,10 +164,11 @@ impl RetentionStorage {
 
     /// See [`get_room_policy`].
     pub async fn get_room_policy(&self, room_id: &str) -> Result<Option<RoomRetentionPolicy>, sqlx::Error> {
-        let row = sqlx::query_as::<_, RoomRetentionPolicy>(
+        let row = sqlx::query_as!(
+            RoomRetentionPolicy,
             "SELECT id, room_id, max_lifetime, min_lifetime, is_expire_on_clients, is_server_default, created_ts, updated_ts FROM room_retention_policies WHERE room_id = $1",
+            room_id,
         )
-        .bind(room_id)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -178,20 +181,21 @@ impl RetentionStorage {
         room_id: &str,
         request: UpdateRoomRetentionPolicyRequest,
     ) -> Result<RoomRetentionPolicy, sqlx::Error> {
-        let row = sqlx::query_as::<_, RoomRetentionPolicy>(
-            r"
+        let row = sqlx::query_as!(
+            RoomRetentionPolicy,
+            r#"
             UPDATE room_retention_policies SET
                 max_lifetime = COALESCE($2, max_lifetime),
                 min_lifetime = COALESCE($3, min_lifetime),
                 is_expire_on_clients = COALESCE($4, is_expire_on_clients)
             WHERE room_id = $1
-            RETURNING *
-            ",
+            RETURNING id, room_id, max_lifetime, min_lifetime, is_expire_on_clients, is_server_default, created_ts, updated_ts
+            "#,
+            room_id,
+            request.max_lifetime,
+            request.min_lifetime,
+            request.is_expire_on_clients,
         )
-        .bind(room_id)
-        .bind(request.max_lifetime)
-        .bind(request.min_lifetime)
-        .bind(request.is_expire_on_clients)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -200,17 +204,15 @@ impl RetentionStorage {
 
     /// See [`delete_room_policy`].
     pub async fn delete_room_policy(&self, room_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM room_retention_policies WHERE room_id = $1")
-            .bind(room_id)
-            .execute(&*self.pool)
-            .await?;
+        sqlx::query!("DELETE FROM room_retention_policies WHERE room_id = $1", room_id).execute(&*self.pool).await?;
 
         Ok(())
     }
 
     /// See [`get_server_policy`].
     pub async fn get_server_policy(&self) -> Result<ServerRetentionPolicy, sqlx::Error> {
-        let row = sqlx::query_as::<_, ServerRetentionPolicy>(
+        let row = sqlx::query_as!(
+            ServerRetentionPolicy,
             "SELECT id, max_lifetime, min_lifetime, is_expire_on_clients, created_ts, updated_ts FROM server_retention_policy ORDER BY id LIMIT 1",
         )
         .fetch_one(&*self.pool)
@@ -224,19 +226,20 @@ impl RetentionStorage {
         &self,
         request: UpdateServerRetentionPolicyRequest,
     ) -> Result<ServerRetentionPolicy, sqlx::Error> {
-        let row = sqlx::query_as::<_, ServerRetentionPolicy>(
-            r"
+        let row = sqlx::query_as!(
+            ServerRetentionPolicy,
+            r#"
             UPDATE server_retention_policy SET
                 max_lifetime = COALESCE($1, max_lifetime),
                 min_lifetime = COALESCE($2, min_lifetime),
                 is_expire_on_clients = COALESCE($3, is_expire_on_clients)
             WHERE id = (SELECT MIN(id) FROM server_retention_policy)
             RETURNING id, max_lifetime, min_lifetime, is_expire_on_clients, created_ts, updated_ts
-            ",
+            "#,
+            request.max_lifetime,
+            request.min_lifetime,
+            request.is_expire_on_clients,
         )
-        .bind(request.max_lifetime)
-        .bind(request.min_lifetime)
-        .bind(request.is_expire_on_clients)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -259,17 +262,17 @@ impl RetentionStorage {
 
     /// See [`delete_local_messages_before`].
     pub async fn delete_local_messages_before(&self, room_id: &str, cutoff_ts: i64) -> Result<i64, sqlx::Error> {
-        let result = sqlx::query(
-            r"
+        let result = sqlx::query!(
+            r#"
             DELETE FROM events
             WHERE room_id = $1
             AND origin_server_ts < $2
             AND event_type NOT IN ('m.room.create', 'm.room.power_levels', 'm.room.join_rules', 'm.room.history_visibility')
             AND state_key IS NULL
-            ",
+            "#,
+            room_id,
+            cutoff_ts,
         )
-        .bind(room_id)
-        .bind(cutoff_ts)
         .execute(&*self.pool)
         .await?;
 
@@ -278,7 +281,8 @@ impl RetentionStorage {
 
     /// See [`get_rooms_with_policies`].
     pub async fn get_rooms_with_policies(&self) -> Result<Vec<RoomRetentionPolicy>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, RoomRetentionPolicy>(
+        let rows = sqlx::query_as!(
+            RoomRetentionPolicy,
             "SELECT id, room_id, max_lifetime, min_lifetime, is_expire_on_clients, is_server_default, created_ts, updated_ts FROM room_retention_policies ORDER BY room_id",
         )
         .fetch_all(&*self.pool)
@@ -289,9 +293,10 @@ impl RetentionStorage {
 
     /// See [`get_server_policy_optional`].
     pub async fn get_server_policy_optional(&self) -> Result<Option<ServerRetentionPolicy>, sqlx::Error> {
-        let row = sqlx::query_as::<_, ServerRetentionPolicy>(
-            r"SELECT id, max_lifetime, min_lifetime, is_expire_on_clients, created_ts, updated_ts
-               FROM server_retention_policy ORDER BY id LIMIT 1",
+        let row = sqlx::query_as!(
+            ServerRetentionPolicy,
+            r#"SELECT id, max_lifetime, min_lifetime, is_expire_on_clients, created_ts, updated_ts
+               FROM server_retention_policy ORDER BY id LIMIT 1"#,
         )
         .fetch_optional(&*self.pool)
         .await?;
@@ -306,7 +311,8 @@ impl RetentionStorage {
     ) -> Result<ServerRetentionPolicy, sqlx::Error> {
         let now = current_timestamp_millis();
 
-        let row = sqlx::query_as::<_, ServerRetentionPolicy>(
+        let row = sqlx::query_as!(
+            ServerRetentionPolicy,
             r#"
             INSERT INTO server_retention_policy (
                 id, max_lifetime, min_lifetime, is_expire_on_clients, created_ts, updated_ts
@@ -319,12 +325,12 @@ impl RetentionStorage {
                 updated_ts = EXCLUDED.updated_ts
             RETURNING id, max_lifetime, min_lifetime, is_expire_on_clients, created_ts, updated_ts
             "#,
+            1_i64,
+            request.max_lifetime,
+            request.min_lifetime.unwrap_or(0),
+            request.is_expire_on_clients.unwrap_or(false),
+            now,
         )
-        .bind(1_i64)
-        .bind(request.max_lifetime)
-        .bind(request.min_lifetime.unwrap_or(0))
-        .bind(request.is_expire_on_clients.unwrap_or(false))
-        .bind(now)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -333,15 +339,16 @@ impl RetentionStorage {
 
     /// See [`count_room_policies`].
     pub async fn count_room_policies(&self) -> Result<i64, sqlx::Error> {
-        let count =
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM room_retention_policies").fetch_one(&*self.pool).await?;
+        let count = sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!" FROM room_retention_policies"#)
+            .fetch_one(&*self.pool)
+            .await?;
 
         Ok(count)
     }
 
     /// See [`has_server_policy`].
     pub async fn has_server_policy(&self) -> Result<bool, sqlx::Error> {
-        let exists = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM server_retention_policy)")
+        let exists = sqlx::query_scalar!(r#"SELECT EXISTS(SELECT 1 FROM server_retention_policy) AS "exists!""#)
             .fetch_one(&*self.pool)
             .await?;
 

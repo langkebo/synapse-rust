@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM events\n            WHERE room_id = $1\n            AND origin_server_ts < $2\n            AND event_type NOT IN ('m.room.create', 'm.room.power_levels', 'm.room.join_rules', 'm.room.history_visibility')\n            AND state_key IS NULL\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5416af2cbdf03d1dda4e96d6e1c4c3aa3803c48325701fd56f9e60729419d87a"
+}
