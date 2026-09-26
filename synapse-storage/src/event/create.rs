@@ -46,73 +46,25 @@ impl EventStorage {
         .await
     }
 
-    /// v12+ event creation with complete PDU graph fields.
+    /// Create an event with complete PDU graph fields: `depth` / `prev_events` /
+    /// `auth_events` in `events` **and** one `event_edges` row per parent.
     ///
-    /// Unlike [`create_event`] which writes SQL `NULL` for graph columns,
-    /// this method persists `depth`, `prev_events`, and `auth_events` from
-    /// `pdu_graph`.  Callers must ensure the graph fields are compliant with
-    /// the target room version (v12 requires ED25519-only auth rules, etc.).
+    /// This is the single graph write path — [`Self::create_event_with_graph`]
+    /// is the concrete-slice adapter that delegates here, so the two cannot
+    /// drift.  Writing the graph columns without the edges (this method's
+    /// former behaviour) left `event_edges` empty for every locally-created
+    /// event, and `get_forward_extremities_in_room` derives the room's tips
+    /// **solely** from that table: each local event then looked like a forward
+    /// extremity forever, corrupting `prev_events` growth and
+    /// `/get_missing_events`.
+    ///
+    /// Unlike [`create_event`] which writes SQL `NULL` for graph columns, this
+    /// method persists whatever the caller supplied.  Callers must ensure the
+    /// graph fields are compliant with the target room version (v12 requires
+    /// ED25519-only auth rules, etc.).
     ///
     /// ⚠️ 本方法**不**计算 `depth`/`prev_events`/`auth_events` — it is the
     /// caller's responsibility to populate `PduGraphFields` before calling.
-    pub async fn create_event_with_pdu(
-        &self,
-        params: CreateEventParams,
-        pdu_graph: PduGraphFields,
-        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
-    ) -> Result<RoomEvent, sqlx::Error> {
-        let prev_events_json = serde_json::to_value(&pdu_graph.prev_events).unwrap_or(serde_json::Value::Null);
-        let auth_events_json = serde_json::to_value(&pdu_graph.auth_events).unwrap_or(serde_json::Value::Null);
-
-        let mut owned;
-        let conn: &mut sqlx::PgConnection = match tx {
-            Some(tx) => &mut *tx,
-            None => {
-                owned = self.pool.acquire().await?;
-                &mut owned
-            }
-        };
-
-        sqlx::query_as!(
-            RoomEvent,
-            r#"
-            INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key, origin_server_ts, is_redacted, redacts, depth, prev_events, auth_events)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9, $10, $11, $12)
-            RETURNING event_id, room_id, sender as user_id, event_type, content, state_key,
-                      COALESCE(depth, 0) as "depth!", origin_server_ts as "processed_ts",
-                      origin_server_ts, 0::BIGINT as "not_before!", 'pending' as "status?",
-                      'self' as "origin!", stream_ordering, redacts
-            "#,
-            &params.event_id,
-            &params.room_id,
-            &params.user_id,
-            &params.user_id,
-            &params.event_type,
-            &params.content,
-            params.state_key.as_deref(),
-            params.origin_server_ts,
-            params.redacts.as_deref(),
-            pdu_graph.depth,
-            &prev_events_json,
-            &auth_events_json,
-        )
-        .fetch_one(&mut *conn)
-        .await
-    }
-
-    /// Like `create_event` but also persists the event DAG metadata
-    /// (`prev_events`, `auth_events`, `depth` columns in `events` plus rows
-    /// in `event_edges`).  Callers that have the PDU's graph fields (notably
-    /// the inbound federation transaction handler) should prefer this method
-    /// so that `event_edges` is populated and `/get_missing_events` can walk
-    /// the DAG.
-    ///
-    /// ⚠️ 本方法**不**是 `create_event` 的后端：`create_event` 有自己的 INSERT
-    /// （见文件顶部），两者对图列的处理**不同** —— `create_event` 写 SQL `NULL`，
-    /// 本方法写 `[]` / `0`。该差异可被下游观测到：`synapse-web/.../federation/pdu.rs`
-    /// 的 `event_id_array` 把 `NULL` 判为"图元数据缺失"，而 `[]` 会被判为 Complete
-    /// 并据此签名。**不要把 `create_event` 改成委托到本方法并传空数组** ——
-    /// 那等于给本地事件伪造 DAG 根。
     ///
     /// P2-1 Optimization (2026-09-23):
     /// - Combined two-step insert in single transaction (event row + edges)
@@ -123,17 +75,14 @@ impl EventStorage {
     /// **prepare 阶段**就报 `22P02 malformed array literal: "[]"` —— 语句永远执行不了
     /// （`8489b4079` 引入，2026-09-25 由 `test_create_event_with_graph_with_prev_events`
     /// 抓出；`cardinality` 对 NULL 同样返回 NULL ⇒ 语义与原意一致）。
-    /// - Reduces transaction overhead vs. multiple individual INSERTs
-    pub async fn create_event_with_graph(
+    pub async fn create_event_with_pdu(
         &self,
         params: CreateEventParams,
-        prev_events: &[String],
-        auth_events: &[String],
-        depth: i64,
+        pdu_graph: PduGraphFields,
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> Result<RoomEvent, sqlx::Error> {
-        let prev_events_json = serde_json::to_value(prev_events).unwrap_or(serde_json::Value::Null);
-        let auth_events_json = serde_json::to_value(auth_events).unwrap_or(serde_json::Value::Null);
+        let prev_events_json = serde_json::to_value(&pdu_graph.prev_events).unwrap_or(serde_json::Value::Null);
+        let auth_events_json = serde_json::to_value(&pdu_graph.auth_events).unwrap_or(serde_json::Value::Null);
 
         // 连接来源收敛成一个：宏的绑定实参属于调用点，SQL 必须写在调用处
         // （此前把静态 SQL 藏进 `let … = r"…"` 变量 —— §7 D-59 / R1）。
@@ -142,7 +91,8 @@ impl EventStorage {
             Some(tx) => &mut *tx,
             None => {
                 // 无调用方事务：事件行与其 DAG 边必须在**同一本地事务**里落库，
-                // 否则 `event_edges` 插入失败会留下孤立 `events` 行（B8）。
+                // 否则 `event_edges` 插入失败会留下孤立 `events` 行（B8）。这条
+                // 不变式与 `create_event_with_graph` 关掉的是同一个半写窗口。
                 let begun = self.pool.begin().await?;
                 &mut *owned_tx.insert(begun)
             }
@@ -168,14 +118,17 @@ impl EventStorage {
             params.state_key.as_deref(),
             params.origin_server_ts,
             params.redacts.as_deref(),
-            depth,
+            pdu_graph.depth,
             &prev_events_json,
             &auth_events_json,
         )
         .fetch_one(&mut *conn)
         .await?;
 
-        // P2-1: Batch insert all prev_edges in a single round-trip using unnest()
+        // P2-1: Batch insert all prev_edges in a single round-trip using unnest().
+        // `None` is the "no graph metadata" shape (`create_event` territory):
+        // there is no parent list to record, so no edges are written for it.
+        let prev_events: &[String] = pdu_graph.prev_events.as_deref().unwrap_or(&[]);
         if !prev_events.is_empty() {
             sqlx::query!(
                 r#"
@@ -196,6 +149,40 @@ impl EventStorage {
         }
 
         Ok(event)
+    }
+
+    /// Concrete-slice adapter over [`Self::create_event_with_pdu`].
+    ///
+    /// Callers that already hold the PDU's graph fields (the inbound federation
+    /// transaction handler, backfill, room creation) hand over plain slices;
+    /// this wraps them losslessly (`Some(..)`, never `None`, so the persisted
+    /// `[]` / `0` shape is unchanged) and delegates, keeping one implementation
+    /// of "event row + `event_edges` in one local transaction".
+    ///
+    /// ⚠️ 本方法**不**是 `create_event` 的后端：`create_event` 有自己的 INSERT
+    /// （见文件顶部），两者对图列的处理**不同** —— `create_event` 写 SQL `NULL`，
+    /// 本方法写 `[]` / `0`。该差异可被下游观测到：`synapse-web/.../federation/pdu.rs`
+    /// 的 `event_id_array` 把 `NULL` 判为"图元数据缺失"，而 `[]` 会被判为 Complete
+    /// 并据此签名。**不要把 `create_event` 改成委托到 `create_event_with_pdu`
+    /// 并传空数组** —— 那等于给本地事件伪造 DAG 根。
+    pub async fn create_event_with_graph(
+        &self,
+        params: CreateEventParams,
+        prev_events: &[String],
+        auth_events: &[String],
+        depth: i64,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<RoomEvent, sqlx::Error> {
+        self.create_event_with_pdu(
+            params,
+            PduGraphFields {
+                depth: Some(depth),
+                prev_events: Some(prev_events.to_vec()),
+                auth_events: Some(auth_events.to_vec()),
+            },
+            tx,
+        )
+        .await
     }
 
     /// Create a state event with MSC4242 `prev_state_events` (state DAG edges).

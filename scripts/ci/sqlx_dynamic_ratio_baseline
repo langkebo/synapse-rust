@@ -2182,9 +2182,22 @@
 # 解码随宏化消失（`claim_to_device_events` 的 5 列 + `claim_one_time_key` 的 2 列）。
 # 可空性：`invite_blocklist` 的两处 `EXISTS(...)` 判定按 R4 断言 `AS "blocked!"` 等
 # （`EXISTS` 恒非 NULL，且断言的是"该行是否存在"这一确定语义）。
+# ── 2026-09-26 U-13-R9 后续（event_edges 回归）：static 1076 → 1075 ─────────────
+# 变更：`synapse-storage/src/event/create.rs` 的 `create_event_with_pdu` 补写
+#   `event_edges`，并按铁律 2 收敛成**唯一**图写路径 —— `create_event_with_graph`
+#   改为委托适配器（`PduGraphFields { Some(..) }`），它自己的
+#   `query_as!`(events INSERT) + `query!`(event_edges INSERT) 被删除，边插入**原样**
+#   搬进 `create_event_with_pdu`（raw string 逐字节相同 ⇒ 同一 query hash，
+#   `.sqlx` 条目集合不变，仍为 1043 条）。
+# 棘轮归因：**不是**"静态查询被改回动态"——production 393 / test 711 均未增加；
+#   减少的 1 处是同一段 SQL 的**第二次出现**被去重（census 按出现次数计数），
+#   编译期校验的**不同**查询数量没有减少（`.sqlx` 条目数 1043 未变）。
+#   与 W4 批次先例同型：删除/去重导致 static 同向下调。
+# 值：static 1076 → 1075；dynamic_production 393（不变）；dynamic_test 711（不变）；
+#   dynamic 总数 1104（不变）。
 BASELINE_DYNAMIC_PRODUCTION=393
 BASELINE_DYNAMIC_TEST_INFRA=711
-BASELINE_STATIC=1076
+BASELINE_STATIC=1075
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=1104
 

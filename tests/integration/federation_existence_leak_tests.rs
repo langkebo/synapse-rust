@@ -780,3 +780,119 @@ async fn send_join_v2_in_v11_room_persists_graph_metadata_and_signs_the_member_e
     assert!(record.hashes.is_some(), "re_sign_pdu_locally must persist hashes on the join event");
     assert!(record.signatures.is_some(), "re_sign_pdu_locally must persist signatures on the join event");
 }
+
+// ---------------------------------------------------------------------------
+// Tests: the graph-aware write path must persist `event_edges`, not only the
+// graph columns
+// ---------------------------------------------------------------------------
+
+/// `event_edges` rows written for `event_id`, i.e. the parents it points at.
+///
+/// Dynamic SQL on purpose: macros inside `tests/` are not part of the `.sqlx`
+/// offline cache (rule R9 / D-13).
+async fn persisted_prev_event_ids(pool: &sqlx::PgPool, event_id: &str) -> Vec<String> {
+    sqlx::query_scalar("SELECT prev_event_id FROM event_edges WHERE event_id = $1")
+        .bind(event_id)
+        .fetch_all(pool)
+        .await
+        .expect("the event's DAG edges must be readable")
+}
+
+/// `PUT /rooms/{room}/state/{type}` — the client state route writes through
+/// `MessagingService::create_event(.., None)`, i.e. the **auto-commit** path.
+async fn send_state_event(app: &axum::Router, token: &str, room_id: &str, event_type: &str, content: Value) -> String {
+    let request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/state/{event_type}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(content.to_string()))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "{event_type} must be accepted");
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    serde_json::from_slice::<Value>(&body).unwrap()["event_id"]
+        .as_str()
+        .expect("a state write must return the persisted event id")
+        .to_string()
+}
+
+/// `PUT /rooms/{room}/send/m.room.message/{txn}` — `MessagingService::send_message`
+/// writes inside a **caller-managed transaction** (`DB-03-a`).
+async fn send_client_message(app: &axum::Router, token: &str, room_id: &str) -> String {
+    let txn_id = format!("txn_{}", rand::random::<u32>());
+    let request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/send/m.room.message/{txn_id}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "msgtype": "m.text", "body": "hello" }).to_string()))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "the message must be accepted");
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    serde_json::from_slice::<Value>(&body).unwrap()["event_id"]
+        .as_str()
+        .expect("send must return the persisted event id")
+        .to_string()
+}
+
+/// U-13-R9 follow-up: writing the graph **columns** is not enough — the write
+/// path must also persist `event_edges`.
+///
+/// `create_event_with_pdu` inserts `depth` / `prev_events` / `auth_events` but
+/// never inserted into `event_edges`. After `11bf5455d` every known room version
+/// routes through that method, so **every** locally-created event had no edge.
+/// `get_forward_extremities_in_room` derives the room's tips solely from
+/// `event_edges` (`NOT EXISTS (SELECT 1 FROM event_edges g WHERE g.prev_event_id
+/// = e.event_id)`), so each local event stayed a forward extremity for ever:
+/// `prev_events` grew without bound and `/get_missing_events` could not walk
+/// back through the DAG.
+///
+/// Both locally-producing call shapes are driven end to end:
+///   * client state events (`MessagingService::create_event(.., None)`) — the
+///     auto-commit path;
+///   * `/send` (`MessagingService::send_message`) — the caller-transaction path.
+#[tokio::test]
+async fn local_events_persist_event_edges_on_both_write_shapes() {
+    let Some((app, pool, _key_id, _key_b64, _signing_key, _cache)) = setup_federation_app().await else {
+        return;
+    };
+
+    let (token, _creator_id) = register_user(&app, "creator").await;
+    let room_id = create_room_with_version(&app, &token, "10").await;
+    let storage = EventStorage::new(&pool, "localhost".to_string());
+
+    // Auto-commit local writes (`tx = None`): two client state events.
+    let first = send_state_event(&app, &token, &room_id, "m.room.topic", json!({ "topic": "edges" })).await;
+    let second = send_state_event(&app, &token, &room_id, "m.room.name", json!({ "name": "edges" })).await;
+
+    let edges = persisted_prev_event_ids(&pool, &second).await;
+    assert!(
+        edges.contains(&first),
+        "the auto-commit local write must record the DAG edge {second} -> {first}, got {edges:?}"
+    );
+
+    let extremities =
+        storage.get_forward_extremities_in_room(&room_id, 10).await.expect("extremities must be readable");
+    assert!(
+        !extremities.contains(&first),
+        "an event a later local write points at must stop being a forward extremity, got {extremities:?}"
+    );
+
+    // Caller-transaction local write (`tx = Some(..)`): `send_message`.
+    let third = send_client_message(&app, &token, &room_id).await;
+
+    let edges = persisted_prev_event_ids(&pool, &third).await;
+    assert!(
+        edges.contains(&second),
+        "the caller-transaction local write must record the DAG edge {third} -> {second}, got {edges:?}"
+    );
+
+    let extremities =
+        storage.get_forward_extremities_in_room(&room_id, 10).await.expect("extremities must be readable");
+    assert!(
+        !extremities.contains(&second),
+        "send_message's graph-aware write must stop reporting its parent as a tip, got {extremities:?}"
+    );
+}
