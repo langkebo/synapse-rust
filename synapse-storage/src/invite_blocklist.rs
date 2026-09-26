@@ -48,19 +48,19 @@ impl InviteBlocklistStorage {
         let now = current_timestamp_millis();
         let mut tx = self.pool.begin().await?;
 
-        sqlx::query("DELETE FROM room_invite_blocklist WHERE room_id = $1").bind(room_id).execute(&mut *tx).await?;
+        sqlx::query!("DELETE FROM room_invite_blocklist WHERE room_id = $1", room_id).execute(&mut *tx).await?;
 
         if !user_ids.is_empty() {
-            sqlx::query(
-                r"
+            sqlx::query!(
+                r#"
                 INSERT INTO room_invite_blocklist (room_id, user_id, created_ts)
                 SELECT $1, unnest($2::text[]), $3
                 ON CONFLICT DO NOTHING
-                ",
+                "#,
+                room_id,
+                &user_ids,
+                now,
             )
-            .bind(room_id)
-            .bind(&user_ids)
-            .bind(now)
             .execute(&mut *tx)
             .await?;
         }
@@ -71,34 +71,32 @@ impl InviteBlocklistStorage {
 
     /// Get the invite blocklist for a room
     pub async fn get_invite_blocklist(&self, room_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, (String,)>(
-            r"
+        sqlx::query_scalar!(
+            r#"
             SELECT user_id FROM room_invite_blocklist WHERE room_id = $1
-            ",
+            "#,
+            room_id,
         )
-        .bind(room_id)
         .fetch_all(&*self.pool)
-        .await?;
-
-        Ok(rows.into_iter().map(|r| r.0).collect())
+        .await
     }
 
     /// Evaluate both room lists for one invitee in a single round-trip.
     pub async fn evaluate(&self, room_id: &str, user_id: &str) -> Result<InviteRestriction, sqlx::Error> {
-        let (blocked, allowed, allowlist_set) = sqlx::query_as::<_, (bool, bool, bool)>(
-            r"
+        let row = sqlx::query!(
+            r#"
             SELECT
-                EXISTS (SELECT 1 FROM room_invite_blocklist b WHERE b.room_id = $1 AND b.user_id = $2),
-                EXISTS (SELECT 1 FROM room_invite_allowlist a WHERE a.room_id = $1 AND a.user_id = $2),
-                EXISTS (SELECT 1 FROM room_invite_allowlist w WHERE w.room_id = $1)
-            ",
+                EXISTS (SELECT 1 FROM room_invite_blocklist b WHERE b.room_id = $1 AND b.user_id = $2) AS "blocked!",
+                EXISTS (SELECT 1 FROM room_invite_allowlist a WHERE a.room_id = $1 AND a.user_id = $2) AS "allowed!",
+                EXISTS (SELECT 1 FROM room_invite_allowlist w WHERE w.room_id = $1) AS "allowlist_set!"
+            "#,
+            room_id,
+            user_id,
         )
-        .bind(room_id)
-        .bind(user_id)
         .fetch_one(&*self.pool)
         .await?;
 
-        Ok(InviteRestriction { blocked, allowlist_set, allowed })
+        Ok(InviteRestriction { blocked: row.blocked, allowlist_set: row.allowlist_set, allowed: row.allowed })
     }
 
     /// Set the invite allowlist for a room (only these users can be invited).
@@ -109,19 +107,19 @@ impl InviteBlocklistStorage {
         let now = current_timestamp_millis();
         let mut tx = self.pool.begin().await?;
 
-        sqlx::query("DELETE FROM room_invite_allowlist WHERE room_id = $1").bind(room_id).execute(&mut *tx).await?;
+        sqlx::query!("DELETE FROM room_invite_allowlist WHERE room_id = $1", room_id).execute(&mut *tx).await?;
 
         if !user_ids.is_empty() {
-            sqlx::query(
-                r"
+            sqlx::query!(
+                r#"
                 INSERT INTO room_invite_allowlist (room_id, user_id, created_ts)
                 SELECT $1, unnest($2::text[]), $3
                 ON CONFLICT DO NOTHING
-                ",
+                "#,
+                room_id,
+                &user_ids,
+                now,
             )
-            .bind(room_id)
-            .bind(&user_ids)
-            .bind(now)
             .execute(&mut *tx)
             .await?;
         }
@@ -132,36 +130,34 @@ impl InviteBlocklistStorage {
 
     /// Get the invite allowlist for a room
     pub async fn get_invite_allowlist(&self, room_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, (String,)>(
-            r"
+        sqlx::query_scalar!(
+            r#"
             SELECT user_id FROM room_invite_allowlist WHERE room_id = $1
-            ",
+            "#,
+            room_id,
         )
-        .bind(room_id)
         .fetch_all(&*self.pool)
-        .await?;
-
-        Ok(rows.into_iter().map(|r| r.0).collect())
+        .await
     }
 
     /// Get global invite blocklist (all rooms)
     pub async fn get_global_invite_blocklist(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, (String, String, i64)>(
-            r"
+        let rows = sqlx::query!(
+            r#"
             SELECT room_id, user_id, created_ts FROM room_invite_blocklist
             ORDER BY created_ts DESC, room_id ASC, user_id ASC
-            ",
+            "#,
         )
         .fetch_all(&*self.pool)
         .await?;
 
         Ok(rows
             .into_iter()
-            .map(|(room_id, user_id, created_ts)| {
+            .map(|row| {
                 serde_json::json!({
-                    "room_id": room_id,
-                    "user_id": user_id,
-                    "created_ts": created_ts
+                    "room_id": row.room_id,
+                    "user_id": row.user_id,
+                    "created_ts": row.created_ts
                 })
             })
             .collect())
@@ -169,22 +165,22 @@ impl InviteBlocklistStorage {
 
     /// Get global invite allowlist (all rooms)
     pub async fn get_global_invite_allowlist(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, (String, String, i64)>(
-            r"
+        let rows = sqlx::query!(
+            r#"
             SELECT room_id, user_id, created_ts FROM room_invite_allowlist
             ORDER BY created_ts DESC, room_id ASC, user_id ASC
-            ",
+            "#,
         )
         .fetch_all(&*self.pool)
         .await?;
 
         Ok(rows
             .into_iter()
-            .map(|(room_id, user_id, created_ts)| {
+            .map(|row| {
                 serde_json::json!({
-                    "room_id": room_id,
-                    "user_id": user_id,
-                    "created_ts": created_ts
+                    "room_id": row.room_id,
+                    "user_id": row.user_id,
+                    "created_ts": row.created_ts
                 })
             })
             .collect())

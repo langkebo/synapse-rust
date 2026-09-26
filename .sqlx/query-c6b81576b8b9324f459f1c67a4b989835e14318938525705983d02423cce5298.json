@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM one_time_keys WHERE is_used = true OR created_ts < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c6b81576b8b9324f459f1c67a4b989835e14318938525705983d02423cce5298"
+}

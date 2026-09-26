@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM presence WHERE last_active_ts < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "025580dce9f5187b09cbc0a821820b4a7be4ca521665185d5ba91caad6586b9e"
+}

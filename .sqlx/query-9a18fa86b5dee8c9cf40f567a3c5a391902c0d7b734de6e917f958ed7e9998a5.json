@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM room_invite_blocklist WHERE room_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9a18fa86b5dee8c9cf40f567a3c5a391902c0d7b734de6e917f958ed7e9998a5"
+}

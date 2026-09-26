@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM device_lists_stream WHERE created_ts < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2260dcaaf7dbe792fabf710304cad25a1aee5bb3eba20f971e1e0cc0ae45dbb9"
+}

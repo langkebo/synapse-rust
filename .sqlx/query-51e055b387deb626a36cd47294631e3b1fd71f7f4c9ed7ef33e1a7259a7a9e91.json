@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO room_invite_blocklist (room_id, user_id, created_ts)\n                SELECT $1, unnest($2::text[]), $3\n                ON CONFLICT DO NOTHING\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "51e055b387deb626a36cd47294631e3b1fd71f7f4c9ed7ef33e1a7259a7a9e91"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM quarantined_media_changes WHERE created_ts < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ddd9591a3b2e36d97f28742799c6b4f252817f16103a6d308df0fc764d709582"
+}

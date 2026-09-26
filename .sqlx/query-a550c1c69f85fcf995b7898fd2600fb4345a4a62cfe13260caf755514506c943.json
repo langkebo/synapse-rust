@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                EXISTS (SELECT 1 FROM room_invite_blocklist b WHERE b.room_id = $1 AND b.user_id = $2) AS \"blocked!\",\n                EXISTS (SELECT 1 FROM room_invite_allowlist a WHERE a.room_id = $1 AND a.user_id = $2) AS \"allowed!\",\n                EXISTS (SELECT 1 FROM room_invite_allowlist w WHERE w.room_id = $1) AS \"allowlist_set!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "blocked!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "allowed!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "allowlist_set!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "a550c1c69f85fcf995b7898fd2600fb4345a4a62cfe13260caf755514506c943"
+}

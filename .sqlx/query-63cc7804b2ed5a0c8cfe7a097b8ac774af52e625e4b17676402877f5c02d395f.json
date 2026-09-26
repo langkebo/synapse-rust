@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM token_blacklist WHERE expires_at IS NOT NULL AND expires_at > 0 AND expires_at < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "63cc7804b2ed5a0c8cfe7a097b8ac774af52e625e4b17676402877f5c02d395f"
+}
