@@ -45,6 +45,8 @@
 | U-13-R6：`state_pdu` 按版本输出 `event_id` | U-13 | `10ac3253f` | v3+ 不再发（`/send_join`、`/state`、`/get_room_auth`、`/get_event_auth`）；`build_pdus` 按 room_id 缓存版本解析 |
 | U-13-R7：本地重签覆盖对端真正收到的 PDU | U-13 | `8a7185e05` | `re_sign_pdu_locally` 改为投影持久化行后再签；投影不完整/版本读不到则留空；6 个手搓 dict 删除；DB 级用例 + 变异自证 |
 | 测试夹具 `KeyRotationManager` 从未初始化（签名静默 no-op） | — | `8a7185e05` | `setup_federation_app` 现显式 `initialize(...)`；此前"签名测试"实际没测到 |
+| U-19 级联逐事件授权 + 空列表不再 400 | U-19 | `975c379f9` | 每个子事件先过既有 `RoomAuth::can_redact_event`（未授权跳过并记 `security_audit` 日志）；`with_rel_types: []` 不再 400，等价于不级联 |
+| **客户端撤回恒 500（P0，既有）** | — | `3e304b69c` | 处理器把**用户 ID** 写进 `events.redacted_by`，而该列是到 `events.event_id` 的自引用外键（`fk_events_redacted_by`）⇒ 每次客户端撤回都违反外键。改为写撤回事件自身的 ID |
 | U-16 删除/收敛 | U-16 | `4cce7d782` | `room/auth.rs` 整体删除（含 4 条钉错行为的用例），v12 写路径改走 `select_auth_events`；零调用点 ⇒ 违铁律 1/2 的重复实现消失 |
 | 并发会话留下的编译 + clippy 红门禁 | — | `cb68220e6` | MSC4222 的 `sync` 第 8 参数未同步两个集成测试；`map_or`/未用绑定 4 条 |
 
@@ -108,7 +110,8 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 | 编号 | 问题 | 判据（实测） | 优化方案 |
 |---|---|---|---|
 | **U-2** | **R-1** `user_exists` 去掉停用过滤后的扩散复核 | `user/storage.rs` 的 `user_exists` 仍 `SELECT 1 FROM users WHERE user_id=$1`；生产调用点 **19** 处（`admin/room/management.rs` 5、`membership/moderation.rs` 3、`account_identity_service.rs` 3、`user_service.rs` 2，其余 6 处各 1） | 上游 #20172 只针对 profile 字段端点。拆两个谓词：`user_exists`（含停用）/ `active_user_exists`，逐点选定；auth、federation、moderation 三处必须先审 |
-| **U-19** | U-1 的 MSC3912 实现 8 点缺口 | 见下表 | 见下表 |
+| **U-19** | U-1 的 MSC3912 实现缺口：**已修 2 项**（逐事件授权、空列表语义），**余 5 项**：晚到事件补撤、级联的 `redacted_by` 审计归属（仍传 `None`）、不为子事件发出真正的 `m.room.redaction`（对等端不知情）、`content->'m.relates_to'` 缺 GIN 索引（两条查询都是整房间扫描）、`"*"` 分支越界匹配已废弃的 `m.in_reply_to` | 见下表（❌ 行中已修的两项标 ✅） | 见下表 |
+| **U-20（新发现）** | 专用兼容路由 `PUT /rooms/{id}/send/m.reaction/{txn}`（`add_reaction` → `relations_service.send_annotation`）**不写入 `events` 表**，只在 relations 表建索引 ⇒ 级联查询读的是 `events.content`，**真实 reaction 对级联不可见**（当前级联测试只能用通用 send 路由才生效） | `synapse-services/src/relations_service.rs::send_annotation` 与 `events` 写入路径无关；级联查询 `cascade.rs` 读 `events` | 让 reaction 走与普通事件相同的写入口（`MessagesService`/`create_event`），relations 表只作索引；这是同一个"同一职责只能有一份写入实现"的问题 | 中 |
 | **U-8** | **R-2** HTTP 层端到端签名断言缺失 | `tests/integration/api_federation_transaction_tests.rs::test_send_transaction_with_signed_pdu_accepted` 未预建房间，且断言容忍 success/error 两种结果 ⇒ 验签半边实际没有被端到端钉住 | 建房间后再发事务，断言响应成功 **且** `events.signatures`/`hashes` 非空；再加一条"篡改 content 后必须被拒"的负例（与 U-13-R1 同批做，正好互为判据） |
 | **U-5** | Admin 媒体族缺失 | `admin/media.rs` 内 `media/quarantine`、`unquarantine`、房间级媒体路由 **0 命中**（仅有 `quarantine_media/{media_id}/changes`） | 先把上游 15 条端点落成可核验清单文件，再按清单补齐 |
 | **U-6** | 缩略图 `animated` 缺失 | 全仓 `.rs` **0 命中** | 阶段 1 参数支持 → 阶段 2 动画检测 → 阶段 3 WebP 编码 |
