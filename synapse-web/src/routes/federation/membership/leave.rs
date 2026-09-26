@@ -82,12 +82,18 @@ pub(crate) async fn send_leave(
         origin_server_ts: event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0),
         redacts: None,
     };
-    ctx.room_service
+    let stored = ctx
+        .room_service
         .messaging()
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to persist leave event", e))?;
     let content = event.get("content").cloned().unwrap_or(json!({}));
+
+    // The write entry point owns event identity (§4.1): consume the ID it
+    // returns rather than the request path's placeholder, otherwise the row
+    // lookup below finds nothing and the signature is silently skipped.
+    let event_id = stored.event_id;
 
     // F-03: sign the PDU the persisted row projects to, so third-party origins
     // can verify it. The helper reads the row back itself — a hand-assembled
@@ -157,11 +163,16 @@ pub(crate) async fn send_leave_v2(
         redacts: None,
     };
 
-    ctx.room_service
+    let stored = ctx
+        .room_service
         .messaging()
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to persist leave event", e))?;
+
+    // The write entry point owns event identity (§4.1): consume the ID it
+    // returns rather than the request path's placeholder (see `send_leave`).
+    let event_id = stored.event_id;
 
     // F-03: sign the projected persisted row (see the `send_leave` note).
     re_sign_pdu_locally(&ctx, &event_id).await;

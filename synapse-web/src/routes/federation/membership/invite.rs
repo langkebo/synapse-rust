@@ -66,11 +66,18 @@ pub(crate) async fn thirdparty_invite(
         redacts: None,
     };
 
-    ctx.room_service
+    let stored = ctx
+        .room_service
         .messaging()
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to create invite event", e))?;
+
+    // The write entry point owns event identity (§4.1): consume the ID it
+    // returns rather than the locally generated placeholder, otherwise the row
+    // lookup below finds nothing and the invite stays unsigned.
+    let event_id = stored.event_id;
+
     // F-03: sign the PDU the persisted row projects to, so other origins can
     // verify the invite. The helper reads the row back itself — a
     // hand-assembled partial dict would hash bytes no peer can reproduce.
