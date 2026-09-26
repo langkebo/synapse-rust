@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT upload_id FROM upload_progress WHERE expires_at < $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "upload_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "eaf876c8a2eb43b7e2fd1e4362fd95fd7de84895960d0c8ddfab5db875570a4b"
+}

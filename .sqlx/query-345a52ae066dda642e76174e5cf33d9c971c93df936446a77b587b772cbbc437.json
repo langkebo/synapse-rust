@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE upload_progress\n            SET status = 'finalized', updated_ts = $2\n            WHERE upload_id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "345a52ae066dda642e76174e5cf33d9c971c93df936446a77b587b772cbbc437"
+}

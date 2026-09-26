@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE matrixrtc_sessions\n            SET is_active = false, updated_ts = $3\n            WHERE room_id = $1 AND session_id = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4f193a9239809e410c70fdd34353c82d04cc441637e565c3c3c9a3124bdf0ae2"
+}
