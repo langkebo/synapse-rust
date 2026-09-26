@@ -64,7 +64,7 @@ fn stored_pair() -> (Value, Value) {
 
 #[test]
 fn complete_record_projects_every_required_key() {
-    let (pdu, completeness) = state_pdu("server.example", &record());
+    let (pdu, completeness) = state_pdu("server.example", &record(), None);
 
     assert_eq!(completeness, PduCompleteness::Complete);
     let object = pdu.as_object().expect("PDU must be a JSON object");
@@ -92,7 +92,7 @@ fn incomplete_record_omits_graph_keys_instead_of_fabricating_them() {
     incomplete.prev_events = None;
     incomplete.auth_events = None;
 
-    let (pdu, completeness) = state_pdu("server.example", &incomplete);
+    let (pdu, completeness) = state_pdu("server.example", &incomplete, None);
 
     assert_eq!(completeness, PduCompleteness::MissingGraphMetadata);
     let object = pdu.as_object().expect("PDU must be a JSON object");
@@ -117,13 +117,13 @@ fn non_array_graph_metadata_counts_as_missing() {
             let mut create = record();
             create.prev_events = Some(json!([]));
             create.auth_events = Some(json!([]));
-            let (_, completeness) = state_pdu("server.example", &create);
+            let (_, completeness) = state_pdu("server.example", &create, None);
             assert_eq!(completeness, PduCompleteness::Complete, "empty array is valid graph data");
             continue;
         }
         let mut broken = record();
         broken.prev_events = Some(bad.clone());
-        let (pdu, completeness) = state_pdu("server.example", &broken);
+        let (pdu, completeness) = state_pdu("server.example", &broken, None);
         assert_eq!(
             completeness,
             PduCompleteness::MissingGraphMetadata,
@@ -138,13 +138,13 @@ fn missing_origin_falls_back_to_this_server_and_self_is_normalised() {
     for origin in [None, Some(""), Some("self"), Some("undefined")] {
         let mut event = record();
         event.origin = origin.map(str::to_string);
-        let (pdu, _) = state_pdu("server.example", &event);
+        let (pdu, _) = state_pdu("server.example", &event, None);
         assert_eq!(pdu["origin"], json!("server.example"), "origin {origin:?} must normalise");
     }
 
     let mut remote = record();
     remote.origin = Some("remote.example".to_string());
-    let (pdu, _) = state_pdu("server.example", &remote);
+    let (pdu, _) = state_pdu("server.example", &remote, None);
     assert_eq!(pdu["origin"], json!("remote.example"));
 }
 
@@ -201,23 +201,46 @@ fn stored_pair_is_attached_verbatim() {
     complete.hashes = Some(hashes.clone());
     complete.signatures = Some(signatures.clone());
 
-    let (mut pdu, _) = state_pdu("server.example", &complete);
+    let (mut pdu, _) = state_pdu("server.example", &complete, None);
     assert!(apply_stored_signature_material(&complete, &mut pdu));
     assert_eq!(pdu["hashes"], hashes, "stored hashes must be emitted byte-identical");
     assert_eq!(pdu["signatures"], signatures, "stored signatures must be emitted byte-identical");
 
     // 残缺材料不得附着。
     complete.hashes = None;
-    let (mut pdu2, _) = state_pdu("server.example", &complete);
+    let (mut pdu2, _) = state_pdu("server.example", &complete, None);
     assert!(!apply_stored_signature_material(&complete, &mut pdu2));
     assert!(pdu2.get("hashes").is_none());
+}
+
+/// R6: `event_id` is a PDU field for v1/v2 only.  Emitting it for a v3+ room
+/// hands the receiver a PDU whose reference hash cannot match the ID the peer
+/// derives (and which our own signer no longer covers).
+#[test]
+fn state_pdu_event_id_is_room_version_dependent() {
+    let record = record();
+
+    for version in ["3", "4", "10", "11", "12"] {
+        let (pdu, _) = state_pdu("server.example", &record, Some(version));
+        assert!(pdu.get("event_id").is_none(), "v{version} PDU must not carry event_id: {pdu}");
+    }
+
+    let (v1, _) = state_pdu("server.example", &record, Some("1"));
+    assert_eq!(v1["event_id"], serde_json::json!(record.event_id), "v1 keeps the server-assigned id");
+    let (v2, _) = state_pdu("server.example", &record, Some("2"));
+    assert_eq!(v2["event_id"], serde_json::json!(record.event_id));
+
+    // Unresolvable version keeps the historical shape; the caller logs it
+    // (`build_pdus` warns) rather than guessing a version's redaction rules.
+    let (unknown, _) = state_pdu("server.example", &record, None);
+    assert!(unknown.get("event_id").is_some());
 }
 
 #[test]
 fn projected_pdu_is_canonicalizable_and_round_trips_through_signing() {
     // 投影结果必须能被 `sign_and_hash_event` 规范化 + 签名，并随即通过内容哈希校验。
     // 这条锁住的是“投影出来的键/值不会让规范化失败或让哈希对不上”。
-    let (mut pdu, completeness) = state_pdu("server.example", &record());
+    let (mut pdu, completeness) = state_pdu("server.example", &record(), None);
     assert_eq!(completeness, PduCompleteness::Complete);
 
     let key_id = "ed25519:pdu_guard";

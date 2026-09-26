@@ -40,6 +40,7 @@
 
 use crate::routes::context::FederationContext;
 use serde_json::{json, Map, Value};
+use std::collections::HashMap;
 use synapse_common::event_utils::{event_id_array, signature_material};
 use synapse_services::event::StateEvent;
 
@@ -83,9 +84,22 @@ fn normalized_origin(server_name: &str, origin: Option<&str>) -> String {
 ///
 /// `hashes` / `signatures` are **not** attached here — see
 /// [`SignatureAction`] and [`apply_stored_signature_material`].
-pub fn state_pdu(server_name: &str, record: &StateEvent) -> (Value, PduCompleteness) {
+///
+/// `room_version` decides whether `event_id` is part of the PDU at all: it is a
+/// PDU field for room versions 1 and 2 only (spec room v3 "Event format" — "the
+/// `event_id` field is no longer included. A server receiving an event should
+/// compute the relevant event ID for itself"). `None` means the version could
+/// not be read; the legacy shape is then kept and the caller logs it, because
+/// silently dropping the field for a v1/v2 room would hand the receiver a PDU it
+/// cannot identify either.
+pub fn state_pdu(server_name: &str, record: &StateEvent, room_version: Option<&str>) -> (Value, PduCompleteness) {
     let mut pdu = Map::new();
-    pdu.insert("event_id".to_string(), json!(record.event_id));
+    match room_version {
+        Some(version) if !synapse_common::pdu::event_id_is_a_pdu_field(version) => {}
+        _ => {
+            pdu.insert("event_id".to_string(), json!(record.event_id));
+        }
+    }
     pdu.insert("room_id".to_string(), json!(record.room_id));
     pdu.insert("sender".to_string(), json!(record.sender));
     pdu.insert("type".to_string(), json!(record.event_type.clone().unwrap_or_default()));
@@ -194,8 +208,36 @@ pub fn apply_stored_signature_material(record: &StateEvent, pdu: &mut Value) -> 
 /// a GET must not grow a best-effort write. Nothing is persisted back.
 pub async fn build_pdus(ctx: &FederationContext, records: &[&StateEvent]) -> Vec<Value> {
     let mut pdus = Vec::with_capacity(records.len());
+    // Records in one call belong to one room in every current call site (a state
+    // list or an auth chain), but resolve per distinct room so a future caller
+    // cannot silently get the wrong version for half its records.
+    let mut room_versions: HashMap<String, Option<String>> = HashMap::new();
     for record in records {
-        let (mut pdu, completeness) = state_pdu(&ctx.server_name, record);
+        let room_version = match room_versions.get(&record.room_id) {
+            Some(cached) => cached.clone(),
+            None => {
+                let resolved = match ctx.room_service.state().get_room_version(&record.room_id).await {
+                    Ok(version) => version,
+                    Err(error) => {
+                        ::tracing::warn!(
+                            room_id = %record.room_id,
+                            %error,
+                            "failed to resolve room version; projecting the PDU with the legacy event_id field"
+                        );
+                        None
+                    }
+                };
+                if resolved.is_none() {
+                    ::tracing::warn!(
+                        room_id = %record.room_id,
+                        "no room version recorded; projecting the PDU with the legacy event_id field"
+                    );
+                }
+                room_versions.insert(record.room_id.clone(), resolved.clone());
+                resolved
+            }
+        };
+        let (mut pdu, completeness) = state_pdu(&ctx.server_name, record, room_version.as_deref());
         match signature_action(record, completeness) {
             SignatureAction::KeepStored => {
                 apply_stored_signature_material(record, &mut pdu);
