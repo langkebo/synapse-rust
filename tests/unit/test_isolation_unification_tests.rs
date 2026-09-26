@@ -144,7 +144,11 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // `user_privacy_settings` 删 `allow_presence_lookup` / `allow_profile_lookup` /
 // `allow_room_invites`（三列全仓零引用、无写入者），常量同步为 `beb0fb1facabd2ff`；
 // 同样独立复算 FNV-1a 64，并先自检旧值 `38dcd5e818c7bfc0` 逐字节吻合后取值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "beb0fb1facabd2ff";
+// 2026-09-26（U-13 第 2 步接线）：`ck_events_event_id_format` 放宽为两种合法形态
+// （v1/v2 的 `$opaque:domain`、v3+ 的 `$` + 43 位 unpadded Base64 reference hash），
+// 并改为 DROP + ADD 以便既有库同步；常量同步为 `efd39fc561affd7a`；
+// 同样独立复算 FNV-1a 64，并先自检旧值 `beb0fb1facabd2ff` 逐字节吻合后取值。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "efd39fc561affd7a";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

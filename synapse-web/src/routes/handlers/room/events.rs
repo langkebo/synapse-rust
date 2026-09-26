@@ -998,7 +998,6 @@ pub(crate) async fn redact_event(
 
     let reason = body.get("reason").and_then(|v| v.as_str());
 
-    let new_event_id = synapse_common::crypto::generate_event_id(&ctx.server_name);
     let now = current_timestamp_millis();
 
     // The target event_id is always passed as `redacts`; the room-version
@@ -1011,11 +1010,15 @@ pub(crate) async fn redact_event(
     let content_for_as = content.clone();
     let redactor_user_id = auth_user.user_id.clone();
 
-    ctx.room_service
+    let redaction_event = ctx
+        .room_service
         .messaging()
         .create_event(
             CreateEventParams {
-                event_id: new_event_id.clone(),
+                // Placeholder for v1/v2 only: the write path replaces it with
+                // the reference hash for v3+ rooms. Everything below therefore
+                // reads the ID back off `redaction_event`.
+                event_id: synapse_common::crypto::generate_event_id(&ctx.server_name),
                 room_id: room_id.to_string(),
                 user_id: auth_user.user_id,
                 event_type: "m.room.redaction".to_string(),
@@ -1029,7 +1032,14 @@ pub(crate) async fn redact_event(
         .await
         .map_err(map_internal!("Failed to redact event"))?;
     ctx.room_service
-        .dispatch_appservice_event(&new_event_id, &room_id, "m.room.redaction", &user_id_for_as, &content_for_as, None)
+        .dispatch_appservice_event(
+            &redaction_event.event_id,
+            &room_id,
+            "m.room.redaction",
+            &user_id_for_as,
+            &content_for_as,
+            None,
+        )
         .await;
 
     ctx.room_service.messaging().redact_event_content(&event_id, Some(&redactor_user_id)).await.map_err(|e| {
@@ -1057,7 +1067,7 @@ pub(crate) async fn redact_event(
     }
 
     Ok(Json(json!({
-        "event_id": new_event_id
+        "event_id": redaction_event.event_id
     })))
 }
 

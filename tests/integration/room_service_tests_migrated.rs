@@ -44,7 +44,7 @@ async fn create_test_user(pool: &sqlx::PgPool, user_id: &str, username: &str) {
 }
 
 fn create_room_service(pool: &Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> RoomService {
-    build_room_service(pool, cache, None)
+    build_room_service(pool, cache, None, false)
 }
 
 fn create_room_service_with_appservice(
@@ -52,13 +52,24 @@ fn create_room_service_with_appservice(
     cache: Arc<CacheManager>,
     app_service_manager: Arc<ApplicationServiceManager>,
 ) -> RoomService {
-    build_room_service(pool, cache, Some(app_service_manager))
+    build_room_service(pool, cache, Some(app_service_manager), false)
+}
+
+/// The production composition root decorates the event writer with
+/// [`synapse_services::graph_metadata::GraphMetadataWriter`]
+/// (`synapse-services/src/wiring/rooms.rs`), which is what assigns the v3+
+/// reference-hash event ID. `create_room_service` deliberately passes the raw
+/// `EventStorage`, so a test that must observe the *finalized* ID has to opt in
+/// here — otherwise it silently exercises a write path production never uses.
+fn create_room_service_with_finalizing_writer(pool: &Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> RoomService {
+    build_room_service(pool, cache, None, true)
 }
 
 fn build_room_service(
     pool: &Arc<sqlx::PgPool>,
     cache: Arc<CacheManager>,
     app_service_manager: Option<Arc<ApplicationServiceManager>>,
+    finalize_event_ids: bool,
 ) -> RoomService {
     let member_storage = Arc::new(RoomMemberStorage::new(pool, "localhost"));
     let event_storage: Arc<synapse_storage::event::EventStorage> =
@@ -76,11 +87,26 @@ fn build_room_service(
         Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool)),
     ));
 
+    let event_writer: Arc<dyn synapse_storage::event::EventWriter> = if finalize_event_ids {
+        Arc::new(synapse_services::graph_metadata::GraphMetadataWriter::new(
+            event_storage.clone(),
+            Arc::new(synapse_services::graph_metadata::GraphMetadataResolver::new(Arc::new(
+                synapse_services::graph_metadata::StorageGraphMetadataSource::new(
+                    event_storage.clone(),
+                    Arc::new(RoomStorage::new(pool)),
+                ),
+            ))),
+            "localhost".to_string(),
+        ))
+    } else {
+        event_storage.clone()
+    };
+
     RoomService::new(synapse_services::room::service::RoomServiceConfig {
         room_storage: Arc::new(RoomStorage::new(pool)),
         member_storage,
-        event_reader: Some(event_storage.clone()),
-        event_writer: Some(event_storage),
+        event_reader: Some(event_storage),
+        event_writer: Some(event_writer),
         room_tag_storage: Arc::new(synapse_storage::room_tag::RoomTagStorage::new(pool.clone())),
         user_storage,
         room_auth: Arc::new(synapse_services::auth::AuthService::new(
@@ -754,6 +780,63 @@ async fn test_upgrade_room_success() {
         .expect("replacement room should have create state");
     assert_eq!(create_event.content["predecessor"]["room_id"].as_str(), Some(old_room_id));
     assert_eq!(create_event.content["predecessor"]["event_id"].as_str(), Some(tombstone.event_id.as_str()));
+}
+
+/// The upgrade chain must record the tombstone's **real** event ID.
+///
+/// Unlike `test_upgrade_room_success`, this builds the service with the
+/// production `GraphMetadataWriter`, so the write path assigns reference-hash
+/// IDs (v3+): the tombstone's ID is no longer the placeholder generated before
+/// the insert.  Pre-fix, `upgrade_room` generated that placeholder first and
+/// wrote it into the replacement room's `m.room.create`, so
+/// `predecessor.event_id` named an event that never existed — the assertion
+/// below failed with the placeholder.
+#[tokio::test]
+async fn test_upgrade_room_predecessor_names_the_persisted_tombstone() {
+    let pool = crate::require_test_pool().await;
+
+    let id = unique_id();
+    let alice_id = format!("@alice_{id}:localhost");
+    let alice_name = format!("alice_{id}");
+    create_test_user(&pool, &alice_id, &alice_name).await;
+
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let room_service = create_room_service_with_finalizing_writer(&pool, cache);
+
+    let config = CreateRoomConfig { room_version: Some("9".to_string()), ..Default::default() };
+    let room_val = room_service.lifecycle.create_room(&alice_id, config).await.unwrap();
+    let old_room_id = room_val["room_id"].as_str().unwrap().to_string();
+
+    let new_room_id = room_service.upgrade_room(&old_room_id, "10", &alice_id).await.expect("upgrade must succeed");
+
+    let event_storage = EventStorage::new(&pool, "localhost".to_string());
+    let tombstone = event_storage
+        .get_state_events_by_type(&old_room_id, "m.room.tombstone")
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|event| event.state_key.as_deref() == Some(""))
+        .expect("old room must have a tombstone state event");
+
+    // The write path must have replaced the pre-insert placeholder with the
+    // reference hash: `$` + 43 unpadded Base64URL characters, no origin suffix.
+    assert_eq!(tombstone.event_id.len(), 44, "tombstone id must be a reference hash: {}", tombstone.event_id);
+    assert!(!tombstone.event_id.contains(':'), "v4+ ids carry no origin suffix: {}", tombstone.event_id);
+
+    let create_event = event_storage
+        .get_state_events_by_type(&new_room_id, "m.room.create")
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|event| event.state_key.as_deref() == Some(""))
+        .expect("replacement room must have a create event");
+
+    assert_eq!(
+        create_event.content["predecessor"]["event_id"].as_str(),
+        Some(tombstone.event_id.as_str()),
+        "m.room.create must point at the tombstone that was actually persisted"
+    );
+    assert_eq!(create_event.content["predecessor"]["room_id"].as_str(), Some(old_room_id.as_str()));
 }
 
 /// Regression test for B-1.3: `upgrade_room` must invite former local members

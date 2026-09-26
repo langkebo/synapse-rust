@@ -97,7 +97,7 @@ pub fn extract_redacts(event: &Value) -> Option<&str> {
 /// field.  Unparsable version strings fall back to the v1-v10 shape so that
 /// unknown or experimental versions keep the historical behaviour.
 pub fn redacts_in_content(room_version: &str) -> bool {
-    room_version.parse::<u32>().map(|version| version >= 11).unwrap_or(false)
+    crate::room_versions::room_version_at_least(room_version, 11)
 }
 
 // ---------------------------------------------------------------------------

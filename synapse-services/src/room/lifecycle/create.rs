@@ -21,7 +21,9 @@ impl LifecycleService {
             }
         }
 
-        let room_id = self.generate_room_id();
+        // `config.room_id` is the pre-allocation escape hatch (room upgrades,
+        // where the tombstone must name this room before it exists).
+        let room_id = config.room_id.clone().unwrap_or_else(|| self.generate_room_id());
         let mut join_rule = Self::determine_join_rule(config.preset.as_deref());
         let is_public = Self::is_public_visibility(config.visibility.as_deref());
 

@@ -139,6 +139,23 @@ pub fn can_federate_room_version(version: &str) -> bool {
     SUPPORTED_ROOM_VERSIONS.iter().any(|capability| capability.version == version && capability.can_federate)
 }
 
+/// Whether `version` is numerically at least `minimum`.
+///
+/// Room versions are numeric identifiers (`"1"` … `"13"`), so they must **never**
+/// be compared as strings: lexicographically `"2" >= "12"` and `"9" >= "12"` are
+/// both true, which silently routes every version below 10 into a "12+" branch.
+/// That exact bug shipped in `MessagingService::create_event`, where it made
+/// rooms v2–v9 take the v12 PDU-graph path.
+///
+/// A version that does not parse as a number (an unknown or experimental
+/// identifier) is treated as **not** reaching the minimum — failing closed
+/// rather than granting a newer behaviour we cannot order.
+///
+/// This is the single comparison helper: do not re-derive it at call sites.
+pub fn room_version_at_least(version: &str, minimum: u32) -> bool {
+    version.parse::<u32>().map(|parsed| parsed >= minimum).unwrap_or(false)
+}
+
 /// Resolves the room.
 pub fn resolve_room_version(requested: Option<&str>) -> Option<&'static str> {
     let requested = requested.unwrap_or(DEFAULT_ROOM_VERSION);

@@ -10,6 +10,7 @@ use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_common::current_timestamp_millis;
 use synapse_common::generate_event_id;
+use synapse_common::generate_room_id;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_common::validation::Validator;
 use synapse_storage::room_tag::RoomTagStoreApi;
@@ -30,6 +31,14 @@ pub use synapse_storage::sticky_event::StickyEvent;
 /// The `CreateRoomConfig` struct.
 #[derive(Debug, Default, Clone)]
 pub struct CreateRoomConfig {
+    /// Pre-allocated room ID.
+    ///
+    /// Internal-only escape hatch for callers that must know the room ID before
+    /// the room exists — today that is exactly one caller,
+    /// [`RoomService::upgrade_room`], where the tombstone in the old room and
+    /// the replacement room's `m.room.create` reference each other.  `None`
+    /// (every other caller) allocates a fresh random ID.
+    pub room_id: Option<String>,
     /// The `visibility` field.
     pub visibility: Option<String>,
     /// The `room_alias_name` field.
@@ -480,34 +489,19 @@ impl RoomService {
         let members_to_invite: Vec<String> =
             old_members.into_iter().map(|m| m.user_id).filter(|uid| uid != user_id).collect();
 
-        let tombstone_event_id = generate_event_id(&self.server_name);
-        let create_config = CreateRoomConfig {
-            visibility: Some(if old_room.is_public { "public".to_string() } else { "private".to_string() }),
-            room_alias_name: None,
-            name: Some(old_room.name.clone().unwrap_or_else(|| "Upgraded Room".to_string())),
-            topic: old_room.topic.clone(),
-            invite_list: Some(vec![user_id.to_string()]),
-            preset: Some("private_chat".to_string()),
-            encryption: old_room.encryption.clone(),
-            history_visibility: Some(old_room.history_visibility.clone()),
-            is_direct: None,
-            room_type: None,
-            room_version: Some(new_version.to_string()),
-            creation_content: Some(json!({
-                "predecessor": {
-                    "room_id": old_room_id,
-                    "event_id": tombstone_event_id,
-                }
-            })),
-            ..Default::default()
-        };
-
-        let replacement_room = self.lifecycle.create_room(user_id, create_config).await?;
-        let new_room_id = replacement_room
-            .get("room_id")
-            .and_then(|value| value.as_str())
-            .ok_or_else(|| ApiError::internal("Room upgrade did not return replacement room"))?
-            .to_string();
+        // The replacement room's ID is allocated up front, because the two
+        // events reference each other:
+        //   * the tombstone (in the OLD room) carries `replacement_room`;
+        //   * the replacement room's `m.room.create` carries
+        //     `predecessor.event_id` = the tombstone's **final** event ID.
+        //
+        // For v3+ rooms that ID is the tombstone's reference hash, so it does
+        // not exist until the tombstone has been written.  Generating a
+        // placeholder here and creating the room first (the previous order)
+        // therefore recorded an ID that the tombstone never had.  The tombstone
+        // is created first, with the already-allocated room ID, and the room is
+        // then created against it — the same order upstream Synapse uses.
+        let new_room_id = generate_room_id(&self.server_name);
 
         // Create the tombstone event in the OLD room via the `create_event`
         // wrapper (not the raw storage layer).  This ensures the event is
@@ -518,7 +512,10 @@ impl RoomService {
             .messaging
             .create_event(
                 synapse_storage::CreateEventParams {
-                    event_id: tombstone_event_id,
+                    // Placeholder for v1/v2; the write path assigns the
+                    // reference hash for v3+. Only the value read back off
+                    // `tombstone_event` is used below.
+                    event_id: generate_event_id(&self.server_name),
                     room_id: old_room_id.to_string(),
                     user_id: user_id.to_string(),
                     event_type: "m.room.tombstone".to_string(),
@@ -534,6 +531,37 @@ impl RoomService {
             )
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to create tombstone event", e))?;
+
+        let create_config = CreateRoomConfig {
+            room_id: Some(new_room_id.clone()),
+            visibility: Some(if old_room.is_public { "public".to_string() } else { "private".to_string() }),
+            room_alias_name: None,
+            name: Some(old_room.name.clone().unwrap_or_else(|| "Upgraded Room".to_string())),
+            topic: old_room.topic.clone(),
+            invite_list: Some(vec![user_id.to_string()]),
+            preset: Some("private_chat".to_string()),
+            encryption: old_room.encryption.clone(),
+            history_visibility: Some(old_room.history_visibility.clone()),
+            is_direct: None,
+            room_type: None,
+            room_version: Some(new_version.to_string()),
+            creation_content: Some(json!({
+                "predecessor": {
+                    "room_id": old_room_id,
+                    "event_id": tombstone_event.event_id,
+                }
+            })),
+            ..Default::default()
+        };
+
+        let replacement_room = self.lifecycle.create_room(user_id, create_config).await?;
+        let created_room_id = replacement_room
+            .get("room_id")
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| ApiError::internal("Room upgrade did not return replacement room"))?;
+        if created_room_id != new_room_id {
+            return Err(ApiError::internal("Room upgrade created a room with an unexpected id"));
+        }
 
         ::tracing::info!(
             old_room_id = %old_room_id,
@@ -704,6 +732,7 @@ impl RoomService {
 impl From<crate::friend_room_service::FriendRoomCreateRoomConfig> for CreateRoomConfig {
     fn from(config: crate::friend_room_service::FriendRoomCreateRoomConfig) -> Self {
         Self {
+            room_id: None,
             visibility: config.visibility,
             room_alias_name: config.room_alias_name,
             name: config.name,

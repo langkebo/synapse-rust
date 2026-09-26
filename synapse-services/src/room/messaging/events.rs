@@ -151,7 +151,10 @@ impl MessagingService {
             .map_err(|e| ApiError::internal_with_cause("Failed to read room version", e))?;
 
         let event = if let Some(room_version_str) = room_version {
-            if room_version_str.as_str() >= "12" {
+            // Numeric comparison, not string: `"2" >= "12"` is true
+            // lexicographically, which used to send every v2–v9 room down the
+            // v12 PDU-graph path.
+            if synapse_common::room_versions::room_version_at_least(&room_version_str, 12) {
                 // v12+ path: use depth calculation and auth_events builder
                 // 1. Get current room state (for auth_events construction)
                 let state_events = self

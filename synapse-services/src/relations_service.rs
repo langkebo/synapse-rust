@@ -168,7 +168,9 @@ impl RelationsService {
             "Sending reference"
         );
 
-        let event_id = format!("${}", synapse_common::crypto::generate_event_id(&request.room_id));
+        // `generate_event_id` already prefixes `$` and takes the *server* name;
+        // the previous `format!("${}", …)` produced `$$…:!room:server`.
+        let event_id = synapse_common::crypto::generate_event_id(&self.server_name);
 
         let mut content = request.content;
         let effective_relation_type = request.relation_type.clone().unwrap_or_else(|| "m.reference".to_string());
@@ -231,7 +233,8 @@ impl RelationsService {
             );
             existing.event_id
         } else {
-            format!("${}", synapse_common::crypto::generate_event_id(&request.room_id))
+            // See `send_reference`: `generate_event_id` already prefixes `$`.
+            synapse_common::crypto::generate_event_id(&self.server_name)
         };
 
         let content = serde_json::json!({
@@ -439,6 +442,45 @@ mod tests {
     }
 
     // ── send_reference ──────────────────────────────────────────────
+
+    /// Every generated relation ID must be a normal Matrix event ID: exactly
+    /// one leading `$` and the generating server as its origin.  The previous
+    /// code built them with `format!("${}", generate_event_id(room_id))`, which
+    /// produced `$$…:!room:server`.
+    #[tokio::test]
+    async fn relation_event_ids_are_well_formed() {
+        let svc = test_service();
+
+        let reference = svc
+            .send_reference(SendReferenceRequest {
+                room_id: "!r:example.com".to_string(),
+                relates_to_event_id: "$original:example.com".to_string(),
+                sender: "@bob:example.com".to_string(),
+                content: serde_json::json!({"body": "check this out"}),
+                origin_server_ts: 1_700_000_000_000,
+                relation_type: None,
+            })
+            .await
+            .unwrap();
+        assert!(reference.event_id.starts_with('$'), "got {}", reference.event_id);
+        assert!(!reference.event_id.starts_with("$$"), "got {}", reference.event_id);
+        assert!(reference.event_id.ends_with(":example.com"), "got {}", reference.event_id);
+        assert!(!reference.event_id.contains('!'), "must not embed the room id: {}", reference.event_id);
+
+        let replacement = svc
+            .send_replacement(SendReplacementRequest {
+                room_id: "!r:example.com".to_string(),
+                relates_to_event_id: "$original:example.com".to_string(),
+                sender: "@alice:example.com".to_string(),
+                new_content: serde_json::json!({"body": "edited", "msgtype": "m.text"}),
+                origin_server_ts: 1_700_000_000_000,
+            })
+            .await
+            .unwrap();
+        assert!(replacement.event_id.starts_with('$'), "got {}", replacement.event_id);
+        assert!(!replacement.event_id.starts_with("$$"), "got {}", replacement.event_id);
+        assert!(replacement.event_id.ends_with(":example.com"), "got {}", replacement.event_id);
+    }
 
     #[tokio::test]
     async fn send_reference_adds_relates_to_content() {

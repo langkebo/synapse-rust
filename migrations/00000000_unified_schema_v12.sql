@@ -4697,15 +4697,28 @@ BEGIN
     END IF;
 END $$;
 
--- event_id 格式: $opaque:domain
--- opaque 允许包含 '$'（本地生成格式为 $<millis>$<base64url>:server，
--- 见 synapse-common/src/crypto.rs generate_event_id）
+-- event_id 格式：两种合法形态
+--   * v1/v2：`$<millis>$<base64url>:<server>`
+--     （`synapse-common/src/crypto.rs` generate_event_id）
+--   * v3+  ：`$` + 43 个 unpadded Base64 字符（32 字节 SHA-256）的 reference hash，
+--     **没有** `:server` 后缀（spec room v3 "Event format"；v3 用标准字母表、
+--     v4+ 用 URL-safe，见 `synapse-common/src/event_id.rs` compute_event_id）
+-- 旧约束只接受第一种形态。U-13 第 2 步把 v3+ 的事件身份切成 reference hash 之后，
+-- 任何本地事件（消息/状态/成员/tombstone）的 INSERT 都会撞 23514 check violation，
+-- 等于写路径整体不可用 —— 而这件事只在**真 schema** 上才会暴露（纯构造用例看不到），
+-- 所以这里必须与 event_id 的实现同批修掉。
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_events_event_id_format' AND conrelid = 'events'::regclass) THEN
-        ALTER TABLE events ADD CONSTRAINT ck_events_event_id_format
-            CHECK (event_id ~ '^\$[a-zA-Z0-9._=+./$-]+:[a-zA-Z0-9.-]+$');
-    END IF;
+    -- 重新声明而不是 IF NOT EXISTS：长期存在的库（本机 public、各测试模板）里
+    -- 已经带着旧定义，只加不换会让它们继续带着坏约束，本地与 CI 从此分叉。
+    ALTER TABLE events DROP CONSTRAINT IF EXISTS ck_events_event_id_format;
+    ALTER TABLE events ADD CONSTRAINT ck_events_event_id_format
+        CHECK (
+            -- `$` 必须留在字符类里：本地 ID 的 opaque 段自身含一个 `$`
+            -- （`$<millis>$<base64url>:<server>`），漏掉它会连 v1/v2 的 ID 一起拒掉。
+            event_id ~ '^\$[a-zA-Z0-9._=+$/-]+:[a-zA-Z0-9.-]+$'
+            OR event_id ~ '^\$[a-zA-Z0-9._=+/-]{43}$'
+        );
 END $$;
 
 -- sender 格式（Matrix user_id）

@@ -176,6 +176,16 @@ fn beacon_info_content_source(content: &Value) -> &Value {
     content.get("m.beacon_info").filter(|v| v.is_object()).unwrap_or(content)
 }
 
+/// The three accepted spellings of the `m.beacon_info` state event type.
+///
+/// The condition was repeated at four call sites; keeping one copy is what lets
+/// the beacon-indexing path and the state_key guard stay in step.
+fn is_beacon_info_event(event_type: &str) -> bool {
+    event_type.starts_with("m.beacon_info")
+        || event_type.starts_with("org.matrix.msc3672.beacon_info")
+        || event_type.starts_with("org.matrix.msc3489.beacon_info")
+}
+
 /// See [`send_state_event`].
 pub(crate) async fn send_state_event(
     State(ctx): State<RoomContext>,
@@ -187,28 +197,10 @@ pub(crate) async fn send_state_event(
 
     let content = body;
 
-    let new_event_id = synapse_common::crypto::generate_event_id(&ctx.server_name);
     let now = current_timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
     ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type).await?;
-
-    #[cfg(feature = "beacons")]
-    let beacon_info_params = if final_event_type.starts_with("m.beacon_info")
-        || final_event_type.starts_with("org.matrix.msc3672.beacon_info")
-        || final_event_type.starts_with("org.matrix.msc3489.beacon_info")
-    {
-        Some(parse_beacon_info_content(
-            &content,
-            room_id.to_string(),
-            new_event_id.clone(),
-            auth_user.user_id.clone(),
-            auth_user.user_id.clone(),
-            now,
-        )?)
-    } else {
-        None
-    };
 
     // State events with empty state_key per Matrix spec (global room state)
     const EMPTY_STATE_KEY_TYPES: &[&str] = &[
@@ -235,7 +227,10 @@ pub(crate) async fn send_state_event(
         .messaging()
         .create_event(
             CreateEventParams {
-                event_id: new_event_id.clone(),
+                // The write path owns event identity: for v3+ rooms it replaces
+                // this placeholder with the reference hash, so every value the
+                // client (or an index below) sees is read back off `state_event`.
+                event_id: synapse_common::crypto::generate_event_id(&ctx.server_name),
                 room_id: room_id.to_string(),
                 user_id: auth_user.user_id.clone(),
                 event_type: final_event_type.clone(),
@@ -249,8 +244,18 @@ pub(crate) async fn send_state_event(
         .await
         .map_err(map_internal!("Failed to send state event"))?;
 
+    // `m.beacon_info`'s state_key is required to equal the sender, so the
+    // event's own user_id is the state_key for the beacon row.
     #[cfg(feature = "beacons")]
-    if let Some(params) = beacon_info_params {
+    if is_beacon_info_event(&state_event.event_type) {
+        let params = parse_beacon_info_content(
+            &state_event.content,
+            state_event.room_id.clone(),
+            state_event.event_id.clone(),
+            state_event.user_id.clone(),
+            state_event.user_id.clone(),
+            now,
+        )?;
         ctx.beacon_service
             .create_beacon(params)
             .await
@@ -258,7 +263,7 @@ pub(crate) async fn send_state_event(
     }
 
     Ok(Json(json!({
-        "event_id": new_event_id,
+        "event_id": state_event.event_id,
         "type": state_event.event_type,
         "state_key": state_event.state_key
     })))
@@ -279,42 +284,21 @@ pub(crate) async fn put_state_event(
     let final_event_type = normalize_room_event_type(&event_type);
     ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type).await?;
 
-    if (final_event_type.starts_with("m.beacon_info")
-        || final_event_type.starts_with("org.matrix.msc3672.beacon_info")
-        || final_event_type.starts_with("org.matrix.msc3489.beacon_info"))
-        && state_key != auth_user.user_id
-    {
+    if is_beacon_info_event(&final_event_type) && state_key != auth_user.user_id {
         return Err(ApiError::forbidden("beacon_info stateKey must match sender".to_string()));
     }
-
-    #[cfg(feature = "beacons")]
-    let beacon_info_params = if final_event_type.starts_with("m.beacon_info")
-        || final_event_type.starts_with("org.matrix.msc3672.beacon_info")
-        || final_event_type.starts_with("org.matrix.msc3489.beacon_info")
-    {
-        Some(parse_beacon_info_content(
-            &body,
-            room_id.to_string(),
-            new_event_id.clone(),
-            state_key.clone(),
-            auth_user.user_id.clone(),
-            now,
-        )?)
-    } else {
-        None
-    };
 
     let event = ctx
         .room_service
         .messaging()
         .create_event(
             CreateEventParams {
-                event_id: new_event_id.clone(),
+                event_id: new_event_id,
                 room_id: room_id.to_string(),
                 user_id: auth_user.user_id.clone(),
                 event_type: final_event_type.clone(),
                 content: body,
-                state_key: Some(state_key),
+                state_key: Some(state_key.clone()),
                 origin_server_ts: now,
                 redacts: None,
             },
@@ -324,7 +308,15 @@ pub(crate) async fn put_state_event(
         .map_err(map_internal!("Failed to put state event"))?;
 
     #[cfg(feature = "beacons")]
-    if let Some(params) = beacon_info_params {
+    if is_beacon_info_event(&event.event_type) {
+        let params = parse_beacon_info_content(
+            &event.content,
+            event.room_id.clone(),
+            event.event_id.clone(),
+            state_key,
+            event.user_id.clone(),
+            now,
+        )?;
         ctx.beacon_service
             .create_beacon(params)
             .await
@@ -332,7 +324,7 @@ pub(crate) async fn put_state_event(
     }
 
     Ok(Json(json!({
-        "event_id": new_event_id,
+        "event_id": event.event_id,
         "type": event.event_type,
         "state_key": event.state_key
     })))
@@ -412,7 +404,6 @@ pub(crate) async fn put_state_event_empty_key(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let new_event_id = synapse_common::crypto::generate_event_id(&ctx.server_name);
     let now = current_timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
@@ -423,7 +414,9 @@ pub(crate) async fn put_state_event_empty_key(
         .messaging()
         .create_event(
             CreateEventParams {
-                event_id: new_event_id.clone(),
+                // Placeholder for v1/v2 only; v3+ rooms get the reference hash
+                // from the write path (see `send_state_event`).
+                event_id: synapse_common::crypto::generate_event_id(&ctx.server_name),
                 room_id: room_id.to_string(),
                 user_id: auth_user.user_id.clone(),
                 event_type: final_event_type.clone(),
@@ -438,7 +431,7 @@ pub(crate) async fn put_state_event_empty_key(
         .map_err(map_internal!("Failed to put state event"))?;
 
     Ok(Json(json!({
-        "event_id": new_event_id,
+        "event_id": event.event_id,
         "type": event.event_type,
         "state_key": event.state_key
     })))
@@ -453,7 +446,6 @@ pub(crate) async fn put_state_event_no_key(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let new_event_id = synapse_common::crypto::generate_event_id(&ctx.server_name);
     let now = current_timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
@@ -464,7 +456,9 @@ pub(crate) async fn put_state_event_no_key(
         .messaging()
         .create_event(
             CreateEventParams {
-                event_id: new_event_id.clone(),
+                // Placeholder for v1/v2 only; v3+ rooms get the reference hash
+                // from the write path (see `send_state_event`).
+                event_id: synapse_common::crypto::generate_event_id(&ctx.server_name),
                 room_id: room_id.to_string(),
                 user_id: auth_user.user_id.clone(),
                 event_type: final_event_type,
@@ -479,7 +473,7 @@ pub(crate) async fn put_state_event_no_key(
         .map_err(map_internal!("Failed to put state event"))?;
 
     Ok(Json(json!({
-        "event_id": new_event_id,
+        "event_id": event.event_id,
         "type": event.event_type,
         "state_key": event.state_key
     })))
