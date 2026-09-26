@@ -15,10 +15,10 @@
 | 指标 | 战役起点（2026-09-23） | 现在 | 变化 |
 |---|---|---|---|
 | `dynamic_production` | 1532（近似） | **393** | **−74.3%** |
-| `static` | 61 | **1074** | +1013 |
-| `dynamic`（总） | 2151 | **1104** | −1047 |
-| 静态占比 | 2.76% | **49.3%**（1074 / 2178） | +46.6pp |
-| `.sqlx` 离线缓存 | 60 条 | **1043 条** | +983 |
+| `static` | 61 | **1076** | +1015 |
+| `dynamic`（总） | 2151 | **1105** | −1046 |
+| 静态占比 | 2.76% | **49.3%**（1076 / 2181） | +46.6pp |
+| `.sqlx` 离线缓存 | 60 条 | **1045 条** | +985 |
 | literal（逐文件棘轮，处 / 文件） | 876 / 98 | **322 / 60** | −554 |
 | `param` 传参（D-14 新棘轮，处 / 文件） | — | **1 / 1** | 新立棘轮（此前混在 `runtime`，两道棘轮都不管） |
 | `runtime` 残差 / `query_builder`（白名单） | — | 70 / 13 文件 · 18 | — |
@@ -61,14 +61,13 @@ python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
 | ⑥ 覆盖缺口 / 测试基建假绿 | 2 | 静态化后无 DB 往返、自建 schema 掩盖写入端约束 |
 | ⑦ 文档级 | 6 | 计数漂移、过时结论、误导性"规则"注释 |
 | ⑧ 结构性例外（有意保留） | 7 | D-13 / D-14 / D-18–D-22，见 §7.3 |
-| ⑨ 阶段总结后新发现并已关闭 | 4 | D-62（通知响应的 `profile_tag` 键取自 `notification_type` ⇒ 已按修法① 改成真列 + 独立 `notification_type` 键）、D-65（并发改动只改一半 ⇒ 集成+clippy 双红）、D-66（worktree 共享 `CARGO_TARGET_DIR` ⇒ 跨树复用产物，假红/假绿）、D-67（新增测试里的死常量让 clippy 红） |
-| ⑩ **本表新登记的未修项** | **1** | **D-68**（通知记录层没有生产写入者、也没有清理 ⇒ 三个已注册端点恒为空/恒失败，见 §7.1） |
+| ⑨ 阶段总结后新发现并已关闭 | 5 | D-62（通知响应的 `profile_tag` 键取自 `notification_type` ⇒ 已按修法① 改成真列 + 独立 `notification_type` 键）、**D-68**（通知记录层没有生产写入者、也没有保留期清理 ⇒ 已按修法① 接线 `record_notification` + `prune_old_notifications`，边界见 §0.5、明细见提交信息）、D-65（并发改动只改一半 ⇒ 集成+clippy 双红）、D-66（worktree 共享 `CARGO_TARGET_DIR` ⇒ 跨树复用产物，假红/假绿）、D-67（新增测试里的死常量让 clippy 红） |
 
-**去向**：阶段总结前关闭的 57 条逐条明细在 HISTORY §7.2；总结后关闭的 5 条（D-37 / D-62 / D-65 /
-D-66 / D-67）记在各自提交信息里（下次阶段总结时并入快照）。本表 ①–⑧ 是**发现时**的归类
+**去向**：阶段总结前关闭的 57 条逐条明细在 HISTORY §7.2；总结后关闭的 6 条（D-37 / D-62 / D-65 /
+D-66 / D-67 / D-68）记在各自提交信息里（下次阶段总结时并入快照）。本表 ①–⑧ 是**发现时**的归类
 （历史口径，不随修复变动），因此 D-57 仍计入 ⑥、D-37 仍计入 ④、D-62 已改判为"已修" ——
 "还剩哪些没修"看结论行与 §7.1，不看桶号。
-**结论：59 已关闭 / 2 未关闭（D-57 部分、D-68）/ 7 结构性例外。**
+**结论：60 已关闭 / 1 未关闭（D-57 部分）/ 7 结构性例外。**
 
 ### 0.5 阶段结论
 
@@ -80,6 +79,12 @@ D-66 / D-67）记在各自提交信息里（下次阶段总结时并入快照）
 3. **长期资产是规则与门禁，不是数字**：数字会被并发改动推动，R1–R13 与四道自证过的门禁才是
    "不再制造同类缺陷"的保证；本阶段新增的两条规则（宏实参须为调用点字面量、worktree 各自 target 目录）
    都来自实测而非推导。
+4. **D-68 的接线边界（写清楚，免得下次误判）**：`notifications` 现在的生产写入者是
+   `PushNotificationService::send_notification`（"服务端决定推送"这一处，排队成功后记一条，
+   同批接入 30 天保留期清理）。本仓**没有**按事件求值的推送规则引擎，`sync` 的
+   `notification_count` 仍由 `events` + `read_markers` 现算 —— 因此 `/notifications` 是
+   "服务端实际推送过的通知"的记录，不是"按规则应当通知"的推导结果；两者口径不同属**有意**，
+   若要统一（把计数改为读 `notifications`）那是另一个需要排期的产品改造。
 
 ---
 
@@ -91,19 +96,9 @@ D-66 / D-67）记在各自提交信息里（下次阶段总结时并入快照）
 
 | 编号 | 类别 | 位置 | 问题 | 状态 | 下一步 |
 |---|---|---|---|---|---|
-| **D-68** | **产品缺陷（端点空壳 + 无清理）** | `notifications` 表（`v12:1489`）× `synapse-storage/src/push/mod.rs::get_notifications`/`ack_notification` × `push_notification.rs::get_room_notifications` × 三个已注册端点（`GET /_matrix/client/v3/notifications`、`POST …/{id}/ack`、`GET …/rooms/{room_id}/notifications`） | 全仓**没有任何生产写入者**：唯一的 `INSERT INTO notifications` 在 `push/mod.rs` 的 `db_tests` 里，迁移里也没有触发器；`PushService::send_notification` 只写 `push_notification_queue`/`push_notification_log`。⇒ 上述端点**恒返回空列表**、`ack` 恒失败（实测：唯一的端到端断言就是 `notifications == []`）。另外该表**不在任何 pruning/retention 覆盖内** ⇒ 一旦接线会重演 D-33 的无界增长 | **未修（待裁定/排期）** | 二选一：① **接线**——在"推送规则命中、决定给该用户产生通知"的决策点补一条 `record_notification` 写入，**同批**在 `pruning.rs` 加保留期清理（阈值对齐 `push_notification_log`）；② **明确声明为 stub**——按铁律 1 删掉该表与两个读方法（`/notifications` 仍可按规范返回空列表）。**建议 ①**：路由是规范稳定面、客户端会调用，且决策点已存在（成本 = 一条 INSERT + 一条清理） |
 | **D-57** | 测试基建假绿 | `tests/integration/mod.rs::require_test_pool()`（search_path = `<clone>, public`）× `scripts/ci/prepare_test_db.sh:79`（`RESET_PUBLIC=0`）× `to_regclass($1)` 走 search_path | baseline 是 `CREATE TABLE IF NOT EXISTS` 合并脚本、**不含 DROP** ⇒ 从 baseline 删掉的表仍留在长期库 `public` 里，"表存在/可用"类断言**假绿**且污染共享 `public` | **部分已修**（① 已做，② 未做） | ② 让 seed 对 `public` 也收敛（对已从 baseline 删除的对象补 `DROP … IF EXISTS`，或在不误删依赖扩展对象的前提下 `RESET_PUBLIC=1`）。**不能简单改成 1**：`DROP SCHEMA public CASCADE` 会连带删掉依赖 public 扩展的其它 schema 对象 |
 
 ### 7.2 逐条明细
-
-**D-68**：证据链 ——（1）`grep -rn 'INSERT INTO notifications' --include=*.rs .` 全仓只有
-`synapse-storage/src/push/mod.rs:604`（`mod db_tests` 内的夹具助手）；（2）迁移里没有写该表的
-触发器/函数；（3）`PushService::send_notification` 的落点是 `push_notification_queue`
-（+ `push_notification_log`），与 `notifications` 无交集；（4）唯一端到端断言
-`api_enhanced_features_tests::test_push_routes_share_across_r0_and_v3` 断的正是
-`notifications == []`；（5）`pruning.rs`/`retention.rs` 都不含该表。
-⇒ 这不是"键名映射"问题，而是**记录层整体未接线**。建议按修法① 接线并同批加清理；
-若产品决定不做通知收件箱，则按② 删掉假接口（铁律 1）。
 
 **D-57②**：①（已做）三处裸 `to_regclass($1)` 改为 `to_regclass(format('%I.%I', current_schema(), $1))::text`，
 `tests/` 内已无裸 `to_regclass`；自证留了两步判据（陈旧 `public` 里造探针表 ⇒ 旧口径非空假绿、
@@ -145,10 +140,11 @@ D-66 / D-67）记在各自提交信息里（下次阶段总结时并入快照）
 
 ### 7.4 计数与口径
 
-- 合计 **68** 条（D-01…D-68）：**未关闭 2**（D-57 部分 / D-68 未修）、
-  **结构性例外 7**（D-13 / D-14 / D-18–D-22，有意不修）、**已关闭 59**（含 D-37 收敛与 D-62 修法① 落地）。
+- 合计 **68** 条（D-01…D-68）：**未关闭 1**（D-57 部分）、
+  **结构性例外 7**（D-13 / D-14 / D-18–D-22，有意不修）、**已关闭 60**（含 D-37 收敛、
+  D-62 修法① 与 D-68 接线落地）。
 - 本文档**只显示**未关闭项与结构性例外；已关闭项的明细在 HISTORY §7.2（冻结，不参与当前计数），
-  阶段总结后关闭的 5 条（D-37 / D-62 / D-65 / D-66 / D-67）在各提交信息里。
+  阶段总结后关闭的 6 条（D-37 / D-62 / D-65 / D-66 / D-67 / D-68）在各提交信息里。
 - "部分已修"指同一编号下仍有明确未做子项；结构性例外**不计入**待修，其约束力写在 §7.3 与 R1–R13。
 
 ### 7.5 处置约定（改 SQL / 查询前）
@@ -215,7 +211,7 @@ D-66 / D-67）记在各自提交信息里（下次阶段总结时并入快照）
 - `dynamic_production` 的**可转换部分归零**：393 → **72**（只剩测试基建 57 + 结构性 15），
   或每个残留都有 §7.3 那样的登记条目；
 - literal 逐文件表只剩 4 类（3 个测试基建文件 + `event/pagination.rs`）；
-- **D-68 有裁定并落地、D-57② 落地**（D-62 已落地、D-37 已收敛 ⇒ §7 只剩 D-57② 与 D-68）；
+- **D-57② 落地**（D-62 已落地、D-37 已收敛、**D-68 已接线并加保留期** ⇒ §7 只剩 D-57②）；
 - 四道门禁与两道棘轮在 CI 常驻，且都留有"能变红"的自证记录。
 
 ### 8.5 每批必须跑的门禁
