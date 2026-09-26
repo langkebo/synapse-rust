@@ -31,13 +31,15 @@
 
 use std::sync::Arc;
 
-use serde_json::{json, Map, Value};
+use serde_json::Value;
 use synapse_common::event_utils::event_id_array;
+use synapse_common::pdu::{build_pdu, PduParts};
 use synapse_common::{ApiError, ApiResult};
 use synapse_federation::event_broadcaster::EventBroadcaster;
 use synapse_federation::signing::sign_and_hash_event;
 use synapse_federation::KeyRotationManager;
 use synapse_storage::event::{EventReader, EventWriter, PersistedGraphFields, RoomEvent};
+use synapse_storage::room::RoomStoreApi;
 
 /// The dependencies the outbound broadcast path needs.
 ///
@@ -54,6 +56,10 @@ pub(crate) struct BroadcastContext {
     pub key_rotation_manager: Option<Arc<KeyRotationManager>>,
     /// Destination transport. `None` keeps the signing/persistence half only.
     pub event_broadcaster: Option<Arc<EventBroadcaster>>,
+    /// Room-version source. The PDU's shape depends on it (`event_id` is a PDU
+    /// field for v1/v2 only), so an unreadable version refuses the broadcast
+    /// rather than guessing one.
+    pub room_storage: Arc<dyn RoomStoreApi>,
 }
 
 /// Build the outbound PDU for a locally-produced event.
@@ -62,45 +68,35 @@ pub(crate) struct BroadcastContext {
 /// unusable. The caller must then skip the broadcast instead of emitting a PDU
 /// that a spec-compliant peer would reject — the same rule the inbound
 /// projector applies (`SignatureAction::RefuseIncomplete`).
-pub(crate) fn build_broadcast_pdu(server_name: &str, event: &RoomEvent, graph: &PersistedGraphFields) -> Option<Value> {
+pub(crate) fn build_broadcast_pdu(
+    server_name: &str,
+    event: &RoomEvent,
+    graph: &PersistedGraphFields,
+    room_version: &str,
+) -> Option<Value> {
     let depth = graph.depth?;
     let prev_events = event_id_array(graph.prev_events.as_ref())?;
     let auth_events = event_id_array(graph.auth_events.as_ref())?;
 
-    let mut pdu = Map::new();
-    pdu.insert("event_id".to_string(), json!(event.event_id));
-    pdu.insert("room_id".to_string(), json!(event.room_id));
-    pdu.insert("sender".to_string(), json!(event.user_id));
-    pdu.insert("user_id".to_string(), json!(event.user_id));
-    pdu.insert("type".to_string(), json!(event.event_type));
-    pdu.insert("content".to_string(), event.content.clone());
-    pdu.insert("origin_server_ts".to_string(), json!(event.origin_server_ts));
-    pdu.insert("origin".to_string(), json!(server_name));
-    pdu.insert("depth".to_string(), json!(depth));
-    pdu.insert("prev_events".to_string(), json!(prev_events));
-    pdu.insert("auth_events".to_string(), json!(auth_events));
-
-    if let Some(state_key) = &event.state_key {
-        pdu.insert("state_key".to_string(), json!(state_key));
-    }
-
-    if let Some(redacts) = &event.redacts {
-        apply_redacts(&mut pdu, redacts);
-    }
-
-    Some(Value::Object(pdu))
-}
-
-/// Places a redaction target on the outbound PDU.
-///
-/// v11+ (MSC2174/MSC3820) already carries the target in `content.redacts`
-/// (injected in `RoomMessagingService::create_event`), so the top-level field
-/// must **not** be added. v1-v10 keeps the top-level `redacts` field.
-fn apply_redacts(pdu: &mut Map<String, Value>, redacts: &str) {
-    let content_has_redacts = pdu.get("content").and_then(|content| content.get("redacts")).is_some();
-    if !content_has_redacts {
-        pdu.insert("redacts".to_string(), json!(redacts));
-    }
+    // The field list lives in `synapse_common::pdu::build_pdu` — the single
+    // assembly shared with the write path. In particular this no longer emits
+    // `event_id` for v3+ (the receiver derives it from the reference hash) and
+    // never emits the non-spec `user_id` key.
+    Some(build_pdu(&PduParts {
+        room_version,
+        event_id: Some(event.event_id.as_str()),
+        room_id: &event.room_id,
+        sender: &event.user_id,
+        event_type: &event.event_type,
+        content: &event.content,
+        state_key: event.state_key.as_deref(),
+        origin_server_ts: event.origin_server_ts,
+        origin: server_name,
+        depth,
+        prev_events: &prev_events,
+        auth_events: &auth_events,
+        redacts: event.redacts.as_deref(),
+    }))
 }
 
 /// Sign a locally-produced event and broadcast it to every remote server with a
@@ -137,7 +133,30 @@ pub(crate) async fn sign_and_broadcast_event(ctx: &BroadcastContext, event: &Roo
         }
     };
 
-    let Some(mut pdu) = build_broadcast_pdu(&ctx.server_name, event, &graph) else {
+    // 1b. The room version decides the PDU's shape (v1/v2 carry `event_id`,
+    //     v3+ must not). Refuse to guess it.
+    let room_version = match ctx.room_storage.get_room_version_only(&event.room_id).await {
+        Ok(Some(version)) => version,
+        Ok(None) => {
+            ::tracing::warn!(
+                event_id = %event.event_id,
+                room_id = %event.room_id,
+                "room version unknown; skipping federation PDU"
+            );
+            return Ok(());
+        }
+        Err(e) => {
+            ::tracing::warn!(
+                event_id = %event.event_id,
+                room_id = %event.room_id,
+                error = %e,
+                "failed to read room version; skipping federation PDU"
+            );
+            return Ok(());
+        }
+    };
+
+    let Some(mut pdu) = build_broadcast_pdu(&ctx.server_name, event, &graph, &room_version) else {
         ::tracing::warn!(
             event_id = %event.event_id,
             room_id = %event.room_id,
@@ -225,7 +244,7 @@ mod tests {
 
     #[test]
     fn complete_graph_yields_a_v3_pdu() {
-        let pdu = build_broadcast_pdu("example.com", &room_event(), &complete_graph()).expect("complete PDU");
+        let pdu = build_broadcast_pdu("example.com", &room_event(), &complete_graph(), "10").expect("complete PDU");
         assert_eq!(pdu["depth"], json!(8));
         assert_eq!(pdu["prev_events"], json!(["$p:example.com"]));
         assert_eq!(pdu["auth_events"], json!(["$create:example.com", "$pl:example.com"]));
@@ -233,11 +252,28 @@ mod tests {
         assert_eq!(pdu["origin_server_ts"], json!(1_700_000_000_000_i64));
     }
 
+    /// U-13 step 2: v3+ outbound PDUs must not carry `event_id` (the receiver
+    /// derives it from the reference hash) nor the non-spec `user_id` key.
+    #[test]
+    fn v3_plus_outbound_pdu_carries_neither_event_id_nor_user_id() {
+        let pdu = build_broadcast_pdu("example.com", &room_event(), &complete_graph(), "10").unwrap();
+        assert!(pdu.get("event_id").is_none(), "v10 PDU must not carry event_id: {pdu}");
+        assert!(pdu.get("user_id").is_none(), "user_id is not a PDU field: {pdu}");
+    }
+
+    /// …while v1/v2 PDUs keep the server-assigned `event_id`.
+    #[test]
+    fn v1_outbound_pdu_keeps_the_event_id() {
+        let pdu = build_broadcast_pdu("example.com", &room_event(), &complete_graph(), "1").unwrap();
+        assert_eq!(pdu["event_id"], json!("$e:example.com"));
+        assert!(pdu.get("user_id").is_none());
+    }
+
     #[test]
     fn missing_depth_is_refused() {
         let mut graph = complete_graph();
         graph.depth = None;
-        assert!(build_broadcast_pdu("example.com", &room_event(), &graph).is_none());
+        assert!(build_broadcast_pdu("example.com", &room_event(), &graph, "10").is_none());
     }
 
     #[test]
@@ -250,7 +286,7 @@ mod tests {
         ] {
             let graph = PersistedGraphFields { depth: Some(8), prev_events: prev, auth_events: auth };
             assert!(
-                build_broadcast_pdu("example.com", &room_event(), &graph).is_none(),
+                build_broadcast_pdu("example.com", &room_event(), &graph, "10").is_none(),
                 "an incomplete graph must not produce a PDU: {graph:?}"
             );
         }
@@ -265,7 +301,7 @@ mod tests {
                 prev_events: Some(prev),
                 auth_events: Some(json!(["$a:example.com"])),
             };
-            assert!(build_broadcast_pdu("example.com", &room_event(), &graph).is_none(), "prev={label}");
+            assert!(build_broadcast_pdu("example.com", &room_event(), &graph, "10").is_none(), "prev={label}");
         }
     }
 
@@ -273,7 +309,7 @@ mod tests {
     fn empty_arrays_are_usable_graph_metadata() {
         // The create event legitimately has `[]` for both — it is the DAG root.
         let graph = PersistedGraphFields { depth: Some(1), prev_events: Some(json!([])), auth_events: Some(json!([])) };
-        let pdu = build_broadcast_pdu("example.com", &room_event(), &graph).expect("root PDU");
+        let pdu = build_broadcast_pdu("example.com", &room_event(), &graph, "10").expect("root PDU");
         assert_eq!(pdu["prev_events"], json!([]));
         assert_eq!(pdu["auth_events"], json!([]));
         assert_eq!(pdu["depth"], json!(1));
@@ -283,7 +319,7 @@ mod tests {
     fn state_key_and_room_version_aware_redacts_placement() {
         let mut event = room_event();
         event.state_key = Some("".to_string());
-        let pdu = build_broadcast_pdu("example.com", &event, &complete_graph()).expect("state PDU");
+        let pdu = build_broadcast_pdu("example.com", &event, &complete_graph(), "10").expect("state PDU");
         assert_eq!(pdu["state_key"], json!(""));
 
         // v11+ carries the target inside content: no top-level `redacts` field.
@@ -291,7 +327,7 @@ mod tests {
         v11.event_type = "m.room.redaction".to_string();
         v11.content = json!({"reason": "spam", "redacts": "$target:example.com"});
         v11.redacts = Some("$target:example.com".to_string());
-        let pdu = build_broadcast_pdu("example.com", &v11, &complete_graph()).expect("v11 redaction");
+        let pdu = build_broadcast_pdu("example.com", &v11, &complete_graph(), "11").expect("v11 redaction");
         assert!(pdu.get("redacts").is_none(), "v11+ must not gain a top-level redacts: {pdu}");
 
         // v1-v10 keeps the top-level field.
@@ -299,7 +335,7 @@ mod tests {
         v10.event_type = "m.room.redaction".to_string();
         v10.content = json!({"reason": "spam"});
         v10.redacts = Some("$target:example.com".to_string());
-        let pdu = build_broadcast_pdu("example.com", &v10, &complete_graph()).expect("v10 redaction");
+        let pdu = build_broadcast_pdu("example.com", &v10, &complete_graph(), "10").expect("v10 redaction");
         assert_eq!(pdu["redacts"], json!("$target:example.com"));
     }
 }

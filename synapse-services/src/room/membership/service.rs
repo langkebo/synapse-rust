@@ -494,6 +494,7 @@ impl MembershipService {
             event_writer: self.event_writer.clone(),
             key_rotation_manager: self.key_rotation_manager.clone(),
             event_broadcaster: self.event_broadcaster.clone(),
+            room_storage: self.room_storage.clone(),
         };
         crate::room::federation_broadcast::sign_and_broadcast_event(&ctx, event).await
     }
