@@ -1008,7 +1008,6 @@ pub(crate) async fn redact_event(
     });
     let user_id_for_as = auth_user.user_id.clone();
     let content_for_as = content.clone();
-    let redactor_user_id = auth_user.user_id.clone();
 
     let redaction_event = ctx
         .room_service
@@ -1042,18 +1041,24 @@ pub(crate) async fn redact_event(
         )
         .await;
 
-    ctx.room_service.messaging().redact_event_content(&event_id, Some(&redactor_user_id)).await.map_err(|e| {
-        ::tracing::warn!(
-            target: "security_audit",
-            request_id = %request_id,
-            event = "redaction_content_failed",
-            room_id = %room_id,
-            event_id = %event_id,
-            error = %e,
-            "Redaction event created but content redaction failed"
-        );
-        ApiError::internal_with_cause("Failed to redact event content", e)
-    })?;
+    // `events.redacted_by` is a self-referential foreign key to
+    // `events.event_id` (`fk_events_redacted_by`), so it records the redaction
+    // EVENT — not the acting user id. Passing the user id violated the
+    // constraint and made every client redaction fail with a 500.
+    ctx.room_service.messaging().redact_event_content(&event_id, Some(&redaction_event.event_id)).await.map_err(
+        |e| {
+            ::tracing::warn!(
+                target: "security_audit",
+                request_id = %request_id,
+                event = "redaction_content_failed",
+                room_id = %room_id,
+                event_id = %event_id,
+                error = %e,
+                "Redaction event created but content redaction failed"
+            );
+            ApiError::internal_with_cause("Failed to redact event content", e)
+        },
+    )?;
 
     // MSC3912: Single-layer cascade redaction for related events
     // (only when with_rel_types is present; otherwise just redact the target)
