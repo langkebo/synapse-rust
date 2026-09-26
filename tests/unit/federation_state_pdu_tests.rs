@@ -222,7 +222,8 @@ fn projected_pdu_is_canonicalizable_and_round_trips_through_signing() {
 
     let key_id = "ed25519:pdu_guard";
     let secret = STANDARD_NO_PAD.encode([7u8; 32]);
-    sign_and_hash_event("server.example", key_id, &secret, &mut pdu).expect("signing a projected PDU must succeed");
+    sign_and_hash_event("10", "server.example", key_id, &secret, &mut pdu)
+        .expect("signing a projected PDU must succeed");
 
     assert!(pdu["hashes"]["sha256"].as_str().is_some_and(|hash| !hash.is_empty()));
     assert!(pdu["signatures"]["server.example"][key_id].is_string());

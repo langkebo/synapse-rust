@@ -89,7 +89,8 @@ pub(crate) async fn send_leave(
         .map_err(|e| ApiError::internal_with_cause("Failed to persist leave event", e))?;
     let content = event.get("content").cloned().unwrap_or(json!({}));
 
-    // F-03: re-sign locally for third-party verification.
+    // F-03: re-sign locally for third-party verification. `origin` is part of
+    // the signed bytes; the signer no longer injects it.
     let mut pdu = json!({
         "event_id": event_id,
         "room_id": room_id,
@@ -97,6 +98,7 @@ pub(crate) async fn send_leave(
         "type": "m.room.member",
         "state_key": user_id,
         "origin_server_ts": event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0),
+        "origin": ctx.server_name,
         "content": content,
     });
     re_sign_pdu_locally(&ctx, &event_id, &mut pdu).await;
@@ -170,7 +172,8 @@ pub(crate) async fn send_leave_v2(
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to persist leave event", e))?;
 
-    // F-03: re-sign locally for third-party verification.
+    // F-03: re-sign locally for third-party verification. `origin` is part of
+    // the signed bytes; the signer no longer injects it.
     let mut pdu = json!({
         "event_id": event_id,
         "room_id": room_id,
@@ -178,6 +181,7 @@ pub(crate) async fn send_leave_v2(
         "type": "m.room.member",
         "state_key": sender,
         "origin_server_ts": current_timestamp_millis(),
+        "origin": ctx.server_name,
         "content": membership_content_for_as,
     });
     re_sign_pdu_locally(&ctx, &event_id, &mut pdu).await;

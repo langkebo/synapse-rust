@@ -152,6 +152,9 @@ pub(crate) async fn send_join(
 
         // F-03: Add the local server's signature to the persisted join PDU so
         // that third-party origins can verify it via verify_pdu_sender_signature.
+        // `origin` is a signed PDU field; the signer no longer injects it, and
+        // the events row stores origin='self', which projects back as this
+        // server's name.
         let mut pdu = json!({
             "event_id": event_id,
             "room_id": room_id,
@@ -159,6 +162,7 @@ pub(crate) async fn send_join(
             "type": "m.room.member",
             "state_key": user_id,
             "origin_server_ts": body.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0),
+            "origin": ctx.server_name,
             "content": content,
         });
         re_sign_pdu_locally(&ctx, &event_id, &mut pdu).await;
@@ -290,7 +294,8 @@ pub(crate) async fn send_join_v2(
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to persist join event", e))?;
 
-        // F-03: re-sign locally for third-party verification.
+        // F-03: re-sign locally for third-party verification. `origin` is part
+        // of the signed bytes and is no longer injected by the signer.
         let mut pdu = json!({
             "event_id": event_id,
             "room_id": room_id,
@@ -298,6 +303,7 @@ pub(crate) async fn send_join_v2(
             "type": "m.room.member",
             "state_key": sender,
             "origin_server_ts": body.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or_else(current_timestamp_millis),
+            "origin": ctx.server_name,
             "content": content,
         });
         re_sign_pdu_locally(&ctx, &event_id, &mut pdu).await;

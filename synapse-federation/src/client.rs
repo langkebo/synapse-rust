@@ -265,6 +265,11 @@ pub struct MakeLeaveResponse {
     pub room_id: String,
     /// The `event` field.
     pub event: serde_json::Value,
+    /// The `room_version` field (MSC1813 / spec `make_leave` response).
+    ///
+    /// `None` when the resident server did not state a version; the caller must
+    /// not guess one, because the signature material is room-version dependent.
+    pub room_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

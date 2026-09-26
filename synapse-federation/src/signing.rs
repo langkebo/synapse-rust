@@ -2,6 +2,8 @@ use base64::Engine;
 use ed25519_dalek::{Signer, SigningKey};
 use serde_json::Value;
 use synapse_common::canonical_json;
+use synapse_common::pdu::event_id_is_a_pdu_field;
+use synapse_common::redaction::redact_event;
 use synapse_common::secure_compare;
 use synapse_common::CanonicalEvent;
 
@@ -185,31 +187,40 @@ pub fn check_event_federate(room_create_event: &Value) -> bool {
 /// servers.
 ///
 /// This function:
-/// 1. Ensures the `origin` field is set to `server_name`
-/// 2. Computes the `hashes.sha256` content hash
-/// 3. Signs the event with `sign_json` using the provided key
+/// 1. Computes and inserts the `hashes.sha256` content hash over the
+///    **unredacted** event ([`compute_event_content_hash`]).
+/// 2. Builds the signature material the way upstream Synapse
+///    `synapse/crypto/event_signing.py::compute_event_signature` does:
+///    `redact_event(room_version, event)`, then remove `age_ts` and `unsigned`,
+///    then — for v3+ — remove `event_id` (v3+ PDUs do not carry it, so it must
+///    not be signed; v1/v2 keep it, and the upstream known-answer vectors prove
+///    it).
+/// 3. Signs that material and writes the signature back into the original
+///    `event`.
+///
+/// `origin` is **not** touched here.  It is a primitive PDU field owned by the
+/// single assembler [`synapse_common::pdu::build_pdu`]; injecting it inside the
+/// signer would mutate the signed bytes behind the assembler's back and make
+/// the signature unreproducible by a peer.
 ///
 /// The `secret_key_base64` and `key_id` come from
 /// `KeyRotationManager::get_current_key`.
 ///
-/// Reference: element-hq/synapse `synapse/events/utils.py::maybe_upsert_event_field`
-/// and `synapse/crypto/event_signing.py::add_hashes_and_signatures`
+/// Reference: element-hq/synapse release-v1.161
+/// `synapse/crypto/event_signing.py::add_hashes_and_signatures` /
+/// `compute_event_signature`.
 pub fn sign_and_hash_event(
+    room_version: &str,
     server_name: &str,
     key_id: &str,
     secret_key_base64: &str,
     event: &mut Value,
 ) -> Result<(), String> {
-    // 1. Ensure `origin` is set.
-    if let Some(obj) = event.as_object_mut() {
-        if !obj.contains_key("origin") {
-            obj.insert("origin".to_string(), Value::String(server_name.to_string()));
-        }
-    } else {
+    if !event.is_object() {
         return Err("Event must be a JSON object".to_string());
     }
 
-    // 2. Compute and set the content hash.
+    // 1. Compute and set the content hash (over the unredacted event).
     let hash = compute_event_content_hash(event).ok_or_else(|| "Failed to compute event content hash".to_string())?;
     if let Some(obj) = event.as_object_mut() {
         let hashes = obj.entry("hashes").or_insert_with(|| Value::Object(serde_json::Map::new()));
@@ -218,9 +229,22 @@ pub fn sign_and_hash_event(
         }
     }
 
-    // 3. Compute canonical form once, then sign using the cached form.
-    let canonical =
-        synapse_common::CanonicalEvent::from_event(event).map_err(|e| format!("Canonical JSON error: {e}"))?;
+    // 2. Signature material: the redacted PDU (this already drops the top-level
+    //    `age_ts` and every field redaction does not retain).
+    let mut material =
+        redact_event(room_version, event).map_err(|e| format!("Failed to redact event for signing: {e}"))?;
+    if let Some(obj) = material.as_object_mut() {
+        obj.remove("age_ts");
+        obj.remove("unsigned");
+        if !event_id_is_a_pdu_field(room_version) {
+            obj.remove("event_id");
+        }
+    }
+
+    // 3. Compute canonical form of the material once, then sign using the
+    //    cached form.  `CanonicalEvent::from_event` strips `signatures`
+    //    (retained by redaction) and `unsigned`, matching upstream `sign_json`.
+    let canonical = CanonicalEvent::from_event(&material).map_err(|e| format!("Canonical JSON error: {e}"))?;
     sign_json_with_canonical(server_name, key_id, secret_key_base64, event, &canonical)?;
 
     Ok(())
@@ -845,7 +869,9 @@ mod tests {
             "origin": "remote.test",
         });
 
-        sign_and_hash_event("local.test", "ed25519:1", &secret_b64, &mut pdu)
+        // v1 keeps every one of these fields in the signature material, so the
+        // signed bytes are exactly the PDU minus `signatures`/`unsigned`.
+        sign_and_hash_event("1", "local.test", "ed25519:1", &secret_b64, &mut pdu)
             .expect("sign_and_hash_event must succeed");
 
         let sigs = pdu.get("signatures").expect("signatures must be present after signing");
@@ -888,7 +914,7 @@ mod tests {
             }
         });
 
-        sign_and_hash_event("local.test", "ed25519:1", &secret_b64, &mut pdu).expect("re-sign must succeed");
+        sign_and_hash_event("1", "local.test", "ed25519:1", &secret_b64, &mut pdu).expect("re-sign must succeed");
 
         let sigs = pdu.get("signatures").unwrap();
         assert_eq!(
@@ -899,6 +925,198 @@ mod tests {
         assert!(
             sigs.get("local.test").and_then(|r| r.get("ed25519:1")).is_some(),
             "F-03: local.test signature must be added"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // U-21: the signature material is the **redacted** PDU, not the raw event
+    // (upstream `synapse/crypto/event_signing.py::compute_event_signature`).
+    // ------------------------------------------------------------------
+
+    /// Upstream deterministic signing seed for both vectors below.
+    const SYNAPSE_SIGNING_KEY_SEED: &str = "YJDBA9Xnr2sVqXD9Vj7XVUnmFZcZrlw8Md7kMW+3XA1";
+
+    /// Re-encodes the upstream seed as canonical unpadded Base64.
+    ///
+    /// The upstream string is **not** canonical unpadded Base64: its final
+    /// symbol (`1`, value 53) has two non-zero trailing bits.  Python's
+    /// `base64.b64decode` silently discards them (that is how signedjson decodes
+    /// the key), while the strict `base64` crate rejects the string with
+    /// "Invalid last symbol".  Decoding leniently and re-encoding yields
+    /// `...MW+3XA0`, which decodes to the **same 32 bytes** and which the
+    /// production decoder accepts.
+    fn canonical_seed(seed: &str) -> String {
+        let lenient = base64::engine::GeneralPurpose::new(
+            &base64::alphabet::STANDARD,
+            base64::engine::GeneralPurposeConfig::new()
+                .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent)
+                .with_decode_allow_trailing_bits(true),
+        );
+        let bytes = lenient.decode(seed).expect("the upstream seed must decode leniently");
+        assert_eq!(bytes.len(), 32, "an ed25519 signing seed must be 32 bytes");
+        base64::engine::general_purpose::STANDARD_NO_PAD.encode(bytes)
+    }
+
+    /// Upstream known-answer vector #1:
+    /// `element-hq/synapse` release-v1.161
+    /// `tests/crypto/test_event_signing.py::test_sign_minimal`, room version 1.
+    ///
+    /// This pins the whole *signing* pipeline against an independent
+    /// implementation: content hash over the unredacted event, redacted signing
+    /// material, canonical JSON, ed25519, unpadded standard Base64.  v1 keeps
+    /// `event_id` in the signed bytes (upstream vector 2 in §6.6's checklist
+    /// pins the v3+ "no `event_id`" branch).
+    #[test]
+    fn signature_matches_synapse_known_answer_minimal() {
+        let mut event = serde_json::json!({
+            "event_id": "$0:domain",
+            "origin_server_ts": 1000000,
+            "signatures": {},
+            "type": "X",
+            "content": {},
+            "unsigned": {"age_ts": 1000000},
+        });
+
+        let seed = canonical_seed(SYNAPSE_SIGNING_KEY_SEED);
+        assert_eq!(seed, "YJDBA9Xnr2sVqXD9Vj7XVUnmFZcZrlw8Md7kMW+3XA0", "normalized upstream seed");
+        sign_and_hash_event("1", "domain", "ed25519:1", &seed, &mut event)
+            .expect("signing the upstream minimal vector must succeed");
+
+        assert_eq!(
+            event["hashes"]["sha256"].as_str(),
+            Some("mq4QfPPpC+QsBd6eqfVsmJIEz8uvMSVK0+AU67PLESk"),
+            "content hash must match upstream test_sign_minimal"
+        );
+        assert_eq!(
+            event["signatures"]["domain"]["ed25519:1"].as_str(),
+            Some("18rGIkd4JJXxw9m+1j3BtN+TmqmLip4VHvFbyXLngpBLXOqbxlQViQABRzep2cODQ2aa5FnFgz+Llt2P03WiAw"),
+            "signature must match upstream test_sign_minimal"
+        );
+    }
+
+    /// Upstream known-answer vector #2:
+    /// `tests/crypto/test_event_signing.py::test_sign_message`, room version 1.
+    ///
+    /// The `m.room.message` body is stripped by redaction, so a signer that
+    /// signs the unredacted dict (the pre-U-21 behaviour) cannot reproduce this
+    /// value while still matching the content hash above.
+    #[test]
+    fn signature_matches_synapse_known_answer_message() {
+        let mut event = serde_json::json!({
+            "content": {"body": "Here is the message content"},
+            "event_id": "$0:domain",
+            "origin_server_ts": 1000000,
+            "type": "m.room.message",
+            "room_id": "!r:domain",
+            "sender": "@u:domain",
+            "signatures": {},
+            "unsigned": {"age_ts": 1000000},
+        });
+
+        let seed = canonical_seed(SYNAPSE_SIGNING_KEY_SEED);
+        sign_and_hash_event("1", "domain", "ed25519:1", &seed, &mut event)
+            .expect("signing the upstream message vector must succeed");
+
+        assert_eq!(
+            event["hashes"]["sha256"].as_str(),
+            Some("rDCeYBepPlI891h/RkI2/Lkf9bt7u0TxFku4tMs7WKk"),
+            "content hash must match upstream test_sign_message"
+        );
+        assert_eq!(
+            event["signatures"]["domain"]["ed25519:1"].as_str(),
+            Some("Ay4aj2b5oJ1k8INYZ9n3KnszCflM0emwcmQQ7vxpbdcSv9bkJxIZdWX1IJllcZLq89+D3sSabE+vqPtZs9akDw"),
+            "signature must match upstream test_sign_message"
+        );
+    }
+
+    /// v3+ PDUs do not carry `event_id`, so it must not take part in the signed
+    /// bytes.
+    ///
+    /// **Why this is not two `sign_and_hash_event` calls compared for equality**
+    /// (the literal wording of the acceptance item): the *content hash*
+    /// legitimately covers `event_id` — upstream `compute_content_hash` does not
+    /// strip it either, and `test_sign_minimal` above proves our function
+    /// matches — so an event that carries an `event_id` necessarily hashes
+    /// differently, and therefore signs differently, before the question of the
+    /// signature material even arises.  What must hold instead is that the
+    /// signature the function produced covers the material **with `event_id`
+    /// removed**: this test signs a v3+ PDU that carries one, then verifies the
+    /// signature against the redacted material with `event_id` (and
+    /// `age_ts`/`unsigned`) stripped.  That verification succeeds only if the
+    /// signer dropped it.  Mutation (b) in the U-21 self-proof (keep `event_id`
+    /// in the v3+ material) turns this red.
+    #[test]
+    fn v3_signature_material_excludes_event_id() {
+        let (secret_b64, signing_key) = generate_test_key();
+        let mut pdu = serde_json::json!({
+            "event_id": "$0:server",
+            "room_id": "!r:server",
+            "sender": "@u:server",
+            "type": "m.room.message",
+            "content": {"body": "hello", "msgtype": "m.text"},
+            "origin": "server",
+            "origin_server_ts": 1_700_000_000_000_i64,
+            "depth": 3,
+            "prev_events": ["$p:server"],
+            "auth_events": ["$a:server"],
+        });
+
+        sign_and_hash_event("10", "server", "ed25519:1", &secret_b64, &mut pdu).unwrap();
+        let signature = pdu["signatures"]["server"]["ed25519:1"].as_str().unwrap().to_string();
+
+        // Reference material for a v3+ PDU: redact, then drop `age_ts` /
+        // `unsigned` / `event_id`. `CanonicalEvent::from_event` drops
+        // `signatures` / `unsigned`, matching upstream `sign_json`.
+        let mut material = synapse_common::redaction::redact_event("10", &pdu).unwrap();
+        {
+            let obj = material.as_object_mut().unwrap();
+            obj.remove("event_id");
+            obj.remove("age_ts");
+            obj.remove("unsigned");
+        }
+        assert!(material.get("event_id").is_none(), "v3+: `event_id` must not be signed: {material}");
+        assert_eq!(material["hashes"], pdu["hashes"], "the material keeps `hashes`");
+
+        let canonical = synapse_common::CanonicalEvent::from_event(&material).unwrap();
+        let sig_bytes = base64::engine::general_purpose::STANDARD_NO_PAD.decode(signature).unwrap();
+        let sig = ed25519_dalek::Signature::from_bytes(&sig_bytes.try_into().unwrap());
+        signing_key
+            .verifying_key()
+            .verify(canonical.canonical_bytes(), &sig)
+            .expect("v3+ signature must cover the redacted material without `event_id`");
+    }
+
+    /// v10 keeps `origin` in the signature material, v11 drops it (MSC2174/MSC3820
+    /// `updated_redaction_rules`).  The content hash is version-independent, so a
+    /// difference between the two signatures can only come from the
+    /// room-version-aware redaction applied to the signing material — this is the
+    /// "#3 proves the material went through versioned redaction" check.
+    #[test]
+    fn v10_and_v11_signatures_differ_over_origin() {
+        let (secret_b64, _) = generate_test_key();
+        let base = serde_json::json!({
+            "event_id": "$0:server",
+            "room_id": "!r:server",
+            "sender": "@u:server",
+            "type": "m.room.message",
+            "content": {"body": "hello"},
+            "origin": "server",
+            "origin_server_ts": 1_700_000_000_000_i64,
+            "depth": 3,
+            "prev_events": ["$p:server"],
+            "auth_events": ["$a:server"],
+        });
+
+        let mut v10 = base.clone();
+        let mut v11 = base.clone();
+        sign_and_hash_event("10", "server", "ed25519:1", &secret_b64, &mut v10).unwrap();
+        sign_and_hash_event("11", "server", "ed25519:1", &secret_b64, &mut v11).unwrap();
+
+        assert_eq!(v10["hashes"], v11["hashes"], "the content hash does not depend on the room version");
+        assert!(v10["signatures"]["server"]["ed25519:1"].is_string());
+        assert_ne!(
+            v10["signatures"]["server"]["ed25519:1"], v11["signatures"]["server"]["ed25519:1"],
+            "v11 stops protecting `origin`, so the signed bytes must differ from v10"
         );
     }
 }

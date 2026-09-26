@@ -179,7 +179,7 @@ pub(crate) async fn sign_and_broadcast_event(ctx: &BroadcastContext, event: &Roo
         return Ok(());
     };
 
-    sign_and_hash_event(&ctx.server_name, &signing_key.key_id, &signing_key.secret_key, &mut pdu)
+    sign_and_hash_event(&room_version, &ctx.server_name, &signing_key.key_id, &signing_key.secret_key, &mut pdu)
         .map_err(|e| ApiError::internal(format!("Failed to sign event: {e}")))?;
 
     // 3. Persist the signature/hash pair so a later PDU projection can re-emit

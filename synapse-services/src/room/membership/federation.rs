@@ -25,6 +25,27 @@ use synapse_storage::CreateEventParams;
 
 use super::service::MembershipService;
 
+/// Fills in the `origin` field of a `make_join` / `make_leave` template when
+/// the resident server omitted it.
+///
+/// `origin` is a required template field (spec `make_join` / `make_leave`
+/// response, "the name of the resident homeserver") and takes part in the
+/// signed bytes. [`sign_and_hash_event`] no longer injects it, so the invariant
+/// is restored here, at the call site that owns the remote-provided template.
+fn ensure_template_origin(template: &mut Value, resident: &str, flow: &str) {
+    if template.get("origin").is_some() {
+        return;
+    }
+    ::tracing::warn!(
+        resident = %resident,
+        flow = %flow,
+        "make_* template omitted the required `origin` field; filling it with the resident server"
+    );
+    if let Some(obj) = template.as_object_mut() {
+        obj.insert("origin".to_string(), Value::String(resident.to_string()));
+    }
+}
+
 impl MembershipService {
     // =========================================================================
     // Outbound federation join
@@ -57,7 +78,18 @@ impl MembershipService {
             ApiError::bad_request(format!("Remote server rejected make_join: {e}"))
         })?;
 
-        let room_version = make_join_response.room_version.unwrap_or_else(|| "10".to_string());
+        // The signature material is room-version dependent (redaction differs
+        // per version), so a response that does not state the room version
+        // cannot be signed. Never guess one — the former hard-coded "10"
+        // fallback silently mis-signed every non-v10 room.
+        let Some(room_version) = make_join_response.room_version else {
+            ::tracing::warn!(
+                room_id = %room_id,
+                destination = %destination,
+                "make_join response did not state a room version; refusing to sign the template"
+            );
+            return Err(ApiError::bad_request("Remote make_join response did not state a room version".to_string()));
+        };
         let mut event_template = make_join_response.event;
 
         // Spec PR #2284 / Synapse #20189: never sign an unvalidated template.
@@ -74,10 +106,21 @@ impl MembershipService {
             ApiError::bad_request(format!("Remote make_join response is malformed: {e}"))
         })?;
 
+        // `origin` is part of the signed bytes and the make_join template is
+        // created by the resident homeserver, so a template that omits it gets
+        // its name here (the signer no longer injects `origin`).
+        ensure_template_origin(&mut event_template, destination, "make_join");
+
         // 2. Sign the template event locally.
         let signing_key = self.require_signing_key().await?;
-        sign_and_hash_event(&self.server_name, &signing_key.key_id, &signing_key.secret_key, &mut event_template)
-            .map_err(|e| ApiError::internal(format!("Failed to sign join event: {e}")))?;
+        sign_and_hash_event(
+            &room_version,
+            &self.server_name,
+            &signing_key.key_id,
+            &signing_key.secret_key,
+            &mut event_template,
+        )
+        .map_err(|e| ApiError::internal(format!("Failed to sign join event: {e}")))?;
 
         let event_id = event_template
             .get("event_id")
@@ -341,10 +384,51 @@ impl MembershipService {
             ApiError::bad_request(format!("Remote make_leave response is malformed: {e}"))
         })?;
 
-        // 2. Sign the template event locally.
+        // 2. Resolve the room version that drives the signature material. Prefer
+        //    the version the resident server stated (MSC1813); if it stated none,
+        //    fall back to the version recorded for this room locally — this
+        //    server is a member of the room it is leaving, so the stored version
+        //    is authoritative. Never guess.
+        let room_version = match make_leave_response.room_version {
+            Some(version) => version,
+            None => match self.room_storage.get_room_version_only(room_id).await {
+                Ok(Some(version)) => version,
+                Ok(None) => {
+                    ::tracing::warn!(
+                        room_id = %room_id,
+                        destination = %destination,
+                        "make_leave response stated no room version and the room is unknown locally; refusing to sign the template"
+                    );
+                    return Err(ApiError::bad_request(
+                        "make_leave response did not state a room version and the room is unknown locally".to_string(),
+                    ));
+                }
+                Err(e) => {
+                    ::tracing::warn!(
+                        room_id = %room_id,
+                        destination = %destination,
+                        error = %e,
+                        "failed to read the local room version; refusing to sign the make_leave template"
+                    );
+                    return Err(ApiError::internal_with_cause("Failed to read room version", e));
+                }
+            },
+        };
+
+        // `origin` is part of the signed bytes and the template is created by the
+        // resident homeserver (the signer no longer injects it).
+        ensure_template_origin(&mut event_template, destination, "make_leave");
+
+        // 3. Sign the template event locally.
         let signing_key = self.require_signing_key().await?;
-        sign_and_hash_event(&self.server_name, &signing_key.key_id, &signing_key.secret_key, &mut event_template)
-            .map_err(|e| ApiError::internal(format!("Failed to sign leave event: {e}")))?;
+        sign_and_hash_event(
+            &room_version,
+            &self.server_name,
+            &signing_key.key_id,
+            &signing_key.secret_key,
+            &mut event_template,
+        )
+        .map_err(|e| ApiError::internal(format!("Failed to sign leave event: {e}")))?;
 
         let event_id = event_template
             .get("event_id")
@@ -497,10 +581,40 @@ impl MembershipService {
             "depth": depth,
         });
 
-        // 2. Sign the event locally.
+        // 2. Resolve the room version that drives the signature material. This
+        //    invite re-sends an event for a room this server already knows, so
+        //    the stored room version is authoritative; never guess.
+        let room_version = match self.room_storage.get_room_version_only(room_id).await {
+            Ok(Some(version)) => version,
+            Ok(None) => {
+                ::tracing::warn!(
+                    room_id = %room_id,
+                    destination = %destination,
+                    "room version unknown; refusing to sign the federation invite"
+                );
+                return Err(ApiError::bad_request("Room version unknown for federated invite".to_string()));
+            }
+            Err(e) => {
+                ::tracing::warn!(
+                    room_id = %room_id,
+                    destination = %destination,
+                    error = %e,
+                    "failed to read room version; refusing to sign the federation invite"
+                );
+                return Err(ApiError::internal_with_cause("Failed to read room version", e));
+            }
+        };
+
+        // 3. Sign the event locally.
         let signing_key = self.require_signing_key().await?;
-        sign_and_hash_event(&self.server_name, &signing_key.key_id, &signing_key.secret_key, &mut invite_event)
-            .map_err(|e| ApiError::internal(format!("Failed to sign invite event: {e}")))?;
+        sign_and_hash_event(
+            &room_version,
+            &self.server_name,
+            &signing_key.key_id,
+            &signing_key.secret_key,
+            &mut invite_event,
+        )
+        .map_err(|e| ApiError::internal(format!("Failed to sign invite event: {e}")))?;
 
         // 3. Call invite on the remote server.
         let invite_response =

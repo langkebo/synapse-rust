@@ -220,6 +220,38 @@ pub async fn build_pdus(ctx: &FederationContext, records: &[&StateEvent]) -> Vec
 
 /// Sign and hash a projected PDU with this server's current signing key.
 async fn sign_locally(ctx: &FederationContext, event_id: &str, pdu: &mut Value) {
+    // The signature material is room-version dependent (redaction differs per
+    // version), so an unknown version must never be guessed. This projection is
+    // best-effort: an unresolvable version emits the PDU unsigned rather than
+    // signing bytes a peer cannot reproduce.
+    let Some(room_id) = pdu.get("room_id").and_then(Value::as_str) else {
+        ::tracing::warn!(
+            event_id = %event_id,
+            "projected PDU has no room_id — cannot resolve a room version; emitting unsigned"
+        );
+        return;
+    };
+    let room_version = match ctx.room_service.state().get_room_version(room_id).await {
+        Ok(Some(room_version)) => room_version,
+        Ok(None) => {
+            ::tracing::warn!(
+                event_id = %event_id,
+                room_id = %room_id,
+                "no room version recorded for room — refusing to sign; federation PDU will be emitted unsigned"
+            );
+            return;
+        }
+        Err(error) => {
+            ::tracing::warn!(
+                event_id = %event_id,
+                room_id = %room_id,
+                %error,
+                "failed to resolve room version — refusing to sign; federation PDU will be emitted unsigned"
+            );
+            return;
+        }
+    };
+
     let key = match ctx.key_rotation_manager.get_current_key().await {
         Ok(Some(key)) => key,
         Ok(None) => {
@@ -239,9 +271,13 @@ async fn sign_locally(ctx: &FederationContext, event_id: &str, pdu: &mut Value) 
         }
     };
 
-    if let Err(error) =
-        crate::federation::signing::sign_and_hash_event(&ctx.server_name, &key.key_id, &key.secret_key, pdu)
-    {
+    if let Err(error) = crate::federation::signing::sign_and_hash_event(
+        &room_version,
+        &ctx.server_name,
+        &key.key_id,
+        &key.secret_key,
+        pdu,
+    ) {
         ::tracing::warn!(
             event_id = %event_id,
             %error,

@@ -201,6 +201,41 @@ pub(crate) async fn get_effective_room_join_rule(ctx: &FederationContext, room_i
 /// re-signing is a downstream concern.
 pub(crate) async fn re_sign_pdu_locally(ctx: &FederationContext, event_id: &str, pdu: &mut Value) {
     let local_server = &ctx.server_name;
+
+    // Signature material is room-version dependent (the redaction applied before
+    // signing differs per version), so the version must be resolved, never
+    // guessed. Best-effort: if it cannot be resolved the event goes unsigned.
+    let Some(room_id) = pdu.get("room_id").and_then(Value::as_str) else {
+        ::tracing::warn!(
+            event_id = %event_id,
+            server_name = %local_server,
+            "F-03: PDU has no room_id — cannot resolve a room version; event will lack local signature"
+        );
+        return;
+    };
+    let room_version = match ctx.room_service.state().get_room_version(room_id).await {
+        Ok(Some(room_version)) => room_version,
+        Ok(None) => {
+            ::tracing::warn!(
+                event_id = %event_id,
+                server_name = %local_server,
+                room_id = %room_id,
+                "F-03: no room version recorded for room — refusing to sign; event will lack local signature"
+            );
+            return;
+        }
+        Err(e) => {
+            ::tracing::warn!(
+                event_id = %event_id,
+                server_name = %local_server,
+                room_id = %room_id,
+                error = %e,
+                "F-03: failed to resolve room version — refusing to sign; event will lack local signature"
+            );
+            return;
+        }
+    };
+
     let key = match ctx.key_rotation_manager.get_current_key().await {
         Ok(Some(k)) => k,
         Ok(None) => {
@@ -222,7 +257,9 @@ pub(crate) async fn re_sign_pdu_locally(ctx: &FederationContext, event_id: &str,
         }
     };
 
-    if let Err(e) = synapse_federation::signing::sign_and_hash_event(local_server, &key.key_id, &key.secret_key, pdu) {
+    if let Err(e) =
+        synapse_federation::signing::sign_and_hash_event(&room_version, local_server, &key.key_id, &key.secret_key, pdu)
+    {
         ::tracing::warn!(
             event_id = %event_id,
             server_name = %local_server,

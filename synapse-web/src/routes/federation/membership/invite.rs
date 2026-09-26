@@ -235,6 +235,7 @@ pub(crate) async fn exchange_third_party_invite(
     let local_server = &ctx.server_name;
     if let Ok(Some(key)) = ctx.key_rotation_manager.get_current_key().await {
         if let Err(e) = synapse_federation::signing::sign_and_hash_event(
+            &room_version,
             local_server,
             &key.key_id,
             &key.secret_key,

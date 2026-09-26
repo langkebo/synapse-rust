@@ -257,7 +257,8 @@ async fn test_send_transaction_with_signed_pdu_accepted() {
         "content": { "body": "hello", "msgtype": "m.text" }
     });
 
-    synapse_web::federation::signing::sign_and_hash_event("localhost", key_id, &signing_key_b64, &mut pdu).unwrap();
+    synapse_web::federation::signing::sign_and_hash_event("10", "localhost", key_id, &signing_key_b64, &mut pdu)
+        .unwrap();
 
     let body = json!({
         "origin": "localhost",
