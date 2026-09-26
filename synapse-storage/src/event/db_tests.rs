@@ -2764,3 +2764,296 @@ async fn test_soft_failed_events_hidden_from_all_consumer_read_paths() {
         "get_unread_counts_batch: the soft-failed loser must not inflate the notification count"
     );
 }
+
+// ---------------------------------------------------------------------------
+// C38-0：C38 转换前补齐"零覆盖"路径
+//
+// 背景：`event/basic.rs` / `event/redaction.rs` / `event/batch.rs` 三个文件本身没有测试，
+// 它们的 DB 往返集中在本文件里。C38 要转换的 25 处里，有 6 个方法在本文件中**零引用**
+// （`find_event_ids_for_redaction` 的 4 个时间窗分支 + `get_max_stream_ordering` /
+// `get_max_origin_server_ts_for_room` / `check_room_has_encryption` /
+// `get_pending_room_events` / `count_room_events_by_status`）—— 直接转换会重演 D-15.6
+// （宏只证明"能 describe"，证不了"行为没变"）。本段先把这 6 条路径补齐。
+// ---------------------------------------------------------------------------
+
+/// 插入一条最小 `events` 行（未列出的列走 schema 默认值）。
+#[allow(clippy::too_many_arguments)]
+async fn seed_event_row(
+    pool: &Pool<Postgres>,
+    room_id: &str,
+    event_id: &str,
+    event_type: &str,
+    ts: i64,
+    state_key: Option<&str>,
+    is_redacted: bool,
+    status: Option<&str>,
+    stream_ordering: Option<i64>,
+) {
+    sqlx::query(
+        r"
+        INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key,
+                           origin_server_ts, is_redacted, status, stream_ordering)
+        VALUES ($1, $2, '@sender:example.com', '@sender:example.com', $3, '{}'::jsonb, $4, $5, $6, $7, $8)
+        ",
+    )
+    .bind(event_id)
+    .bind(room_id)
+    .bind(event_type)
+    .bind(state_key)
+    .bind(ts)
+    .bind(is_redacted)
+    .bind(status)
+    .bind(stream_ordering)
+    .execute(pool)
+    .await
+    .expect("seed events row");
+}
+
+/// `find_event_ids_for_redaction` 的**四个时间窗分支**各走一遍：排除 `m.room.create`
+/// （否则撤销房间创建事件会毁掉房间）与已撤销事件；`before`/`after` 半开区间按
+/// `origin_server_ts` 过滤；`limit` 生效；结果按 ts 升序。
+#[tokio::test]
+async fn test_find_event_ids_for_redaction_covers_all_time_window_branches() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+    let room_id = format!("!c380_redact_{}:example.com", uuid::Uuid::new_v4());
+    ensure_test_room(&pool, &room_id).await;
+
+    seed_event_row(&pool, &room_id, "$c380_create:example.com", "m.room.create", 500, Some(""), false, None, Some(1))
+        .await;
+    seed_event_row(&pool, &room_id, "$c380_ev1000:example.com", "m.room.message", 1000, None, false, None, Some(2))
+        .await;
+    seed_event_row(&pool, &room_id, "$c380_ev2000:example.com", "m.room.message", 2000, None, false, None, Some(3))
+        .await;
+    // 已撤销：任何分支都不得返回。
+    seed_event_row(
+        &pool,
+        &room_id,
+        "$c380_ev2500_redacted:example.com",
+        "m.room.message",
+        2500,
+        None,
+        true,
+        None,
+        Some(4),
+    )
+    .await;
+    seed_event_row(&pool, &room_id, "$c380_ev3000:example.com", "m.room.message", 3000, None, false, None, Some(5))
+        .await;
+
+    let all = storage.find_event_ids_for_redaction(&room_id, None, None, 10).await.expect("(None, None) branch");
+    assert_eq!(
+        all,
+        vec!["$c380_ev1000:example.com", "$c380_ev2000:example.com", "$c380_ev3000:example.com"],
+        "排除 create 与已撤销，按 ts 升序"
+    );
+
+    let before_only =
+        storage.find_event_ids_for_redaction(&room_id, Some(3000), None, 10).await.expect("(Some, None) branch");
+    assert_eq!(before_only, vec!["$c380_ev1000:example.com", "$c380_ev2000:example.com"], "before 是严格小于");
+
+    let after_only =
+        storage.find_event_ids_for_redaction(&room_id, None, Some(1000), 10).await.expect("(None, Some) branch");
+    assert_eq!(after_only, vec!["$c380_ev2000:example.com", "$c380_ev3000:example.com"], "after 是严格大于");
+
+    let both =
+        storage.find_event_ids_for_redaction(&room_id, Some(3000), Some(1000), 10).await.expect("(Some, Some) branch");
+    assert_eq!(both, vec!["$c380_ev2000:example.com"], "双端都夹紧");
+
+    let limited = storage.find_event_ids_for_redaction(&room_id, None, None, 2).await.expect("limit branch");
+    assert_eq!(limited.len(), 2, "limit 必须生效");
+}
+
+/// `get_max_stream_ordering`：空表返回 0（`COALESCE(MAX(...), 0)`），否则取最大值。
+#[tokio::test]
+async fn test_get_max_stream_ordering_tracks_the_maximum() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+    assert_eq!(storage.get_max_stream_ordering().await.expect("empty"), 0, "空表必须是 0");
+
+    let room_id = format!("!c380_maxstream_{}:example.com", uuid::Uuid::new_v4());
+    ensure_test_room(&pool, &room_id).await;
+    seed_event_row(&pool, &room_id, "$c380_s5:example.com", "m.room.message", 1000, None, false, None, Some(5)).await;
+    seed_event_row(&pool, &room_id, "$c380_s9:example.com", "m.room.message", 2000, None, false, None, Some(9)).await;
+
+    assert_eq!(storage.get_max_stream_ordering().await.expect("max"), 9);
+}
+
+/// `get_max_origin_server_ts_for_room`：按房间隔离；未知房间返回 0。
+#[tokio::test]
+async fn test_get_max_origin_server_ts_for_room_is_scoped_to_the_room() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+    let room_a = format!("!c380_ts_a_{}:example.com", uuid::Uuid::new_v4());
+    let room_b = format!("!c380_ts_b_{}:example.com", uuid::Uuid::new_v4());
+    ensure_test_room(&pool, &room_a).await;
+    ensure_test_room(&pool, &room_b).await;
+
+    seed_event_row(&pool, &room_a, "$c380_a1:example.com", "m.room.message", 1111, None, false, None, Some(1)).await;
+    seed_event_row(&pool, &room_a, "$c380_a2:example.com", "m.room.message", 2222, None, false, None, Some(2)).await;
+    seed_event_row(&pool, &room_b, "$c380_b1:example.com", "m.room.message", 999, None, false, None, Some(3)).await;
+
+    assert_eq!(storage.get_max_origin_server_ts_for_room(&room_a).await.expect("room a"), 2222);
+    assert_eq!(storage.get_max_origin_server_ts_for_room(&room_b).await.expect("room b"), 999);
+    assert_eq!(storage.get_max_origin_server_ts_for_room("!c380_unknown:example.com").await.expect("unknown"), 0);
+}
+
+/// `check_room_has_encryption`：只有**带 state_key 的** `m.room.encryption` **状态事件**
+/// 才算数（同 event_type 的普通消息不算）。
+#[tokio::test]
+async fn test_check_room_has_encryption_requires_a_state_event() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+    let room_id = format!("!c380_enc_{}:example.com", uuid::Uuid::new_v4());
+    ensure_test_room(&pool, &room_id).await;
+
+    assert!(!storage.check_room_has_encryption(&room_id).await.expect("empty room"), "初始必须为 false");
+
+    // state_key 为 NULL 的同名事件不算（这是本方法区别于"看事件类型"的关键）。
+    seed_event_row(&pool, &room_id, "$c380_enc_msg:example.com", "m.room.encryption", 1000, None, false, None, Some(1))
+        .await;
+    assert!(
+        !storage.check_room_has_encryption(&room_id).await.expect("message-shaped event"),
+        "state_key IS NULL 的 m.room.encryption 不得算作已加密"
+    );
+
+    seed_event_row(
+        &pool,
+        &room_id,
+        "$c380_enc_state:example.com",
+        "m.room.encryption",
+        2000,
+        Some(""),
+        false,
+        None,
+        Some(2),
+    )
+    .await;
+    assert!(storage.check_room_has_encryption(&room_id).await.expect("state event"), "状态事件必须为 true");
+}
+
+/// `get_pending_room_events`：只取 `status = 'pending'`，按 ts 升序，`limit` 生效。
+#[tokio::test]
+async fn test_get_pending_room_events_filters_by_status_and_orders_by_ts() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+    let room_id = format!("!c380_pending_{}:example.com", uuid::Uuid::new_v4());
+    ensure_test_room(&pool, &room_id).await;
+
+    seed_event_row(
+        &pool,
+        &room_id,
+        "$c380_p2000:example.com",
+        "m.room.message",
+        2000,
+        None,
+        false,
+        Some("pending"),
+        Some(3),
+    )
+    .await;
+    seed_event_row(
+        &pool,
+        &room_id,
+        "$c380_p1000:example.com",
+        "m.room.message",
+        1000,
+        None,
+        false,
+        Some("pending"),
+        Some(1),
+    )
+    .await;
+    seed_event_row(
+        &pool,
+        &room_id,
+        "$c380_sent:example.com",
+        "m.room.message",
+        500,
+        None,
+        false,
+        Some("sent"),
+        Some(2),
+    )
+    .await;
+
+    let pending = storage.get_pending_room_events(&room_id, 10).await.expect("pending list");
+    let ids: Vec<&str> = pending.iter().map(|e| e.event_id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec!["$c380_p1000:example.com", "$c380_p2000:example.com"],
+        "只含 pending，按 ts 升序；sent 必须被排除"
+    );
+    // 顺带钉住投影里的兜底表达式（`COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self')` 等）。
+    assert_eq!(pending[0].status.as_deref(), Some("pending"));
+    assert!(!pending[0].origin.is_empty(), "origin 兜底后不得为空");
+
+    let limited = storage.get_pending_room_events(&room_id, 1).await.expect("limited");
+    assert_eq!(limited.len(), 1);
+    assert_eq!(limited[0].event_id, "$c380_p1000:example.com");
+}
+
+/// `count_room_events_by_status`：同时按房间与状态收敛。
+#[tokio::test]
+async fn test_count_room_events_by_status_scopes_room_and_status() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+    let room_a = format!("!c380_cnt_a_{}:example.com", uuid::Uuid::new_v4());
+    let room_b = format!("!c380_cnt_b_{}:example.com", uuid::Uuid::new_v4());
+    ensure_test_room(&pool, &room_a).await;
+    ensure_test_room(&pool, &room_b).await;
+
+    seed_event_row(
+        &pool,
+        &room_a,
+        "$c380_a1:example.com",
+        "m.room.message",
+        1000,
+        None,
+        false,
+        Some("pending"),
+        Some(1),
+    )
+    .await;
+    seed_event_row(
+        &pool,
+        &room_a,
+        "$c380_a2:example.com",
+        "m.room.message",
+        2000,
+        None,
+        false,
+        Some("pending"),
+        Some(2),
+    )
+    .await;
+    seed_event_row(
+        &pool,
+        &room_a,
+        "$c380_a3:example.com",
+        "m.room.message",
+        3000,
+        None,
+        false,
+        Some("failed"),
+        Some(3),
+    )
+    .await;
+    seed_event_row(
+        &pool,
+        &room_b,
+        "$c380_b1:example.com",
+        "m.room.message",
+        1000,
+        None,
+        false,
+        Some("pending"),
+        Some(4),
+    )
+    .await;
+
+    assert_eq!(storage.count_room_events_by_status(&room_a, "pending").await.expect("a/pending"), 2);
+    assert_eq!(storage.count_room_events_by_status(&room_a, "failed").await.expect("a/failed"), 1);
+    assert_eq!(storage.count_room_events_by_status(&room_b, "pending").await.expect("b/pending"), 1);
+    assert_eq!(storage.count_room_events_by_status(&room_b, "failed").await.expect("b/failed"), 0);
+}

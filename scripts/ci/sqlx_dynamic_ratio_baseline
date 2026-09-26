@@ -2291,12 +2291,21 @@
 #     不需要断言）—— 与"无关系来源一律推可空"的规则一致。
 #   · `dynamic_production` 363 → **348**（−15）；`static` 1105 → **1120**（+15）
 #   · `dynamic` 总数 1078 → **1063**；`dynamic_test` 715 不变；`.sqlx` 1073 → **1088**（+15 / 0 删除）
+# ── 2026-09-26 C38-0（event 域转换前先补覆盖；测试动态 +1）──────────────────────
+# C38 要转换的 25 处里，6 个方法在 `synapse-storage/src/event/db_tests.rs` 中**零引用**
+# （`find_event_ids_for_redaction` 的 4 个时间窗分支 + `get_max_stream_ordering` /
+# `get_max_origin_server_ts_for_room` / `check_room_has_encryption` /
+# `get_pending_room_events` / `count_room_events_by_status`）；直接转换会重演 D-15.6。
+# 本批补 6 条真 baseline 用例，共用一个夹具 `seed_event_row`（1 处动态 INSERT；
+# `#[cfg(test)]` 内的宏不进 `cargo sqlx prepare`，按 D-13/R9 保持动态）。
+#   · `dynamic_production` 348 **不变**（本批未动生产 SQL）
+#   · `dynamic_test` 715 → **716**；`dynamic` 总数 1063 → **1064**；`static` 1120 不变
 BASELINE_QUERY_BUILDER=18
 BASELINE_DYNAMIC_PRODUCTION=348
-BASELINE_DYNAMIC_TEST_INFRA=715
+BASELINE_DYNAMIC_TEST_INFRA=716
 BASELINE_STATIC=1120
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1063
+BASELINE_DYNAMIC=1064
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
