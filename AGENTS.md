@@ -120,13 +120,14 @@ start the stack **by these service names**) and `docker/deploy/docker-compose.ym
 一律以 `docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md` **§0 的实测表**为准（D-16 型
 "双份计数漂移"已发生过一次）。真正值得记住的不是数字：动态 `.bind()` + `FromRow` 会把列名、
 列类型、可空性一路吞到运行期，而 `query!` / `query_as!` 连的是**真库 catalog** —— 一旦改成宏，
-这些错误在**编译期**就被证伪。该战役因此挖出 **59 条**既有缺陷，其中十余条是
+这些错误在**编译期**就被证伪。该战役因此挖出 **64 条**既有缺陷（**已关闭 51 条**），其中十余条是
 "真 schema 下必然失败"（列名写错、INSERT 漏 NOT NULL 列、两个已注册管理路由背靠一张
 **不存在的表**、`sent_at` 从不写入导致清理**恒删 0 行**、`WHERE $2 != '[]'` 对 `text[]`
 在 **prepare 阶段**就报 22P02 导致整条 DAG 写入必败）。
 
-> **唯一登记处**：`docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md` **§7**。
-> 新发现的问题追加到那里；状态计数也以 §7 表为准。不要在别处再开第二份清单。
+> **唯一登记处**：`docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md` **§7**（**只登记未关闭项
+> 与结构性保留**；已关闭项的明细在 `docs/synapse-rust/archive/SQLX_STATICIZATION_PLAN_2026-09-23_HISTORY.md`
+> 的 §7.2，冻结不再更新）。新发现的问题追加到 §7；状态计数也以 §7 表为准 —— 不要在别处再开第二份清单。
 
 本节规则的目标：**别再制造新的同类缺陷，也别让已经修好的面退化。**
 
@@ -257,7 +258,9 @@ cargo nextest run -p <crate> --lib --features test-utils -E 'test(/<module>/)'
 ### R11　门禁自身必须可信
 
 - **红着的门禁等于没有门禁**。新增/修改任何守卫、棘轮、脚本，都要**用故意制造的违规证明它
-  会失败**，并把该实验写进提交信息或 §8.x —— 本战役一共撞到 **5 次门禁失效**
+  会失败**，并把该实验写进提交信息或 `docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md`
+  （历史批次记录在 `docs/synapse-rust/archive/SQLX_STATICIZATION_PLAN_2026-09-23_HISTORY.md` 的 §8.x）
+  —— 本战役一共撞到 **5 次门禁失效**
   （3 次红：D-50 / D-52 / D-56；2 次假绿：D-51 / D-57），其中两次是**长期存在**的。
 - 遇到与本批无关的**既有红门禁**：按"先修再转"**独立提交**修掉，不得绕过、不得加
   `#[allow]` 放宽 lint。
@@ -278,6 +281,9 @@ cargo nextest run -p <crate> --lib --features test-utils -E 'test(/<module>/)'
 不要在 baseline 脚本或别的文档里再开第二份清单；状态计数一律以 §7 表为准
 （已修 / 部分已修 / 未修 / 结构性保留 / 文档级），不要在别处另算一套 ——
 双份计数已导致过 D-16 型漂移。
+缺陷关闭后，其逐条明细移入
+`docs/synapse-rust/archive/SQLX_STATICIZATION_PLAN_2026-09-23_HISTORY.md` 的 §7.2，
+**§7 只保留未关闭项与结构性保留**（关闭项不再占正文篇幅，但仍可在 HISTORY 里按编号查到）。
 
 ## High-level architecture
 
