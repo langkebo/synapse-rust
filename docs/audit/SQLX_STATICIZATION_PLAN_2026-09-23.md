@@ -3855,6 +3855,11 @@ let row = sqlx::query_as!(T, r#"…"#).bind(..).fetch_one(&mut *conn).await?;
 `synapse-storage/src/retention.rs`（12）、`synapse-e2ee/src/to_device/storage.rs`（12）、
 `synapse-storage/src/relations/mod.rs`（11）、`synapse-storage/src/push/mod.rs`（11）、
 `synapse-storage/src/media/chunked_upload.rs`（11）、`synapse-storage/src/matrixrtc.rs`（11）。
+> 该清单**只列可静态化的头部**，两类不计入（否则会误导下一批去动不该动的文件）：
+> **结构性保留**（`event/pagination.rs` 15 = 9 runtime 游标/`ORDER BY` 方向 + 6 literal，
+> 见 §2 的收紧方向）与**测试基建**（`synapse-test-utils/src/lib.rs` 28、
+> `synapse-common/src/test_isolation.rs` 25、`test_schema_guard.rs`，按 D-13/D-14 保持动态）。
+> 逐文件计数与 499 的总数可一并复现（`--list-production-dynamic`）。
 
 **下一批建议**：
 1. **D-57②（seed 侧收敛 `public`）** —— 它是 §7 表里**"部分已修"两行之一**的剩余半；
