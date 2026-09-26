@@ -169,6 +169,28 @@ git worktree list             # 另有 .worktrees/c19b（同 HEAD）、/Users/lj
 | `sqlx_dynamic_literal_guard`（unit） | `synapse-storage/src/event/depth.rs:41` 1 > 基线 0 | 既有（本会话未触碰该文件） |
 | 集成 7 例 | 见 §0.4 集成行 | 路由 manifest 通配符代理路由、`/versions`+`/capabilities` 快照、线程路由、`auth_issuer` 摘路由漏改用例（`76e5f9136`） |
 
+**本会话最终门禁快照（`opt/consolidated` @ `07164ce07`，2026-09-26 08:28）**
+
+| 门禁 | 结果 |
+|---|---|
+| fmt 棘轮 | `current=0` ✅ |
+| clippy（`--workspace --all-targets --features test-utils --all-features -D warnings`） | exit 0 ✅ |
+| lib 全量 | **6358 / 6358 passed，0 skipped** ✅（U-20 修复后复跑仍全绿） |
+| unit 全量 | 1773 / 1777 passed（4 红＝已逐项归因的 SQLx 棘轮：生产 +3 既有、测试 +2 ＝既有 +1 + U-3 夹具 +1、字面量守卫仅 `event/depth.rs` 既有） |
+| 集成分块 | 1/6 **235/241**、2/6 **236/241**（均在 U-20 之前）、3/6 **240/241**（U-20 之后，唯一红为既有路由 manifest 通配符项）；4/6 运行中 |
+| 受影响面集成 | media+quota **34/34**、扫描文件 **11/11**、federation_transaction+create_room **15/15** |
+
+**本会话新登记的发现（U-16…U-21）**
+
+| 编号 | 摘要 | 状态 |
+|---|---|---|
+| U-16 | `AuthEventBuilder` 零调用点的重复实现 + `@@user:server` 查找缺陷（creator 的 member 认证事件被静默丢弃） | 逻辑已修 `b83cbcaac`；**删除/收敛待办** |
+| U-17 | 本机 `public` 未按 baseline 播种会让 `schema_validator::db_tests` 假红 | 已按 `RESET_PUBLIC=0` 播种（222 表） |
+| U-18 | 扫描失败状态码文档(502)与实现(503)矛盾 + 3 条从未通过的扫描用例 | 已修 `94fc91442`（新增 `BadGateway`） |
+| U-19 | U-1 的 MSC3912 实现 8 点对照：无逐事件授权检查、无有效性校验、空列表 400、`redacted_by` 丢失、无联邦晚到补撤、通配多匹配 `m.in_reply_to`、只清本地内容、缺 GIN 索引 | **未修**（属并发会话交付物；按表登记） |
+| U-20 | **出厂默认（扫描关闭）下发消息恒 501** 的 P0；上传路径已修、发送路径没跟上 | 已修 `a6a77ac03`（11 条既有红转绿，含变异自证与定点回归用例） |
+| U-21 | 并发会话在途签名计划 §1.2 与上游相反（不 redact、含 `event_id`） | **未修**（其文件在途；已给纠正与验收向量） |
+
 **复验命令（本会话实际用过，逐字可跑）**
 
 ```bash
