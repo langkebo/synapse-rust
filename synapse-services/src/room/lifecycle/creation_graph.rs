@@ -23,6 +23,14 @@
 //! records the event as the new DAG tip and as the occupant of its
 //! `(type, state_key)` slot.
 //!
+//! Event identity is owned by the write path, not by this tracker
+//! (decision §4.1): for v3+ the write path replaces the caller's pre-write
+//! placeholder with the reference-hash ID, which is only known once the row is
+//! written. A caller must therefore call [`CreationGraph::rekey_last`] with the
+//! ID the write returned **before** the next [`CreationGraph::next`], so the
+//! recorded tip/state name rows that exist and later events' `prev_events` /
+//! `auth_events` cannot dangle.
+//!
 //! # Bounded scope
 //!
 //! This covers the events a creation transaction emits. Later events in the
@@ -76,6 +84,28 @@ impl CreationGraph {
         self.depth = depth;
 
         EventGraphMetadata { room_version: self.room_version.clone(), prev_events, auth_events, depth }
+    }
+
+    /// Re-points the most recently recorded event at the ID it was **persisted**
+    /// under.
+    ///
+    /// [`CreationGraph::next`] records its `event_id` argument *before* the
+    /// write, but the write path owns identity: for v3+ the decorator replaces
+    /// the caller's placeholder with the reference-hash ID
+    /// (`GraphMetadataWriter::create_event_with_pdu`), which the caller only
+    /// learns from the returned row. Handing that returned ID here keeps the
+    /// ordering contract intact — the tip and, for a state event, the
+    /// `(type, state_key)` slot name the row that exists, so the next event's
+    /// `prev_events` / `auth_events` reference real rows. For v1/v2 the
+    /// server-assigned ID is already final and this is a no-op re-insert.
+    ///
+    /// Must be called at most once after each [`CreationGraph::next`], before
+    /// the next one.
+    pub(crate) fn rekey_last(&mut self, persisted_event_id: &str, event_type: &str, state_key: Option<&str>) {
+        if let Some(state_key) = state_key {
+            self.state.insert(event_type, state_key, persisted_event_id);
+        }
+        self.tip = Some(persisted_event_id.to_string());
     }
 }
 
@@ -167,5 +197,34 @@ mod tests {
         // invite selects join_rules — absent at this point in the sequence — so
         // it is skipped rather than fabricated.
         assert_eq!(invite.auth_events, vec!["$create".to_string(), "$member".to_string()]);
+    }
+
+    /// Decision §4.1: for v3+ the write path replaces the pre-write placeholder
+    /// with the reference-hash ID. `rekey_last` must make the graph name the
+    /// row that was persisted, so the next event chains onto it.
+    #[test]
+    fn rekey_last_repoints_the_tip_and_state_to_the_persisted_id() {
+        let mut graph = CreationGraph::new("11");
+        graph.next("$placeholder-create:localhost", "m.room.create", Some(""), ALICE, &json!({}));
+        graph.rekey_last("$final-create", "m.room.create", Some(""));
+
+        // The next event's `prev_events` is the finalized id, not the placeholder.
+        let member = graph.next("$placeholder-member:localhost", "m.room.member", Some(ALICE), ALICE, &json!({}));
+        assert_eq!(member.prev_events, vec!["$final-create".to_string()]);
+        // ...and the create event it authorises against is the finalized one too.
+        assert_eq!(member.auth_events, vec!["$final-create".to_string()]);
+    }
+
+    /// v1/v2 keep their server-assigned ID, so the rekey must be a harmless
+    /// re-insert rather than a rewrite.
+    #[test]
+    fn rekey_last_is_a_no_op_when_the_id_is_already_final() {
+        let mut graph = CreationGraph::new("1");
+        graph.next("$0:localhost", "m.room.create", Some(""), ALICE, &json!({}));
+        graph.rekey_last("$0:localhost", "m.room.create", Some(""));
+
+        let member = graph.next("$1:localhost", "m.room.member", Some(ALICE), ALICE, &json!({}));
+        assert_eq!(member.prev_events, vec!["$0:localhost".to_string()]);
+        assert_eq!(member.auth_events, vec!["$0:localhost".to_string()]);
     }
 }

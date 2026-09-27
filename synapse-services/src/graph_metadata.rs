@@ -49,8 +49,9 @@
 //! production transactional local write is `MessagingService::send_message`
 //! (DB-03-a), which writes just the event row and its relation index and goes
 //! through `create_event_with_pdu`; room creation
-//! (`LifecycleService::write_creation_event`) goes through
-//! `create_event_with_graph`.
+//! (`LifecycleService::write_creation_event`) does too — it re-points its
+//! `CreationGraph` at the ID this path returns, so the next creation event's
+//! `prev_events` names the row that exists.
 //!
 //! # Failure policy
 //!

@@ -134,7 +134,7 @@ pub(crate) async fn send_leave_v2(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
-    if !room_id.starts_with('!') || !room_id.contains(':') {
+    if !synapse_common::room_id::is_well_formed_room_id(&room_id) {
         return Err(ApiError::bad_request("Invalid room_id format"));
     }
 

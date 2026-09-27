@@ -46,7 +46,6 @@ pub struct Validator {
     username_regex: Regex,
     email_regex: Regex,
     matrix_id_regex: Regex,
-    room_id_regex: Regex,
     device_id_regex: Regex,
     url_regex: Regex,
 }
@@ -59,7 +58,6 @@ impl Validator {
             username_regex: Regex::new(r"^[a-z0-9._=\-]{1,255}$")?,
             email_regex: Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")?,
             matrix_id_regex: Regex::new(r"^@[a-z0-9._=\-]+:[a-zA-Z0-9.-]+$")?,
-            room_id_regex: Regex::new(r"^![a-zA-Z0-9._=\-]+:[a-zA-Z0-9.-]+$")?,
             device_id_regex: Regex::new(r"^[a-zA-Z0-9._\-]{1,255}$")?,
             url_regex: Regex::new(r"^https?://[a-zA-Z0-9.-]+(:[0-9]+)?(/.*)?$")?,
         })
@@ -179,16 +177,20 @@ impl Validator {
     }
 
     /// Validates the room.
+    ///
+    /// Accepts **both** Matrix room-ID forms (see [`crate::room_id`]): the
+    /// legacy `!opaque:server` used by room versions 1–11 and the domainless
+    /// `!` + 43 unpadded URL-safe base64 characters form that room version 12
+    /// (MSC4291) introduced. The decision is delegated to the shared grammar so
+    /// this validator and the route-layer one cannot drift.
     pub fn validate_room_id(&self, room_id: &str) -> ValidationResult {
         if room_id.is_empty() {
             return Err(ValidationError::new("room_id", "Room ID cannot be empty", "EMPTY"));
         }
 
-        if !self.room_id_regex.is_match(room_id) {
-            return Err(ValidationError::new("room_id", "Invalid room ID format", "INVALID_FORMAT"));
-        }
-
-        Ok(())
+        crate::room_id::parse_room_id(room_id)
+            .map(|_| ())
+            .map_err(|_| ValidationError::new("room_id", "Invalid room ID format", "INVALID_FORMAT"))
     }
 
     /// Validates the device.
@@ -323,7 +325,6 @@ impl Validator {
             username_regex: Regex::new(r"^[a-zA-Z0-9_.-]+$").expect("hardcoded fallback regex is syntactically valid"),
             email_regex: Regex::new(r"^[^@]+@[^@]+\.[^@]+$").expect("hardcoded fallback regex is syntactically valid"),
             matrix_id_regex: Regex::new(r"^@[^:]+:[^:]+$").expect("hardcoded fallback regex is syntactically valid"),
-            room_id_regex: Regex::new(r"^![^:]+:[^:]+$").expect("hardcoded fallback regex is syntactically valid"),
             device_id_regex: Regex::new(r"^[a-zA-Z0-9._\-]+$")
                 .expect("hardcoded fallback regex is syntactically valid"),
             url_regex: Regex::new(r"^https?://.+").expect("hardcoded fallback regex is syntactically valid"),
@@ -563,6 +564,32 @@ mod tests {
         let validator = Validator::new().unwrap();
         assert!(validator.validate_room_id("!abc123:example.com").is_ok());
         assert!(validator.validate_room_id("!room_id:server.org").is_ok());
+    }
+
+    /// MSC4291 / room v12: the domainless form (`!` + 43 URL-safe base64 chars,
+    /// no `:domain`) is a valid room ID and must be accepted alongside the
+    /// legacy `!opaque:server` form (upstream `RoomID.is_valid` dispatches on
+    /// the presence of `:`).
+    #[test]
+    fn test_validate_room_id_accepts_domainless_v12_form() {
+        let validator = Validator::new().unwrap();
+        let msc4291 = "!31hneApxJ_1o-63DmFrpeqnkFfWppnzWso1JvH3ogLM";
+        assert!(validator.validate_room_id(msc4291).is_ok(), "domainless (room v12) room id must be valid");
+    }
+
+    /// A malformed domainless shape must still be rejected: the acceptance
+    /// above must not have degenerated into "no colon ⇒ anything goes".
+    #[test]
+    fn test_validate_room_id_rejects_malformed_domainless_form() {
+        let validator = Validator::new().unwrap();
+        // 42 and 44 chars.
+        assert!(validator.validate_room_id(&format!("!{}", "A".repeat(42))).is_err());
+        assert!(validator.validate_room_id(&format!("!{}", "A".repeat(44))).is_err());
+        // Characters outside [A-Za-z0-9-_].
+        assert!(validator.validate_room_id(&format!("!{}A", "+".repeat(42))).is_err());
+        assert!(validator.validate_room_id(&format!("!{}A", "/".repeat(42))).is_err());
+        // Empty legacy domain must stay rejected.
+        assert!(validator.validate_room_id("!opaque:").is_err());
     }
 
     #[test]

@@ -428,7 +428,7 @@ pub(super) async fn timestamp_to_event(
     Path(room_id): Path<RoomId>,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    if !room_id.starts_with('!') || !room_id.contains(':') {
+    if !synapse_common::room_id::is_well_formed_room_id(&room_id) {
         return Err(ApiError::bad_request("Invalid room_id format"));
     }
 
@@ -478,7 +478,7 @@ pub(super) async fn get_room_hierarchy(
     Path(room_id): Path<RoomId>,
     Query(params): Query<FederationHierarchyQueryParams>,
 ) -> Result<Json<Value>, ApiError> {
-    if !room_id.starts_with('!') || !room_id.contains(':') {
+    if !synapse_common::room_id::is_well_formed_room_id(&room_id) {
         return Err(ApiError::bad_request("Invalid room_id format"));
     }
 

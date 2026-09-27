@@ -28,6 +28,23 @@ use crate::room::summary::RoomSummaryService;
 // existing intra-crate call sites and `super::*` test imports unchanged.
 pub(crate) use crate::room::join_rules::extract_allowed_join_rooms;
 
+/// Where a room is hosted, as decided by [`MembershipService::room_locality`]
+/// from the room's ownership records — never from the room id's spelling.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RoomLocality {
+    /// This homeserver hosts the room: the `m.room.create` event that founded
+    /// it originated here (or the locally recorded creator is local).
+    Local,
+    /// Another homeserver hosts the room. `destinations` are the resident
+    /// servers to contact, best candidate first. It is empty when this server
+    /// holds no ownership record and knows of no joined resident — callers must
+    /// fail in that case, never fall back to the local path.
+    Remote {
+        /// The resident servers to contact, best candidate first.
+        destinations: Vec<String>,
+    },
+}
+
 /// Domain service for room membership operations — join, leave, invite,
 /// kick, ban, unban, knock, forget, and federation membership.
 #[derive(Clone)]
@@ -201,26 +218,115 @@ impl MembershipService {
     // Federation helpers (used by federation_membership)
     // =========================================================================
 
-    /// Extract the server name from a Matrix ID (`@user:server` or `!room:server`).
-    pub(crate) fn server_name_from_id(id: &str) -> Option<&str> {
-        id.rsplit_once(':').map(|(_, server)| server)
+    /// Extract the server name from a **user** id (`@localpart:server`).
+    ///
+    /// User ids always carry a `:server`, so parsing them is sound. Room ids do
+    /// **not**: a room v12 (MSC4291) id is `!` + 43 URL-safe base64 characters
+    /// with no server part at all, and even a legacy room id's embedded server
+    /// is not necessarily the server that hosts the room. Locality is therefore
+    /// decided from the room's ownership records ([`Self::room_locality`]), and
+    /// this helper is deliberately named for user ids only (G-21).
+    pub(crate) fn user_server_name(user_id: &str) -> Option<&str> {
+        user_id.rsplit_once(':').map(|(_, server)| server)
     }
 
-    /// Return `true` if the given Matrix ID belongs to a remote server.
-    pub(crate) fn is_remote_id(id: &str, local_server: &str) -> bool {
-        Self::server_name_from_id(id).is_some_and(|srv| srv != local_server)
+    /// Return `true` if the given **user** id belongs to a remote server.
+    pub(crate) fn is_remote_user_id(user_id: &str, local_server: &str) -> bool {
+        Self::user_server_name(user_id).is_some_and(|srv| srv != local_server)
     }
 
     /// Check if a user ID belongs to a remote server (relative to this
     /// homeserver).
     pub fn is_remote_user(&self, user_id: &str) -> bool {
-        Self::is_remote_id(user_id, &self.server_name)
+        Self::is_remote_user_id(user_id, &self.server_name)
     }
 
-    /// Check if a room ID belongs to a remote server (relative to this
-    /// homeserver).
-    pub fn is_remote_room(&self, room_id: &str) -> bool {
-        Self::is_remote_id(room_id, &self.server_name)
+    /// The server that hosts `room_id`, or `None` when this homeserver holds no
+    /// ownership record for the room.
+    ///
+    /// The room's **own records** are the only sound source (the id's spelling
+    /// carries no server for a v12 room, and a legacy id's domain is not
+    /// necessarily where the room lives):
+    ///
+    /// 1. the `m.room.create` event — its sender's server is the room's origin
+    ///    server for every room version (`content.creator` for v1–v10, the event
+    ///    sender from v11 on, which is also how `AuthService::resolve_room_creator`
+    ///    reads it);
+    /// 2. only if no create event is stored, the `rooms` row's recorded creator
+    ///    (`creator_user_id` — a user id, so it always names a server).
+    ///
+    /// The `rooms` row is a fallback, never the primary signal: for a room this
+    /// server joined over federation its `creator` column records the *local*
+    /// joining user, not the room's real creator (see
+    /// `join_room_via_federation`), so creator alone would call every
+    /// federated room local.
+    async fn room_origin_server(&self, room_id: &str) -> ApiResult<Option<String>> {
+        let create_events = self
+            .event_reader
+            .get_state_events_by_type(room_id, "m.room.create")
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to read the room's create event", e))?;
+        if let Some(event) = create_events.first() {
+            // v1–v10 carry the creator in `content.creator`; v11+ removed it and
+            // the create event's sender is the creator (same order as
+            // `AuthService::resolve_room_creator`).
+            let creator = event.content.get("creator").and_then(|c| c.as_str()).map(str::to_string).or_else(|| {
+                if event.sender.is_empty() {
+                    event.user_id.clone()
+                } else {
+                    Some(event.sender.clone())
+                }
+            });
+            if let Some(server) = creator.as_deref().and_then(Self::user_server_name) {
+                return Ok(Some(server.to_string()));
+            }
+        }
+
+        let room = self
+            .room_storage
+            .get_room(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to load the room record", e))?;
+        Ok(room.and_then(|r| r.creator_user_id).and_then(|c| Self::user_server_name(&c).map(str::to_string)))
+    }
+
+    /// The resident servers a remote room can be reached through: the room's
+    /// origin server first (it is a resident by construction), then every other
+    /// server with a joined member as known locally. Order is preserved and
+    /// duplicates (and this server) are removed.
+    async fn resident_servers(&self, room_id: &str, origin: Option<String>) -> ApiResult<Vec<String>> {
+        let mut destinations: Vec<String> = origin.into_iter().collect();
+        let joined = self
+            .member_storage
+            .get_joined_servers_in_room(room_id, &self.server_name)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to list the room's joined servers", e))?;
+        for server in joined {
+            if server != self.server_name && !destinations.contains(&server) {
+                destinations.push(server);
+            }
+        }
+        Ok(destinations)
+    }
+
+    /// Where `room_id` is hosted, decided from the room's ownership records —
+    /// never from the spelling of its id (G-21).
+    ///
+    /// **Fail-closed**: a room this server has no ownership record for, or whose
+    /// creator is unrecorded, is *remote*. The local leave path rewrites this
+    /// server's membership record for the room, so it must only ever run for a
+    /// room we host; a room we cannot prove we host is treated as remote
+    /// instead. Remote calls carry the resident servers to contact, best
+    /// candidate first — the list may be empty, and then the caller must fail
+    /// rather than fall back to the local path.
+    pub async fn room_locality(&self, room_id: &str) -> ApiResult<RoomLocality> {
+        let Some(origin) = self.room_origin_server(room_id).await? else {
+            return Ok(RoomLocality::Remote { destinations: self.resident_servers(room_id, None).await? });
+        };
+        if origin == self.server_name {
+            return Ok(RoomLocality::Local);
+        }
+        Ok(RoomLocality::Remote { destinations: self.resident_servers(room_id, Some(origin)).await? })
     }
 
     /// Get the federation client, returning an error if not configured.
@@ -642,64 +748,67 @@ mod tests {
     use super::*;
     use crate::room::join_rules::is_valid_matrix_id;
 
-    // ── server_name_from_id ────────────────────────────────────────
+    // ── user_server_name ───────────────────────────────────────────
 
     #[test]
-    fn server_name_from_user_id() {
-        assert_eq!(MembershipService::server_name_from_id("@user:myserver.com"), Some("myserver.com"));
+    fn user_server_name_from_user_id() {
+        assert_eq!(MembershipService::user_server_name("@user:myserver.com"), Some("myserver.com"));
+    }
+
+    /// A room v12 / MSC4291 id is `!` + 43 URL-safe base64 characters and has
+    /// no `:server` at all, so no string parse can name a server for it. That is
+    /// exactly why locality must come from the room's ownership records (G-21).
+    #[test]
+    fn domainless_room_id_has_no_parseable_server() {
+        assert_eq!(MembershipService::user_server_name("!AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"), None);
     }
 
     #[test]
-    fn server_name_from_room_id() {
-        assert_eq!(MembershipService::server_name_from_id("!room:myserver.com"), Some("myserver.com"));
+    fn user_server_name_no_colon() {
+        assert_eq!(MembershipService::user_server_name("justastring"), None);
     }
 
     #[test]
-    fn server_name_from_id_no_colon() {
-        assert_eq!(MembershipService::server_name_from_id("justastring"), None);
+    fn user_server_name_empty() {
+        assert_eq!(MembershipService::user_server_name(""), None);
     }
 
     #[test]
-    fn server_name_from_id_empty() {
-        assert_eq!(MembershipService::server_name_from_id(""), None);
-    }
-
-    #[test]
-    fn server_name_from_id_multiple_colons() {
+    fn user_server_name_multiple_colons() {
         // rsplit_once picks the last colon
-        assert_eq!(MembershipService::server_name_from_id("@user:sub:server.com"), Some("server.com"));
+        assert_eq!(MembershipService::user_server_name("@user:sub:server.com"), Some("server.com"));
     }
 
     #[test]
-    fn server_name_from_id_trailing_colon() {
-        assert_eq!(MembershipService::server_name_from_id("text:"), Some(""));
+    fn user_server_name_trailing_colon() {
+        assert_eq!(MembershipService::user_server_name("text:"), Some(""));
     }
 
     #[test]
-    fn server_name_from_id_leading_colon() {
-        assert_eq!(MembershipService::server_name_from_id(":text"), Some("text"));
+    fn user_server_name_leading_colon() {
+        assert_eq!(MembershipService::user_server_name(":text"), Some("text"));
     }
 
-    // ── is_remote_id ───────────────────────────────────────────────
+    // ── is_remote_user_id ──────────────────────────────────────────
 
     #[test]
-    fn is_remote_id_true_for_other_server() {
-        assert!(MembershipService::is_remote_id("@user:other.com", "myserver.com"));
-    }
-
-    #[test]
-    fn is_remote_id_false_for_local_server() {
-        assert!(!MembershipService::is_remote_id("@user:myserver.com", "myserver.com"));
+    fn is_remote_user_id_true_for_other_server() {
+        assert!(MembershipService::is_remote_user_id("@user:other.com", "myserver.com"));
     }
 
     #[test]
-    fn is_remote_id_false_when_no_server_name() {
-        assert!(!MembershipService::is_remote_id("no_colon", "myserver.com"));
+    fn is_remote_user_id_false_for_local_server() {
+        assert!(!MembershipService::is_remote_user_id("@user:myserver.com", "myserver.com"));
     }
 
     #[test]
-    fn is_remote_id_false_for_empty_id() {
-        assert!(!MembershipService::is_remote_id("", "myserver.com"));
+    fn is_remote_user_id_false_when_no_server_name() {
+        assert!(!MembershipService::is_remote_user_id("no_colon", "myserver.com"));
+    }
+
+    #[test]
+    fn is_remote_user_id_false_for_empty_id() {
+        assert!(!MembershipService::is_remote_user_id("", "myserver.com"));
     }
 
     // ── extract_allowed_join_rooms / is_valid_matrix_id (MSC3083) ───────

@@ -509,7 +509,7 @@ impl MembershipService {
     /// 4. The remote server signs the event and returns it.
     /// 5. Persist the signed event locally.
     pub async fn invite_user_via_federation(&self, room_id: &str, inviter_id: &str, invitee_id: &str) -> ApiResult<()> {
-        let destination = Self::server_name_from_id(invitee_id)
+        let destination = Self::user_server_name(invitee_id)
             .ok_or_else(|| ApiError::bad_request("Invalid invitee ID: missing server name".to_string()))?
             .to_string();
 
