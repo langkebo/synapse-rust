@@ -107,10 +107,20 @@ pub const SUPPORTED_ROOM_VERSIONS: &[RoomVersionCapability] = &[
     // (which grants self-redact for room versions >= 11), so v11 can be
     // advertised as creatable.
     //
-    // v12: 启用了完整的 PDU 字段（depth/prev_events/auth_events）和 ED25519-only 验证
-    // 根据 O-1 Phase 1 实现（参考 V12_ROOM_VERSION_AND_ANIMATED_THUMBNAIL_IMPLEMENTATION_PLAN.md）
+    // ⚠️ v12 现状（2026-09-27 核实）：v12 由 **MSC4304** 定义 = room v11 + MSC4289（创建者特权）
+    // + MSC4291（room ID = create 事件的哈希）+ MSC4297（State Resolution v2.1）
+    // + MSC4307（校验 `auth_events` 属于同一房间）。本仓这**四个都没有实现**，但自 O-1 Phase 1
+    // 起已在此放开创建、并把它设为 `DEFAULT_ROOM_VERSION`：本机创建的 v12 房间会拿到
+    // **随机** room ID（`crypto.rs::generate_room_id`），与 v12 对端"room ID = create 事件哈希"
+    // 的期望不符。修复前不要把 v12 当成可安全创建；详见
+    // `docs/audit/REMAINING_ISSUES_VERIFICATION_AND_OPTIMIZATION_PLAN_2026-09-25.md` 的 U-22
+    // 与 `docs/audit/V12_ROOM_VERSION_AND_ANIMATED_THUMBNAIL_IMPLEMENTATION_PLAN.md` §1.1。
     RoomVersionCapability::stable("11"),
     RoomVersionCapability::stable("12"),
+    // ⚠️ `"13"` 是**上游并不存在的房间版本**：规范稳定列表止于 v12，上游 Synapse 1.161.0 只识别
+    // `1..12` + 三个 unstable（`org.matrix.hydra.11`、`org.matrix.msc3757.10`、
+    // `org.matrix.msc3757.11`）。此处保留它只是为"未来版本"占位，**不代表任何已定义的语义**；
+    // `redaction_rules("13")` 返回 `None`（fail-closed）。对外声明时不得把它当作 stable 支持。
     RoomVersionCapability::stable_parse_only("13"),
 ];
 

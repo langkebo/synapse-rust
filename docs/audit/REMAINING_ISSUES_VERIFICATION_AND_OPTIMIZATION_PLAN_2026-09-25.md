@@ -181,7 +181,8 @@ U-20 `7ab85a87f`（由并发会话先行并入）；U-8 `111a4df28`、U-13-R9 �
 | 编号 | 问题 | 判据 | 优化方案 |
 |---|---|---|---|
 | **U-9** | 死代码 | `handlers/auth_discovery.rs` 的 `get_auth_issuer` 无路由引用；`dag.rs` 的 `get_state_dag_edges` / `get_prev_state_events` / `find_events_referencing_missing_state` 生产调用点 0 | 铁律 1：直接删（含无计划的 `create_state_event_with_dag`） |
-| **U-11** | ~~v12/v13 文档迁移~~ | ✅ **已修复**（2026-09-26 复核）：`room_versions.rs:253` 存在 `!can_create_room_version("13")` 守卫测试；v12 已升为 `stable`（line 113），v13 仍 `stable_parse_only`（line 114）。原"补守卫测试"要求已满足 | — |
+| **U-22（新）** | **v12 过度声明**：`room_versions.rs` 把 v12 标为 `stable`（`can_create: true`）**且设为 `DEFAULT_ROOM_VERSION`**，但 v12 的四个构成 MSC（MSC4304 定义 = MSC4289 + MSC4291 + MSC4297 + MSC4307）**一个都没实现** | 实测：`synapse-common/src/crypto.rs:145` 的 `generate_room_id` 取 **18 字节随机数**（非 create 事件哈希）；`room/lifecycle/create.rs:26` 在 create 事件之前就定死 `room_id`，全仓**无**回推步骤（MSC4291 创建侧缺失）；`msc4289`/state-res v2.1/`auth_events` 同房间校验均无实现；而 `redaction.rs:210` **已**置 `room_ids_as_hashes: true` ⇒ 撤回 `m.room.create` 后 room ID 不可恢复 | 二选一（这正是 `COMPARISON_REPORT_REVIEW_2026-09-22.md` 决策项 **B6** 未收口的那条）：① 实现四个 MSC 后再放开创建；② **立即降回 `stable_parse_only("12")` 并把 `DEFAULT_ROOM_VERSION` 降回 `"11"`**（与 `65f70e33` 的 fail-safe 一致），同时同步 `/versions`、`/capabilities` 与相关快照 |
+| **U-11** | ~~v12/v13 文档迁移~~ | ✅ 已修复 + 2026-09-27 更正：`room_versions.rs` 守卫测试断言 `!can_create_room_version("13")` 确实存在；但 **"v13" 在上游根本不存在**（规范稳定列表止于 v12、Synapse 1.161.0 只识别 1–12），所以这条的真实问题不是"文档迁移"而是**对不存在版本的能力声明**，已由 U-22 一并承接 | — |
 | **U-12** | ~~storage 单写入口收敛~~ | ⚠️ **仍存在（但非阻塞）**：`synapse-storage/src/event/create.rs` 仍有 5 条 `INSERT INTO events`（`create_event` / `create_event_with_pdu` / `create_event_with_graph` / `create_state_event_with_dag` / `upsert_power_levels_event`）。未提取私有 helper 收敛，但各函数公开签名保持不变，不影响外部调用。优先级：低（P2） | — |
 | **U-15** | ~~审计文档漂移~~ | ⚠️ **已知超代文档**：`PROJECT_REMAINING_ISSUES_2026-09-14.md` 的 §21.1/§22.3 仍错误列出 `auth_issuer`、`dag.rs`、`search_index`、Content Scanner 为"未修"。但该文件顶部已有**失效声明**（lines 62-68）明确指向本文件为唯一权威来源。漂移原因是旧文件未同步更新，不影响本文件的有效性。**处置**：在本文件文首已注明"口径：只保留当前仍然存在的问题"，旧文件仅保留作 git 历史追溯 | — |
 
@@ -224,8 +225,16 @@ U-20 `7ab85a87f`（由并发会话先行并入）；U-8 `111a4df28`、U-13-R9 �
    不可解析的版本 **fail-closed**。不得再写字符串比较或第二份 `parse::<u32>()`。
 5. **房间版本解析不猜**：解析不到就拒绝（拒绝签名 / 拒绝该 PDU），不设默认值
    （join 模板原来的 `unwrap_or("10")` 已删）。
-6. **v12/v13 仍 parse-only**：只做解析与能力声明，不放开创建；v12 的四项（MSC4289/4291/4297/4307）
-   只有部分落地，放开前必须逐项复核。
+6. **v12 已放开创建，但它的四个构成 MSC 一个都没实现**（2026-09-27 更正）。
+   `synapse-common/src/room_versions.rs` 把 v12 标为 `stable`（`can_create: true`）且
+   `DEFAULT_ROOM_VERSION = "12"`，然而 **MSC4291（room ID = create 事件的哈希）的创建侧、
+   MSC4289（创建者特权）、MSC4297（State Resolution v2.1）、MSC4307（`auth_events` 同房间校验）
+   均未实现**（逐条实测见 §2.2 U-22）⇒ 本机创建的 v12 房间拿到**随机 room ID**，v12 对端会算出
+   不同的 room ID（互操作破坏）。**修正前不得假设 v12 可安全创建。**
+   ⚠️ **v13 不存在**：规范稳定列表止于 v12（matrix-spec `content/rooms/_index.md`）；上游
+   Synapse 1.161.0 只识别 `1..12` + 三个 unstable（`org.matrix.hydra.11`、
+   `org.matrix.msc3757.10/11`）；MSC4304 的 prior-art 链同样止于 v12。
+   详见 `docs/audit/V12_ROOM_VERSION_AND_ANIMATED_THUMBNAIL_IMPLEMENTATION_PLAN.md` §1.1。
 7. **MSC3912 是单层语义**：只撤直接关联的子事件，不做递归；空列表不是错误（U-19 待修）。
 8. **不升 `/versions` 到 v1.16**：只补错误码，不做版本面升级。
 
