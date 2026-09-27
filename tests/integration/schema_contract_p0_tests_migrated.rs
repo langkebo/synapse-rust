@@ -308,6 +308,57 @@ async fn test_schema_contract_p0_tables_exist() {
     }
 }
 
+/// `ck_rooms_room_id_format` must accept **both** legal room-id forms (C-3 /
+/// MSC4291): v1–v11's `!opaque:server` and v12's domainless `!` + 43 unpadded
+/// URL-safe Base64 characters.
+///
+/// This is a **real-schema** round trip on purpose. The old constraint
+/// (`room_id ~ '^!...:[a-zA-Z0-9.-]+$'`) rejects every v12 id with SQLSTATE
+/// 23514, which no pure-construction test can observe — and that is exactly how
+/// it blocked room creation for a whole release while the code path "looked"
+/// correct. The malformed case is asserted too: relaxing the pattern must not
+/// degrade into "anything starting with `!`".
+#[tokio::test]
+async fn test_schema_contract_rooms_room_id_accepts_both_forms() {
+    let pool = crate::require_test_pool().await;
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+
+    // `!` + 43 unpadded URL-safe Base64 characters: a v3+ reference hash with the
+    // sigil swapped (MSC4291). 43 characters is sha256 in unpadded Base64. The
+    // literal is fixed (not synthesised from `suffix`) so the fixture is
+    // guaranteed to be a *valid* base64url string, not merely the right length.
+    const DOMAINLESS: &str = "!31hneApxJ_1o-63DmFrpeqnkFfWppnzWso1JvH3ogLM";
+    assert_eq!(DOMAINLESS.len(), 44, "fixture must be `!` + 43 characters");
+
+    let legacy = format!("!schema-room-id-{suffix}:localhost");
+
+    for room_id in [DOMAINLESS, legacy.as_str()] {
+        sqlx::query("INSERT INTO rooms (room_id, created_ts) VALUES ($1, $2)")
+            .bind(room_id)
+            .bind(0_i64)
+            .execute(pool.as_ref())
+            .await
+            .unwrap_or_else(|error| panic!("the room-id CHECK must accept {room_id:?}: {error}"));
+
+        sqlx::query("DELETE FROM rooms WHERE room_id = $1")
+            .bind(room_id)
+            .execute(pool.as_ref())
+            .await
+            .expect("cleanup of the room-id fixture");
+    }
+
+    // Malformed ids must still be rejected: short/empty opaque, no sigil, empty
+    // server, and a domainless id of the wrong length.
+    for invalid in ["!x", "!room", "room:localhost", "!:localhost", "!31hneApxJ_1o-63DmFrpeqnkFfWppnzWso1JvH3ogL"] {
+        let result = sqlx::query("INSERT INTO rooms (room_id, created_ts) VALUES ($1, $2)")
+            .bind(invalid)
+            .bind(0_i64)
+            .execute(pool.as_ref())
+            .await;
+        assert!(result.is_err(), "the room-id CHECK must reject {invalid:?}");
+    }
+}
+
 #[tokio::test]
 async fn test_schema_contract_room_memberships_shape() {
     let pool = crate::require_test_pool().await;

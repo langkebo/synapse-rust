@@ -148,7 +148,14 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // （v1/v2 的 `$opaque:domain`、v3+ 的 `$` + 43 位 unpadded Base64 reference hash），
 // 并改为 DROP + ADD 以便既有库同步；常量同步为 `efd39fc561affd7a`；
 // 同样独立复算 FNV-1a 64，并先自检旧值 `beb0fb1facabd2ff` 逐字节吻合后取值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "efd39fc561affd7a";
+// 2026-09-27（room v12 / MSC4291 C-3）：`ck_rooms_room_id_format` 放宽为两种合法形态
+// （v1–v11 的 `!opaque:domain`、v12+ 的 `!` + 43 位 unpadded URL-safe Base64），
+// 并同样改为 DROP + 重声明以便既有库同步；常量同步为 `16d86ee4035cd351`。
+// 复算方式与 R10 第①条一致：先用旧值自检哈希实现 —— 旧常量 `efd39fc561affd7a`
+// 逐字节对应 `75ff09099` 的迁移内容（自检通过），随后发现 `656a54699`
+// （invite-policy 合并）已改过迁移却**未同步**该常量（Guard 5 在 HEAD 上因此已是
+// 红项：left `a372634a466b7be2`），本次一并校正。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "16d86ee4035cd351";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))
