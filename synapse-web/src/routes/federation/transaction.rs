@@ -13,6 +13,7 @@ use synapse_common::*;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 mod edus;
+use crate::federation::event_auth;
 use crate::routes::federation::transaction::edus::log_edu_summary;
 use crate::routes::federation::transaction::edus::process_inbound_edus as process_edus;
 
@@ -352,6 +353,64 @@ pub(super) async fn send_transaction(
             .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
             .unwrap_or_default();
         let depth = pdu.get("depth").and_then(|v| v.as_i64()).unwrap_or(0);
+
+        // The room-version authorisation rules run before anything is persisted.
+        // They are dispatched inside `event_auth::rules` (rule 3.5 today); the
+        // `auth_events` entries are resolved here because that needs storage.
+        // An entry that cannot be resolved is a rejection, not a skip: the rule
+        // compares the referenced event's room, which is unknown for an event we
+        // do not have (see `event_auth::rules` §Fail closed).
+        if !auth_events.is_empty() {
+            match ctx.room_service.messaging().get_event_records(&auth_events).await {
+                Ok(resolved) => {
+                    let resolved_auth_events: Vec<event_auth::ResolvedAuthEvent<'_>> = auth_events
+                        .iter()
+                        .map(|auth_event_id| event_auth::ResolvedAuthEvent {
+                            event_id: auth_event_id.as_str(),
+                            event: resolved.get(auth_event_id),
+                        })
+                        .collect();
+                    let auth_input = event_auth::InboundEventAuth {
+                        room_version: &room_version,
+                        room_id,
+                        auth_events: &resolved_auth_events,
+                    };
+                    if let Err(error) = event_auth::check_inbound_event_auth(&auth_input) {
+                        super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
+                        ::tracing::warn!(
+                            target: "security_audit",
+                            event = "federation_auth_rules_rejected",
+                            event_id = event_id,
+                            room_id = room_id,
+                            room_version = %room_version,
+                            error = %error,
+                            "Inbound PDU failed the room-version authorisation rules"
+                        );
+                        results.push(json!({
+                            "event_id": event_id,
+                            "error": error.to_string()
+                        }));
+                        continue;
+                    }
+                }
+                Err(error) => {
+                    super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
+                    ::tracing::warn!(
+                        target: "security_audit",
+                        event = "federation_auth_events_unresolvable",
+                        event_id = event_id,
+                        room_id = room_id,
+                        error = %error,
+                        "Could not resolve inbound auth_events — rejecting (fail closed)"
+                    );
+                    results.push(json!({
+                        "event_id": event_id,
+                        "error": format!("Could not resolve auth_events: {error}")
+                    }));
+                    continue;
+                }
+            }
+        }
 
         // fill_in_prev_events: if the PDU references prev_events that we don't
         // have locally, ask the origin server to fill the gap via

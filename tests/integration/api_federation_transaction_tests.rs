@@ -355,19 +355,20 @@ async fn register_user_via_client(app: &axum::Router, prefix: &str) -> (String, 
     )
 }
 
-/// Create a v11 room through the client API so the receiver can resolve the
-/// room version from the `rooms` row (`inbound_pdu_room_version` never guesses).
-async fn create_v11_room(app: &axum::Router, token: &str) -> String {
+/// Create a room of `room_version` through the client API so the receiver can
+/// resolve the room version from the `rooms` row (`inbound_pdu_room_version`
+/// never guesses).
+async fn create_room_with_version(app: &axum::Router, token: &str, room_version: &str) -> String {
     let request = Request::builder()
         .method("POST")
         .uri("/_matrix/client/v3/createRoom")
         .header("Authorization", format!("Bearer {token}"))
         .header("Content-Type", "application/json")
-        .body(Body::from(json!({ "preset": "public_chat", "room_version": SIG_ASSERT_ROOM_VERSION }).to_string()))
+        .body(Body::from(json!({ "preset": "public_chat", "room_version": room_version }).to_string()))
         .unwrap();
 
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK, "creating a v{SIG_ASSERT_ROOM_VERSION} room must succeed");
+    assert_eq!(response.status(), StatusCode::OK, "creating a v{room_version} room must succeed");
     let bytes = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
     let json: Value = serde_json::from_slice(&bytes).unwrap();
     json["room_id"].as_str().expect("createRoom must return a room_id").to_string()
@@ -380,17 +381,37 @@ async fn create_v11_room(app: &axum::Router, token: &str) -> String {
 /// signs the same bytes the receiver's `verify_pdu_sender_signature` recomputes
 /// (`signature_material_bytes`), which is what makes the round-trip assertable.
 fn build_signed_topic_pdu(
+    room_version: &str,
     room_id: &str,
     sender: &str,
     create_event_id: &str,
     key_id: &str,
     signing_key_b64: &str,
 ) -> (Value, String) {
+    build_signed_state_pdu(
+        room_version,
+        room_id,
+        sender,
+        &[create_event_id.to_string()],
+        &[create_event_id.to_string()],
+        key_id,
+        signing_key_b64,
+    )
+}
+
+/// Assemble and sign one `m.room.topic` state PDU with explicit DAG references.
+fn build_signed_state_pdu(
+    room_version: &str,
+    room_id: &str,
+    sender: &str,
+    prev_events: &[String],
+    auth_events: &[String],
+    key_id: &str,
+    signing_key_b64: &str,
+) -> (Value, String) {
     let content = json!({ "topic": "U-8 federation signature round-trip" });
-    let prev_events = vec![create_event_id.to_string()];
-    let auth_events = vec![create_event_id.to_string()];
     let parts = PduParts {
-        room_version: SIG_ASSERT_ROOM_VERSION,
+        room_version,
         // v3+ has no `event_id` field; identity is the reference hash.
         event_id: None,
         room_id,
@@ -401,15 +422,15 @@ fn build_signed_topic_pdu(
         origin_server_ts: 1_750_000_000_000,
         origin: "localhost",
         depth: 2,
-        prev_events: &prev_events,
-        auth_events: &auth_events,
+        prev_events,
+        auth_events,
         redacts: None,
     };
 
     let mut pdu = build_pdu(&parts);
     let finalized = finalize_local_pdu(&parts).expect("the assembled PDU must be finalizable");
     pdu.as_object_mut().expect("a PDU is a JSON object").insert("hashes".to_string(), finalized.hashes.clone());
-    sign_and_hash_event(SIG_ASSERT_ROOM_VERSION, "localhost", key_id, signing_key_b64, &mut pdu)
+    sign_and_hash_event(room_version, "localhost", key_id, signing_key_b64, &mut pdu)
         .expect("sign_and_hash_event must sign our own PDU");
 
     // Item 2 of the task: the emitted PDU must be a complete, v3+-shaped PDU.
@@ -419,7 +440,7 @@ fn build_signed_topic_pdu(
     }
     assert_eq!(pdu["hashes"], finalized.hashes, "signer and finalizer must agree on the content hash");
     assert_eq!(
-        resolve_received_event_id(SIG_ASSERT_ROOM_VERSION, &pdu).expect("the receiver must derive the ID"),
+        resolve_received_event_id(room_version, &pdu).expect("the receiver must derive the ID"),
         finalized.event_id,
         "the ID the receiver derives must equal the ID the sender finalized"
     );
@@ -451,7 +472,7 @@ async fn signed_pdu_fixture(
     let app = build_federation_txn_app(pool.clone(), key_id, &signing_key_b64).await;
 
     let (token, creator) = register_user_via_client(&app, prefix).await;
-    let room_id = create_v11_room(&app, &token).await;
+    let room_id = create_room_with_version(&app, &token, SIG_ASSERT_ROOM_VERSION).await;
     let create_event_id: String = sqlx::query_scalar(
         "SELECT event_id FROM events WHERE room_id = $1 AND event_type = 'm.room.create' \
          ORDER BY origin_server_ts ASC LIMIT 1",
@@ -462,7 +483,7 @@ async fn signed_pdu_fixture(
     .expect("the new v11 room must have an m.room.create event");
 
     let (pdu, derived_event_id) =
-        build_signed_topic_pdu(&room_id, &creator, &create_event_id, key_id, &signing_key_b64);
+        build_signed_topic_pdu(SIG_ASSERT_ROOM_VERSION, &room_id, &creator, &create_event_id, key_id, &signing_key_b64);
     let fixture = SignedPduFixture {
         app,
         pool,
@@ -913,4 +934,279 @@ async fn test_inbound_redaction_records_redaction_event_id_in_redacted_by() {
         Some(redaction_event_id.as_str()),
         "redacted_by must be the redaction event's own id, not the sender's user id"
     );
+}
+
+// ============================================================================
+// Test 8: MSC4307 / room version 12 rule 3.5 — `auth_events` must belong to
+// the event's room
+// ============================================================================
+//
+// Spec source: `matrix-spec` `content/rooms/v12.md` rule 3.5 (MSC4307):
+// "If any event in `auth_events` has a `room_id` which does not match that of
+// the event being authorised, reject."
+//
+// This is the first rule wired through the inbound authorisation seam
+// (`synapse_federation::event_auth::check_inbound_event_auth`); the seam itself
+// is what makes rules 1.2 / 2 / 2.5 / 3.1 / 3.2 / 10.4 addable without
+// re-plumbing the transaction handler.
+
+/// Room version 12 is the version that carries rule 3.5 (MSC4304 defines v12
+/// as including MSC4307). v1–v11 do not have this rule, so the check is gated
+/// on the version — see the v11 scope test below.
+const MSC4307_ROOM_VERSION: &str = "12";
+
+/// Two v12 rooms created by the same local user, plus a signed-PDU emitter.
+struct CrossRoomAuthEventsFixture {
+    app: axum::Router,
+    pool: Arc<sqlx::PgPool>,
+    key_id: String,
+    signing_key_b64: String,
+    creator: String,
+    /// The room the event under test claims to be in.
+    room_a: String,
+    /// `m.room.create` of `room_a` — the well-formed auth event.
+    room_a_create: String,
+    /// `m.room.create` of another room — the mismatching auth event.
+    room_b_create: String,
+}
+
+impl CrossRoomAuthEventsFixture {
+    async fn setup(key_id: &str, seed: [u8; 32], prefix: &str) -> Option<(IsolatedTestPool, Self)> {
+        let isolated = match IsolatedTestPool::new(BASELINE_SQL).await {
+            Ok(isolated) => isolated,
+            Err(error) => {
+                eprintln!("Skipping MSC4307 test because the test database is unavailable: {error}");
+                return None;
+            }
+        };
+        let pool = isolated.pool();
+        let signing_key_b64 = STANDARD_NO_PAD.encode(seed);
+        let app = build_federation_txn_app(pool.clone(), key_id, &signing_key_b64).await;
+
+        let (token, creator) = register_user_via_client(&app, prefix).await;
+        let room_a = create_room_with_version(&app, &token, MSC4307_ROOM_VERSION).await;
+        let room_b = create_room_with_version(&app, &token, MSC4307_ROOM_VERSION).await;
+        let room_a_create = create_event_id_of(&pool, &room_a).await;
+        let room_b_create = create_event_id_of(&pool, &room_b).await;
+
+        // Guard the fixture itself: the two create events must genuinely live in
+        // different rooms, or the "mismatch" probe below would assert nothing.
+        assert_ne!(room_a, room_b, "the fixture must create two distinct rooms");
+
+        Some((
+            isolated,
+            Self {
+                app,
+                pool,
+                key_id: key_id.to_string(),
+                signing_key_b64,
+                creator,
+                room_a,
+                room_a_create,
+                room_b_create,
+            },
+        ))
+    }
+
+    fn signing_key(&self) -> ed25519_dalek::SigningKey {
+        let seed: [u8; 32] = STANDARD_NO_PAD
+            .decode(&self.signing_key_b64)
+            .expect("seed decodes")
+            .as_slice()
+            .try_into()
+            .expect("32 bytes");
+        ed25519_dalek::SigningKey::from_bytes(&seed)
+    }
+
+    /// PUT one `m.room.topic` PDU for `room_a` whose `auth_events` is exactly
+    /// `auth_events`.
+    async fn send_topic_with_auth_events(&self, txn_id: &str, auth_events: &[String]) -> Value {
+        let (pdu, _derived) = build_signed_state_pdu(
+            MSC4307_ROOM_VERSION,
+            &self.room_a,
+            &self.creator,
+            std::slice::from_ref(&self.room_a_create),
+            auth_events,
+            &self.key_id,
+            &self.signing_key_b64,
+        );
+        let body = json!({ "origin": "localhost", "pdus": [pdu] });
+        let request = signed_federation_request(
+            "PUT",
+            &format!("/_matrix/federation/v1/send/{txn_id}"),
+            "localhost",
+            &self.key_id,
+            &self.signing_key(),
+            Some(&body),
+        );
+        let response = ServiceExt::<Request<Body>>::oneshot(self.app.clone(), request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "the verdict is in `results`, not the status");
+        let bytes = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
+        serde_json::from_slice(&bytes).expect("the response body must be JSON")
+    }
+
+    fn single_result(response: &Value) -> &Value {
+        let results = response["results"].as_array().expect("results must be an array");
+        assert_eq!(results.len(), 1, "one PDU in → one result out: {response}");
+        &results[0]
+    }
+
+    async fn topic_persisted(&self) -> bool {
+        EventStorage::new(&self.pool, "localhost".to_string())
+            .get_state_event(&self.room_a, "m.room.topic", "")
+            .await
+            .expect("the events table must be readable")
+            .is_some()
+    }
+}
+
+/// The `m.room.create` event ID of `room_id`, read back from the real schema.
+async fn create_event_id_of(pool: &sqlx::PgPool, room_id: &str) -> String {
+    sqlx::query_scalar(
+        "SELECT event_id FROM events WHERE room_id = $1 AND event_type = 'm.room.create' \
+         ORDER BY origin_server_ts ASC LIMIT 1",
+    )
+    .bind(room_id)
+    .fetch_one(pool)
+    .await
+    .expect("every created room must have an m.room.create event")
+}
+
+/// MSC4307 / rule 3.5: an inbound v12 event whose `auth_events` names an event
+/// from a *different* room must be rejected and must not be persisted.
+///
+/// RED evidence: before the seam existed this PDU was accepted (the same
+/// fixture with matching auth events is the positive control below).
+#[tokio::test]
+async fn test_send_transaction_rejects_auth_event_from_another_room_v12() {
+    let key_id = "ed25519:msc4307_cross_room";
+    let Some((_isolated, fixture)) = CrossRoomAuthEventsFixture::setup(key_id, [93u8; 32], "msc4307_cross").await
+    else {
+        return;
+    };
+
+    let response =
+        fixture.send_topic_with_auth_events("msc4307_cross_1", std::slice::from_ref(&fixture.room_b_create)).await;
+    let first = CrossRoomAuthEventsFixture::single_result(&response);
+
+    assert!(first.get("success").is_none(), "a cross-room auth event must not be accepted: {first}");
+    let error =
+        first["error"].as_str().unwrap_or_else(|| panic!("the cross-room auth event must produce an error: {first}"));
+    assert!(
+        error.contains("auth_events entry"),
+        "the rejection must name the offending auth_events entry, got: {error}"
+    );
+    assert!(
+        error.contains(&fixture.room_b_create),
+        "the rejection must name the foreign event {}, got: {error}",
+        fixture.room_b_create
+    );
+    assert!(
+        error.contains("MSC4307"),
+        "the rejection must cite the rule it enforced (MSC4307 / v12 rule 3.5), got: {error}"
+    );
+    assert!(!fixture.topic_persisted().await, "a PDU rejected by rule 3.5 must not be persisted into the room");
+}
+
+/// Positive control: the *same* PDU shape with an `auth_events` entry from the
+/// event's own room must still be accepted. Without this, the cross-room test
+/// could pass by rejecting everything.
+#[tokio::test]
+async fn test_send_transaction_accepts_auth_event_from_same_room_v12() {
+    let key_id = "ed25519:msc4307_same_room";
+    let Some((_isolated, fixture)) = CrossRoomAuthEventsFixture::setup(key_id, [92u8; 32], "msc4307_same").await else {
+        return;
+    };
+
+    let response =
+        fixture.send_topic_with_auth_events("msc4307_same_1", std::slice::from_ref(&fixture.room_a_create)).await;
+    let first = CrossRoomAuthEventsFixture::single_result(&response);
+
+    assert_eq!(
+        first["success"],
+        json!(true),
+        "the same-room auth event must be accepted (positive control for rule 3.5): {first}"
+    );
+    assert!(first.get("error").is_none(), "an accepted PDU must not carry an error: {first}");
+    assert!(fixture.topic_persisted().await, "the accepted PDU must be persisted into the room");
+}
+
+/// An `auth_events` entry the server cannot resolve is rejected, never waved
+/// through: the room of an unavailable event is unknown, so "does not match"
+/// cannot be decided and the fail-closed answer is "reject".
+#[tokio::test]
+async fn test_send_transaction_rejects_unresolvable_auth_event_v12() {
+    let key_id = "ed25519:msc4307_missing";
+    let Some((_isolated, fixture)) = CrossRoomAuthEventsFixture::setup(key_id, [91u8; 32], "msc4307_missing_ev").await
+    else {
+        return;
+    };
+
+    let phantom = format!("$msc4307_phantom_{}:localhost", uuid::Uuid::new_v4().as_simple());
+    let response = fixture.send_topic_with_auth_events("msc4307_missing_1", std::slice::from_ref(&phantom)).await;
+    let first = CrossRoomAuthEventsFixture::single_result(&response);
+
+    assert!(first.get("success").is_none(), "an unresolvable auth event must not be accepted: {first}");
+    let error =
+        first["error"].as_str().unwrap_or_else(|| panic!("an unresolvable auth event must produce an error: {first}"));
+    assert!(error.contains(&phantom), "the rejection must name the unresolvable entry, got: {error}");
+    assert!(!fixture.topic_persisted().await, "a fail-closed rejection must not persist the PDU");
+}
+
+/// Version scope: v11 does **not** define rule 3.5, so a mismatching
+/// `auth_events` room must still be accepted there. This pins the deliberate
+/// "v12 only" scope against a future change that extends the rule to older
+/// versions (which would newly reject events those versions accept).
+#[tokio::test]
+async fn test_send_transaction_accepts_cross_room_auth_event_in_v11() {
+    let key_id = "ed25519:msc4307_v11_scope";
+    let isolated = match IsolatedTestPool::new(BASELINE_SQL).await {
+        Ok(isolated) => isolated,
+        Err(error) => {
+            eprintln!("Skipping v11 scope test because the test database is unavailable: {error}");
+            return;
+        }
+    };
+    let pool = isolated.pool();
+    let signing_key_b64 = STANDARD_NO_PAD.encode([90u8; 32]);
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&[90u8; 32]);
+    let app = build_federation_txn_app(pool.clone(), key_id, &signing_key_b64).await;
+
+    let (token, creator) = register_user_via_client(&app, "msc4307_v11").await;
+    let room_a = create_room_with_version(&app, &token, SIG_ASSERT_ROOM_VERSION).await;
+    let room_b = create_room_with_version(&app, &token, SIG_ASSERT_ROOM_VERSION).await;
+    let room_a_create = create_event_id_of(&pool, &room_a).await;
+    let room_b_create = create_event_id_of(&pool, &room_b).await;
+
+    let (pdu, derived) = build_signed_state_pdu(
+        SIG_ASSERT_ROOM_VERSION,
+        &room_a,
+        &creator,
+        &[room_a_create],
+        &[room_b_create],
+        key_id,
+        &signing_key_b64,
+    );
+
+    let body = json!({ "origin": "localhost", "pdus": [pdu] });
+    let request = signed_federation_request(
+        "PUT",
+        "/_matrix/federation/v1/send/msc4307_v11_1",
+        "localhost",
+        key_id,
+        &signing_key,
+        Some(&body),
+    );
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
+    let response: Value = serde_json::from_slice(&bytes).expect("the response body must be JSON");
+    let first = &response["results"][0];
+
+    assert_eq!(
+        first["success"],
+        json!(true),
+        "v11 has no rule 3.5, so a cross-room auth event must still be accepted there: {first}"
+    );
+    assert_eq!(first["event_id"], json!(derived), "the v11 PDU is accepted under its derived ID: {first}");
 }

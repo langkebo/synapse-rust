@@ -16,6 +16,25 @@ impl MessagingService {
         self.event_reader.get_event(event_id).await.map_err(|e| ApiError::internal_with_cause("Failed to get event", e))
     }
 
+    /// Resolve several events by ID in one query.
+    ///
+    /// The inbound federation authorisation path resolves every `auth_events`
+    /// entry this way instead of calling [`Self::get_event_record`] per entry,
+    /// so a PDU costs one query for its whole auth-event list rather than N.
+    /// The statement is already static (`EventReader::get_events_map`).
+    ///
+    /// Event IDs that are not present are simply absent from the returned map;
+    /// callers must treat that as "unresolvable" and fail closed.
+    pub async fn get_event_records(
+        &self,
+        event_ids: &[String],
+    ) -> ApiResult<std::collections::HashMap<String, synapse_storage::RoomEvent>> {
+        self.event_reader
+            .get_events_map(event_ids)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to get events", e))
+    }
+
     /// See [`get_event_record_in_room`].
     pub async fn get_event_record_in_room(
         &self,
