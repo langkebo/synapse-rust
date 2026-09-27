@@ -148,7 +148,11 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // （v1/v2 的 `$opaque:domain`、v3+ 的 `$` + 43 位 unpadded Base64 reference hash），
 // 并改为 DROP + ADD 以便既有库同步；常量同步为 `efd39fc561affd7a`；
 // 同样独立复算 FNV-1a 64，并先自检旧值 `beb0fb1facabd2ff` 逐字节吻合后取值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "efd39fc561affd7a";
+// 2026-09-26（D-73）：`e2ee_audit_log` 的动作列收敛 —— 删掉恒等值且零读者的 `action`
+// 列及其索引 `idx_e2ee_audit_log_action`，把唯一读取路径 `operation` 收紧为 `NOT NULL`
+// （迁移内用幂等 DO 块先回填历史 NULL）；常量同步为 `d36d33bfe358346c`；
+// 同样独立复算 FNV-1a 64，并先自检旧值 `efd39fc561affd7a` 逐字节吻合后取值。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "d36d33bfe358346c";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

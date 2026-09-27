@@ -324,6 +324,13 @@ cargo nextest run -p <crate> --lib --features test-utils -E 'test(/<module>/)'
 ③ 同步**所有断言该 schema 的契约用例** —— 并发会话删表后漏改 3 条，直接让 CI 集成批次必红（D-56）；
 ④ 跑 R8 的第 2、3 条（表/列变化会影响宏的类型推断与整份缓存）。
 
+⚠️ **施加到共享库的时机**：迁移**合并进 `opt/consolidated` 之前**不要把它 apply 到共享 `synapse_test`
+—— 别的 worktree 还拿着旧基线，旧基线里对已删列/对象的 `CREATE INDEX …`（或 `UPDATE …`）会 42703，
+把对方的 seed 弄红（2026-09-26 D-73 实测）。正确顺序：先在**私有/一次性库**上验证
+（`createdb … && TEST_DATABASE_URL=… bash scripts/ci/prepare_test_db.sh`）⇒ 提交 ⇒ 合并 ⇒ 再动共享库。
+另：并发会话同时 seed 同一库会撞 `ALTER TABLE` 的 AccessExclusiveLock 而死锁（实测一次，
+`ON_ERROR_STOP` 会让 seed 直接中止）—— 这也是"共享库不是稳定输入"的一部分。
+
 ### R11　门禁自身必须可信
 
 - **红着的门禁等于没有门禁**。新增/修改任何守卫、棘轮、脚本，都要**用故意制造的违规证明它

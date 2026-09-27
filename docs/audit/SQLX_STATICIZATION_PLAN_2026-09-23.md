@@ -75,10 +75,9 @@ python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
 | ⑦ 文档级 | 6 | 计数漂移、过时结论、误导性"规则"注释 |
 | ⑧ 结构性例外（有意保留） | 7 | D-13 / D-14 / D-18–D-22，见 §7.3 |
 | ⑨ 阶段总结后新发现并已关闭 | 14 | **D-77**（`check_sqlx_cache_fresh.sh --full` 对着被收敛成 0 表的共享 `public` 会吐 **1443 个 E0282/E0277**（看起来像源码坏了），而裸 `cargo sqlx prepare` 会把 `.sqlx/` 清空 ⇒ 新增唯一入口 `scripts/ci/sqlx_prepare.sh`（前置检查 fail-fast + 缩容回滚），`--full` 委托给它并在 AGENTS.md R2/R8 明令禁止）、**D-76**（`scripts/init_test_public_schema.sh` 的 `RESET_PUBLIC` 默认 1 ⇒ **裸跑就 `DROP SCHEMA public CASCADE`** 重建共享 `synapse_test.public`；失败/中断即留下 0 表 ⇒ 默认改为 0（幂等 apply），重建需显式 opt-in）、**D-75**（`converge_public_schema.sh` 的 TOCTOU：删除清单在 apply 阶段**二次求值**，而 `prepare_test_db.sh` [2/4] 会 `DROP SCHEMA test_template_ci CASCADE` 重建参考集 ⇒ 参考为空时 public 全被判"多余"；事后不变量又用同一个已塌掉的参考集（两边同时塌成 0 ⇒ 恒过）。实测环境 `synapse_test.public` = **0 表**（本该 ≥200）⇒ 已冻结清单 + 参考稳定性复检 + 大删栏杆 + 非空不变量，见 §8.3）、**D-74**（`update_access_stats` 的 `COALESCE($7, 0)` 让 PG 把 `$7` 定型成 **int4**，宏因此要求 `Option<i32>` 而 Rust 侧是 `response_time_ms: Option<f64>`；动态路径靠 sqlx 显式发送 FLOAT8 才没暴露 ⇒ 改 `0::float8` 并补浮点往返用例，见 §8.3）、**D-72**（`e2ee_audit.rs` 两个方向同时错：`e2ee_audit_log.details` 是 `NOT NULL DEFAULT '{}'`，但 `log_key_operation` 会把 `KeyEvent.details = None` 直接绑成 `NULL` ⇒ 运行期 23502；读回结构体又把该列声明成 `Option` ⇒ 可空性反推失真。已按 R12 先用 RED 用例复现 23502，再 `COALESCE($7, '{}'::jsonb)` + 读侧收紧为非 `Option`，见 §8.3）、**D-71**（D-25 家族收口：23 个 `#[cfg(feature)] pub mod` 声明里有 **10 个带测试却不在** `scripts/ci/gated_module_test_matrix` ⇒ "过滤器必须命中"这道守卫对它们从未生效；补 10 行后全表 21 行实跑通过）、**D-70**（`e4bc400cb` 删掉 3 个埋点却漏收紧 `metric_instrumentation_baseline` ⇒ 埋点棘轮在 `opt/consolidated` 上**常驻红**；按 R11 独立收紧 15 → 12 并复跑门禁）、D-62（通知响应的 `profile_tag` 键取自 `notification_type` ⇒ 已按修法① 改成真列 + 独立 `notification_type` 键）、**D-68**（通知记录层没有生产写入者、也没有保留期清理 ⇒ 已按修法① 接线 `record_notification` + `prune_old_notifications`，边界见 §0.5、明细见提交信息）、**D-69**（运行时迁移的 advisory lock key 在 `search_path` 为空时因 `current_schema()` 为 NULL 而**必败** ⇒ 已先 `COALESCE` 并补边界用例，见 §8.3）、**D-57②**（seed 侧 `public` 不收敛 ⇒ 新增 `scripts/ci/converge_public_schema.sh` 并接进 CI seed 第 [3/4] 步，见 §8.3）、D-65（并发改动只改一半 ⇒ 集成+clippy 双红）、D-66（worktree 共享 `CARGO_TARGET_DIR` ⇒ 跨树复用产物，假红/假绿）、D-67（新增测试里的死常量让 clippy 红） |
-| ⑩ 新发现且**未关闭**（等结构性修法） | 1 | **D-73**：`e2ee_audit_log.operation` 在 catalog 中**可空**而 `KeyAuditEntry.operation` 非 `Option`（唯一写入者恒写非空 ⇒ C40 已按 R4 断言 `AS "operation!"`）；**结构上应把 `operation` 收紧为 `NOT NULL`，并删掉与之恒等值、零读者（只被 `idx_e2ee_audit_log_action` 引用）的 `action` 列** —— 牵动迁移 + 基线指纹 + 三份 `BASELINE_SQL`（R10），属独立事项，见 §7.1 |
 
-**去向**：阶段总结前关闭的 57 条逐条明细在 HISTORY §7.2；总结后关闭的 15 条（D-37 / D-57② / D-62 /
-D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-74 / D-75 / D-76 / D-77）记在各自提交信息里（下次阶段总结时并入快照）；**未关闭 1 条（D-73）在 §7.1 逐条留档**。本表 ①–⑧ 是**发现时**
+**去向**：阶段总结前关闭的 57 条逐条明细在 HISTORY §7.2；总结后关闭的 16 条（D-37 / D-57② / D-62 /
+D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-76 / D-77）记在各自提交信息里（下次阶段总结时并入快照）；**未关闭 0 条**（D-73 已于 2026-09-26 关闭，见 §8.3）。本表 ①–⑧ 是**发现时**
 的归类（历史口径，不随修复变动），因此 D-57 仍计入 ⑥、D-37 仍计入 ④、D-62 已改判为"已修" ——
 "还剩哪些没修"看结论行与 §7.1，不看桶号。
 **结论：64 已关闭 / **0 未关闭** / 7 结构性例外 —— 本战役登记表已清空。**
@@ -94,10 +93,11 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-74 / D-75 / D-76 / D-7
 3. **长期资产是规则与门禁，不是数字**：数字会被并发改动推动，R1–R13 与四道自证过的门禁才是
    "不再制造同类缺陷"的保证；本阶段新增的两条规则（宏实参须为调用点字面量、worktree 各自 target 目录）
    都来自实测而非推导。
-4. **登记表只剩 1 条未关闭项（2026-09-26，C40 后）**：`D-01…D-77` 里 69 条已关闭、7 条转为结构性
-   例外，**唯一未关闭的是 D-73**（`e2ee_audit_log` 的 `operation` 可空性 + 冗余 `action` 列收敛，
-   属迁移链独立事项，见 §7.1）。剩下的**只有计划内的工作**（§8.1 的 203 处可转换残量）与 7 条
-   **结构性例外**（工具/接口边界，不是缺陷）。这不等于战役结束 —— 收尾条件见 §8.4。
+4. **登记表再次清空（2026-09-26，D-73 后）**：`D-01…D-77` 里 70 条已关闭、7 条转为结构性例外，
+   **无未关闭项**。D-73（`e2ee_audit_log` 的冗余 `action` 列 + 可空 `operation`）已按 R4 的
+   "结构上能保证就收紧 schema"落地：删列 + `operation SET NOT NULL` + 基线指纹同步（见 §8.3）。
+   剩下的**只有计划内的工作**（§8.1 的 203 处可转换残量）与 7 条**结构性例外**（工具/接口边界，
+   不是缺陷）。这不等于战役结束 —— 收尾条件见 §8.4。
 5. **环境事实：共享 `synapse_test.public` 会被并发会话改造，别把它当成稳定输入（D-75/D-76/D-77）**：
    它曾被收敛成 **0 表**（实测），于是 `.sqlx` 的 `--full` 抛出 1443 个误导性编译错误。三条修法都已落地
    （冻结删除清单 + 参考稳定性复检 + 大删栏杆；`RESET_PUBLIC` 默认改为非破坏性的 0；`.sqlx` 写入收敛到
@@ -114,14 +114,12 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-74 / D-75 / D-76 / D-7
 
 ## 7. 仍存在的问题（唯一登记处）
 
-**当前无未关闭项**（最近一次关闭：D-57②，2026-09-26）。只登记**未关闭项**与**结构性例外**；
+**当前无未关闭项**（最近一次关闭：D-73，2026-09-26；`action` 冗余列 + `operation` 可空性收敛）。只登记**未关闭项**与**结构性例外**；
 已关闭项的去向见 §0.4 与各自提交信息。
 
 ### 7.1 汇总表
 
-| 编号 | 是什么 | 在哪 | 为什么还没修 | 怎么修 |
-|---|---|---|---|---|
-| **D-73** | `e2ee_audit_log` 的审计动作列有**两份且恒等值**：`action`（`NOT NULL`、**零读者**、只被 `idx_e2ee_audit_log_action` 引用）与 `operation`（**可空**、是唯一读取路径）；而 `KeyAuditEntry.operation` 非 `Option` | `migrations/00000000_unified_schema_v12.sql:849-861`、`synapse-storage/src/e2ee_audit.rs` | C40 转换时实测：宏按 catalog 判定 `operation` 可空 ⇒ 与结构体字段冲突；唯一写入者（`log_key_operation`）恒写非空，故 C40 按 R4 先断言 `operation AS "operation!"` 并注明理由。**结构性修法牵动迁移 + 基线指纹 + 三份 `BASELINE_SQL` + 契约用例（R10）**，不属机械转换批次 | ① `ALTER TABLE e2ee_audit_log ALTER COLUMN operation SET NOT NULL;`（唯一写入者恒写非空）；② 删除 `action` 列与其索引（零读者；保留 `operation` 是因为它是 API 序列化键 `KeyAuditEntry.operation`，删它才是对外形状变更）；③ 同步 `EXPECTED_BASELINE_FINGERPRINT`，跑 R10 的①–④ |
+（空 —— `D-01…D-77` 已全部关闭或转为结构性例外；D-73 于 2026-09-26 关闭，明细见 §8.3 与提交信息。）
 
 > 已关闭项的去向见 §0.4 与各自提交信息；本节只留**未关闭项**（R13）。
 
@@ -168,12 +166,12 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-74 / D-75 / D-76 / D-7
 
 ### 7.4 计数与口径
 
-- 合计 **77** 条（D-01…D-77）：**未关闭 1（D-73）**、
-  **结构性例外 7**（D-13 / D-14 / D-18–D-22，有意不修）、**已关闭 69**（含 D-37 收敛、
+- 合计 **77** 条（D-01…D-77）：**未关闭 0**、
+  **结构性例外 7**（D-13 / D-14 / D-18–D-22，有意不修）、**已关闭 70**（含 D-37 收敛、
   D-57② 收敛、D-62 修法①、D-68 接线落地、D-69/D-70/D-71/D-72/D-74 先修、
-  D-75/D-76/D-77 工具链事故先修）。
+  D-75/D-76/D-77 工具链事故先修、D-73 结构性收敛）。
 - 本文档**只显示**未关闭项与结构性例外；已关闭项的明细在 HISTORY §7.2（冻结，不参与当前计数），
-  阶段总结后关闭的 15 条（D-37 / D-57② / D-62 / D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-74 / D-75 / D-76 / D-77）在各提交信息里。
+  阶段总结后关闭的 16 条（D-37 / D-57② / D-62 / D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-76 / D-77）在各提交信息里。
 - "部分已修"指同一编号下仍有明确未做子项；结构性例外**不计入**待修，其约束力写在 §7.3 与 R1–R13。
 
 ### 7.5 处置约定（改 SQL / 查询前）
@@ -435,14 +433,44 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-74 / D-75 / D-76 / D-7
      使"diff 只跑一次"断言**恒真**）；`RESET_PUBLIC` 默认改回 1 ⇒ 红；删 `sqlx_prepare.sh`
      前置检查 ⇒ 红。
 
+7. ✅ **D-73（`e2ee_audit_log` 动作列收敛）已完成（2026-09-26）** —— 唯一未关闭项结清，
+   §7 再次无待修项。改动（R4 的"结构上能保证就收紧 schema"分支）：
+   - `migrations/00000000_unified_schema_v12.sql`：`CREATE TABLE` 去掉 `action`；新增一段幂等收敛块
+     —— `DO` 块判断旧列是否还在并用它回填历史 NULL（`action` 是 NOT NULL，故 `SET NOT NULL` 在任何既有库上成立；
+     直接 `UPDATE … SET operation = action` 会在**第二次**执行时 42703，因为本文件被
+     `init_test_public_schema.sh`（`RESET_PUBLIC=0`）重复执行）+ `ALTER COLUMN operation SET NOT NULL`
+     + `DROP INDEX IF EXISTS idx_e2ee_audit_log_action` + `DROP COLUMN IF EXISTS action`；删掉那条索引定义
+     （否则全新库上 `CREATE INDEX … ON e2ee_audit_log(action)` 必然 42703）。
+   - `synapse-storage/src/e2ee_audit.rs`：INSERT 去掉 `action`（列 + 一个 `&event.operation` 绑定，9 → 8 参数）；
+     5 条 SELECT 去掉 `AS "operation!"` 断言（schema 现在自己保证非空），字段 doc 改为说明收敛。
+   **R10 链（全部实测）**：① 先用**旧值自检哈希实现** —— 独立实现的 FNV-1a 64 对 HEAD 的 v12 逐字节算出
+   `efd39fc561affd7a`（与常量吻合），改后复算得 `d36d33bfe358346c` 并同步
+   `EXPECTED_BASELINE_FINGERPRINT`；② 守卫 5（`test_isolation_unification`）+ `migration_consistency`
+   + `mod_guard` 合计 **25/25**；③ 断言该 schema 的契约用例：`migration_consistency_tests` 的折入索引清单
+   只含 `idx_e2ee_audit_log_device` / `_room_event`（不含被删的 `_action`），无需改；④ `--static` / `--compile`
+   + 两档 clippy 全绿。
+   **验证**：`.sqlx` 6 删 6 增（5 个 SELECT 去断言 + 1 个 INSERT 少一列），走**新入口**
+   `scripts/ci/sqlx_prepare.sh`（对私有库 `synapse_c19b_scratch`）；私有一次性库 `synapse_d73_test`
+   跑 `prepare_test_db.sh`（`public`/`test_template_ci` 各 220 表）后：
+   `-p synapse-storage --lib --features test-utils -E 'test(/e2ee_audit/)'` ⇒ **8/8**；
+   `--profile ci --all-features --test integration --test-threads 1 -E 'test(/e2ee_audit/)'` ⇒ **11/11**
+   （含 `audit_service_log_key_operation_round_trip` 与 cross-signing 验证路径）。
+   ⚠️ 期间**共享 `synapse_test` 上出现跨会话死锁**（`ALTER TABLE … ADD CONSTRAINT` 的
+   AccessExclusiveLock 与另一会话的 AccessShareLock 互等，`prepare_test_db.sh` 因 `ON_ERROR_STOP` 中止）——
+   属并发 seed 的环境问题，不是本批代码缺陷；本批改用**私有库**完成全部验证，共享库事后核对
+   `public`/`test_template_ci` 仍各 220 表且已是新 schema。
+   ⇒ **新教训（已写进 AGENTS.md R10）**：schema 变更在**合并进 `opt/consolidated` 之前**不要施加到共享库
+   —— 别的 worktree 还拿着旧基线，其 `CREATE INDEX … ON e2ee_audit_log(action)` 会 42703；要么先用私有库
+   验证，要么合并后再动共享库。
+
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 
 - `dynamic_production` 的**可机械转换部分（literal）归零**：275 → **101**
   （275 − 173 literal − 1 param = 101 = 测试基建 57 + 分页结构性 15 + **D-14 结构性 29**），
   或每个残留都有 §7.3 那样的登记条目；
 - literal 逐文件表只剩 4 类（3 个测试基建文件 + `event/pagination.rs`）；
-- ~~D-68 接线~~、~~D-37 收敛~~、~~D-62 修法①~~、~~D-57② 收敛~~ **均已落地**；§7 只剩
-  **D-73**（`e2ee_audit_log` 的可空性/冗余列收敛，迁移链独立事项）；
+- ~~D-68 接线~~、~~D-37 收敛~~、~~D-62 修法①~~、~~D-57② 收敛~~、~~D-73 结构性收敛~~
+  **均已落地 ⇒ §7 无未关闭项**；
 - 四道门禁与两道棘轮在 CI 常驻，且都留有"能变红"的自证记录。
 
 ### 8.5 每批必须跑的门禁

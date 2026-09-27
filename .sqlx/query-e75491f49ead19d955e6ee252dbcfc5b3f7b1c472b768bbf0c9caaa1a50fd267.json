@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO e2ee_audit_log\n            (user_id, device_id, operation, key_id, room_id, details, ip_address, created_ts)\n            VALUES ($1, $2, $3, $4, $5, COALESCE($6, '{}'::jsonb), $7, $8)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e75491f49ead19d955e6ee252dbcfc5b3f7b1c472b768bbf0c9caaa1a50fd267"
+}
