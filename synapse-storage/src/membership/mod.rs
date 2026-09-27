@@ -6,7 +6,6 @@ pub use api::MemberStoreApi;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
-use synapse_common::crypto::generate_event_id;
 use synapse_common::current_timestamp_millis;
 
 /// The `RoomMember` struct.
@@ -64,7 +63,10 @@ pub struct UserRoomMembership {
 pub struct RoomMemberStorage {
     /// The `pool` field.
     pub pool: Arc<Pool<Postgres>>,
-    /// 服务器名称，用于生成事件 ID
+    /// This storage's local Matrix server name (assembly information).
+    ///
+    /// It is **not** used to mint event IDs: membership event identity comes from
+    /// the write entry that persists the event (decision §4.1).
     pub server_name: String,
 }
 
@@ -87,7 +89,15 @@ impl RoomMemberStorage {
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> Result<RoomMember, sqlx::Error> {
         let now = current_timestamp_millis();
-        let event_id = format!("${}", generate_event_id(&self.server_name));
+        // Decision §4.1: the write entry owns event identity, and `add_member`
+        // writes the `room_memberships` **projection**, not the membership event
+        // itself, so it cannot know that event's final ID. Minting one here
+        // produced a `$$…` value that (a) is not a valid Matrix event ID shape and
+        // (b) is guaranteed to disagree with the `events` row for every v3+ room
+        // — two identities for one event. The column is left NULL: the `events`
+        // row is the single source of the ID, and `Option<RoomMember::event_id>`
+        // already models "no ID recorded" for the paths that never had one.
+        let event_id: Option<String> = None;
         let joined_ts = if membership == "join" { Some(now) } else { None };
         // Use explicit sender if provided (e.g. inviter), otherwise default to user_id
         let effective_sender = sender.unwrap_or(user_id);

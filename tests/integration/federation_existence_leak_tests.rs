@@ -896,3 +896,90 @@ async fn local_events_persist_event_edges_on_both_write_shapes() {
         "send_message's graph-aware write must stop reporting its parent as a tip, got {extremities:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Tests: U-13-R10 — the federation knock must answer with the ID it persisted
+// ---------------------------------------------------------------------------
+
+/// Defect B (U-13-R10): pre-fix `/knock` minted
+/// `format!("${}", generate_event_id(..))` — a `$$…` placeholder — called
+/// `create_event(.., None)` and **discarded** the returned `RoomEvent`, then
+/// answered with the placeholder. The write entry had already replaced that
+/// placeholder with the v3+ reference hash, so the response named an event that
+/// was never persisted (decision §4.1: the caller consumes the write entry's ID).
+#[tokio::test]
+async fn knock_room_returns_the_id_of_the_persisted_row() {
+    let Some((app, pool, _local_key_id, _local_key_b64, _local_signing_key, cache)) = setup_federation_app().await
+    else {
+        return;
+    };
+
+    let remote_origin = "remote.example";
+    let remote_key_id = "ed25519:remote_knock";
+    let remote_signing_key = ed25519_dalek::SigningKey::from_bytes(&[101u8; 32]);
+    register_remote_verify_key(&cache, remote_origin, remote_key_id, &remote_signing_key).await;
+
+    // The remote server needs a non-banned member in the room for
+    // `validate_federation_origin_can_observe_room` to let the knock through to
+    // the event write. Seed the invite the same way the send_join test seeds its
+    // shadow user (there is no outbound federation transport in this sandbox).
+    let (token, creator_id) = register_user(&app, "knockcreator").await;
+    let room_id = create_private_room(&app, &token).await;
+    let invitee = "@invitee:remote.example";
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(invitee)
+    .bind("invitee_remote")
+    .bind(chrono::Utc::now().timestamp_millis())
+    .execute(&*pool)
+    .await
+    .expect("the remote invitee must be seedable as a local shadow row");
+    sqlx::query(
+        "INSERT INTO room_memberships (room_id, user_id, membership, sender, event_type, updated_ts) \
+         VALUES ($1, $2, 'invite', $3, 'm.room.member', $4)",
+    )
+    .bind(&room_id)
+    .bind(invitee)
+    .bind(&creator_id)
+    .bind(chrono::Utc::now().timestamp_millis())
+    .execute(&*pool)
+    .await
+    .expect("the invite membership must be seedable");
+
+    let knocker = "@knocker:remote.example";
+    let body = build_knock_event_body(&room_id, knocker, remote_origin);
+    let uri = format!("/_matrix/federation/v1/knock/{room_id}/{knocker}");
+    let request = signed_fed_request_as(
+        "POST",
+        &uri,
+        remote_origin,
+        "localhost",
+        remote_key_id,
+        &remote_signing_key,
+        Some(&body),
+    );
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "the knock must reach the event write");
+    let bytes = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: Value = serde_json::from_slice(&bytes).unwrap();
+    let event_id =
+        json["event"]["event_id"].as_str().expect("the knock response must carry event.event_id").to_string();
+
+    assert!(!event_id.starts_with("$$"), "the placeholder must not carry a double `$`: {event_id}");
+    let stored: Option<String> = sqlx::query_scalar("SELECT event_id FROM events WHERE event_id = $1")
+        .bind(&event_id)
+        .fetch_optional(&*pool)
+        .await
+        .expect("the events table must be queryable");
+    assert_eq!(
+        stored.as_deref(),
+        Some(event_id.as_str()),
+        "the knock must answer with the ID of the row it persisted, not a placeholder"
+    );
+    assert!(
+        !event_id.contains(":localhost"),
+        "a v3+ knock event ID is a reference hash with no origin suffix: {event_id}"
+    );
+}

@@ -10,6 +10,13 @@ async fn setup_test_app() -> Option<axum::Router> {
 }
 
 async fn create_test_user(app: &axum::Router) -> String {
+    create_test_user_with_id(app).await.0
+}
+
+/// Registration returns both halves: the RTC call session authorizes the answer
+/// against the callee's **user id**, so a test that exercises `m.call.answer`
+/// needs it (the access token is not the user id).
+async fn create_test_user_with_id(app: &axum::Router) -> (String, String) {
     let username = format!("user_{}", rand::random::<u32>());
     let password = "Password123!";
 
@@ -37,7 +44,10 @@ async fn create_test_user(app: &axum::Router) -> String {
     }
 
     let json: Value = serde_json::from_slice(&body).unwrap();
-    json["access_token"].as_str().unwrap().to_string()
+    (
+        json["access_token"].as_str().unwrap().to_string(),
+        json["user_id"].as_str().expect("registration must return the user_id").to_string(),
+    )
 }
 
 async fn create_room(app: &axum::Router, token: &str) -> String {
@@ -369,4 +379,131 @@ async fn test_get_call_session_rejects_non_members() {
         String::from_utf8_lossy(&body)
     );
     assert_eq!(json["errcode"], "M_FORBIDDEN");
+}
+
+// ---------------------------------------------------------------------------
+// U-13-R10: `call.invite` / `call.answer` must answer with the persisted ID
+// ---------------------------------------------------------------------------
+
+async fn create_public_room(app: &axum::Router, token: &str) -> String {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/createRoom")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "name": "Call Room", "preset": "public_chat" }).to_string()))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 10240).await.unwrap();
+    serde_json::from_slice::<Value>(&body).unwrap()["room_id"].as_str().unwrap().to_string()
+}
+
+async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/rooms/{}/join", urlencoding::encode(room_id)))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from("{}"))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn send_call_event(
+    app: &axum::Router,
+    token: &str,
+    room_id: &str,
+    event_type: &str,
+    txn_id: &str,
+    content: &Value,
+) -> (StatusCode, String) {
+    let request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/rooms/{}/send/{event_type}/{txn_id}", urlencoding::encode(room_id)))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(content.to_string()))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    (status, String::from_utf8_lossy(&body).to_string())
+}
+
+/// Defect B (U-13-R10): pre-fix `call_invite` / `call_answer` minted
+/// `format!("${}:{}", Uuid::new_v4(), server_name)` and then
+/// `let _ = ….create_event(.., None).await;` — discarding both the returned
+/// `RoomEvent` **and** any error — and answered with the placeholder, so the
+/// caller was handed an event ID that was never persisted (and a failed write
+/// was reported as success).
+#[cfg(feature = "voip-tracking")]
+#[tokio::test]
+async fn test_call_events_return_the_persisted_event_id() {
+    let Some((app, pool, _cache)) = super::setup_fresh_test_app_with_pool().await else {
+        return;
+    };
+    let (caller_token, _caller_id) = create_test_user_with_id(&app).await;
+    let (callee_token, callee_id) = create_test_user_with_id(&app).await;
+
+    // A public room so both users can be members (the answer must come from the
+    // invited callee, and `handle_answer` authorizes only that user).
+    let room_id = create_public_room(&app, &caller_token).await;
+    join_room(&app, &callee_token, &room_id).await;
+
+    let call_id = format!("call_{}", rand::random::<u32>());
+
+    let (status, body) = send_call_event(
+        &app,
+        &caller_token,
+        &room_id,
+        "m.call.invite",
+        "invite_txn",
+        &json!({
+            "call_id": call_id.clone(),
+            "version": 1,
+            "offer": { "type": "offer", "sdp": "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n" },
+            "invitee": callee_id,
+            "lifetime": 60_000
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "call.invite failed: {body}");
+    let invite_id = serde_json::from_str::<Value>(&body).unwrap()["event_id"]
+        .as_str()
+        .expect("call.invite must return an event_id")
+        .to_string();
+
+    let (status, body) = send_call_event(
+        &app,
+        &callee_token,
+        &room_id,
+        "m.call.answer",
+        "answer_txn",
+        &json!({
+            "call_id": call_id,
+            "version": 1,
+            "answer": { "type": "answer", "sdp": "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n" }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "call.answer failed: {body}");
+    let answer_id = serde_json::from_str::<Value>(&body).unwrap()["event_id"]
+        .as_str()
+        .expect("call.answer must return an event_id")
+        .to_string();
+
+    for (label, event_id) in [("m.call.invite", &invite_id), ("m.call.answer", &answer_id)] {
+        assert!(
+            !event_id.contains(":localhost"),
+            "{label} must return the v3+ reference hash, not a `:server` placeholder: {event_id}"
+        );
+        let stored: Option<String> = sqlx::query_scalar("SELECT event_id FROM events WHERE event_id = $1")
+            .bind(event_id)
+            .fetch_optional(&*pool)
+            .await
+            .expect("the events table must be queryable");
+        assert_eq!(stored.as_deref(), Some(event_id.as_str()), "{label} must return the persisted row's ID");
+    }
 }
