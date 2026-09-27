@@ -259,3 +259,30 @@ v1–v11 的 `predecessor.event_id` 要求 tombstone 先写、而 tombstone 的 
 | 逃逸口与合成房间 | `CreateRoomConfig.room_id`、`admin/notification.rs`、`space/repository.rs` | 删除字段；合成房间若需保留则必须写明谁保证 id 形态，或改走统一建房入口 |
 
 > ⚠️ 该批同改 `migrations/` 之外的**大量测试**属预期；`migrations/` 本批不动，故 R10 指纹不涉及。
+
+---
+
+## 4.5 F-1 决策与实测的矛盾（执行前必须澄清）
+
+A-2 的 **Q6(b)** 裁定："不接线，按铁律 1 删除死实现，只在 `resolve_state_with_auth_chain`
+上演进 v2.1"。但本轮实测与该前提不符：
+
+| 事实 | 证据 |
+|---|---|
+| `StateResolutionService` 全仓（含 bench/tests）**零引用** | `grep -rn "StateResolutionService\|ResolutionResult\|events_to_data\|StateResolutionError" --include=*.rs .` 除自身文件外 0 命中 |
+| `resolve_state_v2` **零引用** | `grep -rn "resolve_state_v2"` 除自身文件外 0 命中 |
+| **`resolve_state_with_auth_chain` 也零生产引用** | 唯一调用者是 `state_resolution.rs:83`（即被删的 service）；删除 service 后仅 `benches/performance_federation_benchmarks.rs:41/64` 还在调 |
+| 计划 §F-2 把 v2.1 的落点写成 `resolve_state_v2`（`:367-508`） | 计划原文；与 Q6(b) 的"删 `resolve_state_v2`"**直接冲突** |
+| `synapse-storage/src/state_groups.rs:361 resolve_state_for_group` 不是 v2 实现 | 它是沿 DAG 边递归取某 state_group 的**存储层** helper，且只被测试调用 |
+
+**结论**：本仓**没有任何一条生产路径**在做状态决议；`resolve_state_with_auth_chain` 与
+`resolve_state_v2` 都是未接线的实现。因此"在 `resolve_state_with_auth_chain` 上演进 v2.1"
+目前等于**给一个只被 bench 调用的函数加行为**，无法端到端验证（正是计划 §4.1 风险 1 描述的模式）。
+
+**建议（待任务方确认，未执行删除）**：二选一
+- (i) 维持 Q6(b) 字面：删 `StateResolutionService` + `resolve_state_v2`，`resolve_state_with_auth_chain`
+  保留为 v2.1 落点；则 F-2 的验收只能是"该函数的单测/向量"（无端到端证据），需明确接受这一点；
+- (ii) 修正 F-2 落点为 `resolve_state_v2`（计划原文），把它按 v2.1 三处修改补齐并**接线到冲突状态路径**
+  （需先查清本仓实际由谁决定冲突 state，可能根本没有这条路径），验收才可能有端到端证据。
+
+（本轮**未**删除任何状态决议代码。）
