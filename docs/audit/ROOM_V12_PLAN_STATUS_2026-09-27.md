@@ -286,3 +286,28 @@ A-2 的 **Q6(b)** 裁定："不接线，按铁律 1 删除死实现，只在 `re
   （需先查清本仓实际由谁决定冲突 state，可能根本没有这条路径），验收才可能有端到端证据。
 
 （本轮**未**删除任何状态决议代码。）
+
+---
+
+## 4.6 F-1 接线调查结论（已按 (ii) 定方向；实测本仓**没有**状态决议路径）
+
+任务方在 4.5 的二选一中选了 **(ii)：v2.1 实现在 `resolve_state_v2`（计划原文），并查清/接线冲突状态路径**。
+本轮把"查清"做完，结论比 4.5 更严重：
+
+| 调查项 | 实测结果 |
+|---|---|
+| `create_state_group`（写 state group 的唯一入口） | **零生产调用者**（`grep` 在 `synapse-services`/`synapse-web`/`src/` 0 命中）⇒ **state-group 流水线整体未接线** |
+| `resolve_state_for_group` | 只被测试调用（`tests/integration/state_groups_storage_tests_migrated.rs:460/495/530`） |
+| **当前房间 state 实际怎么来的** | `synapse-storage/src/event/state.rs:46-60`：`SELECT DISTINCT ON (event_type, state_key) … FROM events … ORDER BY event_type, state_key, origin_server_ts DESC` |
+| 结论 | 本仓的"状态决议"是**纯 `origin_server_ts` last-write-wins**，既不是 v2 也不是 v2.1；冲突时**不做** auth chain / power ordering / iterative auth checks |
+
+⇒ F-2 的"接线"实际是**从零建一条冲突状态路径**，而不是把已有实现接上一个调用点。这正是计划 §4.1 风险 1 / F-1 提示的最大回归面，
+也是计划把 F-1 列为"必须单独决策"的原因。**执行 F-2 前需要先做两件事**：
+
+1. 找到（或新增）**冲突状态**的判定入口：当前 `DISTINCT ON … origin_server_ts DESC` 位于存储层读路径，
+   要接 v2.1 必须先在"入站事件写入时"或"读 state 时"分出"存在多个并发分支"的场景（本仓目前连
+   `prev_events` 分叉检测都没有用于 state 决策）。
+2. 明确 v2.1 的输入面：`resolve_state_v2(events)` 接收的是 `Vec<serde_json::Value>`（PDU 列表），
+   需要 `auth_events` 图与 room version；当前调用链上没有任何地方持有这三者。
+
+**本轮未执行删除、也未改状态决议代码**（4.5 的建议 (i) 已被 (ii) 取代：不再删 `resolve_state_v2`）。
