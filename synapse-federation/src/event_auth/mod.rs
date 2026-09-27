@@ -2,10 +2,15 @@
 pub mod chain;
 /// The `models` module.
 pub mod models;
+/// The `rules` module.
+pub mod rules;
 /// The `state_resolution` module.
 pub mod state_resolution;
 
 pub use models::*;
+pub use rules::{
+    check_inbound_event_auth, enforces_auth_events_room_rule, EventAuthError, InboundEventAuth, ResolvedAuthEvent,
+};
 
 use std::collections::{HashMap, VecDeque};
 
