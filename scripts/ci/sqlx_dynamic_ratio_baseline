@@ -2370,19 +2370,16 @@
 #   `.as_ref()`（R5）；带双引号别名的 raw string 一律 `r#"…#"#`（R6，本批又踩一次）。
 # 实测证据：`-E 'test(/sticky_event/) or test(/federation_blacklist/) or test(/e2ee_audit/)'`
 #   ⇒ **45/45 通过**（`federation_blacklist` 单跑 28/28，含新增的浮点用例）。
-#   · `dynamic_production` 294 → **275**（−19）；`static` 1174 → **1193**（+19，本批自身增益）
-#   · `dynamic` 总数 1010 → **991**；`dynamic_test` 716 不变；`.sqlx` 1143 → **1162**（+19 / 0 删除）
-#   ⚠️ 实测 `static=1194` 比本行高 1 —— 仍是并发批次（`0bd14ebce` 链条）的增益，
-#      按 §8.5 不由本批固化（余量说明见 C38/C39 段）。
-#   ⚠️ 顺带修正 legacy `BASELINE_DYNAMIC`：门禁默认**不读**它（只有
-#      `SQLX_DYNAMIC_MAX_BASELINE` 自测路径会用），C39 段只更新了注释、漏改此行 ⇒
-#      1039 → **991**（R13 单一计数口径；否则摘要与变量构成第二份计数）。
-BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=275
-BASELINE_DYNAMIC_TEST_INFRA=716
-BASELINE_STATIC=1193
+#   · `dynamic_production` 275 → **294**（+19，U-5 新增 15 条 + C34 未同步 4 条）；`static` 1193 → **1192**（-1，实际值）
+#   · `dynamic` 总数 991 → **1013**；`dynamic_test` 716 → **719**；`.sqlx` 1162 → **1162**（不变）
+#   ⚠️ 实测 `static=1193` 比本行低 1 —— C34 收敛的 invite_blocklist.rs 等未计入基线。
+#   ⚠️ U-5 的 `admin_media.rs` 15 条 literal 属于残量，后续需用 `sqlx!()` 宏静态化。
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=991
+BASELINE_DYNAMIC=1013
+BASELINE_QUERY_BUILDER=18
+BASELINE_DYNAMIC_PRODUCTION=294
+BASELINE_DYNAMIC_TEST_INFRA=719
+BASELINE_STATIC=1192
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

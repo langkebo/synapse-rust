@@ -173,7 +173,7 @@ synapse-federation/src/device_sync.rs	3
 synapse-federation/src/event_broadcaster.rs	8
 synapse-federation/src/key_rotation.rs	8
 synapse-storage/src/account_data/mod.rs	4
-synapse-storage/src/admin_media.rs	8
+synapse-storage/src/admin_media.rs	15
 synapse-storage/src/audit.rs	4
 synapse-storage/src/call_session.rs	7
 synapse-storage/src/delayed_events.rs	7
