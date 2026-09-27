@@ -46,27 +46,27 @@ pub fn validate_user_id(user_id: &str) -> Result<(), ApiError> {
 }
 
 /// See [`validate_room_id`].
+///
+/// Well-formedness is decided by the shared grammar in
+/// [`synapse_common::room_id`] (AGENTS.md iron rule 2 — one implementation), so
+/// this layer and [`synapse_common::validation::Validator::validate_room_id`]
+/// cannot drift. That grammar accepts **both** Matrix room-ID forms: the legacy
+/// `!opaque:server` used by room versions 1–11, and the domainless
+/// `!` + 43 unpadded URL-safe base64 characters form that room version 12
+/// (MSC4291) introduced. Only the error envelope is local to this layer.
 pub fn validate_room_id(room_id: &str) -> Result<(), ApiError> {
     if room_id.is_empty() {
         return Err(ApiError::invalid_input("room_id is required".to_string()));
     }
-    if !room_id.starts_with('!') {
-        return Err(ApiError::invalid_input("Invalid room_id format: must start with !".to_string()));
-    }
-    if room_id.len() > 255 {
-        return Err(ApiError::invalid_input("room_id too long (max 255 characters)".to_string()));
-    }
 
-    let Some((localpart, server_name)) = room_id[1..].rsplit_once(':') else {
-        return Err(ApiError::invalid_input("Invalid room_id format: must be !roomid:server".to_string()));
-    };
-
-    if localpart.is_empty() {
-        return Err(ApiError::invalid_input("Invalid room_id format: room id cannot be empty".to_string()));
-    }
-
-    if server_name.is_empty() {
-        return Err(ApiError::invalid_input("Invalid room_id format: server cannot be empty".to_string()));
+    if let Err(error) = synapse_common::room_id::parse_room_id(room_id) {
+        use synapse_common::room_id::RoomIdSyntaxError;
+        let message = match error {
+            RoomIdSyntaxError::MissingSigil => "Invalid room_id format: must start with !".to_string(),
+            RoomIdSyntaxError::TooLong => "room_id too long (max 255 characters)".to_string(),
+            other => format!("Invalid room_id format: {other}"),
+        };
+        return Err(ApiError::invalid_input(message));
     }
 
     Ok(())
@@ -224,6 +224,27 @@ mod tests {
     fn test_validate_room_id_valid() {
         assert!(validate_room_id("!room:example.com").is_ok());
         assert!(validate_room_id("!abc123:matrix.org").is_ok());
+    }
+
+    /// MSC4291 / room v12: `!` + 43 URL-safe base64 chars, with **no**
+    /// `:domain`, is a valid room ID (upstream `RoomID.is_valid` dispatches on
+    /// the presence of `:`; `RoomID_PATTERN_DOMAINLESS = ^[A-Za-z0-9\-_]{43}$`).
+    #[test]
+    fn test_validate_room_id_accepts_domainless_v12_form() {
+        assert!(validate_room_id("!31hneApxJ_1o-63DmFrpeqnkFfWppnzWso1JvH3ogLM").is_ok());
+        // Longest legal domainless id is exactly 44 bytes (sigil + 43).
+        assert!(validate_room_id(&format!("!{}", "A".repeat(43))).is_ok());
+    }
+
+    /// The domainless branch must be the MSC4291 grammar, not "anything".
+    #[test]
+    fn test_validate_room_id_rejects_malformed_domainless_form() {
+        assert!(validate_room_id(&format!("!{}", "A".repeat(42))).is_err());
+        assert!(validate_room_id(&format!("!{}", "A".repeat(44))).is_err());
+        assert!(validate_room_id(&format!("!{}A", "+".repeat(42))).is_err());
+        assert!(validate_room_id("!opaque").is_err());
+        // The 255-byte bound is preserved, in both forms.
+        assert!(validate_room_id(&format!("!{}", "a".repeat(255))).is_err());
     }
 
     #[test]

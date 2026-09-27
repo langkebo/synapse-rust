@@ -79,6 +79,9 @@ pub mod rate_limit_config;
 pub mod redaction;
 /// Module `regex_cache`.
 pub mod regex_cache;
+/// Module `room_id` — the single grammar for both room-ID forms (legacy
+/// `!opaque:server` and domainless room-v12 / MSC4291).
+pub mod room_id;
 /// Module `room_versions`.
 pub mod room_versions;
 /// Module `sanitizer`.
