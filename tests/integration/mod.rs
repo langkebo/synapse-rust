@@ -8,6 +8,8 @@ mod api_appservice_p1_tests;
 mod api_appservice_tests;
 mod api_auth_routes_tests;
 mod api_beacon_location_tests;
+#[cfg(feature = "burn-after-read")]
+mod api_burn_after_read_redaction_tests;
 mod api_content_scanner_integration_tests;
 mod api_create_room_auth_tests;
 mod api_device_presence_tests;

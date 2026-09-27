@@ -40,7 +40,12 @@ pub trait EventWriter: Send + Sync {
     ) -> Result<(), sqlx::Error>;
 
     /// See [`redact_event_content`].
-    async fn redact_event_content(&self, event_id: &str, redacted_by: Option<&str>) -> Result<(), sqlx::Error>;
+    ///
+    /// `redaction_event_id` is the id of the `m.room.redaction` event that
+    /// caused this redaction — a self-referential FK to `events.event_id`
+    /// (`fk_events_redacted_by`), **not** a user id. It is `None` when the
+    /// redaction has no causing event (a server/operator action).
+    async fn redact_event_content(&self, event_id: &str, redaction_event_id: Option<&str>) -> Result<(), sqlx::Error>;
 
     // ── mutation: graph / signatures / reports ─────────────────────────
 
@@ -178,8 +183,8 @@ impl crate::event::writer::EventWriter for super::EventStorage {
         self.update_event_signatures_and_hashes(event_id, signatures, hashes).await
     }
 
-    async fn redact_event_content(&self, event_id: &str, redacted_by: Option<&str>) -> Result<(), sqlx::Error> {
-        self.redact_event_content(event_id, redacted_by).await
+    async fn redact_event_content(&self, event_id: &str, redaction_event_id: Option<&str>) -> Result<(), sqlx::Error> {
+        self.redact_event_content(event_id, redaction_event_id).await
     }
 
     async fn create_event_with_graph(

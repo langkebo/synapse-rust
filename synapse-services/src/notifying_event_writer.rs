@@ -116,9 +116,9 @@ impl EventWriter for NotifyingEventWriter {
         self.inner.update_event_signatures_and_hashes(event_id, signatures, hashes).await
     }
 
-    async fn redact_event_content(&self, event_id: &str, redacted_by: Option<&str>) -> Result<(), sqlx::Error> {
+    async fn redact_event_content(&self, event_id: &str, redaction_event_id: Option<&str>) -> Result<(), sqlx::Error> {
         // No room_id in scope — see "Known gaps" in the module docs.
-        self.inner.redact_event_content(event_id, redacted_by).await
+        self.inner.redact_event_content(event_id, redaction_event_id).await
     }
 
     async fn create_event_with_graph(

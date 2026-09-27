@@ -165,7 +165,10 @@ impl EventStorage {
     ///
     /// # Arguments
     /// * `event_id` - The event to redact and cascade from
-    /// * `redacted_by` - Optional user ID performing the redaction
+    /// * `redaction_event_id` - The id of the `m.room.redaction` event that
+    ///   caused this redaction (a self-referential FK to `events.event_id`),
+    ///   or `None` when the redaction has no causing event (an operator/server
+    ///   action such as the admin cascade endpoint)
     /// * `max_depth` - Maximum recursion depth (default 5)
     ///
     /// # Returns
@@ -173,7 +176,7 @@ impl EventStorage {
     pub async fn cascade_redact_event(
         &self,
         event_id: &str,
-        redacted_by: Option<&str>,
+        redaction_event_id: Option<&str>,
         max_depth: u32,
     ) -> Result<u64, sqlx::Error> {
         // Find all cascade targets
@@ -186,7 +189,7 @@ impl EventStorage {
         // Redact each event
         let mut redacted_count = 0u64;
         for target_id in targets {
-            self.redact_event_content(&target_id, redacted_by).await?;
+            self.redact_event_content(&target_id, redaction_event_id).await?;
             redacted_count += 1;
         }
 
