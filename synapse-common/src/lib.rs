@@ -79,6 +79,10 @@ pub mod rate_limit_config;
 pub mod redaction;
 /// Module `regex_cache`.
 pub mod regex_cache;
+/// Module `room_creator` — the single rule for who a room's creators are
+/// (`content.creator` ∪ create `sender` ∪ `additional_creators`).
+pub mod room_creator;
+
 /// Module `room_id` — the single grammar for both room-ID forms (legacy
 /// `!opaque:server` and domainless room-v12 / MSC4291).
 pub mod room_id;

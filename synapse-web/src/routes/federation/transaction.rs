@@ -371,11 +371,54 @@ pub(super) async fn send_transaction(
                             event: resolved.get(auth_event_id),
                         })
                         .collect();
+                    // Rule 10.4 (MSC4289) needs the room's creator set, which is
+                    // room state rather than a property of this PDU, so it is
+                    // resolved here. Only a v12+ `m.room.power_levels` event
+                    // consults it.
+                    let creators: Vec<String> = if event_type == "m.room.power_levels"
+                        && synapse_common::room_versions::room_version_at_least(&room_version, 12)
+                    {
+                        match ctx.room_service.messaging().get_state_events_by_type(&room_id, "m.room.create").await {
+                            Ok(events) => events
+                                .first()
+                                .map(|create| {
+                                    let sender = create.get("sender").and_then(Value::as_str).unwrap_or("");
+                                    let create_content = create.get("content").cloned().unwrap_or_else(|| json!({}));
+                                    synapse_common::room_creator::creators_from_create_event(sender, &create_content)
+                                        .into_iter()
+                                        .collect::<Vec<String>>()
+                                })
+                                .unwrap_or_default(),
+                            Err(error) => {
+                                // Fail closed: rule 10.4 cannot be decided without
+                                // the creator set, and skipping it would accept a
+                                // power-levels event that may name a creator.
+                                super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
+                                ::tracing::warn!(
+                                    target: "security_audit",
+                                    event = "federation_power_levels_creator_check_failed",
+                                    room_id = room_id,
+                                    event_id = event_id,
+                                    error = %error,
+                                    "Cannot read the room's create event to check MSC4289 rule 10.4 — rejecting"
+                                );
+                                results.push(json!({
+                                    "event_id": event_id,
+                                    "error": "cannot resolve the room's creators to authorise this power_levels event"
+                                }));
+                                continue;
+                            }
+                        }
+                    } else {
+                        Vec::new()
+                    };
+
                     let auth_input = event_auth::InboundEventAuth {
                         room_version: &room_version,
                         room_id: &room_id,
                         event_type,
                         content: &content,
+                        creators: &creators,
                         auth_events: &resolved_auth_events,
                     };
                     if let Err(error) = event_auth::check_inbound_event_auth(&auth_input) {

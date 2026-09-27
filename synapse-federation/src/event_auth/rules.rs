@@ -21,6 +21,11 @@
 //!   `content.additional_creators`, when present, must be an array of strings,
 //!   each of which passes the same user-ID validation as the create event's
 //!   `sender`.
+//! * **rule 10.4 (MSC4289, room version 12)** — an `m.room.power_levels` event
+//!   must not name a creator in `users`. Creators have unlimited power, so the
+//!   entry could never be enforced. The caller supplies the creator set
+//!   (`synapse_common::room_creator`), because it is room state rather than a
+//!   property of the event.
 //!
 //! # Version scope
 //!
@@ -56,6 +61,9 @@ const AUTH_EVENTS_ROOM_CHECK_MIN_VERSION: u32 = 12;
 /// kept separate because they are separate rules with separate semantics.
 const ADDITIONAL_CREATORS_MIN_VERSION: u32 = 12;
 
+/// First room version whose auth rules include rule 10.4 (MSC4289).
+const POWER_LEVELS_CREATOR_MIN_VERSION: u32 = 12;
+
 /// One `auth_events` entry of the event being authorised, resolved locally.
 #[derive(Debug, Clone, Copy)]
 pub struct ResolvedAuthEvent<'a> {
@@ -82,8 +90,14 @@ pub struct InboundEventAuth<'a> {
     /// The event's `type` (rules 1.2 / 1.4 only apply to `m.room.create`).
     pub event_type: &'a str,
     /// The event's `content` (rule 1.4 reads `additional_creators`; rule 10.4
-    /// will read the power-level `users`).
+    /// reads the power-level `users`).
     pub content: &'a serde_json::Value,
+    /// The room's creator set, as resolved by the caller from the room's
+    /// `m.room.create` event (`synapse_common::room_creator`). Empty when the
+    /// caller has no create event; rule 10.4 then has nothing to reject, which is
+    /// the same verdict the local path reaches for a room with no creators
+    /// recorded.
+    pub creators: &'a [String],
     /// Every `auth_events` entry, in the order the PDU lists them.
     ///
     /// The list must contain an element for each referenced event ID — an entry
@@ -119,6 +133,12 @@ pub enum EventAuthError {
         /// Which requirement failed.
         reason: String,
     },
+    /// Rule 10.4 (MSC4289): `m.room.power_levels` names a creator in `users`.
+    #[error("power_levels.users names the room creator {user_id} (MSC4289 / room v12 rule 10.4)")]
+    PowerLevelsNamesCreator {
+        /// The creator the event tried to pin a power level for.
+        user_id: String,
+    },
     /// An `auth_events` entry could not be resolved locally, so the rules that
     /// inspect it cannot be decided. Rejected rather than waved through.
     #[error(
@@ -146,10 +166,36 @@ pub fn check_inbound_event_auth(input: &InboundEventAuth<'_>) -> Result<(), Even
     if room_version_at_least(input.room_version, ADDITIONAL_CREATORS_MIN_VERSION) {
         check_additional_creators(input)?;
     }
+    if room_version_at_least(input.room_version, POWER_LEVELS_CREATOR_MIN_VERSION) {
+        check_power_levels_do_not_name_creators(input)?;
+    }
     if room_version_at_least(input.room_version, AUTH_EVENTS_ROOM_CHECK_MIN_VERSION) {
         check_auth_events_belong_to_room(input)?;
     }
     Ok(())
+}
+
+/// Rule 10.4 (MSC4289 / room version 12): a `m.room.power_levels` event must not
+/// name a creator in `users`.
+///
+/// A creator's power is unlimited and cannot be demoted, so an entry for one is
+/// either redundant or an attempt to state a number the event can never enforce.
+fn check_power_levels_do_not_name_creators(input: &InboundEventAuth<'_>) -> Result<(), EventAuthError> {
+    if input.event_type != "m.room.power_levels" {
+        return Ok(());
+    }
+    let Some(users) = input.content.get("users").and_then(|u| u.as_object()) else {
+        return Ok(());
+    };
+    if let Some(creator) = users.keys().find(|target| input.creators.contains(target)) {
+        return Err(EventAuthError::PowerLevelsNamesCreator { user_id: creator.clone() });
+    }
+    Ok(())
+}
+
+/// Whether `room_version` defines rule 10.4 (MSC4289).
+pub fn enforces_power_levels_creator_rule(room_version: &str) -> bool {
+    room_version_at_least(room_version, POWER_LEVELS_CREATOR_MIN_VERSION)
 }
 
 /// Rule 1.4 (MSC4289 / room version 12): `content.additional_creators` on an
@@ -262,6 +308,7 @@ mod tests {
                 room_id: "!a:example.org",
                 event_type: "m.room.topic",
                 content: empty_content(),
+                creators: &[],
                 auth_events: &[],
             };
             assert!(check_inbound_event_auth(&input).is_ok(), "v{version} must accept an empty auth_events list");
@@ -276,6 +323,7 @@ mod tests {
             room_id: "!a:example.org",
             event_type: "m.room.topic",
             content: empty_content(),
+            creators: &[],
             auth_events: &[entry("$foreign", Some(&foreign))],
         };
         assert_eq!(
@@ -296,6 +344,7 @@ mod tests {
             room_id: "!a:example.org",
             event_type: "m.room.topic",
             content: empty_content(),
+            creators: &[],
             auth_events: &[entry("$same", Some(&same))],
         };
         assert!(check_inbound_event_auth(&input).is_ok());
@@ -308,6 +357,7 @@ mod tests {
             room_id: "!a:example.org",
             event_type: "m.room.topic",
             content: empty_content(),
+            creators: &[],
             auth_events: &[entry("$gone", None)],
         };
         assert_eq!(
@@ -325,6 +375,7 @@ mod tests {
                 room_id: "!a:example.org",
                 event_type: "m.room.topic",
                 content: empty_content(),
+                creators: &[],
                 auth_events: &[entry("$foreign", Some(&foreign))],
             };
             assert!(
@@ -363,6 +414,7 @@ mod tests {
             room_id: "!a:example.org",
             event_type: "m.room.topic",
             content: empty_content(),
+            creators: &[],
             auth_events: &[entry("$same", Some(&same)), entry("$foreign", Some(&foreign))],
         };
         assert_eq!(
@@ -383,6 +435,7 @@ mod tests {
             room_id: "!a:example.org",
             event_type: "m.room.create",
             content,
+            creators: &[],
             auth_events: &[],
         }
     }
@@ -453,6 +506,78 @@ mod tests {
             room_id: "!a:example.org",
             event_type: "m.room.topic",
             content: &content,
+            creators: &[],
+            auth_events: &[],
+        };
+        assert!(check_inbound_event_auth(&input).is_ok());
+    }
+
+    // ── rule 10.4 (MSC4289): power_levels must not name a creator ──────────
+
+    fn pl_auth<'a>(content: &'a serde_json::Value, creators: &'a [String]) -> InboundEventAuth<'a> {
+        InboundEventAuth {
+            room_version: "12",
+            room_id: "!a:example.org",
+            event_type: "m.room.power_levels",
+            content,
+            creators,
+            auth_events: &[],
+        }
+    }
+
+    #[test]
+    fn v12_rejects_power_levels_naming_a_creator() {
+        let creators = vec!["@alice:example.org".to_string(), "@bob:example.org".to_string()];
+        let content = json!({"users": {"@carol:example.org": 50, "@bob:example.org": 100}});
+        assert_eq!(
+            check_inbound_event_auth(&pl_auth(&content, &creators)),
+            Err(EventAuthError::PowerLevelsNamesCreator { user_id: "@bob:example.org".to_string() })
+        );
+    }
+
+    #[test]
+    fn v12_accepts_power_levels_naming_only_non_creators() {
+        let creators = vec!["@alice:example.org".to_string()];
+        let content = json!({"users": {"@carol:example.org": 50}});
+        assert!(check_inbound_event_auth(&pl_auth(&content, &creators)).is_ok());
+    }
+
+    /// No `users` key at all is fine — the rule only constrains named users.
+    #[test]
+    fn v12_accepts_power_levels_without_users() {
+        let creators = vec!["@alice:example.org".to_string()];
+        assert!(check_inbound_event_auth(&pl_auth(&json!({"ban": 50}), &creators)).is_ok());
+    }
+
+    /// Below v12 the creator *belongs* in `users`; the rule must not fire.
+    #[test]
+    fn pre_v12_power_levels_may_name_a_creator() {
+        let creators = vec!["@alice:example.org".to_string()];
+        let content = json!({"users": {"@alice:example.org": 100}});
+        let input = InboundEventAuth {
+            room_version: "11",
+            room_id: "!a:example.org",
+            event_type: "m.room.power_levels",
+            content: &content,
+            creators: &creators,
+            auth_events: &[],
+        };
+        assert!(check_inbound_event_auth(&input).is_ok());
+        assert!(enforces_power_levels_creator_rule("12"));
+        assert!(!enforces_power_levels_creator_rule("11"));
+    }
+
+    /// The rule applies to `m.room.power_levels` only.
+    #[test]
+    fn rule_10_4_only_applies_to_power_levels_events() {
+        let creators = vec!["@alice:example.org".to_string()];
+        let content = json!({"users": {"@alice:example.org": 100}});
+        let input = InboundEventAuth {
+            room_version: "12",
+            room_id: "!a:example.org",
+            event_type: "m.room.topic",
+            content: &content,
+            creators: &creators,
             auth_events: &[],
         };
         assert!(check_inbound_event_auth(&input).is_ok());

@@ -112,21 +112,10 @@ impl AuthService {
             .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
         if let Some(event) = events.first() {
-            let mut creators = BTreeSet::new();
-            if let Some(creator) = event.content.get("creator").and_then(|c| c.as_str()) {
-                creators.insert(creator.to_string());
-            }
-            let sender = if !event.sender.is_empty() { Some(event.sender.clone()) } else { event.user_id.clone() };
-            if let Some(s) = sender.filter(|s| !s.is_empty()) {
-                creators.insert(s);
-            }
-            if let Some(extra) = event.content.get("additional_creators").and_then(|v| v.as_array()) {
-                for entry in extra {
-                    if let Some(user_id) = entry.as_str() {
-                        creators.insert(user_id.to_string());
-                    }
-                }
-            }
+            // One implementation of "who is a creator", shared with the inbound
+            // federation auth rules (`synapse_common::room_creator`).
+            let sender = if event.sender.is_empty() { event.user_id.as_deref().unwrap_or("") } else { &event.sender };
+            let creators = synapse_common::room_creator::creators_from_create_event(sender, &event.content);
             // `None` when the create event does not state one: an unknown version
             // must never be *assumed* to be v12+ — see `get_user_power_level`.
             let version = event.content.get("room_version").and_then(|v| v.as_str()).map(str::to_string);
