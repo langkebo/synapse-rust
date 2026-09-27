@@ -19,7 +19,7 @@ impl KeyRequestStorage {
 
     /// See [`create_request`].
     pub async fn create_request(&self, request: &KeyRequestInfo) -> Result<(), ApiError> {
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO e2ee_key_requests
                 (request_id, user_id, device_id, room_id, session_id, algorithm, action, created_ts, is_fulfilled)
@@ -28,16 +28,16 @@ impl KeyRequestStorage {
                 action = EXCLUDED.action,
                 is_fulfilled = EXCLUDED.is_fulfilled
             ",
+            &request.request_id,
+            &request.user_id,
+            &request.device_id,
+            &request.room_id,
+            &request.session_id,
+            &request.algorithm,
+            &request.action,
+            request.created_ts,
+            request.is_fulfilled,
         )
-        .bind(&request.request_id)
-        .bind(&request.user_id)
-        .bind(&request.device_id)
-        .bind(&request.room_id)
-        .bind(&request.session_id)
-        .bind(&request.algorithm)
-        .bind(&request.action)
-        .bind(request.created_ts)
-        .bind(request.is_fulfilled)
         .execute(&self.pool)
         .await
         .map_err(map_database!("create_request"))?;
@@ -47,8 +47,12 @@ impl KeyRequestStorage {
 
     /// See [`get_request`].
     pub async fn get_request(&self, request_id: &str) -> Result<Option<KeyRequestInfo>, ApiError> {
-        sqlx::query_as::<_, KeyRequestInfo>(
-            r"
+        // R4：`COALESCE(is_fulfilled, FALSE)` 是"无关系来源的表达式" ⇒ 宏推可空，
+        // 而 `KeyRequestInfo.is_fulfilled` 是非 `Option` 的 `bool` ⇒ 断言非空
+        // （`COALESCE(…, FALSE)` 自身即保证；列本身也有 DEFAULT FALSE）。
+        sqlx::query_as!(
+            KeyRequestInfo,
+            r#"
             SELECT
                 request_id,
                 user_id,
@@ -58,14 +62,14 @@ impl KeyRequestStorage {
                 algorithm,
                 action,
                 created_ts,
-                COALESCE(is_fulfilled, FALSE) AS is_fulfilled,
+                COALESCE(is_fulfilled, FALSE) AS "is_fulfilled!",
                 fulfilled_by_device,
                 fulfilled_ts
             FROM e2ee_key_requests
             WHERE request_id = $1
-            ",
+            "#,
+            request_id,
         )
-        .bind(request_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(map_database!("get_request"))
@@ -73,8 +77,9 @@ impl KeyRequestStorage {
 
     /// See [`get_requests_for_user`].
     pub async fn get_requests_for_user(&self, user_id: &str) -> Result<Vec<KeyRequestInfo>, ApiError> {
-        sqlx::query_as::<_, KeyRequestInfo>(
-            r"
+        sqlx::query_as!(
+            KeyRequestInfo,
+            r#"
             SELECT
                 request_id,
                 user_id,
@@ -84,16 +89,16 @@ impl KeyRequestStorage {
                 algorithm,
                 action,
                 created_ts,
-                COALESCE(is_fulfilled, FALSE) AS is_fulfilled,
+                COALESCE(is_fulfilled, FALSE) AS "is_fulfilled!",
                 fulfilled_by_device,
                 fulfilled_ts
             FROM e2ee_key_requests
             WHERE user_id = $1
             ORDER BY created_ts DESC
             LIMIT 100
-            ",
+            "#,
+            user_id,
         )
-        .bind(user_id)
         .fetch_all(&self.pool)
         .await
         .map_err(map_database!("get_requests_for_user"))
@@ -101,8 +106,9 @@ impl KeyRequestStorage {
 
     /// See [`get_all_pending_requests`].
     pub async fn get_all_pending_requests(&self) -> Result<Vec<KeyRequestInfo>, ApiError> {
-        sqlx::query_as::<_, KeyRequestInfo>(
-            r"
+        sqlx::query_as!(
+            KeyRequestInfo,
+            r#"
             SELECT
                 request_id,
                 user_id,
@@ -112,14 +118,14 @@ impl KeyRequestStorage {
                 algorithm,
                 action,
                 created_ts,
-                COALESCE(is_fulfilled, FALSE) AS is_fulfilled,
+                COALESCE(is_fulfilled, FALSE) AS "is_fulfilled!",
                 fulfilled_by_device,
                 fulfilled_ts
             FROM e2ee_key_requests
             WHERE is_fulfilled = FALSE
             ORDER BY created_ts DESC
             LIMIT 100
-            ",
+            "#,
         )
         .fetch_all(&self.pool)
         .await
@@ -130,16 +136,16 @@ impl KeyRequestStorage {
     pub async fn fulfill_request(&self, request_id: &str, device_id: &str) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
 
-        sqlx::query(
+        sqlx::query!(
             r"
             UPDATE e2ee_key_requests
             SET is_fulfilled = TRUE, fulfilled_by_device = $2, fulfilled_ts = $3
             WHERE request_id = $1
             ",
+            request_id,
+            device_id,
+            now,
         )
-        .bind(request_id)
-        .bind(device_id)
-        .bind(now)
         .execute(&self.pool)
         .await
         .map_err(map_database!("fulfill_request"))?;
@@ -149,14 +155,14 @@ impl KeyRequestStorage {
 
     /// See [`cancel_request`].
     pub async fn cancel_request(&self, request_id: &str) -> Result<(), ApiError> {
-        sqlx::query(
+        sqlx::query!(
             r"
             UPDATE e2ee_key_requests
             SET action = 'cancellation', is_fulfilled = TRUE
             WHERE request_id = $1
             ",
+            request_id,
         )
-        .bind(request_id)
         .execute(&self.pool)
         .await
         .map_err(map_database!("cancel_request"))?;
@@ -168,16 +174,16 @@ impl KeyRequestStorage {
     pub async fn update_request_status(&self, request_id: &str, status: &str) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
 
-        sqlx::query(
+        sqlx::query!(
             r"
             UPDATE e2ee_key_requests
             SET action = $2, updated_ts = $3
             WHERE request_id = $1
             ",
+            request_id,
+            status,
+            now,
         )
-        .bind(request_id)
-        .bind(status)
-        .bind(now)
         .execute(&self.pool)
         .await
         .map_err(map_database!("update_request_status"))?;
@@ -187,12 +193,12 @@ impl KeyRequestStorage {
 
     /// See [`delete_request`].
     pub async fn delete_request(&self, request_id: &str) -> Result<(), ApiError> {
-        sqlx::query(
+        sqlx::query!(
             r"
             DELETE FROM e2ee_key_requests WHERE request_id = $1
             ",
+            request_id,
         )
-        .bind(request_id)
         .execute(&self.pool)
         .await
         .map_err(map_database!("delete_request"))?;
@@ -202,13 +208,13 @@ impl KeyRequestStorage {
 
     /// See [`delete_old_requests`].
     pub async fn delete_old_requests(&self, older_than_ts: i64) -> Result<u64, ApiError> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             DELETE FROM e2ee_key_requests
             WHERE is_fulfilled = TRUE AND fulfilled_ts < $1
             ",
+            older_than_ts,
         )
-        .bind(older_than_ts)
         .execute(&self.pool)
         .await
         .map_err(map_database!("delete_old_requests"))?;

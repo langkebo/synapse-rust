@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT 1::bigint AS \"exists!\" FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4fe250778b24864bf8b7fa9d18e85b73e4b5d631c3cf60c621c2f4b737d6a67d"
+}

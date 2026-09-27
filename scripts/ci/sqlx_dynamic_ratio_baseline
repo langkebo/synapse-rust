@@ -2318,10 +2318,34 @@
 # ⚠️ 已知 1 点余量（2026-09-26）：rebase 到并发提交 `0bd14ebce` 链条后实测 `static=1146`
 #   （该批次新增 1 条静态查询 + 1 条 `.sqlx`）。按 §8.5「同批同向」纪律**不由 C38 代替它固化**，
 #   故本行仍为 1145 ⇒ 棘轮留有 1 点余量（同 D-12 记录的先例）。该批次应自行上调到 1146。
+# ── 2026-09-26 C39（e2ee 三件套 29 处：ssss 10 + secure_backup 10 + key_request 9）──
+# 三文件都无 feature 门控、全是字面量站点；覆盖情况不同（STEP 0 实测）：
+#   · SSSS / secure_backup 有**端到端集成覆盖**（`api_e2ee_advanced_tests` 的
+#     `/_matrix/client/v3/keys/backup/secure` 等 + `key_backup_*` 套件）；
+#   · `key_request/storage.rs` 的 9 处在 `tests/` 里**零引用** ⇒ 先补 **C39-0**（5 条真 baseline
+#     `db_tests`，覆盖 9 条路径）再转换。
+# 实测证据：`cargo nextest run -p synapse-e2ee --lib --features test-utils` ⇒ **406/406**；
+#   `cargo nextest run --profile ci --all-features --test integration --test-threads 1
+#      -E 'test(/api_e2ee_advanced|key_backup|account_data_routes|ssss|secure_backup/)'` ⇒ **21/21**。
+# 四个非机械点（全部按既有规则）：
+#   · R4：`e2ee_secret_storage_keys.encrypted_key` / `.signatures` 列**可空**而
+#     `SecretStorageKeyRow` 字段非 `Option` ⇒ 断言 `AS "encrypted_key!"` / `AS "signatures!"`；
+#     "谁保证非空"= 全部写入者恒写非空（唯一生产 INSERT + 唯一测试夹具）。
+#     （结构性替代是收紧 schema 为 NOT NULL —— 属独立事项，本批只断言并记录。）
+#   · R4：`COUNT(*)` / `1::bigint` / `COALESCE(is_fulfilled, FALSE)` 等无关系来源 ⇒ 断言。
+#   · R5：`&Option<String>`（`key.public_key`）⇒ `.as_deref()`；`UNNEST($3::text[])` 的
+#     `Vec<&str>` ⇒ `Vec<String>`；`&[String]` 可直接传。
+#   · R6⑤：`restore_backup` 的元组投影 `(String, String, String)` 不能走 `query_as!` ⇒
+#     改 `query!` 按字段读再映射；带双引号别名的 raw string 开头必须 `r#"`（本批实测又踩到
+#     `no rules expected !` 一次）。
+#   · `dynamic_production` 323 → **294**（−29）；`static` 1145 → **1174**（+29，本批自身增益）
+#   · `dynamic` 总数 1039 → **1010**；`dynamic_test` 716 不变；`.sqlx` 1114 → **1143**（+29 / 0 删除）
+#   ⚠️ 实测 `static=1175` 比本行高 1 —— 那 1 点是并发批次（`0bd14ebce` 链条）的增益，
+#      按 §8.5「同批同向」纪律**不由本批固化**（余量说明见本文件上方）。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=323
+BASELINE_DYNAMIC_PRODUCTION=294
 BASELINE_DYNAMIC_TEST_INFRA=716
-BASELINE_STATIC=1145
+BASELINE_STATIC=1174
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=1039
 

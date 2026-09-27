@@ -189,6 +189,12 @@ schema**（`NOT NULL DEFAULT …`），而不是长期留一个断言别名。
 
 - 正例：`key_backups.version`、`olm_sessions.message_index`、`rendezvous_session.content`
   都是靠收紧 schema 才真正关掉的（D-46 / D-48 / D-49）。
+- 另一类常见实例（C39）：**列可空（只有 DEFAULT、无 NOT NULL）而行类型字段非 `Option`**
+  —— `e2ee_secret_storage_keys.encrypted_key` / `.signatures`、`federation_queue.retry_count` /
+  `.status`、`openid_tokens.is_valid`、`event_reports.score`。宏化时要么断言
+  `AS "col!"` 并写清"谁保证非空"（通常是**唯一写者恒写该列**），要么**收紧 schema**
+  （后者是结构性修法，属独立提交）。**不要**靠改字段为 `Option` 来绕过：那会把
+  "非空"这一确定语义降级成运行期分支。
 - **两个方向都会错**：sqlx 推**可空**而结构体非 `Option` ⇒ 用 `!` 或收紧 schema；
   sqlx 推**非空**而语义可空 ⇒ 用 `AS "col?"`（LEFT JOIN 外侧列会被 PG 透传成 NOT NULL，D-20）。
 - **两类"看起来非空却推成可空"的来源**（实测，遇到时先怀疑它们，别急着改结构体）：

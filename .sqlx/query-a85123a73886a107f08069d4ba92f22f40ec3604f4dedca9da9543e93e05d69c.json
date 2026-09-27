@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT backup_id, version, algorithm, auth_data, key_count\n             FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "backup_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "algorithm",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "auth_data",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "key_count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a85123a73886a107f08069d4ba92f22f40ec3604f4dedca9da9543e93e05d69c"
+}

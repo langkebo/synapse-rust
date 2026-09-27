@@ -147,6 +147,9 @@
 # ── 2026-09-26 C38（本表再退三行：8 + 7 + 10）────────────────────────────────
 #   `event/basic.rs`(8)、`event/batch.rs`(7)、`event/redaction.rs`(10) 的字面量站点全部宏化
 #   ⇒ 三行归零退表；本表合计 277 → **252**、文件数 56 → **53**。
+# ── 2026-09-26 C39（本表再退三行：10 + 10 + 9）────────────────────────────────
+#   `ssss/storage.rs`(10)、`secure_backup/service.rs`(10)、`key_request/storage.rs`(9)
+#   全部宏化 ⇒ 三行归零退表；本表合计 252 → **223**、文件数 53 → **50**。
 #   ⚠️ 这三个文件**仍留在「运行期拼装」摘要清单里**（basic 3 + batch 2），因为
 #   `{ROOM_EVENT_COLS}` 拼列清单属 D-14 结构性例外，本批有意未动。
 src/server/database.rs	1
@@ -156,10 +159,7 @@ synapse-common/src/test_isolation.rs	9
 synapse-common/src/test_schema_guard.rs	2
 synapse-common/src/transaction.rs	3
 synapse-e2ee/src/backup/service.rs	5
-synapse-e2ee/src/key_request/storage.rs	9
-synapse-e2ee/src/secure_backup/service.rs	10
 synapse-e2ee/src/signature/storage.rs	3
-synapse-e2ee/src/ssss/storage.rs	10
 synapse-federation/src/dead_letter_queue.rs	3
 synapse-federation/src/device_sync.rs	3
 synapse-federation/src/event_broadcaster.rs	8

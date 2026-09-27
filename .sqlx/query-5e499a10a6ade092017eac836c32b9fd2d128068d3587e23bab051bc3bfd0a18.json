@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO secure_backup_session_keys (user_id, backup_id, room_id, session_id, encrypted_key)\n            SELECT $1, $2, unnest($3::text[]), unnest($4::text[]), unnest($5::text[])\n            ON CONFLICT (user_id, backup_id, room_id, session_id) DO UPDATE SET\n                encrypted_key = EXCLUDED.encrypted_key\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "TextArray",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5e499a10a6ade092017eac836c32b9fd2d128068d3587e23bab051bc3bfd0a18"
+}

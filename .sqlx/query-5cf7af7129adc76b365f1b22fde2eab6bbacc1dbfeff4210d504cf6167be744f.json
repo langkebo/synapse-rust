@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM secure_backup_session_keys WHERE user_id = $1 AND backup_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5cf7af7129adc76b365f1b22fde2eab6bbacc1dbfeff4210d504cf6167be744f"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM e2ee_stored_secrets\n            WHERE user_id = $1 AND secret_name = ANY($2)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ba1bf5272fd4789d172621e9e8027eb55f292f2393b9e2600d9efad8025fda84"
+}

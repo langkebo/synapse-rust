@@ -40,8 +40,9 @@ impl SecureBackupService {
             public_key: auth_data_val.get("public_key").and_then(|v| v.as_str()).map(|s| s.to_string()),
         };
 
-        // Store backup metadata
-        sqlx::query(
+        // Store backup metadata（序列化先落到局部变量，避免把 `?` 表达式直接塞进宏实参）
+        let auth_data_json = serde_json::to_string(&auth_data).map_err(|e| ApiError::internal(e.to_string()))?;
+        sqlx::query!(
             r"
             INSERT INTO secure_key_backups (user_id, backup_id, version, algorithm, auth_data, key_count)
             VALUES ($1, $2, $3, $4, $5, 0)
@@ -50,12 +51,12 @@ impl SecureBackupService {
                 auth_data = EXCLUDED.auth_data,
                 updated_ts = (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT
             ",
+            user_id,
+            &backup_id,
+            &version,
+            algorithm,
+            auth_data_json,
         )
-        .bind(user_id)
-        .bind(&backup_id)
-        .bind(&version)
-        .bind(algorithm)
-        .bind(serde_json::to_string(&auth_data).map_err(|e| ApiError::internal(e.to_string()))?)
         .execute(&*self.pool)
         .await
         .map_err(map_database!("create_backup_with_data"))?;
@@ -74,11 +75,12 @@ impl SecureBackupService {
         backup_id: &str,
         session_keys: Vec<SessionKeyData>,
     ) -> Result<i64, ApiError> {
-        let exists: Option<i64> = sqlx::query_scalar::<_, i64>(
-            r"SELECT 1::bigint FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2",
+        // R4：`1::bigint` 是字面量（无关系来源）⇒ 推可空；它按构造恒非 NULL ⇒ 断言。
+        let exists: Option<i64> = sqlx::query_scalar!(
+            r#"SELECT 1::bigint AS "exists!" FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2"#,
+            user_id,
+            backup_id,
         )
-        .bind(user_id)
-        .bind(backup_id)
         .fetch_optional(&*self.pool)
         .await
         .map_err(map_database!("store_session_keys"))?;
@@ -91,44 +93,45 @@ impl SecureBackupService {
             return Ok(0);
         }
 
-        let mut room_ids: Vec<&str> = Vec::with_capacity(session_keys.len());
-        let mut sids: Vec<&str> = Vec::with_capacity(session_keys.len());
+        // 宏的 `ty_match` 对数组参数要求元素类型是 `String`（R5：不要 `Vec<&str>`）。
+        let mut room_ids: Vec<String> = Vec::with_capacity(session_keys.len());
+        let mut sids: Vec<String> = Vec::with_capacity(session_keys.len());
         let mut encrypted_keys: Vec<String> = Vec::with_capacity(session_keys.len());
 
         // session_key is already client-side ciphertext — store verbatim, no key derivation.
         for session_key in &session_keys {
-            room_ids.push(&session_key.room_id);
-            sids.push(&session_key.session_id);
+            room_ids.push(session_key.room_id.clone());
+            sids.push(session_key.session_id.clone());
             encrypted_keys.push(session_key.session_key.clone());
         }
 
         let key_count = session_keys.len() as i64;
 
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO secure_backup_session_keys (user_id, backup_id, room_id, session_id, encrypted_key)
             SELECT $1, $2, unnest($3::text[]), unnest($4::text[]), unnest($5::text[])
             ON CONFLICT (user_id, backup_id, room_id, session_id) DO UPDATE SET
                 encrypted_key = EXCLUDED.encrypted_key
             ",
+            user_id,
+            backup_id,
+            &room_ids,
+            &sids,
+            &encrypted_keys,
         )
-        .bind(user_id)
-        .bind(backup_id)
-        .bind(&room_ids)
-        .bind(&sids)
-        .bind(&encrypted_keys)
         .execute(&*self.pool)
         .await
         .map_err(map_database!("store_session_keys"))?;
 
-        sqlx::query(
+        sqlx::query!(
             "UPDATE secure_key_backups SET key_count = key_count + $1,
              updated_ts = (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT
              WHERE user_id = $2 AND backup_id = $3",
+            key_count,
+            user_id,
+            backup_id,
         )
-        .bind(key_count)
-        .bind(user_id)
-        .bind(backup_id)
         .execute(&*self.pool)
         .await
         .map_err(map_database!("store_session_keys"))?;
@@ -143,25 +146,29 @@ impl SecureBackupService {
         backup_id: &str,
         rooms: Option<Vec<String>>,
     ) -> Result<RestoreResponse, ApiError> {
-        let total_keys: i64 =
-            sqlx::query_scalar("SELECT key_count FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2")
-                .bind(user_id)
-                .bind(backup_id)
-                .fetch_one(&*self.pool)
-                .await
-                .map_err(|_| ApiError::not_found("Backup not found".to_string()))?;
+        let total_keys: i64 = sqlx::query_scalar!(
+            "SELECT key_count FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2",
+            user_id,
+            backup_id
+        )
+        .fetch_one(&*self.pool)
+        .await
+        .map_err(|_| ApiError::not_found("Backup not found".to_string()))?;
 
         // Return ciphertext only; the client decrypts locally with its recovery key.
         // The server never derives a key or decrypts session keys.
-        let encrypted_keys: Vec<(String, String, String)> = sqlx::query_as(
+        // `query_as!` 不能构造元组（R6 ⑤）⇒ 用 `query!` 取匿名行再映射为元组。
+        let rows = sqlx::query!(
             "SELECT room_id, session_id, encrypted_key FROM secure_backup_session_keys
              WHERE user_id = $1 AND backup_id = $2",
+            user_id,
+            backup_id,
         )
-        .bind(user_id)
-        .bind(backup_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(map_database!("restore_backup"))?;
+        let encrypted_keys: Vec<(String, String, String)> =
+            rows.into_iter().map(|row| (row.room_id, row.session_id, row.encrypted_key)).collect();
 
         let allowed_rooms = rooms.map(|room_ids| room_ids.into_iter().collect::<std::collections::HashSet<_>>());
 
@@ -182,12 +189,13 @@ impl SecureBackupService {
         user_id: &str,
         backup_id: &str,
     ) -> Result<Option<SecureBackupResponse>, ApiError> {
-        let result = sqlx::query_as::<_, SqlxSecureBackup>(
+        let result = sqlx::query_as!(
+            SqlxSecureBackup,
             "SELECT backup_id, version, algorithm, auth_data, key_count
              FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2",
+            user_id,
+            backup_id,
         )
-        .bind(user_id)
-        .bind(backup_id)
         .fetch_optional(&*self.pool)
         .await
         .map_err(map_database!("get_backup_info"))?;
@@ -211,11 +219,12 @@ impl SecureBackupService {
 
     /// List all backups for user
     pub async fn list_backups(&self, user_id: &str) -> Result<Vec<SecureBackupResponse>, ApiError> {
-        let results = sqlx::query_as::<_, SqlxSecureBackup>(
+        let results = sqlx::query_as!(
+            SqlxSecureBackup,
             "SELECT backup_id, version, algorithm, auth_data, key_count
              FROM secure_key_backups WHERE user_id = $1 ORDER BY created_ts DESC",
+            user_id,
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(map_database!("list_backups"))?;
@@ -242,17 +251,17 @@ impl SecureBackupService {
         let mut tx = self.pool.begin().await.map_err(map_database!("Failed to begin transaction for delete_backup"))?;
 
         // Delete session keys first
-        sqlx::query("DELETE FROM secure_backup_session_keys WHERE user_id = $1 AND backup_id = $2")
-            .bind(user_id)
-            .bind(backup_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(map_database!("delete_backup"))?;
+        sqlx::query!(
+            "DELETE FROM secure_backup_session_keys WHERE user_id = $1 AND backup_id = $2",
+            user_id,
+            backup_id
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(map_database!("delete_backup"))?;
 
         // Delete backup
-        sqlx::query("DELETE FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2")
-            .bind(user_id)
-            .bind(backup_id)
+        sqlx::query!("DELETE FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2", user_id, backup_id)
             .execute(&mut *tx)
             .await
             .map_err(map_database!("delete_backup"))?;
