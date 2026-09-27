@@ -188,3 +188,42 @@ via_finalize=$honiPdN...       ← finalize_local_pdu(&parts).event_id
 | **Q6** | **(b) 不接线**：按铁律 1 删除 `StateResolutionService` 与 `resolve_state_v2` 死实现；v2.1 只在 `resolve_state_with_auth_chain` 上演进 | F-1/F-2/F-3 的验收改为"现有裁决路径满足 v2.1 语义 + 测试向量" |
 | **Q7** | **不允许**客户端在 `creation_content` 传 `additional_creators`（服务端/应用服务专属） | E-1 写入侧边界；handler 黑名单保持并补文档 |
 | **Q8** | 接受计划的阶段排序**但按 §2.5 修正**：`C-3(DB) → D-6 → C-2 → D-4 → D-1 → C-4 → C-5 → E → F → G-1 → H` | 见 §2.5 |
+
+---
+
+## 4. E 组（MSC4289）执行分析与下一步
+
+### 4.1 已完成
+
+- **E-1 规则 1.4（`a659f9f7d`）**：`InboundEventAuth` 增加 `event_type`/`content`（文档已约定的扩展点），
+  `check_inbound_event_auth` 对 v12+ create 校验 `content.additional_creators`（非数组 / 非字符串 /
+  非法 user ID 均拒；缺省合法）。user-id 语法抽为唯一实现
+  `synapse_common::validation::is_well_formed_user_id`，`Validator::validate_matrix_id` 委托它
+  （删掉 `matrix_id_regex`）。7 个新用例 + 变异自证 + 联邦集成 14/14。
+
+### 4.2 E-2 / E-3 的实测消费面（下一轮直接照此执行，不必重新摸排）
+
+- `get_user_power_level` / `get_joined_user_power_level` 的消费点**全部在**
+  `synapse-services/src/auth/power_levels.rs`（`:153/:175/:202/:330/:356/:369-370/:426-427/:484-485/:525/:551`），
+  外加 `room/membership/service.rs:253/:272` 只有**注释**提到 `resolve_room_creator`。
+  ⇒ 改动面被限制在该文件 + 成员服务注释。
+- `resolve_room_creator` 的调用点：`power_levels.rs:32`（`get_user_power_level`）、`:405`（踢人保护）、
+  `:463`（封禁保护）。
+- **现有顺序就是 G-32 的缺陷**：`users[user]` / `users_default` 在**创建者兜底 100 之前**返回，
+  所以一条 PL 事件可以把创建者降权到 0。
+
+### 4.3 E-2 的关键设计约束（避免返工）
+
+1. **必须按房间版本门控**：unlimited 只对 **v12+** 生效；v1–v11 保持现有"兜底 100"语义，
+   否则会改变既有房间的授权结果（v1–v11 仍可 join/federate，见 Q1(a)）。
+2. **创建者判定要排在读取 PL 之前**（v12+），否则 PL 仍能降权 —— 这就是规则 10.4 的另一面。
+3. **`i64::MAX` 哨兵**：消费点全是比较（`actor > target`、`actor >= threshold`），未见算术；
+   落地时仍需对 `power_levels.rs` 内每处比较做一次确认。现有测试断言的 `== 100`
+   （`:711`、`:743`）针对的应是 v10/v11 房间，需确认其房间版本后再决定是否改为版本条件断言。
+4. **创建者集合只读一次 create 事件**：`resolve_room_creators` 与 `get_room_version` 都读
+   `m.room.create`；应合并为一个私有 helper（返回 `(creators, version)`）以避免每次授权两次状态读取。
+   集合 = `content.creator`（v1–v10）∪ 事件 `sender`（v11+ 的创建者）∪ `additional_creators`。
+5. **E-3（规则 10.4）**：`verify_power_levels_change` 在 v12+ 拒绝 `users` 含任一创建者。
+   ⚠️ 建房时自己写的首个 PL 事件含 `users: {creator: 100}`（`create.rs` 的 power_levels 构造），
+   若该规则在创建序列内也生效会**自拒** —— 规则 10.4 只应作用于**入站** PL（经 `event_auth::rules`），
+   或创建序列显式走特殊路径。
