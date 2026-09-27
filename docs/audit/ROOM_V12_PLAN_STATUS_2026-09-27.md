@@ -24,7 +24,7 @@
 | **C-3** | 无域名 room ID 语法收敛（G-17..G-23、G-20） | ✅ **完成**（`6036c4cb8`/`b089e0323`/`16ee8208f`） | ✅ 语法：`synapse-common/src/room_id.rs`（单实现）+ 两个校验器委托；6 处联邦守卫改用 `is_well_formed_room_id`；`room_id.contains(':')` 生产代码 **0** 处<br>✅ 本地性（G-21）：`b089e0323` `MembershipService::room_locality`<br>✅ DB CHECK 放宽为两形态（`16ee8208f`）+ 指纹 `16d86ee4035cd351`（顺带修掉 HEAD 上的既有红项）+ 真 DB 契约用例<br>❌ 未收敛：`invite.rs:277`（产出 `$uuid:!xxx`）、`space/repository.rs:30`、`actions.rs:41`（join 目的地） |
 | **C-4** | 创建侧不写 `predecessor.event_id`；升级顺序反转 | ❌ **未做** | `synapse-services/src/room/service.rs:549` 仍写 `predecessor`（含 `event_id`）；`:496` 注释仍锚定 tombstone 的 event ID |
 | **C-5** | `CreateRoomConfig.room_id` 逃逸口处置 | ❌ **未做** | `service.rs:41` `pub room_id: Option<String>` 仍在；`admin/notification.rs` / `space/repository.rs` 的合成房间未动 |
-| **D-1** | 规则 1.2：v12 create 带 `room_id` 则拒绝 | ❌ **未做** | `rules.rs:120` 注释自认"rules 1.2 / 10.4 … to be added"；`transaction.rs` 仍对非 create 强制 `room_id`，未按 `type==m.room.create && version==12` 分支 |
+| **D-1** | 规则 1.2：v12 create 带 `room_id` 则拒绝（无 `room_id` 时推导房间身份） | ✅ **完成**（`227a7228d`） | `validate_inbound_transaction_pdu` 接收 `room_version`/`event_id`：v12+ create 带 `room_id` 即拒、无则用 `room_id_from_create_event_id` 推导；5 单测 + 变异自证；联邦事务集成 14/14 |
 | **D-2** | 规则 2：room_id 必须是已接受 create 事件 ID | ❌ **未做** | 依赖 C-2，无 `room_id→create` 反查 |
 | **D-3** | 规则 2.5 / MSC4307 的 v12 收敛 | 🟡 **B-2 已覆盖** | 与 B-2 同一实现；`rules.rs` 已版本分派，无独立待办 |
 | **D-4** | 本地 `auth_events` 不再包含 create（G-28） | ✅ **完成**（`b7cf472b4`） | `auth_types_for_event` 改为 `if !room_version_at_least(room_version, 12)` 才加 create；3 个新用例 + 变异自证（反转阈值 → 5 红） |
@@ -33,16 +33,19 @@
 | **E-1** | `additional_creators` 校验（规则 1.4） | ❌ **未做** | 全仓 `grep additional_creators` **0** 命中（与计划 G-31 一致） |
 | **E-2** | 创建者集合 + 无限 PL（G-32/33/35） | ❌ **未做** | `auth/power_levels.rs:73` 仍 `resolve_room_creator -> Option<String>`（单个）；无 `i64::MAX` 哨兵 |
 | **E-3** | 规则 10.4：PL 的 `users` 不得含创建者 | ❌ **未做** | 无该检查；`rules.rs:120` 注释把它列为待加规则 |
-| **F-1** | 状态决议接线决策（G-38 零调用者） | ❌ **未做** | `grep resolve_state_v2 \| StateResolutionService` 在 `synapse-federation/src`（除 `state_resolution.rs` 自身）、`synapse-services`、`synapse-web`、`src/` **0 命中** ⇒ 双死代码仍在 |
+| **F-1** | 状态决议接线决策（G-38 零调用者） | 🟡 **已决策（A-2 Q6b），未执行** | 裁定：**不接线**；删除 `StateResolutionService` / `resolve_state_v2` 死实现，v2.1 只在 `resolve_state_with_auth_chain` 上演进（该函数目前亦仅被 bench 调用，去留需在 F-2 一并处理） |
 | **F-2** | v2.1 三处修改 | ❌ **未做** | `grep "conflicted state subgraph"` / `"iterative auth"` 在 src **0** 命中 |
 | **F-3** | v1–v11 兼容边界 | ❌ **未做** | 依赖 F-2 |
-| **G-1** | 能力表收敛：仅 v12 可创建 | ❌ **未做** | `synapse-common/src/room_versions.rs:92-116`：v1–v12 全 `stable(...)`（可创建）、v13 `stable_parse_only`；`resolve_room_version` 对 v1–v12 全返回 `Some` |
+| **G-1** | 能力表收敛：仅 v12 可创建 | 🟡 **部分**（Q5 已落，`c83e3faf9`） | ✅ 版本 13 已移除（`stable_parse_only` 一并删除）；❌ v1–v11 仍 `can_create = true`，待收敛（Q1(a)：只禁创建，保留 join/federate） |
 | **G-2** | 连带面清单（含联邦 `m.room_versions` 补测） | ❌ **未做** | 收敛本身未做；联邦 `/version` 的 `m.room_versions` **仍无内容断言** —— `tests/integration/api_federation_tests.rs:279` 只有 `assert_eq!(json["capabilities"]["m.room_versions"]["default"], DEFAULT_ROOM_VERSION)`（比常量，不校验 `available`/`unstable_features`），且该行来自 `5aac642c1`（2026-09 初的 cas_service 提交），**不是** v12 工作所加。计划 G-05 的结论未被推翻 |
 | **H-1** | 逐份更正文档（含额外 6 份） | 🟡 **部分完成** | `d3a12ca73`（`docs/room-version-12-13-correction`，已并进本分支历史）改了 `CURRENT_ISSUES_AND_PLAN.md` 与 `REMAINING_ISSUES_...2026-09-25.md`；`V12_ROOM_VERSION_..._PLAN.md:21` 已自我更正 MSC4239 误引<br>❌ `AUDIT_SUMMARY_2026-09-12.md`、`DB_REVIEW_2026-09-17.md` 最近提交仍是 markdownlint 批（**未加 superseded 横幅**）；`docs/synapse-rust/` 与 `docs/audit/O1_PHASE1_...` 未核 |
 | **H-2** | Q1–Q7 结论落档 | ❌ **未做** | 依赖 A-2 |
 
-**计数（批次 1 后）**：✅ 完成 8（A-1、B-1、B-2、C-1、C-2、C-3、D-4、D-6）｜🟡 部分 3（D-3、H-1、G-2 之外的部分项）｜❌ 未做 13。
+**计数（批次 2 后）**：✅ 完成 10（A-1、A-2、B-1、B-2、C-1、C-2、C-3、D-1、D-4、D-6）｜🟡 部分 3（D-3、G-1+G-2、H-1）｜❌ 未做 11（F-1 已决策未执行）。
 
+> **批次 2 完成（2026-09-27）**：`227a7228d`（D-1 入站规则 1.2）、`6cb305409`（A-2 决策落档：Q1=a / Q2=a / Q5=b / Q6=b）、`c83e3faf9`（Q5 移除 v13）。
+> 剩余：C-4（升级顺序反转）、C-5（删逃逸口 + 合成房间）、E 组（MSC4289）、F 组（MSC4297，按 Q6b 删死实现 + v2.1 向量）、G-1（v1–v11 收敛 can_create）、H 文档。
+>
 > **批次 1 完成（2026-09-27）**：`16ee8208f`（C-3 DB 放宽 + 指纹 + 契约）、`b7cf472b4`（D-4）、`e2b8266b3`（D-6 + C-2）。
 > 关键修正：**计划把 D-6 排在 C-2 之后是错的 —— D-6 是 C-2 的硬前置**（详见 §2.5）。
 
