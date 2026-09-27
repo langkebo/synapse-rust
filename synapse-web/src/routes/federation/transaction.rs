@@ -374,6 +374,8 @@ pub(super) async fn send_transaction(
                     let auth_input = event_auth::InboundEventAuth {
                         room_version: &room_version,
                         room_id: &room_id,
+                        event_type,
+                        content: &content,
                         auth_events: &resolved_auth_events,
                     };
                     if let Err(error) = event_auth::check_inbound_event_auth(&auth_input) {

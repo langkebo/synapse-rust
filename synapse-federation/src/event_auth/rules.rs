@@ -17,6 +17,10 @@
 //!   `auth_events` has a `room_id` which does not match that of the event being
 //!   authorised, reject."* MSC4304 defines room version 12 as including
 //!   MSC4307.
+//! * **rule 1.4 (MSC4289, room version 12)** — an `m.room.create` event's
+//!   `content.additional_creators`, when present, must be an array of strings,
+//!   each of which passes the same user-ID validation as the create event's
+//!   `sender`.
 //!
 //! # Version scope
 //!
@@ -46,6 +50,12 @@ use synapse_storage::event::RoomEvent;
 /// rule 3.5 does not exist in v1–v11.
 const AUTH_EVENTS_ROOM_CHECK_MIN_VERSION: u32 = 12;
 
+/// First room version whose auth rules include rule 1.4 (MSC4289).
+///
+/// Both v12 rules are introduced by the same room version; the constants are
+/// kept separate because they are separate rules with separate semantics.
+const ADDITIONAL_CREATORS_MIN_VERSION: u32 = 12;
+
 /// One `auth_events` entry of the event being authorised, resolved locally.
 #[derive(Debug, Clone, Copy)]
 pub struct ResolvedAuthEvent<'a> {
@@ -69,6 +79,11 @@ pub struct InboundEventAuth<'a> {
     pub room_version: &'a str,
     /// The room the event claims to be in.
     pub room_id: &'a str,
+    /// The event's `type` (rules 1.2 / 1.4 only apply to `m.room.create`).
+    pub event_type: &'a str,
+    /// The event's `content` (rule 1.4 reads `additional_creators`; rule 10.4
+    /// will read the power-level `users`).
+    pub content: &'a serde_json::Value,
     /// Every `auth_events` entry, in the order the PDU lists them.
     ///
     /// The list must contain an element for each referenced event ID — an entry
@@ -97,6 +112,13 @@ pub enum EventAuthError {
         /// The room of the event being authorised.
         room_id: String,
     },
+    /// Rule 1.4 (MSC4289): `m.room.create` carries an `additional_creators`
+    /// value that is not an array of valid user IDs.
+    #[error("invalid additional_creators on m.room.create (MSC4289 / room v12 rule 1.4): {reason}")]
+    InvalidAdditionalCreators {
+        /// Which requirement failed.
+        reason: String,
+    },
     /// An `auth_events` entry could not be resolved locally, so the rules that
     /// inspect it cannot be decided. Rejected rather than waved through.
     #[error(
@@ -121,10 +143,55 @@ pub enum EventAuthError {
 /// creator) and the room-identity rules 2 / 2.5 will take the PDU and the room
 /// state, which extend [`InboundEventAuth`] rather than this signature.
 pub fn check_inbound_event_auth(input: &InboundEventAuth<'_>) -> Result<(), EventAuthError> {
+    if room_version_at_least(input.room_version, ADDITIONAL_CREATORS_MIN_VERSION) {
+        check_additional_creators(input)?;
+    }
     if room_version_at_least(input.room_version, AUTH_EVENTS_ROOM_CHECK_MIN_VERSION) {
         check_auth_events_belong_to_room(input)?;
     }
     Ok(())
+}
+
+/// Rule 1.4 (MSC4289 / room version 12): `content.additional_creators` on an
+/// `m.room.create` event must be a list of valid user IDs.
+///
+/// The create event's `sender` is the creator; `additional_creators` names
+/// further creators, who get the same unlimited power as the sender. A malformed
+/// entry would therefore mint a creator whose identity cannot be resolved, so a
+/// non-array, a non-string element, or an element that fails the shared user-ID
+/// grammar is rejected. An absent field is valid (it is optional).
+///
+/// The grammar is `synapse_common::validation::is_well_formed_user_id` — the
+/// same implementation `Validator::validate_matrix_id` uses, so "the same
+/// validation as the sender" is structural, not a second copy.
+fn check_additional_creators(input: &InboundEventAuth<'_>) -> Result<(), EventAuthError> {
+    if input.event_type != "m.room.create" {
+        return Ok(());
+    }
+    let Some(value) = input.content.get("additional_creators") else {
+        return Ok(());
+    };
+    let Some(entries) = value.as_array() else {
+        return Err(EventAuthError::InvalidAdditionalCreators { reason: "must be an array of user IDs".to_string() });
+    };
+    for entry in entries {
+        let Some(user_id) = entry.as_str() else {
+            return Err(EventAuthError::InvalidAdditionalCreators {
+                reason: "every entry must be a string user ID".to_string(),
+            });
+        };
+        if !synapse_common::validation::is_well_formed_user_id(user_id) {
+            return Err(EventAuthError::InvalidAdditionalCreators {
+                reason: format!("{user_id:?} is not a valid user ID"),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Whether `room_version` defines rule 1.4 (MSC4289).
+pub fn enforces_additional_creators_rule(room_version: &str) -> bool {
+    room_version_at_least(room_version, ADDITIONAL_CREATORS_MIN_VERSION)
 }
 
 /// Rule 3.5 (MSC4307 / room version 12): every `auth_events` entry must refer
@@ -158,6 +225,12 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// A shared `{}` content for cases that do not inspect the event body.
+    fn empty_content() -> &'static serde_json::Value {
+        static EMPTY: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+        EMPTY.get_or_init(|| json!({}))
+    }
+
     fn room_event(event_id: &str, room_id: &str) -> RoomEvent {
         RoomEvent {
             event_id: event_id.to_string(),
@@ -184,7 +257,13 @@ mod tests {
     #[test]
     fn empty_auth_events_pass_in_every_version() {
         for version in ["1", "10", "11", "12", "13"] {
-            let input = InboundEventAuth { room_version: version, room_id: "!a:example.org", auth_events: &[] };
+            let input = InboundEventAuth {
+                room_version: version,
+                room_id: "!a:example.org",
+                event_type: "m.room.topic",
+                content: empty_content(),
+                auth_events: &[],
+            };
             assert!(check_inbound_event_auth(&input).is_ok(), "v{version} must accept an empty auth_events list");
         }
     }
@@ -195,6 +274,8 @@ mod tests {
         let input = InboundEventAuth {
             room_version: "12",
             room_id: "!a:example.org",
+            event_type: "m.room.topic",
+            content: empty_content(),
             auth_events: &[entry("$foreign", Some(&foreign))],
         };
         assert_eq!(
@@ -213,6 +294,8 @@ mod tests {
         let input = InboundEventAuth {
             room_version: "12",
             room_id: "!a:example.org",
+            event_type: "m.room.topic",
+            content: empty_content(),
             auth_events: &[entry("$same", Some(&same))],
         };
         assert!(check_inbound_event_auth(&input).is_ok());
@@ -220,8 +303,13 @@ mod tests {
 
     #[test]
     fn v12_rejects_unresolvable_auth_event() {
-        let input =
-            InboundEventAuth { room_version: "12", room_id: "!a:example.org", auth_events: &[entry("$gone", None)] };
+        let input = InboundEventAuth {
+            room_version: "12",
+            room_id: "!a:example.org",
+            event_type: "m.room.topic",
+            content: empty_content(),
+            auth_events: &[entry("$gone", None)],
+        };
         assert_eq!(
             check_inbound_event_auth(&input),
             Err(EventAuthError::AuthEventUnavailable { auth_event_id: "$gone".to_string() })
@@ -235,6 +323,8 @@ mod tests {
             let input = InboundEventAuth {
                 room_version: version,
                 room_id: "!a:example.org",
+                event_type: "m.room.topic",
+                content: empty_content(),
                 auth_events: &[entry("$foreign", Some(&foreign))],
             };
             assert!(
@@ -246,11 +336,14 @@ mod tests {
     }
 
     #[test]
-    fn v13_inherits_rule_3_5() {
+    fn a_numeric_version_above_twelve_inherits_the_v12_rules() {
         // Room versions are cumulative: a later version inherits the previous
-        // version's rules unless the spec says otherwise, so 13+ must still be
-        // checked.
+        // version's rules unless the spec says otherwise. `"13"` is **not** a
+        // real room version (Q5 removed it from the capability table), but the
+        // rule layer orders by the number, and the caller's version-resolution
+        // gate is what rejects an unsupported one before it gets here.
         assert!(enforces_auth_events_room_rule("13"));
+        assert!(enforces_additional_creators_rule("13"));
     }
 
     #[test]
@@ -268,6 +361,8 @@ mod tests {
         let input = InboundEventAuth {
             room_version: "12",
             room_id: "!a:example.org",
+            event_type: "m.room.topic",
+            content: empty_content(),
             auth_events: &[entry("$same", Some(&same)), entry("$foreign", Some(&foreign))],
         };
         assert_eq!(
@@ -278,5 +373,88 @@ mod tests {
                 room_id: "!a:example.org".to_string(),
             })
         );
+    }
+
+    // ── rule 1.4 (MSC4289): additional_creators ────────────────────────────
+
+    fn create_auth<'a>(content: &'a serde_json::Value, version: &'a str) -> InboundEventAuth<'a> {
+        InboundEventAuth {
+            room_version: version,
+            room_id: "!a:example.org",
+            event_type: "m.room.create",
+            content,
+            auth_events: &[],
+        }
+    }
+
+    #[test]
+    fn v12_accepts_create_without_additional_creators() {
+        let content = json!({"creator": "@alice:example.org", "room_version": "12"});
+        assert!(check_inbound_event_auth(&create_auth(&content, "12")).is_ok());
+    }
+
+    #[test]
+    fn v12_accepts_valid_additional_creators() {
+        let content = json!({"additional_creators": ["@bob:example.org", "@carol:other.example"]});
+        assert!(check_inbound_event_auth(&create_auth(&content, "12")).is_ok());
+    }
+
+    #[test]
+    fn v12_rejects_a_non_array_additional_creators() {
+        let content = json!({"additional_creators": "@bob:example.org"});
+        assert!(matches!(
+            check_inbound_event_auth(&create_auth(&content, "12")),
+            Err(EventAuthError::InvalidAdditionalCreators { .. })
+        ));
+    }
+
+    #[test]
+    fn v12_rejects_a_non_string_additional_creator() {
+        let content = json!({"additional_creators": ["@bob:example.org", 7]});
+        assert!(matches!(
+            check_inbound_event_auth(&create_auth(&content, "12")),
+            Err(EventAuthError::InvalidAdditionalCreators { .. })
+        ));
+    }
+
+    #[test]
+    fn v12_rejects_an_invalid_user_id_in_additional_creators() {
+        for bad in ["bob:example.org", "@bob", "@:example.org", "@bob:", "", "@Bob:example.org"] {
+            let content = json!({"additional_creators": [bad]});
+            assert!(
+                matches!(
+                    check_inbound_event_auth(&create_auth(&content, "12")),
+                    Err(EventAuthError::InvalidAdditionalCreators { .. })
+                ),
+                "{bad:?} must be rejected"
+            );
+        }
+    }
+
+    /// The rule is a v12 addition: v1-v11 have no `additional_creators`, so a
+    /// malformed value there is not this rule's business.
+    #[test]
+    fn pre_v12_is_not_subject_to_rule_1_4() {
+        let content = json!({"additional_creators": "not-an-array"});
+        for version in ["1", "10", "11"] {
+            assert!(check_inbound_event_auth(&create_auth(&content, version)).is_ok(), "v{version}");
+        }
+        assert!(enforces_additional_creators_rule("12"));
+        assert!(!enforces_additional_creators_rule("11"));
+    }
+
+    /// Only `m.room.create` carries creators; another event type with the same
+    /// key is ignored.
+    #[test]
+    fn rule_1_4_only_applies_to_create_events() {
+        let content = json!({"additional_creators": "not-an-array"});
+        let input = InboundEventAuth {
+            room_version: "12",
+            room_id: "!a:example.org",
+            event_type: "m.room.topic",
+            content: &content,
+            auth_events: &[],
+        };
+        assert!(check_inbound_event_auth(&input).is_ok());
     }
 }
