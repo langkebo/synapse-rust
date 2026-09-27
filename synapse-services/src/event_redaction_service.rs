@@ -43,9 +43,17 @@ impl EventRedactionService {
     }
 
     /// Redact the given events, returning how many rows were redacted.
-    pub async fn batch_redact_events(&self, event_ids: &[String], redacted_by: Option<&str>) -> Result<u64, ApiError> {
+    ///
+    /// `redaction_event_id` is the id of the `m.room.redaction` event that
+    /// caused this redaction (a self-referential FK to `events.event_id`), or
+    /// `None` when there is no causing event (a server/operator action).
+    pub async fn batch_redact_events(
+        &self,
+        event_ids: &[String],
+        redaction_event_id: Option<&str>,
+    ) -> Result<u64, ApiError> {
         self.storage
-            .batch_redact_events(event_ids, redacted_by)
+            .batch_redact_events(event_ids, redaction_event_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to batch redact events", e))
     }
@@ -57,7 +65,10 @@ impl EventRedactionService {
     ///
     /// # Arguments
     /// * `event_id` - The event to cascade redact from
-    /// * `redacted_by` - Optional user ID performing the redaction
+    /// * `redaction_event_id` - The id of the `m.room.redaction` event that
+    ///   caused this redaction (a self-referential FK to `events.event_id`), or
+    ///   `None` when there is no causing event (the admin cascade endpoint is an
+    ///   operator action and persists no redaction event)
     /// * `max_depth` - Maximum recursion depth (default 5)
     ///
     /// # Returns
@@ -65,11 +76,11 @@ impl EventRedactionService {
     pub async fn cascade_redact_event(
         &self,
         event_id: &str,
-        redacted_by: Option<&str>,
+        redaction_event_id: Option<&str>,
         max_depth: u32,
     ) -> Result<u64, ApiError> {
         self.storage
-            .cascade_redact_event(event_id, redacted_by, max_depth)
+            .cascade_redact_event(event_id, redaction_event_id, max_depth)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to cascade redact event", e))
     }

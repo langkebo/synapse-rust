@@ -91,8 +91,15 @@ impl EventStorage {
     /// `m.room.power_levels`).  This keeps redacted state events functional
     /// and matches Synapse/Synapse-Rust federation hash computation.
     ///
-    /// `redacted_by` optionally records the user_id of the redactor.
-    pub async fn redact_event_content(&self, event_id: &str, redacted_by: Option<&str>) -> Result<(), sqlx::Error> {
+    /// `redaction_event_id` is the id of the `m.room.redaction` event that
+    /// caused this redaction — a self-referential FK to `events.event_id`
+    /// (`fk_events_redacted_by`), **not** a user id. It is `None` when the
+    /// redaction has no causing event (a server/operator action).
+    pub async fn redact_event_content(
+        &self,
+        event_id: &str,
+        redaction_event_id: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
         // Fetch the event type and content so we can apply the per-type
         // retention table from synapse_common::redaction.
         // 用 `query!` 而不是元组版 `query_as!`：`query_as!` 不能构造元组（它按字段构造结构体）。
@@ -113,7 +120,7 @@ impl EventStorage {
             "UPDATE events SET content = $1, is_redacted = true, redacted_at = $2, redacted_by = $3 WHERE event_id = $4",
             &redacted_content,
             now,
-            redacted_by,
+            redaction_event_id,
             event_id,
         )
         .execute(&*self.pool)
@@ -219,14 +226,18 @@ impl EventStorage {
     /// Returns the number of events redacted. Uses individual UPDATEs rather
     /// than a bulk UPDATE because each event type has a different redaction
     /// retention table (see `redact_content`).
+    ///
+    /// `redaction_event_id` is the id of the `m.room.redaction` event that
+    /// caused this redaction (a self-referential FK to `events.event_id`), or
+    /// `None` for an operator/server action with no causing event.
     pub async fn batch_redact_events(
         &self,
         event_ids: &[String],
-        redacted_by: Option<&str>,
+        redaction_event_id: Option<&str>,
     ) -> Result<u64, sqlx::Error> {
         let mut redacted = 0u64;
         for event_id in event_ids {
-            self.redact_event_content(event_id, redacted_by).await?;
+            self.redact_event_content(event_id, redaction_event_id).await?;
             redacted += 1;
         }
         Ok(redacted)

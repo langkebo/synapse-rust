@@ -12,6 +12,7 @@ use base64::engine::general_purpose::STANDARD_NO_PAD;
 use base64::Engine as _;
 use ed25519_dalek::Signer;
 use serde_json::{json, Value};
+use sqlx::Row;
 use std::sync::Arc;
 use synapse_common::event_id::resolve_received_event_id;
 use synapse_common::pdu::{build_pdu, PduParts};
@@ -777,4 +778,139 @@ async fn test_presence_edu_updates_are_written_as_a_single_batch() {
     for user in [&user_a, &user_b] {
         let _ = sqlx::query("DELETE FROM presence WHERE user_id = $1").bind(user).execute(&*pool).await;
     }
+}
+
+// ============================================================================
+// Inbound federation redaction: `events.redacted_by` must record the redaction
+// EVENT's id, not the sending user.
+// ============================================================================
+//
+// `events.redacted_by` is a self-referential FK to `events.event_id`
+// (`fk_events_redacted_by`). The inbound redaction path already has the correct
+// value in scope — the redaction PDU's own (derived) event id, which it logged
+// as `redaction_event_id` right next to the buggy call — but passed the sender's
+// user id into the FK instead, so the content redaction always failed with a
+// foreign-key violation and the target stayed un-redacted while the sender got
+// an HTTP 200 `success` back.
+
+/// Seed one `m.room.message` row directly as the redaction target.
+///
+/// The isolated test pool caps connections at 2, so driving the full client
+/// `send` pipeline here exhausts it; this test is about the *inbound* redaction
+/// path, so seeding the row through the real storage writer is sufficient.
+async fn seed_redaction_target(pool: &Arc<sqlx::PgPool>, room_id: &str, sender: &str) -> String {
+    let storage = EventStorage::new(pool, "localhost".to_string());
+    let event_id = format!("$redact_target_{}:localhost", uuid::Uuid::new_v4().as_simple());
+    storage
+        .create_event(
+            synapse_storage::event::CreateEventParams {
+                event_id: event_id.clone(),
+                room_id: room_id.to_string(),
+                user_id: sender.to_string(),
+                event_type: "m.room.message".to_string(),
+                content: json!({ "msgtype": "m.text", "body": "redact me" }),
+                state_key: None,
+                origin_server_ts: 1_750_000_000_050,
+                redacts: None,
+            },
+            None,
+        )
+        .await
+        .expect("the redaction target must be persisted");
+    event_id
+}
+
+/// Assemble and sign one v11 `m.room.redaction` PDU through the production
+/// pipeline. Room version 11 carries the target in `content.redacts`
+/// (MSC2174/MSC3820), which is what `extract_redacts` reads.
+fn build_signed_redaction_pdu(
+    room_id: &str,
+    sender: &str,
+    target_event_id: &str,
+    create_event_id: &str,
+    key_id: &str,
+    signing_key_b64: &str,
+) -> (Value, String) {
+    let content = json!({ "redacts": target_event_id, "reason": "inbound federation redaction" });
+    let prev_events = vec![create_event_id.to_string()];
+    let auth_events = vec![create_event_id.to_string()];
+    let parts = PduParts {
+        room_version: SIG_ASSERT_ROOM_VERSION,
+        event_id: None,
+        room_id,
+        sender,
+        event_type: "m.room.redaction",
+        content: &content,
+        state_key: None,
+        origin_server_ts: 1_750_000_000_100,
+        origin: "localhost",
+        depth: 3,
+        prev_events: &prev_events,
+        auth_events: &auth_events,
+        redacts: Some(target_event_id),
+    };
+
+    let mut pdu = build_pdu(&parts);
+    let finalized = finalize_local_pdu(&parts).expect("the assembled redaction PDU must be finalizable");
+    pdu.as_object_mut().expect("a PDU is a JSON object").insert("hashes".to_string(), finalized.hashes.clone());
+    sign_and_hash_event(SIG_ASSERT_ROOM_VERSION, "localhost", key_id, signing_key_b64, &mut pdu)
+        .expect("sign_and_hash_event must sign our own PDU");
+
+    (pdu, finalized.event_id)
+}
+
+#[tokio::test]
+async fn test_inbound_redaction_records_redaction_event_id_in_redacted_by() {
+    let key_id = "ed25519:u8_redact_fk";
+    let Some((_isolated, fixture)) = signed_pdu_fixture(key_id, [93u8; 32], "u8_redact_fk").await else {
+        return;
+    };
+
+    // A real target event in the room (the redaction PDU must have something to
+    // strip; `redact_event_content` is a no-op for an unknown event).
+    let sender = fixture
+        .pdu
+        .get("sender")
+        .and_then(Value::as_str)
+        .expect("the fixture PDU carries the creator as sender")
+        .to_string();
+    let target = seed_redaction_target(&fixture.pool, &fixture.room_id, &sender).await;
+    let create_event_id: String = sqlx::query_scalar(
+        "SELECT event_id FROM events WHERE room_id = $1 AND event_type = 'm.room.create' \
+         ORDER BY origin_server_ts ASC LIMIT 1",
+    )
+    .bind(&fixture.room_id)
+    .fetch_one(&*fixture.pool)
+    .await
+    .expect("the room must have an m.room.create event");
+
+    let (pdu, redaction_event_id) = build_signed_redaction_pdu(
+        &fixture.room_id,
+        // The PDU is signed by `localhost`, so the sender must be a local user.
+        &sender,
+        &target,
+        &create_event_id,
+        key_id,
+        &fixture.signing_key_b64,
+    );
+
+    let response = fixture.send("u8_redact_fk_1", &pdu).await;
+    let result = SignedPduFixture::single_result(&response);
+    assert_eq!(result["success"], json!(true), "the signed redaction PDU must be accepted: {result}");
+    assert_eq!(result["event_id"], json!(redaction_event_id), "the persisted redaction event id: {result}");
+
+    let row = sqlx::query("SELECT is_redacted, redacted_by FROM events WHERE event_id = $1")
+        .bind(&target)
+        .fetch_one(&*fixture.pool)
+        .await
+        .expect("the target event must still exist");
+    assert!(
+        row.get::<bool, _>("is_redacted"),
+        "the inbound redaction PDU must strip the target's content, not fail on the redacted_by FK"
+    );
+    assert_eq!(
+        row.get::<Option<String>, _>("redacted_by").as_deref(),
+        Some(redaction_event_id.as_str()),
+        "redacted_by must be the redaction event's own id, not the sender's user id"
+    );
 }

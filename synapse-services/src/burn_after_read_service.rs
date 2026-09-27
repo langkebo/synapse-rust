@@ -141,17 +141,15 @@ impl BurnAfterReadService {
     pub async fn delete_burned_message(&self, user_id: &str, room_id: &str, event_id: &str) -> ApiResult<()> {
         let now = current_timestamp_millis();
 
-        if let Err(e) = self.event_writer.redact_event_content(event_id, Some(user_id)).await {
-            ::tracing::warn!(
-                error = %e,
-                user_id = %user_id,
-                room_id = %room_id,
-                event_id = %event_id,
-                "Failed to redact event content for burn"
-            );
-        }
-
-        if let Err(e) = self
+        // The redaction event is persisted FIRST: `events.redacted_by` is a
+        // self-referential FK to `events.event_id` (`fk_events_redacted_by`) and
+        // records the burn's `m.room.redaction` event id — not the burning
+        // user's id (which violated the constraint and left the content
+        // unredacted). This method's contract is unchanged: both steps are
+        // best-effort, each failure is logged and only `log_burned_event`
+        // propagates. A failed `create_event` therefore degrades to
+        // `redacted_by = NULL` ("no causing event") instead of aborting the burn.
+        let redaction_event_id = match self
             .event_writer
             .create_event(
                 synapse_storage::event::CreateEventParams {
@@ -168,12 +166,26 @@ impl BurnAfterReadService {
             )
             .await
         {
+            Ok(event) => Some(event.event_id),
+            Err(e) => {
+                ::tracing::warn!(
+                    error = %e,
+                    user_id = %user_id,
+                    room_id = %room_id,
+                    event_id = %event_id,
+                    "Failed to create redaction event for burn"
+                );
+                None
+            }
+        };
+
+        if let Err(e) = self.event_writer.redact_event_content(event_id, redaction_event_id.as_deref()).await {
             ::tracing::warn!(
                 error = %e,
                 user_id = %user_id,
                 room_id = %room_id,
                 event_id = %event_id,
-                "Failed to create redaction event for burn"
+                "Failed to redact event content for burn"
             );
         }
 
@@ -273,21 +285,14 @@ impl BurnAfterReadService {
         let mut expired = Vec::with_capacity(expired_rows.len());
 
         for row in &expired_rows {
-            let redact_ok = self.event_writer.redact_event_content(&row.event_id, Some(&row.user_id)).await;
-
-            if let Err(e) = &redact_ok {
-                ::tracing::warn!(
-                    error = %e,
-                    burn_id = row.id,
-                    user_id = %row.user_id,
-                    room_id = %row.room_id,
-                    event_id = %row.event_id,
-                    retry_count = row.retry_count,
-                    "Failed to redact event content for burn; will retry next sweep"
-                );
-                continue;
-            }
-
+            // Order matters and is forced by the schema: `events.redacted_by` is
+            // a self-referential FK to `events.event_id` (`fk_events_redacted_by`)
+            // and the service records the burn's own `m.room.redaction` event id.
+            // The redaction event therefore has to be persisted BEFORE the target
+            // UPDATE; the previous order passed `row.user_id` (never a valid
+            // event id), so every redaction failed the FK and the sweep skipped
+            // all rows forever. The "both must succeed, else retry next sweep"
+            // contract below is unchanged — only the two attempts swap places.
             let create_ok = self
                 .event_writer
                 .create_event(
@@ -305,16 +310,33 @@ impl BurnAfterReadService {
                 )
                 .await;
 
-            if let Err(e) = &create_ok {
+            let redaction_event_id = match create_ok {
+                Ok(event) => event.event_id,
+                Err(e) => {
+                    ::tracing::warn!(
+                        error = %e,
+                        burn_id = row.id,
+                        user_id = %row.user_id,
+                        room_id = %row.room_id,
+                        event_id = %row.event_id,
+                        retry_count = row.retry_count,
+                        "Failed to create redaction event for burn; nothing redacted yet — \
+                         will retry next sweep (idempotency: create+redact are re-entrant)"
+                    );
+                    continue;
+                }
+            };
+
+            if let Err(e) = self.event_writer.redact_event_content(&row.event_id, Some(&redaction_event_id)).await {
                 ::tracing::warn!(
                     error = %e,
                     burn_id = row.id,
                     user_id = %row.user_id,
                     room_id = %row.room_id,
                     event_id = %row.event_id,
+                    redaction_event_id = %redaction_event_id,
                     retry_count = row.retry_count,
-                    "Failed to create redaction event for burn; content already redacted — \
-                     will retry next sweep (idempotency: redact+create are re-entrant)"
+                    "Failed to redact event content for burn; will retry next sweep"
                 );
                 continue;
             }

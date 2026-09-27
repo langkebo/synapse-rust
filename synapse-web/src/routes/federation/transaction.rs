@@ -606,9 +606,17 @@ pub(super) async fn send_transaction(
                 // events stored locally.  We do this after the redaction
                 // event itself is persisted so that the redaction is
                 // recorded even if the target is missing.
+                //
+                // `events.redacted_by` is a self-referential FK to
+                // `events.event_id` (`fk_events_redacted_by`), so it records the
+                // redaction EVENT's id — the PDU we just persisted, whose id is
+                // `event_id` (the value the log line below already calls
+                // `redaction_event_id`) — not the sending user's id. Passing the
+                // user id violated the constraint, so the target's content was
+                // never stripped even though the sender got `success` back.
                 if let Some(target_event_id) = &redacts_target {
                     if let Err(e) =
-                        ctx.room_service.messaging().redact_event_content(target_event_id, Some(user_id)).await
+                        ctx.room_service.messaging().redact_event_content(target_event_id, Some(&event_id)).await
                     {
                         ::tracing::warn!(
                             target: "security_audit",

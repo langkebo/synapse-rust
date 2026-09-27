@@ -3,6 +3,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use serde_json::{json, Value};
+use sqlx::Row;
 use synapse_common::current_timestamp_millis;
 use tower::ServiceExt;
 
@@ -400,4 +401,213 @@ async fn test_admin_backfill_requires_existing_room() {
 
     let response = ServiceExt::<Request<Body>>::oneshot(app, backfill_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+// ============================================================================
+// Admin redaction: `events.redacted_by` is a self-referential FK to
+// `events.event_id` (`fk_events_redacted_by`), NOT a user id.
+//
+// Admin cascade/batch redaction are operator actions: no `m.room.redaction`
+// event is ever persisted (the admin need not even be a room member, so
+// synthesising one would fail room auth). The attribution record is the
+// structured `admin.cascade_redact` / `admin.redact_room_events` audit log
+// entry, which carries `admin_user_id`. `redacted_by` must therefore be SQL
+// NULL — passing `admin.user_id` violated the FK and made the endpoints 500.
+// ============================================================================
+
+/// Register a client user, returning `(access_token, user_id)`.
+async fn admin_room_register_user(app: &axum::Router, prefix: &str) -> (String, String) {
+    let username = format!("{prefix}_{}", rand::random::<u32>());
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "username": username,
+                "password": "Password123!",
+                "auth": { "type": "m.login.dummy" }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "registration must succeed");
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    (
+        json["access_token"].as_str().expect("access_token").to_string(),
+        json["user_id"].as_str().expect("user_id").to_string(),
+    )
+}
+
+/// Create a room owned by `token` and return its id.
+async fn admin_room_create_room(app: &axum::Router, token: &str, name: &str) -> String {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/createRoom")
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "name": name, "preset": "private_chat" }).to_string()))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "createRoom must succeed");
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    json["room_id"].as_str().expect("room_id").to_string()
+}
+
+/// Send a plain message and return its event id.
+async fn admin_room_send_message(app: &axum::Router, token: &str, room_id: &str) -> String {
+    let txn = format!("txn_{}", rand::random::<u32>());
+    let request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/send/m.room.message/{txn}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "msgtype": "m.text", "body": "hello" }).to_string()))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "send must succeed");
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    json["event_id"].as_str().expect("event_id").to_string()
+}
+
+/// Add an `m.annotation` child (the cascade target) via the generic send route,
+/// so the row lands in `events` where `find_related_events` can see it.
+async fn admin_room_send_annotation(app: &axum::Router, token: &str, room_id: &str, target: &str) -> String {
+    let txn = format!("txn_annot_{}", rand::random::<u32>());
+    let request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/send/m.room.message/{txn}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "msgtype": "m.text",
+                "body": "reaction",
+                "m.relates_to": { "rel_type": "m.annotation", "event_id": target, "key": "👍" }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "annotation send must succeed");
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    json["event_id"].as_str().expect("event_id").to_string()
+}
+
+/// `(is_redacted, redacted_by)` for one event.
+async fn admin_room_redaction_state(pool: &sqlx::PgPool, event_id: &str) -> (bool, Option<String>) {
+    let row = sqlx::query("SELECT is_redacted, redacted_by FROM events WHERE event_id = $1")
+        .bind(event_id)
+        .fetch_one(pool)
+        .await
+        .expect("the event must exist");
+    (row.get::<bool, _>("is_redacted"), row.get::<Option<String>, _>("redacted_by"))
+}
+
+/// `POST /_synapse/admin/v1/rooms/{room_id}/cascade_redact` is an operator
+/// action with no `m.room.redaction` event, so `redacted_by` must stay NULL.
+///
+/// Pre-fix this endpoint passed `admin.user_id` into the self-referential FK and
+/// failed with a foreign-key violation (HTTP 500) before redacting anything.
+#[tokio::test]
+async fn test_admin_cascade_redact_succeeds_and_records_no_redaction_event() {
+    let Some((app, pool, _cache)) = super::setup_fresh_test_app_with_pool().await else {
+        return;
+    };
+    let (admin_token, _) = super::get_admin_token(&app).await;
+    let (user_token, _user_id) = admin_room_register_user(&app, "admincascade").await;
+    let room_id = admin_room_create_room(&app, &user_token, "Admin cascade redact").await;
+
+    let target = admin_room_send_message(&app, &user_token, &room_id).await;
+    let child = admin_room_send_annotation(&app, &user_token, &room_id, &target).await;
+
+    let encoded_room_id = room_id.replace('!', "%21").replace(':', "%3A");
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_synapse/admin/v1/rooms/{encoded_room_id}/cascade_redact"))
+        .header("Authorization", format!("Bearer {admin_token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "event_id": target, "max_depth": 5 }).to_string()))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "admin cascade redact must not fail on the events.redacted_by foreign key"
+    );
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["redacted_count"], json!(2), "target + annotation must both be redacted: {json}");
+
+    let (target_redacted, target_redacted_by) = admin_room_redaction_state(&pool, &target).await;
+    let (child_redacted, child_redacted_by) = admin_room_redaction_state(&pool, &child).await;
+    assert!(target_redacted, "the cascade root must be redacted");
+    assert!(child_redacted, "the cascade target must be redacted");
+    assert_eq!(
+        target_redacted_by, None,
+        "an operator cascade has no m.room.redaction event, so redacted_by must be NULL"
+    );
+    assert_eq!(
+        child_redacted_by, None,
+        "an operator cascade has no m.room.redaction event, so redacted_by must be NULL"
+    );
+}
+
+/// `POST /_matrix/client/v3/admin/room/{room_id}/redact` (batch redact) has the
+/// same FK contract as the cascade endpoint: NULL `redacted_by`.
+///
+/// This Synapse-compat path is RBAC-restricted to `super_admin` (the `admin`
+/// role is only allow-listed for `/_synapse/admin/v1/rooms…`), hence the
+/// super-admin token.
+#[tokio::test]
+async fn test_admin_batch_redact_succeeds_and_records_no_redaction_event() {
+    let Some((app, pool, _cache)) = super::setup_fresh_test_app_with_pool().await else {
+        return;
+    };
+    let (admin_token, _) = super::get_super_admin_token(&app).await;
+    let (user_token, _user_id) = admin_room_register_user(&app, "adminbatch").await;
+    let room_id = admin_room_create_room(&app, &user_token, "Admin batch redact").await;
+
+    let first = admin_room_send_message(&app, &user_token, &room_id).await;
+    let second = admin_room_send_message(&app, &user_token, &room_id).await;
+
+    // `before_ts` in the future selects both messages (and only them: the room
+    // create/member events are excluded by the query).
+    let encoded_room_id = room_id.replace('!', "%21").replace(':', "%3A");
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/admin/room/{encoded_room_id}/redact"))
+        .header("Authorization", format!("Bearer {admin_token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "before_ts": current_timestamp_millis() + 60_000 }).to_string()))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "admin batch redact must not fail on the events.redacted_by foreign key: {}",
+        String::from_utf8_lossy(&body)
+    );
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    // The endpoint redacts every non-`m.room.create` event in the window, so the
+    // exact count varies (room state/member events are included); what matters is
+    // that both messages are among them.
+    let redacted = json["redacted"].as_u64().expect("`redacted` must be a count");
+    assert!(redacted >= 2, "both messages must be redacted, got: {json}");
+
+    for event_id in [&first, &second] {
+        let (redacted, redacted_by) = admin_room_redaction_state(&pool, event_id).await;
+        assert!(redacted, "the batch target {event_id} must be redacted");
+        assert_eq!(
+            redacted_by, None,
+            "an operator batch redaction has no m.room.redaction event, so redacted_by must be NULL"
+        );
+    }
 }
