@@ -22,7 +22,7 @@
 | **C-1** | create 事件身份 finalize（G-08） | ✅ **完成** | `7d79982c9`：`write_creation_event` 改走 `create_event_with_pdu`（会 finalize），占位 ID 仅用于 v1/v2；验收测试 `tests/integration/room_service_tests_migrated.rs:5175-5196`（v11 create id 长 44、无 `:`、等于对端复算值、图已重指向 final id） |
 | **C-2** | room_id 推导（`$`→`!`）与创建流程重排 | ✅ **完成**（`e2b8266b3`） | 新增唯一 helper `room_id::room_id_from_create_event_id`；`create_room` 先定稿 create → 派生 room_id → 写 rooms 行；验收测试 `test_create_room_v12_room_id_is_the_create_event_id`。**注意：D-6 是它的硬前置**（见下） |
 | **C-3** | 无域名 room ID 语法收敛（G-17..G-23、G-20） | ✅ **完成**（`6036c4cb8`/`b089e0323`/`16ee8208f`） | ✅ 语法：`synapse-common/src/room_id.rs`（单实现）+ 两个校验器委托；6 处联邦守卫改用 `is_well_formed_room_id`；`room_id.contains(':')` 生产代码 **0** 处<br>✅ 本地性（G-21）：`b089e0323` `MembershipService::room_locality`<br>✅ DB CHECK 放宽为两形态（`16ee8208f`）+ 指纹 `16d86ee4035cd351`（顺带修掉 HEAD 上的既有红项）+ 真 DB 契约用例<br>❌ 未收敛：`invite.rs:277`（产出 `$uuid:!xxx`）、`space/repository.rs:30`、`actions.rs:41`（join 目的地） |
-| **C-4** | 创建侧不写 `predecessor.event_id`；升级顺序反转 | ❌ **未做** | `synapse-services/src/room/service.rs:549` 仍写 `predecessor`（含 `event_id`）；`:496` 注释仍锚定 tombstone 的 event ID |
+| **C-4** | 创建侧不写 `predecessor.event_id`；升级顺序反转 | ✅ **完成**（`10aecb7d3`） | v12+ 先建新房（派生 id）再 tombstone，`predecessor` 只含 `room_id`；v1–v11 保持原顺序与 `event_id`；新增 v11→v12 验收测试 |
 | **C-5** | `CreateRoomConfig.room_id` 逃逸口处置 | ❌ **未做** | `service.rs:41` `pub room_id: Option<String>` 仍在；`admin/notification.rs` / `space/repository.rs` 的合成房间未动 |
 | **D-1** | 规则 1.2：v12 create 带 `room_id` 则拒绝（无 `room_id` 时推导房间身份） | ✅ **完成**（`227a7228d`） | `validate_inbound_transaction_pdu` 接收 `room_version`/`event_id`：v12+ create 带 `room_id` 即拒、无则用 `room_id_from_create_event_id` 推导；5 单测 + 变异自证；联邦事务集成 14/14 |
 | **D-2** | 规则 2：room_id 必须是已接受 create 事件 ID | ❌ **未做** | 依赖 C-2，无 `room_id→create` 反查 |
@@ -41,8 +41,10 @@
 | **H-1** | 逐份更正文档（含额外 6 份） | 🟡 **部分完成** | `d3a12ca73`（`docs/room-version-12-13-correction`，已并进本分支历史）改了 `CURRENT_ISSUES_AND_PLAN.md` 与 `REMAINING_ISSUES_...2026-09-25.md`；`V12_ROOM_VERSION_..._PLAN.md:21` 已自我更正 MSC4239 误引<br>❌ `AUDIT_SUMMARY_2026-09-12.md`、`DB_REVIEW_2026-09-17.md` 最近提交仍是 markdownlint 批（**未加 superseded 横幅**）；`docs/synapse-rust/` 与 `docs/audit/O1_PHASE1_...` 未核 |
 | **H-2** | Q1–Q7 结论落档 | ❌ **未做** | 依赖 A-2 |
 
-**计数（E 组后）**：✅ 完成 13（A-1、A-2、B-1、B-2、C-1、C-2、C-3、D-1、D-4、D-6、E-1、E-2、E-3）｜🟡 部分 3（D-3、G-1+G-2、H-1）｜❌ 未做 8（C-4、C-5、D-2、D-5、F-1/F-2/F-3、G-1、H-1/H-2 中的未做项）。
+**计数（C-4 后）**：✅ 完成 14（A-1、A-2、B-1、B-2、C-1、C-2、C-3、C-4、D-1、D-4、D-6、E-1、E-2、E-3）｜🟡 部分 3（D-3、G-1+G-2、H-1）｜❌ 未做 7（C-5、D-2、D-5、F-1/F-2/F-3、G-1、H-1/H-2 中的未做项）。
 
+> **C-4 完成（2026-09-27）**：`10aecb7d3`。**C-5 与 G-1 强耦合**（见 §4.4），应同批执行。
+>
 > **E 组完成（2026-09-27）**：`a659f9f7d`（E-1 规则 1.4）、`6f0c1735a`（E-2 无限创建者 + E-3 客户端）、`fcc57e0f2`（E-3 入站 + 唯一创建者实现）。
 > 剩余：**C-4/C-5**（升级顺序反转 + 删逃逸口）、**F 组**（Q6b：删 `StateResolutionService`/`resolve_state_v2`，v2.1 在 `resolve_state_with_auth_chain` 演进；注意该函数届时仅剩 bench 调用，去留需一并裁定）、**G-1**（v1–v11 收敛 `can_create` + 约 10 处用例迁移）、**H-1/H-2** 文档。
 >
@@ -230,3 +232,30 @@ via_finalize=$honiPdN...       ← finalize_local_pdu(&parts).event_id
    ⚠️ 建房时自己写的首个 PL 事件含 `users: {creator: 100}`（`create.rs` 的 power_levels 构造），
    若该规则在创建序列内也生效会**自拒** —— 规则 10.4 只应作用于**入站** PL（经 `event_auth::rules`），
    或创建序列显式走特殊路径。
+
+---
+
+## 4.4 C-5 与 G-1 的耦合（实测：必须同批执行）
+
+**C-5 不能单独做**。`CreateRoomConfig.room_id` 目前仍被 **below-v12 升级分支**需要：
+v1–v11 的 `predecessor.event_id` 要求 tombstone 先写、而 tombstone 的 `replacement_room`
+又要求新房 id 已知 ⇒ 必须预分配。删掉逃逸口会直接打断 v9→v10 这类升级路径
+（`test_upgrade_room_predecessor_names_the_persisted_tombstone` 就是它的守卫）。
+
+**G-1 让 C-5 变简单**：`can_create = false` for v1–v11 之后，`resolve_room_version(Some("10"))`
+返回 `None` ⇒ below-v12 的建房/升级分支**不可达**，按铁律 1 随 `config.room_id` 一起删除，
+`upgrade_room` 只剩 v12 分支（C-4 已就位）。
+
+**同批必须处理的连带面（实测清单）**：
+
+| 连带项 | 位置 | 处理 |
+|---|---|---|
+| 能力表 | `synapse-common/src/room_versions.rs:118-119` | v1–v11 改用"可 join/parse/federate、不可 create"的构造（`stable_parse_only` 已随 Q5 删除，需新增语义正确的构造或直接内联标志位） |
+| 守卫 | 同文件 `:235-300` | `resolve_room_version(Some("1".."11")) == None`；`available` 只含 v12；断言 `available.len() == 1` |
+| 快照 | `tests/integration/snapshots/*capabilities_v3.snap` | `available` 收敛为仅 `"12"`（并复核 `unstable_features` 漂移，那是并发会话的面） |
+| 建房用例（G-48） | `tests/integration/room_service_tests_migrated.rs:279/751/807/866/4989/5061/5098`、`federation_existence_leak_tests.rs:567/680/735/863` | 迁移到 v12，或改为"断言非 12 不可创建" |
+| v1/v9/v10/v11 升级用例 | `room_service_tests_migrated.rs` 的 `test_upgrade_room_*`、`test_create_room_keeps_the_server_assigned_create_id_for_v1_rooms` | G-1 后这些路径不可达 ⇒ 随 below-v12 分支一起删除（保留 v11→v12 与 v12→v12） |
+| below-v12 升级分支 | `synapse-services/src/room/service.rs` 的 `else` 分支 + `predecessor.event_id` | 删除（C-5） |
+| 逃逸口与合成房间 | `CreateRoomConfig.room_id`、`admin/notification.rs`、`space/repository.rs` | 删除字段；合成房间若需保留则必须写明谁保证 id 形态，或改走统一建房入口 |
+
+> ⚠️ 该批同改 `migrations/` 之外的**大量测试**属预期；`migrations/` 本批不动，故 R10 指纹不涉及。
