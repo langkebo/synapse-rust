@@ -49,6 +49,11 @@
 | **客户端撤回恒 500（P0，既有）** | — | `3e304b69c` | 处理器把**用户 ID** 写进 `events.redacted_by`，而该列是到 `events.event_id` 的自引用外键（`fk_events_redacted_by`）⇒ 每次客户端撤回都违反外键。改为写撤回事件自身的 ID |
 | U-16 删除/收敛 | U-16 | `4cce7d782` | `room/auth.rs` 整体删除（含 4 条钉错行为的用例），v12 写路径改走 `select_auth_events`；零调用点 ⇒ 违铁律 1/2 的重复实现消失 |
 | 并发会话留下的编译 + clippy 红门禁 | — | `cb68220e6` | MSC4222 的 `sync` 第 8 参数未同步两个集成测试；`map_or`/未用绑定 4 条 |
+| `user_exists` 双谓词拆分 | U-2 | `bb69ad7a0` | 拆成 `user_exists`（行存在，含停用；供 profile 字段端点与用户名可用性）与 `active_user_exists`（仅未停用；auth/federation/moderation 必须走它）。19 处生产调用点逐点选定并列表；`AccountIdentityService::ensure_active_user_exists` 曾错误地调用 `user_exists`（本轮修复）|
+| HTTP 层端到端签名断言 | U-8 | `3495c6892` | 真建 v11 房间，PDU 经生产流水线（`build_pdu` → `finalize_local_pdu` → `sign_and_hash_event`）组装；断言 per-PDU `success`（不再容忍 success/error）与**落库** `hashes`/`signatures` 逐字等于所发。两条负例：篡改 `origin_server_ts`（redaction 保留字段）+ 重算内容哈希 ⇒ 必须被 sender-signature 拒绝；v3+ 携带显式 `event_id` ⇒ 必须拒绝 |
+| v≤11 写路径持久化图字段 | U-13-R9 | `11bf5455d`、`113765e9b` | 已知房间版本统一走图感知写入；`create_event_with_pdu` 成为**唯一**图写路径（event 行 + `event_edges` 同一本地事务），`create_event_with_graph` 改委托适配器（铁律 2）。**注意**：`11bf5455d` 单独合并会丢掉 `event_edges`（见 §1.4），两者必须一起 |
+| 本地事件身份在调用方事务路径 finalize + 消费 | U-13-R10 | `b6b923d8a`、`31b475710` | tx 路径按**调用方连接**读房间版本后 finalize（`room_version_in_tx`）；`send_message` 的 relation 索引/beacon/返回值改用写入口返回的 ID；`knock`/`voip` 不再回占位 ID、`voip` 的错误不再被 `let _ =` 吞掉；清除 `$$…` 占位；`room_memberships.event_id` 不再伪造（缺 ID 即 NULL）|
+| 专用 reaction 路由写入 `events` | U-20（reaction 写入口）| `29ac9b316` | `send_annotation`/`send_reference`/`send_replacement` 改走 `MessagingService::create_event`（单一写入口），`event_relations` 只作索引 ⇒ 真实 reaction 对 MSC3912 级联可见；`m.relates_to.key` 优先于顶层 `body` |
 
 ### 1.2 阶段末门禁快照（本机实测）
 
@@ -87,6 +92,32 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 判据：`cargo check -p synapse-common --features test-utils` 单独看是绿的、且 `pdu.rs` 存在。
 处置：`cargo clean -p synapse-common` 后重跑；不要据此改代码。
 
+### 1.4 U-2 / U-8 / U-13-R9(+R10) / U-20 并入后的复测（2026-09-27，本机实测）
+
+四条分支并入 `opt/consolidated` 的落点：U-2 `9efc01f8a`、U-13-R9 部分 `03e1cc920`、
+U-20 `7ab85a87f`（由并发会话先行并入）；U-8 `111a4df28`、U-13-R9 完整 `dcec344e2`
+（本轮补并，含 `113765e9b` 的边修复与 `b6b923d8a`/`31b475710` 的 ID 收口）。
+合并后 tip：`dcec344e2`，工作树 `git status --short` 为空。
+
+| 门禁 | 命令 | 结果 |
+|---|---|---|
+| 格式棘轮 | `./scripts/check_fmt_ratchet.sh` | `current=0 baseline=0` ✅ |
+| 编译 | `SQLX_OFFLINE=true cargo check --workspace --all-targets --all-features --locked` | exit 0 ✅ |
+| clippy（两档） | 同 §1.3 两条命令 | 两档均 exit 0 ✅ |
+| SQLx 比率棘轮 | `bash scripts/ci/check_sqlx_dynamic_ratio.sh` | 生产 `323<=323`、测试 `716<=716`、静态 `1146>=1145`、QB `18<=18` ✅ |
+| `.sqlx` 缓存 | `check_sqlx_cache_fresh.sh --static` / `--compile` | 1114 条、被跟踪、离线构建通过 ✅ |
+| 四单元定点回归 | `--profile ci --all-features --test integration --test-threads 1`，13 例 | **13/13 通过**（U-8 三条签名断言、R9 图字段/边、R10 tx finalize + knock + voip、U-2 `add_member` 投影、U-20 级联 reaction）|
+
+⚠️ **两条环境性红项（非代码缺陷，复跑前先读）**：
+1. `check_sqlx_cache_fresh.sh --full`（需 `DATABASE_URL` 指向**已迁移**库）在本机**必然失败**：
+   共享 `public` schema 现为 **0 表**（并发会话 `406ab07ef` 把 `public` 收敛进 CI seed，
+   与 §1.3 第 1 条的历史前提相反）。`cargo sqlx prepare --check` 以默认 `search_path` 连库 ⇒
+   宏全部无表可用（实测 `synapse-storage` 1410 个错误）。权威判据改用 `--compile`（离线缓存完整性），
+   它对这次合并是绿的。
+2. `synapse-services` 的 `media_fixture_keeps_its_isolated_schema_for_the_whole_test` 需要
+   `public` 里有 `upload_progress` 才能跑（`media/mod.rs:1239` 的守卫），同样被上一条挡住。
+   排除该环境用例后 `-p synapse-services --lib --all-features` 实测 **2082/2082 通过**。
+
 ---
 
 ## 2. 仍然存在的问题
@@ -98,21 +129,18 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 
 背景：Slice A/B/D/E 把**本地产生**的事件身份切成 reference hash（v3+），
 入站半边与邀请面已由 `16c654dcc` 补齐（R1–R5、R8 见 §1.1），R6/R7 亦已收口
-（`10ac3253f`、`8a7185e05`）。剩下一条**新发现**的写入面缺口与仍未跑的 live 传输层门槛。
+（`10ac3253f`、`8a7185e05`）；写入面缺口 **U-13-R9** 与由它暴露的 ID 消费残留
+**U-13-R10** 已收口（见 §1.1）。**只剩**仍未跑的 live 传输层门槛。
 
 | 编号 | 问题 | 判据（实测） | 优化方案 |
 |---|---|---|---|
-| **U-13-R9（新）** | **v≤11 的写路径不持久化图字段 ⇒ 部分入站成员事件的投影天然不完整，现在按 fail-closed 规则留空不签** | `create_event` 对 v≤11 写 SQL NULL `depth`/`prev_events`/`auth_events`；`send_join` v1/v2、`send_leave` v1/v2、`thirdparty_invite` 都走它 ⇒ `pdu::state_pdu` 返回 `MissingGraphMetadata` ⇒ R7 之后这些事件**没有本地签名**（旧的手搓 dict 签名本来也无法被对端验过，故非正确性回退，但签名覆盖率下降） | 让写路径也持久化这三个字段（v≤11 与 v12 同口径），随后这些投影即可签名；`synapse-web/src/routes/federation/pdu.rs` 模块文档 residual gap 1 已记 |
 | **U-13-S3** | **live 互操作仍未跑**（oracle 已落地并通过） | 本沙箱限制见 §5.2。已落地替代门槛（`c43e68b81`）：`tests/unit/u13_interop_fixture_tests.rs` 用固定输入跑真实流水线并与提交的 fixture 逐字节比对；`scripts/interop/verify_pdu_with_upstream_synapse.py` 用真实 `matrix-synapse==1.161.0` 复算三个 fixture 的 `hashes`/事件 ID/签名（v3/v10/v11 全 PASS，篡改即 FAIL） | 只剩**传输层**：需要可解析的双主机名 + 互信 CA（本仓联邦客户端目前没有自定义 CA/跳过校验开关）。有该环境时补 `/send_join` + `/send` 实测并把输出记进本文件 |
 
 ### 2.2 P1
 
 | 编号 | 问题 | 判据（实测） | 优化方案 |
 |---|---|---|---|
-| **U-2** | **R-1** `user_exists` 去掉停用过滤后的扩散复核 | `user/storage.rs` 的 `user_exists` 仍 `SELECT 1 FROM users WHERE user_id=$1`；生产调用点 **19** 处（`admin/room/management.rs` 5、`membership/moderation.rs` 3、`account_identity_service.rs` 3、`user_service.rs` 2，其余 6 处各 1） | 上游 #20172 只针对 profile 字段端点。拆两个谓词：`user_exists`（含停用）/ `active_user_exists`，逐点选定；auth、federation、moderation 三处必须先审 |
 | **U-19** | U-1 的 MSC3912 实现缺口：**已修 2 项**（逐事件授权、空列表语义），**余 5 项**：晚到事件补撤、级联的 `redacted_by` 审计归属（仍传 `None`）、不为子事件发出真正的 `m.room.redaction`（对等端不知情）、`content->'m.relates_to'` 缺 GIN 索引（两条查询都是整房间扫描）、`"*"` 分支越界匹配已废弃的 `m.in_reply_to` | 见下表（❌ 行中已修的两项标 ✅） | 见下表 |
-| **U-20（新发现）** | 专用兼容路由 `PUT /rooms/{id}/send/m.reaction/{txn}`（`add_reaction` → `relations_service.send_annotation`）**不写入 `events` 表**，只在 relations 表建索引 ⇒ 级联查询读的是 `events.content`，**真实 reaction 对级联不可见**（当前级联测试只能用通用 send 路由才生效） | `synapse-services/src/relations_service.rs::send_annotation` 与 `events` 写入路径无关；级联查询 `cascade.rs` 读 `events` | 让 reaction 走与普通事件相同的写入口（`MessagesService`/`create_event`），relations 表只作索引；这是同一个"同一职责只能有一份写入实现"的问题 | 中 |
-| **U-8** | **R-2** HTTP 层端到端签名断言缺失 | `tests/integration/api_federation_transaction_tests.rs::test_send_transaction_with_signed_pdu_accepted` 未预建房间，且断言容忍 success/error 两种结果 ⇒ 验签半边实际没有被端到端钉住 | 建房间后再发事务，断言响应成功 **且** `events.signatures`/`hashes` 非空；再加一条"篡改 content 后必须被拒"的负例（与 U-13-R1 同批做，正好互为判据） |
 | **U-5** | Admin 媒体族缺失 | `admin/media.rs` 内 `media/quarantine`、`unquarantine`、房间级媒体路由 **0 命中**（仅有 `quarantine_media/{media_id}/changes`） | 先把上游 15 条端点落成可核验清单文件，再按清单补齐 |
 | **U-6** | 缩略图 `animated` 缺失 | 全仓 `.rs` **0 命中** | 阶段 1 参数支持 → 阶段 2 动画检测 → 阶段 3 WebP 编码 |
 | **U-14** | 跨仓客户端接线 | `CryptoDeviceAdapter.ts` **不在本仓** | matrix-sdk-fork 侧改用 `m.key.verification.*` to-device；本仓无法闭合，只能记录 |
