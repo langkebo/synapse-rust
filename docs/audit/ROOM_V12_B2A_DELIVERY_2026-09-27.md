@@ -113,6 +113,41 @@ FAIL unknown_domainless_room_fails_closed_to_remote
 （`domainless_room_id_has_no_parseable_server`）。随后 `git checkout HEAD -- <file>` 复原，
 `git status` 0 改动。
 
+**复现方式**（可原样执行；`python3` 只做字符串替换，锚点不存在即 assert 失败）：
+
+```bash
+cd .worktrees/room-v12
+python3 - <<'PY'
+p = "synapse-services/src/room/membership/service.rs"
+s = open(p).read()
+old = """    pub async fn room_locality(&self, room_id: &str) -> ApiResult<RoomLocality> {
+        let Some(origin) = self.room_origin_server(room_id).await? else {
+            return Ok(RoomLocality::Remote { destinations: self.resident_servers(room_id, None).await? });
+        };
+        if origin == self.server_name {
+            return Ok(RoomLocality::Local);
+        }
+        Ok(RoomLocality::Remote { destinations: self.resident_servers(room_id, Some(origin)).await? })
+    }"""
+new = """    pub async fn room_locality(&self, room_id: &str) -> ApiResult<RoomLocality> {
+        let _ = room_id;
+        Ok(RoomLocality::Local)   // MUTATION: old id-parsing behaviour
+    }"""
+assert old in s
+open(p, "w").write(s.replace(old, new))
+PY
+cargo test -p synapse-services --lib --features test-utils --no-run   # 必须强制重建，nextest 会复用旧产物
+cargo nextest run -p synapse-services --lib --features test-utils \
+  -E 'test(domainless) | test(room_locality) | test(leave_and_forget_refuses)'   # 期望 4 failed / 2 passed
+git checkout HEAD -- synapse-services/src/room/membership/service.rs
+```
+
+> **踩坑（本轮实测）**：`-E 'test(/a|b/)'` 这种"整串名字 + 管道"的过滤器在本环境匹配到
+> **0 个用例**（`Summary [0.002s] 0 tests run`），而退出码非 0 看起来像"变红"实为
+> `no tests to run`；换成 `-E 'test(a) | test(b) | test(c)'` 后列出 6 个用例。
+> 另一坑：换源后不强制 `cargo test --no-run` 重建，nextest 会复用旧产物继续跑旧断言。
+> 两者都会让探针给出**假信号**，接手时别省这两步。
+
 ---
 
 ## 5. 与计划文档的对应关系
