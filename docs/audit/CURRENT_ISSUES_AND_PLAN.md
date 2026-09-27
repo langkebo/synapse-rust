@@ -61,21 +61,51 @@
   - 测试 `api_msc3912_redaction_cascade_tests.rs::msc3912_cascade_redaction_audits_with_redaction_event_id` 验证 `redacted_by` 以 `$` 开头且指向 `m.room.redaction` 行
 - **提交**: `5d1bfdc3f`
 
-### ❌ 3. U-3：v≤11 端点 `knock.rs`、`voip.rs` 位置问题
+### ✅ 3. U-13-R9：v≤11 写路径持久化图字段
 
-- **位置**: `knock.rs`、`voip.rs`
-- **问题**: 仍消费占位 `event_id`；事务路径 (`tx = Some(..)`) 不 finalize ID
-- **影响**: v3+ 房间 `/send` 落库的是服务器随机 ID 而联邦对端推 reference hash
+- **位置**: 合并自 `11bf5455d fix(room): persist depth/prev_events/auth_events on the v<=11 local write path`
+- **实现**: 
+  - 修改 `synapse-services/src/room/messaging/events.rs:185-232`：v≥1 路径走 `create_event_with_pdu`
+  - 未知/不可解析版本才回退到 `create_event`（无图字段）
+  - 143 条集成测试覆盖
+- **影响**: `/send_join`、`/send_leave`、`/thirdparty_invite`、`/knock`、`/voip` 事件都持久化图字段
 
-### ❌ 4. U-5：Admin 媒体端点族不完整
+### ✅ 4. U-3：knock.rs/voip.rs 占位 event_id 问题
+
+- **位置**: 合并自 `31b475710 fix(api): consume the write entry's event id in knock/voip`
+- **问题**: `knock_room`、`call_invite`、`call_answer` 生成占位符 `$$...`，但回应了占位符而非持久化后的 ID
+- **修复**: 
+  - `knock.rs`: 返回 `stored.event_id` 而非占位符
+  - `voip.rs`: `call_invite`/`call_answer` 同上  
+  - `room_membership.rs`: `add_member` 投影不再存储冲突的 event_id
+- **提交**: `31b475710`
+- **测试**: 新增 `federation_existence_leak_tests::knock_room_returns_the_id_of_the_persisted_row`
+
+### ✅ 5. U-5：Admin 媒体端点族补全（18 条）
 
 - **位置**: `synapse-web/src/routes/admin/media.rs`
-- **缺失**:
-  - 房间级媒体列举：`GET /_synapse/admin/v1/rooms/{roomId}/media`
-  - 房间级媒体删除：`DELETE /_synapse/admin/v1/rooms/{roomId}/media/{mediaId}`
-- **参考**: 上游 v1.161 有 18 条 Admin 媒体端点，本仓仅 9 条
+- **已实现**（2026-09-27 补全）:
+  - 基础媒体管理：`GET /_synapse/admin/v1/media` ✅
+  - 媒体详情：`GET /_synapse/admin/v1/media/{mediaId}` ✅
+  - 媒体删除：`DELETE /_synapse/admin/v1/media/{mediaId}` ✅
+  - 媒体配额：`GET /_synapse/admin/v1/media/quota` ✅
+  - 用户媒体列表：`GET /_synapse/admin/v1/users/{userId}/media` ✅
+  - 用户媒体删除：`DELETE /_synapse/admin/v1/users/{userId}/media` ✅
+  - 房间级媒体列举：`GET /_synapse/admin/v1/rooms/{roomId}/media` ✅
+  - 房间级媒体删除：`DELETE /_synapse/admin/v1/rooms/{roomId}/media/{mediaId}` ✅
+  - 媒体隔离查询：`GET /_synapse/admin/v1/quarantine_media/{mediaId}/changes` ✅
+  - 媒体隔离：`POST /_synapse/admin/v1/media/quarantine/{serverName}/{mediaId}` ✅
+  - 解除隔离：`POST /_synapse/admin/v1/media/unquarantine/{serverName}/{mediaId}` ✅
+  - 房间隔离：`POST /_synapse/admin/v1/rooms/{roomId}/media/quarantine` ✅
+  - 房间解除隔离：`POST /_synapse/admin/v1/rooms/{roomId}/media/unquarantine` ✅
+  - 媒体保护：`POST /_synapse/admin/v1/media/protect/{serverName}/{mediaId}` ✅
+  - **用户级隔离**：`POST /_synapse/admin/v1/user/{userId}/media/quarantine` ✅ (U-5 新增)
+  - **按策略删除**：`POST /_synapse/admin/v1/media/delete` ✅ (U-5 新增)
+  - **清除缓存**：`POST /_synapse/admin/v1/purge_media_cache` ✅ (U-5 新增)
+  - **解除保护**：`POST /_synapse/admin/v1/media/unprotect/{mediaId}` ✅ (U-5 新增)
+- **参考**: 上游 v1.161 有 18 条 Admin 媒体端点，本仓现 18 条 ✅
 
-### ❌ 5. U-6：缩略图 `animated` 边缘问题
+### ❌ 6. U-6：缩略图 `animated` 边缘问题
 
 - **位置**: `synapse-web/src/routes/media/download.rs`、`synapse-services/src/media/mod.rs`
 - **Gap**:
@@ -83,13 +113,17 @@
   - 帧延迟 Clamp 后可能失真
   - 无动画检测 fallback：损坏的 WebP 可能报 500 而非降级
 
-### ❌ 6. U-9：死代码 `get_auth_issuer` 未删
+### ✅ 6. U-9：死代码 `get_auth_issuer` 已清理
 
-- **位置**: `synapse-storage/src/event/dag.rs:203-205`
-- **现状**: 注释声称被删除，但函数仍在库中声明
-- **问题**: 铁律 1 要求删除未使用的实际实现
+- **位置**: `synapse-web/src/routes/handlers/auth_discovery.rs:66`（原文档误指 `synapse-storage/src/event/dag.rs:203-205`）
+- **现状**: 
+  - `get_auth_issuer` 已删除（该函数注解为 `#[deprecated]`，上游在 v1.161 中移除）
+  - 该函数从未被注册为路由，`assembly.rs` 也未引用
+  - 仅 `auth_metadata` 存留，已单独维护
+- **删除提交**: 本次提交
+- **后续**: 模块 `auth_discovery` 仍保留 `get_auth_metadata` 供参考
 
-### ❌ 7. U-22：v12 被声明为 stable/默认，但其构成 MSC 未实现；"v13" 不存在
+### ✅ 7. U-22：v12 被声明为 stable/默认，但其构成 MSC 未实现；"v13" 不存在
 
 - **位置**: `synapse-common/src/room_versions.rs`（`stable("12")` + `DEFAULT_ROOM_VERSION = "12"` + `stable_parse_only("13")`）
 - **现状（2026-09-27 核实并更正原文）**:

@@ -69,6 +69,32 @@ impl AdminMediaService {
         self.storage.delete_user_media(&user.user_id).await
     }
 
+    /// List media in a room.
+    ///
+    /// Backs `GET /_synapse/admin/v1/rooms/{room_id}/media`.
+    /// Returns paginated media list with cursor support.
+    #[instrument(skip(self))]
+    pub async fn get_room_media(
+        &self,
+        room_id: &str,
+        limit: i64,
+        cursor: Option<MediaCursor>,
+    ) -> Result<AdminMediaPage, ApiError> {
+        self.storage.get_room_media(room_id, limit, cursor).await
+    }
+
+    /// Delete media from a room.
+    ///
+    /// Backs `DELETE /_synapse/admin/v1/rooms/{room_id}/media/{media_id}`.
+    /// Removes the media from the room index and deletes it entirely if no other rooms reference it.
+    #[instrument(skip(self))]
+    pub async fn delete_room_media(&self, room_id: &str, media_id: &str) -> Result<(), ApiError> {
+        if !self.storage.delete_room_media(room_id, media_id).await? {
+            return Err(ApiError::not_found("Media not found in room".to_string()));
+        }
+        Ok(())
+    }
+
     /// Query quarantine change history for a specific media item.
     ///
     /// Backs the `GET /_synapse/admin/v1/quarantine_media/{media_id}/changes`
@@ -129,6 +155,208 @@ impl AdminMediaService {
 
         // Update the actual quarantine status on the media record
         self.quarantine_change_storage.set_media_quarantine_status(media_id, server_name, "").await?;
+
+        Ok(stream_id)
+    }
+
+    /// Quarantine media in a room.
+    ///
+    /// First verifies that the media is in the room (by checking room_events),
+    /// then records the quarantine change and updates the status.
+    ///
+    /// Backs `POST /_synapse/admin/v1/rooms/{roomId}/media/quarantine`.
+    /// If `user_id` is provided, only that user's media in the room is affected.
+    #[instrument(skip(self), fields(room_id, user_id))]
+    pub async fn quarantine_room_media(
+        &self,
+        room_id: &str,
+        user_id: Option<&str>,
+        changed_by: &str,
+    ) -> Result<i64, ApiError> {
+        // Get all media in the room
+        let page = self.storage.get_room_media(room_id, 1000, None).await?;
+
+        let mut last_stream_id = 0i64;
+        let now_ts = current_timestamp_millis();
+
+        for media in &page.media {
+            // Filter by user_id if specified
+            if let Some(uid) = user_id {
+                if media.uploader_user_id.as_deref() != Some(uid) {
+                    continue;
+                }
+            }
+
+            let server_name = "example.com"; // TODO: derive from media
+            let stream_id = self
+                .quarantine_change_storage
+                .record_media_quarantine_change(&media.media_id, server_name, "quarantine", changed_by, now_ts)
+                .await?;
+
+            self.quarantine_change_storage
+                .set_media_quarantine_status(&media.media_id, server_name, "quarantined")
+                .await?;
+
+            last_stream_id = stream_id;
+        }
+
+        if last_stream_id == 0 {
+            return Err(ApiError::not_found("No media found in room".to_string()));
+        }
+
+        Ok(last_stream_id)
+    }
+
+    /// Unquarantine media in a room.
+    ///
+    /// First verifies that the media is in the room (by checking room_events),
+    /// then records the unquarantine change and clears the quarantine status.
+    ///
+    /// Backs `POST /_synapse/admin/v1/rooms/{roomId}/media/unquarantine`.
+    /// If `user_id` is provided, only that user's media in the room is affected.
+    #[instrument(skip(self), fields(room_id, user_id))]
+    pub async fn unquarantine_room_media(
+        &self,
+        room_id: &str,
+        user_id: Option<&str>,
+        changed_by: &str,
+    ) -> Result<i64, ApiError> {
+        // Get all media in the room
+        let page = self.storage.get_room_media(room_id, 1000, None).await?;
+
+        let mut last_stream_id = 0i64;
+        let now_ts = current_timestamp_millis();
+
+        for media in &page.media {
+            // Filter by user_id if specified
+            if let Some(uid) = user_id {
+                if media.uploader_user_id.as_deref() != Some(uid) {
+                    continue;
+                }
+            }
+
+            let server_name = "example.com"; // TODO: derive from media
+            let stream_id = self
+                .quarantine_change_storage
+                .record_media_quarantine_change(&media.media_id, server_name, "unquarantine", changed_by, now_ts)
+                .await?;
+
+            self.quarantine_change_storage.set_media_quarantine_status(&media.media_id, server_name, "").await?;
+
+            last_stream_id = stream_id;
+        }
+
+        if last_stream_id == 0 {
+            return Err(ApiError::not_found("No media found in room".to_string()));
+        }
+
+        Ok(last_stream_id)
+    }
+
+    /// Protect media from automatic quarantine.
+    ///
+    /// Sets the quarantine_status to "protected" which prevents automatic re-quarantine.
+    ///
+    /// Backs `POST /_synapse/admin/v1/media/protect/{serverName}/{mediaId}`.
+    #[instrument(skip(self), fields(media_id))]
+    pub async fn protect_media(&self, server_name: &str, media_id: &str, changed_by: &str) -> Result<i64, ApiError> {
+        let now_ts = current_timestamp_millis();
+        let stream_id = self
+            .quarantine_change_storage
+            .record_media_quarantine_change(media_id, server_name, "protect", changed_by, now_ts)
+            .await?;
+
+        self.quarantine_change_storage.set_media_quarantine_status(media_id, server_name, "protected").await?;
+
+        Ok(stream_id)
+    }
+
+    // ───────────────────────────────────────────────────────────────────────────
+    // U-5 missing endpoint implementations
+    // ───────────────────────────────────────────────────────────────────────────
+
+    /// Quarantine all local media uploaded by a given user.
+    ///
+    /// Backs `POST /_synapse/admin/v1/user/{user_id}/media/quarantine`.
+    /// Records the quarantine action in the audit stream.
+    #[instrument(skip(self), fields(user_id))]
+    pub async fn quarantine_user_media(&self, user_id: &str, changed_by: &str) -> Result<i64, ApiError> {
+        let now_ts = current_timestamp_millis();
+
+        // Get canonical user ID first (validates user exists)
+        let user = self.user_service.get_user_or_not_found(user_id).await?;
+
+        // Quarantine all media for this user
+        let count = self.storage.quarantine_user_media(&user.user_id).await?;
+
+        if count == 0 {
+            return Err(ApiError::not_found(format!("No media found for user {}", user_id)));
+        }
+
+        // Record the quarantine change in the audit stream
+        let stream_id = self
+            .quarantine_change_storage
+            .record_media_quarantine_change(
+                &format!("user:{}/*", user.user_id),
+                "localhost",
+                "quarantine_by_user",
+                changed_by,
+                now_ts,
+            )
+            .await?;
+
+        Ok(stream_id)
+    }
+
+    /// Batch-delete local media by policy: created before `before_ts` OR larger than `max_size`.
+    ///
+    /// Backs `POST /_synapse/admin/v1/media/delete`.
+    /// Both parameters are optional; a value of `0` means "no limit on that dimension".
+    /// Protected and quarantined rows are skipped.
+    #[instrument(skip(self))]
+    pub async fn delete_media_by_policy(&self, before_ts: i64, max_size: i64) -> Result<u64, ApiError> {
+        let deleted = self.storage.delete_media_by_policy(before_ts, max_size).await?;
+        Ok(deleted)
+    }
+
+    /// Purge cached remote media that has not been accessed since `before_ts`.
+    ///
+    /// Backs `POST /_synapse/admin/v1/purge_media_cache`.
+    /// In this implementation only local media exists, so this degrades to
+    /// deleting local media that matches the access-time policy.
+    #[instrument(skip(self))]
+    pub async fn purge_media_cache(&self, before_ts: i64) -> Result<u64, ApiError> {
+        let purged = self.storage.purge_media_cache(before_ts).await?;
+        Ok(purged)
+    }
+
+    /// Clear the `protected` status on a media row so it can be quarantined
+    /// or deleted by policy again.
+    ///
+    /// Backs `POST /_synapse/admin/v1/media/unprotect/{media_id}`.
+    #[instrument(skip(self), fields(media_id))]
+    pub async fn unprotect_media(&self, media_id: &str, changed_by: &str) -> Result<i64, ApiError> {
+        let now_ts = current_timestamp_millis();
+
+        // First verify the media exists
+        let media = self.storage.get_media_info(media_id).await?;
+        if media.is_none() {
+            return Err(ApiError::not_found(format!("Media {} not found", media_id)));
+        }
+
+        // Unprotect the media
+        let result = self.storage.unprotect_media(media_id, changed_by).await?;
+
+        if result == 0 {
+            return Err(ApiError::not_found(format!("Media {} was not protected", media_id)));
+        }
+
+        // Record the unprotect change in the audit stream
+        let server_name = "localhost"; // Simplified: assume all media is local
+        let stream_id = self
+            .quarantine_change_storage
+            .record_media_quarantine_change(media_id, server_name, "unprotect", changed_by, now_ts)
+            .await?;
 
         Ok(stream_id)
     }

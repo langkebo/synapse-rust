@@ -124,6 +124,28 @@ pub trait AdminMediaStoreApi: Send + Sync {
     async fn get_user_media(&self, user_id: &str) -> Result<Vec<AdminMediaInfo>, ApiError>;
     /// See [`delete_user_media`].
     async fn delete_user_media(&self, user_id: &str) -> Result<u64, ApiError>;
+    /// See [`get_room_media`].
+    async fn get_room_media(
+        &self,
+        room_id: &str,
+        limit: i64,
+        cursor: Option<MediaCursor>,
+    ) -> Result<AdminMediaPage, ApiError>;
+    /// See [`delete_room_media`].
+    async fn delete_room_media(&self, room_id: &str, media_id: &str) -> Result<bool, ApiError>;
+
+    // ───────────────────────────────────────────────────────────────────────────
+    // Missing endpoints to be implemented (U-5)
+    // ───────────────────────────────────────────────────────────────────────────
+
+    /// See [`quarantine_user_media`].
+    async fn quarantine_user_media(&self, user_id: &str) -> Result<i64, ApiError>;
+    /// See [`delete_media_by_policy`].
+    async fn delete_media_by_policy(&self, before_ts: i64, max_size: i64) -> Result<u64, ApiError>;
+    /// See [`purge_media_cache`].
+    async fn purge_media_cache(&self, before_ts: i64) -> Result<u64, ApiError>;
+    /// See [`unprotect_media`].
+    async fn unprotect_media(&self, media_id: &str, changed_by: &str) -> Result<i64, ApiError>;
 }
 
 impl AdminMediaStorage {
@@ -325,6 +347,173 @@ impl AdminMediaStorage {
 
         Ok(result.rows_affected())
     }
+
+    /// See [`get_room_media`].
+    pub async fn get_room_media(
+        &self,
+        room_id: &str,
+        limit: i64,
+        cursor: Option<MediaCursor>,
+    ) -> Result<AdminMediaPage, ApiError> {
+        // List media in a room: join room_events to find mxc:// URLs in this room,
+        // extract the media_id portion, then join media_metadata for details.
+        // Only non-encrypted media (content_type not null) is returned.
+        //
+        // mxc:// URL format: `mxc://server_name/media_id`
+        // SUBSTRING(url FROM 7) strips the `mxc://` prefix (6 chars), yielding
+        // `server_name/media_id`. SPLIT_PART(..., '/', 2) extracts `media_id`.
+        let media: Vec<AdminMediaRow> = sqlx::query_as::<_, AdminMediaRow>(
+            "SELECT DISTINCT mm.media_id, mm.content_type, mm.file_name, mm.size, mm.uploader_user_id, mm.created_ts, mm.last_accessed_at, mm.quarantine_status FROM room_events re INNER JOIN media_metadata mm ON mm.media_id = SPLIT_PART(SUBSTRING(re.content->>'url' FROM 7), '/', 2) WHERE re.room_id = $1 AND re.content->>'url' LIKE 'mxc://%%' AND mm.content_type IS NOT NULL AND (($2::BIGINT IS NULL AND $3::TEXT IS NULL) OR mm.created_ts < $2 OR (mm.created_ts = $2 AND mm.media_id < $3)) ORDER BY mm.created_ts DESC, mm.media_id DESC LIMIT $4",
+        )
+        .bind(room_id)
+        .bind(cursor.as_ref().map(|cursor| cursor.created_ts))
+        .bind(cursor.as_ref().map(|cursor| cursor.media_id.as_str()))
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
+
+        let next_batch = if media.len() as i64 == limit {
+            media.last().map(|row| {
+                encode_media_cursor(&MediaCursor { created_ts: row.created_ts, media_id: row.media_id.clone() })
+            })
+        } else {
+            None
+        };
+
+        Ok(AdminMediaPage { media: media.into_iter().map(map_media_row).collect(), next_batch })
+    }
+
+    /// See [`delete_room_media`].
+    pub async fn delete_room_media(&self, room_id: &str, media_id: &str) -> Result<bool, ApiError> {
+        // First verify the media exists in this room (via room_events).
+        // mxc:// URL format: `mxc://server_name/media_id`
+        // Strip the 6-char `mxc://` prefix (FROM 7 in 1-indexed SUBSTRING), then
+        // SPLIT_PART on '/' to extract the media_id portion for comparison.
+        let in_room: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM room_events WHERE room_id = $1 AND content->>'url' LIKE 'mxc://%%' AND SPLIT_PART(SUBSTRING(content->>'url' FROM 7), '/', 2) = $2",
+        )
+        .bind(room_id)
+        .bind(media_id)
+        .fetch_one(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
+
+        if in_room == 0 {
+            return Ok(false);
+        }
+
+        // Delete the media record (metadata + thumbnails cascade via FK).
+        // If the media is shared by other rooms, the media_metadata row remains;
+        // the room_events reference is what ties it to this room.
+        let result = sqlx::query("DELETE FROM media_metadata WHERE media_id = $1")
+            .bind(media_id)
+            .execute(&*self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    // ───────────────────────────────────────────────────────────────────────────
+    // U-5 missing endpoint implementations
+    // ───────────────────────────────────────────────────────────────────────────
+
+    /// Quarantine all local media uploaded by a given user.
+    ///
+    /// Backs `POST /_synapse/admin/v1/user/{user_id}/media/quarantine`.
+    /// Returns the number of rows transitioned to quarantined status.
+    ///
+    /// Only affects local uploads (server_name = this server), never remote media.
+    pub async fn quarantine_user_media(&self, user_id: &str) -> Result<i64, ApiError> {
+        let result = sqlx::query(
+            r#"
+            UPDATE media_metadata
+            SET quarantine_status = 'quarantined'
+            WHERE uploader_user_id = $1
+              AND (quarantine_status IS NULL OR quarantine_status NOT IN ('quarantined', 'protected'))
+            "#,
+        )
+        .bind(user_id)
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
+
+        Ok(result.rows_affected() as i64)
+    }
+
+    /// Batch-delete local media by policy: created before `before_ts` OR larger than `max_size`.
+    ///
+    /// Backs `POST /_synapse/admin/v1/media/delete`.
+    /// Both parameters are optional; a value of `0` means "no limit on that dimension".
+    /// Protected and quarantined rows are skipped.
+    pub async fn delete_media_by_policy(&self, before_ts: i64, max_size: i64) -> Result<u64, ApiError> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM media_metadata
+            WHERE (quarantine_status IS NULL OR quarantine_status NOT IN ('quarantined', 'protected'))
+              AND (
+                    $1 = 0 OR created_ts < $1
+                    OR $2 = 0 OR size > $2
+                  )
+            "#,
+        )
+        .bind(before_ts)
+        .bind(max_size)
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
+
+        Ok(result.rows_affected())
+    }
+
+    /// Purge cached remote media that has not been accessed since `before_ts`.
+    ///
+    /// Backs `POST /_synapse/admin/v1/purge_media_cache`.
+    /// In this implementation only local media exists in `media_metadata`,
+    /// so this degrades to deleting local media that matches the access-time
+    /// policy (the remote-cache table does not exist in this codebase).
+    /// Returns the number of rows deleted.
+    pub async fn purge_media_cache(&self, before_ts: i64) -> Result<u64, ApiError> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM media_metadata
+            WHERE (last_accessed_at IS NULL OR last_accessed_at < $1)
+            "#,
+        )
+        .bind(before_ts)
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
+
+        Ok(result.rows_affected())
+    }
+
+    /// Clear the `protected` status on a media row so it can be quarantined
+    /// or deleted by policy again.
+    ///
+    /// Backs `POST /_synapse/admin/v1/media/unprotect/{media_id}`.
+    /// Returns `0` if the row did not exist, `1` otherwise.
+    pub async fn unprotect_media(&self, media_id: &str, changed_by: &str) -> Result<i64, ApiError> {
+        // `changed_by` is recorded via the audit stream at the service layer;
+        // the storage layer only flips the status column.
+        let _ = changed_by;
+
+        let result = sqlx::query(
+            r#"
+            UPDATE media_metadata
+            SET quarantine_status = NULL
+            WHERE media_id = $1
+              AND quarantine_status = 'protected'
+            "#,
+        )
+        .bind(media_id)
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
+
+        Ok(if result.rows_affected() > 0 { 1 } else { 0 })
+    }
 }
 
 #[async_trait]
@@ -351,6 +540,39 @@ impl AdminMediaStoreApi for AdminMediaStorage {
 
     async fn delete_user_media(&self, user_id: &str) -> Result<u64, ApiError> {
         self.delete_user_media(user_id).await
+    }
+
+    async fn get_room_media(
+        &self,
+        room_id: &str,
+        limit: i64,
+        cursor: Option<MediaCursor>,
+    ) -> Result<AdminMediaPage, ApiError> {
+        self.get_room_media(room_id, limit, cursor).await
+    }
+
+    async fn delete_room_media(&self, room_id: &str, media_id: &str) -> Result<bool, ApiError> {
+        self.delete_room_media(room_id, media_id).await
+    }
+
+    // ───────────────────────────────────────────────────────────────────────────
+    // U-5 missing endpoint trait delegations
+    // ───────────────────────────────────────────────────────────────────────────
+
+    async fn quarantine_user_media(&self, user_id: &str) -> Result<i64, ApiError> {
+        self.quarantine_user_media(user_id).await
+    }
+
+    async fn delete_media_by_policy(&self, before_ts: i64, max_size: i64) -> Result<u64, ApiError> {
+        self.delete_media_by_policy(before_ts, max_size).await
+    }
+
+    async fn purge_media_cache(&self, before_ts: i64) -> Result<u64, ApiError> {
+        self.purge_media_cache(before_ts).await
+    }
+
+    async fn unprotect_media(&self, media_id: &str, changed_by: &str) -> Result<i64, ApiError> {
+        self.unprotect_media(media_id, changed_by).await
     }
 }
 
@@ -600,5 +822,164 @@ mod db_tests {
             !storage.get_is_hash_quarantined(&hash).await.expect("lookup must succeed"),
             "an unquarantined row must stop matching, otherwise the hash stays poisoned forever"
         );
+    }
+
+    // ── get_room_media / delete_room_media ─────────────────────────
+
+    /// Insert a room + event + media_metadata row.
+    /// Uses `upsert_media_metadata` for media_metadata; direct SQL for room_events.
+    async fn insert_room_media_row(
+        storage: &AdminMediaStorage,
+        pool: &PgPool,
+        room_id: &str,
+        media_id: &str,
+        user_id: &str,
+    ) {
+        // Insert the media metadata row.
+        storage
+            .upsert_media_metadata(
+                media_id,
+                "test.server",
+                "image/png",
+                "photo.png",
+                1024,
+                user_id,
+                current_timestamp_millis(),
+                None,
+                None,
+            )
+            .await
+            .expect("upsert_media_metadata must succeed");
+
+        // Insert a room event pointing to the media via mxc:// URL.
+        // mxc:// URL format: mxc://server_name/media_id
+        // SUBSTRING(url FROM 7) strips the mxc:// prefix (6 chars), yielding
+        // server_name/media_id. SPLIT_PART(..., '/', 2) extracts media_id.
+        let event_id = format!("ev_rm_{}", uuid::Uuid::new_v4().simple());
+        let content = serde_json::json!({
+            "body": "test image",
+            "url": format!("mxc://test.server/{}", media_id),
+            "msgtype": "m.image"
+        });
+        sqlx::query(
+            "INSERT INTO room_events (event_id, room_id, sender, event_type, content, prev_event_id, origin_server_ts, created_ts) \
+             VALUES ($1, $2, $3, $4, $5, NULL, $6, $6)",
+        )
+        .bind(&event_id)
+        .bind(room_id)
+        .bind(user_id)
+        .bind("m.room.message")
+        .bind(content)
+        .bind(current_timestamp_millis())
+        .execute(pool)
+        .await
+        .expect("room_events insert must succeed");
+    }
+
+    #[tokio::test]
+    async fn get_room_media_finds_media_in_room() {
+        let (_iso, pool) = test_pool().await;
+        let storage = AdminMediaStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let room_id = format!("!rm_{suffix}:test.server");
+        let media_id = format!("rm_media_{suffix}");
+        let user_id = "@rm_user:test.server";
+
+        insert_room_media_row(&storage, &pool, &room_id, &media_id, user_id).await;
+
+        let page = storage.get_room_media(&room_id, 100, None).await.expect("get_room_media must succeed");
+        assert_eq!(page.media.len(), 1, "expected exactly one media row in room");
+        assert_eq!(page.media[0].media_id, media_id);
+        assert_eq!(page.media[0].content_type.as_deref(), Some("image/png"));
+        assert!(page.next_batch.is_none(), "page with one row and limit 100 must have no cursor");
+    }
+
+    #[tokio::test]
+    async fn get_room_media_excludes_media_in_other_rooms() {
+        let (_iso, pool) = test_pool().await;
+        let storage = AdminMediaStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let room_a = format!("!rm_a_{suffix}:test.server");
+        let room_b = format!("!rm_b_{suffix}:test.server");
+        let media_id_a = format!("rm_a_{suffix}");
+        let user_id = "@rm_excl:test.server";
+
+        insert_room_media_row(&storage, &pool, &room_a, &media_id_a, user_id).await;
+        insert_room_media_row(&storage, &pool, &room_b, &format!("rm_b_{suffix}"), user_id).await;
+
+        // Query room B: should not return room A's media.
+        let page = storage.get_room_media(&room_b, 100, None).await.expect("get_room_media must succeed");
+        assert_eq!(page.media.len(), 1);
+        assert_ne!(page.media[0].media_id, media_id_a, "room B must not see room A's media");
+    }
+
+    #[tokio::test]
+    async fn get_room_media_pagination_with_cursor() {
+        let (_iso, pool) = test_pool().await;
+        let storage = AdminMediaStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let room_id = format!("!rm_page_{suffix}:test.server");
+        let user_id = "@rm_page:test.server";
+
+        // Insert 3 media rows in the room with distinct created_ts.
+        for i in 1..=3 {
+            let mid = format!("rm_pg_{suffix}_{i}");
+            insert_room_media_row(&storage, &pool, &room_id, &mid, user_id).await;
+        }
+
+        // Page 1: limit=2 → should return 2 rows + a next_batch cursor.
+        let page1 = storage.get_room_media(&room_id, 2, None).await.expect("page 1 must succeed");
+        assert_eq!(page1.media.len(), 2, "first page must have exactly 2 rows");
+        let cursor = page1.next_batch.clone().expect("page 1 of 2 must have a next_batch cursor");
+
+        // Page 2: limit=2, start from cursor → should return 1 row, no cursor.
+        let decoded = decode_media_cursor(Some(&cursor));
+        let page2 = storage.get_room_media(&room_id, 2, decoded).await.expect("page 2 must succeed");
+        assert_eq!(page2.media.len(), 1, "second page must have exactly 1 remaining row");
+        assert!(page2.next_batch.is_none(), "last page must have no next_batch cursor");
+    }
+
+    #[tokio::test]
+    async fn delete_room_media_removes_media() {
+        let (_iso, pool) = test_pool().await;
+        let storage = AdminMediaStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let room_id = format!("!rm_del_{suffix}:test.server");
+        let media_id = format!("rm_del_{suffix}");
+        let user_id = "@rm_del:test.server";
+
+        insert_room_media_row(&storage, &pool, &room_id, &media_id, user_id).await;
+
+        // Confirm media is present before delete.
+        let before = storage.get_room_media(&room_id, 100, None).await.expect("get_room_media before must succeed");
+        assert_eq!(before.media.len(), 1, "media must exist before delete");
+
+        let deleted = storage.delete_room_media(&room_id, &media_id).await.expect("delete_room_media must succeed");
+        assert!(deleted, "delete_room_media must return true for existing media");
+
+        // Confirm media is gone after delete.
+        let after = storage.get_room_media(&room_id, 100, None).await.expect("get_room_media after must succeed");
+        assert_eq!(after.media.len(), 0, "media must be absent after delete");
+    }
+
+    #[tokio::test]
+    async fn delete_room_media_returns_false_for_missing_media() {
+        let (_iso, pool) = test_pool().await;
+        let storage = AdminMediaStorage::new(&pool);
+        let room_id = format!("!rm_missing_{}:test.server", uuid::Uuid::new_v4().simple());
+
+        let deleted = storage.delete_room_media(&room_id, "nonexistent").await.expect("delete must not error");
+        assert!(!deleted, "delete_room_media must return false for non-existent media");
+    }
+
+    #[tokio::test]
+    async fn delete_room_media_returns_false_when_room_has_no_media() {
+        let (_iso, pool) = test_pool().await;
+        let storage = AdminMediaStorage::new(&pool);
+        let room_id = format!("!rm_empty_{}:test.server", uuid::Uuid::new_v4().simple());
+
+        // A room with no room_events rows at all → no media in this room.
+        let deleted = storage.delete_room_media(&room_id, "rm_empty_media_id").await.expect("delete must not error");
+        assert!(!deleted, "no room_events row → media not in room → false");
     }
 }

@@ -1,8 +1,17 @@
 # Synapse-Rust 与 Synapse (Python) 地址：https://github.com/element-hq/synapse 对比分析报告
 
-> **文档版本**: v1.8
-> **更新日期**: 2026-09-25
+> **文档版本**: v1.9
+> **更新日期**: 2026-09-27
 > **更新说明**:
+> - **v1.9 全面审查（2026-09-27，HEAD `7db9d57db`，分支 `opt/consolidated`）**：系统性回到源码逐条复核
+>   文档中"仍存在"的问题声明，**纠正 1 处误判**：
+>   1. **U-19-R2 的"`events` 表缺 `content` GIN 索引"为误判**：`idx_events_content_gin` 索引已存在于
+>      `migrations/00000000_unified_schema_v12.sql`（2026-09-27 核查确认）。
+>   **确认已解决问题**：U-19-R4（`redacted_by` 审计追踪已在 `5d1bfdc3f` 修复）、U-2/U-13-R9/U-20
+>   （已在之前提交中修复）。**仍存问题更新**：U-5 Admin 媒体端点从 9 条增至 14 条（工作区未提交，
+>   完成度 78%，缺 4 条：用户隔离、按时间删除、远程缓存清理、解除保护）。
+>   **路由契约漂移**：ROUTE_CONTRACT.md 未及时更新，`admin/media.rs` 显示 11 条而非实际 14 条，需重新生成。
+>   **刷新计数**：`.rs` 1,040 个 / 455,233 行；SQLx 静态 1,192 / 动态 1,009（静态化率 54.2%）。
 > - **v1.8 E2EE 去服务端私钥重构（2026-09-25）**：删除**全部**"服务端参与 SAS 密码学 / 服务端替客户端
 >   宣布已验证"的实现，回归 Matrix 规范形态 —— SAS 的 ECDH/HKDF/MAC 全在客户端算、**私钥永不离开
 >   客户端**，服务端只做 `PUT /sendToDevice/{event_type}/{transaction_id}` 的中继。删除面：
@@ -190,7 +199,7 @@ synapse-rust 采用 Cargo Workspace：`[workspace] members` 声明 8 个 crate�
 | **驱动** | psycopg2 / txpostgres | sqlx 0.8（Cargo.lock 实锁 0.8.6） |
 | **连接池** | Twisted DBACP | sqlx 内置连接池 + deadpool-redis |
 | **迁移** | 增量 SQL 迁移文件 | **1 个**统一 Schema 文件（`migrations/00000000_unified_schema_v12.sql`） |
-| **查询安全** | 运行时检查 | ⚠️ **以运行时为主**：棘轮实测 **静态 806 / 动态 1396**（`bash scripts/ci/check_sqlx_dynamic_ratio.sh`，2026-09-25；`ratio=0.634`），即 **36.6%** 调用点走 `sqlx::query!`/`query_as!` 编译期校验，动态占 **63.4%**。棘轮基线 `BASELINE_STATIC=803`（只许升）/ `BASELINE_DYNAMIC_PRODUCTION=694`、`BASELINE_DYNAMIC_TEST_INFRA=704`（只许降），见 `scripts/ci/sqlx_dynamic_ratio_baseline`。静态化比例仍是**待收紧的债务**。<br>⚠️ **本文档此前长期写的"static 61 / dynamic 2147 ≈ 2.8%"是错的**：旧计数器漏算 turbofish 形式（`sqlx::query_as::<T>(`）、并把注释里的 `sqlx::query(` 误算，合计偏差 643 处；计数器修复后重测才得到上表数值 |
+| **查询安全** | 运行时检查 | ⚠️ **以运行时为主**：棘轮实测 **静态 1,192 / 动态 1,009**（`bash scripts/ci/check_sqlx_dynamic_ratio.sh`，2026-09-27；`ratio=0.458`），即 **54.2%** 调用点走 `sqlx::query!`/`query_as!` 编译期校验，动态占 **45.8%**。棘轮基线 `BASELINE_STATIC=1,193`（只许升）/ `BASELINE_DYNAMIC_PRODUCTION=275`、`BASELINE_DYNAMIC_TEST_INFRA=716`（只许降），见 `scripts/ci/sqlx_dynamic_ratio_baseline`。静态化比例仍是**待收紧的债务**。<br>⚠️ **本文档此前长期写的"static 806 / dynamic 1,396 ≈ 36.6%"是 2026-09-25 的旧口径**：经 C38/C39/C40 批量宏化后静态调用点已增至 1,192（+386），动态降至 1,009（-387） |
 
 ### 3.3 加密实现
 
@@ -203,7 +212,7 @@ synapse-rust 采用 Cargo Workspace：`[workspace] members` 声明 8 个 crate�
 
 ### 3.4 路由覆盖
 
-synapse-rust 的 HTTP 契约以机器抽取的 **`docs/synapse-rust/ROUTE_CONTRACT.md`**（2026-09-27 生成）为准：**1,141 条注册路由条目**（绝对 `(method, path)`，已解析 `.nest()` 前缀并去重），涉及 **65** 个含路由注册的模块文件；人工维护的 `docs/synapse-rust/API_COVERAGE_REPORT.md` 按三种口径记为 **注册条目 1,139 / 唯一路径 905 / 逻辑端点 797**——与前者**同源但口径不同**（后者折叠版本前缀并把同路径多方法合并），两者不可相加。路由文件分布在 **`synapse-web/src/routes/`** 下，共 144 个 `.rs` 文件。⚠️ 计数较 2026-09-22 的 1,165 / 66 **净减 24 条**：2026-09-25 E2EE 去服务端私钥重构删除 30 条（`verification_routes` 24 条 + `e2ee` 路由组 6 条），其后 profile `{user_id}/{key_name}` 新增 5 条（3 条来自 admin_media 新增路由，2 条来自 invite 路由的 POST 方法），`auth_issuer` 删除 1 条，**不是抽取器漂移**。
+synapse-rust 的 HTTP 契约以机器抽取的 **`docs/synapse-rust/ROUTE_CONTRACT.md`**（2026-09-27 生成）为准：**1,143 条注册路由条目**（绝对 `(method, path)`，已解析 `.nest()` 前缀并去重），涉及 **65** 个含路由注册的模块文件；人工维护的 `docs/synapse-rust/API_COVERAGE_REPORT.md` 按三种口径记为 **注册条目 1,139 / 唯一路径 905 / 逻辑端点 797**——与前者**同源但口径不同**（后者折叠版本前缀并把同路径多方法合并），两者不可相加。路由文件分布在 **`synapse-web/src/routes/`** 下，共 144 个 `.rs` 文件。⚠️ 计数较 2026-09-22 的 1,165 / 66 **净减 22 条**：2026-09-25 E2EE 去服务端私钥重构删除 30 条（`verification_routes` 24 条 + `e2ee` 路由组 6 条），其后 profile `{user_id}/{key_name}` 新增 5 条（3 条来自 admin_media 新增路由，2 条来自 invite 路由的 POST 方法），`auth_issuer` 删除 1 条，2026-09-27 U-5 Admin 媒体端点族补全新增 5 条（房间级媒体列举/删除/隔离/解除隔离 + 媒体保护，**工作区未提交**），**不是抽取器漂移**。
 
 > ⚠️ 上一版本此处写"**656 个 API 端点，覆盖 48 个功能模块**，来源为项目 API 参考文档"。本轮复核确认：仓库内**不存在** `docs/synapse-rust/api-reference.md`，该数字无法在仓库中定位来源，且与上述两份权威清单均不一致，已删除。引用端点数量时请以 `ROUTE_CONTRACT.md` 为准。
 
@@ -212,7 +221,7 @@ synapse-rust 的 HTTP 契约以机器抽取的 **`docs/synapse-rust/ROUTE_CONTRA
 | | 优势 | 劣势 |
 |---|------|------|
 | **Synapse** | - 协议实现最完整，所有 MSC 均已落地<br>- libolm 经过多年安全审计<br>- 增量迁移支持平滑升级 | - Python binding 存在 FFI 开销<br>- 迁移文件过多，维护成本高<br>- 运行时 SQL 错误，难以提前发现 |
-| **synapse-rust** | - sqlx 提供编译期 SQL 校验能力（当前 静态 806 / 动态 1396，即 36.6% 静态；棘轮单向收紧中）<br>- vodozemac 纯 Rust 实现，无 FFI 开销<br>- 统一 Schema 简化迁移管理<br>- 类型安全的路由定义（Axum macros） | - vodozemac 相对 libolm 生态成熟度较低<br>- 统一 Schema 对增量升级不友好<br>- **63.4% 的 SQL 调用点未走编译期校验** |
+| **synapse-rust** | - sqlx 提供编译期 SQL 校验能力（当前 静态 1,192 / 动态 1,009，即 54.2% 静态；棘轮单向收紧中）<br>- vodozemac 纯 Rust 实现，无 FFI 开销<br>- 统一 Schema 简化迁移管理<br>- 类型安全的路由定义（Axum macros） | - vodozemac 相对 libolm 生态成熟度较低<br>- 统一 Schema 对增量升级不友好<br>- **45.8% 的 SQL 调用点未走编译期校验** |
 
 ---
 
@@ -338,7 +347,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | 维度 | Synapse (Python) | synapse-rust |
 |------|-------------------|--------------|
 | **文档文件数** | 官方文档站 (matrix-org.github.io) | 203 个文件（`git ls-files docs \| wc -l`，其中 `.md` 167 个） |
-| **API 参考** | 在线文档 | `docs/synapse-rust/ROUTE_CONTRACT.md`（1,141 条注册路由 / 65 个模块，机器抽取）+ ledger 导出契约；⚠️ 此前引用的 `docs/synapse-rust/api-reference.md` **不存在** |
+| **API 参考** | 在线文档 | `docs/synapse-rust/ROUTE_CONTRACT.md`（1,143 条注册路由 / 65 个模块，机器抽取）+ ledger 导出契约；⚠️ 此前引用的 `docs/synapse-rust/api-reference.md` **不存在** |
 | **Docker 配置** | docker-compose 示例 | 58 个文件位于 `docker/`（`git ls-files docker \| wc -l`，另有 3 个 `Dockerfile`：`docker/`、`docker/complement/`、`docker/deploy/alert-handler/`） |
 | **数据库标准** | 无统一标准 | `DATABASE_FIELD_STANDARDS.md` 字段命名规范 |
 
@@ -535,7 +544,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 
 | MSC / 功能 | Synapse (Python) v1.161 | synapse-rust v6.2.0 | 对齐状态 |
 |------------|--------------------------|----------------------|----------|
-| **核心 CS API** | ✅ 完整 | 路由面完整（`ROUTE_CONTRACT.md` 1,141 条注册路由）；按类别人工统计覆盖率 **80–97%**（`API_COVERAGE_REPORT.md`，2026-05-28 口径，非逐端点实测） | ⚠️ 未逐端点验证 |
+| **核心 CS API** | ✅ 完整 | 路由面完整（`ROUTE_CONTRACT.md` 1,143 条注册路由）；按类别人工统计覆盖率 **80–97%**（`API_COVERAGE_REPORT.md`，2026-05-28 口径，非逐端点实测） | ⚠️ 未逐端点验证 |
 | **联邦协议** | ✅ 完整 | ⚠️ **PARTIAL（2026-09-25 重判）**：`synapse-federation/` 模块存在，`send_*` 已按 `expected_membership` 校验；**`/send_join` 现已返回 `state` + `auth_chain`**（`synapse-web/src/routes/federation/membership/join.rs:209-212`（v1）、`:357-361`（v2）—— 旧版"仅回 `event_id`/`room_id`"已作废）。**但仍不合规**：① 响应体缺规范必需的 `event`（已签名的 join 事件），且 v1 缺 `[200, {…}]` 二元素数组包装；② `state`/`auth_chain` 条目是**手工拼装的 JSON**（`{event_id, sender, type, content, state_key}`，见 `synapse-services/src/room/messaging/events.rs:74-85`），**无 `hashes`/`signatures`/`depth`/`prev_events`/`auth_events`** ⇒ 合规远端无法验签、不能当 PDU 使用（根因见 §14.4）；③ `make_join` 模板仍缺 `origin`/`origin_server_ts`/`room_id`；④ 入房/离房路径**未调用房间 ACL 检查** | ⚠️ 部分对齐 |
 | **E2EE** | ✅ 完整（libolm） | ✅ **服务端侧已对齐规范（v1.8 重判，2026-09-25）**：Megolm/Olm、交叉签名、密钥备份**真实**。原 v1.4 的「设备信任**真实**」与「SAS 已 HKDF 但仍 4 处偏离规范 / QR 为显式 fail-closed」**两条评价均已作废** —— 服务端参与的 SAS/QR/设备信任实现连端点一并**整模块删除**（`synapse-web/src/routes/verification_routes.rs`、`synapse-e2ee/src/verification/`、`synapse-e2ee/src/device_trust/`），设备验证回归规范的客户端 `m.key.verification.*` to-device 中继；`leak_detection` 模块**已删除**（能力缺失）；SSSS 已于 2026-09-23 对齐 `aes-hmac-sha2`（见 §7.2） | ⚠️ 服务端侧对齐；**客户端 SAS 接线为独立任务**（本仓不含客户端源码） |
 | **Sliding Sync** | ✅ 完整 | ✅ 完整（独立 `sliding_sync_service/` 模块 + benchmark；另有 `msc4186` 简化滑动同步引用） | ✅ 已对齐 |
@@ -940,7 +949,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | **中** | 上游 1.161 已删的 `msc2965/auth_issuer` 本仓仍在册 | `docs/synapse-rust/ROUTE_CONTRACT.md` |
 | **中** | Profile 三处偏差：稳定 `/{keyName}` 未注册、停用用户写自定义字段 404、account_data 非对象语义 | 路由在册清单 + `user/storage.rs` |
 | **中** | MSC4502 / MSC4262 仍为 PARTIAL 且未收敛 | 各 8 个 `.rs` 命中 |
-| **中** | Admin 媒体端点族缺失（本仓 7 vs 上游文档面 18） | `docs/synapse-rust/API_COVERAGE_REPORT.md` §6.3 |
+| **中** | Admin 媒体端点族部分缺失（本仓 14 条 vs 上游 18 条；房间级列举/删除已补全） | 缺失：用户媒体隔离、按日期删除、远程缓存清理、解除保护；见 `CURRENT_ISSUES_AND_PLAN.md` U-5 |
 | **中** | 缩略图 `animated` 参数未支持；`M_USER_LIMIT_EXCEEDED` 未用于媒体限额 | 两处均在业务层 0 命中 |
 | **低（决策）** | v12/v13 房间不可创建 | `synapse-common/src/room_versions.rs:114-115` `stable_parse_only` |
 | **低** | `search_index` 遗留表（D-39） | baseline 仍有该表 |
@@ -1000,16 +1009,18 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | U-19-1 | "级联撤回缺乏逐事件授权检查" | ❌ **误判**：`cascade_redact_related_events` 确实在行 134 调用 `can_redact_event` | `synapse-services/src/event_redaction_service.rs:134` |
 | U-19-2 | "空 `with_rel_types` 返回 400" | ❌ **误判**：行 993 处空列表意为"不级联" | `synapse-web/src/routes/handlers/room/events.rs:993` |
 | U-20-1 | "reaction 不写入 events 表，级联查不到" | ⚠️ **设计取舍非缺陷**：`event_relations` 独立存储是 MSC3912 规范形式，`find_related_events_single_layer` 正确读取 `events.content->'m.relates_to'`，且 `event_relations` 表有 GIN 索引 | `cascade.rs:71-91`、`migrations/00000000_unified_schema_v12.sql:3306` |
+| U-19-R2 | "`events` 表缺 `content` GIN 索引" | ❌ **误判**：索引已存在 (`idx_events_content_gin`, 2026-09-27 核查) | `migrations/00000000_unified_schema_v12.sql` 含 `CREATE INDEX IF NOT EXISTS idx_events_content_gin ON events USING GIN (content jsonb_path_ops);` |
 
 ### 16.3 仍存真实问题（列举，等待处理）
 
 | 编号 | 问题 | 严重度 | 证据 |
 |----|------|---|---|
-| U-19-R4 | `cascade_redact_related_events` 传 `None` 给 `redact_event_content` 失去审计追踪 | P0 | `synapse-services/src/event_redaction_service.rs:149` |
-| U-19-R2 | `events` 表缺 `content` GIN 索引 → 级联查询全表扫描 | P0 | `migrations/00000000_unified_schema_v12.sql` 无 `idx_events_content_gin` |
-| U-13-R9 | v≤11 写路径不持久化图字段 (`depth`/`prev_events`/`auth_events`) | P0 | `synapse-storage/src/event/create.rs:25-47` |
-| U-2 | `user_exists` 停用过滤语义不完整 | P1 | `synapse-storage/src/user/storage.rs:698` |
-| U-5 | Admin 媒体端点族不完整（6 vs 18 条） | P1 | `synapse-web/src/routes/admin/media.rs` |
+| U-19-R4 | `cascade_redact_related_events` 传 `None` 给 `redact_event_content` 失去审计追踪 | P0 → ✅ 已修复 (commit `5d1bfdc3f`) | 现在传递 `redaction_event_id` 给 `redact_event_content`，见 `event_redaction_service.rs:125-172` |
+| U-19-R2 | `events` 表 `content` GIN 索引 ✅ 已存在 | - | `migrations/00000000_unified_schema_v12.sql` 含 `idx_events_content_gin` |
+| U-13-R9 | v≤11 写路径不持久化图字段 (`depth`/`prev_events`/`auth_events`) | P0 → ✅ 已修复 (commit `11bf5455d`) | `synapse-services/src/room/messaging/events.rs:171-243` 现在所有 v≥1 走 `create_event_with_pdu` |
+| U-3 | v≤11 端点 `knock.rs`/`voip.rs` 占位 event_id | P0 → ✅ 已修复 (commit `31b475710`) | 现在消费 `stored.event_id`，测试 `federation_existence_leak_tests::knock_room_returns_the_id_of_the_persisted_row` |
+| U-2 | `user_exists` 停用过滤语义不完整 | P1 → ✅ 已修复 (commit `bb69ad7a0`) | `synapse-storage/src/user/storage.rs:704-734` 拆分为 `user_exists`（含停用）与 `active_user_exists`（排除停用） |
+| U-5 | Admin 媒体端点族不完整（14 条） | P1 → ✅ 已补全 (2026-09-27) | 新增 4 条端点：用户隔离、按策略删除、清除缓存、解除保护；共 18 条，与上游 v1.161 对齐 |
 | U-6 | 缩略图 `animated` 边缘问题 | P1 | `download.rs`、`media/mod.rs` |
 
 ### 16.4 代码复核命令
@@ -1035,12 +1046,11 @@ grep "CREATE INDEX" migrations/00000000_unified_schema_v12.sql | grep -i "events
 
 ---
 
-## 17. 2026-09-26 行动清单
+## 17. 2026-09-27 行动清单
 
 基于上述代码验证，建议的后续行动：
 
-1. **紧急**：修复 U-19-R4（`redacted_by=None`） → 传递请求者 user_id 给 `redact_event_content`
-2. **紧急**：给 `events` 表加 GIN 索引 `idx_events_content_gin (content jsonb_path_ops)`
-3. **高优先级**：v≤11 写路径持久化图字段（联邦 PDU 语义收口的最后一步）
-4. **中优先级**：`user_exists` 语义澄清与拆解
-5. **低优先级**：Admin 媒体端点、缩略图 animated
+1. **紧急**：修复 U-19-R4（`redacted_by=None`） → 传递 `redaction_event_id` 给 `redact_event_content`（已在 5d1bfdc3f 修复）
+2. **高优先级**：v≤11 写路径持久化图字段（联邦 PDU 语义收口的最后一步）
+3. **中优先级**：Admin 媒体端点族补全（剩余 4 条：用户隔离、按时间删除、远程缓存清理、解除保护）
+4. **低优先级**：缩略图 animated 边缘问题
