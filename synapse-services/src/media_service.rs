@@ -494,8 +494,9 @@ impl MediaService {
         Self::validate_media_id(media_id)?;
         let thumbnail_method = ThumbnailMethod::from_str(method).map_err(ApiError::bad_request)?;
         // Cache key includes animated flag to distinguish animated vs static thumbnails
-        let animated_suffix = if animated { "_animated" } else { "" };
-        let thumbnail_filename = format!("{media_id}_{width}x{height}_{method}{animated_suffix}.jpg");
+        // Animated thumbnails use .webp extension, static use .jpg
+        let (animated_suffix, output_ext) = if animated { ("_animated", "webp") } else { ("", "jpg") };
+        let thumbnail_filename = format!("{media_id}_{width}x{height}_{method}{animated_suffix}.{output_ext}");
         let thumbnail_path = self.thumbnail_path.join(&thumbnail_filename);
 
         if let Ok(content) = tokio::fs::read(&thumbnail_path).await {

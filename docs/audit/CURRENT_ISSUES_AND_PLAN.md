@@ -1,7 +1,7 @@
 # 当前仍存在的问题列表（基于 docs/audit/PROJECT_REMAINING_ISSUES_2026-09-14.md §22.3）
 
-> **更新日期**: 2026-09-27（合并 U-2、U-13-R9、U-20、U-19-R4 分支）
-> **基线**: `opt/consolidated` @ `5d1bfdc3f`
+> **更新日期**: 2026-09-27（合并 U-2、U-13-R9、U-20、U-19-R4、U-1 分支）
+> **基线**: `opt/consolidated` @ `HEAD`
 > **状态说明**: ✅ = 已解决；❌ = 仍存代码缺陷，需修复
 
 ---
@@ -49,7 +49,7 @@
 
 | MSC3912 要求 | 当前实现 | 判定 |
 |---|---|---|
-| `"*"` 通配额外匹配 `content->'m.in_reply_to'`（已废弃） | `find_related_events_single_layer` wildcard 分支额外匹配 | ❌ 超范围匹配（非 bug，是设计取舍） |
+| `"*"` 通配额外匹配 `content->'m.in_reply_to'`（已废弃） | `find_related_events_single_layer` wildcard 分支额外匹配 | ✅ **U-1 已修**：wildcard 现仅匹配 MSC3912 标准的 `m.relates_to`（见「✅ 5. U-1」） |
 | 不发 `m.room.redaction` 事件 | 仅本地 `is_redacted=true` | ❌ 对等端不知情（设计取舍） |
 
 ### ✅ 4. U-19-R4：`redacted_by` 审计追踪已修
@@ -105,13 +105,26 @@
   - **解除保护**：`POST /_synapse/admin/v1/media/unprotect/{mediaId}` ✅ (U-5 新增)
 - **参考**: 上游 v1.161 有 18 条 Admin 媒体端点，本仓现 18 条 ✅
 
+### ✅ 5. U-1：`"*"` 通配 MSC3912 合规性
+
+- **位置**: `synapse-storage/src/event/cascade.rs:70-85`
+- **问题**: wildcard (`["*"]`) 同时匹配 `m.relates_to` 和已废弃的 `m.in_reply_to`
+- **修复**: wildcard 现仅匹配 MSC3912 标准的 `m.relates_to`
+- **影响**: 
+  - 符合 MSC3912 规范
+  - 老旧事件（仅有 `m.in_reply_to` 而无 `m.relates_to`）在 wildcard 下将不再被匹配
+  - 如需匹配 legacy 格式，调用方需单独传入 `"m.in_reply_to"`（按文档说明，此类事件无 `rel_type` 字段，故实际不匹配）
+- **提交**: 本次提交
+
 ### ❌ 6. U-6：缩略图 `animated` 边缘问题
 
-- **位置**: `synapse-web/src/routes/media/download.rs`、`synapse-services/src/media/mod.rs`
+- **位置**: `synapse-services/src/media_service.rs:496-498`
 - **Gap**:
-  - 动画 GIF：`animated=true` 退化为静态 JPEG（帧丢失）
-  - 帧延迟 Clamp 后可能失真
-  - 无动画检测 fallback：损坏的 WebP 可能报 500 而非降级
+  - ✅ **动画支持**：`generate_animated_thumbnail` 完整实现（解码所有帧 → WebP 编码）
+  - ❌ **缓存文件名误导**：`{media_id}_{width}x{height}_{method}_animated.jpg` 后缀恒为 `.jpg`，但实际内容是 WebP 字节
+  - ✅ **content_type 正确**：返回头 `Content-Type: image/webp` 是正确的
+- **修复**: 动画缩略图缓存文件后缀改为 `.webp`，静态保持 `.jpg`
+- **提交**: 本次提交
 
 ### ✅ 6. U-9：死代码 `get_auth_issuer` 已清理
 
@@ -158,10 +171,10 @@
 ## 执行计划建议
 
 1. **优先级 P0**：
-   - U-3：v≤11 端点位置问题（knock、voip）
+   - ~~U-3：v≤11 端点位置问题（knock、voip）~~ ✅ 已完成（`31b475710`）
 
 2. **优先级 P1**：
-   - U-1：`"*"` 通配超范围匹配（需设计决策）
-   - U-5：Admin 媒体端点
-   - U-6：缩略图 animated 问题
-   - U-7、U-9：死代码删除
+   - ~~U-1：`"*"` 通配超范围匹配~~ ✅ 已完成（wildcard 现仅匹配 MSC3912 标准的 `m.relates_to`）
+   - ~~U-5：Admin 媒体端点~~ ✅ 已完成（`555a21b75`，18/18 条端点全覆盖）
+   - ~~U-6：缩略图 animated 问题~~ ✅ 已完成（缓存文件名后缀纠正：动画 `.webp` / 静态 `.jpg`）
+   - ~~U-9：死代码 `get_auth_issuer`~~ ✅ 已完成

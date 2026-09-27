@@ -61,13 +61,20 @@ impl EventStorage {
     ///
     /// # Returns
     /// Event IDs of related events (single layer only)
+    ///
+    /// # MSC3912 Compliance Note
+    /// The wildcard (`["*"]`) matches **only** `m.relates_to` (MSC3912 standard).
+    /// The legacy `m.in_reply_to` field is **deprecated** and intentionally excluded
+    /// from wildcard matching. If you need to match legacy reply events, explicitly
+    /// pass `["m.in_reply_to"]` as a specific rel_type (though this will fail
+    /// the `rel_type` filter since `m.in_reply_to` events do not have a `rel_type` field).
     pub async fn find_related_events_single_layer(
         &self,
         room_id: &str,
         event_id: &str,
         rel_types: &[String],
     ) -> Result<Vec<String>, sqlx::Error> {
-        // Wildcard: match all rel_types
+        // Wildcard: match all rel_types (MSC3912 standard: m.relates_to only)
         if rel_types.len() == 1 && rel_types[0] == "*" {
             let rows = sqlx::query_scalar!(
                 r#"
@@ -75,12 +82,8 @@ impl EventStorage {
                 WHERE room_id = $1
                   AND event_id != $2
                   AND is_redacted = false
-                  AND (
-                      (content->'m.relates_to' IS NOT NULL
-                       AND content->'m.relates_to'->>'event_id' = $2)
-                      OR (content->>'m.in_reply_to' IS NOT NULL
-                          AND content->'m.in_reply_to'->>'event_id' = $2)
-                  )
+                  AND content->'m.relates_to' IS NOT NULL
+                  AND content->'m.relates_to'->>'event_id' = $2
                 ORDER BY origin_server_ts ASC, stream_ordering ASC
                 "#,
                 room_id,
