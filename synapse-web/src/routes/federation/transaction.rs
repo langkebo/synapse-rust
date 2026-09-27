@@ -205,23 +205,24 @@ pub(super) async fn send_transaction(
             continue;
         }
 
-        let (room_id, user_id, event_type, state_key) = match validate_inbound_transaction_pdu(&auth.origin, pdu) {
-            Ok(validated) => validated,
-            Err(error) => {
-                super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
-                results.push(json!({
-                    "event_id": event_id,
-                    "error": error.to_string()
-                }));
-                continue;
-            }
-        };
+        let (room_id, user_id, event_type, state_key) =
+            match validate_inbound_transaction_pdu(&auth.origin, pdu, &room_version, &event_id) {
+                Ok(validated) => validated,
+                Err(error) => {
+                    super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
+                    results.push(json!({
+                        "event_id": event_id,
+                        "error": error.to_string()
+                    }));
+                    continue;
+                }
+            };
         let content = pdu.get("content").cloned().unwrap_or(json!({}));
         let origin_server_ts = pdu.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0);
 
         if origin != ctx.config.server.name {
             if let Ok(create_events) =
-                ctx.room_service.messaging().get_state_events_by_type(room_id, "m.room.create").await
+                ctx.room_service.messaging().get_state_events_by_type(&room_id, "m.room.create").await
             {
                 if let Some(create_event) = create_events.first() {
                     if !crate::federation::signing::check_event_federate(
@@ -247,7 +248,7 @@ pub(super) async fn send_transaction(
         }
 
         if event_type != "m.room.create" {
-            if let Err(e) = super::validate_federation_origin_in_room(&ctx, room_id, origin).await {
+            if let Err(e) = super::validate_federation_origin_in_room(&ctx, &room_id, origin).await {
                 super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
                 ::tracing::warn!(
                     target: "security_audit",
@@ -267,7 +268,7 @@ pub(super) async fn send_transaction(
         }
 
         if state_key.is_some() && event_type != "m.room.member" {
-            if let Err(error) = ctx.room_auth.verify_state_event_write(room_id, user_id, event_type).await {
+            if let Err(error) = ctx.room_auth.verify_state_event_write(&room_id, user_id, event_type).await {
                 super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
                 results.push(json!({
                     "event_id": event_id,
@@ -303,7 +304,7 @@ pub(super) async fn send_transaction(
                 if let Err(error) = ctx
                     .room_service
                     .membership()
-                    .authorize_inbound_member_transition(room_id, user_id, target, to)
+                    .authorize_inbound_member_transition(&room_id, user_id, target, to)
                     .await
                 {
                     super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
@@ -372,7 +373,7 @@ pub(super) async fn send_transaction(
                         .collect();
                     let auth_input = event_auth::InboundEventAuth {
                         room_version: &room_version,
-                        room_id,
+                        room_id: &room_id,
                         auth_events: &resolved_auth_events,
                     };
                     if let Err(error) = event_auth::check_inbound_event_auth(&auth_input) {
@@ -434,7 +435,7 @@ pub(super) async fn send_transaction(
                     );
                     match ctx
                         .federation_client
-                        .get_missing_events(origin, room_id, &prev_events, std::slice::from_ref(&event_id), 20, None)
+                        .get_missing_events(origin, &room_id, &prev_events, std::slice::from_ref(&event_id), 20, None)
                         .await
                     {
                         Ok(response) => {
@@ -536,7 +537,7 @@ pub(super) async fn send_transaction(
                                         }
 
                                         let missing_room_id =
-                                            missing_pdu.get("room_id").and_then(|v| v.as_str()).unwrap_or(room_id);
+                                            missing_pdu.get("room_id").and_then(|v| v.as_str()).unwrap_or(&room_id);
                                         let missing_user_id =
                                             missing_pdu.get("sender").and_then(|v| v.as_str()).unwrap_or("");
                                         let missing_event_type = missing_pdu
@@ -630,7 +631,7 @@ pub(super) async fn send_transaction(
         {
             Ok(_) => {
                 ctx.room_service
-                    .dispatch_appservice_event(&event_id, room_id, event_type, user_id, &content_for_as, state_key)
+                    .dispatch_appservice_event(&event_id, &room_id, event_type, user_id, &content_for_as, state_key)
                     .await;
 
                 // Persist the **origin server's** signature/hash pair. Without it
@@ -743,13 +744,28 @@ pub(super) async fn send_transaction(
     })))
 }
 
-type PduValidationResult<'a> = Result<(&'a str, &'a str, &'a str, Option<&'a str>), ApiError>;
+/// `room_id` is owned because a v12+ `m.room.create` PDU carries none: the
+/// receiver derives it from the event id (MSC4291).
+type PduValidationResult<'a> = Result<(String, &'a str, &'a str, Option<&'a str>), ApiError>;
 
-fn validate_inbound_transaction_pdu<'a>(authenticated_origin: &str, pdu: &'a Value) -> PduValidationResult<'a> {
-    let room_id = pdu
-        .get("room_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Missing room_id in inbound PDU".to_string()))?;
+/// Validates one inbound PDU's envelope and resolves the room it belongs to.
+///
+/// `room_version` and `event_id` are supplied by the caller, which has already
+/// resolved both (the version from the PDU itself, the id as the reference hash
+/// the sender computed). They are needed here for the v12+ create-event shape:
+///
+/// * **rule 1.2 (MSC4291)**: an `m.room.create` event in room version 12+ must
+///   **not** carry a top-level `room_id` — the room id *is* that event's id with
+///   the sigil swapped, so stating one is either redundant or a forgery;
+/// * when such a PDU correctly omits it, the room id is derived here.
+///
+/// Below v12 nothing changes: `room_id` is required, as it always was.
+fn validate_inbound_transaction_pdu<'a>(
+    authenticated_origin: &str,
+    pdu: &'a Value,
+    room_version: &str,
+    event_id: &str,
+) -> PduValidationResult<'a> {
     let sender = pdu
         .get("sender")
         .and_then(|v| v.as_str())
@@ -759,6 +775,21 @@ fn validate_inbound_transaction_pdu<'a>(authenticated_origin: &str, pdu: &'a Val
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing type in inbound PDU".to_string()))?;
     let state_key = pdu.get("state_key").and_then(|v| v.as_str());
+
+    let carried_room_id = pdu.get("room_id").and_then(|v| v.as_str());
+    let v12_create =
+        event_type == "m.room.create" && synapse_common::room_versions::room_version_at_least(room_version, 12);
+    let room_id = if v12_create {
+        if carried_room_id.is_some() {
+            return Err(ApiError::bad_request(
+                "room v12+ m.room.create must not carry a room_id (MSC4291 rule 1.2)".to_string(),
+            ));
+        }
+        synapse_common::room_id::room_id_from_create_event_id(event_id)
+            .map_err(|e| ApiError::bad_request(format!("cannot derive the room id from the create event: {e}")))?
+    } else {
+        carried_room_id.ok_or_else(|| ApiError::bad_request("Missing room_id in inbound PDU".to_string()))?.to_string()
+    };
 
     if super::sender_server_name(sender) != Some(authenticated_origin) {
         return Err(ApiError::forbidden("Federation PDU sender does not match authenticated origin".to_string()));
@@ -903,5 +934,96 @@ mod gap_fill_tests {
     #[test]
     fn gap_fill_detects_unknown_event() {
         assert!(!gap_fill_already_persisted::<()>(Ok(None)).expect("ok"));
+    }
+}
+
+/// D-1 (MSC4291 rule 1.2): the shape rules for an inbound `m.room.create` PDU.
+///
+/// A v12+ create event must **omit** `room_id` and its room id is derived from
+/// the event id; a create event that carries one is rejected. Below v12 nothing
+/// changes — the field is required exactly as before.
+#[cfg(test)]
+mod v12_create_shape_tests {
+    use super::validate_inbound_transaction_pdu;
+    use serde_json::json;
+
+    /// `$` + 43 unpadded URL-safe Base64 characters (a v3+ reference hash).
+    const CREATE_EVENT_ID: &str = "$31hneApxJ_1o-63DmFrpeqnkFfWppnzWso1JvH3ogLM";
+    /// The MSC4291 room id derived from it.
+    const DERIVED_ROOM_ID: &str = "!31hneApxJ_1o-63DmFrpeqnkFfWppnzWso1JvH3ogLM";
+
+    fn create_pdu(room_id: Option<&str>) -> serde_json::Value {
+        let mut pdu = json!({
+            "type": "m.room.create",
+            "sender": "@alice:remote.example",
+            "origin": "remote.example",
+            "content": {"creator": "@alice:remote.example", "room_version": "12"},
+            "state_key": "",
+        });
+        if let Some(room_id) = room_id {
+            pdu["room_id"] = json!(room_id);
+        }
+        pdu
+    }
+
+    /// Rule 1.2: carrying `room_id` on a v12 create event is a rejection — the
+    /// id is implied by the event's own id, so stating one is either redundant
+    /// or an attempt to place the room somewhere else.
+    #[test]
+    fn v12_create_carrying_room_id_is_rejected() {
+        let pdu = create_pdu(Some(DERIVED_ROOM_ID));
+        let error = validate_inbound_transaction_pdu("remote.example", &pdu, "12", CREATE_EVENT_ID)
+            .expect_err("rule 1.2 must reject a v12 create carrying room_id");
+        assert!(error.to_string().contains("rule 1.2"), "unexpected error: {error}");
+    }
+
+    /// The room identity is taken from the event id, not guessed.
+    #[test]
+    fn v12_create_without_room_id_derives_it_from_the_event_id() {
+        let pdu = create_pdu(None);
+        let (room_id, sender, event_type, state_key) =
+            validate_inbound_transaction_pdu("remote.example", &pdu, "12", CREATE_EVENT_ID).expect("must be accepted");
+        assert_eq!(room_id, DERIVED_ROOM_ID);
+        assert_eq!(sender, "@alice:remote.example");
+        assert_eq!(event_type, "m.room.create");
+        assert_eq!(state_key, Some(""));
+    }
+
+    /// A non-create v12 event still **must** carry `room_id`.
+    #[test]
+    fn v12_non_create_without_room_id_is_rejected() {
+        let pdu = json!({
+            "type": "m.room.message",
+            "sender": "@alice:remote.example",
+            "content": {"body": "hi"},
+        });
+        let error = validate_inbound_transaction_pdu("remote.example", &pdu, "12", "$some:event")
+            .expect_err("a v12 non-create PDU without room_id must be rejected");
+        assert!(error.to_string().contains("Missing room_id"), "unexpected error: {error}");
+    }
+
+    /// Below v12 the create event is an ordinary event: `room_id` is required and
+    /// no derivation happens.
+    #[test]
+    fn pre_v12_create_still_requires_room_id() {
+        let pdu = create_pdu(None);
+        let error = validate_inbound_transaction_pdu("remote.example", &pdu, "11", "$legacy:remote.example")
+            .expect_err("v11 create must still require room_id");
+        assert!(error.to_string().contains("Missing room_id"), "unexpected error: {error}");
+
+        let with_room = create_pdu(Some("!legacy:remote.example"));
+        let (room_id, _, _, _) =
+            validate_inbound_transaction_pdu("remote.example", &with_room, "11", "$legacy:remote.example")
+                .expect("v11 create with room_id is accepted");
+        assert_eq!(room_id, "!legacy:remote.example");
+    }
+
+    /// The sender/origin check is unchanged and still runs after the shape rules.
+    #[test]
+    fn sender_must_match_the_authenticated_origin() {
+        let pdu = create_pdu(None);
+        let error = validate_inbound_transaction_pdu("other.example", &pdu, "12", CREATE_EVENT_ID)
+            .expect_err("a sender from another server must be rejected");
+        assert!(error.to_string().contains("does not match authenticated origin"), "unexpected error: {error}");
     }
 }
