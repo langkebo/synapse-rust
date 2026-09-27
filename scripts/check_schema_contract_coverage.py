@@ -174,24 +174,6 @@ TABLE_CONTRACTS: Dict[str, Dict[str, List[str]]] = {
         "indexes": ["idx_room_summary_update_queue_status_priority_created"],
         "constraints": ["fk_room_summary_update_queue_room"],
     },
-    "search_index": {
-        "columns": [
-            "event_id",
-            "room_id",
-            "user_id",
-            "event_type",
-            "type",
-            "content",
-            "created_ts",
-            "updated_ts",
-        ],
-        "indexes": [
-            "idx_search_index_room",
-            "idx_search_index_user",
-            "idx_search_index_type",
-        ],
-        "constraints": ["uq_search_index_event"],
-    },
     "replication_positions": {
         "columns": ["worker_id", "stream_name", "stream_position", "updated_ts"],
         "constraints": [

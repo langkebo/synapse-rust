@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1141**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1149**
 - 含路由注册的模块文件：**65**
 - `derived_routes.rs` 中的 `registered_by` 标签：**73**
 - 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
@@ -69,7 +69,7 @@
 **逐模块清单里的两种标注**（都从派生表反解，不是人工维护）：
 
 - 〔仅 `X` profile〕 —— 该路由**只**在 profile `X` 下注册，默认构建里不存在（即上表成员）；
-- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1143 行去重为 1141 条的来源。
+- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1151 行去重为 1149 条的来源。
 
 当前共 **2** 条双档注册：
 
@@ -438,7 +438,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_matrix/vendor/v1/friends/{user_id}/note`
 - `PUT` `/_matrix/vendor/v1/friends/{user_id}/status`
 
-### 媒体 (Media) （47 条）
+### 媒体 (Media) （55 条）
 
 #### `media/mod.rs` — 38 条 ✅派生表
 
@@ -481,17 +481,25 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_matrix/media/v3/upload`
 - `PUT` `/_matrix/media/v3/upload/{server_name}/{media_id}`
 
-#### `admin/media.rs` — 9 条 ✅派生表
+#### `admin/media.rs` — 17 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/media/{media_id}`
+- `DELETE` `/_synapse/admin/v1/rooms/{room_id}/media/{media_id}`
 - `DELETE` `/_synapse/admin/v1/users/{user_id}/media`
 - `GET` `/_synapse/admin/v1/media`
 - `GET` `/_synapse/admin/v1/media/quota`
 - `GET` `/_synapse/admin/v1/media/{media_id}`
 - `GET` `/_synapse/admin/v1/quarantine_media/{media_id}/changes`
+- `GET` `/_synapse/admin/v1/rooms/{room_id}/media`
 - `GET` `/_synapse/admin/v1/users/{user_id}/media`
+- `POST` `/_synapse/admin/v1/media/delete`
+- `POST` `/_synapse/admin/v1/media/protect/{server_name}/{media_id}`
 - `POST` `/_synapse/admin/v1/media/quarantine/{server_name}/{media_id}`
+- `POST` `/_synapse/admin/v1/media/unprotect/{media_id}`
 - `POST` `/_synapse/admin/v1/media/unquarantine/{server_name}/{media_id}`
+- `POST` `/_synapse/admin/v1/rooms/{room_id}/media/quarantine`
+- `POST` `/_synapse/admin/v1/rooms/{room_id}/media/unquarantine`
+- `POST` `/_synapse/admin/v1/user/{user_id}/media/quarantine`
 
 ### 审核 (Moderation) （7 条）
 
