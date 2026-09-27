@@ -266,6 +266,10 @@ impl CapabilityGovernance {
         unstable_features.insert("org.matrix.msc3814".to_string(), json!(self.msc3814_capability().enabled()));
         unstable_features.insert("org.matrix.msc4143".to_string(), json!(self.msc4143_capability().enabled()));
         unstable_features.insert("org.matrix.msc4186".to_string(), json!(self.msc4186_capability().enabled()));
+        // MSC4155: Invite permission config — account-level invite policy
+        unstable_features.insert("org.matrix.msc4155".to_string(), json!(true));
+        // MSC3873: Ignore user for invites — block invites from ignored users
+        unstable_features.insert("org.matrix.msc3873".to_string(), json!(true));
         // MSC4108: Sign in with QR code — rendezvous endpoints are always available
         unstable_features.insert("org.matrix.msc4108".to_string(), json!(true));
         // Private `io.hula.*` extensions are intentionally NOT declared in
@@ -461,6 +465,8 @@ impl CapabilityGovernance {
             "org.matrix.msc3886.sliding_sync": self.sliding_sync_capability().enabled(),
             "org.matrix.simplified_msc3575": self.sliding_sync_capability().enabled(),
             "org.matrix.msc4186": self.msc4186_capability().enabled(),
+            "org.matrix.msc4155": true,
+            "org.matrix.msc3873": true,
             "io.hula.burn_after_read": self.burn_after_read_capability().enabled(),
             // MSC4108: Sign in with QR code — rendezvous endpoints are always available
             "org.matrix.msc4108": true,

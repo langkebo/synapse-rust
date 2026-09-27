@@ -24,6 +24,7 @@ mod api_federation_tests;
 mod api_federation_transaction_tests;
 mod api_input_validation_tests;
 mod api_invite_blocklist_routes_tests;
+mod api_invite_blocklist_e2e_tests;
 mod api_key_backup_route_table_tests;
 mod api_media_routes_tests;
 mod api_msc3912_redaction_cascade_tests;

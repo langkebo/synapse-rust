@@ -283,10 +283,14 @@ impl ServiceContainer {
         // rooms phase consumes the same `Arc` as its invite enforcement gate.
         // The MSC4155 policy is account data, so the gate reads it through the
         // account-data storage rather than the user store.
-        let invite_blocklist_service = Arc::new(crate::invite_blocklist_service::InviteBlocklistService::new(
-            invite_blocklist_storage,
-            Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool)),
-        ));
+        let invite_blocklist_service = Arc::new(
+            crate::invite_blocklist_service::InviteBlocklistService::new(
+                invite_blocklist_storage,
+                Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool)),
+            )
+            .with_metrics(metrics.clone())
+            .with_dm_rooms_bypass_global_policy(true),
+        );
         let sticky_event_storage: Arc<synapse_storage::sticky_event::StickyEventStorage> =
             Arc::new(StickyEventStorage::new(pool.clone()));
 

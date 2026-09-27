@@ -593,6 +593,22 @@ CREATE TABLE IF NOT EXISTS room_invite_allowlist (
     CONSTRAINT fk_room_invite_allowlist_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS global_invite_blocklist (
+    id BIGSERIAL,
+    user_id TEXT NOT NULL,
+    created_ts BIGINT NOT NULL,
+    CONSTRAINT pk_global_invite_blocklist PRIMARY KEY (id),
+    CONSTRAINT uq_global_invite_blocklist_user UNIQUE (user_id)
+);
+
+CREATE TABLE IF NOT EXISTS global_invite_allowlist (
+    id BIGSERIAL,
+    user_id TEXT NOT NULL,
+    created_ts BIGINT NOT NULL,
+    CONSTRAINT pk_global_invite_allowlist PRIMARY KEY (id),
+    CONSTRAINT uq_global_invite_allowlist_user UNIQUE (user_id)
+);
+
 CREATE TABLE IF NOT EXISTS room_tags (
     id BIGSERIAL PRIMARY KEY,
     user_id VARCHAR(255) NOT NULL,
