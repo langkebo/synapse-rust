@@ -13,15 +13,36 @@ use base64::Engine as _;
 use ed25519_dalek::Signer;
 use serde_json::{json, Value};
 use std::sync::Arc;
+use synapse_common::event_id::resolve_received_event_id;
+use synapse_common::pdu::{build_pdu, PduParts};
+use synapse_common::test_isolation::IsolatedTestPool;
+use synapse_federation::event_finalize::finalize_local_pdu;
+use synapse_federation::signing::{compute_event_content_hash, sign_and_hash_event};
+use synapse_storage::event::EventStorage;
 use synapse_web::federation::signing::canonical_federation_request_bytes;
 use tower::ServiceExt;
+
+/// Workspace migration baseline (v12), compiled in for the shared
+/// [`IsolatedTestPool`]: new DB coverage clones this real baseline instead of
+/// building its own schema (R9). The constant must be byte-identical to the other
+/// callers' copies — `tests/unit/test_isolation_unification_tests.rs` pins it.
+const BASELINE_SQL: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql");
 
 async fn setup_federation_txn_test_app(
     key_id: &str,
     signing_key_b64: &str,
 ) -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
     let pool = super::require_test_pool().await;
-    let mut container = synapse_services::ServiceContainer::new_test_with_pool(pool.clone()).await;
+    let app = build_federation_txn_app(pool.clone(), key_id, signing_key_b64).await;
+    Some((app, pool))
+}
+
+/// Build the full router over `pool` with the federation wiring these tests need.
+///
+/// Split out of [`setup_federation_txn_test_app`] so the signature-assertion
+/// tests below can drive the same configuration from an [`IsolatedTestPool`].
+async fn build_federation_txn_app(pool: Arc<sqlx::PgPool>, key_id: &str, signing_key_b64: &str) -> axum::Router {
+    let mut container = synapse_services::ServiceContainer::new_test_with_pool(pool).await;
     super::config_mut(&mut container).server.name = "localhost".to_string();
     container.core.server_name = "localhost".to_string();
     super::config_mut(&mut container).federation.enabled = true;
@@ -33,10 +54,21 @@ async fn setup_federation_txn_test_app(
     // both default to `false`), so the presence-EDU test below would silently assert nothing.
     super::config_mut(&mut container).federation.process_inbound_edus = true;
     super::config_mut(&mut container).federation.process_inbound_presence_edus = true;
+    // The `KeyRotationManager` is constructed *inside* `ServiceContainer::new`, so the
+    // `federation.signing_key` override above never reaches it — every PDU signing path
+    // silently no-ops without this. `initialize` installs the in-memory key *before* its
+    // at-rest persistence policy check (which refuses plaintext when no master key is
+    // configured), so assert on the installed key, not on the (deliberately
+    // unpersisted) result.
+    let init_result = container.federation.key_rotation_manager.initialize(signing_key_b64, key_id).await;
+    assert!(
+        container.federation.key_rotation_manager.get_current_key().await.expect("key read").is_some(),
+        "the deterministic test signing key must be installed for PDU signing (initialize returned {init_result:?})"
+    );
     let cache =
         std::sync::Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default()));
     let state = synapse_web::routes::state::AppState::new(container, cache);
-    Some((synapse_web::create_router(state), pool))
+    synapse_web::create_router(state)
 }
 
 fn signed_federation_request(
@@ -233,62 +265,367 @@ async fn test_send_transaction_with_invalid_pdu_returns_result_error() {
 }
 
 // ============================================================================
-// Test 5: Valid signed PDU (signed+hashed) → 200 with success in results
+// Test 5: Valid signed PDU → 200 with `success`, persisted under the derived ID
 // ============================================================================
+//
+// The previous version of this test sent a PDU for a room that did not exist,
+// signed it with a room version the receiver could not resolve, and accepted
+// *either* `success` or `error` — so the entire inbound verification half was
+// untestable.  This version creates a real v11 room (v3+: the ID is a reference
+// hash), builds the PDU through the production pipeline
+// (`build_pdu` → `finalize_local_pdu` → `sign_and_hash_event`), and asserts the
+// per-PDU `success` plus the persisted row: its derived ID, `hashes` and
+// `signatures`.
+
+/// Room version 11 is v3+: the PDU carries no `event_id` and the receiver must
+/// derive it from the reference hash (spec room v3 "Event format").
+const SIG_ASSERT_ROOM_VERSION: &str = "11";
+
+/// One v11 room plus a fully signed PDU ready to PUT to `/send/{txnId}`.
+struct SignedPduFixture {
+    app: axum::Router,
+    pool: Arc<sqlx::PgPool>,
+    key_id: String,
+    signing_key: ed25519_dalek::SigningKey,
+    /// Unpadded Base64 of the same secret, for re-signing a deliberately
+    /// malformed PDU ([`sign_and_hash_event`] takes the Base64 form).
+    signing_key_b64: String,
+    room_id: String,
+    /// The PDU as the sending server would emit it (no `event_id`).
+    pdu: Value,
+    /// The ID the sender finalized; the receiver must derive the same one.
+    derived_event_id: String,
+}
+
+impl SignedPduFixture {
+    /// PUT `pdu` to `/_matrix/federation/v1/send/{txn_id}` and return the body.
+    async fn send(&self, txn_id: &str, pdu: &Value) -> Value {
+        let body = json!({ "origin": "localhost", "pdus": [pdu] });
+        let request = signed_federation_request(
+            "PUT",
+            &format!("/_matrix/federation/v1/send/{txn_id}"),
+            "localhost",
+            &self.key_id,
+            &self.signing_key,
+            Some(&body),
+        );
+        let response = ServiceExt::<Request<Body>>::oneshot(self.app.clone(), request).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "the transaction endpoint answers 200 even for rejected PDUs; the verdict is in `results`"
+        );
+        let bytes = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
+        serde_json::from_slice(&bytes).expect("the response body must be JSON")
+    }
+
+    /// The single per-PDU result entry (one PDU in → one result out).
+    fn single_result(response: &Value) -> &Value {
+        let results = response["results"].as_array().expect("results must be an array");
+        assert_eq!(results.len(), 1, "one PDU in → one result out: {response}");
+        &results[0]
+    }
+}
+
+/// Register a user through the client API, returning `(access_token, user_id)`.
+async fn register_user_via_client(app: &axum::Router, prefix: &str) -> (String, String) {
+    let username = format!("{prefix}_{}", uuid::Uuid::new_v4().as_simple());
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "username": username,
+                "password": "Password123!",
+                "auth": { "type": "m.login.dummy" }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "test user registration must succeed");
+    let bytes = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: Value = serde_json::from_slice(&bytes).unwrap();
+    (
+        json["access_token"].as_str().expect("registration must return an access token").to_string(),
+        json["user_id"].as_str().expect("registration must return a user id").to_string(),
+    )
+}
+
+/// Create a v11 room through the client API so the receiver can resolve the
+/// room version from the `rooms` row (`inbound_pdu_room_version` never guesses).
+async fn create_v11_room(app: &axum::Router, token: &str) -> String {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/createRoom")
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "preset": "public_chat", "room_version": SIG_ASSERT_ROOM_VERSION }).to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "creating a v{SIG_ASSERT_ROOM_VERSION} room must succeed");
+    let bytes = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: Value = serde_json::from_slice(&bytes).unwrap();
+    json["room_id"].as_str().expect("createRoom must return a room_id").to_string()
+}
+
+/// Assemble and sign one `m.room.topic` PDU through the production pipeline:
+/// `build_pdu` → `finalize_local_pdu` → `sign_and_hash_event`.
+///
+/// Returns the emitted PDU and the finalized event ID. `sign_and_hash_event`
+/// signs the same bytes the receiver's `verify_pdu_sender_signature` recomputes
+/// (`signature_material_bytes`), which is what makes the round-trip assertable.
+fn build_signed_topic_pdu(
+    room_id: &str,
+    sender: &str,
+    create_event_id: &str,
+    key_id: &str,
+    signing_key_b64: &str,
+) -> (Value, String) {
+    let content = json!({ "topic": "U-8 federation signature round-trip" });
+    let prev_events = vec![create_event_id.to_string()];
+    let auth_events = vec![create_event_id.to_string()];
+    let parts = PduParts {
+        room_version: SIG_ASSERT_ROOM_VERSION,
+        // v3+ has no `event_id` field; identity is the reference hash.
+        event_id: None,
+        room_id,
+        sender,
+        event_type: "m.room.topic",
+        content: &content,
+        state_key: Some(""),
+        origin_server_ts: 1_750_000_000_000,
+        origin: "localhost",
+        depth: 2,
+        prev_events: &prev_events,
+        auth_events: &auth_events,
+        redacts: None,
+    };
+
+    let mut pdu = build_pdu(&parts);
+    let finalized = finalize_local_pdu(&parts).expect("the assembled PDU must be finalizable");
+    pdu.as_object_mut().expect("a PDU is a JSON object").insert("hashes".to_string(), finalized.hashes.clone());
+    sign_and_hash_event(SIG_ASSERT_ROOM_VERSION, "localhost", key_id, signing_key_b64, &mut pdu)
+        .expect("sign_and_hash_event must sign our own PDU");
+
+    // Item 2 of the task: the emitted PDU must be a complete, v3+-shaped PDU.
+    assert!(pdu.get("event_id").is_none(), "v3+ PDUs must not carry event_id: {pdu}");
+    for field in ["depth", "prev_events", "auth_events", "hashes", "signatures"] {
+        assert!(pdu.get(field).is_some(), "the emitted PDU must carry `{field}`: {pdu}");
+    }
+    assert_eq!(pdu["hashes"], finalized.hashes, "signer and finalizer must agree on the content hash");
+    assert_eq!(
+        resolve_received_event_id(SIG_ASSERT_ROOM_VERSION, &pdu).expect("the receiver must derive the ID"),
+        finalized.event_id,
+        "the ID the receiver derives must equal the ID the sender finalized"
+    );
+
+    (pdu, finalized.event_id)
+}
+
+/// Fresh v12-baseline schema + real v11 room + production-built signed PDU.
+///
+/// The [`IsolatedTestPool`] handle is returned so the schema outlives the test
+/// body (R9: new DB coverage clones the shared real baseline).
+async fn signed_pdu_fixture(
+    key_id: &str,
+    seed: [u8; 32],
+    prefix: &str,
+) -> Option<(IsolatedTestPool, SignedPduFixture)> {
+    let isolated = match IsolatedTestPool::new(BASELINE_SQL).await {
+        Ok(isolated) => isolated,
+        Err(error) => {
+            eprintln!(
+                "Skipping federation signature round-trip test because the test database is unavailable: {error}"
+            );
+            return None;
+        }
+    };
+    let pool = isolated.pool();
+    let signing_key_b64 = STANDARD_NO_PAD.encode(seed);
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
+    let app = build_federation_txn_app(pool.clone(), key_id, &signing_key_b64).await;
+
+    let (token, creator) = register_user_via_client(&app, prefix).await;
+    let room_id = create_v11_room(&app, &token).await;
+    let create_event_id: String = sqlx::query_scalar(
+        "SELECT event_id FROM events WHERE room_id = $1 AND event_type = 'm.room.create' \
+         ORDER BY origin_server_ts ASC LIMIT 1",
+    )
+    .bind(&room_id)
+    .fetch_one(&*pool)
+    .await
+    .expect("the new v11 room must have an m.room.create event");
+
+    let (pdu, derived_event_id) =
+        build_signed_topic_pdu(&room_id, &creator, &create_event_id, key_id, &signing_key_b64);
+    let fixture = SignedPduFixture {
+        app,
+        pool,
+        key_id: key_id.to_string(),
+        signing_key,
+        signing_key_b64,
+        room_id,
+        pdu,
+        derived_event_id,
+    };
+    Some((isolated, fixture))
+}
 
 #[tokio::test]
 async fn test_send_transaction_with_signed_pdu_accepted() {
-    let key_id = "ed25519:txn_test";
-    let signing_key_seed = [96u8; 32];
-    let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
-    let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
-
-    let Some((app, _pool)) = setup_federation_txn_test_app(key_id, &signing_key_b64).await else {
+    let key_id = "ed25519:u8_accept";
+    let Some((_isolated, fixture)) = signed_pdu_fixture(key_id, [96u8; 32], "u8_accept").await else {
         return;
     };
 
-    // Build a properly signed and hashed PDU using synapse_federation APIs.
-    let mut pdu = json!({
-        "event_id": "$test_signed_event:localhost",
-        "room_id": "!test_signed_room:localhost",
-        "sender": "@test_signed_user:localhost",
-        "type": "m.room.message",
-        "origin_server_ts": 1000,
-        "content": { "body": "hello", "msgtype": "m.text" }
-    });
-
-    synapse_web::federation::signing::sign_and_hash_event("10", "localhost", key_id, &signing_key_b64, &mut pdu)
-        .unwrap();
-
-    let body = json!({
-        "origin": "localhost",
-        "pdus": [pdu]
-    });
-
-    let request = signed_federation_request(
-        "PUT",
-        "/_matrix/federation/v1/send/txn5",
-        "localhost",
-        key_id,
-        &signing_key,
-        Some(&body),
+    // A reference-hash ID carries no origin suffix — this is what distinguishes
+    // it from the previous `$…:localhost` fabricated IDs.
+    assert!(
+        !fixture.derived_event_id.contains(':'),
+        "a v3+ event ID is a bare reference hash: {}",
+        fixture.derived_event_id
     );
 
-    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    let response = fixture.send("u8_accept_1", &fixture.pdu).await;
+    let first = SignedPduFixture::single_result(&response);
 
-    let resp_body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
-    let json: Value = serde_json::from_slice(&resp_body).unwrap();
+    // Do NOT accept either/or: the PDU must be accepted, and `error` must be absent.
+    assert_eq!(first["success"], json!(true), "the signed PDU must be accepted: {first}");
+    assert!(first.get("error").is_none(), "an accepted PDU must not carry an error: {first}");
+    assert_eq!(first["event_id"], json!(fixture.derived_event_id), "the result must name the derived ID: {first}");
 
-    let results = json["results"].as_array().expect("results should be an array");
-    assert!(!results.is_empty(), "Expected non-empty results for signed PDU");
+    // Read the persisted row back through the storage layer.
+    let storage = EventStorage::new(&fixture.pool, "localhost".to_string());
+    let stored = storage
+        .get_state_event(&fixture.room_id, "m.room.topic", "")
+        .await
+        .expect("the events table must be readable")
+        .expect("the accepted PDU must be persisted");
+    assert_eq!(
+        stored.event_id, fixture.derived_event_id,
+        "the event must be persisted under the derived reference-hash ID, not a fabricated one"
+    );
 
-    let first = &results[0];
-    assert_eq!(first["event_id"], "$test_signed_event:localhost");
-    // The PDU should either succeed (has success field) or fail with a clear error.
+    let hashes = stored.hashes.as_ref().expect("the inbound PDU's content hash must be persisted");
     assert!(
-        first.get("success").is_some() || first.get("error").is_some(),
-        "Expected success or error in PDU result, got: {first}"
+        hashes.as_object().is_some_and(|map| !map.is_empty()),
+        "stored hashes must be a non-empty object: {hashes}"
+    );
+    let expected_hash = compute_event_content_hash(&fixture.pdu).expect("the sent PDU must hash");
+    assert_eq!(
+        hashes["sha256"].as_str(),
+        Some(expected_hash.as_str()),
+        "the stored hashes.sha256 must equal the content hash of the PDU we sent"
+    );
+
+    let signatures = stored.signatures.as_ref().expect("the inbound PDU's signatures must be persisted");
+    let server_signatures = signatures["localhost"]
+        .as_object()
+        .unwrap_or_else(|| panic!("stored signatures must contain the sender server: {signatures}"));
+    assert!(!server_signatures.is_empty(), "stored signatures for the sender server must be non-empty: {signatures}");
+    let stored_signature = server_signatures[key_id].as_str().expect("the sender's ed25519 signature must be stored");
+    assert!(!stored_signature.is_empty(), "the stored ed25519 signature must not be empty");
+    assert_eq!(
+        Some(stored_signature),
+        fixture.pdu["signatures"]["localhost"][key_id].as_str(),
+        "the persisted signature must be the origin's, verbatim"
+    );
+}
+
+/// Tampering a field that redaction **retains** must be rejected by the sender
+/// signature check.
+///
+/// The content hash is deliberately recomputed after the tamper so
+/// `verify_event_content_hash` passes: this makes the sender-signature
+/// verification the only remaining check, i.e. it pins the half U-13 fixed
+/// (before it, the signed bytes were the raw un-redacted PDU and this test's
+/// premise did not hold).
+#[tokio::test]
+async fn test_send_transaction_rejects_pdu_with_tampered_retained_field() {
+    let key_id = "ed25519:u8_tamper";
+    let Some((_isolated, fixture)) = signed_pdu_fixture(key_id, [95u8; 32], "u8_tamper").await else {
+        return;
+    };
+
+    let mut tampered = fixture.pdu.clone();
+    let original_ts = tampered["origin_server_ts"].as_i64().expect("the PDU carries origin_server_ts");
+    tampered["origin_server_ts"] = json!(original_ts + 1_000);
+    // Redaction retains `origin_server_ts`, so the *signature* covers it; the
+    // content hash does not (`hashes` is stripped before hashing), so refresh it
+    // to guarantee the rejection comes from signature verification.
+    let recomputed = compute_event_content_hash(&tampered).expect("the tampered PDU must still hash");
+    tampered["hashes"]["sha256"] = json!(recomputed);
+
+    let response = fixture.send("u8_tamper_1", &tampered).await;
+    let first = SignedPduFixture::single_result(&response);
+
+    assert!(first.get("success").is_none(), "a tampered PDU must not report success: {first}");
+    let error = first["error"].as_str().unwrap_or_else(|| panic!("a tampered PDU must report an error: {first}"));
+    assert!(
+        error.starts_with("Invalid PDU signature"),
+        "the retained-field tamper must be caught by the sender-signature check, got: {error}"
+    );
+
+    let storage = EventStorage::new(&fixture.pool, "localhost".to_string());
+    assert!(
+        storage
+            .get_state_event(&fixture.room_id, "m.room.topic", "")
+            .await
+            .expect("the events table must be readable")
+            .is_none(),
+        "a rejected PDU must not be persisted"
+    );
+}
+
+/// A v3+ PDU that carries an explicit `event_id` must be rejected outright:
+/// the receiver derives the identity, it never trusts a sender-supplied one.
+#[tokio::test]
+async fn test_send_transaction_rejects_v3_pdu_carrying_explicit_event_id() {
+    let key_id = "ed25519:u8_explicit";
+    let Some((_isolated, fixture)) = signed_pdu_fixture(key_id, [94u8; 32], "u8_explicit").await else {
+        return;
+    };
+
+    let explicit_event_id = "$u8_explicit_event:localhost";
+    let mut pdu = fixture.pdu.clone();
+    pdu["event_id"] = json!(explicit_event_id);
+    // The explicit `event_id` is the *only* defect this PDU may carry, or some
+    // other gate would reject it and mask whether the v3+ format rule fired:
+    // adding a field changes the content hash, and `hashes` is itself covered by
+    // the signature.  Re-hash and re-sign so the hash and sender-signature checks
+    // both pass.  That is also the realistic shape of the attack: v3+ signature
+    // material strips `event_id`, so the carried identity is unauthenticated and
+    // a sender can emit a fully signed PDU that still violates the format.
+    sign_and_hash_event(SIG_ASSERT_ROOM_VERSION, "localhost", key_id, &fixture.signing_key_b64, &mut pdu)
+        .expect("the malformed PDU must still be signable");
+
+    let response = fixture.send("u8_explicit_1", &pdu).await;
+    let first = SignedPduFixture::single_result(&response);
+
+    assert!(first.get("success").is_none(), "a PDU with an explicit event_id must not succeed: {first}");
+    let error = first["error"].as_str().unwrap_or_else(|| panic!("the PDU must report an error: {first}"));
+    assert!(
+        error.contains("must not carry an explicit event_id"),
+        "resolve_received_event_id must enforce the v3+ format rule, got: {error}"
+    );
+    assert_eq!(first["event_id"], json!(explicit_event_id), "the rejection must echo the carried ID: {first}");
+
+    let storage = EventStorage::new(&fixture.pool, "localhost".to_string());
+    assert!(
+        storage.get_event(explicit_event_id).await.expect("the events table must be readable").is_none(),
+        "the fabricated event_id must not be persisted"
+    );
+    assert!(
+        storage
+            .get_state_event(&fixture.room_id, "m.room.topic", "")
+            .await
+            .expect("the events table must be readable")
+            .is_none(),
+        "the rejected PDU must not be persisted"
     );
 }
 
