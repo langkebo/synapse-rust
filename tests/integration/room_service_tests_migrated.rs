@@ -5300,3 +5300,64 @@ async fn test_create_room_v12_room_id_is_the_create_event_id() {
     // The stored room id must also satisfy the v12 grammar on its own.
     assert!(synapse_common::room_id::is_domainless_room_id(&room_id), "a v12 room id is domainless, got {room_id}");
 }
+
+/// C-4 (MSC4291): upgrading **to** room v12 reverses the two writes.
+///
+/// The replacement room's id is its create event's id, so the room must be
+/// created before the tombstone that names it; and `predecessor.event_id` — the
+/// tombstone's id, which cannot be known before the tombstone exists — is
+/// deprecated by the same MSC and must be omitted. `predecessor.room_id` stays:
+/// it points at the old room, which does exist.
+#[tokio::test]
+async fn test_upgrade_to_v12_derives_the_replacement_id_and_omits_predecessor_event_id() {
+    let pool = crate::require_test_pool().await;
+
+    let id = unique_id();
+    let alice_id = format!("@alice_{id}:localhost");
+    create_test_user(&pool, &alice_id, &format!("alice_{id}")).await;
+
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let room_service = create_room_service_with_finalizing_writer(&pool, cache);
+
+    let old_val = room_service
+        .lifecycle
+        .create_room(&alice_id, CreateRoomConfig { room_version: Some("11".to_string()), ..Default::default() })
+        .await
+        .expect("the old room must be created");
+    let old_room_id = old_val["room_id"].as_str().unwrap().to_string();
+
+    let new_room_id = room_service.upgrade_room(&old_room_id, "12", &alice_id).await.expect("upgrade must succeed");
+
+    let event_storage = EventStorage::new(&pool, "localhost".to_string());
+
+    let create_event = event_storage
+        .get_state_events_by_type(&new_room_id, "m.room.create")
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|event| event.state_key.as_deref() == Some(""))
+        .expect("the replacement room must have a create event");
+
+    // The replacement room's id is the create event's id with the sigil swapped.
+    assert_eq!(
+        new_room_id,
+        format!("!{}", &create_event.event_id[1..]),
+        "a v12 replacement room id must derive from its create event"
+    );
+
+    // `predecessor` names the old room and **not** the tombstone's id.
+    let predecessor = &create_event.content["predecessor"];
+    assert_eq!(predecessor["room_id"].as_str(), Some(old_room_id.as_str()));
+    assert!(predecessor.get("event_id").is_none(), "MSC4291 deprecates predecessor.event_id, got {predecessor}");
+
+    // The tombstone in the old room still names the replacement room, so the
+    // chain is complete even though the create content could not name it.
+    let tombstone = event_storage
+        .get_state_events_by_type(&old_room_id, "m.room.tombstone")
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|event| event.state_key.as_deref() == Some(""))
+        .expect("the old room must have a tombstone");
+    assert_eq!(tombstone.content["replacement_room"].as_str(), Some(new_room_id.as_str()));
+}

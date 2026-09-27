@@ -489,51 +489,23 @@ impl RoomService {
         let members_to_invite: Vec<String> =
             old_members.into_iter().map(|m| m.user_id).filter(|uid| uid != user_id).collect();
 
-        // The replacement room's ID is allocated up front, because the two
-        // events reference each other:
-        //   * the tombstone (in the OLD room) carries `replacement_room`;
-        //   * the replacement room's `m.room.create` carries
-        //     `predecessor.event_id` = the tombstone's **final** event ID.
+        // The two events reference each other — the tombstone (old room) names the
+        // replacement room, and the replacement's `m.room.create` names the old
+        // room — but only below v12 does the create content also name the
+        // tombstone's **event id**.
         //
-        // For v3+ rooms that ID is the tombstone's reference hash, so it does
-        // not exist until the tombstone has been written.  Generating a
-        // placeholder here and creating the room first (the previous order)
-        // therefore recorded an ID that the tombstone never had.  The tombstone
-        // is created first, with the already-allocated room ID, and the room is
-        // then created against it — the same order upstream Synapse uses.
-        let new_room_id = generate_room_id(&self.server_name);
+        // v12+ (MSC4291) reverses the order: the replacement room's id *is* its
+        // create event's id, so the room has to be created first and the
+        // tombstone written against the id it returned. `predecessor.event_id` is
+        // deprecated by the same MSC (the tombstone cannot be named before it
+        // exists) and is omitted; clients MUST NOT expect it.
+        //
+        // Below v12 the order is unchanged: the tombstone is written first so its
+        // reference-hash id can be recorded in the replacement's create content.
+        let derive_replacement_id = synapse_common::room_versions::room_version_at_least(new_version, 12);
 
-        // Create the tombstone event in the OLD room via the `create_event`
-        // wrapper (not the raw storage layer).  This ensures the event is
-        // signed with the server's signing key and broadcast to all remote
-        // servers with joined members in the old room, so federated
-        // homeservers learn that the room has been replaced.
-        let tombstone_event = self
-            .messaging
-            .create_event(
-                synapse_storage::CreateEventParams {
-                    // Placeholder for v1/v2; the write path assigns the
-                    // reference hash for v3+. Only the value read back off
-                    // `tombstone_event` is used below.
-                    event_id: generate_event_id(&self.server_name),
-                    room_id: old_room_id.to_string(),
-                    user_id: user_id.to_string(),
-                    event_type: "m.room.tombstone".to_string(),
-                    content: json!({
-                        "body": "This room has been replaced",
-                        "replacement_room": new_room_id.clone(),
-                    }),
-                    state_key: Some("".to_string()),
-                    origin_server_ts: current_timestamp_millis(),
-                    redacts: None,
-                },
-                None,
-            )
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to create tombstone event", e))?;
-
-        let create_config = CreateRoomConfig {
-            room_id: Some(new_room_id.clone()),
+        let make_config = |room_id: Option<String>, creation_content: serde_json::Value| CreateRoomConfig {
+            room_id,
             visibility: Some(if old_room.is_public { "public".to_string() } else { "private".to_string() }),
             room_alias_name: None,
             name: Some(old_room.name.clone().unwrap_or_else(|| "Upgraded Room".to_string())),
@@ -545,28 +517,104 @@ impl RoomService {
             is_direct: None,
             room_type: None,
             room_version: Some(new_version.to_string()),
-            creation_content: Some(json!({
-                "predecessor": {
-                    "room_id": old_room_id,
-                    "event_id": tombstone_event.event_id,
-                }
-            })),
+            creation_content: Some(creation_content),
             ..Default::default()
         };
 
-        let replacement_room = self.lifecycle.create_room(user_id, create_config).await?;
-        let created_room_id = replacement_room
-            .get("room_id")
-            .and_then(|value| value.as_str())
-            .ok_or_else(|| ApiError::internal("Room upgrade did not return replacement room"))?;
-        if created_room_id != new_room_id {
-            return Err(ApiError::internal("Room upgrade created a room with an unexpected id"));
-        }
+        let tombstone_content = |replacement: &str| {
+            json!({
+                "body": "This room has been replaced",
+                "replacement_room": replacement,
+            })
+        };
+
+        let (new_room_id, tombstone_event_id) = if derive_replacement_id {
+            // Replacement first: its id comes from the create event.
+            let replacement_room = self
+                .lifecycle
+                .create_room(user_id, make_config(None, json!({ "predecessor": { "room_id": old_room_id } })))
+                .await?;
+            let new_room_id = replacement_room
+                .get("room_id")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| ApiError::internal("Room upgrade did not return replacement room"))?
+                .to_string();
+
+            let tombstone = self
+                .messaging
+                .create_event(
+                    synapse_storage::CreateEventParams {
+                        event_id: generate_event_id(&self.server_name),
+                        room_id: old_room_id.to_string(),
+                        user_id: user_id.to_string(),
+                        event_type: "m.room.tombstone".to_string(),
+                        content: tombstone_content(&new_room_id),
+                        state_key: Some("".to_string()),
+                        origin_server_ts: current_timestamp_millis(),
+                        redacts: None,
+                    },
+                    None,
+                )
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to create tombstone event", e))?;
+
+            (new_room_id, tombstone.event_id)
+        } else {
+            // v1-v11: the tombstone is written first, so the replacement's
+            // `predecessor.event_id` can name the id it was persisted under.
+            let new_room_id = generate_room_id(&self.server_name);
+
+            let tombstone = self
+                .messaging
+                .create_event(
+                    synapse_storage::CreateEventParams {
+                        // Placeholder for v1/v2; the write path assigns the
+                        // reference hash for v3+. Only the value read back off
+                        // `tombstone` is used below.
+                        event_id: generate_event_id(&self.server_name),
+                        room_id: old_room_id.to_string(),
+                        user_id: user_id.to_string(),
+                        event_type: "m.room.tombstone".to_string(),
+                        content: tombstone_content(&new_room_id),
+                        state_key: Some("".to_string()),
+                        origin_server_ts: current_timestamp_millis(),
+                        redacts: None,
+                    },
+                    None,
+                )
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to create tombstone event", e))?;
+
+            let replacement_room = self
+                .lifecycle
+                .create_room(
+                    user_id,
+                    make_config(
+                        Some(new_room_id.clone()),
+                        json!({
+                            "predecessor": {
+                                "room_id": old_room_id,
+                                "event_id": tombstone.event_id,
+                            }
+                        }),
+                    ),
+                )
+                .await?;
+            let created_room_id = replacement_room
+                .get("room_id")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| ApiError::internal("Room upgrade did not return replacement room"))?;
+            if created_room_id != new_room_id {
+                return Err(ApiError::internal("Room upgrade created a room with an unexpected id"));
+            }
+
+            (new_room_id, tombstone.event_id)
+        };
 
         ::tracing::info!(
             old_room_id = %old_room_id,
             new_room_id = %new_room_id,
-            tombstone_event_id = %tombstone_event.event_id,
+            tombstone_event_id = %tombstone_event_id,
             "Room upgraded: tombstone event created and broadcast"
         );
 
