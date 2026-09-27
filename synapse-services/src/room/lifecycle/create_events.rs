@@ -8,7 +8,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use synapse_common::generate_event_id;
 use synapse_common::{ApiError, ApiResult};
-use synapse_storage::CreateEventParams;
+use synapse_storage::{CreateEventParams, PduGraphFields};
 
 impl LifecycleService {
     /// Write one event of the room-creation sequence together with its DAG
@@ -19,6 +19,14 @@ impl LifecycleService {
     /// the rows this transaction is about to persist. The write-path decorator
     /// cannot do this: it reads committed state, which cannot see the rows the
     /// caller's transaction has not committed yet (see `graph_metadata`).
+    ///
+    /// The generated ID is only a placeholder for v3+ rooms, where identity is
+    /// the reference hash and cannot be known before the PDU's graph fields are
+    /// (decision §4.1). `create_event_with_pdu` finalizes it — reading the room
+    /// version through this transaction — so the write returns the ID the row
+    /// was actually persisted under, and `graph` is re-pointed at it before the
+    /// next event is emitted. For v1/v2 the placeholder *is* final and
+    /// finalization leaves it untouched.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn write_creation_event(
         &self,
@@ -31,13 +39,14 @@ impl LifecycleService {
         origin_server_ts: i64,
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> Result<(), sqlx::Error> {
-        let event_id = generate_event_id(&self.server_name);
-        let metadata = graph.next(&event_id, event_type, state_key, sender, &content);
+        let placeholder_id = generate_event_id(&self.server_name);
+        let metadata = graph.next(&placeholder_id, event_type, state_key, sender, &content);
 
-        self.event_writer
-            .create_event_with_graph(
+        let written = self
+            .event_writer
+            .create_event_with_pdu(
                 CreateEventParams {
-                    event_id,
+                    event_id: placeholder_id,
                     room_id: room_id.to_string(),
                     user_id: sender.to_string(),
                     event_type: event_type.to_string(),
@@ -46,13 +55,23 @@ impl LifecycleService {
                     origin_server_ts,
                     redacts: None,
                 },
-                &metadata.prev_events,
-                &metadata.auth_events,
-                metadata.depth,
+                PduGraphFields {
+                    depth: Some(metadata.depth),
+                    prev_events: Some(metadata.prev_events),
+                    auth_events: Some(metadata.auth_events),
+                },
                 tx,
             )
-            .await
-            .map(|_| ())
+            .await?;
+
+        // The row is persisted under the *finalized* ID, which the graph must
+        // record before the next creation event is emitted. Writing through
+        // `create_event_with_graph` instead would take the byte-faithful inbound
+        // pass-through (which deliberately never finalizes) and persist the
+        // placeholder in every room version.
+        graph.rekey_last(&written.event_id, event_type, state_key);
+
+        Ok(())
     }
 
     /// See [`create_room_in_db`].
