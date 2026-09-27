@@ -39,8 +39,10 @@ pub struct KeyAuditEntry {
     pub key_id: Option<String>,
     /// The `room_id` field.
     pub room_id: Option<String>,
-    /// The `details` field.
-    pub details: Option<serde_json::Value>,
+    /// The `details` field. `e2ee_audit_log.details` is `NOT NULL DEFAULT '{}'`, so the
+    /// read side can never observe `NULL` — unlike the [`KeyEvent`] input DTO, where
+    /// `None` means "let the column default apply".
+    pub details: serde_json::Value,
     /// The `ip_address` field.
     pub ip_address: Option<String>,
     /// The `created_ts` field.
@@ -65,7 +67,7 @@ impl E2eeAuditStorage {
             r"
             INSERT INTO e2ee_audit_log
             (user_id, device_id, action, operation, key_id, room_id, details, ip_address, created_ts)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, '{}'::jsonb), $8, $9)
             ",
         )
         .bind(&event.user_id)
@@ -261,7 +263,26 @@ mod db_tests {
         assert_eq!(entry.ip_address.as_deref(), Some("10.0.0.1"));
         assert_eq!(entry.created_ts, event_ts);
         assert!(entry.id > 0);
-        assert!(entry.details.is_some());
+        assert_eq!(entry.details, serde_json::json!({"type": "master", "verified": true}));
+    }
+
+    /// `KeyEvent.details` is optional in the DTO, but `e2ee_audit_log.details` is
+    /// `NOT NULL DEFAULT '{}'`. Binding `NULL` raises `23502` instead of letting the
+    /// column default apply.
+    #[tokio::test]
+    async fn test_log_key_operation_without_details_falls_back_to_column_default() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = E2eeAuditStorage::new(&pool);
+        let user_id = format!("@nodetails_{}:example.com", uuid::Uuid::new_v4());
+
+        let mut event = make_test_event(&user_id, "upload_device_keys", "NODET_DEVICE");
+        event.details = None;
+
+        storage.log_key_operation(&event).await.expect("log_key_operation must accept None details");
+
+        let history = storage.get_key_history(&user_id).await.expect("get_key_history should succeed");
+        assert_eq!(history.len(), 1, "should have exactly one audit entry");
+        assert_eq!(history[0].details, serde_json::json!({}), "details must fall back to the column default");
     }
 
     #[tokio::test]
