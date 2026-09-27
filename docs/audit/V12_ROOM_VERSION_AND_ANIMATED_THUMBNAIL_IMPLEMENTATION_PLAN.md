@@ -2,7 +2,7 @@
 
 **生成时间**: 2026-09-25  
 **最后更新**: 2026-09-26 15:00  
-**状态**: v12 已完成 (O-1)，动画缩略图 Phase 1 已完成 ✅  
+**状态**: ⚠️ v12 **未完成**（仅元数据与 redaction 一侧落地；MSC4289 / MSC4291 / MSC4297 / MSC4307 均未实现，见 §1.1）；动画缩略图 Phase 1 已完成  
 
 ---
 
@@ -15,7 +15,15 @@
 
 **上游现状** (Synapse v1.162.0rc1):
 - ✅ **默认版本已提升至 v12** (`CHANGES.md`: "Raise default room version to '12'")
-- ✅ **核心 MSC**: MSC4239 (v12 定义)、MSC4311 (邀请/敲击状态)、MSC3912 (基于关系的撤回)
+- ✅ **核心 MSC**: **MSC4304（v12 定义）** = room v11 基线 + **MSC4289**（显式赋予房间创建者特权）
+  + **MSC4291**（room ID = create 事件的哈希）+ **MSC4297**（State Resolution v2.1）
+  + **MSC4307**（校验 `auth_events` 属于同一房间；"非技术上必需但明确纳入"）。
+  ⚠️ 此前本条写作 "MSC4239 (v12 定义)" —— **错误**：MSC4239 是 *room version 11 升为默认*，
+  与 v12 定义无关（见 MSC4304 §Prior art）。MSC4311 / MSC3912 也不是 v12 的构成 MSC。
+- ❌ **不存在 v13**：规范稳定列表止于 v12（matrix-spec `content/rooms/_index.md`）；上游
+  Synapse 1.161.0 只识别 `1..12` + 三个 unstable（`org.matrix.hydra.11`、`org.matrix.msc3757.10`、
+  `org.matrix.msc3757.11`）；MSC4304 的 prior-art 链同样止于 v12。v12 的 unstable 试验前缀是
+  **`org.matrix.hydra.11`**，不是 "13"。
 - ⚠️ **安全漏洞**: CVE-2025-49090 (具体细节未在发布说明中公开)
 - 🔑 **关键变更**:
   - ED25519-only 签名验证 (更严格的算法白名单)
@@ -27,18 +35,36 @@
 // synapse-common/src/room_versions.rs
 pub const DEFAULT_ROOM_VERSION: &str = "12";  // ✅ 已升级（O-1 Phase 2）
 
-RoomVersionCapability::stable("12"),  // ✅ 已升为 stable（O-1 Phase 1）
-RoomVersionCapability::stable_parse_only("13"),  // 保持 parse-only
+RoomVersionCapability::stable("12"),  // ⚠️ 元数据已放开，但四个构成 MSC 未实现，见 §1.1
+RoomVersionCapability::stable_parse_only("13"),  // ⚠️ 上游不存在 v13；该条目是对未来版本的占位，不是真实支持
 ```
 
-**v12 已收口**（O-1 Phase 1 & 2 完成）:
-- ✅ `DEFAULT_ROOM_VERSION` = `"12"`
-- ✅ `stable("12")` 完全可创建
-- ✅ v12 PDU 字段（depth/prev_events/auth_events）已启用
-- ✅ ED25519-only 验证已实施
-- ✅ MSC4311 合规性已实施
+**v12 实际状态：❌ 未完成**（此前本节写"v12 已收口 / 差距：无"，与代码不符，2026-09-27 更正）
 
-**差距**：无（v12 已完全对齐上游）。
+已落地（仅元数据与 redaction 一侧）:
+- ✅ `DEFAULT_ROOM_VERSION` = `"12"`、`stable("12")`（`can_create: true`）
+- ✅ v12 的 **redaction 规则**：`synapse-common/src/redaction.rs:210`
+  `RedactionRules { room_ids_as_hashes: true, ..updated() }`（撤 `m.room.create` 时丢弃 `room_id`）
+
+**未落地（v12 的四个构成 MSC 一个都没实现）** —— 逐条实测:
+| MSC | 要求 | 本仓实测 |
+|---|---|---|
+| **MSC4291** | room ID = **create 事件的哈希** | ❌ 创建侧未实现：`synapse-common/src/crypto.rs:145 generate_room_id` 取 18 字节**随机数**；`room/lifecycle/create.rs:26` 在 create 事件之前就定下 `room_id`，全仓**没有任何**从 create 事件回推 room ID 的步骤 |
+| **MSC4289** | 显式赋予房间创建者特权（power level 视为无限） | ❌ 无创建者特权逻辑（`creator_power` / 无限 PL 均 0 命中） |
+| **MSC4297** | State Resolution **v2.1** | ❌ 无 state-res 版本处理（仍为 v2） |
+| **MSC4307** | 校验 `auth_events` 属于**同一房间** | ❌ 只有 `select_auth_events` 的**构造**逻辑，无该校验 |
+
+⚠️ **这是正确性/互操作缺陷，不是"尚未启用"**：本机创建的 v12 房间会拿到**随机 room ID**，
+而 v12 对端要求 room ID 等于 create 事件的哈希 ⇒ 对端会算出/校验出不同的 room ID。
+更糟的是 `room_ids_as_hashes: true` 已经生效：撤回 `m.room.create` 时 `room_id` 被丢弃，
+而此时 room ID 又无法从事件恢复 ⇒ 撤红后房间身份不可还原。**（建议独立修复批次处理，见文末"待办"）**
+
+📌 **历史教训（可查证）**：`docs/audit/AUDIT_SUMMARY_2026-09-12.md:83` 记载本仓**曾**以
+`65f70e33` 把 v12/v13 降为 `stable_parse_only`，理由正是"对外声称可创建但服务端 auth rules
+未完整实现"，并称"✅ 已解决（fail-safe）"。O-1 Phase 1/2 把 v12 重新升为 `stable` 且设为默认，
+**但没有实现上表四个 MSC** ⇒ 那次过度声明被重新引入。`COMPARISON_REPORT_REVIEW_2026-09-22.md`
+的决策项 **B6**（"实现 v12 认证规则并放开创建，或明确记录'只 join/federate'的支持边界"）
+至今未按第二选项收口。
 
 ### 1.2 动画缩略图
 

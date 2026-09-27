@@ -178,9 +178,15 @@ impl RedactionRules {
 ///
 /// Fail-closed: an unrecognised version must never silently fall back to
 /// another version's rules, because the result feeds event IDs (and therefore
-/// event identity).  v13 is deliberately absent: it is parse-only in
-/// `room_versions::SUPPORTED_ROOM_VERSIONS` and its MSC4291-derived redaction
-/// semantics have not been pinned against upstream yet.
+/// event identity).
+///
+/// `"13"` is absent, and that is correct: **room version 13 does not exist**.
+/// The specification's stable list ends at v12 (`content/rooms/_index.md`) and
+/// upstream Synapse (verified against 1.161.0's `KNOWN_ROOM_VERSIONS`) knows only
+/// `1..12` plus the unstable `org.matrix.hydra.11` / `org.matrix.msc3757.10/11`.
+/// `room_versions::SUPPORTED_ROOM_VERSIONS` still carries a `"13"` placeholder
+/// (see the note there); anything that asks for its rules gets `None` here, which
+/// is the fail-closed answer for a version with no defined semantics.
 pub fn redaction_rules(room_version: &str) -> Option<RedactionRules> {
     match room_version {
         "1" | "2" | "3" | "4" | "5" => Some(RedactionRules::legacy()),

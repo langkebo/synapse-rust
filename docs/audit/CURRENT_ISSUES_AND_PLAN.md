@@ -89,12 +89,25 @@
 - **现状**: 注释声称被删除，但函数仍在库中声明
 - **问题**: 铁律 1 要求删除未使用的实际实现
 
-### ❌ 7. U-11：v13 parse-only 状态
+### ❌ 7. U-22：v12 被声明为 stable/默认，但其构成 MSC 未实现；"v13" 不存在
 
-- **位置**: `synapse-common/src/room_versions.rs:114`
-- **现状**: `RoomVersionCapability::stable_parse_only("13")`
-- **原因**: MSC4204/4205 密码登出设备功能的 PDU 语义未完全对齐
-- **决策**: 仍为设计使然，待联邦 PDU 语义完整后才可升级为 stable
+- **位置**: `synapse-common/src/room_versions.rs`（`stable("12")` + `DEFAULT_ROOM_VERSION = "12"` + `stable_parse_only("13")`）
+- **现状（2026-09-27 核实并更正原文）**:
+  - 原文写"**原因**: MSC4204/4205 密码登出设备功能的 PDU 语义未完全对齐" —— **不实**。
+    MSC4204 是"改密时登出设备"（见本仓 `routes/account_compat.rs:353` 的自身引用），与房间版本无关。
+  - 原文把 **v13** 当作待升级的真实版本 —— **不实**：**上游不存在 v13**。规范稳定列表止于 v12
+    （matrix-spec `content/rooms/_index.md`），上游 Synapse 1.161.0 只识别 `1..12` + 三个 unstable
+    （`org.matrix.hydra.11`、`org.matrix.msc3757.10/11`），MSC4304 的 prior-art 链也止于 v12。
+  - **真实问题**：v12 由 **MSC4304** 定义（= v11 + MSC4289 创建者特权 + MSC4291 room ID = create 事件哈希
+    + MSC4297 State Res v2.1 + MSC4307 `auth_events` 同房间校验），本仓四个都**未实现**，
+    却已把 v12 标为 `stable`（可创建）并设为默认版本。
+- **影响**: 本机创建的 v12 房间用**随机** room ID（`crypto.rs:145`），而 v12 对端要求 room ID 等于
+  create 事件哈希 ⇒ 互操作破坏；且 `redaction.rs:210` 已置 `room_ids_as_hashes: true`，
+  撤回 `m.room.create` 后 room ID 不可恢复。
+- **决策**: 二选一 —— ① 实现四个 MSC 后再放开；② **降回 `stable_parse_only("12")` 且默认版本回 v11**
+  （与 `65f70e33` 的 fail-safe 一致），并同步 `/versions`、`/capabilities` 与快照。
+- **依据**: `docs/audit/V12_ROOM_VERSION_AND_ANIMATED_THUMBNAIL_IMPLEMENTATION_PLAN.md` §1.1；
+  上游 MSC4304 原文；本机 `synapse 1.161.0` 的 `KNOWN_ROOM_VERSIONS` 实测。
 
 ---
 
