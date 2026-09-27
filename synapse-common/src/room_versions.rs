@@ -51,21 +51,6 @@ impl RoomVersionCapability {
         }
     }
 
-    /// A stable room version that can be parsed and joined but cannot be
-    /// created on this server.  Used for room versions whose redaction format
-    /// or auth rules are not yet fully implemented, so that we do not advertise
-    /// creation support that would produce non-compliant PDUs.
-    pub const fn stable_parse_only(version: &'static str) -> Self {
-        Self {
-            version,
-            disposition: RoomVersionDisposition::Stable,
-            can_create: false,
-            can_join: true,
-            can_parse: true,
-            can_federate: true,
-        }
-    }
-
     /// Dispositions the str.
     pub const fn disposition_str(self) -> &'static str {
         self.disposition.as_str()
@@ -107,21 +92,21 @@ pub const SUPPORTED_ROOM_VERSIONS: &[RoomVersionCapability] = &[
     // (which grants self-redact for room versions >= 11), so v11 can be
     // advertised as creatable.
     //
-    // ⚠️ v12 现状（2026-09-27 核实）：v12 由 **MSC4304** 定义 = room v11 + MSC4289（创建者特权）
-    // + MSC4291（room ID = create 事件的哈希）+ MSC4297（State Resolution v2.1）
-    // + MSC4307（校验 `auth_events` 属于同一房间）。本仓这**四个都没有实现**，但自 O-1 Phase 1
-    // 起已在此放开创建、并把它设为 `DEFAULT_ROOM_VERSION`：本机创建的 v12 房间会拿到
-    // **随机** room ID（`crypto.rs::generate_room_id`），与 v12 对端"room ID = create 事件哈希"
-    // 的期望不符。修复前不要把 v12 当成可安全创建；详见
-    // `docs/audit/REMAINING_ISSUES_VERIFICATION_AND_OPTIMIZATION_PLAN_2026-09-25.md` 的 U-22
-    // 与 `docs/audit/V12_ROOM_VERSION_AND_ANIMATED_THUMBNAIL_IMPLEMENTATION_PLAN.md` §1.1。
+    // v12（MSC4304）= room v11 + MSC4289（创建者特权）+ MSC4291（room ID = create 事件 id）
+    // + MSC4297（State Resolution v2.1）+ MSC4307（`auth_events` 同房校验）。
+    //
+    // 现状（2026-09-27，逐项见 `docs/audit/ROOM_V12_PLAN_STATUS_2026-09-27.md`）：
+    // MSC4291 创建侧（C-1/C-2）与无域名 room id 语法/DB CHECK（C-3）、MSC4307 规则 3.5（B-2）、
+    // v12 的 `auth_events` 不含 create（D-4）、入站 create 形态（D-1）均已落地；
+    // **MSC4289（E 组）与 MSC4297（F 组）仍未完成**，所以 v12 目前仍属"声明领先实现"。
+    //
+    // `"13"` **不再列入**：上游规范稳定列表止于 v12（`content/rooms/_index.md`），
+    // 上游 Synapse 1.161.0 的 `KNOWN_ROOM_VERSIONS` 只识别 `1..12` + 三个 unstable
+    // （`org.matrix.hydra.11`、`org.matrix.msc3757.10/11`）。曾以 `stable_parse_only("13")`
+    // 占位，但 `redaction_rules("13")` / `uses_reference_hash_event_id("13")` 都返回
+    // fail-closed 的否定答案 ⇒ "可 parse/join/federate" 是假声明（G-50）。按裁定 Q5(b) 移除。
     RoomVersionCapability::stable("11"),
     RoomVersionCapability::stable("12"),
-    // ⚠️ `"13"` 是**上游并不存在的房间版本**：规范稳定列表止于 v12，上游 Synapse 1.161.0 只识别
-    // `1..12` + 三个 unstable（`org.matrix.hydra.11`、`org.matrix.msc3757.10`、
-    // `org.matrix.msc3757.11`）。此处保留它只是为"未来版本"占位，**不代表任何已定义的语义**；
-    // `redaction_rules("13")` 返回 `None`（fail-closed）。对外声明时不得把它当作 stable 支持。
-    RoomVersionCapability::stable_parse_only("13"),
 ];
 
 /// Returns true if supported room version.
@@ -239,7 +224,7 @@ mod tests {
         assert_eq!(resolve_room_version(Some("11")), Some("11"));
         // v12 is creatable after O-1 Phase 1 (PDU fields + ED25519-only).
         assert_eq!(resolve_room_version(Some("12")), Some("12"));
-        // v13 is still parse/join/federate-only.
+        // v13 is not a room version at all (Q5): unsupported, so not creatable.
         assert_eq!(resolve_room_version(Some("13")), None);
         // v14 is not a supported room version.
         assert_eq!(resolve_room_version(Some("14")), None);
@@ -258,10 +243,15 @@ mod tests {
         for v in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"] {
             assert!(can_create_room_version(v), "v{v} must remain creatable");
         }
-        // v12 is now creatable (O-1 Phase 1); v13 remains parse/join/federate-only:
+        // v12 is creatable; `"13"` is not a room version at all (Q5), so every
+        // capability for it is false — including join/federate, which used to be
+        // claimed by the removed `stable_parse_only("13")` placeholder.
         assert!(can_create_room_version("12"), "v12 must be creatable");
         assert!(!can_create_room_version("13"), "v13 must NOT be creatable");
-        assert!(can_join_room_version("12") && can_join_room_version("13"));
+        assert!(!can_join_room_version("13"), "v13 does not exist, so it cannot be joined");
+        assert!(!can_parse_room_version("13") && !can_federate_room_version("13"));
+        assert!(!is_supported_room_version("13"));
+        assert!(can_join_room_version("12"));
         assert!(!can_create_room_version("14"));
         assert!(!can_join_room_version("14"));
         assert!(!can_parse_room_version("14"));
@@ -274,8 +264,9 @@ mod tests {
         let available = capability["available"].as_object().expect("available room versions should be an object");
 
         assert_eq!(capability["default"], DEFAULT_ROOM_VERSION);
-        // Only creatable versions appear in the client capability list.
-        // v12 is now creatable (O-1 Phase 1); v13 remains parse-only.
+        // Only creatable versions appear in the client capability list. v1-v12 are
+        // creatable today (G-1 will narrow this to v12 alone, decision Q1(a));
+        // v13 is not a room version and appears nowhere.
         let expected_creatable = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
         assert_eq!(available.len(), expected_creatable.len());
 
