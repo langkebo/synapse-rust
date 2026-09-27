@@ -21,7 +21,11 @@
 #      schema 跑"的成因）。
 #   1. 解析到的 schema（`current_schema()`）必须有 ≥ MIN_TABLES 张 BASE TABLE，且含
 #      核心基线表 `events` / `rooms` / `users`。满足不了就 fail fast，并说明环境事实
-#      （而不是进入几十秒的编译、再吐出上千个误导性错误）。
+#      （而不是进入几十秒的编译、再吐出上千个误导性错误）。**这一道依赖 `psql`**；
+#      环境里没有 `psql`（或沙箱不允许执行）时，可以用一个**已迁移好的库**并设
+#      `SQLX_PREPARE_SKIP_DB_CHECK=1` 显式跳过它 —— 之所以能安全跳过，是因为真正的
+#      不变量是第 3 道（缩容即回滚），前置检查只是"更快、更早地失败"。
+#      `--check` 模式**不允许**跳过（它的语义就是与真库核对）。
 #   2. feature 集固定 `--all-features`（R2）：用枚举 feature 会漏掉门控模块，非
 #      `--check` 的 prepare 会把它们的条目**剪掉**（D-51 / C6 教训）。
 #   3. 写入前先快照 `.sqlx/`；写完后条目数**减少**即打印被删清单、**回滚快照**并失败
@@ -37,6 +41,12 @@
 #
 #   # 确实删除了查询、缓存需要缩容
 #   ALLOW_CACHE_SHRINK=1 DATABASE_URL=… bash scripts/ci/sqlx_prepare.sh
+#
+#   # 环境里没有 psql（或沙箱不允许执行它），但手上有一个**已迁移好**的库：
+#   SQLX_PREPARE_SKIP_DB_CHECK=1 DATABASE_URL=… bash scripts/ci/sqlx_prepare.sh
+#   # 只跳过 schema 前置检查；快照 + 缩容回滚仍在。psql 在本机 Homebrew 的绝对路径是
+#   # /opt/homebrew/opt/postgresql@15/bin/psql（不在 PATH 上时直接用它）。
+#   # 注意：`cargo sqlx prepare` 自己只走 Rust 驱动，**不需要 psql**。
 #
 # 没有"已迁移的库"时，先建一个（不要用共享的 `synapse_test.public` —— 它会被并发
 # seed 收敛/重建）：
@@ -59,7 +69,7 @@ for arg in "$@"; do
     case "$arg" in
         --check) MODE="check" ;;
         -h | --help)
-            sed -n '2,55p' "${BASH_SOURCE[0]}"
+            sed -n '2,59p' "${BASH_SOURCE[0]}"
             exit 0
             ;;
         *)
@@ -84,31 +94,56 @@ MSG
     exit 1
 fi
 
-if ! command -v psql >/dev/null 2>&1; then
-    echo "::error::需要 psql（用于核对 DATABASE_URL 指向的 schema 是否已迁移）" >&2
+# 护栏 1 是"快速失败"的便利项，真正的不变量是第 3 道（写完缩容即回滚）。因此允许
+# 操作者在**没有 psql** 的环境里显式跳过它 —— 前置条件是"库已迁移"这个断言，跳过即由
+# 操作者承担；缓存仍受快照/回滚保护。`--check` 不在此列：它的语义就是"与真库核对"，
+# 没有 psql 无法核对，必须 fail closed。
+SKIP_DB_CHECK="${SQLX_PREPARE_SKIP_DB_CHECK:-0}"
+if [[ "$SKIP_DB_CHECK" == "1" && "$MODE" == "check" ]]; then
+    echo "::error::SQLX_PREPARE_SKIP_DB_CHECK=1 只允许用于写入模式；--check 必须真连库核对" >&2
     exit 1
 fi
+
+if [[ "$SKIP_DB_CHECK" == "1" ]]; then
+    echo "WARN: SQLX_PREPARE_SKIP_DB_CHECK=1 —— 跳过 schema 前置检查（操作者断言该库已迁移）。" >&2
+    echo "      缩容保护仍然生效：写完若条目数减少会打印被删清单并**回滚**。" >&2
+else
+    if ! command -v psql >/dev/null 2>&1; then
+        cat >&2 <<'MSG'
+::error::需要 psql 来核对 DATABASE_URL 指向的 schema 是否已迁移（它不在 PATH 上时可用绝对路径，
+         例如本机 Homebrew：/opt/homebrew/opt/postgresql@15/bin/psql）。
+         若环境里确实没有 psql（或沙箱不允许执行），两条出路：
+           * 用一个**已经迁移好**的库（例如别人备好的），并设
+             SQLX_PREPARE_SKIP_DB_CHECK=1 —— 只跳过前置检查，快照/缩容回滚仍在；
+           * 或把 psql 的目录加进 PATH 后重跑。
+         注意：`cargo sqlx prepare` 自己只走 Rust 驱动，**不需要 psql**；psql 只服务本检查。
+MSG
+        exit 1
+    fi
+fi
+
 if ! cargo sqlx --version >/dev/null 2>&1; then
     echo "ERROR: 需要 sqlx-cli（cargo install sqlx-cli --locked --no-default-features --features postgres,rustls）" >&2
     exit 1
 fi
 
-# ── 护栏 1：schema 必须真的是迁移后的基线 ────────────────────────────────────
-if ! psql "$DATABASE_URL" -tAc "SELECT 1" >/dev/null 2>&1; then
-    echo "::error::无法连接 DATABASE_URL（$DATABASE_URL）" >&2
-    exit 1
-fi
+# ── 护栏 1：schema 必须真的是迁移后的基线（可用 SKIP 显式跳过，见上）──────────
+if [[ "$SKIP_DB_CHECK" != "1" ]]; then
+    if ! psql "$DATABASE_URL" -tAc "SELECT 1" >/dev/null 2>&1; then
+        echo "::error::无法连接 DATABASE_URL（${DATABASE_URL}）" >&2
+        exit 1
+    fi
 
-schema_name="$(psql "$DATABASE_URL" -tAc "SELECT current_schema()")"
-tables="$(psql "$DATABASE_URL" -tAc \
-    "SELECT count(*) FROM information_schema.tables WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'")"
-core_missing="$(psql "$DATABASE_URL" -tAc \
-    "SELECT count(*) FROM (VALUES ('events'), ('rooms'), ('users')) AS v(t)
-      WHERE NOT EXISTS (SELECT 1 FROM information_schema.tables
-                        WHERE table_schema = current_schema() AND table_name = v.t)")"
+    schema_name="$(psql "$DATABASE_URL" -tAc "SELECT current_schema()")"
+    tables="$(psql "$DATABASE_URL" -tAc \
+        "SELECT count(*) FROM information_schema.tables WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'")"
+    core_missing="$(psql "$DATABASE_URL" -tAc \
+        "SELECT count(*) FROM (VALUES ('events'), ('rooms'), ('users')) AS v(t)
+          WHERE NOT EXISTS (SELECT 1 FROM information_schema.tables
+                            WHERE table_schema = current_schema() AND table_name = v.t)")"
 
-if [[ "${tables:-0}" -lt "$MIN_TABLES" || "${core_missing:-1}" != "0" ]]; then
-    cat >&2 <<MSG
+    if [[ "${tables:-0}" -lt "$MIN_TABLES" || "${core_missing:-1}" != "0" ]]; then
+        cat >&2 <<MSG
 ::error::DATABASE_URL 解析到的 schema '${schema_name:-?}' 不满足前置条件：
          BASE TABLE 数 = ${tables:-0}（要求 >= ${MIN_TABLES}），缺失的核心基线表数 = ${core_missing:-?}（要求 0）。
 
@@ -122,10 +157,11 @@ if [[ "${tables:-0}" -lt "$MIN_TABLES" || "${core_missing:-1}" != "0" ]]; then
               DATABASE_URL='postgresql://…/synapse_test?options=-csearch_path%3Dtest_template_ci'
          本脚本已拒绝执行，未改动 ${CACHE_DIR}/。
 MSG
-    exit 1
-fi
+        exit 1
+    fi
 
-echo "OK: 目标 schema '${schema_name}'（${tables} 张 BASE TABLE，核心表齐备）"
+    echo "OK: 目标 schema '${schema_name}'（${tables} 张 BASE TABLE，核心表齐备）"
+fi
 
 PREPARE_ARGS=(--workspace -- --all-features --locked)
 

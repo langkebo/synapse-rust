@@ -108,12 +108,41 @@ impl Sandbox {
         }
     }
 
+    /// `PATH` for the child: the sandbox's stub dir first, then the system entries —
+    /// minus the ones that provide `psql` when `hide_psql` is set.
+    fn path(&self, hide_psql: bool) -> String {
+        let system = std::env::var("PATH").unwrap_or_default();
+        let mut parts = vec![self.root.join("bin").display().to_string()];
+        parts.extend(
+            system.split(':').filter(|dir| !hide_psql || !Path::new(dir).join("psql").exists()).map(str::to_string),
+        );
+        parts.join(":")
+    }
+
     fn run(&self, script: &str, args: &[&str], env: &[(&str, &str)], drop_env: &[&str]) -> Output {
+        self.run_inner(script, args, env, drop_env, false)
+    }
+
+    /// Same as [`Sandbox::run`] but with every `PATH` entry that provides a real `psql`
+    /// removed, so "psql is not installed / not executable here" can be tested without
+    /// dropping the coreutils the script needs (`find`/`wc`/`cp`/`mktemp`/…).
+    fn run_without_psql(&self, script: &str, args: &[&str], env: &[(&str, &str)], drop_env: &[&str]) -> Output {
+        self.run_inner(script, args, env, drop_env, true)
+    }
+
+    fn run_inner(
+        &self,
+        script: &str,
+        args: &[&str],
+        env: &[(&str, &str)],
+        drop_env: &[&str],
+        hide_psql: bool,
+    ) -> Output {
         let mut cmd = Command::new("bash");
         cmd.arg(self.root.join(script))
             .args(args)
             .current_dir(&self.root)
-            .env("PATH", format!("{}:{}", self.root.join("bin").display(), std::env::var("PATH").unwrap_or_default()))
+            .env("PATH", self.path(hide_psql))
             .env("TOOL_LOG", &self.log)
             .env("TOOL_STATE", &self.state);
         for key in drop_env {
@@ -266,6 +295,59 @@ fn sqlx_prepare_keeps_a_deliberate_shrink_only_with_the_escape_hatch() {
     assert_eq!(exit_code(&out), 0, "{}", render(&out));
     assert_eq!(sb.cache_entries(), 3, "the deliberate shrink must be kept");
     assert!(combined(&out).contains("ALLOW_CACHE_SHRINK=1"), "{}", render(&out));
+}
+
+#[test]
+fn sqlx_prepare_fails_closed_without_psql_unless_the_operator_asserts_the_db() {
+    // 环境里没有 psql（沙箱不允许执行 / 不在 PATH 上）时：默认必须 fail closed，
+    // 但允许操作者用一个**已迁移好的库**显式跳过前置检查 —— 缓存仍受缩容保护。
+    let sb = Sandbox::new("nopsql", &["scripts/ci/sqlx_prepare.sh"]);
+    sb.seed_cache(5);
+    // 故意不安装 psql stub。
+    sb.stub("cargo", CARGO_STUB);
+
+    let out = sb.run_without_psql(
+        "scripts/ci/sqlx_prepare.sh",
+        &[],
+        &[("DATABASE_URL", "postgresql://stub/db")],
+        &["SQLX_PREPARE_SKIP_DB_CHECK"],
+    );
+    assert_ne!(exit_code(&out), 0, "no psql + no override must fail closed: {}", render(&out));
+    assert!(combined(&out).contains("需要 psql"), "{}", render(&out));
+    assert!(!sb.log_text().contains("prepare"), "prepare must not start: {}", sb.log_text());
+
+    let out = sb.run_without_psql(
+        "scripts/ci/sqlx_prepare.sh",
+        &[],
+        &[("DATABASE_URL", "postgresql://stub/db"), ("SQLX_PREPARE_SKIP_DB_CHECK", "1")],
+        &[],
+    );
+    assert_eq!(exit_code(&out), 0, "the documented override must unblock a psql-less box: {}", render(&out));
+    assert!(sb.log_text().contains("prepare"), "prepare must run: {}", sb.log_text());
+    assert_eq!(sb.cache_entries(), 5, "the happy path must not touch the cache");
+}
+
+#[test]
+fn sqlx_prepare_shrink_guard_still_applies_when_the_db_check_is_skipped() {
+    // 跳过前置检查的代价必须是"少一道便利检查"，而不是"少一道不变量"：
+    // 缩容保护照旧。
+    let sb = Sandbox::new("nopsqlshrink", &["scripts/ci/sqlx_prepare.sh"]);
+    sb.seed_cache(5);
+    sb.stub("cargo", CARGO_STUB);
+
+    let out = sb.run_without_psql(
+        "scripts/ci/sqlx_prepare.sh",
+        &[],
+        &[
+            ("DATABASE_URL", "postgresql://stub/db"),
+            ("SQLX_PREPARE_SKIP_DB_CHECK", "1"),
+            ("FAKE_PREPARE_ACTION", "shrink"),
+        ],
+        &["ALLOW_CACHE_SHRINK"],
+    );
+    assert_ne!(exit_code(&out), 0, "{}", render(&out));
+    assert!(combined(&out).contains("已回滚"), "{}", render(&out));
+    assert_eq!(sb.cache_entries(), 5, "the rollback must fire even with the DB check skipped");
 }
 
 #[test]

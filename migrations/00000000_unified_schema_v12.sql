@@ -866,11 +866,10 @@ CREATE TABLE IF NOT EXISTS e2ee_audit_log (
     id BIGSERIAL PRIMARY KEY,
     user_id TEXT NOT NULL,
     device_id TEXT,
-    action TEXT NOT NULL,
     event_id TEXT,
     room_id TEXT,
     details JSONB NOT NULL DEFAULT '{}',
-    operation TEXT,
+    operation TEXT NOT NULL,
     key_id TEXT,
     ip_address TEXT,
     created_ts BIGINT NOT NULL
@@ -884,6 +883,34 @@ CREATE TABLE IF NOT EXISTS e2ee_audit_log (
 -- "Failed to log key operation" —— 即**整个"验证全部设备"功能不可用**，不只是审计行没落库。
 -- 下面的 ALTER 让早于本修复建的库也能跟上（幂等，且与表定义同源）。
 ALTER TABLE e2ee_audit_log ALTER COLUMN device_id DROP NOT NULL;
+
+-- 2026-09-26（D-73）：审计动作列收敛为**一列**。
+-- 该表曾同时有 `action TEXT NOT NULL` 与 `operation TEXT`（可空），而唯一的写入者
+-- `E2eeAuditStorage::log_key_operation` 把同一个值**同时**写进两列，读取路径只用
+-- `operation`（`get_operations_by_type` 等）⇒ `action` 是**恒等值的零读者冗余列**
+-- （只被自己的索引 `idx_e2ee_audit_log_action` 引用），属铁律 1/2 的清理对象；
+-- 而 `operation` 可空 + 行类型字段非 `Option` 让查询宏必须写 `AS "operation!"` 断言（R4）。
+-- 修法：把 `operation` 收紧为 `NOT NULL` 并删掉 `action`（保留 `operation`，因为它是
+-- `KeyAuditEntry.operation` 的序列化键，改它才是对外形状变更）。
+-- 幂等性：本文件会被 `scripts/init_test_public_schema.sh`（`RESET_PUBLIC=0`）**重复执行**，
+-- 因此先用 `DO` 块判断旧列是否还在再回填 —— 直接 `UPDATE … SET operation = action` 在
+-- 第二次运行时会因 42703（列不存在）而整段失败。
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'e2ee_audit_log'
+          AND column_name = 'action'
+    ) THEN
+        -- `action` 是 NOT NULL，用它回填历史上的 NULL `operation`，
+        -- 下面的 SET NOT NULL 才能在任何既有库上成立。
+        EXECUTE 'UPDATE e2ee_audit_log SET operation = action WHERE operation IS NULL';
+    END IF;
+END $$;
+ALTER TABLE e2ee_audit_log ALTER COLUMN operation SET NOT NULL;
+DROP INDEX IF EXISTS idx_e2ee_audit_log_action;
+ALTER TABLE e2ee_audit_log DROP COLUMN IF EXISTS action;
 
 CREATE TABLE IF NOT EXISTS e2ee_secret_storage_keys (
     id BIGSERIAL PRIMARY KEY,
@@ -3418,7 +3445,6 @@ CREATE INDEX IF NOT EXISTS idx_dehydrated_devices_expires ON dehydrated_devices(
 -- E2EE audit log
 CREATE INDEX IF NOT EXISTS idx_e2ee_audit_log_user ON e2ee_audit_log(user_id);
 CREATE INDEX IF NOT EXISTS idx_e2ee_audit_log_created ON e2ee_audit_log(created_ts DESC);
-CREATE INDEX IF NOT EXISTS idx_e2ee_audit_log_action ON e2ee_audit_log(action);
 CREATE INDEX IF NOT EXISTS idx_e2ee_audit_log_user_created ON e2ee_audit_log(user_id, created_ts DESC);
 
 -- E2EE secret storage keys

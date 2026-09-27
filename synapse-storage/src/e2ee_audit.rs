@@ -33,11 +33,10 @@ pub struct KeyAuditEntry {
     pub user_id: String,
     /// The `device_id` field.
     pub device_id: Option<String>,
-    /// The `operation` field. `e2ee_audit_log.operation` is **nullable** in the schema
-    /// (only the equal-valued, zero-reader `action` column is `NOT NULL`), but the sole
-    /// writer in the repository is `E2eeAuditStorage::log_key_operation`, which always
-    /// binds `KeyEvent.operation: String` ⇒ the reads assert `AS "operation!"` (R4).
-    /// Structural fix (tighten `operation` to `NOT NULL`, drop `action`): D-73.
+    /// The `operation` field. `e2ee_audit_log.operation` is `NOT NULL` — the schema was
+    /// tightened under D-73 (2026-09-26) at the same time as the equal-valued,
+    /// zero-reader `action` column was dropped, so the reads need no `AS "operation!"`
+    /// assertion anymore (R4: prefer the structural fix over a nullability assertion).
     pub operation: String,
     /// The `key_id` field.
     pub key_id: Option<String>,
@@ -70,12 +69,11 @@ impl E2eeAuditStorage {
         sqlx::query!(
             r"
             INSERT INTO e2ee_audit_log
-            (user_id, device_id, action, operation, key_id, room_id, details, ip_address, created_ts)
-            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, '{}'::jsonb), $8, $9)
+            (user_id, device_id, operation, key_id, room_id, details, ip_address, created_ts)
+            VALUES ($1, $2, $3, $4, $5, COALESCE($6, '{}'::jsonb), $7, $8)
             ",
             &event.user_id,
             event.device_id.as_deref(),
-            &event.operation,
             &event.operation,
             event.key_id.as_deref(),
             event.room_id.as_deref(),
@@ -95,7 +93,7 @@ impl E2eeAuditStorage {
         sqlx::query_as!(
             KeyAuditEntry,
             r#"
-            SELECT id, user_id, device_id, operation AS "operation!", key_id, room_id, details, ip_address, created_ts
+            SELECT id, user_id, device_id, operation, key_id, room_id, details, ip_address, created_ts
             FROM e2ee_audit_log
             WHERE user_id = $1
             ORDER BY created_ts DESC, id DESC
@@ -120,7 +118,7 @@ impl E2eeAuditStorage {
             sqlx::query_as!(
                 KeyAuditEntry,
                 r#"
-                SELECT id, user_id, device_id, operation AS "operation!", key_id, room_id, details, ip_address, created_ts
+                SELECT id, user_id, device_id, operation, key_id, room_id, details, ip_address, created_ts
                 FROM e2ee_audit_log
                 WHERE user_id = $1 AND (created_ts < $2 OR (created_ts = $2 AND id < $3))
                 ORDER BY created_ts DESC, id DESC
@@ -138,7 +136,7 @@ impl E2eeAuditStorage {
             sqlx::query_as!(
                 KeyAuditEntry,
                 r#"
-                SELECT id, user_id, device_id, operation AS "operation!", key_id, room_id, details, ip_address, created_ts
+                SELECT id, user_id, device_id, operation, key_id, room_id, details, ip_address, created_ts
                 FROM e2ee_audit_log
                 WHERE user_id = $1
                 ORDER BY created_ts DESC, id DESC
@@ -158,7 +156,7 @@ impl E2eeAuditStorage {
         sqlx::query_as!(
             KeyAuditEntry,
             r#"
-            SELECT id, user_id, device_id, operation AS "operation!", key_id, room_id, details, ip_address, created_ts
+            SELECT id, user_id, device_id, operation, key_id, room_id, details, ip_address, created_ts
             FROM e2ee_audit_log
             WHERE operation = $1
             ORDER BY created_ts DESC, id DESC
@@ -181,7 +179,7 @@ impl E2eeAuditStorage {
         sqlx::query_as!(
             KeyAuditEntry,
             r#"
-            SELECT id, user_id, device_id, operation AS "operation!", key_id, room_id, details, ip_address, created_ts
+            SELECT id, user_id, device_id, operation, key_id, room_id, details, ip_address, created_ts
             FROM e2ee_audit_log
             WHERE user_id = $1 AND device_id = $2
             ORDER BY created_ts DESC, id DESC

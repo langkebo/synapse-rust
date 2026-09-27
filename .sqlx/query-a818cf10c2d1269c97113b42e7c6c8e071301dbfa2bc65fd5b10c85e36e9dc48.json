@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT id, user_id, device_id, operation AS \"operation!\", key_id, room_id, details, ip_address, created_ts\n                FROM e2ee_audit_log\n                WHERE user_id = $1 AND (created_ts < $2 OR (created_ts = $2 AND id < $3))\n                ORDER BY created_ts DESC, id DESC\n                LIMIT $4\n                ",
+  "query": "\n                SELECT id, user_id, device_id, operation, key_id, room_id, details, ip_address, created_ts\n                FROM e2ee_audit_log\n                WHERE user_id = $1 AND (created_ts < $2 OR (created_ts = $2 AND id < $3))\n                ORDER BY created_ts DESC, id DESC\n                LIMIT $4\n                ",
   "describe": {
     "columns": [
       {
@@ -20,7 +20,7 @@
       },
       {
         "ordinal": 3,
-        "name": "operation!",
+        "name": "operation",
         "type_info": "Text"
       },
       {
@@ -61,7 +61,7 @@
       false,
       false,
       true,
-      true,
+      false,
       true,
       true,
       false,
@@ -69,5 +69,5 @@
       false
     ]
   },
-  "hash": "65e5eabccfae741982be1eeb7d861d2e35c7dc6b684101b3477726201b30fd66"
+  "hash": "a818cf10c2d1269c97113b42e7c6c8e071301dbfa2bc65fd5b10c85e36e9dc48"
 }
