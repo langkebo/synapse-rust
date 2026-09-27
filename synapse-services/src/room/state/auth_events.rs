@@ -21,7 +21,9 @@
 //!
 //! - `m.room.create` → no auth events at all (it is the DAG root).
 //! - otherwise: current `m.room.power_levels`, the sender's `m.room.member`,
-//!   and the `m.room.create`;
+//!   and — for room versions **below 12** — the `m.room.create`;
+//!   v12+ (MSC4291) omits the create event because the room id *is* the create
+//!   event's id, so the reference is implied and must not be spelled out;
 //! - `m.room.member` additionally: the **target's** `m.room.member`; the
 //!   current `m.room.join_rules` when membership is `join` / `invite` /
 //!   `knock`; the `m.room.third_party_invite` named by
@@ -40,6 +42,7 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
+use synapse_common::room_versions::room_version_at_least;
 use synapse_storage::event::StateEvent;
 
 /// The subset of room state used to select `auth_events`.
@@ -96,6 +99,16 @@ fn supports_restricted_join_rule(room_version: &str) -> bool {
 /// The `(type, state_key)` pairs selected as auth events for an event.
 ///
 /// Returns an empty list for `m.room.create`. Order is deterministic (sorted).
+///
+/// **Room version 12+ (MSC4291 rule 2.5 / the create-implied room id):** the
+/// `m.room.create` entry is **not** selected. In v12 the room id is the create
+/// event's id with the sigil swapped, so the create event is implied by the room
+/// id the event already carries; listing it in `auth_events` is redundant. The
+/// spec's v12 auth rules also remove the old rule that required it (deleted rule
+/// 2.4), and 3.5/MSC4307 then validates that every `auth_events` entry belongs to
+/// the same room — which an implied create reference cannot satisfy by
+/// construction. Below v12 the create event stays in the list: that is the
+/// long-standing behaviour every existing room's DAG depends on.
 pub fn auth_types_for_event(
     room_version: &str,
     event_type: &str,
@@ -107,11 +120,11 @@ pub fn auth_types_for_event(
         return Vec::new();
     }
 
-    let mut types: Vec<(String, String)> = vec![
-        ("m.room.power_levels".to_string(), String::new()),
-        ("m.room.member".to_string(), sender.to_string()),
-        ("m.room.create".to_string(), String::new()),
-    ];
+    let mut types: Vec<(String, String)> =
+        vec![("m.room.power_levels".to_string(), String::new()), ("m.room.member".to_string(), sender.to_string())];
+    if !room_version_at_least(room_version, 12) {
+        types.push(("m.room.create".to_string(), String::new()));
+    }
 
     if event_type == "m.room.member" {
         let membership = content.get("membership").and_then(Value::as_str).unwrap_or_default();
@@ -236,6 +249,69 @@ mod tests {
         let partial = AuthStateSnapshot::from_state_events(&[state_event("m.room.create", "", "$create")]);
         let selected = select_auth_events("11", &partial, "m.room.message", None, "@alice:example.com", &json!({}));
         assert_eq!(selected, vec!["$create".to_string()]);
+    }
+
+    // ── G-28 / D-4: v12+ must not select the create event ───────────────────
+
+    /// v12 (MSC4291) makes the room id the create event's id, so the create
+    /// event is implied and must not appear in `auth_events`. v11 and below keep
+    /// selecting it — the two versions must diverge here, not merely both pass.
+    #[test]
+    fn v12_omits_the_create_event_where_v11_selects_it() {
+        let v11 = select_auth_events(
+            "11",
+            &snapshot(),
+            "m.room.message",
+            None,
+            "@alice:example.com",
+            &json!({"body": "hi", "msgtype": "m.text"}),
+        );
+        let v12 = select_auth_events(
+            "12",
+            &snapshot(),
+            "m.room.message",
+            None,
+            "@alice:example.com",
+            &json!({"body": "hi", "msgtype": "m.text"}),
+        );
+
+        assert_eq!(v11, vec!["$create".to_string(), "$alice_member".to_string(), "$pl".to_string()]);
+        assert_eq!(v12, vec!["$alice_member".to_string(), "$pl".to_string()], "v12 must omit $create");
+        assert!(!v12.contains(&"$create".to_string()), "the create reference is implied by the room id");
+    }
+
+    /// The `(type, state_key)` selection itself must drop the create pair from
+    /// v12 on, so the exclusion does not depend on the snapshot happening to
+    /// contain (or omit) a create event.
+    #[test]
+    fn v12_auth_types_have_no_create_entry() {
+        let v12 = auth_types_for_event("12", "m.room.message", None, "@alice:example.com", &json!({}));
+        assert!(
+            !v12.iter().any(|(event_type, _)| event_type == "m.room.create"),
+            "v12 auth types must not name m.room.create, got {v12:?}"
+        );
+
+        // v13 is a parse-only placeholder upstream, but the threshold rule is
+        // "12 and later"; it must not fall back to the v11 list either.
+        let v13 = auth_types_for_event("13", "m.room.message", None, "@alice:example.com", &json!({}));
+        assert!(!v13.iter().any(|(event_type, _)| event_type == "m.room.create"), "got {v13:?}");
+
+        // A version that does not parse as a number must fail closed to the
+        // *older* behaviour rather than silently claiming 12+ semantics.
+        let unknown = auth_types_for_event("hydra", "m.room.message", None, "@alice:example.com", &json!({}));
+        assert!(
+            unknown.iter().any(|(event_type, _)| event_type == "m.room.create"),
+            "an unparseable version must keep the pre-v12 selection, got {unknown:?}"
+        );
+    }
+
+    /// `m.room.create` itself never has auth events, in any version.
+    #[test]
+    fn create_event_has_no_auth_events_in_v12_either() {
+        for version in ["1", "11", "12", "13"] {
+            let types = auth_types_for_event(version, "m.room.create", Some(""), "@alice:example.com", &json!({}));
+            assert!(types.is_empty(), "v{version}: m.room.create must not reference auth events, got {types:?}");
+        }
     }
 
     #[test]
