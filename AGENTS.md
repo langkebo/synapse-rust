@@ -176,6 +176,12 @@ start the stack **by these service names**) and `docker/deploy/docker-compose.ym
   `scripts/ci/sqlx_prepare.sh` 内置三道护栏：`DATABASE_URL` 必须**显式**给出（没有默认值）；
   它解析到的 schema 必须有 ≥100 张 BASE TABLE 且含 `events`/`rooms`/`users`（不满足即 fail fast，
   不进入编译）；写完后若条目数**减少**则打印被删清单并**回滚**（只有 `ALLOW_CACHE_SHRINK=1` 才允许缩容）。
+- **环境里没有 `psql`（或沙箱不允许执行它）时**：第二道检查依赖 `psql`，两条出路 ——
+  ① 用绝对路径调用它（本机 Homebrew：`/opt/homebrew/opt/postgresql@15/bin/psql`，
+     通常只是不在 `PATH` 上）；② 用一个**已迁移好**的库并设 `SQLX_PREPARE_SKIP_DB_CHECK=1`
+     显式跳过第二道（`--check` 模式**不允许**跳过；快照 + 缩容回滚**仍然生效** ——
+     真正的不变量是第三道，前置检查只是"更早失败"）。
+  ⚠️ **`cargo sqlx prepare` 自己只走 Rust 驱动，不需要 `psql`**；psql 只服务这个前置检查。
 - 🚫 **`check_sqlx_cache_fresh.sh --full` 在本环境禁止使用**（它现在 `exec` 上面那个脚本的
   `--check` 模式）：该模式要对着真库逐条 describe，而共享 `synapse_test.public` 会被并发会话的
   D-57② 收敛清空（实测 0 表）—— 那时它不报"缓存过期"，而是吐 **1443 个 E0282/E0277**，

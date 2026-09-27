@@ -60,7 +60,9 @@ python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
 > `synapse_test.public` 会被并发会话的 D-57② 收敛清空 ⇒ 实测吐出 1443 个误导性
 > E0282/E0277），**禁止**裸 `cargo sqlx prepare`（destination 就是 `.sqlx/` 且先清空再重写）。
 > 要写缓存只有唯一入口：`DATABASE_URL=<已迁移库> bash scripts/ci/sqlx_prepare.sh`
-> （前置检查 + 缩容回滚，见 AGENTS.md R2）。
+> （前置检查 + 缩容回滚，见 AGENTS.md R2）。**环境里没有 `psql`** 时：用绝对路径
+> `/opt/homebrew/opt/postgresql@15/bin/psql`，或用一个**已迁移好**的库 + `SQLX_PREPARE_SKIP_DB_CHECK=1`
+> 跳过前置检查（`--check` 不允许跳；缩容回滚仍生效）。`cargo sqlx prepare` 自身不需要 psql。
 
 ### 0.4 缺陷发现总览（**77 条**；只给统计与去向，不逐条显示）
 
@@ -424,6 +426,9 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
      必须 ≥100 张 BASE TABLE 且含 `events`/`rooms`/`users`，否则 **fail fast 且不进入编译**；写入前快照、
      写完若条目数减少则打印被删清单并**回滚**，`ALLOW_CACHE_SHRINK=1` 才允许缩容）；
      `check_sqlx_cache_fresh.sh --full` 改为 `exec` 它的 `--check`（护栏只有一份实现）。
+     补充（2026-09-26，psql-less 环境）：第二道前置检查依赖 `psql`；没有 `psql` 时可用绝对路径
+     （`/opt/homebrew/opt/postgresql@15/bin/psql`）或 `SQLX_PREPARE_SKIP_DB_CHECK=1` 显式跳过
+     （只跳过检查，快照 + 缩容回滚仍是硬不变量；`--check` 不允许跳过）。
      **环境已修复**：`RESET_PUBLIC=0 TARGET_SCHEMA=public` 幂等 apply ⇒ `public` 222 对象 / 220 BASE TABLE；
      `--full` 复跑 **exit 0**。
    - **自证（R11，全部实测）**：新增 `tests/unit/sqlx_cache_tooling_guard_tests.rs`（14 个用例，
