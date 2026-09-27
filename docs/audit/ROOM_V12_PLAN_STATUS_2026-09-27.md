@@ -168,3 +168,20 @@ via_finalize=$honiPdN...       ← finalize_local_pdu(&parts).event_id
 而不是 `compute_event_id` 的纯函数单测。
 
 **因此 §3.2 的阶段顺序应修正为**：`C-3(DB) → D-6 → C-2 → D-4 → …`；D-6 不应留在阶段 D。
+
+---
+
+## 3. A-2 决策落档（2026-09-27，任务方裁定）
+
+> 计划 §5 的 Q1–Q8 以本表为**结论**（原文档的"建议（供讨论）"至此作废）。
+
+| # | 决策 | 影响与后续工作项 |
+|---|---|---|
+| **Q1** | **(a) 仅禁止创建**：v1–v11 的 `can_create = false`，但 `can_join` / `can_parse` / `can_federate` 保持 | G-1 只改 `can_create` 与其守卫/快照/约 10 处建房用例；本仓仍可加入现存 v11 联邦房间（互操作，非兼容层）。`ck_rooms_room_version_valid` 的存在理由保持 |
+| **Q2** | **(a) 删除 `CreateRoomConfig.room_id` 逃逸口**；房间升级改为"**先建新房（派生 id）→ 再 tombstone 旧房**" | 需要 C-4（升级顺序反转）+ C-5（删除逃逸口与内部合成房间改造）。`room/service.rs:41/536`、`admin/notification.rs`、`space/repository.rs` |
+| **Q3** | 内部合成房间（server notice / space）纳入统一建房入口（随 Q2 一起） | C-5 |
+| **Q4** | 接受 `/capabilities.available` 收敛为仅 v12 | G-1 后更新快照 |
+| **Q5** | **(b) 从能力表移除 `"13"`** | `room_versions.rs:114` 删 `stable_parse_only("13")`；同步其守卫与 `redaction_rules("13")` 的 fail-closed 断言 |
+| **Q6** | **(b) 不接线**：按铁律 1 删除 `StateResolutionService` 与 `resolve_state_v2` 死实现；v2.1 只在 `resolve_state_with_auth_chain` 上演进 | F-1/F-2/F-3 的验收改为"现有裁决路径满足 v2.1 语义 + 测试向量" |
+| **Q7** | **不允许**客户端在 `creation_content` 传 `additional_creators`（服务端/应用服务专属） | E-1 写入侧边界；handler 黑名单保持并补文档 |
+| **Q8** | 接受计划的阶段排序**但按 §2.5 修正**：`C-3(DB) → D-6 → C-2 → D-4 → D-1 → C-4 → C-5 → E → F → G-1 → H` | 见 §2.5 |
