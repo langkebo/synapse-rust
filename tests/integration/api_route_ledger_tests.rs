@@ -218,10 +218,24 @@ async fn declared_route_manifest_entries_are_actually_wired() {
                 let status = response.status();
 
                 if status == StatusCode::NOT_FOUND {
-                    return Outcome::Missing(format!(
-                        "{} {} (declared by {})",
-                        entry.method, entry.path, entry.registered_by
-                    ));
+                    // A wired route can legitimately answer 404: e.g. a handler
+                    // that looks up a resource by a probe id that does not exist
+                    // (the MSC4512 proxy accepts PATCH via `any()`, so the probe
+                    // reaches `proxy_to_as`, which returns `M_NOT_FOUND` for an
+                    // unknown AS). The router's catch-all fallback is the *only*
+                    // signal that a route is genuinely absent, and it answers
+                    // `M_UNRECOGNIZED` (see `create_router`). Distinguish them
+                    // so `any()`-style routes are not misreported as missing.
+                    let body = axum::body::to_bytes(response.into_body(), 64 * 1024).await.unwrap_or_default();
+                    let is_router_fallback = String::from_utf8_lossy(&body).contains("M_UNRECOGNIZED");
+                    if is_router_fallback {
+                        return Outcome::Missing(format!(
+                            "{} {} (declared by {})",
+                            entry.method, entry.path, entry.registered_by
+                        ));
+                    }
+                    // A handler produced this 404, so the route is wired.
+                    return Outcome::Ok;
                 }
                 if status != StatusCode::METHOD_NOT_ALLOWED {
                     // Any other status means the route exists and is doing
