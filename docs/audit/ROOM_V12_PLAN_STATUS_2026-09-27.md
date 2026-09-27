@@ -30,9 +30,9 @@
 | **D-4** | 本地 `auth_events` 不再包含 create（G-28） | ✅ **完成**（`b7cf472b4`） | `auth_types_for_event` 改为 `if !room_version_at_least(room_version, 12)` 才加 create；3 个新用例 + 变异自证（反转阈值 → 5 红） |
 | **D-5** | 裁定 auth chain / auth difference 是否含 create | ❌ **未做** | `synapse-web/src/routes/federation/pdu.rs:141-157` 五类型清单原样；计划自标【待核验】 |
 | **D-6** | 出站 create PDU 省略 `room_id`（G-10） | ✅ **完成**（`e2b8266b3`） | `build_pdu` 对 v12+ create 不写 `room_id`；**它是 C-2 的硬前置**（见 §2.5） |
-| **E-1** | `additional_creators` 校验（规则 1.4） | ❌ **未做** | 全仓 `grep additional_creators` **0** 命中（与计划 G-31 一致） |
-| **E-2** | 创建者集合 + 无限 PL（G-32/33/35） | ❌ **未做** | `auth/power_levels.rs:73` 仍 `resolve_room_creator -> Option<String>`（单个）；无 `i64::MAX` 哨兵 |
-| **E-3** | 规则 10.4：PL 的 `users` 不得含创建者 | ❌ **未做** | 无该检查；`rules.rs:120` 注释把它列为待加规则 |
+| **E-1** | `additional_creators` 校验（规则 1.4） | ✅ **完成**（`a659f9f7d`） | v12+ create 的 `additional_creators` 必须为合法 user ID 数组；user-id 语法抽为唯一实现 `validation::is_well_formed_user_id` 并让 `Validator` 委托；7 用例 + 变异自证 |
+| **E-2** | 创建者集合 + 无限 PL（G-32/33/35） | ✅ **完成**（`6f0c1735a`） | `room_creators_and_version` 一次读 create 事件返回（集合, 版本）；`resolve_room_creators`；v12+ 创建者返回 `CREATOR_POWER_LEVEL = i64::MAX` 且**排在读 PL 之前**（不可降权）；踢/封保护改用集合；版本未知时 fail-closed 不授予无限 |
+| **E-3** | 规则 10.4：PL 的 `users` 不得含创建者 | ✅ **完成**（`6f0c1735a` 客户端路径 + `fcc57e0f2` 入站） | 客户端 `verify_power_levels_change` 拒绝；入站经 B-1 接缝（`InboundEventAuth.creators`），创建者集合由 `ctx.room_service` 读出，**读失败 fail-closed 拒绝**；创建者抽取统一到 `synapse_common::room_creator` |
 | **F-1** | 状态决议接线决策（G-38 零调用者） | 🟡 **已决策（A-2 Q6b），未执行** | 裁定：**不接线**；删除 `StateResolutionService` / `resolve_state_v2` 死实现，v2.1 只在 `resolve_state_with_auth_chain` 上演进（该函数目前亦仅被 bench 调用，去留需在 F-2 一并处理） |
 | **F-2** | v2.1 三处修改 | ❌ **未做** | `grep "conflicted state subgraph"` / `"iterative auth"` 在 src **0** 命中 |
 | **F-3** | v1–v11 兼容边界 | ❌ **未做** | 依赖 F-2 |
@@ -41,8 +41,11 @@
 | **H-1** | 逐份更正文档（含额外 6 份） | 🟡 **部分完成** | `d3a12ca73`（`docs/room-version-12-13-correction`，已并进本分支历史）改了 `CURRENT_ISSUES_AND_PLAN.md` 与 `REMAINING_ISSUES_...2026-09-25.md`；`V12_ROOM_VERSION_..._PLAN.md:21` 已自我更正 MSC4239 误引<br>❌ `AUDIT_SUMMARY_2026-09-12.md`、`DB_REVIEW_2026-09-17.md` 最近提交仍是 markdownlint 批（**未加 superseded 横幅**）；`docs/synapse-rust/` 与 `docs/audit/O1_PHASE1_...` 未核 |
 | **H-2** | Q1–Q7 结论落档 | ❌ **未做** | 依赖 A-2 |
 
-**计数（批次 2 后）**：✅ 完成 10（A-1、A-2、B-1、B-2、C-1、C-2、C-3、D-1、D-4、D-6）｜🟡 部分 3（D-3、G-1+G-2、H-1）｜❌ 未做 11（F-1 已决策未执行）。
+**计数（E 组后）**：✅ 完成 13（A-1、A-2、B-1、B-2、C-1、C-2、C-3、D-1、D-4、D-6、E-1、E-2、E-3）｜🟡 部分 3（D-3、G-1+G-2、H-1）｜❌ 未做 8（C-4、C-5、D-2、D-5、F-1/F-2/F-3、G-1、H-1/H-2 中的未做项）。
 
+> **E 组完成（2026-09-27）**：`a659f9f7d`（E-1 规则 1.4）、`6f0c1735a`（E-2 无限创建者 + E-3 客户端）、`fcc57e0f2`（E-3 入站 + 唯一创建者实现）。
+> 剩余：**C-4/C-5**（升级顺序反转 + 删逃逸口）、**F 组**（Q6b：删 `StateResolutionService`/`resolve_state_v2`，v2.1 在 `resolve_state_with_auth_chain` 演进；注意该函数届时仅剩 bench 调用，去留需一并裁定）、**G-1**（v1–v11 收敛 `can_create` + 约 10 处用例迁移）、**H-1/H-2** 文档。
+>
 > **批次 2 完成（2026-09-27）**：`227a7228d`（D-1 入站规则 1.2）、`6cb305409`（A-2 决策落档：Q1=a / Q2=a / Q5=b / Q6=b）、`c83e3faf9`（Q5 移除 v13）。
 > 剩余：C-4（升级顺序反转）、C-5（删逃逸口 + 合成房间）、E 组（MSC4289）、F 组（MSC4297，按 Q6b 删死实现 + v2.1 向量）、G-1（v1–v11 收敛 can_create）、H 文档。
 >
