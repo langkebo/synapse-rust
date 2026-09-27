@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": true
   },
-  "entry_count": 1139,
+  "entry_count": 1141,
   "entries": [
     {
       "method": "GET",
@@ -8145,6 +8145,11 @@
       "query_params": []
     },
     {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/invite/allowlist",
+      "registered_by": "admin::server"
+    },
+    {
       "method": "GET",
       "path": "/_synapse/admin/v1/invite/blocklist",
       "registered_by": "admin::server",
@@ -8152,9 +8157,21 @@
       "query_params": []
     },
     {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/invite/blocklist",
+      "registered_by": "admin::server"
+    },
+    {
       "method": "GET",
       "path": "/_synapse/admin/v1/jitsi/config",
       "registered_by": "admin::server",
+      "path_params": [],
+      "query_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/media",
+      "registered_by": "admin::media",
       "path_params": [],
       "query_params": []
     },
@@ -8169,6 +8186,13 @@
       "query_params": []
     },
     {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/media/quota",
+      "registered_by": "admin::media",
+      "path_params": [],
+      "query_params": []
+    },
+    {
       "method": "POST",
       "path": "/_synapse/admin/v1/media/unquarantine/{server_name}/{media_id}",
       "registered_by": "admin::media",
@@ -8176,20 +8200,6 @@
         "server_name",
         "media_id"
       ],
-      "query_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/media",
-      "registered_by": "admin::media",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/media/quota",
-      "registered_by": "admin::media",
-      "path_params": [],
       "query_params": []
     },
     {
