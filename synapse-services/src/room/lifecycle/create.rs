@@ -9,6 +9,7 @@ use super::creation_graph::CreationGraph;
 use super::service::LifecycleService;
 use serde_json::json;
 use synapse_common::current_timestamp_millis;
+use synapse_common::room_id::room_id_from_create_event_id;
 use synapse_common::room_versions::{resolve_room_version, DEFAULT_ROOM_VERSION};
 use synapse_common::{generate_room_id, ApiError, ApiResult};
 
@@ -21,9 +22,6 @@ impl LifecycleService {
             }
         }
 
-        // `config.room_id` is the pre-allocation escape hatch (room upgrades,
-        // where the tombstone must name this room before it exists).
-        let room_id = config.room_id.clone().unwrap_or_else(|| self.generate_room_id());
         let mut join_rule = Self::determine_join_rule(config.preset.as_deref());
         let is_public = Self::is_public_visibility(config.visibility.as_deref());
 
@@ -43,6 +41,59 @@ impl LifecycleService {
                 config.room_version.as_deref().unwrap_or(DEFAULT_ROOM_VERSION)
             ))
         })?;
+
+        // MSC4291 (room v12+): the room id **is** the create event's id with the
+        // sigil swapped, so it cannot be chosen before the create event exists.
+        // Mint the create event's content here, derive its one and only id from
+        // the content, and take the room id from it. The hash must not depend on
+        // the room id or the derivation would be circular: `build_pdu` therefore
+        // omits `room_id` for a v12+ create event (D-6), and the placeholder
+        // passed below never reaches the hash.
+        let now = current_timestamp_millis();
+        let create_content = build_create_event_content(user_id, room_version, &config);
+
+        // True only when the room id came from the create event's own id; the
+        // pre-allocated escape hatch below deliberately bypasses the derivation
+        // (room upgrades name the room before it exists — C-5 tracks removing
+        // that, after which this flag can go).
+        let mut room_id_derived_from_create = false;
+        // Pinned into the create event's write so a non-finalizing writer (the
+        // legacy storage path) persists the same id the room id was derived
+        // from, not a fresh placeholder.
+        let mut derived_create_event_id: Option<String> = None;
+        let room_id = if let Some(pre_allocated) = config.room_id.clone() {
+            // `config.room_id` is the pre-allocation escape hatch (room upgrades,
+            // where the tombstone must name this room before it exists).
+            pre_allocated
+        } else if synapse_common::room_versions::room_version_at_least(room_version, 12) {
+            let placeholder_room_id = self.generate_room_id();
+            let parts = synapse_common::pdu::PduParts {
+                room_version,
+                event_id: None,
+                room_id: &placeholder_room_id,
+                sender: user_id,
+                event_type: "m.room.create",
+                content: &create_content,
+                state_key: Some(""),
+                origin_server_ts: now,
+                origin: &self.server_name,
+                // `CreationGraph::next` gives the first event of a fresh graph
+                // `depth = 1`, and depth takes part in the reference hash.
+                depth: 1,
+                prev_events: &[],
+                auth_events: &[],
+                redacts: None,
+            };
+            let finalized = synapse_federation::event_finalize::finalize_local_pdu(&parts).map_err(|e| {
+                ApiError::internal_with_cause("Failed to derive the v12 room id from the create event", e)
+            })?;
+            room_id_derived_from_create = true;
+            derived_create_event_id = Some(finalized.event_id.clone());
+            room_id_from_create_event_id(&finalized.event_id)
+                .map_err(|e| ApiError::internal(format!("The create event id is not a v12 reference hash: {e}")))?
+        } else {
+            self.generate_room_id()
+        };
 
         // MSC4284: consult the policy server before beginning the transaction.
         // Placed before tx.begin() so we don't hold a DB transaction open during
@@ -71,8 +122,6 @@ impl LifecycleService {
             return Err(ApiError::internal_with_context("Failed to create room", e));
         }
 
-        let now = current_timestamp_millis();
-        let create_content = build_create_event_content(user_id, room_version, &config);
         // The creation events below are emitted in one linear order inside this
         // transaction. The write-path decorator cannot resolve their DAG metadata
         // (transactional reads cannot see uncommitted rows), so the sequence is
@@ -82,6 +131,7 @@ impl LifecycleService {
         let result = self
             .write_creation_event(
                 &mut graph,
+                derived_create_event_id.as_deref(),
                 &room_id,
                 user_id,
                 "m.room.create",
@@ -102,6 +152,27 @@ impl LifecycleService {
             let _ = tx.rollback().await;
             return Err(ApiError::internal_with_context("Failed to create m.room.create event", e));
         }
+        // The create event's persisted identity must be the one the room id was
+        // derived from, or the `rooms` row and its create event would disagree
+        // about the room's identity (MSC4291). Divergence would mean the
+        // derivation and the write path disagree, so fail the transaction rather
+        // than persist an unresolvable room.
+        if room_id_derived_from_create {
+            if let Ok(create_event_id) = &result {
+                let expected_room_id = synapse_common::room_id::room_id_from_create_event_id(create_event_id);
+                if expected_room_id.as_deref() != Ok(room_id.as_str()) {
+                    ::tracing::error!(
+                        room_id = %room_id,
+                        create_event_id = %create_event_id,
+                        "the v12 room id does not derive from the persisted create event"
+                    );
+                    let _ = tx.rollback().await;
+                    return Err(ApiError::internal(format!(
+                        "the create event id {create_event_id} does not derive the room id {room_id}"
+                    )));
+                }
+            }
+        }
 
         let result = self.add_creator_to_room(&room_id, user_id, Some(&mut tx)).await;
         if let Err(e) = &result {
@@ -118,6 +189,7 @@ impl LifecycleService {
         let result = self
             .write_creation_event(
                 &mut graph,
+                None,
                 &room_id,
                 user_id,
                 "m.room.member",
@@ -165,6 +237,7 @@ impl LifecycleService {
         let result = self
             .write_creation_event(
                 &mut graph,
+                None,
                 &room_id,
                 user_id,
                 "m.room.power_levels",
@@ -182,6 +255,7 @@ impl LifecycleService {
         let result = self
             .write_creation_event(
                 &mut graph,
+                None,
                 &room_id,
                 user_id,
                 "m.room.join_rules",
@@ -206,6 +280,7 @@ impl LifecycleService {
         let result = self
             .write_creation_event(
                 &mut graph,
+                None,
                 &room_id,
                 user_id,
                 "m.room.history_visibility",
@@ -224,6 +299,7 @@ impl LifecycleService {
         let result = self
             .write_creation_event(
                 &mut graph,
+                None,
                 &room_id,
                 user_id,
                 "m.room.guest_access",
@@ -292,6 +368,7 @@ impl LifecycleService {
                 let result = self
                     .write_creation_event(
                         &mut graph,
+                        None,
                         &room_id,
                         user_id,
                         event_type,
@@ -330,6 +407,7 @@ impl LifecycleService {
                 let result = self
                     .write_creation_event(
                         &mut graph,
+                        None,
                         &room_id,
                         user_id,
                         "m.room.encryption",
@@ -358,6 +436,7 @@ impl LifecycleService {
             let result = self
                 .write_creation_event(
                     &mut graph,
+                    None,
                     &room_id,
                     user_id,
                     "com.hula.privacy",

@@ -27,10 +27,19 @@ impl LifecycleService {
     /// was actually persisted under, and `graph` is re-pointed at it before the
     /// next event is emitted. For v1/v2 the placeholder *is* final and
     /// finalization leaves it untouched.
+    ///
+    /// Returns the id the row was persisted under, so a caller that must know the
+    /// event's identity (e.g. deriving a v12 room id from the create event) never
+    /// has to re-implement finalization.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn write_creation_event(
         &self,
         graph: &mut CreationGraph,
+        // `event_id`: the event's identity when the caller already knows it
+        // (room v12+ derives the room id from the create event's id, so it must
+        // be able to pin it); `None` mints a fresh placeholder. A finalizing
+        // writer recomputes the id from the PDU and must land on the same value.
+        event_id: Option<&str>,
         room_id: &str,
         sender: &str,
         event_type: &str,
@@ -38,8 +47,8 @@ impl LifecycleService {
         content: serde_json::Value,
         origin_server_ts: i64,
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
-    ) -> Result<(), sqlx::Error> {
-        let placeholder_id = generate_event_id(&self.server_name);
+    ) -> Result<String, sqlx::Error> {
+        let placeholder_id = event_id.map(str::to_string).unwrap_or_else(|| generate_event_id(&self.server_name));
         let metadata = graph.next(&placeholder_id, event_type, state_key, sender, &content);
 
         let written = self
@@ -71,7 +80,7 @@ impl LifecycleService {
         // placeholder in every room version.
         graph.rekey_last(&written.event_id, event_type, state_key);
 
-        Ok(())
+        Ok(written.event_id)
     }
 
     /// See [`create_room_in_db`].
@@ -134,6 +143,7 @@ impl LifecycleService {
             }
             self.write_creation_event(
                 graph,
+                None,
                 room_id,
                 user_id,
                 "m.room.name",
@@ -160,6 +170,7 @@ impl LifecycleService {
             }
             self.write_creation_event(
                 graph,
+                None,
                 room_id,
                 user_id,
                 "m.room.topic",
@@ -219,6 +230,7 @@ impl LifecycleService {
                     .map_err(|e| ApiError::internal_with_cause("Failed to invite user", e))?;
                 self.write_creation_event(
                     graph,
+                    None,
                     room_id,
                     sender_user_id,
                     "m.room.member",

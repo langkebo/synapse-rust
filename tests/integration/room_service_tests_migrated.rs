@@ -5257,3 +5257,46 @@ async fn test_create_room_keeps_the_server_assigned_create_id_for_v1_rooms() {
     assert_ne!(create_event.event_id.len(), 44, "a v1 id is not a reference hash: {}", create_event.event_id);
     assert_eq!(receiver_side_event_id(&event_storage, "1", &create_event.event_id).await, create_event.event_id);
 }
+
+/// C-2 (MSC4291 create side): a v12 room's **room id is the create event's id**,
+/// with the sigil swapped from `$` to `!`.
+///
+/// The pre-C-2 path minted a random `!<uuid>:<server>` id *before* the create
+/// event existed, which is not merely wrong for v12 — it also cannot satisfy
+/// `ck_rooms_room_id_format` in the v12 form (a uuid contains `-` and the id
+/// carries a `:`), so v12 room creation was blocked at the storage layer.
+#[tokio::test]
+async fn test_create_room_v12_room_id_is_the_create_event_id() {
+    let pool = crate::require_test_pool().await;
+
+    let id = unique_id();
+    let alice_id = format!("@alice_{id}:localhost");
+    create_test_user(&pool, &alice_id, &format!("alice_{id}")).await;
+
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let room_service = create_room_service_with_finalizing_writer(&pool, cache);
+
+    let config = CreateRoomConfig { room_version: Some("12".to_string()), ..Default::default() };
+    let room_val = room_service.lifecycle.create_room(&alice_id, config).await.expect("create_room must succeed");
+    let room_id = room_val["room_id"].as_str().unwrap().to_string();
+
+    let event_storage = EventStorage::new(&pool, "localhost".to_string());
+    let create_event = event_storage
+        .get_state_events_by_type(&room_id, "m.room.create")
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|event| event.state_key.as_deref() == Some(""))
+        .expect("room must have an m.room.create event");
+
+    // The create event itself is a v3+ reference hash ...
+    assert_eq!(create_event.event_id.len(), 44, "v12 create id: {}", create_event.event_id);
+    assert!(!create_event.event_id.contains(':'), "v3+ event ids carry no origin suffix");
+
+    // ... and the room id is that same string with the sigil swapped (MSC4291).
+    let expected_room_id = format!("!{}", &create_event.event_id[1..]);
+    assert_eq!(room_id, expected_room_id, "the v12 room id must be the create event's id with `$` swapped to `!`");
+
+    // The stored room id must also satisfy the v12 grammar on its own.
+    assert!(synapse_common::room_id::is_domainless_room_id(&room_id), "a v12 room id is domainless, got {room_id}");
+}

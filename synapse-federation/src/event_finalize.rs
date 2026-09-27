@@ -173,4 +173,76 @@ mod tests {
         let expected = compute_event_content_hash(&pdu).unwrap();
         assert_eq!(finalized.hashes["sha256"], json!(expected));
     }
+
+    /// D-6 / MSC4291: a v12+ create event's identity must be **independent of
+    /// the room id**, because the room id is defined as that identity with the
+    /// sigil swapped — a circular definition otherwise.
+    ///
+    /// This is asserted through the *full* finalize path on purpose. The leak was
+    /// that `finalize_local_pdu` inserts `hashes` before hashing, `hashes` stays
+    /// in the redacted event, and the content hash covers the whole PDU — so a
+    /// `room_id` left in the PDU reached the reference hash indirectly. Testing
+    /// `compute_event_id` on a bare (hash-less) PDU does **not** catch it.
+    #[test]
+    fn v12_create_identity_is_independent_of_the_room_id() {
+        let create_content = json!({"creator": "@u:example.com", "room_version": "12"});
+        let ids: Vec<String> = ["!a:example.com", "!b:example.com", "!unrelated-placeholder"]
+            .into_iter()
+            .map(|room_id| {
+                let p = PduParts {
+                    room_version: "12",
+                    event_id: None,
+                    room_id,
+                    sender: "@u:example.com",
+                    event_type: "m.room.create",
+                    content: &create_content,
+                    state_key: Some(""),
+                    origin_server_ts: 1_731_769_874_137,
+                    origin: "example.com",
+                    depth: 1,
+                    prev_events: &[],
+                    auth_events: &[],
+                    redacts: None,
+                };
+                finalize_local_pdu(&p).unwrap().event_id
+            })
+            .collect();
+
+        assert_eq!(ids[0], ids[1], "the v12 create id must not depend on room_id");
+        assert_eq!(ids[1], ids[2], "the v12 create id must not depend on room_id");
+        assert_eq!(ids[0].len(), 44, "`$` + 43 base64 chars: {}", ids[0]);
+    }
+
+    /// The control: below v12 the create event is an ordinary event whose PDU
+    /// carries `room_id`, so its identity legitimately depends on the room.
+    /// Without this, the test above would also pass if `room_id` were dropped
+    /// from *every* PDU.
+    #[test]
+    fn pre_v12_create_identity_still_covers_the_room_id() {
+        let create_content = json!({"creator": "@u:example.com", "room_version": "11"});
+        let mk = |room_id: &str| {
+            // Leaked per call: the parts only need to outlive `finalize_local_pdu`.
+            let content: &'static Value = Box::leak(Box::new(create_content.clone()));
+            PduParts {
+                room_version: "11",
+                event_id: None,
+                room_id: Box::leak(room_id.to_string().into_boxed_str()),
+                sender: "@u:example.com",
+                event_type: "m.room.create",
+                content,
+                state_key: Some(""),
+                origin_server_ts: 1_731_769_874_137,
+                origin: "example.com",
+                depth: 1,
+                prev_events: &[],
+                auth_events: &[],
+                redacts: None,
+            }
+        };
+        assert_ne!(
+            finalize_local_pdu(&mk("!a:example.com")).unwrap().event_id,
+            finalize_local_pdu(&mk("!b:example.com")).unwrap().event_id,
+            "a v11 create event is hashed with its room_id"
+        );
+    }
 }
