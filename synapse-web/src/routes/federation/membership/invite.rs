@@ -22,7 +22,7 @@ pub(crate) async fn thirdparty_invite(
         .get("room_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("room_id required".to_string()))?;
-    if !synapse_common::room_id::is_well_formed_room_id(&room_id) {
+    if !synapse_common::room_id::is_well_formed_room_id(room_id) {
         return Err(ApiError::bad_request("Invalid room_id format".to_string()));
     }
 
