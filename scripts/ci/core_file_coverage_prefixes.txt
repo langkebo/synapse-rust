@@ -41,7 +41,6 @@ synapse-storage/auth/
 # E2EE: the root facade, the implementation crate, and the storage side the old
 # ambiguous `e2ee/` also matched.
 src/e2ee/
-synapse-e2ee/verification/
 synapse-e2ee/olm/
 synapse-e2ee/megolm/
 synapse-e2ee/cross_signing/
