@@ -1,12 +1,12 @@
 //! Room membership actions: join, leave, forget.
 
-use crate::common::error::{ApiError, ApiResult};
+use crate::common::error::{ApiError, ApiErrorKind, ApiResult};
 use serde_json::json;
 use synapse_common::current_timestamp_millis;
 use synapse_common::{generate_event_id, is_legal, JoinRule, Membership, TransitionCtx};
 use synapse_storage::CreateEventParams;
 
-use super::service::MembershipService;
+use super::service::{MembershipService, RoomLocality};
 
 impl MembershipService {
     /// Join a room, automatically detecting whether the room is local or
@@ -154,14 +154,10 @@ impl MembershipService {
     /// See [`leave_room`].
     #[::tracing::instrument(skip(self))]
     pub async fn leave_room(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
-        // If the room belongs to a remote server, use the federation leave
-        // flow (make_leave / send_leave).
-        if self.is_remote_room(room_id) {
-            let destination = room_id
-                .rsplit_once(':')
-                .map(|(_, srv)| srv.to_string())
-                .ok_or_else(|| ApiError::bad_request("Invalid room ID: missing server name".to_string()))?;
-            return self.leave_room_via_federation(&destination, room_id, user_id).await;
+        // Locality comes from the room's ownership records, never from the id:
+        // a room v12 id carries no server at all (G-21).
+        if let RoomLocality::Remote { destinations } = self.room_locality(room_id).await? {
+            return self.leave_remote_room(&destinations, room_id, user_id).await;
         }
 
         let existing_member = self
@@ -229,6 +225,50 @@ impl MembershipService {
         self.trigger_key_rotation_on_leave(room_id, user_id).await;
 
         Ok(())
+    }
+
+    /// Leave a **remote** room by trying its resident servers in order.
+    ///
+    /// A room can have several residents, so the destination is a list (derived
+    /// from the room's ownership records by
+    /// [`room_locality`](Self::room_locality)) rather than a single server
+    /// guessed from the room id. Candidates are tried best-first until one
+    /// completes the make_leave / send_leave exchange.
+    ///
+    /// Only a failure of the *federation exchange* is retried against the next
+    /// candidate: `BadRequest` / `Forbidden` are produced by the ACL check,
+    /// make_leave, template validation and send_leave, all of which run before
+    /// any local write, so a retry cannot corrupt local state. Any other error
+    /// kind comes from signing or local persistence, which happens after the
+    /// remote exchange; it is surfaced immediately instead of being replayed
+    /// against another resident.
+    async fn leave_remote_room(&self, destinations: &[String], room_id: &str, user_id: &str) -> ApiResult<()> {
+        let mut last_error: Option<ApiError> = None;
+        for destination in destinations {
+            match self.leave_room_via_federation(destination, room_id, user_id).await {
+                Ok(()) => return Ok(()),
+                Err(err) => {
+                    let retryable = matches!(err.kind, ApiErrorKind::BadRequest | ApiErrorKind::Forbidden);
+                    ::tracing::warn!(
+                        room_id = %room_id,
+                        user_id = %user_id,
+                        destination = %destination,
+                        retryable = retryable,
+                        error = %err,
+                        "Federation leave failed"
+                    );
+                    last_error = Some(err);
+                    if !retryable {
+                        break;
+                    }
+                }
+            }
+        }
+        Err(last_error.unwrap_or_else(|| {
+            ApiError::bad_request(format!(
+                "Cannot leave remote room {room_id}: no resident server known and this server does not host it"
+            ))
+        }))
     }
 
     /// Forward-secrecy helper: when a member leaves an encrypted room, mark
@@ -344,7 +384,8 @@ impl MembershipService {
         // leave — but `leave_room_via_federation` is the only path that
         // can mark the membership as 'leave' in that case. Refuse to
         // combine because the federation hop is its own transaction.
-        if self.is_remote_room(room_id) {
+        // Locality is an ownership question, not an id-parsing one (G-21).
+        if let RoomLocality::Remote { .. } = self.room_locality(room_id).await? {
             return Err(ApiError::bad_request(
                 "MSC4267 leave+forget is only valid for local rooms. Leave the remote room first, then call /forget."
                     .to_string(),
@@ -474,18 +515,35 @@ mod tests {
     use crate::room::summary::RoomSummaryService;
     use crate::test_mocks::FakeRoomAuth;
 
-    use super::super::service::{MembershipService, MembershipServiceConfig};
+    use super::super::service::{MembershipService, MembershipServiceConfig, RoomLocality};
 
     const ROOM_ID: &str = "!enc:localhost";
     const USER_ID: &str = "@bob:localhost";
 
     /// Build a [`MembershipService`] wired with in-memory mocks and the given
     /// key-rotation spy, seeded with `@bob:localhost` joined to `!enc:localhost`.
+    ///
+    /// The `m.room.create` event is seeded too: locality is decided from room
+    /// ownership (G-21), so a fixture that wants a *local* room must record a
+    /// create event that originated here.
     async fn build_service(spy: Arc<InMemoryKeyRotationStorage>) -> MembershipService {
         let member_store = InMemoryMemberStore::new();
         member_store.add_member(ROOM_ID, USER_ID, "join", None).await.unwrap();
 
         let event_store = Arc::new(InMemoryEventStore::new());
+        event_store
+            .create_event(synapse_storage::CreateEventParams {
+                event_id: "$create:localhost".to_string(),
+                room_id: ROOM_ID.to_string(),
+                user_id: "@alice:localhost".to_string(),
+                event_type: "m.room.create".to_string(),
+                content: serde_json::json!({ "room_version": "10" }),
+                state_key: Some(String::new()),
+                origin_server_ts: 1_000,
+                redacts: None,
+            })
+            .await
+            .unwrap();
         let room_store = InMemoryRoomStore::new();
 
         let event_reader: Arc<dyn EventReader> = event_store.clone();
@@ -688,5 +746,210 @@ mod tests {
 
         let result = svc.join_room(ROOM_ID, USER_ID).await;
         assert!(result.is_ok(), "join should succeed under public join_rule");
+    }
+
+    // ── G-21: locality comes from room ownership, not the id spelling ──
+
+    /// A room v12 / MSC4291 room id: `!` + 43 URL-safe base64 characters and
+    /// **no `:server`**. Any code that parses the id for a server finds nothing
+    /// in it, which is exactly why locality must come from the room's records.
+    const DOMAINLESS_ROOM_ID: &str = "!AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    /// The creator of a room hosted by another homeserver.
+    const REMOTE_CREATOR: &str = "@alice:remote.example";
+
+    /// Build a service whose only record of `room_id` is its `m.room.create`
+    /// state event, sent by `creator`, with `@bob:localhost` joined.
+    /// Locality can therefore only be decided from that create event.
+    async fn build_locality_service(room_id: &str, creator: &str) -> MembershipService {
+        let member_store = InMemoryMemberStore::new();
+        member_store.add_member(room_id, USER_ID, "join", None).await.unwrap();
+
+        let event_store = Arc::new(InMemoryEventStore::new());
+        event_store
+            .create_event(synapse_storage::CreateEventParams {
+                event_id: format!("$create{room_id}"),
+                room_id: room_id.to_string(),
+                user_id: creator.to_string(),
+                event_type: "m.room.create".to_string(),
+                content: serde_json::json!({ "room_version": "12" }),
+                state_key: Some(String::new()),
+                origin_server_ts: 1,
+                redacts: None,
+            })
+            .await
+            .unwrap();
+
+        let room_store = InMemoryRoomStore::new();
+
+        let event_reader: Arc<dyn EventReader> = event_store.clone();
+        let event_writer: Arc<dyn EventWriter> = event_store.clone();
+        let member_storage: Arc<dyn MemberStoreApi> = Arc::new(member_store);
+        let room_storage: Arc<dyn RoomStoreApi> = Arc::new(room_store);
+        let user_storage: Arc<dyn UserStore> = Arc::new(FakeUserStore::new());
+        let room_summary_service = Arc::new(RoomSummaryService::new(
+            Arc::new(InMemoryRoomSummaryStore::new()),
+            event_reader.clone(),
+            Some(member_storage.clone()),
+        ));
+
+        MembershipService::new(MembershipServiceConfig {
+            member_storage,
+            room_storage,
+            event_reader,
+            event_writer,
+            user_storage,
+            room_auth: Arc::new(FakeRoomAuth::new()),
+            server_name: "localhost".to_string(),
+            federation_client: None,
+            key_rotation_manager: None,
+            event_broadcaster: None,
+            room_summary_service,
+            cache: Arc::new(CacheManager::new(&CacheConfig::default())),
+            key_rotation_storage: None,
+            app_service_manager: None,
+            db_pool: None,
+            policy_service: None,
+            invite_policy_gate: Arc::new(crate::test_mocks::FakeInvitePolicyGate::new()),
+        })
+    }
+
+    /// A domainless room whose create event originated on another homeserver is
+    /// **remote**, so leaving it must go through federation. Parsing the id
+    /// (`server_name_from_id` -> `None` -> `is_remote_room` false) called it
+    /// local and ran the local write path instead.
+    #[tokio::test]
+    async fn domainless_remote_room_leave_room_routes_to_federation() {
+        let svc = build_locality_service(DOMAINLESS_ROOM_ID, REMOTE_CREATOR).await;
+
+        // No federation client is configured in this fixture, so the remote
+        // path must fail rather than silently perform a *local* leave.
+        let err = svc.leave_room(DOMAINLESS_ROOM_ID, USER_ID).await.unwrap_err();
+        assert_eq!(
+            err.kind,
+            synapse_common::ApiErrorKind::Internal,
+            "the leave must be routed to federation (no client configured), got: {err:?}"
+        );
+        assert!(
+            err.message.contains("Federation client not configured"),
+            "must fail on the federation path, got: {err:?}"
+        );
+
+        // The local membership is untouched — proof the local write path was
+        // not taken.
+        assert_eq!(
+            svc.member_storage.get_membership_state(DOMAINLESS_ROOM_ID, USER_ID).await.unwrap(),
+            Some("join".to_string()),
+            "a remote room's local membership record must not be rewritten locally"
+        );
+    }
+
+    /// MSC4267 `leave_and_forget` is local-only and must refuse a remote room.
+    /// Id-parsing locality made the domainless remote room look local, so the
+    /// refusal never fired and the local leave+forget ran instead.
+    #[tokio::test]
+    async fn leave_and_forget_refuses_domainless_remote_room() {
+        let svc = build_locality_service(DOMAINLESS_ROOM_ID, REMOTE_CREATOR).await;
+
+        let err = svc.leave_and_forget(DOMAINLESS_ROOM_ID, USER_ID).await.unwrap_err();
+        assert_eq!(err.kind, synapse_common::ApiErrorKind::BadRequest, "unexpected error: {err:?}");
+        assert!(err.message.contains("only valid for local rooms"), "unexpected error: {err:?}");
+        assert_eq!(
+            svc.member_storage.get_membership_state(DOMAINLESS_ROOM_ID, USER_ID).await.unwrap(),
+            Some("join".to_string()),
+            "the refusal must not touch local membership"
+        );
+    }
+
+    /// Positive control: a domainless room whose create event originated here is
+    /// still local and still takes the local leave path.
+    #[tokio::test]
+    async fn domainless_local_room_stays_local() {
+        let svc = build_locality_service(DOMAINLESS_ROOM_ID, "@alice:localhost").await;
+
+        svc.leave_room(DOMAINLESS_ROOM_ID, USER_ID).await.unwrap();
+
+        assert_ne!(
+            svc.member_storage.get_membership_state(DOMAINLESS_ROOM_ID, USER_ID).await.unwrap(),
+            Some("join".to_string()),
+            "a locally hosted room must still be left on the local path"
+        );
+    }
+
+    /// The locality decision itself: a remote room's resident servers are the
+    /// room's origin server (from the create event) and every server with a
+    /// joined member — the id supplies neither.
+    #[tokio::test]
+    async fn room_locality_lists_the_remote_residents() {
+        // A second server's member joined the room, so the room has two
+        // residents: the creator's server and `other.example`.
+        let member_store = InMemoryMemberStore::new();
+        member_store.add_member(DOMAINLESS_ROOM_ID, USER_ID, "join", None).await.unwrap();
+        member_store.add_member(DOMAINLESS_ROOM_ID, "@carol:other.example", "join", None).await.unwrap();
+
+        let event_store = Arc::new(InMemoryEventStore::new());
+        event_store
+            .create_event(synapse_storage::CreateEventParams {
+                event_id: format!("$create{DOMAINLESS_ROOM_ID}"),
+                room_id: DOMAINLESS_ROOM_ID.to_string(),
+                user_id: REMOTE_CREATOR.to_string(),
+                event_type: "m.room.create".to_string(),
+                content: serde_json::json!({ "room_version": "12" }),
+                state_key: Some(String::new()),
+                origin_server_ts: 1,
+                redacts: None,
+            })
+            .await
+            .unwrap();
+
+        let event_reader: Arc<dyn EventReader> = event_store.clone();
+        let event_writer: Arc<dyn EventWriter> = event_store.clone();
+        let member_storage: Arc<dyn MemberStoreApi> = Arc::new(member_store);
+        let user_storage: Arc<dyn UserStore> = Arc::new(FakeUserStore::new());
+        let room_summary_service = Arc::new(RoomSummaryService::new(
+            Arc::new(InMemoryRoomSummaryStore::new()),
+            event_reader.clone(),
+            Some(member_storage.clone()),
+        ));
+        let svc = MembershipService::new(MembershipServiceConfig {
+            member_storage,
+            room_storage: Arc::new(InMemoryRoomStore::new()),
+            event_reader,
+            event_writer,
+            user_storage,
+            room_auth: Arc::new(FakeRoomAuth::new()),
+            server_name: "localhost".to_string(),
+            federation_client: None,
+            key_rotation_manager: None,
+            event_broadcaster: None,
+            room_summary_service,
+            cache: Arc::new(CacheManager::new(&CacheConfig::default())),
+            key_rotation_storage: None,
+            app_service_manager: None,
+            db_pool: None,
+            policy_service: None,
+            invite_policy_gate: Arc::new(crate::test_mocks::FakeInvitePolicyGate::new()),
+        });
+
+        assert_eq!(
+            svc.room_locality(DOMAINLESS_ROOM_ID).await.unwrap(),
+            RoomLocality::Remote { destinations: vec!["remote.example".to_string(), "other.example".to_string()] },
+            "origin server first, then the other joined residents"
+        );
+    }
+
+    /// Fail-closed: a domainless room with no ownership record at all is not
+    /// proven local, so it is remote — with no destination to contact, and the
+    /// caller refuses rather than taking the local path.
+    #[tokio::test]
+    async fn unknown_domainless_room_fails_closed_to_remote() {
+        // The seeded room is DOMAINLESS_ROOM_ID; query a different one.
+        let svc = build_locality_service(DOMAINLESS_ROOM_ID, REMOTE_CREATOR).await;
+        let unknown = "!BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+
+        assert_eq!(svc.room_locality(unknown).await.unwrap(), RoomLocality::Remote { destinations: vec![] });
+
+        let err = svc.leave_and_forget(unknown, USER_ID).await.unwrap_err();
+        assert_eq!(err.kind, synapse_common::ApiErrorKind::BadRequest);
+        assert!(err.message.contains("only valid for local rooms"), "unexpected error: {err:?}");
     }
 }
