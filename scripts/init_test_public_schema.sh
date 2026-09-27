@@ -11,17 +11,21 @@
 #      psql 默认 autocommit（不加 `-1`），不存在这个问题。
 #
 # 用法：
-#   bash scripts/init_test_public_schema.sh                       # 重置 public
+#   bash scripts/init_test_public_schema.sh                       # 幂等 apply 到 public（安全默认）
+#   RESET_PUBLIC=1 bash scripts/init_test_public_schema.sh         # 显式 DROP + 重建 public
 #   TARGET_SCHEMA=test_template_ci bash scripts/init_test_public_schema.sh
 #   TEST_DB_PORT=5433 TEST_DB_NAME=synapse_test bash scripts/init_test_public_schema.sh
 #   TEST_DATABASE_URL=postgresql://… bash scripts/init_test_public_schema.sh
 #
-# `TARGET_SCHEMA=public`（默认）在 `RESET_PUBLIC=1`（默认）时 **DROP + 重建** public
-# （db_tests 需要干净基线）；`RESET_PUBLIC=0` 只做幂等 apply。CI 的 seed 走 0：`DROP
-# SCHEMA public CASCADE` 会**级联删掉其它 schema 里依赖 public 扩展的对象**（例如
-# 模板 schema 上的 `gin_trgm_ops` 索引），2026-09-19 实测过一次，会把"就绪"标记的
-# 模板悄悄变成缺索引的半成品。其它目标只 `CREATE SCHEMA IF NOT EXISTS`，并通过
-# `PGOPTIONS` 把非限定 DDL 钉进该 schema —— libpq 读 `PGOPTIONS`，而 sqlx 的 rust
+# ⚠️ 2026-09-26（D-76）：`RESET_PUBLIC` 默认改为 **0**（幂等 apply）。它原先是 1，
+# 也就是**裸跑本脚本就会 `DROP SCHEMA public CASCADE` 再重建 `synapse_test.public`**；
+# 一旦这次运行在第一个迁移之前失败/被 Ctrl-C/超时打断，共享 `public` 就停在 **0 表**
+# （实测事故：public 0 表 / 模板 220 表）。重建是**破坏性**动作，必须显式 opt-in。
+# `TARGET_SCHEMA=public` 且 `RESET_PUBLIC=1` 才会 DROP + 重建；`RESET_PUBLIC=0` 只做幂等
+# apply。CI 的 seed 也走 0：`DROP SCHEMA public CASCADE` 会**级联删掉其它 schema 里依赖
+# public 扩展的对象**（例如模板 schema 上的 `gin_trgm_ops` 索引），2026-09-19 实测过一次，
+# 会把"就绪"标记的模板悄悄变成缺索引的半成品。其它目标只 `CREATE SCHEMA IF NOT EXISTS`，
+# 并通过 `PGOPTIONS` 把非限定 DDL 钉进该 schema —— libpq 读 `PGOPTIONS`，而 sqlx 的 rust
 # 驱动不读，这正是旧 `prepare_test_db.sh` 里 `?options=-c search_path=…` URL hack 的由来。
 #
 # 结束时**断言**目标 schema 的表数 ≥ `MIN_TABLES`（默认 100）：旧版只 echo 一个数字，
@@ -40,7 +44,7 @@ DB_USER="${TEST_DB_USER:-synapse}"
 DB_PASSWORD="${TEST_DB_PASSWORD:-synapse}"
 DB_NAME="${TEST_DB_NAME:-synapse_test}"
 TARGET_SCHEMA="${TARGET_SCHEMA:-public}"
-RESET_PUBLIC="${RESET_PUBLIC:-1}"
+RESET_PUBLIC="${RESET_PUBLIC:-0}"
 MIN_TABLES="${MIN_TABLES:-100}"
 
 export PGPASSWORD="$DB_PASSWORD"
@@ -54,10 +58,10 @@ fi
 
 if [[ "$TARGET_SCHEMA" == "public" ]]; then
     if [[ "$RESET_PUBLIC" == "1" ]]; then
-        echo "==> 重置 public schema"
+        echo "==> 重置 public schema（RESET_PUBLIC=1：显式 DROP + 重建；失败/中断会留下空 schema）"
         "${PSQL[@]}" -v ON_ERROR_STOP=1 -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO $DB_USER; GRANT ALL ON SCHEMA public TO public;" >/dev/null
     else
-        echo "==> 幂等 apply 到 public（RESET_PUBLIC=0；不 DROP，避免级联删掉其它 schema 的扩展依赖对象）"
+        echo "==> 幂等 apply 到 public（RESET_PUBLIC=0，默认；不 DROP，避免级联删掉其它 schema 的扩展依赖对象）"
         "${PSQL[@]}" -v ON_ERROR_STOP=1 -c "CREATE SCHEMA IF NOT EXISTS public; GRANT ALL ON SCHEMA public TO $DB_USER; GRANT ALL ON SCHEMA public TO public;" >/dev/null
     fi
 else

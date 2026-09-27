@@ -19,15 +19,23 @@
 #       断言 `SQLX_OFFLINE=true cargo check --all-targets` 通过 —— 这是"缓存完整"
 #       的**权威**证明：SQL 文本变化会产生新哈希，缺条目即编译失败。
 #
-#   --full（需要 `cargo sqlx` 与 `DATABASE_URL`）
-#       执行 `cargo sqlx prepare --check --workspace -- --all-features`：与数据库核对每条 `query!`
-#       后判定缓存是否需要变化。**只在有已迁移数据库的环境跑**（本地、或
-#       backend-validation 这类带 postgres service 的 job）。
+#   --full（需要 `cargo sqlx` 与已迁移的 DATABASE_URL）
+#       `exec bash scripts/ci/sqlx_prepare.sh --check` 的别名 —— 前置检查、feature 集
+#       与失败语义都只有一份实现（铁律 2）。**本仓日常不用它**：只用 `--static` +
+#       `--compile`（见下方环境事实）。CI 也从不调用它（`ci.yml` 只跑默认的 `--static`）。
+#
+# ⚠️ 2026-09-26 环境事实（D-75/D-77）：共享 `synapse_test.public` 会被并发会话的
+#   D-57② 收敛清空（实测 0 表）。此时 `--full` 不是"报缓存过期"，而是**上千个误导性
+#   编译错误**（实测 1443 个 E0282/E0277，看起来像源码坏了）—— 因为 `prepare --check`
+#   要对着真库逐条 describe，而没有表就没有列元数据。⇒ 本仓**禁止**把 `--full` 排进
+#   CI 或任务清单；`sqlx_prepare.sh` 现在会先做前置检查、不满足即 fail fast。
+#   `.sqlx` 的完整性由 `--compile` 权威证明；写入唯一入口是 `scripts/ci/sqlx_prepare.sh`。
 #
 # 说明：`SQLX_OFFLINE=true cargo check --all-targets` 本身也能抓出"缺条目"
 # （SQL 文本变化 → 查询哈希变化 → 离线元数据缺失 → 编译失败）。本脚本的价值在于
 # ① 在 CI 里用**零成本**的 --static 抓住"缓存被删/未跟踪/为空"；
-# ② 用 --full 抓住"缓存里存在但已过期"（离线编译发现不了的反方向）。
+# ② 用 --compile 抓住"缺条目/条目对不上"（离线编译发现不了的反方向需要 --full，
+#   而 --full 需要一个已迁移的库，本环境默认不满足）。
 #
 # Exits 0 on success, 1 on any violation.
 
@@ -44,7 +52,7 @@ for arg in "$@"; do
         --full) MODE="full" ;;
         --compile) MODE="compile" ;;
         -h | --help)
-            sed -n '2,32p' "${BASH_SOURCE[0]}"
+            sed -n '2,41p' "${BASH_SOURCE[0]}"
             exit 0
             ;;
         *)
@@ -105,23 +113,9 @@ if [[ "${MODE}" == "compile" ]]; then
 fi
 
 if [[ "${MODE}" == "full" ]]; then
-    if ! cargo sqlx --version >/dev/null 2>&1; then
-        echo "ERROR: --full 需要 sqlx-cli（cargo install sqlx-cli --locked --no-default-features --features postgres,rustls）" >&2
-        exit 1
-    fi
-    if [[ -z "${DATABASE_URL:-}" ]]; then
-        echo "ERROR: --full 需要指向**已迁移**数据库的 DATABASE_URL" >&2
-        exit 1
-    fi
-    # `--all-features` is **required** here, and must match the feature set the
-    # cache is generated with. With the default feature set, feature-gated modules
-    # (`synapse-storage`'s `privacy-ext`, and anything staticized behind a feature
-    # later) are not compiled, so their entries look "potentially unused" — and a
-    # non-`--check` `prepare` at that feature set would **prune them**, silently
-    # re-breaking every `SQLX_OFFLINE=true` build. See §7 D-51 / §8.23.
-    echo "==> cargo sqlx prepare --check --workspace -- --all-features（需要数据库）"
-    cargo sqlx prepare --check --workspace -- --all-features
-    echo "OK: .sqlx 与数据库元数据一致"
+    # 与写入模式共用同一套前置检查与 feature 集：护栏只有一份实现（铁律 2 / D-77）。
+    # `-h` 的 sed 范围（2,32p）覆盖本行上方的模式说明。
+    exec bash scripts/ci/sqlx_prepare.sh --check
 fi
 
 echo ".sqlx cache: OK"

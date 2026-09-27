@@ -55,7 +55,14 @@ python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
   | awk '{print $2"\t"$1}' | LC_ALL=C sort
 ```
 
-### 0.4 缺陷发现总览（**74 条**；只给统计与去向，不逐条显示）
+> ⚠️ **缓存相关的两条禁令（D-77，2026-09-26）**：本仓**只跑** `check_sqlx_cache_fresh.sh`
+> 的 `--static` + `--compile` 两道；**禁止** `--full`（它对着真库逐条 describe，而共享
+> `synapse_test.public` 会被并发会话的 D-57② 收敛清空 ⇒ 实测吐出 1443 个误导性
+> E0282/E0277），**禁止**裸 `cargo sqlx prepare`（destination 就是 `.sqlx/` 且先清空再重写）。
+> 要写缓存只有唯一入口：`DATABASE_URL=<已迁移库> bash scripts/ci/sqlx_prepare.sh`
+> （前置检查 + 缩容回滚，见 AGENTS.md R2）。
+
+### 0.4 缺陷发现总览（**77 条**；只给统计与去向，不逐条显示）
 
 | 类别 | 条数 | 说明 |
 |---|---|---|
@@ -67,11 +74,11 @@ python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
 | ⑥ 覆盖缺口 / 测试基建假绿 | 2 | 静态化后无 DB 往返、自建 schema 掩盖写入端约束 |
 | ⑦ 文档级 | 6 | 计数漂移、过时结论、误导性"规则"注释 |
 | ⑧ 结构性例外（有意保留） | 7 | D-13 / D-14 / D-18–D-22，见 §7.3 |
-| ⑨ 阶段总结后新发现并已关闭 | 11 | **D-74**（`update_access_stats` 的 `COALESCE($7, 0)` 让 PG 把 `$7` 定型成 **int4**，宏因此要求 `Option<i32>` 而 Rust 侧是 `response_time_ms: Option<f64>`；动态路径靠 sqlx 显式发送 FLOAT8 才没暴露 ⇒ 改 `0::float8` 并补浮点往返用例，见 §8.3）、**D-72**（`e2ee_audit.rs` 两个方向同时错：`e2ee_audit_log.details` 是 `NOT NULL DEFAULT '{}'`，但 `log_key_operation` 会把 `KeyEvent.details = None` 直接绑成 `NULL` ⇒ 运行期 23502；读回结构体又把该列声明成 `Option` ⇒ 可空性反推失真。已按 R12 先用 RED 用例复现 23502，再 `COALESCE($7, '{}'::jsonb)` + 读侧收紧为非 `Option`，见 §8.3）、**D-71**（D-25 家族收口：23 个 `#[cfg(feature)] pub mod` 声明里有 **10 个带测试却不在** `scripts/ci/gated_module_test_matrix` ⇒ "过滤器必须命中"这道守卫对它们从未生效；补 10 行后全表 21 行实跑通过）、**D-70**（`e4bc400cb` 删掉 3 个埋点却漏收紧 `metric_instrumentation_baseline` ⇒ 埋点棘轮在 `opt/consolidated` 上**常驻红**；按 R11 独立收紧 15 → 12 并复跑门禁）、D-62（通知响应的 `profile_tag` 键取自 `notification_type` ⇒ 已按修法① 改成真列 + 独立 `notification_type` 键）、**D-68**（通知记录层没有生产写入者、也没有保留期清理 ⇒ 已按修法① 接线 `record_notification` + `prune_old_notifications`，边界见 §0.5、明细见提交信息）、**D-69**（运行时迁移的 advisory lock key 在 `search_path` 为空时因 `current_schema()` 为 NULL 而**必败** ⇒ 已先 `COALESCE` 并补边界用例，见 §8.3）、**D-57②**（seed 侧 `public` 不收敛 ⇒ 新增 `scripts/ci/converge_public_schema.sh` 并接进 CI seed 第 [3/4] 步，见 §8.3）、D-65（并发改动只改一半 ⇒ 集成+clippy 双红）、D-66（worktree 共享 `CARGO_TARGET_DIR` ⇒ 跨树复用产物，假红/假绿）、D-67（新增测试里的死常量让 clippy 红） |
+| ⑨ 阶段总结后新发现并已关闭 | 14 | **D-77**（`check_sqlx_cache_fresh.sh --full` 对着被收敛成 0 表的共享 `public` 会吐 **1443 个 E0282/E0277**（看起来像源码坏了），而裸 `cargo sqlx prepare` 会把 `.sqlx/` 清空 ⇒ 新增唯一入口 `scripts/ci/sqlx_prepare.sh`（前置检查 fail-fast + 缩容回滚），`--full` 委托给它并在 AGENTS.md R2/R8 明令禁止）、**D-76**（`scripts/init_test_public_schema.sh` 的 `RESET_PUBLIC` 默认 1 ⇒ **裸跑就 `DROP SCHEMA public CASCADE`** 重建共享 `synapse_test.public`；失败/中断即留下 0 表 ⇒ 默认改为 0（幂等 apply），重建需显式 opt-in）、**D-75**（`converge_public_schema.sh` 的 TOCTOU：删除清单在 apply 阶段**二次求值**，而 `prepare_test_db.sh` [2/4] 会 `DROP SCHEMA test_template_ci CASCADE` 重建参考集 ⇒ 参考为空时 public 全被判"多余"；事后不变量又用同一个已塌掉的参考集（两边同时塌成 0 ⇒ 恒过）。实测环境 `synapse_test.public` = **0 表**（本该 ≥200）⇒ 已冻结清单 + 参考稳定性复检 + 大删栏杆 + 非空不变量，见 §8.3）、**D-74**（`update_access_stats` 的 `COALESCE($7, 0)` 让 PG 把 `$7` 定型成 **int4**，宏因此要求 `Option<i32>` 而 Rust 侧是 `response_time_ms: Option<f64>`；动态路径靠 sqlx 显式发送 FLOAT8 才没暴露 ⇒ 改 `0::float8` 并补浮点往返用例，见 §8.3）、**D-72**（`e2ee_audit.rs` 两个方向同时错：`e2ee_audit_log.details` 是 `NOT NULL DEFAULT '{}'`，但 `log_key_operation` 会把 `KeyEvent.details = None` 直接绑成 `NULL` ⇒ 运行期 23502；读回结构体又把该列声明成 `Option` ⇒ 可空性反推失真。已按 R12 先用 RED 用例复现 23502，再 `COALESCE($7, '{}'::jsonb)` + 读侧收紧为非 `Option`，见 §8.3）、**D-71**（D-25 家族收口：23 个 `#[cfg(feature)] pub mod` 声明里有 **10 个带测试却不在** `scripts/ci/gated_module_test_matrix` ⇒ "过滤器必须命中"这道守卫对它们从未生效；补 10 行后全表 21 行实跑通过）、**D-70**（`e4bc400cb` 删掉 3 个埋点却漏收紧 `metric_instrumentation_baseline` ⇒ 埋点棘轮在 `opt/consolidated` 上**常驻红**；按 R11 独立收紧 15 → 12 并复跑门禁）、D-62（通知响应的 `profile_tag` 键取自 `notification_type` ⇒ 已按修法① 改成真列 + 独立 `notification_type` 键）、**D-68**（通知记录层没有生产写入者、也没有保留期清理 ⇒ 已按修法① 接线 `record_notification` + `prune_old_notifications`，边界见 §0.5、明细见提交信息）、**D-69**（运行时迁移的 advisory lock key 在 `search_path` 为空时因 `current_schema()` 为 NULL 而**必败** ⇒ 已先 `COALESCE` 并补边界用例，见 §8.3）、**D-57②**（seed 侧 `public` 不收敛 ⇒ 新增 `scripts/ci/converge_public_schema.sh` 并接进 CI seed 第 [3/4] 步，见 §8.3）、D-65（并发改动只改一半 ⇒ 集成+clippy 双红）、D-66（worktree 共享 `CARGO_TARGET_DIR` ⇒ 跨树复用产物，假红/假绿）、D-67（新增测试里的死常量让 clippy 红） |
 | ⑩ 新发现且**未关闭**（等结构性修法） | 1 | **D-73**：`e2ee_audit_log.operation` 在 catalog 中**可空**而 `KeyAuditEntry.operation` 非 `Option`（唯一写入者恒写非空 ⇒ C40 已按 R4 断言 `AS "operation!"`）；**结构上应把 `operation` 收紧为 `NOT NULL`，并删掉与之恒等值、零读者（只被 `idx_e2ee_audit_log_action` 引用）的 `action` 列** —— 牵动迁移 + 基线指纹 + 三份 `BASELINE_SQL`（R10），属独立事项，见 §7.1 |
 
-**去向**：阶段总结前关闭的 57 条逐条明细在 HISTORY §7.2；总结后关闭的 12 条（D-37 / D-57② / D-62 /
-D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-74）记在各自提交信息里（下次阶段总结时并入快照）；**未关闭 1 条（D-73）在 §7.1 逐条留档**。本表 ①–⑧ 是**发现时**
+**去向**：阶段总结前关闭的 57 条逐条明细在 HISTORY §7.2；总结后关闭的 15 条（D-37 / D-57② / D-62 /
+D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-74 / D-75 / D-76 / D-77）记在各自提交信息里（下次阶段总结时并入快照）；**未关闭 1 条（D-73）在 §7.1 逐条留档**。本表 ①–⑧ 是**发现时**
 的归类（历史口径，不随修复变动），因此 D-57 仍计入 ⑥、D-37 仍计入 ④、D-62 已改判为"已修" ——
 "还剩哪些没修"看结论行与 §7.1，不看桶号。
 **结论：64 已关闭 / **0 未关闭** / 7 结构性例外 —— 本战役登记表已清空。**
@@ -87,11 +94,16 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-74）记在各自提�
 3. **长期资产是规则与门禁，不是数字**：数字会被并发改动推动，R1–R13 与四道自证过的门禁才是
    "不再制造同类缺陷"的保证；本阶段新增的两条规则（宏实参须为调用点字面量、worktree 各自 target 目录）
    都来自实测而非推导。
-4. **登记表只剩 1 条未关闭项（2026-09-26，C40 后）**：`D-01…D-74` 里 66 条已关闭、7 条转为结构性
+4. **登记表只剩 1 条未关闭项（2026-09-26，C40 后）**：`D-01…D-77` 里 69 条已关闭、7 条转为结构性
    例外，**唯一未关闭的是 D-73**（`e2ee_audit_log` 的 `operation` 可空性 + 冗余 `action` 列收敛，
    属迁移链独立事项，见 §7.1）。剩下的**只有计划内的工作**（§8.1 的 203 处可转换残量）与 7 条
    **结构性例外**（工具/接口边界，不是缺陷）。这不等于战役结束 —— 收尾条件见 §8.4。
-5. **D-68 的接线边界（写清楚，免得下次误判）**：`notifications` 现在的生产写入者是
+5. **环境事实：共享 `synapse_test.public` 会被并发会话改造，别把它当成稳定输入（D-75/D-76/D-77）**：
+   它曾被收敛成 **0 表**（实测），于是 `.sqlx` 的 `--full` 抛出 1443 个误导性编译错误。三条修法都已落地
+   （冻结删除清单 + 参考稳定性复检 + 大删栏杆；`RESET_PUBLIC` 默认改为非破坏性的 0；`.sqlx` 写入收敛到
+   `scripts/ci/sqlx_prepare.sh`），并且**规则层面**已禁止 `--full` 与裸 `cargo sqlx prepare`（AGENTS.md
+   R2/R8）。要缓存核对只用 `--static` + `--compile`；要真库核对就先备一个**私有/一次性**已迁移库。
+6. **D-68 的接线边界（写清楚，免得下次误判）**：`notifications` 现在的生产写入者是
    `PushNotificationService::send_notification`（"服务端决定推送"这一处，排队成功后记一条，
    同批接入 30 天保留期清理）。本仓**没有**按事件求值的推送规则引擎，`sync` 的
    `notification_count` 仍由 `events` + `read_markers` 现算 —— 因此 `/notifications` 是
@@ -156,11 +168,12 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-74）记在各自提�
 
 ### 7.4 计数与口径
 
-- 合计 **74** 条（D-01…D-74）：**未关闭 1（D-73）**、
-  **结构性例外 7**（D-13 / D-14 / D-18–D-22，有意不修）、**已关闭 66**（含 D-37 收敛、
-  D-57② 收敛、D-62 修法①、D-68 接线落地、D-69/D-70/D-71/D-72/D-74 先修）。
+- 合计 **77** 条（D-01…D-77）：**未关闭 1（D-73）**、
+  **结构性例外 7**（D-13 / D-14 / D-18–D-22，有意不修）、**已关闭 69**（含 D-37 收敛、
+  D-57② 收敛、D-62 修法①、D-68 接线落地、D-69/D-70/D-71/D-72/D-74 先修、
+  D-75/D-76/D-77 工具链事故先修）。
 - 本文档**只显示**未关闭项与结构性例外；已关闭项的明细在 HISTORY §7.2（冻结，不参与当前计数），
-  阶段总结后关闭的 12 条（D-37 / D-57② / D-62 / D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-74）在各提交信息里。
+  阶段总结后关闭的 15 条（D-37 / D-57② / D-62 / D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-74 / D-75 / D-76 / D-77）在各提交信息里。
 - "部分已修"指同一编号下仍有明确未做子项；结构性例外**不计入**待修，其约束力写在 §7.3 与 R1–R13。
 
 ### 7.5 处置约定（改 SQL / 查询前）
@@ -230,6 +243,8 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-74）记在各自提�
    `i64::from(…)`；断言别名不要与 `ORDER BY` 列名冲突（R6）；tx/pool 双分支先收敛成
    `&mut PgConnection` 再写一次宏（R1）。
 4. **门禁**（§8.5 四道 + fmt），并在**一次性 CI 等价库**上复跑该模块的真 baseline 往返。
+   🚫 缓存只跑 `--static` + `--compile`；**禁止** `--full` 与裸 `cargo sqlx prepare`（D-77）——
+   写入唯一入口是 `scripts/ci/sqlx_prepare.sh`。
 5. **棘轮**：`dynamic_production` 下调、`static` 上调、literal 逐文件行删除；同批提交。
 6. **文档**：§0.1/§0.2 数字更新；若有新发现则登记 §7。
 
@@ -386,6 +401,39 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-74）记在各自提�
    `federation_blacklist` 单跑 **28/28**（含新增浮点用例）。
    ⚠️ STAGE 0 已把 `room_account_data.rs`（7，2 处 `PgRow` 泄漏 + 1 处吞错）与
    `email_verification.rs`（8，仅 1 条 DB 用例）**排除**出本批：前者须先修、后者须先补覆盖（R12）。
+
+6. ✅ **D-75/D-76/D-77（共享 `public` 被清空 + `.sqlx` 入口的两条禁令）已完成（2026-09-26）** ——
+   事故：`synapse_test.public` = **0 表**（本该 ~220；`prepare_test_db.sh` [4/4] 也断言 ≥200），
+   于是 `check_sqlx_cache_fresh.sh --full` 吐出 **1443 个 E0282/E0277**（看起来像源码坏了）。
+   三条独立缺陷（全部已修 + 自证）：
+   - **D-75 `converge_public_schema.sh` TOCTOU**：删除清单在 rail 1 之后**又一次**在 apply 的
+     heredoc 里现场求值 `$DIFF_SQL`，而 `prepare_test_db.sh` 的 [2/4] 步会
+     `DROP SCHEMA test_template_ci CASCADE` 再花数十秒重建参考集 ⇒ 参考为空时 public 的**全部**
+     对象都被判"多余"；更糟的是事后不变量（rail 5）也用**同一个已塌掉的参考集**求值，
+     `extra=0 / missing=0` 两边同时退化成 0 ⇒ **恒过**（日志只有一行 `public tables=0 / 参考=220`）。
+     **修法（结构性）**：① 删除清单**冻结**（落盘 + `\copy` 进临时表，apply 期间不再咨询参考 schema）；
+     ② apply **前**复测参考表数，低于 rail 1 的值即拒绝执行、一个对象都不删；
+     ③ **大删栏杆**：若清单执行后 public 的存活对象数会少于参考对象数 ⇒ 拒绝
+     （`CONVERGE_ALLOW_MASS_DELETE=1` 才放行）；④ **非空不变量**：收敛后还要求参考仍 ≥ rail 1 的表数、
+     public ≥ `MIN_TABLES`。
+     真库复跑：`report`/`apply` 均 `多余=0 缺失=0 public 220 / 参考 220`；参考 schema 不存在时 rail 1 拒绝。
+   - **D-76 `init_test_public_schema.sh` 破坏性默认**：`RESET_PUBLIC` 默认 1 ⇒ **裸跑就等于**
+     `DROP SCHEMA public CASCADE` 重建共享 `synapse_test.public`，失败/被 Ctrl-C/超时打断即留下 0 表。
+     **修法**：默认改为 **0**（幂等 apply），重置需显式 `RESET_PUBLIC=1`（注释里写清破坏性与恢复方式）。
+   - **D-77 `.sqlx` 入口**：`--full` 对着 0 表 schema 的失败是**上千个误导性编译错误**；
+     而裸 `cargo sqlx prepare` 的 destination 就是 `.sqlx/` 且**先清空再重写** ⇒ 一次误跑清空 1162 条缓存。
+     **修法**：新增唯一入口 `scripts/ci/sqlx_prepare.sh`（`DATABASE_URL` 必须显式给出；解析到的 schema
+     必须 ≥100 张 BASE TABLE 且含 `events`/`rooms`/`users`，否则 **fail fast 且不进入编译**；写入前快照、
+     写完若条目数减少则打印被删清单并**回滚**，`ALLOW_CACHE_SHRINK=1` 才允许缩容）；
+     `check_sqlx_cache_fresh.sh --full` 改为 `exec` 它的 `--check`（护栏只有一份实现）。
+     **环境已修复**：`RESET_PUBLIC=0 TARGET_SCHEMA=public` 幂等 apply ⇒ `public` 222 对象 / 220 BASE TABLE；
+     `--full` 复跑 **exit 0**。
+   - **自证（R11，全部实测）**：新增 `tests/unit/sqlx_cache_tooling_guard_tests.rs`（14 个用例，
+     hermetic 假 `psql`/`cargo` + 假 `.sqlx`，不连库、CI unit 批次可跑）。**变异自证**：把冻结清单换回
+     二次求值 ⇒ 红；删 rail 7a ⇒ 红；删大删栏杆 ⇒ 红；删 rail 8 ⇒ 红（这一条**最初没覆盖**，
+     补了"参考在 apply 期间塌掉"的用例才变红 —— 顺带暴露第一版 stub 把 heredoc 短接、
+     使"diff 只跑一次"断言**恒真**）；`RESET_PUBLIC` 默认改回 1 ⇒ 红；删 `sqlx_prepare.sh`
+     前置检查 ⇒ 红。
 
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 

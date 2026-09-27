@@ -99,6 +99,9 @@ mod services_remaining_domains_refactor_tests;
 mod services_sync_domain_refactor_tests;
 mod sqlx_dynamic_literal_guard_tests;
 mod sqlx_ratio_gate_tests;
+// D-75/D-76/D-77: the唯一 `.sqlx` 写入入口 + 那两个把 `synapse_test.public` 清空的
+// DB 脚本（竞态栏杆与破坏性默认都有自证）。
+mod sqlx_cache_tooling_guard_tests;
 mod storage_admin_domain_refactor_tests;
 mod storage_remaining_domains_refactor_tests;
 mod sync_rate_limit_config_tests;

@@ -166,9 +166,21 @@ start the stack **by these service names**) and `docker/deploy/docker-compose.ym
 
 ### R2　改了查询文本 ⇒ 同一提交必须带 `.sqlx` 增量
 
-任何查询**文本**变化（列清单、别名、`AS "col!"`、谓词）都要重跑
-`cargo sqlx prepare --workspace -- --all-features`，并把 `.sqlx/` 增量**一起提交**。
+任何查询**文本**变化（列清单、别名、`AS "col!"`、谓词）都要重跑**唯一入口**
+`bash scripts/ci/sqlx_prepare.sh`（需 `DATABASE_URL` 指向**已迁移**的库），
+并把 `.sqlx/` 增量**一起提交**。
 
+- 🚫 **禁止裸 `cargo sqlx prepare`**（D-77）：它的 destination **就是 `.sqlx/` 本身、先清空再重写**，
+  对着一个没有基线表的 schema 跑一次就会把上千条缓存写坏/清空，而 `SQLX_OFFLINE=true`
+  让**所有**构建都走缓存 ⇒ 一次误跑 = 整个 CI 编译失败（D-51 同型）。
+  `scripts/ci/sqlx_prepare.sh` 内置三道护栏：`DATABASE_URL` 必须**显式**给出（没有默认值）；
+  它解析到的 schema 必须有 ≥100 张 BASE TABLE 且含 `events`/`rooms`/`users`（不满足即 fail fast，
+  不进入编译）；写完后若条目数**减少**则打印被删清单并**回滚**（只有 `ALLOW_CACHE_SHRINK=1` 才允许缩容）。
+- 🚫 **`check_sqlx_cache_fresh.sh --full` 在本环境禁止使用**（它现在 `exec` 上面那个脚本的
+  `--check` 模式）：该模式要对着真库逐条 describe，而共享 `synapse_test.public` 会被并发会话的
+  D-57② 收敛清空（实测 0 表）—— 那时它不报"缓存过期"，而是吐 **1443 个 E0282/E0277**，
+  看起来像源码坏了（D-77 实测）。**本仓只跑两道**：`--static`（零成本，CI 用的那档）+
+  `--compile`（权威，抓缺条目）。**不要**把 `--full` 排进 CI 或任务清单。
 - **为什么**：`.cargo/config.toml` 的 `[env] SQLX_OFFLINE = "true"` 让**所有**构建都走离线缓存
   ⇒ 缺一条不是"某个用例失败"，而是**整个 CI 编译失败**。历史上正是"只提交 `.rs`、不提交
   `.sqlx`"造成的（D-51）。
@@ -176,6 +188,7 @@ start the stack **by these service names**) and `docker/deploy/docker-compose.ym
   `--static`（CI 现在跑的那档）只查"存在/非空/被 git 跟踪"，**抓不到缺条目**。
 - **feature 集必须用 `--all-features`**：用枚举 feature 会漏掉门控模块。实测漏掉
   `privacy-ext` 时，静态化的 5 条不进缓存，`--all-features` 构建直接 6 个 error（C26）。
+  该口径已固定在 `sqlx_prepare.sh` 里，调用者不需要记。
 
 ### R3　宏内禁止 `RETURNING *` / `SELECT *`
 
@@ -275,6 +288,8 @@ schema**（`NOT NULL DEFAULT …`），而不是长期留一个断言别名。
 bash scripts/ci/check_sqlx_dynamic_ratio.sh
 # 2) 离线缓存完整性（权威 —— 不要只跑 --static）
 bash scripts/ci/check_sqlx_cache_fresh.sh --compile
+#    🚫 不要加 --full（D-77）：本环境的共享 public 会被并发收敛成 0 表，它会吐上千个
+#    误导性编译错误。要写入缓存用 scripts/ci/sqlx_prepare.sh（R2），它自带前置检查与回滚。
 # 3) 两档 clippy（第二个入口才编译 integration 等 target，两档不可互相替代）
 SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils --locked -- -D warnings
 SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils --all-features --locked -- -D warnings
@@ -286,6 +301,10 @@ cargo nextest run -p <crate> --lib --features test-utils -E 'test(/<module>/)'
 
 **"schema 到底变没变"不要只在长期库上验证**：本机库可能带陈旧 `public`（见 R11），
 需要时应建**一次性库**并跑 `scripts/ci/prepare_test_db.sh` 复现 CI 口径。
+⚠️ 共享 `synapse_test.public` 会被并发会话的 D-57② 收敛改造（`prepare_test_db.sh` 的 [2/4] 步
+还会 `DROP SCHEMA test_template_ci CASCADE` 重建参考集）—— 所以**别把任何需要稳定 schema 的
+步骤盯在它上面**；也不要手工 `DROP`/重建它（`init_test_public_schema.sh` 的重置现在需要
+显式 `RESET_PUBLIC=1`，D-76）。
 
 ### R9　测试侧
 
@@ -315,6 +334,14 @@ cargo nextest run -p <crate> --lib --features test-utils -E 'test(/<module>/)'
 - 遇到与本批无关的**既有红门禁**：按"先修再转"**独立提交**修掉，不得绕过、不得加
   `#[allow]` 放宽 lint。
 - 看到长期全绿 / 长期 0 违规的门禁，先怀疑它没在工作，而不是相信代码很干净（铁律 8）。
+- **破坏性脚本的两条硬性形态**（2026-09-26 的事故，D-75/D-76）：
+  ① **同一输入只求值一次**：删除清单/候选集一旦算出就**冻结**（落盘、按它执行），
+     绝不在执行阶段重新求值 —— 否则并发写者改了输入（如 `prepare_test_db.sh` 的
+     `DROP SCHEMA … CASCADE` 重建参考集）就会让"多余对象 = 全部"成立；
+     而且**事后不变量不能再用同一个已塌掉的输入**（两边同时退化成 0 ⇒ 恒过）。
+  ② **破坏性动作必须显式 opt-in**：默认值要选**非破坏性**的那一侧
+     （`RESET_PUBLIC` 默认 0、`ALLOW_CACHE_SHRINK` 需显式开、`prepare` 需显式 `DATABASE_URL`）。
+     裸跑一条命令就 `DROP` 共享 schema / 清空共享缓存，是这两次事故的共同形态。
 
 ### R12　先修再转，禁止夹带
 
