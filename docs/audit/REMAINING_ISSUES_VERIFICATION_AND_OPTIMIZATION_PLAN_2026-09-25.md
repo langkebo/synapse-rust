@@ -118,6 +118,19 @@ U-20 `7ab85a87f`（由并发会话先行并入）；U-8 `111a4df28`、U-13-R9 �
    `public` 里有 `upload_progress` 才能跑（`media/mod.rs:1239` 的守卫），同样被上一条挡住。
    排除该环境用例后 `-p synapse-services --lib --all-features` 实测 **2082/2082 通过**。
 
+> ✅ **两条均已消除（2026-09-26）**：`public` 不是"被有意收敛成 0 表"，而是**被工具链清空的**
+> —— 根因是 `scripts/ci/converge_public_schema.sh` 的 TOCTOU（删除清单在 apply 阶段二次求值，
+> 而 `prepare_test_db.sh` 的 [2/4] 步会 `DROP SCHEMA test_template_ci CASCADE` 重建参考集；
+> 事后不变量又用同一个已塌掉的参考集，故恒过）与 `scripts/init_test_public_schema.sh` 的
+> `RESET_PUBLIC=1` 破坏性默认（裸跑即 `DROP SCHEMA public CASCADE`）。详见
+> `docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md` §8.3 的 D-75/D-76/D-77。
+> 处置：① 四条栏杆（冻结清单 / 参考稳定性复检 / 大删栏杆 / 非空不变量）+ `RESET_PUBLIC` 默认 0；
+> ② 幂等 apply 复原 `public` ⇒ **222 对象 / 220 BASE TABLE**，本节第 2 条的用例已实测
+> **PASS**（`media_fixture_keeps_its_isolated_schema_for_the_whole_test`）；
+> ③ `--full` 仍然**禁止**用于日常（AGENTS.md R2/R8：只跑 `--static` + `--compile`；要真库核对
+> 用私有/一次性已迁移库）。`--full` 现在有前置检查、不满足即 fail fast（不再吐上千个误导性错误），
+> 修复后对着已迁移库复跑 **exit 0**。
+
 ---
 
 ## 2. 仍然存在的问题
