@@ -20,16 +20,16 @@
 | **B-1** | 建立入站事件鉴权入口（单一实现） | ✅ **完成** | `synapse-federation/src/event_auth/rules.rs`（282 行，`check_inbound_event_auth` / `InboundEventAuth` / `ResolvedAuthEvent`）；入口壳与版本分派齐备 |
 | **B-2** | 规则 3.5：`auth_events` 同房校验 | ✅ **完成（已接线）** | `ce4078969`；**生产调用点** `synapse-web/src/routes/federation/transaction.rs:378`（解析 auth_events → `check_inbound_event_auth`，失败即 reject + `security_audit` 日志）；`rules.rs:152` `enforces_auth_events_room_rule` 只对 v12+ 生效；单测含"跨房拒绝/同房通过/无法解析拒绝/pre-v12 不定义该规则" |
 | **C-1** | create 事件身份 finalize（G-08） | ✅ **完成** | `7d79982c9`：`write_creation_event` 改走 `create_event_with_pdu`（会 finalize），占位 ID 仅用于 v1/v2；验收测试 `tests/integration/room_service_tests_migrated.rs:5175-5196`（v11 create id 长 44、无 `:`、等于对端复算值、图已重指向 final id） |
-| **C-2** | room_id 推导（`$`→`!`）与创建流程重排 | ❌ **未做** | 无"create event id → room_id"helper（`synapse-common/src/room_id.rs` 只有**解析**，无推导；`event_id.rs` 无 sigil 替换）；`create.rs:26` 仍 `config.room_id.clone().unwrap_or_else(|| self.generate_room_id())` |
-| **C-3** | 无域名 room ID 语法收敛（G-17..G-23、G-20） | 🟡 **部分完成（本目标 B2a）** | ✅ 语法：`synapse-common/src/room_id.rs`（单实现）+ 两个校验器委托；6 处联邦守卫改用 `is_well_formed_room_id`；`room_id.contains(':')` 生产代码 **0** 处<br>✅ 本地性（G-21）：`b089e0323` `MembershipService::room_locality`<br>❌ **DB CHECK 未放宽**：`migrations/00000000_unified_schema_v12.sql:4710-4712` 仍要求 `:`；`EXPECTED_BASELINE_FINGERPRINT` 仍 `"efd39fc561affd7a"`（`tests/unit/test_isolation_unification_tests.rs:151`）<br>❌ 未收敛：`invite.rs:277`（产出 `$uuid:!xxx`）、`space/repository.rs:30`、`actions.rs:41`（join 目的地） |
+| **C-2** | room_id 推导（`$`→`!`）与创建流程重排 | ✅ **完成**（`e2b8266b3`） | 新增唯一 helper `room_id::room_id_from_create_event_id`；`create_room` 先定稿 create → 派生 room_id → 写 rooms 行；验收测试 `test_create_room_v12_room_id_is_the_create_event_id`。**注意：D-6 是它的硬前置**（见下） |
+| **C-3** | 无域名 room ID 语法收敛（G-17..G-23、G-20） | ✅ **完成**（`6036c4cb8`/`b089e0323`/`16ee8208f`） | ✅ 语法：`synapse-common/src/room_id.rs`（单实现）+ 两个校验器委托；6 处联邦守卫改用 `is_well_formed_room_id`；`room_id.contains(':')` 生产代码 **0** 处<br>✅ 本地性（G-21）：`b089e0323` `MembershipService::room_locality`<br>✅ DB CHECK 放宽为两形态（`16ee8208f`）+ 指纹 `16d86ee4035cd351`（顺带修掉 HEAD 上的既有红项）+ 真 DB 契约用例<br>❌ 未收敛：`invite.rs:277`（产出 `$uuid:!xxx`）、`space/repository.rs:30`、`actions.rs:41`（join 目的地） |
 | **C-4** | 创建侧不写 `predecessor.event_id`；升级顺序反转 | ❌ **未做** | `synapse-services/src/room/service.rs:549` 仍写 `predecessor`（含 `event_id`）；`:496` 注释仍锚定 tombstone 的 event ID |
 | **C-5** | `CreateRoomConfig.room_id` 逃逸口处置 | ❌ **未做** | `service.rs:41` `pub room_id: Option<String>` 仍在；`admin/notification.rs` / `space/repository.rs` 的合成房间未动 |
 | **D-1** | 规则 1.2：v12 create 带 `room_id` 则拒绝 | ❌ **未做** | `rules.rs:120` 注释自认"rules 1.2 / 10.4 … to be added"；`transaction.rs` 仍对非 create 强制 `room_id`，未按 `type==m.room.create && version==12` 分支 |
 | **D-2** | 规则 2：room_id 必须是已接受 create 事件 ID | ❌ **未做** | 依赖 C-2，无 `room_id→create` 反查 |
 | **D-3** | 规则 2.5 / MSC4307 的 v12 收敛 | 🟡 **B-2 已覆盖** | 与 B-2 同一实现；`rules.rs` 已版本分派，无独立待办 |
-| **D-4** | 本地 `auth_events` 不再包含 create（G-28） | ❌ **未做** | `synapse-services/src/room/state/auth_events.rs:112-114` 无条件 `push(("m.room.create", ""))`；`room_version` 形参只用于 `supports_restricted_join_rule`，未用于排除 create |
+| **D-4** | 本地 `auth_events` 不再包含 create（G-28） | ✅ **完成**（`b7cf472b4`） | `auth_types_for_event` 改为 `if !room_version_at_least(room_version, 12)` 才加 create；3 个新用例 + 变异自证（反转阈值 → 5 红） |
 | **D-5** | 裁定 auth chain / auth difference 是否含 create | ❌ **未做** | `synapse-web/src/routes/federation/pdu.rs:141-157` 五类型清单原样；计划自标【待核验】 |
-| **D-6** | 出站 create PDU 省略 `room_id`（G-10） | ❌ **未做** | `synapse-common/src/pdu.rs:89` 无条件 `insert("room_id", …)`；`state_pdu`/`build_pdu` 无版本分支 |
+| **D-6** | 出站 create PDU 省略 `room_id`（G-10） | ✅ **完成**（`e2b8266b3`） | `build_pdu` 对 v12+ create 不写 `room_id`；**它是 C-2 的硬前置**（见 §2.5） |
 | **E-1** | `additional_creators` 校验（规则 1.4） | ❌ **未做** | 全仓 `grep additional_creators` **0** 命中（与计划 G-31 一致） |
 | **E-2** | 创建者集合 + 无限 PL（G-32/33/35） | ❌ **未做** | `auth/power_levels.rs:73` 仍 `resolve_room_creator -> Option<String>`（单个）；无 `i64::MAX` 哨兵 |
 | **E-3** | 规则 10.4：PL 的 `users` 不得含创建者 | ❌ **未做** | 无该检查；`rules.rs:120` 注释把它列为待加规则 |
@@ -41,7 +41,10 @@
 | **H-1** | 逐份更正文档（含额外 6 份） | 🟡 **部分完成** | `d3a12ca73`（`docs/room-version-12-13-correction`，已并进本分支历史）改了 `CURRENT_ISSUES_AND_PLAN.md` 与 `REMAINING_ISSUES_...2026-09-25.md`；`V12_ROOM_VERSION_..._PLAN.md:21` 已自我更正 MSC4239 误引<br>❌ `AUDIT_SUMMARY_2026-09-12.md`、`DB_REVIEW_2026-09-17.md` 最近提交仍是 markdownlint 批（**未加 superseded 横幅**）；`docs/synapse-rust/` 与 `docs/audit/O1_PHASE1_...` 未核 |
 | **H-2** | Q1–Q7 结论落档 | ❌ **未做** | 依赖 A-2 |
 
-**计数**：✅ 完成 4（A-1、B-1、B-2、C-1）｜🟡 部分 3（C-3、D-3、H-1）｜❌ 未做 17。
+**计数（批次 1 后）**：✅ 完成 8（A-1、B-1、B-2、C-1、C-2、C-3、D-4、D-6）｜🟡 部分 3（D-3、H-1、G-2 之外的部分项）｜❌ 未做 13。
+
+> **批次 1 完成（2026-09-27）**：`16ee8208f`（C-3 DB 放宽 + 指纹 + 契约）、`b7cf472b4`（D-4）、`e2b8266b3`（D-6 + C-2）。
+> 关键修正：**计划把 D-6 排在 C-2 之后是错的 —— D-6 是 C-2 的硬前置**（详见 §2.5）。
 
 > `D-3` 之所以算"部分"：它的内容（规则 2.5 与 MSC4307 合并为同一实现）已由 B-2 落地并从 v12 起强制，没有独立待办；但它对 v1–v11 的行为边界**尚未有显式回归向量**，故不记为"完成"。
 
@@ -135,3 +138,33 @@ sed -n 92,116p synapse-common/src/room_versions.rs                              
 sed -n 108,116p synapse-services/src/room/state/auth_events.rs                         # D-4 未改
 sed -n 85,92p synapse-common/src/pdu.rs                                                # D-6 未改
 ```
+
+---
+
+## 2.5 批次 1 的实现发现：D-6 是 C-2 的硬前置（计划排序有误）
+
+计划 §3.2 把 **D-6**（出站 create PDU 省略 `room_id`）放在阶段 D、排在 **C-2**（room_id 推导）之后。
+实测证明这个顺序反了：**不先做 D-6，C-2 在物理上不可能成立**。
+
+机制（`synapse-common/src/pdu.rs` + `event_id.rs`）：
+
+1. `finalize_local_pdu` 先算 content hash，再把它写进 `hashes`，**然后**才算 event id；
+2. 红action 白名单**保留 `hashes`**（`redaction.rs` 的 `allowed` 列表）；
+3. content hash 是对**未红action的整份 PDU** 取的，其中**包含 `room_id`**。
+
+⇒ 只要 `build_pdu` 还在 v12 create 上写 `room_id`，event id 就会**通过 `hashes` 间接依赖 `room_id`**，
+而 MSC4291 又要求 `room_id` 由 event id 推导 —— 循环定义。
+
+诊断过程的关键证据（同一函数、同一 `parts`）：
+
+```
+direct=Ok("$abBwO9...")        ← compute_event_id(build_pdu(&parts))
+via_finalize=$honiPdN...       ← finalize_local_pdu(&parts).event_id
+```
+
+两者不等；而两侧 PDU **逐字段只差 `room_id`**。单独测 `compute_event_id`（不含 `hashes`）会得到
+"room_id 无关"的结论 —— 这正是本项一开始被误判为"派生失败"的原因：**必须走完整 finalize 路径才能
+观察到该泄漏**。回归测试因此固定在 `synapse-federation/src/event_finalize.rs`（走完整路径），
+而不是 `compute_event_id` 的纯函数单测。
+
+**因此 §3.2 的阶段顺序应修正为**：`C-3(DB) → D-6 → C-2 → D-4 → …`；D-6 不应留在阶段 D。
