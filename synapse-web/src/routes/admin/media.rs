@@ -56,7 +56,6 @@ pub fn create_media_router() -> Router<crate::routes::AppState> {
         // ─────────────────────────────────────────────────────────────────────
         .route("/_synapse/admin/v1/user/{user_id}/media/quarantine", post(quarantine_user_media))
         .route("/_synapse/admin/v1/media/delete", post(delete_media_by_policy))
-        .route("/_synapse/admin/v1/purge_media_cache", post(purge_media_cache))
         .route("/_synapse/admin/v1/media/unprotect/{media_id}", post(unprotect_media_by_id))
 }
 
@@ -412,23 +411,11 @@ pub async fn delete_media_by_policy(
 }
 
 /// Purge cached remote media not accessed since `before_ts`.
+/// Purge cached remote media not accessed since `before_ts`.
 ///
 /// Backs `POST /_synapse/admin/v1/purge_media_cache`.
-/// Request body: `{ "before_ts": <unix_ms> }`
-#[axum::debug_handler]
-pub async fn purge_media_cache(
-    _admin: AdminUser,
-    State(ctx): State<AdminContext>,
-    axum::extract::Json(body): axum::extract::Json<std::collections::HashMap<String, i64>>,
-) -> Result<Json<Value>, ApiError> {
-    let before_ts = body.get("before_ts").copied().unwrap_or(0);
-
-    let purged = ctx.admin_media_service.purge_media_cache(before_ts).await?;
-
-    Ok(Json(json!({
-        "purged": purged
-    })))
-}
+/// NOTE: This handler is registered in server.rs; kept here only if needed.
+// (Deleted — see server.rs registration)
 
 /// Unprotect a media item so it can be quarantined or deleted again.
 ///
