@@ -5,6 +5,7 @@ use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 
+use synapse_common::pdu::{build_pdu, PduParts};
 use synapse_federation::event_broadcaster::EventBroadcaster;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::Validator;
@@ -4890,4 +4891,251 @@ async fn test_upgrade_room_not_found() {
     let result = room_service.upgrade_room("!nonexistent:localhost", "11", &alice_id).await;
 
     assert!(result.is_err());
+}
+
+// ---------------------------------------------------------------------------
+// U-13-R10: the caller-transaction write path must finalize the event ID
+// ---------------------------------------------------------------------------
+
+/// Recompute the event ID the way a **receiving** server does, from the row the
+/// write path persisted: project the stored fields into the single PDU
+/// assembler (`synapse_common::pdu::build_pdu`, decision §4.2), attach the
+/// `hashes` the origin signed over, and resolve the identity from that object
+/// (`resolve_received_event_id`).
+///
+/// The `hashes` step is not optional: the v3+ reference hash is taken over the
+/// **redacted event including `hashes`** (the content hash itself excludes it),
+/// so a PDU without them is not the object a peer hashes. `finalize_local_pdu`
+/// is the origin's version of the same chain and is asserted to agree here.
+///
+/// For v1/v2 the ID is the server-assigned one carried in the PDU; for v3+ it is
+/// the reference hash. Either way this is the value a peer will use, so the
+/// locally stored ID must equal it — that is decision §4.1.
+async fn receiver_side_event_id(event_storage: &EventStorage, room_version: &str, event_id: &str) -> String {
+    let row = event_storage.get_event(event_id).await.unwrap().expect("event row must be persisted");
+    let graph = event_storage
+        .get_event_graph_fields(event_id)
+        .await
+        .unwrap()
+        .expect("the graph-aware write path must persist depth/prev_events/auth_events");
+    let ids = |value: Option<serde_json::Value>| -> Vec<String> {
+        value
+            .and_then(|value| value.as_array().cloned())
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|value| value.as_str().map(str::to_string))
+            .collect()
+    };
+    let prev_events = ids(graph.prev_events);
+    let auth_events = ids(graph.auth_events);
+    // v1/v2 carry `event_id` as a PDU field; v3+ must not.
+    let carried = matches!(room_version, "1" | "2").then_some(row.event_id.as_str());
+    let parts = PduParts {
+        room_version,
+        event_id: carried,
+        room_id: &row.room_id,
+        sender: &row.user_id,
+        event_type: &row.event_type,
+        content: &row.content,
+        state_key: row.state_key.as_deref(),
+        origin_server_ts: row.origin_server_ts,
+        origin: "localhost",
+        depth: graph.depth.expect("depth must be persisted"),
+        prev_events: &prev_events,
+        auth_events: &auth_events,
+        redacts: row.redacts.as_deref(),
+    };
+
+    let finalized = synapse_federation::event_finalize::finalize_local_pdu(&parts).expect("finalize the row");
+    let mut emitted = build_pdu(&parts);
+    emitted
+        .as_object_mut()
+        .expect("build_pdu returns an object")
+        .insert("hashes".to_string(), finalized.hashes.clone());
+    let derived =
+        synapse_common::event_id::resolve_received_event_id(room_version, &emitted).expect("receiver-side id");
+    assert_eq!(derived, finalized.event_id, "the origin's finalizer and the receiver's derivation must agree");
+    derived
+}
+
+/// Defect A (U-13-R10): the client `/send` path writes the event and its
+/// relation index inside a **caller transaction**. Pre-fix
+/// `GraphMetadataWriter::create_event_with_pdu` early-returned whenever
+/// `tx.is_some()`, so the caller's placeholder ID was persisted for every v3+
+/// room while peers derive the reference hash — decision §4.1 ("the local write
+/// entry point owns event identity; every caller must consume the ID it
+/// returns").
+///
+/// The pool comes from `require_test_pool()` rather than `IsolatedTestPool`
+/// (rule R9) on purpose: `IsolatedTestPool` caps the pool at
+/// `max_connections(1)`, and `MessagingService::send_message` reads the room
+/// version through the pool **while its caller transaction holds the
+/// connection**, so one connection is not enough (observed: `PoolTimedOut` at
+/// "Failed to read room version"). `require_test_pool()` clones the same
+/// real-baseline template schema per call — no self-built schema, which is what
+/// R9 forbids — and is the established harness of this suite.
+#[tokio::test]
+async fn test_send_message_finalizes_the_event_id_on_the_caller_transaction_path() {
+    let pool = crate::require_test_pool().await;
+
+    let id = unique_id();
+    let alice_id = format!("@alice_{id}:localhost");
+    let alice_name = format!("alice_{id}");
+    create_test_user(&pool, &alice_id, &alice_name).await;
+
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let room_service = create_room_service_with_finalizing_writer(&pool, cache);
+
+    let config = CreateRoomConfig { room_version: Some("11".to_string()), ..Default::default() };
+    let room_val = room_service.lifecycle.create_room(&alice_id, config).await.unwrap();
+    let room_id = room_val["room_id"].as_str().unwrap().to_string();
+
+    // 1. A plain message: the response must name the row that was persisted, and
+    //    that row must carry a v3+ reference-hash ID (`$` + 43 Base64 chars, no
+    //    origin suffix) — not the pre-write placeholder.
+    let plain = room_service
+        .messaging
+        .send_message(&room_id, &alice_id, "m.room.message", &json!({"msgtype": "m.text", "body": "root"}))
+        .await
+        .expect("send_message must succeed");
+    let root_id = plain["event_id"].as_str().unwrap().to_string();
+
+    let event_storage = EventStorage::new(&pool, "localhost".to_string());
+    let persisted =
+        event_storage.get_event(&root_id).await.unwrap().expect("the /send response id must be the persisted row");
+    assert_eq!(persisted.event_id, root_id);
+    assert_eq!(root_id.len(), 44, "v11 event IDs are `$` + 43 base64 chars: {root_id}");
+    assert!(!root_id.contains(':'), "v3+ event IDs carry no origin suffix: {root_id}");
+
+    // 2. The receiver's view: the stored ID must equal the identity a peer
+    //    recomputes from the PDU this row projects to.
+    assert_eq!(
+        receiver_side_event_id(&event_storage, "11", &root_id).await,
+        root_id,
+        "the persisted ID must equal the reference hash a peer derives from the emitted PDU"
+    );
+
+    // 3. A relation: the relation index is written in the *same* transaction, so
+    //    it must be keyed by the finalized ID the write entry returned — a row
+    //    keyed by the placeholder would dangle.
+    let reply = room_service
+        .messaging
+        .send_message(
+            &room_id,
+            &alice_id,
+            "m.room.message",
+            &json!({
+                "msgtype": "m.text",
+                "body": "reply",
+                "m.relates_to": { "rel_type": "m.in_reply_to", "event_id": root_id }
+            }),
+        )
+        .await
+        .expect("relation send_message must succeed");
+    let reply_id = reply["event_id"].as_str().unwrap().to_string();
+    assert_eq!(receiver_side_event_id(&event_storage, "11", &reply_id).await, reply_id);
+
+    let relation_event_id: String =
+        sqlx::query_scalar("SELECT event_id FROM event_relations WHERE relates_to_event_id = $1")
+            .bind(&root_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("the relation row must be persisted");
+    assert_eq!(relation_event_id, reply_id, "event_relations must index the finalized event ID");
+}
+
+/// The v1/v2 half of decision §4.1: those versions keep the **server-assigned**
+/// ID, so the write entry must not replace it with a reference hash.
+#[tokio::test]
+async fn test_send_message_keeps_the_server_assigned_id_for_v1_rooms() {
+    let pool = crate::require_test_pool().await;
+
+    let id = unique_id();
+    let alice_id = format!("@alice_{id}:localhost");
+    let alice_name = format!("alice_{id}");
+    create_test_user(&pool, &alice_id, &alice_name).await;
+
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let room_service = create_room_service_with_finalizing_writer(&pool, cache);
+
+    let config = CreateRoomConfig { room_version: Some("1".to_string()), ..Default::default() };
+    let room_val = room_service.lifecycle.create_room(&alice_id, config).await.unwrap();
+    let room_id = room_val["room_id"].as_str().unwrap().to_string();
+
+    let sent = room_service
+        .messaging
+        .send_message(&room_id, &alice_id, "m.room.message", &json!({"msgtype": "m.text", "body": "v1 root"}))
+        .await
+        .expect("send_message must succeed");
+    let event_id = sent["event_id"].as_str().unwrap().to_string();
+
+    let event_storage = EventStorage::new(&pool, "localhost".to_string());
+    let persisted =
+        event_storage.get_event(&event_id).await.unwrap().expect("the /send response id must be the persisted row");
+    assert_eq!(persisted.event_id, event_id);
+    assert!(event_id.contains(":localhost"), "v1 keeps the server-assigned ID: {event_id}");
+    assert_ne!(event_id.len(), 44, "a v1 ID is not a reference hash: {event_id}");
+    assert_eq!(receiver_side_event_id(&event_storage, "1", &event_id).await, event_id);
+}
+
+/// The other half of Defect A: `GraphMetadataWriter::create_event` cannot
+/// resolve the graph fields inside a caller transaction (the reads only see
+/// committed state), so it cannot finalize a v3+ identity either. Pre-fix it
+/// silently passed the caller's placeholder straight to storage; it must refuse
+/// instead of persisting an ID that disagrees with the reference hash a peer
+/// derives (decision §4.1). v1/v2 keep passing through, because their
+/// server-assigned ID is already final.
+#[tokio::test]
+async fn test_transactional_create_event_refuses_to_persist_an_unfinalized_id() {
+    let pool = crate::require_test_pool().await;
+
+    let id = unique_id();
+    let alice_id = format!("@alice_{id}:localhost");
+    create_test_user(&pool, &alice_id, &format!("alice_{id}")).await;
+
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let room_service = create_room_service_with_finalizing_writer(&pool, cache);
+    let config = CreateRoomConfig { room_version: Some("11".to_string()), ..Default::default() };
+    let room_val = room_service.lifecycle.create_room(&alice_id, config).await.unwrap();
+    let room_id = room_val["room_id"].as_str().unwrap().to_string();
+
+    let event_storage = Arc::new(EventStorage::new(&pool, "localhost".to_string()));
+    let writer: Arc<dyn synapse_storage::event::EventWriter> =
+        Arc::new(synapse_services::graph_metadata::GraphMetadataWriter::new(
+            event_storage.clone(),
+            Arc::new(synapse_services::graph_metadata::GraphMetadataResolver::new(Arc::new(
+                synapse_services::graph_metadata::StorageGraphMetadataSource::new(
+                    event_storage.clone(),
+                    Arc::new(RoomStorage::new(&pool)),
+                ),
+            ))),
+            "localhost".to_string(),
+        ));
+
+    let placeholder = "$placeholder-on-the-tx-path:localhost".to_string();
+    let mut tx = pool.begin().await.expect("begin");
+    let error = writer
+        .create_event(
+            CreateEventParams {
+                event_id: placeholder.clone(),
+                room_id,
+                user_id: alice_id,
+                event_type: "m.room.message".to_string(),
+                content: json!({"msgtype": "m.text", "body": "tx"}),
+                state_key: None,
+                origin_server_ts: current_timestamp_millis(),
+                redacts: None,
+            },
+            Some(&mut tx),
+        )
+        .await
+        .expect_err("a v3+ transactional create_event must be refused, not served a placeholder");
+    tx.rollback().await.expect("rollback");
+    assert!(error.to_string().contains("reference-hash"), "the refusal must name the reason, got: {error}");
+
+    // Fail-closed means nothing was written, not a silent placeholder row.
+    assert!(
+        event_storage.get_event(&placeholder).await.unwrap().is_none(),
+        "the refused write must not persist the placeholder"
+    );
 }

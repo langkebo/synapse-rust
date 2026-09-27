@@ -25,14 +25,32 @@
 //! produce **wrong** graph data (an incomplete `auth_events`, or
 //! `prev_events: []` for an event that is not the DAG root) — exactly the
 //! fabrication `pdu.rs` documents as actively harmful. This decorator therefore
-//! only resolves on the auto-commit path (`tx.is_none()`). A transactional
-//! caller gets no silent pass: it must supply the graph fields itself, through
-//! [`EventWriter::create_event_with_pdu`] or
-//! [`EventWriter::create_event_with_graph`]. The two known callers are room
-//! creation (`LifecycleService::write_creation_event`, which computes its own
-//! linear graph metadata) and `MessagingService::create_event`, whose only
-//! transactional caller (`send_message`, DB-03-a) writes just the event row and
-//! its relation index — never room state — so its committed-state read is exact.
+//! never resolves the graph fields on the caller-transaction path; a
+//! transactional writer must supply them itself, through
+//! [`EventWriter::create_event_with_pdu`] (or
+//! [`EventWriter::create_event_with_graph`] when the values must stay
+//! byte-faithful to an origin server).
+//!
+//! Event **identity**, however, is owned here on every path. When the caller
+//! supplies the graph fields (`create_event_with_pdu`) the only read the
+//! identity still needs is the room version, and that read is performed
+//! **through the caller's transaction** when there is one
+//! ([`GraphMetadataSource::room_version_in_tx`]): a transaction that created the
+//! room sees its own row, one that did not sees the committed row, and no
+//! context is silently skipped. The v3+ reference hash is therefore computed
+//! *before* the row is inserted, so the caller can hand the ID to a client in
+//! the same request (decision §4.1).
+//!
+//! A transactional caller that resolves instead of supplying — i.e.
+//! [`EventWriter::create_event`] with a transaction — cannot be served a final
+//! v3+ identity, so it is **refused** rather than handed a placeholder to
+//! persist. v1/v2 (and any version whose identity is a carried server-assigned
+//! ID) pass through, because the caller's value is already final there. The only
+//! production transactional local write is `MessagingService::send_message`
+//! (DB-03-a), which writes just the event row and its relation index and goes
+//! through `create_event_with_pdu`; room creation
+//! (`LifecycleService::write_creation_event`) goes through
+//! `create_event_with_graph`.
 //!
 //! # Failure policy
 //!
@@ -40,7 +58,9 @@
 //! is missing, the write is rejected instead of being persisted with fabricated
 //! graph fields. A missing room version means we cannot even pick the right
 //! `auth_events` selection rules, and a `depth: 0` row makes peers file the
-//! event as a DAG root.
+//! event as a DAG root. `create_event_with_pdu` additionally rejects an
+//! incomplete [`synapse_storage::PduGraphFields`] instead of manufacturing the
+//! absent fields.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -91,6 +111,20 @@ pub trait GraphMetadataSource: Send + Sync {
 
     /// The room's version, if the room exists.
     async fn room_version(&self, room_id: &str) -> Result<Option<String>, sqlx::Error>;
+
+    /// The room's version, read **through the caller's transaction**.
+    ///
+    /// Same contract as [`GraphMetadataSource::room_version`], except the read
+    /// must run on `tx`'s own connection so that a caller which created the room
+    /// inside the same transaction still sees it. Implementations with no
+    /// transaction-aware read have no better answer and must say so by
+    /// implementing this explicitly — silently falling back to the committed
+    /// read is the blind spot this method exists to close.
+    async fn room_version_in_tx(
+        &self,
+        room_id: &str,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<Option<String>, sqlx::Error>;
 }
 
 /// [`GraphMetadataSource`] over Postgres `EventStorage` and the room store.
@@ -129,6 +163,19 @@ impl GraphMetadataSource for StorageGraphMetadataSource {
 
     async fn room_version(&self, room_id: &str) -> Result<Option<String>, sqlx::Error> {
         self.rooms.get_room_version_only(room_id).await
+    }
+
+    async fn room_version_in_tx(
+        &self,
+        room_id: &str,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<Option<String>, sqlx::Error> {
+        // Byte-identical SQL text to `RoomStorage::get_room_version_only`, so it
+        // reuses the same `.sqlx` offline entry (the macro cache keys on the
+        // query string); only the connection differs.
+        Ok(sqlx::query_scalar!(r#"SELECT room_version AS "room_version!" FROM rooms WHERE room_id = $1"#, room_id)
+            .fetch_optional(&mut **tx)
+            .await?)
     }
 }
 
@@ -208,6 +255,19 @@ impl GraphMetadataResolver {
     /// The room's version, as the resolver's source reports it.
     pub async fn room_version(&self, room_id: &str) -> Result<Option<String>, GraphMetadataError> {
         Ok(self.source.room_version(room_id).await?)
+    }
+
+    /// The room's version as visible **through the caller's transaction**.
+    ///
+    /// Used when a write happens inside a caller-managed transaction, so a
+    /// transaction that created the room still sees its own row (see
+    /// [`GraphMetadataSource::room_version_in_tx`]).
+    pub async fn room_version_in_tx(
+        &self,
+        room_id: &str,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<Option<String>, GraphMetadataError> {
+        Ok(self.source.room_version_in_tx(room_id, tx).await?)
     }
 
     /// Resolves the graph fields for `params`.
@@ -344,16 +404,44 @@ impl EventWriter for GraphMetadataWriter {
         params: CreateEventParams,
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> Result<RoomEvent, sqlx::Error> {
-        // Only the auto-commit path can be resolved against committed state —
-        // see the module docs on transactions.
-        if tx.is_some() {
-            return self.inner.create_event(params, tx).await;
-        }
+        let Some(tx) = tx else {
+            // Auto-commit: resolution sees every committed row, so the graph
+            // fields and the identity are both derived here.
+            let graph = self.resolver.resolve(&params).await?;
+            let params = self.finalize_event_id(
+                params,
+                &graph.room_version,
+                graph.depth,
+                &graph.prev_events,
+                &graph.auth_events,
+            )?;
+            return self
+                .inner
+                .create_event_with_graph(params, &graph.prev_events, &graph.auth_events, graph.depth, None)
+                .await;
+        };
 
-        let graph = self.resolver.resolve(&params).await?;
-        let params =
-            self.finalize_event_id(params, &graph.room_version, graph.depth, &graph.prev_events, &graph.auth_events)?;
-        self.inner.create_event_with_graph(params, &graph.prev_events, &graph.auth_events, graph.depth, None).await
+        // Caller transaction, no supplied graph fields: resolution would read
+        // committed state and could not see this transaction's own rows, so the
+        // graph fields would be wrong. Derive-or-refuse applies to the identity
+        // only: a version whose ID must be derived (v3+) cannot be finalized
+        // here, so refuse instead of persisting the caller's placeholder.
+        let room_version = self.resolver.room_version_in_tx(&params.room_id, tx).await?;
+        match room_version.as_deref() {
+            Some(version) if synapse_common::event_id::uses_reference_hash_event_id(version) => {
+                Err(sqlx::Error::Protocol(format!(
+                    "create_event inside a caller transaction cannot derive the v{version} reference-hash event id; \
+                     supply depth/prev_events/auth_events through create_event_with_pdu"
+                )))
+            }
+            // v1/v2 (and any version whose identity is a carried ID): the
+            // caller's value is already final, so the plain write is correct.
+            Some(_) => self.inner.create_event(params, Some(tx)).await,
+            None => Err(sqlx::Error::Protocol(format!(
+                "room {} has no room version; refusing to write an event whose identity cannot be finalized",
+                params.room_id
+            ))),
+        }
     }
 
     async fn create_event_with_pdu(
@@ -362,14 +450,11 @@ impl EventWriter for GraphMetadataWriter {
         pdu_graph: synapse_storage::PduGraphFields,
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> Result<RoomEvent, sqlx::Error> {
-        // The v12+ creation path supplies the complete graph fields, so the ID
-        // can be derived here exactly as on the resolved path. Only the
-        // auto-commit case is finalized: inside a caller's transaction the
-        // version read would race the transaction's own writes.
-        if tx.is_some() {
-            return self.inner.create_event_with_pdu(params, pdu_graph, tx).await;
-        }
-
+        // The caller supplies the complete graph fields, so the ID can be
+        // derived here exactly as on the resolved path — in *every* context. The
+        // room version is the one read the identity still needs, and it is taken
+        // through the caller's transaction when there is one so that a
+        // transaction which created the room sees its own row.
         let (Some(depth), Some(prev_events), Some(auth_events)) =
             (pdu_graph.depth, pdu_graph.prev_events.clone(), pdu_graph.auth_events.clone())
         else {
@@ -378,8 +463,13 @@ impl EventWriter for GraphMetadataWriter {
             ));
         };
 
-        let room_version =
-            self.resolver.room_version(&params.room_id).await?.unwrap_or_else(|| create_event_room_version(&params));
+        let mut tx = tx;
+        let room_version = match tx.as_deref_mut() {
+            Some(tx) => self.resolver.room_version_in_tx(&params.room_id, tx).await?,
+            None => self.resolver.room_version(&params.room_id).await?,
+        }
+        .unwrap_or_else(|| create_event_room_version(&params));
+
         let params = self.finalize_event_id(params, &room_version, depth, &prev_events, &auth_events)?;
         self.inner.create_event_with_pdu(params, pdu_graph, tx).await
     }
@@ -577,6 +667,15 @@ mod tests {
         }
 
         async fn room_version(&self, _room_id: &str) -> Result<Option<String>, sqlx::Error> {
+            Ok(self.version.clone())
+        }
+
+        async fn room_version_in_tx(
+            &self,
+            _room_id: &str,
+            _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        ) -> Result<Option<String>, sqlx::Error> {
+            // The fake has no transaction; its committed view is all there is.
             Ok(self.version.clone())
         }
     }
