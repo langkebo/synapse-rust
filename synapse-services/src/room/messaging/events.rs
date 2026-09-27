@@ -115,7 +115,6 @@ impl MessagingService {
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> ApiResult<synapse_storage::RoomEvent> {
         let room_id = params.room_id.clone();
-        let event_id = params.event_id.clone();
         let event_type = params.event_type.clone();
         let state_key = params.state_key.clone();
         let should_update_summary = tx.is_none();
@@ -243,13 +242,15 @@ impl MessagingService {
         }
 
         if should_update_summary {
-            if let Err(error) =
-                self.room_summary_service.queue_update(&room_id, &event_id, &event_type, state_key.as_deref()).await
+            if let Err(error) = self
+                .room_summary_service
+                .queue_update(&room_id, &event.event_id, &event_type, state_key.as_deref())
+                .await
             {
                 ::tracing::warn!(
                     error = %error,
                     room_id = %room_id,
-                    event_id = %event_id,
+                    event_id = %event.event_id,
                     event_type = %event_type,
                     state_key = ?state_key,
                     "Failed to queue room summary update"

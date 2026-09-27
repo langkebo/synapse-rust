@@ -22,12 +22,15 @@ pub(crate) async fn knock_room(
     super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
     let _room_version = federatable_room_version(&ctx, &room_id).await?;
 
-    let event_id = format!("${}", synapse_common::crypto::generate_event_id(&ctx.server_name));
+    // The write entry owns event identity (decision §4.1): the value generated
+    // here is only the placeholder it replaces for v3+ rooms, and the ID the
+    // caller must use is the one `create_event` returns from the persisted row.
+    let placeholder_event_id = synapse_common::crypto::generate_event_id(&ctx.server_name);
     let origin_server_ts = current_timestamp_millis();
 
     let content = json!({"membership": "knock"});
     let params = synapse_services::event::CreateEventParams {
-        event_id: event_id.clone(),
+        event_id: placeholder_event_id,
         room_id: room_id.clone(),
         user_id: user_id.clone(),
         event_type: "m.room.member".to_string(),
@@ -37,11 +40,13 @@ pub(crate) async fn knock_room(
         redacts: None,
     };
 
-    ctx.room_service
+    let stored = ctx
+        .room_service
         .messaging()
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to create knock event", e))?;
+    let event_id = stored.event_id;
     dispatch_federation_member_event_to_appservice(&ctx, &event_id, &room_id, &user_id, &content, Some(&user_id)).await;
 
     // P1-14: Spec-compliant response — return full event object under "event" key,

@@ -283,7 +283,11 @@ async fn test_add_member_join() {
     assert_eq!(member.room_id, room_id);
     assert_eq!(member.user_id, user_id);
     assert_eq!(member.membership, "join");
-    assert!(member.event_id.is_some());
+    // U-13-R10: `add_member` writes the membership *projection*, not the
+    // membership event, so it must not mint an event ID (decision §4.1). The
+    // `events` row written by the write entry is the single source of the ID;
+    // the previous behaviour stored a `$$…` placeholder that disagreed with it.
+    assert!(member.event_id.is_none(), "the projection must not fabricate an event ID");
     assert!(member.joined_ts.is_some());
 }
 

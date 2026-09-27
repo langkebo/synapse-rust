@@ -31,8 +31,8 @@ impl MessagingService {
         let now = current_timestamp_millis();
         let now = next_event_ts(now, self.event_reader.get_max_origin_server_ts_for_room(room_id).await)?;
 
-        #[allow(unused_variables)]
-        let beacon_location_params = {
+        #[allow(unused_variables, unused_mut)]
+        let mut beacon_location_params = {
             #[cfg(feature = "beacons")]
             {
                 if matches!(event_type, "m.beacon" | "org.matrix.msc3672.beacon" | "org.matrix.msc3489.beacon") {
@@ -176,6 +176,15 @@ impl MessagingService {
             .map_err(|e| ApiError::internal_with_cause("Failed to send message", e))?;
         // create_event failed: `tx` drops here → sqlx auto-rollback → pool returns clean.
 
+        // The write entry owns event identity (§4.1): it may have replaced the
+        // pre-write placeholder with the v3+ reference hash, so everything that
+        // keys off the event must use the ID it returned — the relation index
+        // below, the beacon-location row and the value handed back to the client.
+        #[cfg(feature = "beacons")]
+        if let Some(params) = beacon_location_params.as_mut() {
+            params.event_id = event.event_id.clone();
+        }
+
         if let Some(relates_to) = content.get("m.relates_to").or_else(|| content.get("relates_to")) {
             if let (Some(rel_type), Some(target_event_id)) = (
                 relates_to.get("rel_type").and_then(|v| v.as_str()),
@@ -186,7 +195,7 @@ impl MessagingService {
                     .create_relation_in_tx(
                         synapse_storage::relations::CreateRelationParams {
                             room_id: room_id.to_string(),
-                            event_id: event_id.clone(),
+                            event_id: event.event_id.clone(),
                             relates_to_event_id: target_event_id.to_string(),
                             relation_type: rel_type.to_string(),
                             sender: user_id.to_string(),
@@ -200,7 +209,7 @@ impl MessagingService {
                     // Log before tx drops (which auto-rolls-back the event).
                     ::tracing::error!(
                         target: "relations",
-                        event_id = %event_id,
+                        event_id = %event.event_id,
                         target_event_id = %target_event_id,
                         error = %e,
                         "Relation write failed; event will be rolled back"
@@ -257,7 +266,7 @@ impl MessagingService {
         }
 
         Ok(json!({
-            "event_id": event_id
+            "event_id": event.event_id
         }))
     }
 

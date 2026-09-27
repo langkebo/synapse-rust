@@ -19,7 +19,9 @@ pub trait EventWriter: Send + Sync {
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> Result<RoomEvent, sqlx::Error>;
 
-    /// v12+ event creation with complete PDU graph fields.
+    /// Graph-aware event creation with complete PDU graph fields — persists
+    /// `depth` / `prev_events` / `auth_events` **and** the matching
+    /// `event_edges` rows.
     ///
     /// See [`create_event_with_pdu`].
     async fn create_event_with_pdu(

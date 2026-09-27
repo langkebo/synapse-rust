@@ -882,6 +882,89 @@ async fn test_create_event_with_graph_in_transaction() {
     let _ = storage.delete_room_events(&room_id).await;
 }
 
+/// U-13-R9 后续回归：`create_event_with_pdu` 除了写 `depth` / `prev_events` /
+/// `auth_events`，还必须写 `event_edges`。
+///
+/// `get_forward_extremities_in_room` **只**依据 `event_edges` 判定尖端
+/// （`dag.rs` 的 `NOT EXISTS (… g.prev_event_id = e.event_id)`），所以缺边等于把
+/// 每个本地事件永久当成 forward extremity：`prev_events` 无限膨胀，
+/// `/get_missing_events` 也无从回溯。回归后（`11bf5455d`）服务层对**所有**已知
+/// 房间版本都改走 `create_event_with_pdu`，于是每个本地事件都落进这个洞。
+///
+/// 两条入口都覆盖：`tx = None`（自动提交；客户端 state 事件走这条）与
+/// `tx = Some(..)`（`MessagingService::send_message` 走这条）。
+///
+/// 断言只走生产侧静态查询（`get_forward_extremities_in_room`），不新增
+/// `#[cfg(test)]` 动态 SQL —— 测试动态棘轮不得上抬。
+#[tokio::test]
+async fn create_event_with_pdu_persists_event_edges_on_both_paths() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+    let room_id = format!("!pduedges_{}:example.com", uuid::Uuid::new_v4());
+    let user_id = "@pduedges:example.com";
+
+    ensure_test_room(&pool, &room_id).await;
+    ensure_test_user(&pool, user_id).await;
+
+    let message = |event_id: &str, body: &str, ts: i64, state_key: Option<String>| CreateEventParams {
+        event_id: event_id.to_string(),
+        room_id: room_id.clone(),
+        user_id: user_id.to_string(),
+        event_type: "m.room.message".to_string(),
+        content: serde_json::json!({ "body": body }),
+        state_key,
+        origin_server_ts: ts,
+        redacts: None,
+    };
+
+    // 父事件：用既有图写路径落库（本用例只验证 pdu 路径的边）。
+    let parent_id = format!("$pdu_parent_{}:example.com", uuid::Uuid::new_v4());
+    storage
+        .create_event_with_graph(message(&parent_id, "parent", current_timestamp_millis(), None), &[], &[], 1, None)
+        .await
+        .expect("parent insert");
+
+    // 入口 1：tx = None（自动提交）。
+    let auto_id = format!("$pdu_auto_{}:example.com", uuid::Uuid::new_v4());
+    storage
+        .create_event_with_pdu(
+            message(&auto_id, "auto", current_timestamp_millis() + 1, None),
+            PduGraphFields { depth: Some(2), prev_events: Some(vec![parent_id.clone()]), auth_events: Some(vec![]) },
+            None,
+        )
+        .await
+        .expect("auto-commit pdu insert");
+
+    let extremities = storage.get_forward_extremities_in_room(&room_id, 10).await.expect("extremities readable");
+    assert!(
+        !extremities.contains(&parent_id),
+        "tx=None 的 create_event_with_pdu 必须写 event_edges，否则父事件永远是尖端，got {extremities:?}"
+    );
+    assert!(extremities.contains(&auto_id), "最新事件应当是尖端，got {extremities:?}");
+
+    // 入口 2：tx = Some(..)（send_message 的形态；边必须随调用方事务一起落库）。
+    let tx_id = format!("$pdu_tx_{}:example.com", uuid::Uuid::new_v4());
+    let mut tx = pool.begin().await.expect("begin tx");
+    storage
+        .create_event_with_pdu(
+            message(&tx_id, "tx", current_timestamp_millis() + 2, None),
+            PduGraphFields { depth: Some(3), prev_events: Some(vec![auto_id.clone()]), auth_events: Some(vec![]) },
+            Some(&mut tx),
+        )
+        .await
+        .expect("tx pdu insert");
+    tx.commit().await.expect("commit");
+
+    let extremities = storage.get_forward_extremities_in_room(&room_id, 10).await.expect("extremities readable");
+    assert!(
+        !extremities.contains(&auto_id),
+        "tx=Some 的 create_event_with_pdu 必须写 event_edges，否则父事件永远是尖端，got {extremities:?}"
+    );
+    assert!(extremities.contains(&tx_id), "最新事件应当是唯一尖端，got {extremities:?}");
+
+    let _ = storage.delete_room_events(&room_id).await;
+}
+
 #[tokio::test]
 async fn test_update_event_signatures_and_hashes() {
     let (_isolated, pool) = test_pool().await;
@@ -2441,6 +2524,65 @@ async fn create_state_event_with_dag_rolls_back_event_when_edges_insert_fails() 
     assert!(result.is_err(), "event_edges 外键失败必须让整笔写入失败");
 
     let persisted = storage.get_event("$dag_state_rollback:example.com").await.expect("get_event");
+    assert!(persisted.is_none(), "events 行不得在 event_edges 失败后残留（半写窗口）");
+}
+
+/// B8 的第三条同型路径：`create_event_with_pdu` 修好"写边"之后，`tx=None` 分支
+/// 同样必须把 `events` 行与 `event_edges` 放进**同一个**本地事务。
+/// 注入手段与断言与上面两条用例完全对齐：不存在的 `prev_event_id` 触发
+/// `fk_event_edges_prev`，修复后整笔回滚（否则又是一次"事件行落了、边没落"）。
+#[tokio::test]
+async fn create_event_with_pdu_rolls_back_event_when_edges_insert_fails() {
+    let (_guard, pool) = test_pool().await;
+    let room_id = "!pdu_rollback:example.com";
+    ensure_test_room(&pool, room_id).await;
+    let storage = EventStorage::new(&pool, test_server_name());
+
+    // 对照组：无 prev_events 时该路径必须成功；否则"失败后无残留"可能只是第一个
+    // INSERT 就失败了，测试会假绿。
+    let control = CreateEventParams {
+        event_id: "$pdu_control:example.com".to_string(),
+        room_id: room_id.to_string(),
+        user_id: "@test:example.com".to_string(),
+        event_type: "m.room.message".to_string(),
+        content: serde_json::json!({ "body": "control" }),
+        state_key: None,
+        origin_server_ts: current_timestamp_millis(),
+        redacts: None,
+    };
+    storage
+        .create_event_with_pdu(
+            control,
+            PduGraphFields { depth: Some(1), prev_events: Some(vec![]), auth_events: Some(vec![]) },
+            None,
+        )
+        .await
+        .expect("control insert must succeed");
+
+    let params = CreateEventParams {
+        event_id: "$pdu_rollback:example.com".to_string(),
+        room_id: room_id.to_string(),
+        user_id: "@test:example.com".to_string(),
+        event_type: "m.room.message".to_string(),
+        content: serde_json::json!({ "body": "hello" }),
+        state_key: None,
+        origin_server_ts: current_timestamp_millis(),
+        redacts: None,
+    };
+    let result = storage
+        .create_event_with_pdu(
+            params,
+            PduGraphFields {
+                depth: Some(2),
+                prev_events: Some(vec!["$missing_prev:example.com".to_string()]),
+                auth_events: Some(vec![]),
+            },
+            None,
+        )
+        .await;
+    assert!(result.is_err(), "event_edges 外键失败必须让整笔写入失败");
+
+    let persisted = storage.get_event("$pdu_rollback:example.com").await.expect("get_event");
     assert!(persisted.is_none(), "events 行不得在 event_edges 失败后残留（半写窗口）");
 }
 

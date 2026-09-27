@@ -198,18 +198,21 @@ pub async fn call_invite(
 
     let _session = ctx.rtc_domain_service.call.handle_invite(&room_id, &auth_user.user_id, content.clone()).await?;
 
-    let event_id = format!("${}:{}", uuid::Uuid::new_v4(), ctx.server_name);
+    // The write entry owns event identity (decision §4.1): this value is only
+    // the placeholder it replaces for v3+ rooms, and the response must carry the
+    // ID of the row that was actually persisted.
+    let placeholder_event_id = format!("${}:{}", uuid::Uuid::new_v4(), ctx.server_name);
     let now = current_timestamp_millis();
     let content_value = serde_json::to_value(content).unwrap_or_default();
 
     // create_event with tx=None already dispatches to appservices internally,
     // so we don't need a separate dispatch_appservice_event call here.
-    let _ = ctx
+    let stored = ctx
         .room_service
         .messaging()
         .create_event(
             synapse_services::event::CreateEventParams {
-                event_id: event_id.clone(),
+                event_id: placeholder_event_id,
                 room_id: room_id.clone(),
                 user_id: auth_user.user_id.clone(),
                 event_type: "m.call.invite".to_string(),
@@ -220,10 +223,10 @@ pub async fn call_invite(
             },
             None,
         )
-        .await;
+        .await?;
 
     Ok(Json(serde_json::json!({
-        "event_id": event_id
+        "event_id": stored.event_id
     })))
 }
 
@@ -256,18 +259,21 @@ pub async fn call_answer(
 
     let _session = ctx.rtc_domain_service.call.handle_answer(&room_id, &auth_user.user_id, content.clone()).await?;
 
-    let event_id = format!("${}:{}", uuid::Uuid::new_v4(), ctx.server_name);
+    // See `call_invite`: the placeholder is replaced by the write entry for v3+
+    // rooms, so the response must carry the persisted row's ID (and a write
+    // failure must surface instead of being swallowed).
+    let placeholder_event_id = format!("${}:{}", uuid::Uuid::new_v4(), ctx.server_name);
     let now = current_timestamp_millis();
     let content_value = serde_json::to_value(content).unwrap_or_default();
 
     // create_event with tx=None already dispatches to appservices internally,
     // so we don't need a separate dispatch_appservice_event call here.
-    let _ = ctx
+    let stored = ctx
         .room_service
         .messaging()
         .create_event(
             synapse_services::event::CreateEventParams {
-                event_id: event_id.clone(),
+                event_id: placeholder_event_id,
                 room_id: room_id.clone(),
                 user_id: auth_user.user_id.clone(),
                 event_type: "m.call.answer".to_string(),
@@ -278,10 +284,10 @@ pub async fn call_answer(
             },
             None,
         )
-        .await;
+        .await?;
 
     Ok(Json(serde_json::json!({
-        "event_id": event_id
+        "event_id": stored.event_id
     })))
 }
 

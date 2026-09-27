@@ -780,3 +780,206 @@ async fn send_join_v2_in_v11_room_persists_graph_metadata_and_signs_the_member_e
     assert!(record.hashes.is_some(), "re_sign_pdu_locally must persist hashes on the join event");
     assert!(record.signatures.is_some(), "re_sign_pdu_locally must persist signatures on the join event");
 }
+
+// ---------------------------------------------------------------------------
+// Tests: the graph-aware write path must persist `event_edges`, not only the
+// graph columns
+// ---------------------------------------------------------------------------
+
+/// `event_edges` rows written for `event_id`, i.e. the parents it points at.
+///
+/// Dynamic SQL on purpose: macros inside `tests/` are not part of the `.sqlx`
+/// offline cache (rule R9 / D-13).
+async fn persisted_prev_event_ids(pool: &sqlx::PgPool, event_id: &str) -> Vec<String> {
+    sqlx::query_scalar("SELECT prev_event_id FROM event_edges WHERE event_id = $1")
+        .bind(event_id)
+        .fetch_all(pool)
+        .await
+        .expect("the event's DAG edges must be readable")
+}
+
+/// `PUT /rooms/{room}/state/{type}` — the client state route writes through
+/// `MessagingService::create_event(.., None)`, i.e. the **auto-commit** path.
+async fn send_state_event(app: &axum::Router, token: &str, room_id: &str, event_type: &str, content: Value) -> String {
+    let request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/state/{event_type}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(content.to_string()))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "{event_type} must be accepted");
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    serde_json::from_slice::<Value>(&body).unwrap()["event_id"]
+        .as_str()
+        .expect("a state write must return the persisted event id")
+        .to_string()
+}
+
+/// `PUT /rooms/{room}/send/m.room.message/{txn}` — `MessagingService::send_message`
+/// writes inside a **caller-managed transaction** (`DB-03-a`).
+async fn send_client_message(app: &axum::Router, token: &str, room_id: &str) -> String {
+    let txn_id = format!("txn_{}", rand::random::<u32>());
+    let request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/send/m.room.message/{txn_id}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "msgtype": "m.text", "body": "hello" }).to_string()))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "the message must be accepted");
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    serde_json::from_slice::<Value>(&body).unwrap()["event_id"]
+        .as_str()
+        .expect("send must return the persisted event id")
+        .to_string()
+}
+
+/// U-13-R9 follow-up: writing the graph **columns** is not enough — the write
+/// path must also persist `event_edges`.
+///
+/// `create_event_with_pdu` inserts `depth` / `prev_events` / `auth_events` but
+/// never inserted into `event_edges`. After `11bf5455d` every known room version
+/// routes through that method, so **every** locally-created event had no edge.
+/// `get_forward_extremities_in_room` derives the room's tips solely from
+/// `event_edges` (`NOT EXISTS (SELECT 1 FROM event_edges g WHERE g.prev_event_id
+/// = e.event_id)`), so each local event stayed a forward extremity for ever:
+/// `prev_events` grew without bound and `/get_missing_events` could not walk
+/// back through the DAG.
+///
+/// Both locally-producing call shapes are driven end to end:
+///   * client state events (`MessagingService::create_event(.., None)`) — the
+///     auto-commit path;
+///   * `/send` (`MessagingService::send_message`) — the caller-transaction path.
+#[tokio::test]
+async fn local_events_persist_event_edges_on_both_write_shapes() {
+    let Some((app, pool, _key_id, _key_b64, _signing_key, _cache)) = setup_federation_app().await else {
+        return;
+    };
+
+    let (token, _creator_id) = register_user(&app, "creator").await;
+    let room_id = create_room_with_version(&app, &token, "10").await;
+    let storage = EventStorage::new(&pool, "localhost".to_string());
+
+    // Auto-commit local writes (`tx = None`): two client state events.
+    let first = send_state_event(&app, &token, &room_id, "m.room.topic", json!({ "topic": "edges" })).await;
+    let second = send_state_event(&app, &token, &room_id, "m.room.name", json!({ "name": "edges" })).await;
+
+    let edges = persisted_prev_event_ids(&pool, &second).await;
+    assert!(
+        edges.contains(&first),
+        "the auto-commit local write must record the DAG edge {second} -> {first}, got {edges:?}"
+    );
+
+    let extremities =
+        storage.get_forward_extremities_in_room(&room_id, 10).await.expect("extremities must be readable");
+    assert!(
+        !extremities.contains(&first),
+        "an event a later local write points at must stop being a forward extremity, got {extremities:?}"
+    );
+
+    // Caller-transaction local write (`tx = Some(..)`): `send_message`.
+    let third = send_client_message(&app, &token, &room_id).await;
+
+    let edges = persisted_prev_event_ids(&pool, &third).await;
+    assert!(
+        edges.contains(&second),
+        "the caller-transaction local write must record the DAG edge {third} -> {second}, got {edges:?}"
+    );
+
+    let extremities =
+        storage.get_forward_extremities_in_room(&room_id, 10).await.expect("extremities must be readable");
+    assert!(
+        !extremities.contains(&second),
+        "send_message's graph-aware write must stop reporting its parent as a tip, got {extremities:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Tests: U-13-R10 — the federation knock must answer with the ID it persisted
+// ---------------------------------------------------------------------------
+
+/// Defect B (U-13-R10): pre-fix `/knock` minted
+/// `format!("${}", generate_event_id(..))` — a `$$…` placeholder — called
+/// `create_event(.., None)` and **discarded** the returned `RoomEvent`, then
+/// answered with the placeholder. The write entry had already replaced that
+/// placeholder with the v3+ reference hash, so the response named an event that
+/// was never persisted (decision §4.1: the caller consumes the write entry's ID).
+#[tokio::test]
+async fn knock_room_returns_the_id_of_the_persisted_row() {
+    let Some((app, pool, _local_key_id, _local_key_b64, _local_signing_key, cache)) = setup_federation_app().await
+    else {
+        return;
+    };
+
+    let remote_origin = "remote.example";
+    let remote_key_id = "ed25519:remote_knock";
+    let remote_signing_key = ed25519_dalek::SigningKey::from_bytes(&[101u8; 32]);
+    register_remote_verify_key(&cache, remote_origin, remote_key_id, &remote_signing_key).await;
+
+    // The remote server needs a non-banned member in the room for
+    // `validate_federation_origin_can_observe_room` to let the knock through to
+    // the event write. Seed the invite the same way the send_join test seeds its
+    // shadow user (there is no outbound federation transport in this sandbox).
+    let (token, creator_id) = register_user(&app, "knockcreator").await;
+    let room_id = create_private_room(&app, &token).await;
+    let invitee = "@invitee:remote.example";
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(invitee)
+    .bind("invitee_remote")
+    .bind(chrono::Utc::now().timestamp_millis())
+    .execute(&*pool)
+    .await
+    .expect("the remote invitee must be seedable as a local shadow row");
+    sqlx::query(
+        "INSERT INTO room_memberships (room_id, user_id, membership, sender, event_type, updated_ts) \
+         VALUES ($1, $2, 'invite', $3, 'm.room.member', $4)",
+    )
+    .bind(&room_id)
+    .bind(invitee)
+    .bind(&creator_id)
+    .bind(chrono::Utc::now().timestamp_millis())
+    .execute(&*pool)
+    .await
+    .expect("the invite membership must be seedable");
+
+    let knocker = "@knocker:remote.example";
+    let body = build_knock_event_body(&room_id, knocker, remote_origin);
+    let uri = format!("/_matrix/federation/v1/knock/{room_id}/{knocker}");
+    let request = signed_fed_request_as(
+        "POST",
+        &uri,
+        remote_origin,
+        "localhost",
+        remote_key_id,
+        &remote_signing_key,
+        Some(&body),
+    );
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "the knock must reach the event write");
+    let bytes = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: Value = serde_json::from_slice(&bytes).unwrap();
+    let event_id =
+        json["event"]["event_id"].as_str().expect("the knock response must carry event.event_id").to_string();
+
+    assert!(!event_id.starts_with("$$"), "the placeholder must not carry a double `$`: {event_id}");
+    let stored: Option<String> = sqlx::query_scalar("SELECT event_id FROM events WHERE event_id = $1")
+        .bind(&event_id)
+        .fetch_optional(&*pool)
+        .await
+        .expect("the events table must be queryable");
+    assert_eq!(
+        stored.as_deref(),
+        Some(event_id.as_str()),
+        "the knock must answer with the ID of the row it persisted, not a placeholder"
+    );
+    assert!(
+        !event_id.contains(":localhost"),
+        "a v3+ knock event ID is a reference hash with no origin suffix: {event_id}"
+    );
+}

@@ -44,7 +44,10 @@ pub(crate) async fn thirdparty_invite(
     // policy would have refused locally.
     ctx.room_service.membership().authorize_invite_policy(room_id, sender, invitee).await?;
 
-    let event_id = format!("${}", synapse_common::crypto::generate_event_id(&ctx.server_name));
+    // A placeholder for the third-party token below only: the write entry below
+    // replaces it with the final ID (reference hash for v3+), which is the value
+    // consumed further down. `generate_event_id` already carries its own `$`.
+    let event_id = synapse_common::crypto::generate_event_id(&ctx.server_name);
 
     let content = json!({
         "membership": "invite",
