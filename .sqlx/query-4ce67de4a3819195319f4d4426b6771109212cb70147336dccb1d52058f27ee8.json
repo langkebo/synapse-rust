@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT room_id, user_id, event_id, event_type, is_sticky, created_ts, updated_ts\n            FROM room_sticky_events\n            WHERE room_id = $1 AND user_id = $2 AND event_type = $3 AND is_sticky = true\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "is_sticky",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "4ce67de4a3819195319f4d4426b6771109212cb70147336dccb1d52058f27ee8"
+}

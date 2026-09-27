@@ -33,7 +33,11 @@ pub struct KeyAuditEntry {
     pub user_id: String,
     /// The `device_id` field.
     pub device_id: Option<String>,
-    /// The `operation` field.
+    /// The `operation` field. `e2ee_audit_log.operation` is **nullable** in the schema
+    /// (only the equal-valued, zero-reader `action` column is `NOT NULL`), but the sole
+    /// writer in the repository is `E2eeAuditStorage::log_key_operation`, which always
+    /// binds `KeyEvent.operation: String` ⇒ the reads assert `AS "operation!"` (R4).
+    /// Structural fix (tighten `operation` to `NOT NULL`, drop `action`): D-73.
     pub operation: String,
     /// The `key_id` field.
     pub key_id: Option<String>,
@@ -63,22 +67,22 @@ impl E2eeAuditStorage {
 
     /// See [`log_key_operation`].
     pub async fn log_key_operation(&self, event: &KeyEvent) -> Result<(), ApiError> {
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO e2ee_audit_log
             (user_id, device_id, action, operation, key_id, room_id, details, ip_address, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, '{}'::jsonb), $8, $9)
             ",
+            &event.user_id,
+            event.device_id.as_deref(),
+            &event.operation,
+            &event.operation,
+            event.key_id.as_deref(),
+            event.room_id.as_deref(),
+            event.details.as_ref(),
+            event.ip_address.as_deref(),
+            event.timestamp
         )
-        .bind(&event.user_id)
-        .bind(&event.device_id)
-        .bind(&event.operation)
-        .bind(&event.operation)
-        .bind(&event.key_id)
-        .bind(&event.room_id)
-        .bind(&event.details)
-        .bind(&event.ip_address)
-        .bind(event.timestamp)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to log key operation", e))?;
@@ -88,16 +92,17 @@ impl E2eeAuditStorage {
 
     /// See [`get_key_history`].
     pub async fn get_key_history(&self, user_id: &str) -> Result<Vec<KeyAuditEntry>, ApiError> {
-        sqlx::query_as::<_, KeyAuditEntry>(
-            r"
-            SELECT id, user_id, device_id, operation, key_id, room_id, details, ip_address, created_ts
+        sqlx::query_as!(
+            KeyAuditEntry,
+            r#"
+            SELECT id, user_id, device_id, operation AS "operation!", key_id, room_id, details, ip_address, created_ts
             FROM e2ee_audit_log
             WHERE user_id = $1
             ORDER BY created_ts DESC, id DESC
             LIMIT 100
-            ",
+            "#,
+            user_id
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get key history", e))
@@ -112,34 +117,36 @@ impl E2eeAuditStorage {
         from_id: Option<i64>,
     ) -> Result<Vec<KeyAuditEntry>, ApiError> {
         if let (Some(ts), Some(id)) = (from_ts, from_id) {
-            sqlx::query_as::<_, KeyAuditEntry>(
-                r"
-                SELECT id, user_id, device_id, operation, key_id, room_id, details, ip_address, created_ts
+            sqlx::query_as!(
+                KeyAuditEntry,
+                r#"
+                SELECT id, user_id, device_id, operation AS "operation!", key_id, room_id, details, ip_address, created_ts
                 FROM e2ee_audit_log
                 WHERE user_id = $1 AND (created_ts < $2 OR (created_ts = $2 AND id < $3))
                 ORDER BY created_ts DESC, id DESC
                 LIMIT $4
-                ",
+                "#,
+                user_id,
+                ts,
+                id,
+                limit
             )
-            .bind(user_id)
-            .bind(ts)
-            .bind(id)
-            .bind(limit)
             .fetch_all(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get key history", e))
         } else {
-            sqlx::query_as::<_, KeyAuditEntry>(
-                r"
-                SELECT id, user_id, device_id, operation, key_id, room_id, details, ip_address, created_ts
+            sqlx::query_as!(
+                KeyAuditEntry,
+                r#"
+                SELECT id, user_id, device_id, operation AS "operation!", key_id, room_id, details, ip_address, created_ts
                 FROM e2ee_audit_log
                 WHERE user_id = $1
                 ORDER BY created_ts DESC, id DESC
                 LIMIT $2
-                ",
+                "#,
+                user_id,
+                limit
             )
-            .bind(user_id)
-            .bind(limit)
             .fetch_all(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get key history", e))
@@ -148,17 +155,18 @@ impl E2eeAuditStorage {
 
     /// See [`get_operations_by_type`].
     pub async fn get_operations_by_type(&self, operation: &str, limit: i64) -> Result<Vec<KeyAuditEntry>, ApiError> {
-        sqlx::query_as::<_, KeyAuditEntry>(
-            r"
-            SELECT id, user_id, device_id, operation, key_id, room_id, details, ip_address, created_ts
+        sqlx::query_as!(
+            KeyAuditEntry,
+            r#"
+            SELECT id, user_id, device_id, operation AS "operation!", key_id, room_id, details, ip_address, created_ts
             FROM e2ee_audit_log
             WHERE operation = $1
             ORDER BY created_ts DESC, id DESC
             LIMIT $2
-            ",
+            "#,
+            operation,
+            limit
         )
-        .bind(operation)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get operations", e))
@@ -170,17 +178,18 @@ impl E2eeAuditStorage {
         user_id: &str,
         device_id: &str,
     ) -> Result<Vec<KeyAuditEntry>, ApiError> {
-        sqlx::query_as::<_, KeyAuditEntry>(
-            r"
-            SELECT id, user_id, device_id, operation, key_id, room_id, details, ip_address, created_ts
+        sqlx::query_as!(
+            KeyAuditEntry,
+            r#"
+            SELECT id, user_id, device_id, operation AS "operation!", key_id, room_id, details, ip_address, created_ts
             FROM e2ee_audit_log
             WHERE user_id = $1 AND device_id = $2
             ORDER BY created_ts DESC, id DESC
             LIMIT 50
-            ",
+            "#,
+            user_id,
+            device_id
         )
-        .bind(user_id)
-        .bind(device_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get device history", e))
@@ -189,8 +198,7 @@ impl E2eeAuditStorage {
     /// See [`cleanup_old_logs`].
     pub async fn cleanup_old_logs(&self, days_to_keep: i64) -> Result<u64, ApiError> {
         let cutoff_ts = current_timestamp_millis() - (days_to_keep * 24 * 60 * 60 * 1000);
-        let result = sqlx::query("DELETE FROM e2ee_audit_log WHERE created_ts < $1")
-            .bind(cutoff_ts)
+        let result = sqlx::query!("DELETE FROM e2ee_audit_log WHERE created_ts < $1", cutoff_ts)
             .execute(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to cleanup logs", e))?;

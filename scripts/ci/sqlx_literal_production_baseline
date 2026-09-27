@@ -152,6 +152,14 @@
 #   全部宏化 ⇒ 三行归零退表；本表合计 252 → **223**、文件数 53 → **50**。
 #   ⚠️ 这三个文件**仍留在「运行期拼装」摘要清单里**（basic 3 + batch 2），因为
 #   `{ROOM_EVENT_COLS}` 拼列清单属 D-14 结构性例外，本批有意未动。
+# ── 2026-09-26 C40（本表再退三行：5 + 7 + 7）────────────────────────────────
+#   `sticky_event.rs`(5)、`federation_blacklist.rs`(7)、`e2ee_audit.rs`(7) 的字面量站点
+#   全部宏化 ⇒ 三行归零退表；本表合计 223 → **204**、文件数 50 → **47**。
+#   三文件都没有运行期拼装站点，故末尾「运行期拼装」摘要**不变**（仍 70 处 / 13 文件；
+#   恒等式同步改写为 `275 − 204 − 1 = 70`）。C40 的批次记录与 D-72/D-73/D-74 见
+#   `sqlx_dynamic_ratio_baseline` 的同日段。后两行（`room_account_data.rs 7`、
+#   `email_verification.rs 8`）**有意未并入本批**：前者有 2 处 `PgRow` 泄漏 +
+#   1 处 `.ok().flatten()` 吞错，须先修（R12）再转；后者只有 1 条 DB 用例，须先补覆盖。
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -169,7 +177,6 @@ synapse-storage/src/admin_media.rs	8
 synapse-storage/src/audit.rs	4
 synapse-storage/src/call_session.rs	7
 synapse-storage/src/delayed_events.rs	7
-synapse-storage/src/e2ee_audit.rs	7
 synapse-storage/src/email_verification.rs	8
 synapse-storage/src/event/cascade.rs	2
 synapse-storage/src/event/dag.rs	8
@@ -180,7 +187,6 @@ synapse-storage/src/event/signature.rs	3
 synapse-storage/src/event/txn_dedup.rs	3
 synapse-storage/src/event/unread.rs	3
 synapse-storage/src/feature_flags.rs	5
-synapse-storage/src/federation_blacklist.rs	7
 synapse-storage/src/filter.rs	5
 synapse-storage/src/login_token.rs	3
 synapse-storage/src/maintenance.rs	3
@@ -198,13 +204,12 @@ synapse-storage/src/room_summary/repository.rs	2
 synapse-storage/src/room_tag/mod.rs	4
 synapse-storage/src/schema_health_check.rs	4
 synapse-storage/src/schema_validator.rs	3
-synapse-storage/src/sticky_event.rs	5
 synapse-storage/src/url_preview_storage.rs	3
 synapse-storage/src/user/storage.rs	1
 synapse-test-utils/src/lib.rs	14
 # ── 当前「运行期拼装」残差清单（**允许**，不入棘轮；仅作可读性摘要）────────────
 # 合计 **70 处 / 13 文件**（2026-09-26 D-14 收紧后实测；与 ratio 棘轮的
-# `dynamic_production − literal − param` = 392 − 321 − 1 = 70 一致）：
+# `dynamic_production − literal − param` = 275 − 204 − 1 = 70 一致）：
 #    16  synapse-common/src/test_isolation.rs
 #    14  synapse-test-utils/src/lib.rs
 #     9  synapse-storage/src/event/pagination.rs

@@ -2342,12 +2342,47 @@
 #   · `dynamic` 总数 1039 → **1010**；`dynamic_test` 716 不变；`.sqlx` 1114 → **1143**（+29 / 0 删除）
 #   ⚠️ 实测 `static=1175` 比本行高 1 —— 那 1 点是并发批次（`0bd14ebce` 链条）的增益，
 #      按 §8.5「同批同向」纪律**不由本批固化**（余量说明见本文件上方）。
+# ── 2026-09-26 C40（`sticky_event.rs` 5 + `federation_blacklist.rs` 7 + `e2ee_audit.rs` 7）──
+# 三文件生产动态 19 处全部宏化（各自生产区剩余动态 = 0）；三文件都无 feature 门控、
+# 站点全是字面量形态，§8.1 的 STEP 0 已核过引用与 `PgRow` 泄漏面。
+# **C40-0（先修 D-72，独立提交 e016ce066）**：`e2ee_audit_log.details` 是
+#   `NOT NULL DEFAULT '{}'`，而 `log_key_operation` 直接把 `KeyEvent.details: Option<Value>`
+#   绑成 `NULL` ⇒ 23502（**不会**回落列默认值）；读侧 `KeyAuditEntry.details` 又声明成
+#   `Option`（R4「反向不报错」⇒ 字段类型不能当可空性证据）。
+#   RED 实测（新增用例，先证缺陷存在）：
+#     `-E 'test(/without_details_falls_back/)'` ⇒ FAIL
+#     `23502 null value in column "details" of relation "e2ee_audit_log" violates not-null constraint`
+#   GREEN：`COALESCE($7, '{}'::jsonb)` + 读侧收紧为非 `Option` ⇒ `-E 'test(/e2ee_audit/)'` 8/8。
+# 批次内另外两条实测发现：
+#   · **D-73（未关闭）**：`e2ee_audit_log.operation` 在 catalog 中**可空**，而
+#     `KeyAuditEntry.operation` 非 `Option`；唯一写入者（本文件 `log_key_operation`）恒写非空
+#     ⇒ 本批按 R4 断言 `operation AS "operation!"`（"谁保证非空"写在结构体字段 doc 上）。
+#     **结构性修法**：把 `operation` 收紧为 `NOT NULL`，并删除与之恒等值、**零读者**的
+#     `action` 列（含 `idx_e2ee_audit_log_action`）—— 牵动迁移 + 基线指纹 + 三份
+#     `BASELINE_SQL`（R10），单列条目。
+#   · **D-74（已关闭）**：`update_access_stats` 的 `COALESCE($7, 0)` 让 PG 把 `$7` 定型为
+#     **int4** ⇒ 宏要求 `Option<i32>`，与 `response_time_ms: Option<f64>` 冲突（E0308 实测）；
+#     动态路径当时靠 sqlx 显式发送 FLOAT8 才没暴露。改为 `0::float8`（与列类型和实参一致、
+#     无行为变化），并补 `test_update_access_stats_preserves_fractional_average`
+#     （100.5 入库、`(100.5+200.5)/2 = 150.5`）。
+# 其余非机械点：`COALESCE(blocked_by, 'system') AS "blocked_by!"`（COALESCE + 非空字面量
+#   恒非空，R4 ①）；`KeyEvent` 的 `&Option<String>` / `&Option<Value>` ⇒ `.as_deref()` /
+#   `.as_ref()`（R5）；带双引号别名的 raw string 一律 `r#"…#"#`（R6，本批又踩一次）。
+# 实测证据：`-E 'test(/sticky_event/) or test(/federation_blacklist/) or test(/e2ee_audit/)'`
+#   ⇒ **45/45 通过**（`federation_blacklist` 单跑 28/28，含新增的浮点用例）。
+#   · `dynamic_production` 294 → **275**（−19）；`static` 1174 → **1193**（+19，本批自身增益）
+#   · `dynamic` 总数 1010 → **991**；`dynamic_test` 716 不变；`.sqlx` 1143 → **1162**（+19 / 0 删除）
+#   ⚠️ 实测 `static=1194` 比本行高 1 —— 仍是并发批次（`0bd14ebce` 链条）的增益，
+#      按 §8.5 不由本批固化（余量说明见 C38/C39 段）。
+#   ⚠️ 顺带修正 legacy `BASELINE_DYNAMIC`：门禁默认**不读**它（只有
+#      `SQLX_DYNAMIC_MAX_BASELINE` 自测路径会用），C39 段只更新了注释、漏改此行 ⇒
+#      1039 → **991**（R13 单一计数口径；否则摘要与变量构成第二份计数）。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=294
+BASELINE_DYNAMIC_PRODUCTION=275
 BASELINE_DYNAMIC_TEST_INFRA=716
-BASELINE_STATIC=1174
+BASELINE_STATIC=1193
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1039
+BASELINE_DYNAMIC=991
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

@@ -1,4 +1,4 @@
-# SQLx 静态化：阶段总结与剩余工作（2026-09-23 启动 · 2026-09-25 C34 后）
+# SQLx 静态化：阶段总结与剩余工作（2026-09-23 启动 · 2026-09-26 C40 后）
 
 > **本文档只保留三样东西**：阶段总结（§0）、**仍存在的问题**（§7）、**优化方案**（§8）。
 > 已关闭缺陷的逐条明细与各批次执行记录（C1–C34 / W1–W5）在冻结快照
@@ -14,29 +14,29 @@
 
 | 指标 | 战役起点（2026-09-23） | 现在 | 变化 |
 |---|---|---|---|
-| `dynamic_production` | 1532（近似） | **294** | **−80.8%** |
-| `static` | 61 | **1175** | +1114 |
-| `dynamic`（总） | 2151 | **1010** | −1141 |
-| 静态占比 | 2.76% | **53.8%**（1175 / 2185） | +51.0pp |
-| `.sqlx` 离线缓存 | 60 条 | **1143 条** | +1083 |
-| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **223 / 50** | −653 |
+| `dynamic_production` | 1532（近似） | **275** | **−82.0%** |
+| `static` | 61 | **1194** | +1133 |
+| `dynamic`（总） | 2151 | **991** | −1160 |
+| 静态占比 | 2.76% | **54.6%**（1194 / 2185） | +51.9pp |
+| `.sqlx` 离线缓存 | 60 条 | **1162 条** | +1102 |
+| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **204 / 47** | −672 |
 | `param` 传参（D-14 新棘轮，处 / 文件） | — | **1 / 1** | 新立棘轮（此前混在 `runtime`，两道棘轮都不管） |
 | `runtime` 残差 / `query_builder` | — | 70 / 13 文件 · **18**（已入计数棘轮） | — |
 
-> **并发增益不固化入棘轮（口径说明）**：上表的 `static` 是**实测值**（1175）。其中
+> **并发增益不固化入棘轮（口径说明）**：上表的 `static` 是**实测值**（1194）。其中
 > **1 处来自并发批次的独立提交**（`0bd14ebce` 链条：新增一条静态查询 + 1 条 `.sqlx`），
-> 按 §8.5「同批同向下调/上调」纪律**不由后续批次代替它固化**（`BASELINE_STATIC` 现为 1174
-> = 上一基线 1145 + 本次 C39 的 29，因此棘轮仍留 **1 点余量** —— 与 D-12 记录的先例一致：
+> 按 §8.5「同批同向下调/上调」纪律**不由后续批次代替它固化**（`BASELINE_STATIC` 现为 1193
+> = 上一基线 1174 + 本次 C40 的 19，因此棘轮仍留 **1 点余量** —— 与 D-12 记录的先例一致：
 > 跨批次替他批改棘轮会让"哪批完成了多少"不可追溯）。该批次应自行把它再上调 1 点。
 
 ### 0.2 残量结构（"还剩多少活"的准确说法）
 
 | 组成 | 处数 | 性质 |
 |---|---|---|
-| **可静态化残量** | **222** | **192 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
+| **可静态化残量** | **203** | **173 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
 | 测试基建（有意保留） | 57 | `synapse-test-utils/src/lib.rs` 28、`synapse-common/src/test_isolation.rs` 25、`test_schema_guard.rs` 4 |
 | 结构性保留（有意） | 15 | `synapse-storage/src/event/pagination.rs`（9 runtime 游标/排序方向 + 6 literal） |
-| **合计** | **294** | = 222 + 57 + 15 |
+| **合计** | **275** | = 203 + 57 + 15 |
 
 ### 0.3 复现（唯一入口，勿手工数）
 
@@ -55,7 +55,7 @@ python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
   | awk '{print $2"\t"$1}' | LC_ALL=C sort
 ```
 
-### 0.4 缺陷发现总览（**72 条**；只给统计与去向，不逐条显示）
+### 0.4 缺陷发现总览（**74 条**；只给统计与去向，不逐条显示）
 
 | 类别 | 条数 | 说明 |
 |---|---|---|
@@ -67,27 +67,30 @@ python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
 | ⑥ 覆盖缺口 / 测试基建假绿 | 2 | 静态化后无 DB 往返、自建 schema 掩盖写入端约束 |
 | ⑦ 文档级 | 6 | 计数漂移、过时结论、误导性"规则"注释 |
 | ⑧ 结构性例外（有意保留） | 7 | D-13 / D-14 / D-18–D-22，见 §7.3 |
-| ⑨ 阶段总结后新发现并已关闭 | 10 | **D-72**（`e2ee_audit.rs` 两个方向同时错：`e2ee_audit_log.details` 是 `NOT NULL DEFAULT '{}'`，但 `log_key_operation` 会把 `KeyEvent.details = None` 直接绑成 `NULL` ⇒ 运行期 23502；读回结构体又把该列声明成 `Option` ⇒ 可空性反推失真。已按 R12 先用 RED 用例复现 23502，再 `COALESCE($7, '{}'::jsonb)` + 读侧收紧为非 `Option`，见 §8.3）、**D-71**（D-25 家族收口：23 个 `#[cfg(feature)] pub mod` 声明里有 **10 个带测试却不在** `scripts/ci/gated_module_test_matrix` ⇒ "过滤器必须命中"这道守卫对它们从未生效；补 10 行后全表 21 行实跑通过）、**D-70**（`e4bc400cb` 删掉 3 个埋点却漏收紧 `metric_instrumentation_baseline` ⇒ 埋点棘轮在 `opt/consolidated` 上**常驻红**；按 R11 独立收紧 15 → 12 并复跑门禁）、D-62（通知响应的 `profile_tag` 键取自 `notification_type` ⇒ 已按修法① 改成真列 + 独立 `notification_type` 键）、**D-68**（通知记录层没有生产写入者、也没有保留期清理 ⇒ 已按修法① 接线 `record_notification` + `prune_old_notifications`，边界见 §0.5、明细见提交信息）、**D-69**（运行时迁移的 advisory lock key 在 `search_path` 为空时因 `current_schema()` 为 NULL 而**必败** ⇒ 已先 `COALESCE` 并补边界用例，见 §8.3）、**D-57②**（seed 侧 `public` 不收敛 ⇒ 新增 `scripts/ci/converge_public_schema.sh` 并接进 CI seed 第 [3/4] 步，见 §8.3）、D-65（并发改动只改一半 ⇒ 集成+clippy 双红）、D-66（worktree 共享 `CARGO_TARGET_DIR` ⇒ 跨树复用产物，假红/假绿）、D-67（新增测试里的死常量让 clippy 红） |
+| ⑨ 阶段总结后新发现并已关闭 | 11 | **D-74**（`update_access_stats` 的 `COALESCE($7, 0)` 让 PG 把 `$7` 定型成 **int4**，宏因此要求 `Option<i32>` 而 Rust 侧是 `response_time_ms: Option<f64>`；动态路径靠 sqlx 显式发送 FLOAT8 才没暴露 ⇒ 改 `0::float8` 并补浮点往返用例，见 §8.3）、**D-72**（`e2ee_audit.rs` 两个方向同时错：`e2ee_audit_log.details` 是 `NOT NULL DEFAULT '{}'`，但 `log_key_operation` 会把 `KeyEvent.details = None` 直接绑成 `NULL` ⇒ 运行期 23502；读回结构体又把该列声明成 `Option` ⇒ 可空性反推失真。已按 R12 先用 RED 用例复现 23502，再 `COALESCE($7, '{}'::jsonb)` + 读侧收紧为非 `Option`，见 §8.3）、**D-71**（D-25 家族收口：23 个 `#[cfg(feature)] pub mod` 声明里有 **10 个带测试却不在** `scripts/ci/gated_module_test_matrix` ⇒ "过滤器必须命中"这道守卫对它们从未生效；补 10 行后全表 21 行实跑通过）、**D-70**（`e4bc400cb` 删掉 3 个埋点却漏收紧 `metric_instrumentation_baseline` ⇒ 埋点棘轮在 `opt/consolidated` 上**常驻红**；按 R11 独立收紧 15 → 12 并复跑门禁）、D-62（通知响应的 `profile_tag` 键取自 `notification_type` ⇒ 已按修法① 改成真列 + 独立 `notification_type` 键）、**D-68**（通知记录层没有生产写入者、也没有保留期清理 ⇒ 已按修法① 接线 `record_notification` + `prune_old_notifications`，边界见 §0.5、明细见提交信息）、**D-69**（运行时迁移的 advisory lock key 在 `search_path` 为空时因 `current_schema()` 为 NULL 而**必败** ⇒ 已先 `COALESCE` 并补边界用例，见 §8.3）、**D-57②**（seed 侧 `public` 不收敛 ⇒ 新增 `scripts/ci/converge_public_schema.sh` 并接进 CI seed 第 [3/4] 步，见 §8.3）、D-65（并发改动只改一半 ⇒ 集成+clippy 双红）、D-66（worktree 共享 `CARGO_TARGET_DIR` ⇒ 跨树复用产物，假红/假绿）、D-67（新增测试里的死常量让 clippy 红） |
+| ⑩ 新发现且**未关闭**（等结构性修法） | 1 | **D-73**：`e2ee_audit_log.operation` 在 catalog 中**可空**而 `KeyAuditEntry.operation` 非 `Option`（唯一写入者恒写非空 ⇒ C40 已按 R4 断言 `AS "operation!"`）；**结构上应把 `operation` 收紧为 `NOT NULL`，并删掉与之恒等值、零读者（只被 `idx_e2ee_audit_log_action` 引用）的 `action` 列** —— 牵动迁移 + 基线指纹 + 三份 `BASELINE_SQL`（R10），属独立事项，见 §7.1 |
 
-**去向**：阶段总结前关闭的 57 条逐条明细在 HISTORY §7.2；总结后关闭的 11 条（D-37 / D-57② / D-62 /
-D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72）记在各自提交信息里（下次阶段总结时并入快照）。本表 ①–⑧ 是**发现时**
+**去向**：阶段总结前关闭的 57 条逐条明细在 HISTORY §7.2；总结后关闭的 12 条（D-37 / D-57② / D-62 /
+D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-74）记在各自提交信息里（下次阶段总结时并入快照）；**未关闭 1 条（D-73）在 §7.1 逐条留档**。本表 ①–⑧ 是**发现时**
 的归类（历史口径，不随修复变动），因此 D-57 仍计入 ⑥、D-37 仍计入 ④、D-62 已改判为"已修" ——
 "还剩哪些没修"看结论行与 §7.1，不看桶号。
 **结论：64 已关闭 / **0 未关闭** / 7 结构性例外 —— 本战役登记表已清空。**
 
 ### 0.5 阶段结论
 
-1. 动态 SQL 已从**系统性风险**降为**局部清单**：294 处里 72 处有意保留，待收 **222 处** ——
-   其中 **192 处是纯机械转换**，29 处是 D-14 结构性（`format!` 拼列清单）、1 处是跨函数传参。
+1. 动态 SQL 已从**系统性风险**降为**局部清单**：275 处里 72 处有意保留，待收 **203 处** ——
+   其中 **173 处是纯机械转换**，29 处是 D-14 结构性（`format!` 拼列清单）、1 处是跨函数传参。
 2. **收益性质变了**：早期批次每批都在挖"真 schema 下必败"的硬缺陷（① 类 15 条）；
    现在批次以机械收敛为主，并顺手清理一类残留（C31 清 `FromRow` 死代码、C32 消手工 `Row::get`、
-   C33 消 `PgRow` 泄漏与 10 处吞错、C34 消 `Row` 解码与死 derive）。
+   C33 消 `PgRow` 泄漏与 10 处吞错、C34 消 `Row` 解码与死 derive；C40 又挖出 D-72/D-73/D-74：
+   两个方向的可空性错配、`COALESCE($7, 0)` 的参数定型陷阱、以及一行恒等值的冗余审计列）。
 3. **长期资产是规则与门禁，不是数字**：数字会被并发改动推动，R1–R13 与四道自证过的门禁才是
    "不再制造同类缺陷"的保证；本阶段新增的两条规则（宏实参须为调用点字面量、worktree 各自 target 目录）
    都来自实测而非推导。
-4. **登记表已清空（2026-09-26）**：`D-01…D-72` 全部关闭或转为结构性例外，§7.1 不再有待修项。
-   剩下的**只有计划内的工作**（§8.1 的 306 处可转换残量）与 7 条**结构性例外**（工具/接口边界，
-   不是缺陷）。这不等于战役结束 —— 收尾条件见 §8.4。
+4. **登记表只剩 1 条未关闭项（2026-09-26，C40 后）**：`D-01…D-74` 里 66 条已关闭、7 条转为结构性
+   例外，**唯一未关闭的是 D-73**（`e2ee_audit_log` 的 `operation` 可空性 + 冗余 `action` 列收敛，
+   属迁移链独立事项，见 §7.1）。剩下的**只有计划内的工作**（§8.1 的 203 处可转换残量）与 7 条
+   **结构性例外**（工具/接口边界，不是缺陷）。这不等于战役结束 —— 收尾条件见 §8.4。
 5. **D-68 的接线边界（写清楚，免得下次误判）**：`notifications` 现在的生产写入者是
    `PushNotificationService::send_notification`（"服务端决定推送"这一处，排队成功后记一条，
    同批接入 30 天保留期清理）。本仓**没有**按事件求值的推送规则引擎，`sync` 的
@@ -104,7 +107,11 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72）记在各自提交信息
 
 ### 7.1 汇总表
 
-（空 —— `D-01…D-72` 已全部关闭或转为结构性例外。）
+| 编号 | 是什么 | 在哪 | 为什么还没修 | 怎么修 |
+|---|---|---|---|---|
+| **D-73** | `e2ee_audit_log` 的审计动作列有**两份且恒等值**：`action`（`NOT NULL`、**零读者**、只被 `idx_e2ee_audit_log_action` 引用）与 `operation`（**可空**、是唯一读取路径）；而 `KeyAuditEntry.operation` 非 `Option` | `migrations/00000000_unified_schema_v12.sql:849-861`、`synapse-storage/src/e2ee_audit.rs` | C40 转换时实测：宏按 catalog 判定 `operation` 可空 ⇒ 与结构体字段冲突；唯一写入者（`log_key_operation`）恒写非空，故 C40 按 R4 先断言 `operation AS "operation!"` 并注明理由。**结构性修法牵动迁移 + 基线指纹 + 三份 `BASELINE_SQL` + 契约用例（R10）**，不属机械转换批次 | ① `ALTER TABLE e2ee_audit_log ALTER COLUMN operation SET NOT NULL;`（唯一写入者恒写非空）；② 删除 `action` 列与其索引（零读者；保留 `operation` 是因为它是 API 序列化键 `KeyAuditEntry.operation`，删它才是对外形状变更）；③ 同步 `EXPECTED_BASELINE_FINGERPRINT`，跑 R10 的①–④ |
+
+> 已关闭项的去向见 §0.4 与各自提交信息；本节只留**未关闭项**（R13）。
 
 ### 7.2 逐条明细
 
@@ -149,11 +156,11 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72）记在各自提交信息
 
 ### 7.4 计数与口径
 
-- 合计 **72** 条（D-01…D-72）：**未关闭 0**、
-  **结构性例外 7**（D-13 / D-14 / D-18–D-22，有意不修）、**已关闭 65**（含 D-37 收敛、
-  D-57② 收敛、D-62 修法①、D-68 接线落地、D-69/D-70/D-71/D-72 先修）。
+- 合计 **74** 条（D-01…D-74）：**未关闭 1（D-73）**、
+  **结构性例外 7**（D-13 / D-14 / D-18–D-22，有意不修）、**已关闭 66**（含 D-37 收敛、
+  D-57② 收敛、D-62 修法①、D-68 接线落地、D-69/D-70/D-71/D-72/D-74 先修）。
 - 本文档**只显示**未关闭项与结构性例外；已关闭项的明细在 HISTORY §7.2（冻结，不参与当前计数），
-  阶段总结后关闭的 11 条（D-37 / D-57② / D-62 / D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72）在各提交信息里。
+  阶段总结后关闭的 12 条（D-37 / D-57② / D-62 / D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-74）在各提交信息里。
 - "部分已修"指同一编号下仍有明确未做子项；结构性例外**不计入**待修，其约束力写在 §7.3 与 R1–R13。
 
 ### 7.5 处置约定（改 SQL / 查询前）
@@ -168,28 +175,33 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72）记在各自提交信息
 
 ## 8. 优化方案
 
-### 8.1 剩余可静态化清单（按实测，2026-09-26 C39 后）
+### 8.1 剩余可静态化清单（按实测，2026-09-26 C40 后）
 
-**可转换残量 222 处** = **192 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
+**可转换残量 203 处** = **173 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
 加 **1 处跨函数传参（`param`）**。下表按**字面量**处数排前 14（表内数字是**可机械转换**的站点数；
 纯 `runtime` 文件见下方结构性清单）：
 
 | 文件 | 处数 | 门控 | 备注 |
 |---|---|---|---|
-| `synapse-storage/src/event/dag.rs` | 8 | — | `event/` 同域（**动手前确认并发会话不在途**） |
-| `synapse-storage/src/email_verification.rs` | 8 | — | ⚠️ **需先补覆盖**：该文件只有 1 条 DB 用例 |
-| `synapse-storage/src/admin_media.rs` | 8 | — | 注意 U-3 的 hash 隔离查询；并发会话近期活跃 |
-| `synapse-federation/src/key_rotation.rs` | 8 | — | `synapse-federation`，注意密钥轮换路径 |
 | `synapse-federation/src/event_broadcaster.rs` | 8 | — | `synapse-federation`，注意广播路径 |
-| `synapse-storage/src/room_account_data.rs` | 7 | — | 单表模块（account_data 域） |
-| `synapse-storage/src/federation_blacklist.rs` | 7 | — | 单表模块（与 `admin_federation` 同域） |
-| `synapse-storage/src/e2ee_audit.rs` | 7 | — | 单表模块（审计日志，自带保留期） |
+| `synapse-federation/src/key_rotation.rs` | 8 | — | `synapse-federation`，注意密钥轮换路径 |
+| `synapse-storage/src/admin_media.rs` | 8 | — | 注意 U-3 的 hash 隔离查询；并发会话近期活跃 |
+| `synapse-storage/src/email_verification.rs` | 8 | — | ⚠️ **需先补覆盖**：该文件只有 1 条 DB 用例 |
+| `synapse-storage/src/event/dag.rs` | 8 | — | `event/` 同域（**动手前确认并发会话不在途**） |
+| `synapse-storage/src/call_session.rs` | 7 | `voip-tracking` | 门控（见 `gated_module_test_matrix`）⇒ 单列一批更省来回 |
 | `synapse-storage/src/delayed_events.rs` | 7 | — | 单表模块（延迟事件队列） |
-| `synapse-storage/src/call_session.rs` | 7 | — | 门控 `voip-tracking`（见 `gated_module_test_matrix`） |
-| `synapse-storage/src/monitoring.rs` | 6 | — | 单表模块（监控采样） |
+| `synapse-storage/src/room_account_data.rs` | 7 | — | ⚠️ **需先修**：2 处 `PgRow` 泄漏（`get_room_account_data` / `get_room_vault_data` 返回 `Option<PgRow>`）+ 1 处 `.ok().flatten()` 吞错 |
 | `synapse-storage/src/media/quarantine_stream.rs` | 6 | — | 与 `pruning` 同域（保留期流） |
+| `synapse-storage/src/monitoring.rs` | 6 | — | 单表模块（监控采样） |
 | `synapse-storage/src/event/search.rs` | 6 | — | `event/` 同域 |
-| `synapse-storage/src/sticky_event.rs` | 5 | — | 单表模块（有 db_tests） |
+| `synapse-e2ee/src/backup/service.rs` | 5 | — | `synapse-e2ee`，备份服务（与 C19b 的 `backup/storage.rs` 同域） |
+| `synapse-storage/src/feature_flags.rs` | 5 | — | 单表模块 |
+| `synapse-storage/src/filter.rs` | 5 | — | 单表模块（过滤器） |
+
+> 紧随其后（各 4–5 处）：`qr_login.rs`(5)、`account_data/mod.rs`(4)、`audit.rs`(4)、
+> `event/ephemeral.rs`(4)、`room_tag/mod.rs`(4)、`schema_health_check.rs`(4)。
+> ⚠️ `event/pagination.rs` 的 6 处 literal **不在**本表：它与同文件的 9 处 runtime 一起属
+> §0.2 的"结构性保留 15"，不是待做的机械转换。
 
 > **门控列的判据**：整文件在 `#[cfg(feature = …)]` 下时，`cargo sqlx prepare` 必须 `--all-features`
 > （R2 的教训），且 DB 往返要在带该 feature 的 CI 等价库上跑 ⇒ 门控文件单列一批更省来回。
@@ -202,9 +214,10 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72）记在各自提交信息
 > `{STATE_EVENT_OUTER_COLS}` / `ORDER BY` 方向等），而宏要求调用点字面量（R1）；
 > **硬编码会把列清单复制多份**（铁律 2）⇒ 必须**先设计替代方案**再回收
 > （候选：`query_file!` + 每查询一个 `.sql` 文件 —— 全仓尚无先例，属独立设计事项）。
-> **C35–C39 均已完成**：`database_initializer/mod.rs`（15）、`burn_after_read.rs`（15）、
+> **C35–C40 均已完成**：`database_initializer/mod.rs`（15）、`burn_after_read.rs`（15）、
 > `federation_queue.rs`（8）、`openid_token.rs`（7）、`event/{basic,redaction,batch}.rs`（25）、
-> `ssss/storage.rs`（10）、`secure_backup/service.rs`（10）、`key_request/storage.rs`（9）
+> `ssss/storage.rs`（10）、`secure_backup/service.rs`（10）、`key_request/storage.rs`（9）、
+> `sticky_event.rs`（5）、`federation_blacklist.rs`（7）、`e2ee_audit.rs`（7）
 > —— 这些文件的生产区**可机械转换部分已全部归零**。
 
 ### 8.2 每批的标准流程
@@ -348,12 +361,40 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72）记在各自提交信息
      与库名不含 `test` 两种情形都**拒绝执行且未删任何对象**（EXIT=1）。
    - 端到端：跑一次完整 `prepare_test_db.sh`（探针预先注入）⇒ [3/4] 删掉探针、[4/4] 验证 220/220 通过。
 
+5. ✅ **C40（`sticky_event.rs` 5 + `federation_blacklist.rs` 7 + `e2ee_audit.rs` 7 = 19 处）已完成（2026-09-26）** ——
+   三文件生产动态 19 处全部宏化（各自生产区剩余动态 = 0）；三文件都无 feature 门控。
+   **C40-0（先修 D-72，独立提交 `e016ce066`）**：`e2ee_audit_log.details` 是 `NOT NULL DEFAULT '{}'`，
+   而 `log_key_operation` 把 `KeyEvent.details: Option<Value>` 直接绑成 `NULL` ⇒ **23502（不会回落列默认值）**；
+   读侧 `KeyAuditEntry.details` 又声明成 `Option`（R4 的"反向不报错"⇒ 字段类型不能当可空性证据）。
+   RED 已实测：新增用例 `test_log_key_operation_without_details_falls_back_to_column_default` 报
+   `23502 null value in column "details" of relation "e2ee_audit_log"`；修复（`COALESCE($7, '{}'::jsonb)`
+   + 读侧收紧为非 `Option`）后 `-E 'test(/e2ee_audit/)'` ⇒ **8/8**。
+   **批次内两条新发现**：
+   · **D-73（唯一未关闭项，见 §7.1）**：`e2ee_audit_log.operation` 在 catalog 中**可空**而
+     `KeyAuditEntry.operation` 非 `Option`；唯一写入者恒写非空 ⇒ 本批按 R4 断言 `operation AS "operation!"`
+     （"谁保证非空"写在结构体字段 doc 上），结构性修法（收紧 NOT NULL + 删零读者的恒等值 `action` 列）
+     需走迁移链，单列条目。
+   · **D-74（已关闭）**：`update_access_stats` 的 `COALESCE($7, 0)` 让 PG 把 `$7` 定型成 **int4** ⇒
+     宏要求 `Option<i32>` 而 Rust 侧是 `response_time_ms: Option<f64>`（E0308 实测）；动态路径当时靠
+     sqlx 显式发送 FLOAT8 才没暴露。改 `0::float8`（与列类型/实参一致，无行为变化），并补
+     `test_update_access_stats_preserves_fractional_average`（100.5 入库、`(100.5+200.5)/2 = 150.5`）。
+   其余非机械点：`COALESCE(blocked_by, 'system') AS "blocked_by!"`（COALESCE + 非空字面量恒非空，R4 ①）；
+   `KeyEvent` 的 `&Option<String>` / `&Option<Value>` ⇒ `.as_deref()` / `.as_ref()`（R5）；
+   带双引号别名的 raw string 一律 `r#"…#"#`（R6，本批又踩一次 `no rules expected !`）。
+   验证：`cargo nextest run -p synapse-storage --lib --features test-utils
+   -E 'test(/sticky_event/) or test(/federation_blacklist/) or test(/e2ee_audit/)'` ⇒ **45/45**；
+   `federation_blacklist` 单跑 **28/28**（含新增浮点用例）。
+   ⚠️ STAGE 0 已把 `room_account_data.rs`（7，2 处 `PgRow` 泄漏 + 1 处吞错）与
+   `email_verification.rs`（8，仅 1 条 DB 用例）**排除**出本批：前者须先修、后者须先补覆盖（R12）。
+
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 
-- `dynamic_production` 的**可机械转换部分（literal）归零**：294 → **101**
-  （只剩测试基建 57 + 分页结构性 15 + **D-14 结构性 29**），或每个残留都有 §7.3 那样的登记条目；
+- `dynamic_production` 的**可机械转换部分（literal）归零**：275 → **101**
+  （275 − 173 literal − 1 param = 101 = 测试基建 57 + 分页结构性 15 + **D-14 结构性 29**），
+  或每个残留都有 §7.3 那样的登记条目；
 - literal 逐文件表只剩 4 类（3 个测试基建文件 + `event/pagination.rs`）；
-- ~~D-68 接线~~、~~D-37 收敛~~、~~D-62 修法①~~、~~D-57② 收敛~~ **均已落地 ⇒ §7 已无未关闭项**；
+- ~~D-68 接线~~、~~D-37 收敛~~、~~D-62 修法①~~、~~D-57② 收敛~~ **均已落地**；§7 只剩
+  **D-73**（`e2ee_audit_log` 的可空性/冗余列收敛，迁移链独立事项）；
 - 四道门禁与两道棘轮在 CI 常驻，且都留有"能变红"的自证记录。
 
 ### 8.5 每批必须跑的门禁
