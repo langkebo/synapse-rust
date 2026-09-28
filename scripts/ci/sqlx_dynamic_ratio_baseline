@@ -2405,12 +2405,26 @@
 # 合并树 = U-5 的生产动态残量（admin_media +15 等）+ 本仓 F-1 读侧的 2 处静态查询；
 # 两侧对 `invite_blocklist.rs` 的 12 处宏化**计数相同**（差别只在 `.sqlx` 条目文本与
 # `AS "…!"` 断言写法，不进本棘轮）。以下四行以合并树**实测**为准：
+# ── 2026-09-26 C41（`filter.rs` 5 + `feature_flags.rs` 5 = 10 处全部宏化）──────────
+#   两个单表模块的生产区动态归零（各自 0 处），无 feature 门控；覆盖面见 literal 基线同段。
+#   转换要点全部是文档化的机械处理：`query_as!` 按列名构造（列名与字段一一对应，无需别名/
+#   断言 —— `filters`、`feature_flags`、`feature_flag_targets` 三表的这些列都是 NOT NULL），
+#   事务内的两条（`feature_flag_targets` 的 DELETE/INSERT）直接以 `&mut *transaction` /
+#   `&mut **transaction` 执行；`status.as_deref().unwrap_or("draft")` 保持原样（R5）。
+#   实测（同一工作树）：`dynamic_production` 282 → **272**（−10）、`static` 1206 → **1216**
+#   （+10）、`dynamic` 总数 1000 → **990**、`dynamic_test` 718 不变、`.sqlx` 1178 → **1184**
+#   （+6：10 个宏站点中 4 条 SQL 与既有条目同哈希）、literal 211/47 → **201/45**。
+#   验证：`-p synapse-storage --lib --features test-utils -E 'test(/filter::/) or
+#   test(/feature_flags/)'` ⇒ **9/9**；集成 `-E 'test(/feature_flag/) or test(/filter/)'`
+#   ⇒ **131/131**（私有库；此前 3 条失败是"库比树旧"，重灌当前基线后全绿）。
+#   ⚠️ 本批**未**新增缺陷条目（STEP 0 已核：两文件无 `PgRow` 泄漏、无 `.ok()` 吞错、
+#   无零调用者语句、无门控）。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=282
+BASELINE_DYNAMIC_PRODUCTION=272
 BASELINE_DYNAMIC_TEST_INFRA=718
-BASELINE_STATIC=1206
+BASELINE_STATIC=1216
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=1000
+BASELINE_DYNAMIC=990
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

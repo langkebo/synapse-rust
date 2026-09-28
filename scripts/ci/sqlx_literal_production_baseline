@@ -160,6 +160,17 @@
 #   `sqlx_dynamic_ratio_baseline` 的同日段。后两行（`room_account_data.rs 7`、
 #   `email_verification.rs 8`）**有意未并入本批**：前者有 2 处 `PgRow` 泄漏 +
 #   1 处 `.ok().flatten()` 吞错，须先修（R12）再转；后者只有 1 条 DB 用例，须先补覆盖。
+# ── 2026-09-26 C41（本表再退两行：5 + 5）────────────────────────────────────
+#   `filter.rs`(5)、`feature_flags.rs`(5) 的生产区字面量站点全部宏化 ⇒ 两行归零退表；
+#   本表合计 211 → **201**、文件数 47 → **45**。
+#   ⚠️ 这两行是并发批次（invite-policy / U-5）期间被并进来的旧值：C34 之后 `filter.rs`
+#   本身一直有 5 处、`feature_flags.rs` 一直有 5 处，从未进过本表（属"从未进入迁移范围"
+#   的老债务，非回退）。两文件都没有运行期拼装站点，故末尾「运行期拼装」摘要**不变**
+#   （仍 70 处 / 13 文件；恒等式同步改写为 `272 − 201 − 1 = 70`）。
+#   覆盖证据：`filter.rs` 5 个方法逐一有调用者（含 in-file `db_tests` 5 条：create/get/
+#   get_none/list/delete_filter/delete_filters_by_user）；`feature_flags.rs` 的
+#   create/update/get/replace_targets 由 `feature_flags_storage_tests_migrated` /
+#   `api_feature_flags_tests` 端到端覆盖。批次记录见 `sqlx_dynamic_ratio_baseline` 的 C41 段。
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -186,8 +197,6 @@ synapse-storage/src/event/search.rs	6
 synapse-storage/src/event/signature.rs	3
 synapse-storage/src/event/txn_dedup.rs	3
 synapse-storage/src/event/unread.rs	3
-synapse-storage/src/feature_flags.rs	5
-synapse-storage/src/filter.rs	5
 synapse-storage/src/login_token.rs	3
 synapse-storage/src/maintenance.rs	3
 synapse-storage/src/media/quarantine_stream.rs	6
@@ -209,7 +218,7 @@ synapse-storage/src/user/storage.rs	1
 synapse-test-utils/src/lib.rs	14
 # ── 当前「运行期拼装」残差清单（**允许**，不入棘轮；仅作可读性摘要）────────────
 # 合计 **70 处 / 13 文件**（2026-09-26 D-14 收紧后实测；与 ratio 棘轮的
-# `dynamic_production − literal − param` = 275 − 204 − 1 = 70 一致）：
+# `dynamic_production − literal − param` = 272 − 201 − 1 = 70 一致）：
 #    16  synapse-common/src/test_isolation.rs
 #    14  synapse-test-utils/src/lib.rs
 #     9  synapse-storage/src/event/pagination.rs

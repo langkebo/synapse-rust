@@ -1,0 +1,49 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO feature_flag_targets (\n                    flag_key,\n                    subject_type,\n                    subject_id,\n                    created_ts\n                )\n                VALUES ($1, $2, $3, $4)\n                RETURNING id, flag_key, subject_type, subject_id, created_ts\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "flag_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "subject_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "subject_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "15a30ab3ac6487d4d3d61c01488d878c9030064901b5c1836e9d5e70b890be3f"
+}

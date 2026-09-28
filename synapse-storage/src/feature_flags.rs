@@ -156,7 +156,8 @@ impl FeatureFlagStorage {
     ) -> Result<FeatureFlag, sqlx::Error> {
         let mut transaction = self.pool.begin().await?;
 
-        let record = sqlx::query_as::<_, FeatureFlagRecord>(
+        let record = sqlx::query_as!(
+            FeatureFlagRecord,
             r"
             INSERT INTO feature_flags (
                 flag_key,
@@ -172,15 +173,15 @@ impl FeatureFlagStorage {
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
             RETURNING flag_key, target_scope, rollout_percent, expires_at, reason, status, created_by, created_ts, updated_ts
             ",
+            &request.flag_key,
+            &request.target_scope,
+            request.rollout_percent,
+            request.expires_at,
+            &request.reason,
+            request.status.as_deref().unwrap_or("draft"),
+            created_by,
+            created_ts
         )
-        .bind(&request.flag_key)
-        .bind(&request.target_scope)
-        .bind(request.rollout_percent)
-        .bind(request.expires_at)
-        .bind(&request.reason)
-        .bind(request.status.as_deref().unwrap_or("draft"))
-        .bind(created_by)
-        .bind(created_ts)
         .fetch_one(&mut *transaction)
         .await?;
 
@@ -207,7 +208,8 @@ impl FeatureFlagStorage {
     ) -> Result<Option<FeatureFlag>, sqlx::Error> {
         let mut transaction = self.pool.begin().await?;
 
-        let record = sqlx::query_as::<_, FeatureFlagRecord>(
+        let record = sqlx::query_as!(
+            FeatureFlagRecord,
             r"
             UPDATE feature_flags
             SET rollout_percent = COALESCE($2, rollout_percent),
@@ -218,13 +220,13 @@ impl FeatureFlagStorage {
             WHERE flag_key = $1
             RETURNING flag_key, target_scope, rollout_percent, expires_at, reason, status, created_by, created_ts, updated_ts
             ",
+            flag_key,
+            request.rollout_percent,
+            request.expires_at,
+            request.reason.as_deref(),
+            request.status.as_deref(),
+            updated_ts
         )
-        .bind(flag_key)
-        .bind(request.rollout_percent)
-        .bind(request.expires_at)
-        .bind(request.reason.as_deref())
-        .bind(request.status.as_deref())
-        .bind(updated_ts)
         .fetch_optional(&mut *transaction)
         .await?;
 
@@ -264,14 +266,15 @@ impl FeatureFlagStorage {
             return Ok(Some(flag));
         }
 
-        let record = sqlx::query_as::<_, FeatureFlagRecord>(
+        let record = sqlx::query_as!(
+            FeatureFlagRecord,
             r"
             SELECT flag_key, target_scope, rollout_percent, expires_at, reason, status, created_by, created_ts, updated_ts
             FROM feature_flags
             WHERE flag_key = $1
             ",
+            flag_key
         )
-        .bind(flag_key)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -358,14 +361,14 @@ impl FeatureFlagStorage {
         created_ts: i64,
         targets: &[FeatureFlagTargetInput],
     ) -> Result<Vec<FeatureFlagTargetRecord>, sqlx::Error> {
-        sqlx::query("DELETE FROM feature_flag_targets WHERE flag_key = $1")
-            .bind(flag_key)
+        sqlx::query!("DELETE FROM feature_flag_targets WHERE flag_key = $1", flag_key)
             .execute(&mut **transaction)
             .await?;
 
         let mut inserted = Vec::with_capacity(targets.len());
         for target in targets {
-            let record = sqlx::query_as::<_, FeatureFlagTargetRecord>(
+            let record = sqlx::query_as!(
+                FeatureFlagTargetRecord,
                 r"
                 INSERT INTO feature_flag_targets (
                     flag_key,
@@ -376,11 +379,11 @@ impl FeatureFlagStorage {
                 VALUES ($1, $2, $3, $4)
                 RETURNING id, flag_key, subject_type, subject_id, created_ts
                 ",
+                flag_key,
+                &target.subject_type,
+                &target.subject_id,
+                created_ts
             )
-            .bind(flag_key)
-            .bind(&target.subject_type)
-            .bind(&target.subject_id)
-            .bind(created_ts)
             .fetch_one(&mut **transaction)
             .await?;
             inserted.push(record);

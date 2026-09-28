@@ -14,29 +14,29 @@
 
 | 指标 | 战役起点（2026-09-23） | 现在 | 变化 |
 |---|---|---|---|
-| `dynamic_production` | 1532（近似） | **275** | **−82.0%** |
-| `static` | 61 | **1194** | +1133 |
-| `dynamic`（总） | 2151 | **991** | −1160 |
-| 静态占比 | 2.76% | **54.6%**（1194 / 2185） | +51.9pp |
-| `.sqlx` 离线缓存 | 60 条 | **1162 条** | +1102 |
-| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **204 / 47** | −672 |
+| `dynamic_production` | 1532（近似） | **272** | **−82.2%** |
+| `static` | 61 | **1216** | +1155 |
+| `dynamic`（总） | 2151 | **990** | −1161 |
+| 静态占比 | 2.76% | **55.1%**（1216 / 2206） | +52.4pp |
+| `.sqlx` 离线缓存 | 60 条 | **1184 条** | +1124 |
+| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **201 / 45** | −675 |
 | `param` 传参（D-14 新棘轮，处 / 文件） | — | **1 / 1** | 新立棘轮（此前混在 `runtime`，两道棘轮都不管） |
 | `runtime` 残差 / `query_builder` | — | 70 / 13 文件 · **18**（已入计数棘轮） | — |
 
-> **并发增益不固化入棘轮（口径说明）**：上表的 `static` 是**实测值**（1194）。其中
-> **1 处来自并发批次的独立提交**（`0bd14ebce` 链条：新增一条静态查询 + 1 条 `.sqlx`），
-> 按 §8.5「同批同向下调/上调」纪律**不由后续批次代替它固化**（`BASELINE_STATIC` 现为 1193
-> = 上一基线 1174 + 本次 C40 的 19，因此棘轮仍留 **1 点余量** —— 与 D-12 记录的先例一致：
-> 跨批次替他批改棘轮会让"哪批完成了多少"不可追溯）。该批次应自行把它再上调 1 点。
+> **并发增益不固化入棘轮（口径说明）**：C41 之前，`opt/consolidated` 上并存过并发批次的
+> 增益与回退（U-5 的 +7 已被其批次计入基线、invite-policy 合并回退的 12 处由其 `4cc45d279`
+> 转宏偿还）。C41 起点与 `opt/consolidated` 完全一致（HEAD = `18071e8b3`，无分叉），
+> 因此本批**按实测值**直接收紧，不再留余量：`BASELINE_DYNAMIC_PRODUCTION` 282 → 272、
+> `BASELINE_STATIC` 1206 → 1216。
 
 ### 0.2 残量结构（"还剩多少活"的准确说法）
 
 | 组成 | 处数 | 性质 |
 |---|---|---|
-| **可静态化残量** | **203** | **173 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
+| **可静态化残量** | **200** | **170 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
 | 测试基建（有意保留） | 57 | `synapse-test-utils/src/lib.rs` 28、`synapse-common/src/test_isolation.rs` 25、`test_schema_guard.rs` 4 |
 | 结构性保留（有意） | 15 | `synapse-storage/src/event/pagination.rs`（9 runtime 游标/排序方向 + 6 literal） |
-| **合计** | **275** | = 203 + 57 + 15 |
+| **合计** | **272** | = 200 + 57 + 15 |
 
 ### 0.3 复现（唯一入口，勿手工数）
 
@@ -188,31 +188,32 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 ## 8. 优化方案
 
-### 8.1 剩余可静态化清单（按实测，2026-09-26 C40 后）
+### 8.1 剩余可静态化清单（按实测，2026-09-26 C41 后）
 
-**可转换残量 203 处** = **173 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
+**可转换残量 200 处** = **170 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
 加 **1 处跨函数传参（`param`）**。下表按**字面量**处数排前 14（表内数字是**可机械转换**的站点数；
 纯 `runtime` 文件见下方结构性清单）：
 
 | 文件 | 处数 | 门控 | 备注 |
 |---|---|---|---|
-| `synapse-federation/src/event_broadcaster.rs` | 8 | — | `synapse-federation`，注意广播路径 |
-| `synapse-federation/src/key_rotation.rs` | 8 | — | `synapse-federation`，注意密钥轮换路径 |
-| `synapse-storage/src/admin_media.rs` | 8 | — | 注意 U-3 的 hash 隔离查询；并发会话近期活跃 |
-| `synapse-storage/src/email_verification.rs` | 8 | — | ⚠️ **需先补覆盖**：该文件只有 1 条 DB 用例 |
+| `synapse-federation/src/event_broadcaster.rs` | 8 | — | `synapse-federation`，广播路径 |
+| `synapse-federation/src/key_rotation.rs` | 8 | — | `synapse-federation`，密钥轮换路径 |
 | `synapse-storage/src/event/dag.rs` | 8 | — | `event/` 同域（**动手前确认并发会话不在途**） |
+| `synapse-storage/src/email_verification.rs` | 8 | — | ⚠️ **需先补覆盖**：该文件只有 1 条 DB 用例 |
 | `synapse-storage/src/call_session.rs` | 7 | `voip-tracking` | 门控（见 `gated_module_test_matrix`）⇒ 单列一批更省来回 |
-| `synapse-storage/src/delayed_events.rs` | 7 | — | 单表模块（延迟事件队列） |
+| `synapse-storage/src/delayed_events.rs` | 7 | — | ⚠️ **需先补覆盖**：7 个方法里 5 个**零引用**（list/restart/cancel/mark_sent/get_due_events） |
 | `synapse-storage/src/room_account_data.rs` | 7 | — | ⚠️ **需先修**：2 处 `PgRow` 泄漏（`get_room_account_data` / `get_room_vault_data` 返回 `Option<PgRow>`）+ 1 处 `.ok().flatten()` 吞错 |
 | `synapse-storage/src/media/quarantine_stream.rs` | 6 | — | 与 `pruning` 同域（保留期流） |
 | `synapse-storage/src/monitoring.rs` | 6 | — | 单表模块（监控采样） |
 | `synapse-storage/src/event/search.rs` | 6 | — | `event/` 同域 |
-| `synapse-e2ee/src/backup/service.rs` | 5 | — | `synapse-e2ee`，备份服务（与 C19b 的 `backup/storage.rs` 同域） |
-| `synapse-storage/src/feature_flags.rs` | 5 | — | 单表模块 |
-| `synapse-storage/src/filter.rs` | 5 | — | 单表模块（过滤器） |
+| `synapse-e2ee/src/backup/service.rs` | 5 | — | `synapse-e2ee`（与 C19b 的 `backup/storage.rs` 同域） |
+| `synapse-storage/src/qr_login.rs` | 5 | — | 单表模块（二维码登录） |
+| `synapse-storage/src/room_tag/mod.rs` | 4 | — | 单表模块（房间标签） |
+| `synapse-storage/src/schema_health_check.rs` | 4 | — | ⚠️ 启动期校验路径，改动要连带 schema 契约用例 |
 
-> 紧随其后（各 4–5 处）：`qr_login.rs`(5)、`account_data/mod.rs`(4)、`audit.rs`(4)、
-> `event/ephemeral.rs`(4)、`room_tag/mod.rs`(4)、`schema_health_check.rs`(4)。
+> 紧随其后（各 4 处）：`account_data/mod.rs`(4)、`audit.rs`(4)、`event/ephemeral.rs`(4)、
+> `feature_flags.rs`/`filter.rs` 已由 **C41** 归零退表；`admin_media.rs`(15) 的 U-5 残量已由
+> 其批次**计入基线冻结**（`a13f57316`），是否回收属该批次后续决定，本表不再列为候选。
 > ⚠️ `event/pagination.rs` 的 6 处 literal **不在**本表：它与同文件的 9 处 runtime 一起属
 > §0.2 的"结构性保留 15"，不是待做的机械转换。
 
@@ -468,10 +469,28 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
    —— 别的 worktree 还拿着旧基线，其 `CREATE INDEX … ON e2ee_audit_log(action)` 会 42703；要么先用私有库
    验证，要么合并后再动共享库。
 
+8. ✅ **C41（`filter.rs` 5 + `feature_flags.rs` 5 = 10 处）已完成（2026-09-26）** ——
+   两个单表模块的生产区动态归零，无 feature 门控。转换全是文档化的机械处理：`query_as!`
+   按列名构造（`filters` / `feature_flags` / `feature_flag_targets` 的投影列与结构体字段
+   一一对应且都是 NOT NULL ⇒ **无需任何 `AS "col!"` 断言**）；事务内的两条
+   （`feature_flag_targets` 的 DELETE / INSERT）直接跑在 `&mut *transaction` /
+   `&mut **transaction` 上；`request.status.as_deref().unwrap_or("draft")` 原样保留（R5）。
+   覆盖率先行核对（STEP 0）：`filter.rs` 5 个方法逐一有调用者且 in-file `db_tests` 覆盖
+   create/get/缺失/list/两种 delete；`feature_flags.rs` 的 create/update/get/replace_targets
+   由 `feature_flags_storage_tests_migrated` + `api_feature_flags_tests` 端到端覆盖。
+   **本批未新增缺陷**（无 `PgRow`、无吞错、无零调用者语句）。
+   验证：`-p synapse-storage --lib --features test-utils -E 'test(/filter::/) or
+   test(/feature_flags/)'` ⇒ **9/9**；集成 `-E 'test(/feature_flag/) or test(/filter/)'`
+   ⇒ **131/131**。
+   ⚠️ 过程中撞到一次**"库比树旧"**的假红：首次跑该集成子集有 3 条失败（`Failed to create room`），
+   根因是私有库 `synapse_merged_test` 是在并发批次又改迁移（+52/−8）**之前** seed 的 ——
+   用当前树重灌 `public` + `test_template_ci`（224 对象）后 3/3 转绿。教训与 R10 的
+   "共享库不是稳定输入"同源，只是这次是自己的一次性库。
+
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 
-- `dynamic_production` 的**可机械转换部分（literal）归零**：275 → **101**
-  （275 − 173 literal − 1 param = 101 = 测试基建 57 + 分页结构性 15 + **D-14 结构性 29**），
+- `dynamic_production` 的**可机械转换部分（literal）归零**：272 → **101**
+  （272 − 170 literal − 1 param = 101 = 测试基建 57 + 分页结构性 15 + **D-14 结构性 29**），
   或每个残留都有 §7.3 那样的登记条目；
 - literal 逐文件表只剩 4 类（3 个测试基建文件 + `event/pagination.rs`）；
 - ~~D-68 接线~~、~~D-37 收敛~~、~~D-62 修法①~~、~~D-57② 收敛~~、~~D-73 结构性收敛~~
