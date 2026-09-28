@@ -356,6 +356,89 @@ impl EventAuthChain {
         subgraph
     }
 
+    /// The `"type:state_key"` key an event occupies in a state map, when it is a
+    /// state event.
+    fn state_map_key(event: &EventData) -> Option<String> {
+        let state_key = event.state_key.as_ref()?.as_str()?;
+        Some(format!("{}:{}", event.event_type, state_key))
+    }
+
+    /// **Iterative auth checks** — the replay step shared by state resolution
+    /// v2 and v2.1.
+    ///
+    /// Spec algorithm: walk `ordered_event_ids` in order; for each event, ensure
+    /// the state it is checked against contains the keys its `auth_events` name
+    /// — *"If a (event_type, state_key) key that is required for checking the
+    /// authorization rules is not present in the state, then the appropriate
+    /// state event from the event's `auth_events` is used if the auth event is
+    /// not rejected"* — then, if the event is authorised, insert it into the
+    /// state.
+    ///
+    /// # The v2 / v2.1 difference lives entirely in `start_state`
+    ///
+    /// MSC4297 Modification 1 changes only what this function is *seeded* with:
+    /// v2 passes the **unconflicted** state map, v2.1 passes an **empty** map, so
+    /// that the replay is driven by each event's own `auth_events` history rather
+    /// than by a possibly-stale unconflicted state (the MSC's "Problem A"). This
+    /// function therefore takes the start map as a parameter and makes no
+    /// assumption about which one it gets — the caller owns that decision, which
+    /// is exactly where v2.1 must be distinguishable from v2.
+    ///
+    /// # The authorisation predicate is injected
+    ///
+    /// `is_authorised` is the `_check_event_auth` half. This crate has no
+    /// spec auth-rules engine that operates on a state *map* (`event_auth::rules`
+    /// authorises a single inbound event against its own `auth_events`), so it is
+    /// a parameter rather than a duplicated rule set: the resolver supplies the
+    /// rules, this function owns the replay mechanics.
+    ///
+    /// `rejected` holds event IDs the caller already rejected; they are never
+    /// used to fill a missing key, per the spec's "if the auth event is not
+    /// rejected".
+    pub fn iterative_auth_checks<F>(
+        &self,
+        ordered_event_ids: &[String],
+        start_state: &HashMap<String, String>,
+        events: &HashMap<String, EventData>,
+        rejected: &HashSet<String>,
+        is_authorised: F,
+    ) -> HashMap<String, String>
+    where
+        F: Fn(&EventData, &HashMap<String, String>) -> bool,
+    {
+        let mut resolved = start_state.clone();
+
+        for event_id in ordered_event_ids {
+            let Some(event) = events.get(event_id) else { continue };
+
+            // Fill every key the event's auth chain names, walking it
+            // transitively: the auth event that carries a key may itself be
+            // reached through another auth event.
+            let mut stack: Vec<&String> = event.auth_events.iter().collect();
+            let mut visited: HashSet<&str> = HashSet::new();
+            while let Some(auth_id) = stack.pop() {
+                if !visited.insert(auth_id.as_str()) || rejected.contains(auth_id) {
+                    continue;
+                }
+                let Some(auth_event) = events.get(auth_id) else { continue };
+                if let Some(key) = Self::state_map_key(auth_event) {
+                    resolved.entry(key).or_insert_with(|| auth_id.clone());
+                }
+                for next in &auth_event.auth_events {
+                    stack.push(next);
+                }
+            }
+
+            if is_authorised(event, &resolved) {
+                if let Some(key) = Self::state_map_key(event) {
+                    resolved.insert(key, event_id.clone());
+                }
+            }
+        }
+
+        resolved
+    }
+
     /// The **full conflicted set** (MSC4297 / state resolution v2.1).
     ///
     /// MSC4297 amends the v2 definition to: *"the union of the conflicted state
@@ -878,5 +961,144 @@ mod tests {
             assert!(full.contains(expected), "{expected} must be in the full conflicted set: {full:?}");
         }
         assert_eq!(full.len(), 4);
+    }
+
+    // ── MSC4297 Modification 1: iterative auth checks ─────────────────────
+
+    fn member_event(id: &str, user: &str, membership: &str, auth: &[&str]) -> EventData {
+        EventData {
+            event_id: id.to_string(),
+            room_id: "!r:ex.com".to_string(),
+            event_type: "m.room.member".to_string(),
+            auth_events: auth.iter().map(|s| s.to_string()).collect(),
+            prev_events: Vec::new(),
+            state_key: Some(Value::String(user.to_string())),
+            content: Some(json!({ "membership": membership })),
+            sender: user.to_string(),
+            origin_server_ts: 1,
+            depth: 1,
+        }
+    }
+
+    fn join_rules_event(id: &str, sender: &str, auth: &[&str]) -> EventData {
+        EventData {
+            event_id: id.to_string(),
+            room_id: "!r:ex.com".to_string(),
+            event_type: "m.room.join_rules".to_string(),
+            auth_events: auth.iter().map(|s| s.to_string()).collect(),
+            prev_events: Vec::new(),
+            state_key: Some(Value::String(String::new())),
+            content: Some(json!({ "join_rule": "public" })),
+            sender: sender.to_string(),
+            origin_server_ts: 2,
+            depth: 2,
+        }
+    }
+
+    /// The injected predicate these tests use: an event is authorised when its
+    /// sender is a **joined** member in the state it is checked against.
+    fn sender_is_joined(
+        events: &HashMap<String, EventData>,
+    ) -> impl Fn(&EventData, &HashMap<String, String>) -> bool + '_ {
+        move |event: &EventData, state: &HashMap<String, String>| {
+            let key = format!("m.room.member:{}", event.sender);
+            state
+                .get(&key)
+                .and_then(|id| events.get(id))
+                .and_then(|m| m.content.as_ref())
+                .and_then(|c| c.get("membership"))
+                .and_then(|v| v.as_str())
+                == Some("join")
+        }
+    }
+
+    #[test]
+    fn iterative_auth_checks_inserts_authorised_and_skips_unauthorised() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![
+            member_event("$a_join", "@a:ex.com", "join", &[]),
+            member_event("$b_leave", "@b:ex.com", "leave", &[]),
+            join_rules_event("$rules_ok", "@a:ex.com", &["$a_join"]),
+            join_rules_event("$rules_bad", "@b:ex.com", &["$b_leave"]),
+        ]);
+        let ordered = vec!["$rules_ok".to_string(), "$rules_bad".to_string()];
+        let rejects: HashSet<String> = HashSet::new();
+
+        let resolved =
+            chain.iterative_auth_checks(&ordered, &HashMap::new(), &events, &rejects, sender_is_joined(&events));
+
+        assert_eq!(resolved.get("m.room.join_rules:"), Some(&"$rules_ok".to_string()));
+        assert!(
+            !resolved.values().any(|id| id == "$rules_bad"),
+            "an event whose sender is not joined must not be inserted: {resolved:?}"
+        );
+    }
+
+    /// A missing `(type, state_key)` is filled from the event's own `auth_events`
+    /// — the spec clause MSC4297 Modification 1 leans on.
+    #[test]
+    fn iterative_auth_checks_fills_missing_keys_from_auth_events() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![
+            member_event("$a_join", "@a:ex.com", "join", &[]),
+            join_rules_event("$rules", "@a:ex.com", &["$a_join"]),
+        ]);
+        let ordered = vec!["$rules".to_string()];
+        let rejects: HashSet<String> = HashSet::new();
+
+        let v21 = chain.iterative_auth_checks(&ordered, &HashMap::new(), &events, &rejects, sender_is_joined(&events));
+        assert_eq!(v21.get("m.room.join_rules:"), Some(&"$rules".to_string()), "v2.1 empty start: {v21:?}");
+    }
+
+    /// **MSC4297 Problem A**, reproduced: the unconflicted state says the sender
+    /// left, while both forks' `auth_events` agree they were joined. v2 seeds the
+    /// replay with the unconflicted state and therefore unauthorises the event;
+    /// v2.1 seeds it empty and the event's own auth history authorises it.
+    #[test]
+    fn empty_start_map_differs_from_the_unconflicted_start_map_problem_a() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![
+            member_event("$a_join", "@a:ex.com", "join", &[]),
+            member_event("$a_leave", "@a:ex.com", "leave", &["$a_join"]),
+            join_rules_event("$rules", "@a:ex.com", &["$a_join"]),
+        ]);
+        let ordered = vec!["$rules".to_string()];
+        let rejects: HashSet<String> = HashSet::new();
+
+        // v2: start from the unconflicted state, which carries the stale leave.
+        let mut unconflicted = HashMap::new();
+        unconflicted.insert("m.room.member:@a:ex.com".to_string(), "$a_leave".to_string());
+        let v2 = chain.iterative_auth_checks(&ordered, &unconflicted, &events, &rejects, sender_is_joined(&events));
+        assert!(
+            !v2.values().any(|id| id == "$rules"),
+            "v2 unauthorises the event when the unconflicted state says the sender left: {v2:?}"
+        );
+
+        // v2.1: start from an empty map — the event's auth_events decide.
+        let v21 = chain.iterative_auth_checks(&ordered, &HashMap::new(), &events, &rejects, sender_is_joined(&events));
+        assert_eq!(
+            v21.get("m.room.join_rules:"),
+            Some(&"$rules".to_string()),
+            "v2.1 authorises it from its own auth history: {v21:?}"
+        );
+    }
+
+    /// A rejected auth event is never used to fill a missing key.
+    #[test]
+    fn iterative_auth_checks_never_fills_from_a_rejected_event() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![
+            member_event("$a_join", "@a:ex.com", "join", &[]),
+            join_rules_event("$rules", "@a:ex.com", &["$a_join"]),
+        ]);
+        let ordered = vec!["$rules".to_string()];
+        let rejects: HashSet<String> = ["$a_join".to_string()].into_iter().collect();
+
+        let resolved =
+            chain.iterative_auth_checks(&ordered, &HashMap::new(), &events, &rejects, sender_is_joined(&events));
+        assert!(
+            !resolved.values().any(|id| id == "$rules"),
+            "with the only authorising member event rejected, nothing is authorised: {resolved:?}"
+        );
     }
 }
