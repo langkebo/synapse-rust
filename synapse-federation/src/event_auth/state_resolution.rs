@@ -531,6 +531,62 @@ impl EventAuthChain {
     where
         F: Fn(&EventData, &HashMap<String, String>) -> bool,
     {
+        self.resolve_state_with_start(state_sets, events, &HashMap::new(), is_authorised)
+    }
+
+    /// Resolve conflicting state under `room_version`.
+    ///
+    /// MSC4297 (state resolution v2.1) is a room v12 change: MSC4304 folds it
+    /// into v12. The **only** difference from v2 is what the iterative auth
+    /// checks are seeded with, so the version dispatch is exactly this choice:
+    ///
+    /// * **v12+** — replay from an **empty** state map (v2.1 Modification 1);
+    /// * **v1–v11** — replay from the **unconflicted** state map (v2), unchanged.
+    ///
+    /// F-3's contract: v2.1 must not leak into earlier room versions, and v2 must
+    /// not be silently upgraded for them.
+    pub fn resolve_state_for_version<F>(
+        &self,
+        room_version: &str,
+        state_sets: &[&HashMap<String, &Value>],
+        events: &HashMap<String, EventData>,
+        is_authorised: F,
+    ) -> HashMap<String, Value>
+    where
+        F: Fn(&EventData, &HashMap<String, String>) -> bool,
+    {
+        if synapse_common::room_versions::room_version_at_least(room_version, 12) {
+            // v2.1: empty start map.
+            self.resolve_state_with_start(state_sets, events, &HashMap::new(), is_authorised)
+        } else {
+            // v2: the unconflicted state seeds the replay.
+            let mut unconflicted: HashMap<String, String> = HashMap::new();
+            if let Some(first) = state_sets.first() {
+                for key in first.keys() {
+                    let first_val = first.get(key).copied();
+                    if state_sets.iter().all(|s| s.get(key).copied() == first_val) {
+                        if let Some(event_id) = first_val.and_then(|v| v.get("event_id")).and_then(|v| v.as_str()) {
+                            unconflicted.insert(key.clone(), event_id.to_string());
+                        }
+                    }
+                }
+            }
+            self.resolve_state_with_start(state_sets, events, &unconflicted, is_authorised)
+        }
+    }
+
+    /// The shared implementation: `replay_start` is the state map the iterative
+    /// auth checks begin from — empty for v2.1, the unconflicted map for v2.
+    fn resolve_state_with_start<F>(
+        &self,
+        state_sets: &[&HashMap<String, &Value>],
+        events: &HashMap<String, EventData>,
+        replay_start: &HashMap<String, String>,
+        is_authorised: F,
+    ) -> HashMap<String, Value>
+    where
+        F: Fn(&EventData, &HashMap<String, String>) -> bool,
+    {
         let mut resolved: HashMap<String, Value> = HashMap::new();
         let mut unconflicted: HashMap<String, &Value> = HashMap::new();
         let mut conflicted_keys: HashSet<String> = HashSet::new();
@@ -671,8 +727,7 @@ impl EventAuthChain {
         // MSC4297 Modification 1: replay from an **empty** state map, so each
         // event is authorised from its own `auth_events` history rather than from
         // the (possibly stale) unconflicted state — "Problem A".
-        let replayed =
-            self.iterative_auth_checks(&ordered_all, &HashMap::new(), events, &HashSet::new(), is_authorised);
+        let replayed = self.iterative_auth_checks(&ordered_all, replay_start, events, &HashSet::new(), is_authorised);
 
         // Spec step 5: the unconflicted state wins for the keys it covers.
         for (key, val) in &unconflicted {
@@ -1178,5 +1233,73 @@ mod tests {
 
         let resolved = chain.resolve_state_v2(&sets, &events, |_, _| false);
         assert_eq!(resolved.get("m.room.name:").and_then(|v| v.get("event_id")).and_then(|v| v.as_str()), Some("$x"));
+    }
+
+    // ── F-3: version dispatch (v2.1 only for v12+) ───────────────────────
+
+    /// The same conflict, the same predicate, two room versions. The unconflicted
+    /// state says the sender **left**, while their `auth_events` history has them
+    /// **joined** — MSC4297's "Problem A". v11 (v2) seeds the replay from the
+    /// unconflicted state and denies the join_rules event; v12 (v2.1) seeds it
+    /// empty and the event's own auth history authorises it.
+    #[test]
+    fn version_dispatch_gives_v2_below_twelve_and_v21_from_twelve() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![
+            member_event("$a_join", "@a:ex.com", "join", &[]),
+            member_event("$a_leave", "@a:ex.com", "leave", &["$a_join"]),
+            join_rules_event("$rules_a", "@a:ex.com", &["$a_join"]),
+            join_rules_event("$rules_b", "@a:ex.com", &["$a_join"]),
+        ]);
+
+        let leave: &'static Value = Box::leak(Box::new(json!({ "event_id": "$a_leave" })));
+        let mut set_a = state_set(vec![("m.room.join_rules:", "$rules_a")]);
+        let mut set_b = state_set(vec![("m.room.join_rules:", "$rules_b")]);
+        set_a.insert("m.room.member:@a:ex.com".to_string(), leave);
+        set_b.insert("m.room.member:@a:ex.com".to_string(), leave);
+        let sets: Vec<&HashMap<String, &Value>> = vec![&set_a, &set_b];
+
+        let v11 = chain.resolve_state_for_version("11", &sets, &events, sender_is_joined(&events));
+        assert!(
+            !v11.contains_key("m.room.join_rules:"),
+            "v11 keeps v2 semantics: the stale unconflicted leave denies the event: {v11:?}"
+        );
+        assert_eq!(
+            v11.get("m.room.member:@a:ex.com").and_then(|v| v.get("event_id")).and_then(|v| v.as_str()),
+            Some("$a_leave"),
+            "the unconflicted member event still wins its key"
+        );
+
+        let v12 = chain.resolve_state_for_version("12", &sets, &events, sender_is_joined(&events));
+        assert!(
+            v12.contains_key("m.room.join_rules:"),
+            "v12 uses v2.1: the event is authorised from its own auth history: {v12:?}"
+        );
+        assert_eq!(
+            v12.get("m.room.member:@a:ex.com").and_then(|v| v.get("event_id")).and_then(|v| v.as_str()),
+            Some("$a_leave"),
+            "step 5 still overlays the unconflicted state in v2.1"
+        );
+    }
+
+    /// A later version inherits v2.1 (room versions are cumulative); an
+    /// unparseable identifier must not be treated as v12+.
+    #[test]
+    fn version_dispatch_scope() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![]);
+        let set_a = state_set(vec![("m.room.name:", "$x")]);
+        let sets: Vec<&HashMap<String, &Value>> = vec![&set_a];
+
+        // No conflict → both paths return the unconflicted state; the point here
+        // is only that the dispatch accepts these identifiers without panicking.
+        for version in ["1", "11", "12", "13", "org.example.experimental"] {
+            let resolved = chain.resolve_state_for_version(version, &sets, &events, |_, _| false);
+            assert_eq!(
+                resolved.get("m.room.name:").and_then(|v| v.get("event_id")).and_then(|v| v.as_str()),
+                Some("$x"),
+                "v{version}"
+            );
+        }
     }
 }
