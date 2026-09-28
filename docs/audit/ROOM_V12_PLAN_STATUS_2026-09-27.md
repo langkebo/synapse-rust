@@ -314,3 +314,18 @@ A-2 的 **Q6(b)** 裁定："不接线，按铁律 1 删除死实现，只在 `re
    需要 `auth_events` 图与 room version；当前调用链上没有任何地方持有这三者。
 
 **本轮未执行删除、也未改状态决议代码**（4.5 的建议 (i) 已被 (ii) 取代：不再删 `resolve_state_v2`）。
+
+---
+
+## 5. A-2 决策（Q1–Q8）的落点 —— H-2 可追溯性
+
+| 决策 | 结论落在哪里（代码/文档） |
+|---|---|
+| **Q1**（仅禁止创建，join/federate 保持） | 代码：`synapse-common/src/room_versions.rs` 的 `RoomVersionCapability::stable_no_create` 与其上方的 capability↔behaviour 论证注释；本文件 §3 |
+| **Q2**（删 `CreateRoomConfig.room_id`；升级改为先建新房再 tombstone） | `7489b247f`（G-1+C-5）；`synapse-services/src/room/service.rs::upgrade_room` 的顺序注释；`create.rs` 的派生不变量断言 |
+| **Q3**（内部合成房间纳入统一建房入口） | ⏳ 未做。现状实测：`admin/notification.rs:350` 与 `space/repository.rs:30` **不经过** `CreateRoomConfig`（直接拼 id + 直接落库），故 C-5 删字段不影响它们 |
+| **Q4**（接受 `available` 仅列 v12） | `7489b247f`：快照 `integration__api_route_snapshots_tests__capabilities_v3.snap` |
+| **Q5**（移除不存在的版本 13） | `c83e3faf9`；`room_versions.rs` 注释 + `redaction.rs` 的 fail-closed 说明 |
+| **Q6**（(ii) v2.1 实现在 `resolve_state_v2`，并查清/接线冲突状态路径） | 本文件 §4.5（矛盾记录）与 §4.6（接线调查：本仓无状态决议路径） |
+| **Q7**（客户端不得在 `creation_content` 传 `additional_creators`） | E-1（`a659f9f7d`）只做**入站校验**；写入侧边界（handler 黑名单）保持原样 |
+| **Q8**（阶段顺序，含 D-6 在 C-2 之前） | 本文件 §2.5 |

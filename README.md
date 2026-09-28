@@ -162,6 +162,7 @@ cargo run --release
 - 上游 Synapse 能力差距分析：`docs/synapse-rust/ELEMENT_SYNAPSE_GAP_ANALYSIS_2026-07-28.md`
 - 依赖升级追踪：`docs/synapse-rust/DEPENDENCY_UPGRADE_TRACKER.md`
 - 管理员注册指南：`docs/synapse-rust/admin-registration-guide.md`
+- room v12（MSC4304）实施计划与**实时完成度**：`docs/audit/ROOM_V12_COMPLETION_PLAN_2026-09-27.md`、`docs/audit/ROOM_V12_PLAN_STATUS_2026-09-27.md`
 - 代码审查报告（最新）：`artifacts/code_review_report_2026-08-11.md`
 - 文档索引：`docs/INDEX.md`
 - 测试语义与 CI 门禁：`TESTING.md`
