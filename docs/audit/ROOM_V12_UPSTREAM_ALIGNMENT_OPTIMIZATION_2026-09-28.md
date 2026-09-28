@@ -408,26 +408,22 @@ fn supports_restricted_join_rule(room_version: &str) -> bool {
 - ✅ **A2**（`c39e60181` / `306d30e69`）— restricted join auth gate
 - ✅ **A7**（新增项，`5de77da29`）— auth_events restricted join gate follows version table  
 - ✅ **B1/B2/B3**（`886680a51`）— malformed room ID fixes
-- ✅ **C3**（自动解决，push 后 sync）
-- ❓ **C4**（自动清理，无需操作）
+- ✅ **C2-a**（snapshot_versions_endpoint 已含 msc3873/msc3912/msc4155）
+- ✅ **C2-b**（invite 33/33 test pass）
+- ✅ **C3**（同步至 origin，0 落后）
+- ❓ **C4**（工作树清理，无需操作）
 
 **仍需实施**：
-- **A1**: MSC4297 upstream cross-validation oracle (manual gate, not CI)
+- 🔧 **A1**: MSC4297 upstream cross-validation oracle (**正在实施中**)
 - **A3**: Per-event state group + idempotency/replay/performance gates
 - **A4**: Backfill state groups for existing rooms (depends on A3)
 - **A5**: Live federation interop testing (requires dual-host environment)
-- **A6**: Expand fixtures beyond message/create (clarify: byte-level only)
+- **A6**: Expand fixtures beyond message/create
 - **C1**: Stale `.sqlx` shrink (4 files)
-- **C2**: 
-  - C2-a: `snapshot_versions_endpoint` add 3 flags (`msc3873/msc3912/msc4155`)
-  - C2-b: `invite-policy` 6 red tests attribution (use stash probe)
-  - C2-c: ✅ Already green (tests/unit 1812/1812)
-  - C2-d: ✅ Already green (derived_manifest 3/3)
 
 **优先级排序**（基于 §6）：
 ```
-Next: C2-a (补 snapshot flag) → C2-b (invite 6 红归因)
-Then: A1 (oracle, manual)
+Next: A1 (oracle, manual) ← CURRENT
 Then: A3+A4 (state group per-event + backfill, one batch)
 Finally: C1 (stale sqlx shrink), A6 (fixtures), A5 (needs env)
 ```
@@ -436,10 +432,42 @@ Finally: C1 (stale sqlx shrink), A6 (fixtures), A5 (needs env)
 
 ## 10. 总结与下一步建议
 
-本轮（B1/B2/B3 批次）清零了**三条同源 malformed ID bug**（B 组三处逐字命中的 `split(':')` 用法）。核心思路是：**检测 room_id 是否有冒号，据此决定采用 legacy 还是 domainless 兼容的 fallback 格式**。
+### 本轮（B1/B2/B3 批次）已清零
+三条同源 malformed ID bug（B 组三处逐字命中的 `split(':')` 用法）。核心思路：**检测 room_id 是否有冒号，据此决定采用 legacy 还是 domainless 兼容的 fallback 格式**。
 
-建议下一步执行 **C2**（补 snapshot flag + invite 6 红归因），理由：
-- C2-a: 纯测试配置修改，零风险
-- C2-b: 用 stash 探针定位 invite 6 红的真实来源（是 invite-policy 还是 v12 升级路径）
+### 已完成总览（2026-09-28）
 
-然后可以继续推进 **A1**（上游交叉复算 oracle）或 **A3+A4**（state group per-event + 回填）。
+| 提交 | 内容 | 状态 |
+|------|------|------|
+| `db76fec88` | docs(audit): 记录 C2-a 和 C2-b 完成状态 | ✅ 已 push |
+| `886680a51` | fix(invite-policy): B1/B2/B3 malformed room ID fixes | ✅ 已 push |
+| `18071e8b3` | fix(invite_policy): account_policy_denies fail-closed for federated users only | ✅ 已 push |
+| `ab0c10062` | docs(audit): record the A7 fix, its mutation proof, and two attributions | ✅ 已 push |
+| `5de77da29` | fix(auth_events): gate the restricted-join auth entry on the version table | ✅ 已 push |
+| `306d30e69` | docs(audit): Room v12 剩余项的上游对齐复核与优化方案 | ✅ 已 push |
+
+### 进行中
+- **A1**: MSC4297 upstream cross-validation oracle
+  - 已创建 `scripts/interop/verify_state_res_v2_1_with_upstream.py`
+  - 已创建 `tests/interop/fixtures/README.md`
+  - **BLOCKER**: 需要获取 `/tmp/up_state_v2.py`（上游 release-v1.161 分支）
+  - 下一步：使用 `HTTPS_PROXY=http://127.0.0.1:7897` 抓取上游代码
+
+### 下一步：推进 A1
+
+A1 是**手动门禁**（manual gate，不接入 CI），用于交叉验证本仓 state resolution v2.1 与 upstream element-hq/synapse release-v1.161 完全一致。
+
+**具体待办**：
+1. `export HTTPS_PROXY=http://127.0.0.1:7897`
+2. `curl -sS -o /tmp/up_state_v2.py https://raw.githubusercontent.com/element-hq/synapse/refs/heads/release-v1.161/synapse/state/v2.py`
+3. 运行 `python3 scripts/interop/verify_state_res_v2_1_with_upstream.py`
+4. 编写第一个 `tests/interop/fixtures/state_res_v12_conflict.json` fixture
+5. 用 oracle 脚本验证 fixture 结果与上游一致
+
+### 剩余待办
+- 🔧 **A1**: MSC4297 upstream cross-validation oracle (CURRENT)
+- **A3**: Per-event state group + idempotency/replay/performance gates
+- **A4**: Backfill state groups for existing rooms (depends on A3)
+- **A5**: Live federation interop testing (requires dual-host environment)
+- **A6**: Expand fixtures beyond message/create
+- **C1**: Stale `.sqlx` shrink (4 files)
