@@ -4730,13 +4730,24 @@ BEGIN
     END LOOP;
 END $$;
 
--- room_id 格式: !opaque:domain
+-- room_id 格式：两种合法形态
+--   * v1-v11：`!opaque:server` （legacy 格式）
+--   * v12+：`!` + 43 个 URL-safe base64 字符（MSC4291，无 domain 部分）
+-- 旧约束只接受第一种形态。U-1/D1 第 2 步放宽为两种合法形态，
+-- 否则 v12 的 domainless room_id 无法入库。
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_rooms_room_id_format' AND conrelid = 'rooms'::regclass) THEN
-        ALTER TABLE rooms ADD CONSTRAINT ck_rooms_room_id_format
-            CHECK (room_id ~ '^![a-zA-Z0-9._=+./-]+:[a-zA-Z0-9.-]+$');
-    END IF;
+    -- 重新声明而不是 IF NOT EXISTS：长期存在的库（本机 public、各测试模板）里
+    -- 已经带着旧定义，只加不换会让它们继续带着坏约束，本地与 CI 从此分叉。
+    ALTER TABLE rooms DROP CONSTRAINT IF EXISTS ck_rooms_room_id_format;
+    ALTER TABLE rooms ADD CONSTRAINT ck_rooms_room_id_format
+        CHECK (
+            -- Legacy form: !opaque:server (room versions 1-11)
+            room_id ~ '^![a-zA-Z0-9._=+./-]+:[a-zA-Z0-9.-]+$'
+            OR
+            -- Domainless form: ! + 43 URL-safe base64 chars (room v12 / MSC4291)
+            room_id ~ '^![a-zA-Z0-9_-]{43}$'
+        );
 END $$;
 
 -- event_id 格式：两种合法形态
