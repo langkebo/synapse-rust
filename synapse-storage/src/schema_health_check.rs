@@ -683,3 +683,69 @@ mod tests {
         assert!(count >= 200, "baseline should have at least 200 tables, got {}", count);
     }
 }
+
+/// 真 baseline 上的健康检查往返（C44-0 补覆盖）。
+///
+/// 此前这 4 条检查 SQL（`check_missing_tables` / `check_missing_columns` /
+/// `check_missing_indexes` / `check_field_naming_issues`）**只有** CI 的
+/// `schema_health_check` 二进制在跑，`cargo nextest` 侧一条都没有：模块里 12 条用例
+/// 全是纯函数（结构、计数、索引清单去重），SQL 一次也不执行。R8 要的"该模块的真
+/// baseline 往返"因此缺失，C44 的转换也就没有运行期证据。
+///
+/// 这里断言的是**三条 missing_\* 集合为空**（= 4 条 SQL 的真实行为）。刻意**不**断言
+/// `passed`：隔离 schema 是把 v12 基线直接 apply 出来的裸 schema，没有 `_sqlx_migrations`
+/// 记账，`check_migration_completeness` 会如实报告"缺迁移"并把 `passed` 置 false ——
+/// 那与本次要覆盖的表/列/索引检查是两件事。
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn baseline_satisfies_the_schema_health_checks() {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+
+        let result = run_schema_health_check(&pool, false).await.expect("health check must run");
+
+        assert!(result.missing_tables.is_empty(), "baseline is missing tables: {:?}", result.missing_tables);
+        assert!(result.missing_columns.is_empty(), "baseline is missing columns: {:?}", result.missing_columns);
+        // 刻意**不**断言 `missing_indexes.is_empty()`：隔离 clone 会把 PK/UNIQUE 约束支撑的
+        // 索引名改成 PG 默认名（模板 `pk_users` / `uq_users_username` → clone `users_pkey` /
+        // `users_username_key`），因此本用例在**克隆**里必然报这 5 组缺失（实测：users、
+        // room_memberships、presence、access_tokens、user_threepids）。这是 D-80
+        // （`synapse-common/src/test_isolation.rs` 的 phase 1d 未还原约束索引名），
+        // 不是基线缺索引 —— 模板与 `public` 上这 5 组都在。
+        // D-80 修好后，这里应收紧为 `assert!(result.missing_indexes.is_empty())`。
+        let renamable = [
+            "uq_room_memberships_room_user",
+            "uq_users_username",
+            "idx_presence_user_status",
+            "idx_access_tokens_token_hash",
+            "idx_user_threepids_medium_address",
+        ];
+        for group in &result.missing_indexes {
+            assert!(
+                renamable.contains(&group.as_str()),
+                "unexpected missing index group {group:?}; only the D-80 constraint-index renames are tolerated, got {:?}",
+                result.missing_indexes
+            );
+        }
+        assert!(
+            result.baseline_drift.abs() <= 10,
+            "baseline drift too large: {} (baseline {} vs actual {})",
+            result.baseline_drift,
+            baseline_tables().len(),
+            result.baseline_drift + baseline_tables().len() as i64
+        );
+    }
+
+    /// 反向自证：换成一张不存在的表后必须**变红**（否则上面那条断言只是空转）。
+    #[tokio::test]
+    async fn missing_table_is_reported() {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+
+        let missing = check_missing_tables(&pool, &["definitely_not_a_table_xyz"]).await.expect("query must run");
+        assert_eq!(missing, vec!["definitely_not_a_table_xyz".to_string()]);
+    }
+}

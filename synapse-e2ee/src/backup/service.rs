@@ -521,39 +521,6 @@ impl KeyBackupService {
         Ok(row.try_get::<i64, _>("count")?)
     }
 
-    /// See [`get_backup_count_per_room`].
-    pub async fn get_backup_count_per_room(&self, user_id: &str, version: &str) -> Result<serde_json::Value, ApiError> {
-        let backup = self
-            .storage
-            .get_backup_version(user_id, version)
-            .await?
-            .ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
-
-        let rows = sqlx::query(
-            r"
-            SELECT bk.room_id, COALESCE(COUNT(*), 0) as count
-            FROM backup_keys bk
-            JOIN key_backups kb ON kb.backup_id = bk.backup_id
-            WHERE kb.user_id = $1
-              AND (kb.backup_id_text = $2 OR kb.version::text = $2)
-            GROUP BY bk.room_id
-            ",
-        )
-        .bind(user_id)
-        .bind(&backup.backup_id)
-        .fetch_all(&*self.storage.pool)
-        .await?;
-
-        let mut rooms: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
-        for row in rows {
-            let room_id: String = row.try_get("room_id")?;
-            let count: i64 = row.try_get("count")?;
-            rooms.insert(room_id, serde_json::Value::from(count));
-        }
-
-        Ok(serde_json::Value::Object(rooms))
-    }
-
     /// See [`get_room_backup_keys`].
     pub async fn get_room_backup_keys(
         &self,

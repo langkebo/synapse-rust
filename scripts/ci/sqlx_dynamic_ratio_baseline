@@ -2449,12 +2449,19 @@
 #   验证：`-p synapse-federation --lib --all-features -E 'test(/key_rotation/)'` ⇒ **13/13**；
 #   集成 `-E 'test(/federation_service_tests_migrated/)'` ⇒ **5/5**（含上述恢复用例与
 #   `test_key_rotation_initialization` —— 真库往返穿过转换后的宏）。
+# ── 2026-09-26 C44-0（先修：删 `get_backup_count_per_room` 零引用方法 −1）────────────
+#   `synapse-e2ee/src/backup/service.rs::get_backup_count_per_room` 全仓**零调用者**
+#   （仅定义处与 doc 链接；路由/服务/tests 全无引用）⇒ 按铁律 1 / R12 直接删除，而不是把它
+#   转成宏（省下一次转换与一条 `.sqlx` 条目）。该文件字面量 5 → 4，
+#   `dynamic_production` 255 → **254**。同批另给 `schema_health_check.rs` 补了真 baseline
+#   覆盖（4 条健康检查 SQL 此前只有 CI 二进制在跑），并因此登记 **D-80**
+#   （隔离 clone 未还原 PK/UNIQUE 约束索引名）—— 见 §7.1。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=255
+BASELINE_DYNAMIC_PRODUCTION=254
 BASELINE_DYNAMIC_TEST_INFRA=718
 BASELINE_STATIC=1233
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=973
+BASELINE_DYNAMIC=972
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
