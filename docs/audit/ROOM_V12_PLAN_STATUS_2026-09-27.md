@@ -34,7 +34,7 @@
 | **E-2** | 创建者集合 + 无限 PL（G-32/33/35） | ✅ **完成**（`6f0c1735a`） | `room_creators_and_version` 一次读 create 事件返回（集合, 版本）；`resolve_room_creators`；v12+ 创建者返回 `CREATOR_POWER_LEVEL = i64::MAX` 且**排在读 PL 之前**（不可降权）；踢/封保护改用集合；版本未知时 fail-closed 不授予无限 |
 | **E-3** | 规则 10.4：PL 的 `users` 不得含创建者 | ✅ **完成**（`6f0c1735a` + `fcc57e0f2` + 接线修复 `ab59f4286`） | 客户端 `verify_power_levels_change` 拒绝；**修复**：规范路径是 `PUT /state/m.room.power_levels`（`ensure_room_state_write_access`），原先只接了非规范的 `/send` 路径 ⇒ 规则实际未生效，现已接上（同时补上原本缺失的升降权/同级检查）；入站经 B-1 接缝，读创建者失败 **fail-closed** |
 | **F-1** | 状态决议接线决策（G-38 零调用者） | ✅ **已决策**（A-2 改选 **(ii)**） | 裁定：v2.1 **实现在 `resolve_state_v2`**（计划原文落点），并查清/接线冲突状态路径。**查清已完成**（§4.6）：本仓无状态决议路径 —— `create_state_group` 零生产调用者，当前 state 是 `DISTINCT ON … origin_server_ts DESC` 的**纯时间戳 LWW** |
-| **F-2** | v2.1 三处修改 | 🟡 **部分完成**（三片：`a5d32166c`/`45d48b69b`/`0e207f202`） | ✅ Modification 2（subgraph）+ 3（full conflicted set）+ auth difference 修正 + **Modification 1 机制**（`iterative_auth_checks`，起始 map 为参数）+ **解析器重组**（full conflicted set → 排序 → 空起始重放 → 叠加 unconflicted）。❌ 仍缺：**真实 `_check_event_auth`**（现为注入谓词）、**忠实的 mainline ordering / reverse topological power ordering**（现共用旧比较器） |
+| **F-2** | v2.1 三处修改 | 🟡 **部分完成**（四片：`a5d32166c`/`45d48b69b`/`0e207f202`/`de9270a02`） | ✅ Modification 2（conflicted state subgraph）+ 3（full conflicted set）+ auth difference 定义修正 + Modification 1 机制（`iterative_auth_checks`，起始 map 为参数）+ 解析器重组（full conflicted set → 排序 → **空起始重放** → 叠加 unconflicted）+ **忠实排序**（`reverse_topological_power_ordering`（Kahn + 规范 tie-break）、`mainline_ordering`（最近的 mainline 祖先深度），旧单一比较器已按铁律 1 删除）。<br>❌ **仅剩 1 项**：真实 `_check_event_auth`（面向 state map 的规范 auth rules；现为调用方注入的谓词） |
 | **F-3** | v1–v11 兼容边界 | ✅ **完成**（`9836c3be7`） | `resolve_state_for_version`：**v12+ 用空起始 map（v2.1）**、**v1–v11 用 unconflicted 起始（v2）**；边界用例在**同一冲突/同一谓词**下断言 v11 否决、v12 放行；另有 `"1"/"11"/"12"/"13"/不可解析标识` 的分派范围用例 |
 | **G-1** | 能力表收敛：仅 v12 可创建 | ✅ **完成**（`7489b247f`） | 新增 `RoomVersionCapability::stable_no_create`：v1–v11 可 join/parse/federate、不可创建；`resolve_room_version` 对 v1–v11 返回 `None`；`/capabilities.available` 仅 `"12"`（快照已审阅更新）；联邦 join 走存储层 `room_storage.create_room`，**不受影响** |
 | **G-2** | 连带面清单（含联邦 `m.room_versions` 补测） | ✅ **完成**（`8687d8335`） | 补测后暴露**真实协议缺口**：联邦 `m.room_versions` 发的是扁平 `{version:{"status":…}}` + 手工插入 `default`，**不符规范形状** `{default, available:{v:status}}`；已修正，且 `available` 由 `can_federate` 派生（v1–v11 可联邦但不可创建，故与客户端集合**刻意不同**）；新增 `GET /_matrix/federation/v1` 用例（此前零覆盖） |
@@ -415,3 +415,20 @@ auth-rules 引擎，避免复制一套规则）。4 个新用例 + 变异自证�
 2. **忠实排序**：mainline ordering 与 reverse topological power ordering 目前共用同一个比较器（sender power → ts → mainline 位置），是近似。
 
 ⚠️ 不变：`resolve_state_for_version` **零调用者** ⇒ 以上均无端到端证据；§4.6 的接线决策仍未拍板。
+
+### 4.8.3 第四片（`de9270a02`）与 F-2 的**唯一**剩余项
+
+**已接线**：auth 组用 `reverse_topological_power_ordering`（Kahn + 规范 tie-break：sender power desc → ts asc → event id asc），
+非 auth 组用 `mainline_ordering`（`mainline_depth_of` 取 auth 链中**最深**的 mainline 祖先，无祖先记 0）。
+旧 `sort_by_reverse_topological_power` 已零调用者 ⇒ 按铁律 1 **删除**（54 行）。3 个排序用例 + 2 个变异自证。
+
+**F-2 唯一剩余：真实 `_check_event_auth`**。现状是**调用方注入谓词**（测试里用"发送者必须是 joined 成员"）。要补齐需实现
+规范的 event auth rules 对 **state map** 求值，范围（按规范 §Authorization rules 归纳）：
+
+1. `power_level` 解析：从 state 里的 `m.room.power_levels` 取 `users` / `users_default` / `events` / `state_default`（含 v12 的 MSC4289 创建者无限 PL —— 可复用 E 组结论）；
+2. `m.room.create`：无 auth_events、房间版本合法、v12 的 `additional_creators` 规则（可复用 E-1 的 `is_well_formed_user_id`）；
+3. `m.room.member`：join / invite / leave / ban / knock 各自的门槛与状态机规则（**可复用纯函数 `synapse_common::membership_transition::is_legal`** 与 `TransitionCtx`，这是本仓既有的"深模块"接缝）；
+4. 其余状态事件：`events[type]` / `state_default` 门槛；`m.room.redaction` 的 redact 门槛；
+5. v12 专属：规则 1.2 / 2 / 3.5 / 10.4（**已实现于 `event_auth::rules`，但那是单事件入站形态**，需抽出可对 state map 复用的部分，避免第二份实现 —— 铁律 2）。
+
+⚠️ 该谓词仍**无调用者**（`resolve_state_for_version` 零调用），故即便补齐也仍无端到端证据；§4.6 的接线决策是它生效的前提。
