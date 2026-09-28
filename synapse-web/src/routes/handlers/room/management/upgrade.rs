@@ -17,7 +17,7 @@ pub(crate) async fn upgrade_room(
 ) -> Result<Json<UpgradeRoomResponse>, ApiError> {
     validate_room_id(&room_id)?;
 
-    ensure_room_state_write_access(&ctx, &auth_user, &room_id, "m.room.tombstone").await?;
+    ensure_room_state_write_access(&ctx, &auth_user, &room_id, "m.room.tombstone", &serde_json::Value::Null).await?;
 
     let new_room_id = ctx.room_service.upgrade_room(&room_id, &body.new_version, &auth_user.user_id).await?;
 

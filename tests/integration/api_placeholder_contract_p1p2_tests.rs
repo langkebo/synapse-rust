@@ -191,8 +191,11 @@ async fn test_power_levels_contract_allows_explicit_room_admin_to_kick() {
             .header("Content-Type", "application/json")
             .body(Body::from(
                 json!({
+                    // MSC4289 rule 10.4: a v12 power_levels event must NOT name a
+                    // creator, so the creator (alice) is deliberately absent here.
+                    // Her power is unlimited anyway (E-2), which is what lets the
+                    // invitations below succeed.
                     "users": {
-                        alice_user_id.clone(): 100,
                         bob_user_id.clone(): 100,
                         charlie_user_id.clone(): 0
                     },

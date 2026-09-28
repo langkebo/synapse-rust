@@ -210,7 +210,7 @@ async fn set_anti_screenshot(
     // flip the room-wide anti-screenshot flag. `ensure_room_state_write_access`
     // is the same member + `verify_state_event_write` pair the canonical state
     // endpoints use (handlers/room/state.rs).
-    ensure_room_state_write_access(&ctx, &auth_user, &room_id, "com.hula.privacy").await?;
+    ensure_room_state_write_access(&ctx, &auth_user, &room_id, "com.hula.privacy", &serde_json::Value::Null).await?;
 
     let action: &str = if payload.enabled { "block_screenshot" } else { "allow_screenshot" };
 

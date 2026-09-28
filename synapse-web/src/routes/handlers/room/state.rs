@@ -200,7 +200,7 @@ pub(crate) async fn send_state_event(
     let now = current_timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
-    ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type).await?;
+    ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type, &content).await?;
 
     // State events with empty state_key per Matrix spec (global room state)
     const EMPTY_STATE_KEY_TYPES: &[&str] = &[
@@ -282,7 +282,7 @@ pub(crate) async fn put_state_event(
     let now = current_timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
-    ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type).await?;
+    ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type, &body).await?;
 
     if is_beacon_info_event(&final_event_type) && state_key != auth_user.user_id {
         return Err(ApiError::forbidden("beacon_info stateKey must match sender".to_string()));
@@ -407,7 +407,7 @@ pub(crate) async fn put_state_event_empty_key(
     let now = current_timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
-    ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type).await?;
+    ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type, &body).await?;
 
     let event = ctx
         .room_service
@@ -449,7 +449,7 @@ pub(crate) async fn put_state_event_no_key(
     let now = current_timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
-    ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type).await?;
+    ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type, &body).await?;
 
     let event = ctx
         .room_service
