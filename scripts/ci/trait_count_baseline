@@ -1,7 +1,24 @@
 # Trait-count ratchet baseline (A5 / B4-1). See scripts/ci/check_trait_ratchet.py.
 # The numbers may only go DOWN. Bump them deliberately and say why.
-TOTAL=66
+TOTAL=67
 STORE_API=33
+#
+# 2026-09-28  TOTAL 66 -> 67 (+1) —— B1-1b「本地事件自动补图元数据」的 DI 接缝 trait（D-83）
+#   来源：synapse-services/src/graph_metadata.rs:103
+#         `pub trait GraphMetadataSource: Send + Sync`（随 `bf90f430f` 进入 opt/consolidated）。
+#   为什么放行而不是删掉这条接缝（与下面 2026-09-21 的 InvitePolicyGate 同型、同一判据）：
+#     · 生产实现：`impl GraphMetadataSource for StorageGraphMetadataSource`（同文件 :151，
+#       读 PG 的 `EventStorage` + room store）；
+#     · 测试替身：`FakeSource`（同文件 :609，`impl` 在 :657），被 `resolver(FakeSource::room(...))`
+#       一族用例使用（:703/:712/:724/:739…），用于构造"深度/前驱事件"这类在真库上很难摆出的
+#       图状态；
+#     · 注入点：`GraphMetadataResolver { source: Arc<dyn GraphMetadataSource> }`（同文件 :247，
+#       `new()` 在 :252），生产由 `synapse-services/src/wiring/rooms.rs:96` 注入具体实现。
+#   即：它是"为可测性而存在的接缝"，删掉就得把图元数据读取硬编码进 resolver，那批用例将无法
+#   构造输入。**先修性质**：这不是新增抽象，而是 `bf90f430f` 加了 trait 却**漏同步本棘轮**，
+#   导致 `opt/consolidated` 的 repo-sanity 门禁自该提交起**常驻红**（与 D-70 的"删埋点漏收紧
+#   埋点基线"同型，只是方向相反）⇒ 按 R11 独立提交收紧，而不是留红或放宽脚本。
+#   `*StoreApi` 未增加（33 == 33），存储抽象棘轮没有被放宽。
 #
 # 2026-09-21  TOTAL 65 -> 66 (+1) —— MSC4155 邀请策略的 DI 接缝 trait
 #   来源：synapse-services/src/invite_blocklist_service.rs:35
