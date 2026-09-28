@@ -243,8 +243,18 @@ async fn test_auth_metadata_returns_unrecognized_when_oidc_is_disabled() {
     assert_eq!(json["errcode"], "M_UNRECOGNIZED");
 }
 
+/// 已摘除的 `msc2965/auth_issuer` 端点不得复活。
+///
+/// 该端点由 `76e5f9136`（"Remove deprecated msc2965/auth_issuer endpoint"，对齐上游
+/// Synapse 1.161）**有意删除**，但旧用例仍断言"端点存在、只是拒绝"的语义
+/// （400 + `M_UNRECOGNIZED`）⇒ 实得 404，长期红（2026-09-25 计划文档记为
+/// "摘路由时漏改用例"）。这里按该处置改成**路由不存在**的断言。
+///
+/// 为什么不直接删掉：这是"废弃端点不得复活"最便宜的一处显式守卫 —— 若有人把路由加回来，
+/// 请求会变成 400/401/405，本用例立刻红。路由面的整体守卫仍由
+/// `api_route_ledger_tests` 的快照 + manifest 承担（全表覆盖），两者互补。
 #[tokio::test]
-async fn test_auth_issuer_returns_unrecognized_when_oidc_is_disabled() {
+async fn test_removed_auth_issuer_endpoint_is_not_served() {
     let Some(app) = setup_test_app().await else {
         return;
     };
@@ -255,11 +265,11 @@ async fn test_auth_issuer_returns_unrecognized_when_oidc_is_disabled() {
         .body(Body::empty())
         .unwrap();
     let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-
-    let body = axum::body::to_bytes(response.into_body(), 2048).await.unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["errcode"], "M_UNRECOGNIZED");
+    assert_eq!(
+        response.status(),
+        StatusCode::NOT_FOUND,
+        "the deprecated msc2965/auth_issuer endpoint was removed in 76e5f9136 and must not be served again"
+    );
 }
 
 /// Regression guard for the `:auth_type` → `{auth_type}` fix in `assembly.rs`.

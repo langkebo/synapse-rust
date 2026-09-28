@@ -5122,8 +5122,21 @@ ALTER TABLE room_memberships ADD CONSTRAINT ck_room_memberships_valid
 -- ============================================================
 -- P1-3: event_edges prev_event_id FK
 -- ============================================================
--- 使用 SET NULL 而非 CASCADE，因为已存在的孤儿 prev_event_id 需要被宽容处理
--- production 可选: ON DELETE SET NULL 改为 ON DELETE NO ACTION + Rust 层清理
+-- ⚠️ 动作必须是 CASCADE，**不能**是 SET NULL：`event_edges.prev_event_id` 是
+-- `NOT NULL`（见本文件 `CREATE TABLE event_edges`），而 `ON DELETE SET NULL` 在删除被引用的
+-- 父事件时会把该列置 NULL ⇒ 立刻 23502，于是任何"删事件 / 删房间"的路径都会失败。
+-- 实测（2026-09-28，D-89）：
+--   `DELETE /_synapse/admin/v1/rooms/{room_id}`（管理员删房间）**恒 500**，服务端日志：
+--   `null value in column "prev_event_id" of relation "event_edges" violates not-null constraint`
+--   —— `RoomStorage::delete_room` 批量删 events 的第一步就撞上这条 FK。
+-- 语义上 CASCADE 也是对的：`event_edges` 是**派生**的 DAG 边，节点不存在时边没有意义；
+-- 与同表 `fk_event_edges_event`（`event_id` 侧）的 CASCADE 语义一致。
+-- （P1 审计当初选 SET NULL 是想"宽容已存在的孤儿 prev_event_id"，但 FK 校验照样会拒绝孤儿；
+-- 要宽容孤儿应当用 `NOT VALID`，而不是把 NOT NULL 列置空。）
+--
+-- 先 DROP 再 ADD 是刻意的：本文件会被 `scripts/init_test_public_schema.sh` 逐个**重放**
+-- （不经过 sqlx 的 applied-migrations 表），所以重放必须能把旧定义换成新定义，
+-- 只写 `IF NOT EXISTS … ADD` 会让已有库永远留着旧动作。
 --
 -- 表名一律用 current_schema() 显式限定，绝不依赖 search_path —— public 中若
 -- 残留同名表，未限定的 REFERENCES 会静默绑定到 public 副本。
@@ -5138,15 +5151,13 @@ BEGIN
         RETURN;
     END IF;
 
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint
-                   WHERE conname = 'fk_event_edges_prev' AND conrelid = to_regclass(edges_tbl)) THEN
-        EXECUTE format(
-            'ALTER TABLE %s ADD CONSTRAINT fk_event_edges_prev '
-            'FOREIGN KEY (prev_event_id) REFERENCES %I.events(event_id) ON DELETE SET NULL',
-            edges_tbl,
-            current_schema()
-        );
-    END IF;
+    EXECUTE format('ALTER TABLE %s DROP CONSTRAINT IF EXISTS fk_event_edges_prev', edges_tbl);
+    EXECUTE format(
+        'ALTER TABLE %s ADD CONSTRAINT fk_event_edges_prev '
+        'FOREIGN KEY (prev_event_id) REFERENCES %I.events(event_id) ON DELETE CASCADE',
+        edges_tbl,
+        current_schema()
+    );
 END $$;
 
 -- 补充索引（向后遍历事件图：给定 prev_event_id 找所有后续 event）
