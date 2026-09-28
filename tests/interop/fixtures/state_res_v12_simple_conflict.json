@@ -1,0 +1,35 @@
+{
+  "description": "MSC4297 v2.1 basic conflict scenario: two conflicting m.room.member events",
+  "room_version": "12",
+  "state_sets": [
+    {
+      "m.room.member:@bob:example.com": "$member_bob_state_a:server.com",
+      "m.room.power_levels:": "$powerlevels_state_a:server.com",
+      "m.room.join_rules:": "$joinrules_state_a:server.com"
+    },
+    {
+      "m.room.member:@bob:example.com": "$member_bob_state_b:server.com",
+      "m.room.power_levels:": "$powerlevels_state_a:server.com",
+      "m.room.join_rules:": "$joinrules_state_b:server.com"
+    }
+  ],
+  "expected_conflicted_set": [
+    {"m.room.member:@bob:example.com": "$member_bob_state_a:server.com"},
+    {"m.room.member:@bob:example.com": "$member_bob_state_b:server.com"},
+    {"m.room.join_rules:": "$joinrules_state_a:server.com"},
+    {"m.room.join_rules:": "$joinrules_state_b:server.com"}
+  ],
+  "expected_auth_diff": [],
+  "expected_full_conflicted_set_size": 4,
+  "expected_base_state": {},
+  "notes": [
+    "MSC4297 v2.1 key differences from v2:",
+    "1. base_state = {} (empty) - line 182-186 in upstream /tmp/up_state_v2.py",
+    "2. conflicted_set = union of all events in conflicted_state (line 127-130)",
+    "3. auth_diff computed via _get_auth_chain_difference (line 131-137)",
+    "4. full_conflicted_set = conflicted_set ∪ auth_diff (line 138-142)",
+    "",
+    "This is a MANUAL GATE only (NOT CI). Run with:",
+    "  python3 scripts/interop/verify_state_res_v2_1_with_upstream.py"
+  ]
+}
