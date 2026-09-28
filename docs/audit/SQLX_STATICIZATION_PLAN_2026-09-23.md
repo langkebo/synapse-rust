@@ -14,12 +14,12 @@
 
 | 指标 | 战役起点（2026-09-23） | 现在 | 变化 |
 |---|---|---|---|
-| `dynamic_production` | 1532（近似） | **263** | **−82.8%** |
-| `static` | 61 | **1225** | +1164 |
-| `dynamic`（总） | 2151 | **981** | −1170 |
-| 静态占比 | 2.76% | **55.5%**（1225 / 2206） | +52.8pp |
-| `.sqlx` 离线缓存 | 60 条 | **1193 条** | +1133 |
-| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **192 / 43** | −684 |
+| `dynamic_production` | 1532（近似） | **255** | **−83.4%** |
+| `static` | 61 | **1233** | +1172 |
+| `dynamic`（总） | 2151 | **973** | −1178 |
+| 静态占比 | 2.76% | **55.9%**（1233 / 2206） | +53.2pp |
+| `.sqlx` 离线缓存 | 60 条 | **1201 条** | +1141 |
+| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **184 / 42** | −692 |
 | `param` 传参（D-14 新棘轮，处 / 文件） | — | **1 / 1** | 新立棘轮（此前混在 `runtime`，两道棘轮都不管） |
 | `runtime` 残差 / `query_builder` | — | 70 / 13 文件 · **18**（已入计数棘轮） | — |
 
@@ -27,16 +27,16 @@
 > 增益与回退（U-5 的 +7 已被其批次计入基线、invite-policy 合并回退的 12 处由其 `4cc45d279`
 > 转宏偿还）。C41 起点与 `opt/consolidated` 完全一致（HEAD = `18071e8b3`，无分叉），
 > 因此各批**按实测值**直接收紧，不再留余量：C41 把 `BASELINE_DYNAMIC_PRODUCTION` 282 → 272、
-> `BASELINE_STATIC` 1206 → 1216；C42 再收到 **263 / 1225**。
+> `BASELINE_STATIC` 1206 → 1216；C42 收到 **263 / 1225**；C43 再收到 **255 / 1233**。
 
 ### 0.2 残量结构（"还剩多少活"的准确说法）
 
 | 组成 | 处数 | 性质 |
 |---|---|---|
-| **可静态化残量** | **191** | **161 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
+| **可静态化残量** | **183** | **153 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
 | 测试基建（有意保留） | 57 | `synapse-test-utils/src/lib.rs` 28、`synapse-common/src/test_isolation.rs` 25、`test_schema_guard.rs` 4 |
 | 结构性保留（有意） | 15 | `synapse-storage/src/event/pagination.rs`（9 runtime 游标/排序方向 + 6 literal） |
-| **合计** | **263** | = 191 + 57 + 15 |
+| **合计** | **255** | = 183 + 57 + 15 |
 
 ### 0.3 复现（唯一入口，勿手工数）
 
@@ -64,7 +64,7 @@ python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
 > `/opt/homebrew/opt/postgresql@15/bin/psql`，或用一个**已迁移好**的库 + `SQLX_PREPARE_SKIP_DB_CHECK=1`
 > 跳过前置检查（`--check` 不允许跳；缩容回滚仍生效）。`cargo sqlx prepare` 自身不需要 psql。
 
-### 0.4 缺陷发现总览（**78 条**；只给统计与去向，不逐条显示）
+### 0.4 缺陷发现总览（**79 条**；只给统计与去向，不逐条显示）
 
 | 类别 | 条数 | 说明 |
 |---|---|---|
@@ -76,12 +76,12 @@ python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
 | ⑥ 覆盖缺口 / 测试基建假绿 | 2 | 静态化后无 DB 往返、自建 schema 掩盖写入端约束 |
 | ⑦ 文档级 | 6 | 计数漂移、过时结论、误导性"规则"注释 |
 | ⑧ 结构性例外（有意保留） | 7 | D-13 / D-14 / D-18–D-22，见 §7.3 |
-| ⑨ 阶段总结后新发现并已关闭 | 14 | **D-77**（`check_sqlx_cache_fresh.sh --full` 对着被收敛成 0 表的共享 `public` 会吐 **1443 个 E0282/E0277**（看起来像源码坏了），而裸 `cargo sqlx prepare` 会把 `.sqlx/` 清空 ⇒ 新增唯一入口 `scripts/ci/sqlx_prepare.sh`（前置检查 fail-fast + 缩容回滚），`--full` 委托给它并在 AGENTS.md R2/R8 明令禁止）、**D-76**（`scripts/init_test_public_schema.sh` 的 `RESET_PUBLIC` 默认 1 ⇒ **裸跑就 `DROP SCHEMA public CASCADE`** 重建共享 `synapse_test.public`；失败/中断即留下 0 表 ⇒ 默认改为 0（幂等 apply），重建需显式 opt-in）、**D-75**（`converge_public_schema.sh` 的 TOCTOU：删除清单在 apply 阶段**二次求值**，而 `prepare_test_db.sh` [2/4] 会 `DROP SCHEMA test_template_ci CASCADE` 重建参考集 ⇒ 参考为空时 public 全被判"多余"；事后不变量又用同一个已塌掉的参考集（两边同时塌成 0 ⇒ 恒过）。实测环境 `synapse_test.public` = **0 表**（本该 ≥200）⇒ 已冻结清单 + 参考稳定性复检 + 大删栏杆 + 非空不变量，见 §8.3）、**D-74**（`update_access_stats` 的 `COALESCE($7, 0)` 让 PG 把 `$7` 定型成 **int4**，宏因此要求 `Option<i32>` 而 Rust 侧是 `response_time_ms: Option<f64>`；动态路径靠 sqlx 显式发送 FLOAT8 才没暴露 ⇒ 改 `0::float8` 并补浮点往返用例，见 §8.3）、**D-72**（`e2ee_audit.rs` 两个方向同时错：`e2ee_audit_log.details` 是 `NOT NULL DEFAULT '{}'`，但 `log_key_operation` 会把 `KeyEvent.details = None` 直接绑成 `NULL` ⇒ 运行期 23502；读回结构体又把该列声明成 `Option` ⇒ 可空性反推失真。已按 R12 先用 RED 用例复现 23502，再 `COALESCE($7, '{}'::jsonb)` + 读侧收紧为非 `Option`，见 §8.3）、**D-71**（D-25 家族收口：23 个 `#[cfg(feature)] pub mod` 声明里有 **10 个带测试却不在** `scripts/ci/gated_module_test_matrix` ⇒ "过滤器必须命中"这道守卫对它们从未生效；补 10 行后全表 21 行实跑通过）、**D-70**（`e4bc400cb` 删掉 3 个埋点却漏收紧 `metric_instrumentation_baseline` ⇒ 埋点棘轮在 `opt/consolidated` 上**常驻红**；按 R11 独立收紧 15 → 12 并复跑门禁）、D-62（通知响应的 `profile_tag` 键取自 `notification_type` ⇒ 已按修法① 改成真列 + 独立 `notification_type` 键）、**D-68**（通知记录层没有生产写入者、也没有保留期清理 ⇒ 已按修法① 接线 `record_notification` + `prune_old_notifications`，边界见 §0.5、明细见提交信息）、**D-69**（运行时迁移的 advisory lock key 在 `search_path` 为空时因 `current_schema()` 为 NULL 而**必败** ⇒ 已先 `COALESCE` 并补边界用例，见 §8.3）、**D-57②**（seed 侧 `public` 不收敛 ⇒ 新增 `scripts/ci/converge_public_schema.sh` 并接进 CI seed 第 [3/4] 步，见 §8.3）、D-65（并发改动只改一半 ⇒ 集成+clippy 双红）、D-66（worktree 共享 `CARGO_TARGET_DIR` ⇒ 跨树复用产物，假红/假绿）、D-67（新增测试里的死常量让 clippy 红） |
+| ⑨ 阶段总结后新发现并已关闭 | 15 | **D-78**（C42 把 `key_rotation.rs` 8 处判为"与迁移重复的死 DDL、应删"并登记为待裁定；C43 复核发现 `federation_service_tests_migrated.rs` 里有一条 `test_load_or_create_key_recovers_missing_signing_key_table` —— 自愈是**有意**行为，且该测试体从未构造"表缺失"（跑的是共享库、表本就在）⇒ **改判为保留自愈 + 宏化 8 处**，该测试名承诺的恢复场景从未被覆盖 ⇒ 另立 D-79）、**D-77**（`check_sqlx_cache_fresh.sh --full` 对着被收敛成 0 表的共享 `public` 会吐 **1443 个 E0282/E0277**（看起来像源码坏了），而裸 `cargo sqlx prepare` 会把 `.sqlx/` 清空 ⇒ 新增唯一入口 `scripts/ci/sqlx_prepare.sh`（前置检查 fail-fast + 缩容回滚），`--full` 委托给它并在 AGENTS.md R2/R8 明令禁止）、**D-76**（`scripts/init_test_public_schema.sh` 的 `RESET_PUBLIC` 默认 1 ⇒ **裸跑就 `DROP SCHEMA public CASCADE`** 重建共享 `synapse_test.public`；失败/中断即留下 0 表 ⇒ 默认改为 0（幂等 apply），重建需显式 opt-in）、**D-75**（`converge_public_schema.sh` 的 TOCTOU：删除清单在 apply 阶段**二次求值**，而 `prepare_test_db.sh` [2/4] 会 `DROP SCHEMA test_template_ci CASCADE` 重建参考集 ⇒ 参考为空时 public 全被判"多余"；事后不变量又用同一个已塌掉的参考集（两边同时塌成 0 ⇒ 恒过）。实测环境 `synapse_test.public` = **0 表**（本该 ≥200）⇒ 已冻结清单 + 参考稳定性复检 + 大删栏杆 + 非空不变量，见 §8.3）、**D-74**（`update_access_stats` 的 `COALESCE($7, 0)` 让 PG 把 `$7` 定型成 **int4**，宏因此要求 `Option<i32>` 而 Rust 侧是 `response_time_ms: Option<f64>`；动态路径靠 sqlx 显式发送 FLOAT8 才没暴露 ⇒ 改 `0::float8` 并补浮点往返用例，见 §8.3）、**D-72**（`e2ee_audit.rs` 两个方向同时错：`e2ee_audit_log.details` 是 `NOT NULL DEFAULT '{}'`，但 `log_key_operation` 会把 `KeyEvent.details = None` 直接绑成 `NULL` ⇒ 运行期 23502；读回结构体又把该列声明成 `Option` ⇒ 可空性反推失真。已按 R12 先用 RED 用例复现 23502，再 `COALESCE($7, '{}'::jsonb)` + 读侧收紧为非 `Option`，见 §8.3）、**D-71**（D-25 家族收口：23 个 `#[cfg(feature)] pub mod` 声明里有 **10 个带测试却不在** `scripts/ci/gated_module_test_matrix` ⇒ "过滤器必须命中"这道守卫对它们从未生效；补 10 行后全表 21 行实跑通过）、**D-70**（`e4bc400cb` 删掉 3 个埋点却漏收紧 `metric_instrumentation_baseline` ⇒ 埋点棘轮在 `opt/consolidated` 上**常驻红**；按 R11 独立收紧 15 → 12 并复跑门禁）、D-62（通知响应的 `profile_tag` 键取自 `notification_type` ⇒ 已按修法① 改成真列 + 独立 `notification_type` 键）、**D-68**（通知记录层没有生产写入者、也没有保留期清理 ⇒ 已按修法① 接线 `record_notification` + `prune_old_notifications`，边界见 §0.5、明细见提交信息）、**D-69**（运行时迁移的 advisory lock key 在 `search_path` 为空时因 `current_schema()` 为 NULL 而**必败** ⇒ 已先 `COALESCE` 并补边界用例，见 §8.3）、**D-57②**（seed 侧 `public` 不收敛 ⇒ 新增 `scripts/ci/converge_public_schema.sh` 并接进 CI seed 第 [3/4] 步，见 §8.3）、D-65（并发改动只改一半 ⇒ 集成+clippy 双红）、D-66（worktree 共享 `CARGO_TARGET_DIR` ⇒ 跨树复用产物，假红/假绿）、D-67（新增测试里的死常量让 clippy 红） |
 
-| ⑩ 新发现且**未关闭**（等结构性修法） | 1 | **D-78**：`synapse-federation/src/key_rotation.rs` 的运行时 DDL 引导与迁移**重复** —— `federation_signing_keys`（迁移 1719）+ 其两条索引（3545-3546）、`key_rotation_config`（2245）都已由迁移创建 ⇒ 该文件的 8 处 literal 里 **7 处**（3 组"存在探测 + CREATE" + 1 个 `CREATE TABLE IF NOT EXISTS`）在任何已迁移库上不可达，且这条自愈路径**不受** `SYNAPSE_ENABLE_RUNTIME_DB_INIT` 管辖。属"第二份 schema 实现"（铁律 1/2），**应删除而非转宏**（R12），需先裁定运行时自愈是否仍被支持，见 §7.1 |
+| ⑩ 新发现且**未关闭**（等基建） | 1 | **D-79**：`synapse-federation` **没有 per-test schema 基建**（全 crate 无 `IsolatedTestPool` / `BASELINE_SQL`、dev-deps 只有 `wiremock`）⇒ 该 crate 的 DB 路径只能跑共享 `public`，因而 `key_rotation.rs` 的自愈 DDL 分支（"表缺失时重建"）**无法在不破坏并发测试的前提下被构造**：`test_load_or_create_key_recovers_missing_signing_table` 的名字承诺了该场景，测试体却只是普通路径。修法：给该 crate 补上与 storage 同源的隔离池（dev-dep + `BASELINE_SQL`），再把该用例改成"先删表、再断言重建"。见 §7.1
 
-**去向**：阶段总结前关闭的 57 条逐条明细在 HISTORY §7.2；总结后关闭的 16 条（D-37 / D-57② / D-62 /
-D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-76 / D-77）记在各自提交信息里（下次阶段总结时并入快照）；**未关闭 1 条（D-78）在 §7.1 逐条留档**。本表 ①–⑧ 是**发现时**
+**去向**：阶段总结前关闭的 57 条逐条明细在 HISTORY §7.2；总结后关闭的 17 条（D-37 / D-57② / D-62 /
+D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-76 / D-77 / D-78）记在各自提交信息里（下次阶段总结时并入快照）；**未关闭 1 条（D-79）在 §7.1 逐条留档**。本表 ①–⑧ 是**发现时**
 的归类（历史口径，不随修复变动），因此 D-57 仍计入 ⑥、D-37 仍计入 ④、D-62 已改判为"已修" ——
 "还剩哪些没修"看结论行与 §7.1，不看桶号。
 **结论：64 已关闭 / **0 未关闭** / 7 结构性例外 —— 本战役登记表已清空。**
@@ -97,8 +97,9 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 3. **长期资产是规则与门禁，不是数字**：数字会被并发改动推动，R1–R13 与四道自证过的门禁才是
    "不再制造同类缺陷"的保证；本阶段新增的两条规则（宏实参须为调用点字面量、worktree 各自 target 目录）
    都来自实测而非推导。
-4. **登记表：1 条未关闭（D-78）（2026-09-26，C42 后）**：`D-01…D-78` 里 70 条已关闭、7 条转为结构性例外，
-   未关闭的是 **D-78**（`key_rotation.rs` 的运行时 DDL 与迁移重复，待裁定删除或收编）。D-73（`e2ee_audit_log` 的冗余 `action` 列 + 可空 `operation`）已按 R4 的
+4. **登记表：1 条未关闭（D-79）（2026-09-26，C43 后）**：`D-01…D-79` 里 71 条已关闭、7 条转为结构性例外，
+   未关闭的是 **D-79**（`synapse-federation` 缺 per-test schema 基建 ⇒ 自愈分支无法安全构造、测试名超出测试体）。
+   D-78（C42 曾判"运行时 DDL 是死代码"）已在 C43 **改判并关闭**：自愈是有意行为（有命名用例），已保留并宏化。D-73（`e2ee_audit_log` 的冗余 `action` 列 + 可空 `operation`）已按 R4 的
    "结构上能保证就收紧 schema"落地：删列 + `operation SET NOT NULL` + 基线指纹同步（见 §8.3）。
    剩下的**只有计划内的工作**（§8.1 的 203 处可转换残量）与 7 条**结构性例外**（工具/接口边界，
    不是缺陷）。这不等于战役结束 —— 收尾条件见 §8.4。
@@ -118,14 +119,14 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 ## 7. 仍存在的问题（唯一登记处）
 
-**当前 1 条未关闭项（D-78）**；最近一次关闭：D-73（2026-09-26）。只登记**未关闭项**与**结构性例外**；
+**当前 1 条未关闭项（D-79）**；最近一次关闭：D-78（2026-09-26，改判为"保留 + 宏化"）。只登记**未关闭项**与**结构性例外**；
 已关闭项的去向见 §0.4 与各自提交信息。
 
 ### 7.1 汇总表
 
 | 编号 | 是什么 | 在哪 | 为什么还没修 | 怎么修 |
 |---|---|---|---|---|
-| **D-78** | **运行时 DDL 引导与迁移重复**（第二份 schema 实现）：3 组「`SELECT EXISTS(信息模式/pg_indexes)` + 条件 `CREATE`」与一个 `CREATE TABLE IF NOT EXISTS` 创建的表/索引**迁移里全都有** | `synapse-federation/src/key_rotation.rs`（`ensure_signing_keys_table` / `ensure_key_rotation_config_table`）；迁移 `00000000_unified_schema_v12.sql:1719`（表）、`2245`（配置表）、`3545-3546`（两条索引） | C42 的 STEP 0 实测：两表与其索引在每个已迁移库上都存在 ⇒ 探测恒为真、6 个 `CREATE` 分支**不可达**；该文件 8 处 literal 中 7 处是这批死 DDL。删除属**行为变更**（去掉运行时自愈），且它与 `SYNAPSE_ENABLE_RUNTIME_DB_INIT` 的关系没有裁定过 —— 按 R12 不能把待删死代码转成宏 | ① 裁定删除 ⇒ 删 `ensure_signing_keys_table` / `ensure_key_rotation_config_table` 及其调用点与 `signing_keys_table_ready` 标志，只留迁移，顺带宏化剩下那 1 处真查询（`load_rotation_config` 的 `SELECT value … 'interval_ms'`）；② 裁定保留自愈 ⇒ 让它受 `SYNAPSE_ENABLE_RUNTIME_DB_INIT` 管辖，并把 8 处转宏（`EXISTS` 需按 R4 断言 `AS "exists!"`）。两条路都能把该文件的 literal 行归零 |
+| **D-79** | **`synapse-federation` 缺 per-test schema 基建** ⇒ 该 crate 的 DB 路径只能跑共享 `public`，自愈分支无法被安全构造；`test_load_or_create_key_recovers_missing_signing_table` 的**名字承诺**了"表缺失后恢复"，测试体却只走普通路径（表本就在） | `synapse-federation/Cargo.toml`（dev-deps 只有 `wiremock`）、`synapse-federation/src/key_rotation.rs::tests`、`tests/integration/federation_service_tests_migrated.rs::test_load_or_create_key_recovers_missing_signing_table` | 在共享 `public` 上 `DROP TABLE federation_signing_keys` 会影响并发跑的其他集成用例（本仓反复踩过共享 schema 的坑：D-57/D-75/D-76）⇒ 不能靠"小心地删一下"来造场景。缺的是隔离池这一层基建，属独立事项 | 给 `synapse-federation` 补上 `synapse-storage`（或 `synapse-common`）的隔离池 dev-dep，用与 R9 同源的 `BASELINE_SQL`（`include_str!` 迁移）建 per-test schema；然后把该用例改为"先删表 → `load_or_create_key()` → 断言表与密钥都被重建"，自愈分支即被真正覆盖 |
 
 > 已关闭项的去向见 §0.4 与各自提交信息；本节只留**未关闭项**（R13）。
 
@@ -172,12 +173,12 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 ### 7.4 计数与口径
 
-- 合计 **78** 条（D-01…D-78）：**未关闭 1（D-78）**、
-  **结构性例外 7**（D-13 / D-14 / D-18–D-22，有意不修）、**已关闭 70**（含 D-37 收敛、
+- 合计 **79** 条（D-01…D-79）：**未关闭 1（D-79）**、
+  **结构性例外 7**（D-13 / D-14 / D-18–D-22，有意不修）、**已关闭 71**（含 D-37 收敛、
   D-57② 收敛、D-62 修法①、D-68 接线落地、D-69/D-70/D-71/D-72/D-74 先修、
-  D-75/D-76/D-77 工具链事故先修、D-73 结构性收敛）。
+  D-75/D-76/D-77 工具链事故先修、D-73 结构性收敛、D-78 改判收口）。
 - 本文档**只显示**未关闭项与结构性例外；已关闭项的明细在 HISTORY §7.2（冻结，不参与当前计数），
-  阶段总结后关闭的 16 条（D-37 / D-57② / D-62 / D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-76 / D-77）在各提交信息里。
+  阶段总结后关闭的 17 条（D-37 / D-57② / D-62 / D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-76 / D-77）在各提交信息里。
 - "部分已修"指同一编号下仍有明确未做子项；结构性例外**不计入**待修，其约束力写在 §7.3 与 R1–R13。
 
 ### 7.5 处置约定（改 SQL / 查询前）
@@ -192,15 +193,14 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 ## 8. 优化方案
 
-### 8.1 剩余可静态化清单（按实测，2026-09-26 C42 后）
+### 8.1 剩余可静态化清单（按实测，2026-09-26 C43 后）
 
-**可转换残量 191 处** = **161 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
+**可转换残量 183 处** = **153 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
 加 **1 处跨函数传参（`param`）**。下表按**字面量**处数排前 14（表内数字是**可机械转换**的站点数；
 纯 `runtime` 文件见下方结构性清单）：
 
 | 文件 | 处数 | 门控 | 备注 |
 |---|---|---|---|
-| `synapse-federation/src/key_rotation.rs` | 8 | — | 🔴 **不转，改删（D-78）**：8 处里 7 处是与迁移重复的运行时 DDL，属死代码 |
 | `synapse-storage/src/event/dag.rs` | 8 | — | `event/` 同域；⚠️ **需先补覆盖**（无 in-file db_tests） |
 | `synapse-storage/src/email_verification.rs` | 8 | — | ⚠️ **需先补覆盖**：仅 1 条 DB 用例（且用的是空隔离池，R9 禁止的形态） |
 | `synapse-federation/src/event_broadcaster.rs` | 8 | — | ⚠️ **需先补覆盖**：无 in-file 测试，`recover_pending_from_db` / `cleanup_old_transactions` 零引用 |
@@ -216,7 +216,7 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 | `synapse-storage/src/audit.rs` | 4 | — | 单表模块（审计） |
 
 > 紧随其后（各 4 处）：`account_data/mod.rs`(4)、`room_tag` 家族以外的 `room/` 子模块等。
-> `qr_login.rs`(5)/`room_tag/mod.rs`(4) 已由 **C42** 归零退表；`feature_flags.rs`/`filter.rs`
+> `key_rotation.rs`(8) 由 **C43** 归零退表（保留自愈 + 宏化，见 §8.3 第 10 条）；`qr_login.rs`(5)/`room_tag/mod.rs`(4) 已由 **C42** 归零退表；`feature_flags.rs`/`filter.rs`
 > 由 **C41** 归零；`admin_media.rs`(15) 的 U-5 残量已由其批次**计入基线冻结**（`a13f57316`），
 > 是否回收属该批次后续决定。
 > ⚠️ `event/pagination.rs` 的 6 处 literal **不在**本表：它与同文件的 9 处 runtime 一起属
@@ -510,14 +510,37 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
    按 R12（死代码先删再转）**不应**把这 7 处转成宏 ⇒ 登记为 **D-78**（§7.1，两条可选修法），
    该文件本批一行未动。这正是 R12「转换前先查死代码」省下的一次转换 + 一次 `.sqlx` 往返。
 
+10. ✅ **C43（`key_rotation.rs` 8 处宏化）+ **D-78 改判** 已完成（2026-09-26）** ——
+   本批是"**先核意图再动手**"的一次纠偏：C42 的 STEP 0 曾把该文件判为"7/8 是与迁移重复的死 DDL、
+   应删除"并登记 D-78；C43 在准备删除时去核**覆盖证据**，发现
+   `tests/integration/federation_service_tests_migrated.rs::test_load_or_create_key_recovers_missing_signing_key_table`
+   —— **自愈是有意行为**（用例名明确承诺"缺失后恢复"）。因此**撤销删除**，改为**保留自愈 + 宏化 8 处**
+   （`git checkout` 复原后重做）：
+   · 3 处 `SELECT EXISTS(信息模式/pg_indexes)` ⇒ `query_scalar!` + `AS "exists!"`
+     （无关系来源 ⇒ 宏推可空；EXISTS 恒 TRUE/FALSE、永不为 NULL ⇒ R4 断言理由成立）；
+   · 4 处 DDL ⇒ `query!`（R6④：DDL/utility 可宏化，describe.columns == []）；
+   · `load_rotation_config` 的 `interval_ms` ⇒ `query_scalar!`（与同函数另外三条同型，顺带去掉
+     冗余的 `::<_, String>` 与闭包类型标注）。
+   实测：`dynamic_production` 263 → **255**（−8）、`static` 1225 → **1233**（+8）、
+   `.sqlx` 1193 → **1201**（+8）、literal 192/43 → **184/42**。
+   验证：`-p synapse-federation --lib --all-features -E 'test(/key_rotation/)'` ⇒ **13/13**；
+   集成 `-E 'test(/federation_service_tests_migrated/)'` ⇒ **5/5**（含上述恢复用例与
+   `test_key_rotation_initialization`，真库往返穿过转换后的宏）。
+   ⚠️ **同时发现并新立 D-79**：那条"恢复"用例**从未构造表缺失**（跑共享库、表本就在）⇒
+   自愈 DDL 分支至今**零执行**；而 `synapse-federation` **没有 per-test schema 基建**
+   （无 `IsolatedTestPool`/`BASELINE_SQL`，dev-deps 只有 `wiremock`），在共享 `public` 上删表
+   会波及并发用例（D-57/D-75/D-76 的老坑）⇒ 不能靠"小心删一下"造场景。修法见 §7.1。
+   教训：**"看起来是死代码"必须先核覆盖与命名意图**；本例里 C42 的判断本身也是一次
+   "名字/直觉 ≠ 事实"的同型错误（只是方向相反）。
+
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 
-- `dynamic_production` 的**可机械转换部分（literal）归零**：263 → **101**
-  （263 − 161 literal − 1 param = 101 = 测试基建 57 + 分页结构性 15 + **D-14 结构性 29**），
+- `dynamic_production` 的**可机械转换部分（literal）归零**：255 → **101**
+  （255 − 153 literal − 1 param = 101 = 测试基建 57 + 分页结构性 15 + **D-14 结构性 29**），
   或每个残留都有 §7.3 那样的登记条目；
 - literal 逐文件表只剩 4 类（3 个测试基建文件 + `event/pagination.rs`）；
 - ~~D-68 接线~~、~~D-37 收敛~~、~~D-62 修法①~~、~~D-57② 收敛~~、~~D-73 结构性收敛~~
-  **均已落地**；§7 只剩 **D-78**（运行时 DDL 与迁移重复，待裁定删除或收编）；
+  **均已落地**；§7 只剩 **D-79**（`synapse-federation` 缺 per-test schema 基建 ⇒ 自愈分支无法安全覆盖）；
 - 四道门禁与两道棘轮在 CI 常驻，且都留有"能变红"的自证记录。
 
 ### 8.5 每批必须跑的门禁

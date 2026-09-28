@@ -2433,12 +2433,28 @@
 #   test(/room_tag/)'` ⇒ **17/17**；集成 `-E 'test(/room_tag/) or test(/qr_login/)'` ⇒ **2/2**。
 #   ⚠️ 同批 STEP 0 里 `key_rotation.rs` 被**排除**（其 8 处 literal 有 7 处是与迁移重复的运行时
 #   DDL，属待删死代码而非待转站点）⇒ 另立 **D-78**（§7.1）。
+# ── 2026-09-26 C43（`key_rotation.rs` 8 处宏化 + D-78 改判）────────────────────────
+#   C42 曾把该文件按"与迁移重复的死 DDL"排除出转换并登记 D-78；C43 复核后**改判**：
+#   `tests/integration/federation_service_tests_migrated.rs` 里有一条
+#   `test_load_or_create_key_recovers_missing_signing_key_table` —— 自愈是**有意**行为
+#   （只是该测试体从未真正构造"表缺失"场景 ⇒ 分支未被覆盖，另立 D-79）。故本批**保留自愈并宏化**：
+#   · 3 处 `SELECT EXISTS(...)` ⇒ `query_scalar!` + `AS "exists!"`（无关系来源，宏推可空；
+#     EXISTS 恒 TRUE/FALSE 永不为 NULL ⇒ R4 断言）；
+#   · 4 处 DDL（`CREATE TABLE federation_signing_keys`、两条 `CREATE INDEX`、
+#     `CREATE TABLE IF NOT EXISTS key_rotation_config`）⇒ `query!`（R6④：DDL 可宏化）；
+#   · `load_rotation_config` 的 `interval_ms` 查询 ⇒ `query_scalar!`（与同函数另外三条同型）。
+#   实测：`dynamic_production` 263 → **255**（−8）、`static` 1225 → **1233**（+8）、
+#   `dynamic` 总数 981 → **973**、`dynamic_test` 718 不变、`.sqlx` 1193 → **1201**（+8）、
+#   literal 192/43 → **184/42**。
+#   验证：`-p synapse-federation --lib --all-features -E 'test(/key_rotation/)'` ⇒ **13/13**；
+#   集成 `-E 'test(/federation_service_tests_migrated/)'` ⇒ **5/5**（含上述恢复用例与
+#   `test_key_rotation_initialization` —— 真库往返穿过转换后的宏）。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=263
+BASELINE_DYNAMIC_PRODUCTION=255
 BASELINE_DYNAMIC_TEST_INFRA=718
-BASELINE_STATIC=1225
+BASELINE_STATIC=1233
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=981
+BASELINE_DYNAMIC=973
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

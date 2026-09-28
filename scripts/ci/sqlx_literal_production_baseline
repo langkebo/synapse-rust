@@ -179,6 +179,12 @@
 #   CREATE"与一个 `CREATE TABLE IF NOT EXISTS`）与迁移重复（`federation_signing_keys`
 #   1719 + 两条索引 3545-3546、`key_rotation_config` 2245 均已由迁移创建）⇒ 在任何已迁移库上
 #   那些 CREATE 分支不可达，应**删除**而非转宏（R12）⇒ 另立 D-78，本表该行暂留 8。
+# ── 2026-09-26 C43（本表退一行：8）───────────────────────────────────────────
+#   `synapse-federation/src/key_rotation.rs` 8 处全部宏化 ⇒ 该行归零退表；
+#   本表合计 192 → **184**、文件数 43 → **42**。恒等式同步为 `255 − 184 − 1 = 70`。
+#   ⚠️ C42 段曾把该行标注为"不转，改删（D-78）"；C43 复核后**改判为保留 + 宏化**（理由见
+#   `sqlx_dynamic_ratio_baseline` 的 C43 段：自愈路径有一条以"recover missing table"命名的
+#   集成用例，属有意行为）⇒ 该行按宏化退表，而不是按删除退表。
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -190,7 +196,6 @@ synapse-e2ee/src/signature/storage.rs	3
 synapse-federation/src/dead_letter_queue.rs	3
 synapse-federation/src/device_sync.rs	3
 synapse-federation/src/event_broadcaster.rs	8
-synapse-federation/src/key_rotation.rs	8
 synapse-storage/src/account_data/mod.rs	4
 synapse-storage/src/admin_media.rs	15
 synapse-storage/src/audit.rs	4
@@ -224,7 +229,7 @@ synapse-storage/src/user/storage.rs	1
 synapse-test-utils/src/lib.rs	14
 # ── 当前「运行期拼装」残差清单（**允许**，不入棘轮；仅作可读性摘要）────────────
 # 合计 **70 处 / 13 文件**（2026-09-26 D-14 收紧后实测；与 ratio 棘轮的
-# `dynamic_production − literal − param` = 263 − 192 − 1 = 70 一致）：
+# `dynamic_production − literal − param` = 255 − 184 − 1 = 70 一致）：
 #    16  synapse-common/src/test_isolation.rs
 #    14  synapse-test-utils/src/lib.rs
 #     9  synapse-storage/src/event/pagination.rs

@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            CREATE TABLE IF NOT EXISTS key_rotation_config (\n                key TEXT PRIMARY KEY,\n                value TEXT NOT NULL\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "22c7172454a18836debc048a1782871a37020895c4f83c150508c1791b3bd709"
+}

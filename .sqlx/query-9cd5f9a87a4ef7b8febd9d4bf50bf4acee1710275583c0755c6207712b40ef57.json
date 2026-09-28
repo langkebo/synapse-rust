@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                CREATE INDEX idx_federation_signing_keys_key_id\n                ON federation_signing_keys(key_id)\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "9cd5f9a87a4ef7b8febd9d4bf50bf4acee1710275583c0755c6207712b40ef57"
+}

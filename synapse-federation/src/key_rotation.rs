@@ -239,21 +239,22 @@ impl KeyRotationManager {
             return Ok(());
         }
 
-        let table_exists: bool = sqlx::query_scalar::<_, bool>(
-            r"
+        // `EXISTS(...)` 无关系来源，宏会推成可空；它恒为 TRUE/FALSE（永不为 NULL）⇒ 按 R4 断言。
+        let table_exists: bool = sqlx::query_scalar!(
+            r#"
             SELECT EXISTS (
                 SELECT 1
                 FROM information_schema.tables
                 WHERE table_schema = current_schema()
                   AND table_name = 'federation_signing_keys'
-            )
-            ",
+            ) AS "exists!"
+            "#
         )
         .fetch_one(&*self.pool)
         .await?;
 
         if !table_exists {
-            sqlx::query(
+            sqlx::query!(
                 r"
                 CREATE TABLE federation_signing_keys (
                     server_name TEXT NOT NULL,
@@ -273,21 +274,21 @@ impl KeyRotationManager {
             .await?;
         }
 
-        let server_created_index_exists: bool = sqlx::query_scalar::<_, bool>(
-            r"
+        let server_created_index_exists: bool = sqlx::query_scalar!(
+            r#"
             SELECT EXISTS (
                 SELECT 1
                 FROM pg_indexes
                 WHERE schemaname = current_schema()
                   AND indexname = 'idx_federation_signing_keys_server_created'
-            )
-            ",
+            ) AS "exists!"
+            "#
         )
         .fetch_one(&*self.pool)
         .await?;
 
         if !server_created_index_exists {
-            sqlx::query(
+            sqlx::query!(
                 r"
                 CREATE INDEX idx_federation_signing_keys_server_created
                 ON federation_signing_keys(server_name, created_ts DESC)
@@ -297,21 +298,21 @@ impl KeyRotationManager {
             .await?;
         }
 
-        let key_id_index_exists: bool = sqlx::query_scalar::<_, bool>(
-            r"
+        let key_id_index_exists: bool = sqlx::query_scalar!(
+            r#"
             SELECT EXISTS (
                 SELECT 1
                 FROM pg_indexes
                 WHERE schemaname = current_schema()
                   AND indexname = 'idx_federation_signing_keys_key_id'
-            )
-            ",
+            ) AS "exists!"
+            "#
         )
         .fetch_one(&*self.pool)
         .await?;
 
         if !key_id_index_exists {
-            sqlx::query(
+            sqlx::query!(
                 r"
                 CREATE INDEX idx_federation_signing_keys_key_id
                 ON federation_signing_keys(key_id)
@@ -327,7 +328,7 @@ impl KeyRotationManager {
     }
 
     async fn ensure_key_rotation_config_table(&self) -> Result<(), ApiError> {
-        sqlx::query(
+        sqlx::query!(
             r"
             CREATE TABLE IF NOT EXISTS key_rotation_config (
                 key TEXT PRIMARY KEY,
@@ -366,10 +367,10 @@ impl KeyRotationManager {
                 .unwrap_or(DEFAULT_KEY_GRACE_PERIOD_MINUTES);
 
         let rotation_interval_ms: i64 =
-            sqlx::query_scalar::<_, String>(r"SELECT value FROM key_rotation_config WHERE key = 'interval_ms'")
+            sqlx::query_scalar!(r"SELECT value FROM key_rotation_config WHERE key = 'interval_ms'")
                 .fetch_optional(&*self.pool)
                 .await?
-                .and_then(|v: String| v.parse::<i64>().ok())
+                .and_then(|v| v.parse::<i64>().ok())
                 .unwrap_or(DEFAULT_KEY_ROTATION_INTERVAL_MS);
 
         let new_config = FederationRotationConfig {
