@@ -38,9 +38,22 @@ impl MembershipService {
         let destination = via_servers
             .first()
             .cloned()
-            .or_else(|| room_id.rsplit_once(':').map(|(_, srv)| srv.to_string()))
+            .or_else(|| {
+                // For legacy room IDs (`!<id>:server`), extract the server portion.
+                // For v12+ domainless room IDs (`!<id>`), this returns None.
+                room_id.rsplit_once(':').map(|(_, srv)| srv.to_string())
+            })
             .ok_or_else(|| {
-                ApiError::bad_request("Cannot join remote room: no destination server available".to_string())
+                if via_servers.is_empty() {
+                    // Domainless room IDs require explicit via servers for federation joins.
+                    ApiError::bad_request(
+                        "Cannot join remote room: no destination server available. \
+                         Domainless room IDs (v12+) require explicit via servers for federation joins."
+                            .to_string(),
+                    )
+                } else {
+                    ApiError::bad_request("Cannot join remote room: no destination server available".to_string())
+                }
             })?;
 
         self.join_room_via_federation(&destination, room_id, user_id).await

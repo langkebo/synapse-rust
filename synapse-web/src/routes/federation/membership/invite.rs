@@ -274,7 +274,18 @@ pub(crate) async fn exchange_third_party_invite(
 
     let room_version = federatable_room_version(&ctx, &room_id).await?;
 
-    let default_event_id = format!("${}:{}", uuid::Uuid::new_v4(), room_id.split(':').next_back().unwrap_or("server"));
+    // Generate a default event_id if not provided in the body.
+    // For v3+ (including v12), event IDs are derived from the reference hash.
+    // For v1/v2, use the opaque server-based form `$<timestamp>:<server>`.
+    let default_event_id = if room_id.contains(':') {
+        // Legacy room IDs (v1-v11) contain a server sigil (`!<room_id>:server`).
+        // Extract the server portion for the event ID fallback.
+        format!("${}:{}", uuid::Uuid::new_v4(), room_id.split(':').next_back().unwrap_or("server"))
+    } else {
+        // v12+ domainless room IDs have no colon; use a format compatible with
+        // the opaque server name that will appear in the room ID itself.
+        format!("${}", uuid::Uuid::new_v4())
+    };
     let event_id = body.get("event_id").and_then(|v| v.as_str()).unwrap_or(&default_event_id).to_string();
 
     let origin_server_ts =

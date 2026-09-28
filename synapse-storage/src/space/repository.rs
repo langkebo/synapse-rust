@@ -24,11 +24,15 @@ impl SpaceStorage {
     /// See [`create_space`].
     pub async fn create_space(&self, request: CreateSpaceRequest) -> Result<Space, sqlx::Error> {
         let now = current_timestamp_millis();
-        let space_id = format!(
-            "!space_{}:{}",
-            uuid::Uuid::new_v4(),
+        // Generate a synthetic space_id for this space.
+        // For legacy room IDs (`!<id>:server`), extract the server portion.
+        // For v12+ domainless room IDs (`!<id>`), use a synthetic server name.
+        let space_server_part = if request.room_id.contains(':') {
             request.room_id.split(':').next_back().unwrap_or("localhost")
-        );
+        } else {
+            "localhost"
+        };
+        let space_id = format!("!space_{}:{}", uuid::Uuid::new_v4(), space_server_part);
 
         let space = sqlx::query_as!(
             Space,
