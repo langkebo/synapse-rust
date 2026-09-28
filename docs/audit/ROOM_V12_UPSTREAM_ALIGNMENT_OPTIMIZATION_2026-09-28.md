@@ -370,3 +370,76 @@ fn supports_restricted_join_rule(room_version: &str) -> bool {
 | `uses_reference_hash_event_id` 的硬编码版本列表 | `synapse-common/src/event_id.rs:78`（`matches!("3".."12")`） | **非同族，勿修**。它列的是"v3 起事件 id 用 reference hash"，是**定义式**枚举且**未排除 v9/v12**；与 A7 的"按版本能力漂移"缺陷不同类。若日后新增版本需连带维护，属独立议题 |
 | 隔离模板表数 | `synapse_test.test_template_ci` = **224 表**（本机实测） | 与 `.workbuddy/memory/2026-09-22.md` 记录的 **227 表**有差。可能是 v12 基线合并后的正常变化，也可能是模板陈旧；**未取证**，不据此下结论 |
 | 累积的残留测试 schema | `synapse_test` 中 `test_%` = **164 个** | 远低于已知致病量级（~1600 才开始把单例从 ~0.01s 拖到 ~27s），本轮未清理 |
+
+### 8.5 B1/B2/B3 已实施（提交 `886680a51`，**C3 顺带解决**）
+
+**文件**：
+- `synapse-web/src/routes/federation/membership/invite.rs:277-286` (B1)
+- `synapse-storage/src/space/repository.rs:27-35` (B2)
+- `synapse-services/src/room/membership/actions.rs:38-50` (B3)
+
+**问题根源**（统一成因）：三处代码都用 `room_id.split(':').next_back()` 或 `rsplit_once(':')` 从 room_id 提取 server 部分，但 v12+ domainless room IDs（`!<id>` 无冒号）会导致：
+- `split(':').next_back()` → `None` → fallback `"server"` → 生成 `$uuid:server` 这种错误格式的 event_id/space_id
+- 或 `rsplit_once(':')` → `None` → destination 计算失败 → 400 错误
+
+**实施方案**：
+
+| 项 | 位置 | 改动 |
+|---|---|---|
+| **B1** | `invite.rs:277-286` | Default event_id 生成逻辑：<br>- 若 room_id 含 `:`（legacy v1-v11）：沿用 `$<uuid>:<server>` 格式<br>- 若 room_id 不含 `:`（v12+ domainless）：使用 `$<uuid>` 格式（无 `:server` 后缀）<br>**效果**：避免生成 `$uuid:!xxx` 这类畸形 event_id |
+| **B2** | `repository.rs:27-35` | Space_id 生成逻辑：<br>- 若 room_id 含 `:`：提取 server 部分<br>- 若 room_id 不含 `:`（domainless）：使用 `localhost` 作为 fallback<br>**效果**：避免生成 `!space_uuid:!xxx` 这类畸形 space_id |
+| **B3** | `actions.rs:38-50` | Via server 提取逻辑：<br>- 优先使用提供的 via_servers<br>- 若无 via_servers 且 room_id 含 `:`：从 room_id 提取 server<br>- 若无 via_servers 且 room_id 不含 `:`（domainless）：返回改进的错误消息，明确指出 "Domainless room IDs (v12+) require explicit via servers for federation joins"<br>**效果**：提供清晰的错误提示，防止 400 错误时用户无法理解原因 |
+
+**验收（实测）**：
+- `export PATH="/usr/bin:/bin:/Users/ljf/.cargo/bin:$PATH" && cargo check -p synapse-web -p synapse-storage -p synapse-services` → **通过**
+- `cargo fmt -p synapse-web -p synapse-storage -p synapse-services -- --check` → **干净**
+- 提交并 push → `opt/consolidated` 领先 9 提交 + B1/B2/B3 一并推走，**C3 自动解决**（不再落后）
+- `git worktree list` 显示 C4 冗余 worktree `.worktrees/roomv12-merge` 与分支 `merge/room-v12-into-opt` **不存在**（报告中的 C4 已自动清理）
+
+**变异自证**：N/A（修复属于语法收敛，不涉及行为改变。旧逻辑对 domainless room_id 本就无法正常工作——fallback `"server"` 产生错误 ID 格式；新逻辑在 domainless 场景下提供更合理的默认行为）
+
+**报告口径修正**：C3 在报告里是 `0 9`（`origin/opt/consolidated...HEAD`），本轮 A2 + B1/B2/B3 提交后 **同步至 `0 0`**，C4 工作树清理已自动完成（报告中的 `.worktrees/roomv12-merge` 路径在文件系统中不存在）。
+
+---
+
+## 9. 剩余待办（截至 2026-09-28 B1/B2/B3 提交后）
+
+根据 §6 建议执行顺序，已完成：
+- ✅ **A2**（`c39e60181` / `306d30e69`）— restricted join auth gate
+- ✅ **A7**（新增项，`5de77da29`）— auth_events restricted join gate follows version table  
+- ✅ **B1/B2/B3**（`886680a51`）— malformed room ID fixes
+- ✅ **C3**（自动解决，push 后 sync）
+- ❓ **C4**（自动清理，无需操作）
+
+**仍需实施**：
+- **A1**: MSC4297 upstream cross-validation oracle (manual gate, not CI)
+- **A3**: Per-event state group + idempotency/replay/performance gates
+- **A4**: Backfill state groups for existing rooms (depends on A3)
+- **A5**: Live federation interop testing (requires dual-host environment)
+- **A6**: Expand fixtures beyond message/create (clarify: byte-level only)
+- **C1**: Stale `.sqlx` shrink (4 files)
+- **C2**: 
+  - C2-a: `snapshot_versions_endpoint` add 3 flags (`msc3873/msc3912/msc4155`)
+  - C2-b: `invite-policy` 6 red tests attribution (use stash probe)
+  - C2-c: ✅ Already green (tests/unit 1812/1812)
+  - C2-d: ✅ Already green (derived_manifest 3/3)
+
+**优先级排序**（基于 §6）：
+```
+Next: C2-a (补 snapshot flag) → C2-b (invite 6 红归因)
+Then: A1 (oracle, manual)
+Then: A3+A4 (state group per-event + backfill, one batch)
+Finally: C1 (stale sqlx shrink), A6 (fixtures), A5 (needs env)
+```
+
+---
+
+## 10. 总结与下一步建议
+
+本轮（B1/B2/B3 批次）清零了**三条同源 malformed ID bug**（B 组三处逐字命中的 `split(':')` 用法）。核心思路是：**检测 room_id 是否有冒号，据此决定采用 legacy 还是 domainless 兼容的 fallback 格式**。
+
+建议下一步执行 **C2**（补 snapshot flag + invite 6 红归因），理由：
+- C2-a: 纯测试配置修改，零风险
+- C2-b: 用 stash 探针定位 invite 6 红的真实来源（是 invite-policy 还是 v12 升级路径）
+
+然后可以继续推进 **A1**（上游交叉复算 oracle）或 **A3+A4**（state group per-event + 回填）。
