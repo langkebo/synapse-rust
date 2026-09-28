@@ -152,13 +152,16 @@ async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
     assert_eq!(response.status(), StatusCode::OK);
 }
 
-async fn set_room_power_levels(
-    app: &axum::Router,
-    token: &str,
-    room_id: &str,
-    owner_user_id: &str,
-    moderator_user_id: &str,
-) {
+/// 给一名成员 50 级权限（`state_default` 也是 50）。
+///
+/// ⚠️ D-88：**不得**在 `users` 里写房间创建者 —— `create_room` 建的是 v12 房间，而
+/// MSC4289 rule 10.4（`synapse-services/src/auth/power_levels.rs:244-271`）明令
+/// v12+ 房间的 `m.room.power_levels.users` 不许点名任何创建者（创建者的权力是无上限的，
+/// 见 `get_user_power_level`，显式列出属冗余且**会被 403 拒绝**：
+/// `M_FORBIDDEN: power_levels.users must not name a room creator`）。
+/// 原先的 helper 把 `owner_user_id: 100` 一起写了进去 ⇒ 房主自己那条 PUT 被规则挡下，
+/// 用例在看错的地方报红（实际根因不是 widget 创建权限）。
+async fn set_room_power_levels(app: &axum::Router, token: &str, room_id: &str, moderator_user_id: &str) {
     let request = Request::builder()
         .method("PUT")
         .uri(format!("/_matrix/client/v3/rooms/{}/state/m.room.power_levels", room_id))
@@ -166,8 +169,9 @@ async fn set_room_power_levels(
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
+                // 只写非创建者：创建者的 100 级是**隐式**的（MSC4289 rule 10.4，
+                // 见上方 helper 文档注释）。
                 "users": {
-                    owner_user_id: 100,
                     moderator_user_id: 50
                 },
                 "users_default": 0,
@@ -295,15 +299,14 @@ async fn test_create_widget_allows_joined_room_moderator() {
         return;
     };
 
-    let (owner_token, owner_user_id) =
-        register_user_with_id(&app, &format!("widget_mod_owner_{}", rand::random::<u32>())).await;
+    let owner_token = register_user(&app, &format!("widget_mod_owner_{}", rand::random::<u32>())).await;
     let (moderator_token, moderator_user_id) =
         register_user_with_id(&app, &format!("widget_mod_member_{}", rand::random::<u32>())).await;
     let room_id = create_room(&app, &owner_token).await;
 
     invite_user(&app, &owner_token, &room_id, &moderator_user_id).await;
     join_room(&app, &moderator_token, &room_id).await;
-    set_room_power_levels(&app, &owner_token, &room_id, &owner_user_id, &moderator_user_id).await;
+    set_room_power_levels(&app, &owner_token, &room_id, &moderator_user_id).await;
 
     let create_widget_request = Request::builder()
         .method("POST")
