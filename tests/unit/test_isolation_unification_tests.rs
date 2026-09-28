@@ -1080,7 +1080,10 @@ fn exactly_one_place_builds_the_schema_clone() {
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().to_string();
             if path.is_dir() {
-                let skip = matches!(name.as_str(), "target" | ".git" | ".claude" | "vendor" | "node_modules");
+                // `.worktrees/` 是 git worktree 的检出目录（其它分支的同一份源码，不是主分支的
+                // 重复实现），跳过以免把每个分支的 test_isolation.rs 误判为重复的 schema-clone builder。
+                let skip =
+                    matches!(name.as_str(), "target" | ".git" | ".claude" | "vendor" | "node_modules" | ".worktrees");
                 if !skip {
                     stack.push(path);
                 }
