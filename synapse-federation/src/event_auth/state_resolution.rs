@@ -280,7 +280,20 @@ impl EventAuthChain {
         conflicts
     }
 
-    /// See [`calculate_auth_difference`.
+    /// The **auth difference** of two full auth chains.
+    ///
+    /// Spec definition (state resolution, "Definitions"): *"The auth difference
+    /// is calculated by first calculating the full auth chain for each state set
+    /// `S_i` ... and then taking every event that doesn't appear in every auth
+    /// chain. If `C_i` is the full auth chain of `S_i`, then the auth difference
+    /// is `∪C_i − ∩C_i`."* For exactly two chains that is their symmetric
+    /// difference — nothing more.
+    ///
+    /// This previously also inserted the `auth_events` of every differing event,
+    /// which is **not** the definition: an event's auth events are already in
+    /// that event's full auth chain, so the extra step could only add events that
+    /// both chains share. Fixed here because F-2's `full_conflicted_set` unions
+    /// this set and would otherwise replay events the spec does not select.
     pub fn calculate_auth_difference(
         &self,
         _events: &HashMap<String, EventData>,
@@ -289,23 +302,75 @@ impl EventAuthChain {
     ) -> HashSet<String> {
         let set_a: HashSet<&str> = chain_a.iter().map(|s| s.as_str()).collect();
         let set_b: HashSet<&str> = chain_b.iter().map(|s| s.as_str()).collect();
+        set_a.symmetric_difference(&set_b).map(|s| (*s).to_string()).collect()
+    }
 
-        let diff_events: Vec<String> = set_a.symmetric_difference(&set_b).map(|s| s.to_string()).collect();
-        let mut auth_diff: HashSet<String> = diff_events.into_iter().collect();
+    /// The **conflicted state subgraph** (MSC4297 / state resolution v2.1).
+    ///
+    /// MSC4297: *"Starting from an event in the conflicted state set and
+    /// following `auth_events` edges may lead to another event in the conflicted
+    /// state set. The union of all such paths between any pair of events in the
+    /// conflicted state set (including endpoints) forms a subgraph of the
+    /// original `auth_event` graph, called the conflicted state subgraph."*
+    ///
+    /// Implemented literally: from every conflicted event, walk `auth_events`
+    /// transitively carrying the path, and when a step lands on a conflicted
+    /// event, every event on that path (endpoints included) joins the subgraph.
+    /// `visited` is per start and only prevents re-expanding a node, which cannot
+    /// lose a path: reaching a conflicted event is a property of the suffix from a
+    /// node, and the walk continues *through* such a node after recording the path
+    /// that reached it.
+    ///
+    /// The subgraph is what v2 adds to the conflicted set (see
+    /// [`Self::full_conflicted_set`]); unused until the resolver replays events,
+    /// which is the remaining half of F-2.
+    pub fn conflicted_state_subgraph(
+        &self,
+        conflicted: &HashSet<String>,
+        events: &HashMap<String, EventData>,
+    ) -> HashSet<String> {
+        // Endpoints are part of the subgraph by definition.
+        let mut subgraph: HashSet<String> = conflicted.clone();
 
-        let additional: Vec<String> = auth_diff
-            .iter()
-            .flat_map(|diff_id| match _events.get(diff_id.as_str()) {
-                Some(event) => event.auth_events.clone(),
-                None => Vec::new(),
-            })
-            .collect();
+        for start in conflicted {
+            let mut visited: HashSet<String> = HashSet::new();
+            let mut stack: Vec<(String, Vec<String>)> = vec![(start.clone(), vec![start.clone()])];
 
-        for eid in additional {
-            auth_diff.insert(eid);
+            while let Some((current, path)) = stack.pop() {
+                if !visited.insert(current.clone()) {
+                    continue;
+                }
+                let Some(event) = events.get(&current) else { continue };
+
+                for auth in &event.auth_events {
+                    let mut next_path = path.clone();
+                    next_path.push(auth.clone());
+                    if conflicted.contains(auth) {
+                        subgraph.extend(next_path.iter().cloned());
+                    }
+                    stack.push((auth.clone(), next_path));
+                }
+            }
         }
 
-        auth_diff
+        subgraph
+    }
+
+    /// The **full conflicted set** (MSC4297 / state resolution v2.1).
+    ///
+    /// MSC4297 amends the v2 definition to: *"the union of the conflicted state
+    /// set, **the conflicted state subgraph** and the auth difference."* The
+    /// subgraph is the only part v2.1 adds; the other two terms are unchanged
+    /// from v2.
+    pub fn full_conflicted_set(
+        &self,
+        conflicted: &HashSet<String>,
+        auth_difference: &HashSet<String>,
+        events: &HashMap<String, EventData>,
+    ) -> HashSet<String> {
+        let mut full = self.conflicted_state_subgraph(conflicted, events);
+        full.extend(auth_difference.iter().cloned());
+        full
     }
 
     /// See [`sort_by_reverse_topological_power`.
@@ -478,11 +543,43 @@ impl EventAuthChain {
             events.get(eid).map(|e| auth_event_types.contains(&e.event_type.as_str())).unwrap_or(false)
         };
 
-        // 收集所有多候选冲突事件的 event_id.
-        let all_conflicted_eids: Vec<String> = multi_conflict_keys
+        // MSC4297 (state resolution v2.1): the **full conflicted set** is the
+        // conflicted state set ∪ the conflicted state subgraph ∪ the auth
+        // difference. v2 stopped at the first and third terms; the subgraph is
+        // what v2.1 adds, so the events between conflicted events are replayed
+        // too. The set is computed here and drives the ordering below.
+        let conflicted_set: HashSet<String> = multi_conflict_keys
             .iter()
             .flat_map(|k| conflicted_events_by_key.get(k).cloned().unwrap_or_default())
             .collect();
+
+        // Each state set's full auth chain: the union of the auth chains of the
+        // events it contains (spec: "the union of the auth chains for each event
+        // in S_i"). `build_auth_chain_from_events` is the transitive closure.
+        let full_auth_chain = |state_set: &HashMap<String, &Value>| -> Vec<String> {
+            let mut chain: Vec<String> = Vec::new();
+            let mut seen: HashSet<String> = HashSet::new();
+            for value in state_set.values() {
+                let Some(event_id) = value.get("event_id").and_then(|v| v.as_str()) else {
+                    continue;
+                };
+                for id in self.build_auth_chain_from_events(events, event_id) {
+                    if seen.insert(id.clone()) {
+                        chain.push(id);
+                    }
+                }
+            }
+            chain
+        };
+
+        let auth_difference = if state_sets.len() >= 2 {
+            self.calculate_auth_difference(events, &full_auth_chain(state_sets[0]), &full_auth_chain(state_sets[1]))
+        } else {
+            HashSet::new()
+        };
+
+        let all_conflicted_eids: Vec<String> =
+            self.full_conflicted_set(&conflicted_set, &auth_difference, events).into_iter().collect();
 
         let auth_eids: Vec<String> = all_conflicted_eids.iter().filter(|e| is_auth_event(e)).cloned().collect();
         let non_auth_eids: Vec<String> = all_conflicted_eids.iter().filter(|e| !is_auth_event(e)).cloned().collect();
@@ -683,5 +780,103 @@ mod tests {
         let chain_a: Vec<String> = vec!["$a".into(), "$b".into()];
         let diff = chain.calculate_auth_difference(&events, &chain_a, &chain_a);
         assert!(diff.is_empty());
+    }
+
+    // ── MSC4297 (state resolution v2.1) set selection ─────────────────────
+
+    /// `EventData` fixture: `id` authorised by `auth`, all in one room.
+    fn event_data(id: &str, auth: &[&str]) -> EventData {
+        EventData {
+            event_id: id.to_string(),
+            room_id: "!r:ex.com".to_string(),
+            event_type: "m.room.member".to_string(),
+            auth_events: auth.iter().map(|s| s.to_string()).collect(),
+            prev_events: Vec::new(),
+            state_key: Some(Value::String("@a:ex.com".to_string())),
+            content: None,
+            sender: "@a:ex.com".to_string(),
+            origin_server_ts: 1,
+            depth: 1,
+        }
+    }
+
+    fn events_of(list: Vec<EventData>) -> HashMap<String, EventData> {
+        list.into_iter().map(|e| (e.event_id.clone(), e)).collect()
+    }
+
+    /// MSC4297: "the union of all such paths between any pair of events in the
+    /// conflicted state set (including endpoints)".
+    ///
+    /// Graph: `$c1 -> $x -> $c2` along `auth_events`, with `$c1`/`$c2` conflicted
+    /// and `$x` neither. `$x` must join the subgraph — it is *between* two
+    /// conflicted events — and the unrelated `$other` must not.
+    #[test]
+    fn conflicted_state_subgraph_includes_the_events_between_conflicted_events() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![
+            event_data("$c1", &["$x"]),
+            event_data("$x", &["$c2", "$other"]),
+            event_data("$c2", &[]),
+            event_data("$other", &[]),
+        ]);
+        let conflicted: HashSet<String> = ["$c1".to_string(), "$c2".to_string()].into_iter().collect();
+
+        let subgraph = chain.conflicted_state_subgraph(&conflicted, &events);
+        assert!(subgraph.contains("$c1") && subgraph.contains("$c2"), "endpoints are included: {subgraph:?}");
+        assert!(subgraph.contains("$x"), "the event between two conflicted events is included: {subgraph:?}");
+        assert!(
+            !subgraph.contains("$other"),
+            "an event on no path between conflicted events is excluded: {subgraph:?}"
+        );
+    }
+
+    /// With a single conflicted event there is no *pair*, so the subgraph is just
+    /// that event. This is the v2.1 boundary: the new term adds nothing.
+    #[test]
+    fn conflicted_state_subgraph_of_one_event_is_that_event() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![event_data("$c1", &["$x"]), event_data("$x", &[])]);
+        let conflicted: HashSet<String> = ["$c1".to_string()].into_iter().collect();
+        assert_eq!(chain.conflicted_state_subgraph(&conflicted, &events), conflicted);
+    }
+
+    /// The auth difference is exactly `(A ∪ B) − (A ∩ B)` — nothing more. The
+    /// previous implementation also inserted the `auth_events` of differing
+    /// events, which can only add events *both* chains already share.
+    #[test]
+    fn auth_difference_is_the_symmetric_difference_of_the_two_chains() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![
+            event_data("$shared", &["$common"]),
+            event_data("$common", &[]),
+            // `$only_a` is authorised by `$common`, which both chains share: the
+            // superseded implementation added exactly these `auth_events` to the
+            // difference, so this fixture makes that regression visible.
+            event_data("$only_a", &["$common"]),
+            event_data("$only_b", &[]),
+        ]);
+        let a = vec!["$shared".to_string(), "$only_a".to_string(), "$common".to_string()];
+        let b = vec!["$shared".to_string(), "$only_b".to_string(), "$common".to_string()];
+
+        let diff = chain.calculate_auth_difference(&events, &a, &b);
+        assert_eq!(diff, HashSet::from(["$only_a".to_string(), "$only_b".to_string()]));
+        assert!(!diff.contains("$common"), "an event in both chains is not part of the difference");
+        assert!(!diff.contains("$shared"));
+    }
+
+    /// Full conflicted set = conflicted ∪ subgraph ∪ auth difference (MSC4297).
+    #[test]
+    fn full_conflicted_set_is_the_union_of_the_three_terms() {
+        let chain = EventAuthChain::new();
+        let events =
+            events_of(vec![event_data("$c1", &["$mid"]), event_data("$mid", &["$c2"]), event_data("$c2", &[])]);
+        let conflicted: HashSet<String> = ["$c1".to_string(), "$c2".to_string()].into_iter().collect();
+        let auth_difference: HashSet<String> = ["$auth_only".to_string()].into_iter().collect();
+
+        let full = chain.full_conflicted_set(&conflicted, &auth_difference, &events);
+        for expected in ["$c1", "$c2", "$mid", "$auth_only"] {
+            assert!(full.contains(expected), "{expected} must be in the full conflicted set: {full:?}");
+        }
+        assert_eq!(full.len(), 4);
     }
 }
