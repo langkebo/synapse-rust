@@ -52,20 +52,22 @@ impl LifecycleService {
         let now = current_timestamp_millis();
         let create_content = build_create_event_content(user_id, room_version, &config);
 
-        // True only when the room id came from the create event's own id; the
-        // pre-allocated escape hatch below deliberately bypasses the derivation
-        // (room upgrades name the room before it exists — C-5 tracks removing
-        // that, after which this flag can go).
-        let mut room_id_derived_from_create = false;
-        // Pinned into the create event's write so a non-finalizing writer (the
-        // legacy storage path) persists the same id the room id was derived
-        // from, not a fresh placeholder.
-        let mut derived_create_event_id: Option<String> = None;
-        let room_id = if let Some(pre_allocated) = config.room_id.clone() {
-            // `config.room_id` is the pre-allocation escape hatch (room upgrades,
-            // where the tombstone must name this room before it exists).
-            pre_allocated
-        } else if synapse_common::room_versions::room_version_at_least(room_version, 12) {
+        // Every creatable room version derives its id from the create event
+        // (MSC4291), so there is no pre-allocation escape hatch any more:
+        // `CreateRoomConfig::room_id` was removed under C-5 / decision Q2(a).
+        // The invariant is asserted rather than assumed, because a version that
+        // carried a server-assigned id would derive the wrong room id below.
+        if !synapse_common::room_versions::room_version_at_least(room_version, 12) {
+            return Err(ApiError::unsupported_room_version(format!(
+                "room version {room_version} cannot be created: only a version whose id is derived from \
+                 its create event (room v12+) is creatable"
+            )));
+        }
+
+        // The create event's id is both the room id (sigil swapped) and the id
+        // pinned into its own write, so a non-finalizing writer (the legacy
+        // storage path) persists the same identity this derivation used.
+        let (room_id, derived_create_event_id) = {
             let placeholder_room_id = self.generate_room_id();
             let parts = synapse_common::pdu::PduParts {
                 room_version,
@@ -87,12 +89,9 @@ impl LifecycleService {
             let finalized = synapse_federation::event_finalize::finalize_local_pdu(&parts).map_err(|e| {
                 ApiError::internal_with_cause("Failed to derive the v12 room id from the create event", e)
             })?;
-            room_id_derived_from_create = true;
-            derived_create_event_id = Some(finalized.event_id.clone());
-            room_id_from_create_event_id(&finalized.event_id)
-                .map_err(|e| ApiError::internal(format!("The create event id is not a v12 reference hash: {e}")))?
-        } else {
-            self.generate_room_id()
+            let room_id = room_id_from_create_event_id(&finalized.event_id)
+                .map_err(|e| ApiError::internal(format!("The create event id is not a v12 reference hash: {e}")))?;
+            (room_id, finalized.event_id)
         };
 
         // MSC4284: consult the policy server before beginning the transaction.
@@ -131,7 +130,7 @@ impl LifecycleService {
         let result = self
             .write_creation_event(
                 &mut graph,
-                derived_create_event_id.as_deref(),
+                Some(derived_create_event_id.as_str()),
                 &room_id,
                 user_id,
                 "m.room.create",
@@ -157,20 +156,18 @@ impl LifecycleService {
         // about the room's identity (MSC4291). Divergence would mean the
         // derivation and the write path disagree, so fail the transaction rather
         // than persist an unresolvable room.
-        if room_id_derived_from_create {
-            if let Ok(create_event_id) = &result {
-                let expected_room_id = synapse_common::room_id::room_id_from_create_event_id(create_event_id);
-                if expected_room_id.as_deref() != Ok(room_id.as_str()) {
-                    ::tracing::error!(
-                        room_id = %room_id,
-                        create_event_id = %create_event_id,
-                        "the v12 room id does not derive from the persisted create event"
-                    );
-                    let _ = tx.rollback().await;
-                    return Err(ApiError::internal(format!(
-                        "the create event id {create_event_id} does not derive the room id {room_id}"
-                    )));
-                }
+        if let Ok(create_event_id) = &result {
+            let expected_room_id = synapse_common::room_id::room_id_from_create_event_id(create_event_id);
+            if expected_room_id.as_deref() != Ok(room_id.as_str()) {
+                ::tracing::error!(
+                    room_id = %room_id,
+                    create_event_id = %create_event_id,
+                    "the v12 room id does not derive from the persisted create event"
+                );
+                let _ = tx.rollback().await;
+                return Err(ApiError::internal(format!(
+                    "the create event id {create_event_id} does not derive the room id {room_id}"
+                )));
             }
         }
 

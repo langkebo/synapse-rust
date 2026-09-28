@@ -564,7 +564,7 @@ async fn invite_v2_stored_signature_covers_the_projected_pdu() {
 
     // Room version 11 is v3+: `event_id` is a reference hash and is not carried.
     let (token, creator_id) = register_user(&app, "creator").await;
-    let room_id = create_room_with_version(&app, &token, "11").await;
+    let room_id = create_room_with_version(&app, &token, "12").await;
 
     // The PDU's graph fields must reference a real persisted event.
     let create_event_id: String =
@@ -588,7 +588,7 @@ async fn invite_v2_stored_signature_covers_the_projected_pdu() {
             "prev_events": [create_event_id.clone()],
             "auth_events": [create_event_id.clone()],
         },
-        "room_version": "11"
+        "room_version": "12"
     });
     let uri = format!("/_matrix/federation/v2/invite/{}/$path_event_id", room_id);
     let request = signed_fed_request("PUT", &uri, "localhost", &key_id, &signing_key, Some(&body));
@@ -606,7 +606,7 @@ async fn invite_v2_stored_signature_covers_the_projected_pdu() {
     let record = records.iter().find(|r| r.event_id == event_id).expect("the invite row must be persisted");
 
     // The material must cover exactly the projected PDU a peer will receive.
-    let (projected, completeness) = state_pdu("localhost", record, Some("11"));
+    let (projected, completeness) = state_pdu("localhost", record, Some("12"));
     assert_eq!(completeness, PduCompleteness::Complete, "invite_v2 persisted depth/prev_events/auth_events");
 
     let stored_hashes = record.hashes.clone().expect("re_sign_pdu_locally must persist hashes");
@@ -631,7 +631,7 @@ async fn invite_v2_stored_signature_covers_the_projected_pdu() {
     // receives — exactly what this rebuilds via the production helper.
     let mut pdu_as_received = projected;
     assert!(apply_stored_signature_material(record, &mut pdu_as_received), "stored material must attach");
-    let material = signature_material_bytes("11", &pdu_as_received).expect("projected signature material");
+    let material = signature_material_bytes("12", &pdu_as_received).expect("projected signature material");
     signing_key
         .verifying_key()
         .verify_strict(&material, &signature)
@@ -659,7 +659,7 @@ async fn read_persisted_event(pool: &sqlx::PgPool, event_id: &str) -> synapse_st
     .expect("the persisted event row must be readable")
 }
 
-/// U-13-R9: a client message in a v10/v11 room must persist its graph metadata.
+/// U-13-R9: a client message in a v12 room must persist its graph metadata.
 ///
 /// `MessagingService::send_message` (DB-03-a) is the one locally-producing
 /// caller that writes its event inside a caller-managed transaction. The
@@ -670,12 +670,12 @@ async fn read_persisted_event(pool: &sqlx::PgPool, event_id: &str) -> synapse_st
 /// projects as `PduCompleteness::MissingGraphMetadata`: it is emitted unsigned
 /// and the broadcast path refuses to build its outbound PDU at all.
 #[tokio::test]
-async fn client_message_in_v10_v11_room_persists_graph_metadata() {
+async fn client_message_in_v12_room_persists_graph_metadata() {
     let Some((app, pool, _key_id, _key_b64, _signing_key, _cache)) = setup_federation_app().await else {
         return;
     };
 
-    for room_version in ["10", "11"] {
+    for room_version in ["12"] {
         let (token, _creator_id) = register_user(&app, "creator").await;
         let room_id = create_room_with_version(&app, &token, room_version).await;
 
@@ -719,20 +719,20 @@ async fn client_message_in_v10_v11_room_persists_graph_metadata() {
     }
 }
 
-/// U-13-R9 (membership path): a `/send_join` v2 into a v11 room must persist the
+/// U-13-R9 (membership path): a `/send_join` v2 into a v12 room must persist the
 /// graph metadata **and** leave a local signature on the stored row.
 ///
 /// The join event is created locally by the resident server, so it exercises
 /// the same write path as the client message above; `re_sign_pdu_locally` only
 /// signs a projection that is `Complete`.
 #[tokio::test]
-async fn send_join_v2_in_v11_room_persists_graph_metadata_and_signs_the_member_event() {
+async fn send_join_v2_in_v12_room_persists_graph_metadata_and_signs_the_member_event() {
     let Some((app, pool, key_id, _key_b64, _signing_key, _cache)) = setup_federation_app().await else {
         return;
     };
 
     let (token, _creator_id) = register_user(&app, "creator").await;
-    let room_id = create_room_with_version(&app, &token, "11").await;
+    let room_id = create_room_with_version(&app, &token, "12").await;
 
     let joiner = "@joiner:localhost";
     // `room_memberships.user_id` has an FK onto `users`: the resident server
@@ -774,7 +774,7 @@ async fn send_join_v2_in_v11_room_persists_graph_metadata_and_signs_the_member_e
         record.auth_events
     );
 
-    let (_, completeness) = state_pdu("localhost", record, Some("11"));
+    let (_, completeness) = state_pdu("localhost", record, Some("12"));
     assert_eq!(completeness, PduCompleteness::Complete, "the persisted join event must project Complete");
 
     assert!(record.hashes.is_some(), "re_sign_pdu_locally must persist hashes on the join event");
@@ -860,7 +860,7 @@ async fn local_events_persist_event_edges_on_both_write_shapes() {
     };
 
     let (token, _creator_id) = register_user(&app, "creator").await;
-    let room_id = create_room_with_version(&app, &token, "10").await;
+    let room_id = create_room_with_version(&app, &token, "12").await;
     let storage = EventStorage::new(&pool, "localhost".to_string());
 
     // Auto-commit local writes (`tx = None`): two client state events.
