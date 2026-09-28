@@ -1,0 +1,40 @@
+{
+  "description": "V12 restricted join state resolution with auth_events",
+  "room_version": "12",
+  "state_sets": [
+    {
+      "m.room.create:": "$create_a:server.com",
+      "m.room.join_rules:": "$joinrules_restricted_a:server.com",
+      "m.room.power_levels:": "$pl_a:server.com",
+      "m.room.member:@auth_user:server.com": "$member_join_a:server.com",
+      "m.room.member:@non_auth:server.com": "$member_join_a:server.com"
+    },
+    {
+      "m.room.create:": "$create_b:server.com",
+      "m.room.join_rules:": "$joinrules_restricted_b:server.com",
+      "m.room.power_levels:": "$pl_b:server.com",
+      "m.room.member:@auth_user:server.com": "$member_join_b:server.com",
+      "m.room.member:@non_auth:server.com": "$member_join_b:server.com"
+    }
+  ],
+  "expected_conflicted_set": [
+    {"m.room.create:": "$create_a:server.com"},
+    {"m.room.create:": "$create_b:server.com"},
+    {"m.room.join_rules:": "$joinrules_restricted_a:server.com"},
+    {"m.room.join_rules:": "$joinrules_restricted_b:server.com"},
+    {"m.room.power_levels:": "$pl_a:server.com"},
+    {"m.room.power_levels:": "$pl_b:server.com"},
+    {"m.room.member:@auth_user:server.com": "$member_join_a:server.com"},
+    {"m.room.member:@auth_user:server.com": "$member_join_b:server.com"},
+    {"m.room.member:@non_auth:server.com": "$member_join_a:server.com"},
+    {"m.room.member:@non_auth:server.com": "$member_join_b:server.com"}
+  ],
+  "expected_auth_diff": [],
+  "expected_full_conflicted_set_size": 10,
+  "expected_base_state": {},
+  "notes": [
+    "Restricted join scenario: auth_events contains member for @auth_user at invite level",
+    "This fixture tests the v2.1 state resolution with restricted rooms",
+    "base_state = {} per MSC4297 v2.1 (vs unconflicted_state in v2)"
+  ]
+}

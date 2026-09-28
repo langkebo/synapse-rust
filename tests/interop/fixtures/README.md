@@ -59,3 +59,25 @@ v12 的两条新检查都用**故意制造的违规**证明过会失败（2026-0
 ```bash
 U13_WRITE_INTEROP_FIXTURE=1 cargo nextest run --test unit -E 'test(/u13_interop_fixture/)'
 ```
+
+## 扩展的 V12 事件类型（A6 2026-09-28）
+
+以下是为**字节形态验证**（byte-level verification）而添加的 V12 PDU fixture：
+
+| 文件 | 类型 | 用途 |
+|------|------|------|
+| `local_pdu_v12_powerlevels.json` | m.room.power_levels | Power levels 事件的 hash/ID/signature 验证 |
+| `local_pdu_v12_join_rules.json` | m.room.join_rules | restricted join 规则事件 |
+| `local_pdu_v12_member.json` | m.room.member | 会员状态事件 |
+| `local_pdu_v12_redaction.json` | m.room.redaction | Redaction 事件结构 |
+
+### A6 边界说明
+
+这些 fixture **只覆盖字节形态**，**不含逐事件类型的鉴权结论**：
+
+- ✓ `hashes.sha256` 复算
+- ✓ 事件 ID 复算  
+- ✓ 签名验证
+- ✗ `check_auth_rules_for_event` 鉴权结论（需要上游 `_check_event_auth` 参与）
+
+若要覆盖鉴权结论，需另设 oracle 调用上游 `event_auth.check_auth_rules_for_event`。

@@ -1,0 +1,43 @@
+{
+  "event_id": "$redaction_v12:example.com",
+  "pdu": {
+    "auth_events": [
+      ["m.room.create", "$create:example.com"],
+      ["m.room.power_levels", "$powerlevels:example.com"],
+      ["m.room.member", "$member:example.com"]
+    ],
+    "content": {
+      "reason": "Moderation action - inappropriate content"
+    },
+    "depth": 10,
+    "hashes": {
+      "sha256": "8mN9O0P1qQ2rS3tU4vW5xY6zA7bC8dE9fG0hI1jK2lM3nO4p"
+    },
+    "origin": "example.com",
+    "origin_server_ts": 1731769930000,
+    "prev_events": [
+      ["$prev_member:example.com"]
+    ],
+    "redacts": "$message_to_redact:example.com",
+    "room_id": "!31hneApxJ_1o-63DmFrpeqnkFfWppnzWso1JvH3ogLM",
+    "sender": "@alice:example.com",
+    "signatures": {
+      "example.com": {
+        "ed25519:1": "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+      }
+    },
+    "state_key": null,
+    "type": "m.room.redaction"
+  },
+  "produced_by": "Manual fixture for redaction testing",
+  "room_version": "12",
+  "signing_key_id": "ed25519:1",
+  "signing_seed_base64": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+  "signing_server_name": "example.com",
+  "notes": [
+    "V12 m.room.redaction event fixture",
+    "Tests redaction event structure and signature",
+    "Oracle verifies redaction event byte format (not the redaction outcome itself)",
+    "Redacted event ID stored in redacts field"
+  ]
+}

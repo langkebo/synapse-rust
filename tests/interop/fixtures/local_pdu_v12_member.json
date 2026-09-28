@@ -1,0 +1,43 @@
+{
+  "event_id": "$member_v12:example.com",
+  "pdu": {
+    "auth_events": [
+      ["m.room.create", "$create:example.com"],
+      ["m.room.power_levels", "$powerlevels:example.com"],
+      ["m.room.join_rules", "$joinrules:example.com"]
+    ],
+    "content": {
+      "membership": "join",
+      "displayname": "Alice Member",
+      "avatar_url": "mxc://example.com/abc123"
+    },
+    "depth": 8,
+    "hashes": {
+      "sha256": "7kL9M0N1O2pQ3rS4tU5vW6xX7yZ8aB9cCdEfGhIjKlMnOp"
+    },
+    "origin": "example.com",
+    "origin_server_ts": 1731769920000,
+    "prev_events": [
+      ["$prev_joinrules:example.com"]
+    ],
+    "room_id": "!31hneApxJ_1o-63DmFrpeqnkFfWppnzWso1JvH3ogLM",
+    "sender": "@alice:example.com",
+    "signatures": {
+      "example.com": {
+        "ed25519:1": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+      }
+    },
+    "state_key": "@alice:example.com",
+    "type": "m.room.member"
+  },
+  "produced_by": "Manual fixture for state event testing",
+  "room_version": "12",
+  "signing_key_id": "ed25519:1",
+  "signing_seed_base64": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+  "signing_server_name": "example.com",
+  "notes": [
+    "V12 m.room.member state event fixture",
+    "Used for state resolution and member state testing",
+    "Oracle validates byte-level correctness of member state"
+  ]
+}

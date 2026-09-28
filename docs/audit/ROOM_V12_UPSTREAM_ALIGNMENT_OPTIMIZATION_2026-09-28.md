@@ -456,13 +456,15 @@ curl -sSL -o /tmp/up_state_v2.py https://raw.githubusercontent.com/element-hq/sy
 - **A3**: Per-event state group + idempotency/replay/performance gates
 - **A4**: Backfill state groups for existing rooms (depends on A3)
 - **A5**: Live federation interop testing (requires dual-host environment)
-- **A6**: Expand fixtures beyond message/create
 - **C1**: Stale `.sqlx` shrink (4 files)
+
+**已启动**：
+- **A6**: Expand fixtures beyond message/create → 2026-09-28 已创建 4个 V12 PDU fixture（power_levels/join_rules/member/redaction），README.md 已更新边界说明（仅字节形态验证）
 
 **优先级排序**（基于 §6）：
 ```
 Next: A3+A4 (state group per-event + backfill, one batch) ← CURRENT
-Then: C1 (stale sqlx shrink), A6 (fixtures), A5 (needs env)
+Then: C1 (stale sqlx shrink), A5 (needs env)
 ```
 
 **当前 HEAD**：`55b314671` (opt/consolidated)

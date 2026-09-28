@@ -1,0 +1,40 @@
+{
+  "event_id": "$joinrules_v12:example.com",
+  "pdu": {
+    "auth_events": [
+      ["m.room.create", "$create:example.com"],
+      ["m.room.power_levels", "$powerlevels:example.com"]
+    ],
+    "content": {
+      "join_rule": "restricted"
+    },
+    "depth": 6,
+    "hashes": {
+      "sha256": "5jK8Z9LmOpQ2S3TuVwX4yA5bC6dE7fG8hI9jK0lM1nO2pQ3rS4tU5v"
+    },
+    "origin": "example.com",
+    "origin_server_ts": 1731769910000,
+    "prev_events": [
+      ["$prev_powerlevels:example.com"]
+    ],
+    "room_id": "!31hneApxJ_1o-63DmFrpeqnkFfWppnzWso1JvH3ogLM",
+    "sender": "@alice:example.com",
+    "signatures": {
+      "example.com": {
+        "ed25519:1": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+      }
+    },
+    "state_key": "",
+    "type": "m.room.join_rules"
+  },
+  "produced_by": "Manual fixture for restricted join testing",
+  "room_version": "12",
+  "signing_key_id": "ed25519:1",
+  "signing_seed_base64": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+  "signing_server_name": "example.com",
+  "notes": [
+    "V12 restricted join rule fixture for MSC4309 compliance",
+    "Used by restricted_join_rule_supported gate tests",
+    "Oracle verifies byte-level correctness only (hash, ID, signature)"
+  ]
+}

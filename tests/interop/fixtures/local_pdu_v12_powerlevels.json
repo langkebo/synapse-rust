@@ -1,0 +1,59 @@
+{
+  "event_id": "$powerlevels_v12:example.com",
+  "pdu": {
+    "auth_events": [
+      ["m.room.create", "$create:example.com"],
+      ["m.room.power_levels", "$powerlevels_prev:example.com"]
+    ],
+    "content": {
+      "users": {
+        "@alice:example.com": 100,
+        "@bob:example.com": 50
+      },
+      "users_default": 0,
+      "events": {
+        "m.room.name": 50,
+        "m.room.power_levels": 100,
+        "m.room.server_acl": 100,
+        "m.room.tombstone": 100
+      },
+      "events_default": 0,
+      "state_default": 50,
+      "ban": 50,
+      "kick": 50,
+      "redact": 50,
+      "invite": 50,
+      "notifications": {
+        "room": 50
+      }
+    },
+    "depth": 5,
+    "hashes": {
+      "sha256": "4kX7Y8Z9LpQrS1T2UvWx3yA5bC6dE7fG8hI9jK0lM1nO2pQ3r"
+    },
+    "origin": "example.com",
+    "origin_server_ts": 1731769900000,
+    "prev_events": [
+      ["$prev_state_event:example.com"]
+    ],
+    "room_id": "!31hneApxJ_1o-63DmFrpeqnkFfWppnzWso1JvH3ogLM",
+    "sender": "@alice:example.com",
+    "signatures": {
+      "example.com": {
+        "ed25519:1": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    },
+    "state_key": "",
+    "type": "m.room.power_levels"
+  },
+  "produced_by": "Manual fixture for MSC4291/MSC4297 compliance testing",
+  "room_version": "12",
+  "signing_key_id": "ed25519:1",
+  "signing_seed_base64": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+  "signing_server_name": "example.com",
+  "notes": [
+    "V12 power_levels fixture for byte-level verification (hash, ID, signature)",
+    "NOT for auth chain verification - oracle does not run upstream check_auth_rules",
+    "Auth events use tuple format [(type, state_key), event_id] per MSC4291"
+  ]
+}
