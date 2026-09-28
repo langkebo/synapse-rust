@@ -93,6 +93,8 @@ mod room_alias_storage_tests_migrated;
 mod room_summary_storage_tests_migrated;
 mod room_tag_storage_tests_migrated;
 mod sliding_sync_storage_tests_migrated;
+mod state_groups_backfill_tests;
+mod state_groups_idempotency_tests;
 mod state_groups_storage_tests_migrated;
 mod thread_storage_tests_migrated;
 mod threepid_storage_tests_migrated;

@@ -82,6 +82,13 @@ impl EventStorage {
                 .next());
         }
 
+        // A4-ii: If STATE_GROUP_REQUIRED is set, fail instead of falling back
+        if std::env::var("STATE_GROUP_REQUIRED").is_ok() {
+            return Err(sqlx::Error::Protocol(format!(
+                "Room {room_id} has no state group record (A4-ii: backfill required)"
+            )));
+        }
+
         sqlx::query_as::<_, StateEvent>(&format!(
             "SELECT {STATE_EVENT_OUTER_COLS} \
              FROM events \
@@ -103,6 +110,13 @@ impl EventStorage {
     pub async fn get_state_events(&self, room_id: &str) -> Result<Vec<StateEvent>, sqlx::Error> {
         if let Some(state_group_id) = self.current_state_group_id(room_id).await? {
             return self.state_events_of_group(state_group_id, None, None).await;
+        }
+
+        // A4-ii: If STATE_GROUP_REQUIRED is set, fail instead of falling back
+        if std::env::var("STATE_GROUP_REQUIRED").is_ok() {
+            return Err(sqlx::Error::Protocol(format!(
+                "Room {room_id} has no state group record (A4-ii: backfill required)"
+            )));
         }
 
         sqlx::query_as::<_, StateEvent>(&format!(

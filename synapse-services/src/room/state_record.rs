@@ -164,6 +164,22 @@ impl StateRecord<'_> {
             return Ok(());
         };
 
+        // A3 IMPLEMENTATION: Check idempotency first
+        // If this event is already bound to a state group, skip
+        if let Some(existing_group) = self
+            .state_groups
+            .get_state_group_for_event(event_id)
+            .await
+            .map_err(|error| ApiError::internal_with_cause("Failed to check event binding", error))?
+        {
+            tracing::debug!(
+                event_id = event_id,
+                group_id = existing_group,
+                "Event already bound to state group, skipping copy-forward"
+            );
+            return Ok(());
+        }
+
         // The read path serves a group's own rows (it does not walk the edges), so
         // a copy-forward must materialise the **whole** current state, not a delta.
         let mut entries: Vec<StateGroupStateEntry> = self
