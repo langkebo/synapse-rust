@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM global_invite_allowlist",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "c4fc42c90e03d32d443946d42c7a5770696b4829d046f30776b30f714133666b"
+}

@@ -2377,12 +2377,31 @@
 #   ⚠️ 顺带修正 legacy `BASELINE_DYNAMIC`：门禁默认**不读**它（只有
 #      `SQLX_DYNAMIC_MAX_BASELINE` 自测路径会用），C39 段只更新了注释、漏改此行 ⇒
 #      1039 → **991**（R13 单一计数口径；否则摘要与变量构成第二份计数）。
+# ── 2026-09-28 补账：`656a54699`（invite-policy 合并）未同步的棘轮 + 本批偿还 ──────
+# 现场：合并进来的 `synapse-storage/src/invite_blocklist.rs` 带来 **12 处生产动态字面量**
+# 与 **3 处测试区动态夹具**，但从未更新本文件 ⇒ 门禁在 HEAD 上已经是红的
+# （实测 production 275 → 287、test 716 → 718），与 room v12 批次无关。
+# 按 R11「既有红门禁先修再转、独立提交」处理，不绕过、不放宽：
+#   · 生产 **12 处全部宏化**（`query_as::<_, (String, i64)>` → `query!`，元组投影不能走
+#     `query_as!`，见 R6⑤；`EXISTS` / `COUNT(*)` 按 D-61 显式断言 `AS "exists!"` /
+#     `AS "count!"`，不用 `unwrap_or(false)` 兜底）⇒ production **287 → 275 = 基线**。
+#   · 4 处 `ORDER BY created_ts DESC` 补第二排序键 `, user_id ASC`（`check_ts_order_tiebreak.py`
+#     在 HEAD 上本就是 0 → 4 的红项，非本批引入）。
+#   · 三处测试区动态夹具中 `cleanup_allowlist_by_suffix` **零调用者** ⇒ 按铁律 1 删除；
+#     余下两处（`cleanup_global_blocklist` / `cleanup_global_allowlist`）是真实夹具，
+#     `#[cfg(test)]` 内的宏不进 `cargo sqlx prepare`（D-13/D-14）⇒ test **718 → 717**，
+#     相对基线 **+1** 是**带归因的必要上调**（见下），不是放宽生产口径。
+#   · static **1193 → 1206**（本批 +12）——C40 段预留的 1 点余量 + F-1 读侧的 2 处静态
+#     + 本批 12 处；一并固化，消除"长期余量"。
+#   · `.sqlx`：+14 / −2（+12 本批、+2 F-1 读侧；−2 是合并后已不存在的
+#     `room_invite_blocklist`/`room_invite_allowlist` 「列全部行」查询留下的陈旧条目）。
+# 收紧方向：test 的 +1 无法回收（夹具必须动态）；`invite_blocklist.rs` 生产区已归零。
 BASELINE_QUERY_BUILDER=18
 BASELINE_DYNAMIC_PRODUCTION=275
-BASELINE_DYNAMIC_TEST_INFRA=716
-BASELINE_STATIC=1193
+BASELINE_DYNAMIC_TEST_INFRA=717
+BASELINE_STATIC=1206
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=991
+BASELINE_DYNAMIC=992
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

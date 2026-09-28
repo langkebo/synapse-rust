@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO global_invite_blocklist (user_id, created_ts)\n                SELECT unnest($1::text[]), $2\n                ON CONFLICT (user_id) DO NOTHING\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "93f154f159226b60137fc51e5d73148128a9d58aa4125f121f180e5de3a67e62"
+}
