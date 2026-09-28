@@ -6,7 +6,6 @@ synapse-e2ee/src/key_request/storage.rs 2
 synapse-e2ee/src/olm/storage.rs 2
 synapse-e2ee/src/secure_backup/service.rs 1
 synapse-federation/src/dead_letter_queue.rs 1
-synapse-federation/src/event_broadcaster.rs 1
 synapse-federation/src/key_rotation.rs 1
 synapse-storage/src/application_service/repository.rs 2
 synapse-storage/src/burn_after_read.rs 2

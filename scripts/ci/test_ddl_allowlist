@@ -12,6 +12,14 @@
 # 因此：任何**新增**的自建 DDL 都必须让守卫变红；只有本名单收录的既有站点豁免。
 # 名单按理由分组，清理对应实现后必须同时删掉条目（按铁律 1/2 收敛，不得只删代码留条目）。
 
+# —— 自愈路径的构造用例（D-79 / D-84）：`DROP TABLE` 是**被测对象**本身
+#    （"表缺失 ⇒ 自愈重建"的分支只有先造出缺失才可能执行，共享 `public` 上做不到），
+#    且两条用例都跑在 `test_isolation::isolated_test_pool()` 的 per-test schema 上，
+#    不碰共享 schema、也不改迁移 baseline。除此之外它们仍走真模板，
+#    因此 D-31 型"写入端漏列"仍然会被真 catalog 证伪。
+synapse-federation/src/key_rotation.rs::db_tests::load_or_create_key_recreates_a_dropped_signing_keys_table
+synapse-federation/src/key_rotation.rs::db_tests::load_rotation_config_recreates_a_dropped_config_table
+
 # —— 隔离机制自身的测试：这些用例测的就是"建 schema / 克隆 schema / 删 schema"，
 #    自建 DDL 是它们的被测对象，不是绕过迁移 schema 的夹具。
 synapse-common/src/test_isolation.rs::tests::allowlist_clone_can_insert_into_a_table_it_emptied
