@@ -20,6 +20,7 @@
 use std::collections::{BTreeSet, HashMap};
 
 use synapse_common::membership_transition::{is_legal, JoinRule, TransitionCtx};
+use synapse_common::room_versions::room_version_at_least;
 use synapse_common::Membership;
 
 use super::models::EventData;
@@ -139,6 +140,84 @@ fn join_rule_from_state(state: &HashMap<String, String>, events: &HashMap<String
         .unwrap_or(JoinRule::Invite)
 }
 
+/// Whether `room_version` carries `join_rule` as a *restricted* join rule.
+///
+/// The per-version capability table is `synapse_common::redaction::redaction_rules`,
+/// whose flags mirror upstream Synapse's `RoomVersion` flags by name; it is this
+/// workspace's single source of truth for "which version has which flag", so the
+/// gate is read from it rather than re-listed here.
+///
+/// * `restricted` (MSC3083) lands in v8 and v9 **keeps** it: the spec's room
+///   version 9 page ("This room version builds on version 8 to add additional
+///   redaction rules … See room version 8 for specific details regarding the
+///   addition of restricted rooms") and upstream's Rust `RoomVersion::V9` —
+///   which inherits `restricted_join_rule: true` from `V8` and adds only
+///   `restricted_join_rule_fix` — agree. v9 merely starts protecting
+///   `join_authorised_via_users_server` when redacting.
+/// * `knock_restricted` is a v10 addition on top of `restricted`, so v8/v9 must
+///   not authorise it (upstream's `knock_restricted_join_rule`).
+///
+/// A version whose flags are unknown is *not* granted the rule (fail-closed).
+fn restricted_join_rule_supported(room_version: &str, join_rule: JoinRule) -> bool {
+    let Some(rules) = synapse_common::redaction::redaction_rules(room_version) else {
+        return false;
+    };
+    match join_rule {
+        JoinRule::Restricted => rules.restricted_join_rule,
+        JoinRule::KnockRestricted => rules.restricted_join_rule && room_version_at_least(room_version, 10),
+        _ => false,
+    }
+}
+
+/// Whether `content` carries an authorising user that satisfies MSC3083's
+/// restricted join rule against `state`.
+///
+/// Mirrors upstream `_is_membership_change_allowed`
+/// (`synapse/event_auth.py:737-754`, release-v1.161):
+///
+/// 1. `content.join_authorised_via_users_server` must be present — if it is not,
+///    upstream rejects the join outright ("Join event is missing authorising
+///    user.");
+/// 2. that user's `m.room.member` in the room must be `join` (upstream's
+///    `_check_joined_room`);
+/// 3. that user's power level must reach the room's `invite` level.
+///
+/// Upstream asks for nothing else at this seam. The `allow` rooms' state is the
+/// *authorising server's* to attest, not the receiving server's: the join event
+/// carries that server's signature, and upstream's `auth_types_for_event`
+/// (`:1287-1293`) pulls the authorising user's member event into the auth chain
+/// precisely so that a single state map suffices here.
+///
+/// Fail-closed throughout — a missing, malformed, non-joined or under-powered
+/// authorising user authorises nothing.
+fn authorising_user_grants_join(
+    state: &HashMap<String, String>,
+    events: &HashMap<String, EventData>,
+    content: Option<&serde_json::Value>,
+    levels: &PowerLevels,
+    creators: &BTreeSet<String>,
+    v12_plus: bool,
+) -> bool {
+    let Some(authorising) =
+        content.and_then(|content| content.get("join_authorised_via_users_server")).and_then(serde_json::Value::as_str)
+    else {
+        return false;
+    };
+    if membership_of(state, events, authorising) != Some(Membership::Join) {
+        return false;
+    }
+    // Same power resolution as the sender's above: MSC4289 gives v12+ creators
+    // unlimited power, and upstream `get_user_power_level` (`:1133-1135`)
+    // returns `CREATOR_POWER_LEVEL` for them *before* consulting
+    // `m.room.power_levels`.
+    let authorising_power = if v12_plus && creators.contains(authorising) {
+        i64::MAX
+    } else {
+        levels.users.get(authorising).copied().unwrap_or(levels.users_default)
+    };
+    authorising_power >= levels.invite
+}
+
 /// Whether `event` is authorised against `state` under `room_version`.
 ///
 /// Covers the auth rules state resolution replays:
@@ -154,18 +233,22 @@ fn join_rule_from_state(state: &HashMap<String, String>, events: &HashMap<String
 /// Room v12+ creators have unlimited power (MSC4289), so they pass every
 /// threshold.
 ///
-/// Known simplification: a restricted join is **not** authorised here
-/// (`restricted_join_authorized` is false) because deciding it needs the `allow`
-/// rooms' state, which a single state map does not carry; such joins are left to
-/// the inbound path, which resolves them with storage. This predicate
-/// under-authorises rather than over-authorises.
+/// Restricted joins (MSC3083) **are** authorised here, from the state map alone:
+/// see [`authorising_user_grants_join`] for exactly what upstream requires and
+/// why the `allow` rooms' state is not needed at this seam. The caller's own
+/// membership needs no authorising user — upstream's
+/// `if not caller_in_room and not caller_invited` short-circuit (`:737`) is
+/// already structural here, because `check_join` returns early for
+/// `from == Join` (no-op / profile update) and `from == Invite` (accepting an
+/// invite), and upstream forces `sender == state_key` for joins (`:719-720`)
+/// before that short-circuit is ever reached.
 pub fn is_authorised_against_state(
     event: &EventData,
     state: &HashMap<String, String>,
     events: &HashMap<String, EventData>,
     room_version: &str,
 ) -> bool {
-    let v12_plus = synapse_common::room_versions::room_version_at_least(room_version, 12);
+    let v12_plus = room_version_at_least(room_version, 12);
 
     // The create event is the DAG root: it has no auth events, and in v12+ it may
     // not carry a room_id (MSC4291 rule 1.2 — the room id *is* its event id).
@@ -207,17 +290,20 @@ pub fn is_authorised_against_state(
 
         let from = membership_of(state, events, target);
         let target_power = levels.users.get(target).copied().unwrap_or(levels.users_default);
+        let join_rule = join_rule_from_state(state, events);
+        let restricted_join_authorized = restricted_join_rule_supported(room_version, join_rule)
+            && authorising_user_grants_join(state, events, event.content.as_ref(), &levels, &creators, v12_plus);
         let ctx = TransitionCtx {
             actor_pl: sender_power,
             target_pl: target_power,
             ban_level: levels.ban,
             kick_level: levels.kick,
             invite_level: levels.invite,
-            join_rule: join_rule_from_state(state, events),
+            join_rule,
             actor_is_target: event.sender == target,
             target_is_banned: from == Some(Membership::Ban),
             target_is_creator: creators.contains(target),
-            restricted_join_authorized: false,
+            restricted_join_authorized,
         };
         return is_legal(from, to, &ctx).is_ok();
     }
@@ -364,5 +450,163 @@ mod tests {
         let name = event("$name", "m.room.name", Some(""), "@alice:ex.com", json!({"name": "x"}));
         assert!(!is_authorised_against_state(&name, &state, &events, "11"), "v11: 10 < 50");
         assert!(is_authorised_against_state(&name, &state, &events, "12"), "v12: creators are unlimited");
+    }
+
+    /// A room with a `restricted` join rule, `invite` level 50, and
+    /// `@carol:ex.com` joined with power 50 — the authorising user.
+    /// `@bob:ex.com` is outside the room and wants in.
+    fn restricted_room() -> (HashMap<String, String>, HashMap<String, EventData>) {
+        let (mut state, mut events) = base_room();
+        let rules = event(
+            "$rules_restricted",
+            "m.room.join_rules",
+            Some(""),
+            "@alice:ex.com",
+            json!({
+                "join_rule": "restricted",
+                "allow": [{"type": "m.room_membership", "room_id": "!space:ex.com"}],
+            }),
+        );
+        let pl = event(
+            "$pl_restricted",
+            "m.room.power_levels",
+            Some(""),
+            "@alice:ex.com",
+            json!({
+                "users": {"@alice:ex.com": 100, "@carol:ex.com": 50},
+                "users_default": 0,
+                "state_default": 50,
+                "events_default": 0,
+                "ban": 50,
+                "kick": 50,
+                "redact": 50,
+                "invite": 50,
+            }),
+        );
+        let carol = event(
+            "$carol_member",
+            "m.room.member",
+            Some("@carol:ex.com"),
+            "@carol:ex.com",
+            json!({"membership": "join"}),
+        );
+        for new_event in [rules, pl, carol] {
+            events.insert(new_event.event_id.clone(), new_event);
+        }
+        state.insert("m.room.join_rules:".to_string(), "$rules_restricted".to_string());
+        state.insert("m.room.power_levels:".to_string(), "$pl_restricted".to_string());
+        state.insert("m.room.member:@carol:ex.com".to_string(), "$carol_member".to_string());
+        (state, events)
+    }
+
+    fn bob_join(content: serde_json::Value) -> EventData {
+        event("$bob_join", "m.room.member", Some("@bob:ex.com"), "@bob:ex.com", content)
+    }
+
+    /// Upstream rejects a restricted join without an authorising user
+    /// ("Join event is missing authorising user.", `event_auth.py:742-743`).
+    #[test]
+    fn a_restricted_join_without_an_authorising_user_is_rejected() {
+        let (state, events) = restricted_room();
+        assert!(!is_authorised_against_state(&bob_join(json!({"membership": "join"})), &state, &events, "12"));
+    }
+
+    /// The authorising user must be joined (`_check_joined_room`) and hold at
+    /// least the room's `invite` level (`:750-754`).
+    #[test]
+    fn a_restricted_join_authorised_by_a_joined_user_at_invite_level_passes() {
+        let (state, events) = restricted_room();
+        let join = bob_join(json!({
+            "membership": "join",
+            "join_authorised_via_users_server": "@carol:ex.com",
+        }));
+        assert!(is_authorised_against_state(&join, &state, &events, "12"));
+    }
+
+    #[test]
+    fn a_restricted_join_whose_authorising_user_never_joined_is_rejected() {
+        let (mut state, events) = restricted_room();
+        // Carol is named in `power_levels` (so she has the power) but has no
+        // membership event.
+        state.remove("m.room.member:@carol:ex.com");
+        let join = bob_join(json!({
+            "membership": "join",
+            "join_authorised_via_users_server": "@carol:ex.com",
+        }));
+        assert!(!is_authorised_against_state(&join, &state, &events, "12"));
+    }
+
+    #[test]
+    fn a_restricted_join_whose_authorising_user_lacks_invite_level_is_rejected() {
+        let (mut state, mut events) = restricted_room();
+        // Dave is joined but absent from `power_levels` (users_default 0 < 50).
+        let dave =
+            event("$dave_member", "m.room.member", Some("@dave:ex.com"), "@dave:ex.com", json!({"membership": "join"}));
+        events.insert(dave.event_id.clone(), dave);
+        state.insert("m.room.member:@dave:ex.com".to_string(), "$dave_member".to_string());
+
+        let join = bob_join(json!({
+            "membership": "join",
+            "join_authorised_via_users_server": "@dave:ex.com",
+        }));
+        assert!(!is_authorised_against_state(&join, &state, &events, "12"), "0 < invite 50");
+    }
+
+    /// Upstream short-circuits the authorising-user check when the caller is
+    /// already in the room or invited (`:737`). A join forces
+    /// `sender == state_key`, so that is exactly `from == Join | Invite`, which
+    /// `check_join` already admits — no authorising user may be required there.
+    #[test]
+    fn a_restricted_join_by_an_existing_member_needs_no_authorising_user() {
+        let (state, events) = restricted_room();
+        let rejoin = event(
+            "$carol_rejoin",
+            "m.room.member",
+            Some("@carol:ex.com"),
+            "@carol:ex.com",
+            json!({"membership": "join", "displayname": "Carol"}),
+        );
+        assert!(is_authorised_against_state(&rejoin, &state, &events, "12"), "from == join is a no-op");
+    }
+
+    /// The rule is version-gated: v8 introduced it and v9 kept it (the spec's v9
+    /// page defers to v8 for "the addition of restricted rooms"); v7 has no such
+    /// rule, so an authorising user must not open the door there.
+    #[test]
+    fn the_restricted_join_authorisation_follows_the_room_version() {
+        let (state, events) = restricted_room();
+        let join = bob_join(json!({
+            "membership": "join",
+            "join_authorised_via_users_server": "@carol:ex.com",
+        }));
+        assert!(is_authorised_against_state(&join, &state, &events, "8"), "MSC3083 lands in v8");
+        assert!(is_authorised_against_state(&join, &state, &events, "9"), "v9 keeps restricted rooms");
+        assert!(is_authorised_against_state(&join, &state, &events, "10"));
+        assert!(is_authorised_against_state(&join, &state, &events, "12"));
+        assert!(!is_authorised_against_state(&join, &state, &events, "7"), "v7 has no restricted rule");
+    }
+
+    /// `knock_restricted` is a v10 addition on top of `restricted`, so v8/v9 must
+    /// not honour it even though they carry the restricted rule itself
+    /// (upstream's separate `knock_restricted_join_rule` flag).
+    #[test]
+    fn knock_restricted_is_only_authorised_from_v10() {
+        let (mut state, mut events) = restricted_room();
+        let rules = event(
+            "$rules_knock_restricted",
+            "m.room.join_rules",
+            Some(""),
+            "@alice:ex.com",
+            json!({"join_rule": "knock_restricted"}),
+        );
+        events.insert(rules.event_id.clone(), rules);
+        state.insert("m.room.join_rules:".to_string(), "$rules_knock_restricted".to_string());
+
+        let join = bob_join(json!({
+            "membership": "join",
+            "join_authorised_via_users_server": "@carol:ex.com",
+        }));
+        assert!(!is_authorised_against_state(&join, &state, &events, "9"), "v9 predates knock_restricted");
+        assert!(is_authorised_against_state(&join, &state, &events, "10"));
     }
 }
