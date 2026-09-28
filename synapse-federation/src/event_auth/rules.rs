@@ -11,6 +11,12 @@
 //!
 //! Implemented today:
 //!
+//! * **rule 2 (MSC4291, room version 12)** — a non-create event's `room_id` must
+//!   name an **accepted** `m.room.create` event: for v12 the room id *is* that
+//!   event's id with the sigil swapped, so an event whose room id does not
+//!   correspond to the room's create event is rejected. The room's create event
+//!   id is room state, so the caller supplies it; *not* knowing it is a
+//!   rejection (fail closed), never a pass.
 //! * **rule 3.5 (MSC4307, room version 12)** — every `auth_events` entry must
 //!   refer to an event whose `room_id` matches the room of the event being
 //!   authorised. `matrix-spec` `content/rooms/v12.md`: *"If any event in
@@ -55,6 +61,10 @@ use synapse_storage::event::RoomEvent;
 /// rule 3.5 does not exist in v1–v11.
 const AUTH_EVENTS_ROOM_CHECK_MIN_VERSION: u32 = 12;
 
+/// First room version whose auth rules include rule 2 (MSC4291: the room id is
+/// the create event's id).
+const ROOM_ID_IS_CREATE_EVENT_MIN_VERSION: u32 = 12;
+
 /// First room version whose auth rules include rule 1.4 (MSC4289).
 ///
 /// Both v12 rules are introduced by the same room version; the constants are
@@ -92,6 +102,10 @@ pub struct InboundEventAuth<'a> {
     /// The event's `content` (rule 1.4 reads `additional_creators`; rule 10.4
     /// reads the power-level `users`).
     pub content: &'a serde_json::Value,
+    /// The `event_id` of the room's `m.room.create` state event, as resolved by
+    /// the caller (rule 2). `None` means "no create event is known here", which
+    /// rule 2 treats as a rejection rather than a skip.
+    pub create_event_id: Option<&'a str>,
     /// The room's creator set, as resolved by the caller from the room's
     /// `m.room.create` event (`synapse_common::room_creator`). Empty when the
     /// caller has no create event; rule 10.4 then has nothing to reject, which is
@@ -133,6 +147,26 @@ pub enum EventAuthError {
         /// Which requirement failed.
         reason: String,
     },
+    /// Rule 2 (MSC4291): the event's `room_id` does not name the room's accepted
+    /// `m.room.create` event.
+    #[error(
+        "the room's create event {create_event_id} does not name the room the event claims (it derives \
+         {derived_room_id}, the event carries {room_id}) (MSC4291 / room v12 rule 2)"
+    )]
+    RoomIdIsNotTheCreateEvent {
+        /// The room id carried by the event.
+        room_id: String,
+        /// The create event id recorded for the room.
+        create_event_id: String,
+        /// The room id that create event id derives (or why it derives none).
+        derived_room_id: String,
+    },
+    /// Rule 2 cannot be decided because no create event is known for the room.
+    #[error("no m.room.create event is known for room {room_id}; cannot apply MSC4291 rule 2 (fail closed)")]
+    CreateEventUnknown {
+        /// The room id carried by the event.
+        room_id: String,
+    },
     /// Rule 10.4 (MSC4289): `m.room.power_levels` names a creator in `users`.
     #[error("power_levels.users names the room creator {user_id} (MSC4289 / room v12 rule 10.4)")]
     PowerLevelsNamesCreator {
@@ -166,6 +200,9 @@ pub fn check_inbound_event_auth(input: &InboundEventAuth<'_>) -> Result<(), Even
     if room_version_at_least(input.room_version, ADDITIONAL_CREATORS_MIN_VERSION) {
         check_additional_creators(input)?;
     }
+    if room_version_at_least(input.room_version, ROOM_ID_IS_CREATE_EVENT_MIN_VERSION) {
+        check_room_id_is_the_create_event_id(input)?;
+    }
     if room_version_at_least(input.room_version, POWER_LEVELS_CREATOR_MIN_VERSION) {
         check_power_levels_do_not_name_creators(input)?;
     }
@@ -173,6 +210,50 @@ pub fn check_inbound_event_auth(input: &InboundEventAuth<'_>) -> Result<(), Even
         check_auth_events_belong_to_room(input)?;
     }
     Ok(())
+}
+
+/// Rule 2 (MSC4291 / room version 12): a **non-create** event's `room_id` must
+/// name the room's accepted `m.room.create` event.
+///
+/// Room v12 defines a room id as the create event's id with `$` swapped for `!`,
+/// so the room's create event id must be exactly `$` + `room_id[1..]`. The
+/// create event itself is exempt: its room id *is* derived from its own id, which
+/// rule 1.2 / the inbound create handling enforces by construction.
+///
+/// Fail closed: when the caller could not resolve the room's create event, the
+/// rule cannot be decided, and "we do not know the create event" must not be
+/// read as "the room id is fine".
+fn check_room_id_is_the_create_event_id(input: &InboundEventAuth<'_>) -> Result<(), EventAuthError> {
+    if input.event_type == "m.room.create" {
+        return Ok(());
+    }
+    let Some(create_event_id) = input.create_event_id else {
+        return Err(EventAuthError::CreateEventUnknown { room_id: input.room_id.to_string() });
+    };
+
+    // Derive the room id *from the recorded create event id* rather than
+    // string-munging the room id: it is the same single helper the create side
+    // uses (`room_id::room_id_from_create_event_id`), so the two cannot disagree,
+    // and a create id that is not a v3+ reference hash (a legacy
+    // `$<millis>$<rand>:<server>` id, say) derives nothing and is rejected.
+    match synapse_common::room_id::room_id_from_create_event_id(create_event_id) {
+        Ok(derived) if derived == input.room_id => Ok(()),
+        Ok(derived) => Err(EventAuthError::RoomIdIsNotTheCreateEvent {
+            room_id: input.room_id.to_string(),
+            create_event_id: create_event_id.to_string(),
+            derived_room_id: derived,
+        }),
+        Err(error) => Err(EventAuthError::RoomIdIsNotTheCreateEvent {
+            room_id: input.room_id.to_string(),
+            create_event_id: create_event_id.to_string(),
+            derived_room_id: format!("no room id (create id is not a reference hash: {error})"),
+        }),
+    }
+}
+
+/// Whether `room_version` defines rule 2 (MSC4291).
+pub fn enforces_room_id_create_event_rule(room_version: &str) -> bool {
+    room_version_at_least(room_version, ROOM_ID_IS_CREATE_EVENT_MIN_VERSION)
 }
 
 /// Rule 10.4 (MSC4289 / room version 12): a `m.room.power_levels` event must not
@@ -271,6 +352,14 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// A valid v12 pair: the room id is the create event id with `!` for `$`
+    /// (MSC4291). Rule 2 derives the room id from the create id, so fixtures that
+    /// exercise a v12 rule need a well-formed pair — a legacy `$a:example.org`
+    /// create id derives nothing and would be rejected before reaching the rule
+    /// under test.
+    const ROOM_ID: &str = "!31hneApxJ_1o-63DmFrpeqnkFfWppnzWso1JvH3ogLM";
+    const CREATE_ID: &str = "$31hneApxJ_1o-63DmFrpeqnkFfWppnzWso1JvH3ogLM";
+
     /// A shared `{}` content for cases that do not inspect the event body.
     fn empty_content() -> &'static serde_json::Value {
         static EMPTY: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
@@ -305,9 +394,10 @@ mod tests {
         for version in ["1", "10", "11", "12", "13"] {
             let input = InboundEventAuth {
                 room_version: version,
-                room_id: "!a:example.org",
+                room_id: ROOM_ID,
                 event_type: "m.room.topic",
                 content: empty_content(),
+                create_event_id: Some(CREATE_ID),
                 creators: &[],
                 auth_events: &[],
             };
@@ -320,9 +410,10 @@ mod tests {
         let foreign = room_event("$foreign", "!other:example.org");
         let input = InboundEventAuth {
             room_version: "12",
-            room_id: "!a:example.org",
+            room_id: ROOM_ID,
             event_type: "m.room.topic",
             content: empty_content(),
+            create_event_id: Some(CREATE_ID),
             creators: &[],
             auth_events: &[entry("$foreign", Some(&foreign))],
         };
@@ -331,19 +422,20 @@ mod tests {
             Err(EventAuthError::AuthEventRoomMismatch {
                 auth_event_id: "$foreign".to_string(),
                 auth_event_room_id: "!other:example.org".to_string(),
-                room_id: "!a:example.org".to_string(),
+                room_id: ROOM_ID.to_string(),
             })
         );
     }
 
     #[test]
     fn v12_accepts_auth_event_from_the_same_room() {
-        let same = room_event("$same", "!a:example.org");
+        let same = room_event("$same", ROOM_ID);
         let input = InboundEventAuth {
             room_version: "12",
-            room_id: "!a:example.org",
+            room_id: ROOM_ID,
             event_type: "m.room.topic",
             content: empty_content(),
+            create_event_id: Some(CREATE_ID),
             creators: &[],
             auth_events: &[entry("$same", Some(&same))],
         };
@@ -354,9 +446,10 @@ mod tests {
     fn v12_rejects_unresolvable_auth_event() {
         let input = InboundEventAuth {
             room_version: "12",
-            room_id: "!a:example.org",
+            room_id: ROOM_ID,
             event_type: "m.room.topic",
             content: empty_content(),
+            create_event_id: Some(CREATE_ID),
             creators: &[],
             auth_events: &[entry("$gone", None)],
         };
@@ -372,9 +465,10 @@ mod tests {
         for version in ["1", "2", "9", "10", "11"] {
             let input = InboundEventAuth {
                 room_version: version,
-                room_id: "!a:example.org",
+                room_id: ROOM_ID,
                 event_type: "m.room.topic",
                 content: empty_content(),
+                create_event_id: Some(CREATE_ID),
                 creators: &[],
                 auth_events: &[entry("$foreign", Some(&foreign))],
             };
@@ -407,13 +501,14 @@ mod tests {
 
     #[test]
     fn rule_3_5_reports_the_first_offending_entry() {
-        let same = room_event("$same", "!a:example.org");
+        let same = room_event("$same", ROOM_ID);
         let foreign = room_event("$foreign", "!other:example.org");
         let input = InboundEventAuth {
             room_version: "12",
-            room_id: "!a:example.org",
+            room_id: ROOM_ID,
             event_type: "m.room.topic",
             content: empty_content(),
+            create_event_id: Some(CREATE_ID),
             creators: &[],
             auth_events: &[entry("$same", Some(&same)), entry("$foreign", Some(&foreign))],
         };
@@ -422,7 +517,7 @@ mod tests {
             Err(EventAuthError::AuthEventRoomMismatch {
                 auth_event_id: "$foreign".to_string(),
                 auth_event_room_id: "!other:example.org".to_string(),
-                room_id: "!a:example.org".to_string(),
+                room_id: ROOM_ID.to_string(),
             })
         );
     }
@@ -432,9 +527,10 @@ mod tests {
     fn create_auth<'a>(content: &'a serde_json::Value, version: &'a str) -> InboundEventAuth<'a> {
         InboundEventAuth {
             room_version: version,
-            room_id: "!a:example.org",
+            room_id: ROOM_ID,
             event_type: "m.room.create",
             content,
+            create_event_id: Some(CREATE_ID),
             creators: &[],
             auth_events: &[],
         }
@@ -503,9 +599,10 @@ mod tests {
         let content = json!({"additional_creators": "not-an-array"});
         let input = InboundEventAuth {
             room_version: "12",
-            room_id: "!a:example.org",
+            room_id: ROOM_ID,
             event_type: "m.room.topic",
             content: &content,
+            create_event_id: Some(CREATE_ID),
             creators: &[],
             auth_events: &[],
         };
@@ -517,9 +614,10 @@ mod tests {
     fn pl_auth<'a>(content: &'a serde_json::Value, creators: &'a [String]) -> InboundEventAuth<'a> {
         InboundEventAuth {
             room_version: "12",
-            room_id: "!a:example.org",
+            room_id: ROOM_ID,
             event_type: "m.room.power_levels",
             content,
+            create_event_id: Some(CREATE_ID),
             creators,
             auth_events: &[],
         }
@@ -556,7 +654,8 @@ mod tests {
         let content = json!({"users": {"@alice:example.org": 100}});
         let input = InboundEventAuth {
             room_version: "11",
-            room_id: "!a:example.org",
+            room_id: ROOM_ID,
+            create_event_id: Some(CREATE_ID),
             event_type: "m.room.power_levels",
             content: &content,
             creators: &creators,
@@ -567,6 +666,88 @@ mod tests {
         assert!(!enforces_power_levels_creator_rule("11"));
     }
 
+    // ── rule 2 (MSC4291): room_id must be the create event's id ────────────
+
+    fn rule2_auth<'a>(room_id: &'a str, create_event_id: Option<&'a str>, version: &'a str) -> InboundEventAuth<'a> {
+        static CONTENT: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+        InboundEventAuth {
+            room_version: version,
+            room_id,
+            event_type: "m.room.message",
+            content: CONTENT.get_or_init(|| json!({})),
+            create_event_id,
+            creators: &[],
+            auth_events: &[],
+        }
+    }
+
+    /// The happy path: the room id is `!` + the create event's id body.
+    #[test]
+    fn v12_accepts_an_event_whose_room_id_is_the_create_event_id() {
+        let input = rule2_auth(
+            "!31hneApxJ_1o-63DmFrpeqnkFfWppnzWso1JvH3ogLM",
+            Some("$31hneApxJ_1o-63DmFrpeqnkFfWppnzWso1JvH3ogLM"),
+            "12",
+        );
+        assert!(check_inbound_event_auth(&input).is_ok());
+    }
+
+    /// The room id names a *different* create event than the room actually has.
+    #[test]
+    fn v12_rejects_a_room_id_that_is_not_the_rooms_create_event_id() {
+        let input = rule2_auth(
+            "!31hneApxJ_1o-63DmFrpeqnkFfWppnzWso1JvH3ogLM",
+            Some("$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+            "12",
+        );
+        assert!(matches!(check_inbound_event_auth(&input), Err(EventAuthError::RoomIdIsNotTheCreateEvent { .. })));
+    }
+
+    /// A legacy `!opaque:server` room id on a v12 event is not a create event id.
+    #[test]
+    fn v12_rejects_a_legacy_shaped_room_id() {
+        let input = rule2_auth("!room:example.org", Some("$room:example.org"), "12");
+        assert!(matches!(check_inbound_event_auth(&input), Err(EventAuthError::RoomIdIsNotTheCreateEvent { .. })));
+    }
+
+    /// Fail closed: not knowing the room's create event must not read as "fine".
+    #[test]
+    fn v12_rejects_when_the_rooms_create_event_is_unknown() {
+        let input = rule2_auth("!31hneApxJ_1o-63DmFrpeqnkFfWppnzWso1JvH3ogLM", None, "12");
+        assert_eq!(
+            check_inbound_event_auth(&input),
+            Err(EventAuthError::CreateEventUnknown {
+                room_id: "!31hneApxJ_1o-63DmFrpeqnkFfWppnzWso1JvH3ogLM".to_string(),
+            })
+        );
+    }
+
+    /// The create event itself is exempt: its room id is derived from its own id
+    /// (rule 1.2 / the inbound create handling), not looked up.
+    #[test]
+    fn rule_2_does_not_apply_to_create_events() {
+        static CONTENT: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+        let input = InboundEventAuth {
+            room_version: "12",
+            room_id: "!31hneApxJ_1o-63DmFrpeqnkFfWppnzWso1JvH3ogLM",
+            event_type: "m.room.create",
+            content: CONTENT.get_or_init(|| json!({"room_version": "12"})),
+            create_event_id: None,
+            creators: &[],
+            auth_events: &[],
+        };
+        assert!(check_inbound_event_auth(&input).is_ok());
+    }
+
+    /// Below v12 the room id has no relationship to the create event's id.
+    #[test]
+    fn pre_v12_is_not_subject_to_rule_2() {
+        let input = rule2_auth("!room:example.org", None, "11");
+        assert!(check_inbound_event_auth(&input).is_ok());
+        assert!(enforces_room_id_create_event_rule("12"));
+        assert!(!enforces_room_id_create_event_rule("11"));
+    }
+
     /// The rule applies to `m.room.power_levels` only.
     #[test]
     fn rule_10_4_only_applies_to_power_levels_events() {
@@ -574,7 +755,8 @@ mod tests {
         let content = json!({"users": {"@alice:example.org": 100}});
         let input = InboundEventAuth {
             room_version: "12",
-            room_id: "!a:example.org",
+            room_id: ROOM_ID,
+            create_event_id: Some(CREATE_ID),
             event_type: "m.room.topic",
             content: &content,
             creators: &creators,
