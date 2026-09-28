@@ -15,13 +15,13 @@
 | 项 | 目标（摘要） | 状态 | 实测证据 |
 |---|---|---|---|
 | **A-1** | 修复已红的 `/capabilities` 快照 | ✅ **完成** | `94d72a29f`；`integration__api_route_snapshots_tests__capabilities_v3.snap:33-34` 含 `"12": "stable"`、`:44` `"default": "12"` |
-| **A-2** | 冻结 Q1–Q8 产品决策（写进 §5 或 ADR） | ❌ **未做** | 全仓 `grep Q1..Q8 / 决策落定 / ADR` 在 `docs/audit/*2026-09-2*` 无命中；§5 全部仍标"建议（供讨论，不是结论）" |
-| **A-3** | v12 一致性 fixture 与 oracle 骨架 | ❌ **未做** | `tests/unit/u13_interop_fixture_tests.rs:105` 仍是 `for room_version in ["3", "10", "11"]`；无 v12 fixture 文件 |
+| **A-2** | 冻结 Q1–Q8 产品决策（写进 §5 或 ADR） | ✅ **完成** | `6cb305409`（Q1=a/Q2=a/Q5=b/Q6=b 落档）+ 本文件 **§3**（Q6 改选 (ii)、Q7 修订）与 **§5**（逐决策落点表）；Q1/Q2/Q4/Q5 已落进代码（`7489b247f` / `c83e3faf9`）⇒ 不再是"建议（供讨论，不是结论）" |
+| **A-3** | v12 一致性 fixture 与 oracle 骨架 | ✅ **完成**（`20789c476`） | 新增 v12 **message** fixture（`local_pdu_v12.json`，domainless room id）与 v12 **create** fixture（`local_pdu_v12_create.json`：无 `room_id`/`event_id` + `derived_room_id`）；`u13` 逐字节复核循环纳入 `"12"`；oracle 增加上游 v12 复算：`_check_create` 接受并由事件 ID 推出同一 `!`+43 room id、**带 `room_id` 的 create 被拒**、`auth_events` 含 create 被拒（MSC4307）。两条新检查均有变红自证，详见 §4.10 |
 | **B-1** | 建立入站事件鉴权入口（单一实现） | ✅ **完成** | `synapse-federation/src/event_auth/rules.rs`（282 行，`check_inbound_event_auth` / `InboundEventAuth` / `ResolvedAuthEvent`）；入口壳与版本分派齐备 |
 | **B-2** | 规则 3.5：`auth_events` 同房校验 | ✅ **完成（已接线）** | `ce4078969`；**生产调用点** `synapse-web/src/routes/federation/transaction.rs:378`（解析 auth_events → `check_inbound_event_auth`，失败即 reject + `security_audit` 日志）；`rules.rs:152` `enforces_auth_events_room_rule` 只对 v12+ 生效；单测含"跨房拒绝/同房通过/无法解析拒绝/pre-v12 不定义该规则" |
 | **C-1** | create 事件身份 finalize（G-08） | ✅ **完成** | `7d79982c9`：`write_creation_event` 改走 `create_event_with_pdu`（会 finalize），占位 ID 仅用于 v1/v2；验收测试 `tests/integration/room_service_tests_migrated.rs:5175-5196`（v11 create id 长 44、无 `:`、等于对端复算值、图已重指向 final id） |
 | **C-2** | room_id 推导（`$`→`!`）与创建流程重排 | ✅ **完成**（`e2b8266b3`） | 新增唯一 helper `room_id::room_id_from_create_event_id`；`create_room` 先定稿 create → 派生 room_id → 写 rooms 行；验收测试 `test_create_room_v12_room_id_is_the_create_event_id`。**注意：D-6 是它的硬前置**（见下） |
-| **C-3** | 无域名 room ID 语法收敛（G-17..G-23、G-20） | ✅ **完成**（`6036c4cb8`/`b089e0323`/`16ee8208f`） | ✅ 语法：`synapse-common/src/room_id.rs`（单实现）+ 两个校验器委托；6 处联邦守卫改用 `is_well_formed_room_id`；`room_id.contains(':')` 生产代码 **0** 处<br>✅ 本地性（G-21）：`b089e0323` `MembershipService::room_locality`<br>✅ DB CHECK 放宽为两形态（`16ee8208f`）+ 指纹 `16d86ee4035cd351`（顺带修掉 HEAD 上的既有红项）+ 真 DB 契约用例<br>❌ 未收敛：`invite.rs:277`（产出 `$uuid:!xxx`）、`space/repository.rs:30`、`actions.rs:41`（join 目的地） |
+| **C-3** | 无域名 room ID 语法收敛（G-17..G-23、G-20） | ✅ **完成**（`6036c4cb8`/`b089e0323`/`16ee8208f`） | ✅ 语法：`synapse-common/src/room_id.rs`（单实现）+ 两个校验器委托；6 处联邦守卫改用 `is_well_formed_room_id`；`room_id.contains(':')` 生产代码 **0** 处（本轮复测）<br>✅ 本地性（G-21）：`b089e0323` `MembershipService::room_locality`<br>✅ DB CHECK 放宽为两形态（`16ee8208f`）+ 指纹 `16d86ee4035cd351`（顺带修掉 HEAD 上的既有红项）+ 真 DB 契约用例<br>⚠️ **本项验收判据之外的已知残留**（不是 C-3 的五条判据之一，故不影响本项 ✅）：`invite.rs:277` 的**兜底** event id 用 `split(':').next_back()`、`space/repository.rs:30` 用同一写法从父房间 id 取 server、`actions.rs:41` 从 room id 取 join 目的地。其中前两处在**父房间是 v12（domainless）输入**时会拼出 `$uuid:!xxx` / `!space_uuid:!xxx` 这类畸形 id（属于"合成房间"这条独立决策 Q3 的落点，见 §5；`actions.rs` 则本就无法从 domainless id 取目的地，需 `via`）。
 | **C-4** | 创建侧不写 `predecessor.event_id`；升级顺序反转 | ✅ **完成**（`10aecb7d3`） | v12+ 先建新房（派生 id）再 tombstone，`predecessor` 只含 `room_id`；v1–v11 保持原顺序与 `event_id`；新增 v11→v12 验收测试 |
 | **C-5** | `CreateRoomConfig.room_id` 逃逸口处置 | ✅ **完成**（`7489b247f`，随 G-1） | 字段 + `create_room` 预分配分支 + below-v12 升级分支全部删除；`create_room` 显式断言"可创建版本必须由 create 事件派生 id"。合成房间（server notice / space）**不用**该字段，故不受影响（Q3 仍另计） |
 | **D-1** | 规则 1.2：v12 create 带 `room_id` 则拒绝（无 `room_id` 时推导房间身份） | ✅ **完成**（`227a7228d`） | `validate_inbound_transaction_pdu` 接收 `room_version`/`event_id`：v12+ create 带 `room_id` 即拒、无则用 `room_id_from_create_event_id` 推导；5 单测 + 变异自证；联邦事务集成 14/14 |
@@ -33,7 +33,7 @@
 | **E-1** | `additional_creators` 校验（规则 1.4） | ✅ **完成**（`a659f9f7d`） | v12+ create 的 `additional_creators` 必须为合法 user ID 数组；user-id 语法抽为唯一实现 `validation::is_well_formed_user_id` 并让 `Validator` 委托；7 用例 + 变异自证 |
 | **E-2** | 创建者集合 + 无限 PL（G-32/33/35） | ✅ **完成**（`6f0c1735a`） | `room_creators_and_version` 一次读 create 事件返回（集合, 版本）；`resolve_room_creators`；v12+ 创建者返回 `CREATOR_POWER_LEVEL = i64::MAX` 且**排在读 PL 之前**（不可降权）；踢/封保护改用集合；版本未知时 fail-closed 不授予无限 |
 | **E-3** | 规则 10.4：PL 的 `users` 不得含创建者 | ✅ **完成**（`6f0c1735a` + `fcc57e0f2` + 接线修复 `ab59f4286`） | 客户端 `verify_power_levels_change` 拒绝；**修复**：规范路径是 `PUT /state/m.room.power_levels`（`ensure_room_state_write_access`），原先只接了非规范的 `/send` 路径 ⇒ 规则实际未生效，现已接上（同时补上原本缺失的升降权/同级检查）；入站经 B-1 接缝，读创建者失败 **fail-closed** |
-| **F-1** | 状态决议接线决策 + 接线 | 🟡 **决策已完成、接线未做** | 决策（A-2 改选 (ii)）：v2.1 实现在 `resolve_state_v2`（已完成，见 F-2）+ 查清/接线冲突状态路径。**查清已完成**（§4.6：本仓无状态决议路径，当前 `DISTINCT ON … origin_server_ts DESC` 纯时间戳 LWW）；**接线未做** —— 需要"冲突状态判定放在哪一层"的架构决策（入站写入时 / 读 state 时 / 新建 state-group 流水线），§4.6 已列出 |
+| **F-1** | 状态决议接线决策 + 接线 | ✅ **完成**（`424aaec54` + `62d98ac49`） | 决策：v2.1 实现在 `resolve_state_v2`（见 F-2）+ 查清/接线冲突状态路径。**查清**（§4.6：本仓无状态决议路径，原为 `DISTINCT ON … origin_server_ts DESC` 纯时间戳 LWW）。**层次由任务方拍板 `(A) 入站写入时`**（2026-09-28 第 12 轮）。**读半边** `424aaec54`（§4.9）：resolver 结果统一可消费 + 当前 state 以 `state_groups` 记录为准。**写半边** `62d98ac49`（§4.11）：`StateRecord` 在两个状态写入接缝后维护记录 —— 分叉时逐 extremity 求事件处 state 并用 `resolve_state_for_version_with_rules` 解析回写；有记录时前向拷贝完整状态；无分叉无记录时行为不变。含**服务接缝端到端**用例与变红自证 |
 | **F-2** | v2.1 三处修改 | ✅ **完成**（五片：`a5d32166c`/`45d48b69b`/`0e207f202`/`de9270a02`/`70e6ffd38`） | Modification 2（subgraph）+ 3（full conflicted set）+ auth difference 修正 + Modification 1（`iterative_auth_checks`，起始 map 为参数）+ 解析器重组（空起始重放 → 叠加 unconflicted）+ 忠实排序（reverse topological power ordering / mainline ordering）+ **真实 `_check_event_auth`**（`state_map_auth`，复用 membership_transition/room_creator/E 组结论）。已知简化：restricted join 在本谓词下**欠授权**（需 allow rooms 的 state）；上游 implementer's guide **无机器可读向量** ⇒ 向量来自 MSC 原文的 Problem A/B 场景 |
 | **F-3** | v1–v11 兼容边界 | ✅ **完成**（`9836c3be7`） | `resolve_state_for_version`：**v12+ 用空起始 map（v2.1）**、**v1–v11 用 unconflicted 起始（v2）**；边界用例在**同一冲突/同一谓词**下断言 v11 否决、v12 放行；另有 `"1"/"11"/"12"/"13"/不可解析标识` 的分派范围用例 |
 | **G-1** | 能力表收敛：仅 v12 可创建 | ✅ **完成**（`7489b247f`） | 新增 `RoomVersionCapability::stable_no_create`：v1–v11 可 join/parse/federate、不可创建；`resolve_room_version` 对 v1–v11 返回 `None`；`/capabilities.available` 仅 `"12"`（快照已审阅更新）；联邦 join 走存储层 `room_storage.create_room`，**不受影响** |
@@ -41,7 +41,16 @@
 | **H-1** | 逐份更正文档（含额外 6 份） | ✅ **完成**（`72072e175`） | 10 份文档标题下加状态行（U-22、❌7、AUDIT_SUMMARY、DB_REVIEW、O1_PHASE1、PROJECT_REMAINING、P2_protocol_contract、synapse‑vs‑synapse comparison、API_COVERAGE、v12‑pdu‑graph‑fields），统一指向本文为唯一现状来源；判据 `grep MSC4239 + v12` 不再把 MSC4239 当 v12 定义（余下命中是本计划的纠错说明与该文件自我更正）；新增行无 markdownlint 违规 |
 | **H-2** | Q1–Q7 结论落档 | ✅ **完成**（`c56d9d161`） | 本文 §3/§5 记录 Q1–Q8 结论**及其落点**（代码/提交/doc）；README 文档索引新增房间 v12 计划与状态条目（此前 `docs/audit` 零索引 ⇒ 不可发现） |
 
-**计数（F-2 完成后）**：✅ 完成 23（A-1、A-2、B-1、B-2、C-1、C-2、C-3、C-4、C-5、D-1、D-2、D-3、D-4、D-5、D-6、E-1、E-2、E-3、F-2、F-3、G-1、G-2、H-1、H-2 —— 实为 24 项中的 23 项）｜🟡 部分 1（**F-1 的接线半边**）｜❌ 未做 0。
+**计数（2026-09-28，F-1 完成后）**：§1 表中**全部工作项均为 ✅**（含此前被漏计的 **A-3**、一并更正的 **A-2** 行，以及本轮的 **F-1** 写半边）｜🟡 0｜❌ 0。
+
+> ⚠️ **计数口径说明（2026-09-28）**：原"完成 23（… 实为 24 项中的 23 项）"一行**本身自相矛盾** ——
+> 它列了 24 个名字却说 23 项，且**漏掉了 §1 表里的 A-3**；A-2 行也与其它 ✅ 行矛盾。
+> A-3 已做完（`20789c476`，§4.10）、A-2 行已更正、F-1 两半均已落地（§4.9 / §4.11）。
+> **计划基线 §3.2 的项数（24）与 §1 表的行数并不一致**，因此不以分数表述，只报逐项状态。
+>
+> **仍未修、与本计划无关的既有红项**（不在 §1 任何一项内）：`tests/unit` 的 12 条、
+> `snapshot_versions_endpoint`、`derived_manifest` fixture、invite-policy 的 7 条集成用例，
+> 以及本文件 §4.9.4 记录的 SQLx/顺序/死代码门禁债（**已在本轮之前的独立提交中偿还**）。
 
 > **D-2/D-5 完成（2026-09-28）**：`c073c9625`（规则 2）、`e933e362c`（auth chain 不含 create）。
 > **仅剩 F-2/F-3**（MSC4297）：落点 `resolve_state_v2` 已定，但 §4.6 已证明本仓**没有**状态决议路径，
@@ -331,7 +340,7 @@ A-2 的 **Q6(b)** 裁定："不接线，按铁律 1 删除死实现，只在 `re
 |---|---|
 | **Q1**（仅禁止创建，join/federate 保持） | 代码：`synapse-common/src/room_versions.rs` 的 `RoomVersionCapability::stable_no_create` 与其上方的 capability↔behaviour 论证注释；本文件 §3 |
 | **Q2**（删 `CreateRoomConfig.room_id`；升级改为先建新房再 tombstone） | `7489b247f`（G-1+C-5）；`synapse-services/src/room/service.rs::upgrade_room` 的顺序注释；`create.rs` 的派生不变量断言 |
-| **Q3**（内部合成房间纳入统一建房入口） | ⏳ 未做。现状实测：`admin/notification.rs:350` 与 `space/repository.rs:30` **不经过** `CreateRoomConfig`（直接拼 id + 直接落库），故 C-5 删字段不影响它们 |
+| **Q3**（内部合成房间纳入统一建房入口） | ⚠️ **按"记录为本地合成房间"这一被允许的分支收口，未改走统一入口**（2026-09-28 复核）。计划 C-5 的验收判据原文允许二选一："内部合成房间改走统一建房入口（**或明确记录为"非 v12 语义的本地合成房间"**）"。现状：`admin/notification.rs:350` 与 `space/repository.rs:30` **不经过** `CreateRoomConfig`（直接拼 id + 直接落库），即它们是**非 v12 语义**的本地合成房间 ⇒ 走的是记录分支。<br>⚠️ **但这条分支有一个未关闭的具体缺口**：两处用 `room_id.split(':').next_back()` 从**父**房间 id 取 server，**父房间是 v12（domainless）时会拼出畸形 id**（`space/repository.rs:30` 的 `!space_uuid:!xxx` 会被 CHECK 拒；`invite.rs:277` 的兜底 event id 同理）。修法很局部（改 `rsplit_once` + 补 v12 父房间用例），但属 Q3 的后续落点，**不在计划 §1 任何一项的验收判据内** |
 | **Q4**（接受 `available` 仅列 v12） | `7489b247f`：快照 `integration__api_route_snapshots_tests__capabilities_v3.snap` |
 | **Q5**（移除不存在的版本 13） | `c83e3faf9`；`room_versions.rs` 注释 + `redaction.rs` 的 fail-closed 说明 |
 | **Q6**（(ii) v2.1 实现在 `resolve_state_v2`，并查清/接线冲突状态路径） | 本文件 §4.5（矛盾记录）与 §4.6（接线调查：本仓无状态决议路径） |
@@ -432,3 +441,180 @@ auth-rules 引擎，避免复制一套规则）。4 个新用例 + 变异自证�
 5. v12 专属：规则 1.2 / 2 / 3.5 / 10.4（**已实现于 `event_auth::rules`，但那是单事件入站形态**，需抽出可对 state map 复用的部分，避免第二份实现 —— 铁律 2）。
 
 ⚠️ 该谓词仍**无调用者**（`resolve_state_for_version` 零调用），故即便补齐也仍无端到端证据；§4.6 的接线决策是它生效的前提。
+
+---
+
+## 4.9 F-1 接线：层次拍板 **(A) 入站写入时** + 读半边落地（2026-09-28）
+
+§4.6 列出的三个层次（**入站写入时** / 读 state 时 / 新建 state-group 流水线）中，任务方在第 12 轮
+选定 **(A) 入站写入时**：事件落库后判定"该房间是否已分叉"，分叉则用 v2.1 重算受影响键的状态并
+**回写**；读 state 以该记录为准。
+
+### 4.9.1 本轮实测的既有事实（为什么这条接线比"接一个调用点"大）
+
+| 事实 | 证据 |
+|---|---|
+| 本仓**没有**状态决议路径 | §4.6：读 state 是 `DISTINCT ON … origin_server_ts DESC` 纯时间戳 LWW |
+| 四张 state-group 表**早已存在且结构完整** | `migrations/00000000_unified_schema_v12.sql:2351-2386`（`state_groups` / `state_group_edges` / `event_to_state_groups` / `state_group_state`）⇒ "回写"**不需要新表、不需要新迁移** |
+| 但**没有任何生产代码读写它们** | `grep -rn "state_group" --include=*.rs synapse-services/src synapse-web/src src/` 只命中 `src/storage/mod.rs` 的 re-export；`create_state_group` 零生产调用者 |
+| resolver 的结果**不可消费**（接线的硬前置） | `resolve_state_with_start` 对 unconflicted 项写入完整 state event（含 `event_id`），对**重放**项只写入 content ⇒ 重放赢家没有 `event_id`，既无法回写也无法与 unconflicted 项比较 |
+
+### 4.9.2 本切片落地（`424aaec54`，F-1 的**读**半边）
+
+1. **resolver 结果统一可消费**：新增 `EventData::to_state_event_value()`，unconflicted 与重放
+   两条路径都返回**完整 state event**。新用例 `every_resolved_entry_identifies_its_winning_event`
+   断言"每条结果都有 `event_id`"；原 `replay_decides_the_conflicted_winner_not_the_ordering`
+   改为从 `content.join_rule` 读 —— 旧断言读的正是那个缺陷形态（裸 content）。
+2. **当前 state 以"已决议记录"为准**：`EventStorage::get_state_events` / `get_state_event`
+   先取房间最新的 `state_groups` 行，存在则从 `state_group_state` 返回（同一入口服务"整表"与
+   "单键"两种投影，共用一条静态 SQL）；不存在才回落到时间戳推导。
+   DB 用例 `test_current_state_prefers_the_resolved_state_record`：同一 key 两个候选，无记录时
+   时间戳新者胜；写入记录后**较旧**的候选必须胜出；且记录是**全量**当前态（记录未覆盖的键
+   不出现在结果里），不是叠加在时间戳推导之上的补丁。
+
+### 4.9.3 写半边（**已落地**：`62d98ac49`，见 §4.11）
+
+落点在两个**状态事件写入接缝**之后的维护步骤 —— `MessagingService::create_event_with_graph`
+（本地 `/send`、入站联邦事务、`backfill`、invite 共用）与联邦加入的 state 批次
+（后者走存储层写入并在**一个事务**内提交，不经过前者）：
+
+- 房间 forward extremities > 1（分叉）⇒ 对每个 extremity 求"事件处 state"（沿 `event_edges`
+  走 DAG；多父节点处用 `resolve_state_for_version_with_rules` 递归）→ 解析 → 以新 group 回写
+  （`create_state_group` + `set_state_entries` + `add_state_group_edges` + `bind_event_to_state_group`）；
+- 否则若房间**已有**记录 ⇒ **前向拷贝**完整状态（读路径只服务 group 自身的行，故不能只写增量）；
+- 从未分叉、也从未有记录的房间维持时间戳推导（即行为完全不变）。
+
+计划 §F-1 原评"风险：高"（从未在生产路径跑过的算法 + 一条新的关键路径）已由 §4.11 的
+端到端用例与变红自证承担；`tx: Some(..)` 的调用方（建房/升级）在事务内不维护，由联邦加入路径
+在 commit 后单独维护。
+
+### 4.9.4 同批偿还的既有门禁债（`4cc45d279`，独立提交）
+
+`656a54699`（invite-policy 合并）带进 `invite_blocklist.rs` 却未同步门禁，HEAD 上这些门禁
+**本就是红的**（非 room v12 引入）：SQLx 生产动态 275 → 287、测试动态 716 → 718、
+`check_ts_order_tiebreak.py` `0 → 4`、clippy `dead code`。按 R11 独立提交修掉：12 处生产字面量
+全部宏化（生产动态回到 **275 = 基线**）、4 处 `ORDER BY created_ts DESC` 补 `, user_id ASC`、
+删零调用者夹具、删未使用形参；并把一条会随棘轮进展变假的守卫判据
+（`dynamic > 1000`，而棘轮终点是 0）改为直接断言扫描面含 workspace crate 路径。
+`BASELINE_DYNAMIC_TEST_INFRA` 716 → **717**（两处必要的 test 夹具，带归因）、
+`BASELINE_STATIC` 1193 → **1206**、`BASELINE_DYNAMIC` 991 → **992**。
+
+**本批门禁实测**：`check_sqlx_dynamic_ratio.sh` OK（275/717/1206/18）；
+`check_sqlx_cache_fresh.sh --compile` OK；`check_ts_order_tiebreak.py` OK（73/31）；
+clippy 两档 `-D warnings` EXIT=0；fmt `current=0 baseline=0`；
+`synapse-federation --lib` 260/260；`synapse-storage --lib`（event:: + invite_blocklist）130/130；
+unit 守卫（literal / ratio / tiebreak）41/41。
+
+⚠️ 与本批无关、**仍未修**的既有红项（与前一版状态文档所列一致）：`tests/unit` 的 12 条、
+`snapshot_versions_endpoint`、`derived_manifest` fixture、以及 invite-policy 的 7 条集成用例。
+
+---
+
+## 4.10 A-3：v12 一致性 fixture + 上游 oracle 实测（`20789c476`，2026-09-28）
+
+计划的 A-3 原判风险是"上游 Synapse 的 v12 oracle 是否可离线复算【待核验】，若不可则退化为
+'本仓自洽'"。**本轮核验结果：可离线复算，无需退化。**
+
+| 事实 | 证据 |
+|---|---|
+| 本沙箱的 `matrix-synapse==1.161.0`（`/tmp/peer-synapse`）**认识 room v12** | `KNOWN_ROOM_VERSIONS` 含 `'12'`（与 `11`/`org.matrix.hydra.11` 等并列） |
+| 它已实现 MSC4291 | `RoomVersion.msc4291_room_ids_as_hashes`；`synapse/event_auth.py` 的 `_check_create` 规则 1.2：`if "room_id" in event: AuthError(403, "Create event has a room_id")` |
+| 它也实现了 MSC4289 / MSC4307 | `msc4289_creator_power_enabled=True`；`federation_base.event_from_pdu_json` 拒绝 `auth_events` 含 create 事件（`400 auth_events must not contain the create event`） |
+| ⇒ 另一分支的占位 skeleton（`e6311f5b3`，placeholder hashes、`u13` 仍只验 3/10/11）**本分支不需要** | 本分支的 v12 流水线已落地（C/D 阶段），可以产出**真实** v12 字节并交由上游复算 |
+
+### 4.10.1 落地内容
+
+- **fixture（由真实流水线生成，`u13` 逐字节复核）**
+  - `local_pdu_v12.json`：v12 **message** PDU；`room_id` 用 domainless 形态
+    （`!` + 43 字符 URL-safe base64，**无 `:server`**）——沿用 legacy 拼写就不是 v12 向量。
+  - `local_pdu_v12_create.json`：v12 **create** PDU；PDU 内**无 `room_id`**（D-6）、
+    **无 `event_id`**（v3+ 线形态）；envelope 记录 `derived_room_id`。
+  - `u13` 的复核循环由 `["3","10","11"]` 扩为 `["3","10","11","12"]`，并新增断言：
+    `$` + 43 URL-safe、`derived_room_id == "!" + event_id[1..]`、
+    与 `room_id_from_create_event_id` 一致、`is_domainless_room_id` / `is_well_formed_room_id` 为真。
+- **oracle（`scripts/interop/verify_pdu_with_upstream_synapse.py`）新增第 4、5 步**，
+  判据全部来自**上游自己的实现**：
+  - **MSC4291**：上游 `_check_create` 接受我们的 create ⇒ 且 `event_from_pdu_json` 推出的
+    `room_id`/`event_id` 与我们的 `derived_room_id`/`event_id` 一致；
+    **带 `room_id` 的 create（即使是"正确"的那个 id）必须被上游拒绝**。
+  - **MSC4307**：`auth_events` 含 create 事件的 PDU 必须被上游拒绝；同一次运行先断言
+    "未改动 PDU 能构建"作**正向对照**，使该拒绝可归因（不是"恰好构建失败"）。
+- **实测**：v3/v10/v11 三条旧 fixture 行为**不变**；v12 两条全 PASS；
+  `synapse_federation --lib` 无关、`unit` 的 `u13_interop_fixture` 2/2。
+
+### 4.10.2 变红自证（铁律 8）
+
+| 变异 | 结果 |
+|---|---|
+| 把 `room_id` 加进 v12 create，并**重算 hashes / 事件 ID / 签名**（使第 1–3 步全过） | oracle 仍以 ``FAIL: a v12 m.room.create PDU must not carry `room_id` (MSC4291)`` **退出 1** ⇒ 该检查真的在拦人，不是被上游 hash/ID 检查"顺便"挡住 |
+| 篡改 envelope 的 `derived_room_id` | ``FAIL: fixture records derived_room_id=… but `!` + event_id[1:] is …``，退出 1 |
+| 把 create 事件 ID 写进 fixture 的 `auth_events` | 第 5 步的**正向对照**先失败，退出 1（正常 fixture 下正向对照通过、构造变体被拒 ⇒ 两侧都被执行到） |
+
+三条实验记进 `tests/interop/fixtures/README.md`。oracle 仍是**手工门禁**（需要
+`/tmp/peer-synapse` 这个 venv，CI 无此环境），与 `REMAINING_ISSUES_…_PLAN_2026-09-25.md`
+的 U-13-S3 记法一致：只剩**传输层**（双主机名 + 互信 CA）未验证。
+
+### 4.10.3 剩余
+
+计划的**唯一**剩余项回到 **F-1 的写半边**（§4.9.3）：分叉检测 + v2.1 解析 + 回写 group。
+
+---
+
+## 4.11 F-1 写半边：状态决议接线完成（`62d98ac49`，2026-09-28）
+
+计划 §F-1 的验收判据是"**要么接线（并说明在哪个入站/room-join 路径调用）**，要么按铁律 1
+删除死实现"。本节给出接线结论与证据。
+
+### 4.11.1 调用路径（验收判据点名的那一半）
+
+| 接缝 | 覆盖的写入 | 何时维护 |
+|---|---|---|
+| `MessagingService::create_event_with_graph`（`synapse-services/src/room/messaging/events.rs`） | 本地 `/send`、**入站联邦事务**（`synapse-web/.../federation/transaction.rs`）、`backfill`、联邦 invite | 事件已提交（`tx.is_none()`）且是状态事件时 |
+| `MembershipService::join_room_via_federation`（`synapse-services/src/room/membership/federation.rs`） | **联邦 join** 的 state 批次 | 事务 commit **之后**逐条维护（走查必须看得见已提交行） |
+
+两者都调用同一个 `StateRecord::after_state_event`（唯一实现）。房间创建/升级在事务内写事件，
+不维护 —— 其记录在**第一次分叉**时由解析一并产生。
+
+### 4.11.2 维护语义
+
+- **分叉**（forward extremities > 1）⇒ 逐 extremity 沿 `prev_events` 求"事件处 state"
+  （多父节点处递归到同一入口）→ `resolve_state_for_version_with_rules`（v12+ v2.1 / v1–v11 v2）
+  → 结果整体回写为新 `state_groups`（+ `state_group_state` + `state_group_edges`
+  + `event_to_state_groups`）。
+- **有记录、无分叉** ⇒ 前向拷贝：新 group 携带**完整**状态（读路径只服务 group 自身的行，
+  只写增量会让记录陈旧）。
+- **无分叉、无记录** ⇒ 无操作：房间继续走事件日志的时间戳推导 —— 与接线前**逐字相同**。
+- 只有**状态事件**付代价（一次 extremities 查询）；message 在第一次查询前返回，消息热路径不变。
+- 失败**尽力而为**：事件已落库，不能回滚 ⇒ 记 `warn` 并退化为时间戳推导（与相邻的
+  签名/哈希补写同策略）。
+
+### 4.11.3 读路径一致性
+
+`get_state_events` / `get_state_event`（§4.9.2）之外，`get_state_events_by_type` 也改为优先记录：
+记录是**每个键**的当前状态，若只有整表投影走记录，一个冲突的**单例类型**
+（`m.room.join_rules` / `m.room.encryption` / `m.room.server_acl`）仍可能从败方分支读出。
+历史态读取（`get_state_events_at_or_before`）与增量读取（`batch` / `since_batch`）**不动**。
+
+### 4.11.4 端到端证据（计划 §4.1 要求的"被调用"证明）
+
+| 用例 | 断言 |
+|---|---|
+| `the_service_write_seam_maintains_the_record` | **通过服务接缝**写两个分叉 topic ⇒ 记录出现，且读路径服务**授权分支** `$topic_a` |
+| `forked_state_is_resolved_and_served` | 无记录时时间戳推导选中较新但**未授权**的 `$topic_b`；维护后必须改为 `$topic_a`；记录是**完整**状态（create/member 键在） |
+| `later_state_events_are_folded_into_the_record` | 合并分支后再写 topic ⇒ 记录跟随更新且仍是完整状态 |
+| `unforked_rooms_keep_the_event_log_derivation` | 无分叉无记录的房间**不产生**记录，读路径仍走事件日志 |
+
+**变红自证（铁律 8）**：把 `after_state_event` 的分叉分支置为恒不进入（`if false`）⇒
+前三条**全部 FAIL**（`left: Some("$topic_b")` / `right: Some("$topic_a")`），第四条仍 PASS
+（它本就不依赖解析）。复原后 4/4 通过。这证明用例判的是**解析结果**，不是"恰好通过"。
+
+### 4.11.5 已知边界（下一批可收紧处）
+
+1. **事件处 state 是现算的**：每次解析沿 DAG 走一遍（上限 `MAX_RESOLUTION_EVENTS = 4096`，
+   超限则报错并退化为时间戳推导），不像上游那样**每事件持久化 state group**。
+   `event_to_state_groups` 表仍是这条路的规模化形态（也解释了为什么它此前无人使用）。
+2. `restricted join` 在 `state_map_auth` 下**欠授权**（需 allow rooms 的 state）——
+   F-2 已登记，非本次引入。
+3. 记录只覆盖**已接线接缝**写入的状态事件；绕过这两个接缝直接写 `events` 的代码路径
+   （若将来出现）不会维护记录 —— 届时读路径会退回时间戳推导，而**不会**读到过期记录
+   （记录不会被错误地当作最新态继续服务，除非它已经是最新 group；见边界 1 的规模化修法）。

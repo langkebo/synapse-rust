@@ -1,0 +1,138 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT e.event_id, e.room_id, COALESCE(e.sender, e.user_id) AS \"sender!\", e.event_type,\n                   e.content, e.state_key,\n                   COALESCE(e.unsigned, '{}'::jsonb) AS unsigned,\n                   COALESCE(e.is_redacted, false) AS is_redacted,\n                   COALESCE(e.origin_server_ts, 0) AS \"origin_server_ts!\",\n                   e.depth, NULL::BIGINT AS processed_ts, e.not_before, e.status, e.origin,\n                   e.user_id, e.stream_ordering, e.prev_events, e.auth_events, e.signatures, e.hashes\n            FROM events e\n            JOIN state_group_state sgs ON sgs.event_id = e.event_id\n            WHERE sgs.state_group_id = $1\n              AND ($2::text IS NULL OR sgs.event_type = $2)\n              AND ($3::text IS NULL OR sgs.state_key = $3)\n            ORDER BY COALESCE(e.origin_server_ts, 0) DESC, e.event_id ASC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "sender!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "content",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "state_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "unsigned",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "is_redacted",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "origin_server_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "depth",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "processed_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "not_before",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "origin",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "stream_ordering",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 16,
+        "name": "prev_events",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 17,
+        "name": "auth_events",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 18,
+        "name": "signatures",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 19,
+        "name": "hashes",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      false,
+      false,
+      true,
+      null,
+      null,
+      null,
+      true,
+      null,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "ed48fa4eb53bd066ae04f5a157b37d3cd15d956996733bca1356dee43cd718a3"
+}

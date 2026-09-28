@@ -45,7 +45,7 @@ async fn register_user(app: &axum::Router, username: &str) -> String {
 
 /// Register a user and set their `m.invite_permission_config` so
 /// they are not blocked by `account_policy_denies`.
-async fn register_invitee(app: &axum::Router, _admin_token: &str, username: &str) -> String {
+async fn register_invitee(app: &axum::Router, username: &str) -> String {
     let token = register_user(app, username).await;
     let user_id = format!("@{}:localhost", username);
     set_account_data(app, &token, &user_id, "m.invite_permission_config", &json!({"default_action": "allow"})).await;
@@ -197,7 +197,7 @@ async fn test_global_allowlist_overrides_blocklist() {
     let (admin_token, _) = super::get_super_admin_token(&app).await;
     let inviter_token = register_user(&app, "inviter_allowlist_override").await;
     let invitee = "@allowed:localhost";
-    let _invitee_token = register_invitee(&app, &admin_token, "allowed").await;
+    let _invitee_token = register_invitee(&app, "allowed").await;
 
     let room_id = create_room(&app, &inviter_token, "Allowlist Override Guard").await;
 
@@ -226,7 +226,7 @@ async fn test_global_blocklist_does_not_affect_others() {
     let (admin_token, _) = super::get_super_admin_token(&app).await;
     let inviter_token = register_user(&app, "inviter_not_blocked").await;
     let invitee = "@clear:localhost";
-    let _invitee_token = register_invitee(&app, &admin_token, "clear").await;
+    let _invitee_token = register_invitee(&app, "clear").await;
 
     let room_id = create_room(&app, &inviter_token, "Clear Invite Guard").await;
 
@@ -297,7 +297,7 @@ async fn test_global_allowlist_after_blocklist_coexists() {
     let (admin_token, _) = super::get_super_admin_token(&app).await;
     let inviter_token = register_user(&app, "inviter_coexist").await;
     let invitee = "@coexist:localhost";
-    let _invitee_token = register_invitee(&app, &admin_token, "coexist").await;
+    let _invitee_token = register_invitee(&app, "coexist").await;
 
     let room_id = create_room(&app, &inviter_token, "Coexist Guard").await;
 
@@ -326,7 +326,7 @@ async fn test_empty_global_blocklist_does_not_block() {
     let (admin_token, _) = super::get_super_admin_token(&app).await;
     let inviter_token = register_user(&app, "inviter_empty").await;
     let invitee = "@empty:localhost";
-    let _invitee_token = register_invitee(&app, &admin_token, "empty").await;
+    let _invitee_token = register_invitee(&app, "empty").await;
 
     let room_id = create_room(&app, &inviter_token, "Empty Guard").await;
 

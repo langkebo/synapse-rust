@@ -159,8 +159,12 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // 列及其索引 `idx_e2ee_audit_log_action`，把唯一读取路径 `operation` 收紧为 `NOT NULL`
 // （迁移内用幂等 DO 块先回填历史 NULL）；常量同步为 `d36d33bfe358346c`；
 // 同样独立复算 FNV-1a 64，并先自检旧值 `efd39fc561affd7a` 逐字节吻合后取值。
-// 合并 feat/room-v12-complete 后的最终指纹：`2125469d3aa756a1`
-const EXPECTED_BASELINE_FINGERPRINT: &str = "2125469d3aa756a1";
+// 2026-09-28（合并 `merge/room-v12-into-opt`，把 feat/room-v12-complete 合回 opt/consolidated 线）：
+// 复算发现上一行记的 `2125469d3aa756a1` **与实际迁移内容不符** —— `bc56930a7`
+// （合并 feat/room-v12-complete）改了迁移却没同步该常量，与 155-157 行记录的是**同一类失误**
+// （Guard 5 因此在 opt/consolidated 上本就是红项）。按 R10 第①条独立复算 FNV-1a 64
+// （`bytes=218573`）得 `f6e8cb1fdbe20a67`，并先用旧值自检哈希实现后取值。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "f6e8cb1fdbe20a67";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

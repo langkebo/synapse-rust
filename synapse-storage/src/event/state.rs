@@ -18,6 +18,55 @@ const STATE_EVENT_INNER_COLS: &str =
      prev_events, auth_events, signatures, hashes";
 
 impl EventStorage {
+    /// The room's **resolved-state group**, if its state has ever been resolved.
+    ///
+    /// `state_groups` is the resolved-state record maintained by
+    /// `synapse_services::room::state_resolution`: the newest group for a room is
+    /// its current state once a conflict has been resolved (MSC4297 v2.1).
+    /// `None` means the room has no resolved record, and current state is derived
+    /// from the event log (the `DISTINCT ON … origin_server_ts DESC` derivation
+    /// used by the read paths below).
+    async fn current_state_group_id(&self, room_id: &str) -> Result<Option<i64>, sqlx::Error> {
+        sqlx::query_scalar!(r#"SELECT id FROM state_groups WHERE room_id = $1 ORDER BY id DESC LIMIT 1"#, room_id,)
+            .fetch_optional(&*self.pool)
+            .await
+    }
+
+    /// The state events of one resolved-state group.
+    ///
+    /// `event_type` / `state_key` narrow the result to a single key (the
+    /// `get_state_event` shape); `None` returns the whole group.
+    async fn state_events_of_group(
+        &self,
+        state_group_id: i64,
+        event_type: Option<&str>,
+        state_key: Option<&str>,
+    ) -> Result<Vec<StateEvent>, sqlx::Error> {
+        sqlx::query_as!(
+            StateEvent,
+            r#"
+            SELECT e.event_id, e.room_id, COALESCE(e.sender, e.user_id) AS "sender!", e.event_type,
+                   e.content, e.state_key,
+                   COALESCE(e.unsigned, '{}'::jsonb) AS unsigned,
+                   COALESCE(e.is_redacted, false) AS is_redacted,
+                   COALESCE(e.origin_server_ts, 0) AS "origin_server_ts!",
+                   e.depth, NULL::BIGINT AS processed_ts, e.not_before, e.status, e.origin,
+                   e.user_id, e.stream_ordering, e.prev_events, e.auth_events, e.signatures, e.hashes
+            FROM events e
+            JOIN state_group_state sgs ON sgs.event_id = e.event_id
+            WHERE sgs.state_group_id = $1
+              AND ($2::text IS NULL OR sgs.event_type = $2)
+              AND ($3::text IS NULL OR sgs.state_key = $3)
+            ORDER BY COALESCE(e.origin_server_ts, 0) DESC, e.event_id ASC
+            "#,
+            state_group_id,
+            event_type,
+            state_key,
+        )
+        .fetch_all(&*self.pool)
+        .await
+    }
+
     /// See [`get_state_event`].
     pub async fn get_state_event(
         &self,
@@ -25,6 +74,14 @@ impl EventStorage {
         event_type: &str,
         state_key: &str,
     ) -> Result<Option<StateEvent>, sqlx::Error> {
+        if let Some(state_group_id) = self.current_state_group_id(room_id).await? {
+            return Ok(self
+                .state_events_of_group(state_group_id, Some(event_type), Some(state_key))
+                .await?
+                .into_iter()
+                .next());
+        }
+
         sqlx::query_as::<_, StateEvent>(&format!(
             "SELECT {STATE_EVENT_OUTER_COLS} \
              FROM events \
@@ -44,6 +101,10 @@ impl EventStorage {
 
     /// See [`get_state_events`].
     pub async fn get_state_events(&self, room_id: &str) -> Result<Vec<StateEvent>, sqlx::Error> {
+        if let Some(state_group_id) = self.current_state_group_id(room_id).await? {
+            return self.state_events_of_group(state_group_id, None, None).await;
+        }
+
         sqlx::query_as::<_, StateEvent>(&format!(
             "SELECT {STATE_EVENT_OUTER_COLS} \
              FROM ( \
@@ -92,6 +153,14 @@ impl EventStorage {
         room_id: &str,
         event_type: &str,
     ) -> Result<Vec<StateEvent>, sqlx::Error> {
+        // A resolved-state record is the room's current state for **every** key it
+        // covers, so a type-scoped read must serve it too — otherwise a conflicted
+        // singleton type (`m.room.join_rules`, `m.room.encryption`, …) could still
+        // be read from the losing branch through this method.
+        if let Some(state_group_id) = self.current_state_group_id(room_id).await? {
+            return self.state_events_of_group(state_group_id, Some(event_type), None).await;
+        }
+
         sqlx::query_as::<_, StateEvent>(&format!(
             "SELECT {STATE_EVENT_OUTER_COLS} \
              FROM ( \

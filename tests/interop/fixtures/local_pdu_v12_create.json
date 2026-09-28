@@ -1,0 +1,31 @@
+{
+  "derived_room_id": "!_0B76lrwFUrudqU83sCRosjyy4GDzoM7ARWITqvjAYM",
+  "event_id": "$_0B76lrwFUrudqU83sCRosjyy4GDzoM7ARWITqvjAYM",
+  "pdu": {
+    "auth_events": [],
+    "content": {
+      "creator": "@alice:example.com",
+      "room_version": "12"
+    },
+    "depth": 1,
+    "hashes": {
+      "sha256": "itEHtqzqFwmFZqetJQoIUingv+3aeHrkAGOrp+QVPg4"
+    },
+    "origin": "example.com",
+    "origin_server_ts": 1731769874137,
+    "prev_events": [],
+    "sender": "@alice:example.com",
+    "signatures": {
+      "example.com": {
+        "ed25519:1": "xyOTcMED+GHFyGPlErKU+pvWhZLF6oqw/AaM3WH7ceH3G8hxOanPJw86+oHo3VFBRiXw5SJO+9phzWr+LdmFDQ"
+      }
+    },
+    "state_key": "",
+    "type": "m.room.create"
+  },
+  "produced_by": "tests/unit/u13_interop_fixture_tests.rs (build_pdu + finalize_local_pdu + sign_and_hash_event)",
+  "room_version": "12",
+  "signing_key_id": "ed25519:1",
+  "signing_seed_base64": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+  "signing_server_name": "example.com"
+}

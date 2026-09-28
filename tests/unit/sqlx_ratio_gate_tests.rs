@@ -91,13 +91,33 @@ fn sqlx_ratio_gate_scans_the_whole_workspace_not_only_root_src() {
 }
 
 /// 扫描必须计入 workspace crate 中的动态调用，而不是只计入根 crate。
+///
+/// ⚠️ 判据**不能**是"动态计数很大"：棘轮的既定终点就是 `dynamic_production = 0`，
+/// 任何绝对下限都会随着债务偿还变成假红。2026-09-28 实测正是如此 —— 把
+/// `invite_blocklist.rs` 的 12 处生产字面量宏化后，总动态从 1005 降到 992，
+/// 撞上原先的 `dynamic > 1000`。改为直接断言**扫描面**里存在 workspace crate
+/// 的路径：它不随债务下降而失效，而"只扫根 crate `src/`"（缺陷 1）会立刻让它红。
 #[test]
 fn sqlx_ratio_gate_counts_dynamic_calls_in_workspace_crates() {
-    let (_, output) = run_gate(&[("SQLX_DYNAMIC_RATIO_MAX", "1.0")]);
-    let dynamic = parse_metric(&output, "dynamic=").expect("输出必须包含 dynamic=<n>");
-    // 下限从 1000 下调到 900：2026-09-28 静态化了 12 处 invite_blocklist 动态 SQL，
-    // dynamic 从 1012 降到 1000；下限仍远高于"只扫根 crate"的计数，能拦住缺陷 1 回归。
-    assert!(dynamic > 900, "dynamic 仅 {dynamic}，workspace crate 的动态 SQL 未被计入\n输出:\n{output}");
+    let (code, output) = run_gate(&[("SQLX_DYNAMIC_RATIO_MAX", "1.0")]);
+    assert_eq!(code, 0, "以 max=1.0 运行应当通过（仅用于读取计数），实际输出:\n{output}");
+    parse_metric(&output, "dynamic=").expect("输出必须包含 dynamic=<n>");
+
+    let out = Command::new("python3")
+        .arg(repo_root().join("scripts/ci/sqlx_query_census.py"))
+        .arg("--list-production-dynamic")
+        .arg(repo_root())
+        .current_dir(repo_root())
+        .output()
+        .expect("census script must be runnable with python3");
+    assert!(out.status.success(), "census --list-production-dynamic 必须成功");
+    let listing = String::from_utf8_lossy(&out.stdout);
+
+    assert!(
+        listing.lines().any(|line| line.starts_with("synapse-")),
+        "生产区动态清单里没有任何 workspace crate（`synapse-*/`）的路径 —— \
+         说明扫描范围退化回根 crate 的 `src/`（缺陷 1 回归）\n清单:\n{listing}"
+    );
 }
 
 /// 扫描必须排除 `.claude/worktrees/` 下的旧仓库副本，否则计数会随本地

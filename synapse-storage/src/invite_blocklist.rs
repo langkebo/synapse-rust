@@ -143,10 +143,10 @@ impl InviteBlocklistStorage {
     /// Get global invite blocklist (all users).
     pub async fn get_global_invite_blocklist(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
         let rows = sqlx::query!(
-            r"
+            r#"
             SELECT user_id, created_ts FROM global_invite_blocklist
             ORDER BY created_ts DESC, user_id ASC
-            ",
+            "#,
         )
         .fetch_all(&*self.pool)
         .await?;
@@ -165,10 +165,10 @@ impl InviteBlocklistStorage {
     /// Get global invite allowlist (all users).
     pub async fn get_global_invite_allowlist(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
         let rows = sqlx::query!(
-            r"
+            r#"
             SELECT user_id, created_ts FROM global_invite_allowlist
             ORDER BY created_ts DESC, user_id ASC
-            ",
+            "#,
         )
         .fetch_all(&*self.pool)
         .await?;
@@ -187,28 +187,26 @@ impl InviteBlocklistStorage {
     /// Check whether `user_id` appears in the global blocklist.
     pub async fn is_user_in_global_blocklist(&self, user_id: &str) -> Result<bool, sqlx::Error> {
         let exists = sqlx::query_scalar!(
-            r"
-            SELECT EXISTS (SELECT 1 FROM global_invite_blocklist WHERE user_id = $1)
-            ",
+            r#"
+            SELECT EXISTS (SELECT 1 FROM global_invite_blocklist WHERE user_id = $1) AS "exists!"
+            "#,
             user_id,
         )
         .fetch_one(&*self.pool)
-        .await?
-        .unwrap_or(false);
+        .await?;
         Ok(exists)
     }
 
     /// Check whether `user_id` appears in the global allowlist.
     pub async fn is_user_in_global_allowlist(&self, user_id: &str) -> Result<bool, sqlx::Error> {
         let exists = sqlx::query_scalar!(
-            r"
-            SELECT EXISTS (SELECT 1 FROM global_invite_allowlist WHERE user_id = $1)
-            ",
+            r#"
+            SELECT EXISTS (SELECT 1 FROM global_invite_allowlist WHERE user_id = $1) AS "exists!"
+            "#,
             user_id,
         )
         .fetch_one(&*self.pool)
-        .await?
-        .unwrap_or(false);
+        .await?;
         Ok(exists)
     }
 
@@ -224,11 +222,11 @@ impl InviteBlocklistStorage {
 
         if !user_ids.is_empty() {
             sqlx::query!(
-                r"
+                r#"
                 INSERT INTO global_invite_blocklist (user_id, created_ts)
                 SELECT unnest($1::text[]), $2
                 ON CONFLICT (user_id) DO NOTHING
-                ",
+                "#,
                 &user_ids,
                 now,
             )
@@ -249,11 +247,11 @@ impl InviteBlocklistStorage {
 
         if !user_ids.is_empty() {
             sqlx::query!(
-                r"
+                r#"
                 INSERT INTO global_invite_allowlist (user_id, created_ts)
                 SELECT unnest($1::text[]), $2
                 ON CONFLICT (user_id) DO NOTHING
-                ",
+                "#,
                 &user_ids,
                 now,
             )
@@ -272,11 +270,11 @@ impl InviteBlocklistStorage {
         offset: i64,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
         let rows = sqlx::query!(
-            r"
+            r#"
             SELECT user_id, created_ts FROM global_invite_blocklist
             ORDER BY created_ts DESC, user_id ASC
             LIMIT $1 OFFSET $2
-            ",
+            "#,
             limit,
             offset,
         )
@@ -301,11 +299,11 @@ impl InviteBlocklistStorage {
         offset: i64,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
         let rows = sqlx::query!(
-            r"
+            r#"
             SELECT user_id, created_ts FROM global_invite_allowlist
             ORDER BY created_ts DESC, user_id ASC
             LIMIT $1 OFFSET $2
-            ",
+            "#,
             limit,
             offset,
         )
@@ -325,19 +323,17 @@ impl InviteBlocklistStorage {
 
     /// Return the total row count for the global invite blocklist.
     pub async fn global_invite_blocklist_count(&self) -> Result<i64, sqlx::Error> {
-        let count: i64 = sqlx::query_scalar!("SELECT COUNT(*) FROM global_invite_blocklist")
+        let count = sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!" FROM global_invite_blocklist"#)
             .fetch_one(&*self.pool)
-            .await?
-            .unwrap_or(0);
+            .await?;
         Ok(count)
     }
 
     /// Return the total row count for the global invite allowlist.
     pub async fn global_invite_allowlist_count(&self) -> Result<i64, sqlx::Error> {
-        let count: i64 = sqlx::query_scalar!("SELECT COUNT(*) FROM global_invite_allowlist")
+        let count = sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!" FROM global_invite_allowlist"#)
             .fetch_one(&*self.pool)
-            .await?
-            .unwrap_or(0);
+            .await?;
         Ok(count)
     }
 }

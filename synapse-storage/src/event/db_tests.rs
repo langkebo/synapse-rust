@@ -3199,3 +3199,127 @@ async fn test_count_room_events_by_status_scopes_room_and_status() {
     assert_eq!(storage.count_room_events_by_status(&room_b, "pending").await.expect("b/pending"), 1);
     assert_eq!(storage.count_room_events_by_status(&room_b, "failed").await.expect("b/failed"), 0);
 }
+
+/// A room whose state has ever been resolved reads its current state from the
+/// **resolved-state record** (`state_groups` + `state_group_state`), not from
+/// the event log's `origin_server_ts` derivation.
+///
+/// This is the read half of F-1's wiring: the record is written when a room's
+/// branches conflict, and from then on it — not the timestamp — names the
+/// winner for each `(event_type, state_key)`.
+#[tokio::test]
+async fn test_current_state_prefers_the_resolved_state_record() {
+    use crate::state_groups::StateGroupStorage;
+
+    let (_isolated, pool) = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+    let groups = StateGroupStorage::new(&pool);
+    let room_id = format!("!resolved_state_{}:example.com", uuid::Uuid::new_v4());
+    let user_id = "@resolver:example.com";
+    ensure_test_room(&pool, &room_id).await;
+    ensure_test_user(&pool, user_id).await;
+
+    let now = current_timestamp_millis();
+    let suffix = uuid::Uuid::new_v4();
+    let id = |name: &str| format!("${name}_{suffix}:example.com");
+    let by_timestamp = id("by_timestamp");
+    let by_resolution = id("by_resolution");
+    let topic_only = id("topic_only");
+
+    let params = |event_id: &str, event_type: &str, state_key: &str, ts: i64, body: &str| CreateEventParams {
+        event_id: event_id.to_string(),
+        room_id: room_id.clone(),
+        user_id: user_id.to_string(),
+        event_type: event_type.to_string(),
+        content: serde_json::json!({ "topic": body }),
+        state_key: Some(state_key.to_string()),
+        origin_server_ts: ts,
+        redacts: None,
+    };
+
+    // Two candidates for the same key. The event log's derivation prefers the
+    // larger `origin_server_ts`; the resolved record will name the other one.
+    storage
+        .create_event_with_graph(params(&by_timestamp, "m.room.topic", "", now + 10, "by-timestamp"), &[], &[], 1, None)
+        .await
+        .expect("timestamp winner");
+    storage
+        .create_event_with_graph(
+            params(&by_resolution, "m.room.topic", "", now + 5, "by-resolution"),
+            &[],
+            &[],
+            1,
+            None,
+        )
+        .await
+        .expect("resolution winner");
+    // A key the resolved record does **not** cover, to pin that the record is
+    // the whole current state rather than an overlay on the log derivation.
+    storage
+        .create_event_with_graph(params(&topic_only, "m.room.name", "", now + 1, "log-only"), &[], &[], 1, None)
+        .await
+        .expect("log-only key");
+
+    // No resolved record yet → the event-log derivation decides.
+    let by_log = storage
+        .get_state_event(&room_id, "m.room.topic", "")
+        .await
+        .expect("get_state_event")
+        .expect("a topic event exists");
+    assert_eq!(by_log.event_id, by_timestamp, "without a resolved record the newest timestamp wins");
+    assert_eq!(storage.get_state_events(&room_id).await.expect("get_state_events").len(), 2);
+
+    // Resolve: the record names `by_resolution` — the *older* event.
+    let group_id = groups
+        .create_state_group(&room_id, &by_resolution, &format!("resolved_{suffix}"), now)
+        .await
+        .expect("create_state_group");
+    groups.set_state_entry(group_id, "m.room.topic", "", &by_resolution).await.expect("set_state_entry");
+
+    let resolved = storage
+        .get_state_event(&room_id, "m.room.topic", "")
+        .await
+        .expect("get_state_event")
+        .expect("the record names a topic event");
+    assert_eq!(
+        resolved.event_id, by_resolution,
+        "the resolved record must override the timestamp derivation, even for the older event"
+    );
+
+    let all = storage.get_state_events(&room_id).await.expect("get_state_events");
+    assert_eq!(all.len(), 1, "the record is the whole current state: {all:?}");
+    assert_eq!(all[0].event_id, by_resolution);
+
+    // The log-only key is intentionally absent: the record, not the log, is the
+    // room's current state once resolution has run.
+    groups
+        .set_state_entries(
+            group_id,
+            &[
+                crate::state_groups::StateGroupStateEntry {
+                    event_type: "m.room.topic".to_string(),
+                    state_key: String::new(),
+                    event_id: by_resolution.clone(),
+                },
+                crate::state_groups::StateGroupStateEntry {
+                    event_type: "m.room.name".to_string(),
+                    state_key: String::new(),
+                    event_id: topic_only.clone(),
+                },
+            ],
+        )
+        .await
+        .expect("set_state_entries");
+    let all = storage.get_state_events(&room_id).await.expect("get_state_events");
+    assert_eq!(all.len(), 2);
+    assert!(all.iter().any(|event| event.event_id == topic_only), "record entries are served: {all:?}");
+
+    // The type-scoped read serves the record too: it is the room's current state
+    // for every key the record covers, not only for the whole-state projection.
+    let topics = storage.get_state_events_by_type(&room_id, "m.room.topic").await.expect("by type");
+    assert_eq!(
+        topics.iter().map(|event| event.event_id.as_str()).collect::<Vec<_>>(),
+        vec![by_resolution.as_str()],
+        "a type-scoped read must not fall back to the losing branch"
+    );
+}
