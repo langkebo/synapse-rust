@@ -1,5 +1,8 @@
 # Synapse-Rust 与 Synapse (Python) 地址：https://github.com/element-hq/synapse 对比分析报告
 
+> **状态（2026-09-28）**：本文多处记"v12/v13 为 `stable_parse_only`、不可创建"，已过时：
+> v12 是**唯一可创建**版本（G-1），版本 13 已从能力表移除（Q5(b)）。v12 语义落地情况见 `docs/audit/ROOM_V12_PLAN_STATUS_2026-09-27.md`。
+
 > **文档版本**: v1.8
 > **更新日期**: 2026-09-25
 > **更新说明**:
