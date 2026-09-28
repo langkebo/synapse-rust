@@ -45,7 +45,7 @@ async fn register_user(app: &axum::Router, username: &str) -> String {
 
 /// Register a user and set their `m.invite_permission_config` so
 /// they are not blocked by `account_policy_denies`.
-async fn register_invitee(app: &axum::Router, admin_token: &str, username: &str) -> String {
+async fn register_invitee(app: &axum::Router, _admin_token: &str, username: &str) -> String {
     let token = register_user(app, username).await;
     let user_id = format!("@{}:localhost", username);
     set_account_data(app, &token, &user_id, "m.invite_permission_config", &json!({"default_action": "allow"})).await;
