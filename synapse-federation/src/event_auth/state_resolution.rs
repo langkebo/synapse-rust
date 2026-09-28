@@ -512,11 +512,25 @@ impl EventAuthChain {
     }
 
     /// See [`resolve_state_v2`.
-    pub fn resolve_state_v2(
+    /// Resolve conflicting state (state resolution v2.1, MSC4297).
+    ///
+    /// `is_authorised` is the `_check_event_auth` half injected by the caller —
+    /// see [`Self::iterative_auth_checks`] for why it is a parameter.
+    ///
+    /// Mechanics: split the state sets into unconflicted and conflicted keys,
+    /// build the **full conflicted set** (conflicted ∪ conflicted state subgraph
+    /// ∪ auth difference), order it, **replay** it with iterative auth checks
+    /// starting from an **empty** state map (v2.1 Modification 1), then overlay
+    /// the unconflicted state (spec step 5).
+    pub fn resolve_state_v2<F>(
         &self,
         state_sets: &[&HashMap<String, &Value>],
         events: &HashMap<String, EventData>,
-    ) -> HashMap<String, Value> {
+        is_authorised: F,
+    ) -> HashMap<String, Value>
+    where
+        F: Fn(&EventData, &HashMap<String, String>) -> bool,
+    {
         let mut resolved: HashMap<String, Value> = HashMap::new();
         let mut unconflicted: HashMap<String, &Value> = HashMap::new();
         let mut conflicted_keys: HashSet<String> = HashSet::new();
@@ -567,78 +581,17 @@ impl EventAuthChain {
             conflicted_events_by_key.insert(key.clone(), candidates);
         }
 
-        // 单候选的键直接采用.
-        let mut multi_conflict_keys: Vec<String> = Vec::new();
-        for (key, candidates) in &conflicted_events_by_key {
-            if candidates.len() == 1 {
-                if let Some(event) = events.get(&candidates[0]) {
-                    if let Some(content) = &event.content {
-                        resolved.insert(key.clone(), content.clone());
-                    }
-                }
-            } else {
-                multi_conflict_keys.push(key.clone());
-            }
-        }
-
-        if multi_conflict_keys.is_empty() {
+        // MSC4297: every candidate named by a conflicted key is conflicted —
+        // including keys only one state set carries (present in one, absent in
+        // another is a conflict too, and v2 replays it).
+        let conflicted_set: HashSet<String> = conflicted_events_by_key.values().flatten().cloned().collect();
+        if conflicted_set.is_empty() {
             return resolved;
         }
 
-        // P0-11: power_levels 映射必须是 user_id -> power_level,
-        // 从冲突集合中最新的 m.room.power_levels 事件 content.users 提取.
-        let power_levels: HashMap<String, i64> = {
-            let mut pl_events: Vec<&EventData> =
-                events.values().filter(|e| e.event_type == "m.room.power_levels").collect();
-            // 按深度排序, 取最深 (最新) 的 power_levels 事件作为基准.
-            pl_events.sort_by(|a, b| b.depth.cmp(&a.depth).then_with(|| b.origin_server_ts.cmp(&a.origin_server_ts)));
-            let mut map: HashMap<String, i64> = HashMap::new();
-            if let Some(pl_event) = pl_events.first() {
-                if let Some(content) = &pl_event.content {
-                    if let Some(users) = content.get("users").and_then(|u| u.as_object()) {
-                        for (user_id, power) in users {
-                            if let Some(p) = power.as_i64() {
-                                map.insert(user_id.clone(), p);
-                            }
-                        }
-                    }
-                }
-            }
-            map
-        };
-
-        // 构建主链 (mainline): 从 m.room.create 开始, 沿 auth_events 链
-        // 收集 m.room.power_levels 事件序列.
-        let room_create = events.iter().find(|(_, e)| e.event_type == "m.room.create").map(|(eid, _)| eid.clone());
-        let mainline =
-            if let Some(create_id) = &room_create { self.compute_mainline(events, create_id) } else { Vec::new() };
-
-        // 将冲突事件分为 auth 事件和非 auth 事件.
-        let auth_event_types: &[&str] = &[
-            "m.room.create",
-            "m.room.member",
-            "m.room.power_levels",
-            "m.room.join_rules",
-            "m.room.history_visibility",
-        ];
-
-        let is_auth_event = |eid: &str| -> bool {
-            events.get(eid).map(|e| auth_event_types.contains(&e.event_type.as_str())).unwrap_or(false)
-        };
-
-        // MSC4297 (state resolution v2.1): the **full conflicted set** is the
-        // conflicted state set ∪ the conflicted state subgraph ∪ the auth
-        // difference. v2 stopped at the first and third terms; the subgraph is
-        // what v2.1 adds, so the events between conflicted events are replayed
-        // too. The set is computed here and drives the ordering below.
-        let conflicted_set: HashSet<String> = multi_conflict_keys
-            .iter()
-            .flat_map(|k| conflicted_events_by_key.get(k).cloned().unwrap_or_default())
-            .collect();
-
-        // Each state set's full auth chain: the union of the auth chains of the
-        // events it contains (spec: "the union of the auth chains for each event
-        // in S_i"). `build_auth_chain_from_events` is the transitive closure.
+        // The **full conflicted set** (v2.1): conflicted ∪ conflicted state
+        // subgraph ∪ auth difference. A state set's full auth chain is the union
+        // of the auth chains of the events it contains.
         let full_auth_chain = |state_set: &HashMap<String, &Value>| -> Vec<String> {
             let mut chain: Vec<String> = Vec::new();
             let mut seen: HashSet<String> = HashSet::new();
@@ -664,30 +617,75 @@ impl EventAuthChain {
         let all_conflicted_eids: Vec<String> =
             self.full_conflicted_set(&conflicted_set, &auth_difference, events).into_iter().collect();
 
+        // P0-11: the power levels map (user_id -> level) from the deepest
+        // power_levels event available.
+        let power_levels: HashMap<String, i64> = {
+            let mut pl_events: Vec<&EventData> =
+                events.values().filter(|e| e.event_type == "m.room.power_levels").collect();
+            pl_events.sort_by(|a, b| b.depth.cmp(&a.depth).then_with(|| b.origin_server_ts.cmp(&a.origin_server_ts)));
+            let mut map: HashMap<String, i64> = HashMap::new();
+            if let Some(pl_event) = pl_events.first() {
+                if let Some(content) = &pl_event.content {
+                    if let Some(users) = content.get("users").and_then(|u| u.as_object()) {
+                        for (user_id, power) in users {
+                            if let Some(p) = power.as_i64() {
+                                map.insert(user_id.clone(), p);
+                            }
+                        }
+                    }
+                }
+            }
+            map
+        };
+
+        // The mainline: the `m.room.power_levels` sequence reachable from
+        // `m.room.create` along `auth_events`.
+        let room_create = events.iter().find(|(_, e)| e.event_type == "m.room.create").map(|(eid, _)| eid.clone());
+        let mainline =
+            if let Some(create_id) = &room_create { self.compute_mainline(events, create_id) } else { Vec::new() };
+
+        let auth_event_types: &[&str] = &[
+            "m.room.create",
+            "m.room.member",
+            "m.room.power_levels",
+            "m.room.join_rules",
+            "m.room.history_visibility",
+        ];
+        let is_auth_event = |eid: &str| -> bool {
+            events.get(eid).map(|e| auth_event_types.contains(&e.event_type.as_str())).unwrap_or(false)
+        };
+
         let auth_eids: Vec<String> = all_conflicted_eids.iter().filter(|e| is_auth_event(e)).cloned().collect();
         let non_auth_eids: Vec<String> = all_conflicted_eids.iter().filter(|e| !is_auth_event(e)).cloned().collect();
 
-        // 解析 auth 事件: 使用 reverse topological power ordering.
+        // Conflicted power/auth events are ordered first (reverse topological
+        // power ordering), then the rest (mainline ordering). Both currently use
+        // the same comparator — sender power, timestamp, mainline position — which
+        // approximates the two spec orderings; see the status doc §4.8.
         let sorted_auth = self.sort_by_reverse_topological_power(events, &auth_eids, &mainline, &power_levels);
-
-        // 解析非 auth 事件: 使用 mainline ordering.
         let sorted_non_auth = self.sort_by_reverse_topological_power(events, &non_auth_eids, &mainline, &power_levels);
 
-        // 合并排序结果, auth 事件优先, 然后非 auth 事件.
-        // 对每个状态键, 第一个出现的事件获胜.
         let mut ordered_all: Vec<String> = sorted_auth;
         ordered_all.extend(sorted_non_auth);
 
-        // 按排序顺序填充 resolved: 对每个状态键, 第一个匹配的事件获胜.
-        for key in &multi_conflict_keys {
-            let candidates = conflicted_events_by_key.get(key).cloned().unwrap_or_default();
-            // 在 ordered_all 中找到第一个属于该 key 候选集的事件.
-            if let Some(winner_id) = ordered_all.iter().find(|eid| candidates.contains(eid)) {
-                if let Some(event) = events.get(winner_id) {
-                    if let Some(content) = &event.content {
-                        resolved.insert(key.clone(), content.clone());
-                    }
-                }
+        // MSC4297 Modification 1: replay from an **empty** state map, so each
+        // event is authorised from its own `auth_events` history rather than from
+        // the (possibly stale) unconflicted state — "Problem A".
+        let replayed =
+            self.iterative_auth_checks(&ordered_all, &HashMap::new(), events, &HashSet::new(), is_authorised);
+
+        // Spec step 5: the unconflicted state wins for the keys it covers.
+        for (key, val) in &unconflicted {
+            resolved.insert(key.clone(), (*val).clone());
+        }
+
+        // Materialise the replayed state, skipping the keys step 5 settled.
+        for (key, event_id) in &replayed {
+            if resolved.contains_key(key) {
+                continue;
+            }
+            if let Some(content) = events.get(event_id).and_then(|event| event.content.as_ref()) {
+                resolved.insert(key.clone(), content.clone());
             }
         }
 
@@ -1100,5 +1098,85 @@ mod tests {
             !resolved.values().any(|id| id == "$rules"),
             "with the only authorising member event rejected, nothing is authorised: {resolved:?}"
         );
+    }
+
+    // ── reassembled resolver: replay semantics ───────────────────────────
+
+    /// `resolve_state_v2` input: a state set mapping `"type:state_key"` to the
+    /// projected event value (the resolver only reads `event_id` from it).
+    fn state_set(entries: Vec<(&str, &str)>) -> HashMap<String, &'static Value> {
+        // Leaked: the map borrows the values, and a test binary leaking a few
+        // small JSON values is harmless.
+        entries.into_iter().map(|(k, id)| (k.to_string(), &*Box::leak(Box::new(json!({ "event_id": id }))))).collect()
+    }
+
+    /// The replay decides the winner: the candidate whose sender is not a joined
+    /// member is skipped, even when it sorts first. Under the previous
+    /// "first candidate in order wins" logic the loser here would have won.
+    #[test]
+    fn replay_decides_the_conflicted_winner_not_the_ordering() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![
+            member_event("$a_join", "@a:ex.com", "join", &[]),
+            member_event("$b_leave", "@b:ex.com", "leave", &[]),
+            join_rules_event("$rules_ok", "@a:ex.com", &["$a_join"]),
+            join_rules_event("$rules_bad", "@b:ex.com", &["$b_leave"]),
+        ]);
+
+        let set_a = state_set(vec![("m.room.join_rules:", "$rules_ok")]);
+        let set_b = state_set(vec![("m.room.join_rules:", "$rules_bad")]);
+        let sets: Vec<&HashMap<String, &Value>> = vec![&set_a, &set_b];
+
+        let resolved = chain.resolve_state_v2(&sets, &events, sender_is_joined(&events));
+        assert_eq!(
+            resolved.get("m.room.join_rules:").and_then(|v| v.get("join_rule")).and_then(|v| v.as_str()),
+            Some("public"),
+            "the replay must keep the authorised candidate: {resolved:?}"
+        );
+    }
+
+    /// Spec step 5: the unconflicted state overrides whatever the replay produced
+    /// for the same key.
+    #[test]
+    fn unconflicted_state_overrides_the_replayed_result() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![
+            member_event("$a_join", "@a:ex.com", "join", &[]),
+            join_rules_event("$rules_a", "@a:ex.com", &["$a_join"]),
+            join_rules_event("$rules_b", "@a:ex.com", &["$a_join"]),
+        ]);
+
+        // `m.room.name:` is identical in both sets → unconflicted. (The name
+        // events themselves are not in `events`, which is fine: the overlay
+        // carries the value through.)
+        let dir_a: &'static Value = Box::leak(Box::new(json!({ "event_id": "$dir_a" })));
+        let dir_b: &'static Value = Box::leak(Box::new(json!({ "event_id": "$dir_a" })));
+        let mut set_a = state_set(vec![("m.room.join_rules:", "$rules_a")]);
+        let mut set_b = state_set(vec![("m.room.join_rules:", "$rules_b")]);
+        set_a.insert("m.room.name:".to_string(), dir_a);
+        set_b.insert("m.room.name:".to_string(), dir_b);
+        let sets: Vec<&HashMap<String, &Value>> = vec![&set_a, &set_b];
+
+        let resolved = chain.resolve_state_v2(&sets, &events, sender_is_joined(&events));
+        assert_eq!(
+            resolved.get("m.room.name:").and_then(|v| v.get("event_id")).and_then(|v| v.as_str()),
+            Some("$dir_a"),
+            "the unconflicted key must survive resolution: {resolved:?}"
+        );
+    }
+
+    /// No conflict at all → the unconflicted state is returned unchanged. The
+    /// predicate denies everything, so a result can only come from the
+    /// unconflicted overlay.
+    #[test]
+    fn no_conflict_returns_the_unconflicted_state_without_replay() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![]);
+        let set_a = state_set(vec![("m.room.name:", "$x")]);
+        let set_b = state_set(vec![("m.room.name:", "$x")]);
+        let sets: Vec<&HashMap<String, &Value>> = vec![&set_a, &set_b];
+
+        let resolved = chain.resolve_state_v2(&sets, &events, |_, _| false);
+        assert_eq!(resolved.get("m.room.name:").and_then(|v| v.get("event_id")).and_then(|v| v.as_str()), Some("$x"));
     }
 }
