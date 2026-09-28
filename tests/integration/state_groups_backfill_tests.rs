@@ -6,7 +6,20 @@
 //! 2. Backfill script logic works correctly
 //! 3. After backfill, all v12+ rooms have state groups
 
-use synapse_storage::state_groups::{StateGroupStateEntry, StateGroupStorage};
+use std::sync::atomic::{AtomicU64, Ordering};
+use synapse_storage::state_groups::StateGroupStorage;
+
+/// 每个用例一个独立后缀（与 `state_groups_idempotency_tests.rs` 同形）。
+///
+/// D-81：本文件（A3+A4 批次新增）直接调用 `unique_id()` 却**从未定义它** ——
+/// 集成测试 target 因此编译失败（E0425 ×2），`--all-targets` 的 clippy 与
+/// `check_sqlx_cache_fresh.sh --compile` 双红。`unique_id` 在每个测试模块里都是
+/// **文件本地**助手（不是共享工具），所以修法是补上本文件的这一份，而不是跨模块引用。
+static TEST_COUNTER: AtomicU64 = AtomicU64::new(10_000);
+
+fn unique_id() -> u64 {
+    TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
+}
 
 #[tokio::test]
 async fn test_detect_unbackfilled_rooms() {
