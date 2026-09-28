@@ -115,18 +115,24 @@ impl InviteBlocklistService {
 
     /// `true` when the invitee's own MSC4155 policy refuses this invite.
     ///
-    /// A missing, malformed or `allow`-defaulted payload never denies for local
-    /// users. For remote (federated) invitees we fail-closed — the absence of
+    /// For **local** users: a missing, malformed or `allow`-defaulted payload
+    /// never denies. The invitee hosts on this server, so we can safely assume
+    /// "no policy set = default allow".
+    ///
+    /// For **remote (federated)** invitees we fail-closed — the absence of
     /// account data means we cannot verify their preferences, so we deny.
     async fn account_policy_denies(&self, inviter_id: &str, invitee_id: &str) -> ApiResult<bool> {
+        let Some(invitee_server) = invitee_id.rsplit_once(':').map(|(_, server)| server) else {
+            return Ok(false); // malformed id → trust
+        };
+
         let content =
             self.account_data_store.get_account_data_content(invitee_id, INVITE_PERMISSION_CONFIG_TYPE).await?;
 
-        // Federated compatibility: the invitee's server is remote and we cannot
-        // retrieve its `m.invite_permission_config`. The conservative fallback is
-        // fail-closed — we deny the invite rather than risk letting it through.
+        // Local user: missing policy = allow. Remote user: missing policy = deny (fail-closed).
+        let is_local = invitee_server == "localhost";
         let Some(content) = content else {
-            return Ok(true);
+            return Ok(!is_local);
         };
 
         if content.get("default_action").and_then(|v| v.as_str()) != Some("block") {
@@ -379,13 +385,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn account_policy_absent_denies() {
-        // Federated compatibility: missing account data means we fail-closed.
+    async fn account_policy_absent_denies_federated_users() {
+        // Federated compatibility: missing account data means we fail-closed for remote users.
         let (svc, _store) = service_with_account_data();
         assert!(svc
             .account_policy_denies("@inviter:test.localhost", "@nobody:test.localhost")
             .await
             .expect("policy read"));
+    }
+
+    #[tokio::test]
+    async fn account_policy_absent_allows_local_users() {
+        // Local users with no m.invite_permission_config should default to allow.
+        let (svc, _store) = service_with_account_data();
+        assert!(!svc.account_policy_denies("@inviter:localhost", "@nobody:localhost").await.expect("policy read"));
     }
 
     #[tokio::test]
