@@ -33,7 +33,7 @@
 | **E-1** | `additional_creators` 校验（规则 1.4） | ✅ **完成**（`a659f9f7d`） | v12+ create 的 `additional_creators` 必须为合法 user ID 数组；user-id 语法抽为唯一实现 `validation::is_well_formed_user_id` 并让 `Validator` 委托；7 用例 + 变异自证 |
 | **E-2** | 创建者集合 + 无限 PL（G-32/33/35） | ✅ **完成**（`6f0c1735a`） | `room_creators_and_version` 一次读 create 事件返回（集合, 版本）；`resolve_room_creators`；v12+ 创建者返回 `CREATOR_POWER_LEVEL = i64::MAX` 且**排在读 PL 之前**（不可降权）；踢/封保护改用集合；版本未知时 fail-closed 不授予无限 |
 | **E-3** | 规则 10.4：PL 的 `users` 不得含创建者 | ✅ **完成**（`6f0c1735a` + `fcc57e0f2` + 接线修复 `ab59f4286`） | 客户端 `verify_power_levels_change` 拒绝；**修复**：规范路径是 `PUT /state/m.room.power_levels`（`ensure_room_state_write_access`），原先只接了非规范的 `/send` 路径 ⇒ 规则实际未生效，现已接上（同时补上原本缺失的升降权/同级检查）；入站经 B-1 接缝，读创建者失败 **fail-closed** |
-| **F-1** | 状态决议接线决策 + 接线 | 🟡 **层次已拍板（入站写入时）、读半边已落地、写半边未做** | 决策（A-2 Q6 改选 (ii)）：v2.1 实现在 `resolve_state_v2`（已完成，见 F-2）+ 查清/接线冲突状态路径。**查清已完成**（§4.6：本仓无状态决议路径，当前 `DISTINCT ON … origin_server_ts DESC` 纯时间戳 LWW）。**层次决策已由任务方拍板：`(A) 入站写入时`**（2026-09-28，第 12 轮；另两个候选是"读 state 时"与"新建 state-group 流水线"）。**读半边已落地**（`424aaec54`，见 §4.9）；**写半边未做**（分叉检测 + v2.1 解析 + 回写 group）。 |
+| **F-1** | 状态决议接线决策 + 接线 | ✅ **完成**（`424aaec54` + `62d98ac49`） | 决策：v2.1 实现在 `resolve_state_v2`（见 F-2）+ 查清/接线冲突状态路径。**查清**（§4.6：本仓无状态决议路径，原为 `DISTINCT ON … origin_server_ts DESC` 纯时间戳 LWW）。**层次由任务方拍板 `(A) 入站写入时`**（2026-09-28 第 12 轮）。**读半边** `424aaec54`（§4.9）：resolver 结果统一可消费 + 当前 state 以 `state_groups` 记录为准。**写半边** `62d98ac49`（§4.11）：`StateRecord` 在两个状态写入接缝后维护记录 —— 分叉时逐 extremity 求事件处 state 并用 `resolve_state_for_version_with_rules` 解析回写；有记录时前向拷贝完整状态；无分叉无记录时行为不变。含**服务接缝端到端**用例与变红自证 |
 | **F-2** | v2.1 三处修改 | ✅ **完成**（五片：`a5d32166c`/`45d48b69b`/`0e207f202`/`de9270a02`/`70e6ffd38`） | Modification 2（subgraph）+ 3（full conflicted set）+ auth difference 修正 + Modification 1（`iterative_auth_checks`，起始 map 为参数）+ 解析器重组（空起始重放 → 叠加 unconflicted）+ 忠实排序（reverse topological power ordering / mainline ordering）+ **真实 `_check_event_auth`**（`state_map_auth`，复用 membership_transition/room_creator/E 组结论）。已知简化：restricted join 在本谓词下**欠授权**（需 allow rooms 的 state）；上游 implementer's guide **无机器可读向量** ⇒ 向量来自 MSC 原文的 Problem A/B 场景 |
 | **F-3** | v1–v11 兼容边界 | ✅ **完成**（`9836c3be7`） | `resolve_state_for_version`：**v12+ 用空起始 map（v2.1）**、**v1–v11 用 unconflicted 起始（v2）**；边界用例在**同一冲突/同一谓词**下断言 v11 否决、v12 放行；另有 `"1"/"11"/"12"/"13"/不可解析标识` 的分派范围用例 |
 | **G-1** | 能力表收敛：仅 v12 可创建 | ✅ **完成**（`7489b247f`） | 新增 `RoomVersionCapability::stable_no_create`：v1–v11 可 join/parse/federate、不可创建；`resolve_room_version` 对 v1–v11 返回 `None`；`/capabilities.available` 仅 `"12"`（快照已审阅更新）；联邦 join 走存储层 `room_storage.create_room`，**不受影响** |
@@ -41,13 +41,16 @@
 | **H-1** | 逐份更正文档（含额外 6 份） | ✅ **完成**（`72072e175`） | 10 份文档标题下加状态行（U-22、❌7、AUDIT_SUMMARY、DB_REVIEW、O1_PHASE1、PROJECT_REMAINING、P2_protocol_contract、synapse‑vs‑synapse comparison、API_COVERAGE、v12‑pdu‑graph‑fields），统一指向本文为唯一现状来源；判据 `grep MSC4239 + v12` 不再把 MSC4239 当 v12 定义（余下命中是本计划的纠错说明与该文件自我更正）；新增行无 markdownlint 违规 |
 | **H-2** | Q1–Q7 结论落档 | ✅ **完成**（`c56d9d161`） | 本文 §3/§5 记录 Q1–Q8 结论**及其落点**（代码/提交/doc）；README 文档索引新增房间 v12 计划与状态条目（此前 `docs/audit` 零索引 ⇒ 不可发现） |
 
-**计数（2026-09-28，A-3 完成后）**：§1 表中**除 F-1 外的全部工作项均为 ✅**（含此前被漏计的 **A-3** 与本轮一并更正的 **A-2** 行）｜🟡 部分 1（**F-1 的写半边**，读半边见 §4.9）｜❌ 未做 0。
+**计数（2026-09-28，F-1 完成后）**：§1 表中**全部工作项均为 ✅**（含此前被漏计的 **A-3**、一并更正的 **A-2** 行，以及本轮的 **F-1** 写半边）｜🟡 0｜❌ 0。
 
 > ⚠️ **计数口径说明（2026-09-28）**：原"完成 23（… 实为 24 项中的 23 项）"一行**本身自相矛盾** ——
-> 它列了 24 个名字却说 23 项，且**漏掉了 §1 表里的 A-3**（当时确为 ❌）。
-> 本轮把 A-3 做完（`20789c476`，§4.10），并把同样陈旧的 A-2 行（原标 ❌，实际早已由
-> `6cb305409` 落档）一并更正。**计划基线 §3.2 的项数（24）与 §1 表的行数并不一致**，
-> 因此不再以"23/24"这种会误导的分数表述，改为逐项状态 + 唯一剩余项。
+> 它列了 24 个名字却说 23 项，且**漏掉了 §1 表里的 A-3**；A-2 行也与其它 ✅ 行矛盾。
+> A-3 已做完（`20789c476`，§4.10）、A-2 行已更正、F-1 两半均已落地（§4.9 / §4.11）。
+> **计划基线 §3.2 的项数（24）与 §1 表的行数并不一致**，因此不以分数表述，只报逐项状态。
+>
+> **仍未修、与本计划无关的既有红项**（不在 §1 任何一项内）：`tests/unit` 的 12 条、
+> `snapshot_versions_endpoint`、`derived_manifest` fixture、invite-policy 的 7 条集成用例，
+> 以及本文件 §4.9.4 记录的 SQLx/顺序/死代码门禁债（**已在本轮之前的独立提交中偿还**）。
 
 > **D-2/D-5 完成（2026-09-28）**：`c073c9625`（规则 2）、`e933e362c`（auth chain 不含 create）。
 > **仅剩 F-2/F-3**（MSC4297）：落点 `resolve_state_v2` 已定，但 §4.6 已证明本仓**没有**状态决议路径，
@@ -469,20 +472,21 @@ auth-rules 引擎，避免复制一套规则）。4 个新用例 + 变异自证�
    时间戳新者胜；写入记录后**较旧**的候选必须胜出；且记录是**全量**当前态（记录未覆盖的键
    不出现在结果里），不是叠加在时间戳推导之上的补丁。
 
-### 4.9.3 写半边（下一片，本文件记为 F-1 的**唯一**剩余接线工作）
+### 4.9.3 写半边（**已落地**：`62d98ac49`，见 §4.11）
 
-落点在 **`MessagingService::create_event_with_graph` 之后的维护步骤** —— 它是本地写入与入站
-PDU 的**唯一**事件写入接缝（`backfill` / 联邦事务 / 本地 `/send` 都经它）：
+落点在两个**状态事件写入接缝**之后的维护步骤 —— `MessagingService::create_event_with_graph`
+（本地 `/send`、入站联邦事务、`backfill`、invite 共用）与联邦加入的 state 批次
+（后者走存储层写入并在**一个事务**内提交，不经过前者）：
 
 - 房间 forward extremities > 1（分叉）⇒ 对每个 extremity 求"事件处 state"（沿 `event_edges`
   走 DAG；多父节点处用 `resolve_state_for_version_with_rules` 递归）→ 解析 → 以新 group 回写
   （`create_state_group` + `set_state_entries` + `add_state_group_edges` + `bind_event_to_state_group`）；
-- 否则若房间**已有**记录 ⇒ **前向拷贝**新 group（一条边 + 新键条目），保证记录不因后续写入而陈旧；
-- 从未分叉、也从未有记录的房间维持时间戳推导（即当前行为完全不变）。
+- 否则若房间**已有**记录 ⇒ **前向拷贝**完整状态（读路径只服务 group 自身的行，故不能只写增量）；
+- 从未分叉、也从未有记录的房间维持时间戳推导（即行为完全不变）。
 
-⚠️ 风险（计划 §F-1 原评"风险：高"）：这是一条从未在生产路径跑过的算法 + 一条新的关键路径；
-`create_event_with_graph` 是安全敏感热路径，且 `tx: Some(..)` 的调用方（建房/升级）只能在其
-事务提交后再维护记录，需单独处理。
+计划 §F-1 原评"风险：高"（从未在生产路径跑过的算法 + 一条新的关键路径）已由 §4.11 的
+端到端用例与变红自证承担；`tx: Some(..)` 的调用方（建房/升级）在事务内不维护，由联邦加入路径
+在 commit 后单独维护。
 
 ### 4.9.4 同批偿还的既有门禁债（`4cc45d279`，独立提交）
 
@@ -553,3 +557,64 @@ unit 守卫（literal / ratio / tiebreak）41/41。
 ### 4.10.3 剩余
 
 计划的**唯一**剩余项回到 **F-1 的写半边**（§4.9.3）：分叉检测 + v2.1 解析 + 回写 group。
+
+---
+
+## 4.11 F-1 写半边：状态决议接线完成（`62d98ac49`，2026-09-28）
+
+计划 §F-1 的验收判据是"**要么接线（并说明在哪个入站/room-join 路径调用）**，要么按铁律 1
+删除死实现"。本节给出接线结论与证据。
+
+### 4.11.1 调用路径（验收判据点名的那一半）
+
+| 接缝 | 覆盖的写入 | 何时维护 |
+|---|---|---|
+| `MessagingService::create_event_with_graph`（`synapse-services/src/room/messaging/events.rs`） | 本地 `/send`、**入站联邦事务**（`synapse-web/.../federation/transaction.rs`）、`backfill`、联邦 invite | 事件已提交（`tx.is_none()`）且是状态事件时 |
+| `MembershipService::join_room_via_federation`（`synapse-services/src/room/membership/federation.rs`） | **联邦 join** 的 state 批次 | 事务 commit **之后**逐条维护（走查必须看得见已提交行） |
+
+两者都调用同一个 `StateRecord::after_state_event`（唯一实现）。房间创建/升级在事务内写事件，
+不维护 —— 其记录在**第一次分叉**时由解析一并产生。
+
+### 4.11.2 维护语义
+
+- **分叉**（forward extremities > 1）⇒ 逐 extremity 沿 `prev_events` 求"事件处 state"
+  （多父节点处递归到同一入口）→ `resolve_state_for_version_with_rules`（v12+ v2.1 / v1–v11 v2）
+  → 结果整体回写为新 `state_groups`（+ `state_group_state` + `state_group_edges`
+  + `event_to_state_groups`）。
+- **有记录、无分叉** ⇒ 前向拷贝：新 group 携带**完整**状态（读路径只服务 group 自身的行，
+  只写增量会让记录陈旧）。
+- **无分叉、无记录** ⇒ 无操作：房间继续走事件日志的时间戳推导 —— 与接线前**逐字相同**。
+- 只有**状态事件**付代价（一次 extremities 查询）；message 在第一次查询前返回，消息热路径不变。
+- 失败**尽力而为**：事件已落库，不能回滚 ⇒ 记 `warn` 并退化为时间戳推导（与相邻的
+  签名/哈希补写同策略）。
+
+### 4.11.3 读路径一致性
+
+`get_state_events` / `get_state_event`（§4.9.2）之外，`get_state_events_by_type` 也改为优先记录：
+记录是**每个键**的当前状态，若只有整表投影走记录，一个冲突的**单例类型**
+（`m.room.join_rules` / `m.room.encryption` / `m.room.server_acl`）仍可能从败方分支读出。
+历史态读取（`get_state_events_at_or_before`）与增量读取（`batch` / `since_batch`）**不动**。
+
+### 4.11.4 端到端证据（计划 §4.1 要求的"被调用"证明）
+
+| 用例 | 断言 |
+|---|---|
+| `the_service_write_seam_maintains_the_record` | **通过服务接缝**写两个分叉 topic ⇒ 记录出现，且读路径服务**授权分支** `$topic_a` |
+| `forked_state_is_resolved_and_served` | 无记录时时间戳推导选中较新但**未授权**的 `$topic_b`；维护后必须改为 `$topic_a`；记录是**完整**状态（create/member 键在） |
+| `later_state_events_are_folded_into_the_record` | 合并分支后再写 topic ⇒ 记录跟随更新且仍是完整状态 |
+| `unforked_rooms_keep_the_event_log_derivation` | 无分叉无记录的房间**不产生**记录，读路径仍走事件日志 |
+
+**变红自证（铁律 8）**：把 `after_state_event` 的分叉分支置为恒不进入（`if false`）⇒
+前三条**全部 FAIL**（`left: Some("$topic_b")` / `right: Some("$topic_a")`），第四条仍 PASS
+（它本就不依赖解析）。复原后 4/4 通过。这证明用例判的是**解析结果**，不是"恰好通过"。
+
+### 4.11.5 已知边界（下一批可收紧处）
+
+1. **事件处 state 是现算的**：每次解析沿 DAG 走一遍（上限 `MAX_RESOLUTION_EVENTS = 4096`，
+   超限则报错并退化为时间戳推导），不像上游那样**每事件持久化 state group**。
+   `event_to_state_groups` 表仍是这条路的规模化形态（也解释了为什么它此前无人使用）。
+2. `restricted join` 在 `state_map_auth` 下**欠授权**（需 allow rooms 的 state）——
+   F-2 已登记，非本次引入。
+3. 记录只覆盖**已接线接缝**写入的状态事件；绕过这两个接缝直接写 `events` 的代码路径
+   （若将来出现）不会维护记录 —— 届时读路径会退回时间戳推导，而**不会**读到过期记录
+   （记录不会被错误地当作最新态继续服务，除非它已经是最新 group；见边界 1 的规模化修法）。
