@@ -2419,12 +2419,26 @@
 #   ⇒ **131/131**（私有库；此前 3 条失败是"库比树旧"，重灌当前基线后全绿）。
 #   ⚠️ 本批**未**新增缺陷条目（STEP 0 已核：两文件无 `PgRow` 泄漏、无 `.ok()` 吞错、
 #   无零调用者语句、无门控）。
+# ── 2026-09-26 C42（`qr_login.rs` 5 + `room_tag/mod.rs` 4 = 9 处全部宏化）────────────
+#   两个单表模块（MSC4388 二维码登录 / 房间标签）的生产区动态归零。
+#   两个 R6/R5 要点：① `RoomTag.order` 带 `#[sqlx(rename = "order_value")]`，而 `query_as!`
+#   不认 rename ⇒ SQL 里改写 `order_value AS "order"`（raw string 用 `r#"…"#`）；
+#   ② `get_qr_transaction` 原为 7 元组投影（`query_as!` 不收元组，R6⑤）⇒ 直接改成
+#   `query_as!(QrTransaction, …)`（结构体字段名与列名一一对应，顺带删掉手工映射闭包）。
+#   其余 7 处是 `query!` 的 INSERT/UPDATE/DELETE。三张表的相关列可空性与字段一致，无需断言。
+#   实测：`dynamic_production` 272 → **263**（−9）、`static` 1216 → **1225**（+9）、
+#   `dynamic` 总数 990 → **981**、`dynamic_test` 718 不变、`.sqlx` 1184 → **1193**（+9）、
+#   literal 201/45 → **192/43**。
+#   验证：`-p synapse-storage --lib --features test-utils -E 'test(/qr_login/) or
+#   test(/room_tag/)'` ⇒ **17/17**；集成 `-E 'test(/room_tag/) or test(/qr_login/)'` ⇒ **2/2**。
+#   ⚠️ 同批 STEP 0 里 `key_rotation.rs` 被**排除**（其 8 处 literal 有 7 处是与迁移重复的运行时
+#   DDL，属待删死代码而非待转站点）⇒ 另立 **D-78**（§7.1）。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=272
+BASELINE_DYNAMIC_PRODUCTION=263
 BASELINE_DYNAMIC_TEST_INFRA=718
-BASELINE_STATIC=1216
+BASELINE_STATIC=1225
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=990
+BASELINE_DYNAMIC=981
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

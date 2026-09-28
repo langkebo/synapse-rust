@@ -61,21 +61,23 @@ impl RoomTagStorage {
 
     /// See [`get_all_tags`].
     pub async fn get_all_tags(&self, user_id: &str) -> Result<Vec<RoomTag>, sqlx::Error> {
-        sqlx::query_as::<_, RoomTag>(
-            "SELECT id, user_id, room_id, tag, order_value, created_ts FROM room_tags WHERE user_id = $1 ORDER BY room_id, tag"
+        sqlx::query_as!(
+            RoomTag,
+            r#"SELECT id, user_id, room_id, tag, order_value AS "order", created_ts FROM room_tags WHERE user_id = $1 ORDER BY room_id, tag"#,
+            user_id
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
     }
 
     /// See [`get_tags`].
     pub async fn get_tags(&self, user_id: &str, room_id: &str) -> Result<Vec<RoomTag>, sqlx::Error> {
-        sqlx::query_as::<_, RoomTag>(
-            "SELECT id, user_id, room_id, tag, order_value, created_ts FROM room_tags WHERE user_id = $1 AND room_id = $2 ORDER BY tag"
+        sqlx::query_as!(
+            RoomTag,
+            r#"SELECT id, user_id, room_id, tag, order_value AS "order", created_ts FROM room_tags WHERE user_id = $1 AND room_id = $2 ORDER BY tag"#,
+            user_id,
+            room_id
         )
-        .bind(user_id)
-        .bind(room_id)
         .fetch_all(&*self.pool)
         .await
     }
@@ -89,14 +91,14 @@ impl RoomTagStorage {
         order: Option<f64>,
     ) -> Result<(), sqlx::Error> {
         let created_ts = current_timestamp_millis();
-        sqlx::query(
-            "INSERT INTO room_tags (user_id, room_id, tag, order_value, created_ts) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (user_id, room_id, tag) DO UPDATE SET order_value = EXCLUDED.order_value"
+        sqlx::query!(
+            "INSERT INTO room_tags (user_id, room_id, tag, order_value, created_ts) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (user_id, room_id, tag) DO UPDATE SET order_value = EXCLUDED.order_value",
+            user_id,
+            room_id,
+            tag,
+            order,
+            created_ts
         )
-        .bind(user_id)
-        .bind(room_id)
-        .bind(tag)
-        .bind(order)
-        .bind(created_ts)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -104,10 +106,7 @@ impl RoomTagStorage {
 
     /// See [`remove_tag`].
     pub async fn remove_tag(&self, user_id: &str, room_id: &str, tag: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM room_tags WHERE user_id = $1 AND room_id = $2 AND tag = $3")
-            .bind(user_id)
-            .bind(room_id)
-            .bind(tag)
+        sqlx::query!("DELETE FROM room_tags WHERE user_id = $1 AND room_id = $2 AND tag = $3", user_id, room_id, tag)
             .execute(&*self.pool)
             .await?;
         Ok(())

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM qr_login_transactions\n            WHERE transaction_id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0caafc86d4250ffe6ea829d22fbc2d4c6e2e628a32819f9101e7003d3aeb1183"
+}

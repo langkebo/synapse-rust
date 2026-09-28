@@ -171,6 +171,14 @@
 #   get_none/list/delete_filter/delete_filters_by_user）；`feature_flags.rs` 的
 #   create/update/get/replace_targets 由 `feature_flags_storage_tests_migrated` /
 #   `api_feature_flags_tests` 端到端覆盖。批次记录见 `sqlx_dynamic_ratio_baseline` 的 C41 段。
+# ── 2026-09-26 C42（本表再退两行：5 + 4）────────────────────────────────────
+#   `qr_login.rs`(5)、`room_tag/mod.rs`(4) 生产区字面量站点全部宏化 ⇒ 两行归零退表；
+#   本表合计 201 → **192**、文件数 45 → **43**。恒等式同步为 `263 − 192 − 1 = 70`
+#   （运行期残差仍是 70 处 / 13 文件，未变）。
+#   ⚠️ 同批 STEP 0 排除 `key_rotation.rs`：其 8 处 literal 中 **7 处**（3 组"存在探测 +
+#   CREATE"与一个 `CREATE TABLE IF NOT EXISTS`）与迁移重复（`federation_signing_keys`
+#   1719 + 两条索引 3545-3546、`key_rotation_config` 2245 均已由迁移创建）⇒ 在任何已迁移库上
+#   那些 CREATE 分支不可达，应**删除**而非转宏（R12）⇒ 另立 D-78，本表该行暂留 8。
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -205,12 +213,10 @@ synapse-storage/src/monitoring.rs	6
 synapse-storage/src/oauth_client_storage.rs	2
 synapse-storage/src/oidc_user_mapping.rs	3
 synapse-storage/src/presence/mod.rs	1
-synapse-storage/src/qr_login.rs	5
 synapse-storage/src/rate_limit.rs	3
 synapse-storage/src/room/models.rs	1
 synapse-storage/src/room_account_data.rs	7
 synapse-storage/src/room_summary/repository.rs	2
-synapse-storage/src/room_tag/mod.rs	4
 synapse-storage/src/schema_health_check.rs	4
 synapse-storage/src/schema_validator.rs	3
 synapse-storage/src/url_preview_storage.rs	3
@@ -218,7 +224,7 @@ synapse-storage/src/user/storage.rs	1
 synapse-test-utils/src/lib.rs	14
 # ── 当前「运行期拼装」残差清单（**允许**，不入棘轮；仅作可读性摘要）────────────
 # 合计 **70 处 / 13 文件**（2026-09-26 D-14 收紧后实测；与 ratio 棘轮的
-# `dynamic_production − literal − param` = 272 − 201 − 1 = 70 一致）：
+# `dynamic_production − literal − param` = 263 − 192 − 1 = 70 一致）：
 #    16  synapse-common/src/test_isolation.rs
 #    14  synapse-test-utils/src/lib.rs
 #     9  synapse-storage/src/event/pagination.rs
