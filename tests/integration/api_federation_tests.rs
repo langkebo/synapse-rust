@@ -276,7 +276,48 @@ async fn test_federation_query_destination_returns_minimal_payload() {
     assert!(json["server_name"].is_string());
     assert!(json["destination"].is_string());
     assert_eq!(json["capabilities"]["m.change_password"], true);
-    assert_eq!(json["capabilities"]["m.room_versions"]["default"], DEFAULT_ROOM_VERSION);
+
+    // G-2 / G-05: this surface used to have no assertion on its room-version
+    // content at all, which hid a malformed shape (a flat `{version: {status}}`
+    // map with no `available` wrapper). Assert the documented shape and the
+    // federatable set, not just `default`.
+    let versions = &json["capabilities"]["m.room_versions"];
+    assert_eq!(versions["default"], DEFAULT_ROOM_VERSION);
+    let available = versions["available"]
+        .as_object()
+        .unwrap_or_else(|| panic!("federation m.room_versions must carry an `available` object: {versions}"));
+    // Every supported version is federatable (including v1-v11, which are no
+    // longer creatable — the two sets legitimately differ since G-1).
+    assert_eq!(available.len(), 12, "every supported version must be federatable: {available:?}");
+    assert_eq!(available["12"], serde_json::json!("stable"));
+    assert_eq!(available["11"], serde_json::json!("stable"), "v11 stays federatable though not creatable");
+    assert!(available.get("13").is_none(), "room version 13 does not exist upstream");
+}
+
+/// The federation discovery endpoint (`GET /_matrix/federation/v1`) must
+/// advertise the room versions this server federates with, in the documented
+/// `{default, available}` shape. Untested before G-2.
+#[tokio::test]
+async fn test_federation_discovery_advertises_room_versions() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let request = Request::builder().uri("/_matrix/federation/v1").body(Body::empty()).unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert!(json["server_name"].is_string());
+
+    let versions = &json["capabilities"]["m.room_versions"];
+    assert_eq!(versions["default"], DEFAULT_ROOM_VERSION);
+    let available = versions["available"]
+        .as_object()
+        .unwrap_or_else(|| panic!("federation discovery must carry `available`: {versions}"));
+    assert_eq!(available.len(), 12);
+    assert_eq!(available["12"], serde_json::json!("stable"));
 }
 
 #[tokio::test]

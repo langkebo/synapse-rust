@@ -405,10 +405,8 @@ pub(super) async fn query_directory(
 
 /// See [`query_destination`].
 pub(super) async fn query_destination(State(ctx): State<FederationContext>) -> Result<Json<Value>, ApiError> {
-    let mut room_versions = federation_room_versions_capability();
-    if let Some(obj) = room_versions.as_object_mut() {
-        obj.insert("default".to_string(), json!(DEFAULT_ROOM_VERSION));
-    }
+    // Spec shape `{default, available}` — the builder already carries `default`.
+    let room_versions = federation_room_versions_capability();
     Ok(Json(json!({
         "server_name": ctx.server_name,
         "destination": ctx.server_name,

@@ -219,17 +219,32 @@ pub fn client_room_versions_capability() -> Value {
     })
 }
 
-/// Federations the room.
+/// The `m.room_versions` capability for the **federation** surface
+/// (`/_matrix/federation/v1/version` and the `/version` destination query).
+///
+/// Spec shape (`server-server API` §`GET /_matrix/federation/v1/version`):
+/// `{"default": <version>, "available": {<version>: <status>}}` — the same shape
+/// the client capability uses.
+///
+/// The `available` set is **not** the same as the client one: it lists every
+/// version this server will **federate** with (a remote server needs to know
+/// which versions it can talk to us about), while the client list is the
+/// versions we will **create**. Since G-1 those differ — v1-v11 are federatable
+/// but not creatable — which is exactly why both sets must be derived from their
+/// own capability flag rather than shared.
 pub fn federation_room_versions_capability() -> Value {
     let mut available = serde_json::Map::new();
 
     for capability in SUPPORTED_ROOM_VERSIONS {
         if capability.can_federate {
-            available.insert(capability.version.to_string(), json!({ "status": capability.disposition_str() }));
+            available.insert(capability.version.to_string(), json!(capability.disposition_str()));
         }
     }
 
-    Value::Object(available)
+    json!({
+        "default": DEFAULT_ROOM_VERSION,
+        "available": available
+    })
 }
 
 #[cfg(test)]
@@ -338,14 +353,24 @@ mod tests {
     #[test]
     fn federation_room_versions_capability_matches_supported_matrix() {
         let capability = federation_room_versions_capability();
-        let available = capability.as_object().expect("federation room versions should be an object");
+        // Spec shape: `{default, available}` — the flat `{version: {status}}`
+        // form this used to emit was not the documented shape.
+        assert_eq!(capability["default"], DEFAULT_ROOM_VERSION);
+        let available =
+            capability["available"].as_object().expect("federation room versions must carry an `available` object");
 
-        assert_eq!(available.len(), SUPPORTED_ROOM_VERSIONS.len());
+        // Federation lists every version we will federate with — not the client's
+        // (creatable) subset. Since G-1 those differ, so this asserts the
+        // federatable set explicitly.
+        assert_eq!(available.len(), SUPPORTED_ROOM_VERSIONS.iter().filter(|c| c.can_federate).count());
+        assert_eq!(available.len(), SUPPORTED_ROOM_VERSIONS.len(), "every supported version is federatable");
 
         for supported in SUPPORTED_ROOM_VERSIONS {
             assert_eq!(
-                available.get(supported.version).and_then(|value| value.get("status")).and_then(|value| value.as_str()),
-                Some(supported.disposition_str())
+                available.get(supported.version).and_then(|value| value.as_str()),
+                Some(supported.disposition_str()),
+                "v{}",
+                supported.version
             );
         }
     }
