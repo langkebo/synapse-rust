@@ -176,7 +176,9 @@ async fn test_power_levels_contract_allows_explicit_room_admin_to_kick() {
     let alice = format!("power_levels_alice_{}", rand::random::<u32>());
     let bob = format!("power_levels_bob_{}", rand::random::<u32>());
     let charlie = format!("power_levels_charlie_{}", rand::random::<u32>());
-    let (alice_token, alice_user_id) = register_user(&app, &alice).await;
+    // The creator's user id is deliberately not needed below: rule 10.4 keeps her
+    // out of the power_levels `users` map.
+    let (alice_token, _alice_user_id) = register_user(&app, &alice).await;
     let (bob_token, bob_user_id) = register_user(&app, &bob).await;
     let (charlie_token, charlie_user_id) = register_user(&app, &charlie).await;
 
