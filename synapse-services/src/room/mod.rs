@@ -35,6 +35,8 @@ pub mod service;
 pub mod space;
 /// The `state` module.
 pub mod state;
+/// The room's resolved-state record (MSC4297 v2.1 wiring, F-1 write half).
+pub(crate) mod state_record;
 pub use state::service::RoomStateService;
 /// The `summary` module.
 pub mod summary;

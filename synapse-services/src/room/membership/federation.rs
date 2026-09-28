@@ -177,6 +177,10 @@ impl MembershipService {
         //    P1b: Wrap all state-event persistence in a single transaction
         //    to avoid N+1 round-trips and ensure atomicity.
         let mut persisted_event_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // The state events this batch commits, in write order: their resolved-state
+        // record is maintained after the transaction commits, because the DAG walk
+        // must see committed rows.
+        let mut committed_state_events: Vec<(String, String, String)> = Vec::new();
 
         let mut _tx = if let Some(ref pool) = self.db_pool {
             Some(
@@ -248,6 +252,9 @@ impl MembershipService {
                 // state events written so far, and membership is never claimed,
                 // so a persistence failure cannot leave the local event graph
                 // out of sync with the membership tables (B10c).
+                if let Some(state_key) = state_key.as_deref() {
+                    committed_state_events.push((event_id.to_string(), event_type.clone(), state_key.to_string()));
+                }
                 if let Err(e) = self
                     .event_writer
                     .create_event_with_graph(
@@ -286,6 +293,31 @@ impl MembershipService {
             tx.commit()
                 .await
                 .map_err(|e| ApiError::internal_with_cause("Failed to commit federation join transaction", e))?;
+        }
+
+        // Maintain the room's resolved-state record for the state events this batch
+        // just committed (MSC4297 v2.1, F-1). This is the second state-write seam:
+        // unlike `MessagingService::create_event_with_graph` these events share one
+        // transaction, so the record is maintained here, after the commit, rather
+        // than per event. Best-effort — the events are already durable, so a failure
+        // degrades to the event-log derivation.
+        if !committed_state_events.is_empty() {
+            let state_groups = synapse_storage::state_groups::StateGroupStorage::new(self.event_writer.pool());
+            let record = crate::room::state_record::StateRecord {
+                event_reader: self.event_reader.as_ref(),
+                room_storage: self.room_storage.as_ref(),
+                state_groups: &state_groups,
+            };
+            for (committed_event_id, event_type, state_key) in &committed_state_events {
+                if let Err(error) = record.after_state_event(room_id, committed_event_id, event_type, state_key).await {
+                    ::tracing::warn!(
+                        error = %error,
+                        room_id = %room_id,
+                        event_id = %committed_event_id,
+                        "Failed to maintain the resolved-state record for a federated-join state event"
+                    );
+                }
+            }
         }
 
         // Invalidate room-state cache after persisting federated state events.

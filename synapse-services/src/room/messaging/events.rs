@@ -342,6 +342,33 @@ impl MessagingService {
             let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
         }
 
+        // Maintain the room's resolved-state record (MSC4297 v2.1, F-1). Only
+        // **committed** state events are visible to the DAG walk, so this runs
+        // outside a caller-supplied transaction; writes that share one (room
+        // creation, the federated-join batch) maintain the record at their own
+        // commit point. Best-effort, like the signature/hash enrichment below: the
+        // event is already committed, so a failure degrades to the previous
+        // timestamp derivation instead of failing the write.
+        if should_update_summary {
+            if let Some(state_key) = state_key.as_deref() {
+                let state_groups = synapse_storage::state_groups::StateGroupStorage::new(self.event_writer.pool());
+                let record = crate::room::state_record::StateRecord {
+                    event_reader: self.event_reader.as_ref(),
+                    room_storage: self.room_storage.as_ref(),
+                    state_groups: &state_groups,
+                };
+                if let Err(error) = record.after_state_event(&room_id, &event_id, &event_type, state_key).await {
+                    ::tracing::warn!(
+                        error = %error,
+                        room_id = %room_id,
+                        event_id = %event_id,
+                        event_type = %event_type,
+                        "Failed to maintain the room's resolved-state record"
+                    );
+                }
+            }
+        }
+
         if should_update_summary && event_type == "m.room.canonical_alias" && state_key.as_deref() == Some("") {
             let canonical_alias = event.content.get("alias").and_then(|value| value.as_str());
             if let Err(error) = self.room_storage.set_canonical_alias(&room_id, canonical_alias).await {

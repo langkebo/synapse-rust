@@ -3313,4 +3313,13 @@ async fn test_current_state_prefers_the_resolved_state_record() {
     let all = storage.get_state_events(&room_id).await.expect("get_state_events");
     assert_eq!(all.len(), 2);
     assert!(all.iter().any(|event| event.event_id == topic_only), "record entries are served: {all:?}");
+
+    // The type-scoped read serves the record too: it is the room's current state
+    // for every key the record covers, not only for the whole-state projection.
+    let topics = storage.get_state_events_by_type(&room_id, "m.room.topic").await.expect("by type");
+    assert_eq!(
+        topics.iter().map(|event| event.event_id.as_str()).collect::<Vec<_>>(),
+        vec![by_resolution.as_str()],
+        "a type-scoped read must not fall back to the losing branch"
+    );
 }

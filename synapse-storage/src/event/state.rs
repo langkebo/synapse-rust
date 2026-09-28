@@ -153,6 +153,14 @@ impl EventStorage {
         room_id: &str,
         event_type: &str,
     ) -> Result<Vec<StateEvent>, sqlx::Error> {
+        // A resolved-state record is the room's current state for **every** key it
+        // covers, so a type-scoped read must serve it too — otherwise a conflicted
+        // singleton type (`m.room.join_rules`, `m.room.encryption`, …) could still
+        // be read from the losing branch through this method.
+        if let Some(state_group_id) = self.current_state_group_id(room_id).await? {
+            return self.state_events_of_group(state_group_id, Some(event_type), None).await;
+        }
+
         sqlx::query_as::<_, StateEvent>(&format!(
             "SELECT {STATE_EVENT_OUTER_COLS} \
              FROM ( \
