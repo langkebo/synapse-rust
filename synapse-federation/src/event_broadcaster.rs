@@ -479,29 +479,28 @@ impl EventBroadcaster {
 
     async fn update_db_status(&self, db_id: i64, status: &str) {
         if let Some(pool) = &self.pool {
-            let result =
-                match status {
-                    "sent" => {
-                        sqlx::query("UPDATE federation_queue SET status = 'sent', sent_at = $2 WHERE id = $1")
-                            .bind(db_id)
-                            .bind(current_timestamp_millis())
-                            .execute(pool)
-                            .await
-                    }
-                    "retry" => sqlx::query(
-                        "UPDATE federation_queue SET retry_count = retry_count + 1, status = 'pending' WHERE id = $1",
+            let result = match status {
+                "sent" => {
+                    sqlx::query!(
+                        r#"UPDATE federation_queue SET status = 'sent', sent_at = $2 WHERE id = $1"#,
+                        db_id,
+                        current_timestamp_millis()
                     )
-                    .bind(db_id)
                     .execute(pool)
-                    .await,
-                    _ => {
-                        sqlx::query("UPDATE federation_queue SET status = $2 WHERE id = $1")
-                            .bind(db_id)
-                            .bind(status)
-                            .execute(pool)
-                            .await
-                    }
-                };
+                    .await
+                }
+                "retry" => sqlx::query!(
+                    r#"UPDATE federation_queue SET retry_count = retry_count + 1, status = 'pending' WHERE id = $1"#,
+                    db_id
+                )
+                .execute(pool)
+                .await,
+                _ => {
+                    sqlx::query!(r#"UPDATE federation_queue SET status = $2 WHERE id = $1"#, db_id, status)
+                        .execute(pool)
+                        .await
+                }
+            };
 
             if let Err(e) = result {
                 ::tracing::warn!("Failed to update federation_queue status for {}: {}", db_id, e);
@@ -624,23 +623,25 @@ async fn persist_transaction_row(
         None
     };
 
-    match sqlx::query_as::<_, (i64,)>(
-        r"
+    // 单列 `RETURNING id`（R3：显式列清单）⇒ `query_scalar!` + `fetch_one`。
+    // `room_id` 是 `Option<String>`，宏的 `ty_match` 拒绝 `&Option<T>`（R5）⇒ `.as_deref()`。
+    match sqlx::query_scalar!(
+        r#"
         INSERT INTO federation_queue (destination, event_id, event_type, room_id, content, created_ts, status)
         VALUES ($1, $2, $3, $4, $5, $6, 'pending')
         RETURNING id
-        ",
+        "#,
+        destination,
+        &event_id,
+        event_type,
+        room_id.as_deref(),
+        &content,
+        current_timestamp_millis(),
     )
-    .bind(destination)
-    .bind(&event_id)
-    .bind(event_type)
-    .bind(&room_id)
-    .bind(&content)
-    .bind(current_timestamp_millis())
     .fetch_one(pool)
     .await
     {
-        Ok(row) => Some(row.0),
+        Ok(id) => Some(id),
         Err(e) => {
             ::tracing::error!("Failed to persist transaction to federation_queue: {}", e);
             None

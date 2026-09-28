@@ -14,12 +14,12 @@
 
 | 指标 | 战役起点（2026-09-23） | 现在 | 变化 |
 |---|---|---|---|
-| `dynamic_production` | 1532（近似） | **238** | **−84.5%** |
-| `static` | 61 | **1246** | +1185 |
-| `dynamic`（总） | 2151 | **964** | −1187 |
-| 静态占比 | 2.76% | **56.4%**（1246 / 2210） | +53.6pp |
-| `.sqlx` 离线缓存 | 60 条 | **1214 条** | +1154 |
-| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **167 / 39** | −709 |
+| `dynamic_production` | 1532（近似） | **234** | **−84.7%** |
+| `static` | 61 | **1250** | +1189 |
+| `dynamic`（总） | 2151 | **960** | −1191 |
+| 静态占比 | 2.76% | **56.6%**（1250 / 2210） | +53.8pp |
+| `.sqlx` 离线缓存 | 60 条 | **1218 条** | +1158 |
+| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **163 / 38** | −713 |
 | `param` 传参（D-14 新棘轮，处 / 文件） | — | **1 / 1** | 新立棘轮（此前混在 `runtime`，两道棘轮都不管） |
 | `runtime` 残差 / `query_builder` | — | 70 / 13 文件 · **18**（已入计数棘轮） | — |
 
@@ -35,16 +35,17 @@
 > 四个被转方法补了真 baseline 往返 ⇒ `BASELINE_DYNAMIC_TEST_INFRA` 723 → **725**（两处
 > `#[cfg(test)]` 夹具：插 `rooms` 行满足真实 FK + 直接造一条 `backup_id_text IS NULL` 的行）；
 > C45-0（先修：删 3 处零调用者方法 + 消 1 处重复 INSERT/静默吞错 + 补真基线覆盖）收到
-> **238 / 1246**（`.sqlx` 不变 1214，literal 退到 167，测试区 725 → 726）。
+> **238 / 1246**（`.sqlx` 不变 1214，literal 退到 167，测试区 725 → 726）；C45（4 处宏化）收到
+> **234 / 1250**（`.sqlx` 1214 → 1218，literal 退到 163/38，该文件生产区动态归零）。
 
 ### 0.2 残量结构（"还剩多少活"的准确说法）
 
 | 组成 | 处数 | 性质 |
 |---|---|---|
-| **可静态化残量** | **166** | **136 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
+| **可静态化残量** | **162** | **132 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
 | 测试基建（有意保留） | 57 | `synapse-test-utils/src/lib.rs` 28、`synapse-common/src/test_isolation.rs` 25、`test_schema_guard.rs` 4 |
 | 结构性保留（有意） | 15 | `synapse-storage/src/event/pagination.rs`（9 runtime 游标/排序方向 + 6 literal） |
-| **合计** | **238** | = 166 + 57 + 15 |
+| **合计** | **234** | = 162 + 57 + 15 |
 
 ### 0.3 复现（唯一入口，勿手工数）
 
@@ -205,15 +206,14 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 ### 8.1 剩余可静态化清单（按实测，2026-09-26 C44 后）
 
-**可转换残量 166 处** = **136 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
-加 **1 处跨函数传参（`param`）**。下表按**字面量**处数排前 11（表内数字是**可机械转换**的站点数；
+**可转换残量 162 处** = **132 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
+加 **1 处跨函数传参（`param`）**。下表按**字面量**处数排前 10（表内数字是**可机械转换**的站点数；
 纯 `runtime` 文件见下方结构性清单）：
 
 | 文件 | 处数 | 门控 | 备注 |
 |---|---|---|---|
 | `synapse-storage/src/event/dag.rs` | 8 | — | `event/` 同域；⚠️ **需先补覆盖**（无 in-file db_tests） |
 | `synapse-storage/src/email_verification.rs` | 8 | — | ⚠️ **需先补覆盖**：仅 1 条 DB 用例（且用的是空隔离池，R9 禁止的形态） |
-| `synapse-federation/src/event_broadcaster.rs` | 4 | — | C45-0 已删 3 处零调用者方法（`recover_pending_from_db` / `get_pending_count` / `cleanup_old_transactions`）+ 消 1 处重复 INSERT（D-82）+ 补真基线覆盖 ⇒ 剩余 4 处由 C45 转换 |
 | `synapse-storage/src/call_session.rs` | 7 | `voip-tracking` | 门控（见 `gated_module_test_matrix`）⇒ 单列一批更省来回 |
 | `synapse-storage/src/delayed_events.rs` | 7 | — | ⚠️ **需先补覆盖**：7 个方法里 5 个**零引用**（list/restart/cancel/mark_sent/get_due_events） |
 | `synapse-storage/src/room_account_data.rs` | 7 | — | ⚠️ **需先修**：2 处 `PgRow` 泄漏（`get_room_account_data` / `get_room_vault_data` 返回 `Option<PgRow>`）+ 1 处 `.ok().flatten()` 吞错 |
@@ -226,6 +226,8 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 > `synapse-e2ee/src/backup/service.rs`(4)、`synapse-storage/src/audit.rs`(4)、
 > `synapse-storage/src/schema_health_check.rs`(4) 由 **C44** 归零退表（12 处宏化 + 两处
 > `COUNT(*)`/`COALESCE` 的 R4 断言 + R5 数组参数改 owned + R6 ⑤ 元组投影改字段读，见 §8.3 第 14 条）。
+> `synapse-federation/src/event_broadcaster.rs`(8) 由 **C45-0 + C45** 归零退表
+> （先删 3 处零调用者方法、消 1 处重复 INSERT（D-82）、补真基线覆盖，再宏化剩余 4 处）。
 > `key_rotation.rs`(8) 由 **C43** 归零退表（保留自愈 + 宏化，见 §8.3 第 10 条）；`qr_login.rs`(5)/`room_tag/mod.rs`(4) 已由 **C42** 归零退表；`feature_flags.rs`/`filter.rs`
 > 由 **C41** 归零；`admin_media.rs`(15) 的 U-5 残量已由其批次**计入基线冻结**（`a13f57316`），
 > 是否回收属该批次后续决定。
@@ -692,10 +694,25 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
    （`queue_row` 夹具的读回查询）、literal 171 → **167**、`.sqlx` 1214 不变。
    验证：`-p synapse-federation --lib --all-features -E 'test(/event_broadcaster/)'` ⇒ **5/5**。
 
+17. ✅ **C45（`event_broadcaster.rs` 4 处宏化，该文件生产区动态归零）已完成（2026-09-26）** ——
+   C45-0 之后剩下的 4 处全在 `federation_queue` 写路径上：
+   - `persist_transaction_row` 的 `INSERT ... RETURNING id` ⇒ `query_scalar!` + `fetch_one`
+     （单列 ⇒ R3 显式列清单；`room_id: Option<String>` 不能以 `&Option<T>` 传入 ⇒ R5 `.as_deref()`）；
+   - `update_db_status` 的三条 UPDATE ⇒ `query!` + `.execute(pool)`（无结果列，正是 R6 ① 说的
+     `.execute()` 适用形态）；三分支语义逐字保留：sent 写 `sent_at`、retry 做
+     `retry_count + 1` 并把状态拉回 `pending`、兜底把传入的状态名直接落库。
+   实测：`dynamic_production` 238 → **234**（−4）、`static` 1246 → **1250**（+4）、
+   `dynamic` 总数 964 → **960**、`.sqlx` 1214 → **1218**（+4）、literal 167/39 → **163/38**；
+   恒等式 `234 − 163 − 1 = 70` 仍成立（未产生运行期拼装）。
+   证据性质：C45-0 补的两条**真基线**用例在转换后跑的就是这四条宏
+   （`-p synapse-federation --lib --all-features` ⇒ **308/308**，含 PDU/EDU 元数据、
+   状态流转三分支、发送失败落库 + `db_id` 回填与"成功不落库"对照组）——
+   即"转换不改变行为"由真库往返直接证明，而不是靠"编译过了"。
+
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 
-- `dynamic_production` 的**可机械转换部分（literal）归零**：238 → **101**
-  （238 − 136 literal − 1 param = 101 = 测试基建 57 + 分页结构性 15 + **D-14 结构性 29**），
+- `dynamic_production` 的**可机械转换部分（literal）归零**：234 → **101**
+  （234 − 132 literal − 1 param = 101 = 测试基建 57 + 分页结构性 15 + **D-14 结构性 29**），
   或每个残留都有 §7.3 那样的登记条目；
 - literal 逐文件表只剩 4 类（3 个测试基建文件 + `event/pagination.rs`）；
 - ~~D-68 接线~~、~~D-37 收敛~~、~~D-62 修法①~~、~~D-57② 收敛~~、~~D-73 结构性收敛~~、

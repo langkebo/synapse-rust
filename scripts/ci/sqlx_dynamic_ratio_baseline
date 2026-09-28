@@ -2472,6 +2472,18 @@
 #        —— 断言自愈把两条引导索引也建回来（否则那两条 `CREATE INDEX` 仍是零执行）。
 #   收紧方向：这 5 处是"构造前提 + 断言前提"的最小集合，没有可静态化的等价物；若将来把
 #   federation 的 DB 覆盖搬到 `tests/`（不在 census 扫描面内）可回收，但那会失去 per-test schema。
+# ── 2026-09-26 C45（`event_broadcaster.rs` 4 处宏化，本文件生产区动态归零）────────────
+#   C45-0 之后该文件只剩 4 处字面量，全部在 `federation_queue` 写路径上：
+#   · `persist_transaction_row` 的 `INSERT ... RETURNING id` ⇒ `query_scalar!` + `fetch_one`
+#     （单列，R3 显式列清单；`room_id` 是 `Option<String>`，宏拒绝 `&Option<T>` ⇒ R5 `.as_deref()`）；
+#   · `update_db_status` 的三条 UPDATE（sent / retry / 兜底）⇒ `query!` + `.execute(pool)`
+#     （无结果列 ⇒ R6 ① 的 `.execute()` 正体）；三分支的语义逐字保留：
+#     sent 写 `sent_at`、retry 做 `retry_count + 1` 并把状态拉回 `pending`、兜底把状态名直接落库。
+#   实测：`dynamic_production` 238 → **234**（−4）、`static` 1246 → **1250**（+4）、
+#   `dynamic` 总数 964 → **960**、`dynamic_test` 726 不变、`.sqlx` 1214 → **1218**（+4）、
+#   literal 167/39 → **163/38**（该文件退表）。恒等式 `234 − 163 − 1 = 70` 仍成立。
+#   验证：C45-0 补的两条真基线用例（`-p synapse-federation --lib --all-features` ⇒ 308/308）
+#   现在**穿过转换后的宏**跑真库，这是"转换不改变行为"的直接证据。
 # ── 2026-09-26 C45-0（先修：删 3 处零调用者方法 + 消 1 处重复实现/静默吞错）──────────────
 #   `synapse-federation/src/event_broadcaster.rs` 的 8 处字面量里，4 处属于**无人调用**或
 #   **重复实现**，按 R12（先修再转，禁止夹带）独立提交处理，而不是转成宏：
@@ -2561,11 +2573,11 @@
 #   "no cached data for this query"（SQL 文本变了但缓存没有对应条目），复原后即绿 —— 说明这 4 条
 #   查询确实走宏与缓存（R2），不是"改了文本却没人发现"。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=238
+BASELINE_DYNAMIC_PRODUCTION=234
 BASELINE_DYNAMIC_TEST_INFRA=726
-BASELINE_STATIC=1246
+BASELINE_STATIC=1250
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=964
+BASELINE_DYNAMIC=960
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
