@@ -32,8 +32,8 @@ tags.rs:105
 tags.rs:119
 
 # VoIP routes (signalling ACK)
-voip.rs:243
-voip.rs:301
+voip.rs:246
+voip.rs:307
 
 # E2EE routes (real ACK after persisted send-to-device, cross-signing, or
 # key-request cancellation)

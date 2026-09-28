@@ -142,10 +142,10 @@ impl InviteBlocklistStorage {
 
     /// Get global invite blocklist (all users).
     pub async fn get_global_invite_blocklist(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, (String, i64)>(
+        let rows = sqlx::query!(
             r"
             SELECT user_id, created_ts FROM global_invite_blocklist
-            ORDER BY created_ts DESC
+            ORDER BY created_ts DESC, user_id ASC
             ",
         )
         .fetch_all(&*self.pool)
@@ -153,10 +153,10 @@ impl InviteBlocklistStorage {
 
         Ok(rows
             .into_iter()
-            .map(|(user_id, created_ts)| {
+            .map(|row| {
                 serde_json::json!({
-                    "user_id": user_id,
-                    "created_ts": created_ts
+                    "user_id": row.user_id,
+                    "created_ts": row.created_ts
                 })
             })
             .collect())
@@ -164,10 +164,10 @@ impl InviteBlocklistStorage {
 
     /// Get global invite allowlist (all users).
     pub async fn get_global_invite_allowlist(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, (String, i64)>(
+        let rows = sqlx::query!(
             r"
             SELECT user_id, created_ts FROM global_invite_allowlist
-            ORDER BY created_ts DESC
+            ORDER BY created_ts DESC, user_id ASC
             ",
         )
         .fetch_all(&*self.pool)
@@ -175,10 +175,10 @@ impl InviteBlocklistStorage {
 
         Ok(rows
             .into_iter()
-            .map(|(user_id, created_ts)| {
+            .map(|row| {
                 serde_json::json!({
-                    "user_id": user_id,
-                    "created_ts": created_ts
+                    "user_id": row.user_id,
+                    "created_ts": row.created_ts
                 })
             })
             .collect())
@@ -186,27 +186,29 @@ impl InviteBlocklistStorage {
 
     /// Check whether `user_id` appears in the global blocklist.
     pub async fn is_user_in_global_blocklist(&self, user_id: &str) -> Result<bool, sqlx::Error> {
-        let exists: bool = sqlx::query_scalar(
+        let exists = sqlx::query_scalar!(
             r"
             SELECT EXISTS (SELECT 1 FROM global_invite_blocklist WHERE user_id = $1)
             ",
+            user_id,
         )
-        .bind(user_id)
         .fetch_one(&*self.pool)
-        .await?;
+        .await?
+        .unwrap_or(false);
         Ok(exists)
     }
 
     /// Check whether `user_id` appears in the global allowlist.
     pub async fn is_user_in_global_allowlist(&self, user_id: &str) -> Result<bool, sqlx::Error> {
-        let exists: bool = sqlx::query_scalar(
+        let exists = sqlx::query_scalar!(
             r"
             SELECT EXISTS (SELECT 1 FROM global_invite_allowlist WHERE user_id = $1)
             ",
+            user_id,
         )
-        .bind(user_id)
         .fetch_one(&*self.pool)
-        .await?;
+        .await?
+        .unwrap_or(false);
         Ok(exists)
     }
 
@@ -218,18 +220,18 @@ impl InviteBlocklistStorage {
         let now = current_timestamp_millis();
         let mut tx = self.pool.begin().await?;
 
-        sqlx::query("DELETE FROM global_invite_blocklist").execute(&mut *tx).await?;
+        sqlx::query!("DELETE FROM global_invite_blocklist").execute(&mut *tx).await?;
 
         if !user_ids.is_empty() {
-            sqlx::query(
+            sqlx::query!(
                 r"
                 INSERT INTO global_invite_blocklist (user_id, created_ts)
                 SELECT unnest($1::text[]), $2
                 ON CONFLICT (user_id) DO NOTHING
                 ",
+                &user_ids,
+                now,
             )
-            .bind(&user_ids)
-            .bind(now)
             .execute(&mut *tx)
             .await?;
         }
@@ -243,18 +245,18 @@ impl InviteBlocklistStorage {
         let now = current_timestamp_millis();
         let mut tx = self.pool.begin().await?;
 
-        sqlx::query("DELETE FROM global_invite_allowlist").execute(&mut *tx).await?;
+        sqlx::query!("DELETE FROM global_invite_allowlist").execute(&mut *tx).await?;
 
         if !user_ids.is_empty() {
-            sqlx::query(
+            sqlx::query!(
                 r"
                 INSERT INTO global_invite_allowlist (user_id, created_ts)
                 SELECT unnest($1::text[]), $2
                 ON CONFLICT (user_id) DO NOTHING
                 ",
+                &user_ids,
+                now,
             )
-            .bind(&user_ids)
-            .bind(now)
             .execute(&mut *tx)
             .await?;
         }
@@ -269,24 +271,24 @@ impl InviteBlocklistStorage {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, (String, i64)>(
+        let rows = sqlx::query!(
             r"
             SELECT user_id, created_ts FROM global_invite_blocklist
-            ORDER BY created_ts DESC
+            ORDER BY created_ts DESC, user_id ASC
             LIMIT $1 OFFSET $2
             ",
+            limit,
+            offset,
         )
-        .bind(limit)
-        .bind(offset)
         .fetch_all(&*self.pool)
         .await?;
 
         Ok(rows
             .into_iter()
-            .map(|(user_id, created_ts)| {
+            .map(|row| {
                 serde_json::json!({
-                    "user_id": user_id,
-                    "created_ts": created_ts
+                    "user_id": row.user_id,
+                    "created_ts": row.created_ts
                 })
             })
             .collect())
@@ -298,24 +300,24 @@ impl InviteBlocklistStorage {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, (String, i64)>(
+        let rows = sqlx::query!(
             r"
             SELECT user_id, created_ts FROM global_invite_allowlist
-            ORDER BY created_ts DESC
+            ORDER BY created_ts DESC, user_id ASC
             LIMIT $1 OFFSET $2
             ",
+            limit,
+            offset,
         )
-        .bind(limit)
-        .bind(offset)
         .fetch_all(&*self.pool)
         .await?;
 
         Ok(rows
             .into_iter()
-            .map(|(user_id, created_ts)| {
+            .map(|row| {
                 serde_json::json!({
-                    "user_id": user_id,
-                    "created_ts": created_ts
+                    "user_id": row.user_id,
+                    "created_ts": row.created_ts
                 })
             })
             .collect())
@@ -323,15 +325,19 @@ impl InviteBlocklistStorage {
 
     /// Return the total row count for the global invite blocklist.
     pub async fn global_invite_blocklist_count(&self) -> Result<i64, sqlx::Error> {
-        let count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM global_invite_blocklist").fetch_one(&*self.pool).await?;
+        let count: i64 = sqlx::query_scalar!("SELECT COUNT(*) FROM global_invite_blocklist")
+            .fetch_one(&*self.pool)
+            .await?
+            .unwrap_or(0);
         Ok(count)
     }
 
     /// Return the total row count for the global invite allowlist.
     pub async fn global_invite_allowlist_count(&self) -> Result<i64, sqlx::Error> {
-        let count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM global_invite_allowlist").fetch_one(&*self.pool).await?;
+        let count: i64 = sqlx::query_scalar!("SELECT COUNT(*) FROM global_invite_allowlist")
+            .fetch_one(&*self.pool)
+            .await?
+            .unwrap_or(0);
         Ok(count)
     }
 }
@@ -404,18 +410,6 @@ mod db_tests {
         sqlx::query("DELETE FROM room_invite_allowlist WHERE room_id = $1").bind(room_id).execute(pool).await.expect(
             "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
         );
-    }
-
-    /// Cleanup allowlist rows by suffix pattern (for test isolation).
-    async fn cleanup_allowlist_by_suffix(pool: &PgPool, suffix: &uuid::Uuid) {
-        let pattern = format!("%{suffix}%");
-        sqlx::query("DELETE FROM room_invite_allowlist WHERE room_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await
-            .expect(
-                "test fixture: delete must succeed — a swallowed error here surfaces later as an unrelated failure",
-            );
     }
 
     #[tokio::test]

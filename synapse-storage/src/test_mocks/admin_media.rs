@@ -106,11 +106,9 @@ impl AdminMediaStoreApi for InMemoryAdminMediaStore {
         let mut media = self.media.write().await;
         let mut count = 0i64;
         for info in media.values_mut() {
-            if info.uploader_user_id.as_deref() == Some(user_id) {
-                if !info.quarantined {
-                    info.quarantined = true;
-                    count += 1;
-                }
+            if info.uploader_user_id.as_deref() == Some(user_id) && !info.quarantined {
+                info.quarantined = true;
+                count += 1;
             }
         }
         Ok(count)
@@ -135,7 +133,7 @@ impl AdminMediaStoreApi for InMemoryAdminMediaStore {
         let before = media.len();
         media.retain(|_, m| {
             // Purge if last_accessed_at is null or before the threshold
-            !(before_ts > 0 && m.last_accessed_at.map_or(true, |ts| ts < before_ts))
+            !(before_ts > 0 && m.last_accessed_at.is_none_or(|ts| ts < before_ts))
         });
         Ok((before - media.len()) as u64)
     }

@@ -410,13 +410,6 @@ pub async fn delete_media_by_policy(
     })))
 }
 
-/// Purge cached remote media not accessed since `before_ts`.
-/// Purge cached remote media not accessed since `before_ts`.
-///
-/// Backs `POST /_synapse/admin/v1/purge_media_cache`.
-/// NOTE: This handler is registered in server.rs; kept here only if needed.
-// (Deleted — see server.rs registration)
-
 /// Unprotect a media item so it can be quarantined or deleted again.
 ///
 /// Backs `POST /_synapse/admin/v1/media/unprotect/{media_id}`.

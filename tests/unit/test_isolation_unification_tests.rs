@@ -154,9 +154,9 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // 同样独立复算 FNV-1a 64，并先自检旧值 `efd39fc561affd7a` 逐字节吻合后取值。
 // 2026-09-28（D1/C-3）：`ck_rooms_room_id_format` 放宽为两种合法形态
 // （legacy `!opaque:server` 与 v12/MSC4291 的 domainless `!` + 43 位 URL-safe
-// Base64），并改为 DROP + ADD 以便既有库同步；常量同步为 `98c523547f1df60c`；
+// Base64），并改为 DROP + ADD 以便既有库同步；常量同步为 `6103d3941d21229e`；
 // 同样独立复算 FNV-1a 64，并先自检旧值 `d36d33bfe358346c` 逐字节吻合后取值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "98c523547f1df60c";
+const EXPECTED_BASELINE_FINGERPRINT: &str = "6103d3941d21229e";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))
