@@ -2472,10 +2472,23 @@
 #        —— 断言自愈把两条引导索引也建回来（否则那两条 `CREATE INDEX` 仍是零执行）。
 #   收紧方向：这 5 处是"构造前提 + 断言前提"的最小集合，没有可静态化的等价物；若将来把
 #   federation 的 DB 覆盖搬到 `tests/`（不在 census 扫描面内）可回收，但那会失去 per-test schema。
+# ── 2026-09-26 D-80（隔离 clone 同形修复：生产静态 +1，static 1233 → 1234）────────────
+#   D-80 的修法里 `validate_clone` 新增"索引名字集合"比对。它落在
+#   `synapse-common/src/test_isolation.rs` —— 该文件是**无条件编译**的测试基础设施，
+#   census 把它算**生产区**（其 literal 行 `9` 就在生产 literal 基线里）。故这条新查询
+#   若写成 `sqlx::query_as(...)` 就是**新增生产动态站点**：实测当时 ratio 门禁红
+#   （`production=255 > 254`）。按 R1 直接写成宏 `query_scalar!`（单列 ⇒ R6① `query_scalar!`；
+#   `EXCEPT` 差集不给 NOT NULL 透传 ⇒ R4② 断言 `AS "name!"`，理由：该列取自 `pg_class.relname`，
+#   catalog 名永不为 NULL），于是只增静态、不动生产动态。
+#   实测：`static` 1233 → **1234**（+1）、`dynamic_production` 254 不变、`dynamic_test` 723 不变、
+#   `dynamic` 总数 977 不变、`.sqlx` 1201 → **1202**（+1）。收紧方向：该查询是 D-80 的新门禁本体，
+#   没有可去掉的等价物（去掉就等于回到"只比数量、改名不可见"的旧状态）。
+#   附带订正 §0.1：`dynamic` 总数行与静态占比分母此前停在 C43 时点的 972 / 2206（C44-0 的 −1
+#   与 D-79 的 +5 未同步），现按实测改为 977 / 2211。
 BASELINE_QUERY_BUILDER=18
 BASELINE_DYNAMIC_PRODUCTION=254
 BASELINE_DYNAMIC_TEST_INFRA=723
-BASELINE_STATIC=1233
+BASELINE_STATIC=1234
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=977
 

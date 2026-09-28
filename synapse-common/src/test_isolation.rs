@@ -861,10 +861,13 @@ pub fn clone_statements(
 /// * Phase 1d: restore index and UNIQUE-constraint NAMES for the chunk's
 ///   tables. `LIKE ... INCLUDING ALL` copies indexes but PostgreSQL assigns
 ///   auto-generated names (a template's `idx_t_v_named` becomes `t_v_idx`), and
-///   it renames UNIQUE constraints (`uq_c_pid_named` -> `c_pid_key`). PRIMARY
-///   KEY names survive. Tests assert on those names (`has_index_named` has 24
-///   call sites in `tests/integration/schema_contract_p0_tests_migrated.rs`),
-///   and `validate_clone` compares only COUNTS, so a rename is invisible to it.
+///   it renames PK/UNIQUE/EXCLUDE constraints (`uq_c_pid_named` -> `c_pid_key`,
+///   `pk_t` -> `c_pkey`) while **preserving** CHECK names. Tests assert on those
+///   names (`has_index_named` has 24 call sites in
+///   `tests/integration/schema_contract_p0_tests_migrated.rs`), and
+///   `validate_clone` used to compare only COUNTS, so a rename was invisible —
+///   both gaps are D-80, fixed by phase 1e and by the index-name comparison in
+///   `validate_clone`.
 ///   Measured on a two-table probe: template `idx_t_v_named,uq_c_pid_named` ->
 ///   clone `t_v_idx,c_pid_key`. An index that backs a constraint cannot be
 ///   dropped or renamed independently of it, so those are renamed in place;
@@ -1027,11 +1030,11 @@ fn clone_table_chunk_statement(schema: &str, template: &str, seed_where: &str, t
                     JOIN pg_namespace tn ON tn.oid = tt.relnamespace
                     WHERE tn.nspname = '{template}'
                       AND tt.relname = ANY({chunk})
-                      -- Constraint-backed indexes (PK/UNIQUE) are handled by
-                      -- the constraints themselves: `LIKE` already preserves
-                      -- the PRIMARY KEY name, and renaming a constraint's
-                      -- index is a needless risk. Only plain indexes are
-                      -- normalised here.
+                      -- Constraint-backed indexes (PK/UNIQUE/EXCLUDE) are
+                      -- handled by phase 1e, which renames the CONSTRAINT
+                      -- (and therefore its index) — `LIKE` does **not**
+                      -- preserve those names (D-80, measured). Only plain
+                      -- indexes are normalised here.
                       AND NOT EXISTS (
                           SELECT 1 FROM pg_constraint cc
                           WHERE cc.conindid = ti.indexrelid
@@ -1056,6 +1059,75 @@ fn clone_table_chunk_statement(schema: &str, template: &str, seed_where: &str, t
                     'CREATE %s INDEX %I ON %I.%I %s',
                     CASE WHEN r.is_unique THEN 'UNIQUE' ELSE '' END,
                     r.tmpl_idx_name, '{schema}', r.tbl_name, r.idx_tail
+                );
+            END LOOP;
+
+            -- Phase 1e (D-80): restore PK / UNIQUE / EXCLUDE constraint NAMES for
+            -- this chunk's tables. Phase 1d deliberately skips constraint-backed
+            -- indexes, on the belief that "LIKE already preserves the PRIMARY KEY
+            -- name". Measured 2026-09-26: it does **not** — PostgreSQL applies its
+            -- default naming rules to copied PK/UNIQUE/EXCLUDE constraints
+            -- (`pk_users` -> `users_pkey`, `uq_users_username` ->
+            -- `users_username_key`), the same rule phase 1d already compensates
+            -- for on plain indexes. CHECK names *are* preserved, so only
+            -- index-backed constraint types need this.
+            --
+            -- A constraint's index cannot be dropped or renamed independently of
+            -- it, so the constraint itself is renamed in place — which renames its
+            -- index too. Pairing is by (table, contype, pg_get_constraintdef):
+            -- the definition text carries no name (`PRIMARY KEY (id)`,
+            -- `UNIQUE (v)`, `EXCLUDE USING gist (...)`) and `LIKE` preserves
+            -- column order, so identical definitions in the template and the clone
+            -- describe the same constraint. `row_number()` makes the pairing
+            -- deterministic even if a table ever carried two identical
+            -- definitions, and the chunk filter keeps it per-table.
+            FOR r IN
+                SELECT * FROM (
+                WITH clone_con AS (
+                    SELECT ct.relname AS tbl_name,
+                           cc.conname AS clone_name,
+                           cc.contype AS con_type,
+                           pg_get_constraintdef(cc.oid) AS con_def,
+                           row_number() OVER (
+                               PARTITION BY ct.relname, cc.contype, pg_get_constraintdef(cc.oid)
+                               ORDER BY cc.conname
+                           ) AS rn
+                    FROM pg_constraint cc
+                    JOIN pg_class ct ON ct.oid = cc.conrelid
+                    JOIN pg_namespace cn ON cn.oid = ct.relnamespace
+                    WHERE cn.nspname = '{schema}'
+                      AND ct.relname = ANY({chunk})
+                      AND cc.contype IN ('p', 'u', 'x')
+                ),
+                tmpl_con AS (
+                    SELECT tt.relname AS tbl_name,
+                           tc.conname AS tmpl_name,
+                           tc.contype AS con_type,
+                           pg_get_constraintdef(tc.oid) AS con_def,
+                           row_number() OVER (
+                               PARTITION BY tt.relname, tc.contype, pg_get_constraintdef(tc.oid)
+                               ORDER BY tc.conname
+                           ) AS rn
+                    FROM pg_constraint tc
+                    JOIN pg_class tt ON tt.oid = tc.conrelid
+                    JOIN pg_namespace tn ON tn.oid = tt.relnamespace
+                    WHERE tn.nspname = '{template}'
+                      AND tt.relname = ANY({chunk})
+                      AND tc.contype IN ('p', 'u', 'x')
+                )
+                SELECT c.tbl_name, c.clone_name, t.tmpl_name
+                FROM clone_con c
+                JOIN tmpl_con t
+                  ON t.tbl_name = c.tbl_name
+                 AND t.con_type = c.con_type
+                 AND t.con_def = c.con_def
+                 AND t.rn = c.rn
+                WHERE c.clone_name <> t.tmpl_name
+                ) AS paired_con
+            LOOP
+                EXECUTE format(
+                    'ALTER TABLE %I.%I RENAME CONSTRAINT %I TO %I',
+                    '{schema}', r.tbl_name, r.clone_name, r.tmpl_name
                 );
             END LOOP;
         END
@@ -1143,6 +1215,7 @@ fn clone_phase2_statement(schema: &str, template: &str) -> String {
         DO $do$
         DECLARE
             r RECORD;
+            idx RECORD;
             def TEXT;
             rest TEXT;
         BEGIN
@@ -1236,6 +1309,29 @@ fn clone_phase2_statement(schema: &str, template: &str) -> String {
                 def := replace(def, '"{template}".', '');
                 IF r.kind = 'm' THEN
                     EXECUTE format('CREATE MATERIALIZED VIEW %I.%I AS %s', '{schema}', r.name, def);
+                    -- D-80（第二处）：物化视图上的索引此前**根本没被搬运** ——
+                    -- `LIKE ... INCLUDING ALL` 只处理表，phase 1d/1e 也只在表上工作，
+                    -- 于是克隆出来的 matview 一个索引都没有（模板/`public` 上有 6 个：
+                    -- `idx_rooms_summaries_mv_*` ×4、`idx_public_room_directory_*` ×2）。
+                    -- `validate_clone` 加了索引名比对后立刻失败，遂在此逐个重建。
+                    -- `pg_get_indexdef` 返回完整 DDL 且带模板限定名，去掉限定名后
+                    -- 由 `search_path`（此刻已是克隆）解析到克隆的 matview；索引名保持
+                    -- 模板的名字（与 phase 1d 的"尾巴重建"手法不同，这里直接复用整条 DDL）。
+                    FOR idx IN
+                        SELECT ci.relname AS idx_name,
+                               replace(
+                                   replace(pg_get_indexdef(i.indexrelid), '{template}.', ''),
+                                   '"{template}".', ''
+                               ) AS idx_def
+                        FROM pg_index i
+                        JOIN pg_class ci ON ci.oid = i.indexrelid
+                        JOIN pg_class t ON t.oid = i.indrelid
+                        JOIN pg_namespace tn ON tn.oid = t.relnamespace
+                        WHERE tn.nspname = '{template}' AND t.relname = r.name
+                        ORDER BY ci.relname
+                    LOOP
+                        EXECUTE idx.idx_def;
+                    END LOOP;
                 ELSE
                     EXECUTE format('CREATE VIEW %I.%I AS %s', '{schema}', r.name, def);
                 END IF;
@@ -1439,6 +1535,56 @@ async fn validate_clone(pool: &PgPool, schema: &str, template: &str) -> Result<(
             tmpl.triggers,
             clone.seqs,
             tmpl.seqs
+        ));
+    }
+
+    // D-80: counts alone cannot see a rename. `LIKE ... INCLUDING ALL` gives
+    // copied PK/UNIQUE/EXCLUDE constraints (and the indexes that back them)
+    // PostgreSQL's default names, so a clone could hold exactly as many indexes
+    // as the template while **none of them** answered to the expected name —
+    // invisible to the count comparison above (and to every test that asserted
+    // an index name against the shared `public` schema instead of a clone).
+    // Compare the name sets and report the names the clone is missing.
+    let missing_names: Vec<String> = sqlx::query_scalar!(
+        r#"
+        WITH tmpl_idx AS (
+            SELECT c.relname AS name
+              FROM pg_index i
+              JOIN pg_class c ON c.oid = i.indexrelid
+              JOIN pg_class t ON t.oid = i.indrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+             WHERE n.nspname = $2 AND t.relname <> $3
+        ), clone_idx AS (
+            SELECT c.relname AS name
+              FROM pg_index i
+              JOIN pg_class c ON c.oid = i.indexrelid
+              JOIN pg_class t ON t.oid = i.indrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+             WHERE n.nspname = $1 AND t.relname <> $3
+        )
+        -- `EXCEPT` 的输出列拿不到 NOT NULL 透传（R4 ②），而 `name` 取自
+        -- `pg_class.relname`（catalog 名，永不为 NULL）⇒ 按 R4 断言。
+        SELECT name AS "name!" FROM tmpl_idx
+        EXCEPT
+        SELECT name AS "name!" FROM clone_idx
+        ORDER BY "name!"
+        LIMIT 20
+        "#,
+        schema,
+        template,
+        TEMPLATE_READY_TABLE
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("clone index-name comparison for {schema} vs template {template} failed: {e}"))?;
+
+    if !missing_names.is_empty() {
+        return Err(format!(
+            "isolated schema {schema} is missing index names the template {template} defines: {:?}. \
+             A rename is invisible to a count-only comparison (D-80); an incomplete clone silently \
+             falls back to `public` via search_path, and tests asserting index/constraint names \
+             would only pass by accident on the shared schema.",
+            missing_names
         ));
     }
 
@@ -2052,8 +2198,15 @@ INSERT INTO t VALUES ('it''s;here');
         let Some(url) = test_database_url() else {
             return;
         };
+        // D-80: the named-constraint shape is the one the real baseline uses
+        // (`CONSTRAINT pk_x PRIMARY KEY`, `CONSTRAINT uq_x UNIQUE`), and it is the
+        // one `LIKE ... INCLUDING ALL` renames. The earlier probe only used an
+        // **unnamed** PK plus `CREATE UNIQUE INDEX`, both of which happened to
+        // survive, so the rename went unnoticed.
         let baseline = r#"
-CREATE TABLE IF NOT EXISTS unify_named (id bigint PRIMARY KEY, v text, w text);
+CREATE TABLE IF NOT EXISTS unify_named (id bigint, v text, w text,
+    CONSTRAINT pk_unify_named PRIMARY KEY (id),
+    CONSTRAINT uq_unify_named_v UNIQUE (v));
 CREATE INDEX idx_unify_named_v ON unify_named (v);
 CREATE UNIQUE INDEX uq_unify_named_w ON unify_named (w);
 CREATE UNIQUE INDEX uq_unify_named_vw ON unify_named (v, w);
@@ -2109,6 +2262,13 @@ CREATE UNIQUE INDEX uq_unify_named_vw ON unify_named (v, w);
             template_names.iter().any(|n| n == "idx_unify_named_v"),
             "sanity: the template must actually carry the named index"
         );
+        for expected in ["pk_unify_named", "uq_unify_named_v"] {
+            assert!(
+                template_names.iter().any(|n| n == expected),
+                "sanity: the template must carry the named constraint's index {expected}; \
+                 without it this probe cannot catch the D-80 rename"
+            );
+        }
 
         let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#)).execute(&pool).await;
     }

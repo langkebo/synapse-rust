@@ -709,27 +709,10 @@ mod db_tests {
 
         assert!(result.missing_tables.is_empty(), "baseline is missing tables: {:?}", result.missing_tables);
         assert!(result.missing_columns.is_empty(), "baseline is missing columns: {:?}", result.missing_columns);
-        // 刻意**不**断言 `missing_indexes.is_empty()`：隔离 clone 会把 PK/UNIQUE 约束支撑的
-        // 索引名改成 PG 默认名（模板 `pk_users` / `uq_users_username` → clone `users_pkey` /
-        // `users_username_key`），因此本用例在**克隆**里必然报这 5 组缺失（实测：users、
-        // room_memberships、presence、access_tokens、user_threepids）。这是 D-80
-        // （`synapse-common/src/test_isolation.rs` 的 phase 1d 未还原约束索引名），
-        // 不是基线缺索引 —— 模板与 `public` 上这 5 组都在。
-        // D-80 修好后，这里应收紧为 `assert!(result.missing_indexes.is_empty())`。
-        let renamable = [
-            "uq_room_memberships_room_user",
-            "uq_users_username",
-            "idx_presence_user_status",
-            "idx_access_tokens_token_hash",
-            "idx_user_threepids_medium_address",
-        ];
-        for group in &result.missing_indexes {
-            assert!(
-                renamable.contains(&group.as_str()),
-                "unexpected missing index group {group:?}; only the D-80 constraint-index renames are tolerated, got {:?}",
-                result.missing_indexes
-            );
-        }
+        // D-80 修好后（`clone_table_chunk_statement` 的 phase 1e 还原 PK/UNIQUE/EXCLUDE 约束名，
+        // `validate_clone` 也改为比索引名字集合），隔离 clone 与模板/`public` 同形，
+        // 因此这里可以断言真正的不变量 —— 修复前这条断言必红（实测 5 组约束索引被改名）。
+        assert!(result.missing_indexes.is_empty(), "baseline is missing indexes: {:?}", result.missing_indexes);
         assert!(
             result.baseline_drift.abs() <= 10,
             "baseline drift too large: {} (baseline {} vs actual {})",
