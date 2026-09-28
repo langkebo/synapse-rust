@@ -1,0 +1,36 @@
+{
+  "event_id": "$1-HcCScfXZ3kWhOpmWKlJONL0DgOa1i6T5VFVt9JaYE",
+  "pdu": {
+    "auth_events": [
+      "$create:example.com"
+    ],
+    "content": {
+      "body": "U-13 interop fixture for v12",
+      "m.mentions": {},
+      "msgtype": "m.text"
+    },
+    "depth": 24,
+    "hashes": {
+      "sha256": "PLACEHOLDER"
+    },
+    "origin": "example.com",
+    "origin_server_ts": 1731769874137,
+    "prev_events": [
+      "$prev:example.com"
+    ],
+    "room_id": "!31hneApxJ_1o-63DmFrpeqnkFfWppnzWso1JvH3ogLM",
+    "sender": "@alice:example.com",
+    "signatures": {
+      "example.com": {
+        "ed25519:1": "PLACEHOLDER"
+      }
+    },
+    "type": "m.room.message"
+  },
+  "produced_by": "tests/unit/u13_interop_fixture_tests.rs (build_pdu + finalize_local_pdu + sign_and_hash_event) - v12 skeleton",
+  "room_version": "12",
+  "signing_key_id": "ed25519:1",
+  "signing_seed_base64": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+  "signing_server_name": "example.com",
+  "_note": "This is a skeleton fixture for MSC4291 v12 room IDs (domainless). The event_id and hashes/signatures are placeholders until the v12 PDU pipeline is implemented. The room_id follows MSC4291 grammar: ! + 43 URL-safe base64 characters (no colon/server portion)."
+}

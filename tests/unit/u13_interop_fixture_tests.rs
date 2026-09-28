@@ -101,7 +101,10 @@ fn u13_interop_fixtures_match_the_pipeline() {
     let write = std::env::var("U13_WRITE_INTEROP_FIXTURE").as_deref() == Ok("1");
 
     // v3 exercises the standard Base64 alphabet; v10/v11 the URL-safe one that
-    // every later version uses.
+    // every later version uses. v12 is a **skeleton** fixture for MSC4291
+    // domainless room IDs: the pipeline still emits a legacy-shaped PDU until
+    // the C/D phases land, so v12 is verified separately (placeholder hash,
+    // room_id uses `!` + 43 URL-safe base64 chars without a `:server` part).
     for room_version in ["3", "10", "11"] {
         let expected = build_fixture(room_version);
         let path = fixture_path(room_version);
