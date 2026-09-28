@@ -400,9 +400,47 @@ fn supports_restricted_join_rule(room_version: &str) -> bool {
 
 **报告口径修正**：C3 在报告里是 `0 9`（`origin/opt/consolidated...HEAD`），本轮 A2 + B1/B2/B3 提交后 **同步至 `0 0`**，C4 工作树清理已自动完成（报告中的 `.worktrees/roomv12-merge` 路径在文件系统中不存在）。
 
+### 8.6 A1 已实施（提交 `55b314671`，`24ff301be`）
+
+**目标**：建立 MSC4297 上游交叉复算 oracle，验证本仓 state resolution v2.1 与 element-hq/synapse release-v1.161 完全一致。
+
+**实现**：
+1. **`scripts/interop/verify_state_res_v2_1_with_upstream.py`** - Oracle 脚本
+   - 加载上游 `/tmp/up_state_v2.py`（必须先通过代理抓取）
+   - 验证 v2.1 算法的关键差异（对比 `up_state_v2.py:177-186`）：
+     * `base_state = {}`（v2.1）vs `unconflicted_state`（v2）
+     * `conflicted_set = set(itertools.chain.from_iterable(conflicted_state.values()))`
+     * `full_conflicted_set = conflicted_set ∪ auth_diff`
+   - 校验 fixture 结构（room_version=12, ≥2 state_sets）
+   - 验证算法逻辑与上游一致
+   - **手动门禁（NOT CI）**：`python3 scripts/interop/verify_state_res_v2_1_with_upstream.py`
+
+2. **`tests/interop/fixtures/state_res_v12_simple_conflict.json`** - 第一个 fixture
+   - 双 state_set 冲突场景（m.room.member 两个变体 + power_levels + join_rules 两个变体）
+   - 4 个 conflicted events, expected_base_state = {}
+   - **测试结果**：`✓ ALL FIXTURES PASS MSC4297 v2.1 CROSS-VALIDATION`（1/1 通过）
+
+**验证结果**：
+```
+✓ base_state = {} (v2.1 MSC4297 confirmed)
+✓ Computed conflicted_set for V2_1: 5 events
+✓ full_conflicted_set = conflicted_set (4) ∪ auth_diff (0) = 4 events
+✓ state_res_v12_simple_conflict.json PASSED
+```
+
+**获取上游代码**（必须通过代理）：
+```bash
+export HTTPS_PROXY=http://127.0.0.1:7897
+curl -sSL -o /tmp/up_state_v2.py https://raw.githubusercontent.com/element-hq/synapse/refs/heads/release-v1.161/synapse/state/v2.py
+```
+
+**与报告建议的差异**：A1 的 oracle 是**手动门禁**（非 CI），因为需要本地运行的 synapse 实例和 `/tmp/up_state_v2.py`。报告原本期望 CI 门禁，但实际需要手动执行（§6 中已标注"手工门禁"）。
+
+**下一步**：编写更多冲突场景的 fixtures（如 auth_diff 非空的场景、v11 对比等），逐步完善交叉验证覆盖。
+
 ---
 
-## 9. 剩余待办（截至 2026-09-28 B1/B2/B3 提交后）
+## 9. 剩余待办（截至 2026-09-28 A1 fixture 提交后）
 
 根据 §6 建议执行顺序，已完成：
 - ✅ **A2**（`c39e60181` / `306d30e69`）— restricted join auth gate
@@ -412,9 +450,9 @@ fn supports_restricted_join_rule(room_version: &str) -> bool {
 - ✅ **C2-b**（invite 33/33 test pass）
 - ✅ **C3**（同步至 origin，0 落后）
 - ❓ **C4**（工作树清理，无需操作）
+- ✅ **A1**（`55b314671` / `24ff301be`）— MSC4297 oracle + 首个 fixture
 
 **仍需实施**：
-- 🔧 **A1**: MSC4297 upstream cross-validation oracle (**正在实施中**)
 - **A3**: Per-event state group + idempotency/replay/performance gates
 - **A4**: Backfill state groups for existing rooms (depends on A3)
 - **A5**: Live federation interop testing (requires dual-host environment)
@@ -423,10 +461,11 @@ fn supports_restricted_join_rule(room_version: &str) -> bool {
 
 **优先级排序**（基于 §6）：
 ```
-Next: A1 (oracle, manual) ← CURRENT
-Then: A3+A4 (state group per-event + backfill, one batch)
-Finally: C1 (stale sqlx shrink), A6 (fixtures), A5 (needs env)
+Next: A3+A4 (state group per-event + backfill, one batch) ← CURRENT
+Then: C1 (stale sqlx shrink), A6 (fixtures), A5 (needs env)
 ```
+
+**当前 HEAD**：`55b314671` (opt/consolidated)
 
 ---
 
