@@ -278,7 +278,9 @@ A2（最小正确性） → C4 / C3（零风险收尾，push 一次带走 A2）
 
 ## 8. 实施进展与新增发现（2026-09-28 续）
 
-### 8.1 A2 已实施（本轮唯一生产代码改动）
+> §0–§7 是**只读复核**（无副作用，见 §7）。本节起记录**随后的实施**，每项一个独立提交。
+
+### 8.1 A2 已实施（提交 `c39e60181` + 文档 `306d30e69`）
 
 **文件**：`synapse-federation/src/event_auth/state_map_auth.rs`
 
@@ -306,7 +308,7 @@ A2（最小正确性） → C4 / C3（零风险收尾，push 一次带走 A2）
 
 **门禁**：`cargo fmt -p synapse-federation -- --check` 干净；`cargo clippy -p synapse-federation --all-targets --features test-utils --locked -- -D warnings` 无告警。`check_doc_spelling.sh` 本机不可跑（**缺 `aspell`**，环境缺失非仓库问题）；`markdownlint` 通过。
 
-### 8.2 新增发现 A7（P1，本轮**未改**）：`auth_events` 选择同时排除了 v9 与 v12+
+### 8.2 新增发现 A7（P1，**已实施** 提交 `5de77da29`）：`auth_events` 选择同时排除了 v9 与 v12+
 
 **位置**：`synapse-services/src/room/state/auth_events.rs:95`
 
@@ -326,7 +328,32 @@ fn supports_restricted_join_rule(room_version: &str) -> bool {
 
 **该 helper 的注释本身已过期**（`auth_events.rs:93-94` 称 "v9 removed it" 与 "v12/v13 are parse-only"——后者自 v12 升为 `stable("12")` 起已不成立）；其用例 `v9_has_no_restricted_join_rule`（`:390-405`）正是按这个错误前提写的。
 
-**建议修法（一个小提交，待授权）**：删除该私有 helper，改为委托同一真相源 `synapse_common::redaction::redaction_rules(..).is_some_and(|r| r.restricted_join_rule)`（或提升为 `synapse_common::room_versions::supports_restricted_join_rule` 供两处共用），并把用例预期反转为 **v9 / v12 选中**授权用户、**v7 不选**。
+**实施（提交 `5de77da29`）**：`supports_restricted_join_rule` 改为**委托** `synapse_common::redaction::redaction_rules(..).is_some_and(|r| r.restricted_join_rule)`——即上面第 3 条权威来源本身，与上游 `event_auth.py:1287` 读的是**同名** flag，故两侧由构造保证一致；未知版本 `None` ⇒ `false`（fail-closed，与 A2 的门控同语义）。注释按上面第 1、2 条重写；调用点补一行"授权用户必须可从 auth chain 到达，否则对端 `_check_joined_room` 找不到其 member 事件"的理由说明。
+
+**与报告建议的差异（1 处）**：报告写"**删除**该私有 helper"。本轮**保留**该 helper 但只留一行委托——理由是调用点 `if membership == "join" && supports_restricted_join_rule(..)` 可读性更好，且它给变异自证留了唯一的钉死点。缺陷的实质是**那份版本号列表**，不是 helper 本身；委托后已无第二份版本列表可漂移，故按报告的**意图**（单一真相源）落地，而非按字面删除。
+
+**用例**：原 `v9_has_no_restricted_join_rule` 正是按同一错误前提写的，已删并替换为两条——
+
+| 用例 | 断言 |
+|---|---|
+| `restricted_join_gate_follows_the_version_table` | v8/v9/v10/v11/v12 **必须**把授权用户选入 `auth_types_for_event`；v7 **不得**（负向断言真实存在）；未知版本 `"hydra"` **不得**（不借用 v8 语义） |
+| `v12_restricted_join_selects_authoriser_and_omits_create` | v12 的**完整**选择序列 = `[$join_rules, $alice_member, $bob_member, $pl]`（授权用户在、create 不在）；v11 = 同一列表多一个 `$create` ⇒ 两条语义各自被钉住 |
+
+**变异自证（双向，实测）**：
+
+| 变异 | 结果 |
+|---|---|
+| 门禁钉死 `false`（复现原缺陷） | **3 条转红**：`restricted_join_selects_authorising_user_member`、`restricted_join_gate_follows_the_version_table`、`v12_restricted_join_selects_authoriser_and_omits_create` |
+| 门禁钉死 `true`（模拟过度授权） | **1 条转红**：`restricted_join_gate_follows_the_version_table`（v7 与未知版本两条负向断言同时失效） |
+
+**门禁（实测）**：`cargo fmt -p synapse-services -- --check` 干净；`cargo clippy -p synapse-services` 与 `cargo clippy --workspace --all-targets --features test-utils --locked -- -D warnings` 均无告警；`nextest -p synapse-services -E 'test(room::state::auth_events)'` → **13/13**；`nextest --test unit --features test-utils` → **1812/1812**（2 skipped）。
+
+**宽跑里的 2 条失败已归因，均属环境前置、非回归**（在更宽的 `nextest -p synapse-services` 中 1875 passed / 2 failed）：
+
+| 失败用例 | 归因（实测） |
+|---|---|
+| `database_initializer::tests::migration_lock_key_survives_an_empty_search_path` | 用例第 850 行直接读 `std::env::var("TEST_DATABASE_URL")`（不走带兜底的 `resolve_test_database_url`）。未导出该变量时必然 panic；**导出后单跑通过** |
+| `media::tests::media_fixture_keeps_its_isolated_schema_for_the_whole_test` | 用例自带前置守卫（`media/mod.rs:1241`），panic 文本即"needs the shared public schema to be migrated (`scripts/ci/prepare_test_db.sh`)"。本机 `synapse_test.public` 为 **0 表**（设计要求：隔离用例从模板 schema 克隆）⇒ 守卫的 `Err` 分支必然触发。与该文件的失败不涉及 `auth_events` 任何代码路径 |
 
 **报告口径修正**：A7 **不在**原报告 A1–A6 / B1–B3 / C1–C4 的 13 项之内，是本轮复核新增的第 **14** 项，归入"v12 输入缺口"（与 B 组同族）。
 
@@ -334,4 +361,12 @@ fn supports_restricted_join_rule(room_version: &str) -> bool {
 
 `synapse-services/src/room/membership/service.rs:573` 的 `authorize_inbound_member_transition` 对 join 显式传 `TransitionCtx::state_only(join_rule, .., /* restricted */ true)`，并在 `:553-555` 注释自述"join-rule authorization is deferred to the resident server that signed the join"。上游在 `_check_event_auth` 里**是**会校验授权用户的（`event_auth.py:737-754`）。
 
-⇒ 本仓入站侧**过宽**（接受），与 §8.1 修的 state-resolution 侧原先**过窄**（拒绝）方向相反；叠加客户端侧 `service.rs:524` 的 storage 版 `is_restricted_join_authorized`，**同一"restricted join 是否获授权"在本仓有三个不同副本**。本项未改：它是被显式文档化的有意从宽，且放宽/收紧会影响 backfill 的接受面，须单独评审。
+⇒ 本仓入站侧**过宽**（接受），与 §8.1 修的 state-resolution 侧原先**过窄**（拒绝）方向相反。A2 与 A7 落地后，"按版本决定该规则是否适用"这一半已经**收敛到 `redaction.rs` 的能力表**（两处都不再自带版本列表）；仍存在分歧的是**判定强度**：入站侧（本项，恒 `true`）与客户端侧 `service.rs:524` 的 storage 版 `is_restricted_join_authorized`（真判定）不是同一条口径。本项未改：它是被显式文档化的有意从宽，且放宽/收紧会影响 backfill 的接受面，须单独评审。
+
+### 8.4 同轮顺带核查（**均未改**，仅记录，避免下次重复排查）
+
+| 项 | 位置 | 判定 |
+|---|---|---|
+| `uses_reference_hash_event_id` 的硬编码版本列表 | `synapse-common/src/event_id.rs:78`（`matches!("3".."12")`） | **非同族，勿修**。它列的是"v3 起事件 id 用 reference hash"，是**定义式**枚举且**未排除 v9/v12**；与 A7 的"按版本能力漂移"缺陷不同类。若日后新增版本需连带维护，属独立议题 |
+| 隔离模板表数 | `synapse_test.test_template_ci` = **224 表**（本机实测） | 与 `.workbuddy/memory/2026-09-22.md` 记录的 **227 表**有差。可能是 v12 基线合并后的正常变化，也可能是模板陈旧；**未取证**，不据此下结论 |
+| 累积的残留测试 schema | `synapse_test` 中 `test_%` = **164 个** | 远低于已知致病量级（~1600 才开始把单例从 ~0.01s 拖到 ~27s），本轮未清理 |
