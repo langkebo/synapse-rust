@@ -2485,12 +2485,58 @@
 #   没有可去掉的等价物（去掉就等于回到"只比数量、改名不可见"的旧状态）。
 #   附带订正 §0.1：`dynamic` 总数行与静态占比分母此前停在 C43 时点的 972 / 2206（C44-0 的 −1
 #   与 D-79 的 +5 未同步），现按实测改为 977 / 2211。
+# ── 2026-09-26 C44（`backup/service.rs` 4 + `audit.rs` 4 + `schema_health_check.rs` 4）──────
+#   三个模块的生产区字面量动态 SQL 全部宏化（12 处），各自的真实缺口：
+#   · `synapse-e2ee/src/backup/service.rs`：4 条字面量里 2 条是 `COUNT(*)` 计数
+#     （`sqlx::query` + `try_get::<i64,_>("count")`，靠运行期列名/类型解码）、2 条是
+#     `query_as::<_, BackupKeyInfo>` 的 8 列投影 ⇒ 改 `query_scalar!`（`COUNT(*)` 无关系来源，
+#     Describe 不透传 NOT NULL ⇒ R4 ① 断言 `AS "count!"`，聚合恒返回一行且计数永不为 NULL）
+#     与 `query_as!`（列清单已显式，R3 ✓；`COALESCE(kb.backup_id_text, kb.version::text)`
+#     同为无关系来源表达式 ⇒ R4 ① 断言 `AS "backup_id!"`，理由：`version` 是
+#     `NOT NULL DEFAULT 1`，COALESCE 的结果永不为 NULL）。转换后 `use sqlx::Row`
+#     失去唯一使用者，随批删除。
+#   · `synapse-storage/src/audit.rs`：`get_event` 与 `insert_audit_event` 的 `RETURNING`
+#     列清单（9 列，全部 `NOT NULL`）⇒ `query_as!`；`delete_events_before` 的两条是
+#     「单列 SELECT」—— `set_config(...)` 无 `.execute()` 可用（R6 ①）⇒ `query_scalar!` +
+#     `fetch_one`（函数调用按可空推断，R6 ③；返回值本就要丢 ⇒ `let _ =`），
+#     `DELETE ... WHERE created_ts < $1` 无结果列 ⇒ `query!` + `.execute()`（保留
+#     `rows_affected()` 语义，append-only 触发器的 set_config 逃逸路径逐字保留）。
+#   · `synapse-storage/src/schema_health_check.rs`：4 条批量健康检查（C-4 的 ANY/unnest 版）
+#     —— 两处 `= ANY($1)` 的参数是 `&[&str]`/`Vec<&str>`，宏的 `ty_match` 拒绝（R5）⇒
+#     改为 owned `Vec<String>`；`unnest($1::text[], $2::text[])` 的元组投影不能用
+#     `query_as!`（R6 ⑤ 不构造元组）⇒ `query!` + 字段读；三处查询的列全部来自
+#     **系统视图**（`information_schema.tables` / `pg_indexes` / `unnest` 结果集），
+#     PG 的 Describe **不给视图列透传 NOT NULL**，而这些列分别取自
+#     `pg_class.relname`（catalog 名，永不为 NULL）⇒ R4 断言。
+#   实测：`dynamic_production` 254 → **242**（−12）、`static` 1234 → **1246**（+12）、
+#   `dynamic` 总数 977 → **965**、`dynamic_test` 723 不变、`.sqlx` 1202 → **1214**（+12）、
+#   literal 183/42 → **171/39**（三个文件退表）。runtime 残差恒等式仍成立：
+#   242 − 171 − 1 = **70**（本条是"转换不产生 runtime"的自证）。
+#   验证：见提交信息（`synapse-storage` 的 `schema_health_check`/`audit` 真 baseline 往返、
+#   `synapse-e2ee` 的 backup 往返、四道棘轮、两档 clippy、fmt）。
+#   ⚠️ **同批补覆盖 ⇒ 测试基础设施动态 +2（723 → 725）**：`service.rs` 的四个被转方法是
+#   **service 层**读路径，原有的 DB 覆盖只到 storage 层（`backup/storage.rs::db_tests`），
+#   而集成用例用的是**手搭简化 schema**（`version` 无 `NOT NULL`、`first_message_index` 可空
+#   —— D-36 允许 D-46 藏身的形态）。按 R8/R9 新增
+#   `backup::service::db_tests::service_reads_round_trip_on_the_migration_template`，
+#   跑真 v12 基线，覆盖：两条 `COUNT(*)` 的文本命中/数字回退/未命中三条路径、
+#   `get_all_backup_keys` 的 8 列投影、`get_keys_for_version` 的三条路径，以及
+#   **`backup_id_text` 为 NULL 的行**必须靠 `version::text` 被找到并由 `COALESCE` 回填。
+#   两处动态站点是测试区夹具（`#[cfg(test)]` 内，宏不进 `cargo sqlx prepare` ⇒ R9/D-13：
+#   ① 插 `rooms` 行（真基线带 `fk_backup_keys_room`，无房间则上传必败）；
+#   ② 直接插一条 `backup_id_text = NULL` 的 `key_backups` 行（`create_backup` 永远写非空
+#   `backup_id_text`，所以这条分支只能这样造）。没有可静态化的等价物；方向仍是收紧
+#   （生产 254 → 242），测试区这两点换来的是四个方法的真库往返证据。
+#   R11 自证：把 `get_all_backup_keys` 的 `COALESCE(kb.backup_id_text, kb.version::text)` 变异回
+#   `kb.backup_id_text` ⇒ 默认离线模式下编译期即报
+#   "no cached data for this query"（SQL 文本变了但缓存没有对应条目），复原后即绿 —— 说明这 4 条
+#   查询确实走宏与缓存（R2），不是"改了文本却没人发现"。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=254
-BASELINE_DYNAMIC_TEST_INFRA=723
-BASELINE_STATIC=1234
+BASELINE_DYNAMIC_PRODUCTION=242
+BASELINE_DYNAMIC_TEST_INFRA=725
+BASELINE_STATIC=1246
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=977
+BASELINE_DYNAMIC=967
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

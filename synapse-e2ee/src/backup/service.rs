@@ -2,7 +2,6 @@ use super::models::*;
 use super::storage::{BackupKeyInsertParams, BackupKeyStorage, KeyBackupStorage};
 use crate::device_keys::DeviceKeyStoreApi;
 use crate::signed_json::verify_signed_json;
-use sqlx::Row;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
@@ -437,28 +436,34 @@ impl KeyBackupService {
 
     /// See [`get_backup_key_count`].
     pub async fn get_backup_key_count(&self, user_id: &str) -> Result<i64, ApiError> {
-        let row = sqlx::query(
-            r"
-            SELECT COALESCE(COUNT(*), 0) as count
+        // `COUNT(*)` 无关系来源 ⇒ PG 的 Describe 不透传 NOT NULL（R4 ①）；
+        // 聚合恒返回一行且计数永不为 NULL ⇒ 按 R4 断言。
+        let count = sqlx::query_scalar!(
+            r#"
+            SELECT COALESCE(COUNT(*), 0) AS "count!"
             FROM backup_keys bk
             JOIN key_backups kb ON kb.backup_id = bk.backup_id
             WHERE kb.user_id = $1
-            ",
+            "#,
+            user_id
         )
-        .bind(user_id)
         .fetch_one(&*self.storage.pool)
         .await?;
 
-        Ok(row.try_get::<i64, _>("count")?)
+        Ok(count)
     }
 
     /// See [`get_all_backup_keys`].
     pub async fn get_all_backup_keys(&self, user_id: &str) -> Result<Vec<BackupKeyInfo>, ApiError> {
-        let rows = sqlx::query_as::<_, BackupKeyInfo>(
-            r"
+        // `COALESCE(kb.backup_id_text, kb.version::text)`：`backup_id_text` 可空而
+        // `version` 是 `NOT NULL`（迁移 `key_backups.version BIGINT NOT NULL DEFAULT 1`），
+        // 故结果永不为 NULL，但 `COALESCE` 属无关系来源表达式、Describe 不透传（R4 ①）⇒ 断言。
+        let rows = sqlx::query_as!(
+            BackupKeyInfo,
+            r#"
             SELECT
                 kb.user_id,
-                COALESCE(kb.backup_id_text, kb.version::text) AS backup_id,
+                COALESCE(kb.backup_id_text, kb.version::text) AS "backup_id!",
                 bk.room_id,
                 bk.session_id,
                 bk.first_message_index,
@@ -468,9 +473,9 @@ impl KeyBackupService {
             FROM backup_keys bk
             JOIN key_backups kb ON kb.backup_id = bk.backup_id
             WHERE kb.user_id = $1
-            ",
+            "#,
+            user_id
         )
-        .bind(user_id)
         .fetch_all(&*self.storage.pool)
         .await?;
         Ok(rows)
@@ -478,11 +483,12 @@ impl KeyBackupService {
 
     /// Return every stored session for a single backup version.
     pub async fn get_keys_for_version(&self, user_id: &str, version: &str) -> Result<Vec<BackupKeyInfo>, ApiError> {
-        let rows = sqlx::query_as::<_, BackupKeyInfo>(
-            r"
+        let rows = sqlx::query_as!(
+            BackupKeyInfo,
+            r#"
             SELECT
                 kb.user_id,
-                COALESCE(kb.backup_id_text, kb.version::text) AS backup_id,
+                COALESCE(kb.backup_id_text, kb.version::text) AS "backup_id!",
                 bk.room_id,
                 bk.session_id,
                 bk.first_message_index,
@@ -493,10 +499,10 @@ impl KeyBackupService {
             JOIN key_backups kb ON kb.backup_id = bk.backup_id
             WHERE kb.user_id = $1
               AND (kb.backup_id_text = $2 OR kb.version::text = $2)
-            ",
+            "#,
+            user_id,
+            version
         )
-        .bind(user_id)
-        .bind(version)
         .fetch_all(&*self.storage.pool)
         .await?;
         Ok(rows)
@@ -504,21 +510,21 @@ impl KeyBackupService {
 
     /// See [`get_backup_key_count_for_version`].
     pub async fn get_backup_key_count_for_version(&self, user_id: &str, version: &str) -> Result<i64, ApiError> {
-        let row = sqlx::query(
-            r"
-            SELECT COALESCE(COUNT(*), 0) as count
+        let count = sqlx::query_scalar!(
+            r#"
+            SELECT COALESCE(COUNT(*), 0) AS "count!"
             FROM backup_keys bk
             JOIN key_backups kb ON kb.backup_id = bk.backup_id
             WHERE kb.user_id = $1
               AND (kb.backup_id_text = $2 OR kb.version::text = $2)
-            ",
+            "#,
+            user_id,
+            version
         )
-        .bind(user_id)
-        .bind(version)
         .fetch_one(&*self.storage.pool)
         .await?;
 
-        Ok(row.try_get::<i64, _>("count")?)
+        Ok(count)
     }
 
     /// See [`get_room_backup_keys`].
@@ -1215,5 +1221,124 @@ mod tests {
             "someuser": "not_a_map"
         });
         assert!(!KeyBackupService::compute_signature_validity_without_device_keys(&garbage));
+    }
+}
+
+/// `KeyBackupService` 读路径在**真 baseline** 上的往返。
+///
+/// C44 把本文件的 4 处字面量动态 SQL 宏化（两条 `COUNT(*)` + 两条 8 列投影）。
+/// 本文件此前的 17 个用例全是纯构造，唯一的 DB 覆盖是同目录 `storage.rs` 的
+/// `db_tests`（只到 storage 层，不经过 service 的这四个方法），而
+/// `tests/integration/key_backup_storage_tests_migrated.rs` 用的是**手搭的简化
+/// schema**（`version` 没有 `NOT NULL`、`first_message_index` 可空）—— 那正是
+/// D-36 允许 D-46 藏身的形态。因此这里跑**真 v12 基线**，让宏化的列清单/可空性
+/// 断言（`COALESCE(...) AS "backup_id!"`、`COUNT(*) AS "count!"`）在第一次往返就
+/// 被真 catalog 证伪。
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use synapse_common::test_isolation::IsolatedTestPool;
+
+    /// 工作区基线迁移，**逐字节**必须与其它副本一致（`synapse-storage/src/test_isolation.rs`、
+    /// `synapse-e2ee/src/backup/storage.rs`、`synapse-services/src/test_utils.rs`），
+    /// 否则隔离模板名（内容指纹）会对不上。
+    const BASELINE_SQL: &str = include_str!("../../../migrations/00000000_unified_schema_v12.sql");
+
+    fn backup(user_id: &str, version: i64) -> KeyBackup {
+        KeyBackup {
+            user_id: user_id.to_string(),
+            backup_id: version.to_string(),
+            version,
+            algorithm: "m.megolm_backup.v1.curve25519-aes-sha2".to_string(),
+            auth_key: "auth_key".to_string(),
+            mgmt_key: "mgmt_key".to_string(),
+            backup_data: serde_json::json!({"public_key": "pubkey"}),
+            etag: None,
+        }
+    }
+
+    fn key(user_id: &str, version: i64, room_id: &str, session_id: &str) -> BackupKeyInsertParams {
+        BackupKeyInsertParams {
+            user_id: user_id.to_string(),
+            backup_id: version.to_string(),
+            room_id: room_id.to_string(),
+            session_id: session_id.to_string(),
+            first_message_index: 3,
+            forwarded_count: 1,
+            is_verified: true,
+            backup_data: serde_json::json!({"ciphertext": "ct", "mac": "mac"}),
+        }
+    }
+
+    #[tokio::test]
+    async fn service_reads_round_trip_on_the_migration_template() {
+        let isolated = IsolatedTestPool::new(BASELINE_SQL).await.expect("isolated test pool");
+        let pool = isolated.pool();
+        let storage = KeyBackupStorage::new(&pool);
+        let key_storage = BackupKeyStorage::new(&pool);
+        let service = KeyBackupService::new(&storage);
+
+        let user = "@c44:localhost";
+        let room = "!c44:localhost";
+
+        // 真基线带 `fk_backup_keys_room`（`backup_keys.room_id → rooms.room_id`），
+        // 所以房间必须先存在（手搭 schema 的集成用例漏掉了这条 FK，见文件头注释）。
+        sqlx::query("INSERT INTO rooms (room_id, created_ts) VALUES ($1, $2)")
+            .bind(room)
+            .bind(0_i64)
+            .execute(&*pool)
+            .await
+            .unwrap();
+
+        // 版本 9：走正常写入路径（`backup_id_text = '9'`），两条会话。
+        storage.create_backup(&backup(user, 9)).await.unwrap();
+        key_storage.upload_backup_key(key(user, 9, room, "sess-a")).await.unwrap();
+        key_storage.upload_backup_key(key(user, 9, room, "sess-b")).await.unwrap();
+
+        // 版本 11：`backup_id_text` **显式为 NULL** —— 这条分支（D-46）此前只在
+        // 简化 schema 的集成用例里"看起来"被覆盖过。它的键必须靠
+        // `version::text` 一侧被找到（`kb.backup_id_text = $2 OR kb.version::text = $2`），
+        // 读回时也必须由 `COALESCE(backup_id_text, version::text)` 回填。
+        sqlx::query(
+            "INSERT INTO key_backups (user_id, backup_id_text, version, algorithm, auth_key, mgmt_key, created_ts) \
+             VALUES ($1, NULL, $2, $3, 'auth', 'mgmt', $4)",
+        )
+        .bind(user)
+        .bind(11_i64)
+        .bind("m.megolm_backup.v1.curve25519-aes-sha2")
+        .bind(0_i64)
+        .execute(&*pool)
+        .await
+        .unwrap();
+        key_storage.upload_backup_key(key(user, 11, room, "sess-c")).await.unwrap();
+
+        // get_backup_key_count：跨全部版本的计数（`COUNT(*)` 恒为一行、永不为 NULL）。
+        assert_eq!(service.get_backup_key_count(user).await.unwrap(), 3);
+
+        // get_backup_key_count_for_version：文本分支（'9'）与数字回退分支（11）。
+        assert_eq!(service.get_backup_key_count_for_version(user, "9").await.unwrap(), 2);
+        assert_eq!(service.get_backup_key_count_for_version(user, "11").await.unwrap(), 1);
+        assert_eq!(service.get_backup_key_count_for_version(user, "does-not-exist").await.unwrap(), 0);
+
+        // get_all_backup_keys：8 列投影；`backup_id` 必须由 COALESCE 回填成版本字符串。
+        let mut all = service.get_all_backup_keys(user).await.unwrap();
+        all.sort_by(|a, b| a.session_id.cmp(&b.session_id));
+        assert_eq!(all.iter().map(|k| k.session_id.as_str()).collect::<Vec<_>>(), vec!["sess-a", "sess-b", "sess-c"]);
+        assert_eq!(all.iter().map(|k| k.backup_id.as_str()).collect::<Vec<_>>(), vec!["9", "9", "11"]);
+        assert_eq!(all[0].user_id, user);
+        assert_eq!(all[0].room_id, room);
+        assert_eq!(all[0].first_message_index, 3);
+        assert_eq!(all[0].forwarded_count, 1);
+        assert!(all[0].is_verified);
+        assert_eq!(all[0].session_data, serde_json::json!({"ciphertext": "ct", "mac": "mac"}));
+
+        // get_keys_for_version：文本命中、数字回退命中、未命中三条路径。
+        let v9 = service.get_keys_for_version(user, "9").await.unwrap();
+        assert_eq!(v9.len(), 2);
+        assert!(v9.iter().all(|k| k.backup_id == "9"));
+        let v11 = service.get_keys_for_version(user, "11").await.unwrap();
+        assert_eq!(v11.len(), 1);
+        assert_eq!(v11[0].backup_id, "11");
+        assert!(service.get_keys_for_version(user, "does-not-exist").await.unwrap().is_empty());
     }
 }

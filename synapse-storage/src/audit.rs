@@ -138,14 +138,15 @@ impl AuditEventStorage {
 
     /// See [`get_event`].
     pub async fn get_event(&self, event_id: &str) -> Result<Option<AuditEvent>, sqlx::Error> {
-        sqlx::query_as::<_, AuditEvent>(
-            r"
+        sqlx::query_as!(
+            AuditEvent,
+            r#"
             SELECT event_id, actor_id, action, resource_type, resource_id, result, request_id, details, created_ts
             FROM audit_events
             WHERE event_id = $1
-            ",
+            "#,
+            event_id
         )
-        .bind(event_id)
         .fetch_optional(&*self.pool)
         .await
     }
@@ -245,9 +246,14 @@ impl AuditEventStorage {
         // Wrap in a transaction so that set_config (is_local=true) applies to
         // the DELETE statement and bypasses the append-only trigger guard.
         let mut tx = self.pool.begin().await?;
-        sqlx::query("SELECT set_config('synapse.allow_audit_delete', 'true', true)").execute(&mut *tx).await?;
+        // 单列 SELECT 的 `query!` 只生成 `Map`、没有 `.execute()`（R6 ①）⇒ 用
+        // `query_scalar!` + `fetch_one`。`set_config(...)` 是无关系来源的函数调用，
+        // 宏按可空推断（R6 ③），而返回值本就要丢弃 ⇒ `let _ =` 明确忽略。
+        let _ = sqlx::query_scalar!("SELECT set_config('synapse.allow_audit_delete', 'true', true)")
+            .fetch_one(&mut *tx)
+            .await?;
         let result =
-            sqlx::query("DELETE FROM audit_events WHERE created_ts < $1").bind(cutoff_ts).execute(&mut *tx).await?;
+            sqlx::query!("DELETE FROM audit_events WHERE created_ts < $1", cutoff_ts).execute(&mut *tx).await?;
         tx.commit().await?;
         Ok(result.rows_affected())
     }
@@ -289,8 +295,9 @@ async fn insert_audit_event<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    sqlx::query_as::<_, AuditEvent>(
-        r"
+    sqlx::query_as!(
+        AuditEvent,
+        r#"
         INSERT INTO audit_events (
             event_id,
             actor_id,
@@ -304,17 +311,17 @@ where
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING event_id, actor_id, action, resource_type, resource_id, result, request_id, details, created_ts
-        ",
+        "#,
+        event_id,
+        &request.actor_id,
+        &request.action,
+        &request.resource_type,
+        &request.resource_id,
+        &request.result,
+        &request.request_id,
+        request.details.clone().unwrap_or_else(|| serde_json::json!({})),
+        created_ts
     )
-    .bind(event_id)
-    .bind(&request.actor_id)
-    .bind(&request.action)
-    .bind(&request.resource_type)
-    .bind(&request.resource_id)
-    .bind(&request.result)
-    .bind(&request.request_id)
-    .bind(request.details.clone().unwrap_or_else(|| serde_json::json!({})))
-    .bind(created_ts)
     .fetch_one(executor)
     .await
 }

@@ -359,10 +359,15 @@ pub async fn run_schema_health_check(
 /// C-4: 批量查询——此前每张表一条 SELECT，30+ 张表产生 30+ 次 DB 往返。
 /// 现在用 ANY($1) 一次性查出存在的表，在 Rust 侧做差集。
 async fn check_missing_tables(pool: &Pool<Postgres>, expected_tables: &[&str]) -> Result<Vec<String>, sqlx::Error> {
-    let existing: Vec<String> = sqlx::query_scalar(
-        "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = ANY($1)",
+    // R5：数组参数的元素类型必须是 owned `String`，`&[&str]` 会被宏的 `ty_match` 拒绝。
+    let expected: Vec<String> = expected_tables.iter().map(|t| (*t).to_string()).collect();
+    // `information_schema.tables` 是系统视图，PG 的 Describe **不给视图列透传 NOT NULL**，
+    // 而该列取自 `pg_class.relname`（catalog 名，永不为 NULL）⇒ 按 R4 断言。
+    let existing: Vec<String> = sqlx::query_scalar!(
+        r#"SELECT table_name AS "table_name!" FROM information_schema.tables
+           WHERE table_schema = current_schema() AND table_name = ANY($1)"#,
+        &expected
     )
-    .bind(expected_tables)
     .fetch_all(pool)
     .await?;
 
@@ -380,20 +385,26 @@ async fn check_missing_columns(
     pool: &Pool<Postgres>,
     expected_columns: &[(&str, &str)],
 ) -> Result<Vec<String>, sqlx::Error> {
-    let tables: Vec<&str> = expected_columns.iter().map(|(t, _)| *t).collect();
-    let columns: Vec<&str> = expected_columns.iter().map(|(_, c)| *c).collect();
+    // R5：`unnest($1::text[], …)` 的参数要用 owned `String` 数组。
+    let tables: Vec<String> = expected_columns.iter().map(|(t, _)| (*t).to_string()).collect();
+    let columns: Vec<String> = expected_columns.iter().map(|(_, c)| (*c).to_string()).collect();
 
-    let existing: Vec<(String, String)> = sqlx::query_as(
-        "SELECT t.tbl, t.col FROM unnest($1::text[], $2::text[]) AS t(tbl, col) \
-         JOIN information_schema.columns c ON c.table_schema = current_schema() \
-         AND c.table_name = t.tbl AND c.column_name = t.col",
+    // `query_as!` 不构造元组（R6 ⑤）⇒ 用 `query!` 按字段读再在 Rust 侧组装。
+    // `unnest(...) AS t(tbl, col)` 的两列都来自函数结果集、无关系来源（R4 ①）⇒ 断言。
+    let rows = sqlx::query!(
+        r#"
+        SELECT t.tbl AS "tbl!", t.col AS "col!"
+        FROM unnest($1::text[], $2::text[]) AS t(tbl, col)
+        JOIN information_schema.columns c ON c.table_schema = current_schema()
+        AND c.table_name = t.tbl AND c.column_name = t.col
+        "#,
+        &tables,
+        &columns
     )
-    .bind(&tables)
-    .bind(&columns)
     .fetch_all(pool)
     .await?;
 
-    let existing_set: std::collections::HashSet<(String, String)> = existing.into_iter().collect();
+    let existing_set: std::collections::HashSet<(String, String)> = rows.into_iter().map(|r| (r.tbl, r.col)).collect();
     let missing: Vec<String> = expected_columns
         .iter()
         .filter(|(t, c)| !existing_set.contains(&(t.to_string(), c.to_string())))
@@ -411,12 +422,16 @@ async fn check_missing_indexes(
     expected_indexes: &[RequiredIndex],
 ) -> Result<Vec<String>, sqlx::Error> {
     // Collect all acceptable index names across all groups
-    let all_names: Vec<&str> = expected_indexes.iter().flat_map(|e| e.acceptable_names.iter().copied()).collect();
+    let all_names: Vec<String> =
+        expected_indexes.iter().flat_map(|e| e.acceptable_names.iter().copied()).map(|n| n.to_string()).collect();
 
-    let existing: Vec<String> = sqlx::query_scalar(
-        "SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ANY($1)",
+    // `pg_indexes` 同为系统视图（视图列不透传 NOT NULL），而 `indexname` 取自
+    // `pg_class.relname`（catalog 名，永不为 NULL）⇒ 按 R4 断言。
+    let existing: Vec<String> = sqlx::query_scalar!(
+        r#"SELECT indexname AS "indexname!" FROM pg_indexes
+           WHERE schemaname = current_schema() AND indexname = ANY($1)"#,
+        &all_names
     )
-    .bind(&all_names)
     .fetch_all(pool)
     .await?;
 
@@ -435,8 +450,10 @@ async fn check_field_naming_issues(pool: &Pool<Postgres>) -> Result<Vec<String>,
     let mut issues = Vec::new();
 
     // 检查 user_threepids 的旧字段名 (已修复，检查新字段是否存在)
-    let has_validated_at: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'user_threepids' AND column_name = 'validated_at'"
+    // `COUNT(*)` 无关系来源、Describe 不透传 NOT NULL（R4 ①）⇒ 断言（聚合计数永不为 NULL）。
+    let has_validated_at: i64 = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) AS "count!" FROM information_schema.columns
+           WHERE table_schema = current_schema() AND table_name = 'user_threepids' AND column_name = 'validated_at'"#
     )
     .fetch_one(pool)
     .await?;

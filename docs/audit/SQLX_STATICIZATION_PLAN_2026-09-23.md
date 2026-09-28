@@ -14,12 +14,12 @@
 
 | 指标 | 战役起点（2026-09-23） | 现在 | 变化 |
 |---|---|---|---|
-| `dynamic_production` | 1532（近似） | **254** | **−83.4%** |
-| `static` | 61 | **1234** | +1173 |
-| `dynamic`（总） | 2151 | **977** | −1174 |
-| 静态占比 | 2.76% | **55.8%**（1234 / 2211） | +53.0pp |
-| `.sqlx` 离线缓存 | 60 条 | **1202 条** | +1142 |
-| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **183 / 42** | −693 |
+| `dynamic_production` | 1532（近似） | **242** | **−84.2%** |
+| `static` | 61 | **1246** | +1185 |
+| `dynamic`（总） | 2151 | **967** | −1184 |
+| 静态占比 | 2.76% | **56.3%**（1246 / 2213） | +53.5pp |
+| `.sqlx` 离线缓存 | 60 条 | **1214 条** | +1154 |
+| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **171 / 39** | −705 |
 | `param` 传参（D-14 新棘轮，处 / 文件） | — | **1 / 1** | 新立棘轮（此前混在 `runtime`，两道棘轮都不管） |
 | `runtime` 残差 / `query_builder` | — | 70 / 13 文件 · **18**（已入计数棘轮） | — |
 
@@ -30,16 +30,19 @@
 > `BASELINE_STATIC` 1206 → 1216；C42 收到 **263 / 1225**；C43 再收到 **255 / 1233**；
 > C44-0（先修删零引用方法）→ **254 / 1233**；D-79（federation 隔离池基建）只动测试区
 > （`BASELINE_DYNAMIC_TEST_INFRA` 718 → 723）；D-80（隔离 clone 同形）的校验宏化后
-> **254 / 1234**（`.sqlx` 1201 → 1202，详见 baseline 内同日注记）。
+> **254 / 1234**（`.sqlx` 1201 → 1202，详见 baseline 内同日注记）；C44（12 处宏化）收到
+> **242 / 1246**（`.sqlx` 1202 → 1214，literal 退三行 → 171/39）；同批按 R8 给 `service.rs` 的
+> 四个被转方法补了真 baseline 往返 ⇒ `BASELINE_DYNAMIC_TEST_INFRA` 723 → **725**（两处
+> `#[cfg(test)]` 夹具：插 `rooms` 行满足真实 FK + 直接造一条 `backup_id_text IS NULL` 的行）。
 
 ### 0.2 残量结构（"还剩多少活"的准确说法）
 
 | 组成 | 处数 | 性质 |
 |---|---|---|
-| **可静态化残量** | **182** | **152 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
+| **可静态化残量** | **170** | **140 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
 | 测试基建（有意保留） | 57 | `synapse-test-utils/src/lib.rs` 28、`synapse-common/src/test_isolation.rs` 25、`test_schema_guard.rs` 4 |
 | 结构性保留（有意） | 15 | `synapse-storage/src/event/pagination.rs`（9 runtime 游标/排序方向 + 6 literal） |
-| **合计** | **254** | = 182 + 57 + 15 |
+| **合计** | **242** | = 170 + 57 + 15 |
 
 ### 0.3 复现（唯一入口，勿手工数）
 
@@ -198,10 +201,10 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 ## 8. 优化方案
 
-### 8.1 剩余可静态化清单（按实测，2026-09-26 C43 后）
+### 8.1 剩余可静态化清单（按实测，2026-09-26 C44 后）
 
-**可转换残量 183 处** = **153 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
-加 **1 处跨函数传参（`param`）**。下表按**字面量**处数排前 14（表内数字是**可机械转换**的站点数；
+**可转换残量 170 处** = **140 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
+加 **1 处跨函数传参（`param`）**。下表按**字面量**处数排前 11（表内数字是**可机械转换**的站点数；
 纯 `runtime` 文件见下方结构性清单）：
 
 | 文件 | 处数 | 门控 | 备注 |
@@ -215,12 +218,12 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 | `synapse-storage/src/media/quarantine_stream.rs` | 6 | — | 与 `pruning` 同域（保留期流）；⚠️ 需先核覆盖（仅 1 条用例） |
 | `synapse-storage/src/monitoring.rs` | 6 | — | 单表模块（监控采样）；⚠️ 需先补覆盖（无 in-file 测试） |
 | `synapse-storage/src/event/search.rs` | 6 | — | `event/` 同域；⚠️ 需先补覆盖（无 in-file db_tests，但 34 个集成文件引用） |
-| `synapse-e2ee/src/backup/service.rs` | 5 | — | `synapse-e2ee`；覆盖好（17 用例 / 110 集成引用），但含 1 处吞错待定性 |
-| `synapse-storage/src/schema_health_check.rs` | 4 | — | ⚠️ 启动期校验路径，改动要连带 schema 契约用例 |
 | `synapse-storage/src/event/ephemeral.rs` | 4 | — | `event/` 同域 |
-| `synapse-storage/src/audit.rs` | 4 | — | 单表模块（审计） |
 
 > 紧随其后（各 4 处）：`account_data/mod.rs`(4)、`room_tag` 家族以外的 `room/` 子模块等。
+> `synapse-e2ee/src/backup/service.rs`(4)、`synapse-storage/src/audit.rs`(4)、
+> `synapse-storage/src/schema_health_check.rs`(4) 由 **C44** 归零退表（12 处宏化 + 两处
+> `COUNT(*)`/`COALESCE` 的 R4 断言 + R5 数组参数改 owned + R6 ⑤ 元组投影改字段读，见 §8.3 第 14 条）。
 > `key_rotation.rs`(8) 由 **C43** 归零退表（保留自愈 + 宏化，见 §8.3 第 10 条）；`qr_login.rs`(5)/`room_tag/mod.rs`(4) 已由 **C42** 归零退表；`feature_flags.rs`/`filter.rs`
 > 由 **C41** 归零；`admin_media.rs`(15) 的 U-5 残量已由其批次**计入基线冻结**（`a13f57316`），
 > 是否回收属该批次后续决定。
@@ -616,7 +619,40 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
    意义：隔离库第一次与 `public` **同形** ⇒ 跑在隔离库上的 `has_index_named` 类断言
    （集成里 24 处）从此不再"只在共享 schema 上碰巧为真"。
 
-14. ✅ **D-81（A3+A4 新增集成测试编译失败）已先修（2026-09-26）** —— 与本批无关的**既有红门禁**，
+14. ✅ **C44（`backup/service.rs` 4 + `audit.rs` 4 + `schema_health_check.rs` 4 = 12 处宏化）已完成
+   （2026-09-26）** —— 三个模块的生产区字面量动态 SQL 全部归零：
+   - `synapse-e2ee/src/backup/service.rs`：2 条 `COUNT(*)` 计数（`sqlx::query` +
+     `try_get::<i64,_>("count")`，列名/类型一路吞到运行期）⇒ `query_scalar!`（`COUNT(*)`
+     无关系来源 ⇒ R4 ① 断言 `AS "count!"`，聚合恒一行且永不为 NULL）；2 条 8 列投影 ⇒
+     `query_as!`（列清单本就显式 ✓ R3；`COALESCE(kb.backup_id_text, kb.version::text)` 同为
+     无关系来源 ⇒ 断言 `AS "backup_id!"`，理由：`version` 是 `NOT NULL DEFAULT 1`）。
+     转换后 `use sqlx::Row` 失去唯一使用者 ⇒ 随批删除（否则 clippy 红）。
+   - `synapse-storage/src/audit.rs`：`get_event` / `insert_audit_event`（`RETURNING` 9 列全
+     `NOT NULL`）⇒ `query_as!`；`set_config(...)` 是**单列 SELECT** ⇒ 无 `.execute()`（R6 ①）
+     ⇒ `query_scalar!` + `fetch_one`（函数调用按可空推断 R6 ③，值本就要丢 ⇒ `let _ =`）；
+     `DELETE … < $1` ⇒ `query!` + `.execute()`（`rows_affected()` 与 append-only 逃逸路径逐字保留）。
+   - `synapse-storage/src/schema_health_check.rs`：两处 `= ANY($1)` 的参数是 `&[&str]`/`Vec<&str>`
+     ⇒ 宏 `ty_match` 拒绝（R5）⇒ 改 owned `Vec<String>`；`unnest($1::text[], $2::text[])` 的
+     **元组投影**不能用 `query_as!`（R6 ⑤）⇒ `query!` + 字段读；三处查询的列全来自**系统视图**
+     （`information_schema.tables` / `pg_indexes` / `unnest` 结果集），PG 的 Describe **不给视图列
+     透传 NOT NULL**，而这些列分别取自 `pg_class.relname`（catalog 名，永不为 NULL）⇒ R4 断言。
+   实测：`dynamic_production` 254 → **242**（−12）、`static` 1234 → **1246**（+12）、
+   `dynamic` 总数 977 → **965**、`dynamic_test` 723 不变、`.sqlx` 1202 → **1214**（+12）、
+   literal 183/42 → **171/39**（三文件退表）；runtime 恒等式 `242 − 171 − 1 = 70` 仍成立
+   —— 即 12 处**全部**转为静态，未产生新的运行期拼装。
+   **同批补覆盖（R8/R9）**：`service.rs` 的四个被转方法是 **service 层**读路径，原有 DB 覆盖只到
+   storage 层，集成用例用的是**手搭简化 schema**（`version` 无 `NOT NULL`、`first_message_index`
+   可空 —— D-36 允许 D-46 藏身的形态）⇒ 新增 `backup::service::db_tests::
+   service_reads_round_trip_on_the_migration_template`，在真 v12 基线上覆盖两条 `COUNT(*)` 的
+   文本/数字回退/未命中三路、8 列投影、以及 **`backup_id_text IS NULL` 的行必须靠 `version::text`
+   被找到并由 `COALESCE` 回填**（`create_backup` 永远写非空 `backup_id_text`，该分支只能直接造）。
+   代价是测试区 +2 处夹具动态站点（`dynamic_test` 723 → 725，`BASELINE_DYNAMIC_TEST_INFRA` 同步上调，
+   理由：`#[cfg(test)]` 内宏不进 `cargo sqlx prepare` ⇒ R9/D-13，无静态等价物）。
+   **R11 自证**：把 `get_all_backup_keys` 的 `COALESCE(...)` 变异回 `kb.backup_id_text` ⇒ 默认离线
+   模式下**编译期**即报 `SQLX_OFFLINE=true but there is no cached data for this query`（SQL 文本
+   变了、缓存无对应条目），复原后即绿。
+
+15. ✅ **D-81（A3+A4 新增集成测试编译失败）已先修（2026-09-26）** —— 与本批无关的**既有红门禁**，
    按 R11"先修再转"独立提交。`b38380d9b`（A3+A4，`opt/consolidated` 并入）新增的
    `tests/integration/state_groups_backfill_tests.rs` 调用了 `unique_id()` 却**从未定义它**
    —— `unique_id` 在本仓是**各测试文件自己的**小助手（`state_groups_idempotency_tests.rs`、
@@ -635,8 +671,8 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 
-- `dynamic_production` 的**可机械转换部分（literal）归零**：254 → **101**
-  （254 − 152 literal − 1 param = 101 = 测试基建 57 + 分页结构性 15 + **D-14 结构性 29**），
+- `dynamic_production` 的**可机械转换部分（literal）归零**：242 → **101**
+  （242 − 140 literal − 1 param = 101 = 测试基建 57 + 分页结构性 15 + **D-14 结构性 29**），
   或每个残留都有 §7.3 那样的登记条目；
 - literal 逐文件表只剩 4 类（3 个测试基建文件 + `event/pagination.rs`）；
 - ~~D-68 接线~~、~~D-37 收敛~~、~~D-62 修法①~~、~~D-57② 收敛~~、~~D-73 结构性收敛~~、

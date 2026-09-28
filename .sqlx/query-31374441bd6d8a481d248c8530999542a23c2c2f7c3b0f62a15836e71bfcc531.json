@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT indexname AS \"indexname!\" FROM pg_indexes\n           WHERE schemaname = current_schema() AND indexname = ANY($1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "indexname!",
+        "type_info": "Name"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "NameArray"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "31374441bd6d8a481d248c8530999542a23c2c2f7c3b0f62a15836e71bfcc531"
+}
