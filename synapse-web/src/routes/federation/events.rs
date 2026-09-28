@@ -20,8 +20,9 @@ pub(super) async fn get_room_auth(
 
     let auth_events = ctx.room_service.messaging().get_state_event_records(&room_id).await.map_err(ApiError::from)?;
 
+    let room_version = super::pdu::room_version_from_state(&auth_events);
     let auth_chain_records: Vec<&synapse_services::event::StateEvent> =
-        auth_events.iter().filter(|record| super::pdu::is_auth_chain_member(record)).collect();
+        auth_events.iter().filter(|record| super::pdu::is_auth_chain_member(record, &room_version)).collect();
     let auth_chain = super::pdu::build_pdus(&ctx, &auth_chain_records).await;
 
     Ok(Json(json!({
@@ -405,10 +406,8 @@ pub(super) async fn query_directory(
 
 /// See [`query_destination`].
 pub(super) async fn query_destination(State(ctx): State<FederationContext>) -> Result<Json<Value>, ApiError> {
-    let mut room_versions = federation_room_versions_capability();
-    if let Some(obj) = room_versions.as_object_mut() {
-        obj.insert("default".to_string(), json!(DEFAULT_ROOM_VERSION));
-    }
+    // Spec shape `{default, available}` — the builder already carries `default`.
+    let room_versions = federation_room_versions_capability();
     Ok(Json(json!({
         "server_name": ctx.server_name,
         "destination": ctx.server_name,

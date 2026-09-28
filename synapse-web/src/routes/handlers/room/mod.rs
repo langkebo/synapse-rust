@@ -66,10 +66,22 @@ pub(crate) async fn ensure_room_state_write_access(
     auth_user: &AuthenticatedUser,
     room_id: &str,
     event_type: &str,
+    content: &serde_json::Value,
 ) -> Result<(), ApiError> {
     ensure_room_member_ctx(ctx, auth_user, room_id, "You must be a member of this room to send state events").await?;
 
     ctx.room_auth.verify_state_event_write(room_id, &auth_user.user_id, event_type).await?;
+
+    // A power-levels event must also satisfy the power-levels *change* rules
+    // (cannot elevate above yourself, cannot touch an equal-or-higher level, and
+    // — room v12+, MSC4289 rule 10.4 — must not name a creator). Those rules need
+    // the new content, which is why this is not folded into
+    // `verify_state_event_write`. The canonical client path for a power-levels
+    // update is `PUT /state/m.room.power_levels`, so the check has to live here
+    // and not only on the `/send` path.
+    if event_type == "m.room.power_levels" {
+        ctx.room_auth.verify_power_levels_change(room_id, &auth_user.user_id, content).await?;
+    }
 
     Ok(())
 }

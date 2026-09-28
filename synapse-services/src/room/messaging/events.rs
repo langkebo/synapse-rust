@@ -386,6 +386,22 @@ impl MessagingService {
         Ok(event)
     }
 
+    /// The `event_id` of the room's `m.room.create` state event, if any.
+    ///
+    /// A **targeted** read (one `state-by-type` query) rather than projecting the
+    /// whole room state or the create PDU: room v12's auth rule 2 needs the
+    /// create event's *stored* id, and the projected PDU deliberately omits
+    /// `event_id` for v3+ (U-13). Used by the inbound federation auth-rules path,
+    /// where an extra full-state read per PDU would be wasteful.
+    pub async fn get_room_create_event_id(&self, room_id: &str) -> ApiResult<Option<String>> {
+        let events = self
+            .event_reader
+            .get_state_events_by_type(room_id, "m.room.create")
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to read the room's create event", e))?;
+        Ok(events.first().map(|event| event.event_id.clone()))
+    }
+
     /// See [`get_state_events_by_type`].
     pub async fn get_state_events_by_type(&self, room_id: &str, event_type: &str) -> ApiResult<Vec<serde_json::Value>> {
         let events = self

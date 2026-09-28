@@ -19,11 +19,12 @@
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use base64::Engine as _;
 use serde_json::{json, Value};
+use synapse_common::room_versions::DEFAULT_ROOM_VERSION;
 use synapse_storage::event::StateEvent;
 use synapse_web::federation::signing::{sign_and_hash_event, verify_event_content_hash};
 use synapse_web::routes::federation::pdu::{
-    apply_stored_signature_material, is_auth_chain_member, signature_action, state_pdu, PduCompleteness,
-    SignatureAction,
+    apply_stored_signature_material, is_auth_chain_member, room_version_from_state, signature_action, state_pdu,
+    PduCompleteness, SignatureAction,
 };
 
 /// 规范要求的顶层键（`state_key` 仅状态事件有）。
@@ -254,22 +255,57 @@ fn projected_pdu_is_canonicalizable_and_round_trips_through_signing() {
 }
 
 #[test]
-fn auth_chain_membership_rule_is_the_five_type_rule() {
+fn auth_chain_membership_rule_is_the_five_type_rule_below_v12() {
+    // Below v12 the create event *is* referenced by `auth_events`, so it is in
+    // the chain — the long-standing five-type list.
     for event_type in
         ["m.room.create", "m.room.member", "m.room.power_levels", "m.room.join_rules", "m.room.history_visibility"]
     {
         let mut event = record();
         event.event_type = Some(event_type.to_string());
-        assert!(is_auth_chain_member(&event), "{event_type} must be an auth-chain member");
+        assert!(is_auth_chain_member(&event, "11"), "{event_type} must be an auth-chain member in v11");
     }
 
     for event_type in ["m.room.message", "m.room.name", "m.room.encryption", "m.reaction"] {
         let mut event = record();
         event.event_type = Some(event_type.to_string());
-        assert!(!is_auth_chain_member(&event), "{event_type} must not be an auth-chain member");
+        assert!(!is_auth_chain_member(&event, "11"), "{event_type} must not be an auth-chain member");
     }
 
     let mut untyped = record();
     untyped.event_type = None;
-    assert!(!is_auth_chain_member(&untyped), "NULL event_type must not panic nor count as auth chain");
+    assert!(!is_auth_chain_member(&untyped, "11"), "NULL event_type must not panic nor count as auth chain");
+}
+
+/// D-5: room v12 (D-4) removes the create event from every event's
+/// `auth_events`, so it cannot be in the auth chain's transitive closure either —
+/// the type list must not claim otherwise. The other four types are unchanged.
+#[test]
+fn auth_chain_excludes_create_from_v12_on() {
+    let mut create = record();
+    create.event_type = Some("m.room.create".to_string());
+    assert!(!is_auth_chain_member(&create, "12"), "a v12 auth chain cannot contain the create event");
+    assert!(!is_auth_chain_member(&create, "13"), "and neither can a later version");
+
+    for event_type in ["m.room.member", "m.room.power_levels", "m.room.join_rules", "m.room.history_visibility"] {
+        let mut event = record();
+        event.event_type = Some(event_type.to_string());
+        assert!(is_auth_chain_member(&event, "12"), "{event_type} stays an auth-chain member in v12");
+    }
+}
+
+/// The version is read from the state records the caller already holds — no
+/// second query — and falls back to the default when the create event is absent.
+#[test]
+fn room_version_from_state_reads_the_create_content() {
+    let mut create = record();
+    create.event_type = Some("m.room.create".to_string());
+    create.content = serde_json::json!({ "room_version": "12" });
+    assert_eq!(room_version_from_state(&[create.clone()]), "12");
+
+    create.content = serde_json::json!({ "room_version": "10" });
+    assert_eq!(room_version_from_state(&[create]), "10");
+
+    // No create event at all → the repository-wide default.
+    assert_eq!(room_version_from_state(&[record()]), DEFAULT_ROOM_VERSION);
 }

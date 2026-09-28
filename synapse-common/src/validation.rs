@@ -40,12 +40,35 @@ impl From<ValidationError> for ApiError {
     }
 }
 
+/// The Matrix **user ID** grammar: `@localpart:server`.
+///
+/// `localpart` is `[a-z0-9._=-]+` and `server` is `[a-zA-Z0-9.-]+` — the same
+/// shape [`Validator`] has always enforced, now expressed byte-wise so that pure
+/// callers can reach it. It is the **single** implementation of that grammar:
+/// [`Validator::validate_matrix_id`] delegates here.
+///
+/// Used by room v12's create-event rule (MSC4289 rule 1.4), which must reject an
+/// `additional_creators` entry that would not pass the same validation as the
+/// create event's `sender`.
+pub fn is_well_formed_user_id(user_id: &str) -> bool {
+    let Some(rest) = user_id.strip_prefix('@') else {
+        return false;
+    };
+    let Some((localpart, server)) = rest.split_once(':') else {
+        return false;
+    };
+    if localpart.is_empty() || server.is_empty() || server.contains(':') {
+        return false;
+    }
+    localpart.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'_' | b'=' | b'-'))
+        && server.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-'))
+}
+
 #[derive(Debug, Clone)]
 /// Represents Validator.
 pub struct Validator {
     username_regex: Regex,
     email_regex: Regex,
-    matrix_id_regex: Regex,
     device_id_regex: Regex,
     url_regex: Regex,
 }
@@ -57,7 +80,6 @@ impl Validator {
             // Matrix localpart: [a-z0-9._=-]+
             username_regex: Regex::new(r"^[a-z0-9._=\-]{1,255}$")?,
             email_regex: Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")?,
-            matrix_id_regex: Regex::new(r"^@[a-z0-9._=\-]+:[a-zA-Z0-9.-]+$")?,
             device_id_regex: Regex::new(r"^[a-zA-Z0-9._\-]{1,255}$")?,
             url_regex: Regex::new(r"^https?://[a-zA-Z0-9.-]+(:[0-9]+)?(/.*)?$")?,
         })
@@ -164,15 +186,17 @@ impl Validator {
     }
 
     /// Validates the matrix.
+    ///
+    /// The grammar itself lives in [`is_well_formed_user_id`] so pure callers
+    /// (the federation auth-rule module) can apply the **same** validation
+    /// without constructing a `Validator`, which needs compiled regexes.
     pub fn validate_matrix_id(&self, user_id: &str) -> ValidationResult {
         if user_id.is_empty() {
             return Err(ValidationError::new("user_id", "User ID cannot be empty", "EMPTY"));
         }
-
-        if !self.matrix_id_regex.is_match(user_id) {
+        if !is_well_formed_user_id(user_id) {
             return Err(ValidationError::new("user_id", "Invalid Matrix ID format", "INVALID_FORMAT"));
         }
-
         Ok(())
     }
 
@@ -324,7 +348,6 @@ impl Validator {
         Self {
             username_regex: Regex::new(r"^[a-zA-Z0-9_.-]+$").expect("hardcoded fallback regex is syntactically valid"),
             email_regex: Regex::new(r"^[^@]+@[^@]+\.[^@]+$").expect("hardcoded fallback regex is syntactically valid"),
-            matrix_id_regex: Regex::new(r"^@[^:]+:[^:]+$").expect("hardcoded fallback regex is syntactically valid"),
             device_id_regex: Regex::new(r"^[a-zA-Z0-9._\-]+$")
                 .expect("hardcoded fallback regex is syntactically valid"),
             url_regex: Regex::new(r"^https?://.+").expect("hardcoded fallback regex is syntactically valid"),
@@ -542,6 +565,37 @@ mod tests {
         assert!(validator.validate_password("NOLOWERCASE123!").is_err());
         assert!(validator.validate_password("NoDigits!").is_err());
         assert!(validator.validate_password("NoSpecial123").is_err());
+    }
+
+    #[test]
+    fn is_well_formed_user_id_matches_the_grammar() {
+        for good in ["@alice:example.org", "@a:b", "@user_name:hs.example.org", "@u.1-2=3:host-1.example"] {
+            assert!(is_well_formed_user_id(good), "{good} must be accepted");
+        }
+        for bad in [
+            "",
+            "alice:example.org",
+            "@alice",
+            "@:example.org",
+            "@alice:",
+            "@Alice:example.org",
+            "@alice:example.org:8448",
+            "@ali ce:example.org",
+        ] {
+            assert!(!is_well_formed_user_id(bad), "{bad:?} must be rejected");
+        }
+    }
+
+    /// The shared validator and the pure grammar must not drift: they are one
+    /// implementation, and this is the assertion that keeps them so.
+    #[test]
+    fn validator_delegates_to_the_pure_user_id_grammar() {
+        let validator = Validator::new().expect("regexes compile");
+        for id in ["@alice:example.org", "alice:example.org", "@alice", "@:example.org", "@alice:"] {
+            let via_validator = validator.validate_matrix_id(id).is_ok();
+            let via_pure = is_well_formed_user_id(id);
+            assert_eq!(via_validator, via_pure, "user id {id:?}");
+        }
     }
 
     #[test]

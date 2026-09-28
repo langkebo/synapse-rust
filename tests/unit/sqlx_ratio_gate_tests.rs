@@ -95,7 +95,9 @@ fn sqlx_ratio_gate_scans_the_whole_workspace_not_only_root_src() {
 fn sqlx_ratio_gate_counts_dynamic_calls_in_workspace_crates() {
     let (_, output) = run_gate(&[("SQLX_DYNAMIC_RATIO_MAX", "1.0")]);
     let dynamic = parse_metric(&output, "dynamic=").expect("输出必须包含 dynamic=<n>");
-    assert!(dynamic > 1000, "dynamic 仅 {dynamic}，workspace crate 的动态 SQL 未被计入\n输出:\n{output}");
+    // 下限从 1000 下调到 900：2026-09-28 静态化了 12 处 invite_blocklist 动态 SQL，
+    // dynamic 从 1012 降到 1000；下限仍远高于"只扫根 crate"的计数，能拦住缺陷 1 回归。
+    assert!(dynamic > 900, "dynamic 仅 {dynamic}，workspace crate 的动态 SQL 未被计入\n输出:\n{output}");
 }
 
 /// 扫描必须排除 `.claude/worktrees/` 下的旧仓库副本，否则计数会随本地

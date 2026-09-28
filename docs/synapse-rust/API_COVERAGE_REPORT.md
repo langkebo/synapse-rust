@@ -1,5 +1,8 @@
 # synapse-rust API 覆盖率分析 (v1.6)
 
+> **状态（2026-09-28）**：本文关于房间版本能力（v12/v13）的记录已过时 —— 仅 v12 可创建（G-1），
+> 版本 13 已移除（Q5(b)）。见 `docs/audit/ROOM_V12_PLAN_STATUS_2026-09-27.md`。
+
 > **对齐基准**：element-hq/synapse **v1.161.0**（发布于 2026-09-15，当前最新稳定版）；上游 `CHANGES.md` 已核对 1.157→1.161 全部条目。
 > Matrix Specification 基线：**v1.19**（上游 v1.161 release notes 引用 `spec.matrix.org/v1.19`）。
 > **本次复核日期**：2026-09-25；本表全部取证的仓库 HEAD 为 `9e26ee31a`（分支 `opt/consolidated`，`git log -1`）。

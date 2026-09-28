@@ -4,6 +4,10 @@ pub mod chain;
 pub mod models;
 /// The `rules` module.
 pub mod rules;
+/// The `state_map_auth` module — authorising an event against a state map
+/// (the `_check_event_auth` half of state resolution).
+pub mod state_map_auth;
+
 /// The `state_resolution` module.
 pub mod state_resolution;
 

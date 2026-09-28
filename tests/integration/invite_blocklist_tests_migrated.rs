@@ -175,13 +175,26 @@ fn test_user_id_format_validation() {
     }
 }
 
+/// Both room-id forms are legal (C-3): `!opaque:server` (v1–v11) and the
+/// domainless `!` + 43 unpadded URL-safe Base64 characters (v12 / MSC4291).
+/// The former `room.contains(':')` assertion encoded the pre-MSC4291 grammar.
 #[test]
 fn test_room_id_format_validation() {
-    // Test that room IDs follow Matrix format
-    let valid_rooms = vec!["!room:localhost", "!room:example.com", "!abc123:matrix.org"];
+    let valid_rooms = vec![
+        "!room:localhost",
+        "!room:example.com",
+        "!abc123:matrix.org",
+        "!31hneApxJ_1o-63DmFrpeqnkFfWppnzWso1JvH3ogLM",
+    ];
 
     for room in valid_rooms {
-        assert!(room.starts_with('!'), "Room ID should start with !");
-        assert!(room.contains(':'), "Room ID should contain : separator");
+        assert!(
+            synapse_common::room_id::is_well_formed_room_id(room),
+            "Room ID must satisfy the shared validator: {room}"
+        );
+    }
+
+    for invalid in ["!room", "!x", "room:localhost", ""] {
+        assert!(!synapse_common::room_id::is_well_formed_room_id(invalid), "Room ID must be rejected: {invalid:?}");
     }
 }

@@ -51,11 +51,16 @@ impl RoomVersionCapability {
         }
     }
 
-    /// A stable room version that can be parsed and joined but cannot be
-    /// created on this server.  Used for room versions whose redaction format
-    /// or auth rules are not yet fully implemented, so that we do not advertise
-    /// creation support that would produce non-compliant PDUs.
-    pub const fn stable_parse_only(version: &'static str) -> Self {
+    /// A room version this server will **not create** new rooms of, but still
+    /// fully interoperates with: it can be parsed, joined and federated.
+    ///
+    /// Used for v1-v11 under decision A-2 / Q1(a): room v12 (MSC4304) is the
+    /// only version whose event/auth behaviour this server implements end to end,
+    /// so advertising creation support for the earlier versions would produce
+    /// rooms this server cannot fully honour. Existing v1-v11 rooms — including
+    /// remote ones reached over federation — stay fully usable, which is
+    /// interoperability, not a compatibility layer.
+    pub const fn stable_no_create(version: &'static str) -> Self {
         Self {
             version,
             disposition: RoomVersionDisposition::Stable,
@@ -88,18 +93,40 @@ impl RoomVersionCapability {
 /// cannot join rooms created here.
 pub const DEFAULT_ROOM_VERSION: &str = "12";
 
-/// Constant `SUPPORTED_ROOM_VERSIONS`.
+/// The room versions this server supports, and what it will do with each.
+///
+/// **G-1 / A-2 Q1(a): only room version 12 is creatable.** v1-v11 are
+/// `stable_no_create` — parsed, joined and federated as before, but this server
+/// will not mint new rooms of those versions, because it implements v12's
+/// event/auth behaviour end to end and would otherwise advertise creation
+/// support it cannot honour (AGENTS "protocol declaration discipline").
+///
+/// v12 (MSC4304) = room v11 + MSC4289 (creator privilege) + MSC4291 (room id is
+/// the create event's id) + MSC4297 (state resolution v2.1) + MSC4307
+/// (`auth_events` must belong to the same room). Current implementation status is
+/// tracked per item in `docs/audit/ROOM_V12_PLAN_STATUS_2026-09-27.md`:
+/// MSC4291's create side (C-1/C-2), the domainless room-id grammar and DB CHECK
+/// (C-3), MSC4307 rule 3.5 (B-2), v12 `auth_events` without the create event
+/// (D-4), inbound create shape (D-1), the upgrade order (C-4) and MSC4289
+/// (E-1/E-2/E-3) have landed; **MSC4297 (F) has not**, so v12 remains
+/// "declaration ahead of implementation" for that one item.
+///
+/// `"13"` is not listed: it does not exist upstream (the spec's stable list ends
+/// at v12; Synapse 1.161.0 knows `1..12` plus three unstable identifiers), and
+/// `redaction_rules("13")` / `uses_reference_hash_event_id("13")` both fail
+/// closed — so the old `stable_parse_only("13")` placeholder claimed
+/// parse/join/federate it could not deliver (G-50). Removed under Q5(b).
 pub const SUPPORTED_ROOM_VERSIONS: &[RoomVersionCapability] = &[
-    RoomVersionCapability::stable("1"),
-    RoomVersionCapability::stable("2"),
-    RoomVersionCapability::stable("3"),
-    RoomVersionCapability::stable("4"),
-    RoomVersionCapability::stable("5"),
-    RoomVersionCapability::stable("6"),
-    RoomVersionCapability::stable("7"),
-    RoomVersionCapability::stable("8"),
-    RoomVersionCapability::stable("9"),
-    RoomVersionCapability::stable("10"),
+    RoomVersionCapability::stable_no_create("1"),
+    RoomVersionCapability::stable_no_create("2"),
+    RoomVersionCapability::stable_no_create("3"),
+    RoomVersionCapability::stable_no_create("4"),
+    RoomVersionCapability::stable_no_create("5"),
+    RoomVersionCapability::stable_no_create("6"),
+    RoomVersionCapability::stable_no_create("7"),
+    RoomVersionCapability::stable_no_create("8"),
+    RoomVersionCapability::stable_no_create("9"),
+    RoomVersionCapability::stable_no_create("10"),
     // v11+ use the MSC2174/MSC3820 redaction format (content.redacts) and
     // allow self-redaction by the original author.  Both behaviours are now
     // implemented in synapse-common::redaction (extract_redacts handles both
@@ -107,21 +134,21 @@ pub const SUPPORTED_ROOM_VERSIONS: &[RoomVersionCapability] = &[
     // (which grants self-redact for room versions >= 11), so v11 can be
     // advertised as creatable.
     //
-    // ⚠️ v12 现状（2026-09-27 核实）：v12 由 **MSC4304** 定义 = room v11 + MSC4289（创建者特权）
-    // + MSC4291（room ID = create 事件的哈希）+ MSC4297（State Resolution v2.1）
-    // + MSC4307（校验 `auth_events` 属于同一房间）。本仓这**四个都没有实现**，但自 O-1 Phase 1
-    // 起已在此放开创建、并把它设为 `DEFAULT_ROOM_VERSION`：本机创建的 v12 房间会拿到
-    // **随机** room ID（`crypto.rs::generate_room_id`），与 v12 对端"room ID = create 事件哈希"
-    // 的期望不符。修复前不要把 v12 当成可安全创建；详见
-    // `docs/audit/REMAINING_ISSUES_VERIFICATION_AND_OPTIMIZATION_PLAN_2026-09-25.md` 的 U-22
-    // 与 `docs/audit/V12_ROOM_VERSION_AND_ANIMATED_THUMBNAIL_IMPLEMENTATION_PLAN.md` §1.1。
-    RoomVersionCapability::stable("11"),
+    // v12（MSC4304）= room v11 + MSC4289（创建者特权）+ MSC4291（room ID = create 事件 id）
+    // + MSC4297（State Resolution v2.1）+ MSC4307（`auth_events` 同房校验）。
+    //
+    // 现状（2026-09-27，逐项见 `docs/audit/ROOM_V12_PLAN_STATUS_2026-09-27.md`）：
+    // MSC4291 创建侧（C-1/C-2）与无域名 room id 语法/DB CHECK（C-3）、MSC4307 规则 3.5（B-2）、
+    // v12 的 `auth_events` 不含 create（D-4）、入站 create 形态（D-1）均已落地；
+    // **MSC4289（E 组）与 MSC4297（F 组）仍未完成**，所以 v12 目前仍属"声明领先实现"。
+    //
+    // `"13"` **不再列入**：上游规范稳定列表止于 v12（`content/rooms/_index.md`），
+    // 上游 Synapse 1.161.0 的 `KNOWN_ROOM_VERSIONS` 只识别 `1..12` + 三个 unstable
+    // （`org.matrix.hydra.11`、`org.matrix.msc3757.10/11`）。曾以 `stable_parse_only("13")`
+    // 占位，但 `redaction_rules("13")` / `uses_reference_hash_event_id("13")` 都返回
+    // fail-closed 的否定答案 ⇒ "可 parse/join/federate" 是假声明（G-50）。按裁定 Q5(b) 移除。
+    RoomVersionCapability::stable_no_create("11"),
     RoomVersionCapability::stable("12"),
-    // ⚠️ `"13"` 是**上游并不存在的房间版本**：规范稳定列表止于 v12，上游 Synapse 1.161.0 只识别
-    // `1..12` + 三个 unstable（`org.matrix.hydra.11`、`org.matrix.msc3757.10`、
-    // `org.matrix.msc3757.11`）。此处保留它只是为"未来版本"占位，**不代表任何已定义的语义**；
-    // `redaction_rules("13")` 返回 `None`（fail-closed）。对外声明时不得把它当作 stable 支持。
-    RoomVersionCapability::stable_parse_only("13"),
 ];
 
 /// Returns true if supported room version.
@@ -192,17 +219,32 @@ pub fn client_room_versions_capability() -> Value {
     })
 }
 
-/// Federations the room.
+/// The `m.room_versions` capability for the **federation** surface
+/// (`/_matrix/federation/v1/version` and the `/version` destination query).
+///
+/// Spec shape (`server-server API` §`GET /_matrix/federation/v1/version`):
+/// `{"default": <version>, "available": {<version>: <status>}}` — the same shape
+/// the client capability uses.
+///
+/// The `available` set is **not** the same as the client one: it lists every
+/// version this server will **federate** with (a remote server needs to know
+/// which versions it can talk to us about), while the client list is the
+/// versions we will **create**. Since G-1 those differ — v1-v11 are federatable
+/// but not creatable — which is exactly why both sets must be derived from their
+/// own capability flag rather than shared.
 pub fn federation_room_versions_capability() -> Value {
     let mut available = serde_json::Map::new();
 
     for capability in SUPPORTED_ROOM_VERSIONS {
         if capability.can_federate {
-            available.insert(capability.version.to_string(), json!({ "status": capability.disposition_str() }));
+            available.insert(capability.version.to_string(), json!(capability.disposition_str()));
         }
     }
 
-    Value::Object(available)
+    json!({
+        "default": DEFAULT_ROOM_VERSION,
+        "available": available
+    })
 }
 
 #[cfg(test)]
@@ -233,35 +275,45 @@ mod tests {
     #[test]
     fn resolve_room_version_defaults_and_rejects_unknown_versions() {
         assert_eq!(resolve_room_version(None), Some(DEFAULT_ROOM_VERSION));
-        assert_eq!(resolve_room_version(Some("10")), Some("10"));
-        // v11 is fully creatable after the redaction chain (P0-05/06/09)
-        // and state resolution v2 (P0-10/11) landed.
-        assert_eq!(resolve_room_version(Some("11")), Some("11"));
-        // v12 is creatable after O-1 Phase 1 (PDU fields + ED25519-only).
+        // G-1 / Q1(a): v1-v11 are no longer creatable. `resolve_room_version`
+        // answers "what version would a NEW room get", so every earlier version
+        // resolves to `None` — they remain joinable/federatable (see the matrix
+        // test), which is a different question.
+        for v in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"] {
+            assert_eq!(resolve_room_version(Some(v)), None, "v{v} must not be creatable");
+        }
         assert_eq!(resolve_room_version(Some("12")), Some("12"));
-        // v13 is still parse/join/federate-only.
+        // v13 is not a room version at all (Q5): unsupported, so not creatable.
         assert_eq!(resolve_room_version(Some("13")), None);
         // v14 is not a supported room version.
         assert_eq!(resolve_room_version(Some("14")), None);
     }
 
+    /// G-1 / Q1(a): **only v12 is creatable**; v1-v11 stay fully usable for
+    /// existing rooms (join/parse/federate). One assertion per direction, because
+    /// narrowing creation must not narrow interoperability with it.
     #[test]
-    fn room_version_support_matrix_keeps_current_versions_fully_enabled() {
+    fn only_v12_is_creatable_but_every_supported_version_interoperates() {
         for supported in SUPPORTED_ROOM_VERSIONS {
-            // All versions can be joined, parsed, and federated.
-            assert!(can_join_room_version(supported.version));
-            assert!(can_parse_room_version(supported.version));
-            assert!(can_federate_room_version(supported.version));
+            assert!(can_join_room_version(supported.version), "v{} must stay joinable", supported.version);
+            assert!(can_parse_room_version(supported.version), "v{} must stay parseable", supported.version);
+            assert!(can_federate_room_version(supported.version), "v{} must stay federatable", supported.version);
+            assert!(is_supported_room_version(supported.version));
         }
-        // v1-v12 are fully creatable after the redaction chain and state
-        // resolution v2 landed. v12 support was added in O-1 Phase 1.
-        for v in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"] {
-            assert!(can_create_room_version(v), "v{v} must remain creatable");
+
+        assert!(can_create_room_version("12"), "v12 is the only creatable version");
+        for v in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"] {
+            assert!(!can_create_room_version(v), "v{v} must NOT be creatable (G-1)");
+            // ... but still fully interoperable, which is the point of Q1(a).
+            assert!(can_join_room_version(v) && can_parse_room_version(v) && can_federate_room_version(v));
         }
-        // v12 is now creatable (O-1 Phase 1); v13 remains parse/join/federate-only:
-        assert!(can_create_room_version("12"), "v12 must be creatable");
-        assert!(!can_create_room_version("13"), "v13 must NOT be creatable");
-        assert!(can_join_room_version("12") && can_join_room_version("13"));
+
+        // `"13"` is not a room version at all (Q5), so every capability is false.
+        assert!(!can_create_room_version("13"));
+        assert!(!can_join_room_version("13"), "v13 does not exist, so it cannot be joined");
+        assert!(!can_parse_room_version("13") && !can_federate_room_version("13"));
+        assert!(!is_supported_room_version("13"));
+
         assert!(!can_create_room_version("14"));
         assert!(!can_join_room_version("14"));
         assert!(!can_parse_room_version("14"));
@@ -274,10 +326,13 @@ mod tests {
         let available = capability["available"].as_object().expect("available room versions should be an object");
 
         assert_eq!(capability["default"], DEFAULT_ROOM_VERSION);
-        // Only creatable versions appear in the client capability list.
-        // v12 is now creatable (O-1 Phase 1); v13 remains parse-only.
-        let expected_creatable = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
-        assert_eq!(available.len(), expected_creatable.len());
+        // Only creatable versions appear in the client capability list, and since
+        // G-1 that is v12 alone.
+        assert_eq!(available.len(), 1, "only v12 is creatable: {available:?}");
+        assert_eq!(available.get("12").and_then(|value| value.as_str()), Some("stable"));
+        for v in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "13"] {
+            assert!(available.get(v).is_none(), "v{v} must not be advertised as creatable");
+        }
 
         for supported in SUPPORTED_ROOM_VERSIONS {
             if supported.can_create {
@@ -298,14 +353,24 @@ mod tests {
     #[test]
     fn federation_room_versions_capability_matches_supported_matrix() {
         let capability = federation_room_versions_capability();
-        let available = capability.as_object().expect("federation room versions should be an object");
+        // Spec shape: `{default, available}` — the flat `{version: {status}}`
+        // form this used to emit was not the documented shape.
+        assert_eq!(capability["default"], DEFAULT_ROOM_VERSION);
+        let available =
+            capability["available"].as_object().expect("federation room versions must carry an `available` object");
 
-        assert_eq!(available.len(), SUPPORTED_ROOM_VERSIONS.len());
+        // Federation lists every version we will federate with — not the client's
+        // (creatable) subset. Since G-1 those differ, so this asserts the
+        // federatable set explicitly.
+        assert_eq!(available.len(), SUPPORTED_ROOM_VERSIONS.iter().filter(|c| c.can_federate).count());
+        assert_eq!(available.len(), SUPPORTED_ROOM_VERSIONS.len(), "every supported version is federatable");
 
         for supported in SUPPORTED_ROOM_VERSIONS {
             assert_eq!(
-                available.get(supported.version).and_then(|value| value.get("status")).and_then(|value| value.as_str()),
-                Some(supported.disposition_str())
+                available.get(supported.version).and_then(|value| value.as_str()),
+                Some(supported.disposition_str()),
+                "v{}",
+                supported.version
             );
         }
     }

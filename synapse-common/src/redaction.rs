@@ -184,9 +184,9 @@ impl RedactionRules {
 /// The specification's stable list ends at v12 (`content/rooms/_index.md`) and
 /// upstream Synapse (verified against 1.161.0's `KNOWN_ROOM_VERSIONS`) knows only
 /// `1..12` plus the unstable `org.matrix.hydra.11` / `org.matrix.msc3757.10/11`.
-/// `room_versions::SUPPORTED_ROOM_VERSIONS` still carries a `"13"` placeholder
-/// (see the note there); anything that asks for its rules gets `None` here, which
-/// is the fail-closed answer for a version with no defined semantics.
+/// `room_versions::SUPPORTED_ROOM_VERSIONS` no longer lists it either (Q5): a
+/// version with no defined semantics is not advertised at all, and anything that
+/// asks for its rules still gets `None` here — the fail-closed answer.
 pub fn redaction_rules(room_version: &str) -> Option<RedactionRules> {
     match room_version {
         "1" | "2" | "3" | "4" | "5" => Some(RedactionRules::legacy()),

@@ -276,7 +276,7 @@ async fn test_create_room_ignores_protected_creation_content_fields() {
     let room_service = create_room_service(&pool, cache.clone());
 
     let config = CreateRoomConfig {
-        room_version: Some("10".to_string()),
+        room_version: Some("12".to_string()),
         creation_content: Some(json!({
             "creator": "@mallory:localhost",
             "room_version": "1",
@@ -295,7 +295,7 @@ async fn test_create_room_ignores_protected_creation_content_fields() {
         .expect("room should have create state");
 
     assert_eq!(create_event.content["creator"].as_str(), Some(alice_id.as_str()));
-    assert_eq!(create_event.content["room_version"].as_str(), Some("10"));
+    assert_eq!(create_event.content["room_version"].as_str(), Some("12"));
     assert_eq!(create_event.content["m.federate"].as_bool(), Some(false));
 }
 
@@ -736,110 +736,6 @@ async fn test_unban_non_banned_user_is_rejected() {
     assert!(result.is_err(), "unbanning a non-banned user must be rejected, got: {result:?}");
 }
 
-#[tokio::test]
-async fn test_upgrade_room_success() {
-    let pool = crate::require_test_pool().await;
-
-    let id = unique_id();
-    let alice_id = format!("@alice_{id}:localhost");
-    let alice_name = format!("alice_{id}");
-    create_test_user(&pool, &alice_id, &alice_name).await;
-
-    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let room_service = create_room_service(&pool, cache.clone());
-
-    let config = CreateRoomConfig { room_version: Some("9".to_string()), ..Default::default() };
-    let room_val = room_service.lifecycle.create_room(&alice_id, config).await.unwrap();
-    let old_room_id = room_val["room_id"].as_str().unwrap();
-
-    let result = room_service.upgrade_room(old_room_id, "10", &alice_id).await;
-
-    assert!(result.is_ok());
-    let new_room_id = result.unwrap();
-    assert!(!new_room_id.is_empty());
-    assert_ne!(new_room_id, old_room_id);
-
-    let room_storage = RoomStorage::new(&pool);
-    let old_room = room_storage.get_room(old_room_id).await.unwrap().expect("old room should still exist");
-    assert_eq!(old_room.room_version, "9");
-
-    let new_room = room_storage.get_room(&new_room_id).await.unwrap().expect("replacement room should exist");
-    assert_eq!(new_room.room_version, "10");
-
-    let event_storage = EventStorage::new(&pool, "localhost".to_string());
-    let tombstone_events = event_storage.get_state_events_by_type(old_room_id, "m.room.tombstone").await.unwrap();
-    let tombstone = tombstone_events
-        .iter()
-        .find(|event| event.state_key.as_deref() == Some(""))
-        .expect("old room should have tombstone state");
-    assert_eq!(tombstone.content["replacement_room"].as_str(), Some(new_room_id.as_str()));
-
-    let create_events = event_storage.get_state_events_by_type(&new_room_id, "m.room.create").await.unwrap();
-    let create_event = create_events
-        .iter()
-        .find(|event| event.state_key.as_deref() == Some(""))
-        .expect("replacement room should have create state");
-    assert_eq!(create_event.content["predecessor"]["room_id"].as_str(), Some(old_room_id));
-    assert_eq!(create_event.content["predecessor"]["event_id"].as_str(), Some(tombstone.event_id.as_str()));
-}
-
-/// The upgrade chain must record the tombstone's **real** event ID.
-///
-/// Unlike `test_upgrade_room_success`, this builds the service with the
-/// production `GraphMetadataWriter`, so the write path assigns reference-hash
-/// IDs (v3+): the tombstone's ID is no longer the placeholder generated before
-/// the insert.  Pre-fix, `upgrade_room` generated that placeholder first and
-/// wrote it into the replacement room's `m.room.create`, so
-/// `predecessor.event_id` named an event that never existed — the assertion
-/// below failed with the placeholder.
-#[tokio::test]
-async fn test_upgrade_room_predecessor_names_the_persisted_tombstone() {
-    let pool = crate::require_test_pool().await;
-
-    let id = unique_id();
-    let alice_id = format!("@alice_{id}:localhost");
-    let alice_name = format!("alice_{id}");
-    create_test_user(&pool, &alice_id, &alice_name).await;
-
-    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let room_service = create_room_service_with_finalizing_writer(&pool, cache);
-
-    let config = CreateRoomConfig { room_version: Some("9".to_string()), ..Default::default() };
-    let room_val = room_service.lifecycle.create_room(&alice_id, config).await.unwrap();
-    let old_room_id = room_val["room_id"].as_str().unwrap().to_string();
-
-    let new_room_id = room_service.upgrade_room(&old_room_id, "10", &alice_id).await.expect("upgrade must succeed");
-
-    let event_storage = EventStorage::new(&pool, "localhost".to_string());
-    let tombstone = event_storage
-        .get_state_events_by_type(&old_room_id, "m.room.tombstone")
-        .await
-        .unwrap()
-        .into_iter()
-        .find(|event| event.state_key.as_deref() == Some(""))
-        .expect("old room must have a tombstone state event");
-
-    // The write path must have replaced the pre-insert placeholder with the
-    // reference hash: `$` + 43 unpadded Base64URL characters, no origin suffix.
-    assert_eq!(tombstone.event_id.len(), 44, "tombstone id must be a reference hash: {}", tombstone.event_id);
-    assert!(!tombstone.event_id.contains(':'), "v4+ ids carry no origin suffix: {}", tombstone.event_id);
-
-    let create_event = event_storage
-        .get_state_events_by_type(&new_room_id, "m.room.create")
-        .await
-        .unwrap()
-        .into_iter()
-        .find(|event| event.state_key.as_deref() == Some(""))
-        .expect("replacement room must have a create event");
-
-    assert_eq!(
-        create_event.content["predecessor"]["event_id"].as_str(),
-        Some(tombstone.event_id.as_str()),
-        "m.room.create must point at the tombstone that was actually persisted"
-    );
-    assert_eq!(create_event.content["predecessor"]["room_id"].as_str(), Some(old_room_id.as_str()));
-}
-
 /// Regression test for B-1.3: `upgrade_room` must invite former local members
 /// to the replacement room concurrently. With N=50 former members the upgrade
 /// must complete and produce an `m.room.member` invite event for each one.
@@ -863,7 +759,7 @@ async fn test_upgrade_room_invites_all_former_local_members() {
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let room_service = create_room_service(&pool, cache.clone());
 
-    let config = CreateRoomConfig { room_version: Some("9".to_string()), ..Default::default() };
+    let config = CreateRoomConfig { room_version: Some("12".to_string()), ..Default::default() };
     let room_val = room_service.lifecycle.create_room(&alice_id, config).await.unwrap();
     let old_room_id = room_val["room_id"].as_str().unwrap().to_string();
 
@@ -895,7 +791,7 @@ async fn test_upgrade_room_invites_all_former_local_members() {
     // Upgrade the room. With the concurrent path, the upgrade completes
     // and all former local members end up invited to the replacement room.
     let new_room_id =
-        room_service.upgrade_room(&old_room_id, "10", &alice_id).await.expect("upgrade_room should succeed");
+        room_service.upgrade_room(&old_room_id, "12", &alice_id).await.expect("upgrade_room should succeed");
 
     let pool_arc = Arc::clone(&pool);
     let member_storage = RoomMemberStorage::new(&pool_arc, "localhost");
@@ -938,7 +834,7 @@ async fn test_upgrade_room_enqueues_tombstone_and_replacement_create_events() {
     let before_tombstone_events = before_pending.iter().filter(|event| event.event_type == "m.room.tombstone").count();
 
     let new_room_id =
-        room_service.upgrade_room(&old_room_id, "11", &alice_id).await.expect("upgrade_room should succeed");
+        room_service.upgrade_room(&old_room_id, "12", &alice_id).await.expect("upgrade_room should succeed");
 
     let after_pending = storage.get_pending_events(&as_id, 256).await.expect("pending events should load");
     let after_create_events = after_pending.iter().filter(|event| event.event_type == "m.room.create").count();
@@ -4986,7 +4882,7 @@ async fn test_send_message_finalizes_the_event_id_on_the_caller_transaction_path
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let room_service = create_room_service_with_finalizing_writer(&pool, cache);
 
-    let config = CreateRoomConfig { room_version: Some("11".to_string()), ..Default::default() };
+    let config = CreateRoomConfig { room_version: Some("12".to_string()), ..Default::default() };
     let room_val = room_service.lifecycle.create_room(&alice_id, config).await.unwrap();
     let room_id = room_val["room_id"].as_str().unwrap().to_string();
 
@@ -5010,7 +4906,7 @@ async fn test_send_message_finalizes_the_event_id_on_the_caller_transaction_path
     // 2. The receiver's view: the stored ID must equal the identity a peer
     //    recomputes from the PDU this row projects to.
     assert_eq!(
-        receiver_side_event_id(&event_storage, "11", &root_id).await,
+        receiver_side_event_id(&event_storage, "12", &root_id).await,
         root_id,
         "the persisted ID must equal the reference hash a peer derives from the emitted PDU"
     );
@@ -5033,7 +4929,7 @@ async fn test_send_message_finalizes_the_event_id_on_the_caller_transaction_path
         .await
         .expect("relation send_message must succeed");
     let reply_id = reply["event_id"].as_str().unwrap().to_string();
-    assert_eq!(receiver_side_event_id(&event_storage, "11", &reply_id).await, reply_id);
+    assert_eq!(receiver_side_event_id(&event_storage, "12", &reply_id).await, reply_id);
 
     let relation_event_id: String =
         sqlx::query_scalar("SELECT event_id FROM event_relations WHERE relates_to_event_id = $1")
@@ -5042,40 +4938,6 @@ async fn test_send_message_finalizes_the_event_id_on_the_caller_transaction_path
             .await
             .expect("the relation row must be persisted");
     assert_eq!(relation_event_id, reply_id, "event_relations must index the finalized event ID");
-}
-
-/// The v1/v2 half of decision §4.1: those versions keep the **server-assigned**
-/// ID, so the write entry must not replace it with a reference hash.
-#[tokio::test]
-async fn test_send_message_keeps_the_server_assigned_id_for_v1_rooms() {
-    let pool = crate::require_test_pool().await;
-
-    let id = unique_id();
-    let alice_id = format!("@alice_{id}:localhost");
-    let alice_name = format!("alice_{id}");
-    create_test_user(&pool, &alice_id, &alice_name).await;
-
-    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let room_service = create_room_service_with_finalizing_writer(&pool, cache);
-
-    let config = CreateRoomConfig { room_version: Some("1".to_string()), ..Default::default() };
-    let room_val = room_service.lifecycle.create_room(&alice_id, config).await.unwrap();
-    let room_id = room_val["room_id"].as_str().unwrap().to_string();
-
-    let sent = room_service
-        .messaging
-        .send_message(&room_id, &alice_id, "m.room.message", &json!({"msgtype": "m.text", "body": "v1 root"}))
-        .await
-        .expect("send_message must succeed");
-    let event_id = sent["event_id"].as_str().unwrap().to_string();
-
-    let event_storage = EventStorage::new(&pool, "localhost".to_string());
-    let persisted =
-        event_storage.get_event(&event_id).await.unwrap().expect("the /send response id must be the persisted row");
-    assert_eq!(persisted.event_id, event_id);
-    assert!(event_id.contains(":localhost"), "v1 keeps the server-assigned ID: {event_id}");
-    assert_ne!(event_id.len(), 44, "a v1 ID is not a reference hash: {event_id}");
-    assert_eq!(receiver_side_event_id(&event_storage, "1", &event_id).await, event_id);
 }
 
 /// The other half of Defect A: `GraphMetadataWriter::create_event` cannot
@@ -5095,7 +4957,7 @@ async fn test_transactional_create_event_refuses_to_persist_an_unfinalized_id() 
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let room_service = create_room_service_with_finalizing_writer(&pool, cache);
-    let config = CreateRoomConfig { room_version: Some("11".to_string()), ..Default::default() };
+    let config = CreateRoomConfig { room_version: Some("12".to_string()), ..Default::default() };
     let room_val = room_service.lifecycle.create_room(&alice_id, config).await.unwrap();
     let room_id = room_val["room_id"].as_str().unwrap().to_string();
 
@@ -5141,7 +5003,7 @@ async fn test_transactional_create_event_refuses_to_persist_an_unfinalized_id() 
 }
 
 /// A2 (MSC4291 create side): the local room-creation path must persist
-/// `m.room.create` under its **finalized** v3+ id.
+/// `m.room.create` under its **finalized** v3+ id (room v12).
 ///
 /// `GraphMetadataWriter::create_event_with_graph` is the byte-faithful inbound
 /// pass-through and never finalizes, so `write_creation_event` used to hand it a
@@ -5160,7 +5022,7 @@ async fn test_create_room_persists_the_create_event_under_its_finalized_id() {
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let room_service = create_room_service_with_finalizing_writer(&pool, cache);
 
-    let config = CreateRoomConfig { room_version: Some("11".to_string()), ..Default::default() };
+    let config = CreateRoomConfig { room_version: Some("12".to_string()), ..Default::default() };
     let room_val = room_service.lifecycle.create_room(&alice_id, config).await.expect("create_room must succeed");
     let room_id = room_val["room_id"].as_str().unwrap().to_string();
 
@@ -5188,7 +5050,7 @@ async fn test_create_room_persists_the_create_event_under_its_finalized_id() {
     // Receiver's view: the stored id must equal the id a peer derives from the
     // create PDU this row projects to.
     assert_eq!(
-        receiver_side_event_id(&event_storage, "11", &create_event.event_id).await,
+        receiver_side_event_id(&event_storage, "12", &create_event.event_id).await,
         create_event.event_id,
         "the persisted create id must equal the reference hash a peer derives"
     );
@@ -5222,11 +5084,15 @@ async fn test_create_room_persists_the_create_event_under_its_finalized_id() {
     );
 }
 
-/// The v1/v2 half of decision §4.1: `finalize_local_pdu` only rewrites v3+ ids,
-/// so a v1 room's create event must keep the server-assigned
-/// `$<millis>$<rand>:<server>` id.
+/// C-2 (MSC4291 create side): a v12 room's **room id is the create event's id**,
+/// with the sigil swapped from `$` to `!`.
+///
+/// The pre-C-2 path minted a random `!<uuid>:<server>` id *before* the create
+/// event existed, which is not merely wrong for v12 — it also cannot satisfy
+/// `ck_rooms_room_id_format` in the v12 form (a uuid contains `-` and the id
+/// carries a `:`), so v12 room creation was blocked at the storage layer.
 #[tokio::test]
-async fn test_create_room_keeps_the_server_assigned_create_id_for_v1_rooms() {
+async fn test_create_room_v12_room_id_is_the_create_event_id() {
     let pool = crate::require_test_pool().await;
 
     let id = unique_id();
@@ -5236,7 +5102,7 @@ async fn test_create_room_keeps_the_server_assigned_create_id_for_v1_rooms() {
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let room_service = create_room_service_with_finalizing_writer(&pool, cache);
 
-    let config = CreateRoomConfig { room_version: Some("1".to_string()), ..Default::default() };
+    let config = CreateRoomConfig { room_version: Some("12".to_string()), ..Default::default() };
     let room_val = room_service.lifecycle.create_room(&alice_id, config).await.expect("create_room must succeed");
     let room_id = room_val["room_id"].as_str().unwrap().to_string();
 
@@ -5249,11 +5115,75 @@ async fn test_create_room_keeps_the_server_assigned_create_id_for_v1_rooms() {
         .find(|event| event.state_key.as_deref() == Some(""))
         .expect("room must have an m.room.create event");
 
-    assert!(
-        create_event.event_id.contains(":localhost"),
-        "v1 keeps the server-assigned id, got {}",
-        create_event.event_id
+    // The create event itself is a v3+ reference hash ...
+    assert_eq!(create_event.event_id.len(), 44, "v12 create id: {}", create_event.event_id);
+    assert!(!create_event.event_id.contains(':'), "v3+ event ids carry no origin suffix");
+
+    // ... and the room id is that same string with the sigil swapped (MSC4291).
+    let expected_room_id = format!("!{}", &create_event.event_id[1..]);
+    assert_eq!(room_id, expected_room_id, "the v12 room id must be the create event's id with `$` swapped to `!`");
+
+    // The stored room id must also satisfy the v12 grammar on its own.
+    assert!(synapse_common::room_id::is_domainless_room_id(&room_id), "a v12 room id is domainless, got {room_id}");
+}
+
+/// C-4 (MSC4291): upgrading **to** room v12 reverses the two writes.
+///
+/// The replacement room's id is its create event's id, so the room must be
+/// created before the tombstone that names it; and `predecessor.event_id` — the
+/// tombstone's id, which cannot be known before the tombstone exists — is
+/// deprecated by the same MSC and must be omitted. `predecessor.room_id` stays:
+/// it points at the old room, which does exist.
+#[tokio::test]
+async fn test_upgrade_to_v12_derives_the_replacement_id_and_omits_predecessor_event_id() {
+    let pool = crate::require_test_pool().await;
+
+    let id = unique_id();
+    let alice_id = format!("@alice_{id}:localhost");
+    create_test_user(&pool, &alice_id, &format!("alice_{id}")).await;
+
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let room_service = create_room_service_with_finalizing_writer(&pool, cache);
+
+    let old_val = room_service
+        .lifecycle
+        .create_room(&alice_id, CreateRoomConfig { room_version: Some("12".to_string()), ..Default::default() })
+        .await
+        .expect("the old room must be created");
+    let old_room_id = old_val["room_id"].as_str().unwrap().to_string();
+
+    let new_room_id = room_service.upgrade_room(&old_room_id, "12", &alice_id).await.expect("upgrade must succeed");
+
+    let event_storage = EventStorage::new(&pool, "localhost".to_string());
+
+    let create_event = event_storage
+        .get_state_events_by_type(&new_room_id, "m.room.create")
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|event| event.state_key.as_deref() == Some(""))
+        .expect("the replacement room must have a create event");
+
+    // The replacement room's id is the create event's id with the sigil swapped.
+    assert_eq!(
+        new_room_id,
+        format!("!{}", &create_event.event_id[1..]),
+        "a v12 replacement room id must derive from its create event"
     );
-    assert_ne!(create_event.event_id.len(), 44, "a v1 id is not a reference hash: {}", create_event.event_id);
-    assert_eq!(receiver_side_event_id(&event_storage, "1", &create_event.event_id).await, create_event.event_id);
+
+    // `predecessor` names the old room and **not** the tombstone's id.
+    let predecessor = &create_event.content["predecessor"];
+    assert_eq!(predecessor["room_id"].as_str(), Some(old_room_id.as_str()));
+    assert!(predecessor.get("event_id").is_none(), "MSC4291 deprecates predecessor.event_id, got {predecessor}");
+
+    // The tombstone in the old room still names the replacement room, so the
+    // chain is complete even though the create content could not name it.
+    let tombstone = event_storage
+        .get_state_events_by_type(&old_room_id, "m.room.tombstone")
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|event| event.state_key.as_deref() == Some(""))
+        .expect("the old room must have a tombstone");
+    assert_eq!(tombstone.content["replacement_room"].as_str(), Some(new_room_id.as_str()));
 }

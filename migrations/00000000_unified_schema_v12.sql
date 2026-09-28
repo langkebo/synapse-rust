@@ -4731,22 +4731,29 @@ BEGIN
 END $$;
 
 -- room_id 格式：两种合法形态
---   * v1-v11：`!opaque:server` （legacy 格式）
---   * v12+：`!` + 43 个 URL-safe base64 字符（MSC4291，无 domain 部分）
--- 旧约束只接受第一种形态。U-1/D1 第 2 步放宽为两种合法形态，
--- 否则 v12 的 domainless room_id 无法入库。
+--   * v1–v11：`!opaque:domain`（`server_name` 是房间所在服务器）
+--   * v12+  ：`!` + 43 个 unpadded URL-safe Base64 字符（MSC4291：room id 是 create
+--     事件的 id 换 sigil，而 v3+ 的事件 id 是参照哈希，没有 `:server` 后缀）
+--
+-- 语法**只在** `synapse-common/src/room_id.rs` 里定义一次（`parse_room_id` /
+-- `is_well_formed_room_id`），两条正则必须与那两段代码逐字对应：
+--   Domainless ⇒ 长度恰好 43，且 `[A-Za-z0-9._+/-]` 不含 `:`；
+--   Legacy     ⇒ 冒号前非空 opaque，冒号后是 `[A-Za-z0-9.-]`。
+-- 两条正则在结构上**不相交**（Domainless 的字符类排斥 `:`，Legacy 要求 `:`），
+-- 故一个 id 不可能同时匹配，放宽 CHECK 不会引入歧义。
+--
+-- 旧约束只接受第一种形态；不 DROP 而只 ADD 会让本机 public 与各测试模板继续带着
+-- 坏约束（与 `ck_events_event_id_format` 同型的历史教训），所以这里同样
+-- 「DROP + 无条件重声明」。注意 `ALTER TABLE … DROP CONSTRAINT IF EXISTS` 后
+-- 紧接 `ADD CONSTRAINT` 在 PostgreSQL 里是合法语法（ADD COLUMN IF NOT EXISTS
+-- 的相邻位置限制不适用于 ADT），不要"为避免重复定义"而改回 IF NOT EXISTS 包裹。
 DO $$
 BEGIN
-    -- 重新声明而不是 IF NOT EXISTS：长期存在的库（本机 public、各测试模板）里
-    -- 已经带着旧定义，只加不换会让它们继续带着坏约束，本地与 CI 从此分叉。
     ALTER TABLE rooms DROP CONSTRAINT IF EXISTS ck_rooms_room_id_format;
     ALTER TABLE rooms ADD CONSTRAINT ck_rooms_room_id_format
         CHECK (
-            -- Legacy form: !opaque:server (room versions 1-11)
-            room_id ~ '^![a-zA-Z0-9._=+./-]+:[a-zA-Z0-9.-]+$'
-            OR
-            -- Domainless form: ! + 43 URL-safe base64 chars (room v12 / MSC4291)
-            room_id ~ '^![a-zA-Z0-9_-]{43}$'
+            room_id ~ '^![a-zA-Z0-9._=+/-]{43}$'
+            OR room_id ~ '^![a-zA-Z0-9._=+./-]+:[a-zA-Z0-9.-]+$'
         );
 END $$;
 

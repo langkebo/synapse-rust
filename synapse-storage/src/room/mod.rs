@@ -1799,8 +1799,9 @@ mod db_tests {
 
     /// A federated join stores the remote room version verbatim
     /// (`synapse-services/src/room/membership/federation.rs`: make_join -> `create_room`),
-    /// and the capability map marks v12/v13 as joinable/federatable (`stable_parse_only`).
-    /// `rooms.room_version` must therefore accept any digits/dots version, not just 1..11.
+    /// and the capability map marks v12 as joinable/federatable.
+    /// `rooms.room_version` must therefore accept any digits/dots version, not just 1..11
+    /// (a future version can arrive through federation before this server knows it).
     #[tokio::test]
     async fn test_room_version_check_accepts_versions_beyond_eleven() {
         let (_isolated, pool) = test_pool().await;

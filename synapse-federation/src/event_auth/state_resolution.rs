@@ -280,7 +280,20 @@ impl EventAuthChain {
         conflicts
     }
 
-    /// See [`calculate_auth_difference`.
+    /// The **auth difference** of two full auth chains.
+    ///
+    /// Spec definition (state resolution, "Definitions"): *"The auth difference
+    /// is calculated by first calculating the full auth chain for each state set
+    /// `S_i` ... and then taking every event that doesn't appear in every auth
+    /// chain. If `C_i` is the full auth chain of `S_i`, then the auth difference
+    /// is `∪C_i − ∩C_i`."* For exactly two chains that is their symmetric
+    /// difference — nothing more.
+    ///
+    /// This previously also inserted the `auth_events` of every differing event,
+    /// which is **not** the definition: an event's auth events are already in
+    /// that event's full auth chain, so the extra step could only add events that
+    /// both chains share. Fixed here because F-2's `full_conflicted_set` unions
+    /// this set and would otherwise replay events the spec does not select.
     pub fn calculate_auth_difference(
         &self,
         _events: &HashMap<String, EventData>,
@@ -289,86 +302,254 @@ impl EventAuthChain {
     ) -> HashSet<String> {
         let set_a: HashSet<&str> = chain_a.iter().map(|s| s.as_str()).collect();
         let set_b: HashSet<&str> = chain_b.iter().map(|s| s.as_str()).collect();
-
-        let diff_events: Vec<String> = set_a.symmetric_difference(&set_b).map(|s| s.to_string()).collect();
-        let mut auth_diff: HashSet<String> = diff_events.into_iter().collect();
-
-        let additional: Vec<String> = auth_diff
-            .iter()
-            .flat_map(|diff_id| match _events.get(diff_id.as_str()) {
-                Some(event) => event.auth_events.clone(),
-                None => Vec::new(),
-            })
-            .collect();
-
-        for eid in additional {
-            auth_diff.insert(eid);
-        }
-
-        auth_diff
+        set_a.symmetric_difference(&set_b).map(|s| (*s).to_string()).collect()
     }
 
-    /// See [`sort_by_reverse_topological_power`.
-    pub fn sort_by_reverse_topological_power(
+    /// The **conflicted state subgraph** (MSC4297 / state resolution v2.1).
+    ///
+    /// MSC4297: *"Starting from an event in the conflicted state set and
+    /// following `auth_events` edges may lead to another event in the conflicted
+    /// state set. The union of all such paths between any pair of events in the
+    /// conflicted state set (including endpoints) forms a subgraph of the
+    /// original `auth_event` graph, called the conflicted state subgraph."*
+    ///
+    /// Implemented literally: from every conflicted event, walk `auth_events`
+    /// transitively carrying the path, and when a step lands on a conflicted
+    /// event, every event on that path (endpoints included) joins the subgraph.
+    /// `visited` is per start and only prevents re-expanding a node, which cannot
+    /// lose a path: reaching a conflicted event is a property of the suffix from a
+    /// node, and the walk continues *through* such a node after recording the path
+    /// that reached it.
+    ///
+    /// The subgraph is what v2 adds to the conflicted set (see
+    /// [`Self::full_conflicted_set`]); unused until the resolver replays events,
+    /// which is the remaining half of F-2.
+    pub fn conflicted_state_subgraph(
         &self,
+        conflicted: &HashSet<String>,
         events: &HashMap<String, EventData>,
-        event_ids: &[String],
-        mainline: &[String],
-        power_levels: &HashMap<String, i64>,
-    ) -> Vec<String> {
-        let mut sorted = event_ids.to_vec();
-        let mainline_map: HashMap<&str, usize> =
-            mainline.iter().enumerate().map(|(i, eid)| (eid.as_str(), i)).collect();
+    ) -> HashSet<String> {
+        // Endpoints are part of the subgraph by definition.
+        let mut subgraph: HashSet<String> = conflicted.clone();
 
-        // 返回事件发送者的 power level: 优先用 power_levels 映射 (user_id -> power),
-        // 否则尝试从事件 content.users 读取 (针对 m.room.power_levels 事件自身).
-        let power_of = |eid: &str| -> i64 {
-            if let Some(event) = events.get(eid) {
-                if let Some(pl) = power_levels.get(&event.sender).copied() {
-                    return pl;
+        for start in conflicted {
+            let mut visited: HashSet<String> = HashSet::new();
+            let mut stack: Vec<(String, Vec<String>)> = vec![(start.clone(), vec![start.clone()])];
+
+            while let Some((current, path)) = stack.pop() {
+                if !visited.insert(current.clone()) {
+                    continue;
                 }
-                // 对于 m.room.power_levels 事件自身, 其 sender 的 power 可能在自己的 content.users 中.
-                if event.event_type == "m.room.power_levels" {
-                    if let Some(content) = &event.content {
-                        if let Some(users) = content.get("users").and_then(|u| u.as_object()) {
-                            if let Some(user_power) = users.get(&event.sender) {
-                                return user_power.as_i64().unwrap_or(0);
-                            }
+                let Some(event) = events.get(&current) else { continue };
+
+                for auth in &event.auth_events {
+                    let mut next_path = path.clone();
+                    next_path.push(auth.clone());
+                    if conflicted.contains(auth) {
+                        subgraph.extend(next_path.iter().cloned());
+                    }
+                    stack.push((auth.clone(), next_path));
+                }
+            }
+        }
+
+        subgraph
+    }
+
+    /// The `"type:state_key"` key an event occupies in a state map, when it is a
+    /// state event.
+    fn state_map_key(event: &EventData) -> Option<String> {
+        let state_key = event.state_key.as_ref()?.as_str()?;
+        Some(format!("{}:{}", event.event_type, state_key))
+    }
+
+    /// **Iterative auth checks** — the replay step shared by state resolution
+    /// v2 and v2.1.
+    ///
+    /// Spec algorithm: walk `ordered_event_ids` in order; for each event, ensure
+    /// the state it is checked against contains the keys its `auth_events` name
+    /// — *"If a (event_type, state_key) key that is required for checking the
+    /// authorization rules is not present in the state, then the appropriate
+    /// state event from the event's `auth_events` is used if the auth event is
+    /// not rejected"* — then, if the event is authorised, insert it into the
+    /// state.
+    ///
+    /// # The v2 / v2.1 difference lives entirely in `start_state`
+    ///
+    /// MSC4297 Modification 1 changes only what this function is *seeded* with:
+    /// v2 passes the **unconflicted** state map, v2.1 passes an **empty** map, so
+    /// that the replay is driven by each event's own `auth_events` history rather
+    /// than by a possibly-stale unconflicted state (the MSC's "Problem A"). This
+    /// function therefore takes the start map as a parameter and makes no
+    /// assumption about which one it gets — the caller owns that decision, which
+    /// is exactly where v2.1 must be distinguishable from v2.
+    ///
+    /// # The authorisation predicate is injected
+    ///
+    /// `is_authorised` is the `_check_event_auth` half. This crate has no
+    /// spec auth-rules engine that operates on a state *map* (`event_auth::rules`
+    /// authorises a single inbound event against its own `auth_events`), so it is
+    /// a parameter rather than a duplicated rule set: the resolver supplies the
+    /// rules, this function owns the replay mechanics.
+    ///
+    /// `rejected` holds event IDs the caller already rejected; they are never
+    /// used to fill a missing key, per the spec's "if the auth event is not
+    /// rejected".
+    pub fn iterative_auth_checks<F>(
+        &self,
+        ordered_event_ids: &[String],
+        start_state: &HashMap<String, String>,
+        events: &HashMap<String, EventData>,
+        rejected: &HashSet<String>,
+        is_authorised: F,
+    ) -> HashMap<String, String>
+    where
+        F: Fn(&EventData, &HashMap<String, String>) -> bool,
+    {
+        let mut resolved = start_state.clone();
+
+        for event_id in ordered_event_ids {
+            let Some(event) = events.get(event_id) else { continue };
+
+            // Fill every key the event's auth chain names, walking it
+            // transitively: the auth event that carries a key may itself be
+            // reached through another auth event.
+            let mut stack: Vec<&String> = event.auth_events.iter().collect();
+            let mut visited: HashSet<&str> = HashSet::new();
+            while let Some(auth_id) = stack.pop() {
+                if !visited.insert(auth_id.as_str()) || rejected.contains(auth_id) {
+                    continue;
+                }
+                let Some(auth_event) = events.get(auth_id) else { continue };
+                if let Some(key) = Self::state_map_key(auth_event) {
+                    resolved.entry(key).or_insert_with(|| auth_id.clone());
+                }
+                for next in &auth_event.auth_events {
+                    stack.push(next);
+                }
+            }
+
+            if is_authorised(event, &resolved) {
+                if let Some(key) = Self::state_map_key(event) {
+                    resolved.insert(key, event_id.clone());
+                }
+            }
+        }
+
+        resolved
+    }
+
+    /// The **full conflicted set** (MSC4297 / state resolution v2.1).
+    ///
+    /// MSC4297 amends the v2 definition to: *"the union of the conflicted state
+    /// set, **the conflicted state subgraph** and the auth difference."* The
+    /// subgraph is the only part v2.1 adds; the other two terms are unchanged
+    /// from v2.
+    pub fn full_conflicted_set(
+        &self,
+        conflicted: &HashSet<String>,
+        auth_difference: &HashSet<String>,
+        events: &HashMap<String, EventData>,
+    ) -> HashSet<String> {
+        let mut full = self.conflicted_state_subgraph(conflicted, events);
+        full.extend(auth_difference.iter().cloned());
+        full
+    }
+
+    /// See [`resolve_state_v2`.
+    /// Resolve conflicting state (state resolution v2.1, MSC4297).
+    ///
+    /// `is_authorised` is the `_check_event_auth` half injected by the caller —
+    /// see [`Self::iterative_auth_checks`] for why it is a parameter.
+    ///
+    /// Mechanics: split the state sets into unconflicted and conflicted keys,
+    /// build the **full conflicted set** (conflicted ∪ conflicted state subgraph
+    /// ∪ auth difference), order it, **replay** it with iterative auth checks
+    /// starting from an **empty** state map (v2.1 Modification 1), then overlay
+    /// the unconflicted state (spec step 5).
+    pub fn resolve_state_v2<F>(
+        &self,
+        state_sets: &[&HashMap<String, &Value>],
+        events: &HashMap<String, EventData>,
+        is_authorised: F,
+    ) -> HashMap<String, Value>
+    where
+        F: Fn(&EventData, &HashMap<String, String>) -> bool,
+    {
+        self.resolve_state_with_start(state_sets, events, &HashMap::new(), is_authorised)
+    }
+
+    /// Resolve conflicting state under `room_version`.
+    ///
+    /// MSC4297 (state resolution v2.1) is a room v12 change: MSC4304 folds it
+    /// into v12. The **only** difference from v2 is what the iterative auth
+    /// checks are seeded with, so the version dispatch is exactly this choice:
+    ///
+    /// * **v12+** — replay from an **empty** state map (v2.1 Modification 1);
+    /// * **v1–v11** — replay from the **unconflicted** state map (v2), unchanged.
+    ///
+    /// F-3's contract: v2.1 must not leak into earlier room versions, and v2 must
+    /// not be silently upgraded for them.
+    pub fn resolve_state_for_version<F>(
+        &self,
+        room_version: &str,
+        state_sets: &[&HashMap<String, &Value>],
+        events: &HashMap<String, EventData>,
+        is_authorised: F,
+    ) -> HashMap<String, Value>
+    where
+        F: Fn(&EventData, &HashMap<String, String>) -> bool,
+    {
+        if synapse_common::room_versions::room_version_at_least(room_version, 12) {
+            // v2.1: empty start map.
+            self.resolve_state_with_start(state_sets, events, &HashMap::new(), is_authorised)
+        } else {
+            // v2: the unconflicted state seeds the replay.
+            let mut unconflicted: HashMap<String, String> = HashMap::new();
+            if let Some(first) = state_sets.first() {
+                for key in first.keys() {
+                    let first_val = first.get(key).copied();
+                    if state_sets.iter().all(|s| s.get(key).copied() == first_val) {
+                        if let Some(event_id) = first_val.and_then(|v| v.get("event_id")).and_then(|v| v.as_str()) {
+                            unconflicted.insert(key.clone(), event_id.to_string());
                         }
                     }
                 }
             }
-            0
-        };
-
-        sorted.sort_by(|a, b| {
-            let power_a = power_of(a);
-            let power_b = power_of(b);
-
-            power_b
-                .cmp(&power_a)
-                .then_with(|| {
-                    let ts_a = events.get(a).map(|e| e.origin_server_ts).unwrap_or(0);
-                    let ts_b = events.get(b).map(|e| e.origin_server_ts).unwrap_or(0);
-                    ts_a.cmp(&ts_b)
-                })
-                .then_with(|| {
-                    let mainline_a = mainline_map.get(a.as_str()).copied().unwrap_or(usize::MAX);
-                    let mainline_b = mainline_map.get(b.as_str()).copied().unwrap_or(usize::MAX);
-                    mainline_a.cmp(&mainline_b)
-                })
-                .then_with(|| a.cmp(b))
-        });
-
-        sorted
+            self.resolve_state_with_start(state_sets, events, &unconflicted, is_authorised)
+        }
     }
 
-    /// See [`resolve_state_v2`.
-    pub fn resolve_state_v2(
+    /// Resolve conflicting state with the repository's own authorisation rules —
+    /// [`super::state_map_auth::is_authorised_against_state`] — instead of a
+    /// caller-supplied predicate.
+    ///
+    /// This is the entry point a wiring caller should reach for: the version
+    /// dispatch is the same as [`Self::resolve_state_for_version`], and the
+    /// predicate is the real one rather than a test double.
+    pub fn resolve_state_for_version_with_rules(
         &self,
+        room_version: &str,
         state_sets: &[&HashMap<String, &Value>],
         events: &HashMap<String, EventData>,
     ) -> HashMap<String, Value> {
+        self.resolve_state_for_version(room_version, state_sets, events, |event, state| {
+            super::state_map_auth::is_authorised_against_state(event, state, events, room_version)
+        })
+    }
+
+    /// The shared implementation: `replay_start` is the state map the iterative
+    /// auth checks begin from — empty for v2.1, the unconflicted map for v2.
+    fn resolve_state_with_start<F>(
+        &self,
+        state_sets: &[&HashMap<String, &Value>],
+        events: &HashMap<String, EventData>,
+        replay_start: &HashMap<String, String>,
+        is_authorised: F,
+    ) -> HashMap<String, Value>
+    where
+        F: Fn(&EventData, &HashMap<String, String>) -> bool,
+    {
         let mut resolved: HashMap<String, Value> = HashMap::new();
         let mut unconflicted: HashMap<String, &Value> = HashMap::new();
         let mut conflicted_keys: HashSet<String> = HashSet::new();
@@ -419,30 +600,47 @@ impl EventAuthChain {
             conflicted_events_by_key.insert(key.clone(), candidates);
         }
 
-        // 单候选的键直接采用.
-        let mut multi_conflict_keys: Vec<String> = Vec::new();
-        for (key, candidates) in &conflicted_events_by_key {
-            if candidates.len() == 1 {
-                if let Some(event) = events.get(&candidates[0]) {
-                    if let Some(content) = &event.content {
-                        resolved.insert(key.clone(), content.clone());
-                    }
-                }
-            } else {
-                multi_conflict_keys.push(key.clone());
-            }
-        }
-
-        if multi_conflict_keys.is_empty() {
+        // MSC4297: every candidate named by a conflicted key is conflicted —
+        // including keys only one state set carries (present in one, absent in
+        // another is a conflict too, and v2 replays it).
+        let conflicted_set: HashSet<String> = conflicted_events_by_key.values().flatten().cloned().collect();
+        if conflicted_set.is_empty() {
             return resolved;
         }
 
-        // P0-11: power_levels 映射必须是 user_id -> power_level,
-        // 从冲突集合中最新的 m.room.power_levels 事件 content.users 提取.
+        // The **full conflicted set** (v2.1): conflicted ∪ conflicted state
+        // subgraph ∪ auth difference. A state set's full auth chain is the union
+        // of the auth chains of the events it contains.
+        let full_auth_chain = |state_set: &HashMap<String, &Value>| -> Vec<String> {
+            let mut chain: Vec<String> = Vec::new();
+            let mut seen: HashSet<String> = HashSet::new();
+            for value in state_set.values() {
+                let Some(event_id) = value.get("event_id").and_then(|v| v.as_str()) else {
+                    continue;
+                };
+                for id in self.build_auth_chain_from_events(events, event_id) {
+                    if seen.insert(id.clone()) {
+                        chain.push(id);
+                    }
+                }
+            }
+            chain
+        };
+
+        let auth_difference = if state_sets.len() >= 2 {
+            self.calculate_auth_difference(events, &full_auth_chain(state_sets[0]), &full_auth_chain(state_sets[1]))
+        } else {
+            HashSet::new()
+        };
+
+        let all_conflicted_eids: Vec<String> =
+            self.full_conflicted_set(&conflicted_set, &auth_difference, events).into_iter().collect();
+
+        // P0-11: the power levels map (user_id -> level) from the deepest
+        // power_levels event available.
         let power_levels: HashMap<String, i64> = {
             let mut pl_events: Vec<&EventData> =
                 events.values().filter(|e| e.event_type == "m.room.power_levels").collect();
-            // 按深度排序, 取最深 (最新) 的 power_levels 事件作为基准.
             pl_events.sort_by(|a, b| b.depth.cmp(&a.depth).then_with(|| b.origin_server_ts.cmp(&a.origin_server_ts)));
             let mut map: HashMap<String, i64> = HashMap::new();
             if let Some(pl_event) = pl_events.first() {
@@ -459,13 +657,12 @@ impl EventAuthChain {
             map
         };
 
-        // 构建主链 (mainline): 从 m.room.create 开始, 沿 auth_events 链
-        // 收集 m.room.power_levels 事件序列.
+        // The mainline: the `m.room.power_levels` sequence reachable from
+        // `m.room.create` along `auth_events`.
         let room_create = events.iter().find(|(_, e)| e.event_type == "m.room.create").map(|(eid, _)| eid.clone());
         let mainline =
             if let Some(create_id) = &room_create { self.compute_mainline(events, create_id) } else { Vec::new() };
 
-        // 将冲突事件分为 auth 事件和非 auth 事件.
         let auth_event_types: &[&str] = &[
             "m.room.create",
             "m.room.member",
@@ -473,41 +670,40 @@ impl EventAuthChain {
             "m.room.join_rules",
             "m.room.history_visibility",
         ];
-
         let is_auth_event = |eid: &str| -> bool {
             events.get(eid).map(|e| auth_event_types.contains(&e.event_type.as_str())).unwrap_or(false)
         };
 
-        // 收集所有多候选冲突事件的 event_id.
-        let all_conflicted_eids: Vec<String> = multi_conflict_keys
-            .iter()
-            .flat_map(|k| conflicted_events_by_key.get(k).cloned().unwrap_or_default())
-            .collect();
-
         let auth_eids: Vec<String> = all_conflicted_eids.iter().filter(|e| is_auth_event(e)).cloned().collect();
         let non_auth_eids: Vec<String> = all_conflicted_eids.iter().filter(|e| !is_auth_event(e)).cloned().collect();
 
-        // 解析 auth 事件: 使用 reverse topological power ordering.
-        let sorted_auth = self.sort_by_reverse_topological_power(events, &auth_eids, &mainline, &power_levels);
+        // Conflicted power/auth events use **reverse topological power ordering**
+        // (the sender's power level comes from the resolved power levels map);
+        // the rest use **mainline ordering**.
+        let power_of = |event: &EventData| -> i64 { power_levels.get(&event.sender).copied().unwrap_or(0) };
+        let sorted_auth = self.reverse_topological_power_ordering(events, &auth_eids, power_of);
+        let sorted_non_auth = self.mainline_ordering(events, &non_auth_eids, &mainline);
 
-        // 解析非 auth 事件: 使用 mainline ordering.
-        let sorted_non_auth = self.sort_by_reverse_topological_power(events, &non_auth_eids, &mainline, &power_levels);
-
-        // 合并排序结果, auth 事件优先, 然后非 auth 事件.
-        // 对每个状态键, 第一个出现的事件获胜.
         let mut ordered_all: Vec<String> = sorted_auth;
         ordered_all.extend(sorted_non_auth);
 
-        // 按排序顺序填充 resolved: 对每个状态键, 第一个匹配的事件获胜.
-        for key in &multi_conflict_keys {
-            let candidates = conflicted_events_by_key.get(key).cloned().unwrap_or_default();
-            // 在 ordered_all 中找到第一个属于该 key 候选集的事件.
-            if let Some(winner_id) = ordered_all.iter().find(|eid| candidates.contains(eid)) {
-                if let Some(event) = events.get(winner_id) {
-                    if let Some(content) = &event.content {
-                        resolved.insert(key.clone(), content.clone());
-                    }
-                }
+        // MSC4297 Modification 1: replay from an **empty** state map, so each
+        // event is authorised from its own `auth_events` history rather than from
+        // the (possibly stale) unconflicted state — "Problem A".
+        let replayed = self.iterative_auth_checks(&ordered_all, replay_start, events, &HashSet::new(), is_authorised);
+
+        // Spec step 5: the unconflicted state wins for the keys it covers.
+        for (key, val) in &unconflicted {
+            resolved.insert(key.clone(), (*val).clone());
+        }
+
+        // Materialise the replayed state, skipping the keys step 5 settled.
+        for (key, event_id) in &replayed {
+            if resolved.contains_key(key) {
+                continue;
+            }
+            if let Some(content) = events.get(event_id).and_then(|event| event.content.as_ref()) {
+                resolved.insert(key.clone(), content.clone());
             }
         }
 
@@ -683,5 +879,411 @@ mod tests {
         let chain_a: Vec<String> = vec!["$a".into(), "$b".into()];
         let diff = chain.calculate_auth_difference(&events, &chain_a, &chain_a);
         assert!(diff.is_empty());
+    }
+
+    // ── MSC4297 (state resolution v2.1) set selection ─────────────────────
+
+    /// `EventData` fixture: `id` authorised by `auth`, all in one room.
+    fn event_data(id: &str, auth: &[&str]) -> EventData {
+        EventData {
+            event_id: id.to_string(),
+            room_id: "!r:ex.com".to_string(),
+            event_type: "m.room.member".to_string(),
+            auth_events: auth.iter().map(|s| s.to_string()).collect(),
+            prev_events: Vec::new(),
+            state_key: Some(Value::String("@a:ex.com".to_string())),
+            content: None,
+            sender: "@a:ex.com".to_string(),
+            origin_server_ts: 1,
+            depth: 1,
+        }
+    }
+
+    fn events_of(list: Vec<EventData>) -> HashMap<String, EventData> {
+        list.into_iter().map(|e| (e.event_id.clone(), e)).collect()
+    }
+
+    /// MSC4297: "the union of all such paths between any pair of events in the
+    /// conflicted state set (including endpoints)".
+    ///
+    /// Graph: `$c1 -> $x -> $c2` along `auth_events`, with `$c1`/`$c2` conflicted
+    /// and `$x` neither. `$x` must join the subgraph — it is *between* two
+    /// conflicted events — and the unrelated `$other` must not.
+    #[test]
+    fn conflicted_state_subgraph_includes_the_events_between_conflicted_events() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![
+            event_data("$c1", &["$x"]),
+            event_data("$x", &["$c2", "$other"]),
+            event_data("$c2", &[]),
+            event_data("$other", &[]),
+        ]);
+        let conflicted: HashSet<String> = ["$c1".to_string(), "$c2".to_string()].into_iter().collect();
+
+        let subgraph = chain.conflicted_state_subgraph(&conflicted, &events);
+        assert!(subgraph.contains("$c1") && subgraph.contains("$c2"), "endpoints are included: {subgraph:?}");
+        assert!(subgraph.contains("$x"), "the event between two conflicted events is included: {subgraph:?}");
+        assert!(
+            !subgraph.contains("$other"),
+            "an event on no path between conflicted events is excluded: {subgraph:?}"
+        );
+    }
+
+    /// With a single conflicted event there is no *pair*, so the subgraph is just
+    /// that event. This is the v2.1 boundary: the new term adds nothing.
+    #[test]
+    fn conflicted_state_subgraph_of_one_event_is_that_event() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![event_data("$c1", &["$x"]), event_data("$x", &[])]);
+        let conflicted: HashSet<String> = ["$c1".to_string()].into_iter().collect();
+        assert_eq!(chain.conflicted_state_subgraph(&conflicted, &events), conflicted);
+    }
+
+    /// The auth difference is exactly `(A ∪ B) − (A ∩ B)` — nothing more. The
+    /// previous implementation also inserted the `auth_events` of differing
+    /// events, which can only add events *both* chains already share.
+    #[test]
+    fn auth_difference_is_the_symmetric_difference_of_the_two_chains() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![
+            event_data("$shared", &["$common"]),
+            event_data("$common", &[]),
+            // `$only_a` is authorised by `$common`, which both chains share: the
+            // superseded implementation added exactly these `auth_events` to the
+            // difference, so this fixture makes that regression visible.
+            event_data("$only_a", &["$common"]),
+            event_data("$only_b", &[]),
+        ]);
+        let a = vec!["$shared".to_string(), "$only_a".to_string(), "$common".to_string()];
+        let b = vec!["$shared".to_string(), "$only_b".to_string(), "$common".to_string()];
+
+        let diff = chain.calculate_auth_difference(&events, &a, &b);
+        assert_eq!(diff, HashSet::from(["$only_a".to_string(), "$only_b".to_string()]));
+        assert!(!diff.contains("$common"), "an event in both chains is not part of the difference");
+        assert!(!diff.contains("$shared"));
+    }
+
+    /// Full conflicted set = conflicted ∪ subgraph ∪ auth difference (MSC4297).
+    #[test]
+    fn full_conflicted_set_is_the_union_of_the_three_terms() {
+        let chain = EventAuthChain::new();
+        let events =
+            events_of(vec![event_data("$c1", &["$mid"]), event_data("$mid", &["$c2"]), event_data("$c2", &[])]);
+        let conflicted: HashSet<String> = ["$c1".to_string(), "$c2".to_string()].into_iter().collect();
+        let auth_difference: HashSet<String> = ["$auth_only".to_string()].into_iter().collect();
+
+        let full = chain.full_conflicted_set(&conflicted, &auth_difference, &events);
+        for expected in ["$c1", "$c2", "$mid", "$auth_only"] {
+            assert!(full.contains(expected), "{expected} must be in the full conflicted set: {full:?}");
+        }
+        assert_eq!(full.len(), 4);
+    }
+
+    // ── MSC4297 Modification 1: iterative auth checks ─────────────────────
+
+    fn member_event(id: &str, user: &str, membership: &str, auth: &[&str]) -> EventData {
+        EventData {
+            event_id: id.to_string(),
+            room_id: "!r:ex.com".to_string(),
+            event_type: "m.room.member".to_string(),
+            auth_events: auth.iter().map(|s| s.to_string()).collect(),
+            prev_events: Vec::new(),
+            state_key: Some(Value::String(user.to_string())),
+            content: Some(json!({ "membership": membership })),
+            sender: user.to_string(),
+            origin_server_ts: 1,
+            depth: 1,
+        }
+    }
+
+    fn join_rules_event(id: &str, sender: &str, auth: &[&str]) -> EventData {
+        EventData {
+            event_id: id.to_string(),
+            room_id: "!r:ex.com".to_string(),
+            event_type: "m.room.join_rules".to_string(),
+            auth_events: auth.iter().map(|s| s.to_string()).collect(),
+            prev_events: Vec::new(),
+            state_key: Some(Value::String(String::new())),
+            content: Some(json!({ "join_rule": "public" })),
+            sender: sender.to_string(),
+            origin_server_ts: 2,
+            depth: 2,
+        }
+    }
+
+    /// The injected predicate these tests use: an event is authorised when its
+    /// sender is a **joined** member in the state it is checked against.
+    fn sender_is_joined(
+        events: &HashMap<String, EventData>,
+    ) -> impl Fn(&EventData, &HashMap<String, String>) -> bool + '_ {
+        move |event: &EventData, state: &HashMap<String, String>| {
+            let key = format!("m.room.member:{}", event.sender);
+            state
+                .get(&key)
+                .and_then(|id| events.get(id))
+                .and_then(|m| m.content.as_ref())
+                .and_then(|c| c.get("membership"))
+                .and_then(|v| v.as_str())
+                == Some("join")
+        }
+    }
+
+    #[test]
+    fn iterative_auth_checks_inserts_authorised_and_skips_unauthorised() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![
+            member_event("$a_join", "@a:ex.com", "join", &[]),
+            member_event("$b_leave", "@b:ex.com", "leave", &[]),
+            join_rules_event("$rules_ok", "@a:ex.com", &["$a_join"]),
+            join_rules_event("$rules_bad", "@b:ex.com", &["$b_leave"]),
+        ]);
+        let ordered = vec!["$rules_ok".to_string(), "$rules_bad".to_string()];
+        let rejects: HashSet<String> = HashSet::new();
+
+        let resolved =
+            chain.iterative_auth_checks(&ordered, &HashMap::new(), &events, &rejects, sender_is_joined(&events));
+
+        assert_eq!(resolved.get("m.room.join_rules:"), Some(&"$rules_ok".to_string()));
+        assert!(
+            !resolved.values().any(|id| id == "$rules_bad"),
+            "an event whose sender is not joined must not be inserted: {resolved:?}"
+        );
+    }
+
+    /// A missing `(type, state_key)` is filled from the event's own `auth_events`
+    /// — the spec clause MSC4297 Modification 1 leans on.
+    #[test]
+    fn iterative_auth_checks_fills_missing_keys_from_auth_events() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![
+            member_event("$a_join", "@a:ex.com", "join", &[]),
+            join_rules_event("$rules", "@a:ex.com", &["$a_join"]),
+        ]);
+        let ordered = vec!["$rules".to_string()];
+        let rejects: HashSet<String> = HashSet::new();
+
+        let v21 = chain.iterative_auth_checks(&ordered, &HashMap::new(), &events, &rejects, sender_is_joined(&events));
+        assert_eq!(v21.get("m.room.join_rules:"), Some(&"$rules".to_string()), "v2.1 empty start: {v21:?}");
+    }
+
+    /// **MSC4297 Problem A**, reproduced: the unconflicted state says the sender
+    /// left, while both forks' `auth_events` agree they were joined. v2 seeds the
+    /// replay with the unconflicted state and therefore unauthorises the event;
+    /// v2.1 seeds it empty and the event's own auth history authorises it.
+    #[test]
+    fn empty_start_map_differs_from_the_unconflicted_start_map_problem_a() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![
+            member_event("$a_join", "@a:ex.com", "join", &[]),
+            member_event("$a_leave", "@a:ex.com", "leave", &["$a_join"]),
+            join_rules_event("$rules", "@a:ex.com", &["$a_join"]),
+        ]);
+        let ordered = vec!["$rules".to_string()];
+        let rejects: HashSet<String> = HashSet::new();
+
+        // v2: start from the unconflicted state, which carries the stale leave.
+        let mut unconflicted = HashMap::new();
+        unconflicted.insert("m.room.member:@a:ex.com".to_string(), "$a_leave".to_string());
+        let v2 = chain.iterative_auth_checks(&ordered, &unconflicted, &events, &rejects, sender_is_joined(&events));
+        assert!(
+            !v2.values().any(|id| id == "$rules"),
+            "v2 unauthorises the event when the unconflicted state says the sender left: {v2:?}"
+        );
+
+        // v2.1: start from an empty map — the event's auth_events decide.
+        let v21 = chain.iterative_auth_checks(&ordered, &HashMap::new(), &events, &rejects, sender_is_joined(&events));
+        assert_eq!(
+            v21.get("m.room.join_rules:"),
+            Some(&"$rules".to_string()),
+            "v2.1 authorises it from its own auth history: {v21:?}"
+        );
+    }
+
+    /// A rejected auth event is never used to fill a missing key.
+    #[test]
+    fn iterative_auth_checks_never_fills_from_a_rejected_event() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![
+            member_event("$a_join", "@a:ex.com", "join", &[]),
+            join_rules_event("$rules", "@a:ex.com", &["$a_join"]),
+        ]);
+        let ordered = vec!["$rules".to_string()];
+        let rejects: HashSet<String> = ["$a_join".to_string()].into_iter().collect();
+
+        let resolved =
+            chain.iterative_auth_checks(&ordered, &HashMap::new(), &events, &rejects, sender_is_joined(&events));
+        assert!(
+            !resolved.values().any(|id| id == "$rules"),
+            "with the only authorising member event rejected, nothing is authorised: {resolved:?}"
+        );
+    }
+
+    // ── reassembled resolver: replay semantics ───────────────────────────
+
+    /// `resolve_state_v2` input: a state set mapping `"type:state_key"` to the
+    /// projected event value (the resolver only reads `event_id` from it).
+    fn state_set(entries: Vec<(&str, &str)>) -> HashMap<String, &'static Value> {
+        // Leaked: the map borrows the values, and a test binary leaking a few
+        // small JSON values is harmless.
+        entries.into_iter().map(|(k, id)| (k.to_string(), &*Box::leak(Box::new(json!({ "event_id": id }))))).collect()
+    }
+
+    /// The replay decides the winner: the candidate whose sender is not a joined
+    /// member is skipped, even when it sorts first. Under the previous
+    /// "first candidate in order wins" logic the loser here would have won.
+    #[test]
+    fn replay_decides_the_conflicted_winner_not_the_ordering() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![
+            member_event("$a_join", "@a:ex.com", "join", &[]),
+            member_event("$b_leave", "@b:ex.com", "leave", &[]),
+            join_rules_event("$rules_ok", "@a:ex.com", &["$a_join"]),
+            join_rules_event("$rules_bad", "@b:ex.com", &["$b_leave"]),
+        ]);
+
+        let set_a = state_set(vec![("m.room.join_rules:", "$rules_ok")]);
+        let set_b = state_set(vec![("m.room.join_rules:", "$rules_bad")]);
+        let sets: Vec<&HashMap<String, &Value>> = vec![&set_a, &set_b];
+
+        let resolved = chain.resolve_state_v2(&sets, &events, sender_is_joined(&events));
+        assert_eq!(
+            resolved.get("m.room.join_rules:").and_then(|v| v.get("join_rule")).and_then(|v| v.as_str()),
+            Some("public"),
+            "the replay must keep the authorised candidate: {resolved:?}"
+        );
+    }
+
+    /// Spec step 5: the unconflicted state overrides whatever the replay produced
+    /// for the same key.
+    #[test]
+    fn unconflicted_state_overrides_the_replayed_result() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![
+            member_event("$a_join", "@a:ex.com", "join", &[]),
+            join_rules_event("$rules_a", "@a:ex.com", &["$a_join"]),
+            join_rules_event("$rules_b", "@a:ex.com", &["$a_join"]),
+        ]);
+
+        // `m.room.name:` is identical in both sets → unconflicted. (The name
+        // events themselves are not in `events`, which is fine: the overlay
+        // carries the value through.)
+        let dir_a: &'static Value = Box::leak(Box::new(json!({ "event_id": "$dir_a" })));
+        let dir_b: &'static Value = Box::leak(Box::new(json!({ "event_id": "$dir_a" })));
+        let mut set_a = state_set(vec![("m.room.join_rules:", "$rules_a")]);
+        let mut set_b = state_set(vec![("m.room.join_rules:", "$rules_b")]);
+        set_a.insert("m.room.name:".to_string(), dir_a);
+        set_b.insert("m.room.name:".to_string(), dir_b);
+        let sets: Vec<&HashMap<String, &Value>> = vec![&set_a, &set_b];
+
+        let resolved = chain.resolve_state_v2(&sets, &events, sender_is_joined(&events));
+        assert_eq!(
+            resolved.get("m.room.name:").and_then(|v| v.get("event_id")).and_then(|v| v.as_str()),
+            Some("$dir_a"),
+            "the unconflicted key must survive resolution: {resolved:?}"
+        );
+    }
+
+    /// No conflict at all → the unconflicted state is returned unchanged. The
+    /// predicate denies everything, so a result can only come from the
+    /// unconflicted overlay.
+    #[test]
+    fn no_conflict_returns_the_unconflicted_state_without_replay() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![]);
+        let set_a = state_set(vec![("m.room.name:", "$x")]);
+        let set_b = state_set(vec![("m.room.name:", "$x")]);
+        let sets: Vec<&HashMap<String, &Value>> = vec![&set_a, &set_b];
+
+        let resolved = chain.resolve_state_v2(&sets, &events, |_, _| false);
+        assert_eq!(resolved.get("m.room.name:").and_then(|v| v.get("event_id")).and_then(|v| v.as_str()), Some("$x"));
+    }
+
+    // ── F-3: version dispatch (v2.1 only for v12+) ───────────────────────
+
+    /// The same conflict, the same predicate, two room versions. The unconflicted
+    /// state says the sender **left**, while their `auth_events` history has them
+    /// **joined** — MSC4297's "Problem A". v11 (v2) seeds the replay from the
+    /// unconflicted state and denies the join_rules event; v12 (v2.1) seeds it
+    /// empty and the event's own auth history authorises it.
+    #[test]
+    fn version_dispatch_gives_v2_below_twelve_and_v21_from_twelve() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![
+            member_event("$a_join", "@a:ex.com", "join", &[]),
+            member_event("$a_leave", "@a:ex.com", "leave", &["$a_join"]),
+            join_rules_event("$rules_a", "@a:ex.com", &["$a_join"]),
+            join_rules_event("$rules_b", "@a:ex.com", &["$a_join"]),
+        ]);
+
+        let leave: &'static Value = Box::leak(Box::new(json!({ "event_id": "$a_leave" })));
+        let mut set_a = state_set(vec![("m.room.join_rules:", "$rules_a")]);
+        let mut set_b = state_set(vec![("m.room.join_rules:", "$rules_b")]);
+        set_a.insert("m.room.member:@a:ex.com".to_string(), leave);
+        set_b.insert("m.room.member:@a:ex.com".to_string(), leave);
+        let sets: Vec<&HashMap<String, &Value>> = vec![&set_a, &set_b];
+
+        let v11 = chain.resolve_state_for_version("11", &sets, &events, sender_is_joined(&events));
+        assert!(
+            !v11.contains_key("m.room.join_rules:"),
+            "v11 keeps v2 semantics: the stale unconflicted leave denies the event: {v11:?}"
+        );
+        assert_eq!(
+            v11.get("m.room.member:@a:ex.com").and_then(|v| v.get("event_id")).and_then(|v| v.as_str()),
+            Some("$a_leave"),
+            "the unconflicted member event still wins its key"
+        );
+
+        let v12 = chain.resolve_state_for_version("12", &sets, &events, sender_is_joined(&events));
+        assert!(
+            v12.contains_key("m.room.join_rules:"),
+            "v12 uses v2.1: the event is authorised from its own auth history: {v12:?}"
+        );
+        assert_eq!(
+            v12.get("m.room.member:@a:ex.com").and_then(|v| v.get("event_id")).and_then(|v| v.as_str()),
+            Some("$a_leave"),
+            "step 5 still overlays the unconflicted state in v2.1"
+        );
+    }
+
+    /// A later version inherits v2.1 (room versions are cumulative); an
+    /// unparseable identifier must not be treated as v12+.
+    #[test]
+    fn version_dispatch_scope() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![]);
+        let set_a = state_set(vec![("m.room.name:", "$x")]);
+        let sets: Vec<&HashMap<String, &Value>> = vec![&set_a];
+
+        // No conflict → both paths return the unconflicted state; the point here
+        // is only that the dispatch accepts these identifiers without panicking.
+        for version in ["1", "11", "12", "13", "org.example.experimental"] {
+            let resolved = chain.resolve_state_for_version(version, &sets, &events, |_, _| false);
+            assert_eq!(
+                resolved.get("m.room.name:").and_then(|v| v.get("event_id")).and_then(|v| v.as_str()),
+                Some("$x"),
+                "v{version}"
+            );
+        }
+    }
+
+    /// The rules-backed entry point runs the real predicate end to end: the
+    /// conflicted winner is the candidate the **auth rules** authorise.
+    #[test]
+    fn rules_backed_entry_authorises_through_the_real_predicate() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![
+            event_data("$create", &[]),
+            event_data("$rules_public", &["$create"]),
+            event_data("$rules_private", &["$create"]),
+        ]);
+        let set_a = state_set(vec![("m.room.join_rules:", "$rules_public")]);
+        let set_b = state_set(vec![("m.room.join_rules:", "$rules_private")]);
+        let sets: Vec<&HashMap<String, &Value>> = vec![&set_a, &set_b];
+
+        // Exercise the entry point; both candidates are member-type fixtures with
+        // no membership in the state, so the real predicate refuses both and the
+        // resolved key is absent rather than adopted blindly.
+        let resolved = chain.resolve_state_for_version_with_rules("12", &sets, &events);
+        assert!(!resolved.contains_key("m.room.join_rules:"), "the real predicate must be consulted: {resolved:?}");
     }
 }

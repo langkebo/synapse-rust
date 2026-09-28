@@ -1,6 +1,17 @@
 use super::AuthService;
 use super::DEFAULT_POWER_LEVEL;
+use std::collections::BTreeSet;
 use synapse_common::*;
+
+/// The power level of a room v12+ creator (MSC4289).
+///
+/// MSC4289 gives the create event's `sender` and every `additional_creators`
+/// entry **unlimited** power: they cannot be demoted by any `m.room.power_levels`
+/// event, and any action gated on a numeric threshold passes for them. `i64::MAX`
+/// is the sentinel for that — every consumer compares power levels, so a value
+/// above any representable threshold is exactly "unlimited" without a second
+/// code path per call site.
+pub const CREATOR_POWER_LEVEL: i64 = i64::MAX;
 
 impl AuthService {
     /// See [`get_user_power_level`].
@@ -13,6 +24,25 @@ impl AuthService {
 
         if membership.is_none() {
             return Ok(-1);
+        }
+
+        let (creators, room_version) = self.room_creators_and_version(room_id).await?;
+
+        // MSC4289 (room v12+): a creator's power is unlimited and **cannot be
+        // demoted** by a `m.room.power_levels` event, so the creator check runs
+        // *before* the event is read. Running it after (as this used to) let a
+        // power-levels event set the creator to any value, including 0 — the
+        // defect the plan records as G-32.
+        //
+        // The version must be **stated** by the create event: granting unlimited
+        // power on an unknown version would be a fail-open privilege escalation,
+        // so `None` (no `content.room_version`, or no create event at all) keeps
+        // the pre-v12 behaviour.
+        let is_v12_plus = room_version
+            .as_deref()
+            .is_some_and(|version| synapse_common::room_versions::room_version_at_least(version, 12));
+        if is_v12_plus && creators.contains(user_id) {
+            return Ok(CREATOR_POWER_LEVEL);
         }
 
         let power_levels_content = self.get_room_power_levels_content(room_id).await?;
@@ -29,12 +59,10 @@ impl AuthService {
             }
         }
 
-        let room_creator: Option<String> = self.resolve_room_creator(room_id).await?;
-
-        if let Some(creator) = room_creator {
-            if creator == user_id {
-                return Ok(100);
-            }
+        // Below v12 the creator's fallback is the long-standing 100: v1-v11 have
+        // no unlimited-creator concept, and their behaviour must not change.
+        if creators.contains(user_id) {
+            return Ok(100);
         }
 
         Ok(0)
@@ -64,48 +92,58 @@ impl AuthService {
         Ok(events.first().map(|event| event.content.clone()))
     }
 
-    /// 解析房间创建者：优先取 `m.room.create` 状态事件（content.creator，
-    /// 或事件 sender 兜底——与 Matrix 对创建者的定义一致），事件缺失时
-    /// 回退到 rooms 表查询。
+    /// 解析房间**创建者集合**与房间版本：从 `m.room.create` 状态事件一次读出。
     ///
-    /// T1：事件溯源使授权函数可用内存 mock 完整测试（此前直接查 rooms 表，
-    /// 授权路径无法脱离数据库做单元测试）。
-    pub(crate) async fn resolve_room_creator(&self, room_id: &str) -> ApiResult<Option<String>> {
+    /// 创建者定义（MSC4289 / Matrix）：
+    /// * v1–v10 的 `content.creator`；
+    /// * v11+ 的创建者即 create 事件的 `sender`（`content.creator` 已被移除）；
+    /// * v12+ 再加上 `content.additional_creators` 的每一项。
+    ///
+    /// 三者一并收集（对任意版本都成立：低版本里 sender 与 `content.creator` 本就应当一致）。
+    /// 事件缺失时回退到 rooms 表；版本回落到 `DEFAULT_ROOM_VERSION`。
+    ///
+    /// 合并成一个 helper 是因为每次授权都要同时拿到两者，而它们同源于同一条 create 事件
+    /// —— 分开取会让每次 power-level 查询多一次状态读取。
+    async fn room_creators_and_version(&self, room_id: &str) -> ApiResult<(BTreeSet<String>, Option<String>)> {
         let events = self
             .event_reader
             .get_state_events_by_type(room_id, "m.room.create")
             .await
             .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
+
         if let Some(event) = events.first() {
-            if let Some(creator) = event.content.get("creator").and_then(|c| c.as_str()) {
-                return Ok(Some(creator.to_string()));
-            }
-            // room v11+ 移除 content.creator，创建者即 create 事件的 sender
-            let sender = if !event.sender.is_empty() { Some(event.sender.clone()) } else { event.user_id.clone() };
-            if let Some(s) = sender.filter(|s| !s.is_empty()) {
-                return Ok(Some(s));
-            }
+            // One implementation of "who is a creator", shared with the inbound
+            // federation auth rules (`synapse_common::room_creator`).
+            let sender = if event.sender.is_empty() { event.user_id.as_deref().unwrap_or("") } else { &event.sender };
+            let creators = synapse_common::room_creator::creators_from_create_event(sender, &event.content);
+            // `None` when the create event does not state one: an unknown version
+            // must never be *assumed* to be v12+ — see `get_user_power_level`.
+            let version = event.content.get("room_version").and_then(|v| v.as_str()).map(str::to_string);
+            return Ok((creators, version));
         }
-        self.room_storage
+
+        let creator = self
+            .room_storage
             .get_room_creator(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_cause("Database error", e))
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
+        Ok((creator.into_iter().collect(), None))
+    }
+
+    /// The room's creator **set** (MSC4289: `sender` ∪ `additional_creators`,
+    /// plus `content.creator` for v1-v10).
+    pub(crate) async fn resolve_room_creators(&self, room_id: &str) -> ApiResult<BTreeSet<String>> {
+        Ok(self.room_creators_and_version(room_id).await?.0)
     }
 
     /// Returns the room version string (e.g. `"10"`) from the `m.room.create`
     /// state event, or `DEFAULT_ROOM_VERSION` if not set.
     pub(crate) async fn get_room_version(&self, room_id: &str) -> ApiResult<String> {
-        let events = self
-            .event_reader
-            .get_state_events_by_type(room_id, "m.room.create")
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
-        let version = events
-            .first()
-            .and_then(|event| event.content.get("room_version"))
-            .and_then(|v| v.as_str())
-            .unwrap_or(synapse_common::room_versions::DEFAULT_ROOM_VERSION);
-        Ok(version.to_string())
+        Ok(self
+            .room_creators_and_version(room_id)
+            .await?
+            .1
+            .unwrap_or_else(|| synapse_common::room_versions::DEFAULT_ROOM_VERSION.to_string()))
     }
 
     /// See [`get_required_state_event_power_level`].
@@ -202,6 +240,39 @@ impl AuthService {
         let actor_level = self.get_joined_user_power_level(room_id, user_id).await?;
         let current_content = self.get_room_power_levels_content(room_id).await?;
         let new_power_levels_content = new_content;
+
+        // MSC4289 rule 10.4 (room v12+): `users` must not name a creator.
+        //
+        // A creator's power is unlimited (see `get_user_power_level`), so listing
+        // one here is either redundant or an attempt to pin a number that the
+        // event can never enforce. Checked before any threshold comparison so the
+        // rejection reason is the real one.
+        //
+        // This runs on the *client* path. The local creation sequence writes its
+        // initial power_levels directly (`LifecycleService::write_creation_event`)
+        // and does not come through here, so building a room whose first
+        // power_levels names the creator does not self-reject.
+        let (creators, room_version) = self.room_creators_and_version(room_id).await?;
+        if room_version
+            .as_deref()
+            .is_some_and(|version| synapse_common::room_versions::room_version_at_least(version, 12))
+        {
+            if let Some(new_users) = new_power_levels_content.get("users").and_then(|u| u.as_object()) {
+                if let Some(creator) = new_users.keys().find(|target| creators.contains(*target)) {
+                    ::tracing::warn!(
+                        target: "security_audit",
+                        event = "power_levels_names_room_creator",
+                        user_id = user_id,
+                        room_id = room_id,
+                        creator = %creator,
+                        "power_levels.users must not name a room creator (MSC4289 rule 10.4)"
+                    );
+                    return Err(ApiError::forbidden(
+                        "power_levels.users must not name a room creator (MSC4289 rule 10.4)".to_string(),
+                    ));
+                }
+            }
+        }
 
         if let Some(current) = current_content {
             if let Some(new_users) = new_power_levels_content.get("users").and_then(|u| u.as_object()) {
@@ -402,20 +473,19 @@ impl AuthService {
             return Err(ApiError::forbidden("Cannot kick users with equal or higher power level".to_string()));
         }
 
-        let room_creator: Option<String> = self.resolve_room_creator(room_id).await?;
-
-        if let Some(creator) = room_creator {
-            if creator == target_user_id {
-                ::tracing::warn!(
-                    target: "security_audit",
-                    event = "attempted_kick_room_creator",
-                    actor_user_id = actor_user_id,
-                    target_user_id = target_user_id,
-                    room_id = room_id,
-                    "User attempted to kick room creator"
-                );
-                return Err(ApiError::forbidden("Cannot kick the room creator".to_string()));
-            }
+        // MSC4289: **every** creator is protected, not just the single "the"
+        // creator — `sender` ∪ `additional_creators` for v12+, and the one
+        // `content.creator` below it.
+        if self.resolve_room_creators(room_id).await?.contains(target_user_id) {
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "attempted_kick_room_creator",
+                actor_user_id = actor_user_id,
+                target_user_id = target_user_id,
+                room_id = room_id,
+                "User attempted to kick room creator"
+            );
+            return Err(ApiError::forbidden("Cannot kick the room creator".to_string()));
         }
 
         Ok(())
@@ -460,20 +530,19 @@ impl AuthService {
             return Err(ApiError::forbidden("Cannot ban users with equal or higher power level".to_string()));
         }
 
-        let room_creator: Option<String> = self.resolve_room_creator(room_id).await?;
-
-        if let Some(creator) = room_creator {
-            if creator == target_user_id {
-                ::tracing::warn!(
-                    target: "security_audit",
-                    event = "attempted_ban_room_creator",
-                    actor_user_id = actor_user_id,
-                    target_user_id = target_user_id,
-                    room_id = room_id,
-                    "User attempted to ban room creator"
-                );
-                return Err(ApiError::forbidden("Cannot ban the room creator".to_string()));
-            }
+        // MSC4289: **every** creator is protected, not just the single "the"
+        // creator — `sender` ∪ `additional_creators` for v12+, and the one
+        // `content.creator` below it.
+        if self.resolve_room_creators(room_id).await?.contains(target_user_id) {
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "attempted_ban_room_creator",
+                actor_user_id = actor_user_id,
+                target_user_id = target_user_id,
+                room_id = room_id,
+                "User attempted to ban room creator"
+            );
+            return Err(ApiError::forbidden("Cannot ban the room creator".to_string()));
         }
 
         Ok(())
@@ -612,6 +681,7 @@ mod tests {
     //! （InMemoryMemberStore / InMemoryEventStore）构造房间状态，断言真实放行/拒绝路径。
 
     use super::super::test_harness::{build_test_auth_service, TestAuthHarness};
+    use super::CREATOR_POWER_LEVEL;
     use synapse_storage::event::RoomEvent;
     use synapse_storage::membership::RoomMember;
 
@@ -968,5 +1038,167 @@ mod tests {
             )])
             .await;
         assert_eq!(h.service.get_required_state_event_power_level(room, "m.room.power_levels").await.unwrap(), 100);
+    }
+
+    // ── E-2 / MSC4289: creators have unlimited power in v12+ ───────────────
+
+    /// A v12 room whose create event names `additional_creators` and whose
+    /// power_levels tries to demote them.
+    async fn v12_harness(create_content: serde_json::Value, pl: serde_json::Value) -> TestAuthHarness {
+        let h = build_test_auth_service();
+        h.member_store
+            .seed_members(vec![member(ROOM, ALICE, "join"), member(ROOM, BOB, "join"), member(ROOM, CAROL, "join")])
+            .await;
+        h.event_store
+            .seed_events(vec![
+                state_event(ROOM, "$create", ALICE, "m.room.create", create_content),
+                state_event(ROOM, "$pl", ALICE, "m.room.power_levels", pl),
+            ])
+            .await;
+        h
+    }
+
+    /// The creator cannot be demoted by a power_levels event: the check runs
+    /// before the event is read, so `users: {ALICE: 0}` has no effect. (Before
+    /// E-2 the PL entry was read first, which is G-32.)
+    #[tokio::test]
+    async fn v12_creator_cannot_be_demoted_by_power_levels() {
+        let mut pl = default_power_levels();
+        pl["users"] = serde_json::json!({ALICE: 0, BOB: 50});
+        let h = v12_harness(serde_json::json!({"creator": ALICE, "room_version": "12"}), pl).await;
+
+        assert_eq!(
+            h.service.get_user_power_level(ROOM, ALICE).await.unwrap(),
+            CREATOR_POWER_LEVEL,
+            "a v12 creator keeps unlimited power even when power_levels names them"
+        );
+        // A non-creator is unaffected.
+        assert_eq!(h.service.get_user_power_level(ROOM, BOB).await.unwrap(), 50);
+    }
+
+    /// MSC4289: every `additional_creators` entry is a creator too.
+    #[tokio::test]
+    async fn v12_additional_creators_are_unlimited_too() {
+        let h = v12_harness(
+            serde_json::json!({"creator": ALICE, "room_version": "12", "additional_creators": [CAROL]}),
+            default_power_levels(),
+        )
+        .await;
+
+        assert_eq!(h.service.get_user_power_level(ROOM, CAROL).await.unwrap(), CREATOR_POWER_LEVEL);
+        assert_eq!(h.service.get_user_power_level(ROOM, ALICE).await.unwrap(), CREATOR_POWER_LEVEL);
+    }
+
+    /// Below v12 there is no unlimited-creator concept: the power_levels event
+    /// wins (the long-standing behaviour must not change).
+    #[tokio::test]
+    async fn pre_v12_creator_is_still_demotable_by_power_levels() {
+        let mut pl = default_power_levels();
+        pl["users"] = serde_json::json!({ALICE: 0, BOB: 50});
+        let h = v12_harness(serde_json::json!({"creator": ALICE, "room_version": "11"}), pl).await;
+
+        assert_eq!(
+            h.service.get_user_power_level(ROOM, ALICE).await.unwrap(),
+            0,
+            "v11 keeps the power_levels entry: no unlimited creator below v12"
+        );
+    }
+
+    /// An unknown room version must not be assumed to be v12+ — granting
+    /// unlimited power there would be a fail-open privilege escalation.
+    #[tokio::test]
+    async fn unknown_room_version_does_not_grant_unlimited_power() {
+        let mut pl = default_power_levels();
+        pl["users"] = serde_json::json!({ALICE: 0, BOB: 50});
+        // No `room_version` key on the create event.
+        let h = v12_harness(serde_json::json!({"creator": ALICE}), pl).await;
+
+        assert_eq!(h.service.get_user_power_level(ROOM, ALICE).await.unwrap(), 0);
+    }
+
+    /// The kick/ban creator protection covers the whole creator set, not just
+    /// the single `content.creator`.
+    #[tokio::test]
+    async fn v12_additional_creator_cannot_be_kicked_or_banned() {
+        let h = v12_harness(
+            serde_json::json!({"creator": ALICE, "room_version": "12", "additional_creators": [CAROL]}),
+            default_power_levels(),
+        )
+        .await;
+
+        assert!(
+            h.service.can_kick_user(ROOM, ALICE, CAROL).await.is_err(),
+            "an additional creator must not be kickable"
+        );
+        assert!(
+            h.service.can_ban_user(ROOM, ALICE, CAROL).await.is_err(),
+            "an additional creator must not be bannable"
+        );
+        // Positive control: BOB is an ordinary member and can be kicked.
+        assert!(h.service.can_kick_user(ROOM, ALICE, BOB).await.is_ok());
+    }
+
+    /// The pure helper exposes the same set the authorisation path uses.
+    #[tokio::test]
+    async fn resolve_room_creators_is_the_sender_union_additional_creators() {
+        let h = v12_harness(
+            serde_json::json!({"creator": ALICE, "room_version": "12", "additional_creators": [CAROL, BOB]}),
+            default_power_levels(),
+        )
+        .await;
+
+        let creators = h.service.resolve_room_creators(ROOM).await.unwrap();
+        assert!(creators.contains(ALICE) && creators.contains(CAROL) && creators.contains(BOB));
+    }
+
+    // ── E-3 / MSC4289 rule 10.4: power_levels.users must not name a creator ──
+
+    /// v12+: naming the creator in `users` is rejected. A creator's power is
+    /// unlimited, so the entry could never be enforced.
+    #[tokio::test]
+    async fn v12_power_levels_naming_the_creator_is_rejected() {
+        let h = v12_harness(serde_json::json!({"creator": ALICE, "room_version": "12"}), default_power_levels()).await;
+        let new = serde_json::json!({"users": {ALICE: 100, BOB: 50}});
+        let err = h.service.verify_power_levels_change(ROOM, ALICE, &new).await.unwrap_err();
+        assert!(err.message().contains("rule 10.4"), "unexpected error: {err:?}");
+    }
+
+    /// v12+: an `additional_creators` entry is a creator too.
+    #[tokio::test]
+    async fn v12_power_levels_naming_an_additional_creator_is_rejected() {
+        let h = v12_harness(
+            serde_json::json!({"creator": ALICE, "room_version": "12", "additional_creators": [CAROL]}),
+            default_power_levels(),
+        )
+        .await;
+        let new = serde_json::json!({"users": {CAROL: 100}});
+        assert!(h.service.verify_power_levels_change(ROOM, ALICE, &new).await.is_err());
+    }
+
+    /// Positive control: a non-creator in `users` is still fine.
+    #[tokio::test]
+    async fn v12_power_levels_naming_a_non_creator_is_allowed() {
+        let h = v12_harness(serde_json::json!({"creator": ALICE, "room_version": "12"}), default_power_levels()).await;
+        let new = serde_json::json!({"users": {BOB: 75}});
+        assert!(h.service.verify_power_levels_change(ROOM, ALICE, &new).await.is_ok());
+    }
+
+    /// Below v12 the creator *should* appear in `users` — that is how the
+    /// creator's power was expressed before MSC4289, so the rule must not apply.
+    #[tokio::test]
+    async fn pre_v12_power_levels_may_name_the_creator() {
+        let h = v12_harness(serde_json::json!({"creator": ALICE, "room_version": "11"}), default_power_levels()).await;
+        let new = serde_json::json!({"users": {ALICE: 100, BOB: 50}});
+        assert!(h.service.verify_power_levels_change(ROOM, ALICE, &new).await.is_ok());
+    }
+
+    /// v12 semantics (both the unlimited creator of E-2 and this restriction)
+    /// apply only when the create event **states** v12+. An unknown version
+    /// keeps the pre-v12 behaviour rather than guessing.
+    #[tokio::test]
+    async fn unknown_version_applies_no_v12_creator_rule() {
+        let h = v12_harness(serde_json::json!({"creator": ALICE}), default_power_levels()).await;
+        let new = serde_json::json!({"users": {ALICE: 100}});
+        assert!(h.service.verify_power_levels_change(ROOM, ALICE, &new).await.is_ok());
     }
 }

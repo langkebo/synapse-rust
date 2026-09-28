@@ -160,6 +160,35 @@ pub fn is_well_formed_room_id(room_id: &str) -> bool {
     parse_room_id(room_id).is_ok()
 }
 
+/// Derives the room ID of a room v12+ (MSC4291) room from its create event's ID.
+///
+/// MSC4291: *"The room ID is the event ID of the `m.room.create` event, with the
+/// `$` sigil replaced by `!`."* The create event ID is a v3+ reference hash
+/// (`$` + 43 unpadded URL-safe Base64 characters), so the room ID is the same
+/// string with the other sigil — no server part, which is why
+/// [`RoomIdForm::Domainless`] exists at all.
+///
+/// Errors when `create_event_id` cannot be such a hash: a missing sigil, the
+/// wrong length (a legacy `$<millis>$<rand>:<server>` id), or a character
+/// outside the unpadded Base64 alphabet. Failing closed here matters because the
+/// result becomes a room's primary key: a silently-accepted malformed id would
+/// persist a room no peer can derive.
+///
+/// This is the inverse of the create-side derivation and the **only** such
+/// helper (iron rule 2); `parse_room_id` remains the only parser.
+pub fn room_id_from_create_event_id(create_event_id: &str) -> Result<String, RoomIdSyntaxError> {
+    let Some(hash) = create_event_id.strip_prefix('$') else {
+        return Err(RoomIdSyntaxError::MissingSigil);
+    };
+    // Reuse the room-id grammar itself: `!<hash>` must be a well-formed
+    // domainless room id, which is exactly "43 URL-safe Base64 characters".
+    let candidate = format!("!{hash}");
+    if !is_domainless_room_id(&candidate) {
+        return Err(RoomIdSyntaxError::DomainlessMalformed);
+    }
+    Ok(candidate)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -86,7 +86,20 @@ pub fn build_pdu(parts: &PduParts<'_>) -> Value {
         }
     }
 
-    pdu.insert("room_id".to_string(), Value::String(parts.room_id.to_string()));
+    // MSC4291 (room v12+): the `m.room.create` event carries **no** `room_id` —
+    // it is derived from the event's own id (`$` swapped for `!`). Emitting it
+    // here would be circular *and* self-defeating: the content hash covers the
+    // whole PDU, `hashes` stays in the redacted event, and the reference hash is
+    // taken over that — so a `room_id` in the PDU would leak into the event id
+    // through `hashes`, and the room id could never be derived from an id that
+    // already depends on it. On the wire the field is absent; non-federation
+    // APIs re-introduce it from the id (same treatment as `event_id`, which is
+    // absent on the federation wire for v3+).
+    let omits_room_id =
+        parts.event_type == "m.room.create" && crate::room_versions::room_version_at_least(parts.room_version, 12);
+    if !omits_room_id {
+        pdu.insert("room_id".to_string(), Value::String(parts.room_id.to_string()));
+    }
     pdu.insert("sender".to_string(), Value::String(parts.sender.to_string()));
     pdu.insert("type".to_string(), Value::String(parts.event_type.to_string()));
     pdu.insert("content".to_string(), parts.content.clone());
@@ -206,5 +219,46 @@ mod tests {
         state.state_key = Some("");
         let pdu = build_pdu(&state);
         assert_eq!(pdu["state_key"], json!(""));
+    }
+
+    // ── D-6 / MSC4291: the v12+ create PDU carries no room_id ──────────────
+
+    /// The v12 create event must **omit** `room_id`: it is derived from the
+    /// event's own id, and `hashes` (which stays in the redacted event) covers
+    /// the whole PDU, so an emitted `room_id` would leak into the reference hash
+    /// through the content hash — making the derivation circular. Every other
+    /// version, and every other event type, keeps the field.
+    ///
+    /// The "identity must not depend on room_id" half lives in
+    /// `synapse-federation::event_finalize`, which owns the finalize path
+    /// (synapse-common cannot depend on it).
+    #[test]
+    fn v12_create_pdu_omits_room_id_and_nothing_else_does() {
+        let create_content = json!({"creator": "@u:example.com", "room_version": "12"});
+        let message_content = json!({"body": "hi"});
+
+        let mut v12_create = parts("12", None, &create_content);
+        v12_create.event_type = "m.room.create";
+        v12_create.state_key = Some("");
+        let pdu = build_pdu(&v12_create);
+        assert!(pdu.get("room_id").is_none(), "v12 create must not carry room_id: {pdu}");
+        assert_eq!(pdu["type"], json!("m.room.create"));
+
+        // v11 create keeps it.
+        let mut v11_create = parts("11", None, &create_content);
+        v11_create.event_type = "m.room.create";
+        v11_create.state_key = Some("");
+        assert_eq!(build_pdu(&v11_create)["room_id"], json!("!r:example.com"));
+
+        // v12 non-create keeps it.
+        let mut v12_message = parts("12", None, &message_content);
+        v12_message.event_type = "m.room.message";
+        assert_eq!(build_pdu(&v12_message)["room_id"], json!("!r:example.com"));
+
+        // v13 is "12 and later" for this rule even though it is parse-only.
+        let mut v13_create = parts("13", None, &create_content);
+        v13_create.event_type = "m.room.create";
+        v13_create.state_key = Some("");
+        assert!(build_pdu(&v13_create).get("room_id").is_none(), "v13 follows the 12+ rule");
     }
 }

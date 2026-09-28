@@ -1,5 +1,8 @@
 # v12 PDU Graph Fields Integration (O-1 Phase 1)
 
+> **状态（2026-09-28）**：本文诚实记录了 v12 路径当时"未验签"，与更早的"差距：无"表述冲突；
+> 现状见 `docs/audit/ROOM_V12_PLAN_STATUS_2026-09-27.md`（MSC4291 创建/入站/升级、MSC4289、MSC4307 已落地，仅 MSC4297 未落）。
+
 ## Overview
 
 This document records the integration of `depth` calculation and `auth_events` construction into the message creation pipeline for v12+ rooms.

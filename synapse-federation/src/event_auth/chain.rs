@@ -192,6 +192,141 @@ impl EventAuthChain {
     pub fn get_mainline_depth(&self, mainline: &[String], event_id: &str) -> Option<usize> {
         mainline.iter().position(|e| e == event_id)
     }
+
+    /// The **mainline depth** of `event_id`: the position, in `mainline`, of the
+    /// **latest** mainline event reachable from it along `auth_events`.
+    ///
+    /// Spec (state resolution, "Definitions"): mainline ordering sorts by "the
+    /// closest mainline event in the event's auth chain". "Closest" is the one
+    /// with the greatest depth, so this walks the whole auth chain and takes the
+    /// maximum. Events with no mainline ancestor report `0`, which sorts before
+    /// the create event's own depth (`1`) — the same convention the spec uses.
+    pub fn mainline_depth_of(&self, events: &HashMap<String, EventData>, mainline: &[String], event_id: &str) -> usize {
+        let positions: HashMap<&str, usize> = mainline.iter().enumerate().map(|(i, eid)| (eid.as_str(), i)).collect();
+
+        let mut best = 0usize;
+        let mut visited: HashSet<String> = HashSet::new();
+        let mut stack: Vec<String> = vec![event_id.to_string()];
+
+        while let Some(current) = stack.pop() {
+            if !visited.insert(current.clone()) {
+                continue;
+            }
+            if let Some(position) = positions.get(current.as_str()) {
+                best = best.max(position + 1);
+            }
+            if let Some(event) = events.get(&current) {
+                for auth in &event.auth_events {
+                    stack.push(auth.clone());
+                }
+            }
+        }
+
+        best
+    }
+
+    /// **Mainline ordering** (state resolution v2, also used by v2.1): order by
+    /// mainline depth, then `origin_server_ts`, then `event_id` — each ascending.
+    pub fn mainline_ordering(
+        &self,
+        events: &HashMap<String, EventData>,
+        event_ids: &[String],
+        mainline: &[String],
+    ) -> Vec<String> {
+        let depth_of = |eid: &String| self.mainline_depth_of(events, mainline, eid);
+        let mut ordered = event_ids.to_vec();
+        ordered.sort_by(|a, b| {
+            depth_of(a).cmp(&depth_of(b)).then_with(|| ts_of(events, a).cmp(&ts_of(events, b))).then_with(|| a.cmp(b))
+        });
+        ordered
+    }
+
+    /// **Reverse topological power ordering** (state resolution v2, also used by
+    /// v2.1): the lexicographically smallest topological ordering of `event_ids`
+    /// over the DAG formed by their `auth_events`, with ties broken by the
+    /// sender's power level (higher first), then `origin_server_ts` (earlier
+    /// first), then `event_id` (smaller first).
+    ///
+    /// Implemented as Kahn's algorithm: repeatedly take the smallest ready node by
+    /// that comparator. `power_of` is injected because a sender's power level is
+    /// resolved from the room state, not carried on the event.
+    pub fn reverse_topological_power_ordering<P>(
+        &self,
+        events: &HashMap<String, EventData>,
+        event_ids: &[String],
+        power_of: P,
+    ) -> Vec<String>
+    where
+        P: Fn(&EventData) -> i64,
+    {
+        let in_set: HashSet<&str> = event_ids.iter().map(String::as_str).collect();
+
+        // Edges restricted to `event_ids`: an auth event *within the set* must be
+        // ordered before the event that references it.
+        let mut indegree: HashMap<&str, usize> = event_ids.iter().map(|eid| (eid.as_str(), 0)).collect();
+        let mut dependents: HashMap<&str, Vec<&str>> = HashMap::new();
+        for eid in event_ids {
+            if let Some(event) = events.get(eid) {
+                for auth in &event.auth_events {
+                    if in_set.contains(auth.as_str()) {
+                        *indegree.entry(eid.as_str()).or_insert(0) += 1;
+                        dependents.entry(auth.as_str()).or_default().push(eid.as_str());
+                    }
+                }
+            }
+        }
+
+        let comparator = |a: &str, b: &str| -> std::cmp::Ordering {
+            let power_a = events.get(a).map(&power_of).unwrap_or(0);
+            let power_b = events.get(b).map(&power_of).unwrap_or(0);
+            power_b
+                .cmp(&power_a)
+                .then_with(|| {
+                    let ts_a = events.get(a).map(|e| e.origin_server_ts).unwrap_or(0);
+                    let ts_b = events.get(b).map(|e| e.origin_server_ts).unwrap_or(0);
+                    ts_a.cmp(&ts_b)
+                })
+                .then_with(|| a.cmp(b))
+        };
+
+        let mut ready: Vec<&str> =
+            event_ids.iter().map(String::as_str).filter(|eid| indegree.get(eid).copied().unwrap_or(0) == 0).collect();
+        let mut ordered: Vec<String> = Vec::with_capacity(event_ids.len());
+        let mut emitted: HashSet<&str> = HashSet::new();
+
+        while !ready.is_empty() {
+            ready.sort_by(|a, b| comparator(a, b));
+            let next = ready.remove(0);
+            if !emitted.insert(next) {
+                continue;
+            }
+            ordered.push(next.to_string());
+            if let Some(children) = dependents.get(next) {
+                for child in children {
+                    if let Some(degree) = indegree.get_mut(child) {
+                        *degree = degree.saturating_sub(1);
+                        if *degree == 0 && !emitted.contains(child) {
+                            ready.push(child);
+                        }
+                    }
+                }
+            }
+        }
+
+        // An auth cycle would leave nodes unordered; append them deterministically
+        // rather than dropping them (the auth graph is acyclic by construction, so
+        // this is a safety net).
+        let mut rest: Vec<&str> = event_ids.iter().map(String::as_str).filter(|e| !emitted.contains(e)).collect();
+        rest.sort_by(|a, b| comparator(a, b));
+        ordered.extend(rest.into_iter().map(str::to_string));
+
+        ordered
+    }
+}
+
+/// `origin_server_ts` of `event_id`, or `0` when unknown.
+fn ts_of(events: &HashMap<String, EventData>, event_id: &String) -> i64 {
+    events.get(event_id).map(|event| event.origin_server_ts).unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -395,5 +530,93 @@ mod tests {
             make_event_data("$msg", "!r:ex.com", "m.room.message", vec!["$create", "$pl", "$member"], "@a:ex.com", 4),
         );
         assert!(chain.verify_auth_chain(&events, "!r:ex.com", &["$create".into(), "$pl".into(), "$member".into()]));
+    }
+
+    // ── reverse topological power ordering ────────────────────────────────
+
+    #[test]
+    fn reverse_topological_power_ordering_respects_auth_edges() {
+        let chain = EventAuthChain::new();
+        // `$b_promoted` is authorised by `$a_promotes_b`, so it must be ordered
+        // after it even though it has the later timestamp and higher sender power.
+        let events: HashMap<String, EventData> = vec![
+            make_event_data("$a_promotes_b", "!r:e", "m.room.power_levels", vec![], "@a:e", 100),
+            make_event_data("$b_promoted", "!r:e", "m.room.member", vec!["$a_promotes_b"], "@b:e", 200),
+            make_event_data("$b_promotes_c", "!r:e", "m.room.power_levels", vec!["$b_promoted"], "@b:e", 300),
+        ]
+        .into_iter()
+        .map(|e| (e.event_id.clone(), e))
+        .collect();
+
+        let ids: Vec<String> = events.keys().cloned().collect();
+        let ordered = chain.reverse_topological_power_ordering(&events, &ids, |e| {
+            // b outranks a, so power alone would put b's events first.
+            if e.sender == "@b:e" {
+                100
+            } else {
+                50
+            }
+        });
+
+        let pos = |id: &str| ordered.iter().position(|e| e == id).unwrap_or(usize::MAX);
+        assert!(pos("$a_promotes_b") < pos("$b_promoted"), "auth edge must be respected: {ordered:?}");
+        assert!(pos("$b_promoted") < pos("$b_promotes_c"), "auth edge must be respected: {ordered:?}");
+    }
+
+    #[test]
+    fn reverse_topological_power_ordering_breaks_ties_by_power_then_ts_then_id() {
+        let chain = EventAuthChain::new();
+        let mut events: HashMap<String, EventData> = vec![
+            make_event_data("$low_power", "!r:e", "m.room.member", vec![], "@low:e", 1),
+            make_event_data("$high_power", "!r:e", "m.room.member", vec![], "@high:e", 2),
+            make_event_data("$b_ts", "!r:e", "m.room.member", vec![], "@low:e", 3),
+        ]
+        .into_iter()
+        .map(|e| (e.event_id.clone(), e))
+        .collect();
+        // `$a_ts` matches `$b_ts` on power and timestamp, so event id decides.
+        events.insert("$a_ts".to_string(), make_event_data("$a_ts", "!r:e", "m.room.member", vec![], "@low:e", 3));
+
+        let ids: Vec<String> = events.keys().cloned().collect();
+        let ordered =
+            chain.reverse_topological_power_ordering(&events, &ids, |e| if e.sender == "@high:e" { 100 } else { 0 });
+
+        assert_eq!(ordered[0], "$high_power", "higher sender power first: {ordered:?}");
+        let pos = |id: &str| ordered.iter().position(|e| e == id).unwrap_or(usize::MAX);
+        assert!(pos("$low_power") < pos("$a_ts"), "earlier timestamp breaks the next tie: {ordered:?}");
+        assert!(pos("$a_ts") < pos("$b_ts"), "event id breaks the final tie: {ordered:?}");
+    }
+
+    // ── mainline ordering ────────────────────────────────────────────────
+
+    #[test]
+    fn mainline_ordering_uses_the_closest_mainline_ancestor() {
+        let chain = EventAuthChain::new();
+        // Mainline: $create -> $pl1 -> $pl2.
+        // `$deep` reaches $pl2 (depth 3), `$shallow` only $pl1 (depth 2), and
+        // `$none` has no mainline ancestor (depth 0, so it sorts first).
+        let events: HashMap<String, EventData> = vec![
+            make_event_data("$create", "!r:e", "m.room.create", vec![], "@a:e", 1),
+            make_event_data("$pl1", "!r:e", "m.room.power_levels", vec!["$create"], "@a:e", 2),
+            make_event_data("$pl2", "!r:e", "m.room.power_levels", vec!["$pl1"], "@a:e", 3),
+            make_event_data("$deep", "!r:e", "m.room.name", vec!["$pl2"], "@a:e", 4),
+            make_event_data("$shallow", "!r:e", "m.room.name", vec!["$pl1"], "@a:e", 5),
+            make_event_data("$none", "!r:e", "m.room.name", vec![], "@a:e", 6),
+        ]
+        .into_iter()
+        .map(|e| (e.event_id.clone(), e))
+        .collect();
+
+        let mainline = vec!["$create".to_string(), "$pl1".to_string(), "$pl2".to_string()];
+        let ids: Vec<String> = events.keys().cloned().collect();
+        let ordered = chain.mainline_ordering(&events, &ids, &mainline);
+
+        let pos = |id: &str| ordered.iter().position(|e| e == id).unwrap_or(usize::MAX);
+        assert!(pos("$none") < pos("$shallow"), "no mainline ancestor sorts first: {ordered:?}");
+        assert!(pos("$shallow") < pos("$deep"), "the closest (deepest) mainline ancestor sorts later: {ordered:?}");
+
+        assert_eq!(chain.mainline_depth_of(&events, &mainline, "$none"), 0);
+        assert_eq!(chain.mainline_depth_of(&events, &mainline, "$shallow"), 2);
+        assert_eq!(chain.mainline_depth_of(&events, &mainline, "$deep"), 3);
     }
 }
