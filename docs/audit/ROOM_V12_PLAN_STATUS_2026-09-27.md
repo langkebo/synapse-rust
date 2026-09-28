@@ -34,14 +34,14 @@
 | **E-2** | 创建者集合 + 无限 PL（G-32/33/35） | ✅ **完成**（`6f0c1735a`） | `room_creators_and_version` 一次读 create 事件返回（集合, 版本）；`resolve_room_creators`；v12+ 创建者返回 `CREATOR_POWER_LEVEL = i64::MAX` 且**排在读 PL 之前**（不可降权）；踢/封保护改用集合；版本未知时 fail-closed 不授予无限 |
 | **E-3** | 规则 10.4：PL 的 `users` 不得含创建者 | ✅ **完成**（`6f0c1735a` + `fcc57e0f2` + 接线修复 `ab59f4286`） | 客户端 `verify_power_levels_change` 拒绝；**修复**：规范路径是 `PUT /state/m.room.power_levels`（`ensure_room_state_write_access`），原先只接了非规范的 `/send` 路径 ⇒ 规则实际未生效，现已接上（同时补上原本缺失的升降权/同级检查）；入站经 B-1 接缝，读创建者失败 **fail-closed** |
 | **F-1** | 状态决议接线决策（G-38 零调用者） | ✅ **已决策**（A-2 改选 **(ii)**） | 裁定：v2.1 **实现在 `resolve_state_v2`**（计划原文落点），并查清/接线冲突状态路径。**查清已完成**（§4.6）：本仓无状态决议路径 —— `create_state_group` 零生产调用者，当前 state 是 `DISTINCT ON … origin_server_ts DESC` 的**纯时间戳 LWW** |
-| **F-2** | v2.1 三处修改 | ❌ **未做** | `grep "conflicted state subgraph"` / `"iterative auth"` 在 src **0** 命中 |
+| **F-2** | v2.1 三处修改 | 🟡 **部分完成**（`a5d32166c`，按 (A) 真做） | ✅ Modification 2（conflicted state subgraph）+ 3（full conflicted set）+ auth difference 定义修正；❌ Modification 1（iterative auth checks from empty state map）—— 需先立鉴权接缝（本仓无 state-resolution 用的 auth-rules 引擎）；重组与 F-3 见 §4.8 |
 | **F-3** | v1–v11 兼容边界 | ❌ **未做** | 依赖 F-2 |
 | **G-1** | 能力表收敛：仅 v12 可创建 | ✅ **完成**（`7489b247f`） | 新增 `RoomVersionCapability::stable_no_create`：v1–v11 可 join/parse/federate、不可创建；`resolve_room_version` 对 v1–v11 返回 `None`；`/capabilities.available` 仅 `"12"`（快照已审阅更新）；联邦 join 走存储层 `room_storage.create_room`，**不受影响** |
 | **G-2** | 连带面清单（含联邦 `m.room_versions` 补测） | ✅ **完成**（`8687d8335`） | 补测后暴露**真实协议缺口**：联邦 `m.room_versions` 发的是扁平 `{version:{"status":…}}` + 手工插入 `default`，**不符规范形状** `{default, available:{v:status}}`；已修正，且 `available` 由 `can_federate` 派生（v1–v11 可联邦但不可创建，故与客户端集合**刻意不同**）；新增 `GET /_matrix/federation/v1` 用例（此前零覆盖） |
 | **H-1** | 逐份更正文档（含额外 6 份） | ✅ **完成**（`72072e175`） | 10 份文档标题下加状态行（U-22、❌7、AUDIT_SUMMARY、DB_REVIEW、O1_PHASE1、PROJECT_REMAINING、P2_protocol_contract、synapse‑vs‑synapse comparison、API_COVERAGE、v12‑pdu‑graph‑fields），统一指向本文为唯一现状来源；判据 `grep MSC4239 + v12` 不再把 MSC4239 当 v12 定义（余下命中是本计划的纠错说明与该文件自我更正）；新增行无 markdownlint 违规 |
 | **H-2** | Q1–Q7 结论落档 | ✅ **完成**（`c56d9d161`） | 本文 §3/§5 记录 Q1–Q8 结论**及其落点**（代码/提交/doc）；README 文档索引新增房间 v12 计划与状态条目（此前 `docs/audit` 零索引 ⇒ 不可发现） |
 
-**计数（D-2/D-5 后）**：✅ 完成 21（A-1、A-2、B-1、B-2、C-1、C-2、C-3、C-4、C-5、D-1、D-2、D-4、D-5、D-6、E-1、E-2、E-3、G-1、G-2、H-1、H-2）｜🟡 部分 1（D-3）｜❌ 未做 2（F-2、F-3）。
+**计数（F-2 首片后）**：✅ 完成 21（A-1、A-2、B-1、B-2、C-1、C-2、C-3、C-4、C-5、D-1、D-2、D-4、D-5、D-6、E-1、E-2、E-3、G-1、G-2、H-1、H-2）｜🟡 部分 2（D-3、**F-2**）｜❌ 未做 1（F-3）。
 
 > **D-2/D-5 完成（2026-09-28）**：`c073c9625`（规则 2）、`e933e362c`（auth chain 不含 create）。
 > **仅剩 F-2/F-3**（MSC4297）：落点 `resolve_state_v2` 已定，但 §4.6 已证明本仓**没有**状态决议路径，
@@ -369,3 +369,28 @@ A-2 的 **Q6(b)** 裁定："不接线，按铁律 1 删除死实现，只在 `re
 - **(B) 按铁律 1 收敛**：F-1 的查清已证明本仓**没有**状态决议路径，`resolve_state_v2` 零调用者且是近似品 ⇒ 删除它，
   并把"MSC4297 未实现"如实写入 v12 能力声明（AGENTS「协议声明纪律」要求 capability 与行为一致）。
   代价：本轮 goal 的 F-2/F-3 以"**不适用**（本仓无状态决议路径）"结案，而不是"实现了 v2.1"。
+
+---
+
+## 4.8 F-2 进展（2026-09-28，按任务方选 (A) 真做）
+
+任务方选择 **(A) 从零实现忠实的 v2 + v2.1**。已落地**第一个可独立验证的切片**
+（`a5d32166c`）：**v2.1 的集合选择半边**。
+
+| v2.1 项 | 状态 | 证据 |
+|---|---|---|
+| **Modification 2** conflicted state subgraph | ✅ 实现（按 MSC 字面：从每个 conflicted 事件沿 `auth_events` 走链、携路径，落到 conflicted 事件时整条路径入集，含端点） | `conflicted_state_subgraph`；2 用例（含"中间的未冲突事件必须入集""单个 conflicted 事件时子图即自身"） |
+| **Modification 3** full conflicted set = conflicted ∪ subgraph ∪ auth difference | ✅ 实现（并**驱动** `resolve_state_v2`：先算每个 state set 的 full auth chain → auth difference → full conflicted set，再排序） | `full_conflicted_set`；1 用例 |
+| auth difference 定义修正 | ✅ 按规范 `∪C_i − ∩C_i`；**删除**旧实现多插的"differing 事件的 `auth_events`"（那只会加回两链共有的项，使差集偏大） | 1 用例 + 变异自证（恢复旧行为即红） |
+| **Modification 1** iterative auth checks 从**空 state map** 开始 | ❌ 未做 —— **本仓没有 iterative auth checks**，需先立"事件鉴权"接缝（state resolution 要能判断"该事件在当前 state 下是否被授权"） | §4.7 |
+
+**变异自证**（铁律 8）：子图项退回 v2（不加子图）⇒ 2 红；auth difference 恢复旧写法 ⇒ 1 红；均复原后 27/27。
+`synapse-federation --lib` 240/240；fmt 0/0；clippy（all-targets/all-features `-D warnings`）EXIT=0。
+
+### 剩余（F-2 收尾 + F-3）
+
+1. **鉴权接缝**：为 state resolution 提供 `is_authorised(event, state) -> bool`（本仓无规范 auth-rules 引擎；`event_auth::rules` 是为**入站单事件**设计的，不接 state map）。
+2. **Modification 1**：iterative auth checks 以空 state map 起步（v2 从 unconflicted 起步）；其"所需键不在 state 时改用该事件 `auth_events` 中的对应状态事件"规则由接缝承担。
+3. **重组 `resolve_state_v2`**：mainline ordering + reverse topological power ordering + 上述 iterative checks；当前实现仍是"每键按 (power, ts, mainline 序, event id) 取第一个"，非忠实 v2。
+4. **F-3**：按版本分派（v2.1 仅 v12+），并为 v1–v11 保留 v2 回归向量。
+5. ⚠️ **接线仍未决**（§4.6）：`resolve_state_v2` 零调用者，故以上全部仍无端到端证据。
