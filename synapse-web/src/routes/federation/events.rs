@@ -20,8 +20,9 @@ pub(super) async fn get_room_auth(
 
     let auth_events = ctx.room_service.messaging().get_state_event_records(&room_id).await.map_err(ApiError::from)?;
 
+    let room_version = super::pdu::room_version_from_state(&auth_events);
     let auth_chain_records: Vec<&synapse_services::event::StateEvent> =
-        auth_events.iter().filter(|record| super::pdu::is_auth_chain_member(record)).collect();
+        auth_events.iter().filter(|record| super::pdu::is_auth_chain_member(record, &room_version)).collect();
     let auth_chain = super::pdu::build_pdus(&ctx, &auth_chain_records).await;
 
     Ok(Json(json!({

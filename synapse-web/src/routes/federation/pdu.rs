@@ -136,19 +136,52 @@ pub fn state_pdu(server_name: &str, record: &StateEvent, room_version: Option<&s
 /// Membership rule for the **auth chain** lists that the federation membership
 /// and room-auth routes emit.
 ///
-/// This is the five-type rule those routes already used before this module
-/// existed, kept verbatim: changing *which* events belong in an auth chain is a
-/// separate spec question (the real definition is the transitive closure of the
-/// state events' `auth_events`, not a type list) and is out of scope here.
-pub fn is_auth_chain_member(record: &StateEvent) -> bool {
+/// This is the five-type rule those routes already used, now **version-aware**
+/// for the one type whose membership changed (D-5).
+///
+/// The spec defines an event's auth chain as the transitive closure of its
+/// `auth_events`. A type list is an approximation of that closure, and under
+/// room v12 it stops being a good one for `m.room.create`: D-4 removed the create
+/// event from every v12 event's `auth_events` (the room id *is* the create event's
+/// id, so the reference is implied), so the closure of any v12 event can never
+/// reach `m.room.create`. Listing it there would emit an auth chain the peer
+/// cannot derive from the events it holds. Below v12 the create event is still
+/// referenced, so it stays.
+///
+/// The remaining four types are unchanged for every version.
+pub fn is_auth_chain_member(record: &StateEvent, room_version: &str) -> bool {
+    let event_type = record.event_type.as_deref();
+
+    if event_type == Some("m.room.create") {
+        // v12+ never references the create event (D-4), so it is not in the
+        // auth chain; v1-v11 do, so it is.
+        return !synapse_common::room_versions::room_version_at_least(room_version, 12);
+    }
+
     matches!(
-        record.event_type.as_deref(),
-        Some("m.room.create")
-            | Some("m.room.member")
+        event_type,
+        Some("m.room.member")
             | Some("m.room.power_levels")
             | Some("m.room.join_rules")
             | Some("m.room.history_visibility")
     )
+}
+
+/// The room version declared by the room's `m.room.create` state event.
+///
+/// Every auth-chain caller already holds the room's state records (they are what
+/// it filters), so the version is read from them rather than with a second query.
+/// Falls back to [`synapse_common::room_versions::DEFAULT_ROOM_VERSION`] when the
+/// create event is absent or carries no version — the same fallback every other
+/// version resolver in this repository uses.
+pub fn room_version_from_state(records: &[StateEvent]) -> String {
+    records
+        .iter()
+        .find(|record| record.event_type.as_deref() == Some("m.room.create"))
+        .and_then(|record| record.content.get("room_version"))
+        .and_then(|value| value.as_str())
+        .unwrap_or(synapse_common::room_versions::DEFAULT_ROOM_VERSION)
+        .to_string()
 }
 
 /// The ruled decision table for a projected PDU's hash/signature pair.

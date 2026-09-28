@@ -194,9 +194,10 @@ pub(crate) async fn send_join(
         // 直接传进去会让 axum handler 的 future 不再 `Send`、也不再对生命周期泛化
         // （表现为路由处一堆 `FnOnce is not general enough`）。
         let all_records: Vec<&synapse_services::event::StateEvent> = state_records.iter().collect();
+        let room_version = crate::routes::federation::pdu::room_version_from_state(&state_records);
         let auth_chain_records: Vec<&synapse_services::event::StateEvent> = state_records
             .iter()
-            .filter(|record| crate::routes::federation::pdu::is_auth_chain_member(record))
+            .filter(|record| crate::routes::federation::pdu::is_auth_chain_member(record, &room_version))
             .collect();
 
         let state = crate::routes::federation::pdu::build_pdus(&ctx, &all_records).await;
@@ -327,9 +328,10 @@ pub(crate) async fn send_join_v2(
         // 直接传进去会让 axum handler 的 future 不再 `Send`、也不再对生命周期泛化
         // （表现为路由处一堆 `FnOnce is not general enough`）。
         let all_records: Vec<&synapse_services::event::StateEvent> = state_records.iter().collect();
+        let room_version = crate::routes::federation::pdu::room_version_from_state(&state_records);
         let auth_chain_records: Vec<&synapse_services::event::StateEvent> = state_records
             .iter()
-            .filter(|record| crate::routes::federation::pdu::is_auth_chain_member(record))
+            .filter(|record| crate::routes::federation::pdu::is_auth_chain_member(record, &room_version))
             .collect();
 
         let state = crate::routes::federation::pdu::build_pdus(&ctx, &all_records).await;
