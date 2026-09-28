@@ -382,7 +382,7 @@ A-2 的 **Q6(b)** 裁定："不接线，按铁律 1 删除死实现，只在 `re
 | **Modification 2** conflicted state subgraph | ✅ 实现（按 MSC 字面：从每个 conflicted 事件沿 `auth_events` 走链、携路径，落到 conflicted 事件时整条路径入集，含端点） | `conflicted_state_subgraph`；2 用例（含"中间的未冲突事件必须入集""单个 conflicted 事件时子图即自身"） |
 | **Modification 3** full conflicted set = conflicted ∪ subgraph ∪ auth difference | ✅ 实现（并**驱动** `resolve_state_v2`：先算每个 state set 的 full auth chain → auth difference → full conflicted set，再排序） | `full_conflicted_set`；1 用例 |
 | auth difference 定义修正 | ✅ 按规范 `∪C_i − ∩C_i`；**删除**旧实现多插的"differing 事件的 `auth_events`"（那只会加回两链共有的项，使差集偏大） | 1 用例 + 变异自证（恢复旧行为即红） |
-| **Modification 1** iterative auth checks 从**空 state map** 开始 | ❌ 未做 —— **本仓没有 iterative auth checks**，需先立"事件鉴权"接缝（state resolution 要能判断"该事件在当前 state 下是否被授权"） | §4.7 |
+| **Modification 1** iterative auth checks 从**空 state map** 开始 | 🟡 **机制已做**（`45d48b69b`）：`iterative_auth_checks` 实现重放机制（含"缺失键从事件自身 `auth_events` 传递性回填、被拒事件不得回填"），**起始 state map 作为参数** ⇒ v2/v2.1 的差异成为调用方决策（F-3 的分派点）；MSC 的 **Problem A** 形态已有用例断言两种起始 map 的不同结果。<br>❌ 仍缺：解析器尚未围绕该重放重组（排序 + `_check_event_auth` 真实实现） | §4.7/§4.8 |
 
 **变异自证**（铁律 8）：子图项退回 v2（不加子图）⇒ 2 红；auth difference 恢复旧写法 ⇒ 1 红；均复原后 27/27。
 `synapse-federation --lib` 240/240；fmt 0/0；clippy（all-targets/all-features `-D warnings`）EXIT=0。
@@ -394,3 +394,12 @@ A-2 的 **Q6(b)** 裁定："不接线，按铁律 1 删除死实现，只在 `re
 3. **重组 `resolve_state_v2`**：mainline ordering + reverse topological power ordering + 上述 iterative checks；当前实现仍是"每键按 (power, ts, mainline 序, event id) 取第一个"，非忠实 v2。
 4. **F-3**：按版本分派（v2.1 仅 v12+），并为 v1–v11 保留 v2 回归向量。
 5. ⚠️ **接线仍未决**（§4.6）：`resolve_state_v2` 零调用者，故以上全部仍无端到端证据。
+
+### 4.8.1 第二片（`45d48b69b`）
+
+`iterative_auth_checks` 已实现，鉴权谓词（规范里的 `_check_event_auth`）作为**参数注入**（本仓无面向 state map 的
+auth-rules 引擎，避免复制一套规则）。4 个新用例 + 变异自证（清空回填栈 ⇒ 3 红）。`synapse-federation --lib` 244/244。
+
+**F-2 剩余**：① 真实 `_check_event_auth`（或把 `event_auth::rules` 扩展成可对 state map 判定）；
+② 重组 `resolve_state_v2`：mainline ordering + reverse topological power ordering + 用 full conflicted set 调
+`iterative_auth_checks`（v2.1 传空起始 map）；③ **F-3** 版本分派 + v1–v11 的 v2 回归向量。
