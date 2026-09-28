@@ -61,6 +61,11 @@ const COMMON_LIB: &str = "synapse-common/src/lib.rs";
 /// each of them.
 const E2EE: &[&str] = &["synapse-e2ee/src/backup/storage.rs", "synapse-e2ee/src/olm/storage.rs"];
 
+/// D-79（2026-09-26）：`synapse-federation` 补上了自己的 per-test schema 适配器，于是它
+/// 也持有一份 `BASELINE_SQL` 副本 —— 「每个副本都要被扫到」正是本守卫自己的要求，
+/// 因此把它一并列进来（漏列就等于让第 4 份副本可以悄悄漂移）。
+const FEDERATION: &[&str] = &["synapse-federation/src/test_isolation.rs"];
+
 /// The baseline migration, compiled in. Guard 5 hashes it to pin the template
 /// the database already holds.
 ///
@@ -934,7 +939,7 @@ fn baseline_fingerprint_is_the_single_v12_source() {
          or a SECOND template is minted"
     );
 
-    for path in [STORAGE, SERVICES].into_iter().chain(E2EE.iter().copied()) {
+    for path in [STORAGE, SERVICES].into_iter().chain(E2EE.iter().copied()).chain(FEDERATION.iter().copied()) {
         let baseline = fixture_baseline_sql(path);
         assert_eq!(
             fingerprint_hex(&baseline),

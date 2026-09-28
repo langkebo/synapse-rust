@@ -1156,3 +1156,102 @@ mod tests {
         assert!(test_manager().verify_signature("not-base64!!", "AA", b"x").is_err());
     }
 }
+
+/// D-79：真 per-test schema 上的 DB 往返，专门覆盖**自愈分支**。
+///
+/// `ensure_signing_keys_table` / `ensure_key_rotation_config_table` 的存在性探测与条件
+/// `CREATE`（C43 转换的 8 处里有 7 处）在**共享 `public`** 上永远走不到：表本来就在。
+/// 集成用例原名 `test_load_or_create_key_recovers_missing_signing_key_table` 承诺了
+/// "缺失后恢复"，但它的测试体只跑普通路径（也正因为共享 schema 上不能删表）；该用例已按
+/// D-79 改名为 `test_load_or_create_key_persists_a_signing_key`，恢复场景由本模块覆盖。
+/// 这里用隔离 schema 把那个场景**真正构造出来**：先 `DROP TABLE`，再调用自愈入口，
+/// 断言表与两条索引都被重建、数据可读。
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+
+    /// 隔离 schema 上的 pool（schema 随 guard 一起 drop）。
+    ///
+    /// 表是否存在一律锚定 `current_schema()`（R9）：`to_regclass` 在 `search_path` 含
+    /// `public` 时会回退到共享 schema，从而把"已删掉"误判成"还在"。
+    async fn table_exists(pool: &Pool<Postgres>, table: &str) -> bool {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM information_schema.tables
+             WHERE table_schema = current_schema() AND table_name = $1",
+        )
+        .bind(table)
+        .fetch_one(pool)
+        .await
+        .expect("information_schema query");
+        count > 0
+    }
+
+    #[tokio::test]
+    async fn load_or_create_key_recreates_a_dropped_signing_keys_table() {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+
+        // 构造"表缺失"场景 —— 这正是自愈分支唯一会执行的入口条件。
+        sqlx::query("DROP TABLE IF EXISTS federation_signing_keys CASCADE")
+            .execute(&*pool)
+            .await
+            .expect("drop signing keys table");
+        assert!(
+            !table_exists(&pool, "federation_signing_keys").await,
+            "precondition: the isolated schema must no longer hold the table"
+        );
+
+        let server_name = "recover.example.com";
+        let manager = KeyRotationManager::new(&pool, server_name).with_allow_plaintext_signing_keys(true);
+        manager.load_or_create_key().await.expect("load_or_create_key must self-heal the missing table");
+
+        assert!(table_exists(&pool, "federation_signing_keys").await, "the bootstrap must recreate the table");
+        let keys: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM federation_signing_keys WHERE server_name = $1")
+            .bind(server_name)
+            .fetch_one(&*pool)
+            .await
+            .expect("count keys");
+        assert!(keys >= 1, "expected at least one stored signing key, got {keys}");
+
+        // 两条索引也必须被重建（否则 bootstrap 的两条 CREATE INDEX 仍是零执行）。
+        let indexes: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pg_indexes WHERE schemaname = current_schema()
+             AND indexname IN ('idx_federation_signing_keys_server_created', 'idx_federation_signing_keys_key_id')",
+        )
+        .fetch_one(&*pool)
+        .await
+        .expect("count indexes");
+        assert_eq!(indexes, 2, "both bootstrap indexes must exist on the rebuilt table");
+    }
+
+    #[tokio::test]
+    async fn load_rotation_config_recreates_a_dropped_config_table() {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+
+        sqlx::query("DROP TABLE IF EXISTS key_rotation_config CASCADE")
+            .execute(&*pool)
+            .await
+            .expect("drop config table");
+        assert!(
+            !table_exists(&pool, "key_rotation_config").await,
+            "precondition: the isolated schema must no longer hold the config table"
+        );
+
+        let manager = KeyRotationManager::new(&pool, "config.example.com").with_allow_plaintext_signing_keys(true);
+        manager.load_rotation_config().await.expect("load_rotation_config must self-heal the missing table");
+        assert!(table_exists(&pool, "key_rotation_config").await, "the bootstrap must recreate the config table");
+
+        // 空表 ⇒ 全是默认值。
+        assert_eq!(
+            manager.get_interval_ms().await,
+            DEFAULT_KEY_ROTATION_INTERVAL_MS,
+            "an empty config table must fall back to the default interval"
+        );
+
+        // 写入后重新加载必须读到新值（顺带覆盖 `set_rotation_config_value` 的 upsert）。
+        manager.set_rotation_config_value("interval_ms", "12345").await.expect("set config value");
+        manager.load_rotation_config().await.expect("reload config");
+        assert_eq!(manager.get_interval_ms().await, 12345);
+    }
+}

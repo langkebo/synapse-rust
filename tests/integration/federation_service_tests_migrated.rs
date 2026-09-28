@@ -78,8 +78,15 @@ async fn test_should_rotate_keys() {
     assert!(days_until_expiry >= 6, "Key should have at least 6 days until expiry, got {days_until_expiry} days");
 }
 
+/// 普通路径：`load_or_create_key` 会把密钥落进 `federation_signing_keys`。
+///
+/// ⚠️ 原名为 `test_load_or_create_key_recovers_missing_signing_key_table`，但这条用例跑在
+/// **共享 `public`** 上、表本来就在，从未构造"表缺失"场景（D-79：名字超出测试体）。
+/// 真正构造恢复场景的是 crate 内的隔离用例
+/// `synapse_federation::key_rotation::db_tests::load_or_create_key_recreates_a_dropped_signing_keys_table`
+/// —— 它在 per-test schema 上先 `DROP TABLE`，再断言自愈把表与两条索引都建回来。
 #[tokio::test]
-async fn test_load_or_create_key_recovers_missing_signing_key_table() {
+async fn test_load_or_create_key_persists_a_signing_key() {
     let pool = crate::require_test_pool().await;
 
     let id = unique_id();

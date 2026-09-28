@@ -47,6 +47,13 @@ pub mod server_acl;
 pub mod signing;
 /// The `state_resolution` module.
 pub mod state_resolution;
+/// Test isolation infrastructure (schema-per-test). Only available under `cfg(test)`.
+///
+/// D-79: without this, every DB path in this crate had to run against the shared `public`
+/// schema, which made destructive fixtures (e.g. dropping `federation_signing_keys` to exercise
+/// `key_rotation`'s self-healing branch) impossible to write safely.
+#[cfg(test)]
+pub mod test_isolation;
 #[cfg(any(test, feature = "test-utils"))]
 /// The `test_mocks` module.
 pub mod test_mocks;

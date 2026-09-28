@@ -2436,7 +2436,9 @@
 # ── 2026-09-26 C43（`key_rotation.rs` 8 处宏化 + D-78 改判）────────────────────────
 #   C42 曾把该文件按"与迁移重复的死 DDL"排除出转换并登记 D-78；C43 复核后**改判**：
 #   `tests/integration/federation_service_tests_migrated.rs` 里有一条
-#   `test_load_or_create_key_recovers_missing_signing_key_table` —— 自愈是**有意**行为
+#   `test_load_or_create_key_recovers_missing_signing_key_table`（D-79 后改名为
+#   `test_load_or_create_key_persists_a_signing_key`；恢复场景搬到 crate 内隔离用例）
+#   —— 自愈是**有意**行为
 #   （只是该测试体从未真正构造"表缺失"场景 ⇒ 分支未被覆盖，另立 D-79）。故本批**保留自愈并宏化**：
 #   · 3 处 `SELECT EXISTS(...)` ⇒ `query_scalar!` + `AS "exists!"`（无关系来源，宏推可空；
 #     EXISTS 恒 TRUE/FALSE 永不为 NULL ⇒ R4 断言）；
@@ -2456,12 +2458,26 @@
 #   `dynamic_production` 255 → **254**。同批另给 `schema_health_check.rs` 补了真 baseline
 #   覆盖（4 条健康检查 SQL 此前只有 CI 二进制在跑），并因此登记 **D-80**
 #   （隔离 clone 未还原 PK/UNIQUE 约束索引名）—— 见 §7.1。
+# ── 2026-09-26 D-79（测试基础设施动态 +5：718 → 723）────────────────────────────
+#   `synapse-federation` 补隔离池基建后，`key_rotation.rs` 的 `mod db_tests` 有 5 处
+#   **测试夹具**动态 SQL，全部无法静态化（R9/D-13：`#[cfg(test)]` 里的宏不进
+#   `cargo sqlx prepare`，`--all-targets` 离线构建会 E0432）：
+#     1) `DROP TABLE IF EXISTS federation_signing_keys CASCADE` —— 构造"表缺失"场景（自愈分支
+#        唯一入口条件；共享 schema 上做不到，这正是本批要补的能力）；
+#     2) `DROP TABLE IF EXISTS key_rotation_config CASCADE` —— 同上，覆盖配置表引导；
+#     3) `SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = current_schema() …`
+#        —— 删除后自证前提（R9：必须锚定 `current_schema()`，不能用会回退 `public` 的 `to_regclass`）；
+#     4) `SELECT COUNT(*) FROM federation_signing_keys WHERE server_name = $1` —— 断言密钥落库；
+#     5) `SELECT COUNT(*) FROM pg_indexes WHERE schemaname = current_schema() AND indexname IN (…)`
+#        —— 断言自愈把两条引导索引也建回来（否则那两条 `CREATE INDEX` 仍是零执行）。
+#   收紧方向：这 5 处是"构造前提 + 断言前提"的最小集合，没有可静态化的等价物；若将来把
+#   federation 的 DB 覆盖搬到 `tests/`（不在 census 扫描面内）可回收，但那会失去 per-test schema。
 BASELINE_QUERY_BUILDER=18
 BASELINE_DYNAMIC_PRODUCTION=254
-BASELINE_DYNAMIC_TEST_INFRA=718
+BASELINE_DYNAMIC_TEST_INFRA=723
 BASELINE_STATIC=1233
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=972
+BASELINE_DYNAMIC=977
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
