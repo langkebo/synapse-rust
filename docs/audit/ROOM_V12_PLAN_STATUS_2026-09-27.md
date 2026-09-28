@@ -25,15 +25,15 @@
 | **C-4** | 创建侧不写 `predecessor.event_id`；升级顺序反转 | ✅ **完成**（`10aecb7d3`） | v12+ 先建新房（派生 id）再 tombstone，`predecessor` 只含 `room_id`；v1–v11 保持原顺序与 `event_id`；新增 v11→v12 验收测试 |
 | **C-5** | `CreateRoomConfig.room_id` 逃逸口处置 | ✅ **完成**（`7489b247f`，随 G-1） | 字段 + `create_room` 预分配分支 + below-v12 升级分支全部删除；`create_room` 显式断言"可创建版本必须由 create 事件派生 id"。合成房间（server notice / space）**不用**该字段，故不受影响（Q3 仍另计） |
 | **D-1** | 规则 1.2：v12 create 带 `room_id` 则拒绝（无 `room_id` 时推导房间身份） | ✅ **完成**（`227a7228d`） | `validate_inbound_transaction_pdu` 接收 `room_version`/`event_id`：v12+ create 带 `room_id` 即拒、无则用 `room_id_from_create_event_id` 推导；5 单测 + 变异自证；联邦事务集成 14/14 |
-| **D-2** | 规则 2：room_id 必须是已接受 create 事件 ID | ❌ **未做** | 依赖 C-2，无 `room_id→create` 反查 |
+| **D-2** | 规则 2：room_id 必须是已接受 create 事件 ID | ✅ **完成**（`c073c9625`） | v12+ 在 B-1 接缝强制：期望值由**真实 create 事件 id** 经 `room_id_from_create_event_id` 反推（非字符串拼装），故非参照哈希的 create id 也被拒；`create_event_id` 未知 ⇒ **fail-closed 拒绝**；新增 `MessagingService::get_room_create_event_id`（一次定点 state 查询，不用会省略 event_id 的投影 PDU）。顺带把接缝移出 `!auth_events.is_empty()` 守卫——此前空 `auth_events` 会**跳过全部** v12 规则 |
 | **D-3** | 规则 2.5 / MSC4307 的 v12 收敛 | 🟡 **B-2 已覆盖** | 与 B-2 同一实现；`rules.rs` 已版本分派，无独立待办 |
 | **D-4** | 本地 `auth_events` 不再包含 create（G-28） | ✅ **完成**（`b7cf472b4`） | `auth_types_for_event` 改为 `if !room_version_at_least(room_version, 12)` 才加 create；3 个新用例 + 变异自证（反转阈值 → 5 红） |
-| **D-5** | 裁定 auth chain / auth difference 是否含 create | ❌ **未做** | `synapse-web/src/routes/federation/pdu.rs:141-157` 五类型清单原样；计划自标【待核验】 |
+| **D-5** | 裁定 auth chain / auth difference 是否含 create | ✅ **完成**（`e933e362c`） | 结论（由本仓自身事实推出，无需引规范原文）：auth chain 是 `auth_events` 的**传递闭包**，而 D-4 已把 create 移出 v12 的 `auth_events` ⇒ **v12+ 闭包不可能含 create**。`is_auth_chain_member` 改为按版本分派；版本从调用方**已持有**的 state 记录中读取（`room_version_from_state`，零额外查询） |
 | **D-6** | 出站 create PDU 省略 `room_id`（G-10） | ✅ **完成**（`e2b8266b3`） | `build_pdu` 对 v12+ create 不写 `room_id`；**它是 C-2 的硬前置**（见 §2.5） |
 | **E-1** | `additional_creators` 校验（规则 1.4） | ✅ **完成**（`a659f9f7d`） | v12+ create 的 `additional_creators` 必须为合法 user ID 数组；user-id 语法抽为唯一实现 `validation::is_well_formed_user_id` 并让 `Validator` 委托；7 用例 + 变异自证 |
 | **E-2** | 创建者集合 + 无限 PL（G-32/33/35） | ✅ **完成**（`6f0c1735a`） | `room_creators_and_version` 一次读 create 事件返回（集合, 版本）；`resolve_room_creators`；v12+ 创建者返回 `CREATOR_POWER_LEVEL = i64::MAX` 且**排在读 PL 之前**（不可降权）；踢/封保护改用集合；版本未知时 fail-closed 不授予无限 |
 | **E-3** | 规则 10.4：PL 的 `users` 不得含创建者 | ✅ **完成**（`6f0c1735a` + `fcc57e0f2` + 接线修复 `ab59f4286`） | 客户端 `verify_power_levels_change` 拒绝；**修复**：规范路径是 `PUT /state/m.room.power_levels`（`ensure_room_state_write_access`），原先只接了非规范的 `/send` 路径 ⇒ 规则实际未生效，现已接上（同时补上原本缺失的升降权/同级检查）；入站经 B-1 接缝，读创建者失败 **fail-closed** |
-| **F-1** | 状态决议接线决策（G-38 零调用者） | 🟡 **已决策（A-2 Q6b），未执行** | 裁定：**不接线**；删除 `StateResolutionService` / `resolve_state_v2` 死实现，v2.1 只在 `resolve_state_with_auth_chain` 上演进（该函数目前亦仅被 bench 调用，去留需在 F-2 一并处理） |
+| **F-1** | 状态决议接线决策（G-38 零调用者） | ✅ **已决策**（A-2 改选 **(ii)**） | 裁定：v2.1 **实现在 `resolve_state_v2`**（计划原文落点），并查清/接线冲突状态路径。**查清已完成**（§4.6）：本仓无状态决议路径 —— `create_state_group` 零生产调用者，当前 state 是 `DISTINCT ON … origin_server_ts DESC` 的**纯时间戳 LWW** |
 | **F-2** | v2.1 三处修改 | ❌ **未做** | `grep "conflicted state subgraph"` / `"iterative auth"` 在 src **0** 命中 |
 | **F-3** | v1–v11 兼容边界 | ❌ **未做** | 依赖 F-2 |
 | **G-1** | 能力表收敛：仅 v12 可创建 | ✅ **完成**（`7489b247f`） | 新增 `RoomVersionCapability::stable_no_create`：v1–v11 可 join/parse/federate、不可创建；`resolve_room_version` 对 v1–v11 返回 `None`；`/capabilities.available` 仅 `"12"`（快照已审阅更新）；联邦 join 走存储层 `room_storage.create_room`，**不受影响** |
@@ -41,8 +41,13 @@
 | **H-1** | 逐份更正文档（含额外 6 份） | ✅ **完成**（`72072e175`） | 10 份文档标题下加状态行（U-22、❌7、AUDIT_SUMMARY、DB_REVIEW、O1_PHASE1、PROJECT_REMAINING、P2_protocol_contract、synapse‑vs‑synapse comparison、API_COVERAGE、v12‑pdu‑graph‑fields），统一指向本文为唯一现状来源；判据 `grep MSC4239 + v12` 不再把 MSC4239 当 v12 定义（余下命中是本计划的纠错说明与该文件自我更正）；新增行无 markdownlint 违规 |
 | **H-2** | Q1–Q7 结论落档 | ✅ **完成**（`c56d9d161`） | 本文 §3/§5 记录 Q1–Q8 结论**及其落点**（代码/提交/doc）；README 文档索引新增房间 v12 计划与状态条目（此前 `docs/audit` 零索引 ⇒ 不可发现） |
 
-**计数（H/G-2 后）**：✅ 完成 19（A-1、A-2、B-1、B-2、C-1、C-2、C-3、C-4、C-5、D-1、D-4、D-6、E-1、E-2、E-3、G-1、G-2、H-1、H-2）｜🟡 部分 1（D-3）｜❌ 未做 4（D-2、D-5、F-2、F-3）。
+**计数（D-2/D-5 后）**：✅ 完成 21（A-1、A-2、B-1、B-2、C-1、C-2、C-3、C-4、C-5、D-1、D-2、D-4、D-5、D-6、E-1、E-2、E-3、G-1、G-2、H-1、H-2）｜🟡 部分 1（D-3）｜❌ 未做 2（F-2、F-3）。
 
+> **D-2/D-5 完成（2026-09-28）**：`c073c9625`（规则 2）、`e933e362c`（auth chain 不含 create）。
+> **仅剩 F-2/F-3**（MSC4297）：落点 `resolve_state_v2` 已定，但 §4.6 已证明本仓**没有**状态决议路径，
+> 故 F-2 = 实现 v2.1 算法 **+ 从零决定并搭建冲突状态路径**；其验收判据依赖上游 v2.1 implementer's guide 向量
+> （计划标【上游】），需联网核验后才可实施 —— 建议单独一轮、甚至先就"冲突状态路径放在哪一层"再决策一次。
+>
 > **H-1/H-2 + G-2 完成（2026-09-28）**：`72072e175`（10 份文档更正）、`c56d9d161`（决策落点 + README 索引）、`8687d8335`（联邦 `m.room_versions` 形状修正 + 补测）。
 > 剩余：**D-2**（v12 非 create 事件的 room_id→create 反查，需改入站热路径）、**D-5**（auth chain 是否含 create【待核验】）、**F-2/F-3**（按 (ii) 落 `resolve_state_v2`，须先建冲突状态路径——§4.6）。
 >
