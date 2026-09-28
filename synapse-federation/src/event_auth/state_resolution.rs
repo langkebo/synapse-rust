@@ -456,61 +456,6 @@ impl EventAuthChain {
         full
     }
 
-    /// See [`sort_by_reverse_topological_power`.
-    pub fn sort_by_reverse_topological_power(
-        &self,
-        events: &HashMap<String, EventData>,
-        event_ids: &[String],
-        mainline: &[String],
-        power_levels: &HashMap<String, i64>,
-    ) -> Vec<String> {
-        let mut sorted = event_ids.to_vec();
-        let mainline_map: HashMap<&str, usize> =
-            mainline.iter().enumerate().map(|(i, eid)| (eid.as_str(), i)).collect();
-
-        // 返回事件发送者的 power level: 优先用 power_levels 映射 (user_id -> power),
-        // 否则尝试从事件 content.users 读取 (针对 m.room.power_levels 事件自身).
-        let power_of = |eid: &str| -> i64 {
-            if let Some(event) = events.get(eid) {
-                if let Some(pl) = power_levels.get(&event.sender).copied() {
-                    return pl;
-                }
-                // 对于 m.room.power_levels 事件自身, 其 sender 的 power 可能在自己的 content.users 中.
-                if event.event_type == "m.room.power_levels" {
-                    if let Some(content) = &event.content {
-                        if let Some(users) = content.get("users").and_then(|u| u.as_object()) {
-                            if let Some(user_power) = users.get(&event.sender) {
-                                return user_power.as_i64().unwrap_or(0);
-                            }
-                        }
-                    }
-                }
-            }
-            0
-        };
-
-        sorted.sort_by(|a, b| {
-            let power_a = power_of(a);
-            let power_b = power_of(b);
-
-            power_b
-                .cmp(&power_a)
-                .then_with(|| {
-                    let ts_a = events.get(a).map(|e| e.origin_server_ts).unwrap_or(0);
-                    let ts_b = events.get(b).map(|e| e.origin_server_ts).unwrap_or(0);
-                    ts_a.cmp(&ts_b)
-                })
-                .then_with(|| {
-                    let mainline_a = mainline_map.get(a.as_str()).copied().unwrap_or(usize::MAX);
-                    let mainline_b = mainline_map.get(b.as_str()).copied().unwrap_or(usize::MAX);
-                    mainline_a.cmp(&mainline_b)
-                })
-                .then_with(|| a.cmp(b))
-        });
-
-        sorted
-    }
-
     /// See [`resolve_state_v2`.
     /// Resolve conflicting state (state resolution v2.1, MSC4297).
     ///
@@ -714,12 +659,12 @@ impl EventAuthChain {
         let auth_eids: Vec<String> = all_conflicted_eids.iter().filter(|e| is_auth_event(e)).cloned().collect();
         let non_auth_eids: Vec<String> = all_conflicted_eids.iter().filter(|e| !is_auth_event(e)).cloned().collect();
 
-        // Conflicted power/auth events are ordered first (reverse topological
-        // power ordering), then the rest (mainline ordering). Both currently use
-        // the same comparator — sender power, timestamp, mainline position — which
-        // approximates the two spec orderings; see the status doc §4.8.
-        let sorted_auth = self.sort_by_reverse_topological_power(events, &auth_eids, &mainline, &power_levels);
-        let sorted_non_auth = self.sort_by_reverse_topological_power(events, &non_auth_eids, &mainline, &power_levels);
+        // Conflicted power/auth events use **reverse topological power ordering**
+        // (the sender's power level comes from the resolved power levels map);
+        // the rest use **mainline ordering**.
+        let power_of = |event: &EventData| -> i64 { power_levels.get(&event.sender).copied().unwrap_or(0) };
+        let sorted_auth = self.reverse_topological_power_ordering(events, &auth_eids, power_of);
+        let sorted_non_auth = self.mainline_ordering(events, &non_auth_eids, &mainline);
 
         let mut ordered_all: Vec<String> = sorted_auth;
         ordered_all.extend(sorted_non_auth);
