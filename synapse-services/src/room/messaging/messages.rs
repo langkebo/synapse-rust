@@ -3,7 +3,7 @@
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
 use synapse_common::current_timestamp_millis;
-use synapse_common::{generate_event_id, generate_pagination_token};
+use synapse_common::generate_pagination_token;
 use synapse_storage::CreateEventParams;
 
 use super::service::MessagingService;
@@ -27,9 +27,12 @@ impl MessagingService {
             return Err(ApiError::forbidden("You are not a member of this room".to_string()));
         }
 
-        let event_id = generate_event_id(&self.server_name);
         let now = current_timestamp_millis();
         let now = next_event_ts(now, self.event_reader.get_max_origin_server_ts_for_room(room_id).await)?;
+
+        // Placeholder event_id for legacy rooms. For v3+ rooms, GraphMetadataWriter
+        // will replace this with the reference-hash derived event_id.
+        let event_id = format!("${}$placeholder", now);
 
         #[allow(unused_variables, unused_mut)]
         let mut beacon_location_params = {

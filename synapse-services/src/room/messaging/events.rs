@@ -5,7 +5,6 @@ use crate::room::messaging::error::RoomMessagingError;
 use crate::room::state::auth_events::{select_auth_events, AuthStateSnapshot};
 use serde_json::json;
 use synapse_common::current_timestamp_millis;
-use synapse_common::generate_event_id;
 use synapse_storage::CreateEventParams;
 
 use super::service::MessagingService;
@@ -474,8 +473,10 @@ impl MessagingService {
         user_id: &str,
         pinned_event_ids: &[String],
     ) -> ApiResult<()> {
-        let event_id = generate_event_id(&self.server_name);
         let now = current_timestamp_millis();
+        // Placeholder event_id for legacy rooms. For v3+ rooms, GraphMetadataWriter
+        // will replace this with the reference-hash derived event_id.
+        let event_id = format!("${}$placeholder", now);
         self.create_event(
             CreateEventParams {
                 event_id,

@@ -20,7 +20,10 @@
 
 use serde_json::{json, Value};
 use synapse_common::event_id::{compute_event_id, uses_reference_hash_event_id};
-use synapse_common::pdu::{build_pdu, PduParts};
+use synapse_common::{
+    generate_event_id,
+    pdu::{build_pdu, PduParts},
+};
 
 use crate::signing::compute_event_content_hash;
 
@@ -62,12 +65,19 @@ pub fn finalize_local_pdu(parts: &PduParts<'_>) -> Result<FinalizedPdu, Finalize
     }
 
     let event_id = if uses_reference_hash_event_id(parts.room_version) {
+        // v3+: compute reference hash (will ignore the placeholder)
         compute_event_id(parts.room_version, &pdu).map_err(|error| FinalizeError::ReferenceHash(error.to_string()))?
     } else {
-        parts
-            .event_id
-            .ok_or_else(|| FinalizeError::MissingServerAssignedEventId(parts.room_version.to_string()))?
-            .to_string()
+        // v1/v2: use server-assigned ID.
+        // If a placeholder was passed (contains $placeholder), regenerate a proper legacy ID.
+        // If no event_id was provided at all, fail closed.
+        match parts.event_id {
+            Some(existing_id) if existing_id.contains("$placeholder") => generate_event_id(parts.origin),
+            Some(id) => id.to_string(),
+            None => {
+                return Err(FinalizeError::MissingServerAssignedEventId(parts.room_version.to_string()));
+            }
+        }
     };
 
     Ok(FinalizedPdu { event_id, hashes })
