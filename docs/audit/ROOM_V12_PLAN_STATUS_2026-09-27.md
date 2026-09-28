@@ -37,12 +37,15 @@
 | **F-2** | v2.1 三处修改 | ❌ **未做** | `grep "conflicted state subgraph"` / `"iterative auth"` 在 src **0** 命中 |
 | **F-3** | v1–v11 兼容边界 | ❌ **未做** | 依赖 F-2 |
 | **G-1** | 能力表收敛：仅 v12 可创建 | ✅ **完成**（`7489b247f`） | 新增 `RoomVersionCapability::stable_no_create`：v1–v11 可 join/parse/federate、不可创建；`resolve_room_version` 对 v1–v11 返回 `None`；`/capabilities.available` 仅 `"12"`（快照已审阅更新）；联邦 join 走存储层 `room_storage.create_room`，**不受影响** |
-| **G-2** | 连带面清单（含联邦 `m.room_versions` 补测） | ❌ **未做** | 收敛本身未做；联邦 `/version` 的 `m.room_versions` **仍无内容断言** —— `tests/integration/api_federation_tests.rs:279` 只有 `assert_eq!(json["capabilities"]["m.room_versions"]["default"], DEFAULT_ROOM_VERSION)`（比常量，不校验 `available`/`unstable_features`），且该行来自 `5aac642c1`（2026-09 初的 cas_service 提交），**不是** v12 工作所加。计划 G-05 的结论未被推翻 |
-| **H-1** | 逐份更正文档（含额外 6 份） | 🟡 **部分完成** | `d3a12ca73`（`docs/room-version-12-13-correction`，已并进本分支历史）改了 `CURRENT_ISSUES_AND_PLAN.md` 与 `REMAINING_ISSUES_...2026-09-25.md`；`V12_ROOM_VERSION_..._PLAN.md:21` 已自我更正 MSC4239 误引<br>❌ `AUDIT_SUMMARY_2026-09-12.md`、`DB_REVIEW_2026-09-17.md` 最近提交仍是 markdownlint 批（**未加 superseded 横幅**）；`docs/synapse-rust/` 与 `docs/audit/O1_PHASE1_...` 未核 |
-| **H-2** | Q1–Q7 结论落档 | ❌ **未做** | 依赖 A-2 |
+| **G-2** | 连带面清单（含联邦 `m.room_versions` 补测） | ✅ **完成**（`8687d8335`） | 补测后暴露**真实协议缺口**：联邦 `m.room_versions` 发的是扁平 `{version:{"status":…}}` + 手工插入 `default`，**不符规范形状** `{default, available:{v:status}}`；已修正，且 `available` 由 `can_federate` 派生（v1–v11 可联邦但不可创建，故与客户端集合**刻意不同**）；新增 `GET /_matrix/federation/v1` 用例（此前零覆盖） |
+| **H-1** | 逐份更正文档（含额外 6 份） | ✅ **完成**（`72072e175`） | 10 份文档标题下加状态行（U-22、❌7、AUDIT_SUMMARY、DB_REVIEW、O1_PHASE1、PROJECT_REMAINING、P2_protocol_contract、synapse‑vs‑synapse comparison、API_COVERAGE、v12‑pdu‑graph‑fields），统一指向本文为唯一现状来源；判据 `grep MSC4239 + v12` 不再把 MSC4239 当 v12 定义（余下命中是本计划的纠错说明与该文件自我更正）；新增行无 markdownlint 违规 |
+| **H-2** | Q1–Q7 结论落档 | ✅ **完成**（`c56d9d161`） | 本文 §3/§5 记录 Q1–Q8 结论**及其落点**（代码/提交/doc）；README 文档索引新增房间 v12 计划与状态条目（此前 `docs/audit` 零索引 ⇒ 不可发现） |
 
-**计数（G-1/C-5 后）**：✅ 完成 16（A-1、A-2、B-1、B-2、C-1、C-2、C-3、C-4、C-5、D-1、D-4、D-6、E-1、E-2、E-3、G-1）｜🟡 部分 2（D-3、H-1）｜❌ 未做 6（D-2、D-5、F-2、F-3、G-2、H-1/H-2 中的未做项）。
+**计数（H/G-2 后）**：✅ 完成 19（A-1、A-2、B-1、B-2、C-1、C-2、C-3、C-4、C-5、D-1、D-4、D-6、E-1、E-2、E-3、G-1、G-2、H-1、H-2）｜🟡 部分 1（D-3）｜❌ 未做 4（D-2、D-5、F-2、F-3）。
 
+> **H-1/H-2 + G-2 完成（2026-09-28）**：`72072e175`（10 份文档更正）、`c56d9d161`（决策落点 + README 索引）、`8687d8335`（联邦 `m.room_versions` 形状修正 + 补测）。
+> 剩余：**D-2**（v12 非 create 事件的 room_id→create 反查，需改入站热路径）、**D-5**（auth chain 是否含 create【待核验】）、**F-2/F-3**（按 (ii) 落 `resolve_state_v2`，须先建冲突状态路径——§4.6）。
+>
 > **G-1 + C-5 + E-3 接线修复完成（2026-09-27）**：`ab59f4286`（E-3 规范路径接线）、`7489b247f`（G-1 能力收敛 + C-5 删逃逸口 + 测试迁移）。
 > 剩余：**D-2/D-5**、**F-2/F-3**（按 (ii)，落点 `resolve_state_v2`，但需先建冲突状态路径——见 §4.6）、**H-1/H-2** 文档。
 >
