@@ -42,6 +42,7 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
+use synapse_common::redaction::redaction_rules;
 use synapse_common::room_versions::room_version_at_least;
 use synapse_storage::event::StateEvent;
 
@@ -88,12 +89,30 @@ impl AuthStateSnapshot {
     }
 }
 
-/// Whether the given room version supports the MSC3083 restricted join rule.
+/// Whether `room_version` supports the MSC3083 restricted join rule — and so
+/// whether a restricted join must name its authorising user in `auth_events`.
 ///
-/// v8 introduced it, v9 removed it, v10 restored it. The repo can create
-/// v1–v11 (v12/v13 are parse-only, see `synapse-common/src/room_versions.rs`).
+/// The answer comes from [`redaction_rules`], this workspace's single
+/// per-version capability table, whose flags mirror upstream Synapse's
+/// `RoomVersion` by name. Upstream's `auth_types_for_event`
+/// (`synapse/event_auth.py:1287-1293`, release-v1.161) gates on exactly
+/// `room_version.restricted_join_rule`, so the two agree by construction and
+/// there is no second version list here to drift.
+///
+/// The flag is `true` from v8 onwards. **v9 is not an exception**: the spec's
+/// room version 9 page ("This room version builds on version 8 to add
+/// additional redaction rules … See room version 8 for specific details
+/// regarding the addition of restricted rooms") and upstream's Rust
+/// `RoomVersion::V9` — which inherits `restricted_join_rule: true` from `V8` and
+/// adds only `restricted_join_rule_fix` — agree that v9 keeps restricted rooms.
+/// v9 merely starts protecting `join_authorised_via_users_server` when
+/// redacting.
+///
+/// A version the table does not know is **not** granted the rule. An
+/// unrecognised version must never silently borrow another version's semantics,
+/// because the result feeds `auth_events` and therefore event identity.
 fn supports_restricted_join_rule(room_version: &str) -> bool {
-    matches!(room_version, "8" | "10" | "11")
+    redaction_rules(room_version).is_some_and(|rules| rules.restricted_join_rule)
 }
 
 /// The `(type, state_key)` pairs selected as auth events for an event.
@@ -148,6 +167,9 @@ pub fn auth_types_for_event(
             }
         }
 
+        // MSC3083: the authorising user must be reachable from the auth chain,
+        // otherwise a peer's `_check_joined_room` finds no member event for them
+        // and rejects the join. Upstream selects the same pair here.
         if membership == "join" && supports_restricted_join_rule(room_version) {
             if let Some(authorising) = content.get("join_authorised_via_users_server").and_then(Value::as_str) {
                 types.push(("m.room.member".to_string(), authorising.to_string()));
@@ -386,24 +408,82 @@ mod tests {
         assert!(with_other_authoriser.contains(&"$bob_member".to_string()), "got {with_other_authoriser:?}");
     }
 
+    /// The MSC3083 gate must follow the workspace's per-version capability
+    /// table, **not** a hand-written version list. The former
+    /// `matches!("8" | "10" | "11")` excluded v9 *and* v12 — and v12 is a
+    /// creatable version (the default one, in fact), so a v12 restricted join
+    /// dropped the authorising user from `auth_events` and a peer's
+    /// `_check_joined_room` would reject it.
+    ///
+    /// v8 introduced restricted joins; v9 **keeps** them (the spec's v9 page
+    /// defers to v8 for "the addition of restricted rooms"; v9 only adds the
+    /// redaction fix); v10/v11/v12 keep them too.
     #[test]
-    fn v9_has_no_restricted_join_rule() {
-        let types = auth_types_for_event(
-            "9",
-            "m.room.member",
-            Some("@bob:example.com"),
-            "@bob:example.com",
-            &json!({"membership": "join", "join_authorised_via_users_server": "@alice:example.com"}),
+    fn restricted_join_gate_follows_the_version_table() {
+        let join_content = json!({"membership": "join", "join_authorised_via_users_server": "@alice:example.com"});
+
+        for version in ["8", "9", "10", "11", "12"] {
+            let types = auth_types_for_event(
+                version,
+                "m.room.member",
+                Some("@bob:example.com"),
+                "@bob:example.com",
+                &join_content,
+            );
+            assert!(
+                types.iter().any(|(event_type, key)| event_type == "m.room.member" && key == "@alice:example.com"),
+                "v{version} must select the authorising user: {types:?}"
+            );
+            assert!(supports_restricted_join_rule(version), "v{version} supports restricted joins");
+        }
+
+        // v7 predates MSC3083: the authorising user is not selected, so the
+        // negation is real rather than merely a missing assertion.
+        let v7 =
+            auth_types_for_event("7", "m.room.member", Some("@bob:example.com"), "@bob:example.com", &join_content);
+        assert!(
+            !v7.iter().any(|(_, key)| key == "@alice:example.com"),
+            "v7 must not select the authorising user: {v7:?}"
         );
-        // v9 removed the restricted join rule (restored in v10): the authorising
-        // user's membership must not be selected.
-        let authoriser_selected = types
-            .iter()
-            .filter(|(event_type, key)| event_type == "m.room.member" && key == "@alice:example.com")
-            .count();
-        assert_eq!(authoriser_selected, 0, "v9 must not select the authorising user: {types:?}");
-        assert!(supports_restricted_join_rule("10") && supports_restricted_join_rule("11"));
-        assert!(!supports_restricted_join_rule("9") && !supports_restricted_join_rule("7"));
+        assert!(!supports_restricted_join_rule("7"));
+
+        // An unknown version fails closed instead of borrowing v8's semantics.
+        assert!(!supports_restricted_join_rule("hydra"));
+    }
+
+    /// The full v12 selection for a restricted join: the authorising user's
+    /// membership is present (the A7 fix) while the create event is absent
+    /// (MSC4291). v11 differs on exactly the create entry.
+    #[test]
+    fn v12_restricted_join_selects_authoriser_and_omits_create() {
+        let content = json!({"membership": "join", "join_authorised_via_users_server": "@alice:example.com"});
+        let select = |version: &str| {
+            select_auth_events(
+                version,
+                &snapshot(),
+                "m.room.member",
+                Some("@bob:example.com"),
+                "@bob:example.com",
+                &content,
+            )
+        };
+
+        assert_eq!(
+            select("12"),
+            vec!["$join_rules".to_string(), "$alice_member".to_string(), "$bob_member".to_string(), "$pl".to_string(),],
+            "v12: authorising member selected, create omitted"
+        );
+        assert_eq!(
+            select("11"),
+            vec![
+                "$create".to_string(),
+                "$join_rules".to_string(),
+                "$alice_member".to_string(),
+                "$bob_member".to_string(),
+                "$pl".to_string(),
+            ],
+            "v11: same list plus the create event"
+        );
     }
 
     #[test]
