@@ -337,3 +337,35 @@ A-2 的 **Q6(b)** 裁定："不接线，按铁律 1 删除死实现，只在 `re
 | **Q6**（(ii) v2.1 实现在 `resolve_state_v2`，并查清/接线冲突状态路径） | 本文件 §4.5（矛盾记录）与 §4.6（接线调查：本仓无状态决议路径） |
 | **Q7**（客户端不得在 `creation_content` 传 `additional_creators`） | E-1（`a659f9f7d`）只做**入站校验**；写入侧边界（handler 黑名单）保持原样 |
 | **Q8**（阶段顺序，含 D-6 在 C-2 之前） | 本文件 §2.5 |
+
+---
+
+## 4.7 F-2 可执行性核验（2026-09-28，联网核实上游原文后）
+
+上游原文已取到并逐条核对（[MSC4297 raw](https://raw.githubusercontent.com/matrix-org/matrix-spec-proposals/refs/heads/kegan/msc4297/proposals/4297-state-resolution-v2_1.md)）。三项修改的正确表述是：
+
+1. **Modification 1**：state res **step 2 的 iterative auth checks 从"空 state map"开始**（v2 是从 unconflicted state map 开始），
+   依据是 iterative auth checks 定义中"所需 `(event_type, state_key)` 不在 state 中时，改用该事件 `auth_events` 里的对应状态事件"。
+   ⚠️ 原文明确："They do **not** modify how conflicted events are sorted nor do they modify the iterative auth checks."
+2. **Modification 2**：新增术语 **conflicted state subgraph** —— "从 conflicted state set 中的一个事件出发沿 `auth_events` 边可到达
+   同一集合中的另一事件；所有这样的**路径并集（含端点）**"。
+3. **Modification 3**：**full conflicted set = conflicted state set ∪ conflicted state subgraph ∪ auth difference**。
+
+### 实测：F-2 在本仓**当前基座上不可执行**（不是"改三处"）
+
+| 事实 | 证据 |
+|---|---|
+| `resolve_state_v2` **是近似实现，不是忠实的 v2** | `state_resolution.rs:367-515`：只做了 v2 step 1（unconflicted/conflicted 划分）+ "每个冲突键按 (sender power, ts, mainline 序号, event id) 取第一个赢家"；**没有 iterative auth checks**、**没有计算/使用 auth difference**，`mainline` 只作 tiebreak |
+| ⇒ Modification 1 **无落点** | "iteration auth checks 从空 map 开始"要求先存在 iterative auth checks；本仓没有 |
+| ⇒ Modification 2/3 无消费者 | subgraph 只有在"重放并逐条鉴权"时才有意义；当前没有重放 |
+| 上游**无机器可读测试向量** | implementer's guide 为散文（且本次抓取失败）；检索未发现向量仓库。计划把 F-2 验收判据定为"上游 implementer's guide 的向量"，**该判据无法直接落地** |
+| 该函数**零调用者** | `grep` 全仓（除自身/单测/bench）0 命中 ⇒ 任何行为改动都无端到端证据（计划 §4.1 风险 1） |
+
+### 因此 F-2 有两个可执行的解释（需任务方选一个，本轮未动代码）
+
+- **(A) 真做**：先补一个**忠实的 v2**（mainline ordering + reverse topological power ordering + iterative auth checks + auth difference），
+  再叠加 v2.1 三项修改；测试用**自洽冲突图向量**（按 MSC 的 Problem A/B 场景构造，并在测试里标注"自构造、非上游向量"）。
+  规模 = 重写 state resolution 核心；安全关键；仍无端到端证据（零调用者）。F-3 再按版本分派。
+- **(B) 按铁律 1 收敛**：F-1 的查清已证明本仓**没有**状态决议路径，`resolve_state_v2` 零调用者且是近似品 ⇒ 删除它，
+  并把"MSC4297 未实现"如实写入 v12 能力声明（AGENTS「协议声明纪律」要求 capability 与行为一致）。
+  代价：本轮 goal 的 F-2/F-3 以"**不适用**（本仓无状态决议路径）"结案，而不是"实现了 v2.1"。
