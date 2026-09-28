@@ -15,8 +15,8 @@
 | 项 | 目标（摘要） | 状态 | 实测证据 |
 |---|---|---|---|
 | **A-1** | 修复已红的 `/capabilities` 快照 | ✅ **完成** | `94d72a29f`；`integration__api_route_snapshots_tests__capabilities_v3.snap:33-34` 含 `"12": "stable"`、`:44` `"default": "12"` |
-| **A-2** | 冻结 Q1–Q8 产品决策（写进 §5 或 ADR） | ❌ **未做** | 全仓 `grep Q1..Q8 / 决策落定 / ADR` 在 `docs/audit/*2026-09-2*` 无命中；§5 全部仍标"建议（供讨论，不是结论）" |
-| **A-3** | v12 一致性 fixture 与 oracle 骨架 | ❌ **未做** | `tests/unit/u13_interop_fixture_tests.rs:105` 仍是 `for room_version in ["3", "10", "11"]`；无 v12 fixture 文件 |
+| **A-2** | 冻结 Q1–Q8 产品决策（写进 §5 或 ADR） | ✅ **完成** | `6cb305409`（Q1=a/Q2=a/Q5=b/Q6=b 落档）+ 本文件 **§3**（Q6 改选 (ii)、Q7 修订）与 **§5**（逐决策落点表）；Q1/Q2/Q4/Q5 已落进代码（`7489b247f` / `c83e3faf9`）⇒ 不再是"建议（供讨论，不是结论）" |
+| **A-3** | v12 一致性 fixture 与 oracle 骨架 | ✅ **完成**（`20789c476`） | 新增 v12 **message** fixture（`local_pdu_v12.json`，domainless room id）与 v12 **create** fixture（`local_pdu_v12_create.json`：无 `room_id`/`event_id` + `derived_room_id`）；`u13` 逐字节复核循环纳入 `"12"`；oracle 增加上游 v12 复算：`_check_create` 接受并由事件 ID 推出同一 `!`+43 room id、**带 `room_id` 的 create 被拒**、`auth_events` 含 create 被拒（MSC4307）。两条新检查均有变红自证，详见 §4.10 |
 | **B-1** | 建立入站事件鉴权入口（单一实现） | ✅ **完成** | `synapse-federation/src/event_auth/rules.rs`（282 行，`check_inbound_event_auth` / `InboundEventAuth` / `ResolvedAuthEvent`）；入口壳与版本分派齐备 |
 | **B-2** | 规则 3.5：`auth_events` 同房校验 | ✅ **完成（已接线）** | `ce4078969`；**生产调用点** `synapse-web/src/routes/federation/transaction.rs:378`（解析 auth_events → `check_inbound_event_auth`，失败即 reject + `security_audit` 日志）；`rules.rs:152` `enforces_auth_events_room_rule` 只对 v12+ 生效；单测含"跨房拒绝/同房通过/无法解析拒绝/pre-v12 不定义该规则" |
 | **C-1** | create 事件身份 finalize（G-08） | ✅ **完成** | `7d79982c9`：`write_creation_event` 改走 `create_event_with_pdu`（会 finalize），占位 ID 仅用于 v1/v2；验收测试 `tests/integration/room_service_tests_migrated.rs:5175-5196`（v11 create id 长 44、无 `:`、等于对端复算值、图已重指向 final id） |
@@ -41,15 +41,13 @@
 | **H-1** | 逐份更正文档（含额外 6 份） | ✅ **完成**（`72072e175`） | 10 份文档标题下加状态行（U-22、❌7、AUDIT_SUMMARY、DB_REVIEW、O1_PHASE1、PROJECT_REMAINING、P2_protocol_contract、synapse‑vs‑synapse comparison、API_COVERAGE、v12‑pdu‑graph‑fields），统一指向本文为唯一现状来源；判据 `grep MSC4239 + v12` 不再把 MSC4239 当 v12 定义（余下命中是本计划的纠错说明与该文件自我更正）；新增行无 markdownlint 违规 |
 | **H-2** | Q1–Q7 结论落档 | ✅ **完成**（`c56d9d161`） | 本文 §3/§5 记录 Q1–Q8 结论**及其落点**（代码/提交/doc）；README 文档索引新增房间 v12 计划与状态条目（此前 `docs/audit` 零索引 ⇒ 不可发现） |
 
-**计数（F-2 完成后）**：✅ 完成 23（A-1、A-2、B-1、B-2、C-1、C-2、C-3、C-4、C-5、D-1、D-2、D-3、D-4、D-5、D-6、E-1、E-2、E-3、F-2、F-3、G-1、G-2、H-1、H-2 —— 实为 24 项中的 23 项）｜🟡 部分 1（**F-1 的接线半边**）｜❌ 未做 0。
+**计数（2026-09-28，A-3 完成后）**：§1 表中**除 F-1 外的全部工作项均为 ✅**（含此前被漏计的 **A-3** 与本轮一并更正的 **A-2** 行）｜🟡 部分 1（**F-1 的写半边**，读半边见 §4.9）｜❌ 未做 0。
 
-> ⚠️ **本行计数有漏项（2026-09-28 更正）**：§1 表里的 **A-3（v12 一致性 fixture 与 oracle 骨架）仍是 ❌**，
-> 但上面这串"完成"名单里没有它 —— 名单列了 24 个名字却说"24 项中的 23 项"，本身就自相矛盾。
-> 实测证据（本轮复核）：`tests/unit/u13_interop_fixture_tests.rs:105` 仍是
-> `for room_version in ["3", "10", "11"]`，仓库内没有 v12 的 interop fixture。
-> 另一条并行分支（`opt/consolidated`）已有对应骨架（`e6311f5b3 test(interop): add v12 skeleton fixture for MSC4291 domainless room IDs`），
-> **本分支没有**。因此本计划的真实剩余是 **两项**：**A-3**（不依赖任何决策，可直接做）与
-> **F-1 的写半边**（依赖已拍板的层次 `(A)`，见 §4.9）。
+> ⚠️ **计数口径说明（2026-09-28）**：原"完成 23（… 实为 24 项中的 23 项）"一行**本身自相矛盾** ——
+> 它列了 24 个名字却说 23 项，且**漏掉了 §1 表里的 A-3**（当时确为 ❌）。
+> 本轮把 A-3 做完（`20789c476`，§4.10），并把同样陈旧的 A-2 行（原标 ❌，实际早已由
+> `6cb305409` 落档）一并更正。**计划基线 §3.2 的项数（24）与 §1 表的行数并不一致**，
+> 因此不再以"23/24"这种会误导的分数表述，改为逐项状态 + 唯一剩余项。
 
 > **D-2/D-5 完成（2026-09-28）**：`c073c9625`（规则 2）、`e933e362c`（auth chain 不含 create）。
 > **仅剩 F-2/F-3**（MSC4297）：落点 `resolve_state_v2` 已定，但 §4.6 已证明本仓**没有**状态决议路径，
@@ -505,3 +503,53 @@ unit 守卫（literal / ratio / tiebreak）41/41。
 
 ⚠️ 与本批无关、**仍未修**的既有红项（与前一版状态文档所列一致）：`tests/unit` 的 12 条、
 `snapshot_versions_endpoint`、`derived_manifest` fixture、以及 invite-policy 的 7 条集成用例。
+
+---
+
+## 4.10 A-3：v12 一致性 fixture + 上游 oracle 实测（`20789c476`，2026-09-28）
+
+计划的 A-3 原判风险是"上游 Synapse 的 v12 oracle 是否可离线复算【待核验】，若不可则退化为
+'本仓自洽'"。**本轮核验结果：可离线复算，无需退化。**
+
+| 事实 | 证据 |
+|---|---|
+| 本沙箱的 `matrix-synapse==1.161.0`（`/tmp/peer-synapse`）**认识 room v12** | `KNOWN_ROOM_VERSIONS` 含 `'12'`（与 `11`/`org.matrix.hydra.11` 等并列） |
+| 它已实现 MSC4291 | `RoomVersion.msc4291_room_ids_as_hashes`；`synapse/event_auth.py` 的 `_check_create` 规则 1.2：`if "room_id" in event: AuthError(403, "Create event has a room_id")` |
+| 它也实现了 MSC4289 / MSC4307 | `msc4289_creator_power_enabled=True`；`federation_base.event_from_pdu_json` 拒绝 `auth_events` 含 create 事件（`400 auth_events must not contain the create event`） |
+| ⇒ 另一分支的占位 skeleton（`e6311f5b3`，placeholder hashes、`u13` 仍只验 3/10/11）**本分支不需要** | 本分支的 v12 流水线已落地（C/D 阶段），可以产出**真实** v12 字节并交由上游复算 |
+
+### 4.10.1 落地内容
+
+- **fixture（由真实流水线生成，`u13` 逐字节复核）**
+  - `local_pdu_v12.json`：v12 **message** PDU；`room_id` 用 domainless 形态
+    （`!` + 43 字符 URL-safe base64，**无 `:server`**）——沿用 legacy 拼写就不是 v12 向量。
+  - `local_pdu_v12_create.json`：v12 **create** PDU；PDU 内**无 `room_id`**（D-6）、
+    **无 `event_id`**（v3+ 线形态）；envelope 记录 `derived_room_id`。
+  - `u13` 的复核循环由 `["3","10","11"]` 扩为 `["3","10","11","12"]`，并新增断言：
+    `$` + 43 URL-safe、`derived_room_id == "!" + event_id[1..]`、
+    与 `room_id_from_create_event_id` 一致、`is_domainless_room_id` / `is_well_formed_room_id` 为真。
+- **oracle（`scripts/interop/verify_pdu_with_upstream_synapse.py`）新增第 4、5 步**，
+  判据全部来自**上游自己的实现**：
+  - **MSC4291**：上游 `_check_create` 接受我们的 create ⇒ 且 `event_from_pdu_json` 推出的
+    `room_id`/`event_id` 与我们的 `derived_room_id`/`event_id` 一致；
+    **带 `room_id` 的 create（即使是"正确"的那个 id）必须被上游拒绝**。
+  - **MSC4307**：`auth_events` 含 create 事件的 PDU 必须被上游拒绝；同一次运行先断言
+    "未改动 PDU 能构建"作**正向对照**，使该拒绝可归因（不是"恰好构建失败"）。
+- **实测**：v3/v10/v11 三条旧 fixture 行为**不变**；v12 两条全 PASS；
+  `synapse_federation --lib` 无关、`unit` 的 `u13_interop_fixture` 2/2。
+
+### 4.10.2 变红自证（铁律 8）
+
+| 变异 | 结果 |
+|---|---|
+| 把 `room_id` 加进 v12 create，并**重算 hashes / 事件 ID / 签名**（使第 1–3 步全过） | oracle 仍以 ``FAIL: a v12 m.room.create PDU must not carry `room_id` (MSC4291)`` **退出 1** ⇒ 该检查真的在拦人，不是被上游 hash/ID 检查"顺便"挡住 |
+| 篡改 envelope 的 `derived_room_id` | ``FAIL: fixture records derived_room_id=… but `!` + event_id[1:] is …``，退出 1 |
+| 把 create 事件 ID 写进 fixture 的 `auth_events` | 第 5 步的**正向对照**先失败，退出 1（正常 fixture 下正向对照通过、构造变体被拒 ⇒ 两侧都被执行到） |
+
+三条实验记进 `tests/interop/fixtures/README.md`。oracle 仍是**手工门禁**（需要
+`/tmp/peer-synapse` 这个 venv，CI 无此环境），与 `REMAINING_ISSUES_…_PLAN_2026-09-25.md`
+的 U-13-S3 记法一致：只剩**传输层**（双主机名 + 互信 CA）未验证。
+
+### 4.10.3 剩余
+
+计划的**唯一**剩余项回到 **F-1 的写半边**（§4.9.3）：分叉检测 + v2.1 解析 + 回写 group。
