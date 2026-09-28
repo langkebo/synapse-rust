@@ -23,7 +23,7 @@
 | **C-2** | room_id 推导（`$`→`!`）与创建流程重排 | ✅ **完成**（`e2b8266b3`） | 新增唯一 helper `room_id::room_id_from_create_event_id`；`create_room` 先定稿 create → 派生 room_id → 写 rooms 行；验收测试 `test_create_room_v12_room_id_is_the_create_event_id`。**注意：D-6 是它的硬前置**（见下） |
 | **C-3** | 无域名 room ID 语法收敛（G-17..G-23、G-20） | ✅ **完成**（`6036c4cb8`/`b089e0323`/`16ee8208f`） | ✅ 语法：`synapse-common/src/room_id.rs`（单实现）+ 两个校验器委托；6 处联邦守卫改用 `is_well_formed_room_id`；`room_id.contains(':')` 生产代码 **0** 处<br>✅ 本地性（G-21）：`b089e0323` `MembershipService::room_locality`<br>✅ DB CHECK 放宽为两形态（`16ee8208f`）+ 指纹 `16d86ee4035cd351`（顺带修掉 HEAD 上的既有红项）+ 真 DB 契约用例<br>❌ 未收敛：`invite.rs:277`（产出 `$uuid:!xxx`）、`space/repository.rs:30`、`actions.rs:41`（join 目的地） |
 | **C-4** | 创建侧不写 `predecessor.event_id`；升级顺序反转 | ✅ **完成**（`10aecb7d3`） | v12+ 先建新房（派生 id）再 tombstone，`predecessor` 只含 `room_id`；v1–v11 保持原顺序与 `event_id`；新增 v11→v12 验收测试 |
-| **C-5** | `CreateRoomConfig.room_id` 逃逸口处置 | ❌ **未做** | `service.rs:41` `pub room_id: Option<String>` 仍在；`admin/notification.rs` / `space/repository.rs` 的合成房间未动 |
+| **C-5** | `CreateRoomConfig.room_id` 逃逸口处置 | ✅ **完成**（`7489b247f`，随 G-1） | 字段 + `create_room` 预分配分支 + below-v12 升级分支全部删除；`create_room` 显式断言"可创建版本必须由 create 事件派生 id"。合成房间（server notice / space）**不用**该字段，故不受影响（Q3 仍另计） |
 | **D-1** | 规则 1.2：v12 create 带 `room_id` 则拒绝（无 `room_id` 时推导房间身份） | ✅ **完成**（`227a7228d`） | `validate_inbound_transaction_pdu` 接收 `room_version`/`event_id`：v12+ create 带 `room_id` 即拒、无则用 `room_id_from_create_event_id` 推导；5 单测 + 变异自证；联邦事务集成 14/14 |
 | **D-2** | 规则 2：room_id 必须是已接受 create 事件 ID | ❌ **未做** | 依赖 C-2，无 `room_id→create` 反查 |
 | **D-3** | 规则 2.5 / MSC4307 的 v12 收敛 | 🟡 **B-2 已覆盖** | 与 B-2 同一实现；`rules.rs` 已版本分派，无独立待办 |
@@ -32,17 +32,20 @@
 | **D-6** | 出站 create PDU 省略 `room_id`（G-10） | ✅ **完成**（`e2b8266b3`） | `build_pdu` 对 v12+ create 不写 `room_id`；**它是 C-2 的硬前置**（见 §2.5） |
 | **E-1** | `additional_creators` 校验（规则 1.4） | ✅ **完成**（`a659f9f7d`） | v12+ create 的 `additional_creators` 必须为合法 user ID 数组；user-id 语法抽为唯一实现 `validation::is_well_formed_user_id` 并让 `Validator` 委托；7 用例 + 变异自证 |
 | **E-2** | 创建者集合 + 无限 PL（G-32/33/35） | ✅ **完成**（`6f0c1735a`） | `room_creators_and_version` 一次读 create 事件返回（集合, 版本）；`resolve_room_creators`；v12+ 创建者返回 `CREATOR_POWER_LEVEL = i64::MAX` 且**排在读 PL 之前**（不可降权）；踢/封保护改用集合；版本未知时 fail-closed 不授予无限 |
-| **E-3** | 规则 10.4：PL 的 `users` 不得含创建者 | ✅ **完成**（`6f0c1735a` 客户端路径 + `fcc57e0f2` 入站） | 客户端 `verify_power_levels_change` 拒绝；入站经 B-1 接缝（`InboundEventAuth.creators`），创建者集合由 `ctx.room_service` 读出，**读失败 fail-closed 拒绝**；创建者抽取统一到 `synapse_common::room_creator` |
+| **E-3** | 规则 10.4：PL 的 `users` 不得含创建者 | ✅ **完成**（`6f0c1735a` + `fcc57e0f2` + 接线修复 `ab59f4286`） | 客户端 `verify_power_levels_change` 拒绝；**修复**：规范路径是 `PUT /state/m.room.power_levels`（`ensure_room_state_write_access`），原先只接了非规范的 `/send` 路径 ⇒ 规则实际未生效，现已接上（同时补上原本缺失的升降权/同级检查）；入站经 B-1 接缝，读创建者失败 **fail-closed** |
 | **F-1** | 状态决议接线决策（G-38 零调用者） | 🟡 **已决策（A-2 Q6b），未执行** | 裁定：**不接线**；删除 `StateResolutionService` / `resolve_state_v2` 死实现，v2.1 只在 `resolve_state_with_auth_chain` 上演进（该函数目前亦仅被 bench 调用，去留需在 F-2 一并处理） |
 | **F-2** | v2.1 三处修改 | ❌ **未做** | `grep "conflicted state subgraph"` / `"iterative auth"` 在 src **0** 命中 |
 | **F-3** | v1–v11 兼容边界 | ❌ **未做** | 依赖 F-2 |
-| **G-1** | 能力表收敛：仅 v12 可创建 | 🟡 **部分**（Q5 已落，`c83e3faf9`） | ✅ 版本 13 已移除（`stable_parse_only` 一并删除）；❌ v1–v11 仍 `can_create = true`，待收敛（Q1(a)：只禁创建，保留 join/federate） |
+| **G-1** | 能力表收敛：仅 v12 可创建 | ✅ **完成**（`7489b247f`） | 新增 `RoomVersionCapability::stable_no_create`：v1–v11 可 join/parse/federate、不可创建；`resolve_room_version` 对 v1–v11 返回 `None`；`/capabilities.available` 仅 `"12"`（快照已审阅更新）；联邦 join 走存储层 `room_storage.create_room`，**不受影响** |
 | **G-2** | 连带面清单（含联邦 `m.room_versions` 补测） | ❌ **未做** | 收敛本身未做；联邦 `/version` 的 `m.room_versions` **仍无内容断言** —— `tests/integration/api_federation_tests.rs:279` 只有 `assert_eq!(json["capabilities"]["m.room_versions"]["default"], DEFAULT_ROOM_VERSION)`（比常量，不校验 `available`/`unstable_features`），且该行来自 `5aac642c1`（2026-09 初的 cas_service 提交），**不是** v12 工作所加。计划 G-05 的结论未被推翻 |
 | **H-1** | 逐份更正文档（含额外 6 份） | 🟡 **部分完成** | `d3a12ca73`（`docs/room-version-12-13-correction`，已并进本分支历史）改了 `CURRENT_ISSUES_AND_PLAN.md` 与 `REMAINING_ISSUES_...2026-09-25.md`；`V12_ROOM_VERSION_..._PLAN.md:21` 已自我更正 MSC4239 误引<br>❌ `AUDIT_SUMMARY_2026-09-12.md`、`DB_REVIEW_2026-09-17.md` 最近提交仍是 markdownlint 批（**未加 superseded 横幅**）；`docs/synapse-rust/` 与 `docs/audit/O1_PHASE1_...` 未核 |
 | **H-2** | Q1–Q7 结论落档 | ❌ **未做** | 依赖 A-2 |
 
-**计数（C-4 后）**：✅ 完成 14（A-1、A-2、B-1、B-2、C-1、C-2、C-3、C-4、D-1、D-4、D-6、E-1、E-2、E-3）｜🟡 部分 3（D-3、G-1+G-2、H-1）｜❌ 未做 7（C-5、D-2、D-5、F-1/F-2/F-3、G-1、H-1/H-2 中的未做项）。
+**计数（G-1/C-5 后）**：✅ 完成 16（A-1、A-2、B-1、B-2、C-1、C-2、C-3、C-4、C-5、D-1、D-4、D-6、E-1、E-2、E-3、G-1）｜🟡 部分 2（D-3、H-1）｜❌ 未做 6（D-2、D-5、F-2、F-3、G-2、H-1/H-2 中的未做项）。
 
+> **G-1 + C-5 + E-3 接线修复完成（2026-09-27）**：`ab59f4286`（E-3 规范路径接线）、`7489b247f`（G-1 能力收敛 + C-5 删逃逸口 + 测试迁移）。
+> 剩余：**D-2/D-5**、**F-2/F-3**（按 (ii)，落点 `resolve_state_v2`，但需先建冲突状态路径——见 §4.6）、**H-1/H-2** 文档。
+>
 > **C-4 完成（2026-09-27）**：`10aecb7d3`。**C-5 与 G-1 强耦合**（见 §4.4），应同批执行。
 >
 > **E 组完成（2026-09-27）**：`a659f9f7d`（E-1 规则 1.4）、`6f0c1735a`（E-2 无限创建者 + E-3 客户端）、`fcc57e0f2`（E-3 入站 + 唯一创建者实现）。
