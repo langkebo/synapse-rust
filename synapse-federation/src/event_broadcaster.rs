@@ -103,7 +103,6 @@ pub struct EventBroadcaster {
     batch_tx: Arc<tokio::sync::Mutex<Option<BatchSender>>>,
 }
 
-type DbPendingRow = (i64, String, String, Option<String>, serde_json::Value, i64, i32);
 type BatchSender = mpsc::Sender<(String, OutgoingItem)>;
 
 /// Implementation of [`EventBroadcaster`] methods.
@@ -293,63 +292,6 @@ impl EventBroadcaster {
         }
     }
 
-    /// See [`recover_pending_from_db`.
-    pub async fn recover_pending_from_db(&self) -> Result<usize, FederationBroadcastError> {
-        let pool = match &self.pool {
-            Some(p) => p,
-            None => return Ok(0),
-        };
-
-        let rows: Vec<DbPendingRow> = sqlx::query_as(
-            r"
-            SELECT id, destination, event_id, room_id, content, created_ts, retry_count
-            FROM federation_queue
-            WHERE status = 'pending'
-            ORDER BY created_ts ASC
-            LIMIT 500
-            ",
-        )
-        .fetch_all(pool)
-        .await
-        .map_err(|e| FederationBroadcastError::SendFailed(e.to_string()))?;
-
-        let now = current_timestamp_millis();
-        let mut queue = self.pending_queue.write().await;
-        let count = rows.len();
-
-        for (db_id, destination, _event_id, _room_id, content, _created_ts, retry_count) in rows {
-            let retry_count = retry_count as u32;
-            let delay = self.get_backoff_delay(retry_count);
-
-            let transaction: FederationTransaction = match serde_json::from_value(content) {
-                Ok(txn) => txn,
-                Err(e) => {
-                    ::tracing::warn!("Failed to deserialize persisted transaction {}: {}", db_id, e);
-                    if let Err(del_err) =
-                        sqlx::query("DELETE FROM federation_queue WHERE id = $1").bind(db_id).execute(pool).await
-                    {
-                        ::tracing::warn!("Failed to delete corrupted federation queue item {}: {}", db_id, del_err);
-                    }
-                    continue;
-                }
-            };
-
-            queue.push(PendingTransaction {
-                destination,
-                transaction,
-                retry_count,
-                next_retry_at: now + delay as i64,
-                db_id: Some(db_id),
-            });
-        }
-
-        if count > 0 {
-            ::tracing::info!("Recovered {} pending federation transactions from database", count);
-        }
-
-        Ok(count)
-    }
-
     /// See [`broadcast_event`.
     pub async fn broadcast_event(
         &self,
@@ -532,46 +474,7 @@ impl EventBroadcaster {
 
     async fn persist_transaction_to_db(&self, destination: &str, transaction: &FederationTransaction) -> Option<i64> {
         let pool = self.pool.as_ref()?;
-
-        let content = match serde_json::to_value(transaction) {
-            Ok(v) => v,
-            Err(e) => {
-                ::tracing::error!("Failed to serialize transaction for persistence: {}", e);
-                return None;
-            }
-        };
-
-        let event_id = format!("txn:{}", transaction.transaction_id);
-        let event_type = if transaction.edus.is_empty() { "m.room.event" } else { "m.edu" };
-
-        let room_id = if !transaction.pdus.is_empty() {
-            transaction.pdus.first().and_then(|p| p.get("room_id").and_then(|v| v.as_str()).map(String::from))
-        } else {
-            None
-        };
-
-        match sqlx::query_as::<_, (i64,)>(
-            r"
-            INSERT INTO federation_queue (destination, event_id, event_type, room_id, content, created_ts, status)
-            VALUES ($1, $2, $3, $4, $5, $6, 'pending')
-            RETURNING id
-            ",
-        )
-        .bind(destination)
-        .bind(&event_id)
-        .bind(event_type)
-        .bind(&room_id)
-        .bind(&content)
-        .bind(current_timestamp_millis())
-        .fetch_one(pool)
-        .await
-        {
-            Ok(row) => Some(row.0),
-            Err(e) => {
-                ::tracing::error!("Failed to persist transaction to federation_queue: {}", e);
-                None
-            }
-        }
+        persist_transaction_row(pool, destination, transaction).await
     }
 
     async fn update_db_status(&self, db_id: i64, status: &str) {
@@ -693,25 +596,55 @@ impl EventBroadcaster {
         *queue = still_pending;
         Ok(retried)
     }
+}
 
-    /// See [`get_pending_count`.
-    pub async fn get_pending_count(&self) -> usize {
-        self.pending_queue.read().await.len()
-    }
+/// 把一条出站事务落库到 `federation_queue`（`status = 'pending'`），返回新行 id。
+///
+/// 失败（无法序列化 / 写库报错）一律记 `error!` 并返回 `None` —— 调用方据此退化为
+/// "仅在内存队列里重试"。抽成自由函数是因为 `send_batch` 没有 `&self`（D-82）。
+async fn persist_transaction_row(
+    pool: &sqlx::PgPool,
+    destination: &str,
+    transaction: &FederationTransaction,
+) -> Option<i64> {
+    let content = match serde_json::to_value(transaction) {
+        Ok(v) => v,
+        Err(e) => {
+            ::tracing::error!("Failed to serialize transaction for persistence: {}", e);
+            return None;
+        }
+    };
 
-    /// See [`cleanup_old_transactions`.
-    pub async fn cleanup_old_transactions(&self, older_than_ts: i64) -> Result<u64, FederationBroadcastError> {
-        let pool = match &self.pool {
-            Some(p) => p,
-            None => return Ok(0),
-        };
+    let event_id = format!("txn:{}", transaction.transaction_id);
+    let event_type = if transaction.edus.is_empty() { "m.room.event" } else { "m.edu" };
 
-        sqlx::query("DELETE FROM federation_queue WHERE status IN ('sent', 'failed') AND created_ts < $1")
-            .bind(older_than_ts)
-            .execute(pool)
-            .await
-            .map(|r| r.rows_affected())
-            .map_err(|e| FederationBroadcastError::SendFailed(e.to_string()))
+    let room_id = if !transaction.pdus.is_empty() {
+        transaction.pdus.first().and_then(|p| p.get("room_id").and_then(|v| v.as_str()).map(String::from))
+    } else {
+        None
+    };
+
+    match sqlx::query_as::<_, (i64,)>(
+        r"
+        INSERT INTO federation_queue (destination, event_id, event_type, room_id, content, created_ts, status)
+        VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+        RETURNING id
+        ",
+    )
+    .bind(destination)
+    .bind(&event_id)
+    .bind(event_type)
+    .bind(&room_id)
+    .bind(&content)
+    .bind(current_timestamp_millis())
+    .fetch_one(pool)
+    .await
+    {
+        Ok(row) => Some(row.0),
+        Err(e) => {
+            ::tracing::error!("Failed to persist transaction to federation_queue: {}", e);
+            None
+        }
     }
 }
 
@@ -754,41 +687,12 @@ async fn send_batch(
                 txn.edus.len()
             );
 
-            let db_id = if let Some(pool) = pool_opt {
-                let content = match serde_json::to_value(&txn) {
-                    Ok(v) => v,
-                    Err(_) => {
-                        let mut queue = retry_queue.write().await;
-                        queue.push(PendingTransaction {
-                            destination: destination.to_string(),
-                            transaction: txn,
-                            retry_count: 0,
-                            next_retry_at: current_timestamp_millis() + 5000,
-                            db_id: None,
-                        });
-                        return;
-                    }
-                };
-
-                let event_id = format!("txn:{}", txn.transaction_id);
-                sqlx::query_as::<_, (i64,)>(
-                    r"
-                    INSERT INTO federation_queue (destination, event_id, event_type, room_id, content, created_ts, status)
-                    VALUES ($1, $2, 'm.room.event', NULL, $3, $4, 'pending')
-                    RETURNING id
-                    ",
-                )
-                .bind(destination)
-                .bind(&event_id)
-                .bind(&content)
-                .bind(current_timestamp_millis())
-                .fetch_one(pool)
-                .await
-                .ok()
-                .map(|r: (i64,)| r.0)
-            } else {
-                None
-            };
+            // D-82：这里原本是 `persist_transaction_to_db` 的**第二份实现**（同一个 INSERT
+            // 复制一份，`event_type` 硬编码 `'m.room.event'`、`room_id` 恒 `NULL`，且用
+            // `.ok()` 把写库错误**静默吞掉**）。现在两处共用 `persist_transaction_row`：
+            // 元数据正确（EDU 批次记 `m.edu`、`room_id` 取首条 PDU），错误统一 `error!` 记录。
+            let db_id =
+                if let Some(pool) = pool_opt { persist_transaction_row(pool, destination, &txn).await } else { None };
 
             let delay = if txn.pdus.len() > 1 { 5000u64 } else { 1000u64 };
             let next_retry_at = current_timestamp_millis() + delay as i64;
@@ -891,5 +795,146 @@ mod tests {
         assert_eq!(broadcaster.get_backoff_delay(3), 30_000);
         assert_eq!(broadcaster.get_backoff_delay(4), 60_000);
         assert_eq!(broadcaster.get_backoff_delay(5), 300_000);
+    }
+}
+
+/// `federation_queue` 写入/状态流转在**真 baseline** 上的往返。
+///
+/// C45 的 4 处转换全在 `persist_transaction_row` 与 `update_db_status` 里，而本文件此前
+/// **没有任何 DB 测试**（`mod tests` 只覆盖退避表这类纯函数）⇒ 按 R8/R9 先补真基线覆盖：
+/// `federation_queue.content` 是 `JSONB NOT NULL`、`status`/`retry_count`/`sent_at` 只有
+/// `DEFAULT` 没有 `NOT NULL`，这些可空性错配只会在真 catalog 前的第一次往返里暴露。
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use sqlx::Row;
+
+    fn transaction(id: &str) -> FederationTransaction {
+        FederationTransaction {
+            transaction_id: id.to_string(),
+            origin: "origin.example.com".to_string(),
+            origin_server_ts: 1_700_000_000_000,
+            destination: "dest.example.com".to_string(),
+            pdus: vec![serde_json::json!({"room_id": "!r:origin.example.com", "type": "m.room.message"})],
+            edus: Vec::new(),
+        }
+    }
+
+    /// 读回一行 `federation_queue`（**测试区**夹具，R9/D-13：宏不进 `cargo sqlx prepare`）。
+    #[allow(clippy::type_complexity)]
+    async fn queue_row(
+        pool: &sqlx::PgPool,
+        id: i64,
+    ) -> (String, String, String, Option<String>, Option<String>, Option<i64>, Option<i32>) {
+        let row = sqlx::query(
+            "SELECT destination, event_id, event_type, room_id, status, sent_at, retry_count \
+             FROM federation_queue WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .expect("federation_queue row");
+        (
+            row.get("destination"),
+            row.get("event_id"),
+            row.get("event_type"),
+            row.get("room_id"),
+            row.get("status"),
+            row.get("sent_at"),
+            row.get("retry_count"),
+        )
+    }
+
+    #[tokio::test]
+    async fn persist_and_status_transitions_round_trip_on_the_migration_template() {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        let broadcaster = EventBroadcaster::new("origin.example.com".to_string()).with_pool((*pool).clone());
+
+        // PDU 批次：`event_type = 'm.room.event'`，`room_id` 取首条 PDU。
+        let id = broadcaster
+            .persist_transaction_to_db("dest.example.com", &transaction("pdu-1"))
+            .await
+            .expect("persisted row id");
+        let (destination, event_id, event_type, room_id, status, sent_at, retry_count) = queue_row(&pool, id).await;
+        assert_eq!(destination, "dest.example.com");
+        assert_eq!(event_id, "txn:pdu-1");
+        assert_eq!(event_type, "m.room.event");
+        assert_eq!(room_id.as_deref(), Some("!r:origin.example.com"));
+        assert_eq!(status.as_deref(), Some("pending"));
+        assert_eq!(sent_at, None);
+        assert_eq!(retry_count, Some(0));
+
+        // EDU 批次：没有 PDU ⇒ `event_type = 'm.edu'`、`room_id` 为 NULL。
+        let mut edu_txn = transaction("edu-1");
+        edu_txn.pdus.clear();
+        edu_txn.edus.push(serde_json::json!({"edu_type": "m.typing"}));
+        let edu_id =
+            broadcaster.persist_transaction_to_db("dest.example.com", &edu_txn).await.expect("persisted edu row id");
+        let (_, _, edu_event_type, edu_room_id, _, _, _) = queue_row(&pool, edu_id).await;
+        assert_eq!(edu_event_type, "m.edu");
+        assert_eq!(edu_room_id, None);
+
+        // `update_db_status` 的三个分支：sent（写入 sent_at）、retry（计数 +1 并回到 pending）、
+        // 以及兜底分支（状态名直接落库）。
+        broadcaster.update_db_status(id, "sent").await;
+        let (_, _, _, _, status, sent_at, retry_count) = queue_row(&pool, id).await;
+        assert_eq!(status.as_deref(), Some("sent"));
+        assert!(sent_at.is_some(), "sent 分支必须写 sent_at");
+        assert_eq!(retry_count, Some(0));
+
+        broadcaster.update_db_status(id, "retry").await;
+        let (_, _, _, _, status, _, retry_count) = queue_row(&pool, id).await;
+        assert_eq!(status.as_deref(), Some("pending"));
+        assert_eq!(retry_count, Some(1), "retry 分支必须把 retry_count 加一");
+
+        broadcaster.update_db_status(id, "failed").await;
+        let (_, _, _, _, status, _, retry_count) = queue_row(&pool, id).await;
+        assert_eq!(status.as_deref(), Some("failed"));
+        assert_eq!(retry_count, Some(1));
+    }
+
+    #[tokio::test]
+    async fn send_batch_persists_the_transaction_when_the_send_fails() {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+
+        let mock = Arc::new(crate::test_mocks::MockFederationClient::new("origin.example.com"));
+        mock.fail_send_transactions(true);
+        let client: Arc<dyn FederationClientApi> = mock.clone();
+
+        let mut batches = HashMap::new();
+        batches.insert(
+            "dest.example.com".to_string(),
+            TransactionBatch {
+                pdus: vec![serde_json::json!({"room_id": "!r:origin.example.com", "type": "m.room.message"})],
+                edus: Vec::new(),
+                origin: "origin.example.com".to_string(),
+            },
+        );
+        let retry_queue: Arc<RwLock<Vec<PendingTransaction>>> = Arc::new(RwLock::new(Vec::new()));
+
+        send_batch(&client, &retry_queue, &Some((*pool).clone()), &[1000], &batches, "dest.example.com").await;
+
+        // 内存队列拿到一条待重试事务，并且它**确实落库**了（D-82 后走共享实现）。
+        let queue = retry_queue.read().await;
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue[0].destination, "dest.example.com");
+        let db_id = queue[0].db_id.expect("failed send must still persist the transaction");
+        drop(queue);
+
+        let (_, event_id, event_type, room_id, status, _, _) = queue_row(&pool, db_id).await;
+        assert!(event_id.starts_with("txn:batch_"), "unexpected event_id {event_id}");
+        assert_eq!(event_type, "m.room.event");
+        assert_eq!(room_id.as_deref(), Some("!r:origin.example.com"), "共享实现必须带上 PDU 的 room_id");
+        assert_eq!(status.as_deref(), Some("pending"));
+
+        // 对照组：发送成功时不落库（只在 `sent_transactions` 里留痕）。
+        let ok_mock = Arc::new(crate::test_mocks::MockFederationClient::new("origin.example.com"));
+        let ok_client: Arc<dyn FederationClientApi> = ok_mock.clone();
+        let ok_queue: Arc<RwLock<Vec<PendingTransaction>>> = Arc::new(RwLock::new(Vec::new()));
+        send_batch(&ok_client, &ok_queue, &Some((*pool).clone()), &[1000], &batches, "dest.example.com").await;
+        assert!(ok_queue.read().await.is_empty());
+        assert_eq!(ok_mock.sent_transactions().await.len(), 1);
     }
 }

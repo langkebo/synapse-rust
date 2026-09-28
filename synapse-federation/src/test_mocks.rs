@@ -43,6 +43,7 @@ pub struct MockFederationClient {
     backfill_responses: Arc<RwLock<HashMap<String, BackfillResponse>>>,
     send_join_calls: Arc<std::sync::atomic::AtomicUsize>,
     send_leave_calls: Arc<std::sync::atomic::AtomicUsize>,
+    fail_send_transaction: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// Implementation of [`MockFederationClient`] methods.
@@ -61,6 +62,7 @@ impl MockFederationClient {
             backfill_responses: Arc::new(RwLock::new(HashMap::new())),
             send_join_calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             send_leave_calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            fail_send_transaction: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -110,6 +112,14 @@ impl MockFederationClient {
     /// Snapshot of all outbound transactions recorded so far.
     pub async fn sent_transactions(&self) -> Vec<FederationTransaction> {
         self.sent_transactions.read().await.clone()
+    }
+
+    /// 让后续 `send_transaction` 一律返回错误。
+    ///
+    /// 用于覆盖**发送失败后落库重试**的路径（`event_broadcaster::send_batch` 的失败分支）——
+    /// 那条路径此前没有任何真实覆盖（该文件也没有 in-file DB 测试）。
+    pub fn fail_send_transactions(&self, fail: bool) {
+        self.fail_send_transaction.store(fail, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// How many times `send_join` has been called.
@@ -165,9 +175,12 @@ impl crate::client_api::FederationClientApi for MockFederationClient {
 
     async fn send_transaction(
         &self,
-        _destination: &str,
+        destination: &str,
         transaction: &FederationTransaction,
     ) -> Result<serde_json::Value, FederationClientError> {
+        if self.fail_send_transaction.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(FederationClientError::Connection(format!("mock: send_transaction to {destination} fails")));
+        }
         self.sent_transactions.write().await.push(transaction.clone());
         Ok(serde_json::json!({}))
     }
