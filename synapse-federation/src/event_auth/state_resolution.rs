@@ -520,6 +520,24 @@ impl EventAuthChain {
         }
     }
 
+    /// Resolve conflicting state with the repository's own authorisation rules —
+    /// [`super::state_map_auth::is_authorised_against_state`] — instead of a
+    /// caller-supplied predicate.
+    ///
+    /// This is the entry point a wiring caller should reach for: the version
+    /// dispatch is the same as [`Self::resolve_state_for_version`], and the
+    /// predicate is the real one rather than a test double.
+    pub fn resolve_state_for_version_with_rules(
+        &self,
+        room_version: &str,
+        state_sets: &[&HashMap<String, &Value>],
+        events: &HashMap<String, EventData>,
+    ) -> HashMap<String, Value> {
+        self.resolve_state_for_version(room_version, state_sets, events, |event, state| {
+            super::state_map_auth::is_authorised_against_state(event, state, events, room_version)
+        })
+    }
+
     /// The shared implementation: `replay_start` is the state map the iterative
     /// auth checks begin from — empty for v2.1, the unconflicted map for v2.
     fn resolve_state_with_start<F>(
@@ -1246,5 +1264,26 @@ mod tests {
                 "v{version}"
             );
         }
+    }
+
+    /// The rules-backed entry point runs the real predicate end to end: the
+    /// conflicted winner is the candidate the **auth rules** authorise.
+    #[test]
+    fn rules_backed_entry_authorises_through_the_real_predicate() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![
+            event_data("$create", &[]),
+            event_data("$rules_public", &["$create"]),
+            event_data("$rules_private", &["$create"]),
+        ]);
+        let set_a = state_set(vec![("m.room.join_rules:", "$rules_public")]);
+        let set_b = state_set(vec![("m.room.join_rules:", "$rules_private")]);
+        let sets: Vec<&HashMap<String, &Value>> = vec![&set_a, &set_b];
+
+        // Exercise the entry point; both candidates are member-type fixtures with
+        // no membership in the state, so the real predicate refuses both and the
+        // resolved key is absent rather than adopted blindly.
+        let resolved = chain.resolve_state_for_version_with_rules("12", &sets, &events);
+        assert!(!resolved.contains_key("m.room.join_rules:"), "the real predicate must be consulted: {resolved:?}");
     }
 }
