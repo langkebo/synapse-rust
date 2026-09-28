@@ -34,14 +34,14 @@
 | **E-2** | 创建者集合 + 无限 PL（G-32/33/35） | ✅ **完成**（`6f0c1735a`） | `room_creators_and_version` 一次读 create 事件返回（集合, 版本）；`resolve_room_creators`；v12+ 创建者返回 `CREATOR_POWER_LEVEL = i64::MAX` 且**排在读 PL 之前**（不可降权）；踢/封保护改用集合；版本未知时 fail-closed 不授予无限 |
 | **E-3** | 规则 10.4：PL 的 `users` 不得含创建者 | ✅ **完成**（`6f0c1735a` + `fcc57e0f2` + 接线修复 `ab59f4286`） | 客户端 `verify_power_levels_change` 拒绝；**修复**：规范路径是 `PUT /state/m.room.power_levels`（`ensure_room_state_write_access`），原先只接了非规范的 `/send` 路径 ⇒ 规则实际未生效，现已接上（同时补上原本缺失的升降权/同级检查）；入站经 B-1 接缝，读创建者失败 **fail-closed** |
 | **F-1** | 状态决议接线决策（G-38 零调用者） | ✅ **已决策**（A-2 改选 **(ii)**） | 裁定：v2.1 **实现在 `resolve_state_v2`**（计划原文落点），并查清/接线冲突状态路径。**查清已完成**（§4.6）：本仓无状态决议路径 —— `create_state_group` 零生产调用者，当前 state 是 `DISTINCT ON … origin_server_ts DESC` 的**纯时间戳 LWW** |
-| **F-2** | v2.1 三处修改 | 🟡 **部分完成**（`a5d32166c`，按 (A) 真做） | ✅ Modification 2（conflicted state subgraph）+ 3（full conflicted set）+ auth difference 定义修正；❌ Modification 1（iterative auth checks from empty state map）—— 需先立鉴权接缝（本仓无 state-resolution 用的 auth-rules 引擎）；重组与 F-3 见 §4.8 |
-| **F-3** | v1–v11 兼容边界 | ❌ **未做** | 依赖 F-2 |
+| **F-2** | v2.1 三处修改 | 🟡 **部分完成**（三片：`a5d32166c`/`45d48b69b`/`0e207f202`） | ✅ Modification 2（subgraph）+ 3（full conflicted set）+ auth difference 修正 + **Modification 1 机制**（`iterative_auth_checks`，起始 map 为参数）+ **解析器重组**（full conflicted set → 排序 → 空起始重放 → 叠加 unconflicted）。❌ 仍缺：**真实 `_check_event_auth`**（现为注入谓词）、**忠实的 mainline ordering / reverse topological power ordering**（现共用旧比较器） |
+| **F-3** | v1–v11 兼容边界 | ✅ **完成**（`9836c3be7`） | `resolve_state_for_version`：**v12+ 用空起始 map（v2.1）**、**v1–v11 用 unconflicted 起始（v2）**；边界用例在**同一冲突/同一谓词**下断言 v11 否决、v12 放行；另有 `"1"/"11"/"12"/"13"/不可解析标识` 的分派范围用例 |
 | **G-1** | 能力表收敛：仅 v12 可创建 | ✅ **完成**（`7489b247f`） | 新增 `RoomVersionCapability::stable_no_create`：v1–v11 可 join/parse/federate、不可创建；`resolve_room_version` 对 v1–v11 返回 `None`；`/capabilities.available` 仅 `"12"`（快照已审阅更新）；联邦 join 走存储层 `room_storage.create_room`，**不受影响** |
 | **G-2** | 连带面清单（含联邦 `m.room_versions` 补测） | ✅ **完成**（`8687d8335`） | 补测后暴露**真实协议缺口**：联邦 `m.room_versions` 发的是扁平 `{version:{"status":…}}` + 手工插入 `default`，**不符规范形状** `{default, available:{v:status}}`；已修正，且 `available` 由 `can_federate` 派生（v1–v11 可联邦但不可创建，故与客户端集合**刻意不同**）；新增 `GET /_matrix/federation/v1` 用例（此前零覆盖） |
 | **H-1** | 逐份更正文档（含额外 6 份） | ✅ **完成**（`72072e175`） | 10 份文档标题下加状态行（U-22、❌7、AUDIT_SUMMARY、DB_REVIEW、O1_PHASE1、PROJECT_REMAINING、P2_protocol_contract、synapse‑vs‑synapse comparison、API_COVERAGE、v12‑pdu‑graph‑fields），统一指向本文为唯一现状来源；判据 `grep MSC4239 + v12` 不再把 MSC4239 当 v12 定义（余下命中是本计划的纠错说明与该文件自我更正）；新增行无 markdownlint 违规 |
 | **H-2** | Q1–Q7 结论落档 | ✅ **完成**（`c56d9d161`） | 本文 §3/§5 记录 Q1–Q8 结论**及其落点**（代码/提交/doc）；README 文档索引新增房间 v12 计划与状态条目（此前 `docs/audit` 零索引 ⇒ 不可发现） |
 
-**计数（F-2 首片后）**：✅ 完成 21（A-1、A-2、B-1、B-2、C-1、C-2、C-3、C-4、C-5、D-1、D-2、D-4、D-5、D-6、E-1、E-2、E-3、G-1、G-2、H-1、H-2）｜🟡 部分 2（D-3、**F-2**）｜❌ 未做 1（F-3）。
+**计数（F-3 后）**：✅ 完成 22（A-1、A-2、B-1、B-2、C-1、C-2、C-3、C-4、C-5、D-1、D-2、D-4、D-5、D-6、E-1、E-2、E-3、F-3、G-1、G-2、H-1、H-2）｜🟡 部分 2（D-3、F-2）｜❌ 未做 0。
 
 > **D-2/D-5 完成（2026-09-28）**：`c073c9625`（规则 2）、`e933e362c`（auth chain 不含 create）。
 > **仅剩 F-2/F-3**（MSC4297）：落点 `resolve_state_v2` 已定，但 §4.6 已证明本仓**没有**状态决议路径，
@@ -403,3 +403,15 @@ auth-rules 引擎，避免复制一套规则）。4 个新用例 + 变异自证�
 **F-2 剩余**：① 真实 `_check_event_auth`（或把 `event_auth::rules` 扩展成可对 state map 判定）；
 ② 重组 `resolve_state_v2`：mainline ordering + reverse topological power ordering + 用 full conflicted set 调
 `iterative_auth_checks`（v2.1 传空起始 map）；③ **F-3** 版本分派 + v1–v11 的 v2 回归向量。
+
+### 4.8.2 第三片（`0e207f202`）+ F-3（`9836c3be7`）
+
+- **解析器重组**：`resolve_state_v2` 现按算法执行 —— full conflicted set → 排序 → `iterative_auth_checks` **空起始 map** 重放 → 叠加 unconflicted（spec step 5）。签名新增**注入谓词**（本仓无面向 state map 的 auth-rules 引擎）；零调用者，故签名变更无代价。
+  两个行为随之改变：赢家改由**重放授权**决定（非排序第一个）；"仅一侧有的键"也走重放（不再直接采纳）。
+- **F-3 分派**：`resolve_state_for_version(room_version, …)` —— v12+ 空起始（v2.1）、v1–v11 unconflicted 起始（v2）。边界用例在**同一冲突/同一谓词**下断言 v11 否决、v12 放行；另有标识符范围用例。
+
+**F-2 真正剩余（2 项）**：
+1. **真实 `_check_event_auth`**：谓词目前由调用方注入（测试里用"发送者必须是 joined 成员"）。需要面向 state map 的规范 auth rules（`event_auth::rules` 是单事件入站的，不适用）。
+2. **忠实排序**：mainline ordering 与 reverse topological power ordering 目前共用同一个比较器（sender power → ts → mainline 位置），是近似。
+
+⚠️ 不变：`resolve_state_for_version` **零调用者** ⇒ 以上均无端到端证据；§4.6 的接线决策仍未拍板。
