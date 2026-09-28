@@ -698,12 +698,16 @@ impl EventAuthChain {
         }
 
         // Materialise the replayed state, skipping the keys step 5 settled.
+        // The value is the full state event (not just its `content`): the result
+        // is a `(type, state_key) -> winning event` map, so a caller must be able
+        // to read the winner's `event_id` from every entry — a content-only entry
+        // is unusable as state.
         for (key, event_id) in &replayed {
             if resolved.contains_key(key) {
                 continue;
             }
-            if let Some(content) = events.get(event_id).and_then(|event| event.content.as_ref()) {
-                resolved.insert(key.clone(), content.clone());
+            if let Some(event) = events.get(event_id) {
+                resolved.insert(key.clone(), event.to_state_event_value());
             }
         }
 
@@ -1147,10 +1151,56 @@ mod tests {
 
         let resolved = chain.resolve_state_v2(&sets, &events, sender_is_joined(&events));
         assert_eq!(
-            resolved.get("m.room.join_rules:").and_then(|v| v.get("join_rule")).and_then(|v| v.as_str()),
+            resolved
+                .get("m.room.join_rules:")
+                .and_then(|v| v.get("content"))
+                .and_then(|v| v.get("join_rule"))
+                .and_then(|v| v.as_str()),
             Some("public"),
             "the replay must keep the authorised candidate: {resolved:?}"
         );
+        assert_eq!(
+            resolved.get("m.room.join_rules:").and_then(|v| v.get("event_id")).and_then(|v| v.as_str()),
+            Some("$rules_ok"),
+            "the replayed winner must be identified by its event_id, not carry a bare content object: {resolved:?}"
+        );
+    }
+
+    /// Every entry of a resolution result names a concrete event.
+    ///
+    /// The two halves are produced by different code paths — the unconflicted
+    /// overlay carries the caller's state-set value through untouched, while the
+    /// replayed half is materialised from `EventData`. Only one shape for both
+    /// lets a wiring caller persist the result; a content-only replayed entry has
+    /// no `event_id` and would have been silently unusable.
+    #[test]
+    fn every_resolved_entry_identifies_its_winning_event() {
+        let chain = EventAuthChain::new();
+        let events = events_of(vec![
+            member_event("$a_join", "@a:ex.com", "join", &[]),
+            member_event("$b_leave", "@b:ex.com", "leave", &[]),
+            join_rules_event("$rules_ok", "@a:ex.com", &["$a_join"]),
+            join_rules_event("$rules_bad", "@b:ex.com", &["$b_leave"]),
+            member_event("$a_leave", "@a:ex.com", "join", &[]),
+        ]);
+
+        // `m.room.name:` is identical in both sets (unconflicted), the join rules
+        // differ (conflicted and replayed).
+        let dir: &'static Value = Box::leak(Box::new(json!({ "event_id": "$dir", "type": "m.room.name" })));
+        let mut set_a = state_set(vec![("m.room.join_rules:", "$rules_ok")]);
+        let mut set_b = state_set(vec![("m.room.join_rules:", "$rules_bad")]);
+        set_a.insert("m.room.name:".to_string(), dir);
+        set_b.insert("m.room.name:".to_string(), dir);
+        let sets: Vec<&HashMap<String, &Value>> = vec![&set_a, &set_b];
+
+        let resolved = chain.resolve_state_v2(&sets, &events, sender_is_joined(&events));
+        assert!(resolved.len() >= 2, "both keys must be represented: {resolved:?}");
+        for (key, value) in &resolved {
+            assert!(
+                value.get("event_id").and_then(|v| v.as_str()).is_some(),
+                "resolved entry `{key}` must carry an event_id: {value:?}"
+            );
+        }
     }
 
     /// Spec step 5: the unconflicted state overrides whatever the replay produced

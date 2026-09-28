@@ -93,6 +93,29 @@ pub struct EventData {
     pub depth: i64,
 }
 
+impl EventData {
+    /// The event as the state event JSON value a resolver result carries.
+    ///
+    /// State resolution's result is a `(type, state_key) -> winning event` map,
+    /// and every caller needs the winner's **`event_id`** to persist or serve it.
+    /// Returning a bare `content` object (the previous shape for replayed keys)
+    /// made the result un-consumable: a replayed winner had no `event_id`, so it
+    /// could not be written to a state store or compared with the unconflicted
+    /// entries, which *did* carry one. One shape for both halves of the result is
+    /// what makes the resolver callable at all.
+    pub fn to_state_event_value(&self) -> Value {
+        serde_json::json!({
+            "event_id": self.event_id,
+            "room_id": self.room_id,
+            "type": self.event_type,
+            "sender": self.sender,
+            "state_key": self.state_key.clone().unwrap_or_else(|| Value::String(String::new())),
+            "content": self.content.clone().unwrap_or(Value::Null),
+            "origin_server_ts": self.origin_server_ts,
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 /// The `EventInfo` type.
 pub struct EventInfo {
