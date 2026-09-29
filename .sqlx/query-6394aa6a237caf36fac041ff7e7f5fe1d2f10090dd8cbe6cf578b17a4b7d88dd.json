@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO federation_dead_letter_queue\n               (txn_id, destination, origin, payload, failure_reason,\n                retry_count, created_ts, last_attempt_ts, is_resolved)\n               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Int4",
+        "Int8",
+        "Int8",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6394aa6a237caf36fac041ff7e7f5fe1d2f10090dd8cbe6cf578b17a4b7d88dd"
+}
