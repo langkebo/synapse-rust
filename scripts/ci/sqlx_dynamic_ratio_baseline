@@ -3104,12 +3104,40 @@
 #   实测：`dynamic_production` 111 → **106**（−5）、`static` 1353 → **1358**（+5）、
 #   测试区 752 不变、`.sqlx` 1320 → **1324**（+5）、literal 41/12 → **36/8**。
 #   恒等式 `106 − 36 − 0 = 70` 成立。
+# ── 2026-09-29 C64（D14-1：`src/server/database.rs` 的 3 处会话 GUC 值插值宏化）──────────────
+#   背景：C63 后 `dynamic_production` 106 里 29 处全是 D-14 运行期拼装。§8.6 按"插进去的是
+#   **值**还是**标识符**"给这 29 处分档，只有"值插值"这一档能真正回收（PG 协议层不允许把
+#   标识符做成绑定参数，值可以）：
+#     ① 值插值 3 处 ⇒ 本批回收；② 共享列清单 16 处 / ③ 排序方向 + 打分片段 8 处 ⇒ **保持动态**
+#     （R7 明确允许这类形态；字面量内联 = 把一份列清单复制成 14 份，违反铁律 2，收益仅是编译期
+#     检查，代价是 14 份会各自漂移的副本）；④ `VACUUM/REINDEX` 2 处 ⇒ 无替代方案。
+#   · `format!("SET <guc> = {}", format_pg_timeout(secs))` ⇒
+#     `SELECT set_config('<guc>', $1, false)`（`is_local = false` 即 **session 级**，与 `SET` 等价）：
+#     值改走**绑定参数**，配置值不再进入 SQL 文本。返回带引号 `'30s'` 的 `format_pg_timeout`
+#     随之删除，换成只产出裸值 `30s` 的 `pg_timeout_value`（仍是唯一一份"秒 → PG 值"实现：
+#     带引号形态只在文本拼接时代才需要，留两份就是铁律 2 的双实现）。
+#   · R4③：`set_config` 是没有关系来源的函数调用 ⇒ sqlx 按**可空**推断 ⇒ 断言 `AS "applied!"`
+#     （返回的就是刚写入的值，恒非 NULL）。
+#   · R8④：本模块此前**零覆盖** —— `build_database_pool` 只被 `src/server/mod.rs:149` 调用，
+#     没有任何测试经过它；而本批改的正是"每条新连接建立时执行什么" ⇒ 把三条 `set_config` 抽成
+#     `apply_session_timeouts` 并补真 baseline 往返
+#     （`server::database::tests::session_timeouts_are_applied_as_session_level_gucs`：在隔离
+#     schema 的连接上调用后读回三个 GUC，三个值各不相同 ⇒ 写错 GUC 名会指名道姓地红）。
+#     **R11 变异自证**：把生产侧 `is_local` 由 `false` 改成 `true`（session 级 → 事务级），用例
+#     立刻红 —— `current_setting('statement_timeout')` 读回 `"0"`（断言 left/right = "0"/"30s"），
+#     还原后绿。⚠️ 该变异**改的是 SQL 文本**，离线宏缓存会先报 "no cached data" 而编译失败，
+#     所以变异实测必须在 `SQLX_OFFLINE=false` 下跑（否则会把"缓存缺条目"误当成"用例生效"）。
+#   实测：`dynamic_production` 106 → **103**（−3）、`static` 1358 → **1361**（+3）、
+#   `dynamic_test` 752 → **753**（+1：上面那条往返用例的读回探针；测试区探针按 R9 只能动态，
+#   且为同一断言只留 1 处站点）、`.sqlx` 1324 → **1327**（+3）、literal 36/8 **不变**
+#   （本批未新增任何 literal 生产站点）。
+#   恒等式 `103 − 36 − 0 = 67` 成立（C63 时为 `106 − 36 − 0 = 70`）。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=106
-BASELINE_DYNAMIC_TEST_INFRA=752
-BASELINE_STATIC=1358
+BASELINE_DYNAMIC_PRODUCTION=103
+BASELINE_DYNAMIC_TEST_INFRA=753
+BASELINE_STATIC=1361
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=960
+BASELINE_DYNAMIC=856
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

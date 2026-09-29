@@ -7,23 +7,55 @@ use crate::common::config::Config;
 use synapse_services::database_initializer::DatabaseInitService;
 use synapse_storage::schema_health_check::run_schema_health_check;
 
-/// 格式化 PG 超时语句，统一输出 PG 接受的 `'30s'` 形式。
+/// PG 会话参数**值**的统一形态：`30s`（不带引号）。
 ///
 /// PG 接受 `SET ... = <int>ms` 或 `'<int>{ms|s|min}'`；本项目所有超时都按秒配置，
-/// 显式带单位避免歧义（`'0'` 会被解析为毫秒）。
-fn format_pg_timeout(seconds: u64) -> String {
-    format!("'{seconds}s'")
+/// 显式带单位避免歧义（`'0'` 会被解析为毫秒）。这里返回的是**裸值**，因为它不再被拼进
+/// SQL 文本，而是作为 `set_config(name, $1, false)` 的绑定参数发送（D14-1）——
+/// 带引号的形态（`'30s'`）只在文本拼接时代才需要。
+fn pg_timeout_value(seconds: u64) -> String {
+    format!("{seconds}s")
+}
+
+/// Apply the three configured session GUCs to a freshly established connection.
+///
+/// **D14-1**：这三条原先由 `format!("SET <guc> = {}", value)` 拼出 SQL 文本，现在改为
+/// `set_config(name, $1, false)` —— `is_local = false` 即 **session 级**，与
+/// `SET <guc> = '30s'` 语义等价，但**值**改走绑定参数：配置值不再进入 SQL 文本
+/// （标识符/表名无法参数化，**值**可以，R7 与 §8.6 的分档据此而来）。
+///
+/// ⚠️ R4③：`set_config` 是没有关系来源的函数调用 ⇒ sqlx 按**可空**推断，而返回的就是刚写入
+/// 的值（恒非 NULL）⇒ 断言 `AS "applied!"`。
+///
+/// 抽成独立函数是为了让 R8④ 的"真 baseline 往返"能直接调用它并读回 GUC ——
+/// 否则这段只在 `after_connect` 里执行，任何测试都覆盖不到（见 `mod tests`）。
+async fn apply_session_timeouts(
+    conn: &mut sqlx::PgConnection,
+    statement_timeout: &str,
+    lock_timeout: &str,
+    idle_in_tx_timeout: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query_scalar!(r#"SELECT set_config('statement_timeout', $1, false) AS "applied!""#, statement_timeout)
+        .fetch_one(&mut *conn)
+        .await?;
+    sqlx::query_scalar!(r#"SELECT set_config('lock_timeout', $1, false) AS "applied!""#, lock_timeout)
+        .fetch_one(&mut *conn)
+        .await?;
+    sqlx::query_scalar!(
+        r#"SELECT set_config('idle_in_transaction_session_timeout', $1, false) AS "applied!""#,
+        idle_in_tx_timeout
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    Ok(())
 }
 
 /// See [`build_database_pool`].
 pub async fn build_database_pool(config: &Config) -> Result<PgPool, Box<dyn std::error::Error>> {
     let db_cfg = &config.database;
-    let statement_timeout_sql = format!("SET statement_timeout = {}", format_pg_timeout(db_cfg.statement_timeout_secs));
-    let lock_timeout_sql = format!("SET lock_timeout = {}", format_pg_timeout(db_cfg.lock_timeout_secs));
-    let idle_in_tx_timeout_sql = format!(
-        "SET idle_in_transaction_session_timeout = {}",
-        format_pg_timeout(db_cfg.idle_in_transaction_timeout_secs)
-    );
+    let statement_timeout = pg_timeout_value(db_cfg.statement_timeout_secs);
+    let lock_timeout = pg_timeout_value(db_cfg.lock_timeout_secs);
+    let idle_in_tx_timeout = pg_timeout_value(db_cfg.idle_in_transaction_timeout_secs);
 
     let min_idle = db_cfg.min_idle.unwrap_or(db_cfg.min_idle_floor);
     let max_lifetime = Duration::from_secs(db_cfg.max_lifetime_secs);
@@ -36,14 +68,11 @@ pub async fn build_database_pool(config: &Config) -> Result<PgPool, Box<dyn std:
         .max_lifetime(max_lifetime)
         .idle_timeout(idle_timeout)
         .after_connect(move |conn, _meta| {
-            let statement_timeout_sql = statement_timeout_sql.clone();
-            let lock_timeout_sql = lock_timeout_sql.clone();
-            let idle_in_tx_timeout_sql = idle_in_tx_timeout_sql.clone();
+            let statement_timeout = statement_timeout.clone();
+            let lock_timeout = lock_timeout.clone();
+            let idle_in_tx_timeout = idle_in_tx_timeout.clone();
             Box::pin(async move {
-                sqlx::query(&statement_timeout_sql).execute(&mut *conn).await?;
-                sqlx::query(&lock_timeout_sql).execute(&mut *conn).await?;
-                sqlx::query(&idle_in_tx_timeout_sql).execute(&mut *conn).await?;
-                Ok(())
+                apply_session_timeouts(conn, &statement_timeout, &lock_timeout, &idle_in_tx_timeout).await
             })
         })
         .test_before_acquire(false);
@@ -262,5 +291,40 @@ mod tests {
         // If the hint ever goes back to naming `true`, this fails: the startup error
         // would tell an operator to set a value that leaves the schema check running.
         assert!(schema_check_skip_requested(Some(value)), "hint must name a value the bypass accepts: {hint}");
+    }
+
+    /// D14-1 的行为证据（R8④：本批改的是"每条新连接建立时执行什么"，只看编译通过不够）。
+    ///
+    /// `set_config(<guc>, $1, false)` 必须真的写进**会话级** GUC，且值形态与旧文本拼接
+    /// （`SET <guc> = '30s'`）等价 —— 这是"值改走绑定参数"唯一的行为风险点。用例直接调用
+    /// `after_connect` 用的同一个 [`apply_session_timeouts`]，再从连接上读回 GUC。
+    #[tokio::test]
+    async fn session_timeouts_are_applied_as_session_level_gucs() {
+        let isolated = synapse_common::test_isolation::IsolatedTestPool::new(include_str!(
+            "../../migrations/00000000_unified_schema_v12.sql"
+        ))
+        .await
+        .expect("isolated test pool");
+        let pool = isolated.pool();
+        let mut conn = pool.acquire().await.expect("acquire a pooled connection");
+
+        // 三个值各不相同：若哪一条写错了 GUC 名（例如 idle 与 lock 互换），断言会指出是哪一个。
+        apply_session_timeouts(&mut conn, &pg_timeout_value(30), &pg_timeout_value(7), &pg_timeout_value(11))
+            .await
+            .expect("apply the session timeouts");
+
+        // R9：测试区探针一律动态 SQL（宏的条目不会被 `cargo sqlx prepare` 收集，
+        // 离线 `--all-targets` 会 E0282）。一次往返读回三个 GUC，避免同一断言产生三处站点。
+        let (statement, lock, idle): (String, String, String) = sqlx::query_as::<_, (String, String, String)>(
+            "SELECT current_setting('statement_timeout'), current_setting('lock_timeout'), \
+             current_setting('idle_in_transaction_session_timeout')",
+        )
+        .fetch_one(&mut *conn)
+        .await
+        .expect("read back the session GUCs");
+
+        assert_eq!(statement, "30s", "statement_timeout 必须按会话级生效");
+        assert_eq!(lock, "7s", "lock_timeout 必须按会话级生效");
+        assert_eq!(idle, "11s", "idle_in_transaction_session_timeout 必须按会话级生效");
     }
 }
