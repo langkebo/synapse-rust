@@ -240,6 +240,10 @@
 #   `synapse-storage/src/monitoring.rs`：EXISTS 那条转宏；慢查询那条因
 #   `pg_stat_statements` 是**可选扩展**（宏无法 describe）⇒ 按 R7 结构性例外**留在本表**。
 #   恒等式同步为 `184 − 113 − 1 = 70`。
+# ── 2026-09-28 C53（本表一行下调：5 → 1）──────────────────────────────────
+#   `synapse-storage/src/monitoring.rs`：4 处宏化；**剩 1 处按 R7/D-96 有意保留**
+#   （`pg_stat_statements` 是可选扩展，宏无法 describe）⇒ 该行 5 → **1**、文件数仍 31。
+#   恒等式同步为 `180 − 109 − 1 = 70`。
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -260,7 +264,7 @@ synapse-storage/src/event/unread.rs	3
 synapse-storage/src/login_token.rs	3
 synapse-storage/src/maintenance.rs	3
 synapse-storage/src/migration_checks.rs	2
-synapse-storage/src/monitoring.rs	5
+synapse-storage/src/monitoring.rs	1
 synapse-storage/src/oauth_client_storage.rs	2
 synapse-storage/src/oidc_user_mapping.rs	3
 synapse-storage/src/presence/mod.rs	1
@@ -273,7 +277,7 @@ synapse-storage/src/user/storage.rs	1
 synapse-test-utils/src/lib.rs	14
 # ── 当前「运行期拼装」残差清单（**允许**，不入棘轮；仅作可读性摘要）────────────
 # 合计 **70 处 / 13 文件**（2026-09-26 C44 后实测；与 ratio 棘轮的
-# `dynamic_production − literal − param` = 184 − 113 − 1 = 70 一致）：
+# `dynamic_production − literal − param` = 180 − 109 − 1 = 70 一致）：
 #    16  synapse-common/src/test_isolation.rs
 #    14  synapse-test-utils/src/lib.rs
 #     9  synapse-storage/src/event/pagination.rs

@@ -2797,10 +2797,24 @@
 #   R9/D-13）、`dynamic` 总数 918 → **919**、`.sqlx` 1262 → **1263**（+1）、
 #   literal 114/31 → **113/31**（本行 6 → 5，`pg_stat_statements` 那条**留在**表里）。
 #   验证：`-p synapse-storage --lib --features test-utils -E 'test(/monitoring/)'` ⇒ 1/1。
+# ── 2026-09-28 C53（`monitoring.rs` 4 处宏化；该文件按 R7 保留 1 处）────────────────────
+#   C53-0 之后剩 5 处，转换其中 4 处：
+#   · `check_connection` 的 `SELECT 1` ⇒ `query_scalar!`（单列；R6 ①，错误仍原样传播）；
+#   · `get_performance_metrics` 的六列 `pg_stat_database` 统计 ⇒ `query!` + 组装元组
+#     （R6 ⑤ 不能构造元组；五个 `COALESCE(col, 0)` 按 R4 ① 断言，`stats_reset` 语义可空不断言）；
+#   · `verify_data_integrity` 的两处 ⇒ `query!`（四列全是常量 ⇒ R4 ① 断言，`0::bigint` 显式定型）
+#     与 `query_scalar!`（`COUNT(*) AS "count!"`）。
+#   ⚠️ 第 5 处（`FROM pg_stat_statements` 的慢查询查询）**按 D-96 保持动态** —— 该关系只在装了
+#   可选扩展的库里存在，宏在 prepare 阶段无法 describe（实测 `relation "pg_stat_statements"
+#   does not exist`），见 §7.3；因此本文件**不退 literal 表**，只把该行从 5 降到 **1**。
+#   实测：`dynamic_production` 184 → **180**（−4）、`static` 1295 → **1299**（+4）、
+#   `dynamic` 总数 919 → **915**、`dynamic_test` 735 不变、`.sqlx` 1263 → **1267**（+4）、
+#   literal 113/31 → **109/31**。恒等式 `180 − 109 − 1 = 70` 仍成立。
+#   验证：`-p synapse-storage --lib --features test-utils -E 'test(/monitoring/)'` ⇒ 1/1。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=184
+BASELINE_DYNAMIC_PRODUCTION=180
 BASELINE_DYNAMIC_TEST_INFRA=735
-BASELINE_STATIC=1295
+BASELINE_STATIC=1299
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 

@@ -164,7 +164,9 @@ impl DatabaseMonitor {
 
     /// See [`check_connection`].
     pub async fn check_connection(&self) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query("SELECT 1").fetch_one(&self.pool).await;
+        // 单列 SELECT ⇒ `query_scalar!`（R6 ①：`query!` 生成的 `Map` 没有 `.execute()`）。
+        // 返回值本身无意义（只为探活），错误仍然原样传播给调用方。
+        let result = sqlx::query_scalar!("SELECT 1").fetch_one(&self.pool).await;
 
         match result {
             Ok(_) => {
@@ -229,14 +231,23 @@ impl DatabaseMonitor {
 
     /// See [`get_performance_metrics`].
     pub async fn get_performance_metrics(&self) -> Result<PerformanceMetrics, sqlx::Error> {
-        let db_stats = sqlx::query_as::<_, (i64, i64, i64, i64, i64, Option<chrono::DateTime<Utc>>)>(
-            "SELECT COALESCE(xact_commit, 0), COALESCE(xact_rollback, 0), \
-                    COALESCE(blks_hit, 0), COALESCE(blks_read, 0), COALESCE(deadlocks, 0), \
-                    stats_reset \
-             FROM pg_stat_database WHERE datname = current_database() LIMIT 1",
+        // R6 ⑤：`query_as!` 不能构造元组 ⇒ `query!` 按字段读再组装。
+        // R4 ①：五个 `COALESCE(col, 0)` 的第二实参保证结果非空（`pg_stat_database` 是系统视图，
+        // Describe 不给视图列透传 NOT NULL）⇒ 逐个断言；`stats_reset` 语义上可空，不断言。
+        let db_stats = sqlx::query!(
+            r#"
+            SELECT COALESCE(xact_commit, 0) AS "xact_commit!",
+                   COALESCE(xact_rollback, 0) AS "xact_rollback!",
+                   COALESCE(blks_hit, 0) AS "blks_hit!",
+                   COALESCE(blks_read, 0) AS "blks_read!",
+                   COALESCE(deadlocks, 0) AS "deadlocks!",
+                   stats_reset
+             FROM pg_stat_database WHERE datname = current_database() LIMIT 1
+            "#,
         )
         .fetch_optional(&self.pool)
         .await?
+        .map(|r| (r.xact_commit, r.xact_rollback, r.blks_hit, r.blks_read, r.deadlocks, r.stats_reset))
         .unwrap_or((0, 0, 0, 0, 0, None));
 
         let cache_hit_ratio =
@@ -311,18 +322,23 @@ impl DatabaseMonitor {
         let null_constraint_violations = Vec::new();
 
         // 1. 检查核心外键约束 (示例：events -> rooms)
-        let orphans = sqlx::query_as::<_, (String, String, i64, String)>(
-            r"
-            SELECT 'events' as table_name, 'room_id' as column_name, 0 as violating_row_id, 'rooms' as referenced_table
+        // D-95：这条扫描**结构上不可能命中**（`fk_events_room` 是外键，孤儿事件插不进来）——
+        // 保持原样转换，处置见 §7.1。R4 ①：四列全是字面量/常量（无关系来源）⇒ 逐个断言；
+        // `0::bigint` 显式定型，与 `ForeignKeyViolation.violating_row_id: i64` 对齐。
+        let orphans = sqlx::query!(
+            r#"
+            SELECT 'events' AS "table_name!", 'room_id' AS "column_name!",
+                   0::bigint AS "violating_row_id!", 'rooms' AS "referenced_table!"
             FROM events e
             WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = e.room_id)
             LIMIT 10
-            ",
+            "#,
         )
         .fetch_all(&self.pool)
         .await?;
 
-        for (table, col, _id, ref_table) in orphans {
+        for row in orphans {
+            let (table, col, ref_table) = (row.table_name, row.column_name, row.referenced_table);
             foreign_key_violations.push(ForeignKeyViolation {
                 table_name: table,
                 column_name: col,
@@ -332,8 +348,10 @@ impl DatabaseMonitor {
         }
 
         // 2. 检查孤立记录 (示例：room_memberships -> users)
-        let member_orphans: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM room_memberships m WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.user_id = m.user_id)",
+        // R4 ①：`COUNT(*)` 无关系来源 ⇒ 断言（计数恒不为 NULL）。
+        let member_orphans: i64 = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "count!" FROM room_memberships m
+               WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.user_id = m.user_id)"#,
         )
         .fetch_one(&self.pool)
         .await?;
