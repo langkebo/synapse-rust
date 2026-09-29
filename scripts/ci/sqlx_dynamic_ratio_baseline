@@ -2572,9 +2572,30 @@
 #   `kb.backup_id_text` ⇒ 默认离线模式下编译期即报
 #   "no cached data for this query"（SQL 文本变了但缓存没有对应条目），复原后即绿 —— 说明这 4 条
 #   查询确实走宏与缓存（R2），不是"改了文本却没人发现"。
+# ── 2026-09-28 C46-0（先修 D-91/D-92 + 补覆盖 ⇒ 测试区 726 → 733）────────────────────
+#   `synapse-storage/src/event/dag.rs` 的 8 处转换前先处理两件**行为**问题（R12：先修再转），
+#   并补上该模块唯一缺失的覆盖：
+#   ① **D-91**：`get_prev_state_events` / `get_state_dag_edges` 两处
+#      `serde_json::from_value(json).unwrap_or_default()` 把"`events.prev_state_events` 形状不对"
+#      静默降级成"没有前驱状态事件" —— 与"该列本就为 NULL"无法区分（吞错，D-33/D-72 同族）。
+#      抽出 `prev_state_events_from_json()`，改为 fail-closed（`sqlx::Error::Decode`）。
+#   ② **D-92**：`get_forward_extremities_count` 读旧 JSONB 约定 `content->>'prev_event_id'`
+#      （现代写入路径只写 `event_edges` ⇒ 子查询恒空、`NOT IN (空)` 恒真）并额外要求
+#      `state_key IS NOT NULL` ⇒ 它实际返回**状态事件数**，与 `get_forward_extremities_in_room`
+#      的"DAG 叶节点"不是同一概念（同一职责的第二份实现，铁律 2；管理员端点
+#      `/_synapse/admin/v1/rooms/{room_id}/forward_extremities` 因此长期报错数）⇒ 改为同一
+#      `event_edges` 定义，两者永远一致。
+#   ③ **覆盖**：`get_event_graph_fields` 此前**零覆盖**（`event/db_tests.rs` 里连名字都没有），
+#      而 `test_get_forward_extremities_count` 只断言 `count >= 0`（恒真、永不红）⇒ 替换为能区分
+#      "叶节点 vs 状态事件"的用例，并新增 graph-fields 往返与 D-91 失败路径用例；三处都放进
+#      **既有**的 `event/db_tests.rs`，不为同一模块另开第二个测试家。
+#   实测：`dynamic_production` 234 不变（先修不减少站点）、`static` 1250 不变、
+#   `dynamic_test` 726 → **733**（+7：新用例的夹具 INSERT/查询；`#[cfg(test)]` 内宏不进
+#   `cargo sqlx prepare` ⇒ R9/D-13，无静态等价物）。
+#   验证：`-p synapse-storage --lib --features test-utils -E 'test(/event::/)'` ⇒ **117/117**。
 BASELINE_QUERY_BUILDER=18
 BASELINE_DYNAMIC_PRODUCTION=234
-BASELINE_DYNAMIC_TEST_INFRA=726
+BASELINE_DYNAMIC_TEST_INFRA=733
 BASELINE_STATIC=1250
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
