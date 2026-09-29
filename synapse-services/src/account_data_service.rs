@@ -8,7 +8,6 @@ use synapse_storage::account_data::AccountDataStoreApi;
 use synapse_storage::filter::{CreateFilterRequest, FilterStoreApi};
 use synapse_storage::openid_token::{CreateOpenIdTokenRequest, OpenIdToken, OpenIdTokenStoreApi};
 use synapse_storage::room_account_data::RoomAccountDataStoreApi;
-use synapse_storage::user::UserStore;
 use tracing::instrument;
 
 type AccountDataWithTimestamp = (Value, Option<i64>);
@@ -24,7 +23,6 @@ pub const EXTENDED_PROFILE_DATA_TYPE: &str = "uk.tcpip.msc4133.profile";
 pub struct AccountDataService {
     cache: Arc<CacheManager>,
     account_data_storage: Arc<dyn AccountDataStoreApi>,
-    user_storage: Arc<dyn UserStore>,
     room_account_data_storage: Arc<dyn RoomAccountDataStoreApi>,
     filter_storage: Arc<dyn FilterStoreApi>,
     openid_token_storage: Arc<dyn OpenIdTokenStoreApi>,
@@ -35,19 +33,11 @@ impl AccountDataService {
     pub fn new(
         cache: Arc<CacheManager>,
         account_data_storage: Arc<dyn AccountDataStoreApi>,
-        user_storage: Arc<dyn UserStore>,
         room_account_data_storage: Arc<dyn RoomAccountDataStoreApi>,
         filter_storage: Arc<dyn FilterStoreApi>,
         openid_token_storage: Arc<dyn OpenIdTokenStoreApi>,
     ) -> Self {
-        Self {
-            cache,
-            account_data_storage,
-            user_storage,
-            room_account_data_storage,
-            filter_storage,
-            openid_token_storage,
-        }
+        Self { cache, account_data_storage, room_account_data_storage, filter_storage, openid_token_storage }
     }
 
     /// See [`list_account_data`].
@@ -65,10 +55,7 @@ impl AccountDataService {
     #[instrument(skip(self, body))]
     pub async fn set_account_data(&self, user_id: &str, data_type: &str, body: &Value) -> Result<(), ApiError> {
         validate_account_data_payload(data_type, body)?;
-        self.user_storage
-            .upsert_account_data_content(user_id, data_type, body)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to save account data", e))?;
+        self.account_data_storage.upsert_account_data(user_id, data_type, body.clone()).await?;
 
         // Invalidate the account-data cache for this user so the next /sync
         // will re-read the fresh data (OPT-015-b, audit 04 §5).
@@ -80,10 +67,7 @@ impl AccountDataService {
     /// See [`get_account_data`].
     #[instrument(skip(self))]
     pub async fn get_account_data(&self, user_id: &str, data_type: &str) -> Result<Option<Value>, ApiError> {
-        self.user_storage
-            .get_account_data_content(user_id, data_type)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Database error", e))
+        self.account_data_storage.get_account_data_content(user_id, data_type).await
     }
 
     /// Get the set of user IDs that `user_id` has ignored via the
@@ -307,22 +291,20 @@ mod tests {
     use serde_json::json;
     use std::sync::Arc;
     use synapse_storage::test_mocks::{
-        shared_fake_user_store, InMemoryAccountDataStore, InMemoryFilterStore, InMemoryOpenIdTokenStore,
-        InMemoryRoomAccountDataStore,
+        InMemoryAccountDataStore, InMemoryFilterStore, InMemoryOpenIdTokenStore, InMemoryRoomAccountDataStore,
     };
     use synapse_storage::{
         account_data::AccountDataStoreApi, filter::FilterStoreApi, openid_token::OpenIdTokenStoreApi,
-        room_account_data::RoomAccountDataStoreApi, user::UserStore,
+        room_account_data::RoomAccountDataStoreApi,
     };
 
     fn make_service() -> AccountDataService {
         let cache = Arc::new(CacheManager::new(&synapse_cache::CacheConfig::default()));
         let account_data: Arc<dyn AccountDataStoreApi> = Arc::new(InMemoryAccountDataStore::new());
-        let user_storage: Arc<dyn UserStore> = shared_fake_user_store();
         let room_account_data: Arc<dyn RoomAccountDataStoreApi> = Arc::new(InMemoryRoomAccountDataStore::new());
         let filter: Arc<dyn FilterStoreApi> = Arc::new(InMemoryFilterStore::new());
         let openid_token: Arc<dyn OpenIdTokenStoreApi> = Arc::new(InMemoryOpenIdTokenStore::new());
-        AccountDataService::new(cache, account_data, user_storage, room_account_data, filter, openid_token)
+        AccountDataService::new(cache, account_data, room_account_data, filter, openid_token)
     }
 
     // ── Purely-functional validation tests (existing) ──
@@ -650,11 +632,10 @@ mod tests {
     /// in-memory fakes so we can verify cache invalidation without a database.
     fn make_service_with_cache(cache: Arc<CacheManager>) -> AccountDataService {
         let account_data: Arc<dyn AccountDataStoreApi> = Arc::new(InMemoryAccountDataStore::new());
-        let user_storage: Arc<dyn UserStore> = shared_fake_user_store();
         let room_account_data: Arc<dyn RoomAccountDataStoreApi> = Arc::new(InMemoryRoomAccountDataStore::new());
         let filter: Arc<dyn FilterStoreApi> = Arc::new(InMemoryFilterStore::new());
         let openid_token: Arc<dyn OpenIdTokenStoreApi> = Arc::new(InMemoryOpenIdTokenStore::new());
-        AccountDataService::new(cache, account_data, user_storage, room_account_data, filter, openid_token)
+        AccountDataService::new(cache, account_data, room_account_data, filter, openid_token)
     }
 
     #[tokio::test]

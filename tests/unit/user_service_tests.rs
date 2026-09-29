@@ -439,25 +439,6 @@ impl UserStore for MockUserStore {
         self.fail_all_check()?;
         Ok(HashMap::new())
     }
-
-    async fn get_account_data_content(
-        &self,
-        _user_id: &str,
-        _data_type: &str,
-    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
-        self.fail_all_check()?;
-        Ok(None)
-    }
-
-    async fn upsert_account_data_content(
-        &self,
-        _user_id: &str,
-        _data_type: &str,
-        _content: &serde_json::Value,
-    ) -> Result<(), sqlx::Error> {
-        self.fail_all_check()?;
-        Ok(())
-    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

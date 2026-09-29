@@ -464,14 +464,13 @@ impl ServiceContainer {
         // SSO — needs pool, config
         let sso = wiring::SsoServices::new(pool, config).await;
 
-        // Core — needs infra, auth, user_storage, server_metrics + the pre-built broadcaster
+        // Core — needs infra, auth, server_metrics + the pre-built broadcaster
         let core = wiring::CoreServices::new(
             &infra.infra,
             &storage.validator,
             &storage.token_auth,
             &storage.credential_auth,
             &storage.room_auth,
-            &storage.user_storage,
             storage.user_service.clone(),
             &infra.server_metrics,
             event_broadcaster.clone(),

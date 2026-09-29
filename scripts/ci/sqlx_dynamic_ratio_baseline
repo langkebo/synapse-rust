@@ -2831,10 +2831,19 @@
 #   literal 109/31 → **105/30**（该文件退 literal 表）。恒等式 `176 − 105 − 1 = 70` 仍成立。
 #   验证：`-p synapse-storage --lib --features test-utils -E 'test(/ephemeral/)'` ⇒ 5/5
 #   （5 个用例**穿过新宏**跑真 baseline 隔离 schema）。
+# ── 2026-09-29 C55-0（先修 D-97：`account_data` 第二份实现收敛；本文件只动 static 下限）──────
+#   删掉 `UserStore::get_account_data_content` / `upsert_account_data_content`（trait + 固有实现 +
+#   转发 + 2 个替身 + 1 条只覆盖重复实现的 db_test），把 `AccountDataService` 的两个方法改走
+#   `AccountDataStoreApi`，并删掉随之变成死字段的 `user_storage`（连带 `CoreServices::new` 形参）。
+#   ⚠️ 该先修**删掉了 2 个静态宏调用点**（`user/storage.rs` 里那份重复实现），而**动态站点数不变**
+#   ⇒ 本文件只下调 `BASELINE_STATIC`：1303 → **1301**（C55 随后宏化 4 处再上调回 1305，见下条）。
+#   这也说明"静态数只禁减"这道棘轮对**删代码**同样会红 —— 与 R8 第 4b 条同一个坑。
+#   `.sqlx` 同步缩容 1 条（`query-4561100b…` 只被那份重复实现引用；`ALLOW_CACHE_SHRINK=1` 显式
+#   允许，脚本逐条打印被删清单）⇒ 相对 C55 转换前的 1271 净减 1。
 BASELINE_QUERY_BUILDER=18
 BASELINE_DYNAMIC_PRODUCTION=176
 BASELINE_DYNAMIC_TEST_INFRA=735
-BASELINE_STATIC=1303
+BASELINE_STATIC=1301
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 
