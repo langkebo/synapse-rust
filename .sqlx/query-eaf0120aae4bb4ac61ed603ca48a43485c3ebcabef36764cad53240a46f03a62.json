@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO quarantined_media_changes (media_id, server_name, change_type, changed_by, created_ts)\n            VALUES ($1, $2, $3, $4, $5)\n            RETURNING stream_id, media_id, server_name, change_type, changed_by, created_ts\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "stream_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "media_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "server_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "change_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "changed_by",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "eaf0120aae4bb4ac61ed603ca48a43485c3ebcabef36764cad53240a46f03a62"
+}

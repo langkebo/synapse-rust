@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE media_metadata\n            SET quarantine_status = $1\n            WHERE media_id = $2 AND server_name = $3\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "07a314fc0c9876c9313651ce7afa51449aa82d1e5e2cca6d47d69be12ca25120"
+}

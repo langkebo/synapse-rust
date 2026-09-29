@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT stream_id, media_id, server_name, change_type, changed_by, created_ts\n            FROM quarantined_media_changes\n            WHERE stream_id > $1\n            ORDER BY stream_id ASC\n            LIMIT $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "stream_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "media_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "server_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "change_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "changed_by",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a975d0aca7816e5bcab058bc64bf02d5d7acd7bf8f43fe54e1070683ff28585e"
+}
