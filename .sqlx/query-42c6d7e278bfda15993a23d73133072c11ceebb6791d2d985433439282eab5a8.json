@@ -1,0 +1,63 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT\n                    e.event_id,\n                    e.room_id,\n                    e.sender,\n                    e.event_type,\n                    e.content,\n                    e.origin_server_ts,\n                    ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2))::float8 as \"rank!\"\n                FROM events e\n                INNER JOIN room_memberships rm ON e.room_id = rm.room_id AND rm.user_id = $1 AND rm.membership = 'join'\n                WHERE e.event_type = 'm.room.message'\n                    AND e.stream_ordering > 0\n                    AND e.soft_failed = FALSE\n                    AND to_tsvector('english', e.content) @@ plainto_tsquery('english', $2)\n                    -- `$3::float8` 是**必须**的：`ts_rank(...)` 的返回类型是 `real`，若直接与\n                    -- `$3` 比较，PG 会把参数定型成 `real`，宏因此要求 `f32`，而本方法的游标参数\n                    -- （以及上面 `::float8 as \"rank!\"` 的输出）都是 `f64`（D-74 同族：动态路径靠隐式\n                    -- 放宽，宏把参数定型暴露出来）。显式转 `float8` 既保持 API 与精度，也让比较在同一\n                    -- 精度域里进行。\n                    AND (\n                        ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) < $3::float8\n                        OR (\n                            ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) = $3::float8\n                            AND e.origin_server_ts < $4\n                        )\n                        OR (\n                            ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) = $3::float8\n                            AND e.origin_server_ts = $4\n                            AND e.event_id < $5\n                        )\n                    )\n                -- R6 的陷阱：断言别名 `rank!` 是**真列名**，`ORDER BY rank` 会解析不到 ⇒ 重复表达式。\n                ORDER BY ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) DESC,\n                         e.origin_server_ts DESC, e.event_id DESC\n                LIMIT $6\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "sender",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "content",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "origin_server_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "rank!",
+        "type_info": "Float8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Float8",
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "42c6d7e278bfda15993a23d73133072c11ceebb6791d2d985433439282eab5a8"
+}

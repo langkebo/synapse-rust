@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT event_id, event_type, sender, content, origin_server_ts\n            FROM events\n            WHERE room_id = $1 AND event_type = 'm.room.message' AND LOWER(content::text) LIKE $2\n              AND is_redacted = false AND soft_failed = FALSE\n            ORDER BY origin_server_ts DESC\n            LIMIT $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "event_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "sender",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "content",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "origin_server_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "47e76cc745a75f4aeabbb7709d224aae35f217b8658190ebe0b2474392586e63"
+}

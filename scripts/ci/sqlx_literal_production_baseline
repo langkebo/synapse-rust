@@ -230,6 +230,9 @@
 # ── 2026-09-28 C50（本表退一行：133 → 126，34 → 33 文件）─────────────────────
 #   `synapse-storage/src/call_session.rs`（`voip-tracking` 门控）7 处全部宏化 ⇒ 该行归零退表。
 #   恒等式同步为 `197 − 126 − 1 = 70`。
+# ── 2026-09-28 C51（本表退一行：126 → 120，33 → 32 文件）─────────────────────
+#   `synapse-storage/src/event/search.rs` 6 处全部宏化 ⇒ 该行归零退表。
+#   恒等式同步为 `191 − 120 − 1 = 70`。
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -244,7 +247,6 @@ synapse-storage/src/admin_media.rs	15
 synapse-storage/src/event/cascade.rs	2
 synapse-storage/src/event/ephemeral.rs	4
 synapse-storage/src/event/pagination.rs	6
-synapse-storage/src/event/search.rs	6
 synapse-storage/src/event/signature.rs	3
 synapse-storage/src/event/txn_dedup.rs	3
 synapse-storage/src/event/unread.rs	3
@@ -265,7 +267,7 @@ synapse-storage/src/user/storage.rs	1
 synapse-test-utils/src/lib.rs	14
 # ── 当前「运行期拼装」残差清单（**允许**，不入棘轮；仅作可读性摘要）────────────
 # 合计 **70 处 / 13 文件**（2026-09-26 C44 后实测；与 ratio 棘轮的
-# `dynamic_production − literal − param` = 197 − 126 − 1 = 70 一致）：
+# `dynamic_production − literal − param` = 191 − 120 − 1 = 70 一致）：
 #    16  synapse-common/src/test_isolation.rs
 #    14  synapse-test-utils/src/lib.rs
 #     9  synapse-storage/src/event/pagination.rs

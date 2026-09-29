@@ -1,0 +1,102 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT event_id, room_id, COALESCE(user_id, sender) AS \"user_id!\", event_type, content, state_key,\n                   COALESCE(depth, 0) AS \"depth!\", COALESCE(origin_server_ts, 0) AS \"origin_server_ts!\",\n                   COALESCE(origin_server_ts, 0) AS \"processed_ts!\",\n                   COALESCE(not_before, 0) AS \"not_before!\", status, COALESCE(origin, 'self') AS \"origin!\",\n                   stream_ordering, redacts\n            FROM events\n            WHERE room_id = $1\n              AND event_type = 'm.room.message'\n              AND soft_failed = FALSE\n              AND to_tsvector('english', content) @@ plainto_tsquery('english', $2)\n            ORDER BY origin_server_ts DESC\n            LIMIT $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "content",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "state_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "depth!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "origin_server_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "processed_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "not_before!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "origin!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "stream_ordering",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "redacts",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      false,
+      false,
+      true,
+      null,
+      null,
+      null,
+      null,
+      true,
+      null,
+      true,
+      true
+    ]
+  },
+  "hash": "21f076233e90d5662ae913419a0eda3b76adf0d86c2223bb71c8059e5a93602e"
+}

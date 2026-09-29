@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            CREATE INDEX CONCURRENTLY IF NOT EXISTS events_fts_idx\n            ON events\n            USING GIN (to_tsvector('english', content))\n            WHERE event_type = 'm.room.message' AND stream_ordering > 0\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "cd73ceee03d07f96c05f1c63670bfcabddcf91796ddd7f51ae7128ba2eafc9e4"
+}
