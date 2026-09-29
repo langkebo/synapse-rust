@@ -259,13 +259,25 @@ fn literal_ratchet_baseline_exists_and_is_parseable() {
     );
 }
 
-/// D-14 收紧引入的第二份棘轮必须存在且可解析（空基线 = 任何传参站点都算新增，
-/// 那在当前树上必然全红，等于"永远失败的门禁"）。
+/// D-14 收紧引入的第二份棘轮必须存在且可解析。
+///
+/// D-106（2026-09-29）：参数基线现在**合法地为空** —— 本战役唯一的 `param` 站点随死模块
+/// `synapse-common/src/transaction.rs` 一起删除了。空基线是**最严**的状态（任何新增的
+/// "字面量经形参转手"站点都会立刻在 `no_new_production_param_dynamic_sql` 里变红），
+/// 所以这里不再要求非空；改为"**空基线仅在实测也为 0 时合法**"：
+/// 若基线被误清空而树上仍有 param 站点，这条会在**新增站点**的守卫之外再兜一道。
 #[test]
 fn param_ratchet_baseline_exists_and_is_parseable() {
     let raw = fs::read_to_string(param_baseline_path()).expect("param 棘轮基线必须可读");
     let baseline = parse_baseline(&raw);
-    assert!(!baseline.is_empty(), "param 棘轮基线不能为空");
+    if baseline.is_empty() {
+        let measured_param_sites =
+            scan_production_dynamic(&repo_root()).into_iter().filter(|s| s.kind == SiteKind::Param).count();
+        assert_eq!(
+            measured_param_sites, 0,
+            "param 棘轮基线为空，但实测仍有 {measured_param_sites} 个 param 站点 ⇒ 基线被误清空（假通过风险）"
+        );
+    }
     assert!(
         baseline.keys().all(|k| !k.starts_with('/') && !k.contains('\\')),
         "基线路径必须是相对仓库根、且用正斜杠：{baseline:?}"

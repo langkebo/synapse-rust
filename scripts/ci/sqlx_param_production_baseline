@@ -21,4 +21,10 @@
 # ⚠️ 同文件里 `transaction.rs` 另有 3 处 `literal` 站点（:250/:256/:272）走**另一份**
 #   棘轮（`scripts/ci/sqlx_literal_production_baseline`），两份基线互不替代：
 #   literal 与 param 是两种不同形状，混在一起会让"哪批完成了多少"不可追溯（§8.5）。
-synapse-common/src/transaction.rs	1
+
+# ── 2026-09-29 D-106：本表**归零** ─────────────────────────────────────────────
+#   `synapse-common/src/transaction.rs` 整模块是死代码（每个公开项零消费者 + advisory lock 的
+#   第二份实现）⇒ 整体删除；本战役唯一的 `param` 站点（`begin_with_isolation_level` 的
+#   `sqlx::query(statement)`）随它一起消失。**棘轮本身保留**：新增任何"把字面量经形参转手"的
+#   站点仍会让 census 判出 `:param` 并在此处变红（判据见本文件头部生成命令）。
+#   当前实测 **0 处 / 0 文件**。
