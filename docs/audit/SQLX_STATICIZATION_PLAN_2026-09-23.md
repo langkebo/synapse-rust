@@ -79,19 +79,21 @@
 
 | 组成 | 处数 | 性质 |
 |---|---|---|
-| **可静态化残量** | **49** | **19 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
+| **可静态化残量** | **46** | **16 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
 | 测试基建（有意保留） | 57 | `synapse-test-utils/src/lib.rs` 28、`synapse-common/src/test_isolation.rs` 25、`test_schema_guard.rs` 4（各含 literal + runtime 两部分） |
-| 结构性保留（有意） | 16 | `synapse-storage/src/event/pagination.rs`（9 runtime 游标/排序方向 + 6 literal）+ `synapse-storage/src/monitoring.rs` 的 `pg_stat_statements` 慢查询 1（R7/D-96，宏在 prepare 阶段无法 describe 该可选扩展的关系） |
-| **合计** | **122** | = 49 + 57 + 16 |
+| 结构性保留（有意） | 19 | `synapse-storage/src/event/pagination.rs`（9 runtime 游标/排序方向 + 6 literal）+ `synapse-storage/src/monitoring.rs` 的 `pg_stat_statements` 慢查询 1（R7/D-96）+ **§7.3 D-13 的 `Vec<Option<T>>` 3 处**（`room_summary/repository.rs` 2 + `presence/mod.rs` 1 —— SQL 文本是字面量，所以在 literal 棘轮里可见，但按 R7/D-13 **不许转**） |
+| **合计** | **122** | = 46 + 57 + 19 |
 
 > 本表口径**随批次滚动**，数字一律为当批实测（C44 时是 108 / 57 / 15 = 180；C53 把
 > monitoring 的 1 处从"可静态化"移入"结构性保留"，C54 把机械 literal 从 78 降到 73，
 > C55 降到 69，C56 降到 60，C57 降到 52，C58 降到 43，C59 降到 37，D-99 降到 34，
-> C60 再降到 19）。
+> C60 降到 19，**再按下面的口径把 D-13 的 3 处从"机械转换"移到"结构性保留"，得 16** ——
+> 这一步是 2026-09-29 同步本文档时发现的**分类漂移**：D-13 早就登记为结构性例外，但 §8.1 的
+> 表一直把它们当"可机械转换"，于是"可转换残量"被虚高了 3 处）。
 > ⚠️ C57-0 当时只更新了缺陷登记（§0.4/§7.4/§8.3），本表与 §0.1/§8.1 的三处数字漏同步 ——
 > 本批（C57）一并订正为实测值（这正是 D-16 型"双份计数漂移"的又一次实例，记在这里以示警惕）。
 > 复算方式：`sqlx_query_census.py --list-production-dynamic` 的 `literal/param/runtime` 三分类，
-> 再按文件归入上表三类 —— 即 `122 = (19+29+1) + 57 + 16`。
+> 再按文件归入上表三类 —— 即 `122 = (16+29+1) + 57 + 19`。
 
 ### 0.3 复现（唯一入口，勿手工数）
 
@@ -142,10 +144,10 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 ### 0.5 阶段结论
 
-1. 动态 SQL 已从**系统性风险**降为**局部清单**：`dynamic_production` 122 处里 **73 处有意保留**
-   （测试基建 57 + 结构性保留 16 = 分页 `event/pagination.rs` 15 + `monitoring.rs` 的
-   `pg_stat_statements` R7 例外 1），待收 **64 处** —— 其中 **34 处是纯机械转换**，
-   29 处是 D-14 结构性（`format!` 拼列清单）、1 处是跨函数传参；**待收 49 处**。
+1. 动态 SQL 已从**系统性风险**降为**局部清单**：`dynamic_production` 122 处里 **76 处有意保留**
+   （测试基建 57 + 结构性保留 19 = 分页 `event/pagination.rs` 15 + `monitoring.rs` 的
+   `pg_stat_statements` R7 例外 1 + D-13 的 `Vec<Option<T>>` 3），待收 **46 处** ——
+   其中 **16 处是纯机械转换**，29 处是 D-14 结构性（`format!` 拼列清单）、1 处是跨函数传参。
    （口径与分项以 §0.1/§0.2 的实测表为唯一来源；本行只是读数摘要，战役推进时随 §8.1 一起更新。）
 2. **收益性质变了**：早期批次每批都在挖"真 schema 下必败"的硬缺陷（① 类 15 条）；
    现在批次以机械收敛为主，并顺手清理一类残留（C31 清 `FromRow` 死代码、C32 消手工 `Row::get`、
@@ -158,7 +160,7 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
    D-80（隔离 clone 与模板不同形：约束名被 PG 改名 + matview 索引未搬运）已修复并加了名字集合门禁 —— 隔离库第一次与 `public` 同形。
    D-78（C42 曾判"运行时 DDL 是死代码"）已在 C43 **改判并关闭**：自愈是有意行为（有命名用例），已保留并宏化。D-73（`e2ee_audit_log` 的冗余 `action` 列 + 可空 `operation`）已按 R4 的
    "结构上能保证就收紧 schema"落地：删列 + `operation SET NOT NULL` + 基线指纹同步（见 §8.3）。
-   剩下的**只有计划内的工作**（§8.1 的 49 处可转换残量）与 8 条**结构性例外**（工具/接口边界，
+   剩下的**只有计划内的工作**（§8.1 的 46 处可转换残量）与 8 条**结构性例外**（工具/接口边界，
    不是缺陷）。**登记表于 2026-09-29 再次清空**（D-95 完整性巡检、D-100 `room_state_events`、
    D-99 e2ee signature 第二份实现、D-103 admin 不可能命中的孤儿清理全部关闭；合计
    103 条 = 已关闭 95 / 未关闭 0 / 结构性例外 8）。这不等于战役结束 —— 收尾条件见 §8.4。
@@ -205,7 +207,7 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 | 编号 | 边界 | 出现位置 | 怎么办 |
 |---|---|---|---|
 | D-96 | **可选扩展的关系**：SQL 文本是编译期常量，但 `FROM pg_stat_statements` 指向的关系**只在装了该扩展的库里存在** ⇒ 宏在 `cargo sqlx prepare` 阶段无法 describe（实测 `relation "pg_stat_statements" does not exist`），整份离线缓存都建不起来 | `synapse-storage/src/monitoring.rs`（`get_performance_metrics` 的慢查询查询） | 保持动态；若将来把该扩展纳入 baseline（需要 superuser 与 `shared_preload_libraries`）或改成 `to_regclass` 探测 + `query_scalar` 计数，可回收 —— 属独立设计事项 |
-| D-13 | `Vec<Option<T>>` 元素可空数组**无 sqlx 映射**（SQL 文本本身是字面量） | `room_summary/repository.rs:332`/`:579`；`presence/mod.rs:232` | 保持动态；回收方向：并行数组 → 单个 `jsonb_to_recordset($n)`（独立改造，不排期） |
+| D-13 | `Vec<Option<T>>` 元素可空数组**无 sqlx 映射**（SQL 文本本身是字面量，因此在 literal 棘轮里看得见，但**不许转**） | `room_summary/repository.rs:332`/`:579`（两个 `add_*_batch`，各 6–7 个并行数组）；`presence/mod.rs:226`（`&[Option<&str>]` 的 `status_msg`）—— 共 **3 处** | 保持动态；回收方向：并行数组 → 单个 `jsonb_to_recordset($n)`（独立改造，不排期） |
 | D-14 | 运行期拼装 SQL（`format!` 拼列清单/排序方向）**有意保留**；其守卫覆盖缺口已于 2026-09-26 收紧（见下） | `space/repository.rs:572/626`、`user/storage.rs:989/1233`、`src/server/database.rs:43-45`、`event/state.rs`、`membership/mod.rs`、`event/basic.rs`、`event/batch.rs`、`maintenance.rs`、`state_groups.rs`、`event/dag.rs` 等（`format!` 类共 29 处，见 §0.2） | 保持动态，**不要**为压数字把动态标识符硬编码；逐文件回收方向见 HISTORY §7.2 D-14 |
 | D-18 | 仅排序用列无对应结构体字段 ⇒ 用子查询包裹 | `thread/storage.rs:864` | 沿用子查询写法 |
 | D-19 | `query_as!` 不认 `#[sqlx(rename)]` / `#[sqlx(skip)]` | `event_report/models.rs:29`、`module.rs:255` 等 | SQL 里显式写别名 / 合成 `NULL` 列 |
@@ -270,7 +272,7 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 ### 8.1 剩余可静态化清单（按实测，2026-09-29 C60 后）
 
-**可转换残量 49 处** = **19 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
+**可转换残量 46 处** = **16 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
 加 **1 处跨函数传参（`param`）**。下表列出**尚未归零**的 literal 文件（表内数字是**可机械转换**
 的站点数；纯 `runtime` 文件见下方结构性清单）：
 
@@ -278,19 +280,20 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 |---|---|---|---|
 | `synapse-storage/src/maintenance.rs` | 3 | — | 与同文件 2 处 runtime 并存（后者属 D-14） |
 | `synapse-common/src/transaction.rs` | 3 | — | 后 2 处为 literal（第 1 处的实参是外层形参 ⇒ 归 `param` 棘轮） |
-| `synapse-storage/src/room_summary/repository.rs` | 2 | — | |
 | `synapse-storage/src/oauth_client_storage.rs` | 2 | — | |
 | `synapse-storage/src/migration_checks.rs` | 2 | — | |
 | `src/server/mod.rs` | 2 | — | |
-| `src/server/database.rs` / `synapse-common/src/health.rs` / `synapse-storage/src/presence/mod.rs` / `room/models.rs` / `user/storage.rs` | 各 1 | — | 余下 5 个单处文件 |
+| `src/server/database.rs` / `synapse-common/src/health.rs` / `synapse-storage/src/room/models.rs` / `synapse-storage/src/user/storage.rs` | 各 1 | — | 余下 4 个单处文件（`presence/mod.rs` 那处已按 D-13 移入"结构性保留"） |
 
-> 上表合计 = **19 处**（= 51 literal 实测 − 结构性 32），与 §0.2 的"19 处字面量"一致；
+> 上表合计 = **16 处**（= 51 literal 实测 − 结构性 35 = 测试基建 25 + 分页 6 + monitoring 1 + **D-13 的 3**），
+> 与 §0.2 的"16 处字面量"一致；
 > 逐文件权威清单是基线文件 `scripts/ci/sqlx_literal_production_baseline`，本表只是可读性摘要。
 
-> 结构上**不在此表**的三类（有意保留，合计 32 处 literal）：测试基建 25
+> 结构上**不在此表**的四类（有意保留，合计 35 处 literal）：测试基建 25
 > （`test-utils/src/lib.rs` 14 + `test_isolation.rs` 9 + `test_schema_guard.rs` 2）、
-> `event/pagination.rs` 6、`monitoring.rs` 的 `pg_stat_statements` 1（R7/D-96）。
-> 19 = 51（literal 实测）− 32。
+> `event/pagination.rs` 6、`monitoring.rs` 的 `pg_stat_statements` 1（R7/D-96）、
+> **D-13 的 3 处**（`room_summary/repository.rs` 2 + `presence/mod.rs` 1，`Vec<Option<T>>` 参数无 sqlx 映射）。
+> 16 = 51（literal 实测）− 35。
 
 > **已归零退表的文件**（本表不再列；数字是退表时的 literal 处数）：`synapse-e2ee/src/backup/service.rs`(4)、
 > `synapse-storage/src/audit.rs`(4)、`synapse-storage/src/schema_health_check.rs`(4) 由 **C44** 归零
@@ -1611,9 +1614,9 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 ### 8.4 收尾条件
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 
-- `dynamic_production` 的**可机械转换部分（literal）归零**：122 → **102**
-  （122 − 19 literal − 1 param = 102 = 测试基建 57 + 结构性保留 16（分页 15 + monitoring R7 1）
-  + **D-14 结构性 29**），
+- `dynamic_production` 的**可机械转换部分（literal）归零**：122 → **105**
+  （122 − 16 literal − 1 param = 105 = 测试基建 57 + 结构性保留 19（分页 15 + monitoring R7 1
+  + D-13 的 3）+ **D-14 结构性 29**），
   或每个残留都有 §7.3 那样的登记条目；
 - literal 逐文件表只剩 5 类（3 个测试基建文件 + `event/pagination.rs` + `monitoring.rs` 的
   R7 例外 1 处）；
