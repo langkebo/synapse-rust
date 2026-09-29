@@ -340,13 +340,7 @@ def check_non_namespace_bucket(per: dict) -> None:
         ("GET", "/"),
         ("GET", "/health"),
         ("GET", "/_health"),
-        # CAS is a host-root protocol: its paths are not Matrix paths
-        ("GET", "/login"),
-        ("GET", "/logout"),
-        ("GET", "/serviceValidate"),
-        ("GET", "/proxyValidate"),
-        ("GET", "/p3/serviceValidate"),
-        ("GET", "/proxy"),
+        # legacy CAS admin aliases (deprecated, emit Deprecation/Warning headers)
         ("GET", "/admin/services"),
         ("POST", "/admin/services"),
         ("DELETE", "/admin/services/{service_id}"),
@@ -513,12 +507,14 @@ def check_emitted_gates() -> None:
     )
     # ...and the reverse: a route whose relative path is also registered by an
     # ungated router must not inherit the gated one's condition, nor drop it.
-    root_login = ("GET", "/login")
+    # Note: the original /login path has been moved to /_synapse/cas/login;
+    # check that the nested path still carries the correct gate.
+    cas_nested_login = ("GET", "/_synapse/cas/login")
     check(
-        "a path shared by a gated and an ungated router keeps the gated condition",
-        root_login in rows
-        and union.gate_of(root_login) == frozenset({'feature = "cas-sso"'}),
-        f"gate={sorted(union.gate_of(root_login)) if root_login in rows else 'row missing'}",
+        "CAS nested route inherits its module gate correctly",
+        cas_nested_login in rows
+        and union.gate_of(cas_nested_login) == frozenset({'feature = "cas-sso"'}),
+        f"gate={sorted(union.gate_of(cas_nested_login)) if cas_nested_login in rows else 'row missing'}",
     )
 
     for lane_name, feats in sorted(lanes.items()):

@@ -137,15 +137,24 @@ struct SsoRedirectQuery {
 
 /// See [`cas_routes`].
 pub fn cas_routes(state: AppState) -> Router<AppState> {
-    let public_routes = Router::new()
+    // CAS 协议端点（模拟 CAS server 的协议面）统一收敛到 /_synapse/cas 命名空间下，
+    // 避免占用根级路径（/login、/logout 等易与 Matrix 标准端点冲突）。
+    let cas_protocol_routes = Router::new()
         .route("/login", get(login_redirect))
         .route("/serviceValidate", get(service_validate))
         .route("/proxyValidate", get(proxy_validate))
         .route("/proxy", get(proxy))
         .route("/p3/serviceValidate", get(p3_service_validate))
         .route("/logout", get(logout))
+        .route_layer(middleware::from_fn_with_state(state.clone(), cas_config_check_middleware));
+
+    // Matrix 标准 SSO 重定向端点保持完整路径（不参与 /_synapse/cas 嵌套），
+    // 但沿用 cas_config_check_middleware（与历史行为一致）。
+    let sso_redirect_routes = Router::new()
         .route("/_matrix/client/v3/login/sso/redirect/cas", get(cas_sso_redirect))
         .route_layer(middleware::from_fn_with_state(state.clone(), cas_config_check_middleware));
+
+    let public_routes = Router::new().nest("/_synapse/cas", cas_protocol_routes).merge(sso_redirect_routes);
 
     let standard_admin_routes = Router::new()
         .route("/_synapse/admin/v1/cas/services", post(register_service))

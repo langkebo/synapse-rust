@@ -1,6 +1,6 @@
 # synapse-rust 路由契约（Route Contract）
 
-> 自动生成于 2026-09-27，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含 `derived_route_table.inc.rs`）派生覆盖。
+> 自动生成于 2026-09-29，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含 `derived_route_table.inc.rs`）派生覆盖。
 >
 > 本文件是后端 HTTP 契约的**事实来源之一**（机器侧权威为 `derived_routes.rs` 生成的 `RouteLedger`，启动时校验、集成测试 PATCH 探测）。人工文档（INDEX.md / API_COVERAGE_REPORT.md）须与之保持一致。
 >
@@ -90,12 +90,6 @@
 | `cas.rs` | `DELETE` | `/admin/services/{service_id}` |
 | `cas.rs` | `GET` | `/admin/services` |
 | `cas.rs` | `GET` | `/admin/users/{user_id}/attributes` |
-| `cas.rs` | `GET` | `/login` |
-| `cas.rs` | `GET` | `/logout` |
-| `cas.rs` | `GET` | `/p3/serviceValidate` |
-| `cas.rs` | `GET` | `/proxy` |
-| `cas.rs` | `GET` | `/proxyValidate` |
-| `cas.rs` | `GET` | `/serviceValidate` |
 | `cas.rs` | `POST` | `/admin/services` |
 | `cas.rs` | `POST` | `/admin/users/{user_id}/attributes` |
 
@@ -120,14 +114,14 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/client/v3/login/sso/redirect/cas`
 - `GET` `/_synapse/admin/v1/cas/services`
 - `GET` `/_synapse/admin/v1/cas/users/{user_id}/attributes`
+- `GET` `/_synapse/cas/login`
+- `GET` `/_synapse/cas/logout`
+- `GET` `/_synapse/cas/p3/serviceValidate`
+- `GET` `/_synapse/cas/proxy`
+- `GET` `/_synapse/cas/proxyValidate`
+- `GET` `/_synapse/cas/serviceValidate`
 - `GET` `/admin/services`
 - `GET` `/admin/users/{user_id}/attributes`
-- `GET` `/login`
-- `GET` `/logout`
-- `GET` `/p3/serviceValidate`
-- `GET` `/proxy`
-- `GET` `/proxyValidate`
-- `GET` `/serviceValidate`
 - `POST` `/_synapse/admin/v1/cas/services`
 - `POST` `/_synapse/admin/v1/cas/users/{user_id}/attributes`
 - `POST` `/admin/services`

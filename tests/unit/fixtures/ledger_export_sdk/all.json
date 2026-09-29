@@ -10109,42 +10109,42 @@
     },
     {
       "method": "GET",
-      "path": "/login",
+      "path": "/_synapse/cas/login",
       "registered_by": "cas",
       "path_params": [],
       "query_params": []
     },
     {
       "method": "GET",
-      "path": "/logout",
+      "path": "/_synapse/cas/logout",
       "registered_by": "cas",
       "path_params": [],
       "query_params": []
     },
     {
       "method": "GET",
-      "path": "/p3/serviceValidate",
+      "path": "/_synapse/cas/p3/serviceValidate",
       "registered_by": "cas",
       "path_params": [],
       "query_params": []
     },
     {
       "method": "GET",
-      "path": "/proxy",
+      "path": "/_synapse/cas/proxy",
       "registered_by": "cas",
       "path_params": [],
       "query_params": []
     },
     {
       "method": "GET",
-      "path": "/proxyValidate",
+      "path": "/_synapse/cas/proxyValidate",
       "registered_by": "cas",
       "path_params": [],
       "query_params": []
     },
     {
       "method": "GET",
-      "path": "/serviceValidate",
+      "path": "/_synapse/cas/serviceValidate",
       "registered_by": "cas",
       "path_params": [],
       "query_params": []
