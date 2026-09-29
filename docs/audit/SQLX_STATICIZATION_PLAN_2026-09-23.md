@@ -14,15 +14,15 @@
 
 | 指标 | 战役起点（2026-09-23） | 现在 | 变化 |
 |---|---|---|---|
-| `dynamic_production` | 1532（近似） | **106** | **−93.1%** |
-| `static` | 61 | **1358** | +1297 |
-| `dynamic`（总） | 2151 | **858** | −1293 |
-| 静态占比 | 2.76% | **61.3%**（1358 / 2216） | +58.5pp |
-| `.sqlx` 离线缓存 | 60 条 | **1324 条** | +1264 |
+| `dynamic_production` | 1532（近似） | **103** | **−93.3%** |
+| `static` | 61 | **1361** | +1300 |
+| `dynamic`（总） | 2151 | **856** | −1295 |
+| 静态占比 | 2.76% | **61.4%**（1361 / 2217） | +58.6pp |
+| `.sqlx` 离线缓存 | 60 条 | **1327 条** | +1267 |
 | literal（逐文件棘轮，处 / 文件） | 876 / 98 | **36 / 8** | −840（**其中机械可转换 = 0**） |
 | `param` 传参（D-14 新棘轮，处 / 文件） | — | **0 / 0**（D-106 清零） | 战役结束前唯一 1 处已随死模块删除 |
 | ~~`param` 传参（D-14 新棘轮，处 / 文件）~~ | — | **0 / 0** | D-106：唯一 1 处随死模块 `transaction.rs` 一起删除（棘轮保留） |
-| `runtime` 残差 / `query_builder` | — | 70 / 13 文件 · **18**（已入计数棘轮） | — |
+| `runtime` 残差 / `query_builder` | — | 67 / 12 文件 · **18**（已入计数棘轮） | — |
 
 > **并发增益不固化入棘轮（口径说明）**：C41 之前，`opt/consolidated` 上并存过并发批次的
 > 增益与回退（U-5 的 +7 已被其批次计入基线、invite-policy 合并回退的 12 处由其 `4cc45d279`
@@ -80,10 +80,10 @@
 
 | 组成 | 处数 | 性质 |
 |---|---|---|
-| **可静态化残量** | **29** | **0 处字面量**（机械转换已**清零**）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **0 处跨函数传参**（`param` 已随 D-106 清零） |
+| **可静态化残量** | **26** | **0 处字面量**（机械转换已**清零**）+ **26 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：方案见 §8.6 —— 按「值 vs 标识符」分档，值那档已在 C64 回收，其余保持动态并配常量↔schema 守卫，不能靠硬编码压数字**）+ **0 处跨函数传参**（`param` 已随 D-106 清零） |
 | 测试基建（有意保留） | 57 | `synapse-test-utils/src/lib.rs` 28、`synapse-common/src/test_isolation.rs` 25、`test_schema_guard.rs` 4（各含 literal + runtime 两部分） |
 | 结构性保留（有意） | 20 | `synapse-storage/src/event/pagination.rs`（9 runtime 游标/排序方向 + 6 literal）+ `synapse-storage/src/monitoring.rs` 的 `pg_stat_statements` 慢查询 1（R7/D-96）+ **§7.3 D-13 的 `Vec<Option<T>>` 3 处**（`room_summary/repository.rs` 2 + `presence/mod.rs` 1）+ **`migration_checks.rs` 的 `_sqlx_migrations` 1 处**（R7/D-105） |
-| **合计** | **106** | = 29 + 57 + 20 |
+| **合计** | **103** | = 26 + 57 + 20 |
 
 > 本表口径**随批次滚动**，数字一律为当批实测（C44 时是 108 / 57 / 15 = 180；C53 把
 > monitoring 的 1 处从"可静态化"移入"结构性保留"，C54 把机械 literal 从 78 降到 73，
@@ -94,9 +94,9 @@
 > ⚠️ C57-0 当时只更新了缺陷登记（§0.4/§7.4/§8.3），本表与 §0.1/§8.1 的三处数字漏同步 ——
 > 本批（C57）一并订正为实测值（这正是 D-16 型"双份计数漂移"的又一次实例，记在这里以示警惕）。
 > 复算方式：`sqlx_query_census.py --list-production-dynamic` 的 `literal/param/runtime` 三分类，
-> 再按文件归入上表三类 —— 即 `106 = (0+29+0) + 57 + 20`：**机械可转换的字面量已归零**，
+> 再按文件归入上表三类 —— 即 `103 = (0+26+0) + 57 + 20`：**机械可转换的字面量已归零**，
 > 剩下的 36 处 literal 全部落在"测试基建 25 + 分页 6 + D-13 3 + D-96 1 + D-105 1"这五类
-> 已登记的结构性例外里；`runtime` 70 里只有 29 处属 D-14（其余是测试基建 32 与分页 9 的 runtime）。
+> 已登记的结构性例外里；`runtime` 67 里只有 26 处属 D-14（其余是测试基建 32 与分页 9 的 runtime）。
 
 ### 0.3 复现（唯一入口，勿手工数）
 
@@ -147,10 +147,10 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 ### 0.5 阶段结论
 
-1. 动态 SQL 已从**系统性风险**降为**局部清单**：`dynamic_production` 106 处里 **77 处有意保留**
+1. 动态 SQL 已从**系统性风险**降为**局部清单**：`dynamic_production` 103 处里 **77 处有意保留**
    （测试基建 57 + 结构性保留 20 = 分页 `event/pagination.rs` 15 + `monitoring.rs` 的
    `pg_stat_statements` R7 例外 1 + D-13 的 `Vec<Option<T>>` 3 + D-105 的 `_sqlx_migrations` 1），
-   待收 **29 处** —— **机械可转换的字面量已归零**（C63 达成），剩下 29 处全是 D-14 结构性
+   待收 **26 处** —— **机械可转换的字面量已归零**（C63 达成），剩下 26 处全是 D-14 结构性
    （`format!` 拼列清单 / 动态标识符）；`param` 也已是 0（D-106 清零，棘轮保留）。
    （口径与分项以 §0.1/§0.2 的实测表为唯一来源；本行只是读数摘要，战役推进时随 §8.1 一起更新。）
 2. **收益性质变了**：早期批次每批都在挖"真 schema 下必败"的硬缺陷（① 类 15 条）；
@@ -164,8 +164,9 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
    D-80（隔离 clone 与模板不同形：约束名被 PG 改名 + matview 索引未搬运）已修复并加了名字集合门禁 —— 隔离库第一次与 `public` 同形。
    D-78（C42 曾判"运行时 DDL 是死代码"）已在 C43 **改判并关闭**：自愈是有意行为（有命名用例），已保留并宏化。D-73（`e2ee_audit_log` 的冗余 `action` 列 + 可空 `operation`）已按 R4 的
    "结构上能保证就收紧 schema"落地：删列 + `operation SET NOT NULL` + 基线指纹同步（见 §8.3）。
-   剩下的**只有 D-14 那 29 处运行期拼装**（需先设计替代方案：`query_file!` + 每查询一个 `.sql`
-   文件，属独立设计事项）与 9 条**结构性例外**（工具/接口边界，
+   剩下的**只有 D-14 那 26 处运行期拼装**（设计方案见 **§8.6**：按"插进去的是值还是标识符"分档，
+   值插值那 3 处已在 **C64** 回收，其余 26 处保持动态并配常量↔schema 守卫 —— 不是待做的机械转换）
+   与 9 条**结构性例外**（工具/接口边界，
    不是缺陷）。**登记表于 2026-09-29 再次清空**（D-95 完整性巡检、D-100 `room_state_events`、
    D-99 e2ee signature 第二份实现、D-103 admin 不可能命中的孤儿清理全部关闭；合计
    103 条 = 已关闭 95 / 未关闭 0 / 结构性例外 8）。这不等于战役结束 —— 收尾条件见 §8.4。
@@ -214,7 +215,7 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 | D-96 | **可选扩展的关系**：SQL 文本是编译期常量，但 `FROM pg_stat_statements` 指向的关系**只在装了该扩展的库里存在** ⇒ 宏在 `cargo sqlx prepare` 阶段无法 describe（实测 `relation "pg_stat_statements" does not exist`），整份离线缓存都建不起来 | `synapse-storage/src/monitoring.rs`（`get_performance_metrics` 的慢查询查询） | 保持动态；若将来把该扩展纳入 baseline（需要 superuser 与 `shared_preload_libraries`）或改成 `to_regclass` 探测 + `query_scalar` 计数，可回收 —— 属独立设计事项 |
 | D-105 | **只在部分环境存在的关系**：`_sqlx_migrations`（sqlx-migrate 管理的库才有；本仓走 `docker/db_migrate.sh`，基线 schema 实测 **0 张**）⇒ 宏在 `cargo sqlx prepare` 阶段无法 describe，整份离线缓存都建不起来（与 D-96 同类，差别是"是否存在"由部署方式决定） | `synapse-storage/src/migration_checks.rs`（`check_migration_completeness` 里 `SELECT version FROM _sqlx_migrations ORDER BY version ASC`） | 保持动态；若将来改为 sqlx-migrate 管库，或先 `to_regclass('_sqlx_migrations')` 探测再分支，可回收 —— 独立设计事项 |
 | D-13 | `Vec<Option<T>>` 元素可空数组**无 sqlx 映射**（SQL 文本本身是字面量，因此在 literal 棘轮里看得见，但**不许转**） | `room_summary/repository.rs:332`/`:579`（两个 `add_*_batch`，各 6–7 个并行数组）；`presence/mod.rs:226`（`&[Option<&str>]` 的 `status_msg`）—— 共 **3 处** | 保持动态；回收方向：并行数组 → 单个 `jsonb_to_recordset($n)`（独立改造，不排期） |
-| D-14 | 运行期拼装 SQL（`format!` 拼列清单/排序方向）**有意保留**；其守卫覆盖缺口已于 2026-09-26 收紧（见下） | `space/repository.rs:572/626`、`user/storage.rs:989/1233`、`src/server/database.rs:43-45`、`event/state.rs`、`membership/mod.rs`、`event/basic.rs`、`event/batch.rs`、`maintenance.rs`、`state_groups.rs`、`event/dag.rs` 等（`format!` 类共 29 处，见 §0.2） | 保持动态，**不要**为压数字把动态标识符硬编码；逐文件回收方向见 HISTORY §7.2 D-14 |
+| D-14 | 运行期拼装 SQL（`format!` 拼列清单/排序方向）**有意保留**；其守卫覆盖缺口已于 2026-09-26 收紧（见下）。**C64 已把"值插值"子集（3 处）回收**，剩下的全是"插进去的是标识符/有界枚举"（PG 协议层不允许参数化） | `space/repository.rs:572/626`、`user/storage.rs:989/1233`（③ 排序/打分片段）、`event/state.rs`(9)、`event/basic.rs`(3)、`event/batch.rs`(2)、`state_groups.rs`(2)（② 共享列清单常量）、`membership/mod.rs`(4)（③）、`maintenance.rs`(2)（④ 真标识符 `VACUUM`/`REINDEX`）（`format!` 类共 **26** 处，分档与处置见 §8.6） | 保持动态，**不要**为压数字把动态标识符硬编码；**不要**把列清单内联成字面量（= 复制成 14 份，违反铁律 2）；逐文件回收方向见 HISTORY §7.2 D-14 |
 | D-18 | 仅排序用列无对应结构体字段 ⇒ 用子查询包裹 | `thread/storage.rs:864` | 沿用子查询写法 |
 | D-19 | `query_as!` 不认 `#[sqlx(rename)]` / `#[sqlx(skip)]` | `event_report/models.rs:29`、`module.rs:255` 等 | SQL 里显式写别名 / 合成 `NULL` 列 |
 | D-20 | LEFT JOIN 外侧列被 PG 透传为 NOT NULL ⇒ sqlx 误推非空 | C6/C8/C9/C13 多处 | 用 `AS "col?"` 覆盖 |
@@ -278,9 +279,9 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 ## 8. 优化方案
 
-### 8.1 剩余可静态化清单（按实测，2026-09-29 C60 后）
+### 8.1 剩余可静态化清单（按实测，2026-09-29 C64 后）
 
-**可转换残量 29 处** = **0 处字面量（机械转换已清零）** + **29 处运行期拼装（D-14 结构性）**
+**可转换残量 26 处** = **0 处字面量（机械转换已清零）** + **26 处运行期拼装（D-14 结构性）**
 加 **1 处跨函数传参（`param`）**。下表列出**尚未归零**的 literal 文件（表内数字是**可机械转换**
 的站点数；纯 `runtime` 文件见下方结构性清单）：
 
@@ -342,12 +343,16 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 > **D-14 结构性保留（0 处 literal，有意保持动态 —— 不是"还没做的机械转换"）**：
 > `event/state.rs`(9)、`membership/mod.rs`(4)、`event/basic.rs`(3)、`state_groups.rs`(2)、
-> `space/repository.rs`(2)、`event/batch.rs`(2)，以及混在其它文件里的 7 处
-> （`src/server/database.rs` 3、`user/storage.rs` 2、`maintenance.rs` 2）—— 共 **29 处**，
+> `space/repository.rs`(2)、`event/batch.rs`(2)，以及混在其它文件里的 4 处
+> （`user/storage.rs` 2、`maintenance.rs` 2）—— 共 **26 处**，
 > 与 §0.2 的 runtime 分项一致。它们的 SQL 文本由 `format!` 拼出（`{ROOM_EVENT_COLS}` /
 > `{STATE_EVENT_OUTER_COLS}` / `ORDER BY` 方向等），而宏要求调用点字面量（R1）；
-> **硬编码会把列清单复制多份**（铁律 2）⇒ 必须**先设计替代方案**再回收
-> （候选：`query_file!` + 每查询一个 `.sql` 文件 —— 全仓尚无先例，属独立设计事项）。
+> **硬编码会把列清单复制多份**（铁律 2）⇒ 必须**先设计替代方案**再回收。
+> ✅ **设计方案已落地为 §8.6**（2026-09-29 C64）：29 处按"插进去的是**值**还是**标识符**"分档，
+> 其中**值插值 3 处**（`src/server/database.rs` 的会话 GUC）已在 C64 回收并归零退表；
+> 剩下的 26 处全是标识符/有界枚举，PG 协议层不允许参数化 ⇒ 保持动态 + 由 §8.6 的守卫覆盖其
+> 常量↔schema 漂移（**不再把"内联成字面量 / 引入 `query_file!`"当作候选**：那等于把一份列清单
+> 复制成多份，违反铁律 2）。
 > **C35–C40 均已完成**：`database_initializer/mod.rs`（15）、`burn_after_read.rs`（15）、
 > `federation_queue.rs`（8）、`openid_token.rs`（7）、`event/{basic,redaction,batch}.rs`（25）、
 > `ssss/storage.rs`（10）、`secure_backup/service.rs`（10）、`key_request/storage.rs`（9）、
@@ -1741,17 +1746,65 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
    还原后绿。（第一次探针探错了字符串 —— 我按目录名 `synapse-test-utils` 写而 `SCAN_DIRS` 里是
    `synapse-test-utils/src`，探针"通过"差点被当成反例；这正是"探针必须真的能让门禁变红"的价值。）
 
-### 8.4 收尾条件
+61. ✅ **C64（D14-1：`src/server/database.rs` 的 3 处会话 GUC **值**插值宏化）已完成（2026-09-29）** ——
+   本批是 §8.6 那份设计的第一刀，也是 D-14 残量里**唯一**"插进去的是值而不是标识符"的一档：
+   - 转换：`format!("SET <guc> = {}", format_pg_timeout(secs))` ⇒
+     `sqlx::query_scalar!("SELECT set_config('<guc>', $1, false) AS \"applied!\"")`
+     —— `is_local=false` 即 **session 级**，与 `SET` 语义等价，但**值**改走绑定参数，
+     配置派生值不再进入 SQL 文本。R4③：`set_config` 无关系来源 ⇒ sqlx 按可空推断 ⇒ 断言。
+   - 顺带消掉双实现：返回带引号 `'30s'` 的 `format_pg_timeout` 成为死代码 ⇒ 删除，换成只产出
+     裸值 `30s` 的 `pg_timeout_value`（带引号形态只在文本拼接时代才需要，留两份即铁律 2）。
+   - **R8④ 补真 baseline 往返**：本模块此前**零覆盖**（`build_database_pool` 只被
+     `src/server/mod.rs:149` 调用，无任何测试经过它）⇒ 把三条 `set_config` 抽成
+     `apply_session_timeouts` 并新增用例 `session_timeouts_are_applied_as_session_level_gucs`
+     （隔离 schema 的连接上调用后读回三个 GUC；三个值各不相同 ⇒ 写错 GUC 名会指名道姓地红）。
+     **R11 变异自证**：生产侧 `is_local` 由 `false` 改 `true`（session → 事务级）⇒ 用例立刻红
+     （`current_setting('statement_timeout')` 读回 `"0"`，断言 left/right = `"0"`/`"30s"`），还原后绿。
+     ⚠️ 该变异**改的是 SQL 文本**，离线宏缓存会先报 `no cached data` 而编译失败 ⇒ 变异实测必须在
+     `SQLX_OFFLINE=false` 下跑，否则会把"缓存缺条目"误当成"用例生效"（这类"探针根本没跑到断言"
+     的假自证正是 R11 要防的）。
+   - 实测：`dynamic_production` 106 → **103**（−3）、`static` 1358 → **1361**（+3）、
+     `dynamic` 总数 858 → **856**、测试区 752 → **753**（+1：上面那条往返用例的读回探针，
+     测试区按 R9 只能动态，且为同一断言只留 1 处站点 ⇒ 基线同步收紧并写明来源）、
+     `.sqlx` 1324 → **1327**（+3）、literal 36/8 **不变**（未新增 literal 生产站点）；
+     恒等式 `103 − 36 − 0 = 67` 成立；`src/server/database.rs` 生产动态**归零退表**。
+   - 验证：`-p synapse-rust --lib --features test-utils -E 'test(/session_timeouts|schema_check_skip/)'`
+     ⇒ **4/4**；四道门禁 + 两道兄弟棘轮 + `--test unit` **1812/1812** 全绿（见提交信息）。
+   - ⚠️ **里程碑验证的环境事实（如实记下，别当成回归）**：C63 后的**全量**集成批次在本机不适合
+     当证据 —— 一次性库上 `--test-threads 4` 整批运行 1h+ 仍未结束（每用例一个隔离 schema，且输出被
+     `tail` 遮蔽、无法观察进度），已主动终止。改用**定向子集**（C63 触及的目录搜索 4 条路由级用例）
+     在两套库上都试过，结论可复现：
+     · `synapse_ci_verify`（本机共用的已备库）会被 harness 以"public 看起来像已部署库"拒绝
+       （`refusing to DROP SCHEMA public`），除非显式 `SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE=1`
+       —— 那会毁掉别人正要用的已备库，故不采纳；
+     · 一次性库 `synapse_c63_int` 上 3/4 红在**基础设施竞态**：共享池要克隆的模板
+       `test_template_v2_2cdc8bda20fe2c33` 正被并发重建，报 `schema "…" does not exist`（另 1 条走隔离
+       schema 的用例**真跑到断言并通过**）；
+     · 按 harness 的正规口径（`TEST_DATABASE_URL=…/synapse_test` + `TEST_DB_TEMPLATE_SCHEMA=test_template_ci`）
+       重跑 ⇒ **4/4 全绿**（`api_profile_tests` 的 `test_user_directory_profile_respects_profile_visibility`、
+       `test_user_directory_search_and_list_respect_profile_visibility`、
+       `test_client_search_users_respects_profile_visibility`、`test_search_recipients_respects_profile_visibility`）。
+     ⇒ 教训：**"模板名没钉住"会让集成用例红在 setup 而不是断言**（那 3 红全部是 `integration setup failed
+     (pooled schema acquisition)`），与 D-75/D-77 的"共享库不是稳定输入"同族；钉住
+     `TEST_DB_TEMPLATE_SCHEMA` 就能复现 CI 口径。本批的 R8④ 证据仍以**模块级真 baseline 往返**为主
+     （`synapse-storage` 的目录搜索/`room` 目录用例 + 上面新增的会话 GUC 用例），全量集成批次留给
+     CI 的 `--test-threads 1` 口径。
+
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 
+> **当前状态（2026-09-29 C64 后）**：`dynamic_production` 103 = **26 处 D-14 运行期拼装**（设计
+> 方案见 §8.6，值插值那 3 处已回收）+ 57 测试基建 + 20 结构性例外；`param` = 0；§7 无未关闭项。
+> 下面的清单是**战役结束的判据**，逐条勾选即收尾。
+
 - ✅ **`dynamic_production` 的可机械转换部分（literal）已归零**（2026-09-29 C63 达成）：
-  106 = 测试基建 57 + 结构性保留 20（分页 15 + D-13 3 + D-96 1 + D-105 1）+ **D-14 结构性 29**，
+  103 = 测试基建 57 + 结构性保留 20（分页 15 + D-13 3 + D-96 1 + D-105 1）+ **D-14 结构性 26**，
   且 `param` = 0；
   或每个残留都有 §7.3 那样的登记条目；
-- literal 逐文件表只剩 5 类（3 个测试基建文件 + `event/pagination.rs` + `monitoring.rs` 的
-  R7 例外 1 处）；
+- ✅ **literal 逐文件表只剩 5 类结构性例外**（2026-09-29 C63 后实测 8 文件 / 36 处）：
+  3 个测试基建文件（25）+ `event/pagination.rs`（6）+ **D-13 的 `Vec<Option<T>>` 2 文件（3）**
+  + `monitoring.rs` 的 R7 例外（1）+ `migration_checks.rs` 的 R7/D-105 例外（1）；
 - ~~D-68 接线~~、~~D-37 收敛~~、~~D-62 修法①~~、~~D-57② 收敛~~、~~D-73 结构性收敛~~、
-  ~~D-79 隔离池基建~~、~~D-80 隔离同形~~ **均已落地**；§7 **无未关闭项**（7 条结构性例外除外）；
+  ~~D-79 隔离池基建~~、~~D-80 隔离同形~~ **均已落地**；§7 **无未关闭项**（9 条结构性例外除外）；
 - 四道门禁与两道棘轮在 CI 常驻，且都留有"能变红"的自证记录。
 
 ### 8.5 每批必须跑的门禁
@@ -1762,6 +1815,58 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 - **该模块的 db_tests 可能在 feature 门控后** —— 先跑一次 `--all-features` 版本对照，
   否则会"跑少了却看起来通过"（`voice.rs` 实测）。
 - **`CARGO_TARGET_DIR` 不得跨 worktree 共享** —— 会跨树复用产物，既假红也假绿（D-66）。
+
+### 8.6 D-14 残量的回收设计（29 处 ⇒ 按风险分档，不按数字；C64 已回收 3 处）
+
+**为什么需要设计而不是"继续转换"**：§8.4 的机械 literal 轴已归零（C63），当时剩下 29 处全是
+`format!` 运行期拼装。而 R7 **明确允许**"`format!` 拼列清单 / 表名 / 排序方向"这两类动态形态，
+它们的 §7.3 登记条目都在 —— 所以这 29 处不是"没做完的机械转换"，而是一个**逐形状判断
+"值不值得回收"的设计问题**：宏的 SQL 实参必须是调用点字面量（R1），任何"共享片段"要么
+内联成 N 份副本，要么留在运行期。
+
+**实测分档**（逐处 `format!` 核对，29 = 16 + 8 + 3 + 2 ⇒ **C64 回收 ①，剩 26 = 16 + 8 + 2**）：
+
+| 形状 | 处 | 位置 | 插进去的是什么 | 处置 |
+| --- | --- | --- | --- | --- |
+| ① **值**插值 | 3 → **0** | 原 `src/server/database.rs:21-26`（`after_connect` 的 `SET statement_timeout/lock_timeout/idle_in_transaction_session_timeout`） | 配置派生的**值**（`format_pg_timeout` ⇒ `'30s'`），**不是**标识符 | ✅ **已回收**（C64 / D14-1 ⇒ `set_config(name, $1, false)`，该文件生产动态归零退表） |
+| ② 共享列清单常量 | 16 | `event/basic.rs` 3、`event/batch.rs` 2、`event/state.rs` 9、`state_groups.rs` 2 | `ROOM_EVENT_COLS` / `STATE_EVENT_{OUTER,INNER}_COLS` / `STATE_GROUP_STATE{,_INNER}_COLS` 的**列清单** | **保持动态** + 加常量↔schema 守卫（D14-2） |
+| ③ 排序方向 / 打分片段 | 8 | `membership/mod.rs` 4、`space/repository.rs` 2、`user/storage.rs` 2 | `ORDER BY` 列名 + `ASC/DESC`（有界枚举）、rank 子表达式 | **保持动态**（R7 明确允许） |
+| ④ 真动态标识符 | 2 | `maintenance.rs`（`VACUUM ANALYZE {table}` / `REINDEX INDEX {index}`） | 表名 / 索引名 | 保持（PG **不允许**标识符走占位符，无替代方案） |
+
+**逐档理由（这三条决定了后面做什么、不做什么）**：
+
+1. **只有 ① 是"真收获"，因为它插的是值**：PG 的协议层不允许把标识符做成绑定参数，但**值可以**。
+   `SET statement_timeout = '30s'` 与 `SELECT set_config('statement_timeout', $1, false)` 语义等价
+   （`is_local=false` 即 session 级），后者让配置值走绑定参数、不再进入 SQL 文本。
+   （R6④ 已实测 `SET …` 语句**本身**可宏化，但那只在值是编译期常量时成立；这里的值是配置派生的，
+   所以走 `set_config` 才是正解，而不是把 `SET` 写成字面量。）
+2. **②/③ 不做字面量内联 —— 那是"用 14 份副本换编译期检查"**：`ROOM_EVENT_COLS` 的 doc comment
+   写明它存在的理由就是"避免在 15+ 查询里重复列清单"，且 pagination bench 也复用它（第二份副本
+   会让对比失去意义）。把 14 处内联成 `query_as!` 字面量 = 制造 14 份会各自漂移的列清单，
+   违反铁律 2；`query_file!` + 14 个 `.sql` 只是把副本挪进文件，同样 14 份，还多引入一套全仓
+   无先例的机制。收益（编译期报列名错）与代价不成比例，且 R7 已把这类形态列为允许。
+3. **②/③ 的真风险不是"动态"，而是"常量与 schema 漂移"**（列改名/删除后只有运行期 42703，
+   正是本战役在别处挖出硬缺陷的形态）⇒ 用**测试期守卫**替代编译期检查：D14-2 新增用例，
+   把常量里的每个"裸列名"与 `information_schema.columns`（锚定 `current_schema()`，R9）比对。
+   这样"列清单只有一份"（铁律 2）与"改名必红"（R11 的可信度）同时成立。
+4. **③ 里唯一"可枚举化"的是 `membership/mod.rs` 的 `ORDER BY` 列名+方向**（4 分支 × 2 方向
+   = 8 个字面量）：判定**不做** —— 收益是 4 个有界分支的编译期检查，代价是 8 份 SQL 副本，
+   与第 2 条同一个权衡，且方向由 `bool` 参数决定 ⇒ 8 个字面量会各自跑一遍 `sqlx prepare`。
+   保留动态 + 由 D14-2 的守卫覆盖其列名。
+
+**批次划分**：
+
+- **D14-1（✅ C64 已完成）**：`database.rs` 3 处值插值 ⇒ `set_config(name, $1, false)` 宏化
+  （删除返回带引号形态、已成死代码的 `format_pg_timeout`，留一份只产出裸值的 `pg_timeout_value`）。
+  实测 `dynamic_production` 106 → **103**、`static` 1358 → **1361**、`.sqlx` 1324 → **1327**、
+  该文件生产动态归零退表。**R8④ 补的真 baseline 往返**（`session_timeouts_are_applied_as_session_level_gucs`
+  —— 本模块此前**零覆盖**）**R11 变异自证**：生产侧 `is_local` 改 `true`（session → 事务级）时用例
+  立刻红（`current_setting('statement_timeout')` 读回 `"0"`），还原后绿。该变异改的是 SQL 文本，
+  **必须在 `SQLX_OFFLINE=false` 下跑**（否则先被"缓存缺条目"拦成编译失败，会把无效的探针当成自证）。
+- **D14-2（下一批）**：②/③ 的常量↔schema 守卫（**新增测试，不是转换**）。它的价值在于把
+  "常量漂移"从运行期 42703 提前到测试期。
+- **不做清单**：把剩下 26 处内联成字面量、引入 `query_file!`、给 `VACUUM/REINDEX` 硬编码表名
+  —— 三条都已在上面的理由里逐一否决，避免下一批重复论证。
 
 ---
 
