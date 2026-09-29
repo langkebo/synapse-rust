@@ -591,3 +591,191 @@ mod tests {
         assert_eq!(device.user_id, cloned.user_id);
     }
 }
+
+#[cfg(test)]
+mod db_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+    use std::sync::Arc;
+
+    /// 隔离 schema 上的 pool（D-79 的本 crate 适配器）。
+    ///
+    /// C59-0 之前 `get_local_devices` / `cleanup_expired_devices` / `revoke_device`
+    /// **没有任何模块级 DB 往返**：`tests` mod 全是纯结构体用例，集成侧只有
+    /// `test_device_sync_cache`（空表）与 `test_device_revocation`（对不存在的设备），
+    /// 于是"列名/别名/常量列可空性/清理语义"这几处**没有被真基线钉住**。
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
+    }
+
+    async fn ensure_test_user(pool: &sqlx::PgPool, user_id: &str) {
+        let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
+        sqlx::query(
+            "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, EXTRACT(EPOCH FROM NOW()) * 1000) ON CONFLICT (user_id) DO NOTHING",
+        )
+        .bind(user_id)
+        .bind(username)
+        .execute(pool)
+        .await
+        .expect("insert test user");
+    }
+
+    async fn insert_device(
+        pool: &sqlx::PgPool,
+        user_id: &str,
+        device_id: &str,
+        display_name: Option<&str>,
+        device_key: Option<serde_json::Value>,
+        last_seen_ts: Option<i64>,
+    ) {
+        sqlx::query(
+            r"INSERT INTO devices (device_id, user_id, display_name, device_key, last_seen_ts, created_ts, first_seen_ts)
+               VALUES ($1, $2, $3, $4, $5, 1, 1)",
+        )
+        .bind(device_id)
+        .bind(user_id)
+        .bind(display_name)
+        .bind(device_key)
+        .bind(last_seen_ts)
+        .execute(pool)
+        .await
+        .expect("insert device");
+    }
+
+    #[tokio::test]
+    async fn get_local_devices_maps_columns_and_constant_flags() {
+        let (_isolated, pool) = test_pool().await;
+        let manager = DeviceSyncManager::new(&pool, None, None);
+        let user_id = format!("@ds_{}:example.com", uuid::Uuid::new_v4().simple());
+
+        ensure_test_user(&pool, &user_id).await;
+        insert_device(
+            &pool,
+            &user_id,
+            "DEV_FULL",
+            Some("My Phone"),
+            Some(json!({ "k": "v" })),
+            Some(1_700_000_000_000),
+        )
+        .await;
+        // 可空列全 NULL 的设备：`keys`/`device_display_name`/`last_seen_ip`/`last_seen_ts` 都要能往返
+        insert_device(&pool, &user_id, "DEV_BARE", None, None, None).await;
+
+        let mut devices = manager.get_local_devices(&user_id).await.expect("get_local_devices");
+        devices.sort_by(|a, b| a.device_id.cmp(&b.device_id));
+        assert_eq!(devices.len(), 2);
+
+        assert_eq!(devices[0].device_id, "DEV_BARE");
+        assert_eq!(devices[0].user_id, user_id);
+        assert!(devices[0].keys.is_none());
+        assert!(devices[0].device_display_name.is_none());
+        assert!(devices[0].last_seen_ts.is_none());
+        assert!(devices[0].last_seen_ip.is_none());
+        assert!(!devices[0].is_blocked, "常量 FALSE 列必须解成 false");
+        assert!(!devices[0].verified);
+
+        assert_eq!(devices[1].device_id, "DEV_FULL");
+        // `display_name AS device_display_name` 与 `device_key AS keys` 两个别名必须真的映射到字段
+        assert_eq!(devices[1].device_display_name.as_deref(), Some("My Phone"));
+        assert_eq!(devices[1].keys, Some(json!({ "k": "v" })));
+        assert_eq!(devices[1].last_seen_ts, Some(1_700_000_000_000));
+
+        // 其他用户的行不得被带出
+        let other = format!("@ds_other_{}:example.com", uuid::Uuid::new_v4().simple());
+        ensure_test_user(&pool, &other).await;
+        assert!(manager.get_local_devices(&other).await.expect("other user").is_empty());
+    }
+
+    #[tokio::test]
+    async fn cleanup_expired_devices_deletes_stale_only_and_spares_dehydrated() {
+        let (_isolated, pool) = test_pool().await;
+        let manager = DeviceSyncManager::new(&pool, None, None);
+        let user_id = format!("@ds_clean_{}:example.com", uuid::Uuid::new_v4().simple());
+        ensure_test_user(&pool, &user_id).await;
+
+        let now = Utc::now().timestamp_millis();
+        let stale = now - (DEVICE_KEY_EXPIRY_DAYS + 1) * 24 * 60 * 60 * 1000;
+
+        insert_device(&pool, &user_id, "DEV_STALE", None, None, Some(stale)).await;
+        insert_device(&pool, &user_id, "DEV_FRESH", None, None, Some(now)).await;
+        insert_device(&pool, &user_id, "DEV_NEVER_SEEN", None, None, None).await; // last_seen_ts IS NULL ⇒ 过期
+                                                                                  // 脱水设备即使过期也必须保留（离线是设计意图，删掉会破坏 rehydration）
+        insert_device(&pool, &user_id, "DEV_DEHYDRATED", None, None, Some(stale)).await;
+        sqlx::query(
+            r"INSERT INTO dehydrated_devices (user_id, device_id, device_data, algorithm, created_ts, updated_ts)
+               VALUES ($1, 'DEV_DEHYDRATED', '{}'::jsonb, 'm.dehydrated_device', 1, 1)",
+        )
+        .bind(&user_id)
+        .execute(&*pool)
+        .await
+        .expect("insert dehydrated device");
+
+        // 恰好删掉 2 条（stale + never-seen）；fresh 与 dehydrated 保留
+        let deleted = manager.cleanup_expired_devices(&user_id).await.expect("cleanup_expired_devices");
+        assert_eq!(deleted, 2, "只应删除 last_seen_ts 过期/为 NULL 且非脱水设备的行");
+
+        let remaining: Vec<String> =
+            sqlx::query_scalar("SELECT device_id FROM devices WHERE user_id = $1 ORDER BY device_id")
+                .bind(&user_id)
+                .fetch_all(&*pool)
+                .await
+                .expect("read remaining");
+        assert_eq!(remaining, vec!["DEV_DEHYDRATED".to_string(), "DEV_FRESH".to_string()]);
+
+        // 再跑一次是幂等的（没有新的过期行）
+        assert_eq!(manager.cleanup_expired_devices(&user_id).await.expect("second cleanup"), 0);
+    }
+
+    #[tokio::test]
+    async fn revoke_device_clears_key_and_last_seen_for_that_user_only() {
+        let (_isolated, pool) = test_pool().await;
+        let manager = DeviceSyncManager::new(&pool, None, None);
+        let user_id = format!("@ds_revoke_{}:example.com", uuid::Uuid::new_v4().simple());
+        let other = format!("@ds_revoke_other_{}:example.com", uuid::Uuid::new_v4().simple());
+        ensure_test_user(&pool, &user_id).await;
+        ensure_test_user(&pool, &other).await;
+
+        insert_device(&pool, &user_id, "DEV_TARGET", Some("T"), Some(json!({ "k": "v" })), Some(1_700_000_000_000))
+            .await;
+        insert_device(&pool, &user_id, "DEV_KEEP", Some("K"), Some(json!({ "k": "v" })), Some(1_700_000_000_000)).await;
+        // `devices.device_id` 是**全局主键**（`pk_devices PRIMARY KEY (device_id)`），
+        // 所以"别人的设备"必须是另一个 device_id；用它验证 `WHERE … AND user_id = $2` 的 user 维度。
+        insert_device(&pool, &other, "DEV_OTHER", Some("O"), Some(json!({ "k": "v" })), Some(1_700_000_000_000)).await;
+
+        manager.revoke_device("DEV_TARGET", &user_id).await.expect("revoke_device");
+
+        let revoked: (Option<serde_json::Value>, Option<i64>) = sqlx::query_as(
+            "SELECT device_key, last_seen_ts FROM devices WHERE user_id = $1 AND device_id = 'DEV_TARGET'",
+        )
+        .bind(&user_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("read revoked");
+        assert!(revoked.0.is_none(), "device_key 必须被清空");
+        assert!(revoked.1.is_none(), "last_seen_ts 必须被清空");
+
+        // 同一用户的其它设备不受影响（`WHERE device_id = $1 AND user_id = $2` 的 user 维度）
+        let kept: (Option<serde_json::Value>, Option<i64>) = sqlx::query_as(
+            "SELECT device_key, last_seen_ts FROM devices WHERE user_id = $1 AND device_id = 'DEV_KEEP'",
+        )
+        .bind(&user_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("read kept");
+        assert!(kept.0.is_some() && kept.1.is_some());
+
+        // 用**错误的 user_id** 去 revoke 别人的设备 ⇒ 匹配 0 行（不报错），别人的行不受影响
+        manager.revoke_device("DEV_OTHER", &user_id).await.expect("revoke with wrong user must not error");
+        let other_row: (Option<serde_json::Value>, Option<i64>) = sqlx::query_as(
+            "SELECT device_key, last_seen_ts FROM devices WHERE user_id = $1 AND device_id = 'DEV_OTHER'",
+        )
+        .bind(&other)
+        .fetch_one(&*pool)
+        .await
+        .expect("read other user");
+        assert!(other_row.0.is_some() && other_row.1.is_some(), "user_id 不匹配时不得清空别人的设备");
+    }
+}

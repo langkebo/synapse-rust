@@ -2934,9 +2934,23 @@
 #   实测：`dynamic_production` 155 → **146**（−9）、`static` 1321 → **1330**（+9）、
 #   `dynamic` 总数 902 → **886**、`dynamic_test` 740 不变、`.sqlx` 1289 → **1298**（+9，无碰撞）、
 #   literal 84/23 → **75/20**。恒等式 `146 − 75 − 1 = 70` 成立。
+# ── 2026-09-29 C59-0（先修 D-102 + 补两个生产实现的真基线覆盖；本文件只动测试区上限）──────
+#   D-102（文档级，已修）：`dead_letter_queue.rs` 的 `PgDeadLetterQueue` 结构体注释写着
+#   "用运行期 sqlx::query 而不是编译期宏，以便在 SQLX_OFFLINE=true 下不需要 .sqlx 缓存条目"
+#   —— 该理由**与事实相反**：离线模式正是靠已提交的 `.sqlx` 条目；缺条目会让整个构建失败
+#   （D-51）。注释已改写为事实描述（并说明本类型的 3 条语句即将宏化）。
+#   覆盖（本批真正的收益）：补 `synapse-federation` 两个**生产**实现此前为零的 DB 往返 ——
+#     · `PgDeadLetterQueue::{enqueue, list_unresolved, mark_resolved}`（同文件的 `tests` mod
+#       只测 `InMemoryDeadLetterQueue`，`client.rs` 的 fed07 用例注入的也是内存实现）；
+#     · `DeviceSyncManager::{get_local_devices, cleanup_expired_devices, revoke_device}`
+#       （集成侧只有"空表查询"与"对不存在设备 revoke"两条用例，列别名/常量 FALSE 列/清理语义
+#       都没被钉住）。
+#   新增 6 条用例、7 处**测试区**动态 SQL（2 个夹具 helper + 5 条直接断言读）
+#   ⇒ `BASELINE_DYNAMIC_TEST_INFRA` 740 → **747**（本批自身新增夹具，非跨批放宽）。
+#   生产区三个数字**不变**（146 / 1330 / literal 75/20）；两处宏化留在 C59。
 BASELINE_QUERY_BUILDER=18
 BASELINE_DYNAMIC_PRODUCTION=146
-BASELINE_DYNAMIC_TEST_INFRA=740
+BASELINE_DYNAMIC_TEST_INFRA=747
 BASELINE_STATIC=1330
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960

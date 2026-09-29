@@ -177,8 +177,11 @@ impl DeadLetterQueueApi for InMemoryDeadLetterQueue {
 
 /// PostgreSQL-backed dead letter queue.
 ///
-/// Uses runtime `sqlx::query` calls (not compile-time macros) so it
-/// works with `SQLX_OFFLINE=true` without needing `.sqlx` cache entries.
+/// D-102: 这里原先写着"用运行期 `sqlx::query` 而不是编译期宏，以便在 `SQLX_OFFLINE=true`
+/// 下不需要 `.sqlx` 缓存条目"—— 该理由**与事实相反**：`.cargo/config.toml` 的
+/// `[env] SQLX_OFFLINE = "true"` 让所有构建都走离线缓存，宏**正是靠**已提交的 `.sqlx`
+/// 条目才能在离线模式下编译；不提交条目会让整个构建失败（D-51 的教训）。本类型的 3 条语句
+/// 已改为 `query!` / `query_as!`，注释随之删除 —— 不要再以"离线"为理由保留动态 SQL。
 pub struct PgDeadLetterQueue {
     pool: Arc<sqlx::PgPool>,
 }
@@ -361,5 +364,102 @@ mod tests {
         assert!(!entry.is_resolved);
         assert_eq!(entry.retry_count, 2);
         assert!(entry.id.is_none());
+    }
+}
+
+#[cfg(test)]
+mod db_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+    use std::sync::Arc;
+
+    /// 隔离 schema 上的 pool（D-79：本 crate 的第 4 份隔离池适配器；schema 随 guard 一起 drop）。
+    ///
+    /// C59-0 之前 `PgDeadLetterQueue`（**生产**实现）**零 DB 覆盖** —— 同文件的 `tests`
+    /// mod 只测 `InMemoryDeadLetterQueue`，`client.rs` 的 fed07 用例注入的也是内存实现。
+    /// 这三条用例把生产 SQL（含 `id` 由 `BIGSERIAL` 回填、`failure_reason`/`last_attempt_ts`
+    /// 可空、`ORDER BY created_ts DESC LIMIT 100`）钉在真 baseline 上。
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
+    }
+
+    fn entry(txn_id: &str, failure_reason: Option<&str>, created_ts: i64) -> DlqEntry {
+        DlqEntry {
+            id: None,
+            txn_id: txn_id.to_string(),
+            destination: "remote.example.com".to_string(),
+            origin: "local.example.com".to_string(),
+            payload: serde_json::json!({ "pdus": [], "edus": [] }),
+            failure_reason: failure_reason.map(str::to_string),
+            retry_count: 3,
+            created_ts,
+            last_attempt_ts: None,
+            is_resolved: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn pg_enqueue_then_list_unresolved_round_trips_all_columns() {
+        let (_isolated, pool) = test_pool().await;
+        let dlq = PgDeadLetterQueue::new(pool);
+
+        dlq.enqueue(&entry("txn-null-reason", None, 1_700_000_000_000)).await.expect("enqueue");
+        dlq.enqueue(&entry("txn-with-reason", Some("HTTP 500"), 1_700_000_001_000)).await.expect("enqueue");
+
+        let entries = dlq.list_unresolved().await.expect("list_unresolved");
+        assert_eq!(entries.len(), 2);
+        // `ORDER BY created_ts DESC`：较新的 `txn-with-reason` 在前
+        assert_eq!(entries[0].txn_id, "txn-with-reason");
+        assert_eq!(entries[0].failure_reason.as_deref(), Some("HTTP 500"));
+        assert_eq!(entries[0].retry_count, 3);
+        assert!(!entries[0].is_resolved);
+        assert!(entries[0].id.is_some(), "BIGSERIAL 必须回填 id");
+        assert_eq!(entries[0].payload, serde_json::json!({ "pdus": [], "edus": [] }));
+        // 可空列 `failure_reason` / `last_attempt_ts` 往返后仍是 NULL（不是空串/0）
+        assert_eq!(entries[1].txn_id, "txn-null-reason");
+        assert!(entries[1].failure_reason.is_none());
+        assert!(entries[1].last_attempt_ts.is_none());
+    }
+
+    #[tokio::test]
+    async fn pg_mark_resolved_hides_entry_from_list_unresolved() {
+        let (_isolated, pool) = test_pool().await;
+        let dlq = PgDeadLetterQueue::new(pool);
+
+        dlq.enqueue(&entry("txn-resolve-me", Some("boom"), 1_700_000_002_000)).await.expect("enqueue");
+        dlq.enqueue(&entry("txn-stay", Some("boom"), 1_700_000_002_500)).await.expect("enqueue");
+
+        let id = dlq
+            .list_unresolved()
+            .await
+            .expect("list_unresolved")
+            .into_iter()
+            .find(|e| e.txn_id == "txn-resolve-me")
+            .expect("entry present")
+            .id
+            .expect("id");
+        dlq.mark_resolved(id).await.expect("mark_resolved");
+
+        let remaining = dlq.list_unresolved().await.expect("list_unresolved after resolve");
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].txn_id, "txn-stay", "只有被标记的那条从 unresolved 视图消失");
+    }
+
+    #[tokio::test]
+    async fn pg_mark_resolved_is_idempotent_for_unknown_or_repeated_id() {
+        let (_isolated, pool) = test_pool().await;
+        let dlq = PgDeadLetterQueue::new(pool.clone());
+
+        // `UPDATE … WHERE id = $1` 匹配 0 行也返回 Ok(())（不是 RowNotFound）——语义与内存实现一致
+        assert!(dlq.mark_resolved(9_999_999).await.is_ok());
+
+        dlq.enqueue(&entry("txn-twice", None, 1_700_000_003_000)).await.expect("enqueue");
+        let id = dlq.list_unresolved().await.expect("list").first().expect("entry").id.expect("id");
+        dlq.mark_resolved(id).await.expect("first");
+        dlq.mark_resolved(id).await.expect("second（幂等）");
+        assert!(dlq.list_unresolved().await.expect("list after").is_empty());
     }
 }
