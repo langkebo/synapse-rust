@@ -114,6 +114,50 @@ impl MessagingService {
         self.event_reader.get_state_events(room_id).await.map_err(RoomMessagingError::Database)
     }
 
+    /// Compute the DAG graph fields (`prev_events`, `depth`, `auth_events`) for a
+    /// prospective `m.room.member` join event, so `make_join` can embed them in
+    /// the template it returns.
+    ///
+    /// The joining server signs these values verbatim, so they must match exactly
+    /// what the local `create_event` path will persist — both derive from the same
+    /// `event_reader` reads and `select_auth_events`.
+    pub async fn get_join_graph_metadata(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        room_version: &str,
+    ) -> ApiResult<(Vec<String>, i64, Vec<String>)> {
+        let state_events = self
+            .event_reader
+            .get_state_events(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to get room state", e))?;
+        let auth_state = AuthStateSnapshot::from_state_events(&state_events);
+
+        let prev_events = self
+            .event_reader
+            .get_forward_extremities_in_room(room_id, 10)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to get forward extremities", e))?;
+
+        let depth = self
+            .event_reader
+            .calculate_event_depth(room_id, &prev_events)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to calculate event depth", e))?;
+
+        let auth_events = select_auth_events(
+            room_version,
+            &auth_state,
+            "m.room.member",
+            Some(user_id),
+            user_id,
+            &json!({ "membership": "join" }),
+        );
+
+        Ok((prev_events, depth, auth_events))
+    }
+
     /// See [`get_state_events_at_or_before`].
     pub async fn get_state_events_at_or_before(
         &self,
@@ -348,6 +392,102 @@ impl MessagingService {
         // commit point. Best-effort, like the signature/hash enrichment below: the
         // event is already committed, so a failure degrades to the previous
         // timestamp derivation instead of failing the write.
+        if should_update_summary {
+            if let Some(state_key) = state_key.as_deref() {
+                let state_groups = synapse_storage::state_groups::StateGroupStorage::new(self.event_writer.pool());
+                let record = crate::room::state_record::StateRecord {
+                    event_reader: self.event_reader.as_ref(),
+                    room_storage: self.room_storage.as_ref(),
+                    state_groups: &state_groups,
+                };
+                if let Err(error) = record.after_state_event(&room_id, &event_id, &event_type, state_key).await {
+                    ::tracing::warn!(
+                        error = %error,
+                        room_id = %room_id,
+                        event_id = %event_id,
+                        event_type = %event_type,
+                        "Failed to maintain the room's resolved-state record"
+                    );
+                }
+            }
+        }
+
+        if should_update_summary && event_type == "m.room.canonical_alias" && state_key.as_deref() == Some("") {
+            let canonical_alias = event.content.get("alias").and_then(|value| value.as_str());
+            if let Err(error) = self.room_storage.set_canonical_alias(&room_id, canonical_alias).await {
+                ::tracing::warn!(
+                    error = %error,
+                    room_id = %room_id,
+                    canonical_alias = ?canonical_alias,
+                    "Failed to project canonical alias onto room"
+                );
+            }
+        }
+
+        if should_update_summary {
+            if let Err(error) =
+                self.room_summary_service.queue_update(&room_id, &event_id, &event_type, state_key.as_deref()).await
+            {
+                ::tracing::warn!(
+                    error = %error,
+                    room_id = %room_id,
+                    event_id = %event_id,
+                    event_type = %event_type,
+                    state_key = ?state_key,
+                    "Failed to queue room summary update"
+                );
+            } else if let Err(error) = self.room_summary_service.process_pending_updates(32).await {
+                ::tracing::warn!(error = %error, room_id = %room_id, batch_size = 32_u64, "Failed to process room summary updates");
+            }
+        }
+
+        if should_update_summary {
+            self.dispatch_appservice_event(
+                &event.event_id,
+                &event.room_id,
+                &event.event_type,
+                &event.user_id,
+                &event.content,
+                event.state_key.as_deref(),
+            )
+            .await;
+        }
+
+        Ok(event)
+    }
+
+    /// Like [`Self::create_event_with_graph`] but writes **no** `event_edges`
+    /// rows — for a PDU whose `prev_events` point at parents this server does not
+    /// hold (see [`synapse_storage::EventStorage::create_outlier_event`]).
+    ///
+    /// Same post-write bookkeeping: the cache invalidation and resolved-state
+    /// record maintenance run for the same reason they do on the graph path, and
+    /// they are already tolerant of an unhosted room (`copy_forward` returns early
+    /// when no state group exists).
+    pub async fn create_outlier_event(
+        &self,
+        params: CreateEventParams,
+        prev_events: &[String],
+        auth_events: &[String],
+        depth: i64,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> ApiResult<synapse_storage::RoomEvent> {
+        let room_id = params.room_id.clone();
+        let event_id = params.event_id.clone();
+        let event_type = params.event_type.clone();
+        let state_key = params.state_key.clone();
+        let should_update_summary = tx.is_none();
+
+        let event = self
+            .event_writer
+            .create_outlier_event(params, prev_events, auth_events, depth, tx)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to create outlier event", e))?;
+
+        if state_key.is_some() {
+            let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+        }
+
         if should_update_summary {
             if let Some(state_key) = state_key.as_deref() {
                 let state_groups = synapse_storage::state_groups::StateGroupStorage::new(self.event_writer.pool());

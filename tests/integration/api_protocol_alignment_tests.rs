@@ -694,8 +694,8 @@ async fn test_admin_send_server_notice_persists_notice_for_target_user() {
     .expect("failed to inspect server notice room summary");
     let (member_count, joined_member_count, last_event_id, last_event_ts, last_message_ts) =
         summary_counts.expect("server notice room summary should exist");
-    assert_eq!(member_count, 1);
-    assert_eq!(joined_member_count, 1);
+    assert_eq!(member_count, 2);
+    assert_eq!(joined_member_count, 2);
     assert_eq!(last_event_id.as_deref(), Some(event_id));
     assert!(last_event_ts.is_some());
     assert!(last_message_ts.is_some());

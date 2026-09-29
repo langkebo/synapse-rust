@@ -343,6 +343,10 @@ async fn send_leave_v2_no_existence_leak_remote_server() {
 /// The v2 body is **not** the bare event — upstream `FederationV2InviteServlet`
 /// reads `content["event"]` and `content["room_version"]`, and a v3+ PDU carries
 /// neither a version nor an `event_id` of its own (the receiver derives the ID).
+///
+/// The event deliberately carries no `depth`/`prev_events`/`auth_events`: it is
+/// accepted far enough to prove the request cleared the existence gate, then
+/// rejected by PDU-integrity validation.
 fn build_invite_event_body(room_id: &str, sender: &str, invitee: &str, origin: &str, room_version: &str) -> Value {
     json!({
         "event": {
@@ -358,8 +362,21 @@ fn build_invite_event_body(room_id: &str, sender: &str, invitee: &str, origin: &
     })
 }
 
+/// OPT-017's observability rule applies only to rooms we host.
+///
+/// A federated invite is how the invitee's server *first learns* a room exists,
+/// so it holds no membership rows to check. Applying the rule unconditionally
+/// would reject the very first cross-server invite to every room with
+/// `M_NOT_FOUND`, making federated invites unusable. A room we do host still
+/// refuses an origin with no non-banned member.
+///
+/// The consequence is that the two cases no longer share a status code: a hosted
+/// private room returns 404, while an unknown room clears the gate and is then
+/// rejected by PDU-integrity validation — 400 `M_BAD_JSON`, because the body
+/// above carries no DAG fields. That 400, not a 404, is the evidence the
+/// existence gate was passed.
 #[tokio::test]
-async fn invite_v2_no_existence_leak_remote_server() {
+async fn invite_v2_observability_applies_only_to_hosted_rooms() {
     let Some((app, _pool, _local_key_id, _local_key_b64, _local_signing_key, cache)) = setup_federation_app().await
     else {
         return;
@@ -376,12 +393,9 @@ async fn invite_v2_no_existence_leak_remote_server() {
     let (token, _creator_id) = register_user(&app, "creator").await;
     let private_room_id = create_private_room(&app, &token).await;
 
-    // 2. Remote server attempts invite_v2 on the private room.
-    //    The remote server has NO members in this room.
-    //    Currently: federatable_room_version passes (room exists) → code
-    //    proceeds to create event → returns 200 (LEAK).
-    //    After fix: validate_federation_origin_can_observe_room returns 404
-    //    (no members from remote.example) → response is 404.
+    // 2. Remote server attempts invite_v2 on the private room it has no member
+    //    in. We host it, so `validate_federation_origin_can_observe_room`
+    //    refuses with 404 instead of leaking the room's contents.
     let inviter = "@inviter:remote.example";
     let invitee = "@invitee:localhost";
     let event_id = "$invite_evt_001:remote.example";
@@ -393,7 +407,9 @@ async fn invite_v2_no_existence_leak_remote_server() {
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     let private_room_status = response.status();
 
-    // 3. Remote server attempts invite_v2 on a non-existent room.
+    // 3. Remote server attempts invite_v2 on a room we have never seen. This is
+    //    the normal first-contact case for federated invites, so it must clear
+    //    the existence gate.
     let nonexistent_room = "!nonexistent_room:localhost";
     let event_id_2 = "$invite_evt_002:remote.example";
     let body_2 = build_invite_event_body(nonexistent_room, inviter, invitee, remote_origin, "12");
@@ -411,21 +427,128 @@ async fn invite_v2_no_existence_leak_remote_server() {
     let response_2 = ServiceExt::<Request<Body>>::oneshot(app, request_2).await.unwrap();
     let nonexistent_status = response_2.status();
 
-    // 4. Both must return the same status code — no existence leak.
-    assert_eq!(
-        private_room_status, nonexistent_status,
-        "invite_v2 leaks room existence: private room returned {}, non-existent room returned {}. \
-         Both must return the same status to prevent existence enumeration.",
-        private_room_status, nonexistent_status
-    );
-
-    // 5. Both must be 404 after the fix.
+    // 4. A room we host must still refuse an origin with no member.
     assert_eq!(
         private_room_status,
         StatusCode::NOT_FOUND,
-        "invite_v2 for a private room without access must return 404, not {}",
+        "invite_v2 for a hosted room without a member from the origin must return 404, not {}",
         private_room_status
     );
+
+    // 5. An unknown room must clear the existence gate. The body intentionally
+    //    lacks DAG fields, so the next check rejects it with 400 — never 404.
+    assert_eq!(
+        nonexistent_status,
+        StatusCode::BAD_REQUEST,
+        "invite_v2 for an unknown room must clear the existence gate and be rejected by \
+         PDU validation with 400, not blocked as if enumerating (got {})",
+        nonexistent_status
+    );
+}
+
+/// A federated invite is how the invitee's server first learns the room exists,
+/// so the invite's `prev_events` name events it has never seen. Persisting the
+/// PDU through the normal graph path would try to write `event_edges` rows
+/// pointing at those foreign parents and fail the foreign key onto `events`;
+/// the invite must be stored as an outlier (graph columns kept, no edges) and
+/// the invitee's membership must be recorded — otherwise `/sync` and
+/// `/rooms/{roomId}/state` never show the invite.
+#[tokio::test]
+async fn invite_v2_persists_unknown_room_invite_as_outlier_and_records_membership() {
+    let Some((app, pool, _local_key_id, _local_key_b64, _local_signing_key, cache)) = setup_federation_app().await
+    else {
+        return;
+    };
+
+    // 0. Register the remote server's signing key so federation auth passes.
+    let remote_origin = "remote.example";
+    let remote_key_id = "ed25519:remote_test";
+    let remote_signing_key = ed25519_dalek::SigningKey::from_bytes(&[99u8; 32]);
+    register_remote_verify_key(&cache, remote_origin, remote_key_id, &remote_signing_key).await;
+
+    // 1. The invitee is a user we host — that is why the invite is addressed to us.
+    let (_invitee_token, invitee_id) = register_user(&app, "invitee").await;
+    let inviter = "@inviter:remote.example";
+
+    // 2. The room is unknown to us, and the invite's parents live on the
+    //    inviting server. Room version "1" is used so the PDU carries its own
+    //    `event_id` (v3+ derive it, which would need the reference hash here).
+    let room_id = format!("!outlier_invite_room_{}:localhost", rand::random::<u32>());
+    let event_id = "$outlier_invite_evt_001:remote.example";
+    let body = json!({
+        "event": {
+            "type": "m.room.member",
+            "content": { "membership": "invite" },
+            "sender": inviter,
+            "state_key": invitee_id,
+            "room_id": room_id,
+            "event_id": event_id,
+            "origin": remote_origin,
+            "origin_server_ts": chrono::Utc::now().timestamp_millis(),
+            "depth": 7,
+            "prev_events": ["$parent_we_never_saw:remote.example"],
+            "auth_events": ["$create_we_never_saw:remote.example"]
+        },
+        "room_version": "1"
+    });
+    let uri = format!("/_matrix/federation/v2/invite/{}/{}", room_id, event_id);
+    let request =
+        signed_fed_request_as("PUT", &uri, remote_origin, "localhost", remote_key_id, &remote_signing_key, Some(&body));
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
+    let status = response.status();
+    let response_body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
+    let response_json: Value = serde_json::from_slice(&response_body).unwrap();
+
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "an invite for an unknown room whose parents we do not hold must be accepted as an outlier, got {status}: {response_json}"
+    );
+
+    // 3. The spec answer is `{"event": <signed PDU>}` — the inviting server
+    //    verifies the event it just handed us, so the key is mandatory.
+    assert!(
+        response_json.get("event").is_some_and(Value::is_object),
+        "invite_v2 must answer with {{\"event\": <PDU>}}, got {response_json}"
+    );
+
+    // 4. The invitee's membership is recorded: nothing else writes it, because
+    //    the persisted event is the remote PDU and the graph path is bypassed.
+    let membership: String =
+        sqlx::query_scalar("SELECT membership FROM room_memberships WHERE room_id = $1 AND user_id = $2")
+            .bind(&room_id)
+            .bind(&invitee_id)
+            .fetch_one(pool.as_ref())
+            .await
+            .expect("the invitee's room_memberships row must exist after an inbound federated invite");
+    assert_eq!(membership, "invite", "the recorded membership must be `invite`");
+
+    // 5. `sender` keeps the remote inviter, so clients can report who invited.
+    let recorded_sender: String =
+        sqlx::query_scalar("SELECT sender FROM room_memberships WHERE room_id = $1 AND user_id = $2")
+            .bind(&room_id)
+            .bind(&invitee_id)
+            .fetch_one(pool.as_ref())
+            .await
+            .expect("the recorded membership must carry the inviter as sender");
+    assert_eq!(recorded_sender, inviter);
+
+    // 6. The event itself is persisted with the sender's ID and graph position.
+    let stored_event_id: String = sqlx::query_scalar("SELECT event_id FROM events WHERE event_id = $1")
+        .bind(event_id)
+        .fetch_one(pool.as_ref())
+        .await
+        .expect("the invite PDU must be persisted");
+    assert_eq!(stored_event_id, event_id);
+
+    // 7. Outlier shape: no `event_edges` rows may point at the foreign parents.
+    let edge_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM event_edges WHERE event_id = $1")
+        .bind(event_id)
+        .fetch_one(pool.as_ref())
+        .await
+        .unwrap();
+    assert_eq!(edge_count, 0, "an outlier must not write event_edges rows: the parents are not events we hold");
 }
 
 // ---------------------------------------------------------------------------
@@ -595,10 +718,25 @@ async fn invite_v2_stored_signature_covers_the_projected_pdu() {
 
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK, "invite_v2 must accept and persist the PDU");
-    let response_body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    let response_body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
     let response_json: Value = serde_json::from_slice(&response_body).unwrap();
-    let event_id =
-        response_json["event_id"].as_str().expect("invite_v2 must return the persisted event_id").to_string();
+
+    // The spec answer is `{"event": <signed PDU>}` — the inviting server verifies
+    // the event it just handed us. The v12 PDU carries no `event_id` of its own
+    // (the receiver derives it), so the persisted row is located by its
+    // membership coordinates instead of by an ID echoed in the response.
+    assert!(
+        response_json["event"]["signatures"]["localhost"][&key_id].is_string(),
+        "invite_v2 must answer with {{\"event\": <PDU>}} carrying the local signature under {key_id}: {response_json}"
+    );
+    let event_id: String = sqlx::query_scalar(
+        "SELECT event_id FROM events WHERE room_id = $1 AND event_type = 'm.room.member' AND state_key = $2",
+    )
+    .bind(&room_id)
+    .bind(invitee)
+    .fetch_one(&*pool)
+    .await
+    .expect("the invite row must be persisted");
 
     // Read the persisted row back the same way the federation emitters do.
     let storage = EventStorage::new(&pool, "localhost".to_string());

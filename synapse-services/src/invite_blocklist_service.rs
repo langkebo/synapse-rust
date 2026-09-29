@@ -115,24 +115,19 @@ impl InviteBlocklistService {
 
     /// `true` when the invitee's own MSC4155 policy refuses this invite.
     ///
-    /// For **local** users: a missing, malformed or `allow`-defaulted payload
-    /// never denies. The invitee hosts on this server, so we can safely assume
-    /// "no policy set = default allow".
-    ///
-    /// For **remote (federated)** invitees we fail-closed — the absence of
-    /// account data means we cannot verify their preferences, so we deny.
+    /// Account data is private and never federated, so this server holds a
+    /// policy row only for the users it hosts. A missing row therefore means
+    /// "no policy set", which is the default allow — for a remote invitee we
+    /// cannot know their preferences and must not invent them. Their policy is
+    /// enforced by *their* homeserver, which runs this same gate when it
+    /// receives the invite. A malformed or `allow`-defaulted payload never
+    /// denies either.
     async fn account_policy_denies(&self, inviter_id: &str, invitee_id: &str) -> ApiResult<bool> {
-        let Some(invitee_server) = invitee_id.rsplit_once(':').map(|(_, server)| server) else {
-            return Ok(false); // malformed id → trust
-        };
-
         let content =
             self.account_data_store.get_account_data_content(invitee_id, INVITE_PERMISSION_CONFIG_TYPE).await?;
 
-        // Local user: missing policy = allow. Remote user: missing policy = deny (fail-closed).
-        let is_local = invitee_server == "localhost";
         let Some(content) = content else {
-            return Ok(!is_local);
+            return Ok(false);
         };
 
         if content.get("default_action").and_then(|v| v.as_str()) != Some("block") {
@@ -385,11 +380,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn account_policy_absent_denies_federated_users() {
-        // Federated compatibility: missing account data means we fail-closed for remote users.
+    async fn account_policy_absent_allows_unhosted_users() {
+        // We only hold account data for users we host; a remote invitee has no
+        // local row, so we defer to their homeserver instead of denying.
         let (svc, _store) = service_with_account_data();
-        assert!(svc
-            .account_policy_denies("@inviter:test.localhost", "@nobody:test.localhost")
+        assert!(!svc
+            .account_policy_denies("@inviter:test.localhost", "@nobody:remote.example")
             .await
             .expect("policy read"));
     }
@@ -519,11 +515,10 @@ mod tests {
         let svc =
             InviteBlocklistService::new(storage, account_data_store.clone()).with_dm_rooms_bypass_global_policy(true);
 
-        // No global blocklist entry exists in the fake pool (no real queries hit it).
-        // The DM bypass gate should not affect the room-level or account-level policy.
+        // The room-list storage points at an unreachable fake pool, so the
+        // gate fails closed on the storage error regardless of DM bypass.
         let result =
             svc.check_invite_allowed("!room:test.localhost", "@alice:test.localhost", "@bob:test.localhost").await;
-        // Account policy deny because m.invite_permission_config is absent (fail-closed).
         assert!(result.is_err());
     }
 

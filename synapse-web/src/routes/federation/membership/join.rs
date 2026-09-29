@@ -17,16 +17,33 @@ use super::{
 /// Build a join event template (pure, testable).
 ///
 /// Constructs the event object that the requesting server must sign before
-/// calling `send_join`.  The caller is responsible for merging in
-/// `auth_events` and `room_version` fields.
-pub(crate) fn build_join_event_template(user_id: &str) -> serde_json::Value {
+/// calling `send_join`. The graph fields (`prev_events`, `auth_events`,
+/// `depth`) are the resident server's own DAG position and are signed verbatim
+/// by the joining server, so they must match what the resident server will
+/// persist via `create_event`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn build_join_event_template(
+    user_id: &str,
+    room_id: &str,
+    origin: &str,
+    origin_server_ts: i64,
+    prev_events: &[String],
+    auth_events: &[String],
+    depth: i64,
+) -> serde_json::Value {
     json!({
         "type": "m.room.member",
+        "room_id": room_id,
+        "sender": user_id,
+        "origin": origin,
+        "origin_server_ts": origin_server_ts,
+        "state_key": user_id,
         "content": {
             "membership": "join"
         },
-        "sender": user_id,
-        "state_key": user_id
+        "prev_events": prev_events,
+        "auth_events": auth_events,
+        "depth": depth,
     })
 }
 
@@ -55,26 +72,27 @@ pub(crate) async fn make_join(
     let result: Result<Json<Value>, ApiError> = async {
         validate_federation_user_origin(&auth.origin, &user_id)?;
 
-        let auth_events =
-            ctx.room_service.messaging().get_state_event_records(&room_id).await.map_err(ApiError::from)?;
-
-        let auth_events_json: Vec<Value> = auth_events
-            .iter()
-            .map(|e| {
-                json!({
-                    "event_id": e.event_id,
-                    "type": e.event_type,
-                    "state_key": e.state_key
-                })
-            })
-            .collect();
-
         let room_version = federatable_room_version(&ctx, &room_id).await?;
+
+        // The resident server supplies the room's DAG position (prev_events,
+        // depth, auth_events) so the joining server signs a complete PDU whose
+        // reference-hash event_id matches what this server will persist.
+        let (prev_events, depth, auth_events) =
+            ctx.room_service.messaging().get_join_graph_metadata(&room_id, &user_id, &room_version).await?;
+
+        let event = build_join_event_template(
+            &user_id,
+            &room_id,
+            &ctx.server_name,
+            current_timestamp_millis(),
+            &prev_events,
+            &auth_events,
+            depth,
+        );
 
         Ok(Json(json!({
             "room_version": room_version,
-            "auth_events": auth_events_json,
-            "event": build_join_event_template(&user_id)
+            "event": event
         })))
     }
     .await;
@@ -120,6 +138,9 @@ pub(crate) async fn send_join(
 
         let event = body.get("event").ok_or_else(|| ApiError::bad_request("Event required".to_string()))?;
         let user_id = validate_federation_member_event(&auth.origin, &room_id, &event_id, event, "join")?;
+        // The joining user is remote; ensure a local placeholder row exists so
+        // the later `room_memberships` insert does not violate its FK to `users`.
+        ctx.user_service.ensure_remote_user(user_id).await?;
         // OPT-017: Check join access BEFORE room version to prevent existence leaking.
         // A non-existent room now gets 404 from inside validate_federation_join_access;
         // a private room now also returns 404 (same error, no leak).
@@ -260,6 +281,9 @@ pub(crate) async fn send_join_v2(
             super::validate_federation_origin(&auth.origin, Some(origin))?;
         }
         let sender = validate_federation_member_event(&auth.origin, &room_id, &event_id, &body, "join")?;
+        // The joining user is remote; ensure a local placeholder row exists so
+        // the later `room_memberships` insert does not violate its FK to `users`.
+        ctx.user_service.ensure_remote_user(sender).await?;
         // OPT-017: Check join access BEFORE room version to prevent existence leaking.
         // A non-existent room returns 404 from inside validate_federation_join_access;
         // a private room also returns 404 (forbidden mapped to not_found, no leak).

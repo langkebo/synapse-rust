@@ -9,7 +9,10 @@ use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::*;
 
-use super::{dispatch_federation_member_event_to_appservice, federatable_room_version, re_sign_pdu_locally};
+use super::{
+    dispatch_federation_member_event_to_appservice, federatable_room_version, project_and_sign_pdu_locally,
+    re_sign_pdu_locally,
+};
 use crate::routes::extractors::RoomId;
 
 /// See [`thirdparty_invite`].
@@ -121,10 +124,10 @@ pub(crate) async fn invite_v2(
     }
     let (sender, state_key) = validate_federation_invite_event(&auth.origin, &room_id, event)?;
 
-    // Everything that could reveal whether the room exists happens *after* the
-    // access check below, and the check comes before any ID/version work
-    // (OPT-017: no existence leak through error codes).
-    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
+    // OPT-017 still applies, but only for rooms we host: the invitee's server
+    // legitimately learns of a room *through* this request, so an unknown room
+    // must be allowed through. See the helper for the full rationale.
+    super::validate_federation_invite_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 
     // If we know the room, the version we were told must be the one we have on
     // record — otherwise our own ID/signature computation would diverge from the
@@ -172,6 +175,24 @@ pub(crate) async fn invite_v2(
         ));
     };
 
+    // A federated invite is how this server first learns the room exists, so it
+    // may hold no `rooms` row yet — and `events.room_id` /
+    // `room_memberships.room_id` are both foreign keys onto `rooms(room_id)`.
+    // Materialise the row now, *after* the DAG-field check, so a malformed
+    // invite is rejected before it can leave an orphan room behind.
+    let invite_join_rule = invite_room_state_join_rule(body.get("invite_room_state"));
+    ctx.room_service
+        .membership()
+        .ensure_room_record_for_remote_invite(&room_id, &room_version, sender, &invite_join_rule)
+        .await?;
+
+    // Whether we already hold this room's `m.room.create`. If we do, the invite's
+    // `prev_events` name parents we hold and the graph path applies; if we do
+    // not, this request is how we first learn the room exists, so every
+    // `prev_events` entry is a parent we have never seen and writing
+    // `event_edges` for it would fail the foreign key onto `events`.
+    let room_is_hosted = ctx.room_service.messaging().get_room_create_event_id(&room_id).await?.is_some();
+
     let params = synapse_services::event::CreateEventParams {
         event_id: persisted_event_id.clone(),
         room_id: room_id.clone(),
@@ -186,16 +207,37 @@ pub(crate) async fn invite_v2(
         redacts: None,
     };
 
-    let stored = ctx
-        .room_service
-        .messaging()
-        .create_event_with_graph(params, &prev_events, &auth_events, depth, None)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to create invite event", e))?;
+    // Both paths keep the sender's ID and DAG fields byte-faithful; they differ
+    // only in whether the `event_edges` rows are written, i.e. whether the
+    // parents named above are this server's own DAG or foreign events it can only
+    // record as an outlier (see `create_outlier_event`).
+    let stored = if room_is_hosted {
+        ctx.room_service.messaging().create_event_with_graph(params, &prev_events, &auth_events, depth, None).await
+    } else {
+        ctx.room_service.messaging().create_outlier_event(params, &prev_events, &auth_events, depth, None).await
+    }
+    .map_err(|e| ApiError::internal_with_cause("Failed to create invite event", e))?;
+
+    // The invitee is one of our users — that is why the remote server sent the
+    // invite here — so ensure a local `users` row exists before the membership
+    // write below, whose `user_id` is a foreign key onto it. Idempotent for an
+    // account we already host.
+    ctx.user_service.ensure_remote_user(state_key).await?;
+
+    // Nothing else records the invitee's membership: the persisted event is the
+    // remote PDU, and the write above goes through the raw event path. Without
+    // this row `/sync` and `/rooms/{roomId}/state` would not show the invite.
+    ctx.room_service.membership().record_inbound_federation_invite(&room_id, state_key, sender).await?;
 
     // F-03: sign the PDU the persisted row projects to (see `thirdparty_invite`);
     // the graph fields the sender supplied above are part of the signed bytes.
-    re_sign_pdu_locally(&ctx, &stored.event_id).await;
+    // The spec answer is `{"event": …}` — the caller must be able to verify the
+    // event it just handed us, so a missing signature is a hard failure.
+    let Some(signed_pdu) = project_and_sign_pdu_locally(&ctx, &stored.event_id).await else {
+        return Err(ApiError::internal(
+            "Failed to sign the persisted invite event for the federation response".to_string(),
+        ));
+    };
 
     dispatch_federation_member_event_to_appservice(
         &ctx,
@@ -216,8 +258,32 @@ pub(crate) async fn invite_v2(
     );
 
     Ok(Json(json!({
-        "event_id": stored.event_id
+        "event": signed_pdu
     })))
+}
+
+/// Derive the room's join rule from the `invite_room_state` stripped state the
+/// inviting server supplies, defaulting to `invite`.
+///
+/// `invite_room_state` is a list of stripped state events (`type`, `state_key`,
+/// `content`, `sender`); the `m.room.join_rules` entry carries the rule in
+/// `content.join_rule`. Anything absent, malformed, or outside the
+/// `rooms.join_rules` check-constraint whitelist falls back to `invite` — the
+/// most restrictive choice, and the value the local invite path records.
+fn invite_room_state_join_rule(invite_room_state: Option<&Value>) -> String {
+    let raw = invite_room_state.and_then(Value::as_array).and_then(|events| {
+        events.iter().find_map(|ev| {
+            if ev.get("type").and_then(Value::as_str) != Some("m.room.join_rules") {
+                return None;
+            }
+            ev.get("content")?.get("join_rule")?.as_str()
+        })
+    });
+
+    match raw {
+        Some(rule @ ("invite" | "public" | "knock" | "restricted")) => rule.to_string(),
+        _ => "invite".to_string(),
+    }
 }
 
 /// Collect a PDU's `field` array of event IDs, or `None` when the key is absent.

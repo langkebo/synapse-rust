@@ -138,6 +138,52 @@ impl MembershipService {
         Ok(())
     }
 
+    /// Record an *inbound* `m.room.member` invite that arrived over federation:
+    /// the local server is the invitee's home server and the inviting user lives
+    /// elsewhere, so no local PDU is minted here — the caller has already
+    /// persisted the origin-signed one.
+    ///
+    /// Mirrors the local-invite bookkeeping in [`Self::invite_user`]: the
+    /// `room_memberships` row (with `sender` = the remote inviter, so
+    /// `/rooms/{roomId}/state` and `/sync` report who invited the user) and the
+    /// best-effort room-summary member row.
+    pub async fn record_inbound_federation_invite(
+        &self,
+        room_id: &str,
+        invitee_id: &str,
+        inviter_id: &str,
+    ) -> ApiResult<()> {
+        let member = self
+            .member_storage
+            .add_member(room_id, invitee_id, "invite", None, None, Some(inviter_id), None)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to record inbound invite membership", e))?;
+
+        let request = synapse_storage::room_summary::CreateSummaryMemberRequest {
+            room_id: room_id.to_string(),
+            user_id: invitee_id.to_string(),
+            display_name: None,
+            avatar_url: None,
+            membership: "invite".to_string(),
+            is_hero: None,
+            last_active_ts: member.joined_ts.or(member.updated_ts),
+        };
+        // Best-effort: a room we do not host may have no summary row yet, and
+        // the membership write above is the contract the caller depends on.
+        if let Err(error) = self.room_summary_service.add_member(request).await {
+            ::tracing::warn!(
+                error = %error,
+                room_id = %room_id,
+                user_id = %invitee_id,
+                "Failed to update room summary member for inbound invite"
+            );
+        }
+
+        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+
+        Ok(())
+    }
+
     /// See [`knock_room`].
     pub async fn knock_room(&self, room_id: &str, user_id: &str, reason: Option<&str>) -> ApiResult<()> {
         if !self

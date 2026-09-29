@@ -1092,6 +1092,28 @@ impl crate::event::writer::EventWriter for InMemoryEventStore {
         Ok(event)
     }
 
+    async fn create_outlier_event(
+        &self,
+        params: crate::event::CreateEventParams,
+        prev_events: &[String],
+        auth_events: &[String],
+        depth: i64,
+        _tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<crate::event::RoomEvent, sqlx::Error> {
+        // The mock keeps no DAG tables, so "no edges" and "edges" are the same
+        // here; delegate so the stored shape matches the Postgres path.
+        self.create_event_with_pdu(
+            params,
+            crate::event::PduGraphFields {
+                depth: Some(depth),
+                prev_events: Some(prev_events.to_vec()),
+                auth_events: Some(auth_events.to_vec()),
+            },
+            None,
+        )
+        .await
+    }
+
     async fn save_event_signature(
         &self,
         _event_id: &str,

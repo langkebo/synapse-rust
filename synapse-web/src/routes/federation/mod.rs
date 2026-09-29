@@ -107,6 +107,46 @@ pub(super) async fn validate_federation_origin_can_observe_room(
     Err(ApiError::not_found("Room not found".to_string()))
 }
 
+/// Invite-aware variant of [`validate_federation_origin_can_observe_room`].
+///
+/// A federated invite is how a remote server *first learns* that a room exists:
+/// the invitee's homeserver has never seen the room before, so it holds no
+/// membership rows to check. Applying OPT-017 here unconditionally would refuse
+/// the very first cross-server invite for every room with `M_NOT_FOUND`, making
+/// federated invites unusable.
+///
+/// The rule is therefore: only enforce the observability check for rooms we
+/// actually host. A genuinely unknown room is let through so the invite can be
+/// persisted (matching upstream Synapse, which processes rather than rejects
+/// such invites); a room we host still refuses an origin with no non-banned
+/// member, so an outsider cannot be tricked into accepting a forged invite into
+/// a private room.
+///
+/// "Host" is judged by the presence of the room's `m.room.create` state, not by
+/// a bare `rooms` row. Receiving an invite materialises a `rooms` row via
+/// [`RoomStorage::create_room`] while the sender's own membership is never
+/// written (an invite only writes the invitee's `m.room.member`), so a row-only
+/// test would flip this check on after the *first* invite and reject every
+/// subsequent invite from the same origin with `M_NOT_FOUND`. Holding the create
+/// event means we joined or created the room and therefore have the sender's
+/// membership to check.
+///
+/// [`RoomStorage::create_room`]: synapse_storage::RoomStorage::create_room
+pub(super) async fn validate_federation_invite_origin_can_observe_room(
+    ctx: &FederationContext,
+    room_id: &str,
+    origin: &str,
+) -> ApiResult<()> {
+    let hosts_room = ctx.room_service.messaging().get_room_create_event_id(room_id).await?.is_some();
+    if !hosts_room {
+        // Unknown room, or one we only hold a pending invite for: the normal
+        // starting point of a federated invite.
+        return Ok(());
+    }
+
+    validate_federation_origin_can_observe_room(ctx, room_id, origin).await
+}
+
 /// See [`validate_federation_origin_shares_user_room`].
 pub(super) async fn validate_federation_origin_shares_user_room(
     ctx: &FederationContext,

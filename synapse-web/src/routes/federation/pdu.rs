@@ -100,7 +100,16 @@ pub fn state_pdu(server_name: &str, record: &StateEvent, room_version: Option<&s
             pdu.insert("event_id".to_string(), json!(record.event_id));
         }
     }
-    pdu.insert("room_id".to_string(), json!(record.room_id));
+    // MSC4291 (room v12+): the `m.room.create` event carries **no** `room_id` on
+    // the federation wire — it is derived from the event's own id (`$` swapped
+    // for `!`). `build_pdu` applies the same rule on the write path; emitting it
+    // here would make the re-computed content hash depend on `room_id` and break
+    // the reference-hash identity that a peer recomputes.
+    let is_v12_create = record.event_type.as_deref() == Some("m.room.create")
+        && room_version.is_some_and(|v| synapse_common::room_versions::room_version_at_least(v, 12));
+    if !is_v12_create {
+        pdu.insert("room_id".to_string(), json!(record.room_id));
+    }
     pdu.insert("sender".to_string(), json!(record.sender));
     pdu.insert("type".to_string(), json!(record.event_type.clone().unwrap_or_default()));
     pdu.insert("content".to_string(), record.content.clone());
@@ -285,7 +294,18 @@ pub async fn build_pdus(ctx: &FederationContext, records: &[&StateEvent]) -> Vec
                 super::increment_counter(ctx, "federation_pdu_incomplete_total");
             }
             SignatureAction::SignLocally => {
-                sign_locally(ctx, &record.event_id, &mut pdu).await;
+                // The room version was already resolved per record above; the
+                // v12 `m.room.create` PDU omits `room_id`, so `sign_locally` must
+                // not re-derive the version from it.
+                if let Some(version) = room_version.as_deref() {
+                    sign_locally(ctx, &record.event_id, &mut pdu, version).await;
+                } else {
+                    ::tracing::warn!(
+                        event_id = %record.event_id,
+                        room_id = %record.room_id,
+                        "no room version recorded for room — emitting unsigned"
+                    );
+                }
             }
         }
         pdus.push(pdu);
@@ -294,39 +314,11 @@ pub async fn build_pdus(ctx: &FederationContext, records: &[&StateEvent]) -> Vec
 }
 
 /// Sign and hash a projected PDU with this server's current signing key.
-async fn sign_locally(ctx: &FederationContext, event_id: &str, pdu: &mut Value) {
-    // The signature material is room-version dependent (redaction differs per
-    // version), so an unknown version must never be guessed. This projection is
-    // best-effort: an unresolvable version emits the PDU unsigned rather than
-    // signing bytes a peer cannot reproduce.
-    let Some(room_id) = pdu.get("room_id").and_then(Value::as_str) else {
-        ::tracing::warn!(
-            event_id = %event_id,
-            "projected PDU has no room_id — cannot resolve a room version; emitting unsigned"
-        );
-        return;
-    };
-    let room_version = match ctx.room_service.state().get_room_version(room_id).await {
-        Ok(Some(room_version)) => room_version,
-        Ok(None) => {
-            ::tracing::warn!(
-                event_id = %event_id,
-                room_id = %room_id,
-                "no room version recorded for room — refusing to sign; federation PDU will be emitted unsigned"
-            );
-            return;
-        }
-        Err(error) => {
-            ::tracing::warn!(
-                event_id = %event_id,
-                room_id = %room_id,
-                %error,
-                "failed to resolve room version — refusing to sign; federation PDU will be emitted unsigned"
-            );
-            return;
-        }
-    };
-
+///
+/// `room_version` is resolved by the caller (`build_pdus`) from the record's
+/// `room_id`; the PDU itself may omit `room_id` (v12 `m.room.create`), so it is
+/// passed in rather than re-read from the PDU.
+async fn sign_locally(ctx: &FederationContext, event_id: &str, pdu: &mut Value, room_version: &str) {
     let key = match ctx.key_rotation_manager.get_current_key().await {
         Ok(Some(key)) => key,
         Ok(None) => {
@@ -347,7 +339,7 @@ async fn sign_locally(ctx: &FederationContext, event_id: &str, pdu: &mut Value) 
     };
 
     if let Err(error) = crate::federation::signing::sign_and_hash_event(
-        &room_version,
+        room_version,
         &ctx.server_name,
         &key.key_id,
         &key.secret_key,

@@ -501,6 +501,21 @@ impl EventWriter for GraphMetadataWriter {
         self.inner.create_event_with_graph(params, prev_events, auth_events, depth, tx).await
     }
 
+    async fn create_outlier_event(
+        &self,
+        params: CreateEventParams,
+        prev_events: &[String],
+        auth_events: &[String],
+        depth: i64,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<RoomEvent, sqlx::Error> {
+        // Same reasoning as `create_event_with_graph`, plus one more: the
+        // event id belongs to the *origin* server, so re-deriving it here would
+        // both overwrite the origin's graph values and substitute our local
+        // reference hash for theirs.
+        self.inner.create_outlier_event(params, prev_events, auth_events, depth, tx).await
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn save_event_signature(
         &self,

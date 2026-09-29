@@ -218,6 +218,51 @@ impl MembershipService {
     // Federation helpers (used by federation_membership)
     // =========================================================================
 
+    /// Materialise the local `rooms` row for a room this server knows of only
+    /// through a federated invite.
+    ///
+    /// A federated invite is how a homeserver *first learns* that a room
+    /// exists, so it holds no `rooms` row yet. `events.room_id` and
+    /// `room_memberships.room_id` are both foreign keys onto `rooms(room_id)`,
+    /// so the invite PDU cannot be persisted until the row exists — without this
+    /// the very first cross-server invite into any room fails with a foreign-key
+    /// violation.
+    ///
+    /// Mirrors the remote-join path ([`super::federation`]), which creates the
+    /// same minimal record after `send_join`. `creator` is the inviting (remote)
+    /// user; `rooms.creator` carries no foreign key, so a remote id is fine.
+    /// Idempotent: a no-op when the room is already known.
+    pub async fn ensure_room_record_for_remote_invite(
+        &self,
+        room_id: &str,
+        room_version: &str,
+        creator: &str,
+        join_rule: &str,
+    ) -> ApiResult<()> {
+        let exists = self
+            .room_storage
+            .room_exists(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to check room existence", e))?;
+        if exists {
+            return Ok(());
+        }
+
+        let is_public = join_rule == "public";
+        self.room_storage
+            .create_room(room_id, creator, join_rule, room_version, is_public)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to create local record for remotely invited room", e))?;
+
+        ::tracing::info!(
+            room_id = %room_id,
+            room_version = %room_version,
+            join_rule = %join_rule,
+            "Created local record for remotely invited room"
+        );
+        Ok(())
+    }
+
     /// Extract the server name from a **user** id (`@localpart:server`).
     ///
     /// User ids always carry a `:server`, so parsing them is sound. Room ids do

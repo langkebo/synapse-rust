@@ -185,6 +185,75 @@ impl EventStorage {
         .await
     }
 
+    /// Persist an inbound event whose `prev_events` point at parents this
+    /// server does not hold — Synapse's "outlier" shape.
+    ///
+    /// The `events` row keeps the origin's graph columns verbatim
+    /// (`depth` / `prev_events` / `auth_events`) so the PDU still projects as
+    /// [`PduCompleteness::Complete`] and can be signed, but **no `event_edges`
+    /// rows are written**: `event_edges.prev_event_id` has an FK to
+    /// `events(event_id)` (`fk_event_edges_prev`), which a parent we never
+    /// received cannot satisfy.
+    ///
+    /// ⚠️ 这**不是**对 [`Self::create_event_with_pdu`] 的放松：三条存储不变式
+    /// （`…_rolls_back_event_when_edges_insert_fails`）断言"父事件缺失 ⇒ 写入失败并
+    /// 回滚"，那条路径必须保持原样。outlier 是**另一种写入形状**，只由明确知道自己
+    /// 拿不到父事件的调用方选择（联邦入站邀请，且本机不托管该房间）。
+    ///
+    /// ⚠️ outlier 会被 [`Self::get_forward_extremities_in_room`] 当成 forward
+    /// extremity —— 该函数**只**从 `event_edges` 推导叶节点（取舍已在其文档注释中记录）。
+    ///
+    /// ⚠️ 这里的 INSERT 文本必须与 [`Self::create_event_with_pdu`] **逐字节相同**
+    /// （`.sqlx` 离线缓存以 `sha256(SQL)` 为键，文本一致才能复用既有条目）；差异只在
+    /// 于本方法**不执行**后续的 `event_edges` 插入。
+    pub async fn create_outlier_event(
+        &self,
+        params: CreateEventParams,
+        prev_events: &[String],
+        auth_events: &[String],
+        depth: i64,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<RoomEvent, sqlx::Error> {
+        let prev_events_json = serde_json::to_value(prev_events).unwrap_or(serde_json::Value::Null);
+        let auth_events_json = serde_json::to_value(auth_events).unwrap_or(serde_json::Value::Null);
+
+        // 单条 INSERT 自带原子性，不需要 `create_event_with_pdu` 那层自有事务。
+        let mut owned;
+        let conn: &mut sqlx::PgConnection = match tx {
+            Some(tx) => &mut *tx,
+            None => {
+                owned = self.pool.acquire().await?;
+                &mut owned
+            }
+        };
+
+        sqlx::query_as!(
+            RoomEvent,
+            r#"
+            INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key, origin_server_ts, is_redacted, redacts, depth, prev_events, auth_events)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9, $10, $11, $12)
+            RETURNING event_id, room_id, sender as user_id, event_type, content, state_key,
+                      COALESCE(depth, 0) as "depth!", origin_server_ts as "processed_ts",
+                      origin_server_ts, 0::BIGINT as "not_before!", 'pending' as "status?",
+                      'self' as "origin!", stream_ordering, redacts
+            "#,
+            &params.event_id,
+            &params.room_id,
+            &params.user_id,
+            &params.user_id,
+            &params.event_type,
+            &params.content,
+            params.state_key.as_deref(),
+            params.origin_server_ts,
+            params.redacts.as_deref(),
+            depth,
+            &prev_events_json,
+            &auth_events_json,
+        )
+        .fetch_one(&mut *conn)
+        .await
+    }
+
     /// Create a state event with MSC4242 `prev_state_events` (state DAG edges).
     ///
     /// This is the MSC4242 State DAG equivalent of `create_event_with_graph`:

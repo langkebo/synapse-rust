@@ -146,6 +146,13 @@ impl UserService {
         Ok(())
     }
 
+    /// Idempotently create a local placeholder record for a remote (federated)
+    /// user, so that FK constraints (e.g. `room_memberships.user_id → users`)
+    /// can be satisfied when a remote user joins a local room.
+    pub async fn ensure_remote_user(&self, user_id: &str) -> Result<(), ApiError> {
+        self.user_storage.ensure_remote_user(user_id).await.map_err(Self::db_error)
+    }
+
     /// Returns `Ok(())` if the user row exists **and** is not deactivated,
     /// otherwise `Err(ApiError::not_found)`.
     pub async fn ensure_active_user_exists(&self, user_id: &str) -> Result<(), ApiError> {

@@ -17,6 +17,7 @@
 //! `synapse/handlers/federation.py::FederationHandler.do_remotely_reject_invite`
 
 use crate::common::error::{ApiError, ApiResult};
+use crate::room::state::auth_events::{select_auth_events, AuthStateSnapshot};
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::generate_event_id;
@@ -25,25 +26,29 @@ use synapse_storage::CreateEventParams;
 
 use super::service::MembershipService;
 
-/// Fills in the `origin` field of a `make_join` / `make_leave` template when
-/// the resident server omitted it.
+/// Set the PDU `origin` field to the signing (local) server name.
 ///
-/// `origin` is a required template field (spec `make_join` / `make_leave`
-/// response, "the name of the resident homeserver") and takes part in the
-/// signed bytes. [`sign_and_hash_event`] no longer injects it, so the invariant
-/// is restored here, at the call site that owns the remote-provided template.
-fn ensure_template_origin(template: &mut Value, resident: &str, flow: &str) {
-    if template.get("origin").is_some() {
+/// The `origin` of a PDU is the server that created and signed it — for the
+/// outbound `make_join`/`make_leave` flow that is **this** server, not the
+/// remote resident homeserver. [`sign_and_hash_event`] signs with
+/// `self.server_name` and does not inject `origin`, so the two must be kept
+/// consistent here. Filling `origin` with the destination (resident) server
+/// would make the remote verifier reject the event: it checks
+/// `origin == authenticated_origin` (the X-Matrix `origin` header, i.e. us).
+fn ensure_template_origin(template: &mut Value, origin_server: &str, flow: &str) {
+    let Some(obj) = template.as_object_mut() else {
+        ::tracing::warn!(flow = %flow, "make_* template is not a JSON object; cannot set origin");
+        return;
+    };
+    if obj.get("origin").and_then(|v| v.as_str()) == Some(origin_server) {
         return;
     }
     ::tracing::warn!(
-        resident = %resident,
+        origin_server = %origin_server,
         flow = %flow,
-        "make_* template omitted the required `origin` field; filling it with the resident server"
+        "make_* template had a missing/mismatched `origin`; setting it to the signing server"
     );
-    if let Some(obj) = template.as_object_mut() {
-        obj.insert("origin".to_string(), Value::String(resident.to_string()));
-    }
+    obj.insert("origin".to_string(), Value::String(origin_server.to_string()));
 }
 
 impl MembershipService {
@@ -106,10 +111,18 @@ impl MembershipService {
             ApiError::bad_request(format!("Remote make_join response is malformed: {e}"))
         })?;
 
-        // `origin` is part of the signed bytes and the make_join template is
-        // created by the resident homeserver, so a template that omits it gets
-        // its name here (the signer no longer injects `origin`).
-        ensure_template_origin(&mut event_template, destination, "make_join");
+        // `origin` is part of the signed bytes and must be this (signing)
+        // server, not the remote resident server — see `ensure_template_origin`.
+        ensure_template_origin(&mut event_template, &self.server_name, "make_join");
+
+        // The template must carry `room_id` (part of the signed bytes) before
+        // signing. Some resident servers omit it and expect the joining server
+        // to add it (see `validate_make_membership_template`); fill `room_id`
+        // and `origin_server_ts` defensively here so the signed PDU is complete.
+        if let Some(obj) = event_template.as_object_mut() {
+            obj.entry("room_id").or_insert_with(|| Value::String(room_id.to_string()));
+            obj.entry("origin_server_ts").or_insert_with(|| json!(current_timestamp_millis()));
+        }
 
         // 2. Sign the template event locally.
         let signing_key = self.require_signing_key().await?;
@@ -122,14 +135,27 @@ impl MembershipService {
         )
         .map_err(|e| ApiError::internal(format!("Failed to sign join event: {e}")))?;
 
-        let event_id = event_template
-            .get("event_id")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| generate_event_id(&self.server_name));
+        // Derive the event identity **after** signing. For v3+ rooms the ID is
+        // the reference hash (which must not include `event_id`, so it is
+        // computed before the field is inserted); v1/v2 keep a server-assigned
+        // or template-provided ID. The send_join body must carry `event_id`
+        // matching the request path, so it is written back into the event here.
+        let event_id = if synapse_common::event_id::uses_reference_hash_event_id(&room_version) {
+            synapse_common::event_id::compute_event_id(&room_version, &event_template)
+                .map_err(|e| ApiError::internal(format!("Failed to compute join event id: {e}")))?
+        } else {
+            event_template
+                .get("event_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| generate_event_id(&self.server_name))
+        };
+        if let Some(obj) = event_template.as_object_mut() {
+            obj.insert("event_id".to_string(), Value::String(event_id.clone()));
+        }
 
         // 3. send_join: send the signed event to the remote server.
-        let send_join_response =
+        let mut send_join_response =
             federation_client.send_join(destination, room_id, &event_id, &event_template).await.map_err(|e| {
                 ::tracing::warn!(error = %e, destination = %destination, "send_join failed");
                 ApiError::bad_request(format!("Remote server rejected send_join: {e}"))
@@ -176,6 +202,14 @@ impl MembershipService {
         //    We use create_event_with_graph so that event_edges is populated.
         //    P1b: Wrap all state-event persistence in a single transaction
         //    to avoid N+1 round-trips and ensure atomicity.
+        //
+        //    Persist in topological order (parents before children): each
+        //    event's `prev_events` must already exist in `events` for the
+        //    `event_edges.prev_event_id` FK, and `depth` is strictly greater
+        //    than every parent's, so an ascending `depth` sort is a valid
+        //    topological order.
+        send_join_response.state.sort_by_key(|event| event.get("depth").and_then(Value::as_i64).unwrap_or(0));
+
         let mut persisted_event_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
         // The state events this batch commits, in write order: their resolved-state
         // record is maintained after the transaction commits, because the DAG walk
@@ -193,98 +227,107 @@ impl MembershipService {
         };
 
         for state_event in &send_join_response.state {
-            if let Some(event_id) = state_event.get("event_id").and_then(|v| v.as_str()) {
-                if persisted_event_ids.contains(event_id) {
-                    continue;
-                }
-                persisted_event_ids.insert(event_id.to_string());
+            // v3+ PDUs do not carry `event_id` (spec room v3 "Event format");
+            // derive it from the reference hash. v1/v2 (and peers that still
+            // emit the legacy field) carry it directly.
+            let event_id = match state_event.get("event_id").and_then(Value::as_str) {
+                Some(id) => id.to_string(),
+                None => match synapse_common::event_id::compute_event_id(&room_version, state_event) {
+                    Ok(id) => id,
+                    Err(error) => {
+                        ::tracing::warn!(error = %error, "Failed to derive federated state event id during join");
+                        return Err(ApiError::internal_with_cause(
+                            "Failed to derive federated state event id during join",
+                            error,
+                        ));
+                    }
+                },
+            };
+            if persisted_event_ids.contains(&event_id) {
+                continue;
+            }
+            persisted_event_ids.insert(event_id.clone());
 
-                let prev_events: Vec<String> = state_event
-                    .get("prev_events")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|e| {
-                                e.as_array()
-                                    .and_then(|inner| inner.first())
-                                    .and_then(|id| id.as_str())
-                                    .map(|s| s.to_string())
-                                    .or_else(|| e.as_str().map(|s| s.to_string()))
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
+            let prev_events: Vec<String> = state_event
+                .get("prev_events")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|e| {
+                            e.as_array()
+                                .and_then(|inner| inner.first())
+                                .and_then(|id| id.as_str())
+                                .map(|s| s.to_string())
+                                .or_else(|| e.as_str().map(|s| s.to_string()))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
 
-                let auth_events: Vec<String> = state_event
-                    .get("auth_events")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|e| {
-                                e.as_array()
-                                    .and_then(|inner| inner.first())
-                                    .and_then(|id| id.as_str())
-                                    .map(|s| s.to_string())
-                                    .or_else(|| e.as_str().map(|s| s.to_string()))
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
+            let auth_events: Vec<String> = state_event
+                .get("auth_events")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|e| {
+                            e.as_array()
+                                .and_then(|inner| inner.first())
+                                .and_then(|id| id.as_str())
+                                .map(|s| s.to_string())
+                                .or_else(|| e.as_str().map(|s| s.to_string()))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
 
-                let depth = state_event.get("depth").and_then(|v| v.as_i64()).unwrap_or(0);
+            let depth = state_event.get("depth").and_then(|v| v.as_i64()).unwrap_or(0);
 
-                let event_type = state_event.get("type").and_then(|v| v.as_str()).unwrap_or("m.unknown").to_string();
+            let event_type = state_event.get("type").and_then(|v| v.as_str()).unwrap_or("m.unknown").to_string();
 
-                let sender = state_event.get("sender").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let sender = state_event.get("sender").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
-                let content = state_event.get("content").cloned().unwrap_or(Value::Object(serde_json::Map::new()));
+            let content = state_event.get("content").cloned().unwrap_or(Value::Object(serde_json::Map::new()));
 
-                let state_key = state_event.get("state_key").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let state_key = state_event.get("state_key").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-                let origin_server_ts = state_event
-                    .get("origin_server_ts")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or_else(current_timestamp_millis);
+            let origin_server_ts =
+                state_event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or_else(current_timestamp_millis);
 
-                let redacts = state_event.get("redacts").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let redacts = state_event.get("redacts").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-                // Fail closed: dropping `_tx` without committing rolls back the
-                // state events written so far, and membership is never claimed,
-                // so a persistence failure cannot leave the local event graph
-                // out of sync with the membership tables (B10c).
-                if let Some(state_key) = state_key.as_deref() {
-                    committed_state_events.push((event_id.to_string(), event_type.clone(), state_key.to_string()));
-                }
-                if let Err(e) = self
-                    .event_writer
-                    .create_event_with_graph(
-                        CreateEventParams {
-                            event_id: event_id.to_string(),
-                            room_id: room_id.to_string(),
-                            user_id: sender,
-                            event_type,
-                            content,
-                            state_key,
-                            origin_server_ts,
-                            redacts,
-                        },
-                        &prev_events,
-                        &auth_events,
-                        depth,
-                        _tx.as_mut(), // P1b: share the transaction across all state events
-                    )
-                    .await
-                {
-                    ::tracing::warn!(
-                        event_id = %event_id,
-                        error = %e,
-                        "Failed to persist federated state event during join"
-                    );
-                    return Err(ApiError::internal_with_cause(
-                        "Failed to persist federated state event during join",
-                        e,
-                    ));
-                }
+            // Fail closed: dropping `_tx` without committing rolls back the
+            // state events written so far, and membership is never claimed,
+            // so a persistence failure cannot leave the local event graph
+            // out of sync with the membership tables (B10c).
+            if let Some(state_key) = state_key.as_deref() {
+                committed_state_events.push((event_id.clone(), event_type.clone(), state_key.to_string()));
+            }
+            if let Err(e) = self
+                .event_writer
+                .create_event_with_graph(
+                    CreateEventParams {
+                        event_id: event_id.clone(),
+                        room_id: room_id.to_string(),
+                        user_id: sender,
+                        event_type,
+                        content,
+                        state_key,
+                        origin_server_ts,
+                        redacts,
+                    },
+                    &prev_events,
+                    &auth_events,
+                    depth,
+                    _tx.as_mut(), // P1b: share the transaction across all state events
+                )
+                .await
+            {
+                ::tracing::warn!(
+                    event_id = %event_id,
+                    error = %e,
+                    "Failed to persist federated state event during join"
+                );
+                return Err(ApiError::internal_with_cause("Failed to persist federated state event during join", e));
             }
         }
 
@@ -326,34 +369,42 @@ impl MembershipService {
         // Persist the join event itself **before** claiming membership, so that a
         // persistence failure cannot leave membership tables (or the member
         // count) claiming a join the event graph does not contain (B10c).
+        // The join event is normally already part of the resident server's
+        // returned `state` (persisted above), so only persist it here when that
+        // state did not include it — persisting it twice would violate the
+        // `events` primary key.
         let join_event_id = event_template.get("event_id").and_then(|v| v.as_str()).unwrap_or(&event_id).to_string();
 
-        let join_sender = event_template.get("sender").and_then(|v| v.as_str()).unwrap_or(user_id).to_string();
+        if !persisted_event_ids.contains(&join_event_id) {
+            let join_sender = event_template.get("sender").and_then(|v| v.as_str()).unwrap_or(user_id).to_string();
 
-        let join_content = event_template.get("content").cloned().unwrap_or(json!({ "membership": "join" }));
+            let join_content = event_template.get("content").cloned().unwrap_or(json!({ "membership": "join" }));
 
-        let join_ts =
-            event_template.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or_else(current_timestamp_millis);
+            let join_ts = event_template
+                .get("origin_server_ts")
+                .and_then(|v| v.as_i64())
+                .unwrap_or_else(current_timestamp_millis);
 
-        if let Err(e) = self
-            .event_writer
-            .create_event(
-                CreateEventParams {
-                    event_id: join_event_id,
-                    room_id: room_id.to_string(),
-                    user_id: join_sender,
-                    event_type: "m.room.member".to_string(),
-                    content: join_content,
-                    state_key: Some(user_id.to_string()),
-                    origin_server_ts: join_ts,
-                    redacts: None,
-                },
-                None,
-            )
-            .await
-        {
-            ::tracing::warn!(error = %e, "Failed to persist join event after federation join");
-            return Err(ApiError::internal_with_cause("Failed to persist join event after federation join", e));
+            if let Err(e) = self
+                .event_writer
+                .create_event(
+                    CreateEventParams {
+                        event_id: join_event_id.clone(),
+                        room_id: room_id.to_string(),
+                        user_id: join_sender,
+                        event_type: "m.room.member".to_string(),
+                        content: join_content,
+                        state_key: Some(user_id.to_string()),
+                        origin_server_ts: join_ts,
+                        redacts: None,
+                    },
+                    None,
+                )
+                .await
+            {
+                ::tracing::warn!(error = %e, "Failed to persist join event after federation join");
+                return Err(ApiError::internal_with_cause("Failed to persist join event after federation join", e));
+            }
         }
 
         // Invalidate room-state cache after membership state change.
@@ -365,10 +416,51 @@ impl MembershipService {
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to add member after federation join", e))?;
 
+        // 6b. Backfill the resident members from the returned state so the
+        // inbound-transaction origin check (`validate_federation_origin_in_room`)
+        // accepts events from their servers. Only the joining user's membership
+        // is claimed above; without these rows the resident server(s) appear to
+        // have no joined members locally and every later transaction is dropped.
+        for state_event in &send_join_response.state {
+            let is_join_member = state_event.get("type").and_then(Value::as_str) == Some("m.room.member")
+                && state_event.get("content").and_then(|c| c.get("membership")).and_then(Value::as_str) == Some("join");
+            if !is_join_member {
+                continue;
+            }
+            let Some(member_id) = state_event.get("state_key").and_then(Value::as_str) else {
+                continue;
+            };
+            if member_id == user_id {
+                continue;
+            }
+            if let Err(e) = self.user_storage.ensure_remote_user(member_id).await {
+                ::tracing::warn!(error = %e, user_id = member_id, "Failed to ensure remote member user during join");
+                continue;
+            }
+            // Best-effort: a duplicate (already a member) is not fatal.
+            if let Err(e) = self.member_storage.add_member(room_id, member_id, "join", None, None, None, None).await {
+                ::tracing::warn!(error = %e, user_id = member_id, "Failed to backfill remote member during join");
+            }
+        }
+
         self.room_storage
             .increment_member_count(room_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to update member count after federation join", e))?;
+
+        // Materialise the room summary from the room we just joined. The state events
+        // above were persisted with `should_update_summary = false` (they share one
+        // transaction), so nothing has projected name/topic/heroes into `room_summaries`
+        // yet. Without this the room becomes visible in the user's room list only once
+        // the queued join event is processed, and even then without its name.
+        // Best-effort: the membership itself is already durable.
+        if let Err(error) = self.room_summary_service.sync_from_room(room_id).await {
+            ::tracing::warn!(
+                error = %error,
+                room_id = %room_id,
+                "Failed to materialize room summary after federation join"
+            );
+        }
 
         Ok(())
     }
@@ -447,9 +539,9 @@ impl MembershipService {
             },
         };
 
-        // `origin` is part of the signed bytes and the template is created by the
-        // resident homeserver (the signer no longer injects it).
-        ensure_template_origin(&mut event_template, destination, "make_leave");
+        // `origin` is part of the signed bytes and must be this (signing)
+        // server, not the remote resident server — see `ensure_template_origin`.
+        ensure_template_origin(&mut event_template, &self.server_name, "make_leave");
 
         // 3. Sign the template event locally.
         let signing_key = self.require_signing_key().await?;
@@ -603,23 +695,6 @@ impl MembershipService {
             self.event_reader.calculate_event_depth(room_id, &extremities).await.map_err(|e| {
                 ApiError::internal_with_cause("Failed to calculate event depth for federated invite", e)
             })?;
-        // Complete auth chain for invite: m.room.create (actual event_id from state)
-        // instead of the hardcoded format "$create:{server_name}".
-        let create_events = self
-            .event_reader
-            .get_state_events_by_type(room_id, "m.room.create")
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to fetch room create event for auth chain", e))?;
-
-        // Fallback to the legacy format if create event is not found in state.
-        let create_event_id = create_events
-            .first()
-            .map(|e| e.event_id.clone())
-            .unwrap_or_else(|| format!("$create:{}", self.server_name));
-
-        let auth_events = vec![create_event_id];
-        let prev_events = extremities;
-
         let invite_content = json!({
             "membership": "invite",
             "displayname": invitee_id
@@ -628,6 +703,35 @@ impl MembershipService {
                 .next()
                 .unwrap_or(invitee_id),
         });
+
+        // The auth chain carried by the outbound PDU must be the *canonical*
+        // selection for this event — the same one the local write path derives
+        // (`select_auth_events`) — because the reference hash that becomes the
+        // event ID is computed over it. Signing one chain and letting the writer
+        // resolve another makes this server store an invite under an ID no other
+        // participant in the room has ever seen, and the two rows disagree about
+        // `auth_events` for the same event.
+        //
+        // Referencing `m.room.create` alone was the former shape: it is not a
+        // complete chain for v11+ (power levels, the sender's own membership and
+        // the join rules are the required entries), and from v12 the create event
+        // is implicit (MSC4291) so it must not be listed at all.
+        let state_events = self
+            .event_reader
+            .get_state_events(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to fetch room state for invite auth chain", e))?;
+        let auth_state = AuthStateSnapshot::from_state_events(&state_events);
+        let auth_events = select_auth_events(
+            &room_version,
+            &auth_state,
+            "m.room.member",
+            Some(invitee_id),
+            inviter_id,
+            &invite_content,
+        );
+
+        let prev_events = extremities;
 
         let invite_parts = synapse_common::pdu::PduParts {
             room_version: &room_version,
@@ -862,7 +966,7 @@ mod join_persistence_failure_tests {
             .seed_make_join(
                 room_id,
                 MakeJoinResponse {
-                    room_id: room_id.to_string(),
+                    room_id: Some(room_id.to_string()),
                     room_version: Some("10".to_string()),
                     event: serde_json::json!({
                         "event_id": "$join:test.example.com",
@@ -972,7 +1076,7 @@ mod join_persistence_failure_tests {
             .seed_make_join(
                 room_id,
                 MakeJoinResponse {
-                    room_id: room_id.to_string(),
+                    room_id: Some(room_id.to_string()),
                     room_version: Some("10".to_string()),
                     // The attack: a template that would have us sign a ban.
                     event: serde_json::json!({

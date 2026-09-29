@@ -146,6 +146,14 @@ pub trait UserStore: Send + Sync {
         is_admin: bool,
     ) -> Result<User, sqlx::Error>;
 
+    /// Idempotently create a minimal local record for a remote (federated) user.
+    ///
+    /// Used when a remote user joins a local room: `room_memberships.user_id`
+    /// has a foreign key to `users`, so a placeholder row must exist before the
+    /// membership row can be written. The `username` is derived from the
+    /// localpart; the insert is a no-op when the user already exists.
+    async fn ensure_remote_user(&self, user_id: &str) -> Result<(), sqlx::Error>;
+
     /// See [`update_password`].
     async fn update_password(&self, user_id: &str, password_hash: &str) -> Result<(), sqlx::Error>;
 
@@ -314,6 +322,27 @@ impl UserStorage {
         )
         .fetch_one(&*self.pool)
         .await
+    }
+
+    /// See [`UserStore::ensure_remote_user`].
+    pub async fn ensure_remote_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
+        let now = current_timestamp_millis();
+        // Remote users never log in locally, so `username` only needs to be
+        // unique, not a valid localpart. Derive from the localpart; fall back to
+        // the full user_id when there is no localpart to extract.
+        let username =
+            user_id.strip_prefix('@').and_then(|u| u.split(':').next()).filter(|s| !s.is_empty()).unwrap_or(user_id);
+        sqlx::query(
+            r#"INSERT INTO users (user_id, username, created_ts)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (user_id) DO NOTHING"#,
+        )
+        .bind(user_id)
+        .bind(username)
+        .bind(now)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
     }
 
     /// Creates a new user in the database within a transaction.
@@ -1747,6 +1776,10 @@ impl UserStore for UserStorage {
         is_admin: bool,
     ) -> Result<User, sqlx::Error> {
         self.create_user(user_id, username, password_hash, is_admin).await
+    }
+
+    async fn ensure_remote_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
+        self.ensure_remote_user(user_id).await
     }
 
     async fn update_password(&self, user_id: &str, password_hash: &str) -> Result<(), sqlx::Error> {

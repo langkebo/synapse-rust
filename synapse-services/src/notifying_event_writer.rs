@@ -143,6 +143,28 @@ impl EventWriter for NotifyingEventWriter {
         Ok(event)
     }
 
+    async fn create_outlier_event(
+        &self,
+        params: CreateEventParams,
+        prev_events: &[String],
+        auth_events: &[String],
+        depth: i64,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<RoomEvent, sqlx::Error> {
+        let room_id = params.room_id.clone();
+        let event_type = params.event_type.clone();
+        let state_key = params.state_key.clone();
+        let autocommit = tx.is_none();
+
+        let event = self.inner.create_outlier_event(params, prev_events, auth_events, depth, tx).await?;
+
+        if autocommit {
+            self.publish(&room_id, &event_type, state_key.as_deref());
+        }
+
+        Ok(event)
+    }
+
     async fn create_event_with_pdu(
         &self,
         params: CreateEventParams,

@@ -273,6 +273,19 @@ impl UserStore for FakeUserStore {
         Ok(user)
     }
 
+    async fn ensure_remote_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
+        if !self.users.read().await.contains_key(user_id) {
+            self.create_user(
+                user_id,
+                user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or(user_id),
+                None,
+                false,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
     async fn update_password(&self, _user_id: &str, _password_hash: &str) -> Result<(), sqlx::Error> {
         Ok(())
     }

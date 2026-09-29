@@ -5,9 +5,9 @@
 // Each test uses a fresh isolated schema pool via TestContext,
 // ensuring no cross-test data interference.
 //
-// IMPORTANT: `account_policy_denies` fails-closed when
-// `m.invite_permission_config` is absent. Every user expected
-// to be invitable must have it set to `{"default_action":"allow"}`.
+// IMPORTANT: `account_policy_denies` only considers account data this server
+// hosts, so an absent `m.invite_permission_config` defaults to allow. Users
+// that must be *denied* need an explicit `{"default_action":"block"}`.
 
 use axum::{
     body::Body,
@@ -43,8 +43,9 @@ async fn register_user(app: &axum::Router, username: &str) -> String {
     v["access_token"].as_str().unwrap().to_string()
 }
 
-/// Register a user and set their `m.invite_permission_config` so
-/// they are not blocked by `account_policy_denies`.
+/// Register a user with an explicit `{"default_action":"allow"}`
+/// `m.invite_permission_config`, so the tests exercise the allow path
+/// rather than relying on the absent-policy default.
 async fn register_invitee(app: &axum::Router, username: &str) -> String {
     let token = register_user(app, username).await;
     let user_id = format!("@{}:localhost", username);

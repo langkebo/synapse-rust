@@ -60,6 +60,19 @@ pub trait EventWriter: Send + Sync {
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> Result<RoomEvent, sqlx::Error>;
 
+    /// See [`create_outlier_event`]: keeps the origin's graph columns verbatim
+    /// but writes **no** `event_edges` rows, for events whose parents this
+    /// server does not hold (inbound federation invite to an unhosted room).
+    #[allow(clippy::too_many_arguments)]
+    async fn create_outlier_event(
+        &self,
+        params: CreateEventParams,
+        prev_events: &[String],
+        auth_events: &[String],
+        depth: i64,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<RoomEvent, sqlx::Error>;
+
     #[allow(clippy::too_many_arguments)]
     /// See [`save_event_signature`].
     async fn save_event_signature(
@@ -196,6 +209,17 @@ impl crate::event::writer::EventWriter for super::EventStorage {
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> Result<RoomEvent, sqlx::Error> {
         self.create_event_with_graph(params, prev_events, auth_events, depth, tx).await
+    }
+
+    async fn create_outlier_event(
+        &self,
+        params: CreateEventParams,
+        prev_events: &[String],
+        auth_events: &[String],
+        depth: i64,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<RoomEvent, sqlx::Error> {
+        self.create_outlier_event(params, prev_events, auth_events, depth, tx).await
     }
 
     async fn save_event_signature(

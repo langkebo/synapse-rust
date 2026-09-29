@@ -69,6 +69,44 @@ impl RoomSummaryStorage {
         Ok(row)
     }
 
+    /// Idempotently materialise the aggregate-root `room_summaries` row for `room_id`.
+    ///
+    /// The child tables (`room_summary_members`, `room_summary_state`) carry their FK
+    /// to `rooms` rather than to `room_summaries`, so a child write can land while the
+    /// aggregate root is missing. Federated rooms are the reachable case: they are
+    /// created through `RoomStorage::create_room`, which has no summary step, so the
+    /// first `UPDATE ... RETURNING` against them fails with `RowNotFound` and the room
+    /// stays invisible to `get_summaries_for_user` (INNER JOIN on
+    /// `room_summary_members`).
+    ///
+    /// Reuses the existing `create_summary` insert. A concurrent creator is tolerated:
+    /// the losing insert surfaces as a unique violation and is treated as success.
+    pub async fn ensure_summary(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        if self.get_summary(room_id).await?.is_some() {
+            return Ok(());
+        }
+
+        let request = CreateRoomSummaryRequest {
+            room_id: room_id.to_string(),
+            room_type: None,
+            name: None,
+            topic: None,
+            avatar_url: None,
+            canonical_alias: None,
+            join_rule: None,
+            history_visibility: None,
+            guest_access: None,
+            is_direct: None,
+            is_space: None,
+        };
+
+        match self.create_summary(request).await {
+            Ok(_) => Ok(()),
+            Err(sqlx::Error::Database(error)) if error.is_unique_violation() => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
+
     /// See [`update_summary`].
     pub async fn update_summary(
         &self,
@@ -77,9 +115,14 @@ impl RoomSummaryStorage {
     ) -> Result<RoomSummary, sqlx::Error> {
         tracing::info!(room_id = %room_id, "Updating room summary");
         let now = current_timestamp_millis();
-        let row = sqlx::query_as!(
-            RoomSummary,
-            r"
+
+        // The aggregate root can be absent for federated rooms (see `ensure_summary`).
+        // Retry once after materialising it, so the hot path costs no extra SELECT when
+        // the row is already present.
+        for _ in 0..2 {
+            let row = sqlx::query_as!(
+                RoomSummary,
+                r"
             UPDATE room_summaries SET
                 name = COALESCE($2, name),
                 topic = COALESCE($3, topic),
@@ -99,27 +142,34 @@ impl RoomSummaryStorage {
             WHERE room_id = $1
             RETURNING id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules AS join_rule, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts
             ",
-            room_id,
-            request.name.as_deref(),
-            request.topic.as_deref(),
-            request.avatar_url.as_deref(),
-            request.canonical_alias.as_deref(),
-            request.join_rule.as_deref(),
-            request.history_visibility.as_deref(),
-            request.guest_access.as_deref(),
-            request.is_direct,
-            request.is_space,
-            request.is_encrypted,
-            request.last_event_id.as_deref(),
-            request.last_event_ts,
-            request.last_message_ts,
-            request.hero_users.as_ref(),
-            now
-        )
-        .fetch_one(&*self.pool)
-        .await?;
+                room_id,
+                request.name.as_deref(),
+                request.topic.as_deref(),
+                request.avatar_url.as_deref(),
+                request.canonical_alias.as_deref(),
+                request.join_rule.as_deref(),
+                request.history_visibility.as_deref(),
+                request.guest_access.as_deref(),
+                request.is_direct,
+                request.is_space,
+                request.is_encrypted,
+                request.last_event_id.as_deref(),
+                request.last_event_ts,
+                request.last_message_ts,
+                request.hero_users.as_ref(),
+                now
+            )
+            .fetch_optional(&*self.pool)
+            .await?;
 
-        Ok(row)
+            if let Some(row) = row {
+                return Ok(row);
+            }
+
+            self.ensure_summary(room_id).await?;
+        }
+
+        Err(sqlx::Error::RowNotFound)
     }
 
     /// See [`set_canonical_alias`].
@@ -129,21 +179,31 @@ impl RoomSummaryStorage {
         canonical_alias: Option<&str>,
     ) -> Result<RoomSummary, sqlx::Error> {
         let now = current_timestamp_millis();
-        sqlx::query_as!(
-            RoomSummary,
-            r"
+        for _ in 0..2 {
+            let row = sqlx::query_as!(
+                RoomSummary,
+                r"
             UPDATE room_summaries
             SET canonical_alias = $2,
                 updated_ts = $3
             WHERE room_id = $1
             RETURNING id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules AS join_rule, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts
             ",
-            room_id,
-            canonical_alias,
-            now
-        )
-        .fetch_one(&*self.pool)
-        .await
+                room_id,
+                canonical_alias,
+                now
+            )
+            .fetch_optional(&*self.pool)
+            .await?;
+
+            if let Some(row) = row {
+                return Ok(row);
+            }
+
+            self.ensure_summary(room_id).await?;
+        }
+
+        Err(sqlx::Error::RowNotFound)
     }
 
     /// See [`delete_summary`].
@@ -189,6 +249,9 @@ impl RoomSummaryStorage {
     /// See [`add_member`].
     pub async fn add_member(&self, request: CreateSummaryMemberRequest) -> Result<RoomSummaryMember, sqlx::Error> {
         tracing::info!(room_id = %request.room_id, user_id = %request.user_id, membership = %request.membership, "Adding member to room summary");
+        // Ensure the aggregate root exists before the child row lands, otherwise
+        // `refresh_member_counts` below updates zero rows and the member becomes an orphan.
+        self.ensure_summary(&request.room_id).await?;
         let now = current_timestamp_millis();
 
         let row = sqlx::query_as!(
@@ -303,6 +366,10 @@ impl RoomSummaryStorage {
         }
 
         tracing::info!(room_id = %room_id, count = members.len(), "Batch adding members to room summary");
+
+        // Ensure the aggregate root exists before the child rows land, otherwise
+        // `refresh_member_counts` below updates zero rows and the members become orphans.
+        self.ensure_summary(room_id).await?;
 
         let now = current_timestamp_millis();
         let mut user_ids: Vec<String> = Vec::with_capacity(members.len());

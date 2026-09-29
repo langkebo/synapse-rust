@@ -267,6 +267,11 @@ impl UserStore for MockUserStore {
         Err(sqlx::Error::WorkerCrashed)
     }
 
+    async fn ensure_remote_user(&self, _user_id: &str) -> Result<(), sqlx::Error> {
+        self.fail_all_check()?;
+        Ok(())
+    }
+
     async fn update_password(&self, _user_id: &str, _password_hash: &str) -> Result<(), sqlx::Error> {
         self.fail_all_check()?;
         Ok(())

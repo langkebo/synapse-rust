@@ -222,11 +222,12 @@ pub struct FederationTransaction {
 /// The `MakeJoinResponse` type.
 pub struct MakeJoinResponse {
     /// The `room_id` field.
+    ///
+    /// Not part of the `/make_join` response per the Matrix spec (which only
+    /// returns `event` + `room_version`); kept optional so peers that do include
+    /// it still deserialize, but our own server omits it.
+    pub room_id: Option<String>,
     /// The `event` field.
-    /// The `room_version` field.
-    pub room_id: String,
-    /// The `event` field.
-    /// The `room_version` field.
     pub event: serde_json::Value,
     /// The `room_version` field.
     pub room_version: Option<String>,
@@ -615,7 +616,7 @@ impl FederationClient {
         let sig_b64 = STANDARD_NO_PAD.encode(signature.to_bytes());
 
         Ok(format!(
-            "X-Matrix origin={},destination={},key_id={},sig={}",
+            "X-Matrix origin=\"{}\",destination=\"{}\",key=\"{}\",sig=\"{}\"",
             self.server_name, destination, key_id, sig_b64
         ))
     }
@@ -1347,7 +1348,7 @@ mod tests {
             "room_version": "10"
         }"#;
         let resp: MakeJoinResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(resp.room_id, "!room:example.com");
+        assert_eq!(resp.room_id.as_deref(), Some("!room:example.com"));
         assert_eq!(resp.room_version, Some("10".to_string()));
     }
 

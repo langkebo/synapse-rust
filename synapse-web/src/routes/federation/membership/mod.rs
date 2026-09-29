@@ -27,8 +27,8 @@ use synapse_common::*;
 // ---------------------------------------------------------------------------
 use super::{
     acquire_with_timeout, decrement_gauge, increment_counter, increment_gauge, observe_histogram, sender_server_name,
-    user_matches_origin, validate_federation_origin, validate_federation_origin_can_observe_room,
-    validate_federation_origin_shares_user_room,
+    user_matches_origin, validate_federation_invite_origin_can_observe_room, validate_federation_origin,
+    validate_federation_origin_can_observe_room, validate_federation_origin_shares_user_room,
 };
 
 // ---------------------------------------------------------------------------
@@ -213,8 +213,21 @@ pub(crate) async fn get_effective_room_join_rule(ctx: &FederationContext, room_i
 /// nobody can reproduce. See `crate::routes::federation::pdu` for the rationale.
 ///
 /// Best-effort towards the caller: the inbound federation request has already
-/// been accepted, so failures are logged and swallowed.
+/// been accepted, so failures are logged and swallowed. Callers that need the
+/// signed PDU itself (to put it in a federation *response*, e.g. the invite
+/// endpoints) use [`project_and_sign_pdu_locally`].
 pub(crate) async fn re_sign_pdu_locally(ctx: &FederationContext, event_id: &str) {
+    let _ = project_and_sign_pdu_locally(ctx, event_id).await;
+}
+
+/// [`re_sign_pdu_locally`], but handing back the projected and locally-signed
+/// PDU so a federation response can echo it (the invite endpoints must answer
+/// with `{"event": <PDU>}`, and the signed bytes have to be exactly the ones
+/// persisted above).
+///
+/// Returns `None` — logging why — whenever the event cannot be signed; the
+/// caller then answers without a PDU rather than emitting one nobody can verify.
+pub(crate) async fn project_and_sign_pdu_locally(ctx: &FederationContext, event_id: &str) -> Option<Value> {
     let local_server = &ctx.server_name;
 
     // 1. The persisted row is the only authority on what a peer will receive.
@@ -226,7 +239,7 @@ pub(crate) async fn re_sign_pdu_locally(ctx: &FederationContext, event_id: &str)
                 server_name = %local_server,
                 "F-03: no persisted row for event — nothing to sign"
             );
-            return;
+            return None;
         }
         Err(error) => {
             ::tracing::warn!(
@@ -235,7 +248,7 @@ pub(crate) async fn re_sign_pdu_locally(ctx: &FederationContext, event_id: &str)
                 %error,
                 "F-03: failed to read the persisted event — refusing to sign"
             );
-            return;
+            return None;
         }
     };
 
@@ -251,7 +264,7 @@ pub(crate) async fn re_sign_pdu_locally(ctx: &FederationContext, event_id: &str)
                 room_id = %record.room_id,
                 "F-03: no room version recorded for room — refusing to sign; event will lack local signature"
             );
-            return;
+            return None;
         }
         Err(error) => {
             ::tracing::warn!(
@@ -261,7 +274,7 @@ pub(crate) async fn re_sign_pdu_locally(ctx: &FederationContext, event_id: &str)
                 %error,
                 "F-03: failed to resolve room version — refusing to sign; event will lack local signature"
             );
-            return;
+            return None;
         }
     };
 
@@ -277,7 +290,7 @@ pub(crate) async fn re_sign_pdu_locally(ctx: &FederationContext, event_id: &str)
                 %error,
                 "F-03: failed to read the room state — refusing to sign; event will lack local signature"
             );
-            return;
+            return None;
         }
     };
     let Some(persisted) = state_records.iter().find(|candidate| candidate.event_id == event_id) else {
@@ -287,7 +300,7 @@ pub(crate) async fn re_sign_pdu_locally(ctx: &FederationContext, event_id: &str)
             room_id = %record.room_id,
             "F-03: persisted event is not part of the room's current state — refusing to sign; event will lack local signature"
         );
-        return;
+        return None;
     };
 
     let (mut pdu, completeness) = state_pdu(local_server, persisted, Some(room_version.as_str()));
@@ -300,7 +313,7 @@ pub(crate) async fn re_sign_pdu_locally(ctx: &FederationContext, event_id: &str)
              refusing to sign — signing a PDU whose bytes we cannot reproduce is worse than \
              leaving it unsigned (see federation::pdu module docs)"
         );
-        return;
+        return None;
     }
 
     match signature_action(persisted, completeness) {
@@ -313,7 +326,7 @@ pub(crate) async fn re_sign_pdu_locally(ctx: &FederationContext, event_id: &str)
                     server_name = %local_server,
                     "F-03: stored hashes/signatures are incomplete — refusing to sign"
                 );
-                return;
+                return None;
             }
         }
         SignatureAction::RefuseIncomplete => {
@@ -324,7 +337,7 @@ pub(crate) async fn re_sign_pdu_locally(ctx: &FederationContext, event_id: &str)
                 server_name = %local_server,
                 "F-03: projected PDU incomplete — refusing to sign"
             );
-            return;
+            return None;
         }
         SignatureAction::SignLocally => {
             let key = match ctx.key_rotation_manager.get_current_key().await {
@@ -335,7 +348,7 @@ pub(crate) async fn re_sign_pdu_locally(ctx: &FederationContext, event_id: &str)
                         server_name = %local_server,
                         "F-03: no signing key available — federation event will lack local signature"
                     );
-                    return;
+                    return None;
                 }
                 Err(error) => {
                     ::tracing::warn!(
@@ -344,7 +357,7 @@ pub(crate) async fn re_sign_pdu_locally(ctx: &FederationContext, event_id: &str)
                         %error,
                         "F-03: failed to fetch signing key — federation event will lack local signature"
                     );
-                    return;
+                    return None;
                 }
             };
 
@@ -361,7 +374,7 @@ pub(crate) async fn re_sign_pdu_locally(ctx: &FederationContext, event_id: &str)
                     %error,
                     "F-03: sign_and_hash_event failed — federation event will lack local signature"
                 );
-                return;
+                return None;
             }
         }
     }
@@ -378,6 +391,10 @@ pub(crate) async fn re_sign_pdu_locally(ctx: &FederationContext, event_id: &str)
             "F-03: failed to persist local signatures/hashes — event will be missing signatures in subsequent federation"
         );
     }
+
+    // The in-memory PDU is signed even if persisting the pair failed; the peer
+    // can still verify it, so hand it back rather than answering without a PDU.
+    Some(pdu)
 }
 
 // ---------------------------------------------------------------------------
