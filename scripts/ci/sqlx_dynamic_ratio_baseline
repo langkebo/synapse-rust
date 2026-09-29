@@ -2965,10 +2965,28 @@
 #   实测：`dynamic_production` 146 → **140**（−6）、`static` 1330 → **1336**（+6）、
 #   `dynamic` 总数 893 → **887**（= 140 + 测试区 747）、`dynamic_test` 747 不变、
 #   `.sqlx` 1298 → **1304**（+6，无碰撞）、literal 75/20 → **69/18**。恒等式 `140 − 69 − 1 = 70` 成立。
+# ── 2026-09-29 D-95（`monitoring.rs::verify_data_integrity` 重设计；静态 −1、动态不变）──────────
+#   旧实现的两个孤儿扫描（`events.room_id` / `room_memberships.user_id`）**结构上不可能命中**
+#   （`ON DELETE CASCADE` 外键让孤儿行插不进去），另两个向量（重复项 / NULL 约束）**从来没有
+#   生产者** ⇒ 报告恒为"0 违规 / 100 分"，`src/tasks/mod.rs` 里那句 `score < 80 ⇒ error!`
+#   永远不会触发 —— 一个不会失败的门禁（铁律 8 的反面）。
+#   修法：报告改成**可违反的发现列表**（`IntegrityFinding` + 三类 kind），巡检对象换成
+#   `REQUIRED_CONSTRAINTS`（9 条核心主键 + 4 条核心外键）的**存在性与 convalidated**，
+#   外加核心表上任何 `NOT VALID` 的 CHECK（一条 `query!` 取回 p/f/c 约束后逐条核对）。
+#   删除 `orphaned_records` 向量与 `OrphanedRecord`/`DuplicateEntry`/`NullConstraintViolation`/
+#   `ForeignKeyViolation` 四个结构（后三个无法描述 catalog 级发现，前者已无生产者），
+#   `src/tasks/mod.rs` 的三处日志随之改为读 `report.findings`。
+#   净效果：删 2 个静态宏（两条不可能的扫描）、加 1 个（新的 catalog 核对）⇒
+#   `BASELINE_STATIC` 1336 → **1335**；`dynamic_production` 140 不变；测试区因新用例的 6 条
+#   `ALTER TABLE` 探针 747 → **753**（R9：测试区 DDL 只能是动态 SQL —— 宏不进 `cargo sqlx prepare`，
+#   已按 D-36 守卫要求登记进 `scripts/ci/test_ddl_allowlist`）。
+#   `.sqlx` 1304 → **1303**（删 2 加 1，缩容经 `ALLOW_CACHE_SHRINK=1` 逐条核对）。
+#   R11 自证：新用例构造三类违规（DROP `pk_event_edges`、DROP `fk_events_room`、
+#   `ADD CONSTRAINT … NOT VALID`）⇒ 报告非空且分数 < 100；恢复约束后**必须**回到 0 发现（反向对照）。
 BASELINE_QUERY_BUILDER=18
 BASELINE_DYNAMIC_PRODUCTION=140
-BASELINE_DYNAMIC_TEST_INFRA=747
-BASELINE_STATIC=1336
+BASELINE_DYNAMIC_TEST_INFRA=753
+BASELINE_STATIC=1335
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 

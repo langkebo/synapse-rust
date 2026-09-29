@@ -55,71 +55,105 @@ pub struct PerformanceMetrics {
     pub redis_slow_commands_count: u64,
 }
 
-/// The `DataIntegrityReport` struct.
+/// `DataIntegrityReport`：**D-95** 重设计后的形态。
+///
+/// 旧形态有四个"行级违规"向量，但其中两条（`events.room_id` / `room_memberships.user_id`
+/// 的孤儿扫描）**结构上不可能命中**（那两条关系由 `ON DELETE CASCADE` 外键保证，孤儿行插不
+/// 进去），另两条（重复项 / NULL 约束）**从来没有生产者** ⇒ 报告恒为"0 违规 / 100 分"，
+/// 是一个不会失败的门禁（铁律 8 的反面）。
+///
+/// 现在报告是一组**可违反**的发现（见 [`IntegrityFinding`]）：每条 kind 都有对应的
+/// "构造违规 ⇒ 报告非空"用例（`monitoring.rs::db_tests`），分数按发现条数扣分。
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DataIntegrityReport {
     /// The `check_timestamp` field.
     pub check_timestamp: chrono::DateTime<Utc>,
-    /// The `foreign_key_violations` field.
-    pub foreign_key_violations: Vec<ForeignKeyViolation>,
-    /// The `orphaned_records` field.
-    pub orphaned_records: Vec<OrphanedRecord>,
-    /// The `duplicate_entries` field.
-    pub duplicate_entries: Vec<DuplicateEntry>,
-    /// The `null_constraint_violations` field.
-    pub null_constraint_violations: Vec<NullConstraintViolation>,
-    /// The `overall_integrity_score` field.
+    /// 本次巡检的发现（干净 schema 上为空）。
+    pub findings: Vec<IntegrityFinding>,
+    /// 0–100；干净 schema 为 100，每条发现扣 [`INTEGRITY_PENALTY_PER_FINDING`] 分。
     pub overall_integrity_score: f64,
 }
 
-/// The `ForeignKeyViolation` struct.
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ForeignKeyViolation {
-    /// The `table_name` field.
-    pub table_name: String,
-    /// The `column_name` field.
-    pub column_name: String,
-    /// The `violating_row_id` field.
-    pub violating_row_id: i64,
-    /// The `referenced_table` field.
-    pub referenced_table: String,
+/// 每条完整性发现扣的分（`overall_integrity_score` 的下限为 0）。
+pub const INTEGRITY_PENALTY_PER_FINDING: f64 = 15.0;
+
+/// 一条完整性发现：受影响的约束 + 为什么这是问题。
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct IntegrityFinding {
+    /// 发现类别。
+    pub kind: IntegrityFindingKind,
+    /// 受影响对象，形如 `<table>.<constraint>`。
+    pub subject: String,
+    /// 人读说明（含"为什么这是问题"）。
+    pub detail: String,
 }
 
-/// The `OrphanedRecord` struct.
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct OrphanedRecord {
-    /// The `table_name` field.
-    pub table_name: String,
-    /// The `column_name` field.
-    pub column_name: String,
-    /// The `orphan_count` field.
-    pub orphan_count: i64,
-    /// The `sample_orphans` field.
-    pub sample_orphans: Vec<String>,
+/// 发现的类别（每一类都有构造用例，见本文件的 `db_tests`）。
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum IntegrityFindingKind {
+    /// 核心主键缺失 ⇒ 该表可能出现重复行（这是"重复项"真正能被违反的形态）。
+    MissingPrimaryKey,
+    /// 核心外键缺失 ⇒ 可能出现孤儿行（原实现扫的那两个场景就归在这里）。
+    MissingForeignKey,
+    /// 约束存在但 `NOT VALID`：PG 对**既有行**不做校验 ⇒ 现有数据可能有孤儿/越界值。
+    UnvalidatedConstraint,
 }
 
-/// The `DuplicateEntry` struct.
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct DuplicateEntry {
-    /// The `table_name` field.
-    pub table_name: String,
-    /// The `column_name` field.
-    pub column_name: String,
-    /// The `duplicate_count` field.
-    pub duplicate_count: i64,
-    /// The `sample_duplicates` field.
-    pub sample_duplicates: Vec<String>,
+/// D-95：受周期性巡检保护的**核心约束**（名字与迁移里建的一一对应）。
+///
+/// 为什么是"约束在不在"而不是"扫孤儿行"：只要核心外键在且已验证，孤儿行就**插不进去**
+/// （实测：`public` 上 0 条未验证约束、0 张无主键的表）—— 原实现在扫描一个恒为空集合。
+/// 反过来，一旦约束被删掉或置为 `NOT VALID`，孤儿/重复行就有了存在空间 ⇒ 这才是可违反、
+/// 且真能提前报警的不变量。
+const REQUIRED_CONSTRAINTS: &[(&str, &str, ConstraintKind)] = &[
+    // (table, constraint, kind)
+    ("users", "pk_users", ConstraintKind::PrimaryKey),
+    ("devices", "pk_devices", ConstraintKind::PrimaryKey),
+    ("rooms", "pk_rooms", ConstraintKind::PrimaryKey),
+    ("events", "pk_events", ConstraintKind::PrimaryKey),
+    ("room_memberships", "pk_room_memberships", ConstraintKind::PrimaryKey),
+    ("event_edges", "pk_event_edges", ConstraintKind::PrimaryKey),
+    ("access_tokens", "pk_access_tokens", ConstraintKind::PrimaryKey),
+    ("refresh_tokens", "pk_refresh_tokens", ConstraintKind::PrimaryKey),
+    ("state_groups", "pk_state_groups", ConstraintKind::PrimaryKey),
+    ("events", "fk_events_room", ConstraintKind::ForeignKey),
+    ("room_memberships", "fk_room_memberships_user", ConstraintKind::ForeignKey),
+    ("devices", "fk_devices_user", ConstraintKind::ForeignKey),
+    ("event_edges", "fk_event_edges_prev", ConstraintKind::ForeignKey),
+];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConstraintKind {
+    PrimaryKey,
+    ForeignKey,
 }
 
-/// The `NullConstraintViolation` struct.
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct NullConstraintViolation {
-    /// The `table_name` field.
-    pub table_name: String,
-    /// The `column_name` field.
-    pub column_name: String,
-    /// The `null_count` field.
-    pub null_count: i64,
+impl ConstraintKind {
+    fn pg_contype(self) -> &'static str {
+        match self {
+            ConstraintKind::PrimaryKey => "p",
+            ConstraintKind::ForeignKey => "f",
+        }
+    }
+
+    fn missing_finding_kind(self) -> IntegrityFindingKind {
+        match self {
+            ConstraintKind::PrimaryKey => IntegrityFindingKind::MissingPrimaryKey,
+            ConstraintKind::ForeignKey => IntegrityFindingKind::MissingForeignKey,
+        }
+    }
+
+    fn missing_detail(self, table: &str) -> String {
+        match self {
+            ConstraintKind::PrimaryKey => {
+                format!("主键 {table} 上缺失 ⇒ 该表可能出现重复行（下一次巡检前请先恢复约束）")
+            }
+            ConstraintKind::ForeignKey => {
+                format!("外键 {table} 上缺失 ⇒ 可能出现孤儿行（旧实现扫的那两个场景正属此类）")
+            }
+        }
+    }
 }
 
 /// The `VacuumStats` struct.
@@ -315,65 +349,83 @@ impl DatabaseMonitor {
     }
 
     /// See [`verify_data_integrity`].
+    ///
+    /// **D-95 修法**：不再扫"结构上不可能存在"的孤儿行，而是核对 [`REQUIRED_CONSTRAINTS`]
+    /// 里每一条核心约束**是否存在、是否已验证**，并报告核心表上任何 `NOT VALID` 的 CHECK。
+    /// 每一条发现都能被构造出来（见 `db_tests`），因此这份报告**能变红**。
     pub async fn verify_data_integrity(&self) -> Result<DataIntegrityReport, sqlx::Error> {
-        let mut foreign_key_violations = Vec::new();
-        let mut orphaned_records = Vec::new();
-        let duplicate_entries = Vec::new();
-        let null_constraint_violations = Vec::new();
+        let mut findings = Vec::new();
 
-        // 1. 检查核心外键约束 (示例：events -> rooms)
-        // D-95：这条扫描**结构上不可能命中**（`fk_events_room` 是外键，孤儿事件插不进来）——
-        // 保持原样转换，处置见 §7.1。R4 ①：四列全是字面量/常量（无关系来源）⇒ 逐个断言；
-        // `0::bigint` 显式定型，与 `ForeignKeyViolation.violating_row_id: i64` 对齐。
-        let orphans = sqlx::query!(
+        let mut core_tables: Vec<String> = REQUIRED_CONSTRAINTS.iter().map(|(t, _, _)| (*t).to_string()).collect();
+        core_tables.sort();
+        core_tables.dedup();
+
+        // 1) 核心约束的"存在性 + 已验证"：一次查询取回这些表上的全部 p/f/c 约束，
+        //    再与清单逐条核对（R9：锚定 `current_schema()`，不用会回退到 `public` 的 `to_regclass`）。
+        let rows = sqlx::query!(
             r#"
-            SELECT 'events' AS "table_name!", 'room_id' AS "column_name!",
-                   0::bigint AS "violating_row_id!", 'rooms' AS "referenced_table!"
-            FROM events e
-            WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = e.room_id)
-            LIMIT 10
+            SELECT t.relname AS "table_name!",
+                   c.conname AS "constraint_name!",
+                   c.contype::text AS "contype!",
+                   c.convalidated AS "convalidated!"
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND t.relname = ANY($1::text[])
+              AND c.contype IN ('p', 'f', 'c')
             "#,
+            &core_tables,
         )
         .fetch_all(&self.pool)
         .await?;
 
-        for row in orphans {
-            let (table, col, ref_table) = (row.table_name, row.column_name, row.referenced_table);
-            foreign_key_violations.push(ForeignKeyViolation {
-                table_name: table,
-                column_name: col,
-                violating_row_id: 0,
-                referenced_table: ref_table,
-            });
+        let existing: std::collections::HashMap<(String, String), (String, bool)> =
+            rows.into_iter().map(|r| ((r.table_name, r.constraint_name), (r.contype, r.convalidated))).collect();
+
+        for (table, constraint, kind) in REQUIRED_CONSTRAINTS {
+            match existing.get(&(table.to_string(), constraint.to_string())) {
+                None => findings.push(IntegrityFinding {
+                    kind: kind.missing_finding_kind(),
+                    subject: format!("{table}.{constraint}"),
+                    detail: kind.missing_detail(table),
+                }),
+                // 类型不符（例如主键位置被一个外键占了）同样按"缺失"处理：清单要的是这条约束。
+                Some((contype, _)) if contype != kind.pg_contype() => findings.push(IntegrityFinding {
+                    kind: kind.missing_finding_kind(),
+                    subject: format!("{table}.{constraint}"),
+                    detail: format!(
+                        "{table}.{constraint} 的类型是 '{contype}'，期望 '{}' ⇒ 该约束实际上不存在",
+                        kind.pg_contype()
+                    ),
+                }),
+                Some((_, false)) => findings.push(IntegrityFinding {
+                    kind: IntegrityFindingKind::UnvalidatedConstraint,
+                    subject: format!("{table}.{constraint}"),
+                    detail: format!(
+                        "{table}.{constraint} 是 NOT VALID：PG 对既有行不校验 ⇒ 现有数据可能已经违规，\
+                         请 `ALTER TABLE {table} VALIDATE CONSTRAINT {constraint}`（失败即证明有违规行）"
+                    ),
+                }),
+                Some((_, true)) => {}
+            }
         }
 
-        // 2. 检查孤立记录 (示例：room_memberships -> users)
-        // R4 ①：`COUNT(*)` 无关系来源 ⇒ 断言（计数恒不为 NULL）。
-        let member_orphans: i64 = sqlx::query_scalar!(
-            r#"SELECT COUNT(*) AS "count!" FROM room_memberships m
-               WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.user_id = m.user_id)"#,
-        )
-        .fetch_one(&self.pool)
-        .await?;
-
-        if member_orphans > 0 {
-            orphaned_records.push(OrphanedRecord {
-                table_name: "room_memberships".to_string(),
-                column_name: "user_id".to_string(),
-                orphan_count: member_orphans,
-                sample_orphans: vec![],
-            });
+        // 2) 核心表上任何 `NOT VALID` 的 CHECK（清单只盯 p/f，CHECK 是"漂移"型发现）。
+        for ((table, constraint), (contype, validated)) in &existing {
+            if contype == "c" && !validated {
+                findings.push(IntegrityFinding {
+                    kind: IntegrityFindingKind::UnvalidatedConstraint,
+                    subject: format!("{table}.{constraint}"),
+                    detail: format!("CHECK {table}.{constraint} 是 NOT VALID ⇒ 既有行未按它校验"),
+                });
+            }
         }
 
-        let report = DataIntegrityReport {
-            check_timestamp: Utc::now(),
-            foreign_key_violations,
-            orphaned_records,
-            duplicate_entries,
-            null_constraint_violations,
-            overall_integrity_score: if member_orphans == 0 { 100.0 } else { 90.0 },
-        };
-        Ok(report)
+        findings.sort_by(|a, b| a.subject.cmp(&b.subject).then(a.kind.cmp(&b.kind)));
+        let overall_integrity_score = (100.0 - INTEGRITY_PENALTY_PER_FINDING * findings.len() as f64).max(0.0);
+
+        Ok(DataIntegrityReport { check_timestamp: Utc::now(), findings, overall_integrity_score })
     }
 }
 
@@ -427,15 +479,13 @@ mod db_tests {
         assert_eq!(health.connection_pool_status.max_connections, 10);
         assert!((0.0..=1.0).contains(&health.performance_metrics.cache_hit_ratio));
 
-        // verify_data_integrity：干净 schema ⇒ 0 违规、100 分。
+        // verify_data_integrity：干净 schema ⇒ 0 发现、100 分（D-95 重设计后的形态）。
         let report = monitor.verify_data_integrity().await.unwrap();
-        assert!(report.foreign_key_violations.is_empty());
-        assert!(report.orphaned_records.is_empty());
-        assert!(report.duplicate_entries.is_empty());
-        assert!(report.null_constraint_violations.is_empty());
+        assert!(report.findings.is_empty(), "干净 schema 上不应有任何发现: {:?}", report.findings);
         assert_eq!(report.overall_integrity_score, 100.0);
 
-        // **真守卫是外键**（D-95）：孤儿事件/成员关系根本插不进去 ⇒ 那两条检查永远不会命中。
+        // **真守卫是外键**（D-95 的原始证据）：孤儿事件/成员关系根本插不进去 ——
+        // 这正是旧实现那两条扫描"永远不会命中"的原因，也是新实现改查"约束在不在/验证了吗"的理由。
         let orphan_event = sqlx::query(
             "INSERT INTO events (event_id, room_id, sender, event_type, content, origin_server_ts) \
              VALUES ('$monitor_orphan:test', '!no_such_room:test', '@monitor:test', 'm.room.message', '{}'::jsonb, 1)",
@@ -451,5 +501,100 @@ mod db_tests {
         .execute(&pool)
         .await;
         assert!(orphan_membership.is_err(), "fk_room_memberships_user 必须拒绝孤儿成员关系");
+    }
+}
+
+/// D-95 的核心用例：**报告必须能变红**。
+///
+/// 旧实现的四个向量里，两个结构上不可能命中、另两个没有生产者 ⇒ 分数恒为 100，
+/// 巡检任务里那句 `score < 80 ⇒ error!` 永远不会触发（不会失败的门禁）。
+/// 这里逐条构造违规（都在 `isolated_test_pool()` 的 per-test schema 上，用完即随 schema 丢弃）：
+/// ① 删掉核心主键 `pk_rooms` ⇒ `MissingPrimaryKey`；② 删掉核心外键 `fk_events_room`
+/// ⇒ `MissingForeignKey`；③ 加一条 `NOT VALID` 的 CHECK ⇒ `UnvalidatedConstraint`。
+/// 断言分数确实下降（而不是恒 100）。
+#[cfg(test)]
+mod integrity_violation_tests {
+    use super::*;
+
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Pool<Postgres>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = (*isolated.pool()).clone();
+        (isolated, pool)
+    }
+
+    #[tokio::test]
+    async fn verify_data_integrity_reports_constructed_violations() {
+        let (_isolated, pool) = test_pool().await;
+        let monitor = DatabaseMonitor::new(pool.clone(), None, 10);
+
+        // 前提：干净模板上没有任何发现（否则下面的断言无法归因）。
+        assert!(monitor.verify_data_integrity().await.unwrap().findings.is_empty());
+
+        // ① 主键缺失 ⇒ 该表可能出现重复行。
+        // 用 `event_edges`：它的主键没有入向外键（实测 inbound FK = 0）⇒ 能直接 DROP；
+        // `rooms`/`users` 的主键被二十多个外键依赖（2BP01），不适合做"删了就构造出违规"的探针。
+        sqlx::query("ALTER TABLE event_edges DROP CONSTRAINT pk_event_edges")
+            .execute(&pool)
+            .await
+            .expect("drop pk_event_edges");
+        // ② 外键缺失 ⇒ 可能出现孤儿行（旧实现扫的正是这条关系）
+        sqlx::query("ALTER TABLE events DROP CONSTRAINT fk_events_room").execute(&pool).await.expect("drop fk");
+        // ③ NOT VALID 的 CHECK ⇒ PG 对既有行不校验
+        sqlx::query("ALTER TABLE devices ADD CONSTRAINT monitor_probe_check CHECK (device_id <> '') NOT VALID")
+            .execute(&pool)
+            .await
+            .expect("add not-valid check");
+
+        let report = monitor.verify_data_integrity().await.unwrap();
+
+        let kinds: Vec<IntegrityFindingKind> = report.findings.iter().map(|f| f.kind).collect();
+        assert!(
+            kinds.contains(&IntegrityFindingKind::MissingPrimaryKey),
+            "删掉 pk_rooms 必须被发现: {:?}",
+            report.findings
+        );
+        assert!(
+            kinds.contains(&IntegrityFindingKind::MissingForeignKey),
+            "删掉 fk_events_room 必须被发现: {:?}",
+            report.findings
+        );
+        assert!(
+            kinds.contains(&IntegrityFindingKind::UnvalidatedConstraint),
+            "NOT VALID 的 CHECK 必须被发现: {:?}",
+            report.findings
+        );
+        assert!(
+            report.findings.iter().any(|f| f.subject == "event_edges.pk_event_edges"),
+            "subject 必须指向被删的约束: {:?}",
+            report.findings
+        );
+        assert!(
+            report.overall_integrity_score < 100.0,
+            "有发现时分数必须下降（旧实现恒 100）: {}",
+            report.overall_integrity_score
+        );
+        assert_eq!(
+            report.overall_integrity_score,
+            (100.0 - INTEGRITY_PENALTY_PER_FINDING * report.findings.len() as f64).max(0.0),
+            "分数与发现条数一致"
+        );
+
+        // 反向对照：把约束放回并 VALIDATE 之后，发现必须消失（证明这条检查是在读真 catalog，
+        // 而不是恒真/恒假的常量）。
+        sqlx::query("ALTER TABLE devices DROP CONSTRAINT monitor_probe_check")
+            .execute(&pool)
+            .await
+            .expect("drop check");
+        sqlx::query("ALTER TABLE event_edges ADD CONSTRAINT pk_event_edges PRIMARY KEY (event_id, prev_event_id)")
+            .execute(&pool)
+            .await
+            .expect("restore pk");
+        sqlx::query("ALTER TABLE events ADD CONSTRAINT fk_events_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE")
+            .execute(&pool)
+            .await
+            .expect("fk");
+        let restored = monitor.verify_data_integrity().await.unwrap();
+        assert!(restored.findings.is_empty(), "约束恢复后必须无发现: {:?}", restored.findings);
+        assert_eq!(restored.overall_integrity_score, 100.0);
     }
 }

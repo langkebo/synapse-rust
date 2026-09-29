@@ -297,24 +297,31 @@ impl ScheduledTasks {
                             Ok(report) => {
                                 *last_report.write().await = Some(report.clone());
 
+                                // D-95：报告现在是"可违反的发现"列表（旧形态的四个向量里
+                                // 两个结构上不可能命中、另两个没有生产者 ⇒ 恒 100 分）。
                                 if report.overall_integrity_score < 80.0 {
                                     error!(
-                                        "Data integrity issues detected: score={:.1}, violations={}",
+                                        "Data integrity issues detected: score={:.1}, findings={}",
                                         report.overall_integrity_score,
-                                        report.foreign_key_violations.len()
-                                            + report.orphaned_records.len()
-                                            + report.duplicate_entries.len()
+                                        report.findings.len()
                                     );
                                 } else if report.overall_integrity_score < 90.0 {
                                     warn!("Data integrity score below optimal: {:.1}", report.overall_integrity_score);
                                 }
 
                                 info!(
-                                    "Data integrity check: score={:.1}, violations={}, orphaned={}",
+                                    "Data integrity check: score={:.1}, findings={}",
                                     report.overall_integrity_score,
-                                    report.foreign_key_violations.len() + report.orphaned_records.len(),
-                                    report.orphaned_records.iter().map(|o| o.orphan_count).sum::<i64>()
+                                    report.findings.len()
                                 );
+                                for finding in &report.findings {
+                                    warn!(
+                                        kind = ?finding.kind,
+                                        subject = %finding.subject,
+                                        detail = %finding.detail,
+                                        "data integrity finding"
+                                    );
+                                }
                             }
                             Err(e) => {
                                 error!("Failed to verify data integrity: {}", e);
