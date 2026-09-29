@@ -80,7 +80,6 @@ synapse-services/src/test_utils.rs::ensure_test_schema_contract
 synapse-services/src/room/membership/federation.rs::join_persistence_failure_tests::join_fails_closed_without_claiming_membership_when_event_persistence_fails
 synapse-services/src/room/messaging/messages.rs::txn_dedup_compensation_tests::dedup_marker_failure_soft_fails_the_created_event
 synapse-storage/src/device/mod.rs::tests::test_lazy_loaded_members_are_cleaned_up_with_device_lifecycle
-synapse-storage/src/email_verification.rs::tests::test_delete_token_by_id_removes_verification_session
 synapse-storage/src/event/db_tests.rs::test_create_postgres_fts_index_reports_invalid_leftover
 synapse-storage/src/feature_flags.rs::tests::ensure_feature_flag_tables
 synapse-storage/src/oauth_client_storage.rs::tests::setup_oauth_client_db

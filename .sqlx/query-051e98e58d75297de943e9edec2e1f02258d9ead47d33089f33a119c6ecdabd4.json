@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE email_verification_tokens SET is_used = TRUE WHERE id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "051e98e58d75297de943e9edec2e1f02258d9ead47d33089f33a119c6ecdabd4"
+}

@@ -14,12 +14,12 @@
 
 | 指标 | 战役起点（2026-09-23） | 现在 | 变化 |
 |---|---|---|---|
-| `dynamic_production` | 1532（近似） | **219** | **−85.7%** |
-| `static` | 61 | **1264** | +1203 |
-| `dynamic`（总） | 2151 | **952** | −1199 |
-| 静态占比 | 2.76% | **57.1%**（1264 / 2215） | +54.3pp |
-| `.sqlx` 离线缓存 | 60 条 | **1232 条** | +1172 |
-| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **148 / 36** | −728 |
+| `dynamic_production` | 1532（近似） | **211** | **−86.2%** |
+| `static` | 61 | **1269** | +1208 |
+| `dynamic`（总） | 2151 | **943** | −1208 |
+| 静态占比 | 2.76% | **57.4%**（1269 / 2211） | +54.6pp |
+| `.sqlx` 离线缓存 | 60 条 | **1237 条** | +1177 |
+| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **140 / 35** | −736 |
 | `param` 传参（D-14 新棘轮，处 / 文件） | — | **1 / 1** | 新立棘轮（此前混在 `runtime`，两道棘轮都不管） |
 | `runtime` 残差 / `query_builder` | — | 70 / 13 文件 · **18**（已入计数棘轮） | — |
 
@@ -39,19 +39,21 @@
 > **234 / 1250**（`.sqlx` 1214 → 1218，literal 退到 163/38，该文件生产区动态归零）；
 > C46-0（先修 D-91/D-92 + 补覆盖，测试区 726 → 733）与 C46（8 处宏化）收到 **226 / 1258**
 > （`.sqlx` 1218 → 1226，literal 退到 155/37，`event/dag.rs` 生产区动态归零）；
-> C47-0（先修：删 1 处零调用者 trait 方法 + 补真基线覆盖，测试区不增）收到 **225 / 1258**
-> （`.sqlx` 不变 1226，literal 退到 154/37）；C47-0（删零调用者方法 + 补覆盖，测试区不增）
-> 与 C47（6 处宏化）收到 **219 / 1264**（`.sqlx` 1226 → 1232，literal 退到 148/36，
-> `delayed_events.rs` 生产区动态归零）。
+> C47-0（先修：删 1 处零调用者 trait 方法 + 补真基线覆盖）收到 **225 / 1258**
+> （`.sqlx` 不变 1226，literal 退到 154/37）；C47（6 处宏化）收到 **219 / 1264**
+> （`.sqlx` 1226 → 1232，literal 退到 148/36，`delayed_events.rs` 生产区动态归零）；
+> C48-0（先修：删 3 个零调用者方法 + 把 R9 违规用例改成真基线覆盖）收到 **216 / 1264**
+> （`.sqlx` 不变 1232，literal 退到 145/36，测试区 733 → 732）；C48（5 处宏化）收到
+> **211 / 1269**（`.sqlx` 1232 → 1237，literal 退到 140/35，该文件生产区动态归零）。
 
 ### 0.2 残量结构（"还剩多少活"的准确说法）
 
 | 组成 | 处数 | 性质 |
 |---|---|---|
-| **可静态化残量** | **147** | **117 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
+| **可静态化残量** | **139** | **109 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
 | 测试基建（有意保留） | 57 | `synapse-test-utils/src/lib.rs` 28、`synapse-common/src/test_isolation.rs` 25、`test_schema_guard.rs` 4 |
 | 结构性保留（有意） | 15 | `synapse-storage/src/event/pagination.rs`（9 runtime 游标/排序方向 + 6 literal） |
-| **合计** | **219** | = 147 + 57 + 15 |
+| **合计** | **211** | = 139 + 57 + 15 |
 
 ### 0.3 复现（唯一入口，勿手工数）
 
@@ -218,13 +220,12 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 ### 8.1 剩余可静态化清单（按实测，2026-09-26 C44 后）
 
-**可转换残量 147 处** = **117 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
-加 **1 处跨函数传参（`param`）**。下表按**字面量**处数排前 8（表内数字是**可机械转换**的站点数；
+**可转换残量 139 处** = **109 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
+加 **1 处跨函数传参（`param`）**。下表按**字面量**处数排前 7（表内数字是**可机械转换**的站点数；
 纯 `runtime` 文件见下方结构性清单）：
 
 | 文件 | 处数 | 门控 | 备注 |
 |---|---|---|---|
-| `synapse-storage/src/email_verification.rs` | 8 | — | ⚠️ **需先补覆盖**：仅 1 条 DB 用例（且用的是空隔离池，R9 禁止的形态） |
 | `synapse-storage/src/call_session.rs` | 7 | `voip-tracking` | 门控（见 `gated_module_test_matrix`）⇒ 单列一批更省来回 |
 | `synapse-storage/src/room_account_data.rs` | 7 | — | ⚠️ **需先修**：2 处 `PgRow` 泄漏（`get_room_account_data` / `get_room_vault_data` 返回 `Option<PgRow>`）+ 1 处 `.ok().flatten()` 吞错 |
 | `synapse-storage/src/media/quarantine_stream.rs` | 6 | — | 与 `pruning` 同域（保留期流）；⚠️ 需先核覆盖（仅 1 条用例） |
@@ -236,6 +237,8 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 > `synapse-e2ee/src/backup/service.rs`(4)、`synapse-storage/src/audit.rs`(4)、
 > `synapse-storage/src/schema_health_check.rs`(4) 由 **C44** 归零退表（12 处宏化 + 两处
 > `COUNT(*)`/`COALESCE` 的 R4 断言 + R5 数组参数改 owned + R6 ⑤ 元组投影改字段读，见 §8.3 第 14 条）。
+> `synapse-storage/src/email_verification.rs`(8) 由 **C48-0 + C48** 归零退表（先删 3 个零调用者
+> 方法、把 R9 违规用例改成真基线覆盖，再宏化其余 5 处）。
 > `synapse-storage/src/delayed_events.rs`(7) 由 **C47-0 + C47** 归零退表（先删唯一零调用者的
 > `list_delayed_events_for_user`、补真基线生命周期覆盖，再宏化其余 6 处）。
 > `synapse-storage/src/event/dag.rs`(8) 由 **C46-0 + C46** 归零退表（先修 D-91/D-92、补
@@ -947,10 +950,51 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
    ⇒ **8/8**），其中状态机（pending → sent/cancelled 不可逆）与 `get_due_events` 的
    `pending + scheduled_ts <= now + ORDER BY + LIMIT` 语义都由断言钉住。
 
+31. ✅ **C48-0（先修：删 3 个零调用者方法 + 修 R9 违规用例）已完成（2026-09-28）** ——
+   为 C48（`synapse-storage/src/email_verification.rs`）扫清前置：
+   - **删死代码（3 处站点，铁律 1）**：`verify_token`、`delete_token_by_id`、`get_token_by_email`
+     全仓**零调用者**。两个易误判点：`verify_token` 有一处"看起来有调用"的**假阳性** ——
+     `synapse-services/src/uia_service.rs::verify_token_stage` 是**另一个**方法；而
+     `mark_token_used` 虽然文件外无人调用，却由本文件的 `validate_and_consume_token` 内部调用
+     ⇒ **保留**（"排除定义文件后再 grep"才看得出来）。
+   - **修 R9 违规用例**：原 `test_delete_token_by_id_removes_verification_session` 在
+     `prepare_empty_isolated_test_pool()` 造的**空 schema** 上手写
+     `CREATE TABLE email_verification_tokens`，而那份 DDL **漏掉了真 schema 的
+     `token TEXT NOT NULL UNIQUE`** —— D-31 家族"手搭夹具掩盖真约束"的教科书形态
+     （手写版本里重复 token 会静默成功）；它还"拿不到库就 `warn!` + `return`"，门禁看不出它没跑。
+     改为 `crate::test_isolation::isolated_test_pool()` 克隆真 v12 模板、只用被测 API 造数据，
+     并按名单规则**同时删除** `scripts/ci/test_ddl_allowlist` 的对应条目
+     （`allowlist_entries_all_still_match_something` 拦住"只删代码留条目"）。
+     新用例把 `UNIQUE(token)` 变成**可失败**断言，并覆盖 create / get_by_id（可空列两侧）、
+     `validate_and_consume_token` 的四条拒绝路径与成功路径、`claim_used_token` 的
+     "取走即物理删除 + 不可重放"、`cleanup_expired_tokens` 只清过期行。
+   实测：`dynamic_production` 219 → **216**、`static` 1264 不变、`dynamic` 总数 952 → **948**、
+   `dynamic_test` 733 → **732**、literal 148/36 → **145/36**；恒等式 `216 − 145 − 1 = 70` 成立。
+   验证：`-p synapse-storage --lib --features test-utils -E 'test(/email_verification/)'` ⇒ **5/5**；
+   `test_ddl_guard_tests` ⇒ **9/9**；`check_ts_order_tiebreak.py` / `check_trait_ratchet.py` ⇒ OK。
+
+32. ✅ **C48（`email_verification.rs` 5 处宏化，该文件生产区动态归零）已完成（2026-09-28）** ——
+   C48-0 之后剩下的 5 处：
+   - `create_verification_token` 的 `INSERT ... RETURNING id`（单列）⇒ `query_scalar!` + `fetch_one`，
+     顺带删掉只为它存在的包装结构体 `TokenIdRow`（铁律 1）；
+   - `mark_token_used` / `cleanup_expired_tokens` 两条无结果列语句 ⇒ `query!` + `.execute()`
+     （R6 ①；后者保留 `rows_affected()` 语义）；
+   - `get_verification_token_by_id` / `claim_used_token` 的 8 列投影 ⇒ `query_as!`
+     （`claim_used_token` 是 `DELETE ... RETURNING`，同一份 8 列清单与 `EmailVerificationToken`
+     一一对应 —— R6 ⑤）。
+   实测：`dynamic_production` 216 → **211**（−5）、`static` 1264 → **1269**（+5）、
+   `dynamic` 总数 948 → **943**、`.sqlx` 1232 → **1237**（+5）、literal 145/36 → **140/35**；
+   恒等式 `211 − 140 − 1 = 70` 仍成立。
+   证据性质：C48-0 的真基线用例在转换后**穿过新宏跑真库** ⇒
+   `-p synapse-storage --lib --features test-utils -E 'test(/email_verification/)'` ⇒ **5/5**，
+   其中 `UNIQUE(token)` 拒绝重复、四条拒绝路径（密钥/token/过期/已用过）、
+   `claim_used_token` 的"取走即物理删除 + 不可重放"、`cleanup_expired_tokens` 只清过期行
+   都由断言钉住。
+
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 
-- `dynamic_production` 的**可机械转换部分（literal）归零**：219 → **101**
-  （219 − 117 literal − 1 param = 101 = 测试基建 57 + 分页结构性 15 + **D-14 结构性 29**），
+- `dynamic_production` 的**可机械转换部分（literal）归零**：211 → **101**
+  （211 − 109 literal − 1 param = 101 = 测试基建 57 + 分页结构性 15 + **D-14 结构性 29**），
   或每个残留都有 §7.3 那样的登记条目；
 - literal 逐文件表只剩 4 类（3 个测试基建文件 + `event/pagination.rs`）；
 - ~~D-68 接线~~、~~D-37 收敛~~、~~D-62 修法①~~、~~D-57② 收敛~~、~~D-73 结构性收敛~~、
