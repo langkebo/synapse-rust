@@ -76,7 +76,7 @@ async fn test_public_rooms_post_filter_generic_search_term_filters_the_directory
     for room in chunk {
         let hit = ["name", "topic", "canonical_alias"]
             .iter()
-            .any(|field| room[*field].as_str().map(|value| value.to_lowercase().contains(&needle)).unwrap_or(false));
+            .any(|field| room[*field].as_str().is_some_and(|value| value.to_lowercase().contains(&needle)));
         assert!(hit, "chunk 里出现了不匹配搜索词的房间：{room}");
     }
 
