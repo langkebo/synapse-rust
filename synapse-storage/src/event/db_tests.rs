@@ -750,15 +750,130 @@ async fn inbound_pdu_signature_material_round_trips() {
     );
 }
 
+/// D-92：`get_forward_extremities_count` 必须与 `get_forward_extremities_in_room` **同一定义**
+/// （`event_edges` 上的 DAG 叶节点），而不是"状态事件数"。
+///
+/// 旧实现读 `content->>'prev_event_id'` —— 那是旧 JSONB 内容约定，现代写入路径
+/// （`create_event_with_graph` / `create_state_event_with_dag`）只写 `event_edges`，于是该子查询
+/// 恒为空集、`NOT IN (空)` 恒真，再加上额外的 `state_key IS NOT NULL`，它实际数的是**状态事件**。
+/// 旧用例只断言 `count >= 0`（恒真，永远不会红）。这里用**消息**事件（`state_key` 为 NULL）
+/// 构造线性 DAG 与分叉，让"叶节点计数"与"状态事件计数"给出不同答案。
 #[tokio::test]
-async fn test_get_forward_extremities_count() {
+async fn test_get_forward_extremities_count_counts_dag_tips() {
     let (_isolated, pool) = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
-    let count = storage
-        .get_forward_extremities_count("!any:example.com")
+    let room_id = format!("!extremity_{}:example.com", uuid::Uuid::new_v4());
+    ensure_test_room(&pool, &room_id).await;
+
+    // 空房间 ⇒ 0（旧用例唯一能证明的事，保留）。
+    assert_eq!(storage.get_forward_extremities_count(&room_id).await.unwrap(), 0);
+
+    // e1 ← e2 ← e3（边方向：event_id 依赖 prev_event_id）⇒ 唯一叶节点 e3。
+    for (i, opaque) in ["$extremity_1", "$extremity_2", "$extremity_3"].iter().enumerate() {
+        let event_id = format!("{opaque}:example.com");
+        sqlx::query(
+            "INSERT INTO events (event_id, room_id, sender, event_type, content, origin_server_ts) \
+             VALUES ($1, $2, '@test:example.com', 'm.room.message', '{}'::jsonb, $3)",
+        )
+        .bind(&event_id)
+        .bind(&room_id)
+        .bind(1000 + i as i64)
+        .execute(&*pool)
         .await
-        .expect("get_forward_extremities_count should succeed");
-    assert!(count >= 0);
+        .expect("insert event");
+        if i > 0 {
+            sqlx::query("INSERT INTO event_edges (event_id, prev_event_id) VALUES ($1, $2)")
+                .bind(&event_id)
+                .bind(format!("$extremity_{i}:example.com"))
+                .execute(&*pool)
+                .await
+                .expect("insert edge");
+        }
+    }
+    assert_eq!(storage.get_forward_extremities_count(&room_id).await.unwrap(), 1);
+    assert_eq!(storage.get_forward_extremities_in_room(&room_id, 10).await.unwrap().len() as i64, 1);
+
+    // 从 e2 再分叉一条 e4 ⇒ 两个叶节点；count 必须与列表长度一致。
+    sqlx::query(
+        "INSERT INTO events (event_id, room_id, sender, event_type, content, origin_server_ts) \
+         VALUES ('$extremity_4:example.com', $1, '@test:example.com', 'm.room.message', '{}'::jsonb, 2000)",
+    )
+    .bind(&room_id)
+    .execute(&*pool)
+    .await
+    .expect("insert forked event");
+    sqlx::query("INSERT INTO event_edges (event_id, prev_event_id) VALUES ('$extremity_4:example.com', '$extremity_2:example.com')")
+        .execute(&*pool)
+        .await
+        .expect("insert fork edge");
+    assert_eq!(storage.get_forward_extremities_count(&room_id).await.unwrap(), 2);
+    assert_eq!(storage.get_forward_extremities_in_room(&room_id, 10).await.unwrap().len() as i64, 2);
+}
+
+/// `get_event_graph_fields` 此前**零覆盖**（`event/db_tests.rs` 里连名字都没出现过），
+/// 而它是 PDU 构建读 `depth` / `prev_events` / `auth_events` 的唯一入口 —— 三列都可空，
+/// 正是宏转换最容易搞错可空性的形状。
+#[tokio::test]
+async fn test_get_event_graph_fields_round_trip() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+    let room_id = format!("!graphfields_{}:example.com", uuid::Uuid::new_v4());
+    ensure_test_room(&pool, &room_id).await;
+
+    sqlx::query(
+        "INSERT INTO events (event_id, room_id, sender, event_type, content, origin_server_ts, depth, prev_events, auth_events) \
+         VALUES ('$graphfields_1:example.com', $1, '@test:example.com', 'm.room.message', '{}'::jsonb, 100, 7, $2, $3)",
+    )
+    .bind(&room_id)
+    .bind(serde_json::json!(["$prev:example.com"]))
+    .bind(serde_json::json!(["$auth:example.com"]))
+    .execute(&*pool)
+    .await
+    .expect("insert event with graph fields");
+
+    let fields = storage.get_event_graph_fields("$graphfields_1:example.com").await.unwrap().expect("graph fields");
+    assert_eq!(fields.depth, Some(7));
+    assert_eq!(fields.prev_events, Some(serde_json::json!(["$prev:example.com"])));
+    assert_eq!(fields.auth_events, Some(serde_json::json!(["$auth:example.com"])));
+
+    // 走 plain 写入路径（无图元数据）的事件：三列都是 None，而不是"没有这个事件"。
+    sqlx::query(
+        "INSERT INTO events (event_id, room_id, sender, event_type, content, origin_server_ts) \
+         VALUES ('$graphfields_2:example.com', $1, '@test:example.com', 'm.room.message', '{}'::jsonb, 200)",
+    )
+    .bind(&room_id)
+    .execute(&*pool)
+    .await
+    .expect("insert bare event");
+    let bare = storage.get_event_graph_fields("$graphfields_2:example.com").await.unwrap().expect("row");
+    assert_eq!((bare.depth, bare.prev_events, bare.auth_events), (None, None, None));
+
+    // 缺事件 ⇒ None（不是报错）。
+    assert!(storage.get_event_graph_fields("$graphfields_absent:example.com").await.unwrap().is_none());
+}
+
+/// D-91：`events.prev_state_events` 形状不对时必须**报 Decode 错**，而不是静默当成"没有前驱"。
+#[tokio::test]
+async fn test_malformed_prev_state_events_is_an_error() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+    let room_id = format!("!malformed_pse_{}:example.com", uuid::Uuid::new_v4());
+    ensure_test_room(&pool, &room_id).await;
+
+    sqlx::query(
+        "INSERT INTO events (event_id, room_id, sender, event_type, content, origin_server_ts, prev_state_events) \
+         VALUES ('$malformed_pse_1:example.com', $1, '@test:example.com', 'm.room.message', '{}'::jsonb, 100, $2)",
+    )
+    .bind(&room_id)
+    .bind(serde_json::json!({"not": "an array"}))
+    .execute(&*pool)
+    .await
+    .expect("insert malformed row");
+
+    let err = storage.get_prev_state_events("$malformed_pse_1:example.com").await.expect_err("must not swallow");
+    assert!(matches!(err, sqlx::Error::Decode(_)), "expected Decode, got {err:?}");
+    let err = storage.get_state_dag_edges(&room_id).await.expect_err("must not swallow");
+    assert!(matches!(err, sqlx::Error::Decode(_)), "expected Decode, got {err:?}");
 }
 
 // --- create_event_with_graph / signatures_and_hashes ---

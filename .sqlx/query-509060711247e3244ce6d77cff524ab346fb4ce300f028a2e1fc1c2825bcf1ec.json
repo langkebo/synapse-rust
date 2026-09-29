@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT event_id\n            FROM events\n            WHERE room_id = $1\n              AND prev_state_events IS NOT NULL\n              AND prev_state_events ?| $2::text[]\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "509060711247e3244ce6d77cff524ab346fb4ce300f028a2e1fc1c2825bcf1ec"
+}

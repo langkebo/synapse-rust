@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT event_id, prev_state_events AS \"prev_state_events!\"\n            FROM events\n            WHERE room_id = $1 AND prev_state_events IS NOT NULL\n            ORDER BY origin_server_ts ASC, stream_ordering ASC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "prev_state_events!",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "335e861f25a3fbfa0f26a53f34ef0bb4405736f794431f6badae1baf5d787d92"
+}

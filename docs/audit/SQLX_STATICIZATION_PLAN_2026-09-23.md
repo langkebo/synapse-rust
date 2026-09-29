@@ -14,12 +14,12 @@
 
 | 指标 | 战役起点（2026-09-23） | 现在 | 变化 |
 |---|---|---|---|
-| `dynamic_production` | 1532（近似） | **234** | **−84.7%** |
-| `static` | 61 | **1250** | +1189 |
-| `dynamic`（总） | 2151 | **960** | −1191 |
-| 静态占比 | 2.76% | **56.6%**（1250 / 2210） | +53.8pp |
-| `.sqlx` 离线缓存 | 60 条 | **1218 条** | +1158 |
-| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **163 / 38** | −713 |
+| `dynamic_production` | 1532（近似） | **226** | **−85.2%** |
+| `static` | 61 | **1258** | +1197 |
+| `dynamic`（总） | 2151 | **959** | −1192 |
+| 静态占比 | 2.76% | **56.7%**（1258 / 2217） | +53.9pp |
+| `.sqlx` 离线缓存 | 60 条 | **1226 条** | +1166 |
+| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **155 / 37** | −721 |
 | `param` 传参（D-14 新棘轮，处 / 文件） | — | **1 / 1** | 新立棘轮（此前混在 `runtime`，两道棘轮都不管） |
 | `runtime` 残差 / `query_builder` | — | 70 / 13 文件 · **18**（已入计数棘轮） | — |
 
@@ -36,16 +36,18 @@
 > `#[cfg(test)]` 夹具：插 `rooms` 行满足真实 FK + 直接造一条 `backup_id_text IS NULL` 的行）；
 > C45-0（先修：删 3 处零调用者方法 + 消 1 处重复 INSERT/静默吞错 + 补真基线覆盖）收到
 > **238 / 1246**（`.sqlx` 不变 1214，literal 退到 167，测试区 725 → 726）；C45（4 处宏化）收到
-> **234 / 1250**（`.sqlx` 1214 → 1218，literal 退到 163/38，该文件生产区动态归零）。
+> **234 / 1250**（`.sqlx` 1214 → 1218，literal 退到 163/38，该文件生产区动态归零）；
+> C46-0（先修 D-91/D-92 + 补覆盖，测试区 726 → 733）与 C46（8 处宏化）收到 **226 / 1258**
+> （`.sqlx` 1218 → 1226，literal 退到 155/37，`event/dag.rs` 生产区动态归零）。
 
 ### 0.2 残量结构（"还剩多少活"的准确说法）
 
 | 组成 | 处数 | 性质 |
 |---|---|---|
-| **可静态化残量** | **162** | **132 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
+| **可静态化残量** | **154** | **124 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
 | 测试基建（有意保留） | 57 | `synapse-test-utils/src/lib.rs` 28、`synapse-common/src/test_isolation.rs` 25、`test_schema_guard.rs` 4 |
 | 结构性保留（有意） | 15 | `synapse-storage/src/event/pagination.rs`（9 runtime 游标/排序方向 + 6 literal） |
-| **合计** | **234** | = 162 + 57 + 15 |
+| **合计** | **226** | = 154 + 57 + 15 |
 
 ### 0.3 复现（唯一入口，勿手工数）
 
@@ -73,7 +75,7 @@ python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
 > `/opt/homebrew/opt/postgresql@15/bin/psql`，或用一个**已迁移好**的库 + `SQLX_PREPARE_SKIP_DB_CHECK=1`
 > 跳过前置检查（`--check` 不允许跳；缩容回滚仍生效）。`cargo sqlx prepare` 自身不需要 psql。
 
-### 0.4 缺陷发现总览（**90 条**；只给统计与去向，不逐条显示）
+### 0.4 缺陷发现总览（**92 条**；只给统计与去向，不逐条显示）
 
 | 类别 | 条数 | 说明 |
 |---|---|---|
@@ -85,7 +87,7 @@ python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
 | ⑥ 覆盖缺口 / 测试基建假绿 | 2 | 静态化后无 DB 往返、自建 schema 掩盖写入端约束 |
 | ⑦ 文档级 | 6 | 计数漂移、过时结论、误导性"规则"注释 |
 | ⑧ 结构性例外（有意保留） | 7 | D-13 / D-14 / D-18–D-22，见 §7.3 |
-| ⑨ 阶段总结后新发现并已关闭 | 27 | **D-89**（**生产缺陷**：`event_edges.prev_event_id` 是 `NOT NULL`，而 P1-3 折入块给它加的 FK 动作是 `ON DELETE SET NULL` ⇒ 删任一父事件即 23502，**管理员删房间恒 500**（实测 `DELETE /_synapse/admin/v1/rooms/{room_id}` ⇒ `M_UNKNOWN`，服务端日志 `null value in column "prev_event_id" of relation "event_edges" violates not-null constraint`）。改为 `ON DELETE CASCADE`（派生 DAG 边随节点消失，与同表 `event_id` 侧一致），并让折入块先 `DROP CONSTRAINT IF EXISTS` 再 `ADD`，使 `init_test_public_schema.sh` 的**重放**也能替换旧定义。按 R10 复算基线指纹 `f6e8cb1fdbe20a67` → `5906517503a8cdc6`）、**D-90**（既有红①收口：`auth_issuer` 端点由 `76e5f9136` 有意摘除，用例却仍断言"存在但拒绝"（400 `M_UNRECOGNIZED`）⇒ 改为"废弃端点不得复活"的 **404** 守卫）、**D-88**（`api_widget_tests::test_create_widget_allows_joined_room_moderator` 的 helper 把**创建者**写进了 `m.room.power_levels.users`，而 `create_room` 建的是 v12 房间 ⇒ 撞上 MSC4289 rule 10.4（`synapse-services/src/auth/power_levels.rs:244-271`：v12+ 房间的 `users` 不许点名创建者，创建者权力本就是无上限的）⇒ 房主自己那条 PUT 得 **403 `M_FORBIDDEN: power_levels.users must not name a room creator`**，用例在看错的地方报红。**生产侧规则是对的，是用例侧违规** ⇒ helper 只写非创建者（moderator 50）并删掉多余的 `owner_user_id` 形参；R11 自证：把 moderator 的 PL 降到 0 ⇒ 用例在 widget 创建断言处真的红（证明该断言不是空跑））、**D-87**（重活门禁实测：`docs/openapi/route-table.json` 与两条 `route_ledger_*.snapshot` 停在 2026-09-25，而 U-5（`a13f57316`）新增的 10 条 admin media/invite 路由、`auth_issuer` 路由的删除（`76e5f9136`）都只落在 live router 里 ⇒ `declared_route_manifest_full_snapshot_matches_{default,worker_enabled}_state` 与 CI 的 `openapi-artifact` 两道 `--check` 都会红。按 CI 的产物流水线用固定时间戳重生成：快照 count 1120 → **1130**、`route-table.json` 1098 → **1130**（`client.yaml` 由未变的 `ledger.json` 生成，逐字节不变）。**未**使用 `cargo insta accept`，也**未**改断言）、**D-84**（D-79 给 `synapse-federation` 补的隔离池基建让 `key_rotation.rs::db_tests` 两处 `DROP TABLE` 进了 test 区，却**没加进 `scripts/ci/test_ddl_allowlist`** ⇒ D-36 守卫 A 在 `opt/consolidated` 上红；这正是"重活门禁"（`--test unit`）才跑得到的一道。已按名单的正统语义补两条键并写明理由：`DROP TABLE` 是**被测对象**（"表缺失 ⇒ 自愈重建"分支的唯一入口），且两条用例都跑在 `isolated_test_pool()` 的 per-test schema 上）、**D-85**（C45-0 删掉 `recover_pending_from_db` 后，它那条 `ORDER BY created_ts`（单键、无决胜键）一并消失，而 `scripts/ci/ts_order_single_key_baseline` 仍记着 `event_broadcaster.rs 1` ⇒ 该棘轮"基线比实测宽"必然红，要求 `--update` 收紧。已 `--update`（72 处 / 30 文件））、**D-86**（A3+A4 新增的 `state_groups_backfill_tests::test_all_v12_rooms_have_state_groups`：`rooms.room_version` 是 **TEXT**（`DEFAULT '6'`），裸比较 `room_version >= 12` 让 PG 把字面量定成 integer ⇒ `42883 operator does not exist: text >= integer` 必红；且那句 `v12_with_state_groups <= total_v12` 是**恒真**断言（左是右的子集计数）⇒ 属"不会失败的门禁"。已改写为限定在本用例自建房间上、且带**反向对照**的判定验证）、**D-83**（`bf90f430f`（B1-1b 本地事件自动补图元数据）新增了 DI 接缝 trait `GraphMetadataSource`（`synapse-services/src/graph_metadata.rs:103`，有生产实现 `StorageGraphMetadataSource` + 测试替身 `FakeSource` + 注入点 `Arc<dyn GraphMetadataSource>`）却**漏同步 `scripts/ci/trait_count_baseline`** ⇒ `repo-sanity` 的 trait 棘轮自该提交起在 `opt/consolidated` 上**常驻红**（66 → 67）。按既有先例（`InvitePolicyGate` 65 → 66）与 R11 独立收紧基线并写明理由，而不是放宽脚本；`*StoreApi` 33 == 33 未放宽，见 §8.3）、**D-82**（`synapse-federation/src/event_broadcaster.rs` 的 `send_batch` 把 `persist_transaction_to_db` 的 `INSERT` **复制了第二份**（铁律 2），副本还把 `event_type` 硬编码 `'m.room.event'`、`room_id` 恒 `NULL`，并用 `.ok()` 把写库错误**静默吞掉**（既无日志也不区分"没配库"与"写库失败"）⇒ 抽出共享 `persist_transaction_row` 并统一 `error!` 记录，见 §8.3）、**D-81**（`b38380d9b`（A3+A4）新增的 `tests/integration/state_groups_backfill_tests.rs` **从未定义**它自己调用的 `unique_id()` （每个测试模块都是文件本地助手，不是共享工具），且 `StateGroupStateEntry` 导入未使用 ⇒ 集成测试 target 编译失败（E0425 ×2 + unused import ×1），`--all-targets --all-features` 的 clippy 与 `check_sqlx_cache_fresh.sh --compile` **在 `opt/consolidated` 上双红** —— 而这两道正是 CI 的阻断门禁。修法：补齐本文件的 `unique_id()`（`AtomicU64` 计数器，与同批 `state_groups_idempotency_tests.rs` 同形）+ 删无用导入，见 §8.3）、**D-80**（隔离 clone 与模板不同形，**两处**：① phase 1d 显式跳过约束支撑的索引、且注释断言"`LIKE` 已保留 PRIMARY KEY 名"——实测**不成立**（`pk_users`→`users_pkey`、`uq_users_username`→`users_username_key`）；② 物化视图上的索引**根本没被搬运**（克隆里 `idx_rooms_summaries_mv_*` ×4 + `idx_public_room_directory_*` ×2 全缺）。修法：新增 phase 1e 按 `(table, contype, pg_get_constraintdef)` 配对后用 `ALTER TABLE … RENAME CONSTRAINT` 还原 PK/UNIQUE/EXCLUDE 名（CHECK 名本就保留）、phase 2 在建 matview 后按其模板索引 DDL 逐个重建、`validate_clone` 从"只比数量"改为**索引名字集合**比对（这正是它长期不可见的原因）。R11 自证：去掉 phase 1e ⇒ 扩展后的探针用例红；缺 phase 2 那段 ⇒ 新名字检查当场列出 6 个缺失名。C44-0 那条健康检查用例随之从"容忍 5 组"收紧回 `missing_indexes.is_empty()`）、**D-79**（`synapse-federation` 缺 per-test schema 基建 ⇒ 该 crate 的 DB 路径只能跑共享 `public`，`key_rotation.rs` 的自愈 DDL 分支无法安全构造，集成用例名字承诺"缺失后恢复"却没造场景。已补 crate 本地隔离池适配器（第 4 份 `BASELINE_SQL` 副本，纳入统一守卫 `FEDERATION` 清单）+ 两条**真构造场景**的 db_tests（先 `DROP TABLE` 再断言重建表与两条索引 / 配置表 + 默认值 + 回写往返），并按 R11 用"把自愈变 no-op"变异自证两条用例都变红；集成用例改名为 `test_load_or_create_key_persists_a_signing_key` 并指向新用例）、**D-78**（C42 把 `key_rotation.rs` 8 处判为"与迁移重复的死 DDL、应删"并登记为待裁定；C43 复核发现 `federation_service_tests_migrated.rs` 里有一条 `test_load_or_create_key_recovers_missing_signing_key_table` —— 自愈是**有意**行为，且该测试体从未构造"表缺失"（跑的是共享库、表本就在）⇒ **改判为保留自愈 + 宏化 8 处**，该测试名承诺的恢复场景从未被覆盖 ⇒ 另立 D-79）、**D-77**（`check_sqlx_cache_fresh.sh --full` 对着被收敛成 0 表的共享 `public` 会吐 **1443 个 E0282/E0277**（看起来像源码坏了），而裸 `cargo sqlx prepare` 会把 `.sqlx/` 清空 ⇒ 新增唯一入口 `scripts/ci/sqlx_prepare.sh`（前置检查 fail-fast + 缩容回滚），`--full` 委托给它并在 AGENTS.md R2/R8 明令禁止）、**D-76**（`scripts/init_test_public_schema.sh` 的 `RESET_PUBLIC` 默认 1 ⇒ **裸跑就 `DROP SCHEMA public CASCADE`** 重建共享 `synapse_test.public`；失败/中断即留下 0 表 ⇒ 默认改为 0（幂等 apply），重建需显式 opt-in）、**D-75**（`converge_public_schema.sh` 的 TOCTOU：删除清单在 apply 阶段**二次求值**，而 `prepare_test_db.sh` [2/4] 会 `DROP SCHEMA test_template_ci CASCADE` 重建参考集 ⇒ 参考为空时 public 全被判"多余"；事后不变量又用同一个已塌掉的参考集（两边同时塌成 0 ⇒ 恒过）。实测环境 `synapse_test.public` = **0 表**（本该 ≥200）⇒ 已冻结清单 + 参考稳定性复检 + 大删栏杆 + 非空不变量，见 §8.3）、**D-74**（`update_access_stats` 的 `COALESCE($7, 0)` 让 PG 把 `$7` 定型成 **int4**，宏因此要求 `Option<i32>` 而 Rust 侧是 `response_time_ms: Option<f64>`；动态路径靠 sqlx 显式发送 FLOAT8 才没暴露 ⇒ 改 `0::float8` 并补浮点往返用例，见 §8.3）、**D-72**（`e2ee_audit.rs` 两个方向同时错：`e2ee_audit_log.details` 是 `NOT NULL DEFAULT '{}'`，但 `log_key_operation` 会把 `KeyEvent.details = None` 直接绑成 `NULL` ⇒ 运行期 23502；读回结构体又把该列声明成 `Option` ⇒ 可空性反推失真。已按 R12 先用 RED 用例复现 23502，再 `COALESCE($7, '{}'::jsonb)` + 读侧收紧为非 `Option`，见 §8.3）、**D-71**（D-25 家族收口：23 个 `#[cfg(feature)] pub mod` 声明里有 **10 个带测试却不在** `scripts/ci/gated_module_test_matrix` ⇒ "过滤器必须命中"这道守卫对它们从未生效；补 10 行后全表 21 行实跑通过）、**D-70**（`e4bc400cb` 删掉 3 个埋点却漏收紧 `metric_instrumentation_baseline` ⇒ 埋点棘轮在 `opt/consolidated` 上**常驻红**；按 R11 独立收紧 15 → 12 并复跑门禁）、D-62（通知响应的 `profile_tag` 键取自 `notification_type` ⇒ 已按修法① 改成真列 + 独立 `notification_type` 键）、**D-68**（通知记录层没有生产写入者、也没有保留期清理 ⇒ 已按修法① 接线 `record_notification` + `prune_old_notifications`，边界见 §0.5、明细见提交信息）、**D-69**（运行时迁移的 advisory lock key 在 `search_path` 为空时因 `current_schema()` 为 NULL 而**必败** ⇒ 已先 `COALESCE` 并补边界用例，见 §8.3）、**D-57②**（seed 侧 `public` 不收敛 ⇒ 新增 `scripts/ci/converge_public_schema.sh` 并接进 CI seed 第 [3/4] 步，见 §8.3）、D-65（并发改动只改一半 ⇒ 集成+clippy 双红）、D-66（worktree 共享 `CARGO_TARGET_DIR` ⇒ 跨树复用产物，假红/假绿）、D-67（新增测试里的死常量让 clippy 红） |
+| ⑨ 阶段总结后新发现并已关闭 | 29 | **D-91**（`synapse-storage/src/event/dag.rs` 两处 `serde_json::from_value(...).unwrap_or_default()` 把 `events.prev_state_events` 的**形状错误**静默降级成"没有前驱状态事件"，与"该列本就 NULL"不可区分 ⇒ 吞错。抽 `prev_state_events_from_json()` 改 fail-closed（`sqlx::Error::Decode`））、**D-92**（`get_forward_extremities_count` 读旧 JSONB 约定 `content->>'prev_event_id'`（现代写入只写 `event_edges` ⇒ 子查询恒空）+ 额外 `state_key IS NOT NULL` ⇒ 实际返回**状态事件数**，与 `get_forward_extremities_in_room` 的 DAG 叶节点不是同一概念（同一职责的第二份实现）；管理员端点 `forward_extremities` 字段长期报错数 ⇒ 改为同一 `event_edges` 定义）、**D-89**（**生产缺陷**：`event_edges.prev_event_id` 是 `NOT NULL`，而 P1-3 折入块给它加的 FK 动作是 `ON DELETE SET NULL` ⇒ 删任一父事件即 23502，**管理员删房间恒 500**（实测 `DELETE /_synapse/admin/v1/rooms/{room_id}` ⇒ `M_UNKNOWN`，服务端日志 `null value in column "prev_event_id" of relation "event_edges" violates not-null constraint`）。改为 `ON DELETE CASCADE`（派生 DAG 边随节点消失，与同表 `event_id` 侧一致），并让折入块先 `DROP CONSTRAINT IF EXISTS` 再 `ADD`，使 `init_test_public_schema.sh` 的**重放**也能替换旧定义。按 R10 复算基线指纹 `f6e8cb1fdbe20a67` → `5906517503a8cdc6`）、**D-90**（既有红①收口：`auth_issuer` 端点由 `76e5f9136` 有意摘除，用例却仍断言"存在但拒绝"（400 `M_UNRECOGNIZED`）⇒ 改为"废弃端点不得复活"的 **404** 守卫）、**D-88**（`api_widget_tests::test_create_widget_allows_joined_room_moderator` 的 helper 把**创建者**写进了 `m.room.power_levels.users`，而 `create_room` 建的是 v12 房间 ⇒ 撞上 MSC4289 rule 10.4（`synapse-services/src/auth/power_levels.rs:244-271`：v12+ 房间的 `users` 不许点名创建者，创建者权力本就是无上限的）⇒ 房主自己那条 PUT 得 **403 `M_FORBIDDEN: power_levels.users must not name a room creator`**，用例在看错的地方报红。**生产侧规则是对的，是用例侧违规** ⇒ helper 只写非创建者（moderator 50）并删掉多余的 `owner_user_id` 形参；R11 自证：把 moderator 的 PL 降到 0 ⇒ 用例在 widget 创建断言处真的红（证明该断言不是空跑））、**D-87**（重活门禁实测：`docs/openapi/route-table.json` 与两条 `route_ledger_*.snapshot` 停在 2026-09-25，而 U-5（`a13f57316`）新增的 10 条 admin media/invite 路由、`auth_issuer` 路由的删除（`76e5f9136`）都只落在 live router 里 ⇒ `declared_route_manifest_full_snapshot_matches_{default,worker_enabled}_state` 与 CI 的 `openapi-artifact` 两道 `--check` 都会红。按 CI 的产物流水线用固定时间戳重生成：快照 count 1120 → **1130**、`route-table.json` 1098 → **1130**（`client.yaml` 由未变的 `ledger.json` 生成，逐字节不变）。**未**使用 `cargo insta accept`，也**未**改断言）、**D-84**（D-79 给 `synapse-federation` 补的隔离池基建让 `key_rotation.rs::db_tests` 两处 `DROP TABLE` 进了 test 区，却**没加进 `scripts/ci/test_ddl_allowlist`** ⇒ D-36 守卫 A 在 `opt/consolidated` 上红；这正是"重活门禁"（`--test unit`）才跑得到的一道。已按名单的正统语义补两条键并写明理由：`DROP TABLE` 是**被测对象**（"表缺失 ⇒ 自愈重建"分支的唯一入口），且两条用例都跑在 `isolated_test_pool()` 的 per-test schema 上）、**D-85**（C45-0 删掉 `recover_pending_from_db` 后，它那条 `ORDER BY created_ts`（单键、无决胜键）一并消失，而 `scripts/ci/ts_order_single_key_baseline` 仍记着 `event_broadcaster.rs 1` ⇒ 该棘轮"基线比实测宽"必然红，要求 `--update` 收紧。已 `--update`（72 处 / 30 文件））、**D-86**（A3+A4 新增的 `state_groups_backfill_tests::test_all_v12_rooms_have_state_groups`：`rooms.room_version` 是 **TEXT**（`DEFAULT '6'`），裸比较 `room_version >= 12` 让 PG 把字面量定成 integer ⇒ `42883 operator does not exist: text >= integer` 必红；且那句 `v12_with_state_groups <= total_v12` 是**恒真**断言（左是右的子集计数）⇒ 属"不会失败的门禁"。已改写为限定在本用例自建房间上、且带**反向对照**的判定验证）、**D-83**（`bf90f430f`（B1-1b 本地事件自动补图元数据）新增了 DI 接缝 trait `GraphMetadataSource`（`synapse-services/src/graph_metadata.rs:103`，有生产实现 `StorageGraphMetadataSource` + 测试替身 `FakeSource` + 注入点 `Arc<dyn GraphMetadataSource>`）却**漏同步 `scripts/ci/trait_count_baseline`** ⇒ `repo-sanity` 的 trait 棘轮自该提交起在 `opt/consolidated` 上**常驻红**（66 → 67）。按既有先例（`InvitePolicyGate` 65 → 66）与 R11 独立收紧基线并写明理由，而不是放宽脚本；`*StoreApi` 33 == 33 未放宽，见 §8.3）、**D-82**（`synapse-federation/src/event_broadcaster.rs` 的 `send_batch` 把 `persist_transaction_to_db` 的 `INSERT` **复制了第二份**（铁律 2），副本还把 `event_type` 硬编码 `'m.room.event'`、`room_id` 恒 `NULL`，并用 `.ok()` 把写库错误**静默吞掉**（既无日志也不区分"没配库"与"写库失败"）⇒ 抽出共享 `persist_transaction_row` 并统一 `error!` 记录，见 §8.3）、**D-81**（`b38380d9b`（A3+A4）新增的 `tests/integration/state_groups_backfill_tests.rs` **从未定义**它自己调用的 `unique_id()` （每个测试模块都是文件本地助手，不是共享工具），且 `StateGroupStateEntry` 导入未使用 ⇒ 集成测试 target 编译失败（E0425 ×2 + unused import ×1），`--all-targets --all-features` 的 clippy 与 `check_sqlx_cache_fresh.sh --compile` **在 `opt/consolidated` 上双红** —— 而这两道正是 CI 的阻断门禁。修法：补齐本文件的 `unique_id()`（`AtomicU64` 计数器，与同批 `state_groups_idempotency_tests.rs` 同形）+ 删无用导入，见 §8.3）、**D-80**（隔离 clone 与模板不同形，**两处**：① phase 1d 显式跳过约束支撑的索引、且注释断言"`LIKE` 已保留 PRIMARY KEY 名"——实测**不成立**（`pk_users`→`users_pkey`、`uq_users_username`→`users_username_key`）；② 物化视图上的索引**根本没被搬运**（克隆里 `idx_rooms_summaries_mv_*` ×4 + `idx_public_room_directory_*` ×2 全缺）。修法：新增 phase 1e 按 `(table, contype, pg_get_constraintdef)` 配对后用 `ALTER TABLE … RENAME CONSTRAINT` 还原 PK/UNIQUE/EXCLUDE 名（CHECK 名本就保留）、phase 2 在建 matview 后按其模板索引 DDL 逐个重建、`validate_clone` 从"只比数量"改为**索引名字集合**比对（这正是它长期不可见的原因）。R11 自证：去掉 phase 1e ⇒ 扩展后的探针用例红；缺 phase 2 那段 ⇒ 新名字检查当场列出 6 个缺失名。C44-0 那条健康检查用例随之从"容忍 5 组"收紧回 `missing_indexes.is_empty()`）、**D-79**（`synapse-federation` 缺 per-test schema 基建 ⇒ 该 crate 的 DB 路径只能跑共享 `public`，`key_rotation.rs` 的自愈 DDL 分支无法安全构造，集成用例名字承诺"缺失后恢复"却没造场景。已补 crate 本地隔离池适配器（第 4 份 `BASELINE_SQL` 副本，纳入统一守卫 `FEDERATION` 清单）+ 两条**真构造场景**的 db_tests（先 `DROP TABLE` 再断言重建表与两条索引 / 配置表 + 默认值 + 回写往返），并按 R11 用"把自愈变 no-op"变异自证两条用例都变红；集成用例改名为 `test_load_or_create_key_persists_a_signing_key` 并指向新用例）、**D-78**（C42 把 `key_rotation.rs` 8 处判为"与迁移重复的死 DDL、应删"并登记为待裁定；C43 复核发现 `federation_service_tests_migrated.rs` 里有一条 `test_load_or_create_key_recovers_missing_signing_key_table` —— 自愈是**有意**行为，且该测试体从未构造"表缺失"（跑的是共享库、表本就在）⇒ **改判为保留自愈 + 宏化 8 处**，该测试名承诺的恢复场景从未被覆盖 ⇒ 另立 D-79）、**D-77**（`check_sqlx_cache_fresh.sh --full` 对着被收敛成 0 表的共享 `public` 会吐 **1443 个 E0282/E0277**（看起来像源码坏了），而裸 `cargo sqlx prepare` 会把 `.sqlx/` 清空 ⇒ 新增唯一入口 `scripts/ci/sqlx_prepare.sh`（前置检查 fail-fast + 缩容回滚），`--full` 委托给它并在 AGENTS.md R2/R8 明令禁止）、**D-76**（`scripts/init_test_public_schema.sh` 的 `RESET_PUBLIC` 默认 1 ⇒ **裸跑就 `DROP SCHEMA public CASCADE`** 重建共享 `synapse_test.public`；失败/中断即留下 0 表 ⇒ 默认改为 0（幂等 apply），重建需显式 opt-in）、**D-75**（`converge_public_schema.sh` 的 TOCTOU：删除清单在 apply 阶段**二次求值**，而 `prepare_test_db.sh` [2/4] 会 `DROP SCHEMA test_template_ci CASCADE` 重建参考集 ⇒ 参考为空时 public 全被判"多余"；事后不变量又用同一个已塌掉的参考集（两边同时塌成 0 ⇒ 恒过）。实测环境 `synapse_test.public` = **0 表**（本该 ≥200）⇒ 已冻结清单 + 参考稳定性复检 + 大删栏杆 + 非空不变量，见 §8.3）、**D-74**（`update_access_stats` 的 `COALESCE($7, 0)` 让 PG 把 `$7` 定型成 **int4**，宏因此要求 `Option<i32>` 而 Rust 侧是 `response_time_ms: Option<f64>`；动态路径靠 sqlx 显式发送 FLOAT8 才没暴露 ⇒ 改 `0::float8` 并补浮点往返用例，见 §8.3）、**D-72**（`e2ee_audit.rs` 两个方向同时错：`e2ee_audit_log.details` 是 `NOT NULL DEFAULT '{}'`，但 `log_key_operation` 会把 `KeyEvent.details = None` 直接绑成 `NULL` ⇒ 运行期 23502；读回结构体又把该列声明成 `Option` ⇒ 可空性反推失真。已按 R12 先用 RED 用例复现 23502，再 `COALESCE($7, '{}'::jsonb)` + 读侧收紧为非 `Option`，见 §8.3）、**D-71**（D-25 家族收口：23 个 `#[cfg(feature)] pub mod` 声明里有 **10 个带测试却不在** `scripts/ci/gated_module_test_matrix` ⇒ "过滤器必须命中"这道守卫对它们从未生效；补 10 行后全表 21 行实跑通过）、**D-70**（`e4bc400cb` 删掉 3 个埋点却漏收紧 `metric_instrumentation_baseline` ⇒ 埋点棘轮在 `opt/consolidated` 上**常驻红**；按 R11 独立收紧 15 → 12 并复跑门禁）、D-62（通知响应的 `profile_tag` 键取自 `notification_type` ⇒ 已按修法① 改成真列 + 独立 `notification_type` 键）、**D-68**（通知记录层没有生产写入者、也没有保留期清理 ⇒ 已按修法① 接线 `record_notification` + `prune_old_notifications`，边界见 §0.5、明细见提交信息）、**D-69**（运行时迁移的 advisory lock key 在 `search_path` 为空时因 `current_schema()` 为 NULL 而**必败** ⇒ 已先 `COALESCE` 并补边界用例，见 §8.3）、**D-57②**（seed 侧 `public` 不收敛 ⇒ 新增 `scripts/ci/converge_public_schema.sh` 并接进 CI seed 第 [3/4] 步，见 §8.3）、D-65（并发改动只改一半 ⇒ 集成+clippy 双红）、D-66（worktree 共享 `CARGO_TARGET_DIR` ⇒ 跨树复用产物，假红/假绿）、D-67（新增测试里的死常量让 clippy 红） |
 
 
 **去向**：阶段总结前关闭的 57 条逐条明细在 HISTORY §7.2；总结后关闭的 19 条（D-37 / D-57② / D-62 /
@@ -186,13 +188,14 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 ### 7.4 计数与口径
 
-- 合计 **90** 条（D-01…D-90）：**未关闭 0**、
-  **结构性例外 7**（D-13 / D-14 / D-18–D-22，有意不修）、**已关闭 83**（含 D-37 收敛、
+- 合计 **92** 条（D-01…D-92）：**未关闭 0**、
+  **结构性例外 7**（D-13 / D-14 / D-18–D-22，有意不修）、**已关闭 85**（含 D-37 收敛、
   D-57② 收敛、D-62 修法①、D-68 接线落地、D-69/D-70/D-71/D-72/D-74 先修、
   D-75/D-76/D-77 工具链事故先修、D-73 结构性收敛、D-78 改判收口、D-79 隔离池基建、D-80 隔离同形、
   D-81 A3+A4 集成测试编译失败先修、D-82 重复 INSERT/静默吞错先修、
   D-83 trait 棘轮漏同步先修、D-84/D-85/D-86 重活门禁回补、D-87 路由契约同步、
-  D-88 widget 用例按 MSC4289 规则修正、D-89 事件边 FK 动作修正、D-90 废弃端点用例收口）。
+  D-88 widget 用例按 MSC4289 规则修正、D-89 事件边 FK 动作修正、D-90 废弃端点用例收口、
+  D-91 状态前驱解码改 fail-closed、D-92 极端点计数改与 `_in_room` 同定义）。
 - 本文档**只显示**未关闭项与结构性例外；已关闭项的明细在 HISTORY §7.2（冻结，不参与当前计数），
   阶段总结后关闭的 19 条（D-37 / D-57② / D-62 / D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-76 / D-77）在各提交信息里。
 - "部分已修"指同一编号下仍有明确未做子项；结构性例外**不计入**待修，其约束力写在 §7.3 与 R1–R13。
@@ -211,13 +214,12 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 ### 8.1 剩余可静态化清单（按实测，2026-09-26 C44 后）
 
-**可转换残量 162 处** = **132 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
-加 **1 处跨函数传参（`param`）**。下表按**字面量**处数排前 10（表内数字是**可机械转换**的站点数；
+**可转换残量 154 处** = **124 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
+加 **1 处跨函数传参（`param`）**。下表按**字面量**处数排前 9（表内数字是**可机械转换**的站点数；
 纯 `runtime` 文件见下方结构性清单）：
 
 | 文件 | 处数 | 门控 | 备注 |
 |---|---|---|---|
-| `synapse-storage/src/event/dag.rs` | 8 | — | `event/` 同域；⚠️ **需先补覆盖**（无 in-file db_tests） |
 | `synapse-storage/src/email_verification.rs` | 8 | — | ⚠️ **需先补覆盖**：仅 1 条 DB 用例（且用的是空隔离池，R9 禁止的形态） |
 | `synapse-storage/src/call_session.rs` | 7 | `voip-tracking` | 门控（见 `gated_module_test_matrix`）⇒ 单列一批更省来回 |
 | `synapse-storage/src/delayed_events.rs` | 7 | — | ⚠️ **需先补覆盖**：7 个方法里 5 个**零引用**（list/restart/cancel/mark_sent/get_due_events） |
@@ -231,7 +233,8 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 > `synapse-e2ee/src/backup/service.rs`(4)、`synapse-storage/src/audit.rs`(4)、
 > `synapse-storage/src/schema_health_check.rs`(4) 由 **C44** 归零退表（12 处宏化 + 两处
 > `COUNT(*)`/`COALESCE` 的 R4 断言 + R5 数组参数改 owned + R6 ⑤ 元组投影改字段读，见 §8.3 第 14 条）。
-> `synapse-federation/src/event_broadcaster.rs`(8) 由 **C45-0 + C45** 归零退表
+> `synapse-storage/src/event/dag.rs`(8) 由 **C46-0 + C46** 归零退表（先修 D-91/D-92、补
+> `get_event_graph_fields` 等覆盖，再宏化 8 处）。`synapse-federation/src/event_broadcaster.rs`(8) 由 **C45-0 + C45** 归零退表
 > （先删 3 处零调用者方法、消 1 处重复 INSERT（D-82）、补真基线覆盖，再宏化剩余 4 处）。
 > `key_rotation.rs`(8) 由 **C43** 归零退表（保留自愈 + 宏化，见 §8.3 第 10 条）；`qr_login.rs`(5)/`room_tag/mod.rs`(4) 已由 **C42** 归零退表；`feature_flags.rs`/`filter.rs`
 > 由 **C41** 归零；`admin_media.rs`(15) 的 U-5 残量已由其批次**计入基线冻结**（`a13f57316`），
@@ -856,10 +859,54 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
    验证：`--test integration --all-features --test-threads 1 -E 'test(/api_auth_routes_tests/)'` ⇒ **7/7**。
    至此 §7.1 的两条既有红全部收口 ⇒ 分支在"单元 + 集成 + 契约"三类阻断门禁上均无已知红项。
 
+26. ✅ **D-91（`prev_state_events` 解码吞错）已先修（2026-09-28）** —— C46 的 `event/dag.rs`
+   转换前处理的第一件**行为**问题：`get_prev_state_events` 与 `get_state_dag_edges` 都用
+   `serde_json::from_value(json).unwrap_or_default()` —— 列里的 JSON 若不是"字符串数组"，
+   就静默变成"没有前驱状态事件"，与"该列本就为 NULL"完全不可区分（吞错，与 D-33/D-72 同族）。
+   修法：抽出 `prev_state_events_from_json(event_id, json)`，形状不对返回
+   `sqlx::Error::Decode`（fail-closed），让脏数据在调用点可见，而不是被当成"这个事件没有状态
+   前驱"继续参与 DAG 遍历。
+27. ✅ **D-92（极端点计数是第二份、且过期的实现）已先修（2026-09-28）** —— 同一个文件的第二件：
+   `get_forward_extremities_count` 读的是**旧 JSONB 内容约定** `content->>'prev_event_id'`，
+   而现代写入路径（`create_event_with_graph` / `create_state_event_with_dag`）只写 `event_edges`
+   —— 没有任何生产代码再往 `content` 塞该字段 ⇒ 子查询恒为空集、`NOT IN (空)` 恒真；
+   它另外还要求 `state_key IS NOT NULL`，于是实际返回的是**房间里的状态事件数**，与
+   `get_forward_extremities_in_room`（`event_edges` 上的 DAG 叶节点）不是同一个概念
+   —— 同一职责的第二份实现（铁律 2）。后果：管理员端点
+   `GET /_synapse/admin/v1/rooms/{room_id}/forward_extremities` 长期报错数。
+   修法：改为与 `_in_room` **完全同一定义**（`event_edges` 上的 `NOT EXISTS`），两者从此永远一致。
+   验证（C46-0 两项一起）：`-p synapse-storage --lib --features test-utils -E 'test(/event::/)'`
+   ⇒ **117/117**；其中新增/替换的三条用例本身即判别性证据：
+   · `test_get_forward_extremities_count_counts_dag_tips`：用**消息**事件（`state_key` 为 NULL）
+     构造"链 + 分叉"，旧实现会给 0/0，新实现必须给 1/2，且与 `_in_room` 的长度一致；
+   · `test_get_event_graph_fields_round_trip`：该函数此前**零覆盖**，现在覆盖"有图元数据 /
+     走 plain 写入路径（三列全 None）/ 缺事件（None）"三种形态；
+   · `test_malformed_prev_state_events_is_an_error`：D-91 的失败路径，形状不对必须
+     `sqlx::Error::Decode`，而不是 `Ok(None)`。
+
+28. ✅ **C46（`event/dag.rs` 8 处宏化，该文件生产区动态归零）已完成（2026-09-28）** ——
+   C46-0 之后剩下的 8 处按查询形状分三类转换：
+   - **单列标量 3 处**：`find_missing_event_ids`（`event_id = ANY($1)`；`&[String]` 可直接传）、
+     `get_latest_event_ids_in_room`（原 `query_as::<_, (String,)>` 元组 ⇒ R6 ⑤ 改 `query_scalar!`）、
+     `find_events_referencing_missing_state`（`prev_state_events ?| $2::text[]`）。
+   - **递归 CTE 1 处**：`get_missing_events_between` 的 DAG 游走 —— `dag_walk.event_id` 由 `UNION`
+     的输出列构成，PG **不给集合运算的输出列透传 NOT NULL**（R4 ②），而两个分支都取自
+     `event_edges.prev_event_id`（NOT NULL）⇒ 断言 `AS "event_id!"`。
+   - **`query!` 按字段读 3 处**：9 列 JSON 投影（原先一律 `row.get::<Option<T>>`，现在宏按真
+     catalog 给 `T`/`Option<T>` —— 序列化结果逐字节相同，但列名/类型/可空性错配编译期即证伪）、
+     `get_state_dag_edges`（元组 ⇒ R6 ⑤；`prev_state_events` 由 WHERE 保证非空 ⇒ 断言）、
+     `get_prev_state_events`（可空列 + `fetch_optional` ⇒ `Option<Option<Value>>` 两层，R6 ②）。
+   - **`COUNT(*)` 1 处**：D-92 已修好的极端点计数 ⇒ `query_scalar!` + `AS "count!"`（R4 ①）。
+   顺带删掉失去唯一使用者的 `use sqlx::Row;`。
+   实测：`dynamic_production` 234 → **226**（−8）、`static` 1250 → **1258**（+8）、
+   `dynamic` 总数 967 → **959**、`.sqlx` 1218 → **1226**（+8）、literal 163/38 → **155/37**；
+   恒等式 `226 − 155 − 1 = 70` 仍成立。证据性质：C46-0 的覆盖在转换后**穿过新宏跑真库**
+   （`-p synapse-storage --lib --features test-utils -E 'test(/event::/)'` ⇒ **117/117**）。
+
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 
-- `dynamic_production` 的**可机械转换部分（literal）归零**：234 → **101**
-  （234 − 132 literal − 1 param = 101 = 测试基建 57 + 分页结构性 15 + **D-14 结构性 29**），
+- `dynamic_production` 的**可机械转换部分（literal）归零**：226 → **101**
+  （226 − 124 literal − 1 param = 101 = 测试基建 57 + 分页结构性 15 + **D-14 结构性 29**），
   或每个残留都有 §7.3 那样的登记条目；
 - literal 逐文件表只剩 4 类（3 个测试基建文件 + `event/pagination.rs`）；
 - ~~D-68 接线~~、~~D-37 收敛~~、~~D-62 修法①~~、~~D-57② 收敛~~、~~D-73 结构性收敛~~、
