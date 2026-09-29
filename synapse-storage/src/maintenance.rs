@@ -71,19 +71,17 @@ impl DatabaseMaintenance {
         const MIN_MODIFICATIONS: i64 = 1_000;
 
         for table in tables {
-            let modifications = sqlx::query_scalar::<_, Option<i64>>(
-                r"
-                SELECT COALESCE(n_mod_since_analyze, 0)
-                FROM pg_stat_user_tables
-                WHERE relname = $1
-                ",
+            // D-104（C61-0 先修）：原先这里是 `.ok().flatten().flatten().unwrap_or(0)` ——
+            // **任何数据库错误**都被降级成"0 次修改"，于是这张表被**静默跳过** VACUUM ANALYZE，
+            // 而调用方拿到的是一份"维护正常"的报告（D-33/D-94 同型的吞错）。
+            // 现在错误用 `?` 传播；只有"pg_stat_user_tables 里没有这张表的统计行"（新库/新表）
+            // 才落回 0 —— 那才是真默认值。
+            let modifications = sqlx::query_scalar!(
+                r#"SELECT COALESCE(n_mod_since_analyze, 0)::BIGINT AS "modifications!" FROM pg_stat_user_tables WHERE relname = $1"#,
+                table,
             )
-            .bind(table)
             .fetch_optional(&self.pool)
-            .await
-            .ok()
-            .flatten()
-            .flatten()
+            .await?
             .unwrap_or(0);
 
             if modifications < MIN_MODIFICATIONS {
@@ -471,5 +469,74 @@ mod db_tests {
             maintenance.perform_maintenance().await.expect("perform_maintenance after construction should succeed");
 
         assert!(report.duration_ms >= 0);
+    }
+}
+
+#[cfg(test)]
+mod c61_coverage_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+    use sqlx::PgPool;
+    use std::sync::Arc;
+
+    /// C61-0：`vacuum_analyze` / `reindex_tables` 此前**零覆盖**（该模块的 9 条用例只覆盖
+    /// `analyze_table_stats` 与 `perform_maintenance`）⇒ 转换它们之前按 R8 补真基线往返。
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
+    }
+
+    /// 干净 schema 上每张表的 `n_mod_since_analyze` 都远低于 1000 阈值 ⇒ 必须**全部跳过**，
+    /// 且不得报错（这条同时钉住"统计行缺失 ⇒ 默认 0"而不是把错误吞成 0：
+    /// 吞错被 D-104 改成 `?` 之后，任何真错误都会让本用例失败而不是静默跳过）。
+    #[tokio::test]
+    async fn vacuum_analyze_skips_tables_below_the_modification_threshold() {
+        let (_isolated, pool) = test_pool().await;
+        let maintenance = DatabaseMaintenance::new((*pool).clone());
+
+        let result = maintenance.vacuum_analyze().await.expect("vacuum_analyze 不得吞错");
+
+        assert!(result.tables_processed.is_empty(), "干净 schema 上没有表能达到 1000 次修改: {result:?}");
+        assert_eq!(result.execution_time_ms, 0, "全部跳过 ⇒ 不累计执行时间");
+    }
+
+    /// `reindex_tables` 走的是"先查 `pg_indexes` 是否存在 ⇒ 再 `REINDEX INDEX`"：
+    /// 基线 schema 里那份硬编码索引清单**都存在** ⇒ 必须全部重建成功（空表上很快），
+    /// 返回集合与清单一致（既证明存在性检查有命中，也证明 REINDEX 真的执行了）。
+    #[tokio::test]
+    async fn reindex_tables_reindexes_every_existing_index_in_the_list() {
+        let (_isolated, pool) = test_pool().await;
+        let maintenance = DatabaseMaintenance::new((*pool).clone());
+
+        let reindexed = maintenance.reindex_tables().await.expect("reindex_tables");
+
+        assert!(!reindexed.is_empty(), "基线 schema 上至少应重建一个索引");
+        assert_eq!(
+            reindexed,
+            vec![
+                "uq_users_username",
+                "idx_devices_user_id",
+                "idx_access_tokens_user_id",
+                "idx_refresh_tokens_user_id",
+                "idx_rooms_creator",
+                "idx_room_memberships_room",
+                "idx_room_memberships_user",
+                "idx_events_sender",
+            ],
+            "清单里的索引在迁移基线里都存在 ⇒ 全部出现在结果里（顺序即执行顺序）"
+        );
+
+        // 目标 schema 里确实有这些索引（否则上面那条只是"清单回显"）。
+        // ⚠️ R9：测试区一律动态 SQL —— 宏不进 `cargo sqlx prepare`，`--all-targets` 离线会 E0282。
+        let present: i64 = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*)::BIGINT FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ANY($1::text[])",
+        )
+        .bind(&reindexed)
+        .fetch_one(&*pool)
+        .await
+        .expect("count indexes");
+        assert_eq!(present as usize, reindexed.len());
     }
 }
