@@ -6,10 +6,15 @@ use synapse_common::current_timestamp_millis;
 use tracing;
 
 /// Columns for `state_group_state`.
-const STATE_GROUP_STATE_COLS: &str = "state_group_id, event_type, state_key, event_id";
+///
+/// `pub(crate)`：为 D14-2 守卫（见 `schema_const_guard_tests`）—— 该常量由 `format!` 拼进 SQL，
+/// 宏守不到，故在测试期验证它能在当前 schema 上 prepare。
+pub(crate) const STATE_GROUP_STATE_COLS: &str = "state_group_id, event_type, state_key, event_id";
 
 /// Inner columns for `state_group_state` (without state_group_id).
-const STATE_GROUP_STATE_INNER_COLS: &str = "event_type, state_key, event_id";
+///
+/// `pub(crate)`：同 `STATE_GROUP_STATE_COLS`，为 D14-2 守卫。
+pub(crate) const STATE_GROUP_STATE_INNER_COLS: &str = "event_type, state_key, event_id";
 
 /// The `StateGroup` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

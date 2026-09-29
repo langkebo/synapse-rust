@@ -1569,6 +1569,125 @@ mod db_tests {
         cleanup_membership_data(&pool, &suffix).await;
     }
 
+    // ── 6b. get_room_members_paginated_with_profiles ──────────────
+
+    /// MSC4502 的 profile 分页（游标 + profile 透传）—— **此前零 storage 级覆盖**：
+    /// 只有 `synapse-services` 服务层的 `get_room_members_paginated_*` 用例覆盖它，而那层注入的是
+    /// `test_mocks::InMemoryMemberStore`，**从不执行这里的 SQL**。
+    ///
+    /// 为什么必须用真 baseline 往返：方法内部有 **4 条 `format!` 拼出的分支**
+    /// （`not_membership` 有/无 × 游标有/无），每条又有 `ASC`/`DESC` 与 `>`/`<` 两种方向
+    /// ⇒ **8 种 SQL 文本**；它们都是 §7.3 D-14 的结构性保留（列名与方向由 `format!` 拼接，
+    /// 宏要求调用点字面量），编译期看不见任何东西 ⇒ "拼出来的 SQL 在当前 schema 上真的能跑"
+    /// 只能靠这里钉住（列名漂移在运行期是 42703，正是 D14-2 想提前到测试期的那类失败）。
+    ///
+    /// 本用例逐条走完 8 种形态，并顺带钉住 `LEFT JOIN users` 的 profile 透传
+    /// （有 profile ⇒ `Some`，无 profile ⇒ `None`，后者是 D-20 型的可空性方向）。
+    #[tokio::test]
+    async fn test_get_room_members_paginated_with_profiles_covers_every_query_shape() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let room_id = format!("!room_mem_prof_{suffix}:localhost");
+        // 4 个 join + 1 个 invite：invite 用来验证 `not_membership` 过滤真的生效
+        // （若过滤失效，分支 3/4 会多出一条 membership='invite' 的行，断言立刻红）。
+        let joins: Vec<String> = (0..4).map(|i| format!("@mem_prof_{i}_{suffix}:localhost")).collect();
+        let invited = format!("@mem_prof_inv_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        for u in joins.iter().chain(std::iter::once(&invited)) {
+            ensure_test_user(&pool, u).await;
+        }
+        // profile 只给 joins[1]：其余兄弟保持无 profile ⇒ LEFT JOIN 的 NULL 分支也被走到
+        sqlx::query("UPDATE users SET displayname = $1, avatar_url = $2 WHERE user_id = $3")
+            .bind("Alice")
+            .bind("mxc://localhost/alice")
+            .bind(&joins[1])
+            .execute(&*pool)
+            .await
+            .expect("seed profile");
+        for u in &joins {
+            storage.add_member(&room_id, u, "join", None, None, None, None).await.unwrap();
+        }
+        storage.add_member(&room_id, &invited, "invite", None, None, None, None).await.unwrap();
+
+        // 该元组类型就是本方法的返回元素（方法签名里也这么写），局部别名只为避开
+        // clippy::type_complexity（本仓 clippy 以 `-D warnings` 阻断）。
+        type MemberWithProfile = (RoomMember, Option<String>, Option<String>);
+        let ids =
+            |rows: &[MemberWithProfile]| -> Vec<String> { rows.iter().map(|(m, _, _)| m.user_id.clone()).collect() };
+
+        // ① 无 not_membership、无游标（ORDER BY rm.user_id ASC）
+        let page = storage
+            .get_room_members_paginated_with_profiles(&room_id, "join", None, 10, None, None)
+            .await
+            .expect("branch 1 (no filter, no cursor)");
+        assert_eq!(ids(&page), joins, "① ASC 全量");
+        // profile 透传：只有 joins[1] 有，其余是 None（LEFT JOIN 的 NULL 分支）
+        assert_eq!(page[1].1.as_deref(), Some("Alice"), "① profile.displayname 必须透传");
+        assert_eq!(page[1].2.as_deref(), Some("mxc://localhost/alice"), "① profile.avatar_url 必须透传");
+        assert_eq!(page[0].1, None, "① 无 profile 的用户必须是 None（LEFT JOIN 未命中）");
+        assert_eq!(page[0].2, None, "① 无 avatar 的用户必须是 None");
+
+        // ② 无 not_membership、有游标（`rm.user_id > $3`）
+        let page = storage
+            .get_room_members_paginated_with_profiles(&room_id, "join", None, 10, Some(&joins[0]), None)
+            .await
+            .expect("branch 2 (no filter, cursor)");
+        assert_eq!(ids(&page), joins[1..].to_vec(), "② 游标之后的行");
+
+        // ③ 有 not_membership、无游标（invite 必须被排除）
+        let page = storage
+            .get_room_members_paginated_with_profiles(&room_id, "join", Some("invite"), 10, None, None)
+            .await
+            .expect("branch 3 (filter, no cursor)");
+        assert_eq!(ids(&page), joins, "③ not_membership='invite' 必须过滤掉 invite 行");
+
+        // ④ 有 not_membership、有游标
+        let page = storage
+            .get_room_members_paginated_with_profiles(&room_id, "join", Some("invite"), 10, Some(&joins[1]), None)
+            .await
+            .expect("branch 4 (filter, cursor)");
+        assert_eq!(ids(&page), joins[2..].to_vec(), "④ 过滤 + 游标");
+
+        // ⑤–⑧ 反向（dir=Some("b") ⇒ ORDER BY … DESC + `rm.user_id < $n`）
+        let page = storage
+            .get_room_members_paginated_with_profiles(&room_id, "join", None, 10, None, Some("b"))
+            .await
+            .expect("branch 5 (no filter, no cursor, backward)");
+        let mut desc = joins.clone();
+        desc.reverse();
+        assert_eq!(ids(&page), desc, "⑤ DESC 全量");
+
+        let page = storage
+            .get_room_members_paginated_with_profiles(&room_id, "join", None, 10, Some(&joins[2]), Some("b"))
+            .await
+            .expect("branch 6 (no filter, cursor, backward)");
+        assert_eq!(ids(&page), vec![joins[1].clone(), joins[0].clone()], "⑥ DESC 游标之前");
+
+        let page = storage
+            .get_room_members_paginated_with_profiles(&room_id, "join", Some("invite"), 10, None, Some("b"))
+            .await
+            .expect("branch 7 (filter, no cursor, backward)");
+        assert_eq!(ids(&page), desc, "⑦ DESC + 过滤");
+
+        let page = storage
+            .get_room_members_paginated_with_profiles(&room_id, "join", Some("invite"), 10, Some(&joins[2]), Some("b"))
+            .await
+            .expect("branch 8 (filter, cursor, backward)");
+        assert_eq!(ids(&page), vec![joins[1].clone(), joins[0].clone()], "⑧ DESC + 过滤 + 游标");
+
+        // 游标语义的另一半：`from_user_id` 只按 `>`/`<` 比较，不包含游标自身
+        let page = storage
+            .get_room_members_paginated_with_profiles(&room_id, "join", None, 1, None, None)
+            .await
+            .expect("limit 生效");
+        assert_eq!(ids(&page), vec![joins[0].clone()], "limit 必须生效");
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
     // ── 7. remove_member ──────────────────────────────────────────
 
     #[tokio::test]
