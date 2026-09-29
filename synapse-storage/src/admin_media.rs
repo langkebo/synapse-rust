@@ -983,3 +983,264 @@ mod db_tests {
         assert!(!deleted, "no room_events row → media not in room → false");
     }
 }
+
+#[cfg(test)]
+mod admin_read_paths_db_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+
+    /// C60-0：`admin_media.rs` 的 U-5 端点实现（`get_all_media` / `get_media_info` /
+    /// `delete_media` / `get_media_quota` / `get_user_media` / `delete_user_media` /
+    /// `quarantine_user_media` / `delete_media_by_policy` / `purge_media_cache` /
+    /// `unprotect_media`）此前**零 storage 级覆盖** —— 只有 `upsert`/`is_hash_quarantined`/
+    /// `get_room_media`/`delete_room_media` 有真基线用例。这批补齐后才能按 R8 转换它们。
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
+    }
+
+    /// 直接插入一行 `media_metadata`（绕过 upsert：这些用例要精确控制 `created_ts` /
+    /// `last_accessed_at` / `uploader_user_id`，而 `upsert_media_metadata` 把 created_ts 固定成 now）。
+    #[allow(clippy::too_many_arguments)] // 夹具：字段多但语义直白
+    async fn insert_media_row(
+        pool: &sqlx::PgPool,
+        media_id: &str,
+        uploader_user_id: &str,
+        size: i64,
+        created_ts: i64,
+        last_accessed_at: Option<i64>,
+        quarantine_status: Option<&str>,
+    ) {
+        sqlx::query(
+            r"INSERT INTO media_metadata
+               (media_id, server_name, content_type, file_name, size, uploader_user_id, created_ts,
+                last_accessed_at, quarantine_status)
+               VALUES ($1, 'test.server', 'image/png', 'photo.png', $2, $3, $4, $5, $6)",
+        )
+        .bind(media_id)
+        .bind(size)
+        .bind(uploader_user_id)
+        .bind(created_ts)
+        .bind(last_accessed_at)
+        .bind(quarantine_status)
+        .execute(pool)
+        .await
+        .expect("insert media row");
+    }
+
+    async fn status_of(pool: &sqlx::PgPool, media_id: &str) -> Option<String> {
+        sqlx::query_scalar::<_, Option<String>>("SELECT quarantine_status FROM media_metadata WHERE media_id = $1")
+            .bind(media_id)
+            .fetch_one(pool)
+            .await
+            .expect("status read")
+    }
+
+    #[tokio::test]
+    async fn get_all_media_paginates_newest_first_with_tie_break_and_cursor() {
+        let (_iso, pool) = test_pool().await;
+        let storage = AdminMediaStorage::new(&pool);
+        let s = uuid::Uuid::new_v4().simple().to_string();
+        // (created_ts, media_id)：300 > 200(两个，按 media_id DESC 决胜) > 100
+        insert_media_row(&pool, &format!("m_a_{s}"), "@page:test", 1, 300, None, None).await;
+        insert_media_row(&pool, &format!("m_c_{s}"), "@page:test", 1, 200, None, None).await;
+        insert_media_row(&pool, &format!("m_b_{s}"), "@page:test", 1, 200, None, None).await;
+        insert_media_row(&pool, &format!("m_d_{s}"), "@page:test", 1, 100, None, None).await;
+
+        let page1 = storage.get_all_media(2, None).await.expect("get_all_media");
+        let ids1: Vec<&str> = page1.media.iter().map(|m| m.media_id.as_str()).collect();
+        assert_eq!(ids1, vec![format!("m_a_{s}"), format!("m_c_{s}")], "created_ts DESC, media_id DESC");
+        // len == limit ⇒ next_batch 必须是**最后一行**的 (created_ts, media_id)
+        assert_eq!(page1.next_batch.as_deref(), Some(format!("200|m_c_{s}").as_str()));
+
+        let cursor = decode_media_cursor(page1.next_batch.as_deref()).expect("cursor decodes");
+        let page2 = storage.get_all_media(2, Some(cursor)).await.expect("page 2");
+        let ids2: Vec<&str> = page2.media.iter().map(|m| m.media_id.as_str()).collect();
+        assert_eq!(
+            ids2,
+            vec![format!("m_b_{s}"), format!("m_d_{s}")],
+            "游标之后的下一页：同 ts 取 media_id 更小的，然后跨到更早的 ts"
+        );
+        assert_eq!(page2.next_batch.as_deref(), Some(format!("100|m_d_{s}").as_str()));
+
+        // 不足 limit ⇒ next_batch 必须是 None（否则调用方会无限翻页）
+        let all = storage.get_all_media(10, None).await.expect("all");
+        assert_eq!(all.media.len(), 4);
+        assert!(all.next_batch.is_none());
+    }
+
+    #[tokio::test]
+    async fn get_media_info_returns_row_or_none() {
+        let (_iso, pool) = test_pool().await;
+        let storage = AdminMediaStorage::new(&pool);
+        let s = uuid::Uuid::new_v4().simple().to_string();
+        let media_id = format!("m_info_{s}");
+        insert_media_row(&pool, &media_id, "@info:test", 7, 111, Some(222), Some("quarantined")).await;
+
+        let info = storage.get_media_info(&media_id).await.expect("get_media_info").expect("row exists");
+        assert_eq!(info.media_id, media_id);
+        assert_eq!(info.size, 7);
+        assert_eq!(info.created_ts, 111);
+        assert_eq!(info.last_accessed_at, Some(222));
+        assert!(info.quarantined, "quarantine_status='quarantined' ⇒ quarantined=true");
+        assert_eq!(info.uploader_user_id.as_deref(), Some("@info:test"));
+
+        assert!(storage.get_media_info(&format!("m_missing_{s}")).await.expect("missing lookup").is_none());
+    }
+
+    #[tokio::test]
+    async fn delete_media_reports_whether_a_row_was_removed() {
+        let (_iso, pool) = test_pool().await;
+        let storage = AdminMediaStorage::new(&pool);
+        let s = uuid::Uuid::new_v4().simple().to_string();
+        let media_id = format!("m_del_{s}");
+        insert_media_row(&pool, &media_id, "@del:test", 1, 1, None, None).await;
+
+        assert!(storage.delete_media(&media_id).await.expect("first delete"));
+        assert!(!storage.delete_media(&media_id).await.expect("second delete"), "重复删除返回 false");
+        assert!(storage.get_media_info(&media_id).await.expect("lookup").is_none());
+    }
+
+    #[tokio::test]
+    async fn get_media_quota_sums_size_and_counts_rows() {
+        let (_iso, pool) = test_pool().await;
+        let storage = AdminMediaStorage::new(&pool);
+
+        let empty = storage.get_media_quota().await.expect("quota on empty table");
+        assert_eq!((empty.total_size, empty.total_count), (0, 0), "空表上 SUM 必须落成 0 而不是 NULL");
+
+        let s = uuid::Uuid::new_v4().simple().to_string();
+        insert_media_row(&pool, &format!("m_q1_{s}"), "@q:test", 10, 1, None, None).await;
+        insert_media_row(&pool, &format!("m_q2_{s}"), "@q:test", 32, 1, None, None).await;
+
+        let quota = storage.get_media_quota().await.expect("quota");
+        assert_eq!(quota.total_size, 42);
+        assert_eq!(quota.total_count, 2);
+    }
+
+    #[tokio::test]
+    async fn get_user_media_filters_and_orders_and_nulls_absent_columns() {
+        let (_iso, pool) = test_pool().await;
+        let storage = AdminMediaStorage::new(&pool);
+        let s = uuid::Uuid::new_v4().simple().to_string();
+        let mine = format!("@user_media_{s}:test");
+        insert_media_row(&pool, &format!("m_u_old_{s}"), &mine, 1, 100, Some(5), Some("quarantined")).await;
+        insert_media_row(&pool, &format!("m_u_new_{s}"), &mine, 1, 300, Some(5), None).await;
+        insert_media_row(&pool, &format!("m_other_{s}"), "@someone:test", 1, 200, None, None).await;
+
+        let mine_rows = storage.get_user_media(&mine).await.expect("get_user_media");
+        let ids: Vec<&str> = mine_rows.iter().map(|m| m.media_id.as_str()).collect();
+        assert_eq!(ids, vec![format!("m_u_new_{s}"), format!("m_u_old_{s}")], "created_ts DESC 且只含该用户");
+        // 该查询的两列是 `NULL::BIGINT` / `NULL::TEXT` 常量 ⇒ 必须落成 None / false
+        assert!(mine_rows.iter().all(|m| m.last_accessed_at.is_none() && !m.quarantined));
+
+        assert!(storage.get_user_media(&format!("@nobody_{s}:test")).await.expect("nobody").is_empty());
+    }
+
+    #[tokio::test]
+    async fn delete_user_media_removes_only_that_users_rows() {
+        let (_iso, pool) = test_pool().await;
+        let storage = AdminMediaStorage::new(&pool);
+        let s = uuid::Uuid::new_v4().simple().to_string();
+        let mine = format!("@user_del_{s}:test");
+        insert_media_row(&pool, &format!("m_d1_{s}"), &mine, 1, 1, None, None).await;
+        insert_media_row(&pool, &format!("m_d2_{s}"), &mine, 1, 2, None, None).await;
+        insert_media_row(&pool, &format!("m_keep_{s}"), "@keep:test", 1, 3, None, None).await;
+
+        assert_eq!(storage.delete_user_media(&mine).await.expect("delete_user_media"), 2);
+        assert!(storage.get_user_media(&mine).await.expect("after").is_empty());
+        assert!(storage.get_media_info(&format!("m_keep_{s}")).await.expect("other user").is_some());
+
+        // 幂等：没有行时返回 0
+        assert_eq!(storage.delete_user_media(&mine).await.expect("second delete"), 0);
+    }
+
+    #[tokio::test]
+    async fn quarantine_user_media_skips_protected_and_already_quarantined() {
+        let (_iso, pool) = test_pool().await;
+        let storage = AdminMediaStorage::new(&pool);
+        let s = uuid::Uuid::new_v4().simple().to_string();
+        let mine = format!("@user_q_{s}:test");
+        let clean = format!("m_clean_{s}");
+        let protected = format!("m_prot_{s}");
+        let already = format!("m_already_{s}");
+        let other = format!("m_otherq_{s}");
+        insert_media_row(&pool, &clean, &mine, 1, 1, None, None).await;
+        insert_media_row(&pool, &protected, &mine, 1, 1, None, Some("protected")).await;
+        insert_media_row(&pool, &already, &mine, 1, 1, None, Some("quarantined")).await;
+        insert_media_row(&pool, &other, "@someone_else:test", 1, 1, None, None).await;
+
+        let affected = storage.quarantine_user_media(&mine).await.expect("quarantine_user_media");
+        assert_eq!(affected, 1, "只应动那一行 clean（protected 与已隔离都跳过）");
+        assert_eq!(status_of(&pool, &clean).await.as_deref(), Some("quarantined"));
+        assert_eq!(status_of(&pool, &protected).await.as_deref(), Some("protected"));
+        assert_eq!(status_of(&pool, &already).await.as_deref(), Some("quarantined"));
+        assert_eq!(status_of(&pool, &other).await, None, "别人的媒体不受影响");
+    }
+
+    #[tokio::test]
+    async fn delete_media_by_policy_honours_both_dimensions_and_skips_protected() {
+        let (_iso, pool) = test_pool().await;
+        let storage = AdminMediaStorage::new(&pool);
+        let s = uuid::Uuid::new_v4().simple().to_string();
+
+        // 时间维度：ts=100 早于阈值 ⇒ 删；ts=900 不早于阈值且尺寸不大 ⇒ 留
+        let old_small = format!("m_old_{s}");
+        let new_small = format!("m_new_{s}");
+        // 尺寸维度：ts=900 不早但 size=1000 > 500 ⇒ 删
+        let new_big = format!("m_big_{s}");
+        // 受保护：早且不大，但 protected ⇒ 两个维度都不动它
+        let protected = format!("m_prot_{s}");
+        insert_media_row(&pool, &old_small, "@p:test", 1, 100, None, None).await;
+        insert_media_row(&pool, &new_small, "@p:test", 1, 900, None, None).await;
+        insert_media_row(&pool, &new_big, "@p:test", 1000, 900, None, None).await;
+        insert_media_row(&pool, &protected, "@p:test", 1000, 100, None, Some("protected")).await;
+
+        // (before_ts=500, max_size=500)：两个维度是 OR ⇒ 删 old_small（早）+ new_big（大）
+        assert_eq!(storage.delete_media_by_policy(500, 500).await.expect("policy"), 2);
+        assert!(storage.get_media_info(&new_small).await.expect("kept").is_some());
+        assert!(storage.get_media_info(&protected).await.expect("protected kept").is_some());
+        assert!(storage.get_media_info(&old_small).await.expect("deleted").is_none());
+
+        // `0` 表示该维度不设限：只按时间删（此时只剩 new_small 与 protected）
+        assert_eq!(storage.delete_media_by_policy(0, 0).await.expect("no limits"), 1, "0 是'不设限'不是'匹配 0'");
+        assert!(storage.get_media_info(&protected).await.expect("protected kept").is_some());
+    }
+
+    #[tokio::test]
+    async fn purge_media_cache_deletes_never_accessed_or_stale_rows() {
+        let (_iso, pool) = test_pool().await;
+        let storage = AdminMediaStorage::new(&pool);
+        let s = uuid::Uuid::new_v4().simple().to_string();
+        let never = format!("m_never_{s}");
+        let stale = format!("m_stale_{s}");
+        let fresh = format!("m_fresh_{s}");
+        insert_media_row(&pool, &never, "@pc:test", 1, 1, None, None).await;
+        insert_media_row(&pool, &stale, "@pc:test", 1, 1, Some(100), None).await;
+        insert_media_row(&pool, &fresh, "@pc:test", 1, 1, Some(900), None).await;
+
+        assert_eq!(storage.purge_media_cache(500).await.expect("purge"), 2, "NULL 与早于阈值都要删");
+        assert!(storage.get_media_info(&fresh).await.expect("fresh kept").is_some());
+        assert!(storage.get_media_info(&stale).await.expect("stale gone").is_none());
+    }
+
+    #[tokio::test]
+    async fn unprotect_media_only_clears_the_protected_status() {
+        let (_iso, pool) = test_pool().await;
+        let storage = AdminMediaStorage::new(&pool);
+        let s = uuid::Uuid::new_v4().simple().to_string();
+        let protected = format!("m_unprot_{s}");
+        let quarantined = format!("m_unprot_q_{s}");
+        insert_media_row(&pool, &protected, "@up:test", 1, 1, None, Some("protected")).await;
+        insert_media_row(&pool, &quarantined, "@up:test", 1, 1, None, Some("quarantined")).await;
+
+        assert_eq!(storage.unprotect_media(&protected, "@admin:test").await.expect("unprotect"), 1);
+        assert_eq!(status_of(&pool, &protected).await, None, "protected → NULL");
+        // 非 protected（含已隔离）不动、缺失行返回 0
+        assert_eq!(storage.unprotect_media(&quarantined, "@admin:test").await.expect("no-op"), 0);
+        assert_eq!(status_of(&pool, &quarantined).await.as_deref(), Some("quarantined"));
+        assert_eq!(storage.unprotect_media(&format!("m_absent_{s}"), "@admin:test").await.expect("missing"), 0);
+    }
+}

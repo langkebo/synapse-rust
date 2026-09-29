@@ -3009,9 +3009,19 @@
 #   连带把 `scan_mode_reports_a_non_empty_production_surface` 从"目录计数 >= 5"改成
 #   **哨兵文件**判据（战役让 e2ee 合法降到 0 时旧判据会红 —— 同一个"魔数下界"坑）；
 #   R11 自证：临时让 census 跳过 `synapse-test-utils/src` ⇒ 立即红并打印缺失哨兵名；还原后绿。
+# ── 2026-09-29 C60-0（补 `admin_media.rs` 十个 U-5 端点的真基线覆盖；本文件只动测试区上限）──
+#   `admin_media.rs` 有 12 个公开方法，但此前只有 `upsert_media_metadata` / `get_is_hash_quarantined`
+#   / `get_room_media` / `delete_room_media` 有 DB 往返；`get_all_media`（含游标分页）、
+#   `get_media_info`、`delete_media`、`get_media_quota`、`get_user_media`、`delete_user_media`、
+#   `quarantine_user_media`、`delete_media_by_policy`、`purge_media_cache`、`unprotect_media`
+#   **零 storage 级覆盖** ⇒ 新增 10 条用例（分页决胜键 + 游标、双维度策略的 OR 语义与
+#   `0 = 不设限`、protected/quarantined 跳过、空表配额落 0 等）。
+#   新增 2 处测试区动态 SQL（`insert_media_row` + `status_of` 两个夹具/断言 helper）
+#   ⇒ `BASELINE_DYNAMIC_TEST_INFRA` 749 → **751**（本批自身新增，非跨批放宽）。
+#   生产区三个数字不变（137 / 1331 / literal 66·17）；15 处宏化留在 C60。
 BASELINE_QUERY_BUILDER=18
 BASELINE_DYNAMIC_PRODUCTION=137
-BASELINE_DYNAMIC_TEST_INFRA=749
+BASELINE_DYNAMIC_TEST_INFRA=751
 BASELINE_STATIC=1331
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960

@@ -141,8 +141,11 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 ### 0.5 阶段结论
 
-1. 动态 SQL 已从**系统性风险**降为**局部清单**：275 处里 72 处有意保留，待收 **203 处** ——
-   其中 **173 处是纯机械转换**，29 处是 D-14 结构性（`format!` 拼列清单）、1 处是跨函数传参。
+1. 动态 SQL 已从**系统性风险**降为**局部清单**：`dynamic_production` 137 处里 **73 处有意保留**
+   （测试基建 57 + 结构性保留 16 = 分页 `event/pagination.rs` 15 + `monitoring.rs` 的
+   `pg_stat_statements` R7 例外 1），待收 **64 处** —— 其中 **34 处是纯机械转换**，
+   29 处是 D-14 结构性（`format!` 拼列清单）、1 处是跨函数传参。
+   （口径与分项以 §0.1/§0.2 的实测表为唯一来源；本行只是读数摘要，战役推进时随 §8.1 一起更新。）
 2. **收益性质变了**：早期批次每批都在挖"真 schema 下必败"的硬缺陷（① 类 15 条）；
    现在批次以机械收敛为主，并顺手清理一类残留（C31 清 `FromRow` 死代码、C32 消手工 `Row::get`、
    C33 消 `PgRow` 泄漏与 10 处吞错、C34 消 `Row` 解码与死 derive；C40 又挖出 D-72/D-73/D-74：
@@ -154,8 +157,10 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
    D-80（隔离 clone 与模板不同形：约束名被 PG 改名 + matview 索引未搬运）已修复并加了名字集合门禁 —— 隔离库第一次与 `public` 同形。
    D-78（C42 曾判"运行时 DDL 是死代码"）已在 C43 **改判并关闭**：自愈是有意行为（有命名用例），已保留并宏化。D-73（`e2ee_audit_log` 的冗余 `action` 列 + 可空 `operation`）已按 R4 的
    "结构上能保证就收紧 schema"落地：删列 + `operation SET NOT NULL` + 基线指纹同步（见 §8.3）。
-   剩下的**只有计划内的工作**（§8.1 的 203 处可转换残量）与 7 条**结构性例外**（工具/接口边界，
-   不是缺陷）。这不等于战役结束 —— 收尾条件见 §8.4。
+   剩下的**只有计划内的工作**（§8.1 的 64 处可转换残量）与 8 条**结构性例外**（工具/接口边界，
+   不是缺陷）。**登记表于 2026-09-29 再次清空**（D-95 完整性巡检、D-100 `room_state_events`、
+   D-99 e2ee signature 第二份实现、D-103 admin 不可能命中的孤儿清理全部关闭；合计
+   103 条 = 已关闭 95 / 未关闭 0 / 结构性例外 8）。这不等于战役结束 —— 收尾条件见 §8.4。
 5. **环境事实：共享 `synapse_test.public` 会被并发会话改造，别把它当成稳定输入（D-75/D-76/D-77）**：
    它曾被收敛成 **0 表**（实测），于是 `.sqlx` 的 `--full` 抛出 1443 个误导性编译错误。三条修法都已落地
    （冻结删除清单 + 参考稳定性复检 + 大删栏杆；`RESET_PUBLIC` 默认改为非破坏性的 0；`.sqlx` 写入收敛到
@@ -1556,6 +1561,24 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
    测试区 750 → **749**、`.sqlx` 1299 → **1299**（唯一变化是 `save_event_signature` 的 INSERT
    文本 ⇒ 1 删 1 加）、literal 69/18 → **66/17**；恒等式 `137 − 66 − 1 = 70` 成立。
    验证：两档 clippy ⇒ exit 0；`--test unit` ⇒ 1812/1812；`-p synapse-storage --lib -E 'test(/signature/)'` 全绿。
+
+54. ✅ **C60-0（补 `admin_media.rs` 十个 U-5 端点的真基线覆盖）已完成（2026-09-29）** ——
+   `admin_media.rs` 的 12 个公开方法里，此前只有 `upsert_media_metadata` / `get_is_hash_quarantined`
+   / `get_room_media` / `delete_room_media` 有 DB 往返；**十个 U-5 端点实现零 storage 级覆盖**
+   （U-5 是补端点的那一批，测试债一起留了下来）。新增 `admin_read_paths_db_tests` 十条用例：
+   - `get_all_media`：`created_ts DESC, media_id DESC` 的**决胜键** + 游标翻页 + `len == limit`
+     才给 `next_batch`（否则调用方会无限翻页）；游标串 `"<ts>|<media_id>"` 的编码/解码一并钉住。
+   - `get_media_info`（命中/缺失）、`delete_media`（真删/重复删返回 false）、
+     `get_media_quota`（**空表上 `SUM` 必须落成 0 而不是 NULL**、多行求和/计数）。
+   - `get_user_media`（只含该用户 + 排序 + 两个 `NULL::…` 常量列必须落成 `None`/`false`）、
+     `delete_user_media`（只删该用户、幂等返回 0）。
+   - `quarantine_user_media`（`protected` 与已隔离都跳过、别人的媒体不动）、
+     `delete_media_by_policy`（两个维度是 **OR**、`0` 表示"不设限"而不是"匹配 0"、protected 跳过）、
+     `purge_media_cache`（`last_accessed_at IS NULL` 与早于阈值都删、新鲜的留）、
+     `unprotect_media`（只清 `protected`；非 protected/缺失返回 0）。
+   新增 2 处测试区动态 SQL（`insert_media_row` / `status_of`）⇒ `BASELINE_DYNAMIC_TEST_INFRA`
+   749 → **751**；生产区三个数字不变。验证：`-E 'test(/admin_read_paths_db_tests/)'` ⇒ **10/10**
+   （转换前跑过一遍 ⇒ C60 之后是"穿过新宏"的同一批用例）。
    ⚠️ **连带修掉一条"把成果当失败"的门禁**：`sqlx_dynamic_literal_guard_tests::scan_mode_reports_a_non_empty_production_surface`
    原先断言"至少 5 个顶层目录有生产动态站点"，用于抓"扫描面被部分排除"。D-99 让 `synapse-e2ee`
    的该类站点**合法地降到 0**（那 3 处就在被删的 `signature/storage.rs` 里）⇒ 目录数 5 → 4，
