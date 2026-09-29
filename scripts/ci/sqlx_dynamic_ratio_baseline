@@ -2811,10 +2811,30 @@
 #   `dynamic` 总数 919 → **915**、`dynamic_test` 735 不变、`.sqlx` 1263 → **1267**（+4）、
 #   literal 113/31 → **109/31**。恒等式 `180 − 109 − 1 = 70` 仍成立。
 #   验证：`-p synapse-storage --lib --features test-utils -E 'test(/monitoring/)'` ⇒ 1/1。
+# ── 2026-09-28 C54（`event/ephemeral.rs` 4 处宏化，本文件生产区动态归零）─────────────────
+#   侦察即确认无先修项：4 个方法（add/upsert/delete/get_ephemeral_events、
+#   get_ephemeral_events_batch）**都**有真基线 DB 往返覆盖（`event/db_tests.rs` 的
+#   `test_ephemeral_event_crud` / `test_upsert_ephemeral_event_updates_existing` /
+#   `test_get_ephemeral_events_filters_expired` / `test_get_ephemeral_events_batch_{empty_rooms,
+#   multiple_rooms}`，全部经 `isolated_test_pool()`），无零调用者、无吞错（错误原样 `?` 传播），
+#   故本批**无 C54-0**。4 处按形状转换：
+#   · `upsert_ephemeral_event` 的 `INSERT … ON CONFLICT … DO UPDATE` ⇒ `query!`
+#     （无结果列 ⇒ `.execute()`，插入/更新都返回 `()`）；
+#   · `delete_ephemeral_event` 的 DELETE ⇒ `query!`；
+#   · `get_ephemeral_events` 的五列投影 ⇒ `query_as!`（列清单与 `RoomEphemeralEvent`
+#     字段一一对应，R6 ⑤；`content` JSONB NOT NULL ⇒ `serde_json::Value` 非 `Option`）；
+#   · `get_ephemeral_events_batch` 的**六元组投影**（含 `ROW_NUMBER()` 窗口列）⇒ `query!`
+#     （R6 ⑤ 禁止元组）并按字段读重组 `RoomEphemeralEvent`；`room_id = ANY($1)` 的 `&[String]`
+#     按 R5 直接传，`rn <= $3` 的 `limit` 本就是 `i64`（无需 R5 的 `i64::from` 转换）。
+#   实测：`dynamic_production` 180 → **176**（−4）、`static` 1299 → **1303**（+4）、
+#   `dynamic` 总数 915 → **911**、`dynamic_test` 735 不变、`.sqlx` 1267 → **1271**（+4）、
+#   literal 109/31 → **105/30**（该文件退 literal 表）。恒等式 `176 − 105 − 1 = 70` 仍成立。
+#   验证：`-p synapse-storage --lib --features test-utils -E 'test(/ephemeral/)'` ⇒ 5/5
+#   （5 个用例**穿过新宏**跑真 baseline 隔离 schema）。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=180
+BASELINE_DYNAMIC_PRODUCTION=176
 BASELINE_DYNAMIC_TEST_INFRA=735
-BASELINE_STATIC=1299
+BASELINE_STATIC=1303
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 

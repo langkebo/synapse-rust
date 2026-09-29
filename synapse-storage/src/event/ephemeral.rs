@@ -33,8 +33,8 @@ impl EventStorage {
         created_ts: i64,
         expires_at: Option<i64>,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             INSERT INTO room_ephemeral (room_id, event_type, user_id, content, stream_id, created_ts, expires_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (room_id, event_type, user_id) DO UPDATE
@@ -42,15 +42,15 @@ impl EventStorage {
                 stream_id = EXCLUDED.stream_id,
                 created_ts = EXCLUDED.created_ts,
                 expires_at = EXCLUDED.expires_at
-            ",
+            "#,
+            room_id,
+            event_type,
+            user_id,
+            content,
+            stream_id,
+            created_ts,
+            expires_at,
         )
-        .bind(room_id)
-        .bind(event_type)
-        .bind(user_id)
-        .bind(content)
-        .bind(stream_id)
-        .bind(created_ts)
-        .bind(expires_at)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -63,15 +63,15 @@ impl EventStorage {
         event_type: &str,
         user_id: &str,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r"
             DELETE FROM room_ephemeral
             WHERE room_id = $1 AND event_type = $2 AND user_id = $3
             ",
+            room_id,
+            event_type,
+            user_id,
         )
-        .bind(room_id)
-        .bind(event_type)
-        .bind(user_id)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -84,7 +84,8 @@ impl EventStorage {
         now: i64,
         limit: i64,
     ) -> Result<Vec<RoomEphemeralEvent>, sqlx::Error> {
-        sqlx::query_as::<_, RoomEphemeralEvent>(
+        sqlx::query_as!(
+            RoomEphemeralEvent,
             r"
             SELECT event_type, user_id, content, stream_id, created_ts
             FROM room_ephemeral
@@ -93,10 +94,10 @@ impl EventStorage {
             ORDER BY stream_id DESC
             LIMIT $3
             ",
+            room_id,
+            now,
+            limit,
         )
-        .bind(room_id)
-        .bind(now)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await
     }
@@ -114,7 +115,7 @@ impl EventStorage {
             return Ok(result);
         }
 
-        let rows = sqlx::query_as::<_, (String, String, String, serde_json::Value, i64, i64)>(
+        let rows = sqlx::query!(
             r"
             SELECT room_id, event_type, user_id, content, stream_id, created_ts
             FROM (
@@ -136,16 +137,22 @@ impl EventStorage {
             WHERE rn <= $3
             ORDER BY room_id, stream_id DESC
             ",
+            room_ids,
+            now,
+            limit,
         )
-        .bind(room_ids)
-        .bind(now)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
 
-        for (room_id, event_type, user_id, content, stream_id, created_ts) in rows {
-            if let Some(events) = result.get_mut(&room_id) {
-                events.push(RoomEphemeralEvent { event_type, user_id, content, stream_id, created_ts });
+        for row in rows {
+            if let Some(events) = result.get_mut(&row.room_id) {
+                events.push(RoomEphemeralEvent {
+                    event_type: row.event_type,
+                    user_id: row.user_id,
+                    content: row.content,
+                    stream_id: row.stream_id,
+                    created_ts: row.created_ts,
+                });
             }
         }
 
