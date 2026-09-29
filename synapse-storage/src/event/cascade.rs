@@ -25,7 +25,9 @@ impl EventStorage {
     /// reply/reaction chains, and an unstable order there makes the traversal
     /// (and therefore `redacted_count`) non-reproducible.
     pub async fn find_related_events(&self, event_id: &str, limit: i64) -> Result<Vec<String>, sqlx::Error> {
-        let rows: Vec<(String,)> = sqlx::query_as(
+        // 单列投影 ⇒ `query_scalar!`（R6 ⑤：`query_as!` 不能构造元组；`events.event_id`
+        // 是 `TEXT NOT NULL` ⇒ 直接得到 `Vec<String>`，原先的 `map(|(id,)| id)` 随之消失）。
+        let rows = sqlx::query_scalar!(
             r#"
             SELECT event_id FROM events
             WHERE (content->>'m.in_reply_to' IS NOT NULL
@@ -35,13 +37,13 @@ impl EventStorage {
             ORDER BY origin_server_ts ASC, stream_ordering ASC
             LIMIT $2
             "#,
+            event_id,
+            limit,
         )
-        .bind(event_id)
-        .bind(limit)
         .fetch_all(self.pool.as_ref())
         .await?;
 
-        Ok(rows.into_iter().map(|(id,)| id).collect())
+        Ok(rows)
     }
 
     /// MSC3912: Find related events at a single level (no recursion).
