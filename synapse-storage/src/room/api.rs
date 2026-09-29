@@ -191,6 +191,17 @@ pub trait RoomStoreApi: Send + Sync {
     /// See [`count_public_rooms`].
     async fn count_public_rooms(&self) -> Result<i64, sqlx::Error>;
 
+    /// 房间目录搜索（Client-Server API `POST /publicRooms` 的 `filter.generic_search_term`）。
+    ///
+    /// 返回 **`(匹配的公开房间, 匹配总数)`**：总数供响应的 `total_room_count_estimate` 使用，
+    /// 且**必须**与返回集合用同一谓词（实现里由 `RoomStorage::count_public_rooms_matching`
+    /// 保证）—— 两个数字分开取会让它们互相漂移。
+    ///
+    /// ⚠️ 搜索路径**不做游标分页**：谓词 + `ORDER BY name` 与 `get_public_rooms_paginated` 的
+    /// keyset 游标（`created_ts, room_id`）不同构 ⇒ 调用方**不得**用返回集合构造 `since` 游标
+    /// （`next_batch` 必须留空），否则客户端续传会跳进未过滤的列表。
+    async fn search_public_rooms(&self, search_term: &str, limit: i64) -> Result<(Vec<Room>, i64), sqlx::Error>;
+
     /// See [`get_all_rooms_with_members`].
     async fn get_all_rooms_with_members(
         &self,
@@ -465,6 +476,12 @@ impl RoomStoreApi for super::RoomStorage {
 
     async fn count_public_rooms(&self) -> Result<i64, sqlx::Error> {
         self.count_public_rooms().await
+    }
+
+    async fn search_public_rooms(&self, search_term: &str, limit: i64) -> Result<(Vec<Room>, i64), sqlx::Error> {
+        let rooms = self.search_room_directory(search_term, limit).await?;
+        let total = self.count_public_rooms_matching(search_term).await?;
+        Ok((rooms, total))
     }
 
     async fn get_all_rooms_with_members(

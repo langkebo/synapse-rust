@@ -515,6 +515,8 @@ pub(crate) async fn get_public_rooms(
     let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(20).clamp(1, 1000) as i64;
     let cursor = decode_public_rooms_cursor(params.get("since").and_then(|v| v.as_str()));
 
+    // 按 spec，GET 变体的参数只有 `limit` / `since` / `server` —— `filter`（含
+    // `generic_search_term`）是 **POST 变体**（`query_public_rooms`）的字段，故本函数不读它。
     let (rooms, total) = tokio::try_join!(
         async {
             ctx.room_service
@@ -590,33 +592,41 @@ pub(crate) async fn query_public_rooms(
 ) -> Result<Json<Value>, ApiError> {
     let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(20).clamp(1, 1000) as i64;
     let cursor = decode_public_rooms_cursor(body.get("since").and_then(|v| v.as_str()));
-    // ⚠️ **D-108**：Matrix 的 `filter`（尤其是 `generic_search_term` —— "在房间元数据里搜索，
-    // 例如 name / topic / canonical alias"）在 Client-Server API 里由 **POST /publicRooms** 承载
-    // （MSC2197 的 §Motivation 明确写了"the Client-Server API includes the filtering capability in
-    // `/publicRooms`... using the `filter` JSON body parameter in the `POST` method"），而这里
-    // **静默忽略**：既不解析、也不报错 —— 客户端搜索房间目录拿到的是**未过滤的第一页**。
-    //
-    // 唯一的"按名称/主题搜索公开房间"实现 `RoomStorage::search_room_directory`
-    // （`synapse-storage/src/room/models.rs`，C63 已宏化）因此**零调用者**（只有它自己的 storage
-    // 用例）⇒ 这是"规格要求的能力**未接线** + 其实现**悬空**"，**不是**单纯的死代码：直接删掉那个
-    // 方法会把这条能力的唯一实现一起删掉（与 D-78"先判死代码、复核后改判"同类）。
-    //
-    // 裁定（① 按 spec 接线上 `generic_search_term`；② 或判定不做目录搜索、连同实现与用例一并删）
-    // 见 `docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md` §7.1 的 **D-108**；裁定前**保持行为
-    // 不变**（本批只把"静默忽略"改成显式注释 + 登记，属 R13 的登记而非行为改动）。
-    let _filter = body.get("filter");
 
-    let (rooms, total) = tokio::try_join!(
-        async {
-            ctx.room_service
-                .state()
-                .get_public_rooms_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, room_id)| room_id))
-                .await
-        },
-        async { ctx.room_service.state().count_public_rooms().await }
-    )?;
+    // Client-Server API 的 `filter`：**支持 `generic_search_term`** —— "在房间元数据里搜索，
+    // 例如 name / topic / canonical alias"（MSC2197 §Motivation；本仓实现见
+    // `RoomStorage::search_room_directory`）。C67 之前这里是一个 `let _filter = body.get("filter");`
+    // 把整个 filter **静默忽略**掉（D-108）。
+    //
+    // ⚠️ `filter` 的其余字段（`room_types`）以及 `include_all_networks` / `third_party_instance_id`
+    // 目前**仍未支持**（appservice 目录不在本仓范围内；`room_types` 需要可空数组的表示与
+    // `room_summaries.room_type` / `is_space` 的语义决策）—— 见 §7.1 的 **D-109**。
+    // 不要再"静默忽略"新字段：要么接线，要么登记。
+    let filter = body.get("filter");
+    let search_term = filter
+        .and_then(|f| f.get("generic_search_term"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|term| !term.is_empty());
 
-    let next_batch = if rooms.len() as i64 == limit {
+    let (rooms, total) = if let Some(term) = search_term {
+        // 搜索路径：谓词 + `ORDER BY name` 与 keyset 游标（`created_ts, room_id`）**不同构**
+        // ⇒ 本路径**不发** `next_batch`（spec 允许服务端不分页）。用 `created_ts` 造游标会让
+        // 客户端续传跳进**未过滤**的列表里 —— 这是一个只有真库往返才看得见的错。
+        ctx.room_service.state().search_public_rooms(term, limit).await?
+    } else {
+        tokio::try_join!(
+            async {
+                ctx.room_service
+                    .state()
+                    .get_public_rooms_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, room_id)| room_id))
+                    .await
+            },
+            async { ctx.room_service.state().count_public_rooms().await }
+        )?
+    };
+
+    let next_batch = if search_term.is_none() && rooms.len() as i64 == limit {
         rooms.last().map(|room| encode_public_rooms_cursor(room.created_ts, &room.room_id))
     } else {
         None

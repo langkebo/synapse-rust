@@ -163,6 +163,20 @@ impl RoomStateService {
             .map_err(|e| ApiError::internal_with_cause("Failed to count public rooms", e))
     }
 
+    /// 房间目录搜索（`POST /publicRooms` 的 `filter.generic_search_term`）。
+    ///
+    /// See [`search_public_rooms`].
+    pub async fn search_public_rooms(
+        &self,
+        search_term: &str,
+        limit: i64,
+    ) -> ApiResult<(Vec<synapse_storage::Room>, i64)> {
+        self.room_storage
+            .search_public_rooms(search_term, limit)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to search public rooms", e))
+    }
+
     /// See [`get_room_stats_overview`].
     pub async fn get_room_stats_overview(&self) -> ApiResult<serde_json::Value> {
         self.room_storage

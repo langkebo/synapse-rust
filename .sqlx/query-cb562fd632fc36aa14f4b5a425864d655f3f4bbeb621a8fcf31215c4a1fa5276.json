@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias,\n                   r.join_rules AS join_rule, r.creator AS creator_user_id,\n                   r.room_version, r.is_public, rs.member_count as member_count,\n                   rs.is_encrypted AS \"is_encrypted?\", r.history_visibility, r.created_ts\n            FROM rooms r\n            LEFT JOIN room_summaries rs ON rs.room_id = r.room_id\n            WHERE r.is_public = TRUE\n              AND (LOWER(r.name) LIKE $1 OR LOWER(r.topic) LIKE $1)\n            ORDER BY r.name\n            LIMIT $2\n            ",
+  "query": "\n            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias,\n                   r.join_rules AS join_rule, r.creator AS creator_user_id,\n                   r.room_version, r.is_public, rs.member_count as member_count,\n                   rs.is_encrypted AS \"is_encrypted?\", r.history_visibility, r.created_ts\n            FROM rooms r\n            LEFT JOIN room_summaries rs ON rs.room_id = r.room_id\n            WHERE r.is_public = TRUE\n              AND (LOWER(r.name) LIKE $1\n                   OR LOWER(r.topic) LIKE $1\n                   OR LOWER(r.canonical_alias) LIKE $1)\n            ORDER BY r.name\n            LIMIT $2\n            ",
   "describe": {
     "columns": [
       {
@@ -91,5 +91,5 @@
       false
     ]
   },
-  "hash": "6afe77dad27911a26f2cac923a520d689fc710a35d2d7b948f631f22754001c9"
+  "hash": "cb562fd632fc36aa14f4b5a425864d655f3f4bbeb621a8fcf31215c4a1fa5276"
 }
