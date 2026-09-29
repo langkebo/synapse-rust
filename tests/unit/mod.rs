@@ -48,6 +48,7 @@ mod migration_search_path_tests;
 mod mod_guard_tests;
 mod module_api_tests;
 mod msc4108_rendezvous_route_tests;
+mod msc_semantics_guard_tests;
 mod msc_tests;
 mod placeholder_scan_tests;
 mod push_api_tests;
