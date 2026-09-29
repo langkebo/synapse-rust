@@ -31,8 +31,6 @@ pub struct RoomEvent {
     pub not_before: i64,
     /// `status` field.
     pub status: Option<String>,
-    /// `reference_image` field.
-    pub reference_image: Option<String>,
     /// `origin` field.
     pub origin: String,
     /// `stream_ordering` field.

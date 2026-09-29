@@ -186,9 +186,15 @@ v11 baseline 曾包含 `openclaw_connections` / `ai_conversations` / `ai_connect
 >    且是**全文件唯一没有 `IF NOT EXISTS` 守卫**的约束块 —— 重复执行必然报
 >    `constraint ... already exists`。二者都应在 v12 重构时改为按实际 schema 判定。
 
-> 审计补充（2026-09-04）：v11 baseline 同样存在 `events.reference_image` 字段
+> 审计补充（2026-09-04）：v11 baseline 同样存在 `events.reference_image` 死字段
 > （v11 第 343 行），仅在 `test_mocks/event.rs` 中作为 fixture 写入，业务代码无任何
-> 读/写访问，属于死字段。
+> 读/写访问。
+>
+> **已于 2026-09-30 清除**：从 v12 baseline 的 `events` 建表语句删除该列，并连带删除
+> `RoomEvent.reference_image` 字段、`create_test_event` 的 fixture 赋值，以及
+> `synapse-services/src/test_utils.rs` 中的 `ALTER TABLE events ADD COLUMN ... reference_image`
+> —— 顺带修复了 `synapse-services` 与 `synapse-test-utils` 两份 `ensure_test_schema_contract`
+> 的契约漂移（后者本就没有该行）。
 >
 > `idx_rooms_name_trgm` / `idx_rooms_canonical_alias_trgm` 等 5 条索引在 v11 中
 > 各重复定义两次（后者由 append-only 生成策略导致），**已于 2026-09-16 去重时清除**，

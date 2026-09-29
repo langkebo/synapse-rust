@@ -143,7 +143,6 @@ mod tests {
             processed_ts: 0,
             not_before: 0,
             status: None,
-            reference_image: None,
             origin: "example.com".to_string(),
             stream_ordering: Some(1),
         }

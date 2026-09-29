@@ -49,9 +49,11 @@ pub use writer::EventWriter;
 /// - `depth` / `origin_server_ts` / `not_before` default to 0
 /// - `origin` normalizes empty/`undefined` strings to `'self'`
 ///
-/// `reference_image` removed in v11 cleanup (migration
-/// `20260904040000_schema_cleanup_dedup_and_dead_code.sql`) since no INSERT
-/// ever populated it. See `.scratch/db-schema-audit-2026-09-04.md` §4.3.
+/// `reference_image` is deliberately absent: no INSERT ever populated it, so it
+/// was dropped from the v12 baseline (`00000000_unified_schema_v12.sql`) and the
+/// matching `RoomEvent` field removed. Keeping it in `RoomEvent` while omitting
+/// it here would make every `query_as::<_, RoomEvent>` fail at runtime with
+/// `ColumnNotFound`.
 ///
 /// Ref: TDD落地执行清单 §8.2 ARC-1..5 (Problem #2 SQL Column Boilerplate)
 ///

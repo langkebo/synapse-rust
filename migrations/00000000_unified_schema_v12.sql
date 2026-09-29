@@ -346,7 +346,6 @@ CREATE TABLE IF NOT EXISTS events (
     processed_at BIGINT,
     not_before BIGINT DEFAULT 0,
     status TEXT,
-    reference_image TEXT,
     origin TEXT,
     user_id TEXT,
     redacts TEXT,
