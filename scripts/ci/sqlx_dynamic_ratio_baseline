@@ -2745,9 +2745,21 @@
 #   实测：`dynamic_production` 197 → **191**（−6）、`static` 1282 → **1288**（+6）、
 #   `dynamic` 总数 929 → **923**、`dynamic_test` 732 不变、`.sqlx` 1250 → **1256**（+6）、
 #   literal 126/33 → **120/32**（该文件退表）。恒等式 `191 − 120 − 1 = 70` 仍成立。
+# ── 2026-09-28 C52-0（补覆盖 ⇒ 测试区 732 → 733）──────────────────────────────────
+#   `synapse-storage/src/media/quarantine_stream.rs` 此前只有一个"能构造结构体"的纯单测，
+#   6 个方法**零 DB 覆盖**；而 `quarantined_media_changes` 六列全 NOT NULL、
+#   `media_metadata.quarantine_status` 可空 —— 正是宏转换最容易搞错可空性的形状 ⇒ 新增一条
+#   真基线生命周期用例：record（stream_id 严格递增）→ get_quarantined_media_changes
+#   （`> since` / 升序 / LIMIT）→ get_changes_by_media（按 media_id + since）→
+#   get_current_stream_id（空表 0 / 插入后取 MAX）→ media_metadata 侧
+#   （`quarantine_status` 的 NULL / 'quarantined' / 'clean' / 缺行四种语义、
+#   set_media_quarantine_status 命中/幂等/缺行）。
+#   测试区 +1 站点来自 `media_metadata` 的夹具 INSERT（`#[cfg(test)]` 内宏不进
+#   `cargo sqlx prepare` ⇒ R9/D-13，无静态等价物）；生产区不变（191）。
+#   验证：`-p synapse-storage --lib --features test-utils -E 'test(/quarantine_stream/)'` ⇒ 2/2。
 BASELINE_QUERY_BUILDER=18
 BASELINE_DYNAMIC_PRODUCTION=191
-BASELINE_DYNAMIC_TEST_INFRA=732
+BASELINE_DYNAMIC_TEST_INFRA=733
 BASELINE_STATIC=1288
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960

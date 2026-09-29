@@ -50,7 +50,8 @@
 > （`.sqlx` 1239 → 1243，literal 退到 133/34，该文件生产区动态归零）；C50（门控批，7 处宏化）
 > 收到 **197 / 1282**（`.sqlx` 1243 → 1250，literal 退到 126/33，该文件生产区动态归零）；
 > C51（`event/search.rs` 6 处，单批）收到 **191 / 1288**（`.sqlx` 1250 → 1256，literal 退到
-> 120/32，该文件生产区动态归零）。
+> 120/32，该文件生产区动态归零）；C52-0（补真基线生命周期覆盖，生产区不变）收到
+> **191 / 1288**（`.sqlx` 不变 1256，literal 不变 120/32，测试区 732 → 733）。
 
 ### 0.2 残量结构（"还剩多少活"的准确说法）
 
@@ -232,7 +233,7 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 | 文件 | 处数 | 门控 | 备注 |
 |---|---|---|---|
-| `synapse-storage/src/media/quarantine_stream.rs` | 6 | — | 与 `pruning` 同域（保留期流）；⚠️ 需先核覆盖（仅 1 条用例） |
+| `synapse-storage/src/media/quarantine_stream.rs` | 6 | — | C52-0 已补真基线生命周期覆盖（6 个方法此前**零 DB 覆盖**，原用例只构造结构体）⇒ 剩余 6 处由 C52 转换 |
 | `synapse-storage/src/monitoring.rs` | 6 | — | 单表模块（监控采样）；⚠️ 需先补覆盖（无 in-file 测试） |
 | `synapse-storage/src/event/ephemeral.rs` | 4 | — | `event/` 同域 |
 
@@ -1081,6 +1082,20 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
    `dynamic` 总数 929 → **923**、`.sqlx` 1250 → **1256**（+6）、literal 126/33 → **120/32**；
    恒等式 `191 − 120 − 1 = 70` 仍成立。
    验证：`-p synapse-storage --lib --features test-utils -E 'test(/search/)'` ⇒ **31/31**。
+
+37. ✅ **C52-0（补 `quarantine_stream.rs` 真基线覆盖）已完成（2026-09-28）** —— 为 C52 扫清前置：
+   该文件此前只有一个"能构造结构体"的纯单测，6 个方法（`record_media_quarantine_change` /
+   `get_quarantined_media_changes` / `get_changes_by_media` / `set_media_quarantine_status` /
+   `get_media_quarantine_status` / `get_current_stream_id`）**零 DB 覆盖**；而
+   `quarantined_media_changes` 六列全 `NOT NULL`、`media_metadata.quarantine_status` 可空
+   —— 正是宏转换最容易搞错可空性的形状。
+   新增一条真基线生命周期用例（`isolated_test_pool()`，R9）覆盖：record 的 stream_id 严格递增、
+   `> since` / 升序 / LIMIT、按 media_id 过滤、空表 `get_current_stream_id` = 0 与插入后取 MAX、
+   以及 `media_metadata` 侧的四种语义（`NULL` / `'quarantined'` / `'clean'` / 缺行）与
+   `set_media_quarantine_status` 的命中、幂等重复、缺行返回 false。
+   代价：测试区 +1 站点（`media_metadata` 的夹具 INSERT；`#[cfg(test)]` 内宏不进
+   `cargo sqlx prepare` ⇒ R9/D-13，无静态等价物）；生产区不变。
+   验证：`-p synapse-storage --lib --features test-utils -E 'test(/quarantine_stream/)'` ⇒ **2/2**。
 
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 

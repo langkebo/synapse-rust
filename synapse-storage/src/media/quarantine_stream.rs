@@ -270,3 +270,94 @@ mod tests {
         };
     }
 }
+
+/// `QuarantinedMediaChangeStorage` 的**真 baseline** 往返覆盖（C52-0）。
+///
+/// 本文件此前只有一个"能构造结构体"的纯单测，6 个方法**零 DB 覆盖**；而
+/// `quarantined_media_changes` 的六列全是 NOT NULL、`media_metadata.quarantine_status` 可空
+/// —— 正是宏转换最容易搞错可空性的形状。所有用例跑在 `isolated_test_pool()` 的 per-test
+/// schema 上（R9），不碰共享 `public`。
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
+    }
+
+    /// `media_metadata` 的必填列（`file_name` / `uploader_user_id` / `quarantine_status` 等可空）。
+    async fn insert_media(pool: &PgPool, media_id: &str, server_name: &str, quarantine_status: Option<&str>) {
+        sqlx::query(
+            "INSERT INTO media_metadata (media_id, server_name, content_type, size, created_ts, quarantine_status) \
+             VALUES ($1, $2, 'image/png', 123, 1000, $3)",
+        )
+        .bind(media_id)
+        .bind(server_name)
+        .bind(quarantine_status)
+        .execute(pool)
+        .await
+        .expect("insert media_metadata");
+    }
+
+    #[tokio::test]
+    async fn quarantine_stream_lifecycle_round_trip_on_the_migration_template() {
+        let (isolated, pool) = test_pool().await;
+        let storage = QuarantinedMediaChangeStorage::new(&pool);
+        let server = "media.example.com";
+
+        // 空表 ⇒ `get_current_stream_id` 为 0（MAX 无行 ⇒ NULL ⇒ unwrap_or(0)）。
+        assert_eq!(storage.get_current_stream_id().await.unwrap(), 0);
+        assert!(storage.get_quarantined_media_changes(0, 10).await.unwrap().is_empty());
+
+        // record：返回的 stream_id 必须严格递增（BIGSERIAL）。
+        let first =
+            storage.record_media_quarantine_change("m1", server, "quarantine", "@admin:test", 1000).await.unwrap();
+        let second =
+            storage.record_media_quarantine_change("m1", server, "unquarantine", "@admin:test", 2000).await.unwrap();
+        let third =
+            storage.record_media_quarantine_change("m2", server, "quarantine", "@admin:test", 3000).await.unwrap();
+        assert!(first < second && second < third, "stream_id 必须严格递增: {first} {second} {third}");
+
+        // get_quarantined_media_changes：`> since`、升序、LIMIT 生效。
+        let all = storage.get_quarantined_media_changes(0, 10).await.unwrap();
+        assert_eq!(all.iter().map(|c| c.stream_id).collect::<Vec<_>>(), vec![first, second, third]);
+        assert_eq!(all[0].media_id, "m1");
+        assert_eq!(all[0].change_type, "quarantine");
+        assert_eq!(all[0].changed_by, "@admin:test");
+        assert_eq!(all[0].created_ts, 1000);
+        let after_first = storage.get_quarantined_media_changes(first, 10).await.unwrap();
+        assert_eq!(after_first.iter().map(|c| c.stream_id).collect::<Vec<_>>(), vec![second, third]);
+        assert_eq!(storage.get_quarantined_media_changes(0, 1).await.unwrap().len(), 1);
+
+        // get_changes_by_media：按 media_id 过滤，且仍受 since / LIMIT 约束。
+        let m1 = storage.get_changes_by_media("m1", 0, 10).await.unwrap();
+        assert_eq!(m1.iter().map(|c| c.stream_id).collect::<Vec<_>>(), vec![first, second]);
+        assert_eq!(storage.get_changes_by_media("m1", first, 10).await.unwrap().len(), 1);
+        assert!(storage.get_changes_by_media("unknown", 0, 10).await.unwrap().is_empty());
+
+        // get_current_stream_id ⇒ 当前最大 stream_id。
+        assert_eq!(storage.get_current_stream_id().await.unwrap(), third);
+
+        // media_metadata 侧：可空列的两种状态 + 不存在行的语义。
+        insert_media(&pool, "m1", server, None).await;
+        insert_media(&pool, "m2", server, Some("quarantined")).await;
+        assert!(!storage.get_media_quarantine_status("m1", server).await.unwrap(), "NULL ⇒ false");
+        assert!(storage.get_media_quarantine_status("m2", server).await.unwrap(), "'quarantined' ⇒ true");
+        assert!(
+            !storage.get_media_quarantine_status("missing", server).await.unwrap(),
+            "缺行 ⇒ false（调用方自己 404）"
+        );
+
+        // set_media_quarantine_status：命中 ⇒ true（且再次调用仍 true，更新是幂等的），缺行 ⇒ false。
+        assert!(storage.set_media_quarantine_status("m1", server, "quarantined").await.unwrap());
+        assert!(storage.get_media_quarantine_status("m1", server).await.unwrap());
+        assert!(storage.set_media_quarantine_status("m1", server, "quarantined").await.unwrap());
+        assert!(storage.set_media_quarantine_status("m1", server, "clean").await.unwrap());
+        assert!(!storage.get_media_quarantine_status("m1", server).await.unwrap(), "'clean' ⇒ false");
+        assert!(!storage.set_media_quarantine_status("missing", server, "quarantined").await.unwrap());
+
+        drop(isolated);
+    }
+}
