@@ -901,9 +901,10 @@ impl SynapseServer {
 
         ::tracing::info!("Performing system warmup...");
 
-        sqlx::query_scalar::<_, i32>("SELECT 1 AS health_check").fetch_one(&**pool).await?;
+        // R4 ①：字面量 `1` 与 `COUNT(*)` 都无关系来源 ⇒ 断言（计数恒非空）。
+        sqlx::query_scalar!(r#"SELECT 1 AS "health_check!""#).fetch_one(&**pool).await?;
 
-        let _ = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM users").fetch_one(&**pool).await?;
+        let _ = sqlx::query_scalar!(r#"SELECT COUNT(*)::BIGINT AS "count!" FROM users"#).fetch_one(&**pool).await?;
 
         #[cfg(feature = "saml-sso")]
         {

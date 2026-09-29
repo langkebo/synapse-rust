@@ -1264,7 +1264,16 @@ impl UserStorage {
             return Ok(cached);
         }
 
-        let rows = sqlx::query_as::<_, UserDirectorySearchResult>(
+        // R4 ①：`match_score`（算术表达式）与 `match_type`（`CASE`）都没有关系来源 ⇒ sqlx 推成
+        // 可空，而结构体字段是 `i32` / `String` ⇒ 断言（谁保证非空：两列都是**恒有值**的表达式，
+        // 不存在 NULL 分支）。
+        // ⚠️ **D-20 实测**：LEFT JOIN 外侧的 `p.presence` 在表里是 `NOT NULL`，PG 会把 NOT NULL
+        // **透传**给连接结果 ⇒ 宏按非空推断生成 `String`，而没有 presence 行时运行期是 NULL ⇒
+        // `ColumnDecode { index: 5, UnexpectedNullError }`（**编译器不报**，只有真库往返才暴露）
+        // ⇒ 必须写 `AS "presence?"` / `AS "last_active_ts?"` 覆盖回可空。
+        // `COALESCE(u.displayname, u.username) AS displayname` 天然可空，与 `Option` 字段一致。
+        let rows = sqlx::query_as!(
+            UserDirectorySearchResult,
             r#"
             WITH candidate_matches AS (
                 SELECT
@@ -1396,8 +1405,8 @@ impl UserStorage {
                 COALESCE(u.displayname, u.username) AS displayname,
                 u.avatar_url,
                 u.created_ts,
-                p.presence,
-                p.last_active_ts,
+                p.presence AS "presence?",
+                p.last_active_ts AS "last_active_ts?",
                 (
                     cm.rank_score
                     + CASE
@@ -1405,13 +1414,13 @@ impl UserStorage {
                         WHEN COALESCE(p.presence, 'offline') = 'unavailable' THEN 20
                         ELSE 0
                     END
-                )::INTEGER AS "match_score",
+                )::INTEGER AS "match_score!",
                 CASE cm.match_category
                     WHEN 0 THEN 'exact'
                     WHEN 1 THEN 'prefix'
                     WHEN 2 THEN 'contains'
                     ELSE 'fuzzy'
-                END AS "match_type"
+                END AS "match_type!"
             FROM candidate_matches cm
             JOIN users u ON u.user_id = cm.user_id
             LEFT JOIN presence p ON p.user_id = u.user_id
@@ -1422,13 +1431,13 @@ impl UserStorage {
                 u.username ASC
             LIMIT $6
             "#,
+            &exact_pattern,
+            &prefix_pattern,
+            &contains_pattern,
+            exact_only,
+            normalized,
+            safe_limit,
         )
-        .bind(&exact_pattern)
-        .bind(&prefix_pattern)
-        .bind(&contains_pattern)
-        .bind(exact_only)
-        .bind(normalized)
-        .bind(safe_limit)
         .fetch_all(&*self.pool)
         .await?;
 

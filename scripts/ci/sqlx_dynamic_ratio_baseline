@@ -3077,10 +3077,37 @@
 #   实测：`dynamic_production` 116 → **112**（−4：3 literal + 1 param）、`static` 1352 不变、
 #   测试区 752 不变、`.sqlx` 不变（删的都是动态站点）、literal 45/14 → **42/13**、`param` 1 → **0**。
 #   恒等式 `112 − 42 − 0 = 70` 成立。
+# ── 2026-09-29 C63-0（先修 D-107 吞错 + 补 search_directory_users 覆盖；静态 +1）────────────
+#   **D-107（吞错，已修）**：`src/server/database.rs` 的 `SELECT version()` 后面挂着
+#   `.ok().flatten()` —— 查询失败时**静默**降级成 "unknown"，日志里分不清"取版本失败"与
+#   "库没报版本"（D-33/D-94 同型）。这里**不**把错误上抛（pool 已建好，一条元数据查询失败
+#   不该让整个启动失败），改成显式 `match` + `warn!`：行为不变，但错误不再消失。该语句随之
+#   宏化（`query_scalar!` + `AS "version!"`，R4 ①）⇒ 本批静态 +1、生产动态 −1。
+#   **覆盖**：`UserStorage::search_directory_users` 此前**零 storage 级用例**（只有路由级
+#   `api_profile_tests` 打它）⇒ 新增一条真基线用例，钉住"精确 > 前缀 > 包含"的打分序、
+#   `exact_only` 过滤、`limit`、以及 `escape_like_pattern` 对 `_` 的**字面量**语义
+#   （与 D-98 同类的 LIKE 元字符陷阱；用"只差一个字符"的诱饵用户名做判别）。
+#   实测：`dynamic_production` 112 → **111**、`static` 1352 → **1353**、测试区 752 不变、
+#   `.sqlx` 1319 → 1320、literal 42/13 → **41/12**（`src/server/database.rs` 归零退表）。
+# ── 2026-09-29 C63（`room/models.rs` 1 处 + `user/storage.rs` 1 处 + `health.rs` 1 处 +
+#    `src/server/mod.rs` 2 处宏化）────────────────────────────────────────────────────────
+#   · `room/models.rs::search_room_directory` ⇒ `query_as!(RoomRecord, …)`：R6 要求别名写成**真实
+#     字段名**（`r.join_rules AS join_rule`、`r.creator AS creator_user_id`；`query_as!` 不认
+#     `#[sqlx(rename)]`），LEFT JOIN 的 `member_count`/`is_encrypted` 与 `Option` 字段一致。
+#   · `user/storage.rs::search_directory_users` ⇒ `query_as!(UserDirectorySearchResult, …)`：
+#     `match_score`（算术表达式）与 `match_type`（`CASE`）按 R4 ① 断言；其余列（`COALESCE(...)`
+#     的 displayname、LEFT JOIN 的 presence/last_active_ts）与 `Option` 字段一致。
+#   · `synapse-common/src/health.rs` 的健康检查 ⇒ `query_scalar!`（R6 ①：单列语句的 `query!` 没有
+#     `.execute()`，而这里只关心能否查通）+ 字面量列的 R4 ① 断言。
+#   · `src/server/mod.rs::warmup` 的两处探针（`SELECT 1`、`COUNT(*) FROM users`）⇒ `query_scalar!`
+#     + R4 ① 断言；这两处由集成套件每次启动服务端时真实执行（真 baseline 证据）。
+#   实测：`dynamic_production` 111 → **106**（−5）、`static` 1353 → **1358**（+5）、
+#   测试区 752 不变、`.sqlx` 1320 → **1324**（+5）、literal 41/12 → **36/8**。
+#   恒等式 `106 − 36 − 0 = 70` 成立。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=112
+BASELINE_DYNAMIC_PRODUCTION=106
 BASELINE_DYNAMIC_TEST_INFRA=752
-BASELINE_STATIC=1352
+BASELINE_STATIC=1358
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 

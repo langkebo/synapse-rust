@@ -968,3 +968,68 @@ async fn test_create_user_tx_in_transaction() {
 
     let _ = storage.delete_user(&user_id).await;
 }
+
+// =============================================================================
+// C63-0: `search_directory_users` 的真基线往返（此前只有路由/服务层间接覆盖）
+// =============================================================================
+
+/// `UserStorage::search_directory_users` 是目录搜索的唯一实现：三段 `UNION ALL`
+/// （username / displayname / email / user_id 四个投影面）+ `rank_score` 打分 + `pg_trgm`
+/// 的 `%` 相似度 + `ILIKE … ESCAPE '\'` 的**元字符转义**。此前**零 storage 级用例**
+/// （只有 `tests/integration/api_profile_tests.rs` 的路由级覆盖），转换前按 R8 补齐。
+///
+/// 本用例钉住四处语义：① 精确匹配排在前缀/包含之前（`match_type = 'exact'` 且 `match_score`
+/// 最高）；② `exact_only=true` 只留精确匹配；③ `limit` 生效；④ **`_` 是 LIKE 元字符**，
+/// `escape_like_pattern` 必须让它只按字面量匹配（与 D-98 的 unread highlight 同一类陷阱）。
+#[tokio::test]
+async fn test_search_directory_users_ranks_exactly_and_escapes_like_metacharacters() {
+    let (_iso, pool) = test_pool().await;
+    let cache = test_cache();
+    let storage = UserStorage::new(&pool, cache);
+
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    // 用户名里带 `_`：既是"精确/前缀/包含"的排序素材，也是 LIKE 元字符转义的探针。
+    let exact = format!("dir_{suffix}");
+    let prefix = format!("dir_{suffix}_extra");
+    let contains = format!("xdir_{suffix}x");
+    let decoy = format!("dirQ{suffix}"); // 与 exact 只差 `_` → `Q`：转义正确时**不该**被精确命中
+    for name in [&exact, &prefix, &contains, &decoy] {
+        let user_id = format!("@{name}:example.com");
+        let _ = storage.delete_user(&user_id).await;
+        storage.create_user(&user_id, name, None, false).await.expect("create_user");
+    }
+
+    // ④ `_` 按字面量匹配：exact 必须命中，decoy（把 `_` 换成 `Q`）不得被"精确"命中
+    let rows = storage.search_directory_users(&exact, 10, false).await.expect("search_directory_users");
+    assert_eq!(rows.first().map(|r| r.username.as_str()), Some(exact.as_str()), "精确匹配必须排第一");
+    assert_eq!(rows[0].match_type, "exact");
+    assert!(rows.iter().any(|r| r.username == prefix), "前缀命中也应出现在非 exact_only 结果里");
+    let decoy_row = rows.iter().find(|r| r.username == decoy);
+    assert!(
+        decoy_row.is_none_or(|r| r.match_type != "exact"),
+        "`_` 必须按字面量匹配（escape_like_pattern）：decoy 不得被当成精确匹配"
+    );
+
+    // ② exact_only 只留精确匹配
+    let only_exact = storage.search_directory_users(&exact, 10, true).await.expect("exact_only search");
+    assert_eq!(only_exact.len(), 1, "exact_only=true 只应返回精确匹配: {only_exact:?}");
+    assert_eq!(only_exact[0].username, exact);
+    assert_eq!(only_exact[0].match_type, "exact");
+
+    // ③ limit 生效
+    let limited = storage.search_directory_users(&exact, 1, false).await.expect("limited search");
+    assert_eq!(limited.len(), 1);
+
+    // ① 打分单调：精确 > 前缀（同为 `dir_…` 家族，避免别的测试数据干扰）
+    let family: Vec<_> =
+        rows.iter().filter(|r| r.username.starts_with("dir_") || r.username.starts_with("xdir_")).collect();
+    if let (Some(first), Some(rest)) = (family.first(), family.get(1)) {
+        assert!(first.match_score >= rest.match_score, "结果必须按 match_score 降序: {family:?}");
+    }
+
+    // 清理
+    for name in [&exact, &prefix, &contains, &decoy] {
+        let user_id = format!("@{name}:example.com");
+        let _ = storage.delete_user(&user_id).await;
+    }
+}

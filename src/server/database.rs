@@ -67,7 +67,19 @@ pub async fn build_database_pool(config: &Config) -> Result<PgPool, Box<dyn std:
     let pool = pool_options.connect(&database_url).await?;
 
     // 记录 PG 服务端版本, 便于排查兼容性问题 (如 PG14 以下不支持某些 SQL 语法)
-    let pg_version: Option<String> = sqlx::query_scalar("SELECT version()").fetch_optional(&pool).await.ok().flatten();
+    //
+    // D-107（C63-0 先修）：原先这里是 `.ok().flatten()` —— `SELECT version()` 失败时**静默**降级成
+    // "unknown"，日志里看不出"取版本失败"和"库没报版本"的区别（D-33/D-94 同型吞错）。
+    // 这里**不**把错误往上抛：pool 已经建好，因为一条元数据查询失败就让整个启动失败是过度反应；
+    // 但必须**记下来** —— 改成显式 match + `warn!`，行为（继续启动、日志显示 unknown）不变。
+    let pg_version: Option<String> =
+        match sqlx::query_scalar!(r#"SELECT version() AS "version!""#).fetch_optional(&pool).await {
+            Ok(version) => version,
+            Err(error) => {
+                ::tracing::warn!(%error, "查询 PG 服务端版本失败，启动继续（日志里记为 unknown）");
+                None
+            }
+        };
     ::tracing::info!("[启动阶段 1/4] 数据库连接建立: {}", pg_version.as_deref().unwrap_or("unknown"));
     let pool = Arc::new(pool);
 

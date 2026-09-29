@@ -332,21 +332,27 @@ impl RoomStorage {
     /// it did not previously exist on `RoomStorage`.
     pub async fn search_room_directory(&self, search_term: &str, limit: i64) -> Result<Vec<Room>, sqlx::Error> {
         let pattern = format!("%{}%", search_term.to_lowercase());
-        let rows: Vec<RoomRecord> = sqlx::query_as(
-            r"
-            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules, r.creator,
+        // R6：`query_as!` **不认** `#[sqlx(rename = "join_rules")]` / `#[sqlx(rename = "creator")]`
+        // ⇒ 别名必须写成**真实字段名**（`join_rule` / `creator_user_id`；同文件
+        // `room/admin.rs::get_public_rooms_with_aliases` 已有同样的投影先例）。
+        // `member_count` / `is_encrypted` 来自 LEFT JOIN ⇒ 可空，与 `RoomRecord` 的 `Option` 字段一致。
+        let rows: Vec<RoomRecord> = sqlx::query_as!(
+            RoomRecord,
+            r#"
+            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias,
+                   r.join_rules AS join_rule, r.creator AS creator_user_id,
                    r.room_version, r.is_public, rs.member_count as member_count,
-                   rs.is_encrypted as is_encrypted, r.history_visibility, r.created_ts
+                   rs.is_encrypted AS "is_encrypted?", r.history_visibility, r.created_ts
             FROM rooms r
             LEFT JOIN room_summaries rs ON rs.room_id = r.room_id
             WHERE r.is_public = TRUE
               AND (LOWER(r.name) LIKE $1 OR LOWER(r.topic) LIKE $1)
             ORDER BY r.name
             LIMIT $2
-            ",
+            "#,
+            &pattern,
+            limit,
         )
-        .bind(&pattern)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
 

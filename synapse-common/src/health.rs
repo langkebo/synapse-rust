@@ -75,7 +75,9 @@ impl HealthCheck for DatabaseHealthCheck {
     async fn check(&self) -> CheckResult {
         let start = std::time::Instant::now();
 
-        match sqlx::query("SELECT 1").fetch_one(&self.pool).await {
+        // R4 ①：字面量 `1` 无关系来源 ⇒ 断言；R6 ①：单列语句的 `query!` 没有 `.execute()`，
+        // 而这里只关心"能不能查通" ⇒ `query_scalar!` + `fetch_one`。
+        match sqlx::query_scalar!(r#"SELECT 1 AS "one!""#).fetch_one(&self.pool).await {
             Ok(_) => CheckResult {
                 status: "healthy".to_string(),
                 message: "Database connection successful".to_string(),
