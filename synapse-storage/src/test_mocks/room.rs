@@ -430,6 +430,32 @@ impl crate::room::api::RoomStoreApi for InMemoryRoomStore {
         Ok(rooms.values().filter(|r| r.is_public).count() as i64)
     }
 
+    async fn search_public_rooms(
+        &self,
+        search_term: &str,
+        limit: i64,
+    ) -> Result<(Vec<crate::room::Room>, i64), sqlx::Error> {
+        // 与 SQL 侧同形：`is_public` + name/topic/canonical_alias 的大小写不敏感**包含**匹配；
+        // 总数是**匹配总数**（截断前），与 `RoomStorage` 的实现语义一致。
+        let needle = search_term.to_lowercase();
+        let rooms = self.rooms.read().await;
+        let mut matched: Vec<crate::room::Room> = rooms
+            .values()
+            .filter(|room| room.is_public)
+            .filter(|room| {
+                [room.name.as_deref(), room.topic.as_deref(), room.canonical_alias.as_deref()]
+                    .into_iter()
+                    .flatten()
+                    .any(|field| field.to_lowercase().contains(&needle))
+            })
+            .cloned()
+            .collect();
+        let total = matched.len() as i64;
+        matched.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.room_id.cmp(&b.room_id)));
+        matched.truncate(limit.max(0) as usize);
+        Ok((matched, total))
+    }
+
     async fn get_all_rooms_with_members(
         &self,
         limit: i64,

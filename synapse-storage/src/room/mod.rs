@@ -1665,13 +1665,65 @@ mod db_tests {
         let _ = storage.delete_room(&room_id).await;
     }
 
+    /// `search_room_directory` 此前是**恒真断言**（`assert!(results.len() <= 10)`，且不造任何数据）
+    /// —— 这正是 D-108"能力未接线却无人发现"的原因之一。C67-0 按 C65-0 的先例把它改成真覆盖：
+    /// 三条**公开**房间分别只靠 name / topic / canonical_alias 命中，外加一条 name 也命中的
+    /// **私有**房间作反例（`is_public = FALSE` 必须被排除）。
     #[tokio::test]
-    async fn test_search_room_directory() {
+    async fn test_search_room_directory_matches_name_topic_and_alias() {
         let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
-        let results = storage.search_room_directory("test", 10).await.expect("search_room_directory should succeed");
-        // Search may return 0 results — just verify it doesn't error
-        assert!(results.len() <= 10);
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let term = format!("zzdir{suffix}");
+        let by_name = format!("!dir_name_{suffix}:example.com");
+        let by_topic = format!("!dir_topic_{suffix}:example.com");
+        let by_alias = format!("!dir_alias_{suffix}:example.com");
+        let private = format!("!dir_private_{suffix}:example.com");
+
+        for (room_id, name, topic, alias, is_public) in [
+            (&by_name, Some(format!("{term} alpha")), None, None, true),
+            (&by_topic, None, Some(format!("topic {term}")), None, true),
+            (&by_alias, None, None, Some(format!("#{term}:example.com")), true),
+            (&private, Some(format!("{term} hidden")), None, None, false),
+        ] {
+            sqlx::query(
+                "INSERT INTO rooms (room_id, creator, is_public, room_version, created_ts, name, topic, canonical_alias) \
+                 VALUES ($1, '@dir:example.com', $2, '10', 1700000000000, $3, $4, $5)",
+            )
+            .bind(room_id)
+            .bind(is_public)
+            .bind(name)
+            .bind(topic)
+            .bind(alias)
+            .execute(&*pool)
+            .await
+            .expect("insert fixture room");
+        }
+
+        let mut found: Vec<String> = storage
+            .search_room_directory(&term, 10)
+            .await
+            .expect("search_room_directory should succeed")
+            .into_iter()
+            .map(|room| room.room_id)
+            .collect();
+        found.sort();
+        let mut expected = vec![by_name.clone(), by_topic.clone(), by_alias.clone()];
+        expected.sort();
+        assert_eq!(found, expected, "name / topic / canonical_alias 三个面都要命中，私有房间必须被排除");
+
+        // 计数必须与返回集合**同谓词** —— 否则 `total_room_count_estimate` 会与 chunk 漂移
+        let total = storage.count_public_rooms_matching(&term).await.expect("count_public_rooms_matching");
+        assert_eq!(total, 3, "匹配总数 = 三条公开房间（私有房间不计）");
+
+        // 大小写不敏感（SQL 侧 `LOWER(...)` + pattern 侧 `to_lowercase()`）
+        let upper = storage.search_room_directory(&term.to_uppercase(), 10).await.expect("uppercase search");
+        assert_eq!(upper.len(), 3, "搜索必须大小写不敏感");
+
+        // `limit` 只截断返回集合，不影响匹配总数
+        let limited = storage.search_room_directory(&term, 1).await.expect("limited search");
+        assert_eq!(limited.len(), 1, "limit 必须生效");
+        assert_eq!(storage.count_public_rooms_matching(&term).await.unwrap(), 3, "limit 不得影响总数");
     }
 
     #[tokio::test]

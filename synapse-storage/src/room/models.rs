@@ -179,6 +179,14 @@ pub const DEFAULT_JOIN_RULE: &str = "invite";
 /// Constant `DEFAULT_HISTORY_VISIBILITY`.
 pub const DEFAULT_HISTORY_VISIBILITY: &str = "joined";
 
+/// `filter.generic_search_term` 的匹配形态：`%term%`（大小写不敏感由 SQL 侧的 `LOWER(...)` 保证）。
+///
+/// **只有这一份**：`search_room_directory`（返回集合）与 `count_public_rooms_matching`（总数）
+/// 必须用**同一个**谓词，否则 `total_room_count_estimate` 会与实际 chunk 不一致。
+fn directory_search_pattern(search_term: &str) -> String {
+    format!("%{}%", search_term.to_lowercase())
+}
+
 /// The `Room` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Room {
@@ -326,12 +334,17 @@ pub struct RoomStorage {
 }
 
 impl RoomStorage {
-    /// Search the room directory (public rooms) by name/topic.
+    /// Search the room directory (public rooms) by name / topic / canonical alias.
     ///
-    /// This inherent method was added to support the `RoomRepository` trait;
-    /// it did not previously exist on `RoomStorage`.
+    /// Backs the Client-Server API's `POST /publicRooms` `filter.generic_search_term`
+    /// ("A string to search for in the room metadata, e.g. name, topic, canonical
+    /// alias etc."). Wired into the route in C67 (before that it had **no caller**
+    /// at all — see D-108); the trait-level entry point is
+    /// [`RoomStoreApi::search_public_rooms`](crate::room::api::RoomStoreApi::search_public_rooms),
+    /// which pairs it with the matching count so `total_room_count_estimate` cannot
+    /// drift from the returned chunk.
     pub async fn search_room_directory(&self, search_term: &str, limit: i64) -> Result<Vec<Room>, sqlx::Error> {
-        let pattern = format!("%{}%", search_term.to_lowercase());
+        let pattern = directory_search_pattern(search_term);
         // R6：`query_as!` **不认** `#[sqlx(rename = "join_rules")]` / `#[sqlx(rename = "creator")]`
         // ⇒ 别名必须写成**真实字段名**（`join_rule` / `creator_user_id`；同文件
         // `room/admin.rs::get_public_rooms_with_aliases` 已有同样的投影先例）。
@@ -346,7 +359,9 @@ impl RoomStorage {
             FROM rooms r
             LEFT JOIN room_summaries rs ON rs.room_id = r.room_id
             WHERE r.is_public = TRUE
-              AND (LOWER(r.name) LIKE $1 OR LOWER(r.topic) LIKE $1)
+              AND (LOWER(r.name) LIKE $1
+                   OR LOWER(r.topic) LIKE $1
+                   OR LOWER(r.canonical_alias) LIKE $1)
             ORDER BY r.name
             LIMIT $2
             "#,
@@ -380,5 +395,29 @@ impl RoomStorage {
                 is_flagged: false,
             })
             .collect())
+    }
+
+    /// 匹配 [`Self::search_room_directory`] 谓词的公开房间**总数**。
+    ///
+    /// 供 `POST /publicRooms` 响应的 `total_room_count_estimate` 使用；谓词与
+    /// `search_room_directory` 一字不差（同一个 [`directory_search_pattern`]），
+    /// 否则会出现"返回 1 条、却报 20 个匹配"的漂移。两者由 trait 的
+    /// `search_public_rooms` 一次性配对返回。
+    pub async fn count_public_rooms_matching(&self, search_term: &str) -> Result<i64, sqlx::Error> {
+        let pattern = directory_search_pattern(search_term);
+        let count = sqlx::query_scalar!(
+            r#"
+            SELECT COUNT(*) AS "count!"
+            FROM rooms r
+            WHERE r.is_public = TRUE
+              AND (LOWER(r.name) LIKE $1
+                   OR LOWER(r.topic) LIKE $1
+                   OR LOWER(r.canonical_alias) LIKE $1)
+            "#,
+            pattern,
+        )
+        .fetch_one(&*self.pool)
+        .await?;
+        Ok(count)
     }
 }
