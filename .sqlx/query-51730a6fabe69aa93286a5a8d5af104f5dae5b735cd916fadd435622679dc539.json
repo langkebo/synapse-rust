@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE oidc_user_mapping SET last_authenticated_ts = $1,\n                authentication_count = authentication_count + 1\n            WHERE issuer = $2 AND subject = $3\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "51730a6fabe69aa93286a5a8d5af104f5dae5b735cd916fadd435622679dc539"
+}

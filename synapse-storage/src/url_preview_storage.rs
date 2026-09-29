@@ -42,7 +42,10 @@ impl UrlPreviewStorage {
 
     /// See [`get_cached_preview`].
     pub async fn get_cached_preview(&self, url: &str, now_ts: i64) -> Result<Option<UrlPreviewCache>, sqlx::Error> {
-        sqlx::query_as::<_, UrlPreviewCache>(
+        // 11 列与 `UrlPreviewCache` 的 11 个字段一一对应：`title`/`description`/`og_*` 六列在
+        // schema 里可空 ⇒ 字段 `Option`；`url`/`created_ts`/`expires_at` NOT NULL ⇒ 非 `Option`。
+        sqlx::query_as!(
+            UrlPreviewCache,
             r#"
             SELECT url, title, description, og_title, og_image,
                    og_image_width, og_image_height, og_site_name, og_type,
@@ -50,16 +53,18 @@ impl UrlPreviewStorage {
             FROM url_preview_cache
             WHERE url = $1 AND expires_at > $2
             "#,
+            url,
+            now_ts,
         )
-        .bind(url)
-        .bind(now_ts)
         .fetch_optional(self.pool.as_ref())
         .await
     }
 
     /// See [`save_preview`].
     pub async fn save_preview(&self, preview: &UrlPreviewCache) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        // R5：六列可空 `TEXT` 用 `.as_deref()` 把 `&Option<String>` 变成 `Option<&str>`
+        // （宏的 `ty_match` 拒绝 `&Option<T>`）；两个 `Option<i32>` 是 `Copy`，按值传。
+        sqlx::query!(
             r#"
             INSERT INTO url_preview_cache (
                 url, title, description, og_title, og_image,
@@ -79,18 +84,18 @@ impl UrlPreviewStorage {
                 created_ts = EXCLUDED.created_ts,
                 expires_at = EXCLUDED.expires_at
             "#,
+            preview.url,
+            preview.title.as_deref(),
+            preview.description.as_deref(),
+            preview.og_title.as_deref(),
+            preview.og_image.as_deref(),
+            preview.og_image_width,
+            preview.og_image_height,
+            preview.og_site_name.as_deref(),
+            preview.og_type.as_deref(),
+            preview.created_ts,
+            preview.expires_at,
         )
-        .bind(&preview.url)
-        .bind(&preview.title)
-        .bind(&preview.description)
-        .bind(&preview.og_title)
-        .bind(&preview.og_image)
-        .bind(preview.og_image_width)
-        .bind(preview.og_image_height)
-        .bind(&preview.og_site_name)
-        .bind(&preview.og_type)
-        .bind(preview.created_ts)
-        .bind(preview.expires_at)
         .execute(self.pool.as_ref())
         .await?;
         Ok(())
@@ -98,13 +103,13 @@ impl UrlPreviewStorage {
 
     /// See [`cleanup_expired_previews`].
     pub async fn cleanup_expired_previews(&self, now_ts: i64) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r#"
             DELETE FROM url_preview_cache
             WHERE expires_at <= $1
             "#,
+            now_ts,
         )
-        .bind(now_ts)
         .execute(self.pool.as_ref())
         .await?;
         Ok(result.rows_affected())

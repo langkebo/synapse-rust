@@ -33,23 +33,29 @@ impl OidcUserMappingStorage {
 
     /// See [`get_bound_user_id`].
     pub async fn get_bound_user_id(&self, issuer: &str, subject: &str) -> Result<Option<String>, sqlx::Error> {
-        sqlx::query_scalar("SELECT user_id FROM oidc_user_mapping WHERE issuer = $1 AND subject = $2")
-            .bind(issuer)
-            .bind(subject)
-            .fetch_optional(&*self.pool)
-            .await
+        // `user_id` 是 `TEXT NOT NULL` ⇒ `fetch_optional` 正好给 `Option<String>`
+        // （"没有该映射"由 `fetch_optional` 表达，不需要 R4 断言）。
+        sqlx::query_scalar!(
+            "SELECT user_id FROM oidc_user_mapping WHERE issuer = $1 AND subject = $2",
+            issuer,
+            subject,
+        )
+        .fetch_optional(&*self.pool)
+        .await
     }
 
     /// See [`update_last_authenticated`].
     pub async fn update_last_authenticated(&self, issuer: &str, subject: &str, now_ts: i64) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "UPDATE oidc_user_mapping SET last_authenticated_ts = $1, \
-             authentication_count = authentication_count + 1 \
-             WHERE issuer = $2 AND subject = $3",
+        sqlx::query!(
+            r#"
+            UPDATE oidc_user_mapping SET last_authenticated_ts = $1,
+                authentication_count = authentication_count + 1
+            WHERE issuer = $2 AND subject = $3
+            "#,
+            now_ts,
+            issuer,
+            subject,
         )
-        .bind(now_ts)
-        .bind(issuer)
-        .bind(subject)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -63,15 +69,20 @@ impl OidcUserMappingStorage {
         user_id: &str,
         now_ts: i64,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "INSERT INTO oidc_user_mapping \
-             (issuer, subject, user_id, first_seen_ts, last_authenticated_ts, authentication_count) \
-             VALUES ($1, $2, $3, $4, $4, 1)",
+        // 有意保持**普通 INSERT**（不是 upsert）：`(issuer, subject)` 的唯一约束是并发/重复绑定的
+        // 裁决者，`insert_mapping_duplicate_issuer_subject_errors` 用例把"重复插入必须报错"钉成了
+        // 契约；调用方（OIDC 路由）先 `get_bound_user_id` 再插入。保持该语义不变。
+        sqlx::query!(
+            r#"
+            INSERT INTO oidc_user_mapping
+                (issuer, subject, user_id, first_seen_ts, last_authenticated_ts, authentication_count)
+            VALUES ($1, $2, $3, $4, $4, 1)
+            "#,
+            issuer,
+            subject,
+            user_id,
+            now_ts,
         )
-        .bind(issuer)
-        .bind(subject)
-        .bind(user_id)
-        .bind(now_ts)
         .execute(&*self.pool)
         .await?;
         Ok(())

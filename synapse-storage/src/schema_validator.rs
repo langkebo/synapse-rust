@@ -75,11 +75,12 @@ impl SchemaValidator {
 
     /// See [`validate_table_exists`].
     pub async fn validate_table_exists(&self, table_name: &str) -> Result<bool, sqlx::Error> {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM information_schema.tables \
-             WHERE table_name = $1 AND table_schema = current_schema()",
+        // R4 ①：`COUNT(*)` 没有关系来源 ⇒ sqlx 推成可空；谁保证非空：聚合计数在空集上也是 0。
+        let count: i64 = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "count!" FROM information_schema.tables
+               WHERE table_name = $1 AND table_schema = current_schema()"#,
+            table_name,
         )
-        .bind(table_name)
         .fetch_one(&*self.pool)
         .await?;
         Ok(count > 0)
@@ -87,12 +88,13 @@ impl SchemaValidator {
 
     /// See [`validate_column_exists`].
     pub async fn validate_column_exists(&self, table_name: &str, column_name: &str) -> Result<bool, sqlx::Error> {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM information_schema.columns \
-             WHERE table_name = $1 AND column_name = $2",
+        // 同 `validate_table_exists` 的 R4 ① 断言。
+        let count: i64 = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "count!" FROM information_schema.columns
+               WHERE table_name = $1 AND column_name = $2"#,
+            table_name,
+            column_name,
         )
-        .bind(table_name)
-        .bind(column_name)
         .fetch_one(&*self.pool)
         .await?;
         Ok(count > 0)
@@ -129,9 +131,15 @@ impl SchemaValidator {
 
     /// See [`validate_indexes`].
     pub async fn validate_indexes(&self) -> Result<Vec<String>, sqlx::Error> {
-        sqlx::query_scalar("SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() ORDER BY indexname")
-            .fetch_all(&*self.pool)
-            .await
+        // R4 ①：`pg_indexes` 是系统视图，PG 不把底层 `pg_class.relname`（`name`，catalog 的
+        // NOT NULL 列）的非空性透传到视图列 ⇒ sqlx 推成可空。谁保证非空：索引名的来源列
+        // `pg_class.relname` 不可能为 NULL。
+        sqlx::query_scalar!(
+            r#"SELECT indexname AS "indexname!" FROM pg_indexes
+               WHERE schemaname = current_schema() ORDER BY indexname"#
+        )
+        .fetch_all(&*self.pool)
+        .await
     }
 
     /// See [`validate_required_tables`].
