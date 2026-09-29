@@ -14,12 +14,12 @@
 
 | 指标 | 战役起点（2026-09-23） | 现在 | 变化 |
 |---|---|---|---|
-| `dynamic_production` | 1532（近似） | **204** | **−86.7%** |
-| `static` | 61 | **1275** | +1214 |
-| `dynamic`（总） | 2151 | **936** | −1215 |
-| 静态占比 | 2.76% | **57.7%**（1275 / 2208） | +54.9pp |
-| `.sqlx` 离线缓存 | 60 条 | **1243 条** | +1183 |
-| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **133 / 34** | −743 |
+| `dynamic_production` | 1532（近似） | **197** | **−87.1%** |
+| `static` | 61 | **1282** | +1221 |
+| `dynamic`（总） | 2151 | **929** | −1222 |
+| 静态占比 | 2.76% | **58.1%**（1282 / 2207） | +55.3pp |
+| `.sqlx` 离线缓存 | 60 条 | **1250 条** | +1190 |
+| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **126 / 33** | −750 |
 | `param` 传参（D-14 新棘轮，处 / 文件） | — | **1 / 1** | 新立棘轮（此前混在 `runtime`，两道棘轮都不管） |
 | `runtime` 残差 / `query_builder` | — | 70 / 13 文件 · **18**（已入计数棘轮） | — |
 
@@ -47,16 +47,17 @@
 > **211 / 1269**（`.sqlx` 1232 → 1237，literal 退到 140/35，该文件生产区动态归零）；
 > C49-0（先修 D-93：消 2 处 `PgRow` 泄漏 + 1 处吞错）收到 **208 / 1271**
 > （`.sqlx` 1237 → 1239，literal 退到 137/35）；C49（4 处宏化）收到 **204 / 1275**
-> （`.sqlx` 1239 → 1243，literal 退到 133/34，该文件生产区动态归零）。
+> （`.sqlx` 1239 → 1243，literal 退到 133/34，该文件生产区动态归零）；C50（门控批，7 处宏化）
+> 收到 **197 / 1282**（`.sqlx` 1243 → 1250，literal 退到 126/33，该文件生产区动态归零）。
 
 ### 0.2 残量结构（"还剩多少活"的准确说法）
 
 | 组成 | 处数 | 性质 |
 |---|---|---|
-| **可静态化残量** | **132** | **102 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
+| **可静态化残量** | **125** | **95 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
 | 测试基建（有意保留） | 57 | `synapse-test-utils/src/lib.rs` 28、`synapse-common/src/test_isolation.rs` 25、`test_schema_guard.rs` 4 |
 | 结构性保留（有意） | 15 | `synapse-storage/src/event/pagination.rs`（9 runtime 游标/排序方向 + 6 literal） |
-| **合计** | **204** | = 132 + 57 + 15 |
+| **合计** | **197** | = 125 + 57 + 15 |
 
 ### 0.3 复现（唯一入口，勿手工数）
 
@@ -223,13 +224,12 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 ### 8.1 剩余可静态化清单（按实测，2026-09-26 C44 后）
 
-**可转换残量 132 处** = **102 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
-加 **1 处跨函数传参（`param`）**。下表按**字面量**处数排前 6（表内数字是**可机械转换**的站点数；
+**可转换残量 125 处** = **95 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
+加 **1 处跨函数传参（`param`）**。下表按**字面量**处数排前 5（表内数字是**可机械转换**的站点数；
 纯 `runtime` 文件见下方结构性清单）：
 
 | 文件 | 处数 | 门控 | 备注 |
 |---|---|---|---|
-| `synapse-storage/src/call_session.rs` | 7 | `voip-tracking` | 门控（见 `gated_module_test_matrix`）⇒ 单列一批更省来回 |
 | `synapse-storage/src/media/quarantine_stream.rs` | 6 | — | 与 `pruning` 同域（保留期流）；⚠️ 需先核覆盖（仅 1 条用例） |
 | `synapse-storage/src/monitoring.rs` | 6 | — | 单表模块（监控采样）；⚠️ 需先补覆盖（无 in-file 测试） |
 | `synapse-storage/src/event/search.rs` | 6 | — | `event/` 同域；⚠️ 需先补覆盖（无 in-file db_tests，但 34 个集成文件引用） |
@@ -239,6 +239,8 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 > `synapse-e2ee/src/backup/service.rs`(4)、`synapse-storage/src/audit.rs`(4)、
 > `synapse-storage/src/schema_health_check.rs`(4) 由 **C44** 归零退表（12 处宏化 + 两处
 > `COUNT(*)`/`COALESCE` 的 R4 断言 + R5 数组参数改 owned + R6 ⑤ 元组投影改字段读，见 §8.3 第 14 条）。
+> `synapse-storage/src/call_session.rs`(7) 由 **C50** 归零退表（门控批，单批转换；覆盖与调用者
+> 本就无缺口，已在 `gated_module_test_matrix` 登记）。
 > `synapse-storage/src/room_account_data.rs`(7) 由 **C49-0 + C49** 归零退表（先按 D-93 删两处
 > raw-`PgRow` 方法、把一处 `.ok().flatten()` 吞错改宏，再宏化其余 4 处）。
 > `synapse-storage/src/email_verification.rs`(8) 由 **C48-0 + C48** 归零退表（先删 3 个零调用者
@@ -1034,10 +1036,27 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
    证据性质：既有 db_tests（`room_account_data::db_tests` 8 条 + 共用该表的 `sliding_sync` 2 条）
    在转换后**穿过新宏跑真库** ⇒ **11/11**。
 
+35. ✅ **C50（`call_session.rs` 7 处宏化，该文件生产区动态归零）已完成（2026-09-28）** ——
+   本批是**门控批**：`#[cfg(feature = "voip-tracking")] pub mod call_session;`，且已在
+   `scripts/ci/gated_module_test_matrix:41` 登记（D-71 家族无缺口 ⇒ 那 10 条 db_tests 在 CI 上
+   确实执行）。覆盖与调用者都无缺口（8 个方法全有生产调用者、10 条真基线 db_tests）
+   ⇒ **无 C50-0，单批转换**：
+   - `create_session` 的 `INSERT ... RETURNING *` ⇒ `query_as!`：**R3 要求把星号展开为显式列清单**
+     （12 列与 `CallSession` 的 12 个字段一一对应）；`callee_id` / `offer_sdp` 是 `Option<String>`
+     ⇒ R5 `.as_deref()`；
+   - `get_session`（12 列）/ `get_candidates`（6 列）⇒ `query_as!`；
+   - `update_state` / `set_answer` / `add_candidate` / `cleanup_expired` 四条无结果列语句
+     ⇒ `query!` + `.execute()`（R6 ①；`cleanup_expired` 保留 `rows_affected()` 语义）。
+   实测：`dynamic_production` 204 → **197**（−7）、`static` 1275 → **1282**（+7）、
+   `dynamic` 总数 936 → **929**、`.sqlx` 1243 → **1250**（+7）、literal 133/34 → **126/33**；
+   恒等式 `197 − 126 − 1 = 70` 仍成立。
+   验证：`-p synapse-storage --lib --all-features -E 'test(/call_session/)'` ⇒ **10/10**
+   （门控模块必须带 `--all-features` 才编译得到，见 D-25 的教训）。
+
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 
-- `dynamic_production` 的**可机械转换部分（literal）归零**：204 → **101**
-  （204 − 102 literal − 1 param = 101 = 测试基建 57 + 分页结构性 15 + **D-14 结构性 29**），
+- `dynamic_production` 的**可机械转换部分（literal）归零**：197 → **101**
+  （197 − 95 literal − 1 param = 101 = 测试基建 57 + 分页结构性 15 + **D-14 结构性 29**），
   或每个残留都有 §7.3 那样的登记条目；
 - literal 逐文件表只剩 4 类（3 个测试基建文件 + `event/pagination.rs`）；
 - ~~D-68 接线~~、~~D-37 收敛~~、~~D-62 修法①~~、~~D-57② 收敛~~、~~D-73 结构性收敛~~、

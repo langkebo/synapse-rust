@@ -82,21 +82,26 @@ impl CallSessionStorage {
         let now = current_timestamp_millis();
         let lifetime = params.lifetime.unwrap_or(60_000); // Default 60 seconds
 
-        let session = sqlx::query_as::<_, CallSession>(
+        // R3：`RETURNING *` 必须展开为**显式列清单**（`query_as!` 不走 `FromRow`，
+        // 少列 E0063 / 多列 E0560）。清单与 `CallSession` 的 12 个字段一一对应。
+        // `callee_id` / `offer_sdp` 是 `Option<String>` ⇒ 按 R5 用 `.as_deref()`。
+        let session = sqlx::query_as!(
+            CallSession,
             r#"
             INSERT INTO call_sessions
                 (call_id, room_id, caller_id, callee_id, state, offer_sdp, lifetime, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, 'ringing', $5, $6, $7, $7)
-            RETURNING *
+            RETURNING id, call_id, room_id, caller_id, callee_id, state, offer_sdp,
+                      answer_sdp, lifetime, created_ts, updated_ts, ended_ts
             "#,
+            &params.call_id,
+            &params.room_id,
+            &params.caller_id,
+            params.callee_id.as_deref(),
+            params.offer_sdp.as_deref(),
+            lifetime,
+            now
         )
-        .bind(&params.call_id)
-        .bind(&params.room_id)
-        .bind(&params.caller_id)
-        .bind(&params.callee_id)
-        .bind(&params.offer_sdp)
-        .bind(lifetime)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -105,14 +110,15 @@ impl CallSessionStorage {
 
     /// 获取呼叫会话
     pub async fn get_session(&self, call_id: &str, room_id: &str) -> Result<Option<CallSession>, sqlx::Error> {
-        let session = sqlx::query_as::<_, CallSession>(
+        let session = sqlx::query_as!(
+            CallSession,
             r#"
             SELECT id, call_id, room_id, caller_id, callee_id, state, offer_sdp, answer_sdp, lifetime, created_ts, updated_ts, ended_ts FROM call_sessions
             WHERE call_id = $1 AND room_id = $2
             "#,
+            call_id,
+            room_id
         )
-        .bind(call_id)
-        .bind(room_id)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -123,17 +129,17 @@ impl CallSessionStorage {
     pub async fn update_state(&self, call_id: &str, room_id: &str, state: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
 
-        sqlx::query(
+        sqlx::query!(
             r#"
             UPDATE call_sessions
             SET state = $3, updated_ts = $4, ended_ts = CASE WHEN $3 = 'ended' THEN $4 ELSE ended_ts END
             WHERE call_id = $1 AND room_id = $2
             "#,
+            call_id,
+            room_id,
+            state,
+            now
         )
-        .bind(call_id)
-        .bind(room_id)
-        .bind(state)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -144,17 +150,17 @@ impl CallSessionStorage {
     pub async fn set_answer(&self, call_id: &str, room_id: &str, answer_sdp: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
 
-        sqlx::query(
+        sqlx::query!(
             r#"
             UPDATE call_sessions
             SET answer_sdp = $3, state = 'connected', updated_ts = $4
             WHERE call_id = $1 AND room_id = $2
             "#,
+            call_id,
+            room_id,
+            answer_sdp,
+            now
         )
-        .bind(call_id)
-        .bind(room_id)
-        .bind(answer_sdp)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -171,17 +177,17 @@ impl CallSessionStorage {
     ) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
 
-        sqlx::query(
+        sqlx::query!(
             r#"
             INSERT INTO call_candidates (call_id, room_id, sender_id, candidate, created_ts)
             VALUES ($1, $2, $3, $4, $5)
             "#,
+            call_id,
+            room_id,
+            sender_id,
+            candidate,
+            now
         )
-        .bind(call_id)
-        .bind(room_id)
-        .bind(sender_id)
-        .bind(candidate)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -190,15 +196,16 @@ impl CallSessionStorage {
 
     /// 获取会话的所有候选人
     pub async fn get_candidates(&self, call_id: &str, room_id: &str) -> Result<Vec<CallCandidate>, sqlx::Error> {
-        let candidates = sqlx::query_as::<_, CallCandidate>(
+        let candidates = sqlx::query_as!(
+            CallCandidate,
             r#"
             SELECT id, call_id, room_id, sender_id, candidate, created_ts FROM call_candidates
             WHERE call_id = $1 AND room_id = $2
             ORDER BY created_ts ASC, id ASC
             "#,
+            call_id,
+            room_id
         )
-        .bind(call_id)
-        .bind(room_id)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -214,15 +221,15 @@ impl CallSessionStorage {
     pub async fn cleanup_expired(&self) -> Result<u64, sqlx::Error> {
         let now = current_timestamp_millis();
 
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r#"
             UPDATE call_sessions
             SET state = 'ended', ended_ts = $1
             WHERE state != 'ended'
             AND created_ts + lifetime < $1
             "#,
+            now
         )
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
