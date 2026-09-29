@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH RECURSIVE dag_walk AS (\n                SELECT ee.prev_event_id AS event_id\n                FROM event_edges ee\n                WHERE ee.event_id = ANY($1)\n                  AND ee.prev_event_id <> ALL($2)\n\n                UNION\n\n                SELECT ee.prev_event_id\n                FROM event_edges ee\n                INNER JOIN dag_walk dw ON ee.event_id = dw.event_id\n                WHERE ee.prev_event_id <> ALL($2)\n            )\n            SELECT DISTINCT event_id AS \"event_id!\" FROM dag_walk\n            WHERE event_id <> ALL($1)\n            LIMIT $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "TextArray",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "39eb9ebb850d809c1cfcac2e60b447b56148857f9a2c82c9602edcd57639b0bd"
+}

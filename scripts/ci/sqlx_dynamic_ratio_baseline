@@ -2593,10 +2593,30 @@
 #   `dynamic_test` 726 → **733**（+7：新用例的夹具 INSERT/查询；`#[cfg(test)]` 内宏不进
 #   `cargo sqlx prepare` ⇒ R9/D-13，无静态等价物）。
 #   验证：`-p synapse-storage --lib --features test-utils -E 'test(/event::/)'` ⇒ **117/117**。
+# ── 2026-09-28 C46（`event/dag.rs` 8 处宏化，本文件生产区动态归零）──────────────────
+#   C46-0 先修（D-91/D-92）与补覆盖之后，剩下 8 处全部转换；按查询形状分三类：
+#   · 单列 `query_scalar` 3 处：`find_missing_event_ids`（`= ANY($1)`，`&[String]` 直接传）、
+#     `get_latest_event_ids_in_room`（原来是 `query_as::<_, (String,)>` 元组 ⇒ R6 ⑤ 改标量）、
+#     `find_events_referencing_missing_state`（`prev_state_events ?| $2::text[]`）；
+#   · 递归 CTE 1 处（`get_missing_events_between` 的 DAG 游走）：`dag_walk.event_id` 由 `UNION`
+#     的输出列构成 —— PG 不给集合运算的输出列透传 NOT NULL（R4 ②），而两个分支都取自
+#     `event_edges.prev_event_id`（NOT NULL）⇒ 断言 `AS "event_id!"`；
+#   · `query!` 按字段读 3 处：`get_missing_events_between` 的 9 列 JSON 投影（原先一律
+#     `row.get::<Option<T>>`，现在宏按真 catalog 给 `T`/`Option<T>`，序列化结果逐字节相同）、
+#     `get_state_dag_edges`（元组 ⇒ R6 ⑤；`prev_state_events` 由 WHERE 保证非空 ⇒
+#     `AS "prev_state_events!"`）、`get_prev_state_events`（可空列 + `fetch_optional` ⇒
+#     `Option<Option<Value>>` 两层，R6 ②）；
+#   · `COUNT(*)` 1 处（D-92 已修好的极端点计数）⇒ `query_scalar!` + `AS "count!"`（R4 ①）。
+#   顺带：删掉失去唯一使用者的 `use sqlx::Row;`。
+#   实测：`dynamic_production` 234 → **226**（−8）、`static` 1250 → **1258**（+8）、
+#   `dynamic` 总数 967 → **959**、`dynamic_test` 733 不变、`.sqlx` 1218 → **1226**（+8）、
+#   literal 163/38 → **155/37**（该文件退表）。恒等式 `226 − 155 − 1 = 70` 仍成立。
+#   验证：`-p synapse-storage --lib --features test-utils -E 'test(/event::/)'` ⇒ **117/117**
+#   （C46-0 的覆盖在转换后穿过新宏跑真库）。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=234
+BASELINE_DYNAMIC_PRODUCTION=226
 BASELINE_DYNAMIC_TEST_INFRA=733
-BASELINE_STATIC=1250
+BASELINE_STATIC=1258
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 

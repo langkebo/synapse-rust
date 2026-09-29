@@ -2,8 +2,6 @@
 
 use std::collections::HashSet;
 
-use sqlx::Row;
-
 use super::models::PersistedGraphFields;
 use super::EventStorage;
 
@@ -32,13 +30,13 @@ impl EventStorage {
         if event_ids.is_empty() {
             return Ok(Vec::new());
         }
-        let existing: Vec<String> = sqlx::query_scalar(
-            r"
+        let existing: Vec<String> = sqlx::query_scalar!(
+            r#"
             SELECT event_id FROM events
             WHERE event_id = ANY($1)
-            ",
+            "#,
+            event_ids
         )
-        .bind(event_ids)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -76,8 +74,11 @@ impl EventStorage {
         // excludes them from both base and recursive cases). UNION (not UNION
         // ALL) deduplicates for defensive cycle prevention — Matrix DAGs are
         // acyclic, but malformed data or bugs could create cycles.
-        let collected: Vec<String> = sqlx::query_scalar(
-            r"
+        // `dag_walk.event_id` 由 `UNION` 的输出列构成：PG 的 Describe **不给集合运算的输出列
+        // 透传 NOT NULL**（R4 ②），而两个分支都取自 `event_edges.prev_event_id`（NOT NULL）
+        // ⇒ 按 R4 断言非空。
+        let collected: Vec<String> = sqlx::query_scalar!(
+            r#"
             WITH RECURSIVE dag_walk AS (
                 SELECT ee.prev_event_id AS event_id
                 FROM event_edges ee
@@ -91,14 +92,14 @@ impl EventStorage {
                 INNER JOIN dag_walk dw ON ee.event_id = dw.event_id
                 WHERE ee.prev_event_id <> ALL($2)
             )
-            SELECT DISTINCT event_id FROM dag_walk
+            SELECT DISTINCT event_id AS "event_id!" FROM dag_walk
             WHERE event_id <> ALL($1)
             LIMIT $3
-            ",
+            "#,
+            latest_events,
+            earliest_events,
+            limit
         )
-        .bind(latest_events)
-        .bind(earliest_events)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -109,33 +110,36 @@ impl EventStorage {
         // Fetch the collected events as JSON values, filtered by room_id for
         // safety (the DAG walk should already be room-scoped, but this
         // prevents any cross-room leakage).
-        let events: Vec<serde_json::Value> = sqlx::query(
-            r"
+        // 宏按真 catalog 定型：非空列（event_id/room_id/sender/event_type/content/
+        // origin_server_ts）给 `T`，可空列（state_key/depth/origin）给 `Option<T>` —— 序列化
+        // 结果与原先"一律 `Option`"逐字节相同，但列名/类型错配在编译期就会被证伪。
+        let events: Vec<serde_json::Value> = sqlx::query!(
+            r#"
             SELECT event_id, room_id, sender, event_type, content, state_key,
                    origin_server_ts, depth, origin
             FROM events
             WHERE room_id = $1 AND event_id = ANY($2)
             ORDER BY origin_server_ts ASC
             LIMIT $3
-            ",
+            "#,
+            room_id,
+            &collected,
+            limit
         )
-        .bind(room_id)
-        .bind(&collected)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await?
         .into_iter()
         .map(|row| {
             serde_json::json!({
-                "event_id": row.get::<Option<String>, _>("event_id"),
-                "room_id": row.get::<Option<String>, _>("room_id"),
-                "sender": row.get::<Option<String>, _>("sender"),
-                "type": row.get::<Option<String>, _>("event_type"),
-                "content": row.get::<Option<serde_json::Value>, _>("content"),
-                "state_key": row.get::<Option<String>, _>("state_key"),
-                "origin_server_ts": row.get::<Option<i64>, _>("origin_server_ts"),
-                "depth": row.get::<Option<i64>, _>("depth"),
-                "origin": row.get::<Option<String>, _>("origin"),
+                "event_id": row.event_id,
+                "room_id": row.room_id,
+                "sender": row.sender,
+                "type": row.event_type,
+                "content": row.content,
+                "state_key": row.state_key,
+                "origin_server_ts": row.origin_server_ts,
+                "depth": row.depth,
+                "origin": row.origin,
             })
         })
         .collect();
@@ -153,17 +157,18 @@ impl EventStorage {
     /// 同一个概念（同一职责的第二份实现，铁律 2；管理员端点的 `forward_extremities` 字段因此长期
     /// 报错数）。改为与 `_in_room` 同一定义（`event_edges` 上的 `NOT EXISTS`），两者永远一致。
     pub async fn get_forward_extremities_count(&self, room_id: &str) -> Result<i64, sqlx::Error> {
-        let count: i64 = sqlx::query_scalar(
-            r"
-            SELECT COUNT(*) FROM events e
+        // `COUNT(*)` 无关系来源 ⇒ Describe 不透传 NOT NULL（R4 ①）⇒ 断言（计数恒不为 NULL）。
+        let count: i64 = sqlx::query_scalar!(
+            r#"
+            SELECT COUNT(*) AS "count!" FROM events e
             WHERE e.room_id = $1
               AND NOT EXISTS (
                   SELECT 1 FROM event_edges g
                   WHERE g.prev_event_id = e.event_id
               )
-            ",
+            "#,
+            room_id
         )
-        .bind(room_id)
         .fetch_one(&*self.pool)
         .await?;
         Ok(count)
@@ -230,19 +235,20 @@ impl EventStorage {
     /// — the caller passes these IDs as the `v=` query parameters so the
     /// remote server knows which point in the DAG to walk backwards from.
     pub async fn get_latest_event_ids_in_room(&self, room_id: &str, limit: i64) -> Result<Vec<String>, sqlx::Error> {
-        let rows: Vec<(String,)> = sqlx::query_as(
-            r"
+        // 单列 ⇒ `query_scalar!`（`query_as!` 不构造元组，R6 ⑤）。
+        let rows = sqlx::query_scalar!(
+            r#"
             SELECT event_id FROM events
             WHERE room_id = $1
             ORDER BY origin_server_ts DESC NULLS LAST, stream_ordering DESC NULLS LAST, event_id DESC
             LIMIT $2
-            ",
+            "#,
+            room_id,
+            limit
         )
-        .bind(room_id)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
-        Ok(rows.into_iter().map(|(id,)| id).collect())
+        Ok(rows)
     }
 
     // =========================================================================
@@ -257,16 +263,16 @@ impl EventStorage {
     /// This is the state-DAG equivalent of reading `prev_events` for the room
     /// DAG. The returned event IDs form the edges of the state DAG.
     pub async fn get_prev_state_events(&self, event_id: &str) -> Result<Option<Vec<String>>, sqlx::Error> {
-        let row: Option<(Option<serde_json::Value>,)> =
-            sqlx::query_as("SELECT prev_state_events FROM events WHERE event_id = $1")
-                .bind(event_id)
-                .fetch_optional(&*self.pool)
-                .await?;
+        // 可空列 + `fetch_optional` ⇒ `Option<Option<Value>>`（R6 ②：两层），与原来的
+        // `Option<(Option<Value>,)>` 同形。
+        let row = sqlx::query_scalar!("SELECT prev_state_events FROM events WHERE event_id = $1", event_id)
+            .fetch_optional(&*self.pool)
+            .await?;
 
         match row {
             None => Ok(None),
-            Some((None,)) => Ok(None),
-            Some((Some(json),)) => {
+            Some(None) => Ok(None),
+            Some(Some(json)) => {
                 let ids = prev_state_events_from_json(event_id, json)?;
                 if ids.is_empty() {
                     Ok(None)
@@ -289,23 +295,25 @@ impl EventStorage {
     ///
     /// Returns a flat list of `(event_id, prev_state_event_id)` edges.
     pub async fn get_state_dag_edges(&self, room_id: &str) -> Result<Vec<(String, String)>, sqlx::Error> {
-        let rows: Vec<(String, serde_json::Value)> = sqlx::query_as(
-            r"
-            SELECT event_id, prev_state_events
+        // `query_as!` 不构造元组（R6 ⑤）⇒ `query!` 按字段读。`prev_state_events` 在 WHERE 里被
+        // 要求非空 ⇒ 断言非空（R4：谁保证非空 = 本查询的 WHERE 子句）。
+        let rows = sqlx::query!(
+            r#"
+            SELECT event_id, prev_state_events AS "prev_state_events!"
             FROM events
             WHERE room_id = $1 AND prev_state_events IS NOT NULL
             ORDER BY origin_server_ts ASC, stream_ordering ASC
-            ",
+            "#,
+            room_id
         )
-        .bind(room_id)
         .fetch_all(&*self.pool)
         .await?;
 
         let mut edges = Vec::new();
-        for (event_id, prev_json) in rows {
-            let prev_ids = prev_state_events_from_json(&event_id, prev_json)?;
+        for row in rows {
+            let prev_ids = prev_state_events_from_json(&row.event_id, row.prev_state_events)?;
             for prev_id in prev_ids {
-                edges.push((event_id.clone(), prev_id));
+                edges.push((row.event_id.clone(), prev_id));
             }
         }
         Ok(edges)
@@ -325,19 +333,19 @@ impl EventStorage {
         if missing_event_ids.is_empty() {
             return Ok(Vec::new());
         }
-        let rows: Vec<(String,)> = sqlx::query_as(
-            r"
+        let rows = sqlx::query_scalar!(
+            r#"
             SELECT event_id
             FROM events
             WHERE room_id = $1
               AND prev_state_events IS NOT NULL
               AND prev_state_events ?| $2::text[]
-            ",
+            "#,
+            room_id,
+            missing_event_ids
         )
-        .bind(room_id)
-        .bind(missing_event_ids)
         .fetch_all(&*self.pool)
         .await?;
-        Ok(rows.into_iter().map(|(id,)| id).collect())
+        Ok(rows)
     }
 }
