@@ -14,12 +14,12 @@
 
 | 指标 | 战役起点（2026-09-23） | 现在 | 变化 |
 |---|---|---|---|
-| `dynamic_production` | 1532（近似） | **191** | **−87.5%** |
-| `static` | 61 | **1288** | +1227 |
-| `dynamic`（总） | 2151 | **923** | −1228 |
-| 静态占比 | 2.76% | **58.4%**（1288 / 2207） | +55.6pp |
-| `.sqlx` 离线缓存 | 60 条 | **1256 条** | +1196 |
-| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **120 / 32** | −756 |
+| `dynamic_production` | 1532（近似） | **185** | **−87.9%** |
+| `static` | 61 | **1294** | +1233 |
+| `dynamic`（总） | 2151 | **918** | −1233 |
+| 静态占比 | 2.76% | **58.6%**（1294 / 2207） | +55.8pp |
+| `.sqlx` 离线缓存 | 60 条 | **1262 条** | +1202 |
+| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **114 / 31** | −762 |
 | `param` 传参（D-14 新棘轮，处 / 文件） | — | **1 / 1** | 新立棘轮（此前混在 `runtime`，两道棘轮都不管） |
 | `runtime` 残差 / `query_builder` | — | 70 / 13 文件 · **18**（已入计数棘轮） | — |
 
@@ -51,16 +51,17 @@
 > 收到 **197 / 1282**（`.sqlx` 1243 → 1250，literal 退到 126/33，该文件生产区动态归零）；
 > C51（`event/search.rs` 6 处，单批）收到 **191 / 1288**（`.sqlx` 1250 → 1256，literal 退到
 > 120/32，该文件生产区动态归零）；C52-0（补真基线生命周期覆盖，生产区不变）收到
-> **191 / 1288**（`.sqlx` 不变 1256，literal 不变 120/32，测试区 732 → 733）。
+> **191 / 1288**（`.sqlx` 不变 1256，literal 不变 120/32，测试区 732 → 733）；C52（6 处宏化）
+> 收到 **185 / 1294**（`.sqlx` 1256 → 1262，literal 退到 114/31，该文件生产区动态归零）。
 
 ### 0.2 残量结构（"还剩多少活"的准确说法）
 
 | 组成 | 处数 | 性质 |
 |---|---|---|
-| **可静态化残量** | **119** | **89 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
+| **可静态化残量** | **113** | **83 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
 | 测试基建（有意保留） | 57 | `synapse-test-utils/src/lib.rs` 28、`synapse-common/src/test_isolation.rs` 25、`test_schema_guard.rs` 4 |
 | 结构性保留（有意） | 15 | `synapse-storage/src/event/pagination.rs`（9 runtime 游标/排序方向 + 6 literal） |
-| **合计** | **191** | = 119 + 57 + 15 |
+| **合计** | **185** | = 113 + 57 + 15 |
 
 ### 0.3 复现（唯一入口，勿手工数）
 
@@ -227,13 +228,12 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 ### 8.1 剩余可静态化清单（按实测，2026-09-26 C44 后）
 
-**可转换残量 119 处** = **89 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
-加 **1 处跨函数传参（`param`）**。下表按**字面量**处数排前 4（表内数字是**可机械转换**的站点数；
+**可转换残量 113 处** = **83 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
+加 **1 处跨函数传参（`param`）**。下表按**字面量**处数排前 3（表内数字是**可机械转换**的站点数；
 纯 `runtime` 文件见下方结构性清单）：
 
 | 文件 | 处数 | 门控 | 备注 |
 |---|---|---|---|
-| `synapse-storage/src/media/quarantine_stream.rs` | 6 | — | C52-0 已补真基线生命周期覆盖（6 个方法此前**零 DB 覆盖**，原用例只构造结构体）⇒ 剩余 6 处由 C52 转换 |
 | `synapse-storage/src/monitoring.rs` | 6 | — | 单表模块（监控采样）；⚠️ 需先补覆盖（无 in-file 测试） |
 | `synapse-storage/src/event/ephemeral.rs` | 4 | — | `event/` 同域 |
 
@@ -241,6 +241,9 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 > `synapse-e2ee/src/backup/service.rs`(4)、`synapse-storage/src/audit.rs`(4)、
 > `synapse-storage/src/schema_health_check.rs`(4) 由 **C44** 归零退表（12 处宏化 + 两处
 > `COUNT(*)`/`COALESCE` 的 R4 断言 + R5 数组参数改 owned + R6 ⑤ 元组投影改字段读，见 §8.3 第 14 条）。
+> `synapse-storage/src/media/quarantine_stream.rs`(6) 由 **C52-0 + C52** 归零退表（先补真基线
+> 生命周期覆盖，再宏化 6 处：三处 6 列投影、一处 UPDATE、一处可空列 `query_scalar!`、
+> 一处聚合 `MAX`）。
 > `synapse-storage/src/event/search.rs`(6) 由 **C51** 归零退表（覆盖本就在同域的
 > `event/db_tests.rs`；含两个 7 元组分支改 `query!`、DDL 宏化、`COALESCE` 逐列断言）。
 > `synapse-storage/src/call_session.rs`(7) 由 **C50** 归零退表（门控批，单批转换；覆盖与调用者
@@ -1097,10 +1100,27 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
    `cargo sqlx prepare` ⇒ R9/D-13，无静态等价物）；生产区不变。
    验证：`-p synapse-storage --lib --features test-utils -E 'test(/quarantine_stream/)'` ⇒ **2/2**。
 
+38. ✅ **C52（`media/quarantine_stream.rs` 6 处宏化，该文件生产区动态归零）已完成（2026-09-28）**
+   —— C52-0 补上真基线覆盖后，6 处按形状分三类转换：
+   - `record_media_quarantine_change` / `get_quarantined_media_changes` / `get_changes_by_media`
+     的 6 列投影 ⇒ `query_as!`（列清单与 `QuarantinedMediaChange` 六字段一一对应，R6 ⑤）；
+   - `set_media_quarantine_status` 的 `UPDATE` ⇒ `query!` + `.execute()`（无结果列，R6 ①，
+     保留 `rows_affected()` 语义）；
+   - `get_media_quarantine_status` ⇒ `query_scalar!` + `fetch_optional`（可空列 ⇒
+     `Option<Option<String>>` 两层，R6 ②）；`get_current_stream_id` 的 `MAX(stream_id)` ⇒
+     `query_scalar!`（聚合、无关系来源 ⇒ 宏推 `Option<i64>`；**空表返回 NULL 是正常语义**，
+     `Result` 仍由 `?` 传播 —— `unwrap_or(0)` 只落在那个可空值上，不是吞错，与本战役
+     反复处理的"吞掉 DB 错误"形态无关）。
+   实测：`dynamic_production` 191 → **185**（−6）、`static` 1288 → **1294**（+6）、
+   `dynamic` 总数 924 → **918**、`.sqlx` 1256 → **1262**（+6）、literal 120/32 → **114/31**；
+   恒等式 `185 − 114 − 1 = 70` 仍成立。
+   验证：`-p synapse-storage --lib --features test-utils -E 'test(/quarantine_stream/)'` ⇒ **2/2**
+   （C52-0 的覆盖在转换后**穿过新宏**跑真库）。
+
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 
-- `dynamic_production` 的**可机械转换部分（literal）归零**：191 → **101**
-  （191 − 89 literal − 1 param = 101 = 测试基建 57 + 分页结构性 15 + **D-14 结构性 29**），
+- `dynamic_production` 的**可机械转换部分（literal）归零**：185 → **101**
+  （185 − 83 literal − 1 param = 101 = 测试基建 57 + 分页结构性 15 + **D-14 结构性 29**），
   或每个残留都有 §7.3 那样的登记条目；
 - literal 逐文件表只剩 4 类（3 个测试基建文件 + `event/pagination.rs`）；
 - ~~D-68 接线~~、~~D-37 收敛~~、~~D-62 修法①~~、~~D-57② 收敛~~、~~D-73 结构性收敛~~、

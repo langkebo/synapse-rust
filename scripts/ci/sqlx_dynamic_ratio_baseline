@@ -2757,10 +2757,24 @@
 #   测试区 +1 站点来自 `media_metadata` 的夹具 INSERT（`#[cfg(test)]` 内宏不进
 #   `cargo sqlx prepare` ⇒ R9/D-13，无静态等价物）；生产区不变（191）。
 #   验证：`-p synapse-storage --lib --features test-utils -E 'test(/quarantine_stream/)'` ⇒ 2/2。
+# ── 2026-09-28 C52（`media/quarantine_stream.rs` 6 处宏化，本文件生产区动态归零）────────────
+#   C52-0 补上真基线覆盖后，6 处按形状分三类转换：
+#   · `record_media_quarantine_change` / `get_quarantined_media_changes` / `get_changes_by_media`
+#     的 6 列投影 ⇒ `query_as!`（列清单与 `QuarantinedMediaChange` 六字段一一对应 —— R6 ⑤）；
+#   · `set_media_quarantine_status` 的 `UPDATE` ⇒ `query!` + `.execute()`（无结果列，R6 ①，
+#     保留 `rows_affected()` 语义）；
+#   · `get_media_quarantine_status` ⇒ `query_scalar!` + `fetch_optional`（可空列 ⇒
+#     `Option<Option<String>>` 两层，R6 ②）；`get_current_stream_id` 的 `MAX(stream_id)` ⇒
+#     `query_scalar!`（聚合并**无关系来源** ⇒ 宏推 `Option<i64>`，空表 NULL 是正常语义；
+#     `Result` 仍由 `?` 传播，`unwrap_or(0)` 只落在那个可空值上，不是吞错）。
+#   实测：`dynamic_production` 191 → **185**（−6）、`static` 1288 → **1294**（+6）、
+#   `dynamic` 总数 924 → **918**、`dynamic_test` 733 不变、`.sqlx` 1256 → **1262**（+6）、
+#   literal 120/32 → **114/31**（该文件退表）。恒等式 `185 − 114 − 1 = 70` 仍成立。
+#   验证：`-p synapse-storage --lib --features test-utils -E 'test(/quarantine_stream/)'` ⇒ 2/2。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=191
+BASELINE_DYNAMIC_PRODUCTION=185
 BASELINE_DYNAMIC_TEST_INFRA=733
-BASELINE_STATIC=1288
+BASELINE_STATIC=1294
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 

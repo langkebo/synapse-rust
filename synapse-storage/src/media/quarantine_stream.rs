@@ -79,18 +79,20 @@ impl QuarantinedMediaChangeStorage {
         changed_by: &str,
         now_ts: i64,
     ) -> Result<i64, ApiError> {
-        let row = sqlx::query_as::<_, QuarantinedMediaChange>(
+        // 六列 `RETURNING` 与 `QuarantinedMediaChange` 的字段一一对应（R6 ⑤；列清单本就显式）。
+        let row = sqlx::query_as!(
+            QuarantinedMediaChange,
             r#"
             INSERT INTO quarantined_media_changes (media_id, server_name, change_type, changed_by, created_ts)
             VALUES ($1, $2, $3, $4, $5)
             RETURNING stream_id, media_id, server_name, change_type, changed_by, created_ts
             "#,
+            media_id,
+            server_name,
+            change_type,
+            changed_by,
+            now_ts
         )
-        .bind(media_id)
-        .bind(server_name)
-        .bind(change_type)
-        .bind(changed_by)
-        .bind(now_ts)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to record media quarantine change", e))?;
@@ -104,7 +106,8 @@ impl QuarantinedMediaChangeStorage {
         since_stream_id: i64,
         limit: i64,
     ) -> Result<Vec<QuarantinedMediaChange>, ApiError> {
-        let changes = sqlx::query_as::<_, QuarantinedMediaChange>(
+        let changes = sqlx::query_as!(
+            QuarantinedMediaChange,
             r#"
             SELECT stream_id, media_id, server_name, change_type, changed_by, created_ts
             FROM quarantined_media_changes
@@ -112,9 +115,9 @@ impl QuarantinedMediaChangeStorage {
             ORDER BY stream_id ASC
             LIMIT $2
             "#,
+            since_stream_id,
+            limit
         )
-        .bind(since_stream_id)
-        .bind(limit)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get quarantined media changes", e))?;
@@ -131,7 +134,8 @@ impl QuarantinedMediaChangeStorage {
         since_stream_id: i64,
         limit: i64,
     ) -> Result<Vec<QuarantinedMediaChange>, ApiError> {
-        let changes = sqlx::query_as::<_, QuarantinedMediaChange>(
+        let changes = sqlx::query_as!(
+            QuarantinedMediaChange,
             r#"
             SELECT stream_id, media_id, server_name, change_type, changed_by, created_ts
             FROM quarantined_media_changes
@@ -139,10 +143,10 @@ impl QuarantinedMediaChangeStorage {
             ORDER BY stream_id ASC
             LIMIT $3
             "#,
+            media_id,
+            since_stream_id,
+            limit
         )
-        .bind(media_id)
-        .bind(since_stream_id)
-        .bind(limit)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get quarantined media changes by media_id", e))?;
@@ -157,16 +161,16 @@ impl QuarantinedMediaChangeStorage {
         server_name: &str,
         quarantine_status: &str,
     ) -> Result<bool, ApiError> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r#"
             UPDATE media_metadata
             SET quarantine_status = $1
             WHERE media_id = $2 AND server_name = $3
             "#,
+            quarantine_status,
+            media_id,
+            server_name
         )
-        .bind(quarantine_status)
-        .bind(media_id)
-        .bind(server_name)
         .execute(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to update media quarantine status", e))?;
@@ -178,15 +182,17 @@ impl QuarantinedMediaChangeStorage {
     /// `"quarantined"`. Returns `Ok(false)` when the media row does not exist
     /// (download path will surface its own 404).
     pub async fn get_media_quarantine_status(&self, media_id: &str, server_name: &str) -> Result<bool, ApiError> {
-        let status: Option<Option<String>> = sqlx::query_scalar(
+        // 可空列（`media_metadata.quarantine_status` 是 `TEXT` 无 NOT NULL）+ `fetch_optional`
+        // ⇒ `Option<Option<String>>` 两层（R6 ②）。
+        let status: Option<Option<String>> = sqlx::query_scalar!(
             r#"
             SELECT quarantine_status
             FROM media_metadata
             WHERE media_id = $1 AND server_name = $2
             "#,
+            media_id,
+            server_name
         )
-        .bind(media_id)
-        .bind(server_name)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to query media quarantine status", e))?;
@@ -196,7 +202,9 @@ impl QuarantinedMediaChangeStorage {
 
     /// Get the current maximum stream_id (used for position tracking).
     pub async fn get_current_stream_id(&self) -> Result<i64, ApiError> {
-        let stream_id: Option<i64> = sqlx::query_scalar(r"SELECT MAX(stream_id) FROM quarantined_media_changes")
+        // `MAX(...)` 是聚合、无关系来源 ⇒ 宏推 `Option<i64>`（空表返回 NULL 是**正常**语义，
+        // 与"吞掉 DB 错误"无关：`Result` 仍由 `?` 传播）。`unwrap_or(0)` 只作用于那个可空值。
+        let stream_id: Option<i64> = sqlx::query_scalar!(r"SELECT MAX(stream_id) FROM quarantined_media_changes")
             .fetch_one(&self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get current quarantine stream id", e))?;
