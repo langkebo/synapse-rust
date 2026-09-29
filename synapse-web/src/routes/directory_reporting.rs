@@ -590,6 +590,20 @@ pub(crate) async fn query_public_rooms(
 ) -> Result<Json<Value>, ApiError> {
     let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(20).clamp(1, 1000) as i64;
     let cursor = decode_public_rooms_cursor(body.get("since").and_then(|v| v.as_str()));
+    // ⚠️ **D-108**：Matrix 的 `filter`（尤其是 `generic_search_term` —— "在房间元数据里搜索，
+    // 例如 name / topic / canonical alias"）在 Client-Server API 里由 **POST /publicRooms** 承载
+    // （MSC2197 的 §Motivation 明确写了"the Client-Server API includes the filtering capability in
+    // `/publicRooms`... using the `filter` JSON body parameter in the `POST` method"），而这里
+    // **静默忽略**：既不解析、也不报错 —— 客户端搜索房间目录拿到的是**未过滤的第一页**。
+    //
+    // 唯一的"按名称/主题搜索公开房间"实现 `RoomStorage::search_room_directory`
+    // （`synapse-storage/src/room/models.rs`，C63 已宏化）因此**零调用者**（只有它自己的 storage
+    // 用例）⇒ 这是"规格要求的能力**未接线** + 其实现**悬空**"，**不是**单纯的死代码：直接删掉那个
+    // 方法会把这条能力的唯一实现一起删掉（与 D-78"先判死代码、复核后改判"同类）。
+    //
+    // 裁定（① 按 spec 接线上 `generic_search_term`；② 或判定不做目录搜索、连同实现与用例一并删）
+    // 见 `docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md` §7.1 的 **D-108**；裁定前**保持行为
+    // 不变**（本批只把"静默忽略"改成显式注释 + 登记，属 R13 的登记而非行为改动）。
     let _filter = body.get("filter");
 
     let (rooms, total) = tokio::try_join!(
