@@ -204,6 +204,14 @@
 # ── 2026-09-28 C46（本表退一行：163 → 155，38 → 37 文件）───────────────────────
 #   `synapse-storage/src/event/dag.rs` 8 处全部宏化 ⇒ 该行归零退表。
 #   恒等式同步为 `226 − 155 − 1 = 70`（runtime 清单不变）。
+# ── 2026-09-28 C47-0（本表一行下调：7 → 6）──────────────────────────────────
+#   `synapse-storage/src/delayed_events.rs`：删掉零调用者的
+#   `list_delayed_events_for_user` ⇒ 该行 7 → **6**（本表合计 155 → **154**、文件数仍 37）。
+#   恒等式同步为 `225 − 154 − 1 = 70`。
+# ── 2026-09-28 C47（本表退一行：154 → 148，37 → 36 文件）───────────────────────
+#   `synapse-storage/src/delayed_events.rs` 剩 6 处全部宏化 ⇒ 该行归零退表
+#   （C47-0 已先把 7 → 6：删零调用者的 `list_delayed_events_for_user`）。
+#   恒等式同步为 `219 − 148 − 1 = 70`。
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -216,7 +224,6 @@ synapse-federation/src/device_sync.rs	3
 synapse-storage/src/account_data/mod.rs	4
 synapse-storage/src/admin_media.rs	15
 synapse-storage/src/call_session.rs	7
-synapse-storage/src/delayed_events.rs	7
 synapse-storage/src/email_verification.rs	8
 synapse-storage/src/event/cascade.rs	2
 synapse-storage/src/event/ephemeral.rs	4
@@ -243,7 +250,7 @@ synapse-storage/src/user/storage.rs	1
 synapse-test-utils/src/lib.rs	14
 # ── 当前「运行期拼装」残差清单（**允许**，不入棘轮；仅作可读性摘要）────────────
 # 合计 **70 处 / 13 文件**（2026-09-26 C44 后实测；与 ratio 棘轮的
-# `dynamic_production − literal − param` = 226 − 155 − 1 = 70 一致）：
+# `dynamic_production − literal − param` = 219 − 148 − 1 = 70 一致）：
 #    16  synapse-common/src/test_isolation.rs
 #    14  synapse-test-utils/src/lib.rs
 #     9  synapse-storage/src/event/pagination.rs

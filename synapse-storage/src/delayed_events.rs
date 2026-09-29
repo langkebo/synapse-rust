@@ -112,9 +112,6 @@ pub trait DelayedEventStorageApi: Send + Sync {
     /// Get a delayed event by its `id` (the `delay_id` returned to clients).
     async fn get_delayed_event(&self, delay_id: i64) -> Result<Option<DelayedEvent>, ApiError>;
 
-    /// List all pending delayed events for a user.
-    async fn list_delayed_events_for_user(&self, user_id: &str) -> Result<Vec<DelayedEvent>, ApiError>;
-
     /// Restart (heartbeat) a delayed event: reset `scheduled_ts` to now+delay_ms.
     async fn restart_delayed_event(&self, delay_id: i64) -> Result<bool, ApiError>;
 
@@ -149,7 +146,11 @@ impl DelayedEventStorageApi for DelayedEventStorage {
         // placeholder. The real event_id is assigned when the event is sent.
         let synthetic_event_id = format!("$delayed:{}:{}:{}", request.room_id, request.user_id, now);
 
-        let event = sqlx::query_as::<_, DelayedEvent>(
+        // `query_as!` 按**列名**构造结构体（R6 ⑤：多列 E0560 / 少列 E0063），投影与
+        // `DelayedEvent` 的 14 个字段一一对应；`state_key: Option<String>` 以 `.as_deref()`
+        // 传入（R5 拒绝 `&Option<T>`）。
+        let event = sqlx::query_as!(
+            DelayedEvent,
             r#"
             INSERT INTO delayed_events
                 (room_id, user_id, device_id, event_id, event_type, state_key,
@@ -159,17 +160,17 @@ impl DelayedEventStorageApi for DelayedEventStorage {
                       state_key, content, delay_ms, scheduled_ts, created_ts,
                       status, retry_count, last_error
             "#,
+            &request.room_id,
+            &request.user_id,
+            &request.device_id,
+            &synthetic_event_id,
+            &request.event_type,
+            request.state_key.as_deref(),
+            &request.content,
+            request.delay_ms,
+            scheduled_ts,
+            now
         )
-        .bind(&request.room_id)
-        .bind(&request.user_id)
-        .bind(&request.device_id)
-        .bind(&synthetic_event_id)
-        .bind(&request.event_type)
-        .bind(request.state_key.as_ref())
-        .bind(&request.content)
-        .bind(request.delay_ms)
-        .bind(scheduled_ts)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to create delayed event", e))?;
@@ -178,15 +179,16 @@ impl DelayedEventStorageApi for DelayedEventStorage {
     }
 
     async fn get_delayed_event(&self, delay_id: i64) -> Result<Option<DelayedEvent>, ApiError> {
-        let event = sqlx::query_as::<_, DelayedEvent>(
+        let event = sqlx::query_as!(
+            DelayedEvent,
             r#"
             SELECT id, room_id, user_id, device_id, event_id, event_type,
                    state_key, content, delay_ms, scheduled_ts, created_ts,
                    status, retry_count, last_error
             FROM delayed_events WHERE id = $1
             "#,
+            delay_id
         )
-        .bind(delay_id)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get delayed event", e))?;
@@ -194,37 +196,19 @@ impl DelayedEventStorageApi for DelayedEventStorage {
         Ok(event)
     }
 
-    async fn list_delayed_events_for_user(&self, user_id: &str) -> Result<Vec<DelayedEvent>, ApiError> {
-        let events = sqlx::query_as::<_, DelayedEvent>(
-            r#"
-            SELECT id, room_id, user_id, device_id, event_id, event_type,
-                   state_key, content, delay_ms, scheduled_ts, created_ts,
-                   status, retry_count, last_error
-            FROM delayed_events
-            WHERE user_id = $1 AND status = 'pending'
-            ORDER BY scheduled_ts ASC
-            "#,
-        )
-        .bind(user_id)
-        .fetch_all(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to list delayed events", e))?;
-
-        Ok(events)
-    }
-
     async fn restart_delayed_event(&self, delay_id: i64) -> Result<bool, ApiError> {
         let now = synapse_common::current_timestamp_millis();
-        let result = sqlx::query(
+        // 无结果列 ⇒ `query!` + `.execute()`（R6 ① 的 `.execute()` 正体）。
+        let result = sqlx::query!(
             r#"
             UPDATE delayed_events
             SET scheduled_ts = $2 + delay_ms,
                 status = 'pending'
             WHERE id = $1 AND status = 'pending'
             "#,
+            delay_id,
+            now
         )
-        .bind(delay_id)
-        .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to restart delayed event", e))?;
@@ -233,14 +217,14 @@ impl DelayedEventStorageApi for DelayedEventStorage {
     }
 
     async fn cancel_delayed_event(&self, delay_id: i64) -> Result<bool, ApiError> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r#"
             UPDATE delayed_events
             SET status = 'cancelled'
             WHERE id = $1 AND status = 'pending'
             "#,
+            delay_id
         )
-        .bind(delay_id)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to cancel delayed event", e))?;
@@ -249,14 +233,14 @@ impl DelayedEventStorageApi for DelayedEventStorage {
     }
 
     async fn mark_sent(&self, delay_id: i64) -> Result<bool, ApiError> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r#"
             UPDATE delayed_events
             SET status = 'sent'
             WHERE id = $1 AND status = 'pending'
             "#,
+            delay_id
         )
-        .bind(delay_id)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to mark delayed event as sent", e))?;
@@ -265,7 +249,8 @@ impl DelayedEventStorageApi for DelayedEventStorage {
     }
 
     async fn get_due_events(&self, now_ts: i64, limit: i64) -> Result<Vec<DelayedEvent>, ApiError> {
-        let events = sqlx::query_as::<_, DelayedEvent>(
+        let events = sqlx::query_as!(
+            DelayedEvent,
             r#"
             SELECT id, room_id, user_id, device_id, event_id, event_type,
                    state_key, content, delay_ms, scheduled_ts, created_ts,
@@ -275,9 +260,9 @@ impl DelayedEventStorageApi for DelayedEventStorage {
             ORDER BY scheduled_ts ASC
             LIMIT $2
             "#,
+            now_ts,
+            limit
         )
-        .bind(now_ts)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get due delayed events", e))?;
@@ -357,5 +342,93 @@ mod tests {
         assert_eq!(DelayedEventAction::Send.as_str(), "send");
         assert_eq!(DelayedEventAction::Cancel.as_str(), "cancel");
         assert_eq!(DelayedEventAction::Restart.as_str(), "restart");
+    }
+}
+
+/// `DelayedEventStorage` 的**真 baseline** 往返覆盖（C47-0）。
+///
+/// 本文件此前只有 `validate_delay_ms` 的纯单测，7 个 trait 方法**零 DB 覆盖**；
+/// `delayed_events` 的 `state_key` / `last_error` 可空、`retry_count` 是 `INTEGER NOT NULL DEFAULT 0`
+/// —— 这些正是宏转换最容易搞错可空性的形状。所有用例跑在 `isolated_test_pool()` 的
+/// per-test schema 上（R9），且**只用被测 API 构造数据**（不引入测试区自建 SQL）。
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
+    }
+
+    fn request(user: &str, delay_ms: i64, state_key: Option<&str>) -> CreateDelayedEventRequest {
+        CreateDelayedEventRequest {
+            room_id: "!delayed_auto_commit:test".to_string(),
+            user_id: user.to_string(),
+            device_id: "DELAYDEV".to_string(),
+            event_type: if state_key.is_some() { "m.room.topic" } else { "m.room.message" }.to_string(),
+            state_key: state_key.map(str::to_string),
+            content: serde_json::json!({"body": "hi"}),
+            delay_ms,
+        }
+    }
+
+    #[tokio::test]
+    async fn delayed_event_lifecycle_round_trip_on_the_migration_template() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = DelayedEventStorage::new(pool.clone());
+
+        // create：整行返回，status=pending，scheduled_ts = created_ts + delay_ms，合成 event_id。
+        let created = storage.create_delayed_event(request("@alice:test", 5_000, None)).await.unwrap();
+        assert!(created.id > 0);
+        assert_eq!(created.room_id, "!delayed_auto_commit:test");
+        assert_eq!(created.user_id, "@alice:test");
+        assert_eq!(created.device_id, "DELAYDEV");
+        assert_eq!(created.status, "pending");
+        assert_eq!(created.retry_count, 0);
+        assert_eq!(created.last_error, None);
+        assert_eq!(created.state_key, None);
+        assert_eq!(created.delay_ms, 5_000);
+        assert_eq!(created.content, serde_json::json!({"body": "hi"}));
+        assert_eq!(created.scheduled_ts, created.created_ts + 5_000);
+        assert!(created.event_id.starts_with("$delayed:!delayed_auto_commit:test:@alice:test:"));
+
+        // 可空列的**非空**一侧也要往返（state_key = Some("") 是合法状态事件键）。
+        let state_event = storage.create_delayed_event(request("@alice:test", 1_000, Some(""))).await.unwrap();
+        assert_eq!(state_event.state_key.as_deref(), Some(""));
+        assert_ne!(state_event.id, created.id);
+
+        // get：命中与未命中（`None`，不是报错）。
+        let fetched = storage.get_delayed_event(created.id).await.unwrap().expect("row");
+        assert_eq!(fetched.id, created.id);
+        assert_eq!(fetched.event_type, "m.room.message");
+        assert!(storage.get_delayed_event(9_999_999).await.unwrap().is_none());
+
+        // get_due_events：只取 pending 且 scheduled_ts <= now，按 scheduled_ts 升序，遵守 limit。
+        let due = storage.get_due_events(created.scheduled_ts + 1, 10).await.unwrap();
+        assert!(due.iter().any(|e| e.id == created.id));
+        assert_eq!(storage.get_due_events(created.scheduled_ts + 1, 1).await.unwrap().len(), 1);
+        assert!(storage.get_due_events(created.created_ts - 1, 10).await.unwrap().is_empty());
+
+        // restart：pending ⇒ scheduled_ts 重排且仍 pending；重复 restart 仍可（仍是 pending）。
+        assert!(storage.restart_delayed_event(created.id).await.unwrap());
+        let restarted = storage.get_delayed_event(created.id).await.unwrap().unwrap();
+        assert_eq!(restarted.status, "pending");
+        assert!(restarted.scheduled_ts >= restarted.created_ts + 5_000);
+
+        // mark_sent：pending ⇒ true；重复 ⇒ false（状态机不可逆）。
+        assert!(storage.mark_sent(created.id).await.unwrap());
+        assert_eq!(storage.get_delayed_event(created.id).await.unwrap().unwrap().status, "sent");
+        assert!(!storage.mark_sent(created.id).await.unwrap());
+        // 已 sent 的既不在 due 列表里，也不能再 restart / cancel。
+        assert!(!storage.get_due_events(i64::MAX, 100).await.unwrap().iter().any(|e| e.id == created.id));
+        assert!(!storage.restart_delayed_event(created.id).await.unwrap());
+        assert!(!storage.cancel_delayed_event(created.id).await.unwrap());
+
+        // cancel：另一条 pending ⇒ true + status=cancelled；重复 ⇒ false，且不再出现在 due 列表。
+        assert!(storage.cancel_delayed_event(state_event.id).await.unwrap());
+        assert_eq!(storage.get_delayed_event(state_event.id).await.unwrap().unwrap().status, "cancelled");
+        assert!(!storage.cancel_delayed_event(state_event.id).await.unwrap());
+        assert!(!storage.get_due_events(i64::MAX, 100).await.unwrap().iter().any(|e| e.id == state_event.id));
     }
 }
