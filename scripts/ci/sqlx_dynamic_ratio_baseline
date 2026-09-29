@@ -2867,10 +2867,29 @@
 #   ⇒ `BASELINE_DYNAMIC_TEST_INFRA` 735 → **740**。这是**本批自身**新增夹具，不是跨批放宽
 #   （§8.5 不变式 1 允许同批调整并写明理由；先例：C46-0 的 726 → 733、D-79 的 718 → 723、
 #   C52-0 的 732 → 733）。
+# ── 2026-09-29 C56（`event/{unread,txn_dedup,signature}.rs` 共 9 处宏化，三个文件生产区动态归零）──
+#   · `unread.rs`：`copy_room_state` 的 `INSERT … SELECT … ON CONFLICT` ⇒ `query!`；
+#     `get_unread_counts` ⇒ `query_as!`（`$1 AS "room_id!"` + 两个 `COALESCE(COUNT(...), 0)`
+#     按 R4 ① 断言 —— `$1` 是 `&str` 参数、计数是恒非空表达式）；`get_unread_counts_batch`
+#     同理（`tr.room_id` 来自 `UNNEST($2::text[])`，集合返回函数 ⇒ 同属"无关系来源"）。
+#   · `txn_dedup.rs`：`get_event_id_by_txn` 的**单列元组投影** ⇒ `query_scalar!`（R6 ⑤ 禁止
+#     元组；`event_id` 是 `TEXT NOT NULL` ⇒ `fetch_optional` 直接给 `Option<String>`，
+#     原先的 `row.map(|(event_id,)| event_id)` 一并消失）；`record_event_txn` ⇒ `query!`
+#     （`current_timestamp_millis()` 作为**绑定实参**是允许的 —— R1 约束的是 SQL 文本）；
+#     `mark_event_soft_failed` ⇒ `query!`。
+#   · `signature.rs`：`update_event_signatures_and_hashes` / `save_event_signature` ⇒ `query!`
+#     （后者把 `uuid::Uuid::new_v4()` 作绑定实参）；`get_event_signatures` ⇒ `query_as!`
+#     （7 列与 `EventSignature` 7 字段一一对应；`created_ts` 列 NOT NULL 而字段是 `Option`
+#     —— R4 明确该方向不报错，保持字段不动）。
+#   实测：`dynamic_production` 172 → **163**（−9）、`static` 1305 → **1314**（+9）、
+#   `dynamic` 总数 907 → **903**、`dynamic_test` 740 不变、`.sqlx` 1273 → **1282**（+9，无碰撞）、
+#   literal 101/29 → **92/26**。恒等式 `163 − 92 − 1 = 70` 成立。
+#   验证：`-p synapse-storage --lib --features test-utils -E 'test(/unread|copy_room_state|txn_dedup|event_signatures|signature/)'`
+#   （见 §8.3 第 45 条）。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=172
+BASELINE_DYNAMIC_PRODUCTION=163
 BASELINE_DYNAMIC_TEST_INFRA=740
-BASELINE_STATIC=1305
+BASELINE_STATIC=1314
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 

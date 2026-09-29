@@ -1,4 +1,4 @@
-# SQLx 静态化：阶段总结与剩余工作（2026-09-23 启动 · 2026-09-29 C55 后）
+# SQLx 静态化：阶段总结与剩余工作（2026-09-23 启动 · 2026-09-29 C56 后）
 
 > **本文档只保留三样东西**：阶段总结（§0）、**仍存在的问题**（§7）、**优化方案**（§8）。
 > 已关闭缺陷的逐条明细与各批次执行记录（C1–C34 / W1–W5）在冻结快照
@@ -14,12 +14,12 @@
 
 | 指标 | 战役起点（2026-09-23） | 现在 | 变化 |
 |---|---|---|---|
-| `dynamic_production` | 1532（近似） | **172** | **−88.8%** |
-| `static` | 61 | **1305** | +1244 |
-| `dynamic`（总） | 2151 | **907** | −1244 |
-| 静态占比 | 2.76% | **59.0%**（1305 / 2212） | +56.2pp |
-| `.sqlx` 离线缓存 | 60 条 | **1273 条** | +1213 |
-| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **101 / 29** | −775 |
+| `dynamic_production` | 1532（近似） | **163** | **−89.4%** |
+| `static` | 61 | **1314** | +1253 |
+| `dynamic`（总） | 2151 | **903** | −1248 |
+| 静态占比 | 2.76% | **59.3%**（1314 / 2217） | +56.5pp |
+| `.sqlx` 离线缓存 | 60 条 | **1282 条** | +1222 |
+| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **92 / 26** | −784 |
 | `param` 传参（D-14 新棘轮，处 / 文件） | — | **1 / 1** | 新立棘轮（此前混在 `runtime`，两道棘轮都不管） |
 | `runtime` 残差 / `query_builder` | — | 70 / 13 文件 · **18**（已入计数棘轮） | — |
 
@@ -61,22 +61,25 @@
 > `account_data` 第二份实现收敛到 `AccountDataStoreApi`）收到 **176 / 1301**
 > （`.sqlx` 缩容 1 条，`user/storage.rs` 的 2 个静态宏站点随重复实现删除）；
 > C55（`account_data/mod.rs` 4 处宏化）收到 **172 / 1305**（`.sqlx` 1270 → 1273，
-> literal 退到 **101/29**，本批合计 `1271 → 1273`）。
+> literal 退到 **101/29**，本批合计 `1271 → 1273`）；C56-0（先修 D-98 highlight 的 `LIKE`
+> 元字符 + 补 `copy_room_state`/highlight 覆盖 + 登记 D-99/D-100）收到 **172 / 1305**
+> （生产数字不变，测试区 735 → 740）；C56（`event/{unread,txn_dedup,signature}.rs` 9 处宏化）
+> 收到 **163 / 1314**（`.sqlx` 1273 → 1282，literal 退到 **92/26**）。
 
 ### 0.2 残量结构（"还剩多少活"的准确说法）
 
 | 组成 | 处数 | 性质 |
 |---|---|---|
-| **可静态化残量** | **99** | **69 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
+| **可静态化残量** | **90** | **60 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
 | 测试基建（有意保留） | 57 | `synapse-test-utils/src/lib.rs` 28、`synapse-common/src/test_isolation.rs` 25、`test_schema_guard.rs` 4（各含 literal + runtime 两部分） |
 | 结构性保留（有意） | 16 | `synapse-storage/src/event/pagination.rs`（9 runtime 游标/排序方向 + 6 literal）+ `synapse-storage/src/monitoring.rs` 的 `pg_stat_statements` 慢查询 1（R7/D-96，宏在 prepare 阶段无法 describe 该可选扩展的关系） |
-| **合计** | **172** | = 99 + 57 + 16 |
+| **合计** | **163** | = 90 + 57 + 16 |
 
 > 本表口径**随批次滚动**，数字一律为当批实测（C44 时是 108 / 57 / 15 = 180；C53 把
 > monitoring 的 1 处从"可静态化"移入"结构性保留"，C54 把机械 literal 从 78 降到 73，
-> C55 再降到 69）。
+> C55 降到 69，C56 再降到 60）。
 > 复算方式：`sqlx_query_census.py --list-production-dynamic` 的 `literal/param/runtime` 三分类，
-> 再按文件归入上表三类 —— 即 `172 = (69+29+1) + 57 + 16`。
+> 再按文件归入上表三类 —— 即 `163 = (60+29+1) + 57 + 16`。
 
 ### 0.3 复现（唯一入口，勿手工数）
 
@@ -249,9 +252,9 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 ## 8. 优化方案
 
-### 8.1 剩余可静态化清单（按实测，2026-09-29 C55 后）
+### 8.1 剩余可静态化清单（按实测，2026-09-29 C56 后）
 
-**可转换残量 99 处** = **69 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
+**可转换残量 90 处** = **60 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
 加 **1 处跨函数传参（`param`）**。下表列出**尚未归零**的 literal 文件（表内数字是**可机械转换**
 的站点数；纯 `runtime` 文件见下方结构性清单）：
 
@@ -264,9 +267,6 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 | `synapse-storage/src/oidc_user_mapping.rs` | 3 | — | |
 | `synapse-storage/src/maintenance.rs` | 3 | — | 与同文件 2 处 runtime 并存（后者属 D-14） |
 | `synapse-storage/src/login_token.rs` | 3 | — | |
-| `synapse-storage/src/event/unread.rs` | 3 | — | |
-| `synapse-storage/src/event/txn_dedup.rs` | 3 | — | |
-| `synapse-storage/src/event/signature.rs` | 3 | — | |
 | `synapse-federation/src/device_sync.rs` | 3 | — | |
 | `synapse-federation/src/dead_letter_queue.rs` | 3 | — | |
 | `synapse-e2ee/src/signature/storage.rs` | 3 | — | |
@@ -278,13 +278,13 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 | `src/server/mod.rs` | 2 | — | |
 | `src/server/database.rs` / `synapse-common/src/health.rs` / `synapse-storage/src/presence/mod.rs` / `room/models.rs` / `user/storage.rs` | 各 1 | — | 余下 5 个单处文件 |
 
-> 上表合计 = **69 处**（= 101 literal 实测 − 结构性 32），与 §0.2 的"69 处字面量"一致；
+> 上表合计 = **60 处**（= 92 literal 实测 − 结构性 32），与 §0.2 的"60 处字面量"一致；
 > 逐文件权威清单是基线文件 `scripts/ci/sqlx_literal_production_baseline`，本表只是可读性摘要。
 
 > 结构上**不在此表**的三类（有意保留，合计 32 处 literal）：测试基建 25
 > （`test-utils/src/lib.rs` 14 + `test_isolation.rs` 9 + `test_schema_guard.rs` 2）、
 > `event/pagination.rs` 6、`monitoring.rs` 的 `pg_stat_statements` 1（R7/D-96）。
-> 69 = 101（literal 实测）− 32。
+> 60 = 92（literal 实测）− 32。
 
 > **已归零退表的文件**（本表不再列；数字是退表时的 literal 处数）：`synapse-e2ee/src/backup/service.rs`(4)、
 > `synapse-storage/src/audit.rs`(4)、`synapse-storage/src/schema_health_check.rs`(4) 由 **C44** 归零
@@ -1318,10 +1318,36 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
    验证：`-p synapse-storage --lib --features test-utils -E 'test(/unread|copy_room_state/)'` ⇒
    **11/11**（含 D-98 修复后 GREEN 的新用例与未回归的 P1-7 用例）。
 
+45. ✅ **C56（`event/{unread,txn_dedup,signature}.rs` 共 9 处宏化，三个文件生产区动态归零）已完成（2026-09-29）** ——
+   先修（C56-0/D-98）之后按形状转换：
+   - `unread.rs`：`copy_room_state` 的 `INSERT … SELECT … ON CONFLICT DO UPDATE` ⇒ `query!`
+     （无结果列 ⇒ `.execute()`）；`get_unread_counts` ⇒ `query_as!`，`$1 AS "room_id!"` +
+     两个 `COALESCE(COUNT(...) FILTER (...), 0) AS "notification_count!" / "highlight_count!"`
+     按 R4 ① 断言（`$1` 是 `&str` 参数、两个计数是 `COALESCE(..., 0)` 的恒非空表达式；
+     断言别名是"真列名"，本语句没有引用它们的 `ORDER BY`/`GROUP BY`，故无 R6 的连带问题）；
+     `get_unread_counts_batch` 同理 —— `tr.room_id` 来自 `SELECT UNNEST($2::text[])`
+     （集合返回函数 ⇒ 同属"无关系来源"），`room_ids` 按 R5 以 `&[String]` 直传。
+   - `txn_dedup.rs`：`get_event_id_by_txn` 的**单列元组投影** `Option<(String,)>` ⇒ `query_scalar!`
+     （R6 ⑤ 禁止元组；`event_id` 是 `TEXT NOT NULL` ⇒ `fetch_optional` 直接给 `Option<String>`，
+     原先的 `row.map(|(event_id,)| event_id)` 随之消失）；`record_event_txn` ⇒ `query!`
+     —— ⚠️ 这里把 `synapse_common::current_timestamp_millis()` **作为绑定实参**传进宏是允许的：
+     R1 约束的是 **SQL 文本**必须是调用点字面量，不是绑定值；`mark_event_soft_failed` ⇒ `query!`。
+   - `signature.rs`：`update_event_signatures_and_hashes` ⇒ `query!`（绑定 `&Value` 到可空 JSONB
+     列合法）；`save_event_signature` ⇒ `query!`（`uuid::Uuid::new_v4()` 作绑定实参）；
+     `get_event_signatures` ⇒ `query_as!`（7 列与 `EventSignature` 的 7 字段一一对应；
+     `created_ts` 列是 `BIGINT NOT NULL` 而字段是 `Option<i64>` —— R4 明确"NOT NULL 列配
+     `Option` 字段照过"，故**不动结构体**，也不加断言）。
+   实测：`dynamic_production` 172 → **163**（−9）、`static` 1305 → **1314**（+9）、
+   `dynamic` 总数 907 → **903**、`dynamic_test` 740 不变、`.sqlx` 1273 → **1282**（+9，无碰撞）、
+   literal 101/29 → **92/26**（三个文件退 literal 表）；恒等式 `163 − 92 − 1 = 70` 成立。
+   验证：`-p synapse-storage --lib --features test-utils -E 'test(/unread|copy_room_state|txn_dedup|signature/)'`
+   ⇒ 全绿（含 C56-0 新增的 highlight 与 `copy_room_state` 两条真基线用例，转换后**穿过新宏**跑）；
+   其余门禁（ratio / `--compile` / 两档 clippy / `--test unit` / fmt / 兄弟棘轮）见提交信息。
+
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 
-- `dynamic_production` 的**可机械转换部分（literal）归零**：172 → **102**
-  （172 − 69 literal − 1 param = 102 = 测试基建 57 + 结构性保留 16（分页 15 + monitoring R7 1）
+- `dynamic_production` 的**可机械转换部分（literal）归零**：163 → **102**
+  （163 − 60 literal − 1 param = 102 = 测试基建 57 + 结构性保留 16（分页 15 + monitoring R7 1）
   + **D-14 结构性 29**），
   或每个残留都有 §7.3 那样的登记条目；
 - literal 逐文件表只剩 5 类（3 个测试基建文件 + `event/pagination.rs` + `monitoring.rs` 的

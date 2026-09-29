@@ -13,14 +13,14 @@ impl EventStorage {
         signatures: &serde_json::Value,
         hashes: &serde_json::Value,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r"
             UPDATE events SET signatures = $2, hashes = $3 WHERE event_id = $1
             ",
+            event_id,
+            signatures,
+            hashes,
         )
-        .bind(event_id)
-        .bind(signatures)
-        .bind(hashes)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -38,7 +38,7 @@ impl EventStorage {
         algorithm: &str,
         created_ts: i64,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO event_signatures (id, event_id, user_id, device_id, signature, key_id, algorithm, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -47,15 +47,15 @@ impl EventStorage {
                 algorithm = EXCLUDED.algorithm,
                 created_ts = EXCLUDED.created_ts
             ",
+            uuid::Uuid::new_v4(),
+            event_id,
+            user_id,
+            device_id,
+            signature,
+            key_id,
+            algorithm,
+            created_ts,
         )
-        .bind(uuid::Uuid::new_v4())
-        .bind(event_id)
-        .bind(user_id)
-        .bind(device_id)
-        .bind(signature)
-        .bind(key_id)
-        .bind(algorithm)
-        .bind(created_ts)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -63,14 +63,18 @@ impl EventStorage {
 
     /// Get all signatures for an event.
     pub async fn get_event_signatures(&self, event_id: &str) -> Result<Vec<EventSignature>, sqlx::Error> {
-        sqlx::query_as::<_, EventSignature>(
+        // 7 列与 `EventSignature` 的 7 个字段一一对应（`algorithm` 列不被读 —— 见 D-99 的
+        // "只写不读"观察）。`created_ts` 列是 `BIGINT NOT NULL` 而字段是 `Option<i64>`：
+        // R4 明确该方向**不报错**（NOT NULL 列配 `Option` 字段合法），故保持原样不动结构体。
+        sqlx::query_as!(
+            EventSignature,
             r"
             SELECT id, event_id, user_id, device_id, signature, key_id, created_ts
             FROM event_signatures
             WHERE event_id = $1
             ",
+            event_id,
         )
-        .bind(event_id)
         .fetch_all(&*self.pool)
         .await
     }

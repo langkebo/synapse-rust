@@ -15,20 +15,20 @@ impl EventStorage {
         room_id: &str,
         txn_id: &str,
     ) -> Result<Option<String>, sqlx::Error> {
-        let row: Option<(String,)> = sqlx::query_as(
+        // `event_id` 是 `TEXT NOT NULL` ⇒ `query_scalar!` 给 `String`，`fetch_optional` 正好是
+        // `Option<String>`（R6 ⑤：元组投影本就不能用 `query_as!`）。
+        sqlx::query_scalar!(
             r"
             SELECT event_id
             FROM room_event_txn_dedup
             WHERE user_id = $1 AND room_id = $2 AND txn_id = $3
             ",
+            user_id,
+            room_id,
+            txn_id,
         )
-        .bind(user_id)
-        .bind(room_id)
-        .bind(txn_id)
         .fetch_optional(&*self.pool)
-        .await?;
-
-        Ok(row.map(|(event_id,)| event_id))
+        .await
     }
 
     /// Record the `txn_id → event_id` mapping. Returns `true` when the row
@@ -43,18 +43,18 @@ impl EventStorage {
         txn_id: &str,
         event_id: &str,
     ) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             INSERT INTO room_event_txn_dedup (user_id, room_id, txn_id, event_id, created_ts)
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (user_id, room_id, txn_id) DO NOTHING
             ",
+            user_id,
+            room_id,
+            txn_id,
+            event_id,
+            synapse_common::current_timestamp_millis(),
         )
-        .bind(user_id)
-        .bind(room_id)
-        .bind(txn_id)
-        .bind(event_id)
-        .bind(synapse_common::current_timestamp_millis())
         .execute(&*self.pool)
         .await?;
 
@@ -75,14 +75,14 @@ impl EventStorage {
     /// returns `Ok(())`).  This is deliberate so that retries from
     /// `send_message_with_txn` after a partial failure are safe.
     pub async fn mark_event_soft_failed(&self, event_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r"
             UPDATE events
             SET soft_failed = TRUE
             WHERE event_id = $1 AND soft_failed = FALSE
             ",
+            event_id,
         )
-        .bind(event_id)
         .execute(&*self.pool)
         .await?;
         Ok(())

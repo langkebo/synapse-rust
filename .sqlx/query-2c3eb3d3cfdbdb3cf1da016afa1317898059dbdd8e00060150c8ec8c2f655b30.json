@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO room_event_txn_dedup (user_id, room_id, txn_id, event_id, created_ts)\n            VALUES ($1, $2, $3, $4, $5)\n            ON CONFLICT (user_id, room_id, txn_id) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2c3eb3d3cfdbdb3cf1da016afa1317898059dbdd8e00060150c8ec8c2f655b30"
+}
