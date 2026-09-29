@@ -3089,10 +3089,25 @@
 #   （与 D-98 同类的 LIKE 元字符陷阱；用"只差一个字符"的诱饵用户名做判别）。
 #   实测：`dynamic_production` 112 → **111**、`static` 1352 → **1353**、测试区 752 不变、
 #   `.sqlx` 1319 → 1320、literal 42/13 → **41/12**（`src/server/database.rs` 归零退表）。
+# ── 2026-09-29 C63（`room/models.rs` 1 处 + `user/storage.rs` 1 处 + `health.rs` 1 处 +
+#    `src/server/mod.rs` 2 处宏化）────────────────────────────────────────────────────────
+#   · `room/models.rs::search_room_directory` ⇒ `query_as!(RoomRecord, …)`：R6 要求别名写成**真实
+#     字段名**（`r.join_rules AS join_rule`、`r.creator AS creator_user_id`；`query_as!` 不认
+#     `#[sqlx(rename)]`），LEFT JOIN 的 `member_count`/`is_encrypted` 与 `Option` 字段一致。
+#   · `user/storage.rs::search_directory_users` ⇒ `query_as!(UserDirectorySearchResult, …)`：
+#     `match_score`（算术表达式）与 `match_type`（`CASE`）按 R4 ① 断言；其余列（`COALESCE(...)`
+#     的 displayname、LEFT JOIN 的 presence/last_active_ts）与 `Option` 字段一致。
+#   · `synapse-common/src/health.rs` 的健康检查 ⇒ `query_scalar!`（R6 ①：单列语句的 `query!` 没有
+#     `.execute()`，而这里只关心能否查通）+ 字面量列的 R4 ① 断言。
+#   · `src/server/mod.rs::warmup` 的两处探针（`SELECT 1`、`COUNT(*) FROM users`）⇒ `query_scalar!`
+#     + R4 ① 断言；这两处由集成套件每次启动服务端时真实执行（真 baseline 证据）。
+#   实测：`dynamic_production` 111 → **106**（−5）、`static` 1353 → **1358**（+5）、
+#   测试区 752 不变、`.sqlx` 1320 → **1324**（+5）、literal 41/12 → **36/8**。
+#   恒等式 `106 − 36 − 0 = 70` 成立。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=111
+BASELINE_DYNAMIC_PRODUCTION=106
 BASELINE_DYNAMIC_TEST_INFRA=752
-BASELINE_STATIC=1353
+BASELINE_STATIC=1358
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 

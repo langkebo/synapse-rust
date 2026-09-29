@@ -295,21 +295,22 @@
 # ── 2026-09-29 C63-0（本表退一行：1 → 0；13 → 12 文件）──────────────────────────
 #   `src/server/database.rs` 的 `SELECT version()` 随 D-107 的吞错修复改写为宏（`AS "version!"`）
 #   ⇒ 该行归零退表。恒等式不变（仍 `112 − 42 − 0 = 70`：本批同时把一处 literal 变 static）。
-src/server/mod.rs	2
-synapse-common/src/health.rs	1
+# ── 2026-09-29 C63（本表退四行：1 + 1 + 1 + 2 处；12 → 8 文件）──────────────────
+#   `synapse-common/src/health.rs`、`synapse-storage/src/room/models.rs`、
+#   `synapse-storage/src/user/storage.rs`、`src/server/mod.rs` 共 5 处宏化 ⇒ 四行归零退表。
+#   **本表剩下的 8 行/36 处全部是已登记的结构性例外**（测试基建 25 + 分页 6 + D-13 3
+#   + D-96 1 + D-105 1）⇒ **机械可转换的 literal 残量为 0**。恒等式同步为 `106 − 36 − 0 = 70`。
 synapse-common/src/test_isolation.rs	9
 synapse-common/src/test_schema_guard.rs	2
 synapse-storage/src/event/pagination.rs	6
 synapse-storage/src/migration_checks.rs	1
 synapse-storage/src/monitoring.rs	1
 synapse-storage/src/presence/mod.rs	1
-synapse-storage/src/room/models.rs	1
 synapse-storage/src/room_summary/repository.rs	2
-synapse-storage/src/user/storage.rs	1
 synapse-test-utils/src/lib.rs	14
 # ── 当前「运行期拼装」残差清单（**允许**，不入棘轮；仅作可读性摘要）────────────
 # 合计 **70 处 / 13 文件**（运行期拼装部分自 C44 起未变；与 ratio 棘轮的
-# `dynamic_production − literal − param` = 112 − 42 − 0 = 70 一致）：
+# `dynamic_production − literal − param` = 106 − 36 − 0 = 70 一致）：
 #    16  synapse-common/src/test_isolation.rs
 #    14  synapse-test-utils/src/lib.rs
 #     9  synapse-storage/src/event/pagination.rs
