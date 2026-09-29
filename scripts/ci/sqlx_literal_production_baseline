@@ -219,6 +219,14 @@
 # ── 2026-09-28 C48（本表退一行：145 → 140，36 → 35 文件）─────────────────────
 #   `synapse-storage/src/email_verification.rs` 剩 5 处全部宏化 ⇒ 该行归零退表
 #   （C48-0 已先把 8 → 5：删 3 个零调用者方法）。恒等式 `211 − 140 − 1 = 70`。
+# ── 2026-09-28 C49-0（本表一行下调：7 → 4）──────────────────────────────────
+#   `synapse-storage/src/room_account_data.rs`：删 2 处 raw-`PgRow` 方法（D-93）+ 1 处吞错
+#   方法改宏 ⇒ 该行 7 → **4**（本表合计 140 → **137**、文件数仍 35）。
+#   恒等式同步为 `208 − 137 − 1 = 70`。
+# ── 2026-09-28 C49（本表退一行：137 → 133，35 → 34 文件）─────────────────────
+#   `synapse-storage/src/room_account_data.rs` 剩 4 处全部宏化 ⇒ 该行归零退表
+#   （C49-0 已先把 7 → 4：删 2 处 raw-`PgRow` + 1 处吞错方法改宏）。
+#   恒等式同步为 `204 − 133 − 1 = 70`。
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -248,7 +256,6 @@ synapse-storage/src/oidc_user_mapping.rs	3
 synapse-storage/src/presence/mod.rs	1
 synapse-storage/src/rate_limit.rs	3
 synapse-storage/src/room/models.rs	1
-synapse-storage/src/room_account_data.rs	7
 synapse-storage/src/room_summary/repository.rs	2
 synapse-storage/src/schema_validator.rs	3
 synapse-storage/src/url_preview_storage.rs	3
@@ -256,7 +263,7 @@ synapse-storage/src/user/storage.rs	1
 synapse-test-utils/src/lib.rs	14
 # ── 当前「运行期拼装」残差清单（**允许**，不入棘轮；仅作可读性摘要）────────────
 # 合计 **70 处 / 13 文件**（2026-09-26 C44 后实测；与 ratio 棘轮的
-# `dynamic_production − literal − param` = 211 − 140 − 1 = 70 一致）：
+# `dynamic_production − literal − param` = 204 − 133 − 1 = 70 一致）：
 #    16  synapse-common/src/test_isolation.rs
 #    14  synapse-test-utils/src/lib.rs
 #     9  synapse-storage/src/event/pagination.rs

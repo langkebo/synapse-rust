@@ -4,7 +4,8 @@ use crate::room_account_data::{RoomAccountDataRecord, RoomAccountDataStoreApi};
 
 /// In-memory [`RoomAccountDataStoreApi`] backed by a `HashMap` keyed on
 /// `(user_id, room_id, data_type)`; the value holds the content plus the last
-/// update timestamp. Raw-`PgRow` methods are intentionally unsupported.
+/// update timestamp. The former raw-`PgRow` accessors were removed in D-93（存储层不再把
+/// `sqlx::postgres::PgRow` 暴露成公共 API）, so the mock now mirrors the typed surface exactly.
 #[derive(Clone, Debug, Default)]
 pub struct InMemoryRoomAccountDataStore {
     #[allow(clippy::type_complexity)]
@@ -41,17 +42,6 @@ impl RoomAccountDataStoreApi for InMemoryRoomAccountDataStore {
         data_type: &str,
     ) -> Result<Option<(serde_json::Value, Option<i64>)>, ApiError> {
         Ok(self.data.read().await.get(&(user_id.to_string(), room_id.to_string(), data_type.to_string())).cloned())
-    }
-
-    async fn get_room_account_data(
-        &self,
-        _user_id: &str,
-        _room_id: &str,
-        _data_type: &str,
-    ) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error> {
-        unimplemented!(
-            "in-memory mock does not support raw-row method get_room_account_data; use get_room_account_data_content"
-        )
     }
 
     async fn list_room_account_data(
@@ -97,16 +87,6 @@ impl RoomAccountDataStoreApi for InMemoryRoomAccountDataStore {
             (a.room_id.as_str(), a.data_type.as_str()).cmp(&(b.room_id.as_str(), b.data_type.as_str()))
         });
         Ok(records)
-    }
-
-    async fn get_room_vault_data(
-        &self,
-        _user_id: &str,
-        _room_id: &str,
-    ) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error> {
-        unimplemented!(
-            "in-memory mock does not support raw-row method get_room_vault_data; use get_room_account_data_content"
-        )
     }
 
     async fn upsert_room_account_data(

@@ -2676,10 +2676,43 @@
 #   literal 145/36 → **140/35**（该文件退表）。恒等式 `211 − 140 − 1 = 70` 仍成立。
 #   验证：`-p synapse-storage --lib --features test-utils -E 'test(/email_verification/)'` ⇒ 5/5
 #   （C48-0 的真基线用例在转换后穿过新宏跑真库，含 UNIQUE(token) 与四条拒绝路径）。
+# ── 2026-09-28 C49-0（先修 D-93：消 2 处 PgRow 泄漏 + 1 处吞错）────────────────────────
+#   `synapse-storage/src/room_account_data.rs`：
+#   ① **D-93（存储层把行类型暴露成公共 API）**：trait + impl + 委托 + mock 四处的
+#      `get_room_account_data(...) -> Result<Option<PgRow>, _>` 与
+#      `get_room_vault_data(...) -> Result<Option<PgRow>, _>` 把 `sqlx::postgres::PgRow`
+#      直接暴露给服务/路由层；mock 里两者都是 `unimplemented!()`，报错信息自己写着
+#      "use get_room_account_data_content" —— 即代码本身已承认这是不可用的接缝。
+#      实测：`get_room_account_data` 全仓**无外部调用者**（唯一消费者是本文件的
+#      `get_room_account_data_content`），`get_room_vault_data` **零调用者**（路由同名 handler
+#      走的是 `get_room_account_data_with_ts`）⇒ 两者连同 trait 条目一并删除；
+#      `content` 的查询内联到自身（新写的 SQL 直接用宏，R1）。
+#   ② **吞错（D-33/D-72 同型）**：`get_room_account_data_with_ts` 的
+#      `row.try_get::<Option<i64>, _>("updated_ts").ok().flatten()` 把解码失败静默变成 `None`
+#      （而 schema 里 `updated_ts` 是 `BIGINT NOT NULL`）⇒ 该方法的"先修"就是转成 `query!`
+#      （手工解码整条消失，可空性由真 catalog 在编译期钉死），返回值仍 `Option<i64>`。
+#   ③ 顺带删掉失去唯一使用者的 `use sqlx::Row;`。
+#   实测：`dynamic_production` 211 → **208**（−3）、`static` 1269 → **1271**（+2：内联的 content
+#   查询 + with_ts）、`dynamic` 总数 943 → **940**、`dynamic_test` 732 不变、
+#   `.sqlx` 1237 → **1239**（+2）、literal 140/35 → **137/35**。
+#   验证：`-p synapse-storage --lib --features test-utils -E 'test(/room_account_data/)'` ⇒ **11/11**
+#   （含同表的 sliding_sync 两条）。
+# ── 2026-09-28 C49（`room_account_data.rs` 4 处宏化，本文件生产区动态归零）───────────────
+#   C49-0 之后剩 4 处：
+#   · `list_room_account_data` / `list_room_account_data_batch` 的
+#     `query_as::<_, RoomAccountDataRecord>` ⇒ `query_as!`（投影 `data AS content` 与结构体字段
+#     `content` 同名 —— R6 ⑤ 要求一一对应；后者 `room_id = ANY($2)` 的 `&[String]` 直传）；
+#   · `upsert_room_account_data` 的 `INSERT ... ON CONFLICT ... DO UPDATE` ⇒ `query!` + `.execute()`
+#     （无结果列，R6 ①）；
+#   · `delete_room_account_data` 的 `DELETE` ⇒ `query!` + `.execute()`（保留 `rows_affected()` 语义）。
+#   实测：`dynamic_production` 208 → **204**（−4）、`static` 1271 → **1275**（+4）、
+#   `dynamic` 总数 940 → **936**、`dynamic_test` 732 不变、`.sqlx` 1239 → **1243**（+4）、
+#   literal 137/35 → **133/34**（该文件退表）。恒等式 `204 − 133 − 1 = 70` 仍成立。
+#   验证：`-p synapse-storage --lib --features test-utils -E 'test(/room_account_data/)'` ⇒ 11/11。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=211
+BASELINE_DYNAMIC_PRODUCTION=204
 BASELINE_DYNAMIC_TEST_INFRA=732
-BASELINE_STATIC=1269
+BASELINE_STATIC=1275
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 
