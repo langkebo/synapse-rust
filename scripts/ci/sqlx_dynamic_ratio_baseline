@@ -2643,9 +2643,28 @@
 #   literal 154/37 → **148/36**（该文件退表）。恒等式 `219 − 148 − 1 = 70` 仍成立。
 #   验证：`-p synapse-storage --lib --features test-utils -E 'test(/delayed_event/)'` ⇒ 8/8
 #   （C47-0 的生命周期覆盖在转换后穿过新宏跑真库）。
+# ── 2026-09-28 C48-0（先修：删 3 个零调用者方法 + 把 R9 违规用例改成真基线覆盖）────────────
+#   `synapse-storage/src/email_verification.rs`：
+#   ① **删死代码（3 处站点，铁律 1）**：`verify_token`、`delete_token_by_id`、`get_token_by_email`
+#      全仓**零调用者**（`verify_token` 的"看起来有调用"是 `uia_service.rs::verify_token_stage`
+#      这个**不同**方法；`delete_token_by_id` 此前只被测试调用，`get_token_by_email` 无人调用）。
+#      `mark_token_used` 保留 —— 它由本文件的 `validate_and_consume_token` 内部调用。
+#   ② **修 R9 违规用例**：原 `test_delete_token_by_id_removes_verification_session` 在
+#      `prepare_empty_isolated_test_pool()` 造的**空 schema** 上手写
+#      `CREATE TABLE email_verification_tokens`，而那份 DDL **漏掉了真 schema 的
+#      `token TEXT NOT NULL UNIQUE`**（D-31 家族"手搭夹具掩盖真约束"）；它还"拿不到库就
+#      `warn!` + return"（门禁从此看不出它没跑）。改为 `isolated_test_pool()` 克隆真 v12 模板，
+#      **只用被测 API 造数据**（不引入测试区自建 DDL）⇒ 同一提交里删掉
+#      `scripts/ci/test_ddl_allowlist` 的对应条目（名单规则要求"清理实现时同时删条目"）。
+#      新用例顺带把 UNIQUE(token) 变成**可失败**断言：重复 token 必须报错 —— 手写 DDL 版本
+#      对这条永远绿。
+#   实测：`dynamic_production` 219 → **216**（−3）、`static` 1264 不变、`dynamic` 总数 952 → **948**、
+#   `dynamic_test` 733 → **732**（−1：旧用例的 `CREATE TABLE` 站点消失）、literal 148/36 → **145/36**。
+#   验证：`-p synapse-storage --lib --features test-utils -E 'test(/email_verification/)'` ⇒ **5/5**；
+#   `test_ddl_guard_tests` ⇒ 9/9（含"名单条目必须仍能命中站点"那条）。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=219
-BASELINE_DYNAMIC_TEST_INFRA=733
+BASELINE_DYNAMIC_PRODUCTION=216
+BASELINE_DYNAMIC_TEST_INFRA=732
 BASELINE_STATIC=1264
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960

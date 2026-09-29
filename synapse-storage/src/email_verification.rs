@@ -73,26 +73,6 @@ impl EmailVerificationStorage {
         Ok(row.id)
     }
 
-    /// See [`verify_token`].
-    pub async fn verify_token(&self, email: &str, token: &str) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
-        let now = current_timestamp_millis();
-
-        let token_record = sqlx::query_as::<_, EmailVerificationToken>(
-            r"
-            SELECT id, user_id, email, token, expires_at, created_ts, is_used, session_data
-            FROM email_verification_tokens
-            WHERE email = $1 AND token = $2 AND is_used = FALSE AND expires_at > $3
-            ",
-        )
-        .bind(email)
-        .bind(token)
-        .bind(now)
-        .fetch_optional(&*self.pool)
-        .await?;
-
-        Ok(token_record)
-    }
-
     /// See [`mark_token_used`].
     pub async fn mark_token_used(&self, token_id: i64) -> Result<(), sqlx::Error> {
         sqlx::query(
@@ -171,19 +151,6 @@ impl EmailVerificationStorage {
         Ok(token_record)
     }
 
-    /// See [`delete_token_by_id`].
-    pub async fn delete_token_by_id(&self, token_id: i64) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
-            DELETE FROM email_verification_tokens WHERE id = $1
-            ",
-        )
-        .bind(token_id)
-        .execute(&*self.pool)
-        .await?;
-        Ok(())
-    }
-
     /// 原子地"消费"一次已校验的会话：DELETE ... RETURNING 在单条 SQL 中
     /// 完成"取出 + 删除"，保证两个并发请求里只有一个能拿到行，另一个
     /// 拿到 `Ok(None)`。配合 `expires_at > now` 与 `is_used = TRUE`
@@ -221,27 +188,6 @@ impl EmailVerificationStorage {
         .execute(&*self.pool)
         .await?;
         Ok(result.rows_affected() as i64)
-    }
-
-    /// See [`get_token_by_email`].
-    pub async fn get_token_by_email(&self, email: &str) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
-        let now = current_timestamp_millis();
-
-        let token_record = sqlx::query_as::<_, EmailVerificationToken>(
-            r"
-            SELECT id, user_id, email, token, expires_at, created_ts, is_used, session_data
-            FROM email_verification_tokens
-            WHERE email = $1 AND is_used = FALSE AND expires_at > $2
-            ORDER BY created_ts DESC, id DESC
-            LIMIT 1
-            ",
-        )
-        .bind(email)
-        .bind(now)
-        .fetch_optional(&*self.pool)
-        .await?;
-
-        Ok(token_record)
     }
 }
 
@@ -320,63 +266,83 @@ mod tests {
         assert!(token.is_used);
     }
 
+    /// 真 baseline 上的电子邮件验证会话往返（C48-0）。
+    ///
+    /// 替换掉原先那条 **R9 违规**用例：它在 `prepare_empty_isolated_test_pool()` 造的**空 schema**
+    /// 上手写 `CREATE TABLE email_verification_tokens`，而那份 DDL **漏掉了真 schema 的
+    /// `token TEXT NOT NULL UNIQUE`** —— 正是 D-31 家族"手搭夹具掩盖真约束"的形态；
+    /// 它还在拿不到库时静默 `return`（门禁从此看不出它没跑）。
+    /// 现在一律用 `crate::test_isolation::isolated_test_pool()`（克隆真 v12 模板，R9），
+    /// 且**只用被测 API 造数据**（不引入测试区自建 DDL ⇒ 白名单条目同时删除）。
     #[tokio::test]
-    async fn test_delete_token_by_id_removes_verification_session() {
-        let pool = match crate::test_utils::prepare_empty_isolated_test_pool().await {
-            Ok(guard) => guard.pool(),
-            Err(error) => {
-                tracing::warn!(
-                    "Skipping email verification delete-token test because test database is unavailable: {error}"
-                );
-                return;
-            }
-        };
-
-        sqlx::query(
-            r#"
-            CREATE TABLE email_verification_tokens (
-                id BIGSERIAL PRIMARY KEY,
-                user_id TEXT,
-                email TEXT NOT NULL,
-                token TEXT NOT NULL,
-                expires_at BIGINT NOT NULL,
-                created_ts BIGINT NOT NULL,
-                is_used BOOLEAN NOT NULL DEFAULT FALSE,
-                session_data JSONB
-            )
-            "#,
-        )
-        .execute(&*pool)
-        .await
-        .expect("Failed to create email_verification_tokens table");
-
+    async fn email_verification_lifecycle_round_trip_on_the_migration_template() {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
         let storage = EmailVerificationStorage::new(&pool);
-        let token_id = storage
+
+        // create + get_by_id：可空列（user_id / session_data）两侧都要往返。
+        let with_session = storage
             .create_verification_token(
-                "delete-me@example.com",
-                "test-token",
+                "with-session@example.com",
+                "tok-session",
                 3600,
-                Some("@delete-me:example.com"),
-                Some(serde_json::json!({
-                    "client_secret": "secret",
-                    "purpose": "password_reset"
-                })),
+                Some("@alice:test"),
+                Some(serde_json::json!({"client_secret": "s3cret", "purpose": "password_reset"})),
             )
             .await
-            .expect("Failed to create verification token");
-
-        let before_delete = storage
-            .get_verification_token_by_id(token_id)
+            .expect("create with session");
+        let bare = storage
+            .create_verification_token("bare@example.com", "tok-bare", 3600, None, None)
             .await
-            .expect("Failed to fetch verification token before delete");
-        assert!(before_delete.is_some());
+            .expect("create bare");
+        assert_ne!(with_session, bare);
 
-        storage.delete_token_by_id(token_id).await.expect("Failed to delete verification token");
+        let row = storage.get_verification_token_by_id(with_session).await.unwrap().expect("row");
+        assert_eq!(row.email, "with-session@example.com");
+        assert_eq!(row.token, "tok-session");
+        assert_eq!(row.user_id.as_deref(), Some("@alice:test"));
+        assert!(!row.is_used);
+        assert!(row.session_data.is_some());
+        assert!(row.expires_at.is_some());
+        let bare_row = storage.get_verification_token_by_id(bare).await.unwrap().expect("bare row");
+        assert_eq!(bare_row.user_id, None);
+        assert_eq!(bare_row.session_data, None);
+        assert!(storage.get_verification_token_by_id(9_999_999).await.unwrap().is_none());
 
-        let after_delete = storage
-            .get_verification_token_by_id(token_id)
+        // 真 schema 的 `token` 是 **UNIQUE** —— 手写 DDL 版本漏掉了这条，重复 token 会静默成功。
+        let duplicate = storage.create_verification_token("dup@example.com", "tok-session", 3600, None, None).await;
+        assert!(duplicate.is_err(), "token UNIQUE 约束必须拒绝重复 token");
+
+        // validate_and_consume_token：客户端密钥不符 / token 不符 / 过期 / 已用过 都必须被拒。
+        assert!(storage.validate_and_consume_token(with_session, "tok-session", "wrong").await.is_err());
+        assert!(storage.validate_and_consume_token(with_session, "wrong-token", "s3cret").await.is_err());
+        assert!(!storage.get_verification_token_by_id(with_session).await.unwrap().unwrap().is_used);
+
+        let consumed = storage
+            .validate_and_consume_token(with_session, "tok-session", "s3cret")
             .await
-            .expect("Failed to fetch verification token after delete");
-        assert!(after_delete.is_none());
+            .expect("valid token must be consumed");
+        assert_eq!(consumed.id, with_session);
+        assert!(storage.get_verification_token_by_id(with_session).await.unwrap().unwrap().is_used);
+        // 已用过 ⇒ 再校验必须失败（不可重放）。
+        assert!(storage.validate_and_consume_token(with_session, "tok-session", "s3cret").await.is_err());
+
+        // 过期：`expires_in_seconds` 为负 ⇒ `expires_at` 已在过去。
+        let expired =
+            storage.create_verification_token("expired@example.com", "tok-expired", -10, None, None).await.unwrap();
+        assert!(storage.validate_and_consume_token(expired, "tok-expired", "").await.is_err());
+
+        // claim_used_token：未使用过 ⇒ None；校验（=is_used）之后 ⇒ Some 且行被**物理删除**（不可重放）。
+        assert!(storage.claim_used_token(bare).await.unwrap().is_none());
+        let claimed = storage.claim_used_token(with_session).await.unwrap().expect("used token is claimable");
+        assert_eq!(claimed.token, "tok-session");
+        assert!(storage.get_verification_token_by_id(with_session).await.unwrap().is_none());
+        assert!(storage.claim_used_token(with_session).await.unwrap().is_none());
+
+        // cleanup_expired_tokens：只清过期行，活着的行必须留下。
+        let removed = storage.cleanup_expired_tokens().await.unwrap();
+        assert!(removed >= 1, "at least the expired row must be removed");
+        assert!(storage.get_verification_token_by_id(expired).await.unwrap().is_none());
+        assert!(storage.get_verification_token_by_id(bare).await.unwrap().is_some());
     }
 }
