@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO oidc_user_mapping\n                (issuer, subject, user_id, first_seen_ts, last_authenticated_ts, authentication_count)\n            VALUES ($1, $2, $3, $4, $4, 1)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e18bee1820e94f7afe120deb967632a1838304dfd9afc3e264d0ed2e7b24d4e8"
+}

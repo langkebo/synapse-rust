@@ -2912,10 +2912,32 @@
 #   实测：`dynamic_production` 162 → **155**（−7）、`static` 1314 → **1321**（+7）、
 #   `dynamic` 总数 902 → **895**、`dynamic_test` 740 不变、`.sqlx` 1282 → **1289**（+7，无碰撞）、
 #   literal 91/26 → **84/23**。恒等式 `155 − 84 − 1 = 70` 成立。
+# ── 2026-09-29 C58（`url_preview_storage.rs` 3 处 + `schema_validator.rs` 3 处 +
+#    `oidc_user_mapping.rs` 3 处，三个文件生产区动态归零）────────────────────────────────
+#   · `url_preview_storage.rs`：`get_cached_preview` ⇒ `query_as!(UrlPreviewCache, …)`
+#     （11 列与 11 字段一一对应：六列可空 ⇒ `Option<String>`/`Option<i32>`，其余 NOT NULL ⇒ 非 `Option`）；
+#     `save_preview` ⇒ `query!` —— ⚠️ **R5**：六列可空 TEXT 必须 `.as_deref()` 把 `&Option<String>`
+#     变成 `Option<&str>`（宏的 `ty_match` 拒绝 `&Option<T>`，旧 `.bind()` 接受），两个
+#     `Option<i32>` 是 `Copy` 按值传；`cleanup_expired_previews` ⇒ `query!` + `rows_affected()`。
+#   · `schema_validator.rs`：两处 `SELECT COUNT(*) FROM information_schema.*` ⇒ `query_scalar!`，
+#     按 R4 ① 断言 `AS "count!"`（`COUNT(*)` 无关系来源；聚合在空集上也是 0 ⇒ 恒非空）；
+#     `validate_indexes` 的 `SELECT indexname FROM pg_indexes` ⇒ `query_scalar!` + `AS "indexname!"`
+#     —— PG **不把系统视图底层 `pg_class.relname`（`name NOT NULL`）的非空性透传**，实测
+#     prepare 报 E0308（`expected Result<Vec<String>>, found Result<Vec<Option<String>>>`），
+#     断言的理由就是 catalog 的来源列不可为 NULL。
+#   · `oidc_user_mapping.rs`：`get_bound_user_id` ⇒ `query_scalar!`（`user_id` NOT NULL ⇒
+#     `fetch_optional` 给 `Option<String>`）；`update_last_authenticated` / `insert_mapping` ⇒
+#     `query!`（原先是带 `\` 续行的普通字符串字面量，本次改写为 raw string，仍是编译期常量）。
+#     ⚠️ `insert_mapping` **有意保持普通 INSERT**（不是 upsert）：`(issuer, subject)` 唯一约束是
+#     并发/重复绑定的裁决者，既有用例 `insert_mapping_duplicate_issuer_subject_errors` 把
+#     "重复插入必须报错"钉成了契约 —— 转换不改变该语义（并发窗口的观察记在 §8.3 第 48 条）。
+#   实测：`dynamic_production` 155 → **146**（−9）、`static` 1321 → **1330**（+9）、
+#   `dynamic` 总数 902 → **886**、`dynamic_test` 740 不变、`.sqlx` 1289 → **1298**（+9，无碰撞）、
+#   literal 84/23 → **75/20**。恒等式 `146 − 75 − 1 = 70` 成立。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=155
+BASELINE_DYNAMIC_PRODUCTION=146
 BASELINE_DYNAMIC_TEST_INFRA=740
-BASELINE_STATIC=1321
+BASELINE_STATIC=1330
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 

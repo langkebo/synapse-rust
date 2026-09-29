@@ -1,4 +1,4 @@
-# SQLx 静态化：阶段总结与剩余工作（2026-09-23 启动 · 2026-09-29 C57 后）
+# SQLx 静态化：阶段总结与剩余工作（2026-09-23 启动 · 2026-09-29 C58 后）
 
 > **本文档只保留三样东西**：阶段总结（§0）、**仍存在的问题**（§7）、**优化方案**（§8）。
 > 已关闭缺陷的逐条明细与各批次执行记录（C1–C34 / W1–W5）在冻结快照
@@ -14,12 +14,12 @@
 
 | 指标 | 战役起点（2026-09-23） | 现在 | 变化 |
 |---|---|---|---|
-| `dynamic_production` | 1532（近似） | **155** | **−89.9%** |
-| `static` | 61 | **1321** | +1260 |
-| `dynamic`（总） | 2151 | **895** | −1256 |
-| 静态占比 | 2.76% | **59.6%**（1321 / 2216） | +56.8pp |
-| `.sqlx` 离线缓存 | 60 条 | **1289 条** | +1229 |
-| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **84 / 23** | −792 |
+| `dynamic_production` | 1532（近似） | **146** | **−90.5%** |
+| `static` | 61 | **1330** | +1269 |
+| `dynamic`（总） | 2151 | **886** | −1265 |
+| 静态占比 | 2.76% | **60.0%**（1330 / 2216） | +57.2pp |
+| `.sqlx` 离线缓存 | 60 条 | **1298 条** | +1238 |
+| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **75 / 20** | −801 |
 | `param` 传参（D-14 新棘轮，处 / 文件） | — | **1 / 1** | 新立棘轮（此前混在 `runtime`，两道棘轮都不管） |
 | `runtime` 残差 / `query_builder` | — | 70 / 13 文件 · **18**（已入计数棘轮） | — |
 
@@ -68,24 +68,26 @@
 > C57-0（先修 D-101 删零调用者 `get_full_event_json` + 补 cascade 覆盖）收到 **162 / 1314**
 > （生产动态 −1，literal 退到 **91/26**，测试区 740 不变）；C57（`event/cascade.rs` 1 处 +
 > `login_token.rs` 3 处 + `rate_limit.rs` 3 处）收到 **155 / 1321**
-> （`.sqlx` 1282 → 1289，literal 退到 **84/23**）。
+> （`.sqlx` 1282 → 1289，literal 退到 **84/23**）；C58（`url_preview_storage.rs` 3 处 +
+> `schema_validator.rs` 3 处 + `oidc_user_mapping.rs` 3 处）收到 **146 / 1330**
+> （`.sqlx` 1289 → 1298，literal 退到 **75/20**）。
 
 ### 0.2 残量结构（"还剩多少活"的准确说法）
 
 | 组成 | 处数 | 性质 |
 |---|---|---|
-| **可静态化残量** | **82** | **52 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
+| **可静态化残量** | **73** | **43 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
 | 测试基建（有意保留） | 57 | `synapse-test-utils/src/lib.rs` 28、`synapse-common/src/test_isolation.rs` 25、`test_schema_guard.rs` 4（各含 literal + runtime 两部分） |
 | 结构性保留（有意） | 16 | `synapse-storage/src/event/pagination.rs`（9 runtime 游标/排序方向 + 6 literal）+ `synapse-storage/src/monitoring.rs` 的 `pg_stat_statements` 慢查询 1（R7/D-96，宏在 prepare 阶段无法 describe 该可选扩展的关系） |
-| **合计** | **155** | = 82 + 57 + 16 |
+| **合计** | **146** | = 73 + 57 + 16 |
 
 > 本表口径**随批次滚动**，数字一律为当批实测（C44 时是 108 / 57 / 15 = 180；C53 把
 > monitoring 的 1 处从"可静态化"移入"结构性保留"，C54 把机械 literal 从 78 降到 73，
-> C55 降到 69，C56 降到 60，C57 再降到 52）。
+> C55 降到 69，C56 降到 60，C57 降到 52，C58 再降到 43）。
 > ⚠️ C57-0 当时只更新了缺陷登记（§0.4/§7.4/§8.3），本表与 §0.1/§8.1 的三处数字漏同步 ——
 > 本批（C57）一并订正为实测值（这正是 D-16 型"双份计数漂移"的又一次实例，记在这里以示警惕）。
 > 复算方式：`sqlx_query_census.py --list-production-dynamic` 的 `literal/param/runtime` 三分类，
-> 再按文件归入上表三类 —— 即 `155 = (52+29+1) + 57 + 16`。
+> 再按文件归入上表三类 —— 即 `146 = (43+29+1) + 57 + 16`。
 
 ### 0.3 复现（唯一入口，勿手工数）
 
@@ -259,18 +261,15 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 ## 8. 优化方案
 
-### 8.1 剩余可静态化清单（按实测，2026-09-29 C57 后）
+### 8.1 剩余可静态化清单（按实测，2026-09-29 C58 后）
 
-**可转换残量 82 处** = **52 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
+**可转换残量 73 处** = **43 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
 加 **1 处跨函数传参（`param`）**。下表列出**尚未归零**的 literal 文件（表内数字是**可机械转换**
 的站点数；纯 `runtime` 文件见下方结构性清单）：
 
 | 文件 | 处数 | 门控 | 备注 |
 |---|---|---|---|
 | `synapse-storage/src/admin_media.rs` | 15 | — | U-5 残量**已在 `a13f57316` 计入基线冻结**；是否回收属该批次后续决定，不是本计划的机械项 |
-| `synapse-storage/src/url_preview_storage.rs` | 3 | — | |
-| `synapse-storage/src/schema_validator.rs` | 3 | — | |
-| `synapse-storage/src/oidc_user_mapping.rs` | 3 | — | |
 | `synapse-storage/src/maintenance.rs` | 3 | — | 与同文件 2 处 runtime 并存（后者属 D-14） |
 | `synapse-federation/src/device_sync.rs` | 3 | — | |
 | `synapse-federation/src/dead_letter_queue.rs` | 3 | — | |
@@ -282,13 +281,13 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 | `src/server/mod.rs` | 2 | — | |
 | `src/server/database.rs` / `synapse-common/src/health.rs` / `synapse-storage/src/presence/mod.rs` / `room/models.rs` / `user/storage.rs` | 各 1 | — | 余下 5 个单处文件 |
 
-> 上表合计 = **52 处**（= 84 literal 实测 − 结构性 32），与 §0.2 的"52 处字面量"一致；
+> 上表合计 = **43 处**（= 75 literal 实测 − 结构性 32），与 §0.2 的"43 处字面量"一致；
 > 逐文件权威清单是基线文件 `scripts/ci/sqlx_literal_production_baseline`，本表只是可读性摘要。
 
 > 结构上**不在此表**的三类（有意保留，合计 32 处 literal）：测试基建 25
 > （`test-utils/src/lib.rs` 14 + `test_isolation.rs` 9 + `test_schema_guard.rs` 2）、
 > `event/pagination.rs` 6、`monitoring.rs` 的 `pg_stat_statements` 1（R7/D-96）。
-> 52 = 84（literal 实测）− 32。
+> 43 = 75（literal 实测）− 32。
 
 > **已归零退表的文件**（本表不再列；数字是退表时的 literal 处数）：`synapse-e2ee/src/backup/service.rs`(4)、
 > `synapse-storage/src/audit.rs`(4)、`synapse-storage/src/schema_health_check.rs`(4) 由 **C44** 归零
@@ -1392,10 +1391,41 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
    验证：`-p synapse-storage --lib --features test-utils -E 'test(/login_token|rate_limit|find_related_events|cascade/)'`
    ⇒ 全绿（转换后**穿过新宏**跑真 baseline）；其余门禁见提交信息。
 
+48. ✅ **C58（`url_preview_storage.rs` 3 处 + `schema_validator.rs` 3 处 + `oidc_user_mapping.rs` 3 处 = 9 处宏化，三文件生产区动态归零）已完成（2026-09-29）** ——
+   三个文件的覆盖本就齐备（`url_preview_storage` 7 条、`schema_validator` 22 条、
+   `oidc_user_mapping` 4 条真基线用例）⇒ **本批无 C58 侧先修**。按形状转换，本批有两处
+   **新的实测教训**值得记下：
+   - `url_preview_storage.rs`：`get_cached_preview` ⇒ `query_as!(UrlPreviewCache, …)`（11 列与
+     11 字段一一对应）；`save_preview` ⇒ `query!` —— ⚠️ **R5 的典型现场**：六列可空 `TEXT`
+     必须 `.as_deref()` 把 `&Option<String>`（旧 `.bind()` 接受）变成 `Option<&str>`（宏的
+     `ty_match` 拒绝 `&Option<T>`），两个 `Option<i32>` 是 `Copy` 可直接按值传；
+     `cleanup_expired_previews` ⇒ `query!` + `rows_affected()`。
+   - `schema_validator.rs`：两处 `SELECT COUNT(*) FROM information_schema.*` ⇒ `query_scalar!`
+     并断言 `AS "count!"`（R4 ①：`COUNT(*)` 无关系来源，聚合在空集上也是 0 ⇒ 恒非空）；
+     `validate_indexes` 的 `SELECT indexname FROM pg_indexes` 第一次**不加断言时 prepare 直接
+     失败**：`expected Result<Vec<String>>, found Result<Vec<Option<String>>>`（E0308）——
+     因为 PG **不把系统视图底层 `pg_class.relname`（`name`，catalog 的 NOT NULL 列）的非空性
+     透传到视图列**。这是 R4 之外的一条具体判据：**系统视图（`pg_indexes`/`information_schema`）
+     的输出列默认按可空推断**，断言理由要写清来源列。
+   - `oidc_user_mapping.rs`：`get_bound_user_id` ⇒ `query_scalar!`（`user_id` NOT NULL ⇒
+     `fetch_optional` 给 `Option<String>`）；`update_last_authenticated`/`insert_mapping` ⇒
+     `query!`（原先用带 `\` 续行的普通字符串字面量，本次改写为 raw string —— 仍是编译期常量）。
+     ⚠️ **观察（未改语义，留待 OIDC 拥有者）**：`insert_mapping` 是普通 `INSERT` 而非 upsert，
+     路由（`synapse-web/src/routes/oidc/{sso,provider}.rs`）走"先 `get_bound_user_id` ⇒ 再插入"，
+     并发同 `(issuer, subject)` 首登会撞唯一约束并把第二个请求变成 500；但既有用例
+     `insert_mapping_duplicate_issuer_subject_errors` 把"重复插入必须报错"钉成了**契约** ⇒
+     属产品语义决策（改成 `ON CONFLICT … DO UPDATE SET last_authenticated_ts` 会把该用例作废），
+     转换批**不擅自改**。
+   实测：`dynamic_production` 155 → **146**（−9）、`static` 1321 → **1330**（+9）、
+   `dynamic` 总数 902 → **886**、`dynamic_test` 740 不变、`.sqlx` 1289 → **1298**（+9，无碰撞）、
+   literal 84/23 → **75/20**（三文件退 literal 表）；恒等式 `146 − 75 − 1 = 70` 成立。
+   验证：`-p synapse-storage --lib --features test-utils -E 'test(/url_preview|schema_validator|oidc_user_mapping)/'`
+   ⇒ 全绿（转换后**穿过新宏**跑真 baseline）；其余门禁见提交信息。
+
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 
-- `dynamic_production` 的**可机械转换部分（literal）归零**：155 → **102**
-  （155 − 52 literal − 1 param = 102 = 测试基建 57 + 结构性保留 16（分页 15 + monitoring R7 1）
+- `dynamic_production` 的**可机械转换部分（literal）归零**：146 → **102**
+  （146 − 43 literal − 1 param = 102 = 测试基建 57 + 结构性保留 16（分页 15 + monitoring R7 1）
   + **D-14 结构性 29**），
   或每个残留都有 §7.3 那样的登记条目；
 - literal 逐文件表只剩 5 类（3 个测试基建文件 + `event/pagination.rs` + `monitoring.rs` 的
