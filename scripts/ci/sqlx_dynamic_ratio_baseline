@@ -2709,10 +2709,24 @@
 #   `dynamic` 总数 940 → **936**、`dynamic_test` 732 不变、`.sqlx` 1239 → **1243**（+4）、
 #   literal 137/35 → **133/34**（该文件退表）。恒等式 `204 − 133 − 1 = 70` 仍成立。
 #   验证：`-p synapse-storage --lib --features test-utils -E 'test(/room_account_data/)'` ⇒ 11/11。
+# ── 2026-09-28 C50（`call_session.rs` 7 处宏化，本文件生产区动态归零）───────────────────
+#   本批是**门控批**（`#[cfg(feature = "voip-tracking")] pub mod call_session;`，
+#   已在 `scripts/ci/gated_module_test_matrix:41` 登记 ⇒ 其 10 条 db_tests 在 CI 上确实执行）；
+#   覆盖与调用者都无缺口（8 个方法全有生产调用者，10 条真基线 db_tests）⇒ 无 C50-0，单批转换：
+#   · `create_session` 的 `INSERT ... RETURNING *` ⇒ `query_as!`：**R3 要求把星号展开成显式列清单**
+#     （12 列与 `CallSession` 字段一一对应）；`callee_id`/`offer_sdp` 是 `Option<String>`
+#     ⇒ R5 `.as_deref()`；
+#   · `get_session` / `get_candidates` 的 12 / 6 列投影 ⇒ `query_as!`；
+#   · `update_state` / `set_answer` / `add_candidate` / `cleanup_expired` 四条无结果列语句
+#     ⇒ `query!` + `.execute()`（R6 ①；`cleanup_expired` 保留 `rows_affected()` 语义）。
+#   实测：`dynamic_production` 204 → **197**（−7）、`static` 1275 → **1282**（+7）、
+#   `dynamic` 总数 936 → **929**、`dynamic_test` 732 不变、`.sqlx` 1243 → **1250**（+7）、
+#   literal 133/34 → **126/33**（该文件退表）。恒等式 `197 − 126 − 1 = 70` 仍成立。
+#   验证：`-p synapse-storage --lib --all-features -E 'test(/call_session/)'` ⇒ 10/10。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=204
+BASELINE_DYNAMIC_PRODUCTION=197
 BASELINE_DYNAMIC_TEST_INFRA=732
-BASELINE_STATIC=1275
+BASELINE_STATIC=1282
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 
