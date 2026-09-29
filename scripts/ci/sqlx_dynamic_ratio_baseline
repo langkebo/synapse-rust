@@ -2697,10 +2697,22 @@
 #   `.sqlx` 1237 → **1239**（+2）、literal 140/35 → **137/35**。
 #   验证：`-p synapse-storage --lib --features test-utils -E 'test(/room_account_data/)'` ⇒ **11/11**
 #   （含同表的 sliding_sync 两条）。
+# ── 2026-09-28 C49（`room_account_data.rs` 4 处宏化，本文件生产区动态归零）───────────────
+#   C49-0 之后剩 4 处：
+#   · `list_room_account_data` / `list_room_account_data_batch` 的
+#     `query_as::<_, RoomAccountDataRecord>` ⇒ `query_as!`（投影 `data AS content` 与结构体字段
+#     `content` 同名 —— R6 ⑤ 要求一一对应；后者 `room_id = ANY($2)` 的 `&[String]` 直传）；
+#   · `upsert_room_account_data` 的 `INSERT ... ON CONFLICT ... DO UPDATE` ⇒ `query!` + `.execute()`
+#     （无结果列，R6 ①）；
+#   · `delete_room_account_data` 的 `DELETE` ⇒ `query!` + `.execute()`（保留 `rows_affected()` 语义）。
+#   实测：`dynamic_production` 208 → **204**（−4）、`static` 1271 → **1275**（+4）、
+#   `dynamic` 总数 940 → **936**、`dynamic_test` 732 不变、`.sqlx` 1239 → **1243**（+4）、
+#   literal 137/35 → **133/34**（该文件退表）。恒等式 `204 − 133 − 1 = 70` 仍成立。
+#   验证：`-p synapse-storage --lib --features test-utils -E 'test(/room_account_data/)'` ⇒ 11/11。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=208
+BASELINE_DYNAMIC_PRODUCTION=204
 BASELINE_DYNAMIC_TEST_INFRA=732
-BASELINE_STATIC=1271
+BASELINE_STATIC=1275
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 
