@@ -1,0 +1,178 @@
+# =============================================================================
+# Synapse-A 实例配置 (Federation Test with TLS) — 独立完整栈（不 include 主 compose）
+# =============================================================================
+# 为什么独立而非 include ../docker-compose.yml：
+#   include 会让 synapse-rust 同时挂上主 compose 的 synapse_network 与本文件的
+#   federation_test_net_a，多网络下 Tokio 异步 DNS 解析 `db` 失败
+#   （`failed to lookup address information: Name or service not known`）。
+#   独立栈把网络完全交给本文件控制，避免该合并缺陷。
+# =============================================================================
+
+services:
+  synapse-rust:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+      target: tools
+      args:
+        CARGO_FEATURE_ARGS: --features core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends --no-default-features
+        CARGO_BUILD_JOBS: "2"
+    image: ${SYNAPSE_IMAGE:-synapse-rust}:${SYNAPSE_IMAGE_TAG:-latest}
+    container_name: synapse-federation-a
+    restart: unless-stopped
+    ports:
+      # Client-Server API (HTTP, for testing only)
+      - "127.0.0.1:18008:8008"
+      # 联邦端口 18448 改由 nginx 边车暴露（TLS），应用自身只在容器内提供明文 8448。
+    env_file:
+      - .env.a
+    environment:
+      SYNAPSE_CONFIG_PATH: /app/config/homeserver.yaml
+      RATE_LIMIT_CONFIG_PATH: /app/config/rate_limit.yaml
+      DB_USER: ${DB_USER:-synapse}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+      DB_NAME: ${DB_NAME:-synapse}
+      DATABASE_URL: postgres://${DB_USER:-synapse}:${DB_PASSWORD:?DB_PASSWORD must be set}@db:5432/${DB_NAME:-synapse}
+      # 应用运行期**不读** DATABASE_URL：`Config::database_url()` 由 homeserver.yaml 的
+      # `database.host` 拼出，而该值是为 deploy 栈（服务名 postgres）写的。本栈服务名是
+      # `db`，若不覆盖，Tokio 会去解析 `postgres` → NXDOMAIN，启动即挂
+      # （`failed to lookup address information: Name or service not known`）。
+      # 用配置库的标准覆盖机制 SYNAPSE__DATABASE__HOST 覆盖，不改共享的 homeserver.yaml。
+      SYNAPSE__DATABASE__HOST: "db"
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379
+      RUN_MIGRATIONS: "true"
+      VERIFY_SCHEMA: "true"
+      STOP_ON_MIGRATION_FAILURE: "true"
+      SYNAPSE_SKIP_SCHEMA_CHECK: "false"
+      TOKEN_HASH_SECRET: ${TOKEN_HASH_SECRET:?TOKEN_HASH_SECRET must be set (>=32 bytes)}
+      RUST_LOG: ${RUST_LOG:-info}
+      TZ: ${TZ:-Asia/Shanghai}
+      # ── Server Identity (MUST match certificate CN/SAN) ──
+      SERVER_NAME: "synapse-a.federation.test"
+      PUBLIC_BASEURL: "https://synapse-a.federation.test:18448"
+      # ── Federation ──
+      # 出站联邦请求由 `FederationClient::build_url` 硬编码为 https，而应用自身
+      # **没有 TLS 监听**（原先这里的 TLS_ENABLED / TLS_CERT_PATH / TRUST_ALL_CERTS /
+      # DISABLE_FEDERATION_DNS_CHECK 等键没有任何 Rust 代码读取，全是死变量）。
+      # 因此 8448 上的 TLS 由 nginx 边车终结：见文件末尾的 nginx 服务与
+      # nginx/federation.conf.template。
+      #
+      # 应用真正读取的配置（经 SYNAPSE__ 覆盖机制）：
+      #   两个实例位于 Docker 私网 192.168.x.x，密钥抓取路径的 SSRF 解析会拒绝
+      #   私网地址，测试环境必须显式跳过。
+      SYNAPSE__FEDERATION__SKIP_SSRF_CHECK: "true"
+      # 出站客户端是 reqwest + native-tls（OpenSSL），靠 SSL_CERT_FILE 才能信任
+      # 测试自签 CA，否则握手会因证书链校验失败。
+      SSL_CERT_FILE: "/app/certs/ca.crt"
+      # ── E2EE ──
+      ENABLE_E2EE: "true"
+      ENABLE_MEDIA_ENCRYPTION: "true"
+    volumes:
+      - ../data/a:/app/data
+      - ../config:/app/config:ro
+      - ./certs:/app/certs:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/app/healthcheck"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - federation_test_net_a
+      - federation_test_net_shared
+
+  # ===========================================================================
+  # 联邦 8448 的 TLS 终结边车
+  # ===========================================================================
+  # 对端按 server_name（synapse-a.federation.test）寻址并强制 https，而应用只
+  # 提供明文 8448。因此把 server_name 的 DNS 别名挂在本 nginx 上，由它终结 TLS
+  # 后回源到应用的明文 8448。别名必须独占，故不再挂在 synapse-rust 服务上。
+  nginx:
+    image: nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+    container_name: synapse-federation-a-nginx
+    restart: unless-stopped
+    ports:
+      # 宿主侧可直接用 TLS 验证联邦端口：curl -k https://localhost:18448/...
+      - "127.0.0.1:18448:8448"
+    environment:
+      SERVER_NAME: "synapse-a.federation.test"
+      TLS_CERT: "/etc/nginx/certs/synapse-a.crt"
+      TLS_KEY: "/etc/nginx/certs/synapse-a.key"
+      UPSTREAM: "synapse-rust:8448"
+    volumes:
+      - ./nginx/federation.conf.template:/etc/nginx/templates/federation.conf.template:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - synapse-rust
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8448 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      federation_test_net_a:
+      federation_test_net_shared:
+        aliases:
+          - synapse-a.federation.test
+
+  db:
+    image: postgres:16-alpine@sha256:3c5c8892d184f738f4fe282d14ddaa613a38f00f4189d2d94725ebe6f2909ddb
+    container_name: synapse-federation-a-db
+    restart: unless-stopped
+    shm_size: "256m"
+    environment:
+      POSTGRES_USER: ${DB_USER:-synapse}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+      POSTGRES_DB: ${DB_NAME:-synapse}
+      POSTGRES_INITDB_ARGS: --encoding=UTF-8 --lc-collate=C --lc-ctype=C
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - postgres_data_a:/var/lib/postgresql/data
+      - ../config/postgres.conf:/etc/postgresql/postgresql.conf
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\" && PGPASSWORD=\"$${POSTGRES_PASSWORD}\" psql -h 127.0.0.1 -p 5432 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\" -tAc 'SELECT 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - federation_test_net_a
+
+  redis:
+    image: redis:7-alpine@sha256:520775a41a63e77e06c73e35d2fd9cc15921a609516818796b4ecbb813078bc7
+    container_name: synapse-federation-a-redis
+    restart: unless-stopped
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+    command: >
+      redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set} --appendonly yes
+    volumes:
+      - redis_data_a:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - federation_test_net_a
+
+networks:
+  federation_test_net_a:
+    name: federation_test_net_a
+    driver: bridge
+  federation_test_net_shared:
+    name: federation_test_net_shared
+    driver: bridge
+
+volumes:
+  postgres_data_a:
+    driver: local
+  redis_data_a:
+    driver: local

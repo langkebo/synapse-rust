@@ -1,0 +1,59 @@
+# =============================================================================
+# 联邦测试 — 8448 TLS 终结点
+# =============================================================================
+# 为什么需要这一层：
+#   synapse-rust 应用**不提供 TLS 监听**（compose 里那些 TLS_ENABLED /
+#   TLS_CERT_PATH 环境变量没有任何 Rust 代码读取），但它的出站联邦客户端
+#   (`FederationClient::build_url`) 硬编码 `https://`。因此两个实例之间要真正
+#   按 Matrix 协议互通，就必须在应用前面放一个 TLS 终结代理 —— 与生产栈
+#   `docker/deploy/nginx/conf.d/federation.conf` 同一模式。
+#
+# 本文件由 nginx 镜像的 /docker-entrypoint.d/20-envsubst-on-templates.sh 渲染，
+# 仅替换环境里存在的变量（SERVER_NAME / TLS_CERT / TLS_KEY / UPSTREAM），
+# nginx 自身的 $host、$remote_addr 等保持原样。
+# =============================================================================
+
+server {
+    listen 8448 ssl;
+    server_name ${SERVER_NAME};
+
+    ssl_certificate     ${TLS_CERT};
+    ssl_certificate_key ${TLS_KEY};
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    location /_matrix/federation {
+        proxy_pass http://${UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
+        proxy_set_header Connection "";
+
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+        client_max_body_size 50M;
+    }
+
+    location /_matrix/key {
+        proxy_pass http://${UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
+        proxy_set_header Connection "";
+    }
+
+    location / {
+        return 404;
+    }
+}
