@@ -3144,12 +3144,28 @@
 #   **R11 变异自证**：把 `cursor_op` 的 `>`/`<` 互换（只改 `format!` 实参、**不改 SQL 字面量**
 #   ⇒ 离线宏缓存仍然有效，无需 `SQLX_OFFLINE=false`），用例在分支 ② 立刻红
 #   （`left: []` vs `right: 三个 user_id`）；还原后绿。
+# ── 2026-09-29 C67（接线 POST /publicRooms 的 `filter.generic_search_term`，关闭 D-108）──────
+#   D-108 的裁定选了 ①（接线而非删除）：`search_room_directory` 从"零调用者"变为路由背后的
+#   唯一实现。本批**不改**任何动态站点，只是新增静态查询与端到端用例：
+#   · 新增 `RoomStorage::count_public_rooms_matching`（`query_scalar!`）⇒ `static` +1；
+#   · `search_room_directory` 的谓词补上 `canonical_alias`（spec 的 generic_search_term 覆盖
+#     name / topic / canonical alias）⇒ 该查询**文本变了**，`.sqlx` 旧条目被同义替换（-1/+1，
+#     条数不变）；
+#   · 新增端到端用例 `tests/integration/api_public_rooms_tests.rs`（测试区动态 SQL：INSERT 夹具
+#     + COUNT 期望值）⇒ `dynamic_test` **+1（实测）**；基线以实测为准。
+#   实测：`dynamic_production` 103（不变）、`static` 1361 → **1362**（+1）、
+#   `dynamic_test` 754 → **755**（+1）、`.sqlx` 1327 → **1328**（+1）、literal 36/8 不变、
+#   `query_builder` 18 不变。恒等式 `103 − 36 − 0 = 67` 仍成立。
+#   **R11 变异自证**：把路由里 `search_term` 的 `.filter(|term| !term.is_empty())` 改成
+#   `.filter(|_| false)`（等于退回 D-108 的"静默忽略"）⇒ 集成用例立刻红并打印
+#   `搜索不得返回不匹配的房间（filter 未被忽略的证据）：["!pub_other_…", "!pub_match_…"]`；
+#   还原后绿。
 BASELINE_QUERY_BUILDER=18
 BASELINE_DYNAMIC_PRODUCTION=103
-BASELINE_DYNAMIC_TEST_INFRA=754
-BASELINE_STATIC=1361
+BASELINE_DYNAMIC_TEST_INFRA=755
+BASELINE_STATIC=1362
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=857
+BASELINE_DYNAMIC=858
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
