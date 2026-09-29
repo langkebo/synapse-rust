@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE media_metadata\n            SET quarantine_status = NULL\n            WHERE media_id = $1\n              AND quarantine_status = 'protected'\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "575ffbd3a37b8178ee5296553d3a8defcf3f07477ea5320c4ff259e6cc9ce182"
+}

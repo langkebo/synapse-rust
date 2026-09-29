@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE(SUM(size), 0)::BIGINT AS \"total_size!\" FROM media_metadata",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total_size!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "e4aa618764f8c9c006b21c2373d801e5bfcc2a83e63acff6e685ae5adea5f241"
+}

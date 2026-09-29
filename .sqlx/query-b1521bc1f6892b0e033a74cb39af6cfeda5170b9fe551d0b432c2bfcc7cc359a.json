@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) AS \"count!\" FROM room_events WHERE room_id = $1 AND content->>'url' LIKE 'mxc://%%' AND SPLIT_PART(SUBSTRING(content->>'url' FROM 7), '/', 2) = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "b1521bc1f6892b0e033a74cb39af6cfeda5170b9fe551d0b432c2bfcc7cc359a"
+}

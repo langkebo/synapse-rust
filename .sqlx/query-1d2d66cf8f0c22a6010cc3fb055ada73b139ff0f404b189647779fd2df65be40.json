@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM media_metadata\n            WHERE (last_accessed_at IS NULL OR last_accessed_at < $1)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1d2d66cf8f0c22a6010cc3fb055ada73b139ff0f404b189647779fd2df65be40"
+}

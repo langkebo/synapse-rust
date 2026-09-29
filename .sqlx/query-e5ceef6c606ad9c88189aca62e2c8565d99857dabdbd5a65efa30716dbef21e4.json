@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO media_metadata\n                (media_id, server_name, content_type, file_name, size, uploader_user_id, created_ts,\n                 content_hash, quarantine_status)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n            ON CONFLICT (media_id) DO UPDATE\n            SET content_type = EXCLUDED.content_type,\n                file_name = EXCLUDED.file_name,\n                size = EXCLUDED.size,\n                content_hash = COALESCE(EXCLUDED.content_hash, media_metadata.content_hash),\n                quarantine_status = COALESCE(EXCLUDED.quarantine_status, media_metadata.quarantine_status)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e5ceef6c606ad9c88189aca62e2c8565d99857dabdbd5a65efa30716dbef21e4"
+}
