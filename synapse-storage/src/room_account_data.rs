@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::Row;
 use std::sync::Arc;
 use synapse_common::ApiError;
 
@@ -22,13 +21,6 @@ pub trait RoomAccountDataStoreApi: Send + Sync {
         room_id: &str,
         data_type: &str,
     ) -> Result<Option<(serde_json::Value, Option<i64>)>, ApiError>;
-    /// See [`get_room_account_data`].
-    async fn get_room_account_data(
-        &self,
-        user_id: &str,
-        room_id: &str,
-        data_type: &str,
-    ) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error>;
     /// See [`list_room_account_data`].
     async fn list_room_account_data(
         &self,
@@ -41,12 +33,6 @@ pub trait RoomAccountDataStoreApi: Send + Sync {
         user_id: &str,
         room_ids: &[String],
     ) -> Result<Vec<RoomAccountDataRecord>, ApiError>;
-    /// See [`get_room_vault_data`].
-    async fn get_room_vault_data(
-        &self,
-        user_id: &str,
-        room_id: &str,
-    ) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error>;
     /// See [`upsert_room_account_data`].
     async fn upsert_room_account_data(
         &self,
@@ -89,11 +75,22 @@ impl RoomAccountDataStorage {
         room_id: &str,
         data_type: &str,
     ) -> Result<Option<Value>, ApiError> {
-        let row = self
-            .get_room_account_data(user_id, room_id, data_type)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
-        Ok(row.map(|row| row.get::<Value, _>("data")))
+        // D-93（先修）：原先这里转手调用 `get_room_account_data()`，而那个方法（以及 trait 里的
+        // 同名条目）把 `sqlx::postgres::PgRow` 直接暴露成**公共 API** —— 存储层的行类型泄漏到
+        // 服务/路由层，mock 也只能 `unimplemented!()`（它的报错信息自己写着
+        // "use get_room_account_data_content"）。该 raw-row 方法全仓**无外部调用者**
+        // ⇒ 删除，查询内联到这里并直接用宏（R1：新写的 SQL 一律静态化）。
+        // `data` 是 `JSONB NOT NULL` ⇒ `query_scalar!` 的 `fetch_optional` 正好给 `Option<Value>`。
+        let content = sqlx::query_scalar!(
+            r#"SELECT data FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3"#,
+            user_id,
+            room_id,
+            data_type
+        )
+        .fetch_optional(self.pool.as_ref())
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
+        Ok(content)
     }
 
     /// See [`get_room_account_data_with_ts`].
@@ -103,36 +100,22 @@ impl RoomAccountDataStorage {
         room_id: &str,
         data_type: &str,
     ) -> Result<Option<(Value, Option<i64>)>, ApiError> {
-        let row = sqlx::query(
-            "SELECT data, updated_ts FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3",
+        // D-93 家族（**吞错**，D-33/D-72 同型）：原先
+        // `row.try_get::<Option<i64>, _>("updated_ts").ok().flatten()` 把解码失败静默变成 `None`，
+        // 与"该列本就是 NULL"不可区分（而 schema 里 `updated_ts` 是 `BIGINT NOT NULL`）。
+        // 改成宏后列类型由真 catalog 定型 —— 可空性在编译期钉死，运行期不再有这条吞错路径。
+        // 返回值仍是 `Option<i64>`（`Some(ts)`），与原先"成功解码"的行为逐字一致。
+        let row = sqlx::query!(
+            r#"SELECT data, updated_ts FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3"#,
+            user_id,
+            room_id,
+            data_type
         )
-        .bind(user_id)
-        .bind(room_id)
-        .bind(data_type)
         .fetch_optional(self.pool.as_ref())
         .await
         .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
-        Ok(row.map(|row| {
-            let data = row.get::<Value, _>("data");
-            let updated_ts = row.try_get::<Option<i64>, _>("updated_ts").ok().flatten();
-            (data, updated_ts)
-        }))
-    }
-
-    /// See [`get_room_account_data`].
-    pub async fn get_room_account_data(
-        &self,
-        user_id: &str,
-        room_id: &str,
-        data_type: &str,
-    ) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error> {
-        sqlx::query("SELECT data FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3")
-            .bind(user_id)
-            .bind(room_id)
-            .bind(data_type)
-            .fetch_optional(self.pool.as_ref())
-            .await
+        Ok(row.map(|row| (row.data, Some(row.updated_ts))))
     }
 
     /// See [`list_room_account_data`].
@@ -175,22 +158,6 @@ impl RoomAccountDataStorage {
         .fetch_all(self.pool.as_ref())
         .await
         .map_err(|e| ApiError::internal_with_cause("Database error", e))
-    }
-
-    /// See [`get_room_vault_data`].
-    pub async fn get_room_vault_data(
-        &self,
-        user_id: &str,
-        room_id: &str,
-    ) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error> {
-        sqlx::query(
-            "SELECT data, updated_ts FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3",
-        )
-        .bind(user_id)
-        .bind(room_id)
-        .bind("m.room.vault_data")
-        .fetch_optional(self.pool.as_ref())
-        .await
     }
 
     /// See [`upsert_room_account_data`].
@@ -257,15 +224,6 @@ impl RoomAccountDataStoreApi for RoomAccountDataStorage {
         self.get_room_account_data_with_ts(user_id, room_id, data_type).await
     }
 
-    async fn get_room_account_data(
-        &self,
-        user_id: &str,
-        room_id: &str,
-        data_type: &str,
-    ) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error> {
-        self.get_room_account_data(user_id, room_id, data_type).await
-    }
-
     async fn list_room_account_data(
         &self,
         user_id: &str,
@@ -280,14 +238,6 @@ impl RoomAccountDataStoreApi for RoomAccountDataStorage {
         room_ids: &[String],
     ) -> Result<Vec<RoomAccountDataRecord>, ApiError> {
         self.list_room_account_data_batch(user_id, room_ids).await
-    }
-
-    async fn get_room_vault_data(
-        &self,
-        user_id: &str,
-        room_id: &str,
-    ) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error> {
-        self.get_room_vault_data(user_id, room_id).await
     }
 
     async fn upsert_room_account_data(
@@ -386,13 +336,11 @@ mod db_tests {
             .await
             .expect("upsert should succeed");
 
-        let row = storage
-            .get_room_account_data(&user_id, &room_id, "test.type")
+        let stored = storage
+            .get_room_account_data_content(&user_id, &room_id, "test.type")
             .await
             .expect("get should succeed")
             .expect("row should exist");
-
-        let stored: serde_json::Value = row.get("data");
         assert_eq!(stored, data);
 
         cleanup_room_account_data(&pool, &user_id, &room_id).await;

@@ -14,12 +14,12 @@
 
 | 指标 | 战役起点（2026-09-23） | 现在 | 变化 |
 |---|---|---|---|
-| `dynamic_production` | 1532（近似） | **211** | **−86.2%** |
-| `static` | 61 | **1269** | +1208 |
-| `dynamic`（总） | 2151 | **943** | −1208 |
-| 静态占比 | 2.76% | **57.4%**（1269 / 2211） | +54.6pp |
-| `.sqlx` 离线缓存 | 60 条 | **1237 条** | +1177 |
-| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **140 / 35** | −736 |
+| `dynamic_production` | 1532（近似） | **208** | **−86.4%** |
+| `static` | 61 | **1271** | +1210 |
+| `dynamic`（总） | 2151 | **940** | −1211 |
+| 静态占比 | 2.76% | **57.6%**（1271 / 2208） | +54.8pp |
+| `.sqlx` 离线缓存 | 60 条 | **1239 条** | +1179 |
+| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **137 / 35** | −739 |
 | `param` 传参（D-14 新棘轮，处 / 文件） | — | **1 / 1** | 新立棘轮（此前混在 `runtime`，两道棘轮都不管） |
 | `runtime` 残差 / `query_builder` | — | 70 / 13 文件 · **18**（已入计数棘轮） | — |
 
@@ -44,16 +44,18 @@
 > （`.sqlx` 1226 → 1232，literal 退到 148/36，`delayed_events.rs` 生产区动态归零）；
 > C48-0（先修：删 3 个零调用者方法 + 把 R9 违规用例改成真基线覆盖）收到 **216 / 1264**
 > （`.sqlx` 不变 1232，literal 退到 145/36，测试区 733 → 732）；C48（5 处宏化）收到
-> **211 / 1269**（`.sqlx` 1232 → 1237，literal 退到 140/35，该文件生产区动态归零）。
+> **211 / 1269**（`.sqlx` 1232 → 1237，literal 退到 140/35，该文件生产区动态归零）；
+> C49-0（先修 D-93：消 2 处 `PgRow` 泄漏 + 1 处吞错）收到 **208 / 1271**
+> （`.sqlx` 1237 → 1239，literal 退到 137/35）。
 
 ### 0.2 残量结构（"还剩多少活"的准确说法）
 
 | 组成 | 处数 | 性质 |
 |---|---|---|
-| **可静态化残量** | **139** | **109 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
+| **可静态化残量** | **136** | **106 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
 | 测试基建（有意保留） | 57 | `synapse-test-utils/src/lib.rs` 28、`synapse-common/src/test_isolation.rs` 25、`test_schema_guard.rs` 4 |
 | 结构性保留（有意） | 15 | `synapse-storage/src/event/pagination.rs`（9 runtime 游标/排序方向 + 6 literal） |
-| **合计** | **211** | = 139 + 57 + 15 |
+| **合计** | **208** | = 136 + 57 + 15 |
 
 ### 0.3 复现（唯一入口，勿手工数）
 
@@ -220,14 +222,14 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 ### 8.1 剩余可静态化清单（按实测，2026-09-26 C44 后）
 
-**可转换残量 139 处** = **109 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
+**可转换残量 136 处** = **106 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
 加 **1 处跨函数传参（`param`）**。下表按**字面量**处数排前 7（表内数字是**可机械转换**的站点数；
 纯 `runtime` 文件见下方结构性清单）：
 
 | 文件 | 处数 | 门控 | 备注 |
 |---|---|---|---|
 | `synapse-storage/src/call_session.rs` | 7 | `voip-tracking` | 门控（见 `gated_module_test_matrix`）⇒ 单列一批更省来回 |
-| `synapse-storage/src/room_account_data.rs` | 7 | — | ⚠️ **需先修**：2 处 `PgRow` 泄漏（`get_room_account_data` / `get_room_vault_data` 返回 `Option<PgRow>`）+ 1 处 `.ok().flatten()` 吞错 |
+| `synapse-storage/src/room_account_data.rs` | 4 | — | C49-0 已按 D-93 删掉两处 raw-`PgRow` 方法（`get_room_account_data` 无外部调用者、`get_room_vault_data` 零调用者）并把 `with_ts` 的 `.ok().flatten()` 吞错改宏 ⇒ 剩余 4 处由 C49 转换 |
 | `synapse-storage/src/media/quarantine_stream.rs` | 6 | — | 与 `pruning` 同域（保留期流）；⚠️ 需先核覆盖（仅 1 条用例） |
 | `synapse-storage/src/monitoring.rs` | 6 | — | 单表模块（监控采样）；⚠️ 需先补覆盖（无 in-file 测试） |
 | `synapse-storage/src/event/search.rs` | 6 | — | `event/` 同域；⚠️ 需先补覆盖（无 in-file db_tests，但 34 个集成文件引用） |
@@ -991,10 +993,35 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
    `claim_used_token` 的"取走即物理删除 + 不可重放"、`cleanup_expired_tokens` 只清过期行
    都由断言钉住。
 
+33. ✅ **C49-0（先修 D-93：消 2 处 `PgRow` 泄漏 + 1 处吞错）已完成（2026-09-28）** ——
+   为 C49（`synapse-storage/src/room_account_data.rs`）扫清前置：
+   - **D-93（存储层把行类型暴露成公共 API）**：trait + impl + 委托 + mock 四处的
+     `get_room_account_data(...) -> Result<Option<PgRow>, _>` 与
+     `get_room_vault_data(...) -> Result<Option<PgRow>, _>` 把 `sqlx::postgres::PgRow` 直接
+     暴露给服务/路由层；**mock 里两者都是 `unimplemented!()`**，报错信息自己写着
+     "use get_room_account_data_content" —— 代码本身已承认这是不可用的接缝。
+     实测调用者：`get_room_account_data` 全仓**无外部调用者**（唯一消费者是本文件的
+     `get_room_account_data_content`；`sliding_sync_service/extensions.rs` 那条同名调用是
+     **另一个** 2 参数方法）；`get_room_vault_data` **零调用者**（路由里的同名
+     `get_room_vault_data` 是 **web handler**，取数据走 `get_room_account_data_with_ts`）。
+     ⇒ 两者连同 trait 条目一并删除（铁律 1），`content` 的查询内联到自身（新写的 SQL 直接用宏，R1）。
+   - **吞错（D-33/D-72 同型）**：`get_room_account_data_with_ts` 的
+     `row.try_get::<Option<i64>, _>("updated_ts").ok().flatten()` 把解码失败静默变成 `None`，
+     与"该列本就是 NULL"不可区分（schema 里 `updated_ts` 是 `BIGINT NOT NULL`）。
+     这条的"先修"与转换是同一件事 —— 改成 `query!` 后手工解码整条消失、可空性由真 catalog
+     在编译期钉死，返回值仍 `Option<i64>`（`Some(ts)`），成功路径行为逐字一致。
+   - 顺带删掉失去唯一使用者的 `use sqlx::Row;`，并订正 mock 里已过时的
+     "Raw-`PgRow` methods are intentionally unsupported"。
+   实测：`dynamic_production` 211 → **208**、`static` 1269 → **1271**、`dynamic` 总数
+   943 → **940**、`.sqlx` 1237 → **1239**、literal 140/35 → **137/35**；
+   恒等式 `208 − 137 − 1 = 70` 成立。
+   验证：`-p synapse-storage --lib --features test-utils -E 'test(/room_account_data/)'` ⇒ **11/11**
+   （含共用该表的 `sliding_sync` 两条）。
+
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 
-- `dynamic_production` 的**可机械转换部分（literal）归零**：211 → **101**
-  （211 − 109 literal − 1 param = 101 = 测试基建 57 + 分页结构性 15 + **D-14 结构性 29**），
+- `dynamic_production` 的**可机械转换部分（literal）归零**：208 → **101**
+  （208 − 106 literal − 1 param = 101 = 测试基建 57 + 分页结构性 15 + **D-14 结构性 29**），
   或每个残留都有 §7.3 那样的登记条目；
 - literal 逐文件表只剩 4 类（3 个测试基建文件 + `event/pagination.rs`）；
 - ~~D-68 接线~~、~~D-37 收敛~~、~~D-62 修法①~~、~~D-57② 收敛~~、~~D-73 结构性收敛~~、
