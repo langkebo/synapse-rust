@@ -3077,10 +3077,22 @@
 #   实测：`dynamic_production` 116 → **112**（−4：3 literal + 1 param）、`static` 1352 不变、
 #   测试区 752 不变、`.sqlx` 不变（删的都是动态站点）、literal 45/14 → **42/13**、`param` 1 → **0**。
 #   恒等式 `112 − 42 − 0 = 70` 成立。
+# ── 2026-09-29 C63-0（先修 D-107 吞错 + 补 search_directory_users 覆盖；静态 +1）────────────
+#   **D-107（吞错，已修）**：`src/server/database.rs` 的 `SELECT version()` 后面挂着
+#   `.ok().flatten()` —— 查询失败时**静默**降级成 "unknown"，日志里分不清"取版本失败"与
+#   "库没报版本"（D-33/D-94 同型）。这里**不**把错误上抛（pool 已建好，一条元数据查询失败
+#   不该让整个启动失败），改成显式 `match` + `warn!`：行为不变，但错误不再消失。该语句随之
+#   宏化（`query_scalar!` + `AS "version!"`，R4 ①）⇒ 本批静态 +1、生产动态 −1。
+#   **覆盖**：`UserStorage::search_directory_users` 此前**零 storage 级用例**（只有路由级
+#   `api_profile_tests` 打它）⇒ 新增一条真基线用例，钉住"精确 > 前缀 > 包含"的打分序、
+#   `exact_only` 过滤、`limit`、以及 `escape_like_pattern` 对 `_` 的**字面量**语义
+#   （与 D-98 同类的 LIKE 元字符陷阱；用"只差一个字符"的诱饵用户名做判别）。
+#   实测：`dynamic_production` 112 → **111**、`static` 1352 → **1353**、测试区 752 不变、
+#   `.sqlx` 1319 → 1320、literal 42/13 → **41/12**（`src/server/database.rs` 归零退表）。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=112
+BASELINE_DYNAMIC_PRODUCTION=111
 BASELINE_DYNAMIC_TEST_INFRA=752
-BASELINE_STATIC=1352
+BASELINE_STATIC=1353
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 

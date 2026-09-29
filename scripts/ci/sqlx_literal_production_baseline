@@ -292,7 +292,9 @@
 #   `synapse-common/src/transaction.rs` 整个模块是死代码（每个公开项都零消费者，且是
 #   advisory lock 的第二份实现）⇒ 整模块删除，该行归零退表。恒等式同步为 `112 − 42 − 0 = 70`
 #   （`param` 也归零：本战役唯一的跨函数传参站点随该模块一起消失）。
-src/server/database.rs	1
+# ── 2026-09-29 C63-0（本表退一行：1 → 0；13 → 12 文件）──────────────────────────
+#   `src/server/database.rs` 的 `SELECT version()` 随 D-107 的吞错修复改写为宏（`AS "version!"`）
+#   ⇒ 该行归零退表。恒等式不变（仍 `112 − 42 − 0 = 70`：本批同时把一处 literal 变 static）。
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
 synapse-common/src/test_isolation.rs	9
