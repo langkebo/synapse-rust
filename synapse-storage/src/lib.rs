@@ -229,6 +229,11 @@ pub mod test_utils;
 #[cfg(test)]
 mod test_exit_hook;
 
+/// D14-2 守卫：共享列清单常量（`ROOM_EVENT_COLS` 等）与当前 schema 的一致性。
+/// 见模块文档；它是 §8.6 分档里 ② 那一档的守卫，替代被否决的"内联成字面量"。
+#[cfg(test)]
+mod schema_const_guard_tests;
+
 // All storage modules are now grouped into a domain. The domain globs below
 // flat-re-export every grouped module's public types at the crate root for
 // backward compatibility. Domains: account, admin, application, auth, e2ee,

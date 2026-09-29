@@ -215,7 +215,7 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 | D-96 | **可选扩展的关系**：SQL 文本是编译期常量，但 `FROM pg_stat_statements` 指向的关系**只在装了该扩展的库里存在** ⇒ 宏在 `cargo sqlx prepare` 阶段无法 describe（实测 `relation "pg_stat_statements" does not exist`），整份离线缓存都建不起来 | `synapse-storage/src/monitoring.rs`（`get_performance_metrics` 的慢查询查询） | 保持动态；若将来把该扩展纳入 baseline（需要 superuser 与 `shared_preload_libraries`）或改成 `to_regclass` 探测 + `query_scalar` 计数，可回收 —— 属独立设计事项 |
 | D-105 | **只在部分环境存在的关系**：`_sqlx_migrations`（sqlx-migrate 管理的库才有；本仓走 `docker/db_migrate.sh`，基线 schema 实测 **0 张**）⇒ 宏在 `cargo sqlx prepare` 阶段无法 describe，整份离线缓存都建不起来（与 D-96 同类，差别是"是否存在"由部署方式决定） | `synapse-storage/src/migration_checks.rs`（`check_migration_completeness` 里 `SELECT version FROM _sqlx_migrations ORDER BY version ASC`） | 保持动态；若将来改为 sqlx-migrate 管库，或先 `to_regclass('_sqlx_migrations')` 探测再分支，可回收 —— 独立设计事项 |
 | D-13 | `Vec<Option<T>>` 元素可空数组**无 sqlx 映射**（SQL 文本本身是字面量，因此在 literal 棘轮里看得见，但**不许转**） | `room_summary/repository.rs:332`/`:579`（两个 `add_*_batch`，各 6–7 个并行数组）；`presence/mod.rs:226`（`&[Option<&str>]` 的 `status_msg`）—— 共 **3 处** | 保持动态；回收方向：并行数组 → 单个 `jsonb_to_recordset($n)`（独立改造，不排期） |
-| D-14 | 运行期拼装 SQL（`format!` 拼列清单/排序方向）**有意保留**；其守卫覆盖缺口已于 2026-09-26 收紧（见下）。**C64 已把"值插值"子集（3 处）回收**，剩下的全是"插进去的是标识符/有界枚举"（PG 协议层不允许参数化） | `space/repository.rs:572/626`、`user/storage.rs:989/1233`（③ 排序/打分片段）、`event/state.rs`(9)、`event/basic.rs`(3)、`event/batch.rs`(2)、`state_groups.rs`(2)（② 共享列清单常量）、`membership/mod.rs`(4)（③）、`maintenance.rs`(2)（④ 真标识符 `VACUUM`/`REINDEX`）（`format!` 类共 **26** 处，分档与处置见 §8.6） | 保持动态，**不要**为压数字把动态标识符硬编码；**不要**把列清单内联成字面量（= 复制成 14 份，违反铁律 2）；逐文件回收方向见 HISTORY §7.2 D-14 |
+| D-14 | 运行期拼装 SQL（`format!` 拼列清单/排序方向）**有意保留**；其守卫覆盖缺口已于 2026-09-26 收紧（见下）。**C64 已把"值插值"子集（3 处）回收**，剩下的全是"插进去的是标识符/有界枚举"（PG 协议层不允许参数化）；**C65/D14-2 已为它们补上守卫**（② 常量↔schema 守卫 `schema_const_guard_tests`，③ 各自真 baseline 往返） | `space/repository.rs:572/626`、`user/storage.rs:989/1233`（③ 排序/打分片段）、`event/state.rs`(9)、`event/basic.rs`(3)、`event/batch.rs`(2)、`state_groups.rs`(2)（② 共享列清单常量）、`membership/mod.rs`(4)（③）、`maintenance.rs`(2)（④ 真标识符 `VACUUM`/`REINDEX`）（`format!` 类共 **26** 处，分档、守卫与"不做清单"见 §8.6） | 保持动态（**D14-1/D14-2 已收口**：能回收的值插值已回收，其余保持动态且各有守卫），**不要**为压数字把动态标识符硬编码；**不要**把列清单内联成字面量（= 复制成 14 份，违反铁律 2）；逐文件回收方向见 HISTORY §7.2 D-14 |
 | D-18 | 仅排序用列无对应结构体字段 ⇒ 用子查询包裹 | `thread/storage.rs:864` | 沿用子查询写法 |
 | D-19 | `query_as!` 不认 `#[sqlx(rename)]` / `#[sqlx(skip)]` | `event_report/models.rs:29`、`module.rs:255` 等 | SQL 里显式写别名 / 合成 `NULL` 列 |
 | D-20 | LEFT JOIN 外侧列被 PG 透传为 NOT NULL ⇒ sqlx 误推非空 | C6/C8/C9/C13 多处 | 用 `AS "col?"` 覆盖 |
@@ -1790,6 +1790,45 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
      （`synapse-storage` 的目录搜索/`room` 目录用例 + 上面新增的会话 GUC 用例），全量集成批次留给
      CI 的 `--test-threads 1` 口径。
 
+62. ✅ **C65-0 + C65（D14-2：D-14 残量的 ②/③ 两档守卫）已完成（2026-09-29）** ——
+   §8.6 的设计要求"不能回收的那部分必须有守卫"，本批把它落地成两半：
+   - **C65-0（先补覆盖）**：侦察发现 ③ 那一档唯一没有真 baseline 往返的调用点是 MSC4502 的 profile
+     分页 `RoomMemberStorage::get_room_members_paginated_with_profiles` —— 服务层那两条
+     `get_room_members_paginated_*` 用例注入 `test_mocks::InMemoryMemberStore`，**从不执行**这里的
+     SQL。它内部 4 条 `format!` 分支（`not_membership` 有/无 × 游标有/无）× 2 个方向 = **8 种 SQL
+     文本**，编译期什么都看不见。新用例逐条走完 8 种形态，并钉住 `not_membership` 过滤真的生效
+     （fixture 放了一个 invite 行）与 `LEFT JOIN users` 的 profile 透传（有 ⇒ `Some`、无 ⇒ `None`）。
+     **R11 变异自证**：把 `cursor_op` 的 `>`/`<` 互换（只改 `format!` 实参、**不改 SQL 字面量**
+     ⇒ 离线宏缓存仍有效），分支 ② 立刻红（`left: []` vs 三个 user_id）；还原后绿。
+   - **C65（守卫本体）**：新模块 `synapse-storage/src/schema_const_guard_tests.rs`（`#[cfg(test)]`
+     声明 ⇒ 整份文件归 test 区）对 ② 的 **5 条共享列清单常量**逐条
+     `describe("SELECT <cols> FROM <基表> WHERE FALSE")`，断言两件事：① 整段列清单能被 PG prepare；
+     ② 输出列名**逐一**等于消费结构体的字段名（`RoomEvent` 14 / `StateEvent` 20 与 19 /
+     `StateGroupState` 4 与 3）—— 动态路径走 `FromRow`，**按列名**映射，所以别名写错（如把
+     `processed_at` 写成 `processed_ts`）与列被删除两种漂移都从"运行期 42703"提前到测试期。
+     4 条私有常量为此改为 `pub(crate)`（**只为守卫**，列清单仍只有一份，没有复制 —— 这正是"不做
+     字面量内联"的前提）。
+     **R11 变异自证（两条失败路径各自证明，且都在守卫改写后重跑过）**：① 把 `ROOM_EVENT_COLS`
+     的别名改成 `processed_ts` ⇒ describe 成功但名字断言红（实际/期望两份列名清单直接打印）；
+     ② 把 `STATE_GROUP_STATE_INNER_COLS` 的 `event_id` 改成不存在的 `event_idd` ⇒ 走 prepare 失败
+     路径，失败清单指名常量、基表与 `column "event_idd" does not exist`。还原后都绿。
+     ⚠️ **落地时撞到并记下的两条本仓 lint 事实**（都会让 `--all-targets -D warnings` 变红，值得
+     下一批直接复用）：① 本仓 clippy 带 `-D clippy::panic`，而 `#[cfg(test)]` **模块文件**在 clippy
+     眼里仍属 **lib 代码** ⇒ 守卫里不能用 `panic!` 报错；改为**累积失败清单后一次 `assert!`**
+     （顺带好处：漂移时一次跑出全部不一致项）。② 草稿里 `if i == 0 { "join" } else { "join" }`
+     被 `if_same_then_else` 抓住（两个分支相同）；闭包参数里的长元组类型被 `type_complexity` 抓住
+     ⇒ 加局部 `type` 别名。两处都在 C65-0（未推送）里直接 amend 修掉，不额外留一条"修上一条提交
+     clippy"的提交。
+   - 口径：本批**不动**棘轮数字里的 partition —— 守卫走 `Executor::describe`（不执行查询、不产生
+     `sqlx::query` 调用点）⇒ `dynamic_test` 不 +1、`.sqlx` 不 +1；C65-0 的夹具 +1 已在 C65-0 的
+     基线注记里收紧（753 → 754）。`dynamic_production` 103 / `static` 1361 / literal 36/8 不动。
+     （普查口径的**已知边界**：census 只认 `sqlx::query*` 调用点，`Executor::describe` 不在其中 ——
+     它不执行 SQL，故不计入动态站点是合理的；但它也意味着"用 describe 跑动态 SQL"若哪天被用来
+     **执行**查询，普查看不见。当前全仓只有本守卫一处 `describe`，且只用于 prepare 校验。）
+   - 验证：`-p synapse-storage --lib --features test-utils -E 'test(/shared_column_constants/)'` ⇒ 1/1；
+     `-E 'test(/get_room_members_paginated/)'` ⇒ 2/2；四道门禁 + 两档 clippy + `--test unit` +
+     `-p synapse-storage --lib` 全量（1620+ 用例）见提交信息。
+
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 
 > **当前状态（2026-09-29 C64 后）**：`dynamic_production` 103 = **26 处 D-14 运行期拼装**（设计
@@ -1829,8 +1868,8 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 | 形状 | 处 | 位置 | 插进去的是什么 | 处置 |
 | --- | --- | --- | --- | --- |
 | ① **值**插值 | 3 → **0** | 原 `src/server/database.rs:21-26`（`after_connect` 的 `SET statement_timeout/lock_timeout/idle_in_transaction_session_timeout`） | 配置派生的**值**（`format_pg_timeout` ⇒ `'30s'`），**不是**标识符 | ✅ **已回收**（C64 / D14-1 ⇒ `set_config(name, $1, false)`，该文件生产动态归零退表） |
-| ② 共享列清单常量 | 16 | `event/basic.rs` 3、`event/batch.rs` 2、`event/state.rs` 9、`state_groups.rs` 2 | `ROOM_EVENT_COLS` / `STATE_EVENT_{OUTER,INNER}_COLS` / `STATE_GROUP_STATE{,_INNER}_COLS` 的**列清单** | **保持动态** + 加常量↔schema 守卫（D14-2） |
-| ③ 排序方向 / 打分片段 | 8 | `membership/mod.rs` 4、`space/repository.rs` 2、`user/storage.rs` 2 | `ORDER BY` 列名 + `ASC/DESC`（有界枚举）、rank 子表达式 | **保持动态**（R7 明确允许） |
+| ② 共享列清单常量 | 16 | `event/basic.rs` 3、`event/batch.rs` 2、`event/state.rs` 9、`state_groups.rs` 2 | `ROOM_EVENT_COLS` / `STATE_EVENT_{OUTER,INNER}_COLS` / `STATE_GROUP_STATE{,_INNER}_COLS` 的**列清单** | **保持动态** + ✅ **常量↔schema 守卫已落地**（C65 / D14-2，含 R11 变异自证） |
+| ③ 排序方向 / 打分片段 | 8 | `membership/mod.rs` 4、`space/repository.rs` 2、`user/storage.rs` 2 | `ORDER BY` 列名 + `ASC/DESC`（有界枚举）、rank 子表达式 | **保持动态**（R7 明确允许）+ ✅ **守卫 = 各自真 baseline 往返**（唯一缺口由 C65-0 补齐） |
 | ④ 真动态标识符 | 2 | `maintenance.rs`（`VACUUM ANALYZE {table}` / `REINDEX INDEX {index}`） | 表名 / 索引名 | 保持（PG **不允许**标识符走占位符，无替代方案） |
 
 **逐档理由（这三条决定了后面做什么、不做什么）**：
@@ -1863,10 +1902,21 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
   —— 本模块此前**零覆盖**）**R11 变异自证**：生产侧 `is_local` 改 `true`（session → 事务级）时用例
   立刻红（`current_setting('statement_timeout')` 读回 `"0"`），还原后绿。该变异改的是 SQL 文本，
   **必须在 `SQLX_OFFLINE=false` 下跑**（否则先被"缓存缺条目"拦成编译失败，会把无效的探针当成自证）。
-- **D14-2（下一批）**：②/③ 的常量↔schema 守卫（**新增测试，不是转换**）。它的价值在于把
-  "常量漂移"从运行期 42703 提前到测试期。
+- **D14-2（✅ C65 已完成）**：②/③ 的常量↔schema 守卫（**新增测试，不是转换**）。它的价值在于把
+  "常量漂移"从运行期 42703 提前到测试期。落地形态与实测见 §8.3 第 62 条：
+  · ②（16 处、5 条常量）⇒ 新模块 `synapse-storage/src/schema_const_guard_tests.rs`：对每条常量在
+    真 baseline 的当前 schema 上 `describe("SELECT <cols> FROM <基表> WHERE FALSE")`，断言
+    ①整段列清单能被 PG prepare（漂移 ⇒ 42703）、②输出列名逐一等于消费结构体字段名
+    （动态路径走 `FromRow`，**按列名**映射 ⇒ 别名写错同样只在运行期炸）。两条失败路径都由
+    R11 变异实测证明会红（别名改错 / 引用不存在的列）。
+  · ③（8 处、无常量可守）⇒ 守卫就是各方法自己的真 baseline 往返：`search_spaces` /
+    `search_users` / `search_users_with_presence` 已有用例；唯一缺口
+    `get_room_members_paginated_with_profiles`（4 分支 × 2 方向 = 8 种 SQL 文本，此前**零
+    storage 级覆盖**）由 **C65-0** 补齐（8 种形态全覆盖 + R11 变异自证）。
 - **不做清单**：把剩下 26 处内联成字面量、引入 `query_file!`、给 `VACUUM/REINDEX` 硬编码表名
-  —— 三条都已在上面的理由里逐一否决，避免下一批重复论证。
+  —— 三条都已在上面的理由里逐一否决，避免下一批重复论证。**D14-1/D14-2 落地后，D-14 的处置已
+  全部有结论**：能回收的（值插值）已回收并退表，不能回收的（标识符/有界枚举）保持动态且各自有
+  守卫（② 常量守卫 + ③ 真 baseline 往返 + ④ 无解），§7.3 的登记条目仍然有效。
 
 ---
 

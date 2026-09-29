@@ -2,7 +2,11 @@ use super::models::*;
 
 /// Shared SELECT column list for StateEvent outer queries.
 /// Uses COALESCE wrappers so null columns don't break deserialization.
-const STATE_EVENT_OUTER_COLS: &str =
+///
+/// `pub(crate)` 只为 D14-2 的守卫（`schema_const_guard_tests`）：它要在这条常量被 `format!`
+/// 拼进 SQL 的**同一个文本**上验证"能被 PG prepare + 输出列名等于消费结构体字段名"。
+/// 常量本身仍是"只有一份"，没有复制（详见 §8.6 与模块文档）。
+pub(crate) const STATE_EVENT_OUTER_COLS: &str =
     "event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key, \
      COALESCE(unsigned, '{}'::jsonb) as unsigned, \
      COALESCE(is_redacted, false) as is_redacted, \
@@ -12,7 +16,9 @@ const STATE_EVENT_OUTER_COLS: &str =
 
 /// Shared column list for StateEvent inner DISTINCT ON subqueries.
 /// Raw columns (no COALESCE) — the outer query wraps them.
-const STATE_EVENT_INNER_COLS: &str =
+///
+/// `pub(crate)`：同 `STATE_EVENT_OUTER_COLS`，为 D14-2 守卫。
+pub(crate) const STATE_EVENT_INNER_COLS: &str =
     "event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key, \
      unsigned, is_redacted, origin_server_ts, depth, not_before, status, origin, user_id, stream_ordering, \
      prev_events, auth_events, signatures, hashes";
