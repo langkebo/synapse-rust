@@ -3065,8 +3065,20 @@
 #   实测：`dynamic_production` 121 → **116**（−5）、`static` 1347 → **1352**（+5）、
 #   `dynamic` 总数 873 → **868**、测试区 752 不变、`.sqlx` 1314 → **1319**（+5，无碰撞）、
 #   literal 50/16 → **45/14**。恒等式 `116 − 45 − 1 = 70` 成立。
+# ── 2026-09-29 D-106（删掉整份死模块 `synapse-common/src/transaction.rs`）──────────────────
+#   实测该模块的**每一个**公开项都零消费者（`TransactionManager` / `ManagedTransaction` /
+#   `AdvisoryLockGuard` / `TransactionError` / `TransactionResult` / `is_retryable_db_error`：
+#   全仓 grep 只命中模块自身与 `synapse-common/src/lib.rs` 的 re-export 块）⇒ 按铁律 1 整模块删除
+#   （285 行），并删掉 `pub mod transaction;` 与那段 re-export。
+#   它同时是**第二份 advisory-lock 实现**（活的那份在 `synapse-services/src/database_initializer`
+#   的 `try_acquire_migration_lock`/`release_migration_lock`，早已宏化）⇒ 铁律 2 也要求收敛。
+#   顺带清掉本战役**唯一的 `param` 站点**（`begin_with_isolation_level(statement: &'static str)`
+#   的 `sqlx::query(statement)`）与 3 处 literal（advisory lock/unlock + try_acquire）。
+#   实测：`dynamic_production` 116 → **112**（−4：3 literal + 1 param）、`static` 1352 不变、
+#   测试区 752 不变、`.sqlx` 不变（删的都是动态站点）、literal 45/14 → **42/13**、`param` 1 → **0**。
+#   恒等式 `112 − 42 − 0 = 70` 成立。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=116
+BASELINE_DYNAMIC_PRODUCTION=112
 BASELINE_DYNAMIC_TEST_INFRA=752
 BASELINE_STATIC=1352
 # 兼容旧接口：总数 = 生产 + 测试基础设施

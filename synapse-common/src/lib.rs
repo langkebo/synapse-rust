@@ -111,8 +111,6 @@ pub mod time;
 pub mod tracing;
 /// Module `traits`.
 pub mod traits;
-/// Module `transaction`.
-pub mod transaction;
 /// Module `types`.
 pub mod types;
 /// Module `validation`.
@@ -253,11 +251,6 @@ pub use time::{
 };
 /// Re-exported item.
 pub use tracing::{DistributedTracer, RequestId, RequestIdPropagationLayer};
-/// Re-exported item.
-pub use transaction::{
-    is_retryable_db_error, AdvisoryLockGuard, ManagedTransaction, TransactionError, TransactionManager,
-    TransactionResult,
-};
 /// Re-exported item.
 pub use types::{EventId, Membership, Presence, PresenceState, RoomAlias, RoomVersion, SecretString, UserId};
 /// Re-exported item.
