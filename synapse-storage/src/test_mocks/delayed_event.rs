@@ -70,13 +70,6 @@ impl DelayedEventStorageApi for InMemoryDelayedEventStore {
         Ok(self.events.read().await.get(&delay_id).cloned())
     }
 
-    async fn list_delayed_events_for_user(&self, user_id: &str) -> Result<Vec<DelayedEvent>, ApiError> {
-        let mut events: Vec<DelayedEvent> =
-            self.events.read().await.values().filter(|e| e.user_id == user_id).cloned().collect();
-        events.sort_by_key(|e| e.id);
-        Ok(events)
-    }
-
     async fn restart_delayed_event(&self, delay_id: i64) -> Result<bool, ApiError> {
         let mut events = self.events.write().await;
         match events.get_mut(&delay_id) {
