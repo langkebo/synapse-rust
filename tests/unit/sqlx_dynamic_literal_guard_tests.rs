@@ -288,14 +288,24 @@ fn scan_mode_reports_a_non_empty_production_surface() {
     // 而某个目录合法地降到 0 不会误报。总数与 census 的一致性由
     // `scan_mode_total_matches_census_dynamic_production` 单独钉住。
     assert!(!sites.is_empty(), "生产区动态站点为 0，扫描面疑似被整体排除（假通过风险）");
-    let mut dirs: Vec<&str> = sites.iter().map(|s| s.path.split('/').next().unwrap_or("")).collect();
-    dirs.sort_unstable();
-    dirs.dedup();
-    assert!(
-        dirs.len() >= 5,
-        "只有 {} 个目录有生产动态站点（{dirs:?}），扫描面疑似被部分排除（假通过风险）",
-        dirs.len()
-    );
+    // ⚠️ **不要退回"目录计数下界"**：它同样是把"战役的成果"当成了失败 —— 2026-09-29 D-99
+    // 之后 `synapse-e2ee` 的生产动态站点合法地降到 0（那 3 处就在被删除的
+    // `signature/storage.rs` 里），目录数从 5 变 4，`>= 5` 这条断言于是在"如期收敛"的时刻
+    // 变红（与上面 C29/D-60 的魔数下界是**同一个坑**）。
+    // 改为**哨兵文件**判据：这三处是 R7 / 结构性例外（测试基建与分页游标/排序方向），
+    // 在战役里**不可能**降到 0；它们同时充当"某个子树被整体排除"的探针 ——
+    // 只要扫描面漏掉任何一个，对应哨兵就会消失。
+    for sentinel in [
+        "synapse-common/src/test_isolation.rs",
+        "synapse-test-utils/src/lib.rs",
+        "synapse-storage/src/event/pagination.rs",
+    ] {
+        assert!(
+            sites.iter().any(|s| s.path == sentinel),
+            "扫描面缺少哨兵文件 {sentinel}（生产动态站点共 {} 处，疑似部分子树被排除）",
+            sites.len()
+        );
+    }
     assert!(sites.iter().any(|s| s.kind == SiteKind::Literal), "应识别出字面量站点；全部为 runtime 说明实参判定失效");
     assert!(
         sites.iter().any(|s| s.kind == SiteKind::Runtime),

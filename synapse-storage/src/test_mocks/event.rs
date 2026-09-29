@@ -1094,7 +1094,6 @@ impl crate::event::writer::EventWriter for InMemoryEventStore {
         _device_id: &str,
         _signature: &str,
         _key_id: &str,
-        _algorithm: &str,
         _created_ts: i64,
     ) -> Result<(), sqlx::Error> {
         Ok(())

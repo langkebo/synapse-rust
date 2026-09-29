@@ -2997,9 +2997,21 @@
 #   实测：`static` 1335 → **1331**（删 4 个静态宏）、`dynamic_production` 140 不变、
 #   测试区 753 → **750**（删掉 copy_room_state 用例的 3 条断言读）、`.sqlx` 1303 → **1299**
 #   （删 4 条，缩容经 `ALLOW_CACHE_SHRINK=1` 逐条核对）。恒等式 `140 − 69 − 1 = 70` 不变。
+# ── 2026-09-29 D-99（删 e2ee signature 第二份实现 + `event_signatures.algorithm` 死列）──────────
+#   删除 `synapse-e2ee/src/signature/`（4 文件）与三条 re-export 链、`event_signatures.algorithm`
+#   列与 `save_event_signature` 的 `algorithm` 形参（8 处实现/转发/替身/调用点；路由仍回显该值
+#   ⇒ 响应形态不变）。该模块**全仓零消费者**：`SignatureService` 从不在生产构造、
+#   `EventSignature` 只在 re-export 里出现、`sign_event`/`sign_key`/`verify_event`/`verify_key`
+#   全零调用者。R10 指纹 `c75360a28b6d51f2` → `b48cab73065bb618`（先自检旧值吻合）。
+#   实测：`dynamic_production` 140 → **137**（e2ee 那 3 处随模块消失）、`static` 1331 不变、
+#   测试区 750 → **749**、`.sqlx` 1299 → **1299**（`save_event_signature` 的 INSERT 文本变了
+#   ⇒ 1 删 1 加）、literal 69/18 → **66/17**。恒等式 `137 − 66 − 1 = 70` 成立。
+#   连带把 `scan_mode_reports_a_non_empty_production_surface` 从"目录计数 >= 5"改成
+#   **哨兵文件**判据（战役让 e2ee 合法降到 0 时旧判据会红 —— 同一个"魔数下界"坑）；
+#   R11 自证：临时让 census 跳过 `synapse-test-utils/src` ⇒ 立即红并打印缺失哨兵名；还原后绿。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=140
-BASELINE_DYNAMIC_TEST_INFRA=750
+BASELINE_DYNAMIC_PRODUCTION=137
+BASELINE_DYNAMIC_TEST_INFRA=749
 BASELINE_STATIC=1331
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960

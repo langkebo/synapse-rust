@@ -741,6 +741,9 @@ pub(crate) async fn sign_room_event(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("signature is required".to_string()))?;
 
+    // D-99：`algorithm` 只是**回显**给调用方（客户端声明的算法，缺省取 `key_id` 前缀）。
+    // 它原先还被写进 `event_signatures.algorithm`，但那一列从来没有人读、且与 `key_id` 前缀
+    // 语义重复 ⇒ 列与写入参数已删除，这里保留推导仅用于响应。
     let algorithm = body.get("algorithm").and_then(|v| v.as_str()).map_or_else(
         || key_id.split(':').next().filter(|value| !value.is_empty()).unwrap_or("ed25519").to_string(),
         str::to_owned,
@@ -750,7 +753,7 @@ pub(crate) async fn sign_room_event(
 
     ctx.room_service
         .messaging()
-        .save_event_signature(&event_id, &auth_user.user_id, device_id, signature, key_id, &algorithm, created_ts)
+        .save_event_signature(&event_id, &auth_user.user_id, device_id, signature, key_id, created_ts)
         .await?;
 
     Ok(Json(serde_json::json!({

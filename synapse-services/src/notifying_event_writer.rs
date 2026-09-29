@@ -170,10 +170,9 @@ impl EventWriter for NotifyingEventWriter {
         device_id: &str,
         signature: &str,
         key_id: &str,
-        algorithm: &str,
         created_ts: i64,
     ) -> Result<(), sqlx::Error> {
-        self.inner.save_event_signature(event_id, user_id, device_id, signature, key_id, algorithm, created_ts).await
+        self.inner.save_event_signature(event_id, user_id, device_id, signature, key_id, created_ts).await
     }
 
     async fn report_event(
@@ -515,15 +514,7 @@ mod tests {
         let (writer, _notifier) = build();
 
         writer
-            .save_event_signature(
-                "$event:example.com",
-                SENDER,
-                "DEVICE0",
-                "sig",
-                "ed25519:0",
-                "ed25519",
-                1_700_000_000_000,
-            )
+            .save_event_signature("$event:example.com", SENDER, "DEVICE0", "sig", "ed25519:0", 1_700_000_000_000)
             .await
             .unwrap();
     }

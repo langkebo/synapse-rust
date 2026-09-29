@@ -39,7 +39,6 @@ pub use common::{config, error, metrics, ApiError, PresenceState};
 pub use e2ee::backup::KeyBackupService;
 pub use e2ee::device_keys::DeviceKeyService;
 pub use e2ee::megolm::{EncryptedEvent, MegolmSession};
-pub use e2ee::signature::{EventSignature, SignatureService};
 pub use server::SynapseServer;
 pub use storage::presence::PresenceStorage;
 pub use synapse_common::{map_database, map_internal};

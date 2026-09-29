@@ -10,7 +10,6 @@ pub mod key_rotation;
 pub mod megolm;
 pub use synapse_e2ee::olm;
 pub use synapse_e2ee::secure_backup;
-pub use synapse_e2ee::signature;
 pub use synapse_e2ee::signed_json;
 /// The `ssss` module.
 pub mod ssss;
@@ -48,7 +47,5 @@ pub use megolm::models::{EncryptedEvent, MegolmSession};
 pub use megolm::service::MegolmProvider;
 pub use olm::models::*;
 pub use olm::OlmService;
-pub use signature::EventSignature;
-pub use signature::SignatureService;
 pub use ssss::SecretStorage;
 pub use ssss::SecretStorageService;

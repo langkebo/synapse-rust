@@ -429,7 +429,7 @@ async fn test_save_and_get_event_signatures() {
 
     let now = current_timestamp_millis();
     storage
-        .save_event_signature(&event_id, user_id, "DEVICE1", "sig_data", "ed25519:1", "ed25519", now)
+        .save_event_signature(&event_id, user_id, "DEVICE1", "sig_data", "ed25519:1", now)
         .await
         .expect("save_event_signature should succeed");
 

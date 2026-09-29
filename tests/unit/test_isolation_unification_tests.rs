@@ -175,7 +175,10 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // 2026-09-29（D-100 删除 `room_state_events`：该表全仓没有读者，`copy_room_state` 是唯一写入者）：
 // 迁移内容变了（−379 字节，`bytes=219253`）⇒ 按 R10 第①条独立复算 FNV-1a 64 得
 // `c75360a28b6d51f2`；先用**旧值**自检哈希实现（旧字节 219632 ⇒ `5906517503a8cdc6` 逐字节吻合）后才取新值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "c75360a28b6d51f2";
+// 2026-09-29（D-99 删除 `event_signatures.algorithm`：该列从来没有读者、且语义与 `key_id` 前缀重复）：
+// 迁移内容再变（−47 字节，`bytes=219206`）⇒ 同样先自检旧值（219253 ⇒ `c75360a28b6d51f2` 吻合）
+// 后取新值 `b48cab73065bb618`。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "b48cab73065bb618";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

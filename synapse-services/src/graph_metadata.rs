@@ -509,10 +509,9 @@ impl EventWriter for GraphMetadataWriter {
         device_id: &str,
         signature: &str,
         key_id: &str,
-        algorithm: &str,
         created_ts: i64,
     ) -> Result<(), sqlx::Error> {
-        self.inner.save_event_signature(event_id, user_id, device_id, signature, key_id, algorithm, created_ts).await
+        self.inner.save_event_signature(event_id, user_id, device_id, signature, key_id, created_ts).await
     }
 
     async fn report_event(

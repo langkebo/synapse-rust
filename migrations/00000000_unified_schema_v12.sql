@@ -728,7 +728,6 @@ CREATE TABLE IF NOT EXISTS event_signatures (
     device_id TEXT NOT NULL,
     signature TEXT NOT NULL,
     key_id TEXT NOT NULL,
-    algorithm TEXT NOT NULL DEFAULT 'ed25519',
     created_ts BIGINT NOT NULL,
     CONSTRAINT pk_event_signatures PRIMARY KEY (id),
     CONSTRAINT uq_event_signatures_event_user_device_key UNIQUE (event_id, user_id, device_id, key_id)
