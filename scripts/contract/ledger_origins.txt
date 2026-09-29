@@ -43,9 +43,10 @@
 oidc/mod.rs::create_oidc_router@/.well-known/          oidc
 oidc/mod.rs::create_oidc_fallback_router@/.well-known/ oidc_fallback
 
-# 根路径 `/login` 由 CAS router 注册（`cas_sso` 特性）；同名的相对路径
-# `/_matrix/client/v3/login` 由 auth-compat router 注册，两者归不同模块。
-cas.rs::cas_routes@/login                              cas
+# CAS 协议端点（`cas_sso` 特性）已收敛到 `/_synapse/cas/` 命名空间下（`d4e22f9ea`），
+# 故 qualifier 用前缀 `/_synapse/cas/`（`@/login` 在迁移后失配）。同名**相对**路径
+# `/_matrix/client/v3/login` 由 auth-compat router 注册，走下文的不带前缀规则兜底。
+cas.rs::cas_routes@/_synapse/cas/                      cas
 assembly.rs::create_auth_compat_router@/login          assembly::auth_compat
 
 # --- assembly.rs：一个文件注册 11 个 ledger 名字 -----------------------------
