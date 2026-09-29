@@ -10,7 +10,6 @@ pub mod friend;
 pub use synapse_federation::key_rotation;
 pub use synapse_federation::memory_tracker;
 pub use synapse_federation::signing;
-pub use synapse_federation::state_resolution;
 
 pub use client::FederationClient;
 pub use device_sync::DeviceSyncManager;

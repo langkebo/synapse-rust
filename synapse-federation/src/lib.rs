@@ -45,8 +45,6 @@ pub mod make_response_validation;
 pub mod server_acl;
 /// The `signing` module.
 pub mod signing;
-/// The `state_resolution` module.
-pub mod state_resolution;
 /// Test isolation infrastructure (schema-per-test). Only available under `cfg(test)`.
 ///
 /// D-79: without this, every DB path in this crate had to run against the shared `public`
