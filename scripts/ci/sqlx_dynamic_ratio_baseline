@@ -2983,10 +2983,24 @@
 #   `.sqlx` 1304 → **1303**（删 2 加 1，缩容经 `ALLOW_CACHE_SHRINK=1` 逐条核对）。
 #   R11 自证：新用例构造三类违规（DROP `pk_event_edges`、DROP `fk_events_room`、
 #   `ADD CONSTRAINT … NOT VALID`）⇒ 报告非空且分数 < 100；恢复约束后**必须**回到 0 发现（反向对照）。
+# ── 2026-09-29 D-100 + D-103（删 `room_state_events` 与其唯一写入者；静态 −4）──────────────────
+#   D-100：`room_state_events` **全仓没有任何读者**（`copy_room_state` 是唯一写入者）⇒ 房升级时
+#   "把旧房间状态搬进新房间"写进去的数据没有任何可观察效果。删除：表（迁移 −379 字节，
+#   R10 指纹 `5906517503a8cdc6` → `c75360a28b6d51f2`）、`EventStorage::copy_room_state`
+#   （+ `EventStoreApi` 声明/转发/mock）、`LifecycleService::migrate_room_content`（连带唯一调用点
+#   `upgrade_room` 与 3 条单测）、C57-0 补的那条 `copy_room_state` db_test。
+#   D-103（同批处置，同一编辑点）：`RoomStorage::cleanup_abnormal_data` 里另有两条孤儿清理
+#   （`DELETE FROM events WHERE NOT EXISTS(rooms…)`、`DELETE FROM room_memberships WHERE NOT EXISTS(rooms…)`）
+#   **结构上不可能命中** —— `fk_events_room` / `fk_room_memberships_room` 都是 `ON DELETE CASCADE`
+#   外键（上一步删房间时已级联，孤儿行也插不进去），属 D-95 同类的"不会失败的门禁"；
+#   连同返回结果里三个恒为 0 的键一起删除，只保留真正有效 1a/1b 两步。
+#   实测：`static` 1335 → **1331**（删 4 个静态宏）、`dynamic_production` 140 不变、
+#   测试区 753 → **750**（删掉 copy_room_state 用例的 3 条断言读）、`.sqlx` 1303 → **1299**
+#   （删 4 条，缩容经 `ALLOW_CACHE_SHRINK=1` 逐条核对）。恒等式 `140 − 69 − 1 = 70` 不变。
 BASELINE_QUERY_BUILDER=18
 BASELINE_DYNAMIC_PRODUCTION=140
-BASELINE_DYNAMIC_TEST_INFRA=753
-BASELINE_STATIC=1335
+BASELINE_DYNAMIC_TEST_INFRA=750
+BASELINE_STATIC=1331
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 

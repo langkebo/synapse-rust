@@ -647,18 +647,9 @@ impl RoomService {
         // inside the closure above).
         let _: Vec<()> = stream::iter(remote_futures).buffer_unordered(FEDERATION_INVITE_CONCURRENCY).collect().await;
 
-        // Copy state events (power levels, join_rules, canonical_alias, etc.)
-        // from the old room to the new room.  This is best-effort: failures
-        // are logged but do not fail the upgrade, since the new room is
-        // already functional with its default state.
-        if let Err(e) = self.lifecycle.migrate_room_content(old_room_id, &new_room_id, user_id).await {
-            ::tracing::warn!(
-                old_room_id = %old_room_id,
-                new_room_id = %new_room_id,
-                error = %e,
-                "Failed to migrate room content (best-effort)"
-            );
-        }
+        // D-100：这里原先顺手把旧房间的状态事件搬到新房间（copy_room_state → room_state_events），
+        // 但该表全仓没有任何读者 ⇒ 搬迁没有任何可观察效果，已连同表一起删除。
+        // 新房间的状态由升级流程自己创建的 create/power_levels/tombstone 等状态事件承载。
 
         Ok(new_room_id)
     }

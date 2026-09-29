@@ -530,18 +530,6 @@ CREATE TABLE IF NOT EXISTS room_aliases (
     CONSTRAINT fk_room_aliases_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS room_state_events (
-    id BIGSERIAL,
-    room_id TEXT NOT NULL,
-    type TEXT NOT NULL,
-    state_key TEXT NOT NULL,
-    content JSONB NOT NULL,
-    sender TEXT NOT NULL,
-    origin_server_ts BIGINT NOT NULL,
-    CONSTRAINT pk_room_state_events PRIMARY KEY (id),
-    CONSTRAINT uq_room_state_events_room_type_key UNIQUE (room_id, type, state_key)
-);
-
 CREATE TABLE IF NOT EXISTS room_events (
     id BIGSERIAL PRIMARY KEY,
     event_id VARCHAR(255) NOT NULL,

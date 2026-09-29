@@ -175,61 +175,6 @@ mod tests {
         assert!(err.to_string().contains("not found"));
     }
 
-    // ── migrate_room_content ───────────────────────────────────────────
-
-    #[tokio::test]
-    async fn migrate_room_content_creator_can_migrate() {
-        let room_store = InMemoryRoomStore::new();
-        let member_store = InMemoryMemberStore::new();
-        seed_room_and_member(&room_store, &member_store, "@creator:example.com").await;
-        // Create target room
-        room_store.create_room("!target:example.com", "@creator:example.com", "invite", "10", false).await.unwrap();
-        let svc = test_lifecycle_service(
-            room_store,
-            member_store,
-            InMemoryEventStore::new(),
-            Arc::new(synapse_storage::test_mocks::FakeUserStore::new()),
-        );
-        svc.migrate_room_content("!test:example.com", "!target:example.com", "@creator:example.com").await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn migrate_room_content_non_creator_is_forbidden() {
-        let room_store = InMemoryRoomStore::new();
-        let member_store = InMemoryMemberStore::new();
-        seed_room_and_member(&room_store, &member_store, "@creator:example.com").await;
-        room_store.create_room("!target:example.com", "@creator:example.com", "invite", "10", false).await.unwrap();
-        let svc = test_lifecycle_service(
-            room_store,
-            member_store,
-            InMemoryEventStore::new(),
-            Arc::new(synapse_storage::test_mocks::FakeUserStore::new()),
-        );
-        let err = svc
-            .migrate_room_content("!test:example.com", "!target:example.com", "@other:example.com")
-            .await
-            .unwrap_err();
-        assert!(err.to_string().contains("Only room creator can migrate content"));
-    }
-
-    #[tokio::test]
-    async fn migrate_room_content_nonexistent_target_errors() {
-        let room_store = InMemoryRoomStore::new();
-        let member_store = InMemoryMemberStore::new();
-        seed_room_and_member(&room_store, &member_store, "@creator:example.com").await;
-        let svc = test_lifecycle_service(
-            room_store,
-            member_store,
-            InMemoryEventStore::new(),
-            Arc::new(synapse_storage::test_mocks::FakeUserStore::new()),
-        );
-        let err = svc
-            .migrate_room_content("!test:example.com", "!nonexistent:example.com", "@creator:example.com")
-            .await
-            .unwrap_err();
-        assert!(err.to_string().contains("Target room not found"));
-    }
-
     // ── determine_join_rule ────────────────────────────────────────────
 
     #[test]

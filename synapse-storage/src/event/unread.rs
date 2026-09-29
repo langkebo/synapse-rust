@@ -1,4 +1,4 @@
-//! Unread-count and room-state-copy queries over the `events` table.
+//! Unread-count queries over the `events` table.
 //!
 //! These methods were moved here from `RoomStorage` to respect the storage
 //! layer boundary defined in project rules §7.1: `RoomStorage` must not
@@ -9,33 +9,6 @@ use super::models::*;
 use crate::room::RoomUnreadCounts;
 
 impl EventStorage {
-    /// Copy the latest state events from one room into another's
-    /// `room_state_events` table.
-    pub async fn copy_room_state(&self, source_room_id: &str, target_room_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            r"
-            INSERT INTO room_state_events (room_id, type, state_key, content, sender, origin_server_ts)
-            SELECT $1, event_type, state_key, content, sender, origin_server_ts
-            FROM (
-                SELECT DISTINCT ON (event_type, state_key)
-                    event_type, state_key, content, sender, origin_server_ts
-                FROM events
-                WHERE room_id = $2 AND state_key IS NOT NULL
-                ORDER BY event_type, state_key, origin_server_ts DESC
-            ) sub
-            ON CONFLICT (room_id, type, state_key) DO UPDATE SET
-                content = EXCLUDED.content,
-                sender = EXCLUDED.sender,
-                origin_server_ts = EXCLUDED.origin_server_ts
-            ",
-            target_room_id,
-            source_room_id,
-        )
-        .execute(&*self.pool)
-        .await?;
-        Ok(())
-    }
-
     /// Get unread notification and highlight counts for a user in a room.
     ///
     /// P1-7: `last_read_ts` falls back to `read_markers.origin_server_ts` when

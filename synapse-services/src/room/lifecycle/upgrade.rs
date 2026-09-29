@@ -27,32 +27,6 @@ impl LifecycleService {
         Ok(None)
     }
 
-    /// See [`migrate_room_content`].
-    pub async fn migrate_room_content(
-        &self,
-        source_room_id: &str,
-        target_room_id: &str,
-        user_id: &str,
-    ) -> ApiResult<()> {
-        let target_room = self
-            .room_storage
-            .get_room(target_room_id)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to get target room", e))?
-            .ok_or_else(|| ApiError::not_found("Target room not found".to_string()))?;
-
-        if target_room.creator_user_id.as_deref() != Some(user_id) {
-            return Err(ApiError::forbidden("Only room creator can migrate content".to_string()));
-        }
-
-        self.event_reader
-            .copy_room_state(source_room_id, target_room_id)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to copy room state", e))?;
-
-        Ok(())
-    }
-
     /// See [`is_room_upgrade_allowed`].
     pub async fn is_room_upgrade_allowed(&self, room_id: &str, user_id: &str) -> ApiResult<bool> {
         let room = self
