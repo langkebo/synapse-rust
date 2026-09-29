@@ -64,17 +64,17 @@ impl LoginTokenStorage {
         expires_at: i64,
     ) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
-        sqlx::query(
+        sqlx::query!(
             r#"
             INSERT INTO login_tokens (token, user_id, device_id, created_ts, expires_at)
             VALUES ($1, $2, $3, $4, $5)
             "#,
+            token,
+            user_id,
+            device_id,
+            now,
+            expires_at,
         )
-        .bind(token)
-        .bind(user_id)
-        .bind(device_id)
-        .bind(now)
-        .bind(expires_at)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -83,15 +83,18 @@ impl LoginTokenStorage {
     /// 原子消费：仅当 token 存在且未过期时返回并删除（单次使用 + 过期检查一体）。
     pub async fn consume_login_token(&self, token: &str) -> Result<Option<LoginToken>, sqlx::Error> {
         let now = current_timestamp_millis();
-        let row = sqlx::query_as::<_, LoginToken>(
+        // R6 ④：`DELETE … RETURNING` 可以宏化。6 列与 `LoginToken` 的 6 个字段一一对应，
+        // `device_id` 列可空 ⇒ 字段是 `Option<String>`（其余列 NOT NULL ⇒ 非 `Option`）。
+        let row = sqlx::query_as!(
+            LoginToken,
             r#"
             DELETE FROM login_tokens
             WHERE token = $1 AND expires_at > $2
             RETURNING id, token, user_id, device_id, created_ts, expires_at
             "#,
+            token,
+            now,
         )
-        .bind(token)
-        .bind(now)
         .fetch_optional(&*self.pool)
         .await?;
         Ok(row)
@@ -100,7 +103,7 @@ impl LoginTokenStorage {
     /// See [`cleanup_expired_tokens`].
     pub async fn cleanup_expired_tokens(&self, now_ts: i64) -> Result<u64, sqlx::Error> {
         let result =
-            sqlx::query("DELETE FROM login_tokens WHERE expires_at < $1").bind(now_ts).execute(&*self.pool).await?;
+            sqlx::query!("DELETE FROM login_tokens WHERE expires_at < $1", now_ts).execute(&*self.pool).await?;
         Ok(result.rows_affected())
     }
 }

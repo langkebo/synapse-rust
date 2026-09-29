@@ -46,14 +46,17 @@ impl RateLimitStorage {
 
     /// See [`get_user_rate_limit`].
     pub async fn get_user_rate_limit(&self, user_id: &str) -> Result<Option<RateLimitRecord>, sqlx::Error> {
-        sqlx::query_as::<_, RateLimitRecord>(
+        // 两列在 schema 里都可空（`DOUBLE PRECISION` / `INTEGER`，只有 `updated_ts` 是 NOT NULL
+        // DEFAULT）⇒ `RateLimitRecord` 的两个字段是 `Option`，与 R4 一致，无需断言。
+        sqlx::query_as!(
+            RateLimitRecord,
             r"
             SELECT messages_per_second, burst_count
             FROM rate_limits
             WHERE user_id = $1
             ",
+            user_id,
         )
-        .bind(user_id)
         .fetch_optional(self.pool.as_ref())
         .await
     }
@@ -65,7 +68,7 @@ impl RateLimitStorage {
         messages_per_second: f64,
         burst_count: i32,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO rate_limits (user_id, messages_per_second, burst_count)
             VALUES ($1, $2, $3)
@@ -73,10 +76,10 @@ impl RateLimitStorage {
             SET messages_per_second = EXCLUDED.messages_per_second,
                 burst_count = EXCLUDED.burst_count
             ",
+            user_id,
+            messages_per_second,
+            burst_count,
         )
-        .bind(user_id)
-        .bind(messages_per_second)
-        .bind(burst_count)
         .execute(self.pool.as_ref())
         .await?;
         Ok(())
@@ -84,13 +87,13 @@ impl RateLimitStorage {
 
     /// See [`delete_user_rate_limit`].
     pub async fn delete_user_rate_limit(&self, user_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r"
             DELETE FROM rate_limits
             WHERE user_id = $1
             ",
+            user_id,
         )
-        .bind(user_id)
         .execute(self.pool.as_ref())
         .await?;
         Ok(())

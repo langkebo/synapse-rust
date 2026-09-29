@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT messages_per_second, burst_count\n            FROM rate_limits\n            WHERE user_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "messages_per_second",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 1,
+        "name": "burst_count",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "3c6d45013754a62641d69769eade1a106ce69db7fed15f02fc7fbd27c25a8a69"
+}

@@ -3693,3 +3693,90 @@ async fn test_copy_room_state_copies_latest_state_and_upserts() {
         .expect("count copied state");
     assert_eq!(total, 2, "ON CONFLICT DO UPDATE 不得产生重复行");
 }
+
+/// C57-0 补覆盖：`find_related_events`（MSC3912 关系反查 + `origin_server_ts`/
+/// `stream_ordering` 决胜排序 + `LIMIT`）与 `find_cascade_targets`（BFS 根节点保留、
+/// 深度受限）。此前这两个方法**没有任何 storage 级用例** —— 只有 admin 路由级
+/// `api_msc3912_redaction_cascade_tests.rs` 间接覆盖 `find_related_events_single_layer`。
+#[tokio::test]
+async fn test_find_related_events_and_cascade_targets() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let room_id = format!("!casc_{suffix}:example.com");
+    let sender = format!("@casc_{suffix}:example.com");
+    let root = format!("$casc_root_{suffix}:example.com");
+    let reply = format!("$casc_reply_{suffix}:example.com");
+    let reaction = format!("$casc_react_{suffix}:example.com");
+    let unrelated = format!("$casc_unrel_{suffix}:example.com");
+    let base = 1_000_000_i64;
+
+    ensure_test_room(&pool, &room_id).await;
+    ensure_test_user(&pool, &sender).await;
+
+    insert_soft_fail_event_row(
+        &pool,
+        &room_id,
+        &root,
+        &sender,
+        serde_json::json!({ "body": "root" }),
+        base,
+        950_001,
+        false,
+    )
+    .await;
+    // reply 走 `m.in_reply_to`，ts 最晚
+    insert_soft_fail_event_row(
+        &pool,
+        &room_id,
+        &reply,
+        &sender,
+        serde_json::json!({ "m.in_reply_to": { "event_id": root } }),
+        base + 2,
+        950_004,
+        false,
+    )
+    .await;
+    // reaction 走 `m.relates_to`，ts 最早但 stream_ordering 居中 ⇒ 必须按 ts 排在前面
+    insert_soft_fail_event_row(
+        &pool,
+        &room_id,
+        &reaction,
+        &sender,
+        serde_json::json!({ "m.relates_to": { "event_id": root, "rel_type": "m.annotation" } }),
+        base - 5,
+        950_002,
+        false,
+    )
+    .await;
+    insert_soft_fail_event_row(
+        &pool,
+        &room_id,
+        &unrelated,
+        &sender,
+        serde_json::json!({ "body": "unrelated" }),
+        base + 1,
+        950_003,
+        false,
+    )
+    .await;
+
+    let related = storage.find_related_events(&root, 100).await.expect("find_related_events");
+    assert_eq!(related, vec![reaction.clone(), reply.clone()], "两条关系事件按 origin_server_ts ASC 排序");
+
+    let limited = storage.find_related_events(&root, 1).await.expect("find_related_events with LIMIT");
+    assert_eq!(limited, vec![reaction.clone()], "LIMIT $2 取 ts 最早的一条");
+
+    let none = storage.find_related_events(&unrelated, 100).await.expect("find_related_events for unrelated");
+    assert!(none.is_empty(), "无关事件不得被反查命中");
+
+    // 根事件必须留在 cascade 目标里（防回归：曾因预置 visited 让根被静默丢弃）
+    let targets = storage.find_cascade_targets(&root, 2).await.expect("find_cascade_targets");
+    assert!(targets.contains(&root), "根事件必须在 cascade 目标里: {targets:?}");
+    assert!(targets.contains(&reply) && targets.contains(&reaction), "关系事件必须在目标里: {targets:?}");
+    assert!(!targets.contains(&unrelated), "无关事件不得进目标: {targets:?}");
+
+    let depth1 = storage.find_cascade_targets(&root, 1).await.expect("find_cascade_targets depth 1");
+    assert_eq!(depth1, vec![root.clone()], "max_depth=1 时只有根节点");
+}

@@ -2886,10 +2886,36 @@
 #   literal 101/29 → **92/26**。恒等式 `163 − 92 − 1 = 70` 成立。
 #   验证：`-p synapse-storage --lib --features test-utils -E 'test(/unread|copy_room_state|txn_dedup|event_signatures|signature/)'`
 #   （见 §8.3 第 45 条）。
+# ── 2026-09-29 C57-0（先修 D-101：删零调用者方法 + 补 cascade 覆盖；本文件只下调下限）──────
+#   `EventStorage::get_full_event_json`（`event/cascade.rs`）**全仓零调用者** ⇒ 按铁律 1 删除，
+#   连带无用的 `use serde_json::Value;`。它是**动态**站点 ⇒ `BASELINE_DYNAMIC_PRODUCTION`
+#   163 → **162**（`static` 1314 与测试区 740 不变）。
+#   覆盖：`find_related_events` / `find_cascade_targets` 此前**没有任何 storage 级用例**
+#   （只有 admin 路由级间接覆盖 `find_related_events_single_layer`）⇒ 新增真基线用例
+#   `test_find_related_events_and_cascade_targets`（关系反查 / ts 决胜排序 / LIMIT /
+#   BFS 根节点保留 / 深度受限），且只复用现有夹具 helper ⇒ **测试区计数不变**。
+#   转换（`find_related_events` 1 处）留在 C57。
+# ── 2026-09-29 C57（`event/cascade.rs` 1 处 + `login_token.rs` 3 处 + `rate_limit.rs` 3 处，
+#    三个文件生产区动态归零）──────────────────────────────────────────────────────────────
+#   · `event/cascade.rs`：`find_related_events` 的**单列元组投影** `Vec<(String,)>` ⇒
+#     `query_scalar!`（R6 ⑤；`events.event_id` 是 `TEXT NOT NULL` ⇒ 直接得到 `Vec<String>`，
+#     原先的 `map(|(id,)| id)` 消失）；`LIMIT $2` 的 `limit` 本就是 `i64`。
+#   · `login_token.rs`：`create_login_token` ⇒ `query!`（`device_id: Option<&str>` 按值绑到可空列，
+#     不是 R5 禁止的 `&Option<T>`）；`consume_login_token` 的 `DELETE … RETURNING`（6 列）⇒
+#     `query_as!(LoginToken, …)`（R6 ④；`device_id` 可空 ⇒ 字段 `Option<String>`，其余列 NOT NULL
+#     ⇒ 非 `Option`，与结构体一致）；`cleanup_expired_tokens` ⇒ `query!` + `rows_affected()`。
+#   · `rate_limit.rs`：`get_user_rate_limit` ⇒ `query_as!(RateLimitRecord, …)`（两列在 schema 里
+#     都可空 ⇒ 字段 `Option`，R4 一致）；`upsert_user_rate_limit` ⇒ `query!`（f64/i32 绑定）；
+#     `delete_user_rate_limit` ⇒ `query!`。
+#   三个文件的覆盖本就齐备（`login_token` 4 条、`rate_limit` 4 条真基线用例，均经
+#   `isolated_test_pool()`；`cascade` 由 C57-0 补齐）⇒ **本批无 C57 侧先修**。
+#   实测：`dynamic_production` 162 → **155**（−7）、`static` 1314 → **1321**（+7）、
+#   `dynamic` 总数 902 → **895**、`dynamic_test` 740 不变、`.sqlx` 1282 → **1289**（+7，无碰撞）、
+#   literal 91/26 → **84/23**。恒等式 `155 − 84 − 1 = 70` 成立。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=163
+BASELINE_DYNAMIC_PRODUCTION=155
 BASELINE_DYNAMIC_TEST_INFRA=740
-BASELINE_STATIC=1314
+BASELINE_STATIC=1321
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 

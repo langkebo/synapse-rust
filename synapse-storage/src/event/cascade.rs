@@ -8,7 +8,6 @@
 //! - Matrix Spec: Event Relationships
 
 use super::EventStorage;
-use serde_json::Value;
 
 impl EventStorage {
     /// Find all events that reference the given event_id via relationship fields.
@@ -26,7 +25,9 @@ impl EventStorage {
     /// reply/reaction chains, and an unstable order there makes the traversal
     /// (and therefore `redacted_count`) non-reproducible.
     pub async fn find_related_events(&self, event_id: &str, limit: i64) -> Result<Vec<String>, sqlx::Error> {
-        let rows: Vec<(String,)> = sqlx::query_as(
+        // 单列投影 ⇒ `query_scalar!`（R6 ⑤：`query_as!` 不能构造元组；`events.event_id`
+        // 是 `TEXT NOT NULL` ⇒ 直接得到 `Vec<String>`，原先的 `map(|(id,)| id)` 随之消失）。
+        let rows = sqlx::query_scalar!(
             r#"
             SELECT event_id FROM events
             WHERE (content->>'m.in_reply_to' IS NOT NULL
@@ -36,13 +37,13 @@ impl EventStorage {
             ORDER BY origin_server_ts ASC, stream_ordering ASC
             LIMIT $2
             "#,
+            event_id,
+            limit,
         )
-        .bind(event_id)
-        .bind(limit)
         .fetch_all(self.pool.as_ref())
         .await?;
 
-        Ok(rows.into_iter().map(|(id,)| id).collect())
+        Ok(rows)
     }
 
     /// MSC3912: Find related events at a single level (no recursion).
@@ -197,40 +198,6 @@ impl EventStorage {
         }
 
         Ok(redacted_count)
-    }
-
-    /// Get the full JSON representation of an event for federation redaction.
-    ///
-    /// This reconstructs the complete PDU including all fields needed for
-    /// hash computation and signature verification.
-    ///
-    /// Only the assembled JSON object is selected. The previous version also
-    /// re-selected five of its own inputs (`event_id`, `state_key`, `depth`,
-    /// `origin_server_ts`, `origin`) as extra columns and discarded them,
-    /// which is what made the row type trip `clippy::type_complexity`.
-    pub async fn get_full_event_json(&self, event_id: &str) -> Result<Option<Value>, sqlx::Error> {
-        sqlx::query_scalar(
-            r#"
-                SELECT json_build_object(
-                    'event_id', event_id,
-                    'type', event_type,
-                    'room_id', room_id,
-                    'sender', sender,
-                    'content', content,
-                    'state_key', state_key,
-                    'depth', COALESCE(depth, 0),
-                    'origin_server_ts', COALESCE(origin_server_ts, 0),
-                    'origin', COALESCE(origin, 'self'),
-                    'prev_events', COALESCE(prev_events, '[]'::json),
-                    'auth_events', COALESCE(auth_events, '[]'::json)
-                )
-                FROM events
-                WHERE event_id = $1
-                "#,
-        )
-        .bind(event_id)
-        .fetch_optional(self.pool.as_ref())
-        .await
     }
 }
 
