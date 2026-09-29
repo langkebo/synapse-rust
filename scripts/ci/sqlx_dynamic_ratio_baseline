@@ -2886,8 +2886,17 @@
 #   literal 101/29 → **92/26**。恒等式 `163 − 92 − 1 = 70` 成立。
 #   验证：`-p synapse-storage --lib --features test-utils -E 'test(/unread|copy_room_state|txn_dedup|event_signatures|signature/)'`
 #   （见 §8.3 第 45 条）。
+# ── 2026-09-29 C57-0（先修 D-101：删零调用者方法 + 补 cascade 覆盖；本文件只下调下限）──────
+#   `EventStorage::get_full_event_json`（`event/cascade.rs`）**全仓零调用者** ⇒ 按铁律 1 删除，
+#   连带无用的 `use serde_json::Value;`。它是**动态**站点 ⇒ `BASELINE_DYNAMIC_PRODUCTION`
+#   163 → **162**（`static` 1314 与测试区 740 不变）。
+#   覆盖：`find_related_events` / `find_cascade_targets` 此前**没有任何 storage 级用例**
+#   （只有 admin 路由级间接覆盖 `find_related_events_single_layer`）⇒ 新增真基线用例
+#   `test_find_related_events_and_cascade_targets`（关系反查 / ts 决胜排序 / LIMIT /
+#   BFS 根节点保留 / 深度受限），且只复用现有夹具 helper ⇒ **测试区计数不变**。
+#   转换（`find_related_events` 1 处）留在 C57。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=163
+BASELINE_DYNAMIC_PRODUCTION=162
 BASELINE_DYNAMIC_TEST_INFRA=740
 BASELINE_STATIC=1314
 # 兼容旧接口：总数 = 生产 + 测试基础设施
