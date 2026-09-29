@@ -97,8 +97,14 @@ async fn test_cleanup_api() {
     assert!(json.get("tokens").is_some());
 
     let rooms = json["rooms"].as_object().unwrap();
+    assert!(rooms.get("deleted_events_in_empty_rooms").is_some());
     assert!(rooms.get("deleted_empty_rooms").is_some());
-    assert!(rooms.get("deleted_orphan_events").is_some());
+    // D-103 / D-100：`deleted_orphan_events` / `deleted_orphan_memberships` / `deleted_orphan_state`
+    // 三个键已删除 —— 那两个关系由 `ON DELETE CASCADE` 外键保证、孤儿行插不进去，计数恒为 0
+    // （不会失败的门禁），第三张表 `room_state_events` 本身已删除（全仓没有读者）。
+    assert!(rooms.get("deleted_orphan_events").is_none());
+    assert!(rooms.get("deleted_orphan_memberships").is_none());
+    assert!(rooms.get("deleted_orphan_state").is_none());
 }
 
 #[tokio::test]

@@ -82,7 +82,6 @@ pub trait EventWriter: Send + Sync {
         device_id: &str,
         signature: &str,
         key_id: &str,
-        algorithm: &str,
         created_ts: i64,
     ) -> Result<(), sqlx::Error>;
 
@@ -229,10 +228,9 @@ impl crate::event::writer::EventWriter for super::EventStorage {
         device_id: &str,
         signature: &str,
         key_id: &str,
-        algorithm: &str,
         created_ts: i64,
     ) -> Result<(), sqlx::Error> {
-        self.save_event_signature(event_id, user_id, device_id, signature, key_id, algorithm, created_ts).await
+        self.save_event_signature(event_id, user_id, device_id, signature, key_id, created_ts).await
     }
 
     async fn report_event(

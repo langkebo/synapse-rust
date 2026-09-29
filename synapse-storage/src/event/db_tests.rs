@@ -429,7 +429,7 @@ async fn test_save_and_get_event_signatures() {
 
     let now = current_timestamp_millis();
     storage
-        .save_event_signature(&event_id, user_id, "DEVICE1", "sig_data", "ed25519:1", "ed25519", now)
+        .save_event_signature(&event_id, user_id, "DEVICE1", "sig_data", "ed25519:1", now)
         .await
         .expect("save_event_signature should succeed");
 
@@ -3440,37 +3440,8 @@ async fn test_current_state_prefers_the_resolved_state_record() {
 }
 
 // =============================================================================
-// C56-0: D-98（highlight 用 LIKE 匹配 user_id ⇒ `_` 通配符虚高）+ copy_room_state 覆盖
+// C56-0: D-98（highlight 用 LIKE 匹配 user_id ⇒ `_` 通配符虚高）
 // =============================================================================
-
-/// 直接插入一行**状态事件**（`state_key IS NOT NULL`），绕过 `create_event` 的
-/// DAG/签名校验，用于构造"同一 (type, state_key) 有多个版本"的搬运场景。
-#[allow(clippy::too_many_arguments)] // 夹具：与同文件的 `insert_soft_fail_event_row` 同形
-async fn insert_state_event_row(
-    pool: &Pool<Postgres>,
-    room_id: &str,
-    event_id: &str,
-    sender: &str,
-    event_type: &str,
-    state_key: &str,
-    content: serde_json::Value,
-    origin_server_ts: i64,
-) {
-    sqlx::query(
-        r#"INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key, origin_server_ts, is_redacted, origin)
-           VALUES ($1, $2, $3, $3, $4, $5, $6, $7, false, 'self')"#,
-    )
-    .bind(event_id)
-    .bind(room_id)
-    .bind(sender)
-    .bind(event_type)
-    .bind(content)
-    .bind(state_key)
-    .bind(origin_server_ts)
-    .execute(pool)
-    .await
-    .expect("insert state event row");
-}
 
 /// D-98 RED→GREEN：`highlight_count` 原先用 `ev.content::text LIKE '%<user_id>%'` 判定
 /// "内容提到我"。`LIKE` 的 `_` 是**单字符通配符**、`%` 是**任意串长通配符**，而 Matrix
@@ -3579,119 +3550,6 @@ async fn test_unread_highlight_counts_match_user_id_literally() {
     assert_eq!(batch[0].room_id, room_id);
     assert_eq!(batch[0].notification_count, 4, "批量变体与单房间变体口径必须一致");
     assert_eq!(batch[0].highlight_count, 2, "批量变体同样不得被 `_` 通配符污染（D-98）");
-}
-
-/// `copy_room_state` 的真 baseline 往返（C56-0 补覆盖）：
-/// ① 只搬**状态事件**（非状态事件不进 `room_state_events`）；
-/// ② 同一 `(type, state_key)` 只搬 `origin_server_ts` 最新的那份（`DISTINCT ON`）；
-/// ③ 第二次调用走 `ON CONFLICT … DO UPDATE`，不产生重复行。
-#[tokio::test]
-async fn test_copy_room_state_copies_latest_state_and_upserts() {
-    let (_isolated, pool) = test_pool().await;
-    let storage = EventStorage::new(&pool, test_server_name());
-
-    let suffix = uuid::Uuid::new_v4().simple().to_string();
-    let source = format!("!cs_src_{suffix}:example.com");
-    let target = format!("!cs_dst_{suffix}:example.com");
-    let sender = format!("@cs_{suffix}:example.com");
-
-    ensure_test_room(&pool, &source).await;
-    ensure_test_room(&pool, &target).await;
-    ensure_test_user(&pool, &sender).await;
-
-    // 同名 state 的两个版本 + 另一个 type + 一条非状态事件
-    insert_state_event_row(
-        &pool,
-        &source,
-        &format!("$cs1a_{suffix}:example.com"),
-        &sender,
-        "m.room.topic",
-        "",
-        serde_json::json!({ "topic": "old" }),
-        1_000,
-    )
-    .await;
-    insert_state_event_row(
-        &pool,
-        &source,
-        &format!("$cs1b_{suffix}:example.com"),
-        &sender,
-        "m.room.topic",
-        "",
-        serde_json::json!({ "topic": "new" }),
-        2_000,
-    )
-    .await;
-    insert_state_event_row(
-        &pool,
-        &source,
-        &format!("$cs2_{suffix}:example.com"),
-        &sender,
-        "m.room.name",
-        "",
-        serde_json::json!({ "name": "Copied Room" }),
-        1_500,
-    )
-    .await;
-    insert_soft_fail_event_row(
-        &pool,
-        &source,
-        &format!("$cs3_{suffix}:example.com"),
-        &sender,
-        serde_json::json!({ "body": "not state" }),
-        3_000,
-        940_001,
-        false,
-    )
-    .await;
-
-    storage.copy_room_state(&source, &target).await.expect("copy_room_state should succeed");
-
-    let rows: Vec<(String, String, serde_json::Value, String, i64)> = sqlx::query_as(
-        "SELECT type, state_key, content, sender, origin_server_ts FROM room_state_events WHERE room_id = $1 ORDER BY type",
-    )
-    .bind(&target)
-    .fetch_all(&*pool)
-    .await
-    .expect("read copied state");
-    assert_eq!(rows.len(), 2, "只搬状态事件；非状态事件不得进 room_state_events");
-    assert_eq!(rows[0].0, "m.room.name");
-    assert_eq!(rows[0].2, serde_json::json!({ "name": "Copied Room" }));
-    assert_eq!(rows[1].0, "m.room.topic");
-    assert_eq!(rows[1].2, serde_json::json!({ "topic": "new" }), "同名 state 只搬 origin_server_ts 最新的版本");
-    assert_eq!(rows[1].3, sender, "sender 一并搬运");
-    assert_eq!(rows[1].4, 2_000, "origin_server_ts 一并搬运");
-
-    // 源房间出现更新的 topic ⇒ 第二次调用必须更新目标行而不是插入第二行
-    insert_state_event_row(
-        &pool,
-        &source,
-        &format!("$cs1c_{suffix}:example.com"),
-        &sender,
-        "m.room.topic",
-        "",
-        serde_json::json!({ "topic": "newest" }),
-        4_000,
-    )
-    .await;
-    storage.copy_room_state(&source, &target).await.expect("second copy_room_state should succeed");
-
-    let updated: (serde_json::Value, i64) = sqlx::query_as(
-        "SELECT content, origin_server_ts FROM room_state_events WHERE room_id = $1 AND type = 'm.room.topic' AND state_key = ''",
-    )
-    .bind(&target)
-    .fetch_one(&*pool)
-    .await
-    .expect("read upserted topic");
-    assert_eq!(updated.0, serde_json::json!({ "topic": "newest" }));
-    assert_eq!(updated.1, 4_000);
-
-    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM room_state_events WHERE room_id = $1")
-        .bind(&target)
-        .fetch_one(&*pool)
-        .await
-        .expect("count copied state");
-    assert_eq!(total, 2, "ON CONFLICT DO UPDATE 不得产生重复行");
 }
 
 /// C57-0 补覆盖：`find_related_events`（MSC3912 关系反查 + `origin_server_ts`/

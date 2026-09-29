@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO event_signatures (id, event_id, user_id, device_id, signature, key_id, created_ts)\n            VALUES ($1, $2, $3, $4, $5, $6, $7)\n            ON CONFLICT (event_id, user_id, device_id, key_id) DO UPDATE\n            SET signature = EXCLUDED.signature,\n                created_ts = EXCLUDED.created_ts\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "59db9ccbe608a265828af56680d3d5ab9f6f26000bd15787cf0b191912368c37"
+}

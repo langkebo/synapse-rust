@@ -997,11 +997,6 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
             .collect())
     }
 
-    async fn copy_room_state(&self, _source_room_id: &str, _target_room_id: &str) -> Result<(), sqlx::Error> {
-        // In-memory mock does not model room_state_events; no-op.
-        Ok(())
-    }
-
     async fn calculate_event_depth(&self, _room_id: &str, _prev_events: &[String]) -> Result<i64, sqlx::Error> {
         // In-memory mock returns depth 1
         Ok(1)
@@ -1121,7 +1116,6 @@ impl crate::event::writer::EventWriter for InMemoryEventStore {
         _device_id: &str,
         _signature: &str,
         _key_id: &str,
-        _algorithm: &str,
         _created_ts: i64,
     ) -> Result<(), sqlx::Error> {
         Ok(())

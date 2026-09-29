@@ -36,7 +36,6 @@ pub mod olm;
 /// The `secure_backup` module.
 pub mod secure_backup;
 /// The `signature` module.
-pub mod signature;
 /// The `signed_json` module.
 pub mod signed_json;
 /// The `ssss` module.
@@ -83,7 +82,5 @@ pub use megolm::models::{EncryptedEvent, MegolmSession};
 pub use megolm::service::MegolmProvider;
 pub use olm::models::*;
 pub use olm::OlmService;
-pub use signature::EventSignature;
-pub use signature::SignatureService;
 pub use ssss::SecretStorage;
 pub use ssss::SecretStorageService;

@@ -27,6 +27,10 @@ impl EventStorage {
     }
 
     /// Save (upsert) an event signature.
+    ///
+    /// D-99：原先还接一个 `algorithm` 形参并写入同名列。该列**从来没有读者**
+    /// （两份 `EventSignature` 结构体都不含它），而且它的语义与 `key_id` 的前缀重复
+    /// （路由的默认值就是 `key_id.split(':').next()`）⇒ 列与形参一并删除。
     #[allow(clippy::too_many_arguments)]
     pub async fn save_event_signature(
         &self,
@@ -35,16 +39,14 @@ impl EventStorage {
         device_id: &str,
         signature: &str,
         key_id: &str,
-        algorithm: &str,
         created_ts: i64,
     ) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r"
-            INSERT INTO event_signatures (id, event_id, user_id, device_id, signature, key_id, algorithm, created_ts)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO event_signatures (id, event_id, user_id, device_id, signature, key_id, created_ts)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (event_id, user_id, device_id, key_id) DO UPDATE
             SET signature = EXCLUDED.signature,
-                algorithm = EXCLUDED.algorithm,
                 created_ts = EXCLUDED.created_ts
             ",
             uuid::Uuid::new_v4(),
@@ -53,7 +55,6 @@ impl EventStorage {
             device_id,
             signature,
             key_id,
-            algorithm,
             created_ts,
         )
         .execute(&*self.pool)
@@ -63,9 +64,9 @@ impl EventStorage {
 
     /// Get all signatures for an event.
     pub async fn get_event_signatures(&self, event_id: &str) -> Result<Vec<EventSignature>, sqlx::Error> {
-        // 7 列与 `EventSignature` 的 7 个字段一一对应（`algorithm` 列不被读 —— 见 D-99 的
-        // "只写不读"观察）。`created_ts` 列是 `BIGINT NOT NULL` 而字段是 `Option<i64>`：
-        // R4 明确该方向**不报错**（NOT NULL 列配 `Option` 字段合法），故保持原样不动结构体。
+        // 7 列与 `EventSignature` 的 7 个字段一一对应（D-99 已把"只写不读"的 `algorithm`
+        // 列整列删除，不再有列与字段的错位）。`created_ts` 列是 `BIGINT NOT NULL` 而字段是
+        // `Option<i64>`：R4 明确该方向**不报错**（NOT NULL 列配 `Option` 字段合法），故结构体不动。
         sqlx::query_as!(
             EventSignature,
             r"

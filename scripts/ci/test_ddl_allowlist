@@ -94,3 +94,11 @@ synapse-storage/src/pruning.rs::db_tests::prune_to_device_transactions_old_only
 synapse-storage/src/pruning.rs::db_tests::prune_token_blacklist_keeps_permanent
 synapse-storage/src/pruning.rs::db_tests::seed_changes
 synapse-storage/src/refresh_token/mod.rs::tests::setup_refresh_token_db
+
+# —— D-95 的"构造违规"用例：`ALTER TABLE … DROP CONSTRAINT` / `ADD CONSTRAINT … NOT VALID`
+#    就是**被测对象**（完整性巡检必须能对"约束被删掉/未验证"报警，否则又回到"恒 0 违规"的
+#    不会失败的门禁）。用例跑在 `test_isolation::isolated_test_pool()` 的 per-test schema 上，
+#    不碰共享 schema、也不改迁移 baseline；探针只挑**没有入向外键**的约束（`event_edges` 主键），
+#    因此不会牵连其它表。
+#    例外仅限本条：`verify_data_integrity` 自身在外键扫描之外仍读真 catalog。
+synapse-storage/src/monitoring.rs::integrity_violation_tests::verify_data_integrity_reports_constructed_violations

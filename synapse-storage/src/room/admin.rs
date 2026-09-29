@@ -80,42 +80,12 @@ impl RoomStorage {
         };
         results.insert("deleted_empty_rooms".to_string(), json!(deleted_empty_rooms));
 
-        // 2. Clean up orphan events (events pointing to non-existent rooms)
-        //    These rooms were already deleted above or were pre-existing orphans.
-        let deleted_orphan_events = sqlx::query!(
-            r"
-            DELETE FROM events
-            WHERE NOT EXISTS (SELECT 1 FROM rooms WHERE rooms.room_id = events.room_id)
-            ",
-        )
-        .execute(&*self.pool)
-        .await?
-        .rows_affected();
-        results.insert("deleted_orphan_events".to_string(), json!(deleted_orphan_events));
-
-        // 3. Clean up orphan memberships
-        let deleted_orphan_memberships = sqlx::query!(
-            r"
-            DELETE FROM room_memberships
-            WHERE NOT EXISTS (SELECT 1 FROM rooms WHERE rooms.room_id = room_memberships.room_id)
-            ",
-        )
-        .execute(&*self.pool)
-        .await?
-        .rows_affected();
-        results.insert("deleted_orphan_memberships".to_string(), json!(deleted_orphan_memberships));
-
-        // 4. Clean up orphan state
-        let deleted_orphan_state = sqlx::query!(
-            r"
-            DELETE FROM room_state_events
-            WHERE NOT EXISTS (SELECT 1 FROM rooms WHERE rooms.room_id = room_state_events.room_id)
-            ",
-        )
-        .execute(&*self.pool)
-        .await?
-        .rows_affected();
-        results.insert("deleted_orphan_state".to_string(), json!(deleted_orphan_state));
+        // D-103 / D-100：这里原有三步"孤儿清理"（events.room_id、room_memberships.room_id、
+        // room_state_events.room_id）。前两步**结构上不可能命中** —— `fk_events_room` 与
+        // `fk_room_memberships_room` 都是 `ON DELETE CASCADE` 外键（上一步删房间时已级联，
+        // 且孤儿行根本插不进去），属 D-95 同类的"不会失败的门禁"；第三步随
+        // `room_state_events` 表一起删除（D-100：该表全仓没有读者）。因此这里只保留
+        // 1a/1b 两步**真正有效**的清理（空房间及其事件），并同步从返回结果里去掉那三个恒为 0 的键。
 
         Ok(serde_json::Value::Object(results))
     }

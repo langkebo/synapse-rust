@@ -191,9 +191,6 @@ pub trait EventReader: Send + Sync {
         user_id: &str,
     ) -> Result<Vec<crate::room::RoomUnreadCounts>, sqlx::Error>;
 
-    /// See [`copy_room_state`].
-    async fn copy_room_state(&self, source_room_id: &str, target_room_id: &str) -> Result<(), sqlx::Error>;
-
     // ── graph / dag ──────────────────────────────────────────────────────
 
     /// See [`find_missing_event_ids`].
@@ -602,10 +599,6 @@ impl crate::event::reader::EventReader for super::EventStorage {
         user_id: &str,
     ) -> Result<Vec<crate::room::RoomUnreadCounts>, sqlx::Error> {
         self.get_unread_counts_batch(room_ids, user_id).await
-    }
-
-    async fn copy_room_state(&self, source_room_id: &str, target_room_id: &str) -> Result<(), sqlx::Error> {
-        self.copy_room_state(source_room_id, target_room_id).await
     }
 
     async fn calculate_event_depth(&self, room_id: &str, prev_events: &[String]) -> Result<i64, sqlx::Error> {

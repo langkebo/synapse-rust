@@ -25,8 +25,8 @@ pub use crate::federation_blacklist::{
 pub use crate::maintenance::{DatabaseMaintenance, MaintenanceReport, TableStats, VacuumResult};
 pub use crate::migration_checks::{check_migration_completeness, count_public_tables};
 pub use crate::monitoring::{
-    ConnectionPoolStatus, DataIntegrityReport, DatabaseHealthStatus, DatabaseMonitor, DuplicateEntry,
-    ForeignKeyViolation, NullConstraintViolation, OrphanedRecord, PerformanceMetrics,
+    ConnectionPoolStatus, DataIntegrityReport, DatabaseHealthStatus, DatabaseMonitor, IntegrityFinding,
+    IntegrityFindingKind, PerformanceMetrics,
 };
 pub use crate::rate_limit::{RateLimitRecord, RateLimitStorage, RateLimitStoreApi};
 pub use crate::schema_validator::{SchemaValidationResult, SchemaValidator, TableSchemaInfo};

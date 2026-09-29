@@ -810,11 +810,10 @@ impl MessagingService {
         device_id: &str,
         signature: &str,
         key_id: &str,
-        algorithm: &str,
         created_ts: i64,
     ) -> ApiResult<()> {
         self.event_writer
-            .save_event_signature(event_id, user_id, device_id, signature, key_id, algorithm, created_ts)
+            .save_event_signature(event_id, user_id, device_id, signature, key_id, created_ts)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to save signature", e))
     }
