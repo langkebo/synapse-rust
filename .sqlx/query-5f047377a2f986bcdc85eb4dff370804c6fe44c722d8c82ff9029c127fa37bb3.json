@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE delayed_events\n            SET status = 'cancelled'\n            WHERE id = $1 AND status = 'pending'\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5f047377a2f986bcdc85eb4dff370804c6fe44c722d8c82ff9029c127fa37bb3"
+}

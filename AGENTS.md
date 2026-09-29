@@ -301,6 +301,12 @@ SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils -
 SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils --all-features --locked -- -D warnings
 # 4) 该模块的「真 baseline」DB 往返（不是纯构造/序列化用例）
 cargo nextest run -p <crate> --lib --features test-utils -E 'test(/<module>/)'
+# 4b) **删代码的批次必跑**这两道「只禁增」的兄弟棘轮：删除站点会让它们因"基线比实测**宽**"
+#     而红（棘轮把"变好"也判红）。已踩两次：D-85（C45-0 删掉最后一条单键 `ORDER BY created_ts`）、
+#     C47-0（删掉零调用者方法顺带删掉一条 `ORDER BY scheduled_ts`）。报"基线已过期"时按提示收紧
+#     （`--update`），不要绕过。
+python3 scripts/ci/check_ts_order_tiebreak.py
+python3 scripts/ci/check_trait_ratchet.py
 # 收尾
 ./scripts/check_fmt_ratchet.sh
 ```

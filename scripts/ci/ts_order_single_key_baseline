@@ -9,7 +9,7 @@ synapse-federation/src/dead_letter_queue.rs 1
 synapse-federation/src/key_rotation.rs 1
 synapse-storage/src/application_service/repository.rs 2
 synapse-storage/src/burn_after_read.rs 2
-synapse-storage/src/delayed_events.rs 2
+synapse-storage/src/delayed_events.rs 1
 synapse-storage/src/event/basic.rs 2
 synapse-storage/src/event/batch.rs 3
 synapse-storage/src/event/create.rs 1

@@ -2630,10 +2630,23 @@
 #   实测：`dynamic_production` 226 → **225**（−1）、`static` 1258 不变、`dynamic` 总数 959 → **958**、
 #   `dynamic_test` 733 不变、literal 155/37 → **154/37**。
 #   验证：`-p synapse-storage --lib --features test-utils -E 'test(/delayed_event/)'` ⇒ **8/8**。
+# ── 2026-09-28 C47（`delayed_events.rs` 6 处宏化，本文件生产区动态归零）─────────────────
+#   C47-0 删掉零调用者方法后剩 6 处，按形状分两类：
+#   · `query_as!` 3 处：`create`（14 列 `RETURNING` 与 `DelayedEvent` 一一对应；`state_key`
+#     以 `.as_deref()` 传入，R5）、`get`（14 列 + `fetch_optional`）、`get_due_events`
+#     （14 列 + `ORDER BY scheduled_ts` + `LIMIT $2`，绑定 `i64` 直接传）；
+#   · `query!` + `.execute()` 3 处：`restart`（`SET scheduled_ts = $2 + delay_ms`，两绑定）、
+#     `cancel`、`mark_sent`（都是 `UPDATE ... WHERE id = $1 AND status = 'pending'`，无结果列
+#     ⇒ R6 ① 的 `.execute()` 正体）。
+#   实测：`dynamic_production` 225 → **219**（−6）、`static` 1258 → **1264**（+6）、
+#   `dynamic` 总数 958 → **952**、`dynamic_test` 733 不变、`.sqlx` 1226 → **1232**（+6）、
+#   literal 154/37 → **148/36**（该文件退表）。恒等式 `219 − 148 − 1 = 70` 仍成立。
+#   验证：`-p synapse-storage --lib --features test-utils -E 'test(/delayed_event/)'` ⇒ 8/8
+#   （C47-0 的生命周期覆盖在转换后穿过新宏跑真库）。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=225
+BASELINE_DYNAMIC_PRODUCTION=219
 BASELINE_DYNAMIC_TEST_INFRA=733
-BASELINE_STATIC=1258
+BASELINE_STATIC=1264
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 

@@ -146,7 +146,11 @@ impl DelayedEventStorageApi for DelayedEventStorage {
         // placeholder. The real event_id is assigned when the event is sent.
         let synthetic_event_id = format!("$delayed:{}:{}:{}", request.room_id, request.user_id, now);
 
-        let event = sqlx::query_as::<_, DelayedEvent>(
+        // `query_as!` 按**列名**构造结构体（R6 ⑤：多列 E0560 / 少列 E0063），投影与
+        // `DelayedEvent` 的 14 个字段一一对应；`state_key: Option<String>` 以 `.as_deref()`
+        // 传入（R5 拒绝 `&Option<T>`）。
+        let event = sqlx::query_as!(
+            DelayedEvent,
             r#"
             INSERT INTO delayed_events
                 (room_id, user_id, device_id, event_id, event_type, state_key,
@@ -156,17 +160,17 @@ impl DelayedEventStorageApi for DelayedEventStorage {
                       state_key, content, delay_ms, scheduled_ts, created_ts,
                       status, retry_count, last_error
             "#,
+            &request.room_id,
+            &request.user_id,
+            &request.device_id,
+            &synthetic_event_id,
+            &request.event_type,
+            request.state_key.as_deref(),
+            &request.content,
+            request.delay_ms,
+            scheduled_ts,
+            now
         )
-        .bind(&request.room_id)
-        .bind(&request.user_id)
-        .bind(&request.device_id)
-        .bind(&synthetic_event_id)
-        .bind(&request.event_type)
-        .bind(request.state_key.as_ref())
-        .bind(&request.content)
-        .bind(request.delay_ms)
-        .bind(scheduled_ts)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to create delayed event", e))?;
@@ -175,15 +179,16 @@ impl DelayedEventStorageApi for DelayedEventStorage {
     }
 
     async fn get_delayed_event(&self, delay_id: i64) -> Result<Option<DelayedEvent>, ApiError> {
-        let event = sqlx::query_as::<_, DelayedEvent>(
+        let event = sqlx::query_as!(
+            DelayedEvent,
             r#"
             SELECT id, room_id, user_id, device_id, event_id, event_type,
                    state_key, content, delay_ms, scheduled_ts, created_ts,
                    status, retry_count, last_error
             FROM delayed_events WHERE id = $1
             "#,
+            delay_id
         )
-        .bind(delay_id)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get delayed event", e))?;
@@ -193,16 +198,17 @@ impl DelayedEventStorageApi for DelayedEventStorage {
 
     async fn restart_delayed_event(&self, delay_id: i64) -> Result<bool, ApiError> {
         let now = synapse_common::current_timestamp_millis();
-        let result = sqlx::query(
+        // 无结果列 ⇒ `query!` + `.execute()`（R6 ① 的 `.execute()` 正体）。
+        let result = sqlx::query!(
             r#"
             UPDATE delayed_events
             SET scheduled_ts = $2 + delay_ms,
                 status = 'pending'
             WHERE id = $1 AND status = 'pending'
             "#,
+            delay_id,
+            now
         )
-        .bind(delay_id)
-        .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to restart delayed event", e))?;
@@ -211,14 +217,14 @@ impl DelayedEventStorageApi for DelayedEventStorage {
     }
 
     async fn cancel_delayed_event(&self, delay_id: i64) -> Result<bool, ApiError> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r#"
             UPDATE delayed_events
             SET status = 'cancelled'
             WHERE id = $1 AND status = 'pending'
             "#,
+            delay_id
         )
-        .bind(delay_id)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to cancel delayed event", e))?;
@@ -227,14 +233,14 @@ impl DelayedEventStorageApi for DelayedEventStorage {
     }
 
     async fn mark_sent(&self, delay_id: i64) -> Result<bool, ApiError> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r#"
             UPDATE delayed_events
             SET status = 'sent'
             WHERE id = $1 AND status = 'pending'
             "#,
+            delay_id
         )
-        .bind(delay_id)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to mark delayed event as sent", e))?;
@@ -243,7 +249,8 @@ impl DelayedEventStorageApi for DelayedEventStorage {
     }
 
     async fn get_due_events(&self, now_ts: i64, limit: i64) -> Result<Vec<DelayedEvent>, ApiError> {
-        let events = sqlx::query_as::<_, DelayedEvent>(
+        let events = sqlx::query_as!(
+            DelayedEvent,
             r#"
             SELECT id, room_id, user_id, device_id, event_id, event_type,
                    state_key, content, delay_ms, scheduled_ts, created_ts,
@@ -253,9 +260,9 @@ impl DelayedEventStorageApi for DelayedEventStorage {
             ORDER BY scheduled_ts ASC
             LIMIT $2
             "#,
+            now_ts,
+            limit
         )
-        .bind(now_ts)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get due delayed events", e))?;
