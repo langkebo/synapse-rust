@@ -2771,10 +2771,36 @@
 #   `dynamic` 总数 924 → **918**、`dynamic_test` 733 不变、`.sqlx` 1256 → **1262**（+6）、
 #   literal 120/32 → **114/31**（该文件退表）。恒等式 `185 − 114 − 1 = 70` 仍成立。
 #   验证：`-p synapse-storage --lib --features test-utils -E 'test(/quarantine_stream/)'` ⇒ 2/2。
+# ── 2026-09-28 C53-0（先修 D-94（2 处吞错）+ 补覆盖 + 登记 D-95/D-96）──────────────────
+#   `synapse-storage/src/monitoring.rs`：
+#   ① **D-94（吞错，D-33 同型，2 处）**：
+#      · `pg_stat_statements_enabled` 的 `.fetch_one(…).await.unwrap_or(false)` 把**任何数据库
+#        错误**降级成"扩展未启用" ⇒ 监控指标静默少一半；改为 `?` 传播 + `AS "exists!"` 断言
+#        （`EXISTS(...)` 无关系来源，R4 ①；恒为 TRUE/FALSE）。
+#      · 慢查询三元组的 `…map(…).unwrap_or((0.0, 0, total_transactions))` 把**查询错误**降级成
+#        "没有慢查询" ⇒ 同样改 `?`；三个聚合列在空集上的 `unwrap_or` 是**真默认值**，保留。
+#   ② **D-96（R7 结构性例外）**：慢查询那条 SQL 里 `FROM pg_stat_statements` 指向**可选扩展**，
+#      baseline 迁移不创建它，本机与 CI 的库都没有该关系 ⇒ 宏在 prepare 阶段无法 describe
+#      （实测 `relation "pg_stat_statements" does not exist`），整份离线缓存都建不起来。
+#      这属于"SQL 文本是编译期常量、但**关系是否存在取决于运行环境**" ⇒ 该站点保持动态，
+#      并在代码注释与 §7.3 登记（与 R6 ④ 的两类并列的第三种不可宏化情形）。
+#   ③ **D-95（新登记，未关闭）**：`verify_data_integrity` 的两条检查**结构上不可能命中** ——
+#      `fk_events_room` 与 `fk_room_memberships_user` 都是外键（ON DELETE CASCADE），孤儿行
+#      根本插不进去；那两条全表 `NOT EXISTS` 永远返回空，方法恒报"0 违规 / 100 分"。
+#      处置需产品/路由决策（该 admin 端点是否仍有意义、要不要换成可违反的不变量），
+#      故**不在静态化批次里擅自动它**，只登记 + 用测试把真守卫（外键）钉住。
+#   ④ **覆盖**：本文件此前**没有任何测试** ⇒ 新增真基线用例覆盖 4 个方法（check_connection、
+#      连接池状态、性能指标、完整健康状态、完整性报告），并断言"插入孤儿事件/成员关系必须
+#      被外键拒绝"。
+#   实测：`dynamic_production` 185 → **184**（−1：EXISTS 那条转宏）、`static` 1294 → **1295**、
+#   `dynamic_test` 733 → **735**（+2：两条孤儿 INSERT 夹具，`#[cfg(test)]` 内宏不进缓存 ⇒
+#   R9/D-13）、`dynamic` 总数 918 → **919**、`.sqlx` 1262 → **1263**（+1）、
+#   literal 114/31 → **113/31**（本行 6 → 5，`pg_stat_statements` 那条**留在**表里）。
+#   验证：`-p synapse-storage --lib --features test-utils -E 'test(/monitoring/)'` ⇒ 1/1。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=185
-BASELINE_DYNAMIC_TEST_INFRA=733
-BASELINE_STATIC=1294
+BASELINE_DYNAMIC_PRODUCTION=184
+BASELINE_DYNAMIC_TEST_INFRA=735
+BASELINE_STATIC=1295
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 

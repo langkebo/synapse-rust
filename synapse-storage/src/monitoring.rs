@@ -246,15 +246,28 @@ impl DatabaseMonitor {
         let stats_window_seconds =
             db_stats.5.map_or(60.0, |stats_reset| (Utc::now() - stats_reset).num_seconds().max(1) as f64);
 
-        let pg_stat_statements_enabled = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements')",
+        // D-94（吞错，D-33 同型）：原先 `.fetch_one(…).await.unwrap_or(false)` 把**任何数据库
+        // 错误**静默降级成"扩展未启用" —— 监控指标从此悄悄少掉一半，而调用方看到的是一份
+        // "健康的"报告。改为 `?` 传播；`EXISTS(...)` 无关系来源（R4 ①）⇒ 断言 `AS "exists!"`
+        // （EXISTS 恒为 TRUE/FALSE、永不为 NULL）。
+        let pg_stat_statements_enabled = sqlx::query_scalar!(
+            r#"SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements') AS "exists!""#,
         )
         .fetch_one(&self.pool)
-        .await
-        .unwrap_or(false);
+        .await?;
 
         let (average_query_time_ms, slow_queries_count, total_queries) = if pg_stat_statements_enabled {
-            sqlx::query_as::<_, (Option<f64>, Option<i64>, Option<i64>)>(
+            // D-94（吞错）：原先 `…map(…).unwrap_or((0.0, 0, total_transactions))` 把**查询错误**
+            // 也降级成"没有慢查询"，与"确实没有慢查询"不可区分 ⇒ 改 `?` 传播。
+            // 三个聚合列本身在空集上会返回 NULL，那一层的 `unwrap_or` 是**真默认值**，保留。
+            //
+            // ⚠️ **这条查询必须保持动态（R7 结构性例外，见 §7）**：`pg_stat_statements` 是
+            // **可选扩展**，baseline 迁移不创建它，本机与 CI 的库都没有该关系 ⇒ 宏在
+            // `cargo sqlx prepare` 阶段无法 describe 它（实测报
+            // `relation "pg_stat_statements" does not exist`），整份离线缓存都建不起来。
+            // 这属于"SQL 文本是编译期常量，但**关系是否存在取决于运行环境**"——
+            // 与 R6 ④ 列出的两类不可宏化情形并列的第三种。
+            let row = sqlx::query_as::<_, (Option<f64>, Option<i64>, Option<i64>)>(
                 "SELECT AVG(mean_exec_time), \
                         COUNT(*) FILTER (WHERE mean_exec_time >= 1000.0), \
                         SUM(calls) \
@@ -262,11 +275,8 @@ impl DatabaseMonitor {
                  WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())",
             )
             .fetch_one(&self.pool)
-            .await
-            .map(|(avg, slow, total)| {
-                (avg.unwrap_or(0.0), slow.unwrap_or(0) as u64, total.unwrap_or(total_transactions) as u64)
-            })
-            .unwrap_or((0.0, 0, total_transactions as u64))
+            .await?;
+            (row.0.unwrap_or(0.0), row.1.unwrap_or(0) as u64, row.2.unwrap_or(total_transactions) as u64)
         } else {
             (0.0, 0, total_transactions as u64)
         };
@@ -346,5 +356,82 @@ impl DatabaseMonitor {
             overall_integrity_score: if member_orphans == 0 { 100.0 } else { 90.0 },
         };
         Ok(report)
+    }
+}
+
+/// `DatabaseMonitor` 的**真 baseline** 往返覆盖（C53-0）。
+///
+/// 本文件此前**没有任何测试**；四个方法里 `check_connection` 还被 `get_full_health_status`
+/// 内部调用。所有用例跑在 `isolated_test_pool()` 的 per-test schema 上（R9）。
+///
+/// ⚠️ 覆盖里刻意钉住一个**结构性事实**（D-95，已登记为未关闭项）：
+/// `verify_data_integrity` 的两条检查（`events.room_id` 无对应房间、`room_memberships.user_id`
+/// 无对应用户）**结构上不可能命中** —— `fk_events_room` 与 `fk_room_memberships_user`
+/// 都是外键（`ON DELETE CASCADE`），孤儿行根本无法插入。下面的用例用"插入孤儿必须失败"
+/// 把真守卫（外键）证出来，同时断言该方法的报告恒为"0 违规 / 100 分"。
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Pool<Postgres>) {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = (*isolated.pool()).clone();
+        (isolated, pool)
+    }
+
+    #[tokio::test]
+    async fn database_monitor_round_trip_on_the_migration_template() {
+        let (_isolated, pool) = test_pool().await;
+        let monitor = DatabaseMonitor::new(pool.clone(), None, 10);
+
+        // check_connection：`SELECT 1` 在活库上必须为 true。
+        assert!(monitor.check_connection().await.unwrap());
+
+        // 连接池状态：total 至少 1，max 回显传入值，利用率与两者一致。
+        let status = monitor.get_connection_pool_status().unwrap();
+        assert!(status.total_connections >= 1);
+        assert_eq!(status.max_connections, 10);
+        assert_eq!(status.busy_connections, status.total_connections.saturating_sub(status.idle_connections));
+        assert!(status.connection_utilization >= 0.0);
+
+        // get_performance_metrics：`pg_stat_database` 一定有当前库的一行 ⇒ 取到真值；
+        // 没有 redis pool ⇒ 两个 redis 指标为 0；命中率必须落在 [0, 1]；TPS 有限。
+        let perf = monitor.get_performance_metrics().await.unwrap();
+        assert_eq!(perf.redis_latency_ms, 0.0);
+        assert_eq!(perf.redis_slow_commands_count, 0);
+        assert!((0.0..=1.0).contains(&perf.cache_hit_ratio), "命中率越界: {}", perf.cache_hit_ratio);
+        assert!(perf.transactions_per_second.is_finite());
+        assert_eq!(perf.deadlock_count, 0);
+
+        // get_full_health_status：把上面三者串起来（它内部会再调一次 check_connection）。
+        let health = monitor.get_full_health_status().await.unwrap();
+        assert!(health.is_healthy);
+        assert_eq!(health.connection_pool_status.max_connections, 10);
+        assert!((0.0..=1.0).contains(&health.performance_metrics.cache_hit_ratio));
+
+        // verify_data_integrity：干净 schema ⇒ 0 违规、100 分。
+        let report = monitor.verify_data_integrity().await.unwrap();
+        assert!(report.foreign_key_violations.is_empty());
+        assert!(report.orphaned_records.is_empty());
+        assert!(report.duplicate_entries.is_empty());
+        assert!(report.null_constraint_violations.is_empty());
+        assert_eq!(report.overall_integrity_score, 100.0);
+
+        // **真守卫是外键**（D-95）：孤儿事件/成员关系根本插不进去 ⇒ 那两条检查永远不会命中。
+        let orphan_event = sqlx::query(
+            "INSERT INTO events (event_id, room_id, sender, event_type, content, origin_server_ts) \
+             VALUES ('$monitor_orphan:test', '!no_such_room:test', '@monitor:test', 'm.room.message', '{}'::jsonb, 1)",
+        )
+        .execute(&pool)
+        .await;
+        assert!(orphan_event.is_err(), "fk_events_room 必须拒绝孤儿事件");
+
+        let orphan_membership = sqlx::query(
+            "INSERT INTO room_memberships (room_id, user_id, membership) \
+             VALUES ('!r:test', '@no_such_user:test', 'join')",
+        )
+        .execute(&pool)
+        .await;
+        assert!(orphan_membership.is_err(), "fk_room_memberships_user 必须拒绝孤儿成员关系");
     }
 }
