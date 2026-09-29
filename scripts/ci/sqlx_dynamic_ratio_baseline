@@ -2662,10 +2662,24 @@
 #   `dynamic_test` 733 → **732**（−1：旧用例的 `CREATE TABLE` 站点消失）、literal 148/36 → **145/36**。
 #   验证：`-p synapse-storage --lib --features test-utils -E 'test(/email_verification/)'` ⇒ **5/5**；
 #   `test_ddl_guard_tests` ⇒ 9/9（含"名单条目必须仍能命中站点"那条）。
+# ── 2026-09-28 C48（`email_verification.rs` 5 处宏化，本文件生产区动态归零）───────────────
+#   C48-0 之后剩 5 处：
+#   · `create_verification_token` 的 `INSERT ... RETURNING id` ⇒ `query_scalar!` + `fetch_one`
+#     （单列；原先靠只为它存在的包装结构体 `TokenIdRow`，随之删除）；
+#   · `mark_token_used` / `cleanup_expired_tokens` 的两条无结果列语句 ⇒ `query!` + `.execute()`
+#     （R6 ①；后者保留 `rows_affected()` 语义）；
+#   · `get_verification_token_by_id` / `claim_used_token` 的 8 列投影 ⇒ `query_as!`
+#     （`claim_used_token` 是 `DELETE ... RETURNING`，同一个 8 列清单与 `EmailVerificationToken`
+#     一一对应 —— R6 ⑤）。
+#   实测：`dynamic_production` 216 → **211**（−5）、`static` 1264 → **1269**（+5）、
+#   `dynamic` 总数 948 → **943**、`dynamic_test` 732 不变、`.sqlx` 1232 → **1237**（+5）、
+#   literal 145/36 → **140/35**（该文件退表）。恒等式 `211 − 140 − 1 = 70` 仍成立。
+#   验证：`-p synapse-storage --lib --features test-utils -E 'test(/email_verification/)'` ⇒ 5/5
+#   （C48-0 的真基线用例在转换后穿过新宏跑真库，含 UNIQUE(token) 与四条拒绝路径）。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=216
+BASELINE_DYNAMIC_PRODUCTION=211
 BASELINE_DYNAMIC_TEST_INFRA=732
-BASELINE_STATIC=1264
+BASELINE_STATIC=1269
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 

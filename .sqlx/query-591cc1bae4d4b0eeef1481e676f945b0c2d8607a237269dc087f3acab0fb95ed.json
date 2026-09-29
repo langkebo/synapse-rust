@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM email_verification_tokens WHERE expires_at < $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "591cc1bae4d4b0eeef1481e676f945b0c2d8607a237269dc087f3acab0fb95ed"
+}

@@ -54,33 +54,35 @@ impl EmailVerificationStorage {
         let now = current_timestamp_millis();
         let expires_at = now + expires_in_seconds * 1000;
 
-        let row = sqlx::query_as::<_, TokenIdRow>(
-            r"
+        // 单列 `RETURNING id` ⇒ `query_scalar!` + `fetch_one`（原元组包装结构体 `TokenIdRow`
+        // 只服务这一处，随之删除）。`user_id` / `session_data` 是 `Option`，按值直传即可。
+        let id = sqlx::query_scalar!(
+            r#"
             INSERT INTO email_verification_tokens (email, token, expires_at, created_ts, is_used, user_id, session_data)
             VALUES ($1, $2, $3, $4, FALSE, $5, $6)
             RETURNING id
-            ",
+            "#,
+            email,
+            token,
+            expires_at,
+            now,
+            user_id,
+            session_data
         )
-        .bind(email)
-        .bind(token)
-        .bind(expires_at)
-        .bind(now)
-        .bind(user_id)
-        .bind(session_data)
         .fetch_one(&*self.pool)
         .await?;
 
-        Ok(row.id)
+        Ok(id)
     }
 
     /// See [`mark_token_used`].
     pub async fn mark_token_used(&self, token_id: i64) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             UPDATE email_verification_tokens SET is_used = TRUE WHERE id = $1
-            ",
+            "#,
+            token_id
         )
-        .bind(token_id)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -137,14 +139,15 @@ impl EmailVerificationStorage {
         &self,
         token_id: i64,
     ) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
-        let token_record = sqlx::query_as::<_, EmailVerificationToken>(
-            r"
+        let token_record = sqlx::query_as!(
+            EmailVerificationToken,
+            r#"
             SELECT id, user_id, email, token, expires_at, created_ts, is_used, session_data
             FROM email_verification_tokens
             WHERE id = $1
-            ",
+            "#,
+            token_id
         )
-        .bind(token_id)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -161,15 +164,16 @@ impl EmailVerificationStorage {
     /// 删除，无法被重放。
     pub async fn claim_used_token(&self, token_id: i64) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
         let now = current_timestamp_millis();
-        let row = sqlx::query_as::<_, EmailVerificationToken>(
-            r"
+        let row = sqlx::query_as!(
+            EmailVerificationToken,
+            r#"
             DELETE FROM email_verification_tokens
             WHERE id = $1 AND is_used = TRUE AND expires_at > $2
             RETURNING id, user_id, email, token, expires_at, created_ts, is_used, session_data
-            ",
+            "#,
+            token_id,
+            now
         )
-        .bind(token_id)
-        .bind(now)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -179,21 +183,16 @@ impl EmailVerificationStorage {
     /// See [`cleanup_expired_tokens`].
     pub async fn cleanup_expired_tokens(&self) -> Result<i64, sqlx::Error> {
         let now = current_timestamp_millis();
-        let result = sqlx::query(
-            r"
+        let result = sqlx::query!(
+            r#"
             DELETE FROM email_verification_tokens WHERE expires_at < $1
-            ",
+            "#,
+            now
         )
-        .bind(now)
         .execute(&*self.pool)
         .await?;
         Ok(result.rows_affected() as i64)
     }
-}
-
-#[derive(Debug, Clone, sqlx::FromRow)]
-struct TokenIdRow {
-    pub id: i64,
 }
 
 // ── Delegation impl ─────────────────────────────────────────────────────
