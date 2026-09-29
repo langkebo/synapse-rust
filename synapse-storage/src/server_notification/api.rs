@@ -140,22 +140,13 @@ pub trait ServerNotificationStoreApi: Send + Sync {
     /// See [`delete_event_by_id`].
     async fn delete_event_by_id(&self, event_id: &str) -> Result<(), ApiError>;
 
-    #[allow(clippy::too_many_arguments)]
-    /// See [`send_server_notice`].
-    async fn send_server_notice(
-        &self,
-        room_id: &str,
-        server_user: &str,
-        target_user_id: &str,
-        target_displayname: &Option<String>,
-        target_avatar_url: &Option<String>,
-        message_event_id: &str,
-        create_event_id: &str,
-        membership_event_id: &str,
-        msgtype: &str,
-        body: &str,
-        now: i64,
-    ) -> Result<i64, ApiError>;
+    /// See [`record_notice`].
+    ///
+    /// Records one delivered server notice against its (already-persisted)
+    /// message event. Room/event/membership creation is the caller's
+    /// responsibility (it goes through the room lifecycle), so this method only
+    /// writes the `server_notices` management row.
+    async fn record_notice(&self, user_id: &str, event_id: &str, content: &str, sent_ts: i64) -> Result<i64, ApiError>;
 }
 
 #[async_trait]
@@ -323,34 +314,7 @@ impl ServerNotificationStoreApi for ServerNotificationStorage {
         self.delete_event_by_id(event_id).await
     }
 
-    #[allow(clippy::too_many_arguments)]
-    async fn send_server_notice(
-        &self,
-        room_id: &str,
-        server_user: &str,
-        target_user_id: &str,
-        target_displayname: &Option<String>,
-        target_avatar_url: &Option<String>,
-        message_event_id: &str,
-        create_event_id: &str,
-        membership_event_id: &str,
-        msgtype: &str,
-        body: &str,
-        now: i64,
-    ) -> Result<i64, ApiError> {
-        self.send_server_notice(
-            room_id,
-            server_user,
-            target_user_id,
-            target_displayname,
-            target_avatar_url,
-            message_event_id,
-            create_event_id,
-            membership_event_id,
-            msgtype,
-            body,
-            now,
-        )
-        .await
+    async fn record_notice(&self, user_id: &str, event_id: &str, content: &str, sent_ts: i64) -> Result<i64, ApiError> {
+        self.record_notice(user_id, event_id, content, sent_ts).await
     }
 }

@@ -1,5 +1,7 @@
 use crate::account::UserService;
+use crate::room::{CreateRoomConfig, RoomServiceApi};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use synapse_storage::server_notification::*;
 pub use synapse_storage::server_notification::{
@@ -12,12 +14,19 @@ use tracing::{info, instrument};
 pub struct ServerNotificationService {
     storage: Arc<dyn ServerNotificationStoreApi>,
     user_service: Arc<UserService>,
+    room_service: Option<Arc<dyn RoomServiceApi>>,
+    server_name: String,
 }
 
 impl ServerNotificationService {
     /// See [`new`].
-    pub fn new(storage: Arc<dyn ServerNotificationStoreApi>, user_service: Arc<UserService>) -> Self {
-        Self { storage, user_service }
+    pub fn new(
+        storage: Arc<dyn ServerNotificationStoreApi>,
+        user_service: Arc<UserService>,
+        room_service: Option<Arc<dyn RoomServiceApi>>,
+        server_name: String,
+    ) -> Self {
+        Self { storage, user_service, room_service, server_name }
     }
 
     /// See [`ensure_target_users_exist`].
@@ -306,37 +315,68 @@ impl ServerNotificationService {
     }
 
     /// See [`send_server_notice`].
-    #[allow(clippy::too_many_arguments)]
-    #[instrument(skip(self, target_displayname, target_avatar_url, body))]
+    #[instrument(skip(self, target_displayname, body))]
     pub async fn send_server_notice(
         &self,
-        room_id: &str,
-        server_user: &str,
         target_user_id: &str,
         target_displayname: &Option<String>,
-        target_avatar_url: &Option<String>,
-        message_event_id: &str,
-        create_event_id: &str,
-        membership_event_id: &str,
         msgtype: &str,
         body: &str,
-        now: i64,
-    ) -> Result<i64, ApiError> {
-        self.storage
-            .send_server_notice(
-                room_id,
-                server_user,
-                target_user_id,
-                target_displayname,
-                target_avatar_url,
-                message_event_id,
-                create_event_id,
-                membership_event_id,
-                msgtype,
-                body,
-                now,
+    ) -> Result<(String, String, i64), ApiError> {
+        let server_user = format!("@server:{}", self.server_name);
+        let room_service = self
+            .room_service
+            .as_ref()
+            .ok_or_else(|| ApiError::internal("room service not configured for server notices"))?;
+
+        // `create_room` makes `server_user` the room creator (and thus a member),
+        // which requires a `users` row for it. It is a virtual server identity,
+        // not a login-capable account, so create it as a placeholder.
+        self.user_service.ensure_remote_user(&server_user).await?;
+
+        // 1. Create the room through the lifecycle, so its id (and the create
+        //    event's id) are derived from the v12 reference hash instead of being
+        //    fabricated as a legacy `!server_notice_<uuid>:<server>`.
+        let room = room_service
+            .lifecycle()
+            .create_room(
+                &server_user,
+                CreateRoomConfig {
+                    visibility: Some("private".to_string()),
+                    name: Some("Server Notice".to_string()),
+                    preset: Some("private_chat".to_string()),
+                    ..Default::default()
+                },
             )
-            .await
+            .await?;
+        let room_id = room
+            .get("room_id")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| ApiError::internal("create_room did not return a room_id"))?
+            .to_string();
+
+        // 2. Join the target user to the room.
+        room_service
+            .membership()
+            .add_member(&room_id, target_user_id, "join", target_displayname.as_deref(), None, None)
+            .await?;
+
+        // 3. Send the notice message as the server user.
+        let content = serde_json::json!({ "msgtype": msgtype, "body": body });
+        let message = room_service.messaging().send_message(&room_id, &server_user, "m.room.message", &content).await?;
+        let event_id = message
+            .get("event_id")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| ApiError::internal("send_message did not return an event_id"))?
+            .to_string();
+
+        // 4. Record the notice against the persisted message event.
+        let notice_id = self
+            .storage
+            .record_notice(target_user_id, &event_id, &content.to_string(), current_timestamp_millis())
+            .await?;
+
+        Ok((room_id, event_id, notice_id))
     }
 }
 
@@ -393,8 +433,12 @@ mod tests {
     fn build_service() -> (Arc<MockServerNotificationStore>, ServerNotificationService) {
         let user_service = Arc::new(UserService::new(shared_fake_user_store() as Arc<dyn UserStore>));
         let store = Arc::new(MockServerNotificationStore::new());
-        let service =
-            ServerNotificationService::new(store.clone() as Arc<dyn ServerNotificationStoreApi>, user_service);
+        let service = ServerNotificationService::new(
+            store.clone() as Arc<dyn ServerNotificationStoreApi>,
+            user_service,
+            None,
+            "test.example.com".to_string(),
+        );
         (store, service)
     }
 
@@ -636,19 +680,12 @@ mod tests {
             Ok(())
         }
 
-        async fn send_server_notice(
+        async fn record_notice(
             &self,
-            _room_id: &str,
-            _server_user: &str,
-            _target_user_id: &str,
-            _target_displayname: &Option<String>,
-            _target_avatar_url: &Option<String>,
-            _message_event_id: &str,
-            _create_event_id: &str,
-            _membership_event_id: &str,
-            _msgtype: &str,
-            _body: &str,
-            _now: i64,
+            _user_id: &str,
+            _event_id: &str,
+            _content: &str,
+            _sent_ts: i64,
         ) -> Result<i64, ApiError> {
             Ok(1)
         }

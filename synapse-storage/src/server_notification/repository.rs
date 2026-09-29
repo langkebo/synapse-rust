@@ -829,214 +829,33 @@ impl ServerNotificationStorage {
         Ok(())
     }
 
-    /// See [`send_server_notice`].
-    #[allow(clippy::too_many_arguments)]
-    pub async fn send_server_notice(
+    /// See [`record_notice`].
+    ///
+    /// Records one delivered server notice against its (already-persisted)
+    /// message event. Room/event/membership creation goes through the room
+    /// lifecycle (`create_room` + `membership` + `messaging`), so this method
+    /// only writes the `server_notices` management row.
+    pub async fn record_notice(
         &self,
-        room_id: &str,
-        server_user: &str,
-        target_user_id: &str,
-        target_displayname: &Option<String>,
-        target_avatar_url: &Option<String>,
-        message_event_id: &str,
-        create_event_id: &str,
-        membership_event_id: &str,
-        msgtype: &str,
-        body: &str,
-        now: i64,
+        user_id: &str,
+        event_id: &str,
+        content: &str,
+        sent_ts: i64,
     ) -> Result<i64, ApiError> {
-        let mut tx =
-            self.pool.begin().await.map_err(|e| ApiError::internal_with_cause("Failed to begin transaction", e))?;
-
-        let room_result = sqlx::query!(
-            r#"
-            INSERT INTO rooms (
-                room_id, name, topic, creator, is_public, join_rules,
-                room_version, history_visibility, created_ts, last_activity_ts
-            )
-            VALUES ($1, $2, $3, $4, false, 'invite', '6', 'joined', $5, $5)
-            ON CONFLICT (room_id) DO NOTHING
-            "#,
-            room_id,
-            "Server Notice",
-            "System notifications",
-            server_user,
-            now,
-        )
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to create server notice room", e))?;
-
-        if room_result.rows_affected() == 0 {
-            return Err(ApiError::internal("Failed to create server notice room".to_string()));
-        }
-
-        let create_result = sqlx::query!(
-            r#"
-            INSERT INTO events (event_id, room_id, user_id, event_type, content, origin_server_ts, sender, state_key)
-            VALUES ($1, $2, $3, 'm.room.create', $4, $5, $6, '')
-            ON CONFLICT (event_id) DO NOTHING
-            "#,
-            create_event_id,
-            room_id,
-            server_user,
-            serde_json::json!({"creator": server_user}),
-            now,
-            server_user,
-        )
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to create server notice create event", e))?;
-
-        if create_result.rows_affected() == 0 {
-            return Err(ApiError::internal("Failed to create server notice create event".to_string()));
-        }
-
-        let membership_result = sqlx::query!(
-            r#"
-            INSERT INTO events (event_id, room_id, user_id, event_type, content, origin_server_ts, sender, state_key)
-            VALUES ($1, $2, $3, 'm.room.member', $4, $5, $6, $7)
-            ON CONFLICT (event_id) DO NOTHING
-            "#,
-            membership_event_id,
-            room_id,
-            target_user_id,
-            serde_json::json!({ "membership": "join" }),
-            now,
-            server_user,
-            target_user_id,
-        )
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to create server notice membership event", e))?;
-
-        if membership_result.rows_affected() == 0 {
-            return Err(ApiError::internal("Failed to create server notice membership event".to_string()));
-        }
-
-        let member_result = sqlx::query!(
-            r#"
-            INSERT INTO room_memberships (
-                room_id, user_id, sender, membership, event_id, event_type,
-                display_name, avatar_url, updated_ts, joined_ts
-            )
-            VALUES ($1, $2, $3, 'join', $4, 'm.room.member', $5, $6, $7, $7)
-            ON CONFLICT (room_id, user_id) DO NOTHING
-            "#,
-            room_id,
-            target_user_id,
-            server_user,
-            membership_event_id,
-            target_displayname.as_deref(),
-            target_avatar_url.as_deref(),
-            now,
-        )
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to persist server notice member", e))?;
-
-        if member_result.rows_affected() == 0 {
-            return Err(ApiError::internal("Failed to persist server notice member".to_string()));
-        }
-
-        let message_result = sqlx::query!(
-            r#"
-            INSERT INTO events (event_id, room_id, user_id, event_type, content, origin_server_ts, sender)
-            VALUES ($1, $2, $3, 'm.room.message', $4, $5, $6)
-            "#,
-            message_event_id,
-            room_id,
-            target_user_id,
-            serde_json::json!({
-                "msgtype": msgtype,
-                "body": body
-            }),
-            now,
-            server_user,
-        )
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to persist m.room.message event for server notice", e))?;
-
-        if message_result.rows_affected() == 0 {
-            return Err(ApiError::internal("Failed to persist m.room.message event for server notice".to_string()));
-        }
-
-        let notice_content = serde_json::json!({
-            "msgtype": msgtype,
-            "body": body
-        });
         let notice_id = sqlx::query_scalar!(
             r#"
             INSERT INTO server_notices (user_id, event_id, content, sent_ts)
             VALUES ($1, $2, $3, $4)
             RETURNING id
             "#,
-            target_user_id,
-            message_event_id,
-            notice_content.to_string(),
-            now,
+            user_id,
+            event_id,
+            content,
+            sent_ts,
         )
-        .fetch_one(&mut *tx)
+        .fetch_one(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to create server notice record", e))?;
-
-        let summary_result = sqlx::query!(
-            r#"
-            INSERT INTO room_summaries (
-                room_id, name, topic, join_rules, history_visibility, guest_access,
-                is_direct, is_space, is_encrypted, member_count, joined_member_count,
-                invited_member_count, hero_users, last_event_id, last_event_ts,
-                last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts
-            )
-            VALUES (
-                $1, $2, $3, 'invite', 'joined', 'forbidden',
-                false, false, false, 1, 1,
-                0, '[]'::jsonb, $4, $5,
-                $5, 0, 0, $5, $5
-            )
-            ON CONFLICT (room_id) DO NOTHING
-            "#,
-            room_id,
-            "Server Notice",
-            "System notifications",
-            message_event_id,
-            now,
-        )
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to persist server notice room summary", e))?;
-
-        if summary_result.rows_affected() == 0 {
-            return Err(ApiError::internal("Failed to persist server notice room summary".to_string()));
-        }
-
-        let summary_member_result = sqlx::query!(
-            r#"
-            INSERT INTO room_summary_members (
-                room_id, user_id, display_name, avatar_url, membership, is_hero,
-                last_active_ts, updated_ts, created_ts
-            )
-            VALUES ($1, $2, $3, $4, 'join', false, $5, $5, $5)
-            ON CONFLICT (room_id, user_id) DO NOTHING
-            "#,
-            room_id,
-            target_user_id,
-            target_displayname.as_deref(),
-            target_avatar_url.as_deref(),
-            now,
-        )
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to persist server notice room summary member", e))?;
-
-        if summary_member_result.rows_affected() == 0 {
-            return Err(ApiError::internal("Failed to persist server notice room summary member".to_string()));
-        }
-
-        tx.commit()
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to commit server notice transaction", e))?;
 
         Ok(notice_id)
     }

@@ -17,8 +17,6 @@ use serde::Deserialize;
 #[cfg(feature = "server-notifications")]
 use serde_json::{json, Value};
 #[cfg(feature = "server-notifications")]
-use synapse_common::current_timestamp_millis;
-#[cfg(feature = "server-notifications")]
 use synapse_common::types::UserId;
 #[cfg(feature = "server-notifications")]
 use synapse_common::ApiError;
@@ -347,31 +345,12 @@ pub async fn send_server_notice(
         return Err(ApiError::not_found("User not found".to_string()));
     };
 
-    let room_id = format!("!server_notice_{}:{}", uuid::Uuid::new_v4(), ctx.server_name);
-    let now = current_timestamp_millis();
-    let server_user = format!("@server:{}", ctx.server_name);
-    let message_event_id = format!("${}:{}", uuid::Uuid::new_v4(), ctx.server_name);
-    let create_event_id = format!("${}:{}", uuid::Uuid::new_v4(), ctx.server_name);
-    let membership_event_id = format!("${}:{}", uuid::Uuid::new_v4(), ctx.server_name);
-
-    let notice_id = ctx
+    let (room_id, event_id, notice_id) = ctx
         .server_notification_service
-        .send_server_notice(
-            &room_id,
-            &server_user,
-            &target_user.user_id,
-            &target_user.displayname,
-            &target_user.avatar_url,
-            &message_event_id,
-            &create_event_id,
-            &membership_event_id,
-            &body.content.msgtype,
-            &body.content.body,
-            now,
-        )
+        .send_server_notice(&target_user.user_id, &target_user.displayname, &body.content.msgtype, &body.content.body)
         .await?;
 
-    Ok(Json(json!({ "event_id": message_event_id, "room_id": room_id, "notice_id": notice_id })))
+    Ok(Json(json!({ "event_id": event_id, "room_id": room_id, "notice_id": notice_id })))
 }
 
 /// See [`get_server_notices`].

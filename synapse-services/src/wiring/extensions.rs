@@ -165,6 +165,8 @@ impl ExtensionServices {
         let server_notification_service = Arc::new(crate::server_notification_service::ServerNotificationService::new(
             server_notification_storage.clone(),
             user_service.clone(),
+            Some(rooms.room_service.clone()),
+            infra.config.server.name.clone(),
         ));
 
         #[cfg(feature = "privacy-ext")]

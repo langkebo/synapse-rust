@@ -442,20 +442,12 @@ impl ServerNotificationStoreApi for MockServerNotificationStore {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
-    async fn send_server_notice(
+    async fn record_notice(
         &self,
-        _room_id: &str,
-        _server_user: &str,
-        _target_user_id: &str,
-        _target_displayname: &Option<String>,
-        _target_avatar_url: &Option<String>,
-        _message_event_id: &str,
-        _create_event_id: &str,
-        _membership_event_id: &str,
-        _msgtype: &str,
-        _body: &str,
-        _now: i64,
+        _user_id: &str,
+        _event_id: &str,
+        _content: &str,
+        _sent_ts: i64,
     ) -> Result<i64, ApiError> {
         self.fail_check()?;
         Ok(self.alloc_id())
@@ -470,7 +462,7 @@ fn build_service() -> ServerNotificationService {
     let store = Arc::new(MockServerNotificationStore::new());
     let user_store: Arc<FakeUserStore> = Arc::new(FakeUserStore::new());
     let user_service = Arc::new(UserService::new(user_store as Arc<dyn synapse_storage::user::UserStore>));
-    ServerNotificationService::new(store, user_service)
+    ServerNotificationService::new(store, user_service, None, "test.example.com".to_string())
 }
 
 fn build_service_with_store(
@@ -479,7 +471,7 @@ fn build_service_with_store(
     let store_arc = Arc::new(store);
     let user_store: Arc<FakeUserStore> = Arc::new(FakeUserStore::new());
     let user_service = Arc::new(UserService::new(user_store as Arc<dyn synapse_storage::user::UserStore>));
-    let svc = ServerNotificationService::new(store_arc.clone(), user_service);
+    let svc = ServerNotificationService::new(store_arc.clone(), user_service, None, "test.example.com".to_string());
     (svc, store_arc)
 }
 
@@ -1107,52 +1099,19 @@ async fn broadcast_notification_propagates_error() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// send_server_notice — delegation
+// send_server_notice — orchestration
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn send_server_notice_returns_notice_id() {
+async fn send_server_notice_fails_without_room_service() {
+    // `build_service` wires `room_service: None`, so the orchestration path
+    // (create_room → add_member → send_message) must fail closed before it can
+    // touch storage.
     let svc = build_service();
-    let result = svc
-        .send_server_notice(
-            "!room:example.com",
-            "@server:example.com",
-            "@alice:example.com",
-            &Some("Alice".to_string()),
-            &Some("mxc://example.com/a".to_string()),
-            "$msg:example.com",
-            "$create:example.com",
-            "$member:example.com",
-            "m.text",
-            "Hello",
-            1_700_000_000_000,
-        )
-        .await
-        .expect("should succeed");
-    assert!(result > 0);
-}
-
-#[tokio::test]
-async fn send_server_notice_propagates_error() {
-    let store = MockServerNotificationStore::new();
-    store.set_fail_all(true);
-    let (svc, _) = build_service_with_store(store);
     let err = svc
-        .send_server_notice(
-            "!room:example.com",
-            "@server:example.com",
-            "@alice:example.com",
-            &None,
-            &None,
-            "$msg:example.com",
-            "$create:example.com",
-            "$member:example.com",
-            "m.text",
-            "Hello",
-            1_700_000_000_000,
-        )
+        .send_server_notice("@alice:example.com", &Some("Alice".to_string()), "m.text", "Hello")
         .await
-        .expect_err("should error");
+        .expect_err("should fail without a room service");
     assert!(err.is_internal());
 }
 
