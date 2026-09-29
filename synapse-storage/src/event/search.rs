@@ -13,32 +13,33 @@ impl EventStorage {
         search_pattern: &str,
         limit: i64,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query(
-            r"
+        // 五列都来自 `events` 的 NOT NULL 列 ⇒ 宏给 `String` / `Value` / `i64`，
+        // 不再需要运行期 `row.get`（也就不再需要 `use sqlx::Row;`）。
+        let rows = sqlx::query!(
+            r#"
             SELECT event_id, event_type, sender, content, origin_server_ts
             FROM events
             WHERE room_id = $1 AND event_type = 'm.room.message' AND LOWER(content::text) LIKE $2
               AND is_redacted = false AND soft_failed = FALSE
             ORDER BY origin_server_ts DESC
             LIMIT $3
-            ",
+            "#,
+            room_id,
+            search_pattern,
+            limit
         )
-        .bind(room_id)
-        .bind(search_pattern)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
 
-        use sqlx::Row;
         Ok(rows
-            .iter()
+            .into_iter()
             .map(|r| {
                 serde_json::json!({
-                    "event_id": r.get::<String, _>("event_id"),
-                    "type": r.get::<String, _>("event_type"),
-                    "sender": r.get::<String, _>("sender"),
-                    "content": r.get::<serde_json::Value, _>("content"),
-                    "origin_server_ts": r.get::<i64, _>("origin_server_ts")
+                    "event_id": r.event_id,
+                    "type": r.event_type,
+                    "sender": r.sender,
+                    "content": r.content,
+                    "origin_server_ts": r.origin_server_ts
                 })
             })
             .collect())
@@ -162,8 +163,11 @@ impl EventStorage {
         if let (Some(rank), Some(origin_server_ts), Some(event_id)) =
             (rank_cursor, origin_server_ts_cursor, event_id_cursor)
         {
-            sqlx::query_as::<_, (String, String, String, String, serde_json::Value, i64, f64)>(
-                r"
+            // R6 ⑤：`query_as!` 不能构造元组 ⇒ 用 `query!` 按字段读再组装。
+            // `ts_rank(...)::float8` 是无关系来源的函数调用 ⇒ Describe 推可空，
+            // 但 `ts_rank` 恒返回非 NULL 的 float ⇒ 按 R4 断言 `AS "rank!"`。
+            let rows = sqlx::query!(
+                r#"
                 SELECT
                     e.event_id,
                     e.room_id,
@@ -171,40 +175,52 @@ impl EventStorage {
                     e.event_type,
                     e.content,
                     e.origin_server_ts,
-                    ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2))::float8 as rank
+                    ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2))::float8 as "rank!"
                 FROM events e
                 INNER JOIN room_memberships rm ON e.room_id = rm.room_id AND rm.user_id = $1 AND rm.membership = 'join'
                 WHERE e.event_type = 'm.room.message'
                     AND e.stream_ordering > 0
                     AND e.soft_failed = FALSE
                     AND to_tsvector('english', e.content) @@ plainto_tsquery('english', $2)
+                    -- `$3::float8` 是**必须**的：`ts_rank(...)` 的返回类型是 `real`，若直接与
+                    -- `$3` 比较，PG 会把参数定型成 `real`，宏因此要求 `f32`，而本方法的游标参数
+                    -- （以及上面 `::float8 as "rank!"` 的输出）都是 `f64`（D-74 同族：动态路径靠隐式
+                    -- 放宽，宏把参数定型暴露出来）。显式转 `float8` 既保持 API 与精度，也让比较在同一
+                    -- 精度域里进行。
                     AND (
-                        ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) < $3
+                        ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) < $3::float8
                         OR (
-                            ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) = $3
+                            ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) = $3::float8
                             AND e.origin_server_ts < $4
                         )
                         OR (
-                            ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) = $3
+                            ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) = $3::float8
                             AND e.origin_server_ts = $4
                             AND e.event_id < $5
                         )
                     )
-                ORDER BY rank DESC, e.origin_server_ts DESC, e.event_id DESC
+                -- R6 的陷阱：断言别名 `rank!` 是**真列名**，`ORDER BY rank` 会解析不到 ⇒ 重复表达式。
+                ORDER BY ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) DESC,
+                         e.origin_server_ts DESC, e.event_id DESC
                 LIMIT $6
-                ",
+                "#,
+                user_id,
+                query,
+                rank,
+                origin_server_ts,
+                event_id,
+                limit
             )
-            .bind(user_id)
-            .bind(query)
-            .bind(rank)
-            .bind(origin_server_ts)
-            .bind(event_id)
-            .bind(limit)
             .fetch_all(&*self.pool)
-            .await
+            .await?;
+
+            Ok(rows
+                .into_iter()
+                .map(|r| (r.event_id, r.room_id, r.sender, r.event_type, r.content, r.origin_server_ts, r.rank))
+                .collect())
         } else {
-            sqlx::query_as::<_, (String, String, String, String, serde_json::Value, i64, f64)>(
-                r"
+            let rows = sqlx::query!(
+                r#"
                 SELECT
                     e.event_id,
                     e.room_id,
@@ -212,22 +228,28 @@ impl EventStorage {
                     e.event_type,
                     e.content,
                     e.origin_server_ts,
-                    ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2))::float8 as rank
+                    ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2))::float8 as "rank!"
                 FROM events e
                 INNER JOIN room_memberships rm ON e.room_id = rm.room_id AND rm.user_id = $1 AND rm.membership = 'join'
                 WHERE e.event_type = 'm.room.message'
                     AND e.stream_ordering > 0
                     AND e.soft_failed = FALSE
                     AND to_tsvector('english', e.content) @@ plainto_tsquery('english', $2)
-                ORDER BY rank DESC, e.origin_server_ts DESC, e.event_id DESC
+                ORDER BY ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) DESC,
+                         e.origin_server_ts DESC, e.event_id DESC
                 LIMIT $3
-                ",
+                "#,
+                user_id,
+                query,
+                limit
             )
-            .bind(user_id)
-            .bind(query)
-            .bind(limit)
             .fetch_all(&*self.pool)
-            .await
+            .await?;
+
+            Ok(rows
+                .into_iter()
+                .map(|r| (r.event_id, r.room_id, r.sender, r.event_type, r.content, r.origin_server_ts, r.rank))
+                .collect())
         }
     }
 
@@ -255,13 +277,15 @@ impl EventStorage {
         // unindexed.
         self.fail_if_fts_index_invalid().await?;
 
-        sqlx::query(
-            r"
+        // R6 ④：DDL 可以宏化（`describe.columns == []`，`query!` 只给 `.execute()`）；
+        // `CONCURRENTLY` 仍走 autocommit（宏不改变执行方式）。
+        sqlx::query!(
+            r#"
             CREATE INDEX CONCURRENTLY IF NOT EXISTS events_fts_idx
             ON events
             USING GIN (to_tsvector('english', content))
             WHERE event_type = 'm.room.message' AND stream_ordering > 0
-            ",
+            "#,
         )
         .execute(&*self.pool)
         .await?;
@@ -285,9 +309,9 @@ impl EventStorage {
         // unrelated index with the same name in another schema (e.g. a leftover
         // `public.events_fts_idx`) would satisfy the check. Measured 2026-09-19:
         // that made the first version of this guard look at the wrong index.
-        let invalid: Option<String> = sqlx::query_scalar(
-            "SELECT c.relname FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid \
-             WHERE i.indexrelid = to_regclass('events_fts_idx') AND NOT i.indisvalid",
+        let invalid: Option<String> = sqlx::query_scalar!(
+            r#"SELECT c.relname FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid
+               WHERE i.indexrelid = to_regclass('events_fts_idx') AND NOT i.indisvalid"#,
         )
         .fetch_optional(&*self.pool)
         .await?;
@@ -310,11 +334,17 @@ impl EventStorage {
         search_term: &str,
         limit: i64,
     ) -> Result<Vec<RoomEvent>, sqlx::Error> {
-        let events = sqlx::query_as(
-            r"
-            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, COALESCE(origin, 'self') as origin, stream_ordering, redacts
+        // R4 ①：`COALESCE(…)` 无关系来源、Describe 不透传 NOT NULL，而第二个实参保证结果永不为
+        // NULL ⇒ 逐列断言。R6：`query_as!` **不认** `#[sqlx(rename = "processed_at")]`，
+        // 必须按**真实字段名** `processed_ts` 起别名（否则 E0560/E0063）。
+        let events = sqlx::query_as!(
+            RoomEvent,
+            r#"
+            SELECT event_id, room_id, COALESCE(user_id, sender) AS "user_id!", event_type, content, state_key,
+                   COALESCE(depth, 0) AS "depth!", COALESCE(origin_server_ts, 0) AS "origin_server_ts!",
+                   COALESCE(origin_server_ts, 0) AS "processed_ts!",
+                   COALESCE(not_before, 0) AS "not_before!", status, COALESCE(origin, 'self') AS "origin!",
+                   stream_ordering, redacts
             FROM events
             WHERE room_id = $1
               AND event_type = 'm.room.message'
@@ -322,11 +352,11 @@ impl EventStorage {
               AND to_tsvector('english', content) @@ plainto_tsquery('english', $2)
             ORDER BY origin_server_ts DESC
             LIMIT $3
-            ",
+            "#,
+            room_id,
+            search_term,
+            limit
         )
-        .bind(room_id)
-        .bind(search_term)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
         Ok(events)

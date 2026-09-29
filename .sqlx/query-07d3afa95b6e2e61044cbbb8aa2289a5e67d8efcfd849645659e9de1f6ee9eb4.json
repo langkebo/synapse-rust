@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT c.relname FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid\n               WHERE i.indexrelid = to_regclass('events_fts_idx') AND NOT i.indisvalid",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "relname",
+        "type_info": "Name"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "07d3afa95b6e2e61044cbbb8aa2289a5e67d8efcfd849645659e9de1f6ee9eb4"
+}

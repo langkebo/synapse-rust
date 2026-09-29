@@ -2723,10 +2723,32 @@
 #   `dynamic` 总数 936 → **929**、`dynamic_test` 732 不变、`.sqlx` 1243 → **1250**（+7）、
 #   literal 133/34 → **126/33**（该文件退表）。恒等式 `197 − 126 − 1 = 70` 仍成立。
 #   验证：`-p synapse-storage --lib --all-features -E 'test(/call_session/)'` ⇒ 10/10。
+# ── 2026-09-28 C51（`event/search.rs` 6 处宏化，本文件生产区动态归零）───────────────────
+#   覆盖本就在同域的 `event/db_tests.rs` 里（`search_room_messages_admin` /
+#   `search_joined_room_events` / `search_postgres_messages` / `create_postgres_fts_index` /
+#   `search_room_postgres_messages` 都有用例），无死代码 ⇒ 单批转换：
+#   · `search_room_messages_admin` 的 5 列 JSON 投影 ⇒ `query!` 按字段读（顺带去掉函数内的
+#     `use sqlx::Row;`）；
+#   · `search_postgres_messages` 的**两个 7 元组分支** ⇒ R6 ⑤（`query_as!` 不能构造元组）改
+#     `query!` + 组装元组；
+#   · `create_postgres_fts_index` 的 DDL ⇒ `query!` + `.execute()`（R6 ④，仍走 autocommit）；
+#   · `fail_if_fts_index_invalid` ⇒ `query_scalar!` + `fetch_optional`；
+#   · `search_room_postgres_messages` ⇒ `query_as!(RoomEvent, …)`：`COALESCE(…)` 五处按 R4 ①
+#     断言（第二实参保证非空），并把 `processed_at` 别名改成**真实字段名** `processed_ts`
+#     —— R6：`query_as!` 不认 `#[sqlx(rename)]`。
+#   ⚠️ 两个**转换期实测**的坑（都写进了代码注释）：
+#   ① 断言别名是**真列名**：`::float8 as "rank!"` 之后同一条 SQL 里的 `ORDER BY rank` 会报
+#      `column "rank" does not exist`（R6 的告诫）⇒ 改成重复 `ts_rank(...)` 表达式排序；
+#   ② `ts_rank(...)` 返回 **real**，直接与 `$3` 比较会让 PG 把参数定型成 `real`、宏要求 `f32`，
+#      而本方法游标参数与 `::float8 as "rank!"` 输出都是 `f64`（D-74 同族：动态路径靠隐式放宽）
+#      ⇒ 显式 `$3::float8`，保持 API 与精度。
+#   实测：`dynamic_production` 197 → **191**（−6）、`static` 1282 → **1288**（+6）、
+#   `dynamic` 总数 929 → **923**、`dynamic_test` 732 不变、`.sqlx` 1250 → **1256**（+6）、
+#   literal 126/33 → **120/32**（该文件退表）。恒等式 `191 − 120 − 1 = 70` 仍成立。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=197
+BASELINE_DYNAMIC_PRODUCTION=191
 BASELINE_DYNAMIC_TEST_INFRA=732
-BASELINE_STATIC=1282
+BASELINE_STATIC=1288
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 

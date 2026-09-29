@@ -14,12 +14,12 @@
 
 | 指标 | 战役起点（2026-09-23） | 现在 | 变化 |
 |---|---|---|---|
-| `dynamic_production` | 1532（近似） | **197** | **−87.1%** |
-| `static` | 61 | **1282** | +1221 |
-| `dynamic`（总） | 2151 | **929** | −1222 |
-| 静态占比 | 2.76% | **58.1%**（1282 / 2207） | +55.3pp |
-| `.sqlx` 离线缓存 | 60 条 | **1250 条** | +1190 |
-| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **126 / 33** | −750 |
+| `dynamic_production` | 1532（近似） | **191** | **−87.5%** |
+| `static` | 61 | **1288** | +1227 |
+| `dynamic`（总） | 2151 | **923** | −1228 |
+| 静态占比 | 2.76% | **58.4%**（1288 / 2207） | +55.6pp |
+| `.sqlx` 离线缓存 | 60 条 | **1256 条** | +1196 |
+| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **120 / 32** | −756 |
 | `param` 传参（D-14 新棘轮，处 / 文件） | — | **1 / 1** | 新立棘轮（此前混在 `runtime`，两道棘轮都不管） |
 | `runtime` 残差 / `query_builder` | — | 70 / 13 文件 · **18**（已入计数棘轮） | — |
 
@@ -48,16 +48,18 @@
 > C49-0（先修 D-93：消 2 处 `PgRow` 泄漏 + 1 处吞错）收到 **208 / 1271**
 > （`.sqlx` 1237 → 1239，literal 退到 137/35）；C49（4 处宏化）收到 **204 / 1275**
 > （`.sqlx` 1239 → 1243，literal 退到 133/34，该文件生产区动态归零）；C50（门控批，7 处宏化）
-> 收到 **197 / 1282**（`.sqlx` 1243 → 1250，literal 退到 126/33，该文件生产区动态归零）。
+> 收到 **197 / 1282**（`.sqlx` 1243 → 1250，literal 退到 126/33，该文件生产区动态归零）；
+> C51（`event/search.rs` 6 处，单批）收到 **191 / 1288**（`.sqlx` 1250 → 1256，literal 退到
+> 120/32，该文件生产区动态归零）。
 
 ### 0.2 残量结构（"还剩多少活"的准确说法）
 
 | 组成 | 处数 | 性质 |
 |---|---|---|
-| **可静态化残量** | **125** | **95 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
+| **可静态化残量** | **119** | **89 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
 | 测试基建（有意保留） | 57 | `synapse-test-utils/src/lib.rs` 28、`synapse-common/src/test_isolation.rs` 25、`test_schema_guard.rs` 4 |
 | 结构性保留（有意） | 15 | `synapse-storage/src/event/pagination.rs`（9 runtime 游标/排序方向 + 6 literal） |
-| **合计** | **197** | = 125 + 57 + 15 |
+| **合计** | **191** | = 119 + 57 + 15 |
 
 ### 0.3 复现（唯一入口，勿手工数）
 
@@ -224,21 +226,22 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 ### 8.1 剩余可静态化清单（按实测，2026-09-26 C44 后）
 
-**可转换残量 125 处** = **95 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
-加 **1 处跨函数传参（`param`）**。下表按**字面量**处数排前 5（表内数字是**可机械转换**的站点数；
+**可转换残量 119 处** = **89 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
+加 **1 处跨函数传参（`param`）**。下表按**字面量**处数排前 4（表内数字是**可机械转换**的站点数；
 纯 `runtime` 文件见下方结构性清单）：
 
 | 文件 | 处数 | 门控 | 备注 |
 |---|---|---|---|
 | `synapse-storage/src/media/quarantine_stream.rs` | 6 | — | 与 `pruning` 同域（保留期流）；⚠️ 需先核覆盖（仅 1 条用例） |
 | `synapse-storage/src/monitoring.rs` | 6 | — | 单表模块（监控采样）；⚠️ 需先补覆盖（无 in-file 测试） |
-| `synapse-storage/src/event/search.rs` | 6 | — | `event/` 同域；⚠️ 需先补覆盖（无 in-file db_tests，但 34 个集成文件引用） |
 | `synapse-storage/src/event/ephemeral.rs` | 4 | — | `event/` 同域 |
 
 > 紧随其后（各 4 处）：`account_data/mod.rs`(4)、`room_tag` 家族以外的 `room/` 子模块等。
 > `synapse-e2ee/src/backup/service.rs`(4)、`synapse-storage/src/audit.rs`(4)、
 > `synapse-storage/src/schema_health_check.rs`(4) 由 **C44** 归零退表（12 处宏化 + 两处
 > `COUNT(*)`/`COALESCE` 的 R4 断言 + R5 数组参数改 owned + R6 ⑤ 元组投影改字段读，见 §8.3 第 14 条）。
+> `synapse-storage/src/event/search.rs`(6) 由 **C51** 归零退表（覆盖本就在同域的
+> `event/db_tests.rs`；含两个 7 元组分支改 `query!`、DDL 宏化、`COALESCE` 逐列断言）。
 > `synapse-storage/src/call_session.rs`(7) 由 **C50** 归零退表（门控批，单批转换；覆盖与调用者
 > 本就无缺口，已在 `gated_module_test_matrix` 登记）。
 > `synapse-storage/src/room_account_data.rs`(7) 由 **C49-0 + C49** 归零退表（先按 D-93 删两处
@@ -1053,10 +1056,36 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
    验证：`-p synapse-storage --lib --all-features -E 'test(/call_session/)'` ⇒ **10/10**
    （门控模块必须带 `--all-features` 才编译得到，见 D-25 的教训）。
 
+36. ✅ **C51（`event/search.rs` 6 处宏化，该文件生产区动态归零）已完成（2026-09-28）** ——
+   覆盖本就在**同域**的 `event/db_tests.rs` 里（`search_room_messages_admin` /
+   `search_joined_room_events` / `search_postgres_messages` / `create_postgres_fts_index` /
+   `search_room_postgres_messages` 均有用例），且无死代码 ⇒ **单批转换**：
+   - `search_room_messages_admin` 的 5 列 JSON 投影 ⇒ `query!` 按字段读（顺带删掉函数内的
+     `use sqlx::Row;`）；
+   - `search_postgres_messages` 的**两个 7 元组分支** ⇒ R6 ⑤（`query_as!` 不能构造元组）
+     改 `query!` + 组装元组；
+   - `create_postgres_fts_index` 的 DDL ⇒ `query!` + `.execute()`（R6 ④，仍走 autocommit，
+     `CONCURRENTLY` 语义不变）；
+   - `fail_if_fts_index_invalid` ⇒ `query_scalar!` + `fetch_optional`；
+   - `search_room_postgres_messages` ⇒ `query_as!(RoomEvent, …)`：五处 `COALESCE(…)` 按 R4 ①
+     断言（第二实参保证非空），并把 `processed_at` 别名改成**真实字段名** `processed_ts`
+     —— R6：`query_as!` 不认 `#[sqlx(rename)]`。
+   ⚠️ **两个转换期实测的坑**（都写进代码注释）：
+   ① 断言别名是**真列名**：写成 `::float8 as "rank!"` 后，同一条 SQL 里的 `ORDER BY rank`
+      在 prepare 阶段报 `column "rank" does not exist`（正是 R6 记录的形态）⇒ 排序改成重复
+      `ts_rank(...)` 表达式；
+   ② `ts_rank(...)` 返回 **real**，直接与 `$3` 比较会让 PG 把参数定型成 `real`、宏要求 `f32`，
+      而本方法游标参数与 `::float8 as "rank!"` 输出都是 `f64`（**D-74 同族**：动态路径靠隐式
+      放宽，宏把参数定型暴露出来）⇒ 显式 `$3::float8`，同时保住 API 与比较精度。
+   实测：`dynamic_production` 197 → **191**（−6）、`static` 1282 → **1288**（+6）、
+   `dynamic` 总数 929 → **923**、`.sqlx` 1250 → **1256**（+6）、literal 126/33 → **120/32**；
+   恒等式 `191 − 120 − 1 = 70` 仍成立。
+   验证：`-p synapse-storage --lib --features test-utils -E 'test(/search/)'` ⇒ **31/31**。
+
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 
-- `dynamic_production` 的**可机械转换部分（literal）归零**：197 → **101**
-  （197 − 95 literal − 1 param = 101 = 测试基建 57 + 分页结构性 15 + **D-14 结构性 29**），
+- `dynamic_production` 的**可机械转换部分（literal）归零**：191 → **101**
+  （191 − 89 literal − 1 param = 101 = 测试基建 57 + 分页结构性 15 + **D-14 结构性 29**），
   或每个残留都有 §7.3 那样的登记条目；
 - literal 逐文件表只剩 4 类（3 个测试基建文件 + `event/pagination.rs`）；
 - ~~D-68 接线~~、~~D-37 收敛~~、~~D-62 修法①~~、~~D-57② 收敛~~、~~D-73 结构性收敛~~、
