@@ -262,15 +262,20 @@ impl DeviceSyncManager {
 
     /// See [`get_local_devices`.
     pub async fn get_local_devices(&self, user_id: &str) -> Result<Vec<DeviceInfo>, ApiError> {
-        let devices: Vec<DeviceRow> = sqlx::query_as(
-            r"
+        // R4 ①：`FALSE as is_blocked` / `FALSE as verified` 是**字面量**（无关系来源）⇒ sqlx 推成
+        // 可空，而 `DeviceRow` 的这两个字段是 `bool` ⇒ 需要 `AS "col!"` 断言。谁保证非空：两个值
+        // 是常量 `FALSE`，sqlx 的 `bool` 解码对 NULL 会失败，这里的来源根本不可能是 NULL。
+        // R6 ⑤：`query_as!` 按**列名**构造结构体 ⇒ 别名必须等于字段名（`device_display_name`/`keys`）。
+        let devices: Vec<DeviceRow> = sqlx::query_as!(
+            DeviceRow,
+            r#"
             SELECT device_id, user_id, display_name as device_display_name,
                    device_key as keys, last_seen_ts, last_seen_ip,
-                   FALSE as is_blocked, FALSE as verified
+                   FALSE as "is_blocked!", FALSE as "verified!"
             FROM devices WHERE user_id = $1
-            ",
+            "#,
+            user_id,
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to fetch devices", e))?;
@@ -323,18 +328,18 @@ impl DeviceSyncManager {
         // Exclude device_ids that are also registered as dehydrated devices.
         // Dehydrated devices are offline by design and would otherwise be
         // purged by the last_seen_ts expiry check, breaking rehydration.
-        let result = sqlx::query(
-            r"
+        let result = sqlx::query!(
+            r#"
             DELETE FROM devices
             WHERE user_id = $1
             AND (last_seen_ts IS NULL OR last_seen_ts < $2)
             AND device_id NOT IN (
                 SELECT device_id FROM dehydrated_devices WHERE user_id = $1
             )
-            ",
+            "#,
+            user_id,
+            expiry_threshold.timestamp_millis(),
         )
-        .bind(user_id)
-        .bind(expiry_threshold.timestamp_millis())
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to cleanup expired devices", e))?;
@@ -374,16 +379,16 @@ impl DeviceSyncManager {
 
     /// See [`revoke_device`.
     pub async fn revoke_device(&self, device_id: &str, user_id: &str) -> Result<(), ApiError> {
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             UPDATE devices SET
                 device_key = NULL,
                 last_seen_ts = NULL
             WHERE device_id = $1 AND user_id = $2
-            ",
+            "#,
+            device_id,
+            user_id,
         )
-        .bind(device_id)
-        .bind(user_id)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to revoke device", e))?;
@@ -413,7 +418,8 @@ impl DeviceSyncManager {
     }
 }
 
-#[derive(sqlx::FromRow)]
+// C59：本结构体只被 `get_local_devices` 使用，而宏化后的 `query_as!` **不走 `FromRow`**
+// ⇒ 原先的 `#[derive(sqlx::FromRow)]` 成为死 derive（同 C31/C34 的清理），一并删除。
 struct DeviceRow {
     device_id: String,
     user_id: String,

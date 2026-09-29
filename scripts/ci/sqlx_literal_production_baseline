@@ -270,6 +270,10 @@
 #   `url_preview_storage.rs`（含 6 处 R5 的 `.as_deref()` 改写）、`schema_validator.rs`
 #   （两处 `AS "count!"` + 一处 `AS "indexname!"`）、`oidc_user_mapping.rs` 共 9 处全部宏化
 #   ⇒ 三行归零退表。恒等式同步为 `146 − 75 − 1 = 70`。
+# ── 2026-09-29 C59（本表退两行：3 + 3 处 → 0；20 → 18 文件）──────────────────────
+#   `dead_letter_queue.rs`（含 1 处 R5 的 `.as_deref()`）与 `device_sync.rs`（含两个常量列断言
+#   `FALSE as "is_blocked!"`/`"verified!"`，并删掉因此变成死 derive 的 `sqlx::FromRow`）共 6 处
+#   全部宏化 ⇒ 两行归零退表。恒等式同步为 `140 − 69 − 1 = 70`。
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -277,8 +281,6 @@ synapse-common/src/test_isolation.rs	9
 synapse-common/src/test_schema_guard.rs	2
 synapse-common/src/transaction.rs	3
 synapse-e2ee/src/signature/storage.rs	3
-synapse-federation/src/dead_letter_queue.rs	3
-synapse-federation/src/device_sync.rs	3
 synapse-storage/src/admin_media.rs	15
 synapse-storage/src/event/pagination.rs	6
 synapse-storage/src/maintenance.rs	3
@@ -292,7 +294,7 @@ synapse-storage/src/user/storage.rs	1
 synapse-test-utils/src/lib.rs	14
 # ── 当前「运行期拼装」残差清单（**允许**，不入棘轮；仅作可读性摘要）────────────
 # 合计 **70 处 / 13 文件**（运行期拼装部分自 C44 起未变；与 ratio 棘轮的
-# `dynamic_production − literal − param` = 146 − 75 − 1 = 70 一致）：
+# `dynamic_production − literal − param` = 140 − 69 − 1 = 70 一致）：
 #    16  synapse-common/src/test_isolation.rs
 #    14  synapse-test-utils/src/lib.rs
 #     9  synapse-storage/src/event/pagination.rs

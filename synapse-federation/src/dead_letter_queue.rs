@@ -198,21 +198,23 @@ impl PgDeadLetterQueue {
 /// Implementation of [`DeadLetterQueueApi`] methods.
 impl DeadLetterQueueApi for PgDeadLetterQueue {
     async fn enqueue(&self, entry: &DlqEntry) -> Result<(), DeadLetterQueueError> {
-        sqlx::query(
+        // R5：`failure_reason` 是 `Option<String>` ⇒ 必须 `.as_deref()`（宏的 `ty_match` 拒绝
+        // `&Option<T>`，旧 `.bind()` 接受）；`last_attempt_ts: Option<i64>` 是 `Copy`，按值传。
+        sqlx::query!(
             r#"INSERT INTO federation_dead_letter_queue
                (txn_id, destination, origin, payload, failure_reason,
                 retry_count, created_ts, last_attempt_ts, is_resolved)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
+            entry.txn_id,
+            entry.destination,
+            entry.origin,
+            entry.payload,
+            entry.failure_reason.as_deref(),
+            entry.retry_count,
+            entry.created_ts,
+            entry.last_attempt_ts,
+            entry.is_resolved,
         )
-        .bind(&entry.txn_id)
-        .bind(&entry.destination)
-        .bind(&entry.origin)
-        .bind(&entry.payload)
-        .bind(&entry.failure_reason)
-        .bind(entry.retry_count)
-        .bind(entry.created_ts)
-        .bind(entry.last_attempt_ts)
-        .bind(entry.is_resolved)
         .execute(&*self.pool)
         .await
         .map_err(|e| DeadLetterQueueError::Database(e.to_string()))?;
@@ -220,7 +222,10 @@ impl DeadLetterQueueApi for PgDeadLetterQueue {
     }
 
     async fn list_unresolved(&self) -> Result<Vec<DlqEntry>, DeadLetterQueueError> {
-        sqlx::query_as::<_, DlqEntry>(
+        // 10 列与 `DlqEntry` 的 10 个字段一一对应（`id` 列是 `BIGSERIAL` 主键、字段是
+        // `Option<i64>` —— R4 的"反向"方向合法，保持结构体不动）。
+        sqlx::query_as!(
+            DlqEntry,
             r#"SELECT id, txn_id, destination, origin, payload,
                       failure_reason, retry_count, created_ts,
                       last_attempt_ts, is_resolved
@@ -235,12 +240,12 @@ impl DeadLetterQueueApi for PgDeadLetterQueue {
     }
 
     async fn mark_resolved(&self, id: i64) -> Result<(), DeadLetterQueueError> {
-        sqlx::query(
+        sqlx::query!(
             r#"UPDATE federation_dead_letter_queue
                SET is_resolved = TRUE
                WHERE id = $1"#,
+            id,
         )
-        .bind(id)
         .execute(&*self.pool)
         .await
         .map_err(|e| DeadLetterQueueError::Database(e.to_string()))?;

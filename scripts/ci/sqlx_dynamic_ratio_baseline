@@ -2948,10 +2948,27 @@
 #   新增 6 条用例、7 处**测试区**动态 SQL（2 个夹具 helper + 5 条直接断言读）
 #   ⇒ `BASELINE_DYNAMIC_TEST_INFRA` 740 → **747**（本批自身新增夹具，非跨批放宽）。
 #   生产区三个数字**不变**（146 / 1330 / literal 75/20）；两处宏化留在 C59。
+# ── 2026-09-29 C59（`dead_letter_queue.rs` 3 处 + `device_sync.rs` 3 处，两文件生产区动态归零）──
+#   · `dead_letter_queue.rs`：`enqueue` ⇒ `query!`（⚠️ **R5**：`failure_reason: Option<String>`
+#     必须 `.as_deref()`；`last_attempt_ts: Option<i64>` 是 `Copy` 按值传）；`list_unresolved` ⇒
+#     `query_as!(DlqEntry, …)`（10 列与 10 字段一一对应；`id` 列是 `BIGSERIAL` 主键而字段是
+#     `Option<i64>` —— R4 的"反向"方向合法，结构体不动）；`mark_resolved` ⇒ `query!`。
+#   · `device_sync.rs`：`get_local_devices` ⇒ `query_as!(DeviceRow, …)`，两个常量列按 R4 ① 断言
+#     `FALSE as "is_blocked!"` / `FALSE as "verified!"`（无关系来源的字面量；谁保证非空：值是常量
+#     FALSE），别名保持 `display_name as device_display_name` / `device_key as keys`（R6 ⑤：
+#     `query_as!` 按列名构造结构体 ⇒ 别名必须等于字段名）；`cleanup_expired_devices` ⇒ `query!`
+#     （`expiry_threshold.timestamp_millis()` 作绑定实参是允许的 —— R1 约束的是 SQL 文本）；
+#     `revoke_device` ⇒ `query!`。宏化后 `DeviceRow` 的 `#[derive(sqlx::FromRow)]` 成为死 derive
+#     （`query_as!` 不走 `FromRow`）⇒ 同批删除（C31/C34 同型清理）。
+#   ⚠️ 实测踩到 R6 的经典陷阱：两处 SQL 原先是 `r"…"` 普通 raw string，我改宏时把收尾写成 `"#,`
+#   ⇒ `no rules expected #`（device_sync.rs:339/388）。原文已警告过这一条，仍复现了一次。
+#   实测：`dynamic_production` 146 → **140**（−6）、`static` 1330 → **1336**（+6）、
+#   `dynamic` 总数 893 → **887**（= 140 + 测试区 747）、`dynamic_test` 747 不变、
+#   `.sqlx` 1298 → **1304**（+6，无碰撞）、literal 75/20 → **69/18**。恒等式 `140 − 69 − 1 = 70` 成立。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=146
+BASELINE_DYNAMIC_PRODUCTION=140
 BASELINE_DYNAMIC_TEST_INFRA=747
-BASELINE_STATIC=1330
+BASELINE_STATIC=1336
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 

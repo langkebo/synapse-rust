@@ -1,0 +1,74 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, txn_id, destination, origin, payload,\n                      failure_reason, retry_count, created_ts,\n                      last_attempt_ts, is_resolved\n               FROM federation_dead_letter_queue\n               WHERE is_resolved = FALSE\n               ORDER BY created_ts DESC\n               LIMIT 100",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "txn_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "destination",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "origin",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "payload",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "failure_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "retry_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "last_attempt_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "is_resolved",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "7dd33bc74112a0bec6e09f1e329b43912e1e021c7c8fa72da30a21b7c105b5ae"
+}

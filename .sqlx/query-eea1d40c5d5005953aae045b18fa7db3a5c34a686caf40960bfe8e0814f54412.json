@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE federation_dead_letter_queue\n               SET is_resolved = TRUE\n               WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "eea1d40c5d5005953aae045b18fa7db3a5c34a686caf40960bfe8e0814f54412"
+}
