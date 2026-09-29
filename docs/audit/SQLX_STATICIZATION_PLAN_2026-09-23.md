@@ -1,4 +1,4 @@
-# SQLx 静态化：阶段总结与剩余工作（2026-09-23 启动 · 2026-09-28 C54 后）
+# SQLx 静态化：阶段总结与剩余工作（2026-09-23 启动 · 2026-09-29 C55 后）
 
 > **本文档只保留三样东西**：阶段总结（§0）、**仍存在的问题**（§7）、**优化方案**（§8）。
 > 已关闭缺陷的逐条明细与各批次执行记录（C1–C34 / W1–W5）在冻结快照
@@ -14,12 +14,12 @@
 
 | 指标 | 战役起点（2026-09-23） | 现在 | 变化 |
 |---|---|---|---|
-| `dynamic_production` | 1532（近似） | **176** | **−88.5%** |
-| `static` | 61 | **1303** | +1242 |
-| `dynamic`（总） | 2151 | **911** | −1240 |
-| 静态占比 | 2.76% | **58.9%**（1303 / 2214） | +56.1pp |
-| `.sqlx` 离线缓存 | 60 条 | **1271 条** | +1211 |
-| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **105 / 30** | −771 |
+| `dynamic_production` | 1532（近似） | **172** | **−88.8%** |
+| `static` | 61 | **1305** | +1244 |
+| `dynamic`（总） | 2151 | **907** | −1244 |
+| 静态占比 | 2.76% | **59.0%**（1305 / 2212） | +56.2pp |
+| `.sqlx` 离线缓存 | 60 条 | **1273 条** | +1213 |
+| literal（逐文件棘轮，处 / 文件） | 876 / 98 | **101 / 29** | −775 |
 | `param` 传参（D-14 新棘轮，处 / 文件） | — | **1 / 1** | 新立棘轮（此前混在 `runtime`，两道棘轮都不管） |
 | `runtime` 残差 / `query_builder` | — | 70 / 13 文件 · **18**（已入计数棘轮） | — |
 
@@ -57,21 +57,26 @@
 > （`.sqlx` 1262 → 1263，literal 退到 113/31，测试区 733 → 735）；C53（4 处宏化，按 R7/D-96
 > 保留 1 处）收到 **180 / 1299**（`.sqlx` 1263 → 1267，literal 退到 109/31）；C54
 > （`event/ephemeral.rs` 4 处宏化，**无先修项**：4 个方法都已有真基线覆盖）收到
-> **176 / 1303**（`.sqlx` 1267 → 1271，literal 退到 **105/30**）。
+> **176 / 1303**（`.sqlx` 1267 → 1271，literal 退到 **105/30**）；C55-0（先修 D-97：
+> `account_data` 第二份实现收敛到 `AccountDataStoreApi`）收到 **176 / 1301**
+> （`.sqlx` 缩容 1 条，`user/storage.rs` 的 2 个静态宏站点随重复实现删除）；
+> C55（`account_data/mod.rs` 4 处宏化）收到 **172 / 1305**（`.sqlx` 1270 → 1273，
+> literal 退到 **101/29**，本批合计 `1271 → 1273`）。
 
 ### 0.2 残量结构（"还剩多少活"的准确说法）
 
 | 组成 | 处数 | 性质 |
 |---|---|---|
-| **可静态化残量** | **103** | **73 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
+| **可静态化残量** | **99** | **69 处字面量**（纯机械转换）+ **29 处运行期拼装**（`format!` 拼列清单 / `ORDER BY` 方向等，**属 §7.3 D-14 结构性例外：需先设计替代方案，不能靠硬编码压数字**）+ **1 处跨函数传参**（`param`，把字面量内联到调用点即可转） |
 | 测试基建（有意保留） | 57 | `synapse-test-utils/src/lib.rs` 28、`synapse-common/src/test_isolation.rs` 25、`test_schema_guard.rs` 4（各含 literal + runtime 两部分） |
 | 结构性保留（有意） | 16 | `synapse-storage/src/event/pagination.rs`（9 runtime 游标/排序方向 + 6 literal）+ `synapse-storage/src/monitoring.rs` 的 `pg_stat_statements` 慢查询 1（R7/D-96，宏在 prepare 阶段无法 describe 该可选扩展的关系） |
-| **合计** | **176** | = 103 + 57 + 16 |
+| **合计** | **172** | = 99 + 57 + 16 |
 
 > 本表口径**随批次滚动**，数字一律为当批实测（C44 时是 108 / 57 / 15 = 180；C53 把
-> monitoring 的 1 处从"可静态化"移入"结构性保留"，C54 又把机械 literal 从 78 降到 73）。
+> monitoring 的 1 处从"可静态化"移入"结构性保留"，C54 把机械 literal 从 78 降到 73，
+> C55 再降到 69）。
 > 复算方式：`sqlx_query_census.py --list-production-dynamic` 的 `literal/param/runtime` 三分类，
-> 再按文件归入上表三类 —— 即 `176 = (73+29+1) + 57 + 16`。
+> 再按文件归入上表三类 —— 即 `172 = (69+29+1) + 57 + 16`。
 
 ### 0.3 复现（唯一入口，勿手工数）
 
@@ -240,16 +245,15 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 ## 8. 优化方案
 
-### 8.1 剩余可静态化清单（按实测，2026-09-28 C54 后）
+### 8.1 剩余可静态化清单（按实测，2026-09-29 C55 后）
 
-**可转换残量 103 处** = **73 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
+**可转换残量 99 处** = **69 处字面量（机械转换）** + **29 处运行期拼装（D-14 结构性）**
 加 **1 处跨函数传参（`param`）**。下表列出**尚未归零**的 literal 文件（表内数字是**可机械转换**
 的站点数；纯 `runtime` 文件见下方结构性清单）：
 
 | 文件 | 处数 | 门控 | 备注 |
 |---|---|---|---|
 | `synapse-storage/src/admin_media.rs` | 15 | — | U-5 残量**已在 `a13f57316` 计入基线冻结**；是否回收属该批次后续决定，不是本计划的机械项 |
-| `synapse-storage/src/account_data/mod.rs` | 4 | — | |
 | `synapse-storage/src/url_preview_storage.rs` | 3 | — | |
 | `synapse-storage/src/schema_validator.rs` | 3 | — | |
 | `synapse-storage/src/rate_limit.rs` | 3 | — | |
@@ -270,13 +274,13 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 | `src/server/mod.rs` | 2 | — | |
 | `src/server/database.rs` / `synapse-common/src/health.rs` / `synapse-storage/src/presence/mod.rs` / `room/models.rs` / `user/storage.rs` | 各 1 | — | 余下 5 个单处文件 |
 
-> 上表合计 = **73 处**（= 105 literal 实测 − 结构性 32），与 §0.2 的"73 处字面量"一致；
+> 上表合计 = **69 处**（= 101 literal 实测 − 结构性 32），与 §0.2 的"69 处字面量"一致；
 > 逐文件权威清单是基线文件 `scripts/ci/sqlx_literal_production_baseline`，本表只是可读性摘要。
 
 > 结构上**不在此表**的三类（有意保留，合计 32 处 literal）：测试基建 25
 > （`test-utils/src/lib.rs` 14 + `test_isolation.rs` 9 + `test_schema_guard.rs` 2）、
 > `event/pagination.rs` 6、`monitoring.rs` 的 `pg_stat_statements` 1（R7/D-96）。
-> 73 = 105（literal 实测）− 32。
+> 69 = 101（literal 实测）− 32。
 
 > **已归零退表的文件**（本表不再列；数字是退表时的 literal 处数）：`synapse-e2ee/src/backup/service.rs`(4)、
 > `synapse-storage/src/audit.rs`(4)、`synapse-storage/src/schema_health_check.rs`(4) 由 **C44** 归零
@@ -300,6 +304,8 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 > （先删 3 处零调用者方法、消 1 处重复 INSERT（D-82）、补真基线覆盖，再宏化剩余 4 处）。
 > `synapse-storage/src/event/ephemeral.rs`(4) 由 **C54** 归零（**无先修项**：4 个方法都已有真基线
 > 覆盖、无零调用者、无吞错；六元组投影按 R6 ⑤ 改 `query!` + 字段读）。
+> `synapse-storage/src/account_data/mod.rs`(4) 由 **C55-0 + C55** 归零（先按 D-97 删掉 `UserStore`
+> 侧的第二份实现并把服务收敛到 `AccountDataStoreApi`，再宏化唯一那份实现的 4 处）。
 > `key_rotation.rs`(8) 由 **C43** 归零（保留自愈 + 宏化，见 §8.3 第 10 条）；`qr_login.rs`(5)/`room_tag/mod.rs`(4) 已由 **C42** 归零退表；`feature_flags.rs`/`filter.rs`
 > 由 **C41** 归零。
 > ⚠️ `event/pagination.rs` 的 6 处 literal **不在**本表：它与同文件的 9 处 runtime 一起属
@@ -1241,21 +1247,43 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
    （`user/storage.rs` 的 `---- account_data methods ----` 段）、`UserStorage` 固有实现、`impl UserStore
    for UserStorage` 的转发、`user_store_fake.rs` 的替身、`tests/unit/user_service_tests.rs` 的 `MockUserStore`
    实现，以及只覆盖重复实现的那条 `user/db_tests.rs::test_upsert_and_get_account_data_content`
-   （同一职责的覆盖在 `account_data/mod.rs` 的 8 条真基线 db_tests 里更完整：get-not-found / list 排序 /
-   list 空 / delete 存在与不存在 / 覆盖写 / 多用户隔离 / 嵌套 JSON 保真）；`AccountDataService` 的两个方法
+   （同一职责的覆盖在 `account_data/mod.rs` 的 **9** 条真基线 db_tests 里更完整：upsert+get /
+   get-not-found / list 排序 / list 空 / delete 存在与不存在 / 覆盖写 / 多用户隔离 / 嵌套 JSON 保真）；`AccountDataService` 的两个方法
    改走 `account_data_storage`。`user_storage` 字段随之成为**死字段** ⇒ 按铁律 1 删除（连带
    `CoreServices::new` 的同名形参，唯一调用点 `container.rs` 同步）。
    副作用（已在提交信息与本条登记）：`.sqlx` 顺带**缩容 1 条** —— `query-4561100b…` 是重复 `INSERT`
    的缓存条目，删除后不再被任何宏引用；缩容走 `ALLOW_CACHE_SHRINK=1` 显式允许，脚本逐条打印被删清单
    （实测唯一一条），缓存 1274 → 1273。
-   验证：`-p synapse-services --lib --features test-utils -E 'test(/account_data/)'` 与
-   `-p synapse-storage --lib --features test-utils -E 'test(/account_data/)'` ⇒ 全绿；
+   验证：`-p synapse-services --lib --features test-utils -E 'test(/account_data/)'` ⇒ **41/41**，
+   `-p synapse-storage --lib --features test-utils -E 'test(/account_data/)'` ⇒ **23/23**（见第 43 条）；
    `--test unit`（含改过的 `user_service_tests.rs`）与两档 clippy 见提交信息。
+
+43. ✅ **C55（`account_data/mod.rs` 4 处宏化，该文件生产区动态归零）已完成（2026-09-29）** ——
+   先修（C55-0/D-97）之后该职责只剩一份实现，4 处按形状转换：
+   - `get_account_data_content` 的 `SELECT content …` ⇒ `query_scalar!`（`content` 是
+     `JSONB NOT NULL` ⇒ 宏推断非空，"没有该行"由 `fetch_optional` 表达 ⇒ 无需 R4 的
+     `AS "content!"` 断言）；
+   - `list_account_data` 的两列 ⇒ `query_as!`（`data_type`/`content` 与 `AccountDataRecord`
+     字段一一对应，R6 ⑤；`ORDER BY data_type ASC` 保留在 SQL 里）；
+   - `delete_account_data` 的 DELETE ⇒ `query!` + `rows_affected()`（`Ok(n > 0)` 语义不变）；
+   - `upsert_account_data` 的 `INSERT … ON CONFLICT (user_id, data_type) DO UPDATE` ⇒ `query!`
+     （`$4` 在 `created_ts`/`updated_ts` 复用 ⇒ 只绑一次 `now`，宏按**最高占位符编号**收 4 个实参）。
+   实测：`dynamic_production` 176 → **172**（−4）、`static` 1301 → **1305**（+4；含 C55-0 的 −2
+   后本批净 +2）、`dynamic` 总数 911 → **907**、`dynamic_test` 735 不变、`.sqlx` 1270 → **1273**
+   （+3 —— `SELECT content` 那条与 C55-0 删掉的重复条目**文本相同**，复用同一份缓存条目，
+   因此 4 处转换只新增 3 条；本批合计 1271 → 1273）、literal 105/30 → **101/29**（该文件退 literal 表）；
+   恒等式 `172 − 101 − 1 = 70` 成立。
+   ⚠️ 本批两次**下调**棘轮都属"变好也会红"的两道兄弟棘轮的同类情形：C55-0 删静态宏 ⇒
+   `BASELINE_STATIC` 必须 −2，C55 宏化 ⇒ 再 +4；两段都写进了基线文件的日期注记，可逐条复核。
+   验证：`-p synapse-storage --lib --features test-utils -E 'test(/account_data/)'` ⇒ **23/23**
+   （该过滤器同时命中 `room_account_data` 与 `sliding_sync` 的同名用例；其中
+   `account_data::db_tests` **9** 条是本次转换的直接覆盖，全部**穿过新宏**跑真 baseline）；
+   C55-0 的 `-p synapse-services --lib --features test-utils -E 'test(/account_data/)'` ⇒ **41/41**，见第 42 条。
 
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 
-- `dynamic_production` 的**可机械转换部分（literal）归零**：176 → **102**
-  （176 − 73 literal − 1 param = 102 = 测试基建 57 + 结构性保留 16（分页 15 + monitoring R7 1）
+- `dynamic_production` 的**可机械转换部分（literal）归零**：172 → **102**
+  （172 − 69 literal − 1 param = 102 = 测试基建 57 + 结构性保留 16（分页 15 + monitoring R7 1）
   + **D-14 结构性 29**），
   或每个残留都有 §7.3 那样的登记条目；
 - literal 逐文件表只剩 5 类（3 个测试基建文件 + `event/pagination.rs` + `monitoring.rs` 的
