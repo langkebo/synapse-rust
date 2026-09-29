@@ -3036,10 +3036,39 @@
 #   `dynamic` 总数 886 → **873**、测试区 751 不变、`.sqlx` 1299 → **1313**（+14：两个相同的
 #   `DELETE FROM media_metadata WHERE media_id = $1` 共用一个条目）、literal 66/17 → **51/16**。
 #   恒等式 `122 − 51 − 1 = 70` 成立。
+# ── 2026-09-29 C61-0（先修 D-104 吞错 + 补 maintenance 覆盖 + 登记 D-105；静态 +1）────────────
+#   **D-104（吞错，已修）**：`vacuum_analyze` 里 `SELECT COALESCE(n_mod_since_analyze, 0) …` 的
+#   `.ok().flatten().flatten().unwrap_or(0)` 把**任何数据库错误**降级成"0 次修改" ⇒ 该表被静默
+#   跳过 VACUUM ANALYZE，调用方却拿到"维护正常"的报告（D-33/D-94 同型）。改为 `?` 传播，
+#   只保留"统计行不存在 ⇒ 0"这个真默认值（该语句随之改写为 `query_scalar!` + `AS "modifications!"`，
+#   R4 ①，因此本批静态 +1、生产动态 −1）。
+#   **覆盖**：`vacuum_analyze` / `reindex_tables` 此前**零覆盖** ⇒ 新增 2 条真基线用例
+#   （干净 schema 全部跳过阈值 + 硬编码索引清单在基线里都存在 ⇒ 全部重建成功并回查 `pg_indexes`）。
+#   **D-105（新登记，结构性例外）**：`migration_checks.rs` 的
+#   `SELECT version FROM _sqlx_migrations …` 指向的关系**只在用 sqlx-migrate 管迁移的库里存在**
+#   （本仓走 `docker/db_migrate.sh`，基线 schema 实测 **0 张** `_sqlx_migrations`）⇒ 宏在 prepare
+#   阶段无法 describe，与 D-96（可选扩展 `pg_stat_statements`）同类。该站点保持动态；
+#   `count_public_tables` 的 `COUNT(*)` 仍可转换（留在 C61）。
+#   实测：`dynamic_production` 122 → **121**、`static` 1346 → **1347**、测试区 751 → **752**、
+#   `.sqlx` 1313 → **1314**、literal `maintenance.rs` 3 → 2（该文件合计 51 → 50）。
+# ── 2026-09-29 C61（`maintenance.rs` 2 处 + `oauth_client_storage.rs` 2 处 +
+#    `migration_checks.rs` 1 处宏化）──────────────────────────────────────────────────────
+#   · `maintenance.rs`：`reindex_tables` 的索引存在性查询 ⇒ `query_scalar!` + `AS "indexname!"`
+#     （R4 ①：系统视图不透传 `pg_class.relname` 的非空性 —— C58 在 `schema_validator.rs` 实测过）；
+#     `analyze_table_stats` 的 4 元组 ⇒ `query!` + 字段读（R6 ⑤），四列全按 R4 ① 断言
+#     （`relname` 与三个 `COALESCE(...)::BIGINT`）。该文件剩 2 处 `format!("VACUUM ANALYZE {table}")`
+#     / `format!("REINDEX INDEX {index}")` —— **D-14 动态标识符**，结构性保留。
+#   · `oauth_client_storage.rs`：`register_client` ⇒ `query!`；`get_client` ⇒
+#     `query_as!(OAuthClient, …)`（9 列与结构体字段一一对应）。
+#   · `migration_checks.rs`：`count_public_tables` 的 `COUNT(*)` ⇒ `query_scalar!` + `AS "count!"`；
+#     另一处（`SELECT version FROM _sqlx_migrations`）**按 D-105 保持动态**。
+#   实测：`dynamic_production` 121 → **116**（−5）、`static` 1347 → **1352**（+5）、
+#   `dynamic` 总数 873 → **868**、测试区 752 不变、`.sqlx` 1314 → **1319**（+5，无碰撞）、
+#   literal 50/16 → **45/14**。恒等式 `116 − 45 − 1 = 70` 成立。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=122
-BASELINE_DYNAMIC_TEST_INFRA=751
-BASELINE_STATIC=1346
+BASELINE_DYNAMIC_PRODUCTION=116
+BASELINE_DYNAMIC_TEST_INFRA=752
+BASELINE_STATIC=1352
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 

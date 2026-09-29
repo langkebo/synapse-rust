@@ -355,9 +355,10 @@ fn scan_migration_files_in(migrations_dir: &Path) -> Result<Vec<ScannedMigration
 /// live in the current schema. The caller uses the count purely to compute a
 /// drift signal with a ±10 tolerance — it is not a hard correctness check.
 pub async fn count_public_tables(pool: &Pool<Postgres>) -> Result<usize, sqlx::Error> {
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM information_schema.tables \
-         WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'",
+    // R4 ①：`COUNT(*)` 无关系来源 ⇒ 断言（聚合计数恒非空）。
+    let count: i64 = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) AS "count!" FROM information_schema.tables
+           WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'"#,
     )
     .fetch_one(pool)
     .await?;

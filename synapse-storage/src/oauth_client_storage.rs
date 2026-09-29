@@ -66,23 +66,23 @@ impl OAuthClientStorage {
 
     /// See [`register_client`].
     pub async fn register_client(&self, client: &OAuthClient) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r#"
             INSERT INTO oauth_clients
                 (client_id, client_secret, client_name, redirect_uris, grant_types,
                  response_types, scope, created_ts, is_confidential)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             "#,
+            client.client_id,
+            client.client_secret,
+            client.client_name,
+            client.redirect_uris,
+            client.grant_types,
+            client.response_types,
+            client.scope,
+            client.created_ts,
+            client.is_confidential,
         )
-        .bind(&client.client_id)
-        .bind(&client.client_secret)
-        .bind(&client.client_name)
-        .bind(&client.redirect_uris)
-        .bind(&client.grant_types)
-        .bind(&client.response_types)
-        .bind(&client.scope)
-        .bind(client.created_ts)
-        .bind(client.is_confidential)
         .execute(self.pool.as_ref())
         .await?;
         Ok(())
@@ -90,14 +90,15 @@ impl OAuthClientStorage {
 
     /// See [`get_client`].
     pub async fn get_client(&self, client_id: &str) -> Result<Option<OAuthClient>, sqlx::Error> {
-        sqlx::query_as::<_, OAuthClient>(
+        sqlx::query_as!(
+            OAuthClient,
             r#"
             SELECT client_id, client_secret, client_name, redirect_uris, grant_types,
                    response_types, scope, created_ts, is_confidential
             FROM oauth_clients WHERE client_id = $1
             "#,
+            client_id,
         )
-        .bind(client_id)
         .fetch_optional(self.pool.as_ref())
         .await
     }

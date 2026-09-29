@@ -1,0 +1,70 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT client_id, client_secret, client_name, redirect_uris, grant_types,\n                   response_types, scope, created_ts, is_confidential\n            FROM oauth_clients WHERE client_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "client_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "client_secret",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "client_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "redirect_uris",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "grant_types",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "response_types",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "scope",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_confidential",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f12f9ec5e9910d33c12db3cd6472ba31a57d6b546ddb562b044adc51fb519e4c"
+}
