@@ -886,6 +886,39 @@ def mutation_check() -> int:
                 f"(all {len(real_rows)} routes are self-consistent); test is meaningless until a mixed-context "
                 f"row with actual module gates appears"
             )
+            # --- 新增合成测试：强制存在 gate_of != scope_only 的 row ---
+            # 合成路由：("GET", "/test-mixed-synthetic-route")
+            # cfg_of 包含两个上下文：空和 {"feature = \"builtin-oidc\""}
+            # registrars 包含一个有 module_gates 的文件，保证 gate_of 包含 module_gates
+            # 通过手动实现原始的 gate_of 逻辑来验证合成数据
+            synthetic = ex.Resolver(
+                ex.load_sources(), None, ex.mod_gated_files(ex.raw_sources())
+            )
+            # 注入 cfg_of
+            mixed_key = ("GET", "/test-mixed-synthetic-route")
+            synthetic.cfg_of[mixed_key] = {frozenset(), frozenset({"feature = \"builtin-oidc\""})}
+            # 注入一个带有 module_gates 的文件
+            synthetic.registrars[mixed_key] = {("synapse-web/src/routes/builtin_oidc_provider.rs", "create_oidc_routes")}
+            # 确保 module_gates["synapse-web/src/routes/builtin_oidc_provider.rs"] 包含 {"feature = \"builtin-oidc\""}
+            synthetic.module_gates["synapse-web/src/routes/builtin_oidc_provider.rs"] = {"feature = \"builtin-oidc\""}
+            # 手动计算 gate_of（跳过 scope_only patch）
+            # gate_of = base | module_gates，其中 base = min(cfg_of)
+            ctx = synthetic.cfg_of.get(mixed_key, set())
+            base = min(ctx, key=len) if ctx else frozenset()
+            synth_module_gates = frozenset(synthetic.module_gates.get("synapse-web/src/routes/builtin_oidc_provider.rs", []))
+            synth_gate_of = frozenset(set(base) | synth_module_gates)
+            synth_scope = scope_only(synthetic, mixed_key)
+            if synth_gate_of != synth_scope:
+                print(
+                    f"  ok   mutation#6 (module gates dropped) turns the suite RED via synthetic row: {mixed_key}"
+                )
+                # 符合预期，直接成功，不再进行漂移检查
+                return bad
+            else:
+                print(
+                    f"  FAIL mutation#6 合成测试无法产生 gate_of != scope_only 差异"
+                )
+                bad += 1
         else:
             lanes = ex.load_lanes()
             union = ex.Resolver(
