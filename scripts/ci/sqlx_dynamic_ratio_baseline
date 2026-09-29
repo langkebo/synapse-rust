@@ -3132,12 +3132,24 @@
 #   且为同一断言只留 1 处站点）、`.sqlx` 1324 → **1327**（+3）、literal 36/8 **不变**
 #   （本批未新增任何 literal 生产站点）。
 #   恒等式 `103 − 36 − 0 = 67` 成立（C63 时为 `106 − 36 − 0 = 70`）。
+# ── 2026-09-29 C65-0（补 `get_room_members_paginated_with_profiles` 的真基线覆盖）──────────────
+#   该方法是 MSC4502 的 profile 分页（路由 → 服务 → 存储），**此前零 storage 级覆盖**：服务层那两条
+#   `get_room_members_paginated_*` 用例注入的是 `test_mocks::InMemoryMemberStore`，从不执行这里的
+#   SQL。而它内部有 4 条 `format!` 分支（`not_membership` 有/无 × 游标有/无）× 2 个方向
+#   = **8 种 SQL 文本**（§7.3 D-14 结构性保留：列名与方向由 `format!` 拼接，宏要求调用点字面量），
+#   编译期什么都看不见 ⇒ 只能靠真 baseline 往返钉住"拼出来的 SQL 在当前 schema 上真的能跑"。
+#   实测：`dynamic_test` 753 → **754**（+1：新用例构造 profile 的那条
+#   `UPDATE users SET displayname = …, avatar_url = …` 夹具；测试区按 R9 只能动态），
+#   生产动态 103 / 静态 1361 / `.sqlx` 1327 三项不动。
+#   **R11 变异自证**：把 `cursor_op` 的 `>`/`<` 互换（只改 `format!` 实参、**不改 SQL 字面量**
+#   ⇒ 离线宏缓存仍然有效，无需 `SQLX_OFFLINE=false`），用例在分支 ② 立刻红
+#   （`left: []` vs `right: 三个 user_id`）；还原后绿。
 BASELINE_QUERY_BUILDER=18
 BASELINE_DYNAMIC_PRODUCTION=103
-BASELINE_DYNAMIC_TEST_INFRA=753
+BASELINE_DYNAMIC_TEST_INFRA=754
 BASELINE_STATIC=1361
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=856
+BASELINE_DYNAMIC=857
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
