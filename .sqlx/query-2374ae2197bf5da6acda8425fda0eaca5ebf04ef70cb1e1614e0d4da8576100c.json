@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH last_read AS (\n                SELECT COALESCE(MAX(e.origin_server_ts), MAX(rm.origin_server_ts), 0) AS last_read_ts\n                FROM read_markers rm\n                LEFT JOIN events e ON e.event_id = rm.event_id\n                WHERE rm.room_id = $1 AND rm.user_id = $2\n            )\n            SELECT\n                $1 AS \"room_id!\",\n                COALESCE(COUNT(ev.event_id) FILTER (\n                    WHERE COALESCE(ev.user_id, ev.sender) != $2\n                      AND ev.state_key IS NULL\n                      AND ev.origin_server_ts > lr.last_read_ts\n                ), 0) AS \"notification_count!\",\n                COALESCE(COUNT(ev.event_id) FILTER (\n                    WHERE COALESCE(ev.user_id, ev.sender) != $2\n                      AND ev.state_key IS NULL\n                      AND ev.origin_server_ts > lr.last_read_ts\n                      AND (\n                        strpos(ev.content::text, $2) > 0\n                        OR strpos(ev.content::text, '@room') > 0\n                      )\n                ), 0) AS \"highlight_count!\"\n            FROM last_read lr\n            LEFT JOIN events ev\n              ON ev.room_id = $1\n             AND COALESCE(ev.user_id, ev.sender) != $2\n             AND ev.state_key IS NULL\n             AND ev.soft_failed = FALSE\n             AND ev.origin_server_ts > lr.last_read_ts\n            GROUP BY lr.last_read_ts\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "room_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "notification_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "highlight_count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "2374ae2197bf5da6acda8425fda0eaca5ebf04ef70cb1e1614e0d4da8576100c"
+}

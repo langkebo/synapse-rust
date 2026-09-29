@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE events\n            SET soft_failed = TRUE\n            WHERE event_id = $1 AND soft_failed = FALSE\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0c0e0e040f02382c9b3ba0df9061b0e7bce16e9620488c9600ed146f7e041e0d"
+}

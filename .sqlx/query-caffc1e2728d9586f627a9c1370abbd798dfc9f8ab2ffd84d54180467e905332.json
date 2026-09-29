@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT event_id\n            FROM room_event_txn_dedup\n            WHERE user_id = $1 AND room_id = $2 AND txn_id = $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "caffc1e2728d9586f627a9c1370abbd798dfc9f8ab2ffd84d54180467e905332"
+}

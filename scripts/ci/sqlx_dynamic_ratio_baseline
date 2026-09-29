@@ -2855,10 +2855,41 @@
 #   恒等式 `172 − 101 − 1 = 70` 成立。本批合计（含先修）`.sqlx` 1271 → 1273。
 #   验证：`-p synapse-storage --lib --features test-utils -E 'test(/account_data/)'` 与
 #   `-p synapse-services --lib --features test-utils -E 'test(/account_data/)'` ⇒ 全绿（见 §8.3 第 43 条）。
+# ── 2026-09-29 C56-0（先修 D-98 + 补覆盖 + 登记 D-99/D-100；本文件只动测试区上限）──────────────
+#   D-98（生产缺陷，已修）：`get_unread_counts` / `_batch` 的 highlight 分支把
+#   `LIKE '%<user_id>%'` 换成 `strpos(ev.content::text, $n) > 0` —— `LIKE` 的 `_`/`%` 是元字符，
+#   而 Matrix localpart 允许 `_` ⇒ "只在 `_` 位置差一个字符的别人的 user_id"被判成提到自己。
+#   ⚠️ 该修复只改 **SQL 文本**（两处仍是动态 `query_as`）⇒ 本批**不动**生产动态数（仍 172），
+#   转宏在 C56。
+#   覆盖：新增 2 条真基线 DB 用例（highlight 分支此前**零覆盖**；`copy_room_state` 此前只有
+#   路由级间接覆盖）。新增 5 处**测试区**动态 SQL（1 条 `read_markers` 夹具 + 1 个状态事件夹具
+#   helper + 3 条直接读 `room_state_events` 的断言 —— 该表没有 storage 读方法，见 D-100）
+#   ⇒ `BASELINE_DYNAMIC_TEST_INFRA` 735 → **740**。这是**本批自身**新增夹具，不是跨批放宽
+#   （§8.5 不变式 1 允许同批调整并写明理由；先例：C46-0 的 726 → 733、D-79 的 718 → 723、
+#   C52-0 的 732 → 733）。
+# ── 2026-09-29 C56（`event/{unread,txn_dedup,signature}.rs` 共 9 处宏化，三个文件生产区动态归零）──
+#   · `unread.rs`：`copy_room_state` 的 `INSERT … SELECT … ON CONFLICT` ⇒ `query!`；
+#     `get_unread_counts` ⇒ `query_as!`（`$1 AS "room_id!"` + 两个 `COALESCE(COUNT(...), 0)`
+#     按 R4 ① 断言 —— `$1` 是 `&str` 参数、计数是恒非空表达式）；`get_unread_counts_batch`
+#     同理（`tr.room_id` 来自 `UNNEST($2::text[])`，集合返回函数 ⇒ 同属"无关系来源"）。
+#   · `txn_dedup.rs`：`get_event_id_by_txn` 的**单列元组投影** ⇒ `query_scalar!`（R6 ⑤ 禁止
+#     元组；`event_id` 是 `TEXT NOT NULL` ⇒ `fetch_optional` 直接给 `Option<String>`，
+#     原先的 `row.map(|(event_id,)| event_id)` 一并消失）；`record_event_txn` ⇒ `query!`
+#     （`current_timestamp_millis()` 作为**绑定实参**是允许的 —— R1 约束的是 SQL 文本）；
+#     `mark_event_soft_failed` ⇒ `query!`。
+#   · `signature.rs`：`update_event_signatures_and_hashes` / `save_event_signature` ⇒ `query!`
+#     （后者把 `uuid::Uuid::new_v4()` 作绑定实参）；`get_event_signatures` ⇒ `query_as!`
+#     （7 列与 `EventSignature` 7 字段一一对应；`created_ts` 列 NOT NULL 而字段是 `Option`
+#     —— R4 明确该方向不报错，保持字段不动）。
+#   实测：`dynamic_production` 172 → **163**（−9）、`static` 1305 → **1314**（+9）、
+#   `dynamic` 总数 907 → **903**、`dynamic_test` 740 不变、`.sqlx` 1273 → **1282**（+9，无碰撞）、
+#   literal 101/29 → **92/26**。恒等式 `163 − 92 − 1 = 70` 成立。
+#   验证：`-p synapse-storage --lib --features test-utils -E 'test(/unread|copy_room_state|txn_dedup|event_signatures|signature/)'`
+#   （见 §8.3 第 45 条）。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=172
-BASELINE_DYNAMIC_TEST_INFRA=735
-BASELINE_STATIC=1305
+BASELINE_DYNAMIC_PRODUCTION=163
+BASELINE_DYNAMIC_TEST_INFRA=740
+BASELINE_STATIC=1314
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 
