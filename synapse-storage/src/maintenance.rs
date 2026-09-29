@@ -126,12 +126,12 @@ impl DatabaseMaintenance {
         for index in indexes {
             let _start = Instant::now();
 
-            match sqlx::query_scalar::<_, String>(
-                r"
-                SELECT indexname FROM pg_indexes WHERE indexname = $1
-                ",
+            // R4 ①：`pg_indexes` 是系统视图，PG 不把底层 `pg_class.relname` 的非空性透传到
+            // 视图列（C58 在 `schema_validator.rs` 实测过同一条）⇒ 断言 `AS "indexname!"`。
+            match sqlx::query_scalar!(
+                r#"SELECT indexname AS "indexname!" FROM pg_indexes WHERE indexname = $1"#,
+                index,
             )
-            .bind(index)
             .fetch_optional(&self.pool)
             .await
             {
@@ -156,27 +156,31 @@ impl DatabaseMaintenance {
     async fn analyze_table_stats(&self) -> Result<Vec<TableStats>, sqlx::Error> {
         let mut stats = Vec::new();
 
-        let tables = sqlx::query_as::<_, (String, i64, i64, i64)>(
-            r"
+        // R6 ⑤：元组投影不能进 `query_as!` ⇒ `query!` + 按字段读。
+        // R4 ①：`relname` 与三个 `COALESCE(...)` 都没有"关系来源"（系统视图列 + 常量回退）
+        // ⇒ 逐个断言；谁保证非空：`relname` 的来源是 `pg_class.relname`（catalog NOT NULL 列），
+        // 三个聚合在空集上落到字面量 0。
+        let tables = sqlx::query!(
+            r#"
             SELECT
-                relname as table_name,
-                COALESCE(n_live_tup, 0) as live_tuples,
-                COALESCE(n_dead_tup, 0) as dead_tuples,
-                COALESCE(n_mod_since_analyze, 0) as modifications
+                relname as "table_name!",
+                COALESCE(n_live_tup, 0)::BIGINT as "live_tuples!",
+                COALESCE(n_dead_tup, 0)::BIGINT as "dead_tuples!",
+                COALESCE(n_mod_since_analyze, 0)::BIGINT as "modifications!"
             FROM pg_stat_user_tables
             ORDER BY n_mod_since_analyze DESC
             LIMIT 20
-            ",
+            "#,
         )
         .fetch_all(&self.pool)
         .await?;
 
         for table in tables {
             stats.push(TableStats {
-                table_name: table.0,
-                live_tuples: table.1,
-                dead_tuples: table.2,
-                modifications: table.3,
+                table_name: table.table_name,
+                live_tuples: table.live_tuples,
+                dead_tuples: table.dead_tuples,
+                modifications: table.modifications,
             });
         }
 

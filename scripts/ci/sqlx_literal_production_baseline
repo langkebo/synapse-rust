@@ -284,6 +284,10 @@
 #   `maintenance.rs` 的 `vacuum_analyze` 那条随 D-104 的吞错修复改写成 `query_scalar!`
 #   （吞错不能只换绑定链：`COALESCE` 列要按 R4 ① 断言，宏化是同一编辑点的自然结果）⇒ 该行 3 → 2。
 #   恒等式不变（仍 `122 − 51 − 1 = 70`；本批同时把 D-105 登记为结构性例外，见 §7.3）。
+# ── 2026-09-29 C61（本表退两行、下调一行：2 + 2 + 1 处；16 → 14 文件）─────────────
+#   `maintenance.rs`（`reindex_tables` + `analyze_table_stats`）与 `oauth_client_storage.rs`
+#   （`register_client` + `get_client`）归零退表；`migration_checks.rs` 2 → **1**（剩下那处是
+#   `_sqlx_migrations` 查询 ⇒ R7/D-105 结构性例外，不许转）。恒等式同步为 `116 − 45 − 1 = 70`。
 src/server/database.rs	1
 src/server/mod.rs	2
 synapse-common/src/health.rs	1
@@ -291,10 +295,8 @@ synapse-common/src/test_isolation.rs	9
 synapse-common/src/test_schema_guard.rs	2
 synapse-common/src/transaction.rs	3
 synapse-storage/src/event/pagination.rs	6
-synapse-storage/src/maintenance.rs	2
-synapse-storage/src/migration_checks.rs	2
+synapse-storage/src/migration_checks.rs	1
 synapse-storage/src/monitoring.rs	1
-synapse-storage/src/oauth_client_storage.rs	2
 synapse-storage/src/presence/mod.rs	1
 synapse-storage/src/room/models.rs	1
 synapse-storage/src/room_summary/repository.rs	2
@@ -302,7 +304,7 @@ synapse-storage/src/user/storage.rs	1
 synapse-test-utils/src/lib.rs	14
 # ── 当前「运行期拼装」残差清单（**允许**，不入棘轮；仅作可读性摘要）────────────
 # 合计 **70 处 / 13 文件**（运行期拼装部分自 C44 起未变；与 ratio 棘轮的
-# `dynamic_production − literal − param` = 122 − 51 − 1 = 70 一致）：
+# `dynamic_production − literal − param` = 116 − 45 − 1 = 70 一致）：
 #    16  synapse-common/src/test_isolation.rs
 #    14  synapse-test-utils/src/lib.rs
 #     9  synapse-storage/src/event/pagination.rs

@@ -3051,10 +3051,24 @@
 #   `count_public_tables` 的 `COUNT(*)` 仍可转换（留在 C61）。
 #   实测：`dynamic_production` 122 → **121**、`static` 1346 → **1347**、测试区 751 → **752**、
 #   `.sqlx` 1313 → **1314**、literal `maintenance.rs` 3 → 2（该文件合计 51 → 50）。
+# ── 2026-09-29 C61（`maintenance.rs` 2 处 + `oauth_client_storage.rs` 2 处 +
+#    `migration_checks.rs` 1 处宏化）──────────────────────────────────────────────────────
+#   · `maintenance.rs`：`reindex_tables` 的索引存在性查询 ⇒ `query_scalar!` + `AS "indexname!"`
+#     （R4 ①：系统视图不透传 `pg_class.relname` 的非空性 —— C58 在 `schema_validator.rs` 实测过）；
+#     `analyze_table_stats` 的 4 元组 ⇒ `query!` + 字段读（R6 ⑤），四列全按 R4 ① 断言
+#     （`relname` 与三个 `COALESCE(...)::BIGINT`）。该文件剩 2 处 `format!("VACUUM ANALYZE {table}")`
+#     / `format!("REINDEX INDEX {index}")` —— **D-14 动态标识符**，结构性保留。
+#   · `oauth_client_storage.rs`：`register_client` ⇒ `query!`；`get_client` ⇒
+#     `query_as!(OAuthClient, …)`（9 列与结构体字段一一对应）。
+#   · `migration_checks.rs`：`count_public_tables` 的 `COUNT(*)` ⇒ `query_scalar!` + `AS "count!"`；
+#     另一处（`SELECT version FROM _sqlx_migrations`）**按 D-105 保持动态**。
+#   实测：`dynamic_production` 121 → **116**（−5）、`static` 1347 → **1352**（+5）、
+#   `dynamic` 总数 873 → **868**、测试区 752 不变、`.sqlx` 1314 → **1319**（+5，无碰撞）、
+#   literal 50/16 → **45/14**。恒等式 `116 − 45 − 1 = 70` 成立。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=121
+BASELINE_DYNAMIC_PRODUCTION=116
 BASELINE_DYNAMIC_TEST_INFRA=752
-BASELINE_STATIC=1347
+BASELINE_STATIC=1352
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 
