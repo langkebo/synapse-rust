@@ -43,9 +43,13 @@ impl EventStorage {
     /// Without this fallback, `last_read_ts` would collapse to 0 and every
     /// remaining event in the room — including already-read local events that
     /// survived `purge_history` — would be counted as unread (count bloat).
+    ///
+    /// D-98: the highlight branch matches the reader's user id **literally** via
+    /// `strpos(...) > 0`. It used to build a `LIKE '%<user_id>%'` pattern, but `_`
+    /// and `%` are `LIKE` metacharacters and Matrix localparts may contain `_` ⇒ a
+    /// *different* user id differing only at an underscore position was counted as
+    /// a mention of the reader (`%` would widen the pattern to "match anything").
     pub async fn get_unread_counts(&self, room_id: &str, user_id: &str) -> Result<RoomUnreadCounts, sqlx::Error> {
-        let mention_pattern = format!("%{user_id}%");
-
         sqlx::query_as::<_, RoomUnreadCounts>(
             r"
             WITH last_read AS (
@@ -66,8 +70,8 @@ impl EventStorage {
                       AND ev.state_key IS NULL
                       AND ev.origin_server_ts > lr.last_read_ts
                       AND (
-                        ev.content::text LIKE $3
-                        OR ev.content::text LIKE '%@room%'
+                        strpos(ev.content::text, $2) > 0
+                        OR strpos(ev.content::text, '@room') > 0
                       )
                 ), 0) AS highlight_count
             FROM last_read lr
@@ -82,7 +86,6 @@ impl EventStorage {
         )
         .bind(room_id)
         .bind(user_id)
-        .bind(mention_pattern)
         .fetch_one(&*self.pool)
         .await
     }
@@ -91,6 +94,8 @@ impl EventStorage {
     ///
     /// P1-7: like the single-room variant, `last_read_ts` falls back to
     /// `read_markers.origin_server_ts` when the referenced event is purged.
+    /// D-98: the highlight branch matches the user id literally (`strpos`), not
+    /// through a `LIKE` pattern — see [`Self::get_unread_counts`].
     pub async fn get_unread_counts_batch(
         &self,
         room_ids: &[String],
@@ -100,7 +105,6 @@ impl EventStorage {
             return Ok(Vec::new());
         }
 
-        let mention_pattern = format!("%{user_id}%");
         sqlx::query_as::<_, RoomUnreadCounts>(
             r"
             WITH target_rooms AS (
@@ -129,8 +133,8 @@ impl EventStorage {
                       AND ev.state_key IS NULL
                       AND ev.origin_server_ts > lr.last_read_ts
                       AND (
-                        ev.content::text LIKE $3
-                        OR ev.content::text LIKE '%@room%'
+                        strpos(ev.content::text, $1) > 0
+                        OR strpos(ev.content::text, '@room') > 0
                       )
                 ), 0) AS highlight_count
             FROM target_rooms tr
@@ -147,7 +151,6 @@ impl EventStorage {
         )
         .bind(user_id)
         .bind(room_ids)
-        .bind(mention_pattern)
         .fetch_all(&*self.pool)
         .await
     }
