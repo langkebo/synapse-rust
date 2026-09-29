@@ -43,28 +43,31 @@ impl AccountDataStorage {
 #[async_trait::async_trait]
 impl AccountDataStoreApi for AccountDataStorage {
     async fn get_account_data_content(&self, user_id: &str, data_type: &str) -> Result<Option<Value>, ApiError> {
-        sqlx::query_scalar::<_, Value>("SELECT content FROM account_data WHERE user_id = $1 AND data_type = $2")
-            .bind(user_id)
-            .bind(data_type)
-            .fetch_optional(&*self.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Database error", e))
+        // `content` 是 `JSONB NOT NULL` ⇒ 宏推断非空，`fetch_optional` 正好给 `Option<Value>`
+        // （R4：列非空、语义"没有该行"由 `fetch_optional` 表达，不需要 `AS "content!"` 断言）。
+        sqlx::query_scalar!(
+            "SELECT content FROM account_data WHERE user_id = $1 AND data_type = $2",
+            user_id,
+            data_type
+        )
+        .fetch_optional(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Database error", e))
     }
 
     async fn list_account_data(&self, user_id: &str) -> Result<Vec<AccountDataRecord>, ApiError> {
-        sqlx::query_as::<_, AccountDataRecord>(
+        sqlx::query_as!(
+            AccountDataRecord,
             "SELECT data_type, content FROM account_data WHERE user_id = $1 ORDER BY data_type ASC",
+            user_id
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Database error", e))
     }
 
     async fn delete_account_data(&self, user_id: &str, data_type: &str) -> Result<bool, ApiError> {
-        let result = sqlx::query("DELETE FROM account_data WHERE user_id = $1 AND data_type = $2")
-            .bind(user_id)
-            .bind(data_type)
+        let result = sqlx::query!("DELETE FROM account_data WHERE user_id = $1 AND data_type = $2", user_id, data_type)
             .execute(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to delete account data", e))?;
@@ -73,18 +76,18 @@ impl AccountDataStoreApi for AccountDataStorage {
 
     async fn upsert_account_data(&self, user_id: &str, data_type: &str, content: Value) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             INSERT INTO account_data (user_id, data_type, content, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $4)
             ON CONFLICT (user_id, data_type) DO UPDATE
             SET content = EXCLUDED.content, updated_ts = EXCLUDED.updated_ts
-            ",
+            "#,
+            user_id,
+            data_type,
+            content,
+            now
         )
-        .bind(user_id)
-        .bind(data_type)
-        .bind(content)
-        .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to upsert account data", e))?;

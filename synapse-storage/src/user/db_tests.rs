@@ -705,52 +705,6 @@ async fn test_upgrade_guest_account() {
 }
 
 #[tokio::test]
-async fn test_upsert_and_get_account_data_content() {
-    let (_iso, pool) = test_pool().await;
-    let cache = test_cache();
-    let storage = UserStorage::new(&pool, cache);
-    let user_id = format!("@acctup_{}:example.com", uuid::Uuid::new_v4());
-    let data_type = format!("m.up_{}", uuid::Uuid::new_v4().simple());
-    let _ = storage.delete_user(&user_id).await;
-    storage.create_user(&user_id, "acctupuser", None, false).await.unwrap();
-
-    // Initially absent.
-    let absent = storage
-        .get_account_data_content(&user_id, &data_type)
-        .await
-        .expect("get_account_data_content absent should succeed");
-    assert!(absent.is_none());
-
-    // Upsert (insert).
-    storage
-        .upsert_account_data_content(&user_id, &data_type, &serde_json::json!({"v": 1}))
-        .await
-        .expect("upsert insert should succeed");
-    let got = storage
-        .get_account_data_content(&user_id, &data_type)
-        .await
-        .expect("get_account_data_content after insert should succeed")
-        .expect("account data should exist");
-    assert_eq!(got["v"], 1);
-
-    // Upsert (update).
-    storage
-        .upsert_account_data_content(&user_id, &data_type, &serde_json::json!({"v": 2}))
-        .await
-        .expect("upsert update should succeed");
-    let got2 = storage
-        .get_account_data_content(&user_id, &data_type)
-        .await
-        .expect("get_account_data_content after update should succeed")
-        .expect("account data should exist after update");
-    assert_eq!(got2["v"], 2);
-
-    let _ = storage.delete_user(&user_id).await;
-}
-
-// ── search ────────────────────────────────────────────────────
-
-#[tokio::test]
 async fn test_search_users_empty_query() {
     let (_iso, pool) = test_pool().await;
     let cache = test_cache();

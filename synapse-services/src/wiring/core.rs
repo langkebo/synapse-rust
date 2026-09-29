@@ -92,7 +92,6 @@ impl CoreServices {
         token_auth: &Arc<dyn TokenAuth>,
         credential_auth: &Arc<dyn CredentialAuth>,
         room_auth: &Arc<dyn RoomAuth>,
-        user_storage: &Arc<dyn UserStore>,
         user_service: Arc<UserService>,
         server_metrics: &Arc<ServerMetrics>,
         event_broadcaster: Arc<EventBroadcaster>,
@@ -148,7 +147,6 @@ impl CoreServices {
         let account_data_service = Arc::new(crate::account_data_service::AccountDataService::new(
             infra.cache.clone(),
             account_data_storage.clone(),
-            user_storage.clone(),
             room_account_data_storage,
             Arc::new(FilterStorage::new(&infra.pool)),
             Arc::new(OpenIdTokenStorage::new(&infra.pool)),

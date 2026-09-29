@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO account_data (user_id, data_type, content, created_ts, updated_ts)\n            VALUES ($1, $2, $3, $4, $4)\n            ON CONFLICT (user_id, data_type) DO UPDATE\n            SET content = EXCLUDED.content, updated_ts = EXCLUDED.updated_ts\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Jsonb",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d4bda32b8f6c035eba055765e4d7b970ca85141c046bd18a482cb6b19829ea24"
+}

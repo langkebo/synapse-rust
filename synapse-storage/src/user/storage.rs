@@ -254,23 +254,6 @@ pub trait UserStore: Send + Sync {
 
     /// See [`get_users_map`].
     async fn get_users_map(&self, user_ids: &[String]) -> Result<HashMap<String, User>, sqlx::Error>;
-
-    // ---- account_data methods ----
-
-    /// See [`get_account_data_content`].
-    async fn get_account_data_content(
-        &self,
-        user_id: &str,
-        data_type: &str,
-    ) -> Result<Option<serde_json::Value>, sqlx::Error>;
-
-    /// See [`upsert_account_data_content`].
-    async fn upsert_account_data_content(
-        &self,
-        user_id: &str,
-        data_type: &str,
-        content: &serde_json::Value,
-    ) -> Result<(), sqlx::Error>;
 }
 
 #[derive(Clone)]
@@ -951,47 +934,6 @@ impl UserStorage {
                 .execute(&*self.pool)
                 .await?;
         Ok(result.rows_affected() > 0)
-    }
-
-    /// See [`get_account_data_content`].
-    pub async fn get_account_data_content(
-        &self,
-        user_id: &str,
-        data_type: &str,
-    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
-        let content = sqlx::query_scalar!(
-            r"SELECT content FROM account_data WHERE user_id = $1 AND data_type = $2",
-            user_id,
-            data_type
-        )
-        .fetch_optional(&*self.pool)
-        .await?;
-
-        Ok(content)
-    }
-
-    /// See [`upsert_account_data_content`].
-    pub async fn upsert_account_data_content(
-        &self,
-        user_id: &str,
-        data_type: &str,
-        content: &serde_json::Value,
-    ) -> Result<(), sqlx::Error> {
-        let now = current_timestamp_millis();
-        sqlx::query!(
-            r#"
-            INSERT INTO account_data (user_id, data_type, content, created_ts, updated_ts)
-            VALUES ($1, $2, $3, $4, $4)
-            ON CONFLICT (user_id, data_type) DO UPDATE SET content = EXCLUDED.content, updated_ts = EXCLUDED.updated_ts
-            "#,
-            user_id,
-            data_type,
-            content,
-            now
-        )
-        .execute(&*self.pool)
-        .await?;
-        Ok(())
     }
 
     /// See [`search_users`].
@@ -1893,24 +1835,5 @@ impl UserStore for UserStorage {
 
     async fn get_users_map(&self, user_ids: &[String]) -> Result<HashMap<String, User>, sqlx::Error> {
         self.get_users_map(user_ids).await
-    }
-
-    // ---- account_data methods ----
-
-    async fn get_account_data_content(
-        &self,
-        user_id: &str,
-        data_type: &str,
-    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
-        self.get_account_data_content(user_id, data_type).await
-    }
-
-    async fn upsert_account_data_content(
-        &self,
-        user_id: &str,
-        data_type: &str,
-        content: &serde_json::Value,
-    ) -> Result<(), sqlx::Error> {
-        self.upsert_account_data_content(user_id, data_type, content).await
     }
 }
