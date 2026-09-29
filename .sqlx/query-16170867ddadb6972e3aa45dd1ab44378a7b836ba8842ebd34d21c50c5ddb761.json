@@ -1,0 +1,67 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT mm.media_id, mm.content_type, mm.file_name, mm.size, mm.uploader_user_id, mm.created_ts, mm.last_accessed_at, mm.quarantine_status FROM room_events re INNER JOIN media_metadata mm ON mm.media_id = SPLIT_PART(SUBSTRING(re.content->>'url' FROM 7), '/', 2) WHERE re.room_id = $1 AND re.content->>'url' LIKE 'mxc://%%' AND mm.content_type IS NOT NULL AND (($2::BIGINT IS NULL AND $3::TEXT IS NULL) OR mm.created_ts < $2 OR (mm.created_ts = $2 AND mm.media_id < $3)) ORDER BY mm.created_ts DESC, mm.media_id DESC LIMIT $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "media_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "content_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "file_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "size",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "uploader_user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "last_accessed_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "quarantine_status",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "16170867ddadb6972e3aa45dd1ab44378a7b836ba8842ebd34d21c50c5ddb761"
+}

@@ -3019,10 +3019,27 @@
 #   新增 2 处测试区动态 SQL（`insert_media_row` + `status_of` 两个夹具/断言 helper）
 #   ⇒ `BASELINE_DYNAMIC_TEST_INFRA` 749 → **751**（本批自身新增，非跨批放宽）。
 #   生产区三个数字不变（137 / 1331 / literal 66·17）；15 处宏化留在 C60。
+# ── 2026-09-29 C60（`admin_media.rs` 15 处宏化，该文件生产区动态归零）──────────────────────
+#   · `upsert_media_metadata` ⇒ `query!`（`content_hash`/`quarantine_status` 是 `Option<&str>`
+#     按值绑到可空列 —— 不是 R5 拒绝的 `&Option<T>`）；
+#   · `get_all_media` / `get_media_info` / `get_user_media` / `get_room_media` ⇒
+#     `query_as!(AdminMediaRow, …)`（8 列与 8 字段一一对应；`get_user_media` 的两个
+#     `NULL::BIGINT`/`NULL::TEXT` 常量列与 `Option` 字段一致）；
+#   · `get_media_quota` 的两处聚合 ⇒ `query_scalar!` + `AS "total_size!"/"total_count!"`
+#     （R4 ①：`COALESCE(SUM(...), 0)` / `COUNT(*)` 无关系来源，聚合在空集上恒非空）；
+#   · `delete_room_media` 的 `COUNT(*)` ⇒ `query_scalar!` + `AS "count!"`；
+#   · 其余 6 处 DELETE/UPDATE ⇒ `query!`。
+#   ⚠️ **D-74 同型陷阱实测一次**：`delete_media_by_policy` 的裸 `$n = 0` 让 PG 把两个参数定型成
+#   **int4**，宏随即报 `expected i32, found i64`（动态路径靠 sqlx 显式发 INT8 才没暴露）⇒
+#   显式写 `0::BIGINT`，公共 API 与"0 = 不设限"的语义都不动。
+#   实测：`dynamic_production` 137 → **122**（−15）、`static` 1331 → **1346**（+15）、
+#   `dynamic` 总数 886 → **873**、测试区 751 不变、`.sqlx` 1299 → **1313**（+14：两个相同的
+#   `DELETE FROM media_metadata WHERE media_id = $1` 共用一个条目）、literal 66/17 → **51/16**。
+#   恒等式 `122 − 51 − 1 = 70` 成立。
 BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=137
+BASELINE_DYNAMIC_PRODUCTION=122
 BASELINE_DYNAMIC_TEST_INFRA=751
-BASELINE_STATIC=1331
+BASELINE_STATIC=1346
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=960
 

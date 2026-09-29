@@ -179,7 +179,9 @@ impl AdminMediaStorage {
         content_hash: Option<&str>,
         quarantine_status: Option<&str>,
     ) -> Result<(), ApiError> {
-        sqlx::query(
+        // R5：`content_hash` / `quarantine_status` 是 `Option<&str>`（**按值**绑到可空列），
+        // 不是宏拒绝的 `&Option<T>`。
+        sqlx::query!(
             r#"
             INSERT INTO media_metadata
                 (media_id, server_name, content_type, file_name, size, uploader_user_id, created_ts,
@@ -192,16 +194,16 @@ impl AdminMediaStorage {
                 content_hash = COALESCE(EXCLUDED.content_hash, media_metadata.content_hash),
                 quarantine_status = COALESCE(EXCLUDED.quarantine_status, media_metadata.quarantine_status)
             "#,
+            media_id,
+            server_name,
+            content_type,
+            file_name,
+            size,
+            uploader_user_id,
+            created_ts,
+            content_hash,
+            quarantine_status,
         )
-        .bind(media_id)
-        .bind(server_name)
-        .bind(content_type)
-        .bind(file_name)
-        .bind(size)
-        .bind(uploader_user_id)
-        .bind(created_ts)
-        .bind(content_hash)
-        .bind(quarantine_status)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
@@ -256,7 +258,10 @@ impl AdminMediaStorage {
 
     /// See [`get_all_media`].
     pub async fn get_all_media(&self, limit: i64, cursor: Option<MediaCursor>) -> Result<AdminMediaPage, ApiError> {
-        let media: Vec<AdminMediaRow> = sqlx::query_as::<_, AdminMediaRow>(
+        // 8 列与 `AdminMediaRow` 8 字段一一对应（可空列 ⇒ `Option` 字段，R4 一致）；
+        // 游标两参是 `Option<i64>` / `Option<&str>`，按值绑定。
+        let media: Vec<AdminMediaRow> = sqlx::query_as!(
+            AdminMediaRow,
             r#"SELECT media_id, content_type, file_name, size, uploader_user_id, created_ts, last_accessed_at, quarantine_status
                FROM media_metadata
                WHERE ($1::BIGINT IS NULL AND $2::TEXT IS NULL)
@@ -264,10 +269,10 @@ impl AdminMediaStorage {
                   OR (created_ts = $1 AND media_id < $2)
                ORDER BY created_ts DESC, media_id DESC
                LIMIT $3"#,
+            cursor.as_ref().map(|cursor| cursor.created_ts),
+            cursor.as_ref().map(|cursor| cursor.media_id.as_str()),
+            limit,
         )
-        .bind(cursor.as_ref().map(|cursor| cursor.created_ts))
-        .bind(cursor.as_ref().map(|cursor| cursor.media_id.as_str()))
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
@@ -285,11 +290,12 @@ impl AdminMediaStorage {
 
     /// See [`get_media_info`].
     pub async fn get_media_info(&self, media_id: &str) -> Result<Option<AdminMediaInfo>, ApiError> {
-        let media: Option<AdminMediaRow> = sqlx::query_as::<_, AdminMediaRow>(
+        let media: Option<AdminMediaRow> = sqlx::query_as!(
+            AdminMediaRow,
             r#"SELECT media_id, content_type, file_name, size, uploader_user_id, created_ts, last_accessed_at, quarantine_status
                FROM media_metadata WHERE media_id = $1"#,
+            media_id,
         )
-        .bind(media_id)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
@@ -299,8 +305,7 @@ impl AdminMediaStorage {
 
     /// See [`delete_media`].
     pub async fn delete_media(&self, media_id: &str) -> Result<bool, ApiError> {
-        let result = sqlx::query("DELETE FROM media_metadata WHERE media_id = $1")
-            .bind(media_id)
+        let result = sqlx::query!("DELETE FROM media_metadata WHERE media_id = $1", media_id)
             .execute(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
@@ -310,11 +315,14 @@ impl AdminMediaStorage {
 
     /// See [`get_media_quota`].
     pub async fn get_media_quota(&self) -> Result<AdminMediaQuotaSummary, ApiError> {
-        let total_size = sqlx::query_scalar::<_, i64>("SELECT COALESCE(SUM(size), 0)::BIGINT FROM media_metadata")
-            .fetch_one(&*self.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
-        let total_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*)::BIGINT FROM media_metadata")
+        // R4 ①：`COALESCE(SUM(...), 0)` 没有关系来源 ⇒ sqlx 推成可空；谁保证非空：聚合在空集上
+        // 落到字面量 0。
+        let total_size =
+            sqlx::query_scalar!(r#"SELECT COALESCE(SUM(size), 0)::BIGINT AS "total_size!" FROM media_metadata"#)
+                .fetch_one(&*self.pool)
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
+        let total_count = sqlx::query_scalar!(r#"SELECT COUNT(*)::BIGINT AS "total_count!" FROM media_metadata"#)
             .fetch_one(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
@@ -324,12 +332,15 @@ impl AdminMediaStorage {
 
     /// See [`get_user_media`].
     pub async fn get_user_media(&self, user_id: &str) -> Result<Vec<AdminMediaInfo>, ApiError> {
-        let media: Vec<AdminMediaRow> = sqlx::query_as::<_, AdminMediaRow>(
+        // 后两列是 `NULL::BIGINT` / `NULL::TEXT` 常量（R4 ①：无关系来源 ⇒ 可空），
+        // 与 `AdminMediaRow` 的 `Option` 字段一致。
+        let media: Vec<AdminMediaRow> = sqlx::query_as!(
+            AdminMediaRow,
             r#"SELECT media_id, content_type, file_name, size, uploader_user_id, created_ts,
                NULL::BIGINT AS last_accessed_at, NULL::TEXT AS quarantine_status
                FROM media_metadata WHERE uploader_user_id = $1 ORDER BY created_ts DESC, media_id DESC"#,
+            user_id,
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
@@ -339,8 +350,7 @@ impl AdminMediaStorage {
 
     /// See [`delete_user_media`].
     pub async fn delete_user_media(&self, user_id: &str) -> Result<u64, ApiError> {
-        let result = sqlx::query("DELETE FROM media_metadata WHERE uploader_user_id = $1")
-            .bind(user_id)
+        let result = sqlx::query!("DELETE FROM media_metadata WHERE uploader_user_id = $1", user_id)
             .execute(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
@@ -362,13 +372,14 @@ impl AdminMediaStorage {
         // mxc:// URL format: `mxc://server_name/media_id`
         // SUBSTRING(url FROM 7) strips the `mxc://` prefix (6 chars), yielding
         // `server_name/media_id`. SPLIT_PART(..., '/', 2) extracts `media_id`.
-        let media: Vec<AdminMediaRow> = sqlx::query_as::<_, AdminMediaRow>(
+        let media: Vec<AdminMediaRow> = sqlx::query_as!(
+            AdminMediaRow,
             "SELECT DISTINCT mm.media_id, mm.content_type, mm.file_name, mm.size, mm.uploader_user_id, mm.created_ts, mm.last_accessed_at, mm.quarantine_status FROM room_events re INNER JOIN media_metadata mm ON mm.media_id = SPLIT_PART(SUBSTRING(re.content->>'url' FROM 7), '/', 2) WHERE re.room_id = $1 AND re.content->>'url' LIKE 'mxc://%%' AND mm.content_type IS NOT NULL AND (($2::BIGINT IS NULL AND $3::TEXT IS NULL) OR mm.created_ts < $2 OR (mm.created_ts = $2 AND mm.media_id < $3)) ORDER BY mm.created_ts DESC, mm.media_id DESC LIMIT $4",
+            room_id,
+            cursor.as_ref().map(|cursor| cursor.created_ts),
+            cursor.as_ref().map(|cursor| cursor.media_id.as_str()),
+            limit,
         )
-        .bind(room_id)
-        .bind(cursor.as_ref().map(|cursor| cursor.created_ts))
-        .bind(cursor.as_ref().map(|cursor| cursor.media_id.as_str()))
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
@@ -390,11 +401,12 @@ impl AdminMediaStorage {
         // mxc:// URL format: `mxc://server_name/media_id`
         // Strip the 6-char `mxc://` prefix (FROM 7 in 1-indexed SUBSTRING), then
         // SPLIT_PART on '/' to extract the media_id portion for comparison.
-        let in_room: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM room_events WHERE room_id = $1 AND content->>'url' LIKE 'mxc://%%' AND SPLIT_PART(SUBSTRING(content->>'url' FROM 7), '/', 2) = $2",
+        // R4 ①：`COUNT(*)` 无关系来源 ⇒ 断言（计数恒非空）。
+        let in_room: i64 = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "count!" FROM room_events WHERE room_id = $1 AND content->>'url' LIKE 'mxc://%%' AND SPLIT_PART(SUBSTRING(content->>'url' FROM 7), '/', 2) = $2"#,
+            room_id,
+            media_id,
         )
-        .bind(room_id)
-        .bind(media_id)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
@@ -406,8 +418,7 @@ impl AdminMediaStorage {
         // Delete the media record (metadata + thumbnails cascade via FK).
         // If the media is shared by other rooms, the media_metadata row remains;
         // the room_events reference is what ties it to this room.
-        let result = sqlx::query("DELETE FROM media_metadata WHERE media_id = $1")
-            .bind(media_id)
+        let result = sqlx::query!("DELETE FROM media_metadata WHERE media_id = $1", media_id)
             .execute(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
@@ -426,15 +437,15 @@ impl AdminMediaStorage {
     ///
     /// Only affects local uploads (server_name = this server), never remote media.
     pub async fn quarantine_user_media(&self, user_id: &str) -> Result<i64, ApiError> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r#"
             UPDATE media_metadata
             SET quarantine_status = 'quarantined'
             WHERE uploader_user_id = $1
               AND (quarantine_status IS NULL OR quarantine_status NOT IN ('quarantined', 'protected'))
             "#,
+            user_id,
         )
-        .bind(user_id)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
@@ -448,18 +459,21 @@ impl AdminMediaStorage {
     /// Both parameters are optional; a value of `0` means "no limit on that dimension".
     /// Protected and quarantined rows are skipped.
     pub async fn delete_media_by_policy(&self, before_ts: i64, max_size: i64) -> Result<u64, ApiError> {
-        let result = sqlx::query(
+        // ⚠️ **D-74 同型陷阱**：裸 `$n = 0` 会让 PG 把参数定型成 **int4**，于是宏要求 `i32`，
+        // 而公共 API 传的是 `i64`（动态路径靠 sqlx 显式发送 INT8 才没暴露）⇒ 显式 `0::BIGINT`
+        // 保持 `i64` 形状与"0 = 不设限"的语义（实测量处 E0308：`expected i32, found i64`）。
+        let result = sqlx::query!(
             r#"
             DELETE FROM media_metadata
             WHERE (quarantine_status IS NULL OR quarantine_status NOT IN ('quarantined', 'protected'))
               AND (
-                    $1 = 0 OR created_ts < $1
-                    OR $2 = 0 OR size > $2
+                    $1 = 0::BIGINT OR created_ts < $1
+                    OR $2 = 0::BIGINT OR size > $2
                   )
             "#,
+            before_ts,
+            max_size,
         )
-        .bind(before_ts)
-        .bind(max_size)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
@@ -475,13 +489,13 @@ impl AdminMediaStorage {
     /// policy (the remote-cache table does not exist in this codebase).
     /// Returns the number of rows deleted.
     pub async fn purge_media_cache(&self, before_ts: i64) -> Result<u64, ApiError> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r#"
             DELETE FROM media_metadata
             WHERE (last_accessed_at IS NULL OR last_accessed_at < $1)
             "#,
+            before_ts,
         )
-        .bind(before_ts)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
@@ -499,15 +513,15 @@ impl AdminMediaStorage {
         // the storage layer only flips the status column.
         let _ = changed_by;
 
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r#"
             UPDATE media_metadata
             SET quarantine_status = NULL
             WHERE media_id = $1
               AND quarantine_status = 'protected'
             "#,
+            media_id,
         )
-        .bind(media_id)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
