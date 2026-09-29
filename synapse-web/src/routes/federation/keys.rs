@@ -439,9 +439,25 @@ async fn fetch_remote_server_keys_response(
     let ip_blacklist = if skip_ssrf { &[][..] } else { &ctx.config.url_preview.ip_range_blacklist };
 
     let scheme = if allow_http { "http" } else { "https" };
+    // WK-01: 与 FederationClient 保持一致的服务器解析（.well-known/matrix/server
+    // 委派 + 无显式端口时回退到 8448）。此前直接使用 `{scheme}://{server_name}`，
+    // 隐含默认 443，导致那些仅在 8448 提供联邦 API（无 443 委派）的对端密钥永远
+    // 抓取不到，notary 查询/入站签名校验会持续失败。解析失败时回退为原 server_name。
+    let authority = match ctx.federation_client.resolve_server(server_name).await {
+        Ok(resolved) if resolved.port == 443 => resolved.host,
+        Ok(resolved) => format!("{}:{}", resolved.host, resolved.port),
+        Err(e) => {
+            ::tracing::warn!(
+                server_name = %server_name,
+                error = %e,
+                "Failed to resolve federation server for key fetch; using server_name as-is"
+            );
+            server_name.to_string()
+        }
+    };
     let urls = [
-        format!("{scheme}://{server_name}/_matrix/key/v2/server"),
-        format!("{scheme}://{server_name}/_matrix/key/v2/query/{server_name}/{key_id}"),
+        format!("{scheme}://{authority}/_matrix/key/v2/server"),
+        format!("{scheme}://{authority}/_matrix/key/v2/query/{server_name}/{key_id}"),
     ];
 
     for url in &urls {
@@ -478,7 +494,28 @@ async fn fetch_remote_server_keys_response(
             Err(_) => continue,
         };
 
-        let Some(key) = extract_remote_verify_key(&body, server_name, key_id) else {
+        // `/_matrix/key/v2/server` returns a bare ServerKeys object, whereas
+        // `/_matrix/key/v2/query/{server}/{key_id}` wraps it as
+        // `{ "server_keys": [ ServerKeys ] }`. Normalize the wrapper away so the
+        // validation below (which expects a bare object) applies to both URLs.
+        let body = normalize_server_keys_body(body, server_name);
+
+        // `key_id == "*"` is the sentinel used by the key_id-less notary query
+        // (`GET /_matrix/key/v2/query/{serverName}`) to request *all* of the
+        // server's signing keys. There is no single key to look up in that case,
+        // so fall back to the first available verify key; the full `verify_keys`
+        // map is preserved in the cached response below.
+        let single_key = if key_id == "*" {
+            body.get("verify_keys")
+                .and_then(|v| v.as_object())
+                .and_then(|keys| keys.values().next())
+                .and_then(|entry| entry.get("key"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        } else {
+            extract_remote_verify_key(&body, server_name, key_id)
+        };
+        let Some(key) = single_key else {
             continue;
         };
 
@@ -498,10 +535,16 @@ async fn fetch_remote_server_keys_response(
                 .and_then(|v| v.as_str())
                 .unwrap_or(server_name),
             "valid_until_ts": valid_until_ts,
-            "verify_keys": {
-                key_id: {
-                    "key": key
-                }
+            "verify_keys": if key_id == "*" {
+                // Wildcard request: preserve every signing key the origin
+                // advertised so the caller receives the complete key set.
+                body.get("verify_keys").cloned().unwrap_or_else(|| json!({}))
+            } else {
+                json!({
+                    key_id: {
+                        "key": key
+                    }
+                })
             },
             "old_verify_keys": body
                 .get("old_verify_keys")
@@ -708,6 +751,24 @@ fn validate_server_key_response(body: &Value, server_name: &str) -> Option<i64> 
     Some(valid_until_ts)
 }
 
+/// Decode Matrix canonical (unpadded) Base64 tolerantly.
+///
+/// Matrix encodes signatures and public keys with the **standard** alphabet and
+/// **no** padding; Python's `signedjson` additionally tolerates non-zero trailing
+/// bits. The strict `STANDARD` engine requires canonical padding and rejects
+/// unpadded input, while `STANDARD_NO_PAD` rejects padded input — either choice
+/// breaks interoperability with some peers. Decode with
+/// `DecodePaddingMode::Indifferent` + `allow_trailing_bits` so both forms work.
+fn decode_matrix_base64(value: &str) -> Option<Vec<u8>> {
+    let engine = base64::engine::GeneralPurpose::new(
+        &base64::alphabet::STANDARD,
+        base64::engine::general_purpose::GeneralPurposeConfig::new()
+            .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent)
+            .with_decode_allow_trailing_bits(true),
+    );
+    engine.decode(value.trim()).ok()
+}
+
 /// Verify an Ed25519 self-signature on a server key response.
 ///
 /// Builds the canonical JSON of `body` with the `signatures` field removed,
@@ -735,9 +796,9 @@ fn verify_ed25519_signature(public_key_b64: &str, signature_b64: &str, server_na
         }
     };
 
-    let pub_key_bytes = match base64::engine::general_purpose::STANDARD_NO_PAD.decode(public_key_b64) {
-        Ok(bytes) => bytes,
-        Err(_) => return false,
+    let pub_key_bytes = match decode_matrix_base64(public_key_b64) {
+        Some(bytes) => bytes,
+        None => return false,
     };
     let pub_key_array: [u8; 32] = match pub_key_bytes.as_slice().try_into() {
         Ok(arr) => arr,
@@ -748,9 +809,9 @@ fn verify_ed25519_signature(public_key_b64: &str, signature_b64: &str, server_na
         Err(_) => return false,
     };
 
-    let sig_bytes = match base64::engine::general_purpose::STANDARD.decode(signature_b64) {
-        Ok(bytes) => bytes,
-        Err(_) => return false,
+    let sig_bytes = match decode_matrix_base64(signature_b64) {
+        Some(bytes) => bytes,
+        None => return false,
     };
     let signature = match ed25519_dalek::Signature::from_slice(&sig_bytes) {
         Ok(sig) => sig,
@@ -813,6 +874,24 @@ fn extract_remote_verify_key_from_object(body: &Value, key_id: &str) -> Option<S
     let verify_keys = body.get("verify_keys")?.as_object()?;
     let entry = verify_keys.get(key_id)?;
     entry.get("key")?.as_str().map(str::to_string)
+}
+
+/// Unwrap a notary `{ "server_keys": [ ... ] }` response into a bare ServerKeys
+/// object, preferring the entry whose `server_name` matches the requested one.
+/// Values that are already bare objects are returned unchanged.
+fn normalize_server_keys_body(body: Value, server_name: &str) -> Value {
+    let Some(entries) = body.get("server_keys").and_then(|v| v.as_array()) else {
+        return body;
+    };
+    let entry = entries
+        .iter()
+        .find(|entry| entry.get("server_name").and_then(|v| v.as_str()) == Some(server_name))
+        .or_else(|| entries.first())
+        .cloned();
+    match entry {
+        Some(entry) => entry,
+        None => body,
+    }
 }
 
 #[cfg(test)]
@@ -1179,5 +1258,38 @@ mod tests {
         }
         // The signature key_id doesn't match any verify_keys entry.
         assert!(validate_server_key_response(&body, "example.com").is_none());
+    }
+
+    /// Matrix signs with **unpadded** canonical Base64 (Python `signedjson`).
+    /// The verifier must accept it even though `STANDARD` requires padding.
+    #[test]
+    fn test_validate_accepts_unpadded_signature() {
+        let (key_id, pub_key_b64, signing_key) = gen_keypair();
+        let body = sign_response("example.com", &key_id, &pub_key_b64, &signing_key, future_ts());
+
+        // Re-encode the signature without padding, simulating a signedjson peer.
+        let mut body = body;
+        if let Some(sigs) = body.get_mut("signatures").and_then(|v| v.as_object_mut()) {
+            if let Some(self_sigs) = sigs.get_mut("example.com").and_then(|v| v.as_object_mut()) {
+                if let Some(padded) = self_sigs.get(&key_id).and_then(|v| v.as_str()) {
+                    let raw = base64::engine::general_purpose::STANDARD.decode(padded).unwrap();
+                    let unpadded = base64::engine::general_purpose::STANDARD_NO_PAD.encode(raw);
+                    self_sigs.insert(key_id.clone(), json!(unpadded));
+                }
+            }
+        }
+        assert!(validate_server_key_response(&body, "example.com").is_some());
+    }
+
+    /// The notary `/_matrix/key/v2/query/...` endpoint wraps its response as
+    /// `{ "server_keys": [ ServerKeys ] }`; validation must apply to the entry.
+    #[test]
+    fn test_normalize_unwraps_server_keys_envelope() {
+        let (key_id, pub_key_b64, signing_key) = gen_keypair();
+        let inner = sign_response("example.com", &key_id, &pub_key_b64, &signing_key, future_ts());
+        let wrapped = json!({ "server_keys": [inner] });
+        let normalized = normalize_server_keys_body(wrapped, "example.com");
+        assert!(normalized.get("verify_keys").is_some(), "envelope must be unwrapped");
+        assert!(validate_server_key_response(&normalized, "example.com").is_some());
     }
 }

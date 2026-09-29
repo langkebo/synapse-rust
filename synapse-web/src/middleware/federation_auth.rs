@@ -612,9 +612,33 @@ async fn fetch_federation_verify_key(
     let ip_blacklist = if skip_ssrf { &[][..] } else { &ctx.config.url_preview.ip_range_blacklist };
 
     let scheme = if allow_http { "http" } else { "https" };
+
+    // Resolve the origin to its federation host/port before building the fetch
+    // URLs. Without this step a bare `origin` (no explicit port, no reachable
+    // `/.well-known/matrix/server`) would be fetched on the default HTTPS port
+    // 443, whereas Matrix federation defaults to 8448 — every such key fetch
+    // would fail and inbound signatures could never be verified.
+    let authority = match ctx.federation_client.resolve_server(origin).await {
+        Ok(resolved) => {
+            if resolved.port == 443 {
+                resolved.host
+            } else {
+                format!("{}:{}", resolved.host, resolved.port)
+            }
+        }
+        Err(e) => {
+            tracing::warn!(
+                origin = %origin,
+                error = %e,
+                "Failed to resolve federation server for key fetch; falling back to origin as authority"
+            );
+            origin.to_string()
+        }
+    };
+
     let urls = [
-        format!("{scheme}://{origin}/_matrix/key/v2/server"),
-        format!("{scheme}://{origin}/_matrix/key/v2/query/{origin}/{key_id}"),
+        format!("{scheme}://{authority}/_matrix/key/v2/server"),
+        format!("{scheme}://{authority}/_matrix/key/v2/query/{origin}/{key_id}"),
     ];
 
     for url in &urls {
