@@ -39,6 +39,28 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
+/// 沙箱要软链进去的工具（**不含 `psql`**：它必须保持不可见）。
+///
+/// 列表来自脚本真实调用的外部命令：`sqlx_prepare.sh` 用
+/// `find/wc/tr/cp/rm/ls/sort/comm/sed/cat/head/dirname/mktemp/env`，
+/// `check_sqlx_cache_fresh.sh` 用 `find/ls/wc/tr/sed/dirname/env`，外加少数防御性条目。
+const SANDBOX_TOOLS: &[&str] = &[
+    "bash", "sh", "env", "find", "wc", "tr", "cp", "rm", "ls", "sort", "comm", "sed", "cat", "grep", "head", "tail",
+    "cut", "uniq", "date", "stat", "dirname", "basename", "mkdir", "touch", "chmod", "readlink", "sleep", "awk",
+    "xargs", "mktemp", "python3", "git",
+];
+
+/// 在**原始** PATH 上解析一个工具的绝对路径（不跟随任何被改写过的 PATH）。
+fn find_on_path(tool: &str, path: &str) -> Option<PathBuf> {
+    path.split(':').map(|dir| Path::new(dir).join(tool)).find(|candidate| candidate.is_file())
+}
+
+/// `bash` 的绝对路径：以原始 PATH 解析一次，避免依赖 `execvp` 对"被修改过的 PATH"的
+/// 具体语义（不同 libc 实现不完全一致）。
+fn bash_on_path() -> PathBuf {
+    find_on_path("bash", &std::env::var("PATH").unwrap_or_default()).unwrap_or_else(|| PathBuf::from("bash"))
+}
+
 /// A temp tree holding the scripts under test plus stub `psql` / `cargo`.
 struct Sandbox {
     root: PathBuf,
@@ -55,8 +77,20 @@ impl Sandbox {
         let root = std::env::temp_dir().join(format!("sqlx_tool_{tag}_{}_{unique}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("scripts/ci")).expect("create scripts dir");
-        fs::create_dir_all(root.join("bin")).expect("create bin dir");
+        let bin = root.join("bin");
+        fs::create_dir_all(&bin).expect("create bin dir");
         fs::create_dir_all(root.join("state")).expect("create state dir");
+        // 把脚本需要的工具软链进沙箱 bin（**跳过 psql**）——见 `SANDBOX_TOOLS` 的注释：
+        // 这是为了让 "psql 不可见但 coreutils 齐全" 在 macOS 与 CI 上都成立。
+        let system_path = std::env::var("PATH").unwrap_or_default();
+        for tool in SANDBOX_TOOLS {
+            if bin.join(tool).exists() {
+                continue;
+            }
+            if let Some(src) = find_on_path(tool, &system_path) {
+                let _ = std::os::unix::fs::symlink(&src, bin.join(tool));
+            }
+        }
         for rel in scripts {
             let src = repo_root().join(rel);
             let dst = root.join(rel);
@@ -108,15 +142,21 @@ impl Sandbox {
         }
     }
 
-    /// `PATH` for the child: the sandbox's stub dir first, then the system entries —
-    /// minus the ones that provide `psql` when `hide_psql` is set.
+    /// `PATH` for the child.
+    ///
+    /// ⚠️ 2026-09-30 C79：`hide_psql` 原先只是"把提供 psql 的 PATH 目录**整条**剔除"。
+    /// 本机 macOS 上 psql 在 Homebrew 的独立目录里，所以能过；但 CI 的 ubuntu runner 上
+    /// `psql` 与 `bash`/coreutils **同在 `/usr/bin`** ⇒ 剔除后连 `bash` 都没了，
+    /// `run_inner` 的 `Command::new("bash")` ENOENT，两条用例以 `bash must be runnable` 失败。
+    /// 现在：`hide_psql` ⇒ **只给沙箱 bin**（工具已软链、psql 从不软链）；
+    /// 否则仍是"沙箱 bin + 系统 PATH"。
     fn path(&self, hide_psql: bool) -> String {
+        let bin = self.root.join("bin").display().to_string();
+        if hide_psql {
+            return bin;
+        }
         let system = std::env::var("PATH").unwrap_or_default();
-        let mut parts = vec![self.root.join("bin").display().to_string()];
-        parts.extend(
-            system.split(':').filter(|dir| !hide_psql || !Path::new(dir).join("psql").exists()).map(str::to_string),
-        );
-        parts.join(":")
+        format!("{bin}:{system}")
     }
 
     fn run(&self, script: &str, args: &[&str], env: &[(&str, &str)], drop_env: &[&str]) -> Output {
@@ -138,7 +178,7 @@ impl Sandbox {
         drop_env: &[&str],
         hide_psql: bool,
     ) -> Output {
-        let mut cmd = Command::new("bash");
+        let mut cmd = Command::new(bash_on_path());
         cmd.arg(self.root.join(script))
             .args(args)
             .current_dir(&self.root)
@@ -159,6 +199,35 @@ impl Drop for Sandbox {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.root);
     }
+}
+
+/// 沙箱 PATH 的不变量（2026-09-30 C79）：`hide_psql` 之下**不能看见 psql**，
+/// 但脚本需要的工具**必须仍然可达**。
+///
+/// 这条用例是 CI 那次失败的"本地可复现"替身：旧实现把提供 psql 的 PATH 目录整条剔除，
+/// 在 psql 与 coreutils 同目录的 runner 上（ubuntu 的 `/usr/bin`）连 `bash` 一起剔除，
+/// 于是 `run_inner` 的 `Command::new("bash")` ENOENT，两条工具守卫报 `bash must be runnable`。
+/// 现在 `hide_psql` 只给沙箱 bin（工具是软链、psql 从不软链）⇒ 两个方向同时成立。
+#[test]
+fn sandbox_hidden_psql_path_is_psql_free_but_tool_complete() {
+    let sandbox = Sandbox::new("pathcheck", &[]);
+    let path = sandbox.path(true);
+    assert!(
+        !path.split(':').any(|dir| Path::new(dir).join("psql").is_file()),
+        "hide_psql must not leave psql reachable: {path}"
+    );
+    for tool in ["bash", "find", "wc", "tr", "cp", "rm", "ls", "sort", "comm", "sed", "cat", "mktemp", "dirname"] {
+        assert!(
+            path.split(':').any(|dir| Path::new(dir).join(tool).is_file()),
+            "{tool} must stay reachable when psql is hidden: {path}"
+        );
+    }
+    // 反向对照：不隐藏时仍然保留系统 PATH（脚本能用到真实工具）
+    let full = sandbox.path(false);
+    assert!(
+        full.contains(&std::env::var("PATH").unwrap_or_default()),
+        "non-hiding PATH must extend the system PATH: {full}"
+    );
 }
 
 fn render(output: &Output) -> String {
