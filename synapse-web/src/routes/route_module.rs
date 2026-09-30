@@ -301,11 +301,17 @@ mod tests {
     }
 
     /// The derived table must carry the CAS routes when `cas-sso` is on.
+    ///
+    /// ⚠️ 2026-09-30 C76：断言从根级 `/login` 改为 **`/_synapse/cas/login`**。CAS 模块**有意**
+    /// 挂到 `/_synapse/cas` 前缀下，以避免占用根级路径与 Matrix 标准端点冲突
+    /// （`synapse-web/src/routes/cas.rs:141` 的注释就写着这一点），C71 重新生成派生表后表里
+    /// 是真实路径 `/_synapse/cas/*`；CI 的 `OpenAPI Artifact`（用 fresh default-feature 导出做
+    /// `--check`）已独立证明该表与**路由器**一致 ⇒ 旧断言 `/login` 才是错的那一侧。
     #[cfg(feature = "cas-sso")]
     #[test]
     fn cas_manifest_declares_core_routes() {
         let entries = all_routes();
-        assert!(contains(&entries, &Method::GET, "/login"));
+        assert!(contains(&entries, &Method::GET, "/_synapse/cas/login"));
         assert!(contains(&entries, &Method::GET, "/_synapse/admin/v1/cas/services"));
     }
 
