@@ -265,7 +265,7 @@ impl RoomStorage {
 
     /// See [`get_public_rooms`].
     pub async fn get_public_rooms(&self, limit: i64) -> Result<Vec<Room>, sqlx::Error> {
-        self.get_public_rooms_paginated(limit, None, None).await
+        self.get_public_rooms_paginated(limit, None, None, &crate::room::RoomTypeFilter::default()).await
     }
 
     /// Paginated public rooms list. Uses Keyset pagination (created_ts, room_id).
@@ -274,6 +274,7 @@ impl RoomStorage {
         limit: i64,
         since_ts: Option<i64>,
         since_room_id: Option<&str>,
+        types: &crate::room::RoomTypeFilter,
     ) -> Result<Vec<Room>, sqlx::Error> {
         let rows: Vec<RoomRecord> = if let (Some(ts), Some(room_id)) = (since_ts, since_room_id) {
             sqlx::query_as!(
@@ -284,12 +285,17 @@ impl RoomStorage {
                 FROM rooms r
                 LEFT JOIN room_summaries rs ON rs.room_id = r.room_id
                 WHERE r.is_public = TRUE AND (r.created_ts < $2 OR (r.created_ts = $2 AND r.room_id < $3))
+                  AND ($4::text[] IS NULL
+                       OR rs.room_type = ANY($4)
+                       OR ($5::boolean AND rs.room_type IS NULL))
                 ORDER BY r.created_ts DESC, r.room_id DESC
                 LIMIT $1
                 "#,
                 limit,
                 ts,
-                room_id
+                room_id,
+                types.types.as_deref(),
+                types.include_normal,
             )
             .fetch_all(&*self.pool)
             .await?
@@ -302,10 +308,15 @@ impl RoomStorage {
                 FROM rooms r
                 LEFT JOIN room_summaries rs ON rs.room_id = r.room_id
                 WHERE r.is_public = TRUE
+                  AND ($2::text[] IS NULL
+                       OR rs.room_type = ANY($2)
+                       OR ($3::boolean AND rs.room_type IS NULL))
                 ORDER BY r.created_ts DESC, r.room_id DESC
                 LIMIT $1
                 "#,
-                limit
+                limit,
+                types.types.as_deref(),
+                types.include_normal,
             )
             .fetch_all(&*self.pool)
             .await?
@@ -337,10 +348,22 @@ impl RoomStorage {
     }
 
     /// Returns the total number of public rooms, for the `total_room_count_estimate` field.
-    pub async fn count_public_rooms(&self) -> Result<i64, sqlx::Error> {
-        let count = sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!" FROM rooms WHERE is_public = TRUE"#)
-            .fetch_one(&*self.pool)
-            .await?;
+    pub async fn count_public_rooms(&self, types: &crate::room::RoomTypeFilter) -> Result<i64, sqlx::Error> {
+        let count = sqlx::query_scalar!(
+            r#"
+            SELECT COUNT(*) AS "count!"
+            FROM rooms r
+            LEFT JOIN room_summaries rs ON rs.room_id = r.room_id
+            WHERE r.is_public = TRUE
+              AND ($1::text[] IS NULL
+                   OR rs.room_type = ANY($1)
+                   OR ($2::boolean AND rs.room_type IS NULL))
+            "#,
+            types.types.as_deref(),
+            types.include_normal,
+        )
+        .fetch_one(&*self.pool)
+        .await?;
         Ok(count)
     }
 
@@ -1624,7 +1647,10 @@ mod db_tests {
     async fn test_count_public_rooms() {
         let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
-        let count = storage.count_public_rooms().await.expect("count_public_rooms should succeed");
+        let count = storage
+            .count_public_rooms(&crate::room::RoomTypeFilter::default())
+            .await
+            .expect("count_public_rooms should succeed");
         assert!(count >= 0);
     }
 
@@ -1632,8 +1658,10 @@ mod db_tests {
     async fn test_get_public_rooms_paginated() {
         let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
-        let rooms =
-            storage.get_public_rooms_paginated(5, None, None).await.expect("get_public_rooms_paginated should succeed");
+        let rooms = storage
+            .get_public_rooms_paginated(5, None, None, &crate::room::RoomTypeFilter::default())
+            .await
+            .expect("get_public_rooms_paginated should succeed");
         assert!(rooms.len() <= 5);
         for room in &rooms {
             assert!(room.is_public);
@@ -1701,7 +1729,7 @@ mod db_tests {
         }
 
         let mut found: Vec<String> = storage
-            .search_room_directory(&term, 10)
+            .search_room_directory(&term, 10, &crate::room::RoomTypeFilter::default())
             .await
             .expect("search_room_directory should succeed")
             .into_iter()
@@ -1713,17 +1741,67 @@ mod db_tests {
         assert_eq!(found, expected, "name / topic / canonical_alias 三个面都要命中，私有房间必须被排除");
 
         // 计数必须与返回集合**同谓词** —— 否则 `total_room_count_estimate` 会与 chunk 漂移
-        let total = storage.count_public_rooms_matching(&term).await.expect("count_public_rooms_matching");
+        let total = storage
+            .count_public_rooms_matching(&term, &crate::room::RoomTypeFilter::default())
+            .await
+            .expect("count_public_rooms_matching");
         assert_eq!(total, 3, "匹配总数 = 三条公开房间（私有房间不计）");
 
         // 大小写不敏感（SQL 侧 `LOWER(...)` + pattern 侧 `to_lowercase()`）
-        let upper = storage.search_room_directory(&term.to_uppercase(), 10).await.expect("uppercase search");
+        let upper = storage
+            .search_room_directory(&term.to_uppercase(), 10, &crate::room::RoomTypeFilter::default())
+            .await
+            .expect("uppercase search");
         assert_eq!(upper.len(), 3, "搜索必须大小写不敏感");
 
+        // D-109：`filter.room_types` 也要在**存储层**生效（`["m.space"]` 只留空间；
+        // 集成层用例覆盖"搜索路径 + 列表路径"，这里钉住搜索谓词侧的 JOIN 判据）。
+        sqlx::query(
+            "INSERT INTO room_summaries (room_id, room_type, is_space, updated_ts, created_ts) \
+             VALUES ($1, 'm.space', TRUE, 1700000000000, 1700000000000)",
+        )
+        .bind(&by_name)
+        .execute(&*pool)
+        .await
+        .expect("insert fixture room summary");
+        let only_spaces = storage
+            .search_room_directory(
+                &term,
+                10,
+                &crate::room::RoomTypeFilter { types: Some(vec!["m.space".to_string()]), include_normal: false },
+            )
+            .await
+            .expect("room_types search");
+        assert_eq!(
+            only_spaces.iter().map(|room| room.room_id.as_str()).collect::<Vec<_>>(),
+            vec![by_name.as_str()],
+            "room_types=[\"m.space\"] 只应返回被标记为空间的那条"
+        );
+        let normal_rooms = storage
+            .search_room_directory(
+                &term,
+                10,
+                &crate::room::RoomTypeFilter { types: Some(Vec::new()), include_normal: true },
+            )
+            .await
+            .expect("room_types=[null] search");
+        let mut normal_ids: Vec<&str> = normal_rooms.iter().map(|room| room.room_id.as_str()).collect();
+        normal_ids.sort();
+        let mut expected_normal = vec![by_topic.as_str(), by_alias.as_str()];
+        expected_normal.sort();
+        assert_eq!(normal_ids, expected_normal, "room_types=[null] 只应返回普通房间（空间被排除）");
+
         // `limit` 只截断返回集合，不影响匹配总数
-        let limited = storage.search_room_directory(&term, 1).await.expect("limited search");
+        let limited = storage
+            .search_room_directory(&term, 1, &crate::room::RoomTypeFilter::default())
+            .await
+            .expect("limited search");
         assert_eq!(limited.len(), 1, "limit 必须生效");
-        assert_eq!(storage.count_public_rooms_matching(&term).await.unwrap(), 3, "limit 不得影响总数");
+        assert_eq!(
+            storage.count_public_rooms_matching(&term, &crate::room::RoomTypeFilter::default()).await.unwrap(),
+            3,
+            "limit 不得影响总数"
+        );
     }
 
     #[tokio::test]
@@ -2278,13 +2356,19 @@ mod db_tests {
         let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         // First page
-        let first_page = storage.get_public_rooms_paginated(5, None, None).await.unwrap();
+        let first_page =
+            storage.get_public_rooms_paginated(5, None, None, &crate::room::RoomTypeFilter::default()).await.unwrap();
         assert!(first_page.len() <= 5);
 
         // If we got a full page, attempt a second page using the last item as cursor
         if let Some(last) = first_page.last() {
             let second_page = storage
-                .get_public_rooms_paginated(5, Some(last.created_ts), Some(&last.room_id))
+                .get_public_rooms_paginated(
+                    5,
+                    Some(last.created_ts),
+                    Some(&last.room_id),
+                    &crate::room::RoomTypeFilter::default(),
+                )
                 .await
                 .expect("get_public_rooms_paginated with cursor should succeed");
             // Second page should not overlap with first page's last item

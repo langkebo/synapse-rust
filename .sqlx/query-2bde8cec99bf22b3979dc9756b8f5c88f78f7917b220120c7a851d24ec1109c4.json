@@ -1,0 +1,97 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias,\n                   r.join_rules AS join_rule, r.creator AS creator_user_id,\n                   r.room_version, r.is_public, rs.member_count as member_count,\n                   rs.is_encrypted AS \"is_encrypted?\", r.history_visibility, r.created_ts\n            FROM rooms r\n            LEFT JOIN room_summaries rs ON rs.room_id = r.room_id\n            WHERE r.is_public = TRUE\n              AND (LOWER(r.name) LIKE $1\n                   OR LOWER(r.topic) LIKE $1\n                   OR LOWER(r.canonical_alias) LIKE $1)\n              AND ($3::text[] IS NULL\n                   OR rs.room_type = ANY($3)\n                   OR ($4::boolean AND rs.room_type IS NULL))\n            ORDER BY r.name\n            LIMIT $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "topic",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "avatar_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "canonical_alias",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "join_rule",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "creator_user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "room_version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_public",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "member_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "is_encrypted?",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 11,
+        "name": "history_visibility",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "created_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "TextArray",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "2bde8cec99bf22b3979dc9756b8f5c88f78f7917b220120c7a851d24ec1109c4"
+}

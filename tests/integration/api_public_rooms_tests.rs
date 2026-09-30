@@ -101,3 +101,148 @@ async fn test_public_rooms_post_filter_generic_search_term_filters_the_directory
         "搜索路径不得返回 next_batch（游标与搜索谓词不同构）：{payload}"
     );
 }
+
+/// 发一次 `POST /publicRooms`，返回 `(状态码, JSON)`。
+async fn post_public_rooms(app: &axum::Router, body: Value) -> (StatusCode, Value) {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/publicRooms")
+        .header("Content-Type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), 256 * 1024).await.unwrap();
+    (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+}
+
+/// 插入一个公开房间 + 它的 `room_summaries` 行（`room_type = None` 即"普通房间"）。
+async fn insert_directory_room(pool: &sqlx::PgPool, room_id: &str, name: &str, room_type: Option<&str>) {
+    sqlx::query(
+        "INSERT INTO rooms (room_id, creator, is_public, room_version, created_ts, name) \
+         VALUES ($1, '@pub:localhost', TRUE, '10', 1700000000000, $2)",
+    )
+    .bind(room_id)
+    .bind(name)
+    .execute(pool)
+    .await
+    .expect("insert fixture room");
+    sqlx::query(
+        "INSERT INTO room_summaries (room_id, room_type, is_space, updated_ts, created_ts) \
+         VALUES ($1, $2, $3, 1700000000000, 1700000000000)",
+    )
+    .bind(room_id)
+    .bind(room_type)
+    .bind(room_type == Some("m.space"))
+    .execute(pool)
+    .await
+    .expect("insert fixture room summary");
+}
+
+/// `filter.room_types`（D-109）：`["m.space"]` 只要空间、`[null]` 只要普通房间、两者都给则都要。
+/// **列表路径与搜索路径都要应用**（这正是 D-108 那类"只接一半"的错误最容易发生的地方）。
+#[tokio::test]
+async fn test_public_rooms_post_filter_room_types_selects_normal_and_space_rooms() {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
+        super::skip_or_fail_without_db();
+        return;
+    };
+
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let prefix = format!("zzroomtype{suffix}");
+    let normal = format!("!rt_normal_{suffix}:localhost");
+    let space = format!("!rt_space_{suffix}:localhost");
+    insert_directory_room(&pool, &normal, &format!("{prefix} normal"), None).await;
+    insert_directory_room(&pool, &space, &format!("{prefix} space"), Some("m.space")).await;
+
+    // 期望总数与实现无关地由测试自己算（同一谓词的独立表述）
+    let count_normal: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM rooms r LEFT JOIN room_summaries rs ON rs.room_id = r.room_id \
+         WHERE r.is_public = TRUE AND rs.room_type IS NULL",
+    )
+    .fetch_one(&*pool)
+    .await
+    .unwrap();
+    let count_space: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM rooms r LEFT JOIN room_summaries rs ON rs.room_id = r.room_id \
+         WHERE r.is_public = TRUE AND rs.room_type = ANY(ARRAY['m.space'])",
+    )
+    .fetch_one(&*pool)
+    .await
+    .unwrap();
+
+    // 局部类型别名只为避开 clippy::type_complexity（本仓 clippy 以 `-D warnings` 阻断）
+    type FilterCase<'a> = (&'a str, Value, Vec<&'a str>, Vec<&'a str>, i64);
+    let cases: [FilterCase<'_>; 3] = [
+        (
+            "只列空间（搜索路径）",
+            json!({"limit": 50, "filter": {"room_types": ["m.space"], "generic_search_term": prefix}}),
+            vec![space.as_str()],
+            vec![normal.as_str()],
+            count_space,
+        ),
+        (
+            "只列普通房间（搜索路径）",
+            json!({"limit": 50, "filter": {"room_types": [null], "generic_search_term": prefix}}),
+            vec![normal.as_str()],
+            vec![space.as_str()],
+            count_normal,
+        ),
+        (
+            "空间 + 普通房间（列表路径，无搜索词）",
+            json!({"limit": 50, "filter": {"room_types": ["m.space", null]}}),
+            vec![normal.as_str(), space.as_str()],
+            vec![],
+            count_normal + count_space,
+        ),
+    ];
+
+    for (label, body, expected_present, expected_absent, expected_total) in cases {
+        let (status, payload) = post_public_rooms(&app, body).await;
+        assert_eq!(status, StatusCode::OK, "{label}: POST /publicRooms 必须成功");
+        let ids: Vec<&str> = payload["chunk"]
+            .as_array()
+            .expect("chunk 必须是数组")
+            .iter()
+            .filter_map(|room| room["room_id"].as_str())
+            .collect();
+        for id in &expected_present {
+            assert!(ids.contains(id), "{label}: 必须包含 {id}：{ids:?}");
+        }
+        for id in &expected_absent {
+            assert!(!ids.contains(id), "{label}: 不得包含 {id}：{ids:?}");
+        }
+        assert_eq!(
+            payload["total_room_count_estimate"].as_i64(),
+            Some(expected_total),
+            "{label}: total_room_count_estimate 必须是**同一谓词**下的总数：{payload}"
+        );
+    }
+}
+
+/// **显式拒绝**：本仓不支持的 filter 字段与形状非法的 filter 一律 400 `M_INVALID_PARAM`，
+/// 不再"当没看见"（D-109 的处置 ②）。`include_all_networks: false` 是规范默认值，必须接受。
+#[tokio::test]
+async fn test_public_rooms_post_filter_rejects_unsupported_and_malformed_fields() {
+    let Some((app, _pool, _cache)) = setup_test_app_with_pool().await else {
+        super::skip_or_fail_without_db();
+        return;
+    };
+
+    for (label, body) in [
+        ("include_all_networks=true", json!({"filter": {"include_all_networks": true}})),
+        ("third_party_instance_id", json!({"filter": {"third_party_instance_id": "irc"}})),
+        ("filter 不是对象", json!({"filter": "nope"})),
+        ("room_types 不是数组", json!({"filter": {"room_types": "m.space"}})),
+        ("room_types 条目非法", json!({"filter": {"room_types": [42]}})),
+        ("generic_search_term 不是字符串", json!({"filter": {"generic_search_term": 42}})),
+    ] {
+        let (status, payload) = post_public_rooms(&app, body).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{label}: 必须 400");
+        assert_eq!(payload["errcode"].as_str(), Some("M_INVALID_PARAM"), "{label}: 必须是 M_INVALID_PARAM：{payload}");
+    }
+
+    // `include_all_networks: false` 合法（规范默认值）⇒ 200
+    let (status, _) = post_public_rooms(&app, json!({"limit": 5, "filter": {"include_all_networks": false}})).await;
+    assert_eq!(status, StatusCode::OK, "include_all_networks=false 必须被接受");
+}

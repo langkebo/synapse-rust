@@ -186,10 +186,11 @@ pub trait RoomStoreApi: Send + Sync {
         limit: i64,
         since_ts: Option<i64>,
         since_room_id: Option<&str>,
+        types: &RoomTypeFilter,
     ) -> Result<Vec<Room>, sqlx::Error>;
 
     /// See [`count_public_rooms`].
-    async fn count_public_rooms(&self) -> Result<i64, sqlx::Error>;
+    async fn count_public_rooms(&self, types: &RoomTypeFilter) -> Result<i64, sqlx::Error>;
 
     /// 房间目录搜索（Client-Server API `POST /publicRooms` 的 `filter.generic_search_term`）。
     ///
@@ -200,7 +201,15 @@ pub trait RoomStoreApi: Send + Sync {
     /// ⚠️ 搜索路径**不做游标分页**：谓词 + `ORDER BY name` 与 `get_public_rooms_paginated` 的
     /// keyset 游标（`created_ts, room_id`）不同构 ⇒ 调用方**不得**用返回集合构造 `since` 游标
     /// （`next_batch` 必须留空），否则客户端续传会跳进未过滤的列表。
-    async fn search_public_rooms(&self, search_term: &str, limit: i64) -> Result<(Vec<Room>, i64), sqlx::Error>;
+    ///
+    /// `types` 是 `filter.room_types`（D-109）：**列表与搜索两条路径都必须应用同一套类型过滤**，
+    /// 否则"只列 space / 只列普通房间"的请求会在其中一条路径上被静默忽略（D-108 的同类错误）。
+    async fn search_public_rooms(
+        &self,
+        search_term: &str,
+        limit: i64,
+        types: &RoomTypeFilter,
+    ) -> Result<(Vec<Room>, i64), sqlx::Error>;
 
     /// See [`get_all_rooms_with_members`].
     async fn get_all_rooms_with_members(
@@ -470,17 +479,23 @@ impl RoomStoreApi for super::RoomStorage {
         limit: i64,
         since_ts: Option<i64>,
         since_room_id: Option<&str>,
+        types: &RoomTypeFilter,
     ) -> Result<Vec<Room>, sqlx::Error> {
-        self.get_public_rooms_paginated(limit, since_ts, since_room_id).await
+        self.get_public_rooms_paginated(limit, since_ts, since_room_id, types).await
     }
 
-    async fn count_public_rooms(&self) -> Result<i64, sqlx::Error> {
-        self.count_public_rooms().await
+    async fn count_public_rooms(&self, types: &RoomTypeFilter) -> Result<i64, sqlx::Error> {
+        self.count_public_rooms(types).await
     }
 
-    async fn search_public_rooms(&self, search_term: &str, limit: i64) -> Result<(Vec<Room>, i64), sqlx::Error> {
-        let rooms = self.search_room_directory(search_term, limit).await?;
-        let total = self.count_public_rooms_matching(search_term).await?;
+    async fn search_public_rooms(
+        &self,
+        search_term: &str,
+        limit: i64,
+        types: &RoomTypeFilter,
+    ) -> Result<(Vec<Room>, i64), sqlx::Error> {
+        let rooms = self.search_room_directory(search_term, limit, types).await?;
+        let total = self.count_public_rooms_matching(search_term, types).await?;
         Ok((rooms, total))
     }
 

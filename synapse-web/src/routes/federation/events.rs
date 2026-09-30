@@ -307,9 +307,11 @@ pub(super) async fn get_public_rooms(
     let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(10).min(1000);
     let _since = params.get("since").cloned();
 
-    let rooms = ctx.room_service.state().get_public_rooms_paginated(limit, None, None).await?;
+    // federation 侧的 `/publicRooms` 不读 `filter`（client 侧已在 C67/C68 接线）——
+    // 这一残留面登记在 §7.1 的 **D-110**（MSC2197 的 `filter.generic_search_term`）。
+    let rooms = ctx.room_service.state().get_public_rooms_paginated(limit, None, None, None, false).await?;
 
-    let total = ctx.room_service.state().count_public_rooms().await?;
+    let total = ctx.room_service.state().count_public_rooms(None, false).await?;
 
     let mut room_list = Vec::new();
     for room in rooms {
@@ -338,9 +340,11 @@ pub(super) async fn post_public_rooms(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(20).min(1000);
-    let rooms = ctx.room_service.state().get_public_rooms_paginated(limit, None, None).await?;
+    // federation 侧的 `/publicRooms` 不读 `filter`（client 侧已在 C67/C68 接线）——
+    // 这一残留面登记在 §7.1 的 **D-110**（MSC2197 的 `filter.generic_search_term`）。
+    let rooms = ctx.room_service.state().get_public_rooms_paginated(limit, None, None, None, false).await?;
 
-    let total = ctx.room_service.state().count_public_rooms().await?;
+    let total = ctx.room_service.state().count_public_rooms(None, false).await?;
 
     let mut room_list = Vec::new();
     for room in rooms {

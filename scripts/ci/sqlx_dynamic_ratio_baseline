@@ -3160,12 +3160,27 @@
 #   `.filter(|_| false)`（等于退回 D-108 的"静默忽略"）⇒ 集成用例立刻红并打印
 #   `搜索不得返回不匹配的房间（filter 未被忽略的证据）：["!pub_other_…", "!pub_match_…"]`；
 #   还原后绿。
+# ── 2026-09-29 C68（D-109 裁定：接线 `room_types` + 对其余 filter 字段**显式拒绝**）──────────
+#   行为改动（不是机械转换）：`POST /publicRooms` 的 `filter` 现在**两条路径**都应用类型过滤
+#   （列表 + 搜索），并且**不再静默**——`include_all_networks = true`、`third_party_instance_id`
+#   以及任何形状非法的 filter 一律 400 `M_INVALID_PARAM`（`include_all_networks = false` 是规范
+#   默认值，接受）。SQL 侧用一个值对象 `RoomTypeFilter { types: Option<Vec<String>>, include_normal }`
+#   表达规范里"含 `null` 的数组"（绕开 **D-13** 的 `Vec<Option<T>>` 无映射），谓词为
+#   `$n::text[] IS NULL OR rs.room_type = ANY($n) OR ($m AND rs.room_type IS NULL)`，
+#   同时加到 4 条查询（search / count_matching / paginated / count）上 —— 4 份谓词是"不许拼动态
+#   SQL"的代价，由"两条路径 + 总数一致"的用例钉住。
+#   实测：`dynamic_production` 103（不变）、`static` 1362（不变：4 条查询文本改写、条数不变）、
+#   `dynamic_test` 755 → **756**（新增用例的测试区 SQL：`room_summaries` 夹具等）、
+#   `.sqlx` 1328 → **1329**（4 条查询条目改写 + 1 条新增）、literal 36/8 与 `query_builder` 18 不变。
+#   **R11 变异自证**：把 search 路径的 `types.types.as_deref()` 绑定换成 `None::<&[String]>`
+#   （= 类型过滤被忽略；只改绑定、不改 SQL 文本 ⇒ 离线缓存仍有效）⇒ 存储用例立刻红并打印
+#   `room_types=["m.space"] 只应返回被标记为空间的那条`（left 三条 / right 一条）；还原后绿。
 BASELINE_QUERY_BUILDER=18
 BASELINE_DYNAMIC_PRODUCTION=103
-BASELINE_DYNAMIC_TEST_INFRA=755
+BASELINE_DYNAMIC_TEST_INFRA=756
 BASELINE_STATIC=1362
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=858
+BASELINE_DYNAMIC=859
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules AS join_rule, r.creator AS creator_user_id, r.room_version,\n                      r.is_public, rs.member_count as member_count, rs.is_encrypted AS \"is_encrypted?\", r.history_visibility, r.created_ts\n                FROM rooms r\n                LEFT JOIN room_summaries rs ON rs.room_id = r.room_id\n                WHERE r.is_public = TRUE AND (r.created_ts < $2 OR (r.created_ts = $2 AND r.room_id < $3))\n                ORDER BY r.created_ts DESC, r.room_id DESC\n                LIMIT $1\n                ",
+  "query": "\n                SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules AS join_rule, r.creator AS creator_user_id, r.room_version,\n                      r.is_public, rs.member_count as member_count, rs.is_encrypted AS \"is_encrypted?\", r.history_visibility, r.created_ts\n                FROM rooms r\n                LEFT JOIN room_summaries rs ON rs.room_id = r.room_id\n                WHERE r.is_public = TRUE AND (r.created_ts < $2 OR (r.created_ts = $2 AND r.room_id < $3))\n                  AND ($4::text[] IS NULL\n                       OR rs.room_type = ANY($4)\n                       OR ($5::boolean AND rs.room_type IS NULL))\n                ORDER BY r.created_ts DESC, r.room_id DESC\n                LIMIT $1\n                ",
   "describe": {
     "columns": [
       {
@@ -73,7 +73,9 @@
       "Left": [
         "Int8",
         "Int8",
-        "Text"
+        "Text",
+        "TextArray",
+        "Bool"
       ]
     },
     "nullable": [
@@ -92,5 +94,5 @@
       false
     ]
   },
-  "hash": "84c349c350a0ddb02fa4b8abfe3dc90ef484cba775410e9e7e11f8db27b13b9b"
+  "hash": "04be68805699c6477440332b92a798ad8be92c49fb4be32721b47a05de3a8c94"
 }

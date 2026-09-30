@@ -1,5 +1,18 @@
 use super::*;
 
+/// `filter.room_types` 在内存替身里的语义（D-109）。
+///
+/// ⚠️ `InMemoryRoomStore` 的房间**没有 `room_type` 信息**（`Room` 结构体里没有该字段），
+/// 因此这里把每个 mock 房间都当作**普通房间**（`room_type IS NULL`）：
+/// - 不做类型过滤（`types.types == None`）⇒ 全部命中；
+/// - 明确要求了非 null 类型 ⇒ 一律不命中（替身无法证明房间属于该类型）；
+/// - 要求含 `null`（`include_normal`）⇒ 命中。
+///
+/// 真实语义由 SQL 侧负责，端到端用例走真库（`tests/integration/api_public_rooms_tests.rs`）。
+fn mock_matches_room_types(types: &crate::room::RoomTypeFilter) -> bool {
+    types.types.is_none() || types.include_normal
+}
+
 /// In-memory room store mirroring [`crate::room::RoomStorage`].
 ///
 /// # Fidelity
@@ -406,6 +419,7 @@ impl crate::room::api::RoomStoreApi for InMemoryRoomStore {
         limit: i64,
         since_ts: Option<i64>,
         since_room_id: Option<&str>,
+        types: &crate::room::RoomTypeFilter,
     ) -> Result<Vec<crate::room::Room>, sqlx::Error> {
         let rooms = self.rooms.read().await;
         let mut filtered: Vec<crate::room::Room> = rooms
@@ -418,6 +432,7 @@ impl crate::room::api::RoomStoreApi for InMemoryRoomStore {
                     true
                 }
             })
+            .filter(|_| mock_matches_room_types(types))
             .cloned()
             .collect();
         filtered.sort_by(|a, b| b.created_ts.cmp(&a.created_ts).then_with(|| b.room_id.cmp(&a.room_id)));
@@ -425,15 +440,16 @@ impl crate::room::api::RoomStoreApi for InMemoryRoomStore {
         Ok(filtered)
     }
 
-    async fn count_public_rooms(&self) -> Result<i64, sqlx::Error> {
+    async fn count_public_rooms(&self, types: &crate::room::RoomTypeFilter) -> Result<i64, sqlx::Error> {
         let rooms = self.rooms.read().await;
-        Ok(rooms.values().filter(|r| r.is_public).count() as i64)
+        Ok(rooms.values().filter(|r| r.is_public).filter(|_| mock_matches_room_types(types)).count() as i64)
     }
 
     async fn search_public_rooms(
         &self,
         search_term: &str,
         limit: i64,
+        types: &crate::room::RoomTypeFilter,
     ) -> Result<(Vec<crate::room::Room>, i64), sqlx::Error> {
         // 与 SQL 侧同形：`is_public` + name/topic/canonical_alias 的大小写不敏感**包含**匹配；
         // 总数是**匹配总数**（截断前），与 `RoomStorage` 的实现语义一致。
@@ -442,6 +458,7 @@ impl crate::room::api::RoomStoreApi for InMemoryRoomStore {
         let mut matched: Vec<crate::room::Room> = rooms
             .values()
             .filter(|room| room.is_public)
+            .filter(|_| mock_matches_room_types(types))
             .filter(|room| {
                 [room.name.as_deref(), room.topic.as_deref(), room.canonical_alias.as_deref()]
                     .into_iter()
