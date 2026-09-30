@@ -23,7 +23,7 @@
 ### ✅ 2. U-13-R9：v≤11 写路径持久化图字段
 
 - **位置**: 合并自 `11bf5455d fix(room): persist depth/prev_events/auth_events on the v<=11 local write path`
-- **实现**: 
+- **实现**:
   - 修改 `graph_metadata.rs:346-348`：事务路径现调用 `resolver.resolve()` + `create_event_with_graph`
   - 更新 `room/messaging/events.rs`: v≤11 路径显式传递图字段
   - 补充 143 条集成测试覆盖边缘情况
@@ -59,7 +59,7 @@
 ### ✅ 4. U-19-R4：`redacted_by` 审计追踪已修
 
 - **修复**: 级联撤回的 `redact_event_content` 调用现传递 `m.room.redaction` 事件的 `event_id`
-- **实现**: 
+- **实现**:
   - `synapse-services/src/event_redaction_service.rs`：`cascade_redact_related_events` 新增 `redaction_event_id` 参数
   - `synapse-web/src/routes/handlers/room/events.rs`：从已持久化的 redaction 事件克隆 ID 传入
   - 测试 `api_msc3912_redaction_cascade_tests.rs::msc3912_cascade_redaction_audits_with_redaction_event_id` 验证 `redacted_by` 以 `$` 开头且指向 `m.room.redaction` 行
@@ -68,7 +68,7 @@
 ### ✅ 3. U-13-R9：v≤11 写路径持久化图字段
 
 - **位置**: 合并自 `11bf5455d fix(room): persist depth/prev_events/auth_events on the v<=11 local write path`
-- **实现**: 
+- **实现**:
   - 修改 `synapse-services/src/room/messaging/events.rs:185-232`：v≥1 路径走 `create_event_with_pdu`
   - 未知/不可解析版本才回退到 `create_event`（无图字段）
   - 143 条集成测试覆盖
@@ -78,7 +78,7 @@
 
 - **位置**: 合并自 `31b475710 fix(api): consume the write entry's event id in knock/voip`
 - **问题**: `knock_room`、`call_invite`、`call_answer` 生成占位符 `$$...`，但回应了占位符而非持久化后的 ID
-- **修复**: 
+- **修复**:
   - `knock.rs`: 返回 `stored.event_id` 而非占位符
   - `voip.rs`: `call_invite`/`call_answer` 同上  
   - `room_membership.rs`: `add_member` 投影不再存储冲突的 event_id
@@ -114,7 +114,7 @@
 - **位置**: `synapse-storage/src/event/cascade.rs:70-85`
 - **问题**: wildcard (`["*"]`) 同时匹配 `m.relates_to` 和已废弃的 `m.in_reply_to`
 - **修复**: wildcard 现仅匹配 MSC3912 标准的 `m.relates_to`
-- **影响**: 
+- **影响**:
   - 符合 MSC3912 规范
   - 老旧事件（仅有 `m.in_reply_to` 而无 `m.relates_to`）在 wildcard 下将不再被匹配
   - 如需匹配 legacy 格式，调用方需单独传入 `"m.in_reply_to"`（按文档说明，此类事件无 `rel_type` 字段，故实际不匹配）
@@ -133,7 +133,7 @@
 ### ✅ 6. U-9：死代码 `get_auth_issuer` 已清理
 
 - **位置**: `synapse-web/src/routes/handlers/auth_discovery.rs:66`（原文档误指 `synapse-storage/src/event/dag.rs:203-205`）
-- **现状**: 
+- **现状**:
   - `get_auth_issuer` 已删除（该函数注解为 `#[deprecated]`，上游在 v1.161 中移除）
   - 该函数从未被注册为路由，`assembly.rs` 也未引用
   - 仅 `auth_metadata` 存留，已单独维护
@@ -150,7 +150,7 @@
     （matrix-spec `content/rooms/_index.md`），上游 Synapse 1.161.0 只识别 `1..12` + 三个 unstable
     （`org.matrix.hydra.11`、`org.matrix.msc3757.10/11`），MSC4304 的 prior-art 链也止于 v12。
   - **真实问题**：v12 由 **MSC4304** 定义（= v11 + MSC4289 创建者特权 + MSC4291 room ID = create 事件哈希
-    + MSC4297 State Res v2.1 + MSC4307 `auth_events` 同房间校验），本仓四个都**未实现**，
+    - MSC4297 State Res v2.1 + MSC4307 `auth_events` 同房间校验），本仓四个都**未实现**，
     却已把 v12 标为 `stable`（可创建）并设为默认版本。
 - **影响**: 本机创建的 v12 房间用**随机** room ID（`crypto.rs:145`），而 v12 对端要求 room ID 等于
   create 事件哈希 ⇒ 互操作破坏；且 `redaction.rs:210` 已置 `room_ids_as_hashes: true`，

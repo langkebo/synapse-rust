@@ -213,11 +213,11 @@ U-20 `7ab85a87f`（由并发会话先行并入）；U-8 `111a4df28`、U-13-R9 �
 > **2026-09-28 收口（本表最后两条）**：重活门禁（`--test unit` / `--test integration`）在本机
 > CI 等价环境实跑后，这两条已修，**不再是红**：
 > · `test_auth_issuer_returns_unrecognized_when_oidc_is_disabled` ⇒ 端点由 `76e5f9136` 有意摘除，
->   用例改判"废弃端点不得复活"的 **404** 守卫（D-90）；
+> 用例改判"废弃端点不得复活"的 **404** 守卫（D-90）；
 > · `test_admin_room_lifecycle_management` ⇒ 根因**不是** admin 语义，而是 schema 缺陷：
->   `event_edges.prev_event_id` 是 `NOT NULL`，而 `fk_event_edges_prev` 的动作是
->   `ON DELETE SET NULL` ⇒ 删任一父事件即 23502、管理员删房间恒 **500**；已改为
->   `ON DELETE CASCADE` 并复算基线指纹（D-89，`migrations/00000000_unified_schema_v12.sql`）。
+> `event_edges.prev_event_id` 是 `NOT NULL`，而 `fk_event_edges_prev` 的动作是
+> `ON DELETE SET NULL` ⇒ 删任一父事件即 23502、管理员删房间恒 **500**；已改为
+> `ON DELETE CASCADE` 并复算基线指纹（D-89，`migrations/00000000_unified_schema_v12.sql`）。
 > 明细见 `SQLX_STATICIZATION_PLAN_2026-09-23.md` §8.3 第 24/25 条。
 
 > 已被 U-20 修绿的既有红（不再是红）：`test_admin_room_history_purge`、

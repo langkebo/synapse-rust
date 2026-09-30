@@ -41,7 +41,7 @@
 | **MSC3814** | 脱水设备（dehydrated devices）（*仓库既有结论*） | `dehydrated_device` 端点族；`/events` 由 POST 改 GET + query | `GET .../org.matrix.msc3814.v1/dehydrated_device/{device_id}/events`（报告 §5.1 / B3） | ✅ 已对齐（2026-09-25） |
 | **MSC3861** | 实验性 auth delegation（*仓库既有结论*） | 不实现；以 MAS 稳定集成为准 | `synapse-services/src/auth/mas_validator.rs`（报告 §5.1） | ⚪ N/A |
 | **MSC3866** | Admin `GET /_synapse/admin/v2/users` 未启用时省略 approval 标记（*仓库既有结论*） | 未核对 | —（报告 §5.1 标「未核对」） | ⚠️ 未核对 |
-| **MSC3882** | QR code login（*仓库既有结论*） | 已实现（报告 §八 认证配方里作 `msc3882` 出现） | 报告 §八 配方 `|/account/(password\|deactivate\|3pid)|msc2965|msc4108|msc3882|...` | ✅ 一致 |
+| **MSC3882** | QR code login（*仓库既有结论*） | 已实现（报告 §八 认证配方里作 `msc3882` 出现） | 报告 §八 认证配方（`/account/password`、`/account/deactivate`、`/account/3pid` 等，含 `msc2965` / `msc4108` / `msc3882`） | ✅ 一致 |
 | **MSC3912** | 关系性（级联）撤回（*仓库既有结论*） | 格式已修（v11+ 写 `content.redacts`）+ 管理端级联；**客户端撤回路径不级联** | `synapse-storage/src/event/cascade.rs`、`synapse-services/src/event_redaction_service.rs:58`、`POST /_synapse/admin/v1/rooms/{room_id}/cascade_redact`（报告 §5.2 / B8） | 🟡 PARTIAL |
 | **MSC4108** | rendezvous 登录（*仓库既有结论*） | 已实现 | 报告 §二「认证」行 | ✅ 一致 |
 | **MSC4133** | Extended profile（*仓库既有结论*） | 非对象 body 由 500 改为 400 | 报告 §7-B7（2026-09） | ✅ 已完成 |

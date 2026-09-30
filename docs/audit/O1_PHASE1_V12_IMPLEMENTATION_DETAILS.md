@@ -5,7 +5,7 @@
 
 **目标**: 启用 v12 房间创建，确保本地创建的事件包含完整的 PDU 字段（depth, prev_events, auth_events）
 
-**参考**: 
+**参考**:
 - `V12_ROOM_VERSION_AND_ANIMATED_THUMBNAIL_IMPLEMENTATION_PLAN.md`
 - Upstream Synapse v1.162.0rc1 (element-hq/synapse)
 
@@ -90,7 +90,7 @@ pub async fn create_event_with_pdu(
 
 **参考**: Upstream Synapse 的 `compute_depth` 逻辑
 
-**现有资源**: 
+**现有资源**:
 - ✅ `get_forward_extremities_in_room()` - 获取末端事件
 - ✅ `get_event_graph_fields()` - 查询事件的 PDU 字段
 

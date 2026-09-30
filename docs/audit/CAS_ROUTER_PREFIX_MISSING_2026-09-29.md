@@ -72,7 +72,6 @@ pub fn cas_routes(state: AppState) -> Router<AppState> {
 | **Standard Admin** | `.route("/_synapse/admin/v1/cas/services", ...)` | `/_synapse/admin/v1/cas/services`（完整路径） | ✅ 正确 |
 | **Legacy Admin** | `.route("/admin/services", ...)` | **`/admin/services`**（根级） | ⚠️ 弃用别名 |
 
-
 ### 预期 vs 实际行为对比
 
 | Endpoint Type | Expected Path | Actual Path | Impact |

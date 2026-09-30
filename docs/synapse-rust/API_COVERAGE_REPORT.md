@@ -296,7 +296,7 @@
 | 端点 | 作用 |
 |---|---|
 | `GET /_synapse/admin/v1/media` | 媒体列举（按房间/用户过滤由 query 决定） |
-| `GET|DELETE /_synapse/admin/v1/media/{media_id}` | 单条媒体查询 / 删除 |
+| `GET\|DELETE /_synapse/admin/v1/media/{media_id}` | 单条媒体查询 / 删除 |
 | `GET /_synapse/admin/v1/media/quota` | 媒体配额 |
 | `POST /_synapse/admin/v1/media/delete` | 批量删除 |
 | `POST /_synapse/admin/v1/media/{protect,unprotect}/{...}` | 保护 / 取消保护 |
@@ -306,7 +306,7 @@
 | `POST /_synapse/admin/v1/user/{user_id}/media/quarantine` | 按用户隔离 |
 | `GET /_synapse/admin/v1/quarantine_media/{media_id}/changes` | 隔离媒体变更流 |
 | `POST /_synapse/admin/v1/purge_media_cache` | 清除媒体缓存 |
-| `GET|POST /_synapse/admin/v1/media_callbacks[/{callback_type}]` | 媒体回调（本仓扩展） |
+| `GET\|POST /_synapse/admin/v1/media_callbacks[/{callback_type}]` | 媒体回调（本仓扩展） |
 
 > ⚠️ **口径说明**：上游人工口径列的是 `GET/DELETE /_synapse/admin/v1/users/{user_id}/media`
 > （**复数** `users`）；本仓实现的是 `POST /_synapse/admin/v1/user/{user_id}/media/quarantine`

@@ -601,11 +601,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | **隐私扩展** | 无标准 | ✅ Feature Flag `privacy-ext`（存储层 `synapse-storage/src/privacy.rs` 985 行 + `user_privacy_settings` 表；服务逻辑在 `synapse-services/src/account_identity_service.rs:8-52` 与 `wiring/extensions.rs:51`，**不存在** `synapse-services/src/privacy.rs`） | ✅ 已实现 |
 | **应用服务** | 完整（Pluggable Modules） | ⚠️ **部分实现（AS 登录与 MSC4512 代理已补齐，2026-09-25 复核）**：AS 注册/命名空间正则/虚拟用户/事务投递（含 `hs_token`）/调度**真实**（`application_service/`）；**AS 登录已实现**（`synapse-web/src/routes/auth_compat.rs:455-468`：as_token + 排他命名空间校验 + 设备物化 + 令牌签发）；**MSC4512 代理已实现**（见 §11.1）；**仍缺** pushers、设备管理、AS 以虚拟用户身份调用 C-S（客户端提取器只做 token 校验）、稳定错误码 `M_APPSERVICE_LOGIN_UNSUPPORTED`（全仓 0 命中）；`external_service.rs` 属私有桥接扩展（`/_synapse/external/*`），**不是** Matrix AS API | ⚠️ 实现不完整 |
 | **延迟事件** | 有 | ⚠️ **PARTIAL**：单机链路完整 + **联邦 EDU 已实现**（见 §11.1 MSC4140）；`state_key` 仍硬编码 `None` | ⚠️ 可用，`state_key` 未填 |
-| **关系性撤回** | 有（v1.161+） | ⚠️ **已按房间版本写 `content.redacts`，且级联撤回已实现**（`synapse-storage/src/event/cascade.rs` + 管理服务层 + 管理端点）；**剩余缺口**（经 2026-09-26 代码复核确认）：
-  - `cascade_redact_related_events` 调用 `redact_event_content(&target_id, None)` 失去审计追踪（P0）
-  - 客户端 `/redact` 路径仍只撤单条不级联（设计取舍，非 bug）
-  - v≤11 本地事件写路径（事务包装下）不持久化图字段，导致 `\\/send_join` PDU `MissingGraphMetadata`
-  详见 §16.1 | ⚠️ 格式 + 级联已实现，客户端不级联 + 审计缺口 |
+| **关系性撤回** | 有（v1.161+） | ⚠️ **已按房间版本写 `content.redacts`，且级联撤回已实现**（`synapse-storage/src/event/cascade.rs` + 管理服务层 + 管理端点）；**剩余缺口**（经 2026-09-26 代码复核确认）：<br>- `cascade_redact_related_events` 调用 `redact_event_content(&target_id, None)` 失去审计追踪（P0）<br>- 客户端 `/redact` 路径仍只撤单条不级联（设计取舍，非 bug）<br>- v≤11 本地事件写路径（事务包装下）不持久化图字段，导致 `\\/send_join` PDU `MissingGraphMetadata`<br>详见 §16.1 | ⚠️ 格式 + 级联已实现，客户端不级联 + 审计缺口 |
 | **房间升级** | 有 | ✅ `handlers/room/management/upgrade.rs` 完整实现（`upgrade_room` + `get_room_version`） | ✅ 完整实现 |
 | **Space** | 有 | ✅ `synapse-web/src/routes/space/` 完整实现（children_hierarchy/lifecycle_query/membership_state/summary/types） | ✅ 完整实现 |
 | **Thread** | 有 | ✅ `thread_service.rs` + `synapse-storage/src/thread/` + `handlers/thread.rs` | ✅ 已实现（相对精简） |

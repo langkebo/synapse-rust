@@ -408,9 +408,9 @@ fn supports_restricted_join_rule(room_version: &str) -> bool {
 1. **`scripts/interop/verify_state_res_v2_1_with_upstream.py`** - Oracle 脚本
    - 加载上游 `/tmp/up_state_v2.py`（必须先通过代理抓取）
    - 验证 v2.1 算法的关键差异（对比 `up_state_v2.py:177-186`）：
-     * `base_state = {}`（v2.1）vs `unconflicted_state`（v2）
-     * `conflicted_set = set(itertools.chain.from_iterable(conflicted_state.values()))`
-     * `full_conflicted_set = conflicted_set ∪ auth_diff`
+     - `base_state = {}`（v2.1）vs `unconflicted_state`（v2）
+     - `conflicted_set = set(itertools.chain.from_iterable(conflicted_state.values()))`
+     - `full_conflicted_set = conflicted_set ∪ auth_diff`
    - 校验 fixture 结构（room_version=12, ≥2 state_sets）
    - 验证算法逻辑与上游一致
    - **手动门禁（NOT CI）**：`python3 scripts/interop/verify_state_res_v2_1_with_upstream.py`

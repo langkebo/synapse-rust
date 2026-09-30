@@ -16,8 +16,8 @@
 **上游现状** (Synapse v1.162.0rc1):
 - ✅ **默认版本已提升至 v12** (`CHANGES.md`: "Raise default room version to '12'")
 - ✅ **核心 MSC**: **MSC4304（v12 定义）** = room v11 基线 + **MSC4289**（显式赋予房间创建者特权）
-  + **MSC4291**（room ID = create 事件的哈希）+ **MSC4297**（State Resolution v2.1）
-  + **MSC4307**（校验 `auth_events` 属于同一房间；"非技术上必需但明确纳入"）。
+  - **MSC4291**（room ID = create 事件的哈希）+ **MSC4297**（State Resolution v2.1）
+  - **MSC4307**（校验 `auth_events` 属于同一房间；"非技术上必需但明确纳入"）。
   ⚠️ 此前本条写作 "MSC4239 (v12 定义)" —— **错误**：MSC4239 是 *room version 11 升为默认*，
   与 v12 定义无关（见 MSC4304 §Prior art）。MSC4311 / MSC3912 也不是 v12 的构成 MSC。
 - ❌ **不存在 v13**：规范稳定列表止于 v12（matrix-spec `content/rooms/_index.md`）；上游
@@ -71,7 +71,7 @@ RoomVersionCapability::stable_parse_only("13"),  // ⚠️ 上游不存在 v13�
 **上游实现** (Synapse Python):
 - **检测机制**: GIF/PNG/WebP 三格式支持，通过 `is_animated` 属性判断
 - **请求参数**: `animated=true/false` (默认 false)
-- **输出格式**: 
+- **输出格式**:
   - 静态：JPEG/PNG/WebP
   - 动画：**始终 WebP** (`ANIMATED_THUMBNAIL_TYPE = "image/webp"`)
 - **帧处理**: 逐帧缩放/裁剪，保留帧延迟 (`duration`) 和循环次数 (`loop`)
@@ -105,7 +105,6 @@ fn generate_thumbnail(...) -> Result<Vec<u8>, ApiError> {
 - (a) 添加 `webp-animation` 或其他支持动画 WebP 编码的 crate
 - (b) 阶段性方案：先支持动画检测 + 首帧降级 + 静态缩略图，后续升级动画 WebP 编码
 ✅ Phase 1 已完成 (b) 方案；Phase 2 待实施 (a) 方案
-
 
 ---
 

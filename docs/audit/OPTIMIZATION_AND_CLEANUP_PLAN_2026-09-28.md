@@ -278,7 +278,7 @@ PATH="/usr/bin:/bin:$PATH" cargo clippy --workspace --all-targets --features tes
 
 **文档作者**: AI Assistant  
 **审核日期**: 2026-09-28 21:30 GMT+8  
-**参考文档**: 
+**参考文档**:
 - `docs/audit/ISSUE_REVIEW_2026-09-28.md`
 - `docs/audit/UNRESOLVED_ISSUES_SUMMARY.md`
 - `synapse-common/src/event_id.rs`

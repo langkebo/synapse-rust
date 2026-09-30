@@ -21,7 +21,7 @@
 | **B-2** | 规则 3.5：`auth_events` 同房校验 | ✅ **完成（已接线）** | `ce4078969`；**生产调用点** `synapse-web/src/routes/federation/transaction.rs:378`（解析 auth_events → `check_inbound_event_auth`，失败即 reject + `security_audit` 日志）；`rules.rs:152` `enforces_auth_events_room_rule` 只对 v12+ 生效；单测含"跨房拒绝/同房通过/无法解析拒绝/pre-v12 不定义该规则" |
 | **C-1** | create 事件身份 finalize（G-08） | ✅ **完成** | `7d79982c9`：`write_creation_event` 改走 `create_event_with_pdu`（会 finalize），占位 ID 仅用于 v1/v2；验收测试 `tests/integration/room_service_tests_migrated.rs:5175-5196`（v11 create id 长 44、无 `:`、等于对端复算值、图已重指向 final id） |
 | **C-2** | room_id 推导（`$`→`!`）与创建流程重排 | ✅ **完成**（`e2b8266b3`） | 新增唯一 helper `room_id::room_id_from_create_event_id`；`create_room` 先定稿 create → 派生 room_id → 写 rooms 行；验收测试 `test_create_room_v12_room_id_is_the_create_event_id`。**注意：D-6 是它的硬前置**（见下） |
-| **C-3** | 无域名 room ID 语法收敛（G-17..G-23、G-20） | ✅ **完成**（`6036c4cb8`/`b089e0323`/`16ee8208f`） | ✅ 语法：`synapse-common/src/room_id.rs`（单实现）+ 两个校验器委托；6 处联邦守卫改用 `is_well_formed_room_id`；`room_id.contains(':')` 生产代码 **0** 处（本轮复测）<br>✅ 本地性（G-21）：`b089e0323` `MembershipService::room_locality`<br>✅ DB CHECK 放宽为两形态（`16ee8208f`）+ 指纹 `16d86ee4035cd351`（顺带修掉 HEAD 上的既有红项）+ 真 DB 契约用例<br>⚠️ **本项验收判据之外的已知残留**（不是 C-3 的五条判据之一，故不影响本项 ✅）：`invite.rs:277` 的**兜底** event id 用 `split(':').next_back()`、`space/repository.rs:30` 用同一写法从父房间 id 取 server、`actions.rs:41` 从 room id 取 join 目的地。其中前两处在**父房间是 v12（domainless）输入**时会拼出 `$uuid:!xxx` / `!space_uuid:!xxx` 这类畸形 id（属于"合成房间"这条独立决策 Q3 的落点，见 §5；`actions.rs` 则本就无法从 domainless id 取目的地，需 `via`）。
+| **C-3** | 无域名 room ID 语法收敛（G-17..G-23、G-20） | ✅ **完成**（`6036c4cb8`/`b089e0323`/`16ee8208f`） | ✅ 语法：`synapse-common/src/room_id.rs`（单实现）+ 两个校验器委托；6 处联邦守卫改用 `is_well_formed_room_id`；`room_id.contains(':')` 生产代码 **0** 处（本轮复测）<br>✅ 本地性（G-21）：`b089e0323` `MembershipService::room_locality`<br>✅ DB CHECK 放宽为两形态（`16ee8208f`）+ 指纹 `16d86ee4035cd351`（顺带修掉 HEAD 上的既有红项）+ 真 DB 契约用例<br>⚠️ **本项验收判据之外的已知残留**（不是 C-3 的五条判据之一，故不影响本项 ✅）：`invite.rs:277` 的**兜底** event id 用 `split(':').next_back()`、`space/repository.rs:30` 用同一写法从父房间 id 取 server、`actions.rs:41` 从 room id 取 join 目的地。其中前两处在**父房间是 v12（domainless）输入**时会拼出 `$uuid:!xxx` / `!space_uuid:!xxx` 这类畸形 id（属于"合成房间"这条独立决策 Q3 的落点，见 §5；`actions.rs` 则本就无法从 domainless id 取目的地，需 `via`）。 |
 | **C-4** | 创建侧不写 `predecessor.event_id`；升级顺序反转 | ✅ **完成**（`10aecb7d3`） | v12+ 先建新房（派生 id）再 tombstone，`predecessor` 只含 `room_id`；v1–v11 保持原顺序与 `event_id`；新增 v11→v12 验收测试 |
 | **C-5** | `CreateRoomConfig.room_id` 逃逸口处置 | ✅ **完成**（`7489b247f`，随 G-1） | 字段 + `create_room` 预分配分支 + below-v12 升级分支全部删除；`create_room` 显式断言"可创建版本必须由 create 事件派生 id"。合成房间（server notice / space）**不用**该字段，故不受影响（Q3 仍另计） |
 | **D-1** | 规则 1.2：v12 create 带 `room_id` 则拒绝（无 `room_id` 时推导房间身份） | ✅ **完成**（`227a7228d`） | `validate_inbound_transaction_pdu` 接收 `room_version`/`event_id`：v12+ create 带 `room_id` 即拒、无则用 `room_id_from_create_event_id` 推导；5 单测 + 变异自证；联邦事务集成 14/14 |
@@ -580,7 +580,7 @@ unit 守卫（literal / ratio / tiebreak）41/41。
 - **分叉**（forward extremities > 1）⇒ 逐 extremity 沿 `prev_events` 求"事件处 state"
   （多父节点处递归到同一入口）→ `resolve_state_for_version_with_rules`（v12+ v2.1 / v1–v11 v2）
   → 结果整体回写为新 `state_groups`（+ `state_group_state` + `state_group_edges`
-  + `event_to_state_groups`）。
+  - `event_to_state_groups`）。
 - **有记录、无分叉** ⇒ 前向拷贝：新 group 携带**完整**状态（读路径只服务 group 自身的行，
   只写增量会让记录陈旧）。
 - **无分叉、无记录** ⇒ 无操作：房间继续走事件日志的时间戳推导 —— 与接线前**逐字相同**。
