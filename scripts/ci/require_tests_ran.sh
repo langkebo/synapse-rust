@@ -45,10 +45,21 @@ fi
 ANSI_ESC=$'\033'
 strip_ansi() { sed -E "s/${ANSI_ESC}\\[[0-9;]*[A-Za-z]//g"; }
 
+# ⚠️ 先**整份**剥色到一个变量，再对变量做匹配 —— 不要写成
+#   `strip_ansi <"$log" | grep -qE …`
+# `grep -q` 命中即退出（这正是"真的跑了测试"的那一次），上游 `sed` 随即收到 SIGPIPE；
+# `set -o pipefail` 于是把整条管道的状态变成 141 ⇒ `! pipeline` 为真 ⇒ 明明命中却被判
+# "ran ZERO tests"。触发条件是"日志大于一个管道缓冲（~64 KB）且命中出现在靠前处"——
+# 2026-09-30 CI 实测：`Gated modules actually run tests (D-25)` 的 **friend_room** 行
+# （113 个用例、带 `CARGO_TERM_COLOR=always` 的彩色输出）在两条 all-features 车道上
+# 都以 `this step ran ZERO tests` 红掉，而同一份日志里就有 `Starting 113 tests`。
+# 落到变量后 `grep` 读的是 here-string（没有上游写者）⇒ 不可能再 EPIPE。
+stripped="$(strip_ansi <"$log")"
+
 ran_zero=0
-if strip_ansi <"$log" | grep -qE '^[[:space:]]*test result: (ok|FAILED)\. 0 passed'; then
+if grep -qE '^[[:space:]]*test result: (ok|FAILED)\. 0 passed' <<<"$stripped"; then
     ran_zero=1
-elif ! strip_ansi <"$log" | grep -qE '(^[[:space:]]*test result: (ok|FAILED)\. [1-9][0-9]* passed|Starting [1-9][0-9]* tests)'; then
+elif ! grep -qE '(^[[:space:]]*test result: (ok|FAILED)\. [1-9][0-9]* passed|Starting [1-9][0-9]* tests)' <<<"$stripped"; then
     # 既看不到"0 passed"也看不到任何正数 —— 说明命令根本没跑测试框架
     # （例如目标名写错、被 feature 门控掉、或输出格式变了）。
     ran_zero=1

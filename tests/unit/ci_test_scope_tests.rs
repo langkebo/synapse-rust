@@ -368,6 +368,24 @@ fn require_tests_ran_sees_through_ansi_color() {
 
     let plain_ok = run(r#"printf 'test result: ok. 12 passed; 0 failed; 0 ignored\n'"#);
     assert!(plain_ok.status.success(), "无颜色的 `12 passed` 必须仍然绿：\n{}", combined(&plain_ok));
+
+    // ⚠️ 大数据量 + 命中出现在最前面。
+    //
+    // 旧实现是 `strip_ansi <"$log" | grep -qE …`：`grep -q` 命中即退出，上游 `sed` 收到
+    // SIGPIPE，而 `set -o pipefail` 会把整条管道的状态变成 141 ⇒ `! pipeline` 为真 ⇒
+    // **明明命中却被判 "ran ZERO tests"**。触发条件是"日志大于一个管道缓冲（~64 KB）且命中
+    // 靠前"——2026-09-30 CI 实测：`Gated modules actually run tests (D-25)` 的 **friend_room**
+    // 行（113 个用例、`CARGO_TERM_COLOR=always` 的彩色输出）在两条 all-features 车道上都
+    // 这样红，而同一份日志里就有 `Starting 113 tests`。本用例把那个形状钉住：4000 行输出、
+    // 命中在第 1 行，必须判绿。
+    let big_ok = run(
+        r#"printf '\033[32;1m    Starting\033[0m \033[1m113\033[0m tests across \033[1m9\033[0m binaries\n'; for i in $(seq 1 4000); do echo "        PASS [   0.010s] ( $i/113) synapse-storage friend_room::db_tests::case_$i"; done"#,
+    );
+    assert!(
+        big_ok.status.success(),
+        "大日志（超过一个管道缓冲）且命中在最前面时必须判绿（否则 sed 的 SIGPIPE 会被 pipefail 当成\"没跑测试\"）：\n{}",
+        combined(&big_ok)
+    );
 }
 
 /// Build Check 的 matrix 里有一个 **feature 列表为空**的车道（`core-matrix-min`，
