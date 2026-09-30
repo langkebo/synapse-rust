@@ -1033,3 +1033,65 @@ async fn test_search_directory_users_ranks_exactly_and_escapes_like_metacharacte
         let _ = storage.delete_user(&user_id).await;
     }
 }
+
+// =============================================================================
+// C69：`ensure_remote_user` 的真 baseline 往返（此前**零用例**）
+// =============================================================================
+
+/// 该方法是"联邦/服务通知遇到远端用户时补一行 `users`"的唯一入口（生产调用点：
+/// `synapse-services/src/room/membership/federation.rs:436`、
+/// `synapse-services/src/server_notification_service.rs:335`）。
+///
+/// C69 把它的 SQL 从**字面量动态调用**（`sqlx::query(r#"INSERT …"#)`，违反 R1、并让 literal 棘轮
+/// 从 36 涨到 37）改成 `sqlx::query!` —— 因此这里按 R8④ 补一条真 baseline 往返，
+/// 钉住三件事：① username 由 localpart 派生；② **幂等**（`ON CONFLICT DO NOTHING`：重复调用不报错、
+/// 不新增行、不覆盖已有行）；③ 没有 localpart 时 username 退回整个 user_id。
+#[tokio::test]
+async fn test_ensure_remote_user_derives_username_and_is_idempotent() {
+    let (_iso, pool) = test_pool().await;
+    let cache = test_cache();
+    let storage = UserStorage::new(&pool, cache);
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+
+    // ① 正常远端用户：localpart 派生 username
+    let remote = format!("@remote_{suffix}:other.example");
+    storage.ensure_remote_user(&remote).await.expect("ensure_remote_user should succeed");
+    let row = storage.get_user_by_id(&remote).await.expect("get_user_by_id").expect("远端用户必须已插入");
+    assert_eq!(row.username, format!("remote_{suffix}"), "username 必须由 localpart 派生");
+    assert!(row.created_ts > 0, "created_ts 必须被写入");
+    assert!(row.password_hash.is_none(), "远端用户不应有本地密码");
+
+    // ② 幂等：重复调用不报错、行数不变、已有行不被覆盖
+    storage.ensure_remote_user(&remote).await.expect("重复调用必须成功（ON CONFLICT DO NOTHING）");
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE user_id = $1")
+        .bind(&remote)
+        .fetch_one(&*pool)
+        .await
+        .expect("count");
+    assert_eq!(count, 1, "重复调用不得插入第二行");
+
+    // ③ 已存在的**本地**用户不得被远端补行覆盖（这是 ON CONFLICT DO NOTHING 的关键语义）
+    let local = format!("@local_{suffix}:example.com");
+    storage.create_user(&local, "localusername", Some("hash"), true).await.expect("create_user");
+    storage.ensure_remote_user(&local).await.expect("对已存在用户必须成功且不修改");
+    let untouched = storage.get_user_by_id(&local).await.expect("get_user_by_id").expect("本地用户仍在");
+    assert_eq!(untouched.username, "localusername", "不得改写已有 username");
+    assert_eq!(untouched.password_hash.as_deref(), Some("hash"), "不得清掉已有 password_hash");
+    assert!(untouched.is_admin, "不得降级已有 is_admin");
+
+    // ④ 畸形 user_id（没有 localpart）必须**失败**而不是插入脏行：`users` 上有
+    //    `ck_users_user_id_format CHECK (user_id ~ '^@[a-zA-Z0-9._=+./-]+:[a-zA-Z0-9.-]+$')`。
+    //    ⚠️ 这同时说明 `ensure_remote_user` 里 `unwrap_or(user_id)` 那条 username 兜底是
+    //    **defence-in-depth**（合法 user_id 走不到它），本用例把它钉成"fail-closed"而不是"能成功"。
+    let odd = format!("odduser{suffix}");
+    let error = storage.ensure_remote_user(&odd).await.expect_err("畸形 user_id 必须被 CHECK 约束拒绝");
+    assert!(
+        error.to_string().contains("ck_users_user_id_format") || error.to_string().contains("23514"),
+        "错误必须来自 user_id 格式约束，实际：{error}"
+    );
+    assert!(!storage.user_exists(&odd).await.expect("user_exists"), "失败后不得留下任何行");
+
+    for user_id in [&remote, &local] {
+        let _ = storage.delete_user(user_id).await;
+    }
+}

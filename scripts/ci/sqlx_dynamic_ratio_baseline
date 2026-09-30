@@ -3175,12 +3175,31 @@
 #   **R11 变异自证**：把 search 路径的 `types.types.as_deref()` 绑定换成 `None::<&[String]>`
 #   （= 类型过滤被忽略；只改绑定、不改 SQL 文本 ⇒ 离线缓存仍有效）⇒ 存储用例立刻红并打印
 #   `room_types=["m.space"] 只应返回被标记为空间的那条`（left 三条 / right 一条）；还原后绿。
+# ── 2026-09-30 C69（把 main 上已红的四道棘轮修回绿：修 1 处新字面量 + 收紧 2 个基线）──────
+#   背景（**并行分支合并留下的口径漂移**，不是我这批新写出来的缺陷）：main 在 0ac0a3456 上实测
+#     dynamic_production=104（>103）、static=1356（<1362）、literal=37（>36）⇒ `check_sqlx_dynamic_ratio.sh`
+#     与 `--test unit` 的两道守卫都红。两处来源：
+#     ① `synapse-storage/src/user/storage.rs::ensure_remote_user` 新增了**字面量动态调用**
+#        `sqlx::query(r#"INSERT INTO users …"#)`（违反 R1 ⇒ 同时抬高 literal 与 dynamic_production）；
+#     ② `synapse-storage/src/server_notification/repository.rs` 的 `sqlx::query!` 29 → 22（**合法删码**
+#        ⇒ static −7），但该分支没有同步收紧 static 基线；合并时基线取了我这条分支的值 ⇒ 树与基线不一致。
+#   处置：① `ensure_remote_user` ⇒ `sqlx::query!`（+ 按 R8④ 补真 baseline 往返，见下）；
+#        ② 两个基线**按实测收紧**：static 1362 → **1357**（1356 删码后 +1 新宏）、
+#           dynamic_test 756 → **757**（新增用例里的 `COUNT(*)` 探针；测试区按 R9 只能动态）。
+#   实测（修后）：`dynamic_production` 104 → **103**、`static` 1356 → **1357**、literal 37 → **36**
+#   （36 处全在已登记的结构性例外里）、`query_builder` 18、`.sqlx` 1322 → **1323**。
+#   R8④ 覆盖：`synapse-storage/src/user/db_tests.rs::
+#     test_ensure_remote_user_derives_username_and_is_idempotent`（隔离 schema；钉住 ①localpart 派生
+#     username ②幂等（`ON CONFLICT DO NOTHING` 不新增/不覆盖）③无 localpart 时退回 user_id
+#     ④不覆盖已存在本地用户的 username/password_hash/is_admin）。该方法此前**零用例**。
+#   ⚠️ 防复发：这类"树与基线不一致"只会在**跨分支合并**时出现 ⇒ 合并把两条线合到一起后，
+#     必须在新树上**重新实测四个数字**再收尾（本次即如此），不要沿用任一分支的旧基线。
 BASELINE_QUERY_BUILDER=18
 BASELINE_DYNAMIC_PRODUCTION=103
-BASELINE_DYNAMIC_TEST_INFRA=756
-BASELINE_STATIC=1362
+BASELINE_DYNAMIC_TEST_INFRA=757
+BASELINE_STATIC=1357
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=859
+BASELINE_DYNAMIC=860
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

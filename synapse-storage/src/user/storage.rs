@@ -315,14 +315,17 @@ impl UserStorage {
         // the full user_id when there is no localpart to extract.
         let username =
             user_id.strip_prefix('@').and_then(|u| u.split(':').next()).filter(|s| !s.is_empty()).unwrap_or(user_id);
-        sqlx::query(
+        // R1：这里是**字面量动态调用**（`sqlx::query("…")`）—— 静态化战役的 literal 棘轮会把它算作
+        // 新增的生产区字面量站点（2026-09-30 实测：literal 36 → 37、dynamic_production 103 → 104）。
+        // 改成编译期宏后，列名/类型/可空性都由真库 catalog 校验。
+        sqlx::query!(
             r#"INSERT INTO users (user_id, username, created_ts)
                VALUES ($1, $2, $3)
                ON CONFLICT (user_id) DO NOTHING"#,
+            user_id,
+            username,
+            now,
         )
-        .bind(user_id)
-        .bind(username)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
         Ok(())
