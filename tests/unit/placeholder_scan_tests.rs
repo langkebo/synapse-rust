@@ -153,9 +153,11 @@ fn run_python(script: &Path, args: &[&str]) {
 
 /// E8: the OpenAPI `route-table.json` generator must be byte-deterministic and
 /// its output shape pinned. The artifact itself is now regenerated and gated:
-/// `docs/openapi/route-table.json` holds **1049** routes (regenerated from a
-/// fresh default-feature export at `generated_at` 2026-09-16T00:00:00Z, the two
-/// previously-missing ungated routes being
+/// `docs/openapi/route-table.json` holds **1047** routes（2026-09-30 C74 重生成；
+/// 重生成前是 **1130** —— 又混入了 **83** 条非默认特性路由，与下面 2026-09-25 记录的那次
+/// 完全同型；详见本注释末尾的 2026-09-30 条目）。它来自
+/// 一次 fresh default-feature 导出（`generated_at` 2026-09-16T00:00:00Z），其中两条
+/// 早先缺失的无门控路由是
 /// `GET /_matrix/client/v3/auth/{auth_type}/fallback/web`
 /// (assembly::auth_compat) and `GET /_synapse/admin/v1/rate-limit-status`
 /// (admin::server)). The `openapi-artifact` job in `.github/workflows/ci.yml`
@@ -184,6 +186,15 @@ fn run_python(script: &Path, args: &[&str]) {
 /// - `scripts/api_test/ledger.json` uses the Docker feature set (1096 routes as
 ///   of 2026-09-25, when `export_ledger.sh` was unbroken) and is deliberately
 ///   **not** the route-table gate's source.
+///
+/// 2026-09-30（C74）第二次同型漂移与重生成：committed artifact 已是 **1130** 路由，
+/// 而 fresh default-feature 导出是 **1047** ⇒ 差值 83 恰好又是"非默认特性路由"
+/// （`/voice/*`（voice/voip 特性）、SAML/CAS 回调（`saml-sso`/`cas-sso`）等），同时含 2 条
+/// 新增的默认特性 admin 路由（`GET /_synapse/admin/info`、`GET /_synapse/admin/v1/account/{user_id}`）。
+/// CI 的 `openapi-artifact` 因此常红（`--check` 报 839 行差异）；按 CI 的同一条命令重生成后
+/// `--check` 与 `client.yaml --check` 双绿。**判据**：本文件的 route 数必须等于
+/// `cargo build --bin synapse_ledger_export` 的默认特性导出的 route 数（不是 all-features、
+/// 也不是 `ledger.json` 的 Docker 特性集）。
 #[test]
 fn test_route_table_generator_is_deterministic_and_shape_pinned() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
