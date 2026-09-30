@@ -614,9 +614,11 @@ impl MessagingService {
         pinned_event_ids: &[String],
     ) -> ApiResult<()> {
         let now = current_timestamp_millis();
-        // Placeholder event_id for legacy rooms. For v3+ rooms, GraphMetadataWriter
-        // will replace this with the reference-hash derived event_id.
-        let event_id = format!("${}$placeholder", now);
+        // Placeholder event_id：与 `send_message` 同因 —— 形状必须满足
+        // `events.ck_events_event_id_format`（legacy `$<millis>$<opaque>:<server>` 或 `$`+43 字符），
+        // 原来的 `$<millis>$placeholder` 两种都不匹配 ⇒ 真库上设置 pinned events 必撞 23514。
+        // 详见 `messages.rs` 里同一处修正的注释（C90）。
+        let event_id = synapse_common::generate_event_id(&self.server_name);
         self.create_event(
             CreateEventParams {
                 event_id,

@@ -30,9 +30,16 @@ impl MessagingService {
         let now = current_timestamp_millis();
         let now = next_event_ts(now, self.event_reader.get_max_origin_server_ts_for_room(room_id).await)?;
 
-        // Placeholder event_id for legacy rooms. For v3+ rooms, GraphMetadataWriter
-        // will replace this with the reference-hash derived event_id.
-        let event_id = format!("${}$placeholder", now);
+        // Placeholder event_id：v3+ 房间由 GraphMetadataWriter 用 reference hash 覆盖它，v1/v2 房间
+        // 也会被换成生成出来的 legacy id ⇒ 它只在**写入期间**短暂存在。
+        //
+        // ⚠️ 但它的**形状**必须满足 `events.ck_events_event_id_format`（真 schema 上的 CHECK），
+        // 该约束只接受两种形态：legacy `$<millis>$<opaque>:<server>` 或 reference hash
+        // `$` + 43 字符。原先写的是 `format!("${}$placeholder", now)`，**两种都不匹配** ⇒ 真库上
+        // 每次发消息都撞 23514，客户端只看到 `M_UNKNOWN: Failed to create event with graph metadata`
+        // （2026-09-30 C90 实测：该形状对两条正则分别为 `f|f`；`generate_event_id()` 的产物为 `t`，
+        // 且与建房创建事件的占位 id 同源 —— 见 `room/lifecycle/create_events.rs`）。
+        let event_id = synapse_common::generate_event_id(&self.server_name);
 
         #[allow(unused_variables, unused_mut)]
         let mut beacon_location_params = {
