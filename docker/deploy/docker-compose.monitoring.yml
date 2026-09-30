@@ -199,10 +199,14 @@ services:
     cpus: 0.5
     mem_limit: 128m
     ports:
+      # HTTP port (redirects to HTTPS)
       - "127.0.0.1:${NGINX_PROXY_PORT:-8081}:8081"
+      # HTTPS port
+      - "127.0.0.1:${NGINX_PROXY_HTTPS_PORT:-8443}:443"
     volumes:
       - ./nginx/prometheus.conf:/etc/nginx/conf.d/prometheus.conf:ro
       - ./nginx/auth/.htpasswd:/etc/nginx/.htpasswd:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
     depends_on:
       - synapse-prometheus
       - synapse-alertmanager

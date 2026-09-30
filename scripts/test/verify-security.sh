@@ -1,60 +1,70 @@
 #!/usr/bin/env bash
 #
-# 验证 Phase 4 安全加固
+# 验证 Phase 4 安全加固 (含 HTTPS)
 #
 set -euo pipefail
 
 BASE_URL="http://localhost:8081"
-PRO_PASS="SecurePassword123ChangeMe!" # 默认密码
+HTTPS_URL="https://localhost:8443"
+PRO_PASS="SecurePassword123ChangeMe!"  # 默认密码
 
 echo "=== Phase 4 安全加固验证 ==="
 echo ""
 
-echo "1. 测试无认证访问（应返回 401）..."
+echo "1. 测试无认证访问 HTTP(应返回 401 或 301)..."
 CODE=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/prometheus/")
-if [[ "${CODE}" == "401" ]]; then
-    echo "  ✅ Prometheus API 无认证访问被拒绝 (${CODE})"
+if [[ "${CODE}" == "401" ]] || [[ "${CODE}" == "301" ]]; then
+  echo "  ✅ HTTP 无认证访问被拒绝 (${CODE})"
 else
-    echo "  ❌ 预期 401，实际 ${CODE}"
-fi
-
-CODE=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/grafana/")
-if [[ "${CODE}" == "401" ]]; then
-    echo "  ✅ Grafana 无认证访问被拒绝 (${CODE})"
-else
-    echo "  ❌ 预期 401，实际 ${CODE}"
+  echo "  ❌ 预期 401/301，实际 ${CODE}"
 fi
 
 echo ""
-echo "2. 测试有认证访问（应返回 200）..."
-CODE=$(curl -s -o /dev/null -w "%{http_code}" -u "admin:${PRO_PASS}" "${BASE_URL}/prometheus/api/v1/query?query=up")
-if [[ "${CODE}" == "200" ]]; then
-    echo "  ✅ Prometheus API 认证访问正常 (${CODE})"
+echo "2. 测试 HTTPS 无认证访问 (应返回 401)..."
+CODE=$(curl -sk -o /dev/null -w "%{http_code}" "${HTTPS_URL}/prometheus/")
+if [[ "${CODE}" == "401" ]]; then
+  echo "  ✅ HTTPS 无认证访问被拒绝 (${CODE})"
 else
-    echo "  ❌ 预期 200，实际 ${CODE}"
+  echo "  ❌ 预期 401，实际 ${CODE}"
 fi
 
-CODE=$(curl -s -o /dev/null -w "%{http_code}" -u "admin:${PRO_PASS}" "${BASE_URL}/grafana/")
+CODE=$(curl -sk -o /dev/null -w "%{http_code}" "${HTTPS_URL}/grafana/")
+if [[ "${CODE}" == "401" ]]; then
+  echo "  ✅ Grafana 无认证访问被拒绝 (${CODE})"
+else
+  echo "  ❌ 预期 401，实际 ${CODE}"
+fi
+
+echo ""
+echo "3. 测试 HTTPS 有认证访问 (应返回 200)..."
+CODE=$(curl -sk -o /dev/null -w "%{http_code}" -u "admin:${PRO_PASS}" "${HTTPS_URL}/prometheus/api/v1/query?query=up")
+if [[ "${CODE}" == "200" ]]; then
+  echo "  ✅ Prometheus API 认证访问正常 (${CODE})"
+else
+  echo "  ❌ 预期 200，实际 ${CODE}"
+fi
+
+CODE=$(curl -sk -o /dev/null -w "%{http_code}" -u "admin:${PRO_PASS}" "${HTTPS_URL}/grafana/")
 if [[ "${CODE}" == "200" ]] || [[ "${CODE}" == "302" ]]; then
-    echo "  ✅ Grafana 认证访问正常 (${CODE})"
+  echo "  ✅ Grafana 认证访问正常 (${CODE})"
 else
-    echo "  ❌ 预期 200 或 302，实际 ${CODE}"
+  echo "  ❌ 预期 200 或 302，实际 ${CODE}"
 fi
 
 echo ""
-echo "3. 验证直接端口访问（应被限制在 127.0.0.1）..."
-CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:9092/")
+echo "4. 测试 HTTP 自动重定向 (应返回 301)..."
+CODE=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/nginx-health")
 if [[ "${CODE}" == "200" ]]; then
-    echo "  ✅ Prometheus 回环端口 9092 可访问"
+  echo "  ✅ 健康检查绕过重定向 (${CODE})"
 else
-    echo "  ⚠️  Prometheus 回环端口不可用 (${CODE})"
+  echo "  ❌ 预期 200，实际 ${CODE}"
 fi
 
-CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:3000/")
-if [[ "${CODE}" == "200" ]]; then
-    echo "  ✅ Grafana 回环端口 3000 可访问"
+CODE=$(curl -sI "${BASE_URL}/prometheus/" | head -1 | grep -o "301" || true)
+if [[ "${CODE}" == "301" ]]; then
+  echo "  ✅ HTTP 自动重定向到 HTTPS (301)"
 else
-    echo "  ⚠️  Grafana 回环端口不可用 (${CODE})"
+  echo "  ⚠️  HTTP 未重定向"
 fi
 
 echo ""
@@ -62,5 +72,5 @@ echo "=== 验证完成 ==="
 echo ""
 echo "下一步:"
 echo "1. 修改默认密码：./docker/deploy/nginx/generate_htpasswd.sh admin your_secure_password"
-echo "2. 重启 nginx-proxy：docker compose -f docker/docker-compose.monitoring.yml up -d nginx-proxy"
-echo "3. 生产环境配置 HTTPS（参考 docs/monitoring/nginx-security.md）"
+echo "2. 重启 nginx-proxy: docker compose -f docker/docker-compose.monitoring.yml up -d nginx-proxy"
+echo "3. 生产环境部署 CA 证书：cp docker/deploy/nginx/certs/ca.crt /etc/ssl/certs/"
