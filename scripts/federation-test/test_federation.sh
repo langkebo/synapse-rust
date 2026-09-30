@@ -51,10 +51,13 @@ NC='\033[0m'
 
 FAILURES=0
 
-log()     { printf "${COLOR_BLUE}[INFO]${NC} %s\n" "$*"; }
+log() { printf "${COLOR_BLUE}[INFO]${NC} %s\n" "$*"; }
 success() { printf "${COLOR_GREEN}[✓]${NC} %s\n" "$*"; }
-warn()    { printf "${COLOR_YELLOW}[WARN]${NC} %s\n" "$*"; }
-error()   { printf "${COLOR_RED}[✗]${NC} %s\n" "$*" >&2; FAILURES=$((FAILURES + 1)); }
+warn() { printf "${COLOR_YELLOW}[WARN]${NC} %s\n" "$*"; }
+error() {
+    printf "${COLOR_RED}[✗]${NC} %s\n" "$*" >&2
+    FAILURES=$((FAILURES + 1))
+}
 
 mkdir -p "$ARTIFACT_DIR"
 
@@ -73,8 +76,14 @@ check_health() {
     return 1
 }
 
-check_health "Synapse-A" "$SYNAPSE_A_BASE" || { error "Synapse-A unreachable, aborting"; exit 1; }
-check_health "Synapse-B" "$SYNAPSE_B_BASE" || { error "Synapse-B unreachable, aborting"; exit 1; }
+check_health "Synapse-A" "$SYNAPSE_A_BASE" || {
+    error "Synapse-A unreachable, aborting"
+    exit 1
+}
+check_health "Synapse-B" "$SYNAPSE_B_BASE" || {
+    error "Synapse-B unreachable, aborting"
+    exit 1
+}
 
 echo ""
 
@@ -102,8 +111,8 @@ register_user() {
 
     # mac = HMAC-SHA256(shared_secret, nonce \0 username \0 password \0 ("admin\0\0\0"|"notadmin"))
     local mac
-    mac=$(printf '%s\0%s\0%s\0admin\0\0\0' "$nonce" "$username" "$password" \
-        | openssl dgst -sha256 -hmac "$secret" -r | awk '{print $1}')
+    mac=$(printf '%s\0%s\0%s\0admin\0\0\0' "$nonce" "$username" "$password" |
+        openssl dgst -sha256 -hmac "$secret" -r | awk '{print $1}')
 
     local response
     response=$(curl -s -X POST "$base_url/_synapse/admin/v1/register" \
@@ -141,8 +150,8 @@ login_user() {
     local base_url="$1" username="$2" password="$3"
     curl -s -X POST "$base_url/_matrix/client/v3/login" \
         -H "Content-Type: application/json" \
-        -d "{\"type\":\"m.login.password\",\"identifier\":{\"type\":\"m.id.user\",\"user\":\"$username\"},\"password\":\"$password\"}" \
-        | jq -r '.access_token // empty'
+        -d "{\"type\":\"m.login.password\",\"identifier\":{\"type\":\"m.id.user\",\"user\":\"$username\"},\"password\":\"$password\"}" |
+        jq -r '.access_token // empty'
 }
 
 TOKEN_A=$(login_user "$SYNAPSE_A_BASE" "$USER_A" "$PASSWORD_A")
@@ -277,13 +286,13 @@ log "  Room:      ${ROOM_ID:-<none>}"
 log "  Artifacts: $ARTIFACT_DIR/"
 log ""
 
-cat > "$ARTIFACT_DIR/federation_join_result.json" << EOF
+cat >"$ARTIFACT_DIR/federation_join_result.json" <<EOF
 {
     "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
     "room_id": "$ROOM_ID",
     "room_alias": "#$ROOM_ALIAS:$SERVER_A",
     "federated_join_ok": $FEDERATION_JOIN_OK,
-    "message_sent": $( [[ -n "$EVENT_ID" ]] && echo true || echo false ),
+    "message_sent": $([[ -n "$EVENT_ID" ]] && echo true || echo false),
     "message_event_id": "$EVENT_ID",
     "message_body": "$MESSAGE_BODY",
     "message_received_on_b": $FEDERATION_MESSAGE_OK,

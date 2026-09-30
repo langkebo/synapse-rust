@@ -46,6 +46,7 @@ Fixture shape (see tests/interop/fixtures/README.md):
       "pdu": { … }                     # exactly what we would send (no event_id for v3+)
     }
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -90,7 +91,9 @@ def main() -> None:
     if int(room_version_str) >= 3:
         for forbidden in ("event_id", "user_id"):
             if forbidden in pdu:
-                _fail(f"v{room_version_str} PDU must not contain {forbidden!r}: {pdu.get(forbidden)!r}")
+                _fail(
+                    f"v{room_version_str} PDU must not contain {forbidden!r}: {pdu.get(forbidden)!r}"
+                )
 
     # ── 1. content hash ─────────────────────────────────────────────────────
     name, digest = compute_content_hash(dict(pdu), hashlib.sha256)
@@ -106,14 +109,20 @@ def main() -> None:
         redacted.pop(drop, None)
     reference = hashlib.sha256(encode_canonical_json(redacted)).digest()
     # v3 used the standard Base64 alphabet; v4+ the URL-safe one (spec room v4).
-    upstream_event_id = "$" + encode_base64(reference, urlsafe=int(room_version_str) >= 4)
+    upstream_event_id = "$" + encode_base64(
+        reference, urlsafe=int(room_version_str) >= 4
+    )
     if upstream_event_id != claimed_event_id:
-        _fail(f"event id mismatch: upstream={upstream_event_id} ours={claimed_event_id}")
+        _fail(
+            f"event id mismatch: upstream={upstream_event_id} ours={claimed_event_id}"
+        )
     print(f"OK   event id      {claimed_event_id}")
 
     # ── 3. signature over the redacted event ────────────────────────────────
     algorithm, _, version = fixture["signing_key_id"].partition(":")
-    signing_key = decode_signing_key_base64(algorithm, version, fixture["signing_seed_base64"])
+    signing_key = decode_signing_key_base64(
+        algorithm, version, fixture["signing_seed_base64"]
+    )
     verify_key = get_verify_key(signing_key)
     to_verify = redact_event_dict(room_version, dict(pdu))
     for drop in ("unsigned", "age_ts"):
@@ -133,27 +142,37 @@ def main() -> None:
     # it must reject.
     if room_version.msc4291_room_ids_as_hashes and pdu.get("type") == "m.room.create":
         if "room_id" in pdu:
-            _fail(f"a v12 m.room.create PDU must not carry `room_id` (MSC4291): {pdu['room_id']!r}")
+            _fail(
+                f"a v12 m.room.create PDU must not carry `room_id` (MSC4291): {pdu['room_id']!r}"
+            )
 
         derived_room_id = "!" + claimed_event_id[1:]
         recorded = fixture.get("derived_room_id")
         if recorded is not None and recorded != derived_room_id:
-            _fail(f"fixture records derived_room_id={recorded!r} but `!` + event_id[1:] is {derived_room_id!r}")
+            _fail(
+                f"fixture records derived_room_id={recorded!r} but `!` + event_id[1:] is {derived_room_id!r}"
+            )
 
         try:
             create_event = event_from_pdu_json(dict(pdu), room_version)
         except (AuthError, SynapseError) as error:
             _fail(f"upstream cannot build our v12 create PDU: {error}")
         if create_event.room_id != derived_room_id:
-            _fail(f"upstream derived room_id {create_event.room_id!r}, we say {derived_room_id!r}")
+            _fail(
+                f"upstream derived room_id {create_event.room_id!r}, we say {derived_room_id!r}"
+            )
         if create_event.event_id != claimed_event_id:
-            _fail(f"upstream derived event id {create_event.event_id!r}, we say {claimed_event_id!r}")
+            _fail(
+                f"upstream derived event id {create_event.event_id!r}, we say {claimed_event_id!r}"
+            )
 
         try:
             _check_create(create_event)
         except (AuthError, SynapseError) as error:
             _fail(f"upstream _check_create rejects our v12 create PDU: {error}")
-        print(f"OK   v12 create    upstream accepts it and derives room id {derived_room_id}")
+        print(
+            f"OK   v12 create    upstream accepts it and derives room id {derived_room_id}"
+        )
 
         # The negative case A-3 requires: even the *correct* room ID is illegal as
         # a field on a v12 create event.
@@ -162,7 +181,9 @@ def main() -> None:
         try:
             _check_create(event_from_pdu_json(illegal, room_version))
         except (AuthError, SynapseError) as error:
-            print(f"OK   v12 create    a create carrying `room_id` is rejected ({type(error).__name__})")
+            print(
+                f"OK   v12 create    a create carrying `room_id` is rejected ({type(error).__name__})"
+            )
         else:
             _fail("upstream accepted a v12 create event that carries a `room_id`")
 
@@ -185,11 +206,17 @@ def main() -> None:
         try:
             event_from_pdu_json(with_create, room_version)
         except (AuthError, SynapseError) as error:
-            print(f"OK   v12 auth_events  naming the create event is rejected ({type(error).__name__})")
+            print(
+                f"OK   v12 auth_events  naming the create event is rejected ({type(error).__name__})"
+            )
         else:
-            _fail("upstream accepted a v12 PDU whose `auth_events` names the create event")
+            _fail(
+                "upstream accepted a v12 PDU whose `auth_events` names the create event"
+            )
 
-    print(f"PASS {fixture_path}: upstream Synapse accepts this PDU's hash, event id and signature")
+    print(
+        f"PASS {fixture_path}: upstream Synapse accepts this PDU's hash, event id and signature"
+    )
 
 
 if __name__ == "__main__":

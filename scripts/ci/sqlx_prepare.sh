@@ -197,7 +197,7 @@ fi
 after="$(count_entries)"
 if [[ "${after}" -lt "${before}" ]]; then
     removed="$(comm -23 <(cd "$snapshot" && ls query-*.json | LC_ALL=C sort) \
-                        <(cd "${CACHE_DIR}" && ls query-*.json | LC_ALL=C sort))"
+        <(cd "${CACHE_DIR}" && ls query-*.json | LC_ALL=C sort))"
     if [[ "${ALLOW_CACHE_SHRINK:-0}" != "1" ]]; then
         restore_cache
         {

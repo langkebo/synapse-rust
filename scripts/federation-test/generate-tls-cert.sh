@@ -3,7 +3,7 @@
 # scripts/federation-test/generate-tls-cert.sh
 #
 # 生成联邦测试所需的 TLS 证书
-# 
+#
 # 用途:
 #   - 为两个 Synapse 实例生成自签名证书
 #   - 创建 CA 根证书
@@ -94,7 +94,7 @@ success "Synapse-B certificate generated: $CERT_DIR/synapse-b.crt"
 # ─────────────────────────────────────────────────────────────────────────────
 log "Step 3: Generating hosts configuration..."
 
-cat > "$HOSTS_FILE" << EOF
+cat >"$HOSTS_FILE" <<EOF
 # =============================================================================
 # Federation Test Hosts Configuration
 # =============================================================================

@@ -47,7 +47,7 @@ error() {
 }
 
 usage() {
-    cat << EOF
+    cat <<EOF
 Usage: $0 [OPTIONS]
 
 Options:
@@ -91,7 +91,7 @@ while [[ $# -gt 0 ]]; do
             DRY_RUN=true
             shift
             ;;
-        -h|--help)
+        -h | --help)
             usage
             exit 0
             ;;
@@ -119,12 +119,12 @@ log "Step 1: Stopping existing containers..."
 stop_containers() {
     local name_prefix="$1"
     local compose_file="$2"
-    
+
     if [[ "$DRY_RUN" == "true" ]]; then
         log "[DRY-RUN] Would run: cd $(dirname "$compose_file") && docker compose -f $(basename "$compose_file") down -v"
         return
     fi
-    
+
     cd "$(dirname "$compose_file")"
     if docker compose -f "$(basename "$compose_file")" ps 2>/dev/null | grep -q "$name_prefix"; then
         log "Stopping $(basename "$compose_file") stack..."
@@ -175,7 +175,7 @@ else
         docker rmi synapse-rust:latest --force || true
         success "Removed synapse-rust:latest"
     fi
-    
+
     # Prune unused images (optional, can be slow)
     warn "Pruning unused Docker images (this may take a while)..."
     docker image prune -f --filter "until=24h" || true
@@ -202,7 +202,7 @@ else
         mkdir -p "$DATA_A"
         success "Cleaned synapse-a data directory"
     fi
-    
+
     if [[ "$CLEAN_B" == "true" && -d "$DATA_B" ]]; then
         rm -rf "$DATA_B"
         mkdir -p "$DATA_B"
@@ -222,13 +222,13 @@ if [[ "$DRY_RUN" == "true" ]]; then
 else
     cd "$DOCKER_DIR"
     log "Building synapse-rust image (this may take 5-10 minutes)..."
-    
+
     # Build with minimal features to speed up (can be adjusted)
     DOCKER_CARGO_FEATURE_ARGS="--features core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends --no-default-features" \
-    docker compose build synapse-rust || {
+        docker compose build synapse-rust || {
         error "Failed to build Docker image. Check the build output above."
     }
-    
+
     success "Docker image built successfully"
 fi
 
@@ -244,7 +244,7 @@ if [[ "$DRY_RUN" == "true" ]]; then
 else
     # Generate keys for instance A
     if [[ "$CLEAN_A" == "true" ]]; then
-        if ! command -v openssl &> /dev/null; then
+        if ! command -v openssl &>/dev/null; then
             warn "openssl not found. Using placeholder key for instance A"
             FED_KEY_A="ed25519 placeholder_for_testing_only_do_not_use_in_production"
         else
@@ -252,10 +252,10 @@ else
         fi
         log "Instance A federation key generated"
     fi
-    
-    # Generate keys for instance B  
+
+    # Generate keys for instance B
     if [[ "$CLEAN_B" == "true" ]]; then
-        if ! command -v openssl &> /dev/null; then
+        if ! command -v openssl &>/dev/null; then
             warn "openssl not found. Using placeholder key for instance B"
             FED_KEY_B="ed25519 placeholder_for_testing_only_do_not_use_in_production"
         else
@@ -280,7 +280,7 @@ if [[ "$DRY_RUN" == "true" ]]; then
 else
     # Create .env.a
     if [[ "$CLEAN_A" == "true" ]]; then
-        cat > "$ENV_FILE_A" << EOF
+        cat >"$ENV_FILE_A" <<EOF
 # Synapse-A Environment
 COMPOSE_PROJECT_NAME=synapse-federation-test-a
 SYNAPSE_IMAGE=synapse-rust
@@ -306,10 +306,10 @@ TZ=UTC
 EOF
         success "Created .env.a"
     fi
-    
+
     # Create .env.b
     if [[ "$CLEAN_B" == "true" ]]; then
-        cat > "$ENV_FILE_B" << EOF
+        cat >"$ENV_FILE_B" <<EOF
 # Synapse-B Environment
 COMPOSE_PROJECT_NAME=synapse-federation-test-b
 SYNAPSE_IMAGE=synapse-rust
@@ -349,25 +349,25 @@ start_instance() {
     local compose_file="$2"
     local env_file="$3"
     local port="$4"
-    
+
     if [[ "$DRY_RUN" == "true" ]]; then
         log "[DRY-RUN] Would start: cd $(dirname "$compose_file") && COMPOSE_PROFILES=$name_prefix docker compose -f $(basename "$compose_file") --env-file $(basename "$env_file") up -d"
         return
     fi
-    
+
     cd "$(dirname "$compose_file")"
     log "Starting $name_prefix on port $port..."
-    
+
     # Build fresh image first
     docker compose build
-    
+
     # Start services
     docker compose --env-file "$(basename "$env_file")" -f "$(basename "$compose_file")" up -d --force-recreate
-    
+
     # Wait for health check
     log "Waiting for $name_prefix to become healthy..."
     sleep 30
-    
+
     # Check health
     if curl -s "http://localhost:$port/_matrix/client/versions" >/dev/null 2>&1; then
         success "$name_prefix is healthy on port $port"

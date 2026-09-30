@@ -511,7 +511,11 @@ def _apply_rename_all(name: str, rule: str) -> str:
     if rule == "UPPERCASE":
         return name.upper()
     if rule == "camelCase":
-        return parts[0] + "".join(p[:1].upper() + p[1:] for p in parts[1:]) if parts else name
+        return (
+            parts[0] + "".join(p[:1].upper() + p[1:] for p in parts[1:])
+            if parts
+            else name
+        )
     if rule == "PascalCase":
         return "".join(p[:1].upper() + p[1:] for p in parts) if parts else name
     if rule == "kebab-case":
@@ -729,7 +733,6 @@ def parse_use_tree(text: str, prefix=None) -> list:
     if name == "*":
         return [(prefix + parts[:-1], "*", None)]
     return [(prefix + parts[:-1], name, alias or name)]
-
 
 
 # --------------------------------------------------------------------------
@@ -978,7 +981,9 @@ def parse_query_param_list(value: str, where: str) -> list:
     if not value:
         raise SystemExit(f"{where}: query_params must not be empty")
     if value.startswith(",") or value.endswith(","):
-        raise SystemExit(f"{where}: query_params has a leading/trailing comma: {value!r}")
+        raise SystemExit(
+            f"{where}: query_params has a leading/trailing comma: {value!r}"
+        )
     names = value.split(",")
     for name in names:
         if not name or not _QUERY_PARAM_NAME.fullmatch(name):
@@ -1084,132 +1089,290 @@ def load_ledger_annotations() -> dict:
 # golden test `route_ledger::tests::rate_limit_exempt_surface_matches_ledger`.
 EXPECTED_ANNOTATIONS = {
     ("DELETE", "/_matrix/client/v1/room_keys/keys"): {"query_params": "version"},
-    ("DELETE", "/_matrix/client/v1/room_keys/keys/{room_id}"): {"query_params": "version"},
-    ("DELETE", "/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}"): {"query_params": "version"},
+    ("DELETE", "/_matrix/client/v1/room_keys/keys/{room_id}"): {
+        "query_params": "version"
+    },
+    ("DELETE", "/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}"): {
+        "query_params": "version"
+    },
     ("DELETE", "/_matrix/client/v3/room_keys/keys"): {"query_params": "version"},
-    ("DELETE", "/_matrix/client/v3/room_keys/keys/{room_id}"): {"query_params": "version"},
-    ("DELETE", "/_matrix/client/v3/room_keys/keys/{room_id}/{session_id}"): {"query_params": "version"},
+    ("DELETE", "/_matrix/client/v3/room_keys/keys/{room_id}"): {
+        "query_params": "version"
+    },
+    ("DELETE", "/_matrix/client/v3/room_keys/keys/{room_id}/{session_id}"): {
+        "query_params": "version"
+    },
     ("GET", "/_matrix/admin/v1/external_services"): {"query_params": "service_type"},
-    ("GET", "/_matrix/client/unstable/org.matrix.msc4155/rooms/{room_id}/threads"): {"query_params": "from,include_all,limit"},
-    ("GET", "/_matrix/client/unstable/org.matrix.msc4156/threads/subscribed"): {"query_params": "from,include_all,limit"},
-    ("GET", "/_matrix/client/v1/friends"): {"query_params": "from,limit,offset,sort_by"},
-    ("GET", "/_matrix/client/v1/friends/search"): {"query_params": "limit,mode,q,query"},
+    ("GET", "/_matrix/client/unstable/org.matrix.msc4155/rooms/{room_id}/threads"): {
+        "query_params": "from,include_all,limit"
+    },
+    ("GET", "/_matrix/client/unstable/org.matrix.msc4156/threads/subscribed"): {
+        "query_params": "from,include_all,limit"
+    },
+    ("GET", "/_matrix/client/v1/friends"): {
+        "query_params": "from,limit,offset,sort_by"
+    },
+    ("GET", "/_matrix/client/v1/friends/search"): {
+        "query_params": "limit,mode,q,query"
+    },
     ("GET", "/_matrix/client/v1/friends/suggestions"): {"query_params": "limit"},
     ("GET", "/_matrix/client/v1/room_keys/keys"): {"query_params": "version"},
     ("GET", "/_matrix/client/v1/room_keys/keys/{room_id}"): {"query_params": "version"},
-    ("GET", "/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}"): {"query_params": "version"},
-    ("GET", "/_matrix/client/v1/room_keys/request"): {"query_params": "from,limit,room_id,session_id,status"},
-    ("GET", "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}"): {"query_params": "dir,from,limit,to"},
-    ("GET", "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}"): {"query_params": "dir,from,limit,to"},
-    ("GET", "/_matrix/client/v1/rooms/{room_id}/threads"): {"query_params": "from,include_all,limit"},
-    ("GET", "/_matrix/client/v1/rooms/{room_id}/threads/search"): {"query_params": "limit,q"},
-    ("GET", "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}"): {"query_params": "include_replies,reply_limit"},
-    ("GET", "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies"): {"query_params": "from,include_all,limit"},
+    ("GET", "/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}"): {
+        "query_params": "version"
+    },
+    ("GET", "/_matrix/client/v1/room_keys/request"): {
+        "query_params": "from,limit,room_id,session_id,status"
+    },
+    ("GET", "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}"): {
+        "query_params": "dir,from,limit,to"
+    },
+    ("GET", "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}"): {
+        "query_params": "dir,from,limit,to"
+    },
+    ("GET", "/_matrix/client/v1/rooms/{room_id}/threads"): {
+        "query_params": "from,include_all,limit"
+    },
+    ("GET", "/_matrix/client/v1/rooms/{room_id}/threads/search"): {
+        "query_params": "limit,q"
+    },
+    ("GET", "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}"): {
+        "query_params": "include_replies,reply_limit"
+    },
+    ("GET", "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies"): {
+        "query_params": "from,include_all,limit"
+    },
     ("GET", "/_matrix/client/v1/spaces/public"): {"query_params": "from,limit"},
-    ("GET", "/_matrix/client/v1/spaces/search"): {"query_params": "limit,query,search_term"},
+    ("GET", "/_matrix/client/v1/spaces/search"): {
+        "query_params": "limit,query,search_term"
+    },
     ("GET", "/_matrix/client/v1/spaces/statistics"): {"query_params": "limit"},
-    ("GET", "/_matrix/client/v1/spaces/{space_id}/hierarchy"): {"query_params": "max_depth"},
-    ("GET", "/_matrix/client/v1/spaces/{space_id}/hierarchy/v1"): {"query_params": "from,limit,max_depth,suggested_only"},
-    ("GET", "/_matrix/client/v1/spaces/{space_id}/members"): {"query_params": "from,limit"},
-    ("GET", "/_matrix/client/v1/spaces/{space_id}/rooms"): {"query_params": "from,limit"},
+    ("GET", "/_matrix/client/v1/spaces/{space_id}/hierarchy"): {
+        "query_params": "max_depth"
+    },
+    ("GET", "/_matrix/client/v1/spaces/{space_id}/hierarchy/v1"): {
+        "query_params": "from,limit,max_depth,suggested_only"
+    },
+    ("GET", "/_matrix/client/v1/spaces/{space_id}/members"): {
+        "query_params": "from,limit"
+    },
+    ("GET", "/_matrix/client/v1/spaces/{space_id}/rooms"): {
+        "query_params": "from,limit"
+    },
     ("GET", "/_matrix/client/v1/threads"): {"query_params": "from,include_all,limit"},
-    ("GET", "/_matrix/client/v1/threads/subscribed"): {"query_params": "from,include_all,limit"},
+    ("GET", "/_matrix/client/v1/threads/subscribed"): {
+        "query_params": "from,include_all,limit"
+    },
     ("GET", "/_matrix/client/v3/appservice/alias"): {"query_params": "alias"},
     ("GET", "/_matrix/client/v3/appservice/user"): {"query_params": "user_id"},
-    ("GET", "/_matrix/client/v3/friends"): {"query_params": "from,limit,offset,sort_by"},
-    ("GET", "/_matrix/client/v3/friends/search"): {"query_params": "limit,mode,q,query"},
+    ("GET", "/_matrix/client/v3/friends"): {
+        "query_params": "from,limit,offset,sort_by"
+    },
+    ("GET", "/_matrix/client/v3/friends/search"): {
+        "query_params": "limit,mode,q,query"
+    },
     ("GET", "/_matrix/client/v3/keys/history"): {"query_params": "from,limit"},
-    ("GET", "/_matrix/client/v3/login/saml/callback"): {"query_params": "RelayState,SAMLRequest,SAMLResponse,relay_state,saml_request,saml_response"},
-    ("GET", "/_matrix/client/v3/login/sso/redirect"): {"query_params": "redirectUrl,redirect_url"},
-    ("GET", "/_matrix/client/v3/login/sso/redirect/cas"): {"query_params": "redirect_after"},
-    ("GET", "/_matrix/client/v3/login/sso/redirect/saml"): {"query_params": "redirectUrl,redirect_url"},
-    ("GET", "/_matrix/client/v3/logout/saml/callback"): {"query_params": "RelayState,SAMLRequest,SAMLResponse,relay_state,saml_request,saml_response"},
-    ("GET", "/_matrix/client/v3/oidc/authorize"): {"query_params": "client_id,nonce,redirect_uri,response_type,scope,state"},
-    ("GET", "/_matrix/client/v3/oidc/callback"): {"query_params": "code,error,error_description,state"},
-    ("GET", "/_matrix/client/v3/register/captcha/status"): {"query_params": "captcha_id"},
+    ("GET", "/_matrix/client/v3/login/saml/callback"): {
+        "query_params": "RelayState,SAMLRequest,SAMLResponse,relay_state,saml_request,saml_response"
+    },
+    ("GET", "/_matrix/client/v3/login/sso/redirect"): {
+        "query_params": "redirectUrl,redirect_url"
+    },
+    ("GET", "/_matrix/client/v3/login/sso/redirect/cas"): {
+        "query_params": "redirect_after"
+    },
+    ("GET", "/_matrix/client/v3/login/sso/redirect/saml"): {
+        "query_params": "redirectUrl,redirect_url"
+    },
+    ("GET", "/_matrix/client/v3/logout/saml/callback"): {
+        "query_params": "RelayState,SAMLRequest,SAMLResponse,relay_state,saml_request,saml_response"
+    },
+    ("GET", "/_matrix/client/v3/oidc/authorize"): {
+        "query_params": "client_id,nonce,redirect_uri,response_type,scope,state"
+    },
+    ("GET", "/_matrix/client/v3/oidc/callback"): {
+        "query_params": "code,error,error_description,state"
+    },
+    ("GET", "/_matrix/client/v3/register/captcha/status"): {
+        "query_params": "captcha_id"
+    },
     ("GET", "/_matrix/client/v3/room_keys/keys"): {"query_params": "version"},
     ("GET", "/_matrix/client/v3/room_keys/keys/{room_id}"): {"query_params": "version"},
-    ("GET", "/_matrix/client/v3/room_keys/keys/{room_id}/{session_id}"): {"query_params": "version"},
-    ("GET", "/_matrix/client/v3/room_keys/request"): {"query_params": "from,limit,room_id,session_id,status"},
+    ("GET", "/_matrix/client/v3/room_keys/keys/{room_id}/{session_id}"): {
+        "query_params": "version"
+    },
+    ("GET", "/_matrix/client/v3/room_keys/request"): {
+        "query_params": "from,limit,room_id,session_id,status"
+    },
     ("GET", "/_matrix/client/v3/rooms/{room_id}/ephemeral"): {"query_params": "limit"},
-    ("GET", "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}"): {"query_params": "dir,from,limit,to"},
-    ("GET", "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}"): {"query_params": "dir,from,limit,to"},
-    ("GET", "/_matrix/client/v3/rooms/{room_id}/sync"): {"query_params": "full_state,since,timeout"},
+    ("GET", "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}"): {
+        "query_params": "dir,from,limit,to"
+    },
+    ("GET", "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}"): {
+        "query_params": "dir,from,limit,to"
+    },
+    ("GET", "/_matrix/client/v3/rooms/{room_id}/sync"): {
+        "query_params": "full_state,since,timeout"
+    },
     ("GET", "/_matrix/client/v3/spaces/public"): {"query_params": "from,limit"},
-    ("GET", "/_matrix/client/v3/spaces/search"): {"query_params": "limit,query,search_term"},
+    ("GET", "/_matrix/client/v3/spaces/search"): {
+        "query_params": "limit,query,search_term"
+    },
     ("GET", "/_matrix/client/v3/spaces/statistics"): {"query_params": "limit"},
-    ("GET", "/_matrix/client/v3/spaces/{space_id}/hierarchy"): {"query_params": "max_depth"},
-    ("GET", "/_matrix/client/v3/spaces/{space_id}/hierarchy/v1"): {"query_params": "from,limit,max_depth,suggested_only"},
-    ("GET", "/_matrix/client/v3/spaces/{space_id}/members"): {"query_params": "from,limit"},
-    ("GET", "/_matrix/client/v3/spaces/{space_id}/rooms"): {"query_params": "from,limit"},
+    ("GET", "/_matrix/client/v3/spaces/{space_id}/hierarchy"): {
+        "query_params": "max_depth"
+    },
+    ("GET", "/_matrix/client/v3/spaces/{space_id}/hierarchy/v1"): {
+        "query_params": "from,limit,max_depth,suggested_only"
+    },
+    ("GET", "/_matrix/client/v3/spaces/{space_id}/members"): {
+        "query_params": "from,limit"
+    },
+    ("GET", "/_matrix/client/v3/spaces/{space_id}/rooms"): {
+        "query_params": "from,limit"
+    },
     ("GET", "/_matrix/client/v3/sync"): {"rate_limit_exempt": True},
-    ("GET", "/_matrix/client/v3/thirdparty/location"): {"query_params": "alias,channel,search,server"},
-    ("GET", "/_matrix/client/v3/thirdparty/location/{protocol}"): {"query_params": "alias,channel,search,server"},
-    ("GET", "/_matrix/client/v3/thirdparty/user"): {"query_params": "nickname,search,server,userid"},
-    ("GET", "/_matrix/client/v3/thirdparty/user/{protocol}"): {"query_params": "nickname,search,server,userid"},
-    ("GET", "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads"): {"query_params": "from,include_all,limit"},
+    ("GET", "/_matrix/client/v3/thirdparty/location"): {
+        "query_params": "alias,channel,search,server"
+    },
+    ("GET", "/_matrix/client/v3/thirdparty/location/{protocol}"): {
+        "query_params": "alias,channel,search,server"
+    },
+    ("GET", "/_matrix/client/v3/thirdparty/user"): {
+        "query_params": "nickname,search,server,userid"
+    },
+    ("GET", "/_matrix/client/v3/thirdparty/user/{protocol}"): {
+        "query_params": "nickname,search,server,userid"
+    },
+    ("GET", "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads"): {
+        "query_params": "from,include_all,limit"
+    },
     ("GET", "/_matrix/client/v3/voice/room/{room_id}"): {"query_params": "from,limit"},
     ("GET", "/_matrix/client/v3/voice/user/{user_id}"): {"query_params": "from,limit"},
-    ("GET", "/_matrix/federation/v1/hierarchy/{room_id}"): {"query_params": "from,limit,max_depth,suggested_only"},
+    ("GET", "/_matrix/federation/v1/hierarchy/{room_id}"): {
+        "query_params": "from,limit,max_depth,suggested_only"
+    },
     ("GET", "/_matrix/federation/v1/query/profile"): {"query_params": "field,user_id"},
-    ("GET", "/_matrix/federation/v1/query/profile/{user_id}"): {"query_params": "field"},
+    ("GET", "/_matrix/federation/v1/query/profile/{user_id}"): {
+        "query_params": "field"
+    },
     ("GET", "/_matrix/federation/v1/state/{room_id}"): {"query_params": "event_id"},
     ("GET", "/_matrix/federation/v1/state_ids/{room_id}"): {"query_params": "event_id"},
-    ("GET", "/_matrix/vendor/v1/friends"): {"query_params": "from,limit,offset,sort_by"},
-    ("GET", "/_matrix/vendor/v1/friends/search"): {"query_params": "limit,mode,q,query"},
+    ("GET", "/_matrix/vendor/v1/friends"): {
+        "query_params": "from,limit,offset,sort_by"
+    },
+    ("GET", "/_matrix/vendor/v1/friends/search"): {
+        "query_params": "limit,mode,q,query"
+    },
     ("GET", "/_matrix/vendor/v1/friends/suggestions"): {"query_params": "limit"},
     ("GET", "/_matrix/vendor/v1/voice/room/{room_id}"): {"query_params": "from,limit"},
     ("GET", "/_matrix/vendor/v1/voice/user/{user_id}"): {"query_params": "from,limit"},
     ("GET", "/_synapse/admin/v1/appservices/query/alias"): {"query_params": "alias"},
     ("GET", "/_synapse/admin/v1/appservices/query/user"): {"query_params": "user_id"},
     ("GET", "/_synapse/admin/v1/appservices/{as_id}/events"): {"query_params": "limit"},
-    ("GET", "/_synapse/admin/v1/audit/events"): {"query_params": "action,actor_id,from,limit,resource_id,resource_type,result"},
+    ("GET", "/_synapse/admin/v1/audit/events"): {
+        "query_params": "action,actor_id,from,limit,resource_id,resource_type,result"
+    },
     ("GET", "/_synapse/admin/v1/background_updates"): {"query_params": "from,limit"},
-    ("GET", "/_synapse/admin/v1/background_updates/stats"): {"query_params": "from,limit"},
-    ("GET", "/_synapse/admin/v1/background_updates/{job_name}/history"): {"query_params": "from,limit"},
-    ("GET", "/_synapse/admin/v1/event_reports"): {"query_params": "limit,since_id,since_score,since_ts"},
-    ("GET", "/_synapse/admin/v1/event_reports/reporter/{reporter_user_id}"): {"query_params": "limit,since_id,since_score,since_ts"},
-    ("GET", "/_synapse/admin/v1/event_reports/room/{room_id}"): {"query_params": "limit,since_id,since_score,since_ts"},
-    ("GET", "/_synapse/admin/v1/event_reports/status/{status}"): {"query_params": "limit,since_id,since_score,since_ts"},
+    ("GET", "/_synapse/admin/v1/background_updates/stats"): {
+        "query_params": "from,limit"
+    },
+    ("GET", "/_synapse/admin/v1/background_updates/{job_name}/history"): {
+        "query_params": "from,limit"
+    },
+    ("GET", "/_synapse/admin/v1/event_reports"): {
+        "query_params": "limit,since_id,since_score,since_ts"
+    },
+    ("GET", "/_synapse/admin/v1/event_reports/reporter/{reporter_user_id}"): {
+        "query_params": "limit,since_id,since_score,since_ts"
+    },
+    ("GET", "/_synapse/admin/v1/event_reports/room/{room_id}"): {
+        "query_params": "limit,since_id,since_score,since_ts"
+    },
+    ("GET", "/_synapse/admin/v1/event_reports/status/{status}"): {
+        "query_params": "limit,since_id,since_score,since_ts"
+    },
     ("GET", "/_synapse/admin/v1/external_services"): {"query_params": "service_type"},
-    ("GET", "/_synapse/admin/v1/feature-flags"): {"query_params": "from,limit,status,target_scope"},
+    ("GET", "/_synapse/admin/v1/feature-flags"): {
+        "query_params": "from,limit,status,target_scope"
+    },
     ("GET", "/_synapse/admin/v1/federation/blacklist"): {"query_params": "from,limit"},
-    ("GET", "/_synapse/admin/v1/federation/destinations"): {"query_params": "from,limit,offset"},
+    ("GET", "/_synapse/admin/v1/federation/destinations"): {
+        "query_params": "from,limit,offset"
+    },
     ("GET", "/_synapse/admin/v1/federation/pending"): {"query_params": "from,limit"},
     ("GET", "/_synapse/admin/v1/invite/allowlist"): {"query_params": "limit,offset"},
     ("GET", "/_synapse/admin/v1/invite/blocklist"): {"query_params": "limit,offset"},
     ("GET", "/_synapse/admin/v1/modules"): {"query_params": "from,limit"},
     ("GET", "/_synapse/admin/v1/modules/logs/{module_name}"): {"query_params": "limit"},
-    ("GET", "/_synapse/admin/v1/modules/spam_check/sender/{sender}"): {"query_params": "limit"},
-    ("GET", "/_synapse/admin/v1/notifications"): {"query_params": "audience,from,limit"},
+    ("GET", "/_synapse/admin/v1/modules/spam_check/sender/{sender}"): {
+        "query_params": "limit"
+    },
+    ("GET", "/_synapse/admin/v1/notifications"): {
+        "query_params": "audience,from,limit"
+    },
     ("GET", "/_synapse/admin/v1/registration_tokens"): {"query_params": "from,limit"},
-    ("GET", "/_synapse/admin/v1/rooms/search"): {"query_params": "from,is_encrypted,is_public,limit,offset,order_by,search_term"},
-    ("GET", "/_synapse/admin/v1/rooms/{room_id}/token_sync"): {"query_params": "from,limit,offset"},
+    ("GET", "/_synapse/admin/v1/rooms/search"): {
+        "query_params": "from,is_encrypted,is_public,limit,offset,order_by,search_term"
+    },
+    ("GET", "/_synapse/admin/v1/rooms/{room_id}/token_sync"): {
+        "query_params": "from,limit,offset"
+    },
     ("GET", "/_synapse/admin/v1/saml/mappings"): {"query_params": "from,limit"},
     ("GET", "/_synapse/admin/v1/server_notices"): {"query_params": "from,limit"},
-    ("GET", "/_synapse/admin/v1/telemetry/alerts"): {"query_params": "refresh,severity,status"},
+    ("GET", "/_synapse/admin/v1/telemetry/alerts"): {
+        "query_params": "refresh,severity,status"
+    },
     ("GET", "/_synapse/worker/v1/events"): {"query_params": "stream_id"},
-    ("GET", "/_synapse/worker/v1/replication/{worker_id}/position"): {"query_params": "stream_name"},
+    ("GET", "/_synapse/worker/v1/replication/{worker_id}/position"): {
+        "query_params": "stream_name"
+    },
     ("GET", "/_synapse/worker/v1/statistics"): {"query_params": "limit"},
     ("GET", "/_synapse/worker/v1/tasks"): {"query_params": "limit"},
-    ("GET", "/_synapse/worker/v1/workers/{worker_id}/commands"): {"query_params": "limit"},
-    ("POST", "/_matrix/client/unstable/org.matrix.msc3575/sync"): {"rate_limit_exempt": True, "query_params": "pos,timeout,txn_id"},
-    ("POST", "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}"): {"auth": "user"},
-    ("POST", "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"): {"rate_limit_exempt": True, "query_params": "pos,timeout,txn_id"},
-    ("POST", "/_matrix/client/v1/friends/search"): {"query_params": "limit,mode,q,query"},
-    ("POST", "/_matrix/client/v1/sync"): {"rate_limit_exempt": True, "query_params": "pos,timeout,txn_id"},
-    ("POST", "/_matrix/client/v3/friends/search"): {"query_params": "limit,mode,q,query"},
-    ("POST", "/_matrix/client/v4/sync"): {"rate_limit_exempt": True, "query_params": "pos,timeout,txn_id"},
-    ("POST", "/_matrix/vendor/v1/friends/search"): {"query_params": "limit,mode,q,query"},
+    ("GET", "/_synapse/worker/v1/workers/{worker_id}/commands"): {
+        "query_params": "limit"
+    },
+    ("POST", "/_matrix/client/unstable/org.matrix.msc3575/sync"): {
+        "rate_limit_exempt": True,
+        "query_params": "pos,timeout,txn_id",
+    },
+    ("POST", "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}"): {
+        "auth": "user"
+    },
+    ("POST", "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"): {
+        "rate_limit_exempt": True,
+        "query_params": "pos,timeout,txn_id",
+    },
+    ("POST", "/_matrix/client/v1/friends/search"): {
+        "query_params": "limit,mode,q,query"
+    },
+    ("POST", "/_matrix/client/v1/sync"): {
+        "rate_limit_exempt": True,
+        "query_params": "pos,timeout,txn_id",
+    },
+    ("POST", "/_matrix/client/v3/friends/search"): {
+        "query_params": "limit,mode,q,query"
+    },
+    ("POST", "/_matrix/client/v4/sync"): {
+        "rate_limit_exempt": True,
+        "query_params": "pos,timeout,txn_id",
+    },
+    ("POST", "/_matrix/vendor/v1/friends/search"): {
+        "query_params": "limit,mode,q,query"
+    },
     ("POST", "/_synapse/admin/v1/push/cleanup"): {"query_params": "days"},
     ("POST", "/_synapse/admin/v1/push/process"): {"query_params": "batch_size"},
     ("POST", "/_synapse/room_summary/v1/updates/process"): {"query_params": "limit"},
     ("PUT", "/_matrix/client/v1/room_keys/keys"): {"query_params": "version"},
     ("PUT", "/_matrix/client/v1/room_keys/keys/{room_id}"): {"query_params": "version"},
-    ("PUT", "/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}"): {"query_params": "version"},
+    ("PUT", "/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}"): {
+        "query_params": "version"
+    },
     ("PUT", "/_matrix/client/v3/room_keys/keys"): {"query_params": "version"},
     ("PUT", "/_matrix/client/v3/room_keys/keys/{room_id}"): {"query_params": "version"},
-    ("PUT", "/_matrix/client/v3/room_keys/keys/{room_id}/{session_id}"): {"query_params": "version"},
+    ("PUT", "/_matrix/client/v3/room_keys/keys/{room_id}/{session_id}"): {
+        "query_params": "version"
+    },
 }
 
 
@@ -1685,8 +1848,7 @@ class Resolver:
 
     def _tuples(self, t: str, owner: str) -> list:
         out = [
-            Route(m.group(1).upper(), m.group(2), owner)
-            for m in _RE_TUPLE.finditer(t)
+            Route(m.group(1).upper(), m.group(2), owner) for m in _RE_TUPLE.finditer(t)
         ]
         self._record_guards(out)
         return out
@@ -1997,7 +2159,9 @@ class Resolver:
             added = []
             for r in subs:
                 meth, path, own = r
-                added.append(Route(meth, prefix + path, own, getattr(r, "handler", None)))
+                added.append(
+                    Route(meth, prefix + path, own, getattr(r, "handler", None))
+                )
             self._record_guards(added, tag_registrar=False)
             self._inherit_registrars(added, subs)
             return acc + added
@@ -2083,7 +2247,9 @@ class Resolver:
             close = match_delim(text, open_idx)
             arg = text[open_idx + 1 : close].strip() if close != -1 else ""
             arg = split_top_level(arg)[0].strip() if arg else ""
-            if re.fullmatch(r"(?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Za-z_][A-Za-z0-9_]*", arg):
+            if re.fullmatch(
+                r"(?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Za-z_][A-Za-z0-9_]*", arg
+            ):
                 out[meth.upper()] = arg
             elif arg:
                 out[meth.upper()] = None
@@ -2143,7 +2309,9 @@ class Resolver:
             # lookup below returns None for `serde::…` and friends).
             parts = self._module_path_of(owner_file) + parts
         rel = "/".join(parts)
-        for cand in ([rel + ".rs"] if rel else []) + [rel + "/mod.rs" if rel else "mod.rs"]:
+        for cand in ([rel + ".rs"] if rel else []) + [
+            rel + "/mod.rs" if rel else "mod.rs"
+        ]:
             if cand in self.files:
                 return cand
         return None

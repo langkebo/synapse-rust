@@ -873,7 +873,9 @@ def mutation_check() -> int:
         # the module gates actually make a difference (not just cfg_of overlap).
         diff_count = 0
         for r in real_rows:
-            orig = real_union.gate_of(r)  # This works because real_union uses original gate_of
+            orig = real_union.gate_of(
+                r
+            )  # This works because real_union uses original gate_of
             # Compute scope_only inline
             ctx = real_union.cfg_of.get(r, set())
             scope = min(ctx, key=len) if ctx else frozenset()
@@ -896,16 +898,30 @@ def mutation_check() -> int:
             )
             # 注入 cfg_of
             mixed_key = ("GET", "/test-mixed-synthetic-route")
-            synthetic.cfg_of[mixed_key] = {frozenset(), frozenset({"feature = \"builtin-oidc\""})}
+            synthetic.cfg_of[mixed_key] = {
+                frozenset(),
+                frozenset({'feature = "builtin-oidc"'}),
+            }
             # 注入一个带有 module_gates 的文件
-            synthetic.registrars[mixed_key] = {("synapse-web/src/routes/builtin_oidc_provider.rs", "create_oidc_routes")}
+            synthetic.registrars[mixed_key] = {
+                (
+                    "synapse-web/src/routes/builtin_oidc_provider.rs",
+                    "create_oidc_routes",
+                )
+            }
             # 确保 module_gates["synapse-web/src/routes/builtin_oidc_provider.rs"] 包含 {"feature = \"builtin-oidc\""}
-            synthetic.module_gates["synapse-web/src/routes/builtin_oidc_provider.rs"] = {"feature = \"builtin-oidc\""}
+            synthetic.module_gates[
+                "synapse-web/src/routes/builtin_oidc_provider.rs"
+            ] = {'feature = "builtin-oidc"'}
             # 手动计算 gate_of（跳过 scope_only patch）
             # gate_of = base | module_gates，其中 base = min(cfg_of)
             ctx = synthetic.cfg_of.get(mixed_key, set())
             base = min(ctx, key=len) if ctx else frozenset()
-            synth_module_gates = frozenset(synthetic.module_gates.get("synapse-web/src/routes/builtin_oidc_provider.rs", []))
+            synth_module_gates = frozenset(
+                synthetic.module_gates.get(
+                    "synapse-web/src/routes/builtin_oidc_provider.rs", []
+                )
+            )
             synth_gate_of = frozenset(set(base) | synth_module_gates)
             synth_scope = scope_only(synthetic, mixed_key)
             if synth_gate_of != synth_scope:
@@ -915,9 +931,7 @@ def mutation_check() -> int:
                 # 符合预期，直接成功，不再进行漂移检查
                 return bad
             else:
-                print(
-                    f"  FAIL mutation#6 合成测试无法产生 gate_of != scope_only 差异"
-                )
+                print(f"  FAIL mutation#6 合成测试无法产生 gate_of != scope_only 差异")
                 bad += 1
         else:
             lanes = ex.load_lanes()
@@ -927,13 +941,17 @@ def mutation_check() -> int:
             union_rows = ex.profile_sets(union)["all"]
             drifted = []
             for lane_name, feats in sorted(lanes.items()):
-                fp = os.path.join(ROOT, "tests", "unit", "fixtures", lane_name, "all.json")
+                fp = os.path.join(
+                    ROOT, "tests", "unit", "fixtures", lane_name, "all.json"
+                )
                 if not os.path.exists(fp):
                     continue
                 with open(fp) as fh:
                     want = {(e["method"], e["path"]) for e in json.load(fh)["entries"]}
                 got = {
-                    r for r in union_rows if ex.cfg_all_allow(list(union.gate_of(r)), feats)
+                    r
+                    for r in union_rows
+                    if ex.cfg_all_allow(list(union.gate_of(r)), feats)
                 }
                 if got != want:
                     drifted.append(f"{lane_name}:{len(got)}vs{len(want)}")

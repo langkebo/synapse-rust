@@ -360,7 +360,9 @@ def _starts_string_literal(text: str, i: int) -> bool:
 _LITERAL_BINDING_RE = re.compile(
     r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:const|static)\s+([A-Za-z_]\w*)\s*(?::[^=]+)?=\s*(.*)$"
 )
-_LET_BINDING_RE = re.compile(r"^\s*let\s+(?:mut\s+)?([A-Za-z_]\w*)\s*(?::[^=]+)?=\s*(.*)$")
+_LET_BINDING_RE = re.compile(
+    r"^\s*let\s+(?:mut\s+)?([A-Za-z_]\w*)\s*(?::[^=]+)?=\s*(.*)$"
+)
 _FN_NAME_RE = re.compile(r"\bfn\s+[A-Za-z_]\w*")
 
 
@@ -497,6 +499,7 @@ def _arg_identifier(text: str, i: int) -> str | None:
         return None
     return m.group(0)
 
+
 def iter_dynamic_sites(
     path: Path, force_test: bool = False
 ) -> list[tuple[int, str, str]]:
@@ -595,7 +598,9 @@ def collect_tests_dir_sources(root: Path) -> list[Path]:
     tests_dir = root / "tests"
     if not tests_dir.is_dir():
         return []
-    return [path for path in sorted(tests_dir.rglob("*.rs")) if not _is_excluded(root, path)]
+    return [
+        path for path in sorted(tests_dir.rglob("*.rs")) if not _is_excluded(root, path)
+    ]
 
 
 def list_production_dynamic(root: Path) -> int:
@@ -925,7 +930,9 @@ def main() -> int:
         return 0
 
     if args.list_tests_dir_ddl is not None:
-        for hit in collect_tests_dir_ddl(Path(args.list_tests_dir_ddl or args.root).resolve()):
+        for hit in collect_tests_dir_ddl(
+            Path(args.list_tests_dir_ddl or args.root).resolve()
+        ):
             print(hit)
         return 0
 
