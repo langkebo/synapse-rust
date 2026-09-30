@@ -246,8 +246,8 @@ pub use task_queue::{QueueMetrics, RedisTaskQueue, TaskQueueError};
 pub use telemetry_config::{OpenTelemetryConfig, PrometheusConfig};
 /// Re-exported item.
 pub use time::{
-    calculate_age, calculate_ttl, current_timestamp_millis, current_timestamp_utc, generate_pagination_token,
-    generate_stream_token_from_ts, is_expired, parse_pagination_token, parse_stream_token,
+    calculate_age, calculate_ttl, current_timestamp_millis, current_timestamp_millis_monotonic, current_timestamp_utc,
+    generate_pagination_token, generate_stream_token_from_ts, is_expired, parse_pagination_token, parse_stream_token,
 };
 /// Re-exported item.
 pub use tracing::{DistributedTracer, RequestId, RequestIdPropagationLayer};

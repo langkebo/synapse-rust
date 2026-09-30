@@ -7,8 +7,20 @@ use super::service::LifecycleService;
 use serde_json::json;
 use std::collections::HashMap;
 use synapse_common::generate_event_id;
+use synapse_common::MatrixErrorCode;
 use synapse_common::{ApiError, ApiResult};
 use synapse_storage::{CreateEventParams, PduGraphFields};
+
+/// `true` 表示这次 create 派生的 `room_id` 已经存在（并发 createRoom 的派生 id 撞车）。
+///
+/// 判据同时覆盖两种形态，避免"换一种写法就漏判"：
+/// * [`sqlx::Error::RowNotFound`] —— `rooms` 插入走 `ON CONFLICT (room_id) DO NOTHING`，
+///   0 行受影响时 `create_room_with_executor` 就返回它（C88 起的唯一形态）；
+/// * SQLSTATE `23505`（unique violation）—— 保留给仍用裸 INSERT 的调用点（例如
+///   `RoomStoreApi` 的实现替身或未来新增的旁路），语义相同。
+fn is_room_id_already_taken(err: &sqlx::Error) -> bool {
+    matches!(err, sqlx::Error::RowNotFound) || err.as_database_error().map(|e| e.is_unique_violation()).unwrap_or(false)
+}
 
 impl LifecycleService {
     /// Write one event of the room-creation sequence together with its DAG
@@ -84,6 +96,12 @@ impl LifecycleService {
     }
 
     /// See [`create_room_in_db`].
+    ///
+    /// ⚠️ C88：**派生 id 已被占用**是一种可预期的业务冲突，不能降级成 500 "Failed to create room"。
+    /// v12 的 room_id 由 create 事件的 reference hash 决定（MSC4291）⇒ 同一毫秒 + 同一内容的
+    /// 并发 createRoom（负载测试的常态）会派生同一个 id。进程内已由
+    /// `current_timestamp_millis_monotonic()`（严格递增时钟）避免；跨进程撞车时这里返回
+    /// **409 `M_ROOM_IN_USE`**（客户端可重试），而不是把它伪装成内部错误。
     pub(crate) async fn create_room_in_db(
         &self,
         room_id: &str,
@@ -99,7 +117,22 @@ impl LifecycleService {
             self.room_storage.create_room(room_id, user_id, join_rule, room_version, is_public).await
         };
 
-        result.map(|_| ()).map_err(|e| ApiError::internal_with_cause("Failed to create room", e))
+        result.map(|_| ()).map_err(|e| {
+            if is_room_id_already_taken(&e) {
+                tracing::warn!(
+                    room_id = %room_id,
+                    user_id = %user_id,
+                    error = %e,
+                    "派生的 room_id 已被占用（并发 createRoom 的派生 id 撞车）⇒ 409 M_ROOM_IN_USE"
+                );
+                ApiError::conflict_with(
+                    MatrixErrorCode::RoomInUse,
+                    "The room id derived from this create event is already in use; retry the request".to_string(),
+                )
+            } else {
+                ApiError::internal_with_cause("Failed to create room", e)
+            }
+        })
     }
 
     /// See [`add_creator_to_room`].
@@ -283,5 +316,59 @@ mod tests {
         assert_eq!(content["membership"], "invite");
         assert_eq!(content["displayname"], "alice");
         assert_eq!(content["reason"], "Welcome!");
+    }
+}
+
+#[cfg(test)]
+mod room_id_conflict_tests {
+    use super::is_room_id_already_taken;
+
+    /// C88：分类器必须认两种形态 —— `ON CONFLICT DO NOTHING` 下的 `RowNotFound`（0 行受影响）
+    /// 与裸 INSERT 的 23505（unique violation）—— 否则"换一种写法就漏判"，
+    /// 撞车又会被降级成 500。
+    #[test]
+    fn room_id_conflict_is_recognised_in_both_shapes() {
+        assert!(is_room_id_already_taken(&sqlx::Error::RowNotFound), "0 行受影响必须识别为撞车");
+
+        let unique = sqlx::Error::Database(Box::new(FakeUniqueViolation));
+        assert!(is_room_id_already_taken(&unique), "23505 必须识别为撞车");
+
+        let other = sqlx::Error::Protocol("something else".to_string());
+        assert!(!is_room_id_already_taken(&other), "其它错误不得被误判成撞车（否则真错误会被吞成 409）");
+    }
+
+    /// 只实现 `is_unique_violation() == true` 的最小 database error（`sqlx::DatabaseError` 有
+    /// 必填方法，逐条给默认实现即可）。
+    #[derive(Debug)]
+    struct FakeUniqueViolation;
+
+    impl std::fmt::Display for FakeUniqueViolation {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "duplicate key value violates unique constraint \"rooms_pkey\"")
+        }
+    }
+
+    impl std::error::Error for FakeUniqueViolation {}
+
+    impl sqlx::error::DatabaseError for FakeUniqueViolation {
+        fn message(&self) -> &str {
+            "duplicate key value violates unique constraint \"rooms_pkey\""
+        }
+
+        fn kind(&self) -> sqlx::error::ErrorKind {
+            sqlx::error::ErrorKind::UniqueViolation
+        }
+
+        fn as_error(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+
+        fn as_error_mut(&mut self) -> &mut (dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+
+        fn into_error(self: Box<Self>) -> Box<dyn std::error::Error + Send + Sync + 'static> {
+            self
+        }
     }
 }

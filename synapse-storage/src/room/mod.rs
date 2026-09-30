@@ -105,6 +105,20 @@ impl RoomStorage {
         Self::create_room_with_executor(&mut **tx, room_id, creator, join_rule, version, is_public).await
     }
 
+    /// 插入 `rooms` 行；**派生 id 已被占用时返回 [`sqlx::Error::RowNotFound`]**。
+    ///
+    /// ⚠️ C88：`ON CONFLICT (room_id) DO NOTHING` + `rows_affected()` 检查是**有意**的 ——
+    /// v12 的 room_id 由 create 事件的 reference hash 决定（MSC4291），同一毫秒 + 同一内容的
+    /// 并发 createRoom 会派生出同一个 id。此时**不能**当成功返回：调用方随后还要在同一事务里
+    /// 写 `m.room.create` 事件与成员关系，而它们引用的房间行属于另一次创建（事件 id 也会撞主键）。
+    /// 因此这里返回一个可判别的错误，由 `create_room_in_db` 转成显式 409（`M_ROOM_IN_USE`）。
+    ///
+    /// `#[tracing::instrument]` 而不是手写 `span.enter()`：`Entered` 守卫不是 `Send`，
+    /// 跨 `.await` 持有会让整个 future 失去 `Send`（调用方多在 `tokio::spawn` 里）。
+    #[tracing::instrument(
+        skip_all,
+        fields(room_id = %room_id, creator = %creator, join_rule = %join_rule, is_public = is_public)
+    )]
     async fn create_room_with_executor<'a, E>(
         executor: E,
         room_id: &str,
@@ -116,12 +130,13 @@ impl RoomStorage {
     where
         E: sqlx::Executor<'a, Database = Postgres>,
     {
-        tracing::info!(room_id = %room_id, creator = %creator, join_rule = %join_rule, is_public = is_public, "Creating room");
+        let started = std::time::Instant::now();
         let now = current_timestamp_millis();
-        sqlx::query!(
+        let inserted = sqlx::query!(
             r"
             INSERT INTO rooms (room_id, creator, join_rules, room_version, is_public, history_visibility, created_ts, last_activity_ts)
             VALUES ($1, $2, $3, $4, $5, 'joined', $6, $6)
+            ON CONFLICT (room_id) DO NOTHING
             ",
             room_id,
             creator,
@@ -132,6 +147,27 @@ impl RoomStorage {
         )
         .execute(executor)
         .await?;
+
+        if inserted.rows_affected() == 0 {
+            // 这里**故意不**静默成功：0 行 = 该 room_id 已存在（并发/重试造成的派生 id 撞车）。
+            tracing::warn!(
+                room_id = %room_id,
+                creator = %creator,
+                elapsed_ms = %started.elapsed().as_millis(),
+                "rooms INSERT 未插入任何行：派生的 room_id 已被占用"
+            );
+            return Err(sqlx::Error::RowNotFound);
+        }
+
+        // P2 埋点：房间创建（含事务内路径）的耗时，供 P50/P95/P99 观测（C88）。
+        tracing::debug!(
+            room_id = %room_id,
+            creator = %creator,
+            join_rule = %join_rule,
+            is_public = is_public,
+            elapsed_ms = %started.elapsed().as_millis(),
+            "Room row created"
+        );
 
         Ok(Room {
             room_id: room_id.to_string(),
@@ -1462,6 +1498,41 @@ mod db_tests {
         assert_eq!(room.creator_user_id, Some("@creator:example.com".to_string()));
         assert_eq!(room.join_rule, "invite");
         assert!(!room.is_public);
+
+        let _ = storage.delete_room(&room_id).await;
+    }
+
+    /// C88：同一个 `room_id` 再插一次必须**可判别地失败**（`RowNotFound`），而不是：
+    /// ① 静默成功（会让调用方以为房间是自己的，随后写的 `m.room.create`/成员关系指向别人的行）；
+    /// ② 把 23505 原样抛出（调用方分不清"派生 id 撞车"与真正的内部错误，客户端拿到 500）。
+    ///
+    /// 背景：v12 的 room_id 由 create 事件的 reference hash 决定（MSC4291），同一毫秒 + 同一内容的
+    /// 并发 createRoom 会派生出同一个 id。进程内已由 `current_timestamp_millis_monotonic()` 避免，
+    /// 这条用例钉住**残留形态**的契约（跨进程撞车时 `create_room_in_db` 会把它转成 409
+    /// `M_ROOM_IN_USE`，见 `synapse-services/src/room/lifecycle/create_events.rs`）。
+    #[tokio::test]
+    async fn test_create_room_duplicate_room_id_is_a_distinguishable_conflict() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let room_id = format!("!c88_dup_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_room(&room_id).await;
+
+        let first = storage
+            .create_room(&room_id, "@first:example.com", "invite", "12", false)
+            .await
+            .expect("首次 create_room 必须成功");
+        assert_eq!(first.creator_user_id.as_deref(), Some("@first:example.com"));
+
+        let second = storage.create_room(&room_id, "@second:example.com", "public", "12", true).await;
+        assert!(
+            matches!(second, Err(sqlx::Error::RowNotFound)),
+            "重复 room_id 必须返回 RowNotFound（'已存在' 的可判别信号），实际：{second:?}"
+        );
+
+        // 且**不得**覆盖既有行（静默 upsert 会让房间创建者/可见性被第二次请求改掉）
+        let stored = storage.get_room(&room_id).await.expect("get_room").expect("row must exist");
+        assert_eq!(stored.creator_user_id.as_deref(), Some("@first:example.com"), "既有行不得被覆盖");
+        assert_eq!(stored.join_rule, "invite", "既有行不得被覆盖");
 
         let _ = storage.delete_room(&room_id).await;
     }

@@ -8,7 +8,6 @@ use super::super::utils::validate_room_alias_input;
 use super::creation_graph::CreationGraph;
 use super::service::LifecycleService;
 use serde_json::json;
-use synapse_common::current_timestamp_millis;
 use synapse_common::room_id::room_id_from_create_event_id;
 use synapse_common::room_versions::{resolve_room_version, DEFAULT_ROOM_VERSION};
 use synapse_common::{generate_room_id, ApiError, ApiResult};
@@ -49,7 +48,15 @@ impl LifecycleService {
         // the room id or the derivation would be circular: `build_pdu` therefore
         // omits `room_id` for a v12+ create event (D-6), and the placeholder
         // passed below never reaches the hash.
-        let now = current_timestamp_millis();
+        // ⚠️ C88：这里必须用**严格递增**的毫秒时钟，不能用 `current_timestamp_millis()`。
+        // v12 的 room_id 由 create 事件的 reference hash 决定（MSC4291），而
+        // `origin_server_ts` 参与该哈希；`build_create_event_content` 对"同 body 的请求"
+        // 产生**完全相同**的内容 ⇒ 同一毫秒内并发的 createRoom（负载测试的常态）会派生出
+        // **同一个** room_id，撞 `rooms` 主键（Phase 3 负载测试实测）。严格递增的时钟让每个
+        // create 事件拿到不同的 `origin_server_ts`，派生因此天然唯一；跨进程（多 worker）不保证
+        // 唯一，那一层由 `rooms` 插入的 `ON CONFLICT (room_id) DO NOTHING` 检出并转成显式 409
+        // （见 `create_room_in_db` 的错误分类）。
+        let now = synapse_common::current_timestamp_millis_monotonic();
         let create_content = build_create_event_content(user_id, room_version, &config);
 
         // Every creatable room version derives its id from the create event

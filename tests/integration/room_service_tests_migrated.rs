@@ -5187,3 +5187,59 @@ async fn test_upgrade_to_v12_derives_the_replacement_id_and_omits_predecessor_ev
         .expect("the old room must have a tombstone");
     assert_eq!(tombstone.content["replacement_room"].as_str(), Some(new_room_id.as_str()));
 }
+
+/// C88：**连发的、body 完全相同的** createRoom 必须各自拿到不同的 `room_id`。
+///
+/// 为什么这是缺陷而不是理论问题：v12 的 `room_id` 由 create 事件的 reference hash 决定
+/// （MSC4291），`origin_server_ts` 参与该哈希，而 `build_create_event_content` 对"同 body 的
+/// 请求"产出**完全相同**的内容 ⇒ 同一毫秒内的两次创建会派生出同一个 id，撞 `rooms` 主键
+/// （Phase 3 负载测试的形态：并发 createRoom ⇒ `rooms_pkey` 冲突 ⇒ 客户端看到 500/409）。
+///
+/// 修法：create 事件用 `current_timestamp_millis_monotonic()`（严格递增）取
+/// `origin_server_ts`，派生因此天然唯一。**红证明**：把 `create.rs` 里那一行换回
+/// `current_timestamp_millis()` 并在同一毫秒内连发两次（本用例用 `--test-threads 1` 时的高频
+/// 连发即可复现）⇒ 第二次 `create_room` 返回 409 `M_ROOM_IN_USE`（跨不过去就是撞车）。
+#[tokio::test]
+async fn test_two_identical_create_room_calls_get_distinct_room_ids() {
+    let pool = crate::require_test_pool().await;
+
+    let id = unique_id();
+    let alice_id = format!("@alice_{id}:localhost");
+    create_test_user(&pool, &alice_id, &format!("alice_{id}")).await;
+
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let room_service = create_room_service(&pool, cache);
+
+    // 两次调用的 config 完全相同（= 负载测试里同 body 的并发请求）
+    let config = CreateRoomConfig { room_version: Some("12".to_string()), ..Default::default() };
+    let first = room_service.lifecycle.create_room(&alice_id, config.clone()).await;
+    let second = room_service.lifecycle.create_room(&alice_id, config).await;
+
+    let first = first.expect("第一次 createRoom 必须成功");
+    let second = second.expect("第二次（同 body）createRoom 也必须成功 —— 每次 createRoom 都必须建出自己的房间");
+    let room_a = first["room_id"].as_str().expect("room_id 必须是字符串").to_string();
+    let room_b = second["room_id"].as_str().expect("room_id 必须是字符串").to_string();
+
+    assert_ne!(room_a, room_b, "同 body 的两次 createRoom 不得派生出同一个 room_id（否则撞 rooms 主键）");
+
+    // 两个房间都要真的落库，且各自的 create 事件在**自己**的派生 id 下
+    let event_storage = EventStorage::new(&pool, "localhost".to_string());
+    for room_id in [&room_a, &room_b] {
+        assert!(
+            room_service.get_room(room_id).await.expect("get_room")["room_id"].is_string(),
+            "房间行必须存在：{room_id}"
+        );
+        let create_event = event_storage
+            .get_state_events_by_type(room_id, "m.room.create")
+            .await
+            .expect("state events")
+            .into_iter()
+            .find(|event| event.state_key.as_deref() == Some(""))
+            .unwrap_or_else(|| panic!("{room_id} 必须有 m.room.create 事件"));
+        assert_eq!(
+            synapse_common::room_id::room_id_from_create_event_id(&create_event.event_id).expect("v12 id"),
+            *room_id,
+            "create 事件的 id 必须与房间 id 同源（MSC4291）"
+        );
+    }
+}

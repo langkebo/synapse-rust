@@ -1,10 +1,35 @@
 //! Timestamp helpers (current ms / UTC, age calculation, pagination/stream token codec).
 
 use chrono::{DateTime, Utc};
+use std::sync::atomic::{AtomicI64, Ordering};
 
 /// Currents the timestamp.
 pub fn current_timestamp_millis() -> i64 {
     Utc::now().timestamp_millis()
+}
+
+/// 上一次由 [`current_timestamp_millis_monotonic`] 发出的毫秒值（进程内）。
+static LAST_MONOTONIC_MS: AtomicI64 = AtomicI64::new(0);
+
+/// **严格递增**的毫秒时间戳（进程内）。
+///
+/// 与 [`current_timestamp_millis`] 的唯一差别：同一毫秒内多次调用**不会**返回同一个值
+/// （必要时在前一次的基础上 +1 ms）。
+///
+/// 为什么需要它（C88）：v12 房间的 `room_id` 由 create 事件的 reference hash 决定
+/// （MSC4291），而 `origin_server_ts` 参与该哈希；`build_create_event_content` 对
+/// "同 body 的请求"产生**完全相同**的内容 ⇒ 同一毫秒内并发的 createRoom（负载测试的常态）
+/// 会派生出**同一个** room_id，撞 `rooms` 主键。用严格递增的时钟给每个 create 事件一个
+/// 不同的 `origin_server_ts`，这种派生就天然唯一 —— 不需要给 create 事件塞非标字段，
+/// 也不改协议。跨进程（多 worker）不保证唯一：那一层由 `rooms` 插入的
+/// `ON CONFLICT (room_id) DO NOTHING` 检出并转成显式的 409（同一批次 C88）。
+pub fn current_timestamp_millis_monotonic() -> i64 {
+    let now = current_timestamp_millis();
+    // `fetch_update` 的闭包恒返回 `Some(..)` ⇒ 返回 Ok(旧值)；新值 = max(now, 旧值 + 1)。
+    LAST_MONOTONIC_MS
+        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |last| Some(if now > last { now } else { last + 1 }))
+        .map(|previous| if now > previous { now } else { previous + 1 })
+        .unwrap_or(now)
 }
 
 /// Currents the timestamp.
@@ -173,6 +198,28 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(5));
         let t2 = current_timestamp_millis();
         assert!(t2 >= t1, "timestamps must be monotonic");
+    }
+
+    /// C88：严格递增 —— 同一毫秒内的连续调用必须拿到**不同**的值（房间 id 由含
+    /// `origin_server_ts` 的 create 事件哈希派生，同值 ⇒ 同 id ⇒ 主键冲突）。
+    #[test]
+    fn test_current_timestamp_millis_monotonic_is_strictly_increasing() {
+        let mut previous = current_timestamp_millis_monotonic();
+        for _ in 0..1000 {
+            let next = current_timestamp_millis_monotonic();
+            assert!(next > previous, "monotonic clock must strictly increase: {previous} → {next}");
+            previous = next;
+        }
+    }
+
+    /// 不回退：即使墙钟被向后拨（或与上次调用同毫秒），也只会 +1 ms 前进。
+    #[test]
+    fn test_monotonic_clock_never_goes_backwards() {
+        let first = current_timestamp_millis_monotonic();
+        let second = current_timestamp_millis_monotonic();
+        let third = current_timestamp_millis_monotonic();
+        assert!(first < second && second < third, "{first} < {second} < {third}");
+        assert!(second - first <= 1, "同一毫秒内的相邻两次只应相差 1ms（实测 {}）", second - first);
     }
 
     #[test]
