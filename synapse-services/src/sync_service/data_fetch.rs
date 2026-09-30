@@ -382,17 +382,34 @@ impl SyncService {
             }
         }
 
+        // I.2: the `push_rules` table is the single authority for a user's rules, so
+        // the synced `m.push_rules` event is derived from it rather than from an
+        // account-data key that no code path ever writes. With no storage wired in
+        // (or no rows) the spec defaults are emitted, exactly as before.
         let username = user_id.trim_start_matches('@').split(':').next().unwrap_or("");
-        if let Some(existing) = events.iter_mut().find(|e| e["type"] == "m.push_rules") {
-            if let Some(content) = existing.get_mut("content") {
-                crate::sync_service::push_rules::merge_default_push_rules(content, user_id, username);
+        let derived = match &self.push_storage {
+            Some(push_storage) => {
+                let rows = push_storage
+                    .get_all_push_rules(user_id)
+                    .await
+                    .map_err(map_internal!("Failed to get push rules"))?;
+                (!rows.is_empty()).then(|| crate::client_push_service::rules_to_content(rows))
             }
+            None => None,
+        };
+        let content = match derived {
+            Some(mut content) => {
+                crate::sync_service::push_rules::merge_default_push_rules(&mut content, user_id, username);
+                content
+            }
+            None => crate::sync_service::push_rules::default_push_rules_for_user(user_id, username),
+        };
+        if let Some(existing) = events.iter_mut().find(|e| e["type"] == "m.push_rules") {
+            existing["content"] = content;
         } else {
             events.push(json!({
                 "type": "m.push_rules",
-                "content": crate::sync_service::push_rules::default_push_rules_for_user(
-                    user_id, username,
-                ),
+                "content": content,
             }));
         }
 
@@ -861,6 +878,7 @@ mod tests {
             cache,
             event_notifier: None,
             sticky_event_storage: None,
+            push_storage: None,
         })
     }
 
@@ -1078,6 +1096,7 @@ mod tests {
             cache,
             event_notifier: None,
             sticky_event_storage: None,
+            push_storage: None,
         })
     }
 
@@ -1159,6 +1178,7 @@ mod tests {
             cache,
             event_notifier: None,
             sticky_event_storage: None,
+            push_storage: None,
         })
     }
 

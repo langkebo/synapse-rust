@@ -2,7 +2,7 @@
 """
 管理员注册脚本
 
-根据 /Users/ljf/Desktop/hu/synapse-rust/docs/synapse-rust/admin-registration-guide.md 实现
+根据 docs/synapse-rust/admin-registration-guide.md 实现
 HMAC-SHA256 消息格式使用字节拼接
 """
 
@@ -14,7 +14,7 @@ import urllib.error
 import sys
 import os
 
-SERVER = os.environ.get("SYNAPSE_SERVER", "http://localhost:28008")
+SERVER = os.environ.get("SYNAPSE_SERVER", "http://localhost:8008")
 USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
 PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 DISPLAYNAME = "System Administrator"

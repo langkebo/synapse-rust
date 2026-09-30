@@ -187,6 +187,10 @@ impl RoomSyncServices {
                 // MSC4354: inject sticky_event_storage so that v2 /sync responses
                 // include a `sticky_events` array per-room.
                 sticky_event_storage: Some(sticky_event_storage.clone()),
+                // I.2: the `push_rules` table is the single authority for the synced
+                // `m.push_rules` account-data event.
+                push_storage: Some(Arc::new(synapse_storage::push::PushStorage::new(infra.pool.clone()))
+                    as Arc<dyn synapse_storage::push::PushStoreApi>),
             }));
 
         let typing_service = Arc::new(crate::typing_service::TypingService::new(infra.cache.clone()));

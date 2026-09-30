@@ -2,8 +2,63 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
-use synapse_storage::account_data::AccountDataStoreApi;
-use synapse_storage::push::PushStoreApi;
+use synapse_storage::push::{PushRuleScopedRow, PushStoreApi};
+
+/// Map one `push_rules` row to its Matrix JSON representation.
+///
+/// Shared by the per-kind reader and the full-document builder so the two
+/// cannot drift apart.
+fn rule_to_json(
+    rule_id: String,
+    is_default: bool,
+    is_enabled: bool,
+    pattern: Option<String>,
+    conditions: Option<Value>,
+    actions: Option<Value>,
+) -> Value {
+    json!({
+        "rule_id": rule_id,
+        "default": is_default,
+        "enabled": is_enabled,
+        "pattern": pattern,
+        "conditions": conditions,
+        "actions": actions.unwrap_or_else(|| json!([]))
+    })
+}
+
+/// Rebuild the `GET /pushrules` document from persisted rows.
+///
+/// Shape: `{"global": {<kind>: [rule, ...]}, "devices": {<device_id>: {<kind>: [rule, ...]}}}`.
+/// The rows arrive pre-sorted (`scope, kind, rule_id`), so a single pass preserves
+/// the deterministic within-kind order the spec requires.
+///
+/// Only `global` and `device/<device_id>` scopes are recognised — the same
+/// constraint the HTTP layer enforces (`get_push_rules_scope` rejects anything
+/// else). Rows with any other `scope` are skipped rather than inventing a bucket.
+///
+/// Shared with the sync service, which emits the same document as the synced
+/// `m.push_rules` account-data event.
+pub(crate) fn rules_to_content(rows: Vec<PushRuleScopedRow>) -> Value {
+    let mut content = json!({"global": {}, "devices": {}});
+    for row in rows {
+        let bucket = if row.scope == "global" {
+            content["global"].as_object_mut()
+        } else if let Some(device_id) = row.scope.strip_prefix("device/") {
+            content["devices"]
+                .as_object_mut()
+                .and_then(|devices| devices.entry(device_id.to_string()).or_insert_with(|| json!({})).as_object_mut())
+        } else {
+            continue;
+        };
+        let Some(bucket) = bucket else { continue };
+        let rule = rule_to_json(row.rule_id, row.is_default, row.is_enabled, row.pattern, row.conditions, row.actions);
+        if let Some(rules) = bucket.entry(row.kind).or_insert_with(|| json!([])).as_array_mut() {
+            rules.push(rule);
+        }
+    }
+    content
+}
+
 #[derive(Debug, Clone)]
 /// The `UpsertPusherRequest` struct.
 pub struct UpsertPusherRequest {
@@ -50,14 +105,13 @@ pub struct UpsertPushRuleRequest {
 
 /// The `ClientPushService` struct.
 pub struct ClientPushService {
-    account_data_storage: Arc<dyn AccountDataStoreApi>,
     push_storage: Arc<dyn PushStoreApi>,
 }
 
 impl ClientPushService {
     /// See [`new`].
-    pub fn new(account_data_storage: Arc<dyn AccountDataStoreApi>, push_storage: Arc<dyn PushStoreApi>) -> Self {
-        Self { account_data_storage, push_storage }
+    pub fn new(push_storage: Arc<dyn PushStoreApi>) -> Self {
+        Self { push_storage }
     }
 
     /// See [`get_pushers`].
@@ -140,11 +194,20 @@ impl ClientPushService {
     }
 
     /// See [`get_push_rules_content`].
+    ///
+    /// The `push_rules` table is the single authority for a user's rules: both the
+    /// per-rule CRUD endpoints and this full-document reader operate on it. An empty
+    /// table yields `None` so callers fall back to the spec defaults.
     pub async fn get_push_rules_content(&self, user_id: &str) -> Result<Option<Value>, ApiError> {
-        self.account_data_storage
-            .get_account_data_content(user_id, "m.push_rules")
+        let rows = self
+            .push_storage
+            .get_all_push_rules(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to get push rules", e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to get push rules", e))?;
+        if rows.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(rules_to_content(rows)))
     }
 
     /// See [`get_user_push_rules`].
@@ -158,15 +221,7 @@ impl ClientPushService {
         Ok(rules
             .into_iter()
             .map(|row| {
-                let actions = row.actions.unwrap_or_else(|| json!([]));
-                json!({
-                    "rule_id": row.rule_id,
-                    "default": row.is_default,
-                    "enabled": row.is_enabled,
-                    "pattern": row.pattern,
-                    "conditions": row.conditions,
-                    "actions": actions
-                })
+                rule_to_json(row.rule_id, row.is_default, row.is_enabled, row.pattern, row.conditions, row.actions)
             })
             .collect())
     }
@@ -350,22 +405,21 @@ impl ClientPushService {
 mod tests {
     //! Unit tests for `ClientPushService` — coverage target ≥90%.
     //!
-    //! Tested via the in-memory mock stores (`InMemoryPushStore`,
-    //! `InMemoryAccountDataStore`) so the suite runs without a real
-    //! PostgreSQL pool. The four methods that read raw `sqlx::postgres::PgRow`
-    //! values from the trait (`get_pushers`, `get_user_push_rules`) are now
-    //! typed rows (`PusherRow` / `PushRuleRow`) and **are** exercised here;
+    //! Tested via the in-memory mock store (`InMemoryPushStore`) so the suite runs
+    //! without a real PostgreSQL pool. The four methods that read raw
+    //! `sqlx::postgres::PgRow` values from the trait (`get_pushers`, `get_user_push_rules`)
+    //! are now typed rows (`PusherRow` / `PushRuleRow`) and **are** exercised here;
     //! `get_notifications` / `ack_notification` are exercised against a real
     //! database by the storage-level `db_tests` and the integration suite.
 
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;
-    use crate::test_mocks::{InMemoryAccountDataStore, InMemoryPushStore};
+    use crate::test_mocks::InMemoryPushStore;
     use serde_json::json;
 
     fn build_service() -> ClientPushService {
-        ClientPushService::new(Arc::new(InMemoryAccountDataStore::new()), Arc::new(InMemoryPushStore::new()))
+        ClientPushService::new(Arc::new(InMemoryPushStore::new()))
     }
 
     fn pusher_req(user_id: &str, pushkey: &str, url: &str) -> UpsertPusherRequest {
@@ -556,7 +610,50 @@ mod tests {
     async fn test_get_push_rules_content_returns_none_when_absent() {
         let svc = build_service();
         let content = svc.get_push_rules_content("@mia:example.com").await.unwrap();
-        assert!(content.is_none(), "no stored rules should yield None");
+        assert!(content.is_none(), "an empty push_rules table should yield None (caller falls back to defaults)");
+    }
+
+    /// The full-document reader and the per-rule CRUD share one authority (the
+    /// `push_rules` table): a rule written through `upsert_push_rule` is visible in
+    /// the `GET /pushrules` document, grouped by scope and kind.
+    #[tokio::test]
+    async fn test_get_push_rules_content_rebuilds_document_from_table() {
+        let svc = build_service();
+        svc.upsert_push_rule(rule_req("@ross:example.com", ".m.rule.ross", json!([{"kind": "notify"}])))
+            .await
+            .expect("upsert global rule");
+        let mut device_rule = rule_req("@ross:example.com", ".m.rule.ross.device", json!([{"kind": "dont_notify"}]));
+        device_rule.scope = "device/DEVICE".to_string();
+        svc.upsert_push_rule(device_rule).await.expect("upsert device rule");
+
+        let content = svc.get_push_rules_content("@ross:example.com").await.expect("content").expect("some content");
+        assert_eq!(
+            content,
+            json!({
+                "global": {
+                    "room": [{
+                        "rule_id": ".m.rule.ross",
+                        "default": false,
+                        "enabled": true,
+                        "pattern": "!room:example.com",
+                        "conditions": null,
+                        "actions": [{"kind": "notify"}]
+                    }]
+                },
+                "devices": {
+                    "DEVICE": {
+                        "room": [{
+                            "rule_id": ".m.rule.ross.device",
+                            "default": false,
+                            "enabled": true,
+                            "pattern": "!room:example.com",
+                            "conditions": null,
+                            "actions": [{"kind": "dont_notify"}]
+                        }]
+                    }
+                }
+            })
+        );
     }
 
     // ── C33: typed-row readers (previously `PgRow` ⇒ mock had to `unimplemented!()`) ──

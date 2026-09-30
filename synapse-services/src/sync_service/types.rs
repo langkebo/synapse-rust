@@ -167,6 +167,10 @@ pub struct SyncServiceDeps {
     /// response includes a `sticky_events` array with the user's sticky
     /// event metadata for that room.
     pub sticky_event_storage: Option<Arc<synapse_storage::sticky_event::StickyEventStorage>>,
+    /// The authority for the synced `m.push_rules` account-data event. Push rules
+    /// live in the `push_rules` table (not in account data), so the sync service
+    /// needs its own handle to derive them. When `None`, the spec defaults are used.
+    pub push_storage: Option<Arc<dyn synapse_storage::push::PushStoreApi>>,
 }
 
 /// The `SyncServiceRequest` struct.

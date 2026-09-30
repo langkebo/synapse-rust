@@ -2,7 +2,7 @@ use super::*;
 
 use serde_json::Value;
 
-use crate::push::{NotificationRow, PushRuleRow, PushStoreApi, PusherRow};
+use crate::push::{NotificationRow, PushRuleRow, PushRuleScopedRow, PushStoreApi, PusherRow};
 
 /// Stored push-rule state for the in-memory mock, mirroring the mutable columns
 /// of the `push_rules` table that the typed trait methods touch.
@@ -251,6 +251,27 @@ impl PushStoreApi for InMemoryPushStore {
             .collect();
         // Mirrors `ORDER BY rule_id ASC`.
         rows.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));
+        Ok(rows)
+    }
+
+    async fn get_all_push_rules(&self, user_id: &str) -> Result<Vec<PushRuleScopedRow>, sqlx::Error> {
+        let rules = self.push_rules.read().await;
+        let mut rows: Vec<PushRuleScopedRow> = rules
+            .iter()
+            .filter(|((user, _, _, _), _)| user == user_id)
+            .map(|((_, scope, kind, rule_id), entry)| PushRuleScopedRow {
+                scope: scope.clone(),
+                kind: kind.clone(),
+                rule_id: rule_id.clone(),
+                pattern: entry.pattern.clone(),
+                conditions: entry.conditions.clone(),
+                actions: Some(entry.actions.clone()),
+                is_enabled: entry.is_enabled,
+                is_default: entry.is_default,
+            })
+            .collect();
+        // Mirrors `ORDER BY scope ASC, kind ASC, rule_id ASC`.
+        rows.sort_by(|a, b| (&a.scope, &a.kind, &a.rule_id).cmp(&(&b.scope, &b.kind, &b.rule_id)));
         Ok(rows)
     }
 

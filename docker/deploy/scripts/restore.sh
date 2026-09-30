@@ -101,12 +101,29 @@ restore_media() {
 
     log_info "恢复媒体文件..."
 
-    mkdir -p media
-    rm -rf media/*
-    if [ -f "$backup_dir/media.tar.gz" ]; then
-        tar xzf "$backup_dir/media.tar.gz" -C media
-    else
+    if [ ! -f "$backup_dir/media.tar.gz" ]; then
         log_warning "媒体备份文件不存在，跳过媒体恢复"
+        return 0
+    fi
+
+    mkdir -p media
+
+    # 先解压到 staging 目录，校验成功后再原子替换 live 目录，
+    # 避免"先清空 media 再解压、解压失败导致媒体全部丢失"。
+    local staging="media.restore.$$"
+    rm -rf "$staging"
+    mkdir -p "$staging"
+    if ! tar xzf "$backup_dir/media.tar.gz" -C "$staging"; then
+        log_error "媒体解压失败，保留现有媒体文件不做改动"
+        rm -rf "$staging"
+        return 1
+    fi
+
+    local old="media.old.$$"
+    mv media "$old"
+    mv "$staging" media
+    if ! rm -rf "$old" 2>/dev/null; then
+        log_warning "旧媒体目录清理未完成（可能被 safe-delete hook 拦截）: $old"
     fi
 
     log_success "媒体文件恢复完成"
@@ -119,9 +136,10 @@ restore_config() {
     log_info "恢复配置文件..."
 
     [ -f "$backup_dir/.env" ] && cp "$backup_dir/.env" .env
-    [ -d "$backup_dir/config" ] && rm -rf config && cp -r "$backup_dir/config" ./
+    # canonical 配置真相源位于 ../config（= docker/config），还原到上级目录。
+    [ -d "$backup_dir/config" ] && rm -rf ../config && cp -r "$backup_dir/config" ..
     [ -d "$backup_dir/nginx" ] && rm -rf nginx && cp -r "$backup_dir/nginx" ./
-    [ -d "$backup_dir/scripts" ] && rm -rf scripts && cp -r "$backup_dir/scripts" ./
+    # 不还原 scripts/：restore.sh 自身即位于 scripts/ 内，覆盖会中断当前脚本并回退 live 脚本。
     [ -f "$backup_dir/docker-compose.yml" ] && cp "$backup_dir/docker-compose.yml" ./
 
     log_success "配置文件恢复完成"

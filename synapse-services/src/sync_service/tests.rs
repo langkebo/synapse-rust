@@ -1975,6 +1975,7 @@ fn sync_service_for_notifier_test(
         cache,
         event_notifier,
         sticky_event_storage: None,
+        push_storage: None,
     })
 }
 
@@ -2373,6 +2374,7 @@ async fn test_get_events_joined_room_no_events_returns_valid_response() {
         cache,
         event_notifier: None,
         sticky_event_storage: None,
+        push_storage: None,
     });
 
     let result = service.get_events("@alice:example.com", "s0", 5000).await.expect("get_events should succeed");

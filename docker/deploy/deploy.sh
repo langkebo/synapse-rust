@@ -1392,12 +1392,15 @@ start_services() {
 
     run_migrations
 
+    # 迁移已在上面通过一次性容器（compose run --rm --no-deps）完成，
+    # 此处必须使用 --no-deps，否则会沿 depends_on（migrator: service_completed_successfully）
+    # 再次拉起 migrator，导致重复迁移且 ENABLED_EXTENSIONS 与本次部署不一致。
     log_info "启动 Synapse 应用..."
-    compose up -d synapse
+    compose up -d --no-deps synapse
     wait_for_container_health synapse-app "${HEALTHCHECK_RETRIES:-30}" "${HEALTHCHECK_INTERVAL:-5}"
 
     log_info "启动 Nginx..."
-    compose up -d nginx
+    compose up -d --no-deps nginx
     wait_for_container_health synapse-nginx "${HEALTHCHECK_RETRIES:-30}" "${HEALTHCHECK_INTERVAL:-5}"
 
     log_success "所有服务已启动"
