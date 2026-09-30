@@ -80,7 +80,20 @@ impl RoomStorage {
         Self { pool: pool.clone() }
     }
 
-    /// See [`create_room`].
+    /// 往 `rooms` 表落一条房间记录。
+    ///
+    /// # 契约（改动前先读）
+    ///
+    /// - **冲突必须上抛**：`room_id` 已被占用时返回一个**可判别**的错误（C88 起是
+    ///   [`sqlx::Error::RowNotFound`]，来自 `ON CONFLICT (room_id) DO NOTHING` 的 0 行受影响），
+    ///   绝不静默当成功。把它翻译成 409 `M_ROOM_IN_USE` 是服务层的职责，见
+    ///   `synapse-services/src/room/lifecycle/create_events.rs` 的 `is_room_id_already_taken`。
+    /// - **刻意不返回房间快照**：签名是 `Result<(), _>` 而非 `Result<Room, _>`。存储层只负责
+    ///   "落库"；顺手构造一个 `Room` 返回，只能靠臆造字段（`member_count` / `created_ts` /
+    ///   `is_federatable` …）拼出与真实行不一致的假数据，调用方读到的是幻觉。需要快照请读回
+    ///   （[`Self::get_room`]）。
+    ///
+    /// 回归用例见 `db_tests::test_create_room_duplicate_room_id_is_a_distinguishable_conflict`。
     pub async fn create_room(
         &self,
         room_id: &str,
@@ -88,11 +101,11 @@ impl RoomStorage {
         join_rule: &str,
         version: &str,
         is_public: bool,
-    ) -> Result<Room, sqlx::Error> {
+    ) -> Result<(), sqlx::Error> {
         Self::create_room_with_executor(&*self.pool, room_id, creator, join_rule, version, is_public).await
     }
 
-    /// See [`create_room_in_tx`].
+    /// See [`create_room`] —— 契约完全相同（冲突上抛；不返回快照）。
     pub async fn create_room_in_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, Postgres>,
@@ -101,7 +114,7 @@ impl RoomStorage {
         join_rule: &str,
         version: &str,
         is_public: bool,
-    ) -> Result<Room, sqlx::Error> {
+    ) -> Result<(), sqlx::Error> {
         Self::create_room_with_executor(&mut **tx, room_id, creator, join_rule, version, is_public).await
     }
 
@@ -126,7 +139,7 @@ impl RoomStorage {
         join_rule: &str,
         version: &str,
         is_public: bool,
-    ) -> Result<Room, sqlx::Error>
+    ) -> Result<(), sqlx::Error>
     where
         E: sqlx::Executor<'a, Database = Postgres>,
     {
@@ -169,24 +182,10 @@ impl RoomStorage {
             "Room row created"
         );
 
-        Ok(Room {
-            room_id: room_id.to_string(),
-            name: None,
-            topic: None,
-            avatar_url: None,
-            canonical_alias: None,
-            join_rule: join_rule.to_string(),
-            creator_user_id: Some(creator.to_string()),
-            room_version: version.to_string(),
-            encryption: None,
-            is_public,
-            member_count: 1,
-            history_visibility: DEFAULT_HISTORY_VISIBILITY.to_string(),
-            created_ts: now,
-            is_federatable: true,
-            is_spotlight: false,
-            is_flagged: false,
-        })
+        // 只承诺"落库"。这里曾顺手构造一份 `Room` 快照返回，但它的字段（`member_count: 1`、
+        // `created_ts: now`、`is_federatable: true` …）全是臆造值，与真实行不一致；
+        // 需要快照的调用方请用 `get_room` 读回。
+        Ok(())
     }
 
     /// See [`get_room`].
@@ -1483,16 +1482,20 @@ mod db_tests {
     }
 
     #[tokio::test]
-    async fn test_create_room_returns_valid_room() {
+    async fn test_create_room_persists_row() {
         let (_isolated, pool) = test_pool().await;
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!create_test_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
 
-        let room = storage
+        storage
             .create_room(&room_id, "@creator:example.com", "invite", "10", false)
             .await
             .expect("create_room should succeed");
+
+        // 契约只承诺"落库"：快照必须读回，不能由 `create_room` 的返回值提供。
+        let room =
+            storage.get_room(&room_id).await.expect("get_room should succeed").expect("row should have been inserted");
 
         assert_eq!(room.room_id, room_id);
         assert_eq!(room.creator_user_id, Some("@creator:example.com".to_string()));
@@ -1517,11 +1520,10 @@ mod db_tests {
         let room_id = format!("!c88_dup_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
 
-        let first = storage
+        storage
             .create_room(&room_id, "@first:example.com", "invite", "12", false)
             .await
             .expect("首次 create_room 必须成功");
-        assert_eq!(first.creator_user_id.as_deref(), Some("@first:example.com"));
 
         let second = storage.create_room(&room_id, "@second:example.com", "public", "12", true).await;
         assert!(

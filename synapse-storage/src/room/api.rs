@@ -15,7 +15,12 @@ pub trait RoomStoreApi: Send + Sync {
     /// Returns a reference to the database connection pool.
     fn pool(&self) -> &Arc<sqlx::PgPool>;
 
-    /// See [`create_room`].
+    /// 插入 `rooms` 行。
+    ///
+    /// **已存在的 `room_id` 必须返回可判别错误**（Postgres 实现返回
+    /// [`sqlx::Error::RowNotFound`](sqlx::Error::RowNotFound)、内存替身同），不得静默当成功 ——
+    /// 否则调用方会以为房间是自己的，随后写的 `m.room.create` / 成员关系指向别人的行。
+    /// 刻意返回 `()` 而非 `Room` 快照，理由见 [`RoomStorage::create_room`](super::RoomStorage::create_room)。
     async fn create_room(
         &self,
         room_id: &str,
@@ -23,9 +28,9 @@ pub trait RoomStoreApi: Send + Sync {
         join_rule: &str,
         version: &str,
         is_public: bool,
-    ) -> Result<Room, sqlx::Error>;
+    ) -> Result<(), sqlx::Error>;
 
-    /// See [`create_room_in_tx`].
+    /// See [`create_room`] —— 契约完全相同。
     async fn create_room_in_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -34,7 +39,7 @@ pub trait RoomStoreApi: Send + Sync {
         join_rule: &str,
         version: &str,
         is_public: bool,
-    ) -> Result<Room, sqlx::Error>;
+    ) -> Result<(), sqlx::Error>;
 
     /// See [`get_room`].
     async fn get_room(&self, room_id: &str) -> Result<Option<Room>, sqlx::Error>;
@@ -294,7 +299,7 @@ impl RoomStoreApi for super::RoomStorage {
         join_rule: &str,
         version: &str,
         is_public: bool,
-    ) -> Result<Room, sqlx::Error> {
+    ) -> Result<(), sqlx::Error> {
         self.create_room(room_id, creator, join_rule, version, is_public).await
     }
 
@@ -306,7 +311,7 @@ impl RoomStoreApi for super::RoomStorage {
         join_rule: &str,
         version: &str,
         is_public: bool,
-    ) -> Result<Room, sqlx::Error> {
+    ) -> Result<(), sqlx::Error> {
         self.create_room_in_tx(tx, room_id, creator, join_rule, version, is_public).await
     }
 

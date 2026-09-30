@@ -45,6 +45,10 @@ impl InMemoryRoomStore {
     }
 
     /// See [`create_room`].
+    ///
+    /// 与真库同一契约：`room_id` 已存在时返回 [`sqlx::Error::RowNotFound`]，
+    /// **不覆盖**既有行 —— 否则替身上的重复创建会被静默当成成功，
+    /// 掩盖生产环境里 `create_room` 的冲突语义。
     pub async fn create_room(
         &self,
         room_id: &str,
@@ -52,27 +56,33 @@ impl InMemoryRoomStore {
         join_rule: &str,
         version: &str,
         is_public: bool,
-    ) -> Result<crate::room::Room, String> {
-        let room = crate::room::Room {
-            room_id: room_id.to_string(),
-            name: None,
-            topic: None,
-            avatar_url: None,
-            canonical_alias: None,
-            join_rule: join_rule.to_string(),
-            creator_user_id: Some(creator.to_string()),
-            room_version: version.to_string(),
-            encryption: None,
-            is_public,
-            member_count: 0,
-            history_visibility: "shared".to_string(),
-            created_ts: 1_700_000_000_000,
-            is_federatable: true,
-            is_spotlight: false,
-            is_flagged: false,
-        };
-        self.rooms.write().await.insert(room_id.to_string(), room.clone());
-        Ok(room)
+    ) -> Result<(), sqlx::Error> {
+        let mut rooms = self.rooms.write().await;
+        if rooms.contains_key(room_id) {
+            return Err(sqlx::Error::RowNotFound);
+        }
+        rooms.insert(
+            room_id.to_string(),
+            crate::room::Room {
+                room_id: room_id.to_string(),
+                name: None,
+                topic: None,
+                avatar_url: None,
+                canonical_alias: None,
+                join_rule: join_rule.to_string(),
+                creator_user_id: Some(creator.to_string()),
+                room_version: version.to_string(),
+                encryption: None,
+                is_public,
+                member_count: 0,
+                history_visibility: "shared".to_string(),
+                created_ts: 1_700_000_000_000,
+                is_federatable: true,
+                is_spotlight: false,
+                is_flagged: false,
+            },
+        );
+        Ok(())
     }
 
     /// See [`get_room`].
@@ -148,27 +158,8 @@ impl crate::room::api::RoomStoreApi for InMemoryRoomStore {
         join_rule: &str,
         version: &str,
         is_public: bool,
-    ) -> Result<crate::room::Room, sqlx::Error> {
-        let room = crate::room::Room {
-            room_id: room_id.to_string(),
-            name: None,
-            topic: None,
-            avatar_url: None,
-            canonical_alias: None,
-            join_rule: join_rule.to_string(),
-            creator_user_id: Some(creator.to_string()),
-            room_version: version.to_string(),
-            encryption: None,
-            is_public,
-            member_count: 0,
-            history_visibility: "shared".to_string(),
-            created_ts: 1_700_000_000_000,
-            is_federatable: true,
-            is_spotlight: false,
-            is_flagged: false,
-        };
-        self.rooms.write().await.insert(room_id.to_string(), room.clone());
-        Ok(room)
+    ) -> Result<(), sqlx::Error> {
+        InMemoryRoomStore::create_room(self, room_id, creator, join_rule, version, is_public).await
     }
 
     async fn create_room_in_tx(
@@ -179,27 +170,9 @@ impl crate::room::api::RoomStoreApi for InMemoryRoomStore {
         join_rule: &str,
         version: &str,
         is_public: bool,
-    ) -> Result<crate::room::Room, sqlx::Error> {
-        let room = crate::room::Room {
-            room_id: room_id.to_string(),
-            name: None,
-            topic: None,
-            avatar_url: None,
-            canonical_alias: None,
-            join_rule: join_rule.to_string(),
-            creator_user_id: Some(creator.to_string()),
-            room_version: version.to_string(),
-            encryption: None,
-            is_public,
-            member_count: 0,
-            history_visibility: "shared".to_string(),
-            created_ts: 1_700_000_000_000,
-            is_federatable: true,
-            is_spotlight: false,
-            is_flagged: false,
-        };
-        self.rooms.write().await.insert(room_id.to_string(), room.clone());
-        Ok(room)
+    ) -> Result<(), sqlx::Error> {
+        // 内存替身没有事务：与 `create_room` 共享同一实现与同一冲突语义。
+        InMemoryRoomStore::create_room(self, room_id, creator, join_rule, version, is_public).await
     }
 
     async fn get_room(&self, room_id: &str) -> Result<Option<crate::room::Room>, sqlx::Error> {
