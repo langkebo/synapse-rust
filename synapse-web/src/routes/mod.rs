@@ -66,6 +66,8 @@ pub mod oidc;
 pub mod pinned;
 /// The `presence` module.
 pub mod presence;
+/// The `public_rooms_filter` module.
+pub(crate) mod public_rooms_filter;
 /// The `push` module.
 pub mod push;
 /// The `push_notification` module.

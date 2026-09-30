@@ -666,3 +666,220 @@ async fn test_p2_16_batch_notary_query_empty_request_returns_empty_array() {
     assert!(json["server_keys"].is_array(), "response must contain server_keys array");
     assert!(json["server_keys"].as_array().unwrap().is_empty(), "empty request must return empty server_keys array");
 }
+
+// ── D-110 / D-111：federation 侧 `POST /_matrix/federation/v1/publicRooms` 的 `filter` ──────
+//
+// 这个端点在 `create_federation_router` 的 **protected** 组里（`ServerSignatures`，见 ruma 的
+// `authentication: ServerSignatures`）⇒ 用例必须带 `X-Matrix` 签名，且 app 的
+// `federation.allow_ingress` 必须为 true（否则 `federation_auth_middleware` 直接 404）。
+// 因此这些用例复用本文件的 `setup_federation_test_app_with_pool` / `signed_federation_request`。
+
+/// 插入一个公开房间 + 它的 `room_summaries` 行（`room_type = None` 即"普通房间"）。
+async fn insert_federated_directory_room(pool: &sqlx::PgPool, room_id: &str, name: &str, room_type: Option<&str>) {
+    sqlx::query(
+        "INSERT INTO rooms (room_id, creator, is_public, room_version, created_ts, name) \
+         VALUES ($1, '@fed:localhost', TRUE, '10', 1700000000000, $2)",
+    )
+    .bind(room_id)
+    .bind(name)
+    .execute(pool)
+    .await
+    .expect("insert fixture room");
+    sqlx::query(
+        "INSERT INTO room_summaries (room_id, room_type, is_space, updated_ts, created_ts) \
+         VALUES ($1, $2, $3, 1700000000000, 1700000000000)",
+    )
+    .bind(room_id)
+    .bind(room_type)
+    .bind(room_type == Some("m.space"))
+    .execute(pool)
+    .await
+    .expect("insert fixture room summary");
+}
+
+/// 签名的 `POST /_matrix/federation/v1/publicRooms`，返回 `(状态码, JSON)`。
+async fn post_signed_federated_public_rooms(
+    app: &axum::Router,
+    key_id: &str,
+    signing_key: &ed25519_dalek::SigningKey,
+    body: &Value,
+) -> (StatusCode, Value) {
+    let request = signed_federation_request(
+        "POST",
+        "/_matrix/federation/v1/publicRooms",
+        "localhost",
+        key_id,
+        signing_key,
+        Some(body),
+    );
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), 256 * 1024).await.unwrap();
+    (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+}
+
+/// **D-110**：federation 侧必须真的按 `filter.generic_search_term` 过滤（此前该 handler 只读
+/// `limit`，`filter` 被静默忽略）；`total_room_count_estimate` 必须是**过滤后**的匹配数。
+#[tokio::test]
+async fn test_federation_public_rooms_post_filter_generic_search_term_filters_the_directory() {
+    let key_id = "ed25519:test";
+    let signing_key_seed = [21u8; 32];
+    let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
+
+    let Some((app, pool)) = setup_federation_test_app_with_pool(key_id, &signing_key_b64).await else {
+        return;
+    };
+
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let term = format!("zzfed{suffix}");
+    let matching = format!("!fed_match_{suffix}:localhost");
+    let other = format!("!fed_other_{suffix}:localhost");
+    insert_federated_directory_room(&pool, &matching, &format!("{term} federated directory room"), None).await;
+    insert_federated_directory_room(&pool, &other, "unrelated federated public room", None).await;
+
+    let (status, payload) = post_signed_federated_public_rooms(
+        &app,
+        key_id,
+        &signing_key,
+        &json!({"limit": 50, "filter": {"generic_search_term": term}}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "federation POST /publicRooms 必须成功：{payload}");
+    let chunk = payload["chunk"].as_array().expect("响应的 chunk 必须是数组");
+    let ids: Vec<&str> = chunk.iter().filter_map(|room| room["room_id"].as_str()).collect();
+
+    assert!(ids.contains(&matching.as_str()), "federation 搜索必须返回命中的房间：{ids:?}");
+    assert!(!ids.contains(&other.as_str()), "federation 搜索不得返回不匹配的房间（filter 未被忽略的证据）：{ids:?}");
+
+    let needle = term.to_lowercase();
+    for room in chunk {
+        let hit = ["name", "topic", "canonical_alias"]
+            .iter()
+            .any(|field| room[*field].as_str().is_some_and(|value| value.to_lowercase().contains(&needle)));
+        assert!(hit, "federation chunk 里出现了不匹配搜索词的房间：{room}");
+    }
+
+    let expected_total: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM rooms r WHERE r.is_public = TRUE \
+         AND (LOWER(r.name) LIKE $1 OR LOWER(r.topic) LIKE $1 OR LOWER(r.canonical_alias) LIKE $1)",
+    )
+    .bind(format!("%{needle}%"))
+    .fetch_one(&*pool)
+    .await
+    .expect("count matching rooms");
+    assert_eq!(
+        payload["total_room_count_estimate"].as_i64(),
+        Some(expected_total),
+        "federation 的 total_room_count_estimate 必须是**过滤后**的匹配总数：{payload}"
+    );
+}
+
+/// **D-110**：federation 侧与 C-S 侧共用同一份解析器 ⇒ `filter.room_types` 在 federation 上
+/// 同样生效（搜索路径与列表路径都要应用，不允许"只接一半"）。
+#[tokio::test]
+async fn test_federation_public_rooms_post_filter_room_types_selects_normal_and_space_rooms() {
+    let key_id = "ed25519:test";
+    let signing_key_seed = [22u8; 32];
+    let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
+
+    let Some((app, pool)) = setup_federation_test_app_with_pool(key_id, &signing_key_b64).await else {
+        return;
+    };
+
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let prefix = format!("zzfedrt{suffix}");
+    let normal = format!("!fedrt_normal_{suffix}:localhost");
+    let space = format!("!fedrt_space_{suffix}:localhost");
+    insert_federated_directory_room(&pool, &normal, &format!("{prefix} normal"), None).await;
+    insert_federated_directory_room(&pool, &space, &format!("{prefix} space"), Some("m.space")).await;
+
+    let count_space: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM rooms r LEFT JOIN room_summaries rs ON rs.room_id = r.room_id \
+         WHERE r.is_public = TRUE AND rs.room_type = ANY(ARRAY['m.space'])",
+    )
+    .fetch_one(&*pool)
+    .await
+    .unwrap();
+
+    // 搜索路径（带 generic_search_term）+ 类型过滤：只要空间，普通房间必须被排除
+    let (status, payload) = post_signed_federated_public_rooms(
+        &app,
+        key_id,
+        &signing_key,
+        &json!({"limit": 50, "filter": {"room_types": ["m.space"], "generic_search_term": prefix}}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "federation POST /publicRooms 必须成功：{payload}");
+    let ids: Vec<&str> = payload["chunk"]
+        .as_array()
+        .expect("chunk 必须是数组")
+        .iter()
+        .filter_map(|room| room["room_id"].as_str())
+        .collect();
+    assert!(ids.contains(&space.as_str()), "类型过滤必须保留空间：{ids:?}");
+    assert!(!ids.contains(&normal.as_str()), "类型过滤必须排除普通房间：{ids:?}");
+    assert_eq!(
+        payload["total_room_count_estimate"].as_i64(),
+        Some(count_space),
+        "带 room_types 的计数必须用同一谓词：{payload}"
+    );
+
+    // 列表路径（无搜索词）+ `[null]`：只要普通房间
+    let (status, payload) = post_signed_federated_public_rooms(
+        &app,
+        key_id,
+        &signing_key,
+        &json!({"limit": 50, "filter": {"room_types": [null]}}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "federation POST /publicRooms 必须成功：{payload}");
+    let ids: Vec<&str> = payload["chunk"]
+        .as_array()
+        .expect("chunk 必须是数组")
+        .iter()
+        .filter_map(|room| room["room_id"].as_str())
+        .collect();
+    assert!(ids.contains(&normal.as_str()), "`[null]` 必须保留普通房间：{ids:?}");
+    assert!(!ids.contains(&space.as_str()), "`[null]` 必须排除空间：{ids:?}");
+}
+
+/// **D-110 + D-111**：形状非法 / 本仓不支持的 filter 在 federation 侧同样 **400 `M_INVALID_PARAM`**；
+/// `RoomNetwork` 的两个字段按规范在**请求体顶层**，放进 `filter` 里属形状非法。
+#[tokio::test]
+async fn test_federation_public_rooms_post_filter_rejects_unsupported_and_malformed_fields() {
+    let key_id = "ed25519:test";
+    let signing_key_seed = [23u8; 32];
+    let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
+
+    let Some((app, _pool)) = setup_federation_test_app_with_pool(key_id, &signing_key_b64).await else {
+        return;
+    };
+
+    for (label, body) in [
+        ("include_all_networks=true（顶层）", json!({"include_all_networks": true})),
+        ("third_party_instance_id（顶层）", json!({"third_party_instance_id": "irc"})),
+        ("include_all_networks 错放进 filter", json!({"filter": {"include_all_networks": true}})),
+        ("third_party_instance_id 错放进 filter", json!({"filter": {"third_party_instance_id": "irc"}})),
+        ("filter 不是对象", json!({"filter": "nope"})),
+        ("room_types 不是数组", json!({"filter": {"room_types": "m.space"}})),
+        ("room_types 条目非法", json!({"filter": {"room_types": [42]}})),
+        ("generic_search_term 不是字符串", json!({"filter": {"generic_search_term": 42}})),
+    ] {
+        let (status, payload) = post_signed_federated_public_rooms(&app, key_id, &signing_key, &body).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{label}: federation 侧必须 400：{payload}");
+        assert_eq!(payload["errcode"].as_str(), Some("M_INVALID_PARAM"), "{label}: 必须是 M_INVALID_PARAM：{payload}");
+    }
+
+    // `include_all_networks: false`（顶层）是规范默认值 ⇒ 接受（与 C-S 侧一致）
+    let (status, payload) = post_signed_federated_public_rooms(
+        &app,
+        key_id,
+        &signing_key,
+        &json!({"limit": 5, "include_all_networks": false}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "include_all_networks=false 必须被接受：{payload}");
+}

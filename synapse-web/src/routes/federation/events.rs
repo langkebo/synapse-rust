@@ -1,6 +1,7 @@
 use crate::middleware::FederationRequestAuth;
 use crate::routes::context::FederationContext;
 use crate::routes::extractors::UserId;
+use crate::routes::public_rooms_filter::parse_public_rooms_filter;
 use crate::routes::validate_room_alias;
 use axum::extract::{Extension, Json, Path, Query, RawQuery, State};
 use serde::Deserialize;
@@ -307,8 +308,9 @@ pub(super) async fn get_public_rooms(
     let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(10).min(1000);
     let _since = params.get("since").cloned();
 
-    // federation 侧的 `/publicRooms` 不读 `filter`（client 侧已在 C67/C68 接线）——
-    // 这一残留面登记在 §7.1 的 **D-110**（MSC2197 的 `filter.generic_search_term`）。
+    // GET 变体按 spec 只接受 `limit` / `since` / `server`：`filter`（含
+    // `generic_search_term`）是 **POST 变体**的字段（MSC2197），故这里按 `None` 取值。
+    // POST 变体的接线见 [`post_public_rooms`]。
     let rooms = ctx.room_service.state().get_public_rooms_paginated(limit, None, None, None, false).await?;
 
     let total = ctx.room_service.state().count_public_rooms(None, false).await?;
@@ -340,11 +342,29 @@ pub(super) async fn post_public_rooms(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(20).min(1000);
-    // federation 侧的 `/publicRooms` 不读 `filter`（client 侧已在 C67/C68 接线）——
-    // 这一残留面登记在 §7.1 的 **D-110**（MSC2197 的 `filter.generic_search_term`）。
-    let rooms = ctx.room_service.state().get_public_rooms_paginated(limit, None, None, None, false).await?;
+    // D-110（2026-09-30 裁定 ①）：federation 侧按 MSC2197 接线 `filter.generic_search_term`，
+    // 与 client 侧**共用同一个解析器**（[`parse_public_rooms_filter`]）—— 解析规则、错误语义
+    // （形状非法一律 400 `M_INVALID_PARAM` 而不是静默忽略）与 `room_types` 行为都保持一致。
+    //
+    // 为什么这里仍然不发游标：搜索路径是 `WHERE … LIKE` + `ORDER BY name`，与 keyset 游标
+    // （`created_ts, room_id`）**不同构**，发游标会让对端续传跳进未过滤的列表；而本响应体本来
+    // 就没有 `next_batch` 字段（federation 的 POST 变体只回 chunk + 计数）。
+    let filter = parse_public_rooms_filter(&body)?;
+    let room_types = filter.room_types.as_deref();
 
-    let total = ctx.room_service.state().count_public_rooms(None, false).await?;
+    let (rooms, total) = if let Some(term) = filter.search_term.as_deref() {
+        ctx.room_service.state().search_public_rooms(term, limit, room_types, filter.include_room_type_null).await?
+    } else {
+        tokio::try_join!(
+            async {
+                ctx.room_service
+                    .state()
+                    .get_public_rooms_paginated(limit, None, None, room_types, filter.include_room_type_null)
+                    .await
+            },
+            async { ctx.room_service.state().count_public_rooms(room_types, filter.include_room_type_null).await }
+        )?
+    };
 
     let mut room_list = Vec::new();
     for room in rooms {

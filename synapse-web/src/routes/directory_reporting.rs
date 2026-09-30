@@ -1,6 +1,7 @@
 use crate::routes::context::AdminContext;
 use crate::routes::extractors::{AuthenticatedUser, OptionalAuthenticatedUser};
 use crate::routes::extractors::{RoomAlias, RoomId, UserId};
+use crate::routes::public_rooms_filter::parse_public_rooms_filter;
 use crate::routes::{
     account_compat::{can_view_profile_for_requester_batch, enforce_profile_visibility},
     ensure_room_member_admin, validate_event_id, validate_room_alias, validate_room_id, validate_user_id,
@@ -13,68 +14,6 @@ use axum::{
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
-
-/// `/publicRooms` 的 `filter` 解析结果（HTTP 层 DTO；storage 的值对象在 `synapse-storage` 里，
-/// web 层不需要也不应该依赖它 —— 分层是 route → service → storage）。
-#[derive(Debug, Default)]
-struct PublicRoomsFilter {
-    /// `filter.generic_search_term`（trim 后非空才有值）。
-    search_term: Option<String>,
-    /// `filter.room_types` 里的**非 null** 类型；`None` = 不做类型过滤。
-    room_types: Option<Vec<String>>,
-    /// `filter.room_types` 里是否含 `null`（⇒ 也包含普通房间）。
-    include_room_type_null: bool,
-}
-
-/// 解析 `POST /publicRooms` 的 `filter`（D-109）。
-///
-/// **两条硬规则**：
-/// 1. **接线**：`generic_search_term` 与 `room_types` 都真正生效（列表与搜索两条路径同一套过滤）；
-/// 2. **不再静默**：本仓不支持的字段（`include_all_networks = true`、`third_party_instance_id`）
-///    以及任何形状非法的 filter（不是对象 / `room_types` 不是数组 / 条目既非字符串也非 null /
-///    `generic_search_term` 不是字符串）一律 **400 `M_INVALID_PARAM`**，而不是"当没看见"。
-///    （`include_all_networks = false` 是规范默认值，合法，接受。）
-fn parse_public_rooms_filter(body: &Value) -> Result<PublicRoomsFilter, ApiError> {
-    let Some(filter) = body.get("filter").filter(|value| !value.is_null()) else {
-        return Ok(PublicRoomsFilter::default());
-    };
-    let Some(filter) = filter.as_object() else {
-        return Err(ApiError::invalid_input("filter must be an object"));
-    };
-
-    if filter.get("include_all_networks").and_then(Value::as_bool) == Some(true) {
-        return Err(ApiError::invalid_input("filter.include_all_networks is not supported"));
-    }
-    if filter.get("third_party_instance_id").is_some_and(|value| !value.is_null()) {
-        return Err(ApiError::invalid_input("filter.third_party_instance_id is not supported"));
-    }
-
-    let search_term = match filter.get("generic_search_term") {
-        None | Some(Value::Null) => None,
-        Some(Value::String(term)) if term.trim().is_empty() => None,
-        Some(Value::String(term)) => Some(term.trim().to_string()),
-        Some(_) => return Err(ApiError::invalid_input("filter.generic_search_term must be a string")),
-    };
-
-    let mut parsed = PublicRoomsFilter { search_term, ..PublicRoomsFilter::default() };
-    match filter.get("room_types") {
-        None | Some(Value::Null) => {}
-        Some(Value::Array(entries)) => {
-            let mut names = Vec::new();
-            for entry in entries {
-                match entry {
-                    Value::Null => parsed.include_room_type_null = true,
-                    Value::String(name) => names.push(name.clone()),
-                    _ => return Err(ApiError::invalid_input("filter.room_types entries must be strings or null")),
-                }
-            }
-            parsed.room_types = Some(names);
-        }
-        Some(_) => return Err(ApiError::invalid_input("filter.room_types must be an array")),
-    }
-
-    Ok(parsed)
-}
 
 fn decode_public_rooms_cursor(cursor: Option<&str>) -> Option<(i64, &str)> {
     let cursor = cursor?;

@@ -1,9 +1,14 @@
-//! `POST /_matrix/client/v3/publicRooms` 的 `filter` 行为（D-108 / C67）。
+//! 公共房间目录的 `filter` 行为 —— C-S `POST /_matrix/client/v3/publicRooms`（D-108 / D-109 / C67）
+//! 与它的共享解析器（`synapse-web/src/routes/public_rooms_filter.rs`）。
 //!
 //! 背景：Client-Server API 用 **POST** 的 `filter.generic_search_term` 承载房间目录搜索
 //! （"A string to search for in the room metadata, e.g. name, topic, canonical alias etc."，
 //! 见 MSC2197 §Motivation），而 C67 之前本仓把这个字段**静默忽略**（`let _filter = ...`）
-//! ⇒ 客户端搜索拿到的是**未过滤的第一页**。本文件是那条能力接线的端到端证据。
+//! ⇒ 客户端搜索拿到的是**未过滤的第一页**。
+//!
+//! **federation 侧**（`POST /_matrix/federation/v1/publicRooms`，**D-110** / C83）的用例在
+//! `api_federation_tests.rs`：那个端点挂在**受签名保护**的 `protected` 路由组里，用例需要
+//! `X-Matrix` 签名，因而复用该文件的 `signed_federation_request` 与联邦 app 构造器。
 
 use axum::{
     body::Body,
@@ -102,11 +107,11 @@ async fn test_public_rooms_post_filter_generic_search_term_filters_the_directory
     );
 }
 
-/// 发一次 `POST /publicRooms`，返回 `(状态码, JSON)`。
-async fn post_public_rooms(app: &axum::Router, body: Value) -> (StatusCode, Value) {
+/// 发一次 `POST /publicRooms`，返回 `(状态码, JSON)`。`uri` 由调用方给出（C-S 或 federation）。
+async fn post_public_rooms_at(app: &axum::Router, uri: &str, body: Value) -> (StatusCode, Value) {
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/v3/publicRooms")
+        .uri(uri)
         .header("Content-Type", "application/json")
         .body(Body::from(body.to_string()))
         .unwrap();
@@ -114,6 +119,15 @@ async fn post_public_rooms(app: &axum::Router, body: Value) -> (StatusCode, Valu
     let status = response.status();
     let bytes = axum::body::to_bytes(response.into_body(), 256 * 1024).await.unwrap();
     (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+}
+
+/// 发一次 C-S 的 `POST /_matrix/client/v3/publicRooms`。
+///
+/// federation 侧的同名端点（**D-110**）在 **受签名保护** 的 `protected` 路由组里，用例需要
+/// `X-Matrix` 签名 + `federation.allow_ingress = true`，因此那些用例在 `api_federation_tests.rs`
+/// 里（复用该文件的 `signed_federation_request` 与联邦 app 构造器）—— 本文件只覆盖 C-S 侧。
+async fn post_public_rooms(app: &axum::Router, body: Value) -> (StatusCode, Value) {
+    post_public_rooms_at(app, "/_matrix/client/v3/publicRooms", body).await
 }
 
 /// 插入一个公开房间 + 它的 `room_summaries` 行（`room_type = None` 即"普通房间"）。
@@ -221,7 +235,9 @@ async fn test_public_rooms_post_filter_room_types_selects_normal_and_space_rooms
 }
 
 /// **显式拒绝**：本仓不支持的 filter 字段与形状非法的 filter 一律 400 `M_INVALID_PARAM`，
-/// 不再"当没看见"（D-109 的处置 ②）。`include_all_networks: false` 是规范默认值，必须接受。
+/// 不再"当没看见"（D-109 的处置 ②）；层级按规范（**D-111**）：`include_all_networks` /
+/// `third_party_instance_id` 属于 `RoomNetwork`，是**请求体顶层**字段，放进 `filter` 里属形状非法。
+/// `include_all_networks: false`（顶层，规范默认值）必须接受。
 #[tokio::test]
 async fn test_public_rooms_post_filter_rejects_unsupported_and_malformed_fields() {
     let Some((app, _pool, _cache)) = setup_test_app_with_pool().await else {
@@ -230,8 +246,10 @@ async fn test_public_rooms_post_filter_rejects_unsupported_and_malformed_fields(
     };
 
     for (label, body) in [
-        ("include_all_networks=true", json!({"filter": {"include_all_networks": true}})),
-        ("third_party_instance_id", json!({"filter": {"third_party_instance_id": "irc"}})),
+        ("include_all_networks=true（顶层）", json!({"include_all_networks": true})),
+        ("third_party_instance_id（顶层）", json!({"third_party_instance_id": "irc"})),
+        ("include_all_networks 错放进 filter", json!({"filter": {"include_all_networks": true}})),
+        ("third_party_instance_id 错放进 filter", json!({"filter": {"third_party_instance_id": "irc"}})),
         ("filter 不是对象", json!({"filter": "nope"})),
         ("room_types 不是数组", json!({"filter": {"room_types": "m.space"}})),
         ("room_types 条目非法", json!({"filter": {"room_types": [42]}})),
@@ -242,7 +260,7 @@ async fn test_public_rooms_post_filter_rejects_unsupported_and_malformed_fields(
         assert_eq!(payload["errcode"].as_str(), Some("M_INVALID_PARAM"), "{label}: 必须是 M_INVALID_PARAM：{payload}");
     }
 
-    // `include_all_networks: false` 合法（规范默认值）⇒ 200
-    let (status, _) = post_public_rooms(&app, json!({"limit": 5, "filter": {"include_all_networks": false}})).await;
+    // `include_all_networks: false` 合法（规范默认值，且在**顶层**）⇒ 200
+    let (status, _) = post_public_rooms(&app, json!({"limit": 5, "include_all_networks": false})).await;
     assert_eq!(status, StatusCode::OK, "include_all_networks=false 必须被接受");
 }
