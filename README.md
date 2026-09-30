@@ -166,7 +166,7 @@ cargo run --release
 - 代码审查报告（最新）：`artifacts/code_review_report_2026-08-11.md`
 - 文档索引：`docs/INDEX.md`
 - 测试语义与 CI 门禁：`TESTING.md`
-- API 文档：由路由 ledger 生成，见 `docs/openapi/client.yaml`（用 `scripts/api_test/generate_openapi.py` 重新生成）
+- API 文档：由路由 ledger 生成，作 CI artifact 上传（**不入库**；本地用 `scripts/api_test/gen_client_yaml.py` 重新生成该 spec）
 - 数据库迁移指引：`migrations/README.md`
 
 ## 私密聊天功能集成指南 (Private Chat Features)

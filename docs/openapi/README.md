@@ -6,8 +6,9 @@
 
 | 文件 | 说明 |
 | --- | --- |
-| `client.yaml` | **主 spec** — 当前 profile (default) 的完整 Client-Server API |
+| `client.yaml` | **主 spec（生成物，不入库）** — 当前 profile (default) 的完整 Client-Server API。由 `scripts/api_test/gen_client_yaml.py` 生成，CI 作 artifact 上传（见 `.github/workflows/ci.yml` 的 `openapi-artifact` job）；本地不入库、按需重生成 |
 | `index.json` | Manifest 索引 — 所有 profile 的 spec 路径 + 元数据 |
+| `route-table.json` | 路由表（入库，CI 对账 drift） |
 
 ## client.yaml 概况 (default profile)
 
@@ -116,10 +117,13 @@ schemathesis run http://localhost:8008/_matrix/client/versions \
 
 ### 3. CI 自动化
 
+`client.yaml` 已移出索引（见 `.gitignore`）：CI 只生成并上传为 artifact，不再对账入库副本；
+入库并受 CI drift 对账的只有 `route-table.json`。
+
 ```bash
-# PR 时 diff 检查
+# 本地刷新后检查 route-table.json 的 diff
 python3 scripts/api_test/refresh_openapi_specs.py --profile default --skip-export
-git diff --stat docs/openapi/
+git diff --stat docs/openapi/route-table.json
 ```
 
 ## 生成策略说明

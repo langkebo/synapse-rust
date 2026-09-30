@@ -18,9 +18,10 @@ docker/.env
 *.key
 signing.key
 
-# 生产配置文件（包含真实密码）
-homeserver.yaml
-homeserver.local.yaml
+# 生产配置文件（包含真实密码）。锚定根目录：入仓模板 docker/config/homeserver.yaml
+# 在任意层级都叫这个名字，未锚定会一并匹配，故收紧为根级规则。
+/homeserver.yaml
+/homeserver.local.yaml
 !homeserver.yaml.example
 !homeserver.minimal.yaml
 
@@ -108,6 +109,11 @@ register_test_accounts.py
 # gstack 计划文件（自动化工作流生成）
 docs/superpowers/plans/
 
+# OpenAPI spec 生成物：由 CI 生成并作为 artifact 上传（ci.yml openapi-artifact），不入库。
+# 本地按需 `python3 scripts/api_test/gen_client_yaml.py --skip-export` 重生成。
+# 同目录的 index.json / route-table.json / README.md 仍是入库文件。
+docs/openapi/client.yaml
+
 # 测试工具链依赖（由 npm install 重建，不应入仓）
 tests/element-web-harness/node_modules/
 # e2e/interop 运行产物（Playwright 截图 + HTML dump，实测 210 文件 / 266 MB）
@@ -136,6 +142,11 @@ target_amd64/
 target_arm64/
 .scratch/
 api_test/response_schemas.json
+
+# Trae 会话分享包（HTML bundle 产物，仓库内无引用）
+.trae-html-share-packages/
+# Superpowers SDD 工作区（临时任务报告与草稿）
+.superpowers/
 
 # 编辑器/打补丁留下的备份产物：既不是源码，也会让 format / pre-commit 门禁变红
 # （2026-09-22 实测：未跟踪的 *.sh.orig 让 `format_check.sh` 的 shfmt 段直接红，

@@ -194,8 +194,9 @@ jobs:
 
   # ──────────────────────────────────────────────
   # OpenAPI Artifact Generation (B2-5)
-  # Generates client.yaml + route-table.json as CI artifacts.
-  # Outputs are uploaded, not committed to git.
+  # client.yaml is a generated artifact: uploaded below, never committed
+  # (it is git-ignored), so there is no committed copy to drift-check.
+  # route-table.json is still committed and IS drift-checked below.
   # ──────────────────────────────────────────────
 
   openapi-artifact:
@@ -231,16 +232,14 @@ jobs:
             --output="$RUNNER_TEMP/ledger_default_ci.json" \
             --timestamp="$TIMESTAMP"
 
-      # Both checks MUST run BEFORE the generation steps below, which overwrite
-      # the committed artifacts in the workspace; --check itself only ever writes
-      # to a temp path. client.yaml is byte-reproducible from the committed
-      # scripts/api_test/ledger.json, route-table.json from the fresh
-      # default-feature export above. A ledger/generator change that ships
-      # without regenerating the artifact fails here instead of silently
+      # The check MUST run BEFORE the generation steps below, which overwrite the
+      # committed route-table.json in the workspace; --check itself only ever
+      # writes to a temp path. route-table.json is byte-reproducible from the
+      # fresh default-feature export above. A ledger/generator change that ships
+      # without regenerating route-table.json fails here instead of silently
       # uploading a contract that disagrees with the committed one.
-      - name: Verify committed client.yaml is in sync (fails on drift)
-        run: python3 scripts/api_test/gen_client_yaml.py --skip-export --check
-
+      # (client.yaml is no longer committed — see .gitignore — so it has no
+      # drift check; it is only generated and uploaded below.)
       - name: Verify committed route-table.json is in sync (fails on drift)
         run: python3 scripts/api_test/gen_route_table.py --check --ledger "$RUNNER_TEMP/ledger_default_ci.json"
 
