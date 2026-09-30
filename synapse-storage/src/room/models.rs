@@ -187,6 +187,26 @@ fn directory_search_pattern(search_term: &str) -> String {
     format!("%{}%", search_term.to_lowercase())
 }
 
+/// `/publicRooms` 的 `filter.room_types` 语义（D-109）。
+///
+/// 规范里 `room_types` 是"要包含的房间类型"数组，其中 `null` 表示**普通房间**（没有
+/// `m.room.create.type`）。本仓用 `room_summaries.room_type`（可空）作判据：
+///
+/// - `types = None` ⇒ **不做类型过滤**（字段缺省）；
+/// - `types = Some(v)` ⇒ 只保留 `room_type = ANY(v)`（`v` 为空 ⇒ 不保留任何非 null 类型）；
+/// - `include_normal = true` ⇒ 额外保留 `room_type IS NULL` 的房间。
+///
+/// ⚠️ 之所以用这个值对象而不是 `Option<Vec<Option<String>>>`：含 `NULL` 的数组参数在 sqlx 里
+/// **没有映射**（D-13 那条结构性例外）⇒ 拆成"非 null 类型集合 + 是否含 null"两半，既绕开该限制，
+/// 又让 SQL 侧只需 `$n::text[] IS NULL / = ANY($n) / $m AND … IS NULL` 三个分支。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RoomTypeFilter {
+    /// 请求里**非 null** 的类型集合；`None` = 不做类型过滤。
+    pub types: Option<Vec<String>>,
+    /// 请求里是否含 `null`（⇒ 也包含普通房间）。
+    pub include_normal: bool,
+}
+
 /// The `Room` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Room {
@@ -343,7 +363,12 @@ impl RoomStorage {
     /// [`RoomStoreApi::search_public_rooms`](crate::room::api::RoomStoreApi::search_public_rooms),
     /// which pairs it with the matching count so `total_room_count_estimate` cannot
     /// drift from the returned chunk.
-    pub async fn search_room_directory(&self, search_term: &str, limit: i64) -> Result<Vec<Room>, sqlx::Error> {
+    pub async fn search_room_directory(
+        &self,
+        search_term: &str,
+        limit: i64,
+        types: &RoomTypeFilter,
+    ) -> Result<Vec<Room>, sqlx::Error> {
         let pattern = directory_search_pattern(search_term);
         // R6：`query_as!` **不认** `#[sqlx(rename = "join_rules")]` / `#[sqlx(rename = "creator")]`
         // ⇒ 别名必须写成**真实字段名**（`join_rule` / `creator_user_id`；同文件
@@ -362,11 +387,16 @@ impl RoomStorage {
               AND (LOWER(r.name) LIKE $1
                    OR LOWER(r.topic) LIKE $1
                    OR LOWER(r.canonical_alias) LIKE $1)
+              AND ($3::text[] IS NULL
+                   OR rs.room_type = ANY($3)
+                   OR ($4::boolean AND rs.room_type IS NULL))
             ORDER BY r.name
             LIMIT $2
             "#,
             &pattern,
             limit,
+            types.types.as_deref(),
+            types.include_normal,
         )
         .fetch_all(&*self.pool)
         .await?;
@@ -403,18 +433,28 @@ impl RoomStorage {
     /// `search_room_directory` 一字不差（同一个 [`directory_search_pattern`]），
     /// 否则会出现"返回 1 条、却报 20 个匹配"的漂移。两者由 trait 的
     /// `search_public_rooms` 一次性配对返回。
-    pub async fn count_public_rooms_matching(&self, search_term: &str) -> Result<i64, sqlx::Error> {
+    pub async fn count_public_rooms_matching(
+        &self,
+        search_term: &str,
+        types: &RoomTypeFilter,
+    ) -> Result<i64, sqlx::Error> {
         let pattern = directory_search_pattern(search_term);
         let count = sqlx::query_scalar!(
             r#"
             SELECT COUNT(*) AS "count!"
             FROM rooms r
+            LEFT JOIN room_summaries rs ON rs.room_id = r.room_id
             WHERE r.is_public = TRUE
               AND (LOWER(r.name) LIKE $1
                    OR LOWER(r.topic) LIKE $1
                    OR LOWER(r.canonical_alias) LIKE $1)
+              AND ($2::text[] IS NULL
+                   OR rs.room_type = ANY($2)
+                   OR ($3::boolean AND rs.room_type IS NULL))
             "#,
             pattern,
+            types.types.as_deref(),
+            types.include_normal,
         )
         .fetch_one(&*self.pool)
         .await?;

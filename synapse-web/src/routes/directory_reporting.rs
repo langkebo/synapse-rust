@@ -14,6 +14,68 @@ use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
+/// `/publicRooms` 的 `filter` 解析结果（HTTP 层 DTO；storage 的值对象在 `synapse-storage` 里，
+/// web 层不需要也不应该依赖它 —— 分层是 route → service → storage）。
+#[derive(Debug, Default)]
+struct PublicRoomsFilter {
+    /// `filter.generic_search_term`（trim 后非空才有值）。
+    search_term: Option<String>,
+    /// `filter.room_types` 里的**非 null** 类型；`None` = 不做类型过滤。
+    room_types: Option<Vec<String>>,
+    /// `filter.room_types` 里是否含 `null`（⇒ 也包含普通房间）。
+    include_room_type_null: bool,
+}
+
+/// 解析 `POST /publicRooms` 的 `filter`（D-109）。
+///
+/// **两条硬规则**：
+/// 1. **接线**：`generic_search_term` 与 `room_types` 都真正生效（列表与搜索两条路径同一套过滤）；
+/// 2. **不再静默**：本仓不支持的字段（`include_all_networks = true`、`third_party_instance_id`）
+///    以及任何形状非法的 filter（不是对象 / `room_types` 不是数组 / 条目既非字符串也非 null /
+///    `generic_search_term` 不是字符串）一律 **400 `M_INVALID_PARAM`**，而不是"当没看见"。
+///    （`include_all_networks = false` 是规范默认值，合法，接受。）
+fn parse_public_rooms_filter(body: &Value) -> Result<PublicRoomsFilter, ApiError> {
+    let Some(filter) = body.get("filter").filter(|value| !value.is_null()) else {
+        return Ok(PublicRoomsFilter::default());
+    };
+    let Some(filter) = filter.as_object() else {
+        return Err(ApiError::invalid_input("filter must be an object"));
+    };
+
+    if filter.get("include_all_networks").and_then(Value::as_bool) == Some(true) {
+        return Err(ApiError::invalid_input("filter.include_all_networks is not supported"));
+    }
+    if filter.get("third_party_instance_id").is_some_and(|value| !value.is_null()) {
+        return Err(ApiError::invalid_input("filter.third_party_instance_id is not supported"));
+    }
+
+    let search_term = match filter.get("generic_search_term") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(term)) if term.trim().is_empty() => None,
+        Some(Value::String(term)) => Some(term.trim().to_string()),
+        Some(_) => return Err(ApiError::invalid_input("filter.generic_search_term must be a string")),
+    };
+
+    let mut parsed = PublicRoomsFilter { search_term, ..PublicRoomsFilter::default() };
+    match filter.get("room_types") {
+        None | Some(Value::Null) => {}
+        Some(Value::Array(entries)) => {
+            let mut names = Vec::new();
+            for entry in entries {
+                match entry {
+                    Value::Null => parsed.include_room_type_null = true,
+                    Value::String(name) => names.push(name.clone()),
+                    _ => return Err(ApiError::invalid_input("filter.room_types entries must be strings or null")),
+                }
+            }
+            parsed.room_types = Some(names);
+        }
+        Some(_) => return Err(ApiError::invalid_input("filter.room_types must be an array")),
+    }
+
+    Ok(parsed)
+}
+
 fn decode_public_rooms_cursor(cursor: Option<&str>) -> Option<(i64, &str)> {
     let cursor = cursor?;
     let (ts, room_id) = cursor.split_once('|')?;
@@ -516,15 +578,22 @@ pub(crate) async fn get_public_rooms(
     let cursor = decode_public_rooms_cursor(params.get("since").and_then(|v| v.as_str()));
 
     // 按 spec，GET 变体的参数只有 `limit` / `since` / `server` —— `filter`（含
-    // `generic_search_term`）是 **POST 变体**（`query_public_rooms`）的字段，故本函数不读它。
+    // `generic_search_term` / `room_types`）是 **POST 变体**（`query_public_rooms`）的字段，故本函数
+    // 不读它，类型过滤取默认值（= 不过滤）。
     let (rooms, total) = tokio::try_join!(
         async {
             ctx.room_service
                 .state()
-                .get_public_rooms_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, room_id)| room_id))
+                .get_public_rooms_paginated(
+                    limit,
+                    cursor.map(|(ts, _)| ts),
+                    cursor.map(|(_, room_id)| room_id),
+                    None,
+                    false,
+                )
                 .await
         },
-        async { ctx.room_service.state().count_public_rooms().await }
+        async { ctx.room_service.state().count_public_rooms(None, false).await }
     )?;
 
     let next_batch = if rooms.len() as i64 == limit {
@@ -593,40 +662,35 @@ pub(crate) async fn query_public_rooms(
     let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(20).clamp(1, 1000) as i64;
     let cursor = decode_public_rooms_cursor(body.get("since").and_then(|v| v.as_str()));
 
-    // Client-Server API 的 `filter`：**支持 `generic_search_term`** —— "在房间元数据里搜索，
-    // 例如 name / topic / canonical alias"（MSC2197 §Motivation；本仓实现见
-    // `RoomStorage::search_room_directory`）。C67 之前这里是一个 `let _filter = body.get("filter");`
-    // 把整个 filter **静默忽略**掉（D-108）。
-    //
-    // ⚠️ `filter` 的其余字段（`room_types`）以及 `include_all_networks` / `third_party_instance_id`
-    // 目前**仍未支持**（appservice 目录不在本仓范围内；`room_types` 需要可空数组的表示与
-    // `room_summaries.room_type` / `is_space` 的语义决策）—— 见 §7.1 的 **D-109**。
-    // 不要再"静默忽略"新字段：要么接线，要么登记。
-    let filter = body.get("filter");
-    let search_term = filter
-        .and_then(|f| f.get("generic_search_term"))
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|term| !term.is_empty());
+    // Client-Server API 的 `filter`（D-108 接线 `generic_search_term`，D-109 接线 `room_types`
+    // 并对其余字段**显式拒绝**）。解析规则与错误语义见 [`parse_public_rooms_filter`]。
+    let filter = parse_public_rooms_filter(&body)?;
+    let room_types = filter.room_types.as_deref();
 
-    let (rooms, total) = if let Some(term) = search_term {
+    let (rooms, total) = if let Some(term) = filter.search_term.as_deref() {
         // 搜索路径：谓词 + `ORDER BY name` 与 keyset 游标（`created_ts, room_id`）**不同构**
         // ⇒ 本路径**不发** `next_batch`（spec 允许服务端不分页）。用 `created_ts` 造游标会让
         // 客户端续传跳进**未过滤**的列表里 —— 这是一个只有真库往返才看得见的错。
-        ctx.room_service.state().search_public_rooms(term, limit).await?
+        ctx.room_service.state().search_public_rooms(term, limit, room_types, filter.include_room_type_null).await?
     } else {
         tokio::try_join!(
             async {
                 ctx.room_service
                     .state()
-                    .get_public_rooms_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, room_id)| room_id))
+                    .get_public_rooms_paginated(
+                        limit,
+                        cursor.map(|(ts, _)| ts),
+                        cursor.map(|(_, room_id)| room_id),
+                        room_types,
+                        filter.include_room_type_null,
+                    )
                     .await
             },
-            async { ctx.room_service.state().count_public_rooms().await }
+            async { ctx.room_service.state().count_public_rooms(room_types, filter.include_room_type_null).await }
         )?
     };
 
-    let next_batch = if search_term.is_none() && rooms.len() as i64 == limit {
+    let next_batch = if filter.search_term.is_none() && rooms.len() as i64 == limit {
         rooms.last().map(|room| encode_public_rooms_cursor(room.created_ts, &room.room_id))
     } else {
         None

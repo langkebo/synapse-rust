@@ -8,6 +8,11 @@ use synapse_storage::{Room, RoomSearchCursor, RoomSearchOrder};
 
 use super::service::RoomStateService;
 
+/// 把 web 层的两半 `filter.room_types` 组装成 storage 的值对象（**唯一**一处转换）。
+fn room_type_filter(room_types: Option<&[String]>, include_normal: bool) -> synapse_storage::room::RoomTypeFilter {
+    synapse_storage::room::RoomTypeFilter { types: room_types.map(<[String]>::to_vec), include_normal }
+}
+
 impl RoomStateService {
     /// See [`get_room_encryption_status`].
     pub async fn get_room_encryption_status(
@@ -143,22 +148,37 @@ impl RoomStateService {
     }
 
     /// See [`get_public_rooms_paginated`].
+    /// `room_types` / `include_room_type_null` 是 `filter.room_types` 的两半（D-109）：
+    /// `None` = 不做类型过滤；`Some(types)` = 只保留这些类型；`include_room_type_null` =
+    /// 请求里含 `null`（⇒ 也包含普通房间）。**用普通参数而不是 storage 的值对象**：web 层不必
+    /// 依赖 `synapse-storage`（分层：route → service → storage）。
     pub async fn get_public_rooms_paginated(
         &self,
         limit: i64,
         since_ts: Option<i64>,
         since_room_id: Option<&str>,
+        room_types: Option<&[String]>,
+        include_room_type_null: bool,
     ) -> ApiResult<Vec<synapse_storage::Room>> {
         self.room_storage
-            .get_public_rooms_paginated(limit, since_ts, since_room_id)
+            .get_public_rooms_paginated(
+                limit,
+                since_ts,
+                since_room_id,
+                &room_type_filter(room_types, include_room_type_null),
+            )
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get public rooms", e))
     }
 
     /// See [`count_public_rooms`].
-    pub async fn count_public_rooms(&self) -> ApiResult<i64> {
+    pub async fn count_public_rooms(
+        &self,
+        room_types: Option<&[String]>,
+        include_room_type_null: bool,
+    ) -> ApiResult<i64> {
         self.room_storage
-            .count_public_rooms()
+            .count_public_rooms(&room_type_filter(room_types, include_room_type_null))
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to count public rooms", e))
     }
@@ -170,9 +190,11 @@ impl RoomStateService {
         &self,
         search_term: &str,
         limit: i64,
+        room_types: Option<&[String]>,
+        include_room_type_null: bool,
     ) -> ApiResult<(Vec<synapse_storage::Room>, i64)> {
         self.room_storage
-            .search_public_rooms(search_term, limit)
+            .search_public_rooms(search_term, limit, &room_type_filter(room_types, include_room_type_null))
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to search public rooms", e))
     }
@@ -450,14 +472,14 @@ mod tests {
     #[tokio::test]
     async fn get_public_rooms_paginated_returns_empty_when_no_public_rooms() {
         let svc = make_service();
-        let result = svc.get_public_rooms_paginated(10, None, None).await.unwrap();
+        let result = svc.get_public_rooms_paginated(10, None, None, None, false).await.unwrap();
         assert!(result.is_empty());
     }
 
     #[tokio::test]
     async fn count_public_rooms_returns_zero_for_empty_store() {
         let svc = make_service();
-        let count = svc.count_public_rooms().await.unwrap();
+        let count = svc.count_public_rooms(None, false).await.unwrap();
         assert_eq!(count, 0);
     }
 
