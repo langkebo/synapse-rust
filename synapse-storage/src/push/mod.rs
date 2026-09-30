@@ -57,6 +57,31 @@ pub struct PushRuleRow {
     pub is_default: bool,
 }
 
+/// A `push_rules` row carrying its `scope`/`kind` classification, as returned by
+/// [`PushStorage::get_all_push_rules`]. Unlike [`PushRuleRow`] (which is already
+/// scoped by the caller's `scope`/`kind` arguments), this row is the input needed
+/// to rebuild the full `GET /pushrules` document.
+#[derive(Debug, Clone)]
+pub struct PushRuleScopedRow {
+    /// The `scope` field (`global` or `device/<device_id>`).
+    pub scope: String,
+    /// The `kind` field (`override` / `content` / `room` / `sender` / `underride`).
+    pub kind: String,
+    /// The `rule_id` field.
+    pub rule_id: String,
+    /// The `pattern` field.
+    pub pattern: Option<String>,
+    /// The `conditions` field.
+    pub conditions: Option<Value>,
+    /// The `actions` field.
+    pub actions: Option<Value>,
+    /// The `is_enabled` field. Asserted non-null: written as a literal `true` by the
+    /// INSERT and as a bound `bool` by `set_push_rule_enabled`.
+    pub is_enabled: bool,
+    /// The `is_default` field. Asserted non-null: the INSERT always writes literal `false`.
+    pub is_default: bool,
+}
+
 /// A `notifications` row as returned by [`PushStorage::get_notifications`].
 #[derive(Debug, Clone)]
 pub struct NotificationRow {
@@ -158,6 +183,9 @@ pub trait PushStoreApi: Send + Sync {
         scope: &str,
         kind: &str,
     ) -> Result<Vec<PushRuleRow>, sqlx::Error>;
+
+    /// See [`get_all_push_rules`].
+    async fn get_all_push_rules(&self, user_id: &str) -> Result<Vec<PushRuleScopedRow>, sqlx::Error>;
 
     /// See [`get_notifications`].
     async fn get_notifications(&self, user_id: &str, limit: i64) -> Result<Vec<NotificationRow>, sqlx::Error>;
@@ -417,6 +445,27 @@ impl PushStorage {
         .await
     }
 
+    /// See [`get_all_push_rules`].
+    ///
+    /// Returns every rule for `user_id` across all scopes/kinds — the raw input for
+    /// rebuilding `GET /pushrules`. Ordered `scope, kind, rule_id` so the caller can
+    /// group in a single pass with a deterministic within-kind order.
+    pub async fn get_all_push_rules(&self, user_id: &str) -> Result<Vec<PushRuleScopedRow>, sqlx::Error> {
+        sqlx::query_as!(
+            PushRuleScopedRow,
+            r#"
+            SELECT scope, kind, rule_id, pattern, conditions, actions,
+                   is_enabled AS "is_enabled!", is_default AS "is_default!"
+            FROM push_rules
+            WHERE user_id = $1
+            ORDER BY scope ASC, kind ASC, rule_id ASC
+            "#,
+            user_id,
+        )
+        .fetch_all(&*self.pool)
+        .await
+    }
+
     // ── notifications ────────────────────────────────────────────────────
 
     /// See [`get_notifications`].
@@ -595,6 +644,10 @@ impl PushStoreApi for PushStorage {
         kind: &str,
     ) -> Result<Vec<PushRuleRow>, sqlx::Error> {
         self.get_user_push_rules(user_id, scope, kind).await
+    }
+
+    async fn get_all_push_rules(&self, user_id: &str) -> Result<Vec<PushRuleScopedRow>, sqlx::Error> {
+        self.get_all_push_rules(user_id).await
     }
 
     async fn get_notifications(&self, user_id: &str, limit: i64) -> Result<Vec<NotificationRow>, sqlx::Error> {

@@ -146,15 +146,14 @@ async fn get_account_data(
         Some(content) => Ok(Json(content)),
         None => {
             if data_type == "m.push_rules" {
-                Ok(Json(json!({
-                    "global": {
-                        "content": [],
-                        "override": [],
-                        "room": [],
-                        "sender": [],
-                        "underride": []
-                    }
-                })))
+                // I.2: `m.push_rules` is never stored as account data; it is derived
+                // from the `push_rules` table so this endpoint agrees with
+                // `GET /pushrules` and `/sync` instead of returning an empty document.
+                let username: &str = user_id.strip_prefix('@').and_then(|s| s.split(':').next()).unwrap_or("");
+                let mut content =
+                    ctx.client_push_service.get_push_rules_content(user_id).await?.unwrap_or_else(|| json!({}));
+                crate::routes::push_rules::merge_default_push_rules(&mut content, user_id, username);
+                Ok(Json(content))
             } else if data_type == "m.secret_storage.default_key" {
                 // Compatibility bridge: when the user has any SSSS keys
                 // managed by the homeserver's internal store but has not

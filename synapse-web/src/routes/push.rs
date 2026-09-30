@@ -238,18 +238,13 @@ async fn get_push_rules_scope(
     if scope == "global" {
         let username: &str = auth_user.user_id.strip_prefix('@').and_then(|s| s.split(':').next()).unwrap_or("");
 
-        let result: Option<serde_json::Value> =
-            ctx.client_push_service.get_push_rules_content(&auth_user.user_id).await?;
+        // I.2: derive the document from the `push_rules` table, then merge the spec
+        // defaults, so this scope view stays consistent with `GET /pushrules`.
+        let mut content: serde_json::Value =
+            ctx.client_push_service.get_push_rules_content(&auth_user.user_id).await?.unwrap_or_else(|| json!({}));
+        crate::routes::push_rules::merge_default_push_rules(&mut content, &auth_user.user_id, username);
 
-        if let Some(content) = result {
-            if let Some(global) = content.get("global") {
-                return Ok(Json(global.clone()));
-            }
-        }
-
-        let defaults: serde_json::Value =
-            crate::routes::push_rules::default_push_rules_for_user(&auth_user.user_id, username);
-        if let Some(global) = defaults.get("global") {
+        if let Some(global) = content.get("global") {
             Ok(Json(global.clone()))
         } else {
             Ok(Json(json!({

@@ -53,6 +53,9 @@ pub struct SyncService {
     pub(crate) event_notifier: Option<crate::event_notifier::EventNotifier>,
     /// MSC4354: sticky events injection for v2 /sync.
     pub(crate) sticky_event_storage: Option<Arc<synapse_storage::sticky_event::StickyEventStorage>>,
+    /// Authority for the synced `m.push_rules` account-data event (the `push_rules`
+    /// table). `None` in tests ⇒ the spec defaults are emitted.
+    pub(crate) push_storage: Option<Arc<dyn synapse_storage::push::PushStoreApi>>,
 }
 
 /// Maximum number of (user, device, room) entries kept in the in-memory
@@ -91,6 +94,7 @@ impl SyncService {
             cache: deps.cache,
             event_notifier: deps.event_notifier,
             sticky_event_storage: deps.sticky_event_storage,
+            push_storage: deps.push_storage,
         }
     }
 
@@ -131,6 +135,9 @@ impl SyncService {
             // tests that do not exercise MSC4354 sticky events; production
             // wiring builds via `from_deps` with a real sticky storage.
             sticky_event_storage: None,
+            // Likewise, `new()` keeps the spec-default push rules; production
+            // wiring passes the real `push_rules` table via `from_deps`.
+            push_storage: None,
         })
     }
 

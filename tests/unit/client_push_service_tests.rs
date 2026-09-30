@@ -1,8 +1,7 @@
 // Client push service unit tests.
 //
 // Exercises `synapse_services::client_push_service::ClientPushService` against
-// in-memory mocks of its two storage dependencies
-// (`AccountDataStoreApi` + `PushStoreApi`). Covers:
+// an in-memory mock of its single storage dependency (`PushStoreApi`). Covers:
 //   * Happy path for non-row-returning storage methods (returns Ok + value
 //     mapping for `delete_push_rule`, `get_push_rule_enabled`, ...).
 //   * Happy path for row-returning methods when storage is empty (verifies
@@ -17,88 +16,17 @@
 // `synapse-services/src/client_push_service.rs`'s own unit tests (which can now
 // feed an `InMemoryPushStore`), and the real-SQL round trips by
 // `synapse-storage/src/push/mod.rs::db_tests` against a real Postgres.
+//
+// The `push_rules` table is the single authority for push rules (I.2): this
+// suite therefore has **no** account-data mock — the former `m.push_rules`
+// account-data reader is gone.
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
-use synapse_common::ApiError;
 use synapse_services::client_push_service::{ClientPushService, UpsertPushRuleRequest, UpsertPusherRequest};
-use synapse_storage::account_data::{AccountDataRecord, AccountDataStoreApi};
 use synapse_storage::push::PushStoreApi;
-use synapse_storage::push::{NotificationRow, PushRuleRow, PusherRow};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Mock: AccountDataStoreApi
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// In-memory fake for `AccountDataStoreApi`. Only `get_account_data_content`
-/// is exercised by `ClientPushService`; the remaining trait methods return
-/// their default empty/zero values so the trait object compiles.
-#[derive(Debug, Default)]
-struct MockAccountDataStore {
-    state: Mutex<MockAccountDataState>,
-}
-
-#[derive(Debug, Default, Clone)]
-struct MockAccountDataState {
-    /// When set, every method returns `Err`.
-    fail_all: bool,
-    /// Configured return for `get_account_data_content`.
-    get_content: Option<Option<Value>>,
-}
-
-impl MockAccountDataStore {
-    fn new() -> Self {
-        Self::default()
-    }
-
-    fn with_failure() -> Self {
-        let store = Self::new();
-        *store.state.lock().unwrap() = MockAccountDataState { fail_all: true, get_content: None };
-        store
-    }
-
-    fn with_content(content: Option<Value>) -> Self {
-        let store = Self::new();
-        *store.state.lock().unwrap() = MockAccountDataState { fail_all: false, get_content: Some(content) };
-        store
-    }
-}
-
-#[async_trait]
-impl AccountDataStoreApi for MockAccountDataStore {
-    async fn get_account_data_content(&self, _user_id: &str, _data_type: &str) -> Result<Option<Value>, ApiError> {
-        let state = self.state.lock().unwrap().clone();
-        if state.fail_all {
-            return Err(ApiError::internal_with_context("mock: forced failure", &"mock-error"));
-        }
-        Ok(state.get_content.unwrap_or(None))
-    }
-
-    async fn list_account_data(&self, _user_id: &str) -> Result<Vec<AccountDataRecord>, ApiError> {
-        let state = self.state.lock().unwrap().clone();
-        if state.fail_all {
-            return Err(ApiError::internal_with_context("mock: forced failure", &"mock-error"));
-        }
-        Ok(Vec::new())
-    }
-
-    async fn delete_account_data(&self, _user_id: &str, _data_type: &str) -> Result<bool, ApiError> {
-        let state = self.state.lock().unwrap().clone();
-        if state.fail_all {
-            return Err(ApiError::internal_with_context("mock: forced failure", &"mock-error"));
-        }
-        Ok(false)
-    }
-
-    async fn upsert_account_data(&self, _user_id: &str, _data_type: &str, _content: Value) -> Result<(), ApiError> {
-        let state = self.state.lock().unwrap().clone();
-        if state.fail_all {
-            return Err(ApiError::internal_with_context("mock: forced failure", &"mock-error"));
-        }
-        Ok(())
-    }
-}
+use synapse_storage::push::{NotificationRow, PushRuleRow, PushRuleScopedRow, PusherRow};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mock: PushStoreApi
@@ -290,6 +218,14 @@ impl PushStoreApi for MockPushStore {
         Ok(Vec::new())
     }
 
+    async fn get_all_push_rules(&self, _user_id: &str) -> Result<Vec<PushRuleScopedRow>, sqlx::Error> {
+        let state = self.state.lock().unwrap().clone();
+        if state.fail_all {
+            return Err(storage_error());
+        }
+        Ok(Vec::new())
+    }
+
     async fn get_notifications(&self, _user_id: &str, _limit: i64) -> Result<Vec<NotificationRow>, sqlx::Error> {
         let state = self.state.lock().unwrap().clone();
         if state.fail_all {
@@ -329,8 +265,8 @@ impl PushStoreApi for MockPushStore {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn build_service(account: MockAccountDataStore, push: MockPushStore) -> ClientPushService {
-    ClientPushService::new(Arc::new(account) as Arc<dyn AccountDataStoreApi>, Arc::new(push) as Arc<dyn PushStoreApi>)
+fn build_service(push: MockPushStore) -> ClientPushService {
+    ClientPushService::new(Arc::new(push) as Arc<dyn PushStoreApi>)
 }
 
 fn sample_upsert_pusher_request() -> UpsertPusherRequest {
@@ -396,29 +332,23 @@ fn upsert_push_rule_request_construct_and_clone() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// get_push_rules_content — happy path (only touches account_data_storage)
+// get_push_rules_content — the `push_rules` table is the only input (I.2)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// The non-empty case (rows → grouped JSON document) is asserted as a whole
+/// document by `client_push_service.rs`'s own unit test over
+/// `InMemoryPushStore`; this mock cannot hold rows.
 #[tokio::test]
-async fn get_push_rules_content_returns_some_when_storage_has_data() {
-    let content = json!({"global": {"override": []}});
-    let service = build_service(MockAccountDataStore::with_content(Some(content.clone())), MockPushStore::new());
+async fn get_push_rules_content_returns_none_when_table_empty() {
+    let service = build_service(MockPushStore::new());
 
     let result = service.get_push_rules_content("@alice:localhost").await.expect("should succeed");
-    assert_eq!(result, Some(content));
-}
-
-#[tokio::test]
-async fn get_push_rules_content_returns_none_when_storage_empty() {
-    let service = build_service(MockAccountDataStore::with_content(None), MockPushStore::new());
-
-    let result = service.get_push_rules_content("@alice:localhost").await.expect("should succeed");
-    assert_eq!(result, None);
+    assert_eq!(result, None, "an empty push_rules table must yield None so callers fall back to defaults");
 }
 
 #[tokio::test]
 async fn get_push_rules_content_maps_storage_error_to_internal() {
-    let service = build_service(MockAccountDataStore::with_failure(), MockPushStore::new());
+    let service = build_service(MockPushStore::with_failure());
 
     let err = service.get_push_rules_content("@alice:localhost").await.expect_err("should propagate storage error");
     assert!(err.is_internal(), "storage error must surface as ApiError::internal");
@@ -430,7 +360,7 @@ async fn get_push_rules_content_maps_storage_error_to_internal() {
 
 #[tokio::test]
 async fn get_pushers_returns_empty_vec_when_storage_empty() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::new());
+    let service = build_service(MockPushStore::new());
 
     let result = service.get_pushers("@alice:localhost", None).await.expect("should succeed");
     assert!(result.is_empty(), "empty pusher storage should yield empty JSON array");
@@ -438,7 +368,7 @@ async fn get_pushers_returns_empty_vec_when_storage_empty() {
 
 #[tokio::test]
 async fn get_pushers_with_device_filter_returns_empty() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::new());
+    let service = build_service(MockPushStore::new());
 
     let result = service.get_pushers("@alice:localhost", Some("DEV-1")).await.expect("should succeed");
     assert!(result.is_empty());
@@ -446,7 +376,7 @@ async fn get_pushers_with_device_filter_returns_empty() {
 
 #[tokio::test]
 async fn get_user_push_rules_returns_empty_vec_when_storage_empty() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::new());
+    let service = build_service(MockPushStore::new());
 
     let result = service.get_user_push_rules("@alice:localhost", "global", "override").await.expect("should succeed");
     assert!(result.is_empty(), "empty rule storage should yield empty JSON array");
@@ -454,7 +384,7 @@ async fn get_user_push_rules_returns_empty_vec_when_storage_empty() {
 
 #[tokio::test]
 async fn get_notifications_returns_empty_vec_when_storage_empty() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::new());
+    let service = build_service(MockPushStore::new());
 
     let result = service.get_notifications("@alice:localhost", 20).await.expect("should succeed");
     assert!(result.is_empty(), "empty notification storage should yield empty JSON array");
@@ -466,7 +396,7 @@ async fn get_notifications_returns_empty_vec_when_storage_empty() {
 
 #[tokio::test]
 async fn upsert_pusher_returns_timestamp_on_success() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::new());
+    let service = build_service(MockPushStore::new());
     let before = synapse_common::current_timestamp_millis();
 
     let ts = service.upsert_pusher(sample_upsert_pusher_request()).await.expect("should succeed");
@@ -477,14 +407,14 @@ async fn upsert_pusher_returns_timestamp_on_success() {
 
 #[tokio::test]
 async fn delete_pusher_returns_ok_on_success() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::new());
+    let service = build_service(MockPushStore::new());
 
     service.delete_pusher("@alice:localhost", "DEV-1", "pk-abc").await.expect("should succeed on empty delete");
 }
 
 #[tokio::test]
 async fn upsert_push_rule_returns_timestamp_on_success() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::new());
+    let service = build_service(MockPushStore::new());
     let before = synapse_common::current_timestamp_millis();
 
     let ts = service.upsert_push_rule(sample_upsert_push_rule_request()).await.expect("should succeed");
@@ -494,7 +424,7 @@ async fn upsert_push_rule_returns_timestamp_on_success() {
 
 #[tokio::test]
 async fn delete_push_rule_returns_false_when_zero_rows_affected() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::with_delete_rows(0));
+    let service = build_service(MockPushStore::with_delete_rows(0));
 
     let deleted =
         service.delete_push_rule("@alice:localhost", "global", "override", "rule_x").await.expect("should succeed");
@@ -503,7 +433,7 @@ async fn delete_push_rule_returns_false_when_zero_rows_affected() {
 
 #[tokio::test]
 async fn delete_push_rule_returns_true_when_rows_affected() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::with_delete_rows(1));
+    let service = build_service(MockPushStore::with_delete_rows(1));
 
     let deleted =
         service.delete_push_rule("@alice:localhost", "global", "override", "rule_x").await.expect("should succeed");
@@ -512,7 +442,7 @@ async fn delete_push_rule_returns_true_when_rows_affected() {
 
 #[tokio::test]
 async fn set_push_rule_actions_returns_ok_on_success() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::new());
+    let service = build_service(MockPushStore::new());
     let actions = json!(["dont_notify"]);
 
     service
@@ -523,7 +453,7 @@ async fn set_push_rule_actions_returns_ok_on_success() {
 
 #[tokio::test]
 async fn get_push_rule_enabled_returns_none_when_storage_returns_none() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::with_enabled(None));
+    let service = build_service(MockPushStore::with_enabled(None));
 
     let result = service
         .get_push_rule_enabled("@alice:localhost", "global", "override", "rule_1")
@@ -534,7 +464,7 @@ async fn get_push_rule_enabled_returns_none_when_storage_returns_none() {
 
 #[tokio::test]
 async fn get_push_rule_enabled_returns_some_when_storage_returns_some() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::with_enabled(Some(false)));
+    let service = build_service(MockPushStore::with_enabled(Some(false)));
 
     let result = service
         .get_push_rule_enabled("@alice:localhost", "global", "override", "rule_1")
@@ -545,7 +475,7 @@ async fn get_push_rule_enabled_returns_some_when_storage_returns_some() {
 
 #[tokio::test]
 async fn set_push_rule_enabled_returns_ok_on_success() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::new());
+    let service = build_service(MockPushStore::new());
 
     service
         .set_push_rule_enabled("@alice:localhost", "global", "override", "rule_1", true)
@@ -557,14 +487,14 @@ async fn set_push_rule_enabled_returns_ok_on_success() {
 async fn ack_notification_returns_true_when_storage_acks_a_row() {
     // C33：`ack_notification` 现在返回 `Option<i64>`，成功分支可以造出来
     // （此前是 `Option<PgRow>`，内存 mock 只能走 `None` 分支）。
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::with_ack_some());
+    let service = build_service(MockPushStore::with_ack_some());
     let acked = service.ack_notification(42, "@alice:localhost").await.expect("should succeed");
     assert!(acked, "storage returning Some(id) must map to Ok(true)");
 }
 
 #[tokio::test]
 async fn ack_notification_returns_false_when_storage_returns_none() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::new());
+    let service = build_service(MockPushStore::new());
 
     let acked = service.ack_notification(42, "@alice:localhost").await.expect("should succeed");
     assert!(!acked, "storage returning Ok(None) must map to Ok(false)");
@@ -576,28 +506,28 @@ async fn ack_notification_returns_false_when_storage_returns_none() {
 
 #[tokio::test]
 async fn get_pushers_maps_storage_error_to_internal() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::with_failure());
+    let service = build_service(MockPushStore::with_failure());
     let err = service.get_pushers("@alice:localhost", None).await.expect_err("should propagate error");
     assert!(err.is_internal());
 }
 
 #[tokio::test]
 async fn upsert_pusher_maps_storage_error_to_internal() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::with_failure());
+    let service = build_service(MockPushStore::with_failure());
     let err = service.upsert_pusher(sample_upsert_pusher_request()).await.expect_err("should propagate error");
     assert!(err.is_internal());
 }
 
 #[tokio::test]
 async fn delete_pusher_maps_storage_error_to_internal() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::with_failure());
+    let service = build_service(MockPushStore::with_failure());
     let err = service.delete_pusher("@alice:localhost", "DEV-1", "pk-abc").await.expect_err("should propagate error");
     assert!(err.is_internal());
 }
 
 #[tokio::test]
 async fn get_user_push_rules_maps_storage_error_to_internal() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::with_failure());
+    let service = build_service(MockPushStore::with_failure());
     let err = service
         .get_user_push_rules("@alice:localhost", "global", "override")
         .await
@@ -607,14 +537,14 @@ async fn get_user_push_rules_maps_storage_error_to_internal() {
 
 #[tokio::test]
 async fn upsert_push_rule_maps_storage_error_to_internal() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::with_failure());
+    let service = build_service(MockPushStore::with_failure());
     let err = service.upsert_push_rule(sample_upsert_push_rule_request()).await.expect_err("should propagate error");
     assert!(err.is_internal());
 }
 
 #[tokio::test]
 async fn delete_push_rule_maps_storage_error_to_internal() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::with_failure());
+    let service = build_service(MockPushStore::with_failure());
     let err = service
         .delete_push_rule("@alice:localhost", "global", "override", "rule_1")
         .await
@@ -624,7 +554,7 @@ async fn delete_push_rule_maps_storage_error_to_internal() {
 
 #[tokio::test]
 async fn set_push_rule_actions_maps_storage_error_to_internal() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::with_failure());
+    let service = build_service(MockPushStore::with_failure());
     let actions = json!(["notify"]);
     let err = service
         .set_push_rule_actions("@alice:localhost", "global", "override", "rule_1", &actions)
@@ -635,7 +565,7 @@ async fn set_push_rule_actions_maps_storage_error_to_internal() {
 
 #[tokio::test]
 async fn get_push_rule_enabled_maps_storage_error_to_internal() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::with_failure());
+    let service = build_service(MockPushStore::with_failure());
     let err = service
         .get_push_rule_enabled("@alice:localhost", "global", "override", "rule_1")
         .await
@@ -645,7 +575,7 @@ async fn get_push_rule_enabled_maps_storage_error_to_internal() {
 
 #[tokio::test]
 async fn set_push_rule_enabled_maps_storage_error_to_internal() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::with_failure());
+    let service = build_service(MockPushStore::with_failure());
     let err = service
         .set_push_rule_enabled("@alice:localhost", "global", "override", "rule_1", true)
         .await
@@ -655,14 +585,14 @@ async fn set_push_rule_enabled_maps_storage_error_to_internal() {
 
 #[tokio::test]
 async fn get_notifications_maps_storage_error_to_internal() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::with_failure());
+    let service = build_service(MockPushStore::with_failure());
     let err = service.get_notifications("@alice:localhost", 10).await.expect_err("should propagate error");
     assert!(err.is_internal());
 }
 
 #[tokio::test]
 async fn ack_notification_maps_storage_error_to_internal() {
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::with_failure());
+    let service = build_service(MockPushStore::with_failure());
     let err = service.ack_notification(42, "@alice:localhost").await.expect_err("should propagate error");
     assert!(err.is_internal());
 }
@@ -674,7 +604,7 @@ async fn ack_notification_maps_storage_error_to_internal() {
 #[tokio::test]
 async fn get_notifications_passes_limit_to_storage_without_error() {
     // limit=0 is a degenerate but valid call; storage mock returns empty vec.
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::new());
+    let service = build_service(MockPushStore::new());
     let result = service.get_notifications("@alice:localhost", 0).await.expect("should succeed");
     assert!(result.is_empty());
 }
@@ -683,7 +613,7 @@ async fn get_notifications_passes_limit_to_storage_without_error() {
 async fn delete_push_rule_for_nonexistent_user_returns_false() {
     // Mirrors the storage db_tests invariant: deleting a non-existent rule
     // is not an error, it just returns Ok(false).
-    let service = build_service(MockAccountDataStore::new(), MockPushStore::with_delete_rows(0));
+    let service = build_service(MockPushStore::with_delete_rows(0));
     let deleted = service
         .delete_push_rule("@nobody:localhost", "global", "override", "missing")
         .await

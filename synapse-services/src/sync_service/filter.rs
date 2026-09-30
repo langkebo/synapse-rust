@@ -1260,6 +1260,7 @@ mod tests {
             cache,
             event_notifier: None,
             sticky_event_storage: None,
+            push_storage: None,
         })
     }
 
