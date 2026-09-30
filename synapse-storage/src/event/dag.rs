@@ -283,42 +283,6 @@ impl EventStorage {
         }
     }
 
-    /// Get the state DAG edges for a room — all `(event_id, prev_state_event_id)`
-    /// pairs where `prev_state_events` is non-NULL.
-    ///
-    /// Used by `/get_missing_events` to walk the state DAG
-    /// when backfilling missing state events (MSC4242).
-    ///
-    /// ⚠️ **Note**: The comment previously claimed this was used by `/send_join`,
-    /// but `/send_join` does not call this function. The only production caller
-    /// is `federation/events.rs` (via `get_missing_events_between`).
-    ///
-    /// Returns a flat list of `(event_id, prev_state_event_id)` edges.
-    pub async fn get_state_dag_edges(&self, room_id: &str) -> Result<Vec<(String, String)>, sqlx::Error> {
-        // `query_as!` 不构造元组（R6 ⑤）⇒ `query!` 按字段读。`prev_state_events` 在 WHERE 里被
-        // 要求非空 ⇒ 断言非空（R4：谁保证非空 = 本查询的 WHERE 子句）。
-        let rows = sqlx::query!(
-            r#"
-            SELECT event_id, prev_state_events AS "prev_state_events!"
-            FROM events
-            WHERE room_id = $1 AND prev_state_events IS NOT NULL
-            ORDER BY origin_server_ts ASC, stream_ordering ASC
-            "#,
-            room_id
-        )
-        .fetch_all(&*self.pool)
-        .await?;
-
-        let mut edges = Vec::new();
-        for row in rows {
-            let prev_ids = prev_state_events_from_json(&row.event_id, row.prev_state_events)?;
-            for prev_id in prev_ids {
-                edges.push((row.event_id.clone(), prev_id));
-            }
-        }
-        Ok(edges)
-    }
-
     /// Find state events in a room that reference any of `missing_event_ids`
     /// in their `prev_state_events`. Used by the `/get_missing_events`
     /// federation handler to determine which state DAG events need backfilling

@@ -872,8 +872,6 @@ async fn test_malformed_prev_state_events_is_an_error() {
 
     let err = storage.get_prev_state_events("$malformed_pse_1:example.com").await.expect_err("must not swallow");
     assert!(matches!(err, sqlx::Error::Decode(_)), "expected Decode, got {err:?}");
-    let err = storage.get_state_dag_edges(&room_id).await.expect_err("must not swallow");
-    assert!(matches!(err, sqlx::Error::Decode(_)), "expected Decode, got {err:?}");
 }
 
 // --- create_event_with_graph / signatures_and_hashes ---
@@ -2366,109 +2364,6 @@ async fn test_p2_14_state_event_stores_prev_state_events() {
         retrieved.contains(&prev_state_2),
         "retrieved prev_state_events must contain {prev_state_2}, got {retrieved:?}"
     );
-
-    // Cleanup
-    let _ = storage.delete_room_events(&room_id).await;
-}
-
-/// P2-14: `get_state_dag_edges` must return all (event_id, prev_state_event_id)
-/// pairs for a room, forming the complete state DAG edge list.
-#[tokio::test]
-async fn test_p2_14_get_state_dag_edges_returns_all_edges() {
-    let (_isolated, pool) = test_pool().await;
-    let storage = EventStorage::new(&pool, test_server_name());
-
-    let suffix = uuid::Uuid::new_v4();
-    let room_id = format!("!p214b_{}:example.com", suffix);
-    let user_id = "@p214bsender:example.com";
-
-    // Cleanup
-    let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
-    ensure_test_room(&pool, &room_id).await;
-    ensure_test_user(&pool, user_id).await;
-
-    // Create 3 state events forming a chain: e3 -> e2 -> e1
-    let e1 = format!("$p214b_e1_{}:example.com", suffix);
-    let e2 = format!("$p214b_e2_{}:example.com", suffix);
-    let e3 = format!("$p214b_e3_{}:example.com", suffix);
-
-    // e1: no prev_state_events (genesis state event)
-    storage
-        .create_state_event_with_dag(
-            CreateEventParams {
-                event_id: e1.clone(),
-                room_id: room_id.clone(),
-                user_id: user_id.to_string(),
-                event_type: "m.room.create".to_string(),
-                content: serde_json::json!({"creator": user_id}),
-                state_key: Some("".to_string()),
-                origin_server_ts: 1_000_000,
-                redacts: None,
-            },
-            &[],
-            &[],
-            &[],
-            0,
-            None,
-        )
-        .await
-        .unwrap();
-
-    // e2: prev_state_events = [e1]
-    storage
-        .create_state_event_with_dag(
-            CreateEventParams {
-                event_id: e2.clone(),
-                room_id: room_id.clone(),
-                user_id: user_id.to_string(),
-                event_type: "m.room.member".to_string(),
-                content: serde_json::json!({"membership": "join"}),
-                state_key: Some(user_id.to_string()),
-                origin_server_ts: 1_000_001,
-                redacts: None,
-            },
-            &[],
-            &[],
-            std::slice::from_ref(&e1),
-            1,
-            None,
-        )
-        .await
-        .unwrap();
-
-    // e3: prev_state_events = [e2]
-    storage
-        .create_state_event_with_dag(
-            CreateEventParams {
-                event_id: e3.clone(),
-                room_id: room_id.clone(),
-                user_id: user_id.to_string(),
-                event_type: "m.room.power_levels".to_string(),
-                content: serde_json::json!({"ban": 50}),
-                state_key: Some("".to_string()),
-                origin_server_ts: 1_000_002,
-                redacts: None,
-            },
-            &[],
-            &[],
-            std::slice::from_ref(&e2),
-            2,
-            None,
-        )
-        .await
-        .unwrap();
-
-    // Query state DAG edges for the room.
-    let edges = storage.get_state_dag_edges(&room_id).await.expect("get_state_dag_edges should succeed");
-
-    // e1 has empty prev_state_events (not stored as edges), so only 2 edges:
-    // (e2 -> e1) and (e3 -> e2)
-    assert_eq!(edges.len(), 2, "expected 2 state DAG edges (e2->e1, e3->e2), got {edges:?}");
-
-    // Verify edge (e2 -> e1)
-    assert!(edges.contains(&(e2.clone(), e1.clone())), "edges must contain (e2, e1), got {edges:?}");
-    // Verify edge (e3 -> e2)
-    assert!(edges.contains(&(e3.clone(), e2.clone())), "edges must contain (e3, e2), got {edges:?}");
 
     // Cleanup
     let _ = storage.delete_room_events(&room_id).await;
