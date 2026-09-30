@@ -798,11 +798,21 @@ mod tests {
 
     /// U-13 step 2 (acceptance items 4 and 6): the auto-commit write path assigns
     /// the **reference-hash** ID for v3+ — and that ID must equal what a peer
-    /// recomputes from the PDU we later emit — while v1/v2 keep the caller's
-    /// server-assigned ID.
+    /// recomputes from the PDU we later emit — while v1/v2 use a **legacy
+    /// server-assigned** ID instead.
+    ///
+    /// ⚠️ v1/v2 的两种输入**必须分开验**（2026-09-30 C75 修正：本用例原先只断言
+    /// "占位符被原样保留"，与实现/契约都不符）：
+    /// · 传进来的 id 是**真**的服务端分配 id ⇒ 原样保留；
+    /// · 传进来的是**占位符**（`$placeholder…`）⇒ 必须**重新生成**合法的 legacy id
+    ///   （`$<millis>$<rand>:<origin>`）—— 否则会把 `$placeholder-N:example.com` 持久化并回给客户端。
+    /// 契约来源：`synapse_federation::event_finalize::finalize_local_pdu` 的 v1/v2 分支 +
+    /// 它自己的用例 `v1_and_v2_keep_the_server_assigned_id`（同一提交内）。
     #[tokio::test]
     async fn decorator_assigns_the_reference_hash_event_id_for_v3_plus() {
-        for (version, replaces_placeholder) in [("12", true), ("11", true), ("10", true), ("4", true), ("2", false)] {
+        for (version, replaces_placeholder) in
+            [("12", true), ("11", true), ("10", true), ("4", true), ("2", false), ("1", false)]
+        {
             let inner: Arc<dyn EventWriter> = Arc::new(InMemoryEventStore::new());
             let decorated: Arc<dyn EventWriter> = Arc::new(GraphMetadataWriter::new(
                 inner,
@@ -817,7 +827,32 @@ mod tests {
             let written = decorated.create_event(request.clone(), None).await.expect("write");
 
             if !replaces_placeholder {
-                assert_eq!(written.event_id, placeholder, "v{version} keeps the server-assigned id");
+                // v1/v2：占位符必须被替换成 **legacy** 服务端分配 id（带 `:origin` 后缀）
+                assert_ne!(
+                    written.event_id, placeholder,
+                    "v{version}: a placeholder must be replaced by a generated legacy id, not persisted"
+                );
+                assert!(written.event_id.starts_with('$'), "v{version}: legacy id must start with $");
+                assert!(
+                    written.event_id.contains(':'),
+                    "v{version}: legacy (v1/v2) ids carry the origin suffix: {}",
+                    written.event_id
+                );
+                assert!(
+                    !written.event_id.contains("$placeholder"),
+                    "v{version}: the generated id must not carry the placeholder marker: {}",
+                    written.event_id
+                );
+
+                // 同一契约的另一半：**真**的服务端分配 id 必须原样保留
+                let real_id = format!("$legacy-{version}:example.com");
+                let mut real_request = request.clone();
+                real_request.event_id = real_id.clone();
+                let preserved = decorated.create_event(real_request, None).await.expect("write");
+                assert_eq!(
+                    preserved.event_id, real_id,
+                    "v{version}: a real server-assigned id must be preserved verbatim"
+                );
                 continue;
             }
 
