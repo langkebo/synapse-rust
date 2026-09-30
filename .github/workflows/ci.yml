@@ -292,6 +292,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
+          --shm-size=512m
           --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
@@ -742,6 +743,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
+          --shm-size=512m
           --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
@@ -1133,6 +1135,8 @@ jobs:
     services:
       postgres:
         image: postgres:16
+        options: >-
+          --shm-size=512m
         env:
           POSTGRES_USER: synapse
           POSTGRES_PASSWORD: synapse

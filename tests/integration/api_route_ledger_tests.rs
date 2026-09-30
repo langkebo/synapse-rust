@@ -492,7 +492,13 @@ async fn cas_routes_are_declared_when_feature_enabled() {
         super::skip_or_fail_without_db();
         return;
     };
-    assert!(has_declared_route(&ledger, Method::GET, "/login"));
+    // ⚠️ 2026-09-30 C89：断言从根级 `/login` 改为 **`/_synapse/cas/login`** —— 与
+    // `synapse-web/src/routes/route_module.rs` 里 C76 修的是**同一处陈旧预期**（那次只改了 route_module
+    // 侧，这条集成断言漏了，而集成批次此前一直因前置作业红被 skip ⇒ 长期不可见）。
+    // CAS 模块**有意**挂在 `/_synapse/cas` 前缀下（不占用根级路径、不与 Matrix 标准端点冲突）；
+    // 清单里的真实路径见 `derived_route_table_always.inc.rs` 的
+    // `RouteEntry::new(Method::GET, "/_synapse/cas/login", "cas")`。
+    assert!(has_declared_route(&ledger, Method::GET, "/_synapse/cas/login"));
     assert!(has_declared_route(&ledger, Method::GET, "/_synapse/admin/v1/cas/services"));
 }
 

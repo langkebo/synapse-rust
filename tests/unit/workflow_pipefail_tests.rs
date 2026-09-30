@@ -743,3 +743,103 @@ fn blocking_trivy_steps_must_not_let_sarif_silently_drop_the_severity_filter() {
         offenders.join("\n  ")
     );
 }
+
+/// GHA **service 容器**默认 `--shm-size=64m`；而 Integration Tests / Coverage 这类作业会
+/// 并发克隆 per-test schema（每个 200+ 表），Postgres 的并行 worker 在排序/哈希时要
+/// 重新调整共享内存段大小 ⇒ 一旦超过 64 MB 就报
+/// `could not resize shared memory segment … No space left on device`。
+///
+/// 2026-09-30 CI 实测：`Integration Tests` 里 7 条用例在 `tests/integration/mod.rs:532`
+/// 集体以 `integration setup failed (pooled schema acquisition)` 红掉 —— 业务断言根本没跑到，
+/// 而这道作业此前因为前面几条车道常红被 skip 了好几轮，问题一直不可见。
+/// 处置：`.github/workflows/*.yml` 里**每个** `postgres` service 都必须显式给 `--shm-size=512m`。
+///
+/// ⚠️ 本守卫同时查"每个 postgres 服务块恰好一个 `options:`" —— YAML 的重复键会被解析器
+/// **静默吞掉最后一个**，所以"加了 `--shm-size` 但写成第二个 `options:` 块"会看起来绿而实际无效
+/// （本批第一次修改就踩了这个坑，靠这条静态检查才抓到）。
+///
+/// **红证明**：删掉任一服务里的 `--shm-size=512m` ⇒ FAILED；把某个服务写成两个 `options:` 块
+/// ⇒ 第二条检查 FAILED。
+#[test]
+fn every_postgres_service_raises_shm_size_and_declares_options_once() {
+    let dir = repo_root().join(".github/workflows");
+    let mut entries: Vec<PathBuf> = fs::read_dir(&dir)
+        .expect(".github/workflows must be readable")
+        .map(|entry| entry.expect("readable dir entry").path())
+        .filter(|path| matches!(path.extension().and_then(|ext| ext.to_str()), Some("yml" | "yaml")))
+        .collect();
+    entries.sort();
+    assert!(!entries.is_empty(), "no workflows found to scan");
+
+    let mut inspected = 0usize;
+    let mut offenders: Vec<String> = Vec::new();
+    for path in entries {
+        let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path:?} must be readable: {e}"));
+        let doc: serde_yaml::Value =
+            serde_yaml::from_str(&text).unwrap_or_else(|e| panic!("{path:?} must be valid YAML: {e}"));
+        if let Some(jobs) = doc.get("jobs").and_then(|jobs| jobs.as_mapping()) {
+            for (job_name, job) in jobs {
+                let Some(services) = job.get("services").and_then(|services| services.as_mapping()) else {
+                    continue;
+                };
+                for (service_name, service) in services {
+                    let image = service.get("image").and_then(|image| image.as_str()).unwrap_or_default();
+                    if !image.starts_with("postgres") {
+                        continue;
+                    }
+                    inspected += 1;
+                    let options = service.get("options").and_then(|options| options.as_str()).unwrap_or_default();
+                    if !options.contains("--shm-size") {
+                        offenders.push(format!(
+                            "{}: services.{}.{}（image: {image}）的 `options` 缺 `--shm-size`",
+                            path.display(),
+                            job_name.as_str().unwrap_or("?"),
+                            service_name.as_str().unwrap_or("?"),
+                        ));
+                    }
+                }
+            }
+        }
+
+        // 重复键检查：按缩进切出每个 postgres 服务块，要求 `options:` 恰好出现一次。
+        let lines: Vec<&str> = text.lines().collect();
+        for (index, line) in lines.iter().enumerate() {
+            if !line.trim_start().starts_with("image: postgres") {
+                continue;
+            }
+            let indent = line.len() - line.trim_start().len();
+            let mut cursor = index + 1;
+            let mut options_blocks = 0usize;
+            while cursor < lines.len() {
+                let candidate = lines[cursor];
+                let candidate_indent = candidate.len() - candidate.trim_start().len();
+                if !candidate.trim().is_empty() && candidate_indent < indent {
+                    break;
+                }
+                if candidate.trim() == "options: >-" {
+                    options_blocks += 1;
+                }
+                cursor += 1;
+            }
+            if options_blocks != 1 {
+                offenders.push(format!(
+                    "{}:{} 的 postgres 服务有 {options_blocks} 个 `options:` 块 —— YAML 重复键只会保留最后一个，\
+                     写成两块会让 `--shm-size` 静默失效",
+                    path.display(),
+                    index + 1
+                ));
+            }
+        }
+    }
+
+    assert!(
+        inspected >= 5,
+        "只扫到 {inspected} 个 postgres service（CI 至少有 5 个在不同 workflow）；扫描逻辑失效时不得空过"
+    );
+    assert!(
+        offenders.is_empty(),
+        "这些 postgres service 会把 GHA 默认的 64 MB /dev/shm 带进并发 schema 克隆，\
+         导致 `could not resize shared memory segment`（业务断言根本跑不到）：\n  {}",
+        offenders.join("\n  ")
+    );
+}
