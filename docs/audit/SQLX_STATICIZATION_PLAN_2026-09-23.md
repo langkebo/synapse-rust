@@ -1941,6 +1941,37 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
      ② 在别人文件里插 helper 时**不能插在 `#[derive]` 与 `struct` 之间**（E0774）也不能插进已有的
      doc 块（`missing_docs`）—— 本次两次都是这么红的，属"改动落在错误的位置"而非逻辑问题。
 
+66. ✅ **C69 + C69-1（把 main 上已红的 SQLx 棘轮与 R10 指纹守卫修回绿）已完成（2026-09-30）** ——
+   本批**不是**新功能，而是"并行分支合并后树与基线不一致"的收口。**从 main 起做**（我原来的
+   `opt/consolidated` 已落后 main 44 个提交，若从旧基座修会再次把过期基线合回去）。
+   - **C69（SQLx 棘轮）**：main 在 `0ac0a3456` 上实测 `dynamic_production=104`（>103）、
+     `static=1356`（<1362）、`literal=37`（>36）⇒ `check_sqlx_dynamic_ratio.sh` 与 `--test unit`
+     的两道守卫都红。两处来源：
+     ① `synapse-storage/src/user/storage.rs::ensure_remote_user` 是**字面量动态调用**
+     `sqlx::query(r#"INSERT INTO users …"#)`（违反 R1，同时抬高 literal 与 dynamic_production）
+     ⇒ 改 `sqlx::query!`，并按 **R8④** 补该方法的**首条**真 baseline 往返
+     （`user/db_tests.rs::test_ensure_remote_user_derives_username_and_is_idempotent`：localpart 派生
+     username / `ON CONFLICT DO NOTHING` 幂等且不覆盖已有本地用户 / 畸形 user_id 被
+     `ck_users_user_id_format` fail-closed 拒绝）。**R11 变异自证**：把 `DO NOTHING` 改成
+     `DO UPDATE SET username = EXCLUDED.username` ⇒ 用例立刻红（`不得改写已有 username`）；
+     注意该变异改的是 SQL 文本，实测须在 `SQLX_OFFLINE=false` 下跑（离线缓存会先报缺条目）。
+     ② `server_notification/repository.rs` 的 `sqlx::query!` 29 → 22（**合法删码**，static −7），
+     但那条分支没同步收紧 static 基线 ⇒ 合并后树与基线错位。按实测收紧
+     `BASELINE_STATIC 1362 → 1357`、`BASELINE_DYNAMIC_TEST_INFRA 756 → 757`（新用例的测试区探针），
+     `.sqlx 1322 → 1323`。**防复发**：跨分支合并后必须在新树上**重新实测四个数字**，不得沿用任一
+     分支的旧基线（已写进 baseline 的 C69 注记）。
+   - **C69-1（R10 指纹守卫）**：`9ba2e8da9`（清除 `events.reference_image` 死字段）改了 baseline
+     迁移却**漏同步** `EXPECTED_BASELINE_FINGERPRINT` ⇒ `test_isolation_unification_tests::
+     baseline_fingerprint_is_the_single_v12_source` 在 main 上常红（`--test unit` 直接失败）。
+     按 R10 第①条复算：先自检旧值（`bytes=219206 ⇒ b48cab73065bb618` 逐字节吻合，证明哈希实现未变）
+     再取新值 **`265b755aa151de70`**（`bytes=219180`）；② 跑守卫组 10/10；③ 全仓仅此一处引用旧值
+     （另两处在本文档的历史叙述里，属当时事实，不改写）。
+   - 口径（修后实测）：`dynamic_production` **103**、`static` **1357**、literal **36**、
+     `dynamic_test` **757**、`query_builder` **18**、`.sqlx` **1323**；五道门禁 +
+     `--test unit` + 两档 clippy + 兄弟棘轮 + fmt + `cargo metadata` 全绿（见提交信息）。
+   - 登记表：本批**不开新 D 条目**（两条都在同一批内关闭，属"合并口径漂移"与"R10 漏项"，
+     明细记在此处 + baseline 注记 + 提交信息；R13 要求 §7 只留未关闭项）。
+
 ### 8.4 收尾条件（何时可称"静态化战役结束"）
 
 > **当前状态（2026-09-29 C66 后）**：`dynamic_production` 103 = **26 处 D-14 运行期拼装**（设计

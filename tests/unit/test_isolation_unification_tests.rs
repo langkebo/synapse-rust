@@ -178,7 +178,11 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // 2026-09-29（D-99 删除 `event_signatures.algorithm`：该列从来没有读者、且语义与 `key_id` 前缀重复）：
 // 迁移内容再变（−47 字节，`bytes=219206`）⇒ 同样先自检旧值（219253 ⇒ `c75360a28b6d51f2` 吻合）
 // 后取新值 `b48cab73065bb618`。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "b48cab73065bb618";
+// 2026-09-30（C69-1：`9ba2e8da9` 清除 `events.reference_image` 死字段时**漏同步本常量**）：
+// 迁移内容变了（−26 字节，`bytes=219180`）⇒ 同样先自检旧值（219206 ⇒ `b48cab73065bb618` 逐字节吻合，
+// 证明哈希实现未变）后取新值 `265b755aa151de70`。该漏同步让 `--test unit` 的
+// `baseline_fingerprint_is_the_single_v12_source` 在 main 上常红，是 R10 checklist 第①条的漏项。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "265b755aa151de70";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))
