@@ -86,7 +86,7 @@ pub fn cas_routes(state: AppState) -> Router<AppState> {
 ## 影响面分析
 
 ### 1. 潜在的路由冲突风险 🔴 HIGH
-如果后端有任何其他模块注册了 `/login`、`/logout` 等根级路由，会产生**路径冲突**，Axium 会在启动时报错或静默覆盖。
+如果后端有任何其他模块注册了 `/login`、`/logout` 等根级路由，会产生**路径冲突**，Axum 会在启动时报错或静默覆盖。
 
 ### 2. SDK 联调失败 🔴 CRITICAL
 当前 SDK (`matrix-js-sdk`) 的 CAS Manager 假设 CAS 端点挂载在 `/_synapse/cas` 下，会导致所有 CAS 协议端点的调用地址错误：

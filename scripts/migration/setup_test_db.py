@@ -472,7 +472,7 @@ async def verify_test_environment(pool: asyncpg.Pool):
         for table in tables:
             exists = await conn.fetchval(
                 """
-                SELECT COUNT(*) FROM information_schema.tables 
+                SELECT COUNT(*) FROM information_schema.tables
                 WHERE table_schema = 'public' AND table_name = $1
             """,
                 table,

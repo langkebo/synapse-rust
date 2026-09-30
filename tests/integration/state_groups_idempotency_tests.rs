@@ -3,7 +3,7 @@
 //!
 //! These tests verify:
 //! 1. Duplicate bindings are no-ops (idempotency)
-//! 2. Duplicate event writes don't create duplicate bindings  
+//! 2. Duplicate event writes don't create duplicate bindings
 //! 3. Messages after fork resolution are properly bound to state groups
 
 use std::sync::atomic::{AtomicU64, Ordering};
