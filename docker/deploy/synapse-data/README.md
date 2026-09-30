@@ -20,7 +20,7 @@
 |---|---|---|
 | `megolm.key` | **`deploy.sh` 生成**（仅当缺失） | 服务端 megolm 会话的静态加密密钥。`base64(32 字节)`，单行 45 字节，权限 `0600`。**必须备份** —— 丢失或更换会让已入库的 megolm 密文永久不可解 |
 | `signing.key` | **服务写出** | 联邦签名私钥。由 `export_signing_key_to_file` 以 `ed25519 <key_id> <secret>` 单行格式覆写；服务**只写不读**，因此缺失不是启动阻塞项 |
-| `jeprof.out.*.heap` | jemalloc | 见 `.env` 的 `MALLOC_CONF=...,prof_prefix:/app/data/jeprof.out`。用于内存泄漏诊断，**会持续增长**，排查完应清理 |
+| `jeprof.out.*.heap` | jemalloc | 仅在 `.env` 的 `MALLOC_CONF`（默认已注释关闭）设值时产出，形如 `MALLOC_CONF=prof:true,prof_prefix:/app/data/jeprof.out`。用于内存泄漏诊断，**会持续增长**，排查完应清理 |
 | `media/` | Docker | `./media:/app/data/media` 嵌套挂载的挂载点占位目录，实际媒体文件落在 `docker/deploy/media/` |
 
 ## 恢复 megolm.key

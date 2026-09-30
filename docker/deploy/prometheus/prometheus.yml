@@ -2,7 +2,7 @@
 # Prometheus 抓取配置 — HuLa/Tjg 监控栈
 # =============================================================================
 # 部署路径：/etc/prometheus/prometheus.yml (容器内)
-# 宿主路径：docker/monitoring/prometheus/prometheus.yml
+# 宿主路径：docker/deploy/prometheus/prometheus.yml
 #
 # 抓取目标：
 #   1. synapse-rust :9090    — 后端指标（回环内访问）

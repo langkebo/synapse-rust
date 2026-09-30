@@ -96,6 +96,7 @@ ALL_EXTENSIONS=(
     burn-after-read
     privacy-ext
     external-services
+    builtin-oidc
 )
 
 EXTENSION_DESCRIPTIONS=(
@@ -110,6 +111,7 @@ EXTENSION_DESCRIPTIONS=(
     "阅后即焚消息"
     "隐私扩展 (已读回执控制、在线状态隐藏)"
     "外部服务集成 (Webhook 通知)"
+    "内置 OIDC Provider (内建身份提供方)"
 )
 
 # Default product mode: preserve the private chat core while slimming optional
@@ -249,6 +251,9 @@ show_usage() {
   burn-after-read      阅后即焚
   privacy-ext          隐私扩展
   external-services    外部服务集成
+  builtin-oidc         内置 OIDC Provider
+
+注意: --image / --skip-build 会复用已有镜像，此时上面的 feature 选择不生效。
 EOF
 }
 
@@ -256,7 +261,58 @@ EOF
 # Interactive feature selection
 # =============================================================================
 
+# 归一 feature 选择值。
+# `core-private-chat` 与 `friends,burn-after-read` 在 Cargo.toml 中并不等价：
+# core-private-chat 会额外启用 `synapse-web/core-private-chat`。若不做归一，
+# .env 里写 core-private-chat 会落到 docker_feature_args 的通用分支，构建出
+# 与交互式菜单 [0] 不同的产物，摘要也会误显示为"自定义"。
+normalize_extensions() {
+    local value="$1"
+    if [ "$value" = "core-private-chat" ]; then
+        echo "$CORE_PRIVATE_CHAT_EXTENSIONS"
+    else
+        echo "$value"
+    fi
+}
+
+# 校验以逗号分隔的 feature 名是否都在 ALL_EXTENSIONS 白名单内。
+# 空值 / all / none 为合法哨兵值。未在白名单内即报错返回非零。
+validate_extensions() {
+    local value="$1"
+    case "$value" in
+        "" | all | none)
+            return 0
+            ;;
+    esac
+
+    local ext candidate known
+    local IFS=','
+    for ext in $value; do
+        ext="$(echo "$ext" | tr -d '[:space:]')"
+        [ -z "$ext" ] && continue
+        known=false
+        for candidate in "${ALL_EXTENSIONS[@]}"; do
+            if [ "$ext" = "$candidate" ]; then
+                known=true
+                break
+            fi
+        done
+        if [ "$known" != "true" ]; then
+            log_error "未知扩展 feature: '$ext'"
+            log_error "可用值: ${ALL_EXTENSIONS[*]}"
+            return 1
+        fi
+    done
+    return 0
+}
+
 select_features() {
+    # 归一 + 白名单校验：.env 的 ENABLED_EXTENSIONS 与 --features 都汇聚到这里，
+    # 必须在此之前完成，因为构建发生在停机之后（见 main 的步骤顺序），
+    # 拼错的 feature 名会让部署"先停机再失败"。
+    ENABLED_EXTENSIONS="$(normalize_extensions "$ENABLED_EXTENSIONS")"
+    validate_extensions "$ENABLED_EXTENSIONS"
+
     # If already set (by CLI args or .env), skip interactive selection
     if [ -n "$ENABLED_EXTENSIONS" ]; then
         return
@@ -425,10 +481,30 @@ on_error() {
     if [ "$ROLLBACK_ENABLED" = "true" ] && [ "$ROLLBACK_IN_PROGRESS" = "false" ]; then
         rollback_deployment || true
     else
+        # 重跑命令按当前部署形态生成：硬编码 --all 会把 core-only / 自定义部署
+        # 的用户在失败后静默放大成全扩展形态。
+        local rerun_hint
+        case "${ENABLED_EXTENSIONS:-}" in
+            "")
+                rerun_hint="./deploy.sh"
+                ;;
+            all)
+                rerun_hint="./deploy.sh --all"
+                ;;
+            none)
+                rerun_hint="./deploy.sh --core-only"
+                ;;
+            "$CORE_PRIVATE_CHAT_EXTENSIONS")
+                rerun_hint="./deploy.sh --core-private-chat"
+                ;;
+            *)
+                rerun_hint="./deploy.sh --features \"$ENABLED_EXTENSIONS\""
+                ;;
+        esac
         log_warning "未执行自动回滚（ROLLBACK_ENABLED=${ROLLBACK_ENABLED}）；排障指引:"
         log_warning "  1) 查看失败步骤日志: $LOG_FILE"
         log_warning "  2) 当前容器状态: docker compose ps"
-        log_warning "  3) 重新部署: ./deploy.sh --all"
+        log_warning "  3) 重新部署: ${rerun_hint}"
     fi
     exit "$exit_code"
 }
@@ -549,7 +625,9 @@ docker_feature_args() {
 
 is_placeholder() {
     local value="${1:-}"
-    [ -z "$value" ] || [[ "$value" == __REQUIRED_* ]] || [[ "$value" == *"your-"* ]] || [[ "$value" == *"change-me"* ]]
+    # 与 generate-secrets.sh 的 placeholder_or_empty 保持同一组形态：.env.example
+    # 用的是 CHANGE_ME，漏掉它会把未填的占位符当成合法值放行。
+    [ -z "$value" ] || [[ "$value" == __REQUIRED_* ]] || [[ "$value" == *"your-"* ]] || [[ "$value" == *"change-me"* ]] || [[ "$value" == *"CHANGE_ME"* ]]
 }
 
 check_dependencies() {
@@ -1000,6 +1078,10 @@ check_env_file() {
         # 空值不被接受：它会让 HKDF 用零熵输入派生密钥，联邦签名私钥会以
         # 看似加密、实则无保密性的形式入库（详见 docker-compose.yml 同处注释）。
         FEDERATION_MASTER_KEY
+        # 以下两项在 docker-compose.yml 里以 `:?` 强制非空；列在这里是为了在
+        # 生成密钥阶段就给出可读报错，而不是留给稍后的 `compose config` 抛原始错误。
+        TOKEN_HASH_SECRET
+        WORKER_REPLICATION_SECRET
     )
     local missing_vars=()
     local var
@@ -1308,6 +1390,7 @@ remove_old_project_images() {
 build_images() {
     DEPLOYMENT_PHASE="docker-build"
     if [ "$USE_REMOTE_IMAGE" = "true" ]; then
+        log_warning "复用远程镜像，feature 选择不生效（ENABLED_EXTENSIONS=${ENABLED_EXTENSIONS:-<未设置>}）"
         log_info "拉取远程镜像: $REMOTE_IMAGE"
         retry 3 5 docker pull "$REMOTE_IMAGE"
         export SYNAPSE_IMAGE="$REMOTE_IMAGE"
@@ -1317,6 +1400,7 @@ build_images() {
         return
     fi
     if [ "$SKIP_BUILD" = "true" ]; then
+        log_warning "复用已有镜像，feature 选择不生效（ENABLED_EXTENSIONS=${ENABLED_EXTENSIONS:-<未设置>}）"
         log_info "跳过 Docker 镜像构建 (--skip-build)"
         if ! docker image inspect "$(local_image_ref)" >/dev/null 2>&1; then
             log_error "跳过构建但本地镜像 $(local_image_ref) 不存在"
@@ -1374,6 +1458,9 @@ wait_for_container_health() {
 
 run_migrations() {
     DEPLOYMENT_PHASE="database-migrate"
+    # ENABLED_EXTENSIONS 只决定 deploy.sh 编译哪些 cargo feature，migrator 不据此
+    # 裁剪表结构（migrations 只有单一 baseline，见 migrations/README.md
+    #「为什么只有一个 baseline」）。此处传参仅为观测，不影响迁移结果。
     log_info "执行数据库迁移 (ENABLED_EXTENSIONS=$ENABLED_EXTENSIONS)..."
     retry 3 5 compose run -T --rm --no-deps -e "ENABLED_EXTENSIONS=${ENABLED_EXTENSIONS}" migrator migrate </dev/null
     log_success "数据库迁移完成"

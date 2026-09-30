@@ -103,26 +103,49 @@ docker compose up -d
 
 ```text
 docker/deploy/
-├── docker-compose.yml      # Docker Compose 配置（唯一生产编排）
-├── .env                    # 环境变量（实际值，git 忽略）
-├── .env.example            # 环境变量模板
-├── deploy.sh               # 一键部署脚本（含回滚、日志、验证）
-├── README.md               # 本文档
+├── docker-compose.yml            # 核心栈编排（postgres/redis/migrator/synapse/nginx）
+├── docker-compose.monitoring.yml # 监控栈编排（prometheus/alertmanager/grafana/
+│                                 #   node-exporter/alert-handler），需核心栈先起
+├── .env                          # 环境变量（实际值，git 忽略）
+├── .env.example                  # 环境变量模板
+├── deploy.sh                     # 一键部署脚本（含回滚、日志、验证）
+├── api-integration_test.sh       # API 集成测试套件
+├── register_admin.py             # 注册管理员账户
+├── update_admin_password.sh      # 更新管理员密码（user_id 由 SERVER_NAME 推导）
+├── run_permission_matrix.sh      # 权限矩阵测试运行器
+├── README.md                     # 本文档
 ├── nginx/
-│   ├── nginx.conf          # Nginx 主配置
+│   ├── nginx.conf                # Nginx 主配置（限流 zone / upstream）
 │   └── conf.d/
-│       ├── default.conf    # matrix.test HTTPS 站点
-│       └── federation.conf # 联邦 8448 端口
-├── ssl/                    # TLS 证书（deploy.sh 自动生成）
+│       ├── default.conf          # matrix.test HTTPS 站点
+│       └── federation.conf       # 联邦 8448 端口
+├── prometheus/
+│   ├── prometheus.yml            # 抓取配置
+│   ├── alerting-rules.yml        # 告警规则
+│   ├── recording-rules.yml       # 记录规则
+│   └── auth/                     # worker bearer token（git 忽略，deploy.sh 生成）
+├── alertmanager/
+│   └── alertmanager.yml          # 告警路由（投递到 alert-handler:8080）
+├── grafana/
+│   ├── grafana.ini
+│   ├── dashboards/               # 预置面板 JSON
+│   └── provisioning/             # 数据源与面板自动装载
+├── alert-handler/                # 告警 webhook 接收器（Flask + gunicorn）
+│   ├── Dockerfile
+│   └── app.py
+├── ssl/                          # TLS 证书（deploy.sh 自动生成）
 │   ├── cert.pem
 │   └── key.pem
+├── synapse-data/                 # 应用数据 bind mount（distroless 无法自举，见其 README）
+│   └── README.md
 ├── scripts/
-│   ├── container-migrate.sh # 容器内迁移入口
-│   ├── generate-secrets.sh  # 密钥生成
+│   ├── container-migrate.sh      # 容器内迁移入口
+│   ├── generate-secrets.sh       # 密钥生成
 │   ├── backup.sh / restore.sh
 │   └── init-db.sql
-├── logs/                   # 部署日志
-└── media/                  # 媒体文件持久化
+├── logs/                         # 部署日志
+├── media/                        # 媒体文件持久化
+└── backups/                      # 备份输出（deploy.sh 回滚用）
 ```
 
 > **配置不再有副本（2026-09-15）**：`docker-compose.yml` 以 `../config` 直接挂载仓库根的
@@ -194,11 +217,13 @@ mkcert -cert-file ssl/cert.pem -key-file ssl/key.pem matrix.test localhost 127.0
 
 ## VoIP / TURN 集成
 
-项目复用本地 coturn 服务（源码与配置位于 `/Users/ljf/Desktop/hu_ts/coturn`，独立 Docker 容器运行）。
+项目复用本地 coturn 服务（独立 Docker 容器运行）。其源码/配置目录由
+`COTURN_DIR` 指定，默认值见 `deploy.sh` 中的 `COTURN_DIR="${COTURN_DIR:-...}"`；
+若你的 coturn 不在默认位置，部署前导出该变量（或 `--no-turn` 跳过）。
 
 **部署脚本自动处理**：
 1. 检查 coturn 容器/端口 `127.0.0.1:3478` 是否可达
-2. 未运行则自动 `cd /Users/ljf/Desktop/hu_ts/coturn && docker compose up -d`
+2. 未运行则自动 `cd "$COTURN_DIR" && docker compose up -d`
 3. 校验 coturn `static-auth-secret` 与 `.env` 的 `TURN_SHARED_SECRET` 一致（不一致时输出 WARNING 并提示修复）
 
 **端口**：3478 (STUN/TURN udp+tcp)、5349 (TURNS/DTLS)、49152-49351 (relay udp)
@@ -206,7 +231,7 @@ mkcert -cert-file ssl/cert.pem -key-file ssl/key.pem matrix.test localhost 127.0
 **手动管理**：
 
 ```bash
-cd /Users/ljf/Desktop/hu_ts/coturn
+cd "$COTURN_DIR"            # 默认值见 deploy.sh；请按实际路径导出该变量
 docker compose up -d        # 启动
 docker compose logs -f coturn  # 日志
 docker compose down         # 停止

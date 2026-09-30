@@ -30,6 +30,7 @@ services:
     image: prom/prometheus:v2.48.1
     container_name: synapse-prometheus
     restart: unless-stopped
+    cpus: ${PROMETHEUS_CPU_LIMIT:-1.0}
     mem_limit: ${PROMETHEUS_MEMORY_LIMIT:-1024m}
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -56,11 +57,17 @@ services:
       # 9092 与 grafana 数据源注释（datasources.yml）以及本站文档保持一致。
       - "127.0.0.1:${PROMETHEUS_UI_PORT:-9092}:9090"
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9090/-/healthy || exit 1"]
+      test: [ "CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9090/-/healthy || exit 1" ]
       interval: 30s
       timeout: 5s
       retries: 5
       start_period: 20s
+    # 与核心栈一致：限制单容器日志体积，避免 Prometheus/生产环境长跑后撑爆宿主磁盘。
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     networks:
       - synapse-network
 
@@ -69,6 +76,7 @@ services:
     image: prom/alertmanager:v0.27.0
     container_name: synapse-alertmanager
     restart: unless-stopped
+    cpus: ${ALERTMANAGER_CPU_LIMIT:-0.5}
     mem_limit: ${ALERTMANAGER_MEMORY_LIMIT:-256m}
     command:
       - --config.file=/etc/alertmanager/alertmanager.yml
@@ -79,11 +87,16 @@ services:
     ports:
       - "127.0.0.1:${ALERTMANAGER_PORT:-9093}:9093"
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9093/-/healthy || exit 1"]
+      test: [ "CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9093/-/healthy || exit 1" ]
       interval: 30s
       timeout: 5s
       retries: 5
       start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     networks:
       - synapse-network
 
@@ -92,6 +105,7 @@ services:
     image: grafana/grafana:10.4.2
     container_name: synapse-grafana
     restart: unless-stopped
+    cpus: ${GRAFANA_CPU_LIMIT:-0.5}
     mem_limit: ${GRAFANA_MEMORY_LIMIT:-512m}
     volumes:
       # 持久化 SQLite（面板改动、告警状态）。此前该项缺失，重建即丢状态。
@@ -102,11 +116,16 @@ services:
     ports:
       - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/api/health || exit 1"]
+      test: [ "CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/api/health || exit 1" ]
       interval: 30s
       timeout: 5s
       retries: 5
       start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     networks:
       - synapse-network
 
@@ -115,6 +134,7 @@ services:
     image: prom/node-exporter:v1.7.0
     container_name: synapse-node-exporter
     restart: unless-stopped
+    cpus: ${NODE_EXPORTER_CPU_LIMIT:-0.5}
     mem_limit: ${NODE_EXPORTER_MEMORY_LIMIT:-128m}
     command:
       - --path.rootfs=/rootfs
@@ -127,11 +147,16 @@ services:
     ports:
       - "127.0.0.1:${NODE_EXPORTER_PORT:-9100}:9100"
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9100/metrics || exit 1"]
+      test: [ "CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9100/metrics || exit 1" ]
       interval: 30s
       timeout: 5s
       retries: 5
       start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     networks:
       - synapse-network
 
@@ -146,15 +171,21 @@ services:
       dockerfile: Dockerfile
     container_name: synapse-alert-handler
     restart: unless-stopped
+    cpus: ${ALERT_HANDLER_CPU_LIMIT:-0.5}
     mem_limit: ${ALERT_HANDLER_MEMORY_LIMIT:-128m}
     ports:
       - "127.0.0.1:${ALERT_HANDLER_PORT:-8080}:8080"
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1"]
+      test: [ "CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1" ]
       interval: 30s
       timeout: 5s
       retries: 5
       start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     networks:
       - synapse-network
 

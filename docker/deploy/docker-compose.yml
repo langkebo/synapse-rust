@@ -416,7 +416,6 @@ volumes:
   # 然后 `docker volume rm ${COMPOSE_PROJECT_NAME:-synapse}_synapse_data` 清理。
   # deploy.sh 的 ensure_app_data_keys 在该卷**仍存在**时会拒绝继续 —— 这是刻意的
   # fail-closed：宁可要人确认一次，也不要静默换钥导致已入库的 megolm 密文不可解。
-  nginx_logs:
-    driver: local
-    labels:
-      synapse-rust.data-type: "nginx-logs"
+  #
+  # 注：原先的 `nginx_logs` 命名卷已移除 —— nginx 日志改为 stdout（见 nginx 服务
+  # 处的 [O3-2] 注释），不再有服务挂载它。留着会是一个永不写入的孤儿卷。
