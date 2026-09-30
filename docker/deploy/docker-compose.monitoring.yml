@@ -189,6 +189,32 @@ services:
     networks:
       - synapse-network
 
+  # ---------------------------------------------------------- Nginx Proxy (P4 Security)
+  nginx-proxy:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: synapse-nginx-proxy
+    restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 128m
+    ports:
+      - "127.0.0.1:${NGINX_PROXY_PORT:-8081}:8081"
+    volumes:
+      - ./nginx/prometheus.conf:/etc/nginx/conf.d/prometheus.conf:ro
+      - ./nginx/auth/.htpasswd:/etc/nginx/.htpasswd:ro
+    depends_on:
+      - synapse-prometheus
+      - synapse-alertmanager
+      - synapse-grafana
+    networks:
+      - synapse-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
 networks:
   synapse-network:
     # 由核心栈 `docker-compose.yml` 创建（name: ${SYNAPSE_NETWORK_NAME:-synapse_network}）。
