@@ -153,3 +153,7 @@ api_test/response_schemas.json
 #  且 `git add -A` 会把它们卷进提交）。禁止 `git add -f` 绕过。
 *.orig
 *.rej
+
+# nginx Basic Auth 密码库：本地用 docker/deploy/nginx/generate_htpasswd.sh 生成，
+# 绝不入库（2026-09-30 曾误入库一条 bcrypt 哈希，见 docs/audit/DOCKER_REVIEW_2026-09-19.md P0-4）。
+docker/deploy/nginx/auth/.htpasswd

@@ -148,6 +148,25 @@ docker/nginx/ssl/server.crt                      ← 部署证书
 - JWT 是**测试环境真实签发**的凭据，泄露后可用于对应 homeserver；
 - 它们存在于 git 历史中，仅删除当前版本不够，需要 history rewrite 或至少确认该 token 已失效且服务端 secret 已轮换。
 
+**2026-09-30 追加（peer 提交 `6908bd4fa` 引入，C81 处置）**：`docker/deploy/nginx/auth/.htpasswd`
+入库了一条**真实 bcrypt 哈希**（`admin:$2y$05$2HTF…`，cost 5 —— 弱口令可秒破）。它本该是本地秘密：
+`docs/monitoring/nginx-security.md` 自己写的是"用 `openssl rand -base64 32` 现生成、权限 600"，
+compose 也以 `:ro` 挂载。处置：`git rm` 该文件 + `.gitignore` 收口
+（`docker/deploy/nginx/auth/.htpasswd`），凭据改由 `docker/deploy/nginx/generate_htpasswd.sh` 现场生成。
+
+两个残留（属该功能 owner，不要只做第 1 步就收工）：
+
+1. **历史里仍有那条哈希**。本仓未发布、无兼容义务 ⇒ 正确处置是 history rewrite，或至少确认对应凭据
+   已轮换/失效（重新生成 `.htpasswd` 成本近似为零）。只删当前版本 = 没解决。
+2. **缺"凭据入库"门禁**：`grep -rn "gitleaks\|detect-secrets" .github/workflows/` 无命中，`scripts/`
+   里也没有任何 secret 扫描 ⇒ 这类提交只能靠人眼发现（本次正是人眼发现）。建议加一条
+   `gitleaks detect --no-git`（或 pre-commit 的 `detect-secrets`），并**用一条故意造的假凭据证明它能红**
+   （铁律 8：报"通过"的门禁未必在工作）。
+
+另：`docker-compose.monitoring.yml` 用 `./nginx/auth/.htpasswd:/etc/nginx/.htpasswd:ro` 挂载**文件**，
+文件缺失时 Docker 会在该路径**建一个目录**，nginx 随后报一个与真因无关的错。生成脚本必须先于 `up`
+执行，或把挂载改成目录（`./nginx/auth:/etc/nginx/auth:ro`）并同步 nginx 配置。
+
 ---
 
 ## 2. P1 — 高优先级
@@ -231,6 +250,27 @@ redis 的官方解法是 `REDISCLI_AUTH` 环境变量（`redis-cli` 会读取）
 基础镜像 `debian:bookworm-slim`、`postgres:16-alpine`、`redis:7-alpine`、`nginx:1.27-alpine`
 全部未经 CVE 扫描就进入部署。项目对依赖供应链明显敏感（digest pin、CI 有 `drift-detection.yml`），
 唯独镜像这一环缺了门禁。
+
+**现状（2026-09-30 复核）**：门禁已建（`.github/workflows/docker-security-scan.yml`：
+hadolint + trivy 扫出货镜像与三个 pinned 基础镜像）。但"阻断"曾经名不副实并被 C80 修掉：
+trivy-action 在 `format: sarif` 下**默认 `unset TRIVY_SEVERITY`** ⇒ 声明的
+`severity: HIGH,CRITICAL` 被丢弃、`exit-code: 1` 对任意级别（含 UNKNOWN）都失败 ⇒ 从
+2026-09-22 最后一个绿之后连续 8 天全红，而当时的真实发现里**没有** HIGH/CRITICAL：
+出货镜像只有 1 条 UNKNOWN（`tzdata` / DLA-4792-1），distroless 只有 LOW/MEDIUM
+（`libssl3` 3.0.20 → 修复版 3.0.22：CVE-2026-63072 / CVE-2026-63076 为 MEDIUM，另 4 条 LOW）。
+修法是三条阻断步骤显式 `limit-severities-for-sarif: 'true'`（守卫：
+`tests/unit/workflow_pipefail_tests.rs::blocking_trivy_steps_must_not_let_sarif_silently_drop_the_severity_filter`）。
+
+**仍未做（本条的残留）**：pinned 基线与出货镜像里那批**可修复的 LOW/MEDIUM** 没有消失，
+只是不再进 Code Scanning（SARIF 现在只含 HIGH/CRITICAL）。下一步是抬
+`docker/Dockerfile` 的三个 digest pin（唯一真相源）到已含 `openssl 3.0.22` / `tzdata 2026c`
+的重建版本，再复扫；在那之前不要因为"门禁绿了"就认为镜像干净。
+复核命令（SARIF 里没有表格，失败步骤日志只写 "Process exited with code 1"）：
+
+```bash
+gh run download <run-id> -n trivy-base-sarif -D /tmp/trivy-base   # 三个基础镜像的发现
+gh run download <run-id> -n trivy-sarif      -D /tmp/trivy-img    # 出货镜像的发现
+```
 
 ---
 
@@ -319,6 +359,25 @@ prometheus: { enabled: true, port: 9090, path: "/metrics" }
 deploy compose 的注释已经指出 metrics 路由**无鉴权**（`src/server/mod.rs` 直接挂 handler），
 并用 `127.0.0.1:9090:9090` 缓解。但镜像层面 `EXPOSE 8008 8448 9090` 把 9090 也暴露了，
 任何人 `docker run -P` 或换个 compose 就会把它放出去。
+
+---
+
+### P1-11 监控栈 nginx Basic Auth / 代理配置的四个实测缺陷
+
+**2026-09-30 复核**（peer 的 Phase 4 提交 `6908bd4fa`…`d525a5bc1`），逐条都给了判据：
+
+| # | 现象 | 判据 | 修法 |
+|---|---|---|---|
+| 1 | `.htpasswd` 进仓库，内容是**真实 bcrypt 哈希**（`admin:$2y$05$2HTF…`） | `docker/deploy/nginx/auth/.htpasswd`（提交 `6908bd4fa`）；与本仓自己的文档矛盾（文档要求现场 `openssl rand -base64 32` 生成、权限 600、compose 以 `:ro` 挂载） | C81 已 `git rm` + `.gitignore` 收口。**残留**：git 历史里那条哈希 —— 未发布仓，建议 rewrite 或直接轮换该凭据 |
+| 2 | 生成脚本写到**错的目录**，deploy 永远挂不上 | `generate_htpasswd.sh:14` `AUTH_DIR="${SCRIPT_DIR}/nginx/auth"`，而 `SCRIPT_DIR=docker/deploy/nginx` ⇒ 实际产物在 `docker/deploy/nginx/nginx/auth/.htpasswd`，compose 挂的是 `docker/deploy/nginx/auth/.htpasswd` | 改成 `${SCRIPT_DIR}/auth`；并在 `deploy.sh` 的 `start_monitoring()` 里于文件缺失时调用它。否则 bind mount 的**文件**源不存在时 docker 会在该路径**建一个目录**，nginx 随后报一个与真因无关的错 |
+| 3 | 生成脚本的 bcrypt 成本是 **5** | `generate_htpasswd.sh:62/84/111` 用 `htpasswd -Bbc`（`-B` 默认 cost 5） | 改 `-C 12`（现代基线）并保留 `chmod 600` |
+| 4 | `docker/deploy/prometheus.conf` 与 `docker/deploy/nginx/prometheus.conf` 内容**不同**，且前者没有任何消费者 | `git show 557b76732 --stat` 同批改了这两个文件；`grep -rn prometheus.conf docker/deploy docs/monitoring` 只命中 `nginx/prometheus.conf`（compose 挂载 + nginx Dockerfile `COPY`） | 删掉无消费者的那份（铁律 1 / 2：同一职责只允许一份实现），或在 compose/Dockerfile 里显式改指向 —— 不要留两份分叉配置 |
+
+另：`docker-compose.monitoring.yml` 还挂了 `./prometheus/auth/worker-token`，该文件同样不在仓库里
+（与 #2 同一个"bind mount 源缺失"形态，需确认由谁生成、缺失时如何响亮失败）。
+
+**门禁缺口**：以上没有一条会被现有 CI 拦下 —— 既没有 secret 扫描（见 P0-4），也没有任何
+"compose 挂载源必须存在"的检查。建议各补一条守卫，并按铁律 8 用故意造的违规证明它会红。
 
 ---
 
