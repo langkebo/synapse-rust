@@ -99,7 +99,3 @@ inhibit_rules:
     target_match:
       severity: 'info'
     equal: ['alertname']
-
-# 模板（可选）
-templates:
-  - '/etc/alertmanager/templates/*.tmpl'

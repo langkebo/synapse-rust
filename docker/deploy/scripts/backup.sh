@@ -85,7 +85,15 @@ backup_config() {
         log_warning ".env 不存在，跳过 .env 备份"
     fi
 
-    for dir in config nginx scripts; do
+    # canonical 配置真相源位于 ../config（= docker/config），deploy 目录下不存在 config/。
+    # 统一以备份包内的 config/ 目录名存放，便于 restore 还原到 ../config。
+    if [ -d "../config" ]; then
+        cp -r "../config" "$BACKUP_DIR/$BACKUP_NAME/config"
+    else
+        log_warning "../config 目录不存在，跳过"
+    fi
+
+    for dir in nginx scripts; do
         if [ -d "$dir" ]; then
             cp -r "$dir" "$BACKUP_DIR/$BACKUP_NAME/"
         else
