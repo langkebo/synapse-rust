@@ -1,0 +1,12 @@
+# 构建上下文仅需 app.py；排除本地缓存与文档，保证镜像内容可复现。
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.git/
+.gitignore
+Dockerfile
+.dockerignore
+*.md

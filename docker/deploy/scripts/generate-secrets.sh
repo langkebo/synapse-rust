@@ -72,6 +72,11 @@ generate_missing_or_all() {
     maybe_set_secret "FORM_SECRET" "$(generate_hex_key 64)" "$force_generate"
     # 64 十六进制字符 = 32 字节，满足 signing_key_master_key 的长度下限。
     maybe_set_secret "FEDERATION_MASTER_KEY" "$(generate_hex_key 64)" "$force_generate"
+    # 64 十六进制字符 = 32 字节，满足 token 哈希密钥 >=32 字节的下限
+    # （docker-compose.yml 以 `:?` 强制要求非空）。
+    maybe_set_secret "TOKEN_HASH_SECRET" "$(generate_hex_key 64)" "$force_generate"
+    # worker 间复制认证密钥（docker-compose.yml 以 `:?` 强制要求非空）。
+    maybe_set_secret "WORKER_REPLICATION_SECRET" "$(generate_hex_key 64)" "$force_generate"
 }
 
 current_env_value() {
@@ -83,7 +88,9 @@ current_env_value() {
 
 placeholder_or_empty() {
     local value=${1:-}
-    [ -z "$value" ] || [[ "$value" == __REQUIRED_* ]] || [[ "$value" == *"change-me"* ]] || [[ "$value" == *"your-"* ]]
+    # CHANGE_ME 是 .env.example 使用的占位符（全大写下划线），与旧式的
+    # change-me / your- 形态都要识别，否则 `missing` 会把它当成"已配置"而跳过生成。
+    [ -z "$value" ] || [[ "$value" == __REQUIRED_* ]] || [[ "$value" == *"change-me"* ]] || [[ "$value" == *"your-"* ]] || [[ "$value" == *"CHANGE_ME"* ]]
 }
 
 maybe_set_secret() {
@@ -157,9 +164,13 @@ generate_single_secret() {
         "secret" | "macaroon" | "form")
             generate_hex_key 64
             ;;
+        "worker-replication")
+            # 64 十六进制字符 = 32 字节，满足 MIN_REPLICATION_SECRET_LEN。
+            generate_hex_key 64
+            ;;
         *)
             log_error "未知密钥类型: $type"
-            echo "可用类型: postgres, redis, admin, registration, secret, macaroon, form"
+            echo "可用类型: postgres, redis, admin, registration, secret, macaroon, form, worker-replication"
             return 1
             ;;
     esac
@@ -175,16 +186,16 @@ show_help() {
     echo "  postgres  生成 PostgreSQL 密码"
     echo "  redis     生成 Redis 密码"
     echo "  admin     生成管理员共享密钥"
-    echo "  jwt       生成 JWT 密钥"
     echo "  registration 生成注册共享密钥"
     echo "  secret    生成应用安全密钥"
     echo "  macaroon  生成 macaroon 密钥"
     echo "  form      生成表单密钥"
+    echo "  worker-replication  轮换 worker 复制密钥（轮换后需重启所有 worker）"
     echo "  help      显示此帮助信息"
     echo ""
     echo "示例:"
     echo "  $0 all        # 生成所有密钥"
-    echo "  $0 jwt        # 只生成 JWT 密钥"
+    echo "  $0 postgres   # 只生成 PostgreSQL 密码"
 }
 
 # 主函数
@@ -198,7 +209,7 @@ main() {
         missing)
             generate_missing_secrets
             ;;
-        postgres | redis | admin | registration | secret | macaroon | form)
+        postgres | redis | admin | registration | secret | macaroon | form | worker-replication)
             local secret=$(generate_single_secret "$command")
             echo "$secret"
 
@@ -218,6 +229,8 @@ main() {
                 env_key="MACAROON_SECRET"
             elif [ "$command" = "form" ]; then
                 env_key="FORM_SECRET"
+            elif [ "$command" = "worker-replication" ]; then
+                env_key="WORKER_REPLICATION_SECRET"
             fi
 
             if [ -f "$ENV_FILE" ]; then
