@@ -312,10 +312,15 @@ impl DatabaseMonitor {
             // `relation "pg_stat_statements" does not exist`），整份离线缓存都建不起来。
             // 这属于"SQL 文本是编译期常量，但**关系是否存在取决于运行环境**"——
             // 与 R6 ④ 列出的两类不可宏化情形并列的第三种。
+            // ⚠️ `SUM(calls)` 必须显式 `::bigint`：PG 的 `sum(bigint)` 返回 NUMERIC，
+            // 与 Rust 侧 `Option<i64>`（INT8）不兼容，运行时解码报
+            // "mismatched types; Rust type `Option<i64>` (as SQL type `INT8`) is not
+            // compatible with SQL type `NUMERIC`"。`calls` 本身即 bigint，转换不损失精度。
+            // 本条是**动态查询，宏不做编译期校验**，故这类类型错只能在运行时暴露。
             let row = sqlx::query_as::<_, (Option<f64>, Option<i64>, Option<i64>)>(
                 "SELECT AVG(mean_exec_time), \
                         COUNT(*) FILTER (WHERE mean_exec_time >= 1000.0), \
-                        SUM(calls) \
+                        SUM(calls)::bigint \
                  FROM pg_stat_statements \
                  WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())",
             )
