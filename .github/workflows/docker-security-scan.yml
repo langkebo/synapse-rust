@@ -124,6 +124,13 @@ jobs:
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'HIGH,CRITICAL'
+          # ⚠️ 不可省（2026-09-30）：trivy-action@v0.36.0 在 `format: sarif` 下**默认
+          # `unset TRIVY_SEVERITY`**（日志里的 "Building SARIF report with all severities"），
+          # 于是上面的 `severity` 被静默丢弃、`exit-code: 1` 变成"任意级别（含 LOW/UNKNOWN）
+          # 的可修复漏洞都失败" —— 声明判据与执行判据不一致。实测出货镜像只剩 1 条
+          # UNKNOWN 的 `tzdata/DLA-4792-1` 却让本 job 连续 8 天全红。判据与守卫见
+          # `tests/unit/workflow_pipefail_tests.rs::blocking_trivy_steps_must_not_let_sarif_silently_drop_the_severity_filter`。
+          limit-severities-for-sarif: 'true'
           exit-code: '1'
           ignore-unfixed: true
 
@@ -198,6 +205,10 @@ jobs:
           format: 'sarif'
           output: 'trivy-base-runtime.sarif'
           severity: 'HIGH,CRITICAL'
+          # 同 `trivy-scan`：`format: sarif` 下 action 默认 unset TRIVY_SEVERITY ⇒
+          # 必须显式收紧，否则 LOW/MEDIUM（如 distroless 里 libssl3 的 3.0.22 修复项）
+          # 也会让这个"HIGH/CRITICAL 阻断"步骤退出 1。
+          limit-severities-for-sarif: 'true'
           exit-code: '1'
           ignore-unfixed: true
 
@@ -208,6 +219,7 @@ jobs:
           format: 'sarif'
           output: 'trivy-base-debian.sarif'
           severity: 'HIGH,CRITICAL'
+          limit-severities-for-sarif: 'true'
           exit-code: '1'
           ignore-unfixed: true
 

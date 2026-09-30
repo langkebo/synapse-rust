@@ -647,3 +647,99 @@ fn every_pinned_base_image_is_scanned_and_report_only_is_an_explicit_exception()
         assert_eq!(exit_code, "1", "`{step}` 扫的是出货路径上的基础镜像（{image_ref}），必须阻断（exit-code 1）");
     }
 }
+
+/// 每个 `(步骤名, 步骤正文)`：正文从 `- name:` 那行起，到下一个步骤为止。
+fn workflow_steps(workflow: &str) -> Vec<(String, String)> {
+    workflow
+        .split("\n      - name: ")
+        .skip(1)
+        .map(|chunk| {
+            let name = chunk.lines().next().unwrap_or_default().trim().to_string();
+            (name, chunk.to_string())
+        })
+        .collect()
+}
+
+/// 取步骤里的 `key: value`（只看非注释行，与 YAML 语义一致）。
+fn step_key(step: &str, key: &str) -> Option<String> {
+    step.lines()
+        .map(str::trim)
+        .find(|line| line.starts_with(key) && !line.starts_with('#'))
+        .map(|line| line[key.len()..].trim().trim_matches('\'').to_string())
+}
+
+/// Trivy + `format: sarif` **会静默丢掉 `severity` 过滤** ⇒ 「HIGH/CRITICAL 阻断」实际
+/// 变成「任意级别阻断」。
+///
+/// 判据来自**钉住的** action 源码（`trivy-action@v0.36.0/entrypoint.sh`）：
+///
+/// ```sh
+/// if [ "${TRIVY_FORMAT:-}" = "sarif" ]; then
+///   if [ "${INPUT_LIMIT_SEVERITIES_FOR_SARIF:-false,,}" != "true" ]; then
+///     echo "Building SARIF report with all severities"
+///     unset TRIVY_SEVERITY
+/// ```
+///
+/// 默认（不给 `limit-severities-for-sarif`）⇒ `TRIVY_SEVERITY` 被 unset ⇒
+/// `severity: 'HIGH,CRITICAL'` 完全不生效，`exit-code: '1'` 对 **LOW/MEDIUM/UNKNOWN** 同样退出 1。
+/// 实测（2026-09-30，从 85bfd51ac 起）：出货镜像只剩 1 条 UNKNOWN 的 `tzdata/DLA-4792-1`、
+/// distroless 只剩 LOW/MEDIUM 的 `libssl3`（3.0.22 有修复），却让 `Docker Security Scan`
+/// 连续 8 天全红 —— 与 `check_fmt_ratchet.sh` 计数恒 0（R11）同型：**声明判据 ≠ 执行判据**。
+///
+/// 规则：凡是**能判死 job**（`exit-code: '1'`）的 trivy 步骤，用 `format: sarif` 时**必须**
+/// 显式 `limit-severities-for-sarif: 'true'`；`exit-code: '0'` 的 report-only 步骤不在此列
+/// （它就是要给 Code Scanning 全 severity 的上下文）。同时所有步骤都必须写死 `severity`，
+/// 免得判据变成"action 的默认值"。
+///
+/// **红证明**：删掉任一阻断步骤的 `limit-severities-for-sarif: 'true'` → FAILED。
+#[test]
+fn blocking_trivy_steps_must_not_let_sarif_silently_drop_the_severity_filter() {
+    let workflow =
+        fs::read_to_string(repo_root().join(".github/workflows/docker-security-scan.yml")).expect("read workflow");
+    // 只看 `uses:` 行 —— 正文里可能出现 `aquasecurity/trivy-action` 的**注释**
+    // （`Build image for scan` 的注释就引了 `gh api repos/aquasecurity/trivy-action/releases`），
+    // 按子串匹配会把它误判成一个 trivy 步骤。
+    let steps: Vec<(String, String)> = workflow_steps(&workflow)
+        .into_iter()
+        .filter(|(_, body)| {
+            body.lines()
+                .any(|line| line.trim_start().starts_with("uses:") && line.contains("aquasecurity/trivy-action"))
+        })
+        .collect();
+
+    // 下限 4 = 出货镜像 1 + 三个 pinned 基础镜像各 1；少于它说明匹配逻辑失效了，
+    // 那时"没有违规"什么也证明不了（扫描器没在工作 ≠ 代码干净）。
+    assert!(
+        steps.len() >= 4,
+        "expected the app image plus three base-image trivy steps, found {}: {:#?}",
+        steps.len(),
+        steps.iter().map(|(name, _)| name).collect::<Vec<_>>()
+    );
+
+    let mut offenders: Vec<String> = Vec::new();
+    let mut blocking = 0usize;
+    for (name, body) in &steps {
+        let format = step_key(body, "format:").unwrap_or_default();
+        let exit_code = step_key(body, "exit-code:").unwrap_or_default();
+        let severity = step_key(body, "severity:").unwrap_or_default();
+        let limited = step_key(body, "limit-severities-for-sarif:").unwrap_or_default();
+        assert!(!severity.is_empty(), "trivy step `{name}` 必须显式写 severity（别依赖 action 默认值）");
+        if exit_code != "1" {
+            continue;
+        }
+        blocking += 1;
+        if format == "sarif" && limited != "true" {
+            offenders.push(format!(
+                "`{name}`: format=sarif + exit-code=1 但缺 `limit-severities-for-sarif: 'true'` \
+                 ⇒ severity `{severity}` 被 action 丢弃，实际按全 severity 判定"
+            ));
+        }
+    }
+
+    assert!(blocking >= 3, "至少三条阻断扫描（出货镜像 + distroless + debian），实际 {blocking}");
+    assert!(
+        offenders.is_empty(),
+        "这些 trivy 步骤的阻断判据与声明的 severity 不一致（见本测试的文档注释）：\n  {}",
+        offenders.join("\n  ")
+    );
+}

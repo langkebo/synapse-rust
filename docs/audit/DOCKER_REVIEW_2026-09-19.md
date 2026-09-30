@@ -232,6 +232,27 @@ redis 的官方解法是 `REDISCLI_AUTH` 环境变量（`redis-cli` 会读取）
 全部未经 CVE 扫描就进入部署。项目对依赖供应链明显敏感（digest pin、CI 有 `drift-detection.yml`），
 唯独镜像这一环缺了门禁。
 
+**现状（2026-09-30 复核）**：门禁已建（`.github/workflows/docker-security-scan.yml`：
+hadolint + trivy 扫出货镜像与三个 pinned 基础镜像）。但"阻断"曾经名不副实并被 C80 修掉：
+trivy-action 在 `format: sarif` 下**默认 `unset TRIVY_SEVERITY`** ⇒ 声明的
+`severity: HIGH,CRITICAL` 被丢弃、`exit-code: 1` 对任意级别（含 UNKNOWN）都失败 ⇒ 从
+2026-09-22 最后一个绿之后连续 8 天全红，而当时的真实发现里**没有** HIGH/CRITICAL：
+出货镜像只有 1 条 UNKNOWN（`tzdata` / DLA-4792-1），distroless 只有 LOW/MEDIUM
+（`libssl3` 3.0.20 → 修复版 3.0.22：CVE-2026-63072 / CVE-2026-63076 为 MEDIUM，另 4 条 LOW）。
+修法是三条阻断步骤显式 `limit-severities-for-sarif: 'true'`（守卫：
+`tests/unit/workflow_pipefail_tests.rs::blocking_trivy_steps_must_not_let_sarif_silently_drop_the_severity_filter`）。
+
+**仍未做（本条的残留）**：pinned 基线与出货镜像里那批**可修复的 LOW/MEDIUM** 没有消失，
+只是不再进 Code Scanning（SARIF 现在只含 HIGH/CRITICAL）。下一步是抬
+`docker/Dockerfile` 的三个 digest pin（唯一真相源）到已含 `openssl 3.0.22` / `tzdata 2026c`
+的重建版本，再复扫；在那之前不要因为"门禁绿了"就认为镜像干净。
+复核命令（SARIF 里没有表格，失败步骤日志只写 "Process exited with code 1"）：
+
+```bash
+gh run download <run-id> -n trivy-base-sarif -D /tmp/trivy-base   # 三个基础镜像的发现
+gh run download <run-id> -n trivy-sarif      -D /tmp/trivy-img    # 出货镜像的发现
+```
+
 ---
 
 ### P1-5 CI 没有 buildx，也没有 cache-from/cache-to
