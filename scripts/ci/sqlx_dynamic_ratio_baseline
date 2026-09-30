@@ -3194,10 +3194,15 @@
 #     ④不覆盖已存在本地用户的 username/password_hash/is_admin）。该方法此前**零用例**。
 #   ⚠️ 防复发：这类"树与基线不一致"只会在**跨分支合并**时出现 ⇒ 合并把两条线合到一起后，
 #     必须在新树上**重新实测四个数字**再收尾（本次即如此），不要沿用任一分支的旧基线。
+# ── 2026-09-30 C77（合并 main 后按实测收紧 static 基线）────────────────────────────────
+#   `4834d22a4`（把 main 的 c85ebd4e2/cf91ceb24 合进 opt/consolidated，为推送 C76 做准备）之后
+#   在新树上**重新实测**四个数字：production 103 / test 757 / **static 1358** / query_builder 18
+#   —— static 比上一版基线多 1（peer 的 push-rules 提交新增 1 处静态宏）⇒ 按实测收紧
+#   `BASELINE_STATIC 1357 → 1358`。这正是 C69 注记里写的"**跨分支合并后必须重测**"，不是新缺陷。
 BASELINE_QUERY_BUILDER=18
 BASELINE_DYNAMIC_PRODUCTION=103
 BASELINE_DYNAMIC_TEST_INFRA=757
-BASELINE_STATIC=1357
+BASELINE_STATIC=1358
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=860
 
