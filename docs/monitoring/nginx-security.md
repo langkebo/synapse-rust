@@ -51,27 +51,18 @@
 ### 2.1 创建认证文件
 
 ```bash
-# 在项目目录下执行
+# 方式一：使用便捷脚本（推荐）
 cd /Users/ljf/Desktop/hu_ts/synapse-rust
+./docker/deploy/nginx/generate_htpasswd.sh admin your_secure_password
 
-# 创建 htpasswd 目录
-mkdir -p docker/deploy/nginx/auth
-
-# 创建 admin 用户（密码自行设置）
+# 方式二：使用 docker htpasswd 工具
 docker run --rm \
   -v "$(pwd)/docker/deploy/nginx/auth:/htpasswd" \
   httpd:2.4-alpine \
-  htpasswd -bc /htpasswd/.htpasswd admin "$(openssl rand -base64 32)"
-
-# 创建 ops 用户（只读权限）
-docker run --rm \
-  -v "$(pwd)/docker/deploy/nginx/auth:/htpasswd" \
-  httpd:2.4-alpine \
-  htpasswd -b /htpasswd/.htpasswd ops "$(openssl rand -base64 32)"
+  htpasswd -Bbc /htpasswd/.htpasswd admin "$(openssl rand -base64 32)"
 
 # 查看生成的文件
 ls -la docker/deploy/nginx/auth/
-cat docker/deploy/nginx/auth/.htpasswd
 ```
 
 ### 2.2 更新 docker-compose.monitoring.yml
@@ -114,16 +105,16 @@ services:
 # 重新构建监控栈
 /opt/homebrew/bin/docker compose -f docker/docker-compose.monitoring.yml up -d nginx-proxy
 
-# 验证 nginx 容器启动
-/opt/homebrew/bin/docker ps | grep nginx
+# 运行完整验证脚本
+./scripts/test/verify-security.sh
 
-# 测试无认证被拒绝
-curl -s http://localhost:8081/prometheus/api/v1/query?query=up
-# 期望: HTTP 401
+# 手动验证（简要）
+# 无认证被拒绝:
+curl -s -o /dev/null -w "%{http_code}" http://localhost:8081/prometheus/
+# 期望: 401
 
-# 测试有认证成功
-PROM_PASS=$(grep admin docker/deploy/nginx/auth/.htpasswd | cut -d: -f2 | xargs)
-curl -s -u admin:$PROM_PASS "http://localhost:8081/prometheus/api/v1/query?query=up" | jq '.'
+# 有认证成功 (需要修改命令中的密码):
+curl -s -u admin:YourPassword "http://localhost:8081/prometheus/api/v1/query?query=up" | jq '.status'
 ```
 
 ---
