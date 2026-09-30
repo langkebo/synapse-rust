@@ -113,6 +113,27 @@ def rel(p: Path) -> str:
     return str(p.relative_to(REPO_ROOT))
 
 
+def is_comment_only(line: str, suffix: str) -> bool:
+    """True when the line carries no executable content — only a comment.
+
+    **Why this exists（2026-09-30 C78）**：本守卫原先逐行正则匹配、**连注释也算违规**。
+    `scripts/ci/converge_public_schema.sh:13` 那句注释
+    "`DROP SCHEMA public CASCADE` is **not** an option: …" 是在解释**为什么不做**这个危险操作，
+    却被判成 `[ERROR] DROP SCHEMA public CASCADE outside allowlisted reset scripts`
+    ⇒ `DB Migration Gate` 在 main 上常红（假阳性）。把整个文件加进 SAFE_FILES 是错的
+    （会一并豁免该文件里**真实**的 DROP），所以按最小且安全的判据修：**只跳过纯注释行**。
+
+    纯注释行 = 去掉前导空白后以该语言的注释标记开头（`.sh`/`.yml` 为 `#`，`.sql` 另有 `--`，
+    `.rs` 为 `//`、`/*`、`*`）。行尾注释（代码后跟注释）**不跳过** —— 那种行确实有可执行内容。
+    """
+    stripped = line.lstrip()
+    if suffix in (".sh", ".yml", ".yaml", ".sql"):
+        markers = ("#",) if suffix != ".sql" else ("#", "--")
+    else:  # .rs
+        markers = ("//", "/*", "*")
+    return stripped.startswith(markers)
+
+
 def check_file(filepath: Path) -> list[dict]:
     issues: list[dict] = []
     relname = rel(filepath)
@@ -123,6 +144,8 @@ def check_file(filepath: Path) -> list[dict]:
         print(f"WARN: cannot read {filepath}: {e}", file=sys.stderr)
         return issues
     for lineno, line in enumerate(text.splitlines(), 1):
+        if is_comment_only(line, filepath.suffix):
+            continue
         for pattern, msg, severity in PATTERNS:
             if re.search(pattern, line, re.IGNORECASE):
                 # 豁免文件：降级为 info 且不计入汇总（保留可见性）
