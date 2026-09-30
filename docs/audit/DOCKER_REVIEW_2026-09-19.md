@@ -362,6 +362,25 @@ deploy compose 的注释已经指出 metrics 路由**无鉴权**（`src/server/m
 
 ---
 
+### P1-11 监控栈 nginx Basic Auth / 代理配置的四个实测缺陷
+
+**2026-09-30 复核**（peer 的 Phase 4 提交 `6908bd4fa`…`d525a5bc1`），逐条都给了判据：
+
+| # | 现象 | 判据 | 修法 |
+|---|---|---|---|
+| 1 | `.htpasswd` 进仓库，内容是**真实 bcrypt 哈希**（`admin:$2y$05$2HTF…`） | `docker/deploy/nginx/auth/.htpasswd`（提交 `6908bd4fa`）；与本仓自己的文档矛盾（文档要求现场 `openssl rand -base64 32` 生成、权限 600、compose 以 `:ro` 挂载） | C81 已 `git rm` + `.gitignore` 收口。**残留**：git 历史里那条哈希 —— 未发布仓，建议 rewrite 或直接轮换该凭据 |
+| 2 | 生成脚本写到**错的目录**，deploy 永远挂不上 | `generate_htpasswd.sh:14` `AUTH_DIR="${SCRIPT_DIR}/nginx/auth"`，而 `SCRIPT_DIR=docker/deploy/nginx` ⇒ 实际产物在 `docker/deploy/nginx/nginx/auth/.htpasswd`，compose 挂的是 `docker/deploy/nginx/auth/.htpasswd` | 改成 `${SCRIPT_DIR}/auth`；并在 `deploy.sh` 的 `start_monitoring()` 里于文件缺失时调用它。否则 bind mount 的**文件**源不存在时 docker 会在该路径**建一个目录**，nginx 随后报一个与真因无关的错 |
+| 3 | 生成脚本的 bcrypt 成本是 **5** | `generate_htpasswd.sh:62/84/111` 用 `htpasswd -Bbc`（`-B` 默认 cost 5） | 改 `-C 12`（现代基线）并保留 `chmod 600` |
+| 4 | `docker/deploy/prometheus.conf` 与 `docker/deploy/nginx/prometheus.conf` 内容**不同**，且前者没有任何消费者 | `git show 557b76732 --stat` 同批改了这两个文件；`grep -rn prometheus.conf docker/deploy docs/monitoring` 只命中 `nginx/prometheus.conf`（compose 挂载 + nginx Dockerfile `COPY`） | 删掉无消费者的那份（铁律 1 / 2：同一职责只允许一份实现），或在 compose/Dockerfile 里显式改指向 —— 不要留两份分叉配置 |
+
+另：`docker-compose.monitoring.yml` 还挂了 `./prometheus/auth/worker-token`，该文件同样不在仓库里
+（与 #2 同一个"bind mount 源缺失"形态，需确认由谁生成、缺失时如何响亮失败）。
+
+**门禁缺口**：以上没有一条会被现有 CI 拦下 —— 既没有 secret 扫描（见 P0-4），也没有任何
+"compose 挂载源必须存在"的检查。建议各补一条守卫，并按铁律 8 用故意造的违规证明它会红。
+
+---
+
 ## 3. P2 — 中优先级
 
 | # | 问题 | 位置 | 说明 |
