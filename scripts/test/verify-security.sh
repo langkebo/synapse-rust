@@ -6,7 +6,7 @@ set -euo pipefail
 
 BASE_URL="http://localhost:8081"
 HTTPS_URL="https://localhost:8443"
-PRO_PASS="SecurePassword123ChangeMe!"  # 默认密码
+PRO_PASS="SecurePassword123ChangeMe!" # 默认密码
 
 echo "=== Phase 4 安全加固验证 ==="
 echo ""
@@ -14,57 +14,57 @@ echo ""
 echo "1. 测试无认证访问 HTTP(应返回 401 或 301)..."
 CODE=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/prometheus/")
 if [[ "${CODE}" == "401" ]] || [[ "${CODE}" == "301" ]]; then
-  echo "  ✅ HTTP 无认证访问被拒绝 (${CODE})"
+    echo "  ✅ HTTP 无认证访问被拒绝 (${CODE})"
 else
-  echo "  ❌ 预期 401/301，实际 ${CODE}"
+    echo "  ❌ 预期 401/301，实际 ${CODE}"
 fi
 
 echo ""
 echo "2. 测试 HTTPS 无认证访问 (应返回 401)..."
 CODE=$(curl -sk -o /dev/null -w "%{http_code}" "${HTTPS_URL}/prometheus/")
 if [[ "${CODE}" == "401" ]]; then
-  echo "  ✅ HTTPS 无认证访问被拒绝 (${CODE})"
+    echo "  ✅ HTTPS 无认证访问被拒绝 (${CODE})"
 else
-  echo "  ❌ 预期 401，实际 ${CODE}"
+    echo "  ❌ 预期 401，实际 ${CODE}"
 fi
 
 CODE=$(curl -sk -o /dev/null -w "%{http_code}" "${HTTPS_URL}/grafana/")
 if [[ "${CODE}" == "401" ]]; then
-  echo "  ✅ Grafana 无认证访问被拒绝 (${CODE})"
+    echo "  ✅ Grafana 无认证访问被拒绝 (${CODE})"
 else
-  echo "  ❌ 预期 401，实际 ${CODE}"
+    echo "  ❌ 预期 401，实际 ${CODE}"
 fi
 
 echo ""
 echo "3. 测试 HTTPS 有认证访问 (应返回 200)..."
 CODE=$(curl -sk -o /dev/null -w "%{http_code}" -u "admin:${PRO_PASS}" "${HTTPS_URL}/prometheus/api/v1/query?query=up")
 if [[ "${CODE}" == "200" ]]; then
-  echo "  ✅ Prometheus API 认证访问正常 (${CODE})"
+    echo "  ✅ Prometheus API 认证访问正常 (${CODE})"
 else
-  echo "  ❌ 预期 200，实际 ${CODE}"
+    echo "  ❌ 预期 200，实际 ${CODE}"
 fi
 
 CODE=$(curl -sk -o /dev/null -w "%{http_code}" -u "admin:${PRO_PASS}" "${HTTPS_URL}/grafana/")
 if [[ "${CODE}" == "200" ]] || [[ "${CODE}" == "302" ]]; then
-  echo "  ✅ Grafana 认证访问正常 (${CODE})"
+    echo "  ✅ Grafana 认证访问正常 (${CODE})"
 else
-  echo "  ❌ 预期 200 或 302，实际 ${CODE}"
+    echo "  ❌ 预期 200 或 302，实际 ${CODE}"
 fi
 
 echo ""
 echo "4. 测试 HTTP 自动重定向 (应返回 301)..."
 CODE=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/nginx-health")
 if [[ "${CODE}" == "200" ]]; then
-  echo "  ✅ 健康检查绕过重定向 (${CODE})"
+    echo "  ✅ 健康检查绕过重定向 (${CODE})"
 else
-  echo "  ❌ 预期 200，实际 ${CODE}"
+    echo "  ❌ 预期 200，实际 ${CODE}"
 fi
 
 CODE=$(curl -sI "${BASE_URL}/prometheus/" | head -1 | grep -o "301" || true)
 if [[ "${CODE}" == "301" ]]; then
-  echo "  ✅ HTTP 自动重定向到 HTTPS (301)"
+    echo "  ✅ HTTP 自动重定向到 HTTPS (301)"
 else
-  echo "  ⚠️  HTTP 未重定向"
+    echo "  ⚠️  HTTP 未重定向"
 fi
 
 echo ""
