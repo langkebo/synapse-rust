@@ -135,7 +135,20 @@ restore_config() {
 
     log_info "恢复配置文件..."
 
-    [ -f "$backup_dir/.env" ] && cp "$backup_dir/.env" .env
+    if [ -f "$backup_dir/.env" ]; then
+        cp "$backup_dir/.env" .env
+        # 备份快照可能带启用态 MALLOC_CONF（jemalloc profiler）：一旦还原，synapse
+        # 会持续向 synapse-data/ 落 heap dump 直到撑满磁盘。它是临时诊断开关而非部署
+        # 配置，故还原后一律强制注释，避免任何来历的备份把它灌回 live。
+        if grep -qE '^[[:space:]]*MALLOC_CONF=' .env; then
+            local tmp_env
+            tmp_env="$(mktemp)"
+            sed 's/^[[:space:]]*MALLOC_CONF=/#MALLOC_CONF=/' .env >"$tmp_env"
+            cp "$tmp_env" .env
+            rm -f "$tmp_env" 2>/dev/null || true
+            log_warning "已强制注释还原的 MALLOC_CONF（jemalloc profiler 不随备份恢复）"
+        fi
+    fi
     # canonical 配置真相源位于 ../config（= docker/config），还原到上级目录。
     [ -d "$backup_dir/config" ] && rm -rf ../config && cp -r "$backup_dir/config" ..
     [ -d "$backup_dir/nginx" ] && rm -rf nginx && cp -r "$backup_dir/nginx" ./

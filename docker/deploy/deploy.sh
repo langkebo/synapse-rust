@@ -261,11 +261,11 @@ EOF
 # Interactive feature selection
 # =============================================================================
 
-# 归一 feature 选择值。
-# `core-private-chat` 与 `friends,burn-after-read` 在 Cargo.toml 中并不等价：
-# core-private-chat 会额外启用 `synapse-web/core-private-chat`。若不做归一，
-# .env 里写 core-private-chat 会落到 docker_feature_args 的通用分支，构建出
-# 与交互式菜单 [0] 不同的产物，摘要也会误显示为"自定义"。
+# 归一 feature 选择值：把 `core-private-chat` 别名展开为 `friends,burn-after-read`。
+# 两者当前构建产物等价——三层 crate 的 core-private-chat 都恰好等于
+# friends + burn-after-read（根 Cargo.toml 额外挂的 synapse-web/core-private-chat
+# 展开后无新增成员）。归一的意义有二：① 摘要与交互式菜单 [0] 显示一致，不会被
+# 误标为"自定义"；② 将来 core-private-chat 增删成员时只需维护这一处映射。
 normalize_extensions() {
     local value="$1"
     if [ "$value" = "core-private-chat" ]; then
