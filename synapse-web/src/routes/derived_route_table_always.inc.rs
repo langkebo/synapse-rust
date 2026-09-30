@@ -6136,6 +6136,36 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         let e = RouteEntry::new(axum::http::Method::PUT, "/_synapse/admin/v2/users/{user_id}", "admin::user");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
+    #[cfg(feature = "cas-sso")]
+    {
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/cas/login", "cas");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    #[cfg(feature = "cas-sso")]
+    {
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/cas/logout", "cas");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    #[cfg(feature = "cas-sso")]
+    {
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/cas/p3/serviceValidate", "cas");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    #[cfg(feature = "cas-sso")]
+    {
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/cas/proxy", "cas");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    #[cfg(feature = "cas-sso")]
+    {
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/cas/proxyValidate", "cas");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    #[cfg(feature = "cas-sso")]
+    {
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/cas/serviceValidate", "cas");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
     #[cfg(feature = "external-services")]
     {
         let e = RouteEntry::new(
@@ -6293,36 +6323,6 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/health", "assembly::create_router");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    #[cfg(feature = "cas-sso")]
-    {
-        let e = RouteEntry::new(axum::http::Method::GET, "/login", "cas");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    #[cfg(feature = "cas-sso")]
-    {
-        let e = RouteEntry::new(axum::http::Method::GET, "/logout", "cas");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    #[cfg(feature = "cas-sso")]
-    {
-        let e = RouteEntry::new(axum::http::Method::GET, "/p3/serviceValidate", "cas");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    #[cfg(feature = "cas-sso")]
-    {
-        let e = RouteEntry::new(axum::http::Method::GET, "/proxy", "cas");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    #[cfg(feature = "cas-sso")]
-    {
-        let e = RouteEntry::new(axum::http::Method::GET, "/proxyValidate", "cas");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    #[cfg(feature = "cas-sso")]
-    {
-        let e = RouteEntry::new(axum::http::Method::GET, "/serviceValidate", "cas");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     rows
