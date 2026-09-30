@@ -788,13 +788,18 @@ async fn handle_delayed_event_edu(
     }
 
     // TODO: P1-1: Implement delayed event persistence via delayed_event_service
-    // For now, log and acknowledge receipt
+    //
+    // ⚠️ 现在**没有**持久化：本 handler 只做"形状校验 + origin 校验 + 计数"（MSC4140 的存储侧
+    // 接线属 P1-1，模板见 `docs/templates/federation-edu-persist-template.md`）。日志必须与事实
+    // 一致 —— 原文写 "(persisted to storage)" 会让排障者以为事件已落库；计数
+    // `federation_inbound_delayed_event_processed_total` 的口径同样只是"已接收并确认"
+    // （`processed` 在该命名规范里的定义就是"收下并通过校验"，与是否落库无关）。
     ::tracing::info!(
         delay_id,
         room_id,
         user_id,
         origin,
-        "Received m.delayed_event EDU from federation (persisted to storage)"
+        "Received m.delayed_event EDU from federation (validated + acknowledged; NOT persisted yet — TODO P1-1)"
     );
     increment_counter(ctx, "federation_inbound_delayed_event_processed_total");
     EduProcessResult { processed: 1, dropped: 0, errored: 0 }
