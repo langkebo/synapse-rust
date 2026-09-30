@@ -148,6 +148,25 @@ docker/nginx/ssl/server.crt                      ← 部署证书
 - JWT 是**测试环境真实签发**的凭据，泄露后可用于对应 homeserver；
 - 它们存在于 git 历史中，仅删除当前版本不够，需要 history rewrite 或至少确认该 token 已失效且服务端 secret 已轮换。
 
+**2026-09-30 追加（peer 提交 `6908bd4fa` 引入，C81 处置）**：`docker/deploy/nginx/auth/.htpasswd`
+入库了一条**真实 bcrypt 哈希**（`admin:$2y$05$2HTF…`，cost 5 —— 弱口令可秒破）。它本该是本地秘密：
+`docs/monitoring/nginx-security.md` 自己写的是"用 `openssl rand -base64 32` 现生成、权限 600"，
+compose 也以 `:ro` 挂载。处置：`git rm` 该文件 + `.gitignore` 收口
+（`docker/deploy/nginx/auth/.htpasswd`），凭据改由 `docker/deploy/nginx/generate_htpasswd.sh` 现场生成。
+
+两个残留（属该功能 owner，不要只做第 1 步就收工）：
+
+1. **历史里仍有那条哈希**。本仓未发布、无兼容义务 ⇒ 正确处置是 history rewrite，或至少确认对应凭据
+   已轮换/失效（重新生成 `.htpasswd` 成本近似为零）。只删当前版本 = 没解决。
+2. **缺"凭据入库"门禁**：`grep -rn "gitleaks\|detect-secrets" .github/workflows/` 无命中，`scripts/`
+   里也没有任何 secret 扫描 ⇒ 这类提交只能靠人眼发现（本次正是人眼发现）。建议加一条
+   `gitleaks detect --no-git`（或 pre-commit 的 `detect-secrets`），并**用一条故意造的假凭据证明它能红**
+   （铁律 8：报"通过"的门禁未必在工作）。
+
+另：`docker-compose.monitoring.yml` 用 `./nginx/auth/.htpasswd:/etc/nginx/.htpasswd:ro` 挂载**文件**，
+文件缺失时 Docker 会在该路径**建一个目录**，nginx 随后报一个与真因无关的错。生成脚本必须先于 `up`
+执行，或把挂载改成目录（`./nginx/auth:/etc/nginx/auth:ro`）并同步 nginx 配置。
+
 ---
 
 ## 2. P1 — 高优先级

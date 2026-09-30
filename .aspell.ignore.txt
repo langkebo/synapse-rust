@@ -128,6 +128,7 @@ captcha
 cas
 casservice
 casstorage
+cdn
 ceo
 cfg
 chacha
@@ -346,6 +347,7 @@ homebrew
 homeserver
 hotfix
 hq
+htpasswd
 http
 https
 hu
@@ -417,6 +419,7 @@ keyrotationstorage
 keyset
 keyverificationmanager
 kib
+kpi
 langkebo
 lcov
 libc
@@ -550,6 +553,7 @@ pdugraphfields
 pdus
 pem
 perf
+pgbouncer
 pgpool
 pgpooloptions
 pgsql
