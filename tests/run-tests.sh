@@ -10,13 +10,13 @@ echo "=== 正在加载测试账户 ==="
 load_accounts() {
     ADMIN_USER=""
     ADMIN_TOKEN=""
-    
+
     while IFS=':' read -r user_id access_token device_id; do
         if [[ "${user_id}" == *"admin"* ]]; then
             ADMIN_USER="${user_id}"
             ADMIN_TOKEN="${access_token}"
         fi
-    done < tests/accounts.txt
+    done <tests/accounts.txt
 }
 
 load_accounts
@@ -33,10 +33,10 @@ test_case() {
     local cat=$1 name=$2 cmd="$3" expect="$4"
     ((TOTAL++)) || true
     echo "[${cat}] ${name}..."
-    
+
     result=$(eval "${cmd}" 2>&1) || true
     rc=$?
-    
+
     if [[ "$rc" == "$expect" ]]; then
         echo "  ✅ PASS"
         ((PASS++)) || true
@@ -73,15 +73,15 @@ if [[ -n "${CREATED_ROOM}" ]]; then
         -H "Authorization: Bearer ${ADMIN_TOKEN}" \
         -H "Content-Type: application/json" \
         -d '{"msgtype":"m.text","body":"Hello"}' | jq -r '.event_id')
-    
+
     test_case "message" "Send message" \
         "test -n '${MSG_RESULT}'" 0
     echo "  Event ID: ${MSG_RESULT}"
-    
+
     # 获取消息
     HIST_RESULT=$(curl -s "${SERVER_URL}/_matrix/client/v3/rooms/${CREATED_ROOM}/messages?limit=5" \
         -H "Authorization: Bearer ${ADMIN_TOKEN}" | jq -r '.chunk | length')
-    
+
     test_case "message" "Get history" \
         "test \"${HIST_RESULT}\" -ge 1" 0
 fi
@@ -128,7 +128,7 @@ if [[ -f "docker/deploy/nginx/auth/.htpasswd" ]]; then
     HTTPS_PASS="SecurePassword123ChangeMe!"
     HTTPS_RESP=$(curl -sk -u "admin:${HTTPS_PASS}" \
         "https://localhost:8443/prometheus/api/v1/query?query=up")
-    
+
     test_case "security" "HTTPS Prometheus" \
         "echo '${HTTPS_RESP}' | grep -q 'success'" 0
 else
@@ -142,7 +142,7 @@ echo "========================================"
 echo "总测试数：${TOTAL}"
 echo "通过：${PASS}"
 echo "失败：${FAIL}"
-echo "通过率：$(( PASS * 100 / TOTAL ))%"
+echo "通过率：$((PASS * 100 / TOTAL))%"
 echo ""
 
 if [[ ${FAIL} -eq 0 ]]; then

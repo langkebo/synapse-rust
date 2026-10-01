@@ -12,17 +12,17 @@ global:
   smtp_from: '${SMTP_FROM:-alertmanager@synapse-rust.local}'
   smtp_auth_username: '${SMTP_USERNAME:-}'
   smtp_auth_password: '${SMTP_PASSWORD:-}'
-  
+
   # Slack webhook（如果需要）
   slack_api_url: '${SLACK_WEBHOOK_URL:-}'
-  
+
   # 告警分组间隔
   group_wait: 30s
   # 分组刷新间隔
   group_interval: 5m
   # 重复告警间隔
   repeat_interval: 4h
-  
+
   # Resolver 配置（自动恢复）
   resolve_timeout: 5m
 
@@ -30,10 +30,10 @@ global:
 route:
   # 默认接收器
   receiver: 'default-receiver'
-  
+
   # 分组依据
   group_by: ['alertname', 'severity', 'category']
-  
+
   # 子路由配置
   routes:
     # -------------------------------------------------------------------------
@@ -44,7 +44,7 @@ route:
       receiver: 'critical-alerts'
       group_wait: 10s
       repeat_interval: 1h
-      
+
       routes:
         # HTTP 服务崩溃告警
         - match:
@@ -52,21 +52,21 @@ route:
             severity: critical
           receiver: 'pagerduty-availability'
           group_wait: 10s
-        
+
         # 数据库错误告警
         - match:
             category: database
             severity: critical
           receiver: 'pagerduty-database'
           group_wait: 10s
-        
+
         # Redis 连接错误告警
         - match:
             category: infrastructure
             severity: critical
           receiver: 'pagerduty-infrastructure'
           group_wait: 10s
-  
+
   # 静默期（维护窗口）
   inhibit_rules:
     # 如果 Synapse 服务宕机，抑制所有相关告警
@@ -75,7 +75,7 @@ route:
       target_match:
         category: latency
       equal: ['instance']
-      
+
     # 如果 HTTP 5xx 错误率高，抑制 HTTP 错误告警
     - source_match:
         alertname: HighHTTPErrorRate
@@ -102,7 +102,7 @@ receivers:
         send_resolved: true
         headers:
           subject: '[CRITICAL] {{ .GroupLabels.alertname }} - Synapse-Rust'
-    
+
     # Slack 通知
     slack_configs:
       - api_url: '${SLACK_CRITICAL_WEBHOOK:-}'
@@ -181,7 +181,7 @@ receivers:
         send_resolved: true
         headers:
           subject: '[INFO] {{ .GroupLabels.alertname }} - Synapse-Rust'
-    
+
     slack_configs:
       - api_url: '${SLACK_INFO_WEBHOOK:-}'
         channel: '#synapse-info'

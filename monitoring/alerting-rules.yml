@@ -13,8 +13,8 @@ groups:
       # HTTP 5xx 错误率 > 5%
       - alert: HighHTTPErrorRate
         expr: |
-          sum(rate(http_requests_total{status_code=~"5.."}[5m])) 
-          / 
+          sum(rate(http_requests_total{status_code=~"5.."}[5m]))
+          /
           sum(rate(http_requests_total[5m])) > 0.05
         for: 5m
         labels:
@@ -58,7 +58,7 @@ groups:
       # 房间创建 P99 > 5 秒
       - alert: SlowRoomCreation
         expr: |
-          histogram_quantile(0.99, 
+          histogram_quantile(0.99,
             sum(rate(room_creation_duration_seconds_bucket[5m])) by (le)
           ) > 5
         for: 5m
@@ -72,7 +72,7 @@ groups:
       # 消息投递 P95 > 1 秒
       - alert: SlowMessageDelivery
         expr: |
-          histogram_quantile(0.95, 
+          histogram_quantile(0.95,
             sum(rate(message_delivery_latency_seconds_bucket[5m])) by (le)
           ) > 1
         for: 10m
@@ -86,7 +86,7 @@ groups:
       # Sync 延迟 P95 > 2 秒
       - alert: SlowSyncLatency
         expr: |
-          histogram_quantile(0.95, 
+          histogram_quantile(0.95,
             sum(rate(sync_duration_ms_bucket[5m])) by (le)
           ) > 2000
         for: 5m
@@ -100,7 +100,7 @@ groups:
       # E2EE 握手延迟 P95 > 3 秒
       - alert: SlowE2EEHandshake
         expr: |
-          histogram_quantile(0.95, 
+          histogram_quantile(0.95,
             sum(rate(e2ee_handshake_duration_seconds_bucket[5m])) by (le)
           ) > 3
         for: 10m
@@ -144,7 +144,7 @@ groups:
       # Cache 命中率下降
       - alert: LowCacheHitRate
         expr: |
-          sum(cache_operations_total{result="hit"}) / 
+          sum(cache_operations_total{result="hit"}) /
           sum(cache_operations_total) < 0.8
         for: 10m
         labels:
@@ -176,7 +176,7 @@ groups:
       # Federation 错误率 > 10%
       - alert: HighFederationErrorRate
         expr: |
-          sum(rate(federation_operations_total{result!="success"}[5m])) / 
+          sum(rate(federation_operations_total{result!="success"}[5m])) /
           sum(rate(federation_operations_total[5m])) > 0.1
         for: 10m
         labels:
@@ -189,7 +189,7 @@ groups:
       # Federation 超时率上升
       - alert: HighFederationTimeoutRate
         expr: |
-          sum(rate(federation_operation_duration_seconds_bucket{result=~"timeout"}[5m])) / 
+          sum(rate(federation_operation_duration_seconds_bucket{result=~"timeout"}[5m])) /
           sum(rate(federation_operation_duration_seconds_count[5m])) > 0.2
         for: 10m
         labels:
@@ -209,7 +209,7 @@ groups:
       # 房间创建失败率异常
       - alert: AbnormalRoomCreateFailureRate
         expr: |
-          sum(rate(room_operations_total{operation="create",outcome="error"}[5m])) / 
+          sum(rate(room_operations_total{operation="create",outcome="error"}[5m])) /
           sum(rate(room_operations_total{operation="create"}[5m])) > 0.05
         for: 5m
         labels:
@@ -234,7 +234,7 @@ groups:
       # E2EE 覆盖率下降
       - alert: E2EECoverageDrop
         expr: |
-          sum(rate(messages_sent_total{encryption="true"}[1h])) / 
+          sum(rate(messages_sent_total{encryption="true"}[1h])) /
           sum(rate(messages_sent_total[1h])) < 0.7
         for: 30m
         labels:

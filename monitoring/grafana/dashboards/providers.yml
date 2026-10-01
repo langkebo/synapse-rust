@@ -19,7 +19,7 @@ providers:
     updateIntervalSeconds: 10
     options:
       path: /etc/grafana/provisioning/dashboards
-    
+
   # -------------------------------------------------------------------------
   # 2. Synapse-Rust 专用文件夹
   # -------------------------------------------------------------------------
