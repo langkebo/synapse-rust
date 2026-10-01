@@ -214,6 +214,96 @@ async fn test_room_summary_create_rejects_joined_non_creator_member() {
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
 
+/// 读取调用者可见的 summary 列表（内部路由，返回带 `join_rule` 的反规范化行）。
+async fn fetch_user_summaries(app: &axum::Router, token: &str) -> Vec<Value> {
+    let request = Request::builder()
+        .method("GET")
+        .uri("/_synapse/room_summary/v1/summaries")
+        .header("Authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    json["summaries"].as_array().expect("summaries array").clone()
+}
+
+/// M-3（对照报告 §18.3 #13）：反规范化的 `join_rule` 列必须与房间的**真实状态**一致，
+/// **包括唯一走「调用方事务」写状态事件的路径** —— createRoom 的 `initial_state`。
+///
+/// 背景：`MessagingService::create_event(.., tx=Some(..))` 会跳过 summary 刷新
+/// （`events.rs:182` 的 `should_update_summary = tx.is_none()`：事务未提交时刷新会读到
+/// 未提交状态），而 `create_room` 在提交前把 `initial_state` 里的
+/// `m.room.join_rules` 显式投影到 `rooms` 表与 summary 请求（`create.rs:435-470,503`）。
+/// 本用例把那处补偿钉死：删掉投影、或新增别的事务内状态写入却忘了补偿，这里都会红。
+#[tokio::test]
+async fn summary_join_rule_follows_initial_state_join_rules() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let token = register_user(&app, "room_summary_join_rule_tx_path").await;
+
+    // preset 派生 invite，`initial_state` 覆盖成 public —— 状态事件在创建事务内写入。
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/createRoom")
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "name": "Join rule freshness (tx path)",
+                "preset": "private_chat",
+                "initial_state": [{
+                    "type": "m.room.join_rules",
+                    "state_key": "",
+                    "content": { "join_rule": "public" }
+                }]
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 2048).await.unwrap();
+    let room_id = serde_json::from_slice::<Value>(&body).unwrap()["room_id"].as_str().unwrap().to_string();
+
+    let summaries = fetch_user_summaries(&app, &token).await;
+    let summary = summaries.iter().find(|row| row["room_id"] == room_id).expect("summary row for the new room");
+    assert_eq!(
+        summary["join_rule"], "public",
+        "initial_state 里的 m.room.join_rules 必须已投影进 summary（否则 /summary 与房间状态不一致）：{summary}"
+    );
+}
+
+/// M-3 的另一半：**自动提交**路径（客户端 `PUT /state/m.room.join_rules`，tx=None）
+/// 必须就地刷新 summary。这条覆盖 `events.rs` 里 `should_update_summary` 的正常分支。
+#[tokio::test]
+async fn summary_join_rule_follows_client_state_write() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let token = register_user(&app, "room_summary_join_rule_client_path").await;
+    let room_id = create_room(&app, &token, "Join rule freshness (client path)").await;
+
+    let request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/state/m.room.join_rules"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "join_rule": "knock" }).to_string()))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let summaries = fetch_user_summaries(&app, &token).await;
+    let summary = summaries.iter().find(|row| row["room_id"] == room_id).expect("summary row");
+    assert_eq!(
+        summary["join_rule"], "knock",
+        "客户端状态写入后 summary 必须立即反映新的 join_rules（反规范化列不得滞后）：{summary}"
+    );
+}
+
 #[tokio::test]
 async fn test_room_summary_read_routes_share_across_versions() {
     let Some(app) = setup_test_app().await else {

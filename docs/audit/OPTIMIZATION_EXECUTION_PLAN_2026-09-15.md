@@ -744,7 +744,7 @@ fmt / sqlx / trait / web-layering 四个棘轮的扫描面扩到了新 crate，�
 
 | 批次 | 内容 | 前置 | 退出判据 |
 |---|---|---|---|
-| **B1 · 零风险收口**（当天量级） | M-1（`redis.username`）、M-3（`/room_summary` `join_rules` 新鲜度）、L-5（文档去陈旧化） | 无 | 三项各自的门禁红/绿证明 + 全量门禁绿 |
+| **B1 · 零风险收口** | M-1（`redis.username`）✅ 已交付 `7b54e01fd`；M-3（`/room_summary` `join_rules` 新鲜度）✅ 已交付（复核结论：**无行为改动**，交付回归网 + 契约，见 §18.3 #13）；L-5（文档去陈旧化）待做 | 无 | 各项红/绿证明齐备（M-1 单测红→绿；M-3 两条集成用例 + 变异红证明） |
 | **B2 · 互操作正确性** | H-2（MSC4311 开关接线 + knock stripped state）、M-2（MSC4222 批次边界） | 无（但 M-2 必须先落可复现用例） | V-2 / V-4 |
 | **B3 · 认证与规则面** | H-1（取决于 **D-1**）、M-4（第三方规则接入事件鉴权，取决于 fail-open/closed 决策） | D-1；M-4 需先定失败语义 | V-1 / V-10 |
 | **B4 · 结构与性能** | M-5（状态决议缓存接线或删除）、M-6（`/relations` `recurse`）、L-1（stream 指标口径）、L-2（MSC4242 HTTP）、L-3（取决于 **D-3**）、L-4（取决于 **D-2**） | M-5/M-6 需先确认 `state_record` 写半边（F-1/F-2）已覆盖 | V-11 / V-12 |
@@ -780,7 +780,9 @@ fmt / sqlx / trait / web-layering 四个棘轮的扫描面扩到了新 crate，�
 **M-1 · `redis.username` 启动校验 + env 解析**（报告 §18.3 #3）
 
 - 在 `synapse-common/src/config/database.rs` 加「`username` 必须同时有 `password`」的启动校验（与上游一致），
-  并在 `loader.rs` 支持 `SYNAPSE_REDIS__USERNAME`（当前只解析 host/password/key_prefix）。
+  并在 `loader.rs` 支持 redis `username` 的 `${VAR}` 插值（当前只解析 host/password/key_prefix；
+  ⚠️ 环境变量覆盖本身的拼写是 `SYNAPSE__REDIS__USERNAME`（`SYNAPSE` + 分隔符 `__`），README 里写的
+  `SYNAPSE_REDIS__HOST` 单下划线形式**待核实**，见 §8.7 待办）。
 - 把 `database.rs:307` 那个把 username-only 固化为**合法**的测试改写为断言失败（它是上游反例的固化）。
 - 判据 V-3；风险低（会让 username-only 配置启动失败，这正是对齐上游的目的）。
 
@@ -851,3 +853,10 @@ fmt / sqlx / trait / web-layering 四个棘轮的扫描面扩到了新 crate，�
 2. §18.4 的 H/M/L 每条在本文件中都有执行卡且判据指向 §18.6 的 V-n；
 3. D-1/D-2/D-3 三项决策在 §8.1 表内落成文字（未决策的项不得开工，避免"半接线"再次产生死代码）；
 4. 全量门禁绿（R8 四道 + clippy 两档 + fmt 棘轮 + route-contract 链 + docs 质量门）。
+
+### 8.7 待核实的一处口径差异（M-1 附带发现）
+
+README「环境变量（覆盖配置）」一节写的是 `SYNAPSE_REDIS__HOST` / `SYNAPSE_DATABASE__HOST`（前缀后**单**下划线），
+而 `loader.rs:21` 的 `config::Environment::with_prefix("SYNAPSE").separator("__")` 与代码注释里的一致写法是
+`SYNAPSE__REDIS__HOST`（前缀后**双**下划线）。两者只能有一个生效；若不核实，运维按 README 设置会**静默不生效**。
+待办：加一条断言"两种拼写哪种真的生效"的配置加载用例，然后按结论修 README 或 loader。
