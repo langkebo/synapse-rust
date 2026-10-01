@@ -10,6 +10,7 @@ use crate::routes::context::FederationContext;
 use serde_json::Value;
 use std::str::FromStr;
 use synapse_common::current_timestamp_millis;
+use synapse_common::validation::is_compliant_user_id_localpart;
 use synapse_e2ee::cross_signing::models::CrossSigningKey;
 
 fn increment_counter(ctx: &FederationContext, name: &str) {
@@ -104,6 +105,15 @@ fn validate_device_list_update_content<'a>(edu: &'a Value, origin: &str) -> Opti
     let user_id = content.get("user_id").and_then(|v| v.as_str())?;
     if !user_matches_origin(user_id, origin) {
         return None;
+    }
+    // Drop updates for non-compliant ("historical") user IDs: per the Matrix
+    // spec appendices, device list updates from user IDs whose localpart is
+    // empty or contains characters outside U+0021..=U+007E must be ignored
+    // (upstream parity with Synapse PR #20115). The localpart spans from the
+    // leading `@` to the first `:`.
+    match user_id.strip_prefix('@').and_then(|rest| rest.split_once(':')) {
+        Some((localpart, _)) if is_compliant_user_id_localpart(localpart) => {}
+        _ => return None,
     }
     let device_id = content.get("device_id").and_then(|v| v.as_str());
     let stream_id = content.get("stream_id").and_then(|v| v.as_i64()).unwrap_or_else(current_timestamp_millis);
@@ -1231,6 +1241,29 @@ mod tests {
     fn test_validate_device_list_update_content_user_id_not_string() {
         let edu = json!({ "content": { "user_id": 42 } });
         assert!(validate_device_list_update_content(&edu, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_device_list_update_content_non_compliant_localpart_rejected() {
+        // Synapse PR #20115 / "Historical user IDs": a device-list update for a
+        // user whose localpart is empty or holds characters outside U+0021..=U+007E
+        // must be dropped even though the origin matches.
+        for user_id in ["@:example.com", "@bob smith:example.com", "@bo\u{7f}b:example.com", "@\u{e9}b:example.com"] {
+            let edu = json!({ "content": { "user_id": user_id, "device_id": "DEV" } });
+            assert!(
+                validate_device_list_update_content(&edu, "example.com").is_none(),
+                "non-compliant localpart {user_id:?} must be dropped"
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_device_list_update_content_compliant_localpart_accepted() {
+        // Boundary: U+0021 and U+007E are the last compliant characters.
+        let edu = json!({ "content": { "user_id": "@!!~~:example.com", "device_id": "DEV" } });
+        let (user_id, _, _, _) =
+            validate_device_list_update_content(&edu, "example.com").expect("compliant localpart must pass");
+        assert_eq!(user_id, "@!!~~:example.com");
     }
 
     // --- direct_to_device: validate_direct_to_device_content ---
