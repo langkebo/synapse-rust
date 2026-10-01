@@ -382,6 +382,167 @@ impl MetricsCollector {
         counter
     }
 
+    /// Creates a dynamic counter template for runtime label binding.
+    ///
+    /// # Example
+    /// ```rust
+    /// let template = collector.create_dynamic_counter_template(
+    ///     "room_operations_total".to_string(),
+    ///     vec!["operation", "outcome", "room_version", "visibility", "error_type"]
+    /// );
+    ///
+    /// // Later, observe with specific label values:
+    /// template.observe(&["create", "success", "12", "public", "M_FORBIDDEN"]);
+    /// ```
+    pub fn create_dynamic_counter_template(&self, name: String, label_names: Vec<&str>) -> DynamicCounterTemplate {
+        DynamicCounterTemplate::new(name, label_names, self.counters.clone())
+    }
+
+    /// Creates a dynamic histogram template for runtime label binding.
+    ///
+    /// # Example
+    /// ```rust
+    /// let template = collector.create_dynamic_histogram_template(
+    ///     "message_delivery_latency_seconds".to_string(),
+    ///     vec!["stage", "room_type", "message_type", "encryption"]
+    /// );
+    ///
+    /// // Later, observe with specific label values:
+    /// template.observe(1.5, &["delivered", "private", "m.room.message", "true"]);
+    /// ```
+    pub fn create_dynamic_histogram_template(&self, name: String, label_names: Vec<&str>) -> DynamicHistogramTemplate {
+        DynamicHistogramTemplate::new(name, label_names, self.histograms.clone())
+    }
+}
+
+/// 动态 Counter 模板：支持运行时传入标签值，避免预先绑定所有组合。
+///
+/// 典型场景：需要根据 `operation`, `outcome`, `room_version` 等动态组合进行计数，
+/// 而不想为每个组合预先创建独立的 `Counter` 实例。
+pub struct DynamicCounterTemplate {
+    name: String,
+    label_names: Vec<String>,
+    counters: Arc<parking_lot::Mutex<HashMap<String, Counter>>>,
+}
+
+impl DynamicCounterTemplate {
+    /// Creates a new dynamic counter template.
+    fn new(name: String, label_names: Vec<&str>, counters: Arc<parking_lot::Mutex<HashMap<String, Counter>>>) -> Self {
+        Self { name, label_names: label_names.iter().map(|s| s.to_string()).collect(), counters }
+    }
+
+    /// Observes a value with the given label values.
+    ///
+    /// # Panics
+    /// Panics if the number of label values doesn't match the number of label names.
+    pub fn observe(&self, label_values: &[&str]) {
+        if label_values.len() != self.label_names.len() {
+            panic!(
+                "Label values count ({}) doesn't match label names count ({}) for counter '{}'",
+                label_values.len(),
+                self.label_names.len(),
+                self.name
+            );
+        }
+
+        // Build labels HashMap
+        let mut labels = HashMap::new();
+        for (i, value) in label_values.iter().enumerate() {
+            labels.insert(self.label_names[i].clone(), value.to_string());
+        }
+
+        // Create or reuse counter
+        let label_signature = self.build_signature(&labels);
+        let mut counters = self.counters.lock();
+
+        if let Some(counter) = counters.get(&label_signature).cloned() {
+            counter.inc();
+        } else {
+            let counter = Counter::with_labels(self.name.clone(), labels);
+            counters.insert(label_signature, counter.clone());
+            counter.inc();
+        }
+    }
+
+    /// Builds a unique signature for the given labels.
+    fn build_signature(&self, labels: &HashMap<String, String>) -> String {
+        let mut pairs: Vec<_> = labels.iter().collect();
+        pairs.sort_by(|a, b| a.0.cmp(b.0));
+
+        pairs.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>().join(",")
+    }
+
+    /// Gets the underlying counter by label values (if already created).
+    pub fn get_counter(&self, label_values: &[&str]) -> Option<Counter> {
+        if label_values.len() != self.label_names.len() {
+            return None;
+        }
+
+        let mut labels = HashMap::new();
+        for (i, value) in label_values.iter().enumerate() {
+            labels.insert(self.label_names[i].clone(), value.to_string());
+        }
+
+        let label_signature = self.build_signature(&labels);
+        let counters = self.counters.lock();
+        counters.get(&label_signature).cloned()
+    }
+}
+
+/// 动态 Histogram 模板：支持运行时传入标签值。
+pub struct DynamicHistogramTemplate {
+    name: String,
+    label_names: Vec<String>,
+    histograms: Arc<parking_lot::Mutex<HashMap<String, Histogram>>>,
+}
+
+impl DynamicHistogramTemplate {
+    /// Creates a new dynamic histogram template.
+    fn new(
+        name: String,
+        label_names: Vec<&str>,
+        histograms: Arc<parking_lot::Mutex<HashMap<String, Histogram>>>,
+    ) -> Self {
+        Self { name, label_names: label_names.iter().map(|s| s.to_string()).collect(), histograms }
+    }
+
+    /// Observes a value with the given label values.
+    pub fn observe(&self, value: f64, label_values: &[&str]) {
+        if label_values.len() != self.label_names.len() {
+            panic!(
+                "Label values count ({}) doesn't match label names count ({}) for histogram '{}'",
+                label_values.len(),
+                self.label_names.len(),
+                self.name
+            );
+        }
+
+        let mut labels = HashMap::new();
+        for (i, value) in label_values.iter().enumerate() {
+            labels.insert(self.label_names[i].clone(), value.to_string());
+        }
+
+        let label_signature = self.build_signature(&labels);
+        let mut histograms = self.histograms.lock();
+
+        if let Some(histogram) = histograms.get(&label_signature).cloned() {
+            histogram.observe(value);
+        } else {
+            let histogram = Histogram::with_labels(self.name.clone(), labels);
+            histograms.insert(label_signature, histogram.clone());
+            histogram.observe(value);
+        }
+    }
+
+    fn build_signature(&self, labels: &HashMap<String, String>) -> String {
+        let mut pairs: Vec<_> = labels.iter().collect();
+        pairs.sort_by(|a, b| a.0.cmp(b.0));
+
+        pairs.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>().join(",")
+    }
+}
+
+impl MetricsCollector {
     /// Registers a new gauge.
     pub fn register_gauge(&self, name: String) -> Gauge {
         let gauge = Gauge::new(name.clone());
