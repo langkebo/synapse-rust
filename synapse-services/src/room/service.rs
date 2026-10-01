@@ -748,7 +748,7 @@ impl RoomService {
         // peer (inbound handler persists under the remote origin as user_id).
         // For local users, user_id follows "@user:server.example.com" format;
         // for federated updates, user_id is just the origin server name.
-        let sender_server = user_id.split(':').last().unwrap_or(user_id);
+        let sender_server = user_id.split(':').next_back().unwrap_or(user_id);
         if sender_server != self.server_name {
             tracing::debug!(
                 room_id = %room_id,
