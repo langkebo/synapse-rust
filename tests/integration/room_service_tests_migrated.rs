@@ -133,6 +133,9 @@ fn build_room_service(
         db_pool: None,
         policy_service: None,
         invite_policy_gate,
+        // No third-party rules are registered in these tests, so the gate takes
+        // its zero-cost fast path on every write.
+        event_admission_gate: Arc::new(synapse_services::test_mocks::FakeEventAdmissionGate::new()),
     })
 }
 

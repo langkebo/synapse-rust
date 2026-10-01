@@ -282,7 +282,7 @@
 | 上游条目 | 本仓实测 | 证据 |
 |---|---|---|
 | #19723 MSC4311 invite/knock 严格校验延后至 **2027-06-01** | **TRUE（以配置开关承载）** | `synapse-common/src/config/federation.rs:228-245` `msc4311_strict_validation`（默认 `false` ＝宽限期宽松，注释显式写 2027-06-01 截止）；联邦侧发全量 PDU 见 `synapse-services/src/room/membership/federation.rs:653` |
-| #19768 第三方规则回调 `check_event_allowed()` 兼容 MSC4291 房间 | **MISSING** | 全仓 `check_event_allowed` **0 命中**（本仓无该回调机制） |
+| #19768 第三方规则回调 `check_event_allowed()` 兼容 MSC4291 房间 | **TRUE** | `synapse-services/src/module_service.rs:145-167` `EventAdmissionGate` trait + `ModuleService` 实现；`:189-239` 共享踏板 `consult_event_admission`（`has_event_rules()` 快路径短路、读房间状态构建 `ThirdPartyRuleContext`、拒绝返 `403 M_FORBIDDEN`、`modified_content` 仅本地可改写）；本地两咽喉 `room/messaging/events.rs:212`（`create_event`，可改写）/:408（`create_event_with_graph` 联邦入站，不改写）；membership 本地/远端各写点 `room/membership/{actions,moderation,federation}.rs` 于**状态变更之前**挂载；v12/MSC4291 房间 id 仅作字符串查表 ⇒ 天然兼容 |
 | #20100 本地媒体缩略图异步打开 | **TRUE** | `synapse-services/src/media_service.rs:502` `tokio::fs::read(&thumbnail_path)`；`MediaStreamPayload` 持 `tokio::fs::File`（`media/mod.rs:65-71,487,523`） |
 | #20115 丢弃不合规（grandfathered）历史 user_id 的联邦设备列表更新 | **TRUE** | `synapse-web/src/federation/edu.rs:108-116` `validate_device_list_update_content` 按 localpart 调 `is_compliant_user_id_localpart` 丢弃（注释引 PR #20115） |
 | #20145 未设置的 displayname/avatar_url 不再当作 `null` 字段 | **TRUE** | `synapse-services/src/user_service.rs:458` 注释；`synapse-web/src/routes/account_compat.rs:154-163` `single_profile_field` 对 `null`/缺省/空串返回空对象 |
@@ -526,7 +526,7 @@ grep -rn 'M_UNKNOWN_DEVICE' --include='*.rs' . | grep -v '^./target'      # erro
 grep -rn 'annotate_allowed_room_ids' --include='*.rs' .                   # hierarchy.rs:203（#20154）
 grep -rn 'msc4311_strict_validation' --include='*.rs' .                   # config/federation.rs:238（宽限至 2027-06-01）
 grep -rn 'storage_stream_current_position\|get_max_stream_ordering' --include='*.rs' .  # L4 指标 + 事件流位置
-grep -rn 'check_event_allowed' --include='*.rs' . | grep -v '^./target'   # 0 命中（#19768 MISSING）
+grep -rn 'check_event_allowed' --include='*.rs' . | grep -v '^./target'   # module_service.rs（trait+impl+踏板）/messaging/events.rs/membership/*.rs（#19768 已实现）
 grep -rn 'state_after' --include='*.rs' synapse-services/src/sync_service | wc -l  # MSC4222 支持存在（订正 §5.2 旧判）
 grep -rn 'action_name' --include='*.rs' . | grep -v '^./target'           # L2：0 命中 ⇒ N/A
 grep -rn 'federation_domain_whitelist' --include='*.rs' .                 # L3：0 命中 ⇒ N/A

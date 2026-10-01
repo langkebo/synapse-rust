@@ -41,6 +41,10 @@ pub struct MessagingService {
     /// Room summary service for updating room metadata on events.
     pub(crate) room_summary_service: Arc<RoomSummaryService>,
     pub(crate) cache: Arc<CacheManager>,
+    /// The third-party event admission gate — consulted by every event write
+    /// (`create_event`, `create_event_with_graph`). See
+    /// [`crate::module_service::EventAdmissionGate`].
+    pub(crate) event_admission_gate: Arc<dyn crate::module_service::EventAdmissionGate>,
 }
 
 /// Configuration for constructing a [`MessagingService`].
@@ -75,6 +79,8 @@ pub struct MessagingServiceConfig {
     pub room_summary_service: Arc<RoomSummaryService>,
     /// The `cache` field.
     pub cache: Arc<CacheManager>,
+    /// The `event_admission_gate` field.
+    pub event_admission_gate: Arc<dyn crate::module_service::EventAdmissionGate>,
 }
 
 impl MessagingService {
@@ -98,6 +104,7 @@ impl MessagingService {
             key_rotation_manager: config.key_rotation_manager,
             room_summary_service: config.room_summary_service,
             cache: config.cache,
+            event_admission_gate: config.event_admission_gate,
         }
     }
 

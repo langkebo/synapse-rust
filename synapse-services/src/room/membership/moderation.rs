@@ -68,6 +68,16 @@ impl MembershipService {
             TransitionCtx::state_only(JoinRule::Invite, /* actor_is_target */ false, target_is_banned, false);
         is_legal(from, Membership::Invite, &ctx)?;
 
+        // Third-party event admission (Synapse `check_event_allowed`), consulted
+        // *before* the membership state change so a refusal leaves no residue.
+        let event_id = generate_event_id(&self.server_name);
+        let invite_content = json!({
+            "membership": "invite",
+            "displayname": invitee_id.trim_start_matches('@').split(':').next().unwrap_or(invitee_id),
+        });
+        let invite_content =
+            self.admit_membership_event(room_id, &event_id, inviter_id, invitee_id, invite_content, true).await?;
+
         let member = self
             .member_storage
             .add_member(room_id, invitee_id, "invite", None, None, Some(inviter_id), None)
@@ -97,18 +107,11 @@ impl MembershipService {
             .event_writer
             .create_event(
                 CreateEventParams {
-                    event_id: generate_event_id(&self.server_name),
+                    event_id,
                     room_id: room_id.to_string(),
                     user_id: inviter_id.to_string(),
                     event_type: "m.room.member".to_string(),
-                    content: json!({
-                        "membership": "invite",
-                        "displayname": invitee_id
-                            .trim_start_matches('@')
-                            .split(':')
-                            .next()
-                            .unwrap_or(invitee_id),
-                    }),
+                    content: invite_content,
                     state_key: Some(invitee_id.to_string()),
                     origin_server_ts: current_timestamp_millis(),
                     redacts: None,
@@ -208,6 +211,16 @@ impl MembershipService {
         let ctx = TransitionCtx::state_only(join_rule, /* actor_is_target */ true, target_is_banned, false);
         is_legal(from, Membership::Knock, &ctx)?;
 
+        // Third-party event admission (Synapse `check_event_allowed`), consulted
+        // *before* the membership state change so a refusal leaves no residue.
+        let event_id = generate_event_id(&self.server_name);
+        let knock_content = json!({
+            "membership": "knock",
+            "reason": reason.unwrap_or_default(),
+        });
+        let knock_content =
+            self.admit_membership_event(room_id, &event_id, user_id, user_id, knock_content, true).await?;
+
         self.member_storage
             .add_member(room_id, user_id, "knock", None, reason, None, None)
             .await
@@ -217,11 +230,6 @@ impl MembershipService {
         // read back the graph fields (depth / prev_events / auth_events) and
         // sign a complete PDU for remote servers — the same flow `invite_user`
         // and `ban_user` use.
-        let event_id = generate_event_id(&self.server_name);
-        let knock_content = json!({
-            "membership": "knock",
-            "reason": reason.unwrap_or_default(),
-        });
         let knock_event = self
             .event_writer
             .create_event(
@@ -302,16 +310,19 @@ impl MembershipService {
             TransitionCtx::state_only(JoinRule::Invite, /* actor_is_target */ banned_by == user_id, false, false);
         is_legal(from, Membership::Ban, &ctx)?;
 
-        self.member_storage
-            .ban_member(room_id, user_id, banned_by)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to ban user", e))?;
-
+        // Third-party event admission (Synapse `check_event_allowed`), consulted
+        // *before* the membership state change so a refusal leaves no residue.
         let event_id = generate_event_id(&self.server_name);
         let content = json!({
             "membership": "ban",
             "reason": reason.unwrap_or("")
         });
+        let content = self.admit_membership_event(room_id, &event_id, banned_by, user_id, content, true).await?;
+
+        self.member_storage
+            .ban_member(room_id, user_id, banned_by)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to ban user", e))?;
 
         let ban_event = self
             .event_writer
@@ -376,15 +387,18 @@ impl MembershipService {
             return Err(ApiError::bad_request("User is not banned from this room".to_string()));
         }
 
-        self.member_storage
-            .unban_member(room_id, user_id)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to unban user", e))?;
-
+        // Third-party event admission (Synapse `check_event_allowed`), consulted
+        // *before* the membership state change so a refusal leaves no residue.
         let event_id = generate_event_id(&self.server_name);
         let content = json!({
             "membership": "leave"
         });
+        let content = self.admit_membership_event(room_id, &event_id, unbanned_by, user_id, content, true).await?;
+
+        self.member_storage
+            .unban_member(room_id, user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to unban user", e))?;
 
         let unban_event = self
             .event_writer
@@ -474,16 +488,19 @@ impl MembershipService {
             return Err(ApiError::bad_request("User is not currently in the room".to_string()));
         }
 
-        self.member_storage
-            .remove_member(room_id, target_user_id, None)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to kick user", e))?;
-
+        // Third-party event admission (Synapse `check_event_allowed`), consulted
+        // *before* the membership state change so a refusal leaves no residue.
         let event_id = generate_event_id(&self.server_name);
         let content = json!({
             "membership": "leave",
             "reason": reason.unwrap_or("")
         });
+        let content = self.admit_membership_event(room_id, &event_id, kicked_by, target_user_id, content, true).await?;
+
+        self.member_storage
+            .remove_member(room_id, target_user_id, None)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to kick user", e))?;
 
         let kick_event = self
             .event_writer
@@ -581,6 +598,7 @@ mod tests {
             db_pool: None,
             policy_service: None,
             invite_policy_gate: Arc::new(crate::test_mocks::FakeInvitePolicyGate::new()),
+            event_admission_gate: Arc::new(crate::test_mocks::FakeEventAdmissionGate::new()),
         };
         (MembershipService::new(config), user_store)
     }

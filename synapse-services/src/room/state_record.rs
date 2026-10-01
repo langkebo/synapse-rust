@@ -636,6 +636,7 @@ mod db_tests {
                 member_storage: Some(Arc::new(InMemoryMemberStore::new())),
             }),
             cache: Arc::new(CacheManager::new(&CacheConfig::default())),
+            event_admission_gate: Arc::new(crate::test_mocks::FakeEventAdmissionGate::new()),
         })
     }
 

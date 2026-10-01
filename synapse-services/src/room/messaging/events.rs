@@ -170,6 +170,30 @@ impl MessagingService {
             .map_err(RoomMessagingError::Database)
     }
 
+    /// Consult the third-party event admission gate before persisting an event.
+    ///
+    /// Two callers, deliberately different: [`Self::create_event`] is the local
+    /// write path, where a rule may *rewrite* the content (`allow_modification`);
+    /// [`Self::create_event_with_graph`] carries an **inbound federated** PDU
+    /// whose bytes the origin server already signed and hashed, so a rewrite
+    /// there would be meaningless — only refusal is honoured.
+    ///
+    /// A server with no rules registered takes the `has_event_rules` fast path
+    /// and never reads room state.
+    async fn apply_event_admission_gate(
+        &self,
+        params: &mut CreateEventParams,
+        allow_modification: bool,
+    ) -> ApiResult<()> {
+        crate::module_service::consult_event_admission(
+            self.event_admission_gate.as_ref(),
+            self.event_reader.as_ref(),
+            params,
+            allow_modification,
+        )
+        .await
+    }
+
     /// See [`create_event`].
     pub async fn create_event(
         &self,
@@ -180,6 +204,12 @@ impl MessagingService {
         let event_type = params.event_type.clone();
         let state_key = params.state_key.clone();
         let should_update_summary = tx.is_none();
+
+        // Admission runs on the client-supplied content, *before* the redaction
+        // normalisation below rewrites `content` for the room version. A rule
+        // must see what the client asked to send; the persistence invariant stays
+        // ours to enforce and cannot be overridden by a module.
+        self.apply_event_admission_gate(&mut params, true).await?;
 
         // Redaction format depends on the room version: v11+ (MSC2174/MSC3820)
         // carries the target in `content.redacts`, v1-v10 uses the top-level
@@ -361,7 +391,7 @@ impl MessagingService {
     /// graph data it needs.
     pub async fn create_event_with_graph(
         &self,
-        params: CreateEventParams,
+        mut params: CreateEventParams,
         prev_events: &[String],
         auth_events: &[String],
         depth: i64,
@@ -372,6 +402,10 @@ impl MessagingService {
         let event_type = params.event_type.clone();
         let state_key = params.state_key.clone();
         let should_update_summary = tx.is_none();
+
+        // Inbound federation: the PDU is already signed and hashed by its origin
+        // server, so a rule may refuse it but must not rewrite it.
+        self.apply_event_admission_gate(&mut params, false).await?;
 
         let event = self
             .event_writer
@@ -874,8 +908,9 @@ mod tests {
         InMemoryEventStore, InMemoryMemberStore, InMemoryRelationsStore, InMemoryRoomStore, InMemoryRoomSummaryStore,
     };
 
-    /// Build a minimal MessagingService backed by in-memory stores.
-    async fn make_service() -> MessagingService {
+    /// Build a minimal MessagingService backed by in-memory stores, with the
+    /// given event admission gate injected at the seam.
+    async fn make_service_with_gate(gate: Arc<dyn crate::module_service::EventAdmissionGate>) -> MessagingService {
         let event_store = Arc::new(InMemoryEventStore::new());
         let room_summary_service = Arc::new(RoomSummaryService {
             storage: Arc::new(InMemoryRoomSummaryStore::new()),
@@ -897,7 +932,13 @@ mod tests {
             key_rotation_manager: None,
             room_summary_service,
             cache,
+            event_admission_gate: gate,
         })
+    }
+
+    /// Build a minimal MessagingService backed by in-memory stores.
+    async fn make_service() -> MessagingService {
+        make_service_with_gate(Arc::new(crate::test_mocks::FakeEventAdmissionGate::new())).await
     }
 
     /// Seeded service variant — populates the in-memory event store before construction.
@@ -924,6 +965,7 @@ mod tests {
             key_rotation_manager: None,
             room_summary_service,
             cache,
+            event_admission_gate: Arc::new(crate::test_mocks::FakeEventAdmissionGate::new()),
         })
     }
 
@@ -1266,6 +1308,7 @@ mod tests {
             key_rotation_manager: None,
             room_summary_service,
             cache,
+            event_admission_gate: Arc::new(crate::test_mocks::FakeEventAdmissionGate::new()),
         })
     }
 
@@ -1311,5 +1354,83 @@ mod tests {
             event.content
         );
         assert_eq!(event.redacts.as_deref(), Some("$target:test.example.com"));
+    }
+
+    // -------------------------------------------------------------------------
+    // Event admission gate (third-party `check_event_allowed`, D-1)
+    // -------------------------------------------------------------------------
+
+    fn message_params(room_id: &str) -> CreateEventParams {
+        CreateEventParams {
+            event_id: "$msg:test.example.com".to_string(),
+            room_id: room_id.to_string(),
+            user_id: "@alice:test.example.com".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({ "body": "hello", "msgtype": "m.text" }),
+            state_key: None,
+            origin_server_ts: 1_700_000_000_000,
+            redacts: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn create_event_denied_by_admission_rule_returns_forbidden() {
+        let svc = make_service_with_gate(Arc::new(crate::test_mocks::FakeEventAdmissionGate::denying("no spam"))).await;
+        let err = svc
+            .create_event(message_params("!room:test.example.com"), None)
+            .await
+            .expect_err("a refusing rule must fail the local write");
+        assert!(err.is_forbidden(), "expected 403, got: {err:?}");
+        assert!(err.message().contains("no spam"), "the rule's reason must surface, got: {}", err.message());
+    }
+
+    #[tokio::test]
+    async fn create_event_applies_rule_rewritten_content() {
+        let rewritten = serde_json::json!({ "body": "rewritten", "msgtype": "m.text" });
+        let svc =
+            make_service_with_gate(Arc::new(crate::test_mocks::FakeEventAdmissionGate::rewriting(rewritten.clone())))
+                .await;
+        let event = svc.create_event(message_params("!room:test.example.com"), None).await.expect("admitted event");
+        assert_eq!(event.content, rewritten, "the local write path must persist the rule's content");
+    }
+
+    #[tokio::test]
+    async fn create_event_with_graph_denied_by_admission_rule_returns_forbidden() {
+        let svc =
+            make_service_with_gate(Arc::new(crate::test_mocks::FakeEventAdmissionGate::denying("not allowed"))).await;
+        let err = svc
+            .create_event_with_graph(message_params("!room:test.example.com"), &[], &[], 1, None)
+            .await
+            .expect_err("a refusing rule must fail the inbound write");
+        assert!(err.is_forbidden(), "expected 403, got: {err:?}");
+    }
+
+    #[tokio::test]
+    async fn create_event_with_graph_ignores_rule_modified_content() {
+        let rewritten = serde_json::json!({ "body": "rewritten", "msgtype": "m.text" });
+        let svc =
+            make_service_with_gate(Arc::new(crate::test_mocks::FakeEventAdmissionGate::rewriting(rewritten))).await;
+        let event = svc
+            .create_event_with_graph(message_params("!room:test.example.com"), &[], &[], 1, None)
+            .await
+            .expect("admitted event");
+        assert_eq!(
+            event.content,
+            serde_json::json!({ "body": "hello", "msgtype": "m.text" }),
+            "an inbound PDU is already signed and hashed by its origin — a rule may refuse it but not rewrite it"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_event_short_circuits_when_no_rules_are_registered() {
+        // `unregistered_denial` would refuse if consulted; the `has_event_rules`
+        // fast path must skip it. Delete that check and this test goes red.
+        let svc = make_service_with_gate(Arc::new(crate::test_mocks::FakeEventAdmissionGate::unregistered_denial(
+            "must not be consulted",
+        )))
+        .await;
+        svc.create_event(message_params("!room:test.example.com"), None)
+            .await
+            .expect("the rule-less fast path must not consult the gate");
     }
 }

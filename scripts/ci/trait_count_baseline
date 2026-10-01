@@ -1,7 +1,25 @@
 # Trait-count ratchet baseline (A5 / B4-1). See scripts/ci/check_trait_ratchet.py.
 # The numbers may only go DOWN. Bump them deliberately and say why.
-TOTAL=67
+TOTAL=68
 STORE_API=33
+#
+# 2026-10-01  TOTAL 67 -> 68 (+1) —— 事件准入钩子的 DI 接缝 trait（D-1，对应上游 v1.162 #19768）
+#   来源：synapse-services/src/module_service.rs:145
+#         `pub trait EventAdmissionGate: Send + Sync`。
+#   为什么放行而不是删掉这条接缝（与 2026-09-21 的 InvitePolicyGate 同型、同一判据）：
+#     · 生产实现：`impl EventAdmissionGate for ModuleService`（同文件 :159）——把既有
+#       `check_third_party_rules`（:534）暴露成事件写入路径能调用的窄接口；
+#     · 测试替身：`synapse-services/src/test_mocks.rs` 的 `FakeEventAdmissionGate`
+#       （`new()` / `denying()` / `rewriting()` / `unregistered_denial()`），被
+#       `room/messaging/events.rs` 的准入用例使用（拒绝、改写、入站不改写、免规则短路证明）；
+#     · 注入点：`MessagingService { event_admission_gate: Arc<dyn EventAdmissionGate> }`
+#       （room/messaging/service.rs），在 `create_event`（本地，允许改写）与
+#       `create_event_with_graph`（联邦入站，仅允许拒绝）中于持久化前调用；生产由
+#       `synapse-services/src/wiring/rooms.rs` 注入 `ModuleService`。
+#   即：它是"为可测性而存在的接缝"，删掉就得把规则判定硬编码进 messaging，拒绝/改写路径
+#   将无法在不连库的情况下构造。**先修性质**：这是新增抽象，因此本提交自行抬升基线，
+#   而非留红或放宽脚本。
+#   `*StoreApi` 未增加（33 == 33），存储抽象棘轮没有被放宽。
 #
 # 2026-09-28  TOTAL 66 -> 67 (+1) —— B1-1b「本地事件自动补图元数据」的 DI 接缝 trait（D-83）
 #   来源：synapse-services/src/graph_metadata.rs:103

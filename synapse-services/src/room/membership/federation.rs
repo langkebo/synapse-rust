@@ -302,19 +302,34 @@ impl MembershipService {
             if let Some(state_key) = state_key.as_deref() {
                 committed_state_events.push((event_id.clone(), event_type.clone(), state_key.to_string()));
             }
+
+            let mut state_params = CreateEventParams {
+                event_id: event_id.clone(),
+                room_id: room_id.to_string(),
+                user_id: sender,
+                event_type,
+                content,
+                state_key,
+                origin_server_ts,
+                redacts,
+            };
+
+            // Third-party event admission (Synapse `check_event_allowed`) for the
+            // inbound federated state. The PDU is origin-signed, so a rule may
+            // refuse it but must not rewrite it. A refusal returns before the
+            // commit below, rolling the shared transaction back (fail closed).
+            crate::module_service::consult_event_admission(
+                self.event_admission_gate.as_ref(),
+                self.event_reader.as_ref(),
+                &mut state_params,
+                false,
+            )
+            .await?;
+
             if let Err(e) = self
                 .event_writer
                 .create_event_with_graph(
-                    CreateEventParams {
-                        event_id: event_id.clone(),
-                        room_id: room_id.to_string(),
-                        user_id: sender,
-                        event_type,
-                        content,
-                        state_key,
-                        origin_server_ts,
-                        redacts,
-                    },
+                    state_params,
                     &prev_events,
                     &auth_events,
                     depth,
@@ -385,23 +400,30 @@ impl MembershipService {
                 .and_then(|v| v.as_i64())
                 .unwrap_or_else(current_timestamp_millis);
 
-            if let Err(e) = self
-                .event_writer
-                .create_event(
-                    CreateEventParams {
-                        event_id: join_event_id.clone(),
-                        room_id: room_id.to_string(),
-                        user_id: join_sender,
-                        event_type: "m.room.member".to_string(),
-                        content: join_content,
-                        state_key: Some(user_id.to_string()),
-                        origin_server_ts: join_ts,
-                        redacts: None,
-                    },
-                    None,
-                )
-                .await
-            {
+            let mut join_params = CreateEventParams {
+                event_id: join_event_id.clone(),
+                room_id: room_id.to_string(),
+                user_id: join_sender,
+                event_type: "m.room.member".to_string(),
+                content: join_content,
+                state_key: Some(user_id.to_string()),
+                origin_server_ts: join_ts,
+                redacts: None,
+            };
+
+            // Third-party event admission for the join event persisted from the
+            // resident server's template. Remote-sourced, so a rule may refuse
+            // but must not rewrite it. A refusal returns before `add_member`
+            // below, so membership is never claimed for a refused join.
+            crate::module_service::consult_event_admission(
+                self.event_admission_gate.as_ref(),
+                self.event_reader.as_ref(),
+                &mut join_params,
+                false,
+            )
+            .await?;
+
+            if let Err(e) = self.event_writer.create_event(join_params, None).await {
                 ::tracing::warn!(error = %e, "Failed to persist join event after federation join");
                 return Err(ApiError::internal_with_cause("Failed to persist join event after federation join", e));
             }
@@ -559,6 +581,33 @@ impl MembershipService {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .unwrap_or_else(|| generate_event_id(&self.server_name));
+
+        // Third-party event admission (Synapse `check_event_allowed`) for the
+        // outbound federated leave. The template is the resident server's PDU
+        // signed locally, so a rule may refuse but must not rewrite it. A
+        // refusal returns before `send_leave` and before any local membership
+        // mutation, so neither the remote server nor our own state learns of a
+        // refused leave.
+        let mut leave_params = CreateEventParams {
+            event_id: event_id.clone(),
+            room_id: room_id.to_string(),
+            user_id: event_template.get("sender").and_then(|v| v.as_str()).unwrap_or(user_id).to_string(),
+            event_type: "m.room.member".to_string(),
+            content: event_template.get("content").cloned().unwrap_or(json!({ "membership": "leave" })),
+            state_key: Some(user_id.to_string()),
+            origin_server_ts: event_template
+                .get("origin_server_ts")
+                .and_then(|v| v.as_i64())
+                .unwrap_or_else(current_timestamp_millis),
+            redacts: None,
+        };
+        crate::module_service::consult_event_admission(
+            self.event_admission_gate.as_ref(),
+            self.event_reader.as_ref(),
+            &mut leave_params,
+            false,
+        )
+        .await?;
 
         // 3. send_leave: send the signed event to the remote server.
         federation_client.send_leave(destination, room_id, &event_id, &event_template).await.map_err(|e| {
@@ -772,6 +821,28 @@ impl MembershipService {
         )
         .map_err(|e| ApiError::internal(format!("Failed to sign invite event: {e}")))?;
 
+        // Third-party event admission (Synapse `check_event_allowed`) for the
+        // outbound federated invite. Gated *before* the remote `invite` call so
+        // a refusal leaves no invite on the resident server; the PDU is signed
+        // for transport, so a rule may refuse but must not rewrite it.
+        let mut invite_params = CreateEventParams {
+            event_id: event_id.clone(),
+            room_id: room_id.to_string(),
+            user_id: inviter_id.to_string(),
+            event_type: "m.room.member".to_string(),
+            content: invite_content.clone(),
+            state_key: Some(invitee_id.to_string()),
+            origin_server_ts: now,
+            redacts: None,
+        };
+        crate::module_service::consult_event_admission(
+            self.event_admission_gate.as_ref(),
+            self.event_reader.as_ref(),
+            &mut invite_params,
+            false,
+        )
+        .await?;
+
         // Call invite on the remote server (the body carries the PDU plus the
         // room version — see `FederationClient::invite`).
         let invite_response = federation_client
@@ -875,6 +946,29 @@ impl MembershipService {
 
         let origin_server_ts =
             signed_event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or_else(current_timestamp_millis);
+
+        // Third-party event admission (Synapse `check_event_allowed`) for the
+        // exchanged invite. The event is signed by the resident server, so a
+        // rule may refuse but must not rewrite it. A refusal returns before the
+        // `add_member` below, so no membership row is claimed for a refused
+        // invite.
+        let mut exchange_params = CreateEventParams {
+            event_id: event_id.clone(),
+            room_id: room_id.to_string(),
+            user_id: sender.clone(),
+            event_type: "m.room.member".to_string(),
+            content: content.clone(),
+            state_key: state_key.clone(),
+            origin_server_ts,
+            redacts: None,
+        };
+        crate::module_service::consult_event_admission(
+            self.event_admission_gate.as_ref(),
+            self.event_reader.as_ref(),
+            &mut exchange_params,
+            false,
+        )
+        .await?;
 
         // Add the invitee as an invited member.
         if let Some(ref invitee_id) = state_key {
@@ -1030,6 +1124,7 @@ mod join_persistence_failure_tests {
             db_pool: Some(pool.as_ref().clone()),
             policy_service: None,
             invite_policy_gate: StdArc::new(FakeInvitePolicyGate::new()),
+            event_admission_gate: StdArc::new(crate::test_mocks::FakeEventAdmissionGate::new()),
         });
 
         // 注入：events 写入必失败。CHECK (false) NOT VALID 只校验**新插入行**。
@@ -1118,6 +1213,7 @@ mod join_persistence_failure_tests {
             db_pool: None,
             policy_service: None,
             invite_policy_gate: StdArc::new(FakeInvitePolicyGate::new()),
+            event_admission_gate: StdArc::new(crate::test_mocks::FakeEventAdmissionGate::new()),
         });
 
         let result = svc.join_room_via_federation(destination, room_id, user_id).await;

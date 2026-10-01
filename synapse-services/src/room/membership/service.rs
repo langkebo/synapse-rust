@@ -81,6 +81,12 @@ pub struct MembershipService {
     /// invite entry point routes through [`Self::authorize_invite_policy`],
     /// and a gate that can be absent is a gate that can be skipped.
     pub(crate) invite_policy_gate: Arc<dyn crate::invite_blocklist_service::InvitePolicyGate>,
+    /// The third-party event admission gate (Synapse `check_event_allowed`).
+    /// Required, not optional — every membership event write consults it via
+    /// [`Self::admit_membership_event`] *before* mutating membership state, so
+    /// a refusal leaves no "member but no event" residue. A gate that can be
+    /// absent is a gate that can be skipped.
+    pub(crate) event_admission_gate: Arc<dyn crate::module_service::EventAdmissionGate>,
 }
 
 /// Configuration for constructing a [`MembershipService`].
@@ -122,6 +128,9 @@ pub struct MembershipServiceConfig {
     /// The invite policy gate. Required — see the field docs on
     /// [`MembershipService`].
     pub invite_policy_gate: Arc<dyn crate::invite_blocklist_service::InvitePolicyGate>,
+    /// The third-party event admission gate. Required — see the field docs on
+    /// [`MembershipService`].
+    pub event_admission_gate: Arc<dyn crate::module_service::EventAdmissionGate>,
 }
 
 impl MembershipService {
@@ -145,7 +154,44 @@ impl MembershipService {
             db_pool: config.db_pool,
             policy_service: config.policy_service,
             invite_policy_gate: config.invite_policy_gate,
+            event_admission_gate: config.event_admission_gate,
         }
+    }
+
+    /// Consult the third-party event admission gate for a prospective
+    /// membership event, **before** any membership state is mutated.
+    ///
+    /// Returns the (possibly rule-rewritten) content. Callers must invoke this
+    /// ahead of `add_member`/`remove_member`/`ban_member`/`unban_member` so a
+    /// refusal returns `403` with zero state residue; `allow_modification`
+    /// follows [`crate::module_service::consult_event_admission`].
+    pub(crate) async fn admit_membership_event(
+        &self,
+        room_id: &str,
+        event_id: &str,
+        sender: &str,
+        target_user_id: &str,
+        content: serde_json::Value,
+        allow_modification: bool,
+    ) -> ApiResult<serde_json::Value> {
+        let mut params = synapse_storage::CreateEventParams {
+            event_id: event_id.to_string(),
+            room_id: room_id.to_string(),
+            user_id: sender.to_string(),
+            event_type: "m.room.member".to_string(),
+            content,
+            state_key: Some(target_user_id.to_string()),
+            origin_server_ts: synapse_common::current_timestamp_millis(),
+            redacts: None,
+        };
+        crate::module_service::consult_event_admission(
+            self.event_admission_gate.as_ref(),
+            self.event_reader.as_ref(),
+            &mut params,
+            allow_modification,
+        )
+        .await?;
+        Ok(params.content)
     }
 
     // =========================================================================
@@ -1010,6 +1056,7 @@ mod tests {
             db_pool: None,
             policy_service: None,
             invite_policy_gate: StdArc::new(crate::test_mocks::FakeInvitePolicyGate::new()),
+            event_admission_gate: StdArc::new(crate::test_mocks::FakeEventAdmissionGate::new()),
         })
     }
 
@@ -1115,6 +1162,7 @@ mod tests {
             db_pool: None,
             policy_service: None,
             invite_policy_gate: StdArc::new(crate::test_mocks::FakeInvitePolicyGate::new()),
+            event_admission_gate: StdArc::new(crate::test_mocks::FakeEventAdmissionGate::new()),
         })
     }
 

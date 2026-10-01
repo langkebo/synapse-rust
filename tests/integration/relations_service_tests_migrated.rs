@@ -45,6 +45,7 @@ fn create_service(pool: &Arc<sqlx::PgPool>) -> RelationsService {
         key_rotation_manager: None,
         room_summary_service,
         cache: Arc::new(CacheManager::new(&CacheConfig::default())),
+        event_admission_gate: Arc::new(synapse_services::test_mocks::FakeEventAdmissionGate::new()),
     }));
     RelationsService::new(storage, "localhost".to_string(), messaging)
 }

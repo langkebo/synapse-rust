@@ -114,6 +114,16 @@ impl MembershipService {
         // service is configured.
         self.check_join_policy(room_id, user_id).await?;
 
+        // Third-party event admission (Synapse `check_event_allowed`), consulted
+        // *before* the membership state change so a refusal leaves no residue.
+        let event_id = generate_event_id(&self.server_name);
+        let join_content = json!({
+            "membership": "join",
+            "displayname": user_id.trim_start_matches('@').split(':').next().unwrap_or(user_id),
+        });
+        let join_content =
+            self.admit_membership_event(room_id, &event_id, user_id, user_id, join_content, true).await?;
+
         self.member_storage
             .add_member(room_id, user_id, "join", None, None, None, None)
             .await
@@ -128,14 +138,11 @@ impl MembershipService {
             .event_writer
             .create_event(
                 CreateEventParams {
-                    event_id: generate_event_id(&self.server_name),
+                    event_id,
                     room_id: room_id.to_string(),
                     user_id: user_id.to_string(),
                     event_type: "m.room.member".to_string(),
-                    content: json!({
-                        "membership": "join",
-                        "displayname": user_id.trim_start_matches('@').split(':').next().unwrap_or(user_id),
-                    }),
+                    content: join_content,
                     state_key: Some(user_id.to_string()),
                     origin_server_ts: current_timestamp_millis(),
                     redacts: None,
@@ -189,6 +196,13 @@ impl MembershipService {
             return Err(ApiError::forbidden(msg.to_string()));
         }
 
+        // Third-party event admission (Synapse `check_event_allowed`), consulted
+        // *before* the membership state change so a refusal leaves no residue.
+        let event_id = generate_event_id(&self.server_name);
+        let leave_content = self
+            .admit_membership_event(room_id, &event_id, user_id, user_id, json!({ "membership": "leave" }), true)
+            .await?;
+
         self.member_storage
             .remove_member(room_id, user_id, None)
             .await
@@ -205,11 +219,11 @@ impl MembershipService {
             .event_writer
             .create_event(
                 CreateEventParams {
-                    event_id: generate_event_id(&self.server_name),
+                    event_id,
                     room_id: room_id.to_string(),
                     user_id: user_id.to_string(),
                     event_type: "m.room.member".to_string(),
-                    content: json!({ "membership": "leave" }),
+                    content: leave_content,
                     state_key: Some(user_id.to_string()),
                     origin_server_ts: current_timestamp_millis(),
                     redacts: None,
@@ -436,6 +450,15 @@ impl MembershipService {
             return Ok(());
         };
 
+        // Third-party event admission (Synapse `check_event_allowed`), consulted
+        // *before* the transaction's membership state change so a refusal leaves
+        // no residue. (The pool-less fallback above delegates to `leave_room`,
+        // which consults the gate itself.)
+        let event_id = generate_event_id(&self.server_name);
+        let leave_content = self
+            .admit_membership_event(room_id, &event_id, user_id, user_id, json!({ "membership": "leave" }), true)
+            .await?;
+
         let mut tx = pool
             .begin()
             .await
@@ -473,11 +496,11 @@ impl MembershipService {
             .event_writer
             .create_event(
                 CreateEventParams {
-                    event_id: generate_event_id(&self.server_name),
+                    event_id,
                     room_id: room_id.to_string(),
                     user_id: user_id.to_string(),
                     event_type: "m.room.member".to_string(),
-                    content: json!({ "membership": "leave" }),
+                    content: leave_content,
                     state_key: Some(user_id.to_string()),
                     origin_server_ts: current_timestamp_millis(),
                     redacts: None,
@@ -588,6 +611,7 @@ mod tests {
             db_pool: None,
             policy_service: None,
             invite_policy_gate: Arc::new(crate::test_mocks::FakeInvitePolicyGate::new()),
+            event_admission_gate: Arc::new(crate::test_mocks::FakeEventAdmissionGate::new()),
         })
     }
 
@@ -633,10 +657,20 @@ mod tests {
         assert!(spy.marked_rotations().await.is_empty());
     }
 
+    /// A rule-less admission gate: the same zero-cost fast path a module-less
+    /// production server takes. Used by tests that are not about admission.
+    fn permissive_gate() -> Arc<dyn crate::module_service::EventAdmissionGate> {
+        Arc::new(crate::test_mocks::FakeEventAdmissionGate::new())
+    }
+
     /// Build a service for *join* tests: creates a room with the given
     /// join_rule, seeds the `m.room.join_rules` state event, and optionally
     /// pre-seeds `@bob` with a membership state (e.g. "invite").
-    async fn build_join_service(join_rule: &str, seed_bob_membership: Option<&str>) -> MembershipService {
+    async fn build_join_service(
+        join_rule: &str,
+        seed_bob_membership: Option<&str>,
+        event_admission_gate: Arc<dyn crate::module_service::EventAdmissionGate>,
+    ) -> MembershipService {
         let member_store = InMemoryMemberStore::new();
         if let Some(mem) = seed_bob_membership {
             member_store.add_member(ROOM_ID, USER_ID, mem, None).await.unwrap();
@@ -722,6 +756,7 @@ mod tests {
             db_pool: None,
             policy_service: None,
             invite_policy_gate: Arc::new(crate::test_mocks::FakeInvitePolicyGate::new()),
+            event_admission_gate,
         })
     }
 
@@ -734,7 +769,7 @@ mod tests {
     #[tokio::test]
     async fn restricted_join_without_invite_fails_closed() {
         // User @bob is NOT seeded as a member (from == None).
-        let svc = build_join_service("restricted", None).await;
+        let svc = build_join_service("restricted", None, permissive_gate()).await;
 
         let err = svc.join_room(ROOM_ID, USER_ID).await.unwrap_err();
         assert_eq!(err, ApiError::forbidden("You are not invited to this room"));
@@ -746,7 +781,7 @@ mod tests {
     #[tokio::test]
     async fn restricted_join_with_invite_succeeds() {
         // Pre-seed @bob with an "invite" membership state.
-        let svc = build_join_service("restricted", Some("invite")).await;
+        let svc = build_join_service("restricted", Some("invite"), permissive_gate()).await;
 
         let result = svc.join_room(ROOM_ID, USER_ID).await;
         assert!(result.is_ok(), "join with invite should succeed under restricted join_rule");
@@ -755,10 +790,61 @@ mod tests {
     /// Sanity check: public rooms accept joins without an invite.
     #[tokio::test]
     async fn public_join_without_invite_succeeds() {
-        let svc = build_join_service("public", None).await;
+        let svc = build_join_service("public", None, permissive_gate()).await;
 
         let result = svc.join_room(ROOM_ID, USER_ID).await;
         assert!(result.is_ok(), "join should succeed under public join_rule");
+    }
+
+    // ── D-1: third-party event admission on membership events ──
+
+    /// A registered rule that refuses must refuse the join *and* leave no
+    /// membership residue behind. The gate runs before `add_member`, so a 403
+    /// here cannot produce a "member with no join event" split.
+    #[tokio::test]
+    async fn refused_join_returns_403_and_claims_no_membership() {
+        let gate: Arc<dyn crate::module_service::EventAdmissionGate> =
+            Arc::new(crate::test_mocks::FakeEventAdmissionGate::denying("joins are closed"));
+        let svc = build_join_service("public", None, gate).await;
+
+        let err = svc.join_room(ROOM_ID, USER_ID).await.unwrap_err();
+        assert_eq!(err, ApiError::forbidden("joins are closed"));
+
+        let member = svc.member_storage.get_room_member(ROOM_ID, USER_ID).await.unwrap();
+        assert!(member.is_none(), "a refused join must not claim membership");
+    }
+
+    /// An admitted-but-rewritten join content must reach the persisted event:
+    /// this is what proves `allow_modification = true` on the local join path.
+    #[tokio::test]
+    async fn rewritten_join_content_is_persisted() {
+        let gate: Arc<dyn crate::module_service::EventAdmissionGate> =
+            Arc::new(crate::test_mocks::FakeEventAdmissionGate::rewriting(
+                serde_json::json!({ "membership": "join", "displayname": "renamed" }),
+            ));
+        let svc = build_join_service("public", None, gate).await;
+
+        svc.join_room(ROOM_ID, USER_ID).await.unwrap();
+
+        let events = svc.event_reader.get_state_events(ROOM_ID).await.unwrap();
+        let member_event = events
+            .iter()
+            .find(|e| e.event_type.as_deref() == Some("m.room.member") && e.state_key.as_deref() == Some(USER_ID))
+            .expect("the join event must be persisted");
+        assert_eq!(member_event.content.get("displayname").and_then(|v| v.as_str()), Some("renamed"));
+    }
+
+    /// A denial verdict from an *unregistered* rule must be ignored: the gate is
+    /// only consulted when `has_event_rules()` is true. This is the double that
+    /// proves the fast path is real.
+    #[tokio::test]
+    async fn unregistered_rule_cannot_refuse_a_join() {
+        let gate: Arc<dyn crate::module_service::EventAdmissionGate> =
+            Arc::new(crate::test_mocks::FakeEventAdmissionGate::unregistered_denial("should be ignored"));
+        let svc = build_join_service("public", None, gate).await;
+
+        let result = svc.join_room(ROOM_ID, USER_ID).await;
+        assert!(result.is_ok(), "an unregistered rule must not affect the write path: {result:?}");
     }
 
     // ── G-21: locality comes from room ownership, not the id spelling ──
@@ -823,6 +909,7 @@ mod tests {
             db_pool: None,
             policy_service: None,
             invite_policy_gate: Arc::new(crate::test_mocks::FakeInvitePolicyGate::new()),
+            event_admission_gate: Arc::new(crate::test_mocks::FakeEventAdmissionGate::new()),
         })
     }
 
@@ -941,6 +1028,7 @@ mod tests {
             db_pool: None,
             policy_service: None,
             invite_policy_gate: Arc::new(crate::test_mocks::FakeInvitePolicyGate::new()),
+            event_admission_gate: Arc::new(crate::test_mocks::FakeEventAdmissionGate::new()),
         });
 
         assert_eq!(

@@ -68,6 +68,10 @@ impl RoomSyncServices {
         // same `Arc` is handed to `AccountServices` so the admin routes and the
         // enforcement path can never diverge onto two different instances.
         invite_policy_gate: Arc<dyn crate::invite_blocklist_service::InvitePolicyGate>,
+        // The third-party event admission gate (`check_event_allowed`). The same
+        // `Arc<ModuleService>` that the admin routes register rules through, so
+        // the registration surface and the enforcement path can never diverge.
+        event_admission_gate: Arc<dyn crate::module_service::EventAdmissionGate>,
     ) -> Self {
         let server_name_for_storage = infra.config.server.get_server_name().to_string();
         let room_storage: Arc<dyn synapse_storage::room::RoomStoreApi> = Arc::new(RoomStorage::new(&infra.pool));
@@ -155,6 +159,7 @@ impl RoomSyncServices {
             db_pool: Some(infra.pool.as_ref().clone()),
             policy_service: policy_service.clone(),
             invite_policy_gate: invite_policy_gate.clone(),
+            event_admission_gate: event_admission_gate.clone(),
         }));
 
         let sync_room_account_data_storage: Arc<dyn RoomAccountDataStoreApi> =

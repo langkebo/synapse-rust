@@ -490,6 +490,71 @@ impl crate::invite_blocklist_service::InvitePolicyGate for FakeInvitePolicyGate 
     }
 }
 
+// ── Event admission gate ─────────────────────────────────────────────
+
+/// In-memory double for [`crate::module_service::EventAdmissionGate`].
+///
+/// Rule-less and permissive by default, so the vast majority of event-write
+/// tests take the same zero-cost fast path a module-less production server does.
+/// [`Self::denying`] and [`Self::rewriting`] are the variants that prove the
+/// write path actually consults the gate.
+pub struct FakeEventAdmissionGate {
+    has_rules: bool,
+    is_allowed: bool,
+    reason: Option<String>,
+    modified_content: Option<serde_json::Value>,
+}
+
+impl FakeEventAdmissionGate {
+    /// No rules registered — the write path must short-circuit.
+    pub fn new() -> Self {
+        Self { has_rules: false, is_allowed: true, reason: None, modified_content: None }
+    }
+
+    /// A registered rule that refuses every event with `reason`.
+    pub fn denying(reason: &str) -> Self {
+        Self { has_rules: true, is_allowed: false, reason: Some(reason.to_string()), modified_content: None }
+    }
+
+    /// A registered rule that admits the event but rewrites its content.
+    pub fn rewriting(content: serde_json::Value) -> Self {
+        Self { has_rules: true, is_allowed: true, reason: None, modified_content: Some(content) }
+    }
+
+    /// A denial verdict that is nevertheless *not* registered.
+    ///
+    /// The write path must not consult it: this is the double that proves the
+    /// `has_event_rules` fast path is real. Delete that check and this triple
+    /// turns a would-be 403 back into a pass, failing the test that uses it.
+    pub fn unregistered_denial(reason: &str) -> Self {
+        Self { has_rules: false, is_allowed: false, reason: Some(reason.to_string()), modified_content: None }
+    }
+}
+
+impl Default for FakeEventAdmissionGate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl crate::module_service::EventAdmissionGate for FakeEventAdmissionGate {
+    async fn has_event_rules(&self) -> bool {
+        self.has_rules
+    }
+
+    async fn check_event_allowed(
+        &self,
+        _context: &crate::module_service::ThirdPartyRuleContext,
+    ) -> Result<crate::module_service::ThirdPartyRuleOutput, ApiError> {
+        Ok(crate::module_service::ThirdPartyRuleOutput {
+            is_allowed: self.is_allowed,
+            reason: self.reason.clone(),
+            modified_content: self.modified_content.clone(),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

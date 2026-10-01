@@ -128,6 +128,116 @@ pub trait ThirdPartyRule: Send + Sync {
     async fn check(&self, context: &ThirdPartyRuleContext) -> Result<ThirdPartyRuleOutput, ApiError>;
 }
 
+/// The `EventAdmissionGate` trait.
+///
+/// The narrow seam through which the event write path enforces third-party
+/// `check_event_allowed` rules. It is deliberately *narrower* than
+/// [`ModuleService`]: the messaging layer must be able to **enforce** admission
+/// policy without holding the admin-facing read/write surface, and unit tests
+/// need a double that does not require Postgres. A trait object rather than an
+/// `Option<...>` because a gate that can be absent is a gate that can be
+/// skipped — this is the one seam every event write goes through.
+///
+/// [`has_event_rules`] is separated from [`check_event_allowed`] so the write
+/// path can take a zero-cost fast path (and avoid a state read) when no rules
+/// are registered — the steady state for a server with no modules installed.
+#[async_trait]
+pub trait EventAdmissionGate: Send + Sync {
+    /// Whether any third-party rule is currently registered.
+    ///
+    /// See [`check_event_allowed`].
+    async fn has_event_rules(&self) -> bool;
+
+    /// Check whether the prospective event is admitted, and return the
+    /// (possibly rule-modified) content.
+    ///
+    /// See [`ThirdPartyRuleOutput`].
+    async fn check_event_allowed(&self, context: &ThirdPartyRuleContext) -> Result<ThirdPartyRuleOutput, ApiError>;
+}
+
+#[async_trait]
+impl EventAdmissionGate for ModuleService {
+    async fn has_event_rules(&self) -> bool {
+        !self.registry.read().await.third_party_rules().is_empty()
+    }
+
+    async fn check_event_allowed(&self, context: &ThirdPartyRuleContext) -> Result<ThirdPartyRuleOutput, ApiError> {
+        self.check_third_party_rules(context).await
+    }
+}
+
+/// Consult the third-party event admission gate for a prospective event.
+///
+/// This is the **single** implementation of "ask the rules whether this event
+/// may be persisted, and apply any content rewrite they returned". Every local
+/// write entry point routes through it — the messaging chokepoints
+/// ([`crate::room::messaging`]) and the membership flows
+/// ([`crate::room::membership`]) — so the ordering rule (consult before the
+/// state change, refuse with `403`) and the rewrite rule live in exactly one
+/// place.
+///
+/// `allow_modification` is `true` only when the persisted bytes are the ones
+/// *we* authored and are about to write, so a rule may rewrite `params.content`.
+/// It is `false` for a PDU another server already signed and hashed (inbound
+/// federation state) or whose signed/returned form is what we persist — a
+/// rewrite there could not be honoured and would desync the event from its
+/// signature.
+///
+/// A server with no rules registered takes the [`EventAdmissionGate::has_event_rules`]
+/// fast path and never reads room state, so the steady state costs one
+/// in-memory lock acquisition.
+pub async fn consult_event_admission(
+    gate: &dyn EventAdmissionGate,
+    event_reader: &dyn synapse_storage::EventReader,
+    params: &mut synapse_storage::CreateEventParams,
+    allow_modification: bool,
+) -> Result<(), ApiError> {
+    if !gate.has_event_rules().await {
+        return Ok(());
+    }
+
+    let state_events = event_reader
+        .get_state_events(&params.room_id)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Failed to read room state for event admission", e))?
+        .iter()
+        .map(|e| {
+            serde_json::json!({
+                "event_id": e.event_id,
+                "sender": e.user_id,
+                "type": e.event_type,
+                "content": e.content,
+                "state_key": e.state_key,
+            })
+        })
+        .collect();
+
+    let context = ThirdPartyRuleContext {
+        event_id: params.event_id.clone(),
+        room_id: params.room_id.clone(),
+        sender: params.user_id.clone(),
+        event_type: params.event_type.clone(),
+        content: params.content.clone(),
+        state_events,
+    };
+
+    let outcome = gate.check_event_allowed(&context).await?;
+
+    if !outcome.is_allowed {
+        return Err(ApiError::forbidden(
+            outcome.reason.unwrap_or_else(|| "Event refused by a third-party rule".to_string()),
+        ));
+    }
+
+    if allow_modification {
+        if let Some(modified) = outcome.modified_content {
+            params.content = modified;
+        }
+    }
+
+    Ok(())
+}
+
 /// The `PasswordAuthContext` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PasswordAuthContext {
@@ -1166,5 +1276,60 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let result = rt.block_on(rule.check(&ctx)).unwrap();
         assert!(result.is_allowed);
+    }
+
+    // ========== EventAdmissionGate impl tests ==========
+
+    /// A `ModuleService` whose storage is a lazy pool that never connects.
+    /// With no rules registered both gate methods return before touching storage;
+    /// once a rule *is* registered its result persistence is best-effort
+    /// (`let _ =`), so the unreachable pool is safe. The acquire timeout is
+    /// bounded so those best-effort writes fail fast instead of stalling the test
+    /// on the pool's 30s default.
+    fn module_service_without_db() -> ModuleService {
+        let pool = Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .acquire_timeout(std::time::Duration::from_millis(50))
+                .connect_lazy("postgresql://unused:unused@127.0.0.1:1/unused")
+                .expect("lazy pool"),
+        );
+        ModuleService::new(Arc::new(ModuleStorage::new(&pool)))
+    }
+
+    #[tokio::test]
+    async fn event_admission_gate_reports_no_rules_until_one_is_registered() {
+        let service = module_service_without_db();
+        assert!(!service.has_event_rules().await, "a fresh service has no third-party rules");
+
+        service
+            .register_third_party_rule(Arc::new(SimpleThirdPartyRule::new(
+                "blocker",
+                vec!["m.room.message".to_string()],
+            )))
+            .await;
+        assert!(service.has_event_rules().await, "registering a rule must be reflected by the gate");
+    }
+
+    #[tokio::test]
+    async fn event_admission_gate_surfaces_a_rule_refusal() {
+        let service = module_service_without_db();
+        service
+            .register_third_party_rule(Arc::new(SimpleThirdPartyRule::new(
+                "blocker",
+                vec!["m.room.message".to_string()],
+            )))
+            .await;
+
+        let context = ThirdPartyRuleContext {
+            event_id: "$ev:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            sender: "@alice:example.com".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({ "body": "hi" }),
+            state_events: vec![],
+        };
+
+        let outcome = service.check_event_allowed(&context).await.expect("gate check");
+        assert!(!outcome.is_allowed, "the blocking rule must refuse m.room.message");
     }
 }

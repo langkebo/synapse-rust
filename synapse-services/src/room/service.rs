@@ -132,6 +132,9 @@ pub struct RoomServiceConfig {
     /// The invite policy gate (room lists + invitee account policy).
     /// Required — see [`MembershipService`].
     pub invite_policy_gate: Arc<dyn crate::invite_blocklist_service::InvitePolicyGate>,
+    /// The third-party event admission gate, threaded to [`MessagingService`].
+    /// Required — see [`crate::module_service::EventAdmissionGate`].
+    pub event_admission_gate: Arc<dyn crate::module_service::EventAdmissionGate>,
 }
 
 /// The `RoomService` struct.
@@ -196,6 +199,7 @@ impl RoomService {
             db_pool: config.db_pool.clone(),
             policy_service: config.policy_service.clone(),
             invite_policy_gate: config.invite_policy_gate.clone(),
+            event_admission_gate: config.event_admission_gate.clone(),
         };
         let membership = MembershipService::new(membership_cfg);
 
@@ -216,6 +220,7 @@ impl RoomService {
             key_rotation_manager: infra.key_rotation_manager.clone(),
             room_summary_service: config.room_summary_service.clone(),
             cache: config.cache.clone(),
+            event_admission_gate: config.event_admission_gate.clone(),
         };
         let messaging = MessagingService::new(messaging_cfg);
 

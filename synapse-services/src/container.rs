@@ -458,6 +458,10 @@ impl ServiceContainer {
             // Invite policy gate — same instance the account phase exposes to
             // the admin blocklist routes.
             storage.invite_blocklist_service.clone(),
+            // Event admission gate — the same `ModuleService` the admin module
+            // routes register third-party rules through, so registration and
+            // enforcement share one registry.
+            admin.modules.module_service.clone(),
         )
         .await;
 

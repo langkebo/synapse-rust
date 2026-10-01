@@ -469,6 +469,7 @@ mod coverage_tests {
             db_pool: None,
             policy_service: None,
             invite_policy_gate: StdArc::new(crate::test_mocks::FakeInvitePolicyGate::new()),
+            event_admission_gate: StdArc::new(crate::test_mocks::FakeEventAdmissionGate::new()),
         });
 
         TestService { svc, member_store, room_store, summary_store }
