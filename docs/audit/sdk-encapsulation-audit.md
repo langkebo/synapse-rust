@@ -738,4 +738,3 @@ MSC3882 实为 *Allow an existing session to sign in a new session*，与设备�
   空列表 `{}` / 缺参 `M_MISSING_PARAM` / 非法 id `M_INVALID_PARAM`）⇒ 6/6。
 - 契约：`check_route_contract.sh`、`gen_derived_routes.py --check`、
   ledger golden/sdk 字节一致性测试、`gen_route_table.py --check` ⇒ 全绿。
-
