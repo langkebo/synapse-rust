@@ -708,3 +708,146 @@ fmt / sqlx / trait / web-layering 四个棘轮的扫描面扩到了新 crate，�
 本节的更正在于**口径**（"零警告"必须写明是根 crate 口径），
 是否把 3.3k 条纳入棘轮属于另一次决策；若要做，正确形式是**棘轮（只减不增）+ 扩到 --workspace**，
 而不是一次性清零（其中绝大多数是 `links to private item` 这类 intra-doc link，不影响 rustdoc 编译）。
+
+---
+
+## 8. 2026-10-01 执行方案：v1.162 对齐剩余差距（对照报告 §18.4）
+
+> **差距的唯一来源**是 `docs/synapse-rust-vs-synapse-comparison.md` **§18.4**（H-1/H-2 + M-1..M-6 + L-1..L-5）
+> 与其依据 **§18.3** 的 20 项现状表。本方案**只做执行编排**（批次 / 步骤 / 门禁 / 验收 / 顺序 / 风险），
+> **不复制差距清单** —— 同一批问题在第二处再列一份必然漂移（AGENTS.md 铁律 2；本文件 §7 的登记唯一约定）。
+> 每条验收判据直接引用报告 **§18.6 的 V-n**，不另立判据；状态仍以 §18.3 为准。
+
+### 8.0 基线与本轮已收口项
+
+- **基线**：`main` @ `0e615d7ee`（`feature/2026-10-01-metrics-docs-updates` 已并入；`ROUTE_CONTRACT.md` 1,152 条 /
+  ledger fixture 两车道 / route ledger 快照 1133·1144 同批重生成）。
+- **本轮已收口（不再排期）**：
+  1. 可观测埋点接线：6 个未接线 `record_*` 接到真实调用点 + `db_queries_total`（无可诚实语义）与
+     `sync_event_delay`（0 消费方）连同其面板/告警引用一并删除；监控栈 DB 一路改指已接线的 `db_query_errors`；
+  2. `synapse-common/src/metrics.rs` 两个 doctest（引用未声明 `collector`）修好并转为**真正执行**的示例；
+  3. MSC3720 集成测试的**跨 runtime 池复用**竞态（改成每测试独立 app/池）；
+  4. `MSC_SEMANTICS.md` 补登记 MSC3720 / 4291 / 4311 / 4326 / 4354。
+- **工作方式（每项都适用）**：一个提交一项；**先做红证明再改绿**（铁律 8）；每批收尾跑 R8 四道门禁 +
+  clippy 两档 + `./scripts/check_fmt_ratchet.sh`；凡触及路由/契约的批次另跑
+  `bash scripts/contract/check_route_contract.sh` 并重生成 ledger 快照与 fixture。
+
+### 8.1 待裁定决策（不裁定则 H-1 / L-3 / L-4 无法开工）
+
+| ID | 决策 | 选项 | 为什么必须先定 |
+|---|---|---|---|
+| **D-1** | 本仓部署是否使用 MAS / 委派认证（报告 H-1） | ①**接线**（注入 `MasTokenValidator`/`OidcMasTokenValidator` 并加 4 路 fail-closed 用例）②**删除**整套 MAS 代码（反冗余铁律 1）③暂缓并登记为已知未接线项 | 直接决定认证面的行为边界：接线后 MAS 令牌开始被接受，任何 issuer/audience/签名校验缺口都是**认证绕过**；删除则要动 `auth/` 三文件 + 配置 |
+| **D-2** | 本仓 sticky 事件是否跟随上游 #20204 的 un-soft-fail（报告 L-4） | ①跟随（补 soft-fail 记录 + 状态变更重算）②明确不跟随（把「本仓无 soft-fail 维度」写成产品口径并保留 `events.soft_failed` 同名不同义的告诫） | 决定 L-4 是「实现」还是「文档收口」；也决定监控/文档是否需要新指标 |
+| **D-3** | worker 路由归属是否细化到 per-endpoint（报告 L-3） | ①细化（`RouteEntry` 加 worker 字段 ⇒ 契约与 SDK ledger 同步再生成）②维持前缀级 | 触及路由契约链（ledger/派生表/fixture/快照四处），代价与风险都比纯服务层改动高一档 |
+
+### 8.2 批次编排（按依赖顺序，每批独立可提交）
+
+| 批次 | 内容 | 前置 | 退出判据 |
+|---|---|---|---|
+| **B1 · 零风险收口**（当天量级） | M-1（`redis.username`）、M-3（`/room_summary` `join_rules` 新鲜度）、L-5（文档去陈旧化） | 无 | 三项各自的门禁红/绿证明 + 全量门禁绿 |
+| **B2 · 互操作正确性** | H-2（MSC4311 开关接线 + knock stripped state）、M-2（MSC4222 批次边界） | 无（但 M-2 必须先落可复现用例） | V-2 / V-4 |
+| **B3 · 认证与规则面** | H-1（取决于 **D-1**）、M-4（第三方规则接入事件鉴权，取决于 fail-open/closed 决策） | D-1；M-4 需先定失败语义 | V-1 / V-10 |
+| **B4 · 结构与性能** | M-5（状态决议缓存接线或删除）、M-6（`/relations` `recurse`）、L-1（stream 指标口径）、L-2（MSC4242 HTTP）、L-3（取决于 **D-3**）、L-4（取决于 **D-2**） | M-5/M-6 需先确认 `state_record` 写半边（F-1/F-2）已覆盖 | V-11 / V-12 |
+
+### 8.3 逐项执行卡
+
+**H-1 · 委派认证（MAS）运行时接线或删除**（报告 §18.3 #19）
+
+1. 取证现状：`synapse-services/src/auth/mod.rs:193` 的 `with_mas_validator`、`mas_validator.rs:45,60`、
+   `mas_rest_client.rs`、`token.rs:17-41`、`container.rs:245` 的构造点、`synapse-common/src/config/mas.rs:22`。
+2. 若 **接线**：在 `container.rs` 按 `config.mas.enabled` 构造并注入校验器（默认关闭 = 现状行为），
+   校验顺序保持 **fail-closed**：issuer / audience / 签名 / 过期任一不满足即拒绝，不得回落成本地 token 校验通过。
+3. 补 4 路用例（有效 / 过期 / 错 issuer / 错 audience），并把「`mas.enabled=true` 的容器必须真的持有校验器」
+   做成行为断言（不是 grep）——这正是它上次漏掉的原因：库级存在、运行时未接线。
+4. 门禁：`cargo nextest run -p synapse-services --lib --features test-utils -E 'test(/mas/)'` + 新增集成用例；
+   收尾跑 clippy 两档。
+5. 若 **删除**：同提交删配置项 / 校验器 / 三处引用，并复核 `grep -rn "mas_" --include=*.rs` 无残留；
+   文档侧在报告 §18.3 #19 行改为「已删除（决策 D-1）」。
+6. 回滚：接线分支可用配置开关一键关回（`mas.enabled=false` 时路径与今天完全一致）。
+
+**H-2 · MSC4311 宽限开关接线 + knock stripped state**（报告 §18.3 #8）
+
+1. 让 `msc4311_strict_validation`（`synapse-common/src/config/federation.rs:238-243`）**有真实读取点**：
+   在入站 `/invite`、`/knock` 的 stripped-state 校验分支读取它 —— `false`（宽限期内，默认）时
+   **同时接受** stripped 与 full PDU 两种形状，`true` 时要求 full PDU。
+2. 补 knock 的 `knock_room_state` 注入：`synapse-services/src/sync_service/response.rs:161-176,629-658`
+   同族的 invite 注入为模板；`sync_service/types.rs:366-374` 的 `SyncRoomSection` 增加 Knock 分支。
+3. 红/绿证明：把开关拨到 `true` 后旧（stripped-only）形状必须被拒；拨回 `false` 必须被接受 ——
+   证明这个开关**真的在判定**，而不是又一个 0 读取点的死配置。
+4. 门禁：V-2（与 Synapse v1.162 双向 `/invite`、`/knock`）；`/sync` 结构变化须同步
+   `INSTA_UPDATE=always` 的能力快照与 route ledger 快照（若涉及路由）。
+
+**M-1 · `redis.username` 启动校验 + env 解析**（报告 §18.3 #3）
+
+- 在 `synapse-common/src/config/database.rs` 加「`username` 必须同时有 `password`」的启动校验（与上游一致），
+  并在 `loader.rs` 支持 `SYNAPSE_REDIS__USERNAME`（当前只解析 host/password/key_prefix）。
+- 把 `database.rs:307` 那个把 username-only 固化为**合法**的测试改写为断言失败（它是上游反例的固化）。
+- 判据 V-3；风险低（会让 username-only 配置启动失败，这正是对齐上游的目的）。
+
+**M-2 · MSC4222 `since` 落在持久化批次内的边界**（报告 §18.3 #10）
+
+- 先构造可复现用例（worker 拓扑下 `since` 落在同一批次内 → 当前会漏状态事件），再加边界处理
+  （`sync_service/response.rs` + 必要时 `synapse-storage` 的 stream/批边界读法）。
+- 判据 V-4；参考上游 `test_sync.py` 的同类用例；worker 场景用 `--test-threads 1`。
+
+**M-3 · `/room_summary` `join_rules` 反规范化列新鲜度**（报告 §18.3 #13）
+
+- 根因是 `room/messaging/events.rs:182` 的 `should_update_summary = tx.is_none()`：事务内的状态写入
+  跳过 summary 刷新，需调用方在**提交后**补一次 `sync_from_room`。
+- 二选一：①在事务提交后的接缝统一补刷新（改动面小、幂等性需先确认）；②改为按 state 现算（去掉反规范化列）。
+- 判据 V-5（join_rules 变更后立即查询必须返回新值，含 `tx` 路径）。
+
+**M-4 · 第三方规则回调接入事件鉴权**（报告 §18.3 #12）
+
+- 现状：`check_event_allowed` 全仓 0 命中；第三方规则只被 admin 路由触发（`routes/module.rs:588-603`
+  → `module_service.rs:424`），消息发送/联邦事件鉴权完全不经过它。
+- 先定失败语义（规则超时/拒绝 = fail-open 还是 fail-closed），再接入发送与联邦入站两侧；规则命中时
+  必须**真的拦截**（这就是风险：现有部署若配了规则，行为会变）。
+- 判据 V-10（拒绝/超时两路用例 + 不阻塞消息主路径的性能断言）。
+
+**M-5 · 状态决议缓存**（报告 §18.3 #17）
+
+- `synapse-federation/src/event_auth/state_resolution.rs:327` 的 `conflicted_state_subgraph` **0 生产调用点**：
+  要么接线并按「冲突事件集合」做键缓存（配命中率指标），要么按铁律 1 删除。
+- 前置：确认 `state_record` 写半边（F-1/F-2）已覆盖该路径，避免缓存与写路径打架。风险低（纯性能/结构）。
+
+**M-6 · `/relations` 支持 `recurse`**（报告 §18.3 #14）
+
+- 新增查询参数（缺省行为不变），实现时把 `events` **join 进递归 CTE**（上游 #20182 的教训：递归后再
+  join 全表 = 大房间秒级）。新增递归 SQL 必须走 `bash scripts/ci/sqlx_prepare.sh` 并提交 `.sqlx` 增量（R2）。
+- 判据 V-11（`EXPLAIN (ANALYZE)` 证明 join 在递归内、无全表扫描）。
+
+**L 系列**（低优先，可穿插）
+
+| ID | 动作 | 判据 / 注意 |
+|---|---|---|
+| L-1 | stream position 指标做成 per-stream / worker-local（现仅 `events` 一条、且只在 admin `/statistics` 被访问时刷新） | V-12；先列全 stream 与各自 `get_max_stream_ordering` 来源，仪表盘同步 |
+| L-2 | MSC4242 的 HTTP 服务函数（上游本身也只是脚手架） | 新增端点须进 ledger + 契约再生成；依赖 MSC4242 语义定稿 |
+| L-3 | delayed events 的 per-endpoint worker 白名单（现前缀级 `/_matrix/client/*`） | 依赖 **D-3**；`RouteEntry` 加字段会牵动派生表/契约/fixture/快照四处 |
+| L-4 | sticky 事件 un-soft-fail | 依赖 **D-2**；若「不跟随」，只做文档收口并保留同名不同义告诫 |
+| L-5 | 报告 §12.4/§12.5/§15.3 的假缺口与自相矛盾（§18.5a 清单）标注/替换为指向 §18 | 无风险；可加守卫：§18.5(a) 的条目不得再出现在 §11–§12 的「当前状态」列（V-13） |
+
+### 8.4 依赖与并行度
+
+- **可立即并行**（互不耦合）：M-1、M-3、L-5、L-1、L-2。
+- **同一条链路、需串行**：D-1 → H-1；D-3 → L-3；D-2 → L-4。
+- **共享前置**：M-2 / M-4 / M-5 都要先有「可复现用例 or 明确的失败语义」，否则改动无法自证。
+- **彼此竞争同一文件/契约链**：H-2 与 L-3（路由/契约快照）、M-6 与 M-2（同步/存储读侧）——不要同窗口开。
+
+### 8.5 全局风险与回滚
+
+| 风险 | 触发点 | 缓解 |
+|---|---|---|
+| **认证绕过** | H-1 接线后校验不严（issuer/audience/签名/过期任一缺口） | 4 路 fail-closed 用例（V-1）+ 默认 `mas.enabled=false` 保持现状 + 一键回滚开关 |
+| **与旧对端断链** | H-2 打开严格校验 | 默认 `false`（宽限期至 2027-06-01）；同时接受 stripped 与 full PDU；红/绿证明开关真的生效 |
+| **行为变化被低估** | M-4 接入后规则真的拦截事件 | 先定 fail-open/closed；分阶段：先记录不拦截 → 再拦截；规则超时不得阻塞消息主路径 |
+| **契约链漂移** | H-2 / L-2 / L-3 触及路由或 `/sync` 结构 | 按既有流程重生成 `ROUTE_CONTRACT.md` + 派生表 + 两车道 fixture + route ledger 快照，并跑 `check_route_contract.sh` |
+| **死配置复发** | H-2 的开关又被写成 0 读取点 | 红证明（拨 true 必须变红）+ 报告 §18.6 V-2 的复核命令 |
+| **只改文档不改行为** | L-4 若选「不跟随」 | 把选择写进 §8.1 D-2 记录 + 报告 §18.3 #11 行，避免下轮又当成缺口重排 |
+
+### 8.6 本方案的定义完成（DoD）
+
+1. §18.3 的 20 行**每行都有终态**：`✅ 已对齐` 或 `⚪ 刻意不做（附决策记录）`，不留 `⚠️ 部分` 悬空；
+2. §18.4 的 H/M/L 每条在本文件中都有执行卡且判据指向 §18.6 的 V-n；
+3. D-1/D-2/D-3 三项决策在 §8.1 表内落成文字（未决策的项不得开工，避免"半接线"再次产生死代码）；
+4. 全量门禁绿（R8 四道 + clippy 两档 + fmt 棘轮 + route-contract 链 + docs 质量门）。
