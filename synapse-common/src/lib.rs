@@ -158,8 +158,8 @@ pub use config::{
     PostgresFtsConfig, PostgresFtsWeights, PushConfig, RedisConfig, ReplicationConfig, ReplicationHttpConfig,
     RetentionConfig, RetentionPolicy, RetentionPurgeJob, SamlAttributeMapping, SamlConfig, SearchConfig,
     SecurityConfig, ServerConfig, SmsConfig, SmtpConfig, SmtpRateLimitConfig, StreamWriters, SyncRateLimitConfig,
-    ThirdPartyRuleConfig, ThirdPartyRulesConfig, TranslateConfig, TrustedKeyServer, UrlBlacklistRule, UrlPreviewConfig,
-    VoipConfig, WebPushConfig, WorkerConfig,
+    ThirdPartyRuleConfig, ThirdPartyRuleModification, ThirdPartyRulesConfig, TranslateConfig, TrustedKeyServer,
+    UrlBlacklistRule, UrlPreviewConfig, VoipConfig, WebPushConfig, WorkerConfig,
 };
 /// Re-exported item.
 pub use constants::{

@@ -1234,6 +1234,29 @@ mod tests {
         let config: ThirdPartyRulesConfig = serde_json::from_value(json!({ "rules": [{ "name": "noop" }] })).unwrap();
         assert_eq!(config.rules.len(), 1);
         assert!(config.rules[0].blocked_event_types.is_empty());
+        // 未声明改写——该规则只做拒绝判定。
+        assert!(config.rules[0].modification.is_none());
+    }
+
+    #[test]
+    fn test_third_party_rules_parses_modification() {
+        // 规则可携带改写指令，对齐上游 `check_event_allowed` 返回 `(True, dict)`。
+        let config: ThirdPartyRulesConfig = serde_json::from_value(json!({
+            "rules": [
+                {
+                    "name": "annotate_messages",
+                    "modification": {
+                        "event_types": ["m.room.message"],
+                        "content": { "msgtype": "m.notice", "body": "[rewritten by policy]" },
+                    },
+                },
+            ],
+        }))
+        .unwrap();
+
+        let modification = config.rules[0].modification.as_ref().expect("modification should be present");
+        assert_eq!(modification.event_types, vec!["m.room.message".to_string()]);
+        assert_eq!(modification.content, json!({ "msgtype": "m.notice", "body": "[rewritten by policy]" }));
     }
 }
 
@@ -2083,9 +2106,10 @@ pub struct ServerNoticesConfig {
 ///
 /// 对应上游 Synapse `third_party_rules` 模块的 `check_event_allowed` 回调：事件在
 /// 落库之前先咨询已注册的规则，规则可拒绝该事件（对外表现为 `403
-/// M_FORBIDDEN`）。本仓以配置驱动的内置规则承载该回调——规则在服务装配时注册
-/// 进 `ModuleService` 的规则注册表，随后被事件写路径上的准入踏板
-/// （`consult_event_admission`）咨询，客户端与联邦入站流量一并覆盖。
+/// M_FORBIDDEN`），也可返回改写后的 content（上游 `(True, dict)` 语义）。本仓
+/// 以配置驱动的内置规则承载该回调——规则在服务装配时注册进 `ModuleService` 的
+/// 规则注册表，随后被事件写路径上的准入踏板（`consult_event_admission`）咨询，
+/// 客户端与联邦入站流量一并覆盖。
 ///
 /// `rules` 为空（默认）即关闭：准入踏板走 `has_event_rules()` 快路径，不读取
 /// 房间状态。
@@ -2097,6 +2121,13 @@ pub struct ServerNoticesConfig {
 ///     - name: "block_redactions"
 ///       blocked_event_types:
 ///         - "m.room.redaction"
+///     - name: "annotate_messages"
+///       modification:
+///         event_types:
+///           - "m.room.message"
+///         content:
+///           msgtype: "m.notice"
+///           body: "[rewritten by policy]"
 /// ```
 #[derive(Debug, Clone, Deserialize, Default)]
 /// Represents ThirdPartyRulesConfig.
@@ -2118,6 +2149,27 @@ pub struct ThirdPartyRuleConfig {
     #[serde(default)]
     /// `blocked_event_types` field.
     pub blocked_event_types: Vec<String>,
+    /// 可选的内容改写；缺省（`None`）时该规则只做拒绝判定。
+    #[serde(default)]
+    /// `modification` field.
+    pub modification: Option<ThirdPartyRuleModification>,
+}
+
+/// 一条内容改写指令：命中 `event_types` 的事件，其 content 被**整体替换**为
+/// `content`，对齐上游 `check_event_allowed` 返回 `(True, dict)` 的改写语义。
+///
+/// 改写只对本地事件生效——联邦入站 PDU 的字节已由来源服务器签名与哈希，改写
+/// 无法被其签名兑现，故仅拒绝被采纳（见 `consult_event_admission` 的
+/// `allow_modification`）。
+#[derive(Debug, Clone, Deserialize)]
+/// Represents ThirdPartyRuleModification.
+pub struct ThirdPartyRuleModification {
+    /// 触发改写的事件类型（精确匹配，如 `m.room.message`）。
+    /// `event_types` field.
+    pub event_types: Vec<String>,
+    /// 改写后的完整 content。
+    /// `content` field.
+    pub content: serde_json::Value,
 }
 
 /*

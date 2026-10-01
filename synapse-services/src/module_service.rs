@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
-use synapse_common::ThirdPartyRulesConfig;
+use synapse_common::{ThirdPartyRuleModification, ThirdPartyRulesConfig};
 use synapse_storage::module::*;
 pub use synapse_storage::module::{
     AccountDataCallback, AccountValidity, CreateAccountDataCallbackRequest, CreateAccountValidityRequest,
@@ -736,10 +736,10 @@ impl ModuleService {
     /// admission gate disabled.
     pub async fn register_configured_third_party_rules(&self, config: &ThirdPartyRulesConfig) {
         for configured in &config.rules {
-            self.register_third_party_rule(Arc::new(SimpleThirdPartyRule::new(
-                &configured.name,
-                configured.blocked_event_types.clone(),
-            )))
+            self.register_third_party_rule(Arc::new(
+                SimpleThirdPartyRule::new(&configured.name, configured.blocked_event_types.clone())
+                    .with_modification(configured.modification.clone()),
+            ))
             .await;
         }
     }
@@ -997,12 +997,22 @@ impl SpamChecker for SimpleSpamChecker {
 pub struct SimpleThirdPartyRule {
     name: String,
     blocked_event_types: Vec<String>,
+    modification: Option<ThirdPartyRuleModification>,
 }
 
 impl SimpleThirdPartyRule {
     /// See [`new`].
     pub fn new(name: &str, blocked_event_types: Vec<String>) -> Self {
-        Self { name: name.to_string(), blocked_event_types }
+        Self { name: name.to_string(), blocked_event_types, modification: None }
+    }
+
+    /// Attach a content rewrite: events whose type is listed in
+    /// `modification.event_types` have their content replaced wholesale by
+    /// `modification.content`, mirroring an upstream `check_event_allowed`
+    /// that returns `(True, dict)`. `None` leaves the rule reject-only.
+    pub fn with_modification(mut self, modification: Option<ThirdPartyRuleModification>) -> Self {
+        self.modification = modification;
+        self
     }
 }
 
@@ -1019,6 +1029,16 @@ impl ThirdPartyRule for SimpleThirdPartyRule {
                     is_allowed: false,
                     reason: Some(format!("Event type {blocked_type} is blocked")),
                     modified_content: None,
+                });
+            }
+        }
+
+        if let Some(modification) = &self.modification {
+            if modification.event_types.contains(&context.event_type) {
+                return Ok(ThirdPartyRuleOutput {
+                    is_allowed: true,
+                    reason: None,
+                    modified_content: Some(modification.content.clone()),
                 });
             }
         }
@@ -1365,6 +1385,7 @@ mod tests {
             rules: vec![synapse_common::ThirdPartyRuleConfig {
                 name: "block_redactions".to_string(),
                 blocked_event_types: vec!["m.room.redaction".to_string()],
+                modification: None,
             }],
         };
         service.register_configured_third_party_rules(&config).await;
@@ -1390,5 +1411,78 @@ mod tests {
         let service = module_service_without_db();
         service.register_configured_third_party_rules(&ThirdPartyRulesConfig::default()).await;
         assert!(!service.has_event_rules().await, "an empty config must not enable the gate");
+    }
+
+    #[tokio::test]
+    async fn register_configured_third_party_rules_carries_the_configured_rewrite() {
+        // A configured rule with a `modification` must reach the gate as a
+        // rewrite: a matching event is admitted *and* its content comes back
+        // replaced, mirroring an upstream `check_event_allowed` `(True, dict)`.
+        let service = module_service_without_db();
+        let config = ThirdPartyRulesConfig {
+            rules: vec![synapse_common::ThirdPartyRuleConfig {
+                name: "annotate_messages".to_string(),
+                blocked_event_types: vec![],
+                modification: Some(ThirdPartyRuleModification {
+                    event_types: vec!["m.room.message".to_string()],
+                    content: serde_json::json!({ "msgtype": "m.notice", "body": "[rewritten by policy]" }),
+                }),
+            }],
+        };
+        service.register_configured_third_party_rules(&config).await;
+
+        let context = ThirdPartyRuleContext {
+            event_id: "$ev:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            sender: "@alice:example.com".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({ "msgtype": "m.text", "body": "hi" }),
+            state_events: vec![],
+        };
+
+        let outcome = service.check_event_allowed(&context).await.expect("rewrite check");
+        assert!(outcome.is_allowed, "a rewrite does not refuse the event");
+        assert_eq!(
+            outcome.modified_content,
+            Some(serde_json::json!({ "msgtype": "m.notice", "body": "[rewritten by policy]" })),
+            "the configured content must be returned verbatim"
+        );
+
+        // A type the rule does not name is admitted unchanged.
+        let untouched = ThirdPartyRuleContext { event_type: "m.room.member".to_string(), ..context };
+        let outcome = service.check_event_allowed(&untouched).await.expect("untouched check");
+        assert!(outcome.is_allowed);
+        assert_eq!(outcome.modified_content, None, "an unnamed type must not be rewritten");
+    }
+
+    #[test]
+    fn test_simple_third_party_rule_rewrites_matching_type() {
+        let rule = SimpleThirdPartyRule::new("annotate", vec![]).with_modification(Some(ThirdPartyRuleModification {
+            event_types: vec!["m.room.message".to_string()],
+            content: serde_json::json!({ "body": "[rewritten]" }),
+        }));
+
+        let matching = ThirdPartyRuleContext {
+            event_id: "$ev1:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            sender: "@alice:example.com".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({ "body": "hi" }),
+            state_events: vec![],
+        };
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(rule.check(&matching)).unwrap();
+        assert!(result.is_allowed);
+        assert_eq!(result.modified_content, Some(serde_json::json!({ "body": "[rewritten]" })));
+
+        // A blocked type still wins over a rewrite for the same event.
+        let blocking = SimpleThirdPartyRule::new("block", vec!["m.room.message".to_string()]).with_modification(Some(
+            ThirdPartyRuleModification {
+                event_types: vec!["m.room.message".to_string()],
+                content: serde_json::json!({ "body": "[rewritten]" }),
+            },
+        ));
+        let result = rt.block_on(blocking.check(&matching)).unwrap();
+        assert!(!result.is_allowed, "refusal must take precedence over a rewrite");
     }
 }
