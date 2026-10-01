@@ -1,0 +1,211 @@
+# =============================================================================
+# Alertmanager 配置文件
+# =============================================================================
+# 用于 synapse-rust 监控告警路由
+# 位置: monitoring/alertmanager/alertmanager.yml
+# =============================================================================
+
+# 全局配置
+global:
+  # SMTP 配置（邮件通知）
+  smtp_smarthost: '${SMTP_SMARTHOST:-localhost:25}'
+  smtp_from: '${SMTP_FROM:-alertmanager@synapse-rust.local}'
+  smtp_auth_username: '${SMTP_USERNAME:-}'
+  smtp_auth_password: '${SMTP_PASSWORD:-}'
+  
+  # Slack webhook（如果需要）
+  slack_api_url: '${SLACK_WEBHOOK_URL:-}'
+  
+  # 告警分组间隔
+  group_wait: 30s
+  # 分组刷新间隔
+  group_interval: 5m
+  # 重复告警间隔
+  repeat_interval: 4h
+  
+  # Resolver 配置（自动恢复）
+  resolve_timeout: 5m
+
+# 路由树配置
+route:
+  # 默认接收器
+  receiver: 'default-receiver'
+  
+  # 分组依据
+  group_by: ['alertname', 'severity', 'category']
+  
+  # 子路由配置
+  routes:
+    # -------------------------------------------------------------------------
+    # Critical 级别告警 - 即时通知到 PagerDuty/Slack/钉钉
+    # -------------------------------------------------------------------------
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 10s
+      repeat_interval: 1h
+      
+      routes:
+        # HTTP 服务崩溃告警
+        - match:
+            category: availability
+            severity: critical
+          receiver: 'pagerduty-availability'
+          group_wait: 10s
+        
+        # 数据库错误告警
+        - match:
+            category: database
+            severity: critical
+          receiver: 'pagerduty-database'
+          group_wait: 10s
+        
+        # Redis 连接错误告警
+        - match:
+            category: infrastructure
+            severity: critical
+          receiver: 'pagerduty-infrastructure'
+          group_wait: 10s
+  
+  # 静默期（维护窗口）
+  inhibit_rules:
+    # 如果 Synapse 服务宕机，抑制所有相关告警
+    - source_match:
+        alertname: SynapseServiceDown
+      target_match:
+        category: latency
+      equal: ['instance']
+      
+    # 如果 HTTP 5xx 错误率高，抑制 HTTP 错误告警
+    - source_match:
+        alertname: HighHTTPErrorRate
+      target_match_anc:
+        category: http
+      equal: ['instance']
+
+# 接收器配置
+receivers:
+  # -------------------------------------------------------------------------
+  # 1. 默认接收器 - 仅记录日志
+  # -------------------------------------------------------------------------
+  - name: 'default-receiver'
+    # 开发环境默认只记录，不发送通知
+    # production: 配置实际的通知渠道
+
+  # -------------------------------------------------------------------------
+  # 2. 关键告警接收器 - 多通道通知
+  # -------------------------------------------------------------------------
+  - name: 'critical-alerts'
+    # 邮件通知
+    email_configs:
+      - to: '${ALERT_EMAIL_RECIPIENTS:-ops@company.com}'
+        send_resolved: true
+        headers:
+          subject: '[CRITICAL] {{ .GroupLabels.alertname }} - Synapse-Rust'
+    
+    # Slack 通知
+    slack_configs:
+      - api_url: '${SLACK_CRITICAL_WEBHOOK:-}'
+        channel: '#synapse-critical'
+        username: 'AlertBot'
+        icon_emoji: ':rotating_light:'
+        send_resolved: true
+        title: '{{ .GroupLabels.alertname }}'
+        text: >
+          Severity: {{ .CommonLabels.severity }}
+          Category: {{ .CommonLabels.category }}
+          {{ range .Alerts }}{{ .Annotations.summary }}
+          {{ .Annotations.description }}
+          {{ end }}
+        actions:
+          - type: button
+            name: '查看 Prometheus'
+            url: 'http://prometheus:9090/alerts'
+          - type: button
+            name: '查看 Grafana'
+            url: 'http://grafana:9091/d/slo-monitoring'
+
+  # -------------------------------------------------------------------------
+  # 3. PagerDuty - Availability 告警
+  # -------------------------------------------------------------------------
+  - name: 'pagerduty-availability'
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_SERVICE_KEY:-}'
+        description: '{{ .GroupLabels.alertname }} - {{ .CommonLabels.instance }}'
+        severity: critical
+        send_resolved: true
+        details:
+          category: '{{ .CommonLabels.category }}'
+          alerts: '{{ len .Alerts }}'
+          summary: '{{ index .Alerts 0 | printf "%s" }}'
+
+  # -------------------------------------------------------------------------
+  # 4. PagerDuty - Database 告警
+  # -------------------------------------------------------------------------
+  - name: 'pagerduty-database'
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_DATABASE_KEY:-}'
+        description: '{{ .GroupLabels.alertname }} - DB Performance Issue'
+        severity: critical
+        send_resolved: true
+
+  # -------------------------------------------------------------------------
+  # 5. PagerDuty - Infrastructure 告警
+  # -------------------------------------------------------------------------
+  - name: 'pagerduty-infrastructure'
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_INFRA_KEY:-}'
+        description: '{{ .GroupLabels.alertname }} - Infrastructure Problem'
+        severity: critical
+        send_resolved: true
+
+  # -------------------------------------------------------------------------
+  # 6. 警告级别告警 - Slack 通知
+  # -------------------------------------------------------------------------
+  - name: 'warning-slack'
+    slack_configs:
+      - api_url: '${SLACK_WARNING_WEBHOOK:-}'
+        channel: '#synapse-warning'
+        username: 'AlertBot'
+        icon_emoji: ':warning:'
+        send_resolved: true
+        title: '{{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+
+  # -------------------------------------------------------------------------
+  # 7. Info 级别告警 - 仅记录或发送到低优先级频道
+  # -------------------------------------------------------------------------
+  - name: 'info-team'
+    email_configs:
+      - to: '${TEAM_EMAIL:-team@company.com}'
+        send_resolved: true
+        headers:
+          subject: '[INFO] {{ .GroupLabels.alertname }} - Synapse-Rust'
+    
+    slack_configs:
+      - api_url: '${SLACK_INFO_WEBHOOK:-}'
+        channel: '#synapse-info'
+        username: 'AlertBot'
+        icon_emoji: ':information_source:'
+        send_resolved: true
+
+# ===========================================================================
+# 静默规则 (Silence Rules)
+# ===========================================================================
+# 可以通过 UI 创建静默，也可以通过 API 编程方式设置
+# 例如：维护期间暂停告警
+silences:
+  # 示例配置（实际通过 API 管理）
+  # - matcher:
+  #     name: env
+  #     value: maintenance
+  #   startsAt: "2026-10-01T00:00:00Z"
+  #   endsAt: "2026-10-01T06:00:00Z"
+  #   createdBy: "admin"
+  #   comment: "Scheduled maintenance window"
+
+# ===========================================================================
+# 模板配置 (可选)
+# ===========================================================================
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'

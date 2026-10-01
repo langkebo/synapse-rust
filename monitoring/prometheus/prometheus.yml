@@ -1,0 +1,175 @@
+# =============================================================================
+# Prometheus 配置文件
+# =============================================================================
+# 用于 synapse-rust 监控栈
+# 位置: monitoring/prometheus/prometheus.yml
+# =============================================================================
+
+global:
+  # 全局抓取间隔
+  scrape_interval: 15s
+  # 抓取超时时间
+  scrape_timeout: 10s
+  # 评估规则间隔
+  evaluation_interval: 15s
+  # 默认外部标签
+  external_labels:
+    monitor: "synapse-rust"
+    env: "${ENVIRONMENT:-production}"
+
+# 报警管理器配置
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+      # 抑制重复告警
+      repeat_interval: 4h
+      # 发送给 Alertmanager 前等待时间
+      send_resolved: true
+
+# 规则文件
+rule_files:
+  - "/etc/prometheus/alerting-rules.yml"
+
+# 抓取配置
+scrape_configs:
+  # ===========================================================================
+  # 1. Synapse-Rust 主服务
+  # ===========================================================================
+  - job_name: "synapse-rust"
+    static_configs:
+      - targets: ["synapse-rust:8008"]
+    metrics_path: "/_prometheus/metrics"
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    relabel_configs:
+      # 标记环境
+      - target_label: env
+        replacement: "${ENVIRONMENT:-production}"
+      # 标记服务版本
+      - target_label: version
+        replacement: "${SYNAPSE_VERSION:-latest}"
+    metric_relabel_configs:
+      # 过滤不需要的指标以减少存储压力
+      - source_labels: [__name__]
+        regex: '(go_.*|process_.*|promhttp_.*)'
+        action: keep
+      # 添加实例标签
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: "synapse-rust-main"
+
+  # ===========================================================================
+  # 2. PostgreSQL 数据库
+  # ===========================================================================
+  - job_name: "postgres"
+    static_configs:
+      - targets: ["db:9187"]
+    metrics_path: "/metrics"
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    relabel_configs:
+      - target_label: service
+        replacement: "postgresql"
+
+  # ===========================================================================
+  # 3. Redis 缓存
+  # ===========================================================================
+  - job_name: "redis"
+    static_configs:
+      - targets: ["redis:9121"]
+    metrics_path: "/metrics"
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    relabel_configs:
+      - target_label: service
+        replacement: "redis"
+
+  # ===========================================================================
+  # 4. Node Exporter (主机系统指标)
+  # ===========================================================================
+  - job_name: "node-exporter"
+    static_configs:
+      - targets: ["node-exporter:9100"]
+    metrics_path: "/metrics"
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    relabel_configs:
+      - target_label: service
+        replacement: "node-exporter"
+
+  # ===========================================================================
+  # 5. Prometheus 自身监控
+  # ===========================================================================
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+    metrics_path: "/metrics"
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    relabel_configs:
+      - target_label: service
+        replacement: "prometheus"
+
+  # ===========================================================================
+  # 6. Grafana 自身监控
+  # ===========================================================================
+  - job_name: "grafana"
+    static_configs:
+      - targets: ["grafana:3000"]
+    metrics_path: "/metrics"
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    relabel_configs:
+      - target_label: service
+        replacement: "grafana"
+    # Grafana 需要 API Key 才能暴露 metrics
+    authorization:
+      credentials_file: /etc/prometheus/grafana-api-key
+    # 忽略 TLS 验证（本地 Docker 网络）
+    tls_config:
+      insecure_skip_verify: true
+
+  # ===========================================================================
+  # 7. Alertmanager 自身监控
+  # ===========================================================================
+  - job_name: "alertmanager"
+    static_configs:
+      - targets: ["alertmanager:9093"]
+    metrics_path: "/metrics"
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    relabel_configs:
+      - target_label: service
+        replacement: "alertmanager"
+
+# ===========================================================================
+# 存储优化配置
+# ===========================================================================
+# 注意：以下配置通过命令行参数传递
+# --storage.tsdb.retention.time=15d       # 数据保留 15 天
+# --storage.tsdb.retention.size=10GB      # 最大存储 10GB
+# --storage.tsdb.no-lockfile              # 禁用锁文件（Docker 场景）
+# --storage.tsdb.wal-segment-size=128MB   # WAL 分段大小
+
+# ===========================================================================
+# 查询优化配置
+# ===========================================================================
+# --query.max-concurrency=20              # 最大并发查询数
+# --query.timeout=2m                      # 查询超时
+# --query.max-samples=50000000            # 最大样本数
+# --query.lookback-delta=5m               # 回溯时间窗口
+
+# ===========================================================================
+# 远程写入 (可选)
+# ===========================================================================
+# remote_write:
+#   - url: "https://victoriametrics:8428/api/v1/write"
+#     write_relabel_configs:
+#       - source_labels: [__name__]
+#         regex: 'go_.*'
+#         action: drop
+#
+# remote_read:
+#   - url: "https://victoriametrics:8428/api/v1/read"

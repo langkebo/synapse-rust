@@ -1,0 +1,34 @@
+# =============================================================================
+# Grafana 仪表盘配置
+# =============================================================================
+# 自动加载 SLO 和业务指标仪表板
+# 位置：monitoring/grafana/dashboards/dashboard-providers.yml
+# =============================================================================
+
+apiVersion: 1
+
+providers:
+  # -------------------------------------------------------------------------
+  # 1. 主仪表盘提供者（自动加载测试目录下的 JSON 文件）
+  # -------------------------------------------------------------------------
+  - name: 'default'
+    orgId: 1
+    folder: ''
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    options:
+      path: /etc/grafana/provisioning/dashboards
+    
+  # -------------------------------------------------------------------------
+  # 2. Synapse-Rust 专用文件夹
+  # -------------------------------------------------------------------------
+  - name: 'synapse-rust'
+    orgId: 1
+    folder: 'Synapse-Rust'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards

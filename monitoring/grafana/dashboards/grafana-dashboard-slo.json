@@ -1,0 +1,240 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Synapse-Rust - SLO Monitoring",
+    "description": "SLO monitoring for Synapse-Rust Matrix homeserver - tracks availability, latency, and error budgets across all services",
+    "version": 1,
+    "tags": ["synapse", "matrix", "slo", "prometheus"],
+    "timezone": "browser",
+    "schemaVersion": 39,
+    "links": [],
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "总体可用性 SLO",
+        "type": "gauge",
+        "gridPos": { "x": 0, "y": 0, "w": 6, "h": 6 },
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total{status_code!=\"5..\",status_code!=\"4..\"}[5m])) / sum(rate(http_requests_total[5m])) * 100",
+            "format": "time_series",
+            "instant": true,
+            "legendFormat": "可用性"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": null, "color": "green" },
+                { "value": 99, "color": "yellow" },
+                { "value": 99.9, "color": "green" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "错误预算剩余",
+        "type": "gauge",
+        "gridPos": { "x": 6, "y": 0, "w": 6, "h": 6 },
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "0.001 - (sum(increase(http_requests_total{status_code=~\"5..\"}[5m])) / sum(increase(http_requests_total[5m])))",
+            "format": "time_series",
+            "instant": true,
+            "legendFormat": "剩余预算"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 1,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": null, "color": "red" },
+                { "value": 0.5, "color": "yellow" },
+                { "value": 0.8, "color": "green" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "/sync 请求延迟 SLO (P50, P95, P99)",
+        "type": "timeseries",
+        "gridPos": { "x": 0, "y": 6, "w": 12, "h": 8 },
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.5, sum(rate(sync_duration_ms_bucket[5m])) by (le)) / 1000",
+            "legendFormat": "P50 (秒)"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(sync_duration_ms_bucket[5m])) by (le)) / 1000",
+            "legendFormat": "P95 (秒)"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(sync_duration_ms_bucket[5m])) by (le)) / 1000",
+            "legendFormat": "P99 (秒)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "seconds",
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": null, "color": "green" },
+                { "value": 2, "color": "yellow" },
+                { "value": 5, "color": "red" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "消息投递延迟 SLO (P50, P95, P99)",
+        "type": "timeseries",
+        "gridPos": { "x": 0, "y": 14, "w": 12, "h": 8 },
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.5, sum(rate(message_delivery_latency_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(message_delivery_latency_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(message_delivery_latency_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P99"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "seconds",
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": null, "color": "green" },
+                { "value": 1, "color": "yellow" },
+                { "value": 2, "color": "red" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "房间创建延迟 SLO (P50, P95, P99)",
+        "type": "timeseries",
+        "gridPos": { "x": 0, "y": 22, "w": 12, "h": 8 },
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.5, sum(rate(room_creation_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(room_creation_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(room_creation_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P99"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "seconds",
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": null, "color": "green" },
+                { "value": 1, "color": "yellow" },
+                { "value": 5, "color": "red" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "错误预算烧尽率",
+        "type": "timeseries",
+        "gridPos": { "x": 0, "y": 30, "w": 12, "h": 8 },
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total{status_code=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m])) * 100",
+            "legendFormat": "错误率 (%)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": null, "color": "green" },
+                { "value": 1, "color": "yellow" },
+                { "value": 5, "color": "red" }
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "instance",
+          "type": "query",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "refresh": 1,
+          "query": "label_values(up, instance)",
+          "includeTime": false,
+          "multi": true,
+          "current": { "text": "All", "value": "$__all" }
+        }
+      ]
+    },
+    "annotations": {
+      "list": [
+        {
+          "name": "告警",
+          "datasource": { "type": "alertmanager", "uid": "alertmanager" },
+          "showIn": 0,
+          "enable": true
+        }
+      ]
+    }
+  },
+  "overwrite": true
+}
