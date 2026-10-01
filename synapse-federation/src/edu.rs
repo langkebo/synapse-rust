@@ -35,6 +35,9 @@ pub enum EduType {
     /// MSC4140: `m.delayed_event` — pending delayed events synchronized via federation
     /// so remote servers can track and cancel/override them.
     DelayedEvent,
+    /// MSC4354: `org.matrix.msc4354.sticky_event` — sticky event metadata synchronized
+    /// via federation so remote servers maintain consistent sticky event state.
+    StickyEvent,
 }
 
 #[derive(Debug, Clone)]
@@ -65,6 +68,7 @@ impl FromStr for EduType {
             "m.signing_key_update" => Ok(Self::SigningKeyUpdate),
             "m.profile_update" => Ok(Self::ProfileUpdate),
             "m.delayed_event" => Ok(Self::DelayedEvent),
+            "org.matrix.msc4354.sticky_event" => Ok(Self::StickyEvent),
             other => Err(UnknownEduType(other.to_string())),
         }
     }
@@ -81,6 +85,7 @@ impl std::fmt::Display for EduType {
             EduType::SigningKeyUpdate => "m.signing_key_update",
             EduType::ProfileUpdate => "m.profile_update",
             EduType::DelayedEvent => "m.delayed_event",
+            EduType::StickyEvent => "org.matrix.msc4354.sticky_event",
         };
         write!(f, "{s}")
     }

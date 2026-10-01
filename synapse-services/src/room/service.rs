@@ -655,6 +655,9 @@ impl RoomService {
     }
 
     /// See [`set_is_sticky_event`].
+    ///
+    /// MSC4354: When a sticky event is set/updated, broadcast an EDU to federated peers
+    /// so they can maintain consistent sticky event state across the federation.
     pub async fn set_is_sticky_event(
         &self,
         room_id: &str,
@@ -663,10 +666,21 @@ impl RoomService {
         event_type: &str,
         is_sticky: bool,
     ) -> ApiResult<()> {
+        // Persist the sticky event metadata
         self.sticky_event_storage
             .set_is_sticky_event(room_id, user_id, event_id, event_type, is_sticky)
             .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to set sticky event", e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to set sticky event", e))?;
+
+        // MSC4354 Federation broadcast: notify peers about sticky event change
+        // Only broadcast if this originated locally (not from federation).
+        // We determine this by checking if user_id matches our server name (federated
+        // updates use the origin server as user_id to avoid conflicts).
+        if is_sticky && user_id != self.server_name {
+            self.broadcast_sticky_event_update(room_id, user_id, event_id, event_type, true).await?;
+        }
+
+        Ok(())
     }
 
     /// See [`get_is_sticky_event`].
@@ -695,11 +709,94 @@ impl RoomService {
     }
 
     /// See [`clear_is_sticky_event`].
+    ///
+    /// MSC4354: When a sticky event is cleared, broadcast an EDU to federated peers
+    /// so they can remove the sticky event from their local state.
     pub async fn clear_is_sticky_event(&self, room_id: &str, user_id: &str, event_type: &str) -> ApiResult<()> {
+        // Persist the sticky event clearance
         self.sticky_event_storage
             .clear_is_sticky_event(room_id, user_id, event_type)
             .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to clear sticky event", e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to clear sticky event", e))?;
+
+        // MSC4354 Federation broadcast: notify peers about sticky event removal
+        // Only broadcast if this originated locally (not from federation).
+        if user_id != self.server_name {
+            self.broadcast_sticky_event_update(room_id, user_id, "", event_type, false).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Broadcast sticky event update EDU to federated peers (MSC4354).
+    ///
+    /// This implements the eager push semantics required by MSC4354:
+    /// - When a sticky event is set (`is_sticky = true`), broadcast the event metadata
+    /// - When a sticky event is cleared (`is_sticky = false`), broadcast a removal notification
+    ///
+    /// The EDU format follows the project's convention of using `stream ordering`
+    /// for filtering rather than the official `state_after` mechanism.
+    async fn broadcast_sticky_event_update(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_id: &str,
+        event_type: &str,
+        is_sticky: bool,
+    ) -> ApiResult<()> {
+        // Anti-loop: never re-broadcast a change that originated from a federated
+        // peer (inbound handler persists under the remote origin as user_id).
+        // For local users, user_id follows "@user:server.example.com" format;
+        // for federated updates, user_id is just the origin server name.
+        let sender_server = user_id.split(':').last().unwrap_or(user_id);
+        if sender_server != self.server_name {
+            tracing::debug!(
+                room_id = %room_id,
+                origin = %user_id,
+                event_type = %event_type,
+                "Skipping federation broadcast for sticky event change originating from federated peer"
+            );
+            return Ok(());
+        }
+
+        let Some(broadcaster) = &self.infra.event_broadcaster else {
+            tracing::debug!("EventBroadcaster not configured, skipping sticky event federation broadcast");
+            return Ok(());
+        };
+
+        // Construct MSC4354 sticky event EDU
+        // Based on receipts.rs pattern but adapted for sticky events
+        let sticky_edu = serde_json::json!({
+            "edu_type": "org.matrix.msc4354.sticky_event",
+            "room_id": room_id,
+            "sender": self.server_name,
+            "content": {
+                "event_type": event_type,
+                "event_id": event_id,
+                "is_sticky": is_sticky,
+                "ts": current_timestamp_millis()
+            }
+        });
+
+        tracing::info!(
+            room_id = %room_id,
+            event_type = %event_type,
+            event_id = %event_id,
+            is_sticky = %is_sticky,
+            "Broadcasting MSC4354 sticky event EDU to federation"
+        );
+
+        let _ = broadcaster.broadcast_edu_to_room(room_id, &sticky_edu, &self.server_name).await.map_err(|e| {
+            tracing::warn!(
+                room_id = %room_id,
+                event_type = %event_type,
+                "Failed to broadcast sticky event EDU to federation: {}",
+                e
+            );
+            e
+        });
+
+        Ok(())
     }
 }
 

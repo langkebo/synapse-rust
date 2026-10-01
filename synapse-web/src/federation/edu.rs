@@ -631,6 +631,8 @@ impl EduDispatcher {
             EduType::ProfileUpdate => handle_profile_update_edu(ctx, origin, edu, remaining).await,
             // MSC4140: Delayed Event EDU - synchronize pending delayed events across federation
             EduType::DelayedEvent => handle_delayed_event_edu(ctx, origin, edu, remaining).await,
+            // MSC4354: Sticky Event EDU - synchronize sticky event metadata across federation
+            EduType::StickyEvent => handle_sticky_event_edu(ctx, origin, edu, remaining).await,
         };
 
         Some(result)
@@ -803,6 +805,99 @@ async fn handle_delayed_event_edu(
     );
     increment_counter(ctx, "federation_inbound_delayed_event_processed_total");
     EduProcessResult { processed: 1, dropped: 0, errored: 0 }
+}
+
+/// Handle `org.matrix.msc4354.sticky_event` EDU from federation (MSC4354).
+///
+/// This EDU synchronizes sticky event metadata across federated servers.
+/// When a remote server sets/clears a sticky event, it broadcasts this EDU
+/// so peer servers can maintain consistent sticky event state.
+///
+/// The EDU format (constructed by `RoomService::broadcast_sticky_event_update`):
+/// ```json
+/// {
+///   "edu_type": "org.matrix.msc4354.sticky_event",
+///   "room_id": "!room:server",
+///   "sender": "server_name",
+///   "content": {
+///     "event_type": "m.room.message",
+///     "event_id": "$event:server",
+///     "is_sticky": true,
+///     "ts": 1234567890
+///   }
+/// }
+/// ```
+///
+/// On receipt, we persist the sticky event metadata locally so it appears
+/// in future `/sync` responses for local users in the room.
+async fn handle_sticky_event_edu(
+    ctx: &FederationContext,
+    origin: &str,
+    edu: &Value,
+    _remaining: usize,
+) -> EduProcessResult {
+    let room_id = match edu.get("room_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => {
+            increment_counter(ctx, "federation_inbound_sticky_event_dropped_total");
+            return EduProcessResult { dropped: 1, ..Default::default() };
+        }
+    };
+
+    let content = match edu.get("content") {
+        Some(c) => c,
+        None => {
+            increment_counter(ctx, "federation_inbound_sticky_event_dropped_total");
+            return EduProcessResult { dropped: 1, ..Default::default() };
+        }
+    };
+
+    let event_type = match content.get("event_type").and_then(|v| v.as_str()) {
+        Some(et) => et.to_string(),
+        None => {
+            increment_counter(ctx, "federation_inbound_sticky_event_dropped_total");
+            return EduProcessResult { dropped: 1, ..Default::default() };
+        }
+    };
+
+    let is_sticky = content.get("is_sticky").and_then(|v| v.as_bool()).unwrap_or(true);
+    let event_id = content.get("event_id").and_then(|v| v.as_str()).map(|s| s.to_string()).unwrap_or_default();
+
+    // Persist the sticky event metadata from federation.
+    // When is_sticky=true, store with the origin server as the user_id (federated sticky events
+    // are server-level, not tied to a specific local user).
+    // When is_sticky=false, clear the sticky event for that event_type.
+    let result = if is_sticky {
+        ctx.room_service.set_is_sticky_event(&room_id, origin, &event_id, &event_type, true).await
+    } else {
+        ctx.room_service.clear_is_sticky_event(&room_id, origin, &event_type).await
+    };
+
+    match result {
+        Ok(()) => {
+            ::tracing::info!(
+                room_id = %room_id,
+                origin = %origin,
+                event_type = %event_type,
+                event_id = %event_id,
+                is_sticky = %is_sticky,
+                "Persisted MSC4354 sticky event EDU from federation"
+            );
+            increment_counter(ctx, "federation_inbound_sticky_event_processed_total");
+            EduProcessResult { processed: 1, dropped: 0, errored: 0 }
+        }
+        Err(e) => {
+            ::tracing::warn!(
+                room_id = %room_id,
+                origin = %origin,
+                event_type = %event_type,
+                "Failed to persist MSC4354 sticky event EDU: {}",
+                e
+            );
+            increment_counter(ctx, "federation_inbound_sticky_event_error_total");
+            EduProcessResult { processed: 0, dropped: 0, errored: 1 }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
