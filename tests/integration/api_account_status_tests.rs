@@ -15,22 +15,25 @@ use axum::{
 use serde_json::{json, Value};
 use tower::ServiceExt;
 
-/// Cache the MSC3720-enabled app: building a fresh test app + schema takes
-/// ~35s, and this suite has several enabled-path assertions. One build keeps
-/// the suite inside the integration timeout instead of contending with itself.
-static ENABLED_APP: tokio::sync::OnceCell<Option<(axum::Router, synapse_web::routes::state::AppState)>> =
-    tokio::sync::OnceCell::const_new();
-
+/// Build a MSC3720-enabled app **per test** on an isolated schema pool.
+///
+/// ⚠️ Deliberately NOT cached in a module `OnceCell`. `#[tokio::test]` creates a
+/// fresh runtime per test, and an sqlx pool is bound to the runtime that created
+/// it: reusing one cached pool across tests leaves the later runtimes acquiring
+/// connections whose owning runtime (and its pool background task) is gone. In
+/// the coverage lane — ~1500 tests, four threads, instrumented (slower) builds —
+/// that surfaced as `500 M_UNKNOWN: Failed to create user: pool timed out while
+/// waiting for an available connection` on the two tests that register a user
+/// (CI run 36836587194). The four non-DB tests in this suite kept passing, which
+/// is exactly the signature of a stale pooled connection rather than a logic
+/// bug. `setup_fresh_test_app_with_config` is the project's mandated per-test
+/// entry point (see `mod.rs` §"DB Isolation Infrastructure"); the template-schema
+/// clone it performs is the cheap path (~100x cheaper than re-running migrations).
 async fn enabled_app() -> Option<(axum::Router, synapse_web::routes::state::AppState)> {
-    ENABLED_APP
-        .get_or_init(|| async {
-            super::setup_test_app_with_config(|container| {
-                super::config_mut(container).experimental.msc3720_enabled = true;
-            })
-            .await
-        })
-        .await
-        .clone()
+    super::setup_fresh_test_app_with_config(|container| {
+        super::config_mut(container).experimental.msc3720_enabled = true;
+    })
+    .await
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
