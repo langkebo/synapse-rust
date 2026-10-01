@@ -531,6 +531,10 @@ impl ModuleService {
     }
 
     /// See [`check_third_party_rules`].
+    ///
+    /// Rules are consulted in registration order and a refusal short-circuits.
+    /// A rule that *errors* is treated as a refusal (fail-closed), matching
+    /// upstream's "do not accept events if a rule callback raises" contract.
     #[instrument(skip(self))]
     pub async fn check_third_party_rules(
         &self,
@@ -625,6 +629,16 @@ impl ModuleService {
                             metadata: None,
                         })
                         .await;
+
+                    // Fail-closed: a rule that cannot answer must not be read as
+                    // "allow". Upstream Synapse refuses the event when a
+                    // `check_event_allowed` callback raises (v1.49.0 #11033), and
+                    // so does this gate. The failure is already logged and
+                    // persisted; `reason` stays `None` so the detail does not leak
+                    // into the client's `403` body.
+                    allowed = false;
+                    reason = None;
+                    break;
                 }
             }
         }
@@ -1371,6 +1385,41 @@ mod tests {
 
         let outcome = service.check_event_allowed(&context).await.expect("gate check");
         assert!(!outcome.is_allowed, "the blocking rule must refuse m.room.message");
+    }
+
+    /// A rule whose callback always errors, pinning the fail-closed contract.
+    struct FailingThirdPartyRule;
+
+    #[async_trait]
+    impl ThirdPartyRule for FailingThirdPartyRule {
+        fn name(&self) -> &str {
+            "failing"
+        }
+
+        async fn check(&self, _context: &ThirdPartyRuleContext) -> Result<ThirdPartyRuleOutput, ApiError> {
+            Err(ApiError::internal("rule blew up"))
+        }
+    }
+
+    #[tokio::test]
+    async fn event_admission_gate_fails_closed_when_a_rule_errors() {
+        // Upstream refuses the event when a `check_event_allowed` callback raises
+        // (#11033); an erroring rule must never be read as "allow".
+        let service = module_service_without_db();
+        service.register_third_party_rule(Arc::new(FailingThirdPartyRule)).await;
+
+        let context = ThirdPartyRuleContext {
+            event_id: "$ev:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            sender: "@alice:example.com".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({ "body": "hi" }),
+            state_events: vec![],
+        };
+
+        let outcome = service.check_event_allowed(&context).await.expect("a rule error is a refusal, not a gate error");
+        assert!(!outcome.is_allowed, "an erroring rule must refuse the event (fail-closed)");
+        assert_eq!(outcome.reason, None, "the failure detail is logged, not surfaced to the client");
     }
 
     #[tokio::test]
