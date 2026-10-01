@@ -125,6 +125,7 @@ pub(crate) async fn build_room_hierarchy_response(
             }
         }
 
+        annotate_allowed_room_ids(ctx, &mut response_value).await?;
         return Ok(response_value);
     }
 
@@ -189,10 +190,37 @@ pub(crate) async fn build_room_hierarchy_response(
     })];
     rooms.extend(child_rooms);
 
-    Ok(json!({
+    let mut response = json!({
         "rooms": rooms,
         "next_batch": Value::Null
-    }))
+    });
+
+    annotate_allowed_room_ids(ctx, &mut response).await?;
+
+    Ok(response)
+}
+
+/// Annotates each room entry in a `/hierarchy` response with `allowed_room_ids`
+/// when the room uses a restricted join rule (Matrix v1.15 / upstream #20154).
+/// Non-restricted rooms are left untouched so the key is omitted.
+async fn annotate_allowed_room_ids(ctx: &RoomContext, response: &mut Value) -> Result<(), ApiError> {
+    let Some(rooms) = response.get_mut("rooms").and_then(|rooms| rooms.as_array_mut()) else {
+        return Ok(());
+    };
+
+    for room in rooms.iter_mut() {
+        let Some(room_id) = room.get("room_id").and_then(|value| value.as_str()).map(str::to_owned) else {
+            continue;
+        };
+
+        if let Some(allowed_room_ids) = ctx.room_summary_service.resolve_allowed_room_ids(&room_id).await? {
+            if let Some(object) = room.as_object_mut() {
+                object.insert("allowed_room_ids".to_string(), json!(allowed_room_ids));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// See [`get_room_hierarchy`].

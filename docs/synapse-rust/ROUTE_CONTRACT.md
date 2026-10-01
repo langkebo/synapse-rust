@@ -1,6 +1,6 @@
 # synapse-rust 路由契约（Route Contract）
 
-> 自动生成于 2026-09-29，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含 `derived_route_table.inc.rs`）派生覆盖。
+> 自动生成于 2026-10-01，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含 `derived_route_table.inc.rs`）派生覆盖。
 >
 > 本文件是后端 HTTP 契约的**事实来源之一**（机器侧权威为 `derived_routes.rs` 生成的 `RouteLedger`，启动时校验、集成测试 PATCH 探测）。人工文档（INDEX.md / API_COVERAGE_REPORT.md）须与之保持一致。
 >
@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1149**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1150**
 - 含路由注册的模块文件：**65**
 - `derived_routes.rs` 中的 `registered_by` 标签：**73**
 - 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
@@ -69,7 +69,7 @@
 **逐模块清单里的两种标注**（都从派生表反解，不是人工维护）：
 
 - 〔仅 `X` profile〕 —— 该路由**只**在 profile `X` 下注册，默认构建里不存在（即上表成员）；
-- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1151 行去重为 1149 条的来源。
+- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1152 行去重为 1150 条的来源。
 
 当前共 **2** 条双档注册：
 
@@ -668,10 +668,11 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_matrix/client/v1/proxy/{as_id}/{*path}`
 - `PUT` `/_synapse/admin/v1/appservices/{as_id}`
 
-### 延迟事件 （1 条）
+### 延迟事件 （2 条）
 
-#### `delayed_events.rs` — 1 条 ✅派生表
+#### `delayed_events.rs` — 2 条 ✅派生表
 
+- `GET` `/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}`
 - `POST` `/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}`
 
 ### 房间 (Room) （119 条）

@@ -144,6 +144,7 @@ async fn test_set_raw_with_unreachable_redis_keeps_l1_and_does_not_panic() {
         // Port 1 is reserved and nothing listens there, so the pool is built lazily
         // (`RedisCache::new` does not connect) and every command fails on use.
         port: 1,
+        username: None,
         password: None,
         key_prefix: "test:".to_string(),
         pool_size: 1,

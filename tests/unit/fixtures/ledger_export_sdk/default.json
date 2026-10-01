@@ -8,7 +8,7 @@
     "worker_enabled": false,
     "saml_enabled": false
   },
-  "entry_count": 1130,
+  "entry_count": 1131,
   "entries": [
     {
       "method": "GET",
@@ -302,6 +302,16 @@
         "session_id"
       ],
       "query_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}",
+      "registered_by": "delayed_events",
+      "path_params": [
+        "delay_id"
+      ],
+      "query_params": [],
+      "auth": "user"
     },
     {
       "method": "POST",
@@ -9660,6 +9670,48 @@
       "query_params": []
     },
     {
+      "method": "GET",
+      "path": "/_synapse/cas/login",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/cas/logout",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/cas/p3/serviceValidate",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/cas/proxy",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/cas/proxyValidate",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/cas/serviceValidate",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": []
+    },
+    {
       "method": "POST",
       "path": "/_synapse/external/trendradar/{service_id}/webhook",
       "registered_by": "external_service",
@@ -9929,48 +9981,6 @@
       "method": "GET",
       "path": "/health",
       "registered_by": "assembly::create_router",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/cas/login",
-      "registered_by": "cas",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/cas/logout",
-      "registered_by": "cas",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/cas/p3/serviceValidate",
-      "registered_by": "cas",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/cas/proxy",
-      "registered_by": "cas",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/cas/proxyValidate",
-      "registered_by": "cas",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/cas/serviceValidate",
-      "registered_by": "cas",
       "path_params": [],
       "query_params": []
     }

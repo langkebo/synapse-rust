@@ -63,6 +63,7 @@ mod tests {
             redis: RedisConfig {
                 host: "localhost".to_string(),
                 port: 6379,
+                username: None,
                 password: None,
                 key_prefix: "test:".to_string(),
                 pool_size: 10,
@@ -229,6 +230,7 @@ mod tests {
             redis: RedisConfig {
                 host: "redis.example.com".to_string(),
                 port: 6380,
+                username: None,
                 password: Some("secret".to_string()),
                 key_prefix: "prod:".to_string(),
                 pool_size: 20,
@@ -413,6 +415,7 @@ mod tests {
         let config = RedisConfig {
             host: "127.0.0.1".to_string(),
             port: 6379,
+            username: None,
             password: None,
             key_prefix: "synapse:".to_string(),
             pool_size: 16,
@@ -436,6 +439,7 @@ mod tests {
         let config = RedisConfig {
             host: "redis".to_string(),
             port: 6379,
+            username: None,
             password: Some("secret".to_string()),
             key_prefix: "synapse:".to_string(),
             pool_size: 16,
@@ -507,6 +511,7 @@ mod tests {
             redis: RedisConfig {
                 host: "localhost".to_string(),
                 port: 6379,
+                username: None,
                 password: Some("${TEST_REDIS_PASSWORD:?missing}".to_string()),
                 key_prefix: "test:".to_string(),
                 pool_size: 10,

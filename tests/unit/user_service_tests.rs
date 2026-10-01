@@ -691,8 +691,9 @@ async fn get_profile_returns_none_fields_when_unset() {
 
     let profile = svc.get_profile("@alice:example.com").await.expect("should succeed");
     assert_eq!(profile["user_id"], "@alice:example.com");
-    assert!(profile["displayname"].is_null());
-    assert!(profile["avatar_url"].is_null());
+    // Unset fields are omitted rather than emitted as `null`.
+    assert!(profile.get("displayname").is_none());
+    assert!(profile.get("avatar_url").is_none());
 }
 
 #[tokio::test]

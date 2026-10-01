@@ -86,12 +86,12 @@ pub struct RateLimitConfig {
     #[serde(default = "default_rc_reports")]
     /// `rc_reports` field.
     pub rc_reports: RateLimitRule,
-    /// Per-user limit for profile read/write endpoints.
+    /// Per-user limit for profile endpoints.
     ///
-    /// Enforced in the handlers (`get_profile`, `update_displayname`, etc.)
-    /// rather than by the path-based middleware, which only supports
-    /// exact/prefix path rules. Upstream #20172 applies the `rc_profile` limit
-    /// to profile modification endpoints.
+    /// Enforced in the handlers (`get_profile`, `get_displayname`,
+    /// `get_avatar_url`, `update_displayname`, `update_avatar`) rather than by
+    /// the path-based middleware, which only supports exact/prefix path rules.
+    /// This server applies the limit to both profile reads and writes.
     #[serde(default = "default_rc_profile")]
     /// `rc_profile` field.
     pub rc_profile: RateLimitRule,
@@ -104,9 +104,9 @@ fn default_rc_reports() -> RateLimitRule {
     RateLimitRule { per_second: 1, burst_size: 10 }
 }
 
-/// Conservative default for profile read/write endpoints: a user may perform
-/// 5 profile operations in a burst and then one per second. Upstream #20172
-/// applies the `rc_profile` limit to profile modification endpoints.
+/// Conservative default for profile endpoints: a user may perform 5 profile
+/// operations in a burst and then one per second. Applies to both profile
+/// reads and writes.
 fn default_rc_profile() -> RateLimitRule {
     RateLimitRule { per_second: 1, burst_size: 5 }
 }

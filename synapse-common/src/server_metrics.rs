@@ -103,6 +103,11 @@ pub struct ServerMetrics {
     pub total_users: Gauge,
     /// Total rooms on this server.
     pub total_rooms: Gauge,
+    /// Current position of the main events stream (`MAX(stream_ordering)` on `events`).
+    ///
+    /// Mirrors upstream Synapse's `synapse_storage_stream_current_position{stream="events"}`.
+    /// Refreshed on demand by the admin `/statistics` handler.
+    pub storage_stream_current_position: Gauge,
 
     // Dehydrated Device Cleanup Metrics
     /// Dehydrated-device cleanup runs started.
@@ -277,6 +282,8 @@ impl ServerMetrics {
 
             total_users: collector.register_gauge("synapse_total_users".to_string()),
             total_rooms: collector.register_gauge("synapse_total_rooms".to_string()),
+            storage_stream_current_position: collector
+                .register_gauge("synapse_storage_stream_current_position".to_string()),
 
             dehydrated_device_cleanup_total: collector.register_counter("dehydrated_device_cleanup_total".to_string()),
             dehydrated_device_cleaned_total: collector.register_counter("dehydrated_device_cleaned_total".to_string()),
@@ -1318,6 +1325,19 @@ mod tests {
         metrics.total_rooms.set(300.0);
         assert_eq!(metrics.total_users.get(), 1500.0);
         assert_eq!(metrics.total_rooms.get(), 300.0);
+    }
+
+    #[test]
+    fn test_storage_stream_current_position_gauge() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector.clone());
+
+        // 必须注册进 collector，否则 admin `/statistics` 的 `get_gauge` 取不到，
+        // 指标也不会出现在 `/metrics` 输出中。
+        assert!(collector.get_gauge("synapse_storage_stream_current_position").is_some());
+
+        metrics.storage_stream_current_position.set(4242.0);
+        assert_eq!(metrics.storage_stream_current_position.get(), 4242.0);
     }
 
     #[test]

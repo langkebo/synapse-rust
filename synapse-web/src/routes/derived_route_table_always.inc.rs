@@ -1,5 +1,5 @@
 fn all_derived_always_rows() -> Vec<DerivedRoute> {
-    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1130);
+    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1131);
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/", "assembly::create_router");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
@@ -197,6 +197,15 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             "/_matrix/client/unstable/org.matrix.msc4108/rendezvous/{session_id}",
             "msc4108_rendezvous",
         );
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(
+            axum::http::Method::GET,
+            "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}",
+            "delayed_events",
+        )
+        .with_auth("user");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {

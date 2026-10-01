@@ -94,7 +94,7 @@ impl RoomSummaryService {
     /// join rules (per Matrix v1.15 `/summary` spec). Fails closed: on
     /// storage errors, returns `None` rather than blocking the summary
     /// response, since `allowed_room_ids` is informational metadata.
-    pub(crate) async fn resolve_allowed_room_ids(&self, room_id: &str) -> Result<Option<Vec<String>>, ApiError> {
+    pub async fn resolve_allowed_room_ids(&self, room_id: &str) -> Result<Option<Vec<String>>, ApiError> {
         let events_res = self.event_reader.get_state_events_by_type(room_id, "m.room.join_rules").await;
 
         let content = match events_res {
