@@ -687,3 +687,55 @@ MSC3882 实为 *Allow an existing session to sign in a new session*，与设备�
   `0c16f8aa0`（drift 门禁补盲区）。
 - 门禁：`pnpm quality:contracts` 全绿；`path-contract` 233 请求 / 0 不匹配 / 豁免 6；
   `vitest run spec/unit` 5336/5336；`tsc` 无新增错误。
+
+### 13.6 MSC3720 account status：本轮唯一的真实产品决策，已实现（2026-10-01）
+
+§13.1 把 "MSC3720 是否实现" 标为**真实产品决策**（其余 12 条都是 SDK 错/死面）。
+用户裁定：实现。上游 `element-hq/synapse` 已实现该 MSC，本轮按上游行为对齐：
+
+| 面 | 上游 Synapse | 本仓实现 |
+|---|---|---|
+| 客户端端点 | `POST /_matrix/client/unstable/org.matrix.msc3720/account_status`（`AccountStatusRestServlet`，`releases=()` 仅 unstable） | 同路径；`synapse-web/src/routes/handlers/account_status.rs::client_account_status` |
+| 联邦端点 | `POST /_matrix/federation/unstable/org.matrix.msc3720/account_status`（`FederationAccountStatusServlet`） | 同路径；`…::federation_account_status` |
+| 出站联邦 | `AccountHandler._get_remote_account_statuses` → `federation_client.get_account_status` | `FederationClientApi::get_account_status` + `AccountStatusService::remote_statuses` |
+| capability | `org.matrix.msc3720.account_status: {enabled}`（`msc3720_enabled`） | `CapabilityGovernance::msc3720_capability`（route surface ∧ config） |
+| 开关 | `experimental.msc3720_enabled`（默认 false） | `ExperimentalConfig.msc3720_enabled`（默认 false） |
+
+**实现要点**
+
+- 域逻辑在 `synapse-services/src/account_status_service.rs`：本地用户 `exists` +
+  `deactivated`；远端按 destination 分组、每组一次联邦请求；**安全规则**（MSC
+  "Overwriting the statuses of another server's account"）——远端返回的每个 user_id
+  必须属于被查询的 destination 且在请求列表内，否则丢弃；"statuses ∪ failures =
+  请求列表" 的不变量在服务内补齐。
+- 错误码按 MSC：缺 `user_ids` → `M_MISSING_PARAM`；user_id 非法 → `M_INVALID_PARAM`；
+  联邦端点遇到非本地用户 → `M_INVALID_PARAM`（`allow_remote=false`）；空列表 → `200 {}`。
+- 无新 SQL（复用 `UserStore::get_user_by_id`），故 `.sqlx` 无增量。
+
+**与上游的两处有意分歧（已在代码注释写明）**
+
+1. **禁用时的状态码**：上游在 `msc3720_enabled=false` 时**不注册**路由（404）；本仓
+   路由常驻但 handler **fail-closed 403 `M_FORBIDDEN`**。取本仓既有 MSC4452
+   `preview_url` 的同型做法：路由表保持静态（ledger / 派生表 / capability 三者不会
+   因运行时开关而互相矛盾），且 MSC 的安全考量明确允许 403 `M_FORBIDDEN`。
+2. **空 `user_ids` 的响应体**：MSC 写 `{}`；上游 `AccountHandler` 返回空 map/list ⇒
+   `{"account_statuses":{},"failures":[]}`。本仓按 **MSC 正文**返回 `{}`（有集成测试钉住），
+   SDK 类型因此把两个字段都设为可选。
+
+**契约链**
+
+- 新增两条路由（`assembly.rs::create_router` 与 `federation/mod.rs`），已重生成：
+  6 份 ledger fixture（default lane 1047→1049、SDK lane 1149→1151）、
+  `derived_route_table_always.inc.rs`（+2 行）、`ROUTE_CONTRACT.md`（1151 路由）、
+  `docs/openapi/route-table.json`（1049 路由，CI `openapi-artifact` 的同一条命令）。
+- SDK 侧 `AccountManager.getAccountStatuses(userIds)`（`6677b3f01`，unstable prefix）；
+  旧豁免 `POST …/msc3720/account_status`（理由写"后端未实现"）**已过期，须删除**。
+
+**验证**
+
+- 单测：`account_status_service` 8 条 + handler 6 条 + capability 1 条 ⇒ 全绿。
+- 集成：`api_account_status_tests` 6 条（403 默认关 / 401 需认证 / 本地存在+不存在 /
+  空列表 `{}` / 缺参 `M_MISSING_PARAM` / 非法 id `M_INVALID_PARAM`）⇒ 6/6。
+- 契约：`check_route_contract.sh`、`gen_derived_routes.py --check`、
+  ledger golden/sdk 字节一致性测试、`gen_route_table.py --check` ⇒ 全绿。
+

@@ -12,6 +12,7 @@ pub use crate::account_device_list_service::{
     AccountDeviceListService, DeviceListDeletion, DeviceListDelta, DeviceListEntry, DeviceListSnapshot,
 };
 pub use crate::account_identity_service::AccountIdentityService;
+pub use crate::account_status_service::{AccountStatus, AccountStatusError, AccountStatusService, AccountStatuses};
 pub use crate::registration_service::RegistrationService;
 
 // P7.4 — additional account-domain service re-exports (previously flat in lib.rs).

@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": false
   },
-  "entry_count": 1141,
+  "entry_count": 1143,
   "entries": [
     {
       "method": "GET",
@@ -231,6 +231,13 @@
         "timeout",
         "txn_id"
       ]
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/unstable/org.matrix.msc3720/account_status",
+      "registered_by": "assembly::create_router",
+      "path_params": [],
+      "query_params": []
     },
     {
       "method": "DELETE",
@@ -5884,6 +5891,13 @@
       "query_params": []
     },
     {
+      "method": "POST",
+      "path": "/_matrix/federation/unstable/org.matrix.msc3720/account_status",
+      "registered_by": "federation",
+      "path_params": [],
+      "query_params": []
+    },
+    {
       "method": "GET",
       "path": "/_matrix/federation/v1",
       "registered_by": "federation",
@@ -9660,6 +9674,48 @@
       "query_params": []
     },
     {
+      "method": "GET",
+      "path": "/_synapse/cas/login",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/cas/logout",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/cas/p3/serviceValidate",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/cas/proxy",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/cas/proxyValidate",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/cas/serviceValidate",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": []
+    },
+    {
       "method": "POST",
       "path": "/_synapse/external/trendradar/{service_id}/webhook",
       "registered_by": "external_service",
@@ -10033,48 +10089,6 @@
       "method": "GET",
       "path": "/health",
       "registered_by": "assembly::create_router",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/cas/login",
-      "registered_by": "cas",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/cas/logout",
-      "registered_by": "cas",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/cas/p3/serviceValidate",
-      "registered_by": "cas",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/cas/proxy",
-      "registered_by": "cas",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/cas/proxyValidate",
-      "registered_by": "cas",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/cas/serviceValidate",
-      "registered_by": "cas",
       "path_params": [],
       "query_params": []
     }

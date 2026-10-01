@@ -1,5 +1,5 @@
 fn all_derived_always_rows() -> Vec<DerivedRoute> {
-    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1130);
+    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1132);
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/", "assembly::create_router");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
@@ -125,6 +125,14 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         )
         .with_rate_limit_exempt(true)
         .with_query_params(&["pos", "timeout", "txn_id"]);
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(
+            axum::http::Method::POST,
+            "/_matrix/client/unstable/org.matrix.msc3720/account_status",
+            "assembly::create_router",
+        );
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -3722,6 +3730,14 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/versions", "assembly::create_router");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(
+            axum::http::Method::POST,
+            "/_matrix/federation/unstable/org.matrix.msc3720/account_status",
+            "federation",
+        );
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
