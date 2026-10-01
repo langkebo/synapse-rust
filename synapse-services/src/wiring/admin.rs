@@ -233,6 +233,11 @@ impl AdminServices {
         let module_storage: Arc<synapse_storage::module::ModuleStorage> =
             Arc::new(synapse_storage::module::ModuleStorage::new(pool));
         let module_service = Arc::new(crate::module_service::ModuleService::new(module_storage.clone()));
+        // Wire `third_party_rules` config into the admission gate at startup. This
+        // `Arc<ModuleService>` is the same instance later injected as the
+        // `EventAdmissionGate` for event writes, so registration and enforcement
+        // share one registry and `has_event_rules()` is truthful from boot.
+        module_service.register_configured_third_party_rules(&config.third_party_rules).await;
         let account_validity_service =
             Arc::new(crate::module_service::AccountValidityService::new(module_storage.clone()));
 

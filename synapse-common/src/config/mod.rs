@@ -248,6 +248,10 @@ pub struct Config {
     #[serde(default, deserialize_with = "deserialize_optional_duration_ms")]
     /// `redaction_allowed_period` field.
     pub redaction_allowed_period: Option<i64>,
+    /// 第三方事件准入规则（`third_party_rules`）。为空时准入钩子关闭。
+    #[serde(default)]
+    /// `third_party_rules` field.
+    pub third_party_rules: ThirdPartyRulesConfig,
 }
 
 /// Deserialize an optional duration expressed either as a Synapse duration
@@ -1199,6 +1203,38 @@ mod tests {
         assert_eq!(parse_duration_ms(""), None);
         assert_eq!(parse_duration_ms("abc"), None);
     }
+
+    #[test]
+    fn test_third_party_rules_parses_rules_and_their_blocked_types() {
+        let config: ThirdPartyRulesConfig = serde_json::from_value(json!({
+            "rules": [
+                { "name": "block_redactions", "blocked_event_types": ["m.room.redaction"] },
+            ],
+        }))
+        .unwrap();
+
+        assert_eq!(config.rules.len(), 1);
+        assert_eq!(config.rules[0].name, "block_redactions");
+        assert_eq!(config.rules[0].blocked_event_types, vec!["m.room.redaction".to_string()]);
+    }
+
+    #[test]
+    fn test_third_party_rules_defaults_to_disabled() {
+        // 缺省应关闭准入钩子——空规则集，且不因缺字段而报错。
+        let absent: ThirdPartyRulesConfig = serde_json::from_value(json!({})).unwrap();
+        assert!(absent.rules.is_empty());
+
+        let default = ThirdPartyRulesConfig::default();
+        assert!(default.rules.is_empty());
+    }
+
+    #[test]
+    fn test_third_party_rules_rule_without_blocked_types_is_allowed() {
+        // `blocked_event_types` 缺省为空——该规则不阻断任何事件类型。
+        let config: ThirdPartyRulesConfig = serde_json::from_value(json!({ "rules": [{ "name": "noop" }] })).unwrap();
+        assert_eq!(config.rules.len(), 1);
+        assert!(config.rules[0].blocked_event_types.is_empty());
+    }
 }
 
 // ============================================================================
@@ -2043,48 +2079,46 @@ pub struct ServerNoticesConfig {
 }
 */
 
-/*
-/// 第三方协议规则配置。
+/// 第三方事件准入规则配置（`third_party_rules`）。
 ///
-/// 官方 Synapse 配置文档: <https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#third_party_rules>
+/// 对应上游 Synapse `third_party_rules` 模块的 `check_event_allowed` 回调：事件在
+/// 落库之前先咨询已注册的规则，规则可拒绝该事件（对外表现为 `403
+/// M_FORBIDDEN`）。本仓以配置驱动的内置规则承载该回调——规则在服务装配时注册
+/// 进 `ModuleService` 的规则注册表，随后被事件写路径上的准入踏板
+/// （`consult_event_admission`）咨询，客户端与联邦入站流量一并覆盖。
 ///
-/// 配置第三方协议桥接规则。
-///
-/// # 待实现功能
-/// - 协议列表
-/// - 网络字段
-/// - 匹配规则
+/// `rules` 为空（默认）即关闭：准入踏板走 `has_event_rules()` 快路径，不读取
+/// 房间状态。
 ///
 /// # 配置示例
 /// ```yaml
 /// third_party_rules:
-///   - protocol: "irc"
-///     fields:
-///       - network: "freenode"
+///   rules:
+///     - name: "block_redactions"
+///       blocked_event_types:
+///         - "m.room.redaction"
 /// ```
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 /// Represents ThirdPartyRulesConfig.
 pub struct ThirdPartyRulesConfig {
+    /// 事件准入规则列表；为空（默认）即关闭准入钩子。
+    #[serde(default)]
     /// `rules` field.
-    pub rules: Vec<ThirdPartyRule>,
+    pub rules: Vec<ThirdPartyRuleConfig>,
 }
 
+/// 单条第三方事件准入规则。
 #[derive(Debug, Clone, Deserialize)]
-/// Represents ThirdPartyRule.
-pub struct ThirdPartyRule {
-    /// `protocol` field.
-    pub protocol: String,
-    /// `fields` field.
-    pub fields: Vec<ThirdPartyField>,
+/// Represents ThirdPartyRuleConfig.
+pub struct ThirdPartyRuleConfig {
+    /// 规则名称，用于日志与 `third_party_rule_results` 执行记录。
+    /// `name` field.
+    pub name: String,
+    /// 被该规则拒绝的事件类型（精确匹配，如 `m.room.redaction`）。
+    #[serde(default)]
+    /// `blocked_event_types` field.
+    pub blocked_event_types: Vec<String>,
 }
-
-#[derive(Debug, Clone, Deserialize)]
-/// Represents ThirdPartyField.
-pub struct ThirdPartyField {
-    /// `network` field.
-    pub network: String,
-}
-*/
 
 /*
 /// Sentry 错误追踪配置。

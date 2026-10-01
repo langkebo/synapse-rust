@@ -1008,7 +1008,7 @@ grep "CREATE INDEX" migrations/00000000_unified_schema_v12.sql | grep -i "events
 | PR | 上游要点 | 本仓状态 | 本仓证据 / 说明 |
 |----|----------|---------|----------------|
 | #19723 | MSC4311 invite/knock 严格校验宽限至 2027-06-01 | ✅ TRUE（配置开关承载） | [federation.rs](synapse-common/src/config/federation.rs) `msc4311_strict_validation`（默认 `false`） |
-| #19768 | 三方规则 `check_event_allowed()` 兼容 MSC4291 | ✅ **TRUE**（D-1 已实现） | [module_service.rs](synapse-services/src/module_service.rs) `EventAdmissionGate` + 共享踏板 `consult_event_admission`；本地/联邦写路径均挂载 |
+| #19768 | 三方规则 `check_event_allowed()` 兼容 MSC4291 | ✅ **TRUE**（D-1 已实现） | [module_service.rs](synapse-services/src/module_service.rs) `EventAdmissionGate` + 共享踏板 `consult_event_admission`；本地/联邦写路径均挂载；触发侧 `third_party_rules` 配置经 [mod.rs](synapse-common/src/config/mod.rs) `ThirdPartyRulesConfig` → `ModuleService::register_configured_third_party_rules` → [admin.rs](synapse-services/src/wiring/admin.rs) 启动注册，`has_event_rules()` 自启动即为真 |
 | #20100 | 本地媒体缩略图异步打开 | ✅ TRUE | [media_service.rs](synapse-services/src/media_service.rs) |
 | #20115 | 丢弃不合规历史 user ID 的联邦设备列表更新 | ✅ TRUE | [edu.rs](synapse-web/src/federation/edu.rs) |
 | #20145 | 未设置 displayname/avatar_url 不再当 `null` | ✅ TRUE | [user_service.rs](synapse-services/src/user_service.rs) + [account_compat.rs](synapse-web/src/routes/account_compat.rs) |
@@ -1072,6 +1072,6 @@ grep "CREATE INDEX" migrations/00000000_unified_schema_v12.sql | grep -i "events
 1. **#20171 批次边界**：验证 MSC4222 `state_after` 在 worker 落库批次切分时是否漏发 state（[types.rs](synapse-services/src/sync_service/types.rs)）。
 2. **#20162 超限路径**：补 400 响应的端到端用例（含多算法并发上传）。
 3. **#20218 限流生效**：`rc_profile` 在多副本/Redis 后端下的一致性。
-4. **D-1 已实现**：`check_event_allowed()` 钩子以 `EventAdmissionGate` 落地，采用"服务层入口"策略在**状态变更之前**咨询（拒绝零残留 + 保留 `403 M_FORBIDDEN` 语义）；后续接入真实三方规则时，需端到端验证 `modified_content` 改写仅作用于本地事件、联邦入站事件不被改写。
+4. **D-1 已实现（触发侧已接线）**：`check_event_allowed()` 钩子以 `EventAdmissionGate` 落地，采用"服务层入口"策略在**状态变更之前**咨询（拒绝零残留 + 保留 `403 M_FORBIDDEN` 语义）。触发侧已由 [third_party_rules](synapse-common/src/config/mod.rs) 配置段闭合——按事件类型阻断的规则在服务装配时经 `register_configured_third_party_rules` 注册进与执行面共享的同一 [ModuleService](synapse-services/src/module_service.rs)，使 `has_event_rules()` 自启动即为真、钩子在**生产可达**（此前仅测试注册，恒短路）。后续接入真实三方规则时，仍需端到端验证 `modified_content` 改写仅作用于本地事件、联邦入站事件不被改写。
 5. **D-2 语义对齐**：若实现 MSC4354 soft-fail，需同时提供 `StickyEventsStream` 订阅与状态变更重算，避免与 [txn_dedup.rs](synapse-storage/src/event/txn_dedup.rs) 的 `soft_failed` 字段语义冲突（**务必区分命名**）。
 6. **守卫测试**：新增本节后重跑 `doc_credibility_guard_tests`，确认引用路径均存在且无与契约冲突的计数声明。

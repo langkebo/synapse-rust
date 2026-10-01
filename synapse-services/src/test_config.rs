@@ -237,5 +237,6 @@ pub fn build_test_config() -> Config {
         sso_redirect_allowlist: vec![],
         content_scanner: synapse_common::content_scanner::ContentScannerConfig::default(),
         redaction_allowed_period: None,
+        third_party_rules: synapse_common::config::ThirdPartyRulesConfig::default(),
     }
 }

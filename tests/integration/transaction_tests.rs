@@ -180,6 +180,7 @@ fn create_test_config() -> Config {
         mas: synapse_rust::common::config::MasConfig::default(),
         content_scanner: synapse_rust::common::content_scanner::ContentScannerConfig::default(),
         redaction_allowed_period: None,
+        third_party_rules: synapse_rust::common::config::ThirdPartyRulesConfig::default(),
     }
 }
 

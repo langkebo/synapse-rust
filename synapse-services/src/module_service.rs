@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
+use synapse_common::ThirdPartyRulesConfig;
 use synapse_storage::module::*;
 pub use synapse_storage::module::{
     AccountDataCallback, AccountValidity, CreateAccountDataCallbackRequest, CreateAccountValidityRequest,
@@ -724,6 +725,25 @@ impl ModuleService {
         registry.register_third_party_rule(rule);
     }
 
+    /// Register the third-party event admission rules described by
+    /// [`ThirdPartyRulesConfig`], as a built-in [`SimpleThirdPartyRule`] per
+    /// entry. This is the production wiring of the `check_event_allowed`
+    /// trigger: it runs once at service assembly so the gate reported by
+    /// [`EventAdmissionGate::has_event_rules`] is truthful from the first event
+    /// write.
+    ///
+    /// An empty `config.rules` (the default) registers nothing, leaving the
+    /// admission gate disabled.
+    pub async fn register_configured_third_party_rules(&self, config: &ThirdPartyRulesConfig) {
+        for configured in &config.rules {
+            self.register_third_party_rule(Arc::new(SimpleThirdPartyRule::new(
+                &configured.name,
+                configured.blocked_event_types.clone(),
+            )))
+            .await;
+        }
+    }
+
     /// See [`register_password_provider`].
     pub async fn register_password_provider(&self, provider: Arc<dyn PasswordAuthProviderTrait>) {
         let mut registry = self.registry.write().await;
@@ -1331,5 +1351,44 @@ mod tests {
 
         let outcome = service.check_event_allowed(&context).await.expect("gate check");
         assert!(!outcome.is_allowed, "the blocking rule must refuse m.room.message");
+    }
+
+    #[tokio::test]
+    async fn register_configured_third_party_rules_wires_config_into_the_gate() {
+        // The production trigger path: a `third_party_rules` config entry must
+        // become a registered rule, flip `has_event_rules()` on, and then refuse
+        // the event types it names.
+        let service = module_service_without_db();
+        assert!(!service.has_event_rules().await, "no rules before the config is applied");
+
+        let config = ThirdPartyRulesConfig {
+            rules: vec![synapse_common::ThirdPartyRuleConfig {
+                name: "block_redactions".to_string(),
+                blocked_event_types: vec!["m.room.redaction".to_string()],
+            }],
+        };
+        service.register_configured_third_party_rules(&config).await;
+
+        assert!(service.has_event_rules().await, "config-registered rules must reach the gate");
+
+        let blocked = ThirdPartyRuleContext {
+            event_id: "$ev:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            sender: "@alice:example.com".to_string(),
+            event_type: "m.room.redaction".to_string(),
+            content: serde_json::json!({}),
+            state_events: vec![],
+        };
+        assert!(!service.check_event_allowed(&blocked).await.expect("blocked check").is_allowed);
+
+        let allowed = ThirdPartyRuleContext { event_type: "m.room.message".to_string(), ..blocked };
+        assert!(service.check_event_allowed(&allowed).await.expect("allowed check").is_allowed);
+    }
+
+    #[tokio::test]
+    async fn register_configured_third_party_rules_leaves_gate_disabled_for_empty_config() {
+        let service = module_service_without_db();
+        service.register_configured_third_party_rules(&ThirdPartyRulesConfig::default()).await;
+        assert!(!service.has_event_rules().await, "an empty config must not enable the gate");
     }
 }

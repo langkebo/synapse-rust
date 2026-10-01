@@ -22,6 +22,7 @@ pub use synapse_common::config::translate::*;
 pub use synapse_common::config::voip::*;
 pub use synapse_common::config::worker::*;
 pub use synapse_common::config::Config;
+pub use synapse_common::config::{ThirdPartyRuleConfig, ThirdPartyRulesConfig};
 pub use synapse_common::ConfigManager;
 
 #[cfg(test)]
