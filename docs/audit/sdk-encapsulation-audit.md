@@ -687,4 +687,3 @@ MSC3882 实为 *Allow an existing session to sign in a new session*，与设备�
   `0c16f8aa0`（drift 门禁补盲区）。
 - 门禁：`pnpm quality:contracts` 全绿；`path-contract` 233 请求 / 0 不匹配 / 豁免 6；
   `vitest run spec/unit` 5336/5336；`tsc` 无新增错误。
-

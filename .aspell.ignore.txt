@@ -66,6 +66,7 @@ args
 argv
 asc
 asic
+asid
 ast
 async
 at
@@ -302,6 +303,7 @@ gc
 gcm
 geiger
 getrandom
+getreporthistory
 getter
 gf
 gh
@@ -504,6 +506,7 @@ namespace
 namespaced
 nan
 newtype
+nheko
 nextest
 nginx
 nist
