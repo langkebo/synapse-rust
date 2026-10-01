@@ -10,6 +10,7 @@ use crate::routes::context::FederationContext;
 use serde_json::Value;
 use std::str::FromStr;
 use synapse_common::current_timestamp_millis;
+use synapse_common::validation::is_compliant_user_id_localpart;
 use synapse_e2ee::cross_signing::models::CrossSigningKey;
 
 fn increment_counter(ctx: &FederationContext, name: &str) {
@@ -104,6 +105,15 @@ fn validate_device_list_update_content<'a>(edu: &'a Value, origin: &str) -> Opti
     let user_id = content.get("user_id").and_then(|v| v.as_str())?;
     if !user_matches_origin(user_id, origin) {
         return None;
+    }
+    // Drop updates for non-compliant ("historical") user IDs: per the Matrix
+    // spec appendices, device list updates from user IDs whose localpart is
+    // empty or contains characters outside U+0021..=U+007E must be ignored
+    // (upstream parity with Synapse PR #20115). The localpart spans from the
+    // leading `@` to the first `:`.
+    match user_id.strip_prefix('@').and_then(|rest| rest.split_once(':')) {
+        Some((localpart, _)) if is_compliant_user_id_localpart(localpart) => {}
+        _ => return None,
     }
     let device_id = content.get("device_id").and_then(|v| v.as_str());
     let stream_id = content.get("stream_id").and_then(|v| v.as_i64()).unwrap_or_else(current_timestamp_millis);
@@ -631,6 +641,8 @@ impl EduDispatcher {
             EduType::ProfileUpdate => handle_profile_update_edu(ctx, origin, edu, remaining).await,
             // MSC4140: Delayed Event EDU - synchronize pending delayed events across federation
             EduType::DelayedEvent => handle_delayed_event_edu(ctx, origin, edu, remaining).await,
+            // MSC4354: Sticky Event EDU - synchronize sticky event metadata across federation
+            EduType::StickyEvent => handle_sticky_event_edu(ctx, origin, edu, remaining).await,
         };
 
         Some(result)
@@ -803,6 +815,99 @@ async fn handle_delayed_event_edu(
     );
     increment_counter(ctx, "federation_inbound_delayed_event_processed_total");
     EduProcessResult { processed: 1, dropped: 0, errored: 0 }
+}
+
+/// Handle `org.matrix.msc4354.sticky_event` EDU from federation (MSC4354).
+///
+/// This EDU synchronizes sticky event metadata across federated servers.
+/// When a remote server sets/clears a sticky event, it broadcasts this EDU
+/// so peer servers can maintain consistent sticky event state.
+///
+/// The EDU format (constructed by `RoomService::broadcast_sticky_event_update`):
+/// ```json
+/// {
+///   "edu_type": "org.matrix.msc4354.sticky_event",
+///   "room_id": "!room:server",
+///   "sender": "server_name",
+///   "content": {
+///     "event_type": "m.room.message",
+///     "event_id": "$event:server",
+///     "is_sticky": true,
+///     "ts": 1234567890
+///   }
+/// }
+/// ```
+///
+/// On receipt, we persist the sticky event metadata locally so it appears
+/// in future `/sync` responses for local users in the room.
+async fn handle_sticky_event_edu(
+    ctx: &FederationContext,
+    origin: &str,
+    edu: &Value,
+    _remaining: usize,
+) -> EduProcessResult {
+    let room_id = match edu.get("room_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => {
+            increment_counter(ctx, "federation_inbound_sticky_event_dropped_total");
+            return EduProcessResult { dropped: 1, ..Default::default() };
+        }
+    };
+
+    let content = match edu.get("content") {
+        Some(c) => c,
+        None => {
+            increment_counter(ctx, "federation_inbound_sticky_event_dropped_total");
+            return EduProcessResult { dropped: 1, ..Default::default() };
+        }
+    };
+
+    let event_type = match content.get("event_type").and_then(|v| v.as_str()) {
+        Some(et) => et.to_string(),
+        None => {
+            increment_counter(ctx, "federation_inbound_sticky_event_dropped_total");
+            return EduProcessResult { dropped: 1, ..Default::default() };
+        }
+    };
+
+    let is_sticky = content.get("is_sticky").and_then(|v| v.as_bool()).unwrap_or(true);
+    let event_id = content.get("event_id").and_then(|v| v.as_str()).map(|s| s.to_string()).unwrap_or_default();
+
+    // Persist the sticky event metadata from federation.
+    // When is_sticky=true, store with the origin server as the user_id (federated sticky events
+    // are server-level, not tied to a specific local user).
+    // When is_sticky=false, clear the sticky event for that event_type.
+    let result = if is_sticky {
+        ctx.room_service.set_is_sticky_event(&room_id, origin, &event_id, &event_type, true).await
+    } else {
+        ctx.room_service.clear_is_sticky_event(&room_id, origin, &event_type).await
+    };
+
+    match result {
+        Ok(()) => {
+            ::tracing::info!(
+                room_id = %room_id,
+                origin = %origin,
+                event_type = %event_type,
+                event_id = %event_id,
+                is_sticky = %is_sticky,
+                "Persisted MSC4354 sticky event EDU from federation"
+            );
+            increment_counter(ctx, "federation_inbound_sticky_event_processed_total");
+            EduProcessResult { processed: 1, dropped: 0, errored: 0 }
+        }
+        Err(e) => {
+            ::tracing::warn!(
+                room_id = %room_id,
+                origin = %origin,
+                event_type = %event_type,
+                "Failed to persist MSC4354 sticky event EDU: {}",
+                e
+            );
+            increment_counter(ctx, "federation_inbound_sticky_event_error_total");
+            EduProcessResult { processed: 0, dropped: 0, errored: 1 }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1136,6 +1241,29 @@ mod tests {
     fn test_validate_device_list_update_content_user_id_not_string() {
         let edu = json!({ "content": { "user_id": 42 } });
         assert!(validate_device_list_update_content(&edu, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_device_list_update_content_non_compliant_localpart_rejected() {
+        // Synapse PR #20115 / "Historical user IDs": a device-list update for a
+        // user whose localpart is empty or holds characters outside U+0021..=U+007E
+        // must be dropped even though the origin matches.
+        for user_id in ["@:example.com", "@bob smith:example.com", "@bo\u{7f}b:example.com", "@\u{e9}b:example.com"] {
+            let edu = json!({ "content": { "user_id": user_id, "device_id": "DEV" } });
+            assert!(
+                validate_device_list_update_content(&edu, "example.com").is_none(),
+                "non-compliant localpart {user_id:?} must be dropped"
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_device_list_update_content_compliant_localpart_accepted() {
+        // Boundary: U+0021 and U+007E are the last compliant characters.
+        let edu = json!({ "content": { "user_id": "@!!~~:example.com", "device_id": "DEV" } });
+        let (user_id, _, _, _) =
+            validate_device_list_update_content(&edu, "example.com").expect("compliant localpart must pass");
+        assert_eq!(user_id, "@!!~~:example.com");
     }
 
     // --- direct_to_device: validate_direct_to_device_content ---

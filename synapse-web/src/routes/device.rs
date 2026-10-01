@@ -11,6 +11,7 @@ use axum::{
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::types::DeviceId;
+use synapse_common::MatrixErrorCode;
 
 async fn require_password_uia(
     ctx: &DeviceContext,
@@ -268,6 +269,15 @@ pub async fn get_devices(
     })))
 }
 
+/// Builds the `M_UNKNOWN_DEVICE` (HTTP 404) error returned when a device does
+/// not exist, or is not owned by the requesting user. `M_UNKNOWN_DEVICE` is the
+/// stable error code introduced in Matrix 1.17 (MSC4326); it supersedes the
+/// MSC4326-prefixed identifier used previously (upstream parity with Synapse
+/// PR #20181).
+fn unknown_device_error() -> ApiError {
+    ApiError::not_found("Device not found".to_string()).with_code(MatrixErrorCode::UnknownDevice)
+}
+
 /// See [`get_device`].
 pub async fn get_device(
     State(ctx): State<DeviceContext>,
@@ -287,8 +297,8 @@ pub async fn get_device(
             "display_name": d.display_name,
             "last_seen_ts": d.last_seen_ts,
         }))),
-        Some(_) => Err(ApiError::not_found("Device not found".to_string())),
-        None => Err(ApiError::not_found("Device not found".to_string())),
+        Some(_) => Err(unknown_device_error()),
+        None => Err(unknown_device_error()),
     }
 }
 
@@ -309,15 +319,12 @@ pub async fn update_device(
             .await?;
 
         if rows_affected == 0 {
-            return Err(ApiError::not_found("Device not found".to_string()));
+            return Err(unknown_device_error());
         }
     }
 
-    let device = ctx
-        .account_device_list_service
-        .get_device(device_id.as_str())
-        .await?
-        .ok_or_else(|| ApiError::not_found("Device not found after update".to_string()))?;
+    let device =
+        ctx.account_device_list_service.get_device(device_id.as_str()).await?.ok_or_else(unknown_device_error)?;
 
     broadcast_device_list_update(&ctx, &auth_user.user_id, device_id.as_str()).await;
 
@@ -342,7 +349,7 @@ pub async fn delete_device(
     let rows: u64 = ctx.token_auth.revoke_device(&auth_user.user_id, device_id.as_str()).await?;
 
     if rows == 0 {
-        return Err(ApiError::not_found("Device not found".to_string()));
+        return Err(unknown_device_error());
     }
 
     broadcast_device_list_update(&ctx, &auth_user.user_id, device_id.as_str()).await;
@@ -481,5 +488,15 @@ mod tests {
 
         assert_eq!(shared_paths.len(), 4);
         assert!(shared_paths.iter().all(|path| path.starts_with('/')));
+    }
+
+    /// H3 (Synapse PR #20181): device paths (get/update/delete) must surface the
+    /// stable `M_UNKNOWN_DEVICE` errcode with HTTP 404 instead of a generic error.
+    #[test]
+    fn unknown_device_error_uses_stable_errcode() {
+        let err = super::unknown_device_error();
+        assert!(err.code_is(synapse_common::MatrixErrorCode::UnknownDevice));
+        assert_eq!(err.code_str(), "M_UNKNOWN_DEVICE");
+        assert_eq!(err.http_status().as_u16(), 404);
     }
 }

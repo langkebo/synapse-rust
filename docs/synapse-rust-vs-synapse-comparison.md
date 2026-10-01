@@ -10,8 +10,8 @@
 > **更新说明**:
 > - **v1.10 上游基线升级到 Synapse v1.162.0（2026-09-29 发布）+ 本仓差距复核（2026-10-01）**：
 >   新增 **§18**（当前口径），按"① 上游变更要点 ② 逐项对照 ③ 分优先级建议 ④ 待验证清单"组织。
->   结论摘要：v1.162.0 无 Deprecations/Removals。本仓**已在 `feature/2026-10-01-metrics-docs-updates`
->   （tip `e1ffcb2ab`）落地该版本的大部分对齐项**：默认房间版本 12、OTK 单设备单算法 500 上限、
+>   结论摘要：v1.162.0 无 Deprecations/Removals。本仓**已落地该版本的大部分对齐项**（原分支
+>   `feature/2026-10-01-metrics-docs-updates`，tip `e1ffcb2ab`，2026-10-01 已合并进 `main`）：默认房间版本 12、OTK 单设备单算法 500 上限、
 >   `rc_profile`、profile 空字段 `{}`、hierarchy `allowed_room_ids`、稳定 `M_UNKNOWN_DEVICE`、
 >   非合规历史 user id 过滤、MSC4354 sticky EDU、缩略图异步（逐项证据与提交见 §18.3）。
 >   **仍然存在的差距**（§18.4）按优先级为：① **委派认证/MAS 运行时未接线**（`with_mas_validator` 0 调用者）
@@ -95,8 +95,6 @@
 > **生成日期**: 2026-09-16
 > **对比对象**: synapse-rust (Rust 重写实现) vs element-hq/synapse (Python 原始实现)
 > **对齐基准**: Synapse v1.162.0（2026-09-29 发布，`release-v1.162` CHANGES.md；v1.162.0 = rc1 + 无重大变更）
-
----
 
 ## 目录
 
@@ -233,7 +231,7 @@ synapse-rust 采用 Cargo Workspace：`[workspace] members` 声明 8 个 crate�
 
 ### 3.4 路由覆盖
 
-synapse-rust 的 HTTP 契约以机器抽取的 **`docs/synapse-rust/ROUTE_CONTRACT.md`**（2026-10-01 生成）为准：**1,151 条注册路由条目**（绝对 `(method, path)`，已解析 `.nest()` 前缀并去重），涉及 **65** 个含路由注册的模块文件；人工维护的 `docs/synapse-rust/API_COVERAGE_REPORT.md` 按三种口径记为 **注册条目 1,139 / 唯一路径 905 / 逻辑端点 797**——与前者**同源但口径不同**（后者折叠版本前缀并把同路径多方法合并），两者不可相加。路由文件分布在 **`synapse-web/src/routes/`** 下，共 144 个 `.rs` 文件。⚠️ 计数较 2026-09-22 的 1,165 / 66 **净减 14 条**：2026-09-25 E2EE 去服务端私钥重构删除 30 条（`verification_routes` 24 条 + `e2ee` 路由组 6 条），其后 profile `{user_id}/{key_name}` 新增 5 条（3 条来自 admin_media 新增路由，2 条来自 invite 路由的 POST 方法），`auth_issuer` 删除 1 条，2026-09-27 U-5 Admin 媒体端点族补全新增 5 条（房间级媒体列举/删除/隔离/解除隔离 + 媒体保护），2026-10-01 MSC3720 账户状态新增 2 条（客户端 `/_matrix/client/unstable/org.matrix.msc3720/account_status` + 联邦 `/_matrix/federation/unstable/org.matrix.msc3720/account_status`），**不是抽取器漂移**。
+synapse-rust 的 HTTP 契约以机器抽取的 **`docs/synapse-rust/ROUTE_CONTRACT.md`**（2026-10-01 生成）为准：**1,152 条注册路由条目**（绝对 `(method, path)`，已解析 `.nest()` 前缀并去重），涉及 **65** 个含路由注册的模块文件；人工维护的 `docs/synapse-rust/API_COVERAGE_REPORT.md` 按三种口径记为 **注册条目 1,139 / 唯一路径 905 / 逻辑端点 797**——与前者**同源但口径不同**（后者折叠版本前缀并把同路径多方法合并），两者不可相加。路由文件分布在 **`synapse-web/src/routes/`** 下，共 144 个 `.rs` 文件。⚠️ 计数较 2026-09-22 的 1,165 / 66 **净减 13 条**：2026-09-25 E2EE 去服务端私钥重构删除 30 条（`verification_routes` 24 条 + `e2ee` 路由组 6 条），其后 profile `{user_id}/{key_name}` 新增 5 条（3 条来自 admin_media 新增路由，2 条来自 invite 路由的 POST 方法），`auth_issuer` 删除 1 条，2026-09-27 U-5 Admin 媒体端点族补全新增 5 条（房间级媒体列举/删除/隔离/解除隔离 + 媒体保护），2026-10-01 两条对齐/RFC 批次共新增 3 条 —— MSC4140 单事件端点（L1，`GET /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}`，与同路径既有 `POST` 合并计入口径）与 MSC3720 账户状态（客户端 `/_matrix/client/unstable/org.matrix.msc3720/account_status` + 联邦 `/_matrix/federation/unstable/org.matrix.msc3720/account_status`），**不是抽取器漂移**。
 
 > ⚠️ 上一版本此处写"**656 个 API 端点，覆盖 48 个功能模块**，来源为项目 API 参考文档"。本轮复核确认：仓库内**不存在** `docs/synapse-rust/api-reference.md`，该数字无法在仓库中定位来源，且与上述两份权威清单均不一致，已删除。引用端点数量时请以 `ROUTE_CONTRACT.md` 为准。
 
@@ -368,7 +366,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | 维度 | Synapse (Python) | synapse-rust |
 |------|-------------------|--------------|
 | **文档文件数** | 官方文档站 (matrix-org.github.io) | 203 个文件（`git ls-files docs \| wc -l`，其中 `.md` 167 个） |
-| **API 参考** | 在线文档 | `docs/synapse-rust/ROUTE_CONTRACT.md`（1,151 条注册路由 / 65 个模块，机器抽取）+ ledger 导出契约；⚠️ 此前引用的 `docs/synapse-rust/api-reference.md` **不存在** |
+| **API 参考** | 在线文档 | `docs/synapse-rust/ROUTE_CONTRACT.md`（1,152 条注册路由 / 65 个模块，机器抽取）+ ledger 导出契约；⚠️ 此前引用的 `docs/synapse-rust/api-reference.md` **不存在** |
 | **Docker 配置** | docker-compose 示例 | 58 个文件位于 `docker/`（`git ls-files docker \| wc -l`，另有 3 个 `Dockerfile`：`docker/`、`docker/complement/`、`docker/deploy/alert-handler/`） |
 | **数据库标准** | 无统一标准 | `DATABASE_FIELD_STANDARDS.md` 字段命名规范 |
 
@@ -565,7 +563,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 
 | MSC / 功能 | Synapse (Python) v1.161 | synapse-rust v6.2.0 | 对齐状态 |
 |------------|--------------------------|----------------------|----------|
-| **核心 CS API** | ✅ 完整 | 路由面完整（`ROUTE_CONTRACT.md` 1,151 条注册路由）；按类别人工统计覆盖率 **80–97%**（`API_COVERAGE_REPORT.md`，2026-05-28 口径，非逐端点实测） | ⚠️ 未逐端点验证 |
+| **核心 CS API** | ✅ 完整 | 路由面完整（`ROUTE_CONTRACT.md` 1,152 条注册路由）；按类别人工统计覆盖率 **80–97%**（`API_COVERAGE_REPORT.md`，2026-05-28 口径，非逐端点实测） | ⚠️ 未逐端点验证 |
 | **联邦协议** | ✅ 完整 | ⚠️ **PARTIAL（2026-09-25 重判）**：`synapse-federation/` 模块存在，`send_*` 已按 `expected_membership` 校验；**`/send_join` 现已返回 `state` + `auth_chain`**（`synapse-web/src/routes/federation/membership/join.rs:209-212`（v1）、`:357-361`（v2）—— 旧版"仅回 `event_id`/`room_id`"已作废）。**但仍不合规**：① 响应体缺规范必需的 `event`（已签名的 join 事件），且 v1 缺 `[200, {…}]` 二元素数组包装；② `state`/`auth_chain` 条目是**手工拼装的 JSON**（`{event_id, sender, type, content, state_key}`，见 `synapse-services/src/room/messaging/events.rs:74-85`），**无 `hashes`/`signatures`/`depth`/`prev_events`/`auth_events`** ⇒ 合规远端无法验签、不能当 PDU 使用（根因见 §14.4）；③ `make_join` 模板仍缺 `origin`/`origin_server_ts`/`room_id`；④ 入房/离房路径**未调用房间 ACL 检查** | ⚠️ 部分对齐 |
 | **E2EE** | ✅ 完整（libolm） | ✅ **服务端侧已对齐规范（v1.8 重判，2026-09-25）**：Megolm/Olm、交叉签名、密钥备份**真实**。原 v1.4 的「设备信任**真实**」与「SAS 已 HKDF 但仍 4 处偏离规范 / QR 为显式 fail-closed」**两条评价均已作废** —— 服务端参与的 SAS/QR/设备信任实现连端点一并**整模块删除**（`synapse-web/src/routes/verification_routes.rs`、`synapse-e2ee/src/verification/`、`synapse-e2ee/src/device_trust/`），设备验证回归规范的客户端 `m.key.verification.*` to-device 中继；`leak_detection` 模块**已删除**（能力缺失）；SSSS 已于 2026-09-23 对齐 `aes-hmac-sha2`（见 §7.2） | ⚠️ 服务端侧对齐；**客户端 SAS 接线为独立任务**（本仓不含客户端源码） |
 | **Sliding Sync** | ✅ 完整 | ✅ 完整（独立 `sliding_sync_service/` 模块 + benchmark；另有 `msc4186` 简化滑动同步引用） | ✅ 已对齐 |
@@ -1091,12 +1089,13 @@ grep "CREATE INDEX" migrations/00000000_unified_schema_v12.sql | grep -i "events
   git diff --stat v1.161.0 v1.162.0                                            # 153 文件 / +8,223 / −1,739
   git diff v1.161.0 v1.162.0 -- synapse/config/ docs/usage/configuration/config_documentation.md
   ```
-- **本仓基线**：**以最新修订为准** —— `e1ffcb2ab`（分支 `feature/2026-10-01-metrics-docs-updates`）。
+- **本仓基线**：`main`（2026-10-01，`feature/2026-10-01-metrics-docs-updates` 已合并；该分支 tip `e1ffcb2ab`）。
   v1.162.0 的对齐提交都在这条分支上：`18a07b2c1`（metrics 模板）、`08d014626`（MSC4354 sticky EDU）、
   `d409bd89b`（OTK 上限 / historical user_id / `M_UNKNOWN_DEVICE`）、`ede782382`（MSC4140 GET /
   stream gauge / `redis.username` / profile 空字段 / hierarchy `allowed_room_ids`）。
-  `origin/main` @ `64a015a8d` **尚未**包含这些提交（`git log --oneline origin/main..e1ffcb2ab`）；
-  本文件所在的 `.worktrees/c19b` @ `64a015a8d` 更旧 —— **不要**用 c19b 判定 v1.162 的对齐状态
+  §18.3 表中标 `e1ffcb2ab` 的证据行取自合并前该分支 tip，合并后这些文件未变；本轮另加了 MSC3720
+  账户状态（客户端 + 联邦两条路由）与本文档自身的计数刷新。
+  ⚠️ **不要**用旧的 `.worktrees/c19b` @ `64a015a8d` 判定 v1.162 的对齐状态
   （本文 §18 初稿曾按 c19b 误判 6 项为缺失，已在 §18.3/§18.5 更正）。
 - **判定口径**：`路径:行号` 或可复现命令；找不到即写"❌ 缺"而不用"待确认"充当结论；无法在本轮证实的写
   "⚠️ 待验证"并在 §18.6 列出验证方法。

@@ -96,6 +96,8 @@ pub enum MatrixErrorCode {
     KeyTooLarge,
     /// M_PROFILE_TOO_LARGE: The stored profile would exceed its size limit (MSC4133).
     ProfileTooLarge,
+    /// M_UNKNOWN_DEVICE: The requested device does not exist (Matrix 1.17, MSC4326).
+    UnknownDevice,
 }
 
 impl MatrixErrorCode {
@@ -144,6 +146,7 @@ impl MatrixErrorCode {
             Self::ContentScanDisabled => "M_CONTENT_SCAN_DISABLED",
             Self::KeyTooLarge => "M_KEY_TOO_LARGE",
             Self::ProfileTooLarge => "M_PROFILE_TOO_LARGE",
+            Self::UnknownDevice => "M_UNKNOWN_DEVICE",
         }
     }
 
@@ -195,6 +198,7 @@ impl MatrixErrorCode {
             // specific errcode so clients can tell them apart from M_BAD_JSON.
             Self::KeyTooLarge => StatusCode::BAD_REQUEST,
             Self::ProfileTooLarge => StatusCode::BAD_REQUEST,
+            Self::UnknownDevice => StatusCode::NOT_FOUND,
         }
     }
 
@@ -248,6 +252,7 @@ impl MatrixErrorCode {
             "M_CONTENT_SCAN_DISABLED" => Some(Self::ContentScanDisabled),
             "M_KEY_TOO_LARGE" => Some(Self::KeyTooLarge),
             "M_PROFILE_TOO_LARGE" => Some(Self::ProfileTooLarge),
+            "M_UNKNOWN_DEVICE" => Some(Self::UnknownDevice),
             _ => None,
         }
     }
@@ -317,6 +322,7 @@ impl<'de> Deserialize<'de> for MatrixErrorCode {
                     "M_BAD_PAGINATION",
                     "M_CONTENT_SCAN_FAILED",
                     "M_CONTENT_SCAN_DISABLED",
+                    "M_UNKNOWN_DEVICE",
                 ],
             )
         })
@@ -324,3 +330,31 @@ impl<'de> Deserialize<'de> for MatrixErrorCode {
 }
 
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// H3 (Synapse PR #20181): the stable `M_UNKNOWN_DEVICE` errcode must map to
+    /// its canonical string in both directions.
+    #[test]
+    fn unknown_device_str_roundtrips() {
+        assert_eq!(MatrixErrorCode::UnknownDevice.as_str(), "M_UNKNOWN_DEVICE");
+        assert_eq!(MatrixErrorCode::UnknownDevice.to_string(), "M_UNKNOWN_DEVICE");
+        assert_eq!(MatrixErrorCode::from_str("M_UNKNOWN_DEVICE"), Some(MatrixErrorCode::UnknownDevice));
+        assert_eq!(MatrixErrorCode::from_str("M_NOT_A_REAL_CODE"), None);
+    }
+
+    #[test]
+    fn unknown_device_maps_to_http_404() {
+        assert_eq!(MatrixErrorCode::UnknownDevice.http_status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn unknown_device_serializes_and_deserializes() {
+        let encoded = serde_json::to_string(&MatrixErrorCode::UnknownDevice).expect("serialize");
+        assert_eq!(encoded, "\"M_UNKNOWN_DEVICE\"");
+        let decoded: MatrixErrorCode = serde_json::from_str(&encoded).expect("deserialize");
+        assert_eq!(decoded, MatrixErrorCode::UnknownDevice);
+    }
+}

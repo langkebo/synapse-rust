@@ -1103,6 +1103,9 @@ EXPECTED_ANNOTATIONS = {
         "query_params": "version"
     },
     ("GET", "/_matrix/admin/v1/external_services"): {"query_params": "service_type"},
+    ("GET", "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}"): {
+        "auth": "user"
+    },
     ("GET", "/_matrix/client/unstable/org.matrix.msc4155/rooms/{room_id}/threads"): {
         "query_params": "from,include_all,limit"
     },

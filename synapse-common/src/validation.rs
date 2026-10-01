@@ -64,6 +64,16 @@ pub fn is_well_formed_user_id(user_id: &str) -> bool {
         && server.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-'))
 }
 
+/// Returns `true` if `localpart` is a **compliant** user-ID localpart.
+///
+/// Per the Matrix spec appendices ("Historical user IDs"), a user ID is
+/// non-compliant if its localpart is empty or contains any character outside the
+/// range `U+0021..=U+007E`. Servers must ignore such "historical" user IDs in
+/// inbound device list updates (upstream parity with Synapse PR #20115).
+pub fn is_compliant_user_id_localpart(localpart: &str) -> bool {
+    !localpart.is_empty() && localpart.chars().all(|c| ('\u{21}'..='\u{7E}').contains(&c))
+}
+
 #[derive(Debug, Clone)]
 /// Represents Validator.
 pub struct Validator {
@@ -595,6 +605,18 @@ mod tests {
             let via_validator = validator.validate_matrix_id(id).is_ok();
             let via_pure = is_well_formed_user_id(id);
             assert_eq!(via_validator, via_pure, "user id {id:?}");
+        }
+    }
+
+    /// MSC/appendices "Historical user IDs": a localpart is compliant only when
+    /// non-empty and confined to the printable ASCII range U+0021..=U+007E.
+    #[test]
+    fn compliant_user_id_localpart_matches_the_historical_id_rule() {
+        for good in ["alice", "a", "user_name-1", "!\"#$%&'()*+,./", "0123456789", "~"] {
+            assert!(is_compliant_user_id_localpart(good), "{good:?} must be compliant");
+        }
+        for bad in ["", "ali ce", "ali\tce", "ali\nce", "ali\u{7f}ce", "\u{e9}lice"] {
+            assert!(!is_compliant_user_id_localpart(bad), "{bad:?} must be non-compliant");
         }
     }
 

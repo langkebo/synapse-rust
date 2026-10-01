@@ -116,6 +116,7 @@ pub fn build_test_config() -> Config {
         redis: RedisConfig {
             host: "localhost".to_string(),
             port: 6379,
+            username: None,
             password: None,
             key_prefix: "test:".to_string(),
             pool_size: 10,
@@ -235,5 +236,6 @@ pub fn build_test_config() -> Config {
         translate: synapse_common::config::TranslateConfig::default(),
         sso_redirect_allowlist: vec![],
         content_scanner: synapse_common::content_scanner::ContentScannerConfig::default(),
+        redaction_allowed_period: None,
     }
 }

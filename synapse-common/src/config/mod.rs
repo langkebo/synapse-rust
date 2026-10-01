@@ -240,6 +240,58 @@ pub struct Config {
     #[serde(default)]
     /// `content_scanner` field.
     pub content_scanner: super::content_scanner::ContentScannerConfig,
+    /// How long after an `m.room.message` was sent a **local** user may still
+    /// redact it (Synapse `redaction_allowed_period`). Accepts a Synapse duration
+    /// string (`7d`, `1h`, `30m`, `90s`, `2w`) or an integer number of
+    /// milliseconds. Redacting an older `m.room.message` returns `403
+    /// M_FORBIDDEN`. `None` (the default) disables the limit.
+    #[serde(default, deserialize_with = "deserialize_optional_duration_ms")]
+    /// `redaction_allowed_period` field.
+    pub redaction_allowed_period: Option<i64>,
+}
+
+/// Deserialize an optional duration expressed either as a Synapse duration
+/// string (`7d`) or as a plain integer number of milliseconds.
+fn deserialize_optional_duration_ms<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error as _;
+
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    match value {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::Number(number)) => number.as_i64().map(Some).ok_or_else(|| {
+            D::Error::custom("redaction_allowed_period must be an integer number of milliseconds or a duration string")
+        }),
+        Some(serde_json::Value::String(text)) => parse_duration_ms(&text)
+            .map(Some)
+            .ok_or_else(|| D::Error::custom(format!("invalid redaction_allowed_period duration: {text:?}"))),
+        Some(_) => Err(D::Error::custom(
+            "redaction_allowed_period must be a duration string or an integer number of milliseconds",
+        )),
+    }
+}
+
+/// Parse a Synapse-style duration (`7d`, `1h`, `30m`, `90s`, `2w`) into
+/// milliseconds. A value with no recognised suffix is treated as milliseconds,
+/// matching Synapse's `parse_duration`.
+fn parse_duration_ms(value: &str) -> Option<i64> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+
+    let (digits, factor) = match value.as_bytes().last().copied() {
+        Some(b's') => (&value[..value.len() - 1], 1_000_i64),
+        Some(b'm') => (&value[..value.len() - 1], 60_000_i64),
+        Some(b'h') => (&value[..value.len() - 1], 3_600_000_i64),
+        Some(b'd') => (&value[..value.len() - 1], 86_400_000_i64),
+        Some(b'w') => (&value[..value.len() - 1], 604_800_000_i64),
+        _ => (value, 1_i64),
+    };
+
+    digits.trim().parse::<i64>().ok().map(|n| n.saturating_mul(factor))
 }
 
 impl Config {
@@ -313,6 +365,7 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn test_config_rejects_unknown_top_level_key() {
@@ -379,6 +432,7 @@ mod tests {
             redis: RedisConfig {
                 host: "localhost".to_string(),
                 port: 6379,
+                username: None,
                 password: None,
                 key_prefix: "test:".to_string(),
                 pool_size: 10,
@@ -542,6 +596,7 @@ mod tests {
             redis: RedisConfig {
                 host: "redis.example.com".to_string(),
                 port: 6380,
+                username: None,
                 password: Some("secret".to_string()),
                 key_prefix: "prod:".to_string(),
                 pool_size: 20,
@@ -723,6 +778,7 @@ mod tests {
         let config = RedisConfig {
             host: "127.0.0.1".to_string(),
             port: 6379,
+            username: None,
             password: None,
             key_prefix: "synapse:".to_string(),
             pool_size: 16,
@@ -746,6 +802,7 @@ mod tests {
         let config = RedisConfig {
             host: "redis".to_string(),
             port: 6379,
+            username: None,
             password: Some("secret".to_string()),
             key_prefix: "synapse:".to_string(),
             pool_size: 16,
@@ -817,6 +874,7 @@ mod tests {
             redis: RedisConfig {
                 host: "localhost".to_string(),
                 port: 6379,
+                username: None,
                 password: Some("${TEST_REDIS_PASSWORD:?missing}".to_string()),
                 key_prefix: "test:".to_string(),
                 pool_size: 10,
@@ -1074,6 +1132,72 @@ mod tests {
         // DEFAULT_REFRESH_TOKEN_EXPIRY_SECS（7 天）。
         let config = Config::default();
         assert_eq!(config.refresh_token_lifetime_seconds(), crate::DEFAULT_REFRESH_TOKEN_EXPIRY_SECS);
+    }
+
+    /// `Config` 的必填字段（`server`/`database`/`redis`/…）无默认值，无法用最小 JSON
+    /// 直接反序列化整个 `Config`，因此这里用一个镜像了 `Config::redaction_allowed_period`
+    /// 完全相同 serde 属性的探针结构体来验证该字段的解析行为。
+    #[derive(serde::Deserialize)]
+    struct RedactionPeriodProbe {
+        #[serde(default, deserialize_with = "super::deserialize_optional_duration_ms")]
+        redaction_allowed_period: Option<i64>,
+    }
+
+    fn parse_redaction_period(value: serde_json::Value) -> Result<Option<i64>, serde_json::Error> {
+        serde_json::from_value::<RedactionPeriodProbe>(json!({ "redaction_allowed_period": value }))
+            .map(|probe| probe.redaction_allowed_period)
+    }
+
+    #[test]
+    fn test_redaction_allowed_period_accepts_duration_strings() {
+        // Synapse 的 redaction_allowed_period 用 duration 字符串（如 "7d"），本项目
+        // 内部统一存毫秒；此处锁定 s/m/h/d/w 各单位的换算。
+        for (raw, expected) in [
+            (json!("7d"), 604_800_000_i64),
+            (json!("1h"), 3_600_000),
+            (json!("30m"), 1_800_000),
+            (json!("90s"), 90_000),
+            (json!("2w"), 1_209_600_000),
+        ] {
+            let parsed = parse_redaction_period(raw.clone()).unwrap();
+            assert_eq!(parsed, Some(expected), "raw={raw}");
+        }
+    }
+
+    #[test]
+    fn test_redaction_allowed_period_accepts_integer_millis() {
+        let parsed = parse_redaction_period(json!(3_600_000)).unwrap();
+        assert_eq!(parsed, Some(3_600_000));
+    }
+
+    #[test]
+    fn test_redaction_allowed_period_defaults_to_none() {
+        // 缺省与显式 null 都应关闭时限。
+        let absent: RedactionPeriodProbe = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(absent.redaction_allowed_period, None);
+        let explicit = parse_redaction_period(serde_json::Value::Null).unwrap();
+        assert_eq!(explicit, None);
+    }
+
+    #[test]
+    fn test_redaction_allowed_period_rejects_invalid_values() {
+        // 非法 duration 字符串与浮点数都应硬失败（静默降级会掩盖写错的配置）。
+        let err = parse_redaction_period(json!("never")).unwrap_err();
+        assert!(err.to_string().contains("redaction_allowed_period"), "实际：{err}");
+        let err = parse_redaction_period(json!(1.5)).unwrap_err();
+        assert!(err.to_string().contains("redaction_allowed_period"), "实际：{err}");
+    }
+
+    #[test]
+    fn test_parse_duration_ms_units() {
+        assert_eq!(parse_duration_ms("500"), Some(500));
+        assert_eq!(parse_duration_ms("2s"), Some(2_000));
+        assert_eq!(parse_duration_ms("2m"), Some(120_000));
+        assert_eq!(parse_duration_ms("2h"), Some(7_200_000));
+        assert_eq!(parse_duration_ms("2d"), Some(172_800_000));
+        assert_eq!(parse_duration_ms("2w"), Some(1_209_600_000));
+        assert_eq!(parse_duration_ms(""), None);
+        assert_eq!(parse_duration_ms("abc"), None);
     }
 }
 

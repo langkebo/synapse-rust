@@ -168,11 +168,7 @@ impl UserService {
     #[instrument(skip(self))]
     pub async fn get_profile(&self, user_id: &str) -> Result<serde_json::Value, ApiError> {
         let user = self.get_user(user_id).await?.ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
-        Ok(serde_json::json!({
-            "user_id": user.user_id,
-            "displayname": user.displayname,
-            "avatar_url": user.avatar_url
-        }))
+        Ok(build_profile_json(&user.user_id, user.displayname.as_deref(), user.avatar_url.as_deref()))
     }
 
     /// See [`get_profiles_batch`].
@@ -181,9 +177,7 @@ impl UserService {
         let profiles = self.user_storage.get_user_profiles_batch(user_ids).await.map_err(Self::db_error)?;
         Ok(profiles
             .into_iter()
-            .map(
-                |u| serde_json::json!({"user_id": u.user_id, "displayname": u.displayname, "avatar_url": u.avatar_url}),
-            )
+            .map(|u| build_profile_json(&u.user_id, u.displayname.as_deref(), u.avatar_url.as_deref()))
             .collect())
     }
 
@@ -458,6 +452,22 @@ impl UserService {
     }
 }
 
+/// Builds a profile JSON body, omitting `displayname`/`avatar_url` when they are
+/// unset (the column is `NULL` or an empty string). Matrix clients treat a
+/// missing key as "not set", so this matches upstream Synapse, which returns an
+/// empty object rather than `null`/`""` for unset fields.
+fn build_profile_json(user_id: &str, displayname: Option<&str>, avatar_url: Option<&str>) -> serde_json::Value {
+    let mut profile = serde_json::Map::new();
+    profile.insert("user_id".to_string(), serde_json::Value::String(user_id.to_string()));
+    if let Some(displayname) = displayname.filter(|value| !value.is_empty()) {
+        profile.insert("displayname".to_string(), serde_json::Value::String(displayname.to_string()));
+    }
+    if let Some(avatar_url) = avatar_url.filter(|value| !value.is_empty()) {
+        profile.insert("avatar_url".to_string(), serde_json::Value::String(avatar_url.to_string()));
+    }
+    serde_json::Value::Object(profile)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -476,14 +486,11 @@ mod tests {
         let profile = service.get_profile("@alice:example.com").await.unwrap();
         assert!(profile.is_object());
 
-        let user_id = profile.get("user_id").and_then(|v| v.as_str());
-        let displayname = profile.get("displayname").and_then(|v| v.as_str());
-        let avatar_url = profile.get("avatar_url").and_then(|v| v.as_str());
-
-        assert_eq!(user_id, Some("@alice:example.com"));
-        // displayname and avatar_url are None for seeded user
-        assert!(displayname.is_none() || displayname == Some(""));
-        assert!(avatar_url.is_none() || avatar_url == Some(""));
+        assert_eq!(profile.get("user_id").and_then(|v| v.as_str()), Some("@alice:example.com"));
+        // Unset fields are omitted from the payload rather than emitted as
+        // `null`/`""`.
+        assert!(profile.get("displayname").is_none());
+        assert!(profile.get("avatar_url").is_none());
     }
 
     #[tokio::test]

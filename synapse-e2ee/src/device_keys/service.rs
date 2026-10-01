@@ -6,12 +6,29 @@ use crate::signed_json::verify_device_keys_signature;
 use crate::signed_json::verify_one_time_key_signature;
 use chrono::Utc;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_common::current_timestamp_millis;
 use synapse_common::map_database;
 use synapse_common::ApiError;
+use synapse_common::MatrixErrorCode;
 use synapse_storage::DehydratedDeviceStorage;
+
+/// Maximum number of one-time keys a single device may hold per algorithm.
+///
+/// Mirrors Synapse's `MAX_ONE_TIME_KEYS_PER_ALGORITHM_PER_DEVICE` (PR #20162).
+const MAX_ONE_TIME_KEYS_PER_ALGORITHM_PER_DEVICE: i64 = 500;
+
+/// Derives the one-time-key algorithm for a key identified by `key_id` with
+/// value `key_data`, matching the derivation used when persisting the key.
+fn one_time_key_algorithm<'a>(key_id: &'a str, key_data: &'a Value) -> &'a str {
+    if key_data.is_string() {
+        "curve25519"
+    } else {
+        key_id.split(':').next().unwrap_or("signed_curve25519")
+    }
+}
 
 #[derive(Clone)]
 /// The `DeviceKeyService` type.
@@ -284,18 +301,36 @@ impl DeviceKeyService {
                 self.storage.get_device_key(&user_id, &device_id, "ed25519").await?.map(|k| k.public_key);
 
             if let Some(keys) = one_time_keys.as_object() {
+                // Enforce a per-device, per-algorithm cap of 500 one-time keys
+                // (upstream parity with Synapse PR #20162). Count the incoming
+                // keys by algorithm, add what the device already holds, and
+                // reject the whole upload — without persisting anything — if any
+                // algorithm would exceed the limit.
+                let mut new_counts: HashMap<&str, i64> = HashMap::new();
                 for (key_id, key_data) in keys {
-                    let (algorithm, public_key, signatures) = if key_data.is_string() {
-                        (
-                            "curve25519".to_string(),
-                            key_data.as_str().unwrap_or_default().to_string(),
-                            serde_json::json!({}),
-                        )
+                    *new_counts.entry(one_time_key_algorithm(key_id, key_data)).or_insert(0) += 1;
+                }
+                if !user_id.is_empty() && !device_id.is_empty() {
+                    let existing = self.storage.get_one_time_keys_count_by_algorithm(&user_id, &device_id).await?;
+                    for (algorithm, new_count) in new_counts {
+                        let total = existing.get(algorithm).copied().unwrap_or(0) + new_count;
+                        if total > MAX_ONE_TIME_KEYS_PER_ALGORITHM_PER_DEVICE {
+                            return Err(ApiError::bad_request(format!(
+                                "Uploading {new_count} more {algorithm} one-time keys would leave the device holding {total}, over the limit of {MAX_ONE_TIME_KEYS_PER_ALGORITHM_PER_DEVICE}"
+                            ))
+                            .with_code(MatrixErrorCode::TooLarge));
+                        }
+                    }
+                }
+
+                for (key_id, key_data) in keys {
+                    let algorithm = one_time_key_algorithm(key_id, key_data).to_string();
+                    let (public_key, signatures) = if key_data.is_string() {
+                        (key_data.as_str().unwrap_or_default().to_string(), serde_json::json!({}))
                     } else {
-                        let algo = key_id.split(':').next().unwrap_or("signed_curve25519");
                         let pk = key_data["key"].as_str().unwrap_or_default().to_string();
                         let sigs = key_data.get("signatures").cloned().unwrap_or(serde_json::json!({}));
-                        (algo.to_string(), pk, sigs)
+                        (pk, sigs)
                     };
 
                     if algorithm == "signed_curve25519" {
@@ -825,6 +860,7 @@ mod tests {
     use crate::device_keys::models::DeviceKeys;
     use base64::Engine;
     use ed25519_dalek::{Signer, SigningKey};
+    use synapse_common::MatrixErrorCode;
 
     fn matrix_sign(value: &mut serde_json::Value, user_id: &str, key_id: &str, signing_key: &SigningKey) {
         let mut for_signing = value.clone();
@@ -968,5 +1004,86 @@ mod tests {
         let failures = response.get("failures").and_then(|f| f.as_object()).expect("failures object");
         assert!(failures.is_empty(), "own signature must not fail, got: {failures:?}");
         assert_eq!(store.signature_count().await, 1, "own signature must be stored");
+    }
+
+    // ------------------------------------------------------------------
+    // H1 (Synapse PR #20162): per-device, per-algorithm one-time key cap of 500
+    // ------------------------------------------------------------------
+
+    /// Build an upload carrying `count` legacy (string-valued) one-time keys.
+    /// A string value makes `one_time_key_algorithm` derive `curve25519`.
+    fn string_valued_otk_upload(count: usize) -> KeyUploadRequest {
+        let mut keys = serde_json::Map::new();
+        for i in 0..count {
+            keys.insert(format!("curve25519:K{i}"), serde_json::Value::String("curve_public_key".to_string()));
+        }
+        KeyUploadRequest {
+            device_keys: None,
+            one_time_keys: Some(serde_json::Value::Object(keys)),
+            fallback_keys: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn upload_keys_allows_exactly_the_per_algorithm_one_time_key_limit() {
+        let store = InMemoryDeviceKeyStore::new();
+        let storage: Arc<dyn super::DeviceKeyStoreApi> = Arc::new(store.clone());
+        let service = DeviceKeyService::new(storage, make_test_cache());
+
+        let result = service.upload_keys(string_valued_otk_upload(500), "@alice:example.com", "DEVICE_A").await;
+
+        assert!(result.is_ok(), "exactly 500 one-time keys must be accepted, got: {result:?}");
+    }
+
+    #[tokio::test]
+    async fn upload_keys_rejects_one_time_keys_over_the_per_algorithm_limit() {
+        let store = InMemoryDeviceKeyStore::new();
+        let storage: Arc<dyn super::DeviceKeyStoreApi> = Arc::new(store.clone());
+        let service = DeviceKeyService::new(storage, make_test_cache());
+
+        let err = service
+            .upload_keys(string_valued_otk_upload(501), "@alice:example.com", "DEVICE_A")
+            .await
+            .expect_err("501 one-time keys must be rejected");
+
+        assert!(err.code_is(MatrixErrorCode::TooLarge), "expected M_TOO_LARGE, got {}", err.code_str());
+        assert_eq!(err.code_str(), "M_TOO_LARGE");
+        // The cap is a client error, so the API surfaces it as HTTP 400 even
+        // though the raw `M_TOO_LARGE` errcode canonically maps to 413.
+        assert_eq!(err.http_status().as_u16(), 400, "over-limit upload must map to HTTP 400");
+        // The whole upload is rejected atomically — nothing is persisted.
+        let stored = store.get_device_key("@alice:example.com", "DEVICE_A", "curve25519").await.expect("query");
+        assert!(stored.is_none(), "a rejected upload must not persist any one-time key");
+    }
+
+    #[tokio::test]
+    async fn upload_keys_rejects_when_existing_keys_would_exceed_the_limit() {
+        let store = InMemoryDeviceKeyStore::new();
+        // The device already holds 500 `signed_curve25519` keys.
+        for i in 0..500 {
+            let mut key = make_device_key("@alice:example.com", "DEVICE_A", "signed_curve25519");
+            key.key_id = format!("signed_curve25519:seed{i}");
+            key.public_key = format!("pk-seed-{i}");
+            store.seed_key(key).await;
+        }
+        let storage: Arc<dyn super::DeviceKeyStoreApi> = Arc::new(store);
+        let service = DeviceKeyService::new(storage, make_test_cache());
+
+        // One more key of the same algorithm would push the total to 501.
+        let request = KeyUploadRequest {
+            device_keys: None,
+            one_time_keys: Some(serde_json::json!({
+                "signed_curve25519:NEW": { "key": "curve_public_key" }
+            })),
+            fallback_keys: None,
+        };
+
+        let err = service
+            .upload_keys(request, "@alice:example.com", "DEVICE_A")
+            .await
+            .expect_err("existing + new keys over the limit must be rejected");
+
+        assert!(err.code_is(MatrixErrorCode::TooLarge));
+        assert_eq!(err.code_str(), "M_TOO_LARGE");
     }
 }

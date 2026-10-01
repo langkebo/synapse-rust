@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": true
   },
-  "entry_count": 1151,
+  "entry_count": 1152,
   "entries": [
     {
       "method": "GET",
@@ -309,6 +309,16 @@
         "session_id"
       ],
       "query_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}",
+      "registered_by": "delayed_events",
+      "path_params": [
+        "delay_id"
+      ],
+      "query_params": [],
+      "auth": "user"
     },
     {
       "method": "POST",

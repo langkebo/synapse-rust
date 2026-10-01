@@ -94,6 +94,7 @@ backport
 backporting
 badrequest
 balancer
+bargauge
 basename
 bcrypt
 beaconservice
@@ -114,6 +115,7 @@ br
 bre
 btree
 bugfix
+bugfixes
 buildable
 buildkit
 buildx
@@ -371,6 +373,7 @@ index
 indexmap
 indirections
 influxdb
+ini
 init
 initcontainer
 initdb
@@ -547,6 +550,7 @@ orbstack
 originserverts
 otk
 owasp
+pagerduty
 param
 parameterised
 params
@@ -564,6 +568,7 @@ pgpool
 pgpooloptions
 pgsql
 pid
+piechart
 pipefail
 pkce
 pkcs
@@ -899,6 +904,7 @@ vendored
 venv
 vh
 victoriametrics
+vite
 vitest
 vm
 vodozemac
@@ -914,6 +920,7 @@ walkthroughs
 webhook
 webhooks
 webp
+webpack
 webpush
 webrtc
 websocket

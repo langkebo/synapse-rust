@@ -151,6 +151,9 @@ pub struct RedisConfig {
     pub host: String,
     /// Redis 端口
     pub port: u16,
+    /// Redis 用户名（Redis 6+ ACL，可选）
+    /// `username` field.
+    pub username: Option<String>,
     /// Redis 密码（可选）
     #[educe(Debug(ignore))]
     /// `password` field.
@@ -178,13 +181,19 @@ pub struct RedisConfig {
 impl RedisConfig {
     /// Connections the url.
     pub fn connection_url(&self) -> String {
-        if let Some(password) = &self.password {
-            if !password.is_empty() {
-                return format!("redis://:{}@{}:{}/", password, self.host, self.port);
-            }
-        }
+        let username = self.username.as_deref().filter(|value| !value.is_empty());
+        let password = self.password.as_deref().filter(|value| !value.is_empty());
 
-        format!("redis://{}:{}/", self.host, self.port)
+        match (username, password) {
+            (Some(username), Some(password)) => {
+                format!("redis://{}:{}@{}:{}/", username, password, self.host, self.port)
+            }
+            (Some(username), None) => {
+                format!("redis://{}@{}:{}/", username, self.host, self.port)
+            }
+            (None, Some(password)) => format!("redis://:{}@{}:{}/", password, self.host, self.port),
+            (None, None) => format!("redis://{}:{}/", self.host, self.port),
+        }
     }
 }
 
@@ -280,6 +289,42 @@ mod tests {
         let config =
             RedisConfig { host: "localhost".into(), port: 6379, password: Some("".into()), ..Default::default() };
         assert_eq!(config.connection_url(), "redis://localhost:6379/");
+    }
+
+    #[test]
+    fn redis_connection_url_with_username_and_password() {
+        let config = RedisConfig {
+            host: "redis.example.com".into(),
+            port: 6380,
+            username: Some("synapse".into()),
+            password: Some("secret".into()),
+            ..Default::default()
+        };
+        assert_eq!(config.connection_url(), "redis://synapse:secret@redis.example.com:6380/");
+    }
+
+    #[test]
+    fn redis_connection_url_with_username_only() {
+        let config = RedisConfig {
+            host: "redis.example.com".into(),
+            port: 6380,
+            username: Some("synapse".into()),
+            password: None,
+            ..Default::default()
+        };
+        assert_eq!(config.connection_url(), "redis://synapse@redis.example.com:6380/");
+    }
+
+    #[test]
+    fn redis_connection_url_empty_username_skipped() {
+        let config = RedisConfig {
+            host: "localhost".into(),
+            port: 6379,
+            username: Some("".into()),
+            password: Some("secret".into()),
+            ..Default::default()
+        };
+        assert_eq!(config.connection_url(), "redis://:secret@localhost:6379/");
     }
 
     #[test]

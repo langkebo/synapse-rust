@@ -29,6 +29,35 @@ impl DelayedEventService {
         self.storage.create_delayed_event(request).await
     }
 
+    /// Fetch a single *pending* delayed event for `caller_id` (MSC4140 `GET`).
+    ///
+    /// Mirrors [`manage`]'s fail-closed ownership rule so the endpoint never
+    /// leaks the existence of another user's delayed event: a missing event, a
+    /// foreign event, and an already-settled (`non-pending`) event all surface
+    /// as "not found". Upstream only returns rows where `is_processed = False`,
+    /// which this project tracks as `status == "pending"`.
+    pub async fn get(&self, delay_id: i64, caller_id: &str, request_id: &str) -> Result<DelayedEvent, ApiError> {
+        let event = self
+            .storage
+            .get_delayed_event(delay_id)
+            .await?
+            .ok_or_else(|| ApiError::not_found("Delayed event not found".to_string()))?;
+
+        if event.user_id != caller_id || event.status != "pending" {
+            tracing::warn!(
+                request_id = %request_id,
+                delay_id,
+                owner = %event.user_id,
+                caller = %caller_id,
+                status = %event.status,
+                "MSC4140 single-event lookup denied: not a pending event owned by the caller"
+            );
+            return Err(ApiError::not_found("Delayed event not found".to_string()));
+        }
+
+        Ok(event)
+    }
+
     /// Apply a client-requested `action` to the delayed event `delay_id` on
     /// behalf of `caller_id`.
     ///
@@ -149,5 +178,41 @@ mod tests {
         let (service, store, id) = seeded().await;
         service.manage(id, DelayedEventAction::Restart, "@alice:example.com", "req-6").await.expect("restart");
         assert_eq!(store.status_of(id).await.as_deref(), Some("pending"));
+    }
+
+    #[tokio::test]
+    async fn owner_can_fetch_their_pending_delayed_event() {
+        let (service, _, id) = seeded().await;
+        let event = service.get(id, "@alice:example.com", "req-7").await.expect("get");
+        assert_eq!(event.id, id);
+        assert_eq!(event.user_id, "@alice:example.com");
+        assert_eq!(event.room_id, "!room:example.com");
+        assert_eq!(event.event_type, "m.room.message");
+        assert_eq!(event.delay_ms, 5_000);
+    }
+
+    #[tokio::test]
+    async fn fetching_a_foreign_event_is_not_found() {
+        let (service, _, id) = seeded().await;
+        let err = service.get(id, "@mallory:example.com", "req-8").await.expect_err("foreign caller must be hidden");
+        assert_eq!(err.kind, ApiErrorKind::NotFound, "must hide existence, not 403");
+    }
+
+    #[tokio::test]
+    async fn fetching_a_missing_event_is_not_found() {
+        let (service, _, _) = seeded().await;
+        let err = service.get(9_999, "@alice:example.com", "req-9").await.expect_err("missing event must 404");
+        assert_eq!(err.kind, ApiErrorKind::NotFound);
+    }
+
+    #[tokio::test]
+    async fn fetching_a_settled_event_is_not_found() {
+        let (service, _, id) = seeded().await;
+        service.manage(id, DelayedEventAction::Send, "@alice:example.com", "req-10").await.expect("send");
+        let err = service
+            .get(id, "@alice:example.com", "req-11")
+            .await
+            .expect_err("settled event must be hidden (upstream filters is_processed=false)");
+        assert_eq!(err.kind, ApiErrorKind::NotFound);
     }
 }

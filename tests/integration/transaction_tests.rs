@@ -72,6 +72,7 @@ fn create_test_config() -> Config {
         redis: RedisConfig {
             host: "localhost".to_string(),
             port: 6379,
+            username: None,
             password: None,
             key_prefix: "test:".to_string(),
             pool_size: 5,
@@ -178,6 +179,7 @@ fn create_test_config() -> Config {
         policy_server: synapse_rust::common::config::PolicyServerConfig::default(),
         mas: synapse_rust::common::config::MasConfig::default(),
         content_scanner: synapse_rust::common::content_scanner::ContentScannerConfig::default(),
+        redaction_allowed_period: None,
     }
 }
 

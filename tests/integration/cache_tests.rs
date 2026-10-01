@@ -163,6 +163,7 @@ mod cache_integration_tests {
             let redis_config = RedisConfig {
                 host: "redis.example.com".to_string(),
                 port: 6380,
+                username: None,
                 password: Some("secret".to_string()),
                 key_prefix: "test:".to_string(),
                 pool_size: 5,

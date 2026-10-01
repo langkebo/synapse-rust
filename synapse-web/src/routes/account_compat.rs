@@ -121,14 +121,12 @@ pub(crate) async fn get_displayname(
 
     // Remote user: proxy profile query via federation.
     if let Some(remote_profile) = try_fetch_remote_profile(&ctx, &user_id).await? {
-        let displayname = remote_profile.get("displayname").and_then(|v| v.as_str()).unwrap_or("");
-        return Ok(Json(json!({ "displayname": displayname })));
+        return Ok(Json(single_profile_field(&remote_profile, "displayname")));
     }
 
     let profile = ctx.registration_service.get_profile(&user_id).await?;
 
-    let displayname = profile.get("displayname").and_then(|v| v.as_str()).unwrap_or("");
-    Ok(Json(json!({ "displayname": displayname })))
+    Ok(Json(single_profile_field(&profile, "displayname")))
 }
 
 /// See [`get_avatar_url`].
@@ -144,14 +142,24 @@ pub(crate) async fn get_avatar_url(
 
     // Remote user: proxy profile query via federation.
     if let Some(remote_profile) = try_fetch_remote_profile(&ctx, &user_id).await? {
-        let avatar_url = remote_profile.get("avatar_url").and_then(|v| v.as_str()).unwrap_or("");
-        return Ok(Json(json!({ "avatar_url": avatar_url })));
+        return Ok(Json(single_profile_field(&remote_profile, "avatar_url")));
     }
 
     let profile = ctx.registration_service.get_profile(&user_id).await?;
 
-    let avatar_url = profile.get("avatar_url").and_then(|v| v.as_str()).unwrap_or("");
-    Ok(Json(json!({ "avatar_url": avatar_url })))
+    Ok(Json(single_profile_field(&profile, "avatar_url")))
+}
+
+/// Builds a single-field profile response (`{ "<field>": value }`), returning an
+/// empty object when the value is unset (`null`, missing, or an empty string).
+/// Aligns with upstream Synapse, which omits unset profile fields rather than
+/// returning `null`/`""`.
+fn single_profile_field(profile: &Value, field: &str) -> Value {
+    let mut object = serde_json::Map::new();
+    if let Some(value) = profile.get(field).and_then(|value| value.as_str()).filter(|value| !value.is_empty()) {
+        object.insert(field.to_string(), Value::String(value.to_string()));
+    }
+    Value::Object(object)
 }
 
 /// If `user_id` belongs to a remote server, fetch its profile via
@@ -172,11 +180,16 @@ async fn try_fetch_remote_profile(ctx: &AuthContext, user_id: &str) -> Result<Op
         ApiError::not_found("Profile not found on remote server".to_string())
     })?;
 
-    Ok(Some(json!({
-        "user_id": user_id,
-        "displayname": profile.displayname,
-        "avatar_url": profile.avatar_url
-    })))
+    let mut profile_json = serde_json::Map::new();
+    profile_json.insert("user_id".to_string(), Value::String(user_id.to_string()));
+    if let Some(displayname) = profile.displayname.as_deref().filter(|value| !value.is_empty()) {
+        profile_json.insert("displayname".to_string(), Value::String(displayname.to_string()));
+    }
+    if let Some(avatar_url) = profile.avatar_url.as_deref().filter(|value| !value.is_empty()) {
+        profile_json.insert("avatar_url".to_string(), Value::String(avatar_url.to_string()));
+    }
+
+    Ok(Some(Value::Object(profile_json)))
 }
 
 /// See [`update_displayname`].

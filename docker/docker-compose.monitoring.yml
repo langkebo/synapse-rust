@@ -1,0 +1,191 @@
+# =============================================================================
+# Synapse-Rust 监控栈 - Prometheus + Alertmanager + Grafana
+# =============================================================================
+# 使用说明:
+#   docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+# 
+# 访问地址:
+#   - Prometheus: http://localhost:9090
+#   - Grafana:    http://localhost:9091
+#   - Alertmanager: http://localhost:9093
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Prometheus Server - 指标采集与存储
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: synapse-prometheus
+    restart: unless-stopped
+    cpus: 1.0
+    mem_limit: 512m
+    networks:
+      - synapse_network
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      # Prometheus 配置文件
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # 告警规则文件
+      - ./monitoring/alerting-rules.yml:/etc/prometheus/alerting-rules.yml:ro
+      # 持久化数据存储
+      - prometheus_data:/prometheus
+    command:
+      # Web 安全绑定
+      - '--web.listen-address=0.0.0.0:9090'
+      # 启用远程写入（可选）
+      - '--web.enable-remote-write-receiver'
+      # 告警管理器地址
+      - '--alertmanager.url=http://alertmanager:9093'
+      # 规则文件路径
+      - '--rules.file=/etc/prometheus/alerting-rules.yml'
+      # 数据保留策略（根据存储容量调整）
+      - '--storage.tsdb.retention.time=15d'
+      - '--storage.tsdb.retention.size=10GB'
+      # 并发查询限制
+      - '--query.max-concurrency=20'
+      - '--query.timeout=2m'
+    depends_on:
+      - alertmanager
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ---------------------------------------------------------------------------
+  # Alertmanager - 告警路由与通知
+  # ---------------------------------------------------------------------------
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: synapse-alertmanager
+    restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 128m
+    networks:
+      - synapse_network
+    ports:
+      - "127.0.0.1:9093:9093"
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.listen-address=0.0.0.0:9093'
+      # 集群通信（多实例场景）
+      - '--cluster.listen-address='
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ---------------------------------------------------------------------------
+  # Grafana - 可视化仪表盘
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: synapse-grafana
+    restart: unless-stopped
+    cpus: 1.0
+    mem_limit: 256m
+    networks:
+      - synapse_network
+    ports:
+      - "127.0.0.1:9091:3000"
+    environment:
+      # 管理员账户（首次启动时设置）
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin123}
+      # 禁用匿名访问（生产环境必须）
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      # 时区设置
+      - GF_DEFAULT_APP_MODE=production
+      - GF_SERVER_ROOT_URL=http://localhost:9091
+      # 自动加载数据源和仪表盘
+      - GF_PROVISIONING_PATH=/etc/grafana/provisioning
+    volumes:
+      # 持久化数据
+      - grafana_data:/var/lib/grafana
+      # 数据源配置
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      # 仪表盘配置（目录内已含 SLO / 业务仪表盘 JSON，providers.yml 自动加载）
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ---------------------------------------------------------------------------
+  # Node Exporter - 主机系统指标采集
+  # ---------------------------------------------------------------------------
+  node-exporter:
+    image: prom/node-exporter:v1.6.1
+    container_name: synapse-node-exporter
+    restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 64m
+    networks:
+      - synapse_network
+    ports:
+      - "127.0.0.1:9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9100/metrics"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  prometheus_data:
+    driver: local
+    labels:
+      synapse-rust.monitoring: "prometheus-data"
+  alertmanager_data:
+    driver: local
+    labels:
+      synapse-rust.monitoring: "alertmanager-data"
+  grafana_data:
+    driver: local
+    labels:
+      synapse-rust.monitoring: "grafana-data"
+
+networks:
+  synapse_network:
+    external: true
+    name: ${COMPOSE_PROJECT_NAME:-synapse}_network

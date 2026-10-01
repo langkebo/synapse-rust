@@ -276,13 +276,13 @@ fn test_get_profile_response_shape() {
 
 #[test]
 fn test_get_displayname_response_shape() {
-    // get_displayname returns { displayname: String } — empty string when
-    // the field is absent on the profile.
+    // get_displayname returns { displayname: String } when the field is set,
+    // and an empty object `{}` when the field is unset on the profile.
     let response = json!({ "displayname": "Alice" });
     assert_eq!(response["displayname"].as_str(), Some("Alice"));
 
-    let empty_response = json!({ "displayname": "" });
-    assert_eq!(empty_response["displayname"].as_str(), Some(""));
+    let empty_response = json!({});
+    assert!(empty_response.get("displayname").is_none());
 }
 
 #[test]
@@ -290,8 +290,8 @@ fn test_get_avatar_url_response_shape() {
     let response = json!({ "avatar_url": "mxc://example.com/abc" });
     assert_eq!(response["avatar_url"].as_str(), Some("mxc://example.com/abc"));
 
-    let empty_response = json!({ "avatar_url": "" });
-    assert_eq!(empty_response["avatar_url"].as_str(), Some(""));
+    let empty_response = json!({});
+    assert!(empty_response.get("avatar_url").is_none());
 }
 
 // ============================================================================

@@ -1,0 +1,145 @@
+# =============================================================================
+# Prometheus 配置 - 包含 Mock 数据抓取
+# =============================================================================
+# 用于测试环境，包含真实服务和模拟数据两种数据源
+# 位置：monitoring/prometheus/prometheus-with-mock.yml
+# =============================================================================
+
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: "synapse-rust"
+    env: "${ENVIRONMENT:-development}"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+      repeat_interval: 4h
+      send_resolved: true
+
+rule_files:
+  - "/etc/prometheus/alerting-rules.yml"
+
+scrape_configs:
+  # ===========================================================================
+  # 1. 真实服务 - Synapse-Rust（如果已部署）
+  # ===========================================================================
+  - job_name: "synapse-rust"
+    static_configs:
+      - targets: ["synapse-rust:8008"]
+    metrics_path: "/_prometheus/metrics"
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    relabel_configs:
+      - target_label: env
+        replacement: "${ENVIRONMENT:-production}"
+      - target_label: version
+        replacement: "${SYNAPSE_VERSION:-latest}"
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: '(go_.*|process_.*|promhttp_.*)'
+        action: keep
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: "synapse-rust-main"
+    # 如果服务不可用则忽略错误
+    honor_labels: true
+    scrape_timeout: 5s
+    sample_limit: 10000
+
+  # ===========================================================================
+  # 2. Mock 数据 - 文件方式（开发测试用）
+  # ===========================================================================
+  - job_name: "mock-synapse"
+    scheme: http
+    static_configs:
+      - targets:
+          - "file:///Users/ljf/Desktop/hu_ts/synapse-rust/scripts/mock-data/mock_synapse_metrics.prom"
+    metrics_path: /metrics
+    scrape_interval: 30s
+    relabel_configs:
+      - target_label: instance
+        replacement: "mock-synapse-dev"
+      - target_label: env
+        replacement: "development"
+    
+    # 重要：使用 file_sd_configs 而不是 targets
+    file_sd_configs:
+      - files:
+          - '/Users/ljf/Desktop/hu_ts/synapse-rust/scripts/mock-data/*.prom'
+        refresh_interval: 30s
+
+  # ===========================================================================
+  # 3. PushGateway 方式（可选，更灵活）
+  # ===========================================================================
+  # 如果你使用 pushgateway，取消注释：
+  # - job_name: 'mock-synapse-pushgateway'
+  #   static_configs:
+  #     - targets: ['pushgateway:9091']
+  #   honor_labels: true
+
+  # ===========================================================================
+  # 4. PostgreSQL 数据库
+  # ===========================================================================
+  - job_name: "postgres"
+    static_configs:
+      - targets: ["db:9187"]
+    metrics_path: "/metrics"
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    relabel_configs:
+      - target_label: service
+        replacement: "postgresql"
+
+  # ===========================================================================
+  # 5. Redis 缓存
+  # ===========================================================================
+  - job_name: "redis"
+    static_configs:
+      - targets: ["redis:9121"]
+    metrics_path: "/metrics"
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    relabel_configs:
+      - target_label: service
+        replacement: "redis"
+
+  # ===========================================================================
+  # 6. Node Exporter
+  # ===========================================================================
+  - job_name: "node-exporter"
+    static_configs:
+      - targets: ["node-exporter:9100"]
+    metrics_path: "/metrics"
+    scrape_interval: 30s
+
+  # ===========================================================================
+  # 7. Prometheus 自身
+  # ===========================================================================
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+    metrics_path: "/metrics"
+    scrape_interval: 30s
+
+  # ===========================================================================
+  # 8. Grafana 自身
+  # ===========================================================================
+  - job_name: "grafana"
+    static_configs:
+      - targets: ["grafana:3000"]
+    metrics_path: "/metrics"
+    scrape_interval: 30s
+
+  # ===========================================================================
+  # 9. Alertmanager 自身
+  # ===========================================================================
+  - job_name: "alertmanager"
+    static_configs:
+      - targets: ["alertmanager:9093"]
+    metrics_path: "/metrics"
+    scrape_interval: 30s

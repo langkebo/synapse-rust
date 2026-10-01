@@ -1,6 +1,6 @@
 //! Pre-registered Prometheus counters/gauges/histograms exposed by the server.
 
-use crate::metrics::{Counter, Gauge, Histogram, MetricsCollector};
+use crate::metrics::{Counter, DynamicCounterTemplate, Gauge, Histogram, MetricsCollector};
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
@@ -103,6 +103,11 @@ pub struct ServerMetrics {
     pub total_users: Gauge,
     /// Total rooms on this server.
     pub total_rooms: Gauge,
+    /// Current position of the main events stream (`MAX(stream_ordering)` on `events`).
+    ///
+    /// Mirrors upstream Synapse's `synapse_storage_stream_current_position{stream="events"}`.
+    /// Refreshed on demand by the admin `/statistics` handler.
+    pub storage_stream_current_position: Gauge,
 
     // Dehydrated Device Cleanup Metrics
     /// Dehydrated-device cleanup runs started.
@@ -161,6 +166,37 @@ pub struct ServerMetrics {
     // Event Notifier Metrics (S-6)
     /// Total Redis subscriber failures in EventNotifier.
     pub event_notifier_subscriber_failures_total: Counter,
+
+    // ========================================================================
+    // NEW CUSTOM METRICS FOR OBSERVABILITY OPTIMIZATION (2026-09-30)
+    // Following Phase 1 of prometheus-custom-metrics.md implementation guide
+    // ========================================================================
+
+    // Message Delivery Metrics
+    /// End-to-end message delivery latency histogram (seconds).
+    pub message_delivery_latency: Histogram,
+    /// Current message queue depth gauge.
+    pub message_queue_depth: Gauge,
+
+    // Room Creation Metrics
+    /// Complete room creation process duration histogram (seconds).
+    pub room_creation_duration: Histogram,
+
+    // E2EE Handshake Metrics
+    /// E2EE handshake/key exchange duration histogram (seconds).
+    pub e2ee_handshake_duration: Histogram,
+
+    // Sync Event Delay Metrics
+    /// Time from event occurrence to sync delivery histogram (seconds).
+    pub sync_event_delay: Histogram,
+
+    // Enhanced Operation Metrics (replacing legacy counters with dynamic templates)
+    /// Dynamic counter template for unified room operations with granular labels.
+    pub room_operations_total: DynamicCounterTemplate,
+    /// Dynamic counter template for database queries with table/operation breakdown.
+    pub db_queries_total: DynamicCounterTemplate,
+    /// Dynamic counter template for cache operations with backend/type/result labels.
+    pub cache_operations_total: DynamicCounterTemplate,
 
     // Megolm (E2EE) Metrics — Phase 1 vodozemac migration observability.
     // These cover share/get flows; legacy AES-256-GCM path also uses the
@@ -246,6 +282,8 @@ impl ServerMetrics {
 
             total_users: collector.register_gauge("synapse_total_users".to_string()),
             total_rooms: collector.register_gauge("synapse_total_rooms".to_string()),
+            storage_stream_current_position: collector
+                .register_gauge("synapse_storage_stream_current_position".to_string()),
 
             dehydrated_device_cleanup_total: collector.register_counter("dehydrated_device_cleanup_total".to_string()),
             dehydrated_device_cleaned_total: collector.register_counter("dehydrated_device_cleaned_total".to_string()),
@@ -295,6 +333,50 @@ impl ServerMetrics {
             // S-6: EventNotifier Redis subscriber failure counter
             event_notifier_subscriber_failures_total: collector
                 .register_counter("event_notifier_subscriber_failures_total".to_string()),
+
+            // ========================================================================
+            // NEW CUSTOM METRICS REGISTRATION (2026-09-30)
+            // Phase 1 implementation from prometheus-custom-metrics.md
+            // ========================================================================
+
+            // Message Delivery Metrics
+            message_delivery_latency: collector.register_histogram_with_labels(
+                "message_delivery_latency_seconds".to_string(),
+                Self::labels(&[("unit", "seconds")]),
+            ),
+            message_queue_depth: collector.register_gauge("message_queue_depth".to_string()),
+
+            // Room Creation Metrics
+            room_creation_duration: collector.register_histogram_with_labels(
+                "room_creation_duration_seconds".to_string(),
+                Self::labels(&[("unit", "seconds")]),
+            ),
+
+            // E2EE Handshake Metrics
+            e2ee_handshake_duration: collector.register_histogram_with_labels(
+                "e2ee_handshake_duration_seconds".to_string(),
+                Self::labels(&[("unit", "seconds")]),
+            ),
+
+            // Sync Event Delay Metrics
+            sync_event_delay: collector.register_histogram_with_labels(
+                "sync_event_delay_seconds".to_string(),
+                Self::labels(&[("unit", "seconds")]),
+            ),
+
+            // Enhanced Operation Metrics — using DynamicCounterTemplate for runtime label binding
+            room_operations_total: collector.create_dynamic_counter_template(
+                "room_operations_total".to_string(),
+                vec!["operation", "outcome", "room_version", "visibility", "error_type"],
+            ),
+            db_queries_total: collector.create_dynamic_counter_template(
+                "db_queries_total".to_string(),
+                vec!["table", "operation", "outcome", "error_type"],
+            ),
+            cache_operations_total: collector.create_dynamic_counter_template(
+                "cache_operations_total".to_string(),
+                vec!["cache_type", "backend", "operation", "result"],
+            ),
 
             megolm_share_total: collector.register_counter("megolm_share_total".to_string()),
             megolm_share_recipients_total: collector.register_counter("megolm_share_recipients_total".to_string()),
@@ -512,6 +594,85 @@ impl ServerMetrics {
         let _ = result;
     }
 
+    // ========================================================================
+    // NEW HELPER METHODS FOR CUSTOM METRICS (2026-09-30)
+    // Phase 1 implementation from prometheus-custom-metrics.md
+    // ========================================================================
+
+    // NOTE: Labelized versions commented out until DynamicHistogramTemplate is fully integrated
+    // Methods like record_message_delivery_labeled, record_room_creation_labeled etc.
+    // should use the DynamicHistogramTemplate once added to MetricsCollector
+
+    /// Records message delivery latency (simple version).
+    pub fn record_message_delivery(&self, duration_sec: f64) {
+        self.message_delivery_latency.observe(duration_sec);
+    }
+
+    /// Sets current message queue depth.
+    pub fn set_message_queue_depth(&self, depth: f64) {
+        self.message_queue_depth.set(depth);
+    }
+
+    // NOTE: Labelized versions commented out until DynamicHistogramTemplate is fully integrated
+    // Methods like record_room_creation_labeled, record_e2ee_handshake_labeled etc.
+    // should use the DynamicHistogramTemplate once added to MetricsCollector
+
+    /// Records room creation duration (simple version).
+    pub fn record_room_creation(&self, duration_sec: f64) {
+        self.room_creation_duration.observe(duration_sec);
+    }
+
+    /// Records E2EE handshake duration (simple version).
+    pub fn record_e2ee_handshake(&self, duration_sec: f64) {
+        self.e2ee_handshake_duration.observe(duration_sec);
+    }
+
+    /// Records sync event delay (simple version).
+    pub fn record_sync_event_delay(&self, duration_sec: f64) {
+        self.sync_event_delay.observe(duration_sec);
+    }
+
+    /// Records unified room operation with granular labels.
+    ///
+    /// # Arguments
+    /// * `operation` - Operation type: "create", "join", "leave", "upgrade", "forget"
+    /// * `outcome` - Outcome: "success", "already_exists", "error", "forbidden"
+    /// * `room_version` - Room version: "10", "11", "12", "unknown"
+    /// * `visibility` - Visibility: "public", "private"
+    /// * `error_type` - Error type if applicable: "M_FORBIDDEN", "M_INVALID_ROOM_ID", "M_UNKNOWN", "other"
+    pub fn record_room_operation_labeled(
+        &self,
+        operation: &str,
+        outcome: &str,
+        room_version: &str,
+        visibility: &str,
+        error_type: &str,
+    ) {
+        self.room_operations_total.observe(&[operation, outcome, room_version, visibility, error_type]);
+    }
+
+    /// Records database query with table, operation, and outcome labels.
+    ///
+    /// # Arguments
+    /// * `table` - Table name: "rooms", "events", "members", "state_groups", etc.
+    /// * `operation` - SQL operation: "SELECT", "INSERT", "UPDATE", "DELETE"
+    /// * `outcome` - Query result: "success", "error"
+    /// * `error_type` - Error type if failed: "unique_violation", "foreign_key_violation", "other"
+    pub fn record_db_query_labeled(&self, table: &str, operation: &str, outcome: &str, error_type: &str) {
+        self.db_queries_total.observe(&[table, operation, outcome, error_type]);
+    }
+
+    /// Records cache operation with cache_type, backend, operation, and result labels.
+    ///
+    /// # Arguments
+    /// * `cache_type` - Type of cache: "room_state", "event_body", "membership", "user_profile"
+    /// * `backend` - Backend used: "redis", "memory", "hybrid"
+    /// * `operation` - Operation performed: "get", "set", "delete", "invalidate"
+    /// * `result` - Result of operation: "hit", "miss", "error", "ttl_expired"
+    pub fn record_cache_operation_labeled(&self, cache_type: &str, backend: &str, operation: &str, result: &str) {
+        self.cache_operations_total.observe(&[cache_type, backend, operation, result]);
+    }
+
     /// Returns the underlying [`MetricsCollector`] for direct registration of additional metrics.
     pub fn get_collector(&self) -> &Arc<MetricsCollector> {
         &self.collector
@@ -543,6 +704,12 @@ impl ServerMetrics {
             state_group_resolves: self.state_group_resolves_total.get(),
             csrf_validations: self.csrf_validations_total.get(),
             csrf_validation_failures: self.csrf_validation_failures_total.get(),
+            // NEW CUSTOM METRICS SUMMARIES (2026-09-30)
+            // Note: These dynamic counters cannot be easily summarized; removed from MetricsSummary
+            // Use Prometheus directly for labeled metric aggregation.
+            room_operations_total: 0,
+            db_queries_total: 0,
+            cache_operations_total: 0,
         }
     }
 
@@ -618,6 +785,13 @@ pub struct MetricsSummary {
     pub csrf_validations: u64,
     /// Total failed CSRF validations.
     pub csrf_validation_failures: u64,
+    // NEW CUSTOM METRICS (2026-09-30)
+    /// Total unified room operations with granular labels.
+    pub room_operations_total: u64,
+    /// Total database queries with table/operation breakdown.
+    pub db_queries_total: u64,
+    /// Total cache operations with backend/type/result labels.
+    pub cache_operations_total: u64,
 }
 
 impl MetricsSummary {
@@ -773,6 +947,9 @@ mod tests {
             state_group_resolves: 150,
             csrf_validations: 400,
             csrf_validation_failures: 3,
+            room_operations_total: 0,
+            db_queries_total: 0,
+            cache_operations_total: 0,
         };
 
         assert_eq!(summary.auth_success_rate(), 90.0);
@@ -1103,6 +1280,9 @@ mod tests {
             state_group_resolves: 0,
             csrf_validations: 0,
             csrf_validation_failures: 0,
+            room_operations_total: 0,
+            db_queries_total: 0,
+            cache_operations_total: 0,
         };
 
         assert_eq!(summary.auth_success_rate(), 0.0);
@@ -1145,6 +1325,19 @@ mod tests {
         metrics.total_rooms.set(300.0);
         assert_eq!(metrics.total_users.get(), 1500.0);
         assert_eq!(metrics.total_rooms.get(), 300.0);
+    }
+
+    #[test]
+    fn test_storage_stream_current_position_gauge() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector.clone());
+
+        // 必须注册进 collector，否则 admin `/statistics` 的 `get_gauge` 取不到，
+        // 指标也不会出现在 `/metrics` 输出中。
+        assert!(collector.get_gauge("synapse_storage_stream_current_position").is_some());
+
+        metrics.storage_stream_current_position.set(4242.0);
+        assert_eq!(metrics.storage_stream_current_position.get(), 4242.0);
     }
 
     #[test]

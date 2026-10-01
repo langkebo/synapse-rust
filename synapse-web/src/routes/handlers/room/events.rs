@@ -939,6 +939,65 @@ pub(crate) async fn convert_room_event(
     })))
 }
 
+/// Extract the parent event id of an edit (`m.replace` relation), if any.
+///
+/// Mirrors Synapse's `relation_from_event(...).rel_type == RelationTypes.REPLACE`
+/// check: the id lives at `content["m.relates_to"]["event_id"]`.
+fn edit_parent_event_id(content: &Value) -> Option<&str> {
+    let relates_to = content.get("m.relates_to")?;
+    if relates_to.get("rel_type").and_then(Value::as_str) != Some("m.replace") {
+        return None;
+    }
+    relates_to.get("event_id").and_then(Value::as_str)
+}
+
+/// Pure age decision for `redaction_allowed_period`: only `m.room.message`
+/// events older than the period are blocked; every other type is always
+/// redactable. Extracted so the boundary can be unit-tested without a context.
+fn redaction_exceeds_allowed_period(period_ms: i64, target_type: &str, target_ts: i64, now_ms: i64) -> bool {
+    target_type == "m.room.message" && target_ts < now_ms - period_ms
+}
+
+/// Enforce Synapse's `redaction_allowed_period`: a local user may only redact an
+/// `m.room.message` younger than the configured period. Redactions of other
+/// event types, or when the period is unset, are always allowed.
+///
+/// When the target is an edit, the age is measured from the event it replaces,
+/// matching Synapse's `MessageHandler.create_event` →
+/// `_check_redaction_allowed_period`.
+async fn check_redaction_allowed_period(
+    ctx: &RoomContext,
+    event_type: &str,
+    origin_server_ts: i64,
+    content: &Value,
+) -> Result<(), ApiError> {
+    let Some(period) = ctx.config.redaction_allowed_period else {
+        return Ok(());
+    };
+
+    let mut target_type = event_type.to_string();
+    let mut target_ts = origin_server_ts;
+
+    if let Some(parent_id) = edit_parent_event_id(content) {
+        if let Some(parent) = ctx
+            .room_service
+            .messaging()
+            .get_event_record(parent_id)
+            .await
+            .map_err(map_internal!("Failed to get event"))?
+        {
+            target_type = parent.event_type;
+            target_ts = parent.origin_server_ts;
+        }
+    }
+
+    if redaction_exceeds_allowed_period(period, &target_type, target_ts, current_timestamp_millis()) {
+        return Err(ApiError::forbidden(format!("Events older than {period}ms cannot be redacted.")));
+    }
+
+    Ok(())
+}
+
 /// See [`redact_event`].
 pub(crate) async fn redact_event(
     State(ctx): State<RoomContext>,
@@ -973,6 +1032,14 @@ pub(crate) async fn redact_event(
     }
 
     ctx.room_auth.can_redact_event(&room_id, &auth_user.user_id, &original_event.user_id).await?;
+
+    check_redaction_allowed_period(
+        &ctx,
+        &original_event.event_type,
+        original_event.origin_server_ts,
+        &original_event.content,
+    )
+    .await?;
 
     // MSC3912: Parse with_rel_types (stable) and org.matrix.msc3912.with_relations (unstable)
     let requested_rel_types: Option<Vec<String>> = body
@@ -1367,5 +1434,48 @@ mod tests {
         let relates_to = thread_event.get("content").unwrap().get("m.relates_to").unwrap();
         assert_eq!(relates_to.get("rel_type").unwrap(), "m.thread");
         assert_eq!(relates_to.get("is_falling_back").unwrap(), true);
+    }
+
+    // ── redaction_allowed_period ────────────────────────────────────────────
+
+    #[test]
+    fn test_redaction_allowed_period_blocks_only_old_messages() {
+        let period = 60_000_i64; // 1 minute
+        let now = 1_700_000_000_000_i64;
+
+        // A recent message is redactable.
+        assert!(!redaction_exceeds_allowed_period(period, "m.room.message", now - 30_000, now));
+        // A stale message is blocked.
+        assert!(redaction_exceeds_allowed_period(period, "m.room.message", now - 120_000, now));
+        // Exactly on the boundary is still allowed (`<`, not `<=`).
+        assert!(!redaction_exceeds_allowed_period(period, "m.room.message", now - period, now));
+        // Non-message events are never blocked, however old.
+        assert!(!redaction_exceeds_allowed_period(period, "m.room.name", now - 10_000_000, now));
+        assert!(!redaction_exceeds_allowed_period(period, "m.room.member", now - 10_000_000, now));
+    }
+
+    #[test]
+    fn test_edit_parent_event_id_extracts_replace_target() {
+        let edit = json!({
+            "body": "* corrected",
+            "m.new_content": { "body": "corrected" },
+            "m.relates_to": { "rel_type": "m.replace", "event_id": "$original" }
+        });
+        assert_eq!(edit_parent_event_id(&edit), Some("$original"));
+    }
+
+    #[test]
+    fn test_edit_parent_event_id_ignores_non_replace_relations() {
+        // A reply/thread is not an edit — the redaction age must use the event's
+        // own timestamp, not the referenced event's.
+        let reply = json!({
+            "body": "hi",
+            "m.relates_to": { "rel_type": "m.thread", "event_id": "$root" }
+        });
+        assert_eq!(edit_parent_event_id(&reply), None);
+        // A plain message carries no relation at all.
+        assert_eq!(edit_parent_event_id(&json!({ "body": "hi" })), None);
+        // A replace without a target id yields nothing.
+        assert_eq!(edit_parent_event_id(&json!({ "m.relates_to": { "rel_type": "m.replace" } })), None);
     }
 }
