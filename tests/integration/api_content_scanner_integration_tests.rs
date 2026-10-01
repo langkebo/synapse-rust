@@ -17,27 +17,36 @@ use axum::{
 };
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
 use tower::ServiceExt;
 
-/// Shared atomic counters for controlling mock scanner behavior across tests.
-static SCAN_COUNT: AtomicUsize = AtomicUsize::new(0);
-static BLOCK_NEXT: AtomicBool = AtomicBool::new(false);
-
-/// Reset scanner state before each test.
-fn reset_scanner_state() {
-    SCAN_COUNT.store(0, Ordering::SeqCst);
-    BLOCK_NEXT.store(false, Ordering::SeqCst);
+/// Per-mock-server scanner state.
+///
+/// This used to be two module-level statics plus a `reset_scanner_state()`
+/// helper, so every test in this file shared one counter and one "block next"
+/// flag. Under `cargo test --tests` (the Coverage lane runs the whole
+/// integration target in ONE process with threads) the tests raced:
+/// `test_media_upload_succeeds_when_scanner_allows` observed 502 while
+/// `test_message_send_blocked_on_scanner_failure` observed 200 — the two
+/// outcomes swapped — and the invocation counters read 4/7 instead of 3.
+/// State now lives in the mock server's own router, so tests cannot interfere
+/// regardless of thread count (iron law 7: eliminate the sharing instead of
+/// serializing around it).
+#[derive(Default)]
+struct ScanState {
+    count: AtomicUsize,
+    block_next: AtomicBool,
 }
 
 /// Mock webhook handler that simulates content scanner responses.
 async fn mock_webhook_handler(
-    axum::extract::State(_state): axum::extract::State<()>,
+    axum::extract::State(state): axum::extract::State<Arc<ScanState>>,
     axum::Json(req): axum::Json<serde_json::Value>,
 ) -> Result<axum::Json<Value>, (StatusCode, String)> {
-    let count = SCAN_COUNT.fetch_add(1, Ordering::SeqCst);
+    let count = state.count.fetch_add(1, Ordering::SeqCst);
 
     // Block every Nth request (for testing fail-closed behavior)
-    if BLOCK_NEXT.load(Ordering::SeqCst) {
+    if state.block_next.load(Ordering::SeqCst) {
         return Err((StatusCode::INTERNAL_SERVER_ERROR, "Scanner error".to_string()));
     }
 
@@ -53,7 +62,10 @@ async fn mock_webhook_handler(
 
 /// Create a test app with content scanner enabled pointing to a mock webhook.
 /// Returns (app, mock_server_addr).
-async fn setup_app_with_mock_scanner(block_on_failure: bool) -> Option<(axum::Router, String)> {
+async fn setup_app_with_mock_scanner(
+    block_on_failure: bool,
+    block_next: bool,
+) -> Option<(axum::Router, String, Arc<ScanState>)> {
     use synapse_rust::cache::{CacheConfig, CacheManager};
     use synapse_services::ServiceContainer;
     use synapse_web::routes::state::AppState;
@@ -62,8 +74,10 @@ async fn setup_app_with_mock_scanner(block_on_failure: bool) -> Option<(axum::Ro
     let cache = std::sync::Arc::new(CacheManager::new(&CacheConfig::default()));
     let mut container = ServiceContainer::new_test_with_pool_and_cache(pool, cache.clone()).await;
 
-    // Start mock webhook server
-    let mock_app = axum::Router::new().route("/scan", axum::routing::post(mock_webhook_handler)).with_state(());
+    // Start mock webhook server, with state owned by this server only.
+    let scan_state = Arc::new(ScanState { count: AtomicUsize::new(0), block_next: AtomicBool::new(block_next) });
+    let mock_app =
+        axum::Router::new().route("/scan", axum::routing::post(mock_webhook_handler)).with_state(scan_state.clone());
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.ok()?;
     let addr = listener.local_addr().ok()?.to_string();
@@ -98,7 +112,7 @@ async fn setup_app_with_mock_scanner(block_on_failure: bool) -> Option<(axum::Ro
     // `--all-features` — the feature set the second CI clippy entry uses).
     let app = synapse_web::create_router(state);
 
-    Some((app, addr))
+    Some((app, addr, scan_state))
 }
 
 /// Helper to register a user and return access token.
@@ -142,9 +156,7 @@ fn assert_error_code(body: &Value, expected_code: &str) {
 
 #[tokio::test]
 async fn test_media_upload_blocked_when_scanner_disabled() {
-    reset_scanner_state();
-
-    let Some((app, _addr)) = setup_app_with_mock_scanner(true).await else {
+    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(true, false).await else {
         return;
     };
 
@@ -168,10 +180,7 @@ async fn test_media_upload_blocked_when_scanner_disabled() {
 
 #[tokio::test]
 async fn test_media_upload_blocked_on_scanner_failure() {
-    reset_scanner_state();
-    BLOCK_NEXT.store(true, Ordering::SeqCst); // Force scanner failure
-
-    let Some((app, _addr)) = setup_app_with_mock_scanner(true).await else {
+    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(true, true).await else {
         return;
     };
 
@@ -198,14 +207,13 @@ async fn test_media_upload_blocked_on_scanner_failure() {
 
 #[tokio::test]
 async fn test_media_upload_with_id_blocked_on_scanner_failure() {
-    reset_scanner_state();
     // NOTE: the scanner is deliberately *not* told to fail yet — the probe
     // upload below must succeed so the test can learn the local server name.
     // (It used to set `BLOCK_NEXT` first, which only "worked" while the upload
     // path skipped scanning entirely; with the scanner actually enabled the
     // probe was refused and the test panicked on a missing `content_uri`.)
 
-    let Some((app, _addr)) = setup_app_with_mock_scanner(true).await else {
+    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(true, false).await else {
         return;
     };
 
@@ -244,7 +252,7 @@ async fn test_media_upload_with_id_blocked_on_scanner_failure() {
 
     // Now that the server name is known, make the scanner fail: the id-based
     // upload must be refused fail-closed (502 M_CONTENT_SCAN_FAILED).
-    BLOCK_NEXT.store(true, Ordering::SeqCst);
+    _scan.block_next.store(true, Ordering::SeqCst);
 
     // Now try upload with ID (should be blocked)
     let media_id = format!("test{}", rand::random::<u64>());
@@ -268,10 +276,7 @@ async fn test_media_upload_with_id_blocked_on_scanner_failure() {
 
 #[tokio::test]
 async fn test_media_upload_succeeds_when_scanner_allows() {
-    reset_scanner_state();
-    BLOCK_NEXT.store(false, Ordering::SeqCst); // Allow all scans
-
-    let Some((app, _addr)) = setup_app_with_mock_scanner(true).await else {
+    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(true, false).await else {
         return;
     };
 
@@ -301,10 +306,7 @@ async fn test_media_upload_succeeds_when_scanner_allows() {
 
 #[tokio::test]
 async fn test_message_send_blocked_on_scanner_failure() {
-    reset_scanner_state();
-    BLOCK_NEXT.store(true, Ordering::SeqCst);
-
-    let Some((app, _addr)) = setup_app_with_mock_scanner(true).await else {
+    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(true, true).await else {
         return;
     };
 
@@ -352,10 +354,7 @@ async fn test_message_send_blocked_on_scanner_failure() {
 
 #[tokio::test]
 async fn test_message_send_succeeds_when_scanner_allows() {
-    reset_scanner_state();
-    BLOCK_NEXT.store(false, Ordering::SeqCst);
-
-    let Some((app, _addr)) = setup_app_with_mock_scanner(true).await else {
+    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(true, false).await else {
         return;
     };
 
@@ -402,10 +401,7 @@ async fn test_message_send_succeeds_when_scanner_allows() {
 
 #[tokio::test]
 async fn test_encrypted_message_skips_text_scan() {
-    reset_scanner_state();
-    BLOCK_NEXT.store(false, Ordering::SeqCst);
-
-    let Some((app, _addr)) = setup_app_with_mock_scanner(true).await else {
+    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(true, false).await else {
         return;
     };
 
@@ -477,10 +473,7 @@ async fn test_encrypted_message_skips_text_scan() {
 
 #[tokio::test]
 async fn test_non_message_events_skip_text_scan() {
-    reset_scanner_state();
-    BLOCK_NEXT.store(false, Ordering::SeqCst);
-
-    let Some((app, _addr)) = setup_app_with_mock_scanner(true).await else {
+    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(true, false).await else {
         return;
     };
 
@@ -541,9 +534,7 @@ async fn test_non_message_events_skip_text_scan() {
 
 #[tokio::test]
 async fn test_scanner_is_invoked_for_each_upload() {
-    reset_scanner_state();
-
-    let Some((app, _addr)) = setup_app_with_mock_scanner(true).await else {
+    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(true, false).await else {
         return;
     };
 
@@ -564,15 +555,13 @@ async fn test_scanner_is_invoked_for_each_upload() {
     }
 
     // Verify scanner was called 3 times
-    let count = SCAN_COUNT.load(Ordering::SeqCst);
+    let count = _scan.count.load(Ordering::SeqCst);
     assert_eq!(count, 3, "Scanner should be invoked for each upload");
 }
 
 #[tokio::test]
 async fn test_scanner_is_invoked_for_each_message() {
-    reset_scanner_state();
-
-    let Some((app, _addr)) = setup_app_with_mock_scanner(true).await else {
+    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(true, false).await else {
         return;
     };
 
@@ -613,7 +602,7 @@ async fn test_scanner_is_invoked_for_each_message() {
     }
 
     // Verify scanner was called 3 times
-    let count = SCAN_COUNT.load(Ordering::SeqCst);
+    let count = _scan.count.load(Ordering::SeqCst);
     assert_eq!(count, 3, "Scanner should be invoked for each m.room.message");
 }
 
