@@ -940,6 +940,9 @@ mod tests {
             state_group_resolves: 150,
             csrf_validations: 400,
             csrf_validation_failures: 3,
+            room_operations_total: 0,
+            db_queries_total: 0,
+            cache_operations_total: 0,
         };
 
         assert_eq!(summary.auth_success_rate(), 90.0);
@@ -1270,6 +1273,9 @@ mod tests {
             state_group_resolves: 0,
             csrf_validations: 0,
             csrf_validation_failures: 0,
+            room_operations_total: 0,
+            db_queries_total: 0,
+            cache_operations_total: 0,
         };
 
         assert_eq!(summary.auth_success_rate(), 0.0);

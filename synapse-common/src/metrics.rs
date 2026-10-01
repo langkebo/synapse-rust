@@ -433,16 +433,18 @@ impl DynamicCounterTemplate {
 
     /// Observes a value with the given label values.
     ///
-    /// # Panics
-    /// Panics if the number of label values doesn't match the number of label names.
+    /// If the number of label values doesn't match the number of label names
+    /// (a programming error), a warning is logged and the observation is dropped
+    /// instead of panicking, mirroring [`Self::get_counter`]'s graceful handling.
     pub fn observe(&self, label_values: &[&str]) {
         if label_values.len() != self.label_names.len() {
-            panic!(
-                "Label values count ({}) doesn't match label names count ({}) for counter '{}'",
-                label_values.len(),
-                self.label_names.len(),
-                self.name
+            tracing::warn!(
+                counter = %self.name,
+                expected = self.label_names.len(),
+                got = label_values.len(),
+                "Dropping counter observation: label value count doesn't match label name count"
             );
+            return;
         }
 
         // Build labels HashMap
@@ -507,14 +509,19 @@ impl DynamicHistogramTemplate {
     }
 
     /// Observes a value with the given label values.
+    ///
+    /// If the number of label values doesn't match the number of label names
+    /// (a programming error), a warning is logged and the observation is dropped
+    /// instead of panicking, consistent with the counter template.
     pub fn observe(&self, value: f64, label_values: &[&str]) {
         if label_values.len() != self.label_names.len() {
-            panic!(
-                "Label values count ({}) doesn't match label names count ({}) for histogram '{}'",
-                label_values.len(),
-                self.label_names.len(),
-                self.name
+            tracing::warn!(
+                histogram = %self.name,
+                expected = self.label_names.len(),
+                got = label_values.len(),
+                "Dropping histogram observation: label value count doesn't match label name count"
             );
+            return;
         }
 
         let mut labels = HashMap::new();
