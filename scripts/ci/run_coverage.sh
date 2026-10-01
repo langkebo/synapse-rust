@@ -77,6 +77,14 @@ log "TEST_DB_TEMPLATE_SCHEMA = $TEST_DB_TEMPLATE_SCHEMA (${template_tables} tabl
 log "TEST_THREADS            = $TEST_THREADS"
 log "OUTPUT_DIR              = $OUTPUT_DIR"
 
+# 步骤 2/3 跑的是 `--workspace --exclude synapse-storage` 的**全部**测试，其中包含
+# `synapse-e2ee` 的 `vodozemac_interop_tests`。那个模块在 `CI` 下**故意 fail-closed**：
+# 缺少 `E2EE_INTEROP=1` 时 `skip_message()` 直接 panic（sweep A1 残留：否则 lib 门禁会以
+# "零断言"报绿）。CI 的 `Run library unit tests (--workspace --lib)` 早就设了这个变量，
+# 而 Coverage 车道此前从未真正跑过 ⇒ 2026-09-30 首次执行时 18 个 interop 用例全 panic、
+# `Run coverage` exit 101。这里与那条车道保持同一口径（本地跑覆盖率也一并覆盖这些用例）。
+export E2EE_INTEROP=1
+
 log "步骤 1/3: synapse-storage 单独跑（单线程，db_tests 直连 public）"
 RUST_TEST_THREADS=1 cargo llvm-cov -p synapse-storage \
     --features "$STORAGE_FEATURES" --lib \

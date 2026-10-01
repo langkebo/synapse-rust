@@ -843,3 +843,85 @@ fn every_postgres_service_raises_shm_size_and_declares_options_once() {
         offenders.join("\n  ")
     );
 }
+
+/// `synapse-e2ee` 的 `vodozemac_interop_tests` 在 `CI` 下**故意 fail-closed**：没有
+/// `E2EE_INTEROP=1` 时 `skip_message()` 直接 panic（否则 lib 门禁会以"零断言"报绿）。
+/// 因此**任何**跑"整个 workspace 的 lib 批次"的车道都必须给这个变量，否则那 18 个 interop
+/// 用例集体 panic、整条车道红。
+///
+/// 2026-09-30 实测：`Code Coverage` **首次真正执行**（此前每轮都被前置车道红掉 ⇒ 从未跑过）时，
+/// `cargo llvm-cov --workspace --exclude synapse-storage` 跑了这些用例却没给变量 ⇒
+/// `Run coverage` exit 101、18 个用例 `panicked at vodozemac_interop_tests.rs:55`。
+///
+/// 检查两处：
+/// ① `scripts/ci/run_coverage.sh`（覆盖率的唯一入口）自己 `export E2EE_INTEROP=1`；
+/// ② workflow 里每个"跑 `--workspace --lib` 且**没有**收窄 `-E` 过滤器"的步骤都要给它
+///    （收窄过滤器的车道，例如只跑 `bench_friend_list_` 的延迟车道，匹配不到 interop 用例）。
+///
+/// **红证明**：删掉 `run_coverage.sh` 的 `export E2EE_INTEROP=1` ⇒ FAILED；
+/// 删掉 `ci.yml` 里 `Run library unit tests (--workspace --lib)` 步骤的 `E2EE_INTEROP: '1'` ⇒ FAILED。
+#[test]
+fn full_workspace_lib_runners_enable_e2ee_interop() {
+    let root = repo_root();
+
+    // ① 覆盖率脚本必须自带（它是 `cargo llvm-cov --workspace` 的唯一调用者）。
+    // ⚠️ 必须检查**赋值**而不是裸子串：脚本里解释来龙去脉的注释本身就写着 `E2EE_INTEROP=1`
+    // ⇒ 只 `contains("E2EE_INTEROP")` 会在"注释还在、export 被删"时假绿（第一版即如此，
+    // 红证明探针当场抓到）。
+    let coverage = fs::read_to_string(root.join("scripts/ci/run_coverage.sh")).expect("read run_coverage.sh");
+    let coverage_code: String =
+        coverage.lines().filter(|line| !line.trim_start().starts_with('#')).collect::<Vec<_>>().join("\n");
+    assert!(
+        coverage_code.contains("E2EE_INTEROP=1"),
+        "scripts/ci/run_coverage.sh 必须真的 `export E2EE_INTEROP=1`：它跑 `cargo llvm-cov --workspace`，\
+         而 `synapse-e2ee::vodozemac_interop_tests` 在 CI 下缺少该变量会直接 panic（注释里提到不算）"
+    );
+
+    // ② workflow 里跑整 workspace lib 批次、且没有收窄过滤器的步骤。
+    let dir = root.join(".github/workflows");
+    let mut entries: Vec<PathBuf> = fs::read_dir(&dir)
+        .expect(".github/workflows must be readable")
+        .map(|entry| entry.expect("readable dir entry").path())
+        .filter(|path| matches!(path.extension().and_then(|ext| ext.to_str()), Some("yml" | "yaml")))
+        .collect();
+    entries.sort();
+
+    let mut inspected = 0usize;
+    let mut offenders: Vec<String> = Vec::new();
+    for path in entries {
+        let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path:?} must be readable: {e}"));
+        for (name, body) in workflow_steps(&text) {
+            // ⚠️ 只看**可执行文本**：步骤分块会把紧随其后的注释一起带进来，而本仓的注释里
+            // 大量引用 `--workspace --lib`（解释口径的来龙去脉）⇒ 不剥注释会误报
+            // （第一版就把 `Gated modules actually run tests (D-25)` 与
+            // `Per-file coverage ratchet (B.3)` 误判成"跑 lib 批次"）。
+            let command: String = body
+                .lines()
+                .filter(|line| !line.trim_start().starts_with('#'))
+                .map(|line| line.split(" #").next().unwrap_or(line))
+                .collect::<Vec<_>>()
+                .join("\n");
+            if !command.contains("--workspace --lib") {
+                continue;
+            }
+            // 只有**正向收窄**的过滤器才会排除 interop 用例（例如延迟车道只跑
+            // `test(/bench_friend_list_/)`）；`-E 'not test(…)'` 这类**否定**过滤器仍会跑到
+            // interop 用例，因此不能当成"已收窄"跳过（第一版就是把它误跳过的）。
+            if command.contains("-E ") && command.contains("test(") && !command.contains("not test(") {
+                continue;
+            }
+            inspected += 1;
+            if !command.contains("E2EE_INTEROP") {
+                offenders
+                    .push(format!("{}: step {name:?} 跑整 workspace lib 批次却没有 E2EE_INTEROP=1", path.display()));
+            }
+        }
+    }
+
+    assert!(inspected >= 1, "没有扫到任何「整 workspace lib 批次」步骤（当前 {inspected}）—— 扫描逻辑失效时不得空过");
+    assert!(
+        offenders.is_empty(),
+        "这些步骤会让 `vodozemac_interop_tests` 以 `panicked at …:55` 集体失败：\n  {}",
+        offenders.join("\n  ")
+    );
+}
