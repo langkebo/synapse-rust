@@ -209,6 +209,7 @@ dehydrateddeviceservice
 dehydrateddevicestoreapi
 delayedevent
 delayedevents
+deprecations
 deps
 desc
 dev
@@ -237,6 +238,7 @@ dod
 domainless
 dos
 dsl
+dsn
 dto
 dup
 dyn
@@ -447,6 +449,7 @@ localhost
 localhostguard
 localpart
 lockfile
+logcontext
 logrotate
 loopback
 lru
@@ -812,6 +815,7 @@ tjg
 tls
 tmp
 tmpfs
+toc
 toctou
 todevicemanager
 todo
@@ -856,6 +860,7 @@ uiaservice
 uid
 uk
 ula
+un
 unban
 unclosed
 unconflicted
