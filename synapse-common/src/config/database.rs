@@ -303,8 +303,12 @@ mod tests {
         assert_eq!(config.connection_url(), "redis://synapse:secret@redis.example.com:6380/");
     }
 
+    // 这是**连接串格式化函数**的形状测试，不是「username-only 配置合法」的证据：
+    // `Config::validate`（同批 M-1）会拒绝该配置（上游 Redis 6+ ACL 要求 username
+    // 必须配 password），因此这个形状在运行时**不可达**。保留它只是钉住纯函数的
+    // 行为，避免连接串构造在重构时静默改变。
     #[test]
-    fn redis_connection_url_with_username_only() {
+    fn redis_connection_url_username_only_shape_is_formatter_only() {
         let config = RedisConfig {
             host: "redis.example.com".into(),
             port: 6380,

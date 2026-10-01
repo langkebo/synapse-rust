@@ -819,6 +819,7 @@ mod tests {
     fn test_resolve_env_variables_resolves_redis_password() -> Result<(), String> {
         unsafe {
             std::env::set_var("TEST_REDIS_PASSWORD", "resolved-secret");
+            std::env::set_var("TEST_REDIS_USERNAME", "resolved-acl-user");
         }
 
         let mut config = Config {
@@ -874,7 +875,10 @@ mod tests {
             redis: RedisConfig {
                 host: "localhost".to_string(),
                 port: 6379,
-                username: None,
+                // 用户名与密码走**同一**解析路径：上游 Redis 6+ ACL 要求
+                // username 必须配 password（见 `Config::validate`），因此
+                // `${VAR}` 插值也必须覆盖它，否则 `redis.username` 只能写死。
+                username: Some("${TEST_REDIS_USERNAME:?missing}".to_string()),
                 password: Some("${TEST_REDIS_PASSWORD:?missing}".to_string()),
                 key_prefix: "test:".to_string(),
                 pool_size: 10,
@@ -982,9 +986,11 @@ mod tests {
         config.resolve_env_variables()?;
 
         assert_eq!(config.redis.password.as_deref(), Some("resolved-secret"));
+        assert_eq!(config.redis.username.as_deref(), Some("resolved-acl-user"));
 
         unsafe {
             std::env::remove_var("TEST_REDIS_PASSWORD");
+            std::env::remove_var("TEST_REDIS_USERNAME");
         }
 
         Ok(())

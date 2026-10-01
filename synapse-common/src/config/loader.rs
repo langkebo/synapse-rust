@@ -78,6 +78,10 @@ impl Config {
         self.database.name = resolve_env_in_string(&self.database.name)?;
 
         self.redis.host = resolve_env_in_string(&self.redis.host)?;
+        // `username` 与 `password` 走同一条插值路径：两者的取值约束是绑定的
+        // （username 必须配 password，见 `Config::validate`），只解析其一会让
+        // 运维只能把用户名写死在配置文件里。
+        self.redis.username = self.redis.username.take().map(|v| resolve_env_in_string(&v)).transpose()?;
         self.redis.password = self.redis.password.take().map(|v| resolve_env_in_string(&v)).transpose()?;
         self.redis.key_prefix = resolve_env_in_string(&self.redis.key_prefix)?;
 
