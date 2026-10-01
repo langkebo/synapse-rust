@@ -38,6 +38,7 @@
 |---|---|---|---|---|
 | **MSC2965** | 认证元数据端点 `auth_metadata` / `auth_issuer`（*仓库既有结论*） | 仅保留 `auth_metadata`；上游 1.161 已删除的 `auth_issuer` 同批摘除 | `.../org.matrix.msc2965/auth_metadata` 在册；`auth_issuer` 于 `76e5f9136` 删除（报告 §5.1 / B4） | ✅ 已收敛 |
 | **MSC3575** | Sliding sync（*仓库既有结论*） | 在 `/sync` 之外另注册 simplified sliding sync 端点族 | 报告 §二「同步」行 | ✅ 一致 |
+| **MSC3720** | Account status endpoint（*proposals*：`proposals/3720-account-status.md`） | 已实现：客户端 + 联邦 `POST /_matrix/{client,federation}/unstable/org.matrix.msc3720/account_status`，`{user_ids} → {account_statuses, failures}`；capability `org.matrix.msc3720.account_status` 为「路由 ∧ `experimental.msc3720_enabled`」，开关关闭时 fail-closed 403 | `synapse-web/src/routes/handlers/account_status.rs`、`synapse-services/src/account_status_service.rs`（报告 §1.1 末段） | ✅ 已对齐 |
 | **MSC3814** | 脱水设备（dehydrated devices）（*仓库既有结论*） | `dehydrated_device` 端点族；`/events` 由 POST 改 GET + query | `GET .../org.matrix.msc3814.v1/dehydrated_device/{device_id}/events`（报告 §5.1 / B3） | ✅ 已对齐（2026-09-25） |
 | **MSC3861** | 实验性 auth delegation（*仓库既有结论*） | 不实现；以 MAS 稳定集成为准 | `synapse-services/src/auth/mas_validator.rs`（报告 §5.1） | ⚪ N/A |
 | **MSC3866** | Admin `GET /_synapse/admin/v2/users` 未启用时省略 approval 标记（*仓库既有结论*） | 未核对 | —（报告 §5.1 标「未核对」） | ⚠️ 未核对 |
@@ -51,9 +52,13 @@
 | **MSC4239** | Matrix v1.14 / 房间版本 11 的发布 MSC（*仓库既有结论*） | 默认房间版本已越过 v11、推进到 v12 | `synapse-common/src/room_versions.rs:94` `DEFAULT_ROOM_VERSION = "12"`（报告 §5.1） | ✅ 已越过 |
 | **MSC4242** | State DAG（*仓库既有结论*） | 仅存储层；`dag.rs` 注释声称被 `/send_join`、`/get_missing_events` 使用，实际 0 调用点 | 报告 §5.1 / C6 | 🟡 PARTIAL（观察项） |
 | **MSC4262** | Profile 更新进 `/sync`（*仓库既有结论*） | `msc4262` 命中 8 个 `.rs`，语义完整性未验证 | `user_service.rs`、`user/storage.rs`、`sliding_sync_service/extensions.rs` 等（报告 §5.1 / C2） | 🟡 PARTIAL |
+| **MSC4291** | Room IDs as hashes of the create event（*proposals*：`proposals/4291-room-ids-as-hashes.md`） | v12+ 的 room_id 由 create 事件的 reference hash 派生（`room_id_from_create_event_id`）；v12 是唯一可创建版本（v1–v11 不可创建、v13 已移除） | `synapse-services/src/room/lifecycle/create.rs`、`synapse-common/src/room_versions.rs`（报告 §5.4 #19768） | ✅ 已落地（仅 v12） |
 | **MSC4297** | State resolution v2.1（*仓库既有结论*） | 未实现；v12 对该单项仍「声明领先实现」 | `docs/audit/ROOM_V12_PLAN_STATUS_2026-09-27.md`（报告 §5.1） | 🔴 遗留项 |
 | **MSC4304** | Matrix v1.15 / 房间版本 12 的发布 MSC（*仓库既有结论*） | 仅 v12 可创建；v1–v11 不可创建、v13 已移除 | `room_versions.rs:151` `stable("12")`（报告 §5.1 / B5） | ✅ 已落地 |
+| **MSC4311** | Use full PDU's in stripped state (like `invite_room_state`) over federation and always include `m.room.create`（*proposals*；标题引自上游 PR element-hq/synapse#19723） | 上游 v1.162 把严格校验推迟到 **2027-06-01**；本仓以配置开关 `msc4311_strict_validation`（默认 `false` ＝宽限期内宽松）承载，联邦侧发全量 PDU | `synapse-common/src/config/federation.rs:228-245`、`synapse-services/src/room/membership/federation.rs:653`（报告 §5.4 #19723） | ✅ 以配置开关承载（宽限至 2027-06-01） |
+| **MSC4326** | Device masquerading for appservices（*proposals*；该提案引入 unstable `ORG.MATRIX.MSC4326.M_UNKNOWN_DEVICE`） | 已返回**稳定** `M_UNKNOWN_DEVICE`，不再使用 MSC4326 unstable 前缀 | `synapse-common/src/error/code.rs:99,149,255`、`synapse-web/src/routes/device.rs:272,494-499`（报告 §5.4 #20181） | ✅ 已稳定化 |
 | **MSC4335** | 媒体上传超限返回 `M_USER_LIMIT_EXCEEDED`（*仓库既有结论*） | 错误码已定义，但**未见**媒体上传限额路径使用 | `synapse-common/src/error/code.rs:83,131,225,292`（报告 §5.1） | 🟡 PARTIAL |
+| **MSC4354** | Sticky Events（*proposals*：matrix-org/matrix-spec-proposals#4354） | 本仓**无 sticky soft-fail 维度**：sticky 仅以 `room_sticky_events.is_sticky` 落库 + 联邦 EDU，不做状态相关 auth 评估、无 `un_soft_fail` 重算 ⇒ 无可「取消」的对象（⚠️ `events.soft_failed` 是 B-8 事务去重专用，**同名不同义**） | `synapse-storage/src/sticky_event.rs`、`synapse-services/src/room/service.rs:661-684,739-799`（报告 §5.4 #20204 / §5.6 M5） | ⚪ N/A（仅报告） |
 | **MSC4429** | Profile 更新进 `/sync`（与 MSC4262 同族）（*仓库既有结论*） | `msc4429` 与 MSC4262 同行命中，语义完整性未验证 | 同 MSC4262（报告 §5.1 / C2） | 🟡 PARTIAL |
 | **MSC4502** | 定向房间成员查询（*仓库既有结论*） | `msc4502` 命中 8 个 `.rs`，语义完整性未验证 | `room/membership/{mod,service}.rs`、`handlers/room/members.rs` 等（报告 §5.1 / C2） | 🟡 PARTIAL |
 | **MSC4512** | App Service 命名空间代理 / 联邦请求（*仓库既有结论*） | 代理已实现；联邦侧代理请求未做 | `synapse-web/src/routes/app_service.rs:722-723` + handler `proxy_to_as`（报告 §5.1 / §六） | ✅ 代理已实现 |
