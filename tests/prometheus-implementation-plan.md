@@ -37,17 +37,17 @@ Phase 3: 告警规则与可视化 ✅ COMPLETE (2026-09-30)
    - MetricsSummary 更新
 
 ### Phase 3 交付物 (COMPLETE):
-1. **`tests/alerting-rules.yml`** - Alertmanager 告警规则配置
+1. **`monitoring/alerting-rules.yml`** - Alertmanager 告警规则配置
    - 6 个告警组
    - 15+ 条告警规则
    - 覆盖 SLO、资源、业务三个维度
 
-2. **`tests/grafana-dashboard-slo.json`** - SLO 监控仪表盘
+2. **`monitoring/grafana/dashboards/grafana-dashboard-slo.json`** - SLO 监控仪表盘
    - 6 个核心面板
    - SLO 可用性追踪
    - 延迟分位数监控
 
-3. **`tests/grafana-dashboard-business.json`** - 业务指标仪表盘
+3. **`monitoring/grafana/dashboards/grafana-dashboard-business.json`** - 业务指标仪表盘
    - 10 个业务面板
    - 用户增长追踪
    - E2EE 覆盖率监控

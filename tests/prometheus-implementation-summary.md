@@ -72,7 +72,7 @@ pub struct MetricsSummary {
 
 #### 2.1 Alertmanager 告警规则
 
-创建了 `tests/alerting-rules.yml`，包含 6 个告警组共 15+ 条规则：
+创建了 `monitoring/alerting-rules.yml`，包含 6 个告警组共 15+ 条规则：
 
 **告警组分类**:
 1. **basic-health** - 基础健康检查 (Critical)
@@ -153,10 +153,13 @@ pub struct MetricsSummary {
 
 ```
 /Users/ljf/Desktop/hu_ts/synapse-rust/tests/
-├── prometheus-implementation-plan.md    # 完整实施计划文档
+└── prometheus-implementation-plan.md    # 完整实施计划文档
+
+/Users/ljf/Desktop/hu_ts/synapse-rust/monitoring/
 ├── alerting-rules.yml                   # Alertmanager 告警规则
-├── grafana-dashboard-slo.json          # SLO 监控仪表盘
-└── grafana-dashboard-business.json     # 业务指标仪表盘
+└── grafana/dashboards/
+    ├── grafana-dashboard-slo.json       # SLO 监控仪表盘
+    └── grafana-dashboard-business.json  # 业务指标仪表盘
 ```
 
 ---
@@ -220,7 +223,7 @@ curl http://localhost:9090/api/v1/query_range?query=histogram_quantile(0.95, sum
 
 ```bash
 # 使用 promtool 验证规则语法
-cd /Users/ljf/Desktop/hu_ts/synapse-rust/tests && \
+cd /Users/ljf/Desktop/hu_ts/synapse-rust/monitoring && \
 promtool test rules alerting-rules.yml
 ```
 
@@ -310,8 +313,8 @@ has_alias: "true"|"false"                      // 别名影响
 
 如有任何问题或需要调整，请随时联系：
 - 文档位置：`tests/prometheus-implementation-plan.md`
-- 告警配置：`tests/alerting-rules.yml`
-- 仪表板配置：`tests/grafana-dashboard-*.json`
+- 告警配置：`monitoring/alerting-rules.yml`
+- 仪表板配置：`monitoring/grafana/dashboards/grafana-dashboard-*.json`
 
 **建议沟通渠道**:
 1. 技术细节讨论 → 直接查看代码注释

@@ -26,9 +26,9 @@ services:
       - "127.0.0.1:9090:9090"
     volumes:
       # Prometheus 配置文件
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       # 告警规则文件
-      - ./tests/alerting-rules.yml:/etc/prometheus/alerting-rules.yml:ro
+      - ./monitoring/alerting-rules.yml:/etc/prometheus/alerting-rules.yml:ro
       # 持久化数据存储
       - prometheus_data:/prometheus
     command:
@@ -74,7 +74,7 @@ services:
     ports:
       - "127.0.0.1:9093:9093"
     volumes:
-      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - alertmanager_data:/alertmanager
     command:
       - '--config.file=/etc/alertmanager/alertmanager.yml'
@@ -123,11 +123,8 @@ services:
       - grafana_data:/var/lib/grafana
       # 数据源配置
       - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
-      # 仪表盘配置
+      # 仪表盘配置（目录内已含 SLO / 业务仪表盘 JSON，providers.yml 自动加载）
       - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
-      # 导入我们刚创建的仪表板 JSON 文件
-      - ./tests/grafana-dashboard-slo.json:/etc/grafana/provisioning/dashboards/slo-monitoring.json:ro
-      - ./tests/grafana-dashboard-business.json:/etc/grafana/provisioning/dashboards/business-metrics.json:ro
     depends_on:
       - prometheus
     healthcheck:

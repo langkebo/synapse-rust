@@ -407,7 +407,7 @@ services:
 
 ### 3. 自定义告警阈值
 
-编辑 `tests/alerting-rules.yml`, 修改相应规则的 `for` 字段和表达式。
+编辑 `monitoring/alerting-rules.yml`, 修改相应规则的 `for` 字段和表达式。
 
 ### 4. 添加新仪表盘
 
