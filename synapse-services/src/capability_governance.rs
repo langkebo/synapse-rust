@@ -973,6 +973,7 @@ mod tests {
             "io.hula.voice_extended",
             "io.hula.burn_after_read",
             "io.element.msc4452.preview_url",
+            "org.matrix.msc3720.account_status",
         ];
 
         for key in capabilities.keys() {

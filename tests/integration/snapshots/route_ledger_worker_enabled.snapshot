@@ -1,5 +1,5 @@
 # route-ledger snapshot: worker-enabled
-count: 1141
+count: 1143
 
 DELETE /_matrix/admin/v1/external_services/{as_id} [external_service]
 DELETE /_matrix/app/v1/proxy/{as_id}/{*path} [app_service]
@@ -662,6 +662,7 @@ POST /_matrix/admin/v1/external_services [external_service]
 POST /_matrix/app/v1/ping [app_service]
 POST /_matrix/app/v1/proxy/{as_id}/{*path} [app_service]
 POST /_matrix/client/unstable/org.matrix.msc3575/sync [sliding_sync]
+POST /_matrix/client/unstable/org.matrix.msc3720/account_status [assembly::create_router]
 POST /_matrix/client/unstable/org.matrix.msc4108/rendezvous [msc4108_rendezvous]
 POST /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id} [delayed_events]
 POST /_matrix/client/unstable/org.matrix.simplified_msc3575/sync [sliding_sync]
@@ -856,6 +857,7 @@ POST /_matrix/client/v3/voice/{media_id}/transcription [voice]
 POST /_matrix/client/v3/voip/turnServer [assembly::voip_compat]
 POST /_matrix/client/v3/widgets/create [widget]
 POST /_matrix/client/v4/sync [sliding_sync]
+POST /_matrix/federation/unstable/org.matrix.msc3720/account_status [federation]
 POST /_matrix/federation/v1/get_missing_events/{room_id} [federation]
 POST /_matrix/federation/v1/knock/{room_id}/{user_id} [federation]
 POST /_matrix/federation/v1/publicRooms [federation]
