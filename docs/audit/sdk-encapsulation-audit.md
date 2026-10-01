@@ -608,3 +608,83 @@
 7. Tjg 线程测试修正 6 例 stale mock（改为 SDK snake_case 原生形状，验证 API 层 camelCase 映射）；`MatrixThreadApi/Service/threadUtils` 测试 98/98 通过；`vue-tsc --noEmit` EXIT=0。
 8. **S-14 裸调用彻底收口（2026-09-11）**：Tjg `UserService.activateUser()` 由裸 `authedRequestWithPath` 改为 `admin.activateUser(userId)`（SDK `AdminUserManager` 同 v2 PUT 路由），并移除 `authedRequestWithPath` 相关 import；经 `vue-tsc --noEmit` 验证 EXIT=0。至此全仓检索 `_synapse` admin 域已无裸调点。
 9. **Q-1 复核确认已落地**：`client.manager(name)` 类型安全访问器（`client-infra/manager-accessor.ts`）配 `ManagerName`/`ManagerTypeMap`（`manager-registry.ts`）；核心 Manager（admin/auth/dm/friend/presence/threading/media/profile/account/serverCapabilities）均在各自 `extendMatrixClient()` 内 `registerManagerClass()`；`spec/unit/manager-accessor.spec.ts` 7/7 通过。
+
+---
+
+## 13. 2026-10-01 复核：13 条 SDK↔后端路径缺口逐条核对 + 已落地修复
+
+> 触发：前端侧汇总的 13 条"SDK 调了后端没有的路径"。逐条对照**后端 ledger**
+> （`tests/unit/fixtures/ledger_export_sdk/all.json`，`all` profile **1149** 条）与
+> **上游 Synapse v1.162.0**（`element-hq/synapse`）后定论。
+> 修复全部落在 SDK 仓库分支 `feat/sdk-contract-gap-implementation`。
+
+### 13.1 总判据（先给结论）
+
+**13 条里没有一条是"上游已实现、后端漏移植"。** 构成是：
+
+| 分类 | 条数 | 处置 |
+|---|---|---|
+| 路径形状不一致（能力后端都有，SDK 拼错） | 6 | SDK 改路径/参数形状 |
+| 对着**已拆除**端点发请求（`88001b4a9` 拆的服务端托管设备私钥面） | 6 | 删除 SDK 面 + 生成表 + 豁免 |
+| SDK 自造端点（上游与后端都没有） | 1 | 删除方法 |
+| 真实产品决策（MSC3720 account status 是否实现） | 1 | 保留为待决 |
+
+### 13.2 逐条
+
+| # | SDK 调用 | 后端/上游事实 | 处置（SDK commit） |
+|---|---|---|---|
+| 1 | `PUT .../appservices/{as}/state/{key}` | 后端为 **`POST .../appservices/{as_id}/state` + body `{state_key,state_value}`**（`app_service.rs::set_app_service_state` / `SetStateBody`） | 改形状 `8b9069ec5` |
+| 2 | `GET .../appservices/{as}/statistics` | 后端是**全局** `GET .../appservices/statistics`（无 as_id） | 去 asId `8b9069ec5` |
+| 3 | `.../appservices/{as}/query/user?user_id=` | 后端 `GET .../appservices/query/user?user_id=`（无 as_id） | 去 asId `8b9069ec5` |
+| 4 | `.../appservices/{as}/query/alias?alias=` | 同上，`query/alias` | 去 asId `8b9069ec5` |
+| 5 | `GET .../federation/status/{server}` | **上游无、本后端无**（上游 `admin/federation.py` 只有 `/destinations`、`/destinations/{d}`、`/destinations/{d}/rooms`、`POST /destinations/{d}/reset_connection`） | → `GET .../federation/destinations/{d}`，按 `DestinationInfo` 映射（`online = status === "active"`、`lastSuccessfulConnect = last_successful_ts`），删臆造的 `latency` 字段 `8b9069ec5` |
+| 6 | `POST .../federation/reconnect/{server}` | 两侧都无 "reconnect" | → `POST .../destinations/{d}/reset_connection` `8b9069ec5` |
+| 7 | `GET /_synapse/admin/v1/account_status/{user}` | ledger 零命中；上游只有 MSC3720 的 **`POST /_matrix/client/unstable/org.matrix.msc3720/account_status`**（批量 + unstable，形状完全不同） | SDK 自造方法删除 `8b9069ec5`；是否实现 MSC3720 为**真实产品决策**，保留待决 |
+| 8 | `GET /_synapse/admin/v1/login/failures` | ledger 零命中、上游无 | 删除 `8b9069ec5` |
+| 9 | `GET /security/summary` | 属 `88001b4a9` 拆除面 | 删除 `e095f4428` |
+| 10 | `POST /device_verification/request` | 同上 | 删除 `e095f4428` |
+| 11 | `POST /device_verification/respond` | 同上 | 删除 `e095f4428` |
+| 12 | `GET /device_verification/status/{token}` | 同上 | 删除 `e095f4428` |
+| 13 | `GET /device_trust`、`GET /device_trust/{device_id}` | 同上 | 删除 `e095f4428` |
+
+**MSC 归属更正**：这 6 条设备验证/信任端点此前被 SDK 豁免表标注为 **MSC3882**；
+MSC3882 实为 *Allow an existing session to sign in a new session*，与设备签名交互式验证无关。
+`88001b4a9` 的删除理由已写明：`m.key.verification.*` 是**客户端之间**的 to-device 流程
+（SAS 的 ECDH/HKDF/MAC 全在客户端算，私钥永不离开客户端），homeserver 只负责投递。
+
+### 13.3 同一根因的追加发现（不在原 13 条内，但同属 `88001b4a9`）
+
+后端那次同时删除了 `synapse-web/src/routes/verification_routes.rs`（12 条 `.route()` × v1/v3
+= 24 条绝对路由）。SDK 侧对应死面当时仍在，且躺在豁免表里被误标为 "MSC3882 尚未落地"：
+
+- 删除 `src/verification/`（`VerificationManager`，9 方法 + 生成表）与
+  `src/key-verification/`（`KeyVerificationManager`，11 个 HTTP 方法全部打向
+  `keys/device_signing/verify_*`）；`client-crypto-requests.ts` 的 9 个死 helper、
+  `client-api-types.ts` 的 14 个死 DTO、`package.json` 的 `./verification` /
+  `./key-verification` 导出与 `test:real-backend:verification` 脚本一并删除（`f91d71b8d`）。
+- `path-contract-waivers.json` 15 → 6，剩余 6 条均为**非**本次范围（oidc register /
+  rtc transports / nheko summary / voice DELETE / login get_token / register captcha）。
+
+### 13.4 后端侧给 SDK 的契约链教训（建议后续收口）
+
+1. **后端"整模块删除"在 SDK 契约门禁里是盲区（已在 SDK 侧修）**：
+   `check-contract-drift.mjs` 原先只从 ledger 模块**反查** SDK 目录，模块被删后整目录被静默
+   跳过——`verification_routes` 删除后 12 条死路由长期未进差集。SDK 已改为枚举磁盘上实际
+   存在的 `route-table`，孤立表无全局 ledger 背书即报红（`0c16f8aa0`，含红/绿双向证明）。
+2. **SDK 侧 `docs/api-contract/<module>.md` 是 codegen 的输入源，且不与 ledger 自动比对**：
+   后端删面后，只要这些人工镜像文档还写着旧端点，`contract:codegen` 就会把死路由/死 DTO
+   重新写回生成表（本次 `e2ee.md` / `cas.md` / `event-report.md` 均如此）。SDK 已把
+   `generated_hash` 重钉、`verification.md` 删除；**建议后端在删除路由时同步 grep SDK 镜像
+   文档**，或把该镜像纳入自动同步。
+3. **CAS 根级路径残留**：后端 `cas.rs` 已 `nest("/_synapse/cas", ...)`（2026-09 修复
+   `CAS_ROUTER_PREFIX_MISSING_2026-09-29.md`），但 SDK 生成表因 codegen 并集语义仍留着
+   6 条根级 `/login`、`/serviceValidate` 等；已剪除（`e095f4428`）。
+
+### 13.5 验证与提交
+
+- SDK 提交：`8b9069ec5`（8 条路径 + 陈旧镜像刷新）、`e095f4428`（device-trust +
+  getReportHistory + cas 残留 + 门禁遗留修复）、`f91d71b8d`（verification 面）、
+  `0c16f8aa0`（drift 门禁补盲区）。
+- 门禁：`pnpm quality:contracts` 全绿；`path-contract` 233 请求 / 0 不匹配 / 豁免 6；
+  `vitest run spec/unit` 5336/5336；`tsc` 无新增错误。
+
