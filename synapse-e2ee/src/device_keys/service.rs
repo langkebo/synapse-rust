@@ -523,8 +523,17 @@ impl DeviceKeyService {
     }
 
     /// See [`claim_keys`].
+    ///
+    /// Instrumentation: `e2ee_handshake_duration_seconds` times the client
+    /// key-claim round trip — the step that establishes Olm sessions between
+    /// devices — around [`claim_keys_internal`].
     pub async fn claim_keys(&self, request: KeyClaimRequest) -> Result<KeyClaimResponse, ApiError> {
-        self.claim_keys_internal(request, None).await
+        let started = std::time::Instant::now();
+        let result = self.claim_keys_internal(request, None).await;
+        if let Some(metrics) = synapse_common::server_metrics::global_server_metrics() {
+            metrics.record_e2ee_handshake(started.elapsed().as_secs_f64());
+        }
+        result
     }
 
     /// See [`claim_keys_for_federation`].

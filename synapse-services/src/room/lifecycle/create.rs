@@ -14,7 +14,42 @@ use synapse_common::{generate_room_id, ApiError, ApiResult};
 
 impl LifecycleService {
     /// See [`create_room`].
+    ///
+    /// Instrumentation wrapper: the whole creation flow is timed once here and
+    /// reported through `room_creation_duration_seconds` +
+    /// `room_operations_total{operation="create"}`. The body lives in
+    /// [`create_room_inner`] so that every early `return Err(..)` inside it is
+    /// covered by a single measurement point instead of ~20 hand-placed ones.
     pub async fn create_room(&self, user_id: &str, config: CreateRoomConfig) -> ApiResult<serde_json::Value> {
+        let started = std::time::Instant::now();
+        let requested_version = config.room_version.clone();
+        let visibility = if Self::is_public_visibility(config.visibility.as_deref()) { "public" } else { "private" };
+
+        let result = self.create_room_inner(user_id, config).await;
+
+        if let Some(metrics) = synapse_common::server_metrics::global_server_metrics() {
+            metrics.record_room_creation(started.elapsed().as_secs_f64());
+            let (outcome, error_type) = match &result {
+                Ok(_) => ("success", "none"),
+                Err(e) => (
+                    if e.kind == synapse_common::ApiErrorKind::Forbidden { "forbidden" } else { "error" },
+                    e.code_str(),
+                ),
+            };
+            metrics.record_room_operation_labeled(
+                "create",
+                outcome,
+                requested_version.as_deref().unwrap_or(DEFAULT_ROOM_VERSION),
+                visibility,
+                error_type,
+            );
+        }
+
+        result
+    }
+
+    /// Body of [`create_room`]; see that method's documentation.
+    async fn create_room_inner(&self, user_id: &str, config: CreateRoomConfig) -> ApiResult<serde_json::Value> {
         if let Some(alias) = &config.room_alias_name {
             if let Err(e) = self.validator.validate_username(alias) {
                 return Err(e.into());

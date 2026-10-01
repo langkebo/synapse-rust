@@ -10,8 +10,31 @@ use super::service::MessagingService;
 
 impl MessagingService {
     /// See [`send_message`].
+    ///
+    /// Instrumentation wrapper: `message_delivery_latency_seconds` measures the
+    /// full client-visible send (membership check → event write → relation /
+    /// beacon side-writes). The body lives in [`send_message_inner`] so the
+    /// early returns are covered by one measurement point. Every send path —
+    /// including the transactional-dedup path in `send_message_with_txn` —
+    /// funnels through here.
     #[::tracing::instrument(skip(self, content))]
     pub async fn send_message(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_type: &str,
+        content: &serde_json::Value,
+    ) -> ApiResult<serde_json::Value> {
+        let started = std::time::Instant::now();
+        let result = self.send_message_inner(room_id, user_id, event_type, content).await;
+        if let Some(metrics) = synapse_common::server_metrics::global_server_metrics() {
+            metrics.record_message_delivery(started.elapsed().as_secs_f64());
+        }
+        result
+    }
+
+    /// Body of [`send_message`]; see that method's documentation.
+    async fn send_message_inner(
         &self,
         room_id: &str,
         user_id: &str,

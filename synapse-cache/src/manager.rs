@@ -482,7 +482,10 @@ impl CacheManager {
         self.local.remove(key);
         if let Some(redis) = &self.redis {
             if let Err(e) = redis.delete(key).await {
+                self.note_cache_operation(key, "delete", "error");
                 ::tracing::warn!(target: "cache", cache_key = %key, error = %e, "Failed to delete cache entry from Redis");
+            } else {
+                self.note_cache_operation(key, "delete", "success");
             }
         }
         if let Err(e) = self.broadcast_invalidation(key, InvalidationType::Key).await {
@@ -548,6 +551,33 @@ impl CacheManager {
         }
     }
 
+    /// Records one cache operation into `cache_operations_total`.
+    ///
+    /// `cache_type` is the key's namespace prefix (`room_state:…` →
+    /// `room_state`), which is what the Grafana hit-rate panel groups by; keys
+    /// without a namespace report `other`. `backend` says whether L2 (Redis)
+    /// was in play. Best-effort by construction: with no global metrics handle
+    /// installed (unit tests, tools) this is a no-op, and it never fails a
+    /// cache call.
+    ///
+    /// Scope: the single-key `get`/`get_checked`/`set`/`set_checked`/`delete`
+    /// paths. The batch variants (`get_batch`/`delete_batch`) issue one
+    /// operation per *call*, not per key, so they are intentionally not
+    /// counted here — the panel's ratio stays meaningful, its totals are a
+    /// lower bound for batch-heavy workloads.
+    fn note_cache_operation(&self, key: &str, operation: &str, result: &str) {
+        let Some(metrics) = synapse_common::server_metrics::global_server_metrics() else {
+            return;
+        };
+        let cache_type = key.split(':').next().filter(|prefix| !prefix.is_empty()).unwrap_or("other");
+        metrics.record_cache_operation_labeled(
+            cache_type,
+            if self.use_redis { "redis" } else { "memory" },
+            operation,
+            result,
+        );
+    }
+
     /// Retrieves and deserializes a value, falling back to L2 (Redis) on L1 miss.
     /// Returns `Ok(None)` for cache miss; returns `Err` only on serialization or
     /// non-recoverable backend failure.
@@ -557,6 +587,7 @@ impl CacheManager {
         // L1: Local Cache
         if let Some(val) = self.local.get_raw(&key) {
             if let Ok(result) = serde_json::from_str(&val) {
+                self.note_cache_operation(&key, "get", "hit");
                 return Ok(Some(result));
             }
         }
@@ -568,11 +599,13 @@ impl CacheManager {
                     if let Ok(result) = serde_json::from_str(&val) {
                         // Populate L1
                         self.local.set_raw(&key, &val);
+                        self.note_cache_operation(&key, "get", "hit");
                         return Ok(Some(result));
                     }
                 }
             }
         }
+        self.note_cache_operation(&key, "get", "miss");
         Ok(None)
     }
 
@@ -585,6 +618,7 @@ impl CacheManager {
         // L1: Local Cache
         if let Some(val) = self.local.get_raw(&key) {
             if let Ok(result) = serde_json::from_str(&val) {
+                self.note_cache_operation(&key, "get", "hit");
                 return Ok(Some(result));
             }
         }
@@ -592,17 +626,24 @@ impl CacheManager {
         // L2: Redis Cache — propagate errors (fail closed)
         if self.use_redis {
             if let Some(redis) = &self.redis {
-                let val =
-                    redis.get_checked(&key).await.map_err(|e| ApiError::internal_with_cause("Redis GET failed", e))?;
+                let val = match redis.get_checked(&key).await {
+                    Ok(val) => val,
+                    Err(e) => {
+                        self.note_cache_operation(&key, "get", "error");
+                        return Err(ApiError::internal_with_cause("Redis GET failed", e));
+                    }
+                };
                 if let Some(val) = val {
                     if let Ok(result) = serde_json::from_str(&val) {
                         // Populate L1
                         self.local.set_raw(&key, &val);
+                        self.note_cache_operation(&key, "get", "hit");
                         return Ok(Some(result));
                     }
                 }
             }
         }
+        self.note_cache_operation(&key, "get", "miss");
         Ok(None)
     }
 
@@ -672,9 +713,22 @@ impl CacheManager {
             self.local.set_raw_with_ttl(key, &val, Duration::from_secs(ttl));
             if self.use_redis {
                 if let Some(redis) = &self.redis {
-                    let _ = redis.set(key, &val, ttl).await;
+                    // Best-effort L2 write (fail-open, see the doc comment):
+                    // the failure is still *counted* so the
+                    // `cache_operations_total{backend="redis",result="error"}`
+                    // alert has data even though the call itself succeeds.
+                    if let Err(e) = redis.set(key, &val, ttl).await {
+                        self.note_cache_operation(key, "set", "error");
+                        ::tracing::debug!(target: "cache", cache_key = %key, error = %e, "Best-effort Redis SET failed");
+                    } else {
+                        self.note_cache_operation(key, "set", "success");
+                    }
                 }
+            } else {
+                self.note_cache_operation(key, "set", "success");
             }
+        } else {
+            self.note_cache_operation(key, "set", "error");
         }
         Ok(())
     }
@@ -687,9 +741,13 @@ impl CacheManager {
         self.local.set_raw_with_ttl(key, value, Duration::from_secs(ttl));
         if self.use_redis {
             if let Some(redis) = &self.redis {
-                redis.set(key, value, ttl).await.map_err(|e| ApiError::internal_with_cause("Redis SET failed", e))?;
+                if let Err(e) = redis.set(key, value, ttl).await {
+                    self.note_cache_operation(key, "set", "error");
+                    return Err(ApiError::internal_with_cause("Redis SET failed", e));
+                }
             }
         }
+        self.note_cache_operation(key, "set", "success");
         Ok(())
     }
 

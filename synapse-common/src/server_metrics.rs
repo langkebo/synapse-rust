@@ -186,15 +186,9 @@ pub struct ServerMetrics {
     /// E2EE handshake/key exchange duration histogram (seconds).
     pub e2ee_handshake_duration: Histogram,
 
-    // Sync Event Delay Metrics
-    /// Time from event occurrence to sync delivery histogram (seconds).
-    pub sync_event_delay: Histogram,
-
     // Enhanced Operation Metrics (replacing legacy counters with dynamic templates)
     /// Dynamic counter template for unified room operations with granular labels.
     pub room_operations_total: DynamicCounterTemplate,
-    /// Dynamic counter template for database queries with table/operation breakdown.
-    pub db_queries_total: DynamicCounterTemplate,
     /// Dynamic counter template for cache operations with backend/type/result labels.
     pub cache_operations_total: DynamicCounterTemplate,
 
@@ -358,20 +352,10 @@ impl ServerMetrics {
                 Self::labels(&[("unit", "seconds")]),
             ),
 
-            // Sync Event Delay Metrics
-            sync_event_delay: collector.register_histogram_with_labels(
-                "sync_event_delay_seconds".to_string(),
-                Self::labels(&[("unit", "seconds")]),
-            ),
-
             // Enhanced Operation Metrics — using DynamicCounterTemplate for runtime label binding
             room_operations_total: collector.create_dynamic_counter_template(
                 "room_operations_total".to_string(),
                 vec!["operation", "outcome", "room_version", "visibility", "error_type"],
-            ),
-            db_queries_total: collector.create_dynamic_counter_template(
-                "db_queries_total".to_string(),
-                vec!["table", "operation", "outcome", "error_type"],
             ),
             cache_operations_total: collector.create_dynamic_counter_template(
                 "cache_operations_total".to_string(),
@@ -604,11 +588,19 @@ impl ServerMetrics {
     // should use the DynamicHistogramTemplate once added to MetricsCollector
 
     /// Records message delivery latency (simple version).
+    ///
+    /// Call site: `MessagingService::send_message` (the single funnel for every
+    /// client send, including the transactional-dedup path).
     pub fn record_message_delivery(&self, duration_sec: f64) {
         self.message_delivery_latency.observe(duration_sec);
     }
 
     /// Sets current message queue depth.
+    ///
+    /// Call site: the worker heartbeat (`heartbeat_load_stats` in
+    /// `src/bin/synapse_worker.rs`), from the Redis task queue's pending count.
+    /// A single-process deployment runs no worker and therefore reports no
+    /// sample (the alert stays silent instead of reading a fake `0`).
     pub fn set_message_queue_depth(&self, depth: f64) {
         self.message_queue_depth.set(depth);
     }
@@ -618,18 +610,19 @@ impl ServerMetrics {
     // should use the DynamicHistogramTemplate once added to MetricsCollector
 
     /// Records room creation duration (simple version).
+    ///
+    /// Call site: `LifecycleService::create_room` (the instrumentation wrapper
+    /// around `create_room_inner`).
     pub fn record_room_creation(&self, duration_sec: f64) {
         self.room_creation_duration.observe(duration_sec);
     }
 
     /// Records E2EE handshake duration (simple version).
+    ///
+    /// Call site: `DeviceKeysService::claim_keys` — the client key-claim round
+    /// trip that establishes Olm sessions between devices.
     pub fn record_e2ee_handshake(&self, duration_sec: f64) {
         self.e2ee_handshake_duration.observe(duration_sec);
-    }
-
-    /// Records sync event delay (simple version).
-    pub fn record_sync_event_delay(&self, duration_sec: f64) {
-        self.sync_event_delay.observe(duration_sec);
     }
 
     /// Records unified room operation with granular labels.
@@ -640,6 +633,9 @@ impl ServerMetrics {
     /// * `room_version` - Room version: "10", "11", "12", "unknown"
     /// * `visibility` - Visibility: "public", "private"
     /// * `error_type` - Error type if applicable: "M_FORBIDDEN", "M_INVALID_ROOM_ID", "M_UNKNOWN", "other"
+    ///
+    /// Call site: `LifecycleService::create_room` (operation `create`; the
+    /// outcome/error_type come from the `ApiResult` the inner body returned).
     pub fn record_room_operation_labeled(
         &self,
         operation: &str,
@@ -651,24 +647,16 @@ impl ServerMetrics {
         self.room_operations_total.observe(&[operation, outcome, room_version, visibility, error_type]);
     }
 
-    /// Records database query with table, operation, and outcome labels.
-    ///
-    /// # Arguments
-    /// * `table` - Table name: "rooms", "events", "members", "state_groups", etc.
-    /// * `operation` - SQL operation: "SELECT", "INSERT", "UPDATE", "DELETE"
-    /// * `outcome` - Query result: "success", "error"
-    /// * `error_type` - Error type if failed: "unique_violation", "foreign_key_violation", "other"
-    pub fn record_db_query_labeled(&self, table: &str, operation: &str, outcome: &str, error_type: &str) {
-        self.db_queries_total.observe(&[table, operation, outcome, error_type]);
-    }
-
     /// Records cache operation with cache_type, backend, operation, and result labels.
     ///
     /// # Arguments
     /// * `cache_type` - Type of cache: "room_state", "event_body", "membership", "user_profile"
     /// * `backend` - Backend used: "redis", "memory", "hybrid"
     /// * `operation` - Operation performed: "get", "set", "delete", "invalidate"
-    /// * `result` - Result of operation: "hit", "miss", "error", "ttl_expired"
+    /// * `result` - Result of operation: "hit", "miss", "success", "error"
+    ///
+    /// Call site: `CacheManager::record_cache_operation`, invoked from the
+    /// single-key `get`/`get_checked`/`set`/`set_checked`/`delete` paths.
     pub fn record_cache_operation_labeled(&self, cache_type: &str, backend: &str, operation: &str, result: &str) {
         self.cache_operations_total.observe(&[cache_type, backend, operation, result]);
     }
@@ -708,7 +696,6 @@ impl ServerMetrics {
             // Note: These dynamic counters cannot be easily summarized; removed from MetricsSummary
             // Use Prometheus directly for labeled metric aggregation.
             room_operations_total: 0,
-            db_queries_total: 0,
             cache_operations_total: 0,
         }
     }
@@ -788,8 +775,6 @@ pub struct MetricsSummary {
     // NEW CUSTOM METRICS (2026-09-30)
     /// Total unified room operations with granular labels.
     pub room_operations_total: u64,
-    /// Total database queries with table/operation breakdown.
-    pub db_queries_total: u64,
     /// Total cache operations with backend/type/result labels.
     pub cache_operations_total: u64,
 }
@@ -948,7 +933,6 @@ mod tests {
             csrf_validations: 400,
             csrf_validation_failures: 3,
             room_operations_total: 0,
-            db_queries_total: 0,
             cache_operations_total: 0,
         };
 
@@ -1281,7 +1265,6 @@ mod tests {
             csrf_validations: 0,
             csrf_validation_failures: 0,
             room_operations_total: 0,
-            db_queries_total: 0,
             cache_operations_total: 0,
         };
 

@@ -353,9 +353,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// real source in this process. On a metrics error the heartbeat still goes out
 /// (liveness/status matter) with no queue depth; [`collect_load_stats`] leaves
 /// CPU/memory and the untracked metrics as `None`.
+///
+/// The same reading feeds the `message_queue_depth` gauge, so the
+/// `message_queue_depth > 100` alert is driven by the queue that actually backs
+/// message delivery. This runs in the worker process: a single-process
+/// deployment (no worker) reports no queue depth rather than a fabricated `0`.
 async fn heartbeat_load_stats(queue: &RedisTaskQueue) -> Option<WorkerLoadStatsUpdate> {
     match queue.get_metrics("synapse_workers").await {
-        Ok(metrics) => Some(collect_load_stats(Some(metrics.queue_length))),
+        Ok(metrics) => {
+            if let Some(server_metrics) = synapse_common::server_metrics::global_server_metrics() {
+                server_metrics.set_message_queue_depth(metrics.queue_length as f64);
+            }
+            Some(collect_load_stats(Some(metrics.queue_length)))
+        }
         Err(error) => {
             tracing::debug!(%error, "heartbeat: queue metrics unavailable; reporting no queue depth");
             Some(collect_load_stats(None))

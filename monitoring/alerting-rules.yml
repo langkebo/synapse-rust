@@ -37,16 +37,20 @@ groups:
           description: "Prometheus 无法连接到 Synapse-Rust 服务实例 {{ $labels.instance }}\n持续时间：{{ $value }} 秒\n请立即检查容器状态和网络连接。"
 
       # 数据库查询错误激增
+      #
+      # 指标口径：`db_query_errors` 由 `From<sqlx::Error> for ApiError` 递增，是本仓
+      # **唯一**逐语句的数据库失败计数器。此前的 `db_queries_total{outcome="error"}`
+      # 没有调用点（sqlx 的逐语句 tracing 事件只给 elapsed、不给成败），告警永不触发。
       - alert: HighDatabaseErrorRate
         expr: |
-          rate(db_queries_total{outcome="error"}[5m]) > 10
+          rate(db_query_errors[5m]) > 10
         for: 2m
         labels:
           severity: critical
           category: database
         annotations:
           summary: "🚨 数据库查询错误率激增 ({{ $value }}/s)"
-          description: "SYNAPSE 数据库查询错误率在 5 分钟内超过 10 次/秒\n错误类型分布:\n{{ range $labels.error_type }}  - {{ $labels.error_type }}: {{ $values.error_type }}\n{{ end }}\n请检查数据库连接和 SQL 语句。"
+          description: "SYNAPSE 数据库查询错误率在 5 分钟内超过 10 次/秒\n请检查数据库连接和 SQL 语句。"
 
   - name: synapse-latency-slo
     interval: 30s

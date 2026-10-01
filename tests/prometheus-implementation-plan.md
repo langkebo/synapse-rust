@@ -6,6 +6,36 @@
 
 ---
 
+## ✅ 落地状态（2026-10-01，合并进 `main` 后复核）
+
+`scripts/ci/check_metric_instrumentation.py`（CI 的「Check metric instrumentation
+reachability」步骤）当时报 **FAIL 新增未接通埋点**：Phase 1 定义的 7 个 `record_*`
+方法一个调用点都没有，而 Phase 3 的面板/告警已经在读它们 —— 即"指标会注册但永不产生
+数据 ⇒ 告警永不触发"。本轮处置如下（以门禁为准，不以本文档为准）：
+
+| 指标 | 处置 | 真实调用点 |
+|---|---|---|
+| `message_delivery_latency_seconds` | ✅ 已接线 | `MessagingService::send_message`（所有发送路径的唯一漏斗，含 txn 去重路径） |
+| `room_creation_duration_seconds` | ✅ 已接线 | `LifecycleService::create_room` 埋点包装（覆盖内部全部提前返回） |
+| `room_operations_total` | ✅ 已接线 | 同上，`operation="create"` + outcome/error_type 由内层 `ApiResult` 决定 |
+| `e2ee_handshake_duration_seconds` | ✅ 已接线 | `DeviceKeysService::claim_keys`（建立 Olm 会话的密钥认领往返） |
+| `cache_operations_total` | ✅ 已接线 | `CacheManager` 的单键 `get`/`get_checked`/`set`/`set_checked`/`delete` |
+| `message_queue_depth` | ✅ 已接线 | worker 心跳 `heartbeat_load_stats`（Redis 任务队列 pending 数） |
+| `db_queries_total` | ❌ **已删除** | 无诚实调用点：sqlx 逐语句事件只给 elapsed、不给成败（成败走 `db_query_errors`）；按表拆标签需要解析 `db.statement`，而 `db_query_metrics.rs` 有一条显式设计注释说故意不读它。面板与告警已改指已接线的 `db_query_errors` |
+| `sync_event_delay_seconds` | ❌ **已删除** | 无消费方（监控栈 0 引用）、"事件发生到 sync 交付"在本仓没有可测的时间基准 |
+
+回归保护：`synapse-cache` 与 `synapse-services` 各有一个断言标签组合的用例
+（`test_cache_operations_total_records_hit_miss_and_set`、
+`create_room_records_failure_outcome_with_labels`）。
+
+**仍未接线**（门禁基线 `scripts/ci/metric_instrumentation_baseline` 里的 12 条历史债）：
+`record_auth_attempt`、`record_cache_operation`、`record_csrf_validation`、
+`record_db_query`、`record_message_send`、`record_presence_update`、
+`record_replay_attack_blocked`、`record_room_operation`、`record_security_validation`、
+`record_state_group_resolve`、`record_sync_request`、`record_token_validation`。
+
+---
+
 ## 📋 总体实施路线图
 
 ```
@@ -344,12 +374,12 @@ pub fn record_cache_operation_labeled(
 - [x] 新指标在 ServerMetrics 中定义
 - [x] 辅助记录方法实现
 - [x] MetricsSummary 更新
-- [ ] Service 层集成调用点改造 (TODO)
+- [x] Service 层集成调用点改造（2026-10-01 完成；`db_queries_total` / `sync_event_delay` 因无可测语义删除，见文首「落地状态」）
 
 ### Phase 2 Checklist 🔄
 - [ ] room_operations_total 重构
 - [ ] http_requests_total 标签增强
-- [ ] db_queries_total 细分
+- [x] ~~db_queries_total 细分~~（删除：无可诚实接线的调用点，见文首「落地状态」）
 - [ ] cache_operations_total 增强
 
 ### Phase 3 Checklist ⏳
