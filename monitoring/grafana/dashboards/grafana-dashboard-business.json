@@ -223,8 +223,20 @@
             }
           }
         ]
+      },
+    {
+      "id": 11,
+      "title": "Stream 位置（per-stream）",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 40, "w": 24, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [{ "expr": "synapse_storage_stream_current_position", "legendFormat": "{{stream}}" }],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "description": "每个 stream 的当前最大位置（events/to_device/device_lists/sliding_sync/quarantined_media）；长期不推进=该 stream 写路径卡住。刷新周期 30s。" },
+        "overrides": []
       }
-    ],
+    }
+  ],
     "templating": {
       "list": [
         {
