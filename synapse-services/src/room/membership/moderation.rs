@@ -593,6 +593,7 @@ mod tests {
             event_broadcaster: None,
             room_summary_service: room_summary,
             cache,
+            resolution_cache: crate::room::state_record::ResolutionCache::default(),
             key_rotation_storage: None,
             app_service_manager: None,
             db_pool: None,

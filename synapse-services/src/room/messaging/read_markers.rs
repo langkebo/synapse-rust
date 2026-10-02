@@ -113,6 +113,7 @@ mod tests {
             key_rotation_manager: None,
             room_summary_service,
             cache,
+            resolution_cache: crate::room::state_record::ResolutionCache::default(),
             event_admission_gate: Arc::new(crate::test_mocks::FakeEventAdmissionGate::new()),
         })
     }

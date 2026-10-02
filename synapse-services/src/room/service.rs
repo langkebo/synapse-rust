@@ -21,6 +21,7 @@ use super::lifecycle::service::{LifecycleService, LifecycleServiceConfig};
 use super::membership::service::{MembershipService, MembershipServiceConfig};
 use super::messaging::service::{MessagingService, MessagingServiceConfig};
 use super::state::service::{RoomStateService, RoomStateServiceConfig};
+use super::state_record::ResolutionCache;
 pub use synapse_storage::room::{
     decode_room_search_cursor, encode_room_search_cursor, RoomSearchCursor, RoomSearchOrder,
 };
@@ -181,6 +182,10 @@ impl RoomService {
             federation_client: config.federation_client.clone(),
         };
 
+        // M-5: one resolution cache, shared by both write seams below, so a fork
+        // resolved on one request is a hit on the next (see `ResolutionCache`).
+        let resolution_cache = ResolutionCache::new();
+
         let membership_cfg = MembershipServiceConfig {
             member_storage: config.member_storage.clone(),
             room_storage: config.room_storage.clone(),
@@ -194,6 +199,7 @@ impl RoomService {
             event_broadcaster: infra.event_broadcaster.clone(),
             room_summary_service: config.room_summary_service.clone(),
             cache: config.cache.clone(),
+            resolution_cache: resolution_cache.clone(),
             key_rotation_storage: config.key_rotation_storage.clone(),
             app_service_manager: config.app_service_manager.clone(),
             db_pool: config.db_pool.clone(),
@@ -220,6 +226,7 @@ impl RoomService {
             key_rotation_manager: infra.key_rotation_manager.clone(),
             room_summary_service: config.room_summary_service.clone(),
             cache: config.cache.clone(),
+            resolution_cache: resolution_cache.clone(),
             event_admission_gate: config.event_admission_gate.clone(),
         };
         let messaging = MessagingService::new(messaging_cfg);

@@ -19,6 +19,7 @@ use synapse_storage::{MemberStoreApi, RoomStoreApi, UserStore};
 
 use synapse_e2ee::key_rotation::KeyRotationStorageApi;
 
+use crate::room::state_record::ResolutionCache;
 use crate::room::summary::RoomSummaryService;
 
 // MSC3083 `allow`-array parsing now lives in the single canonical
@@ -61,6 +62,11 @@ pub struct MembershipService {
     pub(crate) event_broadcaster: Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>,
     pub(crate) room_summary_service: Arc<RoomSummaryService>,
     pub(crate) cache: Arc<CacheManager>,
+    /// M-5: the process-shared state-resolution-result cache. Cloned from the
+    /// `RoomService` so this service and
+    /// [`MessagingService`](crate::room::messaging::service::MessagingService)
+    /// reuse each other's resolutions across requests. See [`ResolutionCache`].
+    pub(crate) resolution_cache: ResolutionCache,
     /// Optional key-rotation storage. When present, leaving a LOCAL encrypted
     /// room marks the room's megolm session for rotation (forward secrecy).
     pub(crate) key_rotation_storage: Option<Arc<dyn KeyRotationStorageApi>>,
@@ -115,6 +121,8 @@ pub struct MembershipServiceConfig {
     pub room_summary_service: Arc<RoomSummaryService>,
     /// The `cache` field.
     pub cache: Arc<CacheManager>,
+    /// The `resolution_cache` field.
+    pub resolution_cache: ResolutionCache,
     /// The `key_rotation_storage` field.
     pub key_rotation_storage: Option<Arc<dyn KeyRotationStorageApi>>,
     /// The `app_service_manager` field.
@@ -149,6 +157,7 @@ impl MembershipService {
             event_broadcaster: config.event_broadcaster,
             room_summary_service: config.room_summary_service,
             cache: config.cache,
+            resolution_cache: config.resolution_cache,
             key_rotation_storage: config.key_rotation_storage,
             app_service_manager: config.app_service_manager,
             db_pool: config.db_pool,
@@ -1051,6 +1060,7 @@ mod tests {
             event_broadcaster: None,
             room_summary_service,
             cache: StdArc::new(CacheManager::new(&CacheConfig::default())),
+            resolution_cache: crate::room::state_record::ResolutionCache::default(),
             key_rotation_storage: None,
             app_service_manager: None,
             db_pool: None,
@@ -1157,6 +1167,7 @@ mod tests {
             event_broadcaster: None,
             room_summary_service,
             cache: StdArc::new(CacheManager::new(&CacheConfig::default())),
+            resolution_cache: crate::room::state_record::ResolutionCache::default(),
             key_rotation_storage: None,
             app_service_manager: None,
             db_pool: None,

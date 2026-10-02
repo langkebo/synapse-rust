@@ -365,6 +365,7 @@ impl MembershipService {
                 event_reader: self.event_reader.as_ref(),
                 room_storage: self.room_storage.as_ref(),
                 state_groups: &state_groups,
+                resolution_cache: &self.resolution_cache,
             };
             for (committed_event_id, event_type, state_key) in &committed_state_events {
                 if let Err(error) = record.after_state_event(room_id, committed_event_id, event_type, state_key).await {
@@ -1119,6 +1120,7 @@ mod join_persistence_failure_tests {
             event_broadcaster: None,
             room_summary_service,
             cache: StdArc::new(CacheManager::new(&CacheConfig::default())),
+            resolution_cache: crate::room::state_record::ResolutionCache::default(),
             key_rotation_storage: None,
             app_service_manager: None,
             db_pool: Some(pool.as_ref().clone()),
@@ -1208,6 +1210,7 @@ mod join_persistence_failure_tests {
             event_broadcaster: None,
             room_summary_service,
             cache: StdArc::new(CacheManager::new(&CacheConfig::default())),
+            resolution_cache: crate::room::state_record::ResolutionCache::default(),
             key_rotation_storage: None,
             app_service_manager: None,
             db_pool: None,

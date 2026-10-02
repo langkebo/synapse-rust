@@ -14,6 +14,7 @@ use synapse_storage::relations::RelationsStoreApi;
 use synapse_storage::room::RoomStoreApi;
 use tokio::sync::RwLock;
 
+use crate::room::state_record::ResolutionCache;
 use crate::room::summary::RoomSummaryService;
 
 /// Domain service for messaging operations — events, messages, receipts,
@@ -41,6 +42,12 @@ pub struct MessagingService {
     /// Room summary service for updating room metadata on events.
     pub(crate) room_summary_service: Arc<RoomSummaryService>,
     pub(crate) cache: Arc<CacheManager>,
+    /// M-5: the process-shared state-resolution-result cache. Cloned from the
+    /// `RoomService` so this service and [`MembershipService`] reuse each other's
+    /// resolutions across requests. See [`ResolutionCache`].
+    ///
+    /// [`MembershipService`]: crate::room::membership::service::MembershipService
+    pub(crate) resolution_cache: ResolutionCache,
     /// The third-party event admission gate — consulted by every event write
     /// (`create_event`, `create_event_with_graph`). See
     /// [`crate::module_service::EventAdmissionGate`].
@@ -79,6 +86,8 @@ pub struct MessagingServiceConfig {
     pub room_summary_service: Arc<RoomSummaryService>,
     /// The `cache` field.
     pub cache: Arc<CacheManager>,
+    /// The `resolution_cache` field.
+    pub resolution_cache: ResolutionCache,
     /// The `event_admission_gate` field.
     pub event_admission_gate: Arc<dyn crate::module_service::EventAdmissionGate>,
 }
@@ -104,6 +113,7 @@ impl MessagingService {
             key_rotation_manager: config.key_rotation_manager,
             room_summary_service: config.room_summary_service,
             cache: config.cache,
+            resolution_cache: config.resolution_cache,
             event_admission_gate: config.event_admission_gate,
         }
     }

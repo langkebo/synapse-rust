@@ -433,6 +433,7 @@ impl MessagingService {
                     event_reader: self.event_reader.as_ref(),
                     room_storage: self.room_storage.as_ref(),
                     state_groups: &state_groups,
+                    resolution_cache: &self.resolution_cache,
                 };
                 if let Err(error) = record.after_state_event(&room_id, &event_id, &event_type, state_key).await {
                     ::tracing::warn!(
@@ -529,6 +530,7 @@ impl MessagingService {
                     event_reader: self.event_reader.as_ref(),
                     room_storage: self.room_storage.as_ref(),
                     state_groups: &state_groups,
+                    resolution_cache: &self.resolution_cache,
                 };
                 if let Err(error) = record.after_state_event(&room_id, &event_id, &event_type, state_key).await {
                     ::tracing::warn!(
@@ -932,6 +934,7 @@ mod tests {
             key_rotation_manager: None,
             room_summary_service,
             cache,
+            resolution_cache: crate::room::state_record::ResolutionCache::default(),
             event_admission_gate: gate,
         })
     }
@@ -965,6 +968,7 @@ mod tests {
             key_rotation_manager: None,
             room_summary_service,
             cache,
+            resolution_cache: crate::room::state_record::ResolutionCache::default(),
             event_admission_gate: Arc::new(crate::test_mocks::FakeEventAdmissionGate::new()),
         })
     }
@@ -1308,6 +1312,7 @@ mod tests {
             key_rotation_manager: None,
             room_summary_service,
             cache,
+            resolution_cache: crate::room::state_record::ResolutionCache::default(),
             event_admission_gate: Arc::new(crate::test_mocks::FakeEventAdmissionGate::new()),
         })
     }

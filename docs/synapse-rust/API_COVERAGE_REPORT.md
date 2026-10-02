@@ -1,8 +1,11 @@
-# synapse-rust API 覆盖率分析 (v1.9)
+# synapse-rust API 覆盖率分析 (v1.10)
 
 > **状态（2026-09-29）**：房间版本能力（v12/v13）记录**已于本版订正** —— 现**仅 v12 可创建**（G-1，`7489b247f`），
 > v1–v11 为 `stable_no_create`（可 join/parse/federate、不可创建）、版本 13 已移除（Q5(b)，`c83e3faf9`）；
-> 遗留项仅 **MSC4297（state resolution v2.1）**，故 v12 对该单项目仍「声明领先实现」。
+> **遗留项订正（2026-10-02）**：**MSC4297（state resolution v2.1）已实现并接线到生产路径** —— 写入接缝
+> （`MessagingService::create_event_with_graph`、联邦加入 state 批次）在房间分叉时经
+> `resolve_forked_state` → `resolve_state_for_version_with_rules` 重算（v12+ 从空 state map 起步 = v2.1
+> Modification 1），故 v12 **不再**「声明领先实现」（见 §5.5 #20185 等价实现、§5.6 L4）。
 > 见 `docs/audit/ROOM_V12_PLAN_STATUS_2026-09-27.md`。
 
 > **对齐基准**：element-hq/synapse **v1.162.0**（发布于 2026-09-29，当前最新稳定版）；上游 `CHANGES.md` 已核对 1.157→1.162 全部条目。
@@ -44,6 +47,20 @@
 > （该分支 tip `e1ffcb2ab`，另加 MSC3720 账户状态两条路由）。三口径为 **1152 / 915 / 807**
 > （v1.8 的 v1.7 口径 1149 / 913 / 805，叠加 L1 的 MSC4140 单事件端点 `+1 / 0 / 0`
 > 与 MSC3720 `+2 / +2 / +2`）；本版**不重算**任何 MSC/功能判定（§五/§六 沿用 v1.8）。
+>
+> **v1.10 与 v1.9 的差别**：本版为 **2026-10-02 台账订正批**（随 D-4「M-5 提升为跨请求共享」与 D-5 收口），
+> **不重算三口径**（沿用 v1.9 的 **1152 / 915 / 807**），只订正判定口径：
+> ① **MSC4297（state resolution v2.1）由「未实现 / v12 对该单项声明领先实现」订正为「已实现并接线到生产路径」**
+> —— 写入接缝（`MessagingService::create_event_with_graph`、联邦加入 state 批次）在房间分叉时经
+> `resolve_forked_state` → `resolve_state_for_version_with_rules` 重算（v12+ 从空 state map 起步 = v2.1
+> Modification 1）；同步改**顶部状态注**、§5.1「v12/v13 房间可创建」行与 §6.2 行（原判据引自已被证伪的「本仓无状态决议路径」注释）。
+> ② **§5.5 #20185** 由 **N/A 订正为「等价实现（已交付，M-5）」** —— 原「生产 0 调用点、仅 benches」判定**不实**，
+> 实为生产路径上的冲突输入键控缓存（`ResolutionCache`，键＝`room_version`＋状态集合排序 `(key,event_id)` 投影
+> ＋已加载事件 id 集合；进程内跨请求共享）；§5.6 L4 同步。
+> ③ **§5.5 #20160** 由 **PARTIAL 收口为「维持等价（正式收口）」**（决策 D-5：整房 `room_state:{room_id}`
+> 列表缓存 TTL 300 已属等价，不再新增 per-item 缓存）；§5.6 L4 同步。
+> 跨文档同批更正：`MSC_SEMANTICS.md` MSC4297 登记行、`synapse-rust-vs-synapse-comparison.md` §18.3 #17 / §18.4 M-5、
+> `docs/audit/OPTIMIZATION_EXECUTION_PLAN_2026-09-15.md` M-5 执行卡。
 >
 > **权威来源声明（三条，冲突时按此优先级）**：
 > 1. **机器权威（路由）**：[`ROUTE_CONTRACT.md`](./ROUTE_CONTRACT.md) —— 由 `scripts/contract/extract_registered.py` 从真实 `.route()` 注册面抽取，生成于 2026-10-01，
@@ -249,7 +266,7 @@
 | 上游条目 | 版本 | 本仓实测 | 证据 |
 |---|---|---|---|
 | **默认房间版本改为 11**（MSC4239，Matrix v1.14） | 1.158 | **TRUE（已推进到 12）** | `synapse-common/src/room_versions.rs:94` `DEFAULT_ROOM_VERSION = "12"`（O-1 Phase 2，对齐上游 v1.162.0rc1；1.158 的 v11 默认已被本仓越过）。注意 `MSC4239` 是 **v11** 的发布 MSC，勿与 v12（MSC4304）混 |
-| v12/v13 房间可创建 | 1.158 | **PARTIAL（v12 已可创建；v13 已移除）** | 同上 `:151` `RoomVersionCapability::stable("12")`（`can_create = true`）；v1–v11 为 `stable_no_create`（`:120-150`）；`"13"` 不列入（`:114-118`，Q5(b)，上游规范稳定列表止于 v12、1.161 只识别 `1..12`）。**遗留**：MSC4297（state resolution v2.1）未实现，v12 对该项仍「声明领先实现」（`docs/audit/ROOM_V12_PLAN_STATUS_2026-09-27.md`） |
+| v12/v13 房间可创建 | 1.158 | **PARTIAL（v12 已可创建；v13 已移除）** | 同上 `:151` `RoomVersionCapability::stable("12")`（`can_create = true`）；v1–v11 为 `stable_no_create`（`:120-150`）；`"13"` 不列入（`:114-118`，Q5(b)，上游规范稳定列表止于 v12、1.161 只识别 `1..12`）。**订正（2026-10-02）**：MSC4297（state resolution v2.1）**已实现并接线到生产路径**（分叉时 `resolve_forked_state` → `resolve_state_for_version_with_rules`，v12+ 空 state map 起步），v12 **不再**「声明领先实现」（`docs/audit/ROOM_V12_PLAN_STATUS_2026-09-27.md`） |
 | 缩略图动画支持（`animated` 查询参数） | 1.158 | **MISSING** | `animated` 在 `synapse-web/src/routes/` 与 `synapse-services/` 中均 **0 命中** |
 | MSC4335 媒体上传超限返回 `M_USER_LIMIT_EXCEEDED` | 1.158 | **PARTIAL** | 错误码已定义（`synapse-common/src/error/code.rs:83,131,225,292`），但**未见**媒体上传限额路径使用它（`synapse-services/` 0 命中） |
 | **MSC3814 脱水设备 `/events` 端点由 POST 改为 GET + query** | 1.157 | **TRUE（已对齐，2026-09-25 复测）** | `ROUTE_CONTRACT.md` 在册为 `GET /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events`；契约产物（派生表 / fixture / 快照 / route-table / client.yaml）已同批再生成 |
@@ -335,10 +352,10 @@
 | #20011 Rust 代码改为单一处存放 per-homeserver 状态 | **N/A** | Python/Rust 桥接层结构重构，本仓无对应 |
 | #20097 `synapse_storage_stream_current_position` 指标 | **已补（单 gauge 形态，L4）** | `synapse-common/src/server_metrics.rs` 新增 `storage_stream_current_position`（指标名 `synapse_storage_stream_current_position`）；值取 `event_reader.get_max_stream_ordering()`（`synapse-storage/src/event/batch.rs:261-266`），在 admin `/statistics` 刷新（`synapse-web/src/routes/admin/server.rs`）。⚠️ 上游是 **per-stream 多标签 gauge**；本仓 `MetricsCollector.gauges` 以 name 为 key、同名互相覆盖，故落为**单 gauge（事件流位置）** |
 | #20133 为未来 MSC4242 增加 HTTP serving 函数 | **MISSING（受阻）** | 取证更正（2026-10-02）：上游 #20133 是把 MSC4242 接进**既有**联邦端点（`/make_join`、`/send_join`、`/get_missing_events` 的状态 DAG 回溯、`/send` 目的地按 `prev_state_events` 计算），**不新增路由**；前置是 MSC4242 房间版本 + `experimental_features` opt-in，本仓 `SUPPORTED_ROOM_VERSIONS` 仅至 v12 ⇒ 无接线落点。本仓 MSC4242 仅到存储层（`prev_state_events`，`synapse-storage/src/event/create.rs:257-265`），无 HTTP serving 函数（详见对照报告 §18.4 L-2） |
-| #20160 为"当前房间状态的单项"增加缓存 | **PARTIAL（等价但粒度更粗）** | 本仓有 `room_state:{room_id}` **整房 state 列表**缓存（`synapse-services/src/sliding_sync_service/state.rs:20-36`，TTL 300；`synapse-cache/src/local.rs:47-49,91-92` 命名空间 `room_state` 20_000/1200），非上游按 `(type,state_key)` 单项缓存；**已属等价、无需重复实现** |
+| #20160 为"当前房间状态的单项"增加缓存 | **维持等价（正式收口，2026-10-02）** | 本仓有 `room_state:{room_id}` **整房 state 列表**缓存（`synapse-services/src/sliding_sync_service/state.rs:20-36`，TTL 300；`synapse-cache/src/local.rs:47-49,91-92` 命名空间 `room_state` 20_000/1200），非上游按 `(type,state_key)` 单项缓存；**已属等价、无需重复实现**（决策 D-5：维持等价、不新增 per-item 缓存） |
 | #20161 即使标准 Complement 套件失败也在 CI 跑 in-repo Complement | **N/A** | CI/测试基建 |
 | #20166 联邦传输代码重构（事务准备/完成分离） | **未核对** | 内部重构，无 API 契约影响 |
-| #20185 为 state resolution 增加按 conflicted 事件键控的缓存 | **N/A** | `synapse-federation/src/event_auth/state_resolution.rs` 存在（`conflicted_state_subgraph:327` 引 MSC4297），但**生产 0 调用点**（仅 `benches/performance_federation_benchmarks.rs:41,64`）⇒ 无生产状态决议路径、无 conflicted 缓存 |
+| #20185 为 state resolution 增加按 conflicted 事件键控的缓存 | **等价实现（已交付，M-5）** | 取证更正（2026-10-02）：此前"**生产 0 调用点**、仅 `benches/performance_federation_benchmarks.rs:41,64`"的判定**不实** —— `resolve_state_for_version_with_rules`（内含 `full_conflicted_set` / `conflicted_state_subgraph`）在**生产路径**上：`create_event_with_graph` → `StateRecord::after_state_event` → `resolve_forked_state` → `StateWalker::resolve`（`synapse-services/src/room/state_record.rs:192,212,471`）。本仓已新增按冲突输入键控的结果缓存（`ResolutionCache`）：键 = `room_version` + 状态集合排序 `(key,event_id)` 投影 + 已加载事件 id 集合；进程内跨请求共享（`Arc<Mutex>`，由 `room/service.rs` 创建、经两个 ServiceConfig 穿入），上限 64、超限清空；HIT/MISS 返回逐字节相同状态图（红证 `resolution_cache_is_shared_across_walks`） |
 | #20193 改进测试中 `assertEqual` 集合不等错误的渲染 | **N/A** | 测试基建 |
 | #20205 修复 `/room_summary` 返回过期 `join_rules` | **TRUE** | `synapse-services/src/room/summary/state.rs:90-92` 状态变更即 `update_summary`（写 `join_rules` 列，`synapse-storage/src/room_summary/repository.rs:131`）⇒ 摘要列随状态刷新 |
 | #20207 修复 Schema Diff CI 对 fork PR 无法评论 | **N/A** | CI |
@@ -354,7 +371,7 @@
 | **L1** MSC4140 `GET /delayed_events/{delayId}` | ✅ **已实现** | `synapse-web/src/routes/delayed_events.rs:41-61,97-99`；路由 ledger 快照同步（default 1131 / worker_enabled 1142），worker ledger `:113` 在册 |
 | **L2** Admin scheduled tasks 端点（`action_name` 机制） | **N/A / 延后** | 本仓有内部调度器 `ScheduledTasks`（`src/server/mod.rs:115,320,339,372,379`），但 **`action_name` 全仓 0 命中** ⇒ 无 admin 列表/动作端点机制可挂靠，纯新增无落点 |
 | **L3** `federation_domain_whitelist` 可空处理 | **N/A** | `federation_domain_whitelist` **全仓 0 命中** ⇒ 本仓无该配置面 |
-| **L4** 内部性能项 | ✅ **部分落地** | ① `synapse_storage_stream_current_position` 单 gauge **已补**（见 §5.5 #20097）；② current room state / state resolution 缓存已**等价实现**（§5.5 #20160 PARTIAL；#20185 N/A）——避免重复，不再新增 |
+| **L4** 内部性能项 | ✅ **部分落地** | ① `synapse_storage_stream_current_position` 单 gauge **已补**（见 §5.5 #20097）；② current room state / state resolution 缓存已**等价实现**（§5.5 #20160 维持等价·已收口；#20185 等价实现＝M-5 冲突输入键控缓存，2026-10-02 更正原「N/A」判定）——避免重复，不再新增 |
 | **L5** 文档对齐 v1.162.0 | ✅ **本轮完成** | 本文件顶部基准、§五 标题与 §5.4/§5.5 增量、§5.1/§5.2 两条订正、§八 命令、footer |
 | **M5** 取消 soft-fail（MSC4354 Sticky Events） | **N/A（仅报告）** | 本仓 MSC4354 **不存在 sticky soft-fail 机制**：sticky 事件不做状态相关 auth 评估、无 soft-failed 记录、无状态变更重算（`un_soft_fail`/`StickyEventsStream` **全仓 0 命中**）⇒ **无对象可"取消"**。本仓 `events.soft_failed` 是 **B-8 事务去重**专用（`synapse-storage/src/event/txn_dedup.rs`），读取一律 `soft_failed = FALSE`，与 MSC4354 **同名不同义**，不可混同 |
 
@@ -390,7 +407,7 @@
 | **App Service 登录**（`m.login.application_service`） | ✅ **已实现**（`auth_compat.rs:455-468`）；~~整体缺失~~ | 仍缺 pushers、设备管理、虚拟用户以 C-S 身份调用、以及稳定错误码 `M_APPSERVICE_LOGIN_UNSUPPORTED`（全仓 0 命中） |
 | **MSC4512** App Service 命名空间代理 | ✅ **代理已实现**（`app_service.rs:722-723`）；~~缺失~~ | 联邦侧代理请求（上游 #19977 的另一半）未做；上游整体仍 experimental + opt-in |
 | **MSC3912 / v11 撤回格式** | 🟡 **格式已修**（v11+ 写 `content.redacts`）；级联**仅管理端可达** | "撤回一条消息不连带撤回其回复/表情"仍与上游行为不同（`handlers/room/events.rs:990` 不级联） |
-| **v12/v13 房间创建** | ✅ **仅 v12 可创建**（2026-09-27 G-1，`7489b247f`；`room_versions.rs:151` `stable("12")`） | v1–v11 为 `stable_no_create`、v13 已移除（Q5(b)）；遗留项仅 MSC4297（state resolution v2.1）未实现 |
+| **v12/v13 房间创建** | ✅ **仅 v12 可创建**（2026-09-27 G-1，`7489b247f`；`room_versions.rs:151` `stable("12")`） | v1–v11 为 `stable_no_create`、v13 已移除（Q5(b)）；**订正（2026-10-02）**：MSC4297（state resolution v2.1）已实现并接线到生产路径（写入分叉时 `resolve_forked_state` → `resolve_state_for_version_with_rules`），已无遗留项 |
 | **`rc_reports` 限流桶** | ✅ **已实现**（`directory_reporting.rs:235,293`）；~~缺失~~ | — |
 | **MSC4140 联邦 EDU** | ✅ **已实现**（`edu.rs:37,67,83`）；~~缺失~~ | 仍缺：schedule 的 `state_key` 硬编码 `None`（`delayed_event_service.rs:94`） |
 | **MSC3814 `/events` 方法** | ✅ **已对齐（GET）**；~~漂移（POST）~~ | — |
@@ -655,7 +672,10 @@ for key, rules in (("Client", CLIENT), ("Admin", ADMIN)):
 ---
 
 *创建日期: 2026-03-19*
-*最后更新: 2026-10-01（v1.9：随 `feature/2026-10-01-metrics-docs-updates` **合并进 `main`**，
+*最后更新: 2026-10-02（v1.10：**2026-10-02 台账订正批**，不重算三口径（沿用 1152 / 915 / 807）——
+订正 MSC4297（顶部状态注 / §5.1 / §6.2）、§5.5 #20185（N/A → 等价实现·M-5）与 §5.5 #20160（PARTIAL → 维持等价收口）；
+跨文档同批更正 `MSC_SEMANTICS.md` / 对照报告 §18.3 #17·§18.4 M-5 / 优化执行计划 M-5 卡。
+以下为 v1.9 的更新说明：随 `feature/2026-10-01-metrics-docs-updates` **合并进 `main`**，
 **重算 §1.1 / §二 / §三 三张分类表**（三口径 **1152 / 915 / 807**）并同步 §八 配方注释值；
 新入册 **MSC3720 账户状态** 客户端 + 联邦两条路由。不变更任何 MSC/功能判定。
 以下为 v1.8 的更新说明：**对齐基准由 v1.161.0 升至 v1.162.0**（发布于 2026-09-29，当前最新稳定版），

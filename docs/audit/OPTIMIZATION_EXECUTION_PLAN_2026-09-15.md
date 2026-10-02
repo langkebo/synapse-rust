@@ -840,21 +840,26 @@ fmt / sqlx / trait / web-layering 四个棘轮的扫描面扩到了新 crate，�
 > **取证更正**：报告原判"`conflicted_state_subgraph` 无生产调用点"**是错的** —— 它经
 > `full_conflicted_set` 被 `resolve_state_with_start` 使用，而后者由
 > `resolve_state_for_version_with_rules` 调用，该函数在**生产路径**上：
-> `create_event_with_graph` → 提交后 `StateRecordBuilder`
-> （`synapse-services/src/room/state_record.rs:127,298,332`）。误判源自
+> `create_event_with_graph` → 提交后 `StateRecord::after_state_event`
+> →（多端）`resolve_forked_state` → `StateWalker::resolve`
+> （`synapse-services/src/room/state_record.rs:192,212,471`）。误判源自
 > `state_resolution.rs` 里一条过时注释（"unused … remaining half of F-2"），该注释已修，
 > 并加了「Do not delete this as dead code」的告诫 —— 否则下一个人可能按铁律 1 把在跑的
 > 生产路径删掉。
 
-因此 M-5 收窄为**纯缓存**：`StateRecordBuilder::resolve` 每次都对同一组冲突事件重跑
+因此 M-5 收窄为**纯缓存**：`StateWalker::resolve` 每次都对同一组冲突事件重跑
 `resolve_state_for_version_with_rules`。交付要求：
 
-1. 缓存键必须覆盖**全部输入**：`(room_version, 冲突/完整冲突事件集合, auth difference, 状态集合的按键投影)`；
+1. 缓存键必须覆盖**全部输入**：`(room_version, 状态集合的排序 (key, event_id) 投影, 已加载事件 id 排序集合)`；
    键不全会返回错误状态图 —— 这比不缓存危险得多。
 2. HIT 与 MISS 必须返回**逐字节相同**的状态图（用例断言两者相等，而不是只断言 HIT）。
-3. 作用域先取 builder 内（随一次派生结束而释放，零跨请求一致性风险）；跨请求共享（含上限/淘汰）
-   是后续独立评估项，需先证明命中率。
-4. 判据：新增用例证明"同一输入第二次调用走 HIT 且结果不变"+"输入变化 ⇒ MISS 且结果随之变化"。
+3. **作用域：进程内跨请求共享**（`Arc<Mutex<ResolutionCache>>`，容量 64、超限清空；正确性从不依赖命中）。
+   由 `room/service.rs` 创建一个实例，clone 穿入 `MessagingServiceConfig` / `MembershipServiceConfig`，
+   经 `StateRecord` 传给每次派生 —— 故一次派生之外的后续请求也能命中；键补 `room_version` 槽位
+   正是为跨房共享时不串味。
+4. 判据：新增用例证明"同一输入第二次调用走 HIT 且结果不变"+"输入变化 ⇒ MISS 且结果随之变化"；
+   另加跨 walk 共享用例 `resolution_cache_is_shared_across_walks`（两次独立 walk 共用同一 `cache`，
+   `counts()` 由 `(0,1)` 走到 `(1,1)`，且两次结果逐字节相同）。
 
 **M-6 · `/relations` 支持 `recurse`**（报告 §18.3 #14 / §18.6 V-11）—— ✅ **已交付（2026-10-02）**
 
