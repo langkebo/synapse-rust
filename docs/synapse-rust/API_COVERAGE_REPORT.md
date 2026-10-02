@@ -48,7 +48,7 @@
 > （v1.8 的 v1.7 口径 1149 / 913 / 805，叠加 L1 的 MSC4140 单事件端点 `+1 / 0 / 0`
 > 与 MSC3720 `+2 / +2 / +2`）；本版**不重算**任何 MSC/功能判定（§五/§六 沿用 v1.8）。
 >
-> **v1.10 与 v1.9 的差别**：本版为 **2026-10-02 台账订正批**（随 D-4「M-5 提升为跨请求共享」与 D-5 收口），
+> **v1.10 与 v1.9 的差别**：本版为 **2026-10-02 台账订正批**（随 D-4「M-5 提升为跨请求共享」与 D-5 收口，并含 D-6/D-7 两项订正），
 > **不重算三口径**（沿用 v1.9 的 **1152 / 915 / 807**），只订正判定口径：
 > ① **MSC4297（state resolution v2.1）由「未实现 / v12 对该单项声明领先实现」订正为「已实现并接线到生产路径」**
 > —— 写入接缝（`MessagingService::create_event_with_graph`、联邦加入 state 批次）在房间分叉时经
@@ -59,8 +59,12 @@
 > ＋已加载事件 id 集合；进程内跨请求共享）；§5.6 L4 同步。
 > ③ **§5.5 #20160** 由 **PARTIAL 收口为「维持等价（正式收口）」**（决策 D-5：整房 `room_state:{room_id}`
 > 列表缓存 TTL 300 已属等价，不再新增 per-item 缓存）；§5.6 L4 同步。
-> 跨文档同批更正：`MSC_SEMANTICS.md` MSC4297 登记行、`synapse-rust-vs-synapse-comparison.md` §18.3 #17 / §18.4 M-5、
-> `docs/audit/OPTIMIZATION_EXECUTION_PLAN_2026-09-15.md` M-5 执行卡。
+> ④ **§5.4 #20182（D-7）** 由 **N/A 订正为「已对齐（等价实现）」** —— 原「本仓无 `recurse` ⇒ 不适用」判据已作废，
+> M-6（`46fe964b9`）已交付 MSC3981 `recurse` 且 join 恰在递归 CTE 内（#20182 的修复形状）。
+> ⑤ **§5.5 #20097 / §5.6 L4（D-6）** 明确 per-stream 口径：现为**单 gauge（仅 `events` 一条、仅 admin `/statistics` 刷新）**，
+> **per-stream / worker-local 完整口径（`{stream="…"}` 多标签）登记为独立批次 D-6b（待办）**；#20133（MSC4242 serving）维持 D-3 已收口的「受阻待办」口径不变。
+> 跨文档同批更正：`MSC_SEMANTICS.md` MSC4297 登记行、`synapse-rust-vs-synapse-comparison.md` §18.3 #17/#16 / §18.4 M-5/L-1 / §18.6 V-12、
+> `docs/audit/OPTIMIZATION_EXECUTION_PLAN_2026-09-15.md` M-5 执行卡 / L-1。
 >
 > **权威来源声明（三条，冲突时按此优先级）**：
 > 1. **机器权威（路由）**：[`ROUTE_CONTRACT.md`](./ROUTE_CONTRACT.md) —— 由 `scripts/contract/extract_registered.py` 从真实 `.route()` 注册面抽取，生成于 2026-10-01，
@@ -326,7 +330,7 @@
 | #20154 `/hierarchy` 返回 `allowed_room_ids`（Matrix 1.15 起要求） | **TRUE** | `synapse-web/src/routes/handlers/search/hierarchy.rs:203-224` `annotate_allowed_room_ids`（注释引 #20154）；`synapse-services/src/room/summary/service.rs:97` `resolve_allowed_room_ids` |
 | #20171 MSC4222 `state_after` 在 `since` 落在持久化批次内时漏发 state 事件 | **PARTIAL** | 本仓有 `state_after` 支持（`sync_service/types.rs:192,195,238`），但**未核对**该 worker 批次边界修复；同时**订正** §5.2 中"MSC4222 = 0"的旧判（已作废） |
 | #20181 返回稳定 `M_UNKNOWN_DEVICE` 而非 MSC4326 unstable 前缀 | **TRUE** | `synapse-common/src/error/code.rs:99,149,255` 定义稳定码；`synapse-web/src/routes/device.rs:272,494-499` 用于设备不存在/不属于调用者（HTTP 404） |
-| #20182 大房间递归 `/relations` 慢（改为在递归查询内 join） | **N/A** | 本仓 `/relations` **无 `recurse` 参数**（`synapse-web/src/routes/relations.rs:125-164`，`RelationsQuery` 无该字段）；存储层 `synapse-storage/src/relations/mod.rs:282-` 直接查 `event_relations` 表、无递归 join ⇒ 该 bug 不适用 |
+| #20182 大房间递归 `/relations` 慢（改为在递归查询内 join） | **已对齐（等价实现，2026-10-02）** | 原「本仓 `/relations` 无 `recurse` ⇒ N/A」判据已作废：**M-6（`46fe964b9`）已交付 MSC3981 `recurse`**（路由 `synapse-web/src/routes/relations.rs`，不稳定名 `org.matrix.msc3981.recurse`），存储层实现即**一条静态递归 CTE、`events` 在递归内 join**（按 `events.stream_ordering` 拓扑序、深度 0 基 `depth <= 3`）——正是上游 #20182 的修复形状（把 join 移进递归查询内） |
 | #20200 `GET /profile/{userId}/{field}` 未设置字段返回空对象而非 `null` | **TRUE** | 同 #20145：`synapse-web/src/routes/account_compat.rs:153-163` `single_profile_field`；单测 `tests/unit/account_compat_route_tests.rs:280` |
 | #20204 房间状态变更时「取消 soft-fail」MSC4354 Sticky Events | **N/A（仅报告）** | 上游语义（v1.162 PR #20204，标题 *un-soft-failing MSC4354 Sticky Events*）：sticky 事件对**当前状态**做 `check_state_dependent_auth_rules` 失败即记 soft-failed；当关键 auth 状态（`m.room.join_rules`/`m.room.power_levels`/`m.room.member`）变更时重算并 **un-soft-fail**（`compute_sticky_events_to_un_soft_fail` → `un_soft_fail_sticky_events_txn` + `StickyEventsStream`）。**本仓 MSC4354 无 soft-fail 维度**：sticky 仅以 `room_sticky_events.is_sticky` 落库（`synapse-storage/src/sticky_event.rs`）+ 联邦 EDU（`synapse-services/src/room/service.rs:661-684,739-799`），写入不做 auth 评估、亦无状态变更重算（`un_soft_fail`/`StickyEventsStream` **全仓 0 命中**）⇒ **无"取消 soft-fail"的对象**。⚠️ 本仓 `events.soft_failed` 系 **B-8 事务去重**专用（`synapse-storage/src/event/txn_dedup.rs`），与 MSC4354 **同名不同义**，勿混用 |
 
@@ -350,7 +354,7 @@
 |---|---|---|
 | #19979 把 logcontext 机制移植到 Rust | **N/A** | 本仓本就为 Rust；`logcontext`/`LoggingContext` **0 命中**，无 Python logcontext 对应结构 |
 | #20011 Rust 代码改为单一处存放 per-homeserver 状态 | **N/A** | Python/Rust 桥接层结构重构，本仓无对应 |
-| #20097 `synapse_storage_stream_current_position` 指标 | **已补（单 gauge 形态，L4）** | `synapse-common/src/server_metrics.rs` 新增 `storage_stream_current_position`（指标名 `synapse_storage_stream_current_position`）；值取 `event_reader.get_max_stream_ordering()`（`synapse-storage/src/event/batch.rs:261-266`），在 admin `/statistics` 刷新（`synapse-web/src/routes/admin/server.rs`）。⚠️ 上游是 **per-stream 多标签 gauge**；本仓 `MetricsCollector.gauges` 以 name 为 key、同名互相覆盖，故落为**单 gauge（事件流位置）** |
+| #20097 `synapse_storage_stream_current_position` 指标 | **已补（单 gauge 形态，L4）** | `synapse-common/src/server_metrics.rs` 新增 `storage_stream_current_position`（指标名 `synapse_storage_stream_current_position`）；值取 `event_reader.get_max_stream_ordering()`（`synapse-storage/src/event/batch.rs:261-266`），在 admin `/statistics` 刷新（`synapse-web/src/routes/admin/server.rs`）。⚠️ 上游是 **per-stream 多标签 gauge**；本仓 `MetricsCollector.gauges` 以 name 为 key、同名互相覆盖，故落为**单 gauge（事件流位置）**。**per-stream / worker-local 完整口径（`{stream="…"}` 多标签、各 stream 各自 position）登记为独立批次 D-6b（待办，见 §5.6 L4）** |
 | #20133 为未来 MSC4242 增加 HTTP serving 函数 | **MISSING（受阻）** | 取证更正（2026-10-02）：上游 #20133 是把 MSC4242 接进**既有**联邦端点（`/make_join`、`/send_join`、`/get_missing_events` 的状态 DAG 回溯、`/send` 目的地按 `prev_state_events` 计算），**不新增路由**；前置是 MSC4242 房间版本 + `experimental_features` opt-in，本仓 `SUPPORTED_ROOM_VERSIONS` 仅至 v12 ⇒ 无接线落点。本仓 MSC4242 仅到存储层（`prev_state_events`，`synapse-storage/src/event/create.rs:257-265`），无 HTTP serving 函数（详见对照报告 §18.4 L-2） |
 | #20160 为"当前房间状态的单项"增加缓存 | **维持等价（正式收口，2026-10-02）** | 本仓有 `room_state:{room_id}` **整房 state 列表**缓存（`synapse-services/src/sliding_sync_service/state.rs:20-36`，TTL 300；`synapse-cache/src/local.rs:47-49,91-92` 命名空间 `room_state` 20_000/1200），非上游按 `(type,state_key)` 单项缓存；**已属等价、无需重复实现**（决策 D-5：维持等价、不新增 per-item 缓存） |
 | #20161 即使标准 Complement 套件失败也在 CI 跑 in-repo Complement | **N/A** | CI/测试基建 |
@@ -371,7 +375,7 @@
 | **L1** MSC4140 `GET /delayed_events/{delayId}` | ✅ **已实现** | `synapse-web/src/routes/delayed_events.rs:41-61,97-99`；路由 ledger 快照同步（default 1131 / worker_enabled 1142），worker ledger `:113` 在册 |
 | **L2** Admin scheduled tasks 端点（`action_name` 机制） | **N/A / 延后** | 本仓有内部调度器 `ScheduledTasks`（`src/server/mod.rs:115,320,339,372,379`），但 **`action_name` 全仓 0 命中** ⇒ 无 admin 列表/动作端点机制可挂靠，纯新增无落点 |
 | **L3** `federation_domain_whitelist` 可空处理 | **N/A** | `federation_domain_whitelist` **全仓 0 命中** ⇒ 本仓无该配置面 |
-| **L4** 内部性能项 | ✅ **部分落地** | ① `synapse_storage_stream_current_position` 单 gauge **已补**（见 §5.5 #20097）；② current room state / state resolution 缓存已**等价实现**（§5.5 #20160 维持等价·已收口；#20185 等价实现＝M-5 冲突输入键控缓存，2026-10-02 更正原「N/A」判定）——避免重复，不再新增 |
+| **L4** 内部性能项 | ✅ **部分落地** | ① `synapse_storage_stream_current_position` 单 gauge **已补**（见 §5.5 #20097）；**per-stream / worker-local 完整口径（`{stream="…"}` 多标签）登记为独立批次 D-6b（待办：需扩展 `MetricsCollector` 支持多标签 gauge，并列出全部 stream ordering 来源）**；② current room state / state resolution 缓存已**等价实现**（§5.5 #20160 维持等价·已收口；#20185 等价实现＝M-5 冲突输入键控缓存，2026-10-02 更正原「N/A」判定）——避免重复，不再新增 |
 | **L5** 文档对齐 v1.162.0 | ✅ **本轮完成** | 本文件顶部基准、§五 标题与 §5.4/§5.5 增量、§5.1/§5.2 两条订正、§八 命令、footer |
 | **M5** 取消 soft-fail（MSC4354 Sticky Events） | **N/A（仅报告）** | 本仓 MSC4354 **不存在 sticky soft-fail 机制**：sticky 事件不做状态相关 auth 评估、无 soft-failed 记录、无状态变更重算（`un_soft_fail`/`StickyEventsStream` **全仓 0 命中**）⇒ **无对象可"取消"**。本仓 `events.soft_failed` 是 **B-8 事务去重**专用（`synapse-storage/src/event/txn_dedup.rs`），读取一律 `soft_failed = FALSE`，与 MSC4354 **同名不同义**，不可混同 |
 

@@ -937,7 +937,7 @@ Execution Time: 0.287 ms（返回 14 行）
 
 | ID | 动作 | 判据 / 注意 |
 |---|---|---|
-| L-1 | stream position 指标做成 per-stream / worker-local（现仅 `events` 一条、且只在 admin `/statistics` 被访问时刷新） | V-12；先列全 stream 与各自 `get_max_stream_ordering` 来源，仪表盘同步 |
+| L-1 | stream position 指标做成 per-stream / worker-local（现仅 `events` 一条、且只在 admin `/statistics` 被访问时刷新）→ **登记为独立批次 D-6b（待办，2026-10-02）** | V-12；先列全 stream 与各自 `get_max_stream_ordering` 来源，仪表盘同步；需扩展 `MetricsCollector` 支持多标签（`{stream="…"}`）gauge（现以 name 为 key、同名互相覆盖） |
 | L-2 | MSC4242 的 HTTP 服务函数（上游本身也只是脚手架）→ **⚠️ 受阻待办（2026-10-02 取证更正）**：上游 #20133 改的是**既有**联邦端点（`/make_join`、`/send_join`、`/get_missing_events` 的状态 DAG 回溯、`/send` 目的地按 `prev_state_events` 计算），**不新增路由**，原"新增端点须进 ledger"判据不成立 | 真实前置 = MSC4242 **房间版本** + `experimental_features` opt-in（本仓 `SUPPORTED_ROOM_VERSIONS` 仅至 v12）；语义未定稿 ⇒ **暂不实施**（详见对照报告 §18.4 L-2） |
 | L-3 | delayed events 的 per-endpoint worker 白名单（现前缀级 `/_matrix/client/*`） | 依赖 **D-3**；`RouteEntry` 加字段会牵动派生表/契约/fixture/快照四处 |
 | L-4 | sticky 事件 un-soft-fail | 依赖 **D-2**；若「不跟随」，只做文档收口并保留同名不同义告诫 |
