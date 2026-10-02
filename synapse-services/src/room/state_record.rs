@@ -69,6 +69,10 @@ const EXTREMITY_LIMIT: i64 = 64;
 /// transitive `auth_events`).
 const MAX_RESOLUTION_EVENTS: usize = 4096;
 
+/// M-5: how many resolution results one walk keeps. Exceeding it clears the map
+/// (bounded memory; correctness never depends on a hit).
+const RESOLUTION_CACHE_CAPACITY: usize = 64;
+
 /// The collaborators the record maintenance needs.
 ///
 /// Taken explicitly rather than stored on a service so both write seams can use
@@ -251,7 +255,25 @@ struct StateWalker<'a> {
     /// The `auth_events` closure of everything seen, for the resolver's conflicted
     /// state subgraph and auth difference.
     events: HashMap<String, EventData>,
+    /// M-5: memoised **resolution results**, keyed by every input the resolver reads
+    /// (the state sets' `(key, event_id)` projection plus the ids of the loaded
+    /// events). A fork's fan-in repeats across branches, and each repeat otherwise
+    /// reruns the whole conflicted-set replay.
+    ///
+    /// ⚠️ The key must cover **all** inputs: a key that misses one returns a *wrong*
+    /// resolved state, which is strictly worse than not caching. Because
+    /// `load_event_and_auth_chain` only ever inserts (it refuses to overwrite an id),
+    /// the id set identifies the `events` map's contents inside one walker.
+    resolution_cache: HashMap<ResolutionCacheKey, HashMap<String, Value>>,
+    /// HIT/MISS counters — the tests assert on them, so "the cache exists but is
+    /// never consulted" cannot pass as done.
+    resolution_cache_hits: u64,
+    resolution_cache_misses: u64,
 }
+
+/// M-5 cache key: `(state sets' sorted `(key, event_id)` projection, sorted loaded
+/// event ids)`. The room version is fixed per walker, so it needs no slot here.
+type ResolutionCacheKey = (Vec<Vec<(String, String)>>, Vec<String>);
 
 impl<'a> StateWalker<'a> {
     fn new(reader: &'a dyn EventReader, room_version: &str) -> Self {
@@ -261,7 +283,34 @@ impl<'a> StateWalker<'a> {
             room_version: room_version.to_string(),
             memo: HashMap::new(),
             events: HashMap::new(),
+            resolution_cache: HashMap::new(),
+            resolution_cache_hits: 0,
+            resolution_cache_misses: 0,
         }
+    }
+
+    /// M-5: the key described on [`Self::resolution_cache`]. State sets are sorted so
+    /// that the order in which branches were walked cannot split the cache.
+    fn resolution_cache_key(&self, state_sets: &[HashMap<String, Value>]) -> ResolutionCacheKey {
+        let mut projection: Vec<Vec<(String, String)>> = state_sets
+            .iter()
+            .map(|set| {
+                let mut pairs: Vec<(String, String)> = set
+                    .iter()
+                    .map(|(key, value)| {
+                        let event_id = value.get("event_id").and_then(Value::as_str).unwrap_or_default().to_string();
+                        (key.clone(), event_id)
+                    })
+                    .collect();
+                pairs.sort();
+                pairs
+            })
+            .collect();
+        projection.sort();
+
+        let mut loaded: Vec<String> = self.events.keys().cloned().collect();
+        loaded.sort();
+        (projection, loaded)
     }
 
     /// The state at `event_id`: the state at its parents, plus itself when it is a
@@ -326,10 +375,26 @@ impl<'a> StateWalker<'a> {
             }
         }
 
+        // M-5: the loads above are idempotent (`load_event_and_auth_chain` skips ids
+        // it already has), so an identical fan-in reaches this point having done no
+        // extra I/O — only the resolution itself is left to save.
+        let key = self.resolution_cache_key(state_sets);
+        if let Some(cached) = self.resolution_cache.get(&key) {
+            self.resolution_cache_hits += 1;
+            return Ok(cached.clone());
+        }
+        self.resolution_cache_misses += 1;
+
         let borrowed: Vec<HashMap<String, &Value>> =
             state_sets.iter().map(|set| set.iter().map(|(key, value)| (key.clone(), value)).collect()).collect();
         let refs: Vec<&HashMap<String, &Value>> = borrowed.iter().collect();
-        Ok(self.chain.resolve_state_for_version_with_rules(&self.room_version, &refs, &self.events))
+        let resolved = self.chain.resolve_state_for_version_with_rules(&self.room_version, &refs, &self.events);
+
+        if self.resolution_cache.len() >= RESOLUTION_CACHE_CAPACITY {
+            self.resolution_cache.clear();
+        }
+        self.resolution_cache.insert(key, resolved.clone());
+        Ok(resolved)
     }
 
     /// Load one event and its transitive `auth_events`, which the resolver needs
@@ -641,6 +706,56 @@ mod db_tests {
 
     async fn topic_id(storage: &EventStorage, room_id: &str) -> Option<String> {
         storage.get_state_event(room_id, "m.room.topic", "").await.expect("read topic").map(|event| event.event_id)
+    }
+
+    /// M-5: 决议**结果缓存**。键覆盖全部输入（状态集合投影 + 已加载事件集合），
+    /// 因此：同一冲突集合第二次必须命中且**返回同一状态图**；输入变化必须 MISS。
+    ///
+    /// 这条用例同时是"缓存没有被静默旁路"的证明 —— 只断言结果相等是不够的，
+    /// 没命中的缓存同样会返回正确结果。
+    #[tokio::test]
+    async fn resolution_cache_hits_on_the_same_fork_and_misses_when_inputs_change() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let storage = EventStorage::new(&pool, "example.com".to_string());
+        let room_storage = RoomStorage { pool: pool.clone() };
+        let room_id = format!("!rescache_{}:example.com", uuid::Uuid::new_v4());
+        create_room(&room_storage, &room_id).await;
+
+        let (topic_a, topic_b) = build_forked_room(&storage, &room_id).await;
+
+        let mut walker = StateWalker::new(&storage, "12");
+        let set_a = walker.state_at(&topic_a).await.expect("state at branch A");
+        let set_b = walker.state_at(&topic_b).await.expect("state at branch B");
+
+        let first = walker.resolve(&[set_a.clone(), set_b.clone()]).await.expect("first resolve");
+        assert_eq!((walker.resolution_cache_hits, walker.resolution_cache_misses), (0, 1), "首次决议必须是 MISS");
+
+        let second = walker.resolve(&[set_a.clone(), set_b.clone()]).await.expect("second resolve");
+        assert_eq!(
+            (walker.resolution_cache_hits, walker.resolution_cache_misses),
+            (1, 1),
+            "同一冲突集合第二次必须命中缓存（否则这个缓存等于不存在）"
+        );
+        assert_eq!(first, second, "HIT 与 MISS 必须返回同一状态图：键漏一个输入就会返回错误状态");
+
+        // 分支遍历顺序不是输入语义：交换状态集合顺序后必须仍然命中。
+        let reordered = walker.resolve(&[set_b.clone(), set_a.clone()]).await.expect("reordered resolve");
+        assert_eq!(
+            (walker.resolution_cache_hits, walker.resolution_cache_misses),
+            (2, 1),
+            "状态集合顺序不应造成 MISS（键按排序归一）"
+        );
+        assert_eq!(first, reordered, "交换顺序不得改变结果");
+
+        // 输入集合本身变化 ⇒ 必须 MISS（键覆盖状态集合投影）。
+        walker.resolve(std::slice::from_ref(&set_a)).await.expect("single set");
+        assert_eq!(
+            (walker.resolution_cache_hits, walker.resolution_cache_misses),
+            (2, 2),
+            "只传一个状态集合是不同输入，必须 MISS"
+        );
     }
 
     /// A fork is resolved with v2.1: the **authorised** branch wins even though the
