@@ -8,6 +8,7 @@
 mod tests {
     use super::super::creation_graph::CreationGraph;
     use super::super::service::{LifecycleService, LifecycleServiceConfig};
+    use crate::room::CreateRoomConfig;
     use std::sync::Arc;
     use synapse_cache::{CacheConfig, CacheManager};
     use synapse_common::validation::Validator;
@@ -343,5 +344,45 @@ mod tests {
         let response = LifecycleService::build_room_response("!room:example.com", None);
         assert_eq!(response["room_id"], "!room:example.com");
         assert!(response["room_alias"].is_null());
+    }
+
+    // ── create_room 埋点（room_operations_total）────────────────────────
+
+    /// `create_room` 的埋点包装必须把**失败**也记进 `room_operations_total`：
+    /// `room_operations_total{operation="create",outcome="error"}` 正是
+    /// `RoomCreationFailureRate` 告警读的标签组合。
+    ///
+    /// 用「不可创建的房间版本」（999）让内层在**不碰数据库**的情况下确定性失败，
+    /// 因此这个用例可以跑在纯 mock 服务上。断言用**增量**而非绝对值：全局
+    /// `ServerMetrics` 句柄是整个测试二进制共享的，别的用例可能已经装过。
+    #[tokio::test]
+    async fn create_room_records_failure_outcome_with_labels() {
+        use synapse_common::metrics::MetricsCollector;
+        use synapse_common::server_metrics::{global_server_metrics, install_global_server_metrics, ServerMetrics};
+
+        if global_server_metrics().is_none() {
+            install_global_server_metrics(Arc::new(ServerMetrics::new(Arc::new(MetricsCollector::new()))));
+        }
+        let Some(metrics) = global_server_metrics() else { return };
+
+        let svc = test_lifecycle_service(
+            InMemoryRoomStore::new(),
+            InMemoryMemberStore::new(),
+            InMemoryEventStore::new(),
+            Arc::new(synapse_storage::test_mocks::FakeUserStore::new()),
+        );
+
+        let config = CreateRoomConfig { room_version: Some("999".to_string()), ..Default::default() };
+        let error = svc
+            .create_room("@alice:example.com", config)
+            .await
+            .expect_err("room version 999 cannot be created, so create_room must fail");
+
+        let labels = ["create", "error", "999", "private", error.code_str()];
+        let counter = metrics
+            .room_operations_total
+            .get_counter(&labels)
+            .unwrap_or_else(|| panic!("expected room_operations_total{labels:?} to be recorded"));
+        assert!(counter.get() >= 1, "failed create must increment the labeled counter");
     }
 }

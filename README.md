@@ -150,9 +150,13 @@ cargo run --release
 配置读取逻辑：优先读配置文件（`SYNAPSE_CONFIG_PATH` 指定），并支持 `SYNAPSE_` 前缀的环境变量覆盖（使用 `__` 表示层级）。
 
 - `SYNAPSE_CONFIG_PATH`：配置文件路径（默认 `homeserver.yaml`）
-- `SYNAPSE_DATABASE__HOST` / `SYNAPSE_DATABASE__PORT` / `SYNAPSE_DATABASE__USERNAME` / `SYNAPSE_DATABASE__PASSWORD` / `SYNAPSE_DATABASE__NAME`
-- `SYNAPSE_REDIS__HOST` / `SYNAPSE_REDIS__PORT` / `SYNAPSE_REDIS__ENABLED`
-- `SYNAPSE_SEARCH__ELASTICSEARCH_URL` / `SYNAPSE_SEARCH__ENABLED`
+- 覆盖键的拼写是 **`SYNAPSE` + 分隔符 `__` + 配置路径**（前缀后也是**双**下划线），例如
+  `SYNAPSE__DATABASE__HOST`、`SYNAPSE__REDIS__HOST`、`SYNAPSE__SEARCH__ENABLED`；
+  ⚠️ 写成 `SYNAPSE_REDIS__HOST`（前缀后单下划线）**不会生效**，也不会报错 ——
+  由 `synapse-common/src/config/loader.rs` 的
+  `env_override_needs_a_double_underscore_after_the_prefix` 用例钉死
+- 常用覆盖项：`SYNAPSE__DATABASE__{HOST,PORT,USERNAME,PASSWORD,NAME}`、
+  `SYNAPSE__REDIS__{HOST,PORT,USERNAME,PASSWORD,ENABLED}`、`SYNAPSE__SEARCH__{ELASTICSEARCH_URL,ENABLED}`
 - `RUST_LOG`：日志过滤（例：`info,synapse_rust=debug`）
 
 ## 文档

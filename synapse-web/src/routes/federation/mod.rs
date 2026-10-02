@@ -391,7 +391,15 @@ pub fn create_federation_router(state: &AppState) -> Router<AppState> {
         .route("/_synapse/federation/v1/keys/query", post(keys::legacy_keys_query))
         .route("/_synapse/federation/v1/keys/upload", post(keys::keys_upload))
         .route("/_synapse/federation/v1/room_auth/{room_id}", get(events::get_room_auth))
-        .route("/_synapse/federation/v1/query/auth", get(keys::query_auth));
+        .route("/_synapse/federation/v1/query/auth", get(keys::query_auth))
+        // MSC3720: account status over federation. Unstable-only, matching
+        // upstream. All requested users must be local (else 400 M_INVALID_PARAM);
+        // the handler fails closed with 403 unless `experimental.msc3720_enabled`
+        // is set.
+        .route(
+            "/_matrix/federation/unstable/org.matrix.msc3720/account_status",
+            post(crate::routes::handlers::account_status::federation_account_status),
+        );
 
     // Layer order (innermost to outermost): auth first (populates
     // FederationRequestAuth), then per-origin rate limiting (consumes it).

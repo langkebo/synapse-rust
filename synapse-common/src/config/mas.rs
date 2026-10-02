@@ -16,7 +16,12 @@ use serde::Deserialize;
 ///
 /// Defaults to disabled for backward compatibility. When `enabled = true`
 /// and `issuer_url` is non-empty, `is_configured()` returns true and the
-/// homeserver activates MAS token validation and the MAS REST client.
+/// homeserver activates MAS token validation (wired in `ServiceContainer`
+/// via `auth::mas_validator::build_mas_validator`).
+///
+/// Enabling MAS also requires `client_id`: `Config::validate()` refuses to
+/// start on a half-configured section, and `client_id` is the audience
+/// anchor used when verifying MAS access tokens locally against JWKS.
 #[derive(Clone, Default, Deserialize, Educe)]
 #[educe(Debug)]
 pub struct MasConfig {

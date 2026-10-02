@@ -57,6 +57,38 @@ impl Config {
             }
         }
 
+        // MSC3861 / H-1：MAS 半配置必须**启动失败**。此前 `mas.enabled = true` 而
+        // `issuer_url`/`client_id` 为空时配置被接受、运行时却什么都没接（库级存在、运行时
+        // 未接线），运维以为认证已委托给 MAS —— 静默空操作比拒绝启动危险得多。
+        if self.mas.enabled {
+            if self.mas.issuer_url.trim().is_empty() {
+                return Err("mas.enabled is true but mas.issuer_url is not configured. Set mas.issuer_url to your \
+                     Matrix Authentication Service issuer (e.g. https://mas.example.com), or set \
+                     mas.enabled = false to keep the built-in token validation."
+                    .to_string());
+            }
+            if self.mas.client_id.trim().is_empty() {
+                return Err("mas.enabled is true but mas.client_id is not configured. The client id is the \
+                     audience anchor for MAS access tokens (a token minted for another client must not \
+                     be accepted here), so MAS cannot be enabled without it."
+                    .to_string());
+            }
+        }
+
+        // 上游一致（对照报告 §18.3 #3 / M-1）：Redis 6+ ACL 的 `username` 必须同时配
+        // `password`。只给 username 时 `connection_url()` 生成 `redis://user@host`，
+        // Redis 会按"无密码连接"处理 —— 运维以为启用了 ACL，实际没有任何认证。
+        // 空白值按"未配置"处理，与 `connection_url()` 的过滤口径保持一致。
+        let redis_username = self.redis.username.as_deref().filter(|value| !value.trim().is_empty());
+        let redis_password = self.redis.password.as_deref().filter(|value| !value.trim().is_empty());
+        if redis_username.is_some() && redis_password.is_none() {
+            return Err("redis.username is configured but redis.password is not. Redis 6+ ACL usernames \
+                 require a password: a username-only URL (redis://user@host) connects without \
+                 authentication. Set redis.password (or SYNAPSE__REDIS__PASSWORD), or remove \
+                 redis.username."
+                .to_string());
+        }
+
         if self.cors.allowed_origins.iter().any(|o| o == "*") && self.cors.allow_credentials {
             tracing::warn!(
                 "CORS is configured to allow all origins ('*') with credentials. \
@@ -130,6 +162,69 @@ mod tests {
     // 在变量未设置时解析为**空字符串**而不是"未配置"，于是 `KeyRotationManager`
     // 走了加密分支并用空的 HKDF 输入派生出 AES 密钥 —— 联邦签名私钥以 `enc:`
     // 前缀入库，看似加密实则零保密性，且 fail-closed 分支被绕过。
+    // MSC3861 / H-1：`mas.enabled = true` 却是半配置（缺 issuer_url 或 client_id）时，
+    // 必须**启动失败**而不是静默空操作 —— 后者正是"库级存在、运行时未接线"的形态：
+    // 配置被接受、行为不变，运维以为已把认证委托给 MAS（对照报告 §18.3 #19）。
+    #[test]
+    fn validate_rejects_mas_enabled_without_issuer_or_client_id() {
+        let mut config = valid_config();
+        config.mas.enabled = true;
+
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("mas."), "错误必须点名 mas 配置段：{err}");
+
+        config.mas.issuer_url = "https://mas.example.com".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("client_id"), "缺 client_id 必须被拒（audience 锚点）：{err}");
+
+        config.mas.client_id = "synapse-hs".to_string();
+        assert!(config.validate().is_ok(), "issuer_url + client_id 齐备后应通过");
+    }
+
+    #[test]
+    fn validate_ignores_mas_section_when_disabled() {
+        let mut config = valid_config();
+        config.mas.enabled = false;
+        config.mas.issuer_url = String::new();
+        config.mas.client_id = String::new();
+
+        assert!(config.validate().is_ok(), "未启用 MAS 时半配置不应阻塞启动（默认关闭）");
+    }
+
+    // 上游一致（对照报告 §18.3 #3 / M-1）：Redis 6+ ACL 的 `username` **必须**同时配
+    // `password`。只给 username 时 `connection_url()` 会生成 `redis://user@host`，
+    // Redis 把它当成"无密码连接" —— 运维看起来配了 ACL，实际没有任何认证，属静默降级。
+    #[test]
+    fn validate_rejects_redis_username_without_password() {
+        let mut config = valid_config();
+        config.redis.username = Some("acl-user".to_string());
+        config.redis.password = None;
+
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("redis.username"), "{err}");
+        assert!(err.contains("password"), "{err}");
+    }
+
+    #[test]
+    fn validate_accepts_redis_username_with_password() {
+        let mut config = valid_config();
+        config.redis.username = Some("acl-user".to_string());
+        config.redis.password = Some("secret".to_string());
+
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_ignores_empty_redis_username() {
+        // 与 `connection_url()` 的过滤口径一致：空白用户名视为"未配置"，
+        // 不能因为一个空串就让启动失败。
+        let mut config = valid_config();
+        config.redis.username = Some(String::new());
+        config.redis.password = None;
+
+        assert!(config.validate().is_ok());
+    }
+
     #[test]
     fn validate_rejects_short_signing_key_master_key() {
         let mut config = valid_config();

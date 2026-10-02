@@ -227,7 +227,14 @@ sum(rate(http_request_duration_ms_bucket{le="1000"}[5m]))
 
 ---
 
-#### 3. `db_queries_total` (新增细分指标)
+#### 3. ~~`db_queries_total`~~（2026-10-01 删除）
+
+> ⚠️ 本节描述的指标**已从代码中删除**：它没有诚实调用点 —— sqlx 的逐语句 tracing 事件只给
+> `elapsed`、不给成败（失败计数走 `db_query_errors`），而按表拆标签需要解析 `db.statement`，
+> 与 `synapse-common/src/db_query_metrics.rs` 中"故意不分配/不拷贝该字段"的设计注释冲突。
+> 监控栈里的面板与告警已改指 `db_query_errors`。以下为历史设计原文。
+
+#### 3. (历史) `db_queries_total` (新增细分指标)
 
 **新增指标**:
 ```yaml

@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": false
   },
-  "entry_count": 1066,
+  "entry_count": 1068,
   "entries": [
     {
       "method": "GET",
@@ -231,6 +231,13 @@
         "timeout",
         "txn_id"
       ]
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/unstable/org.matrix.msc3720/account_status",
+      "registered_by": "assembly::create_router",
+      "path_params": [],
+      "query_params": []
     },
     {
       "method": "DELETE",
@@ -5670,6 +5677,13 @@
       "method": "GET",
       "path": "/_matrix/client/versions",
       "registered_by": "assembly::create_router",
+      "path_params": [],
+      "query_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/federation/unstable/org.matrix.msc3720/account_status",
+      "registered_by": "federation",
       "path_params": [],
       "query_params": []
     },

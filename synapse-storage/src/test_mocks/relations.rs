@@ -1,6 +1,7 @@
 use super::*;
 use crate::relations::{
-    AggregationResult, CreateRelationParams, EventRelation, RelationQueryParams, RelationsStoreApi,
+    AggregationResult, CreateRelationParams, EventRelation, OrderedEventRelation, RelationQueryParams,
+    RelationsStoreApi, MSC3981_RECURSION_DEPTH,
 };
 use sqlx;
 use synapse_common::current_timestamp_millis;
@@ -83,44 +84,79 @@ impl RelationsStoreApi for InMemoryRelationsStore {
             .cloned())
     }
 
-    async fn get_relations(&self, params: RelationQueryParams) -> Result<Vec<EventRelation>, sqlx::Error> {
+    async fn get_relations(&self, params: RelationQueryParams) -> Result<Vec<OrderedEventRelation>, sqlx::Error> {
         let limit = params.limit.unwrap_or(50).clamp(1, 100) as usize;
+        let backward = params.direction.as_deref() == Some("b");
+        let cursor = params.from.as_deref().and_then(crate::relations::parse_keyset_cursor);
         let rels = self.relations.read().await;
-        let mut filtered: Vec<&EventRelation> = rels
-            .iter()
-            .filter(|r| {
-                r.room_id == params.room_id
-                    && r.relates_to_event_id == params.relates_to_event_id
-                    && params.relation_type.as_ref().is_none_or(|t| r.relation_type == *t)
-                    && !r.is_redacted
-            })
-            .collect();
 
-        let direction = params.direction.as_deref().unwrap_or("f");
-        match direction {
-            "b" => {
-                filtered.sort_by(|a, b| {
-                    b.origin_server_ts.cmp(&a.origin_server_ts).then_with(|| b.event_id.cmp(&a.event_id))
-                });
-                if let Some(ref from) = params.from {
-                    if let Some(pos) = filtered.iter().position(|r| r.event_id == *from) {
-                        filtered = filtered.into_iter().skip(pos + 1).collect();
+        // 关系跳数，镜像 SQL 的 `depth` 列：被请求事件的直接关系在 depth 0。
+        // 递归沿**所有**类型的关系边下行（过滤只作用于返回集，与
+        // `RelationsStorage::get_relations` 及上游 Synapse 一致）。
+        let mut depths: std::collections::HashMap<&str, i32> = std::collections::HashMap::new();
+        for rel in rels.iter().filter(|r| !r.is_redacted && r.relates_to_event_id == params.relates_to_event_id) {
+            depths.insert(rel.event_id.as_str(), 0);
+        }
+        if params.recurse {
+            loop {
+                let mut added = false;
+                for rel in rels.iter().filter(|r| !r.is_redacted) {
+                    let Some(parent_depth) = depths.get(rel.relates_to_event_id.as_str()).copied() else {
+                        continue;
+                    };
+                    if parent_depth > MSC3981_RECURSION_DEPTH || depths.contains_key(rel.event_id.as_str()) {
+                        continue;
                     }
+                    depths.insert(rel.event_id.as_str(), parent_depth + 1);
+                    added = true;
                 }
-            }
-            _ => {
-                filtered.sort_by(|a, b| {
-                    a.origin_server_ts.cmp(&b.origin_server_ts).then_with(|| a.event_id.cmp(&b.event_id))
-                });
-                if let Some(ref from) = params.from {
-                    if let Some(pos) = filtered.iter().position(|r| r.event_id == *from) {
-                        filtered = filtered.into_iter().skip(pos + 1).collect();
-                    }
+                if !added {
+                    break;
                 }
             }
         }
 
-        Ok(filtered.into_iter().take(limit).cloned().collect())
+        let mut rows: Vec<OrderedEventRelation> = rels
+            .iter()
+            .filter(|r| !r.is_redacted && depths.contains_key(r.event_id.as_str()))
+            .filter(|r| params.relation_type.as_ref().is_none_or(|t| r.relation_type == *t))
+            .map(|r| OrderedEventRelation {
+                id: r.id,
+                room_id: r.room_id.clone(),
+                event_id: r.event_id.clone(),
+                relates_to_event_id: r.relates_to_event_id.clone(),
+                relation_type: r.relation_type.clone(),
+                sender: r.sender.clone(),
+                origin_server_ts: r.origin_server_ts,
+                content: r.content.clone(),
+                is_redacted: r.is_redacted,
+                created_ts: r.created_ts,
+                // 内存 mock 没有 `events` 表：排序键回退到该关系行自己的
+                // `origin_server_ts`，与真实查询对孤儿行的回退一致。
+                stream_ordering: r.origin_server_ts,
+            })
+            .collect();
+
+        rows.sort_by(|a, b| {
+            a.stream_ordering
+                .cmp(&b.stream_ordering)
+                .then_with(|| a.event_id.cmp(&b.event_id))
+                .then_with(|| a.relation_type.cmp(&b.relation_type))
+        });
+        if backward {
+            rows.reverse();
+        }
+        if let Some((key, event_id)) = cursor {
+            rows.retain(|r| {
+                if backward {
+                    (r.stream_ordering, r.event_id.as_str()) < (key, event_id.as_str())
+                } else {
+                    (r.stream_ordering, r.event_id.as_str()) > (key, event_id.as_str())
+                }
+            });
+        }
+
+        Ok(rows.into_iter().take(limit).collect())
     }
 
     async fn count_relations(

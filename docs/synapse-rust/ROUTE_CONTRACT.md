@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1150**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1152**
 - 含路由注册的模块文件：**65**
 - `derived_routes.rs` 中的 `registered_by` 标签：**73**
 - 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
@@ -69,7 +69,7 @@
 **逐模块清单里的两种标注**（都从派生表反解，不是人工维护）：
 
 - 〔仅 `X` profile〕 —— 该路由**只**在 profile `X` 下注册，默认构建里不存在（即上表成员）；
-- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1152 行去重为 1150 条的来源。
+- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1154 行去重为 1152 条的来源。
 
 当前共 **2** 条双档注册：
 
@@ -1215,9 +1215,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 - `GET` `/_synapse/admin/info`
 
-### 联邦 (Federation) （70 条）
+### 联邦 (Federation) （71 条）
 
-#### `federation/mod.rs` — 39 条 ✅派生表
+#### `federation/mod.rs` — 40 条 ✅派生表
 
 - `GET` `/_matrix/federation/v1`
 - `GET` `/_matrix/federation/v1/backfill/{room_id}`
@@ -1246,6 +1246,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/key/v2/server`
 - `GET` `/_synapse/federation/v1/query/auth`
 - `GET` `/_synapse/federation/v1/room_auth/{room_id}`
+- `POST` `/_matrix/federation/unstable/org.matrix.msc3720/account_status`
 - `POST` `/_matrix/federation/v1/get_missing_events/{room_id}`
 - `POST` `/_matrix/federation/v1/publicRooms`
 - `POST` `/_matrix/federation/v1/user/keys/claim`
@@ -1296,9 +1297,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_matrix/federation/v2/send_join/{room_id}/{event_id}`
 - `PUT` `/_matrix/federation/v2/send_leave/{room_id}/{event_id}`
 
-### 装配 (Assembly) （108 条）
+### 装配 (Assembly) （109 条）
 
-#### `assembly.rs` — 108 条 ✅派生表
+#### `assembly.rs` — 109 条 ✅派生表
 
 - `DELETE` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device`
 - `DELETE` `/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}`
@@ -1356,6 +1357,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/vendor/v1/rooms/{room_id}/invite_allowlist`
 - `GET` `/_matrix/vendor/v1/rooms/{room_id}/invite_blocklist`
 - `GET` `/health`
+- `POST` `/_matrix/client/unstable/org.matrix.msc3720/account_status`
 - `POST` `/_matrix/client/v1/account/3pid`
 - `POST` `/_matrix/client/v1/account/3pid/add`
 - `POST` `/_matrix/client/v1/account/3pid/bind`

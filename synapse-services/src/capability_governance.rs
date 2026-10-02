@@ -126,6 +126,12 @@ const BASE_UNSTABLE_FEATURES: &[(&str, bool)] = &[
     // matches Synapse's behavior and the MSC's recommended flag. Clients
     // use this to correlate /sync timeline order with /messages order.
     ("org.matrix.msc4445.initial_sync_timeline_topological_ordering", true),
+    // MSC3981: recursive `/relations` fetching. The `recurse` parameter (and the
+    // unstable `org.matrix.msc3981.recurse` spelling) is honoured on the stable
+    // and unstable `/relations` routes, so both the unstable and — since the
+    // MSC landed in client-server v1.10 — the stable feature name are declared.
+    ("org.matrix.msc3981", true),
+    ("org.matrix.msc3981.stable", true),
     // MSC4140: Cancellable delayed events. The management endpoint
     // (POST /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id})
     // is implemented with cancel/restart/send actions. Clients use this flag to
@@ -361,6 +367,20 @@ impl CapabilityGovernance {
         CapabilityFlag::route_surface(self.manifest_has_route("POST", "/_matrix/client/v4/sync"))
     }
 
+    /// MSC3720 (Account status): declared only when the route is registered
+    /// **and** the feature is switched on in config.
+    ///
+    /// Upstream Synapse gates this purely on `experimental.msc3720_enabled`
+    /// (default false); this repo additionally requires the route to exist so
+    /// the capability can never advertise a path the server does not serve
+    /// (the invariant the rest of this module enforces).
+    fn msc3720_capability(&self) -> CapabilityFlag {
+        CapabilityFlag::route_surface(
+            self.manifest_has_route("POST", "/_matrix/client/unstable/org.matrix.msc3720/account_status")
+                && self.config.experimental.msc3720_enabled,
+        )
+    }
+
     fn change_password_capability(&self) -> CapabilityFlag {
         CapabilityFlag::route_surface(self.manifest_has_route("POST", "/_matrix/client/v3/account/password"))
     }
@@ -535,6 +555,16 @@ impl CapabilityGovernance {
             self.config.experimental.msc4452_enabled,
         );
 
+        // MSC3720: Account status. Upstream advertises the unstable identifier
+        // `org.matrix.msc3720.account_status` (the MSC has not been stabilised),
+        // gated on the same config flag the endpoints check. Declared only when
+        // the route exists, per this module's route-surface invariant.
+        self.insert_enabled_capability(
+            &mut capabilities,
+            "org.matrix.msc3720.account_status",
+            self.msc3720_capability().enabled(),
+        );
+
         if authenticated {
             capabilities.insert("io.hula.friends".to_string(), json!(self.friends_capability().enabled()));
             capabilities.insert(
@@ -614,6 +644,7 @@ mod tests {
             ("GET", "/_matrix/client/v1/voice/config"),
             ("POST", "/_matrix/client/v1/widgets"),
             ("PUT", "/_matrix/client/v1/rooms/{room_id}/burn"),
+            ("POST", "/_matrix/client/unstable/org.matrix.msc3720/account_status"),
         ];
         CapabilityGovernance::new(
             config,
@@ -682,6 +713,11 @@ mod tests {
             "org.matrix.msc4143",
             "org.matrix.msc4445.initial_sync_timeline_topological_ordering",
             "org.matrix.msc4140",
+            // MSC3981: `/relations` honours `recurse`. The MSC is stable since
+            // client-server v1.10, so both the unstable and the stable feature
+            // names are advertised.
+            "org.matrix.msc3981",
+            "org.matrix.msc3981.stable",
         ];
         for key in expected_unstable {
             assert!(unstable.contains_key(*key), "missing unstable feature: {key}");
@@ -782,6 +818,36 @@ mod tests {
         // Private sliding sync capability must not leak to the public surface;
         // clients discover sliding sync via the standard MSC3886 identifier.
         assert!(!capabilities.contains_key("io.hula.sliding_sync"));
+    }
+
+    #[test]
+    fn test_msc3720_capability_requires_both_config_and_route() {
+        let route = ("POST", "/_matrix/client/unstable/org.matrix.msc3720/account_status");
+
+        // Config off + route present -> disabled (fail closed).
+        let g = governance_with_routes(&Config::default(), vec![route]);
+        assert!(!g.msc3720_capability().enabled(), "MSC3720 must be off by default");
+
+        // Config on + route absent -> disabled (capability can never advertise
+        // a route the server does not serve).
+        let mut config = Config::default();
+        config.experimental.msc3720_enabled = true;
+        let g = governance_with_routes(&config, vec![]);
+        assert!(!g.msc3720_capability().enabled(), "no route => no capability");
+
+        // Config on + route present -> enabled and advertised.
+        let g = governance_with_routes(&config, vec![route]);
+        assert!(g.msc3720_capability().enabled());
+        let body = g.build_capabilities_response(true);
+        assert_eq!(
+            body["capabilities"]["org.matrix.msc3720.account_status"]["enabled"], true,
+            "enabled MSC3720 must be advertised under the unstable identifier"
+        );
+
+        // Config off + route present -> advertised as disabled, not omitted.
+        let g = governance_with_routes(&Config::default(), vec![route]);
+        let body = g.build_capabilities_response(true);
+        assert_eq!(body["capabilities"]["org.matrix.msc3720.account_status"]["enabled"], false);
     }
 
     #[test]
@@ -918,6 +984,7 @@ mod tests {
             "io.hula.voice_extended",
             "io.hula.burn_after_read",
             "io.element.msc4452.preview_url",
+            "org.matrix.msc3720.account_status",
         ];
 
         for key in capabilities.keys() {

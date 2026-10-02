@@ -30,15 +30,15 @@ fi
 register_account() {
     local username=$1
     local password=$2
-    
+
     echo "正在注册用户：${username}..."
-    
+
     # 步骤 1: 获取会话
     SESSION=$(curl -s -X POST "${SERVER_URL}/_matrix/client/v3/register" \
         -H "Content-Type: application/json" \
-        -d '{"type": "m.login.dummy", "initial_device_display_name": "Test Device"}' \
-        | jq -r '.sid // empty')
-    
+        -d '{"type": "m.login.dummy", "initial_device_display_name": "Test Device"}' |
+        jq -r '.sid // empty')
+
     if [[ -z "${SESSION}" ]]; then
         # 直接注册（可能不需要流程）
         RESPONSE=$(curl -s -X POST "${SERVER_URL}/_matrix/client/v3/register" \
@@ -49,20 +49,20 @@ register_account() {
                 \"auth\": {\"type\": \"m.login.dummy\"},
                 \"device_id\": \"TEST_DEVICE_${RANDOM}\"
             }")
-        
+
         if echo "${RESPONSE}" | grep -q "access_token"; then
             ACCESS_TOKEN=$(echo "${RESPONSE}" | jq -r '.access_token')
             DEVICE_ID=$(echo "${RESPONSE}" | jq -r '.device_id')
             USER_ID=$(echo "${RESPONSE}" | jq -r '.user_id')
-            
+
             echo "  ✅ 注册成功"
             echo "    User ID: ${USER_ID}"
             echo "    Device ID: ${DEVICE_ID}"
             echo ""
-            
+
             # 保存到文件
-            echo "${USER_ID}:${ACCESS_TOKEN}:${DEVICE_ID}" >> tests/accounts.txt
-            
+            echo "${USER_ID}:${ACCESS_TOKEN}:${DEVICE_ID}" >>tests/accounts.txt
+
             return 0
         else
             ERROR=$(echo "${RESPONSE}" | jq -r '.error // "Unknown error"')
@@ -91,7 +91,7 @@ SUCCESS=0
 for account in "${ACCOUNTS[@]}"; do
     username="${account%%:*}"
     password="${account#*:}"
-    
+
     if register_account "${username}" "${password}"; then
         ((SUCCESS++)) || true
     else

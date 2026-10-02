@@ -139,5 +139,6 @@ python3 scripts/ci/check_root_canonical_ledger.py
 ## Configuration
 
 - Config file: `homeserver.yaml` (path via `SYNAPSE_CONFIG_PATH`)
-- Env overrides: `SYNAPSE_` prefix with `__` for nesting (e.g., `SYNAPSE_DATABASE__HOST`)
+- Env overrides: `SYNAPSE` prefix **plus** the `__` separator (so the prefix is followed by a double
+  underscore too), e.g. `SYNAPSE__DATABASE__HOST`. `SYNAPSE_DATABASE__HOST` is silently ignored.
 - Placeholder syntax: `${VAR}`, `${VAR:-default}`, `${VAR:?error}`

@@ -137,16 +137,16 @@
       },
       {
         "id": 7,
-        "title": "数据库查询性能 (按表)",
+        "title": "数据库查询错误率",
         "type": "table",
         "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
         "datasource": "Prometheus",
         "targets": [
           {
-            "expr": "sum(rate(db_queries_total[5m])) by (table)",
+            "expr": "sum(rate(db_query_errors[5m]))",
             "format": "table",
             "instant": true,
-            "legendFormat": "{{table}}"
+            "legendFormat": "错误/秒"
           }
         ],
         "transformations": [
@@ -156,8 +156,7 @@
               "excludeByName": { "Time": true },
               "indexByName": {},
               "renameByName": {
-                "Value": "查询数/秒",
-                "table": "数据表"
+                "Value": "错误/秒"
               }
             }
           }

@@ -27,6 +27,12 @@ use synapse_common::ApiError;
 
 /// In-memory federation client double.
 ///
+/// MSC3720: recorded `(destination, user_ids)` account-status lookups.
+///
+/// Aliased because clippy's `type_complexity` rejects the inline
+/// `Arc<RwLock<Vec<(String, Vec<String>)>>>` spelling.
+type RecordedAccountStatusCalls = Arc<RwLock<Vec<(String, Vec<String>)>>>;
+
 /// Stores pre-seeded responses keyed by room_id (or server_name for key
 /// lookups). Outbound transactions are recorded in `sent_transactions` for
 /// assertion in tests.
@@ -41,6 +47,10 @@ pub struct MockFederationClient {
     send_leave_responses: Arc<RwLock<HashMap<String, SendLeaveResponse>>>,
     invite_responses: Arc<RwLock<HashMap<String, InviteResponse>>>,
     backfill_responses: Arc<RwLock<HashMap<String, BackfillResponse>>>,
+    /// MSC3720: pre-seeded account-status responses keyed by destination.
+    account_status_responses: Arc<RwLock<HashMap<String, serde_json::Value>>>,
+    /// MSC3720: recorded `(destination, user_ids)` lookups.
+    account_status_calls: RecordedAccountStatusCalls,
     send_join_calls: Arc<std::sync::atomic::AtomicUsize>,
     send_leave_calls: Arc<std::sync::atomic::AtomicUsize>,
     fail_send_transaction: Arc<std::sync::atomic::AtomicBool>,
@@ -60,6 +70,8 @@ impl MockFederationClient {
             send_leave_responses: Arc::new(RwLock::new(HashMap::new())),
             invite_responses: Arc::new(RwLock::new(HashMap::new())),
             backfill_responses: Arc::new(RwLock::new(HashMap::new())),
+            account_status_responses: Arc::new(RwLock::new(HashMap::new())),
+            account_status_calls: Arc::new(RwLock::new(Vec::new())),
             send_join_calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             send_leave_calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             fail_send_transaction: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -83,9 +95,22 @@ impl MockFederationClient {
         self.send_join_responses.write().await.insert(room_id.into(), response);
     }
 
-    /// See [`seed_make_leave`.
+    /// See [`seed_make_leave`].
     pub async fn seed_make_leave(&self, room_id: impl Into<String>, response: MakeLeaveResponse) {
         self.make_leave_responses.write().await.insert(room_id.into(), response);
+    }
+
+    /// MSC3720: seed the account-status response for `destination`.
+    ///
+    /// A destination without a seeded response fails the lookup, which is how
+    /// tests exercise the "federation unreachable" path.
+    pub async fn seed_account_status(&self, destination: impl Into<String>, response: serde_json::Value) {
+        self.account_status_responses.write().await.insert(destination.into(), response);
+    }
+
+    /// MSC3720: recorded `(destination, user_ids)` lookups, in call order.
+    pub async fn account_status_calls(&self) -> Vec<(String, Vec<String>)> {
+        self.account_status_calls.read().await.clone()
     }
 
     /// See [`seed_send_leave`.
@@ -338,6 +363,17 @@ impl crate::client_api::FederationClientApi for MockFederationClient {
         _query: &serde_json::Value,
     ) -> Result<serde_json::Value, FederationClientError> {
         Err(FederationClientError::InvalidResponse("mock: query_keys not configured".into()))
+    }
+
+    async fn get_account_status(
+        &self,
+        destination: &str,
+        user_ids: &[String],
+    ) -> Result<serde_json::Value, FederationClientError> {
+        self.account_status_calls.write().await.push((destination.to_string(), user_ids.to_vec()));
+        self.account_status_responses.read().await.get(destination).cloned().ok_or_else(|| {
+            FederationClientError::InvalidResponse(format!("mock: get_account_status not configured for {destination}"))
+        })
     }
 
     async fn timestamp_to_event(

@@ -41,7 +41,7 @@ for account in "${ACCOUNTS[@]}"; do
         ACCESS_TOKEN=$(echo "${RESPONSE}" | jq -r '.access_token')
         DEVICE_ID=$(echo "${RESPONSE}" | jq -r '.device_id')
         echo "  ✅ 登录成功 ${USER_ID} (${DEVICE_ID})"
-        echo "${USER_ID}:${ACCESS_TOKEN}:${DEVICE_ID}" >> tests/accounts.txt
+        echo "${USER_ID}:${ACCESS_TOKEN}:${DEVICE_ID}" >>tests/accounts.txt
         ((SUCCESS++)) || true
     else
         echo "  ❌ 登录失败：$(echo "${RESPONSE}" | jq -r '.error // "unknown"')"

@@ -81,6 +81,8 @@ fn test_sync_response_format() {
         "rooms": {
             "join": {},
             "invite": {},
+            // H-2: knocked rooms have their own section (C-S spec `rooms.knock`).
+            "knock": {},
             "leave": {}
         },
         "presence": json!({
@@ -1079,6 +1081,8 @@ fn test_build_room_sync_value_empty_events() {
         counts: RoomSyncCounts { highlight_count: 0, notification_count: 0 },
         event_fields: None,
         event_format: SyncEventFormat::Client,
+        use_state_after: false,
+        state_after_is_unstable: false,
     });
 
     assert!(value["timeline"]["events"].is_array());
@@ -1108,6 +1112,8 @@ fn test_build_room_sync_value_with_events() {
         counts: RoomSyncCounts { highlight_count: 1, notification_count: 5 },
         event_fields: None,
         event_format: SyncEventFormat::Client,
+        use_state_after: false,
+        state_after_is_unstable: false,
     });
 
     let timeline_events = value["timeline"]["events"].as_array().unwrap();
@@ -1135,6 +1141,8 @@ fn test_build_room_sync_value_applies_timeline_limit() {
         counts: RoomSyncCounts { highlight_count: 0, notification_count: 0 },
         event_fields: None,
         event_format: SyncEventFormat::Client,
+        use_state_after: false,
+        state_after_is_unstable: false,
     });
 
     let timeline_events = value["timeline"]["events"].as_array().unwrap();
@@ -1156,6 +1164,8 @@ fn test_build_room_sync_value_prev_batch_from_first_event() {
         counts: RoomSyncCounts { highlight_count: 0, notification_count: 0 },
         event_fields: None,
         event_format: SyncEventFormat::Client,
+        use_state_after: false,
+        state_after_is_unstable: false,
     });
 
     assert_eq!(value["timeline"]["prev_batch"], "t1500_1");
@@ -1174,6 +1184,8 @@ fn test_build_room_sync_value_applies_event_fields_filter() {
         counts: RoomSyncCounts { highlight_count: 0, notification_count: 0 },
         event_fields: Some(&["type".to_string(), "event_id".to_string(), "unsigned.age".to_string()]),
         event_format: SyncEventFormat::Client,
+        use_state_after: false,
+        state_after_is_unstable: false,
     });
 
     let timeline_event = &value["timeline"]["events"][0];
@@ -1911,18 +1923,30 @@ fn test_room_sections_invite_membership_maps_to_invite() {
     assert_eq!(sections.get("!r3:b").copied(), Some(SyncRoomSection::Invite));
 }
 
+/// H-2：`knock` 会员关系此前落到 catch-all 分支 ⇒ 被当成 **joined** 房间渲染进
+/// `/sync`（房间明明只被敲过门）。C-S 规范给 knock 单独的 `rooms.knock` 段。
+#[test]
+fn test_room_sections_knock_membership_maps_to_knock() {
+    let memberships = vec![UserRoomMembership { room_id: "!r4:b".into(), membership: "knock".into() }];
+    let sections = SyncService::room_sections_from_memberships(&memberships);
+    assert_eq!(sections.len(), 1);
+    assert_eq!(sections.get("!r4:b").copied(), Some(SyncRoomSection::Knock), "knock 必须有自己的段，而不是落进 Join");
+}
+
 #[test]
 fn test_room_sections_mixed_memberships() {
     let memberships = vec![
         UserRoomMembership { room_id: "!r1:b".into(), membership: "join".into() },
         UserRoomMembership { room_id: "!r2:b".into(), membership: "leave".into() },
         UserRoomMembership { room_id: "!r3:b".into(), membership: "invite".into() },
+        UserRoomMembership { room_id: "!r4:b".into(), membership: "knock".into() },
     ];
     let sections = SyncService::room_sections_from_memberships(&memberships);
-    assert_eq!(sections.len(), 3);
+    assert_eq!(sections.len(), 4);
     assert_eq!(sections.get("!r1:b").copied(), Some(SyncRoomSection::Join));
     assert_eq!(sections.get("!r2:b").copied(), Some(SyncRoomSection::Leave));
     assert_eq!(sections.get("!r3:b").copied(), Some(SyncRoomSection::Invite));
+    assert_eq!(sections.get("!r4:b").copied(), Some(SyncRoomSection::Knock));
 }
 
 #[test]
@@ -2241,6 +2265,8 @@ async fn incremental_room_sync_returns_state_delta_not_empty() {
             since_token: Some(&since_token),
             is_incremental: true,
             room_filter: None, // default: lazy_load_members=false
+            use_state_after: false,
+            state_after_is_unstable: false,
         })
         .await
         .expect("build_room_sync must not fail");

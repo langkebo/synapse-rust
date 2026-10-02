@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
+use synapse_services::relations_service::RelationQuery;
 
 fn create_relations_core_router() -> Router<AppState> {
     Router::new()
@@ -50,6 +51,25 @@ pub struct RelationsQuery {
     _to: Option<String>,
     #[serde(rename = "dir")]
     direction: Option<String>,
+    /// MSC3981: also return events that only relate to the target through
+    /// another event. Stable spelling.
+    recurse: Option<bool>,
+    /// MSC3981: unstable spelling of the same parameter.
+    #[serde(rename = "org.matrix.msc3981.recurse")]
+    msc3981_recurse: Option<bool>,
+}
+
+impl RelationsQuery {
+    /// The requested recursion mode, or `None` when neither spelling is present.
+    ///
+    /// MSC3981 distinguishes "absent" from `false`: the parameter is optional and
+    /// defaults to `false`, but `recursion_depth` must be part of the response
+    /// whenever the parameter **was passed**. Clients may use either the stable
+    /// `recurse` spelling or the unstable `org.matrix.msc3981.recurse` one; the
+    /// stable spelling wins when both are present.
+    fn recurse_flag(&self) -> Option<bool> {
+        self.recurse.or(self.msc3981_recurse)
+    }
 }
 
 /// The `RelationsResponse` struct.
@@ -64,6 +84,11 @@ pub struct RelationsResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     /// The `origin_server_ts` field.
     pub origin_server_ts: Option<i64>,
+    /// MSC3981: the recursion depth limit the server applied. Present exactly
+    /// when the request carried a `recurse` parameter.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `recursion_depth` field.
+    pub recursion_depth: Option<i32>,
     /// SDK `getRelationCount` 读取此字段；空时下游永远视为 0。
     #[serde(skip_serializing_if = "Option::is_none")]
     /// The `total` field.
@@ -103,13 +128,17 @@ async fn get_relations_by_event(
 
     ensure_room_member_ctx(&ctx, &auth_user, &room_id, "User is not a member of the room").await?;
 
-    let limit = query.limit.unwrap_or(50).min(100) as i32;
-    let direction = query.direction.clone();
+    let relation_query = RelationQuery {
+        rel_type: None,
+        limit: Some(query.limit.unwrap_or(50).min(100) as i32),
+        recurse: query.recurse_flag(),
+        from: query.from,
+        direction: query.direction.clone(),
+    };
 
     tracing::debug!("Getting all relations for event {} in room {}", event_id, room_id,);
 
-    let response =
-        ctx.relations_service.get_relations(&room_id, &event_id, None, Some(limit), query.from, direction).await?;
+    let response = ctx.relations_service.get_relations(&room_id, &event_id, relation_query).await?;
 
     Ok(Json(RelationsResponse {
         chunk: response.chunk,
@@ -117,6 +146,7 @@ async fn get_relations_by_event(
         prev_batch: response.prev_batch,
         origin_server_ts: None,
         total: response.total,
+        recursion_depth: response.recursion_depth,
     }))
 }
 
@@ -144,15 +174,17 @@ async fn get_relations(
         )));
     }
 
-    let limit = query.limit.unwrap_or(50).min(100) as i32;
-    let direction = query.direction.clone();
+    let relation_query = RelationQuery {
+        rel_type: Some(rel_type.clone()),
+        limit: Some(query.limit.unwrap_or(50).min(100) as i32),
+        recurse: query.recurse_flag(),
+        from: query.from,
+        direction: query.direction.clone(),
+    };
 
     tracing::debug!("Getting relations for event {} in room {} with rel_type {}", event_id, room_id, rel_type);
 
-    let response = ctx
-        .relations_service
-        .get_relations(&room_id, &event_id, Some(&rel_type), Some(limit), query.from, direction)
-        .await?;
+    let response = ctx.relations_service.get_relations(&room_id, &event_id, relation_query).await?;
 
     Ok(Json(RelationsResponse {
         chunk: response.chunk,
@@ -160,6 +192,7 @@ async fn get_relations(
         prev_batch: response.prev_batch,
         origin_server_ts: None,
         total: response.total,
+        recursion_depth: response.recursion_depth,
     }))
 }
 
@@ -350,5 +383,42 @@ mod tests {
 
         assert!(supported_versions.iter().all(|path| path.starts_with("/_matrix/client/")));
         assert!(supported_versions.iter().any(|path| path.starts_with("/_matrix/client/v3/")));
+    }
+
+    use super::RelationsQuery;
+
+    fn parse(value: serde_json::Value) -> RelationsQuery {
+        serde_json::from_value(value).expect("query parameters should deserialize")
+    }
+
+    /// MSC3981: `recurse` has been a stable parameter since client-server v1.10,
+    /// so a compliant client sending either spelling must not be rejected. This
+    /// is the regression that made the endpoint answer **400** — the struct used
+    /// to carry `#[serde(deny_unknown_fields)]` with no `recurse` field at all.
+    #[test]
+    fn msc3981_recurse_accepts_both_spellings() {
+        assert_eq!(parse(serde_json::json!({"recurse": true})).recurse_flag(), Some(true));
+        assert_eq!(parse(serde_json::json!({"recurse": false})).recurse_flag(), Some(false));
+        assert_eq!(parse(serde_json::json!({"org.matrix.msc3981.recurse": true})).recurse_flag(), Some(true));
+    }
+
+    /// Absent and `false` are different requests: MSC3981 mandates
+    /// `recursion_depth` in the response for the latter but not the former.
+    #[test]
+    fn msc3981_recurse_defaults_to_absent_not_false() {
+        assert_eq!(parse(serde_json::json!({})).recurse_flag(), None);
+        assert_eq!(parse(serde_json::json!({"limit": 10})).recurse_flag(), None);
+    }
+
+    /// The stable spelling wins when both are sent, and unknown parameters are
+    /// still rejected (the strictness that caught `recurse` in the first place
+    /// must not be dropped wholesale to fix it).
+    #[test]
+    fn msc3981_recurse_prefers_the_stable_spelling_and_keeps_rejecting_junk() {
+        assert_eq!(
+            parse(serde_json::json!({"recurse": false, "org.matrix.msc3981.recurse": true})).recurse_flag(),
+            Some(false)
+        );
+        assert!(serde_json::from_value::<RelationsQuery>(serde_json::json!({"recursion_depth": 3})).is_err());
     }
 }

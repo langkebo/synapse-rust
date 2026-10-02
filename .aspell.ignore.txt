@@ -14,6 +14,7 @@
 # 追加（2026-09-24，CI 全门禁修复）：逐文件复核 164 份活跃文档，补入本轮新增文档引入的技术词——监控栈（mimir、victoriametrics、wal）、告警规则名（highcpuusage、megolmshareslow 等 S 大写驼峰被脚本小写化）、GHSA 公告号被 aspell 按连字符切出的片段（chvq、gvpm、hgcg、qcjr、rcpx、xpf…）、以及 SpaceInfoMock／KeyRotationConfig／HMACSHA256／ScheduledTasks 这类标识符。
 # 追加（2026-09-24，D-12 收口 + 关联既有红清理）：
 # 项目技术词典：aspell 通用英文词典（en_US）不含本仓技术语料的词汇。
+# 追加（2026-10-02，M-6）：recurse（MSC3981 的 /relations 查询参数名，出现在对照报告 §18.3 #14）。
 abi
 accessexclusivelock
 accessor
@@ -66,6 +67,7 @@ args
 argv
 asc
 asic
+asid
 ast
 async
 at
@@ -93,6 +95,7 @@ backport
 backporting
 badrequest
 balancer
+bargauge
 basename
 bcrypt
 beaconservice
@@ -113,6 +116,7 @@ br
 bre
 btree
 bugfix
+bugfixes
 buildable
 buildkit
 buildx
@@ -169,6 +173,7 @@ coverable
 cpython
 cqrs
 createeventparams
+createroom
 credentialauth
 creds
 crlf
@@ -208,6 +213,7 @@ dehydrateddeviceservice
 dehydrateddevicestoreapi
 delayedevent
 delayedevents
+deprecations
 deps
 desc
 dev
@@ -236,6 +242,7 @@ dod
 domainless
 dos
 dsl
+dsn
 dto
 dup
 dyn
@@ -302,6 +309,7 @@ gc
 gcm
 geiger
 getrandom
+getreporthistory
 getter
 gf
 gh
@@ -367,6 +375,7 @@ index
 indexmap
 indirections
 influxdb
+ini
 init
 initcontainer
 initdb
@@ -445,6 +454,7 @@ localhost
 localhostguard
 localpart
 lockfile
+logcontext
 logrotate
 loopback
 lru
@@ -504,6 +514,7 @@ namespace
 namespaced
 nan
 newtype
+nheko
 nextest
 nginx
 nist
@@ -541,6 +552,7 @@ orbstack
 originserverts
 otk
 owasp
+pagerduty
 param
 parameterised
 params
@@ -558,6 +570,7 @@ pgpool
 pgpooloptions
 pgsql
 pid
+piechart
 pipefail
 pkce
 pkcs
@@ -623,6 +636,7 @@ readme
 readreceipts
 readreceiptsmanager
 rebase
+recurse
 redactions
 redirecturl
 redis
@@ -809,6 +823,7 @@ tjg
 tls
 tmp
 tmpfs
+toc
 toctou
 todevicemanager
 todo
@@ -853,6 +868,7 @@ uiaservice
 uid
 uk
 ula
+un
 unban
 unclosed
 unconflicted
@@ -891,6 +907,7 @@ vendored
 venv
 vh
 victoriametrics
+vite
 vitest
 vm
 vodozemac
@@ -906,6 +923,7 @@ walkthroughs
 webhook
 webhooks
 webp
+webpack
 webpush
 webrtc
 websocket

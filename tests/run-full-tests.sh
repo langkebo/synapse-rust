@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Synapse Rust 后端全方位测试脚本
-# 
+#
 
 set -euo pipefail
 
@@ -14,7 +14,7 @@ load_accounts() {
     ADMIN_TOKEN=""
     BASIC_USER=""
     BASIC_TOKEN=""
-    
+
     while IFS=':' read -r user_id access_token device_id; do
         if [[ "${user_id}" == *"admin"* ]]; then
             ADMIN_USER="${user_id}"
@@ -23,7 +23,7 @@ load_accounts() {
             BASIC_USER="${user_id}"
             BASIC_TOKEN="${access_token}"
         fi
-    done < tests/accounts.txt
+    done <tests/accounts.txt
 }
 
 echo "=== 初始化测试环境 ==="
@@ -46,15 +46,15 @@ run_test() {
     local name=$2
     local expected=$3
     shift 3
-    
+
     ((TOTAL_TESTS++)) || true
-    
+
     echo "测试 [${category}] ${name}..."
-    
+
     local response
     response=$("$@" 2>&1) || true
     local actual="$?"
-    
+
     if [[ "$actual" == "$expected" ]]; then
         echo "  ✅ 通过 (${expected})"
         ((PASSED_TESTS++)) || true
@@ -106,7 +106,7 @@ CREATE_ROOM_RESPONSE=$(curl -s -X POST "${SERVER_URL}/_matrix/client/v3/createRo
     -d '{"name": "Test Room", "visibility": "private"}')
 
 ROOM_ID=$(echo "${CREATE_ROOM_RESPONSE}" | jq -r '.room_id // empty')
-CREATE_CODE=$( [[ -n "${ROOM_ID}" ]] && echo "0" || echo "1" )
+CREATE_CODE=$([[ -n "${ROOM_ID}" ]] && echo "0" || echo "1")
 run_test "room" "create_room" "0" \
     echo "${CREATE_CODE}"
 
@@ -117,16 +117,16 @@ if [[ -n "${ROOM_ID}" ]]; then
     JOIN_RESPONSE=$(curl -s -X POST "${SERVER_URL}/_matrix/client/v3/join/${ROOM_ID}" \
         -H "Authorization: Bearer ${BASIC_TOKEN}" \
         -H "Content-Type: application/json")
-    
+
     JOIN_CODE=$(echo "${JOIN_RESPONSE}" | grep -q "room_id" && echo "0" || echo "1")
     run_test "room" "join_room" "0" \
         echo "${JOIN_CODE}"
-    
+
     # 2.3 离开房间
     LEAVE_RESPONSE=$(curl -s -X POST "${SERVER_URL}/_matrix/client/v3/rooms/${ROOM_ID}/leave" \
         -H "Authorization: Bearer ${BASIC_TOKEN}" \
         -H "Content-Type: application/json")
-    
+
     LEAVE_CODE=$(echo "${LEAVE_RESPONSE}" | grep -q "room_id" && echo "0" || echo "1")
     run_test "room" "leave_room" "0" \
         echo "${LEAVE_CODE}"
@@ -184,7 +184,7 @@ if echo "${MSG_SEND_RESPONSE}" | grep -q "event_id"; then
                 \"event_id\": \"${EVENT_ID}\"
             }
         }")
-    
+
     EDIT_CODE=$(echo "${EDIT_RESPONSE}" | grep -q "event_id" && echo "0" || echo "1")
     run_test "message" "edit_message" "0" \
         echo "${EDIT_CODE}"
@@ -198,7 +198,7 @@ IMAGE_BASE64=$(echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mN
 UPLOAD_IMAGE_RESPONSE=$(curl -s -X POST "${SERVER_URL}/_matrix/media/v3/upload" \
     -H "Authorization: Bearer ${ADMIN_TOKEN}" \
     -H "Content-Type: image/png" \
-    --data-binary "@-") <<< "${IMAGE_BASE64}"
+    --data-binary "@-") <<<"${IMAGE_BASE64}"
 
 UPLOAD_IMG_CODE=$(echo "${UPLOAD_IMAGE_RESPONSE}" | grep -q "content_uri" && echo "0" || echo "1")
 run_test "media" "upload_image" "0" \
@@ -213,7 +213,7 @@ fi
 if [[ -n "${MEDIA_URI:-}" ]]; then
     DOWNLOAD_RESPONSE=$(curl -s -X GET "${SERVER_URL}${MEDIA_URI}" \
         -H "Authorization: Bearer ${BASIC_TOKEN}")
-    
+
     DL_CODE=$([[ -n "${DOWNLOAD_RESPONSE}" ]] && echo "0" || echo "1")
     run_test "media" "download_media" "0" \
         echo "${DL_CODE}"
@@ -259,12 +259,15 @@ echo "  成功请求数：${RATE_LIMIT_COUNT}/10"
 echo "测试并发请求 (3 个并发请求)..."
 PROMISES=()
 for i in {1..3}; do
-    (curl -s -X GET "${SERVER_URL}/_matrix/client/v3/account/whoami" \
-        -H "Authorization: Bearer ${ADMIN_TOKEN}" > /dev/null 2>&1 & echo $!) >> /tmp/parallel_jobs_$$.txt
+    (
+        curl -s -X GET "${SERVER_URL}/_matrix/client/v3/account/whoami" \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" >/dev/null 2>&1 &
+        echo $!
+    ) >>/tmp/parallel_jobs_$$.txt
 done
 
 wait
-PARALLEL_CODE=$(wc -l < /tmp/parallel_jobs_$$.txt)
+PARALLEL_CODE=$(wc -l </tmp/parallel_jobs_$$.txt)
 rm -f /tmp/parallel_jobs_$$.txt
 
 run_test "performance" "concurrent_requests" "3" \
@@ -289,22 +292,22 @@ echo "========================================="
 echo "总测试数：${TOTAL_TESTS}"
 echo "通过：${PASSED_TESTS}"
 echo "失败：${FAILED_TESTS}"
-echo "通过率：$(( PASSED_TESTS * 100 / TOTAL_TESTS ))%"
+echo "通过率：$((PASSED_TESTS * 100 / TOTAL_TESTS))%"
 echo ""
 
 # 生成 JSON 报告
-echo "{" > "${RESULTS_FILE}"
-echo "  \"timestamp\": \"$(date -Iseconds)\"," >> "${RESULTS_FILE}"
-echo "  \"summary\": {" >> "${RESULTS_FILE}"
-echo "    \"total\": ${TOTAL_TESTS}," >> "${RESULTS_FILE}"
-echo "    \"passed\": ${PASSED_TESTS}," >> "${RESULTS_FILE}"
-echo "    \"failed\": ${FAILED_TESTS}," >> "${RESULTS_FILE}"
-echo "    \"pass_rate\": $((${PASSED_TESTS} * 100 / ${TOTAL_TESTS}))%" >> "${RESULTS_FILE}"
-echo "  }," >> "${RESULTS_FILE}"
-echo "  \"results\": [" >> "${RESULTS_FILE}"
-printf '%s\n' "${TEST_RESULTS[@]}" | sed '$!s/$/,/' >> "${RESULTS_FILE}"
-echo "  ]" >> "${RESULTS_FILE}"
-echo "}" >> "${RESULTS_FILE}"
+echo "{" >"${RESULTS_FILE}"
+echo "  \"timestamp\": \"$(date -Iseconds)\"," >>"${RESULTS_FILE}"
+echo "  \"summary\": {" >>"${RESULTS_FILE}"
+echo "    \"total\": ${TOTAL_TESTS}," >>"${RESULTS_FILE}"
+echo "    \"passed\": ${PASSED_TESTS}," >>"${RESULTS_FILE}"
+echo "    \"failed\": ${FAILED_TESTS}," >>"${RESULTS_FILE}"
+echo "    \"pass_rate\": $((${PASSED_TESTS} * 100 / ${TOTAL_TESTS}))%" >>"${RESULTS_FILE}"
+echo "  }," >>"${RESULTS_FILE}"
+echo "  \"results\": [" >>"${RESULTS_FILE}"
+printf '%s\n' "${TEST_RESULTS[@]}" | sed '$!s/$/,/' >>"${RESULTS_FILE}"
+echo "  ]" >>"${RESULTS_FILE}"
+echo "}" >>"${RESULTS_FILE}"
 
 echo "详细结果已保存到：${RESULTS_FILE}"
 

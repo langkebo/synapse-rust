@@ -148,6 +148,16 @@ pub trait FederationClientApi: Send + Sync {
         query: &serde_json::Value,
     ) -> Result<serde_json::Value, FederationClientError>;
 
+    /// MSC3720: query account statuses from a remote server.
+    ///
+    /// Returns the raw response body; the domain layer parses it and enforces
+    /// the "statuses must belong to the queried server" rule.
+    async fn get_account_status(
+        &self,
+        destination: &str,
+        user_ids: &[String],
+    ) -> Result<serde_json::Value, FederationClientError>;
+
     /// Convert a timestamp to an event ID ordering on a remote server.
     async fn timestamp_to_event(
         &self,
@@ -370,6 +380,14 @@ impl FederationClientApi for FederationClient {
         query: &serde_json::Value,
     ) -> Result<serde_json::Value, FederationClientError> {
         FederationClient::query_keys(self, destination, query).await
+    }
+
+    async fn get_account_status(
+        &self,
+        destination: &str,
+        user_ids: &[String],
+    ) -> Result<serde_json::Value, FederationClientError> {
+        FederationClient::get_account_status(self, destination, user_ids).await
     }
 
     async fn timestamp_to_event(

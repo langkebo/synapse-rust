@@ -5,6 +5,8 @@
 // calls, response formatting). They are decoupled from the HTTP endpoint
 // definitions in `web/routes/` to maintain separation of concerns.
 // =============================================================================
+/// MSC3720 account-status endpoints.
+pub mod account_status;
 /// The `auth_discovery` module.
 pub mod auth_discovery;
 /// The `client_config` module.

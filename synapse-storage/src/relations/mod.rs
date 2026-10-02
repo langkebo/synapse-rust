@@ -63,6 +63,57 @@ pub struct RelationQueryParams {
     pub from: Option<String>,
     /// The `direction` field.
     pub direction: Option<String>,
+    /// MSC3981: also traverse the relations of related events, instead of only
+    /// returning the relations of `relates_to_event_id` itself.
+    pub recurse: bool,
+}
+
+/// MSC3981 recursion budget, counted in relation hops from the requested event.
+///
+/// With `recurse = true` the traversal follows relation edges while the
+/// traversed event's depth is `<= MSC3981_RECURSION_DEPTH`; the direct relations
+/// sit at depth `0`, so the deepest event a response can contain is 4 hops away
+/// from the requested event. The value is reported to clients as
+/// `recursion_depth` and is deliberately identical to upstream Synapse
+/// (`synapse/storage/databases/main/relations.py`) so that clients which compare
+/// the advertised depth against their own recursion behave the same way against
+/// both servers.
+pub const MSC3981_RECURSION_DEPTH: i32 = 3;
+
+/// A `/relations` row together with the topological ordering key the query
+/// sorted and paginated on.
+///
+/// MSC3981 requires `/relations` to return events in topological order — the
+/// order `/messages` returns the same events in for the same `dir` — for the
+/// recursive and the non-recursive query alike. That key is
+/// `events.stream_ordering`, which is why the query joins `events`. Relation
+/// rows whose event has no `events` row (representable, since
+/// `event_relations.event_id` carries no foreign key) fall back to the
+/// relation's own `origin_server_ts` instead.
+#[derive(Debug, Clone)]
+pub struct OrderedEventRelation {
+    /// The `id` field.
+    pub id: i64,
+    /// The `room_id` field.
+    pub room_id: String,
+    /// The `event_id` field.
+    pub event_id: String,
+    /// The `relates_to_event_id` field.
+    pub relates_to_event_id: String,
+    /// The `relation_type` field.
+    pub relation_type: String,
+    /// The `sender` field.
+    pub sender: String,
+    /// The `origin_server_ts` field.
+    pub origin_server_ts: i64,
+    /// The `content` field.
+    pub content: serde_json::Value,
+    /// The `is_redacted` field.
+    pub is_redacted: bool,
+    /// The `created_ts` field.
+    pub created_ts: i64,
+    /// The topological ordering key (see the type-level docs).
+    pub stream_ordering: i64,
 }
 
 /// The `AggregationResult` struct.
@@ -78,13 +129,15 @@ pub struct AggregationResult {
     pub sender: Option<String>,
 }
 
-/// Parse a keyset pagination cursor of the form `<origin_server_ts>:<event_id>`.
+/// Parse a keyset pagination cursor of the form `<ordering key>:<event_id>`.
 ///
-/// Matrix event IDs always start with `$`, so the leading segment before the
-/// first `:` can only be the timestamp when it parses as `i64`. Returns `None`
-/// for legacy cursors (a bare `event_id`) so callers can fall back to a
-/// single-column comparison.
-fn parse_keyset_cursor(from: &str) -> Option<(i64, String)> {
+/// The ordering key is the column [`get_relations`] sorts on
+/// ([`OrderedEventRelation::stream_ordering`]). Matrix event IDs always start
+/// with `$`, so the leading segment before the first `:` can only be the key
+/// when it parses as `i64`; anything else is not a cursor this server issued.
+/// Returns `None` for such malformed tokens; callers treat them as "no cursor"
+/// rather than paginating on a half-understood token.
+pub fn parse_keyset_cursor(from: &str) -> Option<(i64, String)> {
     let (ts_str, eid) = from.split_once(':')?;
     let ts = ts_str.parse::<i64>().ok()?;
     Some((ts, eid.to_string()))
@@ -93,9 +146,12 @@ fn parse_keyset_cursor(from: &str) -> Option<(i64, String)> {
 /// Encode a keyset cursor from a relation row's ordering columns.
 ///
 /// Used by the service layer to build `next_batch` / `prev_batch` tokens that
-/// `get_relations` can later parse via `parse_keyset_cursor`.
-pub fn encode_keyset_cursor(origin_server_ts: i64, event_id: &str) -> String {
-    format!("{origin_server_ts}:{event_id}")
+/// `get_relations` can later parse via [`parse_keyset_cursor`]. The first
+/// component is the row's ordering key, i.e.
+/// [`OrderedEventRelation::stream_ordering`] (topological order), not
+/// necessarily the event's `origin_server_ts`.
+pub fn encode_keyset_cursor(ordering_key: i64, event_id: &str) -> String {
+    format!("{ordering_key}:{event_id}")
 }
 
 // ── Trait ───────────────────────────────────────────────────────────────
@@ -116,7 +172,7 @@ pub trait RelationsStoreApi: Send + Sync {
     /// See [`get_relation`].
     async fn get_relation(&self, room_id: &str, event_id: &str) -> Result<Option<EventRelation>, sqlx::Error>;
     /// See [`get_relations`].
-    async fn get_relations(&self, params: RelationQueryParams) -> Result<Vec<EventRelation>, sqlx::Error>;
+    async fn get_relations(&self, params: RelationQueryParams) -> Result<Vec<OrderedEventRelation>, sqlx::Error>;
     /// See [`count_relations`].
     async fn count_relations(
         &self,
@@ -275,55 +331,98 @@ impl RelationsStorage {
 
     /// See [`get_relations`].
     ///
-    /// 键集（keyset）分页：游标为 `<origin_server_ts>:<event_id>`，用行值比较
-    /// `(origin_server_ts, event_id) {<|>} (ts, eid)`，与 ORDER BY 完全一致，
-    /// 命中 `idx_event_relations_room_rel_ts_evt`，消除 Sort。
-    /// 兼容旧游标（纯 `event_id`，无 ts 前缀）时回退到单列比较。
-    pub async fn get_relations(&self, params: RelationQueryParams) -> Result<Vec<EventRelation>, sqlx::Error> {
-        let limit = params.limit.unwrap_or(50).min(100);
+    /// 键集（keyset）分页：游标为 `<ordering key>:<event_id>`，用行值比较
+    /// `(stream_ordering, event_id) {<|>} (key, eid)`，与 ORDER BY 完全一致。
+    /// 排序键是 `events.stream_ordering`（拓扑序，与同 `dir` 的 `/messages`
+    /// 一致，MSC3981 要求二者始终一致），因此 `events` 在 CTE 内 join。
+    /// `params.recurse = true` 时递归项生效：沿关系边继续下行，深度上限
+    /// [`MSC3981_RECURSION_DEPTH`]；`false` 时递归项被 `$5` 短路，退化为原来的
+    /// 单层查询（结果集与递归打开时相同：过滤施加在**返回集**上，与上游
+    /// Synapse 的实现一致，而非 MSC 正文那句"过滤同时剪枝中间节点"）。
+    pub async fn get_relations(&self, params: RelationQueryParams) -> Result<Vec<OrderedEventRelation>, sqlx::Error> {
+        let limit = i64::from(params.limit.unwrap_or(50).min(100));
         let backward = params.direction.as_deref() == Some("b");
+        // 游标拆成两个**非空**实参：`stream_ordering`/`origin_server_ts` 恒 > 0，
+        // 故 0 表示"无游标"；`relation_type` 恒非空串，故空串表示"不过滤"。
+        // （`query_as!` 在本查询形状下不接受 `Option<_>` 形参。）
+        let (from_key, from_event_id) = match params.from.as_deref().and_then(parse_keyset_cursor) {
+            Some((key, event_id)) => (key, event_id),
+            None => (0, String::new()),
+        };
+        let relation_type = params.relation_type.clone().unwrap_or_default();
 
-        let mut qb = sqlx::QueryBuilder::<Postgres>::new(
-            "SELECT id, room_id, event_id, relates_to_event_id, relation_type, \
-             sender, origin_server_ts, content, is_redacted, created_ts \
-             FROM event_relations WHERE room_id = ",
-        );
-        qb.push_bind(&params.room_id);
-        qb.push(" AND relates_to_event_id = ").push_bind(&params.relates_to_event_id);
-        if let Some(ref rel_type) = params.relation_type {
-            qb.push(" AND relation_type = ").push_bind(rel_type.clone());
-        }
-        qb.push(" AND is_redacted = FALSE");
-
-        let from = params.from.unwrap_or_default();
-        if !from.is_empty() {
-            match parse_keyset_cursor(&from) {
-                Some((ts, eid)) => {
-                    qb.push(if backward {
-                        " AND (origin_server_ts, event_id) < ("
-                    } else {
-                        " AND (origin_server_ts, event_id) > ("
-                    })
-                    .push_bind(ts)
-                    .push(", ")
-                    .push_bind(eid)
-                    .push(")");
-                }
-                // 旧格式游标（纯 event_id）：退化为单列比较，保持向后兼容。
-                None => {
-                    qb.push(if backward { " AND event_id < " } else { " AND event_id > " }).push_bind(from.clone());
-                }
-            }
-        }
-
-        qb.push(if backward {
-            " ORDER BY origin_server_ts DESC, event_id DESC LIMIT "
-        } else {
-            " ORDER BY origin_server_ts ASC, event_id ASC LIMIT "
-        })
-        .push_bind(limit);
-
-        qb.build_query_as::<EventRelation>().fetch_all(&*self.pool).await
+        sqlx::query_as!(
+            OrderedEventRelation,
+            r#"
+            WITH RECURSIVE relation_tree AS (
+                -- 直接关系：被请求事件的一层关系行。
+                SELECT er.id, er.room_id, er.event_id, er.relates_to_event_id,
+                       er.relation_type, er.sender, er.origin_server_ts, er.content,
+                       er.is_redacted, er.created_ts,
+                       -- `events.stream_ordering` 有 DEFAULT nextval(...)，本仓所有
+                       -- 写入路径都不显式提供该列，因此恒非空；列本身只是没声明
+                       -- NOT NULL，故此处断言。`events` 用 LEFT JOIN：关系行没有
+                       -- 外键指向 `events`，孤儿行（只有测试夹具会造）按其自身
+                       -- `origin_server_ts` 排序，而不是从结果里消失。
+                       COALESCE(e.stream_ordering, er.origin_server_ts) AS stream_ordering,
+                       0 AS depth
+                FROM event_relations er
+                LEFT JOIN events e ON e.event_id = er.event_id
+                WHERE er.room_id = $1
+                  AND er.relates_to_event_id = $2
+                  AND er.is_redacted = FALSE
+                UNION
+                -- MSC3981：关系的关系。`$6 = TRUE` 不成立（缺省路径）时这一项不产出
+                -- 任何行，整个 CTE 退化为上面的一层查询。深度上限同时兜住环：环上的
+                -- 行因 depth 不同而不被 UNION 去重，只能靠上限终止。
+                SELECT er.id, er.room_id, er.event_id, er.relates_to_event_id,
+                       er.relation_type, er.sender, er.origin_server_ts, er.content,
+                       er.is_redacted, er.created_ts,
+                       COALESCE(e.stream_ordering, er.origin_server_ts) AS stream_ordering,
+                       rt.depth + 1
+                FROM event_relations er
+                INNER JOIN relation_tree rt ON rt.event_id = er.relates_to_event_id
+                LEFT JOIN events e ON e.event_id = er.event_id
+                WHERE er.room_id = $1
+                  AND er.is_redacted = FALSE
+                  AND $6 = TRUE
+                  AND rt.depth <= $7
+            )
+            -- 每一列都要断言非空：PG 的 Describe 不给递归 CTE 的输出列透传
+            -- NOT NULL（R4 的 UNION/CTE 型），而 `event_relations` 的这些列在
+            -- schema 里全是 NOT NULL，`stream_ordering` 见上面的 COALESCE。
+            SELECT id AS "id!", room_id AS "room_id!", event_id AS "event_id!",
+                   relates_to_event_id AS "relates_to_event_id!",
+                   relation_type AS "relation_type!", sender AS "sender!",
+                   origin_server_ts AS "origin_server_ts!", content AS "content!",
+                   is_redacted AS "is_redacted!", created_ts AS "created_ts!",
+                   stream_ordering AS "stream_ordering!"
+            FROM relation_tree
+            WHERE ($8 = '' OR relation_type = $8)
+              AND ($3::bigint = 0
+                   OR ($5 = TRUE
+                       AND (stream_ordering < $3 OR (stream_ordering = $3 AND event_id < $4)))
+                   OR ($5 = FALSE
+                       AND (stream_ordering > $3 OR (stream_ordering = $3 AND event_id > $4))))
+            ORDER BY
+                CASE WHEN $5 = TRUE THEN stream_ordering END DESC,
+                CASE WHEN $5 = TRUE THEN event_id END DESC,
+                CASE WHEN $5 = FALSE THEN stream_ordering END ASC,
+                CASE WHEN $5 = FALSE THEN event_id END ASC
+            LIMIT $9
+            "#,
+            params.room_id,
+            params.relates_to_event_id,
+            from_key,
+            from_event_id,
+            backward,
+            params.recurse,
+            MSC3981_RECURSION_DEPTH,
+            relation_type,
+            limit,
+        )
+        .fetch_all(&*self.pool)
+        .await
     }
 
     /// See [`get_annotations`].
@@ -522,7 +621,7 @@ impl RelationsStoreApi for RelationsStorage {
         self.get_relation(room_id, event_id).await
     }
 
-    async fn get_relations(&self, params: RelationQueryParams) -> Result<Vec<EventRelation>, sqlx::Error> {
+    async fn get_relations(&self, params: RelationQueryParams) -> Result<Vec<OrderedEventRelation>, sqlx::Error> {
         self.get_relations(params).await
     }
 
@@ -604,6 +703,7 @@ mod tests {
             limit: Some(50),
             from: None,
             direction: Some("f".to_string()),
+            recurse: false,
         };
         assert_eq!(params.room_id, "!test:example.com");
         assert!(params.limit.is_some());
@@ -936,6 +1036,7 @@ mod db_tests {
             limit: Some(10),
             from: None,
             direction: Some("f".to_string()),
+            recurse: false,
         };
 
         let results = storage.get_relations(params).await.expect("get_relations forward should succeed");
@@ -979,6 +1080,7 @@ mod db_tests {
             limit: Some(10),
             from: None,
             direction: Some("b".to_string()),
+            recurse: false,
         };
 
         let results = storage.get_relations(params).await.expect("get_relations backward should succeed");
@@ -1024,6 +1126,7 @@ mod db_tests {
                 limit: Some(2),
                 from: None,
                 direction: Some("f".to_string()),
+                recurse: false,
             })
             .await
             .expect("first page should succeed");
@@ -1042,6 +1145,7 @@ mod db_tests {
                 limit: Some(10),
                 from: Some(cursor),
                 direction: Some("f".to_string()),
+                recurse: false,
             })
             .await
             .expect("second page should succeed");
@@ -1097,6 +1201,7 @@ mod db_tests {
                 limit: Some(10),
                 from: None,
                 direction: None,
+                recurse: false,
             })
             .await
             .expect("get_relations with annotation filter should succeed");

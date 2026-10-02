@@ -386,6 +386,8 @@ impl MetricsCollector {
     ///
     /// # Example
     /// ```rust
+    /// # use synapse_common::metrics::MetricsCollector;
+    /// let collector = MetricsCollector::new();
     /// let template = collector.create_dynamic_counter_template(
     ///     "room_operations_total".to_string(),
     ///     vec!["operation", "outcome", "room_version", "visibility", "error_type"]
@@ -402,6 +404,8 @@ impl MetricsCollector {
     ///
     /// # Example
     /// ```rust
+    /// # use synapse_common::metrics::MetricsCollector;
+    /// let collector = MetricsCollector::new();
     /// let template = collector.create_dynamic_histogram_template(
     ///     "message_delivery_latency_seconds".to_string(),
     ///     vec!["stage", "room_type", "message_type", "encryption"]

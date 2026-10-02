@@ -66,7 +66,7 @@ scrape_configs:
         replacement: "mock-synapse-dev"
       - target_label: env
         replacement: "development"
-    
+
     # 重要：使用 file_sd_configs 而不是 targets
     file_sd_configs:
       - files:

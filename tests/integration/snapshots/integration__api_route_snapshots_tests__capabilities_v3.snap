@@ -1,6 +1,5 @@
 ---
 source: tests/integration/api_route_snapshots_tests.rs
-assertion_line: 175
 expression: body
 ---
 {
@@ -43,6 +42,9 @@ expression: body
     },
     "m.voice": {
       "enabled": true
+    },
+    "org.matrix.msc3720.account_status": {
+      "enabled": false
     }
   },
   "unstable_features": {

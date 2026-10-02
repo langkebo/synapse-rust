@@ -216,6 +216,14 @@ pub fn create_router(state: AppState) -> Router {
             "/_matrix/client/unstable/org.matrix.msc4143/rtc/transports",
             get(handlers::rtc_transports::get_rtc_transports),
         )
+        // MSC3720: account status. Unstable-only, matching upstream Synapse
+        // (the MSC has not been stabilised). Always registered; the handler
+        // fails closed with 403 unless `experimental.msc3720_enabled` is set,
+        // mirroring the MSC4452 preview-url gate.
+        .route(
+            "/_matrix/client/unstable/org.matrix.msc3720/account_status",
+            post(handlers::account_status::client_account_status),
+        )
         .route(
             "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}",
             get(handlers::extended_profile::get_extended_profile),

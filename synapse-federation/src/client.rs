@@ -1182,6 +1182,25 @@ impl FederationClient {
         self.handle_response(response).await
     }
 
+    /// See [`get_account_status`].
+    ///
+    /// MSC3720 account status over federation. Unstable path only — the MSC has
+    /// not been stabilised, matching upstream Synapse. Returns the raw response
+    /// body: the domain layer (`AccountStatusService`) parses it and enforces
+    /// the MSC's rule that a remote server may only report statuses for users
+    /// on its own server.
+    pub async fn get_account_status(
+        &self,
+        destination: &str,
+        user_ids: &[String],
+    ) -> Result<serde_json::Value, FederationClientError> {
+        let path = "/_matrix/federation/unstable/org.matrix.msc3720/account_status";
+        let body = serde_json::to_string(&serde_json::json!({ "user_ids": user_ids }))
+            .map_err(|e| FederationClientError::InvalidResponse(e.to_string()))?;
+        let response = self.send_signed_request("POST", path, destination, Some(&body)).await?;
+        self.handle_response(response).await
+    }
+
     /// See [`timestamp_to_event`.
     pub async fn timestamp_to_event(
         &self,

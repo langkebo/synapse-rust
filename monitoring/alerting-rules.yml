@@ -13,8 +13,8 @@ groups:
       # HTTP 5xx 错误率 > 5%
       - alert: HighHTTPErrorRate
         expr: |
-          sum(rate(http_requests_total{status_code=~"5.."}[5m])) 
-          / 
+          sum(rate(http_requests_total{status_code=~"5.."}[5m]))
+          /
           sum(rate(http_requests_total[5m])) > 0.05
         for: 5m
         labels:
@@ -37,16 +37,20 @@ groups:
           description: "Prometheus 无法连接到 Synapse-Rust 服务实例 {{ $labels.instance }}\n持续时间：{{ $value }} 秒\n请立即检查容器状态和网络连接。"
 
       # 数据库查询错误激增
+      #
+      # 指标口径：`db_query_errors` 由 `From<sqlx::Error> for ApiError` 递增，是本仓
+      # **唯一**逐语句的数据库失败计数器。此前的 `db_queries_total{outcome="error"}`
+      # 没有调用点（sqlx 的逐语句 tracing 事件只给 elapsed、不给成败），告警永不触发。
       - alert: HighDatabaseErrorRate
         expr: |
-          rate(db_queries_total{outcome="error"}[5m]) > 10
+          rate(db_query_errors[5m]) > 10
         for: 2m
         labels:
           severity: critical
           category: database
         annotations:
           summary: "🚨 数据库查询错误率激增 ({{ $value }}/s)"
-          description: "SYNAPSE 数据库查询错误率在 5 分钟内超过 10 次/秒\n错误类型分布:\n{{ range $labels.error_type }}  - {{ $labels.error_type }}: {{ $values.error_type }}\n{{ end }}\n请检查数据库连接和 SQL 语句。"
+          description: "SYNAPSE 数据库查询错误率在 5 分钟内超过 10 次/秒\n请检查数据库连接和 SQL 语句。"
 
   - name: synapse-latency-slo
     interval: 30s
@@ -58,7 +62,7 @@ groups:
       # 房间创建 P99 > 5 秒
       - alert: SlowRoomCreation
         expr: |
-          histogram_quantile(0.99, 
+          histogram_quantile(0.99,
             sum(rate(room_creation_duration_seconds_bucket[5m])) by (le)
           ) > 5
         for: 5m
@@ -72,7 +76,7 @@ groups:
       # 消息投递 P95 > 1 秒
       - alert: SlowMessageDelivery
         expr: |
-          histogram_quantile(0.95, 
+          histogram_quantile(0.95,
             sum(rate(message_delivery_latency_seconds_bucket[5m])) by (le)
           ) > 1
         for: 10m
@@ -86,7 +90,7 @@ groups:
       # Sync 延迟 P95 > 2 秒
       - alert: SlowSyncLatency
         expr: |
-          histogram_quantile(0.95, 
+          histogram_quantile(0.95,
             sum(rate(sync_duration_ms_bucket[5m])) by (le)
           ) > 2000
         for: 5m
@@ -100,7 +104,7 @@ groups:
       # E2EE 握手延迟 P95 > 3 秒
       - alert: SlowE2EEHandshake
         expr: |
-          histogram_quantile(0.95, 
+          histogram_quantile(0.95,
             sum(rate(e2ee_handshake_duration_seconds_bucket[5m])) by (le)
           ) > 3
         for: 10m
@@ -144,7 +148,7 @@ groups:
       # Cache 命中率下降
       - alert: LowCacheHitRate
         expr: |
-          sum(cache_operations_total{result="hit"}) / 
+          sum(cache_operations_total{result="hit"}) /
           sum(cache_operations_total) < 0.8
         for: 10m
         labels:
@@ -176,7 +180,7 @@ groups:
       # Federation 错误率 > 10%
       - alert: HighFederationErrorRate
         expr: |
-          sum(rate(federation_operations_total{result!="success"}[5m])) / 
+          sum(rate(federation_operations_total{result!="success"}[5m])) /
           sum(rate(federation_operations_total[5m])) > 0.1
         for: 10m
         labels:
@@ -189,7 +193,7 @@ groups:
       # Federation 超时率上升
       - alert: HighFederationTimeoutRate
         expr: |
-          sum(rate(federation_operation_duration_seconds_bucket{result=~"timeout"}[5m])) / 
+          sum(rate(federation_operation_duration_seconds_bucket{result=~"timeout"}[5m])) /
           sum(rate(federation_operation_duration_seconds_count[5m])) > 0.2
         for: 10m
         labels:
@@ -209,7 +213,7 @@ groups:
       # 房间创建失败率异常
       - alert: AbnormalRoomCreateFailureRate
         expr: |
-          sum(rate(room_operations_total{operation="create",outcome="error"}[5m])) / 
+          sum(rate(room_operations_total{operation="create",outcome="error"}[5m])) /
           sum(rate(room_operations_total{operation="create"}[5m])) > 0.05
         for: 5m
         labels:
@@ -234,7 +238,7 @@ groups:
       # E2EE 覆盖率下降
       - alert: E2EECoverageDrop
         expr: |
-          sum(rate(messages_sent_total{encryption="true"}[1h])) / 
+          sum(rate(messages_sent_total{encryption="true"}[1h])) /
           sum(rate(messages_sent_total[1h])) < 0.7
         for: 30m
         labels:

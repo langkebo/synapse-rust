@@ -46,6 +46,8 @@ pub mod account_data_service;
 pub mod account_device_list_service;
 /// The `account_identity_service` module.
 pub mod account_identity_service;
+/// MSC3720 account-status service (client + federation endpoints).
+pub mod account_status_service;
 /// Admin domain group — re-exports admin service types under `admin::`.
 pub mod admin;
 /// The `admin_audit_service` module.

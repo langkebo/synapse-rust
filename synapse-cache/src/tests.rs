@@ -13,6 +13,44 @@ fn test_cache_config_default() {
     assert_eq!(config.time_to_live, 7200);
 }
 
+/// `cache_operations_total` 只有在单键路径真的喂它时才有意义：Grafana 命中率面板
+/// 按 `cache_type` 分组读 `result="hit"`，`backend="redis",result="error"` 告警读
+/// 的是写入失败那一支。这里用本地（无 Redis）manager 断言三种结果的标签组合。
+///
+/// 断言计数器的**增量**：全局 `ServerMetrics` 句柄是整个测试二进制共享的，别的
+/// 用例可能先装好了自己的实例；直方图没有读取 API，因此这里只覆盖计数器。
+#[tokio::test]
+#[allow(missing_docs)]
+async fn test_cache_operations_total_records_hit_miss_and_set() {
+    use synapse_common::metrics::MetricsCollector;
+    use synapse_common::server_metrics::{global_server_metrics, install_global_server_metrics, ServerMetrics};
+
+    if global_server_metrics().is_none() {
+        install_global_server_metrics(Arc::new(ServerMetrics::new(Arc::new(MetricsCollector::new()))));
+    }
+    let Some(metrics) = global_server_metrics() else { return };
+
+    let manager = CacheManager::new(&CacheConfig::default());
+    let read = |operation: &str, result: &str| {
+        metrics
+            .cache_operations_total
+            .get_counter(&["test_cache_ops", "memory", operation, result])
+            .map_or(0, |counter| counter.get())
+    };
+
+    let set_before = read("set", "success");
+    manager.set("test_cache_ops:hit", "value", 60).await.unwrap();
+    assert_eq!(read("set", "success"), set_before + 1, "successful set must be counted");
+
+    let hit_before = read("get", "hit");
+    assert_eq!(manager.get::<String>("test_cache_ops:hit").await.unwrap().as_deref(), Some("value"));
+    assert_eq!(read("get", "hit"), hit_before + 1, "L1 hit must be counted");
+
+    let miss_before = read("get", "miss");
+    assert!(manager.get::<String>("test_cache_ops:absent").await.unwrap().is_none());
+    assert_eq!(read("get", "miss"), miss_before + 1, "miss must be counted");
+}
+
 #[test]
 #[allow(missing_docs)]
 fn test_cache_config_custom() {
