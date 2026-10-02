@@ -793,11 +793,32 @@ fmt / sqlx / trait / web-layering 四个棘轮的扫描面扩到了新 crate，�
 - 把 `database.rs:307` 那个把 username-only 固化为**合法**的测试改写为断言失败（它是上游反例的固化）。
 - 判据 V-3；风险低（会让 username-only 配置启动失败，这正是对齐上游的目的）。
 
-**M-2 · MSC4222 `since` 落在持久化批次内的边界**（报告 §18.3 #10）
+**M-2 · MSC4222 形状对齐（原计划"批次边界"，2026-10-01 取证后重新界定）**
 
-- 先构造可复现用例（worker 拓扑下 `since` 落在同一批次内 → 当前会漏状态事件），再加边界处理
-  （`sync_service/response.rs` + 必要时 `synapse-storage` 的 stream/批边界读法）。
-- 判据 V-4；参考上游 `test_sync.py` 的同类用例；worker 场景用 `--test-threads 1`。
+> **取证结论（先构造可复现用例这一步的产出）**：
+>
+> 1. 上游 v1.162 修的是"`since` 落在持久化批次内时漏状态事件"。本仓**结构上不可能发生**：
+> `events.stream_ordering` 来自 `nextval`（逐事件唯一，`migrations/00000000_unified_schema_v12.sql:91,352`），
+> 状态批查询是 `{col} > $2`（上界无界，`synapse-storage/src/event/state.rs`）⇒ 不存在与 `since`
+> 共享流位置的状态事件。**该修复在本仓无对象**。
+> 2. 真正的问题：本仓把 MSC4222 借用成了**另一套形状** —— `?state_after=<event_id>`（非规范参数）
+> 加上左房状态按 `origin_server_ts >` 过滤，而规范是**查询参数** `?use_state_after=true`
+> （unstable `org.matrix.msc4222.use_state_after`）与**响应字段** `state_after`
+> （unstable `org.matrix.msc4222.state_after`，必须出现、可为空），语义为"上次同步 → 本次
+> timeline **末尾**"的状态变化，启用时**省略** `state`。SDK 已按官方形状实现
+> （`matrix-js-sdk/src/sync-accumulator.ts:95,127`）⇒ 客户端 opt-in 后拿不到任何东西，
+> 而那个非规范参数**没有任何客户端会发**，属生产不可达的死分支（铁律 1）。
+
+**改后的交付物**：
+
+1. 解析 `use_state_after`：稳定 `use_state_after` 与不稳定 `org.matrix.msc4222.use_state_after`
+   都接受，并**记住客户端用的是哪种拼写**（响应字段镜像它，符合 MSC 的 unstable-prefix 约定）。
+2. 启用时房间段**省略 `state`**、返回对应名字的 `state_after`（**即使为空也要出现**）；默认路径逐字不变。
+3. **删除**非规范的 `?state_after=<event_id>` 参数与左房时间戳过滤（含其现有单测），
+   它是编号借用的产物且生产不可达。
+4. 内容来源不需要第二次查询：本地状态窗口本就是 `> since` 上界无界（已覆盖整段 timeline），
+   与 `state_after` 语义一致 —— 这一点要写进代码注释，避免后人"再算一次"。
+5. 判据 V-4（两种拼写的响应形状 + 默认路径回归 + 旧参数不再生效）。
 
 **M-3 · `/room_summary` `join_rules` 反规范化列新鲜度**（报告 §18.3 #13）
 
