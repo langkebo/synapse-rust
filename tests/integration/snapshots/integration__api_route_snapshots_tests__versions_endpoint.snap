@@ -15,6 +15,8 @@ expression: body
     "org.matrix.msc3882": true,
     "org.matrix.msc3886.sliding_sync": true,
     "org.matrix.msc3912": true,
+    "org.matrix.msc3981": true,
+    "org.matrix.msc3981.stable": true,
     "org.matrix.msc3983": true,
     "org.matrix.msc4108": true,
     "org.matrix.msc4140": true,
