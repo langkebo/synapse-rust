@@ -5,8 +5,14 @@
 //! §8.3 L-1）：
 //!
 //! * `sync_stream_id`：只有 seed 写入，全仓无读/写者；
-//! * `device_lists_outbound_pokes.stream_id`：只有 DELETE 路径，没有 INSERT；
-//! * `room_ephemeral.stream_id`：调用方传的是**墙钟毫秒**且被 UPSERT 覆盖 ⇒ 非单调；
+//! * `device_lists_outbound_pokes`：**整表在生产代码里既没有 INSERT 也没有 SELECT**
+//!   （唯一引用是 `pruning.rs` 的 DELETE）⇒ 是死脚手架，而不是"有列、没写者"。
+//!   联邦 device-list 更新走 EDU 发送路径（见 `synapse-web/src/federation/edu.rs`），
+//!   与本表无关；处置是按铁律 1 连同 pruning/维护步骤一并删除（需 schema 变更）；
+//! * `room_ephemeral.stream_id`：**它不是 stream 位置** —— 而是按房维度的**新鲜度排序键**，
+//!   由调用方写入、被 UPSERT 覆盖，且只用于 `ORDER BY stream_id DESC`
+//!   （`RoomEphemeralEvent.stream_id` 在服务层从不被读取，也不做游标）⇒ **永久排除**，
+//!   不是"非单调、待修"的缺陷；
 //! * upstream 的 presence / typing / receipts / account_data / push_rules / e2ee_keys /
 //!   backfill / federation 等 stream：本仓**没有**位置列（表里只有 `last_active_ts`
 //!   这类时间戳，或被 `id BIGSERIAL` 之外没有游标列）。

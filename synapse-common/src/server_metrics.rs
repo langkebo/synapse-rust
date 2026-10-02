@@ -36,8 +36,11 @@ pub fn global_server_metrics() -> Option<&'static Arc<ServerMetrics>> {
 ///   backfill / federation 在本仓**没有**位置列；
 /// * `worker_events.stream_id` 由事件写入路径推进，但**只在 worker 模式**
 ///   （`worker.enabled`）下启用 ⇒ 单进程部署里该序列恒 0 是**预期**，不是漂移；
-/// * `sync_stream_id`、`device_lists_outbound_pokes` 有位置列但**没有生产写者**（恒 0）；
-///   `room_ephemeral.stream_id` 是调用方传的墙钟毫秒且被 UPSERT 覆盖 ⇒ 非单调。
+/// * `sync_stream_id` 只有 seed 写入（全仓无读/写者）；`device_lists_outbound_pokes`
+///   在生产代码里**既无 INSERT 也无 SELECT**（只有 pruning 的 DELETE）⇒ 整表是死脚手架，
+///   处置是删除而非纳入指标；
+/// * `room_ephemeral.stream_id` **不是 stream 位置**：它是按房维度的新鲜度排序键
+///   （UPSERT 覆盖，仅用于 `ORDER BY`），服务层从不读取它、也不做游标 ⇒ 永久排除。
 ///
 /// `ALL` 与 storage 侧 SQL 的输出必须逐字一致，由
 /// `tests/integration/stream_position_tests.rs` 守卫。
