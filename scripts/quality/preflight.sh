@@ -12,7 +12,23 @@
 # 退出码：0 = 全部通过；非 0 = 有失败项（明细已在 stdout）。
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
-export npm_config_cache="${npm_config_cache:-/tmp/npm-cache}"
+
+# `npm_config_cache` 可能被环境预设成一个**当前用户不可写**的目录：实测
+# `npm_config_cache=$HOME/.npm` 而该目录含 root 属主的 `_cacache` 文件 ⇒ `npx` 以
+# EPERM 退出、markdownlint 步报 FAIL。那看起来像"文档格式红了"，实际是环境问题，
+# 而且会拦住**所有人**的提交（2026-10-02 实测）。
+#
+# 探针打在 npm 自己会写的位置（`<_cacache>/tmp`），而不是缓存目录本身 —— 目录本身
+# 可写、内层被 root 占有时，只探外层会误判为"可写"。
+npm_cache_probe="${npm_config_cache:-/tmp/npm-cache}"
+if ! mkdir -p "$npm_cache_probe/_cacache/tmp" 2>/dev/null ||
+    ! (: >"$npm_cache_probe/_cacache/tmp/.preflight-write-probe") 2>/dev/null; then
+    npm_cache_probe="$(git rev-parse --show-toplevel)/target/tmp/npm-cache"
+    mkdir -p "$npm_cache_probe/_cacache/tmp" 2>/dev/null || true
+    echo "NOTE npm_config_cache 原值不可写，本步改用 $npm_cache_probe"
+fi
+rm -f "$npm_cache_probe/_cacache/tmp/.preflight-write-probe" 2>/dev/null || true
+export npm_config_cache="$npm_cache_probe"
 
 fail=0
 step() { printf '\n== %s ==\n' "$1"; }
