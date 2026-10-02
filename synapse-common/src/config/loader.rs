@@ -268,6 +268,55 @@ mod tests {
         |var: &str| map.get(var).map(|v| v.to_string()).ok_or(VarError::NotPresent)
     }
 
+    // ── 环境变量**覆盖**的拼写（README 曾写错）──────────────────────
+
+    /// §8.7 待核实项：README「环境变量（覆盖配置）」一节写的是
+    /// `SYNAPSE_REDIS__HOST` / `SYNAPSE_DATABASE__HOST`（`SYNAPSE` 后**单**下划线），
+    /// 而 `Config::load()` 用的是
+    /// `config::Environment::with_prefix("SYNAPSE").separator("__")`，
+    /// 代码注释里也一致写作 `SYNAPSE__REDIS__HOST`（**双**下划线）。
+    ///
+    /// 两种拼写只能有一个生效；按 README 配而实际不生效 = 运维静默地被骗。
+    /// 本用例把事实钉死（只断言 config 层的键映射，不反序列化整份 `Config`，
+    /// 避免被无关字段的必填性干扰）。
+    #[test]
+    fn env_override_needs_a_double_underscore_after_the_prefix() {
+        let yaml = "redis:\n  host: from-file\n  port: 6379\n";
+        let build = || {
+            config::Config::builder()
+                .add_source(config::File::from_str(yaml, config::FileFormat::Yaml))
+                .add_source(config::Environment::with_prefix("SYNAPSE").separator("__"))
+                .build()
+                .expect("config build")
+        };
+
+        // 场景 A：双下划线（与 loader.rs 一致）—— 必须生效。
+        unsafe {
+            std::env::set_var("SYNAPSE__REDIS__HOST", "double-underscore");
+        }
+        assert_eq!(
+            build().get_string("redis.host").expect("redis.host"),
+            "double-underscore",
+            "`SYNAPSE__REDIS__HOST` 必须能覆盖配置文件里的 redis.host"
+        );
+        unsafe {
+            std::env::remove_var("SYNAPSE__REDIS__HOST");
+        }
+
+        // 场景 B：单下划线（README 的写法）—— 不生效，值仍是配置文件里的。
+        unsafe {
+            std::env::set_var("SYNAPSE_REDIS__HOST", "single-underscore");
+        }
+        assert_eq!(
+            build().get_string("redis.host").expect("redis.host"),
+            "from-file",
+            "`SYNAPSE_REDIS__HOST`（单下划线）**不生效** —— README 必须改成双下划线拼写"
+        );
+        unsafe {
+            std::env::remove_var("SYNAPSE_REDIS__HOST");
+        }
+    }
+
     // ── ${VAR} simple substitution ─────────────────────────────────
 
     #[test]

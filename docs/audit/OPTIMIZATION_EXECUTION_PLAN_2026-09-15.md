@@ -882,12 +882,17 @@ fmt / sqlx / trait / web-layering 四个棘轮的扫描面扩到了新 crate，�
 3. D-1/D-2/D-3 三项决策在 §8.1 表内落成文字（未决策的项不得开工，避免"半接线"再次产生死代码）；
 4. 全量门禁绿（R8 四道 + clippy 两档 + fmt 棘轮 + route-contract 链 + docs 质量门）。
 
-### 8.7 待核实的一处口径差异（M-1 附带发现）
+### 8.7 环境变量覆盖拼写：已核实（2026-10-01，M-1 附带发现）
 
-README「环境变量（覆盖配置）」一节写的是 `SYNAPSE_REDIS__HOST` / `SYNAPSE_DATABASE__HOST`（前缀后**单**下划线），
-而 `loader.rs:21` 的 `config::Environment::with_prefix("SYNAPSE").separator("__")` 与代码注释里的一致写法是
-`SYNAPSE__REDIS__HOST`（前缀后**双**下划线）。两者只能有一个生效；若不核实，运维按 README 设置会**静默不生效**。
-待办：加一条断言"两种拼写哪种真的生效"的配置加载用例，然后按结论修 README 或 loader。
+**结论**：覆盖键必须写成 `SYNAPSE` + 分隔符 `__` + 配置路径 —— 前缀后也是**双**下划线
+（`SYNAPSE__REDIS__HOST`）。原先 README / CONTRIBUTING 写的 `SYNAPSE_REDIS__HOST`（单下划线）
+**静默不生效**：`config::Environment::with_prefix("SYNAPSE").separator("__")` 只认双下划线，
+按单下划线配的键落成 `_redis.host` 之类的孤立键，既不覆盖也不报错。
+
+**钉死方式**：`synapse-common/src/config/loader.rs::env_override_needs_a_double_underscore_after_the_prefix`
+—— 用与 `Config::load()` **同一条 builder 链**分别设两种拼写：双下划线覆盖成功、单下划线保持
+配置文件原值（场景 B 断言 `redis.host == "from-file"`）。已修 README 与 CONTRIBUTING 的示例，
+并在 README 里点明"写错不报错"这一坑。
 
 ### 8.8 D-1 落地记录（H-1 · MAS 接线，2026-10-01）
 
