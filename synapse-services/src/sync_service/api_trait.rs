@@ -18,7 +18,8 @@ pub trait SyncServiceApi: Send + Sync {
         set_presence: &str,
         filter_id: Option<&str>,
         since: Option<&str>,
-        state_after: Option<&str>,
+        use_state_after: bool,
+        state_after_is_unstable: bool,
     ) -> ApiResult<serde_json::Value>;
 
     /// See [`sync_with_request`].
@@ -62,7 +63,8 @@ impl SyncServiceApi for SyncService {
         set_presence: &str,
         filter_id: Option<&str>,
         since: Option<&str>,
-        state_after: Option<&str>,
+        use_state_after: bool,
+        state_after_is_unstable: bool,
     ) -> ApiResult<serde_json::Value> {
         self.sync_with_request(SyncServiceRequest {
             user_id,
@@ -72,7 +74,8 @@ impl SyncServiceApi for SyncService {
             set_presence,
             filter_id,
             since,
-            state_after,
+            use_state_after,
+            state_after_is_unstable,
         })
         .await
     }

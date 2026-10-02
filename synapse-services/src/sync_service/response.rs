@@ -24,28 +24,19 @@ impl SyncService {
             timeline_limit,
             since_token,
             is_incremental,
-            state_after,
+            use_state_after,
+            state_after_is_unstable,
         } = request;
         let room_filter = response_filter.and_then(|filter| filter.room.as_ref());
         let event_fields = response_filter.and_then(|filter| filter.event_fields.as_deref());
         let event_format = response_filter.map(|filter| filter.event_format).unwrap_or_default();
         let lazy_load_members = Self::room_filter_requests_lazy_members(room_filter);
 
-        // MSC4222: Resolve state_after event_id to timestamp for filtering left room state
-        let state_after_ts = if let Some(state_after_event_id) = state_after {
-            if let Some(event) = self.event_reader.get_event(state_after_event_id).await.ok().flatten() {
-                Some(event.origin_server_ts)
-            } else {
-                ::tracing::warn!(
-                    state_after_event_id = %state_after_event_id,
-                    "state_after event not found, skipping state filtering for left rooms"
-                );
-                None
-            }
-        } else {
-            None
-        };
-
+        // MSC4222: the room-level `state` ↔ `state_after` rename is applied in
+        // `build_room_sync_value`; no extra query is needed because the local
+        // state batch is already `stream_ordering > since` **without an upper
+        // bound** (see `get_state_events_since_batch`), i.e. it already covers
+        // the whole timeline — exactly what `state_after` means.
         let since_ts = Self::event_since_ts(since_token);
         // S6: always use StreamOrdering. Timestamp-based tokens are converted
         // to 0 for a full resync, eliminating the OriginServerTs path.
@@ -208,21 +199,6 @@ impl SyncService {
                 room_filter.and_then(|filter| filter.state.as_ref()),
             );
 
-            // MSC4222: Filter state events for left rooms to only include events after state_after timestamp
-            let state_events = if let Some(state_after_ts) = state_after_ts {
-                match room_sections.get(room_id).copied() {
-                    Some(SyncRoomSection::Leave) => state_events
-                        .into_iter()
-                        .filter(|event| {
-                            event.get("origin_server_ts").and_then(|v| v.as_i64()).is_some_and(|ts| ts > state_after_ts)
-                        })
-                        .collect::<Vec<_>>(),
-                    _ => state_events,
-                }
-            } else {
-                state_events
-            };
-
             let state_events = self
                 .apply_lazy_load_members(LazyLoadMembersRequest {
                     state_events,
@@ -257,6 +233,8 @@ impl SyncService {
                 counts: RoomSyncCounts { highlight_count, notification_count },
                 event_fields,
                 event_format,
+                use_state_after,
+                state_after_is_unstable,
             });
 
             // MSC4354: inject sticky_events for v2 /sync response.
@@ -438,8 +416,17 @@ impl SyncService {
 
     /// See [`build_room_sync`].
     pub(crate) async fn build_room_sync(&self, request: BuildRoomSyncRequest<'_>) -> ApiResult<serde_json::Value> {
-        let BuildRoomSyncRequest { room_id, user_id, device_id, events, since_token, is_incremental, room_filter } =
-            request;
+        let BuildRoomSyncRequest {
+            room_id,
+            user_id,
+            device_id,
+            events,
+            since_token,
+            is_incremental,
+            room_filter,
+            use_state_after,
+            state_after_is_unstable,
+        } = request;
         let since_ts = Self::event_since_ts(&since_token.cloned());
         // S6: always use StreamOrdering for membership state key queries.
         let since_stream_ord = since_token
@@ -524,6 +511,8 @@ impl SyncService {
             counts: RoomSyncCounts { highlight_count, notification_count },
             event_fields: None,
             event_format: SyncEventFormat::Client,
+            use_state_after,
+            state_after_is_unstable,
         }))
     }
 
@@ -558,6 +547,8 @@ impl SyncService {
             counts,
             event_fields,
             event_format,
+            use_state_after,
+            state_after_is_unstable,
         } = request;
         let (events, limited) = Self::apply_timeline_limit(&events, timeline_limit);
         let event_list: Vec<Value> = events
@@ -569,7 +560,23 @@ impl SyncService {
             |event| generate_pagination_token(event.origin_server_ts, event.stream_ordering),
         );
 
-        json!({
+        // MSC4222: with `?use_state_after=true` the room carries `state_after`
+        // (state changes up to the **end** of this timeline) **instead of**
+        // `state` (changes up to its start), and the field MUST be present even
+        // when empty. The payload is the same one the `state` section would
+        // carry: the local state batch is `stream_ordering > since` with no upper
+        // bound, so it already spans the whole timeline — do not compute it twice.
+        let state_key = if use_state_after {
+            if state_after_is_unstable {
+                "org.matrix.msc4222.state_after"
+            } else {
+                "state_after"
+            }
+        } else {
+            "state"
+        };
+
+        let mut value = json!({
             "state": {
                 "events": state_list
             },
@@ -588,7 +595,15 @@ impl SyncService {
                 "highlight_count": counts.highlight_count,
                 "notification_count": counts.notification_count
             }
-        })
+        });
+        if state_key != "state" {
+            if let Some(object) = value.as_object_mut() {
+                if let Some(state) = object.remove("state") {
+                    object.insert(state_key.to_string(), state);
+                }
+            }
+        }
+        value
     }
 
     /// State event types required for stripped state per Matrix spec.
@@ -990,6 +1005,8 @@ mod tests {
             counts: RoomSyncCounts { highlight_count: 0, notification_count: 0 },
             event_fields: None,
             event_format: SyncEventFormat::Client,
+            use_state_after: false,
+            state_after_is_unstable: false,
         };
         let value = SyncService::build_room_sync_value(request);
         let prev_batch = value["timeline"]["prev_batch"].as_str().unwrap();
@@ -1010,16 +1027,18 @@ mod tests {
             counts: RoomSyncCounts { highlight_count: 0, notification_count: 0 },
             event_fields: None,
             event_format: SyncEventFormat::Client,
+            use_state_after: false,
+            state_after_is_unstable: false,
         };
         let value = SyncService::build_room_sync_value(request);
         let prev_batch = value["timeline"]["prev_batch"].as_str().unwrap();
         assert_eq!(prev_batch, "t1700000000000");
     }
 
-    // ── MSC4222: state_after filter for left rooms ──────────────────────
-    // The `state_after` query parameter filters state events in left rooms
-    // to only include events with origin_server_ts > state_after_event.origin_server_ts.
-    // This prevents leaking membership info from rooms the user has left.
+    // ── MSC4222: `state_after` opt-in（规范形状）──────────────────────────
+    // proposals/4222：客户端 `?use_state_after=true` opt-in 后，房间段**省略 `state`**、
+    // 改为 `state_after`（**必须出现**，可为空）；用不稳定拼写 opt-in 时响应字段镜像为
+    // `org.matrix.msc4222.state_after`。未 opt-in 的默认路径逐字不变（现有 /sync 快照即回归网）。
 
     /// Build a minimal JSON state event value (mimics what `state_event_to_json` produces).
     fn make_state_event_value(event_id: &str, event_type: &str, origin_server_ts: i64) -> Value {
@@ -1032,59 +1051,64 @@ mod tests {
         })
     }
 
-    #[test]
-    fn msc4222_state_after_filters_old_left_room_state() {
-        // State events with ts before state_after should be removed from leave rooms.
-        let state_events = vec![
-            make_state_event_value("$old:ex.com", "m.room.member", 1000),
-            make_state_event_value("$new:ex.com", "m.room.member", 2000),
-        ];
-        let state_after_ts = 1500;
-        let filtered: Vec<Value> = state_events
-            .into_iter()
-            .filter(|event| {
-                event.get("origin_server_ts").and_then(|v| v.as_i64()).is_some_and(|ts| ts > state_after_ts)
-            })
-            .collect();
-        assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0]["event_id"], "$new:ex.com");
+    fn state_after_value_request(
+        use_state_after: bool,
+        state_after_is_unstable: bool,
+        state_list: Vec<Value>,
+    ) -> BuildRoomSyncValueRequest<'static> {
+        BuildRoomSyncValueRequest {
+            events: Vec::new(),
+            state_list,
+            ephemeral_events: Vec::new(),
+            account_data_events: Vec::new(),
+            timeline_limit: 10,
+            counts: RoomSyncCounts { highlight_count: 0, notification_count: 0 },
+            event_fields: None,
+            event_format: SyncEventFormat::Client,
+            use_state_after,
+            state_after_is_unstable,
+        }
     }
 
     #[test]
-    fn msc4222_state_after_does_not_affect_join_rooms() {
-        // Join rooms should not be filtered even when state_after is provided.
-        // The filter is only applied for Leave rooms.
-        let state_events = vec![make_state_event_value("$old:ex.com", "m.room.member", 1000)];
-        let state_after_ts = 1500i64;
-        // Simulating join room (NOT filtered — only Leave rooms are filtered):
-        let filtered = if let Some(_state_after_ts) = Some(state_after_ts) {
-            // In real code, this would be filtered only for Leave rooms.
-            // Here we simulate the "no filter for join" path.
-            state_events // join room → pass through unfiltered
-        } else {
-            state_events
-        };
-        assert_eq!(filtered.len(), 1, "Join room state must not be filtered");
+    fn msc4222_opt_in_replaces_state_with_state_after() {
+        let state = vec![make_state_event_value("$s:ex.com", "m.room.name", 1000)];
+        let value = SyncService::build_room_sync_value(state_after_value_request(true, false, state));
+        assert!(value.get("state").is_none(), "opt-in 后必须**省略** `state`：{value}");
+        let events = value["state_after"]["events"].as_array().expect("state_after.events 必须是数组");
+        assert_eq!(events.len(), 1, "state_after 必须带上本次同步的状态变化");
+        assert_eq!(events[0]["event_id"], "$s:ex.com");
     }
 
     #[test]
-    fn msc4222_no_state_after_preserves_all_events() {
-        // When state_after is None, all state events should pass through.
-        let state_events = vec![
-            make_state_event_value("$old:ex.com", "m.room.member", 1000),
-            make_state_event_value("$new:ex.com", "m.room.member", 2000),
-        ];
-        let state_after_ts: Option<i64> = None;
-        let filtered: Vec<Value> = if let Some(ts) = state_after_ts {
-            state_events
-                .into_iter()
-                .filter(|event| {
-                    event.get("origin_server_ts").and_then(|v| v.as_i64()).is_some_and(|event_ts| event_ts > ts)
-                })
-                .collect()
-        } else {
-            state_events
-        };
-        assert_eq!(filtered.len(), 2, "No state_after means all events pass through");
+    fn msc4222_unstable_opt_in_mirrors_the_unstable_field_name() {
+        let value = SyncService::build_room_sync_value(state_after_value_request(
+            true,
+            true,
+            vec![make_state_event_value("$s:ex.com", "m.room.name", 1000)],
+        ));
+        assert!(value.get("state").is_none(), "不稳定拼写同样要省略 `state`");
+        assert!(
+            value.get("org.matrix.msc4222.state_after").is_some(),
+            "用不稳定参数 opt-in 时字段必须镜像为 org.matrix.msc4222.state_after：{value}"
+        );
+        assert!(value.get("state_after").is_none(), "不得同时给出稳定名：{value}");
+    }
+
+    #[test]
+    fn msc4222_state_after_is_present_even_when_empty() {
+        // 规范：支持该 MSC 的服务端**必须**返回该字段，即使为空。
+        let value = SyncService::build_room_sync_value(state_after_value_request(true, false, Vec::new()));
+        assert!(value.get("state_after").is_some(), "空也必须出现：{value}");
+        assert_eq!(value["state_after"]["events"].as_array().expect("array").len(), 0);
+    }
+
+    #[test]
+    fn msc4222_default_keeps_state_and_never_emits_state_after() {
+        let state = vec![make_state_event_value("$s:ex.com", "m.room.name", 1000)];
+        let value = SyncService::build_room_sync_value(state_after_value_request(false, false, state));
+        assert_eq!(value["state"]["events"].as_array().expect("array").len(), 1, "默认路径必须照旧：{value}");
+        assert!(value.get("state_after").is_none(), "未 opt-in 不得出现 state_after：{value}");
+        assert!(value.get("org.matrix.msc4222.state_after").is_none());
     }
 }

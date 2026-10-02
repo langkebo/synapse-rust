@@ -152,7 +152,8 @@ impl SyncService {
         set_presence: &str,
         filter_id: Option<&str>,
         since: Option<&str>,
-        state_after: Option<&str>,
+        use_state_after: bool,
+        state_after_is_unstable: bool,
     ) -> ApiResult<serde_json::Value> {
         self.sync_with_request(SyncServiceRequest {
             user_id,
@@ -162,7 +163,8 @@ impl SyncService {
             set_presence,
             filter_id,
             since,
-            state_after,
+            use_state_after,
+            state_after_is_unstable,
         })
         .await
     }
@@ -177,7 +179,8 @@ impl SyncService {
             set_presence,
             filter_id,
             since,
-            state_after,
+            use_state_after,
+            state_after_is_unstable,
         } = request;
         let total_started = Instant::now();
         self.update_presence(user_id, set_presence).await?;
@@ -236,7 +239,8 @@ impl SyncService {
                 timeline_limit,
                 since_token: &since_token,
                 is_incremental,
-                state_after,
+                use_state_after,
+                state_after_is_unstable,
             })
             .await?;
         let response_build_ms = response_build_started.elapsed().as_secs_f64() * 1000.0;
@@ -303,6 +307,10 @@ impl SyncService {
                 since_token: since_token.as_ref(),
                 is_incremental,
                 room_filter: None,
+                // MSC4222 gates the whole-account `/sync`; the single-room helper
+                // has no such opt-in, so it always emits the classic `state`.
+                use_state_after: false,
+                state_after_is_unstable: false,
             })
             .await?;
         let room_build_ms = room_build_started.elapsed().as_secs_f64() * 1000.0;

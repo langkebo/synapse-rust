@@ -139,7 +139,7 @@ async fn test_sync_success() {
     let content = json!({"msgtype": "m.text", "body": "Hello"});
     room_service.messaging.send_message(room_id, "@alice:localhost", "m.room.message", &content).await.unwrap();
 
-    let result = sync_service.sync("@alice:localhost", None, 0, false, "online", None, None, None).await;
+    let result = sync_service.sync("@alice:localhost", None, 0, false, "online", None, None, false, false).await;
     assert!(result.is_ok());
     let val = result.unwrap();
     assert!(val["rooms"]["join"].is_object());
@@ -195,11 +195,12 @@ async fn test_incremental_sync_does_not_replay_old_timeline() {
     let content = json!({"msgtype": "m.text", "body": "Hello once"});
     room_service.messaging.send_message(&room_id, "@alice:localhost", "m.room.message", &content).await.unwrap();
 
-    let first_sync = sync_service.sync("@alice:localhost", None, 0, false, "offline", None, None, None).await.unwrap();
+    let first_sync =
+        sync_service.sync("@alice:localhost", None, 0, false, "offline", None, None, false, false).await.unwrap();
     let since = first_sync["next_batch"].as_str().unwrap().to_string();
 
     let second_sync = sync_service
-        .sync("@alice:localhost", None, 0, false, "offline", None, Some(since.as_str()), None)
+        .sync("@alice:localhost", None, 0, false, "offline", None, Some(since.as_str()), false, false)
         .await
         .unwrap();
 
@@ -235,8 +236,8 @@ async fn test_sync_offline_presence_overwrites_previous_presence_state() {
         None,
     );
 
-    sync_service.sync("@alice:localhost", None, 0, false, "online", None, None, None).await.unwrap();
-    sync_service.sync("@alice:localhost", None, 0, false, "offline", None, None, None).await.unwrap();
+    sync_service.sync("@alice:localhost", None, 0, false, "online", None, None, false, false).await.unwrap();
+    sync_service.sync("@alice:localhost", None, 0, false, "offline", None, None, false, false).await.unwrap();
 
     let persisted: (String, Option<String>) =
         PresenceStorage::get_presence(&presence_storage, "@alice:localhost").await.unwrap().unwrap();
@@ -272,7 +273,7 @@ async fn test_sync_presence_events_reflect_persisted_presence_state() {
     );
 
     let response =
-        sync_service.sync("@alice:localhost", None, 0, false, "unavailable", None, None, None).await.unwrap();
+        sync_service.sync("@alice:localhost", None, 0, false, "unavailable", None, None, false, false).await.unwrap();
 
     let presence_events = response["presence"]["events"].as_array().unwrap();
     assert_eq!(presence_events.len(), 1);
@@ -347,7 +348,7 @@ async fn test_incremental_lazy_load_does_not_repeat_unchanged_non_member_state()
     .to_string();
 
     let first_sync = sync_service
-        .sync("@alice:localhost", Some("ALICEDEVICE"), 0, false, "online", Some(filter.as_str()), None, None)
+        .sync("@alice:localhost", Some("ALICEDEVICE"), 0, false, "online", Some(filter.as_str()), None, false, false)
         .await
         .unwrap();
     let first_state_events = first_sync["rooms"]["join"][&room_id]["state"]["events"].as_array().unwrap();
@@ -381,7 +382,8 @@ async fn test_incremental_lazy_load_does_not_repeat_unchanged_non_member_state()
             "online",
             Some(filter.as_str()),
             Some(since.as_str()),
-            None,
+            false,
+            false,
         )
         .await
         .unwrap();
@@ -449,7 +451,7 @@ async fn test_incremental_sync_includes_state_only_change_without_lazy_load() {
     .to_string();
 
     let first_sync = sync_service
-        .sync("@alice:localhost", Some("ALICEDEVICE"), 0, false, "online", Some(filter.as_str()), None, None)
+        .sync("@alice:localhost", Some("ALICEDEVICE"), 0, false, "online", Some(filter.as_str()), None, false, false)
         .await
         .unwrap();
     let since = first_sync["next_batch"].as_str().unwrap().to_string();
@@ -481,7 +483,8 @@ async fn test_incremental_sync_includes_state_only_change_without_lazy_load() {
             "online",
             Some(filter.as_str()),
             Some(since.as_str()),
-            None,
+            false,
+            false,
         )
         .await
         .unwrap();
@@ -513,7 +516,8 @@ async fn test_incremental_sync_includes_state_only_change_without_lazy_load() {
             "online",
             Some(filter.as_str()),
             Some(second_since.as_str()),
-            None,
+            false,
+            false,
         )
         .await
         .unwrap();
@@ -573,7 +577,7 @@ async fn test_incremental_lazy_load_includes_room_with_state_only_change_despite
     .to_string();
 
     let first_sync = sync_service
-        .sync("@alice:localhost", Some("ALICEDEVICE"), 0, false, "online", Some(filter.as_str()), None, None)
+        .sync("@alice:localhost", Some("ALICEDEVICE"), 0, false, "online", Some(filter.as_str()), None, false, false)
         .await
         .unwrap();
     let since = first_sync["next_batch"].as_str().unwrap().to_string();
@@ -605,7 +609,8 @@ async fn test_incremental_lazy_load_includes_room_with_state_only_change_despite
             "online",
             Some(filter.as_str()),
             Some(since.as_str()),
-            None,
+            false,
+            false,
         )
         .await
         .unwrap();
@@ -634,7 +639,8 @@ async fn test_incremental_lazy_load_includes_room_with_state_only_change_despite
             "online",
             Some(filter.as_str()),
             Some(second_since.as_str()),
-            None,
+            false,
+            false,
         )
         .await
         .unwrap();
@@ -713,7 +719,7 @@ async fn test_sync_timeline_limit_preserves_chronological_order_without_false_li
     .to_string();
 
     let sync = sync_service
-        .sync("@alice:localhost", Some("ALICEDEVICE"), 0, false, "online", Some(filter.as_str()), None, None)
+        .sync("@alice:localhost", Some("ALICEDEVICE"), 0, false, "online", Some(filter.as_str()), None, false, false)
         .await
         .unwrap();
 
@@ -829,7 +835,7 @@ async fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta
     .to_string();
 
     let first_sync = sync_service
-        .sync("@alice:localhost", Some("ALICEDEVICE"), 0, false, "online", Some(filter.as_str()), None, None)
+        .sync("@alice:localhost", Some("ALICEDEVICE"), 0, false, "online", Some(filter.as_str()), None, false, false)
         .await
         .unwrap();
     let first_state_events = first_sync["rooms"]["join"][&room_id]["state"]["events"].as_array().unwrap();
@@ -885,7 +891,8 @@ async fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta
             "online",
             Some(filter.as_str()),
             Some(since.as_str()),
-            None,
+            false,
+            false,
         )
         .await
         .unwrap();
@@ -1019,7 +1026,7 @@ async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
     .to_string();
 
     let first_sync = sync_service
-        .sync("@alice:localhost", Some("ALICEDEVICE"), 0, false, "online", Some(filter.as_str()), None, None)
+        .sync("@alice:localhost", Some("ALICEDEVICE"), 0, false, "online", Some(filter.as_str()), None, false, false)
         .await
         .unwrap();
     let since = first_sync["next_batch"].as_str().unwrap().to_string();
@@ -1080,7 +1087,8 @@ async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
             "online",
             Some(filter.as_str()),
             Some(since.as_str()),
-            None,
+            false,
+            false,
         )
         .await
         .unwrap();
@@ -1207,7 +1215,7 @@ async fn test_include_redundant_members_survives_service_restart_with_persisted_
     .to_string();
 
     let first_sync = sync_service
-        .sync("@alice:localhost", Some("ALICEDEVICE"), 0, false, "online", Some(filter.as_str()), None, None)
+        .sync("@alice:localhost", Some("ALICEDEVICE"), 0, false, "online", Some(filter.as_str()), None, false, false)
         .await
         .unwrap();
     let since = first_sync["next_batch"].as_str().unwrap().to_string();
@@ -1249,7 +1257,8 @@ async fn test_include_redundant_members_survives_service_restart_with_persisted_
             "online",
             Some(filter.as_str()),
             Some(since.as_str()),
-            None,
+            false,
+            false,
         )
         .await
         .unwrap();
@@ -1377,7 +1386,7 @@ async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart(
         .unwrap();
 
     let first_sync = sync_service
-        .sync("@alice:localhost", Some("ALICEDEVICE"), 0, false, "online", Some("lazy-load-filter"), None, None)
+        .sync("@alice:localhost", Some("ALICEDEVICE"), 0, false, "online", Some("lazy-load-filter"), None, false, false)
         .await
         .unwrap();
     let since = first_sync["next_batch"].as_str().unwrap().to_string();
@@ -1419,7 +1428,8 @@ async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart(
             "online",
             Some("lazy-load-filter"),
             Some(since.as_str()),
-            None,
+            false,
+            false,
         )
         .await
         .unwrap();

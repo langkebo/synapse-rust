@@ -1081,6 +1081,8 @@ fn test_build_room_sync_value_empty_events() {
         counts: RoomSyncCounts { highlight_count: 0, notification_count: 0 },
         event_fields: None,
         event_format: SyncEventFormat::Client,
+        use_state_after: false,
+        state_after_is_unstable: false,
     });
 
     assert!(value["timeline"]["events"].is_array());
@@ -1110,6 +1112,8 @@ fn test_build_room_sync_value_with_events() {
         counts: RoomSyncCounts { highlight_count: 1, notification_count: 5 },
         event_fields: None,
         event_format: SyncEventFormat::Client,
+        use_state_after: false,
+        state_after_is_unstable: false,
     });
 
     let timeline_events = value["timeline"]["events"].as_array().unwrap();
@@ -1137,6 +1141,8 @@ fn test_build_room_sync_value_applies_timeline_limit() {
         counts: RoomSyncCounts { highlight_count: 0, notification_count: 0 },
         event_fields: None,
         event_format: SyncEventFormat::Client,
+        use_state_after: false,
+        state_after_is_unstable: false,
     });
 
     let timeline_events = value["timeline"]["events"].as_array().unwrap();
@@ -1158,6 +1164,8 @@ fn test_build_room_sync_value_prev_batch_from_first_event() {
         counts: RoomSyncCounts { highlight_count: 0, notification_count: 0 },
         event_fields: None,
         event_format: SyncEventFormat::Client,
+        use_state_after: false,
+        state_after_is_unstable: false,
     });
 
     assert_eq!(value["timeline"]["prev_batch"], "t1500_1");
@@ -1176,6 +1184,8 @@ fn test_build_room_sync_value_applies_event_fields_filter() {
         counts: RoomSyncCounts { highlight_count: 0, notification_count: 0 },
         event_fields: Some(&["type".to_string(), "event_id".to_string(), "unsigned.age".to_string()]),
         event_format: SyncEventFormat::Client,
+        use_state_after: false,
+        state_after_is_unstable: false,
     });
 
     let timeline_event = &value["timeline"]["events"][0];
@@ -2255,6 +2265,8 @@ async fn incremental_room_sync_returns_state_delta_not_empty() {
             since_token: Some(&since_token),
             is_incremental: true,
             room_filter: None, // default: lazy_load_members=false
+            use_state_after: false,
+            state_after_is_unstable: false,
         })
         .await
         .expect("build_room_sync must not fail");

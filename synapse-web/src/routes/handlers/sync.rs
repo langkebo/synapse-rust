@@ -32,7 +32,11 @@ struct SyncParams {
     set_presence: String,
     filter: Option<String>,
     since: Option<String>,
-    state_after: Option<String>,
+    /// MSC4222: `?use_state_after=true`（不稳定拼写 `org.matrix.msc4222.use_state_after`）。
+    use_state_after: bool,
+    /// 客户端用的是**不稳定**拼写时为 true ⇒ 响应字段镜像为
+    /// `org.matrix.msc4222.state_after`（MSC4222 §Unstable prefix）。
+    state_after_is_unstable: bool,
 }
 
 /// Build an effective `SyncRateLimitOverride`-like struct from the context's
@@ -77,7 +81,7 @@ pub(crate) async fn sync(
     let set_presence = params.get("set_presence").and_then(|v| v.as_str()).unwrap_or("online").to_string();
     let filter = params.get("filter").and_then(|v| v.as_str()).map(|s| s.to_string());
     let mut since = params.get("since").and_then(|v| v.as_str()).map(|s| s.to_string());
-    let state_after = params.get("state_after").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let (use_state_after, state_after_is_unstable) = resolve_use_state_after(&params);
 
     // P-049: Validate timeout is non-negative. `parse_u64_query_param` already
     // rejects negative values (u64 cannot represent them) but silently falls
@@ -161,7 +165,8 @@ pub(crate) async fn sync(
         set_presence,
         filter,
         since,
-        state_after,
+        use_state_after,
+        state_after_is_unstable,
     })
     .await
 }
@@ -182,7 +187,8 @@ async fn execute_sync(params: SyncParams) -> Result<Json<Value>, ApiError> {
             set_presence: &params.set_presence,
             filter_id: params.filter.as_deref(),
             since: params.since.as_deref(),
-            state_after: params.state_after.as_deref(),
+            use_state_after: params.use_state_after,
+            state_after_is_unstable: params.state_after_is_unstable,
         }),
     )
     .await;
@@ -223,6 +229,18 @@ fn parse_u64_query_param(params: &Value, key: &str) -> Option<u64> {
     }
 }
 
+/// MSC4222: 解析 `use_state_after` 的 opt-in。
+///
+/// 稳定名与不稳定名都接受；**不稳定名优先**（客户端若明确用了 unstable 拼写，
+/// 响应就回 `org.matrix.msc4222.state_after`，这符合 MSC 的 unstable-prefix 约定）。
+/// 返回 `(是否启用, 是否不稳定拼写)`。
+fn resolve_use_state_after(params: &Value) -> (bool, bool) {
+    if parse_bool_query_param(params, "org.matrix.msc4222.use_state_after").unwrap_or(false) {
+        return (true, true);
+    }
+    (parse_bool_query_param(params, "use_state_after").unwrap_or(false), false)
+}
+
 fn parse_bool_query_param(params: &Value, key: &str) -> Option<bool> {
     let value = params.get(key)?;
     match value {
@@ -239,6 +257,7 @@ fn parse_bool_query_param(params: &Value, key: &str) -> Option<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     // S26 / B-2: 429 计数器独立于慢请求计数器。
     // 若 sync_rate_limited_total > 0，说明 v2 /sync 触发限流，
@@ -251,5 +270,36 @@ mod tests {
         record_rate_limited(&metrics);
         let counter = metrics.get_counter(SYNC_RATE_LIMITED_COUNTER).expect("rate-limited counter must be registered");
         assert_eq!(counter.get(), 2, "每次 429 拒绝都必须独立计数");
+    }
+
+    // ── MSC4222：`use_state_after` opt-in 解析 ─────────────────────────────
+
+    /// 稳定与不稳定两种拼写都接受；不稳定拼写**优先**（响应字段要镜像它）。
+    #[test]
+    fn msc4222_use_state_after_accepts_both_spellings() {
+        let unstable = json!({ "org.matrix.msc4222.use_state_after": "true" });
+        assert_eq!(resolve_use_state_after(&unstable), (true, true), "不稳定拼写 ⇒ (启用, 不稳定=true)");
+
+        let stable = json!({ "use_state_after": true });
+        assert_eq!(resolve_use_state_after(&stable), (true, false), "稳定拼写 ⇒ (启用, 不稳定=false)");
+
+        let both = json!({ "use_state_after": false, "org.matrix.msc4222.use_state_after": "1" });
+        assert_eq!(resolve_use_state_after(&both), (true, true), "两种都给时不稳定名优先");
+
+        let absent = json!({});
+        assert_eq!(resolve_use_state_after(&absent), (false, false), "缺省不启用");
+    }
+
+    /// 只有真值才启用：`false`/`0`/乱码都不算 opt-in（避免拼错就静默改变响应形状）。
+    #[test]
+    fn msc4222_use_state_after_requires_a_truthy_value() {
+        for falsy in [json!("false"), json!("0"), json!(false), json!("yes-please")] {
+            let params = json!({ "use_state_after": falsy });
+            assert_eq!(resolve_use_state_after(&params), (false, false), "非真值不得启用：{params}");
+        }
+        for truthy in [json!("1"), json!("true"), json!("YES"), json!(true)] {
+            let params = json!({ "use_state_after": truthy });
+            assert_eq!(resolve_use_state_after(&params), (true, false), "真值应启用：{params}");
+        }
     }
 }

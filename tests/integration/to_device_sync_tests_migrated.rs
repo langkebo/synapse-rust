@@ -71,7 +71,8 @@ async fn test_to_device_next_batch_token_respects_limit() {
     }
 
     // Initial sync to get everything
-    let first_sync = sync_service.sync(user_id, Some(device_id), 0, false, "online", None, None, None).await.unwrap();
+    let first_sync =
+        sync_service.sync(user_id, Some(device_id), 0, false, "online", None, None, false, false).await.unwrap();
     let first_token = first_sync["next_batch"].as_str().unwrap().to_string();
 
     // Add one more message
@@ -88,8 +89,10 @@ async fn test_to_device_next_batch_token_respects_limit() {
         .await
         .unwrap();
 
-    let second_sync =
-        sync_service.sync(user_id, Some(device_id), 0, false, "online", None, Some(&first_token), None).await.unwrap();
+    let second_sync = sync_service
+        .sync(user_id, Some(device_id), 0, false, "online", None, Some(&first_token), false, false)
+        .await
+        .unwrap();
     let to_device_events = second_sync["to_device"]["events"].as_array().unwrap();
 
     assert_eq!(to_device_events.len(), 1);
@@ -143,7 +146,8 @@ async fn test_to_device_messages_are_deleted_after_ack() {
         .unwrap();
 
     // Initial sync to get the token
-    let first_sync = sync_service.sync(user_id, Some(device_id), 0, false, "online", None, None, None).await.unwrap();
+    let first_sync =
+        sync_service.sync(user_id, Some(device_id), 0, false, "online", None, None, false, false).await.unwrap();
     let first_token = first_sync["next_batch"].as_str().unwrap().to_string();
 
     // Verify message exists in DB
@@ -151,7 +155,10 @@ async fn test_to_device_messages_are_deleted_after_ack() {
     assert_eq!(count, 1);
 
     // Sync again with the token (this should trigger deletion of messages up to the token's stream_id)
-    sync_service.sync(user_id, Some(device_id), 0, false, "online", None, Some(&first_token), None).await.unwrap();
+    sync_service
+        .sync(user_id, Some(device_id), 0, false, "online", None, Some(&first_token), false, false)
+        .await
+        .unwrap();
 
     // Verify message is deleted from DB
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM to_device_messages").fetch_one(&*pool).await.unwrap();
