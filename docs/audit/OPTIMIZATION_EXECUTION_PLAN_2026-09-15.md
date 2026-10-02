@@ -1016,6 +1016,21 @@ Execution Time: 0.287 ms（返回 14 行）
    （例如 default+worker 一次、all+SDK 一次、快照一次），任何一半落地都会让
    `Route Contract Sync`/`Schema Drift`/集成快照三条同时红。
 
+**L-6 第 4 步的第二次实测（2026-10-02，证伪了"手改可替代导出"）**
+
+- ✅ **手改优先顺序确实能破环**：先补齐 6 份 fixture（只克隆 `/relations/…/{rel_type}`
+  的 GET 条目、改 PUT 的 `{txn_id}`→`{event_type}`；**注意别把 `/aggregations/…/{rel_type}`
+  也克隆进去**，第一次就这么写宽了），再跑 `gen_derived_routes.py` → **exit 0 并写出
+  `derived_route_table_always.inc.rs`**（含 4 段路由）。
+- ❌ **但手改对 golden 车道不是 byte-exact**：`cargo nextest run --test unit -E 'test(ledger_export)'`
+  → `default/worker/all_profile_matches_fixture` **3/3 FAIL**。原因是 artifact 的条目顺序与
+  字段集不是"克隆 3 段条目再插到其后"能复现的 ⇒ **真导出不可省**。
+- 结论：Batch 1 的最小成本 = golden 3 次 `cargo run --bin synapse_ledger_export`（≈250 s/次）
+  + `generate_sdk_ledger_fixtures.sh`（all-extensions 首次编译）+ 路由改动后的集成重编 +
+  `UPDATE_ROUTE_LEDGER_SNAPSHOTS=1` 快照 + 契约 gate + clippy 两档 ≈ **20+ min 墙钟**，
+  **无法在一次 ≤600 s 工具调用内完成**；拆批的最小可停绿单元是
+  ① golden default+worker ② golden all ③ SDK 车道 ④ 快照 ⑤ gate+提交。
+
 ### 8.4 依赖与并行度
 
 - **可立即并行**（互不耦合）：M-1、M-3、L-5、L-1、L-2。
