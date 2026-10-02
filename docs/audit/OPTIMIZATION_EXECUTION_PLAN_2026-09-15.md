@@ -933,7 +933,7 @@ Execution Time: 0.287 ms（返回 14 行）
 | ID | 动作 | 判据 / 注意 |
 |---|---|---|
 | L-1 | stream position 指标做成 per-stream / worker-local（现仅 `events` 一条、且只在 admin `/statistics` 被访问时刷新） | V-12；先列全 stream 与各自 `get_max_stream_ordering` 来源，仪表盘同步 |
-| L-2 | MSC4242 的 HTTP 服务函数（上游本身也只是脚手架） | 新增端点须进 ledger + 契约再生成；依赖 MSC4242 语义定稿 |
+| L-2 | ~~MSC4242 的 HTTP 服务函数~~ → **⏸ 已裁定不接线（2026-10-02）**：`proposals/4242-state-dags.md` 不在 matrix-spec-proposals `main`（仅 PR #4242，open/unmerged/needs-implementation），**无房间版本指派**，其 HTTP 面只是既有联邦路由上的 `state_dag` 旗标（非 CSAPI），上游联邦侧 PR #19425 关闭未合并 ⇒ 实现＝落地未定稿规范。已随裁定修掉 `event/dag.rs` 那处不实的"被 /get_missing_events 使用"注释 | 无（登记 + 注释修正） |
 | L-3 | delayed events 的 per-endpoint worker 白名单（现前缀级 `/_matrix/client/*`） | 依赖 **D-3**；`RouteEntry` 加字段会牵动派生表/契约/fixture/快照四处 |
 | L-4 | sticky 事件 un-soft-fail | 依赖 **D-2**；若「不跟随」，只做文档收口并保留同名不同义告诫 |
 | L-5 | 报告 §12.4/§12.5/§15.3 的假缺口与自相矛盾（§18.5a 清单）标注/替换为指向 §18 | 无风险；可加守卫：§18.5(a) 的条目不得再出现在 §11–§12 的「当前状态」列（V-13） |

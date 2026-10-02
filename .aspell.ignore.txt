@@ -182,6 +182,7 @@ crt
 crypto
 cryptographic
 cryptographically
+csapi
 cso
 csp
 csprng
@@ -877,6 +878,7 @@ ungated
 unicode
 unix
 unknowntoken
+unmerged
 unpadded
 unprocessable
 unrecognised
