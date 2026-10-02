@@ -168,30 +168,39 @@ impl FriendRoomStorage {
     }
 
     /// 根据好友 DM 房间 ID 反查所有关联的好友列表快照。
+    ///
+    /// W5 sharding：好友条目按 friend_id 首字母散在 A-Z/# shard，legacy
+    /// `state_key=""` 只留初始空列表。因此必须**跨 shard** 检索——先取每个
+    /// (owner, room, shard) 的最新 content，再按 (owner, room) 去重，命中即
+    /// 返回候选 (owner_user_id, friend_room_id) 对。
+    ///
+    /// 该查询只负责返回候选对：W5 体系下单 shard 的 content 语义不完整，调用方
+    /// （`sync_dm_room_membership_change`）会自行 fan-out 重读全部 shard，故这里
+    /// 不投影 content（CTE 内仍需 content 供 EXISTS 过滤）。
     pub async fn find_friend_lists_by_dm_room_id(&self, dm_room_id: &str) -> Result<Vec<FriendDmLink>, sqlx::Error> {
         sqlx::query_as!(
             FriendDmLink,
             r#"
-            WITH latest_friend_lists AS (
-                SELECT DISTINCT ON (COALESCE(sender, user_id))
+            WITH latest_per_shard AS (
+                SELECT DISTINCT ON (COALESCE(sender, user_id), room_id, state_key)
                     COALESCE(sender, user_id) AS owner_user_id,
                     room_id AS friend_room_id,
                     content,
                     origin_server_ts
                 FROM events
                 WHERE event_type = 'm.friends.list'
-                  AND state_key = ''
-                ORDER BY COALESCE(sender, user_id), origin_server_ts DESC
+                ORDER BY COALESCE(sender, user_id), room_id, state_key, origin_server_ts DESC
             )
-            SELECT owner_user_id AS "owner_user_id!",
-                   friend_room_id AS "friend_room_id!",
-                   content AS "content!"
-            FROM latest_friend_lists
+            SELECT DISTINCT ON (owner_user_id, friend_room_id)
+                   owner_user_id AS "owner_user_id!",
+                   friend_room_id AS "friend_room_id!"
+            FROM latest_per_shard
             WHERE EXISTS (
                 SELECT 1
                 FROM jsonb_array_elements(COALESCE(content->'friends', '[]'::jsonb)) AS friend
                 WHERE friend->>'dm_room_id' = $1
             )
+            ORDER BY owner_user_id, friend_room_id, origin_server_ts DESC
             "#,
             dm_room_id
         )

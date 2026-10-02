@@ -294,6 +294,49 @@ async fn test_find_friend_lists_by_dm_room_id() {
     cleanup_all(&pool, &suffix).await;
 }
 
+/// W5 sharding 下的真实写路径：好友条目落在 A-Z/# shard，legacy `state_key=""`
+/// 只留初始空列表。`find_friend_lists_by_dm_room_id` 必须跨 shard 检索，
+/// 否则 DM 房间 leave/kick/ban 后无法反查到 owner 的 friend list。
+#[tokio::test]
+async fn test_find_friend_lists_by_dm_room_id_across_shards() {
+    let (_isolated, pool) = test_pool().await;
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    cleanup_all(&pool, &suffix).await;
+
+    let user_id = format!("@fr_test_{suffix}:localhost");
+    let friend_room_id = format!("!fr_room_{suffix}:localhost");
+    let dm_room_id = format!("!dm_room_{suffix}:localhost");
+    ensure_test_user(&pool, &user_id).await;
+    ensure_test_room(&pool, &friend_room_id).await;
+
+    // legacy 通道只有初始空列表（真实 W5 写入后遗留状态）
+    let legacy_content = json!({ "friends": [], "version": 2 });
+    insert_event(&pool, &friend_room_id, &user_id, "m.friends.list", "", &legacy_content).await;
+
+    // 真实好友条目写入 shard 'F'（@friend_... 的 localpart 首字母 → F）
+    let shard_content = json!({
+        "friends": [
+            {"user_id": format!("@friend_{suffix}:localhost"), "dm_room_id": dm_room_id}
+        ]
+    });
+    insert_event(&pool, &friend_room_id, &user_id, "m.friends.list", "F", &shard_content).await;
+
+    let storage = FriendRoomStorage::new(pool.clone());
+
+    // Finds: 必须能跨 shard 命中 shard 'F' 里的好友条目
+    let results = storage.find_friend_lists_by_dm_room_id(&dm_room_id).await.expect("query should succeed");
+    assert_eq!(results.len(), 1, "should find the friend list owning the DM room via shard scan");
+    assert_eq!(results[0].owner_user_id, user_id);
+    assert_eq!(results[0].friend_room_id, friend_room_id);
+
+    // 未知 DM 仍为空
+    let other_dm = format!("!dm_other_{suffix}:localhost");
+    let results = storage.find_friend_lists_by_dm_room_id(&other_dm).await.expect("query should succeed");
+    assert!(results.is_empty(), "should return empty for unknown DM room");
+
+    cleanup_all(&pool, &suffix).await;
+}
+
 // ——————————————————————————————————————————————
 // get_effective_direct_links_fallback
 // ——————————————————————————————————————————————

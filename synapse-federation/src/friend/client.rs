@@ -1,12 +1,30 @@
+use crate::edu::EduType;
 use crate::signing::canonical_federation_request_bytes;
 use crate::KeyRotationManager;
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine};
 use ed25519_dalek::{Signer, SigningKey};
-use reqwest::{Client, StatusCode};
+use reqwest::Client;
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use synapse_common::{ApiError, ApiResult};
+
+/// Build a standard Matrix federation transaction body wrapping a single EDU.
+///
+/// Federation transaction bodies are `{ "origin", "pdus", "edus" }`; `origin`
+/// and `pdus` are mandatory even when there are no PDUs (the inbound
+/// `send_transaction` handler rejects bodies without them with HTTP 400). Each
+/// EDU entry is `{ "edu_type", "content" }`, matching the inbound dispatcher.
+pub fn build_transaction_body(origin: &str, edu_type: EduType, content: &Value) -> Value {
+    serde_json::json!({
+        "origin": origin,
+        "pdus": [],
+        "edus": [{
+            "edu_type": edu_type.to_string(),
+            "content": content,
+        }],
+    })
+}
 
 /// The `FriendFederationClient` type.
 pub struct FriendFederationClient {
@@ -110,17 +128,20 @@ impl FriendFederationClient {
         Err(ApiError::internal("Federation signing key not configured".to_string()))
     }
 
-    /// See [`send_invite`.
-    pub async fn send_invite(&self, destination: &str, _room_id: &str, content: &Value) -> ApiResult<()> {
+    /// Send a single EDU to a remote homeserver inside a standard federation
+    /// transaction body (`{ origin, pdus: [], edus: [{ edu_type, content }] }`).
+    /// The signature covers the *whole* transaction body, not the bare content.
+    pub async fn send_edu(&self, destination: &str, edu_type: EduType, content: &Value) -> ApiResult<()> {
         let path = format!("/_matrix/federation/v1/send/{}", uuid::Uuid::new_v4());
         let url = format!("https://{destination}{path}");
 
+        let body = build_transaction_body(&self.server_name, edu_type, content);
         let body_str =
-            serde_json::to_string(content).map_err(|e| ApiError::internal_with_cause("Failed to serialize body", e))?;
+            serde_json::to_string(&body).map_err(|e| ApiError::internal_with_cause("Failed to serialize body", e))?;
 
-        let auth_header = self.sign_request("PUT", &path, destination, Some(content)).await?;
+        let auth_header = self.sign_request("PUT", &path, destination, Some(&body)).await?;
 
-        tracing::info!("Sending federation invite to {}", url);
+        tracing::info!("Sending federation EDU {edu_type} to {}", url);
         let response = self
             .client
             .put(&url)
@@ -136,44 +157,6 @@ impl FriendFederationClient {
         }
 
         Ok(())
-    }
-
-    /// See [`query_remote_friends`.
-    pub async fn query_remote_friends(&self, destination: &str, user_id: &str) -> ApiResult<Vec<String>> {
-        let path = format!("/_matrix/federation/v1/user/friends/{user_id}");
-        let url = format!("https://{destination}{path}");
-
-        let auth_header = self.sign_request("GET", &path, destination, None).await?;
-
-        tracing::info!("Querying remote friends from {}", url);
-        let response = self
-            .client
-            .get(&url)
-            .header("Authorization", auth_header)
-            .send()
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Federation request failed", e))?;
-
-        if response.status() == StatusCode::NOT_FOUND {
-            return Ok(vec![]);
-        }
-
-        if !response.status().is_success() {
-            return Err(ApiError::internal_with_context("Remote server returned error", &response.status()));
-        }
-
-        let body: Value =
-            response.json().await.map_err(|e| ApiError::internal_with_cause("Failed to parse response", e))?;
-
-        let friends = body
-            .get("friends")
-            .and_then(|v| v.as_array())
-            .ok_or_else(|| ApiError::internal("Invalid response format"))?
-            .iter()
-            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-            .collect();
-
-        Ok(friends)
     }
 }
 
@@ -199,15 +182,6 @@ mod tests {
     }
 
     #[test]
-    fn test_federation_path_format() {
-        let user_id = "@alice:example.com";
-        let path = format!("/_matrix/federation/v1/user/friends/{user_id}");
-
-        assert!(path.starts_with("/_matrix/federation/"));
-        assert!(path.contains(user_id));
-    }
-
-    #[test]
     fn test_invite_path_format() {
         let event_id = uuid::Uuid::new_v4();
         let path = format!("/_matrix/federation/v1/send/{event_id}");
@@ -215,46 +189,39 @@ mod tests {
         assert!(path.starts_with("/_matrix/federation/v1/send/"));
     }
 
+    // ── P1a — outbound EDUs must be wrapped in a standard transaction body ──
+    //
+    // The inbound `send_transaction` handler rejects bodies without `origin`
+    // and `pdus` with HTTP 400, so the client must never send a bare content
+    // object. This pins the exact envelope shape.
+
     #[test]
-    fn test_friends_response_parsing() {
-        let response = serde_json::json!({
-            "friends": ["@alice:example.com", "@bob:example.com"]
-        });
+    fn build_transaction_body_wraps_edu_in_standard_envelope() {
+        let content = serde_json::json!({ "requester_id": "@a:ex.com", "target_user_id": "@b:ex.com" });
+        let body = build_transaction_body("ex.com", EduType::FriendRequest, &content);
 
-        let friends: Vec<String> = response
-            .get("friends")
-            .and_then(|v| v.as_array())
-            .unwrap()
-            .iter()
-            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-            .collect();
-
-        assert_eq!(friends.len(), 2);
-        assert!(friends.contains(&"@alice:example.com".to_string()));
+        assert_eq!(body["origin"], "ex.com");
+        assert_eq!(body["pdus"], serde_json::json!([]));
+        let edus = body["edus"].as_array().expect("edus must be an array");
+        assert_eq!(edus.len(), 1);
+        assert_eq!(edus[0]["edu_type"], "m.friend_request");
+        assert_eq!(edus[0]["content"], content);
     }
 
     #[test]
-    fn test_empty_friends_response() {
-        let response = serde_json::json!({
-            "friends": []
-        });
+    fn build_transaction_body_uses_accepted_edu_type() {
+        let content = serde_json::json!({ "room_id": "!dm:ex.com" });
+        let body = build_transaction_body("ex.com", EduType::FriendRequestAccepted, &content);
 
-        let friends: Vec<String> = response
-            .get("friends")
-            .and_then(|v| v.as_array())
-            .unwrap()
-            .iter()
-            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-            .collect();
-
-        assert!(friends.is_empty());
+        assert_eq!(body["edus"][0]["edu_type"], "m.friend_request.accepted");
+        assert_eq!(body["edus"][0]["content"]["room_id"], "!dm:ex.com");
     }
 
     // ── B.3 batch 5/6 — real coverage for FriendFederationClient production paths ──
     //
     // These tests exercise `decode_signing_key`, `sign_request`, and
     // `build_auth_header` indirectly via the public `new()` constructor and
-    // the public `query_remote_friends` / `send_invite` methods. Private
+    // the public `send_edu` method. Private
     // fields are inspected directly because tests live in the same module.
 
     use std::sync::{Mutex, OnceLock};
@@ -344,45 +311,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn query_remote_friends_fails_when_no_signing_key_configured() {
-        let _guard = env_lock().lock().unwrap();
-        std::env::remove_var("FEDERATION_SIGNING_KEY");
-        let client = FriendFederationClient::new("example.com".to_string(), None);
-        let err = client.query_remote_friends("remote.example.com", "@alice:example.com").await.unwrap_err();
-        let msg = err.to_string();
-        assert!(
-            msg.contains("not configured") || msg.contains("signing key"),
-            "expected signing-key-not-configured error, got: {msg}"
-        );
-    }
-
-    #[tokio::test]
-    async fn query_remote_friends_builds_auth_header_then_fails_at_http() {
-        // With a valid signing key configured via env, sign_request succeeds
-        // and build_auth_header runs; the HTTP GET then fails because the
-        // destination is non-routable.
-        let _guard = env_lock().lock().unwrap();
-        let _k = EnvVarGuard::set("FEDERATION_SIGNING_KEY", &valid_b64_signing_key());
-        let client = FriendFederationClient::new("example.com".to_string(), None);
-        // 127.0.0.1:1 reliably refuses TCP connections on most dev machines.
-        let err = client.query_remote_friends("127.0.0.1:1", "@alice:example.com").await.unwrap_err();
-        let msg = err.to_string();
-        // The HTTP layer fails before any 2xx/4xx check — the error should
-        // mention the federation request, not "not configured".
-        assert!(
-            msg.contains("Federation request failed") || msg.contains("request failed") || msg.contains("connect"),
-            "expected HTTP/network error after sign_request success, got: {msg}"
-        );
-        assert!(!msg.contains("not configured"), "signing key was set; should not reach not-configured branch");
-    }
-
-    #[tokio::test]
-    async fn send_invite_fails_when_no_signing_key_configured() {
+    async fn send_edu_fails_when_no_signing_key_configured() {
         let _guard = env_lock().lock().unwrap();
         std::env::remove_var("FEDERATION_SIGNING_KEY");
         let client = FriendFederationClient::new("example.com".to_string(), None);
         let err =
-            client.send_invite("remote.example.com", "!room:example.com", &serde_json::json!({})).await.unwrap_err();
+            client.send_edu("remote.example.com", EduType::FriendRequest, &serde_json::json!({})).await.unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("not configured") || msg.contains("signing key"),
@@ -394,7 +328,7 @@ mod tests {
     /// Postgres pool. The manager's in-memory `current_key` cache starts empty,
     /// so `get_current_key()` returns `Ok(None)` without touching the DB.
     /// This lets us exercise the `key_rotation_manager` branch of `sign_request`
-    /// (lines 81-87) without a real database.
+    /// without a real database.
     #[allow(clippy::unwrap_used, clippy::expect_used)]
     fn make_key_rotation_manager(server_name: &str) -> std::sync::Arc<crate::KeyRotationManager> {
         let pool = std::sync::Arc::new(sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap());
@@ -402,8 +336,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn query_remote_friends_with_key_rotation_manager_but_no_key_falls_through_to_not_configured() {
-        // Covers the `if let Some(key_rotation_manager)` branch (lines 81-87):
+    async fn send_edu_with_key_rotation_manager_but_no_key_falls_through_to_not_configured() {
+        // Covers the `if let Some(key_rotation_manager)` branch of `sign_request`:
         // get_current_key() returns Ok(None) because the in-memory cache is
         // empty and no DB query is attempted. sign_request then falls through
         // to the "not configured" error.
@@ -411,7 +345,8 @@ mod tests {
         std::env::remove_var("FEDERATION_SIGNING_KEY");
         let manager = make_key_rotation_manager("example.com");
         let client = FriendFederationClient::new("example.com".to_string(), Some(manager));
-        let err = client.query_remote_friends("remote.example.com", "@alice:example.com").await.unwrap_err();
+        let err =
+            client.send_edu("remote.example.com", EduType::FriendRequest, &serde_json::json!({})).await.unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("not configured") || msg.contains("signing key"),
@@ -420,12 +355,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn send_invite_builds_auth_header_then_fails_at_http() {
+    async fn send_edu_builds_auth_header_then_fails_at_http() {
         let _guard = env_lock().lock().unwrap();
         let _k = EnvVarGuard::set("FEDERATION_SIGNING_KEY", &valid_b64_signing_key());
         let client = FriendFederationClient::new("example.com".to_string(), None);
         let err =
-            client.send_invite("127.0.0.1:1", "!room:example.com", &serde_json::json!({"k": "v"})).await.unwrap_err();
+            client.send_edu("127.0.0.1:1", EduType::FriendRequest, &serde_json::json!({"k": "v"})).await.unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("Federation request failed") || msg.contains("request failed") || msg.contains("connect"),
@@ -441,8 +376,10 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         std::env::remove_var("FEDERATION_SIGNING_KEY");
         let client = FriendFederationClient::new("example.com".to_string(), None);
-        let err1 = client.query_remote_friends("remote.example.com", "@a:ex.com").await.unwrap_err();
-        let err2 = client.query_remote_friends("remote.example.com", "@b:ex.com").await.unwrap_err();
+        let err1 =
+            client.send_edu("remote.example.com", EduType::FriendRequest, &serde_json::json!({})).await.unwrap_err();
+        let err2 =
+            client.send_edu("remote.example.com", EduType::FriendRequest, &serde_json::json!({})).await.unwrap_err();
         // Both errors should mention "not configured" — the warning gate
         // doesn't change the error, only the log volume.
         assert!(err1.to_string().contains("not configured") || err1.to_string().contains("signing key"));

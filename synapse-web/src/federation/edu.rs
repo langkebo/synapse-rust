@@ -643,6 +643,10 @@ impl EduDispatcher {
             EduType::DelayedEvent => handle_delayed_event_edu(ctx, origin, edu, remaining).await,
             // MSC4354: Sticky Event EDU - synchronize sticky event metadata across federation
             EduType::StickyEvent => handle_sticky_event_edu(ctx, origin, edu, remaining).await,
+            // Friends opt-in: incoming friend request from a remote user's homeserver.
+            EduType::FriendRequest => handle_friend_request_edu(ctx, origin, edu, remaining).await,
+            // Friends opt-in: a remote user accepted a friend request we sent.
+            EduType::FriendRequestAccepted => handle_friend_accept_edu(ctx, origin, edu, remaining).await,
         };
 
         Some(result)
@@ -908,6 +912,110 @@ async fn handle_sticky_event_edu(
             EduProcessResult { processed: 0, dropped: 0, errored: 1 }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Friends opt-in EDUs (`m.friend_request` / `m.friend_request.accepted`)
+// ---------------------------------------------------------------------------
+
+/// Handle `m.friend_request` EDU from federation (friends opt-in).
+///
+/// Delegates to `FriendFederation::on_receive_friend_request`, which validates
+/// the origin/requester binding and hands the payload to `FriendRoomService`.
+#[cfg(feature = "friends")]
+async fn handle_friend_request_edu(
+    ctx: &FederationContext,
+    origin: &str,
+    edu: &Value,
+    _remaining: usize,
+) -> EduProcessResult {
+    let content = match edu.get("content") {
+        Some(c) => c.clone(),
+        None => {
+            increment_counter(ctx, "federation_inbound_friend_request_dropped_total");
+            return EduProcessResult { dropped: 1, ..Default::default() };
+        }
+    };
+
+    let provider: std::sync::Arc<dyn synapse_common::traits::FriendRoomProvider> = ctx.friend_room_service.clone();
+    let federation = synapse_federation::friend::FriendFederation::new(provider);
+
+    match federation.on_receive_friend_request(origin, content).await {
+        Ok(()) => {
+            increment_counter(ctx, "federation_inbound_friend_request_processed_total");
+            EduProcessResult { processed: 1, dropped: 0, errored: 0 }
+        }
+        Err(e) => {
+            ::tracing::warn!(error = %e, origin = %origin, "Failed to handle m.friend_request EDU");
+            increment_counter(ctx, "federation_inbound_friend_request_error_total");
+            EduProcessResult { processed: 0, dropped: 0, errored: 1 }
+        }
+    }
+}
+
+/// `friends` feature disabled: drop `m.friend_request` EDUs without processing.
+#[cfg(not(feature = "friends"))]
+#[allow(clippy::unused_async)] // async to match the dispatcher's `.await` call site
+async fn handle_friend_request_edu(
+    ctx: &FederationContext,
+    origin: &str,
+    _edu: &Value,
+    _remaining: usize,
+) -> EduProcessResult {
+    ::tracing::debug!(origin = %origin, "Dropping m.friend_request EDU (friends feature disabled)");
+    increment_counter(ctx, "federation_inbound_friend_request_dropped_total");
+    EduProcessResult { dropped: 1, ..Default::default() }
+}
+
+/// Handle `m.friend_request.accepted` EDU from federation (friends opt-in).
+///
+/// Sent by the accepter's homeserver. Delegates to
+/// `FriendFederation::on_receive_friend_accept`, which validates that the
+/// accepter belongs to `origin` and then joins the shared DM room / records the
+/// friendship locally via `FriendRoomService`.
+#[cfg(feature = "friends")]
+async fn handle_friend_accept_edu(
+    ctx: &FederationContext,
+    origin: &str,
+    edu: &Value,
+    _remaining: usize,
+) -> EduProcessResult {
+    let content = match edu.get("content") {
+        Some(c) => c.clone(),
+        None => {
+            increment_counter(ctx, "federation_inbound_friend_accept_dropped_total");
+            return EduProcessResult { dropped: 1, ..Default::default() };
+        }
+    };
+
+    let provider: std::sync::Arc<dyn synapse_common::traits::FriendRoomProvider> = ctx.friend_room_service.clone();
+    let federation = synapse_federation::friend::FriendFederation::new(provider);
+
+    match federation.on_receive_friend_accept(origin, content).await {
+        Ok(()) => {
+            increment_counter(ctx, "federation_inbound_friend_accept_processed_total");
+            EduProcessResult { processed: 1, dropped: 0, errored: 0 }
+        }
+        Err(e) => {
+            ::tracing::warn!(error = %e, origin = %origin, "Failed to handle m.friend_request.accepted EDU");
+            increment_counter(ctx, "federation_inbound_friend_accept_error_total");
+            EduProcessResult { processed: 0, dropped: 0, errored: 1 }
+        }
+    }
+}
+
+/// `friends` feature disabled: drop `m.friend_request.accepted` EDUs.
+#[cfg(not(feature = "friends"))]
+#[allow(clippy::unused_async)] // async to match the dispatcher's `.await` call site
+async fn handle_friend_accept_edu(
+    ctx: &FederationContext,
+    origin: &str,
+    _edu: &Value,
+    _remaining: usize,
+) -> EduProcessResult {
+    ::tracing::debug!(origin = %origin, "Dropping m.friend_request.accepted EDU (friends feature disabled)");
+    increment_counter(ctx, "federation_inbound_friend_accept_dropped_total");
+    EduProcessResult { dropped: 1, ..Default::default() }
 }
 
 // ---------------------------------------------------------------------------

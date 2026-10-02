@@ -752,6 +752,9 @@ pub struct FederationContext {
     pub federation_join_semaphore: Arc<Semaphore>,
     /// The `presence_service` field.
     pub presence_service: Arc<synapse_services::presence_service::PresenceService>,
+    #[cfg(feature = "friends")]
+    /// The `friend_room_service` field (friends opt-in inbound federation).
+    pub friend_room_service: Arc<synapse_services::friend_room_service::models::FriendRoomService>,
 }
 
 impl FromRef<AppState> for FederationContext {
@@ -793,6 +796,8 @@ impl FromRef<AppState> for FederationContext {
             federation_inbound_edu_origin_semaphores: state.federation_inbound_edu_origin_semaphores.clone(),
             federation_presence_backoff_until: state.federation_presence_backoff_until.clone(),
             federation_join_semaphore: state.federation_join_semaphore.clone(),
+            #[cfg(feature = "friends")]
+            friend_room_service: state.services.extensions.friend_room_service.clone(),
         }
     }
 }

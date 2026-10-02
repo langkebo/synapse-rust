@@ -116,13 +116,15 @@ impl ExtensionServices {
         let account_data_storage = Arc::new(synapse_storage::account_data::AccountDataStorage::new(&infra.pool));
         #[cfg(feature = "friends")]
         let friend_room_service = Arc::new(crate::friend_room_service::FriendRoomService::new(
-            friend_storage.clone(),
-            rooms.room_service.clone(),
-            user_storage.clone(),
-            presence_storage.clone(),
-            account_data_storage,
-            infra.cache.clone(),
-            infra.config.server.name.clone(),
+            crate::friend_room_service::FriendRoomServiceConfig {
+                friend_storage: friend_storage.clone(),
+                room_service: rooms.room_service.clone(),
+                user_storage: user_storage.clone(),
+                presence_storage: presence_storage.clone(),
+                account_data_storage,
+                cache: infra.cache.clone(),
+                server_name: infra.config.server.name.clone(),
+            },
             Arc::new(federation.key_rotation_manager.clone()),
         ));
         // Suppress unused-variable warnings when `friends` feature is disabled:

@@ -38,6 +38,13 @@ pub enum EduType {
     /// MSC4354: `org.matrix.msc4354.sticky_event` — sticky event metadata synchronized
     /// via federation so remote servers maintain consistent sticky event state.
     StickyEvent,
+    /// `m.friend_request` — a friend request sent from a remote user to a local
+    /// user. Carries `requester_id`, `target_user_id` and an optional `message`.
+    FriendRequest,
+    /// `m.friend_request.accepted` — notification that a remote user accepted a
+    /// friend request. Carries `requester_id`, `accepter_id` and the `room_id`
+    /// of the newly created direct-message room.
+    FriendRequestAccepted,
 }
 
 #[derive(Debug, Clone)]
@@ -69,6 +76,8 @@ impl FromStr for EduType {
             "m.profile_update" => Ok(Self::ProfileUpdate),
             "m.delayed_event" => Ok(Self::DelayedEvent),
             "org.matrix.msc4354.sticky_event" => Ok(Self::StickyEvent),
+            "m.friend_request" => Ok(Self::FriendRequest),
+            "m.friend_request.accepted" => Ok(Self::FriendRequestAccepted),
             other => Err(UnknownEduType(other.to_string())),
         }
     }
@@ -86,6 +95,8 @@ impl std::fmt::Display for EduType {
             EduType::ProfileUpdate => "m.profile_update",
             EduType::DelayedEvent => "m.delayed_event",
             EduType::StickyEvent => "org.matrix.msc4354.sticky_event",
+            EduType::FriendRequest => "m.friend_request",
+            EduType::FriendRequestAccepted => "m.friend_request.accepted",
         };
         write!(f, "{s}")
     }
@@ -141,6 +152,8 @@ mod tests {
         assert_eq!("m.receipt".parse::<EduType>().unwrap(), EduType::Receipt);
         assert_eq!("m.signing_key_update".parse::<EduType>().unwrap(), EduType::SigningKeyUpdate);
         assert_eq!("m.profile_update".parse::<EduType>().unwrap(), EduType::ProfileUpdate);
+        assert_eq!("m.friend_request".parse::<EduType>().unwrap(), EduType::FriendRequest);
+        assert_eq!("m.friend_request.accepted".parse::<EduType>().unwrap(), EduType::FriendRequestAccepted);
     }
 
     #[test]
@@ -264,6 +277,8 @@ mod tests {
             EduType::Receipt,
             EduType::SigningKeyUpdate,
             EduType::ProfileUpdate,
+            EduType::FriendRequest,
+            EduType::FriendRequestAccepted,
         ];
         for variant in all {
             // Display 产出的字符串必须能被 FromStr 解析回同一变体，
@@ -284,5 +299,7 @@ mod tests {
         assert_eq!(EduType::Receipt.to_string(), "m.receipt");
         assert_eq!(EduType::SigningKeyUpdate.to_string(), "m.signing_key_update");
         assert_eq!(EduType::ProfileUpdate.to_string(), "m.profile_update");
+        assert_eq!(EduType::FriendRequest.to_string(), "m.friend_request");
+        assert_eq!(EduType::FriendRequestAccepted.to_string(), "m.friend_request.accepted");
     }
 }

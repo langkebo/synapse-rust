@@ -334,6 +334,27 @@ pub(crate) fn get_room_direct_users(direct_map: &Map<String, Value>, room_id: &s
 // 路由原语来自 synapse-common（与 storage 层共享，单一事实来源）。
 pub(crate) use synapse_common::friend_shard::sort_letter_for;
 
+/// Long-lived collaborators needed to build a [`FriendRoomService`].
+///
+/// Bundling the seven dependencies into one struct keeps the constructors
+/// readable as the service grows, instead of an eight-argument positional list.
+pub struct FriendRoomServiceConfig {
+    /// Friend room persistence.
+    pub friend_storage: Arc<synapse_storage::friend_room::FriendRoomStorage>,
+    /// Room lifecycle operations.
+    pub room_service: Arc<dyn RoomServiceApi>,
+    /// User profile lookups.
+    pub user_storage: Arc<dyn UserStore>,
+    /// Presence (online status) lookups.
+    pub presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
+    /// Account data (e.g. `m.direct`) access.
+    pub account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
+    /// Cache manager for friend list/room-id caching.
+    pub cache: Arc<CacheManager>,
+    /// This homeserver's name.
+    pub server_name: String,
+}
+
 /// The `FriendRoomService` struct.
 pub struct FriendRoomService {
     pub(crate) friend_storage: Arc<synapse_storage::friend_room::FriendRoomStorage>,

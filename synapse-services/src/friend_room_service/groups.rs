@@ -247,37 +247,6 @@ impl FriendRoomService {
         Ok(suggestions)
     }
 
-    /// 查询任意用户的好友列表 (支持本地和远程)
-    pub async fn query_user_friends(
-        &self,
-        requester_id: &str,
-        target_user_id: &str,
-    ) -> Result<Vec<String>, FriendRoomError> {
-        if requester_id != target_user_id {
-            return Err(FriendRoomError::NotAuthorized("You can only query your own friend list".to_string()));
-        }
-
-        let parts: Vec<&str> = target_user_id.split(':').collect();
-        if parts.len() < 2 {
-            return Err(FriendRoomError::InvalidInput("Invalid user ID format".to_string()));
-        }
-        let domain = parts[1];
-
-        if domain == self.server_name {
-            let friends_json = self.get_friends(target_user_id).await?;
-            let friends = friends_json
-                .iter()
-                .filter_map(|f| f.get("user_id").and_then(|u| u.as_str()).map(|s| s.to_string()))
-                .collect();
-            return Ok(friends);
-        }
-
-        self.federation_client
-            .query_remote_friends(domain, target_user_id)
-            .await
-            .map_err(|e| FriendRoomError::Internal(e.to_string()))
-    }
-
     /// 创建好友分组
     pub async fn create_friend_group(&self, user_id: &str, name: &str) -> Result<serde_json::Value, FriendRoomError> {
         let friend_room = self.create_friend_list_room(user_id).await?;

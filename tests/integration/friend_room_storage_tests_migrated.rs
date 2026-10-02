@@ -912,6 +912,56 @@ async fn test_find_friend_lists_by_dm_room_id() {
     assert_eq!(links[0].friend_room_id, room_id);
 }
 
+/// W5 sharding 真实写路径：好友条目写入 A-Z/# shard，legacy `state_key=""` 只留
+/// 空列表。反查必须跨 shard 命中，否则 DM 房间成员变更无法同步 dm_room_state。
+#[tokio::test]
+async fn test_find_friend_lists_by_dm_room_id_across_shards() {
+    let pool = crate::require_test_pool().await;
+    let storage = create_storage(&pool);
+    let suffix = unique_id();
+    let user_id = format!("@dm_user_{suffix}:localhost");
+    let room_id = format!("!dm_room_{suffix}:localhost");
+    let dm_room_id = format!("!dm_target_{suffix}:localhost");
+
+    insert_user(&pool, &user_id, &format!("dm_user_{suffix}")).await;
+    insert_room(&pool, &room_id).await;
+
+    // legacy 通道：初始空列表（W5 写入后遗留状态）
+    insert_event(
+        &pool,
+        &format!("$dm_flist_legacy_{suffix}:localhost"),
+        &room_id,
+        &user_id,
+        "m.friends.list",
+        Some(""),
+        &json!({ "friends": [], "version": 2 }),
+    )
+    .await;
+
+    // 真实好友条目落在 shard 'F'（@friend1:... 的 localpart 首字母 → F）
+    let content = json!({
+        "friends": [
+            {"user_id": "@friend1:localhost", "dm_room_id": dm_room_id},
+            {"user_id": "@friend2:localhost", "dm_room_id": "!other_dm:localhost"}
+        ]
+    });
+    insert_event(
+        &pool,
+        &format!("$dm_flist_shard_{suffix}:localhost"),
+        &room_id,
+        &user_id,
+        "m.friends.list",
+        Some("F"),
+        &content,
+    )
+    .await;
+
+    let links = storage.find_friend_lists_by_dm_room_id(&dm_room_id).await.unwrap();
+    assert_eq!(links.len(), 1, "must find the owner via shard scan");
+    assert_eq!(links[0].owner_user_id, user_id);
+    assert_eq!(links[0].friend_room_id, room_id);
+}
+
 #[tokio::test]
 async fn test_get_shared_rooms() {
     let pool = crate::require_test_pool().await;

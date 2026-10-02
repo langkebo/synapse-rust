@@ -5,8 +5,6 @@ pub struct FriendDmLink {
     pub owner_user_id: String,
     /// The `friend_room_id` field.
     pub friend_room_id: String,
-    /// The `content` field.
-    pub content: serde_json::Value,
 }
 
 /// The `DirectRoomFallbackLink` struct.

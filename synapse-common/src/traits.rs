@@ -33,6 +33,18 @@ pub trait FriendRoomProvider: Send + Sync {
         requester_id: &str,
         content: serde_json::Value,
     ) -> Result<(), ApiError>;
+
+    /// Handle a remote user accepting a friend request this server originally
+    /// sent. `requester_id` is the *local* user who sent the request,
+    /// `accepter_id` is the *remote* user who accepted it, and `room_id` is the
+    /// shared direct-message room the accepter created (its `room_id` is shared
+    /// across federated servers).
+    async fn handle_incoming_friend_accept(
+        &self,
+        requester_id: &str,
+        accepter_id: &str,
+        room_id: &str,
+    ) -> Result<(), ApiError>;
 }
 
 // =============================================================================

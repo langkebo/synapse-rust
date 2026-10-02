@@ -46,6 +46,46 @@ impl FriendFederation {
 
         Ok(())
     }
+
+    /// 处理来自联邦的好友接受通知 (`m.friend_request.accepted`)。
+    ///
+    /// 发送方是 accepter 所在的 homeserver（`origin`）；`requester_id` 指向本方
+    /// 发起好友请求的本地用户，`room_id` 是对端创建的共享 DM 房间。
+    pub async fn on_receive_friend_accept(&self, origin: &str, event_content: Value) -> ApiResult<()> {
+        // 1. 验证 Origin (简单检查)
+        if origin.is_empty() {
+            return Err(ApiError::forbidden("Missing origin".to_string()));
+        }
+
+        // 2. 解析请求内容
+        let requester_id = event_content
+            .get("requester_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ApiError::bad_request("Missing requester_id".to_string()))?
+            .to_string();
+
+        let accepter_id = event_content
+            .get("accepter_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ApiError::bad_request("Missing accepter_id".to_string()))?
+            .to_string();
+
+        let room_id = event_content
+            .get("room_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ApiError::bad_request("Missing room_id".to_string()))?
+            .to_string();
+
+        // 3. 验证 accepter_id 是否属于 origin
+        if !accepter_id.ends_with(&format!(":{origin}")) {
+            return Err(ApiError::forbidden("Accepter ID does not match origin".to_string()));
+        }
+
+        // 4. 调用 Service 处理接受通知
+        self.friend_service.handle_incoming_friend_accept(&requester_id, &accepter_id, &room_id).await?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -195,21 +235,34 @@ mod tests {
     /// `Sync` (required by `Arc<dyn FriendRoomProvider>`).
     struct MockFriendRoomProvider {
         calls: Mutex<Vec<(String, String, serde_json::Value)>>,
+        accept_calls: Mutex<Vec<(String, String, String)>>,
         next_result: Mutex<Result<(), ApiError>>,
     }
 
     /// Implementation of [`MockFriendRoomProvider`] methods.
     impl MockFriendRoomProvider {
         fn new_returning_ok() -> Arc<Self> {
-            Arc::new(Self { calls: Mutex::new(Vec::new()), next_result: Mutex::new(Ok(())) })
+            Arc::new(Self {
+                calls: Mutex::new(Vec::new()),
+                accept_calls: Mutex::new(Vec::new()),
+                next_result: Mutex::new(Ok(())),
+            })
         }
 
         fn new_returning_err(err: ApiError) -> Arc<Self> {
-            Arc::new(Self { calls: Mutex::new(Vec::new()), next_result: Mutex::new(Err(err)) })
+            Arc::new(Self {
+                calls: Mutex::new(Vec::new()),
+                accept_calls: Mutex::new(Vec::new()),
+                next_result: Mutex::new(Err(err)),
+            })
         }
 
         fn calls(&self) -> Vec<(String, String, serde_json::Value)> {
             self.calls.lock().expect("mock mutex poisoned").clone()
+        }
+
+        fn accept_calls(&self) -> Vec<(String, String, String)> {
+            self.accept_calls.lock().expect("mock mutex poisoned").clone()
         }
     }
 
@@ -226,6 +279,20 @@ mod tests {
                 user_id.to_string(),
                 requester_id.to_string(),
                 content,
+            ));
+            self.next_result.lock().expect("mock mutex poisoned").clone()
+        }
+
+        async fn handle_incoming_friend_accept(
+            &self,
+            requester_id: &str,
+            accepter_id: &str,
+            room_id: &str,
+        ) -> Result<(), ApiError> {
+            self.accept_calls.lock().expect("mock mutex poisoned").push((
+                requester_id.to_string(),
+                accepter_id.to_string(),
+                room_id.to_string(),
             ));
             self.next_result.lock().expect("mock mutex poisoned").clone()
         }
@@ -330,5 +397,106 @@ mod tests {
         });
         svc.on_receive_friend_request("remote.com", content).await.unwrap();
         assert_eq!(mock.calls().len(), 1);
+    }
+
+    // ── P1b — on_receive_friend_accept branches ──
+
+    #[tokio::test]
+    async fn on_receive_friend_accept_empty_origin_returns_forbidden() {
+        let mock = MockFriendRoomProvider::new_returning_ok();
+        let svc = FriendFederation::new(mock.clone());
+        let content = serde_json::json!({
+            "requester_id": "@alice:localhost",
+            "accepter_id": "@bob:remote.com",
+            "room_id": "!dm:remote.com"
+        });
+        let err = svc.on_receive_friend_accept("", content).await.unwrap_err();
+        assert!(err.to_string().contains("origin") || err.to_string().contains("Origin"), "err={err}");
+        assert!(mock.accept_calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn on_receive_friend_accept_missing_requester_id_returns_bad_request() {
+        let mock = MockFriendRoomProvider::new_returning_ok();
+        let svc = FriendFederation::new(mock.clone());
+        let content = serde_json::json!({
+            "accepter_id": "@bob:remote.com",
+            "room_id": "!dm:remote.com"
+        });
+        let err = svc.on_receive_friend_accept("remote.com", content).await.unwrap_err();
+        assert!(err.to_string().contains("requester_id"), "err={err}");
+        assert!(mock.accept_calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn on_receive_friend_accept_missing_accepter_id_returns_bad_request() {
+        let mock = MockFriendRoomProvider::new_returning_ok();
+        let svc = FriendFederation::new(mock.clone());
+        let content = serde_json::json!({
+            "requester_id": "@alice:localhost",
+            "room_id": "!dm:remote.com"
+        });
+        let err = svc.on_receive_friend_accept("remote.com", content).await.unwrap_err();
+        assert!(err.to_string().contains("accepter_id"), "err={err}");
+        assert!(mock.accept_calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn on_receive_friend_accept_missing_room_id_returns_bad_request() {
+        let mock = MockFriendRoomProvider::new_returning_ok();
+        let svc = FriendFederation::new(mock.clone());
+        let content = serde_json::json!({
+            "requester_id": "@alice:localhost",
+            "accepter_id": "@bob:remote.com"
+        });
+        let err = svc.on_receive_friend_accept("remote.com", content).await.unwrap_err();
+        assert!(err.to_string().contains("room_id"), "err={err}");
+        assert!(mock.accept_calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn on_receive_friend_accept_accepter_id_not_matching_origin_returns_forbidden() {
+        let mock = MockFriendRoomProvider::new_returning_ok();
+        let svc = FriendFederation::new(mock.clone());
+        let content = serde_json::json!({
+            "requester_id": "@alice:localhost",
+            "accepter_id": "@bob:other.com",
+            "room_id": "!dm:remote.com"
+        });
+        let err = svc.on_receive_friend_accept("remote.com", content).await.unwrap_err();
+        assert!(err.to_string().contains("origin") || err.to_string().contains("Origin"), "err={err}");
+        assert!(mock.accept_calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn on_receive_friend_accept_valid_input_invokes_mock_with_room_id() {
+        let mock = MockFriendRoomProvider::new_returning_ok();
+        let svc = FriendFederation::new(mock.clone());
+        let content = serde_json::json!({
+            "requester_id": "@alice:localhost",
+            "accepter_id": "@bob:remote.com",
+            "room_id": "!dm:remote.com",
+            "timestamp": 12345
+        });
+        svc.on_receive_friend_accept("remote.com", content).await.unwrap();
+        let calls = mock.accept_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "@alice:localhost");
+        assert_eq!(calls[0].1, "@bob:remote.com");
+        assert_eq!(calls[0].2, "!dm:remote.com");
+    }
+
+    #[tokio::test]
+    async fn on_receive_friend_accept_provider_error_propagates() {
+        let mock = MockFriendRoomProvider::new_returning_err(ApiError::internal("accept downstream boom".to_string()));
+        let svc = FriendFederation::new(mock.clone());
+        let content = serde_json::json!({
+            "requester_id": "@alice:localhost",
+            "accepter_id": "@bob:remote.com",
+            "room_id": "!dm:remote.com"
+        });
+        let err = svc.on_receive_friend_accept("remote.com", content).await.unwrap_err();
+        assert!(err.to_string().contains("accept downstream boom"), "err={err}");
+        assert_eq!(mock.accept_calls().len(), 1);
     }
 }

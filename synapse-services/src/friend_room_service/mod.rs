@@ -14,7 +14,7 @@ pub use error::FriendRoomError;
 pub use models::{
     decode_friend_list_cursor, encode_friend_list_cursor, DirectMapUpdateAction, DirectRoomSnapshot, DmPartnerInfo,
     EnsureDirectRoomResult, FriendListCursor, FriendListEntry, FriendListPage, FriendListRequest, FriendListSortCache,
-    FriendRoomCreateRoomConfig, FriendRoomService,
+    FriendRoomCreateRoomConfig, FriendRoomService, FriendRoomServiceConfig,
 };
 use synapse_common::{current_timestamp_millis, generate_event_id, ApiError};
 
@@ -23,11 +23,11 @@ use serde_json::{json, Map, Value};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
-use synapse_cache::CacheManager;
 use synapse_common::traits::FriendRoomProvider;
+use synapse_federation::edu::EduType;
 use synapse_federation::friend::FriendFederationClient;
 use synapse_federation::KeyRotationManager;
-use synapse_storage::{CreateEventParams, UserStore};
+use synapse_storage::CreateEventParams;
 
 const FRIEND_LIST_CACHE_TTL_SECS: u64 = 300;
 const FRIEND_ROOM_ID_CACHE_TTL_SECS: u64 = 3600;
@@ -54,51 +54,26 @@ pub mod friend_list;
 use self::friend_list::*;
 
 impl FriendRoomService {
-    /// See [`new`].
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        friend_storage: Arc<synapse_storage::friend_room::FriendRoomStorage>,
-        room_service: Arc<dyn crate::room::RoomServiceApi>,
-        user_storage: Arc<dyn UserStore>,
-        presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
-        account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
-        cache: Arc<CacheManager>,
-        server_name: String,
-        key_rotation_manager: Arc<KeyRotationManager>,
-    ) -> Self {
-        let federation_client = Arc::new(FriendFederationClient::new(server_name.clone(), Some(key_rotation_manager)));
-        Self::new_with_dependencies(
-            friend_storage,
-            room_service,
-            user_storage,
-            presence_storage,
-            account_data_storage,
-            cache,
-            server_name,
-            federation_client,
-        )
+    /// See [`new_with_dependencies`].
+    pub fn new(config: FriendRoomServiceConfig, key_rotation_manager: Arc<KeyRotationManager>) -> Self {
+        let federation_client =
+            Arc::new(FriendFederationClient::new(config.server_name.clone(), Some(key_rotation_manager)));
+        Self::new_with_dependencies(config, federation_client)
     }
 
     /// See [`new_with_dependencies`].
-    #[allow(clippy::too_many_arguments)]
     pub fn new_with_dependencies(
-        friend_storage: Arc<synapse_storage::friend_room::FriendRoomStorage>,
-        room_service: Arc<dyn crate::room::RoomServiceApi>,
-        user_storage: Arc<dyn UserStore>,
-        presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
-        account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
-        cache: Arc<CacheManager>,
-        server_name: String,
+        config: FriendRoomServiceConfig,
         federation_client: Arc<FriendFederationClient>,
     ) -> Self {
         Self {
-            friend_storage,
-            room_service,
-            user_storage,
-            presence_storage,
-            account_data_storage,
-            cache,
-            server_name,
+            friend_storage: config.friend_storage,
+            room_service: config.room_service,
+            user_storage: config.user_storage,
+            presence_storage: config.presence_storage,
+            account_data_storage: config.account_data_storage,
+            cache: config.cache,
+            server_name: config.server_name,
             federation_client,
         }
     }
@@ -274,14 +249,13 @@ impl FriendRoomService {
             if parts.len() >= 2 {
                 let domain = parts[1];
                 let invite_content = json!({
-                    "requester": sender_id,
-                    "target": receiver_id,
+                    "requester_id": sender_id,
+                    "target_user_id": receiver_id,
                     "message": message,
                     "timestamp": current_timestamp_millis(),
-                    "msgtype": "m.friend_request"
                 });
 
-                if let Err(e) = self.federation_client.send_invite(domain, "unused", &invite_content).await {
+                if let Err(e) = self.federation_client.send_edu(domain, EduType::FriendRequest, &invite_content).await {
                     tracing::warn!(
                         %request_id,
                         error = %e,
@@ -408,13 +382,15 @@ impl FriendRoomService {
             if parts.len() >= 2 {
                 let domain = parts[1];
                 let accept_content = json!({
-                    "requester": requester_id,
-                    "accepter": user_id,
+                    "requester_id": requester_id,
+                    "accepter_id": user_id,
+                    "room_id": dm_room_id,
                     "timestamp": current_timestamp_millis(),
-                    "msgtype": "m.friend_request.accepted"
                 });
 
-                if let Err(e) = self.federation_client.send_invite(domain, "unused", &accept_content).await {
+                if let Err(e) =
+                    self.federation_client.send_edu(domain, EduType::FriendRequestAccepted, &accept_content).await
+                {
                     tracing::warn!(
                         %request_id,
                         error = %e,
@@ -588,13 +564,12 @@ impl FriendRoomService {
             let domain = parts[1];
 
             let invite_content = json!({
-                "requester": user_id,
-                "target": friend_id,
+                "requester_id": user_id,
+                "target_user_id": friend_id,
                 "timestamp": current_timestamp_millis(),
-                "msgtype": "m.friend_request"
             });
 
-            if let Err(e) = self.federation_client.send_invite(domain, "unused", &invite_content).await {
+            if let Err(e) = self.federation_client.send_edu(domain, EduType::FriendRequest, &invite_content).await {
                 tracing::warn!(
                     error = %e,
                     domain = %domain,
@@ -1170,15 +1145,9 @@ impl FriendRoomService {
         // out all writes (total wall time ≈ max latency of the slowest write).
         let mut all_writes: Vec<(String, String, String, Value)> = Vec::new();
 
-        let shard_index: std::collections::HashMap<String, Vec<(String, Value)>> = {
-            let room_ids: Vec<String> = links.iter().map(|link| link.friend_room_id.clone()).collect();
-            // Empty-link fast path: skip SQL entirely.
-            if room_ids.is_empty() {
-                std::collections::HashMap::new()
-            } else {
-                self.friend_storage.get_friend_list_all_shards_batch(&room_ids).await?
-            }
-        };
+        let room_ids: Vec<String> = links.iter().map(|link| link.friend_room_id.clone()).collect();
+        let shard_index: std::collections::HashMap<String, Vec<(String, Value)>> =
+            self.friend_storage.get_friend_list_all_shards_batch(&room_ids).await?;
 
         for link in &links {
             // W5 sharding：find_friend_lists_by_dm_room_id 内部 SQL 写死 state_key=''，
@@ -1346,6 +1315,39 @@ impl FriendRoomService {
                 }
             },
         )?;
+
+        Ok(())
+    }
+
+    /// 处理收到的联邦好友接受通知（本方为请求发起方 / requester）。
+    ///
+    /// 对端 accepter 已在其服务器创建 DM 房间并把共享 `room_id` 回传；本方需要：
+    /// 1. 确保 requester 已加入该 DM 房间（幂等；依赖对端发出的邀请，失败仅告警）
+    /// 2. 把 accepter 写入 requester 的好友列表（携带共享 DM 房间）
+    /// 3. 建立双向 presence 订阅
+    /// 4. 把本地好友请求标记为 accepted
+    pub async fn handle_incoming_friend_accept(
+        &self,
+        requester_id: &str,
+        accepter_id: &str,
+        room_id: &str,
+    ) -> Result<(), FriendRoomError> {
+        if let Err(e) = self.room_service.membership().join_room(room_id, requester_id).await {
+            tracing::warn!(
+                requester_id = %requester_id,
+                room_id = %room_id,
+                error = %e,
+                "Failed to join DM room on incoming friend accept (non-fatal)"
+            );
+        }
+
+        let requester_friend_room = self.create_friend_list_room(requester_id).await?;
+        self.update_friend_list(requester_id, &requester_friend_room, accepter_id, "add", Some(room_id)).await?;
+
+        self.presence_storage.add_subscription(requester_id, accepter_id).await?;
+        self.presence_storage.add_subscription(accepter_id, requester_id).await?;
+
+        self.friend_storage.update_friend_request_status(requester_id, accepter_id, "accepted").await?;
 
         Ok(())
     }
@@ -1653,6 +1655,15 @@ impl FriendRoomProvider for FriendRoomService {
             // Convert FriendRoomError to ApiError via From impl
             ApiError::from(e)
         })
+    }
+
+    async fn handle_incoming_friend_accept(
+        &self,
+        requester_id: &str,
+        accepter_id: &str,
+        room_id: &str,
+    ) -> Result<(), ApiError> {
+        self.handle_incoming_friend_accept(requester_id, accepter_id, room_id).await.map_err(ApiError::from)
     }
 }
 
