@@ -1044,9 +1044,11 @@ Execution Time: 0.287 ms（返回 14 行）
 - 判据：`-E 'test(route_ledger)'` 15 passed（带/不带 `UPDATE_ROUTE_LEDGER_SNAPSHOTS`），
   `-E 'test(ledger_export)'` 7 passed，`check_route_contract.sh` **提交后** EXIT=0
   （提交前必为 1：gate 末尾把重生成的 ROUTE_CONTRACT.md 与 HEAD 比，属构造性红）。
-- **Batch 2 未做**：HTTP 往返级测试（4 段 GET → 200 且 `event_type` 生效、3 段不受影响）。
-  当前覆盖方式：路由快照证明路由已注册（含方法与参数名）+ 服务层 `event_type` 断言证明
-  过滤语义 + handler 为共享实现；**这是已知的覆盖缺口**，需要时单开一批补。
+- **HTTP 往返判据已补（2026-10-02）**：`api_relations_authorization_tests::relations_event_type_route_filters_over_http`
+  三条断言 —— ① 4 段 + 匹配 `event_type` ⇒ 200 且恰好返回该 reaction；② 4 段 + **不匹配**
+  `event_type` ⇒ 200 但 chunk 为空（证明过滤生效，而非"路由有 200 就算过"）；③ 3 段路由不受影响。
+  带**变异红证明**：把 4 段 handler 的 `event_type` 置 `None` ⇒ ② 断言红（chunk 长度变 1，
+  报文打印出来），复位即绿、探针清零。
 
 ### 8.4 依赖与并行度
 

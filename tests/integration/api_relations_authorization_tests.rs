@@ -256,3 +256,73 @@ async fn anti_screenshot_requires_power_level_not_only_membership() {
     let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK, "the room creator must still be able to set it");
 }
+
+// ──────────────── L-6: 4-segment `/{relType}/{eventType}` read route ────────────────
+
+/// L-6 的 HTTP 往返判据：spec 的 4 段
+/// `GET /_matrix/client/v1/rooms/{room}/relations/{event}/{relType}/{eventType}` 必须存在
+/// 且真的按 `event_type` 收窄返回集；3 段路由不受影响。
+///
+/// 断言三件事：① 匹配的 `event_type` 返回该事件；② **不匹配**的 `event_type` 返回 200
+/// 但 chunk 为空（证明过滤生效，而不是"路由有 200 就算过"）；③ 3 段路由仍返回该事件。
+#[tokio::test]
+async fn relations_event_type_route_filters_over_http() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let suffix = rand::random::<u32>();
+    let (token, _) = register_user_with_id(&app, &format!("rel_evtype_{suffix}")).await;
+
+    let room_id = create_room(&app, &token, "Relation event_type").await;
+    let target = send_message(&app, &token, &room_id).await;
+
+    // 一条 m.reaction：rel_type=m.annotation、event_type=m.reaction
+    let txn = format!("txn_{}", rand::random::<u32>());
+    let request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/send/m.reaction/{txn}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({ "m.relates_to": { "rel_type": "m.annotation", "event_id": target, "key": "👍" } }).to_string(),
+        ))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "reaction send must succeed");
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    let reaction_id =
+        serde_json::from_slice::<Value>(&body).unwrap()["event_id"].as_str().expect("event_id").to_string();
+
+    let get = |uri: String| {
+        Request::builder()
+            .method("GET")
+            .uri(uri)
+            .header("Authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap()
+    };
+    let chunk_len = |json: &Value| json["chunk"].as_array().map(Vec::len);
+
+    // ① 4 段 + 匹配的 event_type ⇒ 200 且恰好返回该 reaction
+    let uri = format!("/_matrix/client/v1/rooms/{room_id}/relations/{target}/m.annotation/m.reaction");
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get(uri)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "4 段 GET 必须存在（此前会 405/404）");
+    let json: Value = serde_json::from_slice(&axum::body::to_bytes(response.into_body(), 8192).await.unwrap()).unwrap();
+    let ids: Vec<&str> = json["chunk"].as_array().expect("chunk").iter().filter_map(|e| e["event_id"].as_str()).collect();
+    assert!(ids.contains(&reaction_id.as_str()), "匹配的 event_type 必须返回该事件: {json}");
+    assert_eq!(ids.len(), 1, "只应返回这一条 annotation: {json}");
+
+    // ② 4 段 + 不匹配的 event_type ⇒ 200 但 chunk 为空
+    let uri = format!("/_matrix/client/v1/rooms/{room_id}/relations/{target}/m.annotation/m.room.message");
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get(uri)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let json: Value = serde_json::from_slice(&axum::body::to_bytes(response.into_body(), 8192).await.unwrap()).unwrap();
+    assert_eq!(chunk_len(&json), Some(0), "不匹配的 event_type 必须被过滤掉: {json}");
+
+    // ③ 3 段路由不受影响
+    let uri = format!("/_matrix/client/v1/rooms/{room_id}/relations/{target}/m.annotation");
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get(uri)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let json: Value = serde_json::from_slice(&axum::body::to_bytes(response.into_body(), 8192).await.unwrap()).unwrap();
+    assert_eq!(chunk_len(&json), Some(1), "3 段路由应返回同一条 annotation: {json}");
+}
