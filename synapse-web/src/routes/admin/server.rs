@@ -182,13 +182,6 @@ pub async fn get_statistics(_admin: AdminUser, State(ctx): State<AdminContext>) 
     if let Some(gauge) = ctx.metrics.get_gauge("synapse_active_rooms_7d") {
         gauge.set(active_rooms as f64);
     }
-    // Current events-stream position (MAX(stream_ordering)); mirrors upstream
-    // Synapse's `synapse_storage_stream_current_position{stream="events"}`.
-    if let Ok(events_stream_position) = ctx.room_service.state().get_max_stream_ordering().await {
-        if let Some(gauge) = ctx.metrics.get_gauge("synapse_storage_stream_current_position") {
-            gauge.set(events_stream_position as f64);
-        }
-    }
 
     Ok(Json(json!({
         "total_users": total_users,

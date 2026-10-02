@@ -417,6 +417,25 @@ impl MetricsCollector {
     pub fn create_dynamic_histogram_template(&self, name: String, label_names: Vec<&str>) -> DynamicHistogramTemplate {
         DynamicHistogramTemplate::new(name, label_names, self.histograms.clone())
     }
+
+    /// Creates a dynamic gauge template for runtime label binding.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use synapse_common::metrics::MetricsCollector;
+    /// let collector = MetricsCollector::new();
+    /// let template = collector.create_dynamic_gauge_template(
+    ///     "synapse_storage_stream_current_position".to_string(),
+    ///     vec!["stream"]
+    /// );
+    ///
+    /// // Later, set with specific label values (one series per stream):
+    /// template.set(4242.0, &["events"]);
+    /// template.set(17.0, &["device_lists"]);
+    /// ```
+    pub fn create_dynamic_gauge_template(&self, name: String, label_names: Vec<&str>) -> DynamicGaugeTemplate {
+        DynamicGaugeTemplate::new(name, label_names, self.gauges.clone())
+    }
 }
 
 /// 动态 Counter 模板：支持运行时传入标签值，避免预先绑定所有组合。
@@ -492,6 +511,83 @@ impl DynamicCounterTemplate {
         let label_signature = self.build_signature(&labels);
         let counters = self.counters.lock();
         counters.get(&label_signature).cloned()
+    }
+}
+
+/// 动态 Gauge 模板：支持运行时传入标签值，避免预先绑定所有组合。
+///
+/// 与 [`DynamicCounterTemplate`] 同构，差别在写入语义是 `set`（覆盖当前位点）
+/// 而非自增。必要性：`MetricsCollector.gauges` 以 **name 为 key**，同名注册互相
+/// 覆盖；本模板改用**标签签名**为 key，使同名 gauge 的多个标签组合在同一
+/// collector 内**共存**（如 `synapse_storage_stream_current_position{stream="events"}`
+/// 与 `{stream="device_lists"}`）。
+pub struct DynamicGaugeTemplate {
+    name: String,
+    label_names: Vec<String>,
+    gauges: Arc<parking_lot::Mutex<HashMap<String, Gauge>>>,
+}
+
+impl DynamicGaugeTemplate {
+    /// Creates a new dynamic gauge template.
+    fn new(name: String, label_names: Vec<&str>, gauges: Arc<parking_lot::Mutex<HashMap<String, Gauge>>>) -> Self {
+        Self { name, label_names: label_names.iter().map(|s| s.to_string()).collect(), gauges }
+    }
+
+    /// Sets the value for the given label values.
+    ///
+    /// If the number of label values doesn't match the number of label names
+    /// (a programming error), a warning is logged and the write is dropped
+    /// instead of panicking, consistent with the counter/histogram templates.
+    pub fn set(&self, value: f64, label_values: &[&str]) {
+        if label_values.len() != self.label_names.len() {
+            tracing::warn!(
+                gauge = %self.name,
+                expected = self.label_names.len(),
+                got = label_values.len(),
+                "Dropping gauge write: label value count doesn't match label name count"
+            );
+            return;
+        }
+
+        let mut labels = HashMap::new();
+        for (i, label_value) in label_values.iter().enumerate() {
+            labels.insert(self.label_names[i].clone(), (*label_value).to_string());
+        }
+
+        let label_signature = self.build_signature(&labels);
+        let mut gauges = self.gauges.lock();
+
+        if let Some(gauge) = gauges.get(&label_signature).cloned() {
+            gauge.set(value);
+        } else {
+            let gauge = Gauge::with_labels(self.name.clone(), labels);
+            gauges.insert(label_signature, gauge.clone());
+            gauge.set(value);
+        }
+    }
+
+    /// Builds a unique signature for the given labels.
+    fn build_signature(&self, labels: &HashMap<String, String>) -> String {
+        let mut pairs: Vec<_> = labels.iter().collect();
+        pairs.sort_by(|a, b| a.0.cmp(b.0));
+
+        pairs.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>().join(",")
+    }
+
+    /// Gets the underlying gauge by label values (if already created).
+    pub fn get_gauge(&self, label_values: &[&str]) -> Option<Gauge> {
+        if label_values.len() != self.label_names.len() {
+            return None;
+        }
+
+        let mut labels = HashMap::new();
+        for (i, value) in label_values.iter().enumerate() {
+            labels.insert(self.label_names[i].clone(), (*value).to_string());
+        }
+
+        let label_signature = self.build_signature(&labels);
+        let gauges = self.gauges.lock();
+        gauges.get(&label_signature).cloned()
     }
 }
 
@@ -683,53 +779,66 @@ impl MetricsCollector {
     /// 无数据可算——规则里的 `rate(*_bucket[5m])` 会永远是空的。
     ///
     /// 各指标族按名字排序输出，使同一次运行内多次抓取的文本稳定可比。
+    ///
+    /// **`# HELP` / `# TYPE` 按指标族去重**：动态模板（counter/histogram/gauge）
+    /// 允许同名指标以不同标签共存于同一 map，若逐 entry 输出元数据行，同一族会
+    /// 出现多份 `# TYPE` —— Prometheus 遇到重复 `# TYPE` 会**拒绝整个 scrape**。
+    /// 同族内再按渲染后的标签串排序，保证多系列顺序确定。
     pub fn to_prometheus_format(&self) -> String {
         let mut output = String::with_capacity(4096);
 
         {
             let counters = self.counters.lock();
-            let mut sorted: Vec<&Counter> = counters.values().collect();
-            sorted.sort_unstable_by(|left, right| left.name.cmp(&right.name));
-            for counter in sorted {
-                output.push_str(&format!("# HELP {} {}\n", counter.name, counter.name));
-                output.push_str(&format!("# TYPE {} counter\n", counter.name));
-                output.push_str(&format!(
-                    "{}{} {}\n",
-                    counter.name,
-                    render_labels(&counter.labels, None),
-                    counter.get()
-                ));
+            let mut sorted: Vec<_> = counters
+                .values()
+                .map(|counter| (counter.name.as_str(), render_labels(&counter.labels, None), counter))
+                .collect();
+            sorted.sort_unstable_by(|left, right| left.0.cmp(right.0).then_with(|| left.1.cmp(&right.1)));
+            let mut last_name: Option<&str> = None;
+            for (name, labels, counter) in sorted {
+                if last_name != Some(name) {
+                    output.push_str(&format!("# HELP {name} {name}\n"));
+                    output.push_str(&format!("# TYPE {name} counter\n"));
+                    last_name = Some(name);
+                }
+                output.push_str(&format!("{name}{labels} {}\n", counter.get()));
             }
         }
 
         {
             let gauges = self.gauges.lock();
-            let mut sorted: Vec<&Gauge> = gauges.values().collect();
-            sorted.sort_unstable_by(|left, right| left.name.cmp(&right.name));
-            for gauge in sorted {
-                output.push_str(&format!("# HELP {} {}\n", gauge.name, gauge.name));
-                output.push_str(&format!("# TYPE {} gauge\n", gauge.name));
-                output.push_str(&format!(
-                    "{}{} {}\n",
-                    gauge.name,
-                    render_labels(&gauge.labels, None),
-                    normalize_negative_zero(gauge.get())
-                ));
+            let mut sorted: Vec<_> =
+                gauges.values().map(|gauge| (gauge.name.as_str(), render_labels(&gauge.labels, None), gauge)).collect();
+            sorted.sort_unstable_by(|left, right| left.0.cmp(right.0).then_with(|| left.1.cmp(&right.1)));
+            let mut last_name: Option<&str> = None;
+            for (name, labels, gauge) in sorted {
+                if last_name != Some(name) {
+                    output.push_str(&format!("# HELP {name} {name}\n"));
+                    output.push_str(&format!("# TYPE {name} gauge\n"));
+                    last_name = Some(name);
+                }
+                output.push_str(&format!("{name}{labels} {}\n", normalize_negative_zero(gauge.get())));
             }
         }
 
         {
             let histograms = self.histograms.lock();
-            let mut sorted: Vec<&Histogram> = histograms.values().collect();
-            sorted.sort_unstable_by(|left, right| left.name.cmp(&right.name));
-            for histogram in sorted {
-                let base = &histogram.name;
+            let mut sorted: Vec<_> = histograms
+                .values()
+                .map(|histogram| (histogram.name.as_str(), render_labels(&histogram.labels, None), histogram))
+                .collect();
+            sorted.sort_unstable_by(|left, right| left.0.cmp(right.0).then_with(|| left.1.cmp(&right.1)));
+            let mut last_name: Option<&str> = None;
+            for (base, _, histogram) in sorted {
                 let bounds = histogram_buckets_for(base);
                 // 单次加锁取全：count / sum / 各桶必须来自同一时刻。
                 let snapshot = histogram.snapshot(bounds);
 
-                output.push_str(&format!("# HELP {base} {base}\n"));
-                output.push_str(&format!("# TYPE {base} histogram\n"));
+                if last_name != Some(base) {
+                    output.push_str(&format!("# HELP {base} {base}\n"));
+                    output.push_str(&format!("# TYPE {base} histogram\n"));
+                    last_name = Some(base);
+                }
 
                 let bound_labels: Vec<String> = bounds.iter().map(f64::to_string).collect();
                 for (bound_label, bucket_count) in bound_labels.iter().zip(snapshot.cumulative.iter()) {
@@ -1300,6 +1409,57 @@ mod tests {
 
         assert!(alpha < zeta, "同族内应按名字升序:\n{output}");
         assert!(zeta < beta, "counter 块应整体排在 gauge 块之前:\n{output}");
+    }
+
+    #[test]
+    fn test_to_prometheus_format_dedups_help_and_type_for_dynamic_gauge_family() {
+        // 多标签动态 gauge ⇒ 同族多系列共存。若逐 entry 输出元数据行会出多份
+        // `# TYPE` —— Prometheus 遇重复 `# TYPE` 会拒绝**整个** scrape。
+        let collector = MetricsCollector::new();
+        let template = collector
+            .create_dynamic_gauge_template("synapse_storage_stream_current_position".to_string(), vec!["stream"]);
+        template.set(42.0, &["events"]);
+        template.set(7.0, &["device_lists"]);
+
+        let output = collector.to_prometheus_format();
+        assert_eq!(
+            output.matches("# TYPE synapse_storage_stream_current_position gauge").count(),
+            1,
+            "同族只应输出一份 # TYPE:\n{output}"
+        );
+        assert_eq!(
+            output.matches("# HELP synapse_storage_stream_current_position").count(),
+            1,
+            "同族只应输出一份 # HELP:\n{output}"
+        );
+        assert!(
+            output.contains("synapse_storage_stream_current_position{stream=\"events\"} 42"),
+            "events 系列应存在:\n{output}"
+        );
+        assert!(
+            output.contains("synapse_storage_stream_current_position{stream=\"device_lists\"} 7"),
+            "device_lists 系列应存在:\n{output}"
+        );
+    }
+
+    #[test]
+    fn test_to_prometheus_format_dedups_help_and_type_for_dynamic_counter_family() {
+        // 回归：`room_operations_total` / `cache_operations_total` 在生产中被多系列
+        // 喂入，去重前会输出重复 `# TYPE`（现存 bug）。
+        let collector = MetricsCollector::new();
+        let template =
+            collector.create_dynamic_counter_template("room_operations_total".to_string(), vec!["operation"]);
+        template.observe(&["create"]);
+        template.observe(&["join"]);
+
+        let output = collector.to_prometheus_format();
+        assert_eq!(
+            output.matches("# TYPE room_operations_total counter").count(),
+            1,
+            "同族只应输出一份 # TYPE:\n{output}"
+        );
+        assert!(output.contains("room_operations_total{operation=\"create\"} 1"), "create 系列应存在:\n{output}");
+        assert!(output.contains("room_operations_total{operation=\"join\"} 1"), "join 系列应存在:\n{output}");
     }
 
     #[test]

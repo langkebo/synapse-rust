@@ -233,8 +233,8 @@ impl RoomStateService {
     /// See [`get_max_stream_ordering`].
     ///
     /// Returns the current position of the main events stream — the maximum
-    /// `stream_ordering` present in `events` (0 when the table is empty). Used to
-    /// populate the `synapse_storage_stream_current_position` gauge.
+    /// `stream_ordering` present in `events` (0 when the table is empty). Read at
+    /// `/metrics` scrape time to populate `synapse_storage_stream_current_position{stream="events"}`.
     pub async fn get_max_stream_ordering(&self) -> Result<i64, RoomStateError> {
         self.event_reader.get_max_stream_ordering().await.map_err(RoomStateError::Database)
     }

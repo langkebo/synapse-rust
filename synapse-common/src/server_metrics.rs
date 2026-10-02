@@ -1,6 +1,6 @@
 //! Pre-registered Prometheus counters/gauges/histograms exposed by the server.
 
-use crate::metrics::{Counter, DynamicCounterTemplate, Gauge, Histogram, MetricsCollector};
+use crate::metrics::{Counter, DynamicCounterTemplate, DynamicGaugeTemplate, Gauge, Histogram, MetricsCollector};
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
@@ -103,11 +103,14 @@ pub struct ServerMetrics {
     pub total_users: Gauge,
     /// Total rooms on this server.
     pub total_rooms: Gauge,
-    /// Current position of the main events stream (`MAX(stream_ordering)` on `events`).
+    /// Current position of each storage stream, one series per `stream` label.
     ///
-    /// Mirrors upstream Synapse's `synapse_storage_stream_current_position{stream="events"}`.
-    /// Refreshed on demand by the admin `/statistics` handler.
-    pub storage_stream_current_position: Gauge,
+    /// Mirrors upstream Synapse's `synapse_storage_stream_current_position{stream="…"}`.
+    /// Written at scrape time by the `/metrics` handler (see `render_prometheus_metrics`),
+    /// so the value advances with writes rather than on admin-page access. Two series
+    /// today: `{stream="events"}` (`MAX(stream_ordering)` on `events`) and
+    /// `{stream="device_lists"}` (`MAX(stream_id)` on `device_lists_stream`).
+    pub storage_stream_current_position: DynamicGaugeTemplate,
 
     // Dehydrated Device Cleanup Metrics
     /// Dehydrated-device cleanup runs started.
@@ -277,7 +280,7 @@ impl ServerMetrics {
             total_users: collector.register_gauge("synapse_total_users".to_string()),
             total_rooms: collector.register_gauge("synapse_total_rooms".to_string()),
             storage_stream_current_position: collector
-                .register_gauge("synapse_storage_stream_current_position".to_string()),
+                .create_dynamic_gauge_template("synapse_storage_stream_current_position".to_string(), vec!["stream"]),
 
             dehydrated_device_cleanup_total: collector.register_counter("dehydrated_device_cleanup_total".to_string()),
             dehydrated_device_cleaned_total: collector.register_counter("dehydrated_device_cleaned_total".to_string()),
@@ -1315,12 +1318,15 @@ mod tests {
         let collector = Arc::new(MetricsCollector::new());
         let metrics = ServerMetrics::new(collector.clone());
 
-        // 必须注册进 collector，否则 admin `/statistics` 的 `get_gauge` 取不到，
-        // 指标也不会出现在 `/metrics` 输出中。
-        assert!(collector.get_gauge("synapse_storage_stream_current_position").is_some());
+        // per-stream 多标签：每个 stream 一个独立系列，同族共存、互不覆盖
+        // （单 gauge 会被后一次 `set` 覆盖，只剩一个 stream）。
+        metrics.storage_stream_current_position.set(4242.0, &["events"]);
+        metrics.storage_stream_current_position.set(17.0, &["device_lists"]);
 
-        metrics.storage_stream_current_position.set(4242.0);
-        assert_eq!(metrics.storage_stream_current_position.get(), 4242.0);
+        let events = collector.get_gauge("stream=events").expect("events 系列应已注册");
+        let device_lists = collector.get_gauge("stream=device_lists").expect("device_lists 系列应已注册");
+        assert_eq!(events.get(), 4242.0);
+        assert_eq!(device_lists.get(), 17.0);
     }
 
     #[test]
