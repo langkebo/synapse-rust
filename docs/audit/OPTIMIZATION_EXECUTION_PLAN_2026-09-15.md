@@ -747,7 +747,7 @@ fmt / sqlx / trait / web-layering 四个棘轮的扫描面扩到了新 crate，�
 | **B1 · 零风险收口** | M-1（`redis.username`）✅ 已交付 `7b54e01fd`；M-3（`/room_summary` `join_rules` 新鲜度）✅ 已交付（复核结论：**无行为改动**，交付回归网 + 契约，见 §18.3 #13）；L-5（文档去陈旧化）✅ 已交付（2026-10-01：五个历史章节加 §18 口径指针 + 门禁守卫） | 无 | 各项红/绿证明齐备（M-1 单测红→绿；M-3 两条集成用例 + 变异红证明；L-5 守卫红证明） |
 | **B2 · 互操作正确性** | H-2（MSC4311 开关接线 + knock stripped state）✅ 已交付；M-2（MSC4222 批次边界）待做 | M-2 必须先落可复现用例 | V-2（本地部分已落成用例，联调段待跑）/ V-4 |
 | **B3 · 认证与规则面** | H-1（取决于 **D-1**）、M-4（第三方规则接入事件鉴权，取决于 fail-open/closed 决策） | D-1；M-4 需先定失败语义 | V-1 / V-10 |
-| **B4 · 结构与性能** | M-5（状态决议缓存）✅ 已交付、M-6（`/relations` `recurse`）、L-1（stream 指标口径）、L-2（MSC4242 HTTP）、L-3（取决于 **D-3**）、L-4（取决于 **D-2**） | M-5/M-6 需先确认 `state_record` 写半边（F-1/F-2）已覆盖 | V-11 / V-12 |
+| **B4 · 结构与性能** | M-5（状态决议缓存）✅ 已交付、M-6（`/relations` `recurse`）、L-1（stream 指标口径）、L-2（MSC4242 HTTP，⚠️ 受阻待办）、L-3（取决于 **D-3**）、L-4（取决于 **D-2**） | M-5/M-6 需先确认 `state_record` 写半边（F-1/F-2）已覆盖 | V-11 / V-12 |
 
 ### 8.3 逐项执行卡
 
@@ -933,14 +933,14 @@ Execution Time: 0.287 ms（返回 14 行）
 | ID | 动作 | 判据 / 注意 |
 |---|---|---|
 | L-1 | stream position 指标做成 per-stream / worker-local（现仅 `events` 一条、且只在 admin `/statistics` 被访问时刷新） | V-12；先列全 stream 与各自 `get_max_stream_ordering` 来源，仪表盘同步 |
-| L-2 | MSC4242 的 HTTP 服务函数（上游本身也只是脚手架） | 新增端点须进 ledger + 契约再生成；依赖 MSC4242 语义定稿 |
+| L-2 | MSC4242 的 HTTP 服务函数（上游本身也只是脚手架）→ **⚠️ 受阻待办（2026-10-02 取证更正）**：上游 #20133 改的是**既有**联邦端点（`/make_join`、`/send_join`、`/get_missing_events` 的状态 DAG 回溯、`/send` 目的地按 `prev_state_events` 计算），**不新增路由**，原"新增端点须进 ledger"判据不成立 | 真实前置 = MSC4242 **房间版本** + `experimental_features` opt-in（本仓 `SUPPORTED_ROOM_VERSIONS` 仅至 v12）；语义未定稿 ⇒ **暂不实施**（详见对照报告 §18.4 L-2） |
 | L-3 | delayed events 的 per-endpoint worker 白名单（现前缀级 `/_matrix/client/*`） | 依赖 **D-3**；`RouteEntry` 加字段会牵动派生表/契约/fixture/快照四处 |
 | L-4 | sticky 事件 un-soft-fail | 依赖 **D-2**；若「不跟随」，只做文档收口并保留同名不同义告诫 |
 | L-5 | 报告 §12.4/§12.5/§15.3 的假缺口与自相矛盾（§18.5a 清单）标注/替换为指向 §18 | 无风险；可加守卫：§18.5(a) 的条目不得再出现在 §11–§12 的「当前状态」列（V-13） |
 
 ### 8.4 依赖与并行度
 
-- **可立即并行**（互不耦合）：M-1、M-3、L-5、L-1、L-2。
+- **可立即并行**（互不耦合）：M-1、M-3、L-5、L-1（L-2 已因 MSC4242 房间版本/语义未定稿而受阻，不再列入）。
 - **同一条链路、需串行**：D-1 → H-1；D-3 → L-3；D-2 → L-4。
 - **共享前置**：M-2 / M-4 / M-5 都要先有「可复现用例 or 明确的失败语义」，否则改动无法自证。
 - **彼此竞争同一文件/契约链**：H-2 与 L-3（路由/契约快照）、M-6 与 M-2（同步/存储读侧）——不要同窗口开。
@@ -952,7 +952,7 @@ Execution Time: 0.287 ms（返回 14 行）
 | **认证绕过** | H-1 接线后校验不严（issuer/audience/签名/过期任一缺口） | 4 路 fail-closed 用例（V-1）+ 默认 `mas.enabled=false` 保持现状 + 一键回滚开关 |
 | **与旧对端断链** | H-2 打开严格校验 | 默认 `false`（宽限期至 2027-06-01）；同时接受 stripped 与 full PDU；红/绿证明开关真的生效 |
 | **行为变化被低估** | M-4 接入后规则真的拦截事件 | 先定 fail-open/closed；分阶段：先记录不拦截 → 再拦截；规则超时不得阻塞消息主路径 |
-| **契约链漂移** | H-2 / L-2 / L-3 触及路由或 `/sync` 结构 | 按既有流程重生成 `ROUTE_CONTRACT.md` + 派生表 + 两车道 fixture + route ledger 快照，并跑 `check_route_contract.sh` |
+| **契约链漂移** | H-2 / L-3 触及路由或 `/sync` 结构 | 按既有流程重生成 `ROUTE_CONTRACT.md` + 派生表 + 两车道 fixture + route ledger 快照，并跑 `check_route_contract.sh` |
 | **死配置复发** | H-2 的开关又被写成 0 读取点 | 红证明（拨 true 必须变红）+ 报告 §18.6 V-2 的复核命令 |
 | **只改文档不改行为** | L-4 若选「不跟随」 | 把选择写进 §8.1 D-2 记录 + 报告 §18.3 #11 行，避免下轮又当成缺口重排 |
 

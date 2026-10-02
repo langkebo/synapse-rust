@@ -18,7 +18,7 @@
 >   ② **MSC4311 宽限开关是死配置 + knock stripped state 缺失** ③ `redis.username` 缺上游的"必须配密码"启动校验
 >   ④ MSC4222 `since` 落批次内的边界 ⑤ room_summary `join_rules` 反规范化列可陈旧
 >   ⑥ 第三方规则回调未接入事件鉴权 ⑦ 状态决议缓存缺失 ⑧ `/relations` 无 `recurse`（MSC3981）
->   ⑨ stream-position 指标口径 ⑩ MSC4242 无 HTTP 面（上游亦仅脚手架）。
+>   ⑨ stream-position 指标口径 ⑩ MSC4242 无 HTTP 面（上游 #20133 实为把 MSC4242 接进**既有**联邦端点，非新增路由；受阻于 MSC4242 房间版本 + experiment）。
 >   同时给出 **§18.5 假缺口作废清单**（§12.4/§12.5/§15.3 中"已修却写缺失"的 10+ 条，
 >   以及本轮初稿按旧基线误判、已更正的 6 项）与 **§18.6 待验证点**。
 > - **v1.9 全面审查（2026-09-27，HEAD `7db9d57db`，分支 `opt/consolidated`）**：系统性回到源码逐条复核
@@ -580,7 +580,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | **MSC4261** (Widget API) | ✅ | ✅ | ✅ 已对齐 |
 | **MSC4140** (Cancellable Delayed Events) | ✅（v1.143 起；v1.161 仅新增"查询单个延迟事件"端点） | ⚠️ **PARTIAL（联邦 EDU 已补齐，2026-09-25 复核）**：单机链路真实（`delayed_event_service.rs` + `synapse-storage/src/delayed_events.rs` + 调度器 `src/server/mod.rs` + 所有权 fail-closed）；**联邦 EDU 已实现** —— `synapse-federation/src/edu.rs` 的 `EduType::DelayedEvent` ⇄ `"m.delayed_event"`，消费点 `synapse-web/src/federation/edu.rs`。**仍缺**：schedule 的 `state_key` 硬编码 `None`（`synapse-services/src/delayed_event_service.rs:94`） | ⚠️ 单机 + EDU 已通，`state_key` 未填 |
 | **MSC3912 / v11 撤回格式** | ✅（v1.161 #19782：room version > 10 时 `redacts` 放入 `content`） | ⚠️ **PARTIAL（格式已对齐 + 级联已实现，2026-09-25 复核）**：① 格式：`RoomMessagingService::create_event` 按房间版本注入 `content.redacts`（v11+），出站 PDU 不再重复写顶层 `redacts`，有回归用例锁定；② **级联已实现**：`synapse-storage/src/event/cascade.rs`（`find_related_events` / `find_cascade_targets` BFS / `cascade_redact_event`）+ `synapse-services/src/event_redaction_service.rs:58` + 端点 `POST /_synapse/admin/v1/rooms/{room_id}/cascade_redact`（深度默认 5、上限 10）；`MSC3912` 代码标识现命中 5 个 `.rs`。**仍缺**：级联**仅管理端可达** —— 客户端撤回 `synapse-web/src/routes/handlers/room/events.rs:990` 仍只调 `redact_event_content`（单条） | ⚠️ 格式+级联已实现，客户端不级联 |
-| **MSC4242** (State DAGs) | ✅ 实验性（v1.161 #20127 联邦客户端 + #19718 存储函数） | ⚠️ **仅存储层**（`event/dag.rs:179/208/237` + `create.rs:161`），无服务/联邦/路由/房间版本启用；且 `dag.rs:200-205,231-234` 注释声称被 `/send_join`、`/get_missing_events` 使用，实测**无调用点**（不实注释） | ❌ 缺失（实验性） |
+| **MSC4242** (State DAGs) | ✅ 实验性（v1.161 #20127 联邦客户端 + #19718 存储函数） | ⚠️ **仅存储层**（`event/dag.rs:179/208/237` + `create.rs:161`），无服务/联邦/路由/房间版本启用；且原先注释声称 `find_events_referencing_missing_state` 被 `/get_missing_events` 使用，实测**无生产调用点**（不实注释，**2026-10-02 已修正为如实陈述**：仅 `db_tests` 覆盖） | ❌ 缺失（实验性） |
 | **MSC4512** (Application Services Proxy) | ✅ v1.161 实验性（#19972 代理命名空间 + #19977 联邦请求） | ✅ **代理已实现（2026-09-25 复核，旧判"未实现"作废）**：`synapse-web/src/routes/app_service.rs` 的 `proxy_to_as`（AS 注册校验 + `hs_token` 鉴权 + hop-by-hop 头过滤 + 响应回传），注册两条 `any()` 路由 `/_matrix/app/v1/proxy/{as_id}/{*path}` 与 `/_matrix/client/v1/proxy/{as_id}/{*path}`；**未做**联邦侧代理请求（#19977 的另一半）。另注：`module_service.rs` 实际不止 spam/3P/auth，还含模块 CRUD、媒体与 account_data 回调、account validity | ⚠️ 代理已对齐，联邦侧缺失 |
 
 **v1.161.0 上游条目对齐情况**（v1.3 已逐条实测，不再使用"待核查"）：
@@ -1155,7 +1155,7 @@ grep "CREATE INDEX" migrations/00000000_unified_schema_v12.sql | grep -i "events
 | 15 | 本地缩略图异步 | ✅ **已具备** | `synapse-services/src/media_service.rs:517-520`（解码/缩放在 `spawn_blocking`；另见 `:869`） |
 | 16 | `synapse_storage_stream_current_position` | ⚠️ **部分**（口径不同） | gauge 已注册 `synapse-common/src/server_metrics.rs:108-110,285-286`；**仅 `events` 一条、只在 admin `/statistics` 被访问时刷新**（`synapse-web/src/routes/admin/server.rs:186-190`）；上游是 per-stream / worker-local |
 | 17 | 当前状态缓存 / 状态决议缓存 | ✅ **已对齐（2026-10-01 更正 + 补齐）** | sliding-sync 整房状态缓存 `room_state:{room_id}` TTL 300（`synapse-services/src/sliding_sync_service/state.rs:20-36`）；**更正**：MSC4297 v2.1 本体**已在生产路径上**（`create_event_with_graph` → 提交后 `StateRecordBuilder` → `resolve_state_for_version_with_rules` → `full_conflicted_set` → `conflicted_state_subgraph`），此前据一条过时注释判该函数为死代码**属误判**（注释已修并加「不得当死代码删」告诫）；**补齐**：新增按冲突事件集合为键的结果缓存（`StateWalker`，builder 内作用域，见 §18.4 M-5） |
-| 18 | MSC4242 HTTP 服务函数 | ⚠️ **仅存储层** | `synapse-storage/src/event/dag.rs:255-290`、`synapse-storage/src/event/create.rs:257-281`；无路由/handler/service（上游 #20133 是"为未来 MSC4242 加 HTTP serving 函数"） |
+| 18 | MSC4242 HTTP 服务函数 | ⚠️ **仅存储层**（上游 #20133 实为"改现有联邦端点"，非新增路由） | `synapse-storage/src/event/dag.rs:255-290`、`synapse-storage/src/event/create.rs:257-281`；无 handler/service 接线。**取证更正（2026-10-02）**：上游 #20133 的"serving"是把 MSC4242 接进**既有**联邦端点——`/make_join`、`/send_join`、`/get_missing_events`（状态 DAG 回溯）与 `/send` 的目的地计算（`prev_state_events`），并让 `notify_on_event_delivered_over_federation` 纳入状态 DAG 事件；**不新增任何 HTTP 路由**。其前置是 MSC4242 **房间版本** + `experimental_features` opt-in，而本仓 `SUPPORTED_ROOM_VERSIONS`（`synapse-common/src/room_versions.rs:119`）只到 v12、无 MSC4242 版本，故**无接线落点**（详见 §18.4 L-2） |
 | 19 | 委派认证（MSC3861/MAS） | ✅ **已接线（2026-10-01，决策 D-1）** | 接线点 `auth/mas_validator.rs::build_mas_validator`（配置 → `OidcMasTokenValidator`），由 `container.rs` 在 `AuthService` 构造后按配置注入；启动期 `Config::validate()` 拒绝半配置（`mas.enabled` 必须有 `issuer_url` + `client_id`）；`verify_access_token` 在 `client_id` 非空时**校验 audience**（本仓无 introspection 绑定，`aud` 是唯一阻止跨客户端令牌混用的锚点）；`auth/token.rs` 既有 fail-closed 语义（MAS 返回 `Err` ⇒ 直接失败，**不回落**本地 HS256；`Ok(None)` 才回落）。证据：`build_mas_validator_requires_full_configuration`、`mas_rejection_never_falls_back_and_non_mas_falls_through`、`access_token_with_wrong_audience_is_rejected`（含"关掉校验即红"的变异证明）、`validate_rejects_mas_enabled_without_issuer_or_client_id` |
 | 20 | 单个 delayed event GET + worker 归属 | ✅ **已实现**（端点） | `synapse-web/src/routes/delayed_events.rs:41-61,98`、`synapse-services/src/delayed_event_service.rs`；worker 归属是前缀级 `/_matrix/client/*`（`synapse-storage/src/worker/models.rs:81-100`），**无 per-endpoint 白名单**（`route_ledger.rs:77-95` 的 `RouteEntry` 无 worker 字段） |
 
@@ -1189,7 +1189,7 @@ grep "CREATE INDEX" migrations/00000000_unified_schema_v12.sql | grep -i "events
 | ID | 改动内容 | 影响范围 | 兼容性风险 | 依赖 |
 |---|---|---|---|---|
 | **L-1** | stream position 指标做成 per-stream / worker-local（现在只有 events 单条且靠 admin 访问刷新） | `synapse-common/src/server_metrics.rs`、`synapse-web/src/routes/admin/server.rs`、各 stream 读侧 | **低**：指标口径变化（仪表盘需同步） | 需列出全部 stream 及各自 `get_max_stream_ordering` 来源 |
-| **L-2** | MSC4242 的 HTTP 服务函数（上游本身也只是脚手架） | `synapse-web/src/routes/`、`synapse-services/` | **低**：新增端点须进 ledger + 契约再生成 | 依赖 MSC4242 语义定稿（本仓已有存储层） |
+| **L-2** | MSC4242 的 HTTP 服务函数（上游本身也只是脚手架）→ **⚠️ 受阻待办（2026-10-02 取证更正）**：上游 #20133 并非"新增端点"，而是把 MSC4242 接进**既有**联邦端点（`/make_join`、`/send_join`、`/get_missing_events` 的状态 DAG 回溯、`/send` 目的地按 `prev_state_events` 计算）+ `notify_on_event_delivered_over_federation`，**不新增任何路由**（原"新增端点须进 ledger"判据不成立）。**真实前置 = MSC4242 房间版本**（本仓 `SUPPORTED_ROOM_VERSIONS` 仅至 v12）+ `experimental_features` opt-in；语义未定稿 ⇒ 暂不实施 | `synapse-web/src/routes/federation/membership/join.rs`、`synapse-web/src/routes/federation/events.rs`、`synapse-services/src/room/messaging/events.rs`、`synapse-common/src/room_versions.rs` | **低**：改动落在**既有**端点，不牵动 ledger/契约链（修正原判据） | 受阻于 MSC4242 房间版本与语义定稿（本仓已有存储层 `synapse-storage/src/event/dag.rs:255-290`、`synapse-storage/src/event/create.rs:257-281`） |
 | **L-3** | delayed events 的 per-endpoint worker 白名单（现在前缀级 `/_matrix/client/*`） | `synapse-storage/src/worker/models.rs`、`synapse-web/src/routes/route_ledger.rs`（`RouteEntry` 加 worker 字段） | **低**：worker 路由归属细化 | 需 worker 拓扑校验器的白名单实现先支持 per-route |
 | **L-4** | ~~MSC4354 状态变化时 un-soft-fail~~ → **⚪ 已裁定不跟随（2026-10-01，决策 D-2）**：本仓无 soft-fail 机制（`un_soft_fail` / `StickyEventsStream` 全仓 0 命中），"跟随"＝新建整套 soft-fail（新功能而非对齐），且会与本仓 `events.soft_failed`（B-8 事务去重，**同名不同义**）混淆。结论落档即可，无代码改动 | 本文件 + `MSC_SEMANTICS.md` §1.1 | — | — |
 | **L-5** | ~~本文档去陈旧化~~ → **✅ 已收口（2026-10-01）**：§11.2/§11.3/§12.4/§12.5/§15.3 五个历史章节各插入一条「当前口径见 §18」指针（正文按约定不改写），并把它变成门禁 (`doc_credibility_guard_tests::historical_sections_point_at_the_current_scope` + 纯谓词红证明，含「章节被改名 ⇒ 守卫失效」的检测) | 本文件、`tests/unit/doc_credibility_guard_tests.rs` | — | — |
@@ -1206,7 +1206,7 @@ grep "CREATE INDEX" migrations/00000000_unified_schema_v12.sql | grep -i "events
 | §12.5 SAS"高" | 该面**已整模块删除**（去服务端私钥重构），条目作废 | §15.3 L944 同行的"作废"标注 |
 | §12.5 QR"当前为桩" / `leak_detection`"未编译" / OIDC `validate_id_token_claims`"死代码" | 三者均**已删除** | §7.2 L387；§14.1 L71 |
 | §12.5 MSC4140"无法联邦/EDU" | EDU **已实现** | §12.4 L718 |
-| §12.5 MSC4242"❌ 缺失" | **已进 v12 图路径**（存储层），仅 HTTP 面缺（§18.3 #18） | `synapse-storage/src/event/dag.rs:255-290` |
+| §12.5 MSC4242"❌ 缺失" | **已进 v12 图路径**（存储层），仅 HTTP 面缺（§18.3 #18）；**取证更正（2026-10-02）**：上游 #20133 是把 MSC4242 接进**既有**联邦端点（`/make_join`、`/send_join`、`/get_missing_events`、`/send` 目的地），**不新增路由**，受阻于 MSC4242 房间版本 + experiment（§18.4 L-2） | `synapse-storage/src/event/dag.rs:255-290` |
 | §12.5 MSC4512"缺失" | 代理**已实现** | §12.5 L931 |
 | §12.4"撤回格式与默认房间版本不匹配""MSC3912 未实现" | **均已修**（默认版本 12 + MSC3912 级联） | §15.3 L945/L719 |
 | §15.3 "v12/v13 不可创建" | v12 **是唯一可创建**版本，v13 已移出能力表 | `room_versions.rs:94,119-152` |

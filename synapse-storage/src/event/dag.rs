@@ -284,9 +284,13 @@ impl EventStorage {
     }
 
     /// Find state events in a room that reference any of `missing_event_ids`
-    /// in their `prev_state_events`. Used by the `/get_missing_events`
-    /// federation handler to determine which state DAG events need backfilling
-    /// (MSC4242 mandates servers fill in unknown `prev_state_events`).
+    /// in their `prev_state_events` (MSC4242 state DAG).
+    ///
+    /// Storage-layer helper only: it currently has no production caller — the
+    /// `/get_missing_events` federation handler resolves history through
+    /// `get_missing_events_between`, and the MSC4242 serving layer (HTTP /
+    /// service / federation wiring) is not implemented yet. Exercised by
+    /// `db_tests` only.
     ///
     /// Returns the event IDs that reference at least one missing event.
     pub async fn find_events_referencing_missing_state(

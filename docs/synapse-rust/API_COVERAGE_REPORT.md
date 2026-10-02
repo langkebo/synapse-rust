@@ -272,7 +272,7 @@
 | Profile 不存在用户写自定义字段返回 404 而非 500 | 1.161 | **TRUE（已对齐，2026-09）** | `synapse-storage/src/user/storage.rs:726` 的 `user_exists` 为纯行存在性判定（**对已停用账户亦为 true**，见 `:718-725` 注释，对齐上游 #20172）；`extended_profile.rs:62-73` 用它 ⇒ 仅"真正不存在"返回 404、"已停用但存在"写字段成功。需要"可操作账户"的调用点另用 `active_user_exists`（`:738`） |
 | MSC4222 `/sync` 左房 `state_after` 成员泄漏修复 | 1.161 | **PARTIAL（订正：本仓已有 MSC4222 `state_after` 支持）** | ~~全仓 `state_after` / `MSC4222` = 0~~（旧判已作废）：`synapse-services/src/sync_service/types.rs:192,195,238`、`synapse-web/src/routes/handlers/sync.rs:35,80,164,185` 均有 `state_after` 透传；本仓**未做** v1.162 #20171 的「since 落在持久化批次内」worker 边界修复（见 §5.4） |
 | MSC3912 关系性撤回（room version > 10 时 `redacts` 置入 `content`） | 1.161 | **PARTIAL（格式已修 + 级联已实现，客户端路径不级联）** | ① **格式**：Phase 1 起由服务层按房间版本注入 `content.redacts`（v11+），出站 PDU 不再重复写顶层 `redacts`，有回归用例锁定；② **级联**：`synapse-storage/src/event/cascade.rs` + `synapse-services/src/event_redaction_service.rs:58` + 端点 `POST /_synapse/admin/v1/rooms/{room_id}/cascade_redact`（深度默认 5、上限 10）；③ **缺口**：客户端撤回路径 `synapse-web/src/routes/handlers/room/events.rs:990` 仍只调 `redact_event_content`（**不级联**）—— 级联仅管理端可达 |
-| MSC4242 State DAG（联邦客户端 + 存储） | 1.161 | **PARTIAL（仅存储层）** | `dag.rs` 注释声称被 `/send_join`、`/get_missing_events` 使用，实际 **0 调用点**；上游本身亦为 experimental |
+| MSC4242 State DAG（联邦客户端 + 存储） | 1.161 | **PARTIAL（仅存储层；受阻）** | `dag.rs` 不实注释**已修正（2026-10-02）**（如实陈述：无生产调用点、仅 `db_tests` 覆盖）；上游本身亦为 experimental，其 #20133 serving 是把 MSC4242 接进**既有**联邦端点、**不新增路由**，受阻于房间版本 + `experimental_features`（对照报告 §18.4 L-2） |
 | **v1.157.2 安全版本**（ELEMENTSEC / GHSA） | 1.157.2 | **已判定（2026-09-23，11 条）** | 逐条"受影响/不受影响 + 证据"对照表见 [`../synapse-rust-vs-synapse-comparison.md`](../synapse-rust-vs-synapse-comparison.md) §14.5：3 条需动作/决策（push rule 上限、别名劫持、multipart Content-Type）、2 条需代理侧复核、其余 6 条本仓已有守卫。⚠️ 公告计数是 **11** 而非 12（三处交叉验证：Releases 正文 / tag `CHANGES.md` / advisory 列表） |
 
 ### 5.3 外部依赖类（非路由，但影响能力声明）
@@ -334,7 +334,7 @@
 | #19979 把 logcontext 机制移植到 Rust | **N/A** | 本仓本就为 Rust；`logcontext`/`LoggingContext` **0 命中**，无 Python logcontext 对应结构 |
 | #20011 Rust 代码改为单一处存放 per-homeserver 状态 | **N/A** | Python/Rust 桥接层结构重构，本仓无对应 |
 | #20097 `synapse_storage_stream_current_position` 指标 | **已补（单 gauge 形态，L4）** | `synapse-common/src/server_metrics.rs` 新增 `storage_stream_current_position`（指标名 `synapse_storage_stream_current_position`）；值取 `event_reader.get_max_stream_ordering()`（`synapse-storage/src/event/batch.rs:261-266`），在 admin `/statistics` 刷新（`synapse-web/src/routes/admin/server.rs`）。⚠️ 上游是 **per-stream 多标签 gauge**；本仓 `MetricsCollector.gauges` 以 name 为 key、同名互相覆盖，故落为**单 gauge（事件流位置）** |
-| #20133 为未来 MSC4242 增加 HTTP serving 函数 | **MISSING** | 本仓 MSC4242 仅到存储层（`prev_state_events`，`synapse-storage/src/event/create.rs:257-265`），无 HTTP serving 函数 |
+| #20133 为未来 MSC4242 增加 HTTP serving 函数 | **MISSING（受阻）** | 取证更正（2026-10-02）：上游 #20133 是把 MSC4242 接进**既有**联邦端点（`/make_join`、`/send_join`、`/get_missing_events` 的状态 DAG 回溯、`/send` 目的地按 `prev_state_events` 计算），**不新增路由**；前置是 MSC4242 房间版本 + `experimental_features` opt-in，本仓 `SUPPORTED_ROOM_VERSIONS` 仅至 v12 ⇒ 无接线落点。本仓 MSC4242 仅到存储层（`prev_state_events`，`synapse-storage/src/event/create.rs:257-265`），无 HTTP serving 函数（详见对照报告 §18.4 L-2） |
 | #20160 为"当前房间状态的单项"增加缓存 | **PARTIAL（等价但粒度更粗）** | 本仓有 `room_state:{room_id}` **整房 state 列表**缓存（`synapse-services/src/sliding_sync_service/state.rs:20-36`，TTL 300；`synapse-cache/src/local.rs:47-49,91-92` 命名空间 `room_state` 20_000/1200），非上游按 `(type,state_key)` 单项缓存；**已属等价、无需重复实现** |
 | #20161 即使标准 Complement 套件失败也在 CI 跑 in-repo Complement | **N/A** | CI/测试基建 |
 | #20166 联邦传输代码重构（事务准备/完成分离） | **未核对** | 内部重构，无 API 契约影响 |
@@ -467,7 +467,7 @@
 | C3 | MSC4140 联邦 EDU | "已对齐" | **低（已实现，仅欠 `state_key`）** | EDU 已通；剩 `delayed_event_service.rs:94` 的 `state_key: None` |
 | C4 | Admin 媒体端点族补齐 | 未列 | **已收敛（低）** | 2026-09 已补齐 10 条（§6.3，**17 vs 上游 18**，≈94%）；仅差"复数 `users/{user_id}/media` 列举/删除"语义，看产品是否需要 |
 | C5 | Admin `stats` 接口接运维仪表盘 | 短期 | **中（保留）** | 保留 v1.3 方向 |
-| C6 | MSC4242（State DAG） | P0 阻断性 | **低（观察项）** | 上游本身 experimental + opt-in；应修正 `dag.rs` 不实注释。**MSC4512 已实现，从本行移出** |
+| C6 | MSC4242（State DAG） | P0 阻断性 | **低（观察项）** | 上游本身 experimental + opt-in；`dag.rs` 不实注释**已修正（2026-10-02）**；serving 受阻于 MSC4242 房间版本与语义定稿（§18.4 L-2；#20133 实为改既有联邦端点，非新增路由）。**MSC4512 已实现，从本行移出** |
 | C7 | OIDC 完善 / Push 优化 / Worker 架构激活 | 中期 | **中（保留）** | 保留 v1.3 方向 |
 
 ### D. 把"可辩护的覆盖率"变成机器产物（建议新增）
