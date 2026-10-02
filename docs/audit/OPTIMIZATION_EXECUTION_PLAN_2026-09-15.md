@@ -959,6 +959,36 @@ Execution Time: 0.287 ms（返回 14 行）
   只在 global-maintenance owner 中运行，按 `stream_writers` 过滤只会让 worker 部署
   少几条序列；仪表盘与监控文档同步登记为 §18.4 **L-1b**。
 
+**L-6 执行卡（2026-10-02 取证后定稿，下一步直接做）**
+
+目标：补 spec 稳定路由 `GET /_matrix/client/{v1,v3}/rooms/{roomId}/relations/{eventId}/{relType}/{eventType}`
+（ruma 侧 `getRelatingEventsWithRelTypeAndEventType`），使 MSC3981 的 `event_type` 过滤有 HTTP 入口。
+
+取证结论（已验证）：
+- `send_relation` 用 `Path<(String,String,String,String)>` **位置式**提取 ⇒ 4 段路径可以只注册
+  一条 `MethodRouter`（`.get(get_relations_by_type).put(send_relation)`），两个 handler 都不受
+  参数名影响；但 ledger/契约里一条路径只有一个参数名，故**统一取 spec 的 `{event_type}`**，
+  同时把 PUT 那条的 `{txn_id}` 一并改掉（同一批再生成四处）。
+- 路由快照的再生成开关：`UPDATE_ROUTE_LEDGER_SNAPSHOTS=1`（`tests/integration/api_route_ledger_tests.rs:133`）。
+- 存储层今天**没有** `event_type` 过滤（`synapse-storage/src/relations/mod.rs` 零命中）。
+
+执行步骤（按序，每步都可自证）：
+1. `RelationQuery` 加 `event_type: Option<String>`；service 透传；路由的 4 段 GET handler 从
+   path 取第 4 段填 `event_type`（2 段/3 段路由仍为 `None`）。
+2. 递归 CTE 在**递归内**的 `events` LEFT JOIN 上多投一列 `e.event_type AS event_type`，
+   外层 `WHERE ($10::text IS NULL OR event_type = $10)` —— 过滤施加在**返回集**（与 rel_type
+   同口径，即上游 Synapse 的语义）。
+3. `scripts/ci/sqlx_prepare.sh` 重生成 `.sqlx`（查询文本变了，R2）。
+4. 契约链四处再生成 + 快照：`extract_registered.py` → `gen_contract_doc.py` →
+   `gen_derived_routes.py`，ledger fixture 用 `--bin synapse_ledger_export` 或直接改
+   `query_params`/path（4 段的 PUT 名称变更），`UPDATE_ROUTE_LEDGER_SNAPSHOTS=1` 重跑两条
+   route-ledger 快照，`docs/openapi/route-table.json` 同步。
+5. 判据：① 服务层测试：`rel_type=m.annotation&event_type=m.reaction&recurse=true` 只返回
+   reaction 事件（用 MSC3981 示例图的等价图，注意 MSC 第 5 个示例本身自相矛盾，见 §18.6 V-11）；
+   ② 路由级测试：4 段 GET 返回 200 且 `event_type` 生效、3 段 GET 不受影响；
+   ③ 契约守卫 `check_route_contract.sh` EXIT=0、`check_sqlx_cache_fresh.sh --compile` OK。
+6. 完成后把 §18.4 L-6 行标 ✅，并在 §18.3 #14 的"披露②"里去掉"`event_type` 暂无 HTTP 入口"。
+
 ### 8.4 依赖与并行度
 
 - **可立即并行**（互不耦合）：M-1、M-3、L-5、L-1、L-2。
