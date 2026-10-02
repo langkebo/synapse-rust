@@ -580,7 +580,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | **MSC4261** (Widget API) | ✅ | ✅ | ✅ 已对齐 |
 | **MSC4140** (Cancellable Delayed Events) | ✅（v1.143 起；v1.161 仅新增"查询单个延迟事件"端点） | ⚠️ **PARTIAL（联邦 EDU 已补齐，2026-09-25 复核）**：单机链路真实（`delayed_event_service.rs` + `synapse-storage/src/delayed_events.rs` + 调度器 `src/server/mod.rs` + 所有权 fail-closed）；**联邦 EDU 已实现** —— `synapse-federation/src/edu.rs` 的 `EduType::DelayedEvent` ⇄ `"m.delayed_event"`，消费点 `synapse-web/src/federation/edu.rs`。**仍缺**：schedule 的 `state_key` 硬编码 `None`（`synapse-services/src/delayed_event_service.rs:94`） | ⚠️ 单机 + EDU 已通，`state_key` 未填 |
 | **MSC3912 / v11 撤回格式** | ✅（v1.161 #19782：room version > 10 时 `redacts` 放入 `content`） | ⚠️ **PARTIAL（格式已对齐 + 级联已实现，2026-09-25 复核）**：① 格式：`RoomMessagingService::create_event` 按房间版本注入 `content.redacts`（v11+），出站 PDU 不再重复写顶层 `redacts`，有回归用例锁定；② **级联已实现**：`synapse-storage/src/event/cascade.rs`（`find_related_events` / `find_cascade_targets` BFS / `cascade_redact_event`）+ `synapse-services/src/event_redaction_service.rs:58` + 端点 `POST /_synapse/admin/v1/rooms/{room_id}/cascade_redact`（深度默认 5、上限 10）；`MSC3912` 代码标识现命中 5 个 `.rs`。**仍缺**：级联**仅管理端可达** —— 客户端撤回 `synapse-web/src/routes/handlers/room/events.rs:990` 仍只调 `redact_event_content`（单条） | ⚠️ 格式+级联已实现，客户端不级联 |
-| **MSC4242** (State DAGs) | ✅ 实验性（v1.161 #20127 联邦客户端 + #19718 存储函数） | ⚠️ **仅存储层**（`event/dag.rs:179/208/237` + `create.rs:161`），无服务/联邦/路由/房间版本启用；且原先注释声称 `find_events_referencing_missing_state` 被 `/get_missing_events` 使用，实测**无生产调用点**（不实注释，**2026-10-02 已修正为如实陈述**：仅 `db_tests` 覆盖） | ❌ 缺失（实验性） |
+| **MSC4242** (State DAGs) | ⏸ **不接线（2026-10-02 裁定，L-2）** | ⚠️ **仅存储层**（`event/dag.rs:179/208/237` + `create.rs:161`），无服务/联邦/路由/房间版本启用。**MSC 未定稿**：`proposals/4242-state-dags.md` **不在** matrix-spec-proposals 的 `main`（枚举 310 个提案无 `*4242*`，raw URL 404），仅存在于 PR #4242（open/unmerged/`needs-implementation`，**无 room version 指派**、无 `x-addedInMatrixVersion`）；其 HTTP 面**不是 CSAPI**，只有既有联邦路由上的 `state_dag` 旗标与新字段（`/get_missing_events`、`/send_join`），且只在未指派的 `org.matrix.msc4242.12` 下有意义；上游联邦侧 PR **#19425 已关闭未合并**。本地 `synapse-web/` 零命中。`dag.rs` 里"被 `/get_missing_events` 使用"的注释**已修**（`find_events_referencing_missing_state` 无生产调用者；同文件另两处同类注释核实为真） | ⏸ 不接线（语义未定稿；上游联邦 PR 关闭未合并） |
 | **MSC4512** (Application Services Proxy) | ✅ v1.161 实验性（#19972 代理命名空间 + #19977 联邦请求） | ✅ **代理已实现（2026-09-25 复核，旧判"未实现"作废）**：`synapse-web/src/routes/app_service.rs` 的 `proxy_to_as`（AS 注册校验 + `hs_token` 鉴权 + hop-by-hop 头过滤 + 响应回传），注册两条 `any()` 路由 `/_matrix/app/v1/proxy/{as_id}/{*path}` 与 `/_matrix/client/v1/proxy/{as_id}/{*path}`；**未做**联邦侧代理请求（#19977 的另一半）。另注：`module_service.rs` 实际不止 spam/3P/auth，还含模块 CRUD、媒体与 account_data 回调、account validity | ⚠️ 代理已对齐，联邦侧缺失 |
 
 **v1.161.0 上游条目对齐情况**（v1.3 已逐条实测，不再使用"待核查"）：
@@ -899,7 +899,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 |---|------|------|----------|----------|
 | 1 | ELEMENTSEC-2026-1071 / GHSA-fp53-rw9v-hcf9 | push rules 数量/体积无上界 → 磁盘/内存耗尽 | ⚠️ **可能受影响/待深查** | push rule 走独立表（`client_push_service.rs` → `synapse-storage/src/push/mod.rs`），未发现 per-user 条数上限；唯一的 64KB 限制在 account-data 路径，pushrules 路由不经过 |
 | 2 | ELEMENTSEC-2024-1520 / GHSA-rgv2-84w7-5j9p | to-device EDU 发送方伪造 | ✅ 不受影响 | `synapse-web/src/federation/edu.rs` 要求 `user_matches_origin(sender, origin)`，否则丢弃 EDU |
-| 3 | ELEMENTSEC-2026-1717 / GHSA-27p5-4f45-gx76 | `/get_missing_events` 跨房泄露 | ✅ 不受影响（有纵深防御备注） | 路由先 `validate_federation_origin_can_observe_room`；storage 最终查询 `WHERE room_id = $1 AND event_id = ANY($2)`（CTE 本身未按房间限定，建议补注释） |
+| 3 | ELEMENTSEC-2026-1717 / GHSA-27p5-4f45-gx76 | ✅ **已实现（2026-10-02，M-1）** | ✅ 不受影响（有纵深防御备注） | 路由先 `validate_federation_origin_can_observe_room`；storage 最终查询 `WHERE room_id = $1 AND event_id = ANY($2)`（CTE 本身未按房间限定，建议补注释） |
 | 4 | ELEMENTSEC-2026-1721 / GHSA-95fh-hv8c-chvq | 联邦错误回传导致客户端销毁加密状态 | ✅ 不受影响 | `From<FederationClientError> for ApiError` 一律映射为 500 `M_UNKNOWN`，远端状态码被丢弃 |
 | 5 | ELEMENTSEC-2026-1729 / GHSA-cjh7-rcpx-xpf8 | 房间别名重定向 | ⚠️ **本地可劫持（确认）** | `synapse-storage/src/room/mod.rs` 的 `ON CONFLICT (room_alias) DO UPDATE SET room_id = EXCLUDED.room_id` 会静默改指；路由无"别名已被占用"预检。联邦向量待深查 |
 | 6 | ELEMENTSEC-2026-1740 / GHSA-6wjm-9p2x-gvpm | `multipart/form-data` Content-Type 大小写绕过 DoS 缓解 | ⚠️ **待深查** | 本仓无手写 Content-Type 检查（multipart 仅经 axum `Multipart`，`routes/voice.rs`）；有全局 body 上限，但解析器内部行为属上游 |
@@ -1099,14 +1099,16 @@ grep "CREATE INDEX" migrations/00000000_unified_schema_v12.sql | grep -i "events
   git diff --stat v1.161.0 v1.162.0                                            # 153 文件 / +8,223 / −1,739
   git diff v1.161.0 v1.162.0 -- synapse/config/ docs/usage/configuration/config_documentation.md
   ```
-- **本仓基线**：`main`（2026-10-01，`feature/2026-10-01-metrics-docs-updates` 已合并；该分支 tip `e1ffcb2ab`）。
-  v1.162.0 的对齐提交都在这条分支上：`18a07b2c1`（metrics 模板）、`08d014626`（MSC4354 sticky EDU）、
+- **本仓基线**：`opt/consolidated` @ `f8c45b73d` 与 `feature/2026-10-01-metrics-docs-updates` @ `418d32d8b`
+  **已于 2026-10-02 合流**（反向合并：`opt/consolidated` 合入 feature 分支）。两条线此前**各自独立实现**了
+  同一批条目（详见 §18.7），合流时已逐项去重，**不留双实现**。
+  v1.162.0 的对齐提交都在这些分支上：`18a07b2c1`（metrics 模板）、`08d014626`（MSC4354 sticky EDU）、
   `d409bd89b`（OTK 上限 / historical user_id / `M_UNKNOWN_DEVICE`）、`ede782382`（MSC4140 GET /
-  stream gauge / `redis.username` / profile 空字段 / hierarchy `allowed_room_ids`）。
-  §18.3 表中标 `e1ffcb2ab` 的证据行取自合并前该分支 tip，合并后这些文件未变；本轮另加了 MSC3720
-  账户状态（客户端 + 联邦两条路由）与本文档自身的计数刷新。
-  ⚠️ **D-1 批次**：§18.3 #12 / §18.4 M-4 / §18.6 V-10 的“已收口 / 已落成用例”标注来自本仓
-  `feature/2026-10-01-metrics-docs-updates` 上尚未并入上游 `e1ffcb2ab` 的事件准入钩子批次（`ee3181c26`…`cf52e113f`）。
+  stream gauge / `redis.username` / profile 空字段 / hierarchy `allowed_room_ids`）、
+  `ee3181c26`…`cf52e113f`（第三方事件准入钩子 D-1）、`aee2f098e`（M-5 跨请求共享决议缓存）、
+  `b30bf1997`（L-3 worker 显式路径集）、`cf845cb35`+`2695d5706`（L-6 relations 4 段路由）。
+  §18.3 表中标 `e1ffcb2ab` 的证据行取自当时的分支 tip；**2026-10-02 第二轮复核**按 `f8c45b73d` 逐行复算，
+  更正了 #3（`redis.username` 已对齐）与 #12（第三方钩子已实现，非缺口）。
   ⚠️ **不要**用旧的 `.worktrees/c19b` @ `64a015a8d` 判定 v1.162 的对齐状态
   （本文 §18 初稿曾按 c19b 误判 6 项为缺失，已在 §18.3/§18.5 更正）。
 - **判定口径**：`路径:行号` 或可复现命令；找不到即写"❌ 缺"而不用"待确认"充当结论；无法在本轮证实的写
@@ -1133,14 +1135,14 @@ grep "CREATE INDEX" migrations/00000000_unified_schema_v12.sql | grep -i "events
 | 修复 | MSC4354 Sticky Events：房间状态变化时**取消 soft-fail**（联邦更可靠；配合 MSC4242 用 `prev_state_events`） | `synapse/storage/databases/main/sticky_events.py`、`federation/sender/*` |
 | 内部 | Rust 化 logcontext；单一 per-homeserver Rust 状态；新增 `synapse_storage_stream_current_position` 指标；MSC4242 HTTP 脚手架；当前房间状态缓存；状态决议缓存（按冲突事件）；per-destination 事务 prepare/complete 拆分；`/room_summary` 陈旧 `join_rules` 修复；CI/文档若干 | `rust/src/logging/context.rs`、`synapse/storage/controllers/state.py`、`synapse/state/*` 等 |
 
-### 18.3 逐项对照（本仓现状；基线 `e1ffcb2ab`）
+### 18.3 逐项对照（本仓现状；原证据基线 `e1ffcb2ab`，2026-10-02 按 `f8c45b73d` 逐行复核）
 
 | # | v1.162.0 项 | 本仓状态 | 证据（`e1ffcb2ab`） |
 |---|---|---|---|
 | 1 | 默认房间版本 12 | ✅ **已对齐** | `synapse-common/src/room_versions.rs:94` `DEFAULT_ROOM_VERSION="12"`；`:119-152` `SUPPORTED_ROOM_VERSIONS`=1..12（v1–v11 `stable_no_create`、v12 可创建）；v13 有意移出 |
 | 1b | `available` 列出多版本 | ⚠️ **有意不同**：只列**可创建**版本（仅 `"12"`），上游列 11/12 | `room_versions.rs:210-218` |
 | 2 | OTK 单设备单算法 500 上限（400） | ✅ **已实现**（`d409bd89b`） | `synapse-e2ee/src/device_keys/service.rs:20-21,317-326`（整批拒绝 + `MatrixErrorCode::TooLarge`，测试 `:1028/:1039/:1055` 断言 400 且不落库） |
-| 3 | `redis.username`（ACL）+ 必须配密码 | ⚠️ **部分**：字段与 URL 构造已有；**缺**启动校验，且 `redis.username` 未进 env 解析 | `synapse-common/src/config/database.rs:156`、`:184-195`（`user:pass@` / `user@` / `:pass@`）；`:307` 有 username-only 的**测试**把上游的反例固化为合法；`loader.rs:80-82` 只解析 host/password/key_prefix |
+| 3 | `redis.username`（ACL）+ 必须配密码 | ✅ **已对齐（2026-10-02，M-1；第二轮复核更正）** | `synapse-common/src/config/database.rs:187-195`（`user:pass@` / `user@` / `:pass@` 三种连接串形状）；**启动校验已补**：`validation.rs:82-88` 拒绝「配了 username 却没配 password」（空白值按未配置处理，与连接串口径一致）；**env 插值已补**：`loader.rs:81-82` 让 `redis.username` 与 `password` 走同一条 `${VAR}` 路径。⚠️ `database.rs:307` 的 username-only **形状测试**已改名为 `redis_connection_url_username_only_shape_is_formatter_only` 并写明该配置被 `Config::validate` 拒绝、运行时不可达 —— 它钉的是纯函数行为，不再是"反例合法"的证据 |
 | 4 | `rc_profile` 覆盖 profile 查询 | ✅ **已实现** | `synapse-common/src/config/rate_limit.rs:95-97,110`（`per_second 1`、`burst_size 5`）；`synapse-web/src/routes/account_compat.rs:99,119,140`（GET）与 `:206,238`（PUT）。⚠️ 默认 burst 与上游 500 不同 |
 | 5 | 未设置 profile 字段返回 `{}` | ✅ **已对齐**（`ede782382`） | `synapse-web/src/routes/account_compat.rs:155-165` `single_profile_field` → `{}`；`synapse-services/src/user_service.rs:459-473` `build_profile_json` 省略未设置键 |
 | 6 | hierarchy 返回 `allowed_room_ids` | ✅ **已实现**（`ede782382`） | `synapse-web/src/routes/handlers/search/hierarchy.rs:128,198` → `annotate_allowed_room_ids`（`:203-224`），经 `resolve_allowed_room_ids`（`synapse-services/src/room/summary/service.rs:97`） |
@@ -1149,20 +1151,24 @@ grep "CREATE INDEX" migrations/00000000_unified_schema_v12.sql | grep -i "events
 | 9 | 丢弃非合规历史 user id 的设备列表 EDU | ✅ **已实现**（`d409bd89b`） | `synapse-common/src/validation.rs:73` `is_compliant_user_id_localpart`；`synapse-web/src/federation/edu.rs:13,115` 在 `validate_device_list_update_content` 中丢弃 |
 | 10 | MSC4222 `state_after` | ✅ **已按规范实现（2026-10-01；原为编号借用）** | 接受 `?use_state_after=true` 与 `?org.matrix.msc4222.use_state_after=true`（不稳定名优先，响应字段镜像它）；opt-in 后房间段**省略 `state`**、返回 `state_after`（不稳定名为 `org.matrix.msc4222.state_after`），**空也返回**；内容 = 上次同步 → 本次 timeline 末尾（本地状态窗口 `stream_ordering > since` 上界无界，天然满足，无需第二次查询）；**删除了非规范的 `?state_after=<event_id>` 参数与左房时间戳过滤**（生产不可达的死分支）。证据：`msc4222_opt_in_replaces_state_with_state_after`、`msc4222_unstable_opt_in_mirrors_the_unstable_field_name`、`msc4222_state_after_is_present_even_when_empty`、`msc4222_default_keeps_state_and_never_emits_state_after`（services）、`msc4222_use_state_after_accepts_both_spellings`、`msc4222_use_state_after_requires_a_truthy_value`（web）；默认路径回归：`sync_authenticated_initial` 快照**零 diff** |
 | 11 | MSC4354 sticky 事件 un-soft-fail | ⚪ **已裁定不跟随（2026-10-01，决策 D-2）**（EDU 已通；本仓无 soft-fail 对象） | 存储 `synapse-storage/src/sticky_event.rs` + `migrations/00000000_unified_schema_v12.sql:609`；客户端路由 `synapse-web/src/routes/sticky_event.rs`；`/sync` 注入 `sync_service/response.rs:238-259`；EDU 出入站 `synapse-federation/src/edu.rs:38-40,71,88`、`web/federation/edu.rs:645,820+`、`synapse-services/src/room/service.rs:659-684`（`08d014626`）。**`un_soft_fail` 0 命中**；本仓 `API_COVERAGE_REPORT.md` 把上游 #20204 的语义声明为 N/A ⇒ 需产品决策 |
-| 12 | MSC4291 + 第三方 `check_event_allowed()` | ✅ **已收口（2026-10-01，D-1）** | 钩子落地为 `EventAdmissionGate` + 共享踏板 `consult_event_admission`（`synapse-services/src/module_service.rs`），在**状态变更前**咨询：本地两咽喉 `room/messaging/events.rs` 与 membership 本地/联邦写入点 `room/membership/{actions,moderation,federation}.rs`，并覆盖房间创建序列 `room/lifecycle/create_events.rs` 与 burn-after-read 的 `m.room.redaction`（`burn_after_read_service.rs`）。触发侧 `third_party_rules` 配置（`synapse-common/src/config/mod.rs` 的 `ThirdPartyRulesConfig`）经 `ModuleService::register_configured_third_party_rules`（`synapse-services/src/wiring/admin.rs`）启动注册，`has_event_rules()` 自启动即为真、钩子**生产可达**；规则可携 `modification`（`event_types` + 改写后 `content`）对齐上游 `(True, dict)`，异常 fail-closed 拒绝（对齐 v1.49.0 #11033）；改写仅作用于本地事件（联邦入站以 `allow_modification=false` 咨询）。`check_event_allowed` 不再是“0 命中”。提交：`ee3181c26`…`cf52e113f`（D-1 五连） |
+| 12 | MSC4291 + 第三方 `check_event_allowed()` | ✅ **已实现（2026-10-02 合流后，D-1）** | 钩子落地为 `EventAdmissionGate` + 共享踏板 `consult_event_admission`（`synapse-services/src/module_service.rs:135-225`），在**状态变更前**咨询：本地两咽喉（`synapse-services/src/room/messaging/events.rs:1365`）与 membership 本地/联邦写入点，并覆盖房间创建序列（`synapse-services/src/room/lifecycle/create_events.rs:89`）与 burn-after-read 的 `m.room.redaction`。触发侧 `third_party_rules` 配置经 `ModuleService::register_configured_third_party_rules` 启动注册；规则可携 `modification`，异常 **fail-closed**（对齐上游 v1.49.0 #11033）；改写仅作用于本地事件（联邦入站 `allow_modification=false`）。用例 20/20 通过（`event_admission_gate_fails_closed_when_a_rule_errors`、`create_event_denied_by_admission_rule_returns_forbidden`、`register_configured_third_party_rules_wires_config_into_the_gate` 等）。本仓 MSC4291 = room-v12 的 create-id 规则（`synapse-federation/src/event_auth/rules.rs:14,60,64,150`） |
 | 13 | `/room_summary` 陈旧 `join_rules` | ✅ **已核对并加回归网**（2026-10-01） | 反规范化列 `synapse-storage/src/room_summary/repository.rs:59,131`（`join_rules AS join_rule`）。**`should_update_summary = tx.is_none()`（`room/messaging/events.rs:182`）跳过的只是「事务内写入的就地刷新」，而今天唯一的事务内状态写入是 createRoom 的 `initial_state`，它有两条独立补偿：①提交前把 `m.room.join_rules` 显式投影进 summary 请求（`room/lifecycle/create.rs:435-470,503`）；②`create_summary` 末尾的 `synchronize_room_snapshot`（`room/summary/service.rs:169` → `state.rs:90-92`）从**已提交状态**重算 `join_rule`。其余状态写入（客户端 `PUT /state`、成员变更、联邦入站）`tx=None`，就地刷新。两条集成用例锁定该不变量并已做**变异红证明**：`api_room_summary_routes_tests.rs::summary_join_rule_follows_client_state_write`（移除 state→summary 投影即红）、`…_initial_state_join_rules`（同时移除两条补偿即红）。**残留契约**：未来新增事务内状态写入时，调用方必须在提交后自行触发 summary 刷新（先例即 createRoom） |
-| 14 | 递归 `/relations`（MSC3981 `recurse`） | ✅ **已实现（2026-10-02，M-6）** | 规范（_proposals_：`proposals/3981-relations-recursion.md`，**spec v1.10 起稳定**）：`recurse`（不稳定名 `org.matrix.msc3981.recurse`）为 true 时纳入「关系的关系」；事件**始终**按拓扑序（与同 `dir` 的 `/messages` 一致），分页与 limit 也作用于该序；传了 `recurse` 就必须回 `recursion_depth`；`/versions` 广告 `org.matrix.msc3981`。本仓现状：两条路径（recurse on/off）共用**一条静态递归 CTE**（`$6 = TRUE` 短路递归项 ⇒ 缺省路径只出直连），排序键与 keyset 游标改在 `events.stream_ordering` 上 ⇒ 合规客户端不再 400、序为拓扑序；深度口径与上游一致（0 基 `depth <= 3`，上报 3）。**两处披露**：① 过滤语义取**参考实现**（先递归、后过滤返回集）——MSC 正文那句「过滤同时剪枝中间节点」与 MSC 自己的第 5 个示例自相矛盾，Synapse 的 CTE 是前者，引用见 `MSC_SEMANTICS.md` §1.1；② `event_type` 过滤的 HTTP 入口**已于 2026-10-02 补齐**（spec 的 `GET …/{relType}/{eventType}` 4 段路由与同路径既有 `PUT` 合并进同一 `MethodRouter`，第 4 段参数名取 `{event_type}`；见 §18.4 L-6） |
+| 14 | 递归 `/relations`（MSC3981 `recurse`） | ✅ **已实现（2026-10-02，M-6）** | 规范（_proposals_：`proposals/3981-relations-recursion.md`，**spec v1.10 起稳定**）：`recurse`（不稳定名 `org.matrix.msc3981.recurse`）为 true 时纳入「关系的关系」；事件**始终**按拓扑序（与同 `dir` 的 `/messages` 一致），分页与 limit 也作用于该序；传了 `recurse` 就必须回 `recursion_depth`；`/versions` 广告 `org.matrix.msc3981`。本仓现状：两条路径（recurse on/off）共用**一条静态递归 CTE**（`$6 = TRUE` 短路递归项 ⇒ 缺省路径只出直连），排序键与 keyset 游标改在 `events.stream_ordering` 上 ⇒ 合规客户端不再 400、序为拓扑序；深度口径与上游一致（0 基 `depth <= 3`，上报 3）。**两处披露**：① 过滤语义取**参考实现**（先递归、后过滤返回集）——MSC 正文那句「过滤同时剪枝中间节点」与 MSC 自己的第 5 个示例自相矛盾，Synapse 的 CTE 是前者，引用见 `MSC_SEMANTICS.md` §1.1；② ~~`event_type` 过滤无 HTTP 入口~~ → **已补（L-6，2026-10-02）**：spec 的 4 段 `GET …/{relType}/{eventType}` 已注册，契约链同步，判据见 §18.4 L-6 |
 | 15 | 本地缩略图异步 | ✅ **已具备** | `synapse-services/src/media_service.rs:517-520`（解码/缩放在 `spawn_blocking`；另见 `:869`） |
-| 16 | `synapse_storage_stream_current_position` | ✅ **已落地 per-stream（2026-10-02，D-6b）** | per-stream 多标签 gauge，两条 series：`{stream="events"}`=`MAX(stream_ordering)`、`{stream="device_lists"}`=`MAX(stream_id)`；由 `MetricsCollector` 新增的 `DynamicGaugeTemplate` 注册（`synapse-common/src/server_metrics.rs`），在 `/metrics` **抓取时即时计算**（`src/server/mod.rs::refresh_storage_stream_positions`），不再是 admin `/statistics` 拉取式。**配套修复**：`to_prometheus_format()` 按 metric family 去重 `# HELP`/`# TYPE`（此前动态 counter 多系列重复输出，Prometheus 会拒绝整个 scrape）。仪表盘/查询同步见 §18.6 V-12 |
-| 17 | 当前状态缓存 / 状态决议缓存 | ✅ **已对齐（2026-10-01 更正 + 补齐；2026-10-02 作用域升级）** | sliding-sync 整房状态缓存 `room_state:{room_id}` TTL 300（`synapse-services/src/sliding_sync_service/state.rs:20-36`）；**更正**：MSC4297 v2.1 本体**已在生产路径上**（`create_event_with_graph` → 提交后 `StateRecord::after_state_event` → `resolve_forked_state` → `StateWalker::resolve` → `resolve_state_for_version_with_rules` → `full_conflicted_set` → `conflicted_state_subgraph`），此前据一条过时注释判该函数为死代码**属误判**（注释已修并加「不得当死代码删」告诫）；**补齐**：新增按冲突输入键控的结果缓存（`StateWalker` + 进程内跨请求共享的 `ResolutionCache`，见 §18.4 M-5） |
-| 18 | MSC4242 HTTP 服务函数 | ⚠️ **仅存储层**（上游 #20133 实为"改现有联邦端点"，非新增路由） | `synapse-storage/src/event/dag.rs:255-290`、`synapse-storage/src/event/create.rs:257-281`；无 handler/service 接线。**取证更正（2026-10-02）**：上游 #20133 的"serving"是把 MSC4242 接进**既有**联邦端点——`/make_join`、`/send_join`、`/get_missing_events`（状态 DAG 回溯）与 `/send` 的目的地计算（`prev_state_events`），并让 `notify_on_event_delivered_over_federation` 纳入状态 DAG 事件；**不新增任何 HTTP 路由**。其前置是 MSC4242 **房间版本** + `experimental_features` opt-in，而本仓 `SUPPORTED_ROOM_VERSIONS`（`synapse-common/src/room_versions.rs:119`）只到 v12、无 MSC4242 版本，故**无接线落点**（详见 §18.4 L-2） |
+| 16 | `synapse_storage_stream_current_position` | ✅ **已 per-stream（2026-10-02，L-1）** | 改成**同名多标签** gauge（`{stream="…"}`）：此前 `MetricsCollector.gauges` 以 name 为 key，同名不同标签会互相覆盖，故先补 `DynamicGaugeTemplate`（与既有 counter/histogram 模板同构）。标签集合 = `StreamPosition::ALL`（`events` / `to_device` / `device_lists` / `sliding_sync` / `quarantined_media`），数据源是 `synapse-storage/src/stream_positions.rs` 的**单条 UNION ALL 查询**；刷新从 admin `/statistics` 的按需更新改为 `src/server/mod.rs` 30s 指标循环周期刷新；判据 V-12 落地两条集成测试（标签集合与登记表逐字一致 + 每个 stream 随写入推进，含红证明）。**未覆盖**：upstream 的 presence/typing/receipts/account_data/push_rules/e2ee/backfill/federation 在本仓**没有位置列**；`sync_stream_id`、`device_lists_outbound_pokes`、`worker_events` 有列但**无生产写者**（恒 0）；`room_ephemeral.stream_id` 是调用方传的墙钟毫秒且被 UPSERT 覆盖（非单调）。**worker-local** 未做：本仓位置取自 DB（写者无关），per-stream 已足，而刷新循环只在 global-maintenance owner 中运行 ⇒ 按 `stream_writers` 过滤反而会让 worker 部署少几条序列；仪表盘/监控文档同步登记为 §18.4 L-1b。**⚠️ 本轮修复的真实缺陷（合流时保留）**：per-stream 落地后，`to_prometheus_format()`（`synapse-common/src/metrics.rs:747`）必须**按指标族去重** `# HELP`/`# TYPE`；动态模板（`DynamicGaugeTemplate::set`）把**每个标签组合**存成独立条目，逐 entry 输出会让同一族出现多份元数据行。`room_operations_total` / `cache_operations_total`（`synapse-common/src/server_metrics.rs:417,421`）早已如此。Prometheus 文本格式规定 _「Only one `HELP` line may exist for any given metric name」_（[exposition formats](https://next.prometheus.io/docs/instrumenting/exposition_formats/)），重复元数据行会让**整个 scrape 被拒绝**。修复与两条用例（`test_to_prometheus_format_dedups_help_and_type_for_dynamic_gauge_family` / `…_counter_family`）已随合流入库 |
+| 17 | 当前状态缓存 / 状态决议缓存 | ✅ **已对齐（2026-10-01 更正 + 补齐）** | sliding-sync 整房状态缓存 `room_state:{room_id}` TTL 300（`synapse-services/src/sliding_sync_service/state.rs:20-36`）；**更正**：MSC4297 v2.1 本体**已在生产路径上**（`create_event_with_graph` → 提交后 `StateRecordBuilder` → `resolve_state_for_version_with_rules` → `full_conflicted_set` → `conflicted_state_subgraph`），此前据一条过时注释判该函数为死代码**属误判**（注释已修并加「不得当死代码删」告诫）；**补齐**：新增按冲突事件集合为键的结果缓存，**作用域＝进程内跨请求共享**（`ResolutionCache`，`Arc<Mutex<…>>`，`synapse-services/src/room/state_record.rs:92-135`；由 `room/service.rs` 创建并 clone 穿入 messaging/membership 配置，跨 walk 共享由 `resolution_cache_is_shared_across_walks` 锁定，见 §18.4 M-5） |
+| 18 | MSC4242 HTTP 服务函数 | ⏸ **已裁定不接线（2026-10-02，L-2）** | `synapse-storage/src/event/dag.rs:255-290`、`synapse-storage/src/event/create.rs:257-281`；无路由/handler/service（上游 #20133 是"为未来 MSC4242 加 HTTP serving 函数"） |
 | 19 | 委派认证（MSC3861/MAS） | ✅ **已接线（2026-10-01，决策 D-1）** | 接线点 `auth/mas_validator.rs::build_mas_validator`（配置 → `OidcMasTokenValidator`），由 `container.rs` 在 `AuthService` 构造后按配置注入；启动期 `Config::validate()` 拒绝半配置（`mas.enabled` 必须有 `issuer_url` + `client_id`）；`verify_access_token` 在 `client_id` 非空时**校验 audience**（本仓无 introspection 绑定，`aud` 是唯一阻止跨客户端令牌混用的锚点）；`auth/token.rs` 既有 fail-closed 语义（MAS 返回 `Err` ⇒ 直接失败，**不回落**本地 HS256；`Ok(None)` 才回落）。证据：`build_mas_validator_requires_full_configuration`、`mas_rejection_never_falls_back_and_non_mas_falls_through`、`access_token_with_wrong_audience_is_rejected`（含"关掉校验即红"的变异证明）、`validate_rejects_mas_enabled_without_issuer_or_client_id` |
-| 20 | 单个 delayed event GET + worker 归属 | ✅ **已实现**（端点） | `synapse-web/src/routes/delayed_events.rs:41-61,98`、`synapse-services/src/delayed_event_service.rs`；worker 归属是前缀级 `/_matrix/client/*`（`synapse-storage/src/worker/models.rs:81-100`），**无 per-endpoint 白名单**（`route_ledger.rs:77-95` 的 `RouteEntry` 无 worker 字段） |
+| 20 | 单个 delayed event GET + worker 归属 | ✅ **已实现**（端点）+ **显式路径集与两道守卫（2026-10-02，L-3，`b30bf1997`）** | `synapse-web/src/routes/delayed_events.rs:41-61,98`、`synapse-services/src/delayed_event_service.rs`；worker 归属原先只有前缀级 `/_matrix/client/*`（`synapse-storage/src/worker/models.rs:81-100`），**L-3 已在 worker 拓扑校验器侧补显式路径集**：`synapse-services/src/worker/topology_validator.rs` 的 `DELAYED_EVENTS_WORKER_PATHS`（枚举自 route ledger）+ 精确匹配闸门 `may_serve_delayed_events_route`（非前缀），消费方 `WorkerResponse.delayed_events_paths`（`synapse-web/src/routes/worker.rs`），两道守卫见 `tests/unit/worker_delayed_events_ownership_tests.rs`；**未改 `RouteEntry`**（`route_ledger.rs:77-95` 仍无 worker 字段），契约链零改动 |
 
-**净结论**：v1.162.0 的 4 条功能里 **3 条已落地**（房间版本 / OTK 上限 / `rc_profile`），1 条**部分**（`redis.username` 缺校验与 env）；
-13 条修复里 **7 条已落地**（profile 空字段 / `allowed_room_ids` / `M_UNKNOWN_DEVICE` / 历史 user id / 缩略图异步 / MSC4354 的 EDU 部分 / **MSC4291+第三方规则**）、
-**4 条部分或不一致**（MSC4311、MSC4222、MSC4354 的 un-soft-fail、room_summary join_rules）、
-**1 条功能面不同**（递归 relations）、**1 条仅存储层**（MSC4242）；内部项里 stream 指标与状态缓存**口径不同/缺失**。
+**净结论（2026-10-02 合流后重述）**：**v1.162.0 的 4 条功能 4/4 已落地**（房间版本 / OTK 上限 / `rc_profile` / `redis.username`——第二轮复核把 #3 由「部分」更正为「已对齐」）；
+13 条修复里 **9 条已落地或已按规范重做**（profile 空字段 / `allowed_room_ids` / `M_UNKNOWN_DEVICE` / 历史 user id / 缩略图异步 / MSC4311 双形状 / MSC4222 `state_after` / room_summary `join_rules` / MSC4291+第三方准入钩子），
+**3 条为有意的功能面/口径差异**（递归 relations 的过滤语义取参考实现、MSC4354 的 un-soft-fail 裁定不跟随、`available` 只列可创建版本），
+**1 条仅存储层且已裁定不接线**（MSC4242，L-2）；内部项里 stream 指标**已 per-stream 且修掉 `# HELP`/`# TYPE` 重复缺陷**，状态决议缓存**已升级为进程内跨请求共享**。
+
+**本轮复核另发现的自身问题（已修，见 §18.7）**：
+① **文档计数守卫曾判红** —— 本文件三处写 1,152 而 `ROUTE_CONTRACT.md` 为 1,154（L-6 新增 2 条）⇒ `tests/unit/doc_credibility_guard_tests.rs::counts_match_the_route_contract` 失败；合流时已同步（**"守卫存在"不等于"守卫在跑"**）。
+② **两条并行线各自实现同一批条目**（M-4 / M-5 / L-1 / L-6），外加第三份未提交的准入钩子实现；已于 2026-10-02 合流并按 §18.7 去重。
 
 ### 18.4 真实剩余差距（分优先级）
 
@@ -1177,23 +1183,24 @@ grep "CREATE INDEX" migrations/00000000_unified_schema_v12.sql | grep -i "events
 
 | ID | 改动内容 | 影响范围 | 兼容性风险 | 依赖 |
 |---|---|---|---|---|
-| **M-1** | `redis.username` 补上游的"username 必须配 password"启动校验 + env 解析（`SYNAPSE__REDIS__USERNAME`）；并**撤掉**把 username-only 固化为合法的测试 | `synapse-common/src/config/database.rs`、`loader.rs` | **低**：新增校验会让 username-only 配置启动失败（与上游一致）；env 解析是新增能力 | 需确认上游 `password_path` 等字段是否也要一并对齐（本仓无） |
+| **M-1** | ~~`redis.username` 补上游的「username 必须配 password」启动校验 + env 解析~~ → **✅ 已交付（2026-10-02，M-1）**：`synapse-common/src/config/validation.rs:82-88`（配了 username 却没 password ⇒ 启动返回 `Err`）+ `loader.rs:76`（username 与 password 走同一条 `${VAR}` 插值路径）；判据 `validate_rejects_redis_username_without_password`、`env_override_needs_a_double_underscore_after_the_prefix` | `synapse-common/src/config/database.rs`、`loader.rs` | — | 需确认上游 `password_path` 等字段是否也要一并对齐（本仓无） |
 | **M-2** | ~~MSC4222 批次边界~~ → **✅ 已收口（2026-10-01）**：取证确认上游那处"批次边界"修复在本仓无对象（逐事件唯一 `stream_ordering` + 状态窗口上界无界），真正缺口是 MSC 被借用 ⇒ 已按规范形状重做并删除借用参数与左房过滤 | 见 §18.3 #10 | — | — |
 | **M-3** | `/room_summary` 的 `join_rules` 反规范化列刷新时机 —— **本轮已收口，无行为改动**（复核结论：现状由两条独立机制保证新鲜，见 §18.3 #13）。交付物是**回归网 + 契约**：两条集成用例（含变异红证明）+ 未来事务内状态写入的补偿义务记录 | `tests/integration/api_room_summary_routes_tests.rs`、`room/messaging/events.rs:182` 的契约注释 | **无**：测试与注释 | 无 |
-| **M-4** | ~~第三方规则回调接入事件鉴权/消息发送路径~~ → **✅ 已收口（2026-10-01，D-1）**：`check_event_allowed()` 以 `EventAdmissionGate` 落地，本地两咽喉 + membership 本地/联邦写入点 + 房间创建序列 + burn-after-read 全部在状态变更前咨询；触发侧 `third_party_rules` 配置启动即注册（`has_event_rules()` 为真）；失败语义取 **fail-closed**（对齐上游 v1.49.0 #11033），内容改写仅本地生效（联邦 `allow_modification=false`）。用例：`event_admission_gate_fails_closed_when_a_rule_errors`、`create_event_with_graph_ignores_rule_modified_content`、`write_creation_event_is_refused_by_denying_gate_and_persists_nothing`、`delete_burned_message_refused_by_admission_rule_returns_forbidden_with_no_residue`、`process_expired_burns_refused_by_admission_rule_leaves_row_unprocessed` | 见 §18.3 #12 | — | — |
-| **M-5** | 状态决议结果缓存（按冲突事件集合为键） → **✅ 已交付（2026-10-01；2026-10-02 提升为跨请求共享）**：`StateWalker` 内新增结果缓存，键 = 状态集合的 `(key, event_id)` 投影（排序归一） + 已加载事件 id 集合（`events` 只插入不覆盖 ⇒ id 集合即内容标识）；上限 64、超限清空（正确性从不依赖命中）；HIT/MISS 计数器供用例断言。**作用域＝进程内跨请求共享**：`Arc<Mutex<ResolutionCache>>` 由 `room/service.rs` 创建并 clone 穿入 `MessagingServiceConfig` / `MembershipServiceConfig`，经 `StateRecord` 复用（键补 `room_version` 槽位以支持跨房共享） | `synapse-services/src/room/state_record.rs`、`synapse-services/src/room/messaging/service.rs`、`synapse-services/src/room/membership/service.rs`、`synapse-services/src/room/service.rs` | **低**：纯性能，不改判定结果 —— 用例断言 HIT 与 MISS 返回**逐字节相同**的状态图；**红证明**：把状态集合从键里去掉 ⇒ 用例红（`(3, 1)` vs `(2, 2)`，即错误命中）；跨 walk 共享由 `resolution_cache_is_shared_across_walks` 锁定 | 无 |
+| **M-4** | ~~第三方规则回调接入事件鉴权/消息发送路径~~ → **✅ 已交付（2026-10-02 合流后，D-1）**：`check_event_allowed()` 以 `EventAdmissionGate` + 共享踏板 `consult_event_admission` 落地（`synapse-services/src/module_service.rs:135-225`），本地两咽喉 + membership 本地/联邦写入点 + 房间创建序列（`synapse-services/src/room/lifecycle/create_events.rs:89`）+ burn-after-read 全部在状态变更前咨询；触发侧 `third_party_rules` 配置启动即注册；失败语义取 **fail-closed**（对齐上游 v1.49.0 #11033），内容改写仅本地生效（联邦 `allow_modification=false`）。**合流去重**：本批同时丢弃了 `c19b` 工作树里未提交的第三份实现（`ThirdPartyRuleRegistry` / `run_third_party_rules`），全仓只保留这一份 | 见 §18.3 #12、§18.7 | — | — |
+| **M-5** | 状态决议结果缓存（按冲突事件集合为键） → **✅ 已交付（2026-10-01）**：`StateWalker` 内新增结果缓存，键 = 状态集合的 `(key, event_id)` 投影（排序归一） + 已加载事件 id 集合（`events` 只插入不覆盖 ⇒ id 集合即内容标识）；上限 64、超限清空（正确性从不依赖命中）；HIT/MISS 计数器供用例断言 | `synapse-services/src/room/state_record.rs` | **低**：纯性能，不改判定结果 —— 用例断言 HIT 与 MISS 返回**逐字节相同**的状态图；**红证明**：把状态集合从键里去掉 ⇒ 用例红（`(3, 1)` vs `(2, 2)`，即错误命中） | **✅ 作用域已升级为进程内跨请求共享**（`aee2f098e`，2026-10-02 合流保留）：`Arc<Mutex<ResolutionCache>>` 跨 walk 复用，跨房共享靠键补 `room_version` 槽位 |
 | **M-6** | ~~`/relations` 支持 `recurse`~~ → **✅ 已交付（2026-10-02）**：`recurse` + 不稳定名接线（此前 `deny_unknown_fields` ⇒ 合规客户端 400）；存储层**一条静态递归 CTE**同时服务两条路径（`events` 在递归内 join，`$6 = TRUE` 短路递归项），排序与 keyset 分页改在 `events.stream_ordering`（**两条路径都**拓扑序，MSC 要求「无论 recurse 取值」）；深度与上游一致（0 基 `depth <= 3`，上报 `recursion_depth = 3`）；`/versions` 广告 `org.matrix.msc3981`(`.stable`)；`.sqlx` 增量同批（R2）；判据 V-11 已落地 | `synapse-storage/src/relations/mod.rs`（`MSC3981_RECURSION_DEPTH`、`OrderedEventRelation`、`get_relations`）、`synapse-services/src/relations_service.rs`、`synapse-web/src/routes/relations.rs`、`synapse-services/src/capability_governance.rs` | **低**（已验证）：缺省路径的**结果集**不变（仍只出直连），但排序键由 `origin_server_ts` 换成 `stream_ordering` —— 这是 MSC 的硬性要求（「始终拓扑序」），已同步本节措辞与测试；过滤语义取参考实现而非 MSC 正文，披露见 `MSC_SEMANTICS.md` §1.1 | 无 |
 
 **低（可观测/配置/文档/跟随上游）**
 
 | ID | 改动内容 | 影响范围 | 兼容性风险 | 依赖 |
 |---|---|---|---|---|
-| **L-1** | ~~stream position 指标做成 per-stream / worker-local~~ → **✅ 已落地（2026-10-02，D-6b）**：`MetricsCollector` 新增 `DynamicGaugeTemplate`（同名多系列共存），指标改为 `{stream="events"}`/`{stream="device_lists"}` 两条；刷新时机由「admin `/statistics` 拉取式」改为「`/metrics` 抓取时即时计算」（`src/server/mod.rs` 接入 `room_service`/`account_device_list_service`） | `synapse-common/src/metrics.rs`、`synapse-common/src/server_metrics.rs`、`src/server/mod.rs`、`synapse-web/src/routes/admin/server.rs`（移除旧拉取式刷新） | **低**：指标口径变化（仪表盘已同步，见 §18.6 V-12） | 无（已在现有 `events`/`device_lists` position 来源上落地） |
-| **L-2** | MSC4242 的 HTTP 服务函数（上游本身也只是脚手架）→ **⚠️ 受阻待办（2026-10-02 取证更正）**：上游 #20133 并非"新增端点"，而是把 MSC4242 接进**既有**联邦端点（`/make_join`、`/send_join`、`/get_missing_events` 的状态 DAG 回溯、`/send` 目的地按 `prev_state_events` 计算）+ `notify_on_event_delivered_over_federation`，**不新增任何路由**（原"新增端点须进 ledger"判据不成立）。**真实前置 = MSC4242 房间版本**（本仓 `SUPPORTED_ROOM_VERSIONS` 仅至 v12）+ `experimental_features` opt-in；语义未定稿 ⇒ 暂不实施 | `synapse-web/src/routes/federation/membership/join.rs`、`synapse-web/src/routes/federation/events.rs`、`synapse-services/src/room/messaging/events.rs`、`synapse-common/src/room_versions.rs` | **低**：改动落在**既有**端点，不牵动 ledger/契约链（修正原判据） | 受阻于 MSC4242 房间版本与语义定稿（本仓已有存储层 `synapse-storage/src/event/dag.rs:255-290`、`synapse-storage/src/event/create.rs:257-281`） |
-| **L-3** | delayed events 的 per-endpoint worker 白名单（现在前缀级 `/_matrix/client/*`） | `synapse-storage/src/worker/models.rs`、`synapse-web/src/routes/route_ledger.rs`（`RouteEntry` 加 worker 字段） | **低**：worker 路由归属细化 | 需 worker 拓扑校验器的白名单实现先支持 per-route |
+| **L-1** | ~~stream position 指标做成 per-stream / worker-local~~ → **✅ 已交付（2026-10-02，L-1）**：指标改为**同名多标签** gauge（`{stream=…}`；先补 `DynamicGaugeTemplate` 修掉「同名互相覆盖」）+ 5 个 stream 的单一 `UNION ALL` 数据源 + 30s 周期刷新（不再依赖 admin `/statistics` 被访问）；判据 V-12 两条集成测试（含变异红证明）。**未实现** worker-local 归属过滤，理由见 §18.3 #16（本仓位置取自 DB，刷新循环只在 global-maintenance owner 跑，过滤反而会让 worker 部署少序列） | `synapse-common/src/server_metrics.rs`、`synapse-web/src/routes/admin/server.rs`、各 stream 读侧 | — | ✅ **已闭合（2026-10-02 合流）**：stream 全集 = `StreamPosition::ALL`（5 条，见 §18.3 #16），数据源单一 `UNION ALL`（`synapse-storage/src/stream_positions.rs`）。合流时**删除了另一线的第二份实现**（抓取时 `refresh_storage_stream_positions` + 2 条序列），只保留 30s 循环这一份；另一线的 `# HELP`/`# TYPE` 去重修复已并入 |
+| **L-2** | ~~MSC4242 的 HTTP 服务函数~~ → **⏸ 已裁定不接线（2026-10-02）**：提案不在 `main`（PR #4242 open/unmerged/`needs-implementation`）、**无房间版本指派**、上游联邦侧 PR #19425 关闭未合并，且其"HTTP 面"只是既有联邦路由上的 `state_dag` 旗标（非 CSAPI）⇒ 现在实现＝落地未定稿规范。随本裁定修掉 `dag.rs` 的不实注释（唯一一处假注释） | 本文件 + `synapse-storage/src/event/dag.rs` | — | — |
+| **L-3** | **✅ 已交付（2026-10-02，`b30bf1997`）**：显式路径集 `DELAYED_EVENTS_WORKER_PATHS`（枚举自 route ledger，非手抄）+ 精确匹配闸门 `may_serve_delayed_events_route`（明确不是前缀）+ 真实消费方 `WorkerResponse.delayed_events_paths` + 两道守卫（A 每条路径必须已注册；B 所有含 `delayed_events` 的已注册路由必须被覆盖；含变异红证明与精确性负控）；**零契约链改动**（未给 `RouteEntry` 加字段） | `synapse-services/src/worker/topology_validator.rs`、`synapse-services/src/worker/mod.rs`、`synapse-web/src/routes/worker.rs`、`tests/unit/worker_delayed_events_ownership_tests.rs` | 无（D-3=② 已落地） | — |
 | **L-4** | ~~MSC4354 状态变化时 un-soft-fail~~ → **⚪ 已裁定不跟随（2026-10-01，决策 D-2）**：本仓无 soft-fail 机制（`un_soft_fail` / `StickyEventsStream` 全仓 0 命中），"跟随"＝新建整套 soft-fail（新功能而非对齐），且会与本仓 `events.soft_failed`（B-8 事务去重，**同名不同义**）混淆。结论落档即可，无代码改动 | 本文件 + `MSC_SEMANTICS.md` §1.1 | — | — |
 | **L-5** | ~~本文档去陈旧化~~ → **✅ 已收口（2026-10-01）**：§11.2/§11.3/§12.4/§12.5/§15.3 五个历史章节各插入一条「当前口径见 §18」指针（正文按约定不改写），并把它变成门禁 (`doc_credibility_guard_tests::historical_sections_point_at_the_current_scope` + 纯谓词红证明，含「章节被改名 ⇒ 守卫失效」的检测) | 本文件、`tests/unit/doc_credibility_guard_tests.rs` | — | — |
-| **L-6** | ~~spec 的 `GET /rooms/{roomId}/relations/{eventId}/{relType}/{eventType}` 稳定路由缺失（因此 MSC3981 的 `event_type` 过滤没有 HTTP 入口）~~ → **✅ 已交付（2026-10-02）**：新增 4 段 GET，与既有同路径 `PUT …/{relType}/{txnId}` **合并进同一 `MethodRouter`**（`get(get_relations_with_event_type).put(send_relation)`）；第 4 段参数名取 **`{event_type}`**（贴合 spec；`send_relation` 用位置元组取参，改名零影响）；handler 以 `Path((room_id, event_id, rel_type, event_type))` 取参并构造 `RelationQuery { event_type: Some(...) }` 接通过滤 —— 过滤目标是**返回的关系事件自身**的 `events.event_type`（annotation → `m.reaction`、reference/replacement → `m.room.message`），`get_relations` 与 `count_relations` 两条路径都生效。契约链已再生成：注册条目 1,152 → 1,154、关联（Relations）8 → 10 条（**唯一路径数不变**）。证据：`test_get_relations_filtered_by_event_type`（service）、`relations_four_segment_get_filters_by_event_type`（web 路由） | `synapse-web/src/routes/relations.rs`（合并路由 + handler）、`synapse-services/src/relations_service.rs`（`RelationQuery.event_type`、`get_relations`/`count_relations`）、`synapse-storage/src/relations/mod.rs`（递归 CTE `$10` 过滤） | **低**：新增路由牵动 ledger + 派生表 + `ROUTE_CONTRACT.md` + `openapi/route-table.json` + fixture + 快照（已同批再生成） | 无 |
+| **L-6** | ✅ **已完成（2026-10-02）**：spec 稳定路由 `GET /_matrix/client/{v1,v3}/rooms/{roomId}/relations/{eventId}/{relType}/{eventType}` 已注册（与 PUT 合并为同一条 MethodRouter，4 段参数名统一取 `{event_type}`），`event_type` 过滤端到端打通；三个读路由（2/3/4 段）收敛到单一 `relations_response`。契约链全同步：标注 + `EXPECTED_ANNOTATIONS` + 派生表（1156 行）+ `ROUTE_CONTRACT.md`（1154 路由）+ 6 份 ledger fixture（golden=default、SDK=all-extensions 两车道分别真导出）+ `docs/openapi/route-table.json`（1050→1052）+ 两条 route-ledger 快照 | `synapse-web/src/routes/relations.rs`、`scripts/contract/*`、`docs/*`、`tests/*` | **低**（已验证）：判据见下 | 判据：`-E 'test(route_ledger)'` **15 passed**（带/不带 `UPDATE_ROUTE_LEDGER_SNAPSHOTS` 各一次）、`-E 'test(ledger_export)'` **7 passed**、`check_route_contract.sh` **提交后 EXIT=0**、clippy 两档 0、fmt 0/0、sqlx/ts_order/trait 棘轮 OK。HTTP 往返判据已补（`relations_event_type_route_filters_over_http`：匹配 / 不匹配 / 3 段 三断言 + 变异红证明） |
+| **L-1b** | ✅ **已完成（2026-10-02）**：文档半边（`docs/monitoring/monitoring-ops-guide.md` 的 per-stream 小节 + `API_COVERAGE_REPORT.md` 三处旧描述）+ **Grafana 面板**（`monitoring/grafana/dashboards/grafana-dashboard-business.json` 新增 "Stream 位置（per-stream）" timeseries，`expr=synapse_storage_stream_current_position`、`legendFormat={{stream}}`，刷新周期写在面板描述里） | `monitoring/grafana/dashboards/grafana-dashboard-business.json`、`docs/monitoring/*`、`docs/synapse-rust/API_COVERAGE_REPORT.md` | — | — |
 
 ### 18.5 本轮作废 / 更正的历史声明（"假缺口"）
 
@@ -1251,4 +1258,65 @@ grep "CREATE INDEX" migrations/00000000_unified_schema_v12.sql | grep -i "events
 | V-10 | 第三方规则接入事件鉴权后的失败语义（fail-open/closed）与性能 | **已落成用例（D-1）**：`cargo nextest run -p synapse-services --features friends,test-utils -E 'test(event_admission_gate_fails_closed_when_a_rule_errors)'` 断言规则 `Err` ⇒ fail-closed 拒绝并短路后续规则、`reason` 置空不外泄；“改写仅本地生效”见 `create_event_with_graph_ignores_rule_modified_content`。**仍需联调/压测**：确认规则回调不阻塞消息主路径（超时护栏与吞吐） |
 | V-11 | 递归 relations：`recurse=true` 不得 400；按 MSC 示例图（A←B/G 的 `m.thread`、A←D 的 `m.edit`、B←E 的 `m.annotation`，另有无关事件作对照）断言 `rel_type=m.thread` ⇒ `[B, G]`、`recurse=true&dir=f` ⇒ `[B, D, E, G]`、`recurse=true&dir=b&limit=2` ⇒ `[G, E]`；`origin_server_ts` 与 `stream_ordering` 刻意相反以证明拓扑序；深链第 6 跳缺席且 `recursion_depth=3`；`rel_type=m.annotation` ⇒ `[E]`（过滤作用于返回集）。⚠️ MSC 的**第 5 个示例**（`rel_type=m.annotation&event_type=m.reaction` ⇒ `[G, E]`）不可作判据：G 在图中只挂 `m.thread`，该期望与 MSC 自己的图矛盾且与 `dir=b&limit=2` 的结果逐字重复，属提案勘误 | 判据已落地：`cargo nextest run --profile ci --all-features --test integration msc3981`；`EXPLAIN (ANALYZE)` 证据在 §8.3 M-6 卡片（同形状夹具 50k 事件/50k 关系：基步与递归步的 `events` 都走 `events_pkey` 索引扫描，递归项 `Filter: (depth <= 3)` 循环 5 次后终止） |
 | V-12 | stream 指标：per-stream/worker-local 口径（标签、刷新时机）与仪表盘一致性 | **已落地（2026-10-02，D-6b）**：`{stream="events"}`/`{stream="device_lists"}` 两条 series 各自取值并在 `/metrics` 抓取时刷新（随写入推进）；测试 `test_storage_stream_current_position_gauge` 断言两条 series 各自有值；仪表盘 `docker/deploy/grafana/dashboards/storage-performance.json`（panel「存储流位点 (per-stream)」）与 `tests/promql-queries.md`「存储流位点」小节已同步 |
-| V-13 | 本文档计数与假缺口清单 | 计数守卫已存在（`counts_match_the_route_contract`）；**§18.5(a) 条目不得再作为「现状」出现**已落成门禁：五个历史章节必须带 §18 指针 (`cargo nextest run --test unit --features test-utils -E 'test(doc_credibility_guard_tests)'` → 6 passed) |
+| V-13 | 本文档计数与假缺口清单 | 计数守卫已存在（`counts_match_the_route_contract`）；**§18.5(a) 条目不得再作为「现状」出现**已落成门禁：五个历史章节必须带 §18 指针 (`cargo nextest run --test unit --features test-utils -E 'test(doc_credibility_guard_tests)'`)。⚠️ **2026-10-02 第二轮更正**：本行此前记的"6 passed"是**假绿**——L-6 把 `ROUTE_CONTRACT.md` 更新到 1,154 条后，本文三处仍写 1,152，`counts_match_the_route_contract` 实为**判红**。合流时已同步三处；**"守卫存在"不等于"守卫是绿的"**，该守卫必须进提交前脚本才有效（见 §18.7.3 P-3） |
+
+### 18.7 双线合流记录与剩余问题（2026-10-02）
+
+> 本轮把两条并行线合流：`opt/consolidated` @ `f8c45b73d` 合入 `feature/2026-10-01-metrics-docs-updates` @ `418d32d8b`
+> （两线在 `46fe964b9` 分叉、互不为祖先）。合流在 feature 分支侧进行（该树 `git status` 干净、`target` 已热），
+> **11 个文件冲突**全部逐项裁定。
+
+#### 18.7.1 已闭环
+
+| ID | 原问题 | 处置 / 证据 |
+|---|---|---|
+| **P-1** | 两条线各自实现同一批 backlog 条目（违反铁律 2） | 已完成反向合流；11 个冲突文件逐项取版本（§18.7.2） |
+| **P-1b** | `c19b` 工作树里还有**第三份**未提交的准入钩子实现 | 已丢弃；全仓 `check_event_allowed` 只保留 `EventAdmissionGate` 一份 |
+| **P-2** | `/metrics` 同族重复输出 `# HELP`/`# TYPE`（Prometheus 拒绝整个 scrape） | family 去重修复 + 两条用例随合流入库（`synapse-common/src/metrics.rs`） |
+| **P-3** | 文档计数守卫判红（1,152 vs 1,154） | 三处已同步；见 §18.6 V-13 |
+| **P-4** | 同一条目两份实现（M-4 / M-5 / L-1 / L-6） | 各取一份，见 §18.7.2 |
+
+#### 18.7.2 逐项取版本裁定
+
+| 条目 | 取自 | 理由 |
+|---|---|---|
+| 第三方准入钩子（M-4） | feature | 唯一完整实现（fail-closed + `modification` + 房间创建序列 / burn-after-read 覆盖） |
+| M-5 决议缓存作用域 | feature | 进程内跨请求共享，跨 walk 共享已有用例锁定 |
+| L-1 stream 指标 | opt/consolidated | 5 stream + 单一 `UNION ALL`、后台负载有界；**删除** feature 的抓取时实现（双写同一指标），并叠加 feature 的 family 去重修复 |
+| L-6 relations 4 段路由 + `event_type` | opt/consolidated | 其契约链（ledger / 派生表 / fixture / `ROUTE_CONTRACT.md`）已同步，反向取会丢；SQL 取 `COALESCE(e.event_type, '')` 版本（`count_relations` 注释已引用该口径） |
+| L-3 worker 显式路径集 | opt/consolidated | feature 无此实现 |
+| L-1b Grafana 面板 | opt/consolidated | feature 无此实现 |
+| MSC4242 注释 / L-2 裁定 | opt/consolidated | 取证更细（MSC 未定稿 + 上游联邦 PR 关闭未合并） |
+
+**合流期发现并修掉的 3 处"静默"破坏**（`git merge` 未报冲突，但结果本身不成立 ——
+这是"以 auto-merge 成功当作正确"的典型反例，必须按编译与用例复核，而不是看合并是否报错）：
+
+1. `RelationQueryParams.event_type` 被两侧**各加一次** ⇒ 同名重复字段（E0124）；已去重为一个。
+2. `src/server/mod.rs` 同时保留**两份** stream 刷新（opt/consolidated 的 30s 循环 + feature 的抓取时）⇒ 双写同一指标；已删除抓取时那一份。
+3. `DynamicGaugeTemplate::set` 两侧**签名不同**（`(value, labels)` vs `(labels, value)`）；统一取 opt/consolidated 的 `(labels, value)`，并同步修正遗留调用点与文档示例。
+
+#### 18.7.3 仍存在的问题（下一步）
+
+| ID | 问题 | 影响 | 建议动作 |
+|---|---|---|---|
+| **P-5** | stream 位置指标的数据模型覆盖不全 | presence/typing/receipts/account_data/push_rules/e2ee/backfill/federation **无位置列**；`sync_stream_id`、`device_lists_outbound_pokes`、`worker_events` **有列但无生产写者**（恒 0）；`room_ephemeral.stream_id` 非单调 | 恒 0 的 stream 要么补写者、要么从 `StreamPosition::ALL` 移除 —— 否则"仪表盘永远平线"会让积压类告警永不触发（比缺指标更危险） |
+| **P-6** | 需联调 / 外部对端的验证未闭环 | V-2 与真 Synapse v1.162 双向 `/invite`、`/knock`；V-7 联邦面 `allowed_room_ids` 不新增泄漏；V-8 SDK 对 profile `{}` 的影响；V-10 准入钩子在**消息主路径**的性能与超时语义 | 按 §18.6 逐项补判据；V-10 必须给出 p99 数字（fail-closed 意味着**规则超时会拒消息**，不能只靠推断） |
+| **P-7** | 两条辅助文档的条目口径在两侧各写一版 | `docs/audit/OPTIMIZATION_EXECUTION_PLAN_2026-09-15.md` 的 L-1/L-3 行、`docs/synapse-rust/API_COVERAGE_REPORT.md` 的 #20097 行 | 以合并后的实现为准再对齐一轮（本轮已按"以 opt/consolidated 的 5-stream 为准"修正主报告） |
+| **P-8** | 合流结果需完整门禁验证 | 11 个冲突文件的重组、`synapse-common/src/metrics.rs` 的 API 统一、`synapse-web/src/routes/relations.rs` 删除死 handler 都属**结构性改动** | 见 §18.7.4 |
+
+#### 18.7.4 合流后的门禁清单（按序，缺一不可）
+
+```bash
+# 1) 编译与静态检查（两档不可互相替代）
+SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils --locked -- -D warnings
+SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils --all-features --locked -- -D warnings
+# 2) 本次冲突涉及模块的用例
+cargo nextest run -p synapse-common --lib -E 'test(/prometheus|stream_position|dedups/)'
+cargo nextest run -p synapse-services --lib --features test-utils -E 'test(/admission|relations/)'
+cargo nextest run -p synapse-web --lib --features test-utils -E 'test(/relations/)'
+# 3) 文档守卫 + 契约链（守卫谓词已在合流时复算通过）
+cargo nextest run --test unit --features test-utils -E 'test(doc_credibility_guard_tests)'
+bash scripts/contract/check_route_contract.sh
+# 4) 格式
+./scripts/check_fmt_ratchet.sh
+```

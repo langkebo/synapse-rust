@@ -738,7 +738,7 @@ fmt / sqlx / trait / web-layering 四个棘轮的扫描面扩到了新 crate，�
 |---|---|---|---|
 | **D-1** | 本仓部署是否使用 MAS / 委派认证（报告 H-1） | ✅ **已裁定（2026-10-01）：①接线** | 已落地，见下方「D-1 落地记录」 |
 | **D-2** | 本仓 sticky 事件是否跟随上游 #20204 的 un-soft-fail（报告 L-4） | ✅ **已裁定（2026-10-01）：②明确不跟随** —— 本仓没有 soft-fail 机制（`un_soft_fail` / `StickyEventsStream` 全仓 0 命中），"跟随"等于新建整套 soft-fail（新功能而非对齐），且会与本仓 `events.soft_failed`（B-8 事务去重，**同名不同义**）混淆 | 结论落文档即可，无代码改动 |
-| **D-3** | worker 路由归属是否细化到 per-endpoint（报告 L-3） | ①细化（`RouteEntry` 加 worker 字段 ⇒ 契约与 SDK ledger 同步再生成）②维持前缀级 | 触及路由契约链（ledger/派生表/fixture/快照四处），代价与风险都比纯服务层改动高一档 |
+| **D-3** | worker 路由归属是否细化到 per-endpoint（报告 L-3） | ✅ **已裁定（2026-10-02）：②维持前缀级（不改契约链）** —— 不触碰 `RouteEntry`（ledger/派生表/fixture/快照四处零改动），改在 **worker 拓扑校验器**侧补显式路径集 `DELAYED_EVENTS_WORKER_PATHS` + 精确匹配闸门 `may_serve_delayed_events_route`（`b30bf1997`） | 已落地，见 L-3 行 |
 
 ### 8.2 批次编排（按依赖顺序，每批独立可提交）
 
@@ -747,7 +747,7 @@ fmt / sqlx / trait / web-layering 四个棘轮的扫描面扩到了新 crate，�
 | **B1 · 零风险收口** | M-1（`redis.username`）✅ 已交付 `7b54e01fd`；M-3（`/room_summary` `join_rules` 新鲜度）✅ 已交付（复核结论：**无行为改动**，交付回归网 + 契约，见 §18.3 #13）；L-5（文档去陈旧化）✅ 已交付（2026-10-01：五个历史章节加 §18 口径指针 + 门禁守卫） | 无 | 各项红/绿证明齐备（M-1 单测红→绿；M-3 两条集成用例 + 变异红证明；L-5 守卫红证明） |
 | **B2 · 互操作正确性** | H-2（MSC4311 开关接线 + knock stripped state）✅ 已交付；M-2（MSC4222 批次边界）待做 | M-2 必须先落可复现用例 | V-2（本地部分已落成用例，联调段待跑）/ V-4 |
 | **B3 · 认证与规则面** | H-1（取决于 **D-1**）、M-4（第三方规则接入事件鉴权，取决于 fail-open/closed 决策） | D-1；M-4 需先定失败语义 | V-1 / V-10 |
-| **B4 · 结构与性能** | M-5（状态决议缓存）✅ 已交付、M-6（`/relations` `recurse`）、L-1（stream 指标口径）、L-2（MSC4242 HTTP，⚠️ 受阻待办）、L-3（取决于 **D-3**）、L-4（取决于 **D-2**） | M-5/M-6 需先确认 `state_record` 写半边（F-1/F-2）已覆盖 | V-11 / V-12 |
+| **B4 · 结构与性能** | M-5（状态决议缓存）✅ 已交付、M-6（`/relations` `recurse`）、L-1（stream 指标口径）✅ 已交付、L-2（MSC4242 HTTP，⚠️ 受阻待办）、L-3 ✅ 已交付（D-3=②）、L-4（取决于 **D-2**） | M-5/M-6 需先确认 `state_record` 写半边（F-1/F-2）已覆盖 | V-11 / V-12 |
 
 ### 8.3 逐项执行卡
 
@@ -937,18 +937,143 @@ Execution Time: 0.287 ms（返回 14 行）
 
 | ID | 动作 | 判据 / 注意 |
 |---|---|---|
-| L-1 | ~~stream position 指标做成 per-stream / worker-local~~ → **✅ 已落地（2026-10-02，D-6b）**：`MetricsCollector` 新增 `DynamicGaugeTemplate`（同名多系列共存），指标改为 `{stream="events"}`/`{stream="device_lists"}` 两条；刷新由 admin `/statistics` 拉取式改为 `/metrics` 抓取时即时计算 | V-12 已满足：两条 series 各自有值、随写入推进；仪表盘 `docker/deploy/grafana/dashboards/storage-performance.json` 与 `tests/promql-queries.md` 已同步 |
+| L-1 | ~~stream position 指标做成 per-stream / worker-local~~ → **✅ 已落地（2026-10-02 双线合流后）**：`MetricsCollector` 新增 `DynamicGaugeTemplate`（同名多系列共存），指标改为 `StreamPosition::ALL` 的 **5 条** series（`events` / `to_device` / `device_lists` / `sliding_sync` / `quarantined_media`），数据源为单条 `UNION ALL`（`synapse-storage/src/stream_positions.rs`），由 `src/server/mod.rs` 的 **30s 指标循环**周期刷新（不再依赖 admin `/statistics` 被访问）；合流时删除了另一线的「2 条 series + `/metrics` 抓取时计算」实现以避免双写，并保留其 `to_prometheus_format()` family 去重修复 | V-12 已满足：5 条 series 各自有值、随写入推进（`tests/integration/stream_position_tests.rs` 逐字守卫标签集合）；仪表盘 `docker/deploy/grafana/dashboards/storage-performance.json` 与 `tests/promql-queries.md` 已同步 |
 | L-2 | MSC4242 的 HTTP 服务函数（上游本身也只是脚手架）→ **⚠️ 受阻待办（2026-10-02 取证更正）**：上游 #20133 改的是**既有**联邦端点（`/make_join`、`/send_join`、`/get_missing_events` 的状态 DAG 回溯、`/send` 目的地按 `prev_state_events` 计算），**不新增路由**，原"新增端点须进 ledger"判据不成立 | 真实前置 = MSC4242 **房间版本** + `experimental_features` opt-in（本仓 `SUPPORTED_ROOM_VERSIONS` 仅至 v12）；语义未定稿 ⇒ **暂不实施**（详见对照报告 §18.4 L-2） |
-| L-3 | delayed events 的 per-endpoint worker 白名单（现前缀级 `/_matrix/client/*`） | 依赖 **D-3**；`RouteEntry` 加字段会牵动派生表/契约/fixture/快照四处 |
+| L-3 | delayed events 的 per-endpoint worker 白名单（现前缀级 `/_matrix/client/*`）→ **✅ 已交付（2026-10-02，`b30bf1997`）**：改为**显式路径集** `DELAYED_EVENTS_WORKER_PATHS`（自 route ledger 枚举）+ 精确匹配闸门 `may_serve_delayed_events_route`（明确不是前缀）+ 真实消费方 `WorkerResponse.delayed_events_paths` + 两道守卫（每条路径必须已注册 / 所有 delayed-events 路由必须被覆盖）；**零契约链改动** | 依赖 **D-3**；后续如需 per-route 通用白名单仍是独立评估（`RouteEntry` 加字段会牵动派生表/契约/fixture/快照四处） |
 | L-4 | sticky 事件 un-soft-fail | 依赖 **D-2**；若「不跟随」，只做文档收口并保留同名不同义告诫 |
 | L-5 | 报告 §12.4/§12.5/§15.3 的假缺口与自相矛盾（§18.5a 清单）标注/替换为指向 §18 | 无风险；可加守卫：§18.5(a) 的条目不得再出现在 §11–§12 的「当前状态」列（V-13） |
+
+**L-1 交付记录（2026-10-02）**
+
+- **先修前提**：`MetricsCollector.gauges` 以 **name** 为 key，同名不同标签的 gauge 会
+  互相覆盖（红证明：连注册 `{stream="events"}` 与 `{stream="to_device"}` 后，`/metrics`
+  渲染里只剩后者）。故先补 `DynamicGaugeTemplate`（与既有 counter/histogram 模板同构，
+  并把标签签名/标签表构造收敛成单一实现），使同名多标签各成一条序列。
+- **数据源**：`synapse-storage/src/stream_positions.rs` 单条 `UNION ALL` 查询读 5 个
+  stream 的 `MAX(...)`；只收录**真有单调位置列且生产路径会推进**的 stream。因此
+  upstream 的 presence/typing/receipts/account_data/push_rules/e2ee/backfill/federation
+  （本仓无位置列）、`sync_stream_id` / `device_lists_outbound_pokes` /
+  `worker_events`（有列无生产写者）、`room_ephemeral.stream_id`（墙钟毫秒 + UPSERT
+  覆盖）都不登记，理由写在模块文档里。
+- **刷新时机**：从 admin `/statistics` 的按需更新改为 `src/server/mod.rs` 的 30s
+  指标循环（与池指标同一循环），并删掉那处 `events` 专用的旧刷新。
+- **判据 V-12**：`tests/integration/stream_position_tests.rs` 两条 —— ① 标签集合与
+  登记表**逐字一致**（红证明：把 SQL 的 `'events'` 改成 `'events_typo'` ⇒ 守卫红，
+  并打印 left/right 差异）；② 每个 stream 随一次真实写入推进。
+- **披露/未做**：**worker-local** 未实现 —— 本仓位置取自 DB（写者无关），而刷新循环
+  只在 global-maintenance owner 中运行，按 `stream_writers` 过滤只会让 worker 部署
+  少几条序列；仪表盘与监控文档同步登记为 §18.4 **L-1b**。
+
+**L-6 执行卡（2026-10-02 取证后定稿，下一步直接做）**
+
+目标：补 spec 稳定路由 `GET /_matrix/client/{v1,v3}/rooms/{roomId}/relations/{eventId}/{relType}/{eventType}`
+（ruma 侧 `getRelatingEventsWithRelTypeAndEventType`），使 MSC3981 的 `event_type` 过滤有 HTTP 入口。
+
+取证结论（已验证）：
+- `send_relation` 用 `Path<(String,String,String,String)>` **位置式**提取 ⇒ 4 段路径可以只注册
+  一条 `MethodRouter`（`.get(get_relations_by_type).put(send_relation)`），两个 handler 都不受
+  参数名影响；但 ledger/契约里一条路径只有一个参数名，故**统一取 spec 的 `{event_type}`**，
+  同时把 PUT 那条的 `{txn_id}` 一并改掉（同一批再生成四处）。
+- 路由快照的再生成开关：`UPDATE_ROUTE_LEDGER_SNAPSHOTS=1`（`tests/integration/api_route_ledger_tests.rs:133`）。
+- 存储层今天**没有** `event_type` 过滤（`synapse-storage/src/relations/mod.rs` 零命中）。
+
+执行步骤（按序，每步都可自证）：
+1. `RelationQuery` 加 `event_type: Option<String>`；service 透传；路由的 4 段 GET handler 从
+   path 取第 4 段填 `event_type`（2 段/3 段路由仍为 `None`）。
+2. 递归 CTE 在**递归内**的 `events` LEFT JOIN 上多投一列 `e.event_type AS event_type`，
+   外层 `WHERE ($10::text IS NULL OR event_type = $10)` —— 过滤施加在**返回集**（与 rel_type
+   同口径，即上游 Synapse 的语义）。
+3. `scripts/ci/sqlx_prepare.sh` 重生成 `.sqlx`（查询文本变了，R2）。
+4. 契约链四处再生成 + 快照：`extract_registered.py` → `gen_contract_doc.py` →
+   `gen_derived_routes.py`，ledger fixture 用 `--bin synapse_ledger_export` 或直接改
+   `query_params`/path（4 段的 PUT 名称变更），`UPDATE_ROUTE_LEDGER_SNAPSHOTS=1` 重跑两条
+   route-ledger 快照，`docs/openapi/route-table.json` 同步。
+5. 判据：① 服务层测试：`rel_type=m.annotation&event_type=m.reaction&recurse=true` 只返回
+   reaction 事件（用 MSC3981 示例图的等价图，注意 MSC 第 5 个示例本身自相矛盾，见 §18.6 V-11）；
+   ② 路由级测试：4 段 GET 返回 200 且 `event_type` 生效、3 段 GET 不受影响；
+   ③ 契约守卫 `check_route_contract.sh` EXIT=0、`check_sqlx_cache_fresh.sh --compile` OK。
+6. 完成后把 §18.4 L-6 行标 ✅，并在 §18.3 #14 的"披露②"里去掉"`event_type` 暂无 HTTP 入口"。
+
+**L-6 第 4 步的实测约束（2026-10-02，两次尝试后落档；下次照此执行可一次过）**
+
+新增路由改动契约链时有**顺序陷阱**，两次尝试都卡在这里：
+
+1. `gen_derived_routes.py` 的代码顺序是 **先 `verify_fixtures()`、fixture 不符就 `sys.exit(1)`**，
+   **之后**才 `emit_data_per_profile()` 写 `derived_route_table_*.inc.rs` ⇒ 新路由下它会
+   直接退出、**不写表**（日志尾部只报各 fixture 的 missing/extra）。
+2. 而两条 fixture 车道又是由**编译期嵌入该表**的导出器生成的
+   ⇒ "表要等 fixture、fixture 要等表"的鸡生蛋。
+   **破环办法**：先手工把 6 份 fixture 补齐（克隆 3 段 GET 条目改 path、把 PUT 的
+   `{txn_id}` 改 `{event_type}`、按 artifact 的排序位置插入），跑
+   `gen_derived_routes.py`（此时 verify 通过 ⇒ 写表 + data 文件），
+   **再**用真导出器重导出 fixture 以求 byte-exact（unit 测试 `ledger_export_tests.rs`
+   是逐字节比对，手改版必须被真导出覆盖）。
+3. 两条车道必须分开构建，**不能混**：`tests/unit/fixtures/ledger_export/` 必须由
+   **default-feature** 构建生成（对应测试是
+   `#[cfg(not(any(feature = "all-extensions", …)))]`，固定 `--timestamp=2026-05-02T00:00:00Z`
+   `--commit=000…`），`tests/unit/fixtures/ledger_export_sdk/` 必须由
+   `bash scripts/generate_sdk_ledger_fixtures.sh`（all-extensions）生成。
+   **实测成本**：每条 `cargo run --bin synapse_ledger_export` ≈ **250 s**（含链接），
+   SDK 脚本首次还要 all-extensions 编译（>120 s 超时）⇒ 两条车道合计 **≈20 min 墙钟**；
+   路由改动还会触发集成二进制重编，之后才能跑
+   `UPDATE_ROUTE_LEDGER_SNAPSHOTS=1 … -E 'test(route_ledger)'`。
+4. 因此 L-6 第 4 步应**单独占用一个完整窗口**，并把 6 次导出拆到多个 ≤600 s 的调用里
+   （例如 default+worker 一次、all+SDK 一次、快照一次），任何一半落地都会让
+   `Route Contract Sync`/`Schema Drift`/集成快照三条同时红。
+
+**L-6 第 4 步的第二次实测（2026-10-02，证伪了"手改可替代导出"）**
+
+- ✅ **手改优先顺序确实能破环**：先补齐 6 份 fixture（只克隆 `/relations/…/{rel_type}`
+  的 GET 条目、改 PUT 的 `{txn_id}`→`{event_type}`；**注意别把 `/aggregations/…/{rel_type}`
+  也克隆进去**，第一次就这么写宽了），再跑 `gen_derived_routes.py` → **exit 0 并写出
+  `derived_route_table_always.inc.rs`**（含 4 段路由）。
+- ❌ **但手改对 golden 车道不是 byte-exact**：`cargo nextest run --test unit -E 'test(ledger_export)'`
+  → `default/worker/all_profile_matches_fixture` **3/3 FAIL**。原因是 artifact 的条目顺序与
+  字段集不是"克隆 3 段条目再插到其后"能复现的 ⇒ **真导出不可省**。
+- 结论：Batch 1 的最小成本 = golden 3 次 `cargo run --bin synapse_ledger_export`（≈250 s/次）加上 `generate_sdk_ledger_fixtures.sh`（all-extensions 首次编译）+ 路由改动后的集成重编 +
+  `UPDATE_ROUTE_LEDGER_SNAPSHOTS=1` 快照 + 契约 gate + clippy 两档 ≈ **20+ min 墙钟**，
+  **无法在一次 ≤600 s 工具调用内完成**；拆批的最小可停绿单元是
+  ① golden default+worker ② golden all ③ SDK 车道 ④ 快照 ⑤ gate+提交。
+
+**L-6 交付记录（2026-10-02，Batch 1 已入库 `cf845cb35`）**
+
+- 落地：4 段 `GET …/{relType}/{eventType}`（与 PUT 合并进同一条 MethodRouter，参数名统一
+  `{event_type}`；4 段位置式提取）+ 三个读路由收敛到单一 `relations_response`；
+  `event_type` 由 4 段 handler 填入 `RelationQuery`（数据面已在 `2695d5706` 落地）。
+- 契约链：标注两处 + `EXPECTED_ANNOTATIONS` 两条 → 派生表 1156 行 → `ROUTE_CONTRACT.md`
+  1154 路由 → 6 份 fixture（golden 用 default 构建、SDK 用 all-extensions，**两车道不可混**）
+  → `docs/openapi/route-table.json` 1050→1052 → 两条 route-ledger 快照。
+- **本次实测确认的唯一可行执行序**：① 手改 fixture 破 `gen_derived_routes.py` 的
+  "先验 fixture、后写表"死锁 → ② 写表 → ③ **真导出覆盖**（手改版对 golden **不是**
+  byte-exact，`*_matches_fixture` 3/3 红）→ ④ SDK 车道 → ⑤ 快照 → ⑥ gate。
+- 判据：`-E 'test(route_ledger)'` 15 passed（带/不带 `UPDATE_ROUTE_LEDGER_SNAPSHOTS`），
+  `-E 'test(ledger_export)'` 7 passed，`check_route_contract.sh` **提交后** EXIT=0
+  （提交前必为 1：gate 末尾把重生成的 ROUTE_CONTRACT.md 与 HEAD 比，属构造性红）。
+- **HTTP 往返判据已补（2026-10-02）**：`api_relations_authorization_tests::relations_event_type_route_filters_over_http`
+  三条断言 —— ① 4 段 + 匹配 `event_type` ⇒ 200 且恰好返回该 reaction；② 4 段 + **不匹配**
+  `event_type` ⇒ 200 但 chunk 为空（证明过滤生效，而非"路由有 200 就算过"）；③ 3 段路由不受影响。
+  带**变异红证明**：把 4 段 handler 的 `event_type` 置 `None` ⇒ ② 断言红（chunk 长度变 1，
+  报文打印出来），复位即绿、探针清零。
+
+**防复发：`scripts/quality/preflight.sh`（2026-10-02 新增）**
+
+本会话两次把红带进主干，原因都不是"改错"而是"跑漏"：`416ece3c8` 漏 `cargo fmt`、
+`cf845cb35` 漏 `ruff format`（Format Governance 红）。该脚本把 CI **同名门禁**按改动集
+一次跑全：`cargo fmt --all` + fmt 棘轮 → `scripts/quality/format_check.sh`（ruff/shfmt/
+yamllint/check-json，仅当有 py/rs/json/yaml/sh 改动）→ 逐文件 aspell + markdownlint（仅改动
+的 `.md`）→ `check_route_contract.sh`（**仅当未动契约链文件**；动了就 SKIP 并提示该 gate
+提交前构造性红）→ 可选 `--clippy` 跑两档。改动集含**未跟踪新文件**（`git ls-files --others`
+——"新增 .py/.md 忘了格式化"正是要防的场景）。
+
+自证：干净树上 `EXIT=0`；往受检文档塞纯文本错拼 ⇒ `EXIT=1` 且 `FAIL aspell …`；复位即绿。
+（注意：aspell 会忽略 HTML 注释里的词，红证明要用纯文本错拼，否则会假绿。）
 
 ### 8.4 依赖与并行度
 
 - **可立即并行**（互不耦合）：M-1、M-3、L-5、L-1（L-2 已因 MSC4242 房间版本/语义未定稿而受阻，不再列入）。
-- **同一条链路、需串行**：D-1 → H-1；D-3 → L-3；D-2 → L-4。
+- **同一条链路、需串行**：D-1 → H-1 ✅；D-3 → L-3 ✅（D-3=②，2026-10-02 已落地）；D-2 → L-4 ✅（D-2=②）。
 - **共享前置**：M-2 / M-4 / M-5 都要先有「可复现用例 or 明确的失败语义」，否则改动无法自证。
-- **彼此竞争同一文件/契约链**：H-2 与 L-3（路由/契约快照）、M-6 与 M-2（同步/存储读侧）——不要同窗口开。
+- **彼此竞争同一文件/契约链**：H-2 与 L-3（路由/契约快照）——L-3 已于 2026-10-02 以**零契约链改动**落地（不改 `RouteEntry`），竞争解除；M-6 与 M-2（同步/存储读侧）——不要同窗口开。
 
 ### 8.5 全局风险与回滚
 
@@ -957,7 +1082,7 @@ Execution Time: 0.287 ms（返回 14 行）
 | **认证绕过** | H-1 接线后校验不严（issuer/audience/签名/过期任一缺口） | 4 路 fail-closed 用例（V-1）+ 默认 `mas.enabled=false` 保持现状 + 一键回滚开关 |
 | **与旧对端断链** | H-2 打开严格校验 | 默认 `false`（宽限期至 2027-06-01）；同时接受 stripped 与 full PDU；红/绿证明开关真的生效 |
 | **行为变化被低估** | M-4 接入后规则真的拦截事件 | 先定 fail-open/closed；分阶段：先记录不拦截 → 再拦截；规则超时不得阻塞消息主路径 |
-| **契约链漂移** | H-2 / L-3 触及路由或 `/sync` 结构 | 按既有流程重生成 `ROUTE_CONTRACT.md` + 派生表 + 两车道 fixture + route ledger 快照，并跑 `check_route_contract.sh` |
+| **契约链漂移** | H-2 触及路由或 `/sync` 结构（L-3 已于 2026-10-02 **零契约链改动**落地，不再触及契约链） | 按既有流程重生成 `ROUTE_CONTRACT.md` + 派生表 + 两车道 fixture + route ledger 快照，并跑 `check_route_contract.sh` |
 | **死配置复发** | H-2 的开关又被写成 0 读取点 | 红证明（拨 true 必须变红）+ 报告 §18.6 V-2 的复核命令 |
 | **只改文档不改行为** | L-4 若选「不跟随」 | 把选择写进 §8.1 D-2 记录 + 报告 §18.3 #11 行，避免下轮又当成缺口重排 |
 

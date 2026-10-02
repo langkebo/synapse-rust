@@ -134,6 +134,7 @@ mod e2ee_audit_service_tests;
 mod schema_contract_p0_tests_migrated;
 mod schema_contract_room_summary_queue_driver_tests_migrated;
 mod space_children_service_tests;
+mod stream_position_tests;
 
 mod nullable_decode_tests;
 

@@ -284,13 +284,19 @@ impl EventStorage {
     }
 
     /// Find state events in a room that reference any of `missing_event_ids`
-    /// in their `prev_state_events` (MSC4242 state DAG).
+    /// in their `prev_state_events`.
     ///
-    /// Storage-layer helper only: it currently has no production caller — the
-    /// `/get_missing_events` federation handler resolves history through
-    /// `get_missing_events_between`, and the MSC4242 serving layer (HTTP /
-    /// service / federation wiring) is not implemented yet. Exercised by
-    /// `db_tests` only.
+    /// **尚未接线**：全仓没有生产调用者（只有 `event/db_tests.rs` 覆盖）。原因是
+    /// MSC4242（State DAGs）未定稿 —— `proposals/4242-state-dags.md` 不在
+    /// matrix-spec-proposals 的 `main` 上（仅存在于 PR #4242：open / unmerged /
+    /// needs-implementation，无房间版本指派），其 `state_dag` 旗标也只在未指派的
+    /// `org.matrix.msc4242.12` 房间版本下才有意义。
+    ///
+    /// 此前的注释声称本函数"被 `/get_missing_events` 联邦 handler 使用"，实测不实：
+    /// 该 handler（`synapse-web/src/routes/federation/events.rs:36-70`）只调用
+    /// `get_missing_events_between`，从未调用本函数。（同文件里
+    /// `find_missing_event_ids` 与 `get_missing_events_between` 的"被……使用"注释
+    /// 经核实为**真**，故保留。）
     ///
     /// Returns the event IDs that reference at least one missing event.
     pub async fn find_events_referencing_missing_state(

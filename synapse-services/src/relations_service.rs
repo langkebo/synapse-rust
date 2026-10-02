@@ -64,7 +64,7 @@ pub struct SendReplacementRequest {
 pub struct RelationQuery {
     /// `rel_type` 过滤；`None` ＝ 不过滤。
     pub rel_type: Option<String>,
-    /// 被关联事件的 `type` 过滤（`/relations/.../{eventType}`）；`None` ＝ 不过滤。
+    /// 被关联事件的 `type` 过滤（spec 的 `/{relType}/{eventType}` 路由）；`None` ＝ 不过滤。
     pub event_type: Option<String>,
     /// 单页上限（服务端再夹到 100）。
     pub limit: Option<i32>,

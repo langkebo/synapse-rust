@@ -182,7 +182,6 @@ pub async fn get_statistics(_admin: AdminUser, State(ctx): State<AdminContext>) 
     if let Some(gauge) = ctx.metrics.get_gauge("synapse_active_rooms_7d") {
         gauge.set(active_rooms as f64);
     }
-
     Ok(Json(json!({
         "total_users": total_users,
         "non_deactivated_user_count": non_deactivated_user_count,

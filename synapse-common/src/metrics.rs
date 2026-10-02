@@ -430,8 +430,8 @@ impl MetricsCollector {
     /// );
     ///
     /// // Later, set with specific label values (one series per stream):
-    /// template.set(4242.0, &["events"]);
-    /// template.set(17.0, &["device_lists"]);
+    /// template.set(&["events"], 4242.0);
+    /// template.set(&["device_lists"], 17.0);
     /// ```
     pub fn create_dynamic_gauge_template(&self, name: String, label_names: Vec<&str>) -> DynamicGaugeTemplate {
         DynamicGaugeTemplate::new(name, label_names, self.gauges.clone())
@@ -460,7 +460,7 @@ impl DynamicCounterTemplate {
     /// (a programming error), a warning is logged and the observation is dropped
     /// instead of panicking, mirroring [`Self::get_counter`]'s graceful handling.
     pub fn observe(&self, label_values: &[&str]) {
-        if label_values.len() != self.label_names.len() {
+        let Some(labels) = labels_from(&self.label_names, label_values) else {
             tracing::warn!(
                 counter = %self.name,
                 expected = self.label_names.len(),
@@ -468,16 +468,10 @@ impl DynamicCounterTemplate {
                 "Dropping counter observation: label value count doesn't match label name count"
             );
             return;
-        }
-
-        // Build labels HashMap
-        let mut labels = HashMap::new();
-        for (i, value) in label_values.iter().enumerate() {
-            labels.insert(self.label_names[i].clone(), value.to_string());
-        }
+        };
 
         // Create or reuse counter
-        let label_signature = self.build_signature(&labels);
+        let label_signature = label_signature(&labels);
         let mut counters = self.counters.lock();
 
         if let Some(counter) = counters.get(&label_signature).cloned() {
@@ -489,38 +483,39 @@ impl DynamicCounterTemplate {
         }
     }
 
-    /// Builds a unique signature for the given labels.
-    fn build_signature(&self, labels: &HashMap<String, String>) -> String {
-        let mut pairs: Vec<_> = labels.iter().collect();
-        pairs.sort_by(|a, b| a.0.cmp(b.0));
-
-        pairs.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>().join(",")
-    }
-
     /// Gets the underlying counter by label values (if already created).
     pub fn get_counter(&self, label_values: &[&str]) -> Option<Counter> {
-        if label_values.len() != self.label_names.len() {
-            return None;
-        }
-
-        let mut labels = HashMap::new();
-        for (i, value) in label_values.iter().enumerate() {
-            labels.insert(self.label_names[i].clone(), value.to_string());
-        }
-
-        let label_signature = self.build_signature(&labels);
+        let labels = labels_from(&self.label_names, label_values)?;
+        let label_signature = label_signature(&labels);
         let counters = self.counters.lock();
         counters.get(&label_signature).cloned()
     }
 }
 
-/// 动态 Gauge 模板：支持运行时传入标签值，避免预先绑定所有组合。
+/// 由标签名/值构造标签表；个数不匹配（编程错误）返回 `None`。
+fn labels_from(label_names: &[String], label_values: &[&str]) -> Option<HashMap<String, String>> {
+    if label_values.len() != label_names.len() {
+        return None;
+    }
+    Some(label_names.iter().zip(label_values).map(|(name, value)| (name.clone(), (*value).to_string())).collect())
+}
+
+/// 标签表的稳定签名，用作动态模板的注册表 key：**同一个指标名按标签组合各存一条**，
+/// 这样同名不同标签的序列不会互相覆盖（Prometheus 的数据模型）。
+fn label_signature(labels: &HashMap<String, String>) -> String {
+    let mut pairs: Vec<_> = labels.iter().collect();
+    pairs.sort_by(|a, b| a.0.cmp(b.0));
+
+    pairs.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>().join(",")
+}
+
+/// 动态 Gauge 模板：支持运行时传入标签值。
 ///
-/// 与 [`DynamicCounterTemplate`] 同构，差别在写入语义是 `set`（覆盖当前位点）
-/// 而非自增。必要性：`MetricsCollector.gauges` 以 **name 为 key**，同名注册互相
-/// 覆盖；本模板改用**标签签名**为 key，使同名 gauge 的多个标签组合在同一
-/// collector 内**共存**（如 `synapse_storage_stream_current_position{stream="events"}`
-/// 与 `{stream="device_lists"}`）。
+/// 与 [`DynamicCounterTemplate`] 同构，存在的理由也一样：`MetricsCollector::gauges`
+/// 以 **name** 为 key，直接连调两次 `register_gauge_with_labels` 会让同名不同标签的
+/// 序列互相覆盖（渲染里只剩最后一条）。运行时才知道标签值的 gauge（如
+/// `synapse_storage_stream_current_position{stream="…"}`）必须走本模板：
+/// **每个标签组合一条独立条目、共享同一个指标名**。
 pub struct DynamicGaugeTemplate {
     name: String,
     label_names: Vec<String>,
@@ -533,61 +528,37 @@ impl DynamicGaugeTemplate {
         Self { name, label_names: label_names.iter().map(|s| s.to_string()).collect(), gauges }
     }
 
-    /// Sets the value for the given label values.
+    /// Sets the gauge for the given label values, creating it on first use.
     ///
-    /// If the number of label values doesn't match the number of label names
-    /// (a programming error), a warning is logged and the write is dropped
-    /// instead of panicking, consistent with the counter/histogram templates.
-    pub fn set(&self, value: f64, label_values: &[&str]) {
-        if label_values.len() != self.label_names.len() {
+    /// 标签值个数与标签名个数不匹配（编程错误）时记一条 warn 并丢弃，
+    /// 与 [`DynamicCounterTemplate::observe`] 的处理一致。
+    pub fn set(&self, label_values: &[&str], value: f64) {
+        let Some(labels) = labels_from(&self.label_names, label_values) else {
             tracing::warn!(
                 gauge = %self.name,
                 expected = self.label_names.len(),
                 got = label_values.len(),
-                "Dropping gauge write: label value count doesn't match label name count"
+                "Dropping gauge update: label value count doesn't match label name count"
             );
             return;
-        }
+        };
 
-        let mut labels = HashMap::new();
-        for (i, label_value) in label_values.iter().enumerate() {
-            labels.insert(self.label_names[i].clone(), (*label_value).to_string());
-        }
-
-        let label_signature = self.build_signature(&labels);
+        let signature = label_signature(&labels);
         let mut gauges = self.gauges.lock();
-
-        if let Some(gauge) = gauges.get(&label_signature).cloned() {
+        if let Some(gauge) = gauges.get(&signature).cloned() {
             gauge.set(value);
         } else {
             let gauge = Gauge::with_labels(self.name.clone(), labels);
-            gauges.insert(label_signature, gauge.clone());
             gauge.set(value);
+            gauges.insert(signature, gauge);
         }
     }
 
-    /// Builds a unique signature for the given labels.
-    fn build_signature(&self, labels: &HashMap<String, String>) -> String {
-        let mut pairs: Vec<_> = labels.iter().collect();
-        pairs.sort_by(|a, b| a.0.cmp(b.0));
-
-        pairs.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>().join(",")
-    }
-
-    /// Gets the underlying gauge by label values (if already created).
-    pub fn get_gauge(&self, label_values: &[&str]) -> Option<Gauge> {
-        if label_values.len() != self.label_names.len() {
-            return None;
-        }
-
-        let mut labels = HashMap::new();
-        for (i, value) in label_values.iter().enumerate() {
-            labels.insert(self.label_names[i].clone(), (*value).to_string());
-        }
-
-        let label_signature = self.build_signature(&labels);
-        let gauges = self.gauges.lock();
-        gauges.get(&label_signature).cloned()
+    /// Gets the gauge for the given label values (if that combination was set before).
+    pub fn get(&self, label_values: &[&str]) -> Option<Gauge> {
+        let labels = labels_from(&self.label_names, label_values)?;
+        let signature = label_signature(&labels);
+        self.gauges.lock().get(&signature).cloned()
     }
 }
 
@@ -614,7 +585,7 @@ impl DynamicHistogramTemplate {
     /// (a programming error), a warning is logged and the observation is dropped
     /// instead of panicking, consistent with the counter template.
     pub fn observe(&self, value: f64, label_values: &[&str]) {
-        if label_values.len() != self.label_names.len() {
+        let Some(labels) = labels_from(&self.label_names, label_values) else {
             tracing::warn!(
                 histogram = %self.name,
                 expected = self.label_names.len(),
@@ -622,14 +593,9 @@ impl DynamicHistogramTemplate {
                 "Dropping histogram observation: label value count doesn't match label name count"
             );
             return;
-        }
+        };
 
-        let mut labels = HashMap::new();
-        for (i, value) in label_values.iter().enumerate() {
-            labels.insert(self.label_names[i].clone(), value.to_string());
-        }
-
-        let label_signature = self.build_signature(&labels);
+        let label_signature = label_signature(&labels);
         let mut histograms = self.histograms.lock();
 
         if let Some(histogram) = histograms.get(&label_signature).cloned() {
@@ -639,13 +605,6 @@ impl DynamicHistogramTemplate {
             histograms.insert(label_signature, histogram.clone());
             histogram.observe(value);
         }
-    }
-
-    fn build_signature(&self, labels: &HashMap<String, String>) -> String {
-        let mut pairs: Vec<_> = labels.iter().collect();
-        pairs.sort_by(|a, b| a.0.cmp(b.0));
-
-        pairs.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>().join(",")
     }
 }
 
@@ -944,6 +903,33 @@ mod tests {
         assert_eq!(gauge.get(), 0.0);
         gauge.set(42.0);
         assert_eq!(gauge.get(), 42.0);
+    }
+
+    /// 缺陷复现（L-1 的前置）：同名不同标签的 gauge **必须**各成一条序列。
+    ///
+    /// `MetricsCollector::gauges` 以 name 为 key，`register_gauge_with_labels`
+    /// 第二次注册会把第一次的条目**覆盖**掉：句柄仍可写，但渲染里少一条序列。
+    /// 上游 Synapse 的 `synapse_storage_stream_current_position{stream="…"}`
+    /// 正是这个形状，所以不能照搬旧的注册路径。
+    #[test]
+    fn same_name_different_labels_gauges_must_be_distinct_series() {
+        let collector = MetricsCollector::new();
+        let template = collector.create_dynamic_gauge_template("stream_position".to_string(), vec!["stream"]);
+        template.set(&["events"], 42.0);
+        template.set(&["to_device"], 7.0);
+        template.set(&["events"], 43.0);
+
+        assert_eq!(template.get(&["events"]).map(|g| g.get()), Some(43.0), "同一标签组合复用同一条序列");
+        assert_eq!(template.get(&["to_device"]).map(|g| g.get()), Some(7.0), "另一个标签组合不受影响");
+        assert!(template.get(&["presence"]).is_none(), "没 set 过的标签组合不该凭空出现");
+        assert!(template.get(&["events", "extra"]).is_none(), "标签值个数不匹配 → 丢弃，不 panic");
+
+        let rendered = collector.to_prometheus_format();
+        assert!(rendered.contains(r#"stream_position{stream="to_device"} 7"#), "{rendered}");
+        assert!(
+            rendered.contains(r#"stream_position{stream="events"} 43"#),
+            "同名 gauge 被后一次注册覆盖，渲染里丢了 events 序列：\n{rendered}"
+        );
     }
 
     #[test]
@@ -1418,8 +1404,8 @@ mod tests {
         let collector = MetricsCollector::new();
         let template = collector
             .create_dynamic_gauge_template("synapse_storage_stream_current_position".to_string(), vec!["stream"]);
-        template.set(42.0, &["events"]);
-        template.set(7.0, &["device_lists"]);
+        template.set(&["events"], 42.0);
+        template.set(&["device_lists"], 7.0);
 
         let output = collector.to_prometheus_format();
         assert_eq!(

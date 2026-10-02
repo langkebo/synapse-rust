@@ -182,6 +182,7 @@ crt
 crypto
 cryptographic
 cryptographically
+csapi
 cso
 csp
 csprng
@@ -486,6 +487,7 @@ memswap
 mergeable
 messagingservice
 messagingserviceconfig
+methodrouter
 metricscollector
 middleware
 migrator
@@ -818,6 +820,7 @@ threadservice
 threepid
 threepidstorage
 tikv
+timeseries
 tini
 tjg
 tls
@@ -877,6 +880,7 @@ ungated
 unicode
 unix
 unknowntoken
+unmerged
 unpadded
 unprocessable
 unrecognised
@@ -949,6 +953,7 @@ xss
 xxxx
 yagni
 yaml
+yamllint
 yyyy
 zeroize
 zeroized

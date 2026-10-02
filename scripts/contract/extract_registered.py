@@ -1133,9 +1133,10 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}"): {
         "query_params": "dir,from,limit,org.matrix.msc3981.recurse,recurse,to"
     },
-    ("GET", "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}"): {
-        "query_params": "dir,from,limit,org.matrix.msc3981.recurse,recurse,to"
-    },
+    (
+        "GET",
+        "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
+    ): {"query_params": "dir,from,limit,org.matrix.msc3981.recurse,recurse,to"},
     ("GET", "/_matrix/client/v1/rooms/{room_id}/threads"): {
         "query_params": "from,include_all,limit"
     },
@@ -1217,9 +1218,10 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}"): {
         "query_params": "dir,from,limit,org.matrix.msc3981.recurse,recurse,to"
     },
-    ("GET", "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}"): {
-        "query_params": "dir,from,limit,org.matrix.msc3981.recurse,recurse,to"
-    },
+    (
+        "GET",
+        "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
+    ): {"query_params": "dir,from,limit,org.matrix.msc3981.recurse,recurse,to"},
     ("GET", "/_matrix/client/v3/rooms/{room_id}/sync"): {
         "query_params": "full_state,since,timeout"
     },

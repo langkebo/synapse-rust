@@ -73,6 +73,8 @@ mod thread_api_tests;
 mod ts_order_tiebreak_tests;
 
 mod worker_api_tests;
+// L-3: explicit MSC4140 delayed-events path set pinned to the real route ledger.
+mod worker_delayed_events_ownership_tests;
 
 mod rendezvous_service_tests;
 mod test_connection_budget_tests;

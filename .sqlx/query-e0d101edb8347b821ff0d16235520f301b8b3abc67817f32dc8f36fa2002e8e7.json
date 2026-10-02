@@ -1,0 +1,91 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH RECURSIVE relation_tree AS (\n                -- 直接关系：被请求事件的一层关系行。\n                SELECT er.id, er.room_id, er.event_id, er.relates_to_event_id,\n                       er.relation_type, er.sender, er.origin_server_ts, er.content,\n                       er.is_redacted, er.created_ts,\n                       -- `events.stream_ordering` 有 DEFAULT nextval(...)，本仓所有\n                       -- 写入路径都不显式提供该列，因此恒非空；列本身只是没声明\n                       -- NOT NULL，故此处断言。`events` 用 LEFT JOIN：关系行没有\n                       -- 外键指向 `events`，孤儿行（只有测试夹具会造）按其自身\n                       -- `origin_server_ts` 排序，而不是从结果里消失。\n                       COALESCE(e.stream_ordering, er.origin_server_ts) AS stream_ordering,\n                       e.event_type AS event_type,\n                       0 AS depth\n                FROM event_relations er\n                LEFT JOIN events e ON e.event_id = er.event_id\n                WHERE er.room_id = $1\n                  AND er.relates_to_event_id = $2\n                  AND er.is_redacted = FALSE\n                UNION\n                -- MSC3981：关系的关系。`$6 = TRUE` 不成立（缺省路径）时这一项不产出\n                -- 任何行，整个 CTE 退化为上面的一层查询。深度上限同时兜住环：环上的\n                -- 行因 depth 不同而不被 UNION 去重，只能靠上限终止。\n                SELECT er.id, er.room_id, er.event_id, er.relates_to_event_id,\n                       er.relation_type, er.sender, er.origin_server_ts, er.content,\n                       er.is_redacted, er.created_ts,\n                       COALESCE(e.stream_ordering, er.origin_server_ts) AS stream_ordering,\n                       e.event_type AS event_type,\n                       rt.depth + 1\n                FROM event_relations er\n                INNER JOIN relation_tree rt ON rt.event_id = er.relates_to_event_id\n                LEFT JOIN events e ON e.event_id = er.event_id\n                WHERE er.room_id = $1\n                  AND er.is_redacted = FALSE\n                  AND $6 = TRUE\n                  AND rt.depth <= $7\n            )\n            -- 每一列都要断言非空：PG 的 Describe 不给递归 CTE 的输出列透传\n            -- NOT NULL（R4 的 UNION/CTE 型），而 `event_relations` 的这些列在\n            -- schema 里全是 NOT NULL，`stream_ordering` 见上面的 COALESCE。\n            SELECT id AS \"id!\", room_id AS \"room_id!\", event_id AS \"event_id!\",\n                   relates_to_event_id AS \"relates_to_event_id!\",\n                   relation_type AS \"relation_type!\", sender AS \"sender!\",\n                   origin_server_ts AS \"origin_server_ts!\", content AS \"content!\",\n                   is_redacted AS \"is_redacted!\", created_ts AS \"created_ts!\",\n                   stream_ordering AS \"stream_ordering!\"\n            FROM relation_tree\n            WHERE ($8 = '' OR relation_type = $8)\n              AND ($10 = '' OR event_type = $10)\n              AND ($3::bigint = 0\n                   OR ($5 = TRUE\n                       AND (stream_ordering < $3 OR (stream_ordering = $3 AND event_id < $4)))\n                   OR ($5 = FALSE\n                       AND (stream_ordering > $3 OR (stream_ordering = $3 AND event_id > $4))))\n            ORDER BY\n                CASE WHEN $5 = TRUE THEN stream_ordering END DESC,\n                CASE WHEN $5 = TRUE THEN event_id END DESC,\n                CASE WHEN $5 = FALSE THEN stream_ordering END ASC,\n                CASE WHEN $5 = FALSE THEN event_id END ASC\n            LIMIT $9\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "event_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "relates_to_event_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "relation_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "sender!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "origin_server_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "content!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_redacted!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "stream_ordering!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Bool",
+        "Bool",
+        "Int4",
+        "Text",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "e0d101edb8347b821ff0d16235520f301b8b3abc67817f32dc8f36fa2002e8e7"
+}

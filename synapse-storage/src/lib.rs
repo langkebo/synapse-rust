@@ -131,6 +131,9 @@ pub mod space;
 pub mod state_groups;
 /// The `sticky_event` module.
 pub mod sticky_event;
+
+/// 各 stream 的当前位置（指标 `synapse_storage_stream_current_position` 的数据源）。
+pub mod stream_positions;
 /// Sync storage domain group — re-exports sync modules under `sync::`.
 pub mod sync;
 /// Test isolation infrastructure (schema-per-test).

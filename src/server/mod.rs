@@ -99,9 +99,6 @@ fn global_maintenance_tasks_enabled() -> bool {
 struct PrometheusMetricsState {
     metrics: Arc<crate::common::metrics::MetricsCollector>,
     app_service_manager: Arc<synapse_services::application_service::ApplicationServiceManager>,
-    server_metrics: Arc<synapse_common::server_metrics::ServerMetrics>,
-    room_service: Arc<dyn synapse_services::room::RoomServiceApi>,
-    account_device_list_service: Arc<synapse_services::account_device_list_service::AccountDeviceListService>,
 }
 
 fn dehydrated_device_cleanup_interval(configured_interval_secs: u64) -> Duration {
@@ -411,6 +408,28 @@ impl SynapseServer {
                                 utilization,
                                 is_healthy,
                             );
+
+                            // L-1：每个 stream 的当前位置（`synapse_storage_stream_current_position{stream="…"}`）。
+                            // 与池指标同一循环，因此刷新时机不再取决于 admin `/statistics`
+                            // 是否被访问；读到未登记的 stream 标签时记 warn —— 那是
+                            // "SQL 加了 stream、指标登记表没跟上"的漂移形态。
+                            match synapse_storage::stream_positions::get_stream_positions(pool_ref).await {
+                                Ok(rows) => {
+                                    for row in rows {
+                                        match synapse_common::server_metrics::StreamPosition::from_label(&row.stream) {
+                                            Some(stream) => server_metrics.set_stream_position(stream, row.position),
+                                            None => tracing::warn!(
+                                                stream = %row.stream,
+                                                "stream position metric: unregistered stream label; \
+                                                 add it to StreamPosition::ALL or drop it from the query"
+                                            ),
+                                        }
+                                    }
+                                }
+                                Err(error) => {
+                                    tracing::warn!(%error, "stream position metric refresh failed");
+                                }
+                            }
                             tracing::debug!(
                                 "pool metrics updated: size={}, idle={}, active={}, max={}, util={:.3}",
                                 pool_size, idle, active, max_size, utilization
@@ -861,9 +880,6 @@ impl SynapseServer {
             let metrics_state = PrometheusMetricsState {
                 metrics: self.app_state.services.core.metrics.clone(),
                 app_service_manager: self.app_state.services.admin.modules.app_service_manager.clone(),
-                server_metrics: self.app_state.services.core.server_metrics.clone(),
-                room_service: self.app_state.services.rooms.room_service.clone(),
-                account_device_list_service: self.app_state.services.account.account_device_list_service.clone(),
             };
             // 读取 PROMETHEUS_AUTH_TOKEN 环境变量，为空时不启用鉴权（向后兼容）
             let prometheus_auth_token = std::env::var("PROMETHEUS_AUTH_TOKEN").ok().filter(|s| !s.is_empty());
@@ -1111,8 +1127,6 @@ async fn prometheus_auth_middleware(
 async fn render_prometheus_metrics(
     axum::extract::State(state): axum::extract::State<PrometheusMetricsState>,
 ) -> impl IntoResponse {
-    refresh_storage_stream_positions(&state).await;
-
     let mut rendered = state.metrics.to_prometheus_format();
 
     match state.app_service_manager.get_statistics().await {
@@ -1126,27 +1140,6 @@ async fn render_prometheus_metrics(
     }
 
     ([(http::header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")], rendered)
-}
-
-/// 抓取时刷新 `synapse_storage_stream_current_position` 的各 stream 系列。
-///
-/// 在 `/metrics` 抓取时即时计算位点（而非靠 admin `/statistics` 拉取），使数值
-/// **随写入推进**、无需人工访问管理页。每个来源独立求值：单个 stream 读取失败
-/// 只记 warn、不影响其余系列，也不阻断本次抓取。
-async fn refresh_storage_stream_positions(state: &PrometheusMetricsState) {
-    match state.room_service.state().get_max_stream_ordering().await {
-        Ok(position) => state.server_metrics.storage_stream_current_position.set(position as f64, &["events"]),
-        Err(error) => {
-            ::tracing::warn!(error = %error, "Failed to read events stream position for Prometheus output");
-        }
-    }
-
-    match state.account_device_list_service.get_max_stream_id().await {
-        Ok(position) => state.server_metrics.storage_stream_current_position.set(position as f64, &["device_lists"]),
-        Err(error) => {
-            ::tracing::warn!(error = %error, "Failed to read device-lists stream position for Prometheus output");
-        }
-    }
 }
 
 fn render_appservice_scheduler_prometheus_metrics(summary: &AppserviceSchedulerTelemetrySummary) -> String {

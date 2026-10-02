@@ -22,8 +22,8 @@ pub use protocol::{ReplicationCommand, ReplicationEvent, ReplicationProtocol};
 pub use storage::WorkerStoreApi;
 pub use topology_validator::{
     current_instance_worker_type, expected_route_owner_for_probe, global_maintenance_owner,
-    resolved_current_instance_name, should_run_global_maintenance, validate_topology, validate_worker_config,
-    RouteOwnerProbe, TopologyValidation,
+    may_serve_delayed_events_route, resolved_current_instance_name, should_run_global_maintenance, validate_topology,
+    validate_worker_config, RouteOwnerProbe, TopologyValidation, DELAYED_EVENTS_WORKER_PATHS,
 };
 pub use types::{
     AssignTaskRequest, HeartbeatRequest, RdataEvent, RdataPosition, RegisterWorkerRequest, ReplicationPosition,
