@@ -451,6 +451,16 @@ impl ServiceContainer {
         // profile_update notifications can use Redis cross-instance fan-out.
         storage.user_service.set_event_notifier(event_notifier.clone());
 
+        // Worker event bus (`worker_events`): publish each persisted room event so
+        // workers can catch up on it. Wired **only** when the deployment runs in
+        // worker mode — with no worker reading the bus, publishing would add one
+        // INSERT per room event for nothing. See `worker::event_sink`.
+        let worker_event_sink: Option<Arc<dyn crate::worker::WorkerEventSink>> = if config.worker.enabled {
+            Some(Arc::new(crate::worker::WorkerManagerEventSink::new(admin.modules.worker_manager.clone())))
+        } else {
+            None
+        };
+
         // Rooms — receives member_storage + the 4 injected services directly
         // B-4204: user_storage is needed for profile_updates extension
         let rooms = wiring::RoomSyncServices::new(
@@ -476,6 +486,7 @@ impl ServiceContainer {
             // routes register third-party rules through, so registration and
             // enforcement share one registry.
             admin.modules.module_service.clone(),
+            worker_event_sink,
         )
         .await;
 

@@ -6,11 +6,14 @@
 //!
 //! * `sync_stream_id`：只有 seed 写入，全仓无读/写者；
 //! * `device_lists_outbound_pokes.stream_id`：只有 DELETE 路径，没有 INSERT；
-//! * `worker_events.stream_id`：写入口 `WorkerManager::add_event` 无调用者 ⇒ 恒 0；
 //! * `room_ephemeral.stream_id`：调用方传的是**墙钟毫秒**且被 UPSERT 覆盖 ⇒ 非单调；
 //! * upstream 的 presence / typing / receipts / account_data / push_rules / e2ee_keys /
 //!   backfill / federation 等 stream：本仓**没有**位置列（表里只有 `last_active_ts`
 //!   这类时间戳，或被 `id BIGSERIAL` 之外没有游标列）。
+//!
+//! `worker_events.stream_id` **已收录**：它由事件写入路径（`EventWriter` 装饰器）
+//! 推进，但只在 worker 模式（`worker.enabled`）下启用 ⇒ 单进程部署里该序列恒 0 是
+//! **预期**（总线本身不启用），不是"没有写者"的漂移。
 use sqlx::PgPool;
 
 /// 一个 stream 的当前位置。
@@ -24,7 +27,7 @@ pub struct StreamPositionRow {
 
 /// 读取每个已登记 stream 的当前位置。
 ///
-/// 单条 `UNION ALL` 查询：5 个 `MAX(...)` 一次往返；每张表都走主键/索引，
+/// 单条 `UNION ALL` 查询：6 个 `MAX(...)` 一次往返；每张表都走主键/索引，
 /// 空表经 `COALESCE` 归零（`MAX` 在没有行时是 NULL）。
 ///
 /// 输出必须与 `synapse_common::server_metrics::StreamPosition::ALL` 的标签集合**逐字对应**，
@@ -41,6 +44,8 @@ pub async fn get_stream_positions(pool: &PgPool) -> Result<Vec<StreamPositionRow
         SELECT 'sliding_sync', COALESCE(MAX(pos), 0) FROM sliding_sync_tokens
         UNION ALL
         SELECT 'quarantined_media', COALESCE(MAX(stream_id), 0) FROM quarantined_media_changes
+        UNION ALL
+        SELECT 'worker_events', COALESCE(MAX(stream_id), 0) FROM worker_events
         "#,
     )
     .fetch_all(pool)

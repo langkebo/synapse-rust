@@ -41,18 +41,37 @@ use std::sync::Arc;
 use synapse_storage::event::{CreateEventParams, EventWriter, RoomEvent};
 
 use crate::event_notifier::EventNotifier;
+use crate::worker::WorkerEventSink;
 
 /// Decorates an [`EventWriter`], publishing a wake-up after each successful
 /// write so that long-polling sliding-sync clients return immediately.
+///
+/// Optionally also publishes the persisted event to the **worker event bus** —
+/// see [`NotifyingEventWriter::with_worker_events`].
 pub struct NotifyingEventWriter {
     inner: Arc<dyn EventWriter>,
     notifier: EventNotifier,
+    /// Worker event bus sink.
+    ///
+    /// `None` in single-process deployments (`worker.enabled: false`), where the
+    /// bus has no reader and publishing would cost one INSERT per room event for
+    /// nothing.
+    worker_events: Option<Arc<dyn WorkerEventSink>>,
 }
 
 impl NotifyingEventWriter {
     /// Wraps `inner`, routing wake-ups through `notifier`.
     pub fn new(inner: Arc<dyn EventWriter>, notifier: EventNotifier) -> Self {
-        Self { inner, notifier }
+        Self { inner, notifier, worker_events: None }
+    }
+
+    /// Also publishes each persisted event to `sink` (the worker event bus).
+    ///
+    /// Wired only when the deployment runs in worker mode; see
+    /// [`crate::worker::event_sink`] for the delivery contract.
+    pub fn with_worker_events(mut self, sink: Arc<dyn WorkerEventSink>) -> Self {
+        self.worker_events = Some(sink);
+        self
     }
 
     /// Publishes the wake-up for a freshly persisted event.
@@ -102,6 +121,11 @@ impl EventWriter for NotifyingEventWriter {
 
         if autocommit {
             self.publish(&room_id, &event_type, state_key.as_deref());
+
+            // Worker-mode only; `None` means the bus has no reader (see the field doc).
+            if let Some(sink) = self.worker_events.as_ref() {
+                sink.publish_room_event(&event).await;
+            }
         }
 
         Ok(event)
@@ -138,6 +162,11 @@ impl EventWriter for NotifyingEventWriter {
 
         if autocommit {
             self.publish(&room_id, &event_type, state_key.as_deref());
+
+            // Worker-mode only; `None` means the bus has no reader (see the field doc).
+            if let Some(sink) = self.worker_events.as_ref() {
+                sink.publish_room_event(&event).await;
+            }
         }
 
         Ok(event)
@@ -160,6 +189,11 @@ impl EventWriter for NotifyingEventWriter {
 
         if autocommit {
             self.publish(&room_id, &event_type, state_key.as_deref());
+
+            // Worker-mode only; `None` means the bus has no reader (see the field doc).
+            if let Some(sink) = self.worker_events.as_ref() {
+                sink.publish_room_event(&event).await;
+            }
         }
 
         Ok(event)
@@ -180,6 +214,11 @@ impl EventWriter for NotifyingEventWriter {
 
         if autocommit {
             self.publish(&room_id, &event_type, state_key.as_deref());
+
+            // Worker-mode only; `None` means the bus has no reader (see the field doc).
+            if let Some(sink) = self.worker_events.as_ref() {
+                sink.publish_room_event(&event).await;
+            }
         }
 
         Ok(event)
@@ -540,4 +579,75 @@ mod tests {
             .await
             .unwrap();
     }
+
+    // ---------------------------------------------------------------------
+    // Worker event bus (P-5)
+    // ---------------------------------------------------------------------
+
+    /// Records what the worker bus was asked to publish.
+    #[derive(Default)]
+    struct RecordingWorkerSink {
+        published: std::sync::Mutex<Vec<(String, String)>>, // (event_id, room_id)
+    }
+
+    impl RecordingWorkerSink {
+        fn published(&self) -> Vec<(String, String)> {
+            self.published.lock().expect("not poisoned").clone()
+        }
+    }
+
+    #[async_trait]
+    impl WorkerEventSink for RecordingWorkerSink {
+        async fn publish_room_event(&self, event: &RoomEvent) {
+            self.published.lock().expect("not poisoned").push((event.event_id.clone(), event.room_id.clone()));
+        }
+    }
+
+    fn build_with_sink() -> (NotifyingEventWriter, Arc<RecordingWorkerSink>) {
+        let notifier = EventNotifier::new();
+        let inner: Arc<dyn EventWriter> = Arc::new(InMemoryEventStore::new());
+        let sink = Arc::new(RecordingWorkerSink::default());
+        let writer =
+            NotifyingEventWriter::new(inner, notifier).with_worker_events(sink.clone() as Arc<dyn WorkerEventSink>);
+        (writer, sink)
+    }
+
+    /// Every committed room event reaches the worker bus exactly once, carrying
+    /// the persisted event id and room — this is the write side of
+    /// `worker_events`, whose absence made `GET .../worker/events` return an
+    /// empty list forever (`docs/synapse-rust-vs-synapse-comparison.md` §18.7 P-5).
+    #[tokio::test]
+    async fn committed_event_is_published_to_the_worker_bus() {
+        let (writer, sink) = build_with_sink();
+
+        let params = params("m.room.message", None);
+        let expected_event_id = params.event_id.clone();
+        let event = writer.create_event(params, None).await.unwrap();
+
+        assert_eq!(event.event_id, expected_event_id);
+        assert_eq!(
+            sink.published(),
+            vec![(expected_event_id, ROOM.to_string())],
+            "a committed event must be published to the worker bus exactly once"
+        );
+    }
+
+    /// Without a sink (single-process deployment, `worker.enabled: false`) the
+    /// decorator must not publish anything — the bus has no reader there, so an
+    /// INSERT per event would be pure overhead.
+    #[tokio::test]
+    async fn no_sink_means_no_worker_publish() {
+        let (writer, _notifier) = build();
+
+        // Only the notification path is wired; this must not panic and must not
+        // reach any bus. The assertion is the absence of a sink in `build()`.
+        writer.create_event(params("m.room.message", None), None).await.unwrap();
+    }
+
+    // The bus publish follows the same commit boundary as the wake-up: nothing is
+    // published for an event that is still inside a transaction, so a worker can
+    // never be pointed at a row it cannot see yet.
+    //
+    // This needs a real transaction, so the DB-backed proof lives in
+    // `tests/integration/worker_event_bus_tests.rs`.
 }

@@ -79,6 +79,9 @@ impl RoomSyncServices {
         // `Arc<ModuleService>` that the admin routes register rules through, so
         // the registration surface and the enforcement path can never diverge.
         event_admission_gate: Arc<dyn crate::module_service::EventAdmissionGate>,
+        // Worker event bus sink. `Some` only when `worker.enabled` — see
+        // `crate::worker::event_sink` for the contract (best effort, idempotent).
+        worker_event_sink: Option<Arc<dyn crate::worker::WorkerEventSink>>,
     ) -> Self {
         let server_name_for_storage = infra.config.server.get_server_name().to_string();
         let room_storage: Arc<dyn synapse_storage::room::RoomStoreApi> = Arc::new(RoomStorage::new(&infra.pool));
@@ -98,11 +101,17 @@ impl RoomSyncServices {
         // projector refuses to sign the event (see `graph_metadata`). The
         // notifying writer stays inside it so that every write — resolved or
         // supplied — still wakes parked sync clients.
-        let notifying_writer: Arc<dyn synapse_storage::event::EventWriter> =
-            Arc::new(crate::notifying_event_writer::NotifyingEventWriter::new(
-                event_storage_concrete.clone(),
-                event_notifier.clone(),
-            ));
+        let notifying_writer_inner = crate::notifying_event_writer::NotifyingEventWriter::new(
+            event_storage_concrete.clone(),
+            event_notifier.clone(),
+        );
+        // Worker mode only: with no worker reading the bus, publishing would cost
+        // one extra INSERT per room event for nothing.
+        let notifying_writer_inner = match worker_event_sink {
+            Some(sink) => notifying_writer_inner.with_worker_events(sink),
+            None => notifying_writer_inner,
+        };
+        let notifying_writer: Arc<dyn synapse_storage::event::EventWriter> = Arc::new(notifying_writer_inner);
         let graph_metadata_resolver = Arc::new(crate::graph_metadata::GraphMetadataResolver::new(Arc::new(
             crate::graph_metadata::StorageGraphMetadataSource::new(
                 event_storage_concrete.clone(),

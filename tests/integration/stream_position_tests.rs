@@ -106,6 +106,19 @@ async fn every_stream_position_advances_with_writes() {
     .await
     .unwrap();
 
+    // worker_events：`stream_id` 由 DEFAULT nextval 推进。生产写者是事件写入
+    // 装饰器（仅在 worker 模式下接线），这里直接插行以验证指标数据源本身。
+    sqlx::query(
+        "INSERT INTO worker_events (event_id, event_type, room_id, sender, event_data, created_ts) \
+         VALUES ($1, 'm.room.message', $2, $3, '{}'::jsonb, 1)",
+    )
+    .bind(format!("$streampos_worker_{suffix}:localhost"))
+    .bind(&room_id)
+    .bind(&user_id)
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
+
     let after = positions(pool.as_ref()).await;
     for stream in StreamPosition::ALL {
         let label = stream.label();

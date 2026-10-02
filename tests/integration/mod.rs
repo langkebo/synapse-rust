@@ -70,6 +70,7 @@ mod rtc_transports_tests;
 mod third_party_rules_event_paths_tests;
 mod transaction_tests;
 mod voice_routes_tests;
+mod worker_event_bus_tests;
 mod worker_task_recovery_tests;
 
 #[cfg(feature = "beacons")]

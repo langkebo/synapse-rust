@@ -37,6 +37,18 @@ pub const DEVICE_LIST_OUTBOUND_POKES_RETENTION_DAYS: i64 = 7;
 /// or are older than this are pruned.
 pub const ONE_TIME_KEYS_RETENTION_DAYS: i64 = 7;
 
+/// Retention period for the worker event bus (7 days).
+///
+/// `worker_events` is the append-only replication stream a worker polls to
+/// catch up on room events (`GET .../worker/events`, fed by
+/// `WorkerStoreApi::get_events_since`). It is only written when the deployment
+/// runs in worker mode (`worker.enabled`), and every room event becomes one row,
+/// so without pruning it grows without bound. 7 days matches
+/// [`DEVICE_LIST_OUTBOUND_POKES_RETENTION_DAYS`] /
+/// [`FEDERATION_QUEUE_RETENTION_DAYS`]: long enough for a worker that has been
+/// offline for a while, short enough to stay bounded.
+pub const WORKER_EVENTS_RETENTION_DAYS: i64 = 7;
+
 /// Presence records whose `last_active_ts` is older than this threshold
 /// are considered stale and pruned.
 ///
@@ -125,6 +137,21 @@ pub async fn prune_old_notifications(pool: &PgPool) -> Result<u64, sqlx::Error> 
 pub async fn prune_old_device_lists_stream(pool: &PgPool) -> Result<u64, sqlx::Error> {
     let cutoff = current_timestamp_millis() - (DEVICE_LIST_STREAM_RETENTION_DAYS * 86400 * 1000);
     let result = sqlx::query!("DELETE FROM device_lists_stream WHERE created_ts < $1", cutoff).execute(pool).await?;
+    Ok(result.rows_affected())
+}
+
+/// Prune old worker bus events.
+///
+/// Deletes rows from `worker_events` whose `created_ts` is older than
+/// [`WORKER_EVENTS_RETENTION_DAYS`]. The bus exists so workers can catch up on
+/// events they have not processed yet; once an entry is older than the retention
+/// window it is no longer a plausible catch-up target, and keeping it would make
+/// the table unbounded (one row per room event in worker deployments).
+///
+/// Returns the number of rows deleted.
+pub async fn prune_old_worker_events(pool: &PgPool) -> Result<u64, sqlx::Error> {
+    let cutoff = current_timestamp_millis() - (WORKER_EVENTS_RETENTION_DAYS * 86400 * 1000);
+    let result = sqlx::query!("DELETE FROM worker_events WHERE created_ts < $1", cutoff).execute(pool).await?;
     Ok(result.rows_affected())
 }
 

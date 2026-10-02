@@ -738,6 +738,10 @@ impl SynapseServer {
                             // instances.
                             prune_step!("to-device transactions", synapse_storage::pruning::prune_old_to_device_transactions(&pruning_pool));
 
+                            // The worker bus is one row per room event in worker
+                            // deployments; prune it so it stays bounded.
+                            prune_step!("worker events", synapse_storage::pruning::prune_old_worker_events(&pruning_pool));
+
                             prune_step!("token blacklist", synapse_storage::pruning::prune_expired_token_blacklist(&pruning_pool));
 
                             prune_step!("federation queue", synapse_storage::pruning::prune_old_federation_queue(&pruning_pool));

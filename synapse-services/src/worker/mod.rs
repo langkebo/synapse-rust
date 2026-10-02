@@ -1,3 +1,5 @@
+/// The `event_sink` module.
+pub mod event_sink;
 /// The `health` module.
 pub mod health;
 /// The `load_balancer` module.
@@ -15,6 +17,7 @@ pub mod topology_validator;
 /// The `types` module.
 pub mod types;
 
+pub use event_sink::{WorkerEventSink, WorkerManagerEventSink};
 pub use health::{HealthCheckConfig, HealthCheckResult, HealthChecker, HealthStatus};
 pub use load_balancer::{LoadBalanceStrategy, WorkerLoadBalancer, WorkerLoadStats};
 pub use manager::WorkerManager;

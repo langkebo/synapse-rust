@@ -11,7 +11,6 @@ use axum::{
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::types::DeviceId;
-use synapse_common::MatrixErrorCode;
 
 async fn require_password_uia(
     ctx: &DeviceContext,
@@ -269,13 +268,22 @@ pub async fn get_devices(
     })))
 }
 
-/// Builds the `M_UNKNOWN_DEVICE` (HTTP 404) error returned when a device does
-/// not exist, or is not owned by the requesting user. `M_UNKNOWN_DEVICE` is the
-/// stable error code introduced in Matrix 1.17 (MSC4326); it supersedes the
-/// MSC4326-prefixed identifier used previously (upstream parity with Synapse
-/// PR #20181).
-fn unknown_device_error() -> ApiError {
-    ApiError::not_found("Device not found".to_string()).with_code(MatrixErrorCode::UnknownDevice)
+/// 404 for the device CRUD paths when the device does not exist **or is not
+/// owned by the caller**.
+///
+/// The Matrix spec does not define `M_UNKNOWN_DEVICE` for these endpoints: the
+/// 404 of `GET`/`PUT`/`DELETE /_matrix/client/v3/devices/{deviceId}` is described
+/// as _"The current user has no device with the given ID"_, i.e. the standard
+/// `M_NOT_FOUND` (verified against `data/api/client-server/device_management.yaml`
+/// in matrix-org/matrix-spec). `M_UNKNOWN_DEVICE` comes from MSC4326
+/// (_Device masquerading for appservices_), which this server does not implement,
+/// so the stable code stays defined in `synapse_common::MatrixErrorCode` but has
+/// no endpoint to apply to here.
+///
+/// Both "does not exist" and "belongs to someone else" return this same error:
+/// the response must not reveal whether another user's device exists.
+fn device_not_found_error() -> ApiError {
+    ApiError::not_found("Device not found".to_string())
 }
 
 /// See [`get_device`].
@@ -297,8 +305,8 @@ pub async fn get_device(
             "display_name": d.display_name,
             "last_seen_ts": d.last_seen_ts,
         }))),
-        Some(_) => Err(unknown_device_error()),
-        None => Err(unknown_device_error()),
+        Some(_) => Err(device_not_found_error()),
+        None => Err(device_not_found_error()),
     }
 }
 
@@ -319,12 +327,12 @@ pub async fn update_device(
             .await?;
 
         if rows_affected == 0 {
-            return Err(unknown_device_error());
+            return Err(device_not_found_error());
         }
     }
 
     let device =
-        ctx.account_device_list_service.get_device(device_id.as_str()).await?.ok_or_else(unknown_device_error)?;
+        ctx.account_device_list_service.get_device(device_id.as_str()).await?.ok_or_else(device_not_found_error)?;
 
     broadcast_device_list_update(&ctx, &auth_user.user_id, device_id.as_str()).await;
 
@@ -349,7 +357,7 @@ pub async fn delete_device(
     let rows: u64 = ctx.token_auth.revoke_device(&auth_user.user_id, device_id.as_str()).await?;
 
     if rows == 0 {
-        return Err(unknown_device_error());
+        return Err(device_not_found_error());
     }
 
     broadcast_device_list_update(&ctx, &auth_user.user_id, device_id.as_str()).await;
@@ -490,13 +498,20 @@ mod tests {
         assert!(shared_paths.iter().all(|path| path.starts_with('/')));
     }
 
-    /// H3 (Synapse PR #20181): device paths (get/update/delete) must surface the
-    /// stable `M_UNKNOWN_DEVICE` errcode with HTTP 404 instead of a generic error.
+    /// The device CRUD paths return the spec's `M_NOT_FOUND` (404) — **not**
+    /// `M_UNKNOWN_DEVICE`.
+    ///
+    /// `M_UNKNOWN_DEVICE` (stable since MSC4326) belongs to _appservice device
+    /// masquerading_, which this server does not implement; the spec's
+    /// `device_management.yaml` describes the 404 of these endpoints as "The
+    /// current user has no device with the given ID". Reverting this also keeps
+    /// the response indistinguishable between "no such device" and "someone
+    /// else's device" (2026-10-02: the earlier `M_UNKNOWN_DEVICE` application
+    /// broke `api_device_routes_tests::test_get_device_returns_not_found_for_other_users_device`).
     #[test]
-    fn unknown_device_error_uses_stable_errcode() {
-        let err = super::unknown_device_error();
-        assert!(err.code_is(synapse_common::MatrixErrorCode::UnknownDevice));
-        assert_eq!(err.code_str(), "M_UNKNOWN_DEVICE");
+    fn device_crud_404_uses_m_not_found() {
+        let err = super::device_not_found_error();
+        assert_eq!(err.code_str(), "M_NOT_FOUND");
         assert_eq!(err.http_status().as_u16(), 404);
     }
 }

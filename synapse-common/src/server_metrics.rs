@@ -34,9 +34,10 @@ pub fn global_server_metrics() -> Option<&'static Arc<ServerMetrics>> {
 ///
 /// * upstream 的 presence / typing / receipts / account_data / push_rules / e2ee_keys /
 ///   backfill / federation 在本仓**没有**位置列；
-/// * `sync_stream_id`、`device_lists_outbound_pokes`、`worker_events` 有位置列但
-///   **没有生产写者**（恒 0）；`room_ephemeral.stream_id` 是调用方传的墙钟毫秒且被
-///   UPSERT 覆盖 ⇒ 非单调。
+/// * `worker_events.stream_id` 由事件写入路径推进，但**只在 worker 模式**
+///   （`worker.enabled`）下启用 ⇒ 单进程部署里该序列恒 0 是**预期**，不是漂移；
+/// * `sync_stream_id`、`device_lists_outbound_pokes` 有位置列但**没有生产写者**（恒 0）；
+///   `room_ephemeral.stream_id` 是调用方传的墙钟毫秒且被 UPSERT 覆盖 ⇒ 非单调。
 ///
 /// `ALL` 与 storage 侧 SQL 的输出必须逐字一致，由
 /// `tests/integration/stream_position_tests.rs` 守卫。
@@ -52,16 +53,19 @@ pub enum StreamPosition {
     SlidingSync,
     /// `quarantined_media_changes.stream_id`
     QuarantinedMedia,
+    /// `worker_events.stream_id`（worker 模式下由事件写入路径推进）
+    WorkerEvents,
 }
 
 impl StreamPosition {
     /// 登记表（顺序即 `StreamPosition::ALL` 的声明顺序）。
-    pub const ALL: [StreamPosition; 5] = [
+    pub const ALL: [StreamPosition; 6] = [
         StreamPosition::Events,
         StreamPosition::ToDevice,
         StreamPosition::DeviceLists,
         StreamPosition::SlidingSync,
         StreamPosition::QuarantinedMedia,
+        StreamPosition::WorkerEvents,
     ];
 
     /// `stream` 标签取值。
@@ -72,6 +76,7 @@ impl StreamPosition {
             StreamPosition::DeviceLists => "device_lists",
             StreamPosition::SlidingSync => "sliding_sync",
             StreamPosition::QuarantinedMedia => "quarantined_media",
+            StreamPosition::WorkerEvents => "worker_events",
         }
     }
 

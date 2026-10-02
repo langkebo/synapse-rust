@@ -337,6 +337,12 @@ mod tests {
 
     /// H3 (Synapse PR #20181): the stable `M_UNKNOWN_DEVICE` errcode must map to
     /// its canonical string in both directions.
+    ///
+    /// NB: this code belongs to MSC4326 (_Device masquerading for appservices_).
+    /// This server implements no masquerading path, so **no endpoint emits it** —
+    /// in particular the device CRUD routes use the spec's `M_NOT_FOUND`
+    /// (`synapse-web/src/routes/device.rs::device_not_found_error`, 2026-10-02).
+    /// Keep it defined as spec vocabulary; do not re-apply it to device CRUD.
     #[test]
     fn unknown_device_str_roundtrips() {
         assert_eq!(MatrixErrorCode::UnknownDevice.as_str(), "M_UNKNOWN_DEVICE");

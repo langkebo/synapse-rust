@@ -316,6 +316,15 @@ impl WorkerStorage {
     }
 
     /// See [`add_event`].
+    ///
+    /// Idempotent by `event_id`: the table has `UNIQUE (event_id)`, and the same
+    /// room event can legitimately be published more than once (federation
+    /// backfill, retries, a re-run of a write path). A second publish is a no-op
+    /// that returns the **existing** row, so the original `stream_id` (and hence
+    /// the workers' replay position) is preserved. `DO UPDATE SET
+    /// event_id = EXCLUDED.event_id` is the standard "insert or return existing"
+    /// idiom: it touches nothing else, unlike `DO NOTHING` it still `RETURNING`s
+    /// a row, and it does not need a second round trip.
     pub async fn add_event(
         &self,
         event_id: &str,
@@ -333,6 +342,7 @@ impl WorkerStorage {
                 event_id, event_type, room_id, sender, event_data, created_ts
             )
             VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (event_id) DO UPDATE SET event_id = EXCLUDED.event_id
             RETURNING id, event_id, stream_id, event_type, room_id,
                       sender, event_data AS "event_data!", created_ts,
                       processed_by AS "processed_by: sqlx::types::Json<Vec<String>>"
