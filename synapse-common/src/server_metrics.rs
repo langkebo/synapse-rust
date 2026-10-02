@@ -1,6 +1,6 @@
 //! Pre-registered Prometheus counters/gauges/histograms exposed by the server.
 
-use crate::metrics::{Counter, DynamicCounterTemplate, Gauge, Histogram, MetricsCollector};
+use crate::metrics::{Counter, DynamicCounterTemplate, DynamicGaugeTemplate, Gauge, Histogram, MetricsCollector};
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
@@ -25,6 +25,63 @@ pub fn install_global_server_metrics(metrics: Arc<ServerMetrics>) {
 /// must treat it as optional (metrics are best-effort and never load-bearing).
 pub fn global_server_metrics() -> Option<&'static Arc<ServerMetrics>> {
     GLOBAL_SERVER_METRICS.get()
+}
+
+/// `synapse_storage_stream_current_position` 的 `stream` 标签取值。
+///
+/// 只收录本仓**真有单调位置列、且生产路径会推进**的 stream（数据源见
+/// `synapse_storage::stream_positions`）：
+///
+/// * upstream 的 presence / typing / receipts / account_data / push_rules / e2ee_keys /
+///   backfill / federation 在本仓**没有**位置列；
+/// * `sync_stream_id`、`device_lists_outbound_pokes`、`worker_events` 有位置列但
+///   **没有生产写者**（恒 0）；`room_ephemeral.stream_id` 是调用方传的墙钟毫秒且被
+///   UPSERT 覆盖 ⇒ 非单调。
+///
+/// `ALL` 与 storage 侧 SQL 的输出必须逐字一致，由
+/// `tests/integration/stream_position_tests.rs` 守卫。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum StreamPosition {
+    /// `events.stream_ordering`
+    Events,
+    /// `to_device_messages.stream_id`
+    ToDevice,
+    /// `device_lists_stream.stream_id`
+    DeviceLists,
+    /// `sliding_sync_tokens.pos`
+    SlidingSync,
+    /// `quarantined_media_changes.stream_id`
+    QuarantinedMedia,
+}
+
+impl StreamPosition {
+    /// 登记表（顺序即 `StreamPosition::ALL` 的声明顺序）。
+    pub const ALL: [StreamPosition; 5] = [
+        StreamPosition::Events,
+        StreamPosition::ToDevice,
+        StreamPosition::DeviceLists,
+        StreamPosition::SlidingSync,
+        StreamPosition::QuarantinedMedia,
+    ];
+
+    /// `stream` 标签取值。
+    pub fn label(self) -> &'static str {
+        match self {
+            StreamPosition::Events => "events",
+            StreamPosition::ToDevice => "to_device",
+            StreamPosition::DeviceLists => "device_lists",
+            StreamPosition::SlidingSync => "sliding_sync",
+            StreamPosition::QuarantinedMedia => "quarantined_media",
+        }
+    }
+
+    /// 由标签取值反查；未登记的标签返回 `None`。
+    ///
+    /// 调用方对 `None` 应记 warn：那正是"SQL 加了新 stream、指标登记表没跟上"的漂移，
+    /// 静默丢弃会让 `/metrics` 少一条序列而无人察觉。
+    pub fn from_label(label: &str) -> Option<Self> {
+        StreamPosition::ALL.into_iter().find(|stream| stream.label() == label)
+    }
 }
 
 /// All server-level Prometheus metrics counters/gauges/histograms, wired into `MetricsCollector`.
@@ -103,11 +160,15 @@ pub struct ServerMetrics {
     pub total_users: Gauge,
     /// Total rooms on this server.
     pub total_rooms: Gauge,
-    /// Current position of the main events stream (`MAX(stream_ordering)` on `events`).
+    /// 每个 stream 的当前位置，标签 `stream`。
     ///
-    /// Mirrors upstream Synapse's `synapse_storage_stream_current_position{stream="events"}`.
-    /// Refreshed on demand by the admin `/statistics` handler.
-    pub storage_stream_current_position: Gauge,
+    /// 指标名与上游同名（`synapse_storage_stream_current_position{stream="…"}`），
+    /// 标签取值见 [`StreamPosition`]：只登记本仓**真有单调位置列、且生产路径会推进**
+    /// 的 stream（数据源 `synapse_storage::stream_positions::get_stream_positions`）。
+    ///
+    /// 由 `src/server/mod.rs` 的 30s 指标循环周期刷新；此前只有 `events` 一条，且只在
+    /// admin `/statistics` 被访问时才更新。
+    pub storage_stream_current_position: DynamicGaugeTemplate,
 
     // Dehydrated Device Cleanup Metrics
     /// Dehydrated-device cleanup runs started.
@@ -277,7 +338,7 @@ impl ServerMetrics {
             total_users: collector.register_gauge("synapse_total_users".to_string()),
             total_rooms: collector.register_gauge("synapse_total_rooms".to_string()),
             storage_stream_current_position: collector
-                .register_gauge("synapse_storage_stream_current_position".to_string()),
+                .create_dynamic_gauge_template("synapse_storage_stream_current_position".to_string(), vec!["stream"]),
 
             dehydrated_device_cleanup_total: collector.register_counter("dehydrated_device_cleanup_total".to_string()),
             dehydrated_device_cleaned_total: collector.register_counter("dehydrated_device_cleaned_total".to_string()),
@@ -474,6 +535,11 @@ impl ServerMetrics {
         if !success {
             self.http_request_errors_total.inc();
         }
+    }
+
+    /// 记录某个 stream 的当前位置（`synapse_storage_stream_current_position`）。
+    pub fn set_stream_position(&self, stream: StreamPosition, position: i64) {
+        self.storage_stream_current_position.set(&[stream.label()], position as f64);
     }
 
     /// Increments the in-flight HTTP request gauge.
@@ -1310,17 +1376,35 @@ mod tests {
         assert_eq!(metrics.total_rooms.get(), 300.0);
     }
 
+    /// V-12 的指标侧：`stream` 标签必须**每个已登记 stream 都能取到**，且各自独立。
     #[test]
-    fn test_storage_stream_current_position_gauge() {
+    fn test_storage_stream_current_position_is_per_stream() {
         let collector = Arc::new(MetricsCollector::new());
         let metrics = ServerMetrics::new(collector.clone());
 
-        // 必须注册进 collector，否则 admin `/statistics` 的 `get_gauge` 取不到，
-        // 指标也不会出现在 `/metrics` 输出中。
-        assert!(collector.get_gauge("synapse_storage_stream_current_position").is_some());
+        for (i, stream) in StreamPosition::ALL.into_iter().enumerate() {
+            metrics.set_stream_position(stream, 4200 + i as i64);
+        }
+        for (i, stream) in StreamPosition::ALL.into_iter().enumerate() {
+            let gauge = metrics
+                .storage_stream_current_position
+                .get(&[stream.label()])
+                .unwrap_or_else(|| panic!("stream {} 必须有值", stream.label()));
+            assert_eq!(gauge.get(), (4200 + i) as f64, "stream {} 的值被别的 stream 覆盖了", stream.label());
+        }
 
-        metrics.storage_stream_current_position.set(4242.0);
-        assert_eq!(metrics.storage_stream_current_position.get(), 4242.0);
+        // 同名多标签在 `/metrics` 里各成一条序列（这是本指标此前做不到的部分）。
+        let rendered = collector.to_prometheus_format();
+        for stream in StreamPosition::ALL {
+            assert!(
+                rendered.contains(&format!("synapse_storage_stream_current_position{{stream=\"{}\"}}", stream.label())),
+                "渲染里缺少 {} 序列：\n{rendered}",
+                stream.label()
+            );
+        }
+        // 未登记的标签不得被当成合法 stream。
+        assert!(StreamPosition::from_label("presence").is_none());
+        assert_eq!(StreamPosition::from_label("events"), Some(StreamPosition::Events));
     }
 
     #[test]

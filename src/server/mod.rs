@@ -408,6 +408,28 @@ impl SynapseServer {
                                 utilization,
                                 is_healthy,
                             );
+
+                            // L-1：每个 stream 的当前位置（`synapse_storage_stream_current_position{stream="…"}`）。
+                            // 与池指标同一循环，因此刷新时机不再取决于 admin `/statistics`
+                            // 是否被访问；读到未登记的 stream 标签时记 warn —— 那是
+                            // "SQL 加了 stream、指标登记表没跟上"的漂移形态。
+                            match synapse_storage::stream_positions::get_stream_positions(pool_ref).await {
+                                Ok(rows) => {
+                                    for row in rows {
+                                        match synapse_common::server_metrics::StreamPosition::from_label(&row.stream) {
+                                            Some(stream) => server_metrics.set_stream_position(stream, row.position),
+                                            None => tracing::warn!(
+                                                stream = %row.stream,
+                                                "stream position metric: unregistered stream label; \
+                                                 add it to StreamPosition::ALL or drop it from the query"
+                                            ),
+                                        }
+                                    }
+                                }
+                                Err(error) => {
+                                    tracing::warn!(%error, "stream position metric refresh failed");
+                                }
+                            }
                             tracing::debug!(
                                 "pool metrics updated: size={}, idle={}, active={}, max={}, util={:.3}",
                                 pool_size, idle, active, max_size, utilization

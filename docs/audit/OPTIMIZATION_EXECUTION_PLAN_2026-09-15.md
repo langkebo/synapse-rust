@@ -938,6 +938,27 @@ Execution Time: 0.287 ms（返回 14 行）
 | L-4 | sticky 事件 un-soft-fail | 依赖 **D-2**；若「不跟随」，只做文档收口并保留同名不同义告诫 |
 | L-5 | 报告 §12.4/§12.5/§15.3 的假缺口与自相矛盾（§18.5a 清单）标注/替换为指向 §18 | 无风险；可加守卫：§18.5(a) 的条目不得再出现在 §11–§12 的「当前状态」列（V-13） |
 
+**L-1 交付记录（2026-10-02）**
+
+- **先修前提**：`MetricsCollector.gauges` 以 **name** 为 key，同名不同标签的 gauge 会
+  互相覆盖（红证明：连注册 `{stream="events"}` 与 `{stream="to_device"}` 后，`/metrics`
+  渲染里只剩后者）。故先补 `DynamicGaugeTemplate`（与既有 counter/histogram 模板同构，
+  并把标签签名/标签表构造收敛成单一实现），使同名多标签各成一条序列。
+- **数据源**：`synapse-storage/src/stream_positions.rs` 单条 `UNION ALL` 查询读 5 个
+  stream 的 `MAX(...)`；只收录**真有单调位置列且生产路径会推进**的 stream。因此
+  upstream 的 presence/typing/receipts/account_data/push_rules/e2ee/backfill/federation
+  （本仓无位置列）、`sync_stream_id` / `device_lists_outbound_pokes` /
+  `worker_events`（有列无生产写者）、`room_ephemeral.stream_id`（墙钟毫秒 + UPSERT
+  覆盖）都不登记，理由写在模块文档里。
+- **刷新时机**：从 admin `/statistics` 的按需更新改为 `src/server/mod.rs` 的 30s
+  指标循环（与池指标同一循环），并删掉那处 `events` 专用的旧刷新。
+- **判据 V-12**：`tests/integration/stream_position_tests.rs` 两条 —— ① 标签集合与
+  登记表**逐字一致**（红证明：把 SQL 的 `'events'` 改成 `'events_typo'` ⇒ 守卫红，
+  并打印 left/right 差异）；② 每个 stream 随一次真实写入推进。
+- **披露/未做**：**worker-local** 未实现 —— 本仓位置取自 DB（写者无关），而刷新循环
+  只在 global-maintenance owner 中运行，按 `stream_writers` 过滤只会让 worker 部署
+  少几条序列；仪表盘与监控文档同步登记为 §18.4 **L-1b**。
+
 ### 8.4 依赖与并行度
 
 - **可立即并行**（互不耦合）：M-1、M-3、L-5、L-1、L-2。
