@@ -1030,6 +1030,24 @@ Execution Time: 0.287 ms（返回 14 行）
   **无法在一次 ≤600 s 工具调用内完成**；拆批的最小可停绿单元是
   ① golden default+worker ② golden all ③ SDK 车道 ④ 快照 ⑤ gate+提交。
 
+**L-6 交付记录（2026-10-02，Batch 1 已入库 `cf845cb35`）**
+
+- 落地：4 段 `GET …/{relType}/{eventType}`（与 PUT 合并进同一条 MethodRouter，参数名统一
+  `{event_type}`；4 段位置式提取）+ 三个读路由收敛到单一 `relations_response`；
+  `event_type` 由 4 段 handler 填入 `RelationQuery`（数据面已在 `2695d5706` 落地）。
+- 契约链：标注两处 + `EXPECTED_ANNOTATIONS` 两条 → 派生表 1156 行 → `ROUTE_CONTRACT.md`
+  1154 路由 → 6 份 fixture（golden 用 default 构建、SDK 用 all-extensions，**两车道不可混**）
+  → `docs/openapi/route-table.json` 1050→1052 → 两条 route-ledger 快照。
+- **本次实测确认的唯一可行执行序**：① 手改 fixture 破 `gen_derived_routes.py` 的
+  "先验 fixture、后写表"死锁 → ② 写表 → ③ **真导出覆盖**（手改版对 golden **不是**
+  byte-exact，`*_matches_fixture` 3/3 红）→ ④ SDK 车道 → ⑤ 快照 → ⑥ gate。
+- 判据：`-E 'test(route_ledger)'` 15 passed（带/不带 `UPDATE_ROUTE_LEDGER_SNAPSHOTS`），
+  `-E 'test(ledger_export)'` 7 passed，`check_route_contract.sh` **提交后** EXIT=0
+  （提交前必为 1：gate 末尾把重生成的 ROUTE_CONTRACT.md 与 HEAD 比，属构造性红）。
+- **Batch 2 未做**：HTTP 往返级测试（4 段 GET → 200 且 `event_type` 生效、3 段不受影响）。
+  当前覆盖方式：路由快照证明路由已注册（含方法与参数名）+ 服务层 `event_type` 断言证明
+  过滤语义 + handler 为共享实现；**这是已知的覆盖缺口**，需要时单开一批补。
+
 ### 8.4 依赖与并行度
 
 - **可立即并行**（互不耦合）：M-1、M-3、L-5、L-1、L-2。

@@ -487,6 +487,7 @@ memswap
 mergeable
 messagingservice
 messagingserviceconfig
+methodrouter
 metricscollector
 middleware
 migrator
@@ -819,6 +820,7 @@ threadservice
 threepid
 threepidstorage
 tikv
+timeseries
 tini
 tjg
 tls
