@@ -35,6 +35,17 @@ const TOP_LEVEL: [&str; 8] = ["docs/", "src/", "scripts/", "docker/", "migration
 /// 允许的文件后缀，避免把 `migration 1`、`v1/threads/subscribed` 这类片段当路径。
 const EXTENSIONS: [&str; 10] = [".md", ".rs", ".toml", ".yaml", ".yml", ".json", ".sh", ".py", ".sql", ".lock"];
 
+/// 「历史轮次」章节 —— 状态列已被后续提交修掉，但正文按 §18.5 的处理约定**不改写**
+/// （保留历史轨迹）。这些章节**必须**在标题后紧跟一条指向 §18 的口径指针，否则读者
+/// 会把它们当成现状排期 —— 这正是 §18.5(a) 那批"假缺口"（已修却仍写缺失）的成因。
+///
+/// 改名/删除章节时本守卫会判"找不到标题"而失败：这是有意的，防止守卫在章节被搬走后
+/// 静默失效（铁律 8）。
+const HISTORICAL_SECTIONS: [&str; 5] = ["### 11.2 ", "### 11.3 ", "### 12.4 ", "### 12.5 ", "### 15.3 "];
+
+/// 历史章节标题后必须出现的口径指针（指向 §18.5 的假缺口清单）。
+const CURRENT_SCOPE_MARKER: &str = "§18.5";
+
 /// 文档中**有意提到的不存在路径**。
 ///
 /// 它们出现在"该文件不存在 / 已删除"这类**否定陈述**里，用于记录历史误引用本身；
@@ -173,6 +184,57 @@ fn count_violations(doc: &str, contract: &str) -> Vec<String> {
         }
     }
     found
+}
+
+/// 每个历史章节标题后的前 6 行内必须出现指向 §18 的口径指针。
+///
+/// 纯谓词：给它一段"有标题、无指针"的文本就能变红，因此红证明不需要篡改真实文档。
+fn stale_section_violations(doc: &str) -> Vec<String> {
+    let lines: Vec<&str> = doc.lines().collect();
+    let mut violations = Vec::new();
+
+    for heading in HISTORICAL_SECTIONS {
+        let Some(index) = lines.iter().position(|line| line.starts_with(heading)) else {
+            violations.push(format!(
+                "找不到历史章节标题 `{heading}`：章节被改名/删除后本守卫会静默失效，请同步 {HISTORICAL_SECTIONS:?}"
+            ));
+            continue;
+        };
+        let end = (index + 7).min(lines.len());
+        if !lines[index..end].iter().any(|line| line.contains(CURRENT_SCOPE_MARKER)) {
+            violations.push(format!(
+                "`{heading}` 缺少指向 `{CURRENT_SCOPE_MARKER}` 的口径指针：历史状态列不得被当作现状引用"
+            ));
+        }
+    }
+
+    violations
+}
+
+#[test]
+fn historical_sections_point_at_the_current_scope() {
+    let violations = stale_section_violations(&read(DOC));
+    assert!(
+        violations.is_empty(),
+        "以下历史章节缺少「当前口径见 §18」的指针（§18.5 处理约定 / 报告 V-13）：\n{}",
+        violations.join("\n")
+    );
+}
+
+/// **红证明**：同一批标题、去掉指针后必须被判违规 —— 否则上面的断言可能"因为谓词什么都
+/// 不返回"而假通过；顺带证明"章节被改名"这种失效模式也会报错。
+#[test]
+fn the_stale_section_checker_rejects_a_missing_pointer() {
+    let without_pointer = HISTORICAL_SECTIONS
+        .iter()
+        .map(|heading| format!("{heading}示例标题\n\n| 表头 |\n|---|\n| 已修却仍写缺失 |\n"))
+        .collect::<String>();
+    let violations = stale_section_violations(&without_pointer);
+    assert_eq!(violations.len(), HISTORICAL_SECTIONS.len(), "每个缺指针的历史章节都必须被判违规：{violations:?}");
+
+    let renamed = stale_section_violations("### 11.2 扩展功能（改名后）\n\n> 见 §18.5\n");
+    assert_eq!(renamed.len(), HISTORICAL_SECTIONS.len() - 1, "改名后的章节必须报「找不到标题」");
+    assert!(renamed[0].contains("找不到历史章节标题"), "{renamed:?}");
 }
 
 #[test]

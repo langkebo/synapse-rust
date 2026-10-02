@@ -605,6 +605,8 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 
 ### 11.2 扩展功能
 
+> ⚠️ **历史章节 · 当前口径见 §18**：本节状态列包含已被后续提交修掉的「缺失」条目（逐条作废清单见 §18.5(a)），判断现状请以 **§18.3** 为准，**不要**据本节排期。
+
 | 功能 | Synapse (Python) | synapse-rust | 对齐状态 |
 |------|-------------------|--------------|----------|
 | **好友系统** | 无（标准 Matrix 无此功能） | ✅ 独有扩展（`friend_room_service/` 含 groups/models/sharding，完整实现 + 联邦好友同步 `synapse-federation/src/friend/`） | ✅ 完整实现 |
@@ -629,6 +631,8 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | **背景更新** | 有 | ✅ `background_update_service.rs` + `synapse-storage/src/background_update.rs` 完整实现 | ✅ 完整实现 |
 
 ### 11.3 SDK 与前端生态
+
+> ⚠️ **历史章节 · 当前口径见 §18**：本节状态列包含已被后续提交修掉的「缺失」条目（逐条作废清单见 §18.5(a)），判断现状请以 **§18.3** 为准，**不要**据本节排期。
 
 | 维度 | Synapse (Python) | synapse-rust | 对齐状态 |
 |------|-------------------|--------------|----------|
@@ -716,6 +720,8 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 
 ### 12.4 风险提示
 
+> ⚠️ **历史章节 · 当前口径见 §18**：本节状态列包含已被后续提交修掉的「缺失」条目（逐条作废清单见 §18.5(a)），判断现状请以 **§18.3** 为准，**不要**据本节排期。
+
 > v1.3 起，风险条目只保留**实测存在**或**明确未验证**的项；已证伪的旧条目直接删除（不保留"可能"表述）。
 
 - synapse-rust 的性能数据多为**预期值**（§4/§10 中"预期"字样均指未实测），缺乏大规模生产实测验证；
@@ -750,6 +756,8 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
   **安全版本（如 v1.157.2 的 12 条 ELEMENTSEC 公告）必须逐条纳入 §7**，不得省略。
 
 ### 12.5 优化建议（v1.3 重写）
+
+> ⚠️ **历史章节 · 当前口径见 §18**：本节状态列包含已被后续提交修掉的「缺失」条目（逐条作废清单见 §18.5(a)），判断现状请以 **§18.3** 为准，**不要**据本节排期。
 
 > **口径变更**：上一版本按 P0/P1/P2 + **人日估算**排列，且与仓库既有权威清单
 > （`docs/audit/OPTIMIZATION_EXECUTION_PLAN_2026-09-15.md`、`docs/audit/PROJECT_REMAINING_ISSUES_2026-09-14.md`）
@@ -952,6 +960,8 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | D-42 边插入守卫 `$2 != '[]'`（`text[]` 上必报 `22P02`） | `synapse-storage/src/event/create.rs` 改 `cardinality($2) > 0`（3 处） |
 
 ### 15.3 仍然存在（按严重度，当前口径）
+
+> ⚠️ **历史章节 · 当前口径见 §18**：本节状态列包含已被后续提交修掉的「缺失」条目（逐条作废清单见 §18.5(a)），判断现状请以 **§18.3** 为准，**不要**据本节排期。
 
 | 严重度 | 项 | 证据 / 判据 |
 |--------|----|-------------|
@@ -1180,7 +1190,7 @@ grep "CREATE INDEX" migrations/00000000_unified_schema_v12.sql | grep -i "events
 | **L-2** | MSC4242 的 HTTP 服务函数（上游本身也只是脚手架） | `synapse-web/src/routes/`、`synapse-services/` | **低**：新增端点须进 ledger + 契约再生成 | 依赖 MSC4242 语义定稿（本仓已有存储层） |
 | **L-3** | delayed events 的 per-endpoint worker 白名单（现在前缀级 `/_matrix/client/*`） | `synapse-storage/src/worker/models.rs`、`synapse-web/src/routes/route_ledger.rs`（`RouteEntry` 加 worker 字段） | **低**：worker 路由归属细化 | 需 worker 拓扑校验器的白名单实现先支持 per-route |
 | **L-4** | ~~MSC4354 状态变化时 un-soft-fail~~ → **⚪ 已裁定不跟随（2026-10-01，决策 D-2）**：本仓无 soft-fail 机制（`un_soft_fail` / `StickyEventsStream` 全仓 0 命中），"跟随"＝新建整套 soft-fail（新功能而非对齐），且会与本仓 `events.soft_failed`（B-8 事务去重，**同名不同义**）混淆。结论落档即可，无代码改动 | 本文件 + `MSC_SEMANTICS.md` §1.1 | — | — |
-| **L-5** | **本文档去陈旧化**：§12.4/§12.5/§15.3 中已被后续提交修掉的"缺失"条目（§18.5），以及 §15.3 内部自相矛盾（Admin 媒体 14 vs 18、v12 可创建性等） | 本文件 | **无** | 无 |
+| **L-5** | ~~本文档去陈旧化~~ → **✅ 已收口（2026-10-01）**：§11.2/§11.3/§12.4/§12.5/§15.3 五个历史章节各插入一条「当前口径见 §18」指针（正文按约定不改写），并把它变成门禁 (`doc_credibility_guard_tests::historical_sections_point_at_the_current_scope` + 纯谓词红证明，含「章节被改名 ⇒ 守卫失效」的检测) | 本文件、`tests/unit/doc_credibility_guard_tests.rs` | — | — |
 
 ### 18.5 本轮作废 / 更正的历史声明（"假缺口"）
 
@@ -1214,8 +1224,13 @@ grep "CREATE INDEX" migrations/00000000_unified_schema_v12.sql | grep -i "events
 | MSC4354 完全缺（含 EDU） | EDU/存储/注入已实现，仅 un-soft-fail 缺 | `08d014626` + `5df920848` |
 | stream 指标缺失 | gauge 已注册（口径不同） | `18a07b2c1` |
 
-> 处理约定：正文（§1–§17）**不改写**（保留历史轨迹），以 §18 为唯一现状口径；后续若彻底重构，
-> 应把 §11–§12 的"当前状态"列整体替换为指向 §18 的引用，而不是继续叠加轮次章节。
+> 处理约定：正文（§1–§17）**不改写**（保留历史轨迹），以 §18 为唯一现状口径。
+> **2026-10-01 起这条约定由门禁强制**：§11.2 / §11.3 / §12.4 / §12.5 / §15.3 五个历史章节的标题后
+> 必须紧跟一条「当前口径见 §18」的指针，否则
+> `doc_credibility_guard_tests::historical_sections_point_at_the_current_scope` 判红
+> （谓词 `stale_section_violations`；红证明 `the_stale_section_checker_rejects_a_missing_pointer`
+> 同时覆盖「章节被改名 ⇒ 守卫静默失效」这一形态）。后续若彻底重构，应把 §11–§12 的「当前状态」列
+> 整体替换为指向 §18 的引用，而不是继续叠加轮次章节。
 
 ### 18.6 需要额外验证或测试的关键点
 
@@ -1233,4 +1248,4 @@ grep "CREATE INDEX" migrations/00000000_unified_schema_v12.sql | grep -i "events
 | V-10 | 第三方规则接入事件鉴权后的失败语义（fail-open/closed）与性能 | 规则拒绝/超时两路用例；确认不阻塞消息主路径 |
 | V-11 | 递归 relations 若实现：`EXPLAIN (ANALYZE)` 确认 `events` join 在递归内、无全表扫描 | 大房间数据 + 与上游 #20182 相同判据；`.sqlx` 增量随提交 |
 | V-12 | stream 指标：per-stream/worker-local 口径（标签、刷新时机）与仪表盘一致性 | 断言每个 stream 都有值且随写入推进；更新监控文档/仪表盘 |
-| V-13 | 本文档计数与假缺口清单 | `cargo nextest run --test unit --features test-utils -E 'test(doc_credibility_guard_tests)'`；后续可加守卫：§18.5(a) 的条目不得再出现在 §11–§12 的"当前状态"列 |
+| V-13 | 本文档计数与假缺口清单 | 计数守卫已存在（`counts_match_the_route_contract`）；**§18.5(a) 条目不得再作为「现状」出现**已落成门禁：五个历史章节必须带 §18 指针 (`cargo nextest run --test unit --features test-utils -E 'test(doc_credibility_guard_tests)'` → 6 passed) |
