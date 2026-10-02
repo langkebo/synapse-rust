@@ -425,6 +425,7 @@ expression: body
   "rooms": {
     "invite": {},
     "join": {},
+    "knock": {},
     "leave": {}
   },
   "to_device": {

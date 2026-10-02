@@ -124,6 +124,11 @@ pub(crate) async fn invite_v2(
     }
     let (sender, state_key) = validate_federation_invite_event(&auth.origin, &room_id, event)?;
 
+    // H-2 / MSC4311: the *stripped-state payload* shape is what this MSC changes
+    // (sender side must send full PDUs; strict receiver-side validation is
+    // deferred to 2027-06-01). Rejected before any room row is materialised.
+    validate_invite_room_state_shape(body.get("invite_room_state"), ctx.config.federation.msc4311_strict_validation)?;
+
     // OPT-017 still applies, but only for rooms we host: the invitee's server
     // legitimately learns of a room *through* this request, so an unknown room
     // must be allowed through. See the helper for the full rationale.
@@ -260,6 +265,54 @@ pub(crate) async fn invite_v2(
     Ok(Json(json!({
         "event": signed_pdu
     })))
+}
+
+/// MSC4311 (H-2): validate the shape of the `invite_room_state` payload we received.
+///
+/// The MSC moves the federation-side payload from *stripped state*
+/// (`{type, state_key, content}`) to **full PDUs** (adding `event_id`, `sender`,
+/// `origin_server_ts`, …). Sending full PDUs is mandatory; **receiving-side**
+/// strict validation is deferred until 2027-06-01, which is exactly what
+/// `federation.msc4311_strict_validation` gates:
+///
+/// * `false` (default, grace period): both shapes are accepted; a stripped entry
+///   is logged at debug level so the remaining migration debt stays visible.
+/// * `true` (after the deadline): every entry must look like a full PDU, so a
+///   legacy stripped-only sender is rejected with a clear error instead of being
+///   silently accepted forever.
+///
+/// Why the switch lives here and not on the event's `depth`/`prev_events`/
+/// `auth_events`: those graph fields are **already** required unconditionally
+/// (`invite_v2` refuses to persist an invite without them — see the P0-1 work).
+/// The stripped-state shape is the part of MSC4311 that still has a transition
+/// window, so this is where a grace switch is meaningful.
+pub(crate) fn validate_invite_room_state_shape(
+    invite_room_state: Option<&Value>,
+    strict: bool,
+) -> Result<(), ApiError> {
+    let Some(entries) = invite_room_state.and_then(Value::as_array) else {
+        // Absent or not an array: nothing to validate. Senders that omit the
+        // payload entirely are handled by the join-rule default, not here.
+        return Ok(());
+    };
+
+    for (index, entry) in entries.iter().enumerate() {
+        let is_full_pdu = entry.get("event_id").and_then(Value::as_str).is_some()
+            && entry.get("sender").and_then(Value::as_str).is_some()
+            && entry.get("origin_server_ts").and_then(Value::as_i64).is_some();
+        if is_full_pdu {
+            continue;
+        }
+        if strict {
+            return Err(ApiError::bad_request(format!(
+                "invite_room_state[{index}] is stripped state, but this server requires full PDUs \
+                 (federation.msc4311_strict_validation = true; the MSC4311 grace period ended 2027-06-01)"
+            )));
+        }
+        ::tracing::debug!(index, "invite_room_state entry is stripped state; accepted during the MSC4311 grace period");
+    }
+
+    Ok(())
 }
 
 /// Derive the room's join rule from the `invite_room_state` stripped state the
@@ -525,6 +578,61 @@ fn validate_federation_exchange_third_party_invite_event<'a>(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    // ── H-2 / MSC4311：`invite_room_state` 形状校验 ────────────────────────
+
+    fn stripped_entry() -> Value {
+        json!([{ "type": "m.room.create", "state_key": "", "content": { "room_version": "12" } }])
+    }
+
+    fn full_pdu_entry() -> Value {
+        json!([{
+            "type": "m.room.create",
+            "state_key": "",
+            "content": { "room_version": "12" },
+            "event_id": "$create:remote.example",
+            "sender": "@alice:remote.example",
+            "origin_server_ts": 1_700_000_000_000_i64
+        }])
+    }
+
+    /// 宽限期（默认 false）：stripped 与 full PDU **都**收，缺 payload 也不报错 ——
+    /// 这正是"MSC 改了发送方、接收方要到 2027-06-01 才强制"的过渡语义。
+    #[test]
+    fn msc4311_grace_period_accepts_both_shapes() {
+        assert!(validate_invite_room_state_shape(Some(&stripped_entry()), false).is_ok());
+        assert!(validate_invite_room_state_shape(Some(&full_pdu_entry()), false).is_ok());
+        assert!(validate_invite_room_state_shape(None, false).is_ok(), "缺 payload 不是形状错误");
+    }
+
+    /// 严格模式（2027-06-01 之后）：只收 full PDU；stripped 必须被拒且错误信息
+    /// 指明开关与期限。**红证明**：把开关语义改回"永远宽松"这条用例即红。
+    #[test]
+    fn msc4311_strict_rejects_stripped_state() {
+        let err = validate_invite_room_state_shape(Some(&stripped_entry()), true)
+            .expect_err("strict 必须拒绝 stripped state");
+        let message = err.to_string();
+        assert!(message.contains("stripped"), "错误要点明形状：{message}");
+        assert!(message.contains("msc4311_strict_validation"), "错误要点名开关：{message}");
+        assert!(message.contains("2027-06-01"), "错误要写明宽限期截止：{message}");
+
+        assert!(
+            validate_invite_room_state_shape(Some(&full_pdu_entry()), true).is_ok(),
+            "full PDU 在 strict 下必须通过"
+        );
+    }
+
+    /// 三个 full-PDU 标记（`event_id` / `sender` / `origin_server_ts`）缺一不可 ——
+    /// 否则"只补一个字段"的旧发送方会被误判为已迁移。
+    #[test]
+    fn msc4311_strict_requires_all_full_pdu_markers() {
+        for missing in ["event_id", "sender", "origin_server_ts"] {
+            let mut entry = full_pdu_entry();
+            entry[0].as_object_mut().expect("object").remove(missing);
+            assert!(validate_invite_room_state_shape(Some(&entry), true).is_err(), "缺 {missing} 时 strict 必须拒绝");
+            assert!(validate_invite_room_state_shape(Some(&entry), false).is_ok(), "缺 {missing} 在宽限期内仍应收下");
+        }
+    }
 
     /// Test third-party invite event validation
     #[test]

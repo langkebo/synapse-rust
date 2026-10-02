@@ -371,6 +371,13 @@ pub enum SyncRoomSection {
     /// Invited rooms — sync response includes stripped state (MSC4311:
     /// must include m.room.create so invitees can determine room version).
     Invite,
+    /// Knocked rooms — the C-S spec gives them their own `rooms.knock` section
+    /// carrying `knock_state` (same stripped-state shape as `invite_state`).
+    ///
+    /// Before this variant existed a `knock` membership fell through to
+    /// `Join` (the catch-all arm), so a room the user had only knocked on was
+    /// rendered as a **joined** room in `/sync`.
+    Knock,
 }
 
 /// The `SyncRequest` struct.

@@ -461,6 +461,10 @@ impl SyncService {
                 let section = match membership.membership.as_str() {
                     "leave" => SyncRoomSection::Leave,
                     "invite" => SyncRoomSection::Invite,
+                    // A knocked room is neither joined nor invited: `/sync` has a
+                    // dedicated `knock` section (C-S spec `rooms.knock`). Leaving
+                    // it to the catch-all rendered it as a joined room.
+                    "knock" => SyncRoomSection::Knock,
                     _ => SyncRoomSection::Join,
                 };
                 (membership.room_id.clone(), section)

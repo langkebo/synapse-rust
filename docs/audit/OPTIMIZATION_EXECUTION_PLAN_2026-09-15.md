@@ -745,7 +745,7 @@ fmt / sqlx / trait / web-layering 四个棘轮的扫描面扩到了新 crate，�
 | 批次 | 内容 | 前置 | 退出判据 |
 |---|---|---|---|
 | **B1 · 零风险收口** | M-1（`redis.username`）✅ 已交付 `7b54e01fd`；M-3（`/room_summary` `join_rules` 新鲜度）✅ 已交付（复核结论：**无行为改动**，交付回归网 + 契约，见 §18.3 #13）；L-5（文档去陈旧化）待做 | 无 | 各项红/绿证明齐备（M-1 单测红→绿；M-3 两条集成用例 + 变异红证明） |
-| **B2 · 互操作正确性** | H-2（MSC4311 开关接线 + knock stripped state）、M-2（MSC4222 批次边界） | 无（但 M-2 必须先落可复现用例） | V-2 / V-4 |
+| **B2 · 互操作正确性** | H-2（MSC4311 开关接线 + knock stripped state）✅ 已交付；M-2（MSC4222 批次边界）待做 | M-2 必须先落可复现用例 | V-2（本地部分已落成用例，联调段待跑）/ V-4 |
 | **B3 · 认证与规则面** | H-1（取决于 **D-1**）、M-4（第三方规则接入事件鉴权，取决于 fail-open/closed 决策） | D-1；M-4 需先定失败语义 | V-1 / V-10 |
 | **B4 · 结构与性能** | M-5（状态决议缓存接线或删除）、M-6（`/relations` `recurse`）、L-1（stream 指标口径）、L-2（MSC4242 HTTP）、L-3（取决于 **D-3**）、L-4（取决于 **D-2**） | M-5/M-6 需先确认 `state_record` 写半边（F-1/F-2）已覆盖 | V-11 / V-12 |
 
@@ -765,11 +765,18 @@ fmt / sqlx / trait / web-layering 四个棘轮的扫描面扩到了新 crate，�
    文档侧在报告 §18.3 #19 行改为「已删除（决策 D-1）」。
 6. 回滚：接线分支可用配置开关一键关回（`mas.enabled=false` 时路径与今天完全一致）。
 
-**H-2 · MSC4311 宽限开关接线 + knock stripped state**（报告 §18.3 #8）
+**H-2 · MSC4311 宽限开关接线 + knock stripped state**（报告 §18.3 #8）✅ **已交付（2026-10-01）**
+
+> 落地时的**口径更正**：开关原文档写"对入站 invite/knock 事件做严格 PDU **图字段**校验"，但
+> invite 的 `depth`/`prev_events`/`auth_events` 自 P0-1 起已无条件必需（拒绝在伪造 DAG 位置上
+> 持久化）⇒ 该表述无对象。MSC4311 仍处过渡期的部分是 **stripped-state 载荷形状**，开关改为 gate
+> 它（配置注释已同步，见 `federation.rs` 的 Scope note）；同时 `knock` 会员关系此前落进 catch-all
+> ⇒ 被当成 **joined** 房间渲染，已修（`SyncRoomSection::Knock` + `rooms.knock` + `knock_state`）。
 
 1. 让 `msc4311_strict_validation`（`synapse-common/src/config/federation.rs:238-243`）**有真实读取点**：
-   在入站 `/invite`、`/knock` 的 stripped-state 校验分支读取它 —— `false`（宽限期内，默认）时
-   **同时接受** stripped 与 full PDU 两种形状，`true` 时要求 full PDU。
+   在入站 `/invite` 的 `invite_room_state` 形状校验处读取它 —— `false`（宽限期内，默认）时
+   **同时接受** stripped 与 full PDU 两种形状，`true` 时要求 full PDU（`event_id`+`sender`+
+   `origin_server_ts` 三者齐全），错误信息含开关名与 2027-06-01 期限。
 2. 补 knock 的 `knock_room_state` 注入：`synapse-services/src/sync_service/response.rs:161-176,629-658`
    同族的 invite 注入为模板；`sync_service/types.rs:366-374` 的 `SyncRoomSection` 增加 Knock 分支。
 3. 红/绿证明：把开关拨到 `true` 后旧（stripped-only）形状必须被拒；拨回 `false` 必须被接受 ——

@@ -225,16 +225,21 @@ pub struct FederationConfig {
     /// `rate_limit` field.
     pub rate_limit: FederationRateLimitConfig,
 
-    /// O-2 (MSC4311): whether to apply strict PDU graph-field validation
-    /// to incoming invite/knock events on the federation side.
+    /// O-2 (MSC4311): whether the `invite_room_state` payload of an incoming
+    /// federation invite must be **full PDUs** rather than stripped state.
     ///
-    /// - `false` (default): lenient — incomplete PDU graph fields are logged
-    ///   but accepted during the grace period (before 2027-06-01).
-    /// - `true`: strict — PDU graph fields missing/invalid cause the event
-    ///   to be rejected immediately.
+    /// - `false` (default, grace period until 2027-06-01): both shapes are
+    ///   accepted; a stripped entry is logged at debug level.
+    /// - `true`: every entry must carry `event_id` + `sender` +
+    ///   `origin_server_ts`, otherwise the invite is rejected with 400.
     ///
-    /// Upstream Synapse enables strict validation after the grace period
-    /// expires; operators should migrate by the deadline.
+    /// ⚠️ Scope note (2026-10-01): this originally described "strict PDU
+    /// **graph-field** validation", but the invite path has required
+    /// `depth`/`prev_events`/`auth_events` unconditionally since the P0-1 work
+    /// (it refuses to persist an event under a fabricated DAG position). The
+    /// part of MSC4311 that still has a transition window is the stripped-state
+    /// *payload* shape, so that is what this switch gates. Enforcement point:
+    /// `synapse-web/src/routes/federation/membership/invite.rs::validate_invite_room_state_shape`.
     #[serde(default = "default_msc4311_strict_validation")]
     /// `msc4311_strict_validation` field.
     pub msc4311_strict_validation: bool,

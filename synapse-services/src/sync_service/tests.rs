@@ -81,6 +81,8 @@ fn test_sync_response_format() {
         "rooms": {
             "join": {},
             "invite": {},
+            // H-2: knocked rooms have their own section (C-S spec `rooms.knock`).
+            "knock": {},
             "leave": {}
         },
         "presence": json!({
@@ -1911,18 +1913,30 @@ fn test_room_sections_invite_membership_maps_to_invite() {
     assert_eq!(sections.get("!r3:b").copied(), Some(SyncRoomSection::Invite));
 }
 
+/// H-2：`knock` 会员关系此前落到 catch-all 分支 ⇒ 被当成 **joined** 房间渲染进
+/// `/sync`（房间明明只被敲过门）。C-S 规范给 knock 单独的 `rooms.knock` 段。
+#[test]
+fn test_room_sections_knock_membership_maps_to_knock() {
+    let memberships = vec![UserRoomMembership { room_id: "!r4:b".into(), membership: "knock".into() }];
+    let sections = SyncService::room_sections_from_memberships(&memberships);
+    assert_eq!(sections.len(), 1);
+    assert_eq!(sections.get("!r4:b").copied(), Some(SyncRoomSection::Knock), "knock 必须有自己的段，而不是落进 Join");
+}
+
 #[test]
 fn test_room_sections_mixed_memberships() {
     let memberships = vec![
         UserRoomMembership { room_id: "!r1:b".into(), membership: "join".into() },
         UserRoomMembership { room_id: "!r2:b".into(), membership: "leave".into() },
         UserRoomMembership { room_id: "!r3:b".into(), membership: "invite".into() },
+        UserRoomMembership { room_id: "!r4:b".into(), membership: "knock".into() },
     ];
     let sections = SyncService::room_sections_from_memberships(&memberships);
-    assert_eq!(sections.len(), 3);
+    assert_eq!(sections.len(), 4);
     assert_eq!(sections.get("!r1:b").copied(), Some(SyncRoomSection::Join));
     assert_eq!(sections.get("!r2:b").copied(), Some(SyncRoomSection::Leave));
     assert_eq!(sections.get("!r3:b").copied(), Some(SyncRoomSection::Invite));
+    assert_eq!(sections.get("!r4:b").copied(), Some(SyncRoomSection::Knock));
 }
 
 #[test]
