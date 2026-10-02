@@ -11,7 +11,7 @@ use crate::routes::validators::{validate_event_id, validate_room_id};
 use crate::routes::{AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
-    routing::{get, put},
+    routing::get,
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -23,7 +23,10 @@ use synapse_services::relations_service::RelationQuery;
 fn create_relations_core_router() -> Router<AppState> {
     Router::new()
         .route("/rooms/{room_id}/relations/{event_id}/{rel_type}", get(get_relations))
-        .route("/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}", put(send_relation))
+        .route(
+            "/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
+            get(get_relations_by_type).put(send_relation),
+        )
         .route("/rooms/{room_id}/aggregations/{event_id}/{rel_type}", get(get_aggregations))
 }
 
@@ -123,32 +126,7 @@ async fn get_relations_by_event(
     Path((room_id, event_id)): Path<(String, String)>,
     Query(query): Query<RelationsQuery>,
 ) -> Result<Json<RelationsResponse>, ApiError> {
-    validate_room_id(&room_id)?;
-    validate_event_id(&event_id)?;
-
-    ensure_room_member_ctx(&ctx, &auth_user, &room_id, "User is not a member of the room").await?;
-
-    let relation_query = RelationQuery {
-        rel_type: None,
-        event_type: None,
-        limit: Some(query.limit.unwrap_or(50).min(100) as i32),
-        recurse: query.recurse_flag(),
-        from: query.from,
-        direction: query.direction.clone(),
-    };
-
-    tracing::debug!("Getting all relations for event {} in room {}", event_id, room_id,);
-
-    let response = ctx.relations_service.get_relations(&room_id, &event_id, relation_query).await?;
-
-    Ok(Json(RelationsResponse {
-        chunk: response.chunk,
-        next_batch: response.next_batch,
-        prev_batch: response.prev_batch,
-        origin_server_ts: None,
-        total: response.total,
-        recursion_depth: response.recursion_depth,
-    }))
+    relations_response(&ctx, &auth_user, &room_id, &event_id, None, None, query).await
 }
 
 /// Get relations for an event
@@ -159,34 +137,58 @@ async fn get_relations(
     Path((room_id, event_id, rel_type)): Path<(RoomId, EventId, String)>,
     Query(query): Query<RelationsQuery>,
 ) -> Result<Json<RelationsResponse>, ApiError> {
-    // Validate input
-    validate_room_id(&room_id)?;
-    validate_event_id(&event_id)?;
+    relations_response(&ctx, &auth_user, &room_id, &event_id, Some(rel_type), None, query).await
+}
 
-    ensure_room_member_ctx(&ctx, &auth_user, &room_id, "User is not a member of the room").await?;
+/// spec 的 4 段路由 `/{relType}/{eventType}`：在 `rel_type` 之上再用事件自身的
+/// `event_type` 收窄返回集（例如 `m.annotation` + `m.reaction` 只取表情回应）。
+async fn get_relations_by_type(
+    State(ctx): State<RoomContext>,
+    auth_user: AuthenticatedUser,
+    Path((room_id, event_id, rel_type, event_type)): Path<(RoomId, EventId, String, String)>,
+    Query(query): Query<RelationsQuery>,
+) -> Result<Json<RelationsResponse>, ApiError> {
+    relations_response(&ctx, &auth_user, &room_id, &event_id, Some(rel_type), Some(event_type), query).await
+}
 
-    // Validate rel_type
-    let valid_rel_types = ["m.reference", "m.replace", "m.thread", "m.annotation"];
-    if !valid_rel_types.contains(&rel_type.as_str()) {
-        return Err(ApiError::bad_request(format!(
-            "Invalid rel_type: {}. Must be one of: {}",
-            rel_type,
-            valid_rel_types.join(", ")
-        )));
+/// 三个 `/relations` 读路由（2 段 / 3 段 / 4 段）的公共实现。
+async fn relations_response(
+    ctx: &RoomContext,
+    auth_user: &AuthenticatedUser,
+    room_id: &str,
+    event_id: &str,
+    rel_type: Option<String>,
+    event_type: Option<String>,
+    query: RelationsQuery,
+) -> Result<Json<RelationsResponse>, ApiError> {
+    validate_room_id(room_id)?;
+    validate_event_id(event_id)?;
+
+    if let Some(rel_type) = rel_type.as_deref() {
+        let valid_rel_types = ["m.reference", "m.replace", "m.thread", "m.annotation"];
+        if !valid_rel_types.contains(&rel_type) {
+            return Err(ApiError::bad_request(format!(
+                "Invalid rel_type: {}. Must be one of: {}",
+                rel_type,
+                valid_rel_types.join(", ")
+            )));
+        }
     }
 
+    ensure_room_member_ctx(ctx, auth_user, room_id, "User is not a member of the room").await?;
+
     let relation_query = RelationQuery {
-        rel_type: Some(rel_type.clone()),
-        event_type: None,
+        rel_type,
+        event_type,
         limit: Some(query.limit.unwrap_or(50).min(100) as i32),
         recurse: query.recurse_flag(),
         from: query.from,
         direction: query.direction.clone(),
     };
 
-    tracing::debug!("Getting relations for event {} in room {} with rel_type {}", event_id, room_id, rel_type);
+    tracing::debug!(room_id = %room_id, event_id = %event_id, "Getting relations");
 
-    let response = ctx.relations_service.get_relations(&room_id, &event_id, relation_query).await?;
+    let response = ctx.relations_service.get_relations(room_id, event_id, relation_query).await?;
 
     Ok(Json(RelationsResponse {
         chunk: response.chunk,
