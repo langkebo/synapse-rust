@@ -144,6 +144,9 @@ impl LifecycleService {
                 Some(""),
                 create_content,
                 now,
+                // The create event's content hash *is* the room id (MSC4291):
+                // a rewrite would desync the identity already derived above.
+                false,
                 Some(&mut tx),
             )
             .await;
@@ -156,7 +159,7 @@ impl LifecycleService {
                 "m.room.create event failed"
             );
             let _ = tx.rollback().await;
-            return Err(ApiError::internal_with_context("Failed to create m.room.create event", e));
+            return Err(e.clone());
         }
         // The create event's persisted identity must be the one the room id was
         // derived from, or the `rooms` row and its create event would disagree
@@ -203,12 +206,13 @@ impl LifecycleService {
                     "displayname": user_id.trim_start_matches('@').split(':').next().unwrap_or(user_id),
                 }),
                 now + 1,
+                true,
                 Some(&mut tx),
             )
             .await;
         if let Err(e) = result {
             let _ = tx.rollback().await;
-            return Err(ApiError::internal_with_cause("Failed to create m.room.member event", e));
+            return Err(e);
         }
 
         let mut power_levels = json!({
@@ -248,12 +252,13 @@ impl LifecycleService {
                 Some(""),
                 power_levels,
                 now + 2,
+                true,
                 Some(&mut tx),
             )
             .await;
         if let Err(e) = result {
             let _ = tx.rollback().await;
-            return Err(ApiError::internal_with_cause("Failed to create m.room.power_levels event", e));
+            return Err(e);
         }
 
         let result = self
@@ -266,12 +271,13 @@ impl LifecycleService {
                 Some(""),
                 json!({ "join_rule": join_rule }),
                 now + 3,
+                true,
                 Some(&mut tx),
             )
             .await;
         if let Err(e) = result {
             let _ = tx.rollback().await;
-            return Err(ApiError::internal_with_cause("Failed to create m.room.join_rules event", e));
+            return Err(e);
         }
 
         let history_visibility = config.history_visibility.clone().unwrap_or_else(|| {
@@ -291,12 +297,13 @@ impl LifecycleService {
                 Some(""),
                 json!({ "history_visibility": history_visibility }),
                 now + 4,
+                true,
                 Some(&mut tx),
             )
             .await;
         if let Err(e) = result {
             let _ = tx.rollback().await;
-            return Err(ApiError::internal_with_cause("Failed to create m.room.history_visibility event", e));
+            return Err(e);
         }
 
         let guest_access = if is_public { "can_join" } else { "forbidden" };
@@ -310,12 +317,13 @@ impl LifecycleService {
                 Some(""),
                 json!({ "guest_access": guest_access }),
                 now + 5,
+                true,
                 Some(&mut tx),
             )
             .await;
         if let Err(e) = result {
             let _ = tx.rollback().await;
-            return Err(ApiError::internal_with_cause("Failed to create m.room.guest_access event", e));
+            return Err(e);
         }
 
         let result = self
@@ -331,7 +339,7 @@ impl LifecycleService {
             .await;
         if let Err(e) = result {
             let _ = tx.rollback().await;
-            return Err(ApiError::internal_with_cause("Failed to set room metadata", e));
+            return Err(e);
         }
 
         let result = self
@@ -347,7 +355,7 @@ impl LifecycleService {
             .await;
         if let Err(e) = result {
             let _ = tx.rollback().await;
-            return Err(ApiError::internal_with_cause("Failed to process invites", e));
+            return Err(e);
         }
 
         let mut initial_join_rule: Option<String> = None;
@@ -379,6 +387,7 @@ impl LifecycleService {
                         Some(&state_key),
                         content,
                         now + 9 + idx as i64,
+                        true,
                         Some(&mut tx),
                     )
                     .await;
@@ -391,10 +400,7 @@ impl LifecycleService {
                         "Failed to apply initial_state event"
                     );
                     let _ = tx.rollback().await;
-                    return Err(ApiError::internal_with_context(
-                        "Failed to apply initial_state event {event_type}",
-                        &e,
-                    ));
+                    return Err(e);
                 }
 
                 if event_type == "m.room.join_rules" {
@@ -418,12 +424,13 @@ impl LifecycleService {
                         Some(""),
                         json!({ "algorithm": algorithm }),
                         encryption_ts,
+                        true,
                         Some(&mut tx),
                     )
                     .await;
                 if let Err(e) = result {
                     let _ = tx.rollback().await;
-                    return Err(ApiError::internal_with_cause("Failed to create m.room.encryption event", e));
+                    return Err(e);
                 }
             }
         }
@@ -447,12 +454,13 @@ impl LifecycleService {
                     Some(""),
                     privacy_content,
                     now + 8,
+                    true,
                     Some(&mut tx),
                 )
                 .await;
             if let Err(e) = result {
                 let _ = tx.rollback().await;
-                return Err(ApiError::internal_with_cause("Failed to set privacy marker", e));
+                return Err(e);
             }
         }
 

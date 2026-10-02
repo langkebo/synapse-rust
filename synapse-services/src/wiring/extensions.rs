@@ -185,6 +185,8 @@ impl ExtensionServices {
             Arc::new(BurnAfterReadService::new(
                 burn_storage,
                 rooms.event_writer.clone(),
+                rooms.event_reader.clone(),
+                rooms.event_admission_gate.clone(),
                 infra.config.server.name.clone(),
             ))
         };

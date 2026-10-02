@@ -21,7 +21,7 @@ use sqlx::Row;
 use std::sync::Arc;
 use synapse_services::burn_after_read_service::BurnAfterReadService;
 use synapse_storage::burn_after_read::{BurnAfterReadStorage, BurnAfterReadStoreApi};
-use synapse_storage::event::{EventStorage, EventWriter};
+use synapse_storage::event::{EventReader, EventStorage, EventWriter};
 use tower::ServiceExt;
 
 /// Register a client user, returning `(access_token, user_id)`.
@@ -87,7 +87,14 @@ async fn burn_send_message(app: &axum::Router, token: &str, room_id: &str) -> St
 fn burn_service(pool: &Arc<sqlx::PgPool>) -> BurnAfterReadService {
     let storage: Arc<dyn BurnAfterReadStoreApi> = Arc::new(BurnAfterReadStorage::new(pool));
     let writer: Arc<dyn EventWriter> = Arc::new(EventStorage::new(pool, "localhost".to_string()));
-    BurnAfterReadService::new(storage, writer, "localhost".to_string())
+    let reader: Arc<dyn EventReader> = Arc::new(EventStorage::new(pool, "localhost".to_string()));
+    BurnAfterReadService::new(
+        storage,
+        writer,
+        reader,
+        Arc::new(synapse_services::test_mocks::FakeEventAdmissionGate::new()),
+        "localhost".to_string(),
+    )
 }
 
 /// `(is_redacted, redacted_by)` for one event.

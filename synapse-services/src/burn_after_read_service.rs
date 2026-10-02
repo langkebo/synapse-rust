@@ -60,7 +60,15 @@ struct BurnProcessorState {
 pub struct BurnAfterReadService {
     storage: Arc<dyn BurnAfterReadStoreApi>,
     event_writer: Arc<dyn synapse_storage::event::EventWriter>,
+    /// Room-state reader for the admission gate's `check_event_allowed`
+    /// context. The burn redaction is a local event, so the rules must see the
+    /// same room state the messaging path would show them.
+    event_reader: Arc<dyn synapse_storage::event::EventReader>,
     server_name: String,
+    /// The third-party event admission gate (Synapse `check_event_allowed`).
+    /// The burn's `m.room.redaction` is a local write like any other: it is
+    /// consulted before the redaction is persisted, so a rule can refuse it.
+    event_admission_gate: Arc<dyn crate::module_service::EventAdmissionGate>,
     processor_state: Arc<RwLock<BurnProcessorState>>,
 }
 
@@ -69,12 +77,16 @@ impl BurnAfterReadService {
     pub fn new(
         storage: Arc<dyn BurnAfterReadStoreApi>,
         event_writer: Arc<dyn synapse_storage::event::EventWriter>,
+        event_reader: Arc<dyn synapse_storage::event::EventReader>,
+        event_admission_gate: Arc<dyn crate::module_service::EventAdmissionGate>,
         server_name: String,
     ) -> Self {
         Self {
             storage,
             event_writer,
+            event_reader,
             server_name,
+            event_admission_gate,
             processor_state: Arc::new(RwLock::new(BurnProcessorState { is_running: false })),
         }
     }
@@ -145,27 +157,36 @@ impl BurnAfterReadService {
         // self-referential FK to `events.event_id` (`fk_events_redacted_by`) and
         // records the burn's `m.room.redaction` event id — not the burning
         // user's id (which violated the constraint and left the content
-        // unredacted). This method's contract is unchanged: both steps are
-        // best-effort, each failure is logged and only `log_burned_event`
-        // propagates. A failed `create_event` therefore degrades to
-        // `redacted_by = NULL` ("no causing event") instead of aborting the burn.
-        let redaction_event_id = match self
-            .event_writer
-            .create_event(
-                synapse_storage::event::CreateEventParams {
-                    event_id: synapse_common::crypto::generate_event_id(&self.server_name),
-                    room_id: room_id.to_string(),
-                    user_id: user_id.to_string(),
-                    event_type: "m.room.redaction".to_string(),
-                    content: serde_json::json!({"reason": "Burn after read"}),
-                    state_key: None,
-                    origin_server_ts: now,
-                    redacts: None,
-                },
-                None,
-            )
-            .await
-        {
+        // unredacted). Both the create and the redact steps remain best-effort
+        // (each failure is logged and only `log_burned_event` propagates), so a
+        // failed `create_event` still degrades to `redacted_by = NULL` ("no
+        // causing event") instead of aborting the burn.
+        //
+        // The admission gate is the one *not* best-effort step: it is consulted
+        // before any state changes, and its refusal propagates as `403` with
+        // nothing written — no redaction event, no redacted content, no audit
+        // row. A rule that refuses the redaction must not be able to leave a
+        // half-applied burn behind.
+        let mut params = synapse_storage::event::CreateEventParams {
+            event_id: synapse_common::crypto::generate_event_id(&self.server_name),
+            room_id: room_id.to_string(),
+            user_id: user_id.to_string(),
+            event_type: "m.room.redaction".to_string(),
+            content: serde_json::json!({"reason": "Burn after read"}),
+            state_key: None,
+            origin_server_ts: now,
+            redacts: None,
+        };
+
+        crate::module_service::consult_event_admission(
+            self.event_admission_gate.as_ref(),
+            self.event_reader.as_ref(),
+            &mut params,
+            true,
+        )
+        .await?;
+
+        let redaction_event_id = match self.event_writer.create_event(params, None).await {
             Ok(event) => Some(event.event_id),
             Err(e) => {
                 ::tracing::warn!(
@@ -293,22 +314,42 @@ impl BurnAfterReadService {
             // event id), so every redaction failed the FK and the sweep skipped
             // all rows forever. The "both must succeed, else retry next sweep"
             // contract below is unchanged — only the two attempts swap places.
-            let create_ok = self
-                .event_writer
-                .create_event(
-                    synapse_storage::event::CreateEventParams {
-                        event_id: synapse_common::crypto::generate_event_id(&self.server_name),
-                        room_id: row.room_id.clone(),
-                        user_id: row.user_id.clone(),
-                        event_type: "m.room.redaction".to_string(),
-                        content: serde_json::json!({"reason": "Burn after read"}),
-                        state_key: None,
-                        origin_server_ts: now,
-                        redacts: None,
-                    },
-                    None,
-                )
-                .await;
+            let mut params = synapse_storage::event::CreateEventParams {
+                event_id: synapse_common::crypto::generate_event_id(&self.server_name),
+                room_id: row.room_id.clone(),
+                user_id: row.user_id.clone(),
+                event_type: "m.room.redaction".to_string(),
+                content: serde_json::json!({"reason": "Burn after read"}),
+                state_key: None,
+                origin_server_ts: now,
+                redacts: None,
+            };
+
+            // The sweep is a background task with no client to answer, so a
+            // refusal takes the same shape as a failed `create_event` below:
+            // log, leave the row unprocessed, and let the next sweep retry.
+            if let Err(e) = crate::module_service::consult_event_admission(
+                self.event_admission_gate.as_ref(),
+                self.event_reader.as_ref(),
+                &mut params,
+                true,
+            )
+            .await
+            {
+                ::tracing::warn!(
+                    error = %e,
+                    burn_id = row.id,
+                    user_id = %row.user_id,
+                    room_id = %row.room_id,
+                    event_id = %row.event_id,
+                    retry_count = row.retry_count,
+                    "Burn redaction refused by the event admission gate; nothing redacted — \
+                     will retry next sweep"
+                );
+                continue;
+            }
+
+            let create_ok = self.event_writer.create_event(params, None).await;
 
             let redaction_event_id = match create_ok {
                 Ok(event) => event.event_id,
@@ -635,9 +676,16 @@ mod tests {
     #[tokio::test]
     async fn burn_processor_stops_on_shutdown() {
         let storage: Arc<dyn BurnAfterReadStoreApi> = Arc::new(NoopBurnStore);
-        let event_writer: Arc<dyn synapse_storage::event::EventWriter> =
-            Arc::new(synapse_storage::test_mocks::InMemoryEventStore::new());
-        let service = Arc::new(BurnAfterReadService::new(storage, event_writer, "test".to_string()));
+        let event_store = Arc::new(synapse_storage::test_mocks::InMemoryEventStore::new());
+        let event_writer: Arc<dyn synapse_storage::event::EventWriter> = event_store.clone();
+        let event_reader: Arc<dyn synapse_storage::event::EventReader> = event_store.clone();
+        let service = Arc::new(BurnAfterReadService::new(
+            storage,
+            event_writer,
+            event_reader,
+            Arc::new(crate::test_mocks::FakeEventAdmissionGate::new()),
+            "test".to_string(),
+        ));
 
         let token = tokio_util::sync::CancellationToken::new();
         let handle = service.clone().start_burn_processor(token.clone()).await.expect("first start returns handle");
@@ -866,9 +914,102 @@ mod tests {
     }
 
     fn make_service(storage: Arc<dyn BurnAfterReadStoreApi>) -> Arc<BurnAfterReadService> {
-        let event_writer: Arc<dyn synapse_storage::event::EventWriter> =
-            Arc::new(synapse_storage::test_mocks::InMemoryEventStore::new());
-        Arc::new(BurnAfterReadService::new(storage, event_writer, "test.example.com".to_string()))
+        let event_store = Arc::new(synapse_storage::test_mocks::InMemoryEventStore::new());
+        let event_writer: Arc<dyn synapse_storage::event::EventWriter> = event_store.clone();
+        let event_reader: Arc<dyn synapse_storage::event::EventReader> = event_store.clone();
+        Arc::new(BurnAfterReadService::new(
+            storage,
+            event_writer,
+            event_reader,
+            Arc::new(crate::test_mocks::FakeEventAdmissionGate::new()),
+            "test.example.com".to_string(),
+        ))
+    }
+
+    /// Like [`make_service`], but with a caller-supplied admission gate and the
+    /// backing event store handed back so a test can assert on what was (not)
+    /// persisted.
+    fn make_service_with_gate(
+        storage: Arc<dyn BurnAfterReadStoreApi>,
+        gate: Arc<dyn crate::module_service::EventAdmissionGate>,
+    ) -> (Arc<BurnAfterReadService>, Arc<synapse_storage::test_mocks::InMemoryEventStore>) {
+        let event_store = Arc::new(synapse_storage::test_mocks::InMemoryEventStore::new());
+        let event_writer: Arc<dyn synapse_storage::event::EventWriter> = event_store.clone();
+        let event_reader: Arc<dyn synapse_storage::event::EventReader> = event_store.clone();
+        let svc = Arc::new(BurnAfterReadService::new(
+            storage,
+            event_writer,
+            event_reader,
+            gate,
+            "test.example.com".to_string(),
+        ));
+        (svc, event_store)
+    }
+
+    // ── event admission gate on the burn redaction (D-1) ────────────────
+
+    /// 铁律 8 红探针：burn 的 `m.room.redaction` 必须真的过门禁。
+    ///
+    /// 拒绝型门禁下 `delete_burned_message` 必须返回 403，且零残留——既没有
+    /// 落一条 redaction 事件，也没有写审计行。删掉 `consult_event_admission`
+    /// 调用这一断言立刻变红。
+    #[tokio::test]
+    async fn delete_burned_message_refused_by_admission_rule_returns_forbidden_with_no_residue() {
+        let store = Arc::new(FakeBurnStore::new());
+        let (svc, event_store) = make_service_with_gate(
+            store.clone(),
+            Arc::new(crate::test_mocks::FakeEventAdmissionGate::denying("burns are not allowed")),
+        );
+
+        let err = svc
+            .delete_burned_message("@alice:ex.com", "!room:ex.com", "$event:ex.com")
+            .await
+            .expect_err("a refusing rule must fail the burn");
+        assert!(err.is_forbidden(), "expected 403, got: {err:?}");
+        assert!(
+            err.message().contains("burns are not allowed"),
+            "the rule's reason must surface, got: {}",
+            err.message()
+        );
+
+        assert!(
+            store.state.lock().expect("mutex poisoned").log_burned_calls.is_empty(),
+            "a refused burn must not write an audit row"
+        );
+        let written = event_store.get_room_events("!room:ex.com", 10).await.unwrap();
+        assert!(written.is_empty(), "a refused burn must not persist a redaction event, found: {written:?}");
+    }
+
+    /// 铁律 8 红探针（后台 sweep 分支）：`process_expired_burns` 遇到拒绝必须
+    /// `continue`——行保持未处理、不落 redaction、不写审计。
+    #[tokio::test]
+    async fn process_expired_burns_refused_by_admission_rule_leaves_row_unprocessed() {
+        let store = Arc::new(FakeBurnStore::with_expired_burns(vec![BurnPendingRow {
+            id: 7,
+            user_id: "@alice:ex.com".into(),
+            room_id: "!room:ex.com".into(),
+            event_id: "$event:ex.com".into(),
+            created_ts: 0,
+            delete_ts: 0,
+            is_processed: false,
+            retry_count: 0,
+            last_error: None,
+            is_dead_letter: false,
+        }]));
+        let (svc, event_store) = make_service_with_gate(
+            store.clone(),
+            Arc::new(crate::test_mocks::FakeEventAdmissionGate::denying("sweep denied")),
+        );
+
+        svc.process_expired_burns().await.unwrap();
+
+        {
+            let s = store.state.lock().expect("mutex poisoned");
+            assert!(s.mark_processed_calls.is_empty(), "a refused sweep must not mark the row processed");
+            assert!(s.log_burned_calls.is_empty(), "a refused sweep must not write an audit row");
+        }
+        let written = event_store.get_room_events("!room:ex.com", 10).await.unwrap();
+        assert!(written.is_empty(), "a refused sweep must not persist a redaction event, found: {written:?}");
     }
 
     #[tokio::test]

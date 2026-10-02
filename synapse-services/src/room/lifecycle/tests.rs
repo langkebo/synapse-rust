@@ -6,6 +6,7 @@
 
 #[cfg(test)]
 mod tests {
+    use super::super::creation_graph::CreationGraph;
     use super::super::service::{LifecycleService, LifecycleServiceConfig};
     use std::sync::Arc;
     use synapse_cache::{CacheConfig, CacheManager};
@@ -23,6 +24,24 @@ mod tests {
         event_store: InMemoryEventStore,
         user_store: Arc<dyn UserStore>,
     ) -> LifecycleService {
+        test_lifecycle_service_with_gate(
+            room_store,
+            member_store,
+            event_store,
+            user_store,
+            Arc::new(crate::test_mocks::FakeEventAdmissionGate::new()),
+        )
+    }
+
+    /// Like [`test_lifecycle_service`], but with a caller-supplied admission
+    /// gate so a test can prove the creation sequence actually consults it.
+    fn test_lifecycle_service_with_gate(
+        room_store: InMemoryRoomStore,
+        member_store: InMemoryMemberStore,
+        event_store: InMemoryEventStore,
+        user_store: Arc<dyn UserStore>,
+        event_admission_gate: Arc<dyn crate::module_service::EventAdmissionGate>,
+    ) -> LifecycleService {
         let event_reader: Arc<dyn synapse_storage::event::EventReader> = Arc::new(event_store.clone());
         let event_writer: Arc<dyn synapse_storage::event::EventWriter> = Arc::new(event_store.clone());
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
@@ -38,7 +57,91 @@ mod tests {
             cache,
             app_service_manager: None,
             policy_service: None,
+            event_admission_gate,
         })
+    }
+
+    // ── event admission gate on the room-creation sequence (D-1) ───────
+
+    /// 铁律 8 红探针：房间创建事件序列必须真的过门禁。
+    ///
+    /// 用拒绝型门禁调用 [`LifecycleService::write_creation_event`]，必须得到
+    /// 403（而不是静默把事件写进去），且事件存储里一行都不能有。把
+    /// `write_creation_event` 里的 `consult_event_admission` 调用删掉，这个
+    /// 断言立刻变红——它就是这条接线的证伪器。
+    #[tokio::test]
+    async fn write_creation_event_is_refused_by_denying_gate_and_persists_nothing() {
+        let event_store = InMemoryEventStore::new();
+        let svc = test_lifecycle_service_with_gate(
+            InMemoryRoomStore::new(),
+            InMemoryMemberStore::new(),
+            event_store.clone(),
+            Arc::new(synapse_storage::test_mocks::FakeUserStore::new()),
+            Arc::new(crate::test_mocks::FakeEventAdmissionGate::denying("room creation is closed")),
+        );
+
+        let mut graph = CreationGraph::new("11");
+        let err = svc
+            .write_creation_event(
+                &mut graph,
+                None,
+                "!room:example.com",
+                "@alice:example.com",
+                "m.room.name",
+                Some(""),
+                serde_json::json!({"name": "Blocked"}),
+                1000,
+                true,
+                None,
+            )
+            .await
+            .expect_err("a refusing rule must fail the creation sequence");
+
+        assert!(err.is_forbidden(), "expected 403, got: {err:?}");
+        assert!(
+            err.message().contains("room creation is closed"),
+            "the rule's reason must surface, got: {}",
+            err.message()
+        );
+        let written = event_store.get_room_events("!room:example.com", 10).await.unwrap();
+        assert!(written.is_empty(), "a refused creation event must not be persisted, found: {written:?}");
+    }
+
+    /// `allow_modification = false` 只挡「改写」，不挡「拒绝」。
+    ///
+    /// create 事件的 content hash 就是 v12 的 room_id（MSC4291），所以它不允许被
+    /// 改写；但它仍然必须能被规则拒绝——否则就等于给攻击者留了一条绕开门禁的写路径。
+    #[tokio::test]
+    async fn create_event_is_still_refused_when_modification_is_disallowed() {
+        let event_store = InMemoryEventStore::new();
+        let svc = test_lifecycle_service_with_gate(
+            InMemoryRoomStore::new(),
+            InMemoryMemberStore::new(),
+            event_store.clone(),
+            Arc::new(synapse_storage::test_mocks::FakeUserStore::new()),
+            Arc::new(crate::test_mocks::FakeEventAdmissionGate::denying("create denied")),
+        );
+
+        let mut graph = CreationGraph::new("11");
+        let err = svc
+            .write_creation_event(
+                &mut graph,
+                None,
+                "!room:example.com",
+                "@alice:example.com",
+                "m.room.create",
+                Some(""),
+                serde_json::json!({"creator": "@alice:example.com"}),
+                1000,
+                false,
+                None,
+            )
+            .await
+            .expect_err("a refusing rule must fail the create event too");
+
+        assert!(err.is_forbidden(), "expected 403, got: {err:?}");
+        let written = event_store.get_room_events("!room:example.com", 10).await.unwrap();
+        assert!(written.is_empty(), "a refused create event must not be persisted, found: {written:?}");
     }
 
     // ── get_tombstone_event ─────────────────────────────────────────

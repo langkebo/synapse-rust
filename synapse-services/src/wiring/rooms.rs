@@ -2,10 +2,11 @@
 //!
 //! ARCH-07/08 (2026-08-10): The storage fields below are "backing storage" —
 //! constructed here and injected into the corresponding service. Only
-//! `room_storage` and `event_writer` are retained on the struct because other
-//! wiring modules (`extensions.rs`) read them after construction; the remaining
-//! storage fields are consumed during service construction and their stored
-//! copies were never read, so they were removed (审查 #23).
+//! `room_storage`, `event_writer`, `event_reader` and `event_admission_gate`
+//! are retained on the struct because other wiring modules (`extensions.rs`)
+//! read them after construction; the remaining storage fields are consumed
+//! during service construction and their stored copies were never read, so
+//! they were removed (审查 #23).
 
 use std::sync::Arc;
 
@@ -21,6 +22,12 @@ pub struct RoomSyncServices {
     pub room_storage: Arc<dyn synapse_storage::room::RoomStoreApi>,
     /// The `event_writer` field.
     pub event_writer: Arc<dyn synapse_storage::event::EventWriter>,
+    /// The `event_reader` field.
+    pub event_reader: Arc<dyn synapse_storage::event::EventReader>,
+    /// The third-party event admission gate (`check_event_allowed`). Read by
+    /// `extensions.rs` so the burn redaction path enforces the same rules as
+    /// the messaging path (same `Arc`, so the surfaces cannot diverge).
+    pub event_admission_gate: Arc<dyn crate::module_service::EventAdmissionGate>,
     /// The `event_redaction_service` field.
     pub event_redaction_service: Arc<crate::event_redaction_service::EventRedactionService>,
     /// The `room_summary_service` field.
@@ -248,6 +255,8 @@ impl RoomSyncServices {
         Self {
             room_storage,
             event_writer,
+            event_reader,
+            event_admission_gate,
             event_redaction_service,
             room_summary_service,
             #[cfg(feature = "beacons")]

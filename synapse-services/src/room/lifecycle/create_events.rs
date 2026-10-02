@@ -43,6 +43,13 @@ impl LifecycleService {
     /// Returns the id the row was persisted under, so a caller that must know the
     /// event's identity (e.g. deriving a v12 room id from the create event) never
     /// has to re-implement finalization.
+    ///
+    /// `allow_modification` is forwarded to
+    /// [`crate::module_service::consult_event_admission`]: `true` for events
+    /// whose bytes this server authored and persists verbatim, `false` for the
+    /// create event itself — its content hash *is* the room id (MSC4291), so a
+    /// rewrite would desync the identity the caller already derived and pinned
+    /// in `graph`.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn write_creation_event(
         &self,
@@ -58,24 +65,41 @@ impl LifecycleService {
         state_key: Option<&str>,
         content: serde_json::Value,
         origin_server_ts: i64,
+        allow_modification: bool,
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
-    ) -> Result<String, sqlx::Error> {
+    ) -> ApiResult<String> {
         let placeholder_id = event_id.map(str::to_string).unwrap_or_else(|| generate_event_id(&self.server_name));
-        let metadata = graph.next(&placeholder_id, event_type, state_key, sender, &content);
+
+        let mut params = CreateEventParams {
+            event_id: placeholder_id,
+            room_id: room_id.to_string(),
+            user_id: sender.to_string(),
+            event_type: event_type.to_string(),
+            content,
+            state_key: state_key.map(str::to_string),
+            origin_server_ts,
+            redacts: None,
+        };
+
+        // Consult the admission gate *before* the DAG tip advances or the row is
+        // written. A refusal propagates as `403`; because the caller rolls the
+        // surrounding transaction back, no partial room survives. The rewrite
+        // (when `allow_modification`) lands before `graph.next`, so the recorded
+        // DAG metadata describes the bytes actually persisted.
+        crate::module_service::consult_event_admission(
+            self.event_admission_gate.as_ref(),
+            self.event_reader.as_ref(),
+            &mut params,
+            allow_modification,
+        )
+        .await?;
+
+        let metadata = graph.next(&params.event_id, event_type, state_key, sender, &params.content);
 
         let written = self
             .event_writer
             .create_event_with_pdu(
-                CreateEventParams {
-                    event_id: placeholder_id,
-                    room_id: room_id.to_string(),
-                    user_id: sender.to_string(),
-                    event_type: event_type.to_string(),
-                    content,
-                    state_key: state_key.map(str::to_string),
-                    origin_server_ts,
-                    redacts: None,
-                },
+                params,
                 PduGraphFields {
                     depth: Some(metadata.depth),
                     prev_events: Some(metadata.prev_events),
@@ -83,7 +107,8 @@ impl LifecycleService {
                 },
                 tx,
             )
-            .await?;
+            .await
+            .map_err(|e| ApiError::internal_with_cause(&format!("Failed to create {event_type} event"), e))?;
 
         // The row is persisted under the *finalized* ID, which the graph must
         // record before the next creation event is emitted. Writing through
@@ -183,10 +208,10 @@ impl LifecycleService {
                 Some(""),
                 json!({ "name": room_name }),
                 base_ts,
+                true,
                 tx.as_deref_mut(),
             )
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to create m.room.name event", e))?;
+            .await?;
         }
 
         if let Some(room_topic) = topic {
@@ -210,10 +235,10 @@ impl LifecycleService {
                 Some(""),
                 json!({ "topic": room_topic }),
                 base_ts + 1,
+                true,
                 tx.as_deref_mut(),
             )
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to create m.room.topic event", e))?;
+            .await?;
         }
 
         Ok(())
@@ -270,10 +295,10 @@ impl LifecycleService {
                     Some(invitee),
                     build_invite_event_content(invitee, reason),
                     base_ts + offset,
+                    true,
                     Some(&mut *tx),
                 )
-                .await
-                .map_err(|e| ApiError::internal_with_cause("Failed to record m.room.member invite event", e))?;
+                .await?;
                 offset += 1;
             }
         }

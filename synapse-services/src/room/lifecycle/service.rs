@@ -33,6 +33,12 @@ pub struct LifecycleService {
     /// consults the policy server before persisting. `None` in
     /// test setups or when the policy server is not configured.
     pub(crate) policy_service: Option<Arc<PolicyService>>,
+    /// The third-party event admission gate (Synapse `check_event_allowed`).
+    /// Every event of the room-creation sequence consults it before the row is
+    /// persisted, so a rule can refuse the whole create with `403` and leave no
+    /// partial room behind. Required, not optional — a gate that can be absent
+    /// is a gate that can be skipped.
+    pub(crate) event_admission_gate: Arc<dyn crate::module_service::EventAdmissionGate>,
 }
 
 /// Configuration for constructing a [`LifecycleService`].
@@ -60,6 +66,9 @@ pub struct LifecycleServiceConfig {
     /// MSC4284 — Policy server service. `None` in test setups or when
     /// the policy server is not configured.
     pub policy_service: Option<Arc<PolicyService>>,
+    /// The event admission gate (Synapse `check_event_allowed`). See
+    /// [`LifecycleService::event_admission_gate`].
+    pub event_admission_gate: Arc<dyn crate::module_service::EventAdmissionGate>,
 }
 
 impl LifecycleService {
@@ -77,6 +86,7 @@ impl LifecycleService {
             cache: config.cache,
             app_service_manager: config.app_service_manager,
             policy_service: config.policy_service,
+            event_admission_gate: config.event_admission_gate,
         }
     }
 

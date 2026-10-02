@@ -249,6 +249,7 @@ impl RoomService {
             // MSC4284: room creation policy enforcement lives in the
             // lifecycle sub-service; join/invite live in membership.
             policy_service: config.policy_service.clone(),
+            event_admission_gate: config.event_admission_gate.clone(),
         };
         let lifecycle = LifecycleService::new(lifecycle_cfg);
 
