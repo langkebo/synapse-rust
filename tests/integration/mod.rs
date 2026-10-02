@@ -67,6 +67,7 @@ mod password_hash_pool_tests;
 mod protocol_compliance_tests;
 mod regex_cache_tests;
 mod rtc_transports_tests;
+mod third_party_rules_event_paths_tests;
 mod transaction_tests;
 mod voice_routes_tests;
 mod worker_task_recovery_tests;

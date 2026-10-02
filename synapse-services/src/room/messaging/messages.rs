@@ -206,7 +206,20 @@ impl MessagingService {
                 Some(&mut tx),
             )
             .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to send message", e))?;
+            .map_err(|e| {
+                // `create_event` runs the third-party event admission gate, which
+                // refuses with `403 M_FORBIDDEN`. Wrapping *every* failure into an
+                // internal error hid that verdict behind `500 M_UNKNOWN`, so a
+                // policy refusal was indistinguishable from a server fault
+                // (2026-10-02, `third_party_rules_event_paths_tests`). Preserve
+                // verdicts that already carry a client-facing status; only
+                // unexpected failures get the "Failed to send message" context.
+                if e.kind.default_http_status().is_client_error() {
+                    e
+                } else {
+                    ApiError::internal_with_cause("Failed to send message", e)
+                }
+            })?;
         // create_event failed: `tx` drops here → sqlx auto-rollback → pool returns clean.
 
         // The write entry owns event identity (§4.1): it may have replaced the
