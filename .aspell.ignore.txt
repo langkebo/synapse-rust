@@ -953,6 +953,7 @@ xss
 xxxx
 yagni
 yaml
+yamllint
 yyyy
 zeroize
 zeroized

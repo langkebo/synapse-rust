@@ -1050,6 +1050,19 @@ Execution Time: 0.287 ms（返回 14 行）
   带**变异红证明**：把 4 段 handler 的 `event_type` 置 `None` ⇒ ② 断言红（chunk 长度变 1，
   报文打印出来），复位即绿、探针清零。
 
+**防复发：`scripts/quality/preflight.sh`（2026-10-02 新增）**
+
+本会话两次把红带进主干，原因都不是"改错"而是"跑漏"：`416ece3c8` 漏 `cargo fmt`、
+`cf845cb35` 漏 `ruff format`（Format Governance 红）。该脚本把 CI **同名门禁**按改动集
+一次跑全：`cargo fmt --all` + fmt 棘轮 → `scripts/quality/format_check.sh`（ruff/shfmt/
+yamllint/check-json，仅当有 py/rs/json/yaml/sh 改动）→ 逐文件 aspell + markdownlint（仅改动
+的 `.md`）→ `check_route_contract.sh`（**仅当未动契约链文件**；动了就 SKIP 并提示该 gate
+提交前构造性红）→ 可选 `--clippy` 跑两档。改动集含**未跟踪新文件**（`git ls-files --others`
+——"新增 .py/.md 忘了格式化"正是要防的场景）。
+
+自证：干净树上 `EXIT=0`；往受检文档塞纯文本错拼 ⇒ `EXIT=1` 且 `FAIL aspell …`；复位即绿。
+（注意：aspell 会忽略 HTML 注释里的词，红证明要用纯文本错拼，否则会假绿。）
+
 ### 8.4 依赖与并行度
 
 - **可立即并行**（互不耦合）：M-1、M-3、L-5、L-1、L-2。
