@@ -1108,7 +1108,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}",
             "relations",
         )
-        .with_query_params(&["dir", "from", "limit", "to"]);
+        .with_query_params(&["dir", "from", "limit", "org.matrix.msc3981.recurse", "recurse", "to"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -1117,7 +1117,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}",
             "relations",
         )
-        .with_query_params(&["dir", "from", "limit", "to"]);
+        .with_query_params(&["dir", "from", "limit", "org.matrix.msc3981.recurse", "recurse", "to"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -2820,7 +2820,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}",
             "relations",
         )
-        .with_query_params(&["dir", "from", "limit", "to"]);
+        .with_query_params(&["dir", "from", "limit", "org.matrix.msc3981.recurse", "recurse", "to"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -2829,7 +2829,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}",
             "relations",
         )
-        .with_query_params(&["dir", "from", "limit", "to"]);
+        .with_query_params(&["dir", "from", "limit", "org.matrix.msc3981.recurse", "recurse", "to"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {

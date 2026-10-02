@@ -1628,6 +1628,8 @@
         "dir",
         "from",
         "limit",
+        "org.matrix.msc3981.recurse",
+        "recurse",
         "to"
       ]
     },
@@ -1644,6 +1646,8 @@
         "dir",
         "from",
         "limit",
+        "org.matrix.msc3981.recurse",
+        "recurse",
         "to"
       ]
     },
@@ -4401,6 +4405,8 @@
         "dir",
         "from",
         "limit",
+        "org.matrix.msc3981.recurse",
+        "recurse",
         "to"
       ]
     },
@@ -4417,6 +4423,8 @@
         "dir",
         "from",
         "limit",
+        "org.matrix.msc3981.recurse",
+        "recurse",
         "to"
       ]
     },
