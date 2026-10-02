@@ -308,7 +308,8 @@ async fn relations_event_type_route_filters_over_http() {
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get(uri)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK, "4 段 GET 必须存在（此前会 405/404）");
     let json: Value = serde_json::from_slice(&axum::body::to_bytes(response.into_body(), 8192).await.unwrap()).unwrap();
-    let ids: Vec<&str> = json["chunk"].as_array().expect("chunk").iter().filter_map(|e| e["event_id"].as_str()).collect();
+    let ids: Vec<&str> =
+        json["chunk"].as_array().expect("chunk").iter().filter_map(|e| e["event_id"].as_str()).collect();
     assert!(ids.contains(&reaction_id.as_str()), "匹配的 event_type 必须返回该事件: {json}");
     assert_eq!(ids.len(), 1, "只应返回这一条 annotation: {json}");
 

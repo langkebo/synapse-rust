@@ -6,6 +6,49 @@ use synapse_common::config::worker::{validate_replication_http_secret, WorkerCon
 
 use crate::worker::types::WorkerType;
 
+/// Explicit path set for the MSC4140 delayed-events management family.
+///
+/// Worker route ownership is otherwise expressed as coarse **prefixes**
+/// ([`WorkerType::owned_route_prefixes`]). The `/_matrix/client/*` prefix that
+/// nominally covers this family is too coarse to act as a request gate: it also
+/// admits `/login`, `/register`, every admin endpoint and the
+/// `/_synapse/worker/*` stream-writer endpoints, so a prefix test cannot answer
+/// "may this worker serve *this* request?". This set is the fine-grained answer
+/// for the delayed-events family only.
+///
+/// The family is registered as exactly two routes, both mounted by
+/// `synapse_web::routes::delayed_events::create_delayed_events_router()` and
+/// nested at `synapse-web/src/routes/assembly.rs:251`:
+///
+/// * `GET  /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}`
+/// * `POST /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}`
+///
+/// Both methods share one path, so the set holds one entry — the gate matches
+/// on the path, and listing the same path twice would be a redundant entry
+/// (AGENTS.md 铁律 1/2).
+///
+/// This set **replaces the prefix only for this family**; the existing prefix
+/// ownership rules (and the topology validation built on them) stay untouched.
+/// Keep it in sync with the registered routes: the
+/// `delayed_events_worker_paths_*` guards under `tests/unit/` fail if an entry
+/// is not a registered route (typo/drift) or if a registered `delayed_events`
+/// route is missing from it (family coverage).
+pub const DELAYED_EVENTS_WORKER_PATHS: &[&str] =
+    &["/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}"];
+
+/// Whether `path` is one of the MSC4140 delayed-events paths this worker
+/// topology knows about.
+///
+/// This is an **exact** match against the explicit family path set
+/// [`DELAYED_EVENTS_WORKER_PATHS`], deliberately *not* a `/_matrix/client/*`
+/// prefix match: the prefix is what makes the coarse rules too broad (it would
+/// admit `/login`, `/register`, admin and stream-writer endpoints). See
+/// [`DELAYED_EVENTS_WORKER_PATHS`] for the family's registered routes and why
+/// the set exists.
+pub fn may_serve_delayed_events_route(path: &str) -> bool {
+    DELAYED_EVENTS_WORKER_PATHS.contains(&path)
+}
+
 /// Result of a topology validation run.
 #[derive(Debug, Clone, Serialize)]
 pub struct TopologyValidation {

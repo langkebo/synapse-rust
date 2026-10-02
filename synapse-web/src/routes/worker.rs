@@ -15,6 +15,7 @@ use crate::routes::response_helpers::{created_json_from, json_from, json_vec_fro
 use crate::routes::{AdminUser, AppState};
 use synapse_common::config::worker::WorkerConfig;
 use synapse_common::ApiError;
+use synapse_services::worker::topology_validator::{may_serve_delayed_events_route, DELAYED_EVENTS_WORKER_PATHS};
 use synapse_services::worker::types::*;
 
 /// The `RegisterWorkerBody` struct.
@@ -179,6 +180,14 @@ pub struct WorkerResponse {
     pub responsibility_domains: Vec<String>,
     /// The `owned_route_prefixes` field.
     pub owned_route_prefixes: Vec<String>,
+    /// The `delayed_events_paths` field.
+    ///
+    /// The MSC4140 delayed-events paths this worker type may serve, as admitted
+    /// by [`may_serve_delayed_events_route`]. Unlike `owned_route_prefixes`
+    /// (which is the coarse `/_matrix/client/*` prefix), this is the explicit
+    /// family path set — the prefix alone would also admit `/login`,
+    /// `/register`, admin and stream-writer endpoints.
+    pub delayed_events_paths: Vec<String>,
     /// The `replication_streams` field.
     pub replication_streams: Vec<String>,
     /// The `capabilities` field.
@@ -217,6 +226,14 @@ impl From<WorkerInfo> for WorkerResponse {
                     worker_type.owned_route_prefixes().iter().map(|value| (*value).to_string()).collect()
                 })
                 .unwrap_or_default(),
+            // The family gate is applied here so the worker-info response reports
+            // exactly the delayed-events paths the runtime gate admits.
+            delayed_events_paths: DELAYED_EVENTS_WORKER_PATHS
+                .iter()
+                .copied()
+                .filter(|path| may_serve_delayed_events_route(path))
+                .map(str::to_string)
+                .collect(),
             replication_streams: worker_type
                 .map(|worker_type| worker_type.replication_streams().iter().map(|value| (*value).to_string()).collect())
                 .unwrap_or_default(),
@@ -823,6 +840,10 @@ mod tests {
         assert_eq!(response.instance_map_keys, vec!["event_persister".to_string()]);
         assert_eq!(response.responsibility_domains, vec!["event_persistence".to_string()]);
         assert_eq!(response.owned_route_prefixes, vec!["/_synapse/worker/v1/replication/*".to_string()]);
+        assert_eq!(
+            response.delayed_events_paths,
+            vec!["/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}".to_string()]
+        );
         assert_eq!(response.replication_streams, vec!["events".to_string()]);
         assert!(response.capabilities.can_persist_events);
     }
