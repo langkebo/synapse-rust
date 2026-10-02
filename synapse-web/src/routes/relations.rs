@@ -130,6 +130,7 @@ async fn get_relations_by_event(
 
     let relation_query = RelationQuery {
         rel_type: None,
+        event_type: None,
         limit: Some(query.limit.unwrap_or(50).min(100) as i32),
         recurse: query.recurse_flag(),
         from: query.from,
@@ -176,6 +177,7 @@ async fn get_relations(
 
     let relation_query = RelationQuery {
         rel_type: Some(rel_type.clone()),
+        event_type: None,
         limit: Some(query.limit.unwrap_or(50).min(100) as i32),
         recurse: query.recurse_flag(),
         from: query.from,

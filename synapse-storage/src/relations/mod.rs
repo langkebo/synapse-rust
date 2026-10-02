@@ -66,6 +66,8 @@ pub struct RelationQueryParams {
     /// MSC3981: also traverse the relations of related events, instead of only
     /// returning the relations of `relates_to_event_id` itself.
     pub recurse: bool,
+    /// `event_type` 过滤（spec 的 `/{relType}/{eventType}` 路由）；`None` ＝ 不过滤。
+    pub event_type: Option<String>,
 }
 
 /// MSC3981 recursion budget, counted in relation hops from the requested event.
@@ -350,6 +352,7 @@ impl RelationsStorage {
             None => (0, String::new()),
         };
         let relation_type = params.relation_type.clone().unwrap_or_default();
+        let event_type = params.event_type.clone().unwrap_or_default();
 
         sqlx::query_as!(
             OrderedEventRelation,
@@ -365,6 +368,7 @@ impl RelationsStorage {
                        -- 外键指向 `events`，孤儿行（只有测试夹具会造）按其自身
                        -- `origin_server_ts` 排序，而不是从结果里消失。
                        COALESCE(e.stream_ordering, er.origin_server_ts) AS stream_ordering,
+                       e.event_type AS event_type,
                        0 AS depth
                 FROM event_relations er
                 LEFT JOIN events e ON e.event_id = er.event_id
@@ -379,6 +383,7 @@ impl RelationsStorage {
                        er.relation_type, er.sender, er.origin_server_ts, er.content,
                        er.is_redacted, er.created_ts,
                        COALESCE(e.stream_ordering, er.origin_server_ts) AS stream_ordering,
+                       e.event_type AS event_type,
                        rt.depth + 1
                 FROM event_relations er
                 INNER JOIN relation_tree rt ON rt.event_id = er.relates_to_event_id
@@ -399,6 +404,7 @@ impl RelationsStorage {
                    stream_ordering AS "stream_ordering!"
             FROM relation_tree
             WHERE ($8 = '' OR relation_type = $8)
+              AND ($10 = '' OR event_type = $10)
               AND ($3::bigint = 0
                    OR ($5 = TRUE
                        AND (stream_ordering < $3 OR (stream_ordering = $3 AND event_id < $4)))
@@ -420,6 +426,7 @@ impl RelationsStorage {
             MSC3981_RECURSION_DEPTH,
             relation_type,
             limit,
+            event_type,
         )
         .fetch_all(&*self.pool)
         .await
@@ -704,6 +711,7 @@ mod tests {
             from: None,
             direction: Some("f".to_string()),
             recurse: false,
+            event_type: None,
         };
         assert_eq!(params.room_id, "!test:example.com");
         assert!(params.limit.is_some());
@@ -1037,6 +1045,7 @@ mod db_tests {
             from: None,
             direction: Some("f".to_string()),
             recurse: false,
+            event_type: None,
         };
 
         let results = storage.get_relations(params).await.expect("get_relations forward should succeed");
@@ -1081,6 +1090,7 @@ mod db_tests {
             from: None,
             direction: Some("b".to_string()),
             recurse: false,
+            event_type: None,
         };
 
         let results = storage.get_relations(params).await.expect("get_relations backward should succeed");
@@ -1127,6 +1137,7 @@ mod db_tests {
                 from: None,
                 direction: Some("f".to_string()),
                 recurse: false,
+                event_type: None,
             })
             .await
             .expect("first page should succeed");
@@ -1146,6 +1157,7 @@ mod db_tests {
                 from: Some(cursor),
                 direction: Some("f".to_string()),
                 recurse: false,
+                event_type: None,
             })
             .await
             .expect("second page should succeed");
@@ -1202,6 +1214,7 @@ mod db_tests {
                 from: None,
                 direction: None,
                 recurse: false,
+                event_type: None,
             })
             .await
             .expect("get_relations with annotation filter should succeed");

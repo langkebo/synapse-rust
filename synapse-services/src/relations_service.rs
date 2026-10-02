@@ -64,6 +64,8 @@ pub struct SendReplacementRequest {
 pub struct RelationQuery {
     /// `rel_type` 过滤；`None` ＝ 不过滤。
     pub rel_type: Option<String>,
+    /// `event_type` 过滤（spec 的 `/{relType}/{eventType}` 路由）；`None` ＝ 不过滤。
+    pub event_type: Option<String>,
     /// 单页上限（服务端再夹到 100）。
     pub limit: Option<i32>,
     /// 键集分页游标，形如 `<ordering key>:<event_id>`。
@@ -356,7 +358,7 @@ impl RelationsService {
         relates_to_event_id: &str,
         query: RelationQuery,
     ) -> Result<RelationsResponse, ApiError> {
-        let RelationQuery { rel_type, limit, from, direction, recurse } = query;
+        let RelationQuery { rel_type, event_type, limit, from, direction, recurse } = query;
         debug!(
             room_id = %room_id,
             relates_to = %relates_to_event_id,
@@ -378,6 +380,7 @@ impl RelationsService {
             room_id: room_id.to_string(),
             relates_to_event_id: relates_to_event_id.to_string(),
             relation_type: rel_type,
+            event_type,
             limit,
             from,
             direction,

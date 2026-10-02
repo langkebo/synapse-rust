@@ -641,6 +641,7 @@ async fn test_redacted_annotation_excluded_from_exists() {
             from: None,
             direction: None,
             recurse: false,
+            event_type: None,
         })
         .await
         .unwrap();
@@ -1014,6 +1015,41 @@ async fn msc3981_recursion_matches_the_reference_graph() {
         .await
         .unwrap();
     assert_eq!(chunk_ids(&annotations), vec![e.clone()]);
+
+    // `event_type` 过滤（spec 的 `/{relType}/{eventType}` 路由的数据面）：
+    // 与 `rel_type` 同口径，作用在**返回集**上。
+    let reactions = service
+        .get_relations(
+            &room_id,
+            &root,
+            RelationQuery {
+                rel_type: Some("m.annotation".to_string()),
+                event_type: Some("m.reaction".to_string()),
+                limit: Some(50),
+                direction: Some("f".to_string()),
+                recurse: Some(true),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(chunk_ids(&reactions), vec![e.clone()], "m.annotation + m.reaction 只应返回表情回应");
+
+    let messages = service
+        .get_relations(
+            &room_id,
+            &root,
+            RelationQuery {
+                event_type: Some("m.room.message".to_string()),
+                limit: Some(50),
+                direction: Some("f".to_string()),
+                recurse: Some(true),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(chunk_ids(&messages), vec![b.clone(), d.clone(), g.clone()], "event_type 过滤必须排除 E");
 
     // 客户端自己拼的游标 ⇒ 400，而不是静默退回首页（那会让分页死循环）。
     let malformed = service
