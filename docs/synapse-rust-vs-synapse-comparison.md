@@ -1192,7 +1192,7 @@ grep "CREATE INDEX" migrations/00000000_unified_schema_v12.sql | grep -i "events
 | **L-4** | ~~MSC4354 状态变化时 un-soft-fail~~ → **⚪ 已裁定不跟随（2026-10-01，决策 D-2）**：本仓无 soft-fail 机制（`un_soft_fail` / `StickyEventsStream` 全仓 0 命中），"跟随"＝新建整套 soft-fail（新功能而非对齐），且会与本仓 `events.soft_failed`（B-8 事务去重，**同名不同义**）混淆。结论落档即可，无代码改动 | 本文件 + `MSC_SEMANTICS.md` §1.1 | — | — |
 | **L-5** | ~~本文档去陈旧化~~ → **✅ 已收口（2026-10-01）**：§11.2/§11.3/§12.4/§12.5/§15.3 五个历史章节各插入一条「当前口径见 §18」指针（正文按约定不改写），并把它变成门禁 (`doc_credibility_guard_tests::historical_sections_point_at_the_current_scope` + 纯谓词红证明，含「章节被改名 ⇒ 守卫失效」的检测) | 本文件、`tests/unit/doc_credibility_guard_tests.rs` | — | — |
 | **L-6** | spec 的 `GET /rooms/{roomId}/relations/{eventId}/{relType}/{eventType}` 稳定路由缺失（因此 MSC3981 的 `event_type` 过滤没有 HTTP 入口） | `synapse-web/src/routes/relations.rs`（该 4 段路径已注册 `PUT …/{relType}/{txnId}` ⇒ 必须合并进同一个 `MethodRouter`，4 段参数名也要在 ledger/契约里取舍）、契约链四处再生成 | **低**：新增路由牵动 ledger + 派生表 + `ROUTE_CONTRACT.md` + `openapi/route-table.json` + 两条 fixture + 两条快照 | 建议独立批次（契约链单独占一个窗口，避免与 L-3 相撞） |
-| **L-1b** | L-1 的收尾：把 `synapse_storage_stream_current_position{stream="…"}` 加进 Grafana 仪表盘/告警与监控文档（`docs/monitoring/*`），并同步 `API_COVERAGE_REPORT.md` 里三处「单 gauge」的旧描述 | `monitoring/grafana/dashboards/*.json`、`docs/monitoring/*`、`docs/synapse-rust/API_COVERAGE_REPORT.md` | **低**：纯文档/面板，无代码改动 | 无（口径已在 L-1 定稿，只差落图） |
+| **L-1b** | L-1 收尾：**文档已同步（2026-10-02）** —— `docs/monitoring/monitoring-ops-guide.md` 新增 per-stream 小节（标签↔来源列↔未登记理由），`API_COVERAGE_REPORT.md` 三处「单 gauge / 由 admin 刷新」的旧描述改为 per-stream 口径。**仍未做**：把该指标加进 Grafana 仪表盘面板 | `monitoring/grafana/dashboards/*.json`（面板 JSON 为嵌套 `dashboard.panels`，需按既有 panel 模板追加） | **低**：纯面板改动，无代码 | 无（口径已定稿，只差落图） |
 
 ### 18.5 本轮作废 / 更正的历史声明（"假缺口"）
 

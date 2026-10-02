@@ -316,3 +316,24 @@ curl -s http://localhost:9092/api/v1/status/config | jq '.status'
 ---
 
 *文档创建时间：2026-09-22 | 最后更新：2026-09-22*
+
+## Stream 位置指标（per-stream）
+
+`synapse_storage_stream_current_position{stream=...}` 给出每个 stream 的当前位置，用于
+观察写入是否卡住（长期不推进 = 该 stream 的写路径停了）。标签集合与数据源：
+
+| `stream` 标签 | 来源列 | 说明 |
+|---|---|---|
+| `events` | `events.stream_ordering` | 主事件流；`/messages`、`/sync` 的推进依据 |
+| `to_device` | `to_device_messages.stream_id` | to-device 队列 |
+| `device_lists` | `device_lists_stream.stream_id` | 设备列表变更流 |
+| `sliding_sync` | `sliding_sync_tokens.pos` | sliding sync 位置（稀疏：只有请求时才推进） |
+| `quarantined_media` | `quarantined_media_changes.stream_id` | 媒体隔离审计流 |
+
+刷新由 `src/server/mod.rs` 的 30s 指标循环完成（与连接池指标同一循环），空表为 0。
+**未登记**的 stream（presence / typing / receipts / account_data / push_rules / e2ee /
+backfill / federation）在本仓没有单调位置列；`sync_stream_id`、
+`device_lists_outbound_pokes`、`worker_events` 有列但无生产写者；`room_ephemeral.stream_id`
+是调用方传入的墙钟毫秒且被 UPSERT 覆盖（非单调）。理由与取证见
+`docs/synapse-rust-vs-synapse-comparison.md` §18.3 #16 与
+`synapse-storage/src/stream_positions.rs` 的模块文档。
