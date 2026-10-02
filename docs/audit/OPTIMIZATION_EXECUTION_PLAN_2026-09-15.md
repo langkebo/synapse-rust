@@ -989,6 +989,33 @@ Execution Time: 0.287 ms（返回 14 行）
    ③ 契约守卫 `check_route_contract.sh` EXIT=0、`check_sqlx_cache_fresh.sh --compile` OK。
 6. 完成后把 §18.4 L-6 行标 ✅，并在 §18.3 #14 的"披露②"里去掉"`event_type` 暂无 HTTP 入口"。
 
+**L-6 第 4 步的实测约束（2026-10-02，两次尝试后落档；下次照此执行可一次过）**
+
+新增路由改动契约链时有**顺序陷阱**，两次尝试都卡在这里：
+
+1. `gen_derived_routes.py` 的代码顺序是 **先 `verify_fixtures()`、fixture 不符就 `sys.exit(1)`**，
+   **之后**才 `emit_data_per_profile()` 写 `derived_route_table_*.inc.rs` ⇒ 新路由下它会
+   直接退出、**不写表**（日志尾部只报各 fixture 的 missing/extra）。
+2. 而两条 fixture 车道又是由**编译期嵌入该表**的导出器生成的
+   ⇒ "表要等 fixture、fixture 要等表"的鸡生蛋。
+   **破环办法**：先手工把 6 份 fixture 补齐（克隆 3 段 GET 条目改 path、把 PUT 的
+   `{txn_id}` 改 `{event_type}`、按 artifact 的排序位置插入），跑
+   `gen_derived_routes.py`（此时 verify 通过 ⇒ 写表 + data 文件），
+   **再**用真导出器重导出 fixture 以求 byte-exact（unit 测试 `ledger_export_tests.rs`
+   是逐字节比对，手改版必须被真导出覆盖）。
+3. 两条车道必须分开构建，**不能混**：`tests/unit/fixtures/ledger_export/` 必须由
+   **default-feature** 构建生成（对应测试是
+   `#[cfg(not(any(feature = "all-extensions", …)))]`，固定 `--timestamp=2026-05-02T00:00:00Z`
+   `--commit=000…`），`tests/unit/fixtures/ledger_export_sdk/` 必须由
+   `bash scripts/generate_sdk_ledger_fixtures.sh`（all-extensions）生成。
+   **实测成本**：每条 `cargo run --bin synapse_ledger_export` ≈ **250 s**（含链接），
+   SDK 脚本首次还要 all-extensions 编译（>120 s 超时）⇒ 两条车道合计 **≈20 min 墙钟**；
+   路由改动还会触发集成二进制重编，之后才能跑
+   `UPDATE_ROUTE_LEDGER_SNAPSHOTS=1 … -E 'test(route_ledger)'`。
+4. 因此 L-6 第 4 步应**单独占用一个完整窗口**，并把 6 次导出拆到多个 ≤600 s 的调用里
+   （例如 default+worker 一次、all+SDK 一次、快照一次），任何一半落地都会让
+   `Route Contract Sync`/`Schema Drift`/集成快照三条同时红。
+
 ### 8.4 依赖与并行度
 
 - **可立即并行**（互不耦合）：M-1、M-3、L-5、L-1、L-2。
