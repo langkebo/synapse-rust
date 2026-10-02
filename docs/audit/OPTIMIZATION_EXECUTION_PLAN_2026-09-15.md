@@ -856,7 +856,7 @@ fmt / sqlx / trait / web-layering 四个棘轮的扫描面扩到了新 crate，�
    是后续独立评估项，需先证明命中率。
 4. 判据：新增用例证明"同一输入第二次调用走 HIT 且结果不变"+"输入变化 ⇒ MISS 且结果随之变化"。
 
-**M-6 · `/relations` 支持 `recurse`**（报告 §18.3 #14 / §18.6 V-11）
+**M-6 · `/relations` 支持 `recurse`**（报告 §18.3 #14 / §18.6 V-11）—— ✅ **已交付（2026-10-02）**
 
 **取证结论（2026-10-01）**：不是"功能面不同"，而是**合规客户端会被 400** ——
 `RelationsQuery` 带 `#[serde(deny_unknown_fields)]`，而 `recurse` 自 **spec v1.10 起已是稳定参数**；
@@ -876,6 +876,57 @@ fmt / sqlx / trait / web-layering 四个棘轮的扫描面扩到了新 crate，�
 4. `/versions` 广告 `org.matrix.msc3981` 与 `org.matrix.msc3981.stable`。
 5. `.sqlx` 增量：新 SQL 必须走 `bash scripts/ci/sqlx_prepare.sh` 并随提交（R2）。
 6. 判据 V-11（MSC 示例图四组断言 + `EXPLAIN (ANALYZE)` 证明 join 在 CTE 内）。
+
+**交付记录（2026-10-02）**
+
+- 交付物 1 ✅：`RelationsQuery` 接受 `recurse` 与 `org.matrix.msc3981.recurse`（稳定名优先），
+  仍拒绝其他未知参数（`msc3981_recurse_accepts_both_spellings` / `..._defaults_to_absent_not_false` /
+  `..._prefers_the_stable_spelling_and_keeps_rejecting_junk`）。
+- 交付物 2 ✅ **但与卡片原措辞有两处偏差，均已在 §18.3 #14 与 `MSC_SEMANTICS.md` §1.1 登记**：
+  - **偏差 A（排序）**：卡片写"`recurse=false` 走原查询（缺省行为逐字不变）"，但 MSC 要求
+    "无论 `recurse` 取值，事件**始终**按拓扑序返回" ⇒ 实现改为**一条静态递归 CTE 同时服务两条路径**
+    （`$6 = TRUE` 短路递归项），排序键与 keyset 游标从 `origin_server_ts` 换成
+    `events.stream_ordering`。缺省路径的**结果集**不变（仍只出直连），变的是序。
+  - **偏差 B（过滤语义）**：卡片按 MSC 正文写"过滤在递归步内施加（剪枝中间节点）"，但
+    MSC 自己的第 5 个示例与该句自相矛盾，且参考实现（Synapse `relations.py` 的 CTE）
+    是**先递归、后过滤返回集** ⇒ 取参考实现，与上游逐字一致。
+- 交付物 3 ✅：`recurse=false`/未传时只出直连（真库测试 `default` 分支断言）。
+- 交付物 4 ✅：`/versions` 广告 `org.matrix.msc3981` 与 `org.matrix.msc3981.stable`
+  （`capability_governance.rs`；`test_versions_response_snapshot_keys` 的期望键里已含两者）。
+- 交付物 5 ✅：`.sqlx` 增量走 `bash scripts/ci/sqlx_prepare.sh`（R2 唯一入口）并随提交。
+- 交付物 6 ✅：判据 V-11 落地为两条真库集成测试
+  （`msc3981_recursion_matches_the_reference_graph`、`msc3981_recursion_stops_at_the_advertised_depth`）；
+  `EXPLAIN (ANALYZE)` 见下。
+
+**`EXPLAIN (ANALYZE)` 证据**（同形状夹具 schema：50,000 事件 + 50,000 关系行，
+查询文本与生产逐字相同，经 `PREPARE`/`EXECUTE` 走参数化计划）：
+
+```text
+CTE relation_tree
+  -> Nested Loop Left Join        （基步：events 在 CTE 内 join）
+       -> Index Scan using idx_event_relations_room_event on event_relations er
+       -> Index Scan using events_pkey on events e
+  -> Nested Loop Left Join        （递归步）
+       -> Nested Loop
+            -> WorkTable Scan on relation_tree rt   Filter: (depth <= 3)   loops=5
+            -> Index Scan using idx_thread_relations_relates_to on event_relations er_1
+       -> Index Scan using events_pkey on events e_1
+-> Sort  Sort Key: relation_tree.stream_ordering, relation_tree.event_id
+-> CTE Scan on relation_tree
+Execution Time: 0.287 ms（返回 14 行）
+```
+
+把 `$6` 换成 `FALSE`（缺省路径）后，递归项被规划器整个消掉（`Result (rows=0)`），
+只剩基步 + Sort，10 行、0.074 ms。
+
+结论：`events` 的 join 与递归都在 CTE **内**；两处 `events` 访问都走 `events_pkey` 索引扫描
+（无 `events` 全表扫描）；递归项 `Filter: (depth <= 3)` 只循环 5 次（0 基 depth 0..4）后终止，
+即深度上限既如实上报又兜住了环；缺省路径**不会**触发递归（计划里递归项为空）。
+
+代价（已知并在 §18.3 #14 登记）：排序键不再是带有索引序的 `origin_server_ts`，
+而是 join 出来的 `events.stream_ordering` ⇒ `/relations` 变成"取该事件的全部关系行 + Sort"，
+`LIMIT` 不再能提前终止索引扫描。上游 Synapse 的 CTE 同形状（同样 join `events` 后排序），
+这是 MSC「始终拓扑序」的固有代价。
 
 **L 系列**（低优先，可穿插）
 

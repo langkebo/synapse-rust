@@ -126,6 +126,12 @@ const BASE_UNSTABLE_FEATURES: &[(&str, bool)] = &[
     // matches Synapse's behavior and the MSC's recommended flag. Clients
     // use this to correlate /sync timeline order with /messages order.
     ("org.matrix.msc4445.initial_sync_timeline_topological_ordering", true),
+    // MSC3981: recursive `/relations` fetching. The `recurse` parameter (and the
+    // unstable `org.matrix.msc3981.recurse` spelling) is honoured on the stable
+    // and unstable `/relations` routes, so both the unstable and — since the
+    // MSC landed in client-server v1.10 — the stable feature name are declared.
+    ("org.matrix.msc3981", true),
+    ("org.matrix.msc3981.stable", true),
     // MSC4140: Cancellable delayed events. The management endpoint
     // (POST /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id})
     // is implemented with cancel/restart/send actions. Clients use this flag to
@@ -707,6 +713,11 @@ mod tests {
             "org.matrix.msc4143",
             "org.matrix.msc4445.initial_sync_timeline_topological_ordering",
             "org.matrix.msc4140",
+            // MSC3981: `/relations` honours `recurse`. The MSC is stable since
+            // client-server v1.10, so both the unstable and the stable feature
+            // names are advertised.
+            "org.matrix.msc3981",
+            "org.matrix.msc3981.stable",
         ];
         for key in expected_unstable {
             assert!(unstable.contains_key(*key), "missing unstable feature: {key}");

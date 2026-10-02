@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_services::relations_service::{
-    AggregationItem, AggregationResponse, RelationsResponse, RelationsService, SendAnnotationRequest,
+    AggregationItem, AggregationResponse, RelationQuery, RelationsResponse, RelationsService, SendAnnotationRequest,
     SendReferenceRequest, SendReplacementRequest,
 };
 use synapse_services::room::messaging::service::{MessagingService, MessagingServiceConfig};
@@ -294,7 +294,7 @@ async fn test_get_relations_empty() {
     crate::ensure_test_room(&pool, &room_id).await;
     let relates_to = format!("$orig_{suffix}:localhost");
 
-    let response = service.get_relations(&room_id, &relates_to, None, None, None, None).await.unwrap();
+    let response = service.get_relations(&room_id, &relates_to, RelationQuery::default()).await.unwrap();
 
     assert!(response.chunk.is_empty());
     assert_eq!(response.total, Some(0));
@@ -321,7 +321,7 @@ async fn test_get_relations_with_data() {
     };
     service.send_annotation(request).await.unwrap();
 
-    let response = service.get_relations(&room_id, &relates_to, None, None, None, None).await.unwrap();
+    let response = service.get_relations(&room_id, &relates_to, RelationQuery::default()).await.unwrap();
 
     assert_eq!(response.chunk.len(), 1);
     assert_eq!(response.total, Some(1));
@@ -359,7 +359,14 @@ async fn test_get_relations_filtered_by_type() {
     };
     service.send_reference(reference_req).await.unwrap();
 
-    let response = service.get_relations(&room_id, &relates_to, Some("m.annotation"), None, None, None).await.unwrap();
+    let response = service
+        .get_relations(
+            &room_id,
+            &relates_to,
+            RelationQuery { rel_type: Some("m.annotation".to_string()), ..Default::default() },
+        )
+        .await
+        .unwrap();
 
     assert_eq!(response.chunk.len(), 1);
     assert_eq!(response.total, Some(1));
@@ -386,7 +393,10 @@ async fn test_get_relations_with_limit() {
         service.send_annotation(request).await.unwrap();
     }
 
-    let response = service.get_relations(&room_id, &relates_to, None, Some(3), None, None).await.unwrap();
+    let response = service
+        .get_relations(&room_id, &relates_to, RelationQuery { limit: Some(3), ..Default::default() })
+        .await
+        .unwrap();
 
     assert_eq!(response.chunk.len(), 3);
     assert_eq!(response.total, Some(5));
@@ -594,7 +604,7 @@ async fn test_redacted_relation_excluded_from_get_relations() {
 
     service.redact_relation(&room_id, &annotation.event_id, &sender).await.unwrap();
 
-    let response = service.get_relations(&room_id, &relates_to, None, None, None, None).await.unwrap();
+    let response = service.get_relations(&room_id, &relates_to, RelationQuery::default()).await.unwrap();
 
     assert!(response.chunk.is_empty());
     assert_eq!(response.total, Some(0));
@@ -630,6 +640,7 @@ async fn test_redacted_annotation_excluded_from_exists() {
             limit: None,
             from: None,
             direction: None,
+            recurse: false,
         })
         .await
         .unwrap();
@@ -711,7 +722,10 @@ async fn test_get_relations_backward_direction() {
         service.send_annotation(request).await.unwrap();
     }
 
-    let response = service.get_relations(&room_id, &relates_to, None, None, None, Some("b".to_string())).await.unwrap();
+    let response = service
+        .get_relations(&room_id, &relates_to, RelationQuery { direction: Some("b".to_string()), ..Default::default() })
+        .await
+        .unwrap();
 
     assert_eq!(response.chunk.len(), 3);
 }
@@ -755,6 +769,7 @@ fn test_relations_response_serialization() {
         next_batch: Some("batch_token".to_string()),
         prev_batch: None,
         total: Some(42),
+        recursion_depth: Some(3),
     };
 
     let json = serde_json::to_value(&response).unwrap();
@@ -762,14 +777,18 @@ fn test_relations_response_serialization() {
     assert_eq!(json["next_batch"], "batch_token");
     assert!(json.get("prev_batch").is_none_or(|v| v.is_null()));
     assert_eq!(json["total"], 42);
+    assert_eq!(json["recursion_depth"], 3);
 }
 
 #[test]
 fn test_relations_response_total_skipped_when_none() {
-    let response = RelationsResponse { chunk: vec![], next_batch: None, prev_batch: None, total: None };
+    let response =
+        RelationsResponse { chunk: vec![], next_batch: None, prev_batch: None, total: None, recursion_depth: None };
 
     let json = serde_json::to_value(&response).unwrap();
     assert!(json.get("total").is_none());
+    // MSC3981：没传 `recurse` 时 `recursion_depth` 必须缺席。
+    assert!(json.get("recursion_depth").is_none());
 }
 
 #[test]
@@ -835,4 +854,219 @@ fn test_send_replacement_request_deserialization() {
     let req: SendReplacementRequest = serde_json::from_value(json).unwrap();
     assert_eq!(req.new_content["body"], "edited");
     assert!(req.new_content["msgtype"].is_string());
+}
+
+// ── MSC3981: recursive /relations ───────────────────────────────────────
+
+/// 建一条 `rel_type` 关系事件（`m.thread`/`m.edit`/… 走普通消息事件），
+/// 返回它的 event_id。
+async fn send_relation_event(
+    service: &RelationsService,
+    room_id: &str,
+    sender: &str,
+    relates_to: &str,
+    relation_type: &str,
+    origin_server_ts: i64,
+) -> String {
+    service
+        .send_reference(SendReferenceRequest {
+            room_id: room_id.to_string(),
+            relates_to_event_id: relates_to.to_string(),
+            sender: sender.to_string(),
+            content: serde_json::json!({"body": relation_type}),
+            origin_server_ts,
+            relation_type: Some(relation_type.to_string()),
+        })
+        .await
+        .unwrap()
+        .event_id
+}
+
+/// 建一条 `m.annotation`（event_type = `m.reaction`）关系事件。
+async fn send_reaction(
+    service: &RelationsService,
+    room_id: &str,
+    sender: &str,
+    relates_to: &str,
+    origin_server_ts: i64,
+) -> String {
+    service
+        .send_annotation(SendAnnotationRequest {
+            room_id: room_id.to_string(),
+            relates_to_event_id: relates_to.to_string(),
+            sender: sender.to_string(),
+            key: "👍".to_string(),
+            origin_server_ts,
+        })
+        .await
+        .unwrap()
+        .event_id
+}
+
+fn chunk_ids(response: &RelationsResponse) -> Vec<String> {
+    response.chunk.iter().map(|item| item["event_id"].as_str().unwrap().to_string()).collect()
+}
+
+/// V-11 / MSC3981：MSC 的示例图 —— 直连 A←B、A←G（`m.thread`）、A←D
+/// （`m.edit`），以及挂在 B 上的 E（`m.annotation`）。无关事件也在房间里
+/// （MSC 图里 C/F 只出现在 `/messages` 的拓扑链上），用来证明递归不会把无关
+/// 事件拉进来。
+///
+/// `origin_server_ts` 刻意与插入序（= `stream_ordering` = 拓扑序）**相反**：
+/// 只有真按拓扑序排序才会得到 MSC 断言的顺序，否则 `dir=f` 会返回倒序。
+#[tokio::test]
+async fn msc3981_recursion_matches_the_reference_graph() {
+    let pool = crate::require_test_pool().await;
+    let service = create_service(&pool);
+    let suffix = unique_id();
+    let room_id = format!("!msc3981_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
+    let sender = format!("@msc3981_{suffix}:localhost");
+
+    let root = format!("$root_{suffix}:localhost");
+    let b = send_relation_event(&service, &room_id, &sender, &root, "m.thread", 5000).await;
+    let d = send_relation_event(&service, &room_id, &sender, &root, "m.edit", 4000).await;
+    let e = send_reaction(&service, &room_id, &sender, &b, 3000).await;
+    let g = send_relation_event(&service, &room_id, &sender, &root, "m.thread", 2000).await;
+    let other_root = format!("$other_root_{suffix}:localhost");
+    let _unrelated_thread = send_relation_event(&service, &room_id, &sender, &other_root, "m.thread", 1000).await;
+    let _unrelated_reaction = send_reaction(&service, &room_id, &sender, &other_root, 900).await;
+
+    // 直连 + `rel_type=m.thread` ⇒ [B, G]（拓扑序，不是 origin_server_ts 序）。
+    let direct = service
+        .get_relations(
+            &room_id,
+            &root,
+            RelationQuery {
+                rel_type: Some("m.thread".to_string()),
+                limit: Some(50),
+                direction: Some("f".to_string()),
+                recurse: Some(false),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(chunk_ids(&direct), vec![b.clone(), g.clone()]);
+    assert_eq!(direct.recursion_depth, Some(3), "传了 recurse=false 也必须回 recursion_depth");
+
+    // `recurse=true, dir=f` ⇒ 直连 + 关系的关系 = [B, D, E, G]。
+    let recursed = service
+        .get_relations(
+            &room_id,
+            &root,
+            RelationQuery {
+                limit: Some(50),
+                direction: Some("f".to_string()),
+                recurse: Some(true),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(chunk_ids(&recursed), vec![b.clone(), d.clone(), e.clone(), g.clone()]);
+    assert_eq!(recursed.recursion_depth, Some(3));
+    assert_eq!(recursed.total, None, "递归路径不报 direct-only 的 total");
+
+    // `recurse=true, dir=b, limit=2` ⇒ 拓扑序倒过来取前两条 = [G, E]。
+    let backward = service
+        .get_relations(
+            &room_id,
+            &root,
+            RelationQuery {
+                limit: Some(2),
+                direction: Some("b".to_string()),
+                recurse: Some(true),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(chunk_ids(&backward), vec![g.clone(), e.clone()]);
+
+    // 缺省（没传 `recurse`）：只有直连，且**不带** `recursion_depth`。
+    let default = service
+        .get_relations(
+            &room_id,
+            &root,
+            RelationQuery { limit: Some(50), direction: Some("f".to_string()), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    assert_eq!(chunk_ids(&default), vec![b.clone(), d.clone(), g.clone()]);
+    assert_eq!(default.recursion_depth, None);
+
+    // `rel_type` 过滤作用于**返回集**：E 挂在 B（`m.thread`）下面，仍被返回。
+    // MSC 正文那句「过滤同时剪枝中间节点」与 MSC 自己第 5 个示例互相矛盾，此处
+    // 跟随参考实现（Synapse 的 CTE 先递归、后过滤），理由见 MSC_SEMANTICS §1.1。
+    let annotations = service
+        .get_relations(
+            &room_id,
+            &root,
+            RelationQuery {
+                rel_type: Some("m.annotation".to_string()),
+                limit: Some(50),
+                direction: Some("f".to_string()),
+                recurse: Some(true),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(chunk_ids(&annotations), vec![e.clone()]);
+
+    // 客户端自己拼的游标 ⇒ 400，而不是静默退回首页（那会让分页死循环）。
+    let malformed = service
+        .get_relations(
+            &room_id,
+            &root,
+            RelationQuery {
+                limit: Some(50),
+                from: Some("not-a-cursor".to_string()),
+                direction: Some("f".to_string()),
+                recurse: Some(true),
+                ..Default::default()
+            },
+        )
+        .await;
+    assert!(malformed.is_err(), "malformed `from` cursor must be rejected");
+}
+
+/// MSC3981：递归深度上限经 `recursion_depth` 如实上报。本仓与上游一致采用 0 基
+/// `depth`、`rt.depth <= 3`，即最深的第 5 跳仍返回、第 6 跳缺席。
+#[tokio::test]
+async fn msc3981_recursion_stops_at_the_advertised_depth() {
+    let pool = crate::require_test_pool().await;
+    let service = create_service(&pool);
+    let suffix = unique_id();
+    let room_id = format!("!msc3981depth_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
+    let sender = format!("@msc3981depth_{suffix}:localhost");
+
+    let root = format!("$depth_root_{suffix}:localhost");
+    let mut ids = Vec::new();
+    let mut parent = root.clone();
+    for hop in 0..6 {
+        let id = send_reaction(&service, &room_id, &sender, &parent, 6000 - hop).await;
+        ids.push(id.clone());
+        parent = id;
+    }
+
+    let response = service
+        .get_relations(
+            &room_id,
+            &root,
+            RelationQuery {
+                limit: Some(50),
+                direction: Some("f".to_string()),
+                recurse: Some(true),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let got = chunk_ids(&response);
+    assert_eq!(got, ids[..5].to_vec(), "depth 0..4 (5 hops of relations) must be returned");
+    assert!(!got.contains(&ids[5]), "the 6th hop is beyond the advertised recursion depth");
+    assert_eq!(response.recursion_depth, Some(3));
 }

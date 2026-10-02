@@ -55,6 +55,25 @@ pub struct SendReplacementRequest {
     pub origin_server_ts: i64,
 }
 
+/// `/relations` 查询的可选旋钮（`room_id` / `relates_to_event_id` 之外的参数）。
+///
+/// `recurse` 的 `None` 与 `Some(false)` 语义不同：MSC3981 要求**传了** `recurse`
+/// （无论取值）就必须在响应里回 `recursion_depth`，没传则必须缺席，所以这里
+/// 保留 `Option<bool>` 而不是折成 bool。
+#[derive(Debug, Clone, Default)]
+pub struct RelationQuery {
+    /// `rel_type` 过滤；`None` ＝ 不过滤。
+    pub rel_type: Option<String>,
+    /// 单页上限（服务端再夹到 100）。
+    pub limit: Option<i32>,
+    /// 键集分页游标，形如 `<ordering key>:<event_id>`。
+    pub from: Option<String>,
+    /// 分页方向：`"f"`（缺省）/ `"b"`。
+    pub direction: Option<String>,
+    /// MSC3981 递归开关；`None` ＝ 客户端没传该参数。
+    pub recurse: Option<bool>,
+}
+
 /// The `RelationsResponse` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RelationsResponse {
@@ -65,9 +84,17 @@ pub struct RelationsResponse {
     /// The `prev_batch` field.
     pub prev_batch: Option<String>,
     /// 规范未强制，但 SDK `getRelationCount` 依赖此字段；缺省时 SDK 永远读到 0。
+    /// 递归（MSC3981）请求下不计算：`total` 只统计**直接**关系，返回一个偏小的
+    /// 数字比不做声更糟，因此递归路径置空。
     #[serde(skip_serializing_if = "Option::is_none")]
     /// The `total` field.
     pub total: Option<i64>,
+    /// MSC3981: 服务端实际使用的递归深度上限。客户端传了 `recurse`（无论
+    /// true/false）就必须返回该字段，未传时必须缺席 —— 这是 MSC 的硬性要求，
+    /// 也是客户端判断"递归是否被截断"的唯一依据。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `recursion_depth` field.
+    pub recursion_depth: Option<i32>,
 }
 
 /// The `AggregationResponse` struct.
@@ -327,11 +354,9 @@ impl RelationsService {
         &self,
         room_id: &str,
         relates_to_event_id: &str,
-        rel_type: Option<&str>,
-        limit: Option<i32>,
-        from: Option<String>,
-        direction: Option<String>,
+        query: RelationQuery,
     ) -> Result<RelationsResponse, ApiError> {
+        let RelationQuery { rel_type, limit, from, direction, recurse } = query;
         debug!(
             room_id = %room_id,
             relates_to = %relates_to_event_id,
@@ -339,40 +364,60 @@ impl RelationsService {
             "Getting relations"
         );
 
+        // 游标由本服务签发（`encode_keyset_cursor`）；解析不了的 token 说明客户端
+        // 自己拼了一个：宁可 400，也不要静默退回首页 —— 那会让分页在最后一页
+        // 之后无限循环。
+        if from.as_deref().is_some_and(|token| synapse_storage::relations::parse_keyset_cursor(token).is_none()) {
+            return Err(ApiError::bad_request("Invalid `from` cursor"));
+        }
+
         let has_from = from.is_some();
+        let recurse_requested = recurse;
+        let recurse = recurse.unwrap_or(false);
         let params = RelationQueryParams {
             room_id: room_id.to_string(),
             relates_to_event_id: relates_to_event_id.to_string(),
-            relation_type: rel_type.map(String::from),
+            relation_type: rel_type,
             limit,
             from,
             direction,
+            recurse,
         };
 
+        let rel_type_for_count = params.relation_type.clone();
         let relations = self
             .storage
             .get_relations(params)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get relations", e))?;
 
-        let total = self
-            .storage
-            .count_relations(room_id, relates_to_event_id, rel_type)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to count relations", e))?;
+        // 递归路径不统计 `total`：`count_relations` 只数**直接**关系，而递归返回集
+        // 是它的超集，报这个偏小的数字比不报更糟。
+        let total = if recurse {
+            None
+        } else {
+            Some(
+                self.storage
+                    .count_relations(room_id, relates_to_event_id, rel_type_for_count.as_deref())
+                    .await
+                    .map_err(|e| ApiError::internal_with_cause("Failed to count relations", e))?,
+            )
+        };
 
-        // 键集分页游标：格式 `<origin_server_ts>:<event_id>`，行值比较始终匹配 ORDER BY。
+        // 键集分页游标：格式 `<stream_ordering>:<event_id>`，行值比较始终匹配 ORDER BY。
+        // 排序键是拓扑序（MSC3981：与同 `dir` 的 `/messages` 一致），不是
+        // `origin_server_ts`。
         // - next_batch：当返回满 limit 时（可能还有更多）返回末条游标。
         // - prev_batch：当 from 已指定（非首页）且有数据时返回首条游标。
         let limit_val = limit.unwrap_or(50).min(100);
         let next_batch = relations
             .last()
             .filter(|_| relations.len() as i32 >= limit_val)
-            .map(|r| synapse_storage::relations::encode_keyset_cursor(r.origin_server_ts, &r.event_id));
+            .map(|r| synapse_storage::relations::encode_keyset_cursor(r.stream_ordering, &r.event_id));
         let prev_batch = relations
             .first()
             .filter(|_| has_from)
-            .map(|r| synapse_storage::relations::encode_keyset_cursor(r.origin_server_ts, &r.event_id));
+            .map(|r| synapse_storage::relations::encode_keyset_cursor(r.stream_ordering, &r.event_id));
 
         let chunk: Vec<Value> = relations
             .into_iter()
@@ -387,7 +432,14 @@ impl RelationsService {
             })
             .collect();
 
-        Ok(RelationsResponse { chunk, next_batch, prev_batch, total: Some(total) })
+        Ok(RelationsResponse {
+            chunk,
+            next_batch,
+            prev_batch,
+            total,
+            // MSC3981：传了 `recurse` 就**必须**回该字段（false 也回），没传则缺席。
+            recursion_depth: recurse_requested.map(|_| synapse_storage::relations::MSC3981_RECURSION_DEPTH),
+        })
     }
 
     /// See [`get_aggregations`].
