@@ -292,7 +292,7 @@ impl EventAuthChain {
     /// This previously also inserted the `auth_events` of every differing event,
     /// which is **not** the definition: an event's auth events are already in
     /// that event's full auth chain, so the extra step could only add events that
-    /// both chains share. Fixed here because F-2's `full_conflicted_set` unions
+    /// both chains share. Fixed here because `full_conflicted_set` unions
     /// this set and would otherwise replay events the spec does not select.
     pub fn calculate_auth_difference(
         &self,
@@ -321,9 +321,18 @@ impl EventAuthChain {
     /// node, and the walk continues *through* such a node after recording the path
     /// that reached it.
     ///
-    /// The subgraph is what v2 adds to the conflicted set (see
-    /// [`Self::full_conflicted_set`]); unused until the resolver replays events,
-    /// which is the remaining half of F-2.
+    /// The subgraph is what v2.1 adds to the conflicted set: [`Self::full_conflicted_set`]
+    /// unions it with the auth difference, and that full set is what the resolver
+    /// replays.
+    ///
+    /// ⚠️ **This IS on the production path.** The comment here used to say it was
+    /// "unused until the resolver replays events, which is the remaining half of
+    /// F-2" — that stopped being true when F-2's replay half landed, and the stale
+    /// text is what made the comparison report call this function dead code. Chain:
+    /// `MessagingService::create_event_with_graph` → post-commit state-record
+    /// maintenance (`synapse-services/src/room/state_record.rs`, `StateRecordBuilder`)
+    /// → `resolve_state_for_version_with_rules` → `resolve_state_with_start` →
+    /// `full_conflicted_set` → here. Do **not** delete this as dead code.
     pub fn conflicted_state_subgraph(
         &self,
         conflicted: &HashSet<String>,

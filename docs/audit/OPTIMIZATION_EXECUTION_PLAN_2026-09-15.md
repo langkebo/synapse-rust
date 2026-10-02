@@ -835,11 +835,26 @@ fmt / sqlx / trait / web-layering 四个棘轮的扫描面扩到了新 crate，�
   必须**真的拦截**（这就是风险：现有部署若配了规则，行为会变）。
 - 判据 V-10（拒绝/超时两路用例 + 不阻塞消息主路径的性能断言）。
 
-**M-5 · 状态决议缓存**（报告 §18.3 #17）
+**M-5 · 状态决议结果缓存**（报告 §18.3 #17，2026-10-01 取证后收窄）
 
-- `synapse-federation/src/event_auth/state_resolution.rs:327` 的 `conflicted_state_subgraph` **0 生产调用点**：
-  要么接线并按「冲突事件集合」做键缓存（配命中率指标），要么按铁律 1 删除。
-- 前置：确认 `state_record` 写半边（F-1/F-2）已覆盖该路径，避免缓存与写路径打架。风险低（纯性能/结构）。
+> **取证更正**：报告原判"`conflicted_state_subgraph` 无生产调用点"**是错的** —— 它经
+> `full_conflicted_set` 被 `resolve_state_with_start` 使用，而后者由
+> `resolve_state_for_version_with_rules` 调用，该函数在**生产路径**上：
+> `create_event_with_graph` → 提交后 `StateRecordBuilder`
+> （`synapse-services/src/room/state_record.rs:127,298,332`）。误判源自
+> `state_resolution.rs` 里一条过时注释（"unused … remaining half of F-2"），该注释已修，
+> 并加了「Do not delete this as dead code」的告诫 —— 否则下一个人可能按铁律 1 把在跑的
+> 生产路径删掉。
+
+因此 M-5 收窄为**纯缓存**：`StateRecordBuilder::resolve` 每次都对同一组冲突事件重跑
+`resolve_state_for_version_with_rules`。交付要求：
+
+1. 缓存键必须覆盖**全部输入**：`(room_version, 冲突/完整冲突事件集合, auth difference, 状态集合的按键投影)`；
+   键不全会返回错误状态图 —— 这比不缓存危险得多。
+2. HIT 与 MISS 必须返回**逐字节相同**的状态图（用例断言两者相等，而不是只断言 HIT）。
+3. 作用域先取 builder 内（随一次派生结束而释放，零跨请求一致性风险）；跨请求共享（含上限/淘汰）
+   是后续独立评估项，需先证明命中率。
+4. 判据：新增用例证明"同一输入第二次调用走 HIT 且结果不变"+"输入变化 ⇒ MISS 且结果随之变化"。
 
 **M-6 · `/relations` 支持 `recurse`**（报告 §18.3 #14）
 
