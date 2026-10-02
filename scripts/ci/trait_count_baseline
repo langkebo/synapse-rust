@@ -1,7 +1,25 @@
 # Trait-count ratchet baseline (A5 / B4-1). See scripts/ci/check_trait_ratchet.py.
 # The numbers may only go DOWN. Bump them deliberately and say why.
-TOTAL=68
+TOTAL=69
 STORE_API=33
+#
+# 2026-10-03  TOTAL 68 -> 69 (+1) —— worker 事件总线的发布接缝 trait（P-5）
+#   来源：synapse-services/src/worker/event_sink.rs
+#         `pub trait WorkerEventSink: Send + Sync`（`publish_room_event(&RoomEvent)`）。
+#   为什么放行而不是删掉这条接缝（与上面 EventAdmissionGate / GraphMetadataSource 同型、同一判据）：
+#     · 生产实现：`impl WorkerEventSink for WorkerManagerEventSink`（同文件）—— 把
+#       `WorkerManager::add_event` 包成「best effort + 幂等」的发布语义，并集中处理失败不回传
+#       （事件已提交，发布失败只记 warn，绝不让写入失败）；
+#     · 测试替身：`notifying_event_writer::tests::RecordingWorkerSink`，被
+#       `committed_event_is_published_to_the_worker_bus` 使用（断言"提交后恰好发布一次"），
+#       另有 `no_sink_means_no_worker_publish` 钉住"未接线即不发布"；
+#     · 注入点：`NotifyingEventWriter { worker_events: Option<Arc<dyn WorkerEventSink>> }`
+#       （synapse-services/src/notifying_event_writer.rs，`with_worker_events()`），生产由
+#       `synapse-services/src/container.rs` 在 `worker.enabled` 时注入。
+#   即：它是"为可测性而存在的接缝" —— 删掉就得让事件写入装饰器直接依赖 `WorkerManager`
+#   （单测必须构造真存储），或把发布逻辑硬编码进去；两种都会让 P-5 的两条性质
+#   （提交后发布一次 / 无 sink 不发布）无法在不连库的情况下断言。
+#   `*StoreApi` 未增加（33 == 33），存储抽象棘轮没有被放宽。
 #
 # 2026-10-01  TOTAL 67 -> 68 (+1) —— 事件准入钩子的 DI 接缝 trait（D-1，对应上游 v1.162 #19768）
 #   来源：synapse-services/src/module_service.rs:145

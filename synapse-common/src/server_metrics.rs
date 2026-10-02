@@ -37,8 +37,7 @@ pub fn global_server_metrics() -> Option<&'static Arc<ServerMetrics>> {
 /// * `worker_events.stream_id` 由事件写入路径推进，但**只在 worker 模式**
 ///   （`worker.enabled`）下启用 ⇒ 单进程部署里该序列恒 0 是**预期**，不是漂移；
 /// * `sync_stream_id` 只有 seed 写入（全仓无读/写者）；`device_lists_outbound_pokes`
-///   在生产代码里**既无 INSERT 也无 SELECT**（只有 pruning 的 DELETE）⇒ 整表是死脚手架，
-///   处置是删除而非纳入指标；
+///   在生产代码里既无 INSERT 也无 SELECT ⇒ **已整表删除**（2026-10-03），不再存在；
 /// * `room_ephemeral.stream_id` **不是 stream 位置**：它是按房维度的新鲜度排序键
 ///   （UPSERT 覆盖，仅用于 `ORDER BY`），服务层从不读取它、也不做游标 ⇒ 永久排除。
 ///

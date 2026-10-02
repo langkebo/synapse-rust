@@ -25,14 +25,6 @@ pub const DEVICE_LIST_CHANGES_RETENTION_DAYS: i64 = 30;
 /// will receive a full device list resync instead of a delta.
 pub const DEVICE_LIST_STREAM_RETENTION_DAYS: i64 = 30;
 
-/// Retention period for sent device list outbound pokes (7 days).
-///
-/// `device_lists_outbound_pokes` tracks pending federation notifications.
-/// Entries where `sent_ts IS NOT NULL` have been delivered and are safe to
-/// prune after this period. Unsent entries (`sent_ts IS NULL`) are never
-/// pruned to avoid losing pending delivery attempts.
-pub const DEVICE_LIST_OUTBOUND_POKES_RETENTION_DAYS: i64 = 7;
-
 /// Retention period for one-time keys (7 days). Keys that have been used
 /// or are older than this are pruned.
 pub const ONE_TIME_KEYS_RETENTION_DAYS: i64 = 7;
@@ -44,7 +36,6 @@ pub const ONE_TIME_KEYS_RETENTION_DAYS: i64 = 7;
 /// `WorkerStoreApi::get_events_since`). It is only written when the deployment
 /// runs in worker mode (`worker.enabled`), and every room event becomes one row,
 /// so without pruning it grows without bound. 7 days matches
-/// [`DEVICE_LIST_OUTBOUND_POKES_RETENTION_DAYS`] /
 /// [`FEDERATION_QUEUE_RETENTION_DAYS`]: long enough for a worker that has been
 /// offline for a while, short enough to stay bounded.
 pub const WORKER_EVENTS_RETENTION_DAYS: i64 = 7;
@@ -155,23 +146,6 @@ pub async fn prune_old_worker_events(pool: &PgPool) -> Result<u64, sqlx::Error> 
     Ok(result.rows_affected())
 }
 
-/// Prune sent device list outbound pokes.
-///
-/// Deletes rows from `device_lists_outbound_pokes` that have been sent
-/// (`sent_ts IS NOT NULL`) and are older than
-/// [`DEVICE_LIST_OUTBOUND_POKES_RETENTION_DAYS`]. Unsent entries are
-/// never pruned to avoid losing pending federation deliveries.
-///
-/// Returns the number of rows deleted.
-pub async fn prune_sent_device_lists_outbound_pokes(pool: &PgPool) -> Result<u64, sqlx::Error> {
-    let cutoff = current_timestamp_millis() - (DEVICE_LIST_OUTBOUND_POKES_RETENTION_DAYS * 86400 * 1000);
-    let result =
-        sqlx::query!("DELETE FROM device_lists_outbound_pokes WHERE sent_ts IS NOT NULL AND created_ts < $1", cutoff)
-            .execute(pool)
-            .await?;
-    Ok(result.rows_affected())
-}
-
 /// Prune expired presence records.
 ///
 /// Deletes rows from `presence` where `last_active_ts` is older than
@@ -272,8 +246,6 @@ mod tests {
         assert_eq!(DEVICE_LIST_CHANGES_RETENTION_DAYS, 30);
         // Device list stream: 30 days (matches changes retention)
         assert_eq!(DEVICE_LIST_STREAM_RETENTION_DAYS, 30);
-        // Device list outbound pokes (sent): 7 days
-        assert_eq!(DEVICE_LIST_OUTBOUND_POKES_RETENTION_DAYS, 7);
         // One-time keys: 7 days
         assert_eq!(ONE_TIME_KEYS_RETENTION_DAYS, 7);
         // Presence: 7 days in milliseconds
@@ -302,14 +274,6 @@ mod tests {
         // a long absence could see dangling stream_ids that reference pruned
         // change records.
         assert_eq!(DEVICE_LIST_STREAM_RETENTION_DAYS, DEVICE_LIST_CHANGES_RETENTION_DAYS);
-    }
-
-    #[test]
-    fn test_outbound_pokes_retention_is_shorter_than_stream() {
-        // Outbound pokes are per-destination delivery trackers; once sent they
-        // are safe to prune sooner than the sync stream because they are not
-        // read by clients.
-        const { assert!(DEVICE_LIST_OUTBOUND_POKES_RETENTION_DAYS < DEVICE_LIST_STREAM_RETENTION_DAYS) };
     }
 
     #[test]
@@ -441,34 +405,6 @@ mod db_tests {
         let deleted = prune_old_device_lists_stream(&pool).await.unwrap();
         assert_eq!(deleted, 5);
         assert_eq!(count(&pool, "device_lists_stream").await, 4);
-    }
-
-    /// device_lists_outbound_pokes: unsent (sent_ts IS NULL) must NEVER be pruned.
-    #[tokio::test]
-    async fn prune_outbound_pokes_preserves_unsent() {
-        let Some(pool) = test_pool().await else { return };
-        sqlx::query("CREATE TABLE device_lists_outbound_pokes (destination TEXT, user_id TEXT, stream_id BIGINT, sent_ts BIGINT, created_ts BIGINT)")
-            .execute(&*pool).await.unwrap();
-        let day_ms = 86_400_000;
-        let now = current_timestamp_millis();
-        let old = now - 10 * day_ms;
-        // 4 sent + old (prunable), 3 unsent + old (MUST survive), 1 sent + recent (survives).
-        sqlx::query("INSERT INTO device_lists_outbound_pokes (destination, user_id, stream_id, sent_ts, created_ts) VALUES ('hs', 'u', 1, $1, $2), ('hs', 'v', 2, $1, $2), ('hs', 'w', 3, $1, $2), ('hs', 'x', 4, $1, $2)")
-            .bind(old).bind(old).execute(&*pool).await.unwrap();
-        sqlx::query("INSERT INTO device_lists_outbound_pokes (destination, user_id, stream_id, sent_ts, created_ts) VALUES ('hs', 'a', 5, NULL, $1), ('hs', 'b', 6, NULL, $1), ('hs', 'c', 7, NULL, $1)")
-            .bind(old).execute(&*pool).await.unwrap();
-        sqlx::query("INSERT INTO device_lists_outbound_pokes (destination, user_id, stream_id, sent_ts, created_ts) VALUES ('hs', 'd', 8, $1, $2)")
-            .bind(now).bind(now).execute(&*pool).await.unwrap();
-
-        let deleted = prune_sent_device_lists_outbound_pokes(&pool).await.unwrap();
-        assert_eq!(deleted, 4, "only sent+old rows pruned");
-        let remaining_unsent =
-            sqlx::query("SELECT COUNT(*) AS c FROM device_lists_outbound_pokes WHERE sent_ts IS NULL")
-                .fetch_one(&*pool)
-                .await
-                .unwrap()
-                .get::<i64, _>("c");
-        assert_eq!(remaining_unsent, 3, "pending deliveries must not be dropped");
     }
 
     /// presence: stale last_active_ts pruned; recent kept.

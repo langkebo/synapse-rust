@@ -727,8 +727,6 @@ impl SynapseServer {
 
                             prune_step!("device list stream", synapse_storage::pruning::prune_old_device_lists_stream(&pruning_pool));
 
-                            prune_step!("device list outbound pokes", synapse_storage::pruning::prune_sent_device_lists_outbound_pokes(&pruning_pool));
-
                             prune_step!("presence", synapse_storage::pruning::prune_expired_presence(&pruning_pool));
 
                             prune_step!("one-time keys", synapse_storage::pruning::prune_expired_one_time_keys(&pruning_pool));

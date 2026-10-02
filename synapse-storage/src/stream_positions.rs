@@ -5,10 +5,11 @@
 //! §8.3 L-1）：
 //!
 //! * `sync_stream_id`：只有 seed 写入，全仓无读/写者；
-//! * `device_lists_outbound_pokes`：**整表在生产代码里既没有 INSERT 也没有 SELECT**
-//!   （唯一引用是 `pruning.rs` 的 DELETE）⇒ 是死脚手架，而不是"有列、没写者"。
-//!   联邦 device-list 更新走 EDU 发送路径（见 `synapse-web/src/federation/edu.rs`），
-//!   与本表无关；处置是按铁律 1 连同 pruning/维护步骤一并删除（需 schema 变更）；
+//! * `device_lists_outbound_pokes`：**已按铁律 1 整表删除**（2026-10-03）—— 它在生产代码里
+//!   既没有 INSERT 也没有 SELECT，唯一引用是对空表做 DELETE 的 pruning 函数。联邦
+//!   device-list 更新实际走 EDU 发送路径（见 `synapse-web/src/federation/edu.rs`），与本表无关。
+//!   同批删除：表 + 3 索引 + FK + `prune_sent_device_lists_outbound_pokes` +
+//!   `src/server/mod.rs` 的 `prune_step!` + baseline 里的建表语句；
 //! * `room_ephemeral.stream_id`：**它不是 stream 位置** —— 而是按房维度的**新鲜度排序键**，
 //!   由调用方写入、被 UPSERT 覆盖，且只用于 `ORDER BY stream_id DESC`
 //!   （`RoomEphemeralEvent.stream_id` 在服务层从不被读取，也不做游标）⇒ **永久排除**，

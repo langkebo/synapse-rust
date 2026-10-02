@@ -1747,16 +1747,6 @@ CREATE TABLE IF NOT EXISTS event_edges (
 );
 
 
-CREATE TABLE IF NOT EXISTS device_lists_outbound_pokes (
-    destination TEXT NOT NULL,
-    user_id TEXT NOT NULL,
-    stream_id BIGINT NOT NULL,
-    sent_ts BIGINT,
-    created_ts BIGINT NOT NULL,
-    CONSTRAINT pk_device_lists_outbound_pokes PRIMARY KEY (user_id, destination),
-    CONSTRAINT fk_device_lists_outbound_pokes_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-);
-
 -- ============================================================================
 -- Part 10: Account Data Tables
 -- ============================================================================
@@ -3532,9 +3522,6 @@ CREATE INDEX IF NOT EXISTS idx_federation_signing_keys_server_created ON federat
 CREATE INDEX IF NOT EXISTS idx_federation_signing_keys_key_id ON federation_signing_keys(key_id);
 CREATE INDEX IF NOT EXISTS idx_federation_cache_expiry ON federation_cache(expiry_ts);
 CREATE INDEX IF NOT EXISTS idx_event_edges_prev ON event_edges(prev_event_id);
-CREATE INDEX IF NOT EXISTS idx_device_lists_outbound_stream ON device_lists_outbound_pokes(stream_id);
-CREATE INDEX IF NOT EXISTS idx_device_lists_outbound_dest ON device_lists_outbound_pokes(destination);
-CREATE INDEX IF NOT EXISTS idx_device_lists_outbound_pokes_user ON device_lists_outbound_pokes(user_id);
 
 -- Filters
 CREATE INDEX IF NOT EXISTS idx_filters_user ON filters(user_id);
@@ -4091,11 +4078,6 @@ BEGIN
             FOREIGN KEY (worker_id) REFERENCES workers(worker_id) ON DELETE CASCADE;
     END IF;
 
-
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_device_lists_outbound_pokes_user' AND conrelid = 'device_lists_outbound_pokes'::regclass) THEN
-        ALTER TABLE device_lists_outbound_pokes ADD CONSTRAINT fk_device_lists_outbound_pokes_user
-            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
-    END IF;
 
 END $$;
 
