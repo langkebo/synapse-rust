@@ -817,10 +817,8 @@ mod tests {
 
     #[test]
     fn test_resolve_env_variables_resolves_redis_password() -> Result<(), String> {
-        unsafe {
-            std::env::set_var("TEST_REDIS_PASSWORD", "resolved-secret");
-            std::env::set_var("TEST_REDIS_USERNAME", "resolved-acl-user");
-        }
+        test_env::set("TEST_REDIS_PASSWORD", "resolved-secret");
+        test_env::set("TEST_REDIS_USERNAME", "resolved-acl-user");
 
         let mut config = Config {
             server: ServerConfig {
@@ -988,10 +986,8 @@ mod tests {
         assert_eq!(config.redis.password.as_deref(), Some("resolved-secret"));
         assert_eq!(config.redis.username.as_deref(), Some("resolved-acl-user"));
 
-        unsafe {
-            std::env::remove_var("TEST_REDIS_PASSWORD");
-            std::env::remove_var("TEST_REDIS_USERNAME");
-        }
+        test_env::remove("TEST_REDIS_PASSWORD");
+        test_env::remove("TEST_REDIS_USERNAME");
 
         Ok(())
     }
@@ -2159,3 +2155,29 @@ fn default_sentry_sample_rate() -> f32 {
 //
 // 注意：启用新配置后，需要更新 Default 实现以提供合理的默认值。
 // ============================================================================
+
+// ============================================================================
+// 测试期环境变量读写（唯一允许出现 set_var/remove_var unsafe 的地方）
+// ============================================================================
+//
+// Rust 2024 起 `std::env::set_var` / `remove_var` 是 unsafe：环境是进程级共享
+// 状态，多线程并发读写即 UB。`ci_test_scope_tests::every_db_test_binary_registers_the_exit_drain`
+// 把 `synapse-common/src` 里允许出现的非注释 `unsafe` 钉死在**本文件**，因此需要
+// env 的测试一律经这里，而不是各自写一份 unsafe。
+#[cfg(test)]
+pub(crate) mod test_env {
+    /// 设置环境变量。
+    ///
+    /// 调用者须保证同一进程内没有别的线程并发读写**同一个**键（测试各自用独立
+    /// 键名，或串行执行）。
+    pub(crate) fn set(key: &str, value: &str) {
+        // SAFETY: 见函数文档 —— 键名不与并发测试共享。
+        unsafe { std::env::set_var(key, value) };
+    }
+
+    /// 删除环境变量。安全性约定同 [`set`]。
+    pub(crate) fn remove(key: &str) {
+        // SAFETY: 见 [`set`]。
+        unsafe { std::env::remove_var(key) };
+    }
+}

@@ -291,30 +291,22 @@ mod tests {
         };
 
         // 场景 A：双下划线（与 loader.rs 一致）—— 必须生效。
-        unsafe {
-            std::env::set_var("SYNAPSE__REDIS__HOST", "double-underscore");
-        }
+        crate::config::test_env::set("SYNAPSE__REDIS__HOST", "double-underscore");
         assert_eq!(
             build().get_string("redis.host").expect("redis.host"),
             "double-underscore",
             "`SYNAPSE__REDIS__HOST` 必须能覆盖配置文件里的 redis.host"
         );
-        unsafe {
-            std::env::remove_var("SYNAPSE__REDIS__HOST");
-        }
+        crate::config::test_env::remove("SYNAPSE__REDIS__HOST");
 
         // 场景 B：单下划线（README 的写法）—— 不生效，值仍是配置文件里的。
-        unsafe {
-            std::env::set_var("SYNAPSE_REDIS__HOST", "single-underscore");
-        }
+        crate::config::test_env::set("SYNAPSE_REDIS__HOST", "single-underscore");
         assert_eq!(
             build().get_string("redis.host").expect("redis.host"),
             "from-file",
             "`SYNAPSE_REDIS__HOST`（单下划线）**不生效** —— README 必须改成双下划线拼写"
         );
-        unsafe {
-            std::env::remove_var("SYNAPSE_REDIS__HOST");
-        }
+        crate::config::test_env::remove("SYNAPSE_REDIS__HOST");
     }
 
     // ── ${VAR} simple substitution ─────────────────────────────────
