@@ -154,6 +154,23 @@ pub trait EventAdmissionGate: Send + Sync {
     ///
     /// See [`ThirdPartyRuleOutput`].
     async fn check_event_allowed(&self, context: &ThirdPartyRuleContext) -> Result<ThirdPartyRuleOutput, ApiError>;
+
+    /// The room state the rules are evaluated against.
+    ///
+    /// Separate from [`check_event_allowed`] so the implementation decides *how*
+    /// to obtain it: [`ModuleService`] serves it from the shared
+    /// `room_state:{room_id}` cache, because otherwise a single registered rule
+    /// turns every event write into an uncached full-state read.
+    ///
+    /// `reader` is the caller's event reader and is used **only on a cache miss**,
+    /// so the unconfigured hot path and the cached path both avoid the query. See
+    /// [`crate::room_state_cache`] for the single implementation and the
+    /// invalidation contract this depends on.
+    async fn room_state_for_rules(
+        &self,
+        room_id: &str,
+        reader: &dyn synapse_storage::event::EventReader,
+    ) -> Result<Vec<synapse_storage::event::StateEvent>, ApiError>;
 }
 
 #[async_trait]
@@ -164,6 +181,16 @@ impl EventAdmissionGate for ModuleService {
 
     async fn check_event_allowed(&self, context: &ThirdPartyRuleContext) -> Result<ThirdPartyRuleOutput, ApiError> {
         self.check_third_party_rules(context).await
+    }
+
+    async fn room_state_for_rules(
+        &self,
+        room_id: &str,
+        reader: &dyn synapse_storage::event::EventReader,
+    ) -> Result<Vec<synapse_storage::event::StateEvent>, ApiError> {
+        crate::room_state_cache::cached_room_state(&self.state_cache, reader, room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to read room state for third-party rules", e))
     }
 }
 
@@ -197,10 +224,12 @@ pub async fn consult_event_admission(
         return Ok(());
     }
 
-    let state_events = event_reader
-        .get_state_events(&params.room_id)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to read room state for event admission", e))?
+    // Served from the shared `room_state:{room_id}` cache by the gate, so a
+    // configured rule does not turn every event write into an uncached
+    // full-state read (see `crate::room_state_cache`).
+    let state_events = gate
+        .room_state_for_rules(&params.room_id, event_reader)
+        .await?
         .iter()
         .map(|e| {
             serde_json::json!({
@@ -328,12 +357,20 @@ impl Default for ModuleRegistry {
 pub struct ModuleService {
     storage: Arc<synapse_storage::module::ModuleStorage>,
     registry: Arc<tokio::sync::RwLock<ModuleRegistry>>,
+    /// Shared `room_state:{room_id}` cache, used to build the state a rule sees.
+    ///
+    /// The same entry sliding-sync reads — see [`crate::room_state_cache`] for the
+    /// single implementation and the invalidation contract.
+    state_cache: Arc<synapse_cache::CacheManager>,
 }
 
 impl ModuleService {
     /// See [`new`].
-    pub fn new(storage: Arc<synapse_storage::module::ModuleStorage>) -> Self {
-        Self { storage, registry: Arc::new(tokio::sync::RwLock::new(ModuleRegistry::new())) }
+    pub fn new(
+        storage: Arc<synapse_storage::module::ModuleStorage>,
+        state_cache: Arc<synapse_cache::CacheManager>,
+    ) -> Self {
+        Self { storage, registry: Arc::new(tokio::sync::RwLock::new(ModuleRegistry::new())), state_cache }
     }
 
     /// See [`register_module`].
@@ -1347,7 +1384,10 @@ mod tests {
                 .connect_lazy("postgresql://unused:unused@127.0.0.1:1/unused")
                 .expect("lazy pool"),
         );
-        ModuleService::new(Arc::new(ModuleStorage::new(&pool)))
+        ModuleService::new(
+            Arc::new(ModuleStorage::new(&pool)),
+            Arc::new(synapse_cache::CacheManager::new(&synapse_cache::CacheConfig::default())),
+        )
     }
 
     #[tokio::test]
@@ -1533,5 +1573,91 @@ mod tests {
         ));
         let result = rt.block_on(blocking.check(&matching)).unwrap();
         assert!(!result.is_allowed, "refusal must take precedence over a rewrite");
+    }
+    // ---------------------------------------------------------------------
+    // P-6: the gate's room state is served from the shared cache
+    // ---------------------------------------------------------------------
+
+    fn cached_state_event(event_id: &str) -> synapse_storage::event::StateEvent {
+        synapse_storage::event::StateEvent {
+            event_id: event_id.to_string(),
+            room_id: "!cached:example.com".to_string(),
+            sender: "@alice:example.com".to_string(),
+            event_type: Some("m.room.create".to_string()),
+            content: serde_json::json!({ "room_version": "12" }),
+            state_key: Some(String::new()),
+            unsigned: None,
+            is_redacted: Some(false),
+            origin_server_ts: 1,
+            depth: None,
+            processed_ts: None,
+            not_before: None,
+            status: None,
+            origin: None,
+            user_id: None,
+            stream_ordering: None,
+            prev_events: None,
+            auth_events: None,
+            signatures: None,
+            hashes: None,
+        }
+    }
+
+    /// The gate's state comes from the shared `room_state:{room_id}` cache — the
+    /// same entry sliding-sync reads — instead of materialising the room's whole
+    /// state on every event write while a rule is registered (P-6).
+    ///
+    /// Proof: the cache is pre-seeded with a sentinel the storage double does
+    /// **not** contain. Reading through to storage would return no sentinel.
+    #[tokio::test]
+    async fn room_state_for_rules_is_served_from_the_shared_cache() {
+        use std::sync::Arc;
+        use synapse_storage::event::EventReader;
+        use synapse_storage::test_mocks::InMemoryEventStore;
+
+        let service = module_service_without_db();
+        let reader: Arc<dyn EventReader> = Arc::new(InMemoryEventStore::new());
+        let room = "!cached:example.com";
+
+        let sentinel = vec![cached_state_event("$from_cache:example.com")];
+        service
+            .state_cache
+            .set(&crate::room_state_cache::room_state_cache_key(room), &sentinel, 300)
+            .await
+            .expect("seed the shared cache");
+
+        let seen = service.room_state_for_rules(room, reader.as_ref()).await.expect("room state");
+        assert_eq!(seen.len(), 1);
+        assert_eq!(
+            seen[0].event_id, "$from_cache:example.com",
+            "the gate must serve state from the shared cache, not read it through to storage"
+        );
+    }
+
+    /// A miss reads through and populates the shared entry, so the *next* reader
+    /// (sliding-sync or the gate) hits it.
+    #[tokio::test]
+    async fn room_state_for_rules_populates_the_shared_cache_on_a_miss() {
+        use std::sync::Arc;
+        use synapse_storage::event::EventReader;
+        use synapse_storage::test_mocks::InMemoryEventStore;
+
+        let service = module_service_without_db();
+        let room = "!miss:example.com";
+        let key = crate::room_state_cache::room_state_cache_key(room);
+        service.state_cache.delete(&key).await;
+
+        let reader: Arc<dyn EventReader> = Arc::new(InMemoryEventStore::new());
+        service.room_state_for_rules(room, reader.as_ref()).await.expect("room state");
+
+        assert!(
+            service
+                .state_cache
+                .get::<Vec<synapse_storage::event::StateEvent>>(&key)
+                .await
+                .expect("cache readable")
+                .is_some(),
+            "a cache miss must populate the shared entry so the next reader hits it"
+        );
     }
 }

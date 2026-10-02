@@ -553,6 +553,19 @@ impl crate::module_service::EventAdmissionGate for FakeEventAdmissionGate {
             modified_content: self.modified_content.clone(),
         })
     }
+
+    /// No cache to exercise here, so read straight through the caller's reader —
+    /// the same state the real gate would see on a cache miss.
+    async fn room_state_for_rules(
+        &self,
+        room_id: &str,
+        reader: &dyn synapse_storage::event::EventReader,
+    ) -> Result<Vec<synapse_storage::event::StateEvent>, ApiError> {
+        reader
+            .get_state_events(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to read room state for third-party rules", e))
+    }
 }
 
 #[cfg(test)]

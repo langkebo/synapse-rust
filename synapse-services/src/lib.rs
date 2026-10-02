@@ -154,6 +154,8 @@ pub mod rendezvous_service;
 pub mod retention_service;
 /// The `room` module.
 pub mod room;
+/// The `room_state_cache` module.
+pub mod room_state_cache;
 /// The `search_service` module.
 pub mod search_service;
 /// The `sliding_sync_service` module.

@@ -17,23 +17,17 @@ impl SlidingSyncService {
             return Ok(Vec::new());
         };
 
-        let cache_key = format!("room_state:{room_id}");
-
         // S10/N2: 该键的失效由 room service 的状态变更路径负责
         // （room/lifecycle/create.rs、messaging/events.rs、membership/*.rs 等
         // 在状态事件写入后删除 `room_state:{room_id}`）。此前此处另有一套
         // `sliding_sync:room:{user}:{device}:{conn}:{room}` 键的删除逻辑，
         // 但该键全仓无人写入，属永落空空操作，已随其无调用方的宿主方法一并删除。
-        // Try cache first.
-        let state_events: Vec<StateEvent> = match self.cache.get::<Vec<StateEvent>>(&cache_key).await {
-            Ok(Some(cached)) => cached,
-            _ => {
-                let fetched = self.event_reader.get_state_events(room_id).await?;
-                // Best-effort cache write; failure is non-fatal.
-                let _ = self.cache.set(&cache_key, &fetched, 300).await;
-                fetched
-            }
-        };
+        //
+        // 与第三方规则准入门（`ModuleService::room_state_for_rules`）共用**同一份**
+        // 实现与**同一条目** —— key / TTL / 失效契约的唯一登记处是
+        // `crate::room_state_cache`（铁律 2：该职责只允许一份实现）。
+        let state_events: Vec<StateEvent> =
+            crate::room_state_cache::cached_room_state(&self.cache, self.event_reader.as_ref(), room_id).await?;
         Ok(state_events
             .into_iter()
             .filter(|event| Self::required_state_matches(required_state, event))
