@@ -172,6 +172,7 @@ coverable
 cpython
 cqrs
 createeventparams
+createroom
 credentialauth
 creds
 crlf

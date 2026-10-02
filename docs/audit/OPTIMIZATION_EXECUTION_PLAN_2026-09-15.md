@@ -736,8 +736,8 @@ fmt / sqlx / trait / web-layering 四个棘轮的扫描面扩到了新 crate，�
 
 | ID | 决策 | 选项 | 为什么必须先定 |
 |---|---|---|---|
-| **D-1** | 本仓部署是否使用 MAS / 委派认证（报告 H-1） | ①**接线**（注入 `MasTokenValidator`/`OidcMasTokenValidator` 并加 4 路 fail-closed 用例）②**删除**整套 MAS 代码（反冗余铁律 1）③暂缓并登记为已知未接线项 | 直接决定认证面的行为边界：接线后 MAS 令牌开始被接受，任何 issuer/audience/签名校验缺口都是**认证绕过**；删除则要动 `auth/` 三文件 + 配置 |
-| **D-2** | 本仓 sticky 事件是否跟随上游 #20204 的 un-soft-fail（报告 L-4） | ①跟随（补 soft-fail 记录 + 状态变更重算）②明确不跟随（把「本仓无 soft-fail 维度」写成产品口径并保留 `events.soft_failed` 同名不同义的告诫） | 决定 L-4 是「实现」还是「文档收口」；也决定监控/文档是否需要新指标 |
+| **D-1** | 本仓部署是否使用 MAS / 委派认证（报告 H-1） | ✅ **已裁定（2026-10-01）：①接线** | 已落地，见下方「D-1 落地记录」 |
+| **D-2** | 本仓 sticky 事件是否跟随上游 #20204 的 un-soft-fail（报告 L-4） | ✅ **已裁定（2026-10-01）：②明确不跟随** —— 本仓没有 soft-fail 机制（`un_soft_fail` / `StickyEventsStream` 全仓 0 命中），"跟随"等于新建整套 soft-fail（新功能而非对齐），且会与本仓 `events.soft_failed`（B-8 事务去重，**同名不同义**）混淆 | 结论落文档即可，无代码改动 |
 | **D-3** | worker 路由归属是否细化到 per-endpoint（报告 L-3） | ①细化（`RouteEntry` 加 worker 字段 ⇒ 契约与 SDK ledger 同步再生成）②维持前缀级 | 触及路由契约链（ledger/派生表/fixture/快照四处），代价与风险都比纯服务层改动高一档 |
 
 ### 8.2 批次编排（按依赖顺序，每批独立可提交）
@@ -860,3 +860,26 @@ README「环境变量（覆盖配置）」一节写的是 `SYNAPSE_REDIS__HOST` 
 而 `loader.rs:21` 的 `config::Environment::with_prefix("SYNAPSE").separator("__")` 与代码注释里的一致写法是
 `SYNAPSE__REDIS__HOST`（前缀后**双**下划线）。两者只能有一个生效；若不核实，运维按 README 设置会**静默不生效**。
 待办：加一条断言"两种拼写哪种真的生效"的配置加载用例，然后按结论修 README 或 loader。
+
+### 8.8 D-1 落地记录（H-1 · MAS 接线，2026-10-01）
+
+**裁定**：①接线（用户 2026-10-01 决定）。**交付**：
+
+1. **启动期 fail-closed**（`synapse-common/src/config/validation.rs`）：`mas.enabled = true` 时
+   `mas.issuer_url` 与 `mas.client_id` 必须非空，否则**启动失败**。"半配置 + 静默空操作"正是
+   本次发现的形态（配置被接受、运行时未接线、文档却承诺已激活）。
+2. **唯一接线点**（`synapse-services/src/auth/mas_validator.rs::build_mas_validator`）：
+   配置 → `OidcMasTokenValidator`（`OidcService` 本地 JWKS 校验 + `oidc_user_mapping` 的
+   `sub → user_id` 映射）。缺 `client_id` 时**拒绝接线**（第二道防线）。
+3. **容器注入**（`container.rs`）：`build_mas_validator(&config.mas, …)` 结果 `Some` 时
+   `AuthService::with_mas_validator(...)`；默认关闭时行为与之前逐字一致。
+4. **audience 校验打开**（`oidc_service.rs::verify_access_token`）：本仓没有 introspection
+   那步用 client 凭据完成的绑定，`aud` 是唯一阻止"同一 MAS 实例上为别的客户端签发的令牌"
+   通过的东西；`client_id` 非空时 `set_audience` + `validate_aud = true`。
+5. **fail-closed 回落语义**（`auth/token.rs` 既有实现 + 新增用例）：校验器返回 `Err` ⇒
+   直接失败，**绝不**回落本地 HS256；返回 `Ok(None)` ⇒ 才回落本地路径。
+
+**证据**：`build_mas_validator_requires_full_configuration`（四态行为断言）、
+`mas_rejection_never_falls_back_and_non_mas_falls_through`（Err 不回落 / None 才回落）、
+`access_token_with_wrong_audience_is_rejected`（含正确 aud 通过 + 过期拒绝，并做过"关掉校验即红"的
+变异证明）、`validate_rejects_mas_enabled_without_issuer_or_client_id`（启动期拒绝半配置）。

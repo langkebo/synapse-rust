@@ -269,13 +269,25 @@ impl OidcService {
             return Err(ServiceError::OidcVerificationFailed { message: format!("Unsupported key type: {}", key.kty) });
         };
 
-        // Validate issuer and expiry, but NOT audience (MAS access tokens
-        // target the homeserver, not the OIDC client_id).
+        // Validate issuer and expiry; validate audience when a client_id is
+        // configured. This path is used by the MSC3861 MAS validator, which
+        // verifies the JWT **locally against JWKS** (there is no introspection
+        // step whose client credentials would bind the token to this
+        // homeserver), so `aud` is the only thing stopping a token minted for
+        // a *different* client of the same MAS issuer from being accepted.
+        // `client_id` is required by `Config::validate()` whenever MAS is
+        // enabled, so the audience check is always on in a wired deployment;
+        // it is skipped only for legacy configs without one.
         let mut validation = Validation::new(algorithm);
         validation.set_issuer(&[&self.config.issuer]);
         validation.validate_exp = true;
         validation.validate_nbf = false;
-        validation.validate_aud = false;
+        if self.config.client_id.trim().is_empty() {
+            validation.validate_aud = false;
+        } else {
+            validation.validate_aud = true;
+            validation.set_audience(&[self.config.client_id.as_str()]);
+        }
 
         let token_data = decode::<serde_json::Value>(token, &decoding_key, &validation).map_err(|e| {
             ServiceError::OidcVerificationFailed {
@@ -1017,6 +1029,86 @@ mod tests {
         let requests = server.received_requests().await.unwrap();
         let body = String::from_utf8_lossy(&requests[0].body);
         assert!(body.contains("code_verifier=verifier-123"));
+    }
+
+    /// H-1（MSC3861 接线）：access token 的 `aud` 必须是本 HS 的 `client_id`。
+    /// 此前 `verify_access_token` 显式 `validate_aud = false`，理由是"MAS access token
+    /// 面向 homeserver 而非 OIDC client_id"；但本仓走的是**本地 JWKS 校验**（没有
+    /// introspection 那步由 client 凭据完成的绑定），不校验 aud 就等于：同一 MAS 实例上
+    /// **为别的客户端签发**的令牌也能通过签名与 issuer 检查，再靠 `oidc_user_mapping`
+    /// 落到本地用户上 —— 这是跨客户端的令牌混用面。
+    #[tokio::test]
+    async fn access_token_with_wrong_audience_is_rejected() {
+        use jsonwebtoken::{encode, EncodingKey, Header};
+        use rsa::pkcs8::EncodePrivateKey;
+        use rsa::traits::PublicKeyParts;
+        use rsa::RsaPrivateKey;
+
+        let service = create_test_service();
+
+        let mut rng = rsa::rand_core::OsRng;
+        let private_key = RsaPrivateKey::new(&mut rng, 2048).expect("failed to generate RSA key");
+        let public_key = private_key.to_public_key();
+        let pem = private_key.to_pkcs8_pem(rsa::pkcs8::LineEnding::LF).expect("pkcs8 pem encode");
+        let encoding_key = EncodingKey::from_rsa_pem(pem.as_bytes()).expect("create encoding key");
+
+        let kid = "test-aud-key";
+        let n = URL_SAFE_NO_PAD.encode(public_key.n().to_bytes_be());
+        let e = URL_SAFE_NO_PAD.encode(public_key.e().to_bytes_be());
+        *service.jwks.write().await = Some(OidcJwks {
+            keys: vec![OidcJwk {
+                kty: "RSA".to_string(),
+                use_: Some("sig".to_string()),
+                kid: Some(kid.to_string()),
+                alg: Some("RS256".to_string()),
+                n: Some(n),
+                e: Some(e),
+                crv: None,
+                x: None,
+                y: None,
+            }],
+        });
+
+        let exp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() + 3600;
+        let mut header = Header::new(jsonwebtoken::Algorithm::RS256);
+        header.kid = Some(kid.to_string());
+
+        // 正确 audience：必须通过（否则下面的反例就不成立）。
+        let good = serde_json::json!({
+            "iss": service.config.issuer,
+            "aud": service.config.client_id,
+            "sub": "user123",
+            "exp": exp,
+        });
+        let good_token = encode(&header, &good, &encoding_key).expect("jwt encode");
+        assert!(service.verify_access_token(&good_token).await.is_ok(), "aud == client_id 的令牌必须通过");
+
+        // 错 audience（同一 issuer、同一签名密钥，为别的客户端签发）：必须被拒。
+        let bad = serde_json::json!({
+            "iss": service.config.issuer,
+            "aud": "some-other-client",
+            "sub": "user123",
+            "exp": exp,
+        });
+        let bad_token = encode(&header, &bad, &encoding_key).expect("jwt encode");
+        let err = service
+            .verify_access_token(&bad_token)
+            .await
+            .expect_err("aud 不匹配的 access token 必须被拒（跨客户端令牌混用）");
+        assert!(
+            err.to_string().to_lowercase().contains("aud") || err.to_string().contains("InvalidAudience"),
+            "错误应指向 audience 校验：{err}"
+        );
+
+        // 过期令牌同样必须被拒（fail-closed 的另一半）。
+        let expired = serde_json::json!({
+            "iss": service.config.issuer,
+            "aud": service.config.client_id,
+            "sub": "user123",
+            "exp": exp - 7200,
+        });
+        let expired_token = encode(&header, &expired, &encoding_key).expect("jwt encode");
+        assert!(service.verify_access_token(&expired_token).await.is_err(), "过期 access token 必须被拒");
     }
 
     #[tokio::test]

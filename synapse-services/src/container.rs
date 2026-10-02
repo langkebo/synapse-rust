@@ -242,8 +242,17 @@ impl ServiceContainer {
         // to the tamper-evident audit_events table.
         let audit_storage: std::sync::Arc<dyn synapse_storage::audit::AuditEventStoreApi> =
             std::sync::Arc::new(synapse_storage::audit::AuditEventStorage::new(pool));
-        let auth_concrete: std::sync::Arc<AuthService> = std::sync::Arc::new(
-            AuthService::new_with_lifetime(
+        // MSC3861 (H-1): MAS 接线 —— 配置齐备（enabled + issuer_url + client_id）时注入
+        // MAS 令牌校验器；默认关闭时不注入，本地 HS256 路径与之前完全一致。
+        // `build_mas_validator` 是这条接线的**唯一**入口（含第二道防线：缺 audience 锚点
+        // 就不接线），半配置在启动期已被 `Config::validate()` 拒绝。
+        let mas_validator = crate::auth::mas_validator::build_mas_validator(
+            &config.mas,
+            std::sync::Arc::new(synapse_storage::oidc_user_mapping::OidcUserMappingStorage::new(pool.clone())),
+            user_storage.clone(),
+        );
+        let auth_concrete: std::sync::Arc<AuthService> = {
+            let service = AuthService::new_with_lifetime(
                 pool,
                 cache.clone(),
                 metrics.clone(),
@@ -256,8 +265,13 @@ impl ServiceContainer {
                 token_storage.clone(),
                 refresh_token_storage.clone(),
             )
-            .with_audit_storage(audit_storage),
-        );
+            .with_audit_storage(audit_storage);
+            let service = match mas_validator {
+                Some(validator) => service.with_mas_validator(validator),
+                None => service,
+            };
+            std::sync::Arc::new(service)
+        };
         let token_auth: Arc<dyn TokenAuth> = auth_concrete.clone();
         let credential_auth: Arc<dyn CredentialAuth> = auth_concrete.clone();
         let room_auth: Arc<dyn RoomAuth> = auth_concrete.clone();

@@ -16,8 +16,9 @@
 
 use async_trait::async_trait;
 use std::sync::Arc;
+use synapse_common::config::{MasConfig, OidcConfig};
 use synapse_common::{ApiError, ApiResult};
-use synapse_storage::OidcUserMappingStoreApi;
+use synapse_storage::{OidcUserMappingStoreApi, UserStore};
 
 use crate::oidc_service::OidcService;
 
@@ -72,6 +73,36 @@ impl OidcMasTokenValidator {
     ) -> Self {
         Self { oidc_service, user_mapping, user_store }
     }
+}
+
+/// MSC3861 (H-1)：配置 → 校验器的**唯一**接线点。
+///
+/// 返回 `None`（默认行为，本地 HS256 路径完全不变）当 `mas.enabled = false`；
+/// 返回 `Some(..)` 当 [`MasConfig::is_configured`]（`enabled` + `issuer_url` 非空）
+/// **且** `client_id` 非空。
+///
+/// 为什么把 `client_id` 当作硬条件：本仓走的是本地 JWKS 校验（没有 introspection
+/// 那一步用 client 凭据完成的绑定），`aud` 是唯一能阻止"同一 MAS 实例上为别的客户端
+/// 签发的令牌"通过的东西。`Config::validate()` 已在启动期拒绝半配置，这里是第二道
+/// 防线 —— 宁可**不接线**，也不能"接了却不校验 audience"。
+pub fn build_mas_validator(
+    mas: &MasConfig,
+    user_mapping: Arc<dyn OidcUserMappingStoreApi>,
+    user_store: Arc<dyn UserStore>,
+) -> Option<Arc<dyn MasTokenValidator>> {
+    if !mas.is_configured() || mas.client_id.trim().is_empty() {
+        return None;
+    }
+
+    let oidc_config = Arc::new(OidcConfig {
+        enabled: true,
+        issuer: mas.issuer_url.clone(),
+        client_id: mas.client_id.clone(),
+        client_secret: (!mas.client_secret.trim().is_empty()).then(|| mas.client_secret.clone()),
+        ..Default::default()
+    });
+
+    Some(Arc::new(OidcMasTokenValidator::new(Arc::new(OidcService::new(oidc_config)), user_mapping, user_store)))
 }
 
 #[async_trait]
@@ -208,6 +239,78 @@ mod tests {
     }
 
     // ── Tests ──────────────────────────────────────────────────────────
+
+    // ── H-1：配置 → 接线（行为断言，不是 grep）──────────────────────────────
+
+    fn test_mas(issuer: &str, client_id: &str) -> MasConfig {
+        MasConfig {
+            enabled: true,
+            issuer_url: issuer.to_string(),
+            client_id: client_id.to_string(),
+            client_secret: "secret".to_string(),
+            admin_token: None,
+        }
+    }
+
+    /// 只有"enabled + issuer_url + client_id"齐备才接线；任何一半都不接。
+    #[test]
+    fn build_mas_validator_requires_full_configuration() {
+        let mapping: Arc<dyn OidcUserMappingStoreApi> =
+            Arc::new(synapse_storage::test_mocks::InMemoryOidcUserMappingStore::new());
+        let users: Arc<dyn UserStore> = Arc::new(synapse_storage::test_mocks::FakeUserStore::new());
+
+        let disabled = MasConfig::default();
+        assert!(build_mas_validator(&disabled, mapping.clone(), users.clone()).is_none(), "默认关闭必须不接线");
+
+        let no_issuer = MasConfig { enabled: true, ..test_mas("", "hs-client") };
+        assert!(build_mas_validator(&no_issuer, mapping.clone(), users.clone()).is_none(), "缺 issuer 必须不接线");
+
+        let no_client_id = test_mas("https://mas.example.com", "");
+        assert!(
+            build_mas_validator(&no_client_id, mapping.clone(), users.clone()).is_none(),
+            "缺 client_id（audience 锚点）必须不接线"
+        );
+
+        let full = test_mas("https://mas.example.com", "hs-client");
+        assert!(build_mas_validator(&full, mapping, users).is_some(), "配置齐备必须接线");
+    }
+
+    /// H-1 fail-closed：校验器对"像 MAS 票"的令牌返回 `Err` 时，`validate_token`
+    /// **绝不能**回落到本地 HS256 路径 —— 否则被 MAS 拒绝的令牌会在本地路径上"复活"。
+    /// 反过来 `Ok(None)`（不是 MAS 票）必须回落，否则本地令牌会被 MAS 部署整体打死。
+    #[tokio::test]
+    async fn mas_rejection_never_falls_back_and_non_mas_falls_through() {
+        use crate::auth::test_harness::build_test_auth_service;
+
+        struct Rejecting;
+        #[async_trait]
+        impl MasTokenValidator for Rejecting {
+            async fn validate(&self, _token: &str) -> ApiResult<Option<MasTokenClaims>> {
+                Err(ApiError::unauthorized("MAS: token expired"))
+            }
+        }
+
+        struct NotAMasToken;
+        #[async_trait]
+        impl MasTokenValidator for NotAMasToken {
+            async fn validate(&self, _token: &str) -> ApiResult<Option<MasTokenClaims>> {
+                Ok(None)
+            }
+        }
+
+        let harness = build_test_auth_service();
+        let rejecting = harness.service.with_mas_validator(Arc::new(Rejecting));
+        let err = rejecting
+            .validate_token("eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyIn0.c2ln")
+            .await
+            .expect_err("MAS 拒绝的令牌必须直接失败");
+        assert!(err.to_string().contains("MAS"), "错误必须来自 MAS 路径而不是本地回落：{err}");
+
+        let harness2 = build_test_auth_service();
+        let fallthrough = harness2.service.with_mas_validator(Arc::new(NotAMasToken));
+        let err2 = fallthrough.validate_token("not-a-mas-token").await.expect_err("本地路径不认识这个令牌，仍应失败");
+        assert!(!err2.to_string().contains("MAS"), "Ok(None) 必须回落本地路径：{err2}");
+    }
 
     #[tokio::test]
     async fn test_mas_validator_returns_none_for_non_jwt_token() {
