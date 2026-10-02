@@ -160,6 +160,29 @@
           "legendFormat": "查询/秒"
         }
       ]
+    },
+    {
+      "id": 7,
+      "title": "存储流位点 (per-stream)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 48
+      },
+      "targets": [
+        {
+          "expr": "synapse_storage_stream_current_position",
+          "refId": "A",
+          "legendFormat": "{{stream}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      }
     }
   ],
   "templating": {

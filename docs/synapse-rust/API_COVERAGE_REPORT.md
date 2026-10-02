@@ -61,8 +61,8 @@
 > 列表缓存 TTL 300 已属等价，不再新增 per-item 缓存）；§5.6 L4 同步。
 > ④ **§5.4 #20182（D-7）** 由 **N/A 订正为「已对齐（等价实现）」** —— 原「本仓无 `recurse` ⇒ 不适用」判据已作废，
 > M-6（`46fe964b9`）已交付 MSC3981 `recurse` 且 join 恰在递归 CTE 内（#20182 的修复形状）。
-> ⑤ **§5.5 #20097 / §5.6 L4（D-6）** 明确 per-stream 口径：现为**单 gauge（仅 `events` 一条、仅 admin `/statistics` 刷新）**，
-> **per-stream / worker-local 完整口径（`{stream="…"}` 多标签）登记为独立批次 D-6b（待办）**；#20133（MSC4242 serving）维持 D-3 已收口的「受阻待办」口径不变。
+> ⑤ **§5.5 #20097 / §5.6 L4（D-6）** 明确 per-stream 口径：当时为**单 gauge（仅 `events` 一条、仅 admin `/statistics` 刷新）**，
+> **per-stream / worker-local 完整口径（`{stream="…"}` 多标签）登记为独立批次 D-6b**；**D-6b 已落地（2026-10-02）**：改为 `{stream="events"}`/`{stream="device_lists"}` 两条 series、`/metrics` 抓取时即时计算（见 §5.5 #20097、§5.6 L4）；#20133（MSC4242 serving）维持 D-3 已收口的「受阻待办」口径不变。
 > 跨文档同批更正：`MSC_SEMANTICS.md` MSC4297 登记行、`synapse-rust-vs-synapse-comparison.md` §18.3 #17/#16 / §18.4 M-5/L-1 / §18.6 V-12、
 > `docs/audit/OPTIMIZATION_EXECUTION_PLAN_2026-09-15.md` M-5 执行卡 / L-1。
 >
@@ -354,7 +354,7 @@
 |---|---|---|
 | #19979 把 logcontext 机制移植到 Rust | **N/A** | 本仓本就为 Rust；`logcontext`/`LoggingContext` **0 命中**，无 Python logcontext 对应结构 |
 | #20011 Rust 代码改为单一处存放 per-homeserver 状态 | **N/A** | Python/Rust 桥接层结构重构，本仓无对应 |
-| #20097 `synapse_storage_stream_current_position` 指标 | **已补（单 gauge 形态，L4）** | `synapse-common/src/server_metrics.rs` 新增 `storage_stream_current_position`（指标名 `synapse_storage_stream_current_position`）；值取 `event_reader.get_max_stream_ordering()`（`synapse-storage/src/event/batch.rs:261-266`），在 admin `/statistics` 刷新（`synapse-web/src/routes/admin/server.rs`）。⚠️ 上游是 **per-stream 多标签 gauge**；本仓 `MetricsCollector.gauges` 以 name 为 key、同名互相覆盖，故落为**单 gauge（事件流位置）**。**per-stream / worker-local 完整口径（`{stream="…"}` 多标签、各 stream 各自 position）登记为独立批次 D-6b（待办，见 §5.6 L4）** |
+| #20097 `synapse_storage_stream_current_position` 指标 | **已补（per-stream 多标签，D-6b）** | `synapse-common/src/server_metrics.rs` 用新增的 `DynamicGaugeTemplate` 注册，两条 series：`{stream="events"}`=`MAX(stream_ordering)`（`synapse-storage/src/event/batch.rs:261-266` 的 `get_max_stream_ordering`）、`{stream="device_lists"}`=`MAX(stream_id)`（`AccountDeviceListService::get_max_stream_id`）；在 `/metrics` **抓取时即时计算**（`src/server/mod.rs::refresh_storage_stream_positions`），不再是 admin `/statistics` 拉取式。**配套修复**：`MetricsCollector::to_prometheus_format()` 按 metric family 去重 `# HELP`/`# TYPE`（此前动态 counter 多系列重复输出，Prometheus 会拒绝整个 scrape） |
 | #20133 为未来 MSC4242 增加 HTTP serving 函数 | **MISSING（受阻）** | 取证更正（2026-10-02）：上游 #20133 是把 MSC4242 接进**既有**联邦端点（`/make_join`、`/send_join`、`/get_missing_events` 的状态 DAG 回溯、`/send` 目的地按 `prev_state_events` 计算），**不新增路由**；前置是 MSC4242 房间版本 + `experimental_features` opt-in，本仓 `SUPPORTED_ROOM_VERSIONS` 仅至 v12 ⇒ 无接线落点。本仓 MSC4242 仅到存储层（`prev_state_events`，`synapse-storage/src/event/create.rs:257-265`），无 HTTP serving 函数（详见对照报告 §18.4 L-2） |
 | #20160 为"当前房间状态的单项"增加缓存 | **维持等价（正式收口，2026-10-02）** | 本仓有 `room_state:{room_id}` **整房 state 列表**缓存（`synapse-services/src/sliding_sync_service/state.rs:20-36`，TTL 300；`synapse-cache/src/local.rs:47-49,91-92` 命名空间 `room_state` 20_000/1200），非上游按 `(type,state_key)` 单项缓存；**已属等价、无需重复实现**（决策 D-5：维持等价、不新增 per-item 缓存） |
 | #20161 即使标准 Complement 套件失败也在 CI 跑 in-repo Complement | **N/A** | CI/测试基建 |
@@ -375,7 +375,7 @@
 | **L1** MSC4140 `GET /delayed_events/{delayId}` | ✅ **已实现** | `synapse-web/src/routes/delayed_events.rs:41-61,97-99`；路由 ledger 快照同步（default 1131 / worker_enabled 1142），worker ledger `:113` 在册 |
 | **L2** Admin scheduled tasks 端点（`action_name` 机制） | **N/A / 延后** | 本仓有内部调度器 `ScheduledTasks`（`src/server/mod.rs:115,320,339,372,379`），但 **`action_name` 全仓 0 命中** ⇒ 无 admin 列表/动作端点机制可挂靠，纯新增无落点 |
 | **L3** `federation_domain_whitelist` 可空处理 | **N/A** | `federation_domain_whitelist` **全仓 0 命中** ⇒ 本仓无该配置面 |
-| **L4** 内部性能项 | ✅ **部分落地** | ① `synapse_storage_stream_current_position` 单 gauge **已补**（见 §5.5 #20097）；**per-stream / worker-local 完整口径（`{stream="…"}` 多标签）登记为独立批次 D-6b（待办：需扩展 `MetricsCollector` 支持多标签 gauge，并列出全部 stream ordering 来源）**；② current room state / state resolution 缓存已**等价实现**（§5.5 #20160 维持等价·已收口；#20185 等价实现＝M-5 冲突输入键控缓存，2026-10-02 更正原「N/A」判定）——避免重复，不再新增 |
+| **L4** 内部性能项 | ✅ **已落地** | ① `synapse_storage_stream_current_position` **per-stream 多标签 gauge 已落地**（D-6b：`{stream="events"}`/`{stream="device_lists"}`，`DynamicGaugeTemplate`，`/metrics` 抓取时计算；见 §5.5 #20097）；② current room state / state resolution 缓存已**等价实现**（§5.5 #20160 维持等价·已收口；#20185 等价实现＝M-5 冲突输入键控缓存，2026-10-02 更正原「N/A」判定）——避免重复，不再新增 |
 | **L5** 文档对齐 v1.162.0 | ✅ **本轮完成** | 本文件顶部基准、§五 标题与 §5.4/§5.5 增量、§5.1/§5.2 两条订正、§八 命令、footer |
 | **M5** 取消 soft-fail（MSC4354 Sticky Events） | **N/A（仅报告）** | 本仓 MSC4354 **不存在 sticky soft-fail 机制**：sticky 事件不做状态相关 auth 评估、无 soft-failed 记录、无状态变更重算（`un_soft_fail`/`StickyEventsStream` **全仓 0 命中**）⇒ **无对象可"取消"**。本仓 `events.soft_failed` 是 **B-8 事务去重**专用（`synapse-storage/src/event/txn_dedup.rs`），读取一律 `soft_failed = FALSE`，与 MSC4354 **同名不同义**，不可混同 |
 
@@ -693,7 +693,7 @@ for key, rules in (("Client", CLIENT), ("Admin", ADMIN)):
 **与代码不符**，实际在 sync service 与 handler 中已透传支持，改判 **PARTIAL**）。
 **本批 L1 落地**：MSC4140 单事件端点路由入册，route ledger 由 1130 → **1131**（worker 1141 → **1142**）；
 **本版不重算 §1.1 三口径**（仍为 v1.7 的 1149 / 913 / 805；本批 L1 因该路径已有 `POST` 注册，重算仅「注册条目」`+1` 得 **1150 / 913 / 805**，见 §1.1 末段）。
-**本批 L4 落地**：新增单 gauge `synapse_storage_stream_current_position`（见 §5.5 #20097）。
+**本批 L4 落地**：新增 `synapse_storage_stream_current_position`（D-6b 升级为 per-stream 多标签 gauge，`{stream="events"}`/`{stream="device_lists"}`，见 §5.5 #20097）。
 v1.7：按 §8 配方在 HEAD `74bb9c522` 重算 —— 三口径 **1149 / 913 / 805**
 （v1.6 基线 `88001b4a9` 为 1135 / 903 / 795，净 **+14 / +10 / +10**）；新增 profile 自定义字段稳定端点
 `{key_name}`（+3/+1/+1）、Admin 媒体端点族 10 条（+10/+10/+10）、`invite/{allowlist,blocklist}` 补 `POST`（+2）；

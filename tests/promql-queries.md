@@ -265,6 +265,23 @@ topk(5,
 
 ---
 
+### 存储流位点
+
+```promql
+# 各存储流当前位点 (per-stream, 按 stream 标签区分)
+synapse_storage_stream_current_position
+
+# 单流位点 (如 events 流)
+synapse_storage_stream_current_position{stream="events"}
+
+# 流写入推进速率 (位点/秒)
+rate(synapse_storage_stream_current_position{stream="events"}[5m])
+```
+
+**可视化**: Time series (legend `{{stream}}`)；位点在 `/metrics` 抓取时即时计算，随写入推进
+
+---
+
 ### 缓存性能
 
 ```promql
