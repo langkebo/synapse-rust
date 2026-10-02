@@ -164,6 +164,9 @@ impl RelationsStoreApi for InMemoryRelationsStore {
         room_id: &str,
         relates_to_event_id: &str,
         relation_type: Option<&str>,
+        // 内存实现只存关系行、没有 `events` 表，无法按被关联事件的类型过滤
+        // (`/relations/.../{eventType}`)；与 `get_relations` 的 mock 保持同一限制。
+        _event_type: Option<&str>,
     ) -> Result<i64, sqlx::Error> {
         let count = self
             .relations

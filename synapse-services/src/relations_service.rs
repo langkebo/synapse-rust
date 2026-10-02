@@ -64,6 +64,8 @@ pub struct SendReplacementRequest {
 pub struct RelationQuery {
     /// `rel_type` 过滤；`None` ＝ 不过滤。
     pub rel_type: Option<String>,
+    /// 被关联事件的 `type` 过滤（`/relations/.../{eventType}`）；`None` ＝ 不过滤。
+    pub event_type: Option<String>,
     /// 单页上限（服务端再夹到 100）。
     pub limit: Option<i32>,
     /// 键集分页游标，形如 `<ordering key>:<event_id>`。
@@ -356,11 +358,12 @@ impl RelationsService {
         relates_to_event_id: &str,
         query: RelationQuery,
     ) -> Result<RelationsResponse, ApiError> {
-        let RelationQuery { rel_type, limit, from, direction, recurse } = query;
+        let RelationQuery { rel_type, event_type, limit, from, direction, recurse } = query;
         debug!(
             room_id = %room_id,
             relates_to = %relates_to_event_id,
             rel_type = ?rel_type,
+            event_type = ?event_type,
             "Getting relations"
         );
 
@@ -378,6 +381,7 @@ impl RelationsService {
             room_id: room_id.to_string(),
             relates_to_event_id: relates_to_event_id.to_string(),
             relation_type: rel_type,
+            event_type,
             limit,
             from,
             direction,
@@ -385,6 +389,7 @@ impl RelationsService {
         };
 
         let rel_type_for_count = params.relation_type.clone();
+        let event_type_for_count = params.event_type.clone();
         let relations = self
             .storage
             .get_relations(params)
@@ -398,7 +403,12 @@ impl RelationsService {
         } else {
             Some(
                 self.storage
-                    .count_relations(room_id, relates_to_event_id, rel_type_for_count.as_deref())
+                    .count_relations(
+                        room_id,
+                        relates_to_event_id,
+                        rel_type_for_count.as_deref(),
+                        event_type_for_count.as_deref(),
+                    )
                     .await
                     .map_err(|e| ApiError::internal_with_cause("Failed to count relations", e))?,
             )

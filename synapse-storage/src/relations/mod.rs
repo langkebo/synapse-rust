@@ -57,6 +57,10 @@ pub struct RelationQueryParams {
     pub relates_to_event_id: String,
     /// The `relation_type` field.
     pub relation_type: Option<String>,
+    /// Filter on the `type` of the **related** event (`/relations/.../{eventType}`).
+    /// `None` ＝ 不过滤。事件类型来自 `events.event_type`：`event_relations` 只记录
+    /// 关系类型，被关联事件是什么类型只有 `events` 表知道。
+    pub event_type: Option<String>,
     /// The `limit` field.
     pub limit: Option<i32>,
     /// The `from` field.
@@ -179,6 +183,7 @@ pub trait RelationsStoreApi: Send + Sync {
         room_id: &str,
         relates_to_event_id: &str,
         relation_type: Option<&str>,
+        event_type: Option<&str>,
     ) -> Result<i64, sqlx::Error>;
     /// See [`get_replacement`].
     async fn get_replacement(
@@ -310,18 +315,27 @@ impl RelationsStorage {
         room_id: &str,
         relates_to_event_id: &str,
         relation_type: Option<&str>,
+        event_type: Option<&str>,
     ) -> Result<i64, sqlx::Error> {
+        // `event_type` 过滤的是**被关联事件**的类型，只有 `events` 知道，故 LEFT JOIN。
+        // 关系行没有指向 `events` 的外键，孤儿行（只有测试夹具会造）的 `e.event_type`
+        // 为 NULL：带 `event_type` 过滤时这类行被排除，与 `get_relations` 的
+        // `COALESCE(e.event_type, '')` 口径一致。join 后 `room_id` 等列在两表同名，
+        // 必须显式限定 `er.`。
         let count = sqlx::query_scalar!(
             r#"
             SELECT COUNT(*) AS "count!"
-            FROM event_relations
-            WHERE room_id = $1 AND relates_to_event_id = $2
-              AND ($3::text IS NULL OR relation_type = $3)
-              AND is_redacted = FALSE
+            FROM event_relations er
+            LEFT JOIN events e ON e.event_id = er.event_id
+            WHERE er.room_id = $1 AND er.relates_to_event_id = $2
+              AND ($3::text IS NULL OR er.relation_type = $3)
+              AND ($4::text IS NULL OR e.event_type = $4)
+              AND er.is_redacted = FALSE
             "#,
             room_id,
             relates_to_event_id,
             relation_type,
+            event_type,
         )
         .fetch_one(&*self.pool)
         .await?;
@@ -350,6 +364,7 @@ impl RelationsStorage {
             None => (0, String::new()),
         };
         let relation_type = params.relation_type.clone().unwrap_or_default();
+        let event_type = params.event_type.clone().unwrap_or_default();
 
         sqlx::query_as!(
             OrderedEventRelation,
@@ -365,7 +380,11 @@ impl RelationsStorage {
                        -- 外键指向 `events`，孤儿行（只有测试夹具会造）按其自身
                        -- `origin_server_ts` 排序，而不是从结果里消失。
                        COALESCE(e.stream_ordering, er.origin_server_ts) AS stream_ordering,
-                       0 AS depth
+                       0 AS depth,
+                       -- 被关联事件的类型，供 `/relations/.../{eventType}` 在**返回集**
+                       -- 上过滤。孤儿行没有 `events` 行，折成空串（下方 `$10 = ''` 时
+                       -- 视为"不过滤"，但带过滤时这类行被排除）。
+                       COALESCE(e.event_type, '') AS event_type
                 FROM event_relations er
                 LEFT JOIN events e ON e.event_id = er.event_id
                 WHERE er.room_id = $1
@@ -379,7 +398,8 @@ impl RelationsStorage {
                        er.relation_type, er.sender, er.origin_server_ts, er.content,
                        er.is_redacted, er.created_ts,
                        COALESCE(e.stream_ordering, er.origin_server_ts) AS stream_ordering,
-                       rt.depth + 1
+                       rt.depth + 1,
+                       COALESCE(e.event_type, '') AS event_type
                 FROM event_relations er
                 INNER JOIN relation_tree rt ON rt.event_id = er.relates_to_event_id
                 LEFT JOIN events e ON e.event_id = er.event_id
@@ -399,6 +419,7 @@ impl RelationsStorage {
                    stream_ordering AS "stream_ordering!"
             FROM relation_tree
             WHERE ($8 = '' OR relation_type = $8)
+              AND ($10 = '' OR event_type = $10)
               AND ($3::bigint = 0
                    OR ($5 = TRUE
                        AND (stream_ordering < $3 OR (stream_ordering = $3 AND event_id < $4)))
@@ -420,6 +441,7 @@ impl RelationsStorage {
             MSC3981_RECURSION_DEPTH,
             relation_type,
             limit,
+            event_type,
         )
         .fetch_all(&*self.pool)
         .await
@@ -630,8 +652,9 @@ impl RelationsStoreApi for RelationsStorage {
         room_id: &str,
         relates_to_event_id: &str,
         relation_type: Option<&str>,
+        event_type: Option<&str>,
     ) -> Result<i64, sqlx::Error> {
-        self.count_relations(room_id, relates_to_event_id, relation_type).await
+        self.count_relations(room_id, relates_to_event_id, relation_type, event_type).await
     }
 
     async fn get_replacement(
@@ -700,6 +723,7 @@ mod tests {
             room_id: "!test:example.com".to_string(),
             relates_to_event_id: "$original:example.com".to_string(),
             relation_type: Some("m.annotation".to_string()),
+            event_type: None,
             limit: Some(50),
             from: None,
             direction: Some("f".to_string()),
@@ -936,7 +960,7 @@ mod db_tests {
         }
 
         let count = storage
-            .count_relations(&format!("!room_{suffix}:example.com"), &relates_to, None)
+            .count_relations(&format!("!room_{suffix}:example.com"), &relates_to, None, None)
             .await
             .expect("count_relations should succeed");
 
@@ -983,14 +1007,14 @@ mod db_tests {
         storage.create_relation(ref_params).await.unwrap();
 
         let annot_count = storage
-            .count_relations(&format!("!room_{suffix}:example.com"), &relates_to, Some("m.annotation"))
+            .count_relations(&format!("!room_{suffix}:example.com"), &relates_to, Some("m.annotation"), None)
             .await
             .expect("count_relations with filter should succeed");
 
         assert_eq!(annot_count, 2);
 
         let ref_count = storage
-            .count_relations(&format!("!room_{suffix}:example.com"), &relates_to, Some("m.reference"))
+            .count_relations(&format!("!room_{suffix}:example.com"), &relates_to, Some("m.reference"), None)
             .await
             .expect("count_relations with filter should succeed");
 
@@ -1033,6 +1057,7 @@ mod db_tests {
             room_id: format!("!room_{suffix}:example.com"),
             relates_to_event_id: relates_to.clone(),
             relation_type: None,
+            event_type: None,
             limit: Some(10),
             from: None,
             direction: Some("f".to_string()),
@@ -1077,6 +1102,7 @@ mod db_tests {
             room_id: format!("!room_{suffix}:example.com"),
             relates_to_event_id: relates_to.clone(),
             relation_type: None,
+            event_type: None,
             limit: Some(10),
             from: None,
             direction: Some("b".to_string()),
@@ -1123,6 +1149,7 @@ mod db_tests {
                 room_id: format!("!room_{suffix}:example.com"),
                 relates_to_event_id: relates_to.clone(),
                 relation_type: None,
+                event_type: None,
                 limit: Some(2),
                 from: None,
                 direction: Some("f".to_string()),
@@ -1142,6 +1169,7 @@ mod db_tests {
                 room_id: format!("!room_{suffix}:example.com"),
                 relates_to_event_id: relates_to.clone(),
                 relation_type: None,
+                event_type: None,
                 limit: Some(10),
                 from: Some(cursor),
                 direction: Some("f".to_string()),
@@ -1198,6 +1226,7 @@ mod db_tests {
                 room_id: format!("!room_{suffix}:example.com"),
                 relates_to_event_id: relates_to.clone(),
                 relation_type: Some("m.annotation".to_string()),
+                event_type: None,
                 limit: Some(10),
                 from: None,
                 direction: None,

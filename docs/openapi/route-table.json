@@ -3,7 +3,7 @@
   "generated_at": "2026-09-16T00:00:00Z",
   "source": "synapse_ledger_export",
   "profile": "default",
-  "total_routes": 1050,
+  "total_routes": 1052,
   "_meta": {
     "generated_by": "gen_route_table.py",
     "note": "本文件由 CI 自动生成，禁止手改。如需刷新: python3 scripts/api_test/gen_route_table.py"
@@ -1810,6 +1810,8 @@
         "dir",
         "from",
         "limit",
+        "org.matrix.msc3981.recurse",
+        "recurse",
         "to"
       ],
       "auth": null
@@ -1827,19 +1829,41 @@
         "dir",
         "from",
         "limit",
+        "org.matrix.msc3981.recurse",
+        "recurse",
+        "to"
+      ],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
+      "registered_by": "relations",
+      "path_params": [
+        "room_id",
+        "event_id",
+        "rel_type",
+        "event_type"
+      ],
+      "query_params": [
+        "dir",
+        "from",
+        "limit",
+        "org.matrix.msc3981.recurse",
+        "recurse",
         "to"
       ],
       "auth": null
     },
     {
       "method": "PUT",
-      "path": "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}",
+      "path": "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
       "registered_by": "relations",
       "path_params": [
         "room_id",
         "event_id",
         "rel_type",
-        "txn_id"
+        "event_type"
       ],
       "query_params": [],
       "auth": null
@@ -4755,6 +4779,8 @@
         "dir",
         "from",
         "limit",
+        "org.matrix.msc3981.recurse",
+        "recurse",
         "to"
       ],
       "auth": null
@@ -4772,19 +4798,41 @@
         "dir",
         "from",
         "limit",
+        "org.matrix.msc3981.recurse",
+        "recurse",
+        "to"
+      ],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
+      "registered_by": "relations",
+      "path_params": [
+        "room_id",
+        "event_id",
+        "rel_type",
+        "event_type"
+      ],
+      "query_params": [
+        "dir",
+        "from",
+        "limit",
+        "org.matrix.msc3981.recurse",
+        "recurse",
         "to"
       ],
       "auth": null
     },
     {
       "method": "PUT",
-      "path": "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}",
+      "path": "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
       "registered_by": "relations",
       "path_params": [
         "room_id",
         "event_id",
         "rel_type",
-        "txn_id"
+        "event_type"
       ],
       "query_params": [],
       "auth": null

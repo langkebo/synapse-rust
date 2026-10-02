@@ -116,6 +116,15 @@ fn put_json(uri: String, token: &str, body: &Value) -> Request<Body> {
         .unwrap()
 }
 
+fn get(uri: String, token: &str) -> Request<Body> {
+    Request::builder()
+        .method("GET")
+        .uri(uri)
+        .header("Authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap()
+}
+
 // ─────────────────────────────── S5: reactions ───────────────────────────────
 
 #[tokio::test]
@@ -216,6 +225,58 @@ async fn relation_is_allowed_for_members() {
     );
     let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK, "a room member must be able to write relations");
+}
+
+// ─────────────────── L-6: 4-segment relations read route ─────────────────────
+
+/// `GET .../relations/{event_id}/{rel_type}/{event_type}` (Matrix v1.8) must be
+/// routable and filter the returned relations by each relation event's own
+/// `type` (annotation → `m.reaction`). This is the MSC3981 `event_type` filter's
+/// HTTP entry point; before L-6 only the 3-segment form existed, so the path was
+/// simply absent (the read and write methods also share one literal path and
+/// must be merged into a single `MethodRouter`).
+#[tokio::test]
+async fn relations_four_segment_get_filters_by_event_type() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let suffix = rand::random::<u32>();
+    let (owner_token, _) = register_user_with_id(&app, &format!("rel_get_{suffix}")).await;
+
+    let room_id = create_room(&app, &owner_token, "Relations read filter").await;
+    let event_id = send_message(&app, &owner_token, &room_id).await;
+
+    // A reaction (annotation) whose target is `event_id`.
+    let request = put_json(
+        format!("/_matrix/client/v3/rooms/{room_id}/send/m.reaction/rg{suffix}"),
+        &owner_token,
+        &json!({
+            "m.relates_to": { "rel_type": "m.annotation", "event_id": event_id },
+            "body": "👍"
+        }),
+    );
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "reacting must succeed");
+
+    // eventType matches the reaction event's own type → one hit.
+    let request =
+        get(format!("/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/m.annotation/m.reaction"), &owner_token);
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "the 4-segment GET route must exist");
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["chunk"].as_array().unwrap().len(), 1);
+
+    // eventType does not match → the reaction is filtered out.
+    let request = get(
+        format!("/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/m.annotation/m.room.message"),
+        &owner_token,
+    );
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert!(json["chunk"].as_array().unwrap().is_empty());
 }
 
 // ──────────────────────────── S7: room-wide state ────────────────────────────

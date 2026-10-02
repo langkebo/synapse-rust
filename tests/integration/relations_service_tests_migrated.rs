@@ -374,6 +374,67 @@ async fn test_get_relations_filtered_by_type() {
     assert_eq!(response.total, Some(1));
 }
 
+/// 4 段路由 `/relations/{eventId}/{relType}/{eventType}` 的过滤目标是**返回的关系
+/// 事件自身的 `type`**（`events.event_type`），不是关系行的 `relation_type`：
+/// annotation 事件类型是 `m.reaction`，reference/replacement 是 `m.room.message`。
+/// 命中过滤与 `total` 计数两条路径（`get_relations` / `count_relations`）都要生效。
+#[tokio::test]
+async fn test_get_relations_filtered_by_event_type() {
+    let pool = crate::require_test_pool().await;
+    let service = create_service(&pool);
+    let suffix = unique_id();
+    let room_id = format!("!room_{suffix}:localhost");
+    crate::ensure_test_room(&pool, &room_id).await;
+    let sender = format!("@user_{suffix}:localhost");
+    let relates_to = format!("$orig_{suffix}:localhost");
+
+    let annotation_req = SendAnnotationRequest {
+        room_id: room_id.clone(),
+        relates_to_event_id: relates_to.clone(),
+        sender: sender.clone(),
+        key: "👍".to_string(),
+        origin_server_ts: 12500,
+    };
+    service.send_annotation(annotation_req).await.unwrap();
+
+    let reference_req = SendReferenceRequest {
+        room_id: room_id.clone(),
+        relates_to_event_id: relates_to.clone(),
+        sender: sender.clone(),
+        content: serde_json::json!({"body": "ref"}),
+        origin_server_ts: 12600,
+        relation_type: None,
+    };
+    service.send_reference(reference_req).await.unwrap();
+
+    // 不过滤时应同时看到两条，作为过滤生效的对照。
+    let all = service.get_relations(&room_id, &relates_to, RelationQuery::default()).await.unwrap();
+    assert_eq!(all.chunk.len(), 2);
+    assert_eq!(all.total, Some(2));
+
+    let reactions = service
+        .get_relations(
+            &room_id,
+            &relates_to,
+            RelationQuery { event_type: Some("m.reaction".to_string()), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    assert_eq!(reactions.chunk.len(), 1);
+    assert_eq!(reactions.total, Some(1));
+
+    let messages = service
+        .get_relations(
+            &room_id,
+            &relates_to,
+            RelationQuery { event_type: Some("m.room.message".to_string()), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    assert_eq!(messages.chunk.len(), 1);
+    assert_eq!(messages.total, Some(1));
+}
+
 #[tokio::test]
 async fn test_get_relations_with_limit() {
     let pool = crate::require_test_pool().await;
@@ -639,6 +700,7 @@ async fn test_redacted_annotation_excluded_from_exists() {
             room_id: room_id.clone(),
             relates_to_event_id: relates_to.clone(),
             relation_type: Some("m.annotation".to_string()),
+            event_type: None,
             limit: None,
             from: None,
             direction: None,

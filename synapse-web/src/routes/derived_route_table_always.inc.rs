@@ -1,5 +1,5 @@
 fn all_derived_always_rows() -> Vec<DerivedRoute> {
-    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1133);
+    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1135);
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/", "assembly::create_router");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
@@ -1108,7 +1108,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}",
             "relations",
         )
-        .with_query_params(&["dir", "from", "limit", "to"]);
+        .with_query_params(&["dir", "from", "limit", "org.matrix.msc3981.recurse", "recurse", "to"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -1117,13 +1117,22 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}",
             "relations",
         )
-        .with_query_params(&["dir", "from", "limit", "to"]);
+        .with_query_params(&["dir", "from", "limit", "org.matrix.msc3981.recurse", "recurse", "to"]);
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(
+            axum::http::Method::GET,
+            "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
+            "relations",
+        )
+        .with_query_params(&["dir", "from", "limit", "org.matrix.msc3981.recurse", "recurse", "to"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
         let e = RouteEntry::new(
             axum::http::Method::PUT,
-            "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}",
+            "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
             "relations",
         );
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
@@ -2820,7 +2829,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}",
             "relations",
         )
-        .with_query_params(&["dir", "from", "limit", "to"]);
+        .with_query_params(&["dir", "from", "limit", "org.matrix.msc3981.recurse", "recurse", "to"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -2829,13 +2838,22 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}",
             "relations",
         )
-        .with_query_params(&["dir", "from", "limit", "to"]);
+        .with_query_params(&["dir", "from", "limit", "org.matrix.msc3981.recurse", "recurse", "to"]);
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(
+            axum::http::Method::GET,
+            "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
+            "relations",
+        )
+        .with_query_params(&["dir", "from", "limit", "org.matrix.msc3981.recurse", "recurse", "to"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
         let e = RouteEntry::new(
             axum::http::Method::PUT,
-            "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}",
+            "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
             "relations",
         );
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });

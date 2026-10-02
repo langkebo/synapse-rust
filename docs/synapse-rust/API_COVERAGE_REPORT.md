@@ -49,7 +49,7 @@
 > 与 MSC3720 `+2 / +2 / +2`）；本版**不重算**任何 MSC/功能判定（§五/§六 沿用 v1.8）。
 >
 > **v1.10 与 v1.9 的差别**：本版为 **2026-10-02 台账订正批**（随 D-4「M-5 提升为跨请求共享」与 D-5 收口，并含 D-6/D-7 两项订正），
-> **不重算三口径**（沿用 v1.9 的 **1152 / 915 / 807**），只订正判定口径：
+> **不重算全部三口径**（唯一路径 915 / 逻辑端点 807 沿用 v1.9；**注册条目 1152 → 1154**，+2，见 ⑥），余为判定口径订正：
 > ① **MSC4297（state resolution v2.1）由「未实现 / v12 对该单项声明领先实现」订正为「已实现并接线到生产路径」**
 > —— 写入接缝（`MessagingService::create_event_with_graph`、联邦加入 state 批次）在房间分叉时经
 > `resolve_forked_state` → `resolve_state_for_version_with_rules` 重算（v12+ 从空 state map 起步 = v2.1
@@ -63,6 +63,10 @@
 > M-6（`46fe964b9`）已交付 MSC3981 `recurse` 且 join 恰在递归 CTE 内（#20182 的修复形状）。
 > ⑤ **§5.5 #20097 / §5.6 L4（D-6）** 明确 per-stream 口径：当时为**单 gauge（仅 `events` 一条、仅 admin `/statistics` 刷新）**，
 > **per-stream / worker-local 完整口径（`{stream="…"}` 多标签）登记为独立批次 D-6b**；**D-6b 已落地（2026-10-02）**：改为 `{stream="events"}`/`{stream="device_lists"}` 两条 series、`/metrics` 抓取时即时计算（见 §5.5 #20097、§5.6 L4）；#20133（MSC4242 serving）维持 D-3 已收口的「受阻待办」口径不变。
+> ⑥ **§5.4 #20182 / §18.4 L-6（D-7/L-6）**：spec 的 4 段关系路由
+> `GET /rooms/{roomId}/relations/{eventId}/{relType}/{eventType}` 已补齐（与同路径既有 `PUT` 合并进同一 `MethodRouter`，
+> 第 4 段参数名取 `{event_type}`），`event_type` 过滤自此拥有 HTTP 入口；**注册条目 1152 → 1154**（`v1`/`v3` 各 `+1`），
+> **唯一路径与逻辑端点不变**（该 4 段路径此前已由 `PUT` 占据）。
 > 跨文档同批更正：`MSC_SEMANTICS.md` MSC4297 登记行、`synapse-rust-vs-synapse-comparison.md` §18.3 #17/#16 / §18.4 M-5/L-1 / §18.6 V-12、
 > `docs/audit/OPTIMIZATION_EXECUTION_PLAN_2026-09-15.md` M-5 执行卡 / L-1。
 >
@@ -89,11 +93,11 @@
 
 | 口径 | 含义 | 全部 | `/_matrix/client` | `/_synapse/admin` | 其他命名空间 |
 |---|---|---|---|---|---|
-| **注册条目** | 唯一 `(method, absolute_path)` 对 | **1152** | 639 | 289 | 224 |
+| **注册条目** | 唯一 `(method, absolute_path)` 对 | **1154** | 641 | 289 | 224 |
 | **唯一路径** | 去掉方法后的唯一 `absolute_path` | **915** | 491 | 228 | 196 |
 | **逻辑端点** | 在上者基础上折叠版本前缀（`v3`/`r0`/`v1`/`unstable/*` → `vX`）后的唯一路径 | **807** | 385 | 226 | 196 |
 
-- `ROUTE_CONTRACT.md` 总览现为 **1152**（2026-10-01 重生成），与上表「注册条目」**同为 1152**（本版已把分类表刷新到同一 HEAD，
+- `ROUTE_CONTRACT.md` 总览现为 **1154**（2026-10-02 重生成），与上表「注册条目」**同为 1154**（本版已把分类表刷新到同一 HEAD，
   不再留 v1.7 快照的 `+1` 差）；
   该清单本身无 `(method,path)` 重复，65 个含路由注册的模块文件 / 73 个 `registered_by` 标签同为该文件的总览数字；
   生成器（`scripts/contract/gen_contract_doc.py`）另报 **45 个分类**（只出现在它的 stdout，不写进正文）。
@@ -148,7 +152,7 @@
 
 | 类别 | 逻辑端点 | 唯一路径 | 注册条目 | 说明 |
 |------|---------:|--------:|--------:|------|
-| **房间** | 206 | 251 | 309 | 含 join/knock/leave/invite/state/tags/relations/threads/summary/spaces；⚠️ 含 MSC4512 的 `/_matrix/client/v1/proxy/{as_id}/{*path}`（`any()` ⇒ 7 条注册条目，属兜底归类，见 §1.1 口径注意） |
+| **房间** | 206 | 251 | 311 | 含 join/knock/leave/invite/state/tags/relations/threads/summary/spaces；⚠️ 含 MSC4512 的 `/_matrix/client/v1/proxy/{as_id}/{*path}`（`any()` ⇒ 7 条注册条目，属兜底归类，见 §1.1 口径注意） |
 | **设备与密钥** | 54 | 84 | 125 | `/devices`、`/keys/*`、`/room_keys/*`、`cross_signing`、`dehydrated_device`(MSC3814)。⚠️ `device_verification` / `device_trust` / `security/summary`，以及全部 `/keys/verification/*`、`/keys/device_signing/verify_*`、`/keys/qr_code/*` 已于 2026-09-25 随 E2EE 去服务端私钥重构删除（见 `docs/synapse-rust-vs-synapse-comparison.md` §13） |
 | **认证** | 44 | 59 | 70 | login/logout/register/refresh/oidc/saml/cas/rendezvous(MSC4108)/account(password·3pid·deactivate)/MSC2965（仅剩 `auth_metadata`，`auth_issuer` 已于 2026-09 摘除，见 §5.1） |
 | **用户** | 25 | 29 | 50 | profile/presence/user_directory/thirdparty/capabilities/account_data；含稳定端点 `{key_name}`（PUT/GET/DELETE，2026-09 新增） |
@@ -156,7 +160,7 @@
 | **消息** | 20 | 24 | 32 | `sendToDevice`、MSC4140 delayed_events（含 2026-10-01 新增的单事件 `GET`）、`/rooms/{id}/event/…` |
 | **搜索** | 8 | 10 | 12 | `/search` |
 | **媒体** | 8 | 10 | 10 | `/media/*`、`/upload`、`thumbnail`、`preview_url` |
-| **合计** | **385** | **491** | **639** | — |
+| **合计** | **385** | **491** | **641** | — |
 
 ## 三、Admin API 分类统计（机器口径，synapse-rust 实测）
 
@@ -506,7 +510,7 @@
 ```bash
 cd /Users/ljf/Desktop/hu_ts/synapse-rust
 
-# ① 路由权威口径（机器生成于 2026-10-01）
+# ① 路由权威口径（机器生成于 2026-10-02）
 grep -n '注册路由条目\|含路由注册的模块文件\|registered_by' docs/synapse-rust/ROUTE_CONTRACT.md | head
 
 # ② 从 ROUTE_CONTRACT.md 抽取路由，复现 §1.1 的三种口径
@@ -514,7 +518,7 @@ grep -n '注册路由条目\|含路由注册的模块文件\|registered_by' docs
 #       锚定 `$` 会静默少 21 条（实测 1129 ≠ 1150，是本表上一版漂移的一个来源）。
 grep -oE '^- `[A-Z]+` `[^`]+`' docs/synapse-rust/ROUTE_CONTRACT.md \
   | sed -E 's/^- `([A-Z]+)` `([^`]+)`$/\1 \2/' > /tmp/mp.txt
-wc -l < /tmp/mp.txt                                          # 1152 注册条目 (method,path)
+wc -l < /tmp/mp.txt                                          # 1154 注册条目 (method,path)
 awk '{print $2}' /tmp/mp.txt | sort -u > /tmp/paths.txt
 wc -l < /tmp/paths.txt                                       #  915 唯一路径
 grep -c '^/_matrix/client' /tmp/paths.txt                    #  491 唯一路径 client
@@ -664,7 +668,7 @@ for key, rules in (("Client", CLIENT), ("Admin", ADMIN)):
 
 | 文档 | 用途 | 时效性 |
 |---|---|---|
-| [`ROUTE_CONTRACT.md`](./ROUTE_CONTRACT.md) | **路由机器权威**（逐模块 `(method, path)`） | 2026-10-01 生成（**1152** 条，与 §1.1 表一致） |
+| [`ROUTE_CONTRACT.md`](./ROUTE_CONTRACT.md) | **路由机器权威**（逐模块 `(method, path)`） | 2026-10-02 生成（**1154** 条，与 §1.1 表一致） |
 | [`MSC_SEMANTICS.md`](./MSC_SEMANTICS.md) | **MSC 编号语义唯一真相源**（含"借用编号"登记） | 2026-09-14 |
 | [`ELEMENT_SYNAPSE_GAP_ANALYSIS_2026-07-28.md`](./ELEMENT_SYNAPSE_GAP_ANALYSIS_2026-07-28.md) | 对标 v1.156.0 的功能级差距分析 | 2026-07-28（基准已落后 5 个版本） |
 | [`../audit/COMPARISON_REPORT_REVIEW_2026-09-22.md`](../audit/COMPARISON_REPORT_REVIEW_2026-09-22.md) | 对 `synapse-rust-vs-synapse-comparison.md` 的复核（含 v1.157–1.161 逐条实测） | 2026-09-22 |
@@ -676,9 +680,10 @@ for key, rules in (("Client", CLIENT), ("Admin", ADMIN)):
 ---
 
 *创建日期: 2026-03-19*
-*最后更新: 2026-10-02（v1.10：**2026-10-02 台账订正批**，不重算三口径（沿用 1152 / 915 / 807）——
+*最后更新: 2026-10-02（v1.10：**2026-10-02 台账订正批**，唯一路径 915 / 逻辑端点 807 沿用 v1.9，注册条目 **1152 → 1154**（+2，L-6）——
 订正 MSC4297（顶部状态注 / §5.1 / §6.2）、§5.5 #20185（N/A → 等价实现·M-5）与 §5.5 #20160（PARTIAL → 维持等价收口）；
-跨文档同批更正 `MSC_SEMANTICS.md` / 对照报告 §18.3 #17·§18.4 M-5 / 优化执行计划 M-5 卡。
+补齐 spec 的 4 段关系路由 `GET …/relations/{eventId}/{relType}/{eventType}`（L-6，见 ⑥）；
+跨文档同批更正 `MSC_SEMANTICS.md` / 对照报告 §18.3 #17·§18.4 M-5·L-6 / 优化执行计划 M-5 卡。
 以下为 v1.9 的更新说明：随 `feature/2026-10-01-metrics-docs-updates` **合并进 `main`**，
 **重算 §1.1 / §二 / §三 三张分类表**（三口径 **1152 / 915 / 807**）并同步 §八 配方注释值；
 新入册 **MSC3720 账户状态** 客户端 + 联邦两条路由。不变更任何 MSC/功能判定。

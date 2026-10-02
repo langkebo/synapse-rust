@@ -11,7 +11,7 @@ use crate::routes::validators::{validate_event_id, validate_room_id};
 use crate::routes::{AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
-    routing::{get, put},
+    routing::get,
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -23,7 +23,15 @@ use synapse_services::relations_service::RelationQuery;
 fn create_relations_core_router() -> Router<AppState> {
     Router::new()
         .route("/rooms/{room_id}/relations/{event_id}/{rel_type}", get(get_relations))
-        .route("/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}", put(send_relation))
+        // Matrix spec 的 4 段路由有两条方法共用同一字面路径：`GET …/{relType}/{eventType}`
+        // 读关系、`PUT …/{relType}/{txnId}` 发关系。axum/matchit 会把路径参数名归一化，
+        // 二者归一化后同形，无法作为两条独立 `.route()` 注册（会 panic），必须合并进同一个
+        // `MethodRouter`；合并后两条方法共享同一路径串，故第 4 段参数名只能二选一，取
+        // `{event_type}`（贴合 spec 文档；`send_relation` 用位置元组取参，改名零影响）。
+        .route(
+            "/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
+            get(get_relations_with_event_type).put(send_relation),
+        )
         .route("/rooms/{room_id}/aggregations/{event_id}/{rel_type}", get(get_aggregations))
 }
 
@@ -130,6 +138,7 @@ async fn get_relations_by_event(
 
     let relation_query = RelationQuery {
         rel_type: None,
+        event_type: None,
         limit: Some(query.limit.unwrap_or(50).min(100) as i32),
         recurse: query.recurse_flag(),
         from: query.from,
@@ -176,6 +185,7 @@ async fn get_relations(
 
     let relation_query = RelationQuery {
         rel_type: Some(rel_type.clone()),
+        event_type: None,
         limit: Some(query.limit.unwrap_or(50).min(100) as i32),
         recurse: query.recurse_flag(),
         from: query.from,
@@ -183,6 +193,64 @@ async fn get_relations(
     };
 
     tracing::debug!("Getting relations for event {} in room {} with rel_type {}", event_id, room_id, rel_type);
+
+    let response = ctx.relations_service.get_relations(&room_id, &event_id, relation_query).await?;
+
+    Ok(Json(RelationsResponse {
+        chunk: response.chunk,
+        next_batch: response.next_batch,
+        prev_batch: response.prev_batch,
+        origin_server_ts: None,
+        total: response.total,
+        recursion_depth: response.recursion_depth,
+    }))
+}
+
+/// Get relations for an event, filtered by both `relType` and the related
+/// event's `eventType` — the stable 4-segment spec route
+/// `GET /rooms/{roomId}/relations/{eventId}/{relType}/{eventType}`.
+///
+/// `relType` is checked against the same whitelist as the 3-segment route.
+/// `eventType` is a free-form Matrix event type (no whitelist): clients may
+/// filter on any type of the related event, e.g. `m.room.message`.
+async fn get_relations_with_event_type(
+    State(ctx): State<RoomContext>,
+    auth_user: AuthenticatedUser,
+    Path((room_id, event_id, rel_type, event_type)): Path<(RoomId, EventId, String, String)>,
+    Query(query): Query<RelationsQuery>,
+) -> Result<Json<RelationsResponse>, ApiError> {
+    // Validate input
+    validate_room_id(&room_id)?;
+    validate_event_id(&event_id)?;
+
+    ensure_room_member_ctx(&ctx, &auth_user, &room_id, "User is not a member of the room").await?;
+
+    // Validate rel_type (same whitelist as the 3-segment route)
+    let valid_rel_types = ["m.reference", "m.replace", "m.thread", "m.annotation"];
+    if !valid_rel_types.contains(&rel_type.as_str()) {
+        return Err(ApiError::bad_request(format!(
+            "Invalid rel_type: {}. Must be one of: {}",
+            rel_type,
+            valid_rel_types.join(", ")
+        )));
+    }
+
+    let relation_query = RelationQuery {
+        rel_type: Some(rel_type.clone()),
+        event_type: Some(event_type.clone()),
+        limit: Some(query.limit.unwrap_or(50).min(100) as i32),
+        recurse: query.recurse_flag(),
+        from: query.from,
+        direction: query.direction.clone(),
+    };
+
+    tracing::debug!(
+        "Getting relations for event {} in room {} with rel_type {} and event_type {}",
+        event_id,
+        room_id,
+        rel_type,
+        event_type
+    );
 
     let response = ctx.relations_service.get_relations(&room_id, &event_id, relation_query).await?;
 
@@ -350,7 +418,7 @@ mod tests {
     fn test_relations_routes_structure() {
         let compat_routes = [
             "/_matrix/client/v1/relations/{room_id}/{event_id}/{rel_type}",
-            "/_matrix/client/v3/relations/{room_id}/{event_id}/{rel_type}/{txn_id}",
+            "/_matrix/client/v3/relations/{room_id}/{event_id}/{rel_type}/{event_type}",
             "/_matrix/client/v3/relations/{room_id}/{event_id}/{rel_type}",
             "/_matrix/client/v1/aggregations/{room_id}/{event_id}/{rel_type}",
             "/_matrix/client/v3/aggregations/{room_id}/{event_id}/{rel_type}",
@@ -364,7 +432,7 @@ mod tests {
     fn test_relations_compat_router_contains_shared_paths() {
         let shared_paths = [
             "/relations/{room_id}/{event_id}/{rel_type}",
-            "/relations/{room_id}/{event_id}/{rel_type}/{txn_id}",
+            "/relations/{room_id}/{event_id}/{rel_type}/{event_type}",
             "/aggregations/{room_id}/{event_id}/{rel_type}",
         ];
 

@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": true
   },
-  "entry_count": 1152,
+  "entry_count": 1154,
   "entries": [
     {
       "method": "GET",
@@ -1628,6 +1628,8 @@
         "dir",
         "from",
         "limit",
+        "org.matrix.msc3981.recurse",
+        "recurse",
         "to"
       ]
     },
@@ -1644,18 +1646,39 @@
         "dir",
         "from",
         "limit",
+        "org.matrix.msc3981.recurse",
+        "recurse",
         "to"
       ]
     },
     {
-      "method": "PUT",
-      "path": "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}",
+      "method": "GET",
+      "path": "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
       "registered_by": "relations",
       "path_params": [
         "room_id",
         "event_id",
         "rel_type",
-        "txn_id"
+        "event_type"
+      ],
+      "query_params": [
+        "dir",
+        "from",
+        "limit",
+        "org.matrix.msc3981.recurse",
+        "recurse",
+        "to"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
+      "registered_by": "relations",
+      "path_params": [
+        "room_id",
+        "event_id",
+        "rel_type",
+        "event_type"
       ],
       "query_params": []
     },
@@ -4472,6 +4495,8 @@
         "dir",
         "from",
         "limit",
+        "org.matrix.msc3981.recurse",
+        "recurse",
         "to"
       ]
     },
@@ -4488,18 +4513,39 @@
         "dir",
         "from",
         "limit",
+        "org.matrix.msc3981.recurse",
+        "recurse",
         "to"
       ]
     },
     {
-      "method": "PUT",
-      "path": "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}",
+      "method": "GET",
+      "path": "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
       "registered_by": "relations",
       "path_params": [
         "room_id",
         "event_id",
         "rel_type",
-        "txn_id"
+        "event_type"
+      ],
+      "query_params": [
+        "dir",
+        "from",
+        "limit",
+        "org.matrix.msc3981.recurse",
+        "recurse",
+        "to"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
+      "registered_by": "relations",
+      "path_params": [
+        "room_id",
+        "event_id",
+        "rel_type",
+        "event_type"
       ],
       "query_params": []
     },
