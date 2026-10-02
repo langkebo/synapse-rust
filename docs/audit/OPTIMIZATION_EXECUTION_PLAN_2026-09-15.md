@@ -856,11 +856,26 @@ fmt / sqlx / trait / web-layering 四个棘轮的扫描面扩到了新 crate，�
    是后续独立评估项，需先证明命中率。
 4. 判据：新增用例证明"同一输入第二次调用走 HIT 且结果不变"+"输入变化 ⇒ MISS 且结果随之变化"。
 
-**M-6 · `/relations` 支持 `recurse`**（报告 §18.3 #14）
+**M-6 · `/relations` 支持 `recurse`**（报告 §18.3 #14 / §18.6 V-11）
 
-- 新增查询参数（缺省行为不变），实现时把 `events` **join 进递归 CTE**（上游 #20182 的教训：递归后再
-  join 全表 = 大房间秒级）。新增递归 SQL 必须走 `bash scripts/ci/sqlx_prepare.sh` 并提交 `.sqlx` 增量（R2）。
-- 判据 V-11（`EXPLAIN (ANALYZE)` 证明 join 在递归内、无全表扫描）。
+**取证结论（2026-10-01）**：不是"功能面不同"，而是**合规客户端会被 400** ——
+`RelationsQuery` 带 `#[serde(deny_unknown_fields)]`，而 `recurse` 自 **spec v1.10 起已是稳定参数**；
+存储层是单层 keyset 且序为 `(origin_server_ts, event_id)`，而 MSC3981 要求**拓扑序**
+（= 同 `dir` 的 `/messages` 序，需要 `events.stream_ordering`）；全仓 `msc3981` 0 命中 ⇒
+`/versions` 也没广告 `org.matrix.msc3981`(`.stable`)。
+
+**交付物**：
+
+1. `RelationsQuery` 接受 `recurse` 与 `org.matrix.msc3981.recurse`（可选、默认 false；保留对其他未知参数的拒绝）。
+2. 存储层新增**递归 CTE**（静态 `query_as!`，R1）：
+   `event_relations` 与 `events` **在递归内** join（取 `stream_ordering` 作为拓扑序键），
+   `rel_type`/`event_type` 过滤**在递归步内**施加（只经不匹配中间节点可达的事件自然被剪掉），
+   keyset 分页落在 `(stream_ordering, event_id)` 上、`LIMIT` 绑定参数。
+3. `recurse=false` 走原查询（缺省行为逐字不变）；`recurse=true` 走递归查询。
+   ⚠️ **禁止**"接受参数但只返回一层"—— 那是静默截断，比如实 400 更危险。
+4. `/versions` 广告 `org.matrix.msc3981` 与 `org.matrix.msc3981.stable`。
+5. `.sqlx` 增量：新 SQL 必须走 `bash scripts/ci/sqlx_prepare.sh` 并随提交（R2）。
+6. 判据 V-11（MSC 示例图四组断言 + `EXPLAIN (ANALYZE)` 证明 join 在 CTE 内）。
 
 **L 系列**（低优先，可穿插）
 
