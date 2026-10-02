@@ -1025,8 +1025,7 @@ Execution Time: 0.287 ms（返回 14 行）
 - ❌ **但手改对 golden 车道不是 byte-exact**：`cargo nextest run --test unit -E 'test(ledger_export)'`
   → `default/worker/all_profile_matches_fixture` **3/3 FAIL**。原因是 artifact 的条目顺序与
   字段集不是"克隆 3 段条目再插到其后"能复现的 ⇒ **真导出不可省**。
-- 结论：Batch 1 的最小成本 = golden 3 次 `cargo run --bin synapse_ledger_export`（≈250 s/次）
-  + `generate_sdk_ledger_fixtures.sh`（all-extensions 首次编译）+ 路由改动后的集成重编 +
+- 结论：Batch 1 的最小成本 = golden 3 次 `cargo run --bin synapse_ledger_export`（≈250 s/次）加上 `generate_sdk_ledger_fixtures.sh`（all-extensions 首次编译）+ 路由改动后的集成重编 +
   `UPDATE_ROUTE_LEDGER_SNAPSHOTS=1` 快照 + 契约 gate + clippy 两档 ≈ **20+ min 墙钟**，
   **无法在一次 ≤600 s 工具调用内完成**；拆批的最小可停绿单元是
   ① golden default+worker ② golden all ③ SDK 车道 ④ 快照 ⑤ gate+提交。
