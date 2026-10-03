@@ -393,3 +393,134 @@ async fn beacon_hot_room_backpressure_load_smoke() {
     assert!(ok_count > 0, "expected at least one successful beacon update");
     assert!(limited_count > 0, "expected at least one 429 under hotspot room beacon load");
 }
+
+// ---------------------------------------------------------------------------
+// P-6 / V-10: third-party admission gate cost on the message send path
+// ---------------------------------------------------------------------------
+
+/// Admits everything, so a send still succeeds while the gate does its full work
+/// (build the rule context, consult the registry).
+struct PermissivePerfRule;
+
+#[async_trait::async_trait]
+impl synapse_services::module_service::ThirdPartyRule for PermissivePerfRule {
+    fn name(&self) -> &str {
+        "perf_permissive_rule"
+    }
+
+    async fn check(
+        &self,
+        _context: &synapse_services::module_service::ThirdPartyRuleContext,
+    ) -> Result<synapse_services::module_service::ThirdPartyRuleOutput, synapse_common::error::ApiError> {
+        Ok(synapse_services::module_service::ThirdPartyRuleOutput {
+            is_allowed: true,
+            reason: None,
+            modified_content: None,
+        })
+    }
+}
+
+/// Like [`setup_test_app`], but also hands back the admission gate so the caller
+/// can register a rule (the admin surface's entry point).
+async fn setup_test_app_with_gate() -> Option<(axum::Router, Arc<synapse_services::module_service::ModuleService>)> {
+    let pool = match synapse_test_utils::prepare_isolated_test_pool().await {
+        Ok(pool) => pool,
+        Err(error) => {
+            eprintln!("Skipping performance manual tests: isolated schema setup failed: {}", error);
+            return None;
+        }
+    };
+
+    let container = ServiceContainer::new_test_with_pool(pool).await;
+    let gate = container.admin.modules.module_service.clone();
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let state = AppState::new(container, cache);
+    Some((synapse_web::create_router(state), gate))
+}
+
+/// One `PUT /rooms/{room}/send/m.room.message/{txn}`, returning elapsed ms.
+///
+/// Every measured send must return 200: a rejected or errored send would
+/// "measure" fast and silently make the numbers meaningless.
+async fn timed_send(app: &axum::Router, token: &str, room_id: &str) -> f64 {
+    let txn = format!("perf_{}", uuid::Uuid::new_v4().simple());
+    let request = panic_on_err(
+        Request::builder()
+            .method("PUT")
+            .uri(format!("/_matrix/client/v3/rooms/{room_id}/send/m.room.message/{txn}"))
+            .header("Authorization", format!("Bearer {token}"))
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({ "msgtype": "m.text", "body": "perf" }).to_string())),
+        "send request should build",
+    );
+
+    let started = Instant::now();
+    let response = panic_on_err(app.clone().oneshot(with_local_connect_info(request)).await, "send should execute");
+    let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
+
+    assert_eq!(response.status(), StatusCode::OK, "every measured send must succeed");
+    elapsed_ms
+}
+
+async fn measure_sends(app: &axum::Router, token: &str, room_id: &str, count: usize) -> Vec<f64> {
+    let mut samples = Vec::with_capacity(count);
+    for _ in 0..count {
+        samples.push(timed_send(app, token, room_id).await);
+    }
+    // `total_cmp` rather than `partial_cmp(..).expect(..)`: elapsed milliseconds
+    // are always finite, but the workspace denies `clippy::expect_used` and a
+    // total order needs no panic path at all.
+    samples.sort_by(|a, b| a.total_cmp(b));
+    samples
+}
+
+fn percentile(sorted: &[f64], p: f64) -> f64 {
+    if sorted.is_empty() {
+        return f64::NAN;
+    }
+    let idx = ((sorted.len() as f64 - 1.0) * p).round() as usize;
+    sorted[idx.min(sorted.len() - 1)]
+}
+
+/// P-6 / V-10: report the send path's p50/p99 with and without a registered rule.
+///
+/// Manual target (excluded from CI), so this **reports** rather than asserting a
+/// latency budget — an absolute bound would be flaky on a shared machine. The
+/// only assertion is structural: every measured send must return 200.
+///
+/// Run:
+/// `cargo nextest run --features performance-tests --test performance_manual \
+///    admission_gate_send_latency -- --nocapture`
+#[tokio::test]
+async fn admission_gate_send_latency_p50_p99() {
+    const N: usize = 40;
+
+    let Some((app, gate)) = setup_test_app_with_gate().await else { return };
+    let token = create_test_user(&app).await;
+    let room_id = create_room(&app, &token).await;
+
+    // Baseline: no rule registered, so the gate short-circuits on
+    // `has_event_rules()` and never touches room state.
+    let baseline = measure_sends(&app, &token, &room_id, N).await;
+
+    // With a rule: every send now builds a rule context. Since P-6 that context is
+    // served from the shared `room_state:{room_id}` cache, so the steady state is a
+    // cache hit rather than a full room-state read per event.
+    gate.registry().write().await.register_third_party_rule(Arc::new(PermissivePerfRule));
+    let _ = timed_send(&app, &token, &room_id).await; // warm the state cache
+    let with_rules = measure_sends(&app, &token, &room_id, N).await;
+
+    eprintln!(
+        "admission gate send latency (n={N} per case, ms):\n  \
+         no rules   p50={:.2}  p99={:.2}  max={:.2}\n  \
+         rule on    p50={:.2}  p99={:.2}  max={:.2}\n  \
+         delta p99  {:+.2}",
+        percentile(&baseline, 0.50),
+        percentile(&baseline, 0.99),
+        baseline[baseline.len() - 1],
+        percentile(&with_rules, 0.50),
+        percentile(&with_rules, 0.99),
+        with_rules[with_rules.len() - 1],
+        percentile(&with_rules, 0.99) - percentile(&baseline, 0.99),
+    );
+}
