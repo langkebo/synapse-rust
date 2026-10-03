@@ -266,11 +266,17 @@ docker-build:
 	IMAGE=$$(grep -E '^SYNAPSE_IMAGE=' docker/.env | cut -d= -f2); \
 	TAG=$$(grep -E '^SYNAPSE_IMAGE_TAG=' docker/.env | cut -d= -f2); \
 	BUILDER=$${SYNAPSE_BUILDX_BUILDER:-amd64builder}; \
+	VERSION=$${VERSION:-$$(grep -E '^version = ' Cargo.toml | head -n1 | cut -d'"' -f2)}; \
+	BUILD_DATE=$$(date -u +%Y-%m-%dT%H:%M:%SZ); \
+	VCS_REF=$$(git rev-parse --short HEAD 2>/dev/null || echo unknown); \
 	echo "Building $${IMAGE}:$${TAG} (also tagged synapse-rust:latest) via $${BUILDER}..."; \
 	docker buildx build \
 	    --builder $${BUILDER} \
 	    --platform linux/amd64 \
 	    -f docker/Dockerfile \
+	    --build-arg VERSION=$${VERSION} \
+	    --build-arg BUILD_DATE=$${BUILD_DATE} \
+	    --build-arg VCS_REF=$${VCS_REF} \
 	    -t synapse-rust:latest \
 	    -t $${IMAGE}:$${TAG} \
 	    --load \
