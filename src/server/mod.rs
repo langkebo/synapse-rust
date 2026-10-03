@@ -23,6 +23,18 @@ use synapse_storage::*;
 mod database;
 mod router;
 mod services;
+
+/// The **production** router assembly: [`synapse_web::routes::create_router`]
+/// wrapped in the six server-level layers (body limit, HTTP RED metrics,
+/// request debug, request timeout, tracing, 413→`M_TOO_LARGE`).
+///
+/// Re-exported so tests can drive the same stack the server serves: the web
+/// crate's `create_router` alone omits every one of those layers, and for a long
+/// time the whole integration suite (and the manual perf probes) assembled the
+/// app that way, leaving the layers unexercised. See
+/// `tests/integration/server_router_assembly_tests.rs` and P-19 in
+/// `docs/synapse-rust-vs-synapse-comparison.md`.
+pub use router::build_router;
 /// The `telemetry` module.
 pub mod telemetry;
 

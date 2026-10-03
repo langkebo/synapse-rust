@@ -96,6 +96,7 @@ mod retention_storage_tests_migrated;
 mod room_alias_storage_tests_migrated;
 mod room_summary_storage_tests_migrated;
 mod room_tag_storage_tests_migrated;
+mod server_router_assembly_tests;
 mod sliding_sync_storage_tests_migrated;
 mod state_groups_backfill_tests;
 mod state_groups_idempotency_tests;
