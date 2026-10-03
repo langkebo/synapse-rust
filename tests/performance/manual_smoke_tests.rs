@@ -438,11 +438,8 @@ async fn setup_test_app_with_gate() -> Option<(axum::Router, Arc<synapse_service
     Some((synapse_web::create_router(state), gate))
 }
 
-/// One `PUT /rooms/{room}/send/m.room.message/{txn}`, returning elapsed ms.
-///
-/// Every measured send must return 200: a rejected or errored send would
-/// "measure" fast and silently make the numbers meaningless.
-async fn timed_send(app: &axum::Router, token: &str, room_id: &str) -> f64 {
+/// One `PUT /rooms/{room}/send/m.room.message/{txn}`, returning the response.
+async fn send_once(app: &axum::Router, token: &str, room_id: &str, body: &str) -> axum::response::Response {
     let txn = format!("perf_{}", uuid::Uuid::new_v4().simple());
     let request = panic_on_err(
         Request::builder()
@@ -450,12 +447,19 @@ async fn timed_send(app: &axum::Router, token: &str, room_id: &str) -> f64 {
             .uri(format!("/_matrix/client/v3/rooms/{room_id}/send/m.room.message/{txn}"))
             .header("Authorization", format!("Bearer {token}"))
             .header("Content-Type", "application/json")
-            .body(Body::from(json!({ "msgtype": "m.text", "body": "perf" }).to_string())),
+            .body(Body::from(json!({ "msgtype": "m.text", "body": body }).to_string())),
         "send request should build",
     );
+    panic_on_err(app.clone().oneshot(with_local_connect_info(request)).await, "send should execute")
+}
 
+/// One `PUT /rooms/{room}/send/m.room.message/{txn}`, returning elapsed ms.
+///
+/// Every measured send must return 200: a rejected or errored send would
+/// "measure" fast and silently make the numbers meaningless.
+async fn timed_send(app: &axum::Router, token: &str, room_id: &str) -> f64 {
     let started = Instant::now();
-    let response = panic_on_err(app.clone().oneshot(with_local_connect_info(request)).await, "send should execute");
+    let response = send_once(app, token, room_id, "perf").await;
     let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
 
     assert_eq!(response.status(), StatusCode::OK, "every measured send must succeed");
@@ -523,4 +527,78 @@ async fn admission_gate_send_latency_p50_p99() {
         with_rules[with_rules.len() - 1],
         percentile(&with_rules, 0.99) - percentile(&baseline, 0.99),
     );
+}
+
+/// A rule that never returns: the stand-in for a hung external policy server.
+struct HangingPerfRule;
+
+#[async_trait::async_trait]
+impl synapse_services::module_service::ThirdPartyRule for HangingPerfRule {
+    fn name(&self) -> &str {
+        "perf_hanging_rule"
+    }
+
+    async fn check(
+        &self,
+        _context: &synapse_services::module_service::ThirdPartyRuleContext,
+    ) -> Result<synapse_services::module_service::ThirdPartyRuleOutput, synapse_common::error::ApiError> {
+        // Far beyond any request budget: only a request layer could end this,
+        // and today none is wired (P-19).
+        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        Ok(synapse_services::module_service::ThirdPartyRuleOutput {
+            is_allowed: true,
+            reason: None,
+            modified_content: None,
+        })
+    }
+}
+
+/// P-6 / V-10 (+ P-19): is a message send bounded **at all** when a rule hangs?
+///
+/// Measured answer (2026-10-03): **no**. `request_timeout_middleware`
+/// (`synapse_web::middleware::security`) exists, is re-exported and has its own
+/// unit tests, but **is never applied in `routes::assembly::create_router`** — the
+/// only layers wired there are CORS/security-headers/method-not-allowed/
+/// compression/shadow-ban/csrf/rate-limit/request-id. So a hung third-party rule
+/// blocks the write path with no deadline: the first run of this test waited the
+/// rule's full 600s sleep and had to be killed.
+///
+/// That matters beyond a single stuck client: the gate is consulted on **inbound
+/// federated** writes too, so a hung policy server stalls the origin's
+/// transaction for as long as we hold the request, and every origin retry
+/// occupies another request slot.
+///
+/// The assertion below pins the *current* behaviour with a short outer bound
+/// (instead of hanging for the rule's sleep) so the defect is visible and cheap
+/// to re-check. When P-19 is fixed — wire the middleware in `create_router` —
+/// this must become:
+///
+/// ```ignore
+/// assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
+/// assert_eq!(json["errcode"], "M_REQUEST_TIMEOUT");
+/// ```
+///
+/// and the outer bound should be dropped.
+#[tokio::test]
+async fn admission_gate_hanging_rule_is_not_bounded_today() {
+    let Some((app, gate)) = setup_test_app_with_gate().await else { return };
+    let token = create_test_user(&app).await;
+    let room_id = create_room(&app, &token).await;
+
+    gate.registry().write().await.register_third_party_rule(Arc::new(HangingPerfRule));
+
+    let outcome =
+        tokio::time::timeout(std::time::Duration::from_secs(3), send_once(&app, &token, &room_id, "hang")).await;
+
+    match outcome {
+        Ok(response) => panic!(
+            "P-19 seems fixed: the send returned {} within 3s — flip this test to the \
+             408/M_REQUEST_TIMEOUT assertions written in its doc comment",
+            response.status()
+        ),
+        Err(_) => eprintln!(
+            "P-19 confirmed: a hung third-party rule left PUT /send unresolved for 3s \
+             (no request-timeout layer in create_router; the rule sleeps 30s)"
+        ),
+    }
 }
