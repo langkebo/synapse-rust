@@ -1220,7 +1220,6 @@ mod tests {
         assert_eq!(config.rules[0].blocked_event_types, vec!["m.room.redaction".to_string()]);
     }
 
-    #[test]
     /// `server.request_timeout_secs` / `long_poll_request_timeout_secs` 是**可选**配置：
     /// 缺省即交给消费方（`synapse_rust::server::build_router`）用
     /// `DEFAULT_REQUEST_TIMEOUT_SECS` / `DEFAULT_LONG_POLL_REQUEST_TIMEOUT_SECS` 兜底。

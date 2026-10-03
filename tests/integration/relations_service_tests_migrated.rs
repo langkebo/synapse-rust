@@ -67,6 +67,7 @@ async fn test_send_annotation() {
         sender: sender.clone(),
         key: "👍".to_string(),
         origin_server_ts: 1000,
+        txn_id: None,
     };
 
     let result = service.send_annotation(request).await.unwrap();
@@ -94,6 +95,7 @@ async fn test_send_annotation_content_includes_relates_to() {
         sender: sender.clone(),
         key: "❤️".to_string(),
         origin_server_ts: 2000,
+        txn_id: None,
     };
 
     let result = service.send_annotation(request).await.unwrap();
@@ -121,6 +123,7 @@ async fn test_send_reference() {
         content: serde_json::json!({"msgtype": "m.text", "body": "see this"}),
         origin_server_ts: 3000,
         relation_type: None,
+        txn_id: None,
     };
 
     let result = service.send_reference(request).await.unwrap();
@@ -148,6 +151,7 @@ async fn test_send_reference_with_custom_relation_type() {
         content: serde_json::json!({"body": "thread reply"}),
         origin_server_ts: 4000,
         relation_type: Some("m.thread".to_string()),
+        txn_id: None,
     };
 
     let result = service.send_reference(request).await.unwrap();
@@ -174,6 +178,7 @@ async fn test_send_reference_non_object_content_gets_replaced() {
         content: serde_json::json!("not an object"),
         origin_server_ts: 5000,
         relation_type: None,
+        txn_id: None,
     };
 
     let result = service.send_reference(request).await.unwrap();
@@ -197,6 +202,7 @@ async fn test_send_replacement() {
         sender: sender.clone(),
         new_content: serde_json::json!({"msgtype": "m.text", "body": "edited message"}),
         origin_server_ts: 6000,
+        txn_id: None,
     };
 
     let result = service.send_replacement(request).await.unwrap();
@@ -226,6 +232,7 @@ async fn test_send_replacement_second_edit_is_a_new_event() {
         sender: sender.clone(),
         new_content: serde_json::json!({"body": "first edit"}),
         origin_server_ts: 7000,
+        txn_id: None,
     };
     let first = service.send_replacement(request1).await.unwrap();
     let first_event_id = first.event_id.clone();
@@ -236,6 +243,7 @@ async fn test_send_replacement_second_edit_is_a_new_event() {
         sender: sender.clone(),
         new_content: serde_json::json!({"body": "second edit"}),
         origin_server_ts: 8000,
+        txn_id: None,
     };
     let second = service.send_replacement(request2).await.unwrap();
 
@@ -272,6 +280,7 @@ async fn test_send_replacement_different_senders_independent() {
         sender: sender_a.clone(),
         new_content: serde_json::json!({"body": "edit from A"}),
         origin_server_ts: 9000,
+        txn_id: None,
     };
     let result_a = service.send_replacement(request_a).await.unwrap();
 
@@ -281,6 +290,7 @@ async fn test_send_replacement_different_senders_independent() {
         sender: sender_b.clone(),
         new_content: serde_json::json!({"body": "edit from B"}),
         origin_server_ts: 10000,
+        txn_id: None,
     };
     let result_b = service.send_replacement(request_b).await.unwrap();
 
@@ -320,6 +330,7 @@ async fn test_get_relations_with_data() {
         sender: sender.clone(),
         key: "👍".to_string(),
         origin_server_ts: 11000,
+        txn_id: None,
     };
     service.send_annotation(request).await.unwrap();
 
@@ -348,6 +359,7 @@ async fn test_get_relations_filtered_by_type() {
         sender: sender.clone(),
         key: "👍".to_string(),
         origin_server_ts: 12000,
+        txn_id: None,
     };
     service.send_annotation(annotation_req).await.unwrap();
 
@@ -358,6 +370,7 @@ async fn test_get_relations_filtered_by_type() {
         content: serde_json::json!({"body": "ref"}),
         origin_server_ts: 13000,
         relation_type: None,
+        txn_id: None,
     };
     service.send_reference(reference_req).await.unwrap();
 
@@ -394,6 +407,7 @@ async fn test_get_relations_filtered_by_event_type() {
         sender: sender.clone(),
         key: "👍".to_string(),
         origin_server_ts: 12500,
+        txn_id: None,
     };
     service.send_annotation(annotation_req).await.unwrap();
 
@@ -404,6 +418,7 @@ async fn test_get_relations_filtered_by_event_type() {
         content: serde_json::json!({"body": "ref"}),
         origin_server_ts: 12600,
         relation_type: None,
+        txn_id: None,
     };
     service.send_reference(reference_req).await.unwrap();
 
@@ -452,6 +467,7 @@ async fn test_get_relations_with_limit() {
             sender,
             key: format!("emoji_{i}"),
             origin_server_ts: 14000 + i as i64,
+            txn_id: None,
         };
         service.send_annotation(request).await.unwrap();
     }
@@ -496,6 +512,7 @@ async fn test_get_aggregations_with_annotations() {
             sender,
             key: "👍".to_string(),
             origin_server_ts: 15000 + i as i64,
+            txn_id: None,
         };
         service.send_annotation(request).await.unwrap();
     }
@@ -507,6 +524,7 @@ async fn test_get_aggregations_with_annotations() {
         sender: sender_extra,
         key: "❤️".to_string(),
         origin_server_ts: 16000,
+        txn_id: None,
     };
     service.send_annotation(extra_req).await.unwrap();
 
@@ -537,6 +555,7 @@ async fn test_redact_relation_own_sender() {
         sender: sender.clone(),
         key: "👍".to_string(),
         origin_server_ts: 17000,
+        txn_id: None,
     };
     let annotation = service.send_annotation(request).await.unwrap();
 
@@ -565,6 +584,7 @@ async fn test_redact_relation_different_sender_forbidden() {
         sender: sender.clone(),
         key: "👍".to_string(),
         origin_server_ts: 18000,
+        txn_id: None,
     };
     let annotation = service.send_annotation(request).await.unwrap();
 
@@ -601,6 +621,7 @@ async fn test_annotation_exists_true() {
         sender: sender.clone(),
         key: "👍".to_string(),
         origin_server_ts: 19000,
+        txn_id: None,
     };
     service.send_annotation(request).await.unwrap();
 
@@ -625,6 +646,7 @@ async fn test_annotation_exists_false_different_sender() {
         sender: sender.clone(),
         key: "👍".to_string(),
         origin_server_ts: 20000,
+        txn_id: None,
     };
     service.send_annotation(request).await.unwrap();
 
@@ -662,6 +684,7 @@ async fn test_redacted_relation_excluded_from_get_relations() {
         sender: sender.clone(),
         key: "👍".to_string(),
         origin_server_ts: 21000,
+        txn_id: None,
     };
     let annotation = service.send_annotation(request).await.unwrap();
 
@@ -689,6 +712,7 @@ async fn test_redacted_annotation_excluded_from_exists() {
         sender: sender.clone(),
         key: "👍".to_string(),
         origin_server_ts: 22000,
+        txn_id: None,
     };
     let annotation = service.send_annotation(request).await.unwrap();
 
@@ -727,6 +751,7 @@ async fn test_get_aggregations_excludes_redacted() {
         sender: sender.clone(),
         key: "👍".to_string(),
         origin_server_ts: 23000,
+        txn_id: None,
     };
     let annotation = service.send_annotation(request).await.unwrap();
 
@@ -754,6 +779,7 @@ async fn test_multiple_annotations_same_key_aggregated() {
             sender,
             key: "🔥".to_string(),
             origin_server_ts: 24000 + i as i64,
+            txn_id: None,
         };
         service.send_annotation(request).await.unwrap();
     }
@@ -782,6 +808,7 @@ async fn test_get_relations_backward_direction() {
             sender,
             key: format!("emoji_{i}"),
             origin_server_ts: 25000 + i as i64,
+            txn_id: None,
         };
         service.send_annotation(request).await.unwrap();
     }
@@ -815,6 +842,7 @@ async fn test_send_replacement_content_structure() {
         sender: sender.clone(),
         new_content: new_content.clone(),
         origin_server_ts: 26000,
+        txn_id: None,
     };
 
     let result = service.send_replacement(request).await.unwrap();
@@ -940,6 +968,7 @@ async fn send_relation_event(
             content: serde_json::json!({"body": relation_type}),
             origin_server_ts,
             relation_type: Some(relation_type.to_string()),
+            txn_id: None,
         })
         .await
         .unwrap()
@@ -961,6 +990,7 @@ async fn send_reaction(
             sender: sender.to_string(),
             key: "👍".to_string(),
             origin_server_ts,
+            txn_id: None,
         })
         .await
         .unwrap()
