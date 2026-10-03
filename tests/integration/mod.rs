@@ -406,7 +406,7 @@ where
     configure(&mut container);
     let state = AppState::new(container, cache);
 
-    let app = synapse_web::create_router(state.clone());
+    let app = production_app(state.clone());
     Some((app, state))
 }
 
@@ -553,7 +553,7 @@ impl TestContext {
         // 否则 `setup_fresh_test_app*` 系列（TestContext::new().map(|ctx| ctx.app)）
         // 会立即 drop 租约 → 后台 TRUNCATE 清空 schema → 并发下被复用 → 数据竞态。
         state.test_schema_lease = lease.map(Arc::new);
-        let app = synapse_web::create_router(state.clone());
+        let app = production_app(state.clone());
         Some(Self { app, state, pool })
     }
 }
@@ -566,6 +566,21 @@ impl TestContext {
 /// ensure isolated AppState and CacheManager".
 pub async fn setup_fresh_test_app() -> Option<axum::Router> {
     TestContext::new().await.map(|ctx| ctx.app)
+}
+
+/// Build the app through the **production** router assembly.
+///
+/// `synapse_web::routes::create_router` is only the route table. The server wraps
+/// it in six layers — body limit, HTTP RED metrics, request debug, request
+/// timeout, tracing, and the 413→`M_TOO_LARGE` rewriter
+/// (`synapse_rust::server::router::build_router`). Assembling the harness the same
+/// way keeps those layers under test instead of hiding them; see P-19 in
+/// `docs/synapse-rust-vs-synapse-comparison.md` and
+/// `tests/integration/server_router_assembly_tests.rs` (which pins the two
+/// observables and would go red if this stopped going through `build_router`).
+pub fn production_app(state: synapse_web::routes::state::AppState) -> axum::Router {
+    let config = (*state.services.core.config).clone();
+    synapse_rust::server::build_router(state, &config)
 }
 
 /// Build a fresh test app with state, bypassing the OnceCell cache.
@@ -607,7 +622,7 @@ where
     let mut container = ServiceContainer::new_test_with_pool_and_cache(pool, cache.clone()).await;
     configure(&mut container);
     let state = AppState::new(container, cache);
-    let app = synapse_web::create_router(state.clone());
+    let app = production_app(state.clone());
     Some((app, state))
 }
 

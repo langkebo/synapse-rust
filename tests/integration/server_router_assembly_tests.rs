@@ -27,7 +27,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use tower::ServiceExt;
 
-use super::setup_fresh_test_app_with_state;
+use super::{create_test_user, setup_fresh_test_app_with_state};
 
 fn versions_request() -> Request<Body> {
     Request::builder()
@@ -73,5 +73,51 @@ async fn production_assembly_is_reachable_and_its_layers_are_observable() {
         metrics.http_requests_total.get(),
         before_production + 1,
         "the production assembly must record every non-excluded request"
+    );
+}
+
+/// The body limit and the 413→`M_TOO_LARGE` rewriter, end-to-end over HTTP.
+///
+/// The route must extract the body with something that surfaces a length-limit
+/// error as **413** — `Json` wraps it into its own `400` instead, and the media
+/// upload route has its own `DefaultBodyLimit` derived from the state config (and
+/// blocks on media storage in this harness). The receipts route takes `body:
+/// String`, so it is the one client route where the server-level limit and the
+/// rewriter are both observable.
+#[tokio::test]
+async fn production_body_limit_surfaces_as_matrix_too_large() {
+    let Some((bare_app, state)) = setup_fresh_test_app_with_state().await else {
+        return;
+    };
+    let token = create_test_user(&bare_app).await;
+
+    let mut config = (*state.services.core.config).clone();
+    config.server.max_upload_size = 1024;
+    let production_app = synapse_rust::server::build_router(state, &config);
+
+    // Syntactically valid IDs so the `Path` extractors pass and the body extractor
+    // (which is what enforces the limit) is actually reached.
+    let room_id = format!("!{}", "a".repeat(43));
+    let event_id = format!("${}", "a".repeat(43));
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/receipt/m.read/{event_id}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(vec![b'x'; 4 * 1024]))
+        .expect("the request must build");
+
+    let response = ServiceExt::<Request<Body>>::oneshot(production_app, request).await.expect("executes");
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 8 * 1024).await.expect("body reads");
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+    assert_eq!(
+        status,
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "a body over `server.max_upload_size` must be rejected with 413, got {status}: {json}"
+    );
+    assert_eq!(
+        json["errcode"], "M_TOO_LARGE",
+        "the production rewriter must turn the bare 413 into a Matrix error, got {json}"
     );
 }

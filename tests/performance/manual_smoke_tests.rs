@@ -12,6 +12,16 @@ use synapse_services::ServiceContainer;
 use synapse_web::routes::state::AppState;
 use tower::ServiceExt;
 
+/// Build the app through the **production** router assembly, exactly as the
+/// server does (`build_router`: body limit, HTTP RED metrics, request debug,
+/// request timeout, tracing, 413→`M_TOO_LARGE`). Measuring the bare web router
+/// would report numbers for an assembly nobody runs — see P-19 in
+/// `docs/synapse-rust-vs-synapse-comparison.md`.
+fn production_app(state: AppState) -> axum::Router {
+    let config = (*state.services.core.config).clone();
+    synapse_rust::server::build_router(state, &config)
+}
+
 fn panic_on_err<T, E: std::fmt::Display>(result: Result<T, E>, context: &str) -> T {
     result.unwrap_or_else(|e| panic!("{context}: {e}"))
 }
@@ -36,7 +46,7 @@ async fn setup_test_app() -> Option<axum::Router> {
     let container = ServiceContainer::new_test_with_pool(pool).await;
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
-    Some(synapse_web::create_router(state))
+    Some(production_app(state))
 }
 
 async fn create_test_user(app: &axum::Router) -> String {
@@ -435,7 +445,7 @@ async fn setup_test_app_with_gate() -> Option<(axum::Router, Arc<synapse_service
     let gate = container.admin.modules.module_service.clone();
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
-    Some((synapse_web::create_router(state), gate))
+    Some((production_app(state), gate))
 }
 
 /// One `PUT /rooms/{room}/send/m.room.message/{txn}`, returning the response.
@@ -563,17 +573,14 @@ impl synapse_services::module_service::ThirdPartyRule for HangingPerfRule {
 /// than the client waiting out the whole request budget and getting an unrelated
 /// `408 M_REQUEST_TIMEOUT`.
 ///
-/// Two harness facts worth knowing when reading the numbers:
-///
-/// * This manual target (like the integration suite) assembles the app with
-///   `synapse_web::create_router`, which does **not** include the layers the
-///   production server adds in `synapse_rust::server::router::build_router`
-///   (`RequestBodyLimitLayer`, the HTTP-RED metrics layer, `request_debug`,
-///   `request_timeout`, `TraceLayer`, and the 413→`M_TOO_LARGE` rewriter). So the
-///   30s request timeout is not in play here — which is exactly why the
-///   rule-level deadline has to exist.
-/// * Before that deadline existed the send blocked for the rule's full sleep
-///   (the first version of this probe waited 600s and had to be killed).
+/// The target now assembles the app through the production stack
+/// (`synapse_rust::server::build_router`, same as the integration harness), so a
+/// send is bounded by *both* deadlines — the rule's own (2s default, this is what
+/// the assertion below sees) and the server's request timeout (30s, whole
+/// request). The rule deadline firing first is the point: before it existed the
+/// send blocked for the rule's full sleep (the first version of this probe waited
+/// 600s and had to be killed) and the client would have received an unrelated
+/// `408 M_REQUEST_TIMEOUT` only after the request budget ran out.
 ///
 /// Run: `TEST_DATABASE_URL=... cargo nextest run --features performance-tests,test-utils \
 ///        --test performance_manual admission_gate_hanging_rule --nocapture`

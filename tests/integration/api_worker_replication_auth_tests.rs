@@ -19,7 +19,7 @@ async fn setup_test_app_with_replication_secret() -> Option<(axum::Router, Strin
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
-    let app = synapse_web::create_router(state);
+    let app = super::production_app(state);
 
     let (admin_token, _admin_user) = super::get_admin_token(&app).await;
     let worker_id = format!("worker-{}", rand::random::<u32>());
@@ -124,7 +124,7 @@ async fn test_worker_body_endpoints_are_not_mounted_when_replication_http_disabl
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
-    let app = synapse_web::create_router(state);
+    let app = super::production_app(state);
 
     let (admin_token, _admin_user) = super::get_admin_token(&app).await;
     let worker_id = format!("worker-{}", rand::random::<u32>());
