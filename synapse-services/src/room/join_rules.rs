@@ -21,6 +21,22 @@
 //!
 //! The semantics are fail-closed by construction: malformed input yields fewer
 //! rooms, never more.
+//!
+//! # Which grammar decides "well-formed"
+//!
+//! [`synapse_common::room_id`] is the repo's single room-ID grammar, and both
+//! accepted forms matter here:
+//!
+//! * legacy `!opaque:server` (room versions 1–11), and
+//! * domainless `!` + 43 URL-safe base64 chars (room v12 / MSC4291) — the only
+//!   form this server *creates*, so its `allow` entries are always domainless.
+//!
+//! This module used to carry its own colon-requiring check, which dropped every
+//! domainless ID: `allowed_room_ids` was always empty and the restricted-join
+//! gate could never authorise (found by the V-7 interop run, 2026-10-03). Upstream
+//! Synapse performs no syntax validation at all here — it only requires a string
+//! `room_id` — so delegating to the canonical grammar is both stricter than
+//! "accept anything" and correct for v12.
 
 use serde_json::Value;
 
@@ -30,9 +46,10 @@ pub(crate) const RESTRICTED_JOIN_RULES: [&str; 2] = ["restricted", "knock_restri
 /// Extract allowed room IDs from the `allow` array of a `m.room.join_rules`
 /// state event. For `restricted` / `knock_restricted` rules this returns the
 /// list of rooms whose `m.room_membership` grants join rights as per MSC3083.
-/// Returns deduped room IDs, validated for basic syntax. Entries whose `type`
-/// is not `m.room_membership` (or missing, which defaults to that type) are
-/// ignored. Malformed IDs are silently dropped (fail-closed).
+/// Returns deduped room IDs, each well-formed under the canonical room-ID
+/// grammar ([`synapse_common::room_id::is_well_formed_room_id`]). Entries whose
+/// `type` is not `m.room_membership` (or missing, which defaults to that type)
+/// are ignored. Malformed IDs are silently dropped (fail-closed).
 ///
 /// The output is sorted so downstream consumers (and the `/summary` wire
 /// payload) are deterministic instead of declaration-order dependent.
@@ -51,7 +68,11 @@ pub(crate) fn extract_allowed_join_rooms(content: &Value) -> Vec<String> {
                 return None;
             }
             let room_id = entry.get("room_id").and_then(|v| v.as_str())?;
-            if !is_valid_matrix_id(room_id) {
+            // Well-formedness is the canonical grammar's call, not this module's:
+            // room v12 (MSC4291) IDs are `!` + 43 URL-safe base64 chars with no
+            // `:server`, and a local colon-requiring check silently dropped every
+            // room this server creates (V-7a).
+            if !synapse_common::room_id::is_well_formed_room_id(room_id) {
                 return None;
             }
             Some(room_id.to_string())
@@ -77,41 +98,6 @@ pub(crate) fn extract_allowed_room_ids(join_rules_content: &Value) -> Option<Vec
     }
 
     Some(extract_allowed_join_rooms(join_rules_content))
-}
-
-/// Minimal Matrix ID validation for room IDs (and aliases) used in `allow` entries.
-/// - Must start with '!' or '#'
-/// - Contains a ':' separating localpart from server
-///
-/// This is intentionally conservative: we only need the room ID syntax for
-/// federation lookups, not a full Matrix ID parser.
-pub(crate) fn is_valid_matrix_id(id: &str) -> bool {
-    if id.is_empty() {
-        return false;
-    }
-    let sigil = id.chars().next().unwrap_or('\0');
-    if sigil != '!' && sigil != '#' {
-        return false;
-    }
-    // Find the last ':' to split localpart from server (servers may contain ':')
-    let Some(pos) = id.rfind(':') else { return false };
-    if pos <= 1 {
-        // at least one char localpart
-        return false;
-    }
-    let server = &id[pos + 1..];
-    if server.is_empty() {
-        return false;
-    }
-    // Basic server name checks (reject path separators/whitespace/control)
-    if server.contains('/') || server.contains('\\') || server.contains(' ') || server.contains('\0') {
-        return false;
-    }
-    if server.len() > 253 {
-        return false;
-    }
-    // Allowed charset for a server name (case matters only for comparison but we accept it)
-    server.bytes().all(|b| matches!(b, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'.' | b'-' | b'_' | b':'))
 }
 
 #[cfg(test)]

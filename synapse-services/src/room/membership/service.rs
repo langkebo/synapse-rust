@@ -846,7 +846,6 @@ impl MembershipService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::room::join_rules::is_valid_matrix_id;
 
     // ── user_server_name ───────────────────────────────────────────
 
@@ -990,23 +989,34 @@ mod tests {
         assert_eq!(rooms, vec!["!good:example.com".to_string()]);
     }
 
+    /// V-7a: a room v12 (MSC4291) room ID is `!` + 43 URL-safe base64 characters
+    /// with **no** `:server` part. Every room this server creates uses that form,
+    /// so a parser that insists on a colon drops every entry — `allowed_room_ids`
+    /// is then always empty and the restricted-join gate can never authorise.
     #[test]
-    fn valid_matrix_id_accepts_sigil_with_server() {
-        assert!(is_valid_matrix_id("!room:example.com"));
-        assert!(is_valid_matrix_id("#alias:example.com"));
-        // Servers may carry ports (colons) — still valid via rfind split.
-        assert!(is_valid_matrix_id("!room:example.com:8448"));
+    fn extract_allow_accepts_domainless_room_v12_ids() {
+        let space = format!("!{}", "aZ0-_".repeat(8) + "aZ0"); // 43 base64 chars
+        let rooms = extract_allowed_join_rooms(&json!({
+            "join_rule": "restricted",
+            "allow": [{"type": "m.room_membership", "room_id": space}]
+        }));
+        assert_eq!(rooms, vec![space]);
     }
 
+    /// The legacy `!opaque:server` form stays accepted, and the grammar is the
+    /// canonical one in both directions: upstream's `DomainSpecificString`
+    /// regex rejects a second `:`, so a port-bearing string is malformed here too.
     #[test]
-    fn valid_matrix_id_rejects_bad_shapes() {
-        assert!(!is_valid_matrix_id(""));
-        assert!(!is_valid_matrix_id("@user:example.com")); // user sigil not accepted here
-        assert!(!is_valid_matrix_id("!onlylocal")); // no server separator
-        assert!(!is_valid_matrix_id("!:example.com")); // empty localpart
-        assert!(!is_valid_matrix_id("!room:")); // empty server
-        assert!(!is_valid_matrix_id("!room:exa mple.com")); // whitespace in server
-        assert!(!is_valid_matrix_id("!room:exa/mple.com")); // path separator in server
+    fn extract_allow_follows_the_canonical_room_id_grammar() {
+        let accepted = extract_allowed_join_rooms(&json!({
+            "allow": [{"type": "m.room_membership", "room_id": "!room:example.com"}]
+        }));
+        assert_eq!(accepted, vec!["!room:example.com".to_string()]);
+
+        let rejected = extract_allowed_join_rooms(&json!({
+            "allow": [{"type": "m.room_membership", "room_id": "!room:example.com:8448"}]
+        }));
+        assert!(rejected.is_empty(), "a second colon is not part of either room-ID form");
     }
 
     // ── authorize_inbound_member_transition (federation S5 gap 2) ──────
