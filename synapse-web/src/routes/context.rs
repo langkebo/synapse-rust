@@ -65,7 +65,7 @@ impl FromRef<AppState> for CoreContext {
 #[derive(Clone)]
 pub struct RoomContext {
     /// The `room_service` field.
-    pub room_service: Arc<dyn synapse_services::room::RoomServiceApi>,
+    pub room_service: Arc<synapse_services::room::RoomService>,
     /// The `validator` field.
     pub validator: Arc<synapse_common::validation::Validator>,
     /// The `token_auth` field.
@@ -204,7 +204,7 @@ impl FromRef<AppState> for RoomContext {
 #[derive(Clone)]
 pub struct E2eeRoomContext {
     /// The `room_service` field.
-    pub room_service: Arc<dyn synapse_services::room::RoomServiceApi>,
+    pub room_service: Arc<synapse_services::room::RoomService>,
     /// The `e2ee_backup_service` field.
     pub e2ee_backup_service: synapse_e2ee::backup::KeyBackupService,
     /// The `secure_backup_service` field.
@@ -326,7 +326,7 @@ pub struct DeviceContext {
     /// The `account_device_list_service` field.
     pub account_device_list_service: Arc<synapse_services::account_device_list_service::AccountDeviceListService>,
     /// The `room_service` field.
-    pub room_service: Arc<dyn synapse_services::room::RoomServiceApi>,
+    pub room_service: Arc<synapse_services::room::RoomService>,
     /// The `uia_service` field.
     pub uia_service: Arc<synapse_services::uia_service::UiaService>,
     /// The `event_broadcaster` field.
@@ -499,7 +499,7 @@ pub struct AdminContext {
     pub media_service: synapse_services::media_service::MediaService,
     // Room & sync
     /// The `room_service` field.
-    pub room_service: Arc<dyn synapse_services::room::RoomServiceApi>,
+    pub room_service: Arc<synapse_services::room::RoomService>,
     /// The `sliding_sync_service` field.
     pub sliding_sync_service: Arc<synapse_services::sliding_sync_service::SlidingSyncService>,
     /// The `space_service` field.
@@ -697,7 +697,7 @@ pub struct FederationContext {
     /// The `metrics` field.
     pub metrics: Arc<synapse_common::metrics::MetricsCollector>,
     /// The `room_service` field.
-    pub room_service: Arc<dyn synapse_services::room::RoomServiceApi>,
+    pub room_service: Arc<synapse_services::room::RoomService>,
     /// The `space_service` field.
     pub space_service: Arc<synapse_services::room::space::SpaceService>,
     /// The `registration_service` field.
@@ -828,7 +828,7 @@ pub struct MediaContext {
     /// The `media_domain_service` field.
     pub media_domain_service: Arc<synapse_services::media::MediaDomainService>,
     /// The `room_service` field.
-    pub room_service: Arc<dyn synapse_services::room::RoomServiceApi>,
+    pub room_service: Arc<synapse_services::room::RoomService>,
     /// The `federation_client` field.
     pub federation_client: Arc<dyn synapse_federation::client_api::FederationClientApi>,
     /// The `account_identity_service` field.
@@ -973,7 +973,7 @@ pub struct FriendContext {
     /// The `user_service` field.
     pub user_service: Arc<synapse_services::account::UserService>,
     /// The `room_service` field.
-    pub room_service: Arc<dyn synapse_services::room::RoomServiceApi>,
+    pub room_service: Arc<synapse_services::room::RoomService>,
     /// The `admin_audit_service` field.
     pub admin_audit_service: Option<Arc<synapse_services::admin::AdminAuditService>>,
     /// The `account_identity_service` field.

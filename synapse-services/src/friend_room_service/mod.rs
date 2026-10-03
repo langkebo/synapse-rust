@@ -1221,7 +1221,7 @@ impl FriendRoomService {
                 #[allow(clippy::needless_borrow)]
                 async move {
                     Self::send_state_event_inner(
-                        &*room_service,
+                        &room_service,
                         &server_name,
                         &room_id,
                         &user_id,
@@ -1254,7 +1254,7 @@ impl FriendRoomService {
     /// callers can clone the reference for concurrent execution.
     #[allow(clippy::needless_borrow)]
     async fn send_state_event_inner(
-        room_service: &(dyn crate::room::RoomServiceApi + '_),
+        room_service: &crate::room::RoomService,
         server_name: &str,
         room_id: &str,
         user_id: &str,
@@ -1369,7 +1369,7 @@ impl FriendRoomService {
         content: serde_json::Value,
     ) -> Result<(), FriendRoomError> {
         Self::send_state_event_inner(
-            &*self.room_service,
+            &self.room_service,
             &self.server_name,
             room_id,
             user_id,

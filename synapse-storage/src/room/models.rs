@@ -236,12 +236,6 @@ pub struct Room {
     pub history_visibility: String,
     /// The `created_ts` field.
     pub created_ts: i64,
-    /// The `is_federatable` field.
-    pub is_federatable: bool,
-    /// The `is_spotlight` field.
-    pub is_spotlight: bool,
-    /// The `is_flagged` field.
-    pub is_flagged: bool,
 }
 
 /// The `RoomEncryptionStatus` struct.
@@ -420,9 +414,6 @@ impl RoomStorage {
                     .clone()
                     .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
                 created_ts: row.created_ts,
-                is_federatable: true,
-                is_spotlight: false,
-                is_flagged: false,
             })
             .collect())
     }

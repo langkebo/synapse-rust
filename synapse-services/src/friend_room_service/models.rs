@@ -6,7 +6,7 @@ use synapse_cache::CacheManager;
 use synapse_federation::friend::FriendFederationClient;
 use synapse_storage::UserStore;
 
-use crate::room::RoomServiceApi;
+use crate::room::RoomService;
 
 /// The `FriendListRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -342,7 +342,7 @@ pub struct FriendRoomServiceConfig {
     /// Friend room persistence.
     pub friend_storage: Arc<synapse_storage::friend_room::FriendRoomStorage>,
     /// Room lifecycle operations.
-    pub room_service: Arc<dyn RoomServiceApi>,
+    pub room_service: Arc<RoomService>,
     /// User profile lookups.
     pub user_storage: Arc<dyn UserStore>,
     /// Presence (online status) lookups.
@@ -358,7 +358,7 @@ pub struct FriendRoomServiceConfig {
 /// The `FriendRoomService` struct.
 pub struct FriendRoomService {
     pub(crate) friend_storage: Arc<synapse_storage::friend_room::FriendRoomStorage>,
-    pub(crate) room_service: Arc<dyn RoomServiceApi>,
+    pub(crate) room_service: Arc<RoomService>,
     pub(crate) user_storage: Arc<dyn UserStore>,
     pub(crate) presence_storage: std::sync::Arc<dyn synapse_storage::presence::PresenceStoreApi>,
     pub(crate) account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,

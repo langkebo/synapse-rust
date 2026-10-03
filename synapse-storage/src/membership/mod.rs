@@ -8,6 +8,23 @@ use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
+/// Count the joined members of a room.
+///
+/// Shared cross-layer helper: `room_memberships` is owned by this module, but the
+/// joined-member count is also needed by `RoomStorage::get_single_room_stats` and
+/// `BeaconStorage::get_joined_member_count`. Keeping the single copy of the SQL
+/// here stops the three copies from drifting apart.
+pub(crate) async fn count_joined_room_members(pool: &Pool<Postgres>, room_id: &str) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar!(
+        r#"
+            SELECT COALESCE(COUNT(*), 0) AS "count!" FROM room_memberships WHERE room_id = $1 AND membership = 'join'
+            "#,
+        room_id,
+    )
+    .fetch_one(pool)
+    .await
+}
+
 /// The `RoomMember` struct.
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct RoomMember {
@@ -200,15 +217,7 @@ impl RoomMemberStorage {
 
     /// See [`get_room_member_count`].
     pub async fn get_room_member_count(&self, room_id: &str) -> Result<i64, sqlx::Error> {
-        let count = sqlx::query_scalar!(
-            r#"
-            SELECT COALESCE(COUNT(*), 0) AS "count!" FROM room_memberships WHERE room_id = $1 AND membership = 'join'
-            "#,
-            room_id,
-        )
-        .fetch_one(&*self.pool)
-        .await?;
-        Ok(count)
+        count_joined_room_members(&self.pool, room_id).await
     }
 
     /// See [`get_room_members_paginated`].

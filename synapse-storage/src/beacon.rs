@@ -482,16 +482,7 @@ impl BeaconStorage {
 
     /// See [`get_joined_member_count`].
     pub async fn get_joined_member_count(&self, room_id: &str) -> Result<i64, sqlx::Error> {
-        sqlx::query_scalar!(
-            r#"
-            SELECT COALESCE(COUNT(*), 0) AS "count!"
-            FROM room_memberships
-            WHERE room_id = $1 AND membership = 'join'
-            "#,
-            room_id,
-        )
-        .fetch_one(&*self.pool)
-        .await
+        crate::membership::count_joined_room_members(&self.pool, room_id).await
     }
 
     /// See [`get_beacon_with_locations`].

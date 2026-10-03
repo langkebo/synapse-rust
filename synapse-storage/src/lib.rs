@@ -444,9 +444,6 @@ mod tests {
             history_visibility: "shared".to_string(),
             created_ts: 1234567890,
             avatar_url: None,
-            is_federatable: true,
-            is_spotlight: false,
-            is_flagged: false,
         };
         assert_eq!(room.room_id, "!test:example.com");
         assert_eq!(room.join_rule, "invite");
@@ -518,9 +515,6 @@ mod tests {
             member_count: 0,
             history_visibility: "joined".to_string(),
             created_ts: 0,
-            is_federatable: true,
-            is_spotlight: false,
-            is_flagged: false,
             avatar_url: None,
         };
         assert!(room.is_public);

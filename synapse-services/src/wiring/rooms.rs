@@ -36,7 +36,7 @@ pub struct RoomSyncServices {
     /// The `beacon_service` field.
     pub beacon_service: Arc<crate::beacon_service::BeaconService>,
     /// The `room_service` field.
-    pub room_service: Arc<dyn crate::room::RoomServiceApi>,
+    pub room_service: Arc<crate::room::RoomService>,
     /// The `sync_service` field.
     pub sync_service: Arc<dyn crate::sync_service::SyncServiceApi>,
     /// The `sliding_sync_service` field.

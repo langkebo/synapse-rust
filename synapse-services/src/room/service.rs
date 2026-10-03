@@ -284,6 +284,26 @@ impl RoomService {
         &self.room_summary_service
     }
 
+    /// See [`membership`].
+    pub fn membership(&self) -> &MembershipService {
+        &self.membership
+    }
+
+    /// See [`messaging`].
+    pub fn messaging(&self) -> &MessagingService {
+        &self.messaging
+    }
+
+    /// See [`state`].
+    pub fn state(&self) -> &RoomStateService {
+        &self.state
+    }
+
+    /// See [`lifecycle`].
+    pub fn lifecycle(&self) -> &LifecycleService {
+        &self.lifecycle
+    }
+
     /// See [`cleanup_completed_tasks`].
     pub async fn cleanup_completed_tasks(&self) -> usize {
         let mut tasks = self.active_tasks.write().await;

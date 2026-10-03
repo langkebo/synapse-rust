@@ -202,6 +202,7 @@ cargo test --test unit --features test-utils e2ee_api_tests
 - `tests/e2e/mod.rs` 已接入独立测试入口 `e2e`
 - `tests/unit/` 与 `tests/integration/` 的实际执行范围仍受各自 `mod.rs` 接线控制
 - **已知问题**：部分集成测试在高并发时会因数据库连接池耗尽而失败，使用 `--test-threads=1` 或 `--test-threads=2` 可避免此问题。详见 `docs/INDEX.md` 第 3.1 节。
+- **不要用 `cargo nextest run` 跑本地全量集成**：nextest 一用例一进程，`synapse-test-utils` 进程内的 `SCHEMA_POOL` 无法跨用例复用，每个用例都要完整克隆 ~255 表模板（实测 40–88s/例，全量 ~5.9h）。`cargo test` 单进程跑同一二进制时池生效，实测 ~0.26s/例。详见 §9.1.1。
 - `cargo test --test unit --features test-utils e2ee_api_tests` 会默认以 `TEST_ISOLATED_SCHEMAS=1` 顺序运行 3 条 `test_key_changes_*` 精确用例，以及 `test_sync_device_lists_`、`sliding_sync_extensions_e2ee_` 两组 composite regression，适合作为 nightly smoke 或本地回归入口
 - `user_flow_tests.rs` 真实 HTTP 流程依赖运行中的服务与 `E2E_RUN=1`，当前应通过 `#[ignore]` + 显式执行方式运行，而不是默认早退后显示通过
 - `tests/performance/mod.rs` 已拆分为手动性能测试入口 `performance_manual`，仅在显式启用 `--features performance-tests` 时执行
@@ -654,34 +655,37 @@ bash scripts/cleanup_test_schemas.sh --apply
 >
 > 完整报告与实测原始输出：`docs/audit/P5_test_schema_accumulation_2026-09-12.md`。
 
-#### ⚠️ 目前**没有**自动回收机制，泄漏仍在持续
+#### ✅ 自动回收现状（2026-10-03 复核，口径已更新）
 
-2026-09-12 在独立临时集群上实测（干净库，跑 14 个 `oidc_session_storage` 用例）：
+2026-09-12 的结论「**没有**自动回收机制」**已过时**。此后 schema 清理统一收敛到
+`synapse_common::test_schema_guard`（janitor 监视 `Weak<PgPool>` + `atexit` 兜底 +
+进程退出时 drain 池），三条建 schema 的路径
+（`prepare_shared_test_pool` / `prepare_isolated_test_pool` /
+`prepare_empty_isolated_test_pool`）都会调用 `register_schema_cleanup`。
 
-| 轮次 | `test_*` schema 数 |
-|---|---|
-| 基线 | 0 |
-| 第 1 次运行 | **8** |
-| 第 2 次运行 | **16** |
+但**两种跑法的表现天差地别**，这是本地全量测试耗时的决定性因素：
 
-**每轮 +8，跨轮线性增长，永不回收。**
+| 跑法 | 进程模型 | `SCHEMA_POOL` | 单例耗时（实测） | 残留 |
+|---|---|---|---|---|
+| `cargo test --test integration` | **单进程多线程** | ✅ 命中复用 | **~0.26s**（22 例 5.62s） | ~1（退出 drain） |
+| `cargo nextest run` | **一用例一进程** | ❌ 永不命中 | **40–88s** | 超时被 SIGKILL 时仍泄漏 |
 
-代码里看起来存在三套"drop-on-release 登记 + sweep"机制
-（`synapse-test-utils/src/lib.rs`、`synapse-services/src/test_utils.rs`、
-`synapse-storage/src/test_utils.rs`），但它们**对本场景无效**：
+- nextest 每个用例 fork 一个进程；进程内 `static SCHEMA_POOL` **取一次、建一个
+  schema、进程就退出**，「下一次取池」永不发生 ⇒ 每个用例都付一次完整
+  `clone_schema_from_template()`（~255 表 / ~1197 对象）⇒ 40–88s/例。
+- `cargo test` 下整个集成二进制跑在**同一进程**，池命中：前 N（N=并行度）例克隆，
+  其余 `TRUNCATE`（~1.5s）后复用。
+- 被 `slow-timeout` 强杀（SIGKILL）的用例仍会漏掉退出钩子 ⇒ 该 schema 仍泄漏，
+  所以定期清理仍需要，只是不再是唯一防线。
 
-- `sweep` 的触发时机是"**下一次**取池时"；
-- 而 nextest **一个用例一个进程** —— 进程取一次池、建一个 schema、然后退出，
-  **"下一次取池"永远不会发生**；
-- 登记表是**进程内** static，sweep 又不在进程退出时执行，于是随进程一起消失。
+**操作建议（双轨）：**
 
-**因此不要依赖代码自动回收，必须定期跑上面的清理脚本（或重建测试库）。**
-正确修法（未实现）是让 `prepare_empty_isolated_test_pool` 返回一个持有 schema 名
-的**守卫对象**由调用方 drop（即 `synapse-storage/src/test_isolation.rs` 里
-`IsolatedTestPool` 已被验证有效的形状：`spawn` + **join**），或让这批用例改走共享
-模板夹具。详见报告 §9（含"为什么两种看起来合理的修法都失败"的记录：
-按进程稳定命名只把泄漏从"每次调用"降到"每进程"；而 `static` + `impl Drop` 是死代码
-——**Rust 不会 drop 文件级 static**）。
+- **本地全量**：用 `cargo test`（单进程 ⇒ 池生效），不要用 nextest 跑全量。
+- **CI 门禁**：保留 nextest（一用例一进程，隔离性/稳定性更好）。**不要**为提高
+  吞吐把 `test-threads` 提到 ≥6 —— 共享锁表在 6 线程即爆 `53200 out of shared memory`。
+
+> 旧版「正确修法（未实现）是让 `prepare_empty_isolated_test_pool` 返回守卫对象」
+> 一段已作废：守卫对象（`SchemaCleanup::release_or_exit_drop` + janitor）现已实现。
 
 ### 9.2 CI测试环境
 

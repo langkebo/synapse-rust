@@ -10,8 +10,6 @@
 //   pub use room::summary as room_summary_service;
 //   pub use room::space as space_service;
 
-/// The `api_trait` module.
-pub mod api_trait;
 /// The `backfill` module.
 pub mod backfill;
 /// Outbound federation PDU construction/broadcast (single implementation).
@@ -43,8 +41,6 @@ pub use state_record::ResolutionCache;
 pub mod summary;
 /// The `utils` module.
 pub mod utils;
-
-pub use api_trait::RoomServiceApi;
 
 // Room domain group — re-exports room sub-module types and sibling room-related
 // service modules (typing_service) under `room::` so that

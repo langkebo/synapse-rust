@@ -77,9 +77,6 @@ impl InMemoryRoomStore {
                 member_count: 0,
                 history_visibility: "shared".to_string(),
                 created_ts: 1_700_000_000_000,
-                is_federatable: true,
-                is_spotlight: false,
-                is_flagged: false,
             },
         );
         Ok(())

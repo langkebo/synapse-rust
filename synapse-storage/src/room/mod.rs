@@ -225,9 +225,6 @@ impl RoomStorage {
                 member_count: row.member_count.unwrap_or(0),
                 history_visibility: row.history_visibility.unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
                 created_ts: row.created_ts,
-                is_federatable: true,
-                is_spotlight: false,
-                is_flagged: false,
             }))
         } else {
             tracing::warn!(room_id = %room_id, "Room not found");
@@ -274,9 +271,6 @@ impl RoomStorage {
                     .clone()
                     .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
                 created_ts: row.created_ts,
-                is_federatable: true,
-                is_spotlight: false,
-                is_flagged: false,
             })
             .collect())
     }
@@ -375,9 +369,6 @@ impl RoomStorage {
                     .clone()
                     .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
                 created_ts: row.created_ts,
-                is_federatable: true,
-                is_spotlight: false,
-                is_flagged: false,
             })
             .collect())
     }
@@ -522,9 +513,6 @@ impl RoomStorage {
                             .clone()
                             .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
                         created_ts: row.created_ts,
-                        is_federatable: true,
-                        is_spotlight: false,
-                        is_flagged: false,
                     },
                     row.joined_members.unwrap_or(0),
                 )

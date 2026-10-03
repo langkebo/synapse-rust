@@ -1,5 +1,5 @@
 use crate::account::UserService;
-use crate::room::{CreateRoomConfig, RoomServiceApi};
+use crate::room::{CreateRoomConfig, RoomService};
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
@@ -14,7 +14,7 @@ use tracing::{info, instrument};
 pub struct ServerNotificationService {
     storage: Arc<dyn ServerNotificationStoreApi>,
     user_service: Arc<UserService>,
-    room_service: Option<Arc<dyn RoomServiceApi>>,
+    room_service: Option<Arc<RoomService>>,
     server_name: String,
 }
 
@@ -23,7 +23,7 @@ impl ServerNotificationService {
     pub fn new(
         storage: Arc<dyn ServerNotificationStoreApi>,
         user_service: Arc<UserService>,
-        room_service: Option<Arc<dyn RoomServiceApi>>,
+        room_service: Option<Arc<RoomService>>,
         server_name: String,
     ) -> Self {
         Self { storage, user_service, room_service, server_name }

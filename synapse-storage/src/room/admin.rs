@@ -1,4 +1,5 @@
 use super::models::*;
+use crate::membership::count_joined_room_members;
 use serde_json::json;
 use synapse_common::current_timestamp_millis;
 use tracing;
@@ -157,9 +158,6 @@ impl RoomStorage {
                         .clone()
                         .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
                     created_ts: row.created_ts,
-                    is_federatable: true,
-                    is_spotlight: false,
-                    is_flagged: false,
                 };
                 let room_aliases = aliases.get(&row.room_id).cloned().unwrap_or_default();
                 (room, room_aliases)
@@ -355,12 +353,7 @@ impl RoomStorage {
             return Ok(None);
         }
 
-        let member_count: i64 = sqlx::query_scalar!(
-            r#"SELECT COUNT(*) AS "count!" FROM room_memberships WHERE room_id = $1 AND membership = 'join'"#,
-            room_id
-        )
-        .fetch_one(&*self.pool)
-        .await?;
+        let member_count: i64 = count_joined_room_members(&self.pool, room_id).await?;
 
         let message_count: i64 = sqlx::query_scalar!(
             r#"SELECT COUNT(*) AS "count!" FROM events WHERE room_id = $1 AND event_type = 'm.room.message'"#,
@@ -707,9 +700,6 @@ mod tests {
             member_count: 5,
             history_visibility: "joined".to_string(),
             created_ts: 1234567890,
-            is_federatable: true,
-            is_spotlight: false,
-            is_flagged: false,
         };
 
         assert_eq!(room.room_id, "!room:example.com");
@@ -733,9 +723,6 @@ mod tests {
             member_count: 1,
             history_visibility: DEFAULT_HISTORY_VISIBILITY.to_string(),
             created_ts: 0,
-            is_federatable: true,
-            is_spotlight: false,
-            is_flagged: false,
         };
 
         assert!(room.name.is_none());
@@ -759,9 +746,6 @@ mod tests {
             member_count: 10,
             history_visibility: "shared".to_string(),
             created_ts: 1234567890,
-            is_federatable: true,
-            is_spotlight: false,
-            is_flagged: false,
         };
 
         let json = serde_json::to_string(&room).unwrap();
@@ -785,9 +769,6 @@ mod tests {
             member_count: 3,
             history_visibility: "invited".to_string(),
             created_ts: 1234567890,
-            is_federatable: true,
-            is_spotlight: false,
-            is_flagged: false,
         };
 
         assert!(room.encryption.is_some());

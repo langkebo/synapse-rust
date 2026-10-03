@@ -23,8 +23,12 @@ async fn setup_test_ctx() -> Option<super::TestContext> {
 }
 
 /// 通过 `kind=guest` 注册访客账号，返回 access_token。
-/// 若测试配置禁用访客注册则返回 None，调用方跳过。
-async fn register_guest(app: &axum::Router) -> Option<String> {
+///
+/// 测试配置固定 `enable_registration = true`（见 `test_config::build_test_config`），
+/// 访客注册因此必然可用。此处**不得**静默跳过：那样一来，「访客建房必须 403」的
+/// 断言会在注册意外失败时（路由回归 / DB 故障）完全不执行而假绿。失败即真实缺陷，
+/// 直接 panic。
+async fn register_guest(app: &axum::Router) -> String {
     let request = Request::builder()
         .method("POST")
         .uri("/_matrix/client/v3/register?kind=guest")
@@ -33,24 +37,26 @@ async fn register_guest(app: &axum::Router) -> Option<String> {
         .unwrap();
     let response =
         ServiceExt::<Request<Body>>::oneshot(app.clone(), super::with_local_connect_info(request)).await.unwrap();
-    if response.status() != StatusCode::OK {
-        return None;
-    }
+    let status = response.status();
     let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "test config enables registration, so guest registration must succeed; body={}",
+        String::from_utf8_lossy(&body)
+    );
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    json["access_token"].as_str().map(str::to_owned)
+    json["access_token"].as_str().expect("register response must include access_token").to_owned()
 }
 
 #[tokio::test]
 async fn test_create_room_rejects_guest_token() {
     let Some(ctx) = setup_test_ctx().await else {
+        super::skip_or_fail_without_db();
         return;
     };
     let app = &ctx.app;
-    let Some(guest_token) = register_guest(app).await else {
-        eprintln!("guest registration disabled in test config; skipping");
-        return;
-    };
+    let guest_token = register_guest(app).await;
 
     let request = Request::builder()
         .method("POST")
@@ -72,13 +78,11 @@ async fn test_create_room_rejects_guest_token() {
 #[tokio::test]
 async fn test_create_private_room_rejects_guest_token() {
     let Some(ctx) = setup_test_ctx().await else {
+        super::skip_or_fail_without_db();
         return;
     };
     let app = &ctx.app;
-    let Some(guest_token) = register_guest(app).await else {
-        eprintln!("guest registration disabled in test config; skipping");
-        return;
-    };
+    let guest_token = register_guest(app).await;
 
     let request = Request::builder()
         .method("POST")
@@ -96,6 +100,7 @@ async fn test_create_private_room_rejects_guest_token() {
 #[tokio::test]
 async fn test_create_room_regular_user_still_succeeds() {
     let Some(ctx) = setup_test_ctx().await else {
+        super::skip_or_fail_without_db();
         return;
     };
     let app = &ctx.app;
@@ -120,6 +125,7 @@ async fn test_create_room_regular_user_still_succeeds() {
 #[tokio::test]
 async fn test_create_room_rejects_duplicate_name_then_allows_ignore_flag() {
     let Some(ctx) = setup_test_ctx().await else {
+        super::skip_or_fail_without_db();
         return;
     };
     let app = &ctx.app;

@@ -1,5 +1,6 @@
 use crate::routes::context::DeviceContext;
 use crate::routes::{ApiError, AppState, AuthenticatedUser};
+use crate::utils::admin_auth::ensure_server_admin;
 use axum::{
     extract::{Path, State},
     routing::{get, post, put},
@@ -14,9 +15,7 @@ pub async fn get_key_rotation_status(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    if !auth_user.is_admin {
-        return Err(ApiError::forbidden("Key rotation management requires server admin privileges".to_string()));
-    }
+    ensure_server_admin(&auth_user, "Key rotation management requires server admin privileges")?;
 
     let (status, last_rotation) = ctx.key_rotation_service.get_rotation_status(&auth_user.user_id).await?;
 
@@ -41,9 +40,7 @@ pub async fn rotate_keys(
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    if !auth_user.is_admin {
-        return Err(ApiError::forbidden("Key rotation management requires server admin privileges".to_string()));
-    }
+    ensure_server_admin(&auth_user, "Key rotation management requires server admin privileges")?;
 
     let requested_key_id = body.get("key_id").and_then(|v| v.as_str()).map(|s| s.to_string());
 
@@ -66,9 +63,7 @@ pub async fn get_rotation_history(
     auth_user: AuthenticatedUser,
     Path(device_id): Path<DeviceId>,
 ) -> Result<Json<Value>, ApiError> {
-    if !auth_user.is_admin {
-        return Err(ApiError::forbidden("Key rotation management requires server admin privileges".to_string()));
-    }
+    ensure_server_admin(&auth_user, "Key rotation management requires server admin privileges")?;
 
     let history_rows =
         ctx.key_rotation_service.get_rotation_history(&auth_user.user_id, device_id.as_str()).await.map_err(|e| {
@@ -98,9 +93,7 @@ pub async fn revoke_old_keys(
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    if !auth_user.is_admin {
-        return Err(ApiError::forbidden("Key revocation requires server admin privileges".to_string()));
-    }
+    ensure_server_admin(&auth_user, "Key revocation requires server admin privileges")?;
 
     let key_id = body.get("key_id").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -133,9 +126,7 @@ pub async fn configure_key_rotation(
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    if !auth_user.is_admin {
-        return Err(ApiError::forbidden("Key rotation management requires server admin privileges".to_string()));
-    }
+    ensure_server_admin(&auth_user, "Key rotation management requires server admin privileges")?;
 
     let enabled = body.get("enabled").and_then(|v| v.as_bool());
     let interval_ms = body.get("interval_ms").and_then(|v| v.as_i64());
@@ -232,9 +223,7 @@ pub async fn check_needs_rotation(
     auth_user: AuthenticatedUser,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
-    if !auth_user.is_admin {
-        return Err(ApiError::forbidden("Key rotation management requires server admin privileges".to_string()));
-    }
+    ensure_server_admin(&auth_user, "Key rotation management requires server admin privileges")?;
 
     // If key_id is provided, check if that specific key needs rotation
     let key_id_filter = params.get("key_id").map(|s| s.as_str());
