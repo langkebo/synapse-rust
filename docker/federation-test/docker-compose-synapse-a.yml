@@ -61,6 +61,11 @@ services:
       #   两个实例位于 Docker 私网 192.168.x.x，密钥抓取路径的 SSRF 解析会拒绝
       #   私网地址，测试环境必须显式跳过。
       SYNAPSE__FEDERATION__SKIP_SSRF_CHECK: "true"
+      # V-2d 探针：把 MSC4311 严格校验做成单变量开关，便于同一实现下做
+      # strict=false / strict=true 对照（默认 false，与 homeserver.yaml 一致）。
+      # 覆盖机制 SYNAPSE__ + config::Environment(separator="__")；字符串 "true"
+      # 可被反序列化为 bool（与上面 SKIP_SSRF_CHECK 同理）。
+      SYNAPSE__FEDERATION__MSC4311_STRICT_VALIDATION: "${MSC4311_STRICT_VALIDATION:-false}"
       # 出站客户端是 reqwest + native-tls（OpenSSL），靠 SSL_CERT_FILE 才能信任
       # 测试自签 CA，否则握手会因证书链校验失败。
       SSL_CERT_FILE: "/app/certs/ca.crt"

@@ -240,9 +240,11 @@ echo ""
 log "Step 5: Generating federation signing keys..."
 
 if [[ "$DRY_RUN" == "true" ]]; then
-    log "[DRY-RUN] Would generate signing keys for both instances"
+    log "[DRY-RUN] Would generate signing key for instance A (B uses Synapse-generated key)"
 else
-    # Generate keys for instance A
+    # Instance A (synapse-rust) needs an explicit signing key in .env.a.
+    # Instance B is real Synapse: it generates /data/signing.key itself at startup,
+    # so no key material is injected here.
     if [[ "$CLEAN_A" == "true" ]]; then
         if ! command -v openssl &>/dev/null; then
             warn "openssl not found. Using placeholder key for instance A"
@@ -251,17 +253,6 @@ else
             FED_KEY_A=$(openssl rand -base64 32 | tr -d '\n')
         fi
         log "Instance A federation key generated"
-    fi
-
-    # Generate keys for instance B
-    if [[ "$CLEAN_B" == "true" ]]; then
-        if ! command -v openssl &>/dev/null; then
-            warn "openssl not found. Using placeholder key for instance B"
-            FED_KEY_B="ed25519 placeholder_for_testing_only_do_not_use_in_production"
-        else
-            FED_KEY_B=$(openssl rand -base64 32 | tr -d '\n')
-        fi
-        log "Instance B federation key generated"
     fi
 fi
 
@@ -308,29 +299,23 @@ EOF
     fi
 
     # Create .env.b
+    # B 端是上游真 Synapse：不再需要 rust 侧的大量密钥（TOKEN_HASH_SECRET /
+    # FEDERATION_SIGNING_KEY / REDIS_PASSWORD 等），只需 DB、身份标识与 Synapse
+    # 自身要求的三个 secret。签名字由 Synapse 于容器内自行生成。
     if [[ "$CLEAN_B" == "true" ]]; then
         cat >"$ENV_FILE_B" <<EOF
-# Synapse-B Environment
+# Synapse-B Environment (upstream Synapse reference implementation)
 COMPOSE_PROJECT_NAME=synapse-federation-test-b
-SYNAPSE_IMAGE=synapse-rust
-SYNAPSE_IMAGE_TAG=federation-b
+SYNAPSE_UPSTREAM_IMAGE=ghcr.io/element-hq/synapse
+SYNAPSE_UPSTREAM_TAG=v1.162.0
 SERVER_NAME=synapse-b.federation.test
 PUBLIC_BASEURL=https://synapse-b.federation.test:18449
 DB_USER=synapse
 DB_PASSWORD=synapse_b_pwd
 DB_NAME=synapse_b
-REDIS_PASSWORD=redis_b_pwd
 MACAROON_SECRET=$(openssl rand -hex 32)
 FORM_SECRET=$(openssl rand -hex 16)
 REGISTRATION_SECRET=$(openssl rand -hex 64)
-ADMIN_SECRET=$(openssl rand -hex 32)
-SECRET_KEY=$(openssl rand -hex 64)
-FEDERATION_SIGNING_KEY=${FED_KEY_B:-placeholder_b}
-FEDERATION_KEY_ID=ed25519:b
-FEDERATION_MASTER_KEY=$(openssl rand -hex 32)
-WORKER_REPLICATION_SECRET=$(openssl rand -hex 32)
-TOKEN_HASH_SECRET=$(openssl rand -hex 32)
-RUST_LOG=debug
 TZ=UTC
 EOF
         success "Created .env.b"
@@ -349,17 +334,25 @@ start_instance() {
     local compose_file="$2"
     local env_file="$3"
     local port="$4"
+    local mode="${5:-build}"
 
     if [[ "$DRY_RUN" == "true" ]]; then
-        log "[DRY-RUN] Would start: cd $(dirname "$compose_file") && COMPOSE_PROFILES=$name_prefix docker compose -f $(basename "$compose_file") --env-file $(basename "$env_file") up -d"
+        log "[DRY-RUN] Would start ($mode): cd $(dirname "$compose_file") && docker compose --env-file $(basename "$env_file") -f $(basename "$compose_file") up -d"
         return
     fi
 
     cd "$(dirname "$compose_file")"
-    log "Starting $name_prefix on port $port..."
+    log "Starting $name_prefix on port $port (mode: $mode)..."
 
-    # Build fresh image first
-    docker compose build
+    if [[ "$mode" == "pull" ]]; then
+        # B 端是上游真 Synapse：拉取镜像而非本地构建。
+        log "Pulling container image for $name_prefix..."
+        docker compose --env-file "$(basename "$env_file")" -f "$(basename "$compose_file")" pull
+    else
+        # A 端是 synapse-rust：本地构建镜像。
+        log "Building synapse-rust image for $name_prefix..."
+        docker compose build
+    fi
 
     # Start services
     docker compose --env-file "$(basename "$env_file")" -f "$(basename "$compose_file")" up -d --force-recreate
@@ -378,11 +371,11 @@ start_instance() {
 }
 
 if [[ "$CLEAN_A" == "true" ]]; then
-    start_instance "Synapse-A" "$FEDERATION_TEST_DIR/docker-compose-synapse-a.yml" "$ENV_FILE_A" "18008"
+    start_instance "Synapse-A" "$FEDERATION_TEST_DIR/docker-compose-synapse-a.yml" "$ENV_FILE_A" "18008" "build"
 fi
 
 if [[ "$CLEAN_B" == "true" ]]; then
-    start_instance "Synapse-B" "$FEDERATION_TEST_DIR/docker-compose-synapse-b.yml" "$ENV_FILE_B" "18009"
+    start_instance "Synapse-B" "$FEDERATION_TEST_DIR/docker-compose-synapse-b.yml" "$ENV_FILE_B" "18009" "pull"
 fi
 
 echo ""

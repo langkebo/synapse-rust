@@ -2,7 +2,7 @@
 #
 # scripts/federation-test/test_federation.sh
 #
-# 联邦互操作性测试脚本（双 synapse-rust 实例 A/B 实机互通）
+# 联邦互操作性测试脚本（跨实现：A = synapse-rust，B = 上游真 Synapse）
 #
 # 前置条件（见 docs/audit/A5_LIVE_FEDERATION_INTEROP_TESTING.md）：
 #   * 两套 compose 栈已启动且健康：
@@ -13,7 +13,7 @@
 #
 # 测试内容：
 #   1. 健康检查（两个实例）
-#   2. 通过 admin registration（nonce + HMAC-SHA256）注册用户
+#   2. 注册用户（A 用 admin registration nonce+HMAC；B 用 Synapse 的 register_new_matrix_user）
 #   3. 登录取 access_token
 #   4. 在 A 上创建公开房间
 #   5. B 用户经联邦加入该房间（domainless room id 需显式 ?via=）
@@ -135,8 +135,28 @@ register_user() {
     return 1
 }
 
+# register_user_synapse <container> <username> <password>
+# 真 Synapse 自带 register_new_matrix_user CLI，直接连本地 8008，比手算 nonce+HMAC
+# 更稳健（mac 算法随 Synapse 版本演进，避免与规范漂移）。
+register_user_synapse() {
+    local container="$1" username="$2" password="$3"
+    local out
+
+    out=$(docker exec "$container" register_new_matrix_user \
+        -c /data/homeserver.yaml \
+        -u "$username" -p "$password" \
+        --no-admin --exists-ok \
+        http://127.0.0.1:8008 2>&1) && {
+        success "Registered $username on $container"
+        return 0
+    }
+
+    warn "Registration for $username on $container failed: $out"
+    return 1
+}
+
 register_user "$CONTAINER_A" "$SYNAPSE_A_BASE" "$USER_A" "$PASSWORD_A" || warn "continuing; will attempt login"
-register_user "$CONTAINER_B" "$SYNAPSE_B_BASE" "$USER_B" "$PASSWORD_B" || warn "continuing; will attempt login"
+register_user_synapse "$CONTAINER_B" "$USER_B" "$PASSWORD_B" || warn "continuing; will attempt login"
 
 echo ""
 
