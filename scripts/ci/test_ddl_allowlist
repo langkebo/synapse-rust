@@ -87,7 +87,6 @@ synapse-storage/src/oidc_session_storage.rs::tests::setup_oidc_session_db
 synapse-storage/src/pruning.rs::db_tests::prune_device_lists_stream_deletes_only_old
 synapse-storage/src/pruning.rs::db_tests::prune_federation_queue_terminal_only
 synapse-storage/src/pruning.rs::db_tests::prune_one_time_keys_used_or_old
-synapse-storage/src/pruning.rs::db_tests::prune_outbound_pokes_preserves_unsent
 synapse-storage/src/pruning.rs::db_tests::prune_presence_removes_stale
 synapse-storage/src/pruning.rs::db_tests::prune_quarantined_media_changes_respects_retention_window
 synapse-storage/src/pruning.rs::db_tests::prune_to_device_transactions_old_only
