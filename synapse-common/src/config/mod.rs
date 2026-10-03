@@ -1221,6 +1221,47 @@ mod tests {
     }
 
     #[test]
+    /// `server.request_timeout_secs` / `long_poll_request_timeout_secs` 是**可选**配置：
+    /// 缺省即交给消费方（`synapse_rust::server::build_router`）用
+    /// `DEFAULT_REQUEST_TIMEOUT_SECS` / `DEFAULT_LONG_POLL_REQUEST_TIMEOUT_SECS` 兜底。
+    ///
+    /// 这两条取值必须能区分「没写」与「写了 0」，因此类型是 `Option<u64>` 而不是
+    /// 裸 `u64`：`ServerConfig` 同时 derive `Default`，裸类型会让
+    /// `Default::default()` 得到 0、serde 得到 30，同一份配置两个答案。
+    #[test]
+    fn test_request_timeouts_are_optional_and_round_trip() {
+        use super::server::{DEFAULT_LONG_POLL_REQUEST_TIMEOUT_SECS, DEFAULT_REQUEST_TIMEOUT_SECS};
+
+        // `ServerConfig` 有几个字段没有 serde 缺省（name / max_image_resolution /
+        // enable_registration* / background_tasks_interval / expire_access_token* /
+        // refresh_token_sliding_window_size），最小可用 JSON 必须把它们都写上。
+        let minimal = json!({
+            "name": "example.com",
+            "max_image_resolution": 8_000_000,
+            "enable_registration": true,
+            "enable_registration_captcha": false,
+            "background_tasks_interval": 300,
+            "expire_access_token": true,
+            "expire_access_token_lifetime": 86_400,
+            "refresh_token_sliding_window_size": 3_600,
+        });
+        let absent: ServerConfig = serde_json::from_value(minimal.clone()).unwrap();
+        assert_eq!(absent.request_timeout_secs, None, "缺省必须是 None（由装配层兜底），不是 0");
+        assert_eq!(absent.long_poll_request_timeout_secs, None);
+        assert_eq!(ServerConfig::default().request_timeout_secs, None, "`Default` 与 serde 必须同义");
+
+        let mut with_timeouts = minimal;
+        with_timeouts["request_timeout_secs"] = json!(5);
+        with_timeouts["long_poll_request_timeout_secs"] = json!(120);
+        let explicit: ServerConfig = serde_json::from_value(with_timeouts).unwrap();
+        assert_eq!(explicit.request_timeout_secs, Some(5));
+        assert_eq!(explicit.long_poll_request_timeout_secs, Some(120));
+
+        // 文档里的缺省值就是装配层的兜底值。
+        assert_eq!(DEFAULT_REQUEST_TIMEOUT_SECS, 30);
+        assert_eq!(DEFAULT_LONG_POLL_REQUEST_TIMEOUT_SECS, 90);
+    }
+
     fn test_third_party_rules_defaults_to_disabled() {
         // 缺省应关闭准入钩子——空规则集，且不因缺字段而报错。
         let absent: ThirdPartyRulesConfig = serde_json::from_value(json!({})).unwrap();
