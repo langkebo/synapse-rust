@@ -1,5 +1,5 @@
 [cargo]
-extraArgs = ["--features", "server,test-utils"]
+extraArgs = ["--features", "test-utils"]
 
 [check]
-extraArgs = ["--features", "server,test-utils"]
+extraArgs = ["--features", "test-utils"]
