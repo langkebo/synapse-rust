@@ -35,11 +35,18 @@ warn() { printf "${COLOR_YELLOW}[WARN]${NC} %s\n" "$*"; }
 # ─────────────────────────────────────────────────────────────────────────────
 log "Step 1: Generating CA root certificate..."
 
+# keyUsage 不能省：Python 3.13 的 ssl.create_default_context() 默认开启
+# VERIFY_X509_STRICT，OpenSSL 严格模式要求信任锚 CA 必须带 keyUsage=keyCertSign，
+# 否则容器内所有出站 TLS 探针都报
+# `CA cert does not include key usage extension`（V-2c/V-2d/V-7b 曾因此全灭）。
 openssl req -x509 -newkey rsa:4096 -nodes \
     -keyout "$CERT_DIR/ca.key" \
     -out "$CERT_DIR/ca.crt" \
     -days 365 \
     -subj "/C=US/ST=Test/L=Test/O=SynapseFederationTest/CN=Synapse Federation Test CA" \
+    -addext "basicConstraints=critical,CA:TRUE" \
+    -addext "keyUsage=critical,keyCertSign,cRLSign" \
+    -addext "subjectKeyIdentifier=hash" \
     -sha256 2>/dev/null
 
 success "CA root certificate generated: $CERT_DIR/ca.crt"
@@ -64,7 +71,7 @@ openssl x509 -req -in "$CERT_DIR/synapse-a.csr" \
     -out "$CERT_DIR/synapse-a.crt" \
     -days 365 \
     -sha256 \
-    -extfile <(printf "subjectAltName=DNS:synapse-a.federation.test,DNS:synapse-a,DNS:localhost,IP:127.0.0.1") \
+    -extfile <(printf "subjectAltName=DNS:synapse-a.federation.test,DNS:synapse-a,DNS:localhost,IP:127.0.0.1\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth,clientAuth\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid,issuer") \
     2>/dev/null
 
 success "Synapse-A certificate generated: $CERT_DIR/synapse-a.crt"
@@ -84,7 +91,7 @@ openssl x509 -req -in "$CERT_DIR/synapse-b.csr" \
     -out "$CERT_DIR/synapse-b.crt" \
     -days 365 \
     -sha256 \
-    -extfile <(printf "subjectAltName=DNS:synapse-b.federation.test,DNS:synapse-b,DNS:localhost,IP:127.0.0.1") \
+    -extfile <(printf "subjectAltName=DNS:synapse-b.federation.test,DNS:synapse-b,DNS:localhost,IP:127.0.0.1\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth,clientAuth\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid,issuer") \
     2>/dev/null
 
 success "Synapse-B certificate generated: $CERT_DIR/synapse-b.crt"
