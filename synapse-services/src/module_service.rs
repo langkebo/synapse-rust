@@ -171,6 +171,14 @@ pub trait EventAdmissionGate: Send + Sync {
         room_id: &str,
         reader: &dyn synapse_storage::event::EventReader,
     ) -> Result<Vec<synapse_storage::event::StateEvent>, ApiError>;
+
+    /// How long [`check_event_allowed`] may take before the caller treats it as
+    /// a refusal (fail-closed).
+    ///
+    /// Part of the trait so the timeout is configuration, not a constant buried
+    /// in the caller: [`ModuleService`] returns `third_party_rules.rule_timeout_ms`,
+    /// and test doubles choose their own.
+    fn event_rule_timeout(&self) -> std::time::Duration;
 }
 
 #[async_trait]
@@ -191,6 +199,10 @@ impl EventAdmissionGate for ModuleService {
         crate::room_state_cache::cached_room_state(&self.state_cache, reader, room_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to read room state for third-party rules", e))
+    }
+
+    fn event_rule_timeout(&self) -> std::time::Duration {
+        self.rule_timeout
     }
 }
 
@@ -251,7 +263,28 @@ pub async fn consult_event_admission(
         state_events,
     };
 
-    let outcome = gate.check_event_allowed(&context).await?;
+    // P-19: a rule gets its own deadline, and running out of it is a **refusal**
+    // (fail-closed), not a server error. Before this the only bound was the whole
+    // request budget (`request_timeout_middleware`): a hung rule consumed it and
+    // the client saw an unrelated `408 M_REQUEST_TIMEOUT`, while an inbound
+    // federation transaction held a request slot until then.
+    let rule_timeout = gate.event_rule_timeout();
+    let outcome = match tokio::time::timeout(rule_timeout, gate.check_event_allowed(&context)).await {
+        Ok(result) => result?,
+        Err(_) => {
+            ::tracing::warn!(
+                room_id = %params.room_id,
+                event_type = %params.event_type,
+                sender = %params.user_id,
+                timeout_ms = rule_timeout.as_millis() as u64,
+                "Third-party admission rule timed out; refusing the event (fail-closed)"
+            );
+            return Err(ApiError::forbidden(format!(
+                "Event refused by a third-party rule: no verdict within {}ms",
+                rule_timeout.as_millis()
+            )));
+        }
+    };
 
     if !outcome.is_allowed {
         return Err(ApiError::forbidden(
@@ -357,6 +390,9 @@ impl Default for ModuleRegistry {
 pub struct ModuleService {
     storage: Arc<synapse_storage::module::ModuleStorage>,
     registry: Arc<tokio::sync::RwLock<ModuleRegistry>>,
+    /// Per-rule-call timeout (`third_party_rules.rule_timeout_ms`), enforced by
+    /// [`consult_event_admission`]. See [`EventAdmissionGate::event_rule_timeout`].
+    rule_timeout: std::time::Duration,
     /// Shared `room_state:{room_id}` cache, used to build the state a rule sees.
     ///
     /// The same entry sliding-sync reads — see [`crate::room_state_cache`] for the
@@ -369,8 +405,9 @@ impl ModuleService {
     pub fn new(
         storage: Arc<synapse_storage::module::ModuleStorage>,
         state_cache: Arc<synapse_cache::CacheManager>,
+        rule_timeout: std::time::Duration,
     ) -> Self {
-        Self { storage, registry: Arc::new(tokio::sync::RwLock::new(ModuleRegistry::new())), state_cache }
+        Self { storage, registry: Arc::new(tokio::sync::RwLock::new(ModuleRegistry::new())), rule_timeout, state_cache }
     }
 
     /// See [`register_module`].
@@ -1387,7 +1424,82 @@ mod tests {
         ModuleService::new(
             Arc::new(ModuleStorage::new(&pool)),
             Arc::new(synapse_cache::CacheManager::new(&synapse_cache::CacheConfig::default())),
+            std::time::Duration::from_millis(synapse_common::config::DEFAULT_THIRD_PARTY_RULE_TIMEOUT_MS),
         )
+    }
+
+    /// A rule that never answers — the stand-in for a hung external policy server.
+    struct HangingRule;
+
+    #[async_trait]
+    impl ThirdPartyRule for HangingRule {
+        fn name(&self) -> &str {
+            "hanging_test_rule"
+        }
+
+        async fn check(&self, _context: &ThirdPartyRuleContext) -> Result<ThirdPartyRuleOutput, ApiError> {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            Ok(ThirdPartyRuleOutput { is_allowed: true, reason: None, modified_content: None })
+        }
+    }
+
+    /// P-19: a rule that hangs must be refused **by its own deadline**, not by the
+    /// whole request budget.
+    ///
+    /// Before this there was no rule-level timeout at all: the only bound was
+    /// `request_timeout_middleware` (30s, whole request), so the client got an
+    /// unrelated `408 M_REQUEST_TIMEOUT` and an inbound federation transaction
+    /// held a request slot for the full budget. Fail-closed means the event is
+    /// refused (`403`), exactly like a rule that returns `Err` — and because the
+    /// gate runs *before* the write, nothing is persisted.
+    #[tokio::test]
+    async fn hanging_event_rule_is_refused_at_the_configured_deadline() {
+        let pool = Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .acquire_timeout(std::time::Duration::from_millis(50))
+                .connect_lazy("postgresql://unused:unused@127.0.0.1:1/unused")
+                .expect("lazy pool"),
+        );
+        let service = ModuleService::new(
+            Arc::new(ModuleStorage::new(&pool)),
+            Arc::new(synapse_cache::CacheManager::new(&synapse_cache::CacheConfig::default())),
+            std::time::Duration::from_millis(120),
+        );
+        service.register_third_party_rule(Arc::new(HangingRule)).await;
+        assert!(service.has_event_rules().await);
+
+        // The state the rule sees comes from the shared cache; an empty cache
+        // reads through the caller's reader, so give it a store that answers.
+        let reader = synapse_storage::test_mocks::InMemoryEventStore::new();
+        let mut params = synapse_storage::CreateEventParams {
+            event_id: "$hang:localhost".to_string(),
+            room_id: "!hang:localhost".to_string(),
+            user_id: "@alice:localhost".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({"body": "hi"}),
+            state_key: None,
+            origin_server_ts: 0,
+            redacts: None,
+        };
+
+        let started = std::time::Instant::now();
+        let error = consult_event_admission(&service, &reader, &mut params, true)
+            .await
+            .expect_err("a rule that never answers must be refused, not waited on");
+        let elapsed = started.elapsed();
+
+        assert!(
+            matches!(error.kind, synapse_common::error::ApiErrorKind::Forbidden),
+            "a rule timeout is a refusal (fail-closed), got {error:?}"
+        );
+        assert!(
+            error.message().contains("no verdict within"),
+            "the refusal must name the timeout so operators can tell it apart from a rule verdict: {error:?}"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(5),
+            "the deadline must be the configured 120ms, not the rule's 30s sleep (took {elapsed:?})"
+        );
     }
 
     #[tokio::test]
@@ -1476,6 +1588,7 @@ mod tests {
                 blocked_event_types: vec!["m.room.redaction".to_string()],
                 modification: None,
             }],
+            rule_timeout_ms: synapse_common::config::DEFAULT_THIRD_PARTY_RULE_TIMEOUT_MS,
         };
         service.register_configured_third_party_rules(&config).await;
 
@@ -1517,6 +1630,7 @@ mod tests {
                     content: serde_json::json!({ "msgtype": "m.notice", "body": "[rewritten by policy]" }),
                 }),
             }],
+            rule_timeout_ms: synapse_common::config::DEFAULT_THIRD_PARTY_RULE_TIMEOUT_MS,
         };
         service.register_configured_third_party_rules(&config).await;
 

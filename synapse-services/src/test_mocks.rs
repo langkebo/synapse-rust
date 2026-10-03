@@ -554,6 +554,13 @@ impl crate::module_service::EventAdmissionGate for FakeEventAdmissionGate {
         })
     }
 
+    /// Test doubles answer instantly, so the timeout is effectively unbounded —
+    /// except for the doubles written specifically to hang (see
+    /// `hanging_event_rule_timeout_is_fail_closed`).
+    fn event_rule_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(60)
+    }
+
     /// No cache to exercise here, so read straight through the caller's reader —
     /// the same state the real gate would see on a cache miss.
     async fn room_state_for_rules(

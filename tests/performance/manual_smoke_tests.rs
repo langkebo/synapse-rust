@@ -553,52 +553,87 @@ impl synapse_services::module_service::ThirdPartyRule for HangingPerfRule {
     }
 }
 
-/// P-6 / V-10 (+ P-19): is a message send bounded **at all** when a rule hangs?
+/// P-19: a hung third-party rule is refused by the **rule's own deadline**, and
+/// the message is not persisted.
 ///
-/// Measured answer (2026-10-03): **no**. `request_timeout_middleware`
-/// (`synapse_web::middleware::security`) exists, is re-exported and has its own
-/// unit tests, but **is never applied in `routes::assembly::create_router`** — the
-/// only layers wired there are CORS/security-headers/method-not-allowed/
-/// compression/shadow-ban/csrf/rate-limit/request-id. So a hung third-party rule
-/// blocks the write path with no deadline: the first run of this test waited the
-/// rule's full 600s sleep and had to be killed.
+/// What this measures: `third_party_rules.rule_timeout_ms`
+/// (default [`DEFAULT_THIRD_PARTY_RULE_TIMEOUT_MS`] = 2s) enforced inside
+/// `consult_event_admission`. Running out of it is **fail-closed**: the send is
+/// refused with `403 M_FORBIDDEN` whose reason names the missing verdict, rather
+/// than the client waiting out the whole request budget and getting an unrelated
+/// `408 M_REQUEST_TIMEOUT`.
 ///
-/// That matters beyond a single stuck client: the gate is consulted on **inbound
-/// federated** writes too, so a hung policy server stalls the origin's
-/// transaction for as long as we hold the request, and every origin retry
-/// occupies another request slot.
+/// Two harness facts worth knowing when reading the numbers:
 ///
-/// The assertion below pins the *current* behaviour with a short outer bound
-/// (instead of hanging for the rule's sleep) so the defect is visible and cheap
-/// to re-check. When P-19 is fixed — wire the middleware in `create_router` —
-/// this must become:
+/// * This manual target (like the integration suite) assembles the app with
+///   `synapse_web::create_router`, which does **not** include the layers the
+///   production server adds in `synapse_rust::server::router::build_router`
+///   (`RequestBodyLimitLayer`, the HTTP-RED metrics layer, `request_debug`,
+///   `request_timeout`, `TraceLayer`, and the 413→`M_TOO_LARGE` rewriter). So the
+///   30s request timeout is not in play here — which is exactly why the
+///   rule-level deadline has to exist.
+/// * Before that deadline existed the send blocked for the rule's full sleep
+///   (the first version of this probe waited 600s and had to be killed).
 ///
-/// ```ignore
-/// assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
-/// assert_eq!(json["errcode"], "M_REQUEST_TIMEOUT");
-/// ```
-///
-/// and the outer bound should be dropped.
+/// Run: `TEST_DATABASE_URL=... cargo nextest run --features performance-tests,test-utils \
+///        --test performance_manual admission_gate_hanging_rule --nocapture`
 #[tokio::test]
-async fn admission_gate_hanging_rule_is_not_bounded_today() {
+async fn admission_gate_hanging_rule_is_refused_by_the_rule_deadline() {
     let Some((app, gate)) = setup_test_app_with_gate().await else { return };
     let token = create_test_user(&app).await;
     let room_id = create_room(&app, &token).await;
 
     gate.registry().write().await.register_third_party_rule(Arc::new(HangingPerfRule));
 
-    let outcome =
-        tokio::time::timeout(std::time::Duration::from_secs(3), send_once(&app, &token, &room_id, "hang")).await;
+    let started = Instant::now();
+    let response = send_once(&app, &token, &room_id, "hang").await;
+    let elapsed = started.elapsed();
+    let status = response.status();
+    let body = panic_on_err(axum::body::to_bytes(response.into_body(), 4096).await, "body should read");
+    let json: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
 
-    match outcome {
-        Ok(response) => panic!(
-            "P-19 seems fixed: the send returned {} within 3s — flip this test to the \
-             408/M_REQUEST_TIMEOUT assertions written in its doc comment",
-            response.status()
-        ),
-        Err(_) => eprintln!(
-            "P-19 confirmed: a hung third-party rule left PUT /send unresolved for 3s \
-             (no request-timeout layer in create_router; the rule sleeps 30s)"
-        ),
-    }
+    eprintln!(
+        "admission gate, hanging rule: status={} elapsed={:.2}s errcode={} reason={}",
+        status,
+        elapsed.as_secs_f64(),
+        json.get("errcode").and_then(Value::as_str).unwrap_or("<none>"),
+        json.get("error").and_then(Value::as_str).unwrap_or("<none>"),
+    );
+
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "a rule timeout must be a refusal (fail-closed), not a server error or a wait: {json}"
+    );
+    assert_eq!(json["errcode"], "M_FORBIDDEN", "the client must get a Matrix refusal: {json}");
+    assert!(
+        json["error"].as_str().is_some_and(|reason| reason.contains("no verdict within")),
+        "the refusal must name the timeout so it is distinguishable from a rule verdict: {json}"
+    );
+    // The rule sleeps 30s; only the configured deadline can end this. 10s is a
+    // generous upper bound that still fails loudly if the deadline regresses.
+    assert!(
+        elapsed < std::time::Duration::from_secs(10),
+        "the send must end at the rule deadline, not the rule's sleep (took {elapsed:?})"
+    );
+
+    // Fail-closed: the gate runs before the write, so a refused send leaves no event.
+    let messages = panic_on_err(
+        Request::builder()
+            .method("GET")
+            .uri(format!("/_matrix/client/v3/rooms/{room_id}/messages?dir=b&limit=20"))
+            .header("Authorization", format!("Bearer {token}"))
+            .body(Body::empty()),
+        "messages request should build",
+    );
+    let messages_response =
+        panic_on_err(app.clone().oneshot(with_local_connect_info(messages)).await, "messages should execute");
+    assert_eq!(messages_response.status(), StatusCode::OK);
+    let messages_body =
+        panic_on_err(axum::body::to_bytes(messages_response.into_body(), 64 * 1024).await, "messages body should read");
+    let messages_json: Value = panic_on_err(serde_json::from_slice(&messages_body), "the /messages body must be JSON");
+    let message_count = messages_json["chunk"]
+        .as_array()
+        .map_or(0, |chunk| chunk.iter().filter(|event| event["type"].as_str() == Some("m.room.message")).count());
+    assert_eq!(message_count, 0, "a refused send must not persist a message: {messages_json}");
 }

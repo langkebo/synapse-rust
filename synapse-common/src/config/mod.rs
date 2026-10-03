@@ -2131,13 +2131,41 @@ pub struct ServerNoticesConfig {
 ///           msgtype: "m.notice"
 ///           body: "[rewritten by policy]"
 /// ```
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize)]
 /// Represents ThirdPartyRulesConfig.
 pub struct ThirdPartyRulesConfig {
     /// 事件准入规则列表；为空（默认）即关闭准入钩子。
     #[serde(default)]
     /// `rules` field.
     pub rules: Vec<ThirdPartyRuleConfig>,
+    /// 单条规则的**调用超时**（毫秒，默认 [`DEFAULT_THIRD_PARTY_RULE_TIMEOUT_MS`]）。
+    ///
+    /// 超时按 **fail-closed** 处理：视为规则拒绝，事件不落库（与规则返回 `Err`
+    /// 同语义，对齐上游 v1.49.0 #11033 的 fail-closed 取向）。
+    ///
+    /// 为什么需要它：在这之前规则没有任何自己的时限，一条挂起的规则会吃掉
+    /// **整个请求预算**（生产上限是 `request_timeout_middleware` 的 30s，长轮询更久），
+    /// 客户端最后拿到的是与规则无关的 `408 M_REQUEST_TIMEOUT`；对入站联邦 `/send`
+    /// 而言，来源服务器还会带着同一事件反复重试，每次再占满一个请求槽。
+    #[serde(default = "default_third_party_rule_timeout_ms")]
+    /// `rule_timeout_ms` field.
+    pub rule_timeout_ms: u64,
+}
+
+/// 第三方规则调用的默认超时（毫秒）。
+///
+/// 取 2s：本地规则（配置即注册的进程内回调）远快于此，而 2s 已经足够短到
+/// 不会让一条挂起的规则拖垮请求；需要更长判定的部署可显式调大。
+pub const DEFAULT_THIRD_PARTY_RULE_TIMEOUT_MS: u64 = 2_000;
+
+fn default_third_party_rule_timeout_ms() -> u64 {
+    DEFAULT_THIRD_PARTY_RULE_TIMEOUT_MS
+}
+
+impl Default for ThirdPartyRulesConfig {
+    fn default() -> Self {
+        Self { rules: Vec::new(), rule_timeout_ms: DEFAULT_THIRD_PARTY_RULE_TIMEOUT_MS }
+    }
 }
 
 /// 单条第三方事件准入规则。
