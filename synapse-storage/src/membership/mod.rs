@@ -442,6 +442,18 @@ impl RoomMemberStorage {
     }
 
     /// See [`get_sync_rooms`].
+    /// See [`get_sync_rooms`].
+    ///
+    /// Every membership that owns a `/sync` section must be returned here — this
+    /// is the only producer of the list `/sync` buckets into sections
+    /// (`sync_service::room_sections_from_memberships` maps `invite` → `rooms.invite`
+    /// and `knock` → `rooms.knock`). Filtering a membership out here silently
+    /// empties its section: the invitee/knocker renders nothing, and the whole
+    /// `invite_state` / `knock_state` pipeline becomes unreachable.
+    ///
+    /// `ban` is deliberately **not** included yet: the section mapper has no arm
+    /// for it, so it would land in the catch-all `rooms.join` and render a banned
+    /// user as joined. Adding bans means adding the `rooms.leave` arm first.
     pub async fn get_sync_rooms(
         &self,
         user_id: &str,
@@ -453,7 +465,7 @@ impl RoomMemberStorage {
                 r"
                 SELECT room_id, membership
                 FROM room_memberships
-                WHERE user_id = $1 AND membership IN ('join', 'leave')
+                WHERE user_id = $1 AND membership IN ('join', 'invite', 'knock', 'leave')
                 ORDER BY updated_ts DESC NULLS LAST, room_id ASC
                 ",
                 user_id,
@@ -466,7 +478,7 @@ impl RoomMemberStorage {
                 r"
                 SELECT room_id, membership
                 FROM room_memberships
-                WHERE user_id = $1 AND membership = 'join'
+                WHERE user_id = $1 AND membership IN ('join', 'invite', 'knock')
                 ORDER BY updated_ts DESC NULLS LAST, room_id ASC
                 ",
                 user_id,
@@ -1994,6 +2006,54 @@ mod db_tests {
         let memberships: Vec<&str> = rooms.iter().map(|r| r.membership.as_str()).collect();
         assert!(memberships.contains(&"join"));
         assert!(memberships.contains(&"leave"));
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    /// Every membership that has its own `/sync` section must be returned here.
+    ///
+    /// `get_sync_rooms` is the **only** producer of the list `/sync` turns into
+    /// `rooms.join` / `rooms.invite` / `rooms.knock` / `rooms.leave`
+    /// (`sync_service::room_sections_from_memberships`), so a membership filtered
+    /// out here can never reach its section: an invited (or knocking) user sees
+    /// nothing at all, and the whole `invite_state` / `knock_state` rendering
+    /// pipeline in `sync_service::response` becomes unreachable.
+    #[tokio::test]
+    async fn test_get_sync_rooms_includes_invite_and_knock() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let user_id = format!("@mem_sync_all_{suffix}:localhost");
+        let room_join = format!("!room_sync_join_{suffix}:localhost");
+        let room_invite = format!("!room_sync_invite_{suffix}:localhost");
+        let room_knock = format!("!room_sync_knock_{suffix}:localhost");
+        let room_leave = format!("!room_sync_leave_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        for room in [&room_join, &room_invite, &room_knock, &room_leave] {
+            ensure_test_room(&pool, room).await;
+        }
+        ensure_test_user(&pool, &user_id).await;
+
+        storage.add_member(&room_join, &user_id, "join", None, None, None, None).await.unwrap();
+        storage.add_member(&room_invite, &user_id, "invite", None, None, None, None).await.unwrap();
+        storage.add_member(&room_knock, &user_id, "knock", None, None, None, None).await.unwrap();
+        storage.add_member(&room_leave, &user_id, "leave", None, None, None, None).await.unwrap();
+
+        // `include_leave = false` is the default `/sync` filter: join, invite and
+        // knock all still have a section of their own.
+        let rooms = storage.get_sync_rooms(&user_id, false).await.unwrap();
+        let memberships: Vec<&str> = rooms.iter().map(|r| r.membership.as_str()).collect();
+        for expected in ["join", "invite", "knock"] {
+            assert!(memberships.contains(&expected), "`{expected}` must reach /sync, got {memberships:?}");
+        }
+        assert!(!memberships.contains(&"leave"), "leave is opt-in, got {memberships:?}");
+
+        let rooms = storage.get_sync_rooms(&user_id, true).await.unwrap();
+        let memberships: Vec<&str> = rooms.iter().map(|r| r.membership.as_str()).collect();
+        for expected in ["join", "invite", "knock", "leave"] {
+            assert!(memberships.contains(&expected), "`{expected}` must be present, got {memberships:?}");
+        }
 
         cleanup_membership_data(&pool, &suffix).await;
     }
