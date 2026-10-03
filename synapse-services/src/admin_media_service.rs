@@ -14,6 +14,8 @@ pub struct AdminMediaService {
     storage: Arc<dyn AdminMediaStoreApi>,
     quarantine_change_storage: Arc<dyn QuarantinedMediaChangeStoreApi>,
     user_service: Arc<UserService>,
+    /// Local server name, used to attribute quarantine-change audit rows.
+    server_name: String,
 }
 
 impl AdminMediaService {
@@ -22,8 +24,9 @@ impl AdminMediaService {
         storage: Arc<dyn AdminMediaStoreApi>,
         quarantine_change_storage: Arc<dyn QuarantinedMediaChangeStoreApi>,
         user_service: Arc<UserService>,
+        server_name: String,
     ) -> Self {
-        Self { storage, quarantine_change_storage, user_service }
+        Self { storage, quarantine_change_storage, user_service, server_name }
     }
 
     /// See [`get_all_media`].
@@ -187,7 +190,7 @@ impl AdminMediaService {
                 }
             }
 
-            let server_name = "example.com"; // TODO: derive from media
+            let server_name = self.server_name.as_str();
             let stream_id = self
                 .quarantine_change_storage
                 .record_media_quarantine_change(&media.media_id, server_name, "quarantine", changed_by, now_ts)
@@ -235,7 +238,7 @@ impl AdminMediaService {
                 }
             }
 
-            let server_name = "example.com"; // TODO: derive from media
+            let server_name = self.server_name.as_str();
             let stream_id = self
                 .quarantine_change_storage
                 .record_media_quarantine_change(&media.media_id, server_name, "unquarantine", changed_by, now_ts)
@@ -298,7 +301,7 @@ impl AdminMediaService {
             .quarantine_change_storage
             .record_media_quarantine_change(
                 &format!("user:{}/*", user.user_id),
-                "localhost",
+                self.server_name.as_str(),
                 "quarantine_by_user",
                 changed_by,
                 now_ts,
@@ -352,7 +355,7 @@ impl AdminMediaService {
         }
 
         // Record the unprotect change in the audit stream
-        let server_name = "localhost"; // Simplified: assume all media is local
+        let server_name = self.server_name.as_str();
         let stream_id = self
             .quarantine_change_storage
             .record_media_quarantine_change(media_id, server_name, "unprotect", changed_by, now_ts)
@@ -374,7 +377,8 @@ mod tests {
         let quarantine_store = Arc::new(InMemoryQuarantineMediaChangeStore::new());
         let user_store = shared_fake_user_store();
         let user_service = Arc::new(crate::account::UserService::new(user_store.clone()));
-        let svc = AdminMediaService::new(store.clone(), quarantine_store.clone(), user_service);
+        let svc =
+            AdminMediaService::new(store.clone(), quarantine_store.clone(), user_service, "example.com".to_string());
         (svc, store, quarantine_store)
     }
 

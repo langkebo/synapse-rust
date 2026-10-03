@@ -405,6 +405,7 @@ impl AdminServices {
             admin_media_storage,
             quarantine_change_storage,
             user_service.clone(),
+            config.server.get_server_name().to_owned(),
         ));
         let rate_limit_storage = Arc::new(RateLimitStorage::new(pool));
         let admin_security_service = Arc::new(crate::admin_security_service::AdminSecurityService::new(
