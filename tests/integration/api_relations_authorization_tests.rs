@@ -199,7 +199,7 @@ async fn relation_is_forbidden_for_non_members() {
     let event_id = send_message(&app, &owner_token, &room_id).await;
 
     let request = put_json(
-        format!("/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/m.reference/r3"),
+        format!("/_matrix/vendor/v1/rooms/{room_id}/relations/{event_id}/m.reference/r3"),
         &outsider_token,
         &json!({ "content": { "body": "injected" } }),
     );
@@ -219,7 +219,7 @@ async fn relation_is_allowed_for_members() {
     let event_id = send_message(&app, &owner_token, &room_id).await;
 
     let request = put_json(
-        format!("/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/m.reference/r4"),
+        format!("/_matrix/vendor/v1/rooms/{room_id}/relations/{event_id}/m.reference/r4"),
         &owner_token,
         &json!({ "content": { "body": "legit" } }),
     );
