@@ -1,5 +1,6 @@
 use crate::utils::auth::resolve_request_id;
 use axum::body::Body;
+use axum::extract::State;
 use axum::http::{HeaderValue, Request};
 use axum::middleware::Next;
 use axum::response::IntoResponse;
@@ -90,9 +91,33 @@ pub async fn payload_too_large_json_middleware(request: Request<Body>, next: Nex
     response
 }
 
+/// The budgets [`request_timeout_middleware`] enforces.
+///
+/// Built by the server assembly (`synapse_rust::server::router::build_router`) from
+/// `server.request_timeout_secs` / `server.long_poll_request_timeout_secs`, with the
+/// documented defaults (`DEFAULT_REQUEST_TIMEOUT_SECS` /
+/// `DEFAULT_LONG_POLL_REQUEST_TIMEOUT_SECS`) already applied.
+///
+/// These used to be read from the undocumented `REQUEST_TIMEOUT_SECS` /
+/// `LONG_POLL_REQUEST_TIMEOUT_SECS` environment variables *per request* — a second
+/// configuration surface that no config file, doc or script mentioned, and that no
+/// test could exercise without mutating process-global state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RequestTimeouts {
+    /// Budget for an ordinary request.
+    pub default_secs: u64,
+    /// Budget for a long-polling endpoint (`/sync`, `/events`), before the
+    /// `?timeout=` allowance is applied.
+    pub long_poll_secs: u64,
+}
+
 /// See [`request_timeout_middleware`].
-pub async fn request_timeout_middleware(request: Request<Body>, next: Next) -> Response {
-    let timeout_secs = resolve_request_timeout_secs(&request);
+pub async fn request_timeout_middleware(
+    State(timeouts): State<RequestTimeouts>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    let timeout_secs = resolve_request_timeout_secs(&request, timeouts);
     let result = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), next.run(request)).await;
 
     match result {
@@ -105,20 +130,17 @@ pub async fn request_timeout_middleware(request: Request<Body>, next: Next) -> R
     }
 }
 
-fn resolve_request_timeout_secs(request: &Request<Body>) -> u64 {
-    let path = request.uri().path();
-    let default_timeout_secs = std::env::var("REQUEST_TIMEOUT_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(30);
-    if !is_long_polling_endpoint(path) {
-        return default_timeout_secs;
+/// The budget for one request: the long-poll branch (if the path is one) may grow
+/// it to cover a client-requested `?timeout=`, plus 15s of slack.
+fn resolve_request_timeout_secs(request: &Request<Body>, timeouts: RequestTimeouts) -> u64 {
+    if !is_long_polling_endpoint(request.uri().path()) {
+        return timeouts.default_secs;
     }
-
-    let long_poll_timeout_secs =
-        std::env::var("LONG_POLL_REQUEST_TIMEOUT_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(90);
 
     let query_timeout_secs =
         parse_timeout_query_secs(request.uri().query()).map_or(0, |timeout_secs| timeout_secs.saturating_add(15));
 
-    long_poll_timeout_secs.max(query_timeout_secs)
+    timeouts.long_poll_secs.max(query_timeout_secs)
 }
 
 fn parse_timeout_query_secs(query: Option<&str>) -> Option<u64> {
@@ -200,7 +222,6 @@ mod tests {
     use axum::http::StatusCode;
     use axum::{middleware, routing::get, Router};
     use std::time::Duration;
-    use synapse_test_utils::EnvGuard;
     use tower::ServiceExt;
 
     #[test]
@@ -260,14 +281,13 @@ mod tests {
             StatusCode::OK
         }
 
-        let _env_lock = synapse_test_utils::env_lock_async().await;
-        let mut env_guard = EnvGuard::new();
-        env_guard.set("REQUEST_TIMEOUT_SECS", "30");
-        env_guard.set("LONG_POLL_REQUEST_TIMEOUT_SECS", "90");
+        // Budgets are middleware state now (they used to be process-global env
+        // vars, which made this test mutate state every other test shares).
+        let timeouts = RequestTimeouts { default_secs: 30, long_poll_secs: 90 };
 
         let app = Router::new()
             .route("/_matrix/client/v3/sync", get(slow_sync_handler))
-            .layer(middleware::from_fn(request_timeout_middleware));
+            .layer(middleware::from_fn_with_state(timeouts, request_timeout_middleware));
         let request = Request::builder()
             .method(axum::http::Method::GET)
             .uri("/_matrix/client/v3/sync?timeout=90000")
@@ -295,14 +315,11 @@ mod tests {
             StatusCode::OK
         }
 
-        let _env_lock = synapse_test_utils::env_lock_async().await;
-        let mut env_guard = EnvGuard::new();
-        env_guard.set("REQUEST_TIMEOUT_SECS", "30");
-        env_guard.set("LONG_POLL_REQUEST_TIMEOUT_SECS", "90");
+        let timeouts = RequestTimeouts { default_secs: 30, long_poll_secs: 90 };
 
         let app = Router::new()
             .route("/rooms/test/send", get(slow_handler))
-            .layer(middleware::from_fn(request_timeout_middleware));
+            .layer(middleware::from_fn_with_state(timeouts, request_timeout_middleware));
         let request = Request::builder()
             .method(axum::http::Method::GET)
             .uri("/rooms/test/send")

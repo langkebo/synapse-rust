@@ -311,6 +311,31 @@ pub struct ServerConfig {
     /// `drain_timeout_secs` field.
     pub drain_timeout_secs: u64,
 
+    /// 单个请求的墙钟上限（秒），由 `request_timeout_middleware` 强制执行。
+    ///
+    /// `None`（默认）表示用 [`DEFAULT_REQUEST_TIMEOUT_SECS`]；`Some(n)` 覆盖它。
+    /// 用 `Option` 而不是带 `serde(default = ...)` 的裸 `u64`，是因为
+    /// `ServerConfig` 同时 derive 了 `Default`：裸 `u64` 会让
+    /// `Default::default()` 得到 `0`、而 serde 得到 30 —— 同一份配置两个答案
+    /// （测试夹具恰恰大量用 `..Default::default()`）。`None` 在两条路径上都表示
+    /// 「用内置默认」，不存在这种分歧。
+    ///
+    /// 注意长轮询端点（`/sync`、`/events`）走
+    /// [`Self::long_poll_request_timeout_secs`]；媒体上传等大 body 请求也受此上限
+    /// 约束，调小它要连同这些路径一起评估。
+    #[serde(default)]
+    /// `request_timeout_secs` field.
+    pub request_timeout_secs: Option<u64>,
+
+    /// 长轮询端点（`/sync`、`/events`）的墙钟上限（秒）。
+    ///
+    /// `None`（默认）表示用 [`DEFAULT_LONG_POLL_REQUEST_TIMEOUT_SECS`]；实际取值还会
+    /// 与请求里的 `?timeout=` 取较大者（再加 15s 余量），见
+    /// `synapse_web::middleware::security::resolve_request_timeout_secs`。
+    #[serde(default)]
+    /// `long_poll_request_timeout_secs` field.
+    pub long_poll_request_timeout_secs: Option<u64>,
+
     /// Megolm 会话密钥清理间隔（秒）。
     ///
     /// 定期删除已过期的 Megolm 加密会话密钥，防止 megolm_sessions 表无限增长。
@@ -470,6 +495,12 @@ fn default_idle_timeout() -> u64 {
 fn default_federation_retry_max_count() -> u64 {
     5
 }
+
+/// [`ServerConfig::request_timeout_secs`] 的内置默认值（秒）。
+pub const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 30;
+
+/// [`ServerConfig::long_poll_request_timeout_secs`] 的内置默认值（秒）。
+pub const DEFAULT_LONG_POLL_REQUEST_TIMEOUT_SECS: u64 = 90;
 
 fn default_drain_timeout_secs() -> u64 {
     30

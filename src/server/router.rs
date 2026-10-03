@@ -5,6 +5,7 @@ use tower_http::trace::TraceLayer;
 use crate::common::config::Config;
 use synapse_web::middleware::{
     http_metrics_middleware, payload_too_large_json_middleware, request_debug_middleware, request_timeout_middleware,
+    RequestTimeouts,
 };
 use synapse_web::routes::create_router;
 use synapse_web::AppState;
@@ -17,6 +18,21 @@ pub fn build_router(app_state: AppState, config: &Config) -> Router {
     // / `http_request_duration_ms` never move and every HTTP alert stays dead.
     let server_metrics = app_state.services.core.server_metrics.clone();
 
+    // `request_timeout_middleware` enforces these budgets; they are configuration
+    // (`server.request_timeout_secs` / `server.long_poll_request_timeout_secs`) with
+    // the documented defaults applied here, in the one place that assembles the
+    // server. They used to be undocumented environment variables read per request.
+    let request_timeouts = RequestTimeouts {
+        default_secs: config
+            .server
+            .request_timeout_secs
+            .unwrap_or(synapse_common::config::server::DEFAULT_REQUEST_TIMEOUT_SECS),
+        long_poll_secs: config
+            .server
+            .long_poll_request_timeout_secs
+            .unwrap_or(synapse_common::config::server::DEFAULT_LONG_POLL_REQUEST_TIMEOUT_SECS),
+    };
+
     create_router(app_state)
         // G-1: 全局 body 上限读取权威字段 config.server.max_upload_size，
         // media 路由的 DefaultBodyLimit 也从同一字段派生（见 web/routes/media/mod.rs）
@@ -25,7 +41,7 @@ pub fn build_router(app_state: AppState, config: &Config) -> Router {
         // 放在 debug/timeout 层之外，使被超时或 413 改写后的响应也能被计入。
         .layer(axum::middleware::from_fn_with_state(server_metrics, http_metrics_middleware))
         .layer(axum::middleware::from_fn(request_debug_middleware))
-        .layer(axum::middleware::from_fn(request_timeout_middleware))
+        .layer(axum::middleware::from_fn_with_state(request_timeouts, request_timeout_middleware))
         .layer(TraceLayer::new_for_http())
         // ISSUE-07: 最外层兜底——body limit 层产生的裸 413（text/plain）
         // 统一改写为 M_TOO_LARGE JSON，客户端可识别 errcode

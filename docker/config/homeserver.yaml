@@ -9,6 +9,12 @@ server:
   server_name: "${SERVER_NAME:-localhost}"
   registration_shared_secret: "${REGISTRATION_SECRET:?REGISTRATION_SECRET is required}"
   max_upload_size: 52428800
+  # 单个请求的墙钟上限（秒）。缺省（不写）即 30s；长轮询端点（/sync、/events）另有
+  # 上限（缺省 90s，并会与请求里的 ?timeout= 取较大者再加 15s 余量）。
+  # 两者由 `request_timeout_middleware` 强制执行，超时返回 504 + M_REQUEST_TIMEOUT。
+  # 调小它要连同媒体上传/大 body 请求与联邦入站一起评估。
+  # request_timeout_secs: 30
+  # long_poll_request_timeout_secs: 90
   max_image_resolution: 8000000
   enable_registration: true
   enable_registration_captcha: false
