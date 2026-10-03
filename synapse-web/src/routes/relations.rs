@@ -74,6 +74,12 @@ pub fn create_relations_router(state: AppState) -> Router<AppState> {
     Router::new()
         .nest("/_matrix/client/v1", with_event_router.clone())
         .nest("/_matrix/client/v3", with_event_router)
+        // 关系写入是非标准方法（spec 只有 GET 读），按 ISSUE-13 挂 vendor 前缀。
+        // 刻意**在本文件里 nest**（而不是让 assembly 的 vendor router 去 merge）：
+        // SKD 对齐门禁以「文件里第一个 pub fn create_*router」为根遍历路由树，
+        // 写入端点必须能从 relations.rs 的根工厂到达，否则 docs/api-contract/relations.md
+        // 里这条路径会被判成"后端不存在"。
+        .nest("/_matrix/vendor/v1", create_relations_vendor_router())
         .with_state(state)
 }
 
