@@ -4,13 +4,25 @@
 **基线**: HEAD (2026-09-28)  
 **上游基准**: element-hq/synapse v1.161.0
 
+> ⚠️ **部分结论已作废（2026-10-03 复核）**：本方案 §1.1、§二·阶段 1、§三 汇总表与 §四 中关于
+> **Content Scanner「孤儿模块、建议删除」** 的判定**已失效，禁止按此执行删除**。实测该模块**已装配且已接入
+> 生产路径**（装配 `synapse-services/src/wiring/core.rs:66,180`；消费 `synapse-web/src/routes/media/upload.rs:89,137`
+> `scan_when_enabled`、`synapse-web/src/routes/handlers/room/events.rs:317` `scan_text_when_enabled`）。
+> 现行口径见 `docs/synapse-rust-vs-synapse-comparison.md` §18.5(a) 与 `docs/synapse-rust/API_COVERAGE_REPORT.md`。
+> 本文件保留原始轨迹，仅作历史存档。
+
 ---
 
 ## 一、待优化项清单
 
-### 1.1 Content Scanner 模块（**建议删除 - 冗余代码**）
+### 1.1 Content Scanner 模块（~~**建议删除 - 冗余代码**~~ ❌ **已作废，勿删除**）
 
-**现状**:
+> ❌ **本条结论已作废（2026-10-03 复核）**：Content Scanner **并非孤儿模块**，已接入生产路径
+> （装配 `synapse-services/src/wiring/core.rs:66,180`；消费 `synapse-web/src/routes/media/upload.rs:89,137`、
+> `synapse-web/src/routes/handlers/room/events.rs:317`）。下文「无调用点」证据基于当日搜索表达式漏配关键词，
+> **不成立**；按此删除会破坏线上内容扫描。现行口径见 `docs/synapse-rust-vs-synapse-comparison.md` §18.5(a)。
+
+**现状** (原始记录，保留轨迹):
 - 模块已定义 (`synapse-services/src/content_scanner/`)
 - 已构造并注入 (`synapse-services/src/wiring/core.rs:183-184`)
 - **但在生产路径无任何实际调用点**
@@ -238,6 +250,9 @@ if !txn_id.is_empty() {
 ## 四、执行命令
 
 ### 删除 Content Scanner
+
+> ❌ **禁止执行（2026-10-03 复核）**：Content Scanner 已接入生产路径（见 §1.1 顶部作废说明），
+> 下方 `rm -rf synapse-services/src/content_scanner` 等步骤会破坏线上内容扫描。仅作历史存档。
 
 ```bash
 # 1. 备份

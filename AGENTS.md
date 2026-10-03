@@ -447,8 +447,8 @@ The codebase generally follows `route (synapse-web/src/) -> service (synapse-ser
 ## Matrix/Synapse protocol guidance
 
 ### Current external baselines
-- Treat Matrix Specification latest as the normative protocol source. As of 2026-05-29, the latest published spec is v1.18.
-- Treat `element-hq/synapse` as the main behavioral reference for production homeserver tradeoffs. As of 2026-05-29, the latest stable tag observed was `v1.153.0`, with `v1.154.0rc1` as the latest pre-release.
+- Treat Matrix Specification latest as the normative protocol source. As of 2026-09-29, the latest published spec is v1.19.
+- Treat `element-hq/synapse` as the main behavioral reference for production homeserver tradeoffs. As of 2026-09-29, the latest stable tag observed was `v1.162.0`.
 - When changing compatibility-sensitive behavior, record the spec/Synapse version you used in the relevant doc or test name so the baseline is auditable later.
 
 ### Protocol declaration discipline

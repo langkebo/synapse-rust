@@ -108,8 +108,14 @@ if let Some(rel_types) = with_rel_types {
 
 ### 2.2 Content Scanner 空转
 
+> ❌ **本条判定已作废（2026-10-03 复核）**：Content Scanner **已接入生产路径**，并非"无调用点"。
+> 消费点：`synapse-web/src/routes/media/upload.rs:89,137`（`scan_when_enabled`）、
+> `synapse-web/src/routes/handlers/room/events.rs:317`（`scan_text_when_enabled`）。
+> 原「无调用点」结论源于下方 grep 表达式只扫 `synapse-services/src/` 且关键词不匹配调用点写法。
+> 现行口径见 `docs/synapse-rust-vs-synapse-comparison.md` §18.5(a)。下文保留原始记录。
+
 **原状态**: 仍存  
-**审查结果**: **问题确实存在**
+**审查结果**: **问题确实存在**（原始记录，已作废）
 
 **证据**:
 - Content Scanner 模块被构造 (`synapse-services/src/wiring/core.rs:183-184`)
@@ -208,7 +214,7 @@ grep -rn "animated" --include="*.rs" synapse-storage/src/media/
 ### 问题仍然存在的：
 1. ⚠️ **联邦 `/send_join` PDU 语义** - 残余问题确实存在
 2. ⚠️ **`event_id` 非 reference hash** - 问题确实存在（P0 级）
-3. ⚠️ **Content Scanner 空转** - 模块已装配但无调用点
+3. ⚠️ **Content Scanner 空转** - ~~模块已装配但无调用点~~ ❌ **已作废**：模块已装配且接入生产路径（见 §2.2 更正）
 
 ### 待进一步验证：
 1. ❓ 缩略图 animated 参数

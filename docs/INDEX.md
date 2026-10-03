@@ -24,7 +24,7 @@
 | 文档 | 用途 |
 |------|------|
 | [`ROUTE_CONTRACT.md`](./synapse-rust/ROUTE_CONTRACT.md) | **路由契约事实清单**：从 `src/web/routes/**` 真实注册面提取，逐模块列出 `(method, path)` 与 manifest 覆盖状态 |
-| [`API_COVERAGE_REPORT.md`](./synapse-rust/API_COVERAGE_REPORT.md) | 相对 element-hq/synapse v1.153.0 的 API 覆盖率分析 |
+| [`API_COVERAGE_REPORT.md`](./synapse-rust/API_COVERAGE_REPORT.md) | 相对 element-hq/synapse v1.162.0 的 API 覆盖率分析 |
 | [`ELEMENT_SYNAPSE_GAP_ANALYSIS_2026-07-28.md`](./synapse-rust/ELEMENT_SYNAPSE_GAP_ANALYSIS_2026-07-28.md) | 与上游 Synapse 的能力差距分析（现行基线） |
 | [`DEPENDENCY_UPGRADE_TRACKER.md`](./synapse-rust/DEPENDENCY_UPGRADE_TRACKER.md) | 依赖升级追踪 |
 | [`admin-registration-guide.md`](./synapse-rust/admin-registration-guide.md) | 管理员注册流程 |

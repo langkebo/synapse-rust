@@ -401,7 +401,7 @@
 | **AS 登录 `m.login.application_service`** | §5.2 / §6.2 判 `MISSING` | **已实现**（`synapse-web/src/routes/auth_compat.rs:455-468`） |
 | **MSC4140 联邦 EDU** | §5.1 判缺失 | **已实现**（`synapse-federation/src/edu.rs:37,67,83`；消费点 `synapse-web/src/federation/edu.rs:631`） |
 | **MSC3912 关系性级联撤回** | §5.2 / §6.2 判 `MISSING` | **部分实现**（`synapse-storage/src/event/cascade.rs` + `synapse-services/src/event_redaction_service.rs:58` + 管理端点；客户端撤回路径不级联） |
-| **Content Scanner** | §11.2（对比报告）判"未装配、从未被构造、未接入 config" | **已装配**（`synapse-services/src/wiring/core.rs:66,179` 构造 + `synapse-common/src/config/mod.rs:242` 配置项）——**但仍零调用点、零持久化** |
+| **Content Scanner** | §11.2（对比报告）判"未装配、从未被构造、未接入 config" | **已装配且已接入生产路径**（`synapse-services/src/wiring/core.rs:66,180` 构造 + `synapse-common/src/config/mod.rs:242` 配置项；消费点 `synapse-web/src/routes/media/upload.rs:89,137` `scan_when_enabled`、`synapse-web/src/routes/handlers/room/events.rs:317` `scan_text_when_enabled`）——**"零调用点/孤儿模块"旧判已作废**；仍无持久化（扫描 verdict 不落库） |
 
 > ⚠️ **§三 的"缺失清单"在 v1.3 中停更于 2026-05-28**，其"待实现"标记已不可作为缺失证据。
 > 本版起：该清单每条必须附 `路径:行号` 或"在册证据"，否则不写入。

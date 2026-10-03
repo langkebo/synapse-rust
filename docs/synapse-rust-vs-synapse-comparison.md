@@ -1208,7 +1208,7 @@ grep "CREATE INDEX" migrations/00000000_unified_schema_v12.sql | grep -i "events
 
 | 原声明（节 · 行） | 实际状态 | 证据 |
 |---|---|---|
-| §12.4 Content Scanner"未装配" | 已装配，但**无消费者**（真缺口是"装了不扫"） | §15.4 L970；`synapse-services/src/content_scanner/*` |
+| §12.4 Content Scanner"未装配" / §15.3"孤儿模块" | **已装配且已接入生产路径**（旧"无调用点/孤儿"判定作废）：媒体上传与房间消息文本两路扫描均已接线，是否实际扫描由 `content_scanner` 配置开关决定 | 装配 `synapse-services/src/wiring/core.rs:66,180`；消费 `synapse-web/src/routes/media/upload.rs:89,137`（`scan_when_enabled`）、`synapse-web/src/routes/handlers/room/events.rs:317`（`scan_text_when_enabled`） |
 | §12.4 App Service 登录"整体缺失" | AS 登录**已实现** | §12.5 L931 |
 | §12.5 SAS"高" | 该面**已整模块删除**（去服务端私钥重构），条目作废 | §15.3 L944 同行的"作废"标注 |
 | §12.5 QR"当前为桩" / `leak_detection`"未编译" / OIDC `validate_id_token_claims`"死代码" | 三者均**已删除** | §7.2 L387；§14.1 L71 |

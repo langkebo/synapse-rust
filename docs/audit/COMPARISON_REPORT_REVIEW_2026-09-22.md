@@ -152,6 +152,11 @@
 
 ### 4.4 Content Scanner：不是"缺存储层"，是"整模块孤儿"
 
+> ❌ **本条判定已作废（2026-10-03 复核）**：Content Scanner **并非孤儿模块**，已装配且接入生产路径
+> （装配 `synapse-services/src/wiring/core.rs:66,180`；消费 `synapse-web/src/routes/media/upload.rs:89,137`
+> `scan_when_enabled`、`synapse-web/src/routes/handlers/room/events.rs:317` `scan_text_when_enabled`）。
+> 现行口径见 `docs/synapse-rust-vs-synapse-comparison.md` §18.5(a)。下文保留原始记录。
+
 - `synapse-services/src/content_scanner/{service.rs 518 行, models.rs 316 行}` 存在，但：
   - `synapse-storage/src/` **无**任何 scanner 存储模块；`migrations/00000000_unified_schema_v12.sql` **无** scan 相关表；
   - 目录外唯一引用是 `synapse-services/src/lib.rs:78`（`pub mod`）与 `media/mod.rs:10`（re-export）；
@@ -285,12 +290,12 @@
 | C1 | E2EE SAS 规范对齐（HKDF + 真实 MAC 校验） | 未列（被判 ✅ 完整） | **高** | 影响与 Element 客户端的验证互操作；`confirm_sas` 接受任意 MAC 是安全弱化 | 对齐规范的 HKDF 派生向量测试；篡改 MAC 必须拒绝 |
 | C2 | E2EE QR 验证实现或标注为未实现 | 未列 | **高（或明确降级声明）** | 当前为桩（复用公钥 + 空签名），文档称"完整"属误报 | 要么实现真实签名/ECDH，要么在文档与 capabilities 中标注不支持 |
 | C3 | `leak_detection` 处置 | "泄漏检测全部实现" | **高** | 未编译模块 + 编译错误 + 桩计数 + schema 列缺失；文档称已实现 | 二选一：接入 `lib.rs` 并修复 4 处缺陷（含测试），或按铁律 1 删除整目录 |
-| C4 | `ContentScanner` 装配或删除 | P0"缺存储层" | **中（决策项）** | 现状是孤儿模块；补存储的前提是先决定是否上线该功能 | 决策记录；若上线则补 schema + config + 构造点 + 测试；否则删模块 |
+| C4 | `ContentScanner` 装配或删除 | P0"缺存储层" | **中（决策项）** | ~~现状是孤儿模块~~ ❌ **已作废（2026-10-03）**：模块已装配且接入生产路径（媒体上传 / 房间消息文本），非孤儿；剩余开口仅为存储层持久化 | 决策记录：如需持久化则补 schema；**不得删除模块** |
 | C5 | MSC4140 联邦（EDU）支持 | "✅ 已对齐" | **中** | 客户端链路真实，缺联邦；需按 MSC4140 草案确认是否必须 | 明确"是否支持跨服务器延迟事件"的声明与测试 |
 | C6 | MSC4242 State DAG | P0 阻断性 | **低（观察项）** | 上游本身是 experimental + "storage functions for future work"；无房间版本启用；`dag.rs` 注释需修正为"预留" | 修正不实注释；跟踪上游房间版本进展 |
 | C7 | MSC4512 App Service 代理 | P0 阻断性 | **低（观察项）** | 上游为 experimental、opt-in | 同上 |
 | C8 | SMS 提供商多元化 | P1 | **低** | 已有 `SmsProvider` trait + 通用 HTTP provider，Twilio 属可选 | 新提供商仅需实现 trait + 工厂分支 |
-| C9 | OIDC `validate_id_token_claims` 接线 | 未列 | **高（安全）** | 死代码，声明校验未生效 | 接入调用点或删除并说明替代校验 |
+| C9 | OIDC `validate_id_token_claims` 接线 | 未列 | **高（安全）** | ✅ **已闭合（2026-10-03 复核）**：该死方法已重构为 `validate_id_token` 并接线（`synapse-services/src/oidc_service.rs:474` 调用 `:542` 实现，含 nonce 校验），无 `#[allow(dead_code)]` 残留 | 已接线；判据见 `oidc_service.rs` 单测（`:901,948,1166,1170`） |
 | C10 | 死字段/保留字段清理（3 处） | 未列 | **中** | 违反铁律 1 | `grep` 无 "Reserved"/"constructor parity" 保留字段 |
 
 ### D 类：把"文档可信度"变成可执行守卫（建议新增）

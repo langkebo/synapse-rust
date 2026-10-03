@@ -162,7 +162,7 @@ cargo run --release
 ## 文档
 
 - 路由契约清单（权威）：`docs/synapse-rust/ROUTE_CONTRACT.md`
-- API 覆盖率报告（vs Synapse v1.153.0）：`docs/synapse-rust/API_COVERAGE_REPORT.md`
+- API 覆盖率报告（vs Synapse v1.162.0）：`docs/synapse-rust/API_COVERAGE_REPORT.md`
 - 上游 Synapse 能力差距分析：`docs/synapse-rust/ELEMENT_SYNAPSE_GAP_ANALYSIS_2026-07-28.md`
 - 依赖升级追踪：`docs/synapse-rust/DEPENDENCY_UPGRADE_TRACKER.md`
 - 管理员注册指南：`docs/synapse-rust/admin-registration-guide.md`
