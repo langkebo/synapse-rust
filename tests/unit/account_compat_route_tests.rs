@@ -274,25 +274,13 @@ fn test_get_profile_response_shape() {
     assert!(response.get("avatar_url").is_some());
 }
 
-#[test]
-fn test_get_displayname_response_shape() {
-    // get_displayname returns { displayname: String } when the field is set,
-    // and an empty object `{}` when the field is unset on the profile.
-    let response = json!({ "displayname": "Alice" });
-    assert_eq!(response["displayname"].as_str(), Some("Alice"));
-
-    let empty_response = json!({});
-    assert!(empty_response.get("displayname").is_none());
-}
-
-#[test]
-fn test_get_avatar_url_response_shape() {
-    let response = json!({ "avatar_url": "mxc://example.com/abc" });
-    assert_eq!(response["avatar_url"].as_str(), Some("mxc://example.com/abc"));
-
-    let empty_response = json!({});
-    assert!(empty_response.get("avatar_url").is_none());
-}
+// The `get_displayname` / `get_avatar_url` "unset field ⇒ `{}`" contract (§18.6
+// V-8) is **not** asserted here. It used to be, but the two cases built a
+// `json!({})` literal and asserted `get("displayname").is_none()` on that literal
+// — they never touched the handler, so they stayed green with the behaviour
+// reverted. `single_profile_field` is private to the module, so the real coverage
+// lives next to it: `account_compat::single_profile_field_tests` (set / empty
+// string / null / absent / wrong type / projection of the requested field only).
 
 // ============================================================================
 // update_displayname — validation logic

@@ -771,6 +771,47 @@ pub(crate) async fn unbind_threepid(
 // O-5: Profile rate limiting (rc_profile) — tests
 // ============================================================================
 #[cfg(test)]
+mod single_profile_field_tests {
+    use super::single_profile_field;
+    use serde_json::json;
+
+    /// The V-8 contract: `GET /profile/{userId}/{field}` omits an unset field
+    /// entirely (`{}`) instead of materialising `null`/`""`.
+    ///
+    /// This is the coverage the external `account_compat_route_tests` claimed but
+    /// did not have: those cases asserted on a hand-built `json!({})` literal
+    /// rather than on this function, so they would have stayed green with the
+    /// behaviour reverted.
+    #[test]
+    fn unset_fields_are_omitted_never_materialised() {
+        // Set value → `{ "<field>": value }`.
+        assert_eq!(
+            single_profile_field(&json!({"displayname": "Alice"}), "displayname"),
+            json!({"displayname": "Alice"})
+        );
+
+        // Empty string counts as unset (upstream omits it).
+        assert_eq!(single_profile_field(&json!({"displayname": ""}), "displayname"), json!({}));
+
+        // Explicit null counts as unset.
+        assert_eq!(single_profile_field(&json!({"displayname": null}), "displayname"), json!({}));
+
+        // Absent key counts as unset.
+        assert_eq!(single_profile_field(&json!({"avatar_url": "mxc://x/y"}), "displayname"), json!({}));
+
+        // A non-string value cannot be a profile field, so it is dropped rather
+        // than echoed as a wrong-typed field.
+        assert_eq!(single_profile_field(&json!({"displayname": 42}), "displayname"), json!({}));
+
+        // Only the requested field is projected, never the whole profile.
+        assert_eq!(
+            single_profile_field(&json!({"displayname": "Alice", "avatar_url": "mxc://x/y"}), "avatar_url"),
+            json!({"avatar_url": "mxc://x/y"})
+        );
+    }
+}
+
+#[cfg(test)]
 mod rc_profile_limit_tests {
     use super::take_rc_profile_token;
     use synapse_cache::{CacheConfig, CacheManager};
