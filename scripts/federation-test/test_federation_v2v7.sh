@@ -81,12 +81,20 @@ RUN_TS=$(date +%s)
 # ─────────────────────────────────────────────────────────────────────────────
 # Result flags (literal true/false for the JSON artifact)
 # ─────────────────────────────────────────────────────────────────────────────
-V2A_OK=false; V2A_DETAIL=""
-V2B_OK=false; V2B_DETAIL=""
-V2C_OK=false; V2C_DETAIL=""
-V2D_STRICT_FALSE_OK=false; V2D_STRICT_TRUE_OK=false; V2D_DETAIL=""
-V7A_OK=false; V7A_DETAIL=""
-V7B_OK=false; V7B_NO_ALLOWED_OK=false; V7B_DETAIL=""
+V2A_OK=false
+V2A_DETAIL=""
+V2B_OK=false
+V2B_DETAIL=""
+V2C_OK=false
+V2C_DETAIL=""
+V2D_STRICT_FALSE_OK=false
+V2D_STRICT_TRUE_OK=false
+V2D_DETAIL=""
+V7A_OK=false
+V7A_DETAIL=""
+V7B_OK=false
+V7B_NO_ALLOWED_OK=false
+V7B_DETAIL=""
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 0: Health check
@@ -185,8 +193,14 @@ register_user_synapse "$CONTAINER_B" "$USER_B" "$PASSWORD_B" || warn "continuing
 TOKEN_A=$(login_user "$SYNAPSE_A_BASE" "$USER_A" "$PASSWORD_A")
 TOKEN_B=$(login_user "$SYNAPSE_B_BASE" "$USER_B" "$PASSWORD_B")
 
-if [[ -z "$TOKEN_A" ]]; then error "Failed to login as $USER_A on Synapse-A"; exit 1; fi
-if [[ -z "$TOKEN_B" ]]; then error "Failed to login as $USER_B on Synapse-B"; exit 1; fi
+if [[ -z "$TOKEN_A" ]]; then
+    error "Failed to login as $USER_A on Synapse-A"
+    exit 1
+fi
+if [[ -z "$TOKEN_B" ]]; then
+    error "Failed to login as $USER_B on Synapse-B"
+    exit 1
+fi
 success "Logged in: @$USER_A:$SERVER_A , @$USER_B:$SERVER_B"
 
 USER_ID_A="@$USER_A:$SERVER_A"
@@ -385,7 +399,7 @@ else
         -H "Authorization: Bearer $TOKEN_A" -H "Content-Type: application/json" \
         -d "{\"user_id\":\"$USER_ID_B\"}" >/dev/null
 
-    KNOCK_TS=$(( $(date +%s) * 1000 ))
+    KNOCK_TS=$(($(date +%s) * 1000))
     KNOCK_BODY=$(jq -nc \
         --arg room "$ROOM_V2C" --arg sender "$USER_ID_B" \
         --arg origin "$SERVER_B" --argjson ts "$KNOCK_TS" \
@@ -501,7 +515,7 @@ else
     PROBE_ROOM="!msc4311probe:$SERVER_A"
     PROBE_EVENT_ID='$msc4311probe'
     PROBE_URI="/_matrix/federation/v2/invite/$PROBE_ROOM/$PROBE_EVENT_ID"
-    PROBE_TS=$(( $(date +%s) * 1000 ))
+    PROBE_TS=$(($(date +%s) * 1000))
 
     # deliberately omits depth/prev_events/auth_events so the non-strict path
     # fails at the DAG guard (invite_v2 line ~176), *after* the MSC4311 shape check.
@@ -516,8 +530,8 @@ else
     b_signed_request PUT "$PROBE_URI" "$PROBE_BODY" "$OUT_V2D_F"
     ST_F=$(req_status "$OUT_V2D_F")
     BODY_F=$(req_body "$OUT_V2D_F")
-    if [[ "$ST_F" == "400" ]] && echo "$BODY_F" | grep -q "depth/prev_events/auth_events" \
-        && ! echo "$BODY_F" | grep -q "msc4311_strict_validation"; then
+    if [[ "$ST_F" == "400" ]] && echo "$BODY_F" | grep -q "depth/prev_events/auth_events" &&
+        ! echo "$BODY_F" | grep -q "msc4311_strict_validation"; then
         success "V-2d: strict=false rejected at the DAG guard (no MSC4311 marker)"
         V2D_STRICT_FALSE_OK=true
     else
@@ -623,9 +637,9 @@ if [[ "$RUN_V2D" == "1" ]]; then
     [[ "$V2D_STRICT_FALSE_OK" == "true" && "$V2D_STRICT_TRUE_OK" == "true" ]] || V2D_PASS=false
 fi
 
-if [[ "$V2A_OK" == "true" && "$V2B_OK" == "true" && "$V2C_OK" == "true" \
-    && "$V7A_OK" == "true" && "$V7B_OK" == "true" && "$V7B_NO_ALLOWED_OK" == "true" \
-    && "$V2D_PASS" == "true" && "$FAILURES" -eq 0 ]]; then
+if [[ "$V2A_OK" == "true" && "$V2B_OK" == "true" && "$V2C_OK" == "true" &&
+    "$V7A_OK" == "true" && "$V7B_OK" == "true" && "$V7B_NO_ALLOWED_OK" == "true" &&
+    "$V2D_PASS" == "true" && "$FAILURES" -eq 0 ]]; then
     success "V-2 / V-7 federation interop test PASSED"
     exit 0
 fi
