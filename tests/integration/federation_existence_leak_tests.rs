@@ -776,6 +776,140 @@ async fn invite_v2_stored_signature_covers_the_projected_pdu() {
         .expect("the stored signature must verify over the projected PDU a peer receives");
 }
 
+/// Build and sign a v12 `m.room.member` PDU as a **foreign** origin would, and
+/// derive the event ID the receiver computes for it.
+///
+/// `invite_room_state` is passed through verbatim (the caller decides whether the
+/// body carries it at all).
+#[allow(clippy::too_many_arguments)]
+fn signed_foreign_member_pdu(
+    remote_origin: &str,
+    remote_key_id: &str,
+    remote_key_b64: &str,
+    room_id: &str,
+    sender: &str,
+    state_key: &str,
+    invite_room_state: Option<Value>,
+) -> (Value, String, Value) {
+    let content = json!({ "membership": "invite" });
+    let prev_events = vec!["$parent:remote.example".to_string()];
+    let auth_events = vec!["$create:remote.example".to_string()];
+    let parts = synapse_common::pdu::PduParts {
+        room_version: "12",
+        event_id: None,
+        room_id,
+        sender,
+        event_type: "m.room.member",
+        content: &content,
+        state_key: Some(state_key),
+        origin_server_ts: 1_750_000_000_000,
+        origin: remote_origin,
+        depth: 7,
+        prev_events: &prev_events,
+        auth_events: &auth_events,
+        redacts: None,
+    };
+    let mut pdu = synapse_common::pdu::build_pdu(&parts);
+    let finalized =
+        synapse_federation::event_finalize::finalize_local_pdu(&parts).expect("the origin's PDU must finalize");
+    pdu.as_object_mut().expect("a PDU is a JSON object").insert("hashes".to_string(), finalized.hashes);
+    synapse_federation::signing::sign_and_hash_event("12", remote_origin, remote_key_id, remote_key_b64, &mut pdu)
+        .expect("the origin's PDU must sign");
+    let event_id =
+        synapse_common::event_id::resolve_received_event_id("12", &pdu).expect("the receiver must derive the event id");
+
+    let mut body = json!({ "event": pdu, "room_version": "12" });
+    if let Some(stripped) = invite_room_state {
+        body.as_object_mut().expect("the body is an object").insert("invite_room_state".to_string(), stripped);
+    }
+    (body, event_id, content)
+}
+
+/// P-18: the stripped state the sender supplied must survive ingest, because a
+/// first-contact invite leaves us **no** room state to project from.
+///
+/// Upstream stores it on the membership event's `unsigned.invite_room_state`
+/// (`FederationHandler.on_invite_request` → `event.unsigned[...]`) and renders
+/// `rooms.invite[*].invite_state` from it. Our sync path instead projects the
+/// room's *own* state and fails closed without an `m.room.create` — for a room we
+/// have never seen, that means the invite is persisted, the membership row
+/// exists, and the invitee still sees nothing in `/sync`.
+#[tokio::test]
+async fn invite_v2_supplied_stripped_state_reaches_the_invitees_sync() {
+    let Some((app, _pool, _key_id, _key_b64, _signing_key, cache)) = setup_federation_app().await else {
+        return;
+    };
+
+    let remote_origin = "remote.example";
+    let remote_key_id = "ed25519:remote_stripped_state";
+    let remote_seed = [88u8; 32];
+    let remote_signing_key = ed25519_dalek::SigningKey::from_bytes(&remote_seed);
+    let remote_key_b64 = STANDARD_NO_PAD.encode(remote_seed);
+    register_remote_verify_key(&cache, remote_origin, remote_key_id, &remote_signing_key).await;
+
+    let (invitee_token, invitee_id) = register_user(&app, "stripped_invitee").await;
+    let inviter = format!("@inviter:{remote_origin}");
+    let room_id = format!("!stripped_invite_{}:localhost", rand::random::<u32>());
+
+    let invite_room_state = json!([
+        {
+            "type": "m.room.create",
+            "state_key": "",
+            "content": { "creator": inviter, "room_version": "12" },
+            "sender": inviter
+        },
+        {
+            "type": "m.room.name",
+            "state_key": "",
+            "content": { "name": "Remote Room" },
+            "sender": inviter
+        }
+    ]);
+    let (body, event_id, _content) = signed_foreign_member_pdu(
+        remote_origin,
+        remote_key_id,
+        &remote_key_b64,
+        &room_id,
+        &inviter,
+        &invitee_id,
+        Some(invite_room_state),
+    );
+
+    let uri = format!("/_matrix/federation/v2/invite/{room_id}/{event_id}");
+    let request =
+        signed_fed_request_as("PUT", &uri, remote_origin, "localhost", remote_key_id, &remote_signing_key, Some(&body));
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    let status = response.status();
+    let response_body = axum::body::to_bytes(response.into_body(), 16384).await.unwrap();
+    let response_json: Value = serde_json::from_slice(&response_body).unwrap();
+    assert_eq!(status, StatusCode::OK, "the invite must be accepted, got {status}: {response_json}");
+
+    // The invitee must see the invite, rendered from the state the sender gave us.
+    let sync_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/sync?timeout=0")
+        .header("Authorization", format!("Bearer {invitee_token}"))
+        .body(Body::empty())
+        .unwrap();
+    let sync_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), sync_request).await.unwrap();
+    assert_eq!(sync_response.status(), StatusCode::OK);
+    let sync_body = axum::body::to_bytes(sync_response.into_body(), 256 * 1024).await.unwrap();
+    let sync_json: Value = serde_json::from_slice(&sync_body).unwrap();
+
+    let invite = &sync_json["rooms"]["invite"][&room_id];
+    assert!(!invite.is_null(), "the invitee must see `rooms.invite[{room_id}]`: {sync_json}");
+    let stripped_types: Vec<&str> = invite["invite_state"]["events"]
+        .as_array()
+        .unwrap_or_else(|| panic!("invite_state.events must be an array: {invite}"))
+        .iter()
+        .filter_map(|event| event["type"].as_str())
+        .collect();
+    assert!(
+        stripped_types.contains(&"m.room.create") && stripped_types.contains(&"m.room.name"),
+        "invite_state must carry the sender's stripped state, got {stripped_types:?}"
+    );
+}
+
 /// P-15 / V-2b: an invite that arrives **signed by its origin** must keep that
 /// signature — in the row *and* in the `{"event": …}` response.
 ///
@@ -809,34 +943,8 @@ async fn invite_v2_keeps_the_origin_signature_in_the_row_and_the_response() {
     // A room we do not host: this is the first-contact case, so the invite is
     // persisted as an outlier exactly like a real cross-implementation invite.
     let room_id = format!("!origin_sig_invite_{}:localhost", rand::random::<u32>());
-    let content = json!({ "membership": "invite" });
-    let prev_events = vec!["$parent:remote.example".to_string()];
-    let auth_events = vec!["$create:remote.example".to_string()];
-    let parts = synapse_common::pdu::PduParts {
-        room_version: "12",
-        event_id: None,
-        room_id: &room_id,
-        sender: &inviter,
-        event_type: "m.room.member",
-        content: &content,
-        state_key: Some(&invitee_id),
-        origin_server_ts: 1_750_000_000_000,
-        origin: remote_origin,
-        depth: 7,
-        prev_events: &prev_events,
-        auth_events: &auth_events,
-        redacts: None,
-    };
-    let mut pdu = synapse_common::pdu::build_pdu(&parts);
-    let finalized =
-        synapse_federation::event_finalize::finalize_local_pdu(&parts).expect("the origin's PDU must finalize");
-    pdu.as_object_mut().expect("a PDU is a JSON object").insert("hashes".to_string(), finalized.hashes.clone());
-    synapse_federation::signing::sign_and_hash_event("12", remote_origin, remote_key_id, &remote_key_b64, &mut pdu)
-        .expect("the origin's PDU must sign");
-    let event_id = synapse_common::event_id::resolve_received_event_id("12", &pdu)
-        .expect("the receiver must derive the origin's event id");
-
-    let body = json!({ "event": pdu, "room_version": "12" });
+    let (body, event_id, _content) =
+        signed_foreign_member_pdu(remote_origin, remote_key_id, &remote_key_b64, &room_id, &inviter, &invitee_id, None);
     let uri = format!("/_matrix/federation/v2/invite/{room_id}/{event_id}");
     let request =
         signed_fed_request_as("PUT", &uri, remote_origin, "localhost", remote_key_id, &remote_signing_key, Some(&body));

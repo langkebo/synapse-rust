@@ -39,6 +39,9 @@ pub trait EventWriter: Send + Sync {
         hashes: &serde_json::Value,
     ) -> Result<(), sqlx::Error>;
 
+    /// See [`update_event_unsigned`].
+    async fn update_event_unsigned(&self, event_id: &str, unsigned: &serde_json::Value) -> Result<(), sqlx::Error>;
+
     /// See [`redact_event_content`].
     ///
     /// `redaction_event_id` is the id of the `m.room.redaction` event that
@@ -193,6 +196,10 @@ impl crate::event::writer::EventWriter for super::EventStorage {
         hashes: &serde_json::Value,
     ) -> Result<(), sqlx::Error> {
         self.update_event_signatures_and_hashes(event_id, signatures, hashes).await
+    }
+
+    async fn update_event_unsigned(&self, event_id: &str, unsigned: &serde_json::Value) -> Result<(), sqlx::Error> {
+        self.update_event_unsigned(event_id, unsigned).await
     }
 
     async fn redact_event_content(&self, event_id: &str, redaction_event_id: Option<&str>) -> Result<(), sqlx::Error> {

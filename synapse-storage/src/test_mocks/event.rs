@@ -1050,6 +1050,14 @@ impl crate::event::writer::EventWriter for InMemoryEventStore {
         Ok(())
     }
 
+    async fn update_event_unsigned(&self, _event_id: &str, _unsigned: &serde_json::Value) -> Result<(), sqlx::Error> {
+        // No-op: this mock stores `RoomEvent` (the write model), which has no
+        // `unsigned` column; the read model that carries it (`StateEvent`) is
+        // only produced by the real storage. The stripped-state path is covered
+        // against a real pool in `federation_existence_leak_tests`.
+        Ok(())
+    }
+
     async fn redact_event_content(&self, event_id: &str, _redaction_event_id: Option<&str>) -> Result<(), sqlx::Error> {
         let mut events = self.events.write().await;
         if let Some(event) = events.get_mut(event_id) {

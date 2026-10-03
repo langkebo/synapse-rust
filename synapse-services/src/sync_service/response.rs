@@ -675,6 +675,34 @@ impl SyncService {
         user_id: &str,
         section_key: &str,
     ) -> Option<Value> {
+        // P-18 / upstream shape: the server that invited (or was knocked at by)
+        // us may have supplied the stripped state, which we stored on the
+        // membership event's `unsigned.invite_room_state` /
+        // `unsigned.knock_room_state`. Prefer it — for a first-contact invite the
+        // room has **no state of ours** to project, and the old fail-closed rule
+        // then dropped the invite from `/sync` entirely, i.e. the invitee saw
+        // nothing at all.
+        let unsigned_key = match section_key {
+            "invite_state" => "invite_room_state",
+            "knock_state" => "knock_room_state",
+            _ => section_key,
+        };
+        if let Some(supplied) = events
+            .iter()
+            .find(|event| {
+                event.event_type.as_deref() == Some("m.room.member")
+                    && event.state_key.as_deref().is_some_and(|state_key| state_key == user_id)
+            })
+            .and_then(|event| event.unsigned.as_ref())
+            .and_then(|unsigned| unsigned.get(unsigned_key))
+            .and_then(Value::as_array)
+            .filter(|entries| !entries.is_empty())
+        {
+            return Some(json!({
+                section_key: { "events": supplied.clone() }
+            }));
+        }
+
         let mut stripped_events = Vec::new();
         let mut has_create = false;
 
@@ -725,7 +753,8 @@ impl SyncService {
                     room_id = %room_id,
                     user_id = %user_id,
                     section = section_label,
-                    "Stripped state missing m.room.create, omitting from section (fail-closed)"
+                    "No sender-supplied stripped state and our own room state has no m.room.create; \
+                     omitting from section (fail-closed) — see P-18"
                 );
             }
         }

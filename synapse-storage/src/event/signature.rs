@@ -26,6 +26,27 @@ impl EventStorage {
         Ok(())
     }
 
+    /// Update the `unsigned` JSONB column for an event after it was persisted.
+    ///
+    /// Federation ingest keeps transport-level data here rather than on the
+    /// signed event — e.g. the stripped state the sender supplied with an invite,
+    /// which upstream stores as `unsigned.invite_room_state` and which `/sync`
+    /// renders as `invite_state`. Safe to write *after* signing: `unsigned` is
+    /// excluded from both the content hash and the signature material, so this
+    /// cannot invalidate the origin's signature.
+    pub async fn update_event_unsigned(&self, event_id: &str, unsigned: &serde_json::Value) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r"
+            UPDATE events SET unsigned = $2 WHERE event_id = $1
+            ",
+            event_id,
+            unsigned,
+        )
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
     /// Save (upsert) an event signature.
     ///
     /// D-99：原先还接一个 `algorithm` 形参并写入同名列。该列**从来没有读者**

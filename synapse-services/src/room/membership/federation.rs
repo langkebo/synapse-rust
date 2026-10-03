@@ -51,6 +51,66 @@ fn ensure_template_origin(template: &mut Value, origin_server: &str, flow: &str)
     obj.insert("origin".to_string(), Value::String(origin_server.to_string()));
 }
 
+/// The stripped state an outbound invite must carry (MSC4311).
+///
+/// The invitee renders the invite from this list, and MSC4311 makes
+/// `m.room.create` mandatory: without it every conforming receiver logs
+/// `Stripped state must include m.room.create event` and the invitee cannot
+/// determine the room version. Entries are projected to the stripped shape
+/// (`type` / `state_key` / `content` / `sender`) — the invitee's server stores
+/// exactly this on the membership event's `unsigned` and serves it as
+/// `rooms.invite[*].invite_state`.
+///
+/// Only pre-join state is included, plus the inviter's own membership event so
+/// the invitee can show who invited them (MSC4319). `m.room.create` is ordered
+/// first, matching upstream's `_room_prejoin_state_types`.
+pub(crate) fn invite_room_state_for(state_events: &[synapse_storage::event::StateEvent]) -> Vec<Value> {
+    const PREJOIN_TYPES: [&str; 7] = [
+        "m.room.create",
+        "m.room.join_rules",
+        "m.room.name",
+        "m.room.avatar",
+        "m.room.topic",
+        "m.room.encryption",
+        "m.room.canonical_alias",
+    ];
+
+    let mut ordered: Vec<&synapse_storage::event::StateEvent> = Vec::new();
+    for event_type in PREJOIN_TYPES {
+        ordered.extend(
+            state_events.iter().filter(|event| {
+                event.event_type.as_deref() == Some(event_type) && event.state_key.as_deref() == Some("")
+            }),
+        );
+    }
+    // MSC4319: the inviter's membership, so the invitee's client can render the
+    // inviter's profile even when the room has no name/avatar (it must be the
+    // *inviter*'s entry, which the caller cannot know here — every member entry
+    // whose state_key is not the invitee is therefore included; the invitee's own
+    // membership does not exist yet).
+    ordered.extend(state_events.iter().filter(|event| event.event_type.as_deref() == Some("m.room.member")).filter(
+        |event| {
+            event
+                .content
+                .get("membership")
+                .and_then(Value::as_str)
+                .is_some_and(|membership| matches!(membership, "join" | "invite"))
+        },
+    ));
+
+    ordered
+        .into_iter()
+        .map(|event| {
+            let mut stripped = serde_json::Map::new();
+            stripped.insert("type".to_string(), json!(event.event_type));
+            stripped.insert("state_key".to_string(), json!(event.state_key));
+            stripped.insert("content".to_string(), event.content.clone());
+            stripped.insert("sender".to_string(), json!(event.sender));
+            Value::Object(stripped)
+        })
+        .collect()
+}
+
 impl MembershipService {
     // =========================================================================
     // Outbound federation join
@@ -846,8 +906,9 @@ impl MembershipService {
 
         // Call invite on the remote server (the body carries the PDU plus the
         // room version — see `FederationClient::invite`).
+        let invite_room_state = invite_room_state_for(&state_events);
         let invite_response = federation_client
-            .invite(&destination, room_id, &event_id, &room_version, &invite_event)
+            .invite(&destination, room_id, &event_id, &room_version, &invite_event, &invite_room_state)
             .await
             .map_err(|e| {
                 ::tracing::warn!(error = %e, destination = %destination, "federation invite failed");
@@ -1227,5 +1288,80 @@ mod join_persistence_failure_tests {
             0,
             "a rejected template must never reach send_join (that is where our signature would leak)"
         );
+    }
+}
+
+#[cfg(test)]
+mod invite_room_state_tests {
+    use super::invite_room_state_for;
+    use serde_json::{json, Value};
+    use synapse_storage::event::StateEvent;
+
+    fn state_event(event_type: &str, state_key: &str, content: Value, sender: &str) -> StateEvent {
+        StateEvent {
+            event_id: format!("${event_type}${state_key}"),
+            room_id: "!r:remote.example".to_string(),
+            sender: sender.to_string(),
+            event_type: Some(event_type.to_string()),
+            content,
+            state_key: Some(state_key.to_string()),
+            unsigned: None,
+            is_redacted: Some(false),
+            origin_server_ts: 1,
+            depth: Some(1),
+            processed_ts: None,
+            not_before: None,
+            status: None,
+            origin: Some("remote.example".to_string()),
+            user_id: Some(sender.to_string()),
+            stream_ordering: None,
+            prev_events: None,
+            auth_events: None,
+            signatures: None,
+            hashes: None,
+        }
+    }
+
+    /// P-18 (outbound half): the invitee renders its invite from this list, so
+    /// MSC4311 makes `m.room.create` mandatory — an empty list (which this used
+    /// to send unconditionally) makes every conforming receiver log
+    /// `Stripped state must include m.room.create event`.
+    #[test]
+    fn create_comes_first_and_every_entry_is_stripped() {
+        let inviter = "@inviter:remote.example";
+        let state = vec![
+            state_event("m.room.name", "", json!({"name": "Room"}), inviter),
+            state_event("m.room.create", "", json!({"creator": inviter}), inviter),
+            state_event("m.room.member", inviter, json!({"membership": "join"}), inviter),
+            // Not pre-join state: must not leak into the invitee's invite_state.
+            state_event("m.room.power_levels", "", json!({"users": {}}), inviter),
+            state_event("m.room.message", "", json!({"body": "hi"}), inviter),
+        ];
+
+        let stripped = invite_room_state_for(&state);
+        let types: Vec<&str> = stripped.iter().filter_map(|entry| entry["type"].as_str()).collect();
+        assert_eq!(types, vec!["m.room.create", "m.room.name", "m.room.member"], "got {stripped:?}");
+
+        // Exactly the four keys a stripped-state event may carry — a full PDU
+        // echoed verbatim would leak `hashes`/`signatures`/graph fields to a
+        // client that was never in the room.
+        for entry in &stripped {
+            let mut keys: Vec<&str> = entry.as_object().expect("an object").keys().map(String::as_str).collect();
+            keys.sort_unstable();
+            assert_eq!(keys, vec!["content", "sender", "state_key", "type"], "got {entry}");
+        }
+    }
+
+    /// A room with nothing but a create event still yields a usable payload.
+    #[test]
+    fn create_only_still_produces_the_mandatory_entry() {
+        let stripped = invite_room_state_for(&[state_event(
+            "m.room.create",
+            "",
+            json!({"creator": "@a:remote.example"}),
+            "@a:remote.example",
+        )]);
+        assert_eq!(stripped.len(), 1);
+        assert_eq!(stripped[0]["type"], json!("m.room.create"));
     }
 }

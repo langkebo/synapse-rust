@@ -253,6 +253,23 @@ pub(crate) async fn invite_v2(
         );
     }
 
+    // P-18: keep the stripped state the inviter supplied.
+    //
+    // A first-contact invite leaves us no room state to project `invite_state`
+    // from, and the projector is fail-closed without `m.room.create`
+    // (`assemble_room_stripped_state`) — so without this the invite is persisted,
+    // the membership row exists, and the invitee still sees nothing in `/sync`.
+    // Upstream stores the same payload on the invite event's
+    // `unsigned.invite_room_state` and renders `rooms.invite[*].invite_state`
+    // from it. `unsigned` is outside the signed bytes, so writing it after the
+    // signature material above cannot invalidate the origin's signature.
+    if let Some(stripped) = sanitized_invite_room_state(body.get("invite_room_state")) {
+        ctx.room_service
+            .messaging()
+            .update_event_unsigned(&stored.event_id, &json!({ "invite_room_state": stripped }))
+            .await?;
+    }
+
     // The invitee is one of our users — that is why the remote server sent the
     // invite here — so ensure a local `users` row exists before the membership
     // write below, whose `user_id` is a foreign key onto it. Idempotent for an
@@ -343,6 +360,40 @@ pub(crate) fn validate_invite_room_state_shape(
     }
 
     Ok(())
+}
+
+/// Project the sender's `invite_room_state` down to the keys a stripped-state
+/// event is allowed to carry, dropping entries that are not usable.
+///
+/// Mirrors upstream `strip_event` / `_parse_stripped_room_state`: the wire form
+/// may be a full PDU (MSC4311 makes full PDUs mandatory on the *sending* side) or
+/// legacy stripped state, but what a client receives under
+/// `rooms.invite[*].invite_state` is always `{type, state_key, content, sender?}`.
+/// Returns `None` when nothing survives, so an empty/garbage payload does not
+/// overwrite the row with an empty object.
+pub(crate) fn sanitized_invite_room_state(invite_room_state: Option<&Value>) -> Option<Vec<Value>> {
+    let entries = invite_room_state?.as_array()?;
+    let stripped: Vec<Value> = entries
+        .iter()
+        .filter_map(|entry| {
+            let object = entry.as_object()?;
+            let event_type = object.get("type")?.as_str()?;
+            let state_key = object.get("state_key")?.as_str()?;
+            let content = object.get("content")?.as_object()?;
+            let mut stripped = serde_json::Map::new();
+            stripped.insert("type".to_string(), json!(event_type));
+            stripped.insert("state_key".to_string(), json!(state_key));
+            stripped.insert("content".to_string(), Value::Object(content.clone()));
+            // The inviter's own membership entry carries the profile a client
+            // shows next to the invite (MSC4319), so `sender` is kept when the
+            // sender supplied it.
+            if let Some(sender) = object.get("sender").and_then(Value::as_str) {
+                stripped.insert("sender".to_string(), json!(sender));
+            }
+            Some(Value::Object(stripped))
+        })
+        .collect();
+    (!stripped.is_empty()).then_some(stripped)
 }
 
 /// Derive the room's join rule from the `invite_room_state` stripped state the

@@ -140,6 +140,12 @@ impl EventWriter for NotifyingEventWriter {
         self.inner.update_event_signatures_and_hashes(event_id, signatures, hashes).await
     }
 
+    async fn update_event_unsigned(&self, event_id: &str, unsigned: &serde_json::Value) -> Result<(), sqlx::Error> {
+        // Pure delegation: `unsigned` is not a state change, so it must not
+        // invalidate the room-state cache nor wake any worker.
+        self.inner.update_event_unsigned(event_id, unsigned).await
+    }
+
     async fn redact_event_content(&self, event_id: &str, redaction_event_id: Option<&str>) -> Result<(), sqlx::Error> {
         // No room_id in scope — see "Known gaps" in the module docs.
         self.inner.redact_event_content(event_id, redaction_event_id).await

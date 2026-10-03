@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE events SET unsigned = $2 WHERE event_id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e8310bdb4d66e68a09e19b8c99a5182f922281d653c051449a1e23e8c56b70bd"
+}

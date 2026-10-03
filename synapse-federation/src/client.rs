@@ -1051,6 +1051,7 @@ impl FederationClient {
         event_id: &str,
         room_version: &str,
         event: &serde_json::Value,
+        invite_room_state: &[serde_json::Value],
     ) -> Result<InviteResponse, FederationClientError> {
         let path =
             format!("/_matrix/federation/v2/invite/{}/{}", urlencoding::encode(room_id), urlencoding::encode(event_id));
@@ -1058,10 +1059,16 @@ impl FederationClient {
         // `room_version` from it (a v3+ PDU carries neither a version nor an
         // `event_id` of its own), so an unwrapped body is unprocessable
         // upstream (`FederationV2InviteServlet`).
+        //
+        // `invite_room_state` is the stripped state the invitee renders the
+        // invite from. MSC4311 requires it to include `m.room.create`: an empty
+        // list makes every conforming receiver log
+        // `Stripped state must include m.room.create event` and leaves the
+        // invitee without a room version — this used to be hardcoded `[]`.
         let body = serde_json::to_string(&serde_json::json!({
             "event": event,
             "room_version": room_version,
-            "invite_room_state": [],
+            "invite_room_state": invite_room_state,
         }))
         .map_err(|e| FederationClientError::InvalidResponse(e.to_string()))?;
         let response = self.send_signed_request("PUT", &path, destination, Some(&body)).await?;

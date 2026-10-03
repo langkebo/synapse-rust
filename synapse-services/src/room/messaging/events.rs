@@ -839,6 +839,20 @@ impl MessagingService {
             .map_err(|e| ApiError::internal_with_cause("Failed to update event signatures and hashes", e))
     }
 
+    /// See [`update_event_unsigned`].
+    ///
+    /// Federation ingest keeps transport-level data on the persisted row's
+    /// `unsigned` — e.g. the stripped state a sender supplied with an invite,
+    /// which `/sync` renders as `rooms.invite[*].invite_state` (P-18). `unsigned`
+    /// is outside the signed bytes and the content hash, so writing it after the
+    /// event was persisted cannot invalidate the origin's signature.
+    pub async fn update_event_unsigned(&self, event_id: &str, unsigned: &serde_json::Value) -> ApiResult<()> {
+        self.event_writer
+            .update_event_unsigned(event_id, unsigned)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to update event unsigned data", e))
+    }
+
     /// See [`save_event_signature`].
     #[allow(clippy::too_many_arguments)]
     pub async fn save_event_signature(

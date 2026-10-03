@@ -82,6 +82,9 @@ pub trait FederationClientApi: Send + Sync {
     ) -> Result<SendLeaveResponse, FederationClientError>;
 
     /// Send an invite event to a remote server.
+    ///
+    /// `invite_room_state` is the stripped state the invitee renders the invite
+    /// from (MSC4311 requires `m.room.create` to be one of the entries).
     async fn invite(
         &self,
         destination: &str,
@@ -89,6 +92,7 @@ pub trait FederationClientApi: Send + Sync {
         event_id: &str,
         room_version: &str,
         event: &serde_json::Value,
+        invite_room_state: &[serde_json::Value],
     ) -> Result<InviteResponse, FederationClientError>;
 
     /// Fetch the full current state for a room from a remote server.
@@ -303,8 +307,9 @@ impl FederationClientApi for FederationClient {
         event_id: &str,
         room_version: &str,
         event: &serde_json::Value,
+        invite_room_state: &[serde_json::Value],
     ) -> Result<InviteResponse, FederationClientError> {
-        FederationClient::invite(self, destination, room_id, event_id, room_version, event).await
+        FederationClient::invite(self, destination, room_id, event_id, room_version, event, invite_room_state).await
     }
 
     async fn get_state(&self, destination: &str, room_id: &str) -> Result<StateResponse, FederationClientError> {
