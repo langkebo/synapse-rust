@@ -52,7 +52,14 @@ fn create_relations_core_router() -> Router<AppState> {
 /// The ledger's `registered_by` for this route is `relations` (the module that
 /// defines this router), not `vendor` (the assembly that mounts it) — see
 /// `scripts/contract/ledger_origins.txt`.
-pub fn create_relations_vendor_router() -> Router<AppState> {
+///
+/// ⚠️ 刻意用 `pub(crate)`（而不是 `pub`）：SDK 的
+/// `scripts/quality/check-sdk-contract-alignment.mjs` 把"文件里第一个
+/// `pub fn create_*router`"当作**根工厂**去遍历路由树，这里若写成 `pub`，它会把我
+/// 当成根、只看到 vendor 的这条写入路由，于是 `docs/api-contract/relations.md` 里所有
+/// 客户端读取路由都被判成"后端不存在"（实测 4 条误报）。`pub(crate)` 对 crate 内调用
+/// 完全够用（assembly.rs 同 crate），且不含子串 `pub fn`，不会被那个启发式选中。
+pub(crate) fn create_relations_vendor_router() -> Router<AppState> {
     Router::new().route("/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}", put(send_relation))
 }
 
