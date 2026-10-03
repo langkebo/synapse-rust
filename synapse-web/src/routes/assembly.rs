@@ -111,6 +111,10 @@ fn create_vendor_router() -> Router<AppState> {
             "/rooms/{room_id}/invite_allowlist",
             get(invite_blocklist::get_invite_allowlist).post(invite_blocklist::set_invite_allowlist),
         )
+        // 关系写入端点：spec 只定义 GET 读关系，写入是非标准方法，按 ISSUE-13 挂 vendor 前缀。
+        // 它由 `relations.rs::create_relations_vendor_router()` 定义，所以 ledger 的
+        // registered_by 是 `relations` 而不是 `vendor` —— mount 点不拥有归属。
+        .merge(crate::routes::relations::create_relations_vendor_router())
 }
 
 /// See [`create_router`].

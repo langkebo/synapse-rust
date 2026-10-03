@@ -21,6 +21,9 @@ pub struct SendAnnotationRequest {
     pub key: String,
     /// The `origin_server_ts` field.
     pub origin_server_ts: i64,
+    /// 可选的客户端 `txn_id`：`Some` 时走耐久去重（幂等重放返回同一事件）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub txn_id: Option<String>,
 }
 
 /// The `SendReferenceRequest` struct.
@@ -38,6 +41,9 @@ pub struct SendReferenceRequest {
     pub origin_server_ts: i64,
     /// The `relation_type` field.
     pub relation_type: Option<String>,
+    /// 可选的客户端 `txn_id`：`Some` 时走耐久去重（幂等重放返回同一事件）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub txn_id: Option<String>,
 }
 
 /// The `SendReplacementRequest` struct.
@@ -53,6 +59,9 @@ pub struct SendReplacementRequest {
     pub new_content: Value,
     /// The `origin_server_ts` field.
     pub origin_server_ts: i64,
+    /// 可选的客户端 `txn_id`：`Some` 时走耐久去重（幂等重放返回同一事件）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub txn_id: Option<String>,
 }
 
 /// `/relations` 查询的可选旋钮（`room_id` / `relates_to_event_id` 之外的参数）。
@@ -197,7 +206,57 @@ impl RelationsService {
     }
 
     /// See [`send_annotation`].
+    /// 关系写入的去重包装：复用 `MessagingService::{begin_txn, finish_txn}`。
+    ///
+    /// `txn_id` 为空即普通写入；非空时命中既有 marker 就返回既有关系行（幂等重放，
+    /// 不产生第二个房间事件），并发落败时返回获胜方那条。协议本体只有一份
+    /// （`/rooms/{roomId}/send/{eventType}/{txnId}` 用的是同一对方法）。
+    async fn with_txn_dedup<F, Fut>(
+        &self,
+        sender: &str,
+        room_id: &str,
+        txn_id: Option<&str>,
+        produce: F,
+    ) -> Result<EventRelation, ApiError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<EventRelation, ApiError>>,
+    {
+        let txn_id = txn_id.filter(|txn| !txn.is_empty());
+        if let Some(txn) = txn_id {
+            if let Some(existing) = self.messaging.begin_txn(sender, room_id, txn).await? {
+                return self.relation_by_event_id(room_id, &existing).await;
+            }
+        }
+
+        let relation = produce().await?;
+
+        if let Some(txn) = txn_id {
+            let final_event_id = self.messaging.finish_txn(sender, room_id, txn, &relation.event_id).await?;
+            if final_event_id != relation.event_id {
+                return self.relation_by_event_id(room_id, &final_event_id).await;
+            }
+        }
+
+        Ok(relation)
+    }
+
+    /// 重放/并发落败路径取既有关系行；行缺失说明事件与索引不一致，按内部错误报出。
+    async fn relation_by_event_id(&self, room_id: &str, event_id: &str) -> Result<EventRelation, ApiError> {
+        self.storage
+            .get_relation(room_id, event_id)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to load relation for txn replay", e))?
+            .ok_or_else(|| ApiError::internal("Relation row missing for txn replay"))
+    }
+
+    /// 关系写入入口（annotation）：`txn_id` 非空时带耐久去重。
     pub async fn send_annotation(&self, request: SendAnnotationRequest) -> Result<EventRelation, ApiError> {
+        let (sender, room_id, txn_id) = (request.sender.clone(), request.room_id.clone(), request.txn_id.clone());
+        self.with_txn_dedup(&sender, &room_id, txn_id.as_deref(), || self.send_annotation_inner(request)).await
+    }
+
+    async fn send_annotation_inner(&self, request: SendAnnotationRequest) -> Result<EventRelation, ApiError> {
         info!(
             room_id = %request.room_id,
             relates_to = %request.relates_to_event_id,
@@ -246,7 +305,13 @@ impl RelationsService {
     }
 
     /// See [`send_reference`].
+    /// 关系写入入口（reference/thread）：`txn_id` 非空时带耐久去重。
     pub async fn send_reference(&self, request: SendReferenceRequest) -> Result<EventRelation, ApiError> {
+        let (sender, room_id, txn_id) = (request.sender.clone(), request.room_id.clone(), request.txn_id.clone());
+        self.with_txn_dedup(&sender, &room_id, txn_id.as_deref(), || self.send_reference_inner(request)).await
+    }
+
+    async fn send_reference_inner(&self, request: SendReferenceRequest) -> Result<EventRelation, ApiError> {
         info!(
             room_id = %request.room_id,
             relates_to = %request.relates_to_event_id,
@@ -304,7 +369,13 @@ impl RelationsService {
     }
 
     /// See [`send_replacement`].
+    /// 关系写入入口（replacement/edit）：`txn_id` 非空时带耐久去重。
     pub async fn send_replacement(&self, request: SendReplacementRequest) -> Result<EventRelation, ApiError> {
+        let (sender, room_id, txn_id) = (request.sender.clone(), request.room_id.clone(), request.txn_id.clone());
+        self.with_txn_dedup(&sender, &room_id, txn_id.as_deref(), || self.send_replacement_inner(request)).await
+    }
+
+    async fn send_replacement_inner(&self, request: SendReplacementRequest) -> Result<EventRelation, ApiError> {
         info!(
             room_id = %request.room_id,
             relates_to = %request.relates_to_event_id,
@@ -586,6 +657,7 @@ mod tests {
                 sender: "@alice:example.com".to_string(),
                 key: "👍".to_string(),
                 origin_server_ts: 1_700_000_000_000,
+                txn_id: None,
             })
             .await
             .unwrap();
@@ -613,6 +685,7 @@ mod tests {
                 content: serde_json::json!({"body": "check this out"}),
                 origin_server_ts: 1_700_000_000_000,
                 relation_type: None,
+                txn_id: None,
             })
             .await
             .unwrap();
@@ -628,6 +701,7 @@ mod tests {
                 sender: "@alice:example.com".to_string(),
                 new_content: serde_json::json!({"body": "edited", "msgtype": "m.text"}),
                 origin_server_ts: 1_700_000_000_000,
+                txn_id: None,
             })
             .await
             .unwrap();
@@ -647,6 +721,7 @@ mod tests {
                 content: serde_json::json!({"body": "check this out"}),
                 origin_server_ts: 1_700_000_000_000,
                 relation_type: Some("m.reference".to_string()),
+                txn_id: None,
             })
             .await
             .unwrap();
@@ -666,6 +741,7 @@ mod tests {
                 content: serde_json::json!({"body": "note"}),
                 origin_server_ts: 1_700_000_000_000,
                 relation_type: None,
+                txn_id: None,
             })
             .await
             .unwrap();
@@ -685,6 +761,7 @@ mod tests {
                 sender: "@alice:example.com".to_string(),
                 new_content: serde_json::json!({"body": "edited", "msgtype": "m.text"}),
                 origin_server_ts: 1_700_000_000_000,
+                txn_id: None,
             })
             .await
             .unwrap();
@@ -705,6 +782,7 @@ mod tests {
                 sender: "@alice:example.com".to_string(),
                 new_content: serde_json::json!({"body": "v1"}),
                 origin_server_ts: 1_700_000_000_000,
+                txn_id: None,
             })
             .await
             .unwrap();
@@ -718,6 +796,7 @@ mod tests {
                 sender: "@alice:example.com".to_string(),
                 new_content: serde_json::json!({"body": "v2"}),
                 origin_server_ts: 1_700_000_000_001,
+                txn_id: None,
             })
             .await
             .unwrap();
@@ -744,6 +823,7 @@ mod tests {
                 sender: "@alice:example.com".to_string(),
                 key: "👍".to_string(),
                 origin_server_ts: 1_700_000_000_000,
+                txn_id: None,
             })
             .await
             .unwrap();

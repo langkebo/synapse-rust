@@ -101,6 +101,7 @@ async fn add_reaction(
             sender: auth_user.user_id.clone(),
             key: annotation.clone(),
             origin_server_ts,
+            txn_id: None,
         })
         .await?;
 

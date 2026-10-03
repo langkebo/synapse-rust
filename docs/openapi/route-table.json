@@ -1,9 +1,9 @@
 {
   "schema_version": "1",
-  "generated_at": "2026-09-16T00:00:00Z",
+  "generated_at": "2026-05-02T00:00:00Z",
   "source": "synapse_ledger_export",
   "profile": "default",
-  "total_routes": 1052,
+  "total_routes": 1051,
   "_meta": {
     "generated_by": "gen_route_table.py",
     "note": "本文件由 CI 自动生成，禁止手改。如需刷新: python3 scripts/api_test/gen_route_table.py"
@@ -1853,19 +1853,6 @@
         "recurse",
         "to"
       ],
-      "auth": null
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
-      "registered_by": "relations",
-      "path_params": [
-        "room_id",
-        "event_id",
-        "rel_type",
-        "event_type"
-      ],
-      "query_params": [],
       "auth": null
     },
     {
@@ -4825,19 +4812,6 @@
       "auth": null
     },
     {
-      "method": "PUT",
-      "path": "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
-      "registered_by": "relations",
-      "path_params": [
-        "room_id",
-        "event_id",
-        "rel_type",
-        "event_type"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
       "method": "GET",
       "path": "/_matrix/client/v3/rooms/{room_id}/rendered/",
       "registered_by": "room",
@@ -7473,7 +7447,7 @@
     {
       "method": "GET",
       "path": "/_matrix/vendor/v1/my_rooms",
-      "registered_by": "vendor",
+      "registered_by": "room",
       "path_params": [],
       "query_params": [],
       "auth": null
@@ -7533,7 +7507,7 @@
     {
       "method": "GET",
       "path": "/_matrix/vendor/v1/rooms/{room_id}/invite_allowlist",
-      "registered_by": "vendor",
+      "registered_by": "invite_blocklist",
       "path_params": [
         "room_id"
       ],
@@ -7543,7 +7517,7 @@
     {
       "method": "POST",
       "path": "/_matrix/vendor/v1/rooms/{room_id}/invite_allowlist",
-      "registered_by": "vendor",
+      "registered_by": "invite_blocklist",
       "path_params": [
         "room_id"
       ],
@@ -7553,7 +7527,7 @@
     {
       "method": "GET",
       "path": "/_matrix/vendor/v1/rooms/{room_id}/invite_blocklist",
-      "registered_by": "vendor",
+      "registered_by": "invite_blocklist",
       "path_params": [
         "room_id"
       ],
@@ -7563,7 +7537,7 @@
     {
       "method": "POST",
       "path": "/_matrix/vendor/v1/rooms/{room_id}/invite_blocklist",
-      "registered_by": "vendor",
+      "registered_by": "invite_blocklist",
       "path_params": [
         "room_id"
       ],
@@ -7571,9 +7545,22 @@
       "auth": null
     },
     {
+      "method": "PUT",
+      "path": "/_matrix/vendor/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}",
+      "registered_by": "relations",
+      "path_params": [
+        "room_id",
+        "event_id",
+        "rel_type",
+        "txn_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
       "method": "POST",
       "path": "/_matrix/vendor/v1/search_recipients",
-      "registered_by": "vendor",
+      "registered_by": "search",
       "path_params": [],
       "query_params": [],
       "auth": null
@@ -7581,7 +7568,7 @@
     {
       "method": "POST",
       "path": "/_matrix/vendor/v1/search_rooms",
-      "registered_by": "vendor",
+      "registered_by": "search",
       "path_params": [],
       "query_params": [],
       "auth": null

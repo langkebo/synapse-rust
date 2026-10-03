@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": false
   },
-  "entry_count": 1070,
+  "entry_count": 1069,
   "entries": [
     {
       "method": "GET",
@@ -1669,18 +1669,6 @@
         "recurse",
         "to"
       ]
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
-      "registered_by": "relations",
-      "path_params": [
-        "room_id",
-        "event_id",
-        "rel_type",
-        "event_type"
-      ],
-      "query_params": []
     },
     {
       "method": "POST",
@@ -4407,18 +4395,6 @@
       ]
     },
     {
-      "method": "PUT",
-      "path": "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
-      "registered_by": "relations",
-      "path_params": [
-        "room_id",
-        "event_id",
-        "rel_type",
-        "event_type"
-      ],
-      "query_params": []
-    },
-    {
       "method": "GET",
       "path": "/_matrix/client/v3/rooms/{room_id}/rendered/",
       "registered_by": "room",
@@ -6792,7 +6768,7 @@
     {
       "method": "GET",
       "path": "/_matrix/vendor/v1/my_rooms",
-      "registered_by": "vendor",
+      "registered_by": "room",
       "path_params": [],
       "query_params": []
     },
@@ -6846,7 +6822,7 @@
     {
       "method": "GET",
       "path": "/_matrix/vendor/v1/rooms/{room_id}/invite_allowlist",
-      "registered_by": "vendor",
+      "registered_by": "invite_blocklist",
       "path_params": [
         "room_id"
       ],
@@ -6855,7 +6831,7 @@
     {
       "method": "POST",
       "path": "/_matrix/vendor/v1/rooms/{room_id}/invite_allowlist",
-      "registered_by": "vendor",
+      "registered_by": "invite_blocklist",
       "path_params": [
         "room_id"
       ],
@@ -6864,7 +6840,7 @@
     {
       "method": "GET",
       "path": "/_matrix/vendor/v1/rooms/{room_id}/invite_blocklist",
-      "registered_by": "vendor",
+      "registered_by": "invite_blocklist",
       "path_params": [
         "room_id"
       ],
@@ -6873,23 +6849,35 @@
     {
       "method": "POST",
       "path": "/_matrix/vendor/v1/rooms/{room_id}/invite_blocklist",
-      "registered_by": "vendor",
+      "registered_by": "invite_blocklist",
       "path_params": [
         "room_id"
       ],
       "query_params": []
     },
     {
+      "method": "PUT",
+      "path": "/_matrix/vendor/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}",
+      "registered_by": "relations",
+      "path_params": [
+        "room_id",
+        "event_id",
+        "rel_type",
+        "txn_id"
+      ],
+      "query_params": []
+    },
+    {
       "method": "POST",
       "path": "/_matrix/vendor/v1/search_recipients",
-      "registered_by": "vendor",
+      "registered_by": "search",
       "path_params": [],
       "query_params": []
     },
     {
       "method": "POST",
       "path": "/_matrix/vendor/v1/search_rooms",
-      "registered_by": "vendor",
+      "registered_by": "search",
       "path_params": [],
       "query_params": []
     },

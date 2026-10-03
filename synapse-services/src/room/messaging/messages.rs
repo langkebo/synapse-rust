@@ -322,9 +322,9 @@ impl MessagingService {
     /// txn_id) 是唯一事实源，路由层的 1h TTL 缓存只是快路径。缓存丢失、
     /// 过期或并发双 PUT 时，重试仍返回同一 `event_id`，房间内不产生重复事件。
     ///
-    /// 竞态处理：先查后建存在窗口，两个并发相同 txn 的请求可能各自创建事件；
-    /// `record_event_txn` 的 ON CONFLICT 保证只有一个获胜，落败方删除自己
-    /// 刚创建的重复事件并返回获胜方的 event_id。
+    /// 协议本体在 [`Self::begin_txn`] / [`Self::finish_txn`]：关系写入端点
+    /// （`PUT /_matrix/vendor/v1/rooms/{room_id}/relations/…/{txn_id}`）复用同一对
+    /// 方法，而不是再实现一份去重（AGENTS.md 铁律 2）。
     pub async fn send_message_with_txn(
         &self,
         room_id: &str,
@@ -333,16 +333,7 @@ impl MessagingService {
         content: &serde_json::Value,
         txn_id: &str,
     ) -> ApiResult<serde_json::Value> {
-        if txn_id.is_empty() {
-            return self.send_message(room_id, user_id, event_type, content).await;
-        }
-
-        if let Some(existing) = self
-            .event_reader
-            .get_event_id_by_txn(user_id, room_id, txn_id)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to look up txn dedup record", e))?
-        {
+        if let Some(existing) = self.begin_txn(user_id, room_id, txn_id).await? {
             return Ok(json!({ "event_id": existing }));
         }
 
@@ -352,14 +343,40 @@ impl MessagingService {
             return Ok(result);
         }
 
-        let inserted = match self.event_writer.record_event_txn(user_id, room_id, txn_id, &event_id).await {
+        let final_event_id = self.finish_txn(user_id, room_id, txn_id, &event_id).await?;
+        Ok(json!({ "event_id": final_event_id }))
+    }
+
+    /// ISSUE-03 txn 去重协议的**第一半**：查 `room_event_txn_dedup`。
+    ///
+    /// `Some(event_id)` ＝ `(user, room, txn)` 已经写过，调用方**必须**直接返回该事件
+    /// （幂等重放），不得再创建第二个事件；`None` ＝ 首次写入，调用方创建事件后
+    /// **必须**调用 [`Self::finish_txn`] 登记 marker。空 `txn_id`（调用方没有 txn）
+    /// 恒返回 `None`。
+    pub async fn begin_txn(&self, user_id: &str, room_id: &str, txn_id: &str) -> ApiResult<Option<String>> {
+        if txn_id.is_empty() {
+            return Ok(None);
+        }
+        self.event_reader
+            .get_event_id_by_txn(user_id, room_id, txn_id)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to look up txn dedup record", e))
+    }
+
+    /// ISSUE-03 txn 去重协议的**第二半**：登记 marker 并处理并发。
+    ///
+    /// 返回调用方最终应当返回的 `event_id`（并发落败时是获胜方那条）。marker 写失败时
+    /// 把本次事件 soft-fail 并报错，让重试从干净状态开始（B9）；并发落败的本地事件同样
+    /// soft-fail（B-8：保留行与 FK 图，只对读路径不可见），不物理删除。
+    pub async fn finish_txn(&self, user_id: &str, room_id: &str, txn_id: &str, event_id: &str) -> ApiResult<String> {
+        let inserted = match self.event_writer.record_event_txn(user_id, room_id, txn_id, event_id).await {
             Ok(inserted) => inserted,
             Err(error) => {
                 // The event is already committed, but without a dedup marker a
                 // client retry would create a second *visible* copy (B9).  Hide
                 // this event and surface the failure so the retry starts from a
                 // clean slate.
-                if let Err(mark_error) = self.event_writer.mark_event_soft_failed(&event_id).await {
+                if let Err(mark_error) = self.event_writer.mark_event_soft_failed(event_id).await {
                     ::tracing::warn!(
                         room_id = %room_id,
                         user_id = %user_id,
@@ -395,15 +412,15 @@ impl MessagingService {
                     // are preserved for audit/compliance but the event is
                     // invisible to consumer read paths.
                     self.event_writer
-                        .mark_event_soft_failed(&event_id)
+                        .mark_event_soft_failed(event_id)
                         .await
                         .map_err(|e| ApiError::internal_with_cause("Failed to mark event soft-failed", e))?;
-                    return Ok(json!({ "event_id": winner }));
+                    return Ok(winner);
                 }
             }
         }
 
-        Ok(result)
+        Ok(event_id.to_string())
     }
 
     /// See [`get_room_messages`].

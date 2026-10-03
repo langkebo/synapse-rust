@@ -58,15 +58,25 @@ assembly.rs::create_client_capabilities_router  assembly::capabilities
 assembly.rs::create_client_media_config_router  assembly::media_config
 assembly.rs::create_auth_compat_router          assembly::auth_compat
 assembly.rs::create_auth_router                 assembly::auth_router
+# `create_vendor_router` 是**兜底**：它注册的每条路由都应当在下面拿到按功能域的
+# 显式规则。留着这一条只是为了让"新增了 vendor 路由却忘了归域"表现为落在 `vendor`，
+# 而不是被 default_origin 静默改判成 `assembly`。
 assembly.rs::create_vendor_router               vendor
 
-# ISSUE-13：vendor 路由由 `create_vendor_router` 挂在 `/_matrix/vendor/v1`，
-# 但同样的相对路径也由这些 v3 router 注册。ledger 按**挂载**命名，所以两个
+# ISSUE-13 + B-1：`/_matrix/vendor/v1` 上的路由按**功能域**命名，不再统一落进 `vendor`。
+# `registered_by` 是 SDK 契约同步选择生成目录的键（见 extract_registered.py 顶部注释），
+# 而 `vendor` 在 SDK 侧没有对应目录、只能整体登记为豁免——于是"同一批路由归谁"必须写清楚。
+# 带 `@前缀` 的规则先到先得，所以这些逐条规则必须排在任何更宽的 `@/_matrix/vendor/v1`
+# 规则之前。
+assembly.rs::create_vendor_router@/_matrix/vendor/v1/my_rooms                              room
+assembly.rs::create_vendor_router@/_matrix/vendor/v1/search_rooms                          search
+assembly.rs::create_vendor_router@/_matrix/vendor/v1/search_recipients                     search
+assembly.rs::create_vendor_router@/_matrix/vendor/v1/rooms/{room_id}/invite_allowlist      invite_blocklist
+assembly.rs::create_vendor_router@/_matrix/vendor/v1/rooms/{room_id}/invite_blocklist      invite_blocklist
+
+# 同样两条相对路径也由这些 v3 router 注册。ledger 按**挂载**命名，所以两个
 # 方向都要显式限定，否则这两个前缀互相污染。
-assembly.rs::create_vendor_router@/_matrix/vendor/v1   vendor
-sync.rs::create_sync_v3_router@/_matrix/vendor/v1      vendor
 sync.rs::create_sync_v3_router@/_matrix/client/v3      sync
-handlers/search/mod.rs::create_search_compat_router@/_matrix/vendor/v1    vendor
 handlers/search/mod.rs::create_search_compat_router@/_matrix/client/v3    search
 
 # 同一个函数内被 `#[cfg]` 分块、且两块归到不同 ledger 名字：

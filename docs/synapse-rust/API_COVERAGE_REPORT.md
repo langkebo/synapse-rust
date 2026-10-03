@@ -49,7 +49,7 @@
 > 与 MSC3720 `+2 / +2 / +2`）；本版**不重算**任何 MSC/功能判定（§五/§六 沿用 v1.8）。
 >
 > **v1.10 与 v1.9 的差别**：本版为 **2026-10-02 台账订正批**（随 D-4「M-5 提升为跨请求共享」与 D-5 收口，并含 D-6/D-7 两项订正），
-> **不重算全部三口径**（唯一路径 915 / 逻辑端点 807 沿用 v1.9；**注册条目 1152 → 1154**，+2，见 ⑥），余为判定口径订正：
+> **不重算全部三口径**（唯一路径 915 / 逻辑端点 807 沿用 v1.9；**注册条目 1152 → 1154**，+2，见 ⑥；其后 **1154 → 1153**，−1，见 ⑦），余为判定口径订正：
 > ① **MSC4297（state resolution v2.1）由「未实现 / v12 对该单项声明领先实现」订正为「已实现并接线到生产路径」**
 > —— 写入接缝（`MessagingService::create_event_with_graph`、联邦加入 state 批次）在房间分叉时经
 > `resolve_forked_state` → `resolve_state_for_version_with_rules` 重算（v12+ 从空 state map 起步 = v2.1
@@ -69,6 +69,14 @@
 > **唯一路径与逻辑端点不变**（该 4 段路径此前已由 `PUT` 占据）。
 > 跨文档同批更正：`MSC_SEMANTICS.md` MSC4297 登记行、`synapse-rust-vs-synapse-comparison.md` §18.3 #17/#16 / §18.4 M-5/L-1 / §18.6 V-12、
 > `docs/audit/OPTIMIZATION_EXECUTION_PLAN_2026-09-15.md` M-5 执行卡 / L-1。
+> ⑦ **§18.4 L-6 后续（关系写入端点拆分）**：spec 不定义关系写入（客户端应发带 `m.relates_to` 的普通事件），
+> 原先 `PUT` 与 `GET` 共用同一 4 段字面路径（axum 路由层会归一化路径参数名，同一字面路径无法注册成两条 `.route()`），
+> 于是第 4 段被迫叫 `{event_type}` 而 handler 当 `txn_id` 用。现按 ISSUE-13 把写入拆到
+> `PUT /_matrix/vendor/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}`，client 4 段路径只留 `GET`；
+> `{txn_id}` 同时接上既有的 `room_event_txn_dedup` 耐久去重（此前只写日志，注释声称的幂等是假的）。
+> 计数影响：`/_matrix/client` −2（v1/v3 的 PUT）、其他命名空间 +1（vendor PUT），**注册条目 1154 → 1153**；
+> 唯一路径与逻辑端点口径未重算（本版沿用 v1.9/v1.10 的约定）。跨文档同批：`ROUTE_CONTRACT.md`、
+> 6 份 ledger fixture、两条 route-ledger 快照、`docs/openapi/route-table.json`、`synapse-rust-vs-synapse-comparison.md`。
 >
 > **权威来源声明（三条，冲突时按此优先级）**：
 > 1. **机器权威（路由）**：[`ROUTE_CONTRACT.md`](./ROUTE_CONTRACT.md) —— 由 `scripts/contract/extract_registered.py` 从真实 `.route()` 注册面抽取，生成于 2026-10-01，
@@ -93,11 +101,11 @@
 
 | 口径 | 含义 | 全部 | `/_matrix/client` | `/_synapse/admin` | 其他命名空间 |
 |---|---|---|---|---|---|
-| **注册条目** | 唯一 `(method, absolute_path)` 对 | **1154** | 641 | 289 | 224 |
+| **注册条目** | 唯一 `(method, absolute_path)` 对 | **1153** | 639 | 289 | 225 |
 | **唯一路径** | 去掉方法后的唯一 `absolute_path` | **915** | 491 | 228 | 196 |
 | **逻辑端点** | 在上者基础上折叠版本前缀（`v3`/`r0`/`v1`/`unstable/*` → `vX`）后的唯一路径 | **807** | 385 | 226 | 196 |
 
-- `ROUTE_CONTRACT.md` 总览现为 **1154**（2026-10-02 重生成），与上表「注册条目」**同为 1154**（本版已把分类表刷新到同一 HEAD，
+- `ROUTE_CONTRACT.md` 总览现为 **1153**（2026-10-02 重生成，含 ⑦ 的关系写入端点迁移），与上表「注册条目」**同为 1153**（本版已把分类表刷新到同一 HEAD，
   不再留 v1.7 快照的 `+1` 差）；
   该清单本身无 `(method,path)` 重复，65 个含路由注册的模块文件 / 73 个 `registered_by` 标签同为该文件的总览数字；
   生成器（`scripts/contract/gen_contract_doc.py`）另报 **45 个分类**（只出现在它的 stdout，不写进正文）。

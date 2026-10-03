@@ -11,7 +11,7 @@ use crate::routes::validators::{validate_event_id, validate_room_id};
 use crate::routes::{AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
-    routing::get,
+    routing::{get, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -20,19 +20,40 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use synapse_services::relations_service::RelationQuery;
 
+/// Client (`/_matrix/client/{v1,v3}`) relations **read** surface.
+///
+/// Only `GET` lives here. The 4-segment path is the spec's "relations filtered by
+/// relation type and event type" read, so its 4th segment is `{event_type}` and
+/// means exactly that.
+///
+/// This path used to also carry the write endpoint as `PUT …/{relType}/{txnId}`.
+/// axum/matchit normalises path-parameter names, so the two methods could not be
+/// registered as separate `.route()`s and the shared 4th segment had to be named
+/// after one of the two meanings (it was named `{event_type}` while the handler
+/// read it as a txn id — a path parameter that lied). The write endpoint now has
+/// its own path under the vendor prefix: [`create_relations_vendor_router`].
 fn create_relations_core_router() -> Router<AppState> {
     Router::new()
         .route("/rooms/{room_id}/relations/{event_id}/{rel_type}", get(get_relations))
-        // Matrix spec 的 4 段路由有两条方法共用同一字面路径：`GET …/{relType}/{eventType}`
-        // 读关系、`PUT …/{relType}/{txnId}` 发关系。axum/matchit 会把路径参数名归一化，
-        // 二者归一化后同形，无法作为两条独立 `.route()` 注册（会 panic），必须合并进同一个
-        // `MethodRouter`；合并后两条方法共享同一路径串，故第 4 段参数名只能二选一，取
-        // `{event_type}`（贴合 spec 文档；`send_relation` 用位置元组取参，改名零影响）。
-        .route(
-            "/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
-            get(get_relations_by_type).put(send_relation),
-        )
+        .route("/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}", get(get_relations_by_type))
         .route("/rooms/{room_id}/aggregations/{event_id}/{rel_type}", get(get_aggregations))
+}
+
+/// Write surface for relations, mounted by the assembly at `/_matrix/vendor/v1`.
+///
+/// Sending a relation this way is **not** a spec endpoint — per the spec, clients
+/// send an ordinary room event carrying `m.relates_to` — so per ISSUE-13 it lives
+/// under the vendor prefix rather than squatting on the spec's read path. The
+/// last segment is the client's `txn_id` and means exactly that: the service
+/// records it through the same durable `room_event_txn_dedup` marker that
+/// `/rooms/{roomId}/send/{eventType}/{txnId}` uses, so a retry returns the
+/// original `event_id` instead of creating a second relation event.
+///
+/// The ledger's `registered_by` for this route is `relations` (the module that
+/// defines this router), not `vendor` (the assembly that mounts it) — see
+/// `scripts/contract/ledger_origins.txt`.
+pub fn create_relations_vendor_router() -> Router<AppState> {
+    Router::new().route("/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}", put(send_relation))
 }
 
 fn create_relations_with_event_router() -> Router<AppState> {
@@ -268,6 +289,7 @@ async fn send_relation(
                     sender,
                     key,
                     origin_server_ts,
+                    txn_id: Some(txn_id.clone()),
                 })
                 .await?
                 .event_id
@@ -283,6 +305,7 @@ async fn send_relation(
                     content,
                     origin_server_ts,
                     relation_type: None,
+                    txn_id: Some(txn_id.clone()),
                 })
                 .await?
                 .event_id
@@ -298,6 +321,7 @@ async fn send_relation(
                     content,
                     origin_server_ts,
                     relation_type: Some("m.thread".to_string()),
+                    txn_id: Some(txn_id.clone()),
                 })
                 .await?
                 .event_id
@@ -316,6 +340,7 @@ async fn send_relation(
                     sender,
                     new_content,
                     origin_server_ts,
+                    txn_id: Some(txn_id.clone()),
                 })
                 .await?
                 .event_id
@@ -355,43 +380,39 @@ async fn get_aggregations(
 
 #[cfg(test)]
 mod tests {
+    /// 4 段的 `PUT` **只能**出现在 vendor 前缀上，client 前缀的 4 段路径只服务 `GET`。
+    ///
+    /// 断言的是**派生表**（真实注册面）而不是手写字符串常量：旧的两个用例只比较常量是否
+    /// 以 `/_matrix/client/` 开头，路由真改了它们也不会红（铁律 8 的反面）。
     #[test]
-    fn test_relations_routes_structure() {
-        let compat_routes = [
-            "/_matrix/client/v1/relations/{room_id}/{event_id}/{rel_type}",
-            "/_matrix/client/v3/relations/{room_id}/{event_id}/{rel_type}/{event_type}",
-            "/_matrix/client/v3/relations/{room_id}/{event_id}/{rel_type}",
-            "/_matrix/client/v1/aggregations/{room_id}/{event_id}/{rel_type}",
-            "/_matrix/client/v3/aggregations/{room_id}/{event_id}/{rel_type}",
-            "/_matrix/client/v3/aggregations/{room_id}/{event_id}/{rel_type}",
-        ];
+    fn relations_write_route_lives_under_vendor_prefix_only() {
+        let ledger = crate::routes::assembly::declared_ledger_all();
+        let puts: Vec<&str> = ledger
+            .iter()
+            .filter(|entry| entry.method == axum::http::Method::PUT && entry.path.contains("/relations/"))
+            .map(|entry| entry.path)
+            .collect();
 
-        assert!(compat_routes.iter().all(|route| route.starts_with("/_matrix/client/")));
+        assert_eq!(
+            puts,
+            vec!["/_matrix/vendor/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}"],
+            "关系写入端点必须只在 vendor 前缀上，且末段是显式 txn_id"
+        );
     }
 
+    /// 读取面仍是 spec 形状：client 4 段路径服务 `GET`（`{event_type}` 过滤）。
     #[test]
-    fn test_relations_compat_router_contains_shared_paths() {
-        let shared_paths = [
-            "/relations/{room_id}/{event_id}/{rel_type}",
-            "/relations/{room_id}/{event_id}/{rel_type}/{event_type}",
-            "/aggregations/{room_id}/{event_id}/{rel_type}",
-        ];
+    fn client_four_segment_relations_path_is_read_only() {
+        let ledger = crate::routes::assembly::declared_ledger_all();
+        let methods: Vec<_> = ledger
+            .iter()
+            .filter(|entry| {
+                entry.path == "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}"
+            })
+            .map(|entry| entry.method.clone())
+            .collect();
 
-        assert_eq!(shared_paths.len(), 3);
-        assert!(shared_paths.iter().all(|path| path.starts_with('/')));
-    }
-
-    #[test]
-    fn test_relations_router_supports_v3() {
-        let supported_versions = [
-            "/_matrix/client/v1/relations/{room_id}/{event_id}/{rel_type}",
-            "/_matrix/client/v3/aggregations/{room_id}/{event_id}/{rel_type}",
-            "/_matrix/client/v3/relations/{room_id}/{event_id}/{rel_type}",
-            "/_matrix/client/v3/aggregations/{room_id}/{event_id}/{rel_type}",
-        ];
-
-        assert!(supported_versions.iter().all(|path| path.starts_with("/_matrix/client/")));
-        assert!(supported_versions.iter().any(|path| path.starts_with("/_matrix/client/v3/")));
+        assert_eq!(methods, vec![axum::http::Method::GET]);
     }
 
     use super::RelationsQuery;

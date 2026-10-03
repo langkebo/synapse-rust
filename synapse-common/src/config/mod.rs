@@ -1262,6 +1262,7 @@ mod tests {
         assert_eq!(DEFAULT_LONG_POLL_REQUEST_TIMEOUT_SECS, 90);
     }
 
+    #[test]
     fn test_third_party_rules_defaults_to_disabled() {
         // 缺省应关闭准入钩子——空规则集，且不因缺字段而报错。
         let absent: ThirdPartyRulesConfig = serde_json::from_value(json!({})).unwrap();
