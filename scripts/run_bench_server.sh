@@ -205,7 +205,7 @@ build_binary() {
 
     log "Building release binary (this may take a few minutes)..."
     cd "$PROJECT_ROOT"
-    SQLX_OFFLINE=true cargo build --release --features "server,core-private-chat" --no-default-features 2>&1 | tail -5
+    SQLX_OFFLINE=true cargo build --release --features "core-private-chat" --no-default-features 2>&1 | tail -5
     if [ ! -f "$BENCH_BINARY" ]; then
         err "Build failed — binary not found: $BENCH_BINARY"
         exit 1
