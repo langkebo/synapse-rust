@@ -5,6 +5,38 @@ use super::EventStorage;
 use super::ROOM_EVENT_COLS;
 
 impl EventStorage {
+    /// Shared executor for room-event page queries: assembles the
+    /// `SELECT … FROM events WHERE … ORDER BY … LIMIT …` statement from the
+    /// per-branch cursor predicate and ordering, then binds `room_id` followed
+    /// by `params` positionally.
+    ///
+    /// `cursor_clause` is the optional key-set predicate (e.g.
+    /// `AND origin_server_ts > $2`); `order_by` is the full ordering clause
+    /// (starting with `ORDER BY`) and **must** keep the `events.` qualifier
+    /// (see [`get_room_events_paginated_cursor`]). `params` holds every numeric
+    /// bind after `room_id`, with `limit` last — the generated `LIMIT $n`
+    /// placeholder always points at the final parameter.
+    async fn fetch_room_events_page(
+        &self,
+        room_id: &str,
+        cursor_clause: Option<&str>,
+        order_by: &str,
+        params: &[i64],
+    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+        let filter = match cursor_clause {
+            Some(clause) => format!("room_id = $1 AND soft_failed = FALSE\n  {clause}"),
+            None => "room_id = $1 AND soft_failed = FALSE".to_string(),
+        };
+        let sql =
+            format!("SELECT {ROOM_EVENT_COLS}\nFROM events\nWHERE {filter}\n{order_by}\nLIMIT ${}", params.len() + 1);
+
+        let mut query = sqlx::query_as::<_, RoomEvent>(&sql).bind(room_id);
+        for param in params {
+            query = query.bind(*param);
+        }
+        query.fetch_all(&*self.pool).await
+    }
+
     /// See [`get_room_events_paginated`].
     pub async fn get_room_events_paginated(
         &self,
@@ -13,68 +45,18 @@ impl EventStorage {
         limit: i64,
         direction: &str,
     ) -> Result<Vec<RoomEvent>, sqlx::Error> {
-        let events = match (direction, from) {
-            ("f", Some(from_ts)) => {
-                sqlx::query_as(&format!(
-                    "SELECT {ROOM_EVENT_COLS}
-                    FROM events
-                    WHERE room_id = $1 AND origin_server_ts > $2 AND soft_failed = FALSE
-                    ORDER BY events.origin_server_ts ASC
-                    LIMIT $3
-                    "
-                ))
-                .bind(room_id)
-                .bind(from_ts)
-                .bind(limit)
-                .fetch_all(&*self.pool)
-                .await?
+        let forward = direction == "f";
+        let (cursor_clause, order_by, params) = match (forward, from) {
+            (true, Some(from_ts)) => {
+                (Some("AND origin_server_ts > $2"), "ORDER BY events.origin_server_ts ASC", vec![from_ts, limit])
             }
-            ("f", None) => {
-                sqlx::query_as(&format!(
-                    "SELECT {ROOM_EVENT_COLS}
-                    FROM events
-                    WHERE room_id = $1 AND soft_failed = FALSE
-                    ORDER BY events.origin_server_ts ASC
-                    LIMIT $2
-                    "
-                ))
-                .bind(room_id)
-                .bind(limit)
-                .fetch_all(&*self.pool)
-                .await?
+            (true, None) => (None, "ORDER BY events.origin_server_ts ASC", vec![limit]),
+            (false, Some(from_ts)) => {
+                (Some("AND origin_server_ts < $2"), "ORDER BY events.origin_server_ts DESC", vec![from_ts, limit])
             }
-            (_, Some(from_ts)) => {
-                sqlx::query_as(&format!(
-                    "SELECT {ROOM_EVENT_COLS}
-                    FROM events
-                    WHERE room_id = $1 AND origin_server_ts < $2 AND soft_failed = FALSE
-                    ORDER BY events.origin_server_ts DESC
-                    LIMIT $3
-                    "
-                ))
-                .bind(room_id)
-                .bind(from_ts)
-                .bind(limit)
-                .fetch_all(&*self.pool)
-                .await?
-            }
-            (_, None) => {
-                sqlx::query_as(&format!(
-                    "SELECT {ROOM_EVENT_COLS}
-                    FROM events
-                    WHERE room_id = $1 AND soft_failed = FALSE
-                    ORDER BY events.origin_server_ts DESC
-                    LIMIT $2
-                    "
-                ))
-                .bind(room_id)
-                .bind(limit)
-                .fetch_all(&*self.pool)
-                .await?
-            }
+            (false, None) => (None, "ORDER BY events.origin_server_ts DESC", vec![limit]),
         };
-
-        Ok(events)
+        self.fetch_room_events_page(room_id, cursor_clause, order_by, &params).await
     }
 
     /// S14: 增量同步水位线查询 —— 返回 `stream_ordering > after` 的最新
@@ -306,75 +288,26 @@ impl EventStorage {
             return self.get_room_events_paginated(room_id, from_ts, limit, direction).await;
         }
 
-        let events = match (direction, from) {
-            ("f", Some((ts, Some(stream)))) => {
-                sqlx::query_as(&format!(
-                    "SELECT {ROOM_EVENT_COLS}
-                    FROM events
-                    WHERE room_id = $1
-                      AND soft_failed = FALSE
-                      AND (origin_server_ts, stream_ordering) > ($2, $3)
-                    ORDER BY events.origin_server_ts ASC, events.stream_ordering ASC
-                    LIMIT $4
-                    "
-                ))
-                .bind(room_id)
-                .bind(ts)
-                .bind(stream)
-                .bind(limit)
-                .fetch_all(&*self.pool)
-                .await?
-            }
-            ("f", None) => {
-                sqlx::query_as(&format!(
-                    "SELECT {ROOM_EVENT_COLS}
-                    FROM events
-                    WHERE room_id = $1 AND soft_failed = FALSE
-                    ORDER BY events.origin_server_ts ASC, events.stream_ordering ASC
-                    LIMIT $2
-                    "
-                ))
-                .bind(room_id)
-                .bind(limit)
-                .fetch_all(&*self.pool)
-                .await?
-            }
-            (_, Some((ts, Some(stream)))) => {
-                sqlx::query_as(&format!(
-                    "SELECT {ROOM_EVENT_COLS}
-                    FROM events
-                    WHERE room_id = $1
-                      AND soft_failed = FALSE
-                      AND (origin_server_ts, stream_ordering) < ($2, $3)
-                    ORDER BY events.origin_server_ts DESC, events.stream_ordering DESC
-                    LIMIT $4
-                    "
-                ))
-                .bind(room_id)
-                .bind(ts)
-                .bind(stream)
-                .bind(limit)
-                .fetch_all(&*self.pool)
-                .await?
-            }
-            (_, Some((_, None))) => unreachable!("legacy ts-only tokens are delegated above"),
-            (_, None) => {
-                sqlx::query_as(&format!(
-                    "SELECT {ROOM_EVENT_COLS}
-                    FROM events
-                    WHERE room_id = $1 AND soft_failed = FALSE
-                    ORDER BY events.origin_server_ts DESC, events.stream_ordering DESC
-                    LIMIT $2
-                    "
-                ))
-                .bind(room_id)
-                .bind(limit)
-                .fetch_all(&*self.pool)
-                .await?
-            }
+        let forward = direction == "f";
+        let cursor = match from {
+            Some((ts, Some(stream))) => Some((ts, stream)),
+            _ => None,
         };
-
-        Ok(events)
+        let (cursor_clause, order_by, params) = match (forward, cursor) {
+            (true, Some((ts, stream))) => (
+                Some("AND (origin_server_ts, stream_ordering) > ($2, $3)"),
+                "ORDER BY events.origin_server_ts ASC, events.stream_ordering ASC",
+                vec![ts, stream, limit],
+            ),
+            (true, None) => (None, "ORDER BY events.origin_server_ts ASC, events.stream_ordering ASC", vec![limit]),
+            (false, Some((ts, stream))) => (
+                Some("AND (origin_server_ts, stream_ordering) < ($2, $3)"),
+                "ORDER BY events.origin_server_ts DESC, events.stream_ordering DESC",
+                vec![ts, stream, limit],
+            ),
+            (false, None) => (None, "ORDER BY events.origin_server_ts DESC, events.stream_ordering DESC", vec![limit]),
+        };
+        self.fetch_room_events_page(room_id, cursor_clause, order_by, &params).await
     }
 
     /// See [`get_room_events_paginated_with_filter`].
