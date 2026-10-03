@@ -223,6 +223,36 @@ pub(crate) async fn invite_v2(
     }
     .map_err(|e| ApiError::internal_with_cause("Failed to create invite event", e))?;
 
+    // P-15: keep the **inviting server's** signature/hash pair.
+    //
+    // The v2 response below must echo a PDU the *sender* can verify, and the
+    // sender re-checks the event it gets back (`federation_client.send_invite` →
+    // `_check_sigs_and_hash` → `_check_sigs_on_pdu`), which verifies the
+    // **sender domain's** signature. Without this step the projection finds no
+    // stored material, takes `SignatureAction::SignLocally`, and answers with a
+    // PDU signed only by us — so every inbound invite dies on the sender with
+    // `403 … Not signed by <sender>` even though we accepted and persisted it.
+    //
+    // Same post-insert mechanism as the transaction ingest path
+    // (`transaction.rs`) and backfill: one predicate
+    // (`synapse_common::event_utils::signature_material`), one writer.
+    if let Some((hashes, signatures)) =
+        synapse_common::event_utils::signature_material(event.get("hashes"), event.get("signatures"))
+    {
+        // Hard failure on purpose: answering without the origin's material means
+        // answering with a PDU the caller must reject, so a silent success here
+        // would only move the error to the peer.
+        ctx.room_service.messaging().update_event_signatures_and_hashes(&stored.event_id, &signatures, &hashes).await?;
+    } else {
+        ::tracing::warn!(
+            request_id = %request_id,
+            origin = %auth.origin,
+            room_id = %room_id,
+            event_id = %stored.event_id,
+            "inbound invite carries no usable hashes/signatures; the response can only be signed locally"
+        );
+    }
+
     // The invitee is one of our users — that is why the remote server sent the
     // invite here — so ensure a local `users` row exists before the membership
     // write below, whose `user_id` is a foreign key onto it. Idempotent for an

@@ -104,7 +104,16 @@ pub fn build_pdu(parts: &PduParts<'_>) -> Value {
     pdu.insert("type".to_string(), Value::String(parts.event_type.to_string()));
     pdu.insert("content".to_string(), parts.content.clone());
     pdu.insert("origin_server_ts".to_string(), Value::Number(parts.origin_server_ts.into()));
-    pdu.insert("origin".to_string(), Value::String(parts.origin.to_string()));
+    // `origin` is a **v1/v2** PDU field: room version 3 removed it. Emitting it
+    // for v3+ is not cosmetic — `hashes.sha256` covers the unredacted event, so
+    // an extra key makes every peer's content-hash check fail, and the peer then
+    // treats the event as tampered and silently redacts it. Signature material
+    // is unaffected (redaction drops `origin` for v3+), which is why this stayed
+    // invisible until a relayed/echoed PDU was checked against the origin's own
+    // `hashes` (see `PduParts::origin` for the v1/v2 case).
+    if event_id_is_a_pdu_field(parts.room_version) {
+        pdu.insert("origin".to_string(), Value::String(parts.origin.to_string()));
+    }
     pdu.insert("depth".to_string(), Value::Number(parts.depth.into()));
     pdu.insert(
         "prev_events".to_string(),
@@ -177,9 +186,12 @@ mod tests {
         assert_eq!(obj["depth"], json!(5));
         assert_eq!(obj["prev_events"], json!(["$prev:example.com"]));
         assert_eq!(obj["auth_events"], json!(["$create:example.com"]));
-        assert_eq!(obj["origin"], json!("example.com"));
-        // room_id, sender, type, content, origin_server_ts, origin, depth, prev_events, auth_events
-        assert_eq!(obj.len(), 9, "unexpected field set: {pdu}");
+        // Room v3 removed `origin` from the PDU, and an extra field changes
+        // `hashes.sha256` (computed over the unredacted event) — so keeping it
+        // makes every verifying peer redact the event as tampered.
+        assert!(!obj.contains_key("origin"), "v10 PDUs must not carry origin: {pdu}");
+        // room_id, sender, type, content, origin_server_ts, depth, prev_events, auth_events
+        assert_eq!(obj.len(), 8, "unexpected field set: {pdu}");
     }
 
     #[test]
@@ -187,6 +199,7 @@ mod tests {
         let content = json!({"body": "hi"});
         let pdu = build_pdu(&parts("1", Some("$0:domain"), &content));
         assert_eq!(pdu["event_id"], json!("$0:domain"));
+        assert_eq!(pdu["origin"], json!("example.com"), "v1/v2 PDUs keep the origin field: {pdu}");
 
         let pdu = build_pdu(&parts("1", None, &content));
         assert!(pdu.get("event_id").is_none());

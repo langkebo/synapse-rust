@@ -776,6 +776,119 @@ async fn invite_v2_stored_signature_covers_the_projected_pdu() {
         .expect("the stored signature must verify over the projected PDU a peer receives");
 }
 
+/// P-15 / V-2b: an invite that arrives **signed by its origin** must keep that
+/// signature — in the row *and* in the `{"event": …}` response.
+///
+/// The inviting server re-checks the event we hand back
+/// (`synapse/federation/federation_client.py::send_invite` →
+/// `_check_sigs_and_hash` → `_check_sigs_on_pdu`), which verifies the signature
+/// of the **sender domain**. If we replace the origin's signature with our own,
+/// every inbound invite dies with `403 … Not signed by <sender>`, even though we
+/// accepted and persisted it.
+///
+/// This is the same invariant `/send` already upholds
+/// (`transaction.rs`: "Persist the **origin server's** signature/hash pair …
+/// the same post-insert mechanism the local signing path and the inbound
+/// membership path use"). The invite path skipped it.
+#[tokio::test]
+async fn invite_v2_keeps_the_origin_signature_in_the_row_and_the_response() {
+    let Some((app, pool, _key_id, _key_b64, _signing_key, cache)) = setup_federation_app().await else {
+        return;
+    };
+
+    let remote_origin = "remote.example";
+    let remote_key_id = "ed25519:remote_invite_sig";
+    let remote_seed = [77u8; 32];
+    let remote_signing_key = ed25519_dalek::SigningKey::from_bytes(&remote_seed);
+    let remote_key_b64 = STANDARD_NO_PAD.encode(remote_seed);
+    register_remote_verify_key(&cache, remote_origin, remote_key_id, &remote_signing_key).await;
+
+    let (_invitee_token, invitee_id) = register_user(&app, "invitee").await;
+    let inviter = format!("@inviter:{remote_origin}");
+
+    // A room we do not host: this is the first-contact case, so the invite is
+    // persisted as an outlier exactly like a real cross-implementation invite.
+    let room_id = format!("!origin_sig_invite_{}:localhost", rand::random::<u32>());
+    let content = json!({ "membership": "invite" });
+    let prev_events = vec!["$parent:remote.example".to_string()];
+    let auth_events = vec!["$create:remote.example".to_string()];
+    let parts = synapse_common::pdu::PduParts {
+        room_version: "12",
+        event_id: None,
+        room_id: &room_id,
+        sender: &inviter,
+        event_type: "m.room.member",
+        content: &content,
+        state_key: Some(&invitee_id),
+        origin_server_ts: 1_750_000_000_000,
+        origin: remote_origin,
+        depth: 7,
+        prev_events: &prev_events,
+        auth_events: &auth_events,
+        redacts: None,
+    };
+    let mut pdu = synapse_common::pdu::build_pdu(&parts);
+    let finalized =
+        synapse_federation::event_finalize::finalize_local_pdu(&parts).expect("the origin's PDU must finalize");
+    pdu.as_object_mut().expect("a PDU is a JSON object").insert("hashes".to_string(), finalized.hashes.clone());
+    synapse_federation::signing::sign_and_hash_event("12", remote_origin, remote_key_id, &remote_key_b64, &mut pdu)
+        .expect("the origin's PDU must sign");
+    let event_id = synapse_common::event_id::resolve_received_event_id("12", &pdu)
+        .expect("the receiver must derive the origin's event id");
+
+    let body = json!({ "event": pdu, "room_version": "12" });
+    let uri = format!("/_matrix/federation/v2/invite/{room_id}/{event_id}");
+    let request =
+        signed_fed_request_as("PUT", &uri, remote_origin, "localhost", remote_key_id, &remote_signing_key, Some(&body));
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
+    let status = response.status();
+    let response_body = axum::body::to_bytes(response.into_body(), 16384).await.unwrap();
+    let response_json: Value = serde_json::from_slice(&response_body).unwrap();
+    assert_eq!(status, StatusCode::OK, "a signed invite must be accepted, got {status}: {response_json}");
+
+    // 1. The row keeps the origin's signature next to ours (or instead of it —
+    //    what matters is that the origin's block survives).
+    let stored: Value = sqlx::query_scalar("SELECT signatures FROM events WHERE event_id = $1")
+        .bind(&event_id)
+        .fetch_one(pool.as_ref())
+        .await
+        .expect("the invite row must be persisted with signature material");
+    assert!(
+        stored[remote_origin][remote_key_id].is_string(),
+        "the persisted row must keep the origin's signature, got {stored}"
+    );
+
+    // 2. The response echoes it…
+    let echoed = response_json.get("event").expect("v2 invite answers with an event");
+    let sig_b64 = echoed["signatures"][remote_origin][remote_key_id]
+        .as_str()
+        .unwrap_or_else(|| panic!("the echoed PDU must carry the origin's signature, got {echoed}"));
+    assert_eq!(
+        sig_b64,
+        stored[remote_origin][remote_key_id].as_str().expect("stored signature is a string"),
+        "the echoed signature must be the one we stored, byte for byte"
+    );
+
+    // 3. …and it verifies over the bytes we actually send, which is exactly the
+    //    check the inviting server performs before accepting its own invite.
+    let material = signature_material_bytes("12", echoed).expect("the echoed PDU must have signature material");
+    let signature_bytes = STANDARD_NO_PAD.decode(sig_b64).expect("signature must be unpadded base64");
+    let signature = ed25519_dalek::Signature::from_slice(&signature_bytes).expect("signature must be 64 bytes");
+    remote_signing_key
+        .verifying_key()
+        .verify_strict(&material, &signature)
+        .expect("the sender must be able to verify the PDU we echo back");
+
+    // 4. …and the sender's *second* check: the content hash
+    //    (`federation_base._check_sigs_and_hash` → `check_event_content_hash`,
+    //    computed over the unredacted PDU). A field we add that the origin never
+    //    put on the wire changes that hash, and the peer then treats its own
+    //    invite as tampered and silently redacts it.
+    synapse_federation::signing::verify_event_content_hash(echoed)
+        .expect("the echoed PDU must reproduce the origin's content hash");
+}
+
 // ---------------------------------------------------------------------------
 // Tests: U-13-R9 — the v≤11 write path must persist `depth` / `prev_events` /
 // `auth_events`, not only the v12 `create_event_with_pdu` path

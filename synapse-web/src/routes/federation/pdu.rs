@@ -94,11 +94,16 @@ fn normalized_origin(server_name: &str, origin: Option<&str>) -> String {
 /// cannot identify either.
 pub fn state_pdu(server_name: &str, record: &StateEvent, room_version: Option<&str>) -> (Value, PduCompleteness) {
     let mut pdu = Map::new();
-    match room_version {
-        Some(version) if !synapse_common::pdu::event_id_is_a_pdu_field(version) => {}
-        _ => {
-            pdu.insert("event_id".to_string(), json!(record.event_id));
-        }
+    // One predicate decides both "legacy PDU fields" (`event_id`, `origin`): they
+    // are v1/v2-only, and an unknown version is projected in the legacy shape
+    // (that is the pre-existing choice for `event_id`, kept so a version-less row
+    // still emits something a v1/v2 peer accepts).
+    let legacy_pdu_fields = match room_version {
+        Some(version) => synapse_common::pdu::event_id_is_a_pdu_field(version),
+        None => true,
+    };
+    if legacy_pdu_fields {
+        pdu.insert("event_id".to_string(), json!(record.event_id));
     }
     // MSC4291 (room v12+): the `m.room.create` event carries **no** `room_id` on
     // the federation wire — it is derived from the event's own id (`$` swapped
@@ -114,7 +119,15 @@ pub fn state_pdu(server_name: &str, record: &StateEvent, room_version: Option<&s
     pdu.insert("type".to_string(), json!(record.event_type.clone().unwrap_or_default()));
     pdu.insert("content".to_string(), record.content.clone());
     pdu.insert("origin_server_ts".to_string(), json!(record.origin_server_ts));
-    pdu.insert("origin".to_string(), json!(normalized_origin(server_name, record.origin.as_deref())));
+    // Same rule as the assembler (`synapse_common::pdu::build_pdu`): `origin` is
+    // v1/v2-only. Inventing it for a v3+ row changes the unredacted bytes, so the
+    // origin's `hashes.sha256` no longer covers what we emit — a peer recomputes
+    // the hash, sees a mismatch and **silently redacts** the event. (The stored
+    // row has no `origin` column value for received PDUs, so `normalized_origin`
+    // would substitute *our* name for the sender's.)
+    if legacy_pdu_fields {
+        pdu.insert("origin".to_string(), json!(normalized_origin(server_name, record.origin.as_deref())));
+    }
 
     if let Some(state_key) = &record.state_key {
         pdu.insert("state_key".to_string(), json!(state_key));

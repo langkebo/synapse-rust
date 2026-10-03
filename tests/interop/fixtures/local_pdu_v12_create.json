@@ -1,6 +1,6 @@
 {
-  "derived_room_id": "!_0B76lrwFUrudqU83sCRosjyy4GDzoM7ARWITqvjAYM",
-  "event_id": "$_0B76lrwFUrudqU83sCRosjyy4GDzoM7ARWITqvjAYM",
+  "derived_room_id": "!zNHZT4HJKzhbtybINz330EF7UFTqnujKUobWmSx1ggQ",
+  "event_id": "$zNHZT4HJKzhbtybINz330EF7UFTqnujKUobWmSx1ggQ",
   "pdu": {
     "auth_events": [],
     "content": {
@@ -9,15 +9,14 @@
     },
     "depth": 1,
     "hashes": {
-      "sha256": "itEHtqzqFwmFZqetJQoIUingv+3aeHrkAGOrp+QVPg4"
+      "sha256": "bWRkg4a7Q0celqwoVoqxu0CgBwDxwIZmCZRFVKBgeSM"
     },
-    "origin": "example.com",
     "origin_server_ts": 1731769874137,
     "prev_events": [],
     "sender": "@alice:example.com",
     "signatures": {
       "example.com": {
-        "ed25519:1": "xyOTcMED+GHFyGPlErKU+pvWhZLF6oqw/AaM3WH7ceH3G8hxOanPJw86+oHo3VFBRiXw5SJO+9phzWr+LdmFDQ"
+        "ed25519:1": "jK5YIPrtVXlp0KyyBzLZGNl8KzMhX+GmCDTGrn8BdBp8K+maJg71vwnIWQ+qMVLzgz7l8pRfmC1s9J8Ph788Cg"
       }
     },
     "state_key": "",

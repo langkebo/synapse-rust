@@ -248,8 +248,10 @@ mod tests {
         assert_eq!(pdu["depth"], json!(8));
         assert_eq!(pdu["prev_events"], json!(["$p:example.com"]));
         assert_eq!(pdu["auth_events"], json!(["$create:example.com", "$pl:example.com"]));
-        assert_eq!(pdu["origin"], json!("example.com"));
         assert_eq!(pdu["origin_server_ts"], json!(1_700_000_000_000_i64));
+        // Room v3 removed `origin`; emitting it changes `hashes.sha256` (computed
+        // over the unredacted event) and makes verifying peers redact the event.
+        assert!(pdu.get("origin").is_none(), "v10 PDUs must not carry origin: {pdu}");
     }
 
     /// U-13 step 2: v3+ outbound PDUs must not carry `event_id` (the receiver

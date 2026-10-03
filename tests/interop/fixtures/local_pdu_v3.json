@@ -1,5 +1,5 @@
 {
-  "event_id": "$z0FEyEQ/WO8Ubzi+W+OujYf8uKLy5OCcY7+qQK15Qk8",
+  "event_id": "$2aF0SYST0ev3zFsY9BX6H9uZ6NTe75QtPDuz8Qrucqo",
   "pdu": {
     "auth_events": [
       "$create:example.com"
@@ -11,9 +11,8 @@
     },
     "depth": 24,
     "hashes": {
-      "sha256": "LXkZ41xTMrP2CPBUC2k7qqHFPzqDTPVJKXEgxBNoXm8"
+      "sha256": "EEtzesKrerHmspzyd1xfD10P3hdwVaKt+Ze7gk1jYP0"
     },
-    "origin": "example.com",
     "origin_server_ts": 1731769874137,
     "prev_events": [
       "$prev:example.com"
@@ -22,7 +21,7 @@
     "sender": "@alice:example.com",
     "signatures": {
       "example.com": {
-        "ed25519:1": "nuGODTpR3Um+mmtbyKfY8M4JHbg1BpRvxrulEit5ZPsNBYdBGl+x17IdPEB4Q/OClNAYzYgxXHMjSJrx/cSZBw"
+        "ed25519:1": "vg6066MLixRf6x2qa74thhA0FNQUgHFoa4RB85ZFiyS3YnYVgbMr4ABgQ+NH9TOjK/BtR1t67AsPoSNXRH8wCQ"
       }
     },
     "type": "m.room.message"
