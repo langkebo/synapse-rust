@@ -182,7 +182,7 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // 迁移内容变了（−26 字节，`bytes=219180`）⇒ 同样先自检旧值（219206 ⇒ `b48cab73065bb618` 逐字节吻合，
 // 证明哈希实现未变）后取新值 `265b755aa151de70`。该漏同步让 `--test unit` 的
 // `baseline_fingerprint_is_the_single_v12_source` 在 main 上常红，是 R10 checklist 第①条的漏项。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "ba6e35d1379ddd74";
+const EXPECTED_BASELINE_FINGERPRINT: &str = "33f8a783ed0d2e8b";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

@@ -5,7 +5,7 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use tracing::info;
 
-/// `PushDevice` 结构体映射数据库 push_devices 表。
+/// `PushDevice` 结构体映射数据库 push_device 表。
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct PushDevice {
     /// The `id` field.

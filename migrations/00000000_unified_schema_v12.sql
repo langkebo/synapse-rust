@@ -949,19 +949,6 @@ CREATE TABLE IF NOT EXISTS secure_backup_session_keys (
     CONSTRAINT fk_secure_backup_session_keys_backup FOREIGN KEY (user_id, backup_id) REFERENCES secure_key_backups(user_id, backup_id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS leak_alerts (
-    id BIGSERIAL PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    key_id TEXT NOT NULL,
-    alert_type TEXT NOT NULL,
-    severity TEXT NOT NULL,
-    details JSONB NOT NULL DEFAULT '{}',
-    created_ts BIGINT NOT NULL,
-    is_acknowledged BOOLEAN NOT NULL DEFAULT FALSE,
-    acknowledged_by TEXT,
-    acknowledged_at BIGINT
-);
-
 -- ============================================================================
 -- Part 4: Media Tables
 -- ============================================================================
@@ -1378,25 +1365,6 @@ CREATE TABLE IF NOT EXISTS captcha_config (
 -- ============================================================================
 -- Part 7: Push Notification Tables
 -- ============================================================================
-
-CREATE TABLE IF NOT EXISTS push_devices (
-    id BIGSERIAL,
-    user_id TEXT NOT NULL,
-    device_id TEXT NOT NULL,
-    push_kind TEXT NOT NULL,
-    app_id TEXT NOT NULL,
-    app_display_name TEXT,
-    device_display_name TEXT,
-    profile_tag TEXT,
-    pushkey TEXT NOT NULL,
-    lang TEXT DEFAULT 'en',
-    data JSONB DEFAULT '{}',
-    created_ts BIGINT NOT NULL,
-    updated_ts BIGINT,
-    is_enabled BOOLEAN DEFAULT TRUE,
-    CONSTRAINT pk_push_devices PRIMARY KEY (id),
-    CONSTRAINT uq_push_devices_user_device_pushkey UNIQUE (user_id, device_id, pushkey)
-);
 
 CREATE TABLE IF NOT EXISTS push_rules (
     id BIGSERIAL,
@@ -3430,11 +3398,6 @@ CREATE INDEX IF NOT EXISTS idx_e2ee_secret_storage_keys_user ON e2ee_secret_stor
 CREATE UNIQUE INDEX IF NOT EXISTS idx_e2ee_stored_secrets_user_name ON e2ee_stored_secrets(user_id, secret_name);
 CREATE INDEX IF NOT EXISTS idx_e2ee_stored_secrets_key ON e2ee_stored_secrets(key_key_id);
 
--- Leak alerts
-CREATE INDEX IF NOT EXISTS idx_leak_alerts_user ON leak_alerts(user_id);
-CREATE INDEX IF NOT EXISTS idx_leak_alerts_created ON leak_alerts(created_ts DESC);
-CREATE INDEX IF NOT EXISTS idx_leak_alerts_acknowledged ON leak_alerts(is_acknowledged) WHERE is_acknowledged = FALSE;
-
 -- Media
 CREATE INDEX IF NOT EXISTS idx_media_uploader ON media_metadata(uploader_user_id);
 CREATE INDEX IF NOT EXISTS idx_media_server ON media_metadata(server_name);
@@ -3466,7 +3429,6 @@ CREATE INDEX IF NOT EXISTS idx_captcha_status ON registration_captcha(status);
 CREATE INDEX IF NOT EXISTS idx_captcha_send_target ON captcha_send_log(target);
 
 -- Push devices
-CREATE INDEX IF NOT EXISTS idx_push_devices_user ON push_devices(user_id);
 CREATE INDEX IF NOT EXISTS idx_push_device_user_enabled ON push_device(user_id) WHERE is_enabled = TRUE;
 
 -- Push rules

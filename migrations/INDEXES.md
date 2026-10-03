@@ -6,12 +6,11 @@
 > 判据与证据见 `docs/audit/DB_REVIEW_2026-09-17.md` §1；防复发守卫见
 > `scripts/check_baseline_consolidation.py` 的 `duplicate_indexes()`。
 
-
 > 版本: v1.3.0
 > 更新日期: 2026-09-16
 > 数据源: `migrations/00000000_unified_schema_v12.sql`（唯一真相源；
->   原 `20260904*_schema_p*.sql` 审计迁移已删除，其对象已**全部**折入 baseline 尾部
->   的"完整性约束与性能索引折入块"）
+> 原 `20260904*_schema_p*.sql` 审计迁移已删除，其对象已**全部**折入 baseline 尾部
+> 的"完整性约束与性能索引折入块"）
 
 > **覆盖率说明**：v12 baseline 中共 **350** 条
 > `CREATE (UNIQUE) INDEX [CONCURRENTLY] IF NOT EXISTS` 语句，**350** 个不同索引名，
@@ -84,7 +83,6 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | e2ee_key_requests | idx_e2ee_key_requests_pending | is_fulfilled | is_fulfilled = FALSE | 查找未完成的密钥请求 |
 | one_time_keys | idx_one_time_keys_used | is_used | is_used = FALSE | 查找未使用的 OTK |
 | dehydrated_devices | idx_dehydrated_devices_expires | expires_at | expires_at IS NOT NULL | 查找有过期时间的脱水设备 |
-| leak_alerts | idx_leak_alerts_acknowledged | is_acknowledged | is_acknowledged = FALSE | 查找未确认的泄露告警 |
 | user_media_quota | idx_user_media_quota_used | used_bytes DESC | used_bytes > 0 | 查找有使用量的媒体配额 |
 | media_quota_config | idx_media_quota_config_enabled | is_enabled | is_enabled = TRUE | 查找启用的配额配置 |
 | media_quota_alerts | idx_media_quota_alerts_user | user_id | is_read = FALSE | 查找未读的配额告警 |
@@ -216,7 +214,7 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 > |---|---|---|---|
 > | `key_signatures.idx_key_signatures_target` | `uq_key_signatures_signature` | 均在 | 严格前缀，**未被实测证明"无人使用"** |
 > | `space_hierarchy.idx_space_hierarchy_space` | `uq_space_hierarchy` | 均在 | 严格前缀，同上 |
-> | `push_devices.idx_push_devices_user` | `uq_push_devices_user_device_pushkey` | 均在 | 严格前缀，同上 |
+> | ~~`push_devices.idx_push_devices_user`~~ | ~~`uq_push_devices_user_device_pushkey`~~ | **已删除** | 死表清理：复数表 `push_devices` 无任何代码引用（代码实际使用单数表 `push_device`），表与索引已从 baseline 移除 |
 > | `device_lists_outbound_pokes.idx_device_lists_outbound_pokes_user` | `pk_device_lists_outbound_pokes` | 均在 | 严格前缀，同上 |
 > | `device_keys.idx_device_keys_fallback` | `uq_device_keys_user_device_key` | 均在 | **§2 分类有误**：前者是**部分索引** `WHERE is_fallback AND NOT fallback_used`，谓词选择性与体积收益真实存在，**不是**长索引的严格前缀（本文件 §1 已把它记为有意的部分索引） |
 > | `room_memberships.idx_room_memberships_user_membership` | `idx_room_memberships_user_status` | 均在 | **不可删**：`synapse-storage/src/schema_health_check.rs` 的 `REQUIRED_INDEXES` 把它列为必需索引，删除会让启动健康检查持续报缺失 |
