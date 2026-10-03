@@ -8,9 +8,11 @@
 set -uo pipefail
 
 export PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH"
+# 机器相关部分只在这里：库主机/端口/用户走 PG_BASE_URL（默认本机 homebrew postgres）。
+PG_BASE_URL="${PG_BASE_URL:-postgresql://synapse@127.0.0.1:5432}"
 ROOT=/Users/ljf/Desktop/hu_ts/synapse-rust
 SUMMARY=/tmp/scratch_db_reset_summary.txt
-ROOT_URL="postgresql://synapse@127.0.0.1:5432"
+ROOT_URL="${PG_BASE_URL}"
 cd "$ROOT"
 log() { printf '[%s] %s\n' "$(date '+%m-%d %H:%M:%S')" "$*" | tee -a "$SUMMARY"; }
 

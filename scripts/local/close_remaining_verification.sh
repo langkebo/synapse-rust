@@ -10,6 +10,9 @@
 set -uo pipefail
 
 export PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH"
+# 机器相关部分只在这里：库主机/端口/用户走 PG_BASE_URL（默认本机 homebrew postgres），
+# 库名沿用脚本里的约定（synapse_router_test / synapse_storage_test / synapse_merge_test）。
+PG_BASE_URL="${PG_BASE_URL:-postgresql://synapse@127.0.0.1:5432}"
 ROOT=/Users/ljf/Desktop/hu_ts/synapse-rust
 SUMMARY=/tmp/remaining_verification_summary.txt
 MIGRATED_LOG=/tmp/full_integration_migrated.log
@@ -42,7 +45,7 @@ export SQLX_OFFLINE=true
 # full ~255-table schema clone. `cargo test` runs the whole integration binary in one process, so
 # the pool engages (first N clone, the rest TRUNCATE-and-reuse). Measured: ~0.26s/test vs 40-88s.
 log "stage 2/4: tip integration suite ($(git rev-parse --short HEAD)) on synapse_router_test ..."
-TEST_DATABASE_URL="postgresql://synapse@127.0.0.1:5432/synapse_router_test" \
+TEST_DATABASE_URL="${PG_BASE_URL}/synapse_router_test" \
     cargo test --all-features --test integration --no-fail-fast -- --test-threads 4 \
     >"$TIP_LOG" 2>&1
 echo "EXIT=$?" >>"$TIP_LOG"
@@ -50,13 +53,13 @@ log "stage 2 done: $(sum_of "$TIP_LOG") ; FAIL/TIMEOUT=$(fails_of "$TIP_LOG")"
 grep -E '^[[:space:]]+FAIL\b|^[[:space:]]+TIMEOUT\b' "$TIP_LOG" | head -50 >>"$SUMMARY" 2>/dev/null || true
 
 log "stage 3/4: full synapse-storage lib on a fresh database ..."
-if ! psql "postgresql://synapse@127.0.0.1:5432/postgres" -tAc \
+if ! psql "${PG_BASE_URL}/postgres" -tAc \
     "select 1 from pg_database where datname='synapse_storage_test'" | grep -q 1; then
-    psql "postgresql://synapse@127.0.0.1:5432/postgres" -c "CREATE DATABASE synapse_storage_test" >>"$SUMMARY" 2>&1
+    psql "${PG_BASE_URL}/postgres" -c "CREATE DATABASE synapse_storage_test" >>"$SUMMARY" 2>&1
 fi
-TEST_DATABASE_URL="postgresql://synapse@127.0.0.1:5432/synapse_storage_test" \
+TEST_DATABASE_URL="${PG_BASE_URL}/synapse_storage_test" \
     bash scripts/ci/prepare_test_db.sh >>"$SUMMARY" 2>&1
-TEST_DATABASE_URL="postgresql://synapse@127.0.0.1:5432/synapse_storage_test" \
+TEST_DATABASE_URL="${PG_BASE_URL}/synapse_storage_test" \
     cargo test -p synapse-storage --lib --all-features --no-fail-fast -- --test-threads 4 \
     >"$STORAGE_LOG" 2>&1
 echo "EXIT=$?" >>"$STORAGE_LOG"
@@ -64,11 +67,11 @@ log "stage 3 done: $(sum_of "$STORAGE_LOG") ; FAIL/TIMEOUT=$(fails_of "$STORAGE_
 grep -E '^[[:space:]]+FAIL\b|^[[:space:]]+TIMEOUT\b' "$STORAGE_LOG" | head -50 >>"$SUMMARY" 2>/dev/null || true
 
 log "stage 4/4: cleaning leftover schemas in synapse_merge_test ..."
-before=$(psql "postgresql://synapse@127.0.0.1:5432/synapse_merge_test" -tAc \
+before=$(psql "${PG_BASE_URL}/synapse_merge_test" -tAc \
     "select count(*) from information_schema.schemata" 2>/dev/null | tr -d ' ')
-DATABASE_URL="postgresql://synapse@127.0.0.1:5432/synapse_merge_test" \
+DATABASE_URL="${PG_BASE_URL}/synapse_merge_test" \
     bash scripts/cleanup_test_schemas.sh --apply >"$CLEANUP_LOG" 2>&1
-after=$(psql "postgresql://synapse@127.0.0.1:5432/synapse_merge_test" -tAc \
+after=$(psql "${PG_BASE_URL}/synapse_merge_test" -tAc \
     "select count(*) from information_schema.schemata" 2>/dev/null | tr -d ' ')
 log "stage 4 done: schemas ${before:-?} -> ${after:-?}（日志 $CLEANUP_LOG）"
 

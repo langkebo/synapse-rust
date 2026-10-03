@@ -13,6 +13,8 @@
 set -uo pipefail
 
 export PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH"
+# 机器相关部分只在这里：库主机/端口/用户走 PG_BASE_URL（默认本机 homebrew postgres）。
+PG_BASE_URL="${PG_BASE_URL:-postgresql://synapse@127.0.0.1:5432}"
 ROOT=/Users/ljf/Desktop/hu_ts/synapse-rust
 COMMIT=b08987df5
 WT="$ROOT/.worktrees/verify-$COMMIT"
@@ -21,7 +23,7 @@ TIP_LOG=/tmp/full_integration_tip.log
 STORAGE_LOG=/tmp/storage_lib_verify.log
 ISOLATED_LOG=/tmp/flagged_tests_verify.log
 CLEANUP_LOG=/tmp/schema_cleanup.log
-VERIFY_DB="postgresql://synapse@127.0.0.1:5432/synapse_verify_test"
+VERIFY_DB="${PG_BASE_URL}/synapse_verify_test"
 : >"$SUMMARY"
 
 log() { printf '[%s] %s\n' "$(date '+%m-%d %H:%M:%S')" "$*" | tee -a "$SUMMARY"; }
@@ -47,9 +49,9 @@ fi
 cd "$WT"
 
 log "step 3/4: full synapse-storage lib on a fresh database ($VERIFY_DB) ..."
-if ! psql "postgresql://synapse@127.0.0.1:5432/postgres" -tAc \
+if ! psql "${PG_BASE_URL}/postgres" -tAc \
     "select 1 from pg_database where datname='synapse_verify_test'" | grep -q 1; then
-    psql "postgresql://synapse@127.0.0.1:5432/postgres" -c "CREATE DATABASE synapse_verify_test" >>"$SUMMARY" 2>&1
+    psql "${PG_BASE_URL}/postgres" -c "CREATE DATABASE synapse_verify_test" >>"$SUMMARY" 2>&1
 fi
 TEST_DATABASE_URL="$VERIFY_DB" TEST_DB_TEMPLATE_SCHEMA=test_template_ci \
     bash scripts/ci/prepare_test_db.sh >>"$SUMMARY" 2>&1
@@ -71,11 +73,11 @@ log "step 4 done: $(sum_of "$ISOLATED_LOG")"
 grep -E '^ *(FAIL|TIMEOUT|LEAK) ' "$ISOLATED_LOG" | head -10 >>"$SUMMARY" 2>/dev/null || true
 
 # ── 4) 旧库残留 schema 清理 ────────────────────────────────────────────────
-before=$(psql "postgresql://synapse@127.0.0.1:5432/synapse_merge_test" -tAc \
+before=$(psql "${PG_BASE_URL}/synapse_merge_test" -tAc \
     "select count(*) from information_schema.schemata" 2>/dev/null | tr -d ' ')
-DATABASE_URL="postgresql://synapse@127.0.0.1:5432/synapse_merge_test" \
+DATABASE_URL="${PG_BASE_URL}/synapse_merge_test" \
     bash scripts/cleanup_test_schemas.sh --apply >"$CLEANUP_LOG" 2>&1
-after=$(psql "postgresql://synapse@127.0.0.1:5432/synapse_merge_test" -tAc \
+after=$(psql "${PG_BASE_URL}/synapse_merge_test" -tAc \
     "select count(*) from information_schema.schemata" 2>/dev/null | tr -d ' ')
 log "cleanup done: schemas ${before:-?} -> ${after:-?}（${CLEANUP_LOG}）"
 
