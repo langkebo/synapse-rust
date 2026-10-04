@@ -18,42 +18,13 @@ API 使用标准的 HTTP 状态码和统一的错误响应格式。客户端应�
 
 ## 错误响应格式
 
-### 标准错误响应
-
-所有 API 错误都遵循统一的响应格式：
-
-```typescript
-interface ApiError {
-  status: string;        // 总是 "error"
-  code: string;          // 错误码 (如 "M_MISSING_TOKEN")
-  message: string;       // 人类可读的错误描述
-  details?: {            // 可选的额外详情
-    field?: string;      // 验证错误的字段名
-    [key: string]: any;
-  };
-}
-```
-
-**示例响应:**
-```json
-{
-  "status": "error",
-  "code": "M_MISSING_TOKEN",
-  "message": "Access token required",
-  "details": null
-}
-```
-
----
-
-### Matrix 错误格式
-
-某些端点使用 Matrix 协议标准错误格式：
+所有 API 错误都遵循 Matrix 协议标准错误格式：
 
 ```typescript
 interface MatrixError {
-  errcode: string;       // Matrix 错误码
-  error: string;         // 人类可读的错误描述
+  errcode: string;          // Matrix 错误码 (如 "M_MISSING_TOKEN")
+  error: string;            // 人类可读的错误描述
+  retry_after_ms?: number;  // 仅 429 限流响应附带，建议的重试等待毫秒数
 }
 ```
 
@@ -64,6 +35,9 @@ interface MatrixError {
   "error": "Unrecognized access token"
 }
 ```
+
+> HTTP 状态码由实现内部的错误类别独立决定（见下方「HTTP 状态码」），与 `errcode` 并非一一绑定。
+> 429 响应会额外返回 `retry_after_ms`，并附带 `Retry-After` / `X-RateLimit-Retry-After-Ms` / `X-RateLimit-Limit` / `X-RateLimit-Remaining` 响应头。
 
 ---
 
@@ -201,7 +175,7 @@ interface MatrixError {
 
 **请求:**
 ```typescript
-const response = await fetch(`${BASE_URL}/_matrix/client/r0/sync`, {
+const response = await fetch(`${BASE_URL}/_matrix/client/v3/sync`, {
   headers: {}  // 缺少 Authorization 头
 });
 ```
@@ -209,9 +183,8 @@ const response = await fetch(`${BASE_URL}/_matrix/client/r0/sync`, {
 **响应 (401):**
 ```json
 {
-  "status": "error",
-  "code": "M_MISSING_TOKEN",
-  "message": "Access token required"
+  "errcode": "M_MISSING_TOKEN",
+  "error": "Access token required"
 }
 ```
 
@@ -243,7 +216,7 @@ if (response.status === 401) {
 ```typescript
 // 使用刷新令牌获取新的访问令牌
 const refreshAccessToken = async (refreshToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/r0/refresh`, {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/refresh`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh_token: refreshToken })
@@ -310,7 +283,7 @@ const fetchWithRetry = async (url: string, options: RequestInit) => {
 
 **请求:**
 ```typescript
-const response = await fetch(`${BASE_URL}/_matrix/client/r0/register`, {
+const response = await fetch(`${BASE_URL}/_matrix/client/v3/register`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
@@ -323,27 +296,16 @@ const response = await fetch(`${BASE_URL}/_matrix/client/r0/register`, {
 **响应 (400):**
 ```json
 {
-  "status": "error",
-  "code": "M_INVALID_PARAM",
-  "message": "Validation failed",
-  "details": {
-    "errors": [
-      { "field": "username", "message": "Username must be at least 3 characters" },
-      { "field": "password", "message": "Password must be at least 8 characters" }
-    ]
-  }
+  "errcode": "M_INVALID_PARAM",
+  "error": "Username must be at least 3 characters"
 }
 ```
 
 **处理方式:**
 ```typescript
-const handleValidationErrors = (data: ApiError) => {
-  if (data.details?.errors) {
-    // 显示每个字段的错误
-    data.details.errors.forEach(error => {
-      showFieldError(error.field, error.message);
-    });
-  }
+const handleValidationError = (data: MatrixError) => {
+  // 错误响应只提供一条人类可读的 error 描述，由调用方呈现给用户
+  showToast('error', data.error);
 };
 ```
 
@@ -356,9 +318,8 @@ const handleValidationErrors = (data: ApiError) => {
 **响应 (409):**
 ```json
 {
-  "status": "error",
-  "code": "FRIEND_REQUEST_PENDING",
-  "message": "A friend request already exists for this user"
+  "errcode": "FRIEND_REQUEST_PENDING",
+  "error": "A friend request already exists for this user"
 }
 ```
 
@@ -376,7 +337,7 @@ const sendFriendRequest = async (userId: string) => {
 
   const data = await response.json();
 
-  if (response.status === 409 && data.code === 'FRIEND_REQUEST_PENDING') {
+  if (response.status === 409 && data.errcode === 'FRIEND_REQUEST_PENDING') {
     // 提示用户已有待处理的请求
     showToast('info', '好友请求已发送，请等待对方确认');
   }
@@ -392,9 +353,8 @@ const sendFriendRequest = async (userId: string) => {
 **响应 (404):**
 ```json
 {
-  "status": "error",
-  "code": "M_NOT_FOUND",
-  "message": "Room not found"
+  "errcode": "M_NOT_FOUND",
+  "error": "Room not found"
 }
 ```
 
@@ -405,19 +365,11 @@ const sendFriendRequest = async (userId: string) => {
 ### 1. 统一错误处理器
 
 ```typescript
-interface ApiResponse<T> {
-  status: 'ok' | 'error';
-  data?: T;
-  code?: string;
-  message?: string;
-}
-
 class ApiError extends Error {
   constructor(
-    public code: string,
+    public errcode: string,
     public status: number,
-    message: string,
-    public details?: any
+    message: string
   ) {
     super(message);
     this.name = 'ApiError';
@@ -427,27 +379,18 @@ class ApiError extends Error {
 const handleApiResponse = async <T>(
   response: Response
 ): Promise<T> => {
+  // 成功响应直接返回业务负载；错误响应形如 { errcode, error }
   const data = await response.json();
 
   if (!response.ok) {
     throw new ApiError(
-      data.code || data.errcode || 'UNKNOWN_ERROR',
+      data.errcode || 'M_UNKNOWN',
       response.status,
-      data.message || data.error || 'Request failed',
-      data.details
+      data.error || 'Request failed'
     );
   }
 
-  if (data.status === 'error') {
-    throw new ApiError(
-      data.code || 'UNKNOWN_ERROR',
-      response.status,
-      data.message || 'Request failed',
-      data.details
-    );
-  }
-
-  return (data.data || data) as T;
+  return data as T;
 };
 ```
 
@@ -755,7 +698,7 @@ const logError = (error: Error | ApiError, context?: Record<string, any>) => {
   };
 
   if (error instanceof ApiError) {
-    log.code = error.code;
+    log.code = error.errcode;
     log.status = error.status;
   }
 
@@ -822,7 +765,7 @@ export const apiClient = {
 // 使用
 try {
   const user = await apiClient.get<UserInfo>(
-    '/_matrix/client/r0/account/whoami',
+    '/_matrix/client/v3/account/whoami',
     accessToken
   );
   console.log('Current user:', user);

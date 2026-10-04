@@ -304,7 +304,7 @@
 | Profile 自定义字段：PUT/DELETE 返回 403 + `M_FORBIDDEN` | 1.161 | **已实现（另一触发路径）** | `account_compat.rs:205,237`（标准字段）、`extended_profile.rs:160,186`（自定义字段）在调用者 ≠ 目标用户时返回 `forbidden("Access denied")` |
 | Profile 不存在用户写自定义字段返回 404 而非 500 | 1.161 | **TRUE（已对齐，2026-09）** | `synapse-storage/src/user/storage.rs:726` 的 `user_exists` 为纯行存在性判定（**对已停用账户亦为 true**，见 `:718-725` 注释，对齐上游 #20172）；`extended_profile.rs:62-73` 用它 ⇒ 仅"真正不存在"返回 404、"已停用但存在"写字段成功。需要"可操作账户"的调用点另用 `active_user_exists`（`:738`） |
 | MSC4222 `/sync` 左房 `state_after` 成员泄漏修复 | 1.161 | **PARTIAL（订正：本仓已有 MSC4222 `state_after` 支持）** | ~~全仓 `state_after` / `MSC4222` = 0~~（旧判已作废）：`synapse-services/src/sync_service/types.rs:192,195,238`、`synapse-web/src/routes/handlers/sync.rs:35,80,164,185` 均有 `state_after` 透传；本仓**未做** v1.162 #20171 的「since 落在持久化批次内」worker 边界修复（见 §5.4） |
-| MSC3912 关系性撤回（room version > 10 时 `redacts` 置入 `content`） | 1.161 | **PARTIAL（格式已修 + 级联已实现，客户端路径不级联）** | ① **格式**：Phase 1 起由服务层按房间版本注入 `content.redacts`（v11+），出站 PDU 不再重复写顶层 `redacts`，有回归用例锁定；② **级联**：`synapse-storage/src/event/cascade.rs` + `synapse-services/src/event_redaction_service.rs:58` + 端点 `POST /_synapse/admin/v1/rooms/{room_id}/cascade_redact`（深度默认 5、上限 10）；③ **缺口**：客户端撤回路径 `synapse-web/src/routes/handlers/room/events.rs:990` 仍只调 `redact_event_content`（**不级联**）—— 级联仅管理端可达 |
+| MSC3912 关系性撤回（room version > 10 时 `redacts` 置入 `content`） | 1.161 | **已实现（格式已修 + 客户端/管理端级联均通）** | ① **格式**：Phase 1 起由服务层按房间版本注入 `content.redacts`（v11+），出站 PDU 不再重复写顶层 `redacts`，有回归用例锁定；② **级联**：`synapse-storage/src/event/cascade.rs` + `synapse-services/src/event_redaction_service.rs:58,120` + 端点 `POST /_synapse/admin/v1/rooms/{room_id}/cascade_redact`（深度默认 5、上限 10）；**订正（2026-10-04）**：客户端撤回路径在 `with_rel_types` 非空时亦调 `cascade_redact_related_events`（`synapse-web/src/routes/handlers/room/events.rs:1134-1169`），为单层级联、不递归、不触碰父事件；原"客户端路径不级联 / `:990` 只撤回单条 / 级联仅管理端可达"旧判作废 |
 | MSC4242 State DAG（联邦客户端 + 存储） | 1.161 | **PARTIAL（仅存储层；受阻）** | `dag.rs` 不实注释**已修正（2026-10-02）**（如实陈述：无生产调用点、仅 `db_tests` 覆盖）；上游本身亦为 experimental，其 #20133 serving 是把 MSC4242 接进**既有**联邦端点、**不新增路由**，受阻于房间版本 + `experimental_features`（对照报告 §18.4 L-2） |
 | **v1.157.2 安全版本**（ELEMENTSEC / GHSA） | 1.157.2 | **已判定（2026-09-23，11 条）** | 逐条"受影响/不受影响 + 证据"对照表见 [`../synapse-rust-vs-synapse-comparison.md`](../synapse-rust-vs-synapse-comparison.md) §14.5：3 条需动作/决策（push rule 上限、别名劫持、multipart Content-Type）、2 条需代理侧复核、其余 6 条本仓已有守卫。⚠️ 公告计数是 **11** 而非 12（三处交叉验证：Releases 正文 / tag `CHANGES.md` / advisory 列表） |
 
@@ -408,7 +408,7 @@
 | **MSC4512 AS 命名空间代理** | §5.1 / §6.2 判 `MISSING` | **已实现**（`synapse-web/src/routes/app_service.rs:722-723` + handler `proxy_to_as`） |
 | **AS 登录 `m.login.application_service`** | §5.2 / §6.2 判 `MISSING` | **已实现**（`synapse-web/src/routes/auth_compat.rs:455-468`） |
 | **MSC4140 联邦 EDU** | §5.1 判缺失 | **已实现**（`synapse-federation/src/edu.rs:37,67,83`；消费点 `synapse-web/src/federation/edu.rs:631`） |
-| **MSC3912 关系性级联撤回** | §5.2 / §6.2 判 `MISSING` | **部分实现**（`synapse-storage/src/event/cascade.rs` + `synapse-services/src/event_redaction_service.rs:58` + 管理端点；客户端撤回路径不级联） |
+| **MSC3912 关系性级联撤回** | §5.2 / §6.2 判 `MISSING` | **已实现**（`synapse-storage/src/event/cascade.rs` + `synapse-services/src/event_redaction_service.rs:58,120` + 管理端点；**订正（2026-10-04）**：客户端撤回路径在 `with_rel_types` 非空时同样级联，`synapse-web/src/routes/handlers/room/events.rs:1134-1169` 调 `cascade_redact_related_events`；原"客户端撤回路径不级联"旧判作废） |
 | **Content Scanner** | §11.2（对比报告）判"未装配、从未被构造、未接入 config" | **已装配且已接入生产路径**（`synapse-services/src/wiring/core.rs:66,180` 构造 + `synapse-common/src/config/mod.rs:242` 配置项；消费点 `synapse-web/src/routes/media/upload.rs:89,137` `scan_when_enabled`、`synapse-web/src/routes/handlers/room/events.rs:317` `scan_text_when_enabled`）——**"零调用点/孤儿模块"旧判已作废**；仍无持久化（扫描 verdict 不落库） |
 
 > ⚠️ **§三 的"缺失清单"在 v1.3 中停更于 2026-05-28**，其"待实现"标记已不可作为缺失证据。
@@ -422,12 +422,12 @@
 |---|---|---|
 | **App Service 登录**（`m.login.application_service`） | ✅ **已实现**（`auth_compat.rs:455-468`）；~~整体缺失~~ | 仍缺 pushers、设备管理、虚拟用户以 C-S 身份调用、以及稳定错误码 `M_APPSERVICE_LOGIN_UNSUPPORTED`（全仓 0 命中） |
 | **MSC4512** App Service 命名空间代理 | ✅ **代理已实现**（`app_service.rs:722-723`）；~~缺失~~ | 联邦侧代理请求（上游 #19977 的另一半）未做；上游整体仍 experimental + opt-in |
-| **MSC3912 / v11 撤回格式** | 🟡 **格式已修**（v11+ 写 `content.redacts`）；级联**仅管理端可达** | "撤回一条消息不连带撤回其回复/表情"仍与上游行为不同（`handlers/room/events.rs:990` 不级联） |
+| **MSC3912 / v11 撤回格式** | ✅ **格式已修且级联已通**（v11+ 写 `content.redacts`；**订正（2026-10-04）**：客户端与管理端均可达级联——`handlers/room/events.rs:1134-1169` 在 `with_rel_types` 非空时调 `cascade_redact_related_events`；原"仅管理端可达 / `:990` 不级联"旧判作废） | `with_rel_types` 为空时与上游一致仅撤回单条；非空时单层级联（不递归、不触碰父事件） |
 | **v12/v13 房间创建** | ✅ **仅 v12 可创建**（2026-09-27 G-1，`7489b247f`；`room_versions.rs:151` `stable("12")`） | v1–v11 为 `stable_no_create`、v13 已移除（Q5(b)）；**订正（2026-10-02）**：MSC4297（state resolution v2.1）已实现并接线到生产路径（写入分叉时 `resolve_forked_state` → `resolve_state_for_version_with_rules`），已无遗留项 |
 | **`rc_reports` 限流桶** | ✅ **已实现**（`directory_reporting.rs:235,293`）；~~缺失~~ | — |
 | **MSC4140 联邦 EDU** | ✅ **已实现**（`edu.rs:37,67,83`）；~~缺失~~ | 仍缺：schedule 的 `state_key` 硬编码 `None`（`delayed_event_service.rs:94`） |
 | **MSC3814 `/events` 方法** | ✅ **已对齐（GET）**；~~漂移（POST）~~ | — |
-| **Content Scanner** | 🔴 **已装配但无消费者**：`wiring/core.rs:66,179` 已构造、`config/mod.rs:242` 已接入配置，但 `scan`/`scan_text`/`scan_media` 在生产路径 **0 调用点**，且无存储模块与表 | 配置打开也不产生任何扫描行为 —— "看起来已上线"的功能比缺功能更危险 |
+| **Content Scanner** | ✅ **已装配且已接入生产路径**（**订正（2026-10-04）**：`wiring/core.rs:66,179` 构造 + `config/mod.rs:242` 配置；消费点 `media/upload.rs:89,137` `scan_when_enabled`、`handlers/room/events.rs:317` `scan_text_when_enabled`；原"已装配但无消费者 / 0 调用点 / 孤儿模块"旧判作废） | 仍无持久化（扫描 verdict 不落库） |
 
 ### 6.3 Admin 媒体端点（2026-09 已补齐，差距基本收敛）
 
@@ -488,8 +488,8 @@
 | B5 | **v12/v13 支持边界决策**：实现 v12 认证规则并放开创建，或明确记录"仅 join/federate" | ✅ **已决策并落地**（Q1=a：仅 v12 可创建；`room_versions.rs:151` `stable("12")`，v1–v11 `stable_no_create`，v13 移除） | 决策记录 + `capabilities.available` 仅 `"12"` 与之一致 | 上游 1.158 |
 | B6 | **v1.157.2 安全公告同类性逐条判定** | ✅ **已做**（对比报告 §14.5，共 11 条：3 条需动作、2 条需代理侧复核、6 条已有守卫） | 对照表 + 结论 | 上游 1.157.2 |
 | B7 | **Profile 语义对齐**（停用但存在的用户写自定义字段应成功；account_data 非对象 ⇒ 400 而非 500） | ✅ **已完成**（MSC4133 非对象已改 400；停用用户走行存在性判定 `user_exists`（`extended_profile.rs:62-73`，U-2/#20172）；稳定 `/{key_name}` GET/PUT/DELETE 已注册，2026-09） | 各状态码有测试断言 | 上游 1.161 #20172/#20149 |
-| B8 | **客户端撤回走级联**（或显式声明不支持）：当前 `handlers/room/events.rs:990` 只撤回单条 | 🔴 **新增缺口** | 撤回有回复的消息后相关事件均被撤回；或文档显式声明不支持 | 本报告 §5.2 / MSC3912 |
-| B9 | **Content Scanner 决策**：接线（存储 + 表 + 媒体上传调用点）或下线该装配 | 🔴 **新增缺口** | 配置打开后上传媒体确实被扫描（有测试）；或模块下线 | 本报告 §6.2 |
+| B8 | **客户端撤回走级联**（或显式声明不支持） | ✅ **已实现**（**订正（2026-10-04）**：`handlers/room/events.rs:1134-1169` 在 `with_rel_types` 非空时调 `cascade_redact_related_events`，行为对齐 MSC3912；原"只撤回单条 / `:990` 不级联"旧判作废） | 撤回有回复的消息后相关事件均被撤回 | 本报告 §5.2 / MSC3912 |
+| B9 | **Content Scanner 决策**：接线（存储 + 表 + 媒体上传调用点） | ✅ **已接线**（**订正（2026-10-04）**：`media/upload.rs:89,137` `scan_when_enabled` + `handlers/room/events.rs:317` `scan_text_when_enabled`；剩"verdict 不落库"） | 配置打开后上传媒体确实被扫描（有测试） | 本报告 §6.2 |
 
 ### C. 功能补齐（保留原方向，重新定级）
 
@@ -587,9 +587,9 @@ grep -rn 'federation_domain_whitelist' --include='*.rs' .                 # L3�
 
 # ⑦ 能力"是否真的接线"—— 只看模块/配置存在会得出错误结论
 grep -rn 'EduType::DelayedEvent' --include='*.rs' synapse-federation/src/edu.rs     # MSC4140 联邦 EDU 已通
-grep -rn 'content_scanner\.' --include='*.rs' synapse-services/src synapse-web/src  # 仅 wiring/core.rs（0 生产消费者）
-grep -rn 'cascade_redact' --include='*.rs' synapse-web/src/routes/admin/room/mod.rs # MSC3912 仅管理端可达
-grep -rn 'redact_event_content' --include='*.rs' synapse-web/src/routes/handlers/room/events.rs  # 客户端撤回不级联
+grep -rn 'scan_when_enabled\|scan_text_when_enabled\|content_scanner\.' --include='*.rs' synapse-services/src synapse-web/src  # 生产消费者：media/upload.rs:89,137 + handlers/room/events.rs:317
+grep -rn 'cascade_redact' --include='*.rs' synapse-web/src/routes                          # MSC3912 管理端端点 + 客户端撤回路径均可达
+grep -rn 'redact_event_content\|cascade_redact_related_events' --include='*.rs' synapse-web/src/routes/handlers/room/events.rs  # 客户端撤回（with_rel_types 非空时级联）
 ```
 
 ### 8.1 分类归属脚本（`classify_routes.py`）
