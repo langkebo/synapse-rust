@@ -210,29 +210,7 @@ impl MessagingService {
         // must see what the client asked to send; the persistence invariant stays
         // ours to enforce and cannot be overridden by a module.
         self.apply_event_admission_gate(&mut params, true).await?;
-
-        // Redaction format depends on the room version: v11+ (MSC2174/MSC3820)
-        // carries the target in `content.redacts`, v1-v10 uses the top-level
-        // `redacts` PDU field.  Handling it here — the single write entry point
-        // — covers every creator (client redactions, burn-after-read, admin).
-        if event_type == "m.room.redaction" {
-            if let Some(target) = params.redacts.clone() {
-                let room_version = self
-                    .room_storage
-                    .get_room_version_only(&params.room_id)
-                    .await
-                    .map_err(|e| ApiError::internal_with_cause("Failed to read room version", e))?;
-                if let Some(version) = room_version {
-                    if let Some(object) = params.content.as_object_mut() {
-                        if synapse_common::redaction::redacts_in_content(&version) {
-                            object.insert("redacts".to_string(), serde_json::Value::String(target));
-                        } else {
-                            object.remove("redacts");
-                        }
-                    }
-                }
-            }
-        }
+        self.normalize_redaction_placement(&mut params).await?;
 
         // Check room version for v12+ PDU graph fields support
         let room_version = self
@@ -241,7 +219,57 @@ impl MessagingService {
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to read room version", e))?;
 
-        let event = match room_version.as_deref() {
+        let event =
+            self.persist_event(params, room_version, &room_id, &event_type, state_key.as_deref(), tx).await?;
+
+        self.run_post_create_side_effects(&room_id, &event_type, state_key.as_deref(), &event, should_update_summary)
+            .await;
+
+        Ok(event)
+    }
+
+    /// Move the redaction target to `content.redacts` (v11+) or strip it
+    /// (v1-v10).
+    ///
+    /// Redaction format depends on the room version: v11+ (MSC2174/MSC3820)
+    /// carries the target in `content.redacts`, v1-v10 uses the top-level
+    /// `redacts` PDU field. Handling it here — the single write entry point —
+    /// covers every creator (client redactions, burn-after-read, admin).
+    async fn normalize_redaction_placement(&self, params: &mut CreateEventParams) -> ApiResult<()> {
+        if params.event_type != "m.room.redaction" {
+            return Ok(());
+        }
+        if let Some(target) = params.redacts.clone() {
+            let room_version = self
+                .room_storage
+                .get_room_version_only(&params.room_id)
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to read room version", e))?;
+            if let Some(version) = room_version {
+                if let Some(object) = params.content.as_object_mut() {
+                    if synapse_common::redaction::redacts_in_content(&version) {
+                        object.insert("redacts".to_string(), serde_json::Value::String(target));
+                    } else {
+                        object.remove("redacts");
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Persist the event row, embedding full PDU graph fields for every known
+    /// room version and failing closed for unknown/unparsable versions.
+    async fn persist_event(
+        &self,
+        params: CreateEventParams,
+        room_version: Option<String>,
+        room_id: &str,
+        event_type: &str,
+        state_key: Option<&str>,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> ApiResult<synapse_storage::RoomEvent> {
+        match room_version.as_deref() {
             // Every *known* room version takes the same graph-aware write:
             // `depth` / `prev_events` are DAG properties rather than version
             // features, and `select_auth_events` is itself version-aware. v12 is
@@ -259,7 +287,7 @@ impl MessagingService {
                 // 1. Get current room state (for auth_events construction)
                 let state_events = self
                     .event_reader
-                    .get_state_events(&room_id)
+                    .get_state_events(room_id)
                     .await
                     .map_err(|e| ApiError::internal_with_cause("Failed to get room state", e))?;
 
@@ -268,26 +296,20 @@ impl MessagingService {
                 // 2. Get forward extremities (prev_events)
                 let prev_events = self
                     .event_reader
-                    .get_forward_extremities_in_room(&room_id, 10)
+                    .get_forward_extremities_in_room(room_id, 10)
                     .await
                     .map_err(|e| ApiError::internal_with_cause("Failed to get forward extremities", e))?;
 
                 // 3. Calculate depth
                 let depth = self
                     .event_reader
-                    .calculate_event_depth(&room_id, &prev_events)
+                    .calculate_event_depth(room_id, &prev_events)
                     .await
                     .map_err(|e| ApiError::internal_with_cause("Failed to calculate event depth", e))?;
 
                 // 4. Select auth_events per the spec's "Auth events selection"
-                let auth_events = select_auth_events(
-                    room_version_str,
-                    &auth_state,
-                    &event_type,
-                    state_key.as_deref(),
-                    &params.user_id,
-                    &params.content,
-                );
+                let auth_events =
+                    select_auth_events(room_version_str, &auth_state, event_type, state_key, &params.user_id, &params.content);
 
                 // 5. Create event with full PDU graph fields
                 self.event_writer
@@ -301,7 +323,7 @@ impl MessagingService {
                         tx,
                     )
                     .await
-                    .map_err(|e| ApiError::internal_with_cause("Failed to create event with graph metadata", e))?
+                    .map_err(|e| ApiError::internal_with_cause("Failed to create event with graph metadata", e))
             }
             // Unknown or unparsable room version: fail closed. On the
             // auto-commit path the write-path decorator rejects the write
@@ -312,18 +334,34 @@ impl MessagingService {
                 .event_writer
                 .create_event(params, tx)
                 .await
-                .map_err(|e| ApiError::internal_with_cause("Failed to create event", e))?,
-        };
+                .map_err(|e| ApiError::internal_with_cause("Failed to create event", e)),
+        }
+    }
 
+    /// Run the post-persistence side effects of a local event write.
+    ///
+    /// Cache invalidation runs unconditionally for state events; the remaining
+    /// effects (canonical-alias projection, room-summary queueing, appservice
+    /// dispatch, federation broadcast) only fire on the auto-commit path, i.e.
+    /// when `should_update_summary` is true and this service owns the event
+    /// lifecycle rather than a caller-managed transaction.
+    async fn run_post_create_side_effects(
+        &self,
+        room_id: &str,
+        event_type: &str,
+        state_key: Option<&str>,
+        event: &synapse_storage::RoomEvent,
+        should_update_summary: bool,
+    ) {
         // Invalidate room-state cache when a state event is written.
         // Best-effort: failure to delete is non-fatal.
         if state_key.is_some() {
             let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
         }
 
-        if should_update_summary && event_type == "m.room.canonical_alias" && state_key.as_deref() == Some("") {
+        if should_update_summary && event_type == "m.room.canonical_alias" && state_key == Some("") {
             let canonical_alias = event.content.get("alias").and_then(|value| value.as_str());
-            if let Err(error) = self.room_storage.set_canonical_alias(&room_id, canonical_alias).await {
+            if let Err(error) = self.room_storage.set_canonical_alias(room_id, canonical_alias).await {
                 ::tracing::warn!(
                     error = %error,
                     room_id = %room_id,
@@ -334,10 +372,8 @@ impl MessagingService {
         }
 
         if should_update_summary {
-            if let Err(error) = self
-                .room_summary_service
-                .queue_update(&room_id, &event.event_id, &event_type, state_key.as_deref())
-                .await
+            if let Err(error) =
+                self.room_summary_service.queue_update(room_id, &event.event_id, event_type, state_key).await
             {
                 ::tracing::warn!(
                     error = %error,
@@ -370,7 +406,7 @@ impl MessagingService {
         // logged inside `sign_and_broadcast_event` and do not affect the
         // local event creation.
         if should_update_summary {
-            if let Err(e) = self.sign_and_broadcast_event(&event).await {
+            if let Err(e) = self.sign_and_broadcast_event(event).await {
                 ::tracing::warn!(
                     event_id = %event.event_id,
                     room_id = %event.room_id,
@@ -380,8 +416,6 @@ impl MessagingService {
                 );
             }
         }
-
-        Ok(event)
     }
 
     /// Like `create_event` but also persists the PDU's DAG metadata

@@ -180,3 +180,18 @@
 2. **本迭代（P2 代码）**：A2 ClamAV 路径透传、A1 delayed EDU 落库、A4 事务原子性、B2/B3 查询优化
 3. **安全加固（P2 配置）**：C2/C3 改为 fail-closed 或明确告警、C4 移除弱默认、C1 key_rotation 走完整授权
 4. **收尾（P3 + 文档）**：D 系列 SDK 对齐、E 系列债务、F4/F6/F7/F8 清理
+
+---
+
+## 七、E 系列债务核验与处置记录（2026-10-04 收尾批）
+
+> 本节为 §四 E 表的落地结论，均已对照代码与 lint 配置取证。
+
+| 编号 | 报告原述 | 核验结论 | 处置 |
+|------|----------|----------|------|
+| **E1** | `#[allow(clippy::)]` ≈160 处（含 61 处 `too_many_arguments`） | 前提不成立：绝大多数 `#[allow]` 在 `-D warnings` 门下为 **load-bearing**（删除即门禁失败），其治理需重构（参数结构体化 / 类型别名），部分落在非本批文件内。仅 2 处 `clippy::panic` allow 完全冗余（根包及 `synapse-web`/`synapse-test-utils` 的 `[lints.clippy]` 已置 `panic = "allow"`；6 个成员 crate 覆盖为 `deny`，其 `panic` allow 属 load-bearing）。`needless_raw_string_hashes`(66) 全部位于 `target/` 构建产物，非源码。 | 删除 2 处完全冗余属性（`src/bin/synapse_ledger_export.rs`、`src/bin/synapse_worker.rs`）；其余 load-bearing 项转独立重构批次 |
+| **E2** | `create_event` ≈194 行超长函数 | 属实 | 已拆分（主函数 + 3 个私有辅助 `normalize_redaction_placement`/`persist_event`/`run_post_create_side_effects`，行为等价） |
+| **E3** | `src/e2ee/`+`src/cache/` 多层 facade 冗余 | 属实（根 crate 为纯 re-export 薄壳） | 已折叠为直接 re-export（删除 11 个薄壳 + `src/cache/mod.rs`，改写 `src/e2ee/mod.rs`、`src/lib.rs`） |
+| **E4** | `vendor/pastey` fork 不受门禁 | 属实但 **by-design**：`RUSTSEC-2024-0436` 缓解，`[patch.crates-io]` 将停维护 `paste` 重定向至 pastey 0.2.3 逐字拷贝，`workspace.exclude` 排除、自带 `[lints.rust]`，源码零改动 | 归档，不处置 |
+| **E5** | 债务标记 11 + 未实现 13 + unwrap/expect 887（多为测试） | 表述不准：`TODO/FIXME` 实际 6 处，全为非可执行项（1 处 vendored、1 处上游拷贝注释、4 处已解决 review TODO 的说明性 prose）；`todo!/unimplemented!` 全部位于 `#[cfg(test)]` 测试 mock 与 vendored 代码，生产实质缺口 0 | 归档，不处置 |
+| **E6** | `.clippy.toml` 阈值放宽（cognitive-complexity=25 等） | 表述不准：仅 `too-many-lines-threshold=500` 相对默认(100)放宽；`cognitive-complexity=25`、`single-char-binding=4`、`too-many-arguments=7` 均为 clippy 默认值；`type-complexity=200` 相对默认(250)反而**收紧** | 归档，不处置 |

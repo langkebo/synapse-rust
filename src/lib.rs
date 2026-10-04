@@ -13,7 +13,7 @@
 
 pub use synapse_services::auth;
 /// The `cache` module.
-pub mod cache;
+pub use synapse_cache as cache;
 /// The `common` module.
 pub mod common;
 /// The `e2ee` module.
