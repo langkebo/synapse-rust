@@ -51,6 +51,42 @@ pub fn route_key(key: &str) -> Option<&'static str> {
     None
 }
 
+/// B2: 命名空间 → 其成员键共享的前导段。`presence` 用 `user:` 探测，
+/// 因为这是它唯一与其他域共有的前导（还需要 `:presence` 后缀才能精确路由，
+/// 这里只求「不漏」的保守上界）。
+const ROUTED_SEGMENTS: [(&str, &str); 4] = [
+    ("presence", "user:"),
+    ("sliding_sync", "sliding_sync:"),
+    ("device_keys", "device_keys_bulk:"),
+    ("room_state", "room_state:"),
+];
+
+impl LocalCache {
+    /// B2: 可能含有以 `prefix` 开头的键的命名空间列表。
+    ///
+    /// 一个命名空间的键必然以它的前导段开头，因此只有当 `prefix` 与该段
+    /// 互为前缀（`prefix.starts_with(seg)` 或 `seg.starts_with(prefix)`）时才可能命中，
+    /// 否则两者在某个字符处发散，任何键都不可能同时匹配。
+    pub(crate) fn namespaces_for_prefix(prefix: &str) -> Vec<&'static str> {
+        ROUTED_SEGMENTS
+            .iter()
+            .filter(|(_, seg)| prefix.starts_with(seg) || seg.starts_with(prefix))
+            .map(|(ns, _)| *ns)
+            .collect()
+    }
+
+    /// B2: 通用（非命名空间）缓存是否可能含有以 `prefix` 开头的键。
+    ///
+    /// 当 `prefix` 已覆盖某个纯前缀路由段时，任何以此开头的键都会被路由到
+    /// 对应命名空间，通用缓存不可能命中。`presence` 不在此列：它的路由还要求
+    /// `:presence` 后缀，以 `user:` 开头的键仍可能落入通用缓存。
+    pub(crate) fn generic_may_match_prefix(prefix: &str) -> bool {
+        !(prefix.starts_with("sliding_sync:")
+            || prefix.starts_with("device_keys_bulk:")
+            || prefix.starts_with("room_state:"))
+    }
+}
+
 impl NamespaceCache {
     fn new(max_capacity: u64, ttl_secs: u64) -> Self {
         let deadlines = Arc::new(parking_lot::RwLock::new(HashMap::new()));
