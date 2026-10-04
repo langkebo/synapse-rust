@@ -327,6 +327,17 @@ impl EventWriter for NotifyingEventWriter {
         self.inner.record_event_txn(user_id, room_id, txn_id, event_id).await
     }
 
+    async fn record_event_txn_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        user_id: &str,
+        room_id: &str,
+        txn_id: &str,
+        event_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        self.inner.record_event_txn_in_tx(tx, user_id, room_id, txn_id, event_id).await
+    }
+
     async fn mark_event_soft_failed(&self, event_id: &str) -> Result<(), sqlx::Error> {
         self.inner.mark_event_soft_failed(event_id).await
     }

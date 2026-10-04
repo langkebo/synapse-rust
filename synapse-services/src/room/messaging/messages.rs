@@ -25,8 +25,22 @@ impl MessagingService {
         event_type: &str,
         content: &serde_json::Value,
     ) -> ApiResult<serde_json::Value> {
+        self.send_message_timed(room_id, user_id, event_type, content, None).await
+    }
+
+    /// Timing wrapper shared by [`Self::send_message`] (no txn) and
+    /// [`Self::send_message_with_txn`] (transactional dedup), so both paths are
+    /// covered by the same `message_delivery_latency_seconds` measurement.
+    async fn send_message_timed(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_type: &str,
+        content: &serde_json::Value,
+        txn_id: Option<&str>,
+    ) -> ApiResult<serde_json::Value> {
         let started = std::time::Instant::now();
-        let result = self.send_message_inner(room_id, user_id, event_type, content).await;
+        let result = self.send_message_inner(room_id, user_id, event_type, content, txn_id).await;
         if let Some(metrics) = synapse_common::server_metrics::global_server_metrics() {
             metrics.record_message_delivery(started.elapsed().as_secs_f64());
         }
@@ -34,12 +48,18 @@ impl MessagingService {
     }
 
     /// Body of [`send_message`]; see that method's documentation.
+    ///
+    /// `txn_id` is `Some` only on the transactional-dedup path: when present,
+    /// the `room_event_txn_dedup` marker is written *inside* the same
+    /// transaction as the event (A4), so a crash can never leave a visible
+    /// event without its dedup row.
     async fn send_message_inner(
         &self,
         room_id: &str,
         user_id: &str,
         event_type: &str,
         content: &serde_json::Value,
+        txn_id: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
         if !self
             .member_storage
@@ -268,6 +288,46 @@ impl MessagingService {
             }
         }
 
+        // A4: on the txn-dedup path, write the dedup marker inside the same
+        // transaction as the event. Either both commit or neither does, so a
+        // crash can never expose an event without its dedup row (which would
+        // let a client retry create a second visible copy).
+        if let Some(txn_id) = txn_id {
+            match self.event_writer.record_event_txn_in_tx(&mut tx, user_id, room_id, txn_id, &event.event_id).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    // Concurrent duplicate txn: the other transaction holds the
+                    // marker. `ON CONFLICT DO NOTHING` only reports `false`
+                    // after that transaction committed, so roll back ours
+                    // (the event was never committed — no soft-fail needed) and
+                    // return the winner's event_id.
+                    tx.rollback()
+                        .await
+                        .map_err(|e| ApiError::internal_with_cause("Failed to roll back losing txn transaction", e))?;
+                    let winner = self
+                        .event_reader
+                        .get_event_id_by_txn(user_id, room_id, txn_id)
+                        .await
+                        .map_err(|e| ApiError::internal_with_cause("Failed to resolve txn race winner", e))?;
+                    let winner = winner
+                        .ok_or_else(|| ApiError::internal("Txn dedup conflict resolved without a committed winner"))?;
+                    ::tracing::warn!(
+                        room_id = %room_id,
+                        user_id = %user_id,
+                        txn_id = %txn_id,
+                        winner_event_id = %winner,
+                        "Concurrent duplicate txn detected; rolled back losing event"
+                    );
+                    return Ok(json!({ "event_id": winner }));
+                }
+                Err(e) => {
+                    // Marker write failed: the event hasn't committed yet, so
+                    // returning here lets `tx` drop and auto-roll-back.
+                    return Err(ApiError::internal_with_cause("Failed to record txn dedup marker", e));
+                }
+            }
+        }
+
         tx.commit().await.map_err(|e| ApiError::internal_with_cause("Failed to commit send_message transaction", e))?;
 
         // Post-commit fan-out. `create_event` skipped these when called with a
@@ -325,6 +385,10 @@ impl MessagingService {
     /// 协议本体在 [`Self::begin_txn`] / [`Self::finish_txn`]：关系写入端点
     /// （`PUT /_matrix/vendor/v1/rooms/{room_id}/relations/…/{txn_id}`）复用同一对
     /// 方法，而不是再实现一份去重（AGENTS.md 铁律 2）。
+    ///
+    /// A4：消息发送路径不再走 `finish_txn`，而是在 [`Self::send_message_inner`]
+    /// 里把去重 marker 与事件写在**同一个事务**内，消除「事件已可见、marker 未写」
+    /// 的窗口。`finish_txn` 保留给关系端点使用。
     pub async fn send_message_with_txn(
         &self,
         room_id: &str,
@@ -337,14 +401,10 @@ impl MessagingService {
             return Ok(json!({ "event_id": existing }));
         }
 
-        let result = self.send_message(room_id, user_id, event_type, content).await?;
-        let event_id = result.get("event_id").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-        if event_id.is_empty() {
-            return Ok(result);
-        }
-
-        let final_event_id = self.finish_txn(user_id, room_id, txn_id, &event_id).await?;
-        Ok(json!({ "event_id": final_event_id }))
+        // Empty txn_id behaves like a plain send (`begin_txn` above already
+        // treats it as "no txn").
+        let txn = if txn_id.is_empty() { None } else { Some(txn_id) };
+        self.send_message_timed(room_id, user_id, event_type, content, txn).await
     }
 
     /// ISSUE-03 txn 去重协议的**第一半**：查 `room_event_txn_dedup`。
