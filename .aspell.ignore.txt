@@ -327,6 +327,7 @@ gitleaks
 glibc
 glm
 grafana
+graphmetadatawriter
 gstack
 guc
 gvpm
@@ -777,6 +778,7 @@ ssrf
 ssss
 stateevent
 stategroupstoreapi
+staticization
 stderr
 stdin
 stdlib

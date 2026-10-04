@@ -188,7 +188,7 @@ cargo clippy -p synapse-federation -p synapse-services -p synapse-web \
 
 #### ⚠️ **Connection Pool 配置**
 **现状**: 使用默认配置，未针对高并发优化  
-**建议**: 
+**建议**:
 - 增加 `max_connections` 到 50-100
 - 配置连接健康检查间隔
 - 添加监控指标

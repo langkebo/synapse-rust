@@ -66,7 +66,7 @@ tests/integration/api_msc3912_redaction_cascade_tests.rs（完整测试覆盖）
 
 **状态**: ❓ **已验证为误判**（2026-10-04）
 
-**调查结果**: 
+**调查结果**:
 - 原审计文档误判为"模块无调用点"
 - 实际上 Content Scanner 被正确集成在 `MediaDomainService::ensure_media_not_quarantined` 中
 - 检查表达式 `\bContentScanner\b` 未匹配到实际调用路径，但实际的 `quarantine_media`、`quarantine_by_hash` 等方法已接入
