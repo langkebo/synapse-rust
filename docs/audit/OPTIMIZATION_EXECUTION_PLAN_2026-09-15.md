@@ -6,7 +6,7 @@
 > `TOTAL=65 (baseline 65) STORE_API=33 (baseline 33) OK`）。历史数字保留不改，以免伪造记录。
 
 - 日期：2026-09-15
-- 输入：`ARCHITECTURE_REMEDIATION_ROADMAP_2026-09-15.md`（架构层 A1–A12 路线图）
+- 输入：`docs/archive/audit/ARCHITECTURE_REMEDIATION_ROADMAP_2026-09-15.md`（架构层 A1–A12 路线图）
   ＋ `PROJECT_ACTUAL_ISSUES_2026-09-14.md`（33 篇 audit × 代码复核总清单 §1–§8）
 - 基线：`main` @ `2dff2f3d`（本方案所有数字均在此 HEAD 上**实测复核**，非引用文档）
 - 口径：文档自身的 ✅/🔴 标记不可信（第二轮复核已验证多处假 ✅）。本方案每条都带**可复现命令**，
@@ -511,7 +511,7 @@ grep -rn 'fn [a-z_0-9]*_route_manifest(' src/ | wc -l   # = 1（仅 derived_rout
 | # | 改动 | 验证 |
 |---|---|---|
 | B4-1 | **A5 trait 收敛**：68 个 `*StoreApi` 分三类 —— (i) 零 `dyn` 的删 trait、消费者用具体类型；(ii) 有 mock 消费者的 trait/impl 合并同文件；(iii) `MediaStorageBackend`/`UserStore` 等真实多实现保留 | 每批 `cargo check --workspace --all-features` + `--lib` 全绿；trait 计数脚本作棘轮（只降不升） |
-| B4-1 ⏳ | **已完成 (i) 桶 10/10 + 棘轮落地**（2026-09-15）。分类存档见 `B4_1_TRAIT_CLASSIFICATION_2026-09-15.md`：真实分布为 (i) 10、(ii-a) `dyn`+单生产 impl 无 mock **32**、(ii-b) mock 接缝 17、(iii) 多实现 7。**注意原文"68 个"与实际不符**（本批前 `*StoreApi` = 66，现 56；总 `pub trait` 96 → 86） | 棘轮 `python3 scripts/ci/check_trait_ratchet.py`：`TOTAL=86 STORE_API=56` 基线写入 `scripts/ci/trait_count_baseline`；注入探针 trait 实测 **EXIT=1**、移除后 EXIT=0。`cargo clippy -p synapse-storage -p synapse-services --all-targets --all-features -- -D warnings` = 0 警告。**未验证**：仓库级 `cargo check --workspace` / `cargo test --test unit` 被其它会话的 `src/web/routes/**` codemod 阻塞（E0603/E0432 全在该批文件），本批未触碰 |
+| B4-1 ⏳ | **已完成 (i) 桶 10/10 + 棘轮落地**（2026-09-15）。分类存档见 `docs/archive/audit/B4_1_TRAIT_CLASSIFICATION_2026-09-15.md`：真实分布为 (i) 10、(ii-a) `dyn`+单生产 impl 无 mock **32**、(ii-b) mock 接缝 17、(iii) 多实现 7。**注意原文"68 个"与实际不符**（本批前 `*StoreApi` = 66，现 56；总 `pub trait` 96 → 86） | 棘轮 `python3 scripts/ci/check_trait_ratchet.py`：`TOTAL=86 STORE_API=56` 基线写入 `scripts/ci/trait_count_baseline`；注入探针 trait 实测 **EXIT=1**、移除后 EXIT=0。`cargo clippy -p synapse-storage -p synapse-services --all-targets --all-features -- -D warnings` = 0 警告。**未验证**：仓库级 `cargo check --workspace` / `cargo test --test unit` 被其它会话的 `src/web/routes/**` codemod 阻塞（E0603/E0432 全在该批文件），本批未触碰 |
 | B4-1b ⏳→✅(19/23) | **`dyn` + 单一生产 impl + 无 mock → `Arc<具体类型>`**。起始 23 个（修正分类后；原文 32 是把带 mock 的 9 个误判进来了），**已转 19 个**：`FeatureFlag`/`QrLogin`/`Privacy`/`Beacon`/`PushNotification`/`Retention`/`Captcha`/`AdminFederation`/`CallSession`/`MediaQuota`/`RegistrationToken`/`EventReport`/`Space`/`Saml`/`ChunkedUpload`/`FederationBlacklist`/`FriendRoom`/`ApplicationService`/`StickyEvent`。顺带删除 **7 个"只为装 trait 而存在"的 `api.rs` 空壳文件** | `cargo clippy -p synapse-storage -p synapse-services --all-targets --all-features -- -D warnings` = 0；`cargo test -p synapse-services --lib` **1987 passed / 0 failed**；`cargo test -p synapse-storage --lib` **1759 passed / 0 failed**（`public` 重灌后；此前 906 failed 全是 T-1 空 `public` 导致的 42P01）。**63 文件 / +111 / −2901 行**；棘轮基线收紧到 `TOTAL=67 STORE_API=37` |
 | B4-1 记账 | `AuthSource`/`AdminAuthSource`（B4-3 引入）使 `pub trait` +2，已按棘轮规矩在 `scripts/ci/trait_count_baseline` 写明理由：`*StoreApi` 未增加（33），B4-1+B4-3 整体 `pub trait` 96 → 65、`*StoreApi` 66 → 33 | 棘轮 `OK: trait counts at baseline` |
 | B4-1c ✅ | **剩 4 个转换已完成**（`InviteBlocklist`/`Module`/`RendezvousMessage`/`EmailVerification`）—— 并发 codemod 于 `6f06eb0c` 落地后，`synapse-web/src/routes/context.rs` 不再被改，一次性转换 | workspace `clippy --all-targets --all-features -D warnings` = 0；`cargo test -p synapse-services --lib` 1987 passed / 0 failed；−408 行 / 12 文件；棘轮 67/37 → **63/33** |

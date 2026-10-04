@@ -1513,7 +1513,7 @@ check_sqlx_dynamic_ratio: dynamic=1484 static=61 total=1545 ratio=0.9605   # OK�
   且不含 `TIMESTAMPTZ`/`NOW()`，**两种写法都能通过** → 看不见这类漂移。
 - `docs/audit/*` 里仍有过时 runbook：`P4_performance_baseline_2026-09-11.md:222-244,625-627`
   给出对已删 `docker/deploy/config/` 的 `cp/sed -i`；`P4_ci_gate_integrity_2026-09-11.md:188`、
-  `P4_perf_gate_honesty_2026-09-11.md:205`、`P5_migration_search_path_shadowing_2026-09-12.md:232`
+  `docs/archive/audit/P4_perf_gate_honesty_2026-09-11.md:205`、`docs/archive/audit/P5_migration_search_path_shadowing_2026-09-12.md:232`
   仍在调用已删的 `scripts/check_config_consistency.py`。
 - 工作树的 `assembly.rs` 删函数后遗留悬挂 `///` 文档块（`:30-113`，注释仍称 "Composes `base_route_manifest()`"）；
   严格提取器提示 `1 allowlist entries are no longer produced`（`scripts/contract/extract_unresolved_allowlist.txt` 陈旧项，
@@ -1901,8 +1901,8 @@ $ grep -c ERROR /tmp/v12_apply.log        # → 0
       写的是 `(EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT`（先乘再取整）。同一秒内多次迁移仍会撞值，
       而守卫 `migration_consistency_tests.rs` 只断言类型/不含 `TIMESTAMPTZ`，**两种写法都能过**。
     - **过时 runbook**：仍在调已删的 `scripts/check_config_consistency.py`
-      （`P4_ci_gate_integrity_2026-09-11.md:188`、`P4_perf_gate_honesty_2026-09-11.md:205`、
-      `P5_migration_search_path_shadowing_2026-09-12.md:232`、`P5_config_consistency_gate_2026-09-11.md`、
+      （`P4_ci_gate_integrity_2026-09-11.md:188`、`docs/archive/audit/P4_perf_gate_honesty_2026-09-11.md:205`、
+      `docs/archive/audit/P5_migration_search_path_shadowing_2026-09-12.md:232`、`docs/archive/audit/P5_config_consistency_gate_2026-09-11.md`、
       `S_series_verification_2026-09-11.md:287`），以及
       `P4_performance_baseline_2026-09-11.md:222,223,226,243,244,625,627` 对已删
       `docker/deploy/config/rate_limit.yaml` 的 `cp`/`sed -i` 操作。

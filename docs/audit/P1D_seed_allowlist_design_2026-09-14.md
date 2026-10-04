@@ -4,8 +4,8 @@
 - Branch: `main`
 - HEAD when this record was written: `2f545f22`
 - 状态：**已实现**（见 §12 实现记录）。本文档是设计说明 + 实现后的实测证据。
-- 关联：`docs/audit/P1B_test_isolation_template_2026-09-13.md`、
-  `docs/audit/P1C_unified_test_isolation_2026-09-13.md`、
+- 关联：`docs/archive/audit/P1B_test_isolation_template_2026-09-13.md`、
+  `docs/archive/audit/P1C_unified_test_isolation_2026-09-13.md`、
   `docs/audit/PROJECT_REMAINING_ISSUES_2026-09-14.md`
 
 本文所有"事实"要么是本次在本机 `synapse_test` 库上实际查询的输出，要么标注为

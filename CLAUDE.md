@@ -78,7 +78,7 @@ The root crate's `src/` is reduced to bootstrap + composition (`main.rs`, `serve
 - `synapse-e2ee/`, `synapse-federation/`: E2EE crypto and federation transport/auth logic (workspace crates).
 - `synapse-cache/`, `synapse-common/`: Redis-backed cache (in-memory fallback) and shared config/logging/security/rate-limit/task-queue utilities (workspace crates).
 
-The root crate's `src/services/` and `src/storage/` are thin shells (`mod.rs` re-exports only) — new logic belongs in the corresponding workspace crate.
+The root crate's `src/storage/` is a thin shell (`mod.rs` re-exports only) — new logic belongs in the corresponding workspace crate.
 
 The codebase generally follows `route (synapse-web/src/) -> service (synapse-services/) -> storage (synapse-storage/)`, with `AppState`/`ServiceContainer` carrying shared dependencies.
 

@@ -535,7 +535,7 @@ oid=129689581    files=(60s 内数不完)   # ← synapse，问题库
 ### 9.1 复现方式
 
 ```bash
-# 临时集群 + 干净库（迁移链已跑通，见 P3_migration_replayability_2026-09-12.md）
+# 临时集群 + 干净库（迁移链已跑通，见 docs/archive/audit/P3_migration_replayability_2026-09-12.md）
 export DATABASE_URL='postgresql://synapse:<pw>@127.0.0.1:5433/synapse'
 export TEST_DATABASE_URL="$DATABASE_URL"
 

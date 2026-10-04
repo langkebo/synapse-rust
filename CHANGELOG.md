@@ -5,9 +5,9 @@
 > 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 > 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 >
-> **包版本**: v6.2.0（以 `Cargo.toml` 为准）｜**迁移/数据库基线**: v10.0.0（2026-06-12；迁移 v10 双文件基线，审计报告 v7.1）
+> **包版本**: v6.2.0（以 `Cargo.toml` 为准）｜**迁移/数据库基线**: v12（迁移 `00000000_unified_schema_v12.sql` 单一基线）
 >
-> 说明：`v10.0.0` 指 **数据库迁移/schema 基线**，与包版本号（SemVer，见 `Cargo.toml`）是两套独立口径，二者无需相等。
+> 说明：`v12` 指 **数据库迁移/schema 基线**（当前为 `migrations/00000000_unified_schema_v12.sql` 单一 forward 基线），与包版本号（SemVer，见 `Cargo.toml`）是两套独立口径，二者无需相等。
 
 ---
 

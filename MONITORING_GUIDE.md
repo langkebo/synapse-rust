@@ -1,5 +1,11 @@
 # Prometheus + Grafana 监控栈使用指南
 
+> ⚠️ **已废弃（DEPRECATED）**：本文档描述的是旧的 `synapse-test` 监控栈
+> （`scripts/deploy-monitoring.sh` + `docker/docker-compose.monitoring.yml`，Grafana :9091），
+> 与线上实际运行的 deploy 栈互斥，会抢占线上端口。请改用
+> [`README_MONITORING.md`](./README_MONITORING.md)（deploy 栈，Grafana :3000）。
+> 本文仅作历史参考，不再作为操作依据。
+
 > **当前状态**: ✅ 配置文件验证完成  
 > **下一步**: 安装 Docker 后启动监控栈
 

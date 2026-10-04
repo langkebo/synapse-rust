@@ -79,16 +79,25 @@ docker compose up -d
   --skip-build       跳过 cargo build 和 Docker 镜像构建
   --install-deps     自动安装缺失的依赖 (macOS: brew / Linux: apt/yum)
   --no-turn          跳过本地 coturn TURN 服务检查与启动
+  --no-monitoring    跳过监控栈启动（prometheus/alertmanager/grafana/node-exporter/alert-handler）
   --image REF        使用指定的远程镜像（自动 docker pull，跳过本地构建）
+  --keep-images      保留历史项目镜像（默认删除所有旧项目镜像以释放空间）
+  --no-strict-warnings 未知 WARNING 仅提示、不阻断部署（默认阻断）
+  --strict-warnings 未知 WARNING 阻断部署（默认行为）
+  --no-rollback      失败时不自动回滚（默认自动回滚）
+  --stop-timeout N   容器优雅停止(SIGTERM)等待秒数，默认 30
   --help             显示帮助信息
 ```
 
 ### 完整流程
 
 ```
-环境检查 → 依赖安装(可选) → 配置检查 → SSL 证书自动生成 →
-/etc/hosts 检查 → 本地 coturn 检查/启动 → 备份 → 缓存清理 →
-镜像构建 → 数据库迁移 → 服务启动 → 健康/HTTPS 验证 → 日志检查
+环境依赖检查 → 安装缺失依赖(可选) → 配置文件检查 → 功能选择 → 功能摘要 →
+目录准备 → SSL 证书准备 → 应用数据密钥准备 → hosts 检查 → 本地 TURN 检查 →
+部署前备份 → 缓存清理 → 项目编译 → 优雅停止后端容器 → 移除旧部署资源 →
+清理旧项目镜像 → 构建/拉取镜像 → 启动服务与迁移 → 数据库连接验证 →
+数据库版本一致性校验 → 健康检查验证 → HTTPS 接口验证 → 日志告警分析 →
+启动监控栈
 ```
 
 脚本特性：
@@ -311,4 +320,3 @@ PostgreSQL 的 `max_connections` 是**全局**资源，而每个 synapse 进程�
 **1 个 worker**（`50 × 1 + 20 = 70`）；要跑 4 个 worker 必须显式把
 `max_connections` 提到 **≥220（推荐 250）**。改了任何一项（池上限 / 进程数 /
 max_connections）都必须同步更新本表，否则门禁会失败。
-

@@ -1,7 +1,7 @@
 #     且都是真实技术记号：inviter 是 room_invites 的列名、requestToken 是 3pid 端点路径段、ty_match 是 sqlx 宏名（下划线后被切出 ty）。
 #     仅登记词条、未改动该文档正文。
 #   * eventreport —— EventReport 家族标识符（EventReportHistory／EventReportStats／EventReportAggregateStats）被脚本小写化后切出；
-#   * influxdb —— docs/audit/WORKER_STATS_METRICS_DECISION_2026-09-23.md 的既有拼写红（该文档本轮未被改动）。
+#   * influxdb —— docs/archive/audit/WORKER_STATS_METRICS_DECISION_2026-09-23.md 的既有拼写红（该文档本轮未被改动）。
 #   * inviter、requesttoken、ty —— SQLX_STATICIZATION_PLAN_2026-09-23.md 的**既有**拼写红（HEAD 版用同一脚本同样失败，非本轮引入），
 # 不在此列，仍会被 scripts/check_doc_spelling.sh 检出。
 # 内容为「合法技术词」，不是「忽略拼写错误」：通用英文词的错拼（recieve/seperate/occured…）
@@ -14,6 +14,7 @@
 # 追加（2026-09-24，CI 全门禁修复）：逐文件复核 164 份活跃文档，补入本轮新增文档引入的技术词——监控栈（mimir、victoriametrics、wal）、告警规则名（highcpuusage、megolmshareslow 等 S 大写驼峰被脚本小写化）、GHSA 公告号被 aspell 按连字符切出的片段（chvq、gvpm、hgcg、qcjr、rcpx、xpf…）、以及 SpaceInfoMock／KeyRotationConfig／HMACSHA256／ScheduledTasks 这类标识符。
 # 追加（2026-09-24，D-12 收口 + 关联既有红清理）：
 # 追加（2026-10-02，M-6）：recurse（MSC3981 的 /relations 查询参数名，出现在对照报告 §18.3 #14）。
+# 追加（2026-10-04，F7 部署文档对齐）：baseurl、dtls、mkcert、openssl、rhel、turnserver、udp（docker/deploy/README.md 按 deploy.sh 重写后新出现的依赖 / 协议记号）。
 # 项目技术词典：aspell 通用英文词典（en_US）不含本仓技术语料的词汇。
 abi
 accessexclusivelock
@@ -97,6 +98,7 @@ badrequest
 balancer
 bargauge
 basename
+baseurl
 bcrypt
 beaconservice
 beaconstorage
@@ -247,6 +249,7 @@ domainless
 dos
 dsl
 dsn
+dtls
 dto
 dup
 dyn
@@ -500,6 +503,7 @@ mimir
 missingtoken
 mitm
 mjw
+mkcert
 mkdir
 mmap
 mockall
@@ -555,6 +559,7 @@ oom
 openapi
 openclaw
 openid
+openssl
 opentelemetry
 orbstack
 originserverts
@@ -671,6 +676,7 @@ resolved
 reviewable
 rg
 rgv
+rhel
 rhs
 rng
 roadmap
@@ -864,6 +870,7 @@ tst
 ttf
 ttl
 turbofish
+turnserver
 twilio
 tx
 txn
@@ -872,6 +879,7 @@ ty
 typescript
 ua
 ubuntu
+udp
 ui
 uia
 uiaservice
