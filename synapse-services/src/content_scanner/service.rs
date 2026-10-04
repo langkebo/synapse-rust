@@ -3,6 +3,9 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use tokio::time::{timeout, Duration};
 
+/// ClamAV 默认 socket 路径，仅在 `ContentScannerConfig::clamav_socket_path` 未配置时使用。
+const DEFAULT_CLAMAV_SOCKET_PATH: &str = "/var/run/clamav/clamd.sock";
+
 /// The `ContentScanner` struct.
 pub struct ContentScanner {
     config: synapse_common::content_scanner::ContentScannerConfig,
@@ -36,10 +39,14 @@ impl ContentScanner {
 
     async fn scan_with_clamav(&self, request: &ScanRequest) -> Result<ContentScanResult, ApiError> {
         let data = request.data.clone();
+        // 从配置透传 socket 路径：非默认部署路径下若仍用硬编码值，会 fail-closed
+        // 误拒媒体上传。
+        let socket_path =
+            self.config.clamav_socket_path.clone().unwrap_or_else(|| DEFAULT_CLAMAV_SOCKET_PATH.to_string());
 
         // Fail-closed: any ClamAV transport/protocol failure maps to
         // M_CONTENT_SCAN_FAILED, exactly like the webhook path.
-        let result = tokio::task::spawn_blocking(move || Self::clamav_scan_sync(&data))
+        let result = tokio::task::spawn_blocking(move || Self::clamav_scan_sync(&data, &socket_path))
             .await
             .map_err(|e| ApiError::internal_with_cause("Task join error", e));
 
@@ -49,10 +56,8 @@ impl ContentScanner {
         }
     }
 
-    fn clamav_scan_sync(data: &[u8]) -> Result<ContentScanResult, ApiError> {
+    fn clamav_scan_sync(data: &[u8], socket_path: &str) -> Result<ContentScanResult, ApiError> {
         use std::io::{BufRead, BufReader, BufWriter, Write};
-
-        let socket_path = "/var/run/clamav/clamd.sock";
 
         let stream = std::net::TcpStream::connect(socket_path)
             .map_err(|e| ApiError::internal_with_cause("Failed to connect to ClamAV", e))?;
@@ -391,8 +396,59 @@ mod tests {
         assert!(err.to_string().contains("Failed to connect to ClamAV") || err.to_string().contains("connect"));
     }
 
-    // ── scan (Webhook path — no URL → error) ───────────────────────────────
+    /// 配置的 socket 路径必须真正生效：起一个本地 TCP 监听，指向它验证扫描器
+    /// 连的是配置值而非硬编码默认路径。
+    #[tokio::test]
+    async fn scan_clamav_uses_configured_socket_path() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind listener");
+        let addr = listener.local_addr().expect("local_addr");
+
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let mut received = Vec::new();
+            let mut buf = [0u8; 1024];
+            loop {
+                match socket.read(&mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        received.extend_from_slice(&buf[..n]);
+                        // INSTREAM 以 4 字节零终止符结束。
+                        if received.len() >= 4 && received[received.len() - 4..] == [0, 0, 0, 0] {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+            socket.write_all(b"stream: OK\0").await.expect("write response");
+            socket.flush().await.expect("flush response");
+        });
+
+        let scanner = ContentScanner::new(synapse_common::content_scanner::ContentScannerConfig {
+            enabled: true,
+            scanner_type: ScannerType::ClamAv,
+            clamav_socket_path: Some(addr.to_string()),
+            block_on_scan_failure: true,
+            scan_timeout_ms: 2000,
+            ..Default::default()
+        });
+
+        let result = scanner
+            .scan(ScanRequest {
+                content_id: "test-clamav-ok".to_string(),
+                content_type: ContentType::MediaFile,
+                data: b"clean bytes".to_vec(),
+            })
+            .await;
+
+        server.await.expect("server task");
+        let result = result.expect("配置的 socket 路径应可连通并完成扫描");
+        assert!(result.safe, "stream: OK 应判定为安全");
+    }
+
+    // ── scan (Webhook path — no URL → error) ───────────────────────────────
     #[tokio::test]
     async fn scan_webhook_no_url_returns_error() {
         let scanner = make_webhook_scanner(true, None);
