@@ -16,6 +16,7 @@
 # 追加（2026-09-24，D-12 收口 + 关联既有红清理）：
 # 追加（2026-10-02，M-6）：recurse（MSC3981 的 /relations 查询参数名，出现在对照报告 §18.3 #14）。
 # 追加（2026-10-04，F7 部署文档对齐）：baseurl、dtls、mkcert、openssl、rhel、turnserver、udp（docker/deploy/README.md 按 deploy.sh 重写后新出现的依赖 / 协议记号）。
+# 追加（2026-10-04，第三轮遗留问题报告）：circuitbreaker、halfopen、warmup（熔断器/半开/预热技术记号）。
 abi
 accessexclusivelock
 accessor
@@ -145,6 +146,7 @@ chmod
 chvq
 cidr
 ciphertext
+circuitbreaker
 cjh
 clamav
 clapcy
@@ -340,6 +342,7 @@ gvpm
 gx
 gzip
 hadolint
+halfopen
 handlesummary
 handoff
 hardcoded
@@ -954,6 +957,7 @@ vus
 waf
 wal
 walkthroughs
+warmup
 webhook
 webhooks
 webp
