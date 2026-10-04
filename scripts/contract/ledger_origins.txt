@@ -100,3 +100,6 @@ handlers/thread.rs::create_thread_routes        thread
 worker.rs::create_worker_body_router            worker_body
 media/mod.rs::create_upload_provider_router     assembly::upload_provider
 admin/mod.rs::create_admin_module_router        admin::server
+# 媒体端点在 media.rs 中注册，大部分归 admin::media，但 purge_media_cache 归 admin::server
+admin/media.rs::create_media_router@/media      admin::media
+admin/media.rs::create_media_router@/_synapse/admin/v1/purge_media_cache admin::server

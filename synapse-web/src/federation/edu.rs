@@ -72,25 +72,36 @@ fn validate_presence_update<'u>(update: &'u Value, origin: &str) -> Option<Prese
 
 // --- typing ---
 
+/// Local timeout (ms) applied to remotely-originated typing state. The origin
+/// server owns the authoritative lifetime and normally clears it with an empty
+/// `m.typing` EDU; this cap only protects against a lost "stopped typing" EDU
+/// leaving a remote user stuck as typing forever.
+const FEDERATION_TYPING_TIMEOUT_MS: u64 = 30_000;
+
 /// Extract `room_id` from a `m.typing` EDU.
 /// Returns `None` if missing (whole EDU should be dropped).
 fn extract_typing_room_id(edu: &Value) -> Option<&str> {
     edu.get("room_id").and_then(|v| v.as_str())
 }
 
-/// Filter `m.typing` `user_ids` by origin. Returns the list of user_ids
-/// that match `origin`. The caller should drop the EDU if the list is empty.
-fn filter_typing_user_ids(edu: &Value, origin: &str) -> Vec<String> {
-    edu.get("content")
-        .and_then(|c| c.get("user_ids"))
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .filter(|uid| user_matches_origin(uid, origin))
-                .collect()
-        })
-        .unwrap_or_default()
+/// Parse and origin-filter the `user_ids` of an `m.typing` EDU.
+///
+/// Returns:
+/// - `None` if `content.user_ids` is missing or not an array — the EDU is
+///   malformed and the caller must drop it.
+/// - `Some(list)` otherwise, where `list` keeps only the user_ids whose server
+///   matches `origin`. An **empty** `Some(vec![])` is meaningful: the EDU carries
+///   the *complete* set of typing users on the origin server, so an empty list is
+///   an explicit "nobody is typing any more" signal that must clear prior state
+///   rather than be discarded.
+fn filter_typing_user_ids(edu: &Value, origin: &str) -> Option<Vec<String>> {
+    let arr = edu.get("content").and_then(|c| c.get("user_ids")).and_then(|v| v.as_array())?;
+    Some(
+        arr.iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .filter(|uid| user_matches_origin(uid, origin))
+            .collect(),
+    )
 }
 
 // --- device_list_update ---
@@ -317,16 +328,46 @@ async fn handle_typing_edu(ctx: &FederationContext, origin: &str, edu: &Value, _
         return EduProcessResult { dropped: 1, ..Default::default() };
     }
 
-    let user_ids = filter_typing_user_ids(edu, origin);
-
-    if user_ids.is_empty() {
+    let Some(user_ids) = filter_typing_user_ids(edu, origin) else {
         increment_counter(ctx, "federation_inbound_typing_dropped_total");
         return EduProcessResult { dropped: 1, ..Default::default() };
-    }
+    };
 
     let mut result = EduProcessResult::default();
+
+    // The EDU carries the *complete* set of users typing on `origin` in this
+    // room, so any user from `origin` still marked as typing but absent from the
+    // new list has stopped typing and must be cleared. This is also how an empty
+    // `user_ids` list clears every remote user for the origin.
+    match ctx.typing_service.get_typing_users(room_id).await {
+        Ok(current) => {
+            for user_id in current.keys() {
+                if !user_matches_origin(user_id, origin) || user_ids.contains(user_id) {
+                    continue;
+                }
+                match ctx.typing_service.clear_typing(room_id, user_id).await {
+                    Ok(()) => result.processed += 1,
+                    Err(e) => {
+                        ::tracing::warn!(
+                            "Failed to clear typing state for {} in {} from {}: {}",
+                            user_id,
+                            room_id,
+                            origin,
+                            e
+                        );
+                        result.errored += 1;
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            ::tracing::warn!("Failed to read typing state for {} from {}: {}", room_id, origin, e);
+            result.errored += 1;
+        }
+    }
+
     for user_id in &user_ids {
-        match ctx.presence_service.set_typing_flag(room_id, user_id, true).await {
+        match ctx.typing_service.set_typing(room_id, user_id, FEDERATION_TYPING_TIMEOUT_MS).await {
             Ok(()) => result.processed += 1,
             Err(e) => {
                 ::tracing::warn!("Failed to persist typing EDU for {} in {} from {}: {}", user_id, room_id, origin, e);
@@ -1221,14 +1262,21 @@ mod tests {
                 "user_ids": ["@alice:example.com", "@bob:other.com", "@carol:example.com"]
             }
         });
-        let ids = filter_typing_user_ids(&edu, "example.com");
+        let ids = filter_typing_user_ids(&edu, "example.com").expect("user_ids array present");
         assert_eq!(ids, vec!["@alice:example.com".to_string(), "@carol:example.com".to_string()]);
     }
 
     #[test]
-    fn test_filter_typing_user_ids_missing_content() {
+    fn test_filter_typing_user_ids_missing_content_is_dropped() {
         let edu = json!({});
-        assert!(filter_typing_user_ids(&edu, "example.com").is_empty());
+        assert!(filter_typing_user_ids(&edu, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_filter_typing_user_ids_empty_array_is_meaningful() {
+        // An explicit empty list is the "nobody is typing" signal, not a malformed EDU.
+        let edu = json!({ "content": { "user_ids": [] } });
+        assert_eq!(filter_typing_user_ids(&edu, "example.com"), Some(Vec::new()));
     }
 
     #[test]
@@ -1238,7 +1286,7 @@ mod tests {
                 "user_ids": [123, "@alice:example.com", null]
             }
         });
-        let ids = filter_typing_user_ids(&edu, "example.com");
+        let ids = filter_typing_user_ids(&edu, "example.com").expect("user_ids array present");
         assert_eq!(ids, vec!["@alice:example.com".to_string()]);
     }
 

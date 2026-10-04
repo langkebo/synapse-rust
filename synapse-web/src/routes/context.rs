@@ -752,6 +752,10 @@ pub struct FederationContext {
     pub federation_join_semaphore: Arc<Semaphore>,
     /// The `presence_service` field.
     pub presence_service: Arc<synapse_services::presence_service::PresenceService>,
+    /// The `typing_service` field. Inbound `m.typing` EDUs land here so that
+    /// remote typing state is visible to local clients through the same cache
+    /// the client-facing typing API reads from.
+    pub typing_service: Arc<synapse_services::typing_service::TypingService>,
     #[cfg(feature = "friends")]
     /// The `friend_room_service` field (friends opt-in inbound federation).
     pub friend_room_service: Arc<synapse_services::friend_room_service::models::FriendRoomService>,
@@ -792,6 +796,7 @@ impl FromRef<AppState> for FederationContext {
             cross_signing_service: state.services.e2ee.cross_signing_service.clone(),
             to_device_service: state.services.e2ee.to_device_service.clone(),
             presence_service: state.services.account.presence_service.clone(),
+            typing_service: state.services.rooms.typing_service.clone(),
             federation_inbound_edu_semaphore: state.federation_inbound_edu_semaphore.clone(),
             federation_inbound_edu_origin_semaphores: state.federation_inbound_edu_origin_semaphores.clone(),
             federation_presence_backoff_until: state.federation_presence_backoff_until.clone(),

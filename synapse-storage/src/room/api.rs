@@ -173,7 +173,11 @@ pub trait RoomStoreApi: Send + Sync {
     async fn get_rooms_batch(&self, room_ids: &[String]) -> Result<Vec<Room>, sqlx::Error>;
 
     /// See [`increment_member_count`].
-    async fn increment_member_count(&self, room_id: &str) -> Result<(), sqlx::Error>;
+    async fn increment_member_count(
+        &self,
+        room_id: &str,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<(), sqlx::Error>;
 
     /// See [`get_user_rooms_paginated`].
     async fn get_user_rooms_paginated(
@@ -464,8 +468,12 @@ impl RoomStoreApi for super::RoomStorage {
         self.get_rooms_batch(room_ids).await
     }
 
-    async fn increment_member_count(&self, room_id: &str) -> Result<(), sqlx::Error> {
-        self.increment_member_count(room_id).await
+    async fn increment_member_count(
+        &self,
+        room_id: &str,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<(), sqlx::Error> {
+        self.increment_member_count(room_id, tx).await
     }
 
     async fn get_user_rooms_paginated(

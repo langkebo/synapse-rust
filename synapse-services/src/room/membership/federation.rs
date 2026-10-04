@@ -527,7 +527,7 @@ impl MembershipService {
         }
 
         self.room_storage
-            .increment_member_count(room_id)
+            .increment_member_count(room_id, None)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to update member count after federation join", e))?;
 

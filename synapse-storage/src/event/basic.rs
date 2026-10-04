@@ -217,4 +217,31 @@ impl EventStorage {
         .await?;
         Ok(count)
     }
+
+    /// See [`get_room_stats`].
+    ///
+    /// Computes the room-summary counters in a single SQL aggregate so callers
+    /// never have to load a room's full event history into memory.
+    pub async fn get_room_stats(&self, room_id: &str) -> Result<RoomEventStats, sqlx::Error> {
+        // R4：`COUNT(*)` 及各 `FILTER` 分支均为无关系来源的聚合 ⇒ 推可空 ⇒ 断言非空
+        // （`COUNT` 自身即保证非空）。
+        let stats = sqlx::query_as!(
+            RoomEventStats,
+            r#"
+            SELECT
+                COUNT(*) AS "total_events!",
+                COUNT(*) FILTER (WHERE state_key IS NOT NULL) AS "total_state_events!",
+                COUNT(*) FILTER (WHERE event_type = 'm.room.message') AS "total_messages!",
+                COUNT(*) FILTER (
+                    WHERE event_type = 'm.room.message'
+                      AND content->>'msgtype' IN ('m.image', 'm.video', 'm.file', 'm.audio')
+                ) AS "total_media!"
+            FROM events WHERE room_id = $1
+            "#,
+            room_id,
+        )
+        .fetch_one(&*self.pool)
+        .await?;
+        Ok(stats)
+    }
 }

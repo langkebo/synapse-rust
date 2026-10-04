@@ -23,29 +23,30 @@ impl RoomSummaryService {
     /// See [`recalculate_stats`].
     #[instrument(skip(self))]
     pub async fn recalculate_stats(&self, room_id: &str) -> Result<RoomSummaryStats, ApiError> {
-        let events_res = self.event_reader.get_room_events(room_id, i64::MAX).await;
-
-        let events = match events_res {
-            Ok(e) => e,
-            Err(e) => return Err(ApiError::internal_with_cause("Failed to get events", e)),
+        // B.1：四个计数在 SQL 端聚合成一行，避免为统计把整房间事件历史读入内存。
+        let stats = match self.event_reader.get_room_stats(room_id).await {
+            Ok(s) => s,
+            Err(e) => return Err(ApiError::internal_with_cause("Failed to get room stats", e)),
         };
 
-        let total_events = events.len() as i64;
-        let total_state_events = events.iter().filter(|e| e.state_key.is_some()).count() as i64;
-        let total_messages = events.iter().filter(|e| e.event_type == "m.room.message").count() as i64;
-        let total_media = events
-            .iter()
-            .filter(|e| {
-                e.event_type == "m.room.message"
-                    && e.content
-                        .get("msgtype")
-                        .and_then(|v| v.as_str())
-                        .is_some_and(|t| t == "m.image" || t == "m.video" || t == "m.file" || t == "m.audio")
-            })
-            .count() as i64;
+        // A.7：`storage_size` 尚未实现，保留既有值（而非每次重算都写入误导性的 0）。
+        let storage_size = match self.storage.get_stats(room_id).await {
+            Ok(Some(existing)) => existing.storage_size,
+            Ok(None) => 0,
+            Err(e) => return Err(ApiError::internal_with_cause("Failed to get stats", e)),
+        };
 
-        let stats_res =
-            self.storage.update_stats(room_id, total_events, total_state_events, total_messages, total_media, 0).await;
+        let stats_res = self
+            .storage
+            .update_stats(
+                room_id,
+                stats.total_events,
+                stats.total_state_events,
+                stats.total_messages,
+                stats.total_media,
+                storage_size,
+            )
+            .await;
 
         match stats_res {
             Ok(s) => Ok(s),

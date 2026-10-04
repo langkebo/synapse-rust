@@ -1152,7 +1152,7 @@ mod coverage_tests {
         let ctx = build_service().await;
         ctx.room_store.create_room(ROOM, "@creator:localhost", "public", "1", true).await.unwrap();
         // Increment then decrement — net zero, but both lines are covered.
-        ctx.room_store.increment_member_count(ROOM).await.unwrap();
+        ctx.room_store.increment_member_count(ROOM, None).await.unwrap();
         ctx.svc.decrement_member_count(ROOM).await.unwrap();
 
         // No error and room still exists — delegation succeeded.

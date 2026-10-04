@@ -27,11 +27,15 @@ fn mock_matches_room_types(types: &crate::room::RoomTypeFilter) -> bool {
 /// A test that needs a deviation-free store must use the database-backed
 /// implementation. The guard `tests/unit/mock_fidelity_tests.rs` enumerates the
 /// modules carrying deviation markers so a newly added one cannot go unnoticed.
+#[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
 pub struct InMemoryRoomStore {
     rooms: Arc<RwLock<HashMap<String, crate::room::Room>>>,
     aliases: Arc<RwLock<HashMap<String, String>>>,   // alias → room_id
     directories: Arc<RwLock<HashMap<String, bool>>>, // room_id → is_public
+    // (room_id, user_id, marker_type) → event_id. Models the read-marker slot
+    // table closely enough to assert *which slot* a marker was written to.
+    read_markers: Arc<RwLock<HashMap<(String, String, String), String>>>,
 }
 
 impl InMemoryRoomStore {
@@ -41,6 +45,7 @@ impl InMemoryRoomStore {
             rooms: Arc::new(RwLock::new(HashMap::new())),
             aliases: Arc::new(RwLock::new(HashMap::new())),
             directories: Arc::new(RwLock::new(HashMap::new())),
+            read_markers: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -96,6 +101,18 @@ impl InMemoryRoomStore {
     /// See [`room_exists`].
     pub async fn room_exists(&self, room_id: &str) -> Result<bool, String> {
         Ok(self.rooms.read().await.contains_key(room_id))
+    }
+
+    /// Test accessor: the `event_id` recorded for a read-marker slot, if any.
+    ///
+    /// Backs the `read_markers` map keyed by `(room_id, user_id, marker_type)`
+    /// so a test can assert *which slot* a service wrote to (A.4/A.5).
+    pub async fn recorded_read_marker(&self, room_id: &str, user_id: &str, marker_type: &str) -> Option<String> {
+        self.read_markers
+            .read()
+            .await
+            .get(&(room_id.to_string(), user_id.to_string(), marker_type.to_string()))
+            .cloned()
     }
 
     /// See [`get_user_rooms`].
@@ -347,24 +364,29 @@ impl crate::room::api::RoomStoreApi for InMemoryRoomStore {
 
     async fn update_read_marker_with_type(
         &self,
-        _room_id: &str,
-        _user_id: &str,
-        _event_id: &str,
-        _marker_type: &str,
+        room_id: &str,
+        user_id: &str,
+        event_id: &str,
+        marker_type: &str,
     ) -> Result<(), sqlx::Error> {
-        // Read markers are not modeled in InMemoryRoomStore; no-op.
+        self.read_markers
+            .write()
+            .await
+            .insert((room_id.to_string(), user_id.to_string(), marker_type.to_string()), event_id.to_string());
         Ok(())
     }
 
     async fn update_read_marker_monotonic(
         &self,
-        _room_id: &str,
-        _user_id: &str,
-        _event_id: &str,
-        _marker_type: &str,
+        room_id: &str,
+        user_id: &str,
+        event_id: &str,
+        marker_type: &str,
         _allow_backward: bool,
     ) -> Result<bool, sqlx::Error> {
-        // Read markers are not modeled in InMemoryRoomStore; pretend updated.
+        // Records the slot (like the real store) but does not model
+        // monotonicity ordering; callers relying on the return value get `true`.
+        self.update_read_marker_with_type(room_id, user_id, event_id, marker_type).await?;
         Ok(true)
     }
 
@@ -375,7 +397,11 @@ impl crate::room::api::RoomStoreApi for InMemoryRoomStore {
         Ok(room_ids.iter().filter_map(|id| rooms.get(id).cloned()).collect())
     }
 
-    async fn increment_member_count(&self, room_id: &str) -> Result<(), sqlx::Error> {
+    async fn increment_member_count(
+        &self,
+        room_id: &str,
+        _tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<(), sqlx::Error> {
         if let Some(room) = self.rooms.write().await.get_mut(room_id) {
             room.member_count = room.member_count.saturating_add(1);
         }

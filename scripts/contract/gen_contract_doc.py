@@ -417,8 +417,17 @@ lines.append("")
 lines.append(
     "- 无未装配的孤儿路由。`synapse-web/src/routes/threepid.rs` 曾定义 `create_threepid_router()`（裸 `/requestToken`、`/submitToken`，**从未** merge 进任何路由树且路径非 Matrix 规范形状）—— B5-4 已删除该模块：真实 3PID 端点在 `account_compat.rs`（`/account/3pid/...`，已在 `assembly.rs` 装配），被删代码自引入起即无调用方，纯属死代码。"
 )
+# ⚠️ 这几个数必须**算**出来。此处曾硬编码 "14 条（3 条探活 + 11 条 CAS）"，而
+# 守卫 `check_non_namespace_bucket` 的 `expected` 集合与实际表格都只有 8 条
+# （3 探活 + 5 CAS）—— 与 L367 那处同类漂移：桶成员一变，动态渲染的表格（用
+# `non_ns`）与写死的这句话就互相矛盾。改为直接从 `non_ns` 计算。
+_LIVENESS_PATHS = ("/", "/health", "/_health")
+_root_liveness = sum(1 for _mod, _meth, _p in non_ns if _p in _LIVENESS_PATHS)
+_root_cas = len(non_ns) - _root_liveness
 lines.append(
-    "  **机器证据**：`test_extract_registered.py::check_non_namespace_bucket` 现在把「前缀之外」桶**精确**钉死为 14 条有意根级注册（3 条探活 + 11 条 CAS 根协议端点）。该桶出现任何新成员——无论是死灰复燃的未装配 router 还是新增非 Matrix 根端点——都会让守卫转红并要求显式裁定。"
+    "  **机器证据**：`test_extract_registered.py::check_non_namespace_bucket` 现在把「前缀之外」桶**精确**钉死为 "
+    f"{len(non_ns)} 条有意根级注册（{_root_liveness} 条探活 + {_root_cas} 条 CAS 根协议端点）。"
+    "该桶出现任何新成员——无论是死灰复燃的未装配 router 还是新增非 Matrix 根端点——都会让守卫转红并要求显式裁定。"
 )
 lines.append(
     "- `space/children_hierarchy.rs`、`space/lifecycle_query.rs`、`space/membership_state.rs`、`space/summary.rs`："

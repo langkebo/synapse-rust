@@ -77,6 +77,9 @@ generate_missing_or_all() {
     maybe_set_secret "TOKEN_HASH_SECRET" "$(generate_hex_key 64)" "$force_generate"
     # worker 间复制认证密钥（docker-compose.yml 以 `:?` 强制要求非空）。
     maybe_set_secret "WORKER_REPLICATION_SECRET" "$(generate_hex_key 64)" "$force_generate"
+    # Olm 账户 pickle 密钥：**恰好** 32 字节（64 个十六进制字符）。缺失或长度不对
+    # 时 OLM 服务 fail loudly（E-06），且每次重启都会使已持久化的 Olm 账户不可解密。
+    maybe_set_secret "OLM_PICKLE_KEY" "$(generate_hex_key 64)" "$force_generate"
 }
 
 current_env_value() {
@@ -168,9 +171,13 @@ generate_single_secret() {
             # 64 十六进制字符 = 32 字节，满足 MIN_REPLICATION_SECRET_LEN。
             generate_hex_key 64
             ;;
+        "olm-pickle")
+            # Olm 账户 pickle 密钥：恰好 32 字节（64 个十六进制字符）。
+            generate_hex_key 64
+            ;;
         *)
             log_error "未知密钥类型: $type"
-            echo "可用类型: postgres, redis, admin, registration, secret, macaroon, form, worker-replication"
+            echo "可用类型: postgres, redis, admin, registration, secret, macaroon, form, worker-replication, olm-pickle"
             return 1
             ;;
     esac
@@ -191,6 +198,7 @@ show_help() {
     echo "  macaroon  生成 macaroon 密钥"
     echo "  form      生成表单密钥"
     echo "  worker-replication  轮换 worker 复制密钥（轮换后需重启所有 worker）"
+    echo "  olm-pickle  生成 OLM 账户 pickle 密钥（32 字节 hex）"
     echo "  help      显示此帮助信息"
     echo ""
     echo "示例:"
@@ -209,7 +217,7 @@ main() {
         missing)
             generate_missing_secrets
             ;;
-        postgres | redis | admin | registration | secret | macaroon | form | worker-replication)
+        postgres | redis | admin | registration | secret | macaroon | form | worker-replication | olm-pickle)
             local secret=$(generate_single_secret "$command")
             echo "$secret"
 
@@ -231,6 +239,8 @@ main() {
                 env_key="FORM_SECRET"
             elif [ "$command" = "worker-replication" ]; then
                 env_key="WORKER_REPLICATION_SECRET"
+            elif [ "$command" = "olm-pickle" ]; then
+                env_key="OLM_PICKLE_KEY"
             fi
 
             if [ -f "$ENV_FILE" ]; then

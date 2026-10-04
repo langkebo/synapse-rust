@@ -66,7 +66,21 @@ pub(crate) async fn filter_users_with_shared_rooms(
         return allowed;
     }
 
-    let shared = room_service.membership().share_common_rooms_batch(current_user_id, &others).await.unwrap_or_default();
+    // Fail closed: on lookup error only the caller themself is allowed, so a
+    // transient storage failure can never leak another user's presence/devices.
+    // Log it so the degradation is observable instead of silent.
+    let shared = match room_service.membership().share_common_rooms_batch(current_user_id, &others).await {
+        Ok(shared) => shared,
+        Err(e) => {
+            ::tracing::warn!(
+                current_user_id = %current_user_id,
+                requested = others.len(),
+                error = %e,
+                "share_common_rooms_batch failed; denying all requested users"
+            );
+            return allowed;
+        }
+    };
 
     for uid in shared {
         allowed.insert(uid);

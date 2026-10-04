@@ -103,6 +103,9 @@ pub trait EventReader: Send + Sync {
     /// See [`count_room_events_by_status`].
     async fn count_room_events_by_status(&self, room_id: &str, status: &str) -> Result<i64, sqlx::Error>;
 
+    /// See [`get_room_stats`].
+    async fn get_room_stats(&self, room_id: &str) -> Result<RoomEventStats, sqlx::Error>;
+
     // ── ephemeral ───────────────────────────────────────────────────────
 
     /// See [`get_ephemeral_events`].
@@ -406,6 +409,10 @@ impl crate::event::reader::EventReader for super::EventStorage {
 
     async fn count_room_events_by_status(&self, room_id: &str, status: &str) -> Result<i64, sqlx::Error> {
         self.count_room_events_by_status(room_id, status).await
+    }
+
+    async fn get_room_stats(&self, room_id: &str) -> Result<RoomEventStats, sqlx::Error> {
+        self.get_room_stats(room_id).await
     }
 
     async fn get_ephemeral_events(

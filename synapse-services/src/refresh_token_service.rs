@@ -265,7 +265,17 @@ impl RefreshTokenService {
 
         let usage_request = if let Some(ua) = user_agent { usage_request.user_agent(ua) } else { usage_request };
 
-        self.storage.record_usage(&usage_request).await.ok();
+        if let Err(e) = self.storage.record_usage(&usage_request).await {
+            // Usage history is auxiliary audit data: a failure here must not fail
+            // the rotation (the caller already holds a valid new token), but it
+            // must not disappear silently either.
+            warn!(
+                refresh_token_id = usage_request.refresh_token_id,
+                user_id = %usage_request.user_id,
+                error = %e,
+                "Failed to record refresh-token usage"
+            );
+        }
 
         Ok((new_refresh_token, new_token_record))
     }

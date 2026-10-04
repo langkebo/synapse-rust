@@ -1,6 +1,6 @@
 # synapse-rust 文档索引
 
-> 最后更新: 2026-08-10
+> 最后更新: 2026-10-04
 > 维护原则: 现行文档集中在 `docs/` 下各子目录；历史/一次性报告统一进入 `docs/archive/`，仅供溯源，不再作为契约引用。
 > **契约真相**: 后端 HTTP 契约的机器权威是 `src/web/routes/route_ledger.rs` + 各模块 `*_route_manifest()`（启动时校验、集成测试 PATCH 探测）；人工可读的权威清单见 [`docs/synapse-rust/ROUTE_CONTRACT.md`](./synapse-rust/ROUTE_CONTRACT.md)。任何人工文档与代码冲突时以代码为准。
 
@@ -75,12 +75,14 @@
 
 按时间/主题组织的审计基线，关键入口：
 
-- [`05_web_routes_review.md`](./audit/05_web_routes_review.md) — Web 路由层审查
-- [`18_api_contract_review.md`](./audit/18_api_contract_review.md) — API 契约审查
-- [`00_baseline_summary.md`](./audit/00_baseline_summary.md) — 基线总结
-- [`07_security_audit.md`](./audit/07_security_audit.md) — 安全审计
-- [`03_storage_review.md`](./audit/03_storage_review.md) — 存储层审查
-- 其余 `audit/NN_*.md` 与 `superpowers/plans/` 为过程性报告，按需查阅。
+- [`COMPREHENSIVE_LEGACY_ISSUES_REPORT_20261004.md`](./audit/COMPREHENSIVE_LEGACY_ISSUES_REPORT_20261004.md) — **当前遗留问题综合报告**（问题汇总、优先级、处置顺序）
+- [`UNRESOLVED_ISSUES_SUMMARY.md`](./audit/UNRESOLVED_ISSUES_SUMMARY.md) — 未解决问题总览
+- [`CURRENT_ISSUES_AND_PLAN.md`](./audit/CURRENT_ISSUES_AND_PLAN.md) — 实时更新清单
+- [`ROOM_V12_PLAN_STATUS_2026-09-27.md`](./audit/ROOM_V12_PLAN_STATUS_2026-09-27.md) — Room v12 合规状态
+- [`A5_LIVE_FEDERATION_INTEROP_TESTING.md`](./audit/A5_LIVE_FEDERATION_INTEROP_TESTING.md) — 联邦互操作测试指南
+- 其余 `audit/` 下 `P*_*.md`、`A*_*.md`、`ROOM_V12_*.md` 等为过程性报告，按需查阅。
+
+> ⚠️ 本索引此前列出的 `audit/NN_*.md` 系列（`05_web_routes_review.md`、`18_api_contract_review.md`、`00_baseline_summary.md`、`07_security_audit.md`、`03_storage_review.md`）**均已不存在**，已从本索引移除。
 
 ---
 

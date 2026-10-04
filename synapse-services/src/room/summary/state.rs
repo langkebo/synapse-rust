@@ -4,7 +4,7 @@
 
 use crate::common::ApiError;
 use crate::storage::room_summary::*;
-use tracing::{info, instrument, warn};
+use tracing::{info, instrument};
 
 use super::service::RoomSummaryService;
 
@@ -37,32 +37,15 @@ impl RoomSummaryService {
         content: &serde_json::Value,
     ) -> Result<(), ApiError> {
         if event_type == Some("m.room.member") {
-            if !state_key.is_empty() {
-                let membership = content.get("membership").and_then(|v| v.as_str()).unwrap_or("join").to_string();
-
-                let display_name = content.get("displayname").and_then(|v| v.as_str()).map(|s| s.to_string());
-
-                let avatar_url = content.get("avatar_url").and_then(|v| v.as_str()).map(|s| s.to_string());
-
-                let request = CreateSummaryMemberRequest {
-                    room_id: room_id.to_string(),
-                    user_id: state_key.to_string(),
-                    display_name,
-                    avatar_url,
-                    membership,
-                    is_hero: None,
-                    last_active_ts: None,
-                };
-
-                if let Err(e) = self.storage.add_member(request).await {
-                    warn!(
-                        error = %e,
-                        room_id = %room_id,
-                        event_type = ?event_type,
-                        state_key = %state_key,
-                        "Failed to add/update member in summary"
-                    );
-                }
+            if let Some(request) = Self::summary_member_from_state(room_id, state_key, content) {
+                // Propagate rather than swallow: a failed member projection would
+                // otherwise leave `room_summaries` silently out of sync with the
+                // real membership with no retry and no failure signal (see the
+                // `room_summary_update_queue` retry path, which only retries when
+                // the caller surfaces an error).
+                self.storage.add_member(request).await.map_err(|e| {
+                    ApiError::internal_with_cause(&format!("Failed to add/update member {state_key} in summary"), e)
+                })?;
             }
             return Ok(());
         }
@@ -103,11 +86,39 @@ impl RoomSummaryService {
             _ => return Ok(()),
         }
 
-        if let Err(e) = self.storage.update_summary(room_id, request).await {
-            warn!(error = %e, room_id = %room_id, event_type = ?event_type, "Failed to update summary from state");
-        }
+        self.storage
+            .update_summary(room_id, request)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to update summary from state", e))?;
 
         Ok(())
+    }
+
+    /// Project a single `m.room.member` state event onto the
+    /// `room_summary_members` shape. Returns `None` for events without a state
+    /// key, which carry no member to project.
+    fn summary_member_from_state(
+        room_id: &str,
+        state_key: &str,
+        content: &serde_json::Value,
+    ) -> Option<CreateSummaryMemberRequest> {
+        if state_key.is_empty() {
+            return None;
+        }
+
+        let membership = content.get("membership").and_then(|v| v.as_str()).unwrap_or("join").to_string();
+        let display_name = content.get("displayname").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let avatar_url = content.get("avatar_url").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+        Some(CreateSummaryMemberRequest {
+            room_id: room_id.to_string(),
+            user_id: state_key.to_string(),
+            display_name,
+            avatar_url,
+            membership,
+            is_hero: None,
+            last_active_ts: None,
+        })
     }
 
     /// See [`get_state`].
@@ -150,6 +161,14 @@ impl RoomSummaryService {
 
         info!(room_id = %room_id, state_event_count = states.len(), "Syncing room summary state events");
 
+        // B.2: `m.room.member` state events are projected in memory and written
+        // by the single batched member sync below, rather than by one
+        // `add_member` per event. The per-member path costs an `ensure_summary`
+        // SELECT plus a full `refresh_member_counts` aggregate each, and its
+        // result is immediately overwritten by the batch anyway — an O(N)
+        // round-trip amplification on rooms with many members.
+        let mut summary_members: Vec<CreateSummaryMemberRequest> = Vec::new();
+
         if !states.is_empty() {
             // Batch upsert all state events in a single query to avoid N+1
             // round trips. The per-event summary derivation still runs in a
@@ -164,13 +183,22 @@ impl RoomSummaryService {
                 })
                 .collect();
 
-            if let Err(e) = self.storage.set_states_batch(room_id, &entries).await {
-                warn!(error = %e, room_id = %room_id, "Failed to batch upsert room summary state");
-            }
+            self.storage
+                .set_states_batch(room_id, &entries)
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to batch upsert room summary state", e))?;
 
             for state in &states {
                 let event_type_str = state.event_type.as_deref().unwrap_or("");
                 let state_key_str = state.state_key.as_deref().unwrap_or("");
+
+                if event_type_str == "m.room.member" {
+                    if let Some(member) = Self::summary_member_from_state(room_id, state_key_str, &state.content) {
+                        summary_members.push(member);
+                    }
+                    continue;
+                }
+
                 self.update_summary_from_state(room_id, Some(event_type_str), state_key_str, &state.content).await?;
             }
         }
@@ -190,29 +218,41 @@ impl RoomSummaryService {
                 Err(e) => return Err(ApiError::internal_with_cause("Failed to get room invite members", e)),
             };
 
-            let all_members: Vec<_> = join_members.into_iter().chain(invite_members).collect();
+            // Member storage is the source of truth for join/invite rows: unlike
+            // the raw state event it carries `last_active_ts`, so it wins on a
+            // `user_id` collision. State-derived rows for other memberships
+            // (leave/ban) are kept.
+            let mut merged: std::collections::HashMap<String, CreateSummaryMemberRequest> =
+                summary_members.into_iter().map(|member| (member.user_id.clone(), member)).collect();
 
-            let member_count = all_members.len();
-            info!(room_id = %room_id, member_count, "Syncing room summary members");
-
-            let requests: Vec<CreateSummaryMemberRequest> = all_members
-                .into_iter()
-                .map(|member| CreateSummaryMemberRequest {
-                    room_id: room_id.to_string(),
-                    user_id: member.user_id,
-                    display_name: member.display_name,
-                    avatar_url: member.avatar_url,
-                    membership: member.membership,
-                    is_hero: Some(false),
-                    last_active_ts: member.joined_ts.or(member.updated_ts),
-                })
-                .collect();
-
-            let batch_res = self.storage.add_members_batch(room_id, requests).await;
-            if let Err(e) = batch_res {
-                warn!(error = %e, room_id = %room_id, member_count = member_count, "Failed to batch add members during sync");
+            for member in join_members.into_iter().chain(invite_members) {
+                merged.insert(
+                    member.user_id.clone(),
+                    CreateSummaryMemberRequest {
+                        room_id: room_id.to_string(),
+                        user_id: member.user_id,
+                        display_name: member.display_name,
+                        avatar_url: member.avatar_url,
+                        membership: member.membership,
+                        is_hero: Some(false),
+                        last_active_ts: member.joined_ts.or(member.updated_ts),
+                    },
+                );
             }
+
+            summary_members = merged.into_values().collect();
         }
+
+        if summary_members.is_empty() {
+            return Ok(());
+        }
+
+        let member_count = summary_members.len();
+        info!(room_id = %room_id, member_count, "Syncing room summary members");
+
+        self.storage.add_members_batch(room_id, summary_members).await.map_err(|e| {
+            ApiError::internal_with_cause(&format!("Failed to batch add {member_count} members during sync"), e)
+        })?;
 
         Ok(())
     }

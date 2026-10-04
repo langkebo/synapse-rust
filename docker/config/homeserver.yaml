@@ -16,7 +16,10 @@ server:
   # request_timeout_secs: 30
   # long_poll_request_timeout_secs: 90
   max_image_resolution: 8000000
-  enable_registration: true
+  # 生产栈默认**关闭**开放注册：任何人都可自助注册会带来垃圾账号/资源耗尽风险。
+  # 需要开放时用 `SYNAPSE__SERVER__ENABLE_REGISTRATION=true` 显式覆盖
+  # （bool 字段无法在 YAML 里用 `${VAR}` 插值，只能走 `SYNAPSE__` 环境变量）。
+  enable_registration: false
   enable_registration_captcha: false
   background_tasks_interval: 300
   expire_access_token: true

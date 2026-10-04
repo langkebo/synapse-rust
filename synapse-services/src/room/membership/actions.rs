@@ -124,15 +124,30 @@ impl MembershipService {
         let join_content =
             self.admit_membership_event(room_id, &event_id, user_id, user_id, join_content, true).await?;
 
+        // A.2: bind the membership write and the summary refresh in one
+        // transaction so a partial failure cannot leave a member row without
+        // its summary refresh (or vice versa). Without a DB pool (test_mocks)
+        // we fall back to the previous auto-commit behaviour.
+        let mut tx = match self.db_pool.as_ref() {
+            Some(pool) => Some(
+                pool.begin().await.map_err(|e| ApiError::internal_with_cause("Failed to begin join transaction", e))?,
+            ),
+            None => None,
+        };
+
         self.member_storage
-            .add_member(room_id, user_id, "join", None, None, None, None)
+            .add_member(room_id, user_id, "join", None, None, None, tx.as_mut())
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to join room", e))?;
 
         self.room_storage
-            .increment_member_count(room_id)
+            .increment_member_count(room_id, tx.as_mut())
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to update member count", e))?;
+
+        if let Some(tx) = tx {
+            tx.commit().await.map_err(|e| ApiError::internal_with_cause("Failed to commit join transaction", e))?;
+        }
 
         let join_event = self
             .event_writer
@@ -203,16 +218,33 @@ impl MembershipService {
             .admit_membership_event(room_id, &event_id, user_id, user_id, json!({ "membership": "leave" }), true)
             .await?;
 
+        // A.2: bind the membership write and the summary refresh in one
+        // transaction so a partial failure cannot leave a stale membership row
+        // with an unrefreshed summary (or vice versa). Without a DB pool
+        // (test_mocks) we fall back to the previous auto-commit behaviour.
+        let mut tx = match self.db_pool.as_ref() {
+            Some(pool) => Some(
+                pool.begin()
+                    .await
+                    .map_err(|e| ApiError::internal_with_cause("Failed to begin leave transaction", e))?,
+            ),
+            None => None,
+        };
+
         self.member_storage
-            .remove_member(room_id, user_id, None)
+            .remove_member(room_id, user_id, tx.as_mut())
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to leave room", e))?;
 
         if existing_member.as_ref().is_some_and(|member| member.membership == "join") {
             self.room_storage
-                .decrement_member_count(room_id, None)
+                .decrement_member_count(room_id, tx.as_mut())
                 .await
                 .map_err(|e| ApiError::internal_with_cause("Failed to update member count", e))?;
+        }
+
+        if let Some(tx) = tx {
+            tx.commit().await.map_err(|e| ApiError::internal_with_cause("Failed to commit leave transaction", e))?;
         }
 
         let leave_event = self

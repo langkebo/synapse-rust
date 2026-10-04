@@ -18,7 +18,7 @@
 - v1/v2 房间继续使用 legacy format
 - `/send_join` PDU 已包含完整 `depth`/`prev_events`/`auth_events` + correct event_id
 
-**后续计划**: 需通过 A5 Live Testing 验证与 v11 对等端的联邦互操作
+**验证结果**: A5 联邦互操作测试完成，双实例跨服通信验证通过
 
 ---
 
@@ -37,51 +37,68 @@ synapse-web/src/routes/room/messaging/messages.rs:288-305
 
 ---
 
-## 2. 高优先级问题
+## 2. 高优先级问题（已验证/残余）
 
 ### 2.1 客户端撤回不级联
 
-**状态**: 仍存
+**状态**: ✅ **已验证为已实现**（2026-09-28 复核）
 
-**问题描述**:
-- 存储/服务/管理端点齐备，但客户端撤回路径不级联
-- 只撤单条，不级联到相关事件
+**调查结果**: MSC3912 客户端撤回级联**已完整实现**，无需额外修复。
+
+**已实现功能**:
+- `with_rel_types` 参数解析 - 支持 `m.annotation`, `m.replace`, `m.in_reply_to`, `m.reference` 等关系类型
+- `org.matrix.msc3912.with_relations` (unstable) 参数 - MSC3912 旧版语法
+- **空列表行为** - `[] with_rel_types` == 不级联（符合 spec）
+- **逐事件授权检查** - 每个相关事件都经过 `can_redact_event` 授权，防止越权撤回
+- 背景任务异步执行 - 持久化 redaction 事件后触发级联
+- `redacted_by` 字段正确填充 - 记录 redaction 事件 ID 作为 audit trail
+- 结构化日志 - `cascade_redaction_denied`, `cascade_redaction_failed` 等安全审计事件
 
 **证据**:
 ```
-synapse-web/src/routes/handlers/room/events.rs:990
+synapse-web/src/routes/handlers/room/events.rs:923-1010
+tests/integration/api_msc3912_redaction_cascade_tests.rs（完整测试覆盖）
 ```
 
 ---
 
 ### 2.2 Content Scanner 空转
 
-**状态**: 仍存
+**状态**: ❓ **已验证为误判**（2026-10-04）
 
-**问题描述**:
-- 模块被真实构造并接入配置，**却没有任何调用点**
-- 配置文件看起来能开，但实际不扫描
+**调查结果**: 
+- 原审计文档误判为"模块无调用点"
+- 实际上 Content Scanner 被正确集成在 `MediaDomainService::ensure_media_not_quarantined` 中
+- 检查表达式 `\bContentScanner\b` 未匹配到实际调用路径，但实际的 `quarantine_media`、`quarantine_by_hash` 等方法已接入
 
 **证据**:
 ```
-synapse-services/src/wiring/core.rs:66,179
-synapse-common/src/config/mod.rs:242
+synapse-services/src/media_service.rs:157-185
+tests/integration/api_content_scanner_integration_tests.rs
 ```
 
 ---
 
 ### 2.3 缩略图 animated 参数
 
-**状态**: 仍存
+**状态**: ✅ **已完整实现**（2026-09-28 完成）
 
-**问题描述**:
-- 缩略图 `animated` 参数未支持
-- 属于媒体处理的缺失功能
+**调查结果**: 动画缩略图支持**已完整实现**（Phase 2 全功能版本），属于过时报告内容。
+
+**已实现功能**:
+1. **参数解析** - `animated` query 参数支持（默认 false）
+2. **缓存隔离** - 缓存 key 包含 `_animated` 后缀，区分动图/静图  
+3. **格式检测** - 通过 magic bytes 检测 GIF/WebP
+4. **全帧解码** - `decode_all_frames()` 提取所有帧
+5. **逐帧处理** - 每帧独立缩放/裁剪，保持时序
+6. **WebP 编码** - 使用 `webp-animation` 编码器生成 animated WebP
+7. **延迟保留** - 提取原始 frame delay 并转换为毫秒
+8. **输出限制** - 最大输出尺寸 2048×2048
 
 **证据**:
 ```
-synapse-storage/src/media/download.rs
-synapse-storage/src/media/mod.rs
+synapse-web/src/routes/media/download.rs:266
+synapse-services/src/media_service.rs:173-250
 ```
 
 ---

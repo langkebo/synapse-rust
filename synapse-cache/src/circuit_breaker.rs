@@ -121,7 +121,12 @@ impl SlidingWindow {
     }
 
     fn prune(&mut self) {
-        let cutoff = Instant::now() - self.window_size;
+        // B.7: `Instant - Duration` 在窗口大于进程存活时间（或时钟回拨）时
+        // 会下溢 panic。下溢意味着"窗口起点早于可用时间下界"，此时没有任何
+        // 记录会过期，直接返回即可。
+        let Some(cutoff) = Instant::now().checked_sub(self.window_size) else {
+            return;
+        };
         self.failures.retain(|&t| t > cutoff);
         self.successes.retain(|&t| t > cutoff);
     }
@@ -150,6 +155,11 @@ pub struct CircuitBreaker {
     successful_requests: AtomicU64,
     failed_requests: AtomicU64,
     rejected_requests: AtomicU64,
+    /// B.4: 半开态"在途探测"计数。HalfOpen 时 `is_call_allowed` 放行即 +1，
+    /// `record_success`/`record_failure` 归还 1；超过 `success_threshold`
+    /// 上限的并发探测直接拒绝，避免熔断器刚半开就被并发洪峰打回 Open。
+    /// Closed/Open 态恒为 0。
+    half_open_in_flight: AtomicU64,
     last_open_log: RwLock<Option<Instant>>,
     last_half_open_log: RwLock<Option<Instant>>,
     last_close_log: RwLock<Option<Instant>>,
@@ -186,6 +196,7 @@ impl CircuitBreaker {
             successful_requests: AtomicU64::new(0),
             failed_requests: AtomicU64::new(0),
             rejected_requests: AtomicU64::new(0),
+            half_open_in_flight: AtomicU64::new(0),
             config,
             last_open_log: RwLock::new(None),
             last_half_open_log: RwLock::new(None),
@@ -275,7 +286,20 @@ impl CircuitBreaker {
                     true
                 }
             }
-            CircuitState::HalfOpen => true,
+            CircuitState::HalfOpen => {
+                // B.4: 半开态只放行有限并发探测，上限复用 `success_threshold`
+                // （探测成功次数达到该值即闭合，故同时用作在途上限最自然）。
+                // 超限的调用不记账为"在途"，直接按 rejected 处理。
+                let prev = self.half_open_in_flight.fetch_add(1, Ordering::Relaxed);
+                if prev < self.config.success_threshold as u64 {
+                    true
+                } else {
+                    self.half_open_in_flight.fetch_sub(1, Ordering::Relaxed);
+                    self.rejected_requests.fetch_add(1, Ordering::Relaxed);
+                    self.emit_outcome(Outcome::Rejected);
+                    false
+                }
+            }
         }
     }
 
@@ -299,10 +323,21 @@ impl CircuitBreaker {
         }
     }
 
+    /// B.4: 归还一个半开态在途探测名额（饱和递减，防下溢）。
+    /// 未配对 `is_call_allowed` 的 `record_*` 调用（如测试直接 record）
+    /// 在计数已为 0 时是 no-op。
+    fn release_half_open_probe(&self) {
+        let _ = self.half_open_in_flight.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| v.checked_sub(1));
+    }
+
     /// Records a successful downstream call. Moves the breaker toward `Closed` if it is `HalfOpen`.
     pub fn record_success(&self) {
         self.successful_requests.fetch_add(1, Ordering::Relaxed);
+        self.release_half_open_probe();
 
+        // B.3: 仅半开态需要把成功记入滑动窗口——闭合阈值只在半开态被读取，
+        // 且进入 HalfOpen 时窗口会被清空，故 Closed 态的 successes 从不被读取。
+        // 成功路径不再对 Closed 取 window 写锁。
         let current_state = *self.state.read();
         if current_state == CircuitState::HalfOpen {
             let mut window = self.window.write();
@@ -312,13 +347,7 @@ impl CircuitBreaker {
                 drop(window);
                 self.transition_to_closed();
             }
-        } else if current_state == CircuitState::Closed {
-            self.window.write().record_success();
         }
-
-        let mut metrics = self.metrics.write();
-        metrics.successful_requests = self.successful_requests.load(Ordering::Relaxed);
-        metrics.total_requests = self.total_requests.load(Ordering::Relaxed);
 
         // W7+: emit success outcome（metric_handle 为 None 时 no-op）
         self.emit_outcome(Outcome::Success);
@@ -331,6 +360,7 @@ impl CircuitBreaker {
         }
 
         self.failed_requests.fetch_add(1, Ordering::Relaxed);
+        self.release_half_open_probe();
 
         let current_state = *self.state.read();
         if current_state == CircuitState::HalfOpen {
@@ -382,6 +412,7 @@ impl CircuitBreaker {
         if *state != CircuitState::Open {
             *state = CircuitState::Open;
             *self.opened_at.write() = Some(Instant::now());
+            self.half_open_in_flight.store(0, Ordering::Relaxed);
 
             let mut metrics = self.metrics.write();
             metrics.state_transitions += 1;
@@ -427,6 +458,8 @@ impl CircuitBreaker {
 
             self.window.write().successes.clear();
             self.window.write().failures.clear();
+            // B.4: 新半开期从头计探测名额。
+            self.half_open_in_flight.store(0, Ordering::Relaxed);
 
             let mut metrics = self.metrics.write();
             metrics.state_transitions += 1;
@@ -471,6 +504,7 @@ impl CircuitBreaker {
 
             self.window.write().successes.clear();
             self.window.write().failures.clear();
+            self.half_open_in_flight.store(0, Ordering::Relaxed);
 
             let mut metrics = self.metrics.write();
             metrics.state_transitions += 1;
@@ -533,6 +567,7 @@ impl CircuitBreaker {
         self.successful_requests.store(0, Ordering::Relaxed);
         self.failed_requests.store(0, Ordering::Relaxed);
         self.rejected_requests.store(0, Ordering::Relaxed);
+        self.half_open_in_flight.store(0, Ordering::Relaxed);
 
         *self.metrics.write() = CircuitBreakerMetrics::default();
 
@@ -766,6 +801,33 @@ mod tests {
 
         let metrics = cb.get_metrics();
         assert_eq!(metrics.rejected_requests, 5);
+    }
+
+    #[test]
+    #[allow(missing_docs)]
+    fn test_half_open_limits_concurrent_probes() {
+        // B.4: 半开态只放行 success_threshold 个在途探测，其余按 rejected 拒绝。
+        let cb = CircuitBreaker::new(test_config());
+        assert_eq!(cb.config.success_threshold, 2);
+
+        for _ in 0..3 {
+            cb.is_call_allowed();
+            cb.record_failure();
+        }
+        assert_eq!(cb.current_state(), CircuitState::Open);
+
+        thread::sleep(Duration::from_millis(150));
+
+        // 触发 Open → HalfOpen（该次走 Open 分支，不占在途名额）
+        assert!(cb.is_call_allowed());
+        assert_eq!(cb.current_state(), CircuitState::HalfOpen);
+
+        // success_threshold = 2 → 最多 2 个并发在途探测
+        assert!(cb.is_call_allowed(), "第 1 个在途探测应放行");
+        assert!(cb.is_call_allowed(), "第 2 个在途探测应放行");
+        assert!(!cb.is_call_allowed(), "超过在途上限的探测应被拒绝");
+
+        assert_eq!(cb.get_metrics().rejected_requests, 1);
     }
 
     // ── W7+: MetricsCollector 集成测试 ───────────────────────────

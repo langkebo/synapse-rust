@@ -56,6 +56,7 @@ pub fn create_media_router() -> Router<crate::routes::AppState> {
         // ─────────────────────────────────────────────────────────────────────
         .route("/_synapse/admin/v1/user/{user_id}/media/quarantine", post(quarantine_user_media))
         .route("/_synapse/admin/v1/media/delete", post(delete_media_by_policy))
+        .route("/_synapse/admin/v1/purge_media_cache", post(purge_media_cache))
         .route("/_synapse/admin/v1/media/unprotect/{media_id}", post(unprotect_media_by_id))
 }
 
@@ -427,4 +428,26 @@ pub async fn unprotect_media_by_id(
         "unprotected": true,
         "changed_by": admin.user_id
     })))
+}
+
+/// Purge remote media from the local cache.
+///
+/// Backs `POST /_synapse/admin/v1/purge_media_cache?before_ts=<unix_ms>`.
+/// In this implementation only local media exists, so this degrades to deleting
+/// local media that matches the access-time policy.
+///
+/// Matches upstream Synapse semantics: `before_ts` is an optional query
+/// parameter (defaults to 0, meaning "no time filter"); the endpoint returns
+/// the number of purged media items.
+#[axum::debug_handler]
+pub async fn purge_media_cache(
+    _admin: AdminUser,
+    State(ctx): State<AdminContext>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
+    let before_ts = params.get("before_ts").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0).max(0);
+
+    let purged = ctx.admin_media_service.purge_media_cache(before_ts).await?;
+
+    Ok(Json(json!({ "deleted": purged })))
 }

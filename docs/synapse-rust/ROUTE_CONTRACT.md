@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1153**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1154**
 - 含路由注册的模块文件：**65**
 - `derived_routes.rs` 中的 `registered_by` 标签：**73**
 - 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
@@ -100,7 +100,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 **已知缺口 / 漂移**：
 
 - 无未装配的孤儿路由。`synapse-web/src/routes/threepid.rs` 曾定义 `create_threepid_router()`（裸 `/requestToken`、`/submitToken`，**从未** merge 进任何路由树且路径非 Matrix 规范形状）—— B5-4 已删除该模块：真实 3PID 端点在 `account_compat.rs`（`/account/3pid/...`，已在 `assembly.rs` 装配），被删代码自引入起即无调用方，纯属死代码。
-  **机器证据**：`test_extract_registered.py::check_non_namespace_bucket` 现在把「前缀之外」桶**精确**钉死为 14 条有意根级注册（3 条探活 + 11 条 CAS 根协议端点）。该桶出现任何新成员——无论是死灰复燃的未装配 router 还是新增非 Matrix 根端点——都会让守卫转红并要求显式裁定。
+  **机器证据**：`test_extract_registered.py::check_non_namespace_bucket` 现在把「前缀之外」桶**精确**钉死为 8 条有意根级注册（3 条探活 + 5 条 CAS 根协议端点）。该桶出现任何新成员——无论是死灰复燃的未装配 router 还是新增非 Matrix 根端点——都会让守卫转红并要求显式裁定。
 - `space/children_hierarchy.rs`、`space/lifecycle_query.rs`、`space/membership_state.rs`、`space/summary.rs`：路由在派生表中统一归入 `space` 标签（已覆盖）。
 
 ## 模块级路由清单（逐模块）
@@ -433,7 +433,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_matrix/vendor/v1/friends/{user_id}/note`
 - `PUT` `/_matrix/vendor/v1/friends/{user_id}/status`
 
-### 媒体 (Media) （55 条）
+### 媒体 (Media) （56 条）
 
 #### `media/mod.rs` — 38 条 ✅派生表
 
@@ -476,7 +476,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_matrix/media/v3/upload`
 - `PUT` `/_matrix/media/v3/upload/{server_name}/{media_id}`
 
-#### `admin/media.rs` — 17 条 ✅派生表
+#### `admin/media.rs` — 18 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/media/{media_id}`
 - `DELETE` `/_synapse/admin/v1/rooms/{room_id}/media/{media_id}`
@@ -492,6 +492,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_synapse/admin/v1/media/quarantine/{server_name}/{media_id}`
 - `POST` `/_synapse/admin/v1/media/unprotect/{media_id}`
 - `POST` `/_synapse/admin/v1/media/unquarantine/{server_name}/{media_id}`
+- `POST` `/_synapse/admin/v1/purge_media_cache`
 - `POST` `/_synapse/admin/v1/rooms/{room_id}/media/quarantine`
 - `POST` `/_synapse/admin/v1/rooms/{room_id}/media/unquarantine`
 - `POST` `/_synapse/admin/v1/user/{user_id}/media/quarantine`

@@ -59,7 +59,7 @@ impl MessagingService {
             if event_id.starts_with('$') {
                 // MSC4446: m.read always enforces monotonicity (allow_backward=false)
                 self.room_storage
-                    .update_read_marker_monotonic(room_id, user_id, event_id, "m.fully_read", false)
+                    .update_read_marker_monotonic(room_id, user_id, event_id, "m.read", false)
                     .await
                     .map_err(|e| ApiError::internal_with_cause("Failed to set m.read marker", e))?;
             }
@@ -92,6 +92,10 @@ mod tests {
     };
 
     async fn make_service() -> MessagingService {
+        make_service_with_store().await.0
+    }
+
+    async fn make_service_with_store() -> (MessagingService, Arc<InMemoryRoomStore>) {
         let event_store = Arc::new(InMemoryEventStore::new());
         let room_summary_service = Arc::new(RoomSummaryService {
             storage: Arc::new(InMemoryRoomSummaryStore::new()),
@@ -99,10 +103,11 @@ mod tests {
             member_storage: Some(Arc::new(InMemoryMemberStore::new())),
         });
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-        MessagingService::new(MessagingServiceConfig {
+        let room_store = Arc::new(InMemoryRoomStore::new());
+        let svc = MessagingService::new(MessagingServiceConfig {
             event_reader: event_store.clone(),
             event_writer: event_store,
-            room_storage: Arc::new(InMemoryRoomStore::new()),
+            room_storage: room_store.clone(),
             member_storage: Arc::new(InMemoryMemberStore::new()),
             server_name: "test.example.com".to_string(),
             beacon_service: None,
@@ -115,7 +120,8 @@ mod tests {
             cache,
             resolution_cache: crate::room::state_record::ResolutionCache::default(),
             event_admission_gate: Arc::new(crate::test_mocks::FakeEventAdmissionGate::new()),
-        })
+        });
+        (svc, room_store)
     }
 
     #[tokio::test]
@@ -180,6 +186,35 @@ mod tests {
         let svc = make_service().await;
         let body = serde_json::json!({"m.read": "$e1:ex.com"});
         svc.set_read_markers("!room:ex.com", "@alice:ex.com", &body).await.expect("m.read should succeed");
+    }
+
+    #[tokio::test]
+    async fn set_read_markers_m_read_writes_m_read_slot() {
+        // A.4 regression: m.read must land in the `m.read` slot, not `m.fully_read`.
+        let (svc, store) = make_service_with_store().await;
+        let body = serde_json::json!({"m.read": "$e1:ex.com"});
+        svc.set_read_markers("!room:ex.com", "@alice:ex.com", &body).await.expect("m.read should succeed");
+
+        assert_eq!(
+            store.recorded_read_marker("!room:ex.com", "@alice:ex.com", "m.read").await.as_deref(),
+            Some("$e1:ex.com")
+        );
+        assert!(
+            store.recorded_read_marker("!room:ex.com", "@alice:ex.com", "m.fully_read").await.is_none(),
+            "m.read must not overwrite the m.fully_read slot"
+        );
+    }
+
+    #[tokio::test]
+    async fn set_read_markers_fully_read_writes_fully_read_slot() {
+        let (svc, store) = make_service_with_store().await;
+        let body = serde_json::json!({"m.fully_read": "$e2:ex.com"});
+        svc.set_read_markers("!room:ex.com", "@alice:ex.com", &body).await.expect("m.fully_read should succeed");
+
+        assert_eq!(
+            store.recorded_read_marker("!room:ex.com", "@alice:ex.com", "m.fully_read").await.as_deref(),
+            Some("$e2:ex.com")
+        );
     }
 
     #[tokio::test]

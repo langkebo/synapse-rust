@@ -104,12 +104,13 @@ pub const DEFAULT_ROOM_VERSION: &str = "12";
 /// v12 (MSC4304) = room v11 + MSC4289 (creator privilege) + MSC4291 (room id is
 /// the create event's id) + MSC4297 (state resolution v2.1) + MSC4307
 /// (`auth_events` must belong to the same room). Current implementation status is
-/// tracked per item in `docs/audit/ROOM_V12_PLAN_STATUS_2026-09-27.md`:
-/// MSC4291's create side (C-1/C-2), the domainless room-id grammar and DB CHECK
-/// (C-3), MSC4307 rule 3.5 (B-2), v12 `auth_events` without the create event
-/// (D-4), inbound create shape (D-1), the upgrade order (C-4) and MSC4289
-/// (E-1/E-2/E-3) have landed; **MSC4297 (F) has not**, so v12 remains
-/// "declaration ahead of implementation" for that one item.
+/// tracked per item in `docs/audit/ROOM_V12_PLAN_STATUS_2026-09-27.md`, whose
+/// status table is now **all ✅ (24/24)**. Concretely: MSC4291's create side
+/// (C-1/C-2), the domainless room-id grammar and DB CHECK (C-3), MSC4307 rule 3.5
+/// (B-2), v12 `auth_events` without the create event (D-4), inbound create shape
+/// (D-1), the upgrade order (C-4), MSC4289 (E-1/E-2/E-3) and MSC4297
+/// (F-1/F-2/F-3) have all landed, so v12 is no longer "declaration ahead of
+/// implementation".
 ///
 /// `"13"` is not listed: it does not exist upstream (the spec's stable list ends
 /// at v12; Synapse 1.161.0 knows `1..12` plus three unstable identifiers), and
@@ -137,10 +138,10 @@ pub const SUPPORTED_ROOM_VERSIONS: &[RoomVersionCapability] = &[
     // v12（MSC4304）= room v11 + MSC4289（创建者特权）+ MSC4291（room ID = create 事件 id）
     // + MSC4297（State Resolution v2.1）+ MSC4307（`auth_events` 同房校验）。
     //
-    // 现状（2026-09-27，逐项见 `docs/audit/ROOM_V12_PLAN_STATUS_2026-09-27.md`）：
+    // 现状（逐项见 `docs/audit/ROOM_V12_PLAN_STATUS_2026-09-27.md`，状态表 24/24 全 ✅）：
     // MSC4291 创建侧（C-1/C-2）与无域名 room id 语法/DB CHECK（C-3）、MSC4307 规则 3.5（B-2）、
-    // v12 的 `auth_events` 不含 create（D-4）、入站 create 形态（D-1）均已落地；
-    // **MSC4289（E 组）与 MSC4297（F 组）仍未完成**，所以 v12 目前仍属"声明领先实现"。
+    // v12 的 `auth_events` 不含 create（D-4）、入站 create 形态（D-1）、升级顺序（C-4）、
+    // MSC4289（E 组）与 MSC4297（F 组）均已落地；v12 已不再属"声明领先实现"。
     //
     // `"13"` **不再列入**：上游规范稳定列表止于 v12（`content/rooms/_index.md`），
     // 上游 Synapse 1.161.0 的 `KNOWN_ROOM_VERSIONS` 只识别 `1..12` + 三个 unstable

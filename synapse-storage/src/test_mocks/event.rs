@@ -618,6 +618,29 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
         Ok(events.values().filter(|e| e.room_id == room_id && e.status.as_deref() == Some(status)).count() as i64)
     }
 
+    async fn get_room_stats(&self, room_id: &str) -> Result<crate::event::RoomEventStats, sqlx::Error> {
+        let events = self.events.read().await;
+        let mut stats = crate::event::RoomEventStats::default();
+        for event in events.values().filter(|e| e.room_id == room_id) {
+            stats.total_events += 1;
+            if event.state_key.is_some() {
+                stats.total_state_events += 1;
+            }
+            if event.event_type == "m.room.message" {
+                stats.total_messages += 1;
+                if event
+                    .content
+                    .get("msgtype")
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|t| t == "m.image" || t == "m.video" || t == "m.file" || t == "m.audio")
+                {
+                    stats.total_media += 1;
+                }
+            }
+        }
+        Ok(stats)
+    }
+
     async fn get_ephemeral_events(
         &self,
         _room_id: &str,

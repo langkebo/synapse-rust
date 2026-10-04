@@ -128,6 +128,9 @@ pub struct RoomSummaryStats {
     /// The `total_media` field.
     pub total_media: i64,
     /// The `storage_size` field.
+    ///
+    /// Reserved: no writer populates this yet. `recalculate_stats` preserves
+    /// the existing value rather than overwriting it with `0`.
     pub storage_size: i64,
     /// The `last_updated_ts` field.
     pub last_updated_ts: i64,

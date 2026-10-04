@@ -62,6 +62,23 @@ pub struct RoomEvent {
     pub redacts: Option<String>,
 }
 
+/// Aggregate counts for a single room, computed entirely on the SQL side.
+///
+/// Used by room-summary stats recalculation so it never has to materialize a
+/// room's full event history just to count it.
+#[derive(Debug, Clone, Copy, Default, sqlx::FromRow)]
+pub struct RoomEventStats {
+    /// Total number of events in the room.
+    pub total_events: i64,
+    /// Number of events carrying a `state_key` (state events).
+    pub total_state_events: i64,
+    /// Number of `m.room.message` events.
+    pub total_messages: i64,
+    /// Number of `m.room.message` events whose `msgtype` is a media type
+    /// (`m.image` / `m.video` / `m.file` / `m.audio`).
+    pub total_media: i64,
+}
+
 /// The graph columns persisted for one event (`depth` / `prev_events` /
 /// `auth_events`).
 ///

@@ -997,6 +997,12 @@ fn every_db_test_binary_registers_the_exit_drain() {
         // grep -rn omits the filename prefix when searching a single file,
         // which breaks the `^[^:]+:[0-9]+:` filter below. Normalize to a
         // directory search so every output line carries `file:line:`.
+        //
+        // `-w` (word boundary) keeps this a keyword match: bare-substring grep
+        // counted the common `#![deny(unsafe_code)]` / `unsafe_op_in_unsafe_fn`
+        // lint *names* as code, a false positive. A real `unsafe` keyword is
+        // always a standalone word (`unsafe {` / `unsafe fn` / `unsafe impl`),
+        // so `-w` drops only identifiers and never hides actual unsafe.
         let dir = if std::path::Path::new(pathspec).is_file() {
             std::path::Path::new(pathspec).parent().map_or(pathspec, |p| p.to_str().unwrap())
         } else {
@@ -1010,7 +1016,7 @@ fn every_db_test_binary_registers_the_exit_drain() {
         let out = std::process::Command::new("bash")
             .arg("-c")
             .arg(format!(
-                "grep -rn 'unsafe' {dir} 2>/dev/null | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|///|//!)' || true"
+                "grep -rnw 'unsafe' {dir} 2>/dev/null | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|///|//!)' || true"
             ))
             .current_dir(&root)
             .output()

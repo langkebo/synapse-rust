@@ -746,12 +746,19 @@ impl RoomStorage {
     }
 
     /// See [`increment_member_count`].
-    pub async fn increment_member_count(&self, room_id: &str) -> Result<(), sqlx::Error> {
+    pub async fn increment_member_count(
+        &self,
+        room_id: &str,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<(), sqlx::Error> {
         // v11: removed `joined_member_count = joined_member_count + 1` and
         // `member_count = member_count + 1` updates. These counts are now
         // maintained by the `trg_sync_member_count` trigger on
         // `room_memberships`. We only update `updated_ts` here.
-        sqlx::query!(
+        // When `tx` is provided the UPDATE runs in the caller's transaction
+        // (used by join so the summary refresh stays atomic with the
+        // add_member write).
+        let query = sqlx::query!(
             r"
             UPDATE room_summaries
             SET updated_ts = $2
@@ -759,9 +766,12 @@ impl RoomStorage {
             ",
             room_id,
             current_timestamp_millis()
-        )
-        .execute(&*self.pool)
-        .await?;
+        );
+        if let Some(tx) = tx {
+            query.execute(&mut **tx).await?;
+        } else {
+            query.execute(&*self.pool).await?;
+        }
         Ok(())
     }
 
