@@ -1,4 +1,3 @@
-use crate::routes::AuthenticatedUser;
 use crate::utils::auth::resolve_request_id;
 use axum::http::{HeaderMap, Method};
 use hmac::{Hmac, Mac};
@@ -25,20 +24,6 @@ pub(crate) struct AuthorizedAdmin {
     pub access_token: String,
     /// The `role` field.
     pub role: String,
-}
-
-/// Reject the request unless the authenticated user carries the server-admin flag.
-///
-/// Intentionally performs only the `is_admin` check — no RBAC role lookup and no
-/// MFA enforcement — so it can back the lightweight admin gates in routes such
-/// as `key_rotation`. Use [`authorize_admin_from_services`] when the full
-/// RBAC/MFA path is required.
-pub(crate) fn ensure_server_admin(auth_user: &AuthenticatedUser, message: &str) -> Result<(), ApiError> {
-    if auth_user.is_admin {
-        Ok(())
-    } else {
-        Err(ApiError::forbidden(message.to_string()))
-    }
 }
 
 /// Variant of `authorize_admin_request` that works with individual service
@@ -340,6 +325,10 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
             // Worker and room summary
             || path.starts_with("/_synapse/worker/v1/")
             || path.starts_with("/_synapse/room_summary/v1/")
+
+            // Client/vendor key rotation management (was gated only by is_admin)
+            || path.starts_with("/_matrix/client/v1/keys/rotation")
+            || path.starts_with("/_matrix/vendor/v1/keys/rotation")
 
             // Server version and health
             || path.starts_with("/_synapse/admin/v1/server_version")
