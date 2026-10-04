@@ -23,6 +23,16 @@ pub(crate) const STATE_EVENT_INNER_COLS: &str =
      unsigned, is_redacted, origin_server_ts, depth, not_before, status, origin, user_id, stream_ordering, \
      prev_events, auth_events, signatures, hashes";
 
+/// Defensive upper bound on the rows returned by the un-windowed batch state
+/// queries (`get_state_events_batch`, `get_membership_state_keys_since_batch`).
+///
+/// These queries back `/sync` and are intentionally un-windowed, so a *small*
+/// `LIMIT` would silently truncate sync state (a correctness regression). The
+/// cap here is therefore set far above any realistic room-state volume purely
+/// to bound memory on pathological input; hitting it is logged as a warning so
+/// operators can spot the anomaly.
+const STATE_BATCH_MAX_ROWS: usize = 50_000;
+
 impl EventStorage {
     /// The room's **resolved-state group**, if its state has ever been resolved.
     ///
@@ -312,11 +322,21 @@ impl EventStorage {
                    AND state_key IS NOT NULL \
                  ORDER BY room_id, event_type, state_key, origin_server_ts DESC \
              ) s \
-             ORDER BY room_id, origin_server_ts DESC"
+             ORDER BY room_id, origin_server_ts DESC \
+             LIMIT {STATE_BATCH_MAX_ROWS}"
         ))
         .bind(room_ids)
         .fetch_all(&*self.pool)
         .await?;
+
+        if events.len() >= STATE_BATCH_MAX_ROWS {
+            tracing::warn!(
+                room_count = room_ids.len(),
+                returned = events.len(),
+                cap = STATE_BATCH_MAX_ROWS,
+                "get_state_events_batch hit the defensive row cap; sync state may be truncated"
+            );
+        }
 
         let mut result: std::collections::HashMap<String, Vec<StateEvent>> =
             std::collections::HashMap::with_capacity(room_ids.len());
@@ -359,12 +379,22 @@ impl EventStorage {
                    AND event_type = 'm.room.member' \
                    AND state_key IS NOT NULL \
                  ORDER BY room_id, state_key, {col} DESC \
-             ) recent_membership"
+             ) recent_membership \
+             LIMIT {STATE_BATCH_MAX_ROWS}"
         ))
         .bind(room_ids)
         .bind(since.value())
         .fetch_all(&*self.pool)
         .await?;
+
+        if rows.len() >= STATE_BATCH_MAX_ROWS {
+            tracing::warn!(
+                room_count = room_ids.len(),
+                returned = rows.len(),
+                cap = STATE_BATCH_MAX_ROWS,
+                "get_membership_state_keys_since_batch hit the defensive row cap; sync membership keys may be truncated"
+            );
+        }
 
         let mut result: std::collections::HashMap<String, std::collections::HashSet<String>> =
             room_ids.iter().map(|room_id| (room_id.clone(), std::collections::HashSet::new())).collect();
