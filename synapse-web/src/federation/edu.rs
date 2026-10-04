@@ -755,10 +755,21 @@ async fn handle_profile_update_edu(
     EduProcessResult { processed: 1, dropped: 0, errored: 0 }
 }
 
-/// Handle `m.delayed_event` EDU from federation (MSC4140).
-/// This EDU synchronizes pending delayed events across federated servers so
-/// remote servers can track and manage them (cancel/restart).
-#[allow(clippy::unused_async)] // TODO: P1-1: Add await when implementing persistence
+/// Handle a `m.delayed_event` EDU received from federation.
+///
+/// ⚠️ **Non-standard EDU — validated only, intentionally not persisted.**
+///
+/// MSC4140 does *not* define a federation EDU for delayed events, so no
+/// conforming peer emits this type, and this codebase has no sender for it. The
+/// handler exists purely defensively so that inbound input of this (unknown)
+/// type is shape-checked and dropped rather than crashing the EDU dispatcher.
+///
+/// The payload only carries `delay_id`/`room_id`/`user_id`, which is not enough
+/// to reconstruct a delayed event (`device_id`/`event_type`/`content`/`delay_ms`
+/// are absent). Persisting it would require inventing protocol fields outside
+/// MSC4140, so this handler deliberately stops at validation + acknowledgement.
+/// See `docs/audit/LEGACY_ISSUES_REPORT_20261004.md` (A1).
+#[allow(clippy::unused_async)] // intentionally validate-only: there is nothing to persist
 async fn handle_delayed_event_edu(
     ctx: &FederationContext,
     origin: &str,
@@ -803,19 +814,20 @@ async fn handle_delayed_event_edu(
         return EduProcessResult { dropped: 1, ..Default::default() };
     }
 
-    // TODO: P1-1: Implement delayed event persistence via delayed_event_service
+    // Intentional no-op past this point: see the handler doc comment above.
     //
-    // ⚠️ 现在**没有**持久化：本 handler 只做"形状校验 + origin 校验 + 计数"（MSC4140 的存储侧
-    // 接线属 P1-1，模板见 `docs/templates/federation-edu-persist-template.md`）。日志必须与事实
-    // 一致 —— 原文写 "(persisted to storage)" 会让排障者以为事件已落库；计数
-    // `federation_inbound_delayed_event_processed_total` 的口径同样只是"已接收并确认"
-    // （`processed` 在该命名规范里的定义就是"收下并通过校验"，与是否落库无关）。
+    // This is **not** a pending P1 task. The payload lacks the fields needed to
+    // reconstruct a delayed event and MSC4140 defines no such federation EDU, so
+    // "persisting" it would mean inventing protocol fields. The handler therefore
+    // only validates + acknowledges; the counter and log wording must stay
+    // consistent with that fact (`processed` means "accepted and validated", not
+    // "stored").
     ::tracing::info!(
         delay_id,
         room_id,
         user_id,
         origin,
-        "Received m.delayed_event EDU from federation (validated + acknowledged; NOT persisted yet — TODO P1-1)"
+        "Received non-standard m.delayed_event EDU from federation (validated + acknowledged; not persisted by design)"
     );
     increment_counter(ctx, "federation_inbound_delayed_event_processed_total");
     EduProcessResult { processed: 1, dropped: 0, errored: 0 }
