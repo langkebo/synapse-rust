@@ -60,9 +60,7 @@ impl CrossSigningKeyRow {
                 self.user_id,
                 self.key_type
             );
-            // Unix epoch is always valid - unwrap is safe here
-            #[allow(clippy::expect_used)]
-            chrono::DateTime::from_timestamp(0, 0).expect("Unix epoch is always valid")
+            chrono::DateTime::<chrono::Utc>::UNIX_EPOCH
         });
 
         CrossSigningKey {

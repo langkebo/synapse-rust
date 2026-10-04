@@ -11,9 +11,9 @@
 // this crate is now at zero missing-doc warnings under `cargo doc`.
 #![deny(missing_docs)]
 
-pub use synapse_services::auth;
 /// The `cache` module.
 pub use synapse_cache as cache;
+pub use synapse_services::auth;
 /// The `common` module.
 pub mod common;
 /// The `e2ee` module.

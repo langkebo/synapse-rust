@@ -1631,10 +1631,9 @@ pub async fn acquire_pooled_schema() -> Result<LeasedSchema, String> {
     // tables, so the count is still correct. Skip the redundant COUNT query here
     // — under parallel test load, pg_catalog queries take 1.6-8s due to lock
     // contention, and this check was the #1 source of slow-statement warnings.
-    #[allow(clippy::never_loop)]
     // `ParkedSchema` is a name plus its park timestamp; only the name travels
     // from here on, so the reclaimer can tell how long it has been idle.
-    while let Some(schema_name) = SCHEMA_POOL.lock().await.pop().map(|parked| parked.name) {
+    if let Some(schema_name) = SCHEMA_POOL.lock().await.pop().map(|parked| parked.name) {
         let pool = create_pool_for_schema(&database_url, &schema_name).await?;
         let poisoned = Arc::new(AtomicBool::new(false));
         // The closure holds its own clone of the flag so the janitor can read

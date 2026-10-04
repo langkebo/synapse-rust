@@ -21,7 +21,7 @@
 
 ### 1. Device List (P1-API-001) ✅
 
-**实现文件**: `src/web/routes/device.rs`
+**实现文件**: `synapse-web/src/routes/device.rs`
 
 **已实现的端点**:
 ```rust
@@ -57,7 +57,7 @@ async fn delete_devices(...)
 async fn get_device_list_updates(...)
 ```
 
-**路由注册**: `src/web/routes/assembly.rs:154`
+**路由注册**: `synapse-web/src/routes/assembly.rs:154`
 ```rust
 .merge(create_device_router())
 ```
@@ -68,7 +68,7 @@ async fn get_device_list_updates(...)
 
 ### 2. Account Data (P1-API-002, P1-API-003) ✅
 
-**实现文件**: `src/web/routes/account_data.rs`
+**实现文件**: `synapse-web/src/routes/account_data.rs`
 
 **已实现的端点**:
 ```rust
@@ -101,7 +101,7 @@ async fn set_room_account_data(...)
 async fn delete_room_account_data(...)
 ```
 
-**路由注册**: `src/web/routes/assembly.rs:149`
+**路由注册**: `synapse-web/src/routes/assembly.rs:149`
 ```rust
 .merge(create_account_data_router(state.clone()))
 ```
@@ -117,7 +117,7 @@ async fn delete_room_account_data(...)
 查看 `test-results/api-integration.missing.txt` 显示许多端点返回 "admin authentication unavailable"，这是因为：
 
 1. **测试结果是旧的**: 在我们修复 DEF-001 (Admin RBAC 权限提升漏洞) 之前生成的
-2. **权限控制已修复**: 我们已经修复了 `src/web/utils/admin_auth.rs` 中的权限控制问题
+2. **权限控制已修复**: 我们已经修复了 `synapse-web/src/utils/admin_auth.rs` 中的权限控制问题
 3. **需要重新测试**: 应该重新运行集成测试以获取最新的端点状态
 
 ### 建议的验证步骤
@@ -141,7 +141,7 @@ cat test-results/api-integration.passed.txt
 
 根据 `defects_api_integration.md`，还有 36 个 P2 优先级的缺失端点，包括：
 
-1. **P2-API-001: OpenID Userinfo** - 已实现 (`src/web/routes/oidc.rs`)
+1. **P2-API-001: OpenID Userinfo** - 已实现 (`synapse-web/src/routes/oidc/provider.rs`)
 2. **P2-API-002: Events** - 需要检查
 3. **P2-API-003: VoIP TURN Server** - 需要检查
 4. **P2-API-004: Get Room Alias** - 需要检查

@@ -77,7 +77,14 @@ impl MessagingService {
             }
         });
 
-        self.active_tasks.write().await.insert(task_id, handle);
+        // B13: every burn-after-read receipt spawns a redaction task and
+        // registers its handle, but nothing ever removed the finished handles,
+        // so `active_tasks` grew without bound over a long-running server. Prune
+        // the completed handles on each insert, which keeps the map bounded by
+        // the number of still-pending burns.
+        let mut tasks = self.active_tasks.write().await;
+        tasks.retain(|_, handle| !handle.is_finished());
+        tasks.insert(task_id, handle);
 
         Ok(())
     }
@@ -236,5 +243,24 @@ mod tests {
             "task_id must encode custom delay=10; got keys: {:?}",
             tasks.keys().collect::<Vec<_>>()
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn process_read_receipt_prunes_finished_tasks() {
+        // B13: a previously finished handle must be dropped before the new one
+        // is registered, so `active_tasks` does not grow monotonically.
+        let event = make_event("$e6:ex.com", serde_json::json!({"burn_after_read": true}));
+        let svc = make_service_with_queue(vec![event], Some(make_fake_queue())).await;
+
+        let finished = tokio::spawn(async {});
+        tokio::task::yield_now().await;
+        assert!(finished.is_finished(), "spawned no-op task must have completed");
+        svc.active_tasks.write().await.insert("burn_after_read:!room:ex.com:$old:ex.com:600".to_string(), finished);
+
+        svc.process_read_receipt("!room:ex.com", "$e6:ex.com", "@alice:ex.com", None).await.unwrap();
+
+        let tasks = svc.active_tasks.read().await;
+        assert_eq!(tasks.len(), 1, "the finished handle must be pruned");
+        assert!(!tasks.contains_key("burn_after_read:!room:ex.com:$old:ex.com:600"));
     }
 }

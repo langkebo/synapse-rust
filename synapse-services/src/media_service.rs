@@ -6,10 +6,17 @@ use synapse_common::*;
 
 use image::DynamicImage;
 use sqlx::PgPool;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use synapse_storage::admin_media::AdminMediaStorage;
+use tokio::sync::RwLock;
+
+/// Upper bound on [`MediaService::file_name_cache`] entries. Overflow evicts an
+/// arbitrary entry; a subsequent miss simply re-scans the directory, so
+/// eviction never affects correctness—only how often a scan happens.
+const MAX_FILE_NAME_CACHE_ENTRIES: usize = 4096;
 
 /// The `ThumbnailMethod` enum.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -64,6 +71,13 @@ pub struct MediaService {
     /// Optional metrics sink for the hash-level quarantine hit counter.
     /// `None` in unit tests and any construction path that does not wire it.
     metrics: Option<Arc<MetricsCollector>>,
+    /// Bounded in-process cache mapping `media_id` to its on-disk file name.
+    ///
+    /// On-disk names are `{media_id}.{ext}` or `{media_id}_{original}`, so a
+    /// path cannot be derived from `media_id` alone. Without this cache every
+    /// lookup rescans the whole media directory (O(n)); a bounded cache turns
+    /// repeat lookups into O(1), with a miss falling back to a scan.
+    file_name_cache: Arc<RwLock<HashMap<String, String>>>,
 }
 
 impl MediaService {
@@ -133,6 +147,7 @@ impl MediaService {
             admin_media_storage: pool.as_ref().map(AdminMediaStorage::new),
             link_signer: None,
             metrics: None,
+            file_name_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -417,15 +432,41 @@ impl MediaService {
         }))
     }
 
-    async fn find_media_file_name(&self, media_id: &str) -> ApiResult<Option<String>> {
-        let media_path = self.media_path.clone();
-        let media_id = media_id.to_string();
+    /// Look up a previously resolved `media_id -> file_name` mapping.
+    async fn cached_file_name(&self, media_id: &str) -> Option<String> {
+        self.file_name_cache.read().await.get(media_id).cloned()
+    }
 
-        tokio::task::spawn_blocking(move || {
+    /// Record a resolved mapping, evicting an arbitrary entry when the cache is
+    /// at capacity. Eviction is safe: a later miss re-scans the directory.
+    async fn remember_file_name(&self, media_id: &str, file_name: &str) {
+        let mut cache = self.file_name_cache.write().await;
+        if cache.len() >= MAX_FILE_NAME_CACHE_ENTRIES && !cache.contains_key(media_id) {
+            if let Some(evicted) = cache.keys().next().cloned() {
+                cache.remove(&evicted);
+            }
+        }
+        cache.insert(media_id.to_string(), file_name.to_string());
+    }
+
+    /// Drop a cached mapping (e.g. after the underlying file is deleted).
+    async fn forget_file_name(&self, media_id: &str) {
+        self.file_name_cache.write().await.remove(media_id);
+    }
+
+    async fn find_media_file_name(&self, media_id: &str) -> ApiResult<Option<String>> {
+        if let Some(file_name) = self.cached_file_name(media_id).await {
+            return Ok(Some(file_name));
+        }
+
+        let media_path = self.media_path.clone();
+        let media_id_owned = media_id.to_string();
+
+        let found = tokio::task::spawn_blocking(move || {
             if let Ok(entries) = std::fs::read_dir(&media_path) {
                 for entry in entries.flatten() {
                     if let Some(file_name) = entry.file_name().to_str() {
-                        if media_file_matches_id(file_name, &media_id) {
+                        if media_file_matches_id(file_name, &media_id_owned) {
                             return Some(file_name.to_string());
                         }
                     }
@@ -434,30 +475,20 @@ impl MediaService {
             None
         })
         .await
-        .map_err(|e| ApiError::internal_with_cause("Task error", e))
+        .map_err(|e| ApiError::internal_with_cause("Task error", e))?;
+
+        if let Some(file_name) = &found {
+            self.remember_file_name(media_id, file_name).await;
+        }
+        Ok(found)
     }
 
     /// See [`get_media`].
     pub async fn get_media(&self, _server_name: &str, media_id: &str) -> Option<Vec<u8>> {
-        let media_path = self.media_path.clone();
-        let media_id = media_id.to_string();
+        let file_name = self.find_media_file_name(media_id).await.ok().flatten()?;
+        let path = self.media_path.join(file_name);
 
-        tokio::task::spawn_blocking(move || {
-            if let Ok(entries) = std::fs::read_dir(media_path) {
-                for entry in entries.flatten() {
-                    if let Some(file_name) = entry.file_name().to_str() {
-                        if media_file_matches_id(file_name, &media_id) {
-                            if let Ok(content) = std::fs::read(entry.path()) {
-                                return Some(content);
-                            }
-                        }
-                    }
-                }
-            }
-            None
-        })
-        .await
-        .unwrap_or(None)
+        tokio::task::spawn_blocking(move || std::fs::read(path).ok()).await.unwrap_or(None)
     }
 
     /// Returns the file system path for a media item **without** reading the
@@ -892,36 +923,19 @@ impl MediaService {
             }
         }
 
-        let media_path = self.media_path.clone();
-        let media_id = media_id.to_string();
-
-        tokio::task::spawn_blocking(move || {
-            if let Ok(entries) = std::fs::read_dir(media_path) {
-                for entry in entries.flatten() {
-                    if let Some(file_name) = entry.file_name().to_str() {
-                        if media_file_matches_id(file_name, &media_id) {
-                            // Recover the user-supplied original filename from the on-disk
-                            // name which is stored as `<media_id>_<original>` (or
-                            // `<media_id>.<ext>` for extension-only files).  This makes
-                            // the filesystem fallback deterministic and avoids leaking
-                            // the internal media_id into `Content-Disposition`.
-                            let original = file_name
-                                .strip_prefix(&media_id)
-                                .and_then(|s| s.strip_prefix('_').or_else(|| s.strip_prefix('.')));
-                            let metadata = serde_json::json!({
-                                "media_id": media_id,
-                                "content_uri": format!("/_matrix/media/v3/download/{}", file_name),
-                                "filename": original.unwrap_or(file_name)
-                            });
-                            return Some(metadata);
-                        }
-                    }
-                }
-            }
-            None
-        })
-        .await
-        .unwrap_or(None)
+        let file_name = self.find_media_file_name(media_id).await.ok().flatten()?;
+        // Recover the user-supplied original filename from the on-disk name
+        // which is stored as `<media_id>_<original>` (or `<media_id>.<ext>` for
+        // extension-only files).  This makes the filesystem fallback
+        // deterministic and avoids leaking the internal media_id into
+        // `Content-Disposition`.
+        let original =
+            file_name.strip_prefix(media_id).and_then(|s| s.strip_prefix('_').or_else(|| s.strip_prefix('.')));
+        Some(serde_json::json!({
+            "media_id": media_id,
+            "content_uri": format!("/_matrix/media/v3/download/{}", file_name),
+            "filename": original.unwrap_or(&file_name)
+        }))
     }
 
     fn get_extension_from_content_type(content_type: &str) -> &str {
@@ -953,84 +967,65 @@ impl MediaService {
     /// See [`get_media_info`].
     pub async fn get_media_info(&self, server_name: &str, media_id: &str) -> ApiResult<serde_json::Value> {
         Self::validate_media_id(media_id)?;
-        let media_path = self.media_path.clone();
-        let server_name = server_name.to_string();
-        let media_id = media_id.to_string();
+        let file_name = self
+            .find_media_file_name(media_id)
+            .await?
+            .ok_or_else(|| ApiError::not_found("Media not found".to_string()))?;
+        let path = self.media_path.join(&file_name);
 
-        let result = tokio::task::spawn_blocking(move || {
-            if let Ok(entries) = std::fs::read_dir(&media_path) {
-                for entry in entries.flatten() {
-                    if let Some(file_name) = entry.file_name().to_str() {
-                        if media_file_matches_id(file_name, &media_id) {
-                            if let Ok(metadata) = entry.metadata() {
-                                let parts: Vec<&str> = file_name.split('.').collect();
-                                let uploader = if parts.len() >= 3 {
-                                    parts[1].replace("_at_", "@").replace("_col_", ":").replace("_dot_", ".")
-                                } else {
-                                    String::new()
-                                };
-                                return Some(serde_json::json!({
-                                    "media_id": media_id,
-                                    "server_name": server_name,
-                                    "content_uri": synapse_common::media_locator::MediaLocator {
-                                        server_name: server_name.to_string(),
-                                        media_id: media_id.to_string(),
-                                    }.to_mxc_url(),
-                                    "filename": file_name,
-                                    "size": metadata.len(),
-                                    "uploader": uploader,
-                                    "created_at": metadata.created()
-                                        .map(|t| t.duration_since(std::time::UNIX_EPOCH)
-                                            .map(|d| d.as_millis() as i64)
-                                            .unwrap_or(0))
-                                        .unwrap_or(0)
-                                }));
-                            }
-                        }
-                    }
-                }
-            }
-            None
-        })
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Task error", e))?;
+        let metadata = tokio::task::spawn_blocking(move || std::fs::metadata(path))
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Task error", e))?
+            .map_err(|e| ApiError::internal_with_cause("Failed to read media metadata", e))?;
 
-        result.ok_or(ApiError::not_found("Media not found".to_string()))
+        let parts: Vec<&str> = file_name.split('.').collect();
+        let uploader = if parts.len() >= 3 {
+            parts[1].replace("_at_", "@").replace("_col_", ":").replace("_dot_", ".")
+        } else {
+            String::new()
+        };
+        let created_at = metadata
+            .created()
+            .map(|t| t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0))
+            .unwrap_or(0);
+
+        Ok(serde_json::json!({
+            "media_id": media_id,
+            "server_name": server_name,
+            "content_uri": synapse_common::media_locator::MediaLocator {
+                server_name: server_name.to_string(),
+                media_id: media_id.to_string(),
+            }.to_mxc_url(),
+            "filename": file_name,
+            "size": metadata.len(),
+            "uploader": uploader,
+            "created_at": created_at
+        }))
     }
 
     /// See [`delete_media`].
     pub async fn delete_media(&self, server_name: &str, media_id: &str) -> ApiResult<()> {
         Self::validate_media_id(media_id)?;
-        let media_path = self.media_path.clone();
-        let media_id = media_id.to_string();
-        let server_name = server_name.to_string();
+        let file_name = self
+            .find_media_file_name(media_id)
+            .await?
+            .ok_or_else(|| ApiError::not_found("Media not found".to_string()))?;
+        let path = self.media_path.join(&file_name);
 
-        let result = tokio::task::spawn_blocking(move || {
-            if let Ok(entries) = std::fs::read_dir(&media_path) {
-                for entry in entries.flatten() {
-                    if let Some(file_name) = entry.file_name().to_str() {
-                        if media_file_matches_id(file_name, &media_id) {
-                            let path = entry.path();
-                            if let Err(e) = std::fs::remove_file(&path) {
-                                return Err(format!("Failed to delete media file: {e}"));
-                            }
-                            ::tracing::info!(
-                                media_id = %media_id,
-                                file_name = %file_name,
-                                server_name = %server_name,
-                                "Deleted media"
-                            );
-                            return Ok(());
-                        }
-                    }
-                }
-            }
-            Err("Media not found".to_string())
-        })
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Task error", e))?;
+        let removal = tokio::task::spawn_blocking(move || std::fs::remove_file(&path))
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Task error", e))?;
 
-        result.map_err(ApiError::not_found)
+        removal.map_err(|e| ApiError::not_found(format!("Failed to delete media file: {e}")))?;
+
+        self.forget_file_name(media_id).await;
+        ::tracing::info!(
+            media_id = %media_id,
+            file_name = %file_name,
+            server_name = %server_name,
+            "Deleted media"
+        );
+        Ok(())
     }
 
     /// See [`purge_media_cache`].
@@ -1069,6 +1064,13 @@ impl MediaService {
         .map_err(|e| ApiError::internal_with_cause("Task error", e))?;
 
         deleted_count += media_deleted;
+
+        // Purge removes files straight off disk, bypassing `delete_media`, so
+        // any cached `media_id -> file_name` mapping may now point at a file
+        // that no longer exists. Drop them all; the next lookup re-scans.
+        if media_deleted > 0 {
+            self.file_name_cache.write().await.clear();
+        }
 
         let thumb_deleted = tokio::task::spawn_blocking(move || {
             let mut count = 0u64;
@@ -1322,6 +1324,47 @@ mod tests {
         assert!(result.is_ok());
         let json = result.unwrap();
         assert_eq!(json["url"], url);
+    }
+
+    // B14: 首次查找回填进程内缓存；后续查找命中缓存，不再全量扫描目录。
+    #[tokio::test]
+    async fn find_media_file_name_caches_resolved_name() {
+        let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let media_path = temp_dir.path().to_str().unwrap();
+        let service = MediaService::new(media_path, None, "test.server");
+
+        let media_id = "m_cachetest";
+        let file_name = format!("{media_id}.bin");
+        std::fs::write(service.media_path.join(&file_name), b"hello").expect("write media file");
+
+        let first = service.find_media_file_name(media_id).await.expect("lookup").expect("should find file");
+        assert_eq!(first, file_name);
+        assert!(service.cached_file_name(media_id).await.is_some(), "resolved mapping must be cached");
+
+        // 绕过服务直接删除底层文件：第二次查找仍命中缓存（证明未重新扫描目录）。
+        std::fs::remove_file(service.media_path.join(&file_name)).expect("remove media file");
+        let second = service.find_media_file_name(media_id).await.expect("lookup").expect("cached hit");
+        assert_eq!(second, file_name);
+    }
+
+    // B14: 删除媒体后必须失效对应缓存，避免返回已不存在的文件名。
+    #[tokio::test]
+    async fn delete_media_invalidates_file_name_cache() {
+        let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let media_path = temp_dir.path().to_str().unwrap();
+        let service = MediaService::new(media_path, None, "test.server");
+
+        let media_id = "m_deletetest";
+        let file_name = format!("{media_id}.bin");
+        std::fs::write(service.media_path.join(&file_name), b"hello").expect("write media file");
+
+        assert!(service.find_media_file_name(media_id).await.expect("lookup").is_some());
+        assert!(service.cached_file_name(media_id).await.is_some());
+
+        service.delete_media("test.server", media_id).await.expect("delete media");
+
+        assert!(service.cached_file_name(media_id).await.is_none(), "cache entry must be dropped");
+        assert!(!service.media_path.join(&file_name).exists(), "file must be gone");
     }
 
     // 审查 #1：解压炸弹防护——图片单边超过 MAX_IMAGE_DIMENSION 应被拒绝，

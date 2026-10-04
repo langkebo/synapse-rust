@@ -9,7 +9,7 @@
 > 见 `docs/audit/ROOM_V12_PLAN_STATUS_2026-09-27.md`。
 
 > **对齐基准**：element-hq/synapse **v1.162.0**（发布于 2026-09-29，当前最新稳定版）；上游 `CHANGES.md` 已核对 1.157→1.162 全部条目。
-> Matrix Specification 基线：**v1.19**（上游 v1.162 release notes 引用 `spec.matrix.org/v1.19`）。
+> Matrix Specification 基线：**v1.14**（本仓库 `/versions` 声明上限，唯一权威为 `synapse-services/src/capability_governance.rs` 的 `CLIENT_API_VERSION_SUPPORT`；上游 v1.162 release notes 引用 `spec.matrix.org/v1.19`，但本服务器未声明 v1.15+，故不以之为基线）。
 > **本次复核日期**：2026-09-29；本表全部取证的仓库 HEAD 为 `74bb9c522`（`git log -1`）。
 > v1.6 的取证 HEAD 为 `9e26ee31a`（2026-09-25，分支 `opt/consolidated`）；其后路由注册面经 §1.1 末段列出的
 > 三批提交（`88001b4a9` → `d4e22f9ea` → HEAD）推进，故本版三口径计数整体上移。
@@ -400,7 +400,7 @@
 | 端点 | v1.3 文档 | 实测 |
 |---|---|---|
 | `GET/DELETE /_synapse/admin/v1/rooms/{room_id}/reports[/{report_id}]` | §三"缺失（待实现）" | **已实现**（`_synapse/admin/v1/rooms/{room_id}/reports`、`.../reports/{report_id}` 均在册；`synapse-web/src/routes/admin/report.rs`） |
-| `GET /_synapse/admin/v1/quarantine_media/{media_id}/changes` | §三"缺失（待实现）" | **已实现**（在册） |
+| `GET /_synapse/admin/v1/media/quarantine_changes` | §三"缺失（待实现）" | **已实现**（在册；**订正 2026-10-04**：原 `GET /_synapse/admin/v1/quarantine_media/{media_id}/changes` 非上游端点，已按上游 `synapse/rest/admin/media.py` 改为全局变更流 `media/quarantine_changes`，参数 `from`/`limit`、响应 `{next_batch,changes:[{origin,media_id,quarantined}]}`） |
 | `GET/DELETE /_synapse/admin/v1/reports[/{report_id}]` | 未提及 | **已实现**（在册，与 `event_reports` 并存） |
 | `POST /_matrix/client/v3/keys/upload` 拒绝 `device_keys: null` | §三"缺失（待实现）" | `[未验证]`（本次未按代码复核，留待下一轮） |
 | 事件举报 API（`event_reports` 全家族 15 条，含 `rate_limit/{user_id}/block`） | v1.3 完全未列 | **已实现且超出上游文档面**（2026-09-24：`/{id}/history` 已按 D-12 删除，16 → 15） |
@@ -434,30 +434,33 @@
 > **本版订正**：v1.6 及以前本节判定"本仓 admin 媒体类仅 **7** 条逻辑端点……**缺少**形如
 > `GET/DELETE /_synapse/admin/v1/users/{user_id}/media` 的按用户媒体管理族"。该论断**已被证伪**——
 > 2026-09 的一次提交（`a13f57316`，见 `docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md` D-87）新增了
-> **10 条** admin 媒体端点，本仓该类别现为 **17 逻辑端点 / 17 唯一路径 / 19 注册条目**，与上游人工口径
-> （18）已基本持平（≈94%）。
+> **10 条** admin 媒体端点。**订正（2026-10-04）**：又按上游 `synapse/rest/admin/media.py` 逐条对齐
+> （`room/rooms` 单复数、`media` GET/DELETE 补 `{server_name}`、`quarantine_changes` 改全局变更流、
+> `protect/unprotect` 去 `{server_name}`），现为 **17 注册条目 / 15 唯一路径串**，与上游人工口径
+> （15 条）在族内逐条对齐。
 
 本仓 admin 媒体面当前实测（`ROUTE_CONTRACT.md` 在册，可复现）：
 
 | 端点 | 作用 |
 |---|---|
 | `GET /_synapse/admin/v1/media` | 媒体列举（按房间/用户过滤由 query 决定） |
-| `GET\|DELETE /_synapse/admin/v1/media/{media_id}` | 单条媒体查询 / 删除 |
+| `GET\|DELETE /_synapse/admin/v1/media/{server_name}/{media_id}` | 单条媒体查询 / 删除 |
 | `GET /_synapse/admin/v1/media/quota` | 媒体配额 |
 | `POST /_synapse/admin/v1/media/delete` | 批量删除 |
-| `POST /_synapse/admin/v1/media/{protect,unprotect}/{...}` | 保护 / 取消保护 |
+| `POST /_synapse/admin/v1/media/{protect,unprotect}/{media_id}` | 保护 / 取消保护（上游无 `{server_name}` 段） |
 | `POST /_synapse/admin/v1/media/{quarantine,unquarantine}/{server_name}/{media_id}` | 隔离 / 解除隔离 |
-| `GET /_synapse/admin/v1/rooms/{room_id}/media[/{media_id}]` | 按房间列举 / 查询 |
-| `POST /_synapse/admin/v1/rooms/{room_id}/media/{quarantine,unquarantine}` | 按房间隔离 / 解除隔离 |
-| `POST /_synapse/admin/v1/user/{user_id}/media/quarantine` | 按用户隔离 |
-| `GET /_synapse/admin/v1/quarantine_media/{media_id}/changes` | 隔离媒体变更流 |
+| `GET /_synapse/admin/v1/media/quarantine_changes` | 全局隔离媒体变更流（`from`/`limit`，固定 `limit=100`） |
+| `GET\|DELETE /_synapse/admin/v1/users/{user_id}/media` | 按用户列举 / 删除 |
+| `POST /_synapse/admin/v1/user/{user_id}/media/quarantine` | 按用户隔离（上游 `user` 单数） |
+| `GET /_synapse/admin/v1/room/{room_id}/media` | 按房间列举（上游 `room` 单数） |
+| `DELETE /_synapse/admin/v1/room/{room_id}/media/{media_id}` | 按房间删除单条（本仓扩展） |
+| `POST /_synapse/admin/v1/room/{room_id}/media/{quarantine,unquarantine}` | 按房间隔离 / 解除隔离 |
 | `POST /_synapse/admin/v1/purge_media_cache` | 清除媒体缓存 |
 | `GET\|POST /_synapse/admin/v1/media_callbacks[/{callback_type}]` | 媒体回调（本仓扩展） |
 
-> ⚠️ **口径说明**：上游人工口径列的是 `GET/DELETE /_synapse/admin/v1/users/{user_id}/media`
-> （**复数** `users`）；本仓实现的是 `POST /_synapse/admin/v1/user/{user_id}/media/quarantine`
-> （**单数** `user`）。二者语义相近但路径不同，故 ≈94% 是**趋势**而非逐字对齐；若要严格对齐上游运维面板，
-> 仍可补一条复数形式的按用户媒体列举/删除端点（取决于产品是否需要）。
+> ⚠️ **口径说明**：上游人工口径同时列有 `GET/DELETE /_synapse/admin/v1/users/{user_id}/media`
+> （**复数** `users`，列举/删除）与 `POST /_synapse/admin/v1/user/{user_id}/media/quarantine`
+> （**单数** `user`，隔离）。本仓**两者均已实现**，路径逐字对齐上游；`room/rooms` 亦已统一为上游的单数 `room`。
 
 ---
 
@@ -678,7 +681,7 @@ for key, rules in (("Client", CLIENT), ("Admin", ADMIN)):
 |---|---|---|
 | [`ROUTE_CONTRACT.md`](./ROUTE_CONTRACT.md) | **路由机器权威**（逐模块 `(method, path)`） | 2026-10-02 生成（**1154** 条，与 §1.1 表一致） |
 | [`MSC_SEMANTICS.md`](./MSC_SEMANTICS.md) | **MSC 编号语义唯一真相源**（含"借用编号"登记） | 2026-09-14 |
-| [`ELEMENT_SYNAPSE_GAP_ANALYSIS_2026-07-28.md`](./ELEMENT_SYNAPSE_GAP_ANALYSIS_2026-07-28.md) | 对标 v1.156.0 的功能级差距分析 | 2026-07-28（基准已落后 5 个版本） |
+| [`ELEMENT_SYNAPSE_GAP_ANALYSIS_2026-07-28.md`](./ELEMENT_SYNAPSE_GAP_ANALYSIS_2026-07-28.md) | 对标 v1.156.0 的功能级差距分析（历史快照；现行上游基线 **v1.162.0** 即本文档） | 2026-07-28 |
 | [`../audit/COMPARISON_REPORT_REVIEW_2026-09-22.md`](../audit/COMPARISON_REPORT_REVIEW_2026-09-22.md) | 对 `synapse-rust-vs-synapse-comparison.md` 的复核（含 v1.157–1.161 逐条实测） | 2026-09-22 |
 | [`../audit/2026-09-23-msc3912-cascade-redaction.md`](../audit/2026-09-23-msc3912-cascade-redaction.md) | MSC3912 关系性级联撤回的实现说明（§5.2 / §6.2 引用） | 2026-09-23 |
 | [`../audit/D-12_EVENT_REPORT_HISTORY_STATS_FIX_PLAN.md`](../audit/D-12_EVENT_REPORT_HISTORY_STATS_FIX_PLAN.md) | D-12（`event_reports` `/history` 删除 + `/stats` 静态聚合）的收口记录 —— **§三「安全 −1」的来源** | 2026-09-25 |

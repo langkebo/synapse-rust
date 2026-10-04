@@ -162,6 +162,12 @@ impl EventStorage {
     }
 
     /// See [`get_total_message_count`].
+    ///
+    /// B4: this full-table `COUNT(*)` over `events` is only exercised by the
+    /// storage db_tests; no production caller exists. Gate it behind
+    /// `cfg(test)` so the unbounded scan is not reachable from the server
+    /// binary, while the test coverage remains.
+    #[cfg(test)]
     pub async fn get_total_message_count(&self) -> Result<i64, sqlx::Error> {
         let count: i64 = sqlx::query_scalar!(
             r#"

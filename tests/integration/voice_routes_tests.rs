@@ -138,9 +138,13 @@ async fn upload_voice_message(app: &axum::Router, token: &str, room_id: Option<&
 
 #[tokio::test]
 async fn test_voice_config_endpoint() {
-    let Some(app) = setup_test_app().await else {
+    // A11: `max_size_bytes` must mirror the authoritative
+    // `config.server.max_upload_size`, so read the expected value from the same
+    // config the handler sees instead of pinning a hardcoded literal.
+    let Some((app, state)) = super::setup_fresh_test_app_with_state().await else {
         return;
     };
+    let expected_max_size = state.services.core.config.server.max_upload_size;
 
     let token = create_test_user(&app).await;
 
@@ -169,11 +173,16 @@ async fn test_voice_config_endpoint() {
         let json: Value = serde_json::from_slice(&body).unwrap();
 
         assert!(json.get("supported_formats").is_some());
-        assert_eq!(json["max_size_bytes"], 52428800);
+        assert_eq!(json["max_size_bytes"].as_u64(), Some(expected_max_size));
         assert_eq!(json["content_type"], "m.audio");
         assert_eq!(json["voice_extension"], "org.matrix.msc3245.voice");
         assert_eq!(json["max_duration"], 600);
         assert_eq!(json["auto_transcribe"], false);
+        // A3: the convert/optimize/transcription routes are registered but
+        // intentionally unsupported (501); the capability declaration must say so.
+        assert_eq!(json["server_side_processing"]["convert"], false);
+        assert_eq!(json["server_side_processing"]["optimize"], false);
+        assert_eq!(json["server_side_processing"]["transcription"], false);
         assert!(json["allowed_formats"].is_array());
     }
 }

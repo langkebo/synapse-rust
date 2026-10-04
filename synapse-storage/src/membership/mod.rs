@@ -1287,7 +1287,7 @@ mod tests {
 }
 
 #[cfg(test)]
-#[allow(clippy::useless_conversion, clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod db_tests {
     use super::*;
     use std::sync::Arc;

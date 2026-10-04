@@ -2,8 +2,8 @@
 
 > 审查日期: 2026-07-28
 > synapse-rust 版本: v6.2.0
-> Element Synapse 基线: v1.156.0 (2026-07-07)
-> Matrix Specification 基线: v1.18
+> Element Synapse 基线: v1.156.0 (2026-07-07)（本文档为历史快照；现行上游基线见 [`API_COVERAGE_REPORT.md`](./API_COVERAGE_REPORT.md) 的 **v1.162.0**）
+> Matrix Specification 基线: v1.14（本仓库 `CLIENT_API_VERSION_SUPPORT` 声明上限，唯一权威见 `synapse-services/src/capability_governance.rs`）
 
 ---
 
@@ -24,7 +24,7 @@ synapse-rust v6.2.0 对标 Element Synapse v1.156.0 的整体覆盖率达到 **~
 |------|-------------|-------------------------|------|
 | 项目版本 | v6.2.0 | v1.156.0 | — |
 | 声明 Matrix spec | v1.1–v1.14 | v1.1–v1.12 (保守) | synapse-rust 声明更激进 |
-| 支持房间版本 | v1–v13 (默认 v10) | v1–v12 (默认 v10) | synapse-rust 多声明 v13 |
+| 支持房间版本 | v1–v12 (默认 v12) | v1–v12 (默认 v10) | 支持集一致；默认版本不同（v12 vs v10） |
 | 声明 unstable_features | 17 项 | ~20 项 | 见下文逐项分析 |
 | 路由总数 | 1286 | ~1400+ | 覆盖核心 + 扩展 |
 
@@ -102,7 +102,7 @@ synapse-rust v6.2.0 对标 Element Synapse v1.156.0 的整体覆盖率达到 **~
 #### 已实现功能
 - ✅ 房间创建/加入/离开/邀请/踢出/封禁
 - ✅ Knock 功能
-- ✅ 房间升级（v1-v13）
+- ✅ 房间升级（v1-v12）
 - ✅ 房间状态管理
 - ✅ 消息发送/编辑/撤回/转发/回复
 - ✅ 消息反应（Emoji）
@@ -371,7 +371,7 @@ synapse-rust v6.2.0 对标 Element Synapse v1.156.0 的整体覆盖率达到 **~
 | Route owner 显式校验 | 持续维护 | ✅ 已实现（`RouteOwnerProbe::Sync/Media/Federation` + `expected_route_owner_for_probe`） | — |
 | 拓扑校验覆盖 Synapse v1.156 新增 worker 配置项 | v1.156 新增配置 | ✅ 已验证（P2-15：`topology_validator.rs` 新增 12 个测试覆盖全部 8 个 stream writers + 边界场景） | P2 |
 
-**注**: `topology_validator.rs` 已实现完整拓扑校验（682 行），已在 `src/web/routes/worker.rs` 中暴露 `GET /topology_validation` 端点，包含 `RouteOwnerProbe` 机制。剩余工作仅为验证是否覆盖 Synapse v1.156 新增的 worker 配置项。
+**注**: `topology_validator.rs` 已实现完整拓扑校验（682 行），已在 `synapse-web/src/routes/worker.rs` 中暴露 `GET /topology_validation` 端点，包含 `RouteOwnerProbe` 机制。剩余工作仅为验证是否覆盖 Synapse v1.156 新增的 worker 配置项。
 
 ---
 

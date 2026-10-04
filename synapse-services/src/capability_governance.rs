@@ -41,49 +41,31 @@ impl RouteCheck {
 // Client API version support
 // ---------------------------------------------------------------------------
 
-/// The `ClientApiVersionFamily` enum.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ClientApiVersionFamily {
-    /// The `LegacyR0` variant.
-    LegacyR0,
-    /// The `StableV1` variant.
-    StableV1,
-}
-
 /// The `ClientApiVersionSupport` struct.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ClientApiVersionSupport {
     version: &'static str,
-    family: ClientApiVersionFamily,
 }
 
 impl ClientApiVersionSupport {
-    /// See [`legacy`].
-    pub const fn legacy(version: &'static str) -> Self {
-        Self { version, family: ClientApiVersionFamily::LegacyR0 }
-    }
-
     /// See [`stable`].
     pub const fn stable(version: &'static str) -> Self {
-        Self { version, family: ClientApiVersionFamily::StableV1 }
+        Self { version }
     }
 
     /// See [`version`].
     pub const fn version(self) -> &'static str {
         self.version
     }
-
-    /// See [`family`].
-    pub(crate) const fn family(self) -> ClientApiVersionFamily {
-        self.family
-    }
 }
 
 /// Constant `CLIENT_API_VERSION_SUPPORT`.
+///
+/// The server only registers the `/_matrix/client/v3` route surface, so it
+/// declares the stable v1 family exclusively. The legacy `r0.x` versions are
+/// intentionally NOT advertised: declaring them would promise an r0 endpoint
+/// surface that does not exist.
 pub(crate) const CLIENT_API_VERSION_SUPPORT: &[ClientApiVersionSupport] = &[
-    ClientApiVersionSupport::legacy("r0.5.0"),
-    ClientApiVersionSupport::legacy("r0.6.0"),
-    ClientApiVersionSupport::legacy("r0.6.1"),
     ClientApiVersionSupport::stable("v1.1"),
     ClientApiVersionSupport::stable("v1.2"),
     ClientApiVersionSupport::stable("v1.3"),
@@ -231,22 +213,7 @@ impl CapabilityGovernance {
 
     /// Returns the ordered list of client API versions declared by this server.
     pub fn declared_client_api_versions() -> Vec<&'static str> {
-        let mut seen_stable = false;
-
-        CLIENT_API_VERSION_SUPPORT
-            .iter()
-            .map(|support| {
-                match support.family() {
-                    ClientApiVersionFamily::LegacyR0 => {
-                        debug_assert!(!seen_stable, "legacy r0 versions must stay before stable v1 versions");
-                    }
-                    ClientApiVersionFamily::StableV1 => {
-                        seen_stable = true;
-                    }
-                }
-                support.version()
-            })
-            .collect()
+        CLIENT_API_VERSION_SUPPORT.iter().map(|support| support.version()).collect()
     }
 
     /// Build the `GET /_matrix/client/versions` response body (public surface).
@@ -674,18 +641,21 @@ mod tests {
     }
 
     #[test]
-    fn test_client_version_support_keeps_legacy_before_stable_versions() {
-        let first_stable_index = CLIENT_API_VERSION_SUPPORT
-            .iter()
-            .position(|support| support.family() == ClientApiVersionFamily::StableV1)
-            .expect("stable v1 versions should be present");
+    fn test_no_legacy_r0_versions_declared() {
+        // The server only registers the `/_matrix/client/v3` route surface, so
+        // it must not advertise the legacy `r0.x` versions.
+        assert!(
+            CLIENT_API_VERSION_SUPPORT.iter().all(|support| !support.version().starts_with("r0")),
+            "no legacy r0 versions should be declared"
+        );
 
-        assert!(CLIENT_API_VERSION_SUPPORT[..first_stable_index]
-            .iter()
-            .all(|support| support.family() == ClientApiVersionFamily::LegacyR0));
-        assert!(CLIENT_API_VERSION_SUPPORT[first_stable_index..]
-            .iter()
-            .all(|support| support.family() == ClientApiVersionFamily::StableV1));
+        let g = governance_with_default_config();
+        let body = g.build_client_versions();
+        let versions = body["versions"].as_array().expect("versions should be an array");
+        assert!(
+            versions.iter().all(|version| !version.as_str().unwrap_or_default().starts_with("r0")),
+            "the /versions response must not include legacy r0 versions"
+        );
     }
 
     #[test]

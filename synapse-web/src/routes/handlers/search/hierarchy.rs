@@ -7,6 +7,18 @@ use synapse_common::ApiError;
 use crate::routes::extractors::RoomId;
 use std::collections::HashMap;
 
+/// E10: extract `content.type` from the `m.room.create` state event, defaulting
+/// to JSON `null` when the event (or its `type`) is absent.
+fn room_type_from_state_events(state_events: &[Value]) -> Value {
+    state_events
+        .iter()
+        .find(|e| e.get("type").and_then(|v| v.as_str()) == Some("m.room.create"))
+        .and_then(|e| e.get("content"))
+        .and_then(|c| c.get("type"))
+        .and_then(|v| v.as_str())
+        .map_or(Value::Null, |s| Value::String(s.to_string()))
+}
+
 /// See [`build_room_hierarchy_response`].
 pub(crate) async fn build_room_hierarchy_response(
     ctx: &RoomContext,
@@ -81,13 +93,7 @@ pub(crate) async fn build_room_hierarchy_response(
                 let child_rooms_map = ctx.room_service.collect_child_rooms(&child_room_ids).await?;
 
                 if !child_rooms_map.is_empty() || !has_space_self {
-                    let space_room_type = state_events
-                        .iter()
-                        .find(|e| e.get("type").and_then(|v| v.as_str()) == Some("m.room.create"))
-                        .and_then(|e| e.get("content"))
-                        .and_then(|c| c.get("type"))
-                        .and_then(|v| v.as_str())
-                        .map_or(Value::Null, |s| Value::String(s.to_string()));
+                    let space_room_type = room_type_from_state_events(&state_events);
 
                     if let Some(rooms_arr) = obj.get_mut("rooms").and_then(|r| r.as_array_mut()) {
                         if !has_space_self {
@@ -135,13 +141,7 @@ pub(crate) async fn build_room_hierarchy_response(
 
     let state_events = ctx.room_service.messaging().get_state_events(room_id).await?;
 
-    let room_type = state_events
-        .iter()
-        .find(|e| e.get("type").and_then(|v| v.as_str()) == Some("m.room.create"))
-        .and_then(|e| e.get("content"))
-        .and_then(|c| c.get("type"))
-        .and_then(|v| v.as_str())
-        .map_or(Value::Null, |s| Value::String(s.to_string()));
+    let room_type = room_type_from_state_events(&state_events);
 
     let mut children_state = Vec::new();
     let mut child_room_ids = Vec::new();

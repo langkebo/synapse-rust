@@ -1218,11 +1218,10 @@ impl FriendRoomService {
             .map(|(room_id, user_id, state_key, content)| {
                 let room_service = Arc::clone(&room_service);
                 let server_name = &server_name;
-                #[allow(clippy::needless_borrow)]
                 async move {
                     Self::send_state_event_inner(
                         &room_service,
-                        &server_name,
+                        server_name,
                         &room_id,
                         &user_id,
                         "m.friends.list",
@@ -1252,7 +1251,6 @@ impl FriendRoomService {
 
     /// Stateless helper that sends a state event, accepting an explicit `Arc` so
     /// callers can clone the reference for concurrent execution.
-    #[allow(clippy::needless_borrow)]
     async fn send_state_event_inner(
         room_service: &crate::room::RoomService,
         server_name: &str,

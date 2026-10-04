@@ -38,19 +38,19 @@ pub struct DeleteMediaByPolicyRequest {
 pub fn create_media_router() -> Router<crate::routes::AppState> {
     Router::new()
         .route("/_synapse/admin/v1/media", get(get_all_media))
-        .route("/_synapse/admin/v1/media/{media_id}", get(get_media_info))
-        .route("/_synapse/admin/v1/media/{media_id}", delete(delete_media))
         .route("/_synapse/admin/v1/media/quota", get(get_media_quota))
+        .route("/_synapse/admin/v1/media/quarantine_changes", get(get_media_quarantine_changes))
+        .route("/_synapse/admin/v1/media/{server_name}/{media_id}", get(get_media_info))
+        .route("/_synapse/admin/v1/media/{server_name}/{media_id}", delete(delete_media))
         .route("/_synapse/admin/v1/users/{user_id}/media", get(get_user_media))
         .route("/_synapse/admin/v1/users/{user_id}/media", delete(delete_user_media))
-        .route("/_synapse/admin/v1/rooms/{room_id}/media", get(get_room_media))
-        .route("/_synapse/admin/v1/rooms/{room_id}/media/{media_id}", delete(delete_room_media))
-        .route("/_synapse/admin/v1/quarantine_media/{media_id}/changes", get(get_media_quarantine_changes))
+        .route("/_synapse/admin/v1/room/{room_id}/media", get(get_room_media))
+        .route("/_synapse/admin/v1/room/{room_id}/media/{media_id}", delete(delete_room_media))
         .route("/_synapse/admin/v1/media/quarantine/{server_name}/{media_id}", post(quarantine_media))
         .route("/_synapse/admin/v1/media/unquarantine/{server_name}/{media_id}", post(unquarantine_media))
-        .route("/_synapse/admin/v1/rooms/{room_id}/media/quarantine", post(quarantine_room_media))
-        .route("/_synapse/admin/v1/rooms/{room_id}/media/unquarantine", post(unquarantine_room_media))
-        .route("/_synapse/admin/v1/media/protect/{server_name}/{media_id}", post(protect_media))
+        .route("/_synapse/admin/v1/room/{room_id}/media/quarantine", post(quarantine_room_media))
+        .route("/_synapse/admin/v1/room/{room_id}/media/unquarantine", post(unquarantine_room_media))
+        .route("/_synapse/admin/v1/media/protect/{media_id}", post(protect_media))
         // ─────────────────────────────────────────────────────────────────────
         // U-5: Missing endpoints being implemented
         // ─────────────────────────────────────────────────────────────────────
@@ -100,7 +100,7 @@ pub async fn get_all_media(
 pub async fn get_media_info(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(media_id): Path<MediaId>,
+    Path((_server_name, media_id)): Path<(ServerName, MediaId)>,
 ) -> Result<Json<Value>, ApiError> {
     let media = ctx.admin_media_service.get_media_info(&media_id).await?;
 
@@ -124,7 +124,7 @@ pub async fn get_media_info(
 pub async fn delete_media(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(media_id): Path<MediaId>,
+    Path((_server_name, media_id)): Path<(ServerName, MediaId)>,
 ) -> Result<Json<Value>, ApiError> {
     ctx.admin_media_service.delete_media(&media_id).await?;
 
@@ -186,29 +186,25 @@ pub async fn delete_user_media(
 pub async fn get_media_quarantine_changes(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(media_id): Path<MediaId>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
-    let since = params.get("since").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0).max(0);
-    let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(100_i64).clamp(1, 500);
+    let from = params.get("from").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0).max(0);
+    let limit = 100_i64;
 
-    let changes = ctx.admin_media_service.get_media_quarantine_changes(&media_id, since, limit).await?;
+    let (next_batch, changes) = ctx.admin_media_service.get_quarantine_changes(from, limit).await?;
 
     let changes_json: Vec<Value> = changes
         .iter()
         .map(|c| {
             json!({
-                "stream_id": c.stream_id,
+                "origin": c.server_name,
                 "media_id": c.media_id,
-                "server_name": c.server_name,
-                "change_type": c.change_type,
-                "changed_by": c.changed_by,
-                "created_ts": c.created_ts
+                "quarantined": c.change_type == "quarantine"
             })
         })
         .collect();
 
-    Ok(Json(json!({ "changes": changes_json, "total": changes_json.len() })))
+    Ok(Json(json!({ "next_batch": next_batch, "changes": changes_json })))
 }
 
 /// See [`quarantine_media`].
@@ -253,7 +249,7 @@ pub async fn unquarantine_media(
 
 /// See [`get_room_media`].
 ///
-/// Backs `GET /_synapse/admin/v1/rooms/{room_id}/media`.
+/// Backs `GET /_synapse/admin/v1/room/{room_id}/media`.
 /// Lists all media in a room (local and remote).
 #[axum::debug_handler]
 pub async fn get_room_media(
@@ -290,7 +286,7 @@ pub async fn get_room_media(
 
 /// See [`delete_room_media`].
 ///
-/// Backs `DELETE /_synapse/admin/v1/rooms/{room_id}/media/{media_id}`.
+/// Backs `DELETE /_synapse/admin/v1/room/{room_id}/media/{media_id}`.
 /// Deletes a specific media item from a room.
 #[axum::debug_handler]
 pub async fn delete_room_media(
@@ -305,7 +301,7 @@ pub async fn delete_room_media(
 
 /// Quarantine media in a room, optionally filtered by user.
 ///
-/// Backs `POST /_synapse/admin/v1/rooms/{roomId}/media/quarantine`.
+/// Backs `POST /_synapse/admin/v1/room/{roomId}/media/quarantine`.
 /// The request body may contain a `user_id` to limit quarantine to that user's media.
 #[axum::debug_handler]
 pub async fn quarantine_room_media(
@@ -327,7 +323,7 @@ pub async fn quarantine_room_media(
 
 /// Unquarantine media in a room, optionally filtered by user.
 ///
-/// Backs `POST /_synapse/admin/v1/rooms/{roomId}/media/unquarantine`.
+/// Backs `POST /_synapse/admin/v1/room/{roomId}/media/unquarantine`.
 /// The request body may contain a `user_id` to limit unquarantine to that user's media.
 #[axum::debug_handler]
 pub async fn unquarantine_room_media(
@@ -349,18 +345,17 @@ pub async fn unquarantine_room_media(
 
 /// Protect media from automatic quarantine.
 ///
-/// Backs `POST /_synapse/admin/v1/media/protect/{serverName}/{mediaId}`.
+/// Backs `POST /_synapse/admin/v1/media/protect/{mediaId}`.
 #[axum::debug_handler]
 pub async fn protect_media(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path((server_name, media_id)): Path<(ServerName, MediaId)>,
+    Path(media_id): Path<MediaId>,
 ) -> Result<Json<Value>, ApiError> {
-    let stream_id = ctx.admin_media_service.protect_media(&server_name, &media_id, &admin.user_id).await?;
+    let stream_id = ctx.admin_media_service.protect_media(&media_id, &admin.user_id).await?;
 
     Ok(Json(json!({
         "stream_id": stream_id,
-        "server_name": server_name,
         "media_id": media_id,
         "protected": true,
         "changed_by": admin.user_id
@@ -412,7 +407,7 @@ pub async fn delete_media_by_policy(
 
 /// Unprotect a media item so it can be quarantined or deleted again.
 ///
-/// Backs `POST /_synapse/admin/v1/media/unprotect/{media_id}`.
+/// Backs `POST /_synapse/admin/v1/media/unprotect/{mediaId}`.
 #[axum::debug_handler]
 pub async fn unprotect_media_by_id(
     admin: AdminUser,

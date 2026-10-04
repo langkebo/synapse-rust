@@ -447,7 +447,8 @@ The codebase generally follows `route (synapse-web/src/) -> service (synapse-ser
 ## Matrix/Synapse protocol guidance
 
 ### Current external baselines
-- Treat Matrix Specification latest as the normative protocol source. As of 2026-09-29, the latest published spec is v1.19.
+- **Upstream tracking target** — Treat the latest *published* Matrix Specification as the normative protocol source. As of 2026-09-29, the latest published spec is **v1.19**. This value moves with upstream releases and is **not** a claim about what this server implements.
+- **This repo's declared baseline** — The spec versions this server actually advertises in `/_matrix/client/versions` are **v1.1–v1.14** (ceiling **v1.14**). The single source of truth is `synapse-services/src/capability_governance.rs` (`CLIENT_API_VERSION_SUPPORT`); every other doc must derive its "baseline" from this constant instead of restating a number. **Do not conflate the upstream latest release (v1.19) with this repo's declared baseline (v1.14).**
 - Treat `element-hq/synapse` as the main behavioral reference for production homeserver tradeoffs. As of 2026-09-29, the latest stable tag observed was `v1.162.0`.
 - When changing compatibility-sensitive behavior, record the spec/Synapse version you used in the relevant doc or test name so the baseline is auditable later.
 

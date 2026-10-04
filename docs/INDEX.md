@@ -25,11 +25,12 @@
 |------|------|
 | [`ROUTE_CONTRACT.md`](./synapse-rust/ROUTE_CONTRACT.md) | **路由契约事实清单**：从 `synapse-web/src/routes/**` 真实注册面提取，逐模块列出 `(method, path)` 与 manifest 覆盖状态 |
 | [`API_COVERAGE_REPORT.md`](./synapse-rust/API_COVERAGE_REPORT.md) | 相对 element-hq/synapse v1.162.0 的 API 覆盖率分析 |
-| [`ELEMENT_SYNAPSE_GAP_ANALYSIS_2026-07-28.md`](./synapse-rust/ELEMENT_SYNAPSE_GAP_ANALYSIS_2026-07-28.md) | 与上游 Synapse 的能力差距分析（现行基线） |
+| [`ELEMENT_SYNAPSE_GAP_ANALYSIS_2026-07-28.md`](./synapse-rust/ELEMENT_SYNAPSE_GAP_ANALYSIS_2026-07-28.md) | 与上游 Synapse 的能力差距分析（历史快照，基线 v1.156.0；现行上游基线 **v1.162.0** 见 `API_COVERAGE_REPORT.md`） |
 | [`DEPENDENCY_UPGRADE_TRACKER.md`](./synapse-rust/DEPENDENCY_UPGRADE_TRACKER.md) | 依赖升级追踪 |
+| [`LEDGER_EXPORT_SCHEMA.md`](./synapse-rust/LEDGER_EXPORT_SCHEMA.md) | 账本导出（ledger export）Schema 契约，`schema_version` 由 `tests/unit/ledger_export_tests.rs` 绑定 |
 | [`admin-registration-guide.md`](./synapse-rust/admin-registration-guide.md) | 管理员注册流程 |
 
-> ⚠️ 历史上引用的 `SUPPORTED_MATRIX_SURFACE.md`、`API_SECURITY_VERIFICATION_REPORT.md`、`COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md`、`M3_*.md`、`SPEC_ALIGNMENT_PLAN_2026-05-01.md`、`LEDGER_EXPORT_SCHEMA.md`、`ROUTE_STORAGE_MIGRATION_PLAN.md`、`MATRIX_SYNAPSE_AUDIT_AND_OPTIMIZATION_PLAN_2026-05-29.md` 以及整个 `docs/db/` 目录**均已不存在**，已从本索引移除。如需要，相关内容可在 `docs/audit/`、`docs/archive/` 中检索。
+> ⚠️ 历史上引用的 `SUPPORTED_MATRIX_SURFACE.md`、`API_SECURITY_VERIFICATION_REPORT.md`、`COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md`、`M3_*.md`、`SPEC_ALIGNMENT_PLAN_2026-05-01.md`、`ROUTE_STORAGE_MIGRATION_PLAN.md`、`MATRIX_SYNAPSE_AUDIT_AND_OPTIMIZATION_PLAN_2026-05-29.md` 以及整个 `docs/db/` 目录**均已不存在**，已从本索引移除。如需要，相关内容可在 `docs/audit/`、`docs/archive/` 中检索。
 
 ---
 
@@ -80,7 +81,7 @@
 - [`P2_protocol_contract_2026-09-11.md`](./audit/P2_protocol_contract_2026-09-11.md) — API 契约审查
 - [`P1_security_2026-09-10.md`](./audit/P1_security_2026-09-10.md) — 安全审计
 - [`DB_REVIEW_2026-09-17.md`](./audit/DB_REVIEW_2026-09-17.md) — 存储层审查
-- 其余 `audit/*.md` 与 `superpowers/specs/` 为过程性报告，按需查阅。
+- 其余 `audit/*.md` 与 `superpowers/plans/`、`superpowers/specs/` 为过程性报告/历史计划，按需查阅。
 
 > 2026-10-04 清理：17 份无现行文档/代码引用的一次性审计报告已迁至 `docs/archive/audit/`（含 `ARCHITECTURE_REMEDIATION_ROADMAP_*`、`B4_1_TRAIT_CLASSIFICATION_*`、`P1B_*`/`P1C_*`、`P3_migration_replayability_*`、`P4_*` 与 `P5_*` 过程记录、`ROOM_V12_B2A_DELIVERY_*`、`WORKER_STATS_METRICS_DECISION_*`、`v12-pdu-graph-fields-integration.md` 等）。仍被源码/迁移注释或现行文档引用的审计档（如 `P4_performance_baseline_*`、`P5_engineering_*`、`P5_test_schema_accumulation_*`、`DB_REVIEW_*`、`AUDIT_SUMMARY_*`）继续保留在 `docs/audit/`。
 

@@ -132,7 +132,16 @@ impl TaskQueue {
         let sender = self.sender.clone();
         tokio::spawn(async move {
             tokio::time::sleep(delay).await;
-            let _ = sender.send(Box::new(task)).await;
+            // A13: the delayed send happens after `submit_delayed` has already
+            // returned, so the failure cannot be surfaced to the caller. Log it
+            // loudly instead of dropping the task silently when the queue has
+            // been closed in the meantime.
+            if let Err(error) = sender.send(Box::new(task)).await {
+                tracing::error!(
+                    error = %error,
+                    "Delayed task dropped: task queue channel closed before dispatch"
+                );
+            }
         });
         Ok(())
     }

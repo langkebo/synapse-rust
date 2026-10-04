@@ -30,8 +30,13 @@ fn increment_counter_by(ctx: &FederationContext, name: &str, delta: u64) {
 }
 
 async fn set_presence_backoff(ctx: &FederationContext, origin: &str) {
-    let until = current_timestamp_millis() + ctx.config.federation.inbound_presence_backoff_ms as i64;
+    let now = current_timestamp_millis();
+    let until = now + ctx.config.federation.inbound_presence_backoff_ms as i64;
     let mut guard = ctx.federation_presence_backoff_until.write().await;
+    // B11: drop expired entries on every write so the map stays bounded by the
+    // set of origins currently in backoff, instead of growing per-ever-seen
+    // origin for the process lifetime.
+    guard.retain(|_, &mut v| v > now);
     guard.insert(origin.to_string(), until);
 }
 

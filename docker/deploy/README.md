@@ -198,7 +198,7 @@ docker/deploy/
 | POSTGRES_PASSWORD | (必填) | 数据库密码 |
 | REDIS_PASSWORD | (必填) | Redis 密码 |
 | SSL_CERT / SSL_KEY | cert.pem / key.pem | ssl/ 目录下证书文件名 |
-| TURN_SHARED_SECRET | dev-turn-secret | TURN 共享密钥（须与 coturn 一致） |
+| TURN_SHARED_SECRET | (必填，须替换占位符) | TURN 共享密钥（须与 coturn 一致） |
 | TURN_HOST / TURN_PORT / TURNS_PORT | 127.0.0.1 / 3478 / 5349 | 本地 coturn 地址 |
 
 **密钥生成**：`./scripts/generate-secrets.sh` 可自动补全缺失的随机密钥。
@@ -233,7 +233,7 @@ mkcert -cert-file ssl/cert.pem -key-file ssl/key.pem matrix.test localhost 127.0
 **部署脚本自动处理**：
 1. 检查 coturn 容器/端口 `127.0.0.1:3478` 是否可达
 2. 未运行则自动 `cd "$COTURN_DIR" && docker compose up -d`
-3. 校验 coturn `static-auth-secret` 与 `.env` 的 `TURN_SHARED_SECRET` 一致（不一致时输出 WARNING 并提示修复）
+3. 校验 coturn `static-auth-secret` 与 `.env` 的 `TURN_SHARED_SECRET`：未设置/仍为占位符时输出 ERROR（拒绝弱默认密钥），不一致时输出 WARNING 并提示修复
 
 **端口**：3478 (STUN/TURN udp+tcp)、5349 (TURNS/DTLS)、49152-49351 (relay udp)
 
@@ -250,8 +250,8 @@ docker compose down         # 停止
 
 | 位置 | 配置项 |
 |------|--------|
-| coturn turnserver.conf | `static-auth-secret=dev-turn-secret` |
-| .env | `TURN_SHARED_SECRET=dev-turn-secret` |
+| coturn turnserver.conf | `static-auth-secret=<强随机值>` |
+| .env | `TURN_SHARED_SECRET=<与 coturn 相同的强随机值>` |
 | homeserver.yaml `voip:` | `turn_shared_secret: ${TURN_SHARED_SECRET}` + `turn_uris` 指向 `matrix.test:3478/5349` |
 
 > 若 coturn 密钥被修改，必须同步修改 `.env` 中 `TURN_SHARED_SECRET` 并重启 synapse。

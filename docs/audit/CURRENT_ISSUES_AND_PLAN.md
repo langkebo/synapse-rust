@@ -90,24 +90,24 @@
 - **位置**: `synapse-web/src/routes/admin/media.rs`
 - **已实现**（2026-09-27 补全）:
   - 基础媒体管理：`GET /_synapse/admin/v1/media` ✅
-  - 媒体详情：`GET /_synapse/admin/v1/media/{mediaId}` ✅
-  - 媒体删除：`DELETE /_synapse/admin/v1/media/{mediaId}` ✅
+  - 媒体详情：`GET /_synapse/admin/v1/media/{serverName}/{mediaId}` ✅
+  - 媒体删除：`DELETE /_synapse/admin/v1/media/{serverName}/{mediaId}` ✅
   - 媒体配额：`GET /_synapse/admin/v1/media/quota` ✅
   - 用户媒体列表：`GET /_synapse/admin/v1/users/{userId}/media` ✅
   - 用户媒体删除：`DELETE /_synapse/admin/v1/users/{userId}/media` ✅
-  - 房间级媒体列举：`GET /_synapse/admin/v1/rooms/{roomId}/media` ✅
-  - 房间级媒体删除：`DELETE /_synapse/admin/v1/rooms/{roomId}/media/{mediaId}` ✅
-  - 媒体隔离查询：`GET /_synapse/admin/v1/quarantine_media/{mediaId}/changes` ✅
+  - 房间级媒体列举：`GET /_synapse/admin/v1/room/{roomId}/media` ✅
+  - 房间级媒体删除：`DELETE /_synapse/admin/v1/room/{roomId}/media/{mediaId}` ✅
+  - 媒体隔离变更流：`GET /_synapse/admin/v1/media/quarantine_changes` ✅
   - 媒体隔离：`POST /_synapse/admin/v1/media/quarantine/{serverName}/{mediaId}` ✅
   - 解除隔离：`POST /_synapse/admin/v1/media/unquarantine/{serverName}/{mediaId}` ✅
-  - 房间隔离：`POST /_synapse/admin/v1/rooms/{roomId}/media/quarantine` ✅
-  - 房间解除隔离：`POST /_synapse/admin/v1/rooms/{roomId}/media/unquarantine` ✅
-  - 媒体保护：`POST /_synapse/admin/v1/media/protect/{serverName}/{mediaId}` ✅
+  - 房间隔离：`POST /_synapse/admin/v1/room/{roomId}/media/quarantine` ✅
+  - 房间解除隔离：`POST /_synapse/admin/v1/room/{roomId}/media/unquarantine` ✅
+  - 媒体保护：`POST /_synapse/admin/v1/media/protect/{mediaId}` ✅
   - **用户级隔离**：`POST /_synapse/admin/v1/user/{userId}/media/quarantine` ✅ (U-5 新增)
   - **按策略删除**：`POST /_synapse/admin/v1/media/delete` ✅ (U-5 新增)
   - **清除缓存**：`POST /_synapse/admin/v1/purge_media_cache` ✅ (U-5 新增)
   - **解除保护**：`POST /_synapse/admin/v1/media/unprotect/{mediaId}` ✅ (U-5 新增)
-- **参考**: 上游 v1.161 有 18 条 Admin 媒体端点，本仓现 18 条 ✅
+- **参考**: 上游 `synapse/rest/admin/media.py` 有 15 条 Admin 媒体端点，本仓已按上游逐条对齐路径 ✅
 
 ### ✅ 5. U-1：`"*"` 通配 MSC3912 合规性
 

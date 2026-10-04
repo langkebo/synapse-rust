@@ -478,22 +478,22 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 #### `admin/media.rs` — 17 条 ✅派生表
 
-- `DELETE` `/_synapse/admin/v1/media/{media_id}`
-- `DELETE` `/_synapse/admin/v1/rooms/{room_id}/media/{media_id}`
+- `DELETE` `/_synapse/admin/v1/media/{server_name}/{media_id}`
+- `DELETE` `/_synapse/admin/v1/room/{room_id}/media/{media_id}`
 - `DELETE` `/_synapse/admin/v1/users/{user_id}/media`
 - `GET` `/_synapse/admin/v1/media`
+- `GET` `/_synapse/admin/v1/media/quarantine_changes`
 - `GET` `/_synapse/admin/v1/media/quota`
-- `GET` `/_synapse/admin/v1/media/{media_id}`
-- `GET` `/_synapse/admin/v1/quarantine_media/{media_id}/changes`
-- `GET` `/_synapse/admin/v1/rooms/{room_id}/media`
+- `GET` `/_synapse/admin/v1/media/{server_name}/{media_id}`
+- `GET` `/_synapse/admin/v1/room/{room_id}/media`
 - `GET` `/_synapse/admin/v1/users/{user_id}/media`
 - `POST` `/_synapse/admin/v1/media/delete`
-- `POST` `/_synapse/admin/v1/media/protect/{server_name}/{media_id}`
+- `POST` `/_synapse/admin/v1/media/protect/{media_id}`
 - `POST` `/_synapse/admin/v1/media/quarantine/{server_name}/{media_id}`
 - `POST` `/_synapse/admin/v1/media/unprotect/{media_id}`
 - `POST` `/_synapse/admin/v1/media/unquarantine/{server_name}/{media_id}`
-- `POST` `/_synapse/admin/v1/rooms/{room_id}/media/quarantine`
-- `POST` `/_synapse/admin/v1/rooms/{room_id}/media/unquarantine`
+- `POST` `/_synapse/admin/v1/room/{room_id}/media/quarantine`
+- `POST` `/_synapse/admin/v1/room/{room_id}/media/unquarantine`
 - `POST` `/_synapse/admin/v1/user/{user_id}/media/quarantine`
 
 ### 审核 (Moderation) （7 条）
@@ -1549,7 +1549,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 ## 附录 A — 前端裸调→SDK 迁移专项契约（基于 handler 实读，2026-08-17）
 
 > 本附录为人工维护，补充自动生成路由面之外的**请求/响应 wire-format** 与已知漂移；重新生成脚本不覆盖本段。
-> 实读源：`src/web/routes/handlers/room/members.rs`、`src/web/routes/oidc/provider.rs`、`src/web/routes/captcha.rs`、`src/web/routes/e2ee/{keys.rs,devices.rs}`。
+> 实读源：`synapse-web/src/routes/handlers/room/members.rs`、`synapse-web/src/routes/oidc/provider.rs`、`synapse-web/src/routes/captcha.rs`、`synapse-web/src/routes/e2ee/{keys.rs,devices.rs}`。
 
 ### A.1 本次迁移涉及的 6 个端点（已迁 Tjg 前端裸调 → SDK Manager 方法）
 

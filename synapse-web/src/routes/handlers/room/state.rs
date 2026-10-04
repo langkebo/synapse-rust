@@ -1,5 +1,6 @@
 use super::{
-    ensure_room_state_write_access, ensure_room_view_access, normalize_room_event_type, state_event_content_response,
+    ensure_room_state_write_access, ensure_room_view_access, normalize_room_event_type,
+    schedule_delayed_event_if_requested, state_event_content_response,
 };
 use crate::routes::context::RoomContext;
 use crate::routes::extractors::RoomId;
@@ -195,12 +196,10 @@ pub(crate) async fn send_state_event(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let content = body;
-
     let now = current_timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
-    ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type, &content).await?;
+    ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type, &body).await?;
 
     // State events with empty state_key per Matrix spec (global room state)
     const EMPTY_STATE_KEY_TYPES: &[&str] = &[
@@ -221,6 +220,25 @@ pub(crate) async fn send_state_event(
     } else {
         Some(auth_user.user_id.clone())
     };
+
+    // MSC4140: schedule as a delayed state event when the body carries a delay
+    // hint, preserving the computed `state_key` for the dispatcher's state path.
+    if let Some(response) = schedule_delayed_event_if_requested(
+        &ctx,
+        &auth_user.user_id,
+        auth_user.device_id.as_deref().unwrap_or(""),
+        &room_id,
+        &final_event_type,
+        state_key.clone(),
+        &body,
+        None,
+    )
+    .await?
+    {
+        return Ok(response);
+    }
+
+    let content = body;
 
     let state_event = ctx
         .room_service
@@ -286,6 +304,23 @@ pub(crate) async fn put_state_event(
 
     if is_beacon_info_event(&final_event_type) && state_key != auth_user.user_id {
         return Err(ApiError::forbidden("beacon_info stateKey must match sender".to_string()));
+    }
+
+    // MSC4140: schedule as a delayed state event when the body carries a delay
+    // hint, passing the explicit path `state_key` through to the dispatcher.
+    if let Some(response) = schedule_delayed_event_if_requested(
+        &ctx,
+        &auth_user.user_id,
+        auth_user.device_id.as_deref().unwrap_or(""),
+        &room_id,
+        &final_event_type,
+        Some(state_key.clone()),
+        &body,
+        None,
+    )
+    .await?
+    {
+        return Ok(response);
     }
 
     let event = ctx
@@ -409,6 +444,23 @@ pub(crate) async fn put_state_event_empty_key(
     let final_event_type = normalize_room_event_type(&event_type);
     ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type, &body).await?;
 
+    // MSC4140: schedule as a delayed state event (empty `state_key`) when the
+    // body carries a delay hint.
+    if let Some(response) = schedule_delayed_event_if_requested(
+        &ctx,
+        &auth_user.user_id,
+        auth_user.device_id.as_deref().unwrap_or(""),
+        &room_id,
+        &final_event_type,
+        Some("".to_string()),
+        &body,
+        None,
+    )
+    .await?
+    {
+        return Ok(response);
+    }
+
     let event = ctx
         .room_service
         .messaging()
@@ -450,6 +502,23 @@ pub(crate) async fn put_state_event_no_key(
 
     let final_event_type = normalize_room_event_type(&event_type);
     ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type, &body).await?;
+
+    // MSC4140: schedule as a delayed state event (empty `state_key`) when the
+    // body carries a delay hint.
+    if let Some(response) = schedule_delayed_event_if_requested(
+        &ctx,
+        &auth_user.user_id,
+        auth_user.device_id.as_deref().unwrap_or(""),
+        &room_id,
+        &final_event_type,
+        Some("".to_string()),
+        &body,
+        None,
+    )
+    .await?
+    {
+        return Ok(response);
+    }
 
     let event = ctx
         .room_service

@@ -27,10 +27,8 @@ pub trait QuarantinedMediaChangeStoreApi: Send + Sync {
         limit: i64,
     ) -> Result<Vec<QuarantinedMediaChange>, ApiError>;
 
-    /// Query quarantine changes filtered by `media_id`, for the
-    /// `GET /_synapse/admin/v1/quarantine_media/{media_id}/changes` admin
-    /// endpoint. Returns changes with `stream_id > since_stream_id`, ordered
-    /// ascending, capped by `limit`.
+    /// Query quarantine changes filtered by `media_id`. Returns changes with
+    /// `stream_id > since_stream_id`, ordered ascending, capped by `limit`.
     async fn get_changes_by_media(
         &self,
         media_id: &str,
@@ -126,8 +124,7 @@ impl QuarantinedMediaChangeStorage {
     }
 
     /// Get quarantine changes for a specific media_id since the given
-    /// stream_id. Backs the `GET /_synapse/admin/v1/quarantine_media/{media_id}/changes`
-    /// admin endpoint.
+    /// stream_id.
     pub async fn get_changes_by_media(
         &self,
         media_id: &str,

@@ -1,6 +1,7 @@
 #![allow(clippy::unused_async)]
 use super::{ensure_room_member_ctx, validate_user_id, AppState, AuthenticatedUser};
 use crate::routes::context::RoomContext;
+use crate::routes::extractors::MediaId;
 use crate::routes::extractors::RoomId;
 use crate::routes::extractors::UserId;
 use axum::{
@@ -92,9 +93,17 @@ pub fn create_voice_router(_state: AppState) -> Router<AppState> {
         .route("/_matrix/vendor/v1/voice/register", post(register_encrypted_voice))
 }
 
+/// Capability declaration for the extended voice surface.
+///
+/// The three POST routes `/{media_id}/convert`, `/{media_id}/optimize` and
+/// `/{media_id}/transcription` are registered so the route ledger stays
+/// complete, but they intentionally return `M_UNRECOGNIZED` (501) because
+/// MSC3245 keeps all media processing client-side. The `server_side_processing`
+/// block below advertises that explicitly, so SDKs can gate on the capability
+/// declaration instead of discovering the hard 501 at call time.
 #[axum::debug_handler]
 async fn get_voice_config(
-    State(_ctx): State<RoomContext>,
+    State(ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     Ok(Json(serde_json::json!({
@@ -102,11 +111,18 @@ async fn get_voice_config(
         "max_duration": 600,
         "allowed_formats": ["audio/ogg", "audio/mpeg", "audio/wav", "audio/webm", "audio/mp4", "audio/aac", "audio/flac"],
         "supported_formats": ["audio/ogg", "audio/mpeg", "audio/wav", "audio/webm", "audio/mp4", "audio/aac", "audio/flac"],
-        "max_size_bytes": 52428800,
+        // A11: derive from the single authoritative upload limit
+        // (`config.server.max_upload_size`, bytes) instead of hardcoding 50 MiB.
+        "max_size_bytes": ctx.config.server.max_upload_size,
         "max_duration_ms": 60_0000,
         "content_type": "m.audio",
         "voice_extension": "org.matrix.msc3245.voice",
-        "auto_transcribe": false
+        "auto_transcribe": false,
+        "server_side_processing": {
+            "convert": false,
+            "optimize": false,
+            "transcription": false
+        }
     })))
 }
 
@@ -175,9 +191,11 @@ async fn upload_voice_message(
         return Err(ApiError::bad_request("Duration must be positive".to_string()));
     };
 
-    const MAX_SIZE: usize = 50 * 1024 * 1024;
-    if content.len() > MAX_SIZE {
-        return Err(ApiError::bad_request(format!("Voice message too large. Max size is {} bytes", MAX_SIZE)));
+    // A11: use the single authoritative upload limit
+    // (`config.server.max_upload_size`, bytes) instead of a hardcoded 50 MiB constant.
+    let max_size = ctx.config.server.max_upload_size as usize;
+    if content.len() > max_size {
+        return Err(ApiError::bad_request(format!("Voice message too large. Max size is {} bytes", max_size)));
     }
 
     let content_type = content_type
@@ -272,7 +290,7 @@ async fn get_user_voice_messages(
 async fn get_voice_message_content(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(media_id): Path<RoomId>,
+    Path(media_id): Path<MediaId>,
 ) -> Result<Json<Value>, ApiError> {
     // FT-105: 先取出内容（含归属信息），在返回给调用者之前完成所有权校验，防止 IDOR
     let result = ctx.voice_service.get_voice_message_content(&media_id).await?;
@@ -318,7 +336,7 @@ async fn get_voice_message_content(
 async fn convert_voice_message(
     _state: State<RoomContext>,
     _auth_user: AuthenticatedUser,
-    Path(_media_id): Path<RoomId>,
+    Path(_media_id): Path<MediaId>,
 ) -> Result<Json<Value>, ApiError> {
     Err(ApiError::not_implemented(
         "Voice conversion is handled client-side per MSC3245. Server-side processing is not supported",
@@ -329,7 +347,7 @@ async fn convert_voice_message(
 async fn optimize_voice_message(
     _state: State<RoomContext>,
     _auth_user: AuthenticatedUser,
-    Path(_media_id): Path<RoomId>,
+    Path(_media_id): Path<MediaId>,
 ) -> Result<Json<Value>, ApiError> {
     Err(ApiError::not_implemented(
         "Voice optimization is handled client-side per MSC3245. Server-side processing is not supported",
@@ -340,7 +358,7 @@ async fn optimize_voice_message(
 async fn transcribe_voice_message(
     _state: State<RoomContext>,
     _auth_user: AuthenticatedUser,
-    Path(_media_id): Path<RoomId>,
+    Path(_media_id): Path<MediaId>,
 ) -> Result<Json<Value>, ApiError> {
     Err(ApiError::not_implemented(
         "Voice transcription is handled client-side per MSC3245. Use Web Speech API or local Whisper model on the client",

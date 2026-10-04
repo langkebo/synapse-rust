@@ -14,7 +14,7 @@
 
 ### 检查用户名可用性
 
-**端点:** `GET /_matrix/client/r0/register/available`
+**端点:** `GET /_matrix/client/v3/register/available`
 
 **参数:**
 | 参数 | 类型 | 必填 | 说明 |
@@ -25,7 +25,7 @@
 ```typescript
 const checkUsername = async (username: string) => {
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/register/available?username=${encodeURIComponent(username)}`
+    `${BASE_URL}/_matrix/client/v3/register/available?username=${encodeURIComponent(username)}`
   );
   const data = await response.json();
   return data.available; // boolean
@@ -43,7 +43,7 @@ const checkUsername = async (username: string) => {
 
 ### 用户注册
 
-**端点:** `POST /_matrix/client/r0/register`
+**端点:** `POST /_matrix/client/v3/register`
 
 **请求体:**
 ```typescript
@@ -60,7 +60,7 @@ interface RegisterRequest {
 **请求示例:**
 ```typescript
 const register = async (username: string, password: string, displayName?: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/r0/register`, {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -102,7 +102,7 @@ const register = async (username: string, password: string, displayName?: string
 
 ### 密码登录
 
-**端点:** `POST /_matrix/client/r0/login`
+**端点:** `POST /_matrix/client/v3/login`
 
 **请求体:**
 ```typescript
@@ -118,7 +118,7 @@ interface LoginRequest {
 **请求示例:**
 ```typescript
 const login = async (username: string, password: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/r0/login`, {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -169,14 +169,14 @@ interface LoginResponse {
 
 ### 退出当前设备
 
-**端点:** `POST /_matrix/client/r0/logout`
+**端点:** `POST /_matrix/client/v3/logout`
 
 **需要认证:** 是
 
 **请求示例:**
 ```typescript
 const logout = async (accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/r0/logout`, {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/logout`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -189,14 +189,14 @@ const logout = async (accessToken: string) => {
 
 ### 退出所有设备
 
-**端点:** `POST /_matrix/client/r0/logout/all`
+**端点:** `POST /_matrix/client/v3/logout/all`
 
 **需要认证:** 是
 
 **请求示例:**
 ```typescript
 const logoutAll = async (accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/r0/logout/all`, {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/logout/all`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -213,14 +213,14 @@ const logoutAll = async (accessToken: string) => {
 
 ### 刷新访问令牌
 
-**端点:** `POST /_matrix/client/r0/refresh`
+**端点:** `POST /_matrix/client/v3/refresh`
 
 **需要认证:** 是 (使用 refresh_token)
 
 **请求示例:**
 ```typescript
 const refreshToken = async (refreshToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/r0/refresh`, {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/refresh`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${refreshToken}`,
@@ -240,14 +240,14 @@ const refreshToken = async (refreshToken: string) => {
 
 ### 获取当前用户信息
 
-**端点:** `GET /_matrix/client/r0/account/whoami`
+**端点:** `GET /_matrix/client/v3/account/whoami`
 
 **需要认证:** 是
 
 **请求示例:**
 ```typescript
 const whoami = async (accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/r0/account/whoami`, {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/account/whoami`, {
     headers: {
       'Authorization': `Bearer ${accessToken}`
     }
@@ -274,13 +274,13 @@ const whoami = async (accessToken: string) => {
 
 ### 获取用户资料
 
-**端点:** `GET /_matrix/client/r0/account/profile/{user_id}`
+**端点:** `GET /_matrix/client/v3/account/profile/{user_id}`
 
 **请求示例:**
 ```typescript
 const getProfile = async (userId: string, accessToken: string) => {
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/account/profile/${encodeURIComponent(userId)}`,
+    `${BASE_URL}/_matrix/client/v3/account/profile/${encodeURIComponent(userId)}`,
     {
       headers: { 'Authorization': `Bearer ${accessToken}` }
     }
@@ -296,7 +296,7 @@ const getProfile = async (userId: string, accessToken: string) => {
 
 ### 更新显示名称
 
-**端点:** `PUT /_matrix/client/r0/account/profile/{user_id}/displayname`
+**端点:** `PUT /_matrix/client/v3/account/profile/{user_id}/displayname`
 
 **请求体:**
 ```json
@@ -309,7 +309,7 @@ const getProfile = async (userId: string, accessToken: string) => {
 ```typescript
 const updateDisplayName = async (userId: string, displayName: string, accessToken: string) => {
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/account/profile/${encodeURIComponent(userId)}/displayname`,
+    `${BASE_URL}/_matrix/client/v3/account/profile/${encodeURIComponent(userId)}/displayname`,
     {
       method: 'PUT',
       headers: {
@@ -327,7 +327,7 @@ const updateDisplayName = async (userId: string, displayName: string, accessToke
 
 ### 更新头像
 
-**端点:** `PUT /_matrix/client/r0/account/profile/{user_id}/avatar_url`
+**端点:** `PUT /_matrix/client/v3/account/profile/{user_id}/avatar_url`
 
 **请求体:**
 ```json
@@ -340,7 +340,7 @@ const updateDisplayName = async (userId: string, displayName: string, accessToke
 ```typescript
 const updateAvatar = async (userId: string, avatarUrl: string, accessToken: string) => {
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/account/profile/${encodeURIComponent(userId)}/avatar_url`,
+    `${BASE_URL}/_matrix/client/v3/account/profile/${encodeURIComponent(userId)}/avatar_url`,
     {
       method: 'PUT',
       headers: {
@@ -358,7 +358,7 @@ const updateAvatar = async (userId: string, avatarUrl: string, accessToken: stri
 
 ### 修改密码
 
-**端点:** `POST /_matrix/client/r0/account/password`
+**端点:** `POST /_matrix/client/v3/account/password`
 
 **请求体:**
 ```typescript
@@ -370,7 +370,7 @@ interface ChangePasswordRequest {
 **请求示例:**
 ```typescript
 const changePassword = async (newPassword: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/r0/account/password`, {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/account/password`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -388,7 +388,7 @@ const changePassword = async (newPassword: string, accessToken: string) => {
 
 ### 停用账户
 
-**端点:** `POST /_matrix/client/r0/account/deactivate`
+**端点:** `POST /_matrix/client/v3/account/deactivate`
 
 **请求体:**
 ```typescript
@@ -404,7 +404,7 @@ interface DeactivateRequest {
 **请求示例:**
 ```typescript
 const deactivateAccount = async (accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/r0/account/deactivate`, {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/account/deactivate`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -434,7 +434,7 @@ class AuthService {
 
   // 登录
   async login(username: string, password: string) {
-    const response = await fetch(`${this.baseUrl}/_matrix/client/r0/login`, {
+    const response = await fetch(`${this.baseUrl}/_matrix/client/v3/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -459,7 +459,7 @@ class AuthService {
 
   // 注册
   async register(username: string, password: string, displayName?: string) {
-    const response = await fetch(`${this.baseUrl}/_matrix/client/r0/register`, {
+    const response = await fetch(`${this.baseUrl}/_matrix/client/v3/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -482,7 +482,7 @@ class AuthService {
 
   // 退出登录
   async logout() {
-    await fetch(`${this.baseUrl}/_matrix/client/r0/logout`, {
+    await fetch(`${this.baseUrl}/_matrix/client/v3/logout`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${this.accessToken}` }
     });

@@ -8614,10 +8614,9 @@
     },
     {
       "method": "POST",
-      "path": "/_synapse/admin/v1/media/protect/{server_name}/{media_id}",
+      "path": "/_synapse/admin/v1/media/protect/{media_id}",
       "registered_by": "admin::media",
       "path_params": [
-        "server_name",
         "media_id"
       ],
       "query_params": [],
@@ -8631,6 +8630,14 @@
         "server_name",
         "media_id"
       ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/media/quarantine_changes",
+      "registered_by": "admin::media",
+      "path_params": [],
       "query_params": [],
       "auth": null
     },
@@ -8665,9 +8672,10 @@
     },
     {
       "method": "DELETE",
-      "path": "/_synapse/admin/v1/media/{media_id}",
+      "path": "/_synapse/admin/v1/media/{server_name}/{media_id}",
       "registered_by": "admin::media",
       "path_params": [
+        "server_name",
         "media_id"
       ],
       "query_params": [],
@@ -8675,9 +8683,10 @@
     },
     {
       "method": "GET",
-      "path": "/_synapse/admin/v1/media/{media_id}",
+      "path": "/_synapse/admin/v1/media/{server_name}/{media_id}",
       "registered_by": "admin::media",
       "path_params": [
+        "server_name",
         "media_id"
       ],
       "query_params": [],
@@ -8932,16 +8941,6 @@
     },
     {
       "method": "GET",
-      "path": "/_synapse/admin/v1/quarantine_media/{media_id}/changes",
-      "registered_by": "admin::media",
-      "path_params": [
-        "media_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
       "path": "/_synapse/admin/v1/rate-limit-status",
       "registered_by": "admin::server",
       "path_params": [],
@@ -9098,6 +9097,47 @@
       "path": "/_synapse/admin/v1/retention/status",
       "registered_by": "admin::retention",
       "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/room/{room_id}/media",
+      "registered_by": "admin::media",
+      "path_params": [
+        "room_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/room/{room_id}/media/quarantine",
+      "registered_by": "admin::media",
+      "path_params": [
+        "room_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/room/{room_id}/media/unquarantine",
+      "registered_by": "admin::media",
+      "path_params": [
+        "room_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "DELETE",
+      "path": "/_synapse/admin/v1/room/{room_id}/media/{media_id}",
+      "registered_by": "admin::media",
+      "path_params": [
+        "room_id",
+        "media_id"
+      ],
       "query_params": [],
       "auth": null
     },
@@ -9348,47 +9388,6 @@
       "registered_by": "admin::room",
       "path_params": [
         "room_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/media",
-      "registered_by": "admin::media",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/media/quarantine",
-      "registered_by": "admin::media",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/media/unquarantine",
-      "registered_by": "admin::media",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "DELETE",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/media/{media_id}",
-      "registered_by": "admin::media",
-      "path_params": [
-        "room_id",
-        "media_id"
       ],
       "query_params": [],
       "auth": null

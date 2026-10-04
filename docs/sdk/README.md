@@ -8,7 +8,7 @@
 
 ```
 BASE_URL: http://localhost:8008
-测试域名: cjystx.top
+测试域名: matrix.test
 版本: 6.2.0
 协议: Matrix Client-Server API
 ```
@@ -145,6 +145,17 @@ const uploadImage = async (file: File, token: string) => {
 
 ---
 
+## 国际化（i18n）
+
+本服务器**仅支持英文（`en`）单语**，不提供多语言的服务端文案。该立场在认证发现端点中显式声明：
+
+- `GET /.well-known/openid-configuration` → `"ui_locales_supported": ["en"]`
+- `GET /_matrix/client/v1/auth_metadata`（MSC2965 认证发现）→ `"ui_locales_supported": ["en"]`
+
+客户端应将 `en` 视为**唯一**受支持语言；如需其他语种文案，须由客户端侧自行本地化处理，服务端不会返回翻译后的界面文案。
+
+---
+
 ## HTTP 状态码
 
 | 状态码 | 含义 | 使用场景 |
@@ -155,10 +166,12 @@ const uploadImage = async (file: File, token: string) => {
 | 401 | Unauthorized | 未认证或 Token 无效 |
 | 403 | Forbidden | 权限不足 |
 | 404 | Not Found | 资源不存在 |
+| 405 | Method Not Allowed | 方法不允许 |
 | 409 | Conflict | 资源冲突 (如用户名已存在) |
-| 410 | Gone | 资源已废弃 (旧 API) |
+| 413 | Payload Too Large | 请求体过大 |
 | 429 | Too Many Requests | 请求过于频繁 |
 | 500 | Internal Server Error | 服务器内部错误 |
+| 501 | Not Implemented | 功能未实现 |
 
 ---
 
@@ -171,13 +184,12 @@ const uploadImage = async (file: File, token: string) => {
 | `M_NOT_FOUND` | 资源不存在 |
 | `M_MISSING_TOKEN` | 缺少 Token |
 | `M_UNKNOWN_TOKEN` | Token 无效 |
+| `M_UNAUTHORIZED` | 需要认证 |
 | `M_LIMIT_EXCEEDED` | 超出速率限制 |
 | `M_USER_IN_USE` | 用户名已被占用 |
 | `M_INVALID_USERNAME` | 用户名格式无效 |
-| `M_WEAK_PASSWORD` | 密码强度不足 |
+| `M_INVALID_PARAM` | 参数非法 |
 | `M_FORBIDDEN` | 禁止访问 |
-| `FRIEND_ALREADY_EXISTS` | 好友关系已存在 |
-| `FRIEND_REQUEST_PENDING` | 好友请求待处理 |
 
 > 详细错误处理请参考 [errors.md](./errors.md)
 

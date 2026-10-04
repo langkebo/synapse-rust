@@ -192,6 +192,122 @@ pub fn parse_saml_metadata(xml: &str) -> Result<SamlMetadataParsed, XmlParseErro
     Ok(SamlMetadataParsed { entity_id, sso_url, slo_url, certificate })
 }
 
+/// Reads a (namespace-agnostic) attribute value from a start/empty element.
+fn attribute_value(element: &quick_xml::events::BytesStart<'_>, name: &[u8]) -> Option<String> {
+    element
+        .attributes()
+        .flatten()
+        .find(|attr| attr.key.local_name().as_ref() == name)
+        .map(|attr| String::from_utf8_lossy(&attr.value).to_string())
+}
+
+/// Parses the non-signature envelope fields of a SAML `<Response>` /
+/// `<LogoutResponse>`.
+///
+/// This replaces ad-hoc string/regex scanning with a real XML reader, so
+/// attribute lookup is name-based (order/whitespace independent), element
+/// nesting is respected, and XML entity references are handled by the parser
+/// rather than matched as raw text.
+pub fn parse_saml_response_envelope(xml: &str) -> Result<SamlResponseEnvelope, XmlParseError> {
+    let mut reader = Reader::from_str(xml);
+    reader.config_mut().trim_text(true);
+
+    let mut envelope = SamlResponseEnvelope::default();
+    let mut response_seen = false;
+    let mut in_audience = false;
+    let mut in_issuer = false;
+    let mut buf = Vec::new();
+
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) => {
+                let name = e.name();
+                let local_name = name.local_name();
+                let name_str = String::from_utf8_lossy(local_name.as_ref()).to_string();
+                collect_element_attributes(e, &name_str, &mut envelope, &mut response_seen);
+                match name_str.as_str() {
+                    "Audience" => in_audience = true,
+                    // Only the first issuer that follows the top-level <Response>
+                    // start tag is the response issuer (matches SAML shape).
+                    "Issuer" if response_seen && envelope.response_issuer.is_none() => in_issuer = true,
+                    _ => {}
+                }
+            }
+            Ok(Event::Empty(ref e)) => {
+                // Self-closing elements carry attributes but no text content.
+                let name = e.name();
+                let local_name = name.local_name();
+                let name_str = String::from_utf8_lossy(local_name.as_ref()).to_string();
+                collect_element_attributes(e, &name_str, &mut envelope, &mut response_seen);
+            }
+            Ok(Event::Text(ref e)) => {
+                let text = e.xml10_content().unwrap_or_default().to_string();
+                if in_audience {
+                    envelope.audiences.push(text);
+                } else if in_issuer && envelope.response_issuer.is_none() {
+                    envelope.response_issuer = Some(text);
+                }
+            }
+            Ok(Event::End(ref e)) => {
+                let name = e.name();
+                let local_name = name.local_name();
+                match String::from_utf8_lossy(local_name.as_ref()).as_ref() {
+                    "Audience" => in_audience = false,
+                    "Issuer" => in_issuer = false,
+                    _ => {}
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(e) => {
+                return Err(XmlParseError::Parse(format!("Error parsing XML: {e:?}")));
+            }
+            _ => {}
+        }
+        buf.clear();
+    }
+
+    Ok(envelope)
+}
+
+fn collect_element_attributes(
+    element: &quick_xml::events::BytesStart<'_>,
+    local_name: &str,
+    envelope: &mut SamlResponseEnvelope,
+    response_seen: &mut bool,
+) {
+    // `InResponseTo` is carried by both <Response> and <LogoutResponse>.
+    if local_name == "Response" || local_name == "LogoutResponse" {
+        if local_name == "Response" {
+            *response_seen = true;
+        }
+        if envelope.in_response_to.is_none() {
+            envelope.in_response_to = attribute_value(element, b"InResponseTo");
+        }
+        if local_name == "Response" && envelope.destination.is_none() {
+            envelope.destination = attribute_value(element, b"Destination");
+        }
+    }
+
+    if local_name == "StatusCode" {
+        if let Some(value) = attribute_value(element, b"Value") {
+            envelope.status_codes.push(value);
+        }
+    }
+
+    if local_name == "SubjectConfirmationData" {
+        if let Some(recipient) = attribute_value(element, b"Recipient") {
+            envelope.subject_confirmation_recipients.push(recipient);
+        }
+    }
+
+    if let Some(not_before) = attribute_value(element, b"NotBefore") {
+        envelope.not_before.push(not_before);
+    }
+    if let Some(not_on_or_after) = attribute_value(element, b"NotOnOrAfter") {
+        envelope.not_on_or_after.push(not_on_or_after);
+    }
+}
+
 #[derive(Debug, Clone)]
 /// Represents SamlAssertionData.
 pub struct SamlAssertionData {
@@ -216,6 +332,31 @@ pub struct SamlMetadataParsed {
     pub slo_url: Option<String>,
     /// `certificate` field.
     pub certificate: String,
+}
+
+/// Non-signature fields of a SAML `<Response>` / `<LogoutResponse>` envelope.
+///
+/// Produced by [`parse_saml_response_envelope`]. The XMLDSig signature block is
+/// intentionally out of scope here; it is validated separately by the
+/// signature layer.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SamlResponseEnvelope {
+    /// `InResponseTo` of `<Response>` or `<LogoutResponse>`.
+    pub in_response_to: Option<String>,
+    /// `Destination` of `<Response>`.
+    pub destination: Option<String>,
+    /// All `NotBefore` attribute values (e.g. `<Conditions>` / `<SubjectConfirmationData>`).
+    pub not_before: Vec<String>,
+    /// All `NotOnOrAfter` attribute values.
+    pub not_on_or_after: Vec<String>,
+    /// All `StatusCode` `Value` attribute values.
+    pub status_codes: Vec<String>,
+    /// All `<Audience>` text contents.
+    pub audiences: Vec<String>,
+    /// All `<SubjectConfirmationData>` `Recipient` attribute values.
+    pub subject_confirmation_recipients: Vec<String>,
+    /// The first `<Issuer>` following the top-level `<Response>` start tag.
+    pub response_issuer: Option<String>,
 }
 
 #[cfg(test)]
@@ -417,5 +558,77 @@ mod tests {
         let result = parse_saml_metadata("");
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), XmlParseError::MissingElement(_)));
+    }
+
+    #[test]
+    fn test_parse_saml_response_envelope_full() {
+        let xml = r#"
+        <samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"
+                        InResponseTo="id_123" Destination="https://sp.example.com/acs">
+            <saml:Issuer xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">https://idp.example.com</saml:Issuer>
+            <samlp:Status>
+                <samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/>
+            </samlp:Status>
+            <saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">
+                <saml:Issuer>https://idp.example.com</saml:Issuer>
+                <saml:Conditions NotBefore="2026-01-01T00:00:00Z" NotOnOrAfter="2026-01-01T00:05:00Z">
+                    <saml:AudienceRestriction>
+                        <saml:Audience>https://sp.example.com</saml:Audience>
+                    </saml:AudienceRestriction>
+                </saml:Conditions>
+                <saml:Subject>
+                    <saml:SubjectConfirmation>
+                        <saml:SubjectConfirmationData Recipient="https://sp.example.com/acs"
+                                                      NotOnOrAfter="2026-01-01T00:05:00Z"/>
+                    </saml:SubjectConfirmation>
+                </saml:Subject>
+            </saml:Assertion>
+        </samlp:Response>
+        "#;
+
+        let env = parse_saml_response_envelope(xml).unwrap();
+        assert_eq!(env.in_response_to, Some("id_123".to_string()));
+        assert_eq!(env.destination, Some("https://sp.example.com/acs".to_string()));
+        assert_eq!(env.status_codes, vec!["urn:oasis:names:tc:SAML:2.0:status:Success".to_string()]);
+        assert_eq!(env.audiences, vec!["https://sp.example.com".to_string()]);
+        assert_eq!(env.subject_confirmation_recipients, vec!["https://sp.example.com/acs".to_string()]);
+        // First issuer after <Response> is the response issuer, not the assertion issuer.
+        assert_eq!(env.response_issuer, Some("https://idp.example.com".to_string()));
+        assert!(env.not_before.contains(&"2026-01-01T00:00:00Z".to_string()));
+        assert!(env.not_on_or_after.contains(&"2026-01-01T00:05:00Z".to_string()));
+    }
+
+    #[test]
+    fn test_parse_saml_response_envelope_logout_response() {
+        let xml = r#"
+        <samlp:LogoutResponse xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" InResponseTo="id_logout">
+            <samlp:Status>
+                <samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/>
+            </samlp:Status>
+        </samlp:LogoutResponse>
+        "#;
+
+        let env = parse_saml_response_envelope(xml).unwrap();
+        assert_eq!(env.in_response_to, Some("id_logout".to_string()));
+        assert_eq!(env.destination, None);
+        assert_eq!(env.status_codes, vec!["urn:oasis:names:tc:SAML:2.0:status:Success".to_string()]);
+    }
+
+    #[test]
+    fn test_parse_saml_response_envelope_attribute_order_independent() {
+        // Attributes in a different order / with different whitespace must parse identically.
+        let xml = r#"<samlp:Response
+             Destination="https://sp.example.com/acs"
+             InResponseTo="id_456"></samlp:Response>"#;
+
+        let env = parse_saml_response_envelope(xml).unwrap();
+        assert_eq!(env.in_response_to, Some("id_456".to_string()));
+        assert_eq!(env.destination, Some("https://sp.example.com/acs".to_string()));
+    }
+
+    #[test]
+    fn test_parse_saml_response_envelope_empty_input() {
+        let env = parse_saml_response_envelope("").unwrap();
+        assert_eq!(env, SamlResponseEnvelope::default());
     }
 }

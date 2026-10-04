@@ -161,16 +161,25 @@ async fn enforce_admin_login_mfa_impl(
     verify_totp_code(security, mfa_code, Some(&user))
 }
 
+/// C10：管理员未配置 `user_type` 时使用的角色。
+///
+/// 该值**不是**任何已识别角色，因此 [`is_role_allowed`] 会走 `_ => false` 分支，
+/// 对所有受 RBAC 保护的端点一律拒绝（最小权限）。此前缺失 `user_type` 会静默降级
+/// 为宽权限的 `"admin"`，等于给未分配角色的管理员隐式授权。
+const NO_ADMIN_ROLE: &str = "none";
+
 /// See [`normalize_admin_role`].
 pub(crate) fn normalize_admin_role(user_type: Option<&str>) -> String {
     match user_type.map(str::trim).filter(|value| !value.is_empty()) {
         None => {
             ::tracing::warn!(
                 target: "security_audit",
-                event = "admin_role_fallback",
-                "Admin user has no user_type set - defaulting to 'admin' role (not super_admin). Set user_type explicitly for proper RBAC."
+                event = "admin_role_missing",
+                "Admin user has no user_type set - granting no RBAC role (least privilege). \
+                 All RBAC-gated admin endpoints will be denied. Set user_type explicitly \
+                 (e.g. 'admin' or 'super_admin') to assign privileges."
             );
-            "admin".to_string()
+            NO_ADMIN_ROLE.to_string()
         }
         Some("admin") => "admin".to_string(),
         Some("super_admin") => "super_admin".to_string(),
@@ -276,6 +285,7 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
 
             // Room management - full access including shutdown and delete
             || path.starts_with("/_synapse/admin/v1/rooms")
+            || path.starts_with("/_synapse/admin/v1/room/")
             || path == "/_synapse/admin/v1/shutdown_room"
 
             // Room statistics
@@ -484,6 +494,28 @@ fn decode_base32_secret(secret: &str) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn admin_without_user_type_gets_no_role_and_is_denied() {
+        // C10: missing user_type must NOT silently grant the broad "admin" role.
+        let role = normalize_admin_role(None);
+        assert_eq!(role, NO_ADMIN_ROLE);
+        assert_ne!(role, "admin");
+        assert_ne!(role, "super_admin");
+
+        // Least privilege: no role => every RBAC-gated endpoint is denied.
+        assert!(!is_role_allowed(&role, &Method::GET, "/_synapse/admin/v1/users"));
+        assert!(!is_role_allowed(&role, &Method::GET, "/_synapse/admin/v1/rooms"));
+        assert!(!is_role_allowed(&role, &Method::GET, "/_synapse/admin/v1/audit"));
+        assert!(!is_role_allowed(&role, &Method::POST, "/_synapse/admin/v1/users/@u:localhost/deactivate"));
+        assert!(!is_role_allowed(&role, &Method::POST, "/_synapse/admin/v1/shutdown_room"));
+    }
+
+    #[test]
+    fn admin_with_blank_user_type_gets_no_role() {
+        assert_eq!(normalize_admin_role(Some("")), NO_ADMIN_ROLE);
+        assert_eq!(normalize_admin_role(Some("   ")), NO_ADMIN_ROLE);
+    }
 
     #[test]
     fn admin_role_restricted_endpoints_denied() {

@@ -7,6 +7,49 @@ use tokio::fs;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 
+/// Recursively accumulate file count/size and oldest/newest mtime under `path`.
+///
+/// B7: pure blocking `std::fs` traversal — callers must run this on the
+/// blocking pool (`tokio::task::spawn_blocking`), never directly on an async
+/// task.
+fn process_directory(
+    path: &PathBuf,
+    total_files: &mut u64,
+    total_size: &mut u64,
+    oldest: &mut Option<chrono::DateTime<chrono::Utc>>,
+    newest: &mut Option<chrono::DateTime<chrono::Utc>>,
+) -> Result<(), ApiError> {
+    let entries = std::fs::read_dir(path).map_err(|e| ApiError::internal_with_cause("Failed to read directory", e))?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| ApiError::internal_with_cause("Failed to read entry", e))?;
+
+        let path = entry.path();
+        if path.is_dir() {
+            process_directory(&path, total_files, total_size, oldest, newest)?;
+        } else {
+            let metadata =
+                std::fs::metadata(&path).map_err(|e| ApiError::internal_with_cause("Failed to get metadata", e))?;
+
+            *total_files += 1;
+            *total_size += metadata.len();
+
+            if let Ok(modified) = metadata.modified() {
+                let datetime: chrono::DateTime<chrono::Utc> = modified.into();
+
+                if oldest.as_ref().is_none_or(|&old| datetime < old) {
+                    *oldest = Some(datetime);
+                }
+                if newest.as_ref().is_none_or(|&new| datetime > new) {
+                    *newest = Some(datetime);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// The `FilesystemBackend` struct.
 pub struct FilesystemBackend {
     base_path: PathBuf,
@@ -210,51 +253,21 @@ impl MediaStorageBackend for FilesystemBackend {
     }
 
     async fn get_stats(&self) -> Result<MediaStorageStats, ApiError> {
-        let mut total_files = 0u64;
-        let mut total_size = 0u64;
-        let mut oldest_file: Option<chrono::DateTime<chrono::Utc>> = None;
-        let mut newest_file: Option<chrono::DateTime<chrono::Utc>> = None;
+        // B7: the recursive walk is blocking `std::fs` I/O; offload it to the
+        // blocking pool so a large media tree cannot stall the async runtime.
+        let base_path = self.base_path.clone();
+        let (total_files, total_size, oldest_file, newest_file) = tokio::task::spawn_blocking(move || {
+            let mut total_files = 0u64;
+            let mut total_size = 0u64;
+            let mut oldest_file: Option<chrono::DateTime<chrono::Utc>> = None;
+            let mut newest_file: Option<chrono::DateTime<chrono::Utc>> = None;
 
-        fn process_directory(
-            path: &PathBuf,
-            total_files: &mut u64,
-            total_size: &mut u64,
-            oldest: &mut Option<chrono::DateTime<chrono::Utc>>,
-            newest: &mut Option<chrono::DateTime<chrono::Utc>>,
-        ) -> Result<(), ApiError> {
-            let entries =
-                std::fs::read_dir(path).map_err(|e| ApiError::internal_with_cause("Failed to read directory", e))?;
+            process_directory(&base_path, &mut total_files, &mut total_size, &mut oldest_file, &mut newest_file)?;
 
-            for entry in entries {
-                let entry = entry.map_err(|e| ApiError::internal_with_cause("Failed to read entry", e))?;
-
-                let path = entry.path();
-                if path.is_dir() {
-                    process_directory(&path, total_files, total_size, oldest, newest)?;
-                } else {
-                    let metadata = std::fs::metadata(&path)
-                        .map_err(|e| ApiError::internal_with_cause("Failed to get metadata", e))?;
-
-                    *total_files += 1;
-                    *total_size += metadata.len();
-
-                    if let Ok(modified) = metadata.modified() {
-                        let datetime: chrono::DateTime<chrono::Utc> = modified.into();
-
-                        if oldest.as_ref().is_none_or(|&old| datetime < old) {
-                            *oldest = Some(datetime);
-                        }
-                        if newest.as_ref().is_none_or(|&new| datetime > new) {
-                            *newest = Some(datetime);
-                        }
-                    }
-                }
-            }
-
-            Ok(())
-        }
-
-        process_directory(&self.base_path, &mut total_files, &mut total_size, &mut oldest_file, &mut newest_file)?;
+            Ok::<_, ApiError>((total_files, total_size, oldest_file, newest_file))
+        })
+        .await
+        .map_err(|e| ApiError::internal_with_cause("media stats blocking task failed", e))??;
 
         Ok(MediaStorageStats {
             total_files,

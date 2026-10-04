@@ -174,7 +174,7 @@ async fn set_pusher(
         // if a future code path bypasses the gateway helper).
         if kind == "http" {
             if let Some(url) = body.data.as_ref().and_then(|d| d.get("url")).and_then(|u| u.as_str()) {
-                synapse_services::push::gateway::validate_push_gateway_url(url)?;
+                synapse_services::push::gateway::validate_push_gateway_url(url).await?;
             }
         }
 

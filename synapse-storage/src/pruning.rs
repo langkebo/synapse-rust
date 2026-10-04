@@ -71,10 +71,10 @@ pub const FEDERATION_QUEUE_RETENTION_DAYS: i64 = 7;
 /// `stream_id`-ordered change logs read by position.
 ///
 /// Consequence worth stating plainly: the admin history endpoint
-/// `GET /_synapse/admin/v1/quarantine_media/{media_id}/changes?since=N`
+/// `GET /_synapse/admin/v1/media/quarantine_changes?from=N`
 /// cannot replay a position that has fallen behind this window. That is
 /// detectable rather than silent — the lowest returned `stream_id` simply
-/// starts above the requested `since` — and is the same trade-off already
+/// starts above the requested `from` — and is the same trade-off already
 /// accepted for the device-list stream. Retention is deliberately generous
 /// because the write rate is bound by *admin actions*, not by traffic.
 pub const QUARANTINED_MEDIA_CHANGES_RETENTION_DAYS: i64 = 30;

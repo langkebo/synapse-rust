@@ -9,7 +9,7 @@ use super::creation_graph::CreationGraph;
 use super::service::LifecycleService;
 use serde_json::json;
 use synapse_common::room_id::room_id_from_create_event_id;
-use synapse_common::room_versions::{resolve_room_version, DEFAULT_ROOM_VERSION};
+use synapse_common::room_versions::{is_supported_room_version, resolve_room_version, DEFAULT_ROOM_VERSION};
 use synapse_common::{generate_room_id, ApiError, ApiResult};
 
 impl LifecycleService {
@@ -36,13 +36,18 @@ impl LifecycleService {
                     e.code_str(),
                 ),
             };
-            metrics.record_room_operation_labeled(
-                "create",
-                outcome,
-                requested_version.as_deref().unwrap_or(DEFAULT_ROOM_VERSION),
-                visibility,
-                error_type,
-            );
+            // B8: `requested_version` is user-controlled (`config.room_version`
+            // comes straight from the request body) and is emitted as a
+            // Prometheus label value. Left unvalidated it would let a caller mint
+            // unbounded distinct series and blow up metric cardinality, so the
+            // label is restricted to the known room-version enumeration and every
+            // other value is folded into `unknown`.
+            let room_version_label = match requested_version.as_deref() {
+                Some(version) if is_supported_room_version(version) => version,
+                Some(_) => "unknown",
+                None => DEFAULT_ROOM_VERSION,
+            };
+            metrics.record_room_operation_labeled("create", outcome, room_version_label, visibility, error_type);
         }
 
         result

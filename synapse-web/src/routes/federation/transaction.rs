@@ -960,6 +960,12 @@ async fn verify_pdu_sender_signature(ctx: &FederationContext, room_version: &str
     Err(last_error.unwrap_or_else(|| "No verifiable PDU signature".to_string()))
 }
 
+/// B5: Upper bound on the number of per-origin EDU semaphores retained in
+/// `FederationContext::federation_inbound_edu_origin_semaphores`. Without a
+/// bound, every distinct federation origin observed over the process lifetime
+/// leaves a permanent entry (unbounded memory growth driven by remote peers).
+const MAX_ORIGIN_EDU_SEMAPHORES: usize = 4096;
+
 async fn acquire_origin_edu_permit(
     ctx: &FederationContext,
     origin: &str,
@@ -967,6 +973,20 @@ async fn acquire_origin_edu_permit(
     let per_origin_limit = ctx.config.federation.inbound_edu_per_origin_max_concurrency.max(1);
     let semaphore = {
         let mut guard = ctx.federation_inbound_edu_origin_semaphores.lock().await;
+        if !guard.contains_key(origin) && guard.len() >= MAX_ORIGIN_EDU_SEMAPHORES {
+            // Evict idle entries first (all permits available => no in-flight
+            // EDU processing is holding a reference), so eviction cannot let a
+            // concurrent burst exceed the per-origin concurrency limit.
+            guard.retain(|_, sem| sem.available_permits() < per_origin_limit);
+            // If every entry is busy, drop one arbitrary entry to keep the map
+            // hard-capped; the in-flight holder keeps its own `Arc` alive, so
+            // only the map binding is reclaimed.
+            if guard.len() >= MAX_ORIGIN_EDU_SEMAPHORES {
+                if let Some(key) = guard.keys().next().cloned() {
+                    guard.remove(&key);
+                }
+            }
+        }
         guard.entry(origin.to_string()).or_insert_with(|| Arc::new(Semaphore::new(per_origin_limit))).clone()
     };
 

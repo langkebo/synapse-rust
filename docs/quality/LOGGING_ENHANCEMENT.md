@@ -258,7 +258,7 @@ tracing::error!(
 
 ## 修改的文件
 
-- `src/web/routes/admin/user.rs` - 添加审计日志和详细的错误日志
+- `synapse-web/src/routes/admin/user.rs` - 添加审计日志和详细的错误日志
 
 ---
 

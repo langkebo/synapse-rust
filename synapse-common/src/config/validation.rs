@@ -89,12 +89,17 @@ impl Config {
                 .to_string());
         }
 
+        // CORS `*` + credentials must fail fast. A wildcard origin combined with
+        // `allow_credentials = true` is an invalid, unsafe combination: browsers
+        // reject it, and any lenient proxy that forwards it leaks credentialed
+        // responses to arbitrary origins. Warn-only let a misconfiguration ship to
+        // production silently, so we reject the config at startup instead.
         if self.cors.allowed_origins.iter().any(|o| o == "*") && self.cors.allow_credentials {
-            tracing::warn!(
-                "CORS is configured to allow all origins ('*') with credentials. \
-                 This is not recommended for production. \
-                 Consider specifying explicit allowed origins."
-            );
+            return Err("cors.allowed_origins contains '*' while cors.allow_credentials is true. \
+                 This combination is unsafe and rejected by browsers: credentialed requests cannot \
+                 use a wildcard origin. List explicit origins instead (or set \
+                 cors.allow_credentials = false)."
+                .to_string());
         }
 
         if self.security.allow_legacy_hashes {
@@ -223,6 +228,38 @@ mod tests {
         config.redis.password = None;
 
         assert!(config.validate().is_ok());
+    }
+
+    // C12：CORS 通配源 `*` 搭配 `allow_credentials = true` 是浏览器拒绝的不安全组合，
+    // 之前仅告警、配置仍被接受，可能带着错误配置上线 —— 现在与 MAS/Redis 一致直接拒绝启动。
+    #[test]
+    fn validate_rejects_wildcard_cors_origin_with_credentials() {
+        let mut config = valid_config();
+        config.cors.allowed_origins = vec!["*".to_string()];
+        config.cors.allow_credentials = true;
+
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("cors"), "错误必须点名 cors 配置段：{err}");
+        assert!(err.contains('*'), "{err}");
+        assert!(err.contains("allow_credentials"), "{err}");
+    }
+
+    #[test]
+    fn validate_allows_wildcard_cors_origin_without_credentials() {
+        let mut config = valid_config();
+        config.cors.allowed_origins = vec!["*".to_string()];
+        config.cors.allow_credentials = false;
+
+        assert!(config.validate().is_ok(), "无凭据时通配源是允许的");
+    }
+
+    #[test]
+    fn validate_allows_explicit_cors_origins_with_credentials() {
+        let mut config = valid_config();
+        config.cors.allowed_origins = vec!["https://app.example.com".to_string()];
+        config.cors.allow_credentials = true;
+
+        assert!(config.validate().is_ok(), "显式源 + 凭据是合法组合");
     }
 
     #[test]

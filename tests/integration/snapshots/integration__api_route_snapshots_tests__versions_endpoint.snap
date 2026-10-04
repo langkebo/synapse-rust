@@ -29,9 +29,6 @@ expression: body
     "uk.tcpip.msc4133": true
   },
   "versions": [
-    "r0.5.0",
-    "r0.6.0",
-    "r0.6.1",
     "v1.1",
     "v1.2",
     "v1.3",

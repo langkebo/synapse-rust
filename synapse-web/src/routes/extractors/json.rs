@@ -15,15 +15,20 @@ where
         match axum::extract::Json::<T>::from_request(req, state).await {
             Ok(axum::extract::Json(value)) => Ok(Self(value)),
             Err(rejection) => {
-                let message = match rejection {
-                    JsonRejection::JsonDataError(e) => format!("Invalid JSON data: {e}"),
-                    JsonRejection::JsonSyntaxError(e) => format!("JSON syntax error: {e}"),
+                // Matrix errcode mapping (spec: "Standard error response"):
+                //   M_NOT_JSON   — the request body is not valid JSON at all
+                //                  (syntax error, wrong/absent Content-Type, unreadable body)
+                //   M_BAD_JSON   — the body *is* valid JSON but does not match the
+                //                  expected structure/type (deserialization error)
+                let error = match rejection {
+                    JsonRejection::JsonDataError(e) => ApiError::bad_request(format!("Invalid JSON data: {e}")),
+                    JsonRejection::JsonSyntaxError(e) => ApiError::not_json(format!("JSON syntax error: {e}")),
                     JsonRejection::MissingJsonContentType(e) => {
-                        format!("Missing Content-Type: application/json: {e}")
+                        ApiError::not_json(format!("Missing Content-Type: application/json: {e}"))
                     }
-                    _ => format!("JSON error: {rejection}"),
+                    _ => ApiError::not_json(format!("JSON error: {rejection}")),
                 };
-                Err(ApiError::bad_request(message))
+                Err(error)
             }
         }
     }
@@ -39,7 +44,7 @@ mod tests {
     };
     use futures::stream;
     use serde::Deserialize;
-    use synapse_common::ApiError;
+    use synapse_common::{ApiError, MatrixErrorCode};
 
     #[derive(Debug, Deserialize, PartialEq)]
     struct SamplePayload {
@@ -77,6 +82,7 @@ mod tests {
         };
 
         assert_eq!(error.http_status(), StatusCode::BAD_REQUEST);
+        assert_eq!(error.code, MatrixErrorCode::NotJson, "syntax errors are M_NOT_JSON");
         assert!(error.message().contains("JSON syntax error"));
     }
 
@@ -94,6 +100,7 @@ mod tests {
         };
 
         assert_eq!(error.http_status(), StatusCode::BAD_REQUEST);
+        assert_eq!(error.code, MatrixErrorCode::BadJson, "shape errors are M_BAD_JSON");
         assert!(error.message().contains("Invalid JSON data"));
     }
 
@@ -107,6 +114,7 @@ mod tests {
         };
 
         assert_eq!(error.http_status(), StatusCode::BAD_REQUEST);
+        assert_eq!(error.code, MatrixErrorCode::NotJson, "missing Content-Type is M_NOT_JSON");
         assert!(error.message().contains("Missing Content-Type: application/json"));
     }
 
@@ -126,6 +134,7 @@ mod tests {
         };
 
         assert_eq!(error.http_status(), StatusCode::BAD_REQUEST);
+        assert_eq!(error.code, MatrixErrorCode::NotJson, "unreadable body is M_NOT_JSON");
         assert!(error.message().contains("JSON error"));
         assert!(error.message().contains("broken body stream"));
     }

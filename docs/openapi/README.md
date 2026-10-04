@@ -69,7 +69,8 @@ python3 scripts/api_test/generate_openapi.py --all-profiles
 
 ## Auth 推断策略 (Week 1 Task 2)
 
-`ledger.json` 中仅 1/1096 端点有 `auth` 字段标记。
+`ledger.json`（**全量 1096 端点**，含 client/federation/admin/media 等全部前缀）
+中仅 1 个端点带有 `auth` 字段标记。
 其余 1095 个通过 **启发式规则** 自动补全:
 
 | 规则 | 推断结果 |
@@ -83,14 +84,20 @@ python3 scripts/api_test/generate_openapi.py --all-profiles
 
 ledger `auth` 字段 > 启发式推断,已标记的端点以 ledger 为准。
 
+> ⚠️ **两个计数口径不可混用**：
+> - `ledger.json` 全量 = **1096** 端点（含所有前缀）。
+> - `client.yaml` default profile = **898** operations（仅 `/_matrix/client/`，是 ledger 全量的客户端子集）。
+>
+> 下方覆盖度表按 `client.yaml`（898）口径统计。
+
 ## 当前覆盖度
 
 | 维度 | 状态 | 负责人 |
 | --- | --- | --- |
-| Endpoint metadata (path/method/auth/rate-limit) | ✅ 898/898 | Week 1 Task 1+2 |
+| Endpoint metadata (path/method/auth/rate-limit) | ✅ 898/898（client.yaml default profile） | Week 1 Task 1+2 |
 | Path parameters (user_id, room_id 等) | ✅ 来自 ledger.path_params | Week 1 Task 1 |
 | Query parameters | ✅ 来自 ledger.query_params | Week 1 Task 1 |
-| Auth field (897 MISSING → 启发式补全) | ✅ **100% 覆盖** | Week 1 Task 2 |
+| Auth field (client.yaml 内 897 MISSING → 启发式补全) | ✅ **100% 覆盖** | Week 1 Task 2 |
 | Multi-profile splitting (oidc/worker/saml/all) | ✅ 接口就绪 | Week 1 Task 2 |
 | Request body schemas | ⏳ TODO | Week 2 |
 | Response body schemas | ⏳ TODO | Week 2~3 |

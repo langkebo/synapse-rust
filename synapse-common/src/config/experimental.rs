@@ -49,7 +49,6 @@ fn default_true() -> bool {
     true
 }
 
-#[allow(clippy::derivable_impls)]
 impl Default for ExperimentalConfig {
     fn default() -> Self {
         Self { msc4452_enabled: false, msc3720_enabled: false, declare_private_extensions: true }

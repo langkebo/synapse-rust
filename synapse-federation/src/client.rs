@@ -430,6 +430,32 @@ struct CachedResolvedServer {
 /// DNS changes will be detected on the next resolution attempt.
 const SERVER_RESOLUTION_TTL_SECS: u64 = 300;
 
+/// B9: Upper bound on the number of entries retained in each of the
+/// per-`FederationClient` in-memory caches (`key_cache` and
+/// `server_resolution_cache`).
+///
+/// Both maps are keyed by remote server name, which is attacker-influenced
+/// (a message can reference arbitrarily many rooms/servers), so an uncapped map
+/// grows without bound on a long-lived process. Concurrent peers number in the
+/// dozens at most, so a few thousand entries is ample; inserts beyond the cap
+/// evict the oldest entry (see [`enforce_cache_bound`]).
+const MAX_CACHE_ENTRIES: usize = 4096;
+
+/// B9: Bound an in-memory cache at [`MAX_CACHE_ENTRIES`] entries.
+///
+/// Called before every insert. While the map is at capacity, the entry with the
+/// smallest `cached_at` (i.e. the oldest insert) is dropped, which keeps the
+/// cap without pulling in an LRU dependency. The scan only runs once the map is
+/// full, so the common path stays O(1).
+fn enforce_cache_bound<T>(cache: &mut HashMap<String, T>, cached_at: impl Fn(&T) -> std::time::Instant) {
+    while cache.len() >= MAX_CACHE_ENTRIES {
+        let Some(oldest) = cache.iter().min_by_key(|(_, value)| cached_at(value)).map(|(key, _)| key.clone()) else {
+            break;
+        };
+        cache.remove(&oldest);
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 /// The `FederationClientError` enum.
 pub enum FederationClientError {
@@ -673,10 +699,14 @@ impl FederationClient {
             return Err(FederationClientError::ServerBlocked(format!("{} (host={})", reason, resolved.host)));
         }
 
-        self.server_resolution_cache.write().await.insert(
-            server_name.to_string(),
-            CachedResolvedServer { resolved: resolved.clone(), cached_at: std::time::Instant::now() },
-        );
+        {
+            let mut cache = self.server_resolution_cache.write().await;
+            enforce_cache_bound(&mut cache, |entry| entry.cached_at);
+            cache.insert(
+                server_name.to_string(),
+                CachedResolvedServer { resolved: resolved.clone(), cached_at: std::time::Instant::now() },
+            );
+        }
 
         Ok(resolved)
     }
@@ -862,10 +892,14 @@ impl FederationClient {
     ) -> Result<ServerKeys, FederationClientError> {
         validate_remote_server_keys(&keys, expected_server)?;
 
-        self.key_cache.write().await.insert(
-            expected_server.to_string(),
-            CachedKeys { keys: keys.clone(), cached_at: std::time::Instant::now() },
-        );
+        {
+            let mut cache = self.key_cache.write().await;
+            enforce_cache_bound(&mut cache, |entry| entry.cached_at);
+            cache.insert(
+                expected_server.to_string(),
+                CachedKeys { keys: keys.clone(), cached_at: std::time::Instant::now() },
+            );
+        }
 
         Ok(keys)
     }
@@ -1349,6 +1383,21 @@ mod tests {
         };
         let client = FederationClient::new("test.com".to_string(), key_rotation);
         (rt, client)
+    }
+
+    #[test]
+    fn test_enforce_cache_bound_evicts_oldest_entry() {
+        let mut cache: HashMap<String, std::time::Instant> = HashMap::new();
+        let base = std::time::Instant::now();
+        for i in 0..MAX_CACHE_ENTRIES {
+            cache.insert(format!("server-{i}"), base + std::time::Duration::from_millis(i as u64));
+        }
+        enforce_cache_bound(&mut cache, |instant| *instant);
+        assert_eq!(cache.len(), MAX_CACHE_ENTRIES - 1);
+        cache.insert("newest".to_string(), base + std::time::Duration::from_millis(MAX_CACHE_ENTRIES as u64));
+        assert_eq!(cache.len(), MAX_CACHE_ENTRIES);
+        assert!(!cache.contains_key("server-0"), "oldest entry must be evicted");
+        assert!(cache.contains_key("newest"));
     }
 
     #[test]

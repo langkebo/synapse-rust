@@ -28,7 +28,7 @@ use synapse_common::server_metrics::ServerMetrics;
 /// Health endpoints are excluded because orchestrators poll them on a fixed
 /// schedule: counting them inflates `http_requests_total` with constant noise and
 /// drags the duration histogram toward the (trivial) probe latency.
-const EXCLUDED_PATHS: &[&str] = &["/health", "/healthz", "/metrics"];
+const EXCLUDED_PATHS: &[&str] = &["/health", "/metrics"];
 
 /// Records request count/duration/errors and maintains the in-flight gauge.
 ///

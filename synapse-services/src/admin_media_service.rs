@@ -74,7 +74,7 @@ impl AdminMediaService {
 
     /// List media in a room.
     ///
-    /// Backs `GET /_synapse/admin/v1/rooms/{room_id}/media`.
+    /// Backs `GET /_synapse/admin/v1/room/{room_id}/media`.
     /// Returns paginated media list with cursor support.
     #[instrument(skip(self))]
     pub async fn get_room_media(
@@ -88,7 +88,7 @@ impl AdminMediaService {
 
     /// Delete media from a room.
     ///
-    /// Backs `DELETE /_synapse/admin/v1/rooms/{room_id}/media/{media_id}`.
+    /// Backs `DELETE /_synapse/admin/v1/room/{room_id}/media/{media_id}`.
     /// Removes the media from the room index and deletes it entirely if no other rooms reference it.
     #[instrument(skip(self))]
     pub async fn delete_room_media(&self, room_id: &str, media_id: &str) -> Result<(), ApiError> {
@@ -98,19 +98,24 @@ impl AdminMediaService {
         Ok(())
     }
 
-    /// Query quarantine change history for a specific media item.
+    /// List quarantine changes across all media.
     ///
-    /// Backs the `GET /_synapse/admin/v1/quarantine_media/{media_id}/changes`
-    /// admin endpoint. Returns changes with `stream_id > since_stream_id`,
-    /// ordered ascending, capped by `limit`.
+    /// Backs the `GET /_synapse/admin/v1/media/quarantine_changes` admin
+    /// endpoint. Returns the changes with `stream_id > from_id`, ordered
+    /// ascending, capped by `limit`, together with the `next_batch` token to
+    /// paginate from.
     #[instrument(skip(self))]
-    pub async fn get_media_quarantine_changes(
+    pub async fn get_quarantine_changes(
         &self,
-        media_id: &str,
-        since_stream_id: i64,
+        from_id: i64,
         limit: i64,
-    ) -> Result<Vec<QuarantinedMediaChange>, ApiError> {
-        self.quarantine_change_storage.get_changes_by_media(media_id, since_stream_id, limit).await
+    ) -> Result<(i64, Vec<QuarantinedMediaChange>), ApiError> {
+        let changes = self.quarantine_change_storage.get_quarantined_media_changes(from_id, limit).await?;
+        let next_batch = match changes.last() {
+            Some(change) => change.stream_id,
+            None => self.quarantine_change_storage.get_current_stream_id().await?,
+        };
+        Ok((next_batch, changes))
     }
 
     // ───────────────────────────────────────────────────────────────────────────
@@ -260,10 +265,11 @@ impl AdminMediaService {
     ///
     /// Sets the quarantine_status to "protected" which prevents automatic re-quarantine.
     ///
-    /// Backs `POST /_synapse/admin/v1/media/protect/{serverName}/{mediaId}`.
+    /// Backs `POST /_synapse/admin/v1/media/protect/{mediaId}`.
     #[instrument(skip(self), fields(media_id))]
-    pub async fn protect_media(&self, server_name: &str, media_id: &str, changed_by: &str) -> Result<i64, ApiError> {
+    pub async fn protect_media(&self, media_id: &str, changed_by: &str) -> Result<i64, ApiError> {
         let now_ts = current_timestamp_millis();
+        let server_name = self.server_name.as_str();
         let stream_id = self
             .quarantine_change_storage
             .record_media_quarantine_change(media_id, server_name, "protect", changed_by, now_ts)
@@ -336,10 +342,11 @@ impl AdminMediaService {
     /// Clear the `protected` status on a media row so it can be quarantined
     /// or deleted by policy again.
     ///
-    /// Backs `POST /_synapse/admin/v1/media/unprotect/{media_id}`.
+    /// Backs `POST /_synapse/admin/v1/media/unprotect/{mediaId}`.
     #[instrument(skip(self), fields(media_id))]
     pub async fn unprotect_media(&self, media_id: &str, changed_by: &str) -> Result<i64, ApiError> {
         let now_ts = current_timestamp_millis();
+        let server_name = self.server_name.as_str();
 
         // First verify the media exists
         let media = self.storage.get_media_info(media_id).await?;
@@ -355,7 +362,6 @@ impl AdminMediaService {
         }
 
         // Record the unprotect change in the audit stream
-        let server_name = self.server_name.as_str();
         let stream_id = self
             .quarantine_change_storage
             .record_media_quarantine_change(media_id, server_name, "unprotect", changed_by, now_ts)
@@ -482,50 +488,56 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_media_quarantine_changes_returns_seeded_changes_for_target_media() {
+    async fn get_quarantine_changes_returns_all_media_changes() {
         let (svc, _store, q_store) = test_service();
         q_store.seed_change(sample_change(1, "media-A", "quarantine")).await;
         q_store.seed_change(sample_change(2, "media-B", "quarantine")).await;
         q_store.seed_change(sample_change(3, "media-A", "unquarantine")).await;
 
-        let changes = svc.get_media_quarantine_changes("media-A", 0, 100).await.unwrap();
-        assert_eq!(changes.len(), 2, "only media-A changes should be returned");
+        let (next_batch, changes) = svc.get_quarantine_changes(0, 100).await.unwrap();
+        assert_eq!(changes.len(), 3, "changes across all media should be returned");
         assert_eq!(changes[0].stream_id, 1);
-        assert_eq!(changes[0].change_type, "quarantine");
-        assert_eq!(changes[1].stream_id, 3);
-        assert_eq!(changes[1].change_type, "unquarantine");
+        assert_eq!(changes[1].stream_id, 2);
+        assert_eq!(changes[2].stream_id, 3);
+        assert_eq!(next_batch, 3, "next_batch is the last returned stream_id");
     }
 
     #[tokio::test]
-    async fn get_media_quarantine_changes_respects_since_stream_id() {
+    async fn get_quarantine_changes_respects_from_id() {
         let (svc, _store, q_store) = test_service();
         q_store.seed_change(sample_change(1, "media-A", "quarantine")).await;
         q_store.seed_change(sample_change(2, "media-A", "unquarantine")).await;
         q_store.seed_change(sample_change(3, "media-A", "quarantine")).await;
 
-        let changes = svc.get_media_quarantine_changes("media-A", 1, 100).await.unwrap();
-        assert_eq!(changes.len(), 2, "should skip stream_id <= since_stream_id");
+        let (next_batch, changes) = svc.get_quarantine_changes(1, 100).await.unwrap();
+        assert_eq!(changes.len(), 2, "should skip stream_id <= from_id");
         assert_eq!(changes[0].stream_id, 2);
         assert_eq!(changes[1].stream_id, 3);
+        assert_eq!(next_batch, 3);
     }
 
     #[tokio::test]
-    async fn get_media_quarantine_changes_respects_limit() {
+    async fn get_quarantine_changes_respects_limit() {
         let (svc, _store, q_store) = test_service();
         for i in 1..=5 {
             q_store.seed_change(sample_change(i, "media-A", "quarantine")).await;
         }
 
-        let changes = svc.get_media_quarantine_changes("media-A", 0, 3).await.unwrap();
+        let (next_batch, changes) = svc.get_quarantine_changes(0, 3).await.unwrap();
         assert_eq!(changes.len(), 3, "limit should cap the result count");
         assert_eq!(changes[0].stream_id, 1);
         assert_eq!(changes[2].stream_id, 3);
+        assert_eq!(next_batch, 3);
     }
 
     #[tokio::test]
-    async fn get_media_quarantine_changes_empty_when_no_history() {
-        let (svc, _store, _q_store) = test_service();
-        let changes = svc.get_media_quarantine_changes("nonexistent", 0, 100).await.unwrap();
+    async fn get_quarantine_changes_empty_falls_back_to_current_stream_id() {
+        let (svc, _store, q_store) = test_service();
+        q_store.seed_change(sample_change(1, "media-A", "quarantine")).await;
+        q_store.seed_change(sample_change(2, "media-A", "unquarantine")).await;
+
+        let (next_batch, changes) = svc.get_quarantine_changes(2, 100).await.unwrap();
         assert!(changes.is_empty());
+        assert_eq!(next_batch, 2, "no new changes ⇒ next_batch is the current stream id");
     }
 }

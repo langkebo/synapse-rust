@@ -219,8 +219,7 @@ impl MessagingService {
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to read room version", e))?;
 
-        let event =
-            self.persist_event(params, room_version, &room_id, &event_type, state_key.as_deref(), tx).await?;
+        let event = self.persist_event(params, room_version, &room_id, &event_type, state_key.as_deref(), tx).await?;
 
         self.run_post_create_side_effects(&room_id, &event_type, state_key.as_deref(), &event, should_update_summary)
             .await;
@@ -308,8 +307,14 @@ impl MessagingService {
                     .map_err(|e| ApiError::internal_with_cause("Failed to calculate event depth", e))?;
 
                 // 4. Select auth_events per the spec's "Auth events selection"
-                let auth_events =
-                    select_auth_events(room_version_str, &auth_state, event_type, state_key, &params.user_id, &params.content);
+                let auth_events = select_auth_events(
+                    room_version_str,
+                    &auth_state,
+                    event_type,
+                    state_key,
+                    &params.user_id,
+                    &params.content,
+                );
 
                 // 5. Create event with full PDU graph fields
                 self.event_writer

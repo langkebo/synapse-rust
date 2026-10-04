@@ -1,6 +1,6 @@
 # Ledger 导出契约 schema
 
-> **权威版本常量**：`src/web/routes/ledger_export.rs` 的 `SCHEMA_VERSION`。
+> **权威版本常量**：`synapse-web/src/routes/ledger_export.rs` 的 `SCHEMA_VERSION`。
 > 本文件顶部的版本号由 `tests/unit/ledger_export_tests.rs` 的
 > `schema_doc_version_matches_code` 与代码断言绑定 —— 改代码必须同步改本文件，
 > 否则该测试变红。这是为了让"契约版本变更"无法像
@@ -72,7 +72,7 @@
 
 **升级 checklist**（本次 `aa06ca45` 漏掉了第 2、4 步，导致 SDK 同步链断裂）：
 
-1. 改 `src/web/routes/ledger_export.rs` 的 `SCHEMA_VERSION`
+1. 改 `synapse-web/src/routes/ledger_export.rs` 的 `SCHEMA_VERSION`
 2. 同步本文件的 `schema_version`
 3. 重生成两条车道的 fixture：
    - `tests/unit/fixtures/ledger_export/`（金文件车道，**默认 feature**，

@@ -1,3 +1,11 @@
+# NOTE (audit E7): every threshold below is consumed *only* by a `pedantic`
+# clippy lint (`cognitive_complexity`, `type_complexity`,
+# `single_char_binding_names`, `too_many_arguments`, `too_many_lines`).
+# This workspace never enables the `pedantic` group — see `[lints.clippy]` /
+# `[workspace.lints.clippy]` in Cargo.toml and the clippy step in
+# `.github/workflows/ci.yml`, which pass `-D warnings` but no
+# `-W clippy::pedantic`. Consequently these thresholds currently enforce
+# nothing; they are retained as intent for the day `pedantic` is adopted.
 cognitive-complexity-threshold = 25
 type-complexity-threshold = 200
 single-char-binding-names-threshold = 4

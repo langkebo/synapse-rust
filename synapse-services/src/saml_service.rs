@@ -8,7 +8,9 @@ use std::time::Duration;
 use synapse_common::config::SamlConfig;
 use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
-use synapse_common::xml_parser::{parse_saml_metadata, parse_saml_response};
+use synapse_common::xml_parser::{
+    parse_saml_metadata, parse_saml_response, parse_saml_response_envelope, SamlResponseEnvelope,
+};
 use synapse_storage::saml::*;
 use tracing::info;
 
@@ -28,54 +30,6 @@ cached_regex!(signature_value_re, r#"<(?:\w+:)?SignatureValue>\s*([^<]+?)\s*</(?
 cached_regex!(signed_info_re, r#"<(?:\w+:)?SignedInfo>([\s\S]*?)</(?:\w+:)?SignedInfo>"#);
 cached_regex!(digest_value_re, r#"<(?:\w+:)?DigestValue>\s*([^<]+?)\s*</(?:\w+:)?DigestValue>"#);
 cached_regex!(reference_uri_re, r#"<(?:\w+:)?Reference\s+[^>]*?URI="([^"]*)""#);
-cached_regex!(audience_re, r#"<(?:\w+:)?Audience>\s*([^<]+?)\s*</(?:\w+:)?Audience>"#);
-cached_regex!(status_code_re, r#"<(?:\w+:)?StatusCode[^>]*\sValue="([^"]+)""#);
-cached_regex!(response_destination_re, r#"<(?:\w+:)?Response[^>]*\sDestination="([^"]+)""#);
-cached_regex!(subject_confirmation_recipient_re, r#"<(?:\w+:)?SubjectConfirmationData[^>]*\sRecipient="([^"]+)""#);
-
-/// Never-match fallback regex used by [`attribute_value_regex`] when the
-/// caller-supplied `attribute` name is invalid. Initialized lazily via
-/// `OnceLock`; the pattern is a hard-coded constant so the compile-time
-/// `Regex::new` call inside `get_or_init` is guaranteed to succeed.
-static ATTRIBUTE_VALUE_FALLBACK: OnceLock<Regex> = OnceLock::new();
-const ATTRIBUTE_VALUE_FALLBACK_PATTERN: &str = r"\A\z";
-
-fn attribute_value_regex(attribute: &str) -> &Regex {
-    // Per-attribute cache. Keyed by attribute name (bounded set in practice:
-    // NotBefore, NotOnOrAfter, etc.). OnceLock requires a static cell per
-    // attribute, so we use a Mutex<HashMap> guarded by `static CACHE` — first
-    // call wins for the compile, subsequent calls reuse.
-    //
-    // On lock poisoning we recover by extracting the inner guard, since the
-    // cached value itself is read-only and unaffected by prior panics.
-    static CACHE: OnceLock<Mutex<HashMap<String, &'static Regex>>> = OnceLock::new();
-    let map = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = match map.lock() {
-        Ok(g) => g,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-    if let Some(r) = guard.get(attribute) {
-        return r;
-    }
-    let pattern = format!(r#"{attribute}="([^"]+)""#);
-    // A syntactically invalid attribute name is a programmer error; return a
-    // never-match fallback regex instead of panicking in production.
-    let compiled: &'static Regex = match Regex::new(&pattern) {
-        Ok(r) => Box::leak(Box::new(r)),
-        Err(e) => {
-            tracing::error!(attribute = %attribute, error = %e, "attribute_value_regex: invalid pattern");
-            // SAFETY: ATTRIBUTE_VALUE_FALLBACK_PATTERN is a compile-time-validated
-            // constant — the unwrap here is guaranteed safe and flagged as a
-            // false-positive by clippy since the pattern is static.
-            #[allow(clippy::unwrap_used)]
-            {
-                ATTRIBUTE_VALUE_FALLBACK.get_or_init(|| Regex::new(ATTRIBUTE_VALUE_FALLBACK_PATTERN).unwrap())
-            }
-        }
-    };
-    guard.insert(attribute.to_string(), compiled);
-    compiled
-}
 
 const SAML_REQUEST_TTL_SECONDS: u64 = 600;
 const SAML_CLOCK_SKEW_SECONDS: i64 = 300;
@@ -321,7 +275,16 @@ impl SamlService {
     /// See [`get_auth_redirect`].
     pub async fn get_auth_redirect(&self, relay_state: Option<&str>) -> Result<SamlAuthRequest, ApiError> {
         let request_id = Self::generate_request_id();
-        self.store_pending_request(&request_id, relay_state).await?;
+
+        // C8: always correlate the outgoing AuthnRequest with its response. When the caller
+        // supplies no RelayState we generate one server-side so that the pending request is
+        // always persisted and the response's InResponseTo can be enforced unconditionally.
+        let relay_state = match relay_state {
+            Some(state) => state.to_string(),
+            None => format!("saml_{}", uuid::Uuid::new_v4().as_simple()),
+        };
+
+        self.store_pending_request(&request_id, Some(&relay_state)).await?;
 
         let metadata = self.get_idp_metadata().await?;
 
@@ -332,11 +295,11 @@ impl SamlService {
 
         let authn_request = self.build_authn_request(&request_id, sp_entity_id, &acs_url);
 
-        let redirect_url = self.build_redirect_url(&sso_url, &authn_request, relay_state)?;
+        let redirect_url = self.build_redirect_url(&sso_url, &authn_request, Some(&relay_state))?;
 
-        info!(request_id = %request_id, has_relay_state = relay_state.is_some(), "Generated SAML auth redirect");
+        info!(request_id = %request_id, "Generated SAML auth redirect");
 
-        Ok(SamlAuthRequest { request_id, redirect_url, relay_state: relay_state.map(|s| s.to_string()) })
+        Ok(SamlAuthRequest { request_id, redirect_url, relay_state: Some(relay_state) })
     }
 
     /// See [`process_auth_response`].
@@ -353,9 +316,9 @@ impl SamlService {
         // parsing assertion data. Previously, parse_saml_assertion was called before
         // validate_response, allowing an attacker to extract data from an unsigned
         // assertion while the signature on a different (wrapped) element validates.
-        let response_issuers = Self::extract_response_issuers(&decoded);
-        let issuer =
-            response_issuers.first().ok_or_else(|| ApiError::bad_request("No issuer in SAML response"))?.clone();
+        let issuer = Self::parse_response_envelope(&decoded)?
+            .response_issuer
+            .ok_or_else(|| ApiError::bad_request("No issuer in SAML response"))?;
 
         let expected_in_response_to = self.consume_pending_request(relay_state).await?;
 
@@ -657,36 +620,31 @@ impl SamlService {
         Self::validate_response_issuer(response, issuer)?;
 
         let in_response_to = Self::extract_in_response_to(response)?;
-        if let Some(expected_in_response_to) = expected_in_response_to {
-            if in_response_to != expected_in_response_to {
-                return Err(ApiError::unauthorized("Unexpected InResponseTo"));
-            }
+        // C8: enforce request correlation unconditionally (fail-closed). A response whose
+        // InResponseTo cannot be tied back to a pending request is treated as a replay /
+        // unsolicited response and rejected.
+        let expected_in_response_to = expected_in_response_to.ok_or_else(|| {
+            ApiError::unauthorized(
+                "SAML response has no matching pending request (unexpected or replayed InResponseTo)",
+            )
+        })?;
+        if in_response_to != expected_in_response_to {
+            return Err(ApiError::unauthorized("Unexpected InResponseTo"));
         }
 
-        // OPT-022: Always require at least one signature level (response or assertion).
-        // Only skip if metadata/certificate is unavailable (cannot verify without it).
-        match self.verify_saml_signature(response) {
-            Ok(()) => {}
-            Err(e) => {
-                let msg = e.to_string();
-                if msg.contains("No IdP metadata") || msg.contains("No IdP certificate") {
-                    tracing::debug!(
-                        error = %e,
-                        issuer = %issuer,
-                        "SAML signature verification unavailable — skipping"
-                    );
-                } else {
-                    tracing::warn!(
-                        error = %e,
-                        issuer = %issuer,
-                        want_response_signed = self.config.want_response_signed,
-                        want_assertions_signed = self.config.want_assertions_signed,
-                        has_expected_in_response_to = expected_in_response_to.is_some(),
-                        "SAML signature verification failed"
-                    );
-                    return Err(ApiError::unauthorized(format!("SAML signature verification failed: {}", msg)));
-                }
-            }
+        // OPT-022 / C7: Always require a verifiable signature (response or assertion).
+        // Fail-closed: when the IdP metadata/certificate is unavailable the signature
+        // cannot be verified, so the login must be rejected instead of silently allowed.
+        if let Err(e) = self.verify_saml_signature(response) {
+            tracing::warn!(
+                error = %e,
+                issuer = %issuer,
+                want_response_signed = self.config.want_response_signed,
+                want_assertions_signed = self.config.want_assertions_signed,
+                in_response_to = %expected_in_response_to,
+                "SAML signature verification failed — rejecting login (fail-closed)"
+            );
+            return Err(ApiError::unauthorized(format!("SAML signature verification failed: {}", e)));
         }
 
         Ok(())
@@ -1032,29 +990,21 @@ impl SamlService {
         })
     }
 
+    /// Parses the decoded SAML response into its non-signature envelope fields
+    /// using a real XML reader.
+    ///
+    /// C11: this replaces the previous ad-hoc string/regex scraping, whose
+    /// extraction could be confused by attribute order, element nesting, or XML
+    /// entity references. Malformed XML is now rejected explicitly instead of
+    /// silently degrading to "field absent".
+    fn parse_response_envelope(xml: &str) -> Result<SamlResponseEnvelope, ApiError> {
+        parse_saml_response_envelope(xml).map_err(|e| ApiError::bad_request(format!("Invalid SAML response XML: {e}")))
+    }
+
     fn extract_in_response_to(xml: &str) -> Result<String, ApiError> {
-        if let Some(start) = xml.find("InResponseTo=\"") {
-            if let Some(end) = xml[start + 14..].find('"') {
-                return Ok(xml[start + 14..start + 14 + end].to_string());
-            }
-        }
-        Err(ApiError::bad_request("No InResponseTo in SAML response"))
-    }
-
-    fn extract_attribute_values(xml: &str, attribute: &str) -> Vec<String> {
-        let regex = attribute_value_regex(attribute);
-        regex
-            .captures_iter(xml)
-            .filter_map(|captures| captures.get(1).map(|value| value.as_str().to_string()))
-            .collect()
-    }
-
-    fn extract_audiences(xml: &str) -> Vec<String> {
-        audience_re()
-            .captures_iter(xml)
-            .filter_map(|captures| captures.get(1).map(|value| value.as_str().trim().to_string()))
-            .filter(|value| !value.is_empty())
-            .collect()
+        Self::parse_response_envelope(xml)?
+            .in_response_to
+            .ok_or_else(|| ApiError::bad_request("No InResponseTo in SAML response"))
     }
 
     fn parse_saml_timestamp(value: &str) -> Result<DateTime<Utc>, ApiError> {
@@ -1064,18 +1014,19 @@ impl SamlService {
     }
 
     fn validate_response_time_window(response: &str) -> Result<(), ApiError> {
+        let envelope = Self::parse_response_envelope(response)?;
         let now = Utc::now();
         let skew = chrono::Duration::seconds(SAML_CLOCK_SKEW_SECONDS);
 
-        for not_before in Self::extract_attribute_values(response, "NotBefore") {
-            let not_before = Self::parse_saml_timestamp(&not_before)?;
+        for not_before in &envelope.not_before {
+            let not_before = Self::parse_saml_timestamp(not_before)?;
             if now + skew < not_before {
                 return Err(ApiError::unauthorized("SAML response is not yet valid"));
             }
         }
 
-        for not_on_or_after in Self::extract_attribute_values(response, "NotOnOrAfter") {
-            let not_on_or_after = Self::parse_saml_timestamp(&not_on_or_after)?;
+        for not_on_or_after in &envelope.not_on_or_after {
+            let not_on_or_after = Self::parse_saml_timestamp(not_on_or_after)?;
             if now - skew >= not_on_or_after {
                 return Err(ApiError::unauthorized("SAML response has expired"));
             }
@@ -1085,7 +1036,7 @@ impl SamlService {
     }
 
     fn validate_response_audience(response: &str, expected_audience: &str) -> Result<(), ApiError> {
-        let audiences = Self::extract_audiences(response);
+        let audiences = Self::parse_response_envelope(response)?.audiences;
         if audiences.is_empty() {
             return Err(ApiError::unauthorized("Missing SAML audience"));
         }
@@ -1095,38 +1046,8 @@ impl SamlService {
         Err(ApiError::unauthorized("SAML audience mismatch"))
     }
 
-    fn extract_status_codes(xml: &str) -> Vec<String> {
-        status_code_re()
-            .captures_iter(xml)
-            .filter_map(|captures| captures.get(1).map(|value| value.as_str().to_string()))
-            .collect()
-    }
-
-    fn extract_response_destination(xml: &str) -> Option<String> {
-        response_destination_re()
-            .captures(xml)
-            .and_then(|captures| captures.get(1).map(|value| value.as_str().to_string()))
-    }
-
-    fn extract_subject_confirmation_recipients(xml: &str) -> Vec<String> {
-        subject_confirmation_recipient_re()
-            .captures_iter(xml)
-            .filter_map(|captures| captures.get(1).map(|value| value.as_str().to_string()))
-            .collect()
-    }
-
-    fn extract_response_issuers(xml: &str) -> Vec<String> {
-        Regex::new(r#"<(?:\w+:)?Response[^>]*>[\s\S]*?<(?:(?:\w+):)?Issuer>\s*([^<]+?)\s*</(?:(?:\w+):)?Issuer>"#)
-            .ok()
-            .and_then(|regex| {
-                regex.captures(xml).and_then(|captures| captures.get(1).map(|value| value.as_str().trim().to_string()))
-            })
-            .map(|issuer| vec![issuer])
-            .unwrap_or_default()
-    }
-
     fn validate_response_status(response: &str) -> Result<(), ApiError> {
-        let status_codes = Self::extract_status_codes(response);
+        let status_codes = Self::parse_response_envelope(response)?.status_codes;
         if status_codes.is_empty() {
             return Err(ApiError::unauthorized("Missing SAML status code"));
         }
@@ -1137,7 +1058,7 @@ impl SamlService {
     }
 
     fn validate_response_destination(response: &str, expected_destination: &str) -> Result<(), ApiError> {
-        if let Some(destination) = Self::extract_response_destination(response) {
+        if let Some(destination) = Self::parse_response_envelope(response)?.destination {
             if destination != expected_destination {
                 return Err(ApiError::unauthorized("SAML destination mismatch"));
             }
@@ -1146,7 +1067,7 @@ impl SamlService {
     }
 
     fn validate_response_recipient(response: &str, expected_recipient: &str) -> Result<(), ApiError> {
-        let recipients = Self::extract_subject_confirmation_recipients(response);
+        let recipients = Self::parse_response_envelope(response)?.subject_confirmation_recipients;
         if recipients.is_empty() {
             return Ok(());
         }
@@ -1157,11 +1078,10 @@ impl SamlService {
     }
 
     fn validate_response_issuer(response: &str, expected_issuer: &str) -> Result<(), ApiError> {
-        let response_issuers = Self::extract_response_issuers(response);
-        if response_issuers.is_empty() {
+        let Some(response_issuer) = Self::parse_response_envelope(response)?.response_issuer else {
             return Ok(());
-        }
-        if response_issuers.iter().any(|issuer| issuer == expected_issuer) {
+        };
+        if response_issuer == expected_issuer {
             return Ok(());
         }
         Err(ApiError::unauthorized("SAML response issuer mismatch"))
@@ -1391,9 +1311,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_validate_response_accepts_valid_constraints() {
+    async fn test_validate_response_rejects_when_signature_unverifiable() {
         let mut config = create_test_config();
-        // Disable signature verification for this test since we don't have IdP metadata
+        // C7: fail-closed — even with the signing flags disabled, a response that cannot be
+        // cryptographically verified (no IdP metadata available) must be rejected.
         config.want_response_signed = false;
         config.want_assertions_signed = false;
 
@@ -1429,11 +1350,14 @@ mod tests {
             acs_url
         );
 
-        let result = service.validate_response("https://idp.example.com", &xml, Some("id_123"));
-        if let Err(e) = &result {
-            tracing::warn!(error = ?e, test_case = %"test_validate_response_allows_clock_skew", "Validation failed");
-        }
-        assert!(result.is_ok());
+        let error = service.validate_response("https://idp.example.com", &xml, Some("id_123")).unwrap_err();
+        // All constraint checks (time window/audience/status/destination/recipient/issuer)
+        // passed; the rejection is solely due to the unverifiable signature (fail-closed).
+        assert!(
+            error.to_string().contains("signature verification failed"),
+            "C7: unverifiable SAML response must be rejected; got: {}",
+            error
+        );
     }
 
     #[tokio::test]
@@ -1498,6 +1422,44 @@ mod tests {
 
         let error = service.validate_response("https://idp.example.com", &xml, Some("id_expected")).unwrap_err();
         assert!(error.to_string().contains("InResponseTo"));
+    }
+
+    #[tokio::test]
+    async fn test_validate_response_rejects_missing_pending_request() {
+        // C8: without a correlated pending request the expected InResponseTo is unknown, so
+        // the response must be rejected (replay / unsolicited response protection).
+        let service = create_test_service();
+        let acs_url = service.config.get_sp_acs_url(&service.server_name);
+        let xml = format!(
+            r#"<samlp:Response InResponseTo="id_123">
+                <samlp:Status>
+                    <samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/>
+                </samlp:Status>
+                <saml:Issuer>https://idp.example.com</saml:Issuer>
+                <saml:Assertion>
+                    <saml:Conditions NotBefore="{}" NotOnOrAfter="{}">
+                        <saml:AudienceRestriction>
+                            <saml:Audience>https://matrix.example.com</saml:Audience>
+                        </saml:AudienceRestriction>
+                    </saml:Conditions>
+                    <saml:Subject>
+                        <saml:SubjectConfirmation>
+                            <saml:SubjectConfirmationData Recipient="{}"/>
+                        </saml:SubjectConfirmation>
+                    </saml:Subject>
+                </saml:Assertion>
+            </samlp:Response>"#,
+            (Utc::now() - chrono::Duration::minutes(1)).to_rfc3339(),
+            (Utc::now() + chrono::Duration::minutes(5)).to_rfc3339(),
+            acs_url
+        );
+
+        let error = service.validate_response("https://idp.example.com", &xml, None).unwrap_err();
+        assert!(
+            error.to_string().contains("pending request"),
+            "C8: missing pending request must be rejected; got: {}",
+            error
+        );
     }
 
     #[tokio::test]

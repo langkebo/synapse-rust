@@ -173,7 +173,10 @@ strip = true
 opt-level = 3
 lto = true
 codegen-units = 1
-panic = "abort"
+# C13：保持 unwind（不用 abort）。abort 下单个 panic（含第三方库内的 panic）
+# 会直接终止整个进程，把一次局部失败放大为进程级 DoS；unwind 允许任务隔离与
+# 优雅收敛。发布二进制体积/性能差异可忽略。
+panic = "unwind"
 # 保留行号表 + 关闭 strip：供 jemalloc prof 的 jeprof 符号化（地址 → 源码行）。
 debug = "line-tables-only"
 strip = false

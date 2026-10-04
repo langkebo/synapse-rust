@@ -1,4 +1,4 @@
-use super::{ensure_room_view_access, get_room_event, parse_room_messages_from_token};
+use super::{ensure_room_view_access, get_room_event, parse_pagination_direction, parse_room_messages_from_token};
 use crate::routes::context::RoomContext;
 use crate::routes::extractors::{EventId, RoomId, UserId};
 use crate::routes::{validate_event_id, validate_room_id, AuthenticatedUser};
@@ -12,7 +12,6 @@ use std::collections::{HashMap, HashSet};
 use synapse_common::current_timestamp_millis;
 use synapse_common::map_internal;
 use synapse_common::{ApiError, ContentSanitizer};
-use synapse_services::delayed_event_service::CreateDelayedEventRequest;
 use synapse_services::event::CreateEventParams;
 
 /// See [`get_single_event`].
@@ -194,13 +193,24 @@ pub(crate) async fn get_messages(
 
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let from = parse_room_messages_from_token(&params);
+    let from = parse_room_messages_from_token(&params)?;
     let limit = params
         .get("limit")
         .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
         .unwrap_or(10)
         .min(1000) as i64;
-    let direction = params.get("dir").and_then(|v| v.as_str()).unwrap_or("b");
+    let direction = parse_pagination_direction(&params)?;
+
+    // A9: `/messages` `filter` is not implemented on this server. Reject it
+    // explicitly instead of silently returning unfiltered events (a client
+    // that relies on `filter` would otherwise receive too much data without
+    // any signal that its constraint was dropped).
+    if let Some(filter) = params.get("filter") {
+        let is_absent = filter.is_null() || filter.as_str().is_some_and(str::is_empty);
+        if !is_absent {
+            return Err(ApiError::invalid_param("The 'filter' parameter is not supported on this endpoint"));
+        }
+    }
 
     let response =
         ctx.room_service.messaging().get_room_messages(&room_id, &auth_user.user_id, from, limit, direction).await?;
@@ -327,59 +337,19 @@ pub(crate) async fn send_message(
     // event as a delayed event instead of sending immediately. The server
     // returns a `delay_id` (numeric) that clients use to cancel/restart/send
     // via the management endpoint.
-    if let Some(delay_ms) = body.get("org.matrix.msc4140.delay").and_then(|v| v.as_i64()) {
-        // Validate delay is positive and bounded (max 24h = 86_400_000ms)
-        if delay_ms <= 0 {
-            return Err(ApiError::bad_request(
-                "org.matrix.msc4140.delay must be a positive integer (milliseconds)".to_string(),
-            ));
-        }
-        if delay_ms > 86_400_000 {
-            return Err(ApiError::bad_request(
-                "org.matrix.msc4140.delay must not exceed 24 hours (86_400_000ms)".to_string(),
-            ));
-        }
-
-        // Remove the MSC4140 delay field from the content before storing —
-        // it is a transport-level scheduling hint, not part of the event content.
-        let mut content = body.clone();
-        if let Some(obj) = content.as_object_mut() {
-            obj.remove("org.matrix.msc4140.delay");
-        }
-
-        let device_id = auth_user.device_id.as_deref().unwrap_or("");
-
-        let request = CreateDelayedEventRequest {
-            room_id: room_id.to_string(),
-            user_id: auth_user.user_id.clone(),
-            device_id: device_id.to_string(),
-            event_type: event_type.clone(),
-            state_key: None,
-            content,
-            delay_ms,
-        };
-
-        let delayed = ctx.delayed_event_service.schedule(request).await?;
-
-        ::tracing::info!(
-            room_id = %room_id,
-            user_id = %auth_user.user_id,
-            delay_id = delayed.id,
-            delay_ms,
-            event_type = %event_type,
-            "MSC4140 delayed event scheduled"
-        );
-
-        // Cache the delay_id against the txn_id for idempotency.
-        if !txn_id.is_empty() {
-            let cache_key = format!("txn:{}:{}:{}", auth_user.user_id, room_id, txn_id);
-            let cached = serde_json::json!({ "delay_id": delayed.id });
-            if let Err(e) = ctx.cache.set(&cache_key, &cached.to_string(), 3600).await {
-                ::tracing::warn!("Failed to cache delayed event txn_id dedup marker: {e}");
-            }
-        }
-
-        return Ok(Json(serde_json::json!({ "delay_id": delayed.id })));
+    if let Some(response) = super::schedule_delayed_event_if_requested(
+        &ctx,
+        &auth_user.user_id,
+        auth_user.device_id.as_deref().unwrap_or(""),
+        &room_id,
+        &event_type,
+        None,
+        &body,
+        Some(&txn_id),
+    )
+    .await?
+    {
+        return Ok(response);
     }
 
     // ISSUE-03: txn 去重的唯一事实源是 DB 唯一约束（room_event_txn_dedup），
@@ -463,9 +433,9 @@ pub(crate) async fn get_room_timeline(
 
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let from = parse_room_messages_from_token(&params);
+    let from = parse_room_messages_from_token(&params)?;
     let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as i64;
-    let direction = params.get("dir").and_then(|v| v.as_str()).unwrap_or("b");
+    let direction = parse_pagination_direction(&params)?;
 
     Ok(Json(
         ctx.room_service.messaging().get_room_messages(&room_id, &auth_user.user_id, from, limit, direction).await?,

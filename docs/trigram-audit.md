@@ -123,7 +123,7 @@ adding trigram support, but as pure-filters they don't match TrigramRanking's cu
 
 ## 5. Unused Patterns
 
-- No trigram/similarity patterns found in `src/web/routes/`
+- No trigram/similarity patterns found in `synapse-web/src/routes/`
 - All ILIKE/trigram patterns are confined to `synapse-storage/src/`
 
 ## Recommendations

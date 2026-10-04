@@ -235,6 +235,12 @@ services:
       ADMIN_SHARED_SECRET: ${ADMIN_SHARED_SECRET:?ADMIN_SHARED_SECRET must be set}
       REGISTRATION_SHARED_SECRET: ${REGISTRATION_SHARED_SECRET:?REGISTRATION_SHARED_SECRET must be set}
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set}
+      # C9: 部署侧默认开启管理员 MFA（TOTP）。`admin_mfa_required` 是 bool 字段，
+      # 无法用 homeserver.yaml 的 `${VAR}` 插值，只能由这里的 `SYNAPSE__` 环境变量
+      # 覆盖（config 0.14 会把 "true" 转成 bool）。共享的 homeserver.yaml 保持默认
+      # 关闭，避免影响 dev 栈。secret 非空由 `:?` 强制，否则 validate() 启动即失败。
+      ADMIN_MFA_SHARED_SECRET: ${ADMIN_MFA_SHARED_SECRET:?ADMIN_MFA_SHARED_SECRET must be set (base32 TOTP secret, or scripts/generate-secrets.sh missing)}
+      SYNAPSE__SECURITY__ADMIN_MFA_REQUIRED: ${ADMIN_MFA_REQUIRED:-true}
       MACAROON_SECRET: ${MACAROON_SECRET:?MACAROON_SECRET must be set}
       FORM_SECRET: ${FORM_SECRET:?FORM_SECRET must be set}
       FEDERATION_SIGNING_KEY: ${FEDERATION_SIGNING_KEY:?FEDERATION_SIGNING_KEY must be set}

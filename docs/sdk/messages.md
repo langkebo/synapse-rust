@@ -15,7 +15,7 @@
 
 ### 发送文本消息
 
-**端点:** `PUT /_matrix/client/r0/rooms/{room_id}/send/m.room.message/{txn_id}`
+**端点:** `PUT /_matrix/client/v3/rooms/{room_id}/send/m.room.message/{txn_id}`
 
 **需要认证:** 是
 
@@ -41,7 +41,7 @@ interface TextMessage {
 const sendTextMessage = async (roomId: string, text: string, accessToken: string) => {
   const txnId = Date.now().toString();
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`,
+    `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`,
     {
       method: 'PUT',
       headers: {
@@ -61,7 +61,7 @@ const sendTextMessage = async (roomId: string, text: string, accessToken: string
 const replyToMessage = async (roomId: string, text: string, eventId: string, accessToken: string) => {
   const txnId = Date.now().toString();
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`,
+    `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`,
     {
       method: 'PUT',
       headers: {
@@ -101,7 +101,7 @@ const replyToMessage = async (roomId: string, text: string, eventId: string, acc
 const sendImageMessage = async (roomId: string, contentUrl: string, accessToken: string) => {
   const txnId = Date.now().toString();
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`,
+    `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`,
     {
       method: 'PUT',
       headers: {
@@ -130,7 +130,7 @@ const sendImageMessage = async (roomId: string, contentUrl: string, accessToken:
 const sendFileMessage = async (roomId: string, contentUrl: string, filename: string, mimeType: string, accessToken: string) => {
   const txnId = Date.now().toString();
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`,
+    `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`,
     {
       method: 'PUT',
       headers: {
@@ -158,7 +158,7 @@ const sendFileMessage = async (roomId: string, contentUrl: string, filename: str
 const sendVoiceMessage = async (roomId: string, audioUrl: string, duration: number, accessToken: string) => {
   const txnId = Date.now().toString();
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`,
+    `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`,
     {
       method: 'PUT',
       headers: {
@@ -186,7 +186,7 @@ const sendVoiceMessage = async (roomId: string, audioUrl: string, duration: numb
 
 ### 获取房间消息
 
-**端点:** `GET /_matrix/client/r0/rooms/{room_id}/messages`
+**端点:** `GET /_matrix/client/v3/rooms/{room_id}/messages`
 
 **需要认证:** 是
 
@@ -206,7 +206,7 @@ const getMessages = async (roomId: string, options: {
   limit?: number;
   dir?: 'f' | 'b';
 }, accessToken: string) => {
-  const url = new URL(`${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/messages`);
+  const url = new URL(`${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/messages`);
 
   if (options.from) url.searchParams.set('from', options.from);
   if (options.limit) url.searchParams.set('limit', options.limit.toString());
@@ -240,7 +240,7 @@ interface Event {
 
 ### 发送已读回执
 
-**端点:** `POST /_matrix/client/r0/rooms/{room_id}/receipt/m.read/{event_id}`
+**端点:** `POST /_matrix/client/v3/rooms/{room_id}/receipt/m.read/{event_id}`
 
 **需要认证:** 是
 
@@ -248,7 +248,7 @@ interface Event {
 ```typescript
 const sendReadReceipt = async (roomId: string, eventId: string, accessToken: string) => {
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/receipt/m.read/${eventId}`,
+    `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/receipt/m.read/${eventId}`,
     {
       method: 'POST',
       headers: {
@@ -264,7 +264,7 @@ const sendReadReceipt = async (roomId: string, eventId: string, accessToken: str
 
 ### 设置已读标记
 
-**端点:** `POST /_matrix/client/r0/rooms/{room_id}/read_markers`
+**端点:** `POST /_matrix/client/v3/rooms/{room_id}/read_markers`
 
 **请求体:**
 ```typescript
@@ -279,7 +279,7 @@ interface ReadMarkers {
 ```typescript
 const setReadMarkers = async (roomId: string, eventId: string, accessToken: string) => {
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/read_markers`,
+    `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/read_markers`,
     {
       method: 'POST',
       headers: {
@@ -301,7 +301,7 @@ const setReadMarkers = async (roomId: string, eventId: string, accessToken: stri
 
 ### 撤回消息
 
-**端点:** `PUT /_matrix/client/r0/rooms/{room_id}/redact/{event_id}`
+**端点:** `PUT /_matrix/client/v3/rooms/{room_id}/redact/{event_id}`
 
 **需要认证:** 是
 
@@ -318,7 +318,7 @@ interface RedactEvent {
 ```typescript
 const redactMessage = async (roomId: string, eventId: string, reason?: string, accessToken: string) => {
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/redact/${eventId}`,
+    `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/redact/${eventId}`,
     {
       method: 'PUT',
       headers: {
@@ -342,7 +342,7 @@ const redactMessage = async (roomId: string, eventId: string, reason?: string, a
 
 ### 设置打字状态
 
-**端点:** `PUT /_matrix/client/r0/rooms/{room_id}/typing/{user_id}`
+**端点:** `PUT /_matrix/client/v3/rooms/{room_id}/typing/{user_id}`
 
 **需要认证:** 是
 
@@ -359,7 +359,7 @@ interface TypingEvent {
 // 开始打字
 const setTyping = async (roomId: string, userId: string, accessToken: string) => {
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/typing/${encodeURIComponent(userId)}`,
+    `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/typing/${encodeURIComponent(userId)}`,
     {
       method: 'PUT',
       headers: {
@@ -378,7 +378,7 @@ const setTyping = async (roomId: string, userId: string, accessToken: string) =>
 // 停止打字
 const stopTyping = async (roomId: string, userId: string, accessToken: string) => {
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/typing/${encodeURIComponent(userId)}`,
+    `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/typing/${encodeURIComponent(userId)}`,
     {
       method: 'PUT',
       headers: {
@@ -400,7 +400,7 @@ const stopTyping = async (roomId: string, userId: string, accessToken: string) =
 
 ### 发送自定义事件
 
-**端点:** `PUT /_matrix/client/r0/rooms/{room_id}/send/{event_type}/{txn_id}`
+**端点:** `PUT /_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}`
 
 **需要认证:** 是
 
@@ -414,7 +414,7 @@ const sendCustomEvent = async (
 ) => {
   const txnId = Date.now().toString();
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/send/${encodeURIComponent(eventType)}/${txnId}`,
+    `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/${encodeURIComponent(eventType)}/${txnId}`,
     {
       method: 'PUT',
       headers: {
@@ -436,7 +436,7 @@ const setStateEvent = async (
   accessToken: string
 ) => {
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/state/${encodeURIComponent(eventType)}/${encodeURIComponent(stateKey)}`,
+    `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/${encodeURIComponent(eventType)}/${encodeURIComponent(stateKey)}`,
     {
       method: 'PUT',
       headers: {
@@ -461,7 +461,7 @@ class MessageService {
   async sendMessage(roomId: string, content: any, messageType = 'm.text') {
     const txnId = Date.now().toString();
     const response = await fetch(
-      `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/send/${messageType}/${txnId}`,
+      `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/${messageType}/${txnId}`,
       {
         method: 'PUT',
         headers: this.auth.getAuthHeaders(),
@@ -483,7 +483,7 @@ class MessageService {
     limit?: number;
     dir?: 'f' | 'b';
   } = {}) {
-    const url = new URL(`${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/messages`);
+    const url = new URL(`${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/messages`);
     if (options.from) url.searchParams.set('from', options.from);
     if (options.limit) url.searchParams.set('limit', options.limit.toString());
     if (options.dir) url.searchParams.set('dir', options.dir);
@@ -496,7 +496,7 @@ class MessageService {
 
   async sendReadReceipt(roomId: string, eventId: string) {
     const response = await fetch(
-      `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/receipt/m.read/${eventId}`,
+      `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/receipt/m.read/${eventId}`,
       {
         method: 'POST',
         headers: this.auth.getAuthHeaders()
@@ -507,7 +507,7 @@ class MessageService {
 
   async redactMessage(roomId: string, eventId: string, reason?: string) {
     const response = await fetch(
-      `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/redact/${eventId}`,
+      `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/redact/${eventId}`,
       {
         method: 'PUT',
         headers: this.auth.getAuthHeaders(),
@@ -522,7 +522,7 @@ class MessageService {
     if (!userId) return;
 
     await fetch(
-      `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/typing/${userId}`,
+      `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/typing/${userId}`,
       {
         method: 'PUT',
         headers: this.auth.getAuthHeaders(),
@@ -570,7 +570,7 @@ export function useMessages(roomId: string, accessToken: string): UseMessagesRes
   const loadMessages = useCallback(async () => {
     setLoading(true);
     try {
-      const url = new URL(`${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/messages`);
+      const url = new URL(`${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/messages`);
       if (nextToken) url.searchParams.set('from', nextToken);
       url.searchParams.set('limit', '50');
       url.searchParams.set('dir', 'f');
@@ -593,7 +593,7 @@ export function useMessages(roomId: string, accessToken: string): UseMessagesRes
   const sendMessage = useCallback(async (text: string) => {
     const txnId = Date.now().toString();
     const response = await fetch(
-      `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`,
+      `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`,
       {
         method: 'PUT',
         headers: {
@@ -618,7 +618,7 @@ export function useMessages(roomId: string, accessToken: string): UseMessagesRes
   // 发送已读回执
   const sendReadReceipt = useCallback(async (eventId: string) => {
     await fetch(
-      `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/receipt/m.read/${eventId}`,
+      `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/receipt/m.read/${eventId}`,
       {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -631,7 +631,7 @@ export function useMessages(roomId: string, accessToken: string): UseMessagesRes
     // 防抖处理
     if (typing) {
       fetch(
-        `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/typing/${accessToken}`,
+        `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/typing/${accessToken}`,
         {
           method: 'PUT',
           headers: {
