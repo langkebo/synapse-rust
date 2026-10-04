@@ -41,7 +41,7 @@ ENV CARGO_INCREMENTAL=0 \
     CARGO_PROFILE_RELEASE_CODEGEN_UNITS=8 \
     CARGO_PROFILE_RELEASE_STRIP=symbols \
     CARGO_PROFILE_RELEASE_DEBUG=false \
-    CARGO_PROFILE_RELEASE_PANIC=abort \
+    CARGO_PROFILE_RELEASE_PANIC=unwind \
     RUSTFLAGS="-C link-arg=-Wl,--gc-sections -C link-arg=-Wl,-z,relro,-z,now"
 
 RUN if [ -n "${MIRROR_URL}" ]; then sed -i "s|deb.debian.org|${MIRROR_URL}|g" /etc/apt/sources.list.d/debian.sources; fi && \

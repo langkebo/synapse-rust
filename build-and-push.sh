@@ -3,7 +3,7 @@
 # build-and-push.sh
 #
 # 构建生产级 (target=tools, linux/amd64) Docker 镜像，包含：
-#   - synapse-rust 二进制 (release 优化, LTO thin, panic=abort, strip symbols)
+#   - synapse-rust 二进制 (release 优化, LTO thin, panic=unwind, strip symbols)
 #   - healthcheck 二进制
 #   - migrations/  (全部 SQL 迁移脚本，由 docker/db_migrate.sh 在容器内执行)
 #   - docker/db_migrate.sh + docker/deploy/scripts/container-migrate.sh
