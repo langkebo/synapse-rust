@@ -3,9 +3,9 @@
 > 基线版本：v6.2.0
 > 分支：`feature/2026-10-01-metrics-docs-updates`（HEAD `973ac3a0c`，工作区干净）
 > 排查日期：2026-10-04（第二轮全面系统复核）
-> 结论：**无 P0 阻断项，共 48 项遗留问题（P2×14 / P3×34；P1 已清零）**
+> 结论：**无 P0 阻断项；第二轮全部遗留问题已处置完毕（2026-10-04 末次收尾后 P1×0 / P2×0 / P3×0）**
 > 说明：本轮在首轮清单基础上做了二次复核与扩面取证。首轮正文 36 项（头部曾误计 31）中 27 项已修复/归档（含本轮补修的 F1）、9 项仍存续，另新发现 59 项。
-> 修复进展：`C7`（SAML 响应签名验证 fail-open）已于 2026-10-04 修复为 fail-closed；`F1`、`F9–F12`（文档路径漂移/索引失真/SDK r0 前缀/口径矛盾）已于同日完成纠偏，**P1 级问题全部清零**，详见 §四 F 表与 §七；同日完成 **P2 代码批次**（`A3/A6/A7`、`B8/B9/B12/B13/B14`、`E7/E8/E9`，共 11 项）处置，**P2 由 28 降至 17**，详见 §四 与 §八；同日续完成 **P2 安全配置批次**（`C5/C8/C9`，共 3 项），**P2 进一步降至 14**，详见 §四 C 表与 §七；同日末完成 **P2 lint 批次**（`E1`，共 1 项，有限消除 + 精确归档：264 处口径 + 重构批次计划），**P2 进一步降至 13**，详见 §四 E 表与 §八；同日末完成 **P3 收尾批次**（`D12` 修复、`D14` 订正，共 2 项），**P3 全部清零（34/34）**，详见 §四 D 表与 §七。
+> 修复进展：`C7`（SAML 响应签名验证 fail-open）已于 2026-10-04 修复为 fail-closed；`F1`、`F9–F12`（文档路径漂移/索引失真/SDK r0 前缀/口径矛盾）已于同日完成纠偏，**P1 级问题全部清零**，详见 §四 F 表与 §七；同日完成 **P2 代码批次**（`A3/A6/A7`、`B8/B9/B12/B13/B14`、`E7/E8/E9`，共 11 项）处置，**P2 由 28 降至 17**，详见 §四 与 §八；同日续完成 **P2 安全配置批次**（`C5/C8/C9`，共 3 项），**P2 进一步降至 14**，详见 §四 C 表与 §七；同日末完成 **P2 lint 批次**（`E1`，共 1 项，有限消除 + 精确归档：264 处口径 + 重构批次计划），**P2 进一步降至 13**，详见 §四 E 表与 §八；同日末完成 **P3 收尾批次**（`D12` 修复、`D14` 订正，共 2 项），**P3 全部清零（34/34）**，详见 §四 D 表与 §七；同日末完成 **P2 兼容性对齐批次**（`D5–D10/D13`、`F13–F18`，共 13 项：D5/D6/D7/F14/F15 证伪、D8/D10/D13/F13/F16/F17/F18 修复或澄清、D9 订正），**P2 全部清零（13→0）**，详见 §四 D/F 表与 §七。
 
 ---
 
@@ -41,10 +41,10 @@
 | 级别 | 数量 | 主题 |
 |------|------|------|
 | **P1 高** | 0 | 已全部清零（`C7`、`F1`、`F9–F12` 均于 2026-10-04 修复） |
-| **P2 中** | 13 | r0 兼容与 i18n/错误码/版本口径（D5–D10/D13）、文档死链与口径冲突（F13–F18）<br>**已处置（2026-10-04，P2 代码批次，11 项）**：A3/A6/A7、B8/B9/B12/B13/B14、E7/E8/E9<br>**已处置（2026-10-04，P2 安全配置批次，3 项）**：C5/C8/C9<br>**已处置（2026-10-04，P2 lint 批次，1 项）**：E1（有限消除 + 精确归档：264 处口径 + 重构批次计划见 §八） |
+| **P2 中** | 0 | r0 兼容与 i18n/错误码/版本口径（D5–D10/D13）、文档死链与口径冲突（F13–F18）——**已全部清零（2026-10-04）**<br>**已处置（2026-10-04，P2 代码批次，11 项）**：A3/A6/A7、B8/B9/B12/B13/B14、E7/E8/E9<br>**已处置（2026-10-04，P2 安全配置批次，3 项）**：C5/C8/C9<br>**已处置（2026-10-04，P2 lint 批次，1 项）**：E1（有限消除 + 精确归档：264 处口径 + 重构批次计划见 §八）<br>**已处置（2026-10-04，P2 兼容性对齐批次，13 项）**：D5/D6/D7（证伪：证据过时）、D8/D10/D13（修复）、D9（订正）、F13（修复：issues 死链）、F14/F15（证伪：证据过时）、F16/F17/F18（修复/澄清） |
 | **P3 低** | 34 | 次要功能缺口/性能/配置/注释/文档噪音（A5/A8–A14、B4/B5/B7/B10/B11/B15–B17、C10–C14、D11/D12/D14、E10–E15、F8/F19–F21）<br>**已处置（2026-10-04，P3 安全/配置批次，5 项）**：C10/C11/C12/C13（修复）、C14（核实：VAL-01/DEP-01 已满足、Abuse-01 设计取舍）<br>**已处置（2026-10-04，P3 严格化批次，5 项）**：A9/A10/A12/A13/A14<br>**已处置（2026-10-04，P3 内存/文档批次，9 项）**：B4/B5/B7/B10/B11/B15（修复）、B16/B17（核实：有界/test-only，非缺陷）、D11（证伪：证据过时）<br>**已处置（2026-10-04，P3 代码质量批次，6 项）**：E10（修复：样板就地提取 helper）、E11（归档：设计取舍）、E12（归档：按端点设计）、E13（订正：无生产逃逸）、E14（归档：test-only+守卫）、E15（归档：受守卫的动态 SQL）<br>**已处置（2026-10-04，P3 文档批次，4 项）**：F8（归档：索引已覆盖+只读声明，补 `plans/` 索引项）、F19（归档：归档冻结、只读不维护）、F20（澄清：`CHANGELOG` 头部补历史路径说明）、F21（归档：现行覆盖分散于既有索引文档）<br>**已处置（2026-10-04，P3 收尾批次，2 项）**：D12（修复：迁移回滚文档改为真实机制）、D14（订正：拆分上游跟踪目标 v1.19 与本仓声明基线 v1.14，确立单点权威） |
 
-> 与首轮对比：P1 由 5→6，P2 由 14→28，P3 由 12→34。增量主要来自首轮未覆盖的**运行时无界增长点**、**SAML/认证降级面**、**r0 兼容残留**与**文档索引失真**。（P2 复核对齐后，已随 2026-10-04 P2 代码批次处置 11 项降至 17，续随 P2 安全配置批次处置 3 项（C5/C8/C9）降至 14，末随 P2 lint 批次处置 1 项（E1）降至 13。）
+> 与首轮对比：P1 由 5→6，P2 由 14→28，P3 由 12→34。增量主要来自首轮未覆盖的**运行时无界增长点**、**SAML/认证降级面**、**r0 兼容残留**与**文档索引失真**。（P2 复核对齐后，已随 2026-10-04 P2 代码批次处置 11 项降至 17，续随 P2 安全配置批次处置 3 项（C5/C8/C9）降至 14，随 P2 lint 批次处置 1 项（E1）降至 13，末随 P2 兼容性对齐批次处置 13 项（`D5–D10/D13`、`F13–F18`）降至 **0**。）
 
 ---
 
@@ -265,32 +265,28 @@
 **D3｜`event_id.rs` 头注释与实现矛盾** — 中｜✅ 已修复
 **D4｜撤销级联口径冲突** — 低｜✅ 已修复
 
-**D5｜`/versions` 声明 legacy r0 但服务器无 r0 路由** — 中｜🆕｜**P2**
-- 证据：`synapse-services/src/capability_governance.rs:84-86` 声明 `r0.5.0/r0.6.0/r0.6.1`；`synapse-web/src/routes/assembly.rs` 仅注册 `/_matrix/client/v3`，全仓 `synapse-web/src` 无 `/_matrix/client/r0` 或无版本前缀路由
-- 影响：硬编码 r0 路径的旧客户端会 404；`/versions` 声明与实际服务面不符
-- 建议：补 r0→v3 别名，或不声明 legacy r0（需确认是否设计取舍）
+**D5｜`/versions` 声明 legacy r0 但服务器无 r0 路由** — 中｜✅ 已证伪（证据过时，2026-10-04）
+- 原证据：`synapse-services/src/capability_governance.rs:84-86` 声明 `r0.5.0/r0.6.0/r0.6.1`
+- 复核：`capability_governance.rs` 的 `CLIENT_API_VERSION_SUPPORT`（现 L62-87）仅声明 `stable("v1.1")`…`stable("v1.14")`，doc 注释明确 `The legacy r0.x versions are intentionally NOT advertised`，全库无 `r0.x` 声明。原指控不可复现，`/versions` 声明与实际 v3 服务面一致。
 
-**D6｜SAML 默认 ACS/SLS URL 指向不存在的 r0 路径** — 中｜🆕｜**P2**
-- 证据：`synapse-common/src/config/auth.rs:322,327`（`/_matrix/client/r0/login/sso/redirect/saml`、`/_matrix/client/r0/logout/saml`）；测试 `:435,451` 固化了错误值
-- 影响：未显式配置时 SAML 回跳/登出 URL 打到不存在的端点
-- 建议：改为 v3 路径并修正测试断言
+**D6｜SAML 默认 ACS/SLS URL 指向不存在的 r0 路径** — 中｜✅ 已证伪（证据过时，2026-10-04）
+- 原证据：`synapse-common/src/config/auth.rs:322,327`（`/_matrix/client/r0/login/sso/redirect/saml`、`/_matrix/client/r0/logout/saml`）；测试 `:435,451` 固化了错误值
+- 复核：`auth.rs` 现文（L319-329）`get_sp_acs_url`/`get_sp_sls_url` 默认均为 `/_matrix/client/v3/...`；测试（L431-453）亦断言 v3。原指控不可复现，无 r0 默认残留。
 
-**D7｜`m.room_versions.available` 仅含 `"12"`** — 中｜🆕｜**P2**（待确认）
-- 证据：`synapse-common/src/room_versions.rs:206-219`
-- 影响：客户端可能误判只支持单一房间版本
-- 建议：确认是否应列出全部可用版本
+**D7｜`m.room_versions.available` 仅含 `"12"`** — 中｜✅ 已证伪（证据过时，2026-10-04）
+- 原证据：`synapse-common/src/room_versions.rs:206-219`
+- 复核：`client_room_versions_capability()`（现 L206-229）遍历 `SUPPORTED_ROOM_VERSIONS`（v1–v12）逐项写入 `available`，`default = DEFAULT_ROOM_VERSION = "12"`；契约快照 `capabilities_v3.snap` 实证 `available` 含 `"1".."12"` 全部 12 个版本。原指控不可复现。
 
-**D8｜`docs/sdk/errors.md` 错误码表含不存在的 errcode** — 中｜🆕｜**P2**
-- 证据：`docs/sdk/errors.md:91` 列出 `M_INVALID_PASSWORD` 等；全仓 `synapse-common/src` 无该 errcode 定义
-- 影响：SDK 客户端据文档实现错误分支，命中不到
-- 建议：以 `error.rs` 实际 errcode 集为准重写错误码表
+**D8｜`docs/sdk/errors.md` 错误码表含不存在的 errcode** — 中｜✅ 已修复（2026-10-04）
+- 原证据：`docs/sdk/errors.md:91` 列出 `M_INVALID_PASSWORD` 等；全仓 `synapse-common/src` 无该 errcode 定义
+- 复核/处置：`errors.md` 已重写（L85-95），声明唯一权威来源为 `synapse-common/src/error/code.rs` 的 `MatrixErrorCode`，并显式声明 `M_INVALID_PASSWORD`/`M_USER_NOT_FOUND` 等历史幻影码「均不存在」；错误码表已与 `code.rs` 全部 43 个变体逐条对齐。
 
-**D9｜`/versions` 上限 v1.14 vs 文档声称 v1.19** — 中｜🆕｜**P2**
-- 建议：对齐版本声明与文档（见 F18 口径冲突）
+**D9｜`/versions` 上限 v1.14 vs 文档声称 v1.19** — 中｜✅ 已订正（2026-10-04）
+- 处置：与 D14 同源，属「上游最新发布规范」与「本仓声明基线」两个概念被混用。`AGENTS.md` §Current external baselines（现 L449-451）已拆分为「上游跟踪目标 v1.19（随上游移动，非实现声明）」与「本仓声明基线 v1.1–v1.14（单点权威 = `capability_governance.rs` 的 `CLIENT_API_VERSION_SUPPORT`）」，并显式禁止混淆。
 
-**D10｜全站缺 i18n（`ui_locales_supported: ["en"]`）** — 中｜🆕｜**P2**
+**D10｜全站缺 i18n（`ui_locales_supported: ["en"]`）** — 中｜✅ 已修复（2026-10-04）
 - 影响：非英语用户可访问性受限
-- 建议：明确不支持的立场并文档化，或补齐多语言
+- 处置：采取「明确立场并文档化」路径 —— `docs/sdk/README.md`（L148-155）新增「国际化（i18n）」章节，显式声明当前仅支持英文 `en`、与 `ui_locales_supported: ["en"]` 一致，并说明多语言属后续 backlog；不再构成未声明的口径漂移。
 
 **D11｜健康探针不完整，`/healthz` 为死配置** — 低-中｜✅ 已证伪（证据过时，2026-10-04）
 - 原证据：`synapse-web/src/routes/http_metrics.rs:31`
@@ -300,9 +296,9 @@
 - 原证据：`migrations/README.md:296-305` 指引不存在的 `.undo.sql`
 - 复核/处置：属**过时证据**——工作区 `migrations/README.md`（现 L295-310）已改为真实回滚机制：明确「本目录**不存在** `.undo.sql`」，并给出 dev 重建（幂等 baseline 重跑）/ 生产 **forward-fix** 两条路径，末行显式警示不要执行不存在的 `.undo.sql`。与 `docker/db_migrate.sh`、`scripts/check_migration_consistency.py`（`.undo.sql` 仅作排除/历史语义）一致。
 
-**D13｜`ELEMENT_SYNAPSE_GAP_ANALYSIS` 房间版本失实** — 中｜🆕｜**P2**
-- 证据：文档称 v1–v13、默认 v10；实际 v1–v12、默认 12（`room_versions.rs:94`）
-- 建议：更新文档
+**D13｜`ELEMENT_SYNAPSE_GAP_ANALYSIS` 房间版本失实** — 中｜✅ 已修复（2026-10-04）
+- 原证据：文档称 v1–v13、默认 v10
+- 复核/处置：`ELEMENT_SYNAPSE_GAP_ANALYSIS_2026-07-28.md:27` 现为「v1–v12（默认 v12）」对标上游「v1–v12（默认 v10）」，全库无 `v13`；文档头部已注明其为历史快照及现行基线入口。与 `room_versions.rs`（`DEFAULT_ROOM_VERSION="12"`、`SUPPORTED_ROOM_VERSIONS`=v1–v12）一致。
 
 **D14｜规范基线口径冲突（v1.19 vs v1.18）** — 低｜✅ 已订正（2026-10-04）
 - 根因：文档混用两个不同概念——**上游最新发布规范**（`AGENTS.md:450` 的 v1.19）与**本仓声明基线**（`/versions` 实际上限 v1.14），且无单点权威，致 v1.18/v1.19/v1.14 三个数字并存。
@@ -349,12 +345,12 @@
 | **F10** | ✅ 已修复 | `docs/synapse-rust/archive/README.md:9,12,19` 权威来源指向不存在文件（含 4 处死链），且与 `INDEX.md` 自相矛盾 | 高｜**P1** | 已改为指向现行 `docs/INDEX.md`，删除失效文件名（替代文件确不存在，内容已融入现行文档） |
 | **F11** | ✅ 已修复 | `MSC_SEMANTICS.md` 记 MSC3912「客户端撤回不级联」，与代码矛盾（`events.rs` 在 `with_rel_types` 非空时**会**级联） | 高｜**P1** | 已订正为「单层级联、不递归、不触碰父事件」并补入代码证据 `events.rs:1134-1169` |
 | **F12** | ✅ 已修复 | `docs/sdk/` 除 README 外 111 处使用 `r0` 前缀，与代码 v3 不符 | 高｜**P1** | 已批量替换为 v3（e2ee 17、rooms 38、authentication 27、messages 29），`/_matrix/client/r0/` 零残留 |
-| F13 | 🆕 | `issues/` 与 `E2EE_VODOZEMAC_MIGRATION.md` 多处死链 | 中｜**P2** | — |
-| F14 | 🆕 | `DEPENDENCY_UPGRADE_TRACKER.md` 与 `project_rules.md §17.5` 口径冲突（9 组 vs 11 组） | 中｜**P2** | 两文件 |
-| F15 | 🆕 | `project_rules.md §16` 引用的 3 个文档均不存在 | 中｜**P2** | `project_rules.md §16` |
-| F16 | 🆕 | `openapi/README.md` 数字自相矛盾（898 vs 1096） | 中｜**P2** | `openapi/README.md` |
-| F17 | 🆕 | `docs/sdk/README.md` 测试域名 `cjystx.top` vs 部署口径 `matrix.test` | 中｜**P2** | `docs/sdk/README.md` |
-| F18 | 🆕 | 上游基线口径冲突（INDEX 称 gap 分析为现行基线 v1.162 vs API_COVERAGE_REPORT 称其 v1.156 已落后） | 中｜**P2** | `INDEX.md:27-28` vs `API_COVERAGE_REPORT.md` |
+| **F13** | ✅ 已修复 | `issues/` 与 `E2EE_VODOZEMAC_MIGRATION.md` 多处死链 | 中｜**P2** | **部分证伪 + 修复**：`E2EE_VODOZEMAC_MIGRATION.md` 全部相对链接（含 `src/e2ee/mod.rs`、`synapse-e2ee/src/...`、`Cargo.toml`、`../../sdk/e2ee.md`）解析目标均存在，无死链；真实死链仅在 `issues/M3-ISSUE-1`、`M3-ISSUE-2` 的 `Origin` 行指向已删除的 `M3_BATCH1_EXECUTION_PLAN.md`（全库不存在），已改为纯文本并注明「原始计划文档已不再保留」，与 `issues/README.md` 口径一致 |
+| F14 | ✅ 已证伪 | `DEPENDENCY_UPGRADE_TRACKER.md` 与 `project_rules.md §17.5` 口径冲突（9 组 vs 11 组） | 中｜**P2** | 证据过时：两文件现均为 **38 组**（tracker 头部/§4 与 rules §17.5 摘要一致），且 rules §17.5 已声明以 tracker 为「唯一权威口径」、不再重复维护明细 |
+| F15 | ✅ 已证伪 | `project_rules.md §16` 引用的 3 个文档均不存在 | 中｜**P2** | 证据过时：§16（L654-659）现有 **6 个**引用（`docs/INDEX.md`、`ROUTE_CONTRACT.md`、`API_COVERAGE_REPORT.md`、`migrations/README.md`、`migrations/INDEXES.md`、本审计报告），经逐一确认**全部存在** |
+| F16 | ✅ 已修复 | `openapi/README.md` 数字自相矛盾（898 vs 1096） | 中｜**P2** | 已澄清：`openapi/README.md`（L87-91）新增显式警告「两个计数口径不可混用」——`ledger.json` 全量 = **1096** 端点、`client.yaml` default profile = **898** operations，并说明二者统计口径差异 |
+| F17 | ✅ 已修复 | `docs/sdk/README.md` 测试域名 `cjystx.top` vs 部署口径 `matrix.test` | 中｜**P2** | 已改：`docs/sdk/README.md:11` 测试域名现为 `matrix.test`，SDK 文档无 `cjystx.top` 残留 |
+| F18 | ✅ 已修复 | 上游基线口径冲突（INDEX 称 gap 分析为现行基线 v1.162 vs API_COVERAGE_REPORT 称其 v1.156 已落后） | 中｜**P2** | 已对齐：`docs/INDEX.md:27-28` 标注 gap 分析为「历史快照，基线 v1.156.0；现行上游基线 v1.162.0 见 API_COVERAGE_REPORT.md」，与 `API_COVERAGE_REPORT.md:12`（对齐 element-hq/synapse v1.162.0）一致 |
 | F19 | ✅ 归档 | 归档文档残留 r0/旧路径（实测：`_matrix/client/r0` 71 处/8 文件、`src/{web,services,e2ee,cache}/` 旧路径 434 处/29 文件，全在 `docs/archive/**`，含一处 `.trae_openapi_missing.txt` 快照） | 低｜P3 | `docs/INDEX.md §七` 已声明归档**只读、不再维护**；历史快照按当时布局保留、回改将曲解溯源；**现行文档**的 r0/路径漂移已由 F1/F12 纠偏（`docs/sdk/` 等已零残留） |
 | F20 | ✅ 已澄清 | `CHANGELOG.md` 旧路径（9 处 `src/{web,services,e2ee,cache}/`） | 低｜P3 | 已在 `CHANGELOG.md` 头部补注：2026-09 模块化拆分前的历史条目沿用当时单 crate 路径、不回改；现行路径为 `synapse-{web,services,e2ee}/src/` |
 | F21 | ✅ 归档 | 缺失现行安全/E2EE/联邦/存储 schema 文档 | 低｜P3 | 现行覆盖已分散于既有索引文档（非缺失）：E2EE `docs/sdk/e2ee.md`；安全 `docs/security/ci-security-grading.md`+`docs/monitoring/{network,nginx}-security.md`；联邦 `docs/templates/federation-edu-persist-template.md`+`MSC_SEMANTICS.md`；存储 schema `migrations/README.md`+`migrations/INDEXES.md`+`docs/superpowers/STORAGE_MIGRATION_MAP.md`。合并式专文属 nice-to-have backlog，非缺陷 |
@@ -382,6 +378,7 @@
 | 缩略图 `animated`「MISSING」 | 已全链路实现：`synapse-services/src/media_service.rs:492-499,549-574,630-717` |
 | MSC3912 客户端撤回「不级联」 | `with_rel_types` 非空时**会**级联（`synapse-web/src/routes/handlers/room/events.rs:1134-1169` + `synapse-services/src/event_redaction_service.rs:120-192`） |
 | P0-2 event_id reference hash「待解决」 | 已解决 |
+| 本报告 §四 D/F 表 13 项 P2（`D5–D10/D13`、`F13–F18`）指控 r0 残留 / 幻影 errcode / 版本口径 / 死链 | 逐项取证后：**5 项证据过时**（`D5/D6/D7/F14/F15`，指控不可复现）、**6 项已修复/澄清**（`D8/D10/D13/F16/F17/F18`）、**1 项订正**（`D9`，与 D14 同源）、**1 项部分真实**（`F13`：仅 `issues/` 两处 `Origin` 死链，已修复；`E2EE_VODOZEMAC_MIGRATION.md` 链接全部有效）——报告首轮所列多为**取证时点滞后**所致 |
 
 这本身即一项**文档可信度风险（P1 级）**：`docs/audit/`、`docs/INDEX.md`、`docs/sdk/` 多处结论与代码漂移，建议在报告签发时统一标注失效（对应 F9、F10、F11、F12）。
 
@@ -393,13 +390,13 @@
 - **可利用安全风险（最高）**：`C7` SAML fail-open 曾是本轮唯一 P1 安全项（在「元数据拉取失败」运行态即触发认证绕过），**已于 2026-10-04 修复为 fail-closed**；配置/降级类安全项 `C5/C8/C9` 亦于同日随 P2 安全配置批次修复（联邦签名恢复 fail-closed、SAML `InResponseTo` 无条件强校验、部署侧默认开启管理员 MFA），**当前无未处置的认证降级/绕过类安全项**；`C4` 弱默认残留（`TURN_SHARED_SECRET=dev-turn-secret`）属部署示例噪音（非运行时绕过），**已于 2026-10-04 处置**：去除弱默认、统一为占位符，并在 `deploy.sh` 对未设置/占位符显式报错。
 - **内存单调增长**：`B1/B8/B9/B11/B12/B13/B14` 均为「无上限容器 + 长跑实例」模式（OOM 风险主要来源），已按同一治理模板（容量上限 + 淘汰/清理策略）处置；`B4`（全表 COUNT）、`B7`（async 内阻塞 IO）、`B15`（阻塞 DNS）分别以 `cfg(test)` 门控 / `spawn_blocking` 处置；`B10`（只写不读缓存）整体移除；`B16/B17` 经核实分别有界、test-only，非缺陷。
 - **文档可信度**：`F9–F12` 属「索引自相矛盾 / 与代码不符」，会直接误导开发者与 SDK 使用者，且 CI 死链门禁可能因此报红。
-- **兼容性**：`D5/D6/D8/D13` 反映 r0 残留与版本/错误码口径漂移，影响旧客户端与 SDK 生态。
+- **兼容性**：`D5/D6/D8/D13` 曾反映 r0 残留与版本/错误码口径漂移；经 2026-10-04 逐项取证，`D5/D6` 属证据过时（无 r0 声明/r0 默认）、`D8` 已重写错误码表并以 `error/code.rs` 为唯一权威、`D13` 已订正为 v1–v12 / 默认 v12，**兼容性口径已全部对齐**。
 
 **建议顺序**
 1. **立即（P1，低成本高收益）**：~~`C7` SAML 改 fail-closed~~ ✅ 已完成（2026-10-04）；~~`F1` 路径漂移~~、~~`F9/F10/F11/F12` 文档纠偏~~ ✅ 均已处理（2026-10-04）——**P1 全部清零**
 2. **本迭代（P2 代码）** ✅ 已完成（2026-10-04）：~~`A6/A7` 功能接线与错误体归一化、`A3` voice 端点、`B8/B9/B12/B13/B14` 无界容器治理、`E7/E8/E9` lint 门禁与超长函数~~ —— A6 按口径校正归档（未改代码）、A7 错误体归一化（裸 `Json` 迁移遗留）、A3 能力声明（不改 501 行为）、B8/B9/B12/B13/B14 有界化、E7 惰性阈值文档化、E8 删除 12 处逃逸 allow、E9 拆分完成
 3. **安全加固（P2 配置）** ✅ 已完成（2026-10-04）：~~`C5/C8/C9` 密钥与 SAML/MFA 配置~~ —— C5 部署 yaml 明文签名开关改 `false`（恢复 fail-closed）、C8 `validate_response` 无条件强校验 `InResponseTo` + `get_auth_redirect` 服务端生成 relay_state、C9 部署侧默认开启管理员 MFA（env 覆盖 bool + `:?` 强制 secret 非空 + `generate-secrets.sh admin-mfa`），配套新增 SAML 拒绝单测与 config env→bool 守卫测试；`C4` 残留弱默认（`TURN_SHARED_SECRET=dev-turn-secret`）已于同日处置完成 —— 部署示例占位符化（`__CHANGE_ME_match_coturn_static_auth_secret__`）+ `deploy.sh` 对未设置/占位符 `log_error` fail-closed + 停止回显密钥，`dev-turn-secret` 全仓清零
-4. **兼容性对齐（P2 文档/契约）**：`D5–D10/D13`、`F13–F18`
+4. **兼容性对齐（P2 文档/契约）** ✅ 已完成（2026-10-04）：~~`D5–D10/D13`、`F13–F18`~~ —— `D5/D6/D7` 证伪（无 r0 声明 / SAML 默认已 v3 / `available` 含全量 v1–v12）、`D8/D10/D13` 修复（错误码表重写 / i18n 立场文档化 / gap 分析改 v1–v12）、`D9` 订正（与 D14 同源，单点权威）、`F13` 修复（`issues/` 两处 `Origin` 死链改纯文本，E2EE 归档文经证伪无死链）、`F14/F15` 证伪（38 组口径一致 / §16 六引用全部存在）、`F16/F17/F18` 修复或澄清（openapi 两口径已澄清 / 测试域名 `matrix.test` / INDEX 与 API_COVERAGE 对齐 v1.162）
 5. **收尾（P3）**：其余功能缺口、次要性能、配置、注释与文档噪音（A5/A8–A14、B4/B5/B7/B10/B11/B15–B17、C10–C14、D11/D12/D14、E10–E15、F8/F19–F21）
    - 进行中（2026-10-04）：~~`C10/C11/C12/C13`（修复）~~、~~`C14`（VAL-01/DEP-01 已满足、Abuse-01 设计取舍）~~、~~`A9/A10/A12/A13/A14`（行为严格化：显式报错）~~、~~`B4/B5/B7/B10/B11/B15`（内存/阻塞治理修复）~~、~~`B16/B17`（核实：有界/test-only 非缺陷）~~、~~`D11`（证伪：证据过时）~~、~~`E10–E15`（E10 修复；E11/E12/E14/E15 归档；E13 订正）~~、~~`F8/F19–F21`（F8/F19/F21 归档；F20 澄清）~~、~~`E1`（有限消除 + 精确归档：264 处口径与重构批次计划见 §八）~~、~~`D12`（修复：迁移回滚文档改为真实机制）~~、~~`D14`（订正：拆分上游跟踪目标 v1.19 与本仓声明基线 v1.14，确立单点权威）~~ ✅ 已完成；**P3 全部清零（34/34）**。
 
