@@ -1,5 +1,5 @@
 fn all_derived_always_rows() -> Vec<DerivedRoute> {
-    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1134);
+    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1140);
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/", "assembly::create_router");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
@@ -5220,6 +5220,11 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
+        let e =
+            RouteEntry::new(axum::http::Method::POST, "/_synapse/admin/v1/media/protect/{media_id}", "admin::media");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
         let e = RouteEntry::new(
             axum::http::Method::POST,
             "/_synapse/admin/v1/media/protect/{server_name}/{media_id}",
@@ -5233,6 +5238,10 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             "/_synapse/admin/v1/media/quarantine/{server_name}/{media_id}",
             "admin::media",
         );
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/media/quarantine_changes", "admin::media");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -5258,6 +5267,22 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/media/{media_id}", "admin::media");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(
+            axum::http::Method::DELETE,
+            "/_synapse/admin/v1/media/{server_name}/{media_id}",
+            "admin::media",
+        );
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(
+            axum::http::Method::GET,
+            "/_synapse/admin/v1/media/{server_name}/{media_id}",
+            "admin::media",
+        );
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -5526,6 +5551,18 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/retention/status", "admin::retention");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/room/{room_id}/media", "admin::media");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(
+            axum::http::Method::POST,
+            "/_synapse/admin/v1/room/{room_id}/media/quarantine",
+            "admin::media",
+        );
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {

@@ -41,16 +41,25 @@ pub fn create_media_router() -> Router<crate::routes::AppState> {
         .route("/_synapse/admin/v1/media/{media_id}", get(get_media_info))
         .route("/_synapse/admin/v1/media/{media_id}", delete(delete_media))
         .route("/_synapse/admin/v1/media/quota", get(get_media_quota))
+        // Upstream-shaped two-segment aliases for media detail/delete.
+        .route("/_synapse/admin/v1/media/{server_name}/{media_id}", get(get_media_info_by_server))
+        .route("/_synapse/admin/v1/media/{server_name}/{media_id}", delete(delete_media_by_server))
         .route("/_synapse/admin/v1/users/{user_id}/media", get(get_user_media))
         .route("/_synapse/admin/v1/users/{user_id}/media", delete(delete_user_media))
         .route("/_synapse/admin/v1/rooms/{room_id}/media", get(get_room_media))
         .route("/_synapse/admin/v1/rooms/{room_id}/media/{media_id}", delete(delete_room_media))
+        // Upstream uses the singular `/room/...` path shape; keep both.
+        .route("/_synapse/admin/v1/room/{room_id}/media", get(get_room_media))
         .route("/_synapse/admin/v1/quarantine_media/{media_id}/changes", get(get_media_quarantine_changes))
+        .route("/_synapse/admin/v1/media/quarantine_changes", get(get_global_media_quarantine_changes))
         .route("/_synapse/admin/v1/media/quarantine/{server_name}/{media_id}", post(quarantine_media))
         .route("/_synapse/admin/v1/media/unquarantine/{server_name}/{media_id}", post(unquarantine_media))
         .route("/_synapse/admin/v1/rooms/{room_id}/media/quarantine", post(quarantine_room_media))
         .route("/_synapse/admin/v1/rooms/{room_id}/media/unquarantine", post(unquarantine_room_media))
+        .route("/_synapse/admin/v1/room/{room_id}/media/quarantine", post(quarantine_room_media))
         .route("/_synapse/admin/v1/media/protect/{server_name}/{media_id}", post(protect_media))
+        // Upstream shape carries no `{server_name}` segment for protect-by-id.
+        .route("/_synapse/admin/v1/media/protect/{media_id}", post(protect_media_by_id))
         // ─────────────────────────────────────────────────────────────────────
         // U-5: Missing endpoints being implemented
         // ─────────────────────────────────────────────────────────────────────
@@ -132,6 +141,34 @@ pub async fn delete_media(
     Ok(Json(json!({})))
 }
 
+/// Upstream-shaped two-segment alias of [`get_media_info`].
+///
+/// Backs `GET /_synapse/admin/v1/media/{server_name}/{media_id}`. The
+/// `{server_name}` segment is accepted for compatibility; this implementation
+/// resolves local media by `media_id` only.
+#[axum::debug_handler]
+pub async fn get_media_info_by_server(
+    admin: AdminUser,
+    State(ctx): State<AdminContext>,
+    Path((_server_name, media_id)): Path<(ServerName, MediaId)>,
+) -> Result<Json<Value>, ApiError> {
+    get_media_info(admin, State(ctx), Path(media_id)).await
+}
+
+/// Upstream-shaped two-segment alias of [`delete_media`].
+///
+/// Backs `DELETE /_synapse/admin/v1/media/{server_name}/{media_id}`. The
+/// `{server_name}` segment is accepted for compatibility; this implementation
+/// deletes local media by `media_id` only.
+#[axum::debug_handler]
+pub async fn delete_media_by_server(
+    admin: AdminUser,
+    State(ctx): State<AdminContext>,
+    Path((_server_name, media_id)): Path<(ServerName, MediaId)>,
+) -> Result<Json<Value>, ApiError> {
+    delete_media(admin, State(ctx), Path(media_id)).await
+}
+
 /// See [`get_media_quota`].
 #[axum::debug_handler]
 pub async fn get_media_quota(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
@@ -210,6 +247,40 @@ pub async fn get_media_quarantine_changes(
         .collect();
 
     Ok(Json(json!({ "changes": changes_json, "total": changes_json.len() })))
+}
+
+/// List quarantine changes across all media (global stream).
+///
+/// Backs `GET /_synapse/admin/v1/media/quarantine_changes`. Follows upstream
+/// pagination: the `from` query parameter is the last-seen `stream_id`
+/// (default `0`) and the page size is fixed at 100. Returns
+/// `{next_batch, changes: [{origin, media_id, quarantined}]}`.
+#[axum::debug_handler]
+pub async fn get_global_media_quarantine_changes(
+    _admin: AdminUser,
+    State(ctx): State<AdminContext>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
+    let from_id = params.get("from").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0).max(0);
+    let limit = 100_i64;
+
+    let changes = ctx.admin_media_service.get_global_media_quarantine_changes(from_id, limit).await?;
+
+    let next_batch = changes.last().map_or(from_id, |c| c.stream_id);
+
+    let changes_json: Vec<Value> = changes
+        .iter()
+        .map(|c| {
+            let origin = if c.server_name.is_empty() { ctx.server_name.clone() } else { c.server_name.clone() };
+            json!({
+                "origin": origin,
+                "media_id": c.media_id,
+                "quarantined": c.change_type == "quarantine"
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({ "next_batch": next_batch, "changes": changes_json })))
 }
 
 /// See [`quarantine_media`].
@@ -362,6 +433,28 @@ pub async fn protect_media(
     Ok(Json(json!({
         "stream_id": stream_id,
         "server_name": server_name,
+        "media_id": media_id,
+        "protected": true,
+        "changed_by": admin.user_id
+    })))
+}
+
+/// Protect media by `media_id` alone.
+///
+/// Backs the upstream `POST /_synapse/admin/v1/media/protect/{media_id}` shape
+/// (no `{server_name}` segment). The local server name is used as the
+/// `server_name` for the underlying protect operation.
+#[axum::debug_handler]
+pub async fn protect_media_by_id(
+    admin: AdminUser,
+    State(ctx): State<AdminContext>,
+    Path(media_id): Path<MediaId>,
+) -> Result<Json<Value>, ApiError> {
+    let stream_id = ctx.admin_media_service.protect_media(&ctx.server_name, &media_id, &admin.user_id).await?;
+
+    Ok(Json(json!({
+        "stream_id": stream_id,
+        "server_name": ctx.server_name,
         "media_id": media_id,
         "protected": true,
         "changed_by": admin.user_id

@@ -14,6 +14,7 @@
 # 追加（2026-09-24，CI 全门禁修复）：逐文件复核 164 份活跃文档，补入本轮新增文档引入的技术词——监控栈（mimir、victoriametrics、wal）、告警规则名（highcpuusage、megolmshareslow 等 S 大写驼峰被脚本小写化）、GHSA 公告号被 aspell 按连字符切出的片段（chvq、gvpm、hgcg、qcjr、rcpx、xpf…）、以及 SpaceInfoMock／KeyRotationConfig／HMACSHA256／ScheduledTasks 这类标识符。
 # 追加（2026-09-24，D-12 收口 + 关联既有红清理）：
 # 追加（2026-10-02，M-6）：recurse（MSC3981 的 /relations 查询参数名，出现在对照报告 §18.3 #14）。
+# 追加（2026-10-04，P4-2）：kegsay（MSC4242「State DAGs」提案作者，登记入 MSC_SEMANTICS.md §1.1；同 johennes/clokep 的提案作者署名惯例）。
 # 项目技术词典：aspell 通用英文词典（en_US）不含本仓技术语料的词汇。
 abi
 accessexclusivelock
@@ -428,6 +429,7 @@ junit
 jwks
 jwt
 kahn
+kegsay
 keyatrest
 keychain
 keyrotationconfig

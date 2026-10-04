@@ -113,6 +113,20 @@ impl AdminMediaService {
         self.quarantine_change_storage.get_changes_by_media(media_id, since_stream_id, limit).await
     }
 
+    /// List quarantine changes across all media (global stream).
+    ///
+    /// Backs the `GET /_synapse/admin/v1/media/quarantine_changes` admin
+    /// endpoint. Returns changes with `stream_id > since_stream_id`, ordered
+    /// ascending, capped by `limit`.
+    #[instrument(skip(self))]
+    pub async fn get_global_media_quarantine_changes(
+        &self,
+        since_stream_id: i64,
+        limit: i64,
+    ) -> Result<Vec<QuarantinedMediaChange>, ApiError> {
+        self.quarantine_change_storage.get_quarantined_media_changes(since_stream_id, limit).await
+    }
+
     // ───────────────────────────────────────────────────────────────────────────
     // Admin quarantine management endpoints
     // ───────────────────────────────────────────────────────────────────────────

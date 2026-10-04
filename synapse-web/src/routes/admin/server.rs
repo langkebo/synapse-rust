@@ -7,7 +7,6 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use synapse_common::current_timestamp_millis;
 use synapse_common::types::{DeviceId, UserId};
 use synapse_common::ApiError;
 
@@ -17,7 +16,6 @@ pub fn create_server_router(_state: AppState) -> Router<crate::routes::AppState>
         .route("/_synapse/admin/v1/server", get(get_admin_info_compat))
         .route("/_synapse/admin/v1/server_version", get(get_server_version))
         .route("/_synapse/admin/v1/whoami", get(get_admin_whoami))
-        .route("/_synapse/admin/v1/purge_media_cache", post(purge_media_cache))
         .route("/_synapse/admin/v1/restart", post(restart_server))
         .route("/_synapse/admin/v1/statistics", get(get_statistics))
         .route("/_synapse/admin/v1/status", get(get_status))
@@ -77,29 +75,6 @@ pub async fn get_server_version(_admin: AdminUser, State(ctx): State<AdminContex
         "server_version": env!("CARGO_PKG_VERSION"),
         "python_version": "Rust",
         "server_name": ctx.server_name
-    })))
-}
-
-/// See [`purge_media_cache`].
-#[axum::debug_handler]
-pub async fn purge_media_cache(
-    _admin: AdminUser,
-    State(ctx): State<AdminContext>,
-    Json(body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
-    let before_ts = body
-        .get("before_ts")
-        .and_then(|v| v.as_i64())
-        .unwrap_or_else(|| current_timestamp_millis() - (30 * 24 * 60 * 60 * 1000));
-
-    let deleted = ctx
-        .media_service
-        .purge_media_cache(before_ts)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to purge media cache", e))?;
-
-    Ok(Json(json!({
-        "deleted": deleted
     })))
 }
 

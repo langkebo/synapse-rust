@@ -109,9 +109,10 @@ grep -rn "dag::resolve\|resolve_conflicts" \
 | MSC 编号 | 功能 | 实现状态 | 影响 |
 |---------|------|----------|------|
 | ~~MSC4297~~ | State Resolution v2.1 | ✅ 已实现（原判作废） | 原「❌ 未实现」判定经 2026-10-04 复核不成立，见 §9.3 |
-| MSC4242 | 实验性功能 | 🟡 Partial | 需语义对齐核查 |
-| MSC4502 | 实验性功能 | 🟡 Partial | 需语义对齐核查 |
-| MSC4262 | 实验性功能 | 🟡 Partial | 需语义对齐核查 |
+| MSC4242 | State DAGs（官方 *proposals*，Open / 需新房间版本，无版本指派） | 🟡 Partial（仅存储层，观察项） | 已核查（2026-10-04）：本仓仅存储层、已裁定不接线（见 §9.3 / L-2） |
+| MSC4502 | Targeted and unrestricted room member queries（官方 = `rooms/{roomId}/is_joined` + appservice `scopes`） | 🟡 Partial（**编号借用**） | 已核查（2026-10-04）：官方语义本仓**未实现**，编号借给 `/members` 分页（见 §9.3） |
+| MSC4262 | Sliding Sync Extension: Profile Updates（官方扩展名 `profiles`，`{updated,removed}` 形状） | 🟡 Partial（**编号借用 + 形状漂移**） | 已核查（2026-10-04）：本仓扩展名 `profile_updates`、形状不同（见 §9.3） |
+| MSC4429 | Profile Updates for Legacy Sync（官方 = legacy `/sync` 顶层 `users` 对象） | 🟡 Partial（legacy 半边未实现） | 已核查（2026-10-04）：本仓仅 sliding sync 侧实现（见 §9.3） |
 
 ---
 
@@ -382,7 +383,7 @@ cargo clippy -p synapse-federation -p synapse-services -p synapse-web \
 | §9.2 P3-1 Admin 媒体端点族不完整 | ⚠️ 报告表述不准；实为**路径形状漂移**非「数量缺失」 | 已按上游规范逐条 diff：本仓 `synapse-web/src/routes/admin/media.rs` 注册 **18 条**，与上游**功能面已齐**（含上游无的本仓扩展），但 **6 条路径形状与上游不一致**（详见 [§9.4](#94-p3-1-admin-媒体端点规范级比对2026-10-04)）。非「缺失 4 个端点」 |
 | §9.2 P3-2 `dag.rs` 注释误导 | ✅ 已为准确版本 | 文件实际位于 `synapse-storage/src/event/dag.rs`（报告所引 `synapse-services/...` 路径已失效），误导注释已改写 |
 | §9.2 P3-3 生产代码 `unwrap`/`expect` | ✅ 已界定范围；报告论断**不成立** | 原始 `grep` 计数（如 `synapse-storage` 4483、`synapse-services` 1798）绝大部分来自内联 `#[cfg(test)]` 模块及 `tests.rs`/`test_mocks`；按非测试代码路径界定后，**生产（非 test）目标下未被豁免的 unwrap/expect 为 0**。证据链：①workspace 根 `Cargo.toml` 的 `[lints.clippy]` 与 `[workspace.lints.clippy]` 均已 `unwrap_used = "deny"`、`expect_used = "deny"`；②`.clippy.toml` 未设 `allow-unwrap-in-tests`，故语义完全由 `[lints]` 决定；③各 crate `src/lib.rs` 首部以 `#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, …))]` **仅在测试构建**豁免；④权威门禁 `cargo clippy --workspace --lib --bins --all-features`（cfg(test) 关闭、deny 生效）→ **0 告警、退出码 0**；⑤现存生产 unwrap/expect 共 **35 处 `#[allow(clippy::unwrap_used\|expect_used)]`**，分布 23 文件，集中于两类可辩护场景：RwLock poison 容错的初始化/注入模式（`synapse-services/src/user_service.rs` 等 8 处）、硬编码正则/静态字符串的「不可能失败」断言（`synapse-common/src/validation.rs`、`config/loader.rs`）。结论见 §10.1 |
-| §9.2 P4-2 实验性 MSC 语义对齐 | ⏸ 未处理 | 周期性工作，需单独排期 |
+| §9.2 P4-2 实验性 MSC 语义对齐 | ✅ 已核查（2026-10-04）；处置＝**登记/标注**，不实现未定稿 MSC | 四个编号（MSC4242/4262/4429/4502）已从官方源逐一取证（PR 页面 + PR 分支 raw markdown）并与本仓落点对照，结论登记入 [`MSC_SEMANTICS.md`](../synapse-rust/MSC_SEMANTICS.md) §1.1：**MSC4242** = State DAGs（Open，`requires-room-version`、尚无版本指派）→ 本仓仅存储层，**维持观察项**；**MSC4502** = `GET /rooms/{roomId}/is_joined` + appservice `scopes` + OAuth scope → 本仓**完全未实现**、编号借给 `/members` 分页 ⇒ **编号借用**；**MSC4262** = sliding sync `profiles` 扩展（`{updated,removed}` 形状 + `fields` opt-in）→ 本仓扩展名 `profile_updates`、形状不同 ⇒ **编号借用 + 形状漂移**；**MSC4429** = legacy `/sync` 顶层 `users` 对象（`profile_fields.ids` opt-in）→ 本仓 **legacy 半边未实现**。四者均为**未定稿**（Open / `needs-implementation`），依先例（MSC4155/MSC4204 登记而非改名）与 L-2 裁定（不为未定稿 MSC 落地新 HTTP 面）**仅做登记**，不新增代码 |
 
 **本轮卫生批次（部署与契约）**
 

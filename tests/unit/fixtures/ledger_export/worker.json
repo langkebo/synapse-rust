@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": false
   },
-  "entry_count": 1062,
+  "entry_count": 1068,
   "entries": [
     {
       "method": "GET",
@@ -7750,6 +7750,15 @@
     },
     {
       "method": "POST",
+      "path": "/_synapse/admin/v1/media/protect/{media_id}",
+      "registered_by": "admin::media",
+      "path_params": [
+        "media_id"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "POST",
       "path": "/_synapse/admin/v1/media/protect/{server_name}/{media_id}",
       "registered_by": "admin::media",
       "path_params": [
@@ -7766,6 +7775,13 @@
         "server_name",
         "media_id"
       ],
+      "query_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/media/quarantine_changes",
+      "registered_by": "admin::media",
+      "path_params": [],
       "query_params": []
     },
     {
@@ -7808,6 +7824,26 @@
       "path": "/_synapse/admin/v1/media/{media_id}",
       "registered_by": "admin::media",
       "path_params": [
+        "media_id"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/_synapse/admin/v1/media/{server_name}/{media_id}",
+      "registered_by": "admin::media",
+      "path_params": [
+        "server_name",
+        "media_id"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/media/{server_name}/{media_id}",
+      "registered_by": "admin::media",
+      "path_params": [
+        "server_name",
         "media_id"
       ],
       "query_params": []
@@ -8182,6 +8218,24 @@
       "path": "/_synapse/admin/v1/retention/status",
       "registered_by": "admin::retention",
       "path_params": [],
+      "query_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/room/{room_id}/media",
+      "registered_by": "admin::media",
+      "path_params": [
+        "room_id"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/room/{room_id}/media/quarantine",
+      "registered_by": "admin::media",
+      "path_params": [
+        "room_id"
+      ],
       "query_params": []
     },
     {
