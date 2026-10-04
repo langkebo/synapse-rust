@@ -690,7 +690,7 @@ pub async fn serial_guard() -> SerialGuard {
 }
 
 pub async fn get_admin_token(app: &axum::Router) -> (String, String) {
-    register_admin_token(app, None).await
+    register_admin_token(app, Some("admin")).await
 }
 
 pub async fn get_super_admin_token(app: &axum::Router) -> (String, String) {

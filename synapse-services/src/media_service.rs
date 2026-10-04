@@ -646,7 +646,7 @@ impl MediaService {
     /// Note: We use file format detection rather than full frame counting for performance
     fn is_animated_image(data: &[u8]) -> bool {
         // GIF magic bytes: 0x47 0x49 0x46 0x38 0x39 0x61 (GIF89a) or GIF87a
-        if data.len() >= 6 && &data[0..6] == b"GIF89a" || &data[0..6] == b"GIF87a" {
+        if data.starts_with(b"GIF89a") || data.starts_with(b"GIF87a") {
             return true;
         }
         // WebP magic: RIFF....WEBP (check at offset 0 and 8)
@@ -1137,6 +1137,16 @@ mod tests {
         assert_eq!(ThumbnailMethod::Crop, ThumbnailMethod::Crop);
         assert_eq!(ThumbnailMethod::Scale, ThumbnailMethod::Scale);
         assert_ne!(ThumbnailMethod::Crop, ThumbnailMethod::Scale);
+    }
+
+    #[test]
+    fn test_is_animated_image_short_input_does_not_panic() {
+        // 少于 6 字节的输入不得触发越界 panic
+        assert!(!MediaService::is_animated_image(&[]));
+        assert!(!MediaService::is_animated_image(b"GIF8"));
+        assert!(!MediaService::is_animated_image(b"GIF87"));
+        assert!(MediaService::is_animated_image(b"GIF89a"));
+        assert!(MediaService::is_animated_image(b"GIF87a"));
     }
 
     #[test]
