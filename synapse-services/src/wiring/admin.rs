@@ -315,7 +315,7 @@ impl AdminServices {
         // (pushes then fail closed with that same clear error) rather than panic
         // or be handed to the SSRF-checked sender as if it were trusted.
         let push_notification_service = match config.push.push_gateway_url.as_deref() {
-            Some(url) => match crate::push::gateway::validate_push_gateway_url(url) {
+            Some(url) => match crate::push::gateway::validate_push_gateway_url(url).await {
                 Ok(()) => {
                     let gateway_config = crate::push::gateway::PushGatewayConfig::default();
                     let gateway = Arc::new(crate::push::gateway::PushGateway::new(&gateway_config));

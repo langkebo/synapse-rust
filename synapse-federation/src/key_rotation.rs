@@ -122,8 +122,6 @@ struct FederationKeyRecord {
     pub expires_at: i64,
 }
 
-type CachedKeyEntry = (String, i64);
-
 #[async_trait]
 /// The `KeyRotationManagerApi` trait.
 pub trait KeyRotationManagerApi: Send + Sync {
@@ -149,7 +147,6 @@ pub trait KeyRotationManagerApi: Send + Sync {
 /// The `KeyRotationManager` type.
 pub struct KeyRotationManager {
     pool: Arc<Pool<Postgres>>,
-    memory_cache: Arc<RwLock<HashMap<String, CachedKeyEntry>>>,
     current_key: Arc<RwLock<Option<SigningKey>>>,
     historical_keys: Arc<RwLock<HashMap<String, SigningKey>>>,
     server_name: String,
@@ -188,7 +185,6 @@ impl KeyRotationManager {
         }
         Self {
             pool: pool.clone(),
-            memory_cache: Arc::new(RwLock::new(HashMap::new())),
             current_key: Arc::new(RwLock::new(None)),
             historical_keys: Arc::new(RwLock::new(HashMap::new())),
             server_name: server_name.to_string(),
@@ -793,16 +789,6 @@ impl KeyRotationManager {
             }
             None => Ok(false),
         }
-    }
-
-    /// See [`cache_historical_key`.
-    pub async fn cache_historical_key(&self, origin: &str, key_id: &str, public_key: String) {
-        let expires_at = (Utc::now() + Duration::hours(24)).timestamp_millis();
-
-        let cache_key = format!("federation:historical_key:{origin}:{key_id}");
-
-        let mut cache = self.memory_cache.write().await;
-        cache.insert(cache_key, (public_key, expires_at));
     }
 
     /// See [`get_server_keys_response`.

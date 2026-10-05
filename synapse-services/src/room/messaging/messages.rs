@@ -25,8 +25,22 @@ impl MessagingService {
         event_type: &str,
         content: &serde_json::Value,
     ) -> ApiResult<serde_json::Value> {
+        self.send_message_timed(room_id, user_id, event_type, content, None).await
+    }
+
+    /// Timing wrapper shared by [`Self::send_message`] (no txn) and
+    /// [`Self::send_message_with_txn`] (transactional dedup), so both paths are
+    /// covered by the same `message_delivery_latency_seconds` measurement.
+    async fn send_message_timed(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_type: &str,
+        content: &serde_json::Value,
+        txn_id: Option<&str>,
+    ) -> ApiResult<serde_json::Value> {
         let started = std::time::Instant::now();
-        let result = self.send_message_inner(room_id, user_id, event_type, content).await;
+        let result = self.send_message_inner(room_id, user_id, event_type, content, txn_id).await;
         if let Some(metrics) = synapse_common::server_metrics::global_server_metrics() {
             metrics.record_message_delivery(started.elapsed().as_secs_f64());
         }
@@ -34,12 +48,18 @@ impl MessagingService {
     }
 
     /// Body of [`send_message`]; see that method's documentation.
+    ///
+    /// `txn_id` is `Some` only on the transactional-dedup path: when present,
+    /// the `room_event_txn_dedup` marker is written *inside* the same
+    /// transaction as the event (A4), so a crash can never leave a visible
+    /// event without its dedup row.
     async fn send_message_inner(
         &self,
         room_id: &str,
         user_id: &str,
         event_type: &str,
         content: &serde_json::Value,
+        txn_id: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
         if !self
             .member_storage
@@ -64,115 +84,9 @@ impl MessagingService {
         // 且与建房创建事件的占位 id 同源 —— 见 `room/lifecycle/create_events.rs`）。
         let event_id = synapse_common::generate_event_id(&self.server_name);
 
-        #[allow(unused_variables, unused_mut)]
-        let mut beacon_location_params = {
-            #[cfg(feature = "beacons")]
-            {
-                if matches!(event_type, "m.beacon" | "org.matrix.msc3672.beacon" | "org.matrix.msc3489.beacon") {
-                    let Some(beacon_service) = self.beacon_service.as_ref() else {
-                        return Err(ApiError::internal("Beacon service not configured".to_string()));
-                    };
-
-                    let beacon_info_id = content
-                        .get("m.relates_to")
-                        .and_then(|v| v.get("event_id"))
-                        .and_then(|v| v.as_str())
-                        .ok_or_else(|| ApiError::bad_request("Missing m.relates_to.event_id for m.beacon".to_string()))?
-                        .to_string();
-
-                    let location = content
-                        .get("m.location")
-                        .or_else(|| content.get("org.matrix.msc3488.location"))
-                        .and_then(|v| v.as_object())
-                        .ok_or_else(|| ApiError::bad_request("Missing m.location for m.beacon".to_string()))?;
-
-                    let uri = location
-                        .get("uri")
-                        .and_then(|v| v.as_str())
-                        .ok_or_else(|| ApiError::bad_request("Missing m.location.uri".to_string()))?
-                        .to_string();
-
-                    let description = location.get("description").and_then(|v| v.as_str()).map(|v| v.to_string());
-
-                    let ts = content
-                        .get("m.ts")
-                        .or_else(|| content.get("org.matrix.msc3488.ts"))
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(now);
-
-                    let accuracy = crate::beacon_service::BeaconService::parse_geo_uri(&uri)
-                        .and_then(|(_, _, acc)| acc)
-                        .map(|v| v.round() as i64);
-
-                    let beacon_info = beacon_service
-                        .get_beacon_info(room_id, &beacon_info_id)
-                        .await
-                        .map_err(|e| ApiError::internal_with_boxed_cause("Failed to validate beacon", e))?;
-                    let Some(beacon_info) = beacon_info else {
-                        return Err(ApiError::bad_request("Referenced beacon_info does not exist".to_string()));
-                    };
-
-                    if !beacon_info.is_live {
-                        return Err(ApiError::bad_request("Referenced beacon_info is not live".to_string()));
-                    }
-                    if let Some(expires_at) = beacon_info.expires_at {
-                        if expires_at <= now {
-                            return Err(ApiError::bad_request("Referenced beacon_info has expired".to_string()));
-                        }
-                    }
-
-                    if let Some(retry_after_ms) = beacon_service
-                        .check_room_backpressure(room_id, now)
-                        .await
-                        .map_err(|e| ApiError::internal_with_boxed_cause("Failed to check room backpressure", e))?
-                    {
-                        return Err(ApiError::rate_limited_with_retry(retry_after_ms));
-                    }
-
-                    if let Some(retry_after_ms) = beacon_service
-                        .check_location_quota(room_id, user_id, now)
-                        .await
-                        .map_err(|e| ApiError::internal_with_boxed_cause("Failed to check beacon quota", e))?
-                    {
-                        return Err(ApiError::rate_limited_with_retry(retry_after_ms));
-                    }
-
-                    let latest = beacon_service
-                        .get_latest_location(&beacon_info_id)
-                        .await
-                        .map_err(|e| ApiError::internal_with_boxed_cause("Failed to check beacon rate limit", e))?;
-                    if let Some(latest) = latest {
-                        if ts <= latest.timestamp {
-                            return Err(ApiError::bad_request(
-                                "Beacon location timestamp must be increasing".to_string(),
-                            ));
-                        }
-                        let delta = ts - latest.timestamp;
-                        if delta < 1000 {
-                            return Err(ApiError::rate_limited_with_retry((1000 - delta) as u64));
-                        }
-                    }
-
-                    Some(synapse_storage::beacon::CreateBeaconLocationParams {
-                        room_id: room_id.to_string(),
-                        event_id: event_id.clone(),
-                        beacon_info_id,
-                        sender: user_id.to_string(),
-                        uri,
-                        description,
-                        timestamp: ts,
-                        accuracy,
-                        created_ts: now,
-                    })
-                } else {
-                    None
-                }
-            }
-            #[cfg(not(feature = "beacons"))]
-            {
-                None::<()>
-            }
-        };
+        #[cfg(feature = "beacons")]
+        let mut beacon_location_params =
+            self.build_beacon_location_params(room_id, user_id, event_type, content, &event_id, now).await?;
 
         // DB-03-a: write the event and its relation (if any) in a single
         // transaction. Pre-fix, the two `create_*` calls were auto-committed
@@ -231,40 +145,24 @@ impl MessagingService {
             params.event_id = event.event_id.clone();
         }
 
-        if let Some(relates_to) = content.get("m.relates_to").or_else(|| content.get("relates_to")) {
-            if let (Some(rel_type), Some(target_event_id)) = (
-                relates_to.get("rel_type").and_then(|v| v.as_str()),
-                relates_to.get("event_id").and_then(|v| v.as_str()),
-            ) {
-                if let Err(e) = self
-                    .relations_storage
-                    .create_relation_in_tx(
-                        synapse_storage::relations::CreateRelationParams {
-                            room_id: room_id.to_string(),
-                            event_id: event.event_id.clone(),
-                            relates_to_event_id: target_event_id.to_string(),
-                            relation_type: rel_type.to_string(),
-                            sender: user_id.to_string(),
-                            origin_server_ts: now,
-                            content: content.clone(),
-                        },
-                        &mut tx,
-                    )
+        self.index_relation_in_tx(&mut tx, room_id, user_id, &event.event_id, content, now).await?;
+
+        // A4: on the txn-dedup path, write the dedup marker inside the same
+        // transaction as the event. Either both commit or neither does, so a
+        // crash can never expose an event without its dedup row (which would
+        // let a client retry create a second visible copy).
+        if let Some(txn_id) = txn_id {
+            if let Some(winner) =
+                self.record_txn_dedup_in_tx(&mut tx, room_id, user_id, txn_id, &event.event_id).await?
+            {
+                // Losing txn: the event was never committed, so roll back and
+                // return the winner's `event_id`. `rollback` consumes the
+                // transaction, which is why it lives here rather than in the
+                // helper.
+                tx.rollback()
                     .await
-                {
-                    // Log before tx drops (which auto-rolls-back the event).
-                    ::tracing::error!(
-                        target: "relations",
-                        event_id = %event.event_id,
-                        target_event_id = %target_event_id,
-                        error = %e,
-                        "Relation write failed; event will be rolled back"
-                    );
-                    return Err(ApiError::internal_with_context(
-                        "Failed to send message: relation index write failed",
-                        &e,
-                    ));
-                }
+                    .map_err(|e| ApiError::internal_with_cause("Failed to roll back losing txn transaction", e))?;
+                return Ok(json!({ "event_id": winner }));
             }
         }
 
@@ -275,33 +173,7 @@ impl MessagingService {
         // owns the event lifecycle here: room summary refresh, appservice event
         // dispatch and federation broadcast must run *after* the commit so a
         // rollback cannot leak a dispatched event. All three are best-effort.
-        if let Err(error) =
-            self.room_summary_service.queue_update(room_id, &event.event_id, &event.event_type, None).await
-        {
-            ::tracing::warn!(error = %error, room_id = %room_id, "Failed to queue room summary update");
-        } else if let Err(error) = self.room_summary_service.process_pending_updates(32).await {
-            ::tracing::warn!(error = %error, room_id = %room_id, batch_size = 32_u64, "Failed to process room summary updates");
-        }
-
-        self.dispatch_appservice_event(
-            &event.event_id,
-            &event.room_id,
-            &event.event_type,
-            &event.user_id,
-            &event.content,
-            None,
-        )
-        .await;
-
-        if let Err(e) = self.sign_and_broadcast_event(&event).await {
-            ::tracing::warn!(
-                event_id = %event.event_id,
-                room_id = %event.room_id,
-                event_type = %event.event_type,
-                error = %e,
-                "Failed to sign and broadcast event"
-            );
-        }
+        self.run_post_commit_fan_out(&event).await;
 
         #[cfg(feature = "beacons")]
         if let (Some(beacon_service), Some(params)) = (self.beacon_service.as_ref(), beacon_location_params) {
@@ -316,6 +188,252 @@ impl MessagingService {
         }))
     }
 
+    /// Build the beacon-location row for an `m.beacon` send, validating the
+    /// referenced beacon, its liveness/expiry and the room/user rate limits.
+    ///
+    /// Returns `Ok(None)` for every non-beacon event. Split out of
+    /// [`Self::send_message_inner`] (E9) so that function's own flow —
+    /// membership → event write → relation/dedup → commit → fan-out — stays
+    /// readable.
+    #[cfg(feature = "beacons")]
+    async fn build_beacon_location_params(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_type: &str,
+        content: &serde_json::Value,
+        event_id: &str,
+        now: i64,
+    ) -> ApiResult<Option<synapse_storage::beacon::CreateBeaconLocationParams>> {
+        if !matches!(event_type, "m.beacon" | "org.matrix.msc3672.beacon" | "org.matrix.msc3489.beacon") {
+            return Ok(None);
+        }
+        let Some(beacon_service) = self.beacon_service.as_ref() else {
+            return Err(ApiError::internal("Beacon service not configured".to_string()));
+        };
+
+        let beacon_info_id = content
+            .get("m.relates_to")
+            .and_then(|v| v.get("event_id"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ApiError::bad_request("Missing m.relates_to.event_id for m.beacon".to_string()))?
+            .to_string();
+
+        let location = content
+            .get("m.location")
+            .or_else(|| content.get("org.matrix.msc3488.location"))
+            .and_then(|v| v.as_object())
+            .ok_or_else(|| ApiError::bad_request("Missing m.location for m.beacon".to_string()))?;
+
+        let uri = location
+            .get("uri")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ApiError::bad_request("Missing m.location.uri".to_string()))?
+            .to_string();
+
+        let description = location.get("description").and_then(|v| v.as_str()).map(|v| v.to_string());
+
+        let ts = content
+            .get("m.ts")
+            .or_else(|| content.get("org.matrix.msc3488.ts"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(now);
+
+        let accuracy = crate::beacon_service::BeaconService::parse_geo_uri(&uri)
+            .and_then(|(_, _, acc)| acc)
+            .map(|v| v.round() as i64);
+
+        let beacon_info = beacon_service
+            .get_beacon_info(room_id, &beacon_info_id)
+            .await
+            .map_err(|e| ApiError::internal_with_boxed_cause("Failed to validate beacon", e))?;
+        let Some(beacon_info) = beacon_info else {
+            return Err(ApiError::bad_request("Referenced beacon_info does not exist".to_string()));
+        };
+
+        if !beacon_info.is_live {
+            return Err(ApiError::bad_request("Referenced beacon_info is not live".to_string()));
+        }
+        if let Some(expires_at) = beacon_info.expires_at {
+            if expires_at <= now {
+                return Err(ApiError::bad_request("Referenced beacon_info has expired".to_string()));
+            }
+        }
+
+        if let Some(retry_after_ms) = beacon_service
+            .check_room_backpressure(room_id, now)
+            .await
+            .map_err(|e| ApiError::internal_with_boxed_cause("Failed to check room backpressure", e))?
+        {
+            return Err(ApiError::rate_limited_with_retry(retry_after_ms));
+        }
+
+        if let Some(retry_after_ms) = beacon_service
+            .check_location_quota(room_id, user_id, now)
+            .await
+            .map_err(|e| ApiError::internal_with_boxed_cause("Failed to check beacon quota", e))?
+        {
+            return Err(ApiError::rate_limited_with_retry(retry_after_ms));
+        }
+
+        let latest = beacon_service
+            .get_latest_location(&beacon_info_id)
+            .await
+            .map_err(|e| ApiError::internal_with_boxed_cause("Failed to check beacon rate limit", e))?;
+        if let Some(latest) = latest {
+            if ts <= latest.timestamp {
+                return Err(ApiError::bad_request("Beacon location timestamp must be increasing".to_string()));
+            }
+            let delta = ts - latest.timestamp;
+            if delta < 1000 {
+                return Err(ApiError::rate_limited_with_retry((1000 - delta) as u64));
+            }
+        }
+
+        Ok(Some(synapse_storage::beacon::CreateBeaconLocationParams {
+            room_id: room_id.to_string(),
+            event_id: event_id.to_string(),
+            beacon_info_id,
+            sender: user_id.to_string(),
+            uri,
+            description,
+            timestamp: ts,
+            accuracy,
+            created_ts: now,
+        }))
+    }
+
+    /// Index an `m.relates_to` relation inside the event's own transaction.
+    ///
+    /// Both writes share `tx`, so a relation failure rolls the event back
+    /// instead of leaving an orphan (DB-03-a). A non-relation send is a no-op.
+    /// Split out of [`Self::send_message_inner`] (E9).
+    async fn index_relation_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        room_id: &str,
+        user_id: &str,
+        event_id: &str,
+        content: &serde_json::Value,
+        now: i64,
+    ) -> ApiResult<()> {
+        let Some(relates_to) = content.get("m.relates_to").or_else(|| content.get("relates_to")) else {
+            return Ok(());
+        };
+        let (Some(rel_type), Some(target_event_id)) =
+            (relates_to.get("rel_type").and_then(|v| v.as_str()), relates_to.get("event_id").and_then(|v| v.as_str()))
+        else {
+            return Ok(());
+        };
+
+        if let Err(e) = self
+            .relations_storage
+            .create_relation_in_tx(
+                synapse_storage::relations::CreateRelationParams {
+                    room_id: room_id.to_string(),
+                    event_id: event_id.to_string(),
+                    relates_to_event_id: target_event_id.to_string(),
+                    relation_type: rel_type.to_string(),
+                    sender: user_id.to_string(),
+                    origin_server_ts: now,
+                    content: content.clone(),
+                },
+                tx,
+            )
+            .await
+        {
+            // Log before tx drops (which auto-rolls-back the event).
+            ::tracing::error!(
+                target: "relations",
+                event_id = %event_id,
+                target_event_id = %target_event_id,
+                error = %e,
+                "Relation write failed; event will be rolled back"
+            );
+            return Err(ApiError::internal_with_context("Failed to send message: relation index write failed", &e));
+        }
+        Ok(())
+    }
+
+    /// Write the txn-dedup marker inside the event's own transaction (A4).
+    ///
+    /// Returns `Some(winner_event_id)` when a concurrent duplicate already
+    /// committed: the caller must roll this transaction back and return the
+    /// winner's `event_id`. Returns `None` when the marker was written and the
+    /// caller may commit. Split out of [`Self::send_message_inner`] (E9).
+    async fn record_txn_dedup_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        room_id: &str,
+        user_id: &str,
+        txn_id: &str,
+        event_id: &str,
+    ) -> ApiResult<Option<String>> {
+        match self.event_writer.record_event_txn_in_tx(tx, user_id, room_id, txn_id, event_id).await {
+            Ok(true) => Ok(None),
+            Ok(false) => {
+                // Concurrent duplicate txn: the other transaction holds the
+                // marker. `ON CONFLICT DO NOTHING` only reports `false` after
+                // that transaction committed, so the caller rolls ours back
+                // (the event was never committed — no soft-fail needed) and
+                // returns the winner's event_id.
+                let winner = self
+                    .event_reader
+                    .get_event_id_by_txn(user_id, room_id, txn_id)
+                    .await
+                    .map_err(|e| ApiError::internal_with_cause("Failed to resolve txn race winner", e))?;
+                let winner = winner
+                    .ok_or_else(|| ApiError::internal("Txn dedup conflict resolved without a committed winner"))?;
+                ::tracing::warn!(
+                    room_id = %room_id,
+                    user_id = %user_id,
+                    txn_id = %txn_id,
+                    winner_event_id = %winner,
+                    "Concurrent duplicate txn detected; rolled back losing event"
+                );
+                Ok(Some(winner))
+            }
+            // Marker write failed: the event hasn't committed yet, so returning
+            // here lets `tx` drop and auto-roll-back.
+            Err(e) => Err(ApiError::internal_with_cause("Failed to record txn dedup marker", e)),
+        }
+    }
+
+    /// Post-commit, best-effort fan-out for a locally-sent message: room-summary
+    /// refresh, appservice dispatch and federation broadcast. Runs only after
+    /// the commit so a rollback cannot leak a dispatched event. Failures are
+    /// logged, never surfaced to the client. Split out of
+    /// [`Self::send_message_inner`] (E9).
+    async fn run_post_commit_fan_out(&self, event: &synapse_storage::RoomEvent) {
+        if let Err(error) =
+            self.room_summary_service.queue_update(&event.room_id, &event.event_id, &event.event_type, None).await
+        {
+            ::tracing::warn!(error = %error, room_id = %event.room_id, "Failed to queue room summary update");
+        } else if let Err(error) = self.room_summary_service.process_pending_updates(32).await {
+            ::tracing::warn!(error = %error, room_id = %event.room_id, batch_size = 32_u64, "Failed to process room summary updates");
+        }
+
+        self.dispatch_appservice_event(
+            &event.event_id,
+            &event.room_id,
+            &event.event_type,
+            &event.user_id,
+            &event.content,
+            None,
+        )
+        .await;
+
+        if let Err(e) = self.sign_and_broadcast_event(event).await {
+            ::tracing::warn!(
+                event_id = %event.event_id,
+                room_id = %event.room_id,
+                event_type = %event.event_type,
+                error = %e,
+                "Failed to sign and broadcast event"
+            );
+        }
+    }
+
     /// ISSUE-03: 带持久化 txn 去重的发送入口。
     ///
     /// 去重语义：`room_event_txn_dedup` 表的 PRIMARY KEY (user_id, room_id,
@@ -325,6 +443,10 @@ impl MessagingService {
     /// 协议本体在 [`Self::begin_txn`] / [`Self::finish_txn`]：关系写入端点
     /// （`PUT /_matrix/vendor/v1/rooms/{room_id}/relations/…/{txn_id}`）复用同一对
     /// 方法，而不是再实现一份去重（AGENTS.md 铁律 2）。
+    ///
+    /// A4：消息发送路径不再走 `finish_txn`，而是在 [`Self::send_message_inner`]
+    /// 里把去重 marker 与事件写在**同一个事务**内，消除「事件已可见、marker 未写」
+    /// 的窗口。`finish_txn` 保留给关系端点使用。
     pub async fn send_message_with_txn(
         &self,
         room_id: &str,
@@ -337,14 +459,10 @@ impl MessagingService {
             return Ok(json!({ "event_id": existing }));
         }
 
-        let result = self.send_message(room_id, user_id, event_type, content).await?;
-        let event_id = result.get("event_id").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-        if event_id.is_empty() {
-            return Ok(result);
-        }
-
-        let final_event_id = self.finish_txn(user_id, room_id, txn_id, &event_id).await?;
-        Ok(json!({ "event_id": final_event_id }))
+        // Empty txn_id behaves like a plain send (`begin_txn` above already
+        // treats it as "no txn").
+        let txn = if txn_id.is_empty() { None } else { Some(txn_id) };
+        self.send_message_timed(room_id, user_id, event_type, content, txn).await
     }
 
     /// ISSUE-03 txn 去重协议的**第一半**：查 `room_event_txn_dedup`。
@@ -449,7 +567,17 @@ impl MessagingService {
             }
         }
 
-        let normalized_direction = if direction == "f" { "f" } else { "b" };
+        // A10：只接受 `f`/`b`，其余取值显式报错，避免非法方向被静默归一化成
+        // `b` 后返回相反顺序的分页结果（HTTP 边界已校验，这里防止未来调用方绕过）。
+        let normalized_direction = match direction {
+            "f" => "f",
+            "b" => "b",
+            other => {
+                return Err(ApiError::invalid_param(format!(
+                    "Invalid pagination direction: expected 'f' or 'b', got '{other}'"
+                )));
+            }
+        };
 
         // ISSUE-06：start token 直接回显客户端传来的游标（复合形式优先）；
         // 无游标时用房间最新事件时间戳作为起点。

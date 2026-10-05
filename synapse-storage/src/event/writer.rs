@@ -159,6 +159,17 @@ pub trait EventWriter: Send + Sync {
         event_id: &str,
     ) -> Result<bool, sqlx::Error>;
 
+    /// A4: same as [`Self::record_event_txn`] but enlists in `tx`, so the dedup
+    /// marker commits atomically with the event it references.
+    async fn record_event_txn_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        user_id: &str,
+        room_id: &str,
+        txn_id: &str,
+        event_id: &str,
+    ) -> Result<bool, sqlx::Error>;
+
     /// B-8: mark a losing duplicate event as soft-failed instead of physically
     /// deleting it.  Replaces the prior `delete_event_by_id` path.
     async fn mark_event_soft_failed(&self, event_id: &str) -> Result<(), sqlx::Error>;
@@ -309,6 +320,17 @@ impl crate::event::writer::EventWriter for super::EventStorage {
         event_id: &str,
     ) -> Result<bool, sqlx::Error> {
         self.record_event_txn(user_id, room_id, txn_id, event_id).await
+    }
+
+    async fn record_event_txn_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        user_id: &str,
+        room_id: &str,
+        txn_id: &str,
+        event_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        self.record_event_txn_in_tx(tx, user_id, room_id, txn_id, event_id).await
     }
 
     async fn mark_event_soft_failed(&self, event_id: &str) -> Result<(), sqlx::Error> {

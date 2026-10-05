@@ -1,24 +1,23 @@
+//! Thin re-export facade routing E2EE consumers to the `synapse-e2ee` crate.
+//!
+//! The per-feature submodules (`device_keys`, `key_rotation`, `megolm`,
+//! `ssss`) were formerly local one-line shells that only glob-re-exported
+//! from `synapse_e2ee`; they are now re-exported directly from the crate.
+
 pub use synapse_e2ee::backup;
 pub use synapse_e2ee::cross_signing;
 pub use synapse_e2ee::crypto;
-/// The `device_keys` module.
-pub mod device_keys;
+pub use synapse_e2ee::device_keys;
 pub use synapse_e2ee::key_request;
-/// The `key_rotation` module.
-pub mod key_rotation;
-/// The `megolm` module.
-pub mod megolm;
+pub use synapse_e2ee::key_rotation;
+pub use synapse_e2ee::megolm;
 pub use synapse_e2ee::olm;
 pub use synapse_e2ee::secure_backup;
 pub use synapse_e2ee::signed_json;
-/// The `ssss` module.
-pub mod ssss;
+pub use synapse_e2ee::ssss;
 pub use synapse_e2ee::to_device;
 pub use synapse_e2ee::vodozemac_megolm;
 
-// 跨客户端互操作测试（Phase 3）已迁到 `synapse-e2ee/tests/vodozemac_interop.rs`：
-// 它只依赖 `vodozemac`，放在被测 crate 里比留在根 crate 的 `src/` 更合适
-// （B4-5b）。所有 case 仍需 `E2EE_INTEROP=1` 显式启用，默认 `cargo test` 不跑。
 // Explicit exports for backup module
 pub use backup::models::{
     BackupKeyInfo, BackupKeyUpload, BackupKeyUploadRequest, BackupUploadRequest, BackupUploadResponse,

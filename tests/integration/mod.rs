@@ -13,6 +13,7 @@ mod api_beacon_location_tests;
 mod api_burn_after_read_redaction_tests;
 mod api_content_scanner_integration_tests;
 mod api_create_room_auth_tests;
+mod api_delayed_state_event_tests;
 mod api_device_presence_tests;
 mod api_device_routes_tests;
 mod api_e2ee_advanced_tests;
@@ -689,7 +690,7 @@ pub async fn serial_guard() -> SerialGuard {
 }
 
 pub async fn get_admin_token(app: &axum::Router) -> (String, String) {
-    register_admin_token(app, None).await
+    register_admin_token(app, Some("admin")).await
 }
 
 pub async fn get_super_admin_token(app: &axum::Router) -> (String, String) {

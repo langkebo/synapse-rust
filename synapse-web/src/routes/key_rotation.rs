@@ -1,6 +1,5 @@
 use crate::routes::context::DeviceContext;
-use crate::routes::{ApiError, AppState, AuthenticatedUser};
-use crate::utils::admin_auth::ensure_server_admin;
+use crate::routes::{AdminUser, ApiError, AppState};
 use axum::{
     extract::{Path, State},
     routing::{get, post, put},
@@ -13,11 +12,9 @@ use synapse_common::types::DeviceId;
 /// See [`get_key_rotation_status`].
 pub async fn get_key_rotation_status(
     State(ctx): State<DeviceContext>,
-    auth_user: AuthenticatedUser,
+    admin_user: AdminUser,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_server_admin(&auth_user, "Key rotation management requires server admin privileges")?;
-
-    let (status, last_rotation) = ctx.key_rotation_service.get_rotation_status(&auth_user.user_id).await?;
+    let (status, last_rotation) = ctx.key_rotation_service.get_rotation_status(&admin_user.user_id).await?;
 
     Ok(Json(json!({
         "enabled": status.get("rotation_enabled"),
@@ -29,19 +26,17 @@ pub async fn get_key_rotation_status(
 /// POST variant of get_key_rotation_status — some clients use POST instead of GET
 pub async fn get_key_rotation_status_post(
     State(ctx): State<DeviceContext>,
-    auth_user: AuthenticatedUser,
+    admin_user: AdminUser,
 ) -> Result<Json<Value>, ApiError> {
-    get_key_rotation_status(State(ctx), auth_user).await
+    get_key_rotation_status(State(ctx), admin_user).await
 }
 
 /// See [`rotate_keys`].
 pub async fn rotate_keys(
     State(ctx): State<DeviceContext>,
-    auth_user: AuthenticatedUser,
+    _admin: AdminUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_server_admin(&auth_user, "Key rotation management requires server admin privileges")?;
-
     let requested_key_id = body.get("key_id").and_then(|v| v.as_str()).map(|s| s.to_string());
 
     match ctx.key_rotation_service.rotate_keys(requested_key_id).await {
@@ -60,13 +55,11 @@ pub async fn rotate_keys(
 /// See [`get_rotation_history`].
 pub async fn get_rotation_history(
     State(ctx): State<DeviceContext>,
-    auth_user: AuthenticatedUser,
+    admin_user: AdminUser,
     Path(device_id): Path<DeviceId>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_server_admin(&auth_user, "Key rotation management requires server admin privileges")?;
-
     let history_rows =
-        ctx.key_rotation_service.get_rotation_history(&auth_user.user_id, device_id.as_str()).await.map_err(|e| {
+        ctx.key_rotation_service.get_rotation_history(&admin_user.user_id, device_id.as_str()).await.map_err(|e| {
             tracing::error!("Failed to get rotation history: {e}");
             ApiError::internal("Internal server error".to_string())
         })?;
@@ -90,11 +83,9 @@ pub async fn get_rotation_history(
 /// See [`revoke_old_keys`].
 pub async fn revoke_old_keys(
     State(ctx): State<DeviceContext>,
-    auth_user: AuthenticatedUser,
+    _admin: AdminUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_server_admin(&auth_user, "Key revocation requires server admin privileges")?;
-
     let key_id = body.get("key_id").and_then(|v| v.as_str()).unwrap_or("");
 
     let reason = body.get("reason").and_then(|v| v.as_str());
@@ -123,11 +114,9 @@ pub async fn revoke_old_keys(
 /// See [`configure_key_rotation`].
 pub async fn configure_key_rotation(
     State(ctx): State<DeviceContext>,
-    auth_user: AuthenticatedUser,
+    admin_user: AdminUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_server_admin(&auth_user, "Key rotation management requires server admin privileges")?;
-
     let enabled = body.get("enabled").and_then(|v| v.as_bool());
     let interval_ms = body.get("interval_ms").and_then(|v| v.as_i64());
     let rotation_interval_days = body.get("rotation_interval_days").and_then(|v| v.as_i64());
@@ -190,7 +179,7 @@ pub async fn configure_key_rotation(
         }
     }
 
-    let (status, _) = ctx.key_rotation_service.get_rotation_status(&auth_user.user_id).await?;
+    let (status, _) = ctx.key_rotation_service.get_rotation_status(&admin_user.user_id).await?;
 
     let persisted_interval_ms: Option<i64> = if interval_ms.is_some() {
         interval_ms
@@ -211,30 +200,28 @@ pub async fn configure_key_rotation(
 /// POST variant of configure_key_rotation
 pub async fn configure_key_rotation_post(
     State(ctx): State<DeviceContext>,
-    auth_user: AuthenticatedUser,
+    admin_user: AdminUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    configure_key_rotation(State(ctx), auth_user, Json(body)).await
+    configure_key_rotation(State(ctx), admin_user, Json(body)).await
 }
 
 /// See [`check_needs_rotation`].
 pub async fn check_needs_rotation(
     State(ctx): State<DeviceContext>,
-    auth_user: AuthenticatedUser,
+    admin_user: AdminUser,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_server_admin(&auth_user, "Key rotation management requires server admin privileges")?;
-
     // If key_id is provided, check if that specific key needs rotation
     let key_id_filter = params.get("key_id").map(|s| s.as_str());
 
     let last_rotation: Option<i64> = if let Some(key_id) = key_id_filter {
-        ctx.key_rotation_service.get_last_rotation_for_key(&auth_user.user_id, key_id).await.map_err(|e| {
+        ctx.key_rotation_service.get_last_rotation_for_key(&admin_user.user_id, key_id).await.map_err(|e| {
             tracing::error!("Failed to query rotation log by key_id: {e}");
             ApiError::internal("Internal server error".to_string())
         })?
     } else {
-        let max_ts = ctx.key_rotation_service.get_max_rotation_ts(&auth_user.user_id).await.map_err(|e| {
+        let max_ts = ctx.key_rotation_service.get_max_rotation_ts(&admin_user.user_id).await.map_err(|e| {
             tracing::error!("Failed to query rotation log: {e}");
             ApiError::internal("Internal server error".to_string())
         })?;
@@ -263,10 +250,10 @@ pub async fn check_needs_rotation(
 /// POST variant of check_needs_rotation — front-end MatrixEncryptionService uses POST
 pub async fn check_needs_rotation_post(
     State(ctx): State<DeviceContext>,
-    auth_user: AuthenticatedUser,
+    admin_user: AdminUser,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
-    check_needs_rotation(State(ctx), auth_user, axum::extract::Query(params)).await
+    check_needs_rotation(State(ctx), admin_user, axum::extract::Query(params)).await
 }
 
 /// See [`create_key_rotation_router`].

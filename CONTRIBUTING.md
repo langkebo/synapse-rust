@@ -67,11 +67,9 @@ After the baseline rollout, maintainers should review three consecutive delivery
 
 synapse-rust follows a layered architecture: `route → service → storage`.
 
-- **`src/web/`** — HTTP boundary (Axum routes, extractors, middleware)
-- **`src/services/`** — Business logic layer (`ServiceContainer` is the composition root)
-- **`src/storage/`** — Persistence layer (PostgreSQL via sqlx, thin facades to `synapse-storage`)
-- **`synapse-services/`** — Canonical service implementations
-- **`synapse-storage/`** — Canonical storage implementations
+- **`synapse-web/src/`** — HTTP boundary (Axum routes, extractors, middleware)
+- **`synapse-services/src/`** — Business logic layer (`ServiceContainer` is the composition root)
+- **`synapse-storage/src/`** — Persistence layer (PostgreSQL via sqlx)
 - **`synapse-e2ee/`** — End-to-end encryption (vodozemac-based Megolm/Olm)
 - **`synapse-federation/`** — Federation protocol
 - **`synapse-common/`** — Shared config, crypto, error types
@@ -127,7 +125,7 @@ python3 scripts/ci/check_root_canonical_ledger.py
 - [ ] New routes have entries in `route_ledger.rs`
 - [ ] New migrations follow `YYYYMMDDHHMMSS_description.sql` naming
 - [ ] `.sqlx/` cache is updated if SQL queries changed
-- [ ] Documentation links are valid (`bash scripts/ci/check_doc_links.sh`)
+- [ ] Documentation links are valid (CI: lychee step in `.github/workflows/docs-quality-gate.yml`)
 
 ## Database Migrations
 

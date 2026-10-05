@@ -1,12 +1,13 @@
-#     且都是真实技术记号：inviter 是 room_invites 的列名、requestToken 是 3pid 端点路径段、ty_match 是 sqlx 宏名（下划线后被切出 ty）。
 #     仅登记词条、未改动该文档正文。
+#     且都是真实技术记号：inviter 是 room_invites 的列名、requestToken 是 3pid 端点路径段、ty_match 是 sqlx 宏名（下划线后被切出 ty）。
 #   * eventreport —— EventReport 家族标识符（EventReportHistory／EventReportStats／EventReportAggregateStats）被脚本小写化后切出；
-#   * influxdb —— docs/audit/WORKER_STATS_METRICS_DECISION_2026-09-23.md 的既有拼写红（该文档本轮未被改动）。
+#   * influxdb —— docs/archive/audit/WORKER_STATS_METRICS_DECISION_2026-09-23.md 的既有拼写红（该文档本轮未被改动）。
 #   * inviter、requesttoken、ty —— SQLX_STATICIZATION_PLAN_2026-09-23.md 的**既有**拼写红（HEAD 版用同一脚本同样失败，非本轮引入），
 # 不在此列，仍会被 scripts/check_doc_spelling.sh 检出。
 # 内容为「合法技术词」，不是「忽略拼写错误」：通用英文词的错拼（recieve/seperate/occured…）
-# 由本轮实测生成：CI run 35494141985 的 577 词 ∪ 本地 aspell 0.60.8.2 的 757 词 ∪ 原有 17 词。
 # 说明见 docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md §14.7。
+# 项目技术词典：aspell 通用英文词典（en_US）不含本仓技术语料的词汇。
+# 由本轮实测生成：CI run 35494141985 的 577 词 ∪ 本地 aspell 0.60.8.2 的 757 词 ∪ 原有 17 词。
 # 追加（2026-09-20，§14.11 独立复核）：ghcr、io（来自 ghcr.io）。
 # 追加（2026-09-20，§14.13）：args、cmd（正文里 "CMD/args" 这类写法）。
 # 追加（2026-09-22，Phase 3 安全复核）：alg、aud、iss。
@@ -15,7 +16,8 @@
 # 追加（2026-09-24，D-12 收口 + 关联既有红清理）：
 # 追加（2026-10-02，M-6）：recurse（MSC3981 的 /relations 查询参数名，出现在对照报告 §18.3 #14）。
 # 追加（2026-10-04，P4-2）：kegsay（MSC4242「State DAGs」提案作者，登记入 MSC_SEMANTICS.md §1.1；同 johennes/clokep 的提案作者署名惯例）。
-# 项目技术词典：aspell 通用英文词典（en_US）不含本仓技术语料的词汇。
+# 追加（2026-10-04，F7 部署文档对齐）：baseurl、dtls、mkcert、openssl、rhel、turnserver、udp（docker/deploy/README.md 按 deploy.sh 重写后新出现的依赖 / 协议记号）。
+# 追加（2026-10-04，第三轮遗留问题报告）：circuitbreaker、halfopen、warmup（熔断器/半开/预热技术记号）。
 abi
 accessexclusivelock
 accessor
@@ -31,6 +33,7 @@ accountmanager
 accountservices
 ack
 acl
+acs
 actionlint
 adminauthsource
 admincontext
@@ -98,6 +101,7 @@ badrequest
 balancer
 bargauge
 basename
+baseurl
 bcrypt
 beaconservice
 beaconstorage
@@ -133,6 +137,7 @@ captcha
 cas
 casservice
 casstorage
+cdata
 cdn
 ceo
 cfg
@@ -142,6 +147,7 @@ chmod
 chvq
 cidr
 ciphertext
+circuitbreaker
 cjh
 clamav
 clapcy
@@ -216,6 +222,7 @@ dehydrateddeviceservice
 dehydrateddevicestoreapi
 delayedevent
 delayedevents
+dep
 deprecations
 deps
 desc
@@ -248,6 +255,7 @@ domainless
 dos
 dsl
 dsn
+dtls
 dto
 dup
 dyn
@@ -289,6 +297,7 @@ faketokenauth
 fanout
 fcm
 federationauth
+federationclient
 federationcontext
 federationqueuestoreapi
 federationslow
@@ -335,6 +344,7 @@ gvpm
 gx
 gzip
 hadolint
+halfopen
 handlesummary
 handoff
 hardcoded
@@ -393,6 +403,7 @@ injectable
 inlinecallbacks
 inmemory
 inmemoryaccountdatastore
+inmemorydeadletterqueue
 inmemoryeventstore
 inmemoryfilterstore
 inmemoryroomaccountdatastore
@@ -433,6 +444,7 @@ kegsay
 keyatrest
 keychain
 keyrotationconfig
+keyrotationmanager
 keyrotationstorage
 keyset
 keyverificationmanager
@@ -464,6 +476,7 @@ localhostguard
 localpart
 lockfile
 logcontext
+logoutresponse
 logrotate
 loopback
 lru
@@ -497,12 +510,14 @@ messagingservice
 messagingserviceconfig
 methodrouter
 metricscollector
+mib
 middleware
 migrator
 mimir
 missingtoken
 mitm
 mjw
+mkcert
 mkdir
 mmap
 mockall
@@ -558,6 +573,7 @@ oom
 openapi
 openclaw
 openid
+openssl
 opentelemetry
 orbstack
 originserverts
@@ -674,6 +690,7 @@ resolved
 reviewable
 rg
 rgv
+rhel
 rhs
 rng
 roadmap
@@ -711,6 +728,7 @@ rulebook
 ruma
 runbook
 rustc
+rustcrypto
 rustdoc
 rustfmt
 rustls
@@ -764,12 +782,15 @@ slidingsyncextensions
 slidingsyncservice
 slidingsyncstorage
 slidingsyncstoreapi
+sls
 sms
+smtp
 soatok
 spaceinfomock
 spaceservice
 spacestorage
 splitter
+sqli
 sqlstate
 sqlx
 src
@@ -868,6 +889,7 @@ tst
 ttf
 ttl
 turbofish
+turnserver
 twilio
 tx
 txn
@@ -876,6 +898,7 @@ ty
 typescript
 ua
 ubuntu
+udp
 ui
 uia
 uiaservice
@@ -894,6 +917,7 @@ unknowntoken
 unmerged
 unpadded
 unprocessable
+unprotect
 unrecognised
 untraited
 updates
@@ -934,8 +958,10 @@ vtable
 vue
 vuln
 vus
+waf
 wal
 walkthroughs
+warmup
 webhook
 webhooks
 webp
@@ -960,6 +986,8 @@ worktrees
 wq
 ws
 xff
+xml
+xmldsig
 xpf
 xss
 xxxx

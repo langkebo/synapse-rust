@@ -3,7 +3,7 @@
 **Status**: 🟡 open
 **Severity**: 中
 **Discovered**: M-3 阶段 A (2026-06-06)
-**Origin**: [M3_BATCH1_EXECUTION_PLAN.md §7.2](../../M3_BATCH1_EXECUTION_PLAN.md#72-关键发现5-个-sqlxquery-宏实为死代码)
+**Origin**: M-3 Batch 1 执行计划 §7.2（原始计划文档已不再保留）
 **Blocks**: 不阻塞 M-3 Batch 1；可能阻塞未来的 sqlx-cli 查询收集完整性
 
 ---

@@ -79,16 +79,25 @@ docker compose up -d
   --skip-build       跳过 cargo build 和 Docker 镜像构建
   --install-deps     自动安装缺失的依赖 (macOS: brew / Linux: apt/yum)
   --no-turn          跳过本地 coturn TURN 服务检查与启动
+  --no-monitoring    跳过监控栈启动（prometheus/alertmanager/grafana/node-exporter/alert-handler）
   --image REF        使用指定的远程镜像（自动 docker pull，跳过本地构建）
+  --keep-images      保留历史项目镜像（默认删除所有旧项目镜像以释放空间）
+  --no-strict-warnings 未知 WARNING 仅提示、不阻断部署（默认阻断）
+  --strict-warnings 未知 WARNING 阻断部署（默认行为）
+  --no-rollback      失败时不自动回滚（默认自动回滚）
+  --stop-timeout N   容器优雅停止(SIGTERM)等待秒数，默认 30
   --help             显示帮助信息
 ```
 
 ### 完整流程
 
 ```
-环境检查 → 依赖安装(可选) → 配置检查 → SSL 证书自动生成 →
-/etc/hosts 检查 → 本地 coturn 检查/启动 → 备份 → 缓存清理 →
-镜像构建 → 数据库迁移 → 服务启动 → 健康/HTTPS 验证 → 日志检查
+环境依赖检查 → 安装缺失依赖(可选) → 配置文件检查 → 功能选择 → 功能摘要 →
+目录准备 → SSL 证书准备 → 应用数据密钥准备 → hosts 检查 → 本地 TURN 检查 →
+部署前备份 → 缓存清理 → 项目编译 → 优雅停止后端容器 → 移除旧部署资源 →
+清理旧项目镜像 → 构建/拉取镜像 → 启动服务与迁移 → 数据库连接验证 →
+数据库版本一致性校验 → 健康检查验证 → HTTPS 接口验证 → 日志告警分析 →
+启动监控栈
 ```
 
 脚本特性：
@@ -189,7 +198,7 @@ docker/deploy/
 | POSTGRES_PASSWORD | (必填) | 数据库密码 |
 | REDIS_PASSWORD | (必填) | Redis 密码 |
 | SSL_CERT / SSL_KEY | cert.pem / key.pem | ssl/ 目录下证书文件名 |
-| TURN_SHARED_SECRET | dev-turn-secret | TURN 共享密钥（须与 coturn 一致） |
+| TURN_SHARED_SECRET | (必填，须替换占位符) | TURN 共享密钥（须与 coturn 一致） |
 | TURN_HOST / TURN_PORT / TURNS_PORT | 127.0.0.1 / 3478 / 5349 | 本地 coturn 地址 |
 
 **密钥生成**：`./scripts/generate-secrets.sh` 可自动补全缺失的随机密钥。
@@ -224,7 +233,7 @@ mkcert -cert-file ssl/cert.pem -key-file ssl/key.pem matrix.test localhost 127.0
 **部署脚本自动处理**：
 1. 检查 coturn 容器/端口 `127.0.0.1:3478` 是否可达
 2. 未运行则自动 `cd "$COTURN_DIR" && docker compose up -d`
-3. 校验 coturn `static-auth-secret` 与 `.env` 的 `TURN_SHARED_SECRET` 一致（不一致时输出 WARNING 并提示修复）
+3. 校验 coturn `static-auth-secret` 与 `.env` 的 `TURN_SHARED_SECRET`：未设置/仍为占位符时输出 ERROR（拒绝弱默认密钥），不一致时输出 WARNING 并提示修复
 
 **端口**：3478 (STUN/TURN udp+tcp)、5349 (TURNS/DTLS)、49152-49351 (relay udp)
 
@@ -241,8 +250,8 @@ docker compose down         # 停止
 
 | 位置 | 配置项 |
 |------|--------|
-| coturn turnserver.conf | `static-auth-secret=dev-turn-secret` |
-| .env | `TURN_SHARED_SECRET=dev-turn-secret` |
+| coturn turnserver.conf | `static-auth-secret=<强随机值>` |
+| .env | `TURN_SHARED_SECRET=<与 coturn 相同的强随机值>` |
 | homeserver.yaml `voip:` | `turn_shared_secret: ${TURN_SHARED_SECRET}` + `turn_uris` 指向 `matrix.test:3478/5349` |
 
 > 若 coturn 密钥被修改，必须同步修改 `.env` 中 `TURN_SHARED_SECRET` 并重启 synapse。
@@ -311,4 +320,3 @@ PostgreSQL 的 `max_connections` 是**全局**资源，而每个 synapse 进程�
 **1 个 worker**（`50 × 1 + 20 = 70`）；要跑 4 个 worker 必须显式把
 `max_connections` 提到 **≥220（推荐 250）**。改了任何一项（池上限 / 进程数 /
 max_connections）都必须同步更新本表，否则门禁会失败。
-

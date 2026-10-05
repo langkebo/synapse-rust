@@ -188,7 +188,7 @@ $ grep -rln "async fn test_pool" --include='*.rs' synapse-storage/src/ | wc -l
 
 1. **为什么 `--workspace` 会红**：57 个套件在 `public` 上并发写，彼此干扰；
 2. **为什么 `public` 会残留跨 schema 外键**（见
-   `P5_migration_search_path_shadowing_2026-09-12.md`）：这些套件从不建 schema，
+   `docs/archive/audit/P5_migration_search_path_shadowing_2026-09-12.md`）：这些套件从不建 schema，
    也就从不清理 schema，`public` 里的表是它们唯一的落脚点，长期被多轮迁移反复
    `ALTER`；
 3. **为什么 schema 会累积到 23,662 个**（见

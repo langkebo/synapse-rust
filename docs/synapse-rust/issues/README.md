@@ -4,7 +4,7 @@
 > and Round-2 (三项目协同优化) that are intentionally **not blocking**
 > the mainline but need dedicated follow-up.
 >
-> Origin: M3_BATCH1_EXECUTION_PLAN.md §13.6 / 三项目协同优化方案.md
+> Origin: M-3 Batch 1 执行计划 §13.6 / 三项目协同优化方案（原始计划文档已不再保留）
 >
 > Last update: 2026-07-23
 

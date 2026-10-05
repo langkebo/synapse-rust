@@ -107,6 +107,7 @@ macro_rules! admin_auth_source {
 admin_auth_source!(AdminContext);
 admin_auth_source!(FederationContext);
 admin_auth_source!(MediaContext);
+admin_auth_source!(DeviceContext);
 
 impl AdminAuthSource for AppState {
     fn user_service(&self) -> &Arc<UserService> {

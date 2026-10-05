@@ -1266,6 +1266,19 @@ impl crate::event::writer::EventWriter for InMemoryEventStore {
         Ok(true)
     }
 
+    async fn record_event_txn_in_tx(
+        &self,
+        _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        user_id: &str,
+        room_id: &str,
+        txn_id: &str,
+        event_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        // The in-memory store has no real transaction; recording directly
+        // matches the observable behaviour of the Postgres path for tests.
+        self.record_event_txn(user_id, room_id, txn_id, event_id).await
+    }
+
     async fn mark_event_soft_failed(&self, event_id: &str) -> Result<(), sqlx::Error> {
         // B-8: soft-failed events are filtered out of read paths via
         // `WHERE soft_failed = FALSE`, so this in-memory mock simply drops the

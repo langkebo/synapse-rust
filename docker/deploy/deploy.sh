@@ -955,12 +955,15 @@ check_local_turn() {
             )"
         fi
 
-        local synapse_secret="${TURN_SHARED_SECRET:-dev-turn-secret}"
-        if [ -n "$coturn_secret" ] && [ "$coturn_secret" != "$synapse_secret" ]; then
+        local synapse_secret="${TURN_SHARED_SECRET:-}"
+        if [ -z "$synapse_secret" ] || [[ "$synapse_secret" == *"CHANGE_ME"* ]]; then
+            log_error "TURN_SHARED_SECRET 未设置或仍为占位符，拒绝使用弱默认密钥"
+            log_error "请在 .env 设置强随机值（如 openssl rand -hex 32），并同步 coturn 的 static-auth-secret"
+        elif [ -n "$coturn_secret" ] && [ "$coturn_secret" != "$synapse_secret" ]; then
             log_warning "TURN 共享密钥不一致: coturn='$coturn_secret' vs synapse='$synapse_secret'"
             log_warning "请修改 .env 中的 TURN_SHARED_SECRET 为 '$coturn_secret'"
         else
-            log_success "TURN 共享密钥一致: $synapse_secret"
+            log_success "TURN 共享密钥一致"
         fi
     else
         log_warning "coturn 不可用，VoIP 通话功能将不可用（不影响其他服务）"
@@ -1744,7 +1747,7 @@ show_access_info() {
     echo "HTTPS 健康检查: ${https_base}/health"
     echo "HTTP 健康检查:  http://localhost:${HTTP_PORT:-80}/health"
     echo "应用健康检查:   http://localhost:${SYNAPSE_PORT:-8008}/health"
-    echo "TURN 服务:      ${TURN_HOST:-127.0.0.1}:${TURN_PORT:-3478} (coturn, secret=${TURN_SHARED_SECRET:-dev-turn-secret})"
+    echo "TURN 服务:      ${TURN_HOST:-127.0.0.1}:${TURN_PORT:-3478} (coturn)"
     echo "部署日志:       ${LOG_FILE}"
     echo "扩展功能:       ${ENABLED_EXTENSIONS}"
     echo ""

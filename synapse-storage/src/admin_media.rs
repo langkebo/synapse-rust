@@ -506,7 +506,7 @@ impl AdminMediaStorage {
     /// Clear the `protected` status on a media row so it can be quarantined
     /// or deleted by policy again.
     ///
-    /// Backs `POST /_synapse/admin/v1/media/unprotect/{media_id}`.
+    /// Backs `POST /_synapse/admin/v1/media/unprotect/{mediaId}`.
     /// Returns `0` if the row did not exist, `1` otherwise.
     pub async fn unprotect_media(&self, media_id: &str, changed_by: &str) -> Result<i64, ApiError> {
         // `changed_by` is recorded via the audit stream at the service layer;

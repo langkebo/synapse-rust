@@ -1,12 +1,12 @@
 //! Event IDs derived from the event reference hash (Matrix room versions 3+).
 //!
 //! U-13 / plan doc §6.6 step 1: this module is the **pure** implementation plus
-//! its known-answer tests.  It is deliberately **not wired** into the local
-//! event-creation path yet — `crypto::generate_event_id` still produces the
-//! random `$<ts>$<b64>:<server>` form for every room version, which is not a
-//! valid event ID for v3+ rooms.  Wiring it is step 2, and step 3 is the
-//! cross-implementation interoperability gate; see the plan doc for the blast
-//! radius checklist (local `event_id`, txn dedup table, redaction targets,
+//! its known-answer tests.  It is wired into the local event-creation path via
+//! `synapse-federation`'s `event_finalize::finalize_local_pdu`, which calls
+//! [`compute_event_id`] for room versions that derive IDs from the reference
+//! hash (v3+) and falls back to the legacy server-assigned `$<ts>$<b64>:<server>`
+//! form via `crypto::generate_event_id` for v1/v2.  See the plan doc for the
+//! blast radius checklist (local `event_id`, txn dedup table, redaction targets,
 //! cache keys, E2EE references, fixtures/snapshots).
 //!
 //! Algorithm (spec room v4 "Event IDs", `v4-event-ids` fragment):

@@ -4109,6 +4109,15 @@ WHERE NOT EXISTS (SELECT 1 FROM server_media_quota WHERE id = 1);
 -- Force admin to change password on first login
 UPDATE users SET must_change_password = TRUE WHERE username = 'admin';
 
+-- C10: backfill user_type for pre-existing admins.
+-- The fail-closed admin role normalization (normalize_admin_role -> NO_ADMIN_ROLE)
+-- rejects any RBAC-gated endpoint when user_type is NULL/blank. Without this
+-- backfill, admins created before the C10 fix would lose all admin access on
+-- upgrade. Only the minimal role 'admin' is assumed: 'super_admin' cannot be
+-- recovered, since it was indistinguishable from 'admin' when user_type was NULL.
+UPDATE users SET user_type = 'admin'
+WHERE is_admin = TRUE AND (user_type IS NULL OR btrim(user_type) = '');
+
 -- ============================================================================
 -- Comments
 -- ============================================================================

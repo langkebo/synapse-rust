@@ -337,10 +337,11 @@ const LOGIN_LOCKOUT_TTL_SECS: u64 = 900;
 ///
 /// Failure behavior when Redis is unavailable depends on
 /// `config.security.login_lockout_fail_open_on_redis_error`:
-/// - `true` (default, backward compatible): skip the lockout check, login proceeds
-/// - `false` (recommended for production): return 503 Service Unavailable to
-///   block all login attempts while Redis is down. This closes the brute-force
-///   window that would otherwise be open during a Redis outage.
+/// - `false` (default): return 503 Service Unavailable to block all login
+///   attempts while Redis is down. This closes the brute-force window that
+///   would otherwise be open during a Redis outage.
+/// - `true`: skip the lockout check, login proceeds (only acceptable when
+///   Redis is embedded in-process with no external dependency).
 async fn check_login_lockout(
     cache: &synapse_cache::CacheManager,
     config: &synapse_common::config::Config,
@@ -375,9 +376,9 @@ async fn check_login_lockout(
     }
 }
 
-/// Record a failed login attempt. Fail-open on Redis errors when
-/// `config.security.login_lockout_fail_open_on_redis_error` is true (default);
-/// otherwise silently drop (counter is gone anyway since Redis is down).
+/// Record a failed login attempt. When
+/// `config.security.login_lockout_fail_open_on_redis_error` is false (default),
+/// log an error; otherwise silently drop (counter is gone anyway since Redis is down).
 async fn record_login_failure(
     cache: &synapse_cache::CacheManager,
     config: &synapse_common::config::Config,

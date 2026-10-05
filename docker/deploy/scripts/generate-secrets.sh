@@ -55,6 +55,20 @@ generate_password() {
     fi
 }
 
+# 生成 TOTP base32 密钥 (RFC 4648 字母表，20 字节 → 32 字符，无 '=' 填充)。
+# admin_auth::decode_secret 会优先按 base32 解码，回退原始字节；这里必须是
+# 合法 base32，否则认证器 App 与服务端算出的 TOTP 不一致。
+generate_base32_secret() {
+    if command -v base32 &>/dev/null; then
+        head -c 20 /dev/urandom | base32 | tr -d '=\n'
+    elif command -v python3 &>/dev/null; then
+        python3 -c 'import base64,os;print(base64.b32encode(os.urandom(20)).decode().rstrip("="))'
+    else
+        log_error "需要 base32 或 python3 以生成 TOTP 密钥"
+        return 1
+    fi
+}
+
 generate_missing_or_all() {
     local force_generate="${1:-false}"
 
@@ -80,6 +94,8 @@ generate_missing_or_all() {
     # Olm 账户 pickle 密钥：**恰好** 32 字节（64 个十六进制字符）。缺失或长度不对
     # 时 OLM 服务 fail loudly（E-06），且每次重启都会使已持久化的 Olm 账户不可解密。
     maybe_set_secret "OLM_PICKLE_KEY" "$(generate_hex_key 64)" "$force_generate"
+    # C9: 管理员 MFA 的 TOTP base32 密钥（docker-compose.yml 以 `:?` 强制要求非空）。
+    maybe_set_secret "ADMIN_MFA_SHARED_SECRET" "$(generate_base32_secret)" "$force_generate"
 }
 
 current_env_value() {
@@ -175,9 +191,12 @@ generate_single_secret() {
             # Olm 账户 pickle 密钥：恰好 32 字节（64 个十六进制字符）。
             generate_hex_key 64
             ;;
+        "admin-mfa")
+            generate_base32_secret
+            ;;
         *)
             log_error "未知密钥类型: $type"
-            echo "可用类型: postgres, redis, admin, registration, secret, macaroon, form, worker-replication, olm-pickle"
+            echo "可用类型: postgres, redis, admin, registration, secret, macaroon, form, worker-replication, olm-pickle, admin-mfa"
             return 1
             ;;
     esac
@@ -199,6 +218,7 @@ show_help() {
     echo "  form      生成表单密钥"
     echo "  worker-replication  轮换 worker 复制密钥（轮换后需重启所有 worker）"
     echo "  olm-pickle  生成 OLM 账户 pickle 密钥（32 字节 hex）"
+    echo "  admin-mfa  生成管理员 MFA 的 TOTP base32 密钥"
     echo "  help      显示此帮助信息"
     echo ""
     echo "示例:"
@@ -217,7 +237,7 @@ main() {
         missing)
             generate_missing_secrets
             ;;
-        postgres | redis | admin | registration | secret | macaroon | form | worker-replication | olm-pickle)
+        postgres | redis | admin | registration | secret | macaroon | form | worker-replication | olm-pickle | admin-mfa)
             local secret=$(generate_single_secret "$command")
             echo "$secret"
 
@@ -241,6 +261,8 @@ main() {
                 env_key="WORKER_REPLICATION_SECRET"
             elif [ "$command" = "olm-pickle" ]; then
                 env_key="OLM_PICKLE_KEY"
+            elif [ "$command" = "admin-mfa" ]; then
+                env_key="ADMIN_MFA_SHARED_SECRET"
             fi
 
             if [ -f "$ENV_FILE" ]; then

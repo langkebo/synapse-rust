@@ -784,6 +784,7 @@ impl SynapseServer {
         let delayed_event_storage = self.app_state.services.admin.modules.delayed_event_storage.clone();
         let room_service = self.app_state.services.rooms.room_service.clone();
         let cache = self.app_state.services.core.cache.clone();
+        let server_name = self.app_state.services.core.server_name.clone();
         let delayed_event_dispatch_interval =
             self.app_state.services.core.config.server.delayed_event_dispatch_interval_secs;
         let dispatch_interval_secs = if delayed_event_dispatch_interval > 0 {
@@ -833,18 +834,41 @@ impl SynapseServer {
                                 continue;
                             }
 
-                            // Dispatch the event: use the room service's messaging to create the event
-                            // The synthetic event_id from delayed_events is used as the txn_id for deduplication
-                            let send_result = room_service
-                                .messaging()
-                                .send_message_with_txn(
-                                    &event.room_id,
-                                    &event.user_id,
-                                    &event.event_type,
-                                    &event.content,
-                                    &event.event_id, // txn_id for dedup (synthetic placeholder)
-                                )
-                                .await;
+                            // Dispatch the event. State events (`state_key` present) must go
+                            // through `create_event` to preserve state semantics; plain
+                            // messages use `send_message_with_txn` (the synthetic event_id
+                            // from delayed_events doubles as the txn_id for deduplication).
+                            let send_result = if let Some(state_key) = event.state_key.clone() {
+                                room_service
+                                    .messaging()
+                                    .create_event(
+                                        CreateEventParams {
+                                            event_id: synapse_common::crypto::generate_event_id(&server_name),
+                                            room_id: event.room_id.clone(),
+                                            user_id: event.user_id.clone(),
+                                            event_type: event.event_type.clone(),
+                                            content: event.content.clone(),
+                                            state_key: Some(state_key),
+                                            origin_server_ts: current_timestamp_millis(),
+                                            redacts: None,
+                                        },
+                                        None,
+                                    )
+                                    .await
+                                    .map(|_| ())
+                            } else {
+                                room_service
+                                    .messaging()
+                                    .send_message_with_txn(
+                                        &event.room_id,
+                                        &event.user_id,
+                                        &event.event_type,
+                                        &event.content,
+                                        &event.event_id, // txn_id for dedup (synthetic placeholder)
+                                    )
+                                    .await
+                                    .map(|_| ())
+                            };
 
                             match send_result {
                                 Ok(_) => {

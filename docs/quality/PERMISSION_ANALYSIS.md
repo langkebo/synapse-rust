@@ -23,8 +23,8 @@
 **问题**: admin 角色可以访问，但应该只允许 super_admin  
 **状态**: ✅ 已修复（待验证）  
 **修复文件**:
-- `src/web/routes/admin/server.rs` - 添加 AdminUser 参数和角色检查
-- `src/web/routes/admin/mod.rs` - 将路由移到 protected 组
+- `synapse-web/src/routes/admin/server.rs` - 添加 AdminUser 参数和角色检查
+- `synapse-web/src/routes/admin/mod.rs` - 将路由移到 protected 组
 
 ---
 
@@ -240,7 +240,7 @@
 
 ### 阶段2: 调整 RBAC 配置
 需要修改的文件：
-- `src/web/utils/admin_auth.rs` - 更新 admin 角色的权限规则
+- `synapse-web/src/utils/admin_auth.rs` - 更新 admin 角色的权限规则
 - 或者在各个端点的 handler 中调整权限检查逻辑
 
 ### 阶段3: 验证

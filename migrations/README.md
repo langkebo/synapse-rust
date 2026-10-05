@@ -295,14 +295,20 @@ bash docker/db_migrate.sh validate
 
 ## 回滚（undo）
 
-每个时间戳迁移配套同名 `.undo.sql`，用于回滚到上一个版本：
+本目录**不存在** `.undo.sql` 文件（见 §1 缺口说明），因此不支持按时间戳逐版本回滚。
+实际回滚策略为：
+
+- **未部署正式环境**：直接重建数据库，重新执行幂等 baseline 即可（baseline 可重复执行，不会报错）。
+- **已部署正式环境**：采用 **forward-fix**——新增一个时间戳迁移修正问题，禁止就地修改已应用的
+  时间戳迁移。baseline 内已丢失/变更的对象同样只能靠 forward-fix 补回。
 
 ```bash
-# 顺序倒序执行 .undo.sql（仅 dev/staging 环境）
-ls -r migrations/2026*.undo.sql | xargs -I {} bash -c 'echo "--- {}"; psql "$DATABASE_URL" -f "{}"'
+# 未部署环境：清空并重建（⚠️ 会丢失全部数据，仅限 dev/staging）
+psql "$DATABASE_URL" -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
+bash docker/db_migrate.sh migrate
 ```
 
-> ⚠️ undo 文件不含 baseline 内部变更回滚；baseline 内的对象丢失只能 forward fix。
+> ⚠️ 生产环境回滚请走 forward-fix，不要尝试执行不存在的 `.undo.sql`。
 
 ## 扩展迁移选择（仅影响编译的 cargo feature）
 

@@ -1555,7 +1555,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 ## 附录 A — 前端裸调→SDK 迁移专项契约（基于 handler 实读，2026-08-17）
 
 > 本附录为人工维护，补充自动生成路由面之外的**请求/响应 wire-format** 与已知漂移；重新生成脚本不覆盖本段。
-> 实读源：`src/web/routes/handlers/room/members.rs`、`src/web/routes/oidc/provider.rs`、`src/web/routes/captcha.rs`、`src/web/routes/e2ee/{keys.rs,devices.rs}`。
+> 实读源：`synapse-web/src/routes/handlers/room/members.rs`、`synapse-web/src/routes/oidc/provider.rs`、`synapse-web/src/routes/captcha.rs`、`synapse-web/src/routes/e2ee/{keys.rs,devices.rs}`。
 
 ### A.1 本次迁移涉及的 6 个端点（已迁 Tjg 前端裸调 → SDK Manager 方法）
 

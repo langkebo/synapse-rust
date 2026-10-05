@@ -8,8 +8,8 @@
 
 ```
 BASE_URL: http://localhost:8008
-测试域名: cjystx.top
-版本: 0.1.0
+测试域名: matrix.test
+版本: 6.2.0
 协议: Matrix Client-Server API
 ```
 
@@ -38,17 +38,17 @@ docs/sdk/
 
 | 文档 | 描述 | 主要端点 |
 |------|------|----------|
-| [认证](./authentication.md) | 用户注册、登录、Token 管理 | `/_matrix/client/r0/login` |
-| [房间](./rooms.md) | 创建房间、加入、成员管理 | `/_matrix/client/r0/createRoom` |
+| [认证](./authentication.md) | 用户注册、登录、Token 管理 | `/_matrix/client/v3/login` |
+| [房间](./rooms.md) | 创建房间、加入、成员管理 | `/_matrix/client/v3/createRoom` |
 | [好友](./friends.md) | 好友请求、私信、好友列表 | `/_matrix/client/v1/friends` |
-| [消息](./messages.md) | 发送消息、历史记录、回执 | `/_matrix/client/r0/send` |
+| [消息](./messages.md) | 发送消息、历史记录、回执 | `/_matrix/client/v3/send` |
 | [媒体](./media.md) | 上传下载、缩略图 | `/_matrix/media/v3/upload` |
 
 ### 高级功能
 
 | 文档 | 描述 | 主要端点 |
 |------|------|----------|
-| [E2EE](./e2ee.md) | 端到端加密、设备密钥 | `/_matrix/client/r0/keys/upload` |
+| [E2EE](./e2ee.md) | 端到端加密、设备密钥 | `/_matrix/client/v3/keys/upload` |
 | [管理](./admin.md) | 服务器管理、用户管理 | `/_synapse/admin/v1/` |
 | [错误](./errors.md) | 错误码、处理最佳实践 | - |
 
@@ -60,7 +60,7 @@ docs/sdk/
 
 ```typescript
 const login = async (username: string, password: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/r0/login`, {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -84,7 +84,7 @@ const login = async (username: string, password: string) => {
 const sendMessage = async (roomId: string, text: string, token: string) => {
   const txnId = Date.now().toString();
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/rooms/${roomId}/send/m.room.message/${txnId}`,
+    `${BASE_URL}/_matrix/client/v3/rooms/${roomId}/send/m.room.message/${txnId}`,
     {
       method: 'PUT',
       headers: {
@@ -137,11 +137,22 @@ const uploadImage = async (file: File, token: string) => {
 
 | 版本前缀 | 用途 |
 |---------|------|
-| `/_matrix/client/r0/` | 标准 Matrix 客户端 API |
+| `/_matrix/client/v3/` | 标准 Matrix 客户端 API |
 | `/_matrix/client/v1/` | 自定义增强功能 (好友系统) |
 | `/_matrix/media/v3/` | 媒体 API |
 | `/_synapse/admin/v1/` | 管理员 API |
 | `/_matrix/federation/v1/` | 联邦 API (跨服务器通信) |
+
+---
+
+## 国际化（i18n）
+
+本服务器**仅支持英文（`en`）单语**，不提供多语言的服务端文案。该立场在认证发现端点中显式声明：
+
+- `GET /.well-known/openid-configuration` → `"ui_locales_supported": ["en"]`
+- `GET /_matrix/client/v1/auth_metadata`（MSC2965 认证发现）→ `"ui_locales_supported": ["en"]`
+
+客户端应将 `en` 视为**唯一**受支持语言；如需其他语种文案，须由客户端侧自行本地化处理，服务端不会返回翻译后的界面文案。
 
 ---
 
@@ -155,10 +166,12 @@ const uploadImage = async (file: File, token: string) => {
 | 401 | Unauthorized | 未认证或 Token 无效 |
 | 403 | Forbidden | 权限不足 |
 | 404 | Not Found | 资源不存在 |
+| 405 | Method Not Allowed | 方法不允许 |
 | 409 | Conflict | 资源冲突 (如用户名已存在) |
-| 410 | Gone | 资源已废弃 (旧 API) |
+| 413 | Payload Too Large | 请求体过大 |
 | 429 | Too Many Requests | 请求过于频繁 |
 | 500 | Internal Server Error | 服务器内部错误 |
+| 501 | Not Implemented | 功能未实现 |
 
 ---
 
@@ -171,13 +184,12 @@ const uploadImage = async (file: File, token: string) => {
 | `M_NOT_FOUND` | 资源不存在 |
 | `M_MISSING_TOKEN` | 缺少 Token |
 | `M_UNKNOWN_TOKEN` | Token 无效 |
+| `M_UNAUTHORIZED` | 需要认证 |
 | `M_LIMIT_EXCEEDED` | 超出速率限制 |
 | `M_USER_IN_USE` | 用户名已被占用 |
 | `M_INVALID_USERNAME` | 用户名格式无效 |
-| `M_WEAK_PASSWORD` | 密码强度不足 |
+| `M_INVALID_PARAM` | 参数非法 |
 | `M_FORBIDDEN` | 禁止访问 |
-| `FRIEND_ALREADY_EXISTS` | 好友关系已存在 |
-| `FRIEND_REQUEST_PENDING` | 好友请求待处理 |
 
 > 详细错误处理请参考 [errors.md](./errors.md)
 
@@ -213,7 +225,7 @@ class AuthManager {
   private refreshToken: string = '';
 
   async login(username: string, password: string) {
-    const response = await fetch(`${BASE_URL}/_matrix/client/r0/login`, {
+    const response = await fetch(`${BASE_URL}/_matrix/client/v3/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -232,7 +244,7 @@ class AuthManager {
   }
 
   async refreshAccessToken() {
-    const response = await fetch(`${BASE_URL}/_matrix/client/r0/refresh`, {
+    const response = await fetch(`${BASE_URL}/_matrix/client/v3/refresh`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${this.refreshToken}`,
@@ -258,10 +270,9 @@ class AuthManager {
 ```typescript
 class ApiError extends Error {
   constructor(
-    public code: string,
+    public errcode: string,
     public message: string,
-    public status: number,
-    public details?: any
+    public status: number
   ) {
     super(message);
     this.name = 'ApiError';
@@ -269,26 +280,18 @@ class ApiError extends Error {
 }
 
 async function handleApiResponse<T>(response: Response): Promise<T> {
+  // 成功响应直接返回业务负载；错误响应形如 { errcode, error }
   const data = await response.json();
 
   if (!response.ok) {
     throw new ApiError(
-      data.code || data.errcode || 'UNKNOWN',
-      data.message || data.error || 'Request failed',
-      response.status,
-      data.details
-    );
-  }
-
-  if (data.status === 'error') {
-    throw new ApiError(
-      data.code || 'UNKNOWN',
-      data.message || 'Request failed',
+      data.errcode || 'M_UNKNOWN',
+      data.error || 'Request failed',
       response.status
     );
   }
 
-  return (data.data || data) as T;
+  return data as T;
 }
 ```
 
@@ -357,7 +360,7 @@ class ApiClient {
 const api = new ApiClient('http://localhost:8008');
 
 // 登录
-const loginData = await api.post('/_matrix/client/r0/login', {
+const loginData = await api.post('/_matrix/client/v3/login', {
   type: 'm.login.password',
   user: 'alice',
   password: 'password123'
@@ -366,7 +369,7 @@ api.setToken(loginData.access_token);
 
 // 发送消息
 await api.put(
-  `/_matrix/client/r0/rooms/${roomId}/send/m.room.message/${txnId}`,
+  `/_matrix/client/v3/rooms/${roomId}/send/m.room.message/${txnId}`,
   { msgtype: 'm.text', body: 'Hello!' }
 );
 
@@ -426,7 +429,7 @@ export class MatrixService {
 
   // 认证
   async login(username: string, password: string) {
-    return this.api.post('/_matrix/client/r0/login', {
+    return this.api.post('/_matrix/client/v3/login', {
       type: 'm.login.password',
       user: username,
       password
@@ -434,7 +437,7 @@ export class MatrixService {
   }
 
   async register(username: string, password: string) {
-    return this.api.post('/_matrix/client/r0/register', {
+    return this.api.post('/_matrix/client/v3/register', {
       username,
       password
     });
@@ -442,11 +445,11 @@ export class MatrixService {
 
   // 房间
   async createRoom(options: CreateRoomOptions) {
-    return this.api.post('/_matrix/client/r0/createRoom', options);
+    return this.api.post('/_matrix/client/v3/createRoom', options);
   }
 
   async joinRoom(roomId: string) {
-    return this.api.post(`/_matrix/client/r0/rooms/${roomId}/join`, {});
+    return this.api.post(`/_matrix/client/v3/rooms/${roomId}/join`, {});
   }
 
   // 好友
@@ -465,7 +468,7 @@ export class MatrixService {
   async sendMessage(roomId: string, text: string) {
     const txnId = Date.now().toString();
     return this.api.put(
-      `/_matrix/client/r0/rooms/${roomId}/send/m.room.message/${txnId}`,
+      `/_matrix/client/v3/rooms/${roomId}/send/m.room.message/${txnId}`,
       { msgtype: 'm.text', body: text }
     );
   }
@@ -547,12 +550,11 @@ export interface MessageContent {
   };
 }
 
-// 响应
-export interface ApiResponse<T> {
-  status: 'ok' | 'error';
-  data?: T;
-  code?: string;
-  message?: string;
+// 错误响应
+export interface MatrixError {
+  errcode: string;
+  error: string;
+  retry_after_ms?: number;
 }
 ```
 

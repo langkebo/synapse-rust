@@ -128,10 +128,22 @@ impl ContentSanitizer {
         Self { mode: SanitizerMode::Strict, max_length: 1_000 }
     }
 
+    /// 按最大长度安全截断（回退到最近的字符边界，避免多字节字符被切断导致 panic）
+    fn truncate_safely<'a>(&self, input: &'a str) -> &'a str {
+        if input.len() <= self.max_length {
+            return input;
+        }
+        let mut end = self.max_length;
+        while end > 0 && !input.is_char_boundary(end) {
+            end -= 1;
+        }
+        &input[..end]
+    }
+
     /// 净化 HTML 内容
     pub fn sanitize(&self, input: &str) -> String {
         // 长度限制
-        let input = if input.len() > self.max_length { &input[..self.max_length] } else { input };
+        let input = self.truncate_safely(input);
 
         // 根据模式选择净化器
         match self.mode {
@@ -146,7 +158,7 @@ impl ContentSanitizer {
 
     /// 净化纯文本（移除所有 HTML）
     pub fn sanitize_plain_text(&self, input: &str) -> String {
-        let input = if input.len() > self.max_length { &input[..self.max_length] } else { input };
+        let input = self.truncate_safely(input);
 
         STRICT_SANITIZER.clean(input).to_string()
     }
@@ -255,6 +267,18 @@ mod tests {
         let input = "This is a very long string that exceeds the limit";
         let output = sanitizer.sanitize(input);
         assert_eq!(output.len(), 10);
+    }
+
+    #[test]
+    fn test_length_limit_multibyte_does_not_panic() {
+        // 多字节字符：每个汉字 3 字节，max_length=5 落在"文"字中间
+        let sanitizer = ContentSanitizer::new(SanitizerMode::Default, 5);
+        let input = "中文测试内容";
+        let output = sanitizer.sanitize(input);
+        assert_eq!(output, "中");
+
+        let output = sanitizer.sanitize_plain_text(input);
+        assert_eq!(output, "中");
     }
 
     #[test]

@@ -311,6 +311,11 @@ impl EventStorage {
     }
 
     /// See [`get_room_events_paginated_with_filter`].
+    ///
+    /// A12: `to` / `filter` are **not** implemented. Instead of logging a
+    /// warning and silently ignoring them (which returns an unfiltered page
+    /// the caller believes was filtered), this now fails fast with a
+    /// [`sqlx::Error::Protocol`].
     pub async fn get_room_events_paginated_with_filter(
         &self,
         room_id: &str,
@@ -320,12 +325,23 @@ impl EventStorage {
         filter: Option<&EventQueryFilter>,
     ) -> Result<Vec<RoomEvent>, sqlx::Error> {
         if to.is_some() {
-            tracing::warn!("EventStorage::get_room_events_paginated_with_filter: 'to' parameter not yet supported");
+            return Err(sqlx::Error::Protocol(
+                "EventStorage::get_room_events_paginated_with_filter: 'to' parameter is not supported".to_string(),
+            ));
         }
         if filter.is_some() {
-            tracing::warn!("EventStorage::get_room_events_paginated_with_filter: 'filter' parameter not yet supported");
+            return Err(sqlx::Error::Protocol(
+                "EventStorage::get_room_events_paginated_with_filter: 'filter' parameter is not supported".to_string(),
+            ));
         }
-        let from_ts = from.and_then(|f| f.parse::<i64>().ok());
+        let from_ts = match from {
+            Some(raw) => Some(raw.parse::<i64>().map_err(|_| {
+                sqlx::Error::Protocol(format!(
+                    "EventStorage::get_room_events_paginated_with_filter: invalid 'from' cursor: {raw}"
+                ))
+            })?),
+            None => None,
+        };
         self.get_room_events_paginated(room_id, from_ts, limit, "b").await
     }
 }

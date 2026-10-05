@@ -350,7 +350,7 @@ panicked at src/server/mod.rs:1215:53:
 连它自己错误信息里建议的 `synapse_test` 也会被拒（因为 `synapse_test` 里同样有
 `public.schema_migrations`）。
 
-`docs/audit/P4_concurrency_perf_2026-09-11.md:222` 已记录该测试为性能敏感
+`docs/archive/audit/P4_concurrency_perf_2026-09-11.md:222` 已记录该测试为性能敏感
 （77.2s → 15.8s）。
 
 **建议**：守卫的判据不该是"`schema_migrations` 存在"，而应是显式环境变量或专用

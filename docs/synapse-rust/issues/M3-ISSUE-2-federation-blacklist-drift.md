@@ -3,7 +3,7 @@
 **Status**: 🟡 open
 **Severity**: 中
 **Discovered**: M-3 阶段 C (2026-06-06)
-**Origin**: [M3_BATCH1_EXECUTION_PLAN.md §12.3](../../M3_BATCH1_EXECUTION_PLAN.md#123-跳过的-7-个查询schema-drift)
+**Origin**: M-3 Batch 1 执行计划 §12.3（原始计划文档已不再保留）
 **Blocks**: 不阻塞 M-3 Batch 1；M-3 阶段 C 已**部分完成**（14 个查询已迁移，7 个 schema-drift 查询保留）
 
 ---

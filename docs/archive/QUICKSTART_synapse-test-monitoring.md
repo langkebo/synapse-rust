@@ -1,5 +1,11 @@
 # 🚀 快速开始 - 导入 Prometheus + Grafana 使用
 
+> ⚠️ **已废弃（DEPRECATED）**：本文档描述的是旧的 `synapse-test` 监控栈
+> （`scripts/deploy-monitoring.sh` + `docker/docker-compose.monitoring.yml`，Grafana :9091），
+> 与线上实际运行的 deploy 栈互斥，会抢占线上端口。请改用
+> [`README_MONITORING.md`](../../README_MONITORING.md)（deploy 栈，Grafana :3000）。
+> 本文仅作历史参考，不再作为操作依据。
+
 ## ✅ 准备工作完成
 
 我们已经为你准备好了完整的监控栈配置，包括：
@@ -305,10 +311,10 @@ curl http://localhost:9090/api/v1/alerts
 
 ## 📚 扩展阅读
 
-- [详细部署文档](monitoring/DEPLOYMENT.md)
-- [实施总结文档](tests/prometheus-implementation-summary.md)
-- [实施计划文档](tests/prometheus-implementation-plan.md)
-- [告警规则详细说明](monitoring/alertmanager/alertmanager.yml)
+- [详细部署文档](../../monitoring/DEPLOYMENT.md)
+- [实施总结文档](../../tests/prometheus-implementation-summary.md)
+- [实施计划文档](../../tests/prometheus-implementation-plan.md)
+- [告警规则详细说明](../../monitoring/alertmanager/alertmanager.yml)
 
 ---
 

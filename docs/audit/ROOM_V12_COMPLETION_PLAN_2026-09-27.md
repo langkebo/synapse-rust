@@ -204,7 +204,7 @@
 | `docs/audit/DB_REVIEW_2026-09-17.md` | **要改（仅状态注记）** | §13.6.2（L568-587）与 L757 说"`/capabilities` 丢掉 v12/v13（未裁定）"，现 v12 已 `can_create=true` ⇒ `available` 会含 v12，需更新为"已由 O-1 反转，但协议语义问题仍未解" |
 | `AGENTS.md`（`### Protocol declaration discipline`，L435-438）+ `CLAUDE.md` | **不改规则本体** | 规则 L436/L438 正是 v12 当前违背的那一条（"Room-version capability must match actual event/auth behavior"）；CLAUDE.md 无此节且刻意只同步铁律，无需改；本轮**未**发现中文短语"协议声明纪律"（0 命中）【实测】 |
 | `README.md`（`## 文档` L158-169） | **不改 v12 文本** | README 索引的是 `docs/synapse-rust/`，**`docs/audit` 零索引**（`grep audit README.md` 0 命中）；`docs/INDEX.md` §六 是过期部分清单。若要本计划可发现，需另加索引条目 |
-| 额外（不在任务书清单，但同样是过度声明）| **要改/要注记** | `docs/audit/O1_PHASE1_V12_IMPLEMENTATION_DETAILS.md`（L9 "v12 现在是可创建的"、L376 spec 链接错为 v1.10）、`docs/audit/PROJECT_REMAINING_ISSUES_2026-09-14.md`（L83/L1206/L1435/L1453/L1483 "v12/v13 不可创建"）、`docs/audit/P2_protocol_contract_2026-09-11.md`（L21/L46/L104-105 过度声明的源头）、`docs/synapse-rust-vs-synapse-comparison.md`（L574/L723/L768/L945）、`docs/synapse-rust/API_COVERAGE_REPORT.md`（L173-174/L241/L279/L357）、`docs/audit/v12-pdu-graph-fields-integration.md`（L154/L156 反而**诚实**地记录了 v12 路径未验签，与 V12 计划"差距：无"冲突） |
+| 额外（不在任务书清单，但同样是过度声明）| **要改/要注记** | `docs/audit/O1_PHASE1_V12_IMPLEMENTATION_DETAILS.md`（L9 "v12 现在是可创建的"、L376 spec 链接错为 v1.10）、`docs/audit/PROJECT_REMAINING_ISSUES_2026-09-14.md`（L83/L1206/L1435/L1453/L1483 "v12/v13 不可创建"）、`docs/audit/P2_protocol_contract_2026-09-11.md`（L21/L46/L104-105 过度声明的源头）、`docs/synapse-rust-vs-synapse-comparison.md`（L574/L723/L768/L945）、`docs/synapse-rust/API_COVERAGE_REPORT.md`（L173-174/L241/L279/L357）、`docs/archive/audit/v12-pdu-graph-fields-integration.md`（L154/L156 反而**诚实**地记录了 v12 路径未验签，与 V12 计划"差距：无"冲突） |
 
 ---
 

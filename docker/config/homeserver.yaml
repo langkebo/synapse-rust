@@ -144,7 +144,7 @@ federation:
   signing_key: "${FEDERATION_SIGNING_KEY:?FEDERATION_SIGNING_KEY is required}"
   key_id: "${FEDERATION_KEY_ID:-ed25519:local}"
   signing_key_master_key: "${FEDERATION_MASTER_KEY:-}"
-  allow_plaintext_signing_keys: true
+  allow_plaintext_signing_keys: false
   trusted_key_servers:
     - server_name: "matrix.org"
   key_refresh_interval: 86400
@@ -175,6 +175,10 @@ security:
   allow_legacy_hashes: false
   login_failure_lockout_threshold: 5
   login_lockout_duration_seconds: 300
+  # C9: 管理员 MFA 的 TOTP 共享密钥（base32）。默认空——dev 栈不设置
+  # ADMIN_MFA_SHARED_SECRET 时 admin_mfa_required 保持 false；部署栈由
+  # docker-compose 注入 SYNAPSE__SECURITY__ADMIN_MFA_REQUIRED=true 并强制本项非空。
+  admin_mfa_shared_secret: "${ADMIN_MFA_SHARED_SECRET:-}"
 
 admin_registration:
   enabled: true
@@ -229,7 +233,8 @@ voip:
     - "turn:matrix.test:3478?transport=tcp"
     - "turns:matrix.test:5349?transport=tcp"
   # 必须与本地 coturn 的 static-auth-secret 一致（见 /Users/ljf/Desktop/hu_ts/coturn/turnserver.conf）
-  turn_shared_secret: "${TURN_SHARED_SECRET:-dev-turn-secret}"
+  # 必填：不提供 TURN_SHARED_SECRET 时启动即报错，避免使用弱默认密钥。
+  turn_shared_secret: "${TURN_SHARED_SECRET:?TURN_SHARED_SECRET is required}"
   turn_user_lifetime: "1h"
   turn_allow_guests: false
   stun_uris:

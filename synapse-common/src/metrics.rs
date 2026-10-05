@@ -154,11 +154,33 @@ fn histogram_buckets_for(name: &str) -> &'static [f64] {
     }
 }
 
+/// 单个直方图保留的未折叠观测值上限。
+///
+/// 达到上限即把已有观测折叠进分桶计数后清空 live 缓冲，使每个直方图的内存
+/// 占用有界（O(分桶数) 而非 O(观测次数)）。此前 `values: Vec<f64>` 只增不减，
+/// 是长跑实例里唯一随运行时长单调增长的内存放大点。
+const HISTOGRAM_MAX_LIVE_SAMPLES: usize = 4096;
+
+/// 直方图的内部状态，由单个互斥锁保护，保证 `count` / `sum` / 分桶来自同一时刻。
+#[derive(Debug)]
+struct HistogramData {
+    /// 尚未折叠的观测值；长度恒 `<= HISTOGRAM_MAX_LIVE_SAMPLES`。
+    live: Vec<f64>,
+    /// 已折叠观测按 `Histogram::bounds` 的**区间计数**（非累积）；长度 == bounds.len()。
+    folded_buckets: Vec<u64>,
+    /// 观测总数（含已折叠与 live），用于 `_count` 与 `+Inf` 桶。
+    count: u64,
+    /// 观测值之和（含已折叠与 live），用于 `_sum`。
+    sum: f64,
+}
+
 #[derive(Debug, Clone)]
 /// Represents Histogram.
 pub struct Histogram {
     name: String,
-    values: Arc<parking_lot::Mutex<Vec<f64>>>,
+    /// 由 `name` 推断并固定的分桶上界；折叠时按它归桶。
+    bounds: &'static [f64],
+    data: Arc<parking_lot::Mutex<HistogramData>>,
     labels: HashMap<String, String>,
 }
 
@@ -175,57 +197,106 @@ struct HistogramSnapshot {
 impl Histogram {
     /// Constructs a new instance.
     pub fn new(name: String) -> Self {
-        Self { name, values: Arc::new(parking_lot::Mutex::new(Vec::new())), labels: HashMap::new() }
+        let bounds = histogram_buckets_for(&name);
+        Self {
+            name,
+            bounds,
+            data: Arc::new(parking_lot::Mutex::new(HistogramData {
+                live: Vec::new(),
+                folded_buckets: vec![0; bounds.len()],
+                count: 0,
+                sum: 0.0,
+            })),
+            labels: HashMap::new(),
+        }
     }
 
     /// Constructs a new instance with labels attached.
     pub fn with_labels(name: String, labels: HashMap<String, String>) -> Self {
-        Self { name, values: Arc::new(parking_lot::Mutex::new(Vec::new())), labels }
+        let bounds = histogram_buckets_for(&name);
+        Self {
+            name,
+            bounds,
+            data: Arc::new(parking_lot::Mutex::new(HistogramData {
+                live: Vec::new(),
+                folded_buckets: vec![0; bounds.len()],
+                count: 0,
+                sum: 0.0,
+            })),
+            labels,
+        }
     }
 
     /// Records a new observed value.
+    ///
+    /// `count` / `sum` 单调累加；`live` 达上限时把已有观测折叠进分桶计数并清空，
+    /// 从而把内存占用限制在 `HISTOGRAM_MAX_LIVE_SAMPLES` 以内。
     pub fn observe(&self, value: f64) {
-        let mut values = self.values.lock();
-        values.push(value);
+        let mut data = self.data.lock();
+        data.live.push(value);
+        data.count += 1;
+        data.sum += value;
+        if data.live.len() >= HISTOGRAM_MAX_LIVE_SAMPLES {
+            Self::fold_live(self.bounds, &mut data);
+        }
     }
 
-    /// Returns all recorded values.
+    /// 把 `data.live` 按 `bounds` 归入区间计数后清空；`count` / `sum` 不受影响。
+    fn fold_live(bounds: &[f64], data: &mut HistogramData) {
+        let largest = bounds.last().copied();
+        for &value in &data.live {
+            // NaN 比较恒 false、`+Inf > largest`，二者都不计入任何有限桶。
+            if let Some(largest) = largest {
+                if value <= largest {
+                    data.folded_buckets[bounds.partition_point(|bound| *bound < value)] += 1;
+                }
+            }
+        }
+        data.live.clear();
+    }
+
+    /// Returns the live (not yet folded) observations.
+    ///
+    /// 这是一个**有界窗口**（最多 `HISTOGRAM_MAX_LIVE_SAMPLES` 个），不保证包含
+    /// 全部历史观测；供诊断/测试使用，不用于生产渲染。
     pub fn get_values(&self) -> Vec<f64> {
-        let values = self.values.lock();
-        values.clone()
+        let data = self.data.lock();
+        data.live.clone()
     }
 
     /// Returns the number of recorded values.
     pub fn get_count(&self) -> usize {
-        let values = self.values.lock();
-        values.len()
+        let data = self.data.lock();
+        data.count as usize
     }
 
     /// Returns the sum of recorded values.
     pub fn get_sum(&self) -> f64 {
-        let values = self.values.lock();
-        values.iter().sum()
+        let data = self.data.lock();
+        data.sum
     }
 
     /// Returns the average of recorded values.
     pub fn get_avg(&self) -> f64 {
-        let values = self.values.lock();
-        if values.is_empty() {
+        let data = self.data.lock();
+        if data.count == 0 {
             0.0
         } else {
-            values.iter().sum::<f64>() / values.len() as f64
+            data.sum / data.count as f64
         }
     }
 
     /// Returns the value at the given percentile.
+    ///
+    /// 仅基于 live 窗口计算（折叠后历史观测不可还原），因此对长跑实例是近似值。
     pub fn get_percentile(&self, percentile: f64) -> Result<f64, MetricsError> {
-        let mut values = self.values.lock();
-        if values.is_empty() {
+        let mut data = self.data.lock();
+        if data.live.is_empty() {
             return Ok(0.0);
         }
-        values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let index = ((percentile / 100.0) * (values.len() - 1) as f64).floor() as usize;
-        Ok(values[index.min(values.len() - 1)])
+        data.live.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let index = ((percentile / 100.0) * (data.live.len() - 1) as f64).floor() as usize;
+        Ok(data.live[index.min(data.live.len() - 1)])
     }
 
     /// 一次加锁取出渲染直方图所需的全部数据。
@@ -241,20 +312,33 @@ impl Histogram {
     ///
     /// 单趟 O(n log b)：每个观测值先挂到「第一个 >= 它的桶」，再前缀和还原累积计数。
     /// 既避免 O(n*b) 的全量扫桶，也避免在抓取路径上对观测值排序。
+    ///
+    /// `count` / `sum` 取自累积状态（含已折叠观测）；各桶先按 `bounds` 统计 live，
+    /// 再在 `bounds` 与 `self.bounds` 一致时合并已折叠的分桶计数。
     fn snapshot(&self, bounds: &[f64]) -> HistogramSnapshot {
-        let values = self.values.lock();
+        let data = self.data.lock();
         let largest = bounds.last().copied();
         let mut deltas = vec![0u64; bounds.len()];
-        let mut sum = 0.0f64;
 
-        for &value in values.iter() {
-            sum += value;
+        for &value in data.live.iter() {
             // `NaN` 比较恒为 false，`+Inf > largest`，二者都自然落在 `+Inf` 桶里。
             if let Some(largest) = largest {
                 if value <= largest {
                     deltas[bounds.partition_point(|bound| *bound < value)] += 1;
                 }
             }
+        }
+
+        // 折叠数据按 `self.bounds` 归桶，只有调用方请求同一张分桶表时才能合并。
+        if bounds == self.bounds {
+            for (delta, folded) in deltas.iter_mut().zip(data.folded_buckets.iter()) {
+                *delta += *folded;
+            }
+        } else {
+            debug_assert!(
+                data.folded_buckets.iter().all(|&count| count == 0),
+                "snapshot 传入非本直方图分桶表时，已折叠数据无法还原"
+            );
         }
 
         let mut running = 0u64;
@@ -264,8 +348,8 @@ impl Histogram {
         }
 
         HistogramSnapshot {
-            count: values.len() as u64,
-            sum: normalize_negative_zero(sum),
+            count: data.count,
+            sum: normalize_negative_zero(data.sum),
             // 空直方图的求和落在 `-0.0`（`Sum` 的加法单位元），必须归一。
             cumulative: deltas,
         }
@@ -273,8 +357,11 @@ impl Histogram {
 
     /// Resets to its initial state.
     pub fn reset(&self) {
-        let mut values = self.values.lock();
-        values.clear();
+        let mut data = self.data.lock();
+        data.live.clear();
+        data.folded_buckets.iter_mut().for_each(|count| *count = 0);
+        data.count = 0;
+        data.sum = 0.0;
     }
 }
 
@@ -953,6 +1040,31 @@ mod tests {
         assert!(values.contains(&1.0));
         assert!(values.contains(&2.0));
         assert!(values.contains(&3.0));
+    }
+
+    /// 容量上限生效：live 缓冲有界，但 `_count` / `_sum` / 分桶计数在折叠后不丢失。
+    #[test]
+    fn test_histogram_memory_is_bounded_and_counts_survive_fold() {
+        let histogram = Histogram::new("bounded_ms".to_string());
+        let total = HISTOGRAM_MAX_LIVE_SAMPLES * 3 + 7;
+        for _ in 0..total {
+            histogram.observe(7.0); // 7ms 落在 le="10" 桶
+        }
+
+        assert!(
+            histogram.get_values().len() < HISTOGRAM_MAX_LIVE_SAMPLES,
+            "live 缓冲未折叠，内存仍无界: {}",
+            histogram.get_values().len()
+        );
+        assert_eq!(histogram.get_count(), total, "折叠不得丢失观测总数");
+        assert_eq!(histogram.get_sum(), total as f64 * 7.0, "折叠不得丢失求和");
+        assert_eq!(histogram.get_avg(), 7.0);
+
+        let bounds = histogram_buckets_for("bounded_ms");
+        let snapshot = histogram.snapshot(bounds);
+        assert_eq!(snapshot.count, total as u64);
+        let le10 = bounds.iter().position(|bound| *bound == 10.0).expect("毫秒表应含 le=10");
+        assert_eq!(snapshot.cumulative[le10], total as u64, "折叠后的分桶计数必须准确");
     }
 
     #[test]

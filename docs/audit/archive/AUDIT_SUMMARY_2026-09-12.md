@@ -143,7 +143,7 @@ sdk-encapsulation-audit.md
 
 4. **迁移可重放性已修复**（P3，**已解决**）
    - 20260906010000 `add_events_soft_failed.sql` 及其余 73 条增量迁移已补 `IF NOT EXISTS` 幂等守卫，或使用 DO 块 + `information_schema.columns` 检查。
-   - ~~仍缺 `DELETE FROM room_versions` 的 undo 链~~ → **该表述为虚构引用**：P3 文档 `P3_migration_replayability_2026-09-12.md` 从未提及 `room_versions`，且全仓迁移目录中无任何 `DELETE FROM room_versions` / `room_versions` 的 SQL 引用（该表由 v11 baseline 之外的机制管理）。此条与 presence cursor 同属审计文档虚构引用，已更正删除。
+   - ~~仍缺 `DELETE FROM room_versions` 的 undo 链~~ → **该表述为虚构引用**：P3 文档 `docs/archive/audit/P3_migration_replayability_2026-09-12.md` 从未提及 `room_versions`，且全仓迁移目录中无任何 `DELETE FROM room_versions` / `room_versions` 的 SQL 引用（该表由 v11 baseline 之外的机制管理）。此条与 presence cursor 同属审计文档虚构引用，已更正删除。
    - `.undo.sql` 回滚链：36/36 齐全，仅 2 个 baseline（v11/v10）无需 undo（符合规范）。**增量链验证通过**：全新库 `docker/db_migrate.sh migrate` 成功完成。
 
 5. **性能基线门禁**（P4，**大部分已完成，余采集类尾项**）

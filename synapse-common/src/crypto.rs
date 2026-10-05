@@ -245,7 +245,6 @@ pub fn validate_token_hash_secret() -> Result<(), String> {
     }
 }
 
-#[allow(clippy::expect_used, clippy::unnecessary_literal_unwrap)]
 /// hash token.
 pub fn hash_token(token: &str) -> String {
     let server_secret = std::env::var("TOKEN_HASH_SECRET").unwrap_or_else(|_| {
@@ -255,7 +254,7 @@ pub fn hash_token(token: &str) -> String {
         } else {
             // Production: this should never be reached because validate_token_hash_secret()
             // is called at startup. Defense in depth: fail rather than use a weak secret.
-            None::<String>.expect("TOKEN_HASH_SECRET environment variable must be set in production")
+            unreachable!("TOKEN_HASH_SECRET environment variable must be set in production")
         }
     });
     encode_base64(hmac_sha256(server_secret, token))

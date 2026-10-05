@@ -15,7 +15,7 @@
 
 ### 创建房间
 
-**端点:** `POST /_matrix/client/r0/createRoom`
+**端点:** `POST /_matrix/client/v3/createRoom`
 
 **需要认证:** 是
 
@@ -40,7 +40,7 @@ interface CreateRoomRequest {
 **请求示例:**
 ```typescript
 const createRoom = async (accessToken: string, options: CreateRoomRequest) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/r0/createRoom`, {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/createRoom`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -89,14 +89,14 @@ const createPublicRoom = async (name: string, topic: string, accessToken: string
 
 ### 加入房间
 
-**端点:** `POST /_matrix/client/r0/rooms/{room_id}/join`
+**端点:** `POST /_matrix/client/v3/rooms/{room_id}/join`
 
 **需要认证:** 是
 
 **请求示例:**
 ```typescript
 const joinRoom = async (roomId: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/join`, {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/join`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -112,14 +112,14 @@ const joinRoom = async (roomId: string, accessToken: string) => {
 
 ### 离开房间
 
-**端点:** `POST /_matrix/client/r0/rooms/{room_id}/leave`
+**端点:** `POST /_matrix/client/v3/rooms/{room_id}/leave`
 
 **需要认证:** 是
 
 **请求示例:**
 ```typescript
 const leaveRoom = async (roomId: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/leave`, {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/leave`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -135,7 +135,7 @@ const leaveRoom = async (roomId: string, accessToken: string) => {
 
 ### 踢出用户
 
-**端点:** `POST /_matrix/client/r0/rooms/{room_id}/kick`
+**端点:** `POST /_matrix/client/v3/rooms/{room_id}/kick`
 
 **请求体:**
 ```typescript
@@ -148,7 +148,7 @@ interface KickRequest {
 **请求示例:**
 ```typescript
 const kickUser = async (roomId: string, userId: string, reason: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/kick`, {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/kick`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -167,7 +167,7 @@ const kickUser = async (roomId: string, userId: string, reason: string, accessTo
 
 ### 封禁用户
 
-**端点:** `POST /_matrix/client/r0/rooms/{room_id}/ban`
+**端点:** `POST /_matrix/client/v3/rooms/{room_id}/ban`
 
 **请求体:**
 ```typescript
@@ -180,7 +180,7 @@ interface BanRequest {
 **请求示例:**
 ```typescript
 const banUser = async (roomId: string, userId: string, reason: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/ban`, {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/ban`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -199,7 +199,7 @@ const banUser = async (roomId: string, userId: string, reason: string, accessTok
 
 ### 解除封禁
 
-**端点:** `POST /_matrix/client/r0/rooms/{room_id}/unban`
+**端点:** `POST /_matrix/client/v3/rooms/{room_id}/unban`
 
 **请求体:**
 ```typescript
@@ -211,7 +211,7 @@ interface UnbanRequest {
 **请求示例:**
 ```typescript
 const unbanUser = async (roomId: string, userId: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/unban`, {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/unban`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -231,7 +231,7 @@ const unbanUser = async (roomId: string, userId: string, accessToken: string) =>
 
 ### 邀请用户加入房间
 
-**端点:** `POST /_matrix/client/r0/rooms/{room_id}/invite`
+**端点:** `POST /_matrix/client/v3/rooms/{room_id}/invite`
 
 **请求体:**
 ```typescript
@@ -243,7 +243,7 @@ interface InviteRequest {
 **请求示例:**
 ```typescript
 const inviteUser = async (roomId: string, userId: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/invite`, {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/invite`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -263,7 +263,7 @@ const inviteUser = async (roomId: string, userId: string, accessToken: string) =
 
 ### 获取房间成员列表
 
-**端点:** `GET /_matrix/client/r0/rooms/{room_id}/members`
+**端点:** `GET /_matrix/client/v3/rooms/{room_id}/members`
 
 **需要认证:** 是
 
@@ -277,7 +277,7 @@ const inviteUser = async (roomId: string, userId: string, accessToken: string) =
 **请求示例:**
 ```typescript
 const getRoomMembers = async (roomId: string, accessToken: string) => {
-  const url = new URL(`${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/members`);
+  const url = new URL(`${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/members`);
   url.searchParams.set('limit', '100');
 
   const response = await fetch(url.toString(), {
@@ -301,7 +301,7 @@ interface RoomMember {
 
 ### 获取成员事件
 
-**端点:** `POST /_matrix/client/r0/rooms/{room_id}/get_membership_events`
+**端点:** `POST /_matrix/client/v3/rooms/{room_id}/get_membership_events`
 
 **请求体:**
 ```typescript
@@ -315,7 +315,7 @@ interface MembershipEventsRequest {
 **请求示例:**
 ```typescript
 const getMembershipEvents = async (roomId: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/get_membership_events`, {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/get_membership_events`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -339,14 +339,14 @@ const getMembershipEvents = async (roomId: string, accessToken: string) => {
 
 ### 获取房间状态
 
-**端点:** `GET /_matrix/client/r0/rooms/{room_id}/state`
+**端点:** `GET /_matrix/client/v3/rooms/{room_id}/state`
 
 **需要认证:** 是
 
 **请求示例:**
 ```typescript
 const getRoomState = async (roomId: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/state`, {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state`, {
     headers: { 'Authorization': `Bearer ${accessToken}` }
   });
   return handleApiResponse<Event[]>(response);
@@ -357,14 +357,14 @@ const getRoomState = async (roomId: string, accessToken: string) => {
 
 ### 获取特定状态事件
 
-**端点:** `GET /_matrix/client/r0/rooms/{room_id}/state/{event_type}/{state_key}`
+**端点:** `GET /_matrix/client/v3/rooms/{room_id}/state/{event_type}/{state_key}`
 
 **请求示例:**
 ```typescript
 // 获取房间名称
 const getRoomName = async (roomId: string, accessToken: string) => {
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/state/m.room.name/`,
+    `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.name/`,
     { headers: { 'Authorization': `Bearer ${accessToken}` } }
   );
   return handleApiResponse<{ name: string }>(response);
@@ -373,7 +373,7 @@ const getRoomName = async (roomId: string, accessToken: string) => {
 // 获取成员列表
 const getRoomMembersState = async (roomId: string, accessToken: string) => {
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/state/m.room.member/`,
+    `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.member/`,
     { headers: { 'Authorization': `Bearer ${accessToken}` } }
   );
   return handleApiResponse(response);
@@ -384,14 +384,14 @@ const getRoomMembersState = async (roomId: string, accessToken: string) => {
 
 ### 设置房间状态
 
-**端点:** `PUT /_matrix/client/r0/rooms/{room_id}/state/{event_type}/{state_key}`
+**端点:** `PUT /_matrix/client/v3/rooms/{room_id}/state/{event_type}/{state_key}`
 
 **请求示例:**
 ```typescript
 // 设置房间名称
 const setRoomName = async (roomId: string, name: string, accessToken: string) => {
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/state/m.room.name/`,
+    `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.name/`,
     {
       method: 'PUT',
       headers: {
@@ -409,7 +409,7 @@ const setRoomName = async (roomId: string, name: string, accessToken: string) =>
 // 设置房间主题
 const setRoomTopic = async (roomId: string, topic: string, accessToken: string) => {
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/state/m.room.topic/`,
+    `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.topic/`,
     {
       method: 'PUT',
       headers: {
@@ -427,7 +427,7 @@ const setRoomTopic = async (roomId: string, topic: string, accessToken: string) 
 // 设置房间头像
 const setRoomAvatar = async (roomId: string, avatarUrl: string, accessToken: string) => {
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/state/m.room.avatar/`,
+    `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.avatar/`,
     {
       method: 'PUT',
       headers: {
@@ -447,7 +447,7 @@ const setRoomAvatar = async (roomId: string, avatarUrl: string, accessToken: str
 
 ### 设置加入规则
 
-**端点:** `PUT /_matrix/client/r0/rooms/{room_id}/state/m.room.join_rules/`
+**端点:** `PUT /_matrix/client/v3/rooms/{room_id}/state/m.room.join_rules/`
 
 **请求体:**
 ```typescript
@@ -461,7 +461,7 @@ interface JoinRules {
 ```typescript
 const setJoinRules = async (roomId: string, rule: 'public' | 'invite', accessToken: string) => {
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/state/m.room.join_rules/`,
+    `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.join_rules/`,
     {
       method: 'PUT',
       headers: {
@@ -483,7 +483,7 @@ const setJoinRules = async (roomId: string, rule: 'public' | 'invite', accessTok
 
 ### 获取公共房间列表
 
-**端点:** `GET /_matrix/client/r0/publicRooms`
+**端点:** `GET /_matrix/client/v3/publicRooms`
 
 **参数:**
 | 参数 | 类型 | 必填 | 说明 |
@@ -496,7 +496,7 @@ const setJoinRules = async (roomId: string, rule: 'public' | 'invite', accessTok
 **请求示例:**
 ```typescript
 const getPublicRooms = async (limit = 100, since?: string) => {
-  const url = new URL(`${BASE_URL}/_matrix/client/r0/publicRooms`);
+  const url = new URL(`${BASE_URL}/_matrix/client/v3/publicRooms`);
   url.searchParams.set('limit', limit.toString());
   if (since) url.searchParams.set('since', since);
 
@@ -522,7 +522,7 @@ interface PublicRoom {
 
 ### 设置房间目录
 
-**端点:** `PUT /_matrix/client/r0/directory/room/{room_id}`
+**端点:** `PUT /_matrix/client/v3/directory/room/{room_id}`
 
 **请求体:**
 ```typescript
@@ -535,7 +535,7 @@ interface DirectoryRoomRequest {
 ```typescript
 const setRoomDirectory = async (roomId: string, visibility: 'public', accessToken: string) => {
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/directory/room/${encodeURIComponent(roomId)}`,
+    `${BASE_URL}/_matrix/client/v3/directory/room/${encodeURIComponent(roomId)}`,
     {
       method: 'PUT',
       headers: {
@@ -553,13 +553,13 @@ const setRoomDirectory = async (roomId: string, visibility: 'public', accessToke
 
 ### 删除房间目录
 
-**端点:** `DELETE /_matrix/client/r0/directory/room/{room_id}`
+**端点:** `DELETE /_matrix/client/v3/directory/room/{room_id}`
 
 **请求示例:**
 ```typescript
 const deleteRoomDirectory = async (roomId: string, accessToken: string) => {
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/directory/room/${encodeURIComponent(roomId)}`,
+    `${BASE_URL}/_matrix/client/v3/directory/room/${encodeURIComponent(roomId)}`,
     {
       method: 'DELETE',
       headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -586,7 +586,7 @@ class RoomService {
   }
 
   async createRoom(options: CreateRoomRequest) {
-    const response = await fetch(`${BASE_URL}/_matrix/client/r0/createRoom`, {
+    const response = await fetch(`${BASE_URL}/_matrix/client/v3/createRoom`, {
       method: 'POST',
       headers: this.auth.getAuthHeaders(),
       body: JSON.stringify(options)
@@ -597,7 +597,7 @@ class RoomService {
   async sendMessage(roomId: string, message: string) {
     const txnId = Date.now().toString();
     const response = await fetch(
-      `${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`,
+      `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`,
       {
         method: 'PUT',
         headers: this.auth.getAuthHeaders(),
@@ -611,7 +611,7 @@ class RoomService {
   }
 
   async getMessages(roomId: string, limit = 50, from?: string) {
-    const url = new URL(`${BASE_URL}/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/messages`);
+    const url = new URL(`${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/messages`);
     url.searchParams.set('limit', limit.toString());
     if (from) url.searchParams.set('from', from);
 

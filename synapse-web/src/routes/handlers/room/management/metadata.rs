@@ -10,41 +10,17 @@ use synapse_common::ApiError;
 
 use crate::routes::context::RoomContext;
 
-// =============================================================================
-// Observed repeated patterns (Phase 4 extraction candidates)
-// =============================================================================
-//
-// 1. Null-cleaning after JSON construction (get_room_metadata, lines ~718-737)
-//    After building a JSON response from a Room record (which carries
-//    Option<String> fields), the code strips null-valued keys:
-//
-//        if let Some(obj) = response.as_object_mut() {
-//            if obj.get("name").is_some_and(|v| v.is_null()) { obj.remove("name"); }
-//            // ... repeats for topic, avatar_url, canonical_alias, creator, encryption
-//        }
-//
-//    This pattern is needed because Room struct fields like name, topic,
-//    avatar_url are Option<String> — they serialize as `null` rather than
-//    being absent. An extraction would be a helper that takes a list of keys
-//    and removes any whose value is JSON Null, applied across all response-
-//    building handlers that construct JSON from Room records.
-//
-// 2. Room-type extraction from m.room.create events (get_room_metadata
-//    and various hierarchy handlers)
-//
-//        let room_type = state_events
-//            .iter()
-//            .find(|e| e.get("type").and_then(|v| v.as_str()) == Some("m.room.create"))
-//            .and_then(|e| e.get("content"))
-//            .and_then(|c| c.get("type"))
-//            .and_then(|v| v.as_str())
-//            .map_or(Value::Null, |s| Value::String(s.to_string()));
-//
-//    This walks the state events array, finds the create event, digs into
-//    content.type, and maps the result. Repeated verbatim in search.rs
-//    (build_room_hierarchy_response). Extraction: a method on RoomService
-//    that accepts the state_events slice and returns the room type string.
-// =============================================================================
+/// E10: strip null-valued keys from a response object built from a `Room`
+/// record. `Room` fields such as `name`/`topic`/`avatar_url` are
+/// `Option<String>` and serialize as JSON `null` rather than being absent,
+/// but the client-server API expects them omitted.
+fn remove_null_keys(obj: &mut serde_json::Map<String, Value>, keys: &[&str]) {
+    for key in keys {
+        if obj.get(*key).is_some_and(|v| v.is_null()) {
+            obj.remove(*key);
+        }
+    }
+}
 
 /// The `RoomSyncQueryDto` struct.
 #[derive(Debug, Deserialize, Default)]
@@ -309,24 +285,7 @@ pub(crate) async fn get_room_metadata(
     });
 
     if let Some(obj) = response.as_object_mut() {
-        if obj.get("name").is_some_and(|v| v.is_null()) {
-            obj.remove("name");
-        }
-        if obj.get("topic").is_some_and(|v| v.is_null()) {
-            obj.remove("topic");
-        }
-        if obj.get("avatar_url").is_some_and(|v| v.is_null()) {
-            obj.remove("avatar_url");
-        }
-        if obj.get("canonical_alias").is_some_and(|v| v.is_null()) {
-            obj.remove("canonical_alias");
-        }
-        if obj.get("creator").is_some_and(|v| v.is_null()) {
-            obj.remove("creator");
-        }
-        if obj.get("encryption").is_some_and(|v| v.is_null()) {
-            obj.remove("encryption");
-        }
+        remove_null_keys(obj, &["name", "topic", "avatar_url", "canonical_alias", "creator", "encryption"]);
     }
 
     Ok(Json(response))

@@ -18,42 +18,13 @@ API 使用标准的 HTTP 状态码和统一的错误响应格式。客户端应�
 
 ## 错误响应格式
 
-### 标准错误响应
-
-所有 API 错误都遵循统一的响应格式：
-
-```typescript
-interface ApiError {
-  status: string;        // 总是 "error"
-  code: string;          // 错误码 (如 "M_MISSING_TOKEN")
-  message: string;       // 人类可读的错误描述
-  details?: {            // 可选的额外详情
-    field?: string;      // 验证错误的字段名
-    [key: string]: any;
-  };
-}
-```
-
-**示例响应:**
-```json
-{
-  "status": "error",
-  "code": "M_MISSING_TOKEN",
-  "message": "Access token required",
-  "details": null
-}
-```
-
----
-
-### Matrix 错误格式
-
-某些端点使用 Matrix 协议标准错误格式：
+所有 API 错误都遵循 Matrix 协议标准错误格式：
 
 ```typescript
 interface MatrixError {
-  errcode: string;       // Matrix 错误码
-  error: string;         // 人类可读的错误描述
+  errcode: string;          // Matrix 错误码 (如 "M_MISSING_TOKEN")
+  error: string;            // 人类可读的错误描述
+  retry_after_ms?: number;  // 仅 429 限流响应附带，建议的重试等待毫秒数
 }
 ```
 
@@ -64,6 +35,9 @@ interface MatrixError {
   "error": "Unrecognized access token"
 }
 ```
+
+> HTTP 状态码由实现内部的错误类别独立决定（见下方「HTTP 状态码」），与 `errcode` 并非一一绑定。
+> 429 响应会额外返回 `retry_after_ms`，并附带 `Retry-After` / `X-RateLimit-Retry-After-Ms` / `X-RateLimit-Limit` / `X-RateLimit-Remaining` 响应头。
 
 ---
 
@@ -83,14 +57,14 @@ interface MatrixError {
 
 | 状态码 | 说明 | 常见错误码 |
 |--------|------|------------|
-| 400 Bad Request | 请求参数错误 | `M_BAD_JSON`, `M_INVALID_PARAM` |
-| 401 Unauthorized | 未认证或认证失败 | `M_MISSING_TOKEN`, `M_UNKNOWN_TOKEN` |
-| 403 Forbidden | 无权限访问 | `M_FORBIDDEN` |
-| 404 Not Found | 资源不存在 | `M_NOT_FOUND` |
-| 409 Conflict | 资源冲突 | `M_USER_IN_USE`, `M_ROOM_IN_USE` |
-| 410 Gone | 资源已废弃 | `M_RESOURCE_LIMIT_EXCEEDED` |
-| 429 Too Many Requests | 超过速率限制 | `M_LIMIT_EXCEEDED` |
-| 422 Unprocessable Entity | 请求格式正确但语义错误 | `M_INVALID_USERNAME` |
+| 400 Bad Request | 请求参数错误 | `M_BAD_JSON`, `M_INVALID_PARAM`, `M_MISSING_PARAM` |
+| 401 Unauthorized | 未认证或认证失败 | `M_MISSING_TOKEN`, `M_UNKNOWN_TOKEN`, `M_UNAUTHORIZED` |
+| 403 Forbidden | 无权限访问 | `M_FORBIDDEN`, `M_USER_DEACTIVATED`, `M_GUEST_ACCESS_FORBIDDEN` |
+| 404 Not Found | 资源不存在 | `M_NOT_FOUND`, `M_UNKNOWN_DEVICE` |
+| 405 Method Not Allowed | 功能不支持 | `M_UNSUPPORTED` |
+| 409 Conflict | 资源冲突 | `M_ROOM_IN_USE`, `M_THREEPID_IN_USE`, `M_EXCLUSIVE` |
+| 413 Payload Too Large | 请求体过大 | `M_TOO_LARGE` |
+| 429 Too Many Requests | 超过速率限制 | `M_LIMIT_EXCEEDED`, `M_USER_LIMIT_EXCEEDED` |
 
 ---
 
@@ -99,7 +73,8 @@ interface MatrixError {
 | 状态码 | 说明 |
 |--------|------|
 | 500 Internal Server Error | 服务器内部错误 |
-| 502 Bad Gateway | 网关错误 |
+| 501 Not Implemented | 功能未实现 |
+| 502 Bad Gateway | 上游/网关错误 |
 | 503 Service Unavailable | 服务暂时不可用 |
 | 504 Gateway Timeout | 网关超时 |
 
@@ -107,58 +82,108 @@ interface MatrixError {
 
 ## 错误码
 
-### 认证错误
+下表列出服务端实际定义的全部 `errcode`，按规范 HTTP 状态分组。唯一权威来源为
+`synapse-common/src/error/code.rs` 的 `MatrixErrorCode`；本文档与之一一对应。
 
-| 错误码 | HTTP 状态 | 说明 |
-|--------|----------|------|
-| `M_MISSING_TOKEN` | 401 | 缺少访问令牌 |
-| `M_UNKNOWN_TOKEN` | 401 | 无效的访问令牌 |
-| `M_INVALID_USERNAME` | 400 | 用户名格式无效 |
-| `M_INVALID_PASSWORD` | 400 | 密码不符合要求 |
-| `M_USER_DEACTIVATED` | 403 | 用户已停用 |
+> 本服务**只**返回 `M_*` 命名空间的错误码。文档历史版本曾列出
+> `M_INVALID_PASSWORD`、`M_USER_NOT_FOUND`、`M_ROOM_NOT_FOUND`、`M_NO_PERMISSION`、
+> `M_INVALID_CONTENT_TYPE`、`M_INVALID_DISPLAYNAME` 及 `FRIEND_*` / `CANNOT_ADD_SELF` /
+> `INVALID_USER_ID` 等，这些码**均不存在**，服务端不会返回；客户端不应据此实现分支。
+> 好友等扩展接口复用标准 `M_*` 码（例如资源不存在返回 `M_NOT_FOUND`）。
 
----
+> HTTP 状态列是该码的规范映射（`MatrixErrorCode::http_status`）。实际响应状态由错误
+> 类别决定，可能与下表存在差异（例如 `M_UNRECOGNIZED` 见 501 一节的说明）。
 
-### 用户错误
+### 400 Bad Request
 
-| 错误码 | HTTP 状态 | 说明 |
-|--------|----------|------|
-| `M_USER_IN_USE` | 400 | 用户名已被使用 |
-| `M_USER_NOT_FOUND` | 404 | 用户不存在 |
-| `M_INVALID_DISPLAYNAME` | 400 | 显示名称无效 |
-
----
-
-### 房间错误
-
-| 错误码 | HTTP 状态 | 说明 |
-|--------|----------|------|
-| `M_ROOM_NOT_FOUND` | 404 | 房间不存在 |
-| `M_ROOM_IN_USE` | 409 | 房间别名已被使用 |
-| `M_INVALID_ROOM_STATE` | 400 | 房间状态无效 |
-| `M_NO_PERMISSION` | 403 | 没有权限执行此操作 |
-
----
-
-### 好友系统错误
-
-| 错误码 | HTTP 状态 | 说明 |
-|--------|----------|------|
-| `FRIEND_ALREADY_EXISTS` | 409 | 已经是好友关系 |
-| `FRIEND_NOT_FOUND` | 404 | 好友关系不存在 |
-| `FRIEND_REQUEST_NOT_FOUND` | 404 | 好友请求不存在 |
-| `FRIEND_REQUEST_EXPIRED` | 410 | 好友请求已过期 |
-| `FRIEND_REQUEST_PENDING` | 409 | 已有待处理的好友请求 |
-| `CANNOT_ADD_SELF` | 400 | 不能添加自己为好友 |
-| `INVALID_USER_ID` | 400 | 无效的用户 ID |
+| 错误码 | 说明 |
+|--------|------|
+| `M_BAD_JSON` | 请求体是合法 JSON 但结构不符合预期（也用于通用请求参数错误） |
+| `M_NOT_JSON` | 请求体无法解析为 JSON |
+| `M_UNRECOGNIZED` | 无法识别的请求（未知端点或事件类型） |
+| `M_MISSING_PARAM` | 缺少必需参数 |
+| `M_INVALID_PARAM` | 参数非法 |
+| `M_INVALID_USERNAME` | 用户名格式无效 |
+| `M_USER_IN_USE` | 用户 ID 已被占用 |
+| `M_INVALID_ROOM_STATE` | 房间状态对该操作无效 |
+| `M_BAD_STATE` | 房间状态与预期不符 |
+| `M_UNSUPPORTED_ROOM_VERSION` | 请求的房间版本不受支持 |
+| `M_INCOMPATIBLE_ROOM_VERSION` | 房间版本不兼容 |
+| `M_THREEPID_NOT_FOUND` | 三方 ID 不存在 |
+| `M_CAPTCHA_NEEDED` | 注册前需要完成验证码 |
+| `M_CAPTCHA_INVALID` | 提供的验证码无效 |
+| `M_UNKNOWN_POS` | Sliding Sync 的 `pos` 令牌无效或过期 (MSC4186) |
+| `M_BAD_PAGINATION` | 分页查询参数非法 |
+| `M_KEY_TOO_LARGE` | 配置字段名超出最大长度 (MSC4133) |
+| `M_PROFILE_TOO_LARGE` | 存储的 profile 将超出大小上限 (MSC4133) |
 
 ---
 
-### 限流错误
+### 401 Unauthorized
 
-| 错误码 | HTTP 状态 | 说明 |
-|--------|----------|------|
-| `M_LIMIT_EXCEEDED` | 429 | 超过速率限制 |
+| 错误码 | 说明 |
+|--------|------|
+| `M_MISSING_TOKEN` | 缺少访问令牌 |
+| `M_UNKNOWN_TOKEN` | 无效的访问令牌 |
+| `M_UNAUTHORIZED` | 需要认证 |
+
+---
+
+### 403 Forbidden
+
+| 错误码 | 说明 |
+|--------|------|
+| `M_FORBIDDEN` | 已认证但无权限执行此操作 |
+| `M_USER_DEACTIVATED` | 用户账号已停用 |
+| `M_THREEPID_AUTH_FAILED` | 三方 ID 认证失败 |
+| `M_THREEPID_DENIED` | 该三方 ID 被拒绝使用 |
+| `M_GUEST_ACCESS_FORBIDDEN` | 不允许访客访问 |
+| `M_RESOURCE_LIMIT_EXCEEDED` | 超出服务器资源限制 |
+| `M_CANNOT_LEAVE_SERVER_NOTICE_ROOM` | 不能离开服务器通知房间 |
+
+---
+
+### 404 Not Found
+
+| 错误码 | 说明 |
+|--------|------|
+| `M_NOT_FOUND` | 请求的资源不存在 |
+| `M_UNKNOWN_DEVICE` | 请求的设备不存在 (Matrix 1.17, MSC4326) |
+
+---
+
+### 405 Method Not Allowed
+
+| 错误码 | 说明 |
+|--------|------|
+| `M_UNSUPPORTED` | 服务器不支持该功能（如在线状态被禁用） |
+
+---
+
+### 409 Conflict
+
+| 错误码 | 说明 |
+|--------|------|
+| `M_ROOM_IN_USE` | 房间别名已被占用 |
+| `M_THREEPID_IN_USE` | 三方 ID 已被使用 |
+| `M_EXCLUSIVE` | 操作与独占资源冲突 |
+
+---
+
+### 413 Payload Too Large
+
+| 错误码 | 说明 |
+|--------|------|
+| `M_TOO_LARGE` | 请求体或文件过大 |
+
+---
+
+### 429 Too Many Requests
+
+| 错误码 | 说明 |
+|--------|------|
+| `M_LIMIT_EXCEEDED` | 超过速率限制 |
+| `M_USER_LIMIT_EXCEEDED` | 服务器用户数已达上限 (MSC4335) |
 
 **响应示例:**
 ```json
@@ -171,25 +196,20 @@ interface MatrixError {
 
 ---
 
-### 媒体错误
+### 5xx 服务器错误
 
 | 错误码 | HTTP 状态 | 说明 |
-|--------|----------|------|
-| `M_TOO_LARGE` | 413 | 文件过大 |
-| `M_INVALID_CONTENT_TYPE` | 400 | 不支持的媒体类型 |
-
----
-
-### 通用错误
-
-| 错误码 | HTTP 状态 | 说明 |
-|--------|----------|------|
-| `M_BAD_JSON` | 400 | JSON 格式错误 |
-| `M_NOT_JSON` | 400 | 请求体不是有效的 JSON |
-| `M_NOT_FOUND` | 404 | 资源不存在 |
-| `M_FORBIDDEN` | 403 | 权限不足 |
-| `M_UNRECOGNIZED` | 400 | 无法识别的请求 |
+|--------|-----------|------|
 | `M_UNKNOWN` | 500 | 未知错误 |
+| `M_UNRECOGNIZED` | 501 | 操作未实现（与 400 的同名码复用，见下） |
+| `M_CONTENT_SCAN_DISABLED` | 501 | 内容扫描器已禁用 (MSC3806) |
+| `M_SERVER_NOT_TRUSTED` | 502 | 目标服务器不受信任 |
+| `M_CONTENT_SCAN_FAILED` | 502 | 内容扫描失败，fail-closed (MSC3806) |
+| `M_REQUEST_TIMEOUT` | 504 | 请求超时 |
+
+> `M_UNRECOGNIZED` 在实现中由两个变体共用：`Unrecognized`（400，未知请求）与
+> `Unimplemented`（501，未实现操作）。两者 `errcode` 字符串相同，客户端应结合
+> HTTP 状态区分。
 
 ---
 
@@ -201,7 +221,7 @@ interface MatrixError {
 
 **请求:**
 ```typescript
-const response = await fetch(`${BASE_URL}/_matrix/client/r0/sync`, {
+const response = await fetch(`${BASE_URL}/_matrix/client/v3/sync`, {
   headers: {}  // 缺少 Authorization 头
 });
 ```
@@ -209,9 +229,8 @@ const response = await fetch(`${BASE_URL}/_matrix/client/r0/sync`, {
 **响应 (401):**
 ```json
 {
-  "status": "error",
-  "code": "M_MISSING_TOKEN",
-  "message": "Access token required"
+  "errcode": "M_MISSING_TOKEN",
+  "error": "Access token required"
 }
 ```
 
@@ -243,7 +262,7 @@ if (response.status === 401) {
 ```typescript
 // 使用刷新令牌获取新的访问令牌
 const refreshAccessToken = async (refreshToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/r0/refresh`, {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/refresh`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh_token: refreshToken })
@@ -310,7 +329,7 @@ const fetchWithRetry = async (url: string, options: RequestInit) => {
 
 **请求:**
 ```typescript
-const response = await fetch(`${BASE_URL}/_matrix/client/r0/register`, {
+const response = await fetch(`${BASE_URL}/_matrix/client/v3/register`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
@@ -323,62 +342,47 @@ const response = await fetch(`${BASE_URL}/_matrix/client/r0/register`, {
 **响应 (400):**
 ```json
 {
-  "status": "error",
-  "code": "M_INVALID_PARAM",
-  "message": "Validation failed",
-  "details": {
-    "errors": [
-      { "field": "username", "message": "Username must be at least 3 characters" },
-      { "field": "password", "message": "Password must be at least 8 characters" }
-    ]
-  }
+  "errcode": "M_INVALID_PARAM",
+  "error": "Username must be at least 3 characters"
 }
 ```
 
 **处理方式:**
 ```typescript
-const handleValidationErrors = (data: ApiError) => {
-  if (data.details?.errors) {
-    // 显示每个字段的错误
-    data.details.errors.forEach(error => {
-      showFieldError(error.field, error.message);
-    });
-  }
+const handleValidationError = (data: MatrixError) => {
+  // 错误响应只提供一条人类可读的 error 描述，由调用方呈现给用户
+  showToast('error', data.error);
 };
 ```
 
 ---
 
-### 5. 好友请求已存在
+### 5. 用户名已被占用
 
-**场景:** 向已经是好友的用户或已有待处理请求的用户发送好友请求。
+**场景:** 注册时使用了一个已存在的用户名。
 
-**响应 (409):**
+**响应 (400):**
 ```json
 {
-  "status": "error",
-  "code": "FRIEND_REQUEST_PENDING",
-  "message": "A friend request already exists for this user"
+  "errcode": "M_USER_IN_USE",
+  "error": "Username already exists"
 }
 ```
 
 **处理方式:**
 ```typescript
-const sendFriendRequest = async (userId: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/v1/friends/request`, {
+const register = async (username: string, password: string) => {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/register`, {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ user_id: userId })
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password })
   });
 
   const data = await response.json();
 
-  if (response.status === 409 && data.code === 'FRIEND_REQUEST_PENDING') {
-    // 提示用户已有待处理的请求
-    showToast('info', '好友请求已发送，请等待对方确认');
+  if (response.status === 400 && data.errcode === 'M_USER_IN_USE') {
+    // 提示用户换一个用户名
+    showToast('error', '该用户名已被占用，请更换');
   }
 };
 ```
@@ -392,9 +396,8 @@ const sendFriendRequest = async (userId: string) => {
 **响应 (404):**
 ```json
 {
-  "status": "error",
-  "code": "M_NOT_FOUND",
-  "message": "Room not found"
+  "errcode": "M_NOT_FOUND",
+  "error": "Room not found"
 }
 ```
 
@@ -405,19 +408,11 @@ const sendFriendRequest = async (userId: string) => {
 ### 1. 统一错误处理器
 
 ```typescript
-interface ApiResponse<T> {
-  status: 'ok' | 'error';
-  data?: T;
-  code?: string;
-  message?: string;
-}
-
 class ApiError extends Error {
   constructor(
-    public code: string,
+    public errcode: string,
     public status: number,
-    message: string,
-    public details?: any
+    message: string
   ) {
     super(message);
     this.name = 'ApiError';
@@ -427,27 +422,18 @@ class ApiError extends Error {
 const handleApiResponse = async <T>(
   response: Response
 ): Promise<T> => {
+  // 成功响应直接返回业务负载；错误响应形如 { errcode, error }
   const data = await response.json();
 
   if (!response.ok) {
     throw new ApiError(
-      data.code || data.errcode || 'UNKNOWN_ERROR',
+      data.errcode || 'M_UNKNOWN',
       response.status,
-      data.message || data.error || 'Request failed',
-      data.details
+      data.error || 'Request failed'
     );
   }
 
-  if (data.status === 'error') {
-    throw new ApiError(
-      data.code || 'UNKNOWN_ERROR',
-      response.status,
-      data.message || 'Request failed',
-      data.details
-    );
-  }
-
-  return (data.data || data) as T;
+  return data as T;
 };
 ```
 
@@ -755,7 +741,7 @@ const logError = (error: Error | ApiError, context?: Record<string, any>) => {
   };
 
   if (error instanceof ApiError) {
-    log.code = error.code;
+    log.code = error.errcode;
     log.status = error.status;
   }
 
@@ -822,7 +808,7 @@ export const apiClient = {
 // 使用
 try {
   const user = await apiClient.get<UserInfo>(
-    '/_matrix/client/r0/account/whoami',
+    '/_matrix/client/v3/account/whoami',
     accessToken
   );
   console.log('Current user:', user);

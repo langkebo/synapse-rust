@@ -28,7 +28,7 @@
 
 ### 上传设备密钥
 
-**端点:** `POST /_matrix/client/r0/keys/upload`
+**端点:** `POST /_matrix/client/v3/keys/upload`
 
 **需要认证:** 是
 
@@ -62,7 +62,7 @@ const uploadDeviceKeys = async (
   signature: Record<string, Record<string, string>>,
   accessToken: string
 ) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/r0/keys/upload`, {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/keys/upload`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -96,7 +96,7 @@ const uploadOneTimeKeys = async (
     oneTimeKeys[keyId] = { key };
   }
 
-  const response = await fetch(`${BASE_URL}/_matrix/client/r0/keys/upload`, {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/keys/upload`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -116,7 +116,7 @@ const uploadOneTimeKeys = async (
 
 ### 查询设备密钥
 
-**端点:** `POST /_matrix/client/r0/keys/query`
+**端点:** `POST /_matrix/client/v3/keys/query`
 
 **需要认证:** 是
 
@@ -141,7 +141,7 @@ const queryKeys = async (
     deviceKeys[userId] = ['*'];  // 查询所有设备
   }
 
-  const response = await fetch(`${BASE_URL}/_matrix/client/r0/keys/query`, {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/keys/query`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -174,7 +174,7 @@ interface DeviceKeysInfo {
 
 ### 声明一次性密钥
 
-**端点:** `POST /_matrix/client/r0/keys/claim`
+**端点:** `POST /_matrix/client/v3/keys/claim`
 
 **需要认证:** 是
 
@@ -193,7 +193,7 @@ const claimKeys = async (
   deviceId: string,
   accessToken: string
 ) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/r0/keys/claim`, {
+  const response = await fetch(`${BASE_URL}/_matrix/client/v3/keys/claim`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -219,7 +219,7 @@ const claimKeys = async (
 
 ### 获取密钥变更通知
 
-**端点:** `GET /_matrix/client/r0/keys/changes`
+**端点:** `GET /_matrix/client/v3/keys/changes`
 
 **需要认证:** 是
 
@@ -232,7 +232,7 @@ const claimKeys = async (
 **请求示例:**
 ```typescript
 const getKeyChanges = async (from?: string, accessToken: string) => {
-  const url = new URL(`${BASE_URL}/_matrix/client/r0/keys/changes`);
+  const url = new URL(`${BASE_URL}/_matrix/client/v3/keys/changes`);
   if (from) url.searchParams.set('from', from);
 
   const response = await fetch(url.toString(), {
@@ -251,7 +251,7 @@ const getKeyChanges = async (from?: string, accessToken: string) => {
 
 ### 发送设备到设备消息
 
-**端点:** `PUT /_matrix/client/r0/sendToDevice/{event_type}/{txn_id}`
+**端点:** `PUT /_matrix/client/v3/sendToDevice/{event_type}/{txn_id}`
 
 **需要认证:** 是
 
@@ -282,7 +282,7 @@ const sendToDevice = async (
   const txnId = Date.now().toString();
 
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/sendToDevice/${encodeURIComponent(eventType)}/${txnId}`,
+    `${BASE_URL}/_matrix/client/v3/sendToDevice/${encodeURIComponent(eventType)}/${txnId}`,
     {
       method: 'PUT',
       headers: {
@@ -311,7 +311,7 @@ const requestRoomKey = async (
   const txnId = Date.now().toString();
 
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/r0/sendToDevice/m.room_key_request/${txnId}`,
+    `${BASE_URL}/_matrix/client/v3/sendToDevice/m.room_key_request/${txnId}`,
     {
       method: 'PUT',
       headers: {
@@ -345,7 +345,7 @@ class E2EEService {
 
   // 上传设备密钥
   async uploadDeviceKeys(keys: DeviceKeys) {
-    const response = await fetch(`${BASE_URL}/_matrix/client/r0/keys/upload`, {
+    const response = await fetch(`${BASE_URL}/_matrix/client/v3/keys/upload`, {
       method: 'POST',
       headers: this.auth.getAuthHeaders(),
       body: JSON.stringify({ device_keys: keys })
@@ -360,7 +360,7 @@ class E2EEService {
       deviceKeys[ userId] = ['*'];
     }
 
-    const response = await fetch(`${BASE_URL}/_matrix/client/r0/keys/query`, {
+    const response = await fetch(`${BASE_URL}/_matrix/client/v3/keys/query`, {
       method: 'POST',
       headers: this.auth.getAuthHeaders(),
       body: JSON.stringify({ device_keys: deviceKeys })
@@ -376,7 +376,7 @@ class E2EEService {
       oneTimeKeys[`${userId}:${deviceId}`] = 'signed_curve25519';
     }
 
-    const response = await fetch(`${BASE_URL}/_matrix/client/r0/keys/claim`, {
+    const response = await fetch(`${BASE_URL}/_matrix/client/v3/keys/claim`, {
       method: 'POST',
       headers: this.auth.getAuthHeaders(),
       body: JSON.stringify({
@@ -396,7 +396,7 @@ class E2EEService {
     const txnId = Date.now().toString();
 
     const response = await fetch(
-      `${BASE_URL}/_matrix/client/r0/sendToDevice/${encodeURIComponent(eventType)}/${txnId}`,
+      `${BASE_URL}/_matrix/client/v3/sendToDevice/${encodeURIComponent(eventType)}/${txnId}`,
       {
         method: 'PUT',
         headers: this.auth.getAuthHeaders(),
@@ -414,7 +414,7 @@ class E2EEService {
 
   // 获取密钥变更
   async getKeyChanges(from?: string) {
-    const url = new URL(`${BASE_URL}/_matrix/client/r0/keys/changes`);
+    const url = new URL(`${BASE_URL}/_matrix/client/v3/keys/changes`);
     if (from) url.searchParams.set('from', from);
 
     const response = await fetch(url.toString(), {

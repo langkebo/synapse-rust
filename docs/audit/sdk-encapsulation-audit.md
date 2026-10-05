@@ -469,7 +469,7 @@
 
 | 核查维度 | 证据 |
 |---|---|
-| **后端** | `synapse-rust/src/web/routes/handlers/presence.rs:203-211`：`chunked_upload_chunk` 从 query 参数读取 `upload_id`、`chunk_index`。 |
+| **后端** | `synapse-web/src/routes/handlers/presence.rs:203-211`：`chunked_upload_chunk` 从 query 参数读取 `upload_id`、`chunk_index`。 |
 | **SDK** | `src/media/index.ts:508-515`：`uploadChunk()` 已补 `queryParams: { upload_id, chunk_index }`，注释 `"ISSUE-04: 后端从 query 读取 upload_id/chunk_index"`。 |
 | **结论** | ✅ 已同步修复——SDK 前端调用 `uploadChunk()` 时传递 query 参数，后端可直接读取。 |
 
@@ -485,7 +485,7 @@
 
 | 核查维度 | 证据 |
 |---|---|
-| **后端** | `src/web/routes/handlers/room/mod.rs:30-34`：`parse_room_messages_from_token()` 支持 `t{ts}_{stream}` 复合 token、`t{ts}` legacy、裸整数。 |
+| **后端** | `synapse-web/src/routes/handlers/room/mod.rs:30-34`：`parse_room_messages_from_token()` 支持 `t{ts}_{stream}` 复合 token、`t{ts}` legacy、裸整数。 |
 | **SDK** | `client-timeline-requests.ts` 已使用 `Date.now()` 构造 `from` token；`/sync` 返回的 `next_batch` 直接透传给后端。 |
 | **结论** | ✅ 后端完备，SDK 正常消费。 |
 
@@ -539,7 +539,7 @@
 #### S-13 线程订阅兼容路径（MSC4155/4156） — ✅ 已解决
 
 **取证**：
-- 后端 `synapse-rust/src/web/routes/handlers/thread.rs:152-160` 明确注册两条 unstable 路由：
+- 后端 `synapse-web/src/routes/handlers/thread.rs:152-160` 明确注册两条 unstable 路由：
   - `GET /_matrix/client/unstable/org.matrix.msc4155/rooms/{room_id}/threads` → `list_threads`
   - `GET /_matrix/client/unstable/org.matrix.msc4156/threads/subscribed` → `get_subscribed_threads`
 - 同时后端在 `:138-143` 注册了官方 `v1` 路径：`GET /_matrix/client/v1/threads/subscribed` → `get_subscribed_threads`（**同一 handler**）。
@@ -677,7 +677,7 @@ MSC3882 实为 *Allow an existing session to sign in a new session*，与设备�
    `generated_hash` 重钉、`verification.md` 删除；**建议后端在删除路由时同步 grep SDK 镜像
    文档**，或把该镜像纳入自动同步。
 3. **CAS 根级路径残留**：后端 `cas.rs` 已 `nest("/_synapse/cas", ...)`（2026-09 修复
-   `CAS_ROUTER_PREFIX_MISSING_2026-09-29.md`），但 SDK 生成表因 codegen 并集语义仍留着
+   `docs/archive/audit/CAS_ROUTER_PREFIX_MISSING_2026-09-29.md`），但 SDK 生成表因 codegen 并集语义仍留着
    6 条根级 `/login`、`/serviceValidate` 等；已剪除（`e095f4428`）。
 
 ### 13.5 验证与提交

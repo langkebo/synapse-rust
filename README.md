@@ -167,7 +167,6 @@ cargo run --release
 - 依赖升级追踪：`docs/synapse-rust/DEPENDENCY_UPGRADE_TRACKER.md`
 - 管理员注册指南：`docs/synapse-rust/admin-registration-guide.md`
 - room v12（MSC4304）实施计划与**实时完成度**：`docs/audit/ROOM_V12_COMPLETION_PLAN_2026-09-27.md`、`docs/audit/ROOM_V12_PLAN_STATUS_2026-09-27.md`
-- 代码审查报告（最新）：`artifacts/code_review_report_2026-08-11.md`
 - 文档索引：`docs/INDEX.md`
 - 测试语义与 CI 门禁：`TESTING.md`
 - API 文档：由路由 ledger 生成，作 CI artifact 上传（**不入库**；本地用 `scripts/api_test/gen_client_yaml.py` 重新生成该 spec）
@@ -260,7 +259,5 @@ client.sendReadReceipt(event);
 > ⚠️ 任务追踪已整合到 GitHub Issues 和项目看板
 
 - **任务看板**: [HuLa Project Board](https://github.com/hu-matrix/hula/projects)
-- **代码审查报告**: [code_review_report_2026-08-11.md](artifacts/code_review_report_2026-08-11.md)
 - **API 覆盖率**: [API_COVERAGE_REPORT.md](docs/synapse-rust/API_COVERAGE_REPORT.md)
 - **文档索引**: [INDEX.md](docs/INDEX.md)
-- **测试接线清单**: [.trae/specs/analyze-synapse-gap-and-optimization/test-execution-inventory.md](.trae/specs/analyze-synapse-gap-and-optimization/test-execution-inventory.md)

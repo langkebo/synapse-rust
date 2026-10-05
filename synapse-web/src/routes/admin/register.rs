@@ -79,8 +79,7 @@ struct RegisterResponse {
     home_server: String,
 }
 
-#[allow(clippy::needless_pass_by_value)]
-fn map_admin_register_service_error(error: ApiError) -> Response<Body> {
+fn map_admin_register_service_error(error: &ApiError) -> Response<Body> {
     let message = error.message();
 
     match message.as_str() {
@@ -236,7 +235,8 @@ async fn get_nonce(
     ensure_admin_registration_ip_policy(&headers, &connect_info, &config.admin_registration.ip_whitelist)
         .map_err(|response| *response)?;
 
-    let response = ctx.admin_registration_service.generate_nonce().await.map_err(map_admin_register_service_error)?;
+    let response =
+        ctx.admin_registration_service.generate_nonce().await.map_err(|e| map_admin_register_service_error(&e))?;
 
     Ok(Json(NonceResponse { nonce: response.nonce }))
 }
@@ -279,7 +279,7 @@ async fn register(
             mac: payload.mac.clone(),
         })
         .await
-        .map_err(map_admin_register_service_error)?;
+        .map_err(|e| map_admin_register_service_error(&e))?;
 
     Ok(Json(RegisterResponse {
         access_token: response.access_token,

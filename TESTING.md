@@ -698,10 +698,9 @@ bash scripts/cleanup_test_schemas.sh --apply
 
 ## 十、相关文档
 
-- [工程收口计划](docs/API-OPTION/engineering-optimization-plan.md)
 - [API错误文档](docs/api-error.md)
-- [安全审计文档](docs/security-audit.md)
-- [部署运维手册](docs/synapse-rust/DEPLOYMENT_GUIDE.md)
+- [安全审计文档](docs/audit/P1_security_2026-09-10.md)
+- [部署运维手册](docker/deploy/README.md)
 
 ---
 

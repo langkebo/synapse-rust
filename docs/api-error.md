@@ -9,7 +9,7 @@
 
 ### 1. `one_time_key_counts` 返回空对象
 
-- **文件**: `src/e2ee/device_keys/storage.rs:522-530`
+- **文件**: `synapse-e2ee/src/device_keys/storage.rs:522-530`
 - **函数**: `get_one_time_keys_count_by_algorithm`
 - **问题**: SQL 查询 `WHERE algorithm NOT IN ('ed25519', 'curve25519')` 错误地排除了所有 `curve25519` 算法的一次性密钥（OTK），因为设备身份密钥和一次性密钥都存储在 `device_keys` 表中且使用相同的算法名。
 - **修复**: 将算法过滤改为按 `key_id` 模式匹配排除设备身份密钥：`AND NOT (key_id = algorithm || ':' || $2)`。设备身份密钥的 `key_id` 格式为 `algorithm:DEVICE_ID`，一次性密钥为 `algorithm:random_key`。

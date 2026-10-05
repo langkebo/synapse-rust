@@ -72,7 +72,9 @@ exempt_path_prefixes:
   - "/_matrix/client/v3/events"
   - "/_matrix/client/r0/events"
 endpoint_aliases: {}
-fail_open_on_error: true
+# fail-closed: 限流后端出错（或 Redis 不可用）时拒绝请求，不放行。
+# 与 homeserver.yaml 的 rate_limit.fail_open_on_error 保持一致。
+fail_open_on_error: false
 sync:
   enabled: true
   initial:

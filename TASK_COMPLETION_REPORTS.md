@@ -1,3 +1,9 @@
+# 任务完成报告汇总（T08–T11）
+
+> 本文件收录 T08–T11 的任务完成报告，供历史追溯。
+
+---
+
 # T10 MSC2666 完成报告
 
 ## 提交概览
@@ -77,16 +83,6 @@ storage (membership/api.rs + membership/mod.rs + test_mocks/member.rs)
 
 ---
 
-## 后续
-T08 MSC4354 已完成（见下），T09 MSC4284 Policy Server 业务路径集成与 T11 Cache 读写对称审查进行中。
-
----
-
-# T08 MSC4354 完成报告
-（见下方 T08 章节）
-
----
-
 # T09 MSC4284 完成报告
 
 ## 提交概览
@@ -148,12 +144,6 @@ wiring/rooms.rs → container.rs → admin.modules.policy_service
 - ✅ `cargo clippy -p synapse-services --all-features -D warnings` 通过
 - ✅ `cargo check --workspace --all-features --locked` 通过
 - ✅ 1734 个单元测试通过
-
----
-
-# T10 MSC2666 完成报告
-
-(见上方报告)
 
 ---
 

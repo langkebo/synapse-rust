@@ -353,7 +353,8 @@ mod tests {
     /// `RoomCreationFailureRate` 告警读的标签组合。
     ///
     /// 用「不可创建的房间版本」（999）让内层在**不碰数据库**的情况下确定性失败，
-    /// 因此这个用例可以跑在纯 mock 服务上。断言用**增量**而非绝对值：全局
+    /// 因此这个用例可以跑在纯 mock 服务上。999 同时不在受支持的版本枚举内，会被
+    /// B8 的基数保护折叠进 `unknown` 标签。断言用**增量**而非绝对值：全局
     /// `ServerMetrics` 句柄是整个测试二进制共享的，别的用例可能已经装过。
     #[tokio::test]
     async fn create_room_records_failure_outcome_with_labels() {
@@ -378,7 +379,7 @@ mod tests {
             .await
             .expect_err("room version 999 cannot be created, so create_room must fail");
 
-        let labels = ["create", "error", "999", "private", error.code_str()];
+        let labels = ["create", "error", "unknown", "private", error.code_str()];
         let counter = metrics
             .room_operations_total
             .get_counter(&labels)

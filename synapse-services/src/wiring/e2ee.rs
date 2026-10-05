@@ -53,7 +53,6 @@ impl E2eeServices {
     /// stop startup with the operator-facing message from [`resolve_at_rest_key`].
     /// It used to be `-> Self` with a scoped `#[allow(clippy::panic)]` pending
     /// exactly this change (gate-integrity sweep, §1.6 of the follow-up doc).
-    #[allow(clippy::expect_used)]
     pub async fn new(
         pool: &Arc<sqlx::PgPool>,
         cache: &Arc<CacheManager>,

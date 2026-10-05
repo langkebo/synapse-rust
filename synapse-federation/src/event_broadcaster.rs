@@ -105,6 +105,17 @@ pub struct EventBroadcaster {
 
 type BatchSender = mpsc::Sender<(String, OutgoingItem)>;
 
+/// B12: Upper bound on the in-memory federation retry buffer
+/// ([`EventBroadcaster::pending_queue`]).
+///
+/// Every failed outbound transaction pushes a [`PendingTransaction`] onto the
+/// queue, so when a peer stalls (or the retry loop cannot keep up) the `Vec`
+/// grows without limit. Cap it and drop the oldest entry on overflow — the
+/// newest failure is always the most relevant to retry, and the dropped entry
+/// is marked `failed` in `federation_queue` so no stuck `pending` row is left
+/// behind. Matches the 10 000-slot capacity of the batch channel.
+const MAX_PENDING_QUEUE_ENTRIES: usize = 10_000;
+
 /// Implementation of [`EventBroadcaster`] methods.
 impl EventBroadcaster {
     /// See [`new`.
@@ -516,8 +527,31 @@ impl EventBroadcaster {
 
         let pending = PendingTransaction { destination, transaction, retry_count, next_retry_at, db_id };
 
-        let mut queue = self.pending_queue.write().await;
-        queue.push(pending.clone());
+        // B12: bound the retry buffer. While at capacity, evict the oldest
+        // (front) entry first so the newest failure is the one that survives.
+        let evicted = {
+            let mut queue = self.pending_queue.write().await;
+            let mut evicted = Vec::new();
+            while queue.len() >= MAX_PENDING_QUEUE_ENTRIES {
+                evicted.push(queue.remove(0));
+            }
+            queue.push(pending.clone());
+            evicted
+        };
+
+        for dropped in evicted {
+            ::tracing::warn!(
+                "Federation retry queue full at {} entries: dropping oldest transaction to {} (attempt {}, db_id={:?})",
+                MAX_PENDING_QUEUE_ENTRIES,
+                dropped.destination,
+                dropped.retry_count + 1,
+                dropped.db_id
+            );
+            if let Some(db_id) = dropped.db_id {
+                self.update_db_status(db_id, "failed").await;
+            }
+        }
+
         ::tracing::info!(
             "Enqueued transaction for retry to {} (attempt {}), next retry in {}ms, persisted={}",
             pending.destination,
@@ -796,6 +830,34 @@ mod tests {
         assert_eq!(broadcaster.get_backoff_delay(3), 30_000);
         assert_eq!(broadcaster.get_backoff_delay(4), 60_000);
         assert_eq!(broadcaster.get_backoff_delay(5), 300_000);
+    }
+
+    #[tokio::test]
+    async fn enqueue_for_retry_caps_pending_queue() {
+        // B12: without a pool every enqueue stays in-memory (persist returns
+        // `None`), so the queue is the only thing under test.
+        let broadcaster = EventBroadcaster::new("test.local".into());
+        let overshoot = 5usize;
+
+        for _ in 0..(MAX_PENDING_QUEUE_ENTRIES + overshoot) {
+            broadcaster
+                .enqueue_for_retry(
+                    "remote.example.com".to_string(),
+                    FederationTransaction {
+                        transaction_id: "txn".to_string(),
+                        origin: "test.local".to_string(),
+                        origin_server_ts: 0,
+                        destination: "remote.example.com".to_string(),
+                        pdus: vec![],
+                        edus: vec![],
+                    },
+                    0,
+                )
+                .await;
+        }
+
+        let len = broadcaster.pending_queue.read().await.len();
+        assert_eq!(len, MAX_PENDING_QUEUE_ENTRIES, "queue must stay capped");
     }
 }
 

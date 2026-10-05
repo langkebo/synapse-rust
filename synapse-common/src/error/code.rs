@@ -18,9 +18,9 @@ pub enum MatrixErrorCode {
     UnknownToken,
     /// M_MISSING_TOKEN: No access token was provided.
     MissingToken,
-    /// M_BAD_JSON: The request body could not be decoded as JSON.
+    /// M_BAD_JSON: The request body is valid JSON but does not match the expected structure.
     BadJson,
-    /// M_NOT_JSON: The request body is valid JSON but wrong structure.
+    /// M_NOT_JSON: The request body could not be decoded as JSON (not JSON at all).
     NotJson,
     /// M_NOT_FOUND: The requested resource does not exist.
     NotFound,

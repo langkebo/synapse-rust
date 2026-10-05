@@ -215,11 +215,17 @@ impl CacheManager {
 
     /// Returns all local cache keys that start with `prefix`.
     pub fn get_keys_with_prefix(&self, prefix: &str) -> Vec<String> {
-        let mut keys: Vec<String> =
-            self.local.cache.iter().filter(|(k, _)| k.starts_with(prefix)).map(|(k, _)| k.to_string()).collect();
-        // D-2: 也搜索命名空间缓存
-        for ns in self.local.namespaces.values() {
-            keys.extend(ns.cache.iter().filter(|(k, _)| k.starts_with(prefix)).map(|(k, _)| k.to_string()));
+        let mut keys: Vec<String> = Vec::new();
+        // B2: only scan the instances that can hold a matching key. A key routed
+        // to a namespace always carries that namespace's leading segment, so a
+        // prefix that diverges from every segment cannot match it.
+        if LocalCache::generic_may_match_prefix(prefix) {
+            keys.extend(self.local.cache.iter().filter(|(k, _)| k.starts_with(prefix)).map(|(k, _)| k.to_string()));
+        }
+        for ns_name in LocalCache::namespaces_for_prefix(prefix) {
+            if let Some(ns) = self.local.namespaces.get(ns_name) {
+                keys.extend(ns.cache.iter().filter(|(k, _)| k.starts_with(prefix)).map(|(k, _)| k.to_string()));
+            }
         }
         keys
     }
@@ -245,20 +251,45 @@ impl CacheManager {
             }
         };
 
-        // D-2: 通用缓存实例
-        let keys_to_remove: Vec<String> =
-            self.local.cache.iter().filter(|(k, _)| matcher(k)).map(|(k, _)| k.to_string()).collect();
-        for key in keys_to_remove {
-            self.local.remove(&key);
+        // B2: a trailing-`*` pattern is a pure prefix query, so only the
+        // instances that could hold a matching key need scanning. A `contains`
+        // pattern (no `*`), or a malformed one with an inner `*` left after
+        // trimming, has no usable prefix and falls back to a full scan.
+        let narrow_prefix = if pattern.contains('*') {
+            let prefix = pattern.trim_end_matches('*');
+            if prefix.contains('*') {
+                None
+            } else {
+                Some(prefix)
+            }
+        } else {
+            None
+        };
+
+        let scan_generic = match narrow_prefix {
+            Some(prefix) => LocalCache::generic_may_match_prefix(prefix),
+            None => true,
+        };
+        if scan_generic {
+            let keys_to_remove: Vec<String> =
+                self.local.cache.iter().filter(|(k, _)| matcher(k)).map(|(k, _)| k.to_string()).collect();
+            for key in keys_to_remove {
+                self.local.remove(&key);
+            }
         }
 
-        // D-2: 命名空间缓存实例
-        for ns in self.local.namespaces.values() {
-            let ns_keys: Vec<String> =
-                ns.cache.iter().filter(|(k, _)| matcher(k)).map(|(k, _)| k.to_string()).collect();
-            for key in ns_keys {
-                ns.deadlines.write().remove(&key);
-                ns.cache.remove(&key);
+        let ns_names: Vec<&'static str> = match narrow_prefix {
+            Some(prefix) => LocalCache::namespaces_for_prefix(prefix),
+            None => self.local.namespaces.keys().copied().collect(),
+        };
+        for ns_name in ns_names {
+            if let Some(ns) = self.local.namespaces.get(ns_name) {
+                let ns_keys: Vec<String> =
+                    ns.cache.iter().filter(|(k, _)| matcher(k)).map(|(k, _)| k.to_string()).collect();
+                for key in ns_keys {
+                    ns.deadlines.write().remove(&key);
+                    ns.cache.remove(&key);
+                }
             }
         }
     }

@@ -204,14 +204,23 @@ pub fn resolve_room_version(requested: Option<&str>) -> Option<&'static str> {
         .map(|capability| capability.version)
 }
 
-/// Clients the room.
+/// The `m.room_versions` capability for the **client** surface, exposed through
+/// `/capabilities`.
+///
+/// Spec shape: `{"default": <version>, "available": {<version>: <status>}}`.
+///
+/// `available` lists every room version this server **supports** — i.e. can
+/// parse, join and federate — not only the versions it will create. Upstream
+/// Synapse lists its full `KNOWN_ROOM_VERSIONS` here, and clients use this set
+/// to decide which versions they may reference when joining existing rooms, so
+/// narrowing it to the creatable subset (v12) would make clients believe v1–v11
+/// rooms are unreachable. `default` still points at the (single) creatable
+/// version via `resolve_room_version`.
 pub fn client_room_versions_capability() -> Value {
     let mut available = serde_json::Map::new();
 
     for capability in SUPPORTED_ROOM_VERSIONS {
-        if capability.can_create {
-            available.insert(capability.version.to_string(), json!(capability.disposition_str()));
-        }
+        available.insert(capability.version.to_string(), json!(capability.disposition_str()));
     }
 
     json!({
@@ -327,28 +336,31 @@ mod tests {
         let available = capability["available"].as_object().expect("available room versions should be an object");
 
         assert_eq!(capability["default"], DEFAULT_ROOM_VERSION);
-        // Only creatable versions appear in the client capability list, and since
-        // G-1 that is v12 alone.
-        assert_eq!(available.len(), 1, "only v12 is creatable: {available:?}");
-        assert_eq!(available.get("12").and_then(|value| value.as_str()), Some("stable"));
-        for v in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "13"] {
-            assert!(available.get(v).is_none(), "v{v} must not be advertised as creatable");
-        }
+        // The client capability lists every *supported* version (parse/join/
+        // federate), not only the creatable subset — clients need the full set
+        // to know which existing rooms they can reach.
+        assert_eq!(
+            available.len(),
+            SUPPORTED_ROOM_VERSIONS.len(),
+            "every supported version is advertised: {available:?}"
+        );
 
         for supported in SUPPORTED_ROOM_VERSIONS {
-            if supported.can_create {
-                assert_eq!(
-                    available.get(supported.version).and_then(|value| value.as_str()),
-                    Some(supported.disposition_str())
-                );
-            } else {
-                assert!(
-                    available.get(supported.version).is_none(),
-                    "v{} should NOT appear in client room_versions.available",
-                    supported.version
-                );
-            }
+            assert_eq!(
+                available.get(supported.version).and_then(|value| value.as_str()),
+                Some(supported.disposition_str()),
+                "v{}",
+                supported.version
+            );
         }
+
+        // v13 does not exist (Q5) and v14 is unsupported: neither may appear.
+        for v in ["13", "14"] {
+            assert!(available.get(v).is_none(), "v{v} must not be advertised");
+        }
+
+        // Creation is still restricted to v12, which is what `default` records.
+        assert_eq!(resolve_room_version(None), Some("12"));
     }
 
     #[test]

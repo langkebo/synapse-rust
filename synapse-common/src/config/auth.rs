@@ -319,12 +319,12 @@ impl SamlConfig {
     pub fn get_sp_acs_url(&self, server_name: &str) -> String {
         self.sp_acs_url
             .clone()
-            .unwrap_or_else(|| format!("https://{server_name}/_matrix/client/r0/login/sso/redirect/saml"))
+            .unwrap_or_else(|| format!("https://{server_name}/_matrix/client/v3/login/sso/redirect/saml"))
     }
 
     /// Returns the sp sls url.
     pub fn get_sp_sls_url(&self, server_name: &str) -> Option<String> {
-        self.sp_sls_url.clone().or_else(|| Some(format!("https://{server_name}/_matrix/client/r0/logout/saml")))
+        self.sp_sls_url.clone().or_else(|| Some(format!("https://{server_name}/_matrix/client/v3/logout/saml")))
     }
 }
 
@@ -432,7 +432,7 @@ mod tests {
         let config = SamlConfig::default();
         assert_eq!(
             config.get_sp_acs_url("matrix.example.com"),
-            "https://matrix.example.com/_matrix/client/r0/login/sso/redirect/saml"
+            "https://matrix.example.com/_matrix/client/v3/login/sso/redirect/saml"
         );
     }
 
@@ -448,7 +448,7 @@ mod tests {
         let config = SamlConfig::default();
         assert_eq!(
             config.get_sp_sls_url("matrix.example.com"),
-            Some("https://matrix.example.com/_matrix/client/r0/logout/saml".into())
+            Some("https://matrix.example.com/_matrix/client/v3/logout/saml".into())
         );
     }
 }

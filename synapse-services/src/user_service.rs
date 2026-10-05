@@ -50,31 +50,27 @@ impl UserService {
     /// MSC4262: Inject the federation broadcaster and this server's name so
     /// profile updates can be propagated to remote homeservers as
     /// `m.profile_update` EDUs.
-    #[allow(clippy::unwrap_used)] // initialization pattern; RwLock poison is acceptable
     pub fn set_federation_broadcaster(&self, broadcaster: Arc<EventBroadcaster>, server_name: String) {
-        *self.federation_broadcaster.write().unwrap() = Some(broadcaster);
-        *self.server_name.write().unwrap() = server_name;
+        *self.federation_broadcaster.write().unwrap_or_else(|e| e.into_inner()) = Some(broadcaster);
+        *self.server_name.write().unwrap_or_else(|e| e.into_inner()) = server_name;
     }
 
     /// MSC4204: Inject `member_storage` (the real Postgres implementation).
-    #[allow(clippy::unwrap_used)] // initialization pattern; RwLock poison is acceptable
     pub fn set_member_storage(&self, member_storage: Arc<dyn MemberStoreApi>) {
-        *self.member_storage.write().unwrap() = Some(member_storage);
+        *self.member_storage.write().unwrap_or_else(|e| e.into_inner()) = Some(member_storage);
     }
 
     /// MSC4204: Inject `event_notifier` (the real one with Redis slots).
-    #[allow(clippy::unwrap_used)] // initialization pattern; RwLock poison is acceptable
     pub fn set_event_notifier(&self, event_notifier: EventNotifier) {
-        *self.event_notifier.write().unwrap() = event_notifier;
+        *self.event_notifier.write().unwrap_or_else(|e| e.into_inner()) = event_notifier;
     }
 
     /// Helper to get event_notifier read lock (used in notify_profile_update)
-    #[allow(clippy::unwrap_used)] // initialization pattern; RwLock poison is acceptable
     fn with_event_notifier<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&EventNotifier) -> R,
     {
-        let guard = self.event_notifier.read().unwrap();
+        let guard = self.event_notifier.read().unwrap_or_else(|e| e.into_inner());
         f(&guard)
     }
 
@@ -260,8 +256,7 @@ impl UserService {
     async fn broadcast_profile_update_edu(&self, user_id: &str) {
         // Extract broadcaster while dropping the guard
         let broadcaster = {
-            #[allow(clippy::unwrap_used)] // initialization pattern; RwLock poison is acceptable
-            let guard = self.federation_broadcaster.read().unwrap();
+            let guard = self.federation_broadcaster.read().unwrap_or_else(|e| e.into_inner());
             guard.as_ref().cloned()
         };
         let broadcaster = match broadcaster {
@@ -270,10 +265,7 @@ impl UserService {
         };
 
         // Extract server_name while dropping the lock
-        let server_name = {
-            #[allow(clippy::unwrap_used)] // initialization pattern; RwLock poison is acceptable
-            self.server_name.read().unwrap().clone()
-        };
+        let server_name = { self.server_name.read().unwrap_or_else(|e| e.into_inner()).clone() };
         if server_name.is_empty() {
             return;
         }
@@ -295,9 +287,8 @@ impl UserService {
         });
 
         // Collect remote servers from shared joined rooms
-        #[allow(clippy::unwrap_used)] // initialization pattern; RwLock poison is acceptable
         let member_storage = {
-            let guard = self.member_storage.read().unwrap();
+            let guard = self.member_storage.read().unwrap_or_else(|e| e.into_inner());
             guard.as_ref().cloned()
         }; // guard dropped here
 
@@ -353,8 +344,7 @@ impl UserService {
     /// not prevent the profile update from completing.
     async fn notify_profile_update(&self, user_id: &str) {
         let member_storage = {
-            #[allow(clippy::unwrap_used)] // initialization pattern; RwLock poison is acceptable
-            let guard = self.member_storage.read().unwrap();
+            let guard = self.member_storage.read().unwrap_or_else(|e| e.into_inner());
             guard.as_ref().cloned()
         };
 

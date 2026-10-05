@@ -17,7 +17,7 @@ use tracing::{debug, error, info};
 ///
 /// Returns `ApiError::bad_request` for malformed URLs, `ApiError::forbidden`
 /// for SSRF-blocked hosts (distinguish for client UX).
-pub fn validate_push_gateway_url(url: &str) -> Result<(), ApiError> {
+pub async fn validate_push_gateway_url(url: &str) -> Result<(), ApiError> {
     if url.is_empty() {
         return Err(ApiError::bad_request("push gateway url is empty"));
     }
@@ -42,16 +42,24 @@ pub fn validate_push_gateway_url(url: &str) -> Result<(), ApiError> {
     }
 
     // 3) Resolve hostname → IP, block private/loopback/link-local ranges.
-    // Use std::net lookup; if resolution fails the cert handshake will
-    // surface the error at request time — we don't pre-resolve to avoid
-    // blocking legitimate gateways with flaky DNS at config time.
+    // B15: `to_socket_addrs` is a blocking resolver call; run it on the blocking
+    // pool so it never stalls the async runtime. Resolution failure is
+    // non-fatal — the TLS handshake surfaces it at request time (we don't
+    // pre-reject gateways with flaky DNS at config/persist time).
     //
     // Note: this is a defense-in-depth check. The real protection is
     // gateway-side firewall + the fact that `data.url` is server-controlled
     // at the user input level (set_pusher already requires auth).
-    if let Ok(addrs) = std::net::ToSocketAddrs::to_socket_addrs(&(ip_host, 443u16)) {
-        for addr in addrs {
-            let ip = addr.ip();
+    let host_owned = ip_host.to_string();
+    let resolved: Result<Vec<IpAddr>, _> = tokio::task::spawn_blocking(move || {
+        std::net::ToSocketAddrs::to_socket_addrs(&(host_owned.as_str(), 443u16))
+            .map(|addrs| addrs.map(|a| a.ip()).collect())
+    })
+    .await
+    .unwrap_or_else(|_| Ok(Vec::new()));
+
+    if let Ok(addrs) = resolved {
+        for ip in addrs {
             if is_blocked_ip(&ip) {
                 return Err(ApiError::forbidden(format!("push gateway host resolves to blocked address: {ip}")));
             }
@@ -220,7 +228,7 @@ impl PushGateway {
         // ranges (cloud metadata at 169.254.169.254). No callers in the
         // production path today, but the worker pusher type is defined and
         // the gateway can be wired up at any time.
-        validate_push_gateway_url(gateway_url)?;
+        validate_push_gateway_url(gateway_url).await?;
 
         info!(has_gateway_url = !gateway_url.is_empty(), "Sending notification to push gateway");
 
@@ -372,14 +380,14 @@ mod tests {
     // Acceptance: https://push.example.com and https://push.example.com:8443
     // pass; everything malicious fails.
 
-    #[test]
-    fn test_validate_push_gateway_url_rejects_empty() {
-        let err = validate_push_gateway_url("").expect_err("empty url must be rejected");
+    #[tokio::test]
+    async fn test_validate_push_gateway_url_rejects_empty() {
+        let err = validate_push_gateway_url("").await.expect_err("empty url must be rejected");
         assert!(err.to_string().contains("empty"), "got: {err}");
     }
 
-    #[test]
-    fn test_validate_push_gateway_url_rejects_non_https() {
+    #[tokio::test]
+    async fn test_validate_push_gateway_url_rejects_non_https() {
         for bad in [
             "http://push.example.com",
             "http://169.254.169.254/latest/meta-data/",
@@ -388,7 +396,7 @@ mod tests {
             "javascript:alert(1)",
             "data:text/plain,foo",
         ] {
-            let err = match validate_push_gateway_url(bad) {
+            let err = match validate_push_gateway_url(bad).await {
                 Ok(()) => panic!("{bad} should be rejected, got ok"),
                 Err(e) => e,
             };
@@ -400,11 +408,11 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_validate_push_gateway_url_rejects_ip_literal() {
+    #[tokio::test]
+    async fn test_validate_push_gateway_url_rejects_ip_literal() {
         for bad in ["https://1.2.3.4", "https://127.0.0.1", "https://0.0.0.0", "https://[::1]", "https://[2001:db8::1]"]
         {
-            let err = match validate_push_gateway_url(bad) {
+            let err = match validate_push_gateway_url(bad).await {
                 Ok(()) => panic!("{bad} should be rejected, got ok"),
                 Err(e) => e,
             };
@@ -413,11 +421,11 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_validate_push_gateway_url_rejects_localhost_and_private() {
+    #[tokio::test]
+    async fn test_validate_push_gateway_url_rejects_localhost_and_private() {
         // "localhost" / ".local" are rejected without DNS lookup
         for bad in ["https://localhost", "https://api.localhost", "https://gateway.local"] {
-            let err = validate_push_gateway_url(bad).unwrap_err();
+            let err = validate_push_gateway_url(bad).await.unwrap_err();
             assert!(err.to_string().contains("not allowed"), "got: {err} for {bad}");
         }
         // Private DNS names may or may not resolve in CI; if they do, we
@@ -428,10 +436,12 @@ mod tests {
         // to keep the test hermetic.
     }
 
-    #[test]
-    fn test_validate_push_gateway_url_accepts_legitimate_https() {
+    #[tokio::test]
+    async fn test_validate_push_gateway_url_accepts_legitimate_https() {
         // Use a real, widely-resolving DNS name with a non-default port
         // to ensure both scheme + host checks pass cleanly.
-        validate_push_gateway_url("https://push.example.com:8443/path").expect("legitimate https URL must be accepted");
+        validate_push_gateway_url("https://push.example.com:8443/path")
+            .await
+            .expect("legitimate https URL must be accepted");
     }
 }

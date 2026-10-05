@@ -61,6 +61,47 @@ impl EventStorage {
         Ok(result.rows_affected() > 0)
     }
 
+    /// Same as [`Self::record_event_txn`] but enlists in the caller's
+    /// transaction, so the dedup marker commits atomically with the event it
+    /// points at (A4).
+    ///
+    /// This closes the window the two-phase `begin_txn`/`finish_txn` protocol
+    /// left open: with the marker written in a *separate* transaction after the
+    /// event commit, a crash in between left a visible event with no dedup row
+    /// (client retries created a second copy). Here the caller writes the event
+    /// and the marker in one transaction: either both become visible or neither.
+    ///
+    /// Returns `true` when the row was inserted, `false` on a concurrent
+    /// duplicate. Because `ON CONFLICT DO NOTHING` blocks until the conflicting
+    /// transaction settles, a `false` here means the *other* transaction
+    /// committed its row — the caller can roll back its own (never-committed)
+    /// event and read the winner via [`Self::get_event_id_by_txn`].
+    pub async fn record_event_txn_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        user_id: &str,
+        room_id: &str,
+        txn_id: &str,
+        event_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query!(
+            r"
+            INSERT INTO room_event_txn_dedup (user_id, room_id, txn_id, event_id, created_ts)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (user_id, room_id, txn_id) DO NOTHING
+            ",
+            user_id,
+            room_id,
+            txn_id,
+            event_id,
+            synapse_common::current_timestamp_millis(),
+        )
+        .execute(&mut **tx)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     /// B-8: mark a losing duplicate event as soft-failed instead of physically
     /// deleting it.
     ///

@@ -1,7 +1,7 @@
 # E2EE → vodozemac 迁移设计 + 互操作测试矩阵
 
 > 分支: `feature/e2ee-vodozemac`
-> 关联审计报告: [COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md](./COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md) C-5
+> 关联审计报告: COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md C-5（该历史审计快照已不再保留）
 > 审计风险: 自研 Olm/Megolm 路径与 vodozemac 0.9 行为不一致，跨 Element 客户端互操作存在不可观察的差异
 
 ## 一、迁移目标
@@ -343,13 +343,13 @@ artifacts/e2ee-interop/mobile/<run-id>/
 
 ### 9.1 完成项
 
-- **`MegolmProvider` 双路径抽象**（[src/e2ee/megolm/service.rs](../../src/e2ee/megolm/service.rs#L192-L351)）
+- **`MegolmProvider` 双路径抽象**（[synapse-e2ee/src/megolm/service.rs](../../../synapse-e2ee/src/megolm/service.rs)）
   - `MegolmBackend` 枚举：`Legacy`（自研 AES-256-GCM，向后兼容）/ `Vodozemac`（0.9 互操作）
   - `MegolmProvider` 枚举统一封装两种实现，对外暴露相同 API 表面
   - 选择规则：环境变量 `E2EE_USE_VODOZEMAC_MEGOLM=true` 强制启用 vodozemac
   - feature flag 关闭时退化为 `MegolmService` 类型别名，最小构建仍可编译
 
-- **`MegolmVodozemacService` 装配**（[src/e2ee/vodozemac_megolm.rs](../../src/e2ee/vodozemac_megolm.rs)）
+- **`MegolmVodozemacService` 装配**（[synapse-e2ee/src/vodozemac_megolm.rs](../../../synapse-e2ee/src/vodozemac_megolm.rs)）
   - 完整的 vodozemac-backed Megolm 会话管理（`GroupSession` / `InboundGroupSession`）
   - 加密：`encrypt` / `encrypt_many`（批量加密，复用 ratchet）
   - 解密：`decrypt` 接受 vodozemac `MegolmMessage` 字节流
@@ -357,17 +357,17 @@ artifacts/e2ee-interop/mobile/<run-id>/
   - 接收方读取：`get_session_key_for_user` 走 cache → DB 二级回源
   - 导入：`import_session` 从 `m.room_key` 构造 `InboundGroupSession`
 
-- **Storage 支撑**（[src/e2ee/megolm/storage.rs](../../src/e2ee/megolm/storage.rs)）
+- **Storage 支撑**（[synapse-e2ee/src/megolm/storage.rs](../../../synapse-e2ee/src/megolm/storage.rs)）
   - `increment_message_index`：原子更新 message_index 与 last_used_ts
   - `upsert_session_keys_batch`：批量写入 recipient 的 session key
   - `get_session_key`：recipient 端查询已分享的 key
 
-- **ServiceContainer 集成**（[src/services/container.rs](../../src/services/container.rs#L146-L149)）
+- **ServiceContainer 集成**（[synapse-services/src/container.rs](../../../synapse-services/src/container.rs)）
   - `E2eeServices::megolm_service` 字段类型改为 `MegolmProvider`
   - 装配时按 feature flag 调用 `MegolmProvider::from_env`
   - `KeyRequestService` / `KeyRotationService` 同步切换为 `MegolmProvider`
 
-- **可观测性补全**（[src/common/server_metrics.rs](../../src/common/server_metrics.rs#L75-L86)）
+- **可观测性补全**（[synapse-common/src/server_metrics.rs](../../../synapse-common/src/server_metrics.rs)）
   - 新增 `megolm_share_total` / `megolm_share_recipients_total`
   - 新增 `megolm_share_db_duration_ms` / `megolm_share_cache_duration_ms` 两个 histogram
   - 新增 `megolm_share_cache_errors_total` / `megolm_share_db_errors_total`
@@ -385,7 +385,7 @@ artifacts/e2ee-interop/mobile/<run-id>/
 
 ### 9.3 已知阻塞（非 Phase 1 范围）
 
-- 预存的 `src/storage/room.rs` 与 `src/storage/room/` 目录冲突导致 `cargo test --lib` 无法编译（[src/storage/mod.rs:39](../../src/storage/mod.rs#L39) `pub mod room;`）
+- 预存的 `src/storage/room.rs` 与 `src/storage/room/` 目录冲突导致 `cargo test --lib` 无法编译（[src/storage/mod.rs](../../../src/storage/mod.rs) `pub mod room;`）
 - 预存的 `src/storage/application_service.rs` / `src/web/routes/app_service.rs` 测试代码使用已被重命名的字段（`exclusive` → `is_exclusive`，`rate_limited` → `is_rate_limited`）
 
 两项均不属于 Phase 1 范围，留待单独清理。
@@ -402,59 +402,59 @@ Phase 2（Megolm 双写）旨在为存量 legacy session 提供平滑迁移到 v
 
 #### 10.1.1 数据模型扩展
 
-- **`megolm_sessions` 表新增字段**（[migrations/20260605120000_megolm_vodozemac_dual_write_v8.sql](../../migrations/20260605120000_megolm_vodozemac_dual_write_v8.sql)）
+- **`megolm_sessions` 表新增字段**（`migrations/20260605120000_megolm_vodozemac_dual_write_v8.sql`，该时间戳迁移已合并/删除，不再保留）
   - `pickle_format TEXT NOT NULL DEFAULT 'legacy'`（取值 `'legacy'` / `'vodozemac'` / `'dual'`，CHECK 约束）
   - `vodozemac_pickle TEXT`（vodozemac 0.9 pickle 副本，base64 编码 JSON）
   - 部分索引 `idx_megolm_sessions_pickle_format_legacy` 加速懒迁移扫描
 
-- **`PickleFormat` 枚举**（[src/e2ee/megolm/models.rs](../../src/e2ee/megolm/models.rs#L13-L43)）
+- **`PickleFormat` 枚举**（[synapse-e2ee/src/megolm/models.rs](../../../synapse-e2ee/src/megolm/models.rs)）
   - `Legacy`（自研 AES-256-GCM）、`Vodozemac`（vodozemac 0.9 pickle）、`Dual`（同时持有两种）
   - `as_str` / `from_str` 序列化方法，兼容未知字符串 fallback 到 `Legacy`
 
 #### 10.1.2 双写实现
 
-- **`MegolmVodozemacService::create_session` 双写分支**（[src/e2ee/vodozemac_megolm.rs](../../src/e2ee/vodozemac_megolm.rs#L141-L213)）
+- **`MegolmVodozemacService::create_session` 双写分支**（[synapse-e2ee/src/vodozemac_megolm.rs](../../../synapse-e2ee/src/vodozemac_megolm.rs)）
   - 环境变量 `E2EE_DUAL_WRITE=true` 启用（默认 `false`）
   - 启用时：把 vodozemac 32 字节 session_key 用 `Aes256GcmCipher` 加密，写入 `session_key` 列；同时保留 vodozemac 副本到 `vodozemac_pickle` 列；`pickle_format = 'dual'`
   - 关闭时：仅写 vodozemac pickle 到 `session_key` 列；`pickle_format = 'vodozemac'`
   - 需要先注入 `encryption_key`（通过 `with_encryption_key`），否则双写自动降级为单路径
 
-- **`update_vodozemac_pickle` 持久化最新 ratchet 状态**（[src/e2ee/megolm/storage.rs](../../src/e2ee/megolm/storage.rs#L206-L227)）
+- **`update_vodozemac_pickle` 持久化最新 ratchet 状态**（[synapse-e2ee/src/megolm/storage.rs](../../../synapse-e2ee/src/megolm/storage.rs)）
   - encrypt_many 加密 N 条后批量更新 `vodozemac_pickle` 列
   - 失败仅记日志：cache 中已有更新副本，不阻塞本次 encrypt 返回
   - decrypt 路径同样调用此方法持久化 inbound 端 ratchet
 
 #### 10.1.3 懒迁移（Lazy Migration）
 
-- **`promote_to_dual`**（[src/e2ee/megolm/storage.rs](../../src/e2ee/megolm/storage.rs#L295-L319)）
+- **`promote_to_dual`**（[synapse-e2ee/src/megolm/storage.rs](../../../synapse-e2ee/src/megolm/storage.rs)）
   - 仅在 `pickle_format = 'legacy'` 且 `vodozemac_pickle IS NULL` 时生效
   - 幂等：第二次调用返回 `false`（条件不满足）
   - 适用场景：扫描到 legacy 会话时由后台任务或运维脚本调用
 
-- **`list_legacy_sessions` 分页扫描**（[src/e2ee/megolm/storage.rs](../../src/e2ee/megolm/storage.rs#L324-L395)）
+- **`list_legacy_sessions` 分页扫描**（[synapse-e2ee/src/megolm/storage.rs](../../../synapse-e2ee/src/megolm/storage.rs)）
   - 游标分页：按 `session_id` 排序，调用方传 `after_session_id` 取下一页
   - `limit` 参数 clamp 到 `[1, 1000]`，避免误调用 OOM
   - 部分索引 `pickle_format = 'legacy'` 命中，O(log n) 查询
 
-- **`count_by_pickle_format` 监控进度**（[src/e2ee/megolm/storage.rs](../../src/e2ee/megolm/storage.rs#L398-L413)）
+- **`count_by_pickle_format` 监控进度**（[synapse-e2ee/src/megolm/storage.rs](../../../synapse-e2ee/src/megolm/storage.rs)）
   - 返回 `[(format, count), ...]`，运维/SRE 用以观察迁移收敛
 
 #### 10.1.4 可观测性
 
-- **新增 7 个 Megolm metrics**（[src/common/server_metrics.rs](../../src/common/server_metrics.rs#L87-L96)）
+- **新增 7 个 Megolm metrics**（[synapse-common/src/server_metrics.rs](../../../synapse-common/src/server_metrics.rs)）
   - `megolm_vodozemac_pickle_persist_total` / `megolm_vodozemac_pickle_persist_errors_total`
   - `megolm_dual_write_promotions_total` / `megolm_dual_write_promotion_errors_total`
   - `megolm_lazy_migration_sessions_scanned_total` / `megolm_lazy_migration_sessions_promoted_total`
   - `megolm_pickle_persist_duration_ms` histogram
 
-- **3 个记录方法**（[src/common/server_metrics.rs](../../src/common/server_metrics.rs#L402-L430)）
+- **3 个记录方法**（[synapse-common/src/server_metrics.rs](../../../synapse-common/src/server_metrics.rs)）
   - `record_megolm_vodozemac_pickle_persist(duration_ms, success)` — 失败时**不**observe histogram
   - `record_megolm_dual_write_promotion(success)` — success/fail 分别累加
   - `record_megolm_lazy_migration_batch(scanned, promoted)` — 批量扫描一次调用
 
 #### 10.1.5 测试覆盖
 
-- **存储层集成测试**（[tests/unit/megolm_dual_write_storage_tests.rs](../../tests/unit/megolm_dual_write_storage_tests.rs)）
+- **存储层集成测试**（`tests/unit/megolm_dual_write_storage_tests.rs`，该测试文件已随迁移清理，不再保留）
   - `test_create_session_writes_dual_pickle_columns` — 双列写入正确性
   - `test_create_session_vodozemac_only_path` — 单路径 vodozemac 写入
   - `test_update_vodozemac_pickle_persists_new_ratchet` — ratchet 持久化
@@ -464,11 +464,11 @@ Phase 2（Megolm 双写）旨在为存量 legacy session 提供平滑迁移到 v
   - `test_count_by_pickle_format`
   - `test_lazy_migration_end_to_end` — list → promote → count 完整闭环
 
-- **Metrics 单元测试**（[tests/unit/megolm_dual_write_metrics_tests.rs](../../tests/unit/megolm_dual_write_metrics_tests.rs)）
+- **Metrics 单元测试**（`tests/unit/megolm_dual_write_metrics_tests.rs`，该测试文件已随迁移清理，不再保留）
   - 9 个测试覆盖成功/失败/混合路径下 counter 与 histogram 累加正确性
   - 包含端到端循环测试（100 次 90% 成功率场景）
 
-- **模型与 pickle 单元测试**（[src/e2ee/megolm/models.rs](../../src/e2ee/megolm/models.rs)、[src/e2ee/vodozemac_megolm.rs](../../src/e2ee/vodozemac_megolm.rs)）
+- **模型与 pickle 单元测试**（[synapse-e2ee/src/megolm/models.rs](../../../synapse-e2ee/src/megolm/models.rs)、[synapse-e2ee/src/vodozemac_megolm.rs](../../../synapse-e2ee/src/vodozemac_megolm.rs)）
   - `PickleFormat` 序列化 / 反序列化三种变体
   - vodozemac session_key 长度 sanity check（32 字节 → ~44 字符 base64）
   - pickle roundtrip 通过 storage 格式
@@ -495,7 +495,7 @@ Phase 2（Megolm 双写）旨在为存量 legacy session 提供平滑迁移到 v
   - 存量 `legacy` session 走原始自研路径（`MegolmProvider::Legacy` 分支）
   - 监控：`megolm_dual_write_promotion_errors_total` 增长 → 触发回滚
 
-- **监控指标**（[src/common/server_metrics.rs](../../src/common/server_metrics.rs)）
+- **监控指标**（[synapse-common/src/server_metrics.rs](../../../synapse-common/src/server_metrics.rs)）
   - `megolm_dual_write_promotions_total` / `megolm_dual_write_promotion_errors_total` 比例
   - `megolm_vodozemac_pickle_persist_errors_total` rate（应 < 0.1%）
   - `megolm_lazy_migration_sessions_promoted_total` 增长曲线（看是否单调递增）
@@ -604,7 +604,7 @@ bash scripts/test/run_sdk_verification_real_backend.sh
 
 ## 十二、关联
 
-- [COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md](./COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md) — C-5、E2EE 节
-- [Cargo.toml](../../Cargo.toml) — 已是 `vodozemac = "0.9"`
-- [src/e2ee/mod.rs](../../src/e2ee/mod.rs) — 模块入口
-- [docs/sdk/e2ee.md](../sdk/e2ee.md) — 上层协议文档
+- COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md — C-5、E2EE 节（该历史审计快照已不再保留）
+- [Cargo.toml](../../../Cargo.toml) — 已是 `vodozemac = "0.9"`
+- [src/e2ee/mod.rs](../../../src/e2ee/mod.rs) — 模块入口
+- [docs/sdk/e2ee.md](../../sdk/e2ee.md) — 上层协议文档

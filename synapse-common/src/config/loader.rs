@@ -309,6 +309,32 @@ mod tests {
         crate::config::test_env::remove("SYNAPSE_REDIS__HOST");
     }
 
+    // ── C9: 部署侧用 env 覆盖 bool（管理员 MFA）──────────────────────
+
+    /// C9 的支点：`security.admin_mfa_required` 是 **bool**，`homeserver.yaml`
+    /// 的 `${VAR}` 插值只作用于 String 字段，无法用它开启 MFA。部署侧只能靠
+    /// `SYNAPSE__SECURITY__ADMIN_MFA_REQUIRED=true` 覆盖 —— 依赖 config crate
+    /// 把环境变量里的字符串 "true" 强制转成 bool。钉死这条行为，否则 config
+    /// 升级后可能静默失效，管理员 MFA 会在无人察觉的情况下被关掉。
+    #[test]
+    fn env_override_coerces_string_to_bool_for_admin_mfa() {
+        let yaml = "security:\n  admin_mfa_required: false\n";
+        let build = || {
+            config::Config::builder()
+                .add_source(config::File::from_str(yaml, config::FileFormat::Yaml))
+                .add_source(config::Environment::with_prefix("SYNAPSE").separator("__"))
+                .build()
+                .expect("config build")
+        };
+
+        crate::config::test_env::set("SYNAPSE__SECURITY__ADMIN_MFA_REQUIRED", "true");
+        assert!(
+            build().get_bool("security.admin_mfa_required").expect("admin_mfa_required"),
+            "`SYNAPSE__SECURITY__ADMIN_MFA_REQUIRED=true` 必须把字符串强制转成 bool true"
+        );
+        crate::config::test_env::remove("SYNAPSE__SECURITY__ADMIN_MFA_REQUIRED");
+    }
+
     // ── ${VAR} simple substitution ─────────────────────────────────
 
     #[test]
