@@ -35,8 +35,19 @@ if command -v cargo >/dev/null 2>&1; then
   echo "✅ clippy --workspace --all-targets --all-features 通过"
 fi
 
-# ── Stage 2（阻断）：cargo-deny advisories（原有行为，保持不变）───────────────
+# ── Stage 2（阻断）：cargo-deny advisories ─────────────────────────────────────
+# 代理透传：cargo-deny 用 reqwest 拉取 advisory-db，只认 HTTPS_PROXY/HTTP_PROXY，
+# 不读取 git 的 http.proxy 配置——于是会出现「git 能走代理、cargo-deny 却拉取失败」。
+# 这里按需注入，保持代理可选：已有 HTTPS_PROXY 则沿用；否则回退到 git 配置的代理；
+# 两者都没有则不设代理（行为与原先一致）。
 if command -v cargo-deny >/dev/null 2>&1; then
+  if [ -z "${HTTPS_PROXY:-}${https_proxy:-}" ]; then
+    GIT_PROXY="$(git config --get http.proxy 2>/dev/null || true)"
+    if [ -n "${GIT_PROXY:-}" ]; then
+      export HTTPS_PROXY="$GIT_PROXY" HTTP_PROXY="$GIT_PROXY"
+      echo "ℹ️  已按 git http.proxy=$GIT_PROXY 注入 HTTPS_PROXY（供 cargo-deny 拉取 advisory-db）"
+    fi
+  fi
   cargo deny check advisories
 else
   echo "tip: install cargo-deny for push-time security checks (cargo install cargo-deny)"
