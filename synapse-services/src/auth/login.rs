@@ -3,6 +3,7 @@ use super::AuthService;
 use chrono::Utc;
 use std::sync::Arc;
 use synapse_common::crypto::hash_password_with_params;
+use synapse_common::password_hash_pool::{PasswordHashError, PasswordHashPool};
 use synapse_common::*;
 use synapse_storage::CreateAuditEventRequest;
 use synapse_storage::User;
@@ -192,6 +193,19 @@ impl AuthService {
 
     /// See [`verify_user_password`].
     pub(crate) async fn verify_user_password(&self, password: &str, password_hash: &str) -> ApiResult<bool> {
+        // P1-02: Argon2 verification runs through the bounded password-hash pool
+        // so a burst of concurrent logins queues behind a CPU-count limit instead
+        // of spawning an unbounded number of blocking computations that saturate
+        // every core. Legacy (non-Argon2) hashes are cheap and keep the direct path.
+        if password_hash.starts_with("$argon2") {
+            let pool = PasswordHashPool::get_or_init_default();
+            return match pool.verify_password_queued(password, password_hash).await {
+                Ok(ok) => Ok(ok),
+                Err(PasswordHashError::Timeout) => Err(ApiError::rate_limited_with_retry(1000)),
+                Err(e) => Err(ApiError::internal_with_cause("Password verification failed", e)),
+            };
+        }
+
         let auth = Arc::new(self.clone());
         let password_str = password.to_string();
         let password_hash_str = password_hash.to_string();

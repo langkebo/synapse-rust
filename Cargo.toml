@@ -1,6 +1,9 @@
 [package]
 name = "synapse-rust"
-version = "6.2.0"
+# P2-01: 版本单一源头。产品版本仅在 [workspace.package] 定义一次，根包与
+# 各成员 crate 通过 `version.workspace = true` 继承，避免子 crate 各自
+# 停留在 0.1.0 导致 `env!("CARGO_PKG_VERSION")` 上报的版本串不一致。
+version.workspace = true
 edition = "2021"
 rust-version = "1.93.0"
 authors = ["Synapse Rust Team"]
@@ -247,6 +250,11 @@ members = [
 # in a workspace when it's not", which takes down every tool built on
 # `cargo metadata` (cargo-machete, cargo-deny, cargo-audit, rust-analyzer, ...).
 exclude = ["vendor/pastey"]
+
+# P2-01: 产品版本单一源头。所有 workspace 成员通过 `version.workspace = true`
+# 继承此版本，使任意 crate 的 `env!("CARGO_PKG_VERSION")` 都上报产品版本。
+[workspace.package]
+version = "6.2.0"
 
 # DC4: Centralized dependency version management.
 # All crate members inherit versions from here; features are still declared

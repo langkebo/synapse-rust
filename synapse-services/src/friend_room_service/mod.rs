@@ -116,20 +116,31 @@ impl FriendRoomService {
         };
 
         if !acquired {
-            // Another request is creating this room. Wait briefly then re-check.
-            tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+            // Another request is creating this room. Poll at a short interval so we
+            // return as soon as the room appears, instead of always paying a fixed
+            // sleep — room creation is typically far faster than the old 200ms wait.
+            const POLL_INTERVAL_MS: u64 = 20;
+            const MAX_WAIT_MS: u64 = 500;
+            let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_millis(MAX_WAIT_MS);
 
-            // Re-check cache
-            if let Ok(Some(room_id)) = self.cache.get::<String>(&room_cache_key).await {
-                return Ok(room_id);
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_millis(POLL_INTERVAL_MS)).await;
+
+                // Re-check cache
+                if let Ok(Some(room_id)) = self.cache.get::<String>(&room_cache_key).await {
+                    return Ok(room_id);
+                }
+                // Re-check DB (room may have been created by the holder)
+                if let Ok(Some(room_id)) = self.friend_storage.get_friend_list_room_id(user_id).await {
+                    let _ = self.cache.set(&room_cache_key, room_id.clone(), FRIEND_ROOM_ID_CACHE_TTL_SECS).await;
+                    return Ok(room_id);
+                }
+                if tokio::time::Instant::now() >= deadline {
+                    tracing::warn!(user_id = %user_id,
+                        "Lock holder timed out, proceeding to create room");
+                    break;
+                }
             }
-            // Re-check DB (room may have been created by the holder)
-            if let Ok(Some(room_id)) = self.friend_storage.get_friend_list_room_id(user_id).await {
-                let _ = self.cache.set(&room_cache_key, room_id.clone(), FRIEND_ROOM_ID_CACHE_TTL_SECS).await;
-                return Ok(room_id);
-            }
-            tracing::warn!(user_id = %user_id,
-                "Lock holder timed out, proceeding to create room");
         }
 
         // ── Lock acquired (or we decided to proceed after Redis failure) ──

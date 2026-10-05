@@ -192,6 +192,17 @@ impl ServiceContainer {
         // `From<sqlx::Error> for ApiError` (db_query_errors).
         synapse_common::server_metrics::install_global_server_metrics(server_metrics.clone());
 
+        // P1-02: bound Argon2 verification concurrency for the login path. Without
+        // this the login flow spawns an unbounded number of blocking Argon2
+        // computations, so a burst of concurrent logins saturates every CPU core
+        // (observed 202% on a 2-core container → login P95 ≈ 2.3s). The pool caps
+        // in-flight hashes at roughly one per available core and queues the rest.
+        synapse_common::password_hash_pool::PasswordHashPool::initialize_global_with_metrics(
+            synapse_common::password_hash_pool::production_pool_config(),
+            synapse_common::argon2_config::Argon2Config::from(&config.security),
+            &metrics,
+        );
+
         let infra =
             SharedInfra { pool: pool.clone(), cache: cache.clone(), config: config.clone(), task_queue, metrics };
 

@@ -169,8 +169,10 @@ security:
   secret: "${SECRET_KEY:?SECRET_KEY is required}"
   expiry_time: 86400
   refresh_token_expiry: 604800
-  argon2_m_cost: 65536
-  argon2_t_cost: 3
+  # P1-02: lowered from m=65536/t=3 to m=32768/t=2 to cut per-login Argon2 cost.
+  # Only affects newly created hashes; existing hashes keep their embedded params.
+  argon2_m_cost: 32768
+  argon2_t_cost: 2
   argon2_p_cost: 4
   allow_legacy_hashes: false
   login_failure_lockout_threshold: 5

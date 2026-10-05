@@ -2,7 +2,7 @@
 
 use std::env;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
@@ -89,6 +89,20 @@ fn runtime_pool_config() -> PasswordHashPoolConfig {
     }
 }
 
+/// Builds the pool configuration used in production.
+///
+/// `max_concurrent` defaults to the number of CPUs available to the process
+/// (respecting container cgroup limits) so that a burst of concurrent logins is
+/// bounded to roughly one Argon2 computation per core. An explicit
+/// `SYNAPSE_PASSWORD_HASH_POOL_MAX_CONCURRENT` always takes precedence.
+pub fn production_pool_config() -> PasswordHashPoolConfig {
+    let mut config = runtime_pool_config();
+    if env::var("SYNAPSE_PASSWORD_HASH_POOL_MAX_CONCURRENT").is_err() {
+        config.max_concurrent = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(config.max_concurrent);
+    }
+    config
+}
+
 /// Represents PasswordHashPool.
 pub struct PasswordHashPool {
     semaphore: Arc<Semaphore>,
@@ -145,6 +159,17 @@ impl PasswordHashPool {
     /// Initializes the global singleton instance.
     pub fn initialize_global(config: PasswordHashPoolConfig, argon2_config: Argon2Config) {
         let pool = Self::new(config, argon2_config);
+        let _ = PASSWORD_HASH_POOL.set(pool);
+    }
+
+    /// Initializes the global singleton instance, publishing its metrics on the
+    /// supplied collector so they are exported alongside the server's other metrics.
+    pub fn initialize_global_with_metrics(
+        config: PasswordHashPoolConfig,
+        argon2_config: Argon2Config,
+        metrics: &MetricsCollector,
+    ) {
+        let pool = Self::with_metrics(config, argon2_config, metrics);
         let _ = PASSWORD_HASH_POOL.set(pool);
     }
 
@@ -246,6 +271,67 @@ impl PasswordHashPool {
         self.metrics.active_operations.dec();
 
         Ok(result)
+    }
+
+    /// Verifies a password, *queuing* while the pool is saturated instead of
+    /// failing fast.
+    ///
+    /// Unlike [`Self::verify_password`], which returns
+    /// [`PasswordHashError::PoolExhausted`] the moment no permit is free, this
+    /// variant waits for a permit (bounded by `hash_timeout_ms`). It is the entry
+    /// point used by the login path so a burst of concurrent logins drains
+    /// through a bounded number of Argon2 computations rather than saturating
+    /// every CPU core. Callers should surface [`PasswordHashError::Timeout`] to
+    /// the client as a retryable (429) response.
+    pub async fn verify_password_queued(&self, password: &str, hash: &str) -> Result<bool, PasswordHashError> {
+        let start = Instant::now();
+        self.metrics.active_operations.inc();
+
+        if self.semaphore.available_permits() == 0 {
+            self.metrics.queued_operations.inc();
+        }
+
+        let _permit = match tokio::time::timeout(
+            Duration::from_millis(self.config.hash_timeout_ms),
+            self.semaphore.clone().acquire_owned(),
+        )
+        .await
+        {
+            Ok(Ok(permit)) => permit,
+            Ok(Err(_closed)) => {
+                self.metrics.rejected_operations.inc();
+                self.metrics.active_operations.dec();
+                return Err(PasswordHashError::PoolExhausted);
+            }
+            Err(_elapsed) => {
+                self.metrics.rejected_operations.inc();
+                self.metrics.pool_exhaustion_count.inc();
+                self.metrics.active_operations.dec();
+                return Err(PasswordHashError::Timeout);
+            }
+        };
+
+        self.metrics.total_verify_operations.inc();
+
+        let password = password.to_string();
+        let hash = hash.to_string();
+
+        let join_result = tokio::task::spawn_blocking(move || {
+            let parsed_hash =
+                PasswordHash::new(&hash).map_err(|e| PasswordHashError::InvalidHashFormat(e.to_string()))?;
+
+            Ok(Argon2::default().verify_password(password.as_bytes(), &parsed_hash).is_ok())
+        })
+        .await;
+
+        let duration = start.elapsed().as_millis() as f64;
+        self.metrics.verify_duration_ms.observe(duration);
+        self.metrics.active_operations.dec();
+
+        match join_result {
+            Ok(result) => result,
+            Err(e) => Err(PasswordHashError::TaskJoinError(e.to_string())),
+        }
     }
 
     /// Hashes a password, blocking the current thread.

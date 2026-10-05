@@ -18,7 +18,9 @@
 # 追加（2026-10-04，P4-2）：kegsay（MSC4242「State DAGs」提案作者，登记入 MSC_SEMANTICS.md §1.1；同 johennes/clokep 的提案作者署名惯例）。
 # 追加（2026-10-04，F7 部署文档对齐）：baseurl、dtls、mkcert、openssl、rhel、turnserver、udp（docker/deploy/README.md 按 deploy.sh 重写后新出现的依赖 / 协议记号）。
 # 追加（2026-10-04，第三轮遗留问题报告）：circuitbreaker、halfopen、warmup（熔断器/半开/预热技术记号）。
+# 追加（2026-10-05，全量系统测试报告 P1/P2 复测）：acao（CORS `ACAO` 被脚本小写化）、cpus、mem（docker 资源记号 cpus=/mem=）、geolocation、html（报告引用的 .html 产物）、vu（k6 虚拟用户 `VU` 被脚本小写化）。
 abi
+acao
 accessexclusivelock
 accessor
 accessors
@@ -178,6 +180,7 @@ cors
 coturn
 cov
 coverable
+cpus
 cpython
 cqrs
 createeventparams
@@ -323,6 +326,7 @@ fts
 gc
 gcm
 geiger
+geolocation
 getrandom
 getreporthistory
 getter
@@ -372,6 +376,7 @@ homebrew
 homeserver
 hotfix
 hq
+html
 htpasswd
 http
 https
@@ -500,6 +505,7 @@ md
 mediacontext
 megolm
 megolmshareslow
+mem
 membershipservice
 membershipserviceconfig
 membershiptransition
@@ -955,6 +961,7 @@ voicestorage
 voip
 vscode
 vtable
+vu
 vue
 vuln
 vus

@@ -36,7 +36,7 @@ fn build_admin_audit_event(
         action: format!("{method} {path}"),
         resource_type: "admin_api".to_string(),
         resource_id: path.to_owned(),
-        result: "unknown".to_string(), // caller overrides with "success"/"failure"
+        result: "unknown".to_string(), // caller overrides with "success"/"failure"/"denied"
         request_id,
         details: Some(json!({
             "method": method.as_str(),
@@ -208,7 +208,7 @@ pub async fn admin_auth_middleware(
                 Err(_) => ("anonymous".to_string(), None, None),
             };
 
-            let event = build_admin_audit_event(
+            let mut event = build_admin_audit_event(
                 actor_id,
                 &method,
                 &path,
@@ -218,6 +218,10 @@ pub async fn admin_auth_middleware(
                 None, // role not known (denied)
                 device_id.as_deref(),
             );
+            // P1-01: 拒绝分支必须显式覆盖 `result`，否则默认值 "unknown" 会被
+            // `AdminAuditService::validate_request` 拒绝（M_BAD_JSON），导致 denied
+            // 审计事件全部丢失。
+            event.result = "denied".to_string();
             if let Err(error) = ctx.admin_audit_service.create_event(event).await {
                 tracing::warn!(
                     target: "admin_auth",
