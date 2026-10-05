@@ -1,5 +1,7 @@
 use crate::routes::admin::audit::resolve_request_id;
+use crate::routes::auth_source::AuthSource;
 use crate::routes::context::{AdminContext, CoreContext};
+use crate::routes::AppState;
 use crate::utils::admin_auth::authorize_admin_from_services;
 use crate::utils::auth::bearer_token;
 use crate::utils::ip::extract_client_ip;
@@ -75,6 +77,74 @@ pub async fn auth_middleware(
             response.headers_mut().insert("x-request-id", value);
         }
     }
+    response
+}
+
+/// Client-side (CS API) audit middleware.
+///
+/// P1-2 (权限审查 2026-10-05): 此前客户端审计由 `AuthenticatedUser` 抽取器在
+/// handler 执行前写入，`result` 只能硬编码为 `"success"`，无法反映真实响应
+/// （例如水平越权 403 也被记成成功）。该中间件紧贴路由（在 rate_limit 内层），
+/// 在 `next.run` 之后按真实状态码落库：2xx → success，其余 → failure。
+///
+/// 作用域与抽取器一致：仅审计写方法（POST/PUT/DELETE）且非 `/_synapse/admin` 的请求；
+/// 无有效 bearer token 的请求（未认证）不写审计。
+pub async fn client_audit_middleware(
+    State(state): State<AppState>,
+    request: Request<Body>,
+    next: axum::middleware::Next,
+) -> Response {
+    let method = request.method().clone();
+    let path = request.uri().path().to_string();
+
+    let is_auditable_write =
+        matches!(method, Method::POST | Method::PUT | Method::DELETE) && !path.starts_with("/_synapse/admin");
+    if !is_auditable_write {
+        return next.run(request).await;
+    }
+
+    let Some(audit_svc) = state.admin_audit_service() else {
+        return next.run(request).await;
+    };
+
+    let uri = request.uri().to_string();
+    let headers = request.headers().clone();
+    let request_id = resolve_request_id(&headers);
+
+    // 解析发起用户；仅对已通过 token 校验的请求记录审计。
+    let actor = match extract_token(&headers, &uri) {
+        Some(token) => match state.token_auth().validate_token(&token).await {
+            Ok((user_id, _, is_admin, _, _)) => Some((user_id, is_admin)),
+            Err(_) => None,
+        },
+        None => None,
+    };
+
+    let response = next.run(request).await;
+
+    let Some((user_id, is_admin)) = actor else {
+        return response;
+    };
+
+    let result = if response.status().is_success() { "success" } else { "failure" };
+    let event = CreateAuditEventRequest {
+        actor_id: user_id,
+        action: format!("user.{}", method.as_str().to_lowercase()),
+        resource_type: "client_api".to_string(),
+        resource_id: path.clone(),
+        result: result.to_string(),
+        request_id,
+        details: Some(json!({
+            "path": path,
+            "method": method.as_str(),
+            "is_admin": is_admin,
+            "status": response.status().as_u16(),
+        })),
+    };
+    if let Err(e) = audit_svc.create_event(event).await {
+        ::tracing::error!(target: "security_audit", "Failed to create user audit event: {}", e);
+    }
+
     response
 }
 

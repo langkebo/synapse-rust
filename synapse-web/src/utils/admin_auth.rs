@@ -211,7 +211,10 @@ fn is_super_admin_only_endpoint(method: &Method, path: &str) -> bool {
     }
 
     // Batch device deletion (different from single device deletion)
-    if path.contains("/delete_devices") {
+    // P1-1 (权限审查 2026-10-05): 真实路由为 `/users/{user_id}/devices/delete`
+    // （批量注销）与 `/users/{user_id}/devices/{device_id}/delete`（兼容版单设备删除），
+    // 原先按 `/delete_devices` 匹配与实际注册路径错位，导致普通 admin 可穿透 RBAC。
+    if path.ends_with("/devices/delete") || (path.contains("/devices/") && path.ends_with("/delete")) {
         return true;
     }
 
@@ -326,7 +329,7 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
 
             // Device management - single device operations
             || (path.contains("/users/") && path.contains("/devices")
-                && !path.contains("/delete_devices")
+                && !path.ends_with("/delete")
                 && (is_read || *method == Method::DELETE))
 
             // Federation management - full access
@@ -527,7 +530,7 @@ mod tests {
         assert!(!is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/registration_tokens"));
         assert!(!is_role_allowed("admin", &Method::GET, "/_synapse/admin/info"));
         assert!(!is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/users/batch"));
-        assert!(!is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/users/@u:localhost/delete_devices"));
+        assert!(!is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/users/@u:localhost/devices/delete"));
         assert!(!is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/rooms/!room:localhost/purge"));
         assert!(!is_role_allowed("admin", &Method::PUT, "/_synapse/admin/v1/rooms/!room:localhost/retention"));
         assert!(!is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/rooms/!room:localhost/make_admin"));
@@ -607,7 +610,13 @@ mod tests {
 
     #[test]
     fn admin_role_batch_delete_devices_denied() {
-        assert!(!is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/users/@user:localhost/delete_devices"));
+        // P1-1: 使用真实注册路由断言（原先用不存在的 /delete_devices 路径，测不出绕过）。
+        assert!(!is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/users/@user:localhost/devices/delete"));
+        assert!(!is_role_allowed(
+            "admin",
+            &Method::POST,
+            "/_synapse/admin/v1/users/@user:localhost/devices/DEVICEID/delete"
+        ));
     }
 
     #[test]

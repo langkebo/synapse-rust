@@ -1,13 +1,7 @@
 use crate::routes::auth_source::{AdminAuthSource, AuthSource};
 use crate::utils::admin_auth::authorize_admin_from_services;
-use crate::utils::auth::resolve_request_id;
-use axum::{
-    extract::FromRequestParts,
-    http::{request::Parts, HeaderMap, Method},
-};
-use serde_json::json;
+use axum::{extract::FromRequestParts, http::request::Parts};
 use synapse_common::ApiError;
-use synapse_services::admin_audit_service::CreateAuditEventRequest;
 
 /// The `AuthenticatedUser` struct.
 #[derive(Clone)]
@@ -56,34 +50,6 @@ pub struct AdminUser {
     pub role: String,
 }
 
-async fn audit_user_action(
-    audit_svc: &synapse_services::admin::AdminAuditService,
-    user_id: &str,
-    method: &Method,
-    path: &str,
-    headers: &HeaderMap,
-    is_admin: bool,
-) {
-    if matches!(method, &Method::POST | &Method::PUT | &Method::DELETE) && !path.starts_with("/_synapse/admin") {
-        let request_id = resolve_request_id(headers);
-        let audit_request = CreateAuditEventRequest {
-            actor_id: user_id.to_string(),
-            action: format!("user.{}", method.as_str().to_lowercase()),
-            resource_type: "client_api".to_string(),
-            resource_id: path.to_string(),
-            result: "success".to_string(),
-            request_id,
-            details: Some(json!({
-                "path": path,
-                "method": method.as_str(),
-                "is_admin": is_admin,
-            })),
-        };
-        if let Err(e) = audit_svc.create_event(audit_request).await {
-            ::tracing::error!(target: "security_audit", "Failed to create user audit event: {}", e);
-        }
-    }
-}
 // ─────────────────────────────────────────────────────────────────────────────
 // Generic auth extractors.
 //
@@ -106,19 +72,12 @@ where
         let uri = parts.uri.to_string();
         let token_result = crate::utils::auth::extract_token(&parts.headers, &uri);
         let state = state.clone();
-        let method = parts.method.clone();
-        let path = parts.uri.path().to_string();
-        let headers = parts.headers.clone();
 
         async move {
             let token = token_result?;
             let result = state.token_auth().validate_token(&token).await;
             match result {
                 Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => {
-                    if let Some(audit_svc) = state.admin_audit_service() {
-                        audit_user_action(audit_svc, &user_id, &method, &path, &headers, is_admin).await;
-                    }
-
                     Ok(Self { user_id, device_id, is_admin, is_shadow_banned, is_guest, access_token: token })
                 }
                 Err(e) => Err(e),

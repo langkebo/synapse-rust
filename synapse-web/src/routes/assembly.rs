@@ -2,8 +2,8 @@ use super::route_ledger::RouteLedger;
 use super::route_module::{route_modules, ProfileFlags};
 use super::{dm, ephemeral, handlers, media, typing, worker, *};
 use crate::middleware::{
-    cors_middleware, csrf_middleware, method_not_allowed_middleware, rate_limit_middleware, request_id_middleware,
-    security_headers_middleware, shadow_ban_middleware,
+    client_audit_middleware, cors_middleware, csrf_middleware, method_not_allowed_middleware, rate_limit_middleware,
+    request_id_middleware, security_headers_middleware, shadow_ban_middleware,
 };
 use axum::{
     routing::{get, post, put},
@@ -323,6 +323,7 @@ pub fn create_router(state: AppState) -> Router {
     // 2. csrf 移到 rate_limit 之前——此前 CSRF 必失败的请求也消耗限流配额，
     //    且响应语义错误（应 403 而非 429）。
     router
+        .layer(axum::middleware::from_fn_with_state(state.clone(), client_audit_middleware))
         .layer(axum::middleware::from_fn_with_state(core_ctx.clone(), rate_limit_middleware))
         .layer(axum::middleware::from_fn_with_state(core_ctx.clone(), csrf_middleware))
         .layer(axum::middleware::from_fn_with_state(core_ctx, shadow_ban_middleware))

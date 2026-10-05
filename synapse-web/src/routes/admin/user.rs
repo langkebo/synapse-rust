@@ -590,6 +590,14 @@ pub async fn login_as_user(
     let device_id = synapse_common::random_string(10);
     let is_admin = user.is_admin;
 
+    // P0-1 (权限审查 2026-10-05): 禁止普通 admin 互登录到其它管理员账户。
+    // login_as_user 会用目标用户的身份签发 token（含 is_admin 位），
+    // 若目标是 admin/super_admin，普通 admin 可借此获得同级或更高权限的 token。
+    // 因此仅允许 super_admin 对管理员账户执行互登录。
+    if is_admin {
+        crate::routes::admin::ensure_super_admin_for_privilege_change(&admin)?;
+    }
+
     // 在插入 access_tokens 之前必须先在 devices 表中创建对应设备记录，
     // 否则 access_tokens.device_id 上的 fk_access_tokens_device 外键约束会拒绝插入。
     // 见 Admin User Login 500 Internal Error 修复 (2026-09-01)。
