@@ -273,7 +273,7 @@ pub fn verify_token_hash(token: &str, stored_hash: &str) -> bool {
     secure_compare(&hash_token_legacy(token), stored_hash)
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, reason = "HMAC-SHA256 accepts a key of any length; new_from_slice cannot fail")]
 /// Hmacs the sha256.
 pub fn hmac_sha256(key: impl AsRef<[u8]>, data: impl AsRef<[u8]>) -> Vec<u8> {
     let key = key.as_ref();

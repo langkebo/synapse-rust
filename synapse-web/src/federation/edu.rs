@@ -9,6 +9,7 @@ pub use synapse_federation::edu::{user_matches_origin, EduProcessResult, EduType
 use crate::routes::context::FederationContext;
 use serde_json::Value;
 use std::str::FromStr;
+use synapse_common::crypto::decode_base64_32;
 use synapse_common::current_timestamp_millis;
 use synapse_common::validation::is_compliant_user_id_localpart;
 use synapse_e2ee::cross_signing::models::CrossSigningKey;
@@ -621,6 +622,19 @@ async fn handle_signing_key_update_edu(
                 continue;
             }
 
+            // SEC-01: cross-signing keys are base64-encoded ED25519 public keys and must
+            // decode to exactly 32 bytes. Reject malformed/oversized payloads before they
+            // reach storage rather than persisting unvalidated attacker-controlled strings.
+            if decode_base64_32(key_str).is_none() {
+                ::tracing::warn!(
+                    "Rejecting m.signing_key_update for {} ({}): key is not a valid 32-byte ed25519 public key",
+                    user_id,
+                    key_type
+                );
+                result.dropped += 1;
+                continue;
+            }
+
             let key_type_str = key_type.replace("_key", "");
 
             // upsert the cross-signing key into storage
@@ -814,7 +828,7 @@ async fn handle_profile_update_edu(
 /// to reconstruct a delayed event (`device_id`/`event_type`/`content`/`delay_ms`
 /// are absent). Persisting it would require inventing protocol fields outside
 /// MSC4140, so this handler deliberately stops at validation + acknowledgement.
-/// See `docs/audit/LEGACY_ISSUES_REPORT_20261004.md` (A1).
+/// See `docs/audit/archive/LEGACY_ISSUES_REPORT_20261004.md` (A1).
 #[allow(clippy::unused_async)] // intentionally validate-only: there is nothing to persist
 async fn handle_delayed_event_edu(
     ctx: &FederationContext,

@@ -127,7 +127,22 @@ fn membership_of(
     user: &str,
 ) -> Option<Membership> {
     let event = state_event(state, events, &format!("m.room.member:{user}"))?;
-    event.content.as_ref()?.get("membership")?.as_str()?.parse::<Membership>().ok()
+    let raw = event.content.as_ref()?.get("membership")?.as_str()?;
+    match raw.parse::<Membership>() {
+        Ok(membership) => Some(membership),
+        Err(_) => {
+            // CQ-05: an unparseable membership is a data-integrity anomaly. The
+            // "must be joined" checks below stay fail-closed on `None`, but the
+            // `from` state read (`:291`) would otherwise treat it as "no history"
+            // — so make the degradation visible instead of silent.
+            tracing::warn!(
+                user = user,
+                membership = %raw,
+                "Unparseable membership in m.room.member state; treating as absent"
+            );
+            None
+        }
+    }
 }
 
 /// The resolved join rule from `state` (default `invite`).

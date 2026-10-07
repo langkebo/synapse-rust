@@ -196,12 +196,14 @@ impl Config {
 /// - `${VAR:-default}` — use default if env var is unset
 /// - `${VAR:=assign}` — use default if env var is unset (deprecated, warns)
 /// - `${VAR:?error}` — error if env var is unset
-#[allow(clippy::expect_used)]
 fn resolve_env_in_string(value: &str) -> Result<String, String> {
     resolve_env_in_string_with(value, &|var| std::env::var(var))
 }
 
-#[allow(clippy::expect_used)]
+#[allow(
+    clippy::expect_used,
+    reason = "the regex literal is static and its capture groups 0/1 always exist for a match"
+)]
 pub(crate) fn resolve_env_in_string_with<F>(value: &str, lookup: &F) -> Result<String, String>
 where
     F: Fn(&str) -> Result<String, std::env::VarError>,

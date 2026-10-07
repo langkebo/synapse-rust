@@ -129,8 +129,10 @@ pub struct RoomSummaryStats {
     pub total_media: i64,
     /// The `storage_size` field.
     ///
-    /// Reserved: no writer populates this yet. `recalculate_stats` preserves
-    /// the existing value rather than overwriting it with `0`.
+    /// Placeholder: no producer computes this yet — `recalculate_stats` preserves
+    /// the existing value rather than overwriting it with `0`. The column has a
+    /// real storage writer and reader; it is simply not fed from room content
+    /// today, so do not rely on the number.
     pub storage_size: i64,
     /// The `last_updated_ts` field.
     pub last_updated_ts: i64,

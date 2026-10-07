@@ -57,8 +57,7 @@ pub(crate) fn ensure_super_admin_for_privilege_change(
 
 /// See [`create_admin_module_router`].
 pub fn create_admin_module_router(state: AppState) -> Router<crate::routes::AppState> {
-    #[allow(unused_mut)]
-    let mut admin_router = Router::new()
+    let admin_router = Router::new()
         .merge(create_audit_router())
         .merge(create_user_router())
         .merge(create_server_router(state.clone()))

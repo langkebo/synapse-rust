@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id as \"id!\", token_hash as \"token_hash!\", user_id as \"user_id!\", device_id as \"device_id?\", created_ts as \"created_ts!\", expires_at as \"expires_at?\", last_used_ts as \"last_used_ts?\", user_agent as \"user_agent?\", ip_address as \"ip_address?\", is_revoked as \"is_revoked!\"\n            FROM access_tokens WHERE token_hash = $1 AND is_revoked = FALSE\n            ",
+  "query": "\n            SELECT id as \"id!\", token_hash as \"token_hash!\", user_id as \"user_id!\", device_id as \"device_id?\", created_ts as \"created_ts!\", expires_at as \"expires_at?\", last_used_ts as \"last_used_ts?\", user_agent as \"user_agent?\", ip_address as \"ip_address?\", is_revoked as \"is_revoked!\"\n            FROM access_tokens WHERE user_id = $1\n            ORDER BY id ASC\n            LIMIT $2\n            ",
   "describe": {
     "columns": [
       {
@@ -56,7 +56,8 @@
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Text",
+        "Int8"
       ]
     },
     "nullable": [
@@ -72,5 +73,5 @@
       true
     ]
   },
-  "hash": "5b5937588dd7526ac17a20d0929a9d55eb386849cd8a2d8488ab03cdbc4cd9d2"
+  "hash": "4b04f41cbd17a90a77b4be67545a58ce0dcf7ec1d9429db8d24a45071f366306"
 }

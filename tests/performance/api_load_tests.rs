@@ -1,5 +1,23 @@
-// API Performance and Load Tests
-// These tests measure API performance under various load conditions
+//! API Performance and Load Tests
+//!
+//! ⚠️ **These tests are SIMULATED — they do not touch a database or an HTTP server.**
+//!
+//! Every "request" below is a `std::thread::sleep()` or a bare thread spawn. That
+//! means:
+//!
+//! * They cannot detect a real API latency regression, a slow query, or a
+//!   connection-pool exhaustion — none of those are exercised.
+//! * They assert nothing; they only `println!` observed timings, so they can
+//!   never fail for the reason their names imply.
+//!
+//! What actually guards API/query performance:
+//!   * `scripts/ci/compute_perf_gate.sh` — pure-compute benchmarks (no DB)
+//!   * `scripts/ci/sliding_sync_perf_gate.sh` — DB-backed p95 latency gate
+//!   * real DB query tests under `--all-features` (e.g. `db_tests.rs` modules)
+//!   * `k6`-driven load tests under `scripts/load-test/`
+//!
+//! The simulated shape is kept as an executable description of the intended
+//! load profile; see TESTING.md §1 for the honest inventory.
 
 #[cfg(test)]
 mod api_performance_tests {

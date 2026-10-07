@@ -3,6 +3,12 @@
 Date: 2026-06-27
 Phase: 5 (Trigram Ranking Adoption)
 
+> ⚠️ **订正（2026-10-06）**：本审计的核心产出——把 `synapse-storage/src/search_index.rs`
+> 接入 `TrigramRanking`（见 §2a）——**已作废**。该模块本身因整模块无调用者（死代码），
+> 已于 2026-09-24 W4/D-27 按铁律 1 整模块删除。因此下方 §2a 与 Recommendations 第 1 条
+> 关于 `search_index.rs` 的「已采纳 / [DONE]」结论**与现状相反**，仅作历史记录保留。
+> 文中其余各节（`user.rs` / `space.rs` / `thread.rs` / `event/mod.rs` 等）的结论仍然有效。
+
 ## Summary
 
 Audited the entire `synapse-storage/src/` codebase for trigram/similarity/ILIKE SQL patterns.
@@ -31,7 +37,7 @@ These files already use `TrigramRanking` — no changes needed.
 
 ## 2. Recently Adopted — TrigramRanking Applied in This Phase
 
-### 2a. `synapse-storage/src/search_index.rs` (line ~116)
+### 2a. ~~`synapse-storage/src/search_index.rs`~~ (line ~116) — ⚠️ 模块已于 2026-09-24 删除，本节仅存历史
 
 **Before:**
 ```sql
@@ -128,7 +134,8 @@ adding trigram support, but as pure-filters they don't match TrigramRanking's cu
 
 ## Recommendations
 
-1. **search_index.rs**: Already adopted in this phase. [DONE]
+1. ~~**search_index.rs**: Already adopted in this phase. [DONE]~~ → **已作废（2026-10-06 订正）**：
+   该模块因无调用者（死代码）已于 2026-09-24 W4/D-27 整模块删除，接入 `TrigramRanking` 的工作随代码一并移除，`search_index` **表**为遗留表（D-39 待决）。
 
 2. **user.rs (second search path)**: Defer. The custom weighted scoring (480-1000) and conditional
    gating (`NOT $4`) would require a new `WeightedTrigramRanking` abstraction or an API that accepts

@@ -553,7 +553,18 @@ impl MembershipService {
             .get_room_member(room_id, target_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to check membership", e))?;
-        let from = existing.as_ref().and_then(|m| Membership::from_str(&m.membership).ok());
+        // CQ-05: an unparseable stored membership is a data-integrity fault, not
+        // "no membership record" — surface it explicitly instead of silently
+        // degrading to `None` (which would weaken the transition legality check).
+        let from = match existing.as_ref() {
+            None => None,
+            Some(m) => Some(Membership::from_str(&m.membership).map_err(|_| {
+                ApiError::internal(format!(
+                    "Invalid membership value '{}' stored for {target_id} in {room_id}",
+                    m.membership
+                ))
+            })?),
+        };
         let is_banned = from == Some(Membership::Ban) || existing.as_ref().and_then(|m| m.is_banned).unwrap_or(false);
         Ok((from, is_banned))
     }
@@ -767,7 +778,7 @@ impl MembershipService {
             .room_storage
             .room_exists(room_id)
             .await
-            .map_err(|_e| MembershipError::Internal("Failed to check room existence".to_string()))?
+            .map_err(|e| MembershipError::Internal(format!("Failed to check room existence: {e}")))?
         {
             return Err(MembershipError::NotFound("Room not found".to_string()));
         }
@@ -776,7 +787,7 @@ impl MembershipService {
             .member_storage
             .is_member(room_id, user_id)
             .await
-            .map_err(|_e| MembershipError::Internal("Failed to check membership".to_string()))?
+            .map_err(|e| MembershipError::Internal(format!("Failed to check membership: {e}")))?
         {
             return Err(MembershipError::NotAuthorized("You are not a member of this room".to_string()));
         }

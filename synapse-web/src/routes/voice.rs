@@ -1,4 +1,7 @@
-#![allow(clippy::unused_async)]
+#![allow(
+    clippy::unused_async,
+    reason = "handlers keep async signatures for uniform Axum routing even when the body performs synchronous validation only"
+)]
 use super::{ensure_room_member_ctx, validate_user_id, AppState, AuthenticatedUser};
 use crate::routes::context::RoomContext;
 use crate::routes::extractors::MediaId;

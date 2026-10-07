@@ -747,7 +747,7 @@ mod tests {
             users.push(user);
         }
 
-        let media_service = MediaService::with_pool(media_path, None, "test.server", Some(pool.clone()));
+        let media_service = MediaService::with_pool(media_path, None, "test.server", Some(pool.clone())).await;
         let media_quota_storage = Arc::new(MediaQuotaStorage::new(&pool));
         let media_quota_service = Arc::new(MediaQuotaService::new(media_quota_storage));
         for user in &users {
@@ -1132,7 +1132,7 @@ mod tests {
             .await
             .expect("Failed to create test user");
 
-        let media_service = MediaService::with_pool(media_path, None, "test.server", Some(pool.clone()));
+        let media_service = MediaService::with_pool(media_path, None, "test.server", Some(pool.clone())).await;
         let media_quota_storage = Arc::new(MediaQuotaStorage::new(&pool));
         let media_quota_service = Arc::new(MediaQuotaService::new(media_quota_storage));
         let chunked_upload_service =

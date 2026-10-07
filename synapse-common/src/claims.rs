@@ -116,7 +116,10 @@ impl ClaimsBuilder {
         self
     }
 
-    #[allow(clippy::expect_used)]
+    #[allow(
+        clippy::expect_used,
+        reason = "ClaimsBuilder contract: sub and exp are required; build is fail-fast on programmer error"
+    )]
     /// Builds the configured value.
     pub fn build(self) -> Claims {
         let now = chrono::Utc::now().timestamp();

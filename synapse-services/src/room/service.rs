@@ -170,7 +170,10 @@ pub struct RoomService {
 
 impl RoomService {
     /// See [`new`].
-    #[allow(clippy::expect_used)]
+    #[allow(
+        clippy::expect_used,
+        reason = "RoomService wiring contract: event_reader/writer are required and set by the container"
+    )]
     pub fn new(config: RoomServiceConfig) -> Self {
         // Build shared infrastructure FIRST so its handles can be cloned into
         // MembershipService/MessagingService. Values are supplied once here and

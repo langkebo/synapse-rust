@@ -35,7 +35,9 @@ ed25519-dalek = "2.0"
 sha2 = { workspace = true, features = ["oid"] }
 rand = { workspace = true }
 
-reqwest = { workspace = true, features = ["json"] }
+# reqwest `stream` enables `Response::bytes_stream`, which downstream consumers
+# (e.g. synapse-web media proxy) call on the responses this client returns.
+reqwest = { workspace = true, features = ["json", "stream"] }
 urlencoding = { workspace = true }
 
 chrono = { workspace = true, features = ["serde"] }

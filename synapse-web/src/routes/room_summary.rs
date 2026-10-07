@@ -124,8 +124,9 @@ pub struct StatsResponse {
     pub total_media: i64,
     /// The `storage_size` field.
     ///
-    /// Reserved: not computed yet, always reported as `0` (or the last stored
-    /// value). Present for API-shape compatibility; do not rely on it.
+    /// Placeholder: not computed yet, so it reports the last stored value (or
+    /// `0` when no stats row exists). Present for API-shape compatibility; do
+    /// not rely on it.
     pub storage_size: i64,
 }
 

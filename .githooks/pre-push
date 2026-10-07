@@ -1,5 +1,5 @@
 #!/bin/bash
-# pre-push guard: CI 同款 clippy（含测试代码编译） + cargo-deny advisories
+# pre-push guard: CI 同款 clippy（含测试代码编译） + cargo-deny advisories + cargo-machete
 #
 # 启用（每个 clone 一次）：  git config core.hooksPath .githooks
 # 绕过：                    git push --no-verify
@@ -51,4 +51,21 @@ if command -v cargo-deny >/dev/null 2>&1; then
   cargo deny check advisories
 else
   echo "tip: install cargo-deny for push-time security checks (cargo install cargo-deny)"
+fi
+
+# ── Stage 3（阻断）：cargo-machete 未使用依赖 ─────────────────────────────────
+# 依赖只增不减会持续放大编译时间与供应链面。machete 静态扫描各 crate 的 Cargo.toml，
+# 报告声明却未被源码引用的依赖（含 `use`/路径引用判定，能识别宏与 derive）。误报可
+# 通过 `[package.metadata.cargo-machete] ignored` 白名单处理，而不是长期留痕。
+if command -v cargo-machete >/dev/null 2>&1; then
+  if ! cargo machete; then
+    echo ""
+    echo "❌ push 被拦下：存在未被引用的依赖（cargo-machete）。"
+    echo "   处理：删除声明、移到正确 crate，或加入 [package.metadata.cargo-machete] ignored。"
+    echo "$BYPASS_HINT"
+    exit 1
+  fi
+  echo "✅ cargo-machete 未发现未使用依赖"
+else
+  echo "tip: install cargo-machete for push-time unused-dependency checks (cargo install cargo-machete)"
 fi

@@ -19,6 +19,7 @@
 # 追加（2026-10-04，F7 部署文档对齐）：baseurl、dtls、mkcert、openssl、rhel、turnserver、udp（docker/deploy/README.md 按 deploy.sh 重写后新出现的依赖 / 协议记号）。
 # 追加（2026-10-04，第三轮遗留问题报告）：circuitbreaker、halfopen、warmup（熔断器/半开/预热技术记号）。
 # 追加（2026-10-05，全量系统测试报告 P1/P2 复测）：acao（CORS `ACAO` 被脚本小写化）、cpus、mem（docker 资源记号 cpus=/mem=）、geolocation、html（报告引用的 .html 产物）、vu（k6 虚拟用户 `VU` 被脚本小写化）。
+# 追加（2026-10-06，全量测试与性能门禁验证登记）：contrib、pgcrypto（migrations/README.md）、github、opengraph（全面报告 §1.5 运行证据）。
 abi
 acao
 accessexclusivelock
@@ -173,6 +174,7 @@ configs
 conn
 conns
 const
+contrib
 corecontext
 coreservices
 coreutils
@@ -182,6 +184,7 @@ cov
 coverable
 cpus
 cpython
+cq
 cqrs
 createeventparams
 createroom
@@ -321,6 +324,7 @@ fromref
 fromrequestparts
 frontend
 frontmatter
+fs
 fsync
 fts
 gc
@@ -337,6 +341,7 @@ ghcr
 ghsa
 gitignore
 gitignored
+github
 gitleaks
 glibc
 glm
@@ -578,6 +583,7 @@ oneshot
 oom
 openapi
 openclaw
+opengraph
 openid
 openssl
 opentelemetry
@@ -599,6 +605,7 @@ pdus
 pem
 perf
 pgbouncer
+pgcrypto
 pgpool
 pgpooloptions
 pgsql
@@ -668,6 +675,7 @@ reachability
 readme
 readreceipts
 readreceiptsmanager
+reasonless
 rebase
 recurse
 redactions
@@ -744,6 +752,7 @@ rw
 rwlock
 saml
 sanitization
+sargable
 sarif
 sas
 scheduledtasks

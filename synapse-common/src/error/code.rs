@@ -28,7 +28,12 @@ pub enum MatrixErrorCode {
     LimitExceeded,
     /// M_UNKNOWN: Fallback for unknown Matrix error codes.
     Unknown,
-    /// M_UNRECOGNIZED: The error code is not recognized by this server.
+    /// M_UNRECOGNIZED: The endpoint or method is not recognized by this server.
+    ///
+    /// Per Matrix spec, `M_UNRECOGNIZED` is returned with HTTP 404 (unknown
+    /// endpoint) or 405 (method not allowed). `http_status()` below maps it to
+    /// 404; the router-level 405 case is handled by the method-not-allowed
+    /// middleware, which emits the errcode directly.
     Unrecognized,
     /// M_UNAUTHORIZED: Authentication required.
     Unauthorized,
@@ -77,13 +82,14 @@ pub enum MatrixErrorCode {
     /// M_CANNOT_LEAVE_SERVER_NOTICE_ROOM: Cannot leave a server notice room.
     CannotLeaveServerNoticeRoom,
     /// M_UNRECOGNIZED: The operation is not implemented (shared with `Unrecognized`).
+    ///
+    /// Normalized to HTTP 404 (see `Unrecognized`); there is no Matrix errcode
+    /// for 501, so an unimplemented endpoint is presented as "unknown endpoint".
     Unimplemented,
     /// M_REQUEST_TIMEOUT: The request timed out.
     RequestTimeout,
     /// M_USER_LIMIT_EXCEEDED: The server has reached its user account limit (MSC4335).
     UserLimitExceeded,
-    /// M_UNSUPPORTED: The server does not support this feature (e.g. presence disabled).
-    Unsupported,
     /// M_UNKNOWN_POS: The sliding-sync `pos` token is invalid or expired (MSC4186).
     UnknownPos,
     /// M_BAD_PAGINATION: Bad pagination query parameters (e.g. unparseable `since` token).
@@ -139,7 +145,6 @@ impl MatrixErrorCode {
             Self::Unimplemented => "M_UNRECOGNIZED",
             Self::RequestTimeout => "M_REQUEST_TIMEOUT",
             Self::UserLimitExceeded => "M_USER_LIMIT_EXCEEDED",
-            Self::Unsupported => "M_UNSUPPORTED",
             Self::UnknownPos => "M_UNKNOWN_POS",
             Self::BadPagination => "M_BAD_PAGINATION",
             Self::ContentScanFailed => "M_CONTENT_SCAN_FAILED",
@@ -161,7 +166,10 @@ impl MatrixErrorCode {
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::LimitExceeded => StatusCode::TOO_MANY_REQUESTS,
             Self::Unknown => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::Unrecognized => StatusCode::BAD_REQUEST,
+            // Matrix spec: M_UNRECOGNIZED ↔ 404 (unknown endpoint) or 405 (bad
+            // method). Normalize to 404 here; the 405 case is emitted by the
+            // method-not-allowed middleware, not via this mapping.
+            Self::Unrecognized => StatusCode::NOT_FOUND,
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::UserDeactivated => StatusCode::FORBIDDEN,
             Self::UserInUse => StatusCode::BAD_REQUEST,
@@ -185,11 +193,12 @@ impl MatrixErrorCode {
             Self::Exclusive => StatusCode::CONFLICT,
             Self::ResourceLimitExceeded => StatusCode::FORBIDDEN,
             Self::CannotLeaveServerNoticeRoom => StatusCode::FORBIDDEN,
-            Self::Unimplemented => StatusCode::NOT_IMPLEMENTED,
+            // No Matrix errcode exists for 501; present unimplemented endpoints
+            // as 404 M_UNRECOGNIZED instead (see `Unimplemented` docs).
+            Self::Unimplemented => StatusCode::NOT_FOUND,
             Self::RequestTimeout => StatusCode::GATEWAY_TIMEOUT,
             // MSC4335: Too many users — 429 with retry-after semantics
             Self::UserLimitExceeded => StatusCode::TOO_MANY_REQUESTS,
-            Self::Unsupported => StatusCode::METHOD_NOT_ALLOWED,
             Self::UnknownPos => StatusCode::BAD_REQUEST,
             Self::BadPagination => StatusCode::BAD_REQUEST,
             Self::ContentScanFailed => StatusCode::BAD_GATEWAY,
@@ -245,7 +254,6 @@ impl MatrixErrorCode {
             "M_CANNOT_LEAVE_SERVER_NOTICE_ROOM" => Some(Self::CannotLeaveServerNoticeRoom),
             "M_REQUEST_TIMEOUT" => Some(Self::RequestTimeout),
             "M_USER_LIMIT_EXCEEDED" => Some(Self::UserLimitExceeded),
-            "M_UNSUPPORTED" => Some(Self::Unsupported),
             "M_UNKNOWN_POS" => Some(Self::UnknownPos),
             "M_BAD_PAGINATION" => Some(Self::BadPagination),
             "M_CONTENT_SCAN_FAILED" => Some(Self::ContentScanFailed),
@@ -317,7 +325,6 @@ impl<'de> Deserialize<'de> for MatrixErrorCode {
                     "M_CANNOT_LEAVE_SERVER_NOTICE_ROOM",
                     "M_REQUEST_TIMEOUT",
                     "M_USER_LIMIT_EXCEEDED",
-                    "M_UNSUPPORTED",
                     "M_UNKNOWN_POS",
                     "M_BAD_PAGINATION",
                     "M_CONTENT_SCAN_FAILED",

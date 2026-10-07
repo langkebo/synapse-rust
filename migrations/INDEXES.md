@@ -6,24 +6,35 @@
 > 判据与证据见 `docs/audit/DB_REVIEW_2026-09-17.md` §1；防复发守卫见
 > `scripts/check_baseline_consolidation.py` 的 `duplicate_indexes()`。
 
-> 版本: v1.3.0
-> 更新日期: 2026-09-16
+> 版本: v1.4.0
+> 更新日期: 2026-10-06
 > 数据源: `migrations/00000000_unified_schema_v12.sql`（唯一真相源；
 > 原 `20260904*_schema_p*.sql` 审计迁移已删除，其对象已**全部**折入 baseline 尾部
 > 的"完整性约束与性能索引折入块"）
 
-> **覆盖率说明**：v12 baseline 中共 **350** 条
-> `CREATE (UNIQUE) INDEX [CONCURRENTLY] IF NOT EXISTS` 语句，**350** 个不同索引名，
+> **覆盖率说明（2026-10-06 重测）**：v12 baseline 中共 **342** 条
+> `CREATE (UNIQUE) INDEX [CONCURRENTLY] IF NOT EXISTS` 语句，**342** 个不同索引名，
 > **0** 个重复名。守卫见
 > `tests/unit/migration_consistency_tests.rs::baseline_declares_each_object_exactly_once`。
-> 本文档（两张表去重后）共记录 **140** 个索引名，覆盖核心查询路径。
+> 本文档（两张表去重后）共记录 **134** 个索引名，覆盖核心查询路径。
+>
+> **2026-10-06（CQ-08 订正）**：上列 **342/134** 为按下方"复现命令"实测的权威值，
+> 口径与守卫测试解析器一致（剥除 `--` 注释行后匹配）。此前本行及下方
+> 2026-10-06(PERF-02)/2026-09-25(U-3)/2026-09-18 各注记中的 `351/141`、`350/350`、
+> `349/349`、`358` 均系**历史读数**（baseline 每次增删索引后未同步），仅作沿革保留，
+> **一律以 342/134 为准**。
+>
+> **2026-10-06（PERF-02）**：新增复合索引 `idx_events_type_origin_ts`
+> （`events(event_type, origin_server_ts DESC)`），服务 `get_daily_message_count`
+> 的「事件类型等值 + 时间范围」谓词。（原注"计数由 350/140 更正为 351/141"已失效，
+> 见上。）
 > 完整索引清单请直接查看 `00000000_unified_schema_v12.sql` 中的 `CREATE INDEX`
 > 语句，或在数据库中执行 `SELECT indexname FROM pg_indexes WHERE schemaname = 'public'`。
 >
 > **2026-09-25（U-3）复核**：本行的计数在 2026-09-18 记为 358，但此后 baseline 删除了
 > `search_index` 的 4 条索引与 E2EE 设备验证模块的 6 条索引（`793304d36eee7917` 前后两批），
 > 该值**未同步**。本轮 U-3 新增 `idx_media_metadata_content_hash` 时按上面的命令重算：
-> HEAD 为 **349/349**，加一条后 **350/350**，故更正为 350（此前 358 属过期读数）。
+> HEAD 为 **349/349**，加一条后 **350/350**（均为当时读数，现已过期，见上）。
 >
 > **2026-09-18 事实核对（Task 5）**：本文档原先的"369 条 / 369 个不同名"与"97 个"
 > 均为**过期读数**，已按实测更正为上列数字。核对方法（可复现）：
@@ -34,16 +45,17 @@
 > `pg_indexes` 里存在；被 baseline 主动删除的（如 v11-10 块删掉的 `uq_*`）
 > 必须标注为"已删除"，不得继续以"在建索引"出现。
 >
-> 复现"350/350"的命令（先剥掉 `--` 注释行，再匹配
+> 复现"342/342"的命令（先剥掉 `--` 注释行，再匹配
 > `CREATE\s+(UNIQUE\s+)?INDEX\s+(CONCURRENTLY\s+)?IF\s+NOT\s+EXISTS\s+<name>`）：
 > ```bash
 > python3 -c "
 > import re
 > L=[l for l in open('migrations/00000000_unified_schema_v12.sql') if not l.strip().startswith('--')]
 > n=re.findall(r'CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?IF\s+NOT\s+EXISTS\s+([A-Za-z0-9_]+)','\n'.join(L),re.I)
-> print(len(n), len(set(n)))"   # → 350 350
+> print(len(n), len(set(n)))"   # → 342 342
 > ```
-> （裸用 `grep -c` 会多算 1 行**注释续行**得 351，勿用。）
+> （2026-10-06 重测：当前 baseline 中该 `CREATE INDEX` 模式无论是否剥除注释行，
+> 结果均为 342/342——旧注记"裸用 `grep -c` 会多算 1 行注释续行"已不再成立。）
 
 ---
 
@@ -143,6 +155,7 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | events | idx_events_sync_covering | room_id, stream_ordering DESC INCLUDE (event_id, sender, event_type, content, origin_server_ts) | 否 | 覆盖索引：同步查询优化 |
 | events | idx_events_not_redacted | room_id, origin_server_ts DESC | 否 | 未删除事件查询（Partial） |
 | events | idx_events_type_state | room_id, event_type, state_key | 否 | 房间状态事件查询（Partial） |
+| events | idx_events_type_origin_ts | event_type, origin_server_ts DESC | 否 | 按事件类型+时间范围查询（get_daily_message_count，PERF-02） |
 | events | idx_events_room_stream_ordering_not_redacted | room_id, stream_ordering DESC | 否 | 未删除事件流序号查询（Partial） |
 | events | idx_events_friend_room | sender, room_id, origin_server_ts DESC | 否 | 好友房间事件查询（Partial） |
 | events | idx_events_friend_list | room_id, origin_server_ts DESC | 否 | 好友列表事件查询（Partial） |

@@ -6,7 +6,8 @@ set -euo pipefail
 
 BASE_URL="http://localhost:8081"
 HTTPS_URL="https://localhost:8443"
-PRO_PASS="SecurePassword123ChangeMe!" # 默认密码
+# 管理员密码：优先取环境变量，未设置时回退到本地默认值（勿用于生产环境）
+PRO_PASS="${PRO_PASS:-SecurePassword123ChangeMe!}"
 
 echo "=== Phase 4 安全加固验证 ==="
 echo ""

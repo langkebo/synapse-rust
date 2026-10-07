@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id as \"id!\", token_hash as \"token_hash!\", user_id as \"user_id!\", device_id as \"device_id?\", created_ts as \"created_ts!\", expires_at as \"expires_at?\", last_used_ts as \"last_used_ts?\", user_agent as \"user_agent?\", ip_address as \"ip_address?\", is_revoked as \"is_revoked!\"\n            FROM access_tokens WHERE user_id = $1\n            ",
+  "query": "\n            SELECT id as \"id!\", token_hash as \"token_hash!\", user_id as \"user_id!\", device_id as \"device_id?\", created_ts as \"created_ts!\", expires_at as \"expires_at?\", last_used_ts as \"last_used_ts?\", user_agent as \"user_agent?\", ip_address as \"ip_address?\", is_revoked as \"is_revoked!\"\n            FROM access_tokens WHERE token_hash IN ($1, $2) AND is_revoked = FALSE\n            ORDER BY (token_hash = $1) DESC\n            LIMIT 1\n            ",
   "describe": {
     "columns": [
       {
@@ -56,6 +56,7 @@
     ],
     "parameters": {
       "Left": [
+        "Text",
         "Text"
       ]
     },
@@ -72,5 +73,5 @@
       true
     ]
   },
-  "hash": "cadaabf30c053590f13ab81f9de1470a51f61606ce66c22f1980920824d7c4eb"
+  "hash": "c3ca797788bd89ea05f7952653ad9ea6cf285165322f1842a0d728c61dbc7783"
 }

@@ -98,12 +98,12 @@ impl MediaService {
     }
 
     /// See [`new`].
-    pub fn new(media_path: &str, task_queue: Option<Arc<RedisTaskQueue>>, server_name: &str) -> Self {
-        Self::with_pool(media_path, task_queue, server_name, None)
+    pub async fn new(media_path: &str, task_queue: Option<Arc<RedisTaskQueue>>, server_name: &str) -> Self {
+        Self::with_pool(media_path, task_queue, server_name, None).await
     }
 
     /// See [`with_pool`].
-    pub fn with_pool(
+    pub async fn with_pool(
         media_path: &str,
         task_queue: Option<Arc<RedisTaskQueue>>,
         server_name: &str,
@@ -113,19 +113,20 @@ impl MediaService {
         let thumbnail_path = path.join("thumbnails");
 
         ::tracing::info!(media_path = %media_path, server_name = %server_name, "Initializing media service");
-        ::tracing::info!(media_path = %path.display(), path_exists = path.exists(), "Checked media path");
+        let path_exists = tokio::fs::try_exists(&path).await.unwrap_or(false);
+        ::tracing::info!(media_path = %path.display(), path_exists, "Checked media path");
 
-        if !path.exists() {
+        if !path_exists {
             ::tracing::info!(media_dir = %path.display(), "Attempting to create media directory");
-            if let Err(e) = std::fs::create_dir_all(&path) {
+            if let Err(e) = tokio::fs::create_dir_all(&path).await {
                 ::tracing::error!(error = %e, media_dir = %path.display(), "Failed to create media directory");
             } else {
                 ::tracing::info!(media_dir = %path.display(), "Created media directory");
             }
         }
 
-        if !thumbnail_path.exists() {
-            if let Err(e) = std::fs::create_dir_all(&thumbnail_path) {
+        if !tokio::fs::try_exists(&thumbnail_path).await.unwrap_or(false) {
+            if let Err(e) = tokio::fs::create_dir_all(&thumbnail_path).await {
                 ::tracing::error!(error = %e, thumbnail_dir = %thumbnail_path.display(), "Failed to create thumbnail directory");
             }
         }
@@ -245,14 +246,14 @@ impl MediaService {
             "Uploading media"
         );
 
-        if !self.media_path.exists() {
+        if !tokio::fs::try_exists(&self.media_path).await.unwrap_or(false) {
             ::tracing::warn!(
                 media_id = %media_id,
                 user_id = %user_id,
                 media_path = %self.media_path.display(),
                 "Media path does not exist, attempting to create"
             );
-            if let Err(e) = std::fs::create_dir_all(&self.media_path) {
+            if let Err(e) = tokio::fs::create_dir_all(&self.media_path).await {
                 ::tracing::error!(
                     media_id = %media_id,
                     user_id = %user_id,
@@ -950,6 +951,12 @@ impl MediaService {
     }
 
     /// See [`preview_url`].
+    ///
+    /// **Stub**: this does not fetch `url`. It returns placeholder OpenGraph
+    /// metadata so the endpoint (gated behind `msc4452_enabled`, default off)
+    /// has a well-formed shape. A real implementation must perform the fetch on
+    /// the verified IPs returned by `check_url_and_resolve`, pinned via
+    /// `http_client::pinned_client_for_url`, before advertising MSC4452.
     pub fn preview_url(&self, url: &str, _ts: i64) -> ApiResult<serde_json::Value> {
         Ok(serde_json::json!({
             "url": url,
@@ -1149,12 +1156,12 @@ mod tests {
         assert!(MediaService::is_animated_image(b"GIF87a"));
     }
 
-    #[test]
-    fn test_media_service_creation() {
+    #[tokio::test]
+    async fn test_media_service_creation() {
         let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
         let media_path = temp_dir.path().to_str().unwrap();
 
-        let service = MediaService::new(media_path, None, "test.server");
+        let service = MediaService::new(media_path, None, "test.server").await;
 
         assert!(service.media_path.exists());
         assert!(service.thumbnail_path.exists());
@@ -1162,20 +1169,20 @@ mod tests {
         assert_eq!(service.default_thumbnail_configs.len(), 5);
     }
 
-    #[test]
-    fn test_media_service_task_queue_field() {
+    #[tokio::test]
+    async fn test_media_service_task_queue_field() {
         let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
         let media_path = temp_dir.path().to_str().unwrap();
 
-        let service = MediaService::new(media_path, None, "test.server");
+        let service = MediaService::new(media_path, None, "test.server").await;
         assert!(service.task_queue.is_none());
     }
 
-    #[test]
-    fn test_get_extension_from_content_type() {
+    #[tokio::test]
+    async fn test_get_extension_from_content_type() {
         let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
         let media_path = temp_dir.path().to_str().unwrap();
-        let _service = MediaService::new(media_path, None, "test.server");
+        let _service = MediaService::new(media_path, None, "test.server").await;
 
         assert_eq!(MediaService::get_extension_from_content_type("image/jpeg"), "jpg");
         assert_eq!(MediaService::get_extension_from_content_type("image/png"), "png");
@@ -1206,11 +1213,11 @@ mod tests {
         assert_eq!(config.quality, 90);
     }
 
-    #[test]
-    fn test_media_service_default_thumbnail_configs() {
+    #[tokio::test]
+    async fn test_media_service_default_thumbnail_configs() {
         let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
         let media_path = temp_dir.path().to_str().unwrap();
-        let service = MediaService::new(media_path, None, "test.server");
+        let service = MediaService::new(media_path, None, "test.server").await;
 
         let configs = &service.default_thumbnail_configs;
 
@@ -1263,7 +1270,7 @@ mod tests {
     async fn test_get_thumbnail_configurations() {
         let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
         let media_path = temp_dir.path().to_str().unwrap();
-        let service = MediaService::new(media_path, None, "test.server");
+        let service = MediaService::new(media_path, None, "test.server").await;
 
         let configs = service.get_thumbnail_configurations();
         assert_eq!(configs.len(), 5);
@@ -1273,7 +1280,7 @@ mod tests {
     async fn test_async_content_type_validation() {
         let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
         let media_path = temp_dir.path().to_str().unwrap();
-        let _service = MediaService::new(media_path, None, "test.server");
+        let _service = MediaService::new(media_path, None, "test.server").await;
 
         let test_cases = vec![
             ("image/jpeg", "jpg"),
@@ -1295,7 +1302,7 @@ mod tests {
     async fn test_async_upload_different_types() {
         let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
         let media_path = temp_dir.path().to_str().unwrap();
-        let service = MediaService::new(media_path, None, "test.server");
+        let service = MediaService::new(media_path, None, "test.server").await;
 
         let content = b"test content";
 
@@ -1313,7 +1320,7 @@ mod tests {
     async fn test_async_cleanup_empty_directory() {
         let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
         let media_path = temp_dir.path().to_str().unwrap();
-        let service = MediaService::new(media_path, None, "test.server");
+        let service = MediaService::new(media_path, None, "test.server").await;
 
         let result = service.cleanup_old_thumbnails(30).await;
         assert!(result.is_ok());
@@ -1325,7 +1332,7 @@ mod tests {
     async fn test_async_preview_url_metadata() {
         let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
         let media_path = temp_dir.path().to_str().unwrap();
-        let service = MediaService::new(media_path, None, "test.server");
+        let service = MediaService::new(media_path, None, "test.server").await;
 
         let url = "https://example.com/test";
         let ts = 1234567890i64;
@@ -1341,7 +1348,7 @@ mod tests {
     async fn find_media_file_name_caches_resolved_name() {
         let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
         let media_path = temp_dir.path().to_str().unwrap();
-        let service = MediaService::new(media_path, None, "test.server");
+        let service = MediaService::new(media_path, None, "test.server").await;
 
         let media_id = "m_cachetest";
         let file_name = format!("{media_id}.bin");
@@ -1362,7 +1369,7 @@ mod tests {
     async fn delete_media_invalidates_file_name_cache() {
         let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
         let media_path = temp_dir.path().to_str().unwrap();
-        let service = MediaService::new(media_path, None, "test.server");
+        let service = MediaService::new(media_path, None, "test.server").await;
 
         let media_id = "m_deletetest";
         let file_name = format!("{media_id}.bin");

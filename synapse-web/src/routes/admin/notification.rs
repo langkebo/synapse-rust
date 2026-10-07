@@ -75,7 +75,7 @@ mod cursor_tests {
 
 /// See [`create_notification_router`].
 pub fn create_notification_router() -> Router<crate::routes::AppState> {
-    #[allow(unused_mut)]
+    #[allow(unused_mut)] // `mut` needed when the `server-notifications` feature is enabled; unused otherwise.
     let mut router = Router::new();
 
     #[cfg(feature = "server-notifications")]

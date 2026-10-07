@@ -1079,11 +1079,13 @@ async fn client_message_in_v12_room_persists_graph_metadata() {
 }
 
 /// U-13-R9 (membership path): a `/send_join` v2 into a v12 room must persist the
-/// graph metadata **and** leave a local signature on the stored row.
+/// graph metadata, leave a local signature on the stored row, **and** echo the
+/// signed PDU back as `event` (FED-01 — the spec requires it, and it is the only
+/// copy the joining server can verify).
 ///
 /// The join event is created locally by the resident server, so it exercises
-/// the same write path as the client message above; `re_sign_pdu_locally` only
-/// signs a projection that is `Complete`.
+/// the same write path as the client message above; `project_and_sign_pdu_locally`
+/// only signs a projection that is `Complete`.
 #[tokio::test]
 async fn send_join_v2_in_v12_room_persists_graph_metadata_and_signs_the_member_event() {
     let Some((app, pool, key_id, _key_b64, _signing_key, _cache)) = setup_federation_app().await else {
@@ -1114,6 +1116,32 @@ async fn send_join_v2_in_v12_room_persists_graph_metadata_and_signs_the_member_e
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK, "a public-room send_join must succeed");
 
+    // FED-01: the response must carry the signed join PDU as `event` — without
+    // it the joining server has nothing it can verify against the resident
+    // server's key.
+    let body_bytes = axum::body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let response_body: Value = serde_json::from_slice(&body_bytes).expect("send_join v2 must answer with JSON");
+    let echoed_event =
+        response_body.get("event").expect("FED-01: send_join v2 must return the signed join PDU as `event`");
+    assert_eq!(
+        echoed_event.get("type").and_then(Value::as_str),
+        Some("m.room.member"),
+        "the echoed `event` must be the join PDU, got {echoed_event}"
+    );
+    assert_eq!(
+        echoed_event.get("state_key").and_then(Value::as_str),
+        Some(joiner),
+        "the echoed `event` must be the joining user's member event, got {echoed_event}"
+    );
+    assert!(
+        echoed_event.get("hashes").is_some(),
+        "FED-01: the echoed join PDU must carry `hashes`, got {echoed_event}"
+    );
+    assert!(
+        echoed_event.get("signatures").and_then(Value::as_object).is_some_and(|sigs| !sigs.is_empty()),
+        "FED-01: the echoed join PDU must carry a non-empty `signatures`, got {echoed_event}"
+    );
+
     let storage = EventStorage::new(&pool, "localhost".to_string());
     let records = storage.get_state_events(&room_id).await.expect("state rows must be readable");
     let record = records
@@ -1136,8 +1164,8 @@ async fn send_join_v2_in_v12_room_persists_graph_metadata_and_signs_the_member_e
     let (_, completeness) = state_pdu("localhost", record, Some("12"));
     assert_eq!(completeness, PduCompleteness::Complete, "the persisted join event must project Complete");
 
-    assert!(record.hashes.is_some(), "re_sign_pdu_locally must persist hashes on the join event");
-    assert!(record.signatures.is_some(), "re_sign_pdu_locally must persist signatures on the join event");
+    assert!(record.hashes.is_some(), "project_and_sign_pdu_locally must persist hashes on the join event");
+    assert!(record.signatures.is_some(), "project_and_sign_pdu_locally must persist signatures on the join event");
 }
 
 // ---------------------------------------------------------------------------

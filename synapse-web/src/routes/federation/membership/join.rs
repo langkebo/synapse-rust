@@ -10,8 +10,8 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::*;
 
 use super::{
-    dispatch_federation_member_event_to_appservice, federatable_room_version, re_sign_pdu_locally,
-    validate_federation_member_event, validate_federation_user_origin,
+    dispatch_federation_member_event_to_appservice, federatable_room_version, project_and_sign_pdu_locally,
+    validate_federation_member_event, validate_federation_user_origin, verify_inbound_join_pdu_integrity,
 };
 
 /// Build a join event template (pure, testable).
@@ -151,7 +151,8 @@ pub(crate) async fn send_join(
                 e
             }
         })?;
-        let _room_version = federatable_room_version(&ctx, &room_id).await?;
+        let room_version = federatable_room_version(&ctx, &room_id).await?;
+        verify_inbound_join_pdu_integrity(&ctx, &room_version, event).await?;
         let content = event.get("content").cloned().unwrap_or(json!({}));
         let display_name = content.get("displayname").and_then(|v| v.as_str());
 
@@ -179,12 +180,19 @@ pub(crate) async fn send_join(
         // that does not exist and silently skip the local signature (F-03).
         let event_id = stored.event_id;
 
-        // F-03: the event row is persisted above; sign the PDU it projects to,
-        // so third-party origins can verify it via verify_pdu_sender_signature.
-        // The helper reads the row back itself — never hand it a partial dict of
-        // hand-picked fields: the hash of such a dict can never be reproduced
-        // from the full PDU a peer receives.
-        re_sign_pdu_locally(&ctx, &event_id).await;
+        // F-03 + FED-01: the event row is persisted above; sign the PDU it
+        // projects to, so third-party origins can verify it via
+        // verify_pdu_sender_signature — and return that signed PDU in the
+        // response, which the spec requires as `event`. The helper reads the row
+        // back itself — never hand it a partial dict of hand-picked fields: the
+        // hash of such a dict can never be reproduced from the full PDU a peer
+        // receives. A missing signature is a hard failure: answering without the
+        // signed event would leave the joining server unable to verify the PDU.
+        let Some(signed_pdu) = project_and_sign_pdu_locally(&ctx, &event_id).await else {
+            return Err(ApiError::internal(
+                "Failed to sign the persisted join event for the federation response".to_string(),
+            ));
+        };
 
         dispatch_federation_member_event_to_appservice(&ctx, &event_id, &room_id, user_id, &content, Some(user_id))
             .await;
@@ -230,6 +238,7 @@ pub(crate) async fn send_join(
             "origin": ctx.server_name,
             "room_id": room_id,
             "event_id": event_id,
+            "event": signed_pdu,
             "state": state,
             "auth_chain": auth_chain
         }])))
@@ -294,7 +303,8 @@ pub(crate) async fn send_join_v2(
                 e
             }
         })?;
-        let _room_version = federatable_room_version(&ctx, &room_id).await?;
+        let room_version = federatable_room_version(&ctx, &room_id).await?;
+        verify_inbound_join_pdu_integrity(&ctx, &room_version, &body).await?;
         let content = body.get("content").cloned().unwrap_or(json!({}));
         let display_name = content.get("displayname").and_then(|v| v.as_str());
 
@@ -322,10 +332,16 @@ pub(crate) async fn send_join_v2(
         // returns instead of the request path's placeholder (see `send_join`).
         let event_id = stored.event_id;
 
-        // F-03: sign the projected persisted row (see the `send_join` note);
-        // `origin` is part of the signed bytes and is owned by the projector,
-        // not by a caller-supplied dict.
-        re_sign_pdu_locally(&ctx, &event_id).await;
+        // F-03 + FED-01: sign the projected persisted row (see the `send_join`
+        // note); `origin` is part of the signed bytes and is owned by the
+        // projector, not by a caller-supplied dict. Answering without the signed
+        // event is a hard failure — the spec requires `event`, and a peer cannot
+        // verify a PDU it never receives.
+        let Some(signed_pdu) = project_and_sign_pdu_locally(&ctx, &event_id).await else {
+            return Err(ApiError::internal(
+                "Failed to sign the persisted join event for the federation response".to_string(),
+            ));
+        };
 
         dispatch_federation_member_event_to_appservice(&ctx, &event_id, &room_id, sender, &content, Some(sender)).await;
 
@@ -365,6 +381,7 @@ pub(crate) async fn send_join_v2(
             "origin": ctx.server_name,
             "room_id": room_id,
             "event_id": event_id,
+            "event": signed_pdu,
             "state": state,
             "auth_chain": auth_chain
         })))

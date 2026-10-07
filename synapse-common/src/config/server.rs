@@ -143,6 +143,17 @@ pub struct ServerConfig {
     /// `map_style_url` field.
     pub map_style_url: Option<String>,
 
+    /// 支持页 URL
+    ///
+    /// 可选。配置后，`GET /.well-known/matrix/support` 响应体返回
+    /// `{"support_page": <support_url>}`（Matrix 规范 MSC1929 字段名；用户遇到问题时
+    /// 求助的支持页）；未配置时返回空对象 `{}`，而不是硬编码的外部链接。默认 `None`。
+    ///
+    /// 可通过标准环境变量覆盖机制 `SYNAPSE__SERVER__SUPPORT_URL` 覆盖。
+    #[serde(default)]
+    /// `support_url` field.
+    pub support_url: Option<String>,
+
     // ===== 原有字段 =====
     /// 注册共享密钥（用于管理员注册）
     #[educe(Debug(ignore))]

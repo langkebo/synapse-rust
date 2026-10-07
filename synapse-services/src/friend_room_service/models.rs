@@ -47,7 +47,10 @@ pub struct FriendListCursor {
 }
 
 /// See [`encode_friend_list_cursor`].
-#[allow(clippy::expect_used)]
+#[allow(
+    clippy::expect_used,
+    reason = "FriendListCursor is a plain struct of scalars; serde_json serialization is infallible"
+)]
 pub fn encode_friend_list_cursor(cursor: &FriendListCursor) -> String {
     let raw = serde_json::to_string(cursor).expect("friend list cursor serialization should succeed");
     URL_SAFE_NO_PAD.encode(raw.as_bytes())

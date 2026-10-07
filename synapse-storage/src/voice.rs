@@ -90,7 +90,7 @@ impl VoiceStorage {
     }
 
     /// See [`get_user_stats`].
-    #[allow(clippy::expect_used)]
+    #[allow(clippy::expect_used, reason = "00:00:00 is always a valid NaiveTime; the constructor cannot return None")]
     pub async fn get_user_stats(&self, user_id: &str) -> Result<VoiceUserAggregatedStats, sqlx::Error> {
         let today_start = chrono::Utc::now()
             .date_naive()

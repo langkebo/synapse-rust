@@ -1,0 +1,18 @@
+# Memory-budget ratchet baseline (PERF-05). See scripts/ci/check_memory_budget.py.
+#
+# 这些是**测试架构参数**，不是随手写的魔数：基线内存由它们按下面的模型推导，
+# 所以当测试架构/构建产物演进（增删测试二进制、调整池大小）时，改这里是唯一入口，
+# 并在此写明为什么——而不是回去改脚本里的字面量（那正是 PERF-05 的缺陷：基线被
+# 硬编码在 estimate_current_baseline() 里，无从审计、无法随架构更新）。
+#
+# 模型（单位常量定义在 check_memory_budget.py）:
+#   BASELINE_MB = NUM_TEST_BINS × TEST_BINARY_RSS_MB(200)
+#               + NUM_POOLS × (POOL_OVERHEAD_MB(50) + POOL_SIZE × PER_CONNECTION_MB(5))
+#
+# 当前: 8 × 200 + 4 × (50 + 20 × 5) = 1600 + 600 = 2200 MB
+#
+# 2026-10-06  PERF-05：把原先写死在代码里的 8 / 4 / 20 抽到本文件，使基线
+#   可审计、可随测试架构演进更新（值保持不变 2200，故 main 不因本改动变红）。
+NUM_TEST_BINS=8
+NUM_POOLS=4
+POOL_SIZE=20

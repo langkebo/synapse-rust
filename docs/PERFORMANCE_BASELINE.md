@@ -1,7 +1,10 @@
 # 性能基线 & 诊断指南
 
-> 版本：v1.0（2026-09-30）
+> 版本：v1.1（2026-10-06）
 > 适用范围：synapse-rust 负载测试与性能监控
+>
+> v1.1（PERF-06）：更正 §2.1 连接池读数 `5/100` → `5/50`；分母取值以
+> `DatabaseConfig::max_size`（默认 50）为准，并加注更正依据。
 
 ---
 
@@ -52,8 +55,17 @@ P99 响应时间: 150ms
 资源使用:
 - CPU: 15%
 - 内存：800MB
-- 数据库连接池：5/100 (5%)
+- 数据库连接池：5/50 (10%)
 ```
+
+> **PERF-06 更正（2026-10-06）**：本节原记「数据库连接池：5/100 (5%)」，
+> 分母 100 与代码不符——生产连接池上限由
+> [`DatabaseConfig::max_size`](../../synapse-common/src/config/database.rs) 决定，
+> 其默认值为 **50**（对齐 Synapse ≥50），
+> 由 [`server/database.rs`](../../src/server/database.rs) 的
+> `PgPoolOptions::max_connections(db_cfg.max_size)` 生效；`pool_size` 字段已废弃且零引用。
+> 故 5 个活跃连接的正确利用率是 5/50 = **10%**。部署侧不变式（`50 × 进程数 + 保留 ≤ max_connections`）
+> 见 `docker/deploy/README.md`。
 
 ### 2.2 压力测试目标（200 并发）
 

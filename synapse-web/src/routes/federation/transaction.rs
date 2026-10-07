@@ -915,7 +915,11 @@ async fn inbound_pdu_room_version(ctx: &FederationContext, pdu: &Value) -> Resul
     }
 }
 
-async fn verify_pdu_sender_signature(ctx: &FederationContext, room_version: &str, pdu: &Value) -> Result<(), String> {
+pub(crate) async fn verify_pdu_sender_signature(
+    ctx: &FederationContext,
+    room_version: &str,
+    pdu: &Value,
+) -> Result<(), String> {
     let sender = pdu.get("sender").and_then(|v| v.as_str()).ok_or_else(|| "Missing sender on PDU".to_string())?;
     let sender_server =
         super::sender_server_name(sender).ok_or_else(|| format!("Unparseable sender mxid: {sender}"))?;

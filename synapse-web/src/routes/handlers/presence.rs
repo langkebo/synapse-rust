@@ -29,12 +29,13 @@ fn ensure_presence_access(auth_user: &AuthenticatedUser, target_user_id: &str) -
 }
 
 /// P1-3: Reject presence requests when the presence module is disabled in
-/// server config. Per Matrix spec, the server must return `M_UNSUPPORTED`
-/// so clients can gracefully degrade instead of treating the failure as a
-/// transient network error.
+/// server config. Returns `M_FORBIDDEN` (403): the feature is administratively
+/// disabled, so the request is understood but not permitted — the Matrix spec
+/// has no dedicated "feature disabled" errcode, and 403 lets clients cache the
+/// decision instead of retrying as a transient failure.
 fn ensure_presence_enabled(ctx: &RoomContext) -> Result<(), ApiError> {
     if !ctx.config.server.presence_enabled {
-        return Err(ApiError::unsupported("Presence is not supported on this server"));
+        return Err(ApiError::forbidden("Presence is not supported on this server"));
     }
     Ok(())
 }

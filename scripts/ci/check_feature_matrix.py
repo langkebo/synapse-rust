@@ -24,6 +24,7 @@ B6-3: feature 矩阵真实化门禁。
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -32,6 +33,12 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 ROOT_TOML = REPO_ROOT / "Cargo.toml"
 SKIP_FEATURES = {"test-utils", "performance-tests", "server"}
+
+# COMPAT-08: the original 300s ceiling was too tight for a cold workspace
+# build (the script runs `cargo check` 2 + N times, once per shipped feature),
+# so a slow CI runner could time out on a perfectly valid matrix. Raise the
+# default and let CI override it without editing this file.
+DEFAULT_TIMEOUT_SECS = int(os.environ.get("FEATURE_MATRIX_TIMEOUT_SECS", "900"))
 
 
 def parse_features_from_toml() -> dict[str, str]:
@@ -73,7 +80,7 @@ def cargo_check(
     else:
         cmd.append("--all-features")
     proc = subprocess.run(
-        cmd, cwd=REPO_ROOT, capture_output=True, text=True, timeout=300
+        cmd, cwd=REPO_ROOT, capture_output=True, text=True, timeout=DEFAULT_TIMEOUT_SECS
     )
     return proc.returncode, proc.stdout + proc.stderr
 
@@ -143,7 +150,10 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except subprocess.TimeoutExpired:
-        print("::error::cargo check timed out (300s limit)")
+        print(
+            f"::error::cargo check timed out ({DEFAULT_TIMEOUT_SECS}s limit); "
+            "set FEATURE_MATRIX_TIMEOUT_SECS to raise it on slow runners"
+        )
         sys.exit(1)
     except Exception as e:
         print(f"::error::unhandled exception: {e}")

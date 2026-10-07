@@ -28,6 +28,15 @@ pub struct AccessToken {
     pub is_revoked: bool,
 }
 
+/// PERF-03: upper bound on the number of access tokens returned by
+/// [`AccessTokenStorage::get_user_tokens`].
+///
+/// Logout-all (`AuthService::logout_all`) enumerates every token for a user to
+/// blacklist them, so the cap is deliberately generous — it exists only to stop
+/// an unbounded result set (e.g. a client minting tokens in a loop) from
+/// exhausting memory or stalling the request.
+pub const MAX_USER_TOKENS: i64 = 10_000;
+
 /// The `AccessTokenStoreApi` trait.
 #[async_trait]
 pub trait AccessTokenStoreApi: Send + Sync {
@@ -131,26 +140,20 @@ impl AccessTokenStorage {
     /// See [`get_token`].
     pub async fn get_token(&self, token: &str) -> Result<Option<AccessToken>, sqlx::Error> {
         let token_hash = Self::hash_token(token);
-        let row = sqlx::query_as!(
-            AccessToken,
-            r#"
-            SELECT id as "id!", token_hash as "token_hash!", user_id as "user_id!", device_id as "device_id?", created_ts as "created_ts!", expires_at as "expires_at?", last_used_ts as "last_used_ts?", user_agent as "user_agent?", ip_address as "ip_address?", is_revoked as "is_revoked!"
-            FROM access_tokens WHERE token_hash = $1 AND is_revoked = FALSE
-            "#,
-            &token_hash
-        )
-        .fetch_optional(&*self.pool)
-        .await?;
-        if row.is_some() {
-            return Ok(row);
-        }
         let legacy_hash = Self::hash_token_legacy(token);
+        // PERF-01: resolve both the current (HMAC) and legacy hashes in a single
+        // round-trip. The UNIQUE constraint on token_hash means at most one row
+        // matches per hash; `ORDER BY (token_hash = $1) DESC` prefers the current
+        // hash over the legacy one when both happened to be stored.
         let row = sqlx::query_as!(
             AccessToken,
             r#"
             SELECT id as "id!", token_hash as "token_hash!", user_id as "user_id!", device_id as "device_id?", created_ts as "created_ts!", expires_at as "expires_at?", last_used_ts as "last_used_ts?", user_agent as "user_agent?", ip_address as "ip_address?", is_revoked as "is_revoked!"
-            FROM access_tokens WHERE token_hash = $1 AND is_revoked = FALSE
+            FROM access_tokens WHERE token_hash IN ($1, $2) AND is_revoked = FALSE
+            ORDER BY (token_hash = $1) DESC
+            LIMIT 1
             "#,
+            &token_hash,
             &legacy_hash
         )
         .fetch_optional(&*self.pool)
@@ -165,11 +168,21 @@ impl AccessTokenStorage {
             r#"
             SELECT id as "id!", token_hash as "token_hash!", user_id as "user_id!", device_id as "device_id?", created_ts as "created_ts!", expires_at as "expires_at?", last_used_ts as "last_used_ts?", user_agent as "user_agent?", ip_address as "ip_address?", is_revoked as "is_revoked!"
             FROM access_tokens WHERE user_id = $1
+            ORDER BY id ASC
+            LIMIT $2
             "#,
-            user_id
+            user_id,
+            MAX_USER_TOKENS
         )
         .fetch_all(&*self.pool)
         .await?;
+        if rows.len() as i64 >= MAX_USER_TOKENS {
+            tracing::warn!(
+                user_id = %user_id,
+                limit = MAX_USER_TOKENS,
+                "get_user_tokens hit the row cap; some access tokens were not returned"
+            );
+        }
         Ok(rows)
     }
 

@@ -192,24 +192,25 @@ async fn test_versions_and_public_capabilities_match_declared_room_version_surfa
     assert_eq!(capabilities["m.voice"]["enabled"], true);
     assert_eq!(capabilities["m.thread"]["enabled"], true);
     assert_eq!(room_versions["default"], DEFAULT_ROOM_VERSION);
-    // Only creatable versions appear in the client capability list.
-    let creatable_count = SUPPORTED_ROOM_VERSIONS.iter().filter(|c| c.can_create).count();
-    assert_eq!(available.len(), creatable_count);
+    // `available` lists every room version this server *supports* (parse / join /
+    // federate), not only the creatable subset: clients use it to know which
+    // existing rooms they may reference, so narrowing it to the v12 creation set
+    // would make v1–v11 rooms look unreachable. `default` is the single creatable
+    // version — see `client_room_versions_capability` and the `capabilities_v3`
+    // contract snapshot, which pin the same shape.
+    //
+    // This assertion previously read `available.len() == creatable_count`, which
+    // held only while every version was creatable. G-1 (`7489b247f`) restricted
+    // creation to v12 without updating it, so it has failed (12 vs 1) ever since;
+    // `8687d8335` fixed the shape and pinned the snapshot but missed this file.
+    assert_eq!(available.len(), SUPPORTED_ROOM_VERSIONS.len());
     for supported in SUPPORTED_ROOM_VERSIONS {
-        if supported.can_create {
-            assert_eq!(
-                available.get(supported.version).and_then(|value| value.as_str()),
-                Some(supported.disposition_str()),
-                "declared room version surface should include {}",
-                supported.version
-            );
-        } else {
-            assert!(
-                available.get(supported.version).is_none(),
-                "non-creatable room version {} should not appear in client capabilities",
-                supported.version
-            );
-        }
+        assert_eq!(
+            available.get(supported.version).and_then(|value| value.as_str()),
+            Some(supported.disposition_str()),
+            "declared room version surface should include {}",
+            supported.version
+        );
     }
     assert_eq!(unstable["org.matrix.msc3245.voice"], true);
     assert_eq!(unstable["org.matrix.msc3983.thread"], true);
@@ -236,7 +237,8 @@ async fn test_auth_metadata_returns_unrecognized_when_oidc_is_disabled() {
         .body(Body::empty())
         .unwrap();
     let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    // COMPAT-03: M_UNRECOGNIZED is spec-mapped to 404 (not 400).
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
     let body = axum::body::to_bytes(response.into_body(), 2048).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();

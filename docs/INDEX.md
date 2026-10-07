@@ -76,7 +76,8 @@
 
 按时间/主题组织的审计基线，关键入口：
 
-- [`COMPREHENSIVE_LEGACY_ISSUES_REPORT_20261004.md`](./audit/COMPREHENSIVE_LEGACY_ISSUES_REPORT_20261004.md) — **当前遗留问题综合报告**（问题汇总、优先级、处置顺序）
+- [`COMPREHENSIVE_LEGACY_ISSUES_REPORT_20261006.md`](./audit/COMPREHENSIVE_LEGACY_ISSUES_REPORT_20261006.md) — **当前遗留问题综合报告**（问题汇总、优先级、处置顺序）
+- [`archive/COMPREHENSIVE_LEGACY_ISSUES_REPORT_20261004.md`](./audit/archive/COMPREHENSIVE_LEGACY_ISSUES_REPORT_20261004.md) — 上一版综合报告（已被取代，2026-10-06 归档）
 - [`UNRESOLVED_ISSUES_SUMMARY.md`](./audit/UNRESOLVED_ISSUES_SUMMARY.md) — 未解决问题总览
 - [`CURRENT_ISSUES_AND_PLAN.md`](./audit/archive/CURRENT_ISSUES_AND_PLAN.md) — 实时更新清单（2026-10-04 已归档至 `docs/audit/archive/`）
 - [`ROOM_V12_PLAN_STATUS_2026-09-27.md`](./audit/ROOM_V12_PLAN_STATUS_2026-09-27.md) — Room v12 合规状态

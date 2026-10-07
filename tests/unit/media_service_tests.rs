@@ -6,10 +6,10 @@ use tokio::runtime::Runtime;
 
 use synapse_services::media_service::MediaService;
 
-fn create_test_media_service() -> (MediaService, tempfile::TempDir) {
+async fn create_test_media_service() -> (MediaService, tempfile::TempDir) {
     let temp_dir = tempdir().expect("Failed to create temp directory");
     let media_path = temp_dir.path().to_str().expect("Invalid path");
-    let media_service = MediaService::new(media_path, None, "test.local");
+    let media_service = MediaService::new(media_path, None, "test.local").await;
     (media_service, temp_dir)
 }
 
@@ -21,7 +21,7 @@ fn create_test_media_service() -> (MediaService, tempfile::TempDir) {
 fn test_get_media_file_path_returns_correct_path() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        let (media_service, _temp_dir) = create_test_media_service();
+        let (media_service, _temp_dir) = create_test_media_service().await;
         let content = create_test_image_data();
 
         let upload_result = media_service.upload_media("@alice:example.com", &content, "image/png", None).await;
@@ -45,7 +45,7 @@ fn test_get_media_file_path_returns_correct_path() {
 fn test_get_media_file_path_returns_none_for_nonexistent() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        let (media_service, _temp_dir) = create_test_media_service();
+        let (media_service, _temp_dir) = create_test_media_service().await;
 
         let file_path = media_service.get_media_file_path("test.local", "nonexistent_media_id").await;
 
@@ -57,7 +57,7 @@ fn test_get_media_file_path_returns_none_for_nonexistent() {
 fn test_get_media_file_path_validates_media_id() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        let (media_service, _temp_dir) = create_test_media_service();
+        let (media_service, _temp_dir) = create_test_media_service().await;
 
         // Invalid media_id with path traversal characters should return None
         let file_path = media_service.get_media_file_path("test.local", "../etc/passwd").await;
@@ -69,7 +69,7 @@ fn test_get_media_file_path_validates_media_id() {
 fn test_get_media_file_path_large_file() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        let (media_service, _temp_dir) = create_test_media_service();
+        let (media_service, _temp_dir) = create_test_media_service().await;
         let content: Vec<u8> = vec![0xAB; 5 * 1024 * 1024]; // 5 MB
 
         let upload_result = media_service.upload_media("@alice:example.com", &content, "image/png", None).await;
@@ -95,9 +95,9 @@ fn create_test_image_data() -> Vec<u8> {
     ]
 }
 
-#[test]
-fn test_media_service_creation() {
-    let (_media_service, _temp_dir) = create_test_media_service();
+#[tokio::test]
+async fn test_media_service_creation() {
+    let (_media_service, _temp_dir) = create_test_media_service().await;
     // media_path is private, skip assertion
 }
 
@@ -105,7 +105,7 @@ fn test_media_service_creation() {
 fn test_upload_media_png() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        let (media_service, _temp_dir) = create_test_media_service();
+        let (media_service, _temp_dir) = create_test_media_service().await;
         let content = create_test_image_data();
 
         let result = media_service.upload_media("@alice:example.com", &content, "image/png", None).await;
@@ -128,7 +128,7 @@ fn test_upload_media_png() {
 fn test_upload_media_jpeg() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        let (media_service, _temp_dir) = create_test_media_service();
+        let (media_service, _temp_dir) = create_test_media_service().await;
         let content = vec![0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00];
 
         let result = media_service.upload_media("@alice:example.com", &content, "image/jpeg", None).await;
@@ -145,7 +145,7 @@ fn test_upload_media_jpeg() {
 fn test_upload_media_with_filename() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        let (media_service, _temp_dir) = create_test_media_service();
+        let (media_service, _temp_dir) = create_test_media_service().await;
         let content = create_test_image_data();
 
         let result =
@@ -163,7 +163,7 @@ fn test_upload_media_with_filename() {
 fn test_upload_media_creates_file() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        let (media_service, _temp_dir) = create_test_media_service();
+        let (media_service, _temp_dir) = create_test_media_service().await;
         let content = create_test_image_data();
 
         let result = media_service.upload_media("@alice:example.com", &content, "image/png", None).await;
@@ -187,7 +187,7 @@ fn test_upload_media_creates_file() {
 fn test_get_media_success() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        let (media_service, _temp_dir) = create_test_media_service();
+        let (media_service, _temp_dir) = create_test_media_service().await;
         let content = create_test_image_data();
 
         let upload_result =
@@ -207,7 +207,7 @@ fn test_get_media_success() {
 fn test_get_media_not_found() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        let (media_service, _temp_dir) = create_test_media_service();
+        let (media_service, _temp_dir) = create_test_media_service().await;
 
         let result = media_service.get_media("example.com", "nonexistent_id").await;
 
@@ -219,7 +219,7 @@ fn test_get_media_not_found() {
 fn test_download_media_success() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        let (media_service, _temp_dir) = create_test_media_service();
+        let (media_service, _temp_dir) = create_test_media_service().await;
         let content = create_test_image_data();
 
         let upload_result =
@@ -239,7 +239,7 @@ fn test_download_media_success() {
 fn test_download_media_not_found() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        let (media_service, _temp_dir) = create_test_media_service();
+        let (media_service, _temp_dir) = create_test_media_service().await;
 
         let result = media_service.download_media("example.com", "nonexistent_id").await;
 
@@ -254,7 +254,7 @@ fn test_download_media_not_found() {
 fn test_get_thumbnail_success() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        let (media_service, _temp_dir) = create_test_media_service();
+        let (media_service, _temp_dir) = create_test_media_service().await;
         let content = create_test_image_data();
 
         let upload_result =
@@ -274,7 +274,7 @@ fn test_get_thumbnail_success() {
 fn test_get_thumbnail_not_found() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        let (media_service, _temp_dir) = create_test_media_service();
+        let (media_service, _temp_dir) = create_test_media_service().await;
 
         let result = media_service.get_thumbnail("example.com", "nonexistent_id", 100, 100, "scale", false).await;
 
@@ -289,7 +289,7 @@ fn test_get_thumbnail_not_found() {
 fn test_get_media_metadata_success() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        let (media_service, _temp_dir) = create_test_media_service();
+        let (media_service, _temp_dir) = create_test_media_service().await;
         let content = create_test_image_data();
 
         let upload_result =
@@ -312,7 +312,7 @@ fn test_get_media_metadata_success() {
 fn test_get_media_metadata_not_found() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        let (media_service, _temp_dir) = create_test_media_service();
+        let (media_service, _temp_dir) = create_test_media_service().await;
 
         let result = media_service.get_media_metadata("example.com", "nonexistent_id").await;
 
@@ -324,7 +324,7 @@ fn test_get_media_metadata_not_found() {
 fn test_upload_multiple_media() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        let (media_service, _temp_dir) = create_test_media_service();
+        let (media_service, _temp_dir) = create_test_media_service().await;
 
         let content1 = create_test_image_data();
         let content2 = vec![0xFF, 0xD8, 0xFF, 0xE0];
@@ -363,7 +363,7 @@ fn test_upload_multiple_media() {
 fn test_upload_empty_content() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        let (media_service, _temp_dir) = create_test_media_service();
+        let (media_service, _temp_dir) = create_test_media_service().await;
         let content: Vec<u8> = vec![];
 
         let result = media_service.upload_media("@alice:example.com", &content, "image/png", None).await;
@@ -380,7 +380,7 @@ fn test_upload_empty_content() {
 fn test_upload_large_content() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        let (media_service, _temp_dir) = create_test_media_service();
+        let (media_service, _temp_dir) = create_test_media_service().await;
         let content: Vec<u8> = vec![0xFF; 1024 * 1024];
 
         let result = media_service.upload_media("@alice:example.com", &content, "image/png", None).await;

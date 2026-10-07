@@ -266,25 +266,17 @@ impl ApiError {
         Self { kind: ApiErrorKind::NotFound, code: MatrixErrorCode::NotFound, message: message.into(), cause: None }
     }
 
-    /// Builds a 501 error with `M_UNRECOGNIZED` (legacy alias for unimplemented).
-    /// Builds a 501 Not Implemented error with `M_UNRECOGNIZED` errcode.
+    /// Builds a 404 `M_UNRECOGNIZED` error for an unimplemented endpoint.
+    ///
+    /// Matrix defines no errcode for HTTP 501, so unimplemented endpoints are
+    /// presented to clients as 404 `M_UNRECOGNIZED` (the spec-canonical status
+    /// for "this endpoint/method is not recognized"). The distinction between
+    /// "not implemented" and "unknown path" is preserved internally via
+    /// [`ApiError::is_not_implemented`], which inspects the code.
     pub fn not_implemented(message: impl Into<String>) -> Self {
         Self {
-            kind: ApiErrorKind::NotImplemented,
+            kind: ApiErrorKind::NotFound,
             code: MatrixErrorCode::Unimplemented,
-            message: message.into(),
-            cause: None,
-        }
-    }
-
-    /// P1-3: Construct an `M_UNSUPPORTED` error. Used when a feature (e.g.
-    /// presence) is disabled in server config. The HTTP status is 501 (Not
-    /// Implemented) via `ApiErrorKind::NotImplemented`; the Matrix errcode
-    /// is `M_UNSUPPORTED` so clients can branch on the feature gate.
-    pub fn unsupported(message: impl Into<String>) -> Self {
-        Self {
-            kind: ApiErrorKind::NotImplemented,
-            code: MatrixErrorCode::Unsupported,
             message: message.into(),
             cause: None,
         }
@@ -732,17 +724,13 @@ impl ApiError {
         Self { kind: ApiErrorKind::Internal, code: MatrixErrorCode::Unknown, message: message.into(), cause: None }
     }
 
-    /// Builds a 400 `M_UNRECOGNIZED` error for unrecognized request payloads.
+    /// Builds a 404 `M_UNRECOGNIZED` error for unrecognized request payloads.
     pub fn unrecognized(message: impl Into<String>) -> Self {
-        // M_UNRECOGNIZED maps to HTTP 400, matching MatrixErrorCode::Unrecognized
-        // and the errcode fallback table (see d8bc373c). The router-level 404
-        // fallback for truly unknown paths is hardcoded in assembly.rs instead.
-        Self {
-            kind: ApiErrorKind::BadRequest,
-            code: MatrixErrorCode::Unrecognized,
-            message: message.into(),
-            cause: None,
-        }
+        // M_UNRECOGNIZED maps to HTTP 404 per Matrix spec (unknown endpoint).
+        // The router-level fallback for truly unknown paths is hardcoded in
+        // assembly.rs; this constructor is used for otherwise-unrecognized
+        // requests that reach a handler.
+        Self { kind: ApiErrorKind::NotFound, code: MatrixErrorCode::Unrecognized, message: message.into(), cause: None }
     }
 
     /// Builds a 504 `M_REQUEST_TIMEOUT` error for upstream timeout.
@@ -813,9 +801,13 @@ impl ApiError {
     pub fn is_internal(&self) -> bool {
         self.kind == ApiErrorKind::Internal
     }
-    /// Returns `true` if `kind == NotImplemented`.
+    /// Returns `true` if this error represents an unimplemented operation.
+    ///
+    /// Code-aware: the `Unimplemented` errcode shares the wire string
+    /// `M_UNRECOGNIZED` with the (unrelated) `Unrecognized` errcode, so the
+    /// distinction lives in the code, not the HTTP status.
     pub fn is_not_implemented(&self) -> bool {
-        self.kind == ApiErrorKind::NotImplemented
+        self.kind == ApiErrorKind::NotImplemented || self.code == MatrixErrorCode::Unimplemented
     }
     /// Returns `true` if `kind == Timeout`.
     pub fn is_timeout(&self) -> bool {
@@ -1161,19 +1153,11 @@ mod tests {
     #[test]
     fn test_api_error_not_implemented_construction() {
         let err = ApiError::not_implemented("not done yet");
-        assert_eq!(err.kind, ApiErrorKind::NotImplemented);
+        // Normalized to 404: Matrix has no 501 errcode, so unimplemented
+        // endpoints are presented as M_UNRECOGNIZED/404.
+        assert_eq!(err.kind, ApiErrorKind::NotFound);
         assert_eq!(err.code, MatrixErrorCode::Unimplemented);
-    }
-
-    // P1-3: M_UNSUPPORTED constructor for disabled features (e.g. presence).
-    #[test]
-    fn test_api_error_unsupported_construction() {
-        let err = ApiError::unsupported("presence disabled");
-        assert_eq!(err.kind, ApiErrorKind::NotImplemented);
-        assert_eq!(err.code, MatrixErrorCode::Unsupported);
-        assert_eq!(err.code.as_str(), "M_UNSUPPORTED");
-        assert_eq!(err.code.http_status(), StatusCode::METHOD_NOT_ALLOWED);
-        assert_eq!(err.message, "presence disabled");
+        assert!(err.is_not_implemented());
     }
 
     // MSC4186: M_UNKNOWN_POS constructor for expired/invalid sliding-sync pos.
@@ -1226,14 +1210,6 @@ mod tests {
         assert_eq!(err.code.as_str(), "M_REQUEST_TIMEOUT");
         assert_eq!(err.code.http_status(), StatusCode::GATEWAY_TIMEOUT);
         assert_eq!(err.kind.default_http_status(), StatusCode::GATEWAY_TIMEOUT);
-    }
-
-    #[test]
-    fn test_matrix_error_code_unsupported_round_trip() {
-        let json = serde_json::to_string(&MatrixErrorCode::Unsupported).unwrap();
-        assert_eq!(json, "\"M_UNSUPPORTED\"");
-        let back: MatrixErrorCode = serde_json::from_str(&json).unwrap();
-        assert_eq!(back, MatrixErrorCode::Unsupported);
     }
 
     #[test]
@@ -1720,7 +1696,7 @@ mod tests {
 
         // unrecognized
         let err = ApiError::unrecognized("unrecognized");
-        assert_eq!(err.kind, ApiErrorKind::BadRequest);
+        assert_eq!(err.kind, ApiErrorKind::NotFound);
         assert_eq!(err.code, MatrixErrorCode::Unrecognized);
 
         // request_timeout
@@ -1813,7 +1789,8 @@ mod tests {
         assert_eq!(MatrixErrorCode::NotFound.http_status(), StatusCode::NOT_FOUND);
         assert_eq!(MatrixErrorCode::BadJson.http_status(), StatusCode::BAD_REQUEST);
         assert_eq!(MatrixErrorCode::LimitExceeded.http_status(), StatusCode::TOO_MANY_REQUESTS);
-        assert_eq!(MatrixErrorCode::Unimplemented.http_status(), StatusCode::NOT_IMPLEMENTED);
+        assert_eq!(MatrixErrorCode::Unimplemented.http_status(), StatusCode::NOT_FOUND);
+        assert_eq!(MatrixErrorCode::Unrecognized.http_status(), StatusCode::NOT_FOUND);
         assert_eq!(MatrixErrorCode::Unknown.http_status(), StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(MatrixErrorCode::Unauthorized.http_status(), StatusCode::UNAUTHORIZED);
         assert_eq!(MatrixErrorCode::ServerNotTrusted.http_status(), StatusCode::BAD_GATEWAY);
@@ -1833,7 +1810,6 @@ mod tests {
         let bad_request_codes = [
             MatrixErrorCode::BadJson,
             MatrixErrorCode::NotJson,
-            MatrixErrorCode::Unrecognized,
             MatrixErrorCode::InvalidUsername,
             MatrixErrorCode::UserInUse,
             MatrixErrorCode::InvalidRoomState,
@@ -1849,6 +1825,17 @@ mod tests {
         ];
         for code in &bad_request_codes {
             assert_eq!(code.http_status(), StatusCode::BAD_REQUEST, "{code:?} should be BAD_REQUEST");
+        }
+
+        // COMPAT-03: M_UNRECOGNIZED variants normalize to 404, not 400/501.
+        let not_found_codes = [
+            MatrixErrorCode::NotFound,
+            MatrixErrorCode::Unrecognized,
+            MatrixErrorCode::Unimplemented,
+            MatrixErrorCode::UnknownDevice,
+        ];
+        for code in &not_found_codes {
+            assert_eq!(code.http_status(), StatusCode::NOT_FOUND, "{code:?} should be NOT_FOUND");
         }
 
         let forbidden_codes = [
@@ -1874,7 +1861,7 @@ mod tests {
     // ApiResponse::into_response 与 MatrixErrorCode::http_status 收敛一致性
     // -----------------------------------------------------------------------
 
-    /// 全量 37 个 errcode 变体：ApiResponse 的 errcode→状态码必须与
+    /// 全量 errcode 变体：ApiResponse 的 errcode→状态码必须与
     /// MatrixErrorCode::http_status() 完全一致，防止第三套硬编码映射漂移。
     fn all_error_codes() -> Vec<MatrixErrorCode> {
         vec![
@@ -1913,7 +1900,6 @@ mod tests {
             MatrixErrorCode::Unimplemented,
             MatrixErrorCode::RequestTimeout,
             MatrixErrorCode::UserLimitExceeded,
-            MatrixErrorCode::Unsupported,
             MatrixErrorCode::UnknownPos,
             MatrixErrorCode::KeyTooLarge,
             MatrixErrorCode::ProfileTooLarge,
@@ -1940,7 +1926,7 @@ mod tests {
             ("M_EXCLUSIVE", StatusCode::CONFLICT),
             ("M_UNSUPPORTED_ROOM_VERSION", StatusCode::BAD_REQUEST),
             ("M_INCOMPATIBLE_ROOM_VERSION", StatusCode::BAD_REQUEST),
-            ("M_UNSUPPORTED", StatusCode::METHOD_NOT_ALLOWED),
+            ("M_UNRECOGNIZED", StatusCode::NOT_FOUND),
         ];
         for (errcode, expected) in cases {
             let resp = ApiResponse::<serde_json::Value>::error("x".to_string(), (*errcode).to_string());

@@ -1,0 +1,26 @@
+# Clippy-allow allowlist (CQ-01).
+#
+# A `clippy::*` suppression may exist in production source ONLY if its lint kind
+# is listed here with a written reason. The count of *unjustified* allows per
+# file is separately ratcheted in scripts/ci/clippy_allow_baseline.
+#
+# Format: <clippy::lint>  # <why this lint may legitimately be suppressed>
+# Enforced by scripts/ci/check_clippy_allow_ratchet.py.
+#
+# blanket group allows (clippy::all / pedantic / nursery / restriction / cargo /
+# correctness / suspicious / style / complexity / perf) are hard-banned and
+# cannot be listed here.
+
+clippy::await_holding_lock      # 少数同步原语在 await 期间持有的路径，重构涉及锁语义，逐点复核后保留
+clippy::expect_used             # 启动期配置/不变量断言：此处失败即无法继续启动，panic 优于静默降级
+clippy::field_reassign_with_default  # Default::default() 后逐字段赋值的构造风格，与上游类型默认值语义等价
+clippy::module_inception        # `foo/mod.rs` 内嵌 `pub mod foo`，与 Matrix 模块命名习惯保持一致
+clippy::needless_option_as_deref  # Option<&T> 上的显式 as_deref，保留以明确所有权转换意图
+clippy::panic                   # 不可恢复的不变量/测试断言：显式 panic 比静默错误码更易定位
+clippy::redundant_clone         # clone 保留以匹配既有 API 签名与所有权模型，去掉会改变借用结构
+clippy::should_implement_trait  # 方法与 std trait 同名但语义不同，故意不实现该 trait
+clippy::too_many_arguments      # 构造函数/处理函数参数来自协议字段，拆分需引入中间结构体（另任务）
+clippy::type_complexity         # 封闭泛型/关联类型签名，抽 type alias 反而降低可读性
+clippy::unreadable_literal      # 协议常量/哈希/测试向量按位分组书写，加分隔符会破坏对照
+clippy::unused_async            # trait 实现要求 async 签名统一，即使当前分支无 await
+clippy::unwrap_used             # 启动期/测试：失败即致命，unwrap 比错误传播更直接

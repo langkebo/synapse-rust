@@ -17,6 +17,14 @@ fn encode_background_update_cursor(created_ts: i64, job_name: &str) -> String {
     format!("{created_ts}|{job_name}")
 }
 
+/// PERF-03: upper bound on the number of rows returned by
+/// [`BackgroundUpdateStorage::get_updates_by_status`].
+///
+/// The number of background updates is small in practice, so the cap is set
+/// generously — it only guards against an unbounded scan (e.g. a status that
+/// accumulates rows) returning an unbounded `Vec` into memory.
+pub const MAX_UPDATES_BY_STATUS: i64 = 10_000;
+
 #[cfg(test)]
 mod cursor_tests {
     use super::{decode_background_update_cursor, encode_background_update_cursor};
@@ -393,11 +401,21 @@ impl BackgroundUpdateStorage {
                    error_message, retry_count AS "retry_count!", max_retries AS "max_retries!",
                    batch_size AS "batch_size!", sleep_ms AS "sleep_ms!", depends_on, metadata
             FROM background_updates WHERE status = $1 ORDER BY created_ts ASC, id ASC
+            LIMIT $2
             "#,
-            status
+            status,
+            MAX_UPDATES_BY_STATUS
         )
         .fetch_all(&*self.pool)
         .await?;
+
+        if rows.len() as i64 >= MAX_UPDATES_BY_STATUS {
+            tracing::warn!(
+                status = %status,
+                limit = MAX_UPDATES_BY_STATUS,
+                "get_updates_by_status hit the row cap; some background updates were not returned"
+            );
+        }
 
         Ok(rows)
     }

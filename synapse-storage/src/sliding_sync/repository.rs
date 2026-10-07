@@ -824,7 +824,10 @@ impl SlidingSyncStorage {
     }
 
     /// See [`get_receipts_for_rooms`].
-    #[allow(clippy::expect_used)]
+    #[allow(
+        clippy::expect_used,
+        reason = "or_insert_with always inserts a Value::Object, so as_object_mut cannot return None"
+    )]
     pub async fn get_receipts_for_rooms(&self, room_ids: &[String]) -> Result<serde_json::Value, sqlx::Error> {
         if room_ids.is_empty() {
             return Ok(serde_json::json!({}));

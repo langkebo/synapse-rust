@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT job_name AS \"job_name!\", job_type AS \"job_type!\", description, table_name, column_name,\n                   status AS \"status!\", progress AS \"progress!\", total_items AS \"total_items!\",\n                   processed_items AS \"processed_items!\", created_ts, started_ts, completed_ts, updated_ts,\n                   error_message, retry_count AS \"retry_count!\", max_retries AS \"max_retries!\",\n                   batch_size AS \"batch_size!\", sleep_ms AS \"sleep_ms!\", depends_on, metadata\n            FROM background_updates WHERE status = $1 ORDER BY created_ts ASC, id ASC\n            ",
+  "query": "\n            SELECT job_name AS \"job_name!\", job_type AS \"job_type!\", description, table_name, column_name,\n                   status AS \"status!\", progress AS \"progress!\", total_items AS \"total_items!\",\n                   processed_items AS \"processed_items!\", created_ts, started_ts, completed_ts, updated_ts,\n                   error_message, retry_count AS \"retry_count!\", max_retries AS \"max_retries!\",\n                   batch_size AS \"batch_size!\", sleep_ms AS \"sleep_ms!\", depends_on, metadata\n            FROM background_updates WHERE status = $1 ORDER BY created_ts ASC, id ASC\n            LIMIT $2\n            ",
   "describe": {
     "columns": [
       {
@@ -106,7 +106,8 @@
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Text",
+        "Int8"
       ]
     },
     "nullable": [
@@ -132,5 +133,5 @@
       true
     ]
   },
-  "hash": "c63f971ff26bff23dcc77dad10fc058de163ccbedcd0a1c852d88ec1d24ba14c"
+  "hash": "d576514d7ee4d58ac1a34e7e3d62abbfbfd2f5bf6a561fd0d68e571d94732add"
 }

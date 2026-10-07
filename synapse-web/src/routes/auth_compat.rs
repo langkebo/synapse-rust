@@ -330,6 +330,14 @@ pub(crate) async fn get_register_flows() -> Json<Value> {
 
 /// Maximum failed login attempts before lockout triggers.
 const LOGIN_MAX_ATTEMPTS: u32 = 5;
+/// SEC-05: per-IP aggregate failure cap. The `login_fail:{ip}:{username}` bucket
+/// throttles a single (IP, username) pair, but an attacker rotating usernames
+/// from one address (account enumeration / password spray) never trips it, and
+/// unknown usernames have no service-layer per-user counter either. This second,
+/// higher-ceiling bucket keyed on the IP alone closes that gap. Kept above the
+/// per-pair threshold so legitimate repeated failures on one name still surface
+/// as the more specific lockout first.
+const LOGIN_MAX_IP_ATTEMPTS: u32 = 30;
 /// Lockout duration in seconds (15 minutes).
 const LOGIN_LOCKOUT_TTL_SECS: u64 = 900;
 
@@ -370,6 +378,17 @@ async fn check_login_lockout(
     match cache.get::<u32>(&key).await {
         Ok(Some(count)) if count >= LOGIN_MAX_ATTEMPTS => {
             tracing::warn!(ip = %ip, username = %username, count, "Login locked out due to too many failures");
+            return Err(ApiError::rate_limited_with_retry(LOGIN_LOCKOUT_TTL_SECS * 1000));
+        }
+        _ => {}
+    }
+
+    // SEC-05: per-IP aggregate cap, independent of the username so a single
+    // address cannot rotate names to dodge the per-pair bucket.
+    let ip_key = format!("login_ip_fail:{ip}");
+    match cache.get::<u32>(&ip_key).await {
+        Ok(Some(count)) if count >= LOGIN_MAX_IP_ATTEMPTS => {
+            tracing::warn!(ip = %ip, count, "Login locked out: too many failures from this IP");
             Err(ApiError::rate_limited_with_retry(LOGIN_LOCKOUT_TTL_SECS * 1000))
         }
         _ => Ok(()),
@@ -398,9 +417,19 @@ async fn record_login_failure(
     let key = format!("login_fail:{ip}:{username}");
     let current = cache.get::<u32>(&key).await.ok().flatten().unwrap_or(0);
     let _ = cache.set(&key, current + 1, LOGIN_LOCKOUT_TTL_SECS).await;
+
+    // SEC-05: bump the per-IP aggregate bucket on every failure (any username),
+    // so rotating names still accumulates against the address.
+    let ip_key = format!("login_ip_fail:{ip}");
+    let ip_current = cache.get::<u32>(&ip_key).await.ok().flatten().unwrap_or(0);
+    let _ = cache.set(&ip_key, ip_current + 1, LOGIN_LOCKOUT_TTL_SECS).await;
 }
 
 /// Clear login failure counter on successful login.
+///
+/// SEC-05: only the per-(IP, username) bucket is cleared. The per-IP aggregate
+/// (`login_ip_fail:{ip}`) is left to decay via TTL — otherwise one valid account
+/// would let an attacker also spraying other names reset the address-level cap.
 async fn clear_login_failures(cache: &synapse_cache::CacheManager, ip: &str, username: &str) {
     if !cache.is_redis_enabled() {
         return;

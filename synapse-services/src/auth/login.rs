@@ -116,7 +116,10 @@ impl AuthService {
         Ok((user, access_token, refresh_token, device_id))
     }
 
-    #[allow(clippy::expect_used)]
+    #[allow(
+        clippy::expect_used,
+        reason = "argon2 hashing with fixed params cannot fail for the constant dummy password"
+    )]
     fn dummy_password_hash() -> &'static str {
         use std::sync::OnceLock;
         static DUMMY: OnceLock<String> = OnceLock::new();

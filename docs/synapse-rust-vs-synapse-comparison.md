@@ -231,7 +231,7 @@ synapse-rust 采用 Cargo Workspace：`[workspace] members` 声明 8 个 crate�
 
 ### 3.4 路由覆盖
 
-synapse-rust 的 HTTP 契约以机器抽取的 **`docs/synapse-rust/ROUTE_CONTRACT.md`**（2026-10-01 生成）为准：**1,159 条注册路由条目**（绝对 `(method, path)`，已解析 `.nest()` 前缀并去重），涉及 **65** 个含路由注册的模块文件；人工维护的 `docs/synapse-rust/API_COVERAGE_REPORT.md` 按三种口径记为 **注册条目 1,153 / 唯一路径 915 / 逻辑端点 807**——与前者**同源但口径不同**（后者折叠版本前缀并把同路径多方法合并），两者不可相加。路由文件分布在 **`synapse-web/src/routes/`** 下，共 144 个 `.rs` 文件。⚠️ 计数较 2026-09-22 的 1,165 / 66 **净减 11 条**：2026-09-25 E2EE 去服务端私钥重构删除 30 条（`verification_routes` 24 条 + `e2ee` 路由组 6 条），其后 profile `{user_id}/{key_name}` 新增 5 条（3 条来自 admin_media 新增路由，2 条来自 invite 路由的 POST 方法），`auth_issuer` 删除 1 条，2026-09-27 U-5 Admin 媒体端点族补全新增 5 条（房间级媒体列举/删除/隔离/解除隔离 + 媒体保护），2026-10-01 两条对齐/RFC 批次共新增 3 条 —— MSC4140 单事件端点（L1，`GET /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}`，与同路径既有 `POST` 合并计入口径）与 MSC3720 账户状态（客户端 `/_matrix/client/unstable/org.matrix.msc3720/account_status` + 联邦 `/_matrix/federation/unstable/org.matrix.msc3720/account_status`），**不是抽取器漂移**；2026-10-02 再补 spec 的 4 段关系路由（L-6）**+2**（1,152 → 1,154）——`GET` `…/relations/{eventId}/{relType}/{eventType}` 在 `v1`/`v3` 各一条，与同路径既有 `PUT` 合并进同一 `MethodRouter`，**唯一路径数不变**。随后同一批把关系写入端点按 ISSUE-13 拆到 `PUT /_matrix/vendor/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}`（client 4 段路径只留 `GET`，`{txn_id}` 接上 `room_event_txn_dedup` 真幂等）：client 注册条目 −2、vendor +1，**净 −1**（1,154 → 1,153）；2026-10-04 补 Admin 媒体端点 `POST /_synapse/admin/v1/purge_media_cache` **+1**（1,153 → 1,154）；2026-10-05 P3-1 补全 Admin 媒体端点族 6 条（`GET`/`DELETE` `/_synapse/admin/v1/media/{server_name}/{media_id}`、`GET /_synapse/admin/v1/media/quarantine_changes`、`GET /_synapse/admin/v1/room/{room_id}/media`、`POST /_synapse/admin/v1/room/{room_id}/media/quarantine`、`POST /_synapse/admin/v1/media/protect/{media_id}`），同时移除 `admin/server.rs` 中重复注册的 `POST /_synapse/admin/v1/purge_media_cache`（改由 `admin/media.rs` 唯一注册，消除 axum `Overlapping method route` panic）：**净 +5**（1,154 → 1,159）。
+synapse-rust 的 HTTP 契约以机器抽取的 **`docs/synapse-rust/ROUTE_CONTRACT.md`**（2026-10-06 生成）为准：**1,159 条注册路由条目**（绝对 `(method, path)`，已解析 `.nest()` 前缀并去重），涉及 **65** 个含路由注册的模块文件；人工维护的 `docs/synapse-rust/API_COVERAGE_REPORT.md` 按三种口径记为 **注册条目 1,159 / 唯一路径 921 / 逻辑端点 813**——与前者**同源但口径不同**（后者折叠版本前缀并把同路径多方法合并），两者不可相加。路由文件分布在 **`synapse-web/src/routes/`** 下，共 144 个 `.rs` 文件。⚠️ 计数较 2026-09-22 的 1,165 / 66 **净减 11 条**：2026-09-25 E2EE 去服务端私钥重构删除 30 条（`verification_routes` 24 条 + `e2ee` 路由组 6 条），其后 profile `{user_id}/{key_name}` 新增 5 条（3 条来自 admin_media 新增路由，2 条来自 invite 路由的 POST 方法），`auth_issuer` 删除 1 条，2026-09-27 U-5 Admin 媒体端点族补全新增 5 条（房间级媒体列举/删除/隔离/解除隔离 + 媒体保护），2026-10-01 两条对齐/RFC 批次共新增 3 条 —— MSC4140 单事件端点（L1，`GET /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}`，与同路径既有 `POST` 合并计入口径）与 MSC3720 账户状态（客户端 `/_matrix/client/unstable/org.matrix.msc3720/account_status` + 联邦 `/_matrix/federation/unstable/org.matrix.msc3720/account_status`），**不是抽取器漂移**；2026-10-02 再补 spec 的 4 段关系路由（L-6）**+2**（1,152 → 1,154）——`GET` `…/relations/{eventId}/{relType}/{eventType}` 在 `v1`/`v3` 各一条，与同路径既有 `PUT` 合并进同一 `MethodRouter`，**唯一路径数不变**。随后同一批把关系写入端点按 ISSUE-13 拆到 `PUT /_matrix/vendor/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}`（client 4 段路径只留 `GET`，`{txn_id}` 接上 `room_event_txn_dedup` 真幂等）：client 注册条目 −2、vendor +1，**净 −1**（1,154 → 1,153）；2026-10-04 补 Admin 媒体端点 `POST /_synapse/admin/v1/purge_media_cache` **+1**（1,153 → 1,154）；2026-10-05 P3-1 补全 Admin 媒体端点族 6 条（`GET`/`DELETE` `/_synapse/admin/v1/media/{server_name}/{media_id}`、`GET /_synapse/admin/v1/media/quarantine_changes`、`GET /_synapse/admin/v1/room/{room_id}/media`、`POST /_synapse/admin/v1/room/{room_id}/media/quarantine`、`POST /_synapse/admin/v1/media/protect/{media_id}`），同时移除 `admin/server.rs` 中重复注册的 `POST /_synapse/admin/v1/purge_media_cache`（改由 `admin/media.rs` 唯一注册，消除 axum `Overlapping method route` panic）：**净 +5**（1,154 → 1,159）。
 
 > ⚠️ 上一版本此处写"**656 个 API 端点，覆盖 48 个功能模块**，来源为项目 API 参考文档"。本轮复核确认：仓库内**不存在** `docs/synapse-rust/api-reference.md`，该数字无法在仓库中定位来源，且与上述两份权威清单均不一致，已删除。引用端点数量时请以 `ROUTE_CONTRACT.md` 为准。
 
@@ -599,7 +599,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 **v1.2 遗漏的上游条目（同基准期，v1.3 补记）**：
 
 - **v1.157.2 安全版本**：6 High / 4 Moderate / 2 Low ELEMENTSEC 公告 —— 本报告 §7 安全对比**完全未提**，应逐条判定本仓同类性。
-- **v1.158 默认房间版本改为 11（MSC4239）**：本仓 `DEFAULT_ROOM_VERSION` 也是 11，但 `room_versions.rs:77-81` 注释仍称"Synapse 默认 10，本项目刻意不同"——**注释已过时**；且 v12/v13 为 `stable_parse_only`（可 join/联邦，**不可创建**）。
+- **v1.158 默认房间版本改为 11（MSC4239）**：~~本仓 `DEFAULT_ROOM_VERSION` 也是 11，但 `room_versions.rs:77-81` 注释仍称"Synapse 默认 10，本项目刻意不同"——**注释已过时**；且 v12/v13 为 `stable_parse_only`（可 join/联邦，**不可创建**）。~~ → **订正（2026-10-06，DOC-04）**：本仓 `DEFAULT_ROOM_VERSION` 已为 **12**（`synapse-common/src/room_versions.rs:94`，随 O-1 对齐上游 v1.162.0rc1），**v12 是唯一可创建版本**，v13 已移出能力表；旧注释亦已修正。
 - **v1.158 v12 房间修复**（并发建房 room ID 冲突、v12 第三方邀请）；**MSC4326** appservice 设备伪装稳定化（本仓 0 命中）；**MSC2409** appservice 短暂事件（本仓 12 处引用）；**MSC4186** 简化滑动同步（24 处）；**MSC4502** 房间成员查询（11 处）；**MSC4262/MSC4429** Profile 更新进 sync（21 处）——这些代码中已有引用的编号，本报告 v1.2 均未列出。
 - **#20189** 联邦 `make_*` 请求缺少 `membership` 校验（安全修复）——见 §12.5 B2。
 
@@ -612,7 +612,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | **好友系统** | 无（标准 Matrix 无此功能） | ✅ 独有扩展（`friend_room_service/` 含 groups/models/sharding，完整实现 + 联邦好友同步 `synapse-federation/src/friend/`） | ✅ 完整实现 |
 | **阅后即焚** | 无 | ✅ 独有扩展（`burn_after_read_service.rs` 完整实现，含 BURN_MAX_RETRY=5 死信处理 + 定时扫描器） | ✅ 完整实现 |
 | **信标/位置** | 无标准实现 | ✅ 独有扩展（`beacon_service.rs` 完整实现，含配额限制、背压控制、缓存） | ✅ 完整实现 |
-| **内容扫描** | 模块化扩展 | 🔴 **已装配但无消费者（2026-09-25 复核，"从未被构造/未接入 config"作废）**：`synapse-services/src/wiring/core.rs:66,179` 已构造 `ContentScanner` 并注入 `CoreServices`，配置项已接入（`synapse-common/src/config/mod.rs:242`，类型在 `synapse-common/src/content_scanner/mod.rs`）；**但** `scan`/`scan_text`/`scan_media` 在生产路径 **0 调用点**，且 `synapse-storage/` **无**存储模块、`migrations/` **无**相关表 ⇒ 配置打开也不产生任何扫描行为 | 🔴 已装配但空转（比纯缺失更隐蔽） |
+| **内容扫描** | 模块化扩展 | ~~🔴 **已装配但无消费者（2026-09-25 复核，"从未被构造/未接入 config"作废）**：`synapse-services/src/wiring/core.rs:66,179` 已构造 `ContentScanner` 并注入 `CoreServices`，配置项已接入（`synapse-common/src/config/mod.rs:242`，类型在 `synapse-common/src/content_scanner/mod.rs`）；**但** `scan`/`scan_text`/`scan_media` 在生产路径 **0 调用点**，且 `synapse-storage/` **无**存储模块、`migrations/` **无**相关表 ⇒ 配置打开也不产生任何扫描行为~~ → **订正（2026-10-06，DOC-04）**：✅ **已装配且已接入生产路径** —— 装配 `synapse-services/src/wiring/core.rs:66,180`，消费 `synapse-web/src/routes/media/upload.rs:89,137`（`scan_when_enabled`）与 `synapse-web/src/routes/handlers/room/events.rs:327`（`scan_text_when_enabled`），是否实际扫描由 `content_scanner` 配置开关决定 | ✅ 已接线（开关决定是否扫描） |
 | **短信推送** | 有（通过 Push Gateway） | ✅ `SmsProvider` trait（`sms_provider/mod.rs:16`）+ 三种实现：`NoopSmsProvider`（默认桩）、**通用 `HttpSmsProvider`（`:48`）**、`AliyunSmsProvider`（`aliyun.rs:43`）；工厂支持 `"aliyun"/"http"/"generic_http"` → 缺 Twilio 等厂商专用实现，但可用通用 HTTP 接入 | ✅ 已实现（厂商专用实现缺） |
 | **VoIP Tracking** | 无 | ✅ Feature Flag 控制（`rtc/` 模块 + `voip/` 路由） | ✅ 已实现 |
 | **服务器通知** | 有 | ✅ `server_notification_service.rs` 完整实现 | ✅ 完整实现 |
@@ -640,7 +640,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | **前端集成** | Element Web/Desktop/iOS/Android | TJG 前端（Vue 3 + Tauri 跨平台） | ✅ 已对齐 |
 | **Admin API** | 完整且文档化 | ⚠️ 覆盖较广（`synapse-web/src/routes/admin/` 含 audit/cleanup/federation/media/notification/policy/register/report/retention/room/management/security/server/token/user），但 `API_COVERAGE_REPORT.md`（2026-05-28 口径）按类别为 **89–94%**，非"完整对齐"；举报端点**已实现**（旧"缺失"清单过时） | ⚠️ 接近对齐 |
 | **扩展端点** | 无标准 | ✅ `/_matrix/vendor/v1/` 私有扩展（`external_service.rs`，属私有桥接而非 Matrix AS API） | ✅ 已实现 |
-| **OIDC/Builtin OIDC** | 有 | ⚠️ 路由完整（`routes/oidc/`），但 `synapse-services/src/oidc_service.rs:673` 的 `validate_id_token_claims` **从未被调用**（`#[allow(dead_code)]`，安全相关） | ⚠️ 存在未接线校验 |
+| **OIDC/Builtin OIDC** | 有 | ~~⚠️ 路由完整（`routes/oidc/`），但 `synapse-services/src/oidc_service.rs:673` 的 `validate_id_token_claims` **从未被调用**（`#[allow(dead_code)]`，安全相关）~~ → **订正（2026-10-06，DOC-04）**：✅ 路由完整（`routes/oidc/`）；该 `validate_id_token_claims` 及配套死代码校验逻辑已**整体删除**（Phase 3 C9，全仓 0 命中） | ✅ 已对齐 |
 | **SAML/CAS SSO** | 有 | ✅ Feature Flag 控制（`saml.rs` + `cas.rs`） | ✅ 已对齐 |
 | **Key Backup** | 有 | ✅ `synapse-web/src/routes/e2ee/backup.rs` 完整实现 | ✅ 已对齐 |
 | **Push Notifications** | 有 | ✅ `push/` + `push_notification.rs` + `client_push_service.rs` 完整实现 | ✅ 已对齐 |
@@ -686,9 +686,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 
 5. **开发效率是 synapse-rust 的主要代价**：Rust 学习曲线陡峭、编译时间长、社区贡献门槛高。Python 的快速迭代能力在原型开发和社区贡献方面仍有优势。
 
-6. **（v1.3 新增）协议正确性缺陷比"功能缺失"更值得优先处理**：本仓默认创建房间版本 11，
-   但撤回事件仍按 v1–v10 的顶层 `redacts` 格式生成（`handlers/room/events.rs:959-982`），
-   而 v11 消费方从 `content.redacts` 读取 → 本服务端发出的撤回可能在合规实现上不生效。
+6. ~~**（v1.3 新增）协议正确性缺陷比"功能缺失"更值得优先处理**：本仓默认创建房间版本 11，但撤回事件仍按 v1–v10 的顶层 `redacts` 格式生成（`handlers/room/events.rs:959-982`），而 v11 消费方从 `content.redacts` 读取 → 本服务端发出的撤回可能在合规实现上不生效。~~ → **订正（2026-10-06，DOC-04）**：默认创建房间版本已为 **12**；撤回事件已**按房间版本**写入 `content.redacts`（v11+）或顶层 `redacts`（v≤10），上述旧行为已修。
    同类还有：`leak_detection` 为未编译死代码（原列的"E2EE SAS 派生未用 HKDF、QR 验证为桩"已于 2026-09-25 随服务端 SAS/QR 面整模块删除而不再适用）。
    这些是"已经声称支持、实际不符合规范"的项，风险高于"尚未实现"的 MSC4242/MSC4512（上游均实验性）。
 
@@ -746,7 +744,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
   - txn 去重标记仍在事件提交之后（`room/messaging/messages.rs`）；Phase 2 的补偿（标记失败即 soft-fail 已提交事件）**因上一条 P0（读路径不过滤 `soft_failed`）而实际无效** —— 本项保持"未解决"。
   - ~~生产路径吞 DB 错误：`messages.rs:32` 的 `unwrap_or(0)`、`federation/transaction.rs:358-362` 的 `.ok().flatten()`、`membership/federation.rs:191-216/251-268` 的 warn-and-drop~~ → **2026-09-23 逐条复核确认均已修**：前两处全仓 0 命中；第三处改为 `return Err` + 事务回滚（`membership/federation.rs:219`）。v1.4 复核文本称这三处"仍存在"属**过时**，此处按实测更正。
 - **未实现/未装配风险**：
-  - **Content Scanner 整模块孤儿**（无存储、无 config、无构造点），非"仅缺存储层"。
+  - ~~**Content Scanner 整模块孤儿**（无存储、无 config、无构造点），非"仅缺存储层"。~~ → **订正（2026-10-06，DOC-04）**：已装配并接入生产路径（`synapse-services/src/wiring/core.rs:66,180`；消费 `synapse-web/src/routes/media/upload.rs:89,137`、`synapse-web/src/routes/handlers/room/events.rs:327`），是否扫描由 `content_scanner` 开关决定。
   - **App Service 登录整体缺失**（无 `m.login.application_service` / `M_APPSERVICE_LOGIN_UNSUPPORTED`），
     以及 pushers、设备管理、虚拟用户调用 C-S、MSC4512 代理缺失。
   - ~~**`rc_reports` 专项限流缺失**~~ → **Phase 2 已修**（handler 内 per-user 桶 + 可配规则 + 守卫测试）；**LiveKit `ws_url` 仍为死配置**；稳定 `/_matrix/client/v3/profile/{userId}/{keyName}` 未注册。
@@ -772,7 +770,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 
 | 编号 | 现象与证据 | 动作 | 验收判据 | 上游关联 |
 |------|------------|------|----------|----------|
-| B1 | 默认 v11，撤回仍写顶层 `redacts`（`room_versions.rs:89,113` vs `handlers/room/events.rs:959-982`） | 撤回创建按房间版本分支写 `content.redacts`；修正过期注释 | v11 房间 `content.redacts` == 目标 id；v10 仍在顶层；互操作冒烟通过 | v1.161 #19782 |
+| B1 | ~~默认 v11，撤回仍写顶层 `redacts`~~ → **已修（2026-10-06，DOC-04）**：默认创建版本已为 **12**，撤回已按房间版本写入 `content.redacts`（v11+）或顶层 `redacts`（v≤10）（`room_versions.rs:89,113` vs `handlers/room/events.rs:959-982`） | 撤回创建按房间版本分支写 `content.redacts`；修正过期注释 | v11 房间 `content.redacts` == 目标 id；v10 仍在顶层；互操作冒烟通过 | v1.161 #19782 |
 | B2 | 联邦 `make_*`/`send_*` 的 `membership` 校验：**`send_*` 已校验**（`federation/membership/mod.rs:128-137` 按 `expected_membership` 比对），`make_join` 为无 body 的 GET | 按上游 diff 复核 `make_knock`/`make_leave` 是否同源；同源则补测 | `send_leave` 带 `membership=join` → 400 | v1.161 #20189（作用面 `[未验证]`） |
 | B3 | 举报端点无 `rc_reports` 专项限流（`directory_reporting.rs:226-266`） | 补限流桶（客户端举报端点同理） | 429 + `retry-after` 有测试 | v1.161 #20036 |
 | B4 | Dehydrated `/events` 仅 POST + body 游标（`assembly.rs:216-217`） | 改为 GET + query；`next_batch` 末页可为 null | 契约测试断言 GET 与 null | v1.157 #19896 |
@@ -790,14 +788,14 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | E2EE SAS 对齐 HKDF + 真实 MAC 校验 | 未列（误判 ✅ 完整） | ~~**高**~~ **已作废** | 2026-09-25 去服务端私钥重构：服务端 SAS 实现已整模块删除，"对齐规范"不再需要（见 §14.4 item 3）；密码学归客户端 |
 | E2EE QR 实现或声明未实现 | 未列 | **高** | 当前为桩（复用公钥 + 空签名），文档称"完整"属误报 |
 | `leak_detection` 接入或删除 | 误判"已实现" | **高** | 未编译 + 启用即编译失败 + 桩计数 + schema 列缺失（铁律 1） |
-| OIDC `validate_id_token_claims` 接线 | 未列 | **高（安全）** | 死代码，声明校验未生效 |
-| Content Scanner 装配或删除 | P0"缺存储层" | **中（决策项）** | 现状是孤儿模块；先决定是否上线该功能 |
+| ~~OIDC `validate_id_token_claims` 接线~~ → **已作废（2026-10-06，DOC-04）** | 未列 | **已闭环** | 该函数及配套死代码已**整体删除**（Phase 3 C9），"声明校验未生效"随之消失 |
+| ~~Content Scanner 装配或删除~~ → **已闭环（2026-10-06，DOC-04）** | P0"缺存储层" | **已闭环** | 已装配并接入生产路径（见 §11.2 / §12.4），是否扫描由 `content_scanner` 开关决定 |
 | MSC4140 联邦（EDU） | ✅ 已对齐 | **中** | 单机真实，联邦缺失，需按草案确认是否必须 |
 | 死字段清理（3 处 "Reserved/constructor parity"） | 未列 | **中** | 违反铁律 1 |
 | MSC4242 State DAG | P0 阻断性 | **低（观察项）** | 上游实验性 + 无房间版本启用；先修正 `dag.rs` 不实注释 |
 | MSC4512 AS 代理 | P0 阻断性 | **低（观察项）** | 上游实验性、opt-in |
 | SMS 厂商专用实现（Twilio 等） | P1 | **低** | 已有 `SmsProvider` trait + 通用 HTTP provider |
-| v12/v13 创建支持 | 未列 | **待决策** | 影响与"默认 v11 + v12 房间已在联邦中存在"的兼容边界 |
+| ~~v12/v13 创建支持~~ → **已定（2026-10-06，DOC-04）** | 未列 | **已定** | v12 是唯一可创建版本（`synapse-common/src/room_versions.rs:94`），v13 已移出能力表 |
 
 **D 类：把"文档可信度"变成守卫**
 
@@ -935,7 +933,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 
 | # | 发现 | 证据 |
 |---|------|------|
-| N1 | **Content Scanner 是"已装配但无消费者"** —— 旧判"从未被构造、未接入 config"不成立，但真相更值得警惕：模块被真实构造并接入配置，**却没有任何调用点** | `synapse-services/src/wiring/core.rs:66,179`（构造）+ `synapse-common/src/config/mod.rs:242`（配置项）；`scan`/`scan_text`/`scan_media` 在生产路径 0 调用点，`synapse-storage/` 无存储模块 |
+| N1 | ~~**Content Scanner 是"已装配但无消费者"** —— 旧判"从未被构造、未接入 config"不成立，但真相更值得警惕：模块被真实构造并接入配置，**却没有任何调用点**~~ → **订正（2026-10-06，DOC-04）**：已装配**且已接线**，消费点为 `synapse-web/src/routes/media/upload.rs:89,137` 与 `synapse-web/src/routes/handlers/room/events.rs:327` | ~~`synapse-services/src/wiring/core.rs:66,179`（构造）+ `synapse-common/src/config/mod.rs:242`（配置项）；`scan`/`scan_text`/`scan_media` 在生产路径 0 调用点，`synapse-storage/` 无存储模块~~ → 装配 `synapse-services/src/wiring/core.rs:66,180`，是否扫描由 `content_scanner` 开关决定 |
 | N2 | **MSC3912 级联撤回只到管理端** —— 存储/服务/管理端点齐备，但客户端撤回路径不级联 | `synapse-web/src/routes/handlers/room/events.rs:990` 只调 `redact_event_content` |
 | N3 | **`/send_join` 的 `state`/`auth_chain` 是手工拼装的非 PDU JSON** —— "有字段"≠"可验签"，本轮把 P0-1 从"缺字段"重判为"字段在但内容不可用" | `synapse-services/src/room/messaging/events.rs:74-85` 只拼 `{event_id, sender, type, content, state_key}`，无 `hashes`/`signatures`/`depth`/`prev_events`/`auth_events` |
 | N4 | **SQLx 静态化比例被本文档长期低报约 13 倍** | 实测 静态 806 / 动态 1396（`bash scripts/ci/check_sqlx_dynamic_ratio.sh`，`ratio=0.634`）；旧文写的 61 / 2147 来自有缺陷的计数器（漏算 turbofish、误算注释） |
@@ -969,14 +967,14 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | **P0（新登记）** | PDU **语义**未对齐：`event_id` 为 `$<ms>_<rand>:<server>` 而非 v4+ reference hash ⇒ 字段齐全也不被 v11 对等端接受 | `synapse-common/src/crypto.rs:149` |
 | **高** | E2EE SAS 4 处偏离规范（info 串缺公钥且顺序错 / emoji 仅 6 个且 decimal 被丢弃 / MAC 非 `hkdf-hmac-sha256.v2` / commitment 非 SHA-256） | `/keys/device_signing/verify_*` 是私有非规范 REST 面，**形状阻塞**规范修法（见 §14.4 item 3）。⚠️ **2026-09-25 该面已整模块删除**，条目作废 |
 | **高** | 客户端撤回不级联 | `synapse-web/src/routes/handlers/room/events.rs:990` |
-| **高** | Content Scanner 空转（装配了但不扫描） | 见 §15.1 N1 |
+| ~~**高**~~ **已作废** | ~~Content Scanner 空转（装配了但不扫描）~~ → **已接线（2026-10-06，DOC-04）** | 见 §15.1 N1 订正 |
 | **中** | MSC4242 仅存储层，且 `dag.rs` 注释声称被 `/send_join`、`/get_missing_events` 使用（实测无调用点） | `synapse-storage/src/event/dag.rs` |
 | **中** | 上游 1.161 已删的 `msc2965/auth_issuer` 本仓仍在册 | `docs/synapse-rust/ROUTE_CONTRACT.md` |
 | **中** | Profile 三处偏差：稳定 `/{keyName}` 未注册、停用用户写自定义字段 404、account_data 非对象语义 | 路由在册清单 + `user/storage.rs` |
 | **中** | MSC4502 / MSC4262 仍为 PARTIAL 且未收敛 | 各 8 个 `.rs` 命中 |
-| **中** | Admin 媒体端点族部分缺失（本仓 14 条 vs 上游 18 条；房间级列举/删除已补全） | 缺失：用户媒体隔离、按日期删除、远程缓存清理、解除保护；见 `CURRENT_ISSUES_AND_PLAN.md` U-5 |
+| ~~**中**~~ **已闭环** | ~~Admin 媒体端点族部分缺失（本仓 14 条 vs 上游 18 条；房间级列举/删除已补全）~~ → **已补齐（2026-10-06，DOC-04）**：`2df0b8fa8` 补齐并去重，本仓 **22** 逻辑端点已超上游人工口径 18（见 `docs/synapse-rust/API_COVERAGE_REPORT.md` §6.3） | 用户媒体隔离、按日期删除、远程缓存清理、解除保护均已注册 |
 | **中** | 缩略图 `animated` 参数未支持；`M_USER_LIMIT_EXCEEDED` 未用于媒体限额 | 两处均在业务层 0 命中 |
-| **低（决策）** | v12/v13 房间不可创建 | `synapse-common/src/room_versions.rs:114-115` `stable_parse_only` |
+| ~~**低（决策）**~~ **已定** | ~~v12/v13 房间不可创建~~ → **订正（2026-10-06，DOC-04）**：v12 **是唯一可创建**版本（`synapse-common/src/room_versions.rs:94`），v13 已移出能力表 | `synapse-common/src/room_versions.rs:152` `RoomVersionCapability::stable("12")` |
 | **低** | `search_index` 遗留表（D-39） | baseline 仍有该表 |
 | **低** | ledger `query_params` 字段无消费方 | 仅 `synapse-web/src/routes/route_ledger.rs` 定义 |
 
@@ -993,7 +991,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
   含 `origin_server_ts` 的 PDU，并复用库中 `hashes`/`signatures`、否则**现场签名**。**未动的三条**
   已单独登记（见 §15.3 两行 P0）：本地写入路径不落图元数据、入站事件不落原签名、`event_id` 非
   reference hash。⚠️ **不要再把"字段在"当成"已合规"**——本批只闭合了字段与签名，未闭合**语义**。
-- **降级**：Content Scanner 由"孤儿模块、从未被构造" → "已装配但**无消费者**"。
+- **降级**：~~Content Scanner 由"孤儿模块、从未被构造" → "已装配但**无消费者**"。~~ → **再订正（2026-10-06，DOC-04）**：Content Scanner 已**装配且已接线**（消费点见 §15.1 N1 订正）。
 - **口径修正**：SQLx 静态化 2.8% → 36.6%（计数缺陷）；路由逻辑端点 883 → 813
   （2026-09-25 E2EE 去服务端私钥重构删 30 条路由后为 **795**，见 §3.4）；
   `docs`/`tests`/`docker` 计数由 `find` 改为 `git ls-files`（同一提交在两个 worktree 会给出两套数）。
@@ -1208,15 +1206,16 @@ grep "CREATE INDEX" migrations/00000000_unified_schema_v12.sql | grep -i "events
 
 | 原声明（节 · 行） | 实际状态 | 证据 |
 |---|---|---|
-| §12.4 Content Scanner"未装配" / §15.3"孤儿模块" | **已装配且已接入生产路径**（旧"无调用点/孤儿"判定作废）：媒体上传与房间消息文本两路扫描均已接线，是否实际扫描由 `content_scanner` 配置开关决定 | 装配 `synapse-services/src/wiring/core.rs:66,180`；消费 `synapse-web/src/routes/media/upload.rs:89,137`（`scan_when_enabled`）、`synapse-web/src/routes/handlers/room/events.rs:317`（`scan_text_when_enabled`） |
+| §11.2 / §12.4 Content Scanner"未装配" / §15.3"孤儿模块" | **已装配且已接入生产路径**（旧"无调用点/孤儿"判定作废）：媒体上传与房间消息文本两路扫描均已接线，是否实际扫描由 `content_scanner` 配置开关决定 | 装配 `synapse-services/src/wiring/core.rs:66,180`；消费 `synapse-web/src/routes/media/upload.rs:89,137`（`scan_when_enabled`）、`synapse-web/src/routes/handlers/room/events.rs:327`（`scan_text_when_enabled`） |
 | §12.4 App Service 登录"整体缺失" | AS 登录**已实现** | §12.5 L931 |
 | §12.5 SAS"高" | 该面**已整模块删除**（去服务端私钥重构），条目作废 | §15.3 L944 同行的"作废"标注 |
-| §12.5 QR"当前为桩" / `leak_detection`"未编译" / OIDC `validate_id_token_claims`"死代码" | 三者均**已删除** | §7.2 L387；§14.1 L71 |
+| §11.3 / §12.5 QR"当前为桩" / `leak_detection`"未编译" / OIDC `validate_id_token_claims`"死代码" | 三者均**已删除** | §7.2 L387；§14.1 L71 |
 | §12.5 MSC4140"无法联邦/EDU" | EDU **已实现** | §12.4 L718 |
 | §12.5 MSC4242"❌ 缺失" | **已进 v12 图路径**（存储层），仅 HTTP 面缺（§18.3 #18）；**取证更正（2026-10-02）**：上游 #20133 是把 MSC4242 接进**既有**联邦端点（`/make_join`、`/send_join`、`/get_missing_events`、`/send` 目的地），**不新增路由**，受阻于 MSC4242 房间版本 + experiment（§18.4 L-2） | `synapse-storage/src/event/dag.rs:255-290` |
 | §12.5 MSC4512"缺失" | 代理**已实现** | §12.5 L931 |
 | §12.4"撤回格式与默认房间版本不匹配""MSC3912 未实现" | **均已修**（默认版本 12 + MSC3912 级联） | §15.3 L945/L719 |
 | §15.3 "v12/v13 不可创建" | v12 **是唯一可创建**版本，v13 已移出能力表 | `room_versions.rs:94,119-152` |
+| §11.1 "本仓默认房间版本 11 / 注释过时" | **已订正**：本仓默认创建版本已为 **12**（v12 唯一可创建）；旧注释亦已修 | `synapse-common/src/room_versions.rs:94,152` |
 | §15.3 "Admin 媒体缺 4 条" | §16.3 L1022 记**已补全 18/18**，但 §17 L1054 仍写"剩余 4 条" | §16.3 L1022 vs §17 L1054 |
 | §17"紧急：U-19-R4" | 同行括注已写"已在 `5d1bfdc3f` 修复" | §16.3 L1017 |
 | TOC | §16 重复、§17 缺失（本轮已修） | 本文件目录 |

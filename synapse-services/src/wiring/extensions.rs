@@ -105,7 +105,7 @@ impl ExtensionServices {
             media_service,
             media_domain_service,
             ui_auth_session_timeout,
-            #[allow(unused_variables)]
+            #[allow(unused_variables)] // Bound for the feature-gated wiring below; unused without `friends`.
             user_service,
         } = deps;
 

@@ -46,6 +46,55 @@ impl EventStorage {
         .await
     }
 
+    /// Single write path for the **13-column graph INSERT** shared by
+    /// [`Self::create_event_with_pdu`] and [`Self::create_outlier_event`].
+    ///
+    /// The two callers differ only in what happens *after* the row lands:
+    /// `create_event_with_pdu` appends the `event_edges` rows, while
+    /// `create_outlier_event` must not (its parents are FK-unresolvable).  The
+    /// INSERT text itself used to be duplicated verbatim in both bodies — the
+    /// outlier copy even carried a "keep this byte-identical so the `.sqlx`
+    /// cache entry is reused" comment.  That is a drift trap: edit one and not
+    /// the other and the two paths silently diverge.  One literal, one owner.
+    ///
+    /// ⚠️ The SQL literal stays **inside** the `sqlx::query_as!` call below —
+    /// never hoisted into a `let sql = r"…"` variable (§7 D-59 / R1): the macro
+    /// requires a literal, and the dynamic-literal guard forbids non-macro
+    /// `sqlx::query(..)` in production.
+    async fn insert_event_row_with_graph(
+        conn: &mut sqlx::PgConnection,
+        params: &CreateEventParams,
+        depth: Option<i64>,
+        prev_events_json: &serde_json::Value,
+        auth_events_json: &serde_json::Value,
+    ) -> Result<RoomEvent, sqlx::Error> {
+        sqlx::query_as!(
+            RoomEvent,
+            r#"
+            INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key, origin_server_ts, is_redacted, redacts, depth, prev_events, auth_events)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9, $10, $11, $12)
+            RETURNING event_id, room_id, sender as user_id, event_type, content, state_key,
+                      COALESCE(depth, 0) as "depth!", origin_server_ts as "processed_ts",
+                      origin_server_ts, 0::BIGINT as "not_before!", 'pending' as "status?",
+                      'self' as "origin!", stream_ordering, redacts
+            "#,
+            &params.event_id,
+            &params.room_id,
+            &params.user_id,
+            &params.user_id,
+            &params.event_type,
+            &params.content,
+            params.state_key.as_deref(),
+            params.origin_server_ts,
+            params.redacts.as_deref(),
+            depth,
+            prev_events_json,
+            auth_events_json,
+        )
+        .fetch_one(&mut *conn)
+        .await
+    }
+
     /// Create an event with complete PDU graph fields: `depth` / `prev_events` /
     /// `auth_events` in `events` **and** one `event_edges` row per parent.
     ///
@@ -99,31 +148,9 @@ impl EventStorage {
         };
 
         // P2-1: Insert event row first, then batch edge inserts in same txn
-        let event = sqlx::query_as!(
-            RoomEvent,
-            r#"
-            INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key, origin_server_ts, is_redacted, redacts, depth, prev_events, auth_events)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9, $10, $11, $12)
-            RETURNING event_id, room_id, sender as user_id, event_type, content, state_key,
-                      COALESCE(depth, 0) as "depth!", origin_server_ts as "processed_ts",
-                      origin_server_ts, 0::BIGINT as "not_before!", 'pending' as "status?",
-                      'self' as "origin!", stream_ordering, redacts
-            "#,
-            &params.event_id,
-            &params.room_id,
-            &params.user_id,
-            &params.user_id,
-            &params.event_type,
-            &params.content,
-            params.state_key.as_deref(),
-            params.origin_server_ts,
-            params.redacts.as_deref(),
-            pdu_graph.depth,
-            &prev_events_json,
-            &auth_events_json,
-        )
-        .fetch_one(&mut *conn)
-        .await?;
+        let event =
+            Self::insert_event_row_with_graph(conn, &params, pdu_graph.depth, &prev_events_json, &auth_events_json)
+                .await?;
 
         // P2-1: Batch insert all prev_edges in a single round-trip using unnest().
         // `None` is the "no graph metadata" shape (`create_event` territory):
@@ -203,9 +230,10 @@ impl EventStorage {
     /// ⚠️ outlier 会被 [`Self::get_forward_extremities_in_room`] 当成 forward
     /// extremity —— 该函数**只**从 `event_edges` 推导叶节点（取舍已在其文档注释中记录）。
     ///
-    /// ⚠️ 这里的 INSERT 文本必须与 [`Self::create_event_with_pdu`] **逐字节相同**
-    /// （`.sqlx` 离线缓存以 `sha256(SQL)` 为键，文本一致才能复用既有条目）；差异只在
-    /// 于本方法**不执行**后续的 `event_edges` 插入。
+    /// ⚠️ 本方法与 [`Self::create_event_with_pdu`] 共用**同一份** INSERT 字面量
+    /// （见 [`Self::insert_event_row_with_graph`]）；差异只在于本方法**不执行**后续的
+    /// `event_edges` 插入。共享一份字面量后，不再有"两处必须逐字节一致"的漂移风险，
+    /// 二者也自然复用同一个 `.sqlx` 离线条目（缓存以 `sha256(SQL)` 为键）。
     pub async fn create_outlier_event(
         &self,
         params: CreateEventParams,
@@ -227,31 +255,7 @@ impl EventStorage {
             }
         };
 
-        sqlx::query_as!(
-            RoomEvent,
-            r#"
-            INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key, origin_server_ts, is_redacted, redacts, depth, prev_events, auth_events)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9, $10, $11, $12)
-            RETURNING event_id, room_id, sender as user_id, event_type, content, state_key,
-                      COALESCE(depth, 0) as "depth!", origin_server_ts as "processed_ts",
-                      origin_server_ts, 0::BIGINT as "not_before!", 'pending' as "status?",
-                      'self' as "origin!", stream_ordering, redacts
-            "#,
-            &params.event_id,
-            &params.room_id,
-            &params.user_id,
-            &params.user_id,
-            &params.event_type,
-            &params.content,
-            params.state_key.as_deref(),
-            params.origin_server_ts,
-            params.redacts.as_deref(),
-            depth,
-            &prev_events_json,
-            &auth_events_json,
-        )
-        .fetch_one(&mut *conn)
-        .await
+        Self::insert_event_row_with_graph(conn, &params, Some(depth), &prev_events_json, &auth_events_json).await
     }
 
     /// Create a state event with MSC4242 `prev_state_events` (state DAG edges).

@@ -2,13 +2,12 @@
 //!
 //! Provides endpoints for clients (e.g. Element) to discover whether the
 //! homeserver supports OAuth2/OIDC-based login. When OIDC is not configured,
-//! returns `M_UNRECOGNIZED` (HTTP 400) so clients fall back to classic password login.
+//! returns `M_UNRECOGNIZED` (HTTP 404) so clients fall back to classic password login.
 
 use crate::routes::context::AuthContext;
 use crate::routes::ApiError;
 use axum::{extract::State, Json};
 use serde_json::json;
-use synapse_common::{ApiErrorKind, MatrixErrorCode};
 
 /// Check whether OIDC/SAML is enabled via configuration.
 fn oidc_available(config: &synapse_common::config::Config) -> bool {
@@ -42,16 +41,12 @@ fn build_oidc_discovery(config: &synapse_common::config::Config) -> serde_json::
 
 /// MSC2965 — `auth_metadata`. Used by clients (e.g. Element) to discover whether
 /// the homeserver supports OAuth2/OIDC-based login. When OIDC is not configured
-/// we must return `M_UNRECOGNIZED` (HTTP 400) rather than a generic 404, so clients
-/// fall back to the classic password login flow without surfacing a misleading error.
+/// we return `M_UNRECOGNIZED` (HTTP 404, the spec-canonical "not recognized"
+/// status) so clients fall back to the classic password login flow without
+/// surfacing a misleading error.
 pub async fn get_auth_metadata(State(ctx): State<AuthContext>) -> Result<Json<serde_json::Value>, ApiError> {
     if !oidc_available(&ctx.config) {
-        return Err(ApiError {
-            kind: ApiErrorKind::BadRequest,
-            code: MatrixErrorCode::Unrecognized,
-            message: "Authentication metadata is not available because OIDC/SSO is not enabled".to_string(),
-            cause: None,
-        });
+        return Err(ApiError::unrecognized("Authentication metadata is not available because OIDC/SSO is not enabled"));
     }
 
     Ok(Json(build_oidc_discovery(&ctx.config)))

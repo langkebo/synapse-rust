@@ -179,7 +179,8 @@ async fn test_voice_config_endpoint() {
         assert_eq!(json["max_duration"], 600);
         assert_eq!(json["auto_transcribe"], false);
         // A3: the convert/optimize/transcription routes are registered but
-        // intentionally unsupported (501); the capability declaration must say so.
+        // intentionally unsupported (404 M_UNRECOGNIZED per COMPAT-03); the
+        // capability declaration must say so.
         assert_eq!(json["server_side_processing"]["convert"], false);
         assert_eq!(json["server_side_processing"]["optimize"], false);
         assert_eq!(json["server_side_processing"]["transcription"], false);

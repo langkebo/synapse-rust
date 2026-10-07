@@ -15,10 +15,14 @@ WorkBuddy CLI 环境（以及小型 CI runner）的内存限制通常 ≤4GB，�
 3. 新增大型数据结构（>1MB 静态分配）
 4. 移除 `--test-threads` 限制或提高并发度
 
+基线内存不再硬编码在脚本里（PERF-05），而是由 `scripts/ci/memory_budget_baseline`
+记录的**测试架构参数**按模型推导；文件缺失/缺项即失败（exit 2），不静默通过。
+基线随测试架构演进更新——改基线文件并写明理由，而不是改脚本里的字面量。
+
 退出码:
   0: 预算内
-  1: 超出预算，需要人工审核或降低并发度
-  2: 脚本错误
+  1: 达到 high 或 critical 风险（两者都阻断 PR；此前 high 只警告不失败，是 PERF-05 的缺口）
+  2: 脚本错误（含基线文件缺失/缺项）
 
 用法:
   python3 scripts/ci/check_memory_budget.py
@@ -38,6 +42,10 @@ import sys
 from typing import NamedTuple
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+
+# 基线：记录的测试架构参数（NUM_TEST_BINS / NUM_POOLS / POOL_SIZE），
+# 见 scripts/ci/memory_budget_baseline。
+BASELINE_FILE = ROOT / "scripts" / "ci" / "memory_budget_baseline"
 
 # 内存预算（可配置）
 MEMORY_BUDGET_MB = int(os.environ.get("MEMORY_BUDGET_MB", "4096"))
@@ -122,17 +130,46 @@ def detect_large_structures(
     return large_ones
 
 
+def read_baseline_inputs() -> dict[str, int]:
+    """读取记录的测试架构参数（缺失即失败，不允许静默回落到硬编码）。"""
+    if not BASELINE_FILE.exists():
+        print(
+            f"❌ 缺少内存基线文件：{BASELINE_FILE.relative_to(ROOT)}。"
+            "内存门禁必须读记录在案的基线，缺失即失败（不允许静默通过）。",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    values: dict[str, int] = {}
+    for line in BASELINE_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" in line:
+            key, _, value = line.partition("=")
+            try:
+                values[key.strip()] = int(value.strip())
+            except ValueError:
+                print(
+                    f"❌ {BASELINE_FILE.relative_to(ROOT)} 的 `{line}` 不是 KEY=整数 形式",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+    required = ("NUM_TEST_BINS", "NUM_POOLS", "POOL_SIZE")
+    missing = [k for k in required if k not in values]
+    if missing:
+        print(
+            f"❌ {BASELINE_FILE.relative_to(ROOT)} 缺少基线项：{', '.join(missing)}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    return values
+
+
 def estimate_current_baseline() -> int:
-    """估算当前测试架构的基线内存消耗。"""
-    # 简化的估算模型
-    # 假设平均每次运行 4 个测试线程
-    num_test_bins = 8  # 预估同时运行的测试二进制文件数
-    pool_size = 20  # 低内存环境下的连接池大小
-    num_pools = 4
-
-    base = num_test_bins * TEST_BINARY_RSS_MB
-    pool_mem = num_pools * (POOL_OVERHEAD_MB + pool_size * PER_CONNECTION_MB)
-
+    """按记录在案的测试架构参数推导基线内存消耗（基线随架构演进更新）。"""
+    b = read_baseline_inputs()
+    base = b["NUM_TEST_BINS"] * TEST_BINARY_RSS_MB
+    pool_mem = b["NUM_POOLS"] * (POOL_OVERHEAD_MB + b["POOL_SIZE"] * PER_CONNECTION_MB)
     return base + pool_mem
 
 
@@ -228,9 +265,9 @@ def main() -> None:
         print("\n❌ 超出内存预算！请采取上述建议措施或联系维护者调整预算。")
         sys.exit(1)
     elif impact.risk_level == "high":
-        print("\n⚠️  接近内存预算上限！建议采取上述措施。")
-        # 警告但不失败
-        sys.exit(0)
+        # PERF-05：high 也必须阻断——此前只警告不失败，内存回归会被放过。
+        print("\n❌ 达到高内存风险（high）！请采取上述措施或联系维护者调整预算。")
+        sys.exit(1)
     else:
         print("\n✅ 内存消耗在预算范围内")
         sys.exit(0)

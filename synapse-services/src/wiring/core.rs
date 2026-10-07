@@ -124,7 +124,8 @@ impl CoreServices {
             infra.task_queue.clone(),
             &infra.config.server.name,
             Some(infra.pool.clone()),
-        );
+        )
+        .await;
         // Observability for hash-level automatic quarantine (U-3 §6.2): the
         // upload path already has the metrics sink; without this wiring the
         // hit counter would be dead code.

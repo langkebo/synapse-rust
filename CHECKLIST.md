@@ -42,7 +42,7 @@
 
 ### 5. 数据库迁移 ✅
 - [x] 统一 schema 基线 v12（`migrations/00000000_unified_schema_v12.sql`，目录下只保留这一个基线）
-- [x] 10 个 delta 迁移（v8 之后所有 schema 变更）
+- [x] ~~10 个 delta 迁移（v8 之后所有 schema 变更）~~ → **订正（2026-10-06，DOC-05）**：delta 迁移为 **0 个** —— v8 之后的变更已全部折叠进上面的统一基线，`migrations/` 目录下只有 `00000000_unified_schema_v12.sql`（外加 `INDEXES.md`/`README.md` 两份说明）
 - [x] CI 动态 baseline 发现（db-migration-gate v2，修复 v10/v11/v07 混淆）
 - [x] **P2 fail-fast**：CI 两处 `Set up test database` 末尾断言 4 张 burn_after_read 表
 
@@ -52,7 +52,7 @@
 - [x] 代码格式化（`cargo fmt --all -- --check`）
 - [x] 依赖安全（`cargo audit --no-fetch`：**0 vulnerabilities**，594 crates，1239 advisories）
 - [x] 供应链检查（`cargo deny`：bans/licenses/sources 全部 ok）
-- [x] 未使用依赖（`cargo machete`：0 unused）
+- [x] 未使用依赖（`cargo machete`：0 unused）—— **订正（2026-10-06，DOC-05）**：此结论此前失真（实测 **10 个**未使用依赖，见 `DEAD-01`）；2026-10-06 已逐一删除并把 `cargo machete` 接入 `.githooks/pre-push`（阻断级），`cargo machete` 复验 **0 unused**
 
 ### 7. CI/CD 修复 ✅
 - [x] P2 burn_after_read 42P01：`artifacts/sqlx-migrations/` 生成 + fail-fast guard
@@ -76,7 +76,7 @@
 | Clippy | `SQLX_OFFLINE=true cargo clippy --workspace --all-features --locked -- -D warnings` | ✅ 0 warnings |
 | 格式化 | `cargo fmt --all -- --check` | ✅ 0 errors |
 | 依赖审计 | `cargo audit --no-fetch` | ✅ 0 vulnerabilities |
-| 依赖质量 | `cargo machete` | ✅ 0 unused |
+| 依赖质量 | `cargo machete` | ✅ 0 unused（2026-10-06 复验；已接入 `.githooks/pre-push` 阻断门禁，见 `DEAD-01`） |
 | 供应链 | `cargo deny check bans licenses sources` | ✅ all ok |
 | 服务健康 | `curl matrix.test/_matrix/client/versions` | ✅ 200 |
 | 端到端部署 | `./docker/deploy/deploy.sh --all` | ✅ 4 容器 healthy |
@@ -150,4 +150,4 @@ cp .env.example .env
 
 ---
 
-**最后更新**：2026-09-02（synapse-rust v6.2.0，生产就绪）
+**最后更新**：2026-10-06（DOC-05 复核：`migrations/` delta 迁移 **0 个**、`cargo machete` **0 unused** 且已接入 pre-push 阻断门禁；其余检查项仍为 2026-09-02 结论，synapse-rust v6.2.0）

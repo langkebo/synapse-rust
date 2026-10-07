@@ -38,6 +38,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -875,6 +876,159 @@ def collect_inserts(root: Path) -> list[dict]:
     return inserts
 
 
+# =============================================================================
+# COMPAT-06：`.sqlx` 缓存新鲜度断言
+#
+# `.sqlx/query-<hash>.json` 的文件名 `<hash>` = `sha256(query 字段文本)` 的 hex，
+# 而 `query` 字段就是源码里 sqlx 静态宏的 SQL **字面量本身**（1:1，无归一化）。
+# 于是可以纯静态地把"源码字面量"映射成"应有的缓存文件名"，与实际 `.sqlx/`
+# 的文件名集合比对：缺失即缓存陈旧（改了 SQL 却没重生成缓存）。
+#
+# 覆盖面：只对"SQL 实参是字符串字面量"的调用点生效；实参是 `concat!`/`format!`/
+# 变量等非常量表达式的站点**跳过**（无法静态求值，绝不误报）。缓存**完整性**仍由
+# `--compile`（SQLX_OFFLINE 构建）权威证明；本断言是零成本前置哨兵，补上
+# `--static` 只能查"存在/非空/被跟踪"抓不到"缓存陈旧"的缺口（COMPAT-06）。
+# =============================================================================
+
+# 静态宏名（含 `sqlx::` 限定与裸写法）。`_unchecked` 变体排在前面，避免被更短的
+# 前缀抢先匹配；`query_file!` 需读外部 .sql 文件、其哈希口径不同，本仓零使用，故
+# 不纳入（若将来引入需另立断言）。
+_SQLX_STATIC_MACRO_RE = re.compile(
+    r"\b(?:sqlx\s*::\s*)?"
+    r"(query_as_unchecked|query_scalar_unchecked"
+    r"|query_as|query_scalar|query_unchecked|query)"
+    r"\s*!"
+)
+
+# 宏名 → SQL 实参在宏实参列表中的下标。`query_as!`/`query_as_unchecked!` 的第 1 个
+# 实参是类型，SQL 在第 2 个；其余宏的 SQL 都是第 1 个实参。
+_SQLX_SQL_ARG_INDEX = {
+    "query": 0,
+    "query_unchecked": 0,
+    "query_scalar": 0,
+    "query_scalar_unchecked": 0,
+    "query_as": 1,
+    "query_as_unchecked": 1,
+}
+
+
+def _static_arg_offsets(stripped: str, open_paren: int) -> list[int]:
+    """返回 `open_paren` 处圆括号内各**顶层实参**的起始下标。
+
+    只在"圆括号深度 == 1 且尖括号深度 == 0"处的 `,` 才切分：`query_as!` 的类型
+    实参可能是元组/泛型（`Vec<(i64, String)>`），其中的逗号不能当分隔符。传入的
+    `stripped` 须是等长剥离后的文本（字符串/注释已变空格），使下标可映射回原文。
+    """
+    offsets: list[int] = []
+    depth = 0
+    angle = 0
+    arg_start = open_paren + 1
+    i = open_paren
+    n = len(stripped)
+    while i < n:
+        ch = stripped[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                offsets.append(arg_start)
+                return offsets
+        elif ch == "<":
+            angle += 1
+        elif ch == ">":
+            if angle:
+                angle -= 1
+        elif ch == "," and depth == 1 and angle == 0:
+            offsets.append(arg_start)
+            arg_start = i + 1
+        i += 1
+    offsets.append(arg_start)
+    return offsets
+
+
+def check_cache_fresh(root: Path, cache_dir: Path) -> int:
+    """断言每个静态查询字面量都能在 `.sqlx/` 找到对应哈希条目（COMPAT-06）。
+
+    返回 0 = 全命中；1 = 有缺失，或扫描器失效（0 处可核对，防静默假通过）。
+    """
+    if not cache_dir.is_dir():
+        print(f"FAIL: 缺少 {cache_dir}，无法核对缓存新鲜度", file=sys.stderr)
+        return 1
+
+    cached: set[str] = set()
+    for entry in cache_dir.glob("query-*.json"):
+        name = entry.name
+        if name.startswith("query-") and name.endswith(".json"):
+            cached.add(name[len("query-") : -len(".json")])
+
+    verified = 0
+    unverifiable = 0
+    missing: list[str] = []
+
+    for path in collect_sources(root):
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        code = strip_code(text, pad_comments=True)
+        stripped = "\n".join(code)
+
+        offsets: list[int] = []
+        pos = 0
+        for line in code:
+            offsets.append(pos)
+            pos += len(line) + 1
+
+        rel = path.relative_to(root).as_posix()
+        for li, line in enumerate(code):
+            for match in _SQLX_STATIC_MACRO_RE.finditer(line):
+                macro = match.group(1)
+                open_paren = _find_open_paren(stripped, offsets[li] + match.start())
+                if open_paren is None:
+                    unverifiable += 1
+                    continue
+                arg_offsets = _static_arg_offsets(stripped, open_paren)
+                idx = _SQLX_SQL_ARG_INDEX[macro]
+                if idx >= len(arg_offsets):
+                    unverifiable += 1
+                    continue
+                arg = _first_arg_offset(text, arg_offsets[idx])
+                if not _starts_string_literal(text, arg):
+                    # `concat!`/`format!`/变量等非常量实参：静态无法求值，跳过。
+                    unverifiable += 1
+                    continue
+                content, _end = read_string_literal(text, arg)
+                digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+                verified += 1
+                if digest not in cached:
+                    missing.append(f"{rel}:{li + 1}:{macro}!")
+
+    if verified == 0:
+        print(
+            "FAIL: 未扫描到任何可静态核对的 sqlx 字面量，扫描器可能已失效",
+            file=sys.stderr,
+        )
+        return 1
+
+    if missing:
+        print(
+            f"FAIL: {len(missing)} 处源码查询字面量在 {cache_dir.name}/ 找不到对应条目"
+            f"（缓存陈旧或未重生成）：",
+            file=sys.stderr,
+        )
+        for site in missing:
+            print(f"  {site}", file=sys.stderr)
+        print(
+            "      修复：bash scripts/ci/sqlx_prepare.sh（.sqlx 的唯一写入入口）",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(
+        f"OK: 源码 {verified} 处静态查询字面量全部命中 {cache_dir.name}/ 缓存"
+        f"（{unverifiable} 处非字面量实参跳过）"
+    )
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="SQLx query census (production vs #[cfg(test)])"
@@ -917,6 +1071,14 @@ def main() -> int:
         metavar="ROOT",
         help="输出生产区全部 INSERT 列清单 JSON（D-36 守卫 B）",
     )
+    parser.add_argument(
+        "--check-cache-fresh",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="ROOT",
+        help="断言源码静态查询字面量都能在 .sqlx/ 找到对应哈希条目（COMPAT-06）",
+    )
     args = parser.parse_args()
 
     if args.list_production_dynamic is not None:
@@ -945,6 +1107,10 @@ def main() -> int:
             )
         )
         return 0
+
+    if args.check_cache_fresh is not None:
+        cache_root = Path(args.check_cache_fresh or args.root).resolve()
+        return check_cache_fresh(cache_root, cache_root / ".sqlx")
 
     root = Path(args.root).resolve()
     totals = {

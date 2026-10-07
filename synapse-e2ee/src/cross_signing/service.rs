@@ -96,6 +96,12 @@ impl CrossSigningService {
     }
 
     /// See [`get_cross_signing_keys`].
+    ///
+    /// The self-signing and user-signing keys are each signed by the user's own
+    /// master key; that signature is persisted in the key's `signatures` object
+    /// and is surfaced here as a convenience string. If a signature is missing
+    /// (e.g. a legacy row written before signatures were persisted) the field is
+    /// left as an empty string rather than failing the whole lookup.
     pub async fn get_cross_signing_keys(&self, user_id: &str) -> Result<CrossSigningKeys, ApiError> {
         let keys = self.storage.get_cross_signing_keys(user_id).await?;
 
@@ -112,14 +118,40 @@ impl CrossSigningService {
             .find(|k| k.key_type == "user_signing")
             .ok_or_else(|| ApiError::not_found("User-signing key not found".to_string()))?;
 
+        let master_key_id = Self::master_key_id(master_key);
+
         Ok(CrossSigningKeys {
             user_id: user_id.to_string(),
             master_key: master_key.public_key.clone(),
             self_signing_key: self_signing_key.public_key.clone(),
             user_signing_key: user_signing_key.public_key.clone(),
-            self_signing_signature: String::new(),
-            user_signing_signature: String::new(),
+            self_signing_signature: Self::extract_signature_for(self_signing_key, user_id, &master_key_id),
+            user_signing_signature: Self::extract_signature_for(user_signing_key, user_id, &master_key_id),
         })
+    }
+
+    /// Derive the id (`ed25519:<...>`) of a master key.
+    ///
+    /// Prefers the id recorded in the stored `key_json` (the id the key was
+    /// signed under) and falls back to the public-key value.
+    fn master_key_id(master_key: &CrossSigningKey) -> String {
+        master_key
+            .key_json
+            .as_ref()
+            .and_then(|value| Self::extract_ed25519_key(value, "master_key").ok())
+            .map_or_else(|| format!("ed25519:{}", master_key.public_key), |(key_id, _)| key_id)
+    }
+
+    /// Read the signature made by `signing_key_id` over `key`, if present.
+    ///
+    /// Cross-signing `signatures` are shaped `{ <user_id>: { <key_id>: <sig> } }`.
+    fn extract_signature_for(key: &CrossSigningKey, user_id: &str, signing_key_id: &str) -> String {
+        key.signatures
+            .get(user_id)
+            .and_then(|by_user| by_user.get(signing_key_id))
+            .and_then(|sig| sig.as_str())
+            .unwrap_or_default()
+            .to_string()
     }
 
     /// See [`get_public_cross_signing_keys`].
@@ -132,29 +164,6 @@ impl CrossSigningService {
             self_signing_key: pick("self_signing"),
             user_signing_key: pick("user_signing"),
         })
-    }
-
-    /// See [`upload_key_signature`].
-    pub async fn upload_key_signature(
-        &self,
-        user_id: &str,
-        _key_id: &str,
-        signature: &serde_json::Value,
-    ) -> Result<(), ApiError> {
-        let key = self.storage.get_cross_signing_key(user_id, "master").await?;
-        if let Some(mut k) = key {
-            let signatures = k
-                .signatures
-                .as_object()
-                .ok_or_else(|| ApiError::internal("Invalid signatures format".to_string()))?
-                .clone();
-            let mut sig_map = signatures;
-            sig_map.insert(user_id.to_string(), signature.clone());
-            k.signatures = serde_json::Value::Object(sig_map);
-            k.updated_ts = current_timestamp_utc();
-            self.storage.update_cross_signing_key(&k).await?;
-        }
-        Ok(())
     }
 
     /// See [`upload_device_signing_key`].
@@ -290,11 +299,7 @@ impl CrossSigningService {
         key_json: &serde_json::Value,
         master_key: &CrossSigningKey,
     ) -> bool {
-        let master_key_id = master_key
-            .key_json
-            .as_ref()
-            .and_then(|value| Self::extract_ed25519_key(value, "master_key").ok())
-            .map_or_else(|| format!("ed25519:{}", master_key.public_key), |(key_id, _)| key_id);
+        let master_key_id = Self::master_key_id(master_key);
         let signatures = match key_json.get("signatures").and_then(|v| v.as_object()) {
             Some(s) => s,
             None => return false,
@@ -308,47 +313,6 @@ impl CrossSigningService {
             None => return false,
         };
         verify_signed_json(user_id, &master_key_id, &master_key.public_key, signature, key_json).unwrap_or(false)
-    }
-
-    /// See [`upload_signatures`].
-    pub async fn upload_signatures(
-        &self,
-        user_id: &str,
-        signatures: &BulkSignatureUpload,
-    ) -> Result<SignatureUploadResponse, ApiError> {
-        let mut fail: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
-
-        for (target_user_id, user_sigs) in &signatures.signatures {
-            if let Some(user_sigs_obj) = user_sigs.as_object() {
-                for (target_key_id, sig_data) in user_sigs_obj {
-                    if let Some(sig_obj) = sig_data.as_object() {
-                        for (signing_key_id, signature) in sig_obj {
-                            let device_sig = DeviceSignature {
-                                user_id: user_id.to_string(),
-                                device_id: "".to_string(),
-                                signing_key_id: signing_key_id.clone(),
-                                target_user_id: target_user_id.clone(),
-                                target_device_id: "".to_string(),
-                                target_key_id: target_key_id.clone(),
-                                signature: signature.as_str().unwrap_or("").to_string(),
-                                created_ts: current_timestamp_utc(),
-                            };
-                            if let Err(e) = self.storage.save_device_signature(&device_sig).await {
-                                fail.insert(
-                                    format!("{target_user_id}:{target_key_id}"),
-                                    serde_json::json!({
-                                        "error": e.to_string(),
-                                        "signing_key_id": signing_key_id,
-                                    }),
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(SignatureUploadResponse { fail })
     }
 
     /// See [`get_user_signatures`].
@@ -986,6 +950,51 @@ mod tests {
         let key_json = json!({"keys": "not_an_object"});
         let result = CrossSigningService::extract_ed25519_key(&key_json, "master_key");
         assert!(result.is_err());
+    }
+
+    // ── master_key_id / extract_signature_for ─────────────────────
+
+    fn make_key(
+        key_type: &str,
+        public_key: &str,
+        key_json: Option<serde_json::Value>,
+        signatures: serde_json::Value,
+    ) -> CrossSigningKey {
+        CrossSigningKey {
+            id: uuid::Uuid::new_v4(),
+            user_id: "@alice:example.com".to_string(),
+            key_type: key_type.to_string(),
+            public_key: public_key.to_string(),
+            usage: vec![key_type.to_string()],
+            signatures,
+            key_json,
+            created_ts: current_timestamp_utc(),
+            updated_ts: current_timestamp_utc(),
+        }
+    }
+
+    #[test]
+    fn master_key_id_prefers_key_json_key_id() {
+        let key = make_key("master", "PUBKEY", Some(json!({"keys": {"ed25519:AAA": "PUBKEY"}})), json!({}));
+        assert_eq!(CrossSigningService::master_key_id(&key), "ed25519:AAA");
+    }
+
+    #[test]
+    fn master_key_id_falls_back_to_public_key() {
+        let key = make_key("master", "PUBKEY", None, json!({}));
+        assert_eq!(CrossSigningService::master_key_id(&key), "ed25519:PUBKEY");
+    }
+
+    #[test]
+    fn extract_signature_for_reads_master_signature() {
+        let key = make_key("self_signing", "SELF", None, json!({ "@alice:example.com": { "ed25519:AAA": "SIG" } }));
+        assert_eq!(CrossSigningService::extract_signature_for(&key, "@alice:example.com", "ed25519:AAA"), "SIG");
+    }
+
+    #[test]
+    fn extract_signature_for_missing_returns_empty() {
+        let key = make_key("self_signing", "SELF", None, json!({}));
+        assert_eq!(CrossSigningService::extract_signature_for(&key, "@alice:example.com", "ed25519:AAA"), "");
     }
 
     // ── verify_key_signature ──────────────────────────────────────

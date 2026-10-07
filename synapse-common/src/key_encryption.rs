@@ -91,7 +91,10 @@ pub fn is_encrypted(value: &str) -> bool {
 /// which used a single `SHA-256(info ‖ master_key)` hash. HKDF is a standard
 /// KDF with an extract-then-expand structure. Existing encrypted data produced
 /// under the old derivation will NOT be decryptable with this implementation.
-#[allow(clippy::expect_used)]
+#[allow(
+    clippy::expect_used,
+    reason = "HKDF-SHA256 output of 32 bytes is within the 255*HashLen limit; expand cannot fail"
+)]
 fn derive_key(master_key: &[u8], info: &[u8]) -> [u8; 32] {
     // No salt: master_key is used directly as the input key material (IKM).
     let hk = hkdf::Hkdf::<sha2::Sha256>::new(None, master_key);

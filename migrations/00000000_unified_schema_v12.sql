@@ -3261,6 +3261,11 @@ CREATE INDEX IF NOT EXISTS idx_memberships_user_room ON room_memberships(user_id
 CREATE INDEX IF NOT EXISTS idx_events_sender ON events(sender);
 CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
 CREATE INDEX IF NOT EXISTS idx_events_origin_server_ts ON events(origin_server_ts DESC);
+-- PERF-02: composite index for `get_daily_message_count`
+-- (`synapse-storage/src/event/basic.rs`), which filters on `event_type` equality
+-- plus an `origin_server_ts` range. The single-column `idx_events_type` forces a
+-- heap fetch + filter for the timestamp predicate; this covers both predicates.
+CREATE INDEX IF NOT EXISTS idx_events_type_origin_ts ON events(event_type, origin_server_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_events_not_redacted ON events(room_id, origin_server_ts DESC) WHERE is_redacted = FALSE;
 CREATE INDEX IF NOT EXISTS idx_events_room_time ON events(room_id, origin_server_ts DESC);
 -- Keyset (cursor) deep-page index for `get_room_events_paginated_cursor`

@@ -46,7 +46,7 @@ impl CsrfTokenManager {
             return false;
         }
 
-        if parts[0] != session_id {
+        if !synapse_common::crypto::secure_compare(parts[0], session_id) {
             return false;
         }
 

@@ -998,11 +998,16 @@ fn every_db_test_binary_registers_the_exit_drain() {
         // which breaks the `^[^:]+:[0-9]+:` filter below. Normalize to a
         // directory search so every output line carries `file:line:`.
         //
-        // `-w` (word boundary) keeps this a keyword match: bare-substring grep
-        // counted the common `#![deny(unsafe_code)]` / `unsafe_op_in_unsafe_fn`
-        // lint *names* as code, a false positive. A real `unsafe` keyword is
-        // always a standalone word (`unsafe {` / `unsafe fn` / `unsafe impl`),
-        // so `-w` drops only identifiers and never hides actual unsafe.
+        // `-E` with an explicit keyword *shape*, not `-w`: word-boundary matching
+        // already dropped the lint *names* (`unsafe_code`,
+        // `unsafe_op_in_unsafe_fn`), but it still counted the bare word "unsafe"
+        // inside a **string literal** — `config/validation.rs` has an error
+        // message reading "This combination is unsafe and rejected by browsers",
+        // which `-w` matched as if it were the keyword. A real `unsafe` keyword is
+        // always followed by the construct it guards (`unsafe {` / `unsafe fn` /
+        // `unsafe impl` / `unsafe trait` / `unsafe extern`), so match that shape
+        // and only that. This still catches every genuine occurrence — including
+        // the two `#[cfg(test)]` `set_var`/`remove_var` blocks this guard pins.
         let dir = if std::path::Path::new(pathspec).is_file() {
             std::path::Path::new(pathspec).parent().map_or(pathspec, |p| p.to_str().unwrap())
         } else {
@@ -1016,7 +1021,7 @@ fn every_db_test_binary_registers_the_exit_drain() {
         let out = std::process::Command::new("bash")
             .arg("-c")
             .arg(format!(
-                "grep -rnw 'unsafe' {dir} 2>/dev/null | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|///|//!)' || true"
+                "grep -rnE '\\bunsafe[[:space:]]*(\\{{|fn\\b|impl\\b|trait\\b|extern\\b)' {dir} 2>/dev/null | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|///|//!)' || true"
             ))
             .current_dir(&root)
             .output()

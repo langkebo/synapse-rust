@@ -47,6 +47,29 @@ $ grep -v '^archive/' /tmp/copy_only.txt | grep -vc '\.undo\.sql$' #  42  再去
 > `find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '00000000_unified_schema_v*.sql'`
 > 会匹配为空，migrator 直接报 "找不到统一基线脚本"。
 
+## 前置要求（Prerequisites）
+
+基线脚本的第一段就是扩展声明，**依赖目标数据库已安装这两个扩展的 contrib 包**：
+
+```sql
+CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- 提供 gen_random_uuid()
+CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- 提供 trigram 索引（GIN gin_trgm_ops）
+```
+
+| 项 | 要求 |
+|---|---|
+| PostgreSQL 版本 | **13+**（`gen_random_uuid()` 需 pgcrypto；PG13+ 内置 `gen_random_uuid()` 但本基线仍显式 `CREATE EXTENSION pgcrypto` 以兼容更早版本与复制环境） |
+| 必需扩展 | `pgcrypto`（uuid 生成，用于 `devices` / `rooms` / `access_tokens` 等表默认值）、`pg_trgm`（模糊/trigram 索引） |
+| 扩展安装包 | `postgresql-contrib`（Debian/Ubuntu）或 `postgresql13-contrib`（RHEL 系）；托管 PG（RDS / Cloud SQL / 阿里云 RDS）默认已含 |
+| 建库角色权限 | 需要 **数据库级 `CREATE` 权限**（或 `SUPERUSER`）以执行 `CREATE EXTENSION`。若扩展已由 DBA 预先安装，迁移角色仅需 `USAGE`，无需 `CREATE` |
+| `CREATEROLE` / 表空间 | 不需要；基线只创建表/索引/触发器，不创建角色、不指定表空间 |
+
+> **部署提示**：`CREATE EXTENSION` 需要超级用户或具备 `CREATE` 权限的库主。若运行迁移的
+> 角色是受限角色（如仅 `DML`），请由 DBA 先在其数据库中执行上述两条 `CREATE EXTENSION`
+> 语句，再运行迁移器；否则基线会在第一段直接失败。
+>
+> 自带白名单的托管 PG 若未启用 `pg_trgm`，可在控制台打开该扩展，或与 DBA 确认可用性。
+
 ## 目录结构
 
 ```
@@ -219,8 +242,11 @@ v11 baseline 曾包含 `openclaw_connections` / `ai_conversations` / `ai_connect
 `idx_e2ee_audit_log_device`、`idx_push_queue_user_pending`、
 `idx_federation_queue_pending`、`idx_rooms_federated` 等）与 9 个约束 DO 块。
 
-**去重后的结构**：1 个 header + 主体（含 14 张扩展表）= 230 张表 / 369 个索引，
-尾部保留唯一一份"完整性约束与性能索引折入块"。实测 230 表名、369 索引名**均无重复**。
+**去重后的结构**：1 个 header + 主体（含 14 张扩展表）+ 尾部唯一一份"完整性约束与性能索引
+折入块"。**当前实测**：218 张表 / 342 个索引，表名、索引名**均无重复**（口径与
+`tests/unit/migration_consistency_tests.rs::baseline_declares_each_object_exactly_once`
+的解析器一致：剥除 `--` 注释行后匹配 `CREATE [UNIQUE] INDEX [CONCURRENTLY] IF NOT EXISTS`
+与 `CREATE TABLE [IF NOT EXISTS]`）。
 
 > **验证方式**（与死表清理同一判据）：改动前（HEAD 版）与改动后的 baseline 各自
 > 应用到**全新数据库**，`pg_dump --schema-only` 归一化后**逐行完全一致**
@@ -360,5 +386,5 @@ v8 基线将 v7 基线 + 8 个批次迁移 + 14 个增量迁移（共 25 个文�
 ## 相关文档
 
 - `INDEXES.md` — 索引治理文档（partial / composite / 设计原则 / 维护指南）
-- `docs/synapse-rust/COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md` — 全面技术审查报告（v7.0）
-- `.scratch/db-schema-audit-2026-09-04.md` — v11 schema 审计报告（2026-09-04）
+- `docs/audit/DB_REVIEW_2026-09-17.md` — 数据库/schema 审查报告（含索引重复治理）
+- `docs/audit/COMPREHENSIVE_LEGACY_ISSUES_REPORT_20261006.md` — 遗留问题全面审计报告

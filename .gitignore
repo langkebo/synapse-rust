@@ -129,10 +129,14 @@ lcov.info
 # 测试结果日志（根目录）
 test-results-*.log
 test-results-fixed/
+# k6 负载测试输出（run-load-test.sh / scripts/load-test/matrix-load-test.js）
+load-test-results/
+load-test-run*.ndjson
 .DS_Store
 .trae/
 .gstack/
 .claude/worktrees/
+.worktrees/
 .trae-cn/
 certs/
 

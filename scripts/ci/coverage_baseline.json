@@ -1,10 +1,6 @@
 {
   "files": [
     {
-      "path": "scripts/bench_harness.rs",
-      "line_pct": 0.0
-    },
-    {
       "path": "src/bin/federation_sign_request.rs",
       "line_pct": 0.0
     },
@@ -353,10 +349,6 @@
       "line_pct": 100.0
     },
     {
-      "path": "synapse-common/transaction.rs",
-      "line_pct": 17.93
-    },
-    {
       "path": "synapse-common/types.rs",
       "line_pct": 90.33
     },
@@ -477,18 +469,6 @@
       "line_pct": 97.1
     },
     {
-      "path": "synapse-e2ee/signature/models.rs",
-      "line_pct": 100.0
-    },
-    {
-      "path": "synapse-e2ee/signature/service.rs",
-      "line_pct": 96.45
-    },
-    {
-      "path": "synapse-e2ee/signature/storage.rs",
-      "line_pct": 30.67
-    },
-    {
       "path": "synapse-e2ee/signed_json.rs",
       "line_pct": 97.74
     },
@@ -583,10 +563,6 @@
     {
       "path": "synapse-federation/signing.rs",
       "line_pct": 92.22
-    },
-    {
-      "path": "synapse-federation/state_resolution.rs",
-      "line_pct": 97.43
     },
     {
       "path": "synapse-federation/test_mocks.rs",
@@ -927,10 +903,6 @@
     {
       "path": "synapse-services/retention_service.rs",
       "line_pct": 70.61
-    },
-    {
-      "path": "synapse-services/room/api_trait.rs",
-      "line_pct": 40.54
     },
     {
       "path": "synapse-services/room/backfill.rs",
@@ -1627,10 +1599,6 @@
     {
       "path": "synapse-storage/schema_validator.rs",
       "line_pct": 99.05
-    },
-    {
-      "path": "synapse-storage/search_index.rs",
-      "line_pct": 99.67
     },
     {
       "path": "synapse-storage/server_notification/api.rs",

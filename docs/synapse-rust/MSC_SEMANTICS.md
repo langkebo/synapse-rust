@@ -18,7 +18,7 @@
 
 | MSC 编号 | 官方提案标题 | 本项目实际实现 | 后端落点 | SDK fork 对应封装 | 对齐状态 |
 |---|---|---|---|---|---|
-| **MSC4155** | Invite filtering（*proposals*） | 借用 `org.matrix.msc4155` 号段承载**线程订阅读接口**；官方「邀请过滤」**未实现** | `synapse-web/src/routes/handlers/thread.rs:152-160`（unstable 仅作旧客户端兼容，主路径为 `v1/threads/subscribed`） | `ThreadingManager.getSubscribedThreads()`（走 v1，正常）；`InviteBlocklistManager.get/setInvitePermissionConfig()` 按**官方** MSC4155 语义实现，后端不消费 → 草案 | 🟡 编号借用（不影响功能） |
+| **MSC4155** | Invite filtering（*proposals*） | 官方「邀请过滤」语义**已实现**：`m.invite_permission_config` account data（写入校验 + 读取）+ membership 邀请门禁强制；**同时**借用 `org.matrix.msc4155` 号段承载**线程订阅读接口**（unstable 仅作旧客户端兼容，主路径为 `v1/threads/subscribed`）（订正 2026-10-06，原判「未实现」已作废） | 官方语义：`synapse-services/src/invite_blocklist_service.rs`（`INVITE_PERMISSION_CONFIG_TYPE`、`InvitePolicyGate::check_invite_allowed`）、`synapse-services/src/account_data_service.rs:258`（写入校验）、`synapse-services/src/room/membership/service.rs:268`（门禁）；编号借用：`synapse-web/src/routes/handlers/thread.rs:159-162` | `ThreadingManager.getSubscribedThreads()`（走 v1，正常）；`InviteBlocklistManager.get/setInvitePermissionConfig()` 走 `m.invite_permission_config` account data，后端**已消费** | 🟡 编号借用（不影响功能） |
 | **MSC4156** | Migrate `server_name` to `via`（*仓库既有结论*，见 `AGENTS.md` MSC number discipline） | join / knock 的 `via` 参数 | `synapse-web/src/routes/handlers/room/members.rs:60,229,722-731` | `RoomManager.joinRoom` / `knockRoom` 发 `via` | ✅ 一致 |
 | **MSC4204** | 本次定向检索**未在 matrix-spec-proposals 命中该编号**；该能力的官方提案为 **MSC2457**「Invalidating devices during password modification」（*proposals*） | 改密默认吊销全部设备（`logout_devices` 默认 true） | 后端 Sprint 4 T01 | 既有 `setPassword(auth, pw, logoutDevices?)` | 🟡 编号借用 |
 | **MSC4267** | Automatically forgetting rooms on leave（*proposals*） | 原子 leave + forget（单事务） | 后端 Sprint 4 T02 | `RoomManager.leave(roomId, { forget? })` | ✅ 一致 |
@@ -74,7 +74,12 @@
 | SDK 符号 | 位置 | 后端证据 | 处理 |
 |---|---|---|---|
 | `PolicyRecommendation.Takedown = "m.takedown"` | `matrix-js-sdk/src/models/invites-ignorer-types.ts:39` | 全仓 grep `m.takedown` / `takedown` = **0** | 标注为草案（JSDoc） |
-| `InviteBlocklistManager.getInvitePermissionConfig()` / `setInvitePermissionConfig()` | `matrix-js-sdk/src/invite-blocklist/index.ts:280,297` | 全仓 grep `invite_permission_config` = **0** | 标注为草案（JSDoc） |
+
+> **已移出本清单（2026-10-06）**：`InviteBlocklistManager.getInvitePermissionConfig()` /
+> `setInvitePermissionConfig()` 曾因后端零消费列为孤儿。现 `m.invite_permission_config`
+> 已被后端消费 —— 写入校验见 `synapse-services/src/account_data_service.rs:258`，
+> 邀请门禁见 `synapse-services/src/room/membership/service.rs:268` —— 故不再属于孤儿，
+> 详见 §1 MSC4155 行。
 
 ## 3. MSC3083 `allow` 解析收敛记录（2026-09-13）
 
@@ -95,8 +100,10 @@
 # 后端：两个调用点必须只依赖同一解析器
 grep -rn "extract_allowed_join_rooms\|extract_allowed_room_ids" synapse-services/src/room/
 
-# 后端：孤儿语义确认（两条都应为 0）
+# 后端：孤儿语义确认
+# m.takedown 应为 0（本仓不实现 takedown 语义）
 grep -rn "m\.takedown\|takedown" --include=*.rs src synapse-services synapse-common
+# invite_permission_config 应 > 0（MSC4155 官方语义已实现：写入校验 + 邀请门禁，2026-10-06 订正）
 grep -rn "invite_permission_config" --include=*.rs .
 
 # 收敛性单测（鉴权解析器与 /summary 投影必须一致）

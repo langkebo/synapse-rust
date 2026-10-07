@@ -353,7 +353,10 @@ impl Default for Validator {
 }
 
 impl Validator {
-    #[allow(clippy::expect_used)]
+    #[allow(
+        clippy::expect_used,
+        reason = "hardcoded fallback regexes are literals verified by unit tests; compilation cannot fail"
+    )]
     fn create_fallback_validator() -> Self {
         Self {
             username_regex: Regex::new(r"^[a-zA-Z0-9_.-]+$").expect("hardcoded fallback regex is syntactically valid"),

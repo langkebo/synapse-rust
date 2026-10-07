@@ -773,7 +773,8 @@ async fn test_thirdparty_contract_rejects_builtin_irc_placeholders() {
                 .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
-            StatusCode::BAD_REQUEST,
+            // COMPAT-03: M_UNRECOGNIZED is spec-mapped to 404 (not 400).
+            StatusCode::NOT_FOUND,
             "M_UNRECOGNIZED",
         )
         .await;

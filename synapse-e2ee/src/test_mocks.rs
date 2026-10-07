@@ -124,9 +124,9 @@ pub struct InMemoryDeviceKeyStore {
 struct DeviceListStreamEntry {
     stream_id: i64,
     user_id: String,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Mirrors the `device_lists_stream` row shape; not surfaced by `get_key_changes_with_left`.
     device_id: Option<String>,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Mirrors the `device_lists_stream` row shape; not surfaced by `get_key_changes_with_left`.
     created_ts: i64,
 }
 

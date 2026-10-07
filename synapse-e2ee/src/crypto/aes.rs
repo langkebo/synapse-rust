@@ -217,7 +217,7 @@ impl AsRef<[u8]> for Aes256GcmCiphertext {
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
+#[allow(dead_code)] // Test-only parity twin of `Aes256GcmCiphertext`; kept so the ciphertext pair stays symmetric.
 #[derive(Debug, Clone)]
 /// The `XChaCha20Poly1305Ciphertext` type.
 pub struct XChaCha20Poly1305Ciphertext {
@@ -255,7 +255,7 @@ impl<'de> Deserialize<'de> for XChaCha20Poly1305Ciphertext {
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
+#[allow(dead_code)] // Test-only constructor/accessors paralleling `Aes256GcmCiphertext`.
 /// Implementation of [`XChaCha20Poly1305Ciphertext`] methods.
 impl XChaCha20Poly1305Ciphertext {
     /// See [`new`].
@@ -639,7 +639,7 @@ pub struct E2eeCryptoProvider {
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
+#[allow(dead_code)] // Test-only provider; not every helper is exercised by the current tests.
 /// Implementation of [`E2eeCryptoProvider`] methods.
 impl E2eeCryptoProvider {
     /// See [`new`].

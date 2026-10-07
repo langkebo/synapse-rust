@@ -170,11 +170,21 @@ pub async fn get_well_known_client(State(ctx): State<AuthContext>) -> Json<serde
     Json(build_well_known_client(&base_url, map_style_url))
 }
 
+/// Build the `.well-known/matrix/support` body per Matrix spec (MSC1929).
+///
+/// The standard field for a support page URL is `support_page`; the earlier
+/// `"url"` key emitted here was non-standard and ignored by clients. When the
+/// server has no `support_url` configured we return `{}` (all fields optional).
+fn build_well_known_support(support_url: Option<&str>) -> serde_json::Value {
+    match support_url {
+        Some(url) => json!({ "support_page": url }),
+        None => json!({}),
+    }
+}
+
 /// .well-known: Matrix 支持
-pub async fn get_well_known_support() -> impl axum::response::IntoResponse {
-    Json(json!({
-        "url": "https://matrix.org"
-    }))
+pub async fn get_well_known_support(State(ctx): State<AuthContext>) -> Json<serde_json::Value> {
+    Json(build_well_known_support(ctx.config.server.support_url.as_deref()))
 }
 
 #[cfg(test)]
@@ -224,5 +234,17 @@ mod tests {
         let body = build_well_known_client("https://matrix.example.com", None);
         assert_eq!(body["m.homeserver"]["base_url"], "https://matrix.example.com");
         assert!(body.get("m.tile_server").is_none());
+    }
+
+    #[test]
+    fn test_build_well_known_support_returns_configured_url() {
+        let body = build_well_known_support(Some("https://support.example.com"));
+        assert_eq!(body["support_page"], "https://support.example.com");
+    }
+
+    #[test]
+    fn test_build_well_known_support_omits_url_when_unset() {
+        let body = build_well_known_support(None);
+        assert!(body.get("support_page").is_none());
     }
 }

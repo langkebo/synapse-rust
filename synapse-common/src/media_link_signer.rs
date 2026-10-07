@@ -32,7 +32,7 @@ impl MediaLinkSigner {
 
     /// Sign a media download path and return the query string.
     /// `path` should be `{server_name}/{media_id}`.
-    #[allow(clippy::expect_used)]
+    #[allow(clippy::expect_used, reason = "HmacSha256::new_from_slice accepts a key of any length")]
     pub fn sign(&self, path: &str) -> String {
         let expires =
             SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs().saturating_add(self.ttl_secs);

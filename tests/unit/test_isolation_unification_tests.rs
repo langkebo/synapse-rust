@@ -182,7 +182,12 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // 迁移内容变了（−26 字节，`bytes=219180`）⇒ 同样先自检旧值（219206 ⇒ `b48cab73065bb618` 逐字节吻合，
 // 证明哈希实现未变）后取新值 `265b755aa151de70`。该漏同步让 `--test unit` 的
 // `baseline_fingerprint_is_the_single_v12_source` 在 main 上常红，是 R10 checklist 第①条的漏项。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "33f8a783ed0d2e8b";
+// 2026-10-06（`362bae446` 为存量 admin 回填 user_type 时**漏同步本常量**）：迁移内容再变
+// （+965 字节，`bytes=217782`）⇒ 按 R10 第①条独立复算 FNV-1a 64 得 `0de025c8669e0c96`；
+// 先用**旧值**自检哈希实现（`9508229d2` 的迁移字节 216817 ⇒ `33f8a783ed0d2e8b` 逐字节吻合，
+// 证明哈希实现未变）后才取新值。该漏同步让 `--test unit` 的
+// `baseline_fingerprint_is_the_single_v12_source` 在 HEAD 上再次常红，是 R10 checklist 第①条的又一漏项。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "0de025c8669e0c96";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))
@@ -1249,7 +1254,7 @@ fn collect_rs_sources(dir: &std::path::Path, out: &mut String, visited: &mut usi
 /// needs no database.
 #[test]
 fn every_test_name_the_design_document_pins_exists() {
-    const DESIGN_DOC: &str = "docs/audit/P1D_seed_allowlist_design_2026-09-14.md";
+    const DESIGN_DOC: &str = "docs/audit/archive/P1D_seed_allowlist_design_2026-09-14.md";
 
     let pinned = pinned_test_names(&read(DESIGN_DOC));
 

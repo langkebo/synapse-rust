@@ -258,7 +258,7 @@ pub use media::*; // media domain group (media, media_quota, url_preview_storage
 pub use oidc::*; // oidc domain group (oauth_client_storage, oidc_session_storage, oidc_user_mapping)
 pub use push::*; // push domain group (push, push_notification)
 pub use space::*; // space domain group (space, sticky_event)
-pub use sync::*; // sync domain group (sliding_sync, search_index, filter, presence)
+pub use sync::*; // sync domain group (sliding_sync, filter, presence)
                  // Feature-gated domain groups:
 #[cfg(feature = "voip-tracking")]
 pub use rtc::*; // rtc domain group (call_session, matrixrtc)

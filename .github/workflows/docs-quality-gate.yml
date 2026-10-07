@@ -32,10 +32,21 @@ jobs:
       - name: Discover active markdown files
         id: docs
         run: |
-          # Collect root-level *.md and docs/*.md excluding all archive/ directories
+          # Collect root-level *.md, docs/*.md (excluding all archive/ directories)
+          # and migrations/*.md.
+          #
+          # NB: `.trae/rules/*.md` is deliberately NOT collected here. `.trae/` is
+          # gitignored (`.gitignore:136`) and therefore absent from the CI checkout,
+          # so `find .trae/...` would silently match nothing — a gate that can never
+          # go red (AGENTS.md 铁律 8). Workspace-rules path drift is instead covered
+          # locally by `tests/unit/doc_credibility_guard_tests.rs::
+          # workspace_rules_reference_paths_exist`, which skips gracefully when
+          # `.trae/` is absent. This comment exists so a future reader does not
+          # "fix" the omission by adding a no-op find.
           files=$(find . -maxdepth 1 -name "*.md" -type f | sort)
           docs_files=$(find docs -name "*.md" -type f -not -path "*/archive/*" 2>/dev/null | sort)
-          all_files="$files"$'\n'"$docs_files"
+          migrations_files=$(find migrations -name "*.md" -type f 2>/dev/null | sort)
+          all_files="$files"$'\n'"$docs_files"$'\n'"$migrations_files"
           # Filter out empty lines and format as space-separated for shell steps
           active=$(echo "$all_files" | grep -v '^$' | tr '\n' ' ')
           echo "files=$active" >> "$GITHUB_OUTPUT"

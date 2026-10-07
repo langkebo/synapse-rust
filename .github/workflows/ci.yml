@@ -182,6 +182,28 @@ jobs:
       - name: Trait-count ratchet (no new pub trait / StoreApi)
         run: python3 scripts/ci/check_trait_ratchet.py
 
+      # CQ-04: `.clippy.toml`'s `too-many-lines-threshold = 500` is consumed only
+      # by `clippy::pedantic`, which this workspace never enables — so it enforces
+      # nothing. This ratchet makes the 500-line intent real: a grandfathered
+      # file may only shrink (`scripts/ci/file_size_baseline`), a new file over
+      # the threshold fails, and a stale entry must be dropped. Red-proved
+      # 2026-10-06: new 600-line probe → exit 1; ceiling downgrade → exit 1;
+      # stale entry → exit 1; baseline → exit 0.
+      - name: File-size ratchet (no new file over 500 lines)
+        run: python3 scripts/ci/check_file_size_ratchet.py
+
+      # CQ-01: ~250 `#[allow(clippy::…)]` sites existed with no notion of *why*
+      # any of them exists. This gate makes the suppression surface explicit and
+      # one-way: a lint kind may only be suppressed if it is on
+      # `scripts/ci/clippy_allow_allowlist` with a written reason, the count of
+      # *unjustified* clippy allows per file is grandfathered one-way in
+      # `scripts/ci/clippy_allow_baseline`, and blanket group allows
+      # (`clippy::all` / `pedantic` / …) are hard-banned. Red-proved 2026-10-06:
+      # reasonless allow → exit 1; unlisted lint kind → exit 1; blanket group →
+      # exit 1; allowlist entry without a reason → exit 1; baseline → exit 0.
+      - name: Clippy-allow ratchet (allowlist + reason-required)
+        run: python3 scripts/ci/check_clippy_allow_ratchet.py
+
       # Supply-chain hardening (cargo-deny + cargo-audit) runs in the
       # `security-audit` job, which installs both tools first. It used to be
       # invoked here as well ("for fast PR feedback"), but this job installs no
