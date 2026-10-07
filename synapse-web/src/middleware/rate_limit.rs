@@ -179,7 +179,11 @@ pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Requ
     rl_metrics.allowed_total.inc();
 
     let mut response = next.run(request).await;
-    if include_headers {
+    // Don't clobber rate-limit headers already written downstream: a handler-level
+    // bucket (e.g. `rc_profile`) may have rejected the request with 429, in which
+    // case its `x-ratelimit-remaining: 0` must win over this middleware's "allowed"
+    // view (otherwise clients see remaining=999 on a 429).
+    if include_headers && !response.headers().contains_key("x-ratelimit-remaining") {
         if let Ok(v) = decision.remaining.to_string().parse() {
             response.headers_mut().insert("x-ratelimit-remaining", v);
         }

@@ -278,7 +278,7 @@ async fn take_rc_profile_for_caller(
     let key = format!("ratelimit:rc_profile:{key_user}");
     let decision = ctx.cache.rate_limit_token_bucket_take(&key, rule.per_second, rule.burst_size).await?;
     if !decision.allowed {
-        return Err(ApiError::rate_limited("Too many profile requests"));
+        return Err(ApiError::rate_limited_with_retry(decision.retry_after_seconds.saturating_mul(1000)));
     }
     Ok(())
 }
@@ -292,7 +292,7 @@ async fn take_rc_profile_token(
     let key = format!("ratelimit:rc_profile:{user_id}");
     let decision = cache.rate_limit_token_bucket_take(&key, rule.per_second, rule.burst_size).await?;
     if !decision.allowed {
-        return Err(ApiError::rate_limited("Too many profile requests"));
+        return Err(ApiError::rate_limited_with_retry(decision.retry_after_seconds.saturating_mul(1000)));
     }
     Ok(())
 }

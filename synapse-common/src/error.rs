@@ -482,12 +482,14 @@ impl ApiError {
         Self { kind: ApiErrorKind::Internal, code: MatrixErrorCode::Unknown, message: message.into(), cause: None }
     }
 
-    /// Builds a 429 `M_LIMIT_EXCEEDED` error with a generic message.
-    pub fn rate_limited(_message: impl Into<String>) -> Self {
+    /// Builds a 429 `M_LIMIT_EXCEEDED` error. Uses the caller-supplied message
+    /// when non-empty, otherwise falls back to a generic one.
+    pub fn rate_limited(message: impl Into<String>) -> Self {
+        let message = message.into();
         Self {
             kind: ApiErrorKind::RateLimited,
             code: MatrixErrorCode::LimitExceeded,
-            message: "Rate limited".to_string(),
+            message: if message.is_empty() { "Rate limited".to_string() } else { message },
             cause: None,
         }
     }
@@ -1232,7 +1234,9 @@ mod tests {
         let err = ApiError::rate_limited("too fast");
         assert_eq!(err.kind, ApiErrorKind::RateLimited);
         assert_eq!(err.code, MatrixErrorCode::LimitExceeded);
-        assert_eq!(err.message, "Rate limited");
+        assert_eq!(err.message, "too fast");
+        // Empty messages fall back to the generic text.
+        assert_eq!(ApiError::rate_limited("").message, "Rate limited");
     }
 
     #[test]

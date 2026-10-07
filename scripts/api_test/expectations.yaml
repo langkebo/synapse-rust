@@ -146,6 +146,39 @@ overrides:
   "GET /_matrix/client/v3/account/whoami":
     force_auth: true
 
+  # CAS SSO 重定向：302/303/307 为正常的浏览器跳转，非错误状态码
+  "GET /_matrix/client/v3/login/sso/redirect/cas":
+    expect_status: [302, 303, 307]
+
+  # 注册/验证码系列：受频率限制，429 与参数校验 4xx 均为预期结果
+  "GET /_matrix/client/v3/register/available":
+    expect_status: [200, 400, 401, 403, 429]
+  "POST /_matrix/client/v3/register":
+    expect_status: [400, 401, 403, 429]
+  "POST /_matrix/client/v3/register/guest":
+    expect_status: [400, 401, 403, 429]
+  "POST /_matrix/client/v3/register/email/submitToken":
+    expect_status: [400, 401, 403, 429]
+  "DELETE /_matrix/client/v3/register/captcha/clean":
+    expect_status: [200, 400, 401, 403, 429]
+  "POST /_matrix/client/v3/register/captcha/verify":
+    expect_status: [200, 400, 401, 403, 422, 429]
+
+  # device_signing/upload：须经 UIA（User-Interactive Auth）二次认证，
+  # 返回 401 M_UIA_REQUIRED + flows 是 Matrix 规范的预期行为（非 token 失效）。
+  # 200 表示 UIA 会话完成后成功。
+  "POST /_matrix/client/v1/keys/device_signing/upload":
+    expect_status: [200, 400, 401, 403, 429]
+  "POST /_matrix/client/v3/keys/device_signing/upload":
+    expect_status: [200, 400, 401, 403, 429]
+
+  # profile：受 handler 级 rc_profile 令牌桶限制（默认 1 req/s、burst 5），
+  # 全量探测会把桶打爆触发 429；占位符 user_id 亦会产生 404/400。均属预期。
+  "GET /_matrix/client/v3/profile/{user_id}/displayname":
+    expect_status: [200, 400, 404, 429]
+  "PUT /_matrix/client/v3/profile/{user_id}/displayname":
+    expect_status: [200, 400, 401, 403, 429]
+
   # 联邦端点（8448 端口由 nginx 转发，本工具只测客户端 443 入口上可达的端点）
   "GET /_matrix/federation/v1/version":
     force_public: true

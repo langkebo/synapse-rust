@@ -42,10 +42,13 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import hashlib
+import hmac
 import json
 import os
 import re
 import ssl
+import struct
 import subprocess
 import sys
 import time
@@ -246,10 +249,10 @@ def _find_mkcert_ca() -> Optional[str]:
 def export_ledger(profile: str = "default") -> Optional[Path]:
     """调用 cargo 编译并运行 synapse_ledger_export，返回导出 JSON 路径。
 
-    使用与 Docker 镜像一致的 features（server,core-private-chat,widgets,
+    使用与 Docker 镜像一致的 features（core-private-chat,widgets,
     external-services,voice-extended,cas-sso,saml-sso,friends）。
     """
-    features = "server,core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends"
+    features = "core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends"
     out = (
         SCRIPT_DIR
         / "reports"
@@ -431,19 +434,119 @@ def auto_login_admin(
 
 
 # ---------------------------------------------------------------------------
+# 管理员 MFA（TOTP）支持
+# ---------------------------------------------------------------------------
+# 部署默认对 admin 强制 MFA（ADMIN_MFA_REQUIRED=true）。除登录需带 mfa_code 外，
+# 敏感 admin 操作还需请求头 x-admin-mfa-code（当前 TOTP）。服务端判定见
+# synapse-web/src/utils/admin_auth.rs::is_sensitive_admin_request：
+#   写方法（POST/PUT/PATCH/DELETE）一律敏感；
+#   读方法仅 /v1/security、/v1/server、/v1/media/quarantine 前缀敏感。
+# 此处复刻该判定，并对敏感读端点自动附带 TOTP，覆盖这层 MFA。
+ADMIN_MFA_SECRET_ENV = "API_TEST_ADMIN_MFA_SECRET"
+DEPLOY_ENV_FILE = PROJECT_ROOT / "docker" / "deploy" / ".env"
+_SENSITIVE_ADMIN_READ_PREFIXES = (
+    "/_synapse/admin/v1/security",
+    "/_synapse/admin/v1/server",
+    "/_synapse/admin/v1/media/quarantine",
+)
+
+
+def _load_admin_mfa_secret(cfg: dict) -> Optional[str]:
+    """定位 admin MFA 共享密钥（base32）。优先级：环境变量 > config > deploy/.env。"""
+    secret = os.environ.get(ADMIN_MFA_SECRET_ENV) or ""
+    if not secret:
+        secret = (cfg.get("admin") or {}).get("mfa_secret") or ""
+    if not secret and DEPLOY_ENV_FILE.exists():
+        for line in DEPLOY_ENV_FILE.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith("ADMIN_MFA_SHARED_SECRET="):
+                secret = line.split("=", 1)[1].strip().strip('"').strip("'")
+                break
+    secret = secret.strip()
+    return secret or None
+
+
+def _decode_base32_secret(secret: str) -> bytes:
+    """复刻服务端 decode_base32_secret：忽略空格与 -，= 截断，非法字符则回退原始字节。"""
+    bits = 0
+    bit_count = 0
+    output = bytearray()
+    for ch in secret:
+        if ch in (" ", "-"):
+            continue
+        if ch == "=":
+            break
+        up = ch.upper()
+        if "A" <= up <= "Z":
+            value = ord(up) - ord("A")
+        elif "2" <= ch <= "7":
+            value = (ord(ch) - ord("2")) + 26
+        else:
+            return secret.encode("utf-8")
+        bits = (bits << 5) | value
+        bit_count += 5
+        while bit_count >= 8:
+            bit_count -= 8
+            output.append((bits >> bit_count) & 0xFF)
+            bits &= (1 << bit_count) - 1
+    if not output:
+        return secret.encode("utf-8")
+    return bytes(output)
+
+
+def _generate_totp(secret: str, at_time: Optional[float] = None) -> str:
+    """按 RFC 6238 生成 6 位 TOTP（HMAC-SHA1、30s 步长），与服务端算法一致。"""
+    key = _decode_base32_secret(secret)
+    step = int((time.time() if at_time is None else at_time) // 30)
+    digest = hmac.new(key, struct.pack(">Q", step), hashlib.sha1).digest()
+    offset = digest[19] & 0x0F
+    binary = (
+        ((digest[offset] & 0x7F) << 24)
+        | (digest[offset + 1] << 16)
+        | (digest[offset + 2] << 8)
+        | digest[offset + 3]
+    )
+    return f"{binary % 1_000_000:06d}"
+
+
+def _is_sensitive_admin_endpoint(method: str, url: str) -> bool:
+    """复刻服务端 is_sensitive_admin_request：写方法一律敏感；读方法按前缀判定。"""
+    if method.upper() in WRITE_METHODS:
+        return True
+    return url.startswith(_SENSITIVE_ADMIN_READ_PREFIXES)
+
+
+# ---------------------------------------------------------------------------
 # 测试计划生成
 # ---------------------------------------------------------------------------
 # 认证方式不适用 bearer token 的端点前缀：
 #   - federation 路由需联邦签名认证（X-Matrix 签名），非 bearer
 #   - appservice 路由需 as_token（hs_token），非用户 token
 #   - download_signed 需签名 URL（MSC3916）
+#   - external webhook 路由使用自定义头鉴权（webhook_auth_guard），非 bearer
 # 这些端点只做匿名探测（验证路由存活 + 鉴权边界），不做 authed 探测。
 AUTH_BEARER_INAPPLICABLE_PREFIXES = (
     "/_matrix/federation/",
     "/_synapse/federation/",
     "/_matrix/app/",
     "/_matrix/media/v3/download_signed",
+    "/_synapse/external/",
 )
+
+# 会话/账户破坏性写端点：携带 token 探测会终止当前会话或销毁账户状态，
+# 导致同一次运行中后续所有带 token 的探测连锁返回 401（自我污染 token）。
+# 这类端点只做匿名探测（仍可验证鉴权边界），不做 authed-write 探测。
+AUTH_WRITE_DESTRUCTIVE_ROUTES = {
+    ("POST", "/_matrix/client/v3/logout"),
+    ("POST", "/_matrix/client/v3/logout/all"),
+    ("POST", "/_matrix/client/v1/account/deactivate"),
+    ("POST", "/_matrix/client/v1/account/password"),
+    ("POST", "/_matrix/client/v3/account/deactivate"),
+    ("POST", "/_matrix/client/v3/account/password"),
+    ("POST", "/_matrix/client/v3/delete_devices"),
+    ("DELETE", "/_matrix/client/v3/devices/{device_id}"),
+    ("POST", "/_matrix/client/v3/refresh"),
+}
 
 
 def build_plan(entries: List[dict], cfg: dict) -> Tuple[List[CaseResult], List[str]]:
@@ -496,7 +599,14 @@ def build_plan(entries: List[dict], cfg: dict) -> Tuple[List[CaseResult], List[s
             )
 
         # 3) 写操作认证探测（仅在 --allow-write 时，空 body 预期 4xx）
-        if is_write and allow_write and token and not bearer_inapplicable:
+        #    跳过 bearer 不适用端点，以及会自我污染 token 的破坏性端点
+        if (
+            is_write
+            and allow_write
+            and token
+            and not bearer_inapplicable
+            and (method, path) not in AUTH_WRITE_DESTRUCTIVE_ROUTES
+        ):
             probes.append(
                 ProbeSpec(
                     label="authed-write",
@@ -518,12 +628,16 @@ def build_plan(entries: List[dict], cfg: dict) -> Tuple[List[CaseResult], List[s
 # ---------------------------------------------------------------------------
 # 请求执行
 # ---------------------------------------------------------------------------
-def _build_headers(probe: ProbeSpec, token: Optional[str]) -> Dict[str, str]:
+def _build_headers(
+    probe: ProbeSpec, token: Optional[str], extra: Optional[Dict[str, str]] = None
+) -> Dict[str, str]:
     headers = {"User-Agent": "synapse-rust-api-test/1.0"}
     if probe.body is not None:
         headers["Content-Type"] = "application/json"
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    if extra:
+        headers.update(extra)
     return headers
 
 
@@ -531,6 +645,7 @@ def execute_probe(
     probe: ProbeSpec,
     cfg: dict,
     token: Optional[str],
+    extra_headers: Optional[Dict[str, str]] = None,
 ) -> ProbeResult:
     res = ProbeResult(spec=probe)
     base_url = cfg["base_url"]
@@ -545,7 +660,7 @@ def execute_probe(
         resp = requests.request(
             probe.method,
             url,
-            headers=_build_headers(probe, token),
+            headers=_build_headers(probe, token, extra_headers),
             data=probe.body,
             timeout=timeout,
             verify=verify,
@@ -874,7 +989,7 @@ def build_report(
                             "path": c.path,
                             "registered_by": c.registered_by,
                             "http_status": p.http_status,
-                            "issues": p.issues,
+                            "issues": p.checks + p.issues,
                         }
                     )
 
@@ -1319,6 +1434,18 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"[auth] 未获取到 admin token（{admin_err}），admin 端点仅做匿名探测")
     cfg["_admin_token"] = admin_token
 
+    # admin MFA 共享密钥：用于敏感 admin 读端点自动附带 x-admin-mfa-code
+    admin_mfa_secret = _load_admin_mfa_secret(cfg)
+    if admin_mfa_secret:
+        print(
+            "[auth] 已加载 admin MFA 密钥（敏感 admin 读端点将附带 x-admin-mfa-code）"
+        )
+    elif admin_token:
+        print(
+            "[auth] 未找到 admin MFA 密钥，敏感 admin 端点将返回 403"
+            "（如需覆盖请设置 API_TEST_ADMIN_MFA_SECRET 或 admin.mfa_secret）"
+        )
+
     print(
         f"[auth] token 来源：{token_src}{'；admin：已获取' if admin_token else '；admin：未获取'}"
     )
@@ -1345,14 +1472,32 @@ def main(argv: Optional[List[str]] = None) -> int:
         case, ctx = item
         anonymous_status: Optional[int] = None
         for idx, probe in enumerate(case.probes):
-            # 匿名探测不带 token；authed 探测中 admin 路径优先使用 admin token
+            # 匿名探测不带 token；authed / authed-write 探测带 token，
+            # admin 路径优先使用 admin token（缺失时回退普通用户 token）
             use_token: Optional[str] = None
-            if probe.spec.label == "authed":
-                if "/_synapse/admin" in probe.spec.url and ctx["admin_token"]:
+            extra_headers: Dict[str, str] = {}
+            if probe.spec.label in ("authed", "authed-write"):
+                is_admin_path = "/_synapse/admin" in probe.spec.url or re.search(
+                    r"/_matrix/client/(?:r0|v1|v3)/admin", probe.spec.url
+                )
+                if is_admin_path and ctx["admin_token"]:
                     use_token = ctx["admin_token"]
+                    # 敏感 admin 读端点（GET/HEAD）需附带 TOTP，覆盖第二层 MFA；
+                    # 写探测不附带，保留 403 鉴权边界断言，避免空 body 触发副作用
+                    if (
+                        probe.spec.label == "authed"
+                        and probe.spec.method in SAFE_METHODS
+                        and ctx.get("admin_mfa_secret")
+                        and _is_sensitive_admin_endpoint(
+                            probe.spec.method, probe.spec.url
+                        )
+                    ):
+                        extra_headers["x-admin-mfa-code"] = _generate_totp(
+                            ctx["admin_mfa_secret"]
+                        )
                 else:
                     use_token = ctx["token"]
-            res = execute_probe(probe.spec, cfg, use_token)
+            res = execute_probe(probe.spec, cfg, use_token, extra_headers)
             # 校验规则准备
             key = f"{probe.spec.method} {case.path}"
             rule = schemas.get(key) or {}
@@ -1397,7 +1542,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         max_workers=int(cfg.get("concurrency"))
     ) as ex:
         futures = {
-            ex.submit(work, (c, {"token": token, "admin_token": admin_token})): c
+            ex.submit(
+                work,
+                (
+                    c,
+                    {
+                        "token": token,
+                        "admin_token": admin_token,
+                        "admin_mfa_secret": admin_mfa_secret,
+                    },
+                ),
+            ): c
             for c in cases
         }
         for fut in concurrent.futures.as_completed(futures):

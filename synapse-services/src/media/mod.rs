@@ -484,9 +484,15 @@ impl MediaDomainService {
             .await
             .ok_or_else(|| ApiError::not_found("Media not found".to_string()))?;
 
-        let file = tokio::fs::File::open(&file_path)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to open media file: {e}")))?;
+        let file = tokio::fs::File::open(&file_path).await.map_err(|e| {
+            // A concurrent delete between path resolution and open is a
+            // legitimate "gone" condition, not a server fault.
+            if e.kind() == std::io::ErrorKind::NotFound {
+                ApiError::not_found("Media not found".to_string())
+            } else {
+                ApiError::internal(format!("Failed to open media file: {e}"))
+            }
+        })?;
 
         let content_length = file.metadata().await.map(|m| m.len()).unwrap_or(0);
 
@@ -520,9 +526,15 @@ impl MediaDomainService {
 
         // Re-open the file to ensure a clean handle at position 0.
         // (The detection read may have consumed bytes even after seek.)
-        let file = tokio::fs::File::open(&file_path)
-            .await
-            .map_err(|e| ApiError::internal(format!("Failed to reopen media file for streaming: {e}")))?;
+        let file = tokio::fs::File::open(&file_path).await.map_err(|e| {
+            // The file may have been deleted between the detection read and
+            // this re-open; treat as 404 rather than 500.
+            if e.kind() == std::io::ErrorKind::NotFound {
+                ApiError::not_found("Media not found".to_string())
+            } else {
+                ApiError::internal(format!("Failed to reopen media file for streaming: {e}"))
+            }
+        })?;
 
         Ok(MediaStreamPayload { file, content_length, headers })
     }
