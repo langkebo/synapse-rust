@@ -209,6 +209,10 @@ RUN if [ -n "${MIRROR_URL}" ]; then sed -i "s|deb.debian.org|${MIRROR_URL}|g" /e
     postgresql-client \
     curl \
     tini \
+    `# CVE-2026-103111 (HIGH): bookworm 基础镜像内置 libpcre2-8-0 10.42-1+deb12u1,` \
+    `# 显式安装以拉取 bookworm-security 的修复版 10.42-1+deb12u2（apt-get install 会升级已装包）.` \
+    `# 不用 apt-get upgrade: 会触发 hadolint DL3005.` \
+    libpcre2-8-0 \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 RUN groupadd -g 1000 synapse && \

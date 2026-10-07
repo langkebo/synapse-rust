@@ -888,6 +888,13 @@ ensure_hosts_entry() {
 #   2. TURN 共享密钥与 homeserver 配置一致
 # =============================================================================
 COTURN_DIR="${COTURN_DIR:-/Users/ljf/Desktop/hu_ts/coturn}"
+# coturn 是独立于核心栈的 compose 项目，必须用显式项目名启动。
+# load_env() 会 export .env 里的 COMPOSE_PROJECT_NAME=synapse，子 shell 会继承它，
+# 使 coturn 的 compose 项目名变成 synapse；而 coturn/docker-compose.yml 硬编码了
+# `container_name: coturn`（全局唯一名），与手动 `cd coturn && docker compose up -d`
+# （项目名=目录名 coturn）创建的容器冲突：Conflict. The container name "/coturn" is already in use。
+# `-p` 优先级最高，可覆盖继承来的 COMPOSE_PROJECT_NAME，使两条路径归入同一项目。
+COTURN_PROJECT="${COTURN_PROJECT:-coturn}"
 
 check_local_turn() {
     DEPLOYMENT_PHASE="turn-check"
@@ -919,7 +926,7 @@ check_local_turn() {
     if ! $turn_ok; then
         if [ -d "$COTURN_DIR" ] && [ -f "$COTURN_DIR/docker-compose.yml" ]; then
             log_warning "coturn 未运行，尝试启动 ($COTURN_DIR)..."
-            if (cd "$COTURN_DIR" && docker compose up -d); then
+            if (cd "$COTURN_DIR" && docker compose -p "$COTURN_PROJECT" up -d); then
                 sleep 3
                 if nc -z -w 2 "$turn_host" "$turn_port" >/dev/null 2>&1 ||
                     docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'coturn'; then
@@ -927,10 +934,10 @@ check_local_turn() {
                     log_success "coturn 已启动"
                 else
                     log_error "coturn 启动后端口仍不可达: ${turn_host}:${turn_port}"
-                    log_error "请检查: cd $COTURN_DIR && docker compose logs coturn"
+                    log_error "请检查: cd $COTURN_DIR && docker compose -p $COTURN_PROJECT logs coturn"
                 fi
             else
-                log_error "coturn 启动失败，请手动检查: cd $COTURN_DIR && docker compose up -d"
+                log_error "coturn 启动失败，请手动检查: cd $COTURN_DIR && docker compose -p $COTURN_PROJECT up -d"
             fi
         else
             log_warning "未找到 coturn 配置目录: $COTURN_DIR (可用 --no-turn 跳过)"
