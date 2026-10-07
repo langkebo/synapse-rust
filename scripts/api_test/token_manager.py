@@ -17,7 +17,11 @@ token_manager.py — Matrix Access Token 管理器 (Week 2 Task 2)
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
+import os
+import struct
 import time
 import urllib.request
 import urllib.error
@@ -25,6 +29,70 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
+
+
+# admin 部署默认强制 MFA（ADMIN_MFA_REQUIRED=true）：admin 登录需附带当前 TOTP。
+# 密钥来源优先级：环境变量 API_TEST_ADMIN_MFA_SECRET > config.admin.mfa_secret
+#              > docker/deploy/.env 的 ADMIN_MFA_SHARED_SECRET
+_ADMIN_MFA_SECRET_ENV = "API_TEST_ADMIN_MFA_SECRET"
+_DEPLOY_ENV_FILE = Path(__file__).resolve().parents[2] / "docker" / "deploy" / ".env"
+
+
+def _load_admin_mfa_secret(cfg: dict) -> Optional[str]:
+    """定位 admin MFA 共享密钥（base32）。"""
+    secret = os.environ.get(_ADMIN_MFA_SECRET_ENV) or ""
+    if not secret:
+        secret = (cfg.get("admin") or {}).get("mfa_secret") or ""
+    if not secret and _DEPLOY_ENV_FILE.exists():
+        for line in _DEPLOY_ENV_FILE.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith("ADMIN_MFA_SHARED_SECRET="):
+                secret = line.split("=", 1)[1].strip().strip('"').strip("'")
+                break
+    return secret.strip() or None
+
+
+def _decode_base32_secret(secret: str) -> bytes:
+    """复刻服务端 decode_base32_secret：忽略空格与 -，= 截断，非法字符则回退原始字节。"""
+    bits = 0
+    bit_count = 0
+    output = bytearray()
+    for ch in secret:
+        if ch in (" ", "-"):
+            continue
+        if ch == "=":
+            break
+        up = ch.upper()
+        if "A" <= up <= "Z":
+            value = ord(up) - ord("A")
+        elif "2" <= ch <= "7":
+            value = (ord(ch) - ord("2")) + 26
+        else:
+            return secret.encode("utf-8")
+        bits = (bits << 5) | value
+        bit_count += 5
+        while bit_count >= 8:
+            bit_count -= 8
+            output.append((bits >> bit_count) & 0xFF)
+            bits &= (1 << bit_count) - 1
+    if not output:
+        return secret.encode("utf-8")
+    return bytes(output)
+
+
+def _generate_totp(secret: str) -> str:
+    """按 RFC 6238 生成 6 位 TOTP（HMAC-SHA1、30s 步长），与服务端算法一致。"""
+    key = _decode_base32_secret(secret)
+    step = int(time.time() // 30)
+    digest = hmac.new(key, struct.pack(">Q", step), hashlib.sha1).digest()
+    offset = digest[19] & 0x0F
+    binary = (
+        ((digest[offset] & 0x7F) << 24)
+        | (digest[offset + 1] << 16)
+        | (digest[offset + 2] << 8)
+        | digest[offset + 3]
+    )
+    return f"{binary % 1_000_000:06d}"
 
 
 class TokenManager:
@@ -68,17 +136,21 @@ class TokenManager:
         with open(self.config_path) as f:
             return yaml.safe_load(f) or {}
 
-    def _login(self, username: str, password: str) -> Optional[dict]:
+    def _login(
+        self, username: str, password: str, mfa_code: Optional[str] = None
+    ) -> Optional[dict]:
         """调 /_matrix/client/r0/login 拿 access_token + user_id."""
         url = f"{self.base_url}/_matrix/client/r0/login"
-        body = json.dumps(
-            {
-                "identifier": {"type": "m.id.user", "user": username},
-                "password": password,
-                "auth": {"type": "m.login.password"},
-            }
-        ).encode("utf-8")
-        req = urllib.request.Request(url, data=body, method="POST")
+        body: dict = {
+            "identifier": {"type": "m.id.user", "user": username},
+            "password": password,
+            "auth": {"type": "m.login.password"},
+        }
+        if mfa_code:
+            body["mfa_code"] = mfa_code
+        req = urllib.request.Request(
+            url, data=json.dumps(body).encode("utf-8"), method="POST"
+        )
         req.add_header("Content-Type", "application/json")
         try:
             with urllib.request.urlopen(req, timeout=10, context=self._ssl_ctx) as resp:
@@ -121,7 +193,10 @@ class TokenManager:
         creds = self._config.get("admin", {})
         username = creds.get("username", "admin")
         password = creds.get("password", "Admin@123")
-        data = self._login(username, password)
+        # admin 强制 MFA 时登录需附带当前 TOTP；无密钥则不附带（服务器将按未启用处理）
+        mfa_secret = _load_admin_mfa_secret(self._config)
+        mfa_code = _generate_totp(mfa_secret) if mfa_secret else None
+        data = self._login(username, password, mfa_code=mfa_code)
         if data:
             self._admin_token = data["access_token"]
             self._admin_token_time = time.time()

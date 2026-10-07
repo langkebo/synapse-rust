@@ -402,8 +402,7 @@ def auto_login_admin(
     cfg: dict, base_url: str, verify: Any, timeout: float
 ) -> Tuple[Optional[str], Optional[str]]:
     admin_cfg = cfg.get("admin") or {}
-    # 允许直接注入 admin token（部署默认对 admin 强制 MFA，密码登录不可用）：
-    # 配置 admin.auth_token 或环境变量 API_TEST_ADMIN_TOKEN
+    # 优先使用直接注入的 admin token（配置 admin.auth_token 或环境变量 API_TEST_ADMIN_TOKEN）
     preset = admin_cfg.get("auth_token") or os.environ.get("API_TEST_ADMIN_TOKEN") or ""
     if preset:
         return preset, None
@@ -416,6 +415,10 @@ def auto_login_admin(
         "identifier": {"type": "m.id.user", "user": username},
         "password": password,
     }
+    # 部署默认对 admin 强制 MFA（ADMIN_MFA_REQUIRED=true）：登录需附带当前 TOTP
+    mfa_secret = _load_admin_mfa_secret(cfg)
+    if mfa_secret:
+        payload["mfa_code"] = _generate_totp(mfa_secret)
     try:
         resp = requests.post(
             f"{base_url}/_matrix/client/v3/login",
