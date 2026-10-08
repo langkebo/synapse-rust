@@ -225,9 +225,32 @@ EOF
 | --- | --- | --- | --- | --- |
 | **M0 门禁补强** | ✅ 已执行（`313438dc0`） | — | — | — |
 | **M1 删冗余面** | ✅ 已执行（同批，净 −1） | — | ✅ 已执行（`7321f8ed`） | — |
-| **M2 MSC 归位** | ✅ **后端侧已执行**（净 0；8 条换前缀） | ⏸ 待做：sticky 5 处 + thread 1 处 + unfreeze 1 处 | ⏸ 重打包 + pin | 契约须**后端提交后**由 `sdk-contract-codegen.mjs` 重生成；COMPAT-09 口径已裁定为"迁 unstable" |
-| **M3 vendor 迁移** | ⏸ 待做（约 40 条） | ⏸ 33+ 处 `prefix:` + codegen + `contract-sync` | ⏸ 重打包 + pin | SDK 目标分支已裁定：**在 `develop` 上做** |
+| **M2 MSC 归位** | ✅ **后端侧已执行**（净 0；8 条换前缀） | ✅ **已执行**（SDK `1d6258870`：sticky 5 处 + unfreeze 2 处 + 同族 freeze/mute/read/redact/stats/全局列表等共 30+ 处）；契约镜像与 codegen 同批重生成 | ⏸ 重打包 + pin | 已完成；SDK 落地方式见下「2026-10-09 跨仓跟进」 |
+| **M3 vendor 迁移** | ⏸ 待做（约 40 条） | 🟡 **Batch 1–3 的尾巴已清零**（SDK `1d6258870` + `1a02d6d6f`：`quality:path-contract` 45 → **0**） | ⏸ 重打包 + pin | SDK 目标分支已裁定：**在 `develop` 上做**；M3 本体的后端迁移仍未开始 |
 | **M4 D1/D2 收尾** | ⏸ 待做 | — | — | M3 之后 |
+
+#### 2026-10-09 跨仓跟进（SDK 侧一笔做完，含 Batch 1–3 尾巴）
+
+后端 M1/M2 提交后，SDK 侧用两个提交把**所有**路径漂移一次收敛（不止 M2 的 7 处）：
+
+- `1d6258870`：契约镜像同步（此前停在 backend `71ab0980`，1159 条、4 个月未更 ⇒
+  `quality:contract-freshness` 长期判红）+ `moderation` 文档漂移 + M2 的 sticky/pinned/unfreeze
+  + widgets / thread/threading 整族归位。
+- `1a02d6d6f`：space / dm / room-summary / admin 收敛，`quality:path-contract` **45 → 0**
+  （豁免 23 条，全部有 owner + 理由 + 期限）。
+
+**顺带查出 3 个「SDK 一直在打不存在的路径」的真缺陷**（全部有后端证据、已修或已登记）：
+
+| 调用点 | 后端事实 | 处置 |
+| --- | --- | --- |
+| `POST /_synapse/admin/v1/rooms/{X}/delete` | 从来没有该路径；注册的是 REST 风格 `DELETE .../rooms/{room_id}` | 改为 `DELETE` |
+| `POST /_matrix/client/v3/keys/signatures` | 注册的是 `.../keys/signatures/upload` | 补 `/upload`（**该方法此前必然 404、从未工作过**） |
+| `POST .../users/{X}/devices/delete` | 后端只有单设备端点，无批量 | 登记豁免（backend-missing） |
+
+⚠️ 第一条连带修正一个判据：`uploadSignatures()` 正是 M2 里被删掉的后端请求体兼容分支的
+"唯一消费者" —— 那个消费者**本身打错了路径**。⇒ **判「零消费者」时不能只看调用点是否存在，
+还要核该调用点的路径是否真在 ledger 里**（否则会把"坏掉的消费者"当成有效消费者）。
+
 
 **跨仓纪律（本仓已固化）**：
 
@@ -240,6 +263,18 @@ EOF
 5. **⚠️ 2026-10-08 新增（R-14）**：`check_sdk_route_coverage.py` 对**封装型调用**
    （`roomPath(...)` / `rp(...)`）**校验不了前缀** ⇒ 改这类端点的前缀时，**门禁不会替你发现
    SDK 没跟着改**，必须人工核对调用点清单。
+6. **⚠️ 2026-10-09 新增（SDK 侧 `verify-path-contract.mjs` 的三条硬规则）** ——
+   这三条是上一条的"SDK 视角"，改前缀前必读：
+   - **`POSITIONAL_WRAPPERS` 是前缀声明表**，且 `byDir` 用 `startsWith` + `find`
+     ⇒ **顺序即优先级，更长的 key 必须写在前面**；改包装器名/前缀而不同步它，
+     门禁会**按过期声明判路径**（实测 widgets 改名后 15 个已正确的调用点仍被判红）。
+   - **前缀写成"模块内常量 + 恒等助手"时门禁完全看不见**：实测 `src/widget/index.ts`
+     （新版推荐 manager）整族 20 处走 `WIDGET_PREFIX_V1` + `wp()` ⇒ **零报错**，
+     而其后端路径早已不存在；`src/thread/threading/` 30+ 处同型。
+     ⇒ 判"SDK 是否跟上"**不能只看门禁绿**，要 grep 模块内 prefix 常量。
+   - **生成契约表只增不减** ⇒ 类型断言会被**残留条目**静默满足（`rp()` 能通过一个后端
+     已不注册的 v3 路径）。**类型绿 ≠ 路径对**；断言必须锁到目标前缀空间
+     （本轮因此新增 `r4354` / `tpv` / `tv` / `rsvVendor` / `roomPathVendor|Msc4354`）。
 
 ---
 
