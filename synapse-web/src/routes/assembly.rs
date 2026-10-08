@@ -96,7 +96,7 @@ fn create_voip_compat_router() -> Router<AppState> {
 /// there is no `/_matrix/client/v3` twin. (`my_rooms`, `search_rooms` and
 /// `search_recipients` are additionally reachable under their legacy `/v3`
 /// paths via `create_sync_router` / `create_search_router`.)
-fn create_vendor_router() -> Router<AppState> {
+pub fn create_vendor_router() -> Router<AppState> {
     Router::new()
         .route("/my_rooms", get(get_my_rooms))
         .route("/search_rooms", post(handlers::search::search::search_rooms))
