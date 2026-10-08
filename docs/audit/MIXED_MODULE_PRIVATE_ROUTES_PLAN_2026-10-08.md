@@ -202,7 +202,7 @@ EOF
   ⇒ **封装型调用的前缀无法被现门禁校验**；本轮只能靠人工同批改 SDK 兜住（归入 G-04/G-05 家族）。
 - **SDK 侧待办（同批）**：sticky 5 处（`RoomManager.ts:887,902`、
   `room-event-operation-manager.ts:747,764,785`）+ thread 1 处（`room-thread-manager.ts:83`）
-  + unfreeze 1 处（`threading/index.ts:485`）。因 SDK 契约由 `sdk-contract-codegen.mjs`
+  · unfreeze 1 处（`threading/index.ts:485`）。因 SDK 契约由 `sdk-contract-codegen.mjs`
   从后端 `ROUTE_CONTRACT.md` 生成，**必须先提交后端再重生成契约**。
   **pinned 端点 SDK 从未调用** ⇒ 不受影响。
 
@@ -235,7 +235,7 @@ EOF
 
 - `1d6258870`：契约镜像同步（此前停在 backend `71ab0980`，1159 条、4 个月未更 ⇒
   `quality:contract-freshness` 长期判红）+ `moderation` 文档漂移 + M2 的 sticky/pinned/unfreeze
-  + widgets / thread/threading 整族归位。
+  以及 widgets / thread/threading 整族归位。
 - `1a02d6d6f`：space / dm / room-summary / admin 收敛，`quality:path-contract` **45 → 0**
   （豁免 23 条，全部有 owner + 理由 + 期限）。
 
@@ -250,7 +250,6 @@ EOF
 ⚠️ 第一条连带修正一个判据：`uploadSignatures()` 正是 M2 里被删掉的后端请求体兼容分支的
 "唯一消费者" —— 那个消费者**本身打错了路径**。⇒ **判「零消费者」时不能只看调用点是否存在，
 还要核该调用点的路径是否真在 ledger 里**（否则会把"坏掉的消费者"当成有效消费者）。
-
 
 **跨仓纪律（本仓已固化）**：
 
@@ -289,7 +288,6 @@ PATH="/Users/ljf/.workbuddy/binaries/python/versions/3.13.12/bin:/usr/bin:/bin:$
 PATH="/usr/bin:/bin:$PATH" cargo clippy --workspace --all-targets --features test-utils --locked -- -D warnings
 PATH="/usr/bin:/bin:$PATH" cargo nextest run --test unit --features test-utils
 ```
-
 
 ````
 
