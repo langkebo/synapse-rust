@@ -25,6 +25,10 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.environ.get("SYNAPSE_RUST_ROOT") or os.path.dirname(
     os.path.dirname(SCRIPT_DIR)
 )
+sys.path.insert(0, SCRIPT_DIR)
+
+# ISSUE-13 标准前缀策略：判定数据与台账生成器共用同一份（铁律 2，不各存一份清单）。
+import standard_prefix_policy as spp
 
 _spec = importlib.util.spec_from_file_location(
     "extract_registered", os.path.join(SCRIPT_DIR, "extract_registered.py")
@@ -357,6 +361,81 @@ def check_non_namespace_bucket(per: dict) -> None:
         "non-namespace bucket is exactly the intentional root surface",
         actual == expected,
         f"unexpected={sorted(actual - expected)} missing={sorted(expected - actual)}",
+    )
+
+
+def load_standard_prefix_ledger() -> set:
+    """读 `standard_prefix_ledger.txt`；`#` 之后是 `policy | action | reason`，不参与比对。"""
+    path = os.path.join(SCRIPT_DIR, "standard_prefix_ledger.txt")
+    entries = set()
+    with open(path) as fh:
+        for lineno, line in enumerate(fh, 1):
+            body = line.split("#", 1)[0].strip()
+            if not body:
+                continue
+            parts = body.split()
+            if len(parts) != 2:
+                raise ValueError(
+                    f"standard_prefix_ledger.txt:{lineno}: expected '<METHOD> <PATH>', got {line!r}"
+                )
+            entries.add((parts[0], parts[1]))
+    return entries
+
+
+def check_standard_prefix_bucket(per: dict) -> None:
+    """ISSUE-13: 私有端点不得注册在 `/_matrix/client/{v1,v3}` 下。
+
+    这个门禁此前**不存在于后端**。SDK 侧有一个 `check-vendor-prefix-migration.mjs`，
+    但它判的是「5 个模块的源码里有没有出现 `prefix: ClientPrefix.V1|V3|R0`」——
+    `space` / `widget` / `room_summary` / `dm` / `push_notification` / `moderation`
+    根本不在扫描范围内，于是门禁是绿的而污染一直在。ISSUE-13 的原计划要求的是
+    「标准前缀路径必须存在于 spec 路径白名单」（`check-standard-prefix-whitelist.mjs`），
+    那个脚本**从未被创建**。
+
+    本家判据不是模块名（`room.rs` 97 条里 93 条标准、`handlers/thread.rs` 21 条里
+    18 条 MSC —— 模块名分辨不出来），而是：
+      A) 台账里每条都必须真实存在（**腐烂即红**，防止台账只增不减）；
+      B) 整模块私有文件里的 client 前缀路由必须**全部**登记
+         （= 在这些模块新增私有端点必然红）；
+      C) 该桶的条数不得超过 `spp.LEDGER_CEILING`（**只减不增**）。
+    口径 C 与 policy 标注无关，因此**改标签绕不过去** —— 只有真的删掉或迁走路由
+    才能让它降下来。
+
+    已知缺口（不假装已覆盖）：混合模块（`room.rs` / `moderation.rs` /
+    `handlers/thread.rs`）不做 B 的全覆盖断言，因为那需要一份机器可读的 spec 路径
+    清单。当前在 `spp.MIXED_MODULE_ROUTES` 里逐条登记已识别的私有端点；
+    补齐白名单方向见《前缀命名空间治理方案-2026-10-08.md》§3 Phase 1。
+    """
+    ledger = load_standard_prefix_ledger()
+    actual = {(m, p) for routes in per.values() for m, p in routes}
+    wholesale = {
+        (m, p)
+        for source, routes in per.items()
+        for m, p in routes
+        if source in spp.WHOLESALE_PRIVATE_FILES and p.startswith(spp.CLIENT_PREFIXES)
+    }
+
+    stale = sorted(ledger - actual)
+    check(
+        "no stale standard-prefix ledger entry (bidirectional ratchet)",
+        not stale,
+        f"{len(stale)} stale, e.g. {stale[:3]} — prune standard_prefix_ledger.txt "
+        f"(regenerate: python3 scripts/contract/gen_standard_prefix_ledger.py --write)",
+    )
+
+    unlisted = sorted(wholesale - ledger)
+    check(
+        "every client-prefixed route in a wholly-private module is ledgered",
+        not unlisted,
+        f"{len(unlisted)} unclassified, e.g. {unlisted[:3]} — either move the route to "
+        f"/_matrix/vendor/v1, or add it to standard_prefix_ledger.txt with a reason",
+    )
+
+    check(
+        "standard-prefix private surface only shrinks",
+        len(wholesale) <= spp.LEDGER_CEILING,
+        f"wholly-private client-prefixed routes = {len(wholesale)} > ceiling "
+        f"{spp.LEDGER_CEILING}; lower the ceiling only when routes actually moved",
     )
 
 
@@ -928,8 +1007,10 @@ def mutation_check() -> int:
                 print(
                     f"  ok   mutation#6 (module gates dropped) turns the suite RED via synthetic row: {mixed_key}"
                 )
-                # 符合预期，直接成功，不再进行漂移检查
-                return bad
+                # 符合预期。**不要**在这里 `return bad`：那会静默跳过其后注册的
+                # 每一个变异（mutation#7 及以后），使"自证"只证明了前六个。
+                # 分支语义已由 if/else 表达，落到函数尾即可。
+                # 符合预期，不再进行漂移检查
             else:
                 print(f"  FAIL mutation#6 合成测试无法产生 gate_of != scope_only 差异")
                 bad += 1
@@ -968,6 +1049,69 @@ def mutation_check() -> int:
     finally:
         ex.Resolver.gate_of = orig_gate_of
 
+    # Mutation 7 — ISSUE-13 台账必须真的会咬人。
+    #
+    # 三条**独立**的失效路径，各自注入一次。只堵住其中一条的守卫，另外两条照样放行，
+    # 所以必须分别证明（铁律 8：报"通过"的门禁未必在工作）：
+    #   7a 台账腐烂    —— 加一条真实路由里不存在的条目，A 判据必须红；
+    #   7b 漏登记      —— 从台账里删掉一条真实存在的私有路由，B 判据必须红；
+    #   7c 上限失效    —— 把上限压到 0，C 判据必须红。
+    #
+    # `check_standard_prefix_bucket` 用的是全局 `check()`（会写进 FAILURES），
+    # 因此这里前后快照并恢复 FAILURES —— 否则"变异成功地变红"反而会把整个套件判定为失败。
+    per_all = derived(resolve())
+    orig_ledger_loader = load_standard_prefix_ledger
+    orig_ceiling = spp.LEDGER_CEILING
+    real_ledger = orig_ledger_loader()
+    failures_snapshot = list(FAILURES)
+
+    def standard_prefix_failures(loader, ceiling) -> int:
+        globals()["load_standard_prefix_ledger"] = loader
+        spp.LEDGER_CEILING = ceiling
+        before = len(FAILURES)
+        check_standard_prefix_bucket(per_all)
+        return len(FAILURES) - before
+
+    try:
+        dropped = sorted(real_ledger)[0]
+        mutations = (
+            (
+                "stale entry",
+                lambda: standard_prefix_failures(
+                    lambda: (
+                        real_ledger | {("GET", "/_matrix/client/v3/__no_such_route__")}
+                    ),
+                    orig_ceiling,
+                ),
+            ),
+            (
+                "unlisted route",
+                lambda: standard_prefix_failures(
+                    lambda: real_ledger - {dropped}, orig_ceiling
+                ),
+            ),
+            (
+                "ceiling no longer constrains",
+                lambda: standard_prefix_failures(orig_ledger_loader, 0),
+            ),
+        )
+        for name, run in mutations:
+            got = run()
+            if got >= 1:
+                print(
+                    f"  ok   mutation#7/{name} turns the ISSUE-13 guard RED ({got} check(s) failed)"
+                )
+            else:
+                print(
+                    f"  FAIL mutation#7/{name} did NOT turn the ISSUE-13 guard red — "
+                    f"standard_prefix_ledger.txt is self-proving"
+                )
+                bad += 1
+    finally:
+        globals()["load_standard_prefix_ledger"] = orig_ledger_loader
+        spp.LEDGER_CEILING = orig_ceiling
+        FAILURES[:] = failures_snapshot
+
     return bad
 
 
@@ -989,6 +1133,8 @@ def main() -> int:
     check_positive_contract(per)
     print("== non-namespace surface ==")
     check_non_namespace_bucket(per)
+    print("== standard-prefix private surface (ISSUE-13) ==")
+    check_standard_prefix_bucket(per)
     print("== compile lanes and runtime profiles (B2-1) ==")
     check_lane_profile_modeling()
     print("== unresolved ratchet ==")
