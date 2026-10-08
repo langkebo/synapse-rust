@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": false
   },
-  "entry_count": 1047,
+  "entry_count": 1045,
   "entries": [
     {
       "method": "GET",
@@ -579,13 +579,6 @@
     {
       "method": "POST",
       "path": "/_matrix/client/v1/keys/query",
-      "registered_by": "e2ee",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/keys/signatures",
       "registered_by": "e2ee",
       "path_params": [],
       "query_params": []
@@ -2076,13 +2069,6 @@
     {
       "method": "POST",
       "path": "/_matrix/client/v3/keys/query",
-      "registered_by": "e2ee",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v3/keys/signatures",
       "registered_by": "e2ee",
       "path_params": [],
       "query_params": []

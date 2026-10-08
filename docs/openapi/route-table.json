@@ -3,7 +3,7 @@
   "generated_at": "2026-09-16T00:00:00Z",
   "source": "synapse_ledger_export",
   "profile": "default",
-  "total_routes": 971,
+  "total_routes": 969,
   "_meta": {
     "generated_by": "gen_route_table.py",
     "note": "本文件由 CI 自动生成，禁止手改。如需刷新: python3 scripts/api_test/gen_route_table.py"
@@ -645,14 +645,6 @@
     {
       "method": "POST",
       "path": "/_matrix/client/v1/keys/query",
-      "registered_by": "e2ee",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/keys/signatures",
       "registered_by": "e2ee",
       "path_params": [],
       "query_params": [],
@@ -2306,14 +2298,6 @@
     {
       "method": "POST",
       "path": "/_matrix/client/v3/keys/query",
-      "registered_by": "e2ee",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v3/keys/signatures",
       "registered_by": "e2ee",
       "path_params": [],
       "query_params": [],

@@ -26,7 +26,6 @@ fn create_e2ee_compat_router() -> Router<AppState> {
         .route("/keys/claim", post(claim_keys))
         .route("/keys/changes", get(key_changes))
         .route("/keys/device_list/update", post(device_list_update))
-        .route("/keys/signatures", post(upload_signatures))
         .route("/keys/signatures/upload", post(upload_signatures))
         .route("/keys/device_signing/upload", post(upload_device_signing))
         .route("/room_keys/request", post(create_room_key_request).get(get_room_key_requests))

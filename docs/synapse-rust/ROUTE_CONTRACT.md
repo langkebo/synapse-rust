@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1055**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1053**
 - 含路由注册的模块文件：**65**
 - `derived_routes.rs` 中的 `registered_by` 标签：**73**
 - 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
@@ -69,7 +69,7 @@
 **逐模块清单里的两种标注**（都从派生表反解，不是人工维护）：
 
 - 〔仅 `X` profile〕 —— 该路由**只**在 profile `X` 下注册，默认构建里不存在（即上表成员）；
-- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1057 行去重为 1055 条的来源。
+- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1055 行去重为 1053 条的来源。
 
 当前共 **2** 条双档注册：
 
@@ -913,9 +913,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/vendor/v1/spaces/{space_id}/summary`
 - `GET` `/_matrix/vendor/v1/spaces/{space_id}/summary/with_children`
 
-### 端到端加密 (E2EE) （38 条）
+### 端到端加密 (E2EE) （36 条）
 
-#### `e2ee/keys.rs` — 38 条 ✅派生表
+#### `e2ee/keys.rs` — 36 条 ✅派生表
 
 - `DELETE` `/_matrix/client/v1/room_keys/request/{request_id}`
 - `DELETE` `/_matrix/client/v3/keys/backup/secure/{backup_id}`
@@ -933,7 +933,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_matrix/client/v1/keys/device_list/update`
 - `POST` `/_matrix/client/v1/keys/device_signing/upload`
 - `POST` `/_matrix/client/v1/keys/query`
-- `POST` `/_matrix/client/v1/keys/signatures`
 - `POST` `/_matrix/client/v1/keys/signatures/upload`
 - `POST` `/_matrix/client/v1/keys/upload`
 - `POST` `/_matrix/client/v1/keys/upload/{device_id}`
@@ -947,7 +946,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_matrix/client/v3/keys/device_list/update`
 - `POST` `/_matrix/client/v3/keys/device_signing/upload`
 - `POST` `/_matrix/client/v3/keys/query`
-- `POST` `/_matrix/client/v3/keys/signatures`
 - `POST` `/_matrix/client/v3/keys/signatures/upload`
 - `POST` `/_matrix/client/v3/keys/upload`
 - `POST` `/_matrix/client/v3/keys/upload/{device_id}`

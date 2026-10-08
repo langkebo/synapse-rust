@@ -654,10 +654,6 @@
     ],
     "upload_signatures": [
       [
-        "/keys/signatures",
-        "post"
-      ],
-      [
         "/keys/signatures/upload",
         "post"
       ]
