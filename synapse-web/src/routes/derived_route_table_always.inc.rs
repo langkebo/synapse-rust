@@ -5633,32 +5633,37 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     #[cfg(feature = "cas-sso")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/cas/login", "cas");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/cas/login", "cas")
+            .with_query_params(&["gateway", "renew", "service"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "cas-sso")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/cas/logout", "cas");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/cas/logout", "cas").with_query_params(&["service"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "cas-sso")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/cas/p3/serviceValidate", "cas");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/cas/p3/serviceValidate", "cas")
+            .with_query_params(&["pgt_url", "renew", "service", "ticket"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "cas-sso")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/cas/proxy", "cas");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/cas/proxy", "cas")
+            .with_query_params(&["pgt", "target_service"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "cas-sso")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/cas/proxyValidate", "cas");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/cas/proxyValidate", "cas")
+            .with_query_params(&["pgt_url", "service", "ticket"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "cas-sso")]
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/cas/serviceValidate", "cas");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/cas/serviceValidate", "cas")
+            .with_query_params(&["pgt_url", "renew", "service", "ticket"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "external-services")]

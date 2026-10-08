@@ -8843,42 +8843,65 @@
       "path": "/_synapse/cas/login",
       "registered_by": "cas",
       "path_params": [],
-      "query_params": []
+      "query_params": [
+        "gateway",
+        "renew",
+        "service"
+      ]
     },
     {
       "method": "GET",
       "path": "/_synapse/cas/logout",
       "registered_by": "cas",
       "path_params": [],
-      "query_params": []
+      "query_params": [
+        "service"
+      ]
     },
     {
       "method": "GET",
       "path": "/_synapse/cas/p3/serviceValidate",
       "registered_by": "cas",
       "path_params": [],
-      "query_params": []
+      "query_params": [
+        "pgt_url",
+        "renew",
+        "service",
+        "ticket"
+      ]
     },
     {
       "method": "GET",
       "path": "/_synapse/cas/proxy",
       "registered_by": "cas",
       "path_params": [],
-      "query_params": []
+      "query_params": [
+        "pgt",
+        "target_service"
+      ]
     },
     {
       "method": "GET",
       "path": "/_synapse/cas/proxyValidate",
       "registered_by": "cas",
       "path_params": [],
-      "query_params": []
+      "query_params": [
+        "pgt_url",
+        "service",
+        "ticket"
+      ]
     },
     {
       "method": "GET",
       "path": "/_synapse/cas/serviceValidate",
       "registered_by": "cas",
       "path_params": [],
-      "query_params": []
+      "query_params": [
+        "pgt_url",
+        "renew",
+        "service",
+        "ticket"
+      ]
     },
     {
       "method": "POST",

@@ -1088,6 +1088,16 @@ def load_ledger_annotations() -> dict:
 # the generated table's own test; the behavioural cross-check is the Rust
 # golden test `route_ledger::tests::rate_limit_exempt_surface_matches_ledger`.
 EXPECTED_ANNOTATIONS = {
+    ("GET", "/_synapse/cas/login"): {"query_params": "gateway,renew,service"},
+    ("GET", "/_synapse/cas/logout"): {"query_params": "service"},
+    ("GET", "/_synapse/cas/p3/serviceValidate"): {
+        "query_params": "pgt_url,renew,service,ticket"
+    },
+    ("GET", "/_synapse/cas/proxy"): {"query_params": "pgt,target_service"},
+    ("GET", "/_synapse/cas/proxyValidate"): {"query_params": "pgt_url,service,ticket"},
+    ("GET", "/_synapse/cas/serviceValidate"): {
+        "query_params": "pgt_url,renew,service,ticket"
+    },
     ("DELETE", "/_matrix/client/v1/room_keys/keys"): {"query_params": "version"},
     ("DELETE", "/_matrix/client/v1/room_keys/keys/{room_id}"): {
         "query_params": "version"

@@ -367,12 +367,14 @@ def check_non_namespace_bucket(per: dict) -> None:
         ("GET", "/"),
         ("GET", "/health"),
         ("GET", "/_health"),
-        # legacy CAS admin aliases (deprecated, emit Deprecation/Warning headers)
-        ("GET", "/admin/services"),
-        ("POST", "/admin/services"),
-        ("DELETE", "/admin/services/{service_id}"),
-        ("GET", "/admin/users/{user_id}/attributes"),
-        ("POST", "/admin/users/{user_id}/attributes"),
+        # ⚠️ 这里曾登记 5 条 `cas.rs` 的 legacy CAS admin 别名
+        # （`/admin/services`、`/admin/services/{service_id}`、
+        # `/admin/users/{user_id}/attributes`）。它们于 2026-10-08 的 C6 反冗余批次
+        # 按 AGENTS.md 铁律 1 整段删除（连同只为它们存在的
+        # `legacy_cas_admin_alias_deprecation_middleware`）—— 那是**自我声明的
+        # 兼容层**，且挂在根级、连 `/_matrix` / `/_synapse` 命名空间都不在。
+        # 本守卫当时正是通过**变红**迫使这次删除成为一个显式决策，而不是让
+        # 别名悄悄消失；请不要把它们加回来。
     }
     actual = {
         (meth, path)

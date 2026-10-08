@@ -161,3 +161,10 @@ PUT /_matrix/client/v1/room_keys/keys/{room_id}/{session_id}	query_params=versio
 PUT /_matrix/client/v3/room_keys/keys	query_params=version
 PUT /_matrix/client/v3/room_keys/keys/{room_id}	query_params=version
 PUT /_matrix/client/v3/room_keys/keys/{room_id}/{session_id}	query_params=version
+
+GET /_synapse/cas/login	query_params=gateway,renew,service
+GET /_synapse/cas/logout	query_params=service
+GET /_synapse/cas/p3/serviceValidate	query_params=pgt_url,renew,service,ticket
+GET /_synapse/cas/proxy	query_params=pgt,target_service
+GET /_synapse/cas/proxyValidate	query_params=pgt_url,service,ticket
+GET /_synapse/cas/serviceValidate	query_params=pgt_url,renew,service,ticket
