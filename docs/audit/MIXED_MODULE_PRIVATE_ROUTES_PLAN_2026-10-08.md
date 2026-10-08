@@ -208,7 +208,26 @@ EOF
 ### M4 — 类别 D1/D2 的收尾裁定
 
 - D1：逐条复核 handler，判定"是否等价写法"。等价 ⇒ 删；不等价 ⇒ 迁 vendor。
-- D2：**列出全部 43 条的三层消费者取证结果**，逐条在"删 vs 迁"上签字（本表给的是建议，不是结论）。
+- D2：**列出全部 43 条（M1 后 42）的三层消费者取证结果**，逐条在"删 vs 迁"上签字（本表给的是建议，不是结论）。
+
+### 3.1 排期总表与跨仓前置（2026-10-08）
+
+| 批次 | 后端 | SDK | Tjg | 前置 / 阻塞 |
+| --- | --- | --- | --- | --- |
+| **M0 门禁补强** | ✅ 已执行（`313438dc0`） | — | — | — |
+| **M1 删冗余面** | ✅ 已执行（同批，净 −1） | — | ✅ 已执行（`7321f8ed`） | — |
+| **M2 MSC 归位** | `sticky_events`(MSC4354) / `pinned_events`(MSC3946) 迁 unstable；`unfreeze`、`thread/{event_id}` 迁 vendor | 相应 `prefix:` 与生成物 | 重打包 + pin | ⚠️ **须先裁定 COMPAT-09** —— "稳定/unstable 双前缀并存"是已登记的 by-design，改它要同批改 `MSC_SEMANTICS.md`；**且 M2 不是零跨仓**：`thread/{event_id}` 有 SDK 消费者（`room-thread-manager.ts:83`） |
+| **M3 vendor 迁移** | 其余约 40 条 → `/_matrix/vendor/v1` | 33+ 处 `prefix:` → `VendorPrefix` + codegen + `contract-sync` | 重打包 + pin | ⚠️ **SDK 目标分支未定**：Tjg pin 钉的是 `release/contract-entrypoint`（`653e6952f`），SDK 工作区在 `develop`（`d367d1518`），两者已分叉（`merge-base --is-ancestor` 为否）；切分支是工作区级动作，须先确认无其他写者 |
+| **M4 D1/D2 收尾** | 逐条复核 handler + 三层取证签字 | — | — | M3 之后 |
+
+**跨仓纪律（本仓已固化）**：
+
+1. 顺序**单向**：后端 → SDK → Tjg；回滚反向。
+2. **同一批次三仓一起做**（M3 尤其）：后端已迁、SDK 未迁的窗口期客户端会 404 ——
+   Batch 3 就是这么留下尾巴的（29 条端点至今对 SDK 是 404，只由 `sdk_uncovered_allowlist.txt`
+   的 SDK-BE-3 兜着）。
+3. 每批后端侧走完整契约链（顺序见 §3 M1 记录里那条 `--bootstrap` 链路）。
+4. 铁律 9：动手前确认目标仓没有其他写者；只 `git add` 自己的显式 pathspec。
 
 ---
 
