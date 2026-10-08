@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": true
   },
-  "entry_count": 1035,
+  "entry_count": 1034,
   "entries": [
     {
       "method": "GET",
@@ -1125,13 +1125,6 @@
         "room_id",
         "session_id"
       ],
-      "query_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/rooms/create_private",
-      "registered_by": "room",
-      "path_params": [],
       "query_params": []
     },
     {

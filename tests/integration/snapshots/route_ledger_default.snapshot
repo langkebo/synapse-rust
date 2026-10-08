@@ -1,5 +1,5 @@
 # route-ledger snapshot: default
-count: 1016
+count: 1015
 
 DELETE /_matrix/app/v1/proxy/{as_id}/{*path} [app_service]
 DELETE /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device [assembly::create_router]
@@ -629,7 +629,6 @@ POST /_matrix/client/v1/room_keys/import/{version} [key_backup]
 POST /_matrix/client/v1/room_keys/recover [key_backup]
 POST /_matrix/client/v1/room_keys/request [e2ee]
 POST /_matrix/client/v1/room_keys/version [key_backup]
-POST /_matrix/client/v1/rooms/create_private [room]
 POST /_matrix/client/v1/rooms/{room_id}/report/{event_id} [moderation]
 POST /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies [thread]
 POST /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/subscribe [thread]

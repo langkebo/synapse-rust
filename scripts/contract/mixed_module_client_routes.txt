@@ -71,7 +71,6 @@ room.rs GET /_matrix/client/v3/rooms/{room_id}/unread_count # private 私有扩�
 room.rs GET /_matrix/client/v3/rooms/{room_id}/vault_data # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
 room.rs GET /_matrix/client/v3/rooms/{room_id}/version # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
 room.rs GET /_matrix/client/v3/rooms/{room_id}/visibility # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
-room.rs POST /_matrix/client/v1/rooms/create_private # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
 room.rs POST /_matrix/client/v3/createRoom # spec Matrix C-S 规范端点
 room.rs POST /_matrix/client/v3/invite/{room_id} # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
 room.rs POST /_matrix/client/v3/join/{room_id_or_alias} # spec Matrix C-S 规范端点
@@ -124,4 +123,4 @@ handlers/thread.rs POST /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/s
 handlers/thread.rs POST /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unfreeze # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
 handlers/thread.rs POST /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unsubscribe # msc MSC3856 退订线程（v1 为规范位）
 
-# 统计：spec 43 / msc 7 / private 55 = 105 条
+# 统计：spec 43 / msc 7 / private 54 = 104 条

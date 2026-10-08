@@ -3,7 +3,7 @@
   "generated_at": "2026-09-16T00:00:00Z",
   "source": "synapse_ledger_export",
   "profile": "default",
-  "total_routes": 956,
+  "total_routes": 955,
   "_meta": {
     "generated_by": "gen_route_table.py",
     "note": "本文件由 CI 自动生成，禁止手改。如需刷新: python3 scripts/api_test/gen_route_table.py"
@@ -1249,14 +1249,6 @@
         "room_id",
         "session_id"
       ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/rooms/create_private",
-      "registered_by": "room",
-      "path_params": [],
       "query_params": [],
       "auth": null
     },

@@ -13,16 +13,19 @@
 
 ## 0. 结论先行
 
-1. **55 条不是 55 个问题。** 按语义归属可分成 **4 类**，其中约 **10 条是"同 handler 重复/版本孪生/死别名"**
-   —— 它们**不是能力，是冗余面**，可以零风险删除，**不需要跨仓**。
+1. **55 条不是 55 个问题。** 按语义归属可分成 **4 类**。初稿估计"约 10 条是『同 handler 重复 /
+   版本孪生 / 死别名』，可零风险删"—— **M0/M1 实测把这个估计修正为 1 条**（见 §2 类别 A 的
+   A2/A3 改判）：同 handler 挂两条路径的多数是**刻意的探测位 / 兼容位**，不是死代码。
 2. **消费者取证必须用严格判据。** 门禁自带的 `path_match()` 是**宽松**的（为兼容风格 2/3 而设计），
    用它枚举"某端点是否被 SDK 调用"会**假阳泛滥**：实测 SDK 的
    `buildMembershipChangePath()`（`/rooms/$room_id/$membership`，变量尾段）一处就"匹配"了 **27 条**
    后端字面量路径。判定消费者必须用**变量段只配变量段**的严格谓词（见 §1.2 复现命令）。
 3. **严格判据下的实测结论**：SDK 源码字面量层面 **12 条有消费者 / 43 条无**；Tjg 侧另有一条
    **零消费的死常量**（`paths/room.ts` 的 `ANTI_SCREENSHOT` / `VAULT_DATA`）。
-4. 建议 **4 个批次**：**M0 门禁补强**（零路由变化）→ **M1 删冗余面**（后端 + Tjg，可先做）→
-   **M2 MSC 归位**（`sticky_events` / `pinned_events` 迁 unstable 前缀）→ **M3 vendor 迁移**（跨仓）。
+4. 批次：**M0 门禁补强**（零路由变化）与 **M1 删冗余面**（后端 + Tjg）—— **两者已执行完毕**
+   （见 §3）；**M2 MSC 归位**（`sticky_events` / `pinned_events` 迁 unstable 前缀，须先裁定
+   COMPAT-09 的"稳定/unstable 双前缀并存"口径）→ **M3 vendor 迁移**（跨仓）→ **M4 的 D1/D2 收尾裁定**
+   —— 待续。
 5. **顺带发现两处门禁盲区**（都不在 55 条清单内，但同源）：
    - **G-01 只覆盖 `/_matrix/client/{v1,v3}`，不含 `/unstable/`** ⇒
      `/_matrix/client/unstable/uk.half-shot.msc2666/user/mutual_rooms` 与 vendor 的
@@ -37,8 +40,8 @@
 
 | 维度 | 值 | 取证 |
 | --- | --- | --- |
-| 混合模块 client 路由总数 | **105**（`room.rs` 94 / `moderation.rs` 4 / `handlers/thread.rs` 7） | `scripts/contract/mixed_module_client_routes.txt` |
-| 其中 **private** | **55**（`room.rs` 54 / `handlers/thread.rs` 1） | 同上，第 3 列标签 |
+| 混合模块 client 路由总数 | **104**（M1 前 105；`room.rs` 93 / `moderation.rs` 4 / `handlers/thread.rs` 7） | `scripts/contract/mixed_module_client_routes.txt` |
+| 其中 **private** | **54**（M1 前 55；`room.rs` 53 / `handlers/thread.rs` 1） | 同上，第 3 列标签 |
 | 其中 msc | 7 | 同上 |
 | 其中 spec | 43 | 同上 |
 | 门禁覆盖 | 判据 D 双向 ratchet（新增即红） | `test_extract_registered.py::check_standard_prefix_bucket` |
@@ -73,7 +76,7 @@ EOF
 | 类别 | 条数 | 说明 |
 | --- | ---: | --- |
 | SDK 源码字面量有站点 | **12** | 集中在 `src/room-summary/sub-managers/*` 与 `src/room-member/index.ts` |
-| SDK 无站点 | **43** | 不代表"零消费者"，见下方 Tjg 与"假能力"讨论 |
+| SDK 无站点 | **43** → M1 后 **42** | 不代表"零消费者"，见下方 Tjg 与"假能力"讨论 |
 
 > ⚠️ **为什么不能只看 SDK**：Tjg 有 `src/services/matrix/paths/room.ts` 这样的**裸路径常量表**
 > 与 `RoomMessageQueuePanel.vue` 这样的 UI。判定"能否删"必须**三层都查**（后端 → SDK → Tjg），
@@ -104,8 +107,14 @@ EOF
 
 | # | 路径 | 判据 | 处置 |
 | --- | --- | --- | --- |
-| A1 | `POST /_matrix/client/v1/rooms/create_private` | 与 v3 版**同 handler** `create_private_room`（`room.rs:150-151`） | 删 v1，保留 v3 |
-| A2 | `/_matrix/client/unstable/uk.half-shot.msc2666/user/mutual_rooms` | 与 `/_matrix/vendor/v1/user/mutual_rooms` **同 handler** `get_mutual_rooms`（`room.rs:141,153`）⇒ 迁移后残留的死别名 | 删（**G-01 盲区实测样本**） |
+| A1 | `POST /_matrix/client/v1/rooms/create_private` | 与 v3 版**同 handler** `create_private_room`（`room.rs:150-151`）；SDK 只打 v3（`RoomManager.ts:345,367` 用 `rp("/rooms/create_private")`），v1 三层零消费者 | ✅ **已删（M1）**，保留 v3 |
+| A2 | `/_matrix/client/unstable/uk.half-shot.msc2666/user/mutual_rooms` | 与 `/_matrix/vendor/v1/user/mutual_rooms` **同 handler** `get_mutual_rooms` ⇒ 初判为死别名 | ❌ **改判为保留**：SDK 的 `server-capabilities/index.ts:424` 用它做 MSC2666 **特性探测**（`RoomManager.ts:1069` 注释亦区分"unstable 探测位 vs 稳定入口"）⇒ 已登记 `spp.MSC_KEEP` |
+| A3 | `/_matrix/client/unstable/org.matrix.msc4156/threads/subscribed` | 与 vendor 的 `/threads/subscribed` **同 handler** ⇒ 初判为死别名（**M0 判据新报出**） | ❌ **改判为保留**：`handlers/thread.rs:191-196` 自述"仅为已发布客户端保留的兼容位，**不是** MSC4156 表面" ⇒ 已登记 `spp.MSC_KEEP` |
+
+> **A2/A3 的改判过程值得记下来**：M0 判据（G-01 扩展到 `/unstable/`）先把这两条报红，
+> 取证后才发现**"同一 handler 挂两条路径"不等于"死别名"** —— 一条是特性探测位、
+> 一条是刻意兼容位。`spp.MSC_KEEP` 这个豁免入口本就是为这种情况留的。
+> ⇒ **净删除只有 A1 一条**（−1），这与 §0 初稿"约 10 条可零风险删"的估计相差很大。
 
 - **复现**：`grep -nE '\.route\(' synapse-web/src/routes/room.rs` 后按 handler 归组（见 §5 命令）。
 - **承接**：无能力损失（保留的那条覆盖同一 handler）。
@@ -159,12 +168,26 @@ EOF
 | M0-2 | 新增判据「同一 handler 不得挂多条路径，除显式登记」 | 实测当下报出 A1（`create_private_room`）与 A2（`get_mutual_rooms`） |
 | M0-3 | 冻结清单增加 `MIXED_MODULE_PRIVATE_COUNT = 55`（只减不增，与 `LEDGER_CEILING` 同型） | 注入一条私有 client 路由 ⇒ 必须红（判据 D 已覆盖，此处是**数值**上的护栏） |
 
-### M1 — 删冗余面（后端 + Tjg，**零跨仓依赖**）
+### M1 — 删冗余面（后端 + Tjg，**零跨仓依赖**）✅ **已执行**
 
-- 内容：类别 **A**（A1/A2）+ Tjg 的 `ANTI_SCREENSHOT` / `VAULT_DATA` 死常量。
-- 净变化：**−3** 条路由（A1 一条、A2 一条、Tjg 常量不产生路由）。
-- 承接：保留的同 handler 端点覆盖同一能力；Tjg 常量为零消费。
-- 验收：契约链 9 步 + `check_route_contract.sh` EXIT=0 + `docs/synapse-rust-vs-synapse-comparison.md` 计数同步。
+| 项 | 动作 | 结果 |
+| --- | --- | --- |
+| 后端 A1 | 删 `POST /_matrix/client/v1/rooms/create_private`（与 v3 同 handler 的版本孪生，SDK 只打 v3） | ✅ 注册路由 **1,035 → 1,034**；`route-table.json` 956 → **955** |
+| 后端 A2/A3 | 两条 unstable 路径经取证**改判为保留**（有消费者 / 是兼容位），登记 `spp.MSC_KEEP` | ✅ 见 §2 类别 A |
+| Tjg | 删 `ROOM.ANTI_SCREENSHOT` / `ROOM.VAULT_DATA`（零消费死常量）与其 **3 处**测试用例 | ✅ `paths` 套件 142 passed；`vue-tsc --noEmit` 无输出 |
+| 契约链 | extract → **bootstrap 派生表** → 两车道 fixtures → `--check` 认证 → ROUTE_CONTRACT.md → route-table → 快照 | ✅ 派生表 `--check OK`（1036 rows）；集成快照 2 passed |
+| 计数同步 | `comparison.md` 3 处 + `API_COVERAGE_REPORT.md` 6 处 | ✅ `doc_credibility` 通过 |
+
+- **⚠️ 本轮踩到并确认了契约链的死锁与正确绕行**：改了路由面后直接跑
+  `gen_derived_routes.py` 必然 `FIXTURE FIDELITY FAILED` —— 因为它写表前先
+  `verify_fixtures()`，而 fixtures 是**派生表的下游**，两侧都改不动。
+  脚本自带 `--bootstrap`（帮助文本写明了顺序）。**正确链路**：
+  `extract → gen_derived_routes --bootstrap → 重导两条车道 fixtures → gen_derived_routes --check`（这一步才是认证）。
+  我本轮先按"源码 → fixtures"的顺序跑了一遍 ⇒ **白跑一次**（fixtures 从旧派生表导出，仍含已删路由）。
+- **Tjg 侧附带发现**：整个 `ROOM` 常量表（30+ 常量）**零生产消费**（只有 3 个测试与
+  `paths/index.ts` 的重导出引用它），且它**未被 FT-120「无死路径常量」的全等断言覆盖**
+  （该测试对 ROOM 只做 `not.toHaveProperty` 弱断言，对 MODERATION/AUTH/VOICE 才是全等断言）。
+  ⇒ 建议单独立项：要么整表删除，要么补 FT-120 全等断言把它纳入治理。**本轮不动**（避免扩大范围）。
 
 ### M2 — MSC 归位（类别 B）
 

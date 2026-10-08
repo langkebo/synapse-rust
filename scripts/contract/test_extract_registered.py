@@ -412,26 +412,33 @@ def load_standard_prefix_ledger() -> set:
     return entries
 
 
-def load_mixed_module_client_routes() -> set:
+def load_mixed_module_client_routes() -> dict:
     """读 `mixed_module_client_routes.txt` 的冻结清单（G-02/G-03）。
 
-    格式 `<file> <METHOD> <完整路径> # <标签> <理由>`；`#` 之后不参与比对。
-    返回 `{(method, path)}` —— 文件维度不参与判定，因为断言的是"混合模块整体"。
+    格式 `<file> <METHOD> <完整路径> # <标签> <理由>`；`#` 之后不参与"存在性"比对，
+    但**标签**（第 3 列的 `spec`/`msc`/`private`）要带出来 —— M0-2/M0-3 判据靠它。
+    返回 `{(method, path): tag}`；文件维度不参与判定（断言的是"混合模块整体"）。
     """
     path = os.path.join(SCRIPT_DIR, spp.MIXED_MODULE_CLIENT_ROUTES_FILE)
-    entries = set()
+    entries: dict = {}
     with open(path) as fh:
         for lineno, line in enumerate(fh, 1):
-            body = line.split("#", 1)[0].strip()
-            if not body:
+            if line.lstrip().startswith("#") or not line.strip():
                 continue
+            body, _, comment = line.partition("#")
             parts = body.split()
             if len(parts) != 3:
                 raise ValueError(
                     f"{spp.MIXED_MODULE_CLIENT_ROUTES_FILE}:{lineno}: expected "
                     f"'<file> <METHOD> <PATH>', got {line!r}"
                 )
-            entries.add((parts[1], parts[2]))
+            tag = comment.strip().split()[0] if comment.strip() else ""
+            if tag not in ("spec", "msc", "private"):
+                raise ValueError(
+                    f"{spp.MIXED_MODULE_CLIENT_ROUTES_FILE}:{lineno}: expected a "
+                    f"spec/msc/private tag after '#', got {comment!r}"
+                )
+            entries[(parts[1], parts[2])] = tag
     return entries
 
 
@@ -523,8 +530,9 @@ def check_standard_prefix_bucket(per: dict) -> None:
         if is_mixed_module(source) and p.startswith(spp.CLIENT_PREFIXES)
     }
     mixed_frozen = load_mixed_module_client_routes()
+    frozen_keys = set(mixed_frozen)
 
-    unfrozen = sorted(mixed_actual - mixed_frozen)
+    unfrozen = sorted(mixed_actual - frozen_keys)
     check(
         "mixed module: every client-prefixed route is in the frozen list (new route ⇒ red)",
         not unfrozen,
@@ -532,12 +540,45 @@ def check_standard_prefix_bucket(per: dict) -> None:
         f"{spp.VENDOR_PREFIX}, or add it to {spp.MIXED_MODULE_CLIENT_ROUTES_FILE} with tag+reason",
     )
 
-    stale_frozen = sorted(mixed_frozen - mixed_actual)
+    stale_frozen = sorted(frozen_keys - mixed_actual)
     check(
         "mixed module: no stale entry in the frozen list (removed route ⇒ red)",
         not stale_frozen,
         f"{len(stale_frozen)} stale, e.g. {stale_frozen[:3]} — prune "
         f"{spp.MIXED_MODULE_CLIENT_ROUTES_FILE}",
+    )
+
+    # ── M0-2/M0-3（2026-10-08）：私有面的「版本孪生」与「计数」护栏 ──────────────
+    # M0-2：清单里标 `private` 的相对路径**不得同时在 v1 与 v3 出现**。
+    #   私有端点的唯一规范位置是 vendor，而 vendor 只有**一个**版本 —— 多版本孪生
+    #   只可能来自"复制了一份挂载"。实测首报：
+    #   `POST /rooms/create_private`（v1 + v3 同 handler `create_private_room`）。
+    v1_base, v3_base = spp.CLIENT_PREFIX_BASES[0], spp.CLIENT_PREFIX_BASES[1]
+    private_versions: dict = {}
+    for (_m, p), tag in mixed_frozen.items():
+        if tag != "private":
+            continue
+        for base in (v1_base, v3_base):
+            if p.startswith(base + "/"):
+                private_versions.setdefault(p[len(base) :], set()).add(base)
+
+    multi_version = sorted(
+        rel for rel, bases in private_versions.items() if len(bases) > 1
+    )
+    check(
+        "mixed module: a private route keeps no v1/v3 version twin",
+        not multi_version,
+        f"{len(multi_version)} private path(s) under BOTH v1 and v3, e.g. {multi_version[:3]} — "
+        f"keep one version, or move the route to {spp.VENDOR_PREFIX}",
+    )
+
+    # M0-3：数值护栏（集合判据被误改时仍能兜住）。
+    private_count = sum(1 for tag in mixed_frozen.values() if tag == "private")
+    check(
+        "mixed module: private count only shrinks",
+        private_count <= spp.MIXED_MODULE_PRIVATE_COUNT,
+        f"private entries = {private_count} > {spp.MIXED_MODULE_PRIVATE_COUNT}; lower "
+        f"spp.MIXED_MODULE_PRIVATE_COUNT only when routes actually moved/deleted",
     )
 
 
@@ -551,12 +592,17 @@ def check_client_prefix_vendor_twins(per: dict) -> None:
     连台账都没登记。
 
     判据（纯路径形状，改标签绕不过去）：
-      若 `(method, /_matrix/client/{v1,v3}/X)` 与
-         `(method, /_matrix/vendor/v1/X)` **同时存在**，
-      则该 client 路由是死别名，必须满足二者之一：
+      若 `(method, /_matrix/client/<侧>/X)` 与 `(method, /_matrix/vendor/v1/X)`
+      **同时存在**，则该 client 侧路由是死别名，必须满足二者之一：
         ① 在 `spp.MSC_KEEP` 中（有 MSC 归属，合法留在 client 前缀）；
         ② 已删除。
       否则失败。
+
+    其中 `<侧>` ∈ {`v1`, `v3`, `r0`, `unstable/<版本或归属段>`} —— unstable 的第 4 段是
+    **版本位而非路径的一节**，故先用 `spp.relative_under_client()` 剥掉再配对。
+    ⚠️ 这是 2026-10-08 补的盲区：原判据只比 v1/v3/r0，于是
+    `/_matrix/client/unstable/uk.half-shot.msc2666/user/mutual_rooms` 与 vendor 的
+    `/user/mutual_rooms`（**同一 handler** `get_mutual_rooms`）长期无人发现。
 
     为什么"同时存在即死别名"成立：`/_matrix/vendor/v1` 是本项目私有端点的
     **唯一规范位置**（见 `synapse-web/src/routes/assembly.rs:93-98` 的自述：
@@ -566,17 +612,14 @@ def check_client_prefix_vendor_twins(per: dict) -> None:
     """
     live = {(m, p) for routes in per.values() for m, p in routes}
     vendor = {t for t in live if t[1].startswith(spp.VENDOR_PREFIX + "/")}
-    # 只用 v1/v3 两个 client 前缀（`CLIENT_PREFIX_BASES` 里还有 r0，本项目未注册 r0 路由；
-    # 若将来出现，它会先被 `spp.CLIENT_PREFIXES` 那侧的判据拦住）。
-    bases = spp.CLIENT_PREFIX_BASES[:2]
 
     twins: list = []
     for method, path in sorted(live):
-        for base in bases:
-            if path.startswith(base + "/"):
-                rel = path[len(base) :]
-                if (method, spp.VENDOR_PREFIX + rel) in vendor:
-                    twins.append((method, path))
+        rel = spp.relative_under_client(path)
+        if rel is None:
+            continue
+        if (method, spp.VENDOR_PREFIX + rel) in vendor:
+            twins.append((method, path))
 
     dead = [t for t in twins if t not in spp.MSC_KEEP]
     check(

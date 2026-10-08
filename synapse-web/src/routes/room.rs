@@ -148,7 +148,6 @@ pub fn create_room_router() -> Router<AppState> {
         .nest("/_matrix/client/v3", create_room_v3_router())
         .nest("/_matrix/vendor/v1", create_room_vendor_router())
         .route("/_matrix/client/v3/rooms/create_private", post(create_private_room))
-        .route("/_matrix/client/v1/rooms/create_private", post(create_private_room))
         // MSC2666: Unstable prefix alias for mutual rooms
         .route("/_matrix/client/unstable/uk.half-shot.msc2666/user/mutual_rooms", get(get_mutual_rooms))
 }

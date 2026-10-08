@@ -28,6 +28,12 @@ CLIENT_PREFIX_BASES = ("/_matrix/client/v1", "/_matrix/client/v3", "/_matrix/cli
 
 VENDOR_PREFIX = "/_matrix/vendor/v1"
 
+# `/_matrix/client/unstable/<org>.<name>[.vN]/...` —— MSC 端点借用的临时前缀。
+# 其**第 4 段是 `版本/归属位`，不是路径的一节**，故与 vendor 孪生配对时必须先剥掉它
+# （否则 `unstable/uk.half-shot.msc2666/user/mutual_rooms` 与
+# `/_matrix/vendor/v1/user/mutual_rooms` 长得完全不一样，同 handler 的死别名会被漏掉）。
+UNSTABLE_PREFIX = "/_matrix/client/unstable"
+
 # 整模块私有：这些源文件只服务私有扩展，没有标准端点。因此它们**全部**
 # client 前缀路由都必须登记台账 —— 于是"在这些模块里新增一个私有端点
 # 而不登记"会立刻变红，这是本门禁堵住的现实回潮路径。
@@ -97,6 +103,20 @@ MSC_KEEP = {
         3266,
         "MSC3266 room summary",
     ),
+    # ── 2026-10-08 M0 补登（G-01 扩展到 `/unstable/` 后由判据报出的 2 条）──────────
+    # 两条都**不是**死别名：一条有活的 SDK 消费者，另一条是刻意的兼容位。
+    ("GET", "/_matrix/client/unstable/uk.half-shot.msc2666/user/mutual_rooms"): (
+        2666,
+        "MSC2666 mutual rooms 的 **unstable 特性探测位** —— SDK 的 server-capabilities "
+        "用它判断服务端是否支持（matrix-js-sdk/src/server-capabilities/index.ts:424），"
+        "稳定入口是 `/_matrix/vendor/v1/user/mutual_rooms`，两者用途不同 ⇒ 保留",
+    ),
+    ("GET", "/_matrix/client/unstable/org.matrix.msc4156/threads/subscribed"): (
+        4156,
+        "线程订阅（用户私有态）的 **unstable 兼容位**，仅为已发布客户端保留 "
+        "（handlers/thread.rs:191-196 自述：它不是 MSC4156 表面）；主路径为 "
+        "`/_matrix/client/v1/threads/subscribed`",
+    ),
 }
 
 # 混合模块（既有标准端点也有私有端点）里已人工识别出的私有端点。
@@ -132,6 +152,17 @@ MIXED_MODULE_FILES = (
 # 冻结清单文件名（与 `standard_prefix_ledger.txt` 同目录）。
 MIXED_MODULE_CLIENT_ROUTES_FILE = "mixed_module_client_routes.txt"
 
+# 冻结清单里标 `private` 的**条数上限**（只减不增；与 `LEDGER_CEILING` 同型）。
+#
+# 口径：`mixed_module_client_routes.txt` 中第 3 列为 `private` 的行数。
+# 2026-10-08 首测 = **55**（`room.rs` 54 + `handlers/thread.rs` 1）。
+# 2026-10-08 M1：删 `POST /_matrix/client/v1/rooms/create_private`（与 v3 同 handler 的
+# 版本孪生，SDK 只打 v3）⇒ 55 → **54**、清单 105 → 104 条。
+#
+# ⚠️ 只有真的把它们删掉或迁到 `/_matrix/vendor/v1` 才允许下调；判据 D 已经从
+# "集合"维度把住增删，这个数字是**数值**维度的第二道护栏（集合判据被误改时仍能兜住）。
+MIXED_MODULE_PRIVATE_COUNT = 54
+
 
 def normalize(path: str) -> str:
     """剥掉命名空间前缀，便于把 client 路由与 vendor 孪生配对。
@@ -143,6 +174,31 @@ def normalize(path: str) -> str:
         if path.startswith(prefix):
             return path[len(prefix) :]
     return path
+
+
+def relative_under_client(path: str) -> str | None:
+    """把 **client 侧**路径归一成"相对路径"，用于与 vendor 孪生配对（G-01 扩展）。
+
+    与 `normalize()` 的区别：本函数额外处理 `unstable` 前缀，且对非 client 侧返回 `None`
+    （`normalize()` 对任何输入都返回一个字符串，配对时会把 vendor 路径也算进来）。
+
+    - `/_matrix/client/v3/rooms/x`          → `/rooms/x`
+    - `/_matrix/client/unstable/uk.half-shot.msc2666/user/mutual_rooms`
+                                            → `/user/mutual_rooms`（第 4 段是版本/归属位，剥掉）
+    - `/_matrix/vendor/v1/x`                → `None`
+
+    ⚠️ 这是 2026-10-08 补上的盲区：原判据只比 `CLIENT_PREFIX_BASES`（v1/v3/r0），
+    于是 `unstable/uk.half-shot.msc2666/user/mutual_rooms` 与 vendor 的
+    `/user/mutual_rooms` **挂同一 handler** 却长期未被发现。
+    """
+    for base in CLIENT_PREFIX_BASES:
+        if path.startswith(base + "/"):
+            return path[len(base) :]
+    if path.startswith(UNSTABLE_PREFIX + "/"):
+        rest = path[len(UNSTABLE_PREFIX) + 1 :]
+        _, sep, tail = rest.partition("/")
+        return "/" + tail if sep else None
+    return None
 
 
 def classify(method: str, path: str, vendor_twins: set):
