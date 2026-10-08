@@ -55,9 +55,8 @@ pub(crate) async fn authorize_admin_from_services(
         return Err(ApiError::forbidden("Admin access has been revoked".to_string()));
     }
 
-    let normalized_path = normalize_admin_path(path);
     let role = normalize_admin_role(user.user_type.as_deref());
-    let allowed = is_role_allowed(&role, method, &normalized_path);
+    let allowed = is_role_allowed(&role, method, path);
 
     let rbac_enabled = security.admin_rbac_enabled;
     let rbac_allowed = !rbac_enabled || allowed;
@@ -69,7 +68,7 @@ pub(crate) async fn authorize_admin_from_services(
         request_id = %request_id,
         role = %role,
         method = %method,
-        path = %normalized_path,
+        path = %path,
         allowed = %allowed,
         rbac_enabled = %rbac_enabled,
         rbac_allowed = %rbac_allowed,
@@ -81,7 +80,7 @@ pub(crate) async fn authorize_admin_from_services(
             actor_id: user_id.clone(),
             action: format!("admin.{}", method.as_str().to_lowercase()),
             resource_type: "admin_api".to_string(),
-            resource_id: normalized_path.clone(),
+            resource_id: path.to_string(),
             result: if rbac_allowed { "success".to_string() } else { "denied".to_string() },
             request_id,
             details: Some(json!({
@@ -99,7 +98,7 @@ pub(crate) async fn authorize_admin_from_services(
         return Err(ApiError::forbidden(format!("Admin role '{role}' is not allowed to access this resource")));
     }
 
-    if should_require_admin_mfa(security, method, &normalized_path) {
+    if should_require_admin_mfa(security, method, path) {
         let mfa_code = headers
             .get("x-admin-mfa-code")
             .and_then(|value| value.to_str().ok())
@@ -111,18 +110,6 @@ pub(crate) async fn authorize_admin_from_services(
     }
 
     Ok(AuthorizedAdmin { user_id, device_id, access_token, role })
-}
-
-fn normalize_admin_path(path: &str) -> String {
-    if path == "/admin/services" || path.starts_with("/admin/services/") {
-        return path.replacen("/admin/services", "/_synapse/admin/v1/cas/services", 1);
-    }
-
-    if path.starts_with("/admin/users/") && path.ends_with("/attributes") {
-        return path.replacen("/admin/users/", "/_synapse/admin/v1/cas/users/", 1);
-    }
-
-    path.to_string()
 }
 
 /// Variant that works with individual service references instead of &AppState.

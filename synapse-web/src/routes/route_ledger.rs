@@ -119,39 +119,6 @@ impl RouteEntry {
     }
 }
 
-/// Expand a set of `(Method, relative_path)` tuples across a list of nest
-/// prefixes, producing owned [`RouteEntry`] values.
-///
-/// This is a convenience for the common pattern of nesting the same inner
-/// router under `/_matrix/client/v1`, `/_matrix/client/v3`, and
-/// `/_matrix/client/v3` — writing out all three copies by hand is noisy and
-/// error-prone.
-///
-/// `paths` entries must start with `/`; `prefixes` entries must NOT end with
-/// `/`. The implementation concatenates them verbatim and leaks the result
-/// so that [`RouteEntry::path`] can remain `&'static str`. This leak is
-/// strictly bounded — it happens once per manifest entry at startup, and the
-/// manifest is fixed-size — so it's equivalent to a static allocation.
-pub fn expand_under_prefixes(
-    registered_by: &'static str,
-    prefixes: &[&str],
-    paths: &[(Method, &str)],
-) -> Vec<RouteEntry> {
-    let mut out = Vec::with_capacity(prefixes.len() * paths.len());
-    for prefix in prefixes {
-        debug_assert!(
-            !prefix.ends_with('/'),
-            "prefix {prefix:?} must not end with '/' — expand_under_prefixes will add it"
-        );
-        for (method, relative) in paths {
-            debug_assert!(relative.starts_with('/'), "relative path {relative:?} must start with '/'");
-            let full: &'static str = Box::leak(format!("{prefix}{relative}").into_boxed_str());
-            out.push(RouteEntry::new(method.clone(), full, registered_by));
-        }
-    }
-    out
-}
-
 /// Collection of [`RouteEntry`] values assembled from every router manifest.
 #[derive(Debug, Default, Clone)]
 pub struct RouteLedger {
@@ -324,15 +291,6 @@ mod tests {
         assert!(rendered.contains("mod_a"));
         assert!(rendered.contains("mod_b"));
         assert!(rendered.contains("/clash"));
-    }
-
-    #[test]
-    fn expand_under_prefixes_produces_full_paths() {
-        let entries =
-            expand_under_prefixes("demo", &["/api/v1", "/api/v3"], &[(Method::GET, "/foo"), (Method::PUT, "/foo")]);
-        let paths: Vec<_> = entries.iter().map(|e| e.path).collect();
-        assert_eq!(paths, vec!["/api/v1/foo", "/api/v1/foo", "/api/v3/foo", "/api/v3/foo"]);
-        assert!(entries.iter().all(|e| e.registered_by == "demo"));
     }
 
     #[test]

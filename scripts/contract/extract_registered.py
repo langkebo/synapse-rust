@@ -14,15 +14,21 @@ enough — this module resolves, in one pass:
 * **Multi-line registrations.** `.route(\n  "/path",\n  get(h).put(h2),\n)` is
   the dominant formatting style in this repo.
 
-Outputs (both under `artifacts/`, which is git-ignored):
+Outputs (under `artifacts/`, which is git-ignored):
 
 * `registered_routes.json` — the router-derived surface, attributed to the file
   that owns the path **literal**. Consumed by `gen_contract_doc.py`.
-* `manifest_routes.json` — the surface declared by the `*_route_manifest()`
-  functions. Used as an **independent oracle**: the manifests are written in
-  absolute-path form via `expand_under_prefixes`, so they do not depend on this
-  script's nest resolution at all. Comparing the two is a real cross-check of
-  the resolver, not a self-proving assertion.
+
+The independent cross-check for this resolver is **not** computed here. The
+committed fixtures under `tests/unit/fixtures/ledger_export{,_sdk}/` are produced
+by the **Rust binary** (the runtime manifest — see `tests/unit/ledger_export_tests.rs`),
+so agreeing with them is a two-implementation check, not a self-proving one.
+
+The former `manifest_routes.json` oracle was **retired**: it evaluated the
+hand-written `*_route_manifest()` functions, but those either moved into
+`#[cfg(test)]` modules (excised by `strip_test_mods`) or were replaced by the
+generated `derived_route_manifest`. It therefore returned 0 tuples, which made
+`declared ⊆ derived` trivially true — a gate that could not fail (铁律 8).
 
 Paths are resolved relative to the repo root (`SYNAPSE_RUST_ROOT`) so the script
 is portable in CI.
@@ -1563,8 +1569,8 @@ class Route(tuple):
     Every existing consumer unpacks three values, so this stays a plain
     three-element `tuple` subclass; the handler is extra metadata carried in
     `.handler` for the query-param reverse guard. It has to ride on the route
-    itself (not a `(method, path) -> handler` side table): `nest` /
-    `expand_under_prefixes` rebuild the absolute path from a *relative* one, and
+    itself (not a `(method, path) -> handler` side table): `nest` rebuilds the
+    absolute path from a *relative* one, and
     two routers can register the same relative path with different handlers, so
     a path-keyed map conflates them. A tuple subclass keeps every existing
     unpack site working unchanged.
@@ -1678,7 +1684,7 @@ class Resolver:
         # `(method, path) -> {(owner_file, handler_fn_name)}`: the handler
         # expression each `.route(p, get(h))` names. Like `registrars` this is
         # recorded at creation on the *relative* path and propagated across
-        # `nest` / `expand_under_prefixes` by `_inherit_registrars`. It is the
+        # `nest` by `_inherit_registrars`. It is the
         # input to the query-param reverse guard (see `handler_query_fields`).
         self.handlers: dict[tuple[str, str], set] = defaultdict(set)
         self._current_fn = ""
@@ -1751,33 +1757,6 @@ class Resolver:
             return defs[0][1]
         return None
 
-    def prefix_list(self, text: str, env: dict, owner: str) -> list[str]:
-        """Resolve an expression to a list of path prefixes."""
-        t = text.strip()
-        while t.startswith("&"):
-            t = t[1:].strip()
-        t = t.rstrip(",").strip()
-        if not t:
-            return []
-        if t.startswith("[") or t.startswith("vec!["):
-            inner = t[t.index("[") + 1 : match_delim(t, t.index("["))]
-            return [s for s in _RE_STR.findall(inner)]
-        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_:]*", t):
-            name = t.split("::")[-1]
-            if name in env and env[name][0] == "prefixes":
-                return list(env[name][1])
-            val = self.lookup_const(name, owner)
-            if val is not None:
-                vv = val.strip()
-                if vv.startswith("[") or vv.startswith("&["):
-                    inner = vv[vv.index("[") + 1 : match_delim(vv, vv.index("["))]
-                    return [s for s in _RE_STR.findall(inner)]
-                m = _RE_STR.search(vv)
-                if m:
-                    return [m.group(1)]
-            self.unresolved.add(f"prefix {t}")
-        return []
-
     def const_str(self, text: str, env: dict, owner: str) -> str | None:
         t = text.strip().lstrip("&").strip().rstrip(",").strip()
         m = re.fullmatch(r'"([^"]*)"', t)
@@ -1809,13 +1788,6 @@ class Resolver:
         if t.startswith("vec![") or t.startswith("["):
             return ("routes", self._tuples(t, owner))
 
-        # declarative manifest helper
-        if re.match(
-            r"^(?:crate::web::routes::route_ledger::|route_ledger::)?expand_under_prefixes\s*\(",
-            t,
-        ):
-            return ("routes", self._expand_under_prefixes(t, env, owner))
-
         # bare identifier: local binding or const
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", t):
             if t in env:
@@ -1840,26 +1812,6 @@ class Resolver:
             Route(m.group(1).upper(), m.group(2), owner) for m in _RE_TUPLE.finditer(t)
         ]
         self._record_guards(out)
-        return out
-
-    def _expand_under_prefixes(self, t: str, env: dict, owner: str) -> list:
-        i = t.index("(")
-        close = match_delim(t, i)
-        if close == -1:
-            return []
-        args = split_top_level(t[i + 1 : close])
-        if len(args) < 3:
-            return []
-        prefixes = self.prefix_list(args[1], env, owner)
-        sub = self.eval_value(args[2], env, owner)
-        routes = sub[1] if sub[0] == "routes" else []
-        out = []
-        for pfx in prefixes:
-            for r in routes:
-                meth, path, own = r
-                out.append(Route(meth, pfx + path, own, getattr(r, "handler", None)))
-        self._record_guards(out, tag_registrar=False)
-        self._inherit_registrars(out, routes)
         return out
 
     def eval_atom(self, base: str, env: dict, owner: str) -> list:
@@ -1960,7 +1912,7 @@ class Resolver:
             #
             # It must not also feed the function result: manifests keep
             # intermediate relative-route lists (`v3_relative.extend(..)`) that
-            # are only meaningful after `expand_under_prefixes` has prefixed
+            # are only meaningful after the mounting `nest` has prefixed
             # them. Leaking them into the result would emit unprefixed paths.
             # The result comes from the tail expression (`entries` / `out`).
             m = re.match(r"([A-Za-z_][A-Za-z0-9_]*)\.(push|extend)\s*\(", s)
@@ -2087,7 +2039,7 @@ class Resolver:
     def _inherit_registrars(self, added, subs) -> None:
         """Carry the registrar and the `cfg` scope across a prefix transform.
 
-        `nest` / `expand_under_prefixes` build a *new* absolute tuple from a
+        `nest` builds a *new* absolute tuple from a
         relative one, so the new tuple has never been through `_record_guards`
         as itself. The registering function is still the one that created the
         relative route — the prefix is applied by whoever mounted it, and that
@@ -2527,19 +2479,6 @@ class Resolver:
 
         return [self.fn_all[i] for i in sorted(cand - callees)]
 
-    # -- manifest oracle ---------------------------------------------------
-
-    def manifest_routes(self) -> list:
-        """Evaluate every `*_route_manifest*` / `*_manifest*` function."""
-        out: list = []
-        for _file, name, body in self.fn_all:
-            if "manifest" not in name:
-                continue
-            out.extend(
-                self.eval_fn_body(name, body, _file, memo_key=(_file, name, body))
-            )
-        return out
-
 
 # --------------------------------------------------------------------------
 # Driver
@@ -2743,17 +2682,6 @@ def main() -> int:
     with open(os.path.join(ROOT, "artifacts", "registered_routes.json"), "w") as f:
         json.dump(reg, f, indent=1, ensure_ascii=False)
 
-    # -- independent oracle: the declarative manifests --------------------
-    man = res.manifest_routes()
-    man_set = sorted({(m, p) for (m, p, _o) in man if m and p})
-    with open(os.path.join(ROOT, "artifacts", "manifest_routes.json"), "w") as f:
-        json.dump(
-            {"routes": man_set, "total_routes": len(man_set)},
-            f,
-            indent=1,
-            ensure_ascii=False,
-        )
-
     router_set = {(m, p) for v in out.values() for m, p in v}
     # `(method, path) -> module`, so the S-14 diagnostic names the owning file
     # rather than just the tuple. First-wins is fine: a path derived under two
@@ -2767,22 +2695,7 @@ def main() -> int:
     print(f"router roots evaluated:      {len(list(res.roots()))}")
     print(f"modules with routes:         {len(out)}")
     print(f"router-derived tuples:       {reg['total_routes']}")
-    print(f"manifest-declared tuples:    {len(man_set)}")
     print(f"wrote {os.path.join(ROOT, 'artifacts', 'registered_routes.json')}")
-
-    only_manifest = sorted(set(man_set) - router_set)
-    only_router = sorted(router_set - set(man_set))
-    print(f"\n-- reconciliation (router-derived vs manifest-declared) --")
-    print(f"declared but not derived:    {len(only_manifest)}")
-    print(f"derived but not declared:    {len(only_router)}")
-    if only_manifest[:25]:
-        print("  declared-not-derived sample:")
-        for m, p in only_manifest[:25]:
-            print(f"    {m:6} {p}")
-    if only_router[:25]:
-        print("  derived-not-declared sample:")
-        for m, p in only_router[:25]:
-            print(f"    {m:6} {p}")
 
     if res.unresolved:
         print(f"\n!! unresolved ({len(res.unresolved)}):")
@@ -3001,29 +2914,22 @@ def main() -> int:
             for m, p in sorted(got - want)[:8]:
                 print(f"        gate admits a foreign route: {m:6} {p}")
 
-    # Strict gate. All four properties must hold exactly; there is deliberately
-    # no allowlist for the first three, because each one is a statement that the
-    # contract is telling the truth and "mostly true" is the failure mode this
-    # whole gate exists to catch. The fourth is a ratchet over known-benign
-    # non-resolutions.
+    # Strict gate. Every property below must hold exactly; there is deliberately
+    # no allowlist for the exactness properties, because each one is a statement
+    # that the contract is telling the truth — and "mostly true" is the failure
+    # mode this whole gate exists to catch. Only the unresolved-construct ratchet
+    # is allowlisted, and it too must be able to shrink.
     #
-    # The third property is S-14: without it, a route can be served, work
+    # S-14 is the omission direction: without it, a route can be served, work
     # perfectly, and be invisible to every downstream consumer (SDK codegen,
-    # ROUTE_CONTRACT.md, the ledger snapshots) forever. `derived - ledger` used
-    # to be printed here and then ignored on the grounds that manifests are
-    # hand-written and incomplete — which is exactly the condition being fixed,
-    # not a reason to tolerate it.
+    # ROUTE_CONTRACT.md, the ledger snapshots) forever.
     strict_failures = []
-    if only_manifest:
-        strict_failures.append(
-            f"{len(only_manifest)} manifest-declared routes were not derived"
-        )
     if missed:
         strict_failures.append(f"{len(missed)} ledger routes were not derived")
     if undeclared:
         strict_failures.append(
             f"{len(undeclared)} real routes are absent from both ledger lanes (S-14): "
-            "add them to the owning *_route_manifest(), or stop serving them"
+            "declare them in a committed ledger_export fixture lane, or stop serving them"
         )
     if profile_mismatches:
         strict_failures.append(

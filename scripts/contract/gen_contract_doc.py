@@ -295,16 +295,14 @@ lines.append("")
 lines.append(
     "> **路径为何是绝对的**：本清单由 `extract_registered.py` 从真实 router 构造解析得到，"
 )
-lines.append(
-    '> 已递归应用 `.nest("/prefix", ..)` 与 `expand_under_prefixes(..)` 的前缀。'
-)
+lines.append('> 已递归应用 `.nest("/prefix", ..)` 的前缀。')
 lines.append(
     "> 因此每一条都是客户端可直接拼接的 serve 路径，而不是子 router 内的相对字面量。"
 )
 lines.append("")
 lines.append("## 生成期自校验（不是自证）")
 lines.append("")
-lines.append("提取器在生成时对两份**独立**的事实来源做对账，任一项不达标即报错：")
+lines.append("提取器在生成时对两份事实来源做对账，任一项不达标即报错：")
 lines.append("")
 lines.append("| 对照源 | 含义 | 结果 |")
 lines.append("|---|---|---|")
@@ -319,9 +317,7 @@ lines.append("第二条尤其关键：它保证本清单**不会漏掉任何一�
 lines.append(
     "反向差额（本清单多于 ledger）来自源码扫描会看到、而默认 feature 构建不注册的路由"
 )
-lines.append(
-    "（SAML / CAS / Voice / ExternalServices 等 gated 模块）以及 manifest 的漏声明。"
-)
+lines.append("（SAML / CAS / Voice / ExternalServices 等 gated 模块）。")
 lines.append("")
 lines.append("## 运行时 Profile 门控（默认构建不注册的路由）")
 lines.append("")

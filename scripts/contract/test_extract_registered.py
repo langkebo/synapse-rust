@@ -272,17 +272,22 @@ def check_test_module_excision(per: dict) -> None:
     )
 
 
-def check_oracles(res: "ex.Resolver", per: dict) -> None:
-    """The two independent oracles must both report zero missing routes."""
-    router_set = {t for rs in per.values() for t in rs}
+def check_oracles(per: dict) -> None:
+    """The independent oracle must report zero missing routes.
 
-    man = {(m, p) for (m, p, _o) in res.manifest_routes() if m and p}
-    only_manifest = sorted(man - router_set)
-    check(
-        "every manifest-declared route is derived (manifest oracle)",
-        not only_manifest,
-        f"{len(only_manifest)} missing, e.g. {only_manifest[:3]}",
-    )
+    为什么只剩一条 oracle：原先还有一条 `manifest_routes()` 侧的
+    `declared ⊆ derived` 断言，但手写 `*_route_manifest()` 已全部迁入
+    `#[cfg(test)]` 模块（被 `strip_test_mods` 切除）或被生成的
+    `derived_route_manifest` 取代 ⇒ 那个集合恒为空、断言恒真。
+    一条恒真的断言比没有断言更坏（铁律 8）：它把"零覆盖"报告成"通过"。
+    该机制已连同提取器侧的 `manifest_routes()` 与 `artifacts/manifest_routes.json`
+    一并删除。
+
+    留下的这条是**真的两实现交叉验证**：fixture 由 **Rust 二进制**产出
+    （`tests/unit/ledger_export_tests.rs` 里 `--output=…` 的导出），
+    不是本解析器的输出 —— 因此一致才是证据。
+    """
+    router_set = {t for rs in per.values() for t in rs}
 
     ledger = ledger_fixture_tuples()
     if ledger:
@@ -470,9 +475,9 @@ def check_lane_profile_modeling() -> None:
     Before this the loader collapsed both axes into one union, which is blind to
     the two interesting failures: a route promised in a *lane* that cannot
     compile it, and a route promised in a *profile* whose router is never merged.
-    The fixtures on the other side come from the hand-written
-    `*_route_manifest()` functions, so agreement is a two-implementation
-    cross-check rather than a self-proving assertion.
+    The fixtures on the other side are exported by the **Rust binary**
+    (`tests/unit/ledger_export_tests.rs`), not by this parser, so agreement is a
+    two-implementation cross-check rather than a self-proving assertion.
     """
     lanes = ex.load_lanes()
     check(
@@ -766,6 +771,81 @@ def check_ledger_origins() -> None:
         ex.resolve_label("/whatever", {("room.rs", "create_room_router")}, origins)
         == "room",
     )
+
+
+# ---------------------------------------------------------------------------
+# 集成快照新鲜度：后端删/改路由后，两份 route-ledger 快照必须同步
+# ---------------------------------------------------------------------------
+
+
+SNAPSHOT_DIR = os.path.join(ROOT, "tests", "integration", "snapshots")
+ROUTE_LEDGER_SNAPSHOTS = (
+    "route_ledger_default.snapshot",
+    "route_ledger_worker_enabled.snapshot",
+)
+_SNAPSHOT_ENTRY_RE = re.compile(r"^([A-Z]+) (\S+) \[.+\]$")
+
+
+def read_route_ledger_snapshot(name: str):
+    """读一份 route-ledger 快照，返回 `(header_count, [(method, path), ...])`。
+
+    文件不存在返回 `None`，由调用方判红：快照被改名或被删都不该表现成"通过"
+    （铁律 8 —— 报"通过"的门禁未必在工作）。
+    """
+    path = os.path.join(SNAPSHOT_DIR, name)
+    if not os.path.exists(path):
+        return None
+    header = None
+    entries: list[tuple[str, str]] = []
+    with open(path, encoding="utf-8") as fh:
+        for raw in fh:
+            line = raw.rstrip("\n")
+            if line.startswith("count:"):
+                header = int(line.split(":", 1)[1].strip())
+                continue
+            m = _SNAPSHOT_ENTRY_RE.match(line)
+            if m:
+                entries.append((m.group(1), m.group(2)))
+    return header, entries
+
+
+def check_route_ledger_snapshots(per: dict) -> None:
+    """集成快照不得含「当前已不存在的路由」。
+
+    为什么单列一条守卫：C6 反冗余的**四个批次全部**删了路由，却只重生成
+    `ledger_export_sdk/*` 与 `ROUTE_CONTRACT.md` —— 两份集成快照被漏刷。
+    `tests/integration/api_route_ledger_tests.rs` 是 `assert_eq!` 全文比对，
+    因此集成车道自 `7779685e8`（C6 第一批）起连续四批都是红的，而
+    `check_route_contract.sh`（本文件所属的门禁）**看不见**它们。
+    这是本仓最高频的既有红形态：「一个提交只重生成一半派生产物」。
+
+    判据只取**单向**：快照 ⊆ 当前注册面。反方向（注册面 ⊆ 快照）与 profile
+    有关（default / worker-enabled 各自裁剪），不能在这里断言。
+    """
+    live = {(m, p) for routes in per.values() for m, p in routes}
+    for name in ROUTE_LEDGER_SNAPSHOTS:
+        got = read_route_ledger_snapshot(name)
+        if got is None:
+            check(
+                f"{name} exists",
+                False,
+                f"{os.path.join(SNAPSHOT_DIR, name)} 不存在",
+            )
+            continue
+        header, entries = got
+        stale = sorted({e for e in entries if e not in live})
+        check(
+            f"{name} carries no route absent from the live surface",
+            not stale,
+            f"{len(stale)} stale, e.g. {stale[:5]} — 重生成："
+            f"UPDATE_ROUTE_LEDGER_SNAPSHOTS=1 cargo nextest run --test integration "
+            f"declared_route_manifest_full_snapshot",
+        )
+        check(
+            f"{name} header count matches its entries",
+            header == len(entries),
+            f"count: {header} vs {len(entries)} entries",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1159,6 +1239,48 @@ def mutation_check() -> int:
         spp.LEDGER_CEILING = orig_ceiling
         FAILURES[:] = failures_snapshot
 
+    # Mutation 8 — 集成快照守卫必须真的会咬人。
+    #
+    # 注入一条「当前不存在的路由」，等价于一份漏刷的快照（C6 四批全部漏刷，
+    # 见 `check_route_ledger_snapshots` 的 docstring）；判据必须红。
+    # 同样前后快照并恢复 FAILURES —— 变异"成功地变红"不应把整个套件判失败。
+    orig_reader = read_route_ledger_snapshot
+    snap_failures_snapshot = list(FAILURES)
+    try:
+        real = orig_reader(ROUTE_LEDGER_SNAPSHOTS[0])
+        if real is None:
+            print(
+                "  FAIL mutation#8 cannot self-prove: "
+                f"{ROUTE_LEDGER_SNAPSHOTS[0]} is missing"
+            )
+            bad += 1
+        else:
+            header, entries = real
+
+            def stale_reader(_name: str):
+                return header + 1, entries + [
+                    ("GET", "/__stale_route_injected_by_mutation__")
+                ]
+
+            globals()["read_route_ledger_snapshot"] = stale_reader
+            before = len(FAILURES)
+            check_route_ledger_snapshots(per_all)
+            got = len(FAILURES) - before
+            if got >= 1:
+                print(
+                    f"  ok   mutation#8 (stale snapshot entry) turns the snapshot "
+                    f"guard RED ({got} check(s) failed)"
+                )
+            else:
+                print(
+                    "  FAIL mutation#8 did NOT turn the snapshot guard red — "
+                    "the integration snapshots are self-proving"
+                )
+                bad += 1
+    finally:
+        globals()["read_route_ledger_snapshot"] = orig_reader
+        FAILURES[:] = snap_failures_snapshot
+
     return bad
 
 
@@ -1175,7 +1297,7 @@ def main() -> int:
     print("== test-module excision ==")
     check_test_module_excision(per)
     print("== independent oracles ==")
-    check_oracles(res, per)
+    check_oracles(per)
     print("== positive contract (S-14) ==")
     check_positive_contract(per)
     print("== non-namespace surface ==")
@@ -1190,6 +1312,8 @@ def main() -> int:
     check_ledger_origins()
     print("== emitted cfg gates (B2-1 step 2b) ==")
     check_emitted_gates()
+    print("== integration route-ledger snapshots ==")
+    check_route_ledger_snapshots(per)
 
     bad = 0
     if mutation:
