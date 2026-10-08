@@ -321,12 +321,57 @@ mod tests {
     }
 
     /// The derived table must carry the widget routes when `widgets` is on.
+    ///
+    /// ISSUE-13 第二批：widget 非 Matrix 规范端点，私有面唯一规范位置是 `/_matrix/vendor/v1`
+    /// （`docs/前缀命名空间治理方案-2026-10-08.md` §10）。这条同时是回归守卫：
+    /// 谁把 widget 挂回 client 前缀，这里立刻红。
     #[cfg(feature = "widgets")]
     #[test]
     fn widget_manifest_declares_core_routes() {
         let entries = all_routes();
-        assert!(contains(&entries, &Method::POST, "/_matrix/client/v1/widgets"));
-        assert!(contains(&entries, &Method::GET, "/_matrix/client/v1/widgets/{widget_id}/config"));
+        assert!(contains(&entries, &Method::POST, "/_matrix/vendor/v1/widgets"));
+        assert!(contains(&entries, &Method::GET, "/_matrix/vendor/v1/widgets/{widget_id}/config"));
+        assert!(contains(
+            &entries,
+            &Method::PUT,
+            "/_matrix/vendor/v1/rooms/{room_id}/widgets/{widget_id}/capabilities"
+        ));
+    }
+
+    /// The derived table must carry the space routes, split by ISSUE-13 第二批:
+    /// MSC2946 `hierarchy` stays on the client prefix, everything else is vendor-only.
+    #[test]
+    fn space_manifest_splits_spec_from_private() {
+        let entries = all_routes();
+        // MSC2946（规范）——留在 client v1 + v3。
+        assert!(contains(&entries, &Method::GET, "/_matrix/client/v1/spaces/{space_id}/hierarchy"));
+        assert!(contains(&entries, &Method::GET, "/_matrix/client/v3/spaces/{space_id}/hierarchy"));
+        // 私有面——唯一规范位置 vendor。
+        assert!(contains(&entries, &Method::POST, "/_matrix/vendor/v1/spaces"));
+        assert!(contains(&entries, &Method::GET, "/_matrix/vendor/v1/spaces/{space_id}/members"));
+        assert!(contains(&entries, &Method::GET, "/_matrix/vendor/v1/spaces/{space_id}/children"));
+        // 私有面**不得**再有 client 前缀孪生。
+        let client_private = entries
+            .iter()
+            .filter(|e| e.path.starts_with("/_matrix/client/"))
+            .filter(|e| e.path.contains("/spaces/"))
+            .filter(|e| !e.path.contains("/hierarchy"))
+            .count();
+        assert_eq!(client_private, 0, "私有空间面仍挂在 client 前缀下");
+    }
+
+    /// The derived table must carry the private room-summary routes under vendor while
+    /// MSC3266's `GET summary` stays on `/_matrix/client/v1`.
+    #[test]
+    fn room_summary_manifest_splits_spec_from_private() {
+        let entries = all_routes();
+        assert!(contains(&entries, &Method::GET, "/_matrix/client/v1/rooms/{room_id}/summary"));
+        assert!(contains(&entries, &Method::GET, "/_matrix/vendor/v1/rooms/{room_id}/summary"));
+        assert!(contains(&entries, &Method::PUT, "/_matrix/vendor/v1/rooms/{room_id}/summary"));
+        assert!(contains(&entries, &Method::GET, "/_matrix/vendor/v1/rooms/{room_id}/summary/members"));
+        let client_v3_summary =
+            entries.iter().filter(|e| e.path.starts_with("/_matrix/client/v3/rooms/{room_id}/summary")).count();
+        assert_eq!(client_v3_summary, 0, "私有 room summary 仍挂在 client v3 前缀下");
     }
 
     /// The derived table must carry the burn-after-read routes when the feature is on.

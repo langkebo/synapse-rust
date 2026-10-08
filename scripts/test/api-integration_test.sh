@@ -1540,17 +1540,17 @@ echo "=========================================="
 echo "47. Room Summary"
 echo "=========================================="
 echo "47. Room Summary"
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/summary" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/rooms/$ROOM_ID/summary" "$TOKEN"
 check_success_json "$HTTP_BODY" "$HTTP_STATUS" "room_id" && pass "Room Summary" || fail "Room Summary"
 
 echo ""
 echo "48. Room Summary Stats"
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/summary/stats" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/rooms/$ROOM_ID/summary/stats" "$TOKEN"
 check_success_json "$HTTP_BODY" "$HTTP_STATUS" "total_events" "room_id" && pass "Room Summary Stats" || fail "Room Summary Stats"
 
 echo ""
 echo "49. Room Summary Members"
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/summary/members" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/rooms/$ROOM_ID/summary/members" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Room Summary Members"
 else
@@ -1559,7 +1559,7 @@ fi
 
 echo ""
 echo "50. Room Summary State"
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/summary/state" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/rooms/$ROOM_ID/summary/state" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Room Summary State"
 else
@@ -1689,23 +1689,23 @@ fi
 
 SPACE_ENC=$(echo "$SPACE_ID" | sed 's/!/%21/g' | sed 's/:/%3A/g')
 if [ -n "$SPACE_ID" ] && [ -n "$ROOM_ID" ]; then
-    http_json POST "$SERVER_URL/_matrix/client/v3/spaces/$SPACE_ENC/children" "$TOKEN" "{\"room_id\": \"$ROOM_ID\", \"via_servers\": [\"localhost\"], \"suggested\": true}"
+    http_json POST "$SERVER_URL/_matrix/vendor/v1/spaces/$SPACE_ENC/children" "$TOKEN" "{\"room_id\": \"$ROOM_ID\", \"via_servers\": [\"localhost\"], \"suggested\": true}"
 fi
 
 echo ""
 echo "66. Get Public Spaces"
-http_json GET "$SERVER_URL/_matrix/client/v3/spaces/public" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/spaces/public" "$TOKEN"
 assert_success_array "Public Spaces" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "67. Get User Spaces"
-http_json GET "$SERVER_URL/_matrix/client/v3/spaces/user" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/spaces/user" "$TOKEN"
 assert_success_array "User Spaces" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "68. Get Space Members"
 if [ -n "$SPACE_ID" ]; then
-    http_json GET "$SERVER_URL/_matrix/client/v3/spaces/$SPACE_ENC/members" "$TOKEN"
+    http_json GET "$SERVER_URL/_matrix/vendor/v1/spaces/$SPACE_ENC/members" "$TOKEN"
     assert_success_array "Space Members" "$HTTP_BODY" "$HTTP_STATUS"
 else
     skip "Space Members" "space not created"
@@ -1714,7 +1714,7 @@ fi
 echo ""
 echo "69. Get Space State"
 if [ -n "$SPACE_ID" ]; then
-    http_json GET "$SERVER_URL/_matrix/client/v3/spaces/$SPACE_ENC/state" "$TOKEN"
+    http_json GET "$SERVER_URL/_matrix/vendor/v1/spaces/$SPACE_ENC/state" "$TOKEN"
     if [ "$HTTP_STATUS" = "404" ]; then
         skip "Space State" "space not found"
     elif check_success_json "$HTTP_BODY" "$HTTP_STATUS"; then
@@ -1729,7 +1729,7 @@ fi
 echo ""
 echo "70. Get Space Children"
 if [ -n "$SPACE_ID" ]; then
-    http_json GET "$SERVER_URL/_matrix/client/v3/spaces/$SPACE_ENC/children" "$TOKEN"
+    http_json GET "$SERVER_URL/_matrix/vendor/v1/spaces/$SPACE_ENC/children" "$TOKEN"
     assert_success_array "Space Children" "$HTTP_BODY" "$HTTP_STATUS"
 else
     skip "Space Children" "space not created"
@@ -1846,12 +1846,12 @@ echo "=========================================="
 echo "84. Room Summary APIs"
 echo "=========================================="
 echo "84. Room Summary"
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/summary" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/rooms/$ROOM_ID/summary" "$TOKEN"
 check_success_json "$HTTP_BODY" "$HTTP_STATUS" "room_id" && pass "Room Summary" || fail "Room Summary"
 
 echo ""
 echo "85. Room Summary Members"
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/summary/members" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/rooms/$ROOM_ID/summary/members" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Room Summary Members"
 else
@@ -1860,7 +1860,7 @@ fi
 
 echo ""
 echo "86. Room Summary State"
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/summary/state" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/rooms/$ROOM_ID/summary/state" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Room Summary State"
 else
@@ -1869,7 +1869,7 @@ fi
 
 echo ""
 echo "87. Room Summary Stats"
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/summary/stats" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/rooms/$ROOM_ID/summary/stats" "$TOKEN"
 check_success_json "$HTTP_BODY" "$HTTP_STATUS" "total_events" && pass "Room Summary Stats" || fail "Room Summary Stats"
 
 # 30. Admin Room APIs
@@ -2784,24 +2784,24 @@ echo "=========================================="
 echo "201. Room Summary Extended"
 echo "=========================================="
 echo "201. Room Summary"
-http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/summary" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/rooms/$ROOM_ID/summary" "$TOKEN"
 check_success_json "$HTTP_BODY" "$HTTP_STATUS" "room_id" && pass "Room Summary" || fail "Room Summary"
 
 echo ""
 echo "202. Room Summary Heroes"
-curl -s "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/summary/heroes/recalculate" -H "Authorization: Bearer $TOKEN" && pass "Room Summary Heroes" || skip "Room Summary Heroes (endpoint not available)"
+curl -s "$SERVER_URL/_matrix/vendor/v1/rooms/$ROOM_ID/summary/heroes/recalculate" -H "Authorization: Bearer $TOKEN" && pass "Room Summary Heroes" || skip "Room Summary Heroes (endpoint not available)"
 
 echo ""
 echo "203. Room Summary Stats Recalculate"
-curl -s "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/summary/stats/recalculate" -H "Authorization: Bearer $TOKEN" && pass "Room Summary Stats Recalculate" || skip "Room Summary Stats Recalculate (endpoint not available)"
+curl -s "$SERVER_URL/_matrix/vendor/v1/rooms/$ROOM_ID/summary/stats/recalculate" -H "Authorization: Bearer $TOKEN" && pass "Room Summary Stats Recalculate" || skip "Room Summary Stats Recalculate (endpoint not available)"
 
 echo ""
 echo "204. Room Summary Sync"
-curl -s "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/summary/sync" -H "Authorization: Bearer $TOKEN" && pass "Room Summary Sync" || skip "Room Summary Sync (endpoint not available)"
+curl -s "$SERVER_URL/_matrix/vendor/v1/rooms/$ROOM_ID/summary/sync" -H "Authorization: Bearer $TOKEN" && pass "Room Summary Sync" || skip "Room Summary Sync (endpoint not available)"
 
 echo ""
 echo "205. Room Summary Unread Clear"
-curl -s -X POST "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/summary/unread/clear" -H "Authorization: Bearer $TOKEN" && pass "Room Summary Unread Clear" || skip "Room Summary Unread Clear (endpoint not available)"
+curl -s -X POST "$SERVER_URL/_matrix/vendor/v1/rooms/$ROOM_ID/summary/unread/clear" -H "Authorization: Bearer $TOKEN" && pass "Room Summary Unread Clear" || skip "Room Summary Unread Clear (endpoint not available)"
 
 # 70. Room Hierarchy
 echo ""
@@ -5358,7 +5358,7 @@ echo "=========================================="
 echo "426. Space Client Extended"
 echo "=========================================="
 echo "426. Space Public"
-http_json GET "$SERVER_URL/_matrix/client/v3/spaces/public" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/spaces/public" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Space Public"
 else
@@ -5367,7 +5367,7 @@ fi
 
 echo ""
 echo "427. Space Room Parents"
-http_json GET "$SERVER_URL/_matrix/client/v3/spaces/room/$ROOM_ID/parents" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/spaces/room/$ROOM_ID/parents" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Space Room Parents"
 else
@@ -5376,7 +5376,7 @@ fi
 
 echo ""
 echo "428. Space Search"
-http_json GET "$SERVER_URL/_matrix/client/v3/spaces/search?search_term=test" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/spaces/search?search_term=test" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Space Search"
 else
@@ -5385,15 +5385,15 @@ fi
 
 echo ""
 echo "429. Space Statistics"
-curl -s "$SERVER_URL/_matrix/client/v3/spaces/statistics" -H "Authorization: Bearer $TOKEN" && pass "Space Statistics" || skip "Space Statistics (endpoint not available)"
+curl -s "$SERVER_URL/_matrix/vendor/v1/spaces/statistics" -H "Authorization: Bearer $TOKEN" && pass "Space Statistics" || skip "Space Statistics (endpoint not available)"
 
 echo ""
 echo "430. Space User"
-curl -s "$SERVER_URL/_matrix/client/v3/spaces/user" -H "Authorization: Bearer $TOKEN" && pass "Space User" || skip "Space User (endpoint not available)"
+curl -s "$SERVER_URL/_matrix/vendor/v1/spaces/user" -H "Authorization: Bearer $TOKEN" && pass "Space User" || skip "Space User (endpoint not available)"
 
 echo ""
 echo "431. Space Children v3"
-curl -s "$SERVER_URL/_matrix/client/v3/spaces/$SPACE_ID/children?limit=10" -H "Authorization: Bearer $TOKEN" && pass "Space Children v3" || skip "Space Children v3 (endpoint not available)"
+curl -s "$SERVER_URL/_matrix/vendor/v1/spaces/$SPACE_ID/children?limit=10" -H "Authorization: Bearer $TOKEN" && pass "Space Children v3" || skip "Space Children v3 (endpoint not available)"
 
 echo ""
 echo "432. Space Hierarchy v1"
@@ -5402,12 +5402,12 @@ assert_success_json "Space Hierarchy v1" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "433. Space Summary with Children"
-http_json GET "$SERVER_URL/_matrix/client/v3/spaces/$SPACE_ENC/summary/with_children" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/spaces/$SPACE_ENC/summary/with_children" "$TOKEN"
 assert_success_json "Space Summary with Children" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "434. Space Tree Path"
-http_json GET "$SERVER_URL/_matrix/client/v3/spaces/$SPACE_ENC/tree_path" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/spaces/$SPACE_ENC/tree_path" "$TOKEN"
 assert_success_json "Space Tree Path" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
@@ -5608,15 +5608,15 @@ echo "=========================================="
 echo "508. Space Extended"
 echo "=========================================="
 echo "508. Space Room Parents"
-curl -s "$SERVER_URL/_matrix/client/v3/spaces/room/$ROOM_ID/parents" -H "Authorization: Bearer $TOKEN" && pass "Space Room Parents" || skip "Space (endpoint not available)"
+curl -s "$SERVER_URL/_matrix/vendor/v1/spaces/room/$ROOM_ID/parents" -H "Authorization: Bearer $TOKEN" && pass "Space Room Parents" || skip "Space (endpoint not available)"
 
 echo ""
 echo "509. Space Statistics"
-curl -s "$SERVER_URL/_matrix/client/v3/spaces/statistics" -H "Authorization: Bearer $TOKEN" && pass "Space Statistics" || skip "Space (endpoint not available)"
+curl -s "$SERVER_URL/_matrix/vendor/v1/spaces/statistics" -H "Authorization: Bearer $TOKEN" && pass "Space Statistics" || skip "Space (endpoint not available)"
 
 echo ""
 echo "510. Space Search"
-curl -s -X POST "$SERVER_URL/_matrix/client/v3/spaces/search" \
+curl -s -X POST "$SERVER_URL/_matrix/vendor/v1/spaces/search" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"search_term": "test"}' && pass "Space Search" || skip "Space (endpoint not available)"
@@ -5624,7 +5624,7 @@ curl -s -X POST "$SERVER_URL/_matrix/client/v3/spaces/search" \
 echo ""
 echo "511. Space Tree Path"
 SPACE_TREE_ENC=$(echo "$SPACE_ID" | sed 's/!/%21/g' | sed 's/:/%3A/g')
-curl -s "$SERVER_URL/_matrix/client/v3/spaces/$SPACE_TREE_ENC/tree_path" -H "Authorization: Bearer $TOKEN" && pass "Space Tree Path" || skip "Space (endpoint not available)"
+curl -s "$SERVER_URL/_matrix/vendor/v1/spaces/$SPACE_TREE_ENC/tree_path" -H "Authorization: Bearer $TOKEN" && pass "Space Tree Path" || skip "Space (endpoint not available)"
 
 echo ""
 echo "512. Space Hierarchy v1"
@@ -5633,7 +5633,7 @@ assert_success_json "Space Hierarchy v1" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "513. Space Summary with Children"
-http_json GET "$SERVER_URL/_matrix/client/v3/spaces/$SPACE_TREE_ENC/summary/with_children" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/spaces/$SPACE_TREE_ENC/summary/with_children" "$TOKEN"
 assert_success_json "Space Summary with Children" "$HTTP_BODY" "$HTTP_STATUS"
 
 # 239. Federation Extended
@@ -6445,13 +6445,13 @@ echo "=========================================="
 echo "121. Other Modules Representative Tests"
 echo "=========================================="
 echo "578. Widget Config"
-http_json POST "$SERVER_URL/_matrix/client/v1/widgets" "$TOKEN" "{\"room_id\": \"$ROOM_ID\", \"widget_type\": \"m.custom\", \"url\": \"https://example.com\", \"name\": \"Test Widget\", \"data\": {\"from\": \"api-integration\"}}"
+http_json POST "$SERVER_URL/_matrix/vendor/v1/widgets" "$TOKEN" "{\"room_id\": \"$ROOM_ID\", \"widget_type\": \"m.custom\", \"url\": \"https://example.com\", \"name\": \"Test Widget\", \"data\": {\"from\": \"api-integration\"}}"
 WIDGET_CREATE_RESP="$HTTP_BODY"
 if check_success_json "$WIDGET_CREATE_RESP" "$HTTP_STATUS" "widget"; then
     pass "Create Widget"
     WIDGET_ID=$(printf '%s' "$WIDGET_CREATE_RESP" | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("widget") or {}).get("widget_id",""))' 2>/dev/null)
     if [ -n "$WIDGET_ID" ]; then
-        http_json GET "$SERVER_URL/_matrix/client/v1/widgets/$WIDGET_ID/config" "$TOKEN"
+        http_json GET "$SERVER_URL/_matrix/vendor/v1/widgets/$WIDGET_ID/config" "$TOKEN"
         WIDGET_CONFIG_RESP="$HTTP_BODY"
         check_success_json "$WIDGET_CONFIG_RESP" "$HTTP_STATUS" "widget_id" "room_id" && pass "Widget Config" || fail "Widget Config" "${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
     else
@@ -6474,7 +6474,7 @@ fi
 echo ""
 echo "580. Jitsi Config"
 ROOM_ENC=$(echo "$ROOM_ID" | sed 's/!/%21/g' | sed 's/:/%3A/g')
-http_json GET "$SERVER_URL/_matrix/client/v1/rooms/$ROOM_ENC/widgets/jitsi/config" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/rooms/$ROOM_ENC/widgets/jitsi/config" "$TOKEN"
 JITSI_CONFIG_RESP="$HTTP_BODY"
 if check_success_json "$JITSI_CONFIG_RESP" "$HTTP_STATUS"; then
     pass "Jitsi Config"

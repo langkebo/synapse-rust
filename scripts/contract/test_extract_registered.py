@@ -123,28 +123,46 @@ def check_nest_prefixes(per: dict) -> None:
     spaces = per.get("space/lifecycle_query.rs", set())
     paths = {p for _m, p in spaces}
     check(
-        "space/lifecycle_query.rs resolves under /_matrix/client/v1",
-        "/_matrix/client/v1/spaces/{space_id}" in paths,
+        "space/lifecycle_query.rs resolves under /_matrix/vendor/v1",
+        "/_matrix/vendor/v1/spaces/{space_id}" in paths,
         f"sample: {sorted(paths)[:4]}",
     )
+    # ISSUE-13 第二批：私有空间面唯一规范位置是 vendor —— client 前缀不得再出现
+    # （这条同时是回归守卫：谁把 nest 改回 client，这里立刻红）。
     check(
-        "space/lifecycle_query.rs resolves under /_matrix/client/v3",
-        "/_matrix/client/v3/spaces/{space_id}" in paths,
-        f"sample: {sorted(paths)[:4]}",
+        "space/lifecycle_query.rs is vendor-only (no client-prefix twin)",
+        not any(p.startswith("/_matrix/client/") for p in paths),
+        f"leaked: {sorted(p for p in paths if p.startswith('/_matrix/client/'))[:4]}",
     )
     check(
-        "space/lifecycle_query.rs contributes 9 routes x 2 prefixes",
-        len(spaces) == 18,
+        "space/lifecycle_query.rs contributes 9 routes under a single prefix",
+        len(spaces) == 9,
         f"got {len(spaces)}",
     )
 
-    # Cross-file nesting: space.rs nests routers defined in space/*.rs.
+    # Cross-file nesting: space.rs nests routers defined in space/*.rs. 第二批把该文件
+    # 拆成 spec（hierarchy，继承 client nest）与 private（children 等，继承 vendor nest）
+    # 两组，因此这里同时钉住"继承到了"和"继承到了哪个前缀"。
     hier = {p for _m, p in per.get("space/children_hierarchy.rs", set())}
     check(
-        "cross-file nest: children_hierarchy inherits space.rs prefixes",
-        "/_matrix/client/v1/spaces/{space_id}/children" in hier
-        and "/_matrix/client/v3/spaces/{space_id}/children" in hier,
+        "cross-file nest: MSC2946 hierarchy keeps the client prefixes",
+        "/_matrix/client/v1/spaces/{space_id}/hierarchy" in hier
+        and "/_matrix/client/v3/spaces/{space_id}/hierarchy" in hier,
         f"sample: {sorted(hier)[:4]}",
+    )
+    check(
+        "cross-file nest: children/tree_path/parents moved to the vendor prefix",
+        "/_matrix/vendor/v1/spaces/{space_id}/children" in hier
+        and "/_matrix/vendor/v1/spaces/{space_id}/tree_path" in hier
+        and "/_matrix/vendor/v1/spaces/room/{room_id}/parents" in hier
+        and not any(
+            p.startswith(("/_matrix/client/v1/spaces/", "/_matrix/client/v3/spaces/"))
+            and p.endswith(
+                ("/children", "/children/{room_id}", "/tree_path", "/parents")
+            )
+            for p in hier
+        ),
+        f"sample: {sorted(hier)[:6]}",
     )
 
     # Heterogeneous prefixes: e2ee compat -> v1+v3, v3-only -> v3 only.
@@ -182,8 +200,10 @@ def check_nest_prefixes(per: dict) -> None:
         text = open(doc, encoding="utf-8").read()
         check(
             "ROUTE_CONTRACT.md lists prefixed space routes",
-            "/_matrix/client/v1/spaces/{space_id}`" in text
-            and "/_matrix/client/v3/spaces/{space_id}`" in text,
+            # 第二批后：私有空间面在 vendor，MSC2946 hierarchy 仍在 client v1+v3。
+            "/_matrix/vendor/v1/spaces/{space_id}`" in text
+            and "/_matrix/client/v1/spaces/{space_id}/hierarchy`" in text
+            and "/_matrix/client/v3/spaces/{space_id}/hierarchy`" in text,
         )
         check(
             "ROUTE_CONTRACT.md has no bare `/spaces/` bullet",
@@ -205,8 +225,11 @@ def check_test_module_excision(per: dict) -> None:
         "the router builder was excised with the test module",
     )
     check(
-        "lifecycle_query.rs still yields its 18 routes",
-        len(per.get("space/lifecycle_query.rs", set())) == 18,
+        # 该文件的 9 条路径原先被 nest 到 v1+v3 两次（18 条）；ISSUE-13 第二批把私有面
+        # 迁到 vendor 后只有一份前缀 ⇒ 9 条。这条断言的作用是"测试模块切除后生产路由仍在"，
+        # 因此数值随前缀治理变化是预期的，不用它来钉前缀。
+        "lifecycle_query.rs still yields its 9 routes",
+        len(per.get("space/lifecycle_query.rs", set())) == 9,
     )
 
     # The excision must remove the module *body*, not merely its attribute. The
@@ -813,11 +836,10 @@ def mutation_check() -> int:
         # Without prefix propagation the sub-router's routes are never reached at
         # all (the `let router = ..` binding is not itself the return value), so
         # the faithful expectation is *disappearance*, not a leaked relative path.
-        prefixed = sorted(
-            p
-            for p in spaces
-            if p.startswith(("/_matrix/client/v1/spaces", "/_matrix/client/v3/spaces"))
-        )
+        # 判据必须与前缀无关：第二批已把私有空间面迁到 vendor，若这里仍只认 client 前缀，
+        # 那么"前缀列表为空"在**未变异**时也成立 —— 变异就不再证明任何事（第一批
+        # mutation#7 的位置代理问题同型）。故只要求"任何命名空间下都不再有空间路由"。
+        prefixed = sorted(p for p in spaces if p.startswith("/_matrix/"))
         bare_or_missing = not prefixed
         if bare_or_missing:
             print(

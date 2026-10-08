@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1082**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1059**
 - 含路由注册的模块文件：**65**
 - `derived_routes.rs` 中的 `registered_by` 标签：**73**
 - 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
@@ -69,7 +69,7 @@
 **逐模块清单里的两种标注**（都从派生表反解，不是人工维护）：
 
 - 〔仅 `X` profile〕 —— 该路由**只**在 profile `X` 下注册，默认构建里不存在（即上表成员）；
-- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1084 行去重为 1082 条的来源。
+- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1061 行去重为 1059 条的来源。
 
 当前共 **2** 条双档注册：
 
@@ -564,28 +564,27 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_matrix/vendor/v1/keys/rotation/status`
 - `PUT` `/_matrix/vendor/v1/keys/rotation/config`
 
-### 小组件 (Widget) （18 条）
+### 小组件 (Widget) （17 条）
 
-#### `widget.rs` — 18 条 ✅派生表
+#### `widget.rs` — 17 条 ✅派生表
 
-- `DELETE` `/_matrix/client/v1/widgets/sessions/{session_id}`
-- `DELETE` `/_matrix/client/v1/widgets/{widget_id}`
-- `DELETE` `/_matrix/client/v1/widgets/{widget_id}/permissions/{user_id}`
-- `GET` `/_matrix/client/v1/rooms/{room_id}/widgets`
-- `GET` `/_matrix/client/v1/rooms/{room_id}/widgets/jitsi/config`
-- `GET` `/_matrix/client/v1/widgets/sessions/{session_id}`
-- `GET` `/_matrix/client/v1/widgets/{widget_id}`
-- `GET` `/_matrix/client/v1/widgets/{widget_id}/config`
-- `GET` `/_matrix/client/v1/widgets/{widget_id}/permissions`
-- `GET` `/_matrix/client/v1/widgets/{widget_id}/sessions`
-- `GET` `/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/capabilities`
-- `POST` `/_matrix/client/v1/widgets`
-- `POST` `/_matrix/client/v1/widgets/{widget_id}/permissions`
-- `POST` `/_matrix/client/v1/widgets/{widget_id}/sessions`
-- `POST` `/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/send`
-- `POST` `/_matrix/client/v3/widgets/create`
-- `PUT` `/_matrix/client/v1/widgets/{widget_id}`
-- `PUT` `/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/capabilities`
+- `DELETE` `/_matrix/vendor/v1/widgets/sessions/{session_id}`
+- `DELETE` `/_matrix/vendor/v1/widgets/{widget_id}`
+- `DELETE` `/_matrix/vendor/v1/widgets/{widget_id}/permissions/{user_id}`
+- `GET` `/_matrix/vendor/v1/rooms/{room_id}/widgets`
+- `GET` `/_matrix/vendor/v1/rooms/{room_id}/widgets/jitsi/config`
+- `GET` `/_matrix/vendor/v1/rooms/{room_id}/widgets/{widget_id}/capabilities`
+- `GET` `/_matrix/vendor/v1/widgets/sessions/{session_id}`
+- `GET` `/_matrix/vendor/v1/widgets/{widget_id}`
+- `GET` `/_matrix/vendor/v1/widgets/{widget_id}/config`
+- `GET` `/_matrix/vendor/v1/widgets/{widget_id}/permissions`
+- `GET` `/_matrix/vendor/v1/widgets/{widget_id}/sessions`
+- `POST` `/_matrix/vendor/v1/rooms/{room_id}/widgets/{widget_id}/send`
+- `POST` `/_matrix/vendor/v1/widgets`
+- `POST` `/_matrix/vendor/v1/widgets/{widget_id}/permissions`
+- `POST` `/_matrix/vendor/v1/widgets/{widget_id}/sessions`
+- `PUT` `/_matrix/vendor/v1/rooms/{room_id}/widgets/{widget_id}/capabilities`
+- `PUT` `/_matrix/vendor/v1/widgets/{widget_id}`
 
 ### 应用服务 (AppService) （39 条）
 
@@ -743,27 +742,27 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 #### `room_summary.rs` — 21 条 ✅派生表
 
-- `DELETE` `/_matrix/client/v3/rooms/{room_id}/summary`
-- `DELETE` `/_matrix/client/v3/rooms/{room_id}/summary/members/{user_id}`
+- `DELETE` `/_matrix/vendor/v1/rooms/{room_id}/summary`
+- `DELETE` `/_matrix/vendor/v1/rooms/{room_id}/summary/members/{user_id}`
 - `GET` `/_matrix/client/v1/rooms/{room_id}/summary`
-- `GET` `/_matrix/client/v3/rooms/{room_id}/summary`
-- `GET` `/_matrix/client/v3/rooms/{room_id}/summary/members`
-- `GET` `/_matrix/client/v3/rooms/{room_id}/summary/state`
-- `GET` `/_matrix/client/v3/rooms/{room_id}/summary/state/{event_type}/{state_key}`
-- `GET` `/_matrix/client/v3/rooms/{room_id}/summary/stats`
+- `GET` `/_matrix/vendor/v1/rooms/{room_id}/summary`
+- `GET` `/_matrix/vendor/v1/rooms/{room_id}/summary/members`
+- `GET` `/_matrix/vendor/v1/rooms/{room_id}/summary/state`
+- `GET` `/_matrix/vendor/v1/rooms/{room_id}/summary/state/{event_type}/{state_key}`
+- `GET` `/_matrix/vendor/v1/rooms/{room_id}/summary/stats`
 - `GET` `/_synapse/room_summary/v1/summaries`
-- `POST` `/_matrix/client/v3/rooms/{room_id}/summary`
-- `POST` `/_matrix/client/v3/rooms/{room_id}/summary/heroes/recalculate`
-- `POST` `/_matrix/client/v3/rooms/{room_id}/summary/members`
-- `POST` `/_matrix/client/v3/rooms/{room_id}/summary/stats/recalculate`
-- `POST` `/_matrix/client/v3/rooms/{room_id}/summary/sync`
-- `POST` `/_matrix/client/v3/rooms/{room_id}/summary/unread/clear`
+- `POST` `/_matrix/vendor/v1/rooms/{room_id}/summary`
+- `POST` `/_matrix/vendor/v1/rooms/{room_id}/summary/heroes/recalculate`
+- `POST` `/_matrix/vendor/v1/rooms/{room_id}/summary/members`
+- `POST` `/_matrix/vendor/v1/rooms/{room_id}/summary/stats/recalculate`
+- `POST` `/_matrix/vendor/v1/rooms/{room_id}/summary/sync`
+- `POST` `/_matrix/vendor/v1/rooms/{room_id}/summary/unread/clear`
 - `POST` `/_synapse/room_summary/v1/summaries`
 - `POST` `/_synapse/room_summary/v1/summaries/batch`
 - `POST` `/_synapse/room_summary/v1/updates/process`
-- `PUT` `/_matrix/client/v3/rooms/{room_id}/summary`
-- `PUT` `/_matrix/client/v3/rooms/{room_id}/summary/members/{user_id}`
-- `PUT` `/_matrix/client/v3/rooms/{room_id}/summary/state/{event_type}/{state_key}`
+- `PUT` `/_matrix/vendor/v1/rooms/{room_id}/summary`
+- `PUT` `/_matrix/vendor/v1/rooms/{room_id}/summary/members/{user_id}`
+- `PUT` `/_matrix/vendor/v1/rooms/{room_id}/summary/state/{event_type}/{state_key}`
 
 ### 推送 (Push) （25 条）
 
@@ -876,67 +875,45 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_matrix/client/v3/create_dm`
 - `PUT` `/_matrix/client/v3/direct/{room_id}`
 
-### 空间 (Space) （48 条）
+### 空间 (Space) （26 条）
 
-#### `space/lifecycle_query.rs` — 18 条 ✅派生表
+#### `space/children_hierarchy.rs` — 9 条 ✅派生表
 
-- `DELETE` `/_matrix/client/v1/spaces/{space_id}`
-- `DELETE` `/_matrix/client/v3/spaces/{space_id}`
-- `GET` `/_matrix/client/v1/spaces/public`
-- `GET` `/_matrix/client/v1/spaces/room/{room_id}`
-- `GET` `/_matrix/client/v1/spaces/search`
-- `GET` `/_matrix/client/v1/spaces/statistics`
-- `GET` `/_matrix/client/v1/spaces/user`
-- `GET` `/_matrix/client/v1/spaces/{space_id}`
-- `GET` `/_matrix/client/v3/spaces/public`
-- `GET` `/_matrix/client/v3/spaces/room/{room_id}`
-- `GET` `/_matrix/client/v3/spaces/search`
-- `GET` `/_matrix/client/v3/spaces/statistics`
-- `GET` `/_matrix/client/v3/spaces/user`
-- `GET` `/_matrix/client/v3/spaces/{space_id}`
-- `POST` `/_matrix/client/v1/spaces`
-- `POST` `/_matrix/client/v3/spaces`
-- `PUT` `/_matrix/client/v1/spaces/{space_id}`
-- `PUT` `/_matrix/client/v3/spaces/{space_id}`
-
-#### `space/children_hierarchy.rs` — 14 条 ✅派生表
-
-- `DELETE` `/_matrix/client/v1/spaces/{space_id}/children/{room_id}`
-- `DELETE` `/_matrix/client/v3/spaces/{space_id}/children/{room_id}`
-- `GET` `/_matrix/client/v1/spaces/room/{room_id}/parents`
-- `GET` `/_matrix/client/v1/spaces/{space_id}/children`
+- `DELETE` `/_matrix/vendor/v1/spaces/{space_id}/children/{room_id}`
 - `GET` `/_matrix/client/v1/spaces/{space_id}/hierarchy`
 - `GET` `/_matrix/client/v1/spaces/{space_id}/hierarchy/v1`
-- `GET` `/_matrix/client/v1/spaces/{space_id}/tree_path`
-- `GET` `/_matrix/client/v3/spaces/room/{room_id}/parents`
-- `GET` `/_matrix/client/v3/spaces/{space_id}/children`
 - `GET` `/_matrix/client/v3/spaces/{space_id}/hierarchy`
 - `GET` `/_matrix/client/v3/spaces/{space_id}/hierarchy/v1`
-- `GET` `/_matrix/client/v3/spaces/{space_id}/tree_path`
-- `POST` `/_matrix/client/v1/spaces/{space_id}/children`
-- `POST` `/_matrix/client/v3/spaces/{space_id}/children`
+- `GET` `/_matrix/vendor/v1/spaces/room/{room_id}/parents`
+- `GET` `/_matrix/vendor/v1/spaces/{space_id}/children`
+- `GET` `/_matrix/vendor/v1/spaces/{space_id}/tree_path`
+- `POST` `/_matrix/vendor/v1/spaces/{space_id}/children`
 
-#### `space/membership_state.rs` — 12 条 ✅派生表
+#### `space/lifecycle_query.rs` — 9 条 ✅派生表
 
-- `GET` `/_matrix/client/v1/spaces/{space_id}/members`
-- `GET` `/_matrix/client/v1/spaces/{space_id}/rooms`
-- `GET` `/_matrix/client/v1/spaces/{space_id}/state`
-- `GET` `/_matrix/client/v3/spaces/{space_id}/members`
-- `GET` `/_matrix/client/v3/spaces/{space_id}/rooms`
-- `GET` `/_matrix/client/v3/spaces/{space_id}/state`
-- `POST` `/_matrix/client/v1/spaces/{space_id}/invite`
-- `POST` `/_matrix/client/v1/spaces/{space_id}/join`
-- `POST` `/_matrix/client/v1/spaces/{space_id}/leave`
-- `POST` `/_matrix/client/v3/spaces/{space_id}/invite`
-- `POST` `/_matrix/client/v3/spaces/{space_id}/join`
-- `POST` `/_matrix/client/v3/spaces/{space_id}/leave`
+- `DELETE` `/_matrix/vendor/v1/spaces/{space_id}`
+- `GET` `/_matrix/vendor/v1/spaces/public`
+- `GET` `/_matrix/vendor/v1/spaces/room/{room_id}`
+- `GET` `/_matrix/vendor/v1/spaces/search`
+- `GET` `/_matrix/vendor/v1/spaces/statistics`
+- `GET` `/_matrix/vendor/v1/spaces/user`
+- `GET` `/_matrix/vendor/v1/spaces/{space_id}`
+- `POST` `/_matrix/vendor/v1/spaces`
+- `PUT` `/_matrix/vendor/v1/spaces/{space_id}`
 
-#### `space/summary.rs` — 4 条 ✅派生表
+#### `space/membership_state.rs` — 6 条 ✅派生表
 
-- `GET` `/_matrix/client/v1/spaces/{space_id}/summary`
-- `GET` `/_matrix/client/v1/spaces/{space_id}/summary/with_children`
-- `GET` `/_matrix/client/v3/spaces/{space_id}/summary`
-- `GET` `/_matrix/client/v3/spaces/{space_id}/summary/with_children`
+- `GET` `/_matrix/vendor/v1/spaces/{space_id}/members`
+- `GET` `/_matrix/vendor/v1/spaces/{space_id}/rooms`
+- `GET` `/_matrix/vendor/v1/spaces/{space_id}/state`
+- `POST` `/_matrix/vendor/v1/spaces/{space_id}/invite`
+- `POST` `/_matrix/vendor/v1/spaces/{space_id}/join`
+- `POST` `/_matrix/vendor/v1/spaces/{space_id}/leave`
+
+#### `space/summary.rs` — 2 条 ✅派生表
+
+- `GET` `/_matrix/vendor/v1/spaces/{space_id}/summary`
+- `GET` `/_matrix/vendor/v1/spaces/{space_id}/summary/with_children`
 
 ### 端到端加密 (E2EE) （38 条）
 

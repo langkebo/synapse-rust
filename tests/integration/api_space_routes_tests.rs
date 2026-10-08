@@ -71,7 +71,7 @@ async fn get_user_id(app: &axum::Router, token: &str) -> String {
 async fn create_space(app: &axum::Router, token: &str, room_id: &str, body: Value) -> Value {
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/v3/spaces")
+        .uri("/_matrix/vendor/v1/spaces")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(body.to_string()))
@@ -89,7 +89,7 @@ async fn create_space(app: &axum::Router, token: &str, room_id: &str, body: Valu
 async fn add_child(app: &axum::Router, token: &str, space_room_id: &str, child_room_id: &str, suggested: bool) {
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v3/spaces/{}/children", space_room_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}/children", space_room_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -139,8 +139,8 @@ async fn test_space_summary_suite_keeps_summary_counts_and_child_projection_veri
     add_child(&app, &token, &root_room_id, &child_room_id, true).await;
 
     for path in [
-        format!("/_matrix/client/v3/spaces/{}/summary", root_space_id),
-        format!("/_matrix/client/v3/spaces/{}/summary", root_space_id),
+        format!("/_matrix/vendor/v1/spaces/{}/summary", root_space_id),
+        format!("/_matrix/vendor/v1/spaces/{}/summary", root_space_id),
     ] {
         let request = Request::builder()
             .method("GET")
@@ -159,7 +159,7 @@ async fn test_space_summary_suite_keeps_summary_counts_and_child_projection_veri
 
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v1/spaces/{}/summary/with_children", root_space_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}/summary/with_children", root_space_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -219,7 +219,7 @@ async fn test_space_children_hierarchy_suite_keeps_nested_chain_verified() {
 
     let children_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/spaces/{}/children", root_space_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}/children", root_space_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -252,7 +252,7 @@ async fn test_space_children_hierarchy_suite_keeps_nested_chain_verified() {
 
     let parents_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/spaces/room/{}/parents", leaf_room_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/room/{}/parents", leaf_room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -295,7 +295,7 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
 
     let state_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/spaces/{}/state", root_space_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}/state", root_space_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
@@ -314,7 +314,7 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
 
     let members_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/spaces/{}/members", root_space_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}/members", root_space_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
@@ -329,7 +329,7 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
 
     let rooms_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v1/spaces/{}/rooms", root_space_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}/rooms", root_space_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
@@ -343,7 +343,7 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
 
     let forbidden_join_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v3/spaces/{}/join", root_space_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}/join", root_space_id))
         .header("Authorization", format!("Bearer {}", guest_token))
         .body(Body::empty())
         .unwrap();
@@ -353,7 +353,7 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
 
     let invite_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v3/spaces/{}/invite", root_space_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}/invite", root_space_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -368,7 +368,7 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
 
     let join_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v3/spaces/{}/join", root_space_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}/join", root_space_id))
         .header("Authorization", format!("Bearer {}", guest_token))
         .body(Body::empty())
         .unwrap();
@@ -377,7 +377,7 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
 
     let joined_members_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/spaces/{}/members", root_space_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}/members", root_space_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
@@ -394,7 +394,7 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
 
     let leave_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v1/spaces/{}/leave", root_space_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}/leave", root_space_id))
         .header("Authorization", format!("Bearer {}", guest_token))
         .body(Body::empty())
         .unwrap();
@@ -403,7 +403,7 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
 
     let members_after_leave_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/spaces/{}/members", root_space_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}/members", root_space_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
@@ -447,7 +447,7 @@ async fn test_space_lifecycle_query_suite_keeps_create_update_lookup_and_delete_
 
     let get_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v1/spaces/{}", space_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}", space_id))
         .body(Body::empty())
         .unwrap();
     let get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_request).await.unwrap();
@@ -462,7 +462,7 @@ async fn test_space_lifecycle_query_suite_keeps_create_update_lookup_and_delete_
 
     let by_room_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/spaces/room/{}", room_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/room/{}", room_id))
         .body(Body::empty())
         .unwrap();
     let by_room_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), by_room_request).await.unwrap();
@@ -475,7 +475,7 @@ async fn test_space_lifecycle_query_suite_keeps_create_update_lookup_and_delete_
 
     let update_request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/v3/spaces/{}", space_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}", space_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -497,7 +497,7 @@ async fn test_space_lifecycle_query_suite_keeps_create_update_lookup_and_delete_
 
     let user_spaces_request = Request::builder()
         .method("GET")
-        .uri("/_matrix/client/v3/spaces/user")
+        .uri("/_matrix/vendor/v1/spaces/user")
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -512,7 +512,7 @@ async fn test_space_lifecycle_query_suite_keeps_create_update_lookup_and_delete_
         .any(|space| { space["room_id"] == room_id && space["name"] == "Lifecycle Space Updated" }));
 
     let public_spaces_request =
-        Request::builder().method("GET").uri("/_matrix/client/v1/spaces/public?limit=20").body(Body::empty()).unwrap();
+        Request::builder().method("GET").uri("/_matrix/vendor/v1/spaces/public?limit=20").body(Body::empty()).unwrap();
     let public_spaces_response =
         ServiceExt::<Request<Body>>::oneshot(app.clone(), public_spaces_request).await.unwrap();
     assert_eq!(public_spaces_response.status(), StatusCode::OK);
@@ -525,7 +525,7 @@ async fn test_space_lifecycle_query_suite_keeps_create_update_lookup_and_delete_
 
     let search_request = Request::builder()
         .method("GET")
-        .uri("/_matrix/client/v3/spaces/search?query=Lifecycle%20Space%20Updated")
+        .uri("/_matrix/vendor/v1/spaces/search?query=Lifecycle%20Space%20Updated")
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -541,7 +541,7 @@ async fn test_space_lifecycle_query_suite_keeps_create_update_lookup_and_delete_
 
     let delete_request = Request::builder()
         .method("DELETE")
-        .uri(format!("/_matrix/client/v3/spaces/{}", space_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}", space_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -549,7 +549,7 @@ async fn test_space_lifecycle_query_suite_keeps_create_update_lookup_and_delete_
     assert_eq!(delete_response.status(), StatusCode::NO_CONTENT);
     let get_after_delete_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/spaces/{}", space_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}", space_id))
         .body(Body::empty())
         .unwrap();
     let get_after_delete_response = ServiceExt::<Request<Body>>::oneshot(app, get_after_delete_request).await.unwrap();
@@ -583,9 +583,9 @@ async fn test_private_space_read_routes_reject_anonymous_and_non_members() {
     let root_space_id = root_space["space_id"].as_str().unwrap().to_string();
 
     for path in [
-        format!("/_matrix/client/v1/spaces/{}", root_space_id),
-        format!("/_matrix/client/v1/spaces/{}/summary/with_children", root_space_id),
-        format!("/_matrix/client/v1/spaces/{}/members", root_space_id),
+        format!("/_matrix/vendor/v1/spaces/{}", root_space_id),
+        format!("/_matrix/vendor/v1/spaces/{}/summary/with_children", root_space_id),
+        format!("/_matrix/vendor/v1/spaces/{}/members", root_space_id),
         format!("/_matrix/client/v1/spaces/{}/hierarchy/v1", root_space_id),
     ] {
         let anonymous_request = Request::builder().method("GET").uri(&path).body(Body::empty()).unwrap();
@@ -681,7 +681,7 @@ async fn test_space_statistics_only_returns_visible_spaces() {
     }
 
     let anonymous_request =
-        Request::builder().method("GET").uri("/_matrix/client/v3/spaces/statistics").body(Body::empty()).unwrap();
+        Request::builder().method("GET").uri("/_matrix/vendor/v1/spaces/statistics").body(Body::empty()).unwrap();
     let anonymous_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), anonymous_request).await.unwrap();
     assert_eq!(anonymous_response.status(), StatusCode::OK);
 
@@ -693,7 +693,7 @@ async fn test_space_statistics_only_returns_visible_spaces() {
 
     let outsider_request = Request::builder()
         .method("GET")
-        .uri("/_matrix/client/v3/spaces/statistics")
+        .uri("/_matrix/vendor/v1/spaces/statistics")
         .header("Authorization", format!("Bearer {}", outsider_token))
         .body(Body::empty())
         .unwrap();
@@ -708,7 +708,7 @@ async fn test_space_statistics_only_returns_visible_spaces() {
 
     let owner_request = Request::builder()
         .method("GET")
-        .uri("/_matrix/client/v3/spaces/statistics")
+        .uri("/_matrix/vendor/v1/spaces/statistics")
         .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
@@ -734,7 +734,7 @@ async fn test_create_space_route_rejects_non_creator_for_foreign_room() {
 
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/v3/spaces")
+        .uri("/_matrix/vendor/v1/spaces")
         .header("Authorization", format!("Bearer {}", outsider_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -782,7 +782,7 @@ async fn test_space_shared_write_routes_reject_joined_non_creator() {
 
     let join_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v3/spaces/{}/join", space_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}/join", space_id))
         .header("Authorization", format!("Bearer {}", member_token))
         .body(Body::empty())
         .unwrap();
@@ -793,7 +793,7 @@ async fn test_space_shared_write_routes_reject_joined_non_creator() {
 
     let update_request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/v3/spaces/{}", space_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}", space_id))
         .header("Authorization", format!("Bearer {}", member_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -808,7 +808,7 @@ async fn test_space_shared_write_routes_reject_joined_non_creator() {
 
     let add_child_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v3/spaces/{}/children", space_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}/children", space_id))
         .header("Authorization", format!("Bearer {}", member_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -825,7 +825,7 @@ async fn test_space_shared_write_routes_reject_joined_non_creator() {
 
     let remove_child_request = Request::builder()
         .method("DELETE")
-        .uri(format!("/_matrix/client/v3/spaces/{}/children/{}", space_id, child_room_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}/children/{}", space_id, child_room_id))
         .header("Authorization", format!("Bearer {}", member_token))
         .body(Body::empty())
         .unwrap();
@@ -834,7 +834,7 @@ async fn test_space_shared_write_routes_reject_joined_non_creator() {
 
     let invite_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v3/spaces/{}/invite", space_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}/invite", space_id))
         .header("Authorization", format!("Bearer {}", member_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -849,7 +849,7 @@ async fn test_space_shared_write_routes_reject_joined_non_creator() {
 
     let owner_update_request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/v3/spaces/{}", space_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}", space_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .header("Content-Type", "application/json")
         .body(Body::from(

@@ -89,7 +89,7 @@ async fn test_room_summary_sync_populates_members_state_and_stats() {
 
     let members_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/summary/members", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/summary/members", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -103,7 +103,7 @@ async fn test_room_summary_sync_populates_members_state_and_stats() {
 
     let state_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/summary/state", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/summary/state", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -118,7 +118,7 @@ async fn test_room_summary_sync_populates_members_state_and_stats() {
 
     let stats_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/summary/stats", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/summary/stats", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -411,7 +411,7 @@ async fn test_space_state_and_children_form_a_matrix_style_closure() {
 
     let create_space_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/v3/spaces")
+        .uri("/_matrix/vendor/v1/spaces")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -436,7 +436,7 @@ async fn test_space_state_and_children_form_a_matrix_style_closure() {
 
     let add_child_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v3/spaces/{}/children", space_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}/children", space_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -456,7 +456,7 @@ async fn test_space_state_and_children_form_a_matrix_style_closure() {
 
     let update_space_request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/v3/spaces/{}", space_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}", space_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -472,7 +472,7 @@ async fn test_space_state_and_children_form_a_matrix_style_closure() {
 
     let state_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/spaces/{}/state", space_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}/state", space_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -491,7 +491,7 @@ async fn test_space_state_and_children_form_a_matrix_style_closure() {
 
     let children_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/spaces/{}/children", space_id))
+        .uri(format!("/_matrix/vendor/v1/spaces/{}/children", space_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -515,7 +515,7 @@ async fn test_space_search_accepts_query_and_search_term_alias() {
 
     let create_space_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/v3/spaces")
+        .uri("/_matrix/vendor/v1/spaces")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -535,7 +535,7 @@ async fn test_space_search_accepts_query_and_search_term_alias() {
 
     let query_request = Request::builder()
         .method("GET")
-        .uri("/_matrix/client/v3/spaces/search?query=Alias")
+        .uri("/_matrix/vendor/v1/spaces/search?query=Alias")
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -549,7 +549,7 @@ async fn test_space_search_accepts_query_and_search_term_alias() {
 
     let alias_request = Request::builder()
         .method("GET")
-        .uri("/_matrix/client/v3/spaces/search?search_term=Alias")
+        .uri("/_matrix/vendor/v1/spaces/search?search_term=Alias")
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();

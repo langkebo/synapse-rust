@@ -22,7 +22,7 @@ mod membership_state;
 mod summary;
 mod types;
 
-use children_hierarchy::create_space_children_hierarchy_routes;
+use children_hierarchy::{create_space_children_private_routes, create_space_hierarchy_spec_routes};
 use lifecycle_query::create_space_lifecycle_query_routes;
 use membership_state::create_space_membership_state_routes;
 use summary::create_space_summary_routes;
@@ -162,30 +162,33 @@ pub(super) fn decode_space_child_cursor(cursor: &str) -> Option<(i64, i64)> {
 }
 
 /// See [`create_space_router`].
+///
+/// ISSUE-13：空间模块此前把**整个** router 同时 nest 到 `/_matrix/client/v1` 与 `/_matrix/client/v3`，
+/// 于是 22 条路径膨胀成 44 条注册条目。实际上只有 MSC2946 的 `hierarchy`（含早期形状 `hierarchy/v1`）
+/// 是规范端点，其余都是项目私有扩展 —— 因此拆成两个 router：
+/// * spec  → `nest` 到 `/_matrix/client/{v1,v3}`（保持不变）
+/// * private → `nest` 到唯一规范位置 `/_matrix/vendor/v1`
+///
+/// 结果：44 条 client 条目 → 22 条 vendor 条目 + 4 条 keep。见
+/// `docs/前缀命名空间治理方案-2026-10-08.md` §10.2/§10.3。
 pub fn create_space_router(state: AppState) -> Router<AppState> {
-    let router = Router::new()
+    // MSC2946 spaces hierarchy：规范端点，留在 client 前缀（v1 + v3 同一份 router）。
+    let spec = Router::new().merge(create_space_hierarchy_spec_routes());
+
+    // 项目私有面：lifecycle_query / children(非 hierarchy) / membership_state / summary。
+    let private = Router::new()
         .merge(create_space_lifecycle_query_routes())
-        .merge(create_space_children_hierarchy_routes())
+        .merge(create_space_children_private_routes())
         .merge(create_space_membership_state_routes())
         .merge(create_space_summary_routes());
 
-    // Apply the same routes to both supported client prefixes (v1 + v3)
-    Router::new().nest("/_matrix/client/v1", router.clone()).nest("/_matrix/client/v3", router).with_state(state)
+    Router::new()
+        .nest("/_matrix/client/v1", spec.clone())
+        .nest("/_matrix/client/v3", spec)
+        .nest("/_matrix/vendor/v1", private)
+        .with_state(state)
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_space_routes_structure() {
-        let routes = vec![
-            "/_matrix/client/v1/spaces",
-            "/_matrix/client/v1/spaces/{space_id}",
-            "/_matrix/client/v1/spaces/{space_id}/hierarchy",
-            "/_matrix/client/v1/spaces/{space_id}/summary",
-        ];
-
-        for route in routes {
-            assert!(route.starts_with("/_matrix/client/v1/spaces"));
-        }
-    }
-}
+// 原 `test_space_routes_structure` 已删除：它只是断言一份**硬编码字符串列表**以某前缀开头
+// （跑不到 router，永远不会红）—— 铁律 8 意义上它不是门禁。真实断言已移到
+// `route_module.rs::space_manifest_splits_spec_from_private`，那里读的是派生表（真实路由面）。

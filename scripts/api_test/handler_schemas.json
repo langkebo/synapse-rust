@@ -1512,35 +1512,31 @@
     ],
     "create_widget": [
       [
-        "/_matrix/client/v1/widgets",
-        "post"
-      ],
-      [
-        "/_matrix/client/v3/widgets/create",
+        "/_matrix/vendor/v1/widgets",
         "post"
       ]
     ],
     "update_widget": [
       [
-        "/_matrix/client/v1/widgets/{widget_id}",
+        "/_matrix/vendor/v1/widgets/{widget_id}",
         "put"
       ]
     ],
     "send_room_widget_message": [
       [
-        "/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/send",
+        "/_matrix/vendor/v1/rooms/{room_id}/widgets/{widget_id}/send",
         "post"
       ]
     ],
     "set_widget_permission": [
       [
-        "/_matrix/client/v1/widgets/{widget_id}/permissions",
+        "/_matrix/vendor/v1/widgets/{widget_id}/permissions",
         "post"
       ]
     ],
     "create_widget_session": [
       [
-        "/_matrix/client/v1/widgets/{widget_id}/sessions",
+        "/_matrix/vendor/v1/widgets/{widget_id}/sessions",
         "post"
       ]
     ],
@@ -5103,31 +5099,6 @@
       "post",
       "SendNotificationBody"
     ],
-    "post /_matrix/client/v3/rooms/{room_id}/summary": [
-      "/rooms/{room_id}/summary",
-      "post",
-      "CreateRoomSummaryRequest"
-    ],
-    "put /_matrix/client/v3/rooms/{room_id}/summary": [
-      "/rooms/{room_id}/summary",
-      "put",
-      "UpdateSummaryBody"
-    ],
-    "post /_matrix/client/v3/rooms/{room_id}/summary/members": [
-      "/rooms/{room_id}/summary/members",
-      "post",
-      "CreateSummaryMemberRequest"
-    ],
-    "put /_matrix/client/v3/rooms/{room_id}/summary/members/{user_id}": [
-      "/rooms/{room_id}/summary/members/{user_id}",
-      "put",
-      "UpdateMemberBody"
-    ],
-    "put /_matrix/client/v3/rooms/{room_id}/summary/state/{event_type}/{state_key}": [
-      "/rooms/{room_id}/summary/state/{event_type}/{state_key}",
-      "put",
-      "UpdateStateBody"
-    ],
     "post /_matrix/client/v3/login/sso/redirect/saml": [
       "/_matrix/client/v3/login/sso/redirect/saml",
       "post",
@@ -5138,48 +5109,8 @@
       "post",
       "SamlCallbackBody"
     ],
-    "post /_matrix/client/v3/spaces/{space_id}/children": [
-      "/spaces/{space_id}/children",
-      "post",
-      "AddChildBody"
-    ],
-    "post /_matrix/client/v1/spaces/{space_id}/children": [
-      "/spaces/{space_id}/children",
-      "post",
-      "AddChildBody"
-    ],
-    "post /_matrix/client/v3/spaces": [
-      "/spaces",
-      "post",
-      "CreateSpaceBody"
-    ],
-    "post /_matrix/client/v1/spaces": [
-      "/spaces",
-      "post",
-      "CreateSpaceBody"
-    ],
-    "put /_matrix/client/v3/spaces/{space_id}": [
-      "/spaces/{space_id}",
-      "put",
-      "UpdateSpaceBody"
-    ],
-    "put /_matrix/client/v1/spaces/{space_id}": [
-      "/spaces/{space_id}",
-      "put",
-      "UpdateSpaceBody"
-    ],
     "post /_matrix/client/v3/rooms/{room_id}/invite": [
       "/rooms/{room_id}/invite",
-      "post",
-      "InviteUserBody"
-    ],
-    "post /_matrix/client/v3/spaces/{space_id}/invite": [
-      "/spaces/{space_id}/invite",
-      "post",
-      "InviteUserBody"
-    ],
-    "post /_matrix/client/v1/spaces/{space_id}/invite": [
-      "/spaces/{space_id}/invite",
       "post",
       "InviteUserBody"
     ],
@@ -5193,23 +5124,23 @@
       "post",
       "RegisterEncryptedVoiceRequest"
     ],
-    "put /_matrix/client/v1/widgets/{widget_id}": [
-      "/_matrix/client/v1/widgets/{widget_id}",
+    "put /_matrix/vendor/v1/widgets/{widget_id}": [
+      "/_matrix/vendor/v1/widgets/{widget_id}",
       "put",
       "UpdateWidgetBody"
     ],
-    "post /_matrix/client/v1/widgets/{widget_id}/permissions": [
-      "/_matrix/client/v1/widgets/{widget_id}/permissions",
+    "post /_matrix/vendor/v1/widgets/{widget_id}/permissions": [
+      "/_matrix/vendor/v1/widgets/{widget_id}/permissions",
       "post",
       "SetPermissionBody"
     ],
-    "post /_matrix/client/v1/widgets/{widget_id}/sessions": [
-      "/_matrix/client/v1/widgets/{widget_id}/sessions",
+    "post /_matrix/vendor/v1/widgets/{widget_id}/sessions": [
+      "/_matrix/vendor/v1/widgets/{widget_id}/sessions",
       "post",
       "CreateSessionBody"
     ],
-    "post /_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/send": [
-      "/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/send",
+    "post /_matrix/vendor/v1/rooms/{room_id}/widgets/{widget_id}/send": [
+      "/_matrix/vendor/v1/rooms/{room_id}/widgets/{widget_id}/send",
       "post",
       "SendWidgetMessageBody"
     ]

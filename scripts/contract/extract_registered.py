@@ -1142,21 +1142,21 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies"): {
         "query_params": "from,include_all,limit"
     },
-    ("GET", "/_matrix/client/v1/spaces/public"): {"query_params": "from,limit"},
-    ("GET", "/_matrix/client/v1/spaces/search"): {
+    ("GET", "/_matrix/vendor/v1/spaces/public"): {"query_params": "from,limit"},
+    ("GET", "/_matrix/vendor/v1/spaces/search"): {
         "query_params": "limit,query,search_term"
     },
-    ("GET", "/_matrix/client/v1/spaces/statistics"): {"query_params": "limit"},
+    ("GET", "/_matrix/vendor/v1/spaces/statistics"): {"query_params": "limit"},
     ("GET", "/_matrix/client/v1/spaces/{space_id}/hierarchy"): {
         "query_params": "max_depth"
     },
     ("GET", "/_matrix/client/v1/spaces/{space_id}/hierarchy/v1"): {
         "query_params": "from,limit,max_depth,suggested_only"
     },
-    ("GET", "/_matrix/client/v1/spaces/{space_id}/members"): {
+    ("GET", "/_matrix/vendor/v1/spaces/{space_id}/members"): {
         "query_params": "from,limit"
     },
-    ("GET", "/_matrix/client/v1/spaces/{space_id}/rooms"): {
+    ("GET", "/_matrix/vendor/v1/spaces/{space_id}/rooms"): {
         "query_params": "from,limit"
     },
     ("GET", "/_matrix/client/v1/threads"): {"query_params": "from,include_all,limit"},
@@ -1212,22 +1212,11 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/client/v3/rooms/{room_id}/sync"): {
         "query_params": "full_state,since,timeout"
     },
-    ("GET", "/_matrix/client/v3/spaces/public"): {"query_params": "from,limit"},
-    ("GET", "/_matrix/client/v3/spaces/search"): {
-        "query_params": "limit,query,search_term"
-    },
-    ("GET", "/_matrix/client/v3/spaces/statistics"): {"query_params": "limit"},
     ("GET", "/_matrix/client/v3/spaces/{space_id}/hierarchy"): {
         "query_params": "max_depth"
     },
     ("GET", "/_matrix/client/v3/spaces/{space_id}/hierarchy/v1"): {
         "query_params": "from,limit,max_depth,suggested_only"
-    },
-    ("GET", "/_matrix/client/v3/spaces/{space_id}/members"): {
-        "query_params": "from,limit"
-    },
-    ("GET", "/_matrix/client/v3/spaces/{space_id}/rooms"): {
-        "query_params": "from,limit"
     },
     ("GET", "/_matrix/client/v3/sync"): {"rate_limit_exempt": True},
     ("GET", "/_matrix/client/v3/thirdparty/location"): {

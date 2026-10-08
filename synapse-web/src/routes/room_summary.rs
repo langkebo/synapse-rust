@@ -610,7 +610,13 @@ fn create_room_summary_read_router() -> Router<AppState> {
         .route("/rooms/{room_id}/summary/stats", get(get_stats))
 }
 
-fn create_room_summary_v3_router() -> Router<AppState> {
+/// 私有房间摘要面（读写 + 维护）。
+///
+/// ISSUE-13：这批端点不是 Matrix 规范端点（MSC3266 只定义了
+/// `GET /_matrix/client/v1/rooms/{room_id}/summary`，见下方 `create_room_summary_v1_router`），
+/// 因此唯一规范位置是 `/_matrix/vendor/v1`。此前它们挂在 `/_matrix/client/v3` 下，
+/// 见 `docs/前缀命名空间治理方案-2026-10-08.md` §10.2/§10.3。
+fn create_room_summary_private_router() -> Router<AppState> {
     Router::new()
         .merge(create_room_summary_read_router())
         .route("/rooms/{room_id}/summary", post(create_room_summary))
@@ -684,6 +690,10 @@ pub async fn batch_get_room_summaries(
     Ok(Json(response))
 }
 
+/// MSC3266 `GET /rooms/{room_id}/summary` —— **规范**端点，唯一形态在
+/// `/_matrix/client/v1`（MSC3266 发布时即 v1 路径），故不进 vendor 桶。
+/// ⚠️ 它与 `create_room_summary_private_router()` 里的 `GET summary` 是**同一 handler**
+/// 的两个挂载点：规范读端点 + 项目私有面读端点，两者命名空间不同，互不替代。
 fn create_room_summary_v1_router() -> Router<AppState> {
     Router::new().route("/rooms/{room_id}/summary", get(get_room_summary))
 }
@@ -691,7 +701,8 @@ fn create_room_summary_v1_router() -> Router<AppState> {
 /// See [`create_room_summary_router`].
 pub fn create_room_summary_router(state: AppState) -> Router<AppState> {
     Router::new()
-        .nest("/_matrix/client/v3", create_room_summary_v3_router())
+        // ISSUE-13：私有面唯一规范位置。原来是 `nest("/_matrix/client/v3", …)`。
+        .nest("/_matrix/vendor/v1", create_room_summary_private_router())
         .nest("/_matrix/client/v1", create_room_summary_v1_router())
         .route("/_synapse/room_summary/v1/summaries", get(get_user_summaries))
         .route("/_synapse/room_summary/v1/summaries", post(create_internal_room_summary))
@@ -704,19 +715,26 @@ pub fn create_room_summary_router(state: AppState) -> Router<AppState> {
 mod tests {
     use super::*;
 
+    /// ⚠️ 这条只是把一份硬编码列表的长度与前缀再断言一次 —— 它跑不到 router，**永远不会红**，
+    /// 因此不构成门禁（铁律 8）。保留它只为记录私有三件套的**命名空间归属**；
+    /// 真实断言在 `route_module.rs::room_summary_manifest_splits_spec_from_private`
+    /// （读派生表 = 真实路由面）。
+    ///
+    /// ISSUE-13 第二批：room summary 私有面已由 `/_matrix/client/v3` 迁到 `/_matrix/vendor/v1`；
+    /// MSC3266 的 `GET /_matrix/client/v1/rooms/{room_id}/summary` 仍是规范端点（见下方
+    /// `create_room_summary_v1_router`）。
     #[test]
     fn test_room_summary_routes_structure() {
         let routes = [
-            "/_matrix/client/v3/rooms/{room_id}/summary",
-            "/_matrix/client/v3/rooms/{room_id}/summary",
-            "/_matrix/client/v3/rooms/{room_id}/summary/unread/clear",
+            "/_matrix/vendor/v1/rooms/{room_id}/summary",
+            "/_matrix/vendor/v1/rooms/{room_id}/summary/unread/clear",
             "/_synapse/room_summary/v1/summaries",
         ];
 
-        assert_eq!(routes.len(), 4);
+        assert_eq!(routes.len(), 3);
         assert!(routes
             .iter()
-            .all(|route| { route.starts_with("/_matrix/client/") || route.starts_with("/_synapse/") }));
+            .all(|route| { route.starts_with("/_matrix/vendor/") || route.starts_with("/_synapse/") }));
     }
 
     #[test]

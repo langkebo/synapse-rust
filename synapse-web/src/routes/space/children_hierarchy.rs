@@ -155,14 +155,24 @@ pub(super) async fn get_space_tree_path(
     .await
 }
 
-/// See [`create_space_children_hierarchy_routes`].
-pub(super) fn create_space_children_hierarchy_routes() -> Router<AppState> {
+/// MSC2946 spaces hierarchy —— **规范**端点，故由 `space.rs` 挂到 `/_matrix/client/{v1,v3}`。
+///
+/// ISSUE-13：`children` / `tree_path` / `parents` 是项目私有扩展（见
+/// [`create_space_children_private_routes`]），**不**随之迁走；两者原先挤在同一个工厂里，
+/// 而 `children_hierarchy.rs` 又被列进 `WHOLESALE_PRIVATE_FILES` —— 这是第二批最容易改错之处
+/// （见 `docs/前缀命名空间治理方案-2026-10-08.md` §10.2）。
+pub(super) fn create_space_hierarchy_spec_routes() -> Router<AppState> {
+    Router::new()
+        .route("/spaces/{space_id}/hierarchy", get(get_space_hierarchy))
+        .route("/spaces/{space_id}/hierarchy/v1", get(get_space_hierarchy_v1))
+}
+
+/// 空间子节点/树路径/父空间 —— 项目私有扩展，唯一规范位置是 `/_matrix/vendor/v1`。
+pub(super) fn create_space_children_private_routes() -> Router<AppState> {
     Router::new()
         .route("/spaces/{space_id}/children", get(get_space_children))
         .route("/spaces/{space_id}/children", post(add_child))
         .route("/spaces/{space_id}/children/{room_id}", delete(remove_child))
-        .route("/spaces/{space_id}/hierarchy", get(get_space_hierarchy))
-        .route("/spaces/{space_id}/hierarchy/v1", get(get_space_hierarchy_v1))
         .route("/spaces/{space_id}/tree_path", get(get_space_tree_path))
         .route("/spaces/room/{room_id}/parents", get(get_parent_spaces))
 }

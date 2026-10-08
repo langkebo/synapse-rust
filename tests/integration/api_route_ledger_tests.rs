@@ -474,7 +474,7 @@ async fn widget_routes_are_declared_when_feature_enabled() {
         super::skip_or_fail_without_db();
         return;
     };
-    assert!(has_declared_route(&ledger, Method::POST, "/_matrix/client/v1/widgets"));
+    assert!(has_declared_route(&ledger, Method::POST, "/_matrix/vendor/v1/widgets"));
 }
 
 #[cfg(feature = "burn-after-read")]

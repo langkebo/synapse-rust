@@ -96,7 +96,7 @@ async fn test_room_summary_route_rejects_non_member() {
 
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/summary", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/summary", room_id))
         .header("Authorization", format!("Bearer {}", guest_token))
         .body(Body::empty())
         .unwrap();
@@ -105,7 +105,7 @@ async fn test_room_summary_route_rejects_non_member() {
 
     let admin_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/summary", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/summary", room_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -125,7 +125,7 @@ async fn test_room_summary_members_route_rejects_non_member() {
 
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/summary/members", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/summary/members", room_id))
         .header("Authorization", format!("Bearer {}", guest_token))
         .body(Body::empty())
         .unwrap();
@@ -134,7 +134,7 @@ async fn test_room_summary_members_route_rejects_non_member() {
 
     let admin_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/summary/members", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/summary/members", room_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -154,7 +154,7 @@ async fn test_room_summary_create_rejects_non_member() {
 
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v3/rooms/{}/summary", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/summary", room_id))
         .header("Authorization", format!("Bearer {}", guest_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -170,7 +170,7 @@ async fn test_room_summary_create_rejects_non_member() {
 
     let admin_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v3/rooms/{}/summary", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/summary", room_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -199,7 +199,7 @@ async fn test_room_summary_create_rejects_joined_non_creator_member() {
 
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v3/rooms/{}/summary", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/summary", room_id))
         .header("Authorization", format!("Bearer {}", member_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -314,7 +314,7 @@ async fn test_room_summary_read_routes_share_across_versions() {
 
     let v3_get_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/summary", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/summary", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -328,7 +328,7 @@ async fn test_room_summary_read_routes_share_across_versions() {
 
     let r0_get_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/summary", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/summary", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -351,7 +351,7 @@ async fn test_room_summary_create_rejects_path_body_mismatch() {
 
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v3/rooms/{}/summary", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/summary", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -391,7 +391,7 @@ async fn test_room_summary_route_boundaries_are_preserved() {
 
     let v3_unread_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v3/rooms/{}/summary/unread/clear", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/summary/unread/clear", room_id))
         .body(Body::empty())
         .unwrap();
     let v3_unread_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_unread_request).await.unwrap();
@@ -421,7 +421,7 @@ async fn test_room_summary_snapshot_exposes_members_state_and_stats() {
 
     let members_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/summary/members", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/summary/members", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -438,7 +438,7 @@ async fn test_room_summary_snapshot_exposes_members_state_and_stats() {
 
     let state_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/summary/state", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/summary/state", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -453,7 +453,7 @@ async fn test_room_summary_snapshot_exposes_members_state_and_stats() {
 
     let stats_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/summary/stats", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/summary/stats", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();

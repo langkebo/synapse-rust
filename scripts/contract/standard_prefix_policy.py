@@ -59,9 +59,14 @@ WHOLESALE_PRIVATE_FILES = (
 # burn_after_read 14 / key_rotation 9，全部是已有 vendor 孪生的别名），169 → 92。
 # 台账同步 189 → 112 条（92 + 20 混合模块）。
 #
+# 2026-10-08 Phase 2 batch 2：把 78 条私有端点从 client 前缀**迁到** vendor
+# （space 44 / widget 18 / room_summary 16；其中 space 的 44 条是 22 条路径被
+# nest 到 v1+v3 两次，迁移后收敛为 22 条），92 → 14（= 5 条 MSC keep + 9 条留给
+# 第三批的 dm 5 + push_notification 4）。台账同步 112 → 34 条（14 + 20 混合模块）。
+#
 # ⚠️ 这个数字只在路由**真正迁走/删除**时才下调（并同步收紧台账）。
 # 路由真的变少却不下调，门禁会一直报"未收紧"——那是提醒，不是误报。
-LEDGER_CEILING = 92
+LEDGER_CEILING = 14
 
 # 有 MSC 归属、合法留在 client 前缀的端点。进台账只为记账（防止被后人误判成污染），
 # action=keep，不产生"只减不增"的压力。

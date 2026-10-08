@@ -109,28 +109,36 @@ impl From<synapse_services::widget_service::Widget> for WidgetApiResponse {
 }
 
 /// See [`create_widget_router`].
+///
+/// ISSUE-13：widget 不是 Matrix 规范端点（MSC1236 未合并），因此全部落在唯一规范位置
+/// `/_matrix/vendor/v1` —— 此前它们散在 `/_matrix/client/{v1,v3}` 下，
+/// 见 `docs/前缀命名空间治理方案-2026-10-08.md` §10.2/§10.3。
+///
+/// ⚠️ 合并掉的重复路径：`POST /_matrix/client/v3/widgets/create` 与
+/// `POST /_matrix/client/v1/widgets` 是**同一 handler**（`create_widget`）的两条路径。
+/// 按铁律 1/2 只保留一条（`POST /_matrix/vendor/v1/widgets`），不再保留别名；
+/// SDK 侧旧层 `src/widgets/index.ts` 的 `/widgets/create` 调用已同步改为 `/widgets`。
 pub fn create_widget_router() -> Router<AppState> {
     Router::new()
-        .route("/_matrix/client/v1/widgets", post(create_widget))
-        .route("/_matrix/client/v3/widgets/create", post(create_widget))
-        .route("/_matrix/client/v1/widgets/{widget_id}", get(get_widget))
-        .route("/_matrix/client/v1/widgets/{widget_id}", put(update_widget))
-        .route("/_matrix/client/v1/widgets/{widget_id}", delete(delete_widget))
-        .route("/_matrix/client/v1/widgets/{widget_id}/config", get(get_widget_config))
-        .route("/_matrix/client/v1/rooms/{room_id}/widgets", get(get_room_widgets))
-        .route("/_matrix/client/v1/rooms/{room_id}/widgets/jitsi/config", get(get_jitsi_config))
+        .route("/_matrix/vendor/v1/widgets", post(create_widget))
+        .route("/_matrix/vendor/v1/widgets/{widget_id}", get(get_widget))
+        .route("/_matrix/vendor/v1/widgets/{widget_id}", put(update_widget))
+        .route("/_matrix/vendor/v1/widgets/{widget_id}", delete(delete_widget))
+        .route("/_matrix/vendor/v1/widgets/{widget_id}/config", get(get_widget_config))
+        .route("/_matrix/vendor/v1/rooms/{room_id}/widgets", get(get_room_widgets))
+        .route("/_matrix/vendor/v1/rooms/{room_id}/widgets/jitsi/config", get(get_jitsi_config))
         .route(
-            "/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/capabilities",
+            "/_matrix/vendor/v1/rooms/{room_id}/widgets/{widget_id}/capabilities",
             get(get_room_widget_capabilities).put(set_room_widget_capabilities),
         )
-        .route("/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/send", post(send_room_widget_message))
-        .route("/_matrix/client/v1/widgets/{widget_id}/permissions", post(set_widget_permission))
-        .route("/_matrix/client/v1/widgets/{widget_id}/permissions", get(get_widget_permissions))
-        .route("/_matrix/client/v1/widgets/{widget_id}/permissions/{user_id}", delete(delete_widget_permission))
-        .route("/_matrix/client/v1/widgets/{widget_id}/sessions", post(create_widget_session))
-        .route("/_matrix/client/v1/widgets/{widget_id}/sessions", get(get_widget_sessions))
-        .route("/_matrix/client/v1/widgets/sessions/{session_id}", get(get_widget_session))
-        .route("/_matrix/client/v1/widgets/sessions/{session_id}", delete(terminate_widget_session))
+        .route("/_matrix/vendor/v1/rooms/{room_id}/widgets/{widget_id}/send", post(send_room_widget_message))
+        .route("/_matrix/vendor/v1/widgets/{widget_id}/permissions", post(set_widget_permission))
+        .route("/_matrix/vendor/v1/widgets/{widget_id}/permissions", get(get_widget_permissions))
+        .route("/_matrix/vendor/v1/widgets/{widget_id}/permissions/{user_id}", delete(delete_widget_permission))
+        .route("/_matrix/vendor/v1/widgets/{widget_id}/sessions", post(create_widget_session))
+        .route("/_matrix/vendor/v1/widgets/{widget_id}/sessions", get(get_widget_sessions))
+        .route("/_matrix/vendor/v1/widgets/sessions/{session_id}", get(get_widget_session))
+        .route("/_matrix/vendor/v1/widgets/sessions/{session_id}", delete(terminate_widget_session))
 }
 
 async fn create_widget(

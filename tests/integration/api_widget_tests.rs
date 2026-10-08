@@ -83,7 +83,7 @@ async fn read_json(response: axum::response::Response) -> Value {
 async fn create_widget(app: &axum::Router, token: &str, room_id: &str) -> String {
     let create_widget_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/v1/widgets")
+        .uri("/_matrix/vendor/v1/widgets")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -108,7 +108,7 @@ async fn create_widget(app: &axum::Router, token: &str, room_id: &str) -> String
 async fn create_widget_session(app: &axum::Router, token: &str, widget_id: &str) -> String {
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v1/widgets/{}/sessions", widget_id))
+        .uri(format!("/_matrix/vendor/v1/widgets/{}/sessions", widget_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -198,7 +198,7 @@ async fn test_create_widget_succeeds_for_existing_room() {
 
     let create_widget_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/v1/widgets")
+        .uri("/_matrix/vendor/v1/widgets")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -235,7 +235,7 @@ async fn test_create_widget_forbidden_for_non_member() {
 
     let create_widget_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/v1/widgets")
+        .uri("/_matrix/vendor/v1/widgets")
         .header("Authorization", format!("Bearer {}", outsider_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -272,7 +272,7 @@ async fn test_create_widget_rejects_joined_non_creator() {
 
     let create_widget_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/v1/widgets")
+        .uri("/_matrix/vendor/v1/widgets")
         .header("Authorization", format!("Bearer {}", member_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -310,7 +310,7 @@ async fn test_create_widget_allows_joined_room_moderator() {
 
     let create_widget_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/v1/widgets")
+        .uri("/_matrix/vendor/v1/widgets")
         .header("Authorization", format!("Bearer {}", moderator_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -342,7 +342,7 @@ async fn test_create_widget_returns_not_found_for_missing_room() {
 
     let create_widget_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/v1/widgets")
+        .uri("/_matrix/vendor/v1/widgets")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -386,7 +386,7 @@ async fn test_create_widget_rejects_missing_room_id() {
     ] {
         let request = Request::builder()
             .method("POST")
-            .uri("/_matrix/client/v1/widgets")
+            .uri("/_matrix/vendor/v1/widgets")
             .header("Authorization", format!("Bearer {}", token))
             .header("Content-Type", "application/json")
             .body(Body::from(body.to_string()))
@@ -412,7 +412,7 @@ async fn test_get_widget_requires_authentication() {
 
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v1/widgets/{}", widget_id))
+        .uri(format!("/_matrix/vendor/v1/widgets/{}", widget_id))
         .body(Body::empty())
         .unwrap();
 
@@ -433,7 +433,7 @@ async fn test_get_widget_forbidden_for_non_member() {
 
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v1/widgets/{}", widget_id))
+        .uri(format!("/_matrix/vendor/v1/widgets/{}", widget_id))
         .header("Authorization", format!("Bearer {}", viewer_token))
         .body(Body::empty())
         .unwrap();
@@ -458,7 +458,7 @@ async fn test_get_widget_forbidden_for_admin_without_room_access() {
 
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v1/widgets/{}", widget_id))
+        .uri(format!("/_matrix/vendor/v1/widgets/{}", widget_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -487,7 +487,7 @@ async fn test_joined_room_member_can_read_and_create_session_but_cannot_modify_w
 
     let get_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v1/widgets/{}", widget_id))
+        .uri(format!("/_matrix/vendor/v1/widgets/{}", widget_id))
         .header("Authorization", format!("Bearer {}", member_token))
         .body(Body::empty())
         .unwrap();
@@ -496,7 +496,7 @@ async fn test_joined_room_member_can_read_and_create_session_but_cannot_modify_w
 
     let session_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v1/widgets/{}/sessions", widget_id))
+        .uri(format!("/_matrix/vendor/v1/widgets/{}/sessions", widget_id))
         .header("Authorization", format!("Bearer {}", member_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -514,7 +514,7 @@ async fn test_joined_room_member_can_read_and_create_session_but_cannot_modify_w
 
     let get_session_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v1/widgets/sessions/{}", session_id))
+        .uri(format!("/_matrix/vendor/v1/widgets/sessions/{}", session_id))
         .header("Authorization", format!("Bearer {}", member_token))
         .body(Body::empty())
         .unwrap();
@@ -523,7 +523,7 @@ async fn test_joined_room_member_can_read_and_create_session_but_cannot_modify_w
 
     let update_request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/v1/widgets/{}", widget_id))
+        .uri(format!("/_matrix/vendor/v1/widgets/{}", widget_id))
         .header("Authorization", format!("Bearer {}", member_token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "name": "member overwrite" }).to_string()))
@@ -533,7 +533,7 @@ async fn test_joined_room_member_can_read_and_create_session_but_cannot_modify_w
 
     let permission_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v1/widgets/{}/permissions", widget_id))
+        .uri(format!("/_matrix/vendor/v1/widgets/{}/permissions", widget_id))
         .header("Authorization", format!("Bearer {}", member_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -560,7 +560,7 @@ async fn test_create_widget_session_uses_path_widget_id() {
 
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v1/widgets/{}/sessions", widget_id))
+        .uri(format!("/_matrix/vendor/v1/widgets/{}/sessions", widget_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -591,7 +591,7 @@ async fn test_create_widget_session_rejects_mismatched_body_widget_id() {
 
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v1/widgets/{}/sessions", widget_id))
+        .uri(format!("/_matrix/vendor/v1/widgets/{}/sessions", widget_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -623,7 +623,7 @@ async fn test_get_room_widget_capabilities_forbidden_for_non_member() {
 
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/widgets/{}/capabilities", room_id, widget_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/widgets/{}/capabilities", room_id, widget_id))
         .header("Authorization", format!("Bearer {}", outsider_token))
         .body(Body::empty())
         .unwrap();
@@ -647,7 +647,7 @@ async fn test_get_jitsi_config_forbidden_for_non_member() {
 
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v1/rooms/{}/widgets/jitsi/config", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/widgets/jitsi/config", room_id))
         .header("Authorization", format!("Bearer {}", outsider_token))
         .body(Body::empty())
         .unwrap();
@@ -660,7 +660,7 @@ async fn test_get_jitsi_config_forbidden_for_non_member() {
 
     let owner_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v1/rooms/{}/widgets/jitsi/config", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/widgets/jitsi/config", room_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
@@ -682,7 +682,7 @@ async fn test_room_widget_routes_forbidden_for_admin_without_room_access() {
 
     let list_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v1/rooms/{}/widgets", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/widgets", room_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -693,7 +693,7 @@ async fn test_room_widget_routes_forbidden_for_admin_without_room_access() {
 
     let capabilities_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/widgets/{}/capabilities", room_id, widget_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/widgets/{}/capabilities", room_id, widget_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -716,7 +716,7 @@ async fn test_get_room_widget_capabilities_rejects_widget_room_mismatch() {
 
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/widgets/{}/capabilities", other_room_id, widget_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/widgets/{}/capabilities", other_room_id, widget_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -746,7 +746,7 @@ async fn test_set_room_widget_capabilities_rejects_joined_non_creator() {
 
     let request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/v3/rooms/{}/widgets/{}/capabilities", room_id, widget_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/widgets/{}/capabilities", room_id, widget_id))
         .header("Authorization", format!("Bearer {}", member_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -778,7 +778,7 @@ async fn test_get_widget_session_forbidden_for_unrelated_user() {
 
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v1/widgets/sessions/{}", session_id))
+        .uri(format!("/_matrix/vendor/v1/widgets/sessions/{}", session_id))
         .header("Authorization", format!("Bearer {}", outsider_token))
         .body(Body::empty())
         .unwrap();
@@ -804,7 +804,7 @@ async fn test_get_widget_session_forbidden_for_admin_without_room_access() {
 
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v1/widgets/sessions/{}", session_id))
+        .uri(format!("/_matrix/vendor/v1/widgets/sessions/{}", session_id))
         .header("Authorization", format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
