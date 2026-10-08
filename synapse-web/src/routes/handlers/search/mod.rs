@@ -11,15 +11,13 @@ use axum::routing::{get, post};
 use axum::Router;
 
 fn create_search_compat_router() -> Router<AppState> {
-    // `/search` is a stable Matrix endpoint. `/search_recipients` and
-    // `/search_rooms` are private and now served under
-    // `/_matrix/vendor/v1/…`; the `/v3` aliases stay for backward compatibility
-    // and are deprecated (ISSUE-13) — this comment is the deprecation notice,
-    // replacing the per-boot WARN B1-3 removed.
-    Router::new()
-        .route("/search", post(search::search))
-        .route("/search_recipients", post(search::search_recipients))
-        .route("/search_rooms", post(search::search_rooms))
+    // `/search` is the stable Matrix endpoint. `/search_recipients` and
+    // `/search_rooms` are private and live **only** under `/_matrix/vendor/v1/…`
+    // (see `assembly.rs::create_vendor_router`). Their former `/_matrix/client/v3`
+    // aliases were dead duplicates (same handler on both sides) and were deleted
+    // under ISSUE-13 / 铁律 1 — regression lock:
+    // `scripts/contract/test_extract_registered.py::check_client_prefix_vendor_twins`.
+    Router::new().route("/search", post(search::search))
 }
 
 fn create_room_context_router() -> Router<AppState> {

@@ -192,15 +192,18 @@ async fn test_v3_search_validation_is_preserved_after_router_refactor() {
 }
 
 #[tokio::test]
-async fn test_r0_search_recipients_route_still_works_after_nesting() {
+async fn test_search_recipients_route_still_works_under_the_vendor_nest() {
     let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
     let token = super::create_test_user(&app).await;
 
+    // `/_matrix/vendor/v1/search_recipients` 是私有端点的唯一规范位置
+    // （`assembly.rs` 的 `nest("/_matrix/vendor/v1", create_vendor_router())`）。
+    // 旧的 `/_matrix/client/v3/search_recipients` 别名已按铁律 1 删除。
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/v3/search_recipients")
+        .uri("/_matrix/vendor/v1/search_recipients")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(

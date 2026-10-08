@@ -33,12 +33,15 @@ const SCAN_ROOTS: [&str; 8] = [
     "synapse-federation",
 ];
 
-/// Files that must keep carrying the ISSUE-13 deprecation notice now that the
-/// per-boot WARN is gone.
-const DEPRECATION_NOTICE_SITES: [(&str, &str); 2] = [
-    ("synapse-web/src/routes/sync.rs", "/my_rooms"),
-    ("synapse-web/src/routes/handlers/search/mod.rs", "/search_rooms"),
-];
+// ⚠️ 2026-10-08 删除的常量：`DEPRECATION_NOTICE_SITES` —— 它原先钉住
+// `sync.rs` 的 `/my_rooms` 与 `handlers/search/mod.rs` 的 `/search_rooms`
+// 两处 legacy `/v3` 别名的**就地弃用告示**。
+//
+// 按 AGENTS.md 铁律 1（未发布项目无向后兼容义务），该批次把这两个别名
+// **连同路由一起删除**，因此「别名存在时必须留告示」这一前提不再成立。
+// 保留一条空名单 + 断言会制造恒绿门禁（铁律 8），故常量与它的用例一并删除。
+// 若将来再引入 legacy 别名，应重新引入「别名即必须有告示」的判据，
+// 而不是复活这张只针对注释文本的名单。
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -146,23 +149,6 @@ fn startup_validation_does_not_warn_about_unchangeable_state() {
         !validation_block.contains("SUPPRESS_"),
         "the manifest-validation path reads a suppression env var again:\n{validation_block}"
     );
-}
-
-#[test]
-fn the_removed_warning_left_its_deprecation_notice_behind() {
-    for (file, endpoint) in DEPRECATION_NOTICE_SITES {
-        let source = read(file);
-        assert!(
-            source.contains(endpoint),
-            "{file} no longer declares {endpoint}; this guard is pinned to a route that moved"
-        );
-        assert!(
-            source.contains("ISSUE-13"),
-            "{file} serves the deprecated {endpoint} alias without an ISSUE-13 notice. The per-boot \
-             WARN was removed on the condition that the deprecation stays documented at the \
-             declaration site — otherwise removing it lost information instead of noise"
-        );
-    }
 }
 
 #[test]

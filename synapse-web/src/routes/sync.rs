@@ -1,6 +1,6 @@
 use crate::routes::context::SyncContext;
 use crate::routes::{
-    get_joined_rooms, get_my_rooms,
+    get_joined_rooms,
     handlers::sync::{get_events, sync},
     AppState,
 };
@@ -35,11 +35,13 @@ fn create_sync_compat_router(state: AppState) -> Router<AppState> {
 }
 
 fn create_sync_v3_router(state: AppState) -> Router<AppState> {
-    // `/joined_rooms` is a stable Matrix endpoint; `/my_rooms` is private and now
-    // served under `/_matrix/vendor/v1/my_rooms`. The `/v3` alias stays for
-    // backward compatibility and is deprecated (ISSUE-13) — this comment is the
-    // deprecation notice, replacing the per-boot WARN B1-3 removed.
-    create_sync_compat_router(state).route("/joined_rooms", get(get_joined_rooms)).route("/my_rooms", get(get_my_rooms))
+    // `/joined_rooms` is the stable Matrix endpoint served here. `/my_rooms` is
+    // private and lives **only** under `/_matrix/vendor/v1/my_rooms`
+    // (`assembly.rs::create_vendor_router`); its former `/_matrix/client/v3`
+    // alias was a dead duplicate (same handler on both sides) and was deleted
+    // under ISSUE-13 / 铁律 1 — regression lock:
+    // `scripts/contract/test_extract_registered.py::check_client_prefix_vendor_twins`.
+    create_sync_compat_router(state).route("/joined_rooms", get(get_joined_rooms))
 }
 
 /// See [`create_sync_router`].
@@ -58,16 +60,22 @@ mod tests {
             "/_matrix/client/v3/sync",
             "/_matrix/client/v3/events",
             "/_matrix/client/v3/joined_rooms",
-            "/_matrix/client/v3/my_rooms",
         ];
 
         assert!(routes.iter().all(|route| route.starts_with("/_matrix/client/")));
     }
 
+    /// `/my_rooms` is private: its only home is `/_matrix/vendor/v1/my_rooms`
+    /// (`assembly.rs::create_vendor_router`). The former client-prefix alias was a
+    /// dead duplicate and was removed (ISSUE-13 / 铁律 1).
     #[test]
     fn test_sync_router_version_boundaries() {
-        let v3_only = ["/_matrix/client/v3/joined_rooms", "/_matrix/client/v3/my_rooms"];
+        let v3_only = ["/_matrix/client/v3/joined_rooms"];
 
         assert!(v3_only.iter().all(|route| route.starts_with("/_matrix/client/v3/")));
+        assert!(
+            !v3_only.iter().any(|route| route.ends_with("/my_rooms")),
+            "`/my_rooms` must not be reachable under the client prefix"
+        );
     }
 }

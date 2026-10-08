@@ -469,6 +469,52 @@ def check_standard_prefix_bucket(per: dict) -> None:
     )
 
 
+def check_client_prefix_vendor_twins(per: dict) -> None:
+    """`client` 前缀下不得留着已有 `vendor` 孪生的死别名。
+
+    这条判据是 `check_standard_prefix_bucket` 的**补集方向**，堵的是它的
+    结构性缺口：B 判据只对 `WHOLESALE_PRIVATE_FILES`（整模块私有文件）做全覆盖，
+    而落在**混合模块**里的私有别名（`sync.rs` / `handlers/search/mod.rs` /
+    `external_service.rs`）一条都不覆盖 —— 实测有 **6 条**死别名因此长期漏网，
+    连台账都没登记。
+
+    判据（纯路径形状，改标签绕不过去）：
+      若 `(method, /_matrix/client/{v1,v3}/X)` 与
+         `(method, /_matrix/vendor/v1/X)` **同时存在**，
+      则该 client 路由是死别名，必须满足二者之一：
+        ① 在 `spp.MSC_KEEP` 中（有 MSC 归属，合法留在 client 前缀）；
+        ② 已删除。
+      否则失败。
+
+    为什么"同时存在即死别名"成立：`/_matrix/vendor/v1` 是本项目私有端点的
+    **唯一规范位置**（见 `synapse-web/src/routes/assembly.rs:93-98` 的自述：
+    私有端点 "there is no `/_matrix/client/v3` twin"）。同一 `(method, 相对路径)`
+    在两侧都有，只可能是"迁移后留了一个别名"，而按 AGENTS.md 铁律 1
+    （未发布项目无向后兼容义务）别名不是合法状态。
+    """
+    live = {(m, p) for routes in per.values() for m, p in routes}
+    vendor = {t for t in live if t[1].startswith(spp.VENDOR_PREFIX + "/")}
+    # 只用 v1/v3 两个 client 前缀（`CLIENT_PREFIX_BASES` 里还有 r0，本项目未注册 r0 路由；
+    # 若将来出现，它会先被 `spp.CLIENT_PREFIXES` 那侧的判据拦住）。
+    bases = spp.CLIENT_PREFIX_BASES[:2]
+
+    twins: list = []
+    for method, path in sorted(live):
+        for base in bases:
+            if path.startswith(base + "/"):
+                rel = path[len(base) :]
+                if (method, spp.VENDOR_PREFIX + rel) in vendor:
+                    twins.append((method, path))
+
+    dead = [t for t in twins if t not in spp.MSC_KEEP]
+    check(
+        "no client-prefixed route keeps a vendor twin (dead alias)",
+        not dead,
+        f"{len(dead)} dead alias(es), e.g. {dead[:6]} — 私有端点的唯一规范位置是 "
+        f"{spp.VENDOR_PREFIX}；删掉 client 侧挂载，或在 spp.MSC_KEEP 里登记 MSC 编号",
+    )
+
+
 def check_lane_profile_modeling() -> None:
     """B2-1: the extractor must reproduce all six (lane x profile) fixture sets.
 
@@ -1281,6 +1327,35 @@ def mutation_check() -> int:
         globals()["read_route_ledger_snapshot"] = orig_reader
         FAILURES[:] = snap_failures_snapshot
 
+    # Mutation 9 — client/vendor 孪生别名判据必须真的会咬人。
+    #
+    # 合成一行"client 侧有 vendor 孪生"的路由（与 mutation#6 的合成行同法），
+    # 判据必须红。这是 §2.3 那 6 条漏网别名的回归锁。
+    twin_failures_snapshot = list(FAILURES)
+    try:
+        synthetic = {
+            "synthetic.rs": [
+                ("GET", "/_matrix/client/v3/__twin_probe__"),
+                ("GET", f"{spp.VENDOR_PREFIX}/__twin_probe__"),
+            ]
+        }
+        before = len(FAILURES)
+        check_client_prefix_vendor_twins(synthetic)
+        got = len(FAILURES) - before
+        if got >= 1:
+            print(
+                f"  ok   mutation#9 (client route with a vendor twin) turns the twin "
+                f"guard RED ({got} check(s) failed)"
+            )
+        else:
+            print(
+                "  FAIL mutation#9 did NOT turn the twin guard red — "
+                "check_client_prefix_vendor_twins is self-proving"
+            )
+            bad += 1
+    finally:
+        FAILURES[:] = twin_failures_snapshot
+
     return bad
 
 
@@ -1304,6 +1379,8 @@ def main() -> int:
     check_non_namespace_bucket(per)
     print("== standard-prefix private surface (ISSUE-13) ==")
     check_standard_prefix_bucket(per)
+    print("== client/vendor twin aliases ==")
+    check_client_prefix_vendor_twins(per)
     print("== compile lanes and runtime profiles (B2-1) ==")
     check_lane_profile_modeling()
     print("== unresolved ratchet ==")

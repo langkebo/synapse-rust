@@ -1,5 +1,5 @@
 fn all_derived_always_rows() -> Vec<DerivedRoute> {
-    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1028);
+    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1017);
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/", "assembly::create_router");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
@@ -26,38 +26,6 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/_health", "assembly::create_router");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    #[cfg(feature = "external-services")]
-    {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/admin/v1/external_services", "external_service")
-            .with_query_params(&["service_type"]);
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    #[cfg(feature = "external-services")]
-    {
-        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/admin/v1/external_services", "external_service");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    #[cfg(feature = "external-services")]
-    {
-        let e =
-            RouteEntry::new(axum::http::Method::GET, "/_matrix/admin/v1/external_services/health", "external_service");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    #[cfg(feature = "external-services")]
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::DELETE,
-            "/_matrix/admin/v1/external_services/{as_id}",
-            "external_service",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    #[cfg(feature = "external-services")]
-    {
-        let e =
-            RouteEntry::new(axum::http::Method::PUT, "/_matrix/admin/v1/external_services/{as_id}", "external_service");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -401,30 +369,6 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/config/client", "assembly::create_router");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    #[cfg(feature = "external-services")]
-    {
-        let e =
-            RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/external_services/health", "external_service");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    #[cfg(feature = "external-services")]
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::DELETE,
-            "/_matrix/client/v1/external_services/{service_id}",
-            "external_service",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    #[cfg(feature = "external-services")]
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::PUT,
-            "/_matrix/client/v1/external_services/{service_id}",
-            "external_service",
-        );
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -1497,10 +1441,6 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/my_rooms", "sync");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
         let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/notifications", "push");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
@@ -2569,14 +2509,6 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/search", "search");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/search_recipients", "search");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/search_rooms", "search");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {

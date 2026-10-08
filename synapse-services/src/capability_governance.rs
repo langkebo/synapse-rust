@@ -397,7 +397,11 @@ impl CapabilityGovernance {
     }
 
     fn external_services_capability(&self) -> CapabilityFlag {
-        CapabilityFlag::route_surface(self.manifest_has_route("GET", "/_matrix/client/v1/external_services/health"))
+        // ISSUE-13: canonical vendor path (same fix as `friends_capability` above).
+        // 原先探 `/_matrix/client/v1/external_services/health` —— 那是私有端点在 client
+        // 前缀下的死别名，已于 2026-10-08「前缀死别名收敛」批次删除；不改这里会让声明的
+        // capability 静默翻成 `false`，而功能仍在 `/_matrix/vendor/v1` 下正常服务。
+        CapabilityFlag::route_surface(self.manifest_has_route("GET", "/_matrix/vendor/v1/external_services/health"))
     }
 
     fn voice_extended_capability(&self) -> CapabilityFlag {
@@ -614,7 +618,7 @@ mod tests {
             ("PUT", "/_matrix/client/v3/profile/{user_id}/avatar_url"),
             ("POST", "/_matrix/client/v3/account/3pid"),
             ("GET", "/_matrix/vendor/v1/friends"),
-            ("GET", "/_matrix/client/v1/external_services/health"),
+            ("GET", "/_matrix/vendor/v1/external_services/health"),
             ("GET", "/_matrix/vendor/v1/voice/config"),
             ("POST", "/_matrix/client/v1/widgets"),
             ("PUT", "/_matrix/vendor/v1/rooms/{room_id}/burn"),

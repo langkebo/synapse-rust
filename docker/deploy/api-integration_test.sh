@@ -2062,7 +2062,7 @@ echo "=========================================="
 echo "53. Search"
 echo "=========================================="
 echo "53. Search Rooms"
-curl -sf -X POST "$SERVER_URL/_matrix/client/v3/search_rooms" \
+curl -sf -X POST "$SERVER_URL/_matrix/vendor/v1/search_rooms" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"search_term": "test", "limit": 10}' && pass "Search Rooms" || fail "Search Rooms"
@@ -2472,7 +2472,7 @@ admin_endpoint_check "Joined Rooms" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
 echo "101. My Rooms"
-http_json GET "$SERVER_URL/_matrix/client/v3/my_rooms" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/my_rooms" "$TOKEN"
 admin_endpoint_check "My Rooms" "$HTTP_BODY" "$HTTP_STATUS"
 
 echo ""
@@ -3032,7 +3032,7 @@ curl -sf -X POST "$SERVER_URL/_matrix/client/v3/search" \
 
 echo ""
 echo "164. Search Rooms"
-curl -sf -X POST "$SERVER_URL/_matrix/client/v3/search_rooms" \
+curl -sf -X POST "$SERVER_URL/_matrix/vendor/v1/search_rooms" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"search_term": "test"}' && pass "Search Rooms" || skip "Search Rooms (endpoint not available)"

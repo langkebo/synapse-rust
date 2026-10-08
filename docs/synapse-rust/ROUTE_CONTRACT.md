@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1047**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1036**
 - 含路由注册的模块文件：**65**
 - `derived_routes.rs` 中的 `registered_by` 标签：**73**
 - 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
@@ -69,7 +69,7 @@
 **逐模块清单里的两种标注**（都从派生表反解，不是人工维护）：
 
 - 〔仅 `X` profile〕 —— 该路由**只**在 profile `X` 下注册，默认构建里不存在（即上表成员）；
-- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1049 行去重为 1047 条的来源。
+- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1038 行去重为 1036 条的来源。
 
 当前共 **2** 条双档注册：
 
@@ -281,13 +281,12 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 - `PUT` `/_matrix/client/v3/rooms/{room_id}/send/m.reaction/{txn_id}`
 
-### 同步 (Sync) （4 条）
+### 同步 (Sync) （3 条）
 
-#### `sync.rs` — 4 条 ✅派生表
+#### `sync.rs` — 3 条 ✅派生表
 
 - `GET` `/_matrix/client/v3/events`
 - `GET` `/_matrix/client/v3/joined_rooms`
-- `GET` `/_matrix/client/v3/my_rooms`
 - `GET` `/_matrix/client/v3/sync`
 
 ### 后台更新 （19 条）
@@ -328,28 +327,20 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_matrix/client/v1/presence/{user_id}/status`
 - `PUT` `/_matrix/client/v3/presence/{user_id}/status`
 
-### 外部服务 （20 条）
+### 外部服务 （12 条）
 
-#### `external_service.rs` — 20 条 ✅派生表
+#### `external_service.rs` — 12 条 ✅派生表
 
-- `DELETE` `/_matrix/admin/v1/external_services/{as_id}`
-- `DELETE` `/_matrix/client/v1/external_services/{service_id}`
 - `DELETE` `/_matrix/vendor/v1/external_services/{service_id}`
 - `DELETE` `/_synapse/admin/v1/external_services/{as_id}`
-- `GET` `/_matrix/admin/v1/external_services`
-- `GET` `/_matrix/admin/v1/external_services/health`
-- `GET` `/_matrix/client/v1/external_services/health`
 - `GET` `/_matrix/vendor/v1/external_services/health`
 - `GET` `/_synapse/admin/v1/external_services`
 - `GET` `/_synapse/admin/v1/external_services/health`
 - `GET` `/_synapse/admin/v1/external_services/{as_id}/health`
-- `POST` `/_matrix/admin/v1/external_services`
 - `POST` `/_synapse/admin/v1/external_services`
 - `POST` `/_synapse/admin/v1/external_services/{as_id}/health/check`
 - `POST` `/_synapse/external/trendradar/{service_id}/webhook`
 - `POST` `/_synapse/external/webhook/{service_id}`
-- `PUT` `/_matrix/admin/v1/external_services/{as_id}`
-- `PUT` `/_matrix/client/v1/external_services/{service_id}`
 - `PUT` `/_matrix/vendor/v1/external_services/{service_id}`
 - `PUT` `/_synapse/admin/v1/external_services/{as_id}`
 
@@ -785,9 +776,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_synapse/admin/v1/push/process`
 - `PUT` `/_synapse/admin/v1/push/config`
 
-### 搜索 (Search) （8 条）
+### 搜索 (Search) （6 条）
 
-#### `handlers/search/mod.rs` — 8 条 ✅派生表
+#### `handlers/search/mod.rs` — 6 条 ✅派生表
 
 - `GET` `/_matrix/client/v1/rooms/{room_id}/context/{event_id}`
 - `GET` `/_matrix/client/v1/rooms/{room_id}/hierarchy`
@@ -795,8 +786,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/client/v3/rooms/{room_id}/context/{event_id}`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/hierarchy`
 - `POST` `/_matrix/client/v3/search`
-- `POST` `/_matrix/client/v3/search_recipients`
-- `POST` `/_matrix/client/v3/search_rooms`
 
 ### 标签 (Tags) （4 条）
 

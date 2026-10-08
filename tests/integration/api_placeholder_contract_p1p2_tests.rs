@@ -403,7 +403,7 @@ async fn test_search_rooms_contract_hides_private_rooms_from_outsiders() {
         app.clone(),
         Request::builder()
             .method("POST")
-            .uri("/_matrix/client/v3/search_rooms")
+            .uri("/_matrix/vendor/v1/search_rooms")
             .header("Authorization", format!("Bearer {}", outsider_token))
             .header("Content-Type", "application/json")
             .body(Body::from(json!({ "search_term": room_name, "limit": 10 }).to_string()))
@@ -442,7 +442,7 @@ async fn test_search_rooms_contract_allows_members_to_find_joined_private_rooms(
         app.clone(),
         Request::builder()
             .method("POST")
-            .uri("/_matrix/client/v3/search_rooms")
+            .uri("/_matrix/vendor/v1/search_rooms")
             .header("Authorization", format!("Bearer {}", member_token))
             .header("Content-Type", "application/json")
             .body(Body::from(json!({ "search_term": room_name, "limit": 10 }).to_string()))

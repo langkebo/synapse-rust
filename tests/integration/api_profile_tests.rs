@@ -749,7 +749,7 @@ async fn test_search_recipients_respects_profile_visibility() {
 
     let search_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/v3/search_recipients")
+        .uri("/_matrix/vendor/v1/search_recipients")
         .header("Authorization", format!("Bearer {}", bob_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -769,7 +769,7 @@ async fn test_search_recipients_respects_profile_visibility() {
 
     let own_search_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/v3/search_recipients")
+        .uri("/_matrix/vendor/v1/search_recipients")
         .header("Authorization", format!("Bearer {}", alice_token))
         .header("Content-Type", "application/json")
         .body(Body::from(

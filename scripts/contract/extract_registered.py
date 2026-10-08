@@ -1118,7 +1118,6 @@ EXPECTED_ANNOTATIONS = {
     ("DELETE", "/_matrix/client/v3/room_keys/keys/{room_id}/{session_id}"): {
         "query_params": "version"
     },
-    ("GET", "/_matrix/admin/v1/external_services"): {"query_params": "service_type"},
     ("GET", "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}"): {
         "auth": "user"
     },

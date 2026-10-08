@@ -416,27 +416,15 @@ pub fn create_external_service_router(state: AppState) -> Router<AppState> {
             crate::middleware::admin_auth_middleware,
         ));
 
-    let admin_v1_routes = Router::new()
-        .route("/_matrix/admin/v1/external_services", get(list_external_services).post(register_external_service))
-        .route(
-            "/_matrix/admin/v1/external_services/{as_id}",
-            put(update_external_service).delete(unregister_external_service),
-        )
-        .route("/_matrix/admin/v1/external_services/health", get(get_all_health_status))
-        .route_layer(axum::middleware::from_fn_with_state(
-            <crate::routes::context::AdminContext as axum::extract::FromRef<crate::routes::AppState>>::from_ref(&state),
-            crate::middleware::admin_auth_middleware,
-        ));
-
-    let client_v1_routes = Router::new()
-        .route("/_matrix/client/v1/external_services/health", get(client_health_check_all))
-        .route(
-            "/_matrix/client/v1/external_services/{service_id}",
-            put(client_update_external_service).delete(client_delete_external_service),
-        )
-        // ISSUE-13: vendor 前缀（私有端点，client 前缀保留为向后兼容别名）
-        .route("/_matrix/vendor/v1/external_services/health", get(client_health_check_all))
-        .route(
+    // ⚠️ `_matrix/admin` 不是任何 Matrix 规范枚举的命名空间（规范用的是
+    // `/_synapse/admin`）。这里原先还挂了一份 `/_matrix/admin/v1/external_services*`
+    // 作为"第二形态"，与上面 admin_routes 共用同一 handler 且是它的**严格子集**
+    // （缺 `/{as_id}/health` 与 `/{as_id}/health/check`）⇒ 纯重复面，已删除。
+    // 消费者取证：SDK 的 `matrix_admin` 前缀变体无任何生产者传参；
+    // Tjg `paths/admin.ts` 的 `MATRIX_EXTERNAL_SERVICES` 常量全仓零消费者。
+    // 私有端点的唯一规范位置是下面的 `/_matrix/vendor/v1`。
+    let vendor_routes =
+        Router::new().route("/_matrix/vendor/v1/external_services/health", get(client_health_check_all)).route(
             "/_matrix/vendor/v1/external_services/{service_id}",
             put(client_update_external_service).delete(client_delete_external_service),
         );
@@ -450,7 +438,7 @@ pub fn create_external_service_router(state: AppState) -> Router<AppState> {
     // API contract) when no credentials are provided.
     let public_routes = public_routes.route_layer(axum::middleware::from_fn(webhook_auth_guard));
 
-    public_routes.merge(admin_routes).merge(admin_v1_routes).merge(client_v1_routes).with_state(state)
+    public_routes.merge(admin_routes).merge(vendor_routes).with_state(state)
 }
 
 #[cfg(test)]

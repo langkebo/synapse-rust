@@ -147,8 +147,25 @@
 > 第二份分类脚本；该表的重算需要一个显式决策（重建分类脚本并入库，或把 §二/§三 降级为定性描述）。
 > 本轮**不重算**任何 MSC/功能判定（§五/§六/§七 沿用 v1.11）。
 >
+> **v1.18 增量（2026-10-08，前缀死别名 + 非规范命名空间收敛，本批后端侧）**：删除
+> **6 条 client 前缀死别名**（`GET /_matrix/client/v1/external_services/health`、
+> `PUT`/`DELETE /_matrix/client/v1/external_services/{service_id}`、`GET /_matrix/client/v3/my_rooms`、
+> `POST /_matrix/client/v3/search_rooms`、`POST /_matrix/client/v3/search_recipients`）——
+> 每一条都在 `/_matrix/vendor/v1` 下有**同 method 孪生**且挂**同一 handler**；同时删除
+> **5 条 `/_matrix/admin/v1/external_services*`**（`_matrix/admin` 不在规范枚举的命名空间内，
+> 且与 `/_synapse/admin/v1/external_services*` **同 handler**、是其**严格子集**）。
+> ⇒ **注册条目 1047 → 1036 / 唯一路径 828 → 820 / 逻辑端点 757 → 749**。
+> 逻辑端点的折叠规则本版已独立复现（`v1/v3/r0/unstable/<seg>` → `vX`，对 v1.17 的 HEAD 复算得 **757**，
+> 与旧值一致 ⇒ 口径对齐有据）。⚠️ 本次复算也暴露：v1.17 表内 client/admin 的**分桶边界**与现配方相差 2 条
+> （总数一致，仅归属不同），故本版三口径**以「全部」列为准**，分桶列按现配方重算。
+> ② 同步刷新 §1.1 表、差额注、§八配方注释值、§九时效行与页脚。
+> ③ 新增回归门禁 `check_client_prefix_vendor_twins`（判据：client 前缀 ∩ vendor 孪生 ⇒ 必须删除或在
+> `MSC_KEEP` 登记）+ `mutation#9`，见 `docs/后端冗余清除与功能完善优化方案-2026-10-08.md` §3 Batch 2。
+> ④ ⚠️ **§二（Client）/ §三（Admin）分类表仍停留在 v1.11 口径**（原因同 v1.12 注③：§8.1 分类脚本不在仓库内）。
+> 本轮**不重算**任何 MSC/功能判定（§五/§六/§七 沿用 v1.11）。
+
 > **权威来源声明（三条，冲突时按此优先级）**：
-> 1. **机器权威（路由）**：[`ROUTE_CONTRACT.md`](./ROUTE_CONTRACT.md) —— 由 `scripts/contract/extract_registered.py` 从真实 `.route()` 注册面抽取，生成于 2026-10-08（注册条目 **1047**），
+> 1. **机器权威（路由）**：[`ROUTE_CONTRACT.md`](./ROUTE_CONTRACT.md) —— 由 `scripts/contract/extract_registered.py` 从真实 `.route()` 注册面抽取，生成于 2026-10-08（注册条目 **1036**），
 >    并与 `derived_routes.rs` 派生表 + `tests/unit/fixtures/ledger_export/*.json` 双向对账（两份独立事实来源，差额必须为 0）。
 > 2. **语义权威（MSC 编号）**：[`MSC_SEMANTICS.md`](./MSC_SEMANTICS.md) —— 本仓存在**借用 MSC 编号**承载非官方语义的情况（MSC4155 / MSC4204 / MSC3967），
 >    按编号推断语义前必须先查表。
@@ -170,15 +187,15 @@
 
 | 口径 | 含义 | 全部 | `/_matrix/client` | `/_synapse/admin` | 其他命名空间 |
 |---|---|---|---|---|---|
-| **注册条目** | 唯一 `(method, absolute_path)` 对 | **1047** | 482 | 290 | 275 |
-| **唯一路径** | 去掉方法后的唯一 `absolute_path` | **828** | 366 | 228 | 234 |
-| **逻辑端点** | 在上者基础上折叠版本前缀（`v3`/`r0`/`v1`/`unstable/*` → `vX`）后的唯一路径 | **757** | 297 | 226 | 234 |
+| **注册条目** | 唯一 `(method, absolute_path)` 对 | **1036** | 476 | 290 | 270 |
+| **唯一路径** | 去掉方法后的唯一 `absolute_path` | **820** | 361 | 228 | 231 |
+| **逻辑端点** | 在上者基础上折叠版本前缀（`v3`/`r0`/`v1`/`unstable/*` → `vX`）后的唯一路径 | **749** | 290 | 228 | 231 |
 
-- `ROUTE_CONTRACT.md` 总览现为 **1047**（2026-10-08 重生成），与上表「注册条目」**同为 1047**（本版已把 §1.1 三口径表刷新到同一 HEAD）；
+- `ROUTE_CONTRACT.md` 总览现为 **1036**（2026-10-08 重生成），与上表「注册条目」**同为 1036**（本版已把 §1.1 三口径表刷新到同一 HEAD）；
   该清单本身无 `(method,path)` 重复，65 个含路由注册的模块文件 / 73 个 `registered_by` 标签同为该文件的总览数字；
   生成器（`scripts/contract/gen_contract_doc.py`）另报 **45 个分类**（只出现在它的 stdout，不写进正文）。
-- 1047 → 828 的差额**不是漂移**，而是"同路径多方法"（如 `summary` 4 个方法）；
-  828 → 757 的差额是"同路径多版本前缀"。
+- 1036 → 820 的差额**不是漂移**，而是"同路径多方法"（如 `summary` 4 个方法）；
+  820 → 749 的差额是"同路径多版本前缀"。
 - 「其他命名空间」**197**（唯一路径）= `/_matrix/`（非 client，如 federation/app/key）**145** + `/_synapse/`（非 admin）41 + `/.well-known/` 5 + 根级非命名空间 6。
   其中根级端点按 `(method,path)` 为 **8 条有意注册**（3 条探活 `GET /`·`/health`·`/_health` + 5 条 legacy CAS admin 根端点
   `GET|POST /admin/services`、`DELETE /admin/services/{service_id}`、`GET|POST /admin/users/{user_id}/attributes`），该桶由
@@ -639,7 +656,7 @@ grep -n '注册路由条目\|含路由注册的模块文件\|registered_by' docs
 #       锚定 `$` 会静默少 21 条（实测 1129 ≠ 1150，是本表上一版漂移的一个来源）。
 grep -oE '^- `[A-Z]+` `[^`]+`' docs/synapse-rust/ROUTE_CONTRACT.md \
   | sed -E 's/^- `([A-Z]+)` `([^`]+)`$/\1 \2/' > /tmp/mp.txt
-wc -l < /tmp/mp.txt                                          # 1047 注册条目 (method,path)
+wc -l < /tmp/mp.txt                                          # 1036 注册条目 (method,path)
 awk '{print $2}' /tmp/mp.txt | sort -u > /tmp/paths.txt
 wc -l < /tmp/paths.txt                                       #  838 唯一路径
 grep -c '^/_matrix/client' /tmp/paths.txt                    #  368 唯一路径 client
@@ -789,7 +806,7 @@ for key, rules in (("Client", CLIENT), ("Admin", ADMIN)):
 
 | 文档 | 用途 | 时效性 |
 |---|---|---|
-| [`ROUTE_CONTRACT.md`](./ROUTE_CONTRACT.md) | **路由机器权威**（逐模块 `(method, path)`） | 2026-10-08 生成（**1047** 条，与 §1.1 表一致） |
+| [`ROUTE_CONTRACT.md`](./ROUTE_CONTRACT.md) | **路由机器权威**（逐模块 `(method, path)`） | 2026-10-08 生成（**1036** 条，与 §1.1 表一致） |
 | [`MSC_SEMANTICS.md`](./MSC_SEMANTICS.md) | **MSC 编号语义唯一真相源**（含"借用编号"登记） | 2026-09-14 |
 | [`ELEMENT_SYNAPSE_GAP_ANALYSIS_2026-07-28.md`](./ELEMENT_SYNAPSE_GAP_ANALYSIS_2026-07-28.md) | 对标 v1.156.0 的功能级差距分析（历史快照；现行上游基线 **v1.162.0** 即本文档） | 2026-07-28 |
 | [`../audit/COMPARISON_REPORT_REVIEW_2026-09-22.md`](../audit/COMPARISON_REPORT_REVIEW_2026-09-22.md) | 对 `synapse-rust-vs-synapse-comparison.md` 的复核（含 v1.157–1.161 逐条实测） | 2026-09-22 |

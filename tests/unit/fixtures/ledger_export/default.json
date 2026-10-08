@@ -8,7 +8,7 @@
     "worker_enabled": false,
     "saml_enabled": false
   },
-  "entry_count": 968,
+  "entry_count": 957,
   "entries": [
     {
       "method": "GET",
@@ -57,47 +57,6 @@
       "path": "/_health",
       "registered_by": "assembly::create_router",
       "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/admin/v1/external_services",
-      "registered_by": "external_service",
-      "path_params": [],
-      "query_params": [
-        "service_type"
-      ]
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/admin/v1/external_services",
-      "registered_by": "external_service",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/admin/v1/external_services/health",
-      "registered_by": "external_service",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "DELETE",
-      "path": "/_matrix/admin/v1/external_services/{as_id}",
-      "registered_by": "external_service",
-      "path_params": [
-        "as_id"
-      ],
-      "query_params": []
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/admin/v1/external_services/{as_id}",
-      "registered_by": "external_service",
-      "path_params": [
-        "as_id"
-      ],
       "query_params": []
     },
     {
@@ -521,31 +480,6 @@
       "path": "/_matrix/client/v1/config/client",
       "registered_by": "assembly::create_router",
       "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/external_services/health",
-      "registered_by": "external_service",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "DELETE",
-      "path": "/_matrix/client/v1/external_services/{service_id}",
-      "registered_by": "external_service",
-      "path_params": [
-        "service_id"
-      ],
-      "query_params": []
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/v1/external_services/{service_id}",
-      "registered_by": "external_service",
-      "path_params": [
-        "service_id"
-      ],
       "query_params": []
     },
     {
@@ -2137,13 +2071,6 @@
       "method": "GET",
       "path": "/_matrix/client/v3/media/config",
       "registered_by": "assembly::media_config",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v3/my_rooms",
-      "registered_by": "sync",
       "path_params": [],
       "query_params": []
     },
@@ -3936,20 +3863,6 @@
     {
       "method": "POST",
       "path": "/_matrix/client/v3/search",
-      "registered_by": "search",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v3/search_recipients",
-      "registered_by": "search",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v3/search_rooms",
       "registered_by": "search",
       "path_params": [],
       "query_params": []
