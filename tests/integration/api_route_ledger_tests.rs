@@ -439,7 +439,7 @@ async fn friend_routes_are_declared_when_feature_enabled() {
         super::skip_or_fail_without_db();
         return;
     };
-    assert!(has_declared_route(&ledger, Method::GET, "/_matrix/client/v3/friends"));
+    assert!(has_declared_route(&ledger, Method::GET, "/_matrix/vendor/v1/friends"));
 }
 
 #[cfg(feature = "voice-extended")]
@@ -449,9 +449,11 @@ async fn voice_routes_are_declared_when_feature_enabled() {
         super::skip_or_fail_without_db();
         return;
     };
-    assert!(has_declared_route(&ledger, Method::GET, "/_matrix/client/v3/voice/config"));
-    assert!(has_declared_route(&ledger, Method::GET, "/_matrix/client/v1/voice/config"));
-    assert!(has_declared_route(&ledger, Method::POST, "/_matrix/client/v3/voice/upload"));
+    // ISSUE-13: the two former client-prefix twins (`/_matrix/client/v3/voice/config`
+    // and `/_matrix/client/v1/voice/config`) were dead aliases of this single
+    // canonical vendor route and were deleted.
+    assert!(has_declared_route(&ledger, Method::GET, "/_matrix/vendor/v1/voice/config"));
+    assert!(has_declared_route(&ledger, Method::POST, "/_matrix/vendor/v1/voice/upload"));
 }
 
 #[cfg(feature = "external-services")]
@@ -482,7 +484,7 @@ async fn burn_after_read_routes_are_declared_when_feature_enabled() {
         super::skip_or_fail_without_db();
         return;
     };
-    assert!(has_declared_route(&ledger, Method::PUT, "/_matrix/client/v1/rooms/{room_id}/burn"));
+    assert!(has_declared_route(&ledger, Method::PUT, "/_matrix/vendor/v1/rooms/{room_id}/burn"));
 }
 
 #[cfg(feature = "cas-sso")]

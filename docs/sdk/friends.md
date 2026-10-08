@@ -28,14 +28,14 @@
 
 ### 获取好友列表房间 ID
 
-**端点:** `GET /_matrix/client/v1/friends/room`
+**端点:** `GET /_matrix/vendor/v1/friends/room`
 
 **需要认证:** 是
 
 **请求示例:**
 ```typescript
 const getFriendListRoomId = async (accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/v1/friends/room`, {
+  const response = await fetch(`${BASE_URL}/_matrix/vendor/v1/friends/room`, {
     headers: { 'Authorization': `Bearer ${accessToken}` }
   });
   return handleApiResponse<{
@@ -50,7 +50,7 @@ const getFriendListRoomId = async (accessToken: string) => {
 
 ### 获取好友列表
 
-**端点:** `GET /_matrix/client/v1/friends`
+**端点:** `GET /_matrix/vendor/v1/friends`
 
 **需要认证:** 是
 
@@ -89,7 +89,7 @@ interface FriendInfo {
 }
 
 const getFriends = async (accessToken: string): Promise<FriendInfo[]> => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/v1/friends`, {
+  const response = await fetch(`${BASE_URL}/_matrix/vendor/v1/friends`, {
     headers: { 'Authorization': `Bearer ${accessToken}` }
   });
   const result = await handleApiResponse<{ data: FriendInfo[] }>(response);
@@ -103,7 +103,7 @@ const getFriends = async (accessToken: string): Promise<FriendInfo[]> => {
 
 ### 发送好友请求
 
-**端点:** `POST /_matrix/client/v1/friends/request`
+**端点:** `POST /_matrix/vendor/v1/friends/request`
 
 **需要认证:** 是
 
@@ -118,7 +118,7 @@ interface SendFriendRequest {
 **请求示例:**
 ```typescript
 const sendFriendRequest = async (userId: string, message?: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/v1/friends/request`, {
+  const response = await fetch(`${BASE_URL}/_matrix/vendor/v1/friends/request`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -153,14 +153,14 @@ const sendFriendRequest = async (userId: string, message?: string, accessToken: 
 
 ### 获取待处理好友请求
 
-**端点:** `GET /_matrix/client/v1/friends/requests`
+**端点:** `GET /_matrix/vendor/v1/friends/requests`
 
 **需要认证:** 是
 
 **请求示例:**
 ```typescript
 const getPendingRequests = async (accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/v1/friends/requests`, {
+  const response = await fetch(`${BASE_URL}/_matrix/vendor/v1/friends/requests`, {
     headers: { 'Authorization': `Bearer ${accessToken}` }
   });
   return handleApiResponse<{
@@ -185,7 +185,7 @@ interface FriendRequest {
 
 ### 接受好友请求
 
-**端点:** `POST /_matrix/client/v1/friends/request/{request_id}/accept`
+**端点:** `POST /_matrix/vendor/v1/friends/request/{request_id}/accept`
 
 **需要认证:** 是
 
@@ -193,7 +193,7 @@ interface FriendRequest {
 ```typescript
 const acceptFriendRequest = async (requestId: number, accessToken: string) => {
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/v1/friends/request/${requestId}/accept`,
+    `${BASE_URL}/_matrix/vendor/v1/friends/request/${requestId}/accept`,
     {
       method: 'POST',
       headers: {
@@ -230,7 +230,7 @@ const acceptFriendRequest = async (requestId: number, accessToken: string) => {
 
 ### 拒绝好友请求
 
-**端点:** `POST /_matrix/client/v1/friends/request/{request_id}/decline`
+**端点:** `POST /_matrix/vendor/v1/friends/request/{request_id}/decline`
 
 **需要认证:** 是
 
@@ -238,7 +238,7 @@ const acceptFriendRequest = async (requestId: number, accessToken: string) => {
 ```typescript
 const declineFriendRequest = async (requestId: number, accessToken: string) => {
   const response = await fetch(
-    `${BASE_URL}/_matrix/client/v1/friends/request/${requestId}/decline`,
+    `${BASE_URL}/_matrix/vendor/v1/friends/request/${requestId}/decline`,
     {
       method: 'POST',
       headers: {
@@ -260,7 +260,7 @@ const declineFriendRequest = async (requestId: number, accessToken: string) => {
 
 ### 删除好友
 
-**端点:** `DELETE /_matrix/client/v1/friends`
+**端点:** `DELETE /_matrix/vendor/v1/friends`
 
 **需要认证:** 是
 
@@ -274,7 +274,7 @@ interface RemoveFriendRequest {
 **请求示例:**
 ```typescript
 const removeFriend = async (userId: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/v1/friends`, {
+  const response = await fetch(`${BASE_URL}/_matrix/vendor/v1/friends`, {
     method: 'DELETE',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -297,14 +297,14 @@ const removeFriend = async (userId: string, accessToken: string) => {
 
 ### 获取私信房间
 
-**端点:** `GET /_matrix/client/v1/friends/dm/{user_id}`
+**端点:** `GET /_matrix/vendor/v1/friends/dm/{user_id}`
 
 **需要认证:** 是
 
 **请求示例:**
 ```typescript
 const getDmRoom = async (userId: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/v1/friends/dm/${encodeURIComponent(userId)}`, {
+  const response = await fetch(`${BASE_URL}/_matrix/vendor/v1/friends/dm/${encodeURIComponent(userId)}`, {
     headers: { 'Authorization': `Bearer ${accessToken}` }
   });
   return handleApiResponse<{
@@ -318,7 +318,7 @@ const getDmRoom = async (userId: string, accessToken: string) => {
 
 ### 创建私信房间
 
-**端点:** `POST /_matrix/client/v1/friends/dm/{user_id}`
+**端点:** `POST /_matrix/vendor/v1/friends/dm/{user_id}`
 
 **需要认证:** 是
 
@@ -332,7 +332,7 @@ interface CreateDmRoomRequest {
 **请求示例:**
 ```typescript
 const createDmRoom = async (userId: string, isPrivate = false, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/v1/friends/dm/${encodeURIComponent(userId)}`, {
+  const response = await fetch(`${BASE_URL}/_matrix/vendor/v1/friends/dm/${encodeURIComponent(userId)}`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -355,14 +355,14 @@ const createDmRoom = async (userId: string, isPrivate = false, accessToken: stri
 
 ### 检查好友关系
 
-**端点:** `GET /_matrix/client/v1/friends/check/{user_id}`
+**端点:** `GET /_matrix/vendor/v1/friends/check/{user_id}`
 
 **需要认证:** 是
 
 **请求示例:**
 ```typescript
 const checkFriendship = async (userId: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/v1/friends/check/${encodeURIComponent(userId)}`, {
+  const response = await fetch(`${BASE_URL}/_matrix/vendor/v1/friends/check/${encodeURIComponent(userId)}`, {
     headers: { 'Authorization': `Bearer ${accessToken}` }
   });
   return handleApiResponse<{
@@ -382,7 +382,7 @@ class FriendService {
 
   // 获取所有好友
   async getFriends(): Promise<FriendInfo[]> {
-    const response = await fetch(`${BASE_URL}/_matrix/client/v1/friends`, {
+    const response = await fetch(`${BASE_URL}/_matrix/vendor/v1/friends`, {
       headers: this.auth.getAuthHeaders()
     });
     const result = await this.auth.handleResponse<{ data: FriendInfo[] }>(response);
@@ -391,7 +391,7 @@ class FriendService {
 
   // 发送好友请求
   async sendRequest(userId: string, message?: string) {
-    const response = await fetch(`${BASE_URL}/_matrix/client/v1/friends/request`, {
+    const response = await fetch(`${BASE_URL}/_matrix/vendor/v1/friends/request`, {
       method: 'POST',
       headers: this.auth.getAuthHeaders(),
       body: JSON.stringify({
@@ -404,7 +404,7 @@ class FriendService {
 
   // 获取待处理请求
   async getPendingRequests() {
-    const response = await fetch(`${BASE_URL}/_matrix/client/v1/friends/requests`, {
+    const response = await fetch(`${BASE_URL}/_matrix/vendor/v1/friends/requests`, {
       headers: this.auth.getAuthHeaders()
     });
     const result = await this.auth.handleResponse<{ data: FriendRequest[] }>(response);
@@ -414,7 +414,7 @@ class FriendService {
   // 接受请求
   async acceptRequest(requestId: number) {
     const response = await fetch(
-      `${BASE_URL}/_matrix/client/v1/friends/request/${requestId}/accept`,
+      `${BASE_URL}/_matrix/vendor/v1/friends/request/${requestId}/accept`,
       {
         method: 'POST',
         headers: this.auth.getAuthHeaders(),
@@ -427,7 +427,7 @@ class FriendService {
   // 拒绝请求
   async declineRequest(requestId: number) {
     const response = await fetch(
-      `${BASE_URL}/_matrix/client/v1/friends/request/${requestId}/decline`,
+      `${BASE_URL}/_matrix/vendor/v1/friends/request/${requestId}/decline`,
       {
         method: 'POST',
         headers: this.auth.getAuthHeaders(),
@@ -439,7 +439,7 @@ class FriendService {
 
   // 删除好友
   async removeFriend(userId: string) {
-    const response = await fetch(`${BASE_URL}/_matrix/client/v1/friends`, {
+    const response = await fetch(`${BASE_URL}/_matrix/vendor/v1/friends`, {
       method: 'DELETE',
       headers: this.auth.getAuthHeaders(),
       body: JSON.stringify({ user_id: userId })
@@ -451,7 +451,7 @@ class FriendService {
   async getDmRoom(userId: string, create = false) {
     if (create) {
       const response = await fetch(
-        `${BASE_URL}/_matrix/client/v1/friends/dm/${encodeURIComponent(userId)}`,
+        `${BASE_URL}/_matrix/vendor/v1/friends/dm/${encodeURIComponent(userId)}`,
         {
           method: 'POST',
           headers: this.auth.getAuthHeaders(),
@@ -461,7 +461,7 @@ class FriendService {
       return this.auth.handleResponse(response);
     } else {
       const response = await fetch(
-        `${BASE_URL}/_matrix/client/v1/friends/dm/${encodeURIComponent(userId)}`,
+        `${BASE_URL}/_matrix/vendor/v1/friends/dm/${encodeURIComponent(userId)}`,
         { headers: this.auth.getAuthHeaders() }
       );
       return this.auth.handleResponse(response);
@@ -471,7 +471,7 @@ class FriendService {
   // 检查是否为好友
   async isFriend(userId: string): Promise<boolean> {
     const response = await fetch(
-      `${BASE_URL}/_matrix/client/v1/friends/check/${encodeURIComponent(userId)}`,
+      `${BASE_URL}/_matrix/vendor/v1/friends/check/${encodeURIComponent(userId)}`,
       { headers: this.auth.getAuthHeaders() }
     );
     const result = await this.auth.handleResponse<{ are_friends: boolean }>(response);
@@ -509,7 +509,7 @@ export function useFriends(accessToken: string): UseFriendsResult {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${BASE_URL}/_matrix/client/v1/friends`, {
+      const response = await fetch(`${BASE_URL}/_matrix/vendor/v1/friends`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       });
       const result = await response.json();
@@ -522,7 +522,7 @@ export function useFriends(accessToken: string): UseFriendsResult {
   }, [accessToken]);
 
   const sendRequest = useCallback(async (userId: string, message?: string) => {
-    const response = await fetch(`${BASE_URL}/_matrix/client/v1/friends/request`, {
+    const response = await fetch(`${BASE_URL}/_matrix/vendor/v1/friends/request`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`,

@@ -342,8 +342,10 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
             || path.starts_with("/_synapse/worker/v1/")
             || path.starts_with("/_synapse/room_summary/v1/")
 
-            // Client/vendor key rotation management (was gated only by is_admin)
-            || path.starts_with("/_matrix/client/v1/keys/rotation")
+            // Vendor key rotation management (was gated only by is_admin).
+            // ISSUE-13: the `/_matrix/client/v1/keys/rotation` twin was a dead
+            // alias deleted on 2026-10-08; keeping it here would have left a
+            // security allowlist entry that can never match a real request.
             || path.starts_with("/_matrix/vendor/v1/keys/rotation")
 
             // Server version and health

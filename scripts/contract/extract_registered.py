@@ -1112,13 +1112,6 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/client/unstable/org.matrix.msc4156/threads/subscribed"): {
         "query_params": "from,include_all,limit"
     },
-    ("GET", "/_matrix/client/v1/friends"): {
-        "query_params": "from,limit,offset,sort_by"
-    },
-    ("GET", "/_matrix/client/v1/friends/search"): {
-        "query_params": "limit,mode,q,query"
-    },
-    ("GET", "/_matrix/client/v1/friends/suggestions"): {"query_params": "limit"},
     ("GET", "/_matrix/client/v1/room_keys/keys"): {"query_params": "version"},
     ("GET", "/_matrix/client/v1/room_keys/keys/{room_id}"): {"query_params": "version"},
     ("GET", "/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}"): {
@@ -1172,12 +1165,6 @@ EXPECTED_ANNOTATIONS = {
     },
     ("GET", "/_matrix/client/v3/appservice/alias"): {"query_params": "alias"},
     ("GET", "/_matrix/client/v3/appservice/user"): {"query_params": "user_id"},
-    ("GET", "/_matrix/client/v3/friends"): {
-        "query_params": "from,limit,offset,sort_by"
-    },
-    ("GET", "/_matrix/client/v3/friends/search"): {
-        "query_params": "limit,mode,q,query"
-    },
     ("GET", "/_matrix/client/v3/keys/history"): {"query_params": "from,limit"},
     ("GET", "/_matrix/client/v3/login/saml/callback"): {
         "query_params": "RelayState,SAMLRequest,SAMLResponse,relay_state,saml_request,saml_response"
@@ -1258,8 +1245,6 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads"): {
         "query_params": "from,include_all,limit"
     },
-    ("GET", "/_matrix/client/v3/voice/room/{room_id}"): {"query_params": "from,limit"},
-    ("GET", "/_matrix/client/v3/voice/user/{user_id}"): {"query_params": "from,limit"},
     ("GET", "/_matrix/federation/v1/hierarchy/{room_id}"): {
         "query_params": "from,limit,max_depth,suggested_only"
     },
@@ -1354,15 +1339,9 @@ EXPECTED_ANNOTATIONS = {
         "rate_limit_exempt": True,
         "query_params": "pos,timeout,txn_id",
     },
-    ("POST", "/_matrix/client/v1/friends/search"): {
-        "query_params": "limit,mode,q,query"
-    },
     ("POST", "/_matrix/client/v1/sync"): {
         "rate_limit_exempt": True,
         "query_params": "pos,timeout,txn_id",
-    },
-    ("POST", "/_matrix/client/v3/friends/search"): {
-        "query_params": "limit,mode,q,query"
     },
     ("POST", "/_matrix/client/v4/sync"): {
         "rate_limit_exempt": True,

@@ -17,10 +17,25 @@ Row model (proven; see the doc comment in the emitted file):
 
 Usage:
     python3 scripts/contract/gen_derived_routes.py
-    python3 scripts/contract/gen_derived_routes.py --check   # drift gate
+    python3 scripts/contract/gen_derived_routes.py --check      # drift gate (CI)
+    python3 scripts/contract/gen_derived_routes.py --bootstrap  # route-change only
 
 The generator refuses to emit unless the reconstructed table matches every fixture
 in both lanes (see `verify_fixtures`).
+
+`--bootstrap` exists because that refusal is circular when the ROUTE SURFACE itself
+changes: the fixtures are rendered *from* these tables (`synapse_ledger_export` reads
+`declared_ledger_all()`), so a genuine add/remove can never satisfy `verify_fixtures()`
+until the tables are rewritten first. The route-change sequence is therefore:
+
+    python3 scripts/contract/gen_derived_routes.py --bootstrap   # tables; check stays RED
+    scripts/generate_sdk_ledger_fixtures.sh                      # SDK lane fixtures
+    cargo run --bin synapse_ledger_export -- --profile=... ...    # golden lane fixtures
+    python3 scripts/contract/gen_derived_routes.py --check        # certifies the pair
+
+Only the final `--check` certifies the result; `--bootstrap` merely breaks the cycle,
+which is why it prints the red fidelity report instead of hiding it, and why it is
+mutually exclusive with `--check`.
 """
 
 from __future__ import annotations
@@ -384,16 +399,46 @@ def main():
         action="store_true",
         help="fail (exit 1) if the committed file differs",
     )
+    ap.add_argument(
+        "--bootstrap",
+        action="store_true",
+        help=(
+            "write the tables even though the fixtures do not match yet. Use ONLY "
+            "when the route surface itself changed: the fixtures are rendered FROM "
+            "these tables, so a real add/remove can never satisfy verify_fixtures() "
+            "until the tables are rewritten first. After bootstrapping you MUST "
+            "re-export BOTH fixture lanes and re-run --check; that --check run is "
+            "what certifies the pair. CI only ever runs --check."
+        ),
+    )
     args = ap.parse_args()
+    if args.check and args.bootstrap:
+        ap.error("--check and --bootstrap are mutually exclusive")
 
     rows, feats_gold, feats_sdk = build_rows()
     fails = verify_fixtures(rows, feats_gold, feats_sdk)
     if fails:
-        print("gen_derived_routes: FIXTURE FIDELITY FAILED")
+        if not args.bootstrap:
+            print("gen_derived_routes: FIXTURE FIDELITY FAILED")
+            for f in fails:
+                print("  -", f)
+            sys.exit(1)
+        # Bootstrap: the red report is EXPECTED and is printed, not hidden — the
+        # fixtures are downstream of this table, so they cannot match until it is
+        # rewritten. The certifying step is the `--check` run after re-exporting.
+        print(
+            "gen_derived_routes: --bootstrap: fixture fidelity is RED (expected for a "
+            f"route-surface change; {len(fails)} of {2 * len(PROFILES)} lanes/profiles):"
+        )
         for f in fails:
             print("  -", f)
-        sys.exit(1)
-    print(f"gen_derived_routes: table reproduces all {len(rows)} rows.")
+        print(
+            "gen_derived_routes: --bootstrap: writing the tables anyway. You MUST now "
+            "re-export BOTH fixture lanes (scripts/generate_sdk_ledger_fixtures.sh + the "
+            "three golden `synapse_ledger_export` runs) and then re-run --check."
+        )
+    else:
+        print(f"gen_derived_routes: table reproduces all {len(rows)} rows.")
 
     # Generate per-profile data files
     always_data, worker_data, oidc_data = emit_data_per_profile(rows)

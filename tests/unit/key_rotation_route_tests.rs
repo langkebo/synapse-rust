@@ -3,8 +3,11 @@
 // These tests cover the key rotation API endpoints from
 // `synapse-web/src/routes/key_rotation.rs` (P-095: previously zero tests).
 //
-// The route module exposes 18 (method, path) entries across 6 logical
-// endpoints × 2 prefixes (client/v1 + vendor/v1). These tests verify:
+// The route module exposes 9 (method, path) entries across 6 logical
+// endpoints, all under the single canonical private prefix `/_matrix/vendor/v1`
+// (the `/_matrix/client/v1` aliases were dead twins of the vendor routes and were
+// deleted under ISSUE-13 / AGENTS.md 铁律 1 — see
+// `scripts/contract/standard_prefix_ledger.txt`). These tests verify:
 //   - The route manifest returned by `key_rotation_route_manifest()` matches
 //     the router declared in `create_key_rotation_router` (no drift).
 //   - Request/response JSON shapes for each endpoint conform to the contract
@@ -34,12 +37,12 @@ fn key_rotation_route_manifest() -> Vec<RouteEntry> {
 // ============================================================================
 
 #[test]
-fn test_route_manifest_contains_all_eighteen_entries() {
+fn test_route_manifest_contains_all_nine_entries() {
     let manifest = key_rotation_route_manifest();
     assert_eq!(
         manifest.len(),
-        18,
-        "key_rotation manifest must declare exactly 18 (method, path) entries (9 client/v1 + 9 vendor/v1)"
+        9,
+        "key_rotation manifest must declare exactly 9 (method, path) entries (all vendor/v1)"
     );
 }
 
@@ -50,16 +53,6 @@ fn test_route_manifest_matches_declared_paths_and_methods() {
 
     // (method, path) pairs as declared in create_key_rotation_router.
     let expected = [
-        (Method::GET, "/_matrix/client/v1/keys/rotation/status"),
-        (Method::POST, "/_matrix/client/v1/keys/rotation/status"),
-        (Method::POST, "/_matrix/client/v1/keys/rotation/rotate"),
-        (Method::GET, "/_matrix/client/v1/keys/rotation/history/{device_id}"),
-        (Method::POST, "/_matrix/client/v1/keys/rotation/revoke"),
-        (Method::PUT, "/_matrix/client/v1/keys/rotation/config"),
-        (Method::POST, "/_matrix/client/v1/keys/rotation/config"),
-        (Method::GET, "/_matrix/client/v1/keys/rotation/check"),
-        (Method::POST, "/_matrix/client/v1/keys/rotation/check"),
-        // vendor paths
         (Method::GET, "/_matrix/vendor/v1/keys/rotation/status"),
         (Method::POST, "/_matrix/vendor/v1/keys/rotation/status"),
         (Method::POST, "/_matrix/vendor/v1/keys/rotation/rotate"),
@@ -98,14 +91,8 @@ fn test_route_manifest_has_no_duplicate_method_path_pairs() {
 fn test_route_manifest_covers_six_logical_endpoints() {
     let manifest = key_rotation_route_manifest();
     let paths: std::collections::HashSet<&str> = manifest.iter().map(|e| e.path).collect();
-    // Twelve distinct paths: 6 client/v1 + 6 vendor/v1.
-    assert_eq!(paths.len(), 12, "expected 12 distinct paths, got {}: {:?}", paths.len(), paths);
-    assert!(paths.contains("/_matrix/client/v1/keys/rotation/status"));
-    assert!(paths.contains("/_matrix/client/v1/keys/rotation/rotate"));
-    assert!(paths.contains("/_matrix/client/v1/keys/rotation/history/{device_id}"));
-    assert!(paths.contains("/_matrix/client/v1/keys/rotation/revoke"));
-    assert!(paths.contains("/_matrix/client/v1/keys/rotation/config"));
-    assert!(paths.contains("/_matrix/client/v1/keys/rotation/check"));
+    // Six distinct paths, all under `/_matrix/vendor/v1`.
+    assert_eq!(paths.len(), 6, "expected 6 distinct paths, got {}: {:?}", paths.len(), paths);
     assert!(paths.contains("/_matrix/vendor/v1/keys/rotation/status"));
     assert!(paths.contains("/_matrix/vendor/v1/keys/rotation/rotate"));
     assert!(paths.contains("/_matrix/vendor/v1/keys/rotation/history/{device_id}"));
@@ -446,12 +433,12 @@ fn test_all_key_rotation_endpoints_require_admin() {
     // Every handler in key_rotation.rs gates on `auth_user.is_admin` and returns
     // ApiError::forbidden(...) when false. This test encodes that contract.
     let admin_required_paths = [
-        "/_matrix/client/v1/keys/rotation/status",
-        "/_matrix/client/v1/keys/rotation/rotate",
-        "/_matrix/client/v1/keys/rotation/history/{device_id}",
-        "/_matrix/client/v1/keys/rotation/revoke",
-        "/_matrix/client/v1/keys/rotation/config",
-        "/_matrix/client/v1/keys/rotation/check",
+        "/_matrix/vendor/v1/keys/rotation/status",
+        "/_matrix/vendor/v1/keys/rotation/rotate",
+        "/_matrix/vendor/v1/keys/rotation/history/{device_id}",
+        "/_matrix/vendor/v1/keys/rotation/revoke",
+        "/_matrix/vendor/v1/keys/rotation/config",
+        "/_matrix/vendor/v1/keys/rotation/check",
     ];
 
     let manifest = key_rotation_route_manifest();

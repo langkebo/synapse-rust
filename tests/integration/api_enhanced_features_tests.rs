@@ -45,7 +45,7 @@ fn test_friend_system_extended() {
 
         // 1. Get Friend List
         let request = Request::builder()
-            .uri("/_matrix/client/v1/friends")
+            .uri("/_matrix/vendor/v1/friends")
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap();
@@ -54,7 +54,7 @@ fn test_friend_system_extended() {
 
         // 2. Get Friend Requests
         let request = Request::builder()
-            .uri("/_matrix/client/v1/friends/requests/incoming")
+            .uri("/_matrix/vendor/v1/friends/requests/incoming")
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap();
@@ -63,7 +63,7 @@ fn test_friend_system_extended() {
 
         // 3. Get Outgoing Friend Requests
         let request = Request::builder()
-            .uri("/_matrix/client/v1/friends/requests/outgoing")
+            .uri("/_matrix/vendor/v1/friends/requests/outgoing")
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap();
@@ -131,7 +131,7 @@ fn test_voice_messages() {
 
         // 1. Get Voice Config (this doesn't require database)
         let request = Request::builder()
-            .uri("/_matrix/client/v3/voice/config")
+            .uri("/_matrix/vendor/v1/voice/config")
             .header("Authorization", format!("Bearer {}", _alice_token))
             .body(Body::empty())
             .unwrap();

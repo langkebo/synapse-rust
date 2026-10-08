@@ -609,9 +609,9 @@ async fn test_key_rotation_management_contract_rejects_client_access() {
     let (token, _) = register_user(&app, &username).await;
 
     for (method, path) in [
-        ("GET", "/_matrix/client/v1/keys/rotation/status"),
-        ("POST", "/_matrix/client/v1/keys/rotation/rotate"),
-        ("PUT", "/_matrix/client/v1/keys/rotation/config"),
+        ("GET", "/_matrix/vendor/v1/keys/rotation/status"),
+        ("POST", "/_matrix/vendor/v1/keys/rotation/rotate"),
+        ("PUT", "/_matrix/vendor/v1/keys/rotation/config"),
     ] {
         let body = match method {
             "PUT" => json!({ "enabled": true, "interval_days": 30 }).to_string(),
@@ -637,9 +637,9 @@ async fn test_key_rotation_management_contract_rejects_client_access() {
 
     // Admin should be able to access key rotation management endpoints (now implemented)
     for (method, path) in [
-        ("GET", "/_matrix/client/v1/keys/rotation/status"),
-        ("POST", "/_matrix/client/v1/keys/rotation/rotate"),
-        ("PUT", "/_matrix/client/v1/keys/rotation/config"),
+        ("GET", "/_matrix/vendor/v1/keys/rotation/status"),
+        ("POST", "/_matrix/vendor/v1/keys/rotation/rotate"),
+        ("PUT", "/_matrix/vendor/v1/keys/rotation/config"),
     ] {
         let body = match method {
             "PUT" => json!({ "enabled": true, "interval_days": 30 }).to_string(),

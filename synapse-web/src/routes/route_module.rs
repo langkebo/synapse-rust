@@ -283,12 +283,17 @@ mod tests {
     }
 
     /// The derived table must carry the friend routes when `friends` is on.
+    ///
+    /// ISSUE-13: the private friend surface lives only under `/_matrix/vendor/v1`;
+    /// the `/_matrix/client/{v1,v3}` twins were dead aliases and were deleted
+    /// (AGENTS.md 铁律 1). The assertions probe the canonical prefix so that a
+    /// regression which re-introduces a client-prefix alias is not silently blessed.
     #[cfg(feature = "friends")]
     #[test]
     fn friend_manifest_declares_core_routes() {
         let entries = all_routes();
-        assert!(contains(&entries, &Method::GET, "/_matrix/client/v3/friends"));
-        assert!(contains(&entries, &Method::DELETE, "/_matrix/client/v1/friends/{user_id}"));
+        assert!(contains(&entries, &Method::GET, "/_matrix/vendor/v1/friends"));
+        assert!(contains(&entries, &Method::DELETE, "/_matrix/vendor/v1/friends/{user_id}"));
     }
 
     /// The derived table must carry the SAML routes when `saml-sso` is on.
@@ -325,22 +330,25 @@ mod tests {
     }
 
     /// The derived table must carry the burn-after-read routes when the feature is on.
+    ///
+    /// ISSUE-13: canonical prefix only — see `friend_manifest_declares_core_routes`.
     #[cfg(feature = "burn-after-read")]
     #[test]
     fn burn_after_read_manifest_declares_core_routes() {
         let entries = all_routes();
-        assert!(contains(&entries, &Method::PUT, "/_matrix/client/v1/rooms/{room_id}/burn"));
-        assert!(contains(&entries, &Method::GET, "/_matrix/client/v1/user/burn/stats"));
+        assert!(contains(&entries, &Method::PUT, "/_matrix/vendor/v1/rooms/{room_id}/burn"));
+        assert!(contains(&entries, &Method::GET, "/_matrix/vendor/v1/user/burn/stats"));
     }
 
     /// The derived table must carry the voice routes when `voice-extended` is on.
+    ///
+    /// ISSUE-13: canonical prefix only — see `friend_manifest_declares_core_routes`.
     #[cfg(feature = "voice-extended")]
     #[test]
     fn voice_manifest_declares_core_routes() {
         let entries = all_routes();
-        assert!(contains(&entries, &Method::GET, "/_matrix/client/v3/voice/config"));
-        assert!(contains(&entries, &Method::GET, "/_matrix/client/v1/voice/config"));
-        assert!(contains(&entries, &Method::POST, "/_matrix/client/v3/voice/upload"));
+        assert!(contains(&entries, &Method::GET, "/_matrix/vendor/v1/voice/config"));
+        assert!(contains(&entries, &Method::POST, "/_matrix/vendor/v1/voice/upload"));
     }
 
     /// The derived table must carry the external-service routes when the feature is on.

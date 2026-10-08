@@ -224,7 +224,7 @@ mod e2e_tests {
         }
 
         let response = client
-            .post(format!("{}/_matrix/client/v3/friends/request", base_url()))
+            .post(format!("{}/_matrix/vendor/v1/friends/request", base_url()))
             .header("Authorization", format!("Bearer {access_token}"))
             .json(&body)
             .send()
@@ -237,7 +237,7 @@ mod e2e_tests {
     async fn accept_friend_request(access_token: &str, user_id: &str) -> serde_json::Value {
         let client = Client::new();
         let response = client
-            .post(format!("{}/_matrix/client/v3/friends/request/{}/accept", base_url(), user_id))
+            .post(format!("{}/_matrix/vendor/v1/friends/request/{}/accept", base_url(), user_id))
             .header("Authorization", format!("Bearer {access_token}"))
             .send()
             .await

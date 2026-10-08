@@ -63,25 +63,7 @@ pub struct VoiceListQuery {
 /// See [`create_voice_router`].
 pub fn create_voice_router(_state: AppState) -> Router<AppState> {
     Router::new()
-        .route("/_matrix/client/v1/voice/config", get(get_voice_config))
-        .route("/_matrix/client/v1/voice/upload", post(upload_voice_message))
-        .route("/_matrix/client/v1/voice/register", post(register_encrypted_voice))
-        .route("/_matrix/client/v1/voice/stats", get(get_voice_stats))
-        .route("/_matrix/client/v1/voice/room/{room_id}/stats", get(get_room_voice_stats))
-        .route("/_matrix/client/v1/voice/user/{user_id}/stats", get(get_user_voice_stats))
-        .route("/_matrix/client/v3/voice/upload", post(upload_voice_message))
-        .route("/_matrix/client/v3/voice/register", post(register_encrypted_voice))
-        .route("/_matrix/client/v3/voice/config", get(get_voice_config))
-        .route("/_matrix/client/v3/voice/stats", get(get_voice_stats))
-        .route("/_matrix/client/v3/voice/room/{room_id}/stats", get(get_room_voice_stats))
-        .route("/_matrix/client/v3/voice/user/{user_id}/stats", get(get_user_voice_stats))
-        .route("/_matrix/client/v3/voice/room/{room_id}", get(get_room_voice_messages))
-        .route("/_matrix/client/v3/voice/user/{user_id}", get(get_user_voice_messages))
-        .route("/_matrix/client/v3/voice/{media_id}", get(get_voice_message_content))
-        .route("/_matrix/client/v3/voice/{media_id}/convert", post(convert_voice_message))
-        .route("/_matrix/client/v3/voice/{media_id}/optimize", post(optimize_voice_message))
-        .route("/_matrix/client/v3/voice/{media_id}/transcription", post(transcribe_voice_message))
-        // ISSUE-13: vendor 前缀（私有端点，client 前缀保留为向后兼容别名）
+// ISSUE-13: 私有端点唯一规范位置是 /_matrix/vendor/v1（client 别名已按 AGENTS.md 铁律 1 删除）
         .route("/_matrix/vendor/v1/voice/upload", post(upload_voice_message))
         .route("/_matrix/vendor/v1/voice/config", get(get_voice_config))
         .route("/_matrix/vendor/v1/voice/stats", get(get_voice_stats))

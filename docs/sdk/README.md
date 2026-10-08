@@ -40,7 +40,7 @@ docs/sdk/
 |------|------|----------|
 | [认证](./authentication.md) | 用户注册、登录、Token 管理 | `/_matrix/client/v3/login` |
 | [房间](./rooms.md) | 创建房间、加入、成员管理 | `/_matrix/client/v3/createRoom` |
-| [好友](./friends.md) | 好友请求、私信、好友列表 | `/_matrix/client/v1/friends` |
+| [好友](./friends.md) | 好友请求、私信、好友列表 | `/_matrix/vendor/v1/friends` |
 | [消息](./messages.md) | 发送消息、历史记录、回执 | `/_matrix/client/v3/send` |
 | [媒体](./media.md) | 上传下载、缩略图 | `/_matrix/media/v3/upload` |
 
@@ -105,7 +105,7 @@ const sendMessage = async (roomId: string, text: string, token: string) => {
 
 ```typescript
 const getFriends = async (token: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/v1/friends`, {
+  const response = await fetch(`${BASE_URL}/_matrix/vendor/v1/friends`, {
     headers: { 'Authorization': `Bearer ${token}` }
   });
   const result = await response.json();
@@ -374,7 +374,7 @@ await api.put(
 );
 
 // 获取好友
-const friends = await api.get<FriendInfo[]>('/_matrix/client/v1/friends');
+const friends = await api.get<FriendInfo[]>('/_matrix/vendor/v1/friends');
 ```
 
 ### 4. 速率限制处理
@@ -454,11 +454,11 @@ export class MatrixService {
 
   // 好友
   async getFriends() {
-    return this.api.get('/_matrix/client/v1/friends');
+    return this.api.get('/_matrix/vendor/v1/friends');
   }
 
   async sendFriendRequest(userId: string, message?: string) {
-    return this.api.post('/_matrix/client/v1/friends/request', {
+    return this.api.post('/_matrix/vendor/v1/friends/request', {
       user_id: userId,
       message
     });

@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1159**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1082**
 - 含路由注册的模块文件：**65**
 - `derived_routes.rs` 中的 `registered_by` 标签：**73**
 - 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
@@ -69,7 +69,7 @@
 **逐模块清单里的两种标注**（都从派生表反解，不是人工维护）：
 
 - 〔仅 `X` profile〕 —— 该路由**只**在 profile `X` 下注册，默认构建里不存在（即上表成员）；
-- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1161 行去重为 1159 条的来源。
+- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1084 行去重为 1082 条的来源。
 
 当前共 **2** 条双档注册：
 
@@ -363,34 +363,13 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_matrix/vendor/v1/external_services/{service_id}`
 - `PUT` `/_synapse/admin/v1/external_services/{as_id}`
 
-### 好友 (Friends) （65 条）
+### 好友 (Friends) （29 条）
 
-#### `friend_room.rs` — 65 条 ✅派生表
+#### `friend_room.rs` — 29 条 ✅派生表
 
-- `DELETE` `/_matrix/client/v1/friends/groups/{group_id}`
-- `DELETE` `/_matrix/client/v1/friends/groups/{group_id}/remove/{user_id}`
-- `DELETE` `/_matrix/client/v1/friends/{user_id}`
 - `DELETE` `/_matrix/vendor/v1/friends/groups/{group_id}`
 - `DELETE` `/_matrix/vendor/v1/friends/groups/{group_id}/remove/{user_id}`
 - `DELETE` `/_matrix/vendor/v1/friends/{user_id}`
-- `GET` `/_matrix/client/v1/friends`
-- `GET` `/_matrix/client/v1/friends/check/{user_id}`
-- `GET` `/_matrix/client/v1/friends/dm/{user_id}`
-- `GET` `/_matrix/client/v1/friends/groups`
-- `GET` `/_matrix/client/v1/friends/groups/{group_id}/friends`
-- `GET` `/_matrix/client/v1/friends/request/received`
-- `GET` `/_matrix/client/v1/friends/requests/incoming`
-- `GET` `/_matrix/client/v1/friends/requests/outgoing`
-- `GET` `/_matrix/client/v1/friends/search`
-- `GET` `/_matrix/client/v1/friends/suggestions`
-- `GET` `/_matrix/client/v1/friends/{user_id}/groups`
-- `GET` `/_matrix/client/v1/friends/{user_id}/info`
-- `GET` `/_matrix/client/v1/friends/{user_id}/status`
-- `GET` `/_matrix/client/v3/friends`
-- `GET` `/_matrix/client/v3/friends/check/{user_id}`
-- `GET` `/_matrix/client/v3/friends/requests/incoming`
-- `GET` `/_matrix/client/v3/friends/requests/outgoing`
-- `GET` `/_matrix/client/v3/friends/search`
 - `GET` `/_matrix/vendor/v1/friends`
 - `GET` `/_matrix/vendor/v1/friends/check/{user_id}`
 - `GET` `/_matrix/vendor/v1/friends/dm/{user_id}`
@@ -404,17 +383,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/vendor/v1/friends/{user_id}/groups`
 - `GET` `/_matrix/vendor/v1/friends/{user_id}/info`
 - `GET` `/_matrix/vendor/v1/friends/{user_id}/status`
-- `POST` `/_matrix/client/v1/friends`
-- `POST` `/_matrix/client/v1/friends/dm/{user_id}`
-- `POST` `/_matrix/client/v1/friends/groups`
-- `POST` `/_matrix/client/v1/friends/groups/{group_id}/add/{user_id}`
-- `POST` `/_matrix/client/v1/friends/request`
-- `POST` `/_matrix/client/v1/friends/request/{user_id}/accept`
-- `POST` `/_matrix/client/v1/friends/request/{user_id}/cancel`
-- `POST` `/_matrix/client/v1/friends/request/{user_id}/reject`
-- `POST` `/_matrix/client/v1/friends/search`
-- `POST` `/_matrix/client/v3/friends`
-- `POST` `/_matrix/client/v3/friends/search`
 - `POST` `/_matrix/vendor/v1/friends`
 - `POST` `/_matrix/vendor/v1/friends/dm/{user_id}`
 - `POST` `/_matrix/vendor/v1/friends/groups`
@@ -424,10 +392,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_matrix/vendor/v1/friends/request/{user_id}/cancel`
 - `POST` `/_matrix/vendor/v1/friends/request/{user_id}/reject`
 - `POST` `/_matrix/vendor/v1/friends/search`
-- `PUT` `/_matrix/client/v1/friends/groups/{group_id}/name`
-- `PUT` `/_matrix/client/v1/friends/{user_id}/displayname`
-- `PUT` `/_matrix/client/v1/friends/{user_id}/note`
-- `PUT` `/_matrix/client/v1/friends/{user_id}/status`
 - `PUT` `/_matrix/vendor/v1/friends/groups/{group_id}/name`
 - `PUT` `/_matrix/vendor/v1/friends/{user_id}/displayname`
 - `PUT` `/_matrix/vendor/v1/friends/{user_id}/note`
@@ -586,27 +550,18 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_matrix/client/v3/room_keys/{version}/keys/{room_id}`
 - `PUT` `/_matrix/client/v3/room_keys/{version}/keys/{room_id}/{session_id}`
 
-### 密钥轮转 （18 条）
+### 密钥轮转 （9 条）
 
-#### `key_rotation.rs` — 18 条 ✅派生表
+#### `key_rotation.rs` — 9 条 ✅派生表
 
-- `GET` `/_matrix/client/v1/keys/rotation/check`
-- `GET` `/_matrix/client/v1/keys/rotation/history/{device_id}`
-- `GET` `/_matrix/client/v1/keys/rotation/status`
 - `GET` `/_matrix/vendor/v1/keys/rotation/check`
 - `GET` `/_matrix/vendor/v1/keys/rotation/history/{device_id}`
 - `GET` `/_matrix/vendor/v1/keys/rotation/status`
-- `POST` `/_matrix/client/v1/keys/rotation/check`
-- `POST` `/_matrix/client/v1/keys/rotation/config`
-- `POST` `/_matrix/client/v1/keys/rotation/revoke`
-- `POST` `/_matrix/client/v1/keys/rotation/rotate`
-- `POST` `/_matrix/client/v1/keys/rotation/status`
 - `POST` `/_matrix/vendor/v1/keys/rotation/check`
 - `POST` `/_matrix/vendor/v1/keys/rotation/config`
 - `POST` `/_matrix/vendor/v1/keys/rotation/revoke`
 - `POST` `/_matrix/vendor/v1/keys/rotation/rotate`
 - `POST` `/_matrix/vendor/v1/keys/rotation/status`
-- `PUT` `/_matrix/client/v1/keys/rotation/config`
 - `PUT` `/_matrix/vendor/v1/keys/rotation/config`
 
 ### 小组件 (Widget) （18 条）
@@ -1437,21 +1392,10 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_matrix/client/v3/account/guest/upgrade`
 - `POST` `/_matrix/client/v3/register/guest`
 
-### 语音 (Voice) （30 条）
+### 语音 (Voice) （12 条）
 
-#### `voice.rs` — 30 条 ✅派生表
+#### `voice.rs` — 12 条 ✅派生表
 
-- `GET` `/_matrix/client/v1/voice/config`
-- `GET` `/_matrix/client/v1/voice/room/{room_id}/stats`
-- `GET` `/_matrix/client/v1/voice/stats`
-- `GET` `/_matrix/client/v1/voice/user/{user_id}/stats`
-- `GET` `/_matrix/client/v3/voice/config`
-- `GET` `/_matrix/client/v3/voice/room/{room_id}`
-- `GET` `/_matrix/client/v3/voice/room/{room_id}/stats`
-- `GET` `/_matrix/client/v3/voice/stats`
-- `GET` `/_matrix/client/v3/voice/user/{user_id}`
-- `GET` `/_matrix/client/v3/voice/user/{user_id}/stats`
-- `GET` `/_matrix/client/v3/voice/{media_id}`
 - `GET` `/_matrix/vendor/v1/voice/config`
 - `GET` `/_matrix/vendor/v1/voice/room/{room_id}`
 - `GET` `/_matrix/vendor/v1/voice/room/{room_id}/stats`
@@ -1459,13 +1403,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/vendor/v1/voice/user/{user_id}`
 - `GET` `/_matrix/vendor/v1/voice/user/{user_id}/stats`
 - `GET` `/_matrix/vendor/v1/voice/{media_id}`
-- `POST` `/_matrix/client/v1/voice/register`
-- `POST` `/_matrix/client/v1/voice/upload`
-- `POST` `/_matrix/client/v3/voice/register`
-- `POST` `/_matrix/client/v3/voice/upload`
-- `POST` `/_matrix/client/v3/voice/{media_id}/convert`
-- `POST` `/_matrix/client/v3/voice/{media_id}/optimize`
-- `POST` `/_matrix/client/v3/voice/{media_id}/transcription`
 - `POST` `/_matrix/vendor/v1/voice/register`
 - `POST` `/_matrix/vendor/v1/voice/upload`
 - `POST` `/_matrix/vendor/v1/voice/{media_id}/convert`
@@ -1513,29 +1450,15 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_synapse/admin/v1/telemetry/status`
 - `POST` `/_synapse/admin/v1/telemetry/alerts/{alert_id}/ack`
 
-### 阅后即焚 （21 条）
+### 阅后即焚 （7 条）
 
-#### `burn_after_read.rs` — 21 条 ✅派生表
+#### `burn_after_read.rs` — 7 条 ✅派生表
 
-- `DELETE` `/_matrix/client/v1/rooms/{room_id}/burn/{event_id}`
-- `DELETE` `/_matrix/client/v3/rooms/{room_id}/burn/{event_id}`
 - `DELETE` `/_matrix/vendor/v1/rooms/{room_id}/burn/{event_id}`
-- `GET` `/_matrix/client/v1/rooms/{room_id}/burn`
-- `GET` `/_matrix/client/v1/rooms/{room_id}/burn/pending`
-- `GET` `/_matrix/client/v1/user/burn/stats`
-- `GET` `/_matrix/client/v3/rooms/{room_id}/burn`
-- `GET` `/_matrix/client/v3/rooms/{room_id}/burn/pending`
-- `GET` `/_matrix/client/v3/user/burn/stats`
 - `GET` `/_matrix/vendor/v1/rooms/{room_id}/burn`
 - `GET` `/_matrix/vendor/v1/rooms/{room_id}/burn/pending`
 - `GET` `/_matrix/vendor/v1/user/burn/stats`
-- `POST` `/_matrix/client/v1/rooms/{room_id}/burn/{event_id}`
-- `POST` `/_matrix/client/v3/rooms/{room_id}/burn/{event_id}`
 - `POST` `/_matrix/vendor/v1/rooms/{room_id}/burn/{event_id}`
-- `PUT` `/_matrix/client/v1/rooms/{room_id}/burn`
-- `PUT` `/_matrix/client/v1/user/burn/config`
-- `PUT` `/_matrix/client/v3/rooms/{room_id}/burn`
-- `PUT` `/_matrix/client/v3/user/burn/config`
 - `PUT` `/_matrix/vendor/v1/rooms/{room_id}/burn`
 - `PUT` `/_matrix/vendor/v1/user/burn/config`
 

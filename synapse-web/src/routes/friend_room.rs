@@ -21,129 +21,7 @@ const DEFAULT_FRIEND_LIST_LIMIT: usize = 20;
 /// See [`create_friend_router`].
 pub fn create_friend_router(state: AppState) -> Router<AppState> {
     Router::new()
-        // v3 路径
-        .route("/_matrix/client/v3/friends", get(get_friends))
-        .route("/_matrix/client/v3/friends", post(send_friend_request))
-        .route(
-            "/_matrix/client/v3/friends/search",
-            get(search_friend_directory).post(search_friend_directory),
-        )
-        .route(
-            "/_matrix/client/v3/friends/requests/incoming",
-            get(get_incoming_requests),
-        )
-        .route(
-            "/_matrix/client/v3/friends/requests/outgoing",
-            get(get_outgoing_requests),
-        )
-        // v1 路径 - 主路由（r0 别名已在 B1-3 移除，SDK 已随 039c2b2ec 迁到 v3）
-        .route("/_matrix/client/v1/friends", get(get_friends))
-        .route("/_matrix/client/v1/friends", post(send_friend_request))
-        .route(
-            "/_matrix/client/v1/friends/search",
-            get(search_friend_directory).post(search_friend_directory),
-        )
-        // 好友请求
-        .route(
-            "/_matrix/client/v1/friends/request",
-            post(send_friend_request),
-        )
-        .route(
-            "/_matrix/client/v1/friends/request/received",
-            get(get_received_requests),
-        )
-        .route(
-            "/_matrix/client/v1/friends/request/{user_id}/accept",
-            post(accept_friend_request),
-        )
-        .route(
-            "/_matrix/client/v1/friends/request/{user_id}/reject",
-            post(reject_friend_request),
-        )
-        .route(
-            "/_matrix/client/v1/friends/request/{user_id}/cancel",
-            post(cancel_friend_request),
-        )
-        // v1 兼容路由（与上方 v3 块同 handler）
-        .route(
-            "/_matrix/client/v1/friends/requests/incoming",
-            get(get_incoming_requests),
-        )
-        .route(
-            "/_matrix/client/v1/friends/requests/outgoing",
-            get(get_outgoing_requests),
-        )
-        .route(
-            "/_matrix/client/v1/friends/check/{user_id}",
-            get(check_friendship),
-        )
-        .route(
-            "/_matrix/client/v3/friends/check/{user_id}",
-            get(check_friendship),
-        )
-        .route(
-            "/_matrix/client/v1/friends/suggestions",
-            get(get_friend_suggestions),
-        )
-        .route(
-            "/_matrix/client/v1/friends/{user_id}",
-            delete(remove_friend),
-        )
-        .route(
-            "/_matrix/client/v1/friends/{user_id}/note",
-            put(update_friend_note),
-        )
-        .route(
-            "/_matrix/client/v1/friends/{user_id}/status",
-            get(get_friend_status),
-        )
-        .route(
-            "/_matrix/client/v1/friends/{user_id}/status",
-            put(update_friend_status),
-        )
-        .route(
-            "/_matrix/client/v1/friends/{user_id}/info",
-            get(get_friend_info),
-        )
-        .route(
-            "/_matrix/client/v1/friends/{user_id}/displayname",
-            put(update_friend_displayname),
-        )
-        // 好友分组
-        .route("/_matrix/client/v1/friends/groups", get(get_friend_groups))
-        .route(
-            "/_matrix/client/v1/friends/groups",
-            post(create_friend_group),
-        )
-        .route(
-            "/_matrix/client/v1/friends/groups/{group_id}",
-            delete(delete_friend_group),
-        )
-        .route(
-            "/_matrix/client/v1/friends/groups/{group_id}/name",
-            put(rename_friend_group),
-        )
-        .route(
-            "/_matrix/client/v1/friends/groups/{group_id}/add/{user_id}",
-            post(add_friend_to_group),
-        )
-        .route(
-            "/_matrix/client/v1/friends/groups/{group_id}/remove/{user_id}",
-            delete(remove_friend_from_group),
-        )
-        .route(
-            "/_matrix/client/v1/friends/groups/{group_id}/friends",
-            get(get_friends_in_group),
-        )
-        .route(
-            "/_matrix/client/v1/friends/{user_id}/groups",
-            get(get_groups_for_user),
-        )
-        .route(
-            "/_matrix/client/v1/friends/dm/{user_id}",
-            get(get_friend_dm).post(create_friend_dm),
-        )
-        // ISSUE-13: vendor 前缀（私有端点，client 前缀保留为向后兼容别名）
+// ISSUE-13: 私有端点唯一规范位置是 /_matrix/vendor/v1（client 别名已按 AGENTS.md 铁律 1 删除）
         .route("/_matrix/vendor/v1/friends", get(get_friends).post(send_friend_request))
         .route(
             "/_matrix/vendor/v1/friends/search",
@@ -675,7 +553,7 @@ async fn get_received_requests(
     response.headers_mut().insert(
         axum::http::header::HeaderName::from_static("link"),
         axum::http::HeaderValue::from_static(
-            "</_matrix/client/v3/friends/requests/incoming>; rel=\"successor-version\"",
+            "</_matrix/vendor/v1/friends/requests/incoming>; rel=\"successor-version\"",
         ),
     );
     response.headers_mut().insert(

@@ -1073,7 +1073,30 @@ def mutation_check() -> int:
         return len(FAILURES) - before
 
     try:
-        dropped = sorted(real_ledger)[0]
+        # 7b must drop a route that judgement B **actually covers**, i.e. one whose
+        # source file is a wholly-private module. Picking `sorted(real_ledger)[0]`
+        # was an accidental proxy for "some ledgered route": it only proved B while
+        # the lexicographically first entry happened to live in a wholesale file.
+        # Once the ledger shifted (Phase 2 batch 1 removed the 77 client aliases and
+        # the first entry became a mixed-module route — which B deliberately does NOT
+        # assert coverage over, see the Phase 1b gap), the positional pick silently
+        # stopped proving anything while still printing "ok". Select by provenance.
+        wholesale_ledger = sorted(
+            (m, p)
+            for (m, p) in real_ledger
+            if any(
+                (m, p) in routes
+                for source, routes in per_all.items()
+                if source in spp.WHOLESALE_PRIVATE_FILES
+            )
+        )
+        if not wholesale_ledger:
+            print(
+                "  FAIL mutation#7/unlisted route cannot self-prove: the ledger carries no "
+                "wholly-private-module route, so judgement B has nothing to cover"
+            )
+            return bad + 1
+        dropped = wholesale_ledger[0]
         mutations = (
             (
                 "stale entry",

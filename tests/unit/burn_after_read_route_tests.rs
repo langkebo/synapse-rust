@@ -2,8 +2,9 @@
 //
 // Covers the wire-level contracts exposed by
 // `synapse-web/src/routes/burn_after_read.rs` (P-096: previously zero tests):
-//   * Route manifest contents (methods + paths + registered_by tag) across
-//     v1 and v3 path prefixes.
+//   * Route manifest contents (methods + paths + registered_by tag) under the
+//     single canonical private prefix `/_matrix/vendor/v1` (the
+//     `/_matrix/client/v{1,3}` twins were dead aliases deleted under ISSUE-13).
 //   * Request/response JSON shapes for each of the 7 logical endpoints.
 //   * Pure-logic mirrors: default `enabled`/`burn_after_ms` resolution,
 //     `delete_ts = now + burn_after_ms` computation, "burn not enabled"
@@ -39,12 +40,12 @@ fn burn_after_read_route_manifest() -> Vec<RouteEntry> {
 // ============================================================================
 
 #[test]
-fn test_route_manifest_contains_all_twenty_one_entries() {
+fn test_route_manifest_contains_all_seven_entries() {
     let manifest = burn_after_read_route_manifest();
     assert_eq!(
         manifest.len(),
-        21,
-        "burn_after_read manifest must declare exactly 21 (method, path) entries (7 v1 + 7 v3 + 7 vendor/v1)"
+        7,
+        "burn_after_read manifest must declare exactly 7 (method, path) entries (all vendor/v1)"
     );
 }
 
@@ -54,22 +55,6 @@ fn test_route_manifest_matches_declared_paths_and_methods() {
 
     // (method, path) pairs as declared in create_burn_after_read_router.
     let expected = [
-        (Method::PUT, "/_matrix/client/v1/rooms/{room_id}/burn"),
-        (Method::GET, "/_matrix/client/v1/rooms/{room_id}/burn"),
-        (Method::GET, "/_matrix/client/v1/rooms/{room_id}/burn/pending"),
-        (Method::POST, "/_matrix/client/v1/rooms/{room_id}/burn/{event_id}"),
-        (Method::DELETE, "/_matrix/client/v1/rooms/{room_id}/burn/{event_id}"),
-        (Method::PUT, "/_matrix/client/v1/user/burn/config"),
-        (Method::GET, "/_matrix/client/v1/user/burn/stats"),
-        // v3 paths
-        (Method::PUT, "/_matrix/client/v3/rooms/{room_id}/burn"),
-        (Method::GET, "/_matrix/client/v3/rooms/{room_id}/burn"),
-        (Method::GET, "/_matrix/client/v3/rooms/{room_id}/burn/pending"),
-        (Method::POST, "/_matrix/client/v3/rooms/{room_id}/burn/{event_id}"),
-        (Method::DELETE, "/_matrix/client/v3/rooms/{room_id}/burn/{event_id}"),
-        (Method::PUT, "/_matrix/client/v3/user/burn/config"),
-        (Method::GET, "/_matrix/client/v3/user/burn/stats"),
-        // vendor paths
         (Method::PUT, "/_matrix/vendor/v1/rooms/{room_id}/burn"),
         (Method::GET, "/_matrix/vendor/v1/rooms/{room_id}/burn"),
         (Method::GET, "/_matrix/vendor/v1/rooms/{room_id}/burn/pending"),
@@ -106,22 +91,13 @@ fn test_route_manifest_has_no_duplicate_method_path_pairs() {
 }
 
 #[test]
-fn test_route_manifest_covers_seven_logical_endpoints_across_v1_v3_and_vendor() {
+fn test_route_manifest_covers_seven_logical_endpoints_under_vendor_prefix() {
     let manifest = burn_after_read_route_manifest();
-    // 7 (method, path) entries per version prefix across three prefixes.
-    let client_entries: Vec<&_> = manifest.iter().filter(|e| e.path.starts_with("/_matrix/client/")).collect();
+    // All 7 (method, path) entries live under the one canonical private prefix.
     let vendor_entries: Vec<&_> = manifest.iter().filter(|e| e.path.starts_with("/_matrix/vendor/")).collect();
-    let v1_entries: Vec<&_> = client_entries.iter().filter(|e| e.path.contains("/client/v1/")).copied().collect();
-    let v3_entries: Vec<&_> = client_entries.iter().filter(|e| e.path.contains("/client/v3/")).copied().collect();
-    assert_eq!(v1_entries.len(), 7, "expected 7 client/v1 (method, path) entries, got {}", v1_entries.len());
-    assert_eq!(v3_entries.len(), 7, "expected 7 client/v3 (method, path) entries, got {}", v3_entries.len());
     assert_eq!(vendor_entries.len(), 7, "expected 7 vendor/v1 (method, path) entries, got {}", vendor_entries.len());
 
-    let v1_paths: std::collections::HashSet<&str> = v1_entries.iter().map(|e| e.path).collect();
-    let v3_paths: std::collections::HashSet<&str> = v3_entries.iter().map(|e| e.path).collect();
     let vendor_paths: std::collections::HashSet<&str> = vendor_entries.iter().map(|e| e.path).collect();
-    assert_eq!(v1_paths.len(), 5, "expected 5 distinct v1 paths, got {}", v1_paths.len());
-    assert_eq!(v3_paths.len(), 5, "expected 5 distinct v3 paths, got {}", v3_paths.len());
     assert_eq!(vendor_paths.len(), 5, "expected 5 distinct vendor/v1 paths, got {}", vendor_paths.len());
 
     // Sanity: the room-scoped burn/{event_id} endpoint exists for both POST and DELETE.
@@ -379,9 +355,9 @@ fn test_non_member_forbidden_maps_to_403() {
 fn test_all_room_scoped_handlers_require_room_membership() {
     // Every handler under /rooms/{room_id}/burn calls ensure_room_member_ctx.
     let member_gated_paths = [
-        "/_matrix/client/v1/rooms/{room_id}/burn",
-        "/_matrix/client/v1/rooms/{room_id}/burn/pending",
-        "/_matrix/client/v1/rooms/{room_id}/burn/{event_id}",
+        "/_matrix/vendor/v1/rooms/{room_id}/burn",
+        "/_matrix/vendor/v1/rooms/{room_id}/burn/pending",
+        "/_matrix/vendor/v1/rooms/{room_id}/burn/{event_id}",
     ];
 
     let manifest = burn_after_read_route_manifest();
@@ -395,7 +371,7 @@ fn test_all_room_scoped_handlers_require_room_membership() {
 fn test_user_scoped_handlers_are_not_room_gated() {
     // /user/burn/config and /user/burn/stats operate on the authenticated user
     // directly — they do not call ensure_room_member_ctx.
-    let user_scoped = ["/_matrix/client/v1/user/burn/config", "/_matrix/client/v1/user/burn/stats"];
+    let user_scoped = ["/_matrix/vendor/v1/user/burn/config", "/_matrix/vendor/v1/user/burn/stats"];
     let manifest = burn_after_read_route_manifest();
     let manifest_paths: std::collections::HashSet<&str> = manifest.iter().map(|e| e.path).collect();
     for path in &user_scoped {

@@ -120,7 +120,7 @@ async fn upload_voice_message(app: &axum::Router, token: &str, room_id: Option<&
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/_matrix/client/v3/voice/upload")
+                .uri("/_matrix/vendor/v1/voice/upload")
                 .method("POST")
                 .header("Authorization", format!("Bearer {}", token))
                 .header("Content-Type", format!("multipart/form-data; boundary={BOUNDARY}"))
@@ -148,8 +148,9 @@ async fn test_voice_config_endpoint() {
 
     let token = create_test_user(&app).await;
 
-    for uri in ["/_matrix/client/v3/voice/config", "/_matrix/client/v1/voice/config", "/_matrix/client/v3/voice/config"]
-    {
+    // ISSUE-13: the private voice surface has exactly one canonical prefix
+    // (`/_matrix/vendor/v1`); the `/_matrix/client/v{1,3}` aliases were deleted.
+    for uri in ["/_matrix/vendor/v1/voice/config"] {
         let response = app
             .clone()
             .oneshot(

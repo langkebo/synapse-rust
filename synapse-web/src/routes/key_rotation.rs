@@ -259,16 +259,7 @@ pub async fn check_needs_rotation_post(
 /// See [`create_key_rotation_router`].
 pub fn create_key_rotation_router(state: AppState) -> Router<AppState> {
     Router::new()
-        .route(
-            "/_matrix/client/v1/keys/rotation/status",
-            get(get_key_rotation_status).post(get_key_rotation_status_post),
-        )
-        .route("/_matrix/client/v1/keys/rotation/rotate", post(rotate_keys))
-        .route("/_matrix/client/v1/keys/rotation/history/{device_id}", get(get_rotation_history))
-        .route("/_matrix/client/v1/keys/rotation/revoke", post(revoke_old_keys))
-        .route("/_matrix/client/v1/keys/rotation/config", put(configure_key_rotation).post(configure_key_rotation_post))
-        .route("/_matrix/client/v1/keys/rotation/check", get(check_needs_rotation).post(check_needs_rotation_post))
-        // ISSUE-13: 私有端点迁移到 /_matrix/vendor/v1，client 前缀保留为向后兼容别名。
+// ISSUE-13: 私有端点唯一规范位置是 /_matrix/vendor/v1（client 别名已按 AGENTS.md 铁律 1 删除）
         .route(
             "/_matrix/vendor/v1/keys/rotation/status",
             get(get_key_rotation_status).post(get_key_rotation_status_post),

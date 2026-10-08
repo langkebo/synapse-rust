@@ -16,42 +16,7 @@ use synapse_common::current_timestamp_millis;
 /// See [`create_burn_after_read_router`].
 pub fn create_burn_after_read_router(state: AppState) -> Router<AppState> {
     Router::new()
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/burn",
-            put(enable_burn).get(get_burn_settings),
-        )
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/burn/pending",
-            get(get_pending_burns),
-        )
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/burn/{event_id}",
-            post(mark_burn_read).delete(cancel_burn),
-        )
-        .route(
-            "/_matrix/client/v1/user/burn/config",
-            put(set_global_burn_config),
-        )
-        .route("/_matrix/client/v1/user/burn/stats", get(get_burn_stats))
-        // v3 paths (frontend compatibility)
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/burn",
-            put(enable_burn).get(get_burn_settings),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/burn/pending",
-            get(get_pending_burns),
-        )
-        .route(
-            "/_matrix/client/v3/rooms/{room_id}/burn/{event_id}",
-            post(mark_burn_read).delete(cancel_burn),
-        )
-        .route(
-            "/_matrix/client/v3/user/burn/config",
-            put(set_global_burn_config),
-        )
-        .route("/_matrix/client/v3/user/burn/stats", get(get_burn_stats))
-        // ISSUE-13: vendor 前缀（私有端点，client 前缀保留为向后兼容别名）
+// ISSUE-13: 私有端点唯一规范位置是 /_matrix/vendor/v1（client 别名已按 AGENTS.md 铁律 1 删除）
         .route(
             "/_matrix/vendor/v1/rooms/{room_id}/burn",
             put(enable_burn).get(get_burn_settings),
@@ -73,7 +38,7 @@ pub fn create_burn_after_read_router(state: AppState) -> Router<AppState> {
 }
 
 /// Enable burn after read for a room
-/// PUT /_matrix/client/v1/rooms/{room_id}/burn
+/// PUT /_matrix/vendor/v1/rooms/{room_id}/burn
 pub async fn enable_burn(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -111,7 +76,7 @@ pub async fn enable_burn(
 }
 
 /// Get burn settings for a room
-/// GET /_matrix/client/v1/rooms/{room_id}/burn
+/// GET /_matrix/vendor/v1/rooms/{room_id}/burn
 pub async fn get_burn_settings(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -151,7 +116,7 @@ pub async fn get_burn_settings(
 }
 
 /// Mark message as read (triggers burn)
-/// POST /_matrix/client/v1/rooms/{room_id}/burn/{event_id}
+/// POST /_matrix/vendor/v1/rooms/{room_id}/burn/{event_id}
 pub async fn mark_burn_read(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -201,7 +166,7 @@ pub async fn mark_burn_read(
 }
 
 /// Get pending burn events
-/// GET /_matrix/client/v1/rooms/{room_id}/burn/pending
+/// GET /_matrix/vendor/v1/rooms/{room_id}/burn/pending
 pub async fn get_pending_burns(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -250,7 +215,7 @@ pub async fn get_pending_burns(
 }
 
 /// Cancel pending burn
-/// DELETE /_matrix/client/v1/rooms/{room_id}/burn/{event_id}
+/// DELETE /_matrix/vendor/v1/rooms/{room_id}/burn/{event_id}
 pub async fn cancel_burn(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -282,7 +247,7 @@ pub async fn cancel_burn(
 }
 
 /// Set global burn settings
-/// PUT /_matrix/client/v1/user/burn/config
+/// PUT /_matrix/vendor/v1/user/burn/config
 pub async fn set_global_burn_config(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -301,7 +266,7 @@ pub async fn set_global_burn_config(
 }
 
 /// Get burn statistics
-/// GET /_matrix/client/v1/user/burn/stats
+/// GET /_matrix/vendor/v1/user/burn/stats
 pub async fn get_burn_stats(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,

@@ -1,9 +1,9 @@
 {
   "schema_version": "1",
-  "generated_at": "2026-05-02T00:00:00Z",
+  "generated_at": "2026-09-16T00:00:00Z",
   "source": "synapse_ledger_export",
   "profile": "default",
-  "total_routes": 1051,
+  "total_routes": 998,
   "_meta": {
     "generated_by": "gen_route_table.py",
     "note": "本文件由 CI 自动生成，禁止手改。如需刷新: python3 scripts/api_test/gen_route_table.py"
@@ -612,293 +612,6 @@
     },
     {
       "method": "GET",
-      "path": "/_matrix/client/v1/friends",
-      "registered_by": "friend_room",
-      "path_params": [],
-      "query_params": [
-        "from",
-        "limit",
-        "offset",
-        "sort_by"
-      ],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/friends",
-      "registered_by": "friend_room",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/friends/check/{user_id}",
-      "registered_by": "friend_room",
-      "path_params": [
-        "user_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/friends/dm/{user_id}",
-      "registered_by": "friend_room",
-      "path_params": [
-        "user_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/friends/dm/{user_id}",
-      "registered_by": "friend_room",
-      "path_params": [
-        "user_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/friends/groups",
-      "registered_by": "friend_room",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/friends/groups",
-      "registered_by": "friend_room",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "DELETE",
-      "path": "/_matrix/client/v1/friends/groups/{group_id}",
-      "registered_by": "friend_room",
-      "path_params": [
-        "group_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/friends/groups/{group_id}/add/{user_id}",
-      "registered_by": "friend_room",
-      "path_params": [
-        "group_id",
-        "user_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/friends/groups/{group_id}/friends",
-      "registered_by": "friend_room",
-      "path_params": [
-        "group_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/v1/friends/groups/{group_id}/name",
-      "registered_by": "friend_room",
-      "path_params": [
-        "group_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "DELETE",
-      "path": "/_matrix/client/v1/friends/groups/{group_id}/remove/{user_id}",
-      "registered_by": "friend_room",
-      "path_params": [
-        "group_id",
-        "user_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/friends/request",
-      "registered_by": "friend_room",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/friends/request/received",
-      "registered_by": "friend_room",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/friends/request/{user_id}/accept",
-      "registered_by": "friend_room",
-      "path_params": [
-        "user_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/friends/request/{user_id}/cancel",
-      "registered_by": "friend_room",
-      "path_params": [
-        "user_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/friends/request/{user_id}/reject",
-      "registered_by": "friend_room",
-      "path_params": [
-        "user_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/friends/requests/incoming",
-      "registered_by": "friend_room",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/friends/requests/outgoing",
-      "registered_by": "friend_room",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/friends/search",
-      "registered_by": "friend_room",
-      "path_params": [],
-      "query_params": [
-        "limit",
-        "mode",
-        "q",
-        "query"
-      ],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/friends/search",
-      "registered_by": "friend_room",
-      "path_params": [],
-      "query_params": [
-        "limit",
-        "mode",
-        "q",
-        "query"
-      ],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/friends/suggestions",
-      "registered_by": "friend_room",
-      "path_params": [],
-      "query_params": [
-        "limit"
-      ],
-      "auth": null
-    },
-    {
-      "method": "DELETE",
-      "path": "/_matrix/client/v1/friends/{user_id}",
-      "registered_by": "friend_room",
-      "path_params": [
-        "user_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/v1/friends/{user_id}/displayname",
-      "registered_by": "friend_room",
-      "path_params": [
-        "user_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/friends/{user_id}/groups",
-      "registered_by": "friend_room",
-      "path_params": [
-        "user_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/friends/{user_id}/info",
-      "registered_by": "friend_room",
-      "path_params": [
-        "user_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/v1/friends/{user_id}/note",
-      "registered_by": "friend_room",
-      "path_params": [
-        "user_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/friends/{user_id}/status",
-      "registered_by": "friend_room",
-      "path_params": [
-        "user_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/v1/friends/{user_id}/status",
-      "registered_by": "friend_room",
-      "path_params": [
-        "user_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
       "path": "/_matrix/client/v1/keys/changes",
       "registered_by": "e2ee",
       "path_params": [],
@@ -933,80 +646,6 @@
       "method": "POST",
       "path": "/_matrix/client/v1/keys/query",
       "registered_by": "e2ee",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/keys/rotation/check",
-      "registered_by": "key_rotation",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/keys/rotation/check",
-      "registered_by": "key_rotation",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/keys/rotation/config",
-      "registered_by": "key_rotation",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/v1/keys/rotation/config",
-      "registered_by": "key_rotation",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/keys/rotation/history/{device_id}",
-      "registered_by": "key_rotation",
-      "path_params": [
-        "device_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/keys/rotation/revoke",
-      "registered_by": "key_rotation",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/keys/rotation/rotate",
-      "registered_by": "key_rotation",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/keys/rotation/status",
-      "registered_by": "key_rotation",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/keys/rotation/status",
-      "registered_by": "key_rotation",
       "path_params": [],
       "query_params": [],
       "auth": null
@@ -1717,58 +1356,6 @@
     },
     {
       "method": "GET",
-      "path": "/_matrix/client/v1/rooms/{room_id}/burn",
-      "registered_by": "burn_after_read",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/v1/rooms/{room_id}/burn",
-      "registered_by": "burn_after_read",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/rooms/{room_id}/burn/pending",
-      "registered_by": "burn_after_read",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "DELETE",
-      "path": "/_matrix/client/v1/rooms/{room_id}/burn/{event_id}",
-      "registered_by": "burn_after_read",
-      "path_params": [
-        "room_id",
-        "event_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/rooms/{room_id}/burn/{event_id}",
-      "registered_by": "burn_after_read",
-      "path_params": [
-        "room_id",
-        "event_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
       "path": "/_matrix/client/v1/rooms/{room_id}/context/{event_id}",
       "registered_by": "search",
       "path_params": [
@@ -2462,22 +2049,6 @@
       "auth": null
     },
     {
-      "method": "PUT",
-      "path": "/_matrix/client/v1/user/burn/config",
-      "registered_by": "burn_after_read",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/user/burn/stats",
-      "registered_by": "burn_after_read",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
       "method": "GET",
       "path": "/_matrix/client/v1/user/mutual_rooms",
       "registered_by": "room",
@@ -2950,79 +2521,6 @@
       "registered_by": "sync",
       "path_params": [],
       "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v3/friends",
-      "registered_by": "friend_room",
-      "path_params": [],
-      "query_params": [
-        "from",
-        "limit",
-        "offset",
-        "sort_by"
-      ],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v3/friends",
-      "registered_by": "friend_room",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v3/friends/check/{user_id}",
-      "registered_by": "friend_room",
-      "path_params": [
-        "user_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v3/friends/requests/incoming",
-      "registered_by": "friend_room",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v3/friends/requests/outgoing",
-      "registered_by": "friend_room",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v3/friends/search",
-      "registered_by": "friend_room",
-      "path_params": [],
-      "query_params": [
-        "limit",
-        "mode",
-        "q",
-        "query"
-      ],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v3/friends/search",
-      "registered_by": "friend_room",
-      "path_params": [],
-      "query_params": [
-        "limit",
-        "mode",
-        "q",
-        "query"
-      ],
       "auth": null
     },
     {
@@ -4209,58 +3707,6 @@
       "registered_by": "room",
       "path_params": [
         "room_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v3/rooms/{room_id}/burn",
-      "registered_by": "burn_after_read",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/v3/rooms/{room_id}/burn",
-      "registered_by": "burn_after_read",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v3/rooms/{room_id}/burn/pending",
-      "registered_by": "burn_after_read",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "DELETE",
-      "path": "/_matrix/client/v3/rooms/{room_id}/burn/{event_id}",
-      "registered_by": "burn_after_read",
-      "path_params": [
-        "room_id",
-        "event_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v3/rooms/{room_id}/burn/{event_id}",
-      "registered_by": "burn_after_read",
-      "path_params": [
-        "room_id",
-        "event_id"
       ],
       "query_params": [],
       "auth": null
@@ -5900,22 +5346,6 @@
       "method": "POST",
       "path": "/_matrix/client/v3/upload/token",
       "registered_by": "assembly::upload_provider",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/v3/user/burn/config",
-      "registered_by": "burn_after_read",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v3/user/burn/stats",
-      "registered_by": "burn_after_read",
       "path_params": [],
       "query_params": [],
       "auth": null
@@ -8624,6 +8054,17 @@
     },
     {
       "method": "POST",
+      "path": "/_synapse/admin/v1/media/protect/{server_name}/{media_id}",
+      "registered_by": "admin::media",
+      "path_params": [
+        "server_name",
+        "media_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
       "path": "/_synapse/admin/v1/media/quarantine/{server_name}/{media_id}",
       "registered_by": "admin::media",
       "path_params": [
@@ -8665,6 +8106,26 @@
       "registered_by": "admin::media",
       "path_params": [
         "server_name",
+        "media_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "DELETE",
+      "path": "/_synapse/admin/v1/media/{media_id}",
+      "registered_by": "admin::media",
+      "path_params": [
+        "media_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/media/{media_id}",
+      "registered_by": "admin::media",
+      "path_params": [
         "media_id"
       ],
       "query_params": [],
@@ -8941,6 +8402,16 @@
     },
     {
       "method": "GET",
+      "path": "/_synapse/admin/v1/quarantine_media/{media_id}/changes",
+      "registered_by": "admin::media",
+      "path_params": [
+        "media_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
       "path": "/_synapse/admin/v1/rate-limit-status",
       "registered_by": "admin::server",
       "path_params": [],
@@ -9116,27 +8587,6 @@
       "registered_by": "admin::media",
       "path_params": [
         "room_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/room/{room_id}/media/unquarantine",
-      "registered_by": "admin::media",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "DELETE",
-      "path": "/_synapse/admin/v1/room/{room_id}/media/{media_id}",
-      "registered_by": "admin::media",
-      "path_params": [
-        "room_id",
-        "media_id"
       ],
       "query_params": [],
       "auth": null
@@ -9388,6 +8838,47 @@
       "registered_by": "admin::room",
       "path_params": [
         "room_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/rooms/{room_id}/media",
+      "registered_by": "admin::media",
+      "path_params": [
+        "room_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/rooms/{room_id}/media/quarantine",
+      "registered_by": "admin::media",
+      "path_params": [
+        "room_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/rooms/{room_id}/media/unquarantine",
+      "registered_by": "admin::media",
+      "path_params": [
+        "room_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "DELETE",
+      "path": "/_synapse/admin/v1/rooms/{room_id}/media/{media_id}",
+      "registered_by": "admin::media",
+      "path_params": [
+        "room_id",
+        "media_id"
       ],
       "query_params": [],
       "auth": null

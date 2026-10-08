@@ -2926,12 +2926,12 @@ echo "=========================================="
 echo "154. Friend Room"
 echo "=========================================="
 echo "154. Get Friends"
-http_json GET "$SERVER_URL/_matrix/client/v1/friends" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/friends" "$TOKEN"
 admin_endpoint_check "Get Friends" "$HTTP_BODY" "$HTTP_STATUS""${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
 
 echo ""
 echo "155. Friend Request"
-http_json POST "$SERVER_URL/_matrix/client/v1/friends/request" "$TOKEN" "{\"user_id\": \"$TARGET_USER_ID\"}"
+http_json POST "$SERVER_URL/_matrix/vendor/v1/friends/request" "$TOKEN" "{\"user_id\": \"$TARGET_USER_ID\"}"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     assert_success_json "Friend Request" "$HTTP_BODY" "$HTTP_STATUS" "request_id" "status"
 else
@@ -2945,7 +2945,7 @@ fi
 
 echo ""
 echo "156. Incoming Friend Requests"
-http_json GET "$SERVER_URL/_matrix/client/v1/friends/requests/incoming" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/friends/requests/incoming" "$TOKEN"
 admin_endpoint_check "Incoming Friend Requests" "$HTTP_BODY" "$HTTP_STATUS""${ASSERT_ERROR:-HTTP $HTTP_STATUS}"
 
 # 55. Refresh Token
@@ -3879,7 +3879,7 @@ echo "=========================================="
 echo "251. Friend Room Extended"
 echo "=========================================="
 echo "251. Get Friends"
-http_json GET "$SERVER_URL/_matrix/client/v3/friends" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/friends" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]] && json_has_key "$HTTP_BODY" "friends"; then
     pass "Get Friends"
 elif last_body_is_unrecognized; then
@@ -3890,7 +3890,7 @@ fi
 
 echo ""
 echo "252. Get Incoming Friend Requests"
-http_json GET "$SERVER_URL/_matrix/client/v1/friends/requests/incoming" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/friends/requests/incoming" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Incoming Friend Requests"
 elif last_body_is_unrecognized; then
@@ -3901,7 +3901,7 @@ fi
 
 echo ""
 echo "253. Get Outgoing Friend Requests"
-http_json GET "$SERVER_URL/_matrix/client/v1/friends/requests/outgoing" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/friends/requests/outgoing" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]] && json_has_key "$HTTP_BODY" "requests"; then
     pass "Get Outgoing Friend Requests"
 elif last_body_is_unrecognized; then
@@ -3912,7 +3912,7 @@ fi
 
 echo ""
 echo "254. Send Friend Request"
-http_json POST "$SERVER_URL/_matrix/client/v1/friends/request" "$TOKEN" "{\"user_id\": \"$TARGET_USER_ID\"}"
+http_json POST "$SERVER_URL/_matrix/vendor/v1/friends/request" "$TOKEN" "{\"user_id\": \"$TARGET_USER_ID\"}"
 if [[ "$HTTP_STATUS" == 2* ]] || [ "$HTTP_STATUS" = "409" ]; then
     pass "Send Friend Request"
 elif last_body_is_unrecognized; then
@@ -4330,7 +4330,7 @@ echo "=========================================="
 echo "289. Admin Group"
 echo "=========================================="
 echo "289. Create Friend Group"
-http_json POST "$SERVER_URL/_matrix/client/v1/friends/groups" "$TOKEN" '{"name": "Test Group"}'
+http_json POST "$SERVER_URL/_matrix/vendor/v1/friends/groups" "$TOKEN" '{"name": "Test Group"}'
 FRIEND_GROUP_ID=$(json_get "$HTTP_BODY" "id")
 if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "id" "name"; then
     pass "Create Friend Group" "${FRIEND_GROUP_ID:-created}"
@@ -4340,7 +4340,7 @@ fi
 
 echo ""
 echo "290. List Friend Groups"
-http_json GET "$SERVER_URL/_matrix/client/v1/friends/groups" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/friends/groups" "$TOKEN"
 if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "groups"; then
     pass "List Friend Groups"
 else
@@ -4570,7 +4570,7 @@ echo "=========================================="
 echo "303. Admin Group Extended"
 echo "=========================================="
 echo "303. Get Group Details"
-http_json GET "$SERVER_URL/_matrix/client/v1/friends/groups" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/friends/groups" "$TOKEN"
 if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "groups"; then
     pass "Get Group Details"
 else
@@ -5304,7 +5304,7 @@ echo "357. Admin Groups Extended"
 echo "=========================================="
 echo "357. Get Group Friends"
 if [ -n "$FRIEND_GROUP_ID" ]; then
-    http_json GET "$SERVER_URL/_matrix/client/v1/friends/groups/$FRIEND_GROUP_ID/friends" "$TOKEN"
+    http_json GET "$SERVER_URL/_matrix/vendor/v1/friends/groups/$FRIEND_GROUP_ID/friends" "$TOKEN"
     if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "friends"; then
         pass "Get Group Friends"
     else
@@ -5317,7 +5317,7 @@ fi
 echo ""
 echo "358. Get User Groups"
 TARGET_USER_ID_ENC=$(url_encode "$TARGET_USER_ID")
-http_json GET "$SERVER_URL/_matrix/client/v1/friends/$TARGET_USER_ID_ENC/groups" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/friends/$TARGET_USER_ID_ENC/groups" "$TOKEN"
 if check_success_json "$HTTP_BODY" "$HTTP_STATUS" "groups"; then
     pass "Get User Groups"
 else
@@ -5838,7 +5838,7 @@ echo "396. Admin Groups Extended"
 echo "=========================================="
 echo "396. Rename Friend Group"
 if [ -n "$FRIEND_GROUP_ID" ]; then
-    http_json PUT "$SERVER_URL/_matrix/client/v1/friends/groups/$FRIEND_GROUP_ID/name" "$TOKEN" '{"name": "Test Group Renamed"}'
+    http_json PUT "$SERVER_URL/_matrix/vendor/v1/friends/groups/$FRIEND_GROUP_ID/name" "$TOKEN" '{"name": "Test Group Renamed"}'
     if check_success_json "$HTTP_BODY" "$HTTP_STATUS"; then
         pass "Rename Friend Group"
     else

@@ -70,6 +70,70 @@
         "post"
       ]
     ],
+    "quarantine_media": [
+      [
+        "/_synapse/admin/v1/media/quarantine/{server_name}/{media_id}",
+        "post"
+      ]
+    ],
+    "unquarantine_media": [
+      [
+        "/_synapse/admin/v1/media/unquarantine/{server_name}/{media_id}",
+        "post"
+      ]
+    ],
+    "quarantine_room_media": [
+      [
+        "/_synapse/admin/v1/rooms/{room_id}/media/quarantine",
+        "post"
+      ],
+      [
+        "/_synapse/admin/v1/room/{room_id}/media/quarantine",
+        "post"
+      ]
+    ],
+    "unquarantine_room_media": [
+      [
+        "/_synapse/admin/v1/rooms/{room_id}/media/unquarantine",
+        "post"
+      ]
+    ],
+    "protect_media": [
+      [
+        "/_synapse/admin/v1/media/protect/{server_name}/{media_id}",
+        "post"
+      ]
+    ],
+    "protect_media_by_id": [
+      [
+        "/_synapse/admin/v1/media/protect/{media_id}",
+        "post"
+      ]
+    ],
+    "quarantine_user_media": [
+      [
+        "/_synapse/admin/v1/user/{user_id}/media/quarantine",
+        "post"
+      ]
+    ],
+    "delete_media_by_policy": [
+      [
+        "/_synapse/admin/v1/media/delete",
+        "post"
+      ]
+    ],
+    "purge_media_cache": [
+      [
+        "/_synapse/admin/v1/purge_media_cache",
+        "post"
+      ]
+    ],
+    "unprotect_media_by_id": [
+      [
+        "/_synapse/admin/v1/media/unprotect/{media_id}",
+        "post"
+      ]
+    ],
     "update_user_notification": [
       [
         "/_synapse/admin/v1/users/{user_id}/notification",
@@ -145,12 +209,6 @@
     "set_user_override_rate_limit": [
       [
         "/_synapse/admin/v1/users/{user_id}/override_ratelimit",
-        "post"
-      ]
-    ],
-    "purge_media_cache": [
-      [
-        "/_synapse/admin/v1/purge_media_cache",
         "post"
       ]
     ],
@@ -332,6 +390,12 @@
         "post"
       ]
     ],
+    "handlers::account_status::client_account_status": [
+      [
+        "/_matrix/client/unstable/org.matrix.msc3720/account_status",
+        "post"
+      ]
+    ],
     "request_email_verification": [
       [
         "/register/email/requestToken",
@@ -490,41 +554,17 @@
     ],
     "enable_burn": [
       [
-        "/_matrix/client/v1/rooms/{room_id}/burn",
-        "put"
-      ],
-      [
-        "/_matrix/client/v3/rooms/{room_id}/burn",
-        "put"
-      ],
-      [
         "/_matrix/vendor/v1/rooms/{room_id}/burn",
         "put"
       ]
     ],
     "mark_burn_read": [
       [
-        "/_matrix/client/v1/rooms/{room_id}/burn/{event_id}",
-        "post"
-      ],
-      [
-        "/_matrix/client/v3/rooms/{room_id}/burn/{event_id}",
-        "post"
-      ],
-      [
         "/_matrix/vendor/v1/rooms/{room_id}/burn/{event_id}",
         "post"
       ]
     ],
     "set_global_burn_config": [
-      [
-        "/_matrix/client/v1/user/burn/config",
-        "put"
-      ],
-      [
-        "/_matrix/client/v3/user/burn/config",
-        "put"
-      ],
       [
         "/_matrix/vendor/v1/user/burn/config",
         "put"
@@ -565,12 +605,6 @@
       ],
       [
         "/admin/users/{user_id}/attributes",
-        "post"
-      ]
-    ],
-    "manage_delayed_event": [
-      [
-        "/delayed_events/{delay_id}",
         "post"
       ]
     ],
@@ -766,27 +800,11 @@
     ],
     "send_friend_request": [
       [
-        "/_matrix/client/v3/friends",
-        "post"
-      ],
-      [
-        "/_matrix/client/v1/friends",
-        "post"
-      ],
-      [
-        "/_matrix/client/v1/friends/request",
-        "post"
-      ],
-      [
         "/_matrix/vendor/v1/friends/request",
         "post"
       ]
     ],
     "accept_friend_request": [
-      [
-        "/_matrix/client/v1/friends/request/{user_id}/accept",
-        "post"
-      ],
       [
         "/_matrix/vendor/v1/friends/request/{user_id}/accept",
         "post"
@@ -794,19 +812,11 @@
     ],
     "reject_friend_request": [
       [
-        "/_matrix/client/v1/friends/request/{user_id}/reject",
-        "post"
-      ],
-      [
         "/_matrix/vendor/v1/friends/request/{user_id}/reject",
         "post"
       ]
     ],
     "cancel_friend_request": [
-      [
-        "/_matrix/client/v1/friends/request/{user_id}/cancel",
-        "post"
-      ],
       [
         "/_matrix/vendor/v1/friends/request/{user_id}/cancel",
         "post"
@@ -814,51 +824,23 @@
     ],
     "update_friend_note": [
       [
-        "/_matrix/client/v1/friends/{user_id}/note",
-        "put"
-      ],
-      [
         "/_matrix/vendor/v1/friends/{user_id}/note",
-        "put"
-      ]
-    ],
-    "update_friend_status": [
-      [
-        "/_matrix/client/v1/friends/{user_id}/status",
         "put"
       ]
     ],
     "update_friend_displayname": [
       [
-        "/_matrix/client/v1/friends/{user_id}/displayname",
-        "put"
-      ],
-      [
         "/_matrix/vendor/v1/friends/{user_id}/displayname",
         "put"
       ]
     ],
-    "create_friend_group": [
-      [
-        "/_matrix/client/v1/friends/groups",
-        "post"
-      ]
-    ],
     "rename_friend_group": [
-      [
-        "/_matrix/client/v1/friends/groups/{group_id}/name",
-        "put"
-      ],
       [
         "/_matrix/vendor/v1/friends/groups/{group_id}/name",
         "put"
       ]
     ],
     "add_friend_to_group": [
-      [
-        "/_matrix/client/v1/friends/groups/{group_id}/add/{user_id}",
-        "post"
-      ],
       [
         "/_matrix/vendor/v1/friends/groups/{group_id}/add/{user_id}",
         "post"
@@ -962,29 +944,17 @@
     ],
     "rotate_keys": [
       [
-        "/_matrix/client/v1/keys/rotation/rotate",
-        "post"
-      ],
-      [
         "/_matrix/vendor/v1/keys/rotation/rotate",
         "post"
       ]
     ],
     "revoke_old_keys": [
       [
-        "/_matrix/client/v1/keys/rotation/revoke",
-        "post"
-      ],
-      [
         "/_matrix/vendor/v1/keys/rotation/revoke",
         "post"
       ]
     ],
     "configure_key_rotation": [
-      [
-        "/_matrix/client/v1/keys/rotation/config",
-        "put"
-      ],
       [
         "/_matrix/vendor/v1/keys/rotation/config",
         "put"
@@ -1512,37 +1482,11 @@
     ],
     "upload_voice_message": [
       [
-        "/_matrix/client/v1/voice/upload",
-        "post"
-      ],
-      [
-        "/_matrix/client/v3/voice/upload",
-        "post"
-      ],
-      [
         "/_matrix/vendor/v1/voice/upload",
         "post"
       ]
     ],
-    "register_encrypted_voice": [
-      [
-        "/_matrix/client/v1/voice/register",
-        "post"
-      ],
-      [
-        "/_matrix/client/v3/voice/register",
-        "post"
-      ],
-      [
-        "/_matrix/vendor/v1/voice/register",
-        "post"
-      ]
-    ],
     "convert_voice_message": [
-      [
-        "/_matrix/client/v3/voice/{media_id}/convert",
-        "post"
-      ],
       [
         "/_matrix/vendor/v1/voice/{media_id}/convert",
         "post"
@@ -1550,21 +1494,19 @@
     ],
     "optimize_voice_message": [
       [
-        "/_matrix/client/v3/voice/{media_id}/optimize",
-        "post"
-      ],
-      [
         "/_matrix/vendor/v1/voice/{media_id}/optimize",
         "post"
       ]
     ],
     "transcribe_voice_message": [
       [
-        "/_matrix/client/v3/voice/{media_id}/transcription",
-        "post"
-      ],
-      [
         "/_matrix/vendor/v1/voice/{media_id}/transcription",
+        "post"
+      ]
+    ],
+    "register_encrypted_voice": [
+      [
+        "/_matrix/vendor/v1/voice/register",
         "post"
       ]
     ],
@@ -1688,6 +1630,9 @@
     "rewrite_federation": "RewriteRequest",
     "resolve_federation": "ResolveRequest",
     "confirm_federation": "ConfirmRequest",
+    "quarantine_room_media": "QuarantineRoomMediaRequest",
+    "unquarantine_room_media": "QuarantineRoomMediaRequest",
+    "delete_media_by_policy": "DeleteMediaByPolicyRequest",
     "create_notification": "CreateNotificationRequest",
     "update_notification": "UpdateNotificationRequest",
     "send_server_notice": "ServerNoticeRequest",
@@ -1704,6 +1649,8 @@
     "kick_user": "BanRequest",
     "kick_user_by_body": "RoomUserActionRequest",
     "set_user_rate_limit": "RateLimitRequest",
+    "set_global_invite_blocklist_admin": "InviteListWriteBody",
+    "set_global_invite_allowlist_admin": "InviteListWriteBody",
     "create_registration_token": "CreateTokenRequest",
     "update_registration_token": "UpdateTokenRequest",
     "reset_user_password": "ResetPasswordBody",
@@ -1912,6 +1859,56 @@
         ]
       },
       "file": "synapse-web/src/routes/admin/federation.rs",
+      "field_count": 2
+    },
+    "QuarantineRoomMediaRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/admin/media.rs",
+      "field_count": 1
+    },
+    "DeleteMediaByPolicyRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "before_ts": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max_size": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/admin/media.rs",
       "field_count": 2
     },
     "ServerNoticeRequest": {
@@ -2272,6 +2269,24 @@
       },
       "file": "synapse-web/src/routes/admin/security.rs",
       "field_count": 2
+    },
+    "InviteListWriteBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "user_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "user_ids"
+        ]
+      },
+      "file": "synapse-web/src/routes/admin/server.rs",
+      "field_count": 1
     },
     "CreateTokenRequest": {
       "schema": {
@@ -5008,60 +5023,20 @@
       "put",
       "UpdateExternalServiceBody"
     ],
-    "post /_matrix/client/v3/friends": [
-      "/_matrix/client/v3/friends",
-      "post",
-      "AddFriendRequest"
-    ],
-    "post /_matrix/client/v1/friends": [
-      "/_matrix/client/v1/friends",
-      "post",
-      "AddFriendRequest"
-    ],
-    "post /_matrix/client/v1/friends/request": [
-      "/_matrix/client/v1/friends/request",
-      "post",
-      "AddFriendRequest"
-    ],
     "post /_matrix/vendor/v1/friends/request": [
       "/_matrix/vendor/v1/friends/request",
       "post",
       "AddFriendRequest"
-    ],
-    "put /_matrix/client/v1/friends/{user_id}/note": [
-      "/_matrix/client/v1/friends/{user_id}/note",
-      "put",
-      "UpdateNoteRequest"
     ],
     "put /_matrix/vendor/v1/friends/{user_id}/note": [
       "/_matrix/vendor/v1/friends/{user_id}/note",
       "put",
       "UpdateNoteRequest"
     ],
-    "put /_matrix/client/v1/friends/{user_id}/status": [
-      "/_matrix/client/v1/friends/{user_id}/status",
-      "put",
-      "UpdateStatusRequest"
-    ],
-    "put /_matrix/client/v1/friends/{user_id}/displayname": [
-      "/_matrix/client/v1/friends/{user_id}/displayname",
-      "put",
-      "UpdateDisplaynameRequest"
-    ],
     "put /_matrix/vendor/v1/friends/{user_id}/displayname": [
       "/_matrix/vendor/v1/friends/{user_id}/displayname",
       "put",
       "UpdateDisplaynameRequest"
-    ],
-    "post /_matrix/client/v1/friends/groups": [
-      "/_matrix/client/v1/friends/groups",
-      "post",
-      "CreateGroupRequest"
-    ],
-    "put /_matrix/client/v1/friends/groups/{group_id}/name": [
-      "/_matrix/client/v1/friends/groups/{group_id}/name",
-      "put",
-      "RenameGroupRequest"
     ],
     "put /_matrix/vendor/v1/friends/groups/{group_id}/name": [
       "/_matrix/vendor/v1/friends/groups/{group_id}/name",
@@ -5212,16 +5187,6 @@
       "/user/{user_id}/rooms/{room_id}/tags/{tag}",
       "put",
       "TagContent"
-    ],
-    "post /_matrix/client/v1/voice/register": [
-      "/_matrix/client/v1/voice/register",
-      "post",
-      "RegisterEncryptedVoiceRequest"
-    ],
-    "post /_matrix/client/v3/voice/register": [
-      "/_matrix/client/v3/voice/register",
-      "post",
-      "RegisterEncryptedVoiceRequest"
     ],
     "post /_matrix/vendor/v1/voice/register": [
       "/_matrix/vendor/v1/voice/register",

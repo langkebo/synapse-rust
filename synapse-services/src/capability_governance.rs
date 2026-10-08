@@ -388,7 +388,12 @@ impl CapabilityGovernance {
         if !self.config.experimental.declare_private_extensions {
             return CapabilityFlag::config_controlled(false);
         }
-        CapabilityFlag::route_surface(self.manifest_has_route("GET", "/_matrix/client/v3/friends"))
+        // ISSUE-13: the capability probe must name the CANONICAL private path.
+        // It used to probe `/_matrix/client/v3/friends`, one of the 77 dead
+        // client-prefix aliases deleted on 2026-10-08 — left unchanged, this
+        // would have silently flipped the declared capability to `false` while
+        // the feature kept working under `/_matrix/vendor/v1`.
+        CapabilityFlag::route_surface(self.manifest_has_route("GET", "/_matrix/vendor/v1/friends"))
     }
 
     fn external_services_capability(&self) -> CapabilityFlag {
@@ -399,7 +404,8 @@ impl CapabilityGovernance {
         if !self.config.experimental.declare_private_extensions {
             return CapabilityFlag::config_controlled(false);
         }
-        CapabilityFlag::route_surface(self.manifest_has_route("GET", "/_matrix/client/v1/voice/config"))
+        // ISSUE-13: canonical vendor path (see `friends_capability`).
+        CapabilityFlag::route_surface(self.manifest_has_route("GET", "/_matrix/vendor/v1/voice/config"))
     }
 
     #[cfg(test)]
@@ -411,7 +417,8 @@ impl CapabilityGovernance {
         if !self.config.experimental.declare_private_extensions {
             return CapabilityFlag::config_controlled(false);
         }
-        CapabilityFlag::route_surface(self.manifest_has_route("PUT", "/_matrix/client/v1/rooms/{room_id}/burn"))
+        // ISSUE-13: canonical vendor path (see `friends_capability`).
+        CapabilityFlag::route_surface(self.manifest_has_route("PUT", "/_matrix/vendor/v1/rooms/{room_id}/burn"))
     }
 
     // -----------------------------------------------------------------------
@@ -606,11 +613,11 @@ mod tests {
             ("PUT", "/_matrix/client/v3/profile/{user_id}/displayname"),
             ("PUT", "/_matrix/client/v3/profile/{user_id}/avatar_url"),
             ("POST", "/_matrix/client/v3/account/3pid"),
-            ("GET", "/_matrix/client/v3/friends"),
+            ("GET", "/_matrix/vendor/v1/friends"),
             ("GET", "/_matrix/client/v1/external_services/health"),
-            ("GET", "/_matrix/client/v1/voice/config"),
+            ("GET", "/_matrix/vendor/v1/voice/config"),
             ("POST", "/_matrix/client/v1/widgets"),
-            ("PUT", "/_matrix/client/v1/rooms/{room_id}/burn"),
+            ("PUT", "/_matrix/vendor/v1/rooms/{room_id}/burn"),
             ("POST", "/_matrix/client/unstable/org.matrix.msc3720/account_status"),
         ];
         CapabilityGovernance::new(
