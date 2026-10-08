@@ -329,14 +329,18 @@ pub async fn put_push_config(
 }
 
 /// See [`create_push_notification_router`].
+///
+/// ISSUE-13：`/push/devices` 与 `/push/send` 是私有扩展（不在 CS 规范内），
+/// 唯一规范位置是 `/_matrix/vendor/v1`。此前 4 条挂在 `/_matrix/client/v3` 下，
+/// 已按 AGENTS.md 铁律 1 整批迁移，**不留 client 别名**。
 pub fn create_push_notification_router(state: AppState) -> axum::Router<AppState> {
     use axum::routing::*;
 
-    let public_routes = axum::Router::new()
-        .route("/_matrix/client/v3/push/devices", get(get_devices))
-        .route("/_matrix/client/v3/push/devices", post(register_device))
-        .route("/_matrix/client/v3/push/devices/{device_id}", delete(unregister_device))
-        .route("/_matrix/client/v3/push/send", post(send_notification));
+    let vendor_routes = axum::Router::new()
+        .route("/_matrix/vendor/v1/push/devices", get(get_devices))
+        .route("/_matrix/vendor/v1/push/devices", post(register_device))
+        .route("/_matrix/vendor/v1/push/devices/{device_id}", delete(unregister_device))
+        .route("/_matrix/vendor/v1/push/send", post(send_notification));
 
     let admin_routes = axum::Router::new()
         .route("/_synapse/admin/v1/push/process", post(process_queue))
@@ -348,7 +352,7 @@ pub fn create_push_notification_router(state: AppState) -> axum::Router<AppState
             crate::middleware::admin_auth_middleware,
         ));
 
-    public_routes.merge(admin_routes).with_state(state)
+    vendor_routes.merge(admin_routes).with_state(state)
 }
 
 // -------------------------------------------------------------------------

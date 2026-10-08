@@ -433,8 +433,10 @@ def check_standard_prefix_bucket(per: dict) -> None:
 
     已知缺口（不假装已覆盖）：混合模块（`room.rs` / `moderation.rs` /
     `handlers/thread.rs`）不做 B 的全覆盖断言，因为那需要一份机器可读的 spec 路径
-    清单。当前在 `spp.MIXED_MODULE_ROUTES` 里逐条登记已识别的私有端点；
-    补齐白名单方向见《前缀命名空间治理方案-2026-10-08.md》§3 Phase 1。
+    清单。2026-10-08 Phase 3 之前，已识别的混合模块私有端点逐条登记在
+    `spp.MIXED_MODULE_ROUTES`；那 20 条**已全部迁到 `/_matrix/vendor/v1`**，
+    登记位因此清空 —— 但缺口**没有**因此消失，只是当前没有已知条目占位。
+    补齐白名单方向见《前缀命名空间治理方案-2026-10-08.md》§3 Phase 1（Batch 4 G-02/G-03）。
     """
     ledger = load_standard_prefix_ledger()
     actual = {(m, p) for routes in per.values() for m, p in routes}

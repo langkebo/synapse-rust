@@ -1815,7 +1815,7 @@ echo "=========================================="
 echo "81. DM APIs"
 echo "=========================================="
 echo "81. Create DM"
-DM_RESP=$(curl -s -X POST "$SERVER_URL/_matrix/client/v3/create_dm" \
+DM_RESP=$(curl -s -X POST "$SERVER_URL/_matrix/vendor/v1/create_dm" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"user_id": "'"$USER_ID"'"}')
@@ -1824,14 +1824,14 @@ echo "$DM_RESP" | grep -q "room_id" && pass "Create DM" || skip "Create DM (not 
 
 echo ""
 echo "82. Get Direct Rooms"
-http_json GET "$SERVER_URL/_matrix/client/v3/direct" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/direct" "$TOKEN"
 check_success_json "$HTTP_BODY" "$HTTP_STATUS" "rooms" && pass "Get Direct Rooms" || skip "Get Direct Rooms (not implemented)"
 
 echo ""
 echo "83. Update Direct Room"
 if [ -n "$DM_ROOM_ID" ]; then
     DM_ENC=$(echo "$DM_ROOM_ID" | sed 's/!/%21/g' | sed 's/:/%3A/g')
-    UPDATE_RESP=$(curl -s -X PUT "$SERVER_URL/_matrix/client/v3/direct/$DM_ENC" \
+    UPDATE_RESP=$(curl -s -X PUT "$SERVER_URL/_matrix/vendor/v1/direct/$DM_ENC" \
         -H "Authorization: Bearer $TOKEN" \
         -H "Content-Type: application/json" \
         -d '{"users": ["'"$USER_ID"'"]}')
@@ -2843,7 +2843,7 @@ echo "=========================================="
 echo "209. User Threads"
 echo "=========================================="
 echo "209. User Threads"
-curl -s "$SERVER_URL/_matrix/client/v3/user/$USER_ID/rooms/$ROOM_ID/threads" -H "Authorization: Bearer $TOKEN" && pass "User Threads" || skip "User Threads (endpoint not available)"
+curl -s "$SERVER_URL/_matrix/vendor/v1/user/$USER_ID/rooms/$ROOM_ID/threads" -H "Authorization: Bearer $TOKEN" && pass "User Threads" || skip "User Threads (endpoint not available)"
 
 # 73. Admin Background Update
 echo ""
@@ -2986,7 +2986,7 @@ curl -s "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/thread/test_thread_id" -H 
 
 echo ""
 echo "234. Get User Threads"
-curl -s "$SERVER_URL/_matrix/client/v1/threads" -H "Authorization: Bearer $TOKEN" && pass "Get User Threads" || skip "Thread (endpoint not available)"
+curl -s "$SERVER_URL/_matrix/vendor/v1/threads" -H "Authorization: Bearer $TOKEN" && pass "Get User Threads" || skip "Thread (endpoint not available)"
 
 echo ""
 echo "235. Thread Search"

@@ -602,16 +602,20 @@ pub async fn get_dm_partner_route(
 }
 
 /// See [`create_dm_router`].
+///
+/// ISSUE-13：本模块**整模块私有**（无标准端点），私有端点的唯一规范位置是
+/// `/_matrix/vendor/v1`。此前 5 条挂在 `/_matrix/client/v3` 下，已按
+/// AGENTS.md 铁律 1 整批迁移，**不留 client 别名**（未发布项目无向后兼容义务）。
 pub fn create_dm_router(state: AppState) -> Router<AppState> {
-    let v3_router = Router::new()
+    let vendor_router = Router::new()
         .route("/direct", get(get_dm_rooms))
         .route("/direct/{room_id}", put(update_dm_room))
         .route("/rooms/{room_id}/dm", get(check_room_dm))
         .route("/rooms/{room_id}/dm/partner", get(get_dm_partner_route));
 
     Router::new()
-        .route("/_matrix/client/v3/create_dm", post(create_dm_room))
-        .nest("/_matrix/client/v3", v3_router)
+        .route("/_matrix/vendor/v1/create_dm", post(create_dm_room))
+        .nest("/_matrix/vendor/v1", vendor_router)
         .with_state(state)
 }
 

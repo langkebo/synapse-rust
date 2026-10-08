@@ -141,7 +141,7 @@ async fn test_dm_routes_persist_matrix_direct_account_data() {
 
     let create_dm_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/v3/create_dm")
+        .uri("/_matrix/vendor/v1/create_dm")
         .header("Authorization", format!("Bearer {}", alice_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -160,7 +160,7 @@ async fn test_dm_routes_persist_matrix_direct_account_data() {
 
     let direct_request = Request::builder()
         .method("GET")
-        .uri("/_matrix/client/v3/direct")
+        .uri("/_matrix/vendor/v1/direct")
         .header("Authorization", format!("Bearer {}", alice_token))
         .body(Body::empty())
         .unwrap();
@@ -188,7 +188,7 @@ async fn test_dm_routes_persist_matrix_direct_account_data() {
 
     let dm_check_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/dm", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/dm", room_id))
         .header("Authorization", format!("Bearer {}", alice_token))
         .body(Body::empty())
         .unwrap();
@@ -197,7 +197,7 @@ async fn test_dm_routes_persist_matrix_direct_account_data() {
 
     let dm_partner_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/dm/partner", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/dm/partner", room_id))
         .header("Authorization", format!("Bearer {}", alice_token))
         .body(Body::empty())
         .unwrap();
@@ -220,7 +220,7 @@ async fn test_dm_update_accepts_users_array_and_legacy_content_shorthand() {
 
     let create_dm_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/v3/create_dm")
+        .uri("/_matrix/vendor/v1/create_dm")
         .header("Authorization", format!("Bearer {}", alice_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -239,7 +239,7 @@ async fn test_dm_update_accepts_users_array_and_legacy_content_shorthand() {
 
     let update_array_request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/v3/direct/{}", room_id))
+        .uri(format!("/_matrix/vendor/v1/direct/{}", room_id))
         .header("Authorization", format!("Bearer {}", alice_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -254,7 +254,7 @@ async fn test_dm_update_accepts_users_array_and_legacy_content_shorthand() {
 
     let update_legacy_request = Request::builder()
         .method("PUT")
-        .uri(format!("/_matrix/client/v3/direct/{}", room_id))
+        .uri(format!("/_matrix/vendor/v1/direct/{}", room_id))
         .header("Authorization", format!("Bearer {}", alice_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -302,7 +302,7 @@ async fn test_create_dm_is_idempotent_for_same_pair() {
 
     let first_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/v3/create_dm")
+        .uri("/_matrix/vendor/v1/create_dm")
         .header("Authorization", format!("Bearer {}", alice_token))
         .header("Content-Type", "application/json")
         .body(Body::from(request_body.clone()))
@@ -315,7 +315,7 @@ async fn test_create_dm_is_idempotent_for_same_pair() {
 
     let second_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/v3/create_dm")
+        .uri("/_matrix/vendor/v1/create_dm")
         .header("Authorization", format!("Bearer {}", alice_token))
         .header("Content-Type", "application/json")
         .body(Body::from(request_body))
@@ -330,7 +330,7 @@ async fn test_create_dm_is_idempotent_for_same_pair() {
 
     let direct_request = Request::builder()
         .method("GET")
-        .uri("/_matrix/client/v3/direct")
+        .uri("/_matrix/vendor/v1/direct")
         .header("Authorization", format!("Bearer {}", alice_token))
         .body(Body::empty())
         .unwrap();

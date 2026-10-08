@@ -2310,7 +2310,7 @@ fi
 
 echo ""
 echo "82. Get Direct Rooms"
-http_json GET "$SERVER_URL/_matrix/client/v3/direct" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/direct" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Direct Rooms"
 else
@@ -2325,7 +2325,7 @@ echo ""
 echo "83. Update Direct Room"
 if [ -n "$DM_ROOM_ID" ]; then
     DM_ENC=$(url_encode "$DM_ROOM_ID")
-    http_json PUT "$SERVER_URL/_matrix/client/v3/direct/$DM_ENC" "$TOKEN" "{\"users\": [\"$USER_ID\"]}"
+    http_json PUT "$SERVER_URL/_matrix/vendor/v1/direct/$DM_ENC" "$TOKEN" "{\"users\": [\"$USER_ID\"]}"
     if [[ "$HTTP_STATUS" == 2* ]]; then
         pass "Update Direct Room"
     else
@@ -3553,7 +3553,7 @@ echo "=========================================="
 echo "209. User Threads"
 echo "=========================================="
 echo "209. User Threads"
-http_json GET "$SERVER_URL/_matrix/client/v3/user/$USER_ID_ENC/rooms/$ROOM_ID_ENC/threads" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/user/$USER_ID_ENC/rooms/$ROOM_ID_ENC/threads" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]] && json_has_key "$HTTP_BODY" "chunk"; then
     pass "User Threads"
 elif last_body_is_unrecognized; then
@@ -3681,7 +3681,7 @@ echo "233. Thread Extended"
 echo "=========================================="
 echo ""
 echo "234. Get User Threads"
-http_json GET "$SERVER_URL/_matrix/client/v1/threads" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/threads" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get User Threads"
 elif last_body_is_unrecognized; then

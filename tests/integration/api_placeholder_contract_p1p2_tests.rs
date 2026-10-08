@@ -775,7 +775,7 @@ async fn test_scanner_info_contract_is_not_empty_success() {
         app.clone(),
         Request::builder()
             .method("GET")
-            .uri(format!("/_matrix/client/v1/rooms/{}/report/{}/scanner_info", encoded_room_id, encoded_event_id))
+            .uri(format!("/_matrix/vendor/v1/rooms/{}/report/{}/scanner_info", encoded_room_id, encoded_event_id))
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap(),
@@ -814,7 +814,7 @@ async fn test_scanner_info_contract_rejects_non_members() {
         &app,
         Request::builder()
             .method("GET")
-            .uri(format!("/_matrix/client/v1/rooms/{}/report/{}/scanner_info", encoded_room_id, encoded_event_id))
+            .uri(format!("/_matrix/vendor/v1/rooms/{}/report/{}/scanner_info", encoded_room_id, encoded_event_id))
             .header("Authorization", format!("Bearer {}", outsider_token))
             .body(Body::empty())
             .unwrap(),

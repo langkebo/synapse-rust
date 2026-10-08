@@ -608,7 +608,7 @@
     ],
     "create_dm_room": [
       [
-        "/_matrix/client/v3/create_dm",
+        "/_matrix/vendor/v1/create_dm",
         "post"
       ]
     ],
@@ -740,17 +740,9 @@
       [
         "/_synapse/admin/v1/external_services/{as_id}",
         "put"
-      ],
-      [
-        "/_matrix/admin/v1/external_services/{as_id}",
-        "put"
       ]
     ],
     "client_update_external_service": [
-      [
-        "/_matrix/client/v1/external_services/{service_id}",
-        "put"
-      ],
       [
         "/_matrix/vendor/v1/external_services/{service_id}",
         "put"
@@ -836,19 +828,37 @@
     ],
     "create_thread_global": [
       [
-        "/_matrix/client/v1/threads",
+        "/_matrix/vendor/v1/threads",
         "post"
       ]
     ],
     "create_thread": [
       [
-        "/_matrix/client/v1/rooms/{room_id}/threads",
+        "/_matrix/vendor/v1/rooms/{room_id}/threads",
         "post"
       ]
     ],
     "freeze_thread": [
       [
-        "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/freeze",
+        "/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/freeze",
+        "post"
+      ]
+    ],
+    "mute_thread": [
+      [
+        "/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/mute",
+        "post"
+      ]
+    ],
+    "mark_read": [
+      [
+        "/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/read",
+        "post"
+      ]
+    ],
+    "redact_reply": [
+      [
+        "/_matrix/vendor/v1/rooms/{room_id}/replies/{event_id}/redact",
         "post"
       ]
     ],
@@ -873,24 +883,6 @@
     "unsubscribe_thread": [
       [
         "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unsubscribe",
-        "post"
-      ]
-    ],
-    "mute_thread": [
-      [
-        "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/mute",
-        "post"
-      ]
-    ],
-    "mark_read": [
-      [
-        "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/read",
-        "post"
-      ]
-    ],
-    "redact_reply": [
-      [
-        "/_matrix/client/v1/rooms/{room_id}/replies/{event_id}/redact",
         "post"
       ]
     ],
@@ -1056,13 +1048,13 @@
     ],
     "register_device": [
       [
-        "/_matrix/client/v3/push/devices",
+        "/_matrix/vendor/v1/push/devices",
         "post"
       ]
     ],
     "send_notification": [
       [
-        "/_matrix/client/v3/push/send",
+        "/_matrix/vendor/v1/push/send",
         "post"
       ]
     ],
@@ -1224,12 +1216,6 @@
         "post"
       ]
     ],
-    "translate_text": [
-      [
-        "/translate",
-        "post"
-      ]
-    ],
     "convert_room_event": [
       [
         "/rooms/{room_id}/convert/{event_id}",
@@ -1275,6 +1261,12 @@
     "invite_user_by_room": [
       [
         "/invite/{room_id}",
+        "post"
+      ]
+    ],
+    "translate_text": [
+      [
+        "/translate",
         "post"
       ]
     ],
@@ -4965,30 +4957,15 @@
       "post",
       "VerifyCaptchaBody"
     ],
-    "post /_matrix/client/v3/create_dm": [
-      "/_matrix/client/v3/create_dm",
+    "post /_matrix/vendor/v1/create_dm": [
+      "/_matrix/vendor/v1/create_dm",
       "post",
       "CreateDmRequest"
-    ],
-    "put /_matrix/client/v3/direct/{room_id}": [
-      "/direct/{room_id}",
-      "put",
-      "UpdateDmRequest"
     ],
     "post /_matrix/client/v3/keys/backup/secure/{backup_id}/restore": [
       "/keys/backup/secure/{backup_id}/restore",
       "post",
       "RestoreSecureBackupRequest"
-    ],
-    "put /_matrix/admin/v1/external_services/{as_id}": [
-      "/_matrix/admin/v1/external_services/{as_id}",
-      "put",
-      "UpdateExternalServiceBody"
-    ],
-    "put /_matrix/client/v1/external_services/{service_id}": [
-      "/_matrix/client/v1/external_services/{service_id}",
-      "put",
-      "UpdateExternalServiceBody"
     ],
     "put /_matrix/vendor/v1/external_services/{service_id}": [
       "/_matrix/vendor/v1/external_services/{service_id}",
@@ -5020,8 +4997,8 @@
       "post",
       "UpgradeGuestRequest"
     ],
-    "post /_matrix/client/v1/rooms/{room_id}/threads": [
-      "/_matrix/client/v1/rooms/{room_id}/threads",
+    "post /_matrix/vendor/v1/rooms/{room_id}/threads": [
+      "/_matrix/vendor/v1/rooms/{room_id}/threads",
       "post",
       "CreateThreadBody"
     ],
@@ -5035,13 +5012,13 @@
       "post",
       "SubscribeBody"
     ],
-    "post /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/read": [
-      "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/read",
+    "post /_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/read": [
+      "/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/read",
       "post",
       "MarkReadBody"
     ],
-    "post /_matrix/client/v1/threads": [
-      "/_matrix/client/v1/threads",
+    "post /_matrix/vendor/v1/threads": [
+      "/_matrix/vendor/v1/threads",
       "post",
       "CreateThreadBody"
     ],
@@ -5065,13 +5042,13 @@
       "post",
       "BatchRecoverBody"
     ],
-    "post /_matrix/client/v3/push/devices": [
-      "/_matrix/client/v3/push/devices",
+    "post /_matrix/vendor/v1/push/devices": [
+      "/_matrix/vendor/v1/push/devices",
       "post",
       "RegisterDeviceBody"
     ],
-    "post /_matrix/client/v3/push/send": [
-      "/_matrix/client/v3/push/send",
+    "post /_matrix/vendor/v1/push/send": [
+      "/_matrix/vendor/v1/push/send",
       "post",
       "SendNotificationBody"
     ],

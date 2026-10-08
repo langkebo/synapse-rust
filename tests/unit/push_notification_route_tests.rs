@@ -376,10 +376,11 @@ fn push_notification_route_manifest_contains_all_endpoints() {
     seen.sort_by(|a, b| a.1.cmp(b.1).then_with(|| format!("{:?}", a.0).cmp(&format!("{:?}", b.0))));
 
     let expected: &[(Method, &str)] = &[
-        (Method::DELETE, "/_matrix/client/v3/push/devices/{device_id}"),
-        (Method::GET, "/_matrix/client/v3/push/devices"),
-        (Method::POST, "/_matrix/client/v3/push/devices"),
-        (Method::POST, "/_matrix/client/v3/push/send"),
+        // ISSUE-13：`/push/*` 是私有扩展，唯一规范位置是 `/_matrix/vendor/v1`。
+        (Method::DELETE, "/_matrix/vendor/v1/push/devices/{device_id}"),
+        (Method::GET, "/_matrix/vendor/v1/push/devices"),
+        (Method::POST, "/_matrix/vendor/v1/push/devices"),
+        (Method::POST, "/_matrix/vendor/v1/push/send"),
         (Method::GET, "/_synapse/admin/v1/push/config"),
         (Method::PUT, "/_synapse/admin/v1/push/config"),
         (Method::POST, "/_synapse/admin/v1/push/cleanup"),

@@ -469,14 +469,16 @@ mod room_router_tests {
             "/_matrix/client/v3/rooms/{room_id}/state/{event_type}",
             "/_matrix/client/v3/rooms/{room_id}/event/{event_id}",
         ];
+        // 报告事件本体是标准端点（v1/v3 共用）；`/score` 与 `/scanner_info`
+        // 是私有扩展，已按 ISSUE-13 迁到 `/_matrix/vendor/v1`（唯一规范位置）。
         let all_version_report_routes = [
+            "/_matrix/client/v1/rooms/{room_id}/report/{event_id}",
             "/_matrix/client/v3/rooms/{room_id}/report/{event_id}",
-            "/_matrix/client/v1/rooms/{room_id}/report/{event_id}/score",
-            "/_matrix/client/v3/rooms/{room_id}/report/{event_id}",
+            "/_matrix/vendor/v1/rooms/{room_id}/report/{event_id}/score",
         ];
         let version_specific_routes = [
             "/_matrix/client/v3/createRoom",
-            "/_matrix/client/v1/rooms/{room_id}/report/{event_id}/scanner_info",
+            "/_matrix/vendor/v1/rooms/{room_id}/report/{event_id}/scanner_info",
             "/_matrix/client/v3/rooms/{room_id}/notifications",
         ];
 
@@ -502,12 +504,12 @@ mod room_router_tests {
     #[test]
     fn test_room_router_keeps_version_boundaries() {
         let report_compat_paths = ["/rooms/{room_id}/report/{event_id}"];
-        let v1_only_paths = ["/_matrix/client/v1/rooms/{room_id}/report/{event_id}/scanner_info"];
+        let vendor_only_paths = ["/_matrix/vendor/v1/rooms/{room_id}/report/{event_id}/scanner_info"];
         let v3_only_paths =
             ["/_matrix/client/v3/rooms/{room_id}/report", "/_matrix/client/v3/rooms/{room_id}/notifications"];
 
         assert!(report_compat_paths.iter().all(|path| !path.contains("scanner_info") && !path.ends_with("/report")));
-        assert!(v1_only_paths.iter().all(|path| path.starts_with("/_matrix/client/v1/")));
+        assert!(vendor_only_paths.iter().all(|path| path.starts_with("/_matrix/vendor/v1/")));
         assert!(v3_only_paths.iter().all(|path| path.starts_with("/_matrix/client/v3/")));
     }
 }

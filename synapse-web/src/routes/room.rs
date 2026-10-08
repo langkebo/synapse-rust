@@ -56,7 +56,6 @@ fn create_room_shared_compat_router() -> Router<AppState> {
         .route("/rooms/{room_id}/version", get(get_room_version))
         .route("/rooms/{room_id}/invite", post(invite_user))
         .route("/rooms/{room_id}/invites", get(get_room_invites))
-        .route("/user/{user_id}/rooms", get(get_user_rooms))
         .route("/rooms/{room_id}/state/{event_type}/{state_key}", put(put_state_event).get(get_state_event))
         .route("/rooms/{room_id}/state/{event_type}/", put(put_state_event_empty_key).get(get_state_event_empty_key))
         .route(
@@ -75,7 +74,7 @@ fn create_room_shared_compat_router() -> Router<AppState> {
 }
 
 fn create_room_v1_router() -> Router<AppState> {
-    create_room_power_levels_compat_router().route("/user/mutual_rooms", get(get_mutual_rooms))
+    create_room_power_levels_compat_router()
 }
 
 fn create_room_v3_router() -> Router<AppState> {
@@ -107,7 +106,6 @@ fn create_room_v3_router() -> Router<AppState> {
         .route("/rooms/{room_id}/service_types", get(get_room_service_types))
         .route("/rooms/{room_id}/event/{event_id}/url", get(get_room_event_url))
         .route("/rooms/{room_id}/translate/{event_id}", post(translate_room_event))
-        .route("/translate", post(translate_text))
         .route("/rooms/{room_id}/convert/{event_id}", post(convert_room_event))
         .route("/rooms/{room_id}/sign/{event_id}", put(sign_room_event))
         .route("/rooms/{room_id}/verify/{event_id}", post(verify_room_event))
@@ -131,11 +129,24 @@ fn create_room_v3_router() -> Router<AppState> {
         .route("/rooms/{room_id}/anti_screenshot", get(get_anti_screenshot).put(set_anti_screenshot))
 }
 
+/// ISSUE-13：私有扩展的唯一规范位置是 `/_matrix/vendor/v1`。
+///
+/// 此前这 3 条挂在 `/_matrix/client/{v1,v3}` 下（`/user/mutual_rooms` 在 v1，
+/// `/translate` 与 `/user/{user_id}/rooms` 在 v3），已按 AGENTS.md 铁律 1
+/// 整批迁移，**不留 client 别名**（未发布项目无向后兼容义务）。
+fn create_room_vendor_router() -> Router<AppState> {
+    Router::new()
+        .route("/user/mutual_rooms", get(get_mutual_rooms))
+        .route("/translate", post(translate_text))
+        .route("/user/{user_id}/rooms", get(get_user_rooms))
+}
+
 /// See [`create_room_router`].
 pub fn create_room_router() -> Router<AppState> {
     Router::new()
         .nest("/_matrix/client/v1", create_room_v1_router())
         .nest("/_matrix/client/v3", create_room_v3_router())
+        .nest("/_matrix/vendor/v1", create_room_vendor_router())
         .route("/_matrix/client/v3/rooms/create_private", post(create_private_room))
         .route("/_matrix/client/v1/rooms/create_private", post(create_private_room))
         // MSC2666: Unstable prefix alias for mutual rooms

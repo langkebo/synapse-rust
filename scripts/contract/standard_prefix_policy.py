@@ -64,9 +64,15 @@ WHOLESALE_PRIVATE_FILES = (
 # nest 到 v1+v3 两次，迁移后收敛为 22 条），92 → 14（= 5 条 MSC keep + 9 条留给
 # 第三批的 dm 5 + push_notification 4）。台账同步 112 → 34 条（14 + 20 混合模块）。
 #
+# 2026-10-08 Phase 3（第三批）：把最后 29 条私有端点迁到 vendor
+# （handlers/thread 14 / dm 5 / push_notification 4 / moderation 3 / room 3），
+# 14 → **5**（只剩 MSC2946×4 + MSC3266×1）。台账 34 → 5 条。
+# ⚠️ 注册条目净 −1（1,036 → 1,035）：moderation 的 `PUT .../report/{event_id}/score`
+# 原先在 v1/v3 各挂一份，迁到 vendor 后合为一条 —— vendor 只有一个版本。
+#
 # ⚠️ 这个数字只在路由**真正迁走/删除**时才下调（并同步收紧台账）。
 # 路由真的变少却不下调，门禁会一直报"未收紧"——那是提醒，不是误报。
-LEDGER_CEILING = 14
+LEDGER_CEILING = 5
 
 # 有 MSC 归属、合法留在 client 前缀的端点。进台账只为记账（防止被后人误判成污染），
 # action=keep，不产生"只减不增"的压力。
@@ -95,71 +101,16 @@ MSC_KEEP = {
 
 # 混合模块（既有标准端点也有私有端点）里已人工识别出的私有端点。
 # 这些模块**不**做全覆盖断言：那需要一份机器可读的 spec 路径清单，
-# 属独立议题（见方案 §3 Phase 1 的讨论）。已知缺口在此显式记录，不假装已覆盖。
-MIXED_MODULE_ROUTES = {
-    "handlers/thread.rs": {
-        (
-            "POST",
-            "/_matrix/client/v1/rooms/{room_id}/threads",
-        ): "线程创建非规范（MSC3856 无创建端点）",
-        (
-            "DELETE",
-            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}",
-        ): "线程删除非规范",
-        ("GET", "/_matrix/client/v1/rooms/{room_id}/threads/search"): "线程搜索非规范",
-        ("GET", "/_matrix/client/v1/rooms/{room_id}/threads/unread"): "线程未读非规范",
-        (
-            "POST",
-            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/freeze",
-        ): "线程冻结非规范",
-        (
-            "POST",
-            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/mute",
-        ): "线程静音非规范",
-        (
-            "POST",
-            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/read",
-        ): "线程已读标记非规范",
-        (
-            "GET",
-            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/stats",
-        ): "线程统计非规范",
-        ("POST", "/_matrix/client/v1/threads"): "全局线程创建非规范",
-        ("GET", "/_matrix/client/v1/threads"): "全局线程列表，MSC 归属待确认",
-        (
-            "GET",
-            "/_matrix/client/v1/threads/subscribed",
-        ): "已订阅线程列表，MSC 归属待确认",
-        ("GET", "/_matrix/client/v1/threads/unread"): "全局未读线程非规范",
-        (
-            "GET",
-            "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads",
-        ): "用户级线程列表非规范",
-        (
-            "POST",
-            "/_matrix/client/v1/rooms/{room_id}/replies/{event_id}/redact",
-        ): "非规范 redact 形状",
-    },
-    "moderation.rs": {
-        (
-            "GET",
-            "/_matrix/client/v1/rooms/{room_id}/report/{event_id}/scanner_info",
-        ): "扫描器信息非规范",
-        (
-            "PUT",
-            "/_matrix/client/v1/rooms/{room_id}/report/{event_id}/score",
-        ): "举报评分非规范",
-        (
-            "PUT",
-            "/_matrix/client/v3/rooms/{room_id}/report/{event_id}/score",
-        ): "举报评分非规范",
-    },
-    "room.rs": {
-        ("GET", "/_matrix/client/v1/user/mutual_rooms"): "共同房间非规范",
-        ("POST", "/_matrix/client/v3/translate"): "翻译非规范",
-        ("GET", "/_matrix/client/v3/user/{user_id}/rooms"): "用户房间列表非规范",
-    },
-}
+# 属独立议题（见方案 §3 Phase 1 的讨论；落地项 = Batch 4 的 G-02/G-03）。
+#
+# 2026-10-08 Phase 3：原先登记的 20 条（handlers/thread.rs 14 + moderation.rs 3 +
+# room.rs 3）**已全部迁到 `/_matrix/vendor/v1`**，故本登记位清空。
+#
+# 刻意保留这个（当前为空的）登记位而不是删掉它 —— 它是"混合模块里发现的私有
+# 端点"的**唯一登记入口**（`gen_standard_prefix_ledger.py:109` 按它渲染台账理由），
+# 删掉会让下一次发现无处可记。同时请正视它的**能力边界**：只有登记进来的才会
+# 被看见，它不是全覆盖断言；那个方向由 Batch 4 的 G-02/G-03 补。
+MIXED_MODULE_ROUTES: dict[str, dict[tuple[str, str], str]] = {}
 
 
 def normalize(path: str) -> str:

@@ -48,7 +48,7 @@ async fn send_message(app: &axum::Router, token: &str, room_id: &str, txn_id: &s
 async fn create_thread(app: &axum::Router, token: &str, room_id: &str, root_event_id: &str) -> String {
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v1/rooms/{}/threads", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/threads", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -264,19 +264,22 @@ async fn test_room_context_rejects_non_member_and_admin_override() {
 }
 
 #[tokio::test]
-async fn test_thread_compat_route_is_available_from_thread_module() {
+async fn test_user_level_thread_route_is_served_under_vendor_prefix() {
     let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
+    // ISSUE-13：用户级线程列表是私有扩展，唯一规范位置是 `/_matrix/vendor/v1`；
+    // client 前缀下的旧路径已按铁律 1 删除（不再可达）。
     let request = Request::builder()
         .method("GET")
-        .uri("/_matrix/client/v3/user/@alice:localhost/rooms/!room:localhost/threads")
+        .uri("/_matrix/vendor/v1/user/@alice:localhost/rooms/!room:localhost/threads")
         .body(Body::empty())
         .unwrap();
 
     let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
 
+    // 无 token ⇒ 认证提取器先失败（说明路由**存在**且挂上了鉴权层）
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
 
@@ -337,7 +340,7 @@ async fn test_thread_management_requires_room_creator() {
 
     let freeze_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v1/rooms/{}/threads/{}/freeze", room_id, thread_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/threads/{}/freeze", room_id, thread_id))
         .header("Authorization", format!("Bearer {}", member_token))
         .body(Body::empty())
         .unwrap();
@@ -355,7 +358,7 @@ async fn test_thread_management_requires_room_creator() {
 
     let delete_request = Request::builder()
         .method("DELETE")
-        .uri(format!("/_matrix/client/v1/rooms/{}/threads/{}", room_id, thread_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/threads/{}", room_id, thread_id))
         .header("Authorization", format!("Bearer {}", member_token))
         .body(Body::empty())
         .unwrap();
@@ -364,7 +367,7 @@ async fn test_thread_management_requires_room_creator() {
 
     let owner_freeze_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v1/rooms/{}/threads/{}/freeze", room_id, thread_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/threads/{}/freeze", room_id, thread_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
@@ -382,7 +385,7 @@ async fn test_thread_management_requires_room_creator() {
 
     let owner_delete_request = Request::builder()
         .method("DELETE")
-        .uri(format!("/_matrix/client/v1/rooms/{}/threads/{}", room_id, thread_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/threads/{}", room_id, thread_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();
@@ -401,7 +404,7 @@ async fn test_global_thread_routes_return_real_data() {
 
     let create_request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/v1/threads")
+        .uri("/_matrix/vendor/v1/threads")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -425,7 +428,7 @@ async fn test_global_thread_routes_return_real_data() {
 
     let list_request = Request::builder()
         .method("GET")
-        .uri("/_matrix/client/v1/threads")
+        .uri("/_matrix/vendor/v1/threads")
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -458,7 +461,7 @@ async fn test_global_thread_routes_return_real_data() {
 
     let subscribed_request = Request::builder()
         .method("GET")
-        .uri("/_matrix/client/v1/threads/subscribed")
+        .uri("/_matrix/vendor/v1/threads/subscribed")
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -490,7 +493,7 @@ async fn test_global_threads_only_include_joined_rooms() {
 
     let request = Request::builder()
         .method("GET")
-        .uri("/_matrix/client/v1/threads")
+        .uri("/_matrix/vendor/v1/threads")
         .header("Authorization", format!("Bearer {}", outsider_token))
         .body(Body::empty())
         .unwrap();

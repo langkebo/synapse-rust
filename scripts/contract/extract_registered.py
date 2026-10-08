@@ -1148,7 +1148,7 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/client/v1/rooms/{room_id}/threads"): {
         "query_params": "from,include_all,limit"
     },
-    ("GET", "/_matrix/client/v1/rooms/{room_id}/threads/search"): {
+    ("GET", "/_matrix/vendor/v1/rooms/{room_id}/threads/search"): {
         "query_params": "limit,q"
     },
     ("GET", "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}"): {
@@ -1174,8 +1174,8 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/vendor/v1/spaces/{space_id}/rooms"): {
         "query_params": "from,limit"
     },
-    ("GET", "/_matrix/client/v1/threads"): {"query_params": "from,include_all,limit"},
-    ("GET", "/_matrix/client/v1/threads/subscribed"): {
+    ("GET", "/_matrix/vendor/v1/threads"): {"query_params": "from,include_all,limit"},
+    ("GET", "/_matrix/vendor/v1/threads/subscribed"): {
         "query_params": "from,include_all,limit"
     },
     ("GET", "/_matrix/client/v3/appservice/alias"): {"query_params": "alias"},
@@ -1246,7 +1246,7 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/client/v3/thirdparty/user/{protocol}"): {
         "query_params": "nickname,search,server,userid"
     },
-    ("GET", "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads"): {
+    ("GET", "/_matrix/vendor/v1/user/{user_id}/rooms/{room_id}/threads"): {
         "query_params": "from,include_all,limit"
     },
     ("GET", "/_matrix/federation/v1/hierarchy/{room_id}"): {

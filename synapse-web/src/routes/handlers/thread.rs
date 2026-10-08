@@ -132,66 +132,39 @@ impl From<synapse_services::thread_service::ThreadReply> for ReplyResponse {
 }
 
 /// See [`create_thread_routes`].
+///
+/// ISSUE-13：本模块是**混合模块**。MSC3856 规范端点（房间线程列表/详情、
+/// 回复、订阅、解冻）留在 `/_matrix/client/v1`；私有扩展（线程创建/删除/搜索/
+/// 未读/冻结/静音/已读/统计、全局线程列表与创建、已订阅列表、用户级列表、
+/// 非规范 redact）唯一规范位置是 `/_matrix/vendor/v1`，已按 AGENTS.md 铁律 1
+/// 整批迁移，**不留 client 别名**（未发布项目无向后兼容义务）。
 pub fn create_thread_routes(state: AppState) -> Router<AppState> {
-    Router::new()
-        // Global threads endpoints (v1)
-        .route("/_matrix/client/v1/threads", get(list_threads_global))
-        .route("/_matrix/client/v1/threads", post(create_thread_global))
-        .route(
-            "/_matrix/client/v1/threads/subscribed",
-            get(get_subscribed_threads),
-        )
-        .route(
-            "/_matrix/client/v1/threads/unread",
-            get(get_unread_threads_global),
-        )
-        .route(
-            "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads",
-            get(list_threads_legacy_search),
-        )
-        // MSC4155 unstable compat stub (same handlers as v1).
-        //
-        // ⚠️ 这里**不再**把 `.../msc4156/threads/subscribed` 标注为 MSC4156 兼容。
-        // MSC4156 = "Migrate server_name to via"（join/knock 的 via 参数），
-        // 与线程无关；线程订阅是用户私有态（account_data），不跨服务器同步。
-        // 该 unstable 路径保留仅为已发布客户端的向后兼容，**不是** MSC4156 表面；
-        // 真正的 MSC4156 支持见 members.rs 的 `extract_via_servers`。
-        .route(
-            "/_matrix/client/unstable/org.matrix.msc4155/rooms/{room_id}/threads",
-            get(list_threads),
-        )
-        .route(
-            "/_matrix/client/unstable/org.matrix.msc4156/threads/subscribed",
-            get(get_subscribed_threads),
-        )
-        // Room-level threads (v1)
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/threads",
-            post(create_thread),
-        )
+    // ---- 私有扩展：唯一规范位置 /_matrix/vendor/v1 ----
+    let vendor_routes = Router::new()
+        .route("/_matrix/vendor/v1/threads", get(list_threads_global))
+        .route("/_matrix/vendor/v1/threads", post(create_thread_global))
+        .route("/_matrix/vendor/v1/threads/subscribed", get(get_subscribed_threads))
+        .route("/_matrix/vendor/v1/threads/unread", get(get_unread_threads_global))
+        .route("/_matrix/vendor/v1/user/{user_id}/rooms/{room_id}/threads", get(list_threads_legacy_search))
+        .route("/_matrix/vendor/v1/rooms/{room_id}/threads", post(create_thread))
+        .route("/_matrix/vendor/v1/rooms/{room_id}/threads/search", get(search_threads))
+        .route("/_matrix/vendor/v1/rooms/{room_id}/threads/unread", get(get_unread_threads))
+        .route("/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}", delete(delete_thread))
+        .route("/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/freeze", post(freeze_thread))
+        .route("/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/mute", post(mute_thread))
+        .route("/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/read", post(mark_read))
+        .route("/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/stats", get(get_stats))
+        .route("/_matrix/vendor/v1/rooms/{room_id}/replies/{event_id}/redact", post(redact_reply));
+
+    // ---- MSC3856 规范端点：留在 /_matrix/client/v1 ----
+    let client_routes = Router::new()
         .route(
             "/_matrix/client/v1/rooms/{room_id}/threads",
             get(list_threads),
-        )
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/threads/search",
-            get(search_threads),
-        )
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/threads/unread",
-            get(get_unread_threads),
         )
         .route(
             "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}",
             get(get_thread),
-        )
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}",
-            delete(delete_thread),
-        )
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/freeze",
-            post(freeze_thread),
         )
         .route(
             "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unfreeze",
@@ -213,23 +186,23 @@ pub fn create_thread_routes(state: AppState) -> Router<AppState> {
             "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unsubscribe",
             post(unsubscribe_thread),
         )
+        // MSC4155 unstable compat stub (same handlers as v1).
+        //
+        // ⚠️ 这里**不再**把 `.../msc4156/threads/subscribed` 标注为 MSC4156 兼容。
+        // MSC4156 = "Migrate server_name to via"（join/knock 的 via 参数），
+        // 与线程无关；线程订阅是用户私有态（account_data），不跨服务器同步。
+        // 该 unstable 路径保留仅为已发布客户端的向后兼容，**不是** MSC4156 表面；
+        // 真正的 MSC4156 支持见 members.rs 的 `extract_via_servers`。
         .route(
-            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/mute",
-            post(mute_thread),
+            "/_matrix/client/unstable/org.matrix.msc4155/rooms/{room_id}/threads",
+            get(list_threads),
         )
         .route(
-            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/read",
-            post(mark_read),
-        )
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/stats",
-            get(get_stats),
-        )
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/replies/{event_id}/redact",
-            post(redact_reply),
-        )
-        .with_state(state)
+            "/_matrix/client/unstable/org.matrix.msc4156/threads/subscribed",
+            get(get_subscribed_threads),
+        );
+
+    vendor_routes.merge(client_routes).with_state(state)
 }
 
 fn build_legacy_threads_response(response: ThreadListResponse) -> Value {
@@ -689,8 +662,9 @@ mod tests {
 
     #[test]
     fn test_legacy_search_thread_route_path_shape() {
-        let route = "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads";
-        assert!(route.starts_with("/_matrix/client/v3/user/"));
+        // ISSUE-13：用户级线程列表是私有扩展，唯一规范位置是 `/_matrix/vendor/v1`。
+        let route = "/_matrix/vendor/v1/user/{user_id}/rooms/{room_id}/threads";
+        assert!(route.starts_with("/_matrix/vendor/v1/user/"));
         assert!(route.ends_with("/threads"));
     }
 }

@@ -320,7 +320,10 @@ impl CapabilityGovernance {
     }
 
     fn thread_capability(&self) -> CapabilityFlag {
-        CapabilityFlag::route_surface(self.manifest_has_route("GET", "/_matrix/client/v1/threads"))
+        // ISSUE-13：线程私有扩展（含全局线程列表）的唯一规范位置是
+        // `/_matrix/vendor/v1`，探针必须指向**实际在服务的**路径 ——
+        // 否则声明的 capability 会静默翻 false，而功能仍在 vendor 下正常服务。
+        CapabilityFlag::route_surface(self.manifest_has_route("GET", "/_matrix/vendor/v1/threads"))
     }
 
     fn sliding_sync_capability(&self) -> CapabilityFlag {
@@ -611,7 +614,7 @@ mod tests {
             ("GET", "/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"),
             ("GET", "/_matrix/client/v1/rooms/{room_id}/hierarchy"),
             ("GET", "/_matrix/client/v3/voip/turnServer"),
-            ("GET", "/_matrix/client/v1/threads"),
+            ("GET", "/_matrix/vendor/v1/threads"),
             ("POST", "/_matrix/client/v1/sync"),
             ("POST", "/_matrix/client/v3/account/password"),
             ("PUT", "/_matrix/client/v3/profile/{user_id}/displayname"),

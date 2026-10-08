@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1036**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1035**
 - 含路由注册的模块文件：**65**
 - `derived_routes.rs` 中的 `registered_by` 标签：**73**
 - 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
@@ -69,7 +69,7 @@
 **逐模块清单里的两种标注**（都从派生表反解，不是人工维护）：
 
 - 〔仅 `X` profile〕 —— 该路由**只**在 profile `X` 下注册，默认构建里不存在（即上表成员）；
-- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1038 行去重为 1036 条的来源。
+- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1037 行去重为 1035 条的来源。
 
 当前共 **2** 条双档注册：
 
@@ -251,29 +251,29 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 #### `handlers/thread.rs` — 23 条 ✅派生表
 
-- `DELETE` `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}`
+- `DELETE` `/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}`
 - `GET` `/_matrix/client/unstable/org.matrix.msc4155/rooms/{room_id}/threads`
 - `GET` `/_matrix/client/unstable/org.matrix.msc4156/threads/subscribed`
 - `GET` `/_matrix/client/v1/rooms/{room_id}/threads`
-- `GET` `/_matrix/client/v1/rooms/{room_id}/threads/search`
-- `GET` `/_matrix/client/v1/rooms/{room_id}/threads/unread`
 - `GET` `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}`
 - `GET` `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies`
-- `GET` `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/stats`
-- `GET` `/_matrix/client/v1/threads`
-- `GET` `/_matrix/client/v1/threads/subscribed`
-- `GET` `/_matrix/client/v1/threads/unread`
-- `GET` `/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads`
-- `POST` `/_matrix/client/v1/rooms/{room_id}/replies/{event_id}/redact`
-- `POST` `/_matrix/client/v1/rooms/{room_id}/threads`
-- `POST` `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/freeze`
-- `POST` `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/mute`
-- `POST` `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/read`
+- `GET` `/_matrix/vendor/v1/rooms/{room_id}/threads/search`
+- `GET` `/_matrix/vendor/v1/rooms/{room_id}/threads/unread`
+- `GET` `/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/stats`
+- `GET` `/_matrix/vendor/v1/threads`
+- `GET` `/_matrix/vendor/v1/threads/subscribed`
+- `GET` `/_matrix/vendor/v1/threads/unread`
+- `GET` `/_matrix/vendor/v1/user/{user_id}/rooms/{room_id}/threads`
 - `POST` `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies`
 - `POST` `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/subscribe`
 - `POST` `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unfreeze`
 - `POST` `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unsubscribe`
-- `POST` `/_matrix/client/v1/threads`
+- `POST` `/_matrix/vendor/v1/rooms/{room_id}/replies/{event_id}/redact`
+- `POST` `/_matrix/vendor/v1/rooms/{room_id}/threads`
+- `POST` `/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/freeze`
+- `POST` `/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/mute`
+- `POST` `/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/read`
+- `POST` `/_matrix/vendor/v1/threads`
 
 ### 反应 (Reactions) （1 条）
 
@@ -446,17 +446,16 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_synapse/admin/v1/rooms/{room_id}/media/unquarantine`
 - `POST` `/_synapse/admin/v1/user/{user_id}/media/quarantine`
 
-### 审核 (Moderation) （7 条）
+### 审核 (Moderation) （6 条）
 
-#### `moderation.rs` — 7 条 ✅派生表
+#### `moderation.rs` — 6 条 ✅派生表
 
-- `GET` `/_matrix/client/v1/rooms/{room_id}/report/{event_id}/scanner_info`
+- `GET` `/_matrix/vendor/v1/rooms/{room_id}/report/{event_id}/scanner_info`
 - `POST` `/_matrix/client/v1/rooms/{room_id}/report/{event_id}`
 - `POST` `/_matrix/client/v3/rooms/{room_id}/report`
 - `POST` `/_matrix/client/v3/rooms/{room_id}/report/{event_id}`
 - `POST` `/_matrix/client/v3/users/{user_id}/report`
-- `PUT` `/_matrix/client/v1/rooms/{room_id}/report/{event_id}/score`
-- `PUT` `/_matrix/client/v3/rooms/{room_id}/report/{event_id}/score`
+- `PUT` `/_matrix/vendor/v1/rooms/{room_id}/report/{event_id}/score`
 
 ### 密钥备份 (Key Backup) （66 条）
 
@@ -624,7 +623,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `DELETE` `/_matrix/client/v3/rooms/{room_id}/sticky_events/{event_type}`
 - `GET` `/_matrix/client/unstable/uk.half-shot.msc2666/user/mutual_rooms`
 - `GET` `/_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/`
-- `GET` `/_matrix/client/v1/user/mutual_rooms`
 - `GET` `/_matrix/client/v3/rooms/{room_id}`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/account_data/{type}`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/aliases`
@@ -675,7 +673,8 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/client/v3/rooms/{room_id}/vault_data`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/version`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/visibility`
-- `GET` `/_matrix/client/v3/user/{user_id}/rooms`
+- `GET` `/_matrix/vendor/v1/user/mutual_rooms`
+- `GET` `/_matrix/vendor/v1/user/{user_id}/rooms`
 - `POST` `/_matrix/client/v1/rooms/create_private`
 - `POST` `/_matrix/client/v3/createRoom`
 - `POST` `/_matrix/client/v3/invite/{room_id}`
@@ -703,7 +702,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_matrix/client/v3/rooms/{room_id}/unban`
 - `POST` `/_matrix/client/v3/rooms/{room_id}/upgrade`
 - `POST` `/_matrix/client/v3/rooms/{room_id}/verify/{event_id}`
-- `POST` `/_matrix/client/v3/translate`
+- `POST` `/_matrix/vendor/v1/translate`
 - `PUT` `/_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/`
 - `PUT` `/_matrix/client/v3/rooms/{room_id}/account_data/{type}`
 - `PUT` `/_matrix/client/v3/rooms/{room_id}/anti_screenshot`
@@ -767,11 +766,11 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 #### `push_notification.rs` — 8 条 ✅派生表
 
-- `DELETE` `/_matrix/client/v3/push/devices/{device_id}`
-- `GET` `/_matrix/client/v3/push/devices`
+- `DELETE` `/_matrix/vendor/v1/push/devices/{device_id}`
+- `GET` `/_matrix/vendor/v1/push/devices`
 - `GET` `/_synapse/admin/v1/push/config`
-- `POST` `/_matrix/client/v3/push/devices`
-- `POST` `/_matrix/client/v3/push/send`
+- `POST` `/_matrix/vendor/v1/push/devices`
+- `POST` `/_matrix/vendor/v1/push/send`
 - `POST` `/_synapse/admin/v1/push/cleanup`
 - `POST` `/_synapse/admin/v1/push/process`
 - `PUT` `/_synapse/admin/v1/push/config`
@@ -846,11 +845,11 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 #### `dm.rs` — 5 条 ✅派生表
 
-- `GET` `/_matrix/client/v3/direct`
-- `GET` `/_matrix/client/v3/rooms/{room_id}/dm`
-- `GET` `/_matrix/client/v3/rooms/{room_id}/dm/partner`
-- `POST` `/_matrix/client/v3/create_dm`
-- `PUT` `/_matrix/client/v3/direct/{room_id}`
+- `GET` `/_matrix/vendor/v1/direct`
+- `GET` `/_matrix/vendor/v1/rooms/{room_id}/dm`
+- `GET` `/_matrix/vendor/v1/rooms/{room_id}/dm/partner`
+- `POST` `/_matrix/vendor/v1/create_dm`
+- `PUT` `/_matrix/vendor/v1/direct/{room_id}`
 
 ### 空间 (Space) （26 条）
 

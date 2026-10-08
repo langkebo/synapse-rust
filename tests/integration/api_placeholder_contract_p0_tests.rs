@@ -107,10 +107,11 @@ async fn send_message(app: &axum::Router, token: &str, room_id: &str, txn_id: &s
     json["event_id"].as_str().unwrap().to_string()
 }
 
+// ISSUE-13：线程创建是私有扩展，唯一规范位置是 `/_matrix/vendor/v1`。
 async fn create_thread(app: &axum::Router, token: &str, room_id: &str, root_event_id: &str) -> String {
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v1/rooms/{}/threads", room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/threads", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
