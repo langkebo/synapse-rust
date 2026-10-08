@@ -134,10 +134,7 @@ fn create_room_msc4354_router() -> Router<AppState> {
             "/rooms/{room_id}/sticky_events",
             get(sticky_event::get_sticky_events).post(sticky_event::set_sticky_events),
         )
-        .route(
-            "/rooms/{room_id}/sticky_events/{event_type}",
-            axum::routing::delete(sticky_event::clear_sticky_event),
-        )
+        .route("/rooms/{room_id}/sticky_events/{event_type}", axum::routing::delete(sticky_event::clear_sticky_event))
 }
 
 /// ISSUE-13：私有扩展的唯一规范位置是 `/_matrix/vendor/v1`。
