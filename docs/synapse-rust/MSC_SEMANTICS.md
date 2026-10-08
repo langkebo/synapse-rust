@@ -36,6 +36,8 @@
 
 | MSC 编号 | 官方口径（证据） | 本项目实际实现 | 落点/证据 | 对齐状态 |
 |---|---|---|---|---|
+| **MSC2946** | Spaces summary / hierarchy（*仓库既有结论*） | 已实现：`GET /_matrix/client/{v1,v3}/rooms/{room_id}/hierarchy`（`space.rs` 的 `spec` 桶，连同 `hierarchy/v1` 共 4 条）与私有的 `children`/`membership`/`summary` 面分离；后者在 ISSUE-13 第二批迁到 `/_matrix/vendor/v1` 时**保持 hierarchy 原地不动** | `synapse-web/src/routes/space/children_hierarchy.rs`（`create_space_hierarchy_spec_routes`）、`synapse-web/src/routes/space.rs`（`create_space_spec_router`）；报告 §二「空间」行 | ✅ 一致（2026-10-08 ISSUE-13 第二批复核） |
+| **MSC3266** | Room summary（*仓库既有结论*） | 已实现**唯一规范形态**：`GET /_matrix/client/v1/rooms/{room_id}/summary`（`create_room_summary_v1_router()`）；同 handler 的 v3 挂载点属重复版本前缀，已随 ISSUE-13 第二批把整个私有面（含 v3 的 `GET summary`）迁到 `/_matrix/vendor/v1` | `synapse-web/src/routes/room_summary.rs`；报告 §二「房间摘要」行 | ✅ 已收敛（2026-10-08 ISSUE-13 第二批） |
 | **MSC2965** | 认证元数据端点 `auth_metadata` / `auth_issuer`（*仓库既有结论*） | 仅保留 `auth_metadata`；上游 1.161 已删除的 `auth_issuer` 同批摘除 | `.../org.matrix.msc2965/auth_metadata` 在册；`auth_issuer` 于 `76e5f9136` 删除（报告 §5.1 / B4） | ✅ 已收敛 |
 | **MSC3575** | Sliding sync（*仓库既有结论*） | 在 `/sync` 之外另注册 simplified sliding sync 端点族 | 报告 §二「同步」行 | ✅ 一致 |
 | **MSC3720** | Account status endpoint（*proposals*：`proposals/3720-account-status.md`） | 已实现：客户端 + 联邦 `POST /_matrix/{client,federation}/unstable/org.matrix.msc3720/account_status`，`{user_ids} → {account_statuses, failures}`；capability `org.matrix.msc3720.account_status` 为「路由 ∧ `experimental.msc3720_enabled`」，开关关闭时 fail-closed 403 | `synapse-web/src/routes/handlers/account_status.rs`、`synapse-services/src/account_status_service.rs`（报告 §1.1 末段） | ✅ 已对齐 |
