@@ -154,7 +154,12 @@ pub fn create_thread_routes(state: AppState) -> Router<AppState> {
         .route("/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/mute", post(mute_thread))
         .route("/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/read", post(mark_read))
         .route("/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/stats", get(get_stats))
-        .route("/_matrix/vendor/v1/rooms/{room_id}/replies/{event_id}/redact", post(redact_reply));
+        .route("/_matrix/vendor/v1/rooms/{room_id}/replies/{event_id}/redact", post(redact_reply))
+        // 非 MSC3856 形状（MSC3856 只有 threads/replies/subscribe/unsubscribe）⇒ 归位 vendor
+        .route(
+            "/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/unfreeze",
+            post(unfreeze_thread),
+        );
 
     // ---- MSC3856 规范端点：留在 /_matrix/client/v1 ----
     let client_routes = Router::new()
@@ -165,10 +170,6 @@ pub fn create_thread_routes(state: AppState) -> Router<AppState> {
         .route(
             "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}",
             get(get_thread),
-        )
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unfreeze",
-            post(unfreeze_thread),
         )
         .route(
             "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies",

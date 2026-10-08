@@ -18,8 +18,6 @@
 #
 # 格式：  <源文件> <METHOD> <完整路径> # <标签> <理由>
 
-room.rs DELETE /_matrix/client/v3/rooms/{room_id}/pinned_events/{event_id} # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
-room.rs DELETE /_matrix/client/v3/rooms/{room_id}/sticky_events/{event_type} # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
 room.rs GET /_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/ # spec Matrix C-S 规范端点
 room.rs GET /_matrix/client/v3/rooms/{room_id} # spec Matrix C-S 规范端点
 room.rs GET /_matrix/client/v3/rooms/{room_id}/account_data/{type} # spec Matrix C-S 规范端点
@@ -48,7 +46,6 @@ room.rs GET /_matrix/client/v3/rooms/{room_id}/messages # spec Matrix C-S 规范
 room.rs GET /_matrix/client/v3/rooms/{room_id}/metadata # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
 room.rs GET /_matrix/client/v3/rooms/{room_id}/notifications # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
 room.rs GET /_matrix/client/v3/rooms/{room_id}/permissions # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
-room.rs GET /_matrix/client/v3/rooms/{room_id}/pinned_events # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
 room.rs GET /_matrix/client/v3/rooms/{room_id}/receipts/{receipt_type}/{event_id} # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
 room.rs GET /_matrix/client/v3/rooms/{room_id}/reduced_events # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
 room.rs GET /_matrix/client/v3/rooms/{room_id}/rendered/ # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
@@ -61,9 +58,7 @@ room.rs GET /_matrix/client/v3/rooms/{room_id}/state/m.room.power_levels/ # spec
 room.rs GET /_matrix/client/v3/rooms/{room_id}/state/{event_type} # spec Matrix C-S 规范端点
 room.rs GET /_matrix/client/v3/rooms/{room_id}/state/{event_type}/ # spec Matrix C-S 规范端点
 room.rs GET /_matrix/client/v3/rooms/{room_id}/state/{event_type}/{state_key} # spec Matrix C-S 规范端点
-room.rs GET /_matrix/client/v3/rooms/{room_id}/sticky_events # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
 room.rs GET /_matrix/client/v3/rooms/{room_id}/sync # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
-room.rs GET /_matrix/client/v3/rooms/{room_id}/thread/{event_id} # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
 room.rs GET /_matrix/client/v3/rooms/{room_id}/threads/{thread_id} # msc MSC3856 线程详情；与 thread.rs 的 v1 规范位同 handler（v3 为多余孪生）
 room.rs GET /_matrix/client/v3/rooms/{room_id}/timeline # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
 room.rs GET /_matrix/client/v3/rooms/{room_id}/turn_server # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
@@ -85,14 +80,12 @@ room.rs POST /_matrix/client/v3/rooms/{room_id}/join # spec Matrix C-S 规范端
 room.rs POST /_matrix/client/v3/rooms/{room_id}/keys/claim # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
 room.rs POST /_matrix/client/v3/rooms/{room_id}/kick # spec Matrix C-S 规范端点
 room.rs POST /_matrix/client/v3/rooms/{room_id}/leave # spec Matrix C-S 规范端点
-room.rs POST /_matrix/client/v3/rooms/{room_id}/pinned_events # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
 room.rs POST /_matrix/client/v3/rooms/{room_id}/read_markers # spec Matrix C-S 规范端点
 room.rs POST /_matrix/client/v3/rooms/{room_id}/receipt/{receipt_type}/{event_id} # spec Matrix C-S 规范端点
 room.rs POST /_matrix/client/v3/rooms/{room_id}/redact/{event_id}/{txn_id} # spec Matrix C-S 规范端点
 room.rs POST /_matrix/client/v3/rooms/{room_id}/search # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
 room.rs POST /_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id} # spec Matrix C-S 规范端点
 room.rs POST /_matrix/client/v3/rooms/{room_id}/state/{event_type} # spec Matrix C-S 规范端点
-room.rs POST /_matrix/client/v3/rooms/{room_id}/sticky_events # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
 room.rs POST /_matrix/client/v3/rooms/{room_id}/translate/{event_id} # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
 room.rs POST /_matrix/client/v3/rooms/{room_id}/unban # spec Matrix C-S 规范端点
 room.rs POST /_matrix/client/v3/rooms/{room_id}/upgrade # spec Matrix C-S 规范端点
@@ -120,7 +113,6 @@ handlers/thread.rs GET /_matrix/client/v1/rooms/{room_id}/threads/{thread_id} # 
 handlers/thread.rs GET /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies # msc MSC3856 线程回复读（v1 为规范位）
 handlers/thread.rs POST /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies # msc MSC3856 线程回复写（v1 为规范位）
 handlers/thread.rs POST /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/subscribe # msc MSC3856 订阅线程（v1 为规范位）
-handlers/thread.rs POST /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unfreeze # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
 handlers/thread.rs POST /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unsubscribe # msc MSC3856 退订线程（v1 为规范位）
 
-# 统计：spec 43 / msc 7 / private 54 = 104 条
+# 统计：spec 43 / msc 7 / private 46 = 96 条

@@ -266,13 +266,13 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/vendor/v1/user/{user_id}/rooms/{room_id}/threads`
 - `POST` `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies`
 - `POST` `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/subscribe`
-- `POST` `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unfreeze`
 - `POST` `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unsubscribe`
 - `POST` `/_matrix/vendor/v1/rooms/{room_id}/replies/{event_id}/redact`
 - `POST` `/_matrix/vendor/v1/rooms/{room_id}/threads`
 - `POST` `/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/freeze`
 - `POST` `/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/mute`
 - `POST` `/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/read`
+- `POST` `/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/unfreeze`
 - `POST` `/_matrix/vendor/v1/threads`
 
 ### 反应 (Reactions) （1 条）
@@ -619,8 +619,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 #### `room.rs` — 97 条 ✅派生表
 
-- `DELETE` `/_matrix/client/v3/rooms/{room_id}/pinned_events/{event_id}`
-- `DELETE` `/_matrix/client/v3/rooms/{room_id}/sticky_events/{event_type}`
+- `DELETE` `/_matrix/client/unstable/org.matrix.msc4354/rooms/{room_id}/sticky_events/{event_type}`
+- `DELETE` `/_matrix/vendor/v1/rooms/{room_id}/pinned_events/{event_id}`
+- `GET` `/_matrix/client/unstable/org.matrix.msc4354/rooms/{room_id}/sticky_events`
 - `GET` `/_matrix/client/unstable/uk.half-shot.msc2666/user/mutual_rooms`
 - `GET` `/_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/`
 - `GET` `/_matrix/client/v3/rooms/{room_id}`
@@ -650,7 +651,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/client/v3/rooms/{room_id}/metadata`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/notifications`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/permissions`
-- `GET` `/_matrix/client/v3/rooms/{room_id}/pinned_events`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/receipts/{receipt_type}/{event_id}`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/reduced_events`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/rendered/`
@@ -663,9 +663,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/client/v3/rooms/{room_id}/state/{event_type}`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/state/{event_type}/`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/state/{event_type}/{state_key}`
-- `GET` `/_matrix/client/v3/rooms/{room_id}/sticky_events`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/sync`
-- `GET` `/_matrix/client/v3/rooms/{room_id}/thread/{event_id}`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/threads/{thread_id}`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/timeline`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/turn_server`
@@ -673,8 +671,11 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/client/v3/rooms/{room_id}/vault_data`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/version`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/visibility`
+- `GET` `/_matrix/vendor/v1/rooms/{room_id}/pinned_events`
+- `GET` `/_matrix/vendor/v1/rooms/{room_id}/thread/{event_id}`
 - `GET` `/_matrix/vendor/v1/user/mutual_rooms`
 - `GET` `/_matrix/vendor/v1/user/{user_id}/rooms`
+- `POST` `/_matrix/client/unstable/org.matrix.msc4354/rooms/{room_id}/sticky_events`
 - `POST` `/_matrix/client/v3/createRoom`
 - `POST` `/_matrix/client/v3/invite/{room_id}`
 - `POST` `/_matrix/client/v3/join/{room_id_or_alias}`
@@ -689,18 +690,17 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_matrix/client/v3/rooms/{room_id}/keys/claim`
 - `POST` `/_matrix/client/v3/rooms/{room_id}/kick`
 - `POST` `/_matrix/client/v3/rooms/{room_id}/leave`
-- `POST` `/_matrix/client/v3/rooms/{room_id}/pinned_events`
 - `POST` `/_matrix/client/v3/rooms/{room_id}/read_markers`
 - `POST` `/_matrix/client/v3/rooms/{room_id}/receipt/{receipt_type}/{event_id}`
 - `POST` `/_matrix/client/v3/rooms/{room_id}/redact/{event_id}/{txn_id}`
 - `POST` `/_matrix/client/v3/rooms/{room_id}/search`
 - `POST` `/_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}`
 - `POST` `/_matrix/client/v3/rooms/{room_id}/state/{event_type}`
-- `POST` `/_matrix/client/v3/rooms/{room_id}/sticky_events`
 - `POST` `/_matrix/client/v3/rooms/{room_id}/translate/{event_id}`
 - `POST` `/_matrix/client/v3/rooms/{room_id}/unban`
 - `POST` `/_matrix/client/v3/rooms/{room_id}/upgrade`
 - `POST` `/_matrix/client/v3/rooms/{room_id}/verify/{event_id}`
+- `POST` `/_matrix/vendor/v1/rooms/{room_id}/pinned_events`
 - `POST` `/_matrix/vendor/v1/translate`
 - `PUT` `/_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/`
 - `PUT` `/_matrix/client/v3/rooms/{room_id}/account_data/{type}`

@@ -321,6 +321,34 @@
       ]
     },
     {
+      "method": "GET",
+      "path": "/_matrix/client/unstable/org.matrix.msc4354/rooms/{room_id}/sticky_events",
+      "registered_by": "room",
+      "path_params": [
+        "room_id"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/unstable/org.matrix.msc4354/rooms/{room_id}/sticky_events",
+      "registered_by": "room",
+      "path_params": [
+        "room_id"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/_matrix/client/unstable/org.matrix.msc4354/rooms/{room_id}/sticky_events/{event_type}",
+      "registered_by": "room",
+      "path_params": [
+        "room_id",
+        "event_type"
+      ],
+      "query_params": []
+    },
+    {
       "method": "POST",
       "path": "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync",
       "registered_by": "sliding_sync",
@@ -1310,16 +1338,6 @@
     {
       "method": "POST",
       "path": "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/subscribe",
-      "registered_by": "thread",
-      "path_params": [
-        "room_id",
-        "thread_id"
-      ],
-      "query_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unfreeze",
       "registered_by": "thread",
       "path_params": [
         "room_id",
@@ -3183,34 +3201,6 @@
       "query_params": []
     },
     {
-      "method": "GET",
-      "path": "/_matrix/client/v3/rooms/{room_id}/pinned_events",
-      "registered_by": "room",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v3/rooms/{room_id}/pinned_events",
-      "registered_by": "room",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": []
-    },
-    {
-      "method": "DELETE",
-      "path": "/_matrix/client/v3/rooms/{room_id}/pinned_events/{event_id}",
-      "registered_by": "room",
-      "path_params": [
-        "room_id",
-        "event_id"
-      ],
-      "query_params": []
-    },
-    {
       "method": "POST",
       "path": "/_matrix/client/v3/rooms/{room_id}/read_markers",
       "registered_by": "room",
@@ -3600,34 +3590,6 @@
     },
     {
       "method": "GET",
-      "path": "/_matrix/client/v3/rooms/{room_id}/sticky_events",
-      "registered_by": "room",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v3/rooms/{room_id}/sticky_events",
-      "registered_by": "room",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": []
-    },
-    {
-      "method": "DELETE",
-      "path": "/_matrix/client/v3/rooms/{room_id}/sticky_events/{event_type}",
-      "registered_by": "room",
-      "path_params": [
-        "room_id",
-        "event_type"
-      ],
-      "query_params": []
-    },
-    {
-      "method": "GET",
       "path": "/_matrix/client/v3/rooms/{room_id}/sync",
       "registered_by": "room",
       "path_params": [
@@ -3638,16 +3600,6 @@
         "since",
         "timeout"
       ]
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v3/rooms/{room_id}/thread/{event_id}",
-      "registered_by": "room",
-      "path_params": [
-        "room_id",
-        "event_id"
-      ],
-      "query_params": []
     },
     {
       "method": "GET",
@@ -5463,6 +5415,34 @@
       "query_params": []
     },
     {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/rooms/{room_id}/pinned_events",
+      "registered_by": "room",
+      "path_params": [
+        "room_id"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/rooms/{room_id}/pinned_events",
+      "registered_by": "room",
+      "path_params": [
+        "room_id"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/_matrix/vendor/v1/rooms/{room_id}/pinned_events/{event_id}",
+      "registered_by": "room",
+      "path_params": [
+        "room_id",
+        "event_id"
+      ],
+      "query_params": []
+    },
+    {
       "method": "PUT",
       "path": "/_matrix/vendor/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}",
       "registered_by": "relations",
@@ -5655,6 +5635,16 @@
       "query_params": []
     },
     {
+      "method": "GET",
+      "path": "/_matrix/vendor/v1/rooms/{room_id}/thread/{event_id}",
+      "registered_by": "room",
+      "path_params": [
+        "room_id",
+        "event_id"
+      ],
+      "query_params": []
+    },
+    {
       "method": "POST",
       "path": "/_matrix/vendor/v1/rooms/{room_id}/threads",
       "registered_by": "thread",
@@ -5727,6 +5717,16 @@
     {
       "method": "GET",
       "path": "/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/stats",
+      "registered_by": "thread",
+      "path_params": [
+        "room_id",
+        "thread_id"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/unfreeze",
       "registered_by": "thread",
       "path_params": [
         "room_id",

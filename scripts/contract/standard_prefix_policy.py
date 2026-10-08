@@ -158,10 +158,13 @@ MIXED_MODULE_CLIENT_ROUTES_FILE = "mixed_module_client_routes.txt"
 # 2026-10-08 首测 = **55**（`room.rs` 54 + `handlers/thread.rs` 1）。
 # 2026-10-08 M1：删 `POST /_matrix/client/v1/rooms/create_private`（与 v3 同 handler 的
 # 版本孪生，SDK 只打 v3）⇒ 55 → **54**、清单 105 → 104 条。
+# 2026-10-08 M2：把 8 条**移出 client v1/v3 前缀**（MSC4354 sticky ×3 与 MSC3946 pinned ×3
+# 归位到 `/_matrix/client/unstable/org.matrix.msc{4354,3946}`；`thread/{event_id}` 与
+# `unfreeze` 归位 `/_matrix/vendor/v1`）⇒ 54 → **46**、清单 104 → 96 条。
 #
 # ⚠️ 只有真的把它们删掉或迁到 `/_matrix/vendor/v1` 才允许下调；判据 D 已经从
 # "集合"维度把住增删，这个数字是**数值**维度的第二道护栏（集合判据被误改时仍能兜住）。
-MIXED_MODULE_PRIVATE_COUNT = 54
+MIXED_MODULE_PRIVATE_COUNT = 46
 
 
 def normalize(path: str) -> str:

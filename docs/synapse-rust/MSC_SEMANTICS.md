@@ -60,7 +60,7 @@
 | **MSC4311** | Use full PDU's in stripped state (like `invite_room_state`) over federation and always include `m.room.create`（*proposals*；标题引自上游 PR element-hq/synapse#19723） | 上游 v1.162 把严格校验推迟到 **2027-06-01**；本仓以配置开关 `msc4311_strict_validation`（默认 `false` ＝宽限期内宽松）承载，联邦侧发全量 PDU | `synapse-common/src/config/federation.rs:228-245`、`synapse-services/src/room/membership/federation.rs:653`（报告 §5.4 #19723） | ✅ 以配置开关承载（宽限至 2027-06-01） |
 | **MSC4326** | Device masquerading for appservices（*proposals*；该提案引入 unstable `ORG.MATRIX.MSC4326.M_UNKNOWN_DEVICE`） | 稳定码 `M_UNKNOWN_DEVICE` **已定义**（`synapse-common/src/error/code.rs:99,149,255`），不再使用 MSC4326 unstable 前缀。⚠️ **但没有任何端点使用它**：本仓不实现 appservice device masquerading，而设备 CRUD 的 404 按规范是 `M_NOT_FOUND`（`device_management.yaml` 全文件无 `M_UNKNOWN_DEVICE`）⇒ `synapse-web/src/routes/device.rs::device_not_found_error()` 返回 `M_NOT_FOUND`（2026-10-02 更正，详见报告 §18.7.1 P-11） | `synapse-common/src/error/code.rs:99,149,255`、`synapse-web/src/routes/device.rs`（报告 §5.4 #20181） | ⚠️ 码已稳定化但**无适用端点**（本仓无 masquerading） |
 | **MSC4335** | 媒体上传超限返回 `M_USER_LIMIT_EXCEEDED`（*仓库既有结论*） | 错误码已定义，但**未见**媒体上传限额路径使用 | `synapse-common/src/error/code.rs:83,131,225,292`（报告 §5.1） | 🟡 PARTIAL |
-| **MSC4354** | Sticky Events（*proposals*：matrix-org/matrix-spec-proposals#4354） | 本仓**无 sticky soft-fail 维度**：sticky 仅以 `room_sticky_events.is_sticky` 落库 + 联邦 EDU，不做状态相关 auth 评估、无 `un_soft_fail` 重算 ⇒ 无可「取消」的对象（⚠️ `events.soft_failed` 是 B-8 事务去重专用，**同名不同义**） | `synapse-storage/src/sticky_event.rs`、`synapse-services/src/room/service.rs:661-684,739-799`（报告 §5.4 #20204 / §5.6 M5） | ⚪ N/A（仅报告） |
+| **MSC4354** | Sticky Events（*proposals*：matrix-org/matrix-spec-proposals#4354） | 本仓**无 sticky soft-fail 维度**：sticky 仅以 `room_sticky_events.is_sticky` 落库 + 联邦 EDU，不做状态相关 auth 评估、无 `un_soft_fail` 重算 ⇒ 无可「取消」的对象（⚠️ `events.soft_failed` 是 B-8 事务去重专用，**同名不同义**）。**2026-10-08 M2：路由前缀已归位** —— 从借用的稳定 `v3` 移到 `/_matrix/client/unstable/org.matrix.msc4354/rooms/{room_id}/sticky_events*`（号段依据三处一致：联邦 EDU 名 `org.matrix.msc4354.sticky_event`、SDK 字段 `msc4354_sticky_key`、`sticky_event.rs` 头注） | `synapse-storage/src/sticky_event.rs`、`synapse-services/src/room/service.rs:661-684,739-799`、`synapse-web/src/routes/room.rs`（`create_room_msc4354_router`）（报告 §5.4 #20204 / §5.6 M5） | 🟡 PARTIAL（无 soft-fail 维度；路由已归位 unstable） |
 | **MSC3981** | `/relations` 递归（*proposals*：matrix-org/matrix-spec-proposals#3981；**spec v1.10 起稳定**） | `recurse` 与不稳定名 `org.matrix.msc3981.recurse` 均已接线，`/versions` 广告 `org.matrix.msc3981`(`.stable`)；递归在存储层用**静态递归 CTE**（`events` 在递归内 join），排序/分页键是 `events.stream_ordering`（拓扑序，与同 `dir` 的 `/messages` 一致），深度口径与上游一致（0 基 `depth <= 3`，上报 `recursion_depth = 3`）。⚠️ **过滤语义跟随参考实现而非 MSC 正文**：正文说 `rel_type`/`event_type` 过滤同时剪枝中间节点，但 MSC 自己的第 5 个示例与之自相矛盾（G 需同时满足 `m.thread` 与 `m.annotation`），Synapse 的 CTE 是先递归、后过滤返回集，本仓取后者（理由见对照报告 §18.3 #14）。`event_type` 过滤的 **HTTP 入口已补齐（2026-10-02，L-6）**：spec 的 `GET …/{relType}/{eventType}` 4 段路由已新增（与同路径既有 `PUT` 合并进同一 `MethodRouter`）并接通过滤，见对照报告 §18.4 L-6 | `synapse-storage/src/relations/mod.rs`（`MSC3981_RECURSION_DEPTH`）、`synapse-services/src/relations_service.rs`、`synapse-web/src/routes/relations.rs`、`synapse-services/src/capability_governance.rs` | ✅ 已实现（含 `event_type` 路由） |
 | **MSC4429** | **Profile Updates for Legacy Sync**（*proposals*：legacy `/sync` 新增**顶层 `users` 对象**承载 per-user `profile_updates`（`updated`/`removed`）；经**新 filter 字段 `profile_fields.ids`** opt-in，**省略＝无字段在范围内**） | **legacy 半边未实现**：本仓仅在 sliding sync 侧实现 `profile_updates`，legacy `/sync` **不输出**顶层 `users` 对象、**无** `profile_fields` filter；`msc4429` 无独立落点（仅与 MSC4262 同行命中） | 同 MSC4262（报告 §5.1 / C2） | 🟡 PARTIAL（legacy 半边未实现） |
 | **MSC4502** | **Targeted and unrestricted room member queries**（*proposals*：新 CS 端点 **`GET /_matrix/client/v3/rooms/{roomId}/is_joined`**，query 恰取 `mxid` **或** `server_name` 之一；响应 `{"joined": bool}`；由 **OAuth scope** `urn:matrix:client:rooms:is_joined` 保护，appservice 注册文件新增顶层 `scopes`） | **编号借用**：官方 `is_joined` 端点 / appservice `scopes` / OAuth scope **均未实现**（全仓无 `is_joined`、无 `io.element.msc4502`）；本仓把该编号借给 `/members` 的 `at`/`dir`/`limit`/`membership`/`not_membership` 分页 | `synapse-web/src/routes/handlers/room/members.rs`、`synapse-storage/src/membership/mod.rs`（报告 §5.1 / C2） | 🟡 编号借用 |
@@ -96,6 +96,21 @@
 
 > **判据重申**（铁律 1）：兼容分支的唯一存在理由是"有调用方"。第 1 项无任何调用方
 > （测试、SDK、Tjg 三方取证均为裸映射）故删；第 2 项仍有测试与输出侧消费者故留。
+
+## 2.2 MSC3946 归属澄清（2026-10-08，M2 取证副产品）
+
+`docs/audit/MIXED_MODULE_PRIVATE_ROUTES_PLAN_2026-10-08.md` 初稿把本仓的
+`GET/POST /rooms/{room_id}/pinned_events` 标为 **MSC3946**，并据此准备迁到
+`/_matrix/client/unstable/org.matrix.msc3946/...`。**执行前取证发现该断言不成立**：
+
+- SDK 的事件类型常量写作 `EventType.RoomPredecessor = "org.matrix.msc3946.room_predecessor"`
+  （`matrix-js-sdk/src/@types/event.ts:100`）⇒ 该号段属**房间前驱**语义，与 pinning 无关；
+- 本仓与 SDK 的 pinned events 用的是**稳定的** `m.room.pinned_events` 状态事件类型
+  （`@types/event.ts:94`），而 `GET/POST /rooms/{room_id}/pinned_events` 这组**端点**
+  在本仓没有可用的 MSC 归属证据。
+
+⇒ 处置：**不迁 unstable**，按"私有扩展"归位 `/_matrix/vendor/v1`（见方案 §2 类别 B2）。
+⚠️ 未联网核对提案原文；若日后确认 MSC3946 确含 pinning 语义，再改判。
 
 ## 3. MSC3083 `allow` 解析收敛记录（2026-09-13）
 

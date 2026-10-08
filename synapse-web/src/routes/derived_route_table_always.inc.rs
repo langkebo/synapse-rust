@@ -221,6 +221,30 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(
+            axum::http::Method::GET,
+            "/_matrix/client/unstable/org.matrix.msc4354/rooms/{room_id}/sticky_events",
+            "room",
+        );
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(
+            axum::http::Method::POST,
+            "/_matrix/client/unstable/org.matrix.msc4354/rooms/{room_id}/sticky_events",
+            "room",
+        );
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(
+            axum::http::Method::DELETE,
+            "/_matrix/client/unstable/org.matrix.msc4354/rooms/{room_id}/sticky_events/{event_type}",
+            "room",
+        );
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(
             axum::http::Method::POST,
             "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync",
             "sliding_sync",
@@ -872,14 +896,6 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         let e = RouteEntry::new(
             axum::http::Method::POST,
             "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/subscribe",
-            "thread",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unfreeze",
             "thread",
         );
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
@@ -1989,22 +2005,6 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/rooms/{room_id}/pinned_events", "room");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/rooms/{room_id}/pinned_events", "room");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::DELETE,
-            "/_matrix/client/v3/rooms/{room_id}/pinned_events/{event_id}",
-            "room",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
         let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/rooms/{room_id}/read_markers", "room");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
@@ -2241,29 +2241,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/rooms/{room_id}/sticky_events", "room");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/rooms/{room_id}/sticky_events", "room");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::DELETE,
-            "/_matrix/client/v3/rooms/{room_id}/sticky_events/{event_type}",
-            "room",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
         let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/rooms/{room_id}/sync", "room")
             .with_query_params(&["full_state", "since", "timeout"]);
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e =
-            RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/rooms/{room_id}/thread/{event_id}", "room");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -3416,6 +3395,22 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/rooms/{room_id}/pinned_events", "room");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/vendor/v1/rooms/{room_id}/pinned_events", "room");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(
+            axum::http::Method::DELETE,
+            "/_matrix/vendor/v1/rooms/{room_id}/pinned_events/{event_id}",
+            "room",
+        );
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
         let e = RouteEntry::new(
             axum::http::Method::PUT,
             "/_matrix/vendor/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}",
@@ -3561,6 +3556,11 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
+        let e =
+            RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/rooms/{room_id}/thread/{event_id}", "room");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
         let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/vendor/v1/rooms/{room_id}/threads", "thread");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
@@ -3609,6 +3609,14 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         let e = RouteEntry::new(
             axum::http::Method::GET,
             "/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/stats",
+            "thread",
+        );
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(
+            axum::http::Method::POST,
+            "/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/unfreeze",
             "thread",
         );
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });

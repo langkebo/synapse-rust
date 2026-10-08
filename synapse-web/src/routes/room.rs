@@ -67,8 +67,6 @@ fn create_room_shared_compat_router() -> Router<AppState> {
         .route("/rooms/{room_id}/kick", post(kick_user))
         .route("/rooms/{room_id}/ban", post(ban_user))
         .route("/rooms/{room_id}/unban", post(unban_user))
-        .route("/rooms/{room_id}/pinned_events", get(pinned::get_pinned_events).post(pinned::pin_event))
-        .route("/rooms/{room_id}/pinned_events/{event_id}", delete(pinned::unpin_event))
         .route("/rooms/{room_id}/send/{event_type}/{txn_id}", put(send_message).post(send_message))
         .route("/rooms/{room_id}/event/{event_id}", get(get_single_event))
 }
@@ -117,16 +115,29 @@ fn create_room_v3_router() -> Router<AppState> {
         .route("/rooms/{room_id}/message_queue", get(get_room_message_queue))
         .route("/rooms/{room_id}/threads/{thread_id}", get(get_room_thread_by_id))
         .route("/rooms/{room_id}/keys/{event_id}", get(get_event_keys))
-        .route("/rooms/{room_id}/thread/{event_id}", get(get_room_thread))
         .route("/join/{room_id_or_alias}", post(join_room_by_id_or_alias))
         .route("/knock/{room_id_or_alias}", post(knock_room))
         .route("/invite/{room_id}", post(invite_user_by_room))
+        .route("/rooms/{room_id}/anti_screenshot", get(get_anti_screenshot).put(set_anti_screenshot))
+}
+
+/// MSC4354 sticky events —— **归位到 unstable 前缀**，不再借稳定 `v3`。
+///
+/// 依据：同一提案的事件字段在 SDK 侧写作 `msc4354_sticky_key` /
+/// `org.matrix.msc4354.sticky_duration_ms` ⇒ 号段是 `org.matrix.msc4354`；
+/// sub-path 保持 `/rooms/{room_id}/...`（`sticky_event.rs:16` 自述
+/// "MSC4354 paths are scoped under `/rooms/...`"）。
+/// ⚠️ 未联网核对提案原文：路径形态按"unstable 前缀 + 保留原 sub-path"的通用约定推定。
+fn create_room_msc4354_router() -> Router<AppState> {
+    Router::new()
         .route(
             "/rooms/{room_id}/sticky_events",
             get(sticky_event::get_sticky_events).post(sticky_event::set_sticky_events),
         )
-        .route("/rooms/{room_id}/sticky_events/{event_type}", axum::routing::delete(sticky_event::clear_sticky_event))
-        .route("/rooms/{room_id}/anti_screenshot", get(get_anti_screenshot).put(set_anti_screenshot))
+        .route(
+            "/rooms/{room_id}/sticky_events/{event_type}",
+            axum::routing::delete(sticky_event::clear_sticky_event),
+        )
 }
 
 /// ISSUE-13：私有扩展的唯一规范位置是 `/_matrix/vendor/v1`。
@@ -139,6 +150,16 @@ fn create_room_vendor_router() -> Router<AppState> {
         .route("/user/mutual_rooms", get(get_mutual_rooms))
         .route("/translate", post(translate_text))
         .route("/user/{user_id}/rooms", get(get_user_rooms))
+        // 非规范形状（单数 `thread`，MSC3440/3856 用的是 `/threads/{...}`）⇒ 归位 vendor
+        .route("/rooms/{room_id}/thread/{event_id}", get(get_room_thread))
+        // pinned_events：**不迁 unstable** —— `org.matrix.msc3946.room_predecessor`（SDK 的
+        // 事件类型常量）表明 MSC3946 是「房间前驱」，与 pinning 无关；本仓无可用的 MSC
+        // 归属，故按私有扩展归位 vendor。⚠️ 未联网核对提案原文。
+        .route(
+            "/rooms/{room_id}/pinned_events",
+            get(pinned::get_pinned_events).post(pinned::pin_event),
+        )
+        .route("/rooms/{room_id}/pinned_events/{event_id}", delete(pinned::unpin_event))
 }
 
 /// See [`create_room_router`].
@@ -147,6 +168,7 @@ pub fn create_room_router() -> Router<AppState> {
         .nest("/_matrix/client/v1", create_room_v1_router())
         .nest("/_matrix/client/v3", create_room_v3_router())
         .nest("/_matrix/vendor/v1", create_room_vendor_router())
+        .nest("/_matrix/client/unstable/org.matrix.msc4354", create_room_msc4354_router())
         .route("/_matrix/client/v3/rooms/create_private", post(create_private_room))
         // MSC2666: Unstable prefix alias for mutual rooms
         .route("/_matrix/client/unstable/uk.half-shot.msc2666/user/mutual_rooms", get(get_mutual_rooms))
