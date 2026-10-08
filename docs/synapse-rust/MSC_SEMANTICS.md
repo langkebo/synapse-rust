@@ -84,6 +84,19 @@
 > 邀请门禁见 `synapse-services/src/room/membership/service.rs:268` —— 故不再属于孤儿，
 > 详见 §1 MSC4155 行。
 
+## 2.1 请求体兼容分支裁定（by-design，2026-10-08）
+
+方案 `docs/后端冗余清除与功能完善优化方案-2026-10-08.md` §2.5 把两处"请求体兼容分支"
+列为**待裁定**（不直接删）。本轮取证后的裁定如下。
+
+| # | 位置 | 裁定 | 依据 |
+|---|---|---|---|
+| 1 | `synapse-e2ee/src/device_keys/service.rs` 的 `body.get("signatures").cloned().unwrap_or(body)` | ✅ **已删除** | 规范请求体**直接就是**签名映射（无外层包装）。消费者取证为零：SDK 的 body 由 rust-crypto 的 `SignatureUploadRequest` 直接给出裸映射；后端单测（`device_keys/service.rs::upload_signatures_*`）与集成测试（`tests/integration/api_e2ee_advanced_tests.rs:403`）**都发裸映射**。对裸映射输入行为**等价**（裸映射不含顶层 `signatures` 键 ⇒ 原 `unwrap_or` 本就取整个 body） |
+| 2 | `synapse-web/src/routes/reactions.rs` 的 `body.get("body")`（annotation key 回退） | ⏸ **保留（by-design）** | 规范形态是 `m.relates_to.key`，SDK 生产侧已发该形态（`matrix-js-sdk/src/room-events/index.ts:144-149`）。但**回退读的顶层 `body` 与输出侧保留的 `content.body` 是配套设计** —— `tests/integration/api_msc3912_redaction_cascade_tests.rs:373` 明确断言写入的 `m.reaction` 事件含 `"body": "👍"`；且后端集成测试 `tests/integration/api_relations_authorization_tests.rs:143` 仍按该形态发请求。删输入侧会让它比输出侧"更严格"，属**行为变更而非清理**，需连同输出侧与测试一起裁定 |
+
+> **判据重申**（铁律 1）：兼容分支的唯一存在理由是"有调用方"。第 1 项无任何调用方
+> （测试、SDK、Tjg 三方取证均为裸映射）故删；第 2 项仍有测试与输出侧消费者故留。
+
 ## 3. MSC3083 `allow` 解析收敛记录（2026-09-13）
 
 同一份 `m.room.join_rules.allow` 数组此前由两处以**不同语义**解析：

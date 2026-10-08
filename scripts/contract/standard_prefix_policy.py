@@ -112,6 +112,26 @@ MSC_KEEP = {
 # 被看见，它不是全覆盖断言；那个方向由 Batch 4 的 G-02/G-03 补。
 MIXED_MODULE_ROUTES: dict[str, dict[tuple[str, str], str]] = {}
 
+# 混合模块（既有标准端点也有私有端点）—— 这些源文件里的 client 前缀路由必须逐条出现在
+# `mixed_module_client_routes.txt` 的**冻结清单**里（双向 ratchet，见该文件头注）。
+#
+# 与 `WHOLESALE_PRIVATE_FILES` 的分工：那些是"整模块私有"，可做全覆盖断言；混合模块的
+# 每条都要先判"是不是规范端点"，而那需要一个**独立于后端注册面**的来源，故外置为清单
+# 文件（G-02/G-03，2026-10-08）。上面的 `MIXED_MODULE_ROUTES` 只记"*已识别的*私有端点"
+# （人工登记），本常量 + 清单才是**全覆盖**断言。
+#
+# ⚠️ 覆盖范围只有这 3 个文件 —— 它**不是**全仓混检：其余含 client 前缀路由的文件
+# （`assembly.rs` 等挂载汇总、`key_backup.rs`、`e2ee/keys.rs` …）仍未做该断言。
+# 扩大范围 = 往本元组 + 清单文件里追加，判据本身无需改。
+MIXED_MODULE_FILES = (
+    "room.rs",
+    "moderation.rs",
+    "handlers/thread.rs",
+)
+
+# 冻结清单文件名（与 `standard_prefix_ledger.txt` 同目录）。
+MIXED_MODULE_CLIENT_ROUTES_FILE = "mixed_module_client_routes.txt"
+
 
 def normalize(path: str) -> str:
     """剥掉命名空间前缀，便于把 client 路由与 vendor 孪生配对。

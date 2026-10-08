@@ -30,6 +30,16 @@ VendorPrefix 错配到前面的 v3 路径上），既会假阴也会假阳。所
 （在 `rooms` 落点后后端还剩 4 段，SDK 只有 3 段），而
 `/rooms/$roomId/messages` 能正常命中 `/_matrix/client/v3/rooms/{room_id}/messages`。
 
+前缀必须生效（R-11）
+-------------------
+风格 1 的站点能解出**完整路径**（`prefix` 在窗口内唯一且无 `+` 拼接）。这类站点
+必须被后端真的服务：见 `prefix_mismatch()`。**不能只用相对路径候选兜底** —— 那是
+前缀无关的判据，后端把端点从 `/_matrix/client/v3/...` 迁到 `/_matrix/vendor/v1/...`
+之后相对路径照样匹配，SDK 打旧前缀产生的 404 会被静默吃掉。2026-10-08 实测：
+后端迁走 29 条私有端点后本脚本仍打印"全部覆盖"（`or candidates` 兜底让收紧判据
+从未生效）。修好后下面前缀不符的站点会立刻转红 —— 这是它该有的行为（SDK 未迁完
+本来就该红，由 `sdk_uncovered_allowlist.txt` 逐条登记）。
+
 用法
 ----
   python3 scripts/contract/check_sdk_route_coverage.py
@@ -38,7 +48,7 @@ VendorPrefix 错配到前面的 v3 路径上），既会假阴也会假阳。所
 
 不必依赖 SDK 的部分（任何环境都会跑）
 --------------------------------------
-  * 谓词自检：4 项断言，同时覆盖漏报与误报两个方向；
+  * 谓词自检：同时覆盖漏报与误报两个方向（含 R-11/R-12 前缀生效的一正一反断言）；
   * 豁免清单卫生检查：被豁免的形状必须**仍然不被 ledger 服务** —— 后端补上端点后
     豁免若不删，此后真实的不一致会被它静默吃掉。CI 只 checkout 本仓、拿不到 SDK，
     这两项是那时唯一的护栏，所以刻意放在 SDK 存在性判断之前。
@@ -147,6 +157,16 @@ def load_allowlist() -> dict[str, str]:
 # 紧跟 `await this.request({ method: Method.X, path })`，窗口取 15 行足够且不会跨到下个站点）
 _WINDOW = 15
 
+# 站点的语句窗口**不能跨越函数/顶层声明边界**。风格 2 的路径构造器（`buildXPath()`
+# 只返回相对路径，prefix 由调用方给）后面紧跟的就是**下一个**函数，它的 `prefix:`
+# 会被错配到这个站点上 —— 实测 `client-secure-backup-requests.ts:39`
+# (`buildSecureBackupRestorePath`) 被下一个函数 `getMyRoomsRequest` 的
+# `prefix: VendorPrefix` 串味，于是门禁把一条**本来正确**的 client/v3 路径判成
+# vendor 前缀而报未覆盖（R-12）。窗口遇到行首无缩进的 `}` 或新声明即截断。
+_BOUNDARY = re.compile(
+    r"^(?:\}|(?:export\s+)?(?:async\s+)?(?:function|const|let|var|class|interface|type|enum)\b)"
+)
+
 
 def load_prefixes(sdk: pathlib.Path) -> dict[str, str]:
     """从 `src/http-api/prefix.ts` 解析前缀表。
@@ -197,10 +217,12 @@ def collect_sites(sdk: pathlib.Path) -> list[dict[str, object]]:
             match = _ENCODE_URI.search(line)
             if not match:
                 continue
-            # 站点窗口：本行起，到下一个 encodeUri 之前（或 _WINDOW 行为止）
+            # 站点窗口：本行起，到下一个 encodeUri（或下一个函数/顶层声明、_WINDOW 行）为止
             window: list[str] = []
             for later in range(index, min(len(lines), index + _WINDOW)):
-                if later > index and _ENCODE_URI.search(lines[later]):
+                if later > index and (
+                    _ENCODE_URI.search(lines[later]) or _BOUNDARY.match(lines[later])
+                ):
                     break
                 window.append(lines[later])
             text = "\n".join(window)
@@ -224,6 +246,21 @@ def collect_sites(sdk: pathlib.Path) -> list[dict[str, object]]:
                     site["full"] = prefix + site["relative"]
             sites.append(site)
     return sites
+
+
+def prefix_mismatch(full: str | None, backend: list[tuple[str, str]]) -> bool:
+    """站点若解出**完整路径**，它必须被后端真的服务（R-11：前缀必须生效）。
+
+    `path_match(relative, p)` 是前缀无关的 —— 这是风格 2/3（路径构造器、浏览器 URL）
+    能工作的原因，因为它只要求 SDK 的**相对路径**对齐到某条 ledger 路径的尾部。
+    代价是：一旦后端把端点从 `/_matrix/client/v3/...` 迁到 `/_matrix/vendor/v1/...`，
+    相对路径仍然匹配。缺了"把解出的前缀也算进来"的判据，迁移后 SDK 打旧前缀
+    打出来的 404 会被**静默放过**（2026-10-08 实测：后端迁走 29 条后本脚本仍报全绿）。
+
+    风格 1 的站点（`prefix` 在窗口内唯一且无 `+` 拼接）能解出 `full`，对它们
+    前缀是可靠的，所以这里可以（也必须）做全长比对。
+    """
+    return bool(full) and not any(path_match(full, p) for _, p in backend)
 
 
 def self_test(backend: list[tuple[str, str]]) -> None:
@@ -256,6 +293,16 @@ def self_test(backend: list[tuple[str, str]]) -> None:
         == canonical_shape("/rooms/{room_id}/x")
         == "/rooms/{}/x"
     ), "canonical_shape 没有把 $var 与 {var} 同时折成 {} —— 豁免条目会因改名静默失效"
+    # R-11 前缀生效（一正一反，把"相对路径兜底让前缀永不生效"这个回归钉死）。
+    # 正向：真实存在的 vendor 路径不能被判成未覆盖（防空转式假阳）。
+    assert not prefix_mismatch("/_matrix/vendor/v1/create_dm", backend), (
+        "前缀生效把一条真实存在的路径判成了未覆盖 —— 判据写错了"
+    )
+    # 反向：后端已把 create_dm 从 client/v3 迁到 vendor，SDK 若仍打旧前缀必须被判未覆盖。
+    # 这条断言就是 2026-10-08 那处真实回归的最小复现（此前恒为 False ⇒ 门禁全绿）。
+    assert prefix_mismatch("/_matrix/client/v3/create_dm", backend), (
+        "后端已把 create_dm 迁到 vendor，SDK 打旧 client 前缀却未被判为未覆盖（R-11 回归）"
+    )
 
 
 def audit_allowlist_without_sdk(
@@ -306,7 +353,7 @@ def main() -> int:
             print(f"ERROR: {message}，而 SDK_CONTRACT_STRICT=1", file=sys.stderr)
             return 1
         print(f"SKIPPED: {message}")
-        print("  已跑：谓词自检（4 项断言）+ 豁免清单卫生检查")
+        print("  已跑：谓词自检（覆盖漏报/误报两向）+ 豁免清单卫生检查")
         print("  **未跑**：SDK 站点逐条比对 —— 本次结论不覆盖 SDK ⊆ ledger")
         return 0
 
@@ -324,6 +371,21 @@ def main() -> int:
         relative = str(site["relative"])
         method = site["method"]
         full = site["full"]
+
+        # 前缀生效（R-11）：解出完整路径的站点必须被后端真的服务。刻意放在相对路径
+        # 候选**之前** —— 相对路径判据前缀无关，兜底会让这里的缺陷静默通过。
+        if prefix_mismatch(full, backend):
+            key = f"{method or '*'} {canonical_shape(full)}"
+            alt_key = f"{method or '*'} {canonical_shape(relative)}"
+            if key in allowed:
+                used_keys.add(key)
+            elif alt_key in allowed:
+                used_keys.add(alt_key)
+            else:
+                uncovered.append(
+                    f"{method or '*':6} {full}\n         {site['file']}:{site['line']}"
+                )
+            continue
 
         # 主判据：相对路径能对齐到某条 ledger 路径的某段起点（前缀无关）
         candidates = [(m, p) for m, p in backend if path_match(relative, p)]
@@ -346,12 +408,13 @@ def main() -> int:
         # 次判据（收紧）：窗口内解析出唯一 method 时，方法必须真的被后端服务
         if method:
             tightened += 1
-            if full:
-                scoped = [
-                    (m, p) for m, p in candidates if path_match(full, p)
-                ] or candidates
-            else:
-                scoped = candidates
+            # `full` 已在上面过了 prefix_mismatch，故这里不会再落空 ——
+            # 原来的 `or candidates` 兜底正是 R-11 让前缀失效的那一处。
+            scoped = (
+                [(m, p) for m, p in backend if path_match(full, p)]
+                if full
+                else candidates
+            )
             if method not in {m for m, _ in scoped}:
                 served = "/".join(sorted({m for m, _ in scoped}))
                 method_mismatch.append(

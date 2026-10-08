@@ -1,0 +1,127 @@
+# 混合模块 client 前缀路由 —— 冻结清单（G-02/G-03，2026-10-08）
+#
+# 为什么需要它：`standard_prefix_ledger.txt` + `LEDGER_CEILING` 只覆盖
+# `WHOLESALE_PRIVATE_FILES`（整模块私有文件）。**混合模块**（既有标准端点又有私有
+# 端点）此前**没有任何覆盖断言** —— 在里面新增一条私有 client 前缀路由不会被任何
+# 门禁发现（方案 §2.6 G-02）。
+#
+# 判据（`test_extract_registered.py::check_standard_prefix_bucket`）：
+#   D1  本清单必须 ⊆ 实际注册面   —— 清单不许腐烂（删了路由必须同步删行）
+#   D2  实际注册面必须 ⊆ 本清单   —— **新增即红**，必须显式声明
+# 双向 ratchet：任何一侧变化都会红，逼你显式处理。
+#
+# 第 3 列标签只作**归属记录**，不参与判定（避免主观分类造成假红）：
+#   spec     = Matrix Client-Server 稳定规范端点（含多版本孪生与尾斜杠变体）
+#   msc      = 有 MSC 归属（规范/不稳定前缀位置由该 MSC 决定）
+#   private  = 私有扩展：**非规范路径却挂在 client 前缀下**。这是**已知技术债**，
+#              不是批准 —— 目标位置是 `/_matrix/vendor/v1`；迁移需与 SDK 同步（跨仓）。
+#
+# 格式：  <源文件> <METHOD> <完整路径> # <标签> <理由>
+
+room.rs DELETE /_matrix/client/v3/rooms/{room_id}/pinned_events/{event_id} # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs DELETE /_matrix/client/v3/rooms/{room_id}/sticky_events/{event_type} # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/ # spec Matrix C-S 规范端点
+room.rs GET /_matrix/client/v3/rooms/{room_id} # spec Matrix C-S 规范端点
+room.rs GET /_matrix/client/v3/rooms/{room_id}/account_data/{type} # spec Matrix C-S 规范端点
+room.rs GET /_matrix/client/v3/rooms/{room_id}/aliases # spec Matrix C-S 规范端点
+room.rs GET /_matrix/client/v3/rooms/{room_id}/anti_screenshot # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/capabilities # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/device/{device_id} # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/encrypted_events # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/event/{event_id} # spec Matrix C-S 规范端点
+room.rs GET /_matrix/client/v3/rooms/{room_id}/event/{event_id}/url # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/event_perspective # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/external_ids # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/fragments/{user_id} # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/initialSync # spec Matrix C-S 规范端点（已 deprecated，规范仍收录）
+room.rs GET /_matrix/client/v3/rooms/{room_id}/invites # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/joined_members # spec Matrix C-S 规范端点
+room.rs GET /_matrix/client/v3/rooms/{room_id}/keys # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/keys/count # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/keys/version # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/keys/{event_id} # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/members # spec Matrix C-S 规范端点
+room.rs GET /_matrix/client/v3/rooms/{room_id}/members/recent # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/membership/{user_id} # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/message_queue # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/messages # spec Matrix C-S 规范端点
+room.rs GET /_matrix/client/v3/rooms/{room_id}/metadata # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/notifications # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/permissions # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/pinned_events # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/receipts/{receipt_type}/{event_id} # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/reduced_events # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/rendered/ # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/resolve # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/retention # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/service_types # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/spaces # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/state # spec Matrix C-S 规范端点
+room.rs GET /_matrix/client/v3/rooms/{room_id}/state/m.room.power_levels/ # spec Matrix C-S 规范端点
+room.rs GET /_matrix/client/v3/rooms/{room_id}/state/{event_type} # spec Matrix C-S 规范端点
+room.rs GET /_matrix/client/v3/rooms/{room_id}/state/{event_type}/ # spec Matrix C-S 规范端点
+room.rs GET /_matrix/client/v3/rooms/{room_id}/state/{event_type}/{state_key} # spec Matrix C-S 规范端点
+room.rs GET /_matrix/client/v3/rooms/{room_id}/sticky_events # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/sync # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/thread/{event_id} # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/threads/{thread_id} # msc MSC3856 线程详情；与 thread.rs 的 v1 规范位同 handler（v3 为多余孪生）
+room.rs GET /_matrix/client/v3/rooms/{room_id}/timeline # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/turn_server # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/unread_count # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/vault_data # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/version # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs GET /_matrix/client/v3/rooms/{room_id}/visibility # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs POST /_matrix/client/v1/rooms/create_private # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs POST /_matrix/client/v3/createRoom # spec Matrix C-S 规范端点
+room.rs POST /_matrix/client/v3/invite/{room_id} # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs POST /_matrix/client/v3/join/{room_id_or_alias} # spec Matrix C-S 规范端点
+room.rs POST /_matrix/client/v3/knock/{room_id_or_alias} # spec Matrix C-S 规范端点
+room.rs POST /_matrix/client/v3/rooms/create_private # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs POST /_matrix/client/v3/rooms/{room_id}/ban # spec Matrix C-S 规范端点
+room.rs POST /_matrix/client/v3/rooms/{room_id}/convert/{event_id} # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs POST /_matrix/client/v3/rooms/{room_id}/forget # spec Matrix C-S 规范端点
+room.rs POST /_matrix/client/v3/rooms/{room_id}/get_membership_events # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs POST /_matrix/client/v3/rooms/{room_id}/invite # spec Matrix C-S 规范端点
+room.rs POST /_matrix/client/v3/rooms/{room_id}/join # spec Matrix C-S 规范端点
+room.rs POST /_matrix/client/v3/rooms/{room_id}/keys/claim # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs POST /_matrix/client/v3/rooms/{room_id}/kick # spec Matrix C-S 规范端点
+room.rs POST /_matrix/client/v3/rooms/{room_id}/leave # spec Matrix C-S 规范端点
+room.rs POST /_matrix/client/v3/rooms/{room_id}/pinned_events # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs POST /_matrix/client/v3/rooms/{room_id}/read_markers # spec Matrix C-S 规范端点
+room.rs POST /_matrix/client/v3/rooms/{room_id}/receipt/{receipt_type}/{event_id} # spec Matrix C-S 规范端点
+room.rs POST /_matrix/client/v3/rooms/{room_id}/redact/{event_id}/{txn_id} # spec Matrix C-S 规范端点
+room.rs POST /_matrix/client/v3/rooms/{room_id}/search # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs POST /_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id} # spec Matrix C-S 规范端点
+room.rs POST /_matrix/client/v3/rooms/{room_id}/state/{event_type} # spec Matrix C-S 规范端点
+room.rs POST /_matrix/client/v3/rooms/{room_id}/sticky_events # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs POST /_matrix/client/v3/rooms/{room_id}/translate/{event_id} # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs POST /_matrix/client/v3/rooms/{room_id}/unban # spec Matrix C-S 规范端点
+room.rs POST /_matrix/client/v3/rooms/{room_id}/upgrade # spec Matrix C-S 规范端点
+room.rs POST /_matrix/client/v3/rooms/{room_id}/verify/{event_id} # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs PUT /_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/ # spec Matrix C-S 规范端点
+room.rs PUT /_matrix/client/v3/rooms/{room_id}/account_data/{type} # spec Matrix C-S 规范端点
+room.rs PUT /_matrix/client/v3/rooms/{room_id}/anti_screenshot # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs PUT /_matrix/client/v3/rooms/{room_id}/read_markers # spec Matrix C-S 规范端点
+room.rs PUT /_matrix/client/v3/rooms/{room_id}/redact/{event_id}/{txn_id} # spec Matrix C-S 规范端点
+room.rs PUT /_matrix/client/v3/rooms/{room_id}/room_keys/keys # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs PUT /_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id} # spec Matrix C-S 规范端点
+room.rs PUT /_matrix/client/v3/rooms/{room_id}/sign/{event_id} # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs PUT /_matrix/client/v3/rooms/{room_id}/state/m.room.power_levels/ # spec Matrix C-S 规范端点
+room.rs PUT /_matrix/client/v3/rooms/{room_id}/state/{event_type} # spec Matrix C-S 规范端点
+room.rs PUT /_matrix/client/v3/rooms/{room_id}/state/{event_type}/ # spec Matrix C-S 规范端点
+room.rs PUT /_matrix/client/v3/rooms/{room_id}/state/{event_type}/{state_key} # spec Matrix C-S 规范端点
+room.rs PUT /_matrix/client/v3/rooms/{room_id}/vault_data # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+room.rs PUT /_matrix/client/v3/rooms/{room_id}/visibility # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+moderation.rs POST /_matrix/client/v1/rooms/{room_id}/report/{event_id} # spec Matrix C-S 规范端点（v1 孪生；规范现用 v3）
+moderation.rs POST /_matrix/client/v3/rooms/{room_id}/report # spec Matrix C-S 规范端点（已 deprecated，规范仍收录）
+moderation.rs POST /_matrix/client/v3/rooms/{room_id}/report/{event_id} # spec Matrix C-S 规范端点
+moderation.rs POST /_matrix/client/v3/users/{user_id}/report # spec Matrix C-S 规范端点
+handlers/thread.rs GET /_matrix/client/v1/rooms/{room_id}/threads # msc MSC3856/MSC3440 线程列表（v1 为规范位）
+handlers/thread.rs GET /_matrix/client/v1/rooms/{room_id}/threads/{thread_id} # msc MSC3856 线程详情（v1 为规范位）
+handlers/thread.rs GET /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies # msc MSC3856 线程回复读（v1 为规范位）
+handlers/thread.rs POST /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies # msc MSC3856 线程回复写（v1 为规范位）
+handlers/thread.rs POST /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/subscribe # msc MSC3856 订阅线程（v1 为规范位）
+handlers/thread.rs POST /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unfreeze # private 私有扩展（非规范路径）；目标：迁 /_matrix/vendor/v1
+handlers/thread.rs POST /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unsubscribe # msc MSC3856 退订线程（v1 为规范位）
+
+# 统计：spec 43 / msc 7 / private 55 = 105 条

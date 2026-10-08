@@ -412,6 +412,40 @@ def load_standard_prefix_ledger() -> set:
     return entries
 
 
+def load_mixed_module_client_routes() -> set:
+    """读 `mixed_module_client_routes.txt` 的冻结清单（G-02/G-03）。
+
+    格式 `<file> <METHOD> <完整路径> # <标签> <理由>`；`#` 之后不参与比对。
+    返回 `{(method, path)}` —— 文件维度不参与判定，因为断言的是"混合模块整体"。
+    """
+    path = os.path.join(SCRIPT_DIR, spp.MIXED_MODULE_CLIENT_ROUTES_FILE)
+    entries = set()
+    with open(path) as fh:
+        for lineno, line in enumerate(fh, 1):
+            body = line.split("#", 1)[0].strip()
+            if not body:
+                continue
+            parts = body.split()
+            if len(parts) != 3:
+                raise ValueError(
+                    f"{spp.MIXED_MODULE_CLIENT_ROUTES_FILE}:{lineno}: expected "
+                    f"'<file> <METHOD> <PATH>', got {line!r}"
+                )
+            entries.add((parts[1], parts[2]))
+    return entries
+
+
+def is_mixed_module(source: str) -> bool:
+    """`per` 的 key 形如 `room.rs` / `handlers/thread.rs` ⇒ 按"全等或路径后缀"匹配。
+
+    用后缀而不是 `os.path.basename`：`MIXED_MODULE_FILES` 里刻意保留了
+    `handlers/thread.rs` 这样的相对路径，便于区分同名的 `thread.rs`。
+    """
+    return any(
+        source == name or source.endswith("/" + name) for name in spp.MIXED_MODULE_FILES
+    )
+
+
 def check_standard_prefix_bucket(per: dict) -> None:
     """ISSUE-13: 私有端点不得注册在 `/_matrix/client/{v1,v3}` 下。
 
@@ -430,13 +464,20 @@ def check_standard_prefix_bucket(per: dict) -> None:
       C) 该桶的条数不得超过 `spp.LEDGER_CEILING`（**只减不增**）。
     口径 C 与 policy 标注无关，因此**改标签绕不过去** —— 只有真的删掉或迁走路由
     才能让它降下来。
+      D) **混合模块全覆盖**（G-02/G-03，2026-10-08）：`spp.MIXED_MODULE_FILES` 里的
+        client 前缀路由必须逐条出现在冻结清单 `mixed_module_client_routes.txt` 中，
+        且清单不得有失效条目 —— **双向 ratchet ⇒ 新增即红**。清单为每条标注
+        `spec` / `msc` / `private` 归属，但**标签不参与判定**：只看"在不在清单里"，
+        以免主观分类造出假红/假绿。
 
-    已知缺口（不假装已覆盖）：混合模块（`room.rs` / `moderation.rs` /
-    `handlers/thread.rs`）不做 B 的全覆盖断言，因为那需要一份机器可读的 spec 路径
-    清单。2026-10-08 Phase 3 之前，已识别的混合模块私有端点逐条登记在
-    `spp.MIXED_MODULE_ROUTES`；那 20 条**已全部迁到 `/_matrix/vendor/v1`**，
-    登记位因此清空 —— 但缺口**没有**因此消失，只是当前没有已知条目占位。
-    补齐白名单方向见《前缀命名空间治理方案-2026-10-08.md》§3 Phase 1（Batch 4 G-02/G-03）。
+    **覆盖边界（不假装已覆盖）**：D 只覆盖 `spp.MIXED_MODULE_FILES` 那 3 个文件。
+    全仓还有其它含 client 前缀路由的文件（`assembly.rs`、`key_backup.rs`、
+    `e2ee/keys.rs` …）未做该断言；扩大范围 = 往该元组与清单里追加，判据本身无需改。
+
+    首次落地实测（2026-10-08）：这 3 个文件共 **105** 条 client 路由，其中
+    **55 条是私有扩展**（清单标 `private`）⇒ 方案里"client 私有面 14 → 5"的口径
+    **只对整模块私有文件成立**；混合模块的私有面**从未**被收敛过。迁移它们需要与
+    SDK 同步（跨仓，见方案 §3 Batch 3 跨仓尾巴），故本轮先冻结登记。
     """
     ledger = load_standard_prefix_ledger()
     actual = {(m, p) for routes in per.values() for m, p in routes}
@@ -468,6 +509,35 @@ def check_standard_prefix_bucket(per: dict) -> None:
         len(wholesale) <= spp.LEDGER_CEILING,
         f"wholly-private client-prefixed routes = {len(wholesale)} > ceiling "
         f"{spp.LEDGER_CEILING}; lower the ceiling only when routes actually moved",
+    )
+
+    # ── G-02/G-03：混合模块全覆盖断言（2026-10-08）──────────────────────────────
+    # A/B/C 只覆盖 `WHOLESALE_PRIVATE_FILES`（整模块私有文件）。混合模块
+    # （room.rs / moderation.rs / handlers/thread.rs）此前是**完全空白**区：在里面新增
+    # 一条私有 client 前缀路由不会被任何门禁发现（方案 §2.6 G-02）。这里用一份外置的
+    # 冻结清单（含 spec/msc/private 归属标注）做**双向 ratchet**。
+    mixed_actual = {
+        (m, p)
+        for source, routes in per.items()
+        for m, p in routes
+        if is_mixed_module(source) and p.startswith(spp.CLIENT_PREFIXES)
+    }
+    mixed_frozen = load_mixed_module_client_routes()
+
+    unfrozen = sorted(mixed_actual - mixed_frozen)
+    check(
+        "mixed module: every client-prefixed route is in the frozen list (new route ⇒ red)",
+        not unfrozen,
+        f"{len(unfrozen)} unfrozen, e.g. {unfrozen[:3]} — move it to "
+        f"{spp.VENDOR_PREFIX}, or add it to {spp.MIXED_MODULE_CLIENT_ROUTES_FILE} with tag+reason",
+    )
+
+    stale_frozen = sorted(mixed_frozen - mixed_actual)
+    check(
+        "mixed module: no stale entry in the frozen list (removed route ⇒ red)",
+        not stale_frozen,
+        f"{len(stale_frozen)} stale, e.g. {stale_frozen[:3]} — prune "
+        f"{spp.MIXED_MODULE_CLIENT_ROUTES_FILE}",
     )
 
 

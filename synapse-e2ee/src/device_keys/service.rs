@@ -655,8 +655,12 @@ impl DeviceKeyService {
     ) -> Result<serde_json::Value, ApiError> {
         let mut failures = serde_json::Map::new();
 
-        // Matrix spec 请求体直接是签名映射；兼容历史包一层 "signatures" 的写法
-        let signatures = body.get("signatures").cloned().unwrap_or(body);
+        // Matrix spec：请求体**直接就是**签名映射（`{userId: {keyId: {signingUser: sig}}}`），
+        // 规范里没有外层包装。曾经的"兼容 `{"signatures": {...}}`"分支已删除（R-05 #1）——
+        // 消费者取证为零：SDK 侧的 body 由 rust-crypto 的 `SignatureUploadRequest` 直接
+        // 给出裸映射，后端自己的单测与集成测试也都发裸映射；且对裸映射输入行为**等价**
+        // （裸映射不含顶层 `signatures` 键，故原 `unwrap_or(body)` 本就取整个 body）。
+        let signatures = body;
 
         if let Some(sig_map) = signatures.as_object() {
             for (target_user_id, user_sigs) in sig_map {

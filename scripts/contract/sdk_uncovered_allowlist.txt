@@ -28,3 +28,19 @@
 #   （登录流程未使用该 URL），故不阻塞。处置：登记为后端待办，实现后删除本豁免。
 #   注意：不能反过来「让 SDK 改调 /_matrix/static/client/login/」—— 那是 Element 的
 #   静态页位置，不是客户端应硬编码的契约路径。
+
+# ── SDK-BE-3 ── 后端已迁 vendor、SDK 侧前缀未同步（Batch 3 Phase B 待办）
+#   实证：
+#     · 后端 `a515cfef6`（2026-10-08，Batch 3 Phase A）把 29 条私有端点从
+#       `/_matrix/client/{v1,v3}` 迁到 `/_matrix/vendor/v1`，其中包含
+#       `PUT /rooms/{room_id}/report/{event_id}/score` 与
+#       `GET /rooms/{room_id}/report/{event_id}/scanner_info`
+#       ⇒ 这两条现在只在 `/_matrix/vendor/v1/...` 下服务，旧 client 前缀已 404。
+#     · SDK `src/reporting/index.ts:93,112` 仍写 `{ prefix: ClientPrefix.V3|V1 }`。
+#   为什么现在可以不修：属于 Batch 3 Phase B（SDK 33 处 `prefix:` → `VendorPrefix`
+#   + 生成物重生成 + 重打包 pin），是**跨仓**改动，须落在 matrix-js-sdk 的
+#   `release/contract-entrypoint` 分支（当前 checkout 在 `develop`）。
+#   什么时候必须修：该跨仓批次落地时。**失效条件**：SDK 把这两处改完后，本节条目
+#   会变成 stale 并让本检查失败 —— 届时必须删除（那正是它存在的意义）。
+PUT    /_matrix/client/v3/rooms/$roomId/report/$eventId/score          # SDK-BE-3（prefix 未迁，见上）
+GET    /_matrix/client/v1/rooms/$roomId/report/$eventId/scanner_info   # SDK-BE-3（prefix 未迁，见上）
