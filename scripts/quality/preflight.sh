@@ -47,10 +47,18 @@ run() { # run <描述> <命令...>
 # 改动集 = 已暂存 ∪ 未暂存（pre-commit 时改动已暂存，故两者都要看）
 # 未跟踪的新文件也必须进改动集：`git diff` 看不到它们，而"新增一个 .py/.md 忘了格式化"
 # 正是本脚本要防的场景之一。
+#
+# ⚠️ `-c core.quotePath=false` 不可省：该配置默认 true，非 ASCII 路径会被 Git 输出成
+# `"docs/\346\226\207..."`（带引号 + 八进制转义），下面 `grep -E '\.md$'` 之类的
+# **后缀**匹配于是全部落空 —— 实测 2026-10-08：本仓的核心方案文档
+# `docs/前缀命名空间治理方案-2026-10-08.md`（中文名）被改了多轮，
+# markdownlint / aspell / doc_credibility 三道文档守卫**每一次都静默 SKIP**，
+# 而该文档当时真实带着 18 处 markdownlint 违规（AGENTS.md 铁律 8 的
+# "门禁长期全绿 ⇒ 先怀疑它没在工作"，这里是"门禁根本没跑"）。
 changed=$({
-    git diff --name-only
-    git diff --cached --name-only
-    git ls-files --others --exclude-standard
+    git -c core.quotePath=false diff --name-only
+    git -c core.quotePath=false diff --cached --name-only
+    git -c core.quotePath=false ls-files --others --exclude-standard
 } | sort -u)
 md=$(printf '%s\n' "$changed" | grep -E '\.md$' | grep -v '/archive/' || true)
 py=$(printf '%s\n' "$changed" | grep -E '\.py$' || true)
