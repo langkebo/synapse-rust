@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1059**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1055**
 - 含路由注册的模块文件：**65**
 - `derived_routes.rs` 中的 `registered_by` 标签：**73**
 - 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
@@ -69,7 +69,7 @@
 **逐模块清单里的两种标注**（都从派生表反解，不是人工维护）：
 
 - 〔仅 `X` profile〕 —— 该路由**只**在 profile `X` 下注册，默认构建里不存在（即上表成员）；
-- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1061 行去重为 1059 条的来源。
+- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1057 行去重为 1055 条的来源。
 
 当前共 **2** 条双档注册：
 
@@ -397,7 +397,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_matrix/vendor/v1/friends/{user_id}/note`
 - `PUT` `/_matrix/vendor/v1/friends/{user_id}/status`
 
-### 媒体 (Media) （62 条）
+### 媒体 (Media) （60 条）
 
 #### `media/mod.rs` — 38 条 ✅派生表
 
@@ -440,7 +440,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_matrix/media/v3/upload`
 - `PUT` `/_matrix/media/v3/upload/{server_name}/{media_id}`
 
-#### `admin/media.rs` — 24 条 ✅派生表
+#### `admin/media.rs` — 22 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/media/{media_id}`
 - `DELETE` `/_synapse/admin/v1/media/{server_name}/{media_id}`
@@ -452,7 +452,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_synapse/admin/v1/media/{media_id}`
 - `GET` `/_synapse/admin/v1/media/{server_name}/{media_id}`
 - `GET` `/_synapse/admin/v1/quarantine_media/{media_id}/changes`
-- `GET` `/_synapse/admin/v1/room/{room_id}/media`
 - `GET` `/_synapse/admin/v1/rooms/{room_id}/media`
 - `GET` `/_synapse/admin/v1/users/{user_id}/media`
 - `POST` `/_synapse/admin/v1/media/delete`
@@ -462,7 +461,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_synapse/admin/v1/media/unprotect/{media_id}`
 - `POST` `/_synapse/admin/v1/media/unquarantine/{server_name}/{media_id}`
 - `POST` `/_synapse/admin/v1/purge_media_cache`
-- `POST` `/_synapse/admin/v1/room/{room_id}/media/quarantine`
 - `POST` `/_synapse/admin/v1/rooms/{room_id}/media/quarantine`
 - `POST` `/_synapse/admin/v1/rooms/{room_id}/media/unquarantine`
 - `POST` `/_synapse/admin/v1/user/{user_id}/media/quarantine`
@@ -969,9 +967,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/client/v3/thirdparty/user`
 - `GET` `/_matrix/client/v3/thirdparty/user/{protocol}`
 
-### 管理 (Admin) （144 条）
+### 管理 (Admin) （143 条）
 
-#### `admin/room/mod.rs` — 46 条 ✅派生表
+#### `admin/room/mod.rs` — 45 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/rooms/{room_id}`
 - `DELETE` `/_synapse/admin/v1/rooms/{room_id}/listings/public`
@@ -1007,7 +1005,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_synapse/admin/v1/rooms/{room_id}/ban/{user_id}`
 - `POST` `/_synapse/admin/v1/rooms/{room_id}/block`
 - `POST` `/_synapse/admin/v1/rooms/{room_id}/cascade_redact`
-- `POST` `/_synapse/admin/v1/rooms/{room_id}/delete`
 - `POST` `/_synapse/admin/v1/rooms/{room_id}/kick`
 - `POST` `/_synapse/admin/v1/rooms/{room_id}/kick/{user_id}`
 - `POST` `/_synapse/admin/v1/rooms/{room_id}/make_admin`
@@ -1154,7 +1151,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 - `GET` `/_synapse/admin/info`
 
-### 联邦 (Federation) （71 条）
+### 联邦 (Federation) （70 条）
 
 #### `federation/mod.rs` — 40 条 ✅派生表
 
@@ -1199,7 +1196,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_synapse/federation/v2/key/clone`
 - `PUT` `/_matrix/federation/v1/send/{txn_id}`
 
-#### `admin/federation.rs` — 16 条 ✅派生表
+#### `admin/federation.rs` — 15 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/federation/blacklist/{server_name}`
 - `DELETE` `/_synapse/admin/v1/federation/cache/{key}`
@@ -1213,7 +1210,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_synapse/admin/v1/federation/blacklist/{server_name}`
 - `POST` `/_synapse/admin/v1/federation/cache/clear`
 - `POST` `/_synapse/admin/v1/federation/confirm`
-- `POST` `/_synapse/admin/v1/federation/destinations/{destination}/reset`
 - `POST` `/_synapse/admin/v1/federation/destinations/{destination}/reset_connection`
 - `POST` `/_synapse/admin/v1/federation/resolve`
 - `POST` `/_synapse/admin/v1/federation/rewrite`

@@ -23,7 +23,6 @@ pub fn create_federation_router() -> Router<crate::routes::AppState> {
         .route("/_synapse/admin/v1/federation/destinations", get(get_destinations))
         .route("/_synapse/admin/v1/federation/destinations/{destination}", get(get_destination))
         .route("/_synapse/admin/v1/federation/destinations/{destination}/reset_connection", post(reset_connection))
-        .route("/_synapse/admin/v1/federation/destinations/{destination}/reset", post(reset_connection))
         .route("/_synapse/admin/v1/federation/destinations/{destination}", delete(delete_destination))
         .route("/_synapse/admin/v1/federation/destinations/{destination}/rooms", get(get_destination_rooms))
         .route("/_synapse/admin/v1/federation/rewrite", post(rewrite_federation))

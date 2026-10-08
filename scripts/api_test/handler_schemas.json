@@ -34,10 +34,6 @@
       [
         "/_synapse/admin/v1/federation/destinations/{destination}/reset_connection",
         "post"
-      ],
-      [
-        "/_synapse/admin/v1/federation/destinations/{destination}/reset",
-        "post"
       ]
     ],
     "rewrite_federation": [
@@ -85,10 +81,6 @@
     "quarantine_room_media": [
       [
         "/_synapse/admin/v1/rooms/{room_id}/media/quarantine",
-        "post"
-      ],
-      [
-        "/_synapse/admin/v1/room/{room_id}/media/quarantine",
         "post"
       ]
     ],

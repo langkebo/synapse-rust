@@ -288,11 +288,7 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
 
             // Room management - full access including shutdown and delete
             || path.starts_with("/_synapse/admin/v1/rooms")
-            || path.starts_with("/_synapse/admin/v1/room/")
             || path == "/_synapse/admin/v1/shutdown_room"
-
-            // Room media via the upstream singular `/room/{room_id}/media` shape
-            || path.starts_with("/_synapse/admin/v1/room/")
 
             // Room statistics
             || path.starts_with("/_synapse/admin/v1/room_stats/")

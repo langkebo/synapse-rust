@@ -3,7 +3,7 @@
   "generated_at": "2026-09-16T00:00:00Z",
   "source": "synapse_ledger_export",
   "profile": "default",
-  "total_routes": 975,
+  "total_routes": 971,
   "_meta": {
     "generated_by": "gen_route_table.py",
     "note": "本文件由 CI 自动生成，禁止手改。如需刷新: python3 scripts/api_test/gen_route_table.py"
@@ -7683,16 +7683,6 @@
     },
     {
       "method": "POST",
-      "path": "/_synapse/admin/v1/federation/destinations/{destination}/reset",
-      "registered_by": "admin::federation",
-      "path_params": [
-        "destination"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
       "path": "/_synapse/admin/v1/federation/destinations/{destination}/reset_connection",
       "registered_by": "admin::federation",
       "path_params": [
@@ -8339,26 +8329,6 @@
     },
     {
       "method": "GET",
-      "path": "/_synapse/admin/v1/room/{room_id}/media",
-      "registered_by": "admin::media",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/room/{room_id}/media/quarantine",
-      "registered_by": "admin::media",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
       "path": "/_synapse/admin/v1/room_stats",
       "registered_by": "admin::room",
       "path_params": [],
@@ -8499,16 +8469,6 @@
     {
       "method": "POST",
       "path": "/_synapse/admin/v1/rooms/{room_id}/cascade_redact",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/delete",
       "registered_by": "admin::room",
       "path_params": [
         "room_id"

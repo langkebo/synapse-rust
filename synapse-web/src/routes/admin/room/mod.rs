@@ -109,10 +109,6 @@ pub fn create_room_router(_state: AppState) -> Router<AppState> {
         .route("/_synapse/admin/v1/rooms/{room_id}", get(get_room))
         .route("/_synapse/admin/v1/rooms/{room_id}", delete(delete_room))
         .route(
-            "/_synapse/admin/v1/rooms/{room_id}/delete",
-            post(delete_room),
-        )
-        .route(
             "/_synapse/admin/v1/rooms/{room_id}/members",
             get(get_room_members_admin),
         )

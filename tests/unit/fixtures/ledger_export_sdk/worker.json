@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": false
   },
-  "entry_count": 1051,
+  "entry_count": 1047,
   "entries": [
     {
       "method": "GET",
@@ -7194,15 +7194,6 @@
     },
     {
       "method": "POST",
-      "path": "/_synapse/admin/v1/federation/destinations/{destination}/reset",
-      "registered_by": "admin::federation",
-      "path_params": [
-        "destination"
-      ],
-      "query_params": []
-    },
-    {
-      "method": "POST",
       "path": "/_synapse/admin/v1/federation/destinations/{destination}/reset_connection",
       "registered_by": "admin::federation",
       "path_params": [
@@ -7840,24 +7831,6 @@
     },
     {
       "method": "GET",
-      "path": "/_synapse/admin/v1/room/{room_id}/media",
-      "registered_by": "admin::media",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/room/{room_id}/media/quarantine",
-      "registered_by": "admin::media",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": []
-    },
-    {
-      "method": "GET",
       "path": "/_synapse/admin/v1/room_stats",
       "registered_by": "admin::room",
       "path_params": [],
@@ -7984,15 +7957,6 @@
     {
       "method": "POST",
       "path": "/_synapse/admin/v1/rooms/{room_id}/cascade_redact",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/delete",
       "registered_by": "admin::room",
       "path_params": [
         "room_id"

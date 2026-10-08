@@ -48,15 +48,12 @@ pub fn create_media_router() -> Router<crate::routes::AppState> {
         .route("/_synapse/admin/v1/users/{user_id}/media", delete(delete_user_media))
         .route("/_synapse/admin/v1/rooms/{room_id}/media", get(get_room_media))
         .route("/_synapse/admin/v1/rooms/{room_id}/media/{media_id}", delete(delete_room_media))
-        // Upstream uses the singular `/room/...` path shape; keep both.
-        .route("/_synapse/admin/v1/room/{room_id}/media", get(get_room_media))
         .route("/_synapse/admin/v1/quarantine_media/{media_id}/changes", get(get_media_quarantine_changes))
         .route("/_synapse/admin/v1/media/quarantine_changes", get(get_global_media_quarantine_changes))
         .route("/_synapse/admin/v1/media/quarantine/{server_name}/{media_id}", post(quarantine_media))
         .route("/_synapse/admin/v1/media/unquarantine/{server_name}/{media_id}", post(unquarantine_media))
         .route("/_synapse/admin/v1/rooms/{room_id}/media/quarantine", post(quarantine_room_media))
         .route("/_synapse/admin/v1/rooms/{room_id}/media/unquarantine", post(unquarantine_room_media))
-        .route("/_synapse/admin/v1/room/{room_id}/media/quarantine", post(quarantine_room_media))
         .route("/_synapse/admin/v1/media/protect/{server_name}/{media_id}", post(protect_media))
         // Upstream shape carries no `{server_name}` segment for protect-by-id.
         .route("/_synapse/admin/v1/media/protect/{media_id}", post(protect_media_by_id))
