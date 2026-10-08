@@ -978,6 +978,7 @@ vus
 waf
 wal
 walkthroughs
+wasm
 warmup
 webhook
 webhooks
