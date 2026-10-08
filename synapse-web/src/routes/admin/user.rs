@@ -51,10 +51,6 @@ pub fn create_user_router() -> Router<crate::routes::AppState> {
             get(get_user_devices_admin),
         )
         .route(
-            "/_synapse/admin/v1/users/{user_id}/devices/delete",
-            post(logout_user_devices),
-        )
-        .route(
             "/_synapse/admin/v1/users/{user_id}/devices/{device_id}",
             delete(delete_user_device_admin),
         )

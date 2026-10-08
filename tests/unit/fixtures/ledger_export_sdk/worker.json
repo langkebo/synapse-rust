@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": false
   },
-  "entry_count": 1045,
+  "entry_count": 1044,
   "entries": [
     {
       "method": "GET",
@@ -8533,15 +8533,6 @@
     {
       "method": "GET",
       "path": "/_synapse/admin/v1/users/{user_id}/devices",
-      "registered_by": "admin::user",
-      "path_params": [
-        "user_id"
-      ],
-      "query_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/users/{user_id}/devices/delete",
       "registered_by": "admin::user",
       "path_params": [
         "user_id"

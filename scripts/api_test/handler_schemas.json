@@ -256,10 +256,6 @@
       [
         "/_synapse/admin/v1/users/{user_id}/logout",
         "post"
-      ],
-      [
-        "/_synapse/admin/v1/users/{user_id}/devices/delete",
-        "post"
       ]
     ],
     "delete_user_device_admin_compat": [

@@ -3,7 +3,7 @@
   "generated_at": "2026-09-16T00:00:00Z",
   "source": "synapse_ledger_export",
   "profile": "default",
-  "total_routes": 969,
+  "total_routes": 968,
   "_meta": {
     "generated_by": "gen_route_table.py",
     "note": "本文件由 CI 自动生成，禁止手改。如需刷新: python3 scripts/api_test/gen_route_table.py"
@@ -8999,16 +8999,6 @@
     {
       "method": "GET",
       "path": "/_synapse/admin/v1/users/{user_id}/devices",
-      "registered_by": "admin::user",
-      "path_params": [
-        "user_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/users/{user_id}/devices/delete",
       "registered_by": "admin::user",
       "path_params": [
         "user_id"
