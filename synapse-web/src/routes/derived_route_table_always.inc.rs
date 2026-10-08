@@ -1,5 +1,5 @@
 fn all_derived_always_rows() -> Vec<DerivedRoute> {
-    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1033);
+    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1028);
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/", "assembly::create_router");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
@@ -5789,31 +5789,6 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::POST, "/_synapse/worker/v1/workers/{worker_id}/commands", "worker");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    #[cfg(feature = "cas-sso")]
-    {
-        let e = RouteEntry::new(axum::http::Method::GET, "/admin/services", "cas");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    #[cfg(feature = "cas-sso")]
-    {
-        let e = RouteEntry::new(axum::http::Method::POST, "/admin/services", "cas");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    #[cfg(feature = "cas-sso")]
-    {
-        let e = RouteEntry::new(axum::http::Method::DELETE, "/admin/services/{service_id}", "cas");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    #[cfg(feature = "cas-sso")]
-    {
-        let e = RouteEntry::new(axum::http::Method::GET, "/admin/users/{user_id}/attributes", "cas");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    #[cfg(feature = "cas-sso")]
-    {
-        let e = RouteEntry::new(axum::http::Method::POST, "/admin/users/{user_id}/attributes", "cas");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {

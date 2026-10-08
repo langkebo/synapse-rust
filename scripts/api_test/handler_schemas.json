@@ -580,19 +580,11 @@
       [
         "/_synapse/admin/v1/cas/services",
         "post"
-      ],
-      [
-        "/admin/services",
-        "post"
       ]
     ],
     "set_user_attribute": [
       [
         "/_synapse/admin/v1/cas/users/{user_id}/attributes",
-        "post"
-      ],
-      [
-        "/admin/users/{user_id}/attributes",
         "post"
       ]
     ],

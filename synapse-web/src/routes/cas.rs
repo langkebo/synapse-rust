@@ -167,33 +167,8 @@ pub fn cas_routes(state: AppState) -> Router<AppState> {
             crate::middleware::admin_auth_middleware,
         ))
         .route_layer(middleware::from_fn_with_state(state.clone(), cas_config_check_middleware));
-    let legacy_admin_routes = Router::new()
-        .route("/admin/services", post(register_service))
-        .route("/admin/services", get(list_services))
-        .route("/admin/services/{service_id}", delete(delete_service))
-        .route("/admin/users/{user_id}/attributes", post(set_user_attribute))
-        .route("/admin/users/{user_id}/attributes", get(get_user_attributes))
-        .route_layer(axum::middleware::from_fn_with_state(
-            <crate::routes::context::AdminContext as axum::extract::FromRef<crate::routes::AppState>>::from_ref(&state),
-            crate::middleware::admin_auth_middleware,
-        ))
-        .route_layer(axum::middleware::from_fn(legacy_cas_admin_alias_deprecation_middleware));
 
-    public_routes.merge(standard_admin_routes).merge(legacy_admin_routes).with_state(state)
-}
-
-async fn legacy_cas_admin_alias_deprecation_middleware(request: Request, next: Next) -> Response {
-    let mut response = next.run(request).await;
-
-    response.headers_mut().insert("Deprecation", HeaderValue::from_static("true"));
-    response.headers_mut().insert(
-        header::WARNING,
-        HeaderValue::from_static(
-            r#"299 synapse-rust "Legacy CAS admin aliases under /admin are deprecated; use /_synapse/admin/v1/cas/*""#,
-        ),
-    );
-
-    response
+    public_routes.merge(standard_admin_routes).with_state(state)
 }
 
 async fn login_redirect(

@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1052**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1047**
 - 含路由注册的模块文件：**65**
 - `derived_routes.rs` 中的 `registered_by` 标签：**73**
 - 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
@@ -87,11 +87,6 @@
 | `assembly.rs` | `GET` | `/` |
 | `assembly.rs` | `GET` | `/_health` |
 | `assembly.rs` | `GET` | `/health` |
-| `cas.rs` | `DELETE` | `/admin/services/{service_id}` |
-| `cas.rs` | `GET` | `/admin/services` |
-| `cas.rs` | `GET` | `/admin/users/{user_id}/attributes` |
-| `cas.rs` | `POST` | `/admin/services` |
-| `cas.rs` | `POST` | `/admin/users/{user_id}/attributes` |
 
 ## 契约覆盖（派生表一致性）
 
@@ -100,17 +95,16 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 **已知缺口 / 漂移**：
 
 - 无未装配的孤儿路由。`synapse-web/src/routes/threepid.rs` 曾定义 `create_threepid_router()`（裸 `/requestToken`、`/submitToken`，**从未** merge 进任何路由树且路径非 Matrix 规范形状）—— B5-4 已删除该模块：真实 3PID 端点在 `account_compat.rs`（`/account/3pid/...`，已在 `assembly.rs` 装配），被删代码自引入起即无调用方，纯属死代码。
-  **机器证据**：`test_extract_registered.py::check_non_namespace_bucket` 现在把「前缀之外」桶**精确**钉死为 8 条有意根级注册（3 条探活 + 5 条 CAS 根协议端点）。该桶出现任何新成员——无论是死灰复燃的未装配 router 还是新增非 Matrix 根端点——都会让守卫转红并要求显式裁定。
+  **机器证据**：`test_extract_registered.py::check_non_namespace_bucket` 现在把「前缀之外」桶**精确**钉死为 3 条有意根级注册（3 条探活 + 0 条 CAS 根协议端点）。该桶出现任何新成员——无论是死灰复燃的未装配 router 还是新增非 Matrix 根端点——都会让守卫转红并要求显式裁定。
 - `space/children_hierarchy.rs`、`space/lifecycle_query.rs`、`space/membership_state.rs`、`space/summary.rs`：路由在派生表中统一归入 `space` 标签（已覆盖）。
 
 ## 模块级路由清单（逐模块）
 
-### CAS （17 条）
+### CAS （12 条）
 
-#### `cas.rs` — 17 条 ✅派生表
+#### `cas.rs` — 12 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/cas/services/{service_id}`
-- `DELETE` `/admin/services/{service_id}`
 - `GET` `/_matrix/client/v3/login/sso/redirect/cas`
 - `GET` `/_synapse/admin/v1/cas/services`
 - `GET` `/_synapse/admin/v1/cas/users/{user_id}/attributes`
@@ -120,12 +114,8 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_synapse/cas/proxy`
 - `GET` `/_synapse/cas/proxyValidate`
 - `GET` `/_synapse/cas/serviceValidate`
-- `GET` `/admin/services`
-- `GET` `/admin/users/{user_id}/attributes`
 - `POST` `/_synapse/admin/v1/cas/services`
 - `POST` `/_synapse/admin/v1/cas/users/{user_id}/attributes`
-- `POST` `/admin/services`
-- `POST` `/admin/users/{user_id}/attributes`
 
 ### MSC4108 （4 条）
 

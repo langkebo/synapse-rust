@@ -8,7 +8,7 @@
     "worker_enabled": false,
     "saml_enabled": false
   },
-  "entry_count": 1033,
+  "entry_count": 1028,
   "entries": [
     {
       "method": "GET",
@@ -9102,47 +9102,6 @@
       "registered_by": "worker",
       "path_params": [
         "worker_id"
-      ],
-      "query_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/admin/services",
-      "registered_by": "cas",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/admin/services",
-      "registered_by": "cas",
-      "path_params": [],
-      "query_params": []
-    },
-    {
-      "method": "DELETE",
-      "path": "/admin/services/{service_id}",
-      "registered_by": "cas",
-      "path_params": [
-        "service_id"
-      ],
-      "query_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/admin/users/{user_id}/attributes",
-      "registered_by": "cas",
-      "path_params": [
-        "user_id"
-      ],
-      "query_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/admin/users/{user_id}/attributes",
-      "registered_by": "cas",
-      "path_params": [
-        "user_id"
       ],
       "query_params": []
     },
