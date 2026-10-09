@@ -7,7 +7,6 @@ use crate::utils::auth::resolve_request_id;
 use axum::{
     extract::{Path, Query, State},
     http::HeaderMap,
-    response::IntoResponse,
     routing::{delete, get, post, put},
     Json, Router,
 };
