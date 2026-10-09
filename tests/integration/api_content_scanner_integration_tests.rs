@@ -62,10 +62,7 @@ async fn mock_webhook_handler(
 
 /// Create a test app with content scanner enabled pointing to a mock webhook.
 /// Returns (app, mock_server_addr).
-async fn setup_app_with_mock_scanner(
-    block_on_failure: bool,
-    block_next: bool,
-) -> Option<(axum::Router, String, Arc<ScanState>)> {
+async fn setup_app_with_mock_scanner(block_next: bool) -> Option<(axum::Router, String, Arc<ScanState>)> {
     use synapse_rust::cache::{CacheConfig, CacheManager};
     use synapse_services::ServiceContainer;
     use synapse_web::routes::state::AppState;
@@ -91,7 +88,6 @@ async fn setup_app_with_mock_scanner(
         synapse_common::content_scanner::ScannerType::Webhook;
     std::sync::Arc::make_mut(&mut container.core.config).content_scanner.webhook_url =
         Some(format!("http://{}/scan", addr));
-    std::sync::Arc::make_mut(&mut container.core.config).content_scanner.block_on_scan_failure = block_on_failure;
     std::sync::Arc::make_mut(&mut container.core.config).content_scanner.scan_timeout_ms = 5000;
 
     // `ContentScanner` **captures its config at construction**, and the container
@@ -156,7 +152,7 @@ fn assert_error_code(body: &Value, expected_code: &str) {
 
 #[tokio::test]
 async fn test_media_upload_blocked_when_scanner_disabled() {
-    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(true, false).await else {
+    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(false).await else {
         super::skip_or_fail_without_db();
         return;
     };
@@ -181,7 +177,7 @@ async fn test_media_upload_blocked_when_scanner_disabled() {
 
 #[tokio::test]
 async fn test_media_upload_blocked_on_scanner_failure() {
-    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(true, true).await else {
+    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(true).await else {
         super::skip_or_fail_without_db();
         return;
     };
@@ -215,7 +211,7 @@ async fn test_media_upload_with_id_blocked_on_scanner_failure() {
     // path skipped scanning entirely; with the scanner actually enabled the
     // probe was refused and the test panicked on a missing `content_uri`.)
 
-    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(true, false).await else {
+    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(false).await else {
         super::skip_or_fail_without_db();
         return;
     };
@@ -279,7 +275,7 @@ async fn test_media_upload_with_id_blocked_on_scanner_failure() {
 
 #[tokio::test]
 async fn test_media_upload_succeeds_when_scanner_allows() {
-    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(true, false).await else {
+    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(false).await else {
         super::skip_or_fail_without_db();
         return;
     };
@@ -310,7 +306,7 @@ async fn test_media_upload_succeeds_when_scanner_allows() {
 
 #[tokio::test]
 async fn test_message_send_blocked_on_scanner_failure() {
-    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(true, true).await else {
+    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(true).await else {
         super::skip_or_fail_without_db();
         return;
     };
@@ -359,7 +355,7 @@ async fn test_message_send_blocked_on_scanner_failure() {
 
 #[tokio::test]
 async fn test_message_send_succeeds_when_scanner_allows() {
-    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(true, false).await else {
+    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(false).await else {
         super::skip_or_fail_without_db();
         return;
     };
@@ -407,7 +403,7 @@ async fn test_message_send_succeeds_when_scanner_allows() {
 
 #[tokio::test]
 async fn test_encrypted_message_skips_text_scan() {
-    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(true, false).await else {
+    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(false).await else {
         super::skip_or_fail_without_db();
         return;
     };
@@ -480,7 +476,7 @@ async fn test_encrypted_message_skips_text_scan() {
 
 #[tokio::test]
 async fn test_non_message_events_skip_text_scan() {
-    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(true, false).await else {
+    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(false).await else {
         super::skip_or_fail_without_db();
         return;
     };
@@ -542,7 +538,7 @@ async fn test_non_message_events_skip_text_scan() {
 
 #[tokio::test]
 async fn test_scanner_is_invoked_for_each_upload() {
-    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(true, false).await else {
+    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(false).await else {
         super::skip_or_fail_without_db();
         return;
     };
@@ -570,7 +566,7 @@ async fn test_scanner_is_invoked_for_each_upload() {
 
 #[tokio::test]
 async fn test_scanner_is_invoked_for_each_message() {
-    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(true, false).await else {
+    let Some((app, _addr, _scan)) = setup_app_with_mock_scanner(false).await else {
         super::skip_or_fail_without_db();
         return;
     };

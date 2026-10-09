@@ -986,7 +986,8 @@ async fn test_bridge_e2e_send_message_delivers_real_room_event_payload() {
         .expect("send_message should succeed");
     let source_event_id = send_result["event_id"].as_str().expect("event id should be returned").to_string();
 
-    manager.clone().start_sender(16, 1).await;
+    let scheduler = Arc::new(ApplicationServiceScheduler::with_options(manager.clone(), 16, 1_000));
+    let _ = scheduler.start(tokio_util::sync::CancellationToken::new());
 
     tokio::time::timeout(std::time::Duration::from_secs(3), async {
         loop {
@@ -1188,7 +1189,8 @@ async fn test_appservice_background_sender_flushes_pending_queue() {
         .await
         .expect("event enqueue should succeed");
 
-    manager.clone().start_sender(16, 1).await;
+    let scheduler = Arc::new(ApplicationServiceScheduler::with_options(manager.clone(), 16, 1_000));
+    let _ = scheduler.start(tokio_util::sync::CancellationToken::new());
 
     tokio::time::timeout(std::time::Duration::from_secs(3), async {
         loop {

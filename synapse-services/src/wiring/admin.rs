@@ -397,7 +397,23 @@ impl AdminServices {
 
         let worker_storage: Arc<dyn synapse_storage::worker::WorkerStoreApi> =
             Arc::new(synapse_storage::worker::WorkerStorage::new(pool));
-        let worker_manager = Arc::new(crate::worker::WorkerManager::new(worker_storage.clone()));
+        // WORK-04: worker 注册/心跳会写入 HealthChecker，选题时也据其健康度过
+        // 滤；此前该子系统整体休眠（health_checker 恒为 None），现补齐接线。
+        let health_checker = Arc::new(crate::worker::HealthChecker::new(crate::worker::HealthCheckConfig::default()));
+        let worker_manager = Arc::new(
+            crate::worker::WorkerManager::new(worker_storage.clone()).with_health_checker(health_checker.clone()),
+        );
+
+        // 驱动周期性活性探测（心跳超时 → Unhealthy），随进程 shutdown 一起停止。
+        let (health_shutdown_tx, health_shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
+        tokio::spawn(async move {
+            health_checker.start_periodic_checks(health_shutdown_rx).await;
+        });
+        let shutdown_signal = shutdown_token.clone();
+        tokio::spawn(async move {
+            shutdown_signal.cancelled().await;
+            let _ = health_shutdown_tx.send(()).await;
+        });
 
         let admin_media_storage = Arc::new(AdminMediaStorage::new(pool));
         let quarantine_change_storage = Arc::new(QuarantinedMediaChangeStorage::new(pool));

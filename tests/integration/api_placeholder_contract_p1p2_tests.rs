@@ -284,7 +284,7 @@ async fn test_membership_events_contract_rejects_non_members() {
         &app,
         Request::builder()
             .method("POST")
-            .uri(format!("/_matrix/client/v3/rooms/{}/get_membership_events", encoded_room_id))
+            .uri(format!("/_matrix/vendor/v1/rooms/{}/get_membership_events", encoded_room_id))
             .header("Authorization", format!("Bearer {}", outsider_token))
             .header("Content-Type", "application/json")
             .body(Body::from(json!({ "limit": 10 }).to_string()))
@@ -313,7 +313,7 @@ async fn test_pinned_events_contract_rejects_non_members() {
         &app,
         Request::builder()
             .method("GET")
-            .uri(format!("/_matrix/client/v3/rooms/{}/pinned_events", encoded_room_id))
+            .uri(format!("/_matrix/vendor/v1/rooms/{}/pinned_events", encoded_room_id))
             .header("Authorization", format!("Bearer {}", outsider_token))
             .body(Body::empty())
             .unwrap(),
@@ -342,7 +342,7 @@ async fn test_pin_event_contract_rejects_non_members() {
         &app,
         Request::builder()
             .method("POST")
-            .uri(format!("/_matrix/client/v3/rooms/{}/pinned_events", encoded_room_id))
+            .uri(format!("/_matrix/vendor/v1/rooms/{}/pinned_events", encoded_room_id))
             .header("Authorization", format!("Bearer {}", outsider_token))
             .header("Content-Type", "application/json")
             .body(Body::from(json!({ "event_id": event_id }).to_string()))
@@ -374,7 +374,7 @@ async fn test_pin_event_contract_rejects_regular_members_without_power() {
         &app,
         Request::builder()
             .method("POST")
-            .uri(format!("/_matrix/client/v3/rooms/{}/pinned_events", encoded_room_id))
+            .uri(format!("/_matrix/vendor/v1/rooms/{}/pinned_events", encoded_room_id))
             .header("Authorization", format!("Bearer {}", member_token))
             .header("Content-Type", "application/json")
             .body(Body::from(json!({ "event_id": event_id }).to_string()))
@@ -721,7 +721,7 @@ async fn test_room_members_recent_contract_uses_coherent_index_tokens() {
         app.clone(),
         Request::builder()
             .method("GET")
-            .uri(format!("/_matrix/client/v3/rooms/{}/members/recent?from=0&limit=1", encoded_room_id))
+            .uri(format!("/_matrix/vendor/v1/rooms/{}/members/recent?from=0&limit=1", encoded_room_id))
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap(),
@@ -741,7 +741,7 @@ async fn test_room_members_recent_contract_uses_coherent_index_tokens() {
         app.clone(),
         Request::builder()
             .method("GET")
-            .uri(format!("/_matrix/client/v3/rooms/{}/members/recent?from=1&limit=1", encoded_room_id))
+            .uri(format!("/_matrix/vendor/v1/rooms/{}/members/recent?from=1&limit=1", encoded_room_id))
             .header("Authorization", format!("Bearer {}", alice_token))
             .body(Body::empty())
             .unwrap(),
@@ -887,7 +887,7 @@ async fn test_anti_screenshot_contract_rejects_non_members() {
         &app,
         Request::builder()
             .method("PUT")
-            .uri(format!("/_matrix/client/v3/rooms/{}/anti_screenshot", encoded_room_id))
+            .uri(format!("/_matrix/vendor/v1/rooms/{}/anti_screenshot", encoded_room_id))
             .header("Authorization", format!("Bearer {}", outsider_token))
             .header("Content-Type", "application/json")
             .body(Body::from(json!({ "enabled": true }).to_string()))
@@ -914,7 +914,7 @@ async fn test_anti_screenshot_contract_allows_members() {
         app.clone(),
         Request::builder()
             .method("PUT")
-            .uri(format!("/_matrix/client/v3/rooms/{}/anti_screenshot", encoded_room_id))
+            .uri(format!("/_matrix/vendor/v1/rooms/{}/anti_screenshot", encoded_room_id))
             .header("Authorization", format!("Bearer {}", owner_token))
             .header("Content-Type", "application/json")
             .body(Body::from(json!({ "enabled": true }).to_string()))
@@ -944,7 +944,7 @@ async fn test_anti_screenshot_read_contract_rejects_non_members() {
         &app,
         Request::builder()
             .method("GET")
-            .uri(format!("/_matrix/client/v3/rooms/{}/anti_screenshot", encoded_room_id))
+            .uri(format!("/_matrix/vendor/v1/rooms/{}/anti_screenshot", encoded_room_id))
             .header("Authorization", format!("Bearer {}", outsider_token))
             .body(Body::empty())
             .unwrap(),
@@ -972,7 +972,7 @@ async fn test_burn_after_read_contract_rejects_non_members() {
         &app,
         Request::builder()
             .method("PUT")
-            .uri(format!("/_matrix/client/v3/rooms/{}/burn", encoded_room_id))
+            .uri(format!("/_matrix/vendor/v1/rooms/{}/burn", encoded_room_id))
             .header("Authorization", format!("Bearer {}", outsider_token))
             .header("Content-Type", "application/json")
             .body(Body::from(json!({ "enabled": true }).to_string()))

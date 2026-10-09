@@ -8,7 +8,6 @@ pub use synapse_federation::event_broadcaster;
 #[cfg(feature = "friends")]
 pub mod friend;
 pub use synapse_federation::key_rotation;
-pub use synapse_federation::memory_tracker;
 pub use synapse_federation::signing;
 
 pub use client::FederationClient;
@@ -19,4 +18,3 @@ pub use event_broadcaster::EventBroadcaster;
 #[cfg(feature = "friends")]
 pub use friend::*;
 pub use key_rotation::KeyRotationManager;
-pub use memory_tracker::{FederationMemoryReport, FederationMemoryTracker, MemoryStats};

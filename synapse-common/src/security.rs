@@ -190,21 +190,6 @@ impl SecurityValidator {
     }
 }
 
-/// Represents ConstantTimeComparison.
-pub struct ConstantTimeComparison;
-
-impl ConstantTimeComparison {
-    /// Compares the bytes.
-    pub fn compare_bytes(a: &[u8], b: &[u8]) -> bool {
-        crate::crypto::secure_compare_bytes(a, b)
-    }
-
-    /// Compares the strings.
-    pub fn compare_strings(a: &str, b: &str) -> bool {
-        crate::crypto::secure_compare(a, b)
-    }
-}
-
 use std::net::IpAddr;
 
 /// Strip the square brackets `url::Url::host_str()` keeps around IPv6 literals
@@ -250,11 +235,6 @@ fn blacklist_matches(ip: &IpAddr, blacklist: &[String]) -> bool {
         }
     }
     false
-}
-
-/// Checks url against blacklist.
-pub fn check_url_against_blacklist(url: &str, blacklist: &[String]) -> Result<(), String> {
-    check_url_and_resolve(url, blacklist).map(|_| ())
 }
 
 /// S2 修复（SSRF DNS rebinding / TOCTOU）：解析主机并校验所有解析结果
@@ -419,20 +399,6 @@ mod tests {
         assert!(SecurityValidator::validate_origin("").is_err());
         assert!(SecurityValidator::validate_origin(&"a".repeat(300)).is_err());
         assert!(SecurityValidator::validate_origin("invalid!@#").is_err());
-    }
-
-    #[test]
-    fn test_constant_time_comparison() {
-        assert!(ConstantTimeComparison::compare_strings("hello", "hello"));
-        assert!(!ConstantTimeComparison::compare_strings("hello", "world"));
-        assert!(!ConstantTimeComparison::compare_strings("hello", "hell"));
-    }
-
-    #[test]
-    fn test_constant_time_comparison_bytes() {
-        assert!(ConstantTimeComparison::compare_bytes(b"test", b"test"));
-        assert!(!ConstantTimeComparison::compare_bytes(b"test", b"best"));
-        assert!(!ConstantTimeComparison::compare_bytes(b"test", b"testing"));
     }
 
     #[test]
@@ -609,25 +575,6 @@ mod tests {
     }
 
     #[test]
-    fn test_constant_time_comparison_empty_inputs() {
-        assert!(ConstantTimeComparison::compare_strings("", ""));
-        assert!(!ConstantTimeComparison::compare_strings("", "a"));
-        assert!(!ConstantTimeComparison::compare_strings("a", ""));
-    }
-
-    #[test]
-    fn test_constant_time_comparison_unicode() {
-        assert!(ConstantTimeComparison::compare_strings("héllo", "héllo"));
-        assert!(!ConstantTimeComparison::compare_strings("héllo", "hello"));
-    }
-
-    #[test]
-    fn test_constant_time_comparison_bytes_empty() {
-        assert!(ConstantTimeComparison::compare_bytes(b"", b""));
-        assert!(!ConstantTimeComparison::compare_bytes(b"", b"a"));
-    }
-
-    #[test]
     fn test_is_ip_in_blacklist_direct_ip_match() {
         let blacklist = vec!["192.168.1.1".to_string(), "10.0.0.1".to_string()];
         let ip: IpAddr = "192.168.1.1".parse().unwrap();
@@ -755,42 +702,6 @@ mod tests {
             .expect("a public IPv6 literal must be usable");
         assert_eq!(host, "[2001:4860:4860::8888]");
         assert_eq!(ips, vec!["2001:4860:4860::8888".parse::<IpAddr>().unwrap()]);
-    }
-
-    #[test]
-    fn test_check_url_against_blacklist_invalid_url() {
-        let blacklist: Vec<String> = vec![];
-        let result = check_url_against_blacklist("not a valid url", &blacklist);
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err();
-        assert!(err_msg.contains("Invalid URL"));
-    }
-
-    #[test]
-    fn test_check_url_against_blacklist_url_without_host() {
-        let blacklist: Vec<String> = vec![];
-        // "file:" scheme has no host.
-        let result = check_url_against_blacklist("file:///path/to/file", &blacklist);
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err();
-        assert!(err_msg.contains("no host"));
-    }
-
-    #[test]
-    fn test_check_url_against_blacklist_empty_blacklist_passes() {
-        let blacklist: Vec<String> = vec![];
-        let result = check_url_against_blacklist("http://example.com", &blacklist);
-        // With empty blacklist, lookup may still fail in offline test env; we only assert no panic.
-        let _ = result;
-    }
-
-    #[test]
-    fn test_check_url_against_blacklist_ip_in_blacklist() {
-        let blacklist = vec!["127.0.0.1".to_string()];
-        let result = check_url_against_blacklist("http://127.0.0.1/path", &blacklist);
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err();
-        assert!(err_msg.contains("blacklist"));
     }
 
     // ------------------------------------------------------------------
@@ -959,23 +870,5 @@ mod tests {
         assert!(!is_ip_in_blacklist(&"8.8.8.8".parse::<IpAddr>().unwrap(), &blacklist));
         assert!(!is_ip_in_blacklist(&"1.1.1.1".parse::<IpAddr>().unwrap(), &blacklist));
         assert!(!is_ip_in_blacklist(&"172.217.16.142".parse::<IpAddr>().unwrap(), &blacklist));
-    }
-
-    #[test]
-    fn test_ssrf_blacklist_blocks_loopback_url() {
-        let blacklist = ssrf_blacklist();
-        assert!(check_url_against_blacklist("http://127.0.0.1/admin", &blacklist).is_err());
-        assert!(check_url_against_blacklist("http://localhost/internal", &blacklist).is_err());
-    }
-
-    #[test]
-    fn test_ssrf_blacklist_allows_public_url() {
-        let blacklist = ssrf_blacklist();
-        // 公网 IP 不在黑名单内；DNS 解析可能在沙箱内不通，但不应因 IP 黑名单拦截。
-        let result = check_url_against_blacklist("http://8.8.8.8/_matrix/key/v2/server", &blacklist);
-        // 不应在 IP 校验阶段失败（可能因 DNS 不通而失败，但不是"黑名单"错误）。
-        if let Err(e) = result {
-            assert!(!e.contains("blacklist"), "黑名单不应拦截公网 IP: {e}");
-        }
     }
 }

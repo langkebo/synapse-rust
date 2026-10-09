@@ -13,15 +13,12 @@ mod tests {
             scopes: vec!["openid".to_string(), "profile".to_string(), "email".to_string()],
             attribute_mapping: Default::default(),
             callback_url: Some("http://localhost:8008/_matrix/client/v3/oidc/callback".to_string()),
-            allow_existing_users: true,
-            block_unknown_users: false,
             authorization_endpoint: Some("https://accounts.google.com/o/oauth2/v2/auth".to_string()),
             token_endpoint: Some("https://oauth2.googleapis.com/token".to_string()),
             userinfo_endpoint: Some("https://openidconnect.googleapis.com/v1/userinfo".to_string()),
             jwks_uri: Some("https://www.googleapis.com/oauth2/v3/certs".to_string()),
             registration_endpoint: None,
             timeout: 30,
-            user_mapping_provider: None,
         }
     }
 
@@ -68,18 +65,6 @@ mod tests {
     fn test_oidc_config_callback_url() {
         let config = create_test_oidc_config();
         assert!(config.callback_url.is_some());
-    }
-
-    #[test]
-    fn test_oidc_config_allow_existing_users() {
-        let config = create_test_oidc_config();
-        assert!(config.allow_existing_users);
-    }
-
-    #[test]
-    fn test_oidc_config_block_unknown_users() {
-        let config = create_test_oidc_config();
-        assert!(!config.block_unknown_users);
     }
 
     #[test]

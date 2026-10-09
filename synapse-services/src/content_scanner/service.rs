@@ -198,7 +198,6 @@ mod tests {
         ContentScanner::new(synapse_common::content_scanner::ContentScannerConfig {
             enabled: false,
             scanner_type: ScannerType::Disabled,
-            block_on_scan_failure: false,
             ..Default::default()
         })
     }
@@ -207,7 +206,6 @@ mod tests {
         ContentScanner::new(synapse_common::content_scanner::ContentScannerConfig {
             enabled: true,
             scanner_type: ScannerType::Disabled,
-            block_on_scan_failure: true,
             ..Default::default()
         })
     }
@@ -217,19 +215,17 @@ mod tests {
             enabled: true,
             scanner_type: ScannerType::ClamAv,
             clamav_socket_path: Some("/nonexistent/clamd.sock".to_string()),
-            block_on_scan_failure: true,
             scan_timeout_ms: 1000,
             ..Default::default()
         })
     }
 
-    fn make_webhook_scanner(block_on_failure: bool, url: Option<String>) -> ContentScanner {
+    fn make_webhook_scanner(url: Option<String>) -> ContentScanner {
         ContentScanner::new(synapse_common::content_scanner::ContentScannerConfig {
             enabled: true,
             scanner_type: ScannerType::Webhook,
             webhook_url: url,
             webhook_secret: Some("test-secret".to_string()),
-            block_on_scan_failure: block_on_failure,
             scan_timeout_ms: 5000,
             ..Default::default()
         })
@@ -261,7 +257,7 @@ mod tests {
     #[test]
     fn is_enabled_webhook() {
         // enabled=true + Webhook type → true
-        let scanner = make_webhook_scanner(true, Some("http://localhost:9999".to_string()));
+        let scanner = make_webhook_scanner(Some("http://localhost:9999".to_string()));
         assert!(scanner.is_enabled());
     }
 
@@ -430,7 +426,6 @@ mod tests {
             enabled: true,
             scanner_type: ScannerType::ClamAv,
             clamav_socket_path: Some(addr.to_string()),
-            block_on_scan_failure: true,
             scan_timeout_ms: 2000,
             ..Default::default()
         });
@@ -451,7 +446,7 @@ mod tests {
     // ── scan (Webhook path — no URL → error) ───────────────────────────────
     #[tokio::test]
     async fn scan_webhook_no_url_returns_error() {
-        let scanner = make_webhook_scanner(true, None);
+        let scanner = make_webhook_scanner(None);
         let result = scanner
             .scan(ScanRequest {
                 content_id: "test-webhook".to_string(),
@@ -469,7 +464,7 @@ mod tests {
 
     #[tokio::test]
     async fn scan_webhook_unreachable_returns_content_scan_failed() {
-        let scanner = make_webhook_scanner(true, Some("http://localhost:9999/unreachable".to_string()));
+        let scanner = make_webhook_scanner(Some("http://localhost:9999/unreachable".to_string()));
         let result = scanner
             .scan(ScanRequest {
                 content_id: "test-webhook-block".to_string(),
@@ -491,7 +486,7 @@ mod tests {
 
     #[tokio::test]
     async fn scan_webhook_failure_returns_content_scan_failed() {
-        let scanner = make_webhook_scanner(false, Some("http://localhost:9999/unreachable".to_string()));
+        let scanner = make_webhook_scanner(Some("http://localhost:9999/unreachable".to_string()));
         let result = scanner
             .scan(ScanRequest {
                 content_id: "test-webhook-fail".to_string(),
@@ -500,7 +495,7 @@ mod tests {
             })
             .await;
 
-        // block_on_failure is now ignored; all webhook failures return M_CONTENT_SCAN_FAILED
+        // Webhook failures always return M_CONTENT_SCAN_FAILED (fail-closed)
         assert!(result.is_err(), "webhook failure must return error");
         let err = result.unwrap_err();
         assert!(

@@ -111,40 +111,7 @@ async fn test_get_default_config_not_found() {
     cleanup_test_data(&pool, &suffix).await;
 }
 
-// —— CRUD: create_config / get_config / list_configs / delete_config ——
-
-#[tokio::test]
-async fn test_create_config() {
-    let (_iso, pool) = test_pool().await;
-    let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().simple().to_string();
-    let config_name = format!("mq_crud_{suffix}");
-
-    cleanup_test_data(&pool, &suffix).await;
-
-    let request = CreateQuotaConfigRequest {
-        name: config_name.clone(),
-        description: Some("CRUD test config".to_string()),
-        max_storage_bytes: 5_000_000,
-        max_file_size_bytes: 1_000_000,
-        max_files_count: 500,
-        allowed_mime_types: Some(vec!["image/png".to_string()]),
-        blocked_mime_types: Some(vec!["application/exe".to_string()]),
-        is_default: Some(false),
-    };
-
-    let config = storage.create_config(request).await.expect("should create config");
-
-    assert_eq!(config.name, config_name);
-    assert_eq!(config.max_storage_bytes, 5_000_000);
-    assert_eq!(config.max_file_size_bytes, 1_000_000);
-    assert_eq!(config.max_files_count, 500);
-    assert!(!config.is_default);
-    assert!(config.is_enabled);
-    assert!(config.id > 0);
-
-    cleanup_test_data(&pool, &suffix).await;
-}
+// —— get_config ——
 
 #[tokio::test]
 async fn test_get_config() {
@@ -155,159 +122,26 @@ async fn test_get_config() {
 
     cleanup_test_data(&pool, &suffix).await;
 
-    let request = CreateQuotaConfigRequest {
-        name: config_name.clone(),
-        description: None,
-        max_storage_bytes: 10_000_000,
-        max_file_size_bytes: 2_000_000,
-        max_files_count: 200,
-        allowed_mime_types: None,
-        blocked_mime_types: None,
-        is_default: Some(false),
-    };
-    let created = storage.create_config(request).await.expect("should create config");
+    let now = current_timestamp_millis();
+    let created_id: i64 = sqlx::query_scalar(
+        "INSERT INTO media_quota_config (config_name, name, max_storage_bytes, max_file_size_bytes, max_files_count, allowed_mime_types, blocked_mime_types, is_default, is_enabled, created_ts) VALUES ($1, $1, 10000000, 2000000, 200, '[]'::jsonb, '[]'::jsonb, FALSE, TRUE, $2) RETURNING id",
+    )
+    .bind(&config_name)
+    .bind(now)
+    .fetch_one(pool.as_ref())
+    .await
+    .expect("should insert config");
 
-    let fetched = storage.get_config(created.id).await.expect("should succeed");
+    let fetched = storage.get_config(created_id).await.expect("should succeed");
     assert!(fetched.is_some());
     let fetched = fetched.unwrap();
-    assert_eq!(fetched.id, created.id);
+    assert_eq!(fetched.id, created_id);
     assert_eq!(fetched.name, config_name);
     assert_eq!(fetched.max_storage_bytes, 10_000_000);
 
     // get_config for non-existent id
     let missing = storage.get_config(99999999).await.expect("should succeed");
     assert!(missing.is_none());
-
-    cleanup_test_data(&pool, &suffix).await;
-}
-
-#[tokio::test]
-async fn test_list_configs() {
-    let (_iso, pool) = test_pool().await;
-    let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().simple().to_string();
-    let name_a = format!("mq_list_a_{suffix}");
-    let name_b = format!("mq_list_b_{suffix}");
-
-    cleanup_test_data(&pool, &suffix).await;
-
-    storage
-        .create_config(CreateQuotaConfigRequest {
-            name: name_a.clone(),
-            description: None,
-            max_storage_bytes: 1_000_000,
-            max_file_size_bytes: 100_000,
-            max_files_count: 10,
-            allowed_mime_types: None,
-            blocked_mime_types: None,
-            is_default: Some(false),
-        })
-        .await
-        .expect("should create config A");
-
-    storage
-        .create_config(CreateQuotaConfigRequest {
-            name: name_b.clone(),
-            description: None,
-            max_storage_bytes: 2_000_000,
-            max_file_size_bytes: 200_000,
-            max_files_count: 20,
-            allowed_mime_types: None,
-            blocked_mime_types: None,
-            is_default: Some(false),
-        })
-        .await
-        .expect("should create config B");
-
-    let configs = storage.list_configs().await.expect("should list configs");
-    assert!(configs.iter().any(|c| c.name == name_a), "should contain config A");
-    assert!(configs.iter().any(|c| c.name == name_b), "should contain config B");
-
-    cleanup_test_data(&pool, &suffix).await;
-}
-
-#[tokio::test]
-async fn test_delete_config() {
-    let (_iso, pool) = test_pool().await;
-    let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().simple().to_string();
-    let config_name = format!("mq_delete_{suffix}");
-
-    cleanup_test_data(&pool, &suffix).await;
-
-    let created = storage
-        .create_config(CreateQuotaConfigRequest {
-            name: config_name.clone(),
-            description: None,
-            max_storage_bytes: 1_000_000,
-            max_file_size_bytes: 100_000,
-            max_files_count: 10,
-            allowed_mime_types: None,
-            blocked_mime_types: None,
-            is_default: Some(false),
-        })
-        .await
-        .expect("should create config");
-
-    let deleted = storage.delete_config(created.id).await.expect("should succeed");
-    assert!(deleted, "delete should return true for existing config");
-
-    // Double-delete should return false (already disabled).
-    let deleted_again = storage.delete_config(created.id).await.expect("should succeed");
-    assert!(!deleted_again, "second delete should return false");
-
-    // get_config still returns the row (it only filters by id, not by is_enabled).
-    let fetched = storage.get_config(created.id).await.expect("should succeed");
-    assert!(fetched.is_some(), "row still exists but is_enabled=false");
-    assert!(!fetched.unwrap().is_enabled);
-
-    cleanup_test_data(&pool, &suffix).await;
-}
-
-// —— get_user_quota ——
-
-#[tokio::test]
-async fn test_get_user_quota_found() {
-    let (_iso, pool) = test_pool().await;
-    let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().simple().to_string();
-    let user_id = format!("@mq_uq_{suffix}:localhost");
-
-    cleanup_test_data(&pool, &suffix).await;
-    ensure_test_user(&pool, &user_id).await;
-
-    // Populate a user_media_quota row via set_user_quota (UPSERT).
-    storage
-        .set_user_quota(SetUserQuotaRequest {
-            user_id: user_id.clone(),
-            quota_config_id: None,
-            custom_max_storage_bytes: Some(50_000_000),
-            custom_max_file_size_bytes: None,
-            custom_max_files_count: None,
-        })
-        .await
-        .expect("should set user quota");
-
-    let quota = storage.get_user_quota(&user_id).await.expect("should succeed");
-    assert!(quota.is_some(), "user quota should be found");
-    let quota = quota.unwrap();
-    assert_eq!(quota.user_id, user_id);
-    assert_eq!(quota.custom_max_storage_bytes, Some(50_000_000));
-
-    cleanup_test_data(&pool, &suffix).await;
-}
-
-#[tokio::test]
-async fn test_get_user_quota_not_found() {
-    let (_iso, pool) = test_pool().await;
-    let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().simple().to_string();
-    let user_id = format!("@mq_nf_{suffix}:localhost");
-
-    cleanup_test_data(&pool, &suffix).await;
-
-    let result = storage.get_user_quota(&user_id).await.expect("should succeed");
-    assert!(result.is_none(), "should be None for unknown user");
 
     cleanup_test_data(&pool, &suffix).await;
 }
@@ -355,80 +189,6 @@ async fn test_get_or_create_user_quota_returns_existing() {
     cleanup_test_data(&pool, &suffix).await;
 }
 
-// —— set_user_quota ——
-
-#[tokio::test]
-async fn test_set_user_quota_sets_custom_limit() {
-    let (_iso, pool) = test_pool().await;
-    let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().simple().to_string();
-    let user_id = format!("@mq_sql_{suffix}:localhost");
-
-    cleanup_test_data(&pool, &suffix).await;
-    ensure_test_user(&pool, &user_id).await;
-
-    let quota = storage
-        .set_user_quota(SetUserQuotaRequest {
-            user_id: user_id.clone(),
-            quota_config_id: Some(42),
-            custom_max_storage_bytes: Some(100_000_000),
-            custom_max_file_size_bytes: Some(10_000_000),
-            custom_max_files_count: Some(1000),
-        })
-        .await
-        .expect("should set quota");
-
-    assert_eq!(quota.user_id, user_id);
-    assert_eq!(quota.quota_config_id, Some(42));
-    assert_eq!(quota.custom_max_storage_bytes, Some(100_000_000));
-    assert_eq!(quota.custom_max_file_size_bytes, Some(10_000_000));
-    assert_eq!(quota.custom_max_files_count, Some(1000));
-
-    cleanup_test_data(&pool, &suffix).await;
-}
-
-#[tokio::test]
-async fn test_set_user_quota_updates_defaults() {
-    let (_iso, pool) = test_pool().await;
-    let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().simple().to_string();
-    let user_id = format!("@mq_sqd_{suffix}:localhost");
-
-    cleanup_test_data(&pool, &suffix).await;
-    ensure_test_user(&pool, &user_id).await;
-
-    // Set full custom limits first.
-    storage
-        .set_user_quota(SetUserQuotaRequest {
-            user_id: user_id.clone(),
-            quota_config_id: Some(10),
-            custom_max_storage_bytes: Some(50_000_000),
-            custom_max_file_size_bytes: Some(5_000_000),
-            custom_max_files_count: Some(500),
-        })
-        .await
-        .expect("should set initial quota");
-
-    // Update with only partial fields — unset fields become None.
-    let updated = storage
-        .set_user_quota(SetUserQuotaRequest {
-            user_id: user_id.clone(),
-            quota_config_id: Some(20),
-            custom_max_storage_bytes: None,
-            custom_max_file_size_bytes: None,
-            custom_max_files_count: Some(200),
-        })
-        .await
-        .expect("should update quota");
-
-    assert_eq!(updated.quota_config_id, Some(20));
-    assert_eq!(updated.custom_max_storage_bytes, None);
-    assert_eq!(updated.custom_max_file_size_bytes, None);
-    assert_eq!(updated.custom_max_files_count, Some(200));
-
-    cleanup_test_data(&pool, &suffix).await;
-}
-
 // —— update_usage ——
 
 #[tokio::test]
@@ -454,7 +214,7 @@ async fn test_update_usage_upload_increments() {
         .await
         .expect("should log upload");
 
-    let quota = storage.get_user_quota(&user_id).await.expect("should succeed").expect("user quota should exist");
+    let quota = storage.get_or_create_user_quota(&user_id).await.expect("should succeed");
     assert_eq!(quota.current_storage_bytes, 500_000);
     assert_eq!(quota.current_files_count, 1);
 
@@ -498,7 +258,7 @@ async fn test_update_usage_multiple_accumulates() {
         .await
         .expect("should log second upload");
 
-    let quota = storage.get_user_quota(&user_id).await.expect("should succeed").expect("user quota should exist");
+    let quota = storage.get_or_create_user_quota(&user_id).await.expect("should succeed");
     assert_eq!(quota.current_storage_bytes, 500_000);
     assert_eq!(quota.current_files_count, 2);
 
@@ -541,7 +301,7 @@ async fn test_update_usage_delete_decrements() {
         .await
         .expect("should log delete");
 
-    let quota = storage.get_user_quota(&user_id).await.expect("should succeed").expect("user quota should exist");
+    let quota = storage.get_or_create_user_quota(&user_id).await.expect("should succeed");
     assert_eq!(quota.current_storage_bytes, 400_000);
     assert_eq!(quota.current_files_count, 0);
 
@@ -560,17 +320,16 @@ async fn test_check_quota_allowed() {
     cleanup_test_data(&pool, &suffix).await;
     ensure_test_user(&pool, &user_id).await;
 
-    // Set a custom storage limit of 100_000.
-    storage
-        .set_user_quota(SetUserQuotaRequest {
-            user_id: user_id.clone(),
-            quota_config_id: None,
-            custom_max_storage_bytes: Some(100_000),
-            custom_max_file_size_bytes: None,
-            custom_max_files_count: None,
-        })
-        .await
-        .expect("should set quota");
+    // Set a custom storage limit of 100_000 directly.
+    let now = current_timestamp_millis();
+    sqlx::query(
+        "INSERT INTO user_media_quota (user_id, custom_max_storage_bytes, created_ts, updated_ts) VALUES ($1, 100000, $2, $2) ON CONFLICT (user_id) DO UPDATE SET custom_max_storage_bytes = 100000, updated_ts = $2",
+    )
+    .bind(&user_id)
+    .bind(now)
+    .execute(pool.as_ref())
+    .await
+    .expect("should set user quota");
 
     // Current usage is 0 (default), check a 50_000-byte file.
     let result = storage.check_quota(&user_id, 50_000).await.expect("should check quota");
@@ -592,17 +351,16 @@ async fn test_check_quota_exceeded() {
     ensure_test_user(&pool, &user_id).await;
     ensure_server_quota_row(&pool).await;
 
-    // Set a low custom storage limit.
-    storage
-        .set_user_quota(SetUserQuotaRequest {
-            user_id: user_id.clone(),
-            quota_config_id: None,
-            custom_max_storage_bytes: Some(1_000),
-            custom_max_file_size_bytes: None,
-            custom_max_files_count: None,
-        })
-        .await
-        .expect("should set quota");
+    // Set a low custom storage limit directly.
+    let now = current_timestamp_millis();
+    sqlx::query(
+        "INSERT INTO user_media_quota (user_id, custom_max_storage_bytes, created_ts, updated_ts) VALUES ($1, 1000, $2, $2) ON CONFLICT (user_id) DO UPDATE SET custom_max_storage_bytes = 1000, updated_ts = $2",
+    )
+    .bind(&user_id)
+    .bind(now)
+    .execute(pool.as_ref())
+    .await
+    .expect("should set user quota");
 
     // Upload 900 bytes.
     storage
@@ -661,29 +419,6 @@ async fn test_get_server_quota() {
     assert!(quota.alert_threshold_percent > 0, "should have a threshold");
 }
 
-#[tokio::test]
-async fn test_update_server_quota() {
-    let (_iso, pool) = test_pool().await;
-    let storage = MediaQuotaStorage::new(&pool);
-
-    ensure_server_quota_row(&pool).await;
-
-    let updated = storage
-        .update_server_quota(Some(500_000_000_000_i64), Some(100_000_000_i64), Some(50000_i32), Some(95_i32))
-        .await
-        .expect("should update server quota");
-
-    assert_eq!(updated.max_storage_bytes, Some(500_000_000_000_i64));
-    assert_eq!(updated.max_file_size_bytes, Some(100_000_000_i64));
-    assert_eq!(updated.max_files_count, Some(50000_i32));
-    assert_eq!(updated.alert_threshold_percent, 95);
-
-    // Verify persisted.
-    let fetched = storage.get_server_quota().await.expect("should succeed");
-    assert_eq!(fetched.max_storage_bytes, Some(500_000_000_000_i64));
-    assert_eq!(fetched.alert_threshold_percent, 95);
-}
-
 // —— create_alert / get_user_alerts ——
 
 #[tokio::test]
@@ -732,9 +467,12 @@ async fn test_get_user_alerts_unread_only() {
     let alert2 =
         storage.create_alert(&user_id, "critical", 90, 900_000, 1_000_000, None).await.expect("should create alert2");
 
-    // Mark alert2 as read.
-    let marked = storage.mark_alert_read(alert2.id).await.expect("should mark alert read");
-    assert!(marked);
+    // Mark alert2 as read directly.
+    sqlx::query("UPDATE media_quota_alerts SET is_read = TRUE WHERE id = $1")
+        .bind(alert2.id)
+        .execute(pool.as_ref())
+        .await
+        .expect("should mark alert read");
 
     // unread_only = true should only return alert1.
     let unread = storage.get_user_alerts(&user_id, true).await.expect("should get unread alerts");
@@ -745,32 +483,6 @@ async fn test_get_user_alerts_unread_only() {
     // unread_only = false should return both.
     let all = storage.get_user_alerts(&user_id, false).await.expect("should get all alerts");
     assert_eq!(all.len(), 2);
-
-    cleanup_test_data(&pool, &suffix).await;
-}
-
-// —— mark_alert_read ——
-
-#[tokio::test]
-async fn test_mark_alert_read_already_read() {
-    let (_iso, pool) = test_pool().await;
-    let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().simple().to_string();
-    let user_id = format!("@mq_mar_{suffix}:localhost");
-
-    cleanup_test_data(&pool, &suffix).await;
-    ensure_test_user(&pool, &user_id).await;
-
-    let alert =
-        storage.create_alert(&user_id, "info", 30, 300_000, 1_000_000, None).await.expect("should create alert");
-
-    // First mark works.
-    let first = storage.mark_alert_read(alert.id).await.expect("should succeed");
-    assert!(first);
-
-    // Second mark on already-read alert returns false.
-    let second = storage.mark_alert_read(alert.id).await.expect("should succeed");
-    assert!(!second);
 
     cleanup_test_data(&pool, &suffix).await;
 }

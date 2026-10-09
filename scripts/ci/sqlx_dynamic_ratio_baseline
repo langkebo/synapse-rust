@@ -3209,12 +3209,33 @@
 #   核对后删除）⇒ 1324 → 1323。
 #   实测：`dynamic_production` 103（不变）、`static` 1358 → **1357**、`dynamic_test` 756（不变）、
 #   `query_builder` 18（不变）。
+# ── 2026-10-09 media_quota 死转发链整链清除（静态 −8；测试夹具 +6）──────────────────
+#   处置依据：《前缀命名空间治理方案-2026-10-08》§17.5「已实施」——`MediaQuotaService`
+#   6 个方法与 `MediaQuotaStorage` 7 个方法经**生产调用图**核对为死链：web
+#   （`synapse-web/src/routes/media/quota.rs`）与 admin 路由对它们**零调用**，service
+#   侧仅内部委托、自身**不含 SQL**。整链清除（service + storage + `db_tests` 用例），
+#   并以原始 SQL 重写受影响夹具。
+#   计数归因（`git diff HEAD` 逐文件核对：本批 90 个改动文件里**只有**本次 media_quota
+#   触达计数，其余 87 个文件的 static/dynamic 计数均未变）：
+#     * `synapse-storage/src/media_quota/repository.rs`：删 7 个方法内的 **8 处静态宏**
+#       （`query_as! ×5 + query! ×3`）⇒ 下行 **static 1357 → 1349**（"静态数只禁减"这道
+#       棘轮对删代码同样会红；先例 C55-0 的 1303 → 1301、C57-0 的 163 → 162）。
+#     * `synapse-storage/src/media_quota/db_tests.rs`（+4）、
+#       `synapse-services/src/media/mod.rs`（+2）：setter 被删后，夹具改用**原始 SQL**
+#       （`sqlx::query` / `query_scalar`）自建/改行；`#[cfg(test)]` 内的宏**不进**
+#       `cargo sqlx prepare`（`--all-targets` 会 E0432），无法静态化 ⇒ 上行
+#       **dynamic_test 757 → 758**（HEAD 树此项实测 752，本批夹具 +6 ⇒ 758）。
+#   实测（本树）：`dynamic_production` 96（不变，≤103）、`dynamic_test` 758、
+#   `static` 1349、`query_builder` 17（≤18）。
+#   `.sqlx/` 同步缩容 8 条（按条目内容逐字核对后删除：`query-9c5f6304…` / `4a5a9a79…` /
+#   `8aeea445…` / `2ec4407f…` / `dd3c5f92…` / `ff984448…` / `1c314172…` / `22426ab1…`）
+#   ⇒ 1324 → **1316**。
 BASELINE_QUERY_BUILDER=18
 BASELINE_DYNAMIC_PRODUCTION=103
-BASELINE_DYNAMIC_TEST_INFRA=757
-BASELINE_STATIC=1357
+BASELINE_DYNAMIC_TEST_INFRA=758
+BASELINE_STATIC=1349
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=860
+BASELINE_DYNAMIC=861
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

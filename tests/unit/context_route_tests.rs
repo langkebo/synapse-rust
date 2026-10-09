@@ -389,9 +389,6 @@ fn test_federation_context_public_fields_are_accessible() {
         let _ = &ctx.account_device_list_service;
         let _ = &ctx.key_rotation_manager;
         let _ = &ctx.federation_client;
-        let _ = &ctx.event_auth_chain;
-        let _ = &ctx.device_sync_manager;
-        let _ = &ctx.federation_server_name;
         let _ = &ctx.admin_audit_service;
         let _ = &ctx.worker_manager;
         let _ = &ctx.media_service;

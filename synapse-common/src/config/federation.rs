@@ -1,6 +1,5 @@
 use educe::Educe;
 use serde::Deserialize;
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 // ============================================================================
@@ -27,8 +26,6 @@ pub struct FederationConfig {
     pub server_name: String,
     /// 联邦通信端口
     pub federation_port: u16,
-    /// 连接池大小
-    pub connection_pool_size: u32,
     /// 最大事务负载大小
     pub max_transaction_payload: u64,
     /// CA 证书文件
@@ -48,14 +45,6 @@ pub struct FederationConfig {
     #[serde(default = "default_trusted_key_servers")]
     /// `trusted_key_servers` field.
     pub trusted_key_servers: Vec<TrustedKeyServer>,
-    /// 密钥刷新间隔（秒）
-    #[serde(default = "default_key_refresh_interval")]
-    /// `key_refresh_interval` field.
-    pub key_refresh_interval: u64,
-    /// 是否抑制密钥服务器警告
-    #[serde(default)]
-    /// `suppress_key_server_warning` field.
-    pub suppress_key_server_warning: bool,
     /// 签名验证缓存 TTL（秒），默认 1 小时
     #[serde(default = "default_signature_cache_ttl")]
     /// `signature_cache_ttl` field.
@@ -256,15 +245,12 @@ impl Default for FederationConfig {
             allow_ingress: false,
             server_name: String::new(),
             federation_port: 8448,
-            connection_pool_size: 10,
             max_transaction_payload: 50_000,
             ca_file: None,
             client_ca_file: None,
             signing_key: None,
             key_id: None,
             trusted_key_servers: default_trusted_key_servers(),
-            key_refresh_interval: default_key_refresh_interval(),
-            suppress_key_server_warning: false,
             signature_cache_ttl: default_signature_cache_ttl(),
             key_cache_ttl: default_key_cache_ttl(),
             key_rotation_grace_period_ms: default_key_rotation_grace_period_ms(),
@@ -365,18 +351,10 @@ fn default_federation_rate_limit_fail_open() -> bool {
 pub struct TrustedKeyServer {
     /// 服务器名称
     pub server_name: String,
-    /// 验证密钥（可选）
-    #[serde(default)]
-    /// `verify_keys` field.
-    pub verify_keys: Option<HashMap<String, String>>,
 }
 
 fn default_trusted_key_servers() -> Vec<TrustedKeyServer> {
-    vec![TrustedKeyServer { server_name: "matrix.org".to_string(), verify_keys: None }]
-}
-
-fn default_key_refresh_interval() -> u64 {
-    86400
+    vec![TrustedKeyServer { server_name: "matrix.org".to_string() }]
 }
 
 fn default_signature_cache_ttl() -> u64 {

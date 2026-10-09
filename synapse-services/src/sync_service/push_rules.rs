@@ -6,4 +6,4 @@
 //! sync service callers; new code should import from
 //! `synapse_common::push_rules` directly.
 
-pub use synapse_common::push_rules::{default_push_rules_for_user, get_default_push_rules, merge_default_push_rules};
+pub use synapse_common::push_rules::{default_push_rules_for_user, merge_default_push_rules};

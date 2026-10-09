@@ -94,14 +94,6 @@ pub struct ServerConfig {
     #[serde(default)]
     pub server_name: Option<String>,
 
-    /// 是否抑制密钥服务器警告
-    ///
-    /// 当没有配置密钥服务器时是否显示警告。
-    /// 密钥服务器用于端到端加密设备密钥的备份和恢复。
-    #[serde(default = "default_suppress_key_server_warning")]
-    /// `suppress_key_server_warning` field.
-    pub suppress_key_server_warning: bool,
-
     /// 是否提供 .well-known 服务
     ///
     /// 启用后，服务器将在 https://<server_name>/.well-known/matrix/server
@@ -452,10 +444,6 @@ pub struct ServerConfig {
     #[serde(default = "default_event_notifier_idle_timeout_secs")]
     /// `event_notifier_idle_timeout_secs` field.
     pub event_notifier_idle_timeout_secs: u64,
-}
-
-fn default_suppress_key_server_warning() -> bool {
-    false
 }
 
 fn default_server_host() -> String {

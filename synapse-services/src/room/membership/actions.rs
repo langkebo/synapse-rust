@@ -201,15 +201,12 @@ impl MembershipService {
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to check membership before leave", e))?;
 
-        let current_state =
-            existing_member.as_ref().and_then(|m| super::transition::MembershipState::parse_opt(&m.membership));
-        if let Err(msg) = super::transition::is_legal(
-            current_state,
-            super::transition::MembershipState::Leave,
-            &super::transition::TransitionContext::default(),
-        ) {
-            return Err(ApiError::forbidden(msg.to_string()));
-        }
+        // State-machine gate: reject leaving a room you were never in. Delegated
+        // to the shared rulebook (synapse_common::membership_transition) so the
+        // client handlers and the federation inbound path share one rulebook.
+        let (from, target_is_banned) = self.resolve_membership_from(room_id, user_id).await?;
+        let ctx = TransitionCtx::state_only(JoinRule::Invite, /* actor_is_target */ true, target_is_banned, false);
+        is_legal(from, Membership::Leave, &ctx)?;
 
         // Third-party event admission (Synapse `check_event_allowed`), consulted
         // *before* the membership state change so a refusal leaves no residue.
@@ -451,22 +448,17 @@ impl MembershipService {
             ));
         }
 
-        // Pre-flight: check the current membership is in a legal
-        // 'Leave' transition (matches leave_room's guard at line 154).
+        // Pre-flight: reject a 'Leave' transition the shared rulebook forbids
+        // (matches leave_room's guard). `existing_member` is reused below for
+        // the member-count delta.
         let existing_member = self
             .member_storage
             .get_room_member(room_id, user_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to check membership before leave+forget", e))?;
-        let current_state =
-            existing_member.as_ref().and_then(|m| super::transition::MembershipState::parse_opt(&m.membership));
-        if let Err(msg) = super::transition::is_legal(
-            current_state,
-            super::transition::MembershipState::Leave,
-            &super::transition::TransitionContext::default(),
-        ) {
-            return Err(ApiError::forbidden(msg.to_string()));
-        }
+        let (from, target_is_banned) = self.resolve_membership_from(room_id, user_id).await?;
+        let ctx = TransitionCtx::state_only(JoinRule::Invite, /* actor_is_target */ true, target_is_banned, false);
+        is_legal(from, Membership::Leave, &ctx)?;
 
         // MSC4267 atomic path. We need a DB pool; if the service was built
         // without one (test_mocks), fall back to the non-atomic two-call

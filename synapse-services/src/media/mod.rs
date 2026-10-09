@@ -726,7 +726,7 @@ mod tests {
     use crate::test_utils;
     use std::sync::Arc;
     use synapse_common::error::MatrixErrorCode;
-    use synapse_storage::media_quota::{MediaQuotaStorage, SetUserQuotaRequest};
+    use synapse_storage::media_quota::MediaQuotaStorage;
     use synapse_storage::user::UserStorage;
 
     async fn prepare_media_test_pool() -> Result<Arc<sqlx::PgPool>, String> {
@@ -763,16 +763,18 @@ mod tests {
         let media_quota_storage = Arc::new(MediaQuotaStorage::new(&pool));
         let media_quota_service = Arc::new(MediaQuotaService::new(media_quota_storage));
         for user in &users {
-            media_quota_service
-                .set_user_quota(SetUserQuotaRequest {
-                    user_id: user.user_id.clone(),
-                    quota_config_id: None,
-                    custom_max_storage_bytes: Some(max_storage_bytes),
-                    custom_max_file_size_bytes: Some(max_file_size_bytes),
-                    custom_max_files_count: Some(10),
-                })
-                .await
-                .expect("failed to set user quota");
+            let now = synapse_common::current_timestamp_millis();
+            sqlx::query(
+                "INSERT INTO user_media_quota (user_id, custom_max_storage_bytes, custom_max_file_size_bytes, custom_max_files_count, created_ts, updated_ts) VALUES ($1, $2, $3, $4, $5, $5) ON CONFLICT (user_id) DO UPDATE SET custom_max_storage_bytes = $2, custom_max_file_size_bytes = $3, custom_max_files_count = $4, updated_ts = $5",
+            )
+            .bind(&user.user_id)
+            .bind(max_storage_bytes)
+            .bind(max_file_size_bytes)
+            .bind(10_i32)
+            .bind(now)
+            .execute(pool.as_ref())
+            .await
+            .expect("failed to set user quota");
         }
 
         let chunked_upload_service =
@@ -946,11 +948,17 @@ mod tests {
     #[tokio::test]
     async fn test_server_per_file_cap_yields_413_m_too_large() {
         let pool = prepare_media_test_pool().await.expect("pool");
+        sqlx::query(
+            "UPDATE server_media_quota SET max_storage_bytes = $1, max_file_size_bytes = $2, max_files_count = $3, alert_threshold_percent = $4 WHERE id = 1",
+        )
+        .bind(1_000_000_i64)
+        .bind(4_i64)
+        .bind(100_i32)
+        .bind(95_i32)
+        .execute(pool.as_ref())
+        .await
+        .expect("set server quota");
         let quota_storage = Arc::new(MediaQuotaStorage::new(&pool));
-        quota_storage
-            .update_server_quota(Some(1_000_000), Some(4), Some(100), Some(95))
-            .await
-            .expect("set server quota");
         let quota_service = MediaQuotaService::new(quota_storage);
 
         let check = quota_service.check_upload_quota("@cap:test.server", 5).await.expect("quota check");

@@ -121,26 +121,13 @@ fn parse_duration(s: &str) -> Option<i64> {
 /// Push configuration.
 ///
 /// Official Synapse configuration documentation: <https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#push>
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 /// Represents PushConfig.
 pub struct PushConfig {
     /// Whether to enable push
     #[serde(default)]
     /// `enabled` field.
     pub enabled: bool,
-
-    /// Group unread counts by room
-    #[serde(default = "default_group_unread")]
-    /// `group_unread_count_by_room` field.
-    pub group_unread_count_by_room: bool,
-
-    /// Whether to include message content
-    #[serde(default)]
-    /// `include_content` field.
-    pub include_content: bool,
-
-    /// Application ID
-    pub app_id: Option<String>,
 
     /// APNs configuration
     #[serde(default)]
@@ -161,106 +148,34 @@ pub struct PushConfig {
     #[serde(default)]
     /// `push_gateway_url` field.
     pub push_gateway_url: Option<String>,
-
-    /// Push retry count
-    #[serde(default = "default_push_retry_count")]
-    /// `retry_count` field.
-    pub retry_count: u32,
-
-    /// Push timeout (seconds)
-    #[serde(default = "default_push_timeout")]
-    /// `timeout` field.
-    pub timeout: u64,
 }
 
-impl Default for PushConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            group_unread_count_by_room: true,
-            include_content: false,
-            app_id: None,
-            apns: None,
-            fcm: None,
-            web_push: None,
-            push_gateway_url: None,
-            retry_count: default_push_retry_count(),
-            timeout: default_push_timeout(),
-        }
-    }
-}
-
+/// APNs push configuration marker.
+///
+/// The inner transport fields were never read by any code path (push delivery is
+/// not wired to APNs yet); only the *presence* of this section matters
+/// (`PushConfig::is_enabled`). Kept as an empty marker struct so existing YAML
+/// that contains an `apns:` section still parses. Add fields back only together
+/// with the APNs transport that consumes them.
 #[derive(Debug, Clone, Deserialize)]
 /// Represents ApnsConfig.
-pub struct ApnsConfig {
-    /// `cert_file` field.
-    pub cert_file: Option<String>,
-    /// `key_file` field.
-    pub key_file: Option<String>,
-    /// `topic` field.
-    pub topic: String,
-    #[serde(default = "default_apns_production")]
-    /// `production` field.
-    pub production: bool,
-    /// `key_id` field.
-    pub key_id: Option<String>,
-    /// `team_id` field.
-    pub team_id: Option<String>,
-    /// `private_key_path` field.
-    pub private_key_path: Option<String>,
-    /// APNs endpoint URL. Defaults to `https://api.push.apple.com` (production)
-    /// or `https://api.sandbox.push.apple.com` (sandbox).
-    #[serde(default)]
-    /// `endpoint` field.
-    pub endpoint: Option<String>,
-}
+pub struct ApnsConfig {}
 
+/// FCM push configuration marker.
+///
+/// See `ApnsConfig` for rationale: kept as an empty marker so presence-based
+/// enablement keeps working and existing YAML still parses.
 #[derive(Debug, Clone, Deserialize)]
 /// Represents FcmConfig.
-pub struct FcmConfig {
-    /// `api_key` field.
-    pub api_key: Option<String>,
-    /// `project_id` field.
-    pub project_id: Option<String>,
-    /// `service_account_file` field.
-    pub service_account_file: Option<String>,
-    /// FCM endpoint URL. Defaults to `https://fcm.googleapis.com/fcm/send`.
-    #[serde(default)]
-    /// `endpoint` field.
-    pub endpoint: Option<String>,
-}
+pub struct FcmConfig {}
 
+/// Web Push configuration marker.
+///
+/// See `ApnsConfig` for rationale: kept as an empty marker so presence-based
+/// enablement keeps working and existing YAML still parses.
 #[derive(Debug, Clone, Deserialize)]
 /// Represents WebPushConfig.
-pub struct WebPushConfig {
-    /// `vapid_public_key` field.
-    pub vapid_public_key: String,
-    /// `vapid_private_key` field.
-    pub vapid_private_key: String,
-    /// `subject` field.
-    pub subject: String,
-    /// Default gateway endpoint for WebPush relay service.
-    /// Individual subscription endpoints take precedence at send time.
-    #[serde(default)]
-    /// `gateway_endpoint` field.
-    pub gateway_endpoint: Option<String>,
-}
-
-fn default_group_unread() -> bool {
-    true
-}
-
-fn default_push_retry_count() -> u32 {
-    3
-}
-
-fn default_push_timeout() -> u64 {
-    10
-}
-
-fn default_apns_production() -> bool {
-    true
-}
+pub struct WebPushConfig {}
 
 impl PushConfig {
     /// Returns true if enabled.
@@ -268,25 +183,6 @@ impl PushConfig {
         self.enabled
             && (self.fcm.is_some() || self.apns.is_some() || self.web_push.is_some() || self.push_gateway_url.is_some())
     }
-}
-
-fn default_spider_enabled() -> bool {
-    true
-}
-fn default_max_spider_size() -> String {
-    "10M".to_string()
-}
-fn default_preview_cache_duration() -> u64 {
-    86400
-}
-fn default_user_agent() -> String {
-    "Synapse-Rust/0.1.0 (Matrix Homeserver)".to_string()
-}
-fn default_preview_timeout() -> u64 {
-    10
-}
-fn default_max_redirects() -> u32 {
-    5
 }
 
 fn default_ip_blacklist() -> Vec<String> {
@@ -303,93 +199,23 @@ fn default_ip_blacklist() -> Vec<String> {
     ]
 }
 
-fn parse_size(s: &str) -> Option<usize> {
-    let s = s.trim();
-    if s.is_empty() {
-        return None;
-    }
-    let (num_part, multiplier) = if s.ends_with('K') || s.ends_with('k') {
-        (&s[..s.len() - 1], 1024usize)
-    } else if s.ends_with('M') || s.ends_with('m') {
-        (&s[..s.len() - 1], 1024 * 1024)
-    } else if s.ends_with('G') || s.ends_with('g') {
-        (&s[..s.len() - 1], 1024 * 1024 * 1024)
-    } else {
-        (s, 1usize)
-    };
-    num_part.parse::<usize>().ok().map(|n| n * multiplier)
-}
-
 /// URL preview configuration.
+///
+/// Only `ip_range_blacklist` is actually read by the URL preview fetch path; the
+/// remaining knobs (enabled/spider/oembed/size/cache/ua/timeout/redirects) were
+/// never wired and were removed. `url_blacklist` was also removed together with
+/// its `UrlBlacklistRule` type.
 #[derive(Debug, Clone, Deserialize)]
 /// Represents UrlPreviewConfig.
 pub struct UrlPreviewConfig {
-    #[serde(default)]
-    /// `enabled` field.
-    pub enabled: bool,
     #[serde(default = "default_ip_blacklist")]
     /// `ip_range_blacklist` field.
     pub ip_range_blacklist: Vec<String>,
-    #[serde(default)]
-    /// `ip_range_whitelist` field.
-    pub ip_range_whitelist: Vec<String>,
-    #[serde(default)]
-    /// `url_blacklist` field.
-    pub url_blacklist: Vec<UrlBlacklistRule>,
-    #[serde(default = "default_spider_enabled")]
-    /// `spider_enabled` field.
-    pub spider_enabled: bool,
-    #[serde(default)]
-    /// `oembed_enabled` field.
-    pub oembed_enabled: bool,
-    #[serde(default = "default_max_spider_size")]
-    /// `max_spider_size` field.
-    pub max_spider_size: String,
-    #[serde(default = "default_preview_cache_duration")]
-    /// `cache_duration` field.
-    pub cache_duration: u64,
-    #[serde(default = "default_user_agent")]
-    /// `user_agent` field.
-    pub user_agent: String,
-    #[serde(default = "default_preview_timeout")]
-    /// `timeout` field.
-    pub timeout: u64,
-    #[serde(default = "default_max_redirects")]
-    /// `max_redirects` field.
-    pub max_redirects: u32,
 }
 
 impl Default for UrlPreviewConfig {
     fn default() -> Self {
-        Self {
-            enabled: false,
-            ip_range_blacklist: default_ip_blacklist(),
-            ip_range_whitelist: Vec::new(),
-            url_blacklist: Vec::new(),
-            spider_enabled: true,
-            oembed_enabled: false,
-            max_spider_size: default_max_spider_size(),
-            cache_duration: default_preview_cache_duration(),
-            user_agent: default_user_agent(),
-            timeout: default_preview_timeout(),
-            max_redirects: default_max_redirects(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-/// Represents UrlBlacklistRule.
-pub struct UrlBlacklistRule {
-    /// `domain` field.
-    pub domain: Option<String>,
-    /// `regex` field.
-    pub regex: Option<String>,
-}
-
-impl UrlPreviewConfig {
-    /// Maxs the spider.
-    pub fn max_spider_size_bytes(&self) -> usize {
-        parse_size(&self.max_spider_size).unwrap_or(10 * 1024 * 1024)
+        Self { ip_range_blacklist: default_ip_blacklist() }
     }
 }
 
@@ -458,50 +284,5 @@ mod tests {
     fn parse_duration_ms_not_treated_as_minutes() {
         // "10ms" must not be parsed as "10m" (600s); strip_suffix('s') yields "10m" which fails to parse
         assert_eq!(parse_duration("10ms"), None);
-    }
-
-    #[test]
-    fn parse_size_empty() {
-        assert_eq!(parse_size(""), None);
-        assert_eq!(parse_size("   "), None);
-    }
-
-    #[test]
-    fn parse_size_bytes() {
-        assert_eq!(parse_size("0"), Some(0));
-        assert_eq!(parse_size("1024"), Some(1024));
-        assert_eq!(parse_size("65536"), Some(65536));
-    }
-
-    #[test]
-    fn parse_size_kilobytes() {
-        assert_eq!(parse_size("1K"), Some(1024));
-        assert_eq!(parse_size("1k"), Some(1024));
-        assert_eq!(parse_size("10K"), Some(10240));
-    }
-
-    #[test]
-    fn parse_size_megabytes() {
-        assert_eq!(parse_size("1M"), Some(1048576));
-        assert_eq!(parse_size("1m"), Some(1048576));
-        assert_eq!(parse_size("10M"), Some(10485760));
-    }
-
-    #[test]
-    fn parse_size_gigabytes() {
-        assert_eq!(parse_size("1G"), Some(1073741824));
-        assert_eq!(parse_size("1g"), Some(1073741824));
-    }
-
-    #[test]
-    fn parse_size_invalid() {
-        assert_eq!(parse_size("abc"), None);
-        assert_eq!(parse_size("10X"), None);
-        assert_eq!(parse_size("1.5M"), None);
-    }
-
-    #[test]
-    fn parse_size_whitespace() {
-        assert_eq!(parse_size(" 10M "), Some(10485760));
     }
 }

@@ -259,7 +259,6 @@ mod tests {
             sender_id: "TestSign".to_string(),
             template_code: "SMS_123456789".to_string(),
             endpoint: server.uri(),
-            ..Default::default()
         });
 
         provider.send("13800138000", "123456").await.expect("aliyun sms send should succeed when API returns Code=OK");
@@ -286,7 +285,6 @@ mod tests {
             sender_id: "TestSign".to_string(),
             template_code: "SMS_123456789".to_string(),
             endpoint: server.uri(),
-            ..Default::default()
         });
 
         let err = provider

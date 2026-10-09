@@ -24,8 +24,6 @@ pub mod background_job;
 pub mod canonical_json;
 /// Module `claims`.
 pub mod claims;
-/// Module `concurrency`.
-pub mod concurrency;
 /// Module `config`.
 pub mod config;
 /// Module `constants`.
@@ -146,8 +144,6 @@ pub use canonical_json::{
 /// Re-exported item.
 pub use claims::{Claims, ClaimsBuilder};
 /// Re-exported item.
-pub use concurrency::{ConcurrencyController, ConcurrencyLimiter, ConcurrencyPermit};
-/// Re-exported item.
 pub use config::{
     default_admin_mfa_allowed_drift_steps, default_admin_rbac_enabled, default_allowed_headers,
     default_allowed_methods, default_cors_max_age, default_dehydrated_device_cleanup_interval_secs,
@@ -156,10 +152,10 @@ pub use config::{
     FcmConfig, FederationConfig, FederationRateLimitConfig, IdentityConfig, InstanceLocationConfig, LivekitConfig,
     LoggingConfig, MasConfig, OidcAttributeMapping, OidcConfig, PerformanceConfig, PolicyServerConfig,
     PostgresFtsConfig, PostgresFtsWeights, PushConfig, RedisConfig, ReplicationConfig, ReplicationHttpConfig,
-    RetentionConfig, RetentionPolicy, RetentionPurgeJob, SamlAttributeMapping, SamlConfig, SearchConfig,
-    SecurityConfig, ServerConfig, SmsConfig, SmtpConfig, SmtpRateLimitConfig, StreamWriters, SyncRateLimitConfig,
-    ThirdPartyRuleConfig, ThirdPartyRuleModification, ThirdPartyRulesConfig, TranslateConfig, TrustedKeyServer,
-    UrlBlacklistRule, UrlPreviewConfig, VoipConfig, WebPushConfig, WorkerConfig,
+    RetentionConfig, SamlAttributeMapping, SamlConfig, SearchConfig, SecurityConfig, ServerConfig, SmsConfig,
+    SmtpConfig, StreamWriters, SyncRateLimitConfig, ThirdPartyRuleConfig, ThirdPartyRuleModification,
+    ThirdPartyRulesConfig, TranslateConfig, TrustedKeyServer, UrlPreviewConfig, VoipConfig, WebPushConfig,
+    WorkerConfig,
 };
 /// Re-exported item.
 pub use constants::{
@@ -184,8 +180,6 @@ pub use crypto::{
 };
 /// Re-exported item.
 pub use error::{init_error_metrics, ApiError, ApiErrorCause, ApiErrorKind, ApiResponse, ApiResult, MatrixErrorCode};
-/// Re-exported item.
-pub use event_utils::{event_to_json, event_to_json_without_age, events_to_json, events_to_json_without_age};
 /// Re-exported item.
 pub use feature_flags::{
     DmFlags, FeatureFlags, PusherFlags, RoomSummaryFlags, RuntimeFeatureFlagService, SpaceFlags, VerificationFlags,
@@ -234,9 +228,8 @@ pub use room_versions::{
 };
 /// Re-exported item.
 pub use security::{
-    check_url_against_blacklist, check_url_and_resolve, compute_signature_hash, is_ip_in_blacklist,
-    resolve_host_checked, ConstantTimeComparison, ReplayProtectionCache, ReplayProtectionConfig, ReplayProtectionStats,
-    SecurityValidator,
+    check_url_and_resolve, compute_signature_hash, is_ip_in_blacklist, resolve_host_checked, ReplayProtectionCache,
+    ReplayProtectionConfig, ReplayProtectionStats, SecurityValidator,
 };
 #[cfg(test)]
 /// Re-exported item.
@@ -248,10 +241,10 @@ pub use telemetry_config::{OpenTelemetryConfig, PrometheusConfig};
 /// Re-exported item.
 pub use time::{
     calculate_age, calculate_ttl, current_timestamp_millis, current_timestamp_millis_monotonic, current_timestamp_utc,
-    generate_pagination_token, generate_stream_token_from_ts, is_expired, parse_pagination_token, parse_stream_token,
+    generate_pagination_token, is_expired, parse_pagination_token, parse_stream_token,
 };
 /// Re-exported item.
-pub use tracing::{DistributedTracer, RequestId, RequestIdPropagationLayer};
+pub use tracing::{RequestId, RequestIdPropagationLayer};
 /// Re-exported item.
 pub use types::{EventId, Membership, Presence, PresenceState, RoomAlias, RoomVersion, SecretString, UserId};
 /// Re-exported item.

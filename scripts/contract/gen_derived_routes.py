@@ -196,6 +196,27 @@ def build_rows():
                 )
             )
 
+    # Same-rank collision guard. The emitted `derived_route_manifest` de-dups by
+    # `(method, path)` keeping the highest rank and *silently drops* the loser.
+    # That silent drop is precisely how a route can go dead without anyone
+    # noticing (the key_backup class of bug), and it also makes the runtime
+    # `RouteLedger::validate()` duplicate branch structurally unreachable. Catch
+    # it here at codegen time instead: two *different* registered_by labels
+    # claiming the same `(method, path)` at the same rank is a genuine conflict.
+    # The sanctioned `/.well-known` OIDC twin lives at a *different* rank
+    # (`Always` vs `Oidc`), so it is unaffected.
+    at_rank: dict[tuple[str, str, int], str] = {}
+    for method, path, lbl, _cfg, rank, *_rest in rows:
+        prev = at_rank.get((method, path, rank))
+        if prev is not None and prev != lbl:
+            raise SystemExit(
+                f"gen_derived_routes: route conflict — {method} {path} is claimed "
+                f"at rank {rank} by two modules: {prev!r} and {lbl!r}. The "
+                f"(method, path) de-dup would silently drop one; fix the route "
+                f"surface instead of letting a route disappear."
+            )
+        at_rank[(method, path, rank)] = lbl
+
     rows = sorted(rows, key=lambda r: (r[1], r[0], r[2], r[4], tuple(sorted(r[3]))))
     return rows, feats_gold, feats_sdk
 

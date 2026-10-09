@@ -178,6 +178,10 @@ overrides:
     expect_status: [200, 400, 404, 429]
   "PUT /_matrix/client/v3/profile/{user_id}/displayname":
     expect_status: [200, 400, 401, 403, 429]
+  "GET /_matrix/client/v3/profile/{user_id}/avatar_url":
+    expect_status: [200, 400, 404, 429]
+  "PUT /_matrix/client/v3/profile/{user_id}/avatar_url":
+    expect_status: [200, 400, 401, 403, 429]
 
   # 联邦端点（8448 端口由 nginx 转发，本工具只测客户端 443 入口上可达的端点）
   "GET /_matrix/federation/v1/version":

@@ -19,6 +19,7 @@
 # 追加（2026-10-04，第三轮遗留问题报告）：circuitbreaker、halfopen、warmup（熔断器/半开/预热技术记号）。
 # 追加（2026-10-05，全量系统测试报告 P1/P2 复测）：acao（CORS `ACAO` 被脚本小写化）、cpus、mem（docker 资源记号 cpus=/mem=）、geolocation、html（报告引用的 .html 产物）、vu（k6 虚拟用户 `VU` 被脚本小写化）。
 # 追加（2026-10-06，全量测试与性能门禁验证登记）：contrib、pgcrypto（migrations/README.md）、github、opengraph（全面报告 §1.5 运行证据）。
+# 追加（2026-10-09，冗余审查 §17.5 记录）：extern（Rust `extern crate` 关键字被脚本小写化）、ser（`ser/de` 缩写被斜杠切出）。
 # 项目技术词典：aspell 通用英文词典（en_US）不含本仓技术语料的词汇。
 abi
 acao
@@ -297,6 +298,7 @@ eventstoreapi
 eventwriter
 exploitability
 expr
+extern
 externalservices
 fakeauth
 fakecredentialauth
@@ -771,6 +773,7 @@ securenoncegenerator
 sed
 semver
 sendemail
+ser
 serde
 servercapabilities
 serverconfig

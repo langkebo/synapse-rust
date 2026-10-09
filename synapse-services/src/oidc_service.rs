@@ -810,15 +810,12 @@ mod tests {
                 email: Some("email".to_string()),
             },
             callback_url: Some("https://matrix.example.com/_matrix/client/r0/login/sso/redirect".to_string()),
-            allow_existing_users: true,
-            block_unknown_users: false,
             authorization_endpoint: None,
             token_endpoint: None,
             userinfo_endpoint: None,
             jwks_uri: None,
             registration_endpoint: None,
             timeout: 10,
-            user_mapping_provider: None,
         }
     }
 

@@ -42,11 +42,6 @@ pub fn calculate_age(timestamp: i64) -> i64 {
     current_timestamp_millis().saturating_sub(timestamp)
 }
 
-/// Generates the stream.
-pub fn generate_stream_token_from_ts(timestamp: Option<i64>) -> String {
-    format!("t{}", timestamp.unwrap_or_else(current_timestamp_millis))
-}
-
 /// Parses stream token.
 pub fn parse_stream_token(token: &str) -> Option<i64> {
     token.strip_prefix('t').and_then(|s| s.parse().ok())
@@ -142,15 +137,6 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_stream_token_from_ts() {
-        let token = generate_stream_token_from_ts(Some(12345));
-        assert_eq!(token, "t12345");
-
-        let token = generate_stream_token_from_ts(None);
-        assert!(token.starts_with('t'));
-    }
-
-    #[test]
     fn test_parse_stream_token() {
         assert_eq!(parse_stream_token("t12345"), Some(12345));
         assert_eq!(parse_stream_token("invalid"), None);
@@ -183,13 +169,6 @@ mod tests {
         assert_eq!(parse_stream_token("t"), None);
         assert_eq!(parse_stream_token("tabc"), None);
         assert_eq!(parse_stream_token("t-123"), Some(-123));
-    }
-
-    #[test]
-    fn test_generate_stream_token_from_ts_none() {
-        let token = generate_stream_token_from_ts(None);
-        assert!(token.starts_with('t'));
-        assert!(token.len() > 1);
     }
 
     #[test]
@@ -234,14 +213,6 @@ mod tests {
         // (it would still catch a broken sign or unit conversion) while staying
         // off the scheduler's critical path.
         assert!(age <= 50, "age for now should be near zero, got {age}");
-    }
-
-    #[test]
-    fn test_stream_token_roundtrip() {
-        let ts = 9876543210;
-        let token = generate_stream_token_from_ts(Some(ts));
-        let parsed = parse_stream_token(&token);
-        assert_eq!(parsed, Some(ts));
     }
 
     #[test]

@@ -66,7 +66,7 @@ async fn test_room_sync_requires_membership() {
 
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/sync", encoded_room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/sync", encoded_room_id))
         .header("Authorization", format!("Bearer {}", bob_token))
         .body(Body::empty())
         .unwrap();
@@ -89,7 +89,7 @@ async fn test_room_sync_returns_minimal_shape() {
 
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/sync", encoded_room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/sync", encoded_room_id))
         .header("Authorization", format!("Bearer {}", alice_token))
         .body(Body::empty())
         .unwrap();
@@ -125,7 +125,7 @@ async fn test_room_sync_incremental_omits_state() {
 
     let first_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/sync", encoded_room_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/sync", encoded_room_id))
         .header("Authorization", format!("Bearer {}", alice_token))
         .body(Body::empty())
         .unwrap();
@@ -139,7 +139,7 @@ async fn test_room_sync_incremental_omits_state() {
 
     let second_request = Request::builder()
         .method("GET")
-        .uri(format!("/_matrix/client/v3/rooms/{}/sync?since={}", encoded_room_id, since))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/sync?since={}", encoded_room_id, since))
         .header("Authorization", format!("Bearer {}", alice_token))
         .body(Body::empty())
         .unwrap();

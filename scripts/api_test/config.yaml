@@ -27,14 +27,16 @@ auth:
   username: "test2"
   password: "Ljf@1234"
 
-# Admin 凭据（用于 /_synapse/admin 端点的认证探测；留空则 admin 端点仅做匿名 401 探测）
-# 注意：部署默认对 admin 强制 MFA（TOTP），密码登录会被拒（403 M_FORBIDDEN），
-#       因此这里直接注入 auth_token（可用环境变量 API_TEST_ADMIN_TOKEN 覆盖）。
+# Admin 凭据（用于 /_synapse/admin 端点的认证探测）
+# 部署默认对 admin 强制 MFA（TOTP），密码登录需附带当前 mfa_code。
+# auth_token 留空时，脚本会自动用「密码 + mfa_code(TOTP)」登录签发 admin token
+# （MFA 密钥取自 docker/deploy/.env 的 ADMIN_MFA_SHARED_SECRET，免去 24h 手动续签）。
+# 也可直接注入未过期的 auth_token，或用环境变量 API_TEST_ADMIN_TOKEN 覆盖。
 admin:
   username: "admin"
   password: "Admin@123"
-  # 由「密码 + mfa_code(TOTP)」登录签发的 access token，有效期 24h；过期后需重新签发
-  auth_token: "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJAYWRtaW46bWF0cml4LnRlc3QiLCJ1c2VyX2lkIjoiQGFkbWluOm1hdHJpeC50ZXN0IiwianRpIjoiZGFmNDlkN2MtMzc0OS00NzQ1LWE4ZDUtMGNkYWI0ZDZkMDM3IiwiYWRtaW4iOnRydWUsImV4cCI6MTc5MTQ0MDE5NiwiaWF0IjoxNzkxMzUzNzk2LCJkZXZpY2VfaWQiOiJsMTIxVVFlTVE2NzVtN09QIiwiaXNzIjoibWF0cml4LnRlc3QiLCJhdWQiOiJtYXRyaXgudGVzdCJ9.pGo3wJW-_aKqP4VBFNqUu57WEehPU0vqMZPTqpn7LnQ"
+  # 留空 → 运行时自动登录签发；如需固定 token 可填入（有效期 24h，过期会触发大量 401 警告）
+  auth_token: ""
 
 # 权限/边界/功能阶段使用的双非管理员用户（用于跨账户越权测试）
 # 注意：必须是非 admin 用户，否则 admin 端点和 user 端点用的是同一个 token

@@ -14,7 +14,6 @@ use synapse_common::task_queue::RedisTaskQueue;
 use synapse_common::validation::Validator;
 use synapse_storage::room_tag::RoomTagStoreApi;
 use synapse_storage::{MemberStoreApi, RoomStoreApi, StateEvent, UserStore};
-use tokio::sync::RwLock;
 
 use super::infrastructure::RoomInfrastructure;
 use super::lifecycle::service::{LifecycleService, LifecycleServiceConfig};
@@ -158,8 +157,6 @@ pub struct RoomService {
     pub server_name: String,
     /// The `task_queue` field.
     pub task_queue: Option<Arc<RedisTaskQueue>>,
-    /// The `active_tasks` field.
-    pub active_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
     /// The `room_summary_service` field.
     pub room_summary_service: Arc<RoomSummaryService>,
     /// Shared infrastructure injected into sub-services.
@@ -275,7 +272,6 @@ impl RoomService {
             validator: config.validator,
             server_name: config.server_name,
             task_queue: config.task_queue,
-            active_tasks: Arc::new(RwLock::new(HashMap::new())),
             infra,
             sticky_event_storage: config.sticky_event_storage,
             event_reader: config.event_reader.clone().expect("event_reader required"),
@@ -305,33 +301,6 @@ impl RoomService {
     /// See [`lifecycle`].
     pub fn lifecycle(&self) -> &LifecycleService {
         &self.lifecycle
-    }
-
-    /// See [`cleanup_completed_tasks`].
-    pub async fn cleanup_completed_tasks(&self) -> usize {
-        let mut tasks = self.active_tasks.write().await;
-        tasks.retain(|_key, handle| !handle.is_finished());
-        tasks.len()
-    }
-
-    /// See [`abort_task`].
-    pub async fn abort_task(&self, task_id: &str) -> bool {
-        let mut tasks = self.active_tasks.write().await;
-        if let Some(handle) = tasks.remove(task_id) {
-            handle.abort();
-            true
-        } else {
-            false
-        }
-    }
-
-    /// See [`shutdown`].
-    pub async fn shutdown(&self) {
-        let mut tasks = self.active_tasks.write().await;
-        for (task_id, handle) in tasks.drain() {
-            ::tracing::info!(task_id = %task_id, "Aborting delayed task");
-            handle.abort();
-        }
     }
 
     /// See [`dispatch_appservice_event`].
@@ -381,67 +350,6 @@ impl RoomService {
             })),
             None => Err(ApiError::not_found("Room not found".to_string())),
         }
-    }
-
-    /// See [`get_room_state`].
-    pub async fn get_room_state(&self, room_id: &str, user_id: &str) -> ApiResult<serde_json::Value> {
-        if !self
-            .member_storage
-            .is_member(room_id, user_id)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to check membership", e))?
-        {
-            return Err(ApiError::forbidden("You are not a member of this room".to_string()));
-        }
-
-        let room = self
-            .room_storage
-            .get_room(room_id)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to get room", e))?;
-
-        match room {
-            Some(r) => Ok(json!({
-                "room_id": r.room_id,
-                "name": r.name,
-                "topic": r.topic,
-                "canonical_alias": r.canonical_alias,
-                "is_public": r.is_public,
-                "creator": r.creator_user_id,
-                "join_rule": r.join_rule
-            })),
-            None => Err(ApiError::not_found("Room not found".to_string())),
-        }
-    }
-
-    /// See [`get_user_rooms`].
-    pub async fn get_user_rooms(&self, user_id: &str) -> ApiResult<serde_json::Value> {
-        let room_ids = self
-            .member_storage
-            .get_joined_rooms(user_id)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to get rooms", e))?;
-
-        let rooms_data = self
-            .room_storage
-            .get_rooms_batch(&room_ids)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to fetch rooms batch", e))?;
-
-        let rooms: Vec<serde_json::Value> = rooms_data
-            .into_iter()
-            .map(|room| {
-                json!({
-                    "room_id": room.room_id,
-                    "name": room.name,
-                    "topic": room.topic,
-                    "is_public": room.is_public,
-                    "join_rule": room.join_rule
-                })
-            })
-            .collect();
-
-        Ok(json!(rooms))
     }
 
     /// Collect child room summaries for space hierarchy.

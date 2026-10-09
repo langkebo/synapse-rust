@@ -281,20 +281,19 @@ pub mod test_mocks;
 // public root API stays explicit.
 pub use auth::{AuthService, Claims, ClaimsBuilder, PasswordPolicy, PasswordPolicyService, PasswordValidationResult};
 pub use cache::{
-    circuit_breaker, compression, federation_signature_cache, invalidation, strategy, CacheConfig, CacheEntryKey,
-    CacheError, CacheInvalidationBroadcaster, CacheInvalidationConfig, CacheInvalidationManager,
-    CacheInvalidationMessage, CacheInvalidationSubscriber, CacheKeyBuilder, CacheManager, CacheTtl, CircuitBreaker,
-    CircuitBreakerMetrics, CircuitState, DegradationMetrics, FederationSignatureCache, InvalidationReceiver,
-    InvalidationType, KeyRotationCallback, KeyRotationEvent, LocalCache, RateLimitDecision, RedisCache,
-    SignatureCacheConfig, SignatureCacheEntry, SignatureCacheStats, CACHE_INVALIDATION_CHANNEL, DEFAULT_KEY_CACHE_TTL,
+    circuit_breaker, federation_signature_cache, invalidation, strategy, CacheConfig, CacheEntryKey, CacheError,
+    CacheInvalidationBroadcaster, CacheInvalidationConfig, CacheInvalidationManager, CacheInvalidationMessage,
+    CacheInvalidationSubscriber, CacheKeyBuilder, CacheManager, CacheTtl, CircuitBreaker, CircuitBreakerMetrics,
+    CircuitState, DegradationMetrics, FederationSignatureCache, InvalidationReceiver, InvalidationType,
+    KeyRotationCallback, KeyRotationEvent, LocalCache, RateLimitDecision, RedisCache, SignatureCacheConfig,
+    SignatureCacheEntry, SignatureCacheStats, CACHE_INVALIDATION_CHANNEL, DEFAULT_KEY_CACHE_TTL,
     DEFAULT_KEY_ROTATION_GRACE_PERIOD_MS, DEFAULT_LOCAL_CACHE_TTL_SECS, DEFAULT_REDIS_CACHE_TTL_SECS,
     DEFAULT_SIGNATURE_CACHE_TTL,
 }; // cache crate root items
 pub(crate) use common::*; // internal crate access; no longer flattened into public API
 pub use federation::{
-    client, device_sync, event_auth, event_broadcaster, key_rotation, memory_tracker, signing, DeviceSyncManager,
-    EventAuthChain, EventBroadcaster, FederationClient, FederationMemoryReport, FederationMemoryTracker,
-    KeyRotationManager, MemoryStats,
+    client, device_sync, event_auth, event_broadcaster, key_rotation, signing, DeviceSyncManager, EventAuthChain,
+    EventBroadcaster, FederationClient, KeyRotationManager,
 }; // federation crate root items
 #[cfg(feature = "friends")]
 pub use federation::{friend, FriendFederation, FriendFederationClient};

@@ -174,33 +174,51 @@ pub fn create_room_router() -> Router<AppState> {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn test_room_routes_structure() {
-        let routes = [
-            "/_matrix/client/v3/rooms/{room_id}",
-            "/_matrix/client/v3/rooms/{room_id}/messages",
-            "/_matrix/client/v3/createRoom",
-            "/_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/",
-            "/_matrix/client/v3/createRoom",
-            "/_matrix/client/v3/rooms/{room_id}/notifications",
-            "/_matrix/client/v3/join/{room_id_or_alias}",
-            "/_matrix/client/v3/rooms/{room_id}/sticky_events",
-        ];
+    use crate::routes::assembly::declared_ledger_all;
+    use crate::routes::route_ledger::RouteEntry;
 
-        assert!(routes.iter().all(|route| route.starts_with("/_matrix/client/")));
+    /// Extract the room router's routes from the derived route ledger.
+    ///
+    /// Mirrors `reactions.rs`: instead of hardcoding expected paths as strings
+    /// (which can silently drift from the real router and pass vacuously), we
+    /// filter the actual derived route table by `registered_by == "room"`.
+    fn room_route_manifest() -> Vec<RouteEntry> {
+        declared_ledger_all().iter().filter(|e| e.registered_by == "room").cloned().collect()
     }
 
+    /// The room router must expose the core client-v3 surface derived from the
+    /// real router assembly.
     #[test]
-    fn test_room_router_keeps_version_specific_paths() {
-        let membership_events = ["/_matrix/client/v3/rooms/{room_id}/get_membership_events"];
-        let v3_only = [
-            "/_matrix/client/v3/createRoom",
-            "/_matrix/client/v3/rooms/{room_id}/notifications",
-            "/_matrix/client/v3/rooms/{room_id}/sticky_events/{event_type}",
-        ];
+    fn test_room_routes_structure() {
+        let manifest = room_route_manifest();
+        assert!(!manifest.is_empty(), "room manifest must not be empty");
 
-        assert!(membership_events.iter().all(|route| route.starts_with("/_matrix/client/v3/")));
-        assert!(v3_only.iter().all(|route| route.starts_with("/_matrix/client/v3/")));
+        let has =
+            |method: axum::http::Method, path: &str| manifest.iter().any(|e| e.method == method && e.path == path);
+        assert!(has(axum::http::Method::POST, "/_matrix/client/v3/createRoom"));
+        assert!(has(axum::http::Method::GET, "/_matrix/client/v3/rooms/{room_id}/messages"));
+        assert!(has(axum::http::Method::POST, "/_matrix/client/v3/join/{room_id_or_alias}"));
+    }
+
+    /// Every room route must live under one of the sanctioned Matrix namespaces:
+    /// the stable client v1/v3 prefixes, the MSC unstable prefix, or the vendor
+    /// private prefix. This replaces the previous `starts_with("/_matrix/client/")`
+    /// assertion, which passed vacuously and even encoded a stale path —
+    /// `.../rooms/{room_id}/sticky_events` had already moved to the MSC4354
+    /// unstable prefix (`/_matrix/client/unstable/org.matrix.msc4354/...`).
+    #[test]
+    fn test_room_routes_have_sanctioned_prefix() {
+        const PREFIXES: [&str; 4] =
+            ["/_matrix/client/v1/", "/_matrix/client/v3/", "/_matrix/client/unstable/", "/_matrix/vendor/v1/"];
+        let manifest = room_route_manifest();
+        for e in &manifest {
+            assert!(
+                PREFIXES.iter().any(|p| e.path.starts_with(p)),
+                "room route {} {} is not under a sanctioned prefix",
+                e.method,
+                e.path
+            );
+        }
     }
 }
 

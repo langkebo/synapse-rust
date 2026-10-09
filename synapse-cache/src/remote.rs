@@ -72,11 +72,6 @@ impl RedisCache {
         &self.circuit_breaker
     }
 
-    /// Returns a clone of the current degradation metrics snapshot.
-    pub fn get_degradation_metrics(&self) -> DegradationMetrics {
-        self.degradation_metrics.read().clone()
-    }
-
     /// Circuit breaker + connection acquisition helper.
     ///
     /// Handles the common pattern shared by all Redis operations:

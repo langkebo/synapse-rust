@@ -82,10 +82,11 @@ impl std::str::FromStr for ContentType {
 ///
 /// `#[serde(default)]` is on the **struct**, not on individual fields, so a
 /// partial `content_scanner:` block in `homeserver.yaml` inherits the manual
-/// `Default` impl below (`scan_timeout_ms: 30_000`,
-/// `block_on_scan_failure: true`, ClamAV on 127.0.0.1:3310). Field-level
-/// defaults would use the *type* default instead and silently set the timeout
-/// to 0 / fail-open.
+/// `Default` impl below (`scan_timeout_ms: 30_000`). Field-level defaults would
+/// use the *type* default instead and silently set the timeout to 0.
+///
+/// NB: `block_on_scan_failure` used to live here but was a **write-only** knob —
+/// the scan path is unconditionally fail-closed — so it was removed.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ContentScannerConfig {
@@ -95,18 +96,10 @@ pub struct ContentScannerConfig {
     pub scanner_type: ScannerType,
     /// The `clamav_socket_path` field.
     pub clamav_socket_path: Option<String>,
-    /// The `clamav_host` field.
-    pub clamav_host: Option<String>,
-    /// The `clamav_port` field.
-    pub clamav_port: Option<u16>,
     /// The `webhook_url` field.
     pub webhook_url: Option<String>,
     /// The `webhook_secret` field.
     pub webhook_secret: Option<String>,
-    /// The `allowed_threat_types` field.
-    pub allowed_threat_types: Vec<String>,
-    /// The `block_on_scan_failure` field.
-    pub block_on_scan_failure: bool,
     /// The `scan_timeout_ms` field.
     pub scan_timeout_ms: u64,
 }
@@ -117,12 +110,8 @@ impl Default for ContentScannerConfig {
             enabled: false,
             scanner_type: ScannerType::ClamAv,
             clamav_socket_path: None,
-            clamav_host: Some("127.0.0.1".to_string()),
-            clamav_port: Some(3310),
             webhook_url: None,
             webhook_secret: None,
-            allowed_threat_types: vec![],
-            block_on_scan_failure: true,
             scan_timeout_ms: 30000,
         }
     }

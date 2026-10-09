@@ -858,7 +858,7 @@ async fn test_room_event_keys_contract_rejects_invalid_event_id() {
         &app,
         Request::builder()
             .method("GET")
-            .uri(format!("/_matrix/client/v3/rooms/{}/keys/invalid-event-id", encoded_room_id))
+            .uri(format!("/_matrix/vendor/v1/rooms/{}/keys/invalid-event-id", encoded_room_id))
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap(),
@@ -883,7 +883,7 @@ async fn test_room_thread_contract_rejects_invalid_event_id() {
         &app,
         Request::builder()
             .method("GET")
-            .uri(format!("/_matrix/client/v3/rooms/{}/thread/invalid-event-id", encoded_room_id))
+            .uri(format!("/_matrix/vendor/v1/rooms/{}/thread/invalid-event-id", encoded_room_id))
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap(),
@@ -912,7 +912,7 @@ async fn test_room_thread_contract_returns_replies_when_thread_exists() {
         app.clone(),
         Request::builder()
             .method("GET")
-            .uri(format!("/_matrix/client/v3/rooms/{}/thread/{}", encoded_room_id, root_event_id.replace('$', "%24")))
+            .uri(format!("/_matrix/vendor/v1/rooms/{}/thread/{}", encoded_room_id, root_event_id.replace('$', "%24")))
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap(),
@@ -978,27 +978,27 @@ async fn test_removed_private_room_placeholder_routes_return_404() {
     let encoded_room_id = encode_room_id(&room_id);
 
     let implemented_cases = vec![
-        ("GET", format!("/_matrix/client/v3/rooms/{}/fragments/@user:localhost", encoded_room_id)),
-        ("GET", format!("/_matrix/client/v3/rooms/{}/service_types", encoded_room_id)),
-        ("GET", format!("/_matrix/client/v3/rooms/{}/event_perspective", encoded_room_id)),
-        ("GET", format!("/_matrix/client/v3/rooms/{}/reduced_events", encoded_room_id)),
-        ("GET", format!("/_matrix/client/v3/rooms/{}/rendered/", encoded_room_id)),
+        ("GET", format!("/_matrix/vendor/v1/rooms/{}/fragments/@user:localhost", encoded_room_id)),
+        ("GET", format!("/_matrix/vendor/v1/rooms/{}/service_types", encoded_room_id)),
+        ("GET", format!("/_matrix/vendor/v1/rooms/{}/event_perspective", encoded_room_id)),
+        ("GET", format!("/_matrix/vendor/v1/rooms/{}/reduced_events", encoded_room_id)),
+        ("GET", format!("/_matrix/vendor/v1/rooms/{}/rendered/", encoded_room_id)),
         (
             "POST",
             format!(
-                "/_matrix/client/v3/rooms/{}/translate/{}",
+                "/_matrix/vendor/v1/rooms/{}/translate/{}",
                 encoded_room_id,
                 "$event:localhost".replace('$', "%24")
             ),
         ),
         (
             "POST",
-            format!("/_matrix/client/v3/rooms/{}/convert/{}", encoded_room_id, "$event:localhost".replace('$', "%24")),
+            format!("/_matrix/vendor/v1/rooms/{}/convert/{}", encoded_room_id, "$event:localhost".replace('$', "%24")),
         ),
-        ("GET", format!("/_matrix/client/v3/rooms/{}/vault_data", encoded_room_id)),
-        ("PUT", format!("/_matrix/client/v3/rooms/{}/vault_data", encoded_room_id)),
-        ("GET", format!("/_matrix/client/v3/rooms/{}/external_ids", encoded_room_id)),
-        ("GET", format!("/_matrix/client/v3/rooms/{}/device/DEVICEID", encoded_room_id)),
+        ("GET", format!("/_matrix/vendor/v1/rooms/{}/vault_data", encoded_room_id)),
+        ("PUT", format!("/_matrix/vendor/v1/rooms/{}/vault_data", encoded_room_id)),
+        ("GET", format!("/_matrix/vendor/v1/rooms/{}/external_ids", encoded_room_id)),
+        ("GET", format!("/_matrix/vendor/v1/rooms/{}/device/DEVICEID", encoded_room_id)),
     ];
 
     for (method, uri) in implemented_cases {
@@ -1055,7 +1055,7 @@ async fn test_receipt_contract_rejects_invalid_event_id_and_receipt_type() {
         Request::builder()
             .method("GET")
             .uri(format!(
-                "/_matrix/client/v3/rooms/{}/receipts/invalid-receipt/{event_id}",
+                "/_matrix/vendor/v1/rooms/{}/receipts/invalid-receipt/{event_id}",
                 encoded_room_id,
                 event_id = "$event:localhost".replace('$', "%24")
             ))

@@ -116,8 +116,13 @@ pub fn create_vendor_router() -> Router<AppState> {
 /// See [`create_router`].
 pub fn create_router(state: AppState) -> Router {
     // Validate the declared route manifest before assembling the live router.
-    // A duplicate (method, path) here is the exact class of bug that made
-    // the key_backup routes dead for months in §1.1/§1.2 of the spec plan.
+    // The manifest coming out of `derived_route_manifest` is already de-duped by
+    // `(method, path)` (keeping the highest rank), so this branch cannot fire on
+    // a cross-module collision — that class of bug is caught *upstream* by the
+    // same-rank guard in `scripts/contract/gen_derived_routes.py`, which fails
+    // codegen instead of silently dropping a route. This call is therefore a
+    // defensive consistency check plus the boot-time tuple/namespace summary; it
+    // is not the collision gate it used to be documented as.
     let ledger = declared_ledger_for(&state);
     match ledger.validate() {
         Ok(report) => {

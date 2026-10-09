@@ -11,7 +11,7 @@ use serde_json::Value;
 use synapse_common::ApiError;
 
 // Re-export shared logic from synapse-common (single source of truth).
-pub use synapse_common::push_rules::{default_push_rules_for_user, get_default_push_rules, merge_default_push_rules};
+pub use synapse_common::push_rules::{default_push_rules_for_user, merge_default_push_rules};
 
 /// See [`get_push_rules_default`].
 pub async fn get_push_rules_default(

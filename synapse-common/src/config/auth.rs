@@ -28,15 +28,6 @@ pub struct OidcConfig {
     pub attribute_mapping: OidcAttributeMapping,
     /// `callback_url` field.
     pub callback_url: Option<String>,
-    #[serde(default)]
-    /// `allow_existing_users` field.
-    pub allow_existing_users: bool,
-    #[serde(default)]
-    /// `block_unknown_users` field.
-    pub block_unknown_users: bool,
-    #[serde(default)]
-    /// `user_mapping_provider` field.
-    pub user_mapping_provider: Option<String>,
     /// `authorization_endpoint` field.
     pub authorization_endpoint: Option<String>,
     /// `token_endpoint` field.
@@ -68,9 +59,6 @@ impl Default for OidcConfig {
             scopes: default_oidc_scopes(),
             attribute_mapping: OidcAttributeMapping::default(),
             callback_url: None,
-            allow_existing_users: false,
-            block_unknown_users: false,
-            user_mapping_provider: None,
             authorization_endpoint: None,
             token_endpoint: None,
             userinfo_endpoint: None,

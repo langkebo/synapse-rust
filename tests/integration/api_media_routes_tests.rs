@@ -823,7 +823,6 @@ async fn unsafe_scan_verdict_blocks_upload_and_stores_nothing() {
             config.content_scanner.enabled = true;
             config.content_scanner.scanner_type = ScannerType::Webhook;
             config.content_scanner.webhook_url = Some(format!("{}/scan", mock.uri()));
-            config.content_scanner.block_on_scan_failure = true;
         }
         // `ContentScanner` captures its config at construction, and the test
         // container is built *before* this closure runs — so rebuild it from the

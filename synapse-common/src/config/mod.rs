@@ -87,7 +87,7 @@ pub use policy_server::PolicyServerConfig;
 /// Re-exported item.
 pub use rate_limit::{RateLimitConfig, RateLimitEndpointRule, RateLimitMatchType, RateLimitRule, SyncRateLimitConfig};
 /// Re-exported item.
-pub use retention::{RetentionConfig, RetentionPolicy, RetentionPurgeJob};
+pub use retention::RetentionConfig;
 /// Re-exported item.
 pub use search::{PostgresFtsConfig, PostgresFtsWeights, SearchConfig};
 /// Re-exported item.
@@ -97,13 +97,11 @@ pub use server::ServerConfig;
 /// Re-exported item.
 pub use sms::SmsConfig;
 /// Re-exported item.
-pub use smtp::{SmtpConfig, SmtpRateLimitConfig};
+pub use smtp::SmtpConfig;
 /// Re-exported item.
 pub use translate::TranslateConfig;
 /// Re-exported item.
-pub use voip::{
-    ApnsConfig, FcmConfig, LivekitConfig, PushConfig, UrlBlacklistRule, UrlPreviewConfig, VoipConfig, WebPushConfig,
-};
+pub use voip::{ApnsConfig, FcmConfig, LivekitConfig, PushConfig, UrlPreviewConfig, VoipConfig, WebPushConfig};
 /// Re-exported item.
 pub use worker::{InstanceLocationConfig, ReplicationConfig, ReplicationHttpConfig, StreamWriters, WorkerConfig};
 
@@ -393,7 +391,6 @@ mod tests {
                 macaroon_secret_key: None,
                 form_secret: None,
                 server_name: None,
-                suppress_key_server_warning: false,
                 serve_server_wellknown: false,
                 soft_file_limit: 0,
                 user_agent_suffix: None,
@@ -427,7 +424,6 @@ mod tests {
                 username: "testuser".to_string(),
                 password: "testpass".to_string(),
                 name: "testdb".to_string(),
-                pool_size: 10,
                 max_size: 20,
                 min_idle: Some(5),
                 connection_timeout: 30,
@@ -456,15 +452,12 @@ mod tests {
                 allow_ingress: false,
                 server_name: "test.example.com".to_string(),
                 federation_port: 8448,
-                connection_pool_size: 10,
                 max_transaction_payload: 50000,
                 ca_file: None,
                 client_ca_file: None,
                 signing_key: Some("test_signing_key".to_string()),
                 key_id: Some("ed25519:test_key".to_string()),
                 trusted_key_servers: vec![],
-                key_refresh_interval: 86400,
-                suppress_key_server_warning: false,
                 signature_cache_ttl: 3600,
                 key_cache_ttl: 3600,
                 key_rotation_grace_period_ms: 60_0000,
@@ -557,7 +550,6 @@ mod tests {
                 macaroon_secret_key: None,
                 form_secret: None,
                 server_name: None,
-                suppress_key_server_warning: false,
                 serve_server_wellknown: false,
                 soft_file_limit: 0,
                 user_agent_suffix: None,
@@ -591,7 +583,6 @@ mod tests {
                 username: "testuser".to_string(),
                 password: "testpass".to_string(),
                 name: "testdb".to_string(),
-                pool_size: 10,
                 max_size: 20,
                 min_idle: Some(5),
                 connection_timeout: 30,
@@ -620,15 +611,12 @@ mod tests {
                 allow_ingress: false,
                 server_name: "test.example.com".to_string(),
                 federation_port: 8448,
-                connection_pool_size: 10,
                 max_transaction_payload: 50000,
                 ca_file: None,
                 client_ca_file: None,
                 signing_key: Some("test_signing_key".to_string()),
                 key_id: Some("ed25519:test_key".to_string()),
                 trusted_key_servers: vec![],
-                key_refresh_interval: 86400,
-                suppress_key_server_warning: false,
                 signature_cache_ttl: 3600,
                 key_cache_ttl: 3600,
                 key_rotation_grace_period_ms: 60_0000,
@@ -717,7 +705,6 @@ mod tests {
             macaroon_secret_key: None,
             form_secret: None,
             server_name: None,
-            suppress_key_server_warning: false,
             serve_server_wellknown: false,
             soft_file_limit: 0,
             user_agent_suffix: None,
@@ -765,7 +752,6 @@ mod tests {
             username: "synapse".to_string(),
             password: "secure_password".to_string(),
             name: "synapse".to_string(),
-            pool_size: 10,
             max_size: 20,
             min_idle: None,
             connection_timeout: 60,
@@ -834,7 +820,6 @@ mod tests {
                 macaroon_secret_key: None,
                 form_secret: None,
                 server_name: None,
-                suppress_key_server_warning: false,
                 serve_server_wellknown: false,
                 soft_file_limit: 0,
                 user_agent_suffix: None,
@@ -868,7 +853,6 @@ mod tests {
                 username: "testuser".to_string(),
                 password: "testpass".to_string(),
                 name: "testdb".to_string(),
-                pool_size: 10,
                 max_size: 20,
                 min_idle: Some(5),
                 connection_timeout: 30,
@@ -900,15 +884,12 @@ mod tests {
                 allow_ingress: false,
                 server_name: "test.example.com".to_string(),
                 federation_port: 8448,
-                connection_pool_size: 10,
                 max_transaction_payload: 50000,
                 ca_file: None,
                 client_ca_file: None,
                 signing_key: Some("test_signing_key".to_string()),
                 key_id: Some("ed25519:test_key".to_string()),
                 trusted_key_servers: vec![],
-                key_refresh_interval: 86400,
-                suppress_key_server_warning: false,
                 signature_cache_ttl: 3600,
                 key_cache_ttl: 3600,
                 key_rotation_grace_period_ms: 60_0000,
@@ -1062,15 +1043,12 @@ mod tests {
             allow_ingress: true,
             server_name: "federation.example.com".to_string(),
             federation_port: 8448,
-            connection_pool_size: 50,
             max_transaction_payload: 100000,
             ca_file: Some(PathBuf::from("/etc/synapse/ca.crt")),
             client_ca_file: None,
             signing_key: None,
             key_id: None,
             trusted_key_servers: vec![],
-            key_refresh_interval: 86400,
-            suppress_key_server_warning: false,
             signature_cache_ttl: 3600,
             key_cache_ttl: 3600,
             key_rotation_grace_period_ms: 60_0000,

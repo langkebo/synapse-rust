@@ -45,22 +45,6 @@ impl MembershipService {
 
         self.room_auth.can_invite_user(room_id, inviter_id).await?;
 
-        // Validate membership transition: cannot invite banned or already-joined users.
-        let target_state = self
-            .member_storage
-            .get_room_member(room_id, invitee_id)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to check target membership", e))?
-            .as_ref()
-            .and_then(|m| super::transition::MembershipState::parse_opt(&m.membership));
-        if let Err(msg) = super::transition::is_legal(
-            target_state,
-            super::transition::MembershipState::Invite,
-            &super::transition::TransitionContext::default(),
-        ) {
-            return Err(ApiError::forbidden(msg.to_string()));
-        }
-
         // State-machine gate: reject inviting a banned/already-joined user.
         // Power was enforced by `can_invite_user` above.
         let (from, target_is_banned) = self.resolve_membership_from(room_id, invitee_id).await?;
@@ -287,22 +271,6 @@ impl MembershipService {
 
         self.room_auth.can_ban_user(room_id, banned_by, user_id).await?;
 
-        // Validate membership transition: only join/invite/knock can be banned.
-        let target_state = self
-            .member_storage
-            .get_room_member(room_id, user_id)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to check target membership", e))?
-            .as_ref()
-            .and_then(|m| super::transition::MembershipState::parse_opt(&m.membership));
-        if let Err(msg) = super::transition::is_legal(
-            target_state,
-            super::transition::MembershipState::Ban,
-            &super::transition::TransitionContext::default(),
-        ) {
-            return Err(ApiError::forbidden(msg.to_string()));
-        }
-
         // State-machine gate: reject self-ban. Power level and creator
         // protection were enforced by `can_ban_user` above.
         let (from, _) = self.resolve_membership_from(room_id, user_id).await?;
@@ -361,22 +329,6 @@ impl MembershipService {
     /// See [`unban_user`].
     pub async fn unban_user(&self, room_id: &str, user_id: &str, unbanned_by: &str) -> ApiResult<()> {
         self.room_auth.can_unban_user(room_id, unbanned_by, user_id).await?;
-
-        // Validate membership transition: unban is ban→leave.
-        let target_state = self
-            .member_storage
-            .get_room_member(room_id, user_id)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to check target membership", e))?
-            .as_ref()
-            .and_then(|m| super::transition::MembershipState::parse_opt(&m.membership));
-        if let Err(msg) = super::transition::is_legal(
-            target_state,
-            super::transition::MembershipState::Leave,
-            &super::transition::TransitionContext::default(),
-        ) {
-            return Err(ApiError::bad_request(msg.to_string()));
-        }
 
         // State-machine precondition: unban only applies to a currently-banned
         // user. `to = leave` is ambiguous between unban and kick, so the
@@ -462,22 +414,6 @@ impl MembershipService {
         }
 
         self.room_auth.can_kick_user(room_id, kicked_by, target_user_id).await?;
-
-        // Validate membership transition: only joined members can be kicked.
-        let target_state = self
-            .member_storage
-            .get_room_member(room_id, target_user_id)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to check target membership", e))?
-            .as_ref()
-            .and_then(|m| super::transition::MembershipState::parse_opt(&m.membership));
-        if let Err(msg) = super::transition::is_legal(
-            target_state,
-            super::transition::MembershipState::Leave,
-            &super::transition::TransitionContext::default(),
-        ) {
-            return Err(ApiError::forbidden(msg.to_string()));
-        }
 
         // State-machine precondition: kick only applies to a user currently in
         // the room (join / invite / knock). A banned user must be unbanned, and

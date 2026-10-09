@@ -1,7 +1,7 @@
 //! EDU (Ephemeral Data Unit) types for federation transactions.
 //!
 //! Pure data types and helpers. The dispatcher that routes EDUs to handlers
-//! lives in the main crate (`src/federation/edu.rs`) because it depends on
+//! lives in `synapse-web/src/federation/edu.rs` because it depends on
 //! `AppState` and the service container.
 
 use std::str::FromStr;

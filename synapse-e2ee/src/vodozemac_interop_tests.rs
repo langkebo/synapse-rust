@@ -623,7 +623,7 @@ fn room_key_payload_is_well_formed() {
 /// Parsing the payload back into a `RoomKeyContent` shape must
 /// preserve the session_key bytes, the algorithm identifier, the
 /// room_id, and the chain_index. This is what the receiver does
-/// before calling `MegolmVodozemacService::import_session`.
+/// before rehydrating the inbound session from its `session_key`.
 #[test]
 fn room_key_payload_parse_preserves_fields() {
     if skip_unless_interop() {

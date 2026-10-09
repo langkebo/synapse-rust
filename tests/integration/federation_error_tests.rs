@@ -180,48 +180,6 @@ mod federation_event_auth_error_tests {
 }
 
 #[cfg(test)]
-mod compression_error_tests {
-    use synapse_rust::cache::compression::{compress, decompress};
-
-    #[test]
-    fn test_decompress_empty_data() {
-        let result = decompress(&[]);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_decompress_invalid_compressed_data() {
-        let invalid_data = vec![1, 2, 3, 4, 5];
-        let result = decompress(&invalid_data);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_compress_decompress_roundtrip() {
-        let original = b"Test data for compression roundtrip verification";
-        let compressed = compress(original).unwrap();
-        let decompressed = decompress(&compressed).unwrap();
-        assert_eq!(&decompressed, original);
-    }
-
-    #[test]
-    fn test_compress_unicode() {
-        let original = "你好世界 🌍 Hello World";
-        let compressed = synapse_rust::cache::compression::compress_string(original).unwrap();
-        let decompressed = synapse_rust::cache::compression::decompress_to_string(&compressed).unwrap();
-        assert_eq!(decompressed, original);
-    }
-
-    #[test]
-    fn test_small_data_not_compressed() {
-        let original = b"small";
-        let compressed = compress(original).unwrap();
-        assert_eq!(compressed[0], 0);
-        assert_eq!(&compressed[1..], original);
-    }
-}
-
-#[cfg(test)]
 mod cache_error_tests {
     use synapse_rust::cache::{CacheConfig, CacheManager, LocalCache};
 

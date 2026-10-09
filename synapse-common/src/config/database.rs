@@ -76,13 +76,6 @@ pub struct DatabaseConfig {
     pub password: String,
     /// 数据库名称
     pub name: String,
-    /// 连接池大小。
-    ///
-    /// ⚠️ 已废弃：实际连接池上限由 [`max_size`](Self::max_size) 控制（`server/database.rs`
-    /// 的 `PgPoolOptions::max_connections` 只读 `max_size`），本字段零引用、仅保留以
-    /// 兼容旧配置，勿再依赖。
-    #[serde(default)]
-    pub pool_size: u32,
     /// 最大连接数（实际生效的连接池上限，对齐 Synapse ≥50）
     #[serde(default = "default_database_max_size")]
     pub max_size: u32,
@@ -128,7 +121,6 @@ impl Default for DatabaseConfig {
             username: String::new(),
             password: String::new(),
             name: String::new(),
-            pool_size: 0,
             max_size: 50,
             min_idle: None,
             connection_timeout: 60,
@@ -340,7 +332,6 @@ mod tests {
             username: "synapse".into(),
             password: "db-s3cr3t".into(),
             name: "synapse".into(),
-            pool_size: 20,
             max_size: 20,
             min_idle: None,
             connection_timeout: 30,

@@ -502,7 +502,6 @@ mod smtp_smoke_tests {
             username: "user".to_string(),
             password: "pass".to_string(),
             tls: true,
-            ..Default::default()
         };
         let result = build_smtp_mailer(&config);
         // TLS parameters for "smtp.example.com" may fail DNS resolution,

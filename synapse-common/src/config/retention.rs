@@ -9,26 +9,6 @@ use serde::Deserialize;
 /// Configures policies for automatically deleting old messages.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RetentionConfig {
-    /// Whether to enable message retention
-    #[serde(default)]
-    pub enabled: bool,
-
-    /// Default retention policy
-    #[serde(default)]
-    pub default_policy: Option<RetentionPolicy>,
-
-    /// Minimum allowed retention period (seconds)
-    #[serde(default)]
-    pub allowed_lifetime_min: Option<u64>,
-
-    /// Maximum allowed retention period (seconds)
-    #[serde(default)]
-    pub allowed_lifetime_max: Option<u64>,
-
-    /// Whether to purge deleted messages
-    #[serde(default = "default_retention_purge_jobs")]
-    pub purge_jobs: Vec<RetentionPurgeJob>,
-
     /// Whether to enable continuous data lifecycle cleanup
     #[serde(default = "default_retention_lifecycle_cleanup_enabled")]
     pub lifecycle_cleanup_enabled: bool,
@@ -40,42 +20,6 @@ pub struct RetentionConfig {
     /// Audit event retention days
     #[serde(default = "default_retention_audit_retention_days")]
     pub audit_retention_days: u64,
-}
-
-/// Retention policy
-#[derive(Debug, Clone, Deserialize)]
-pub struct RetentionPolicy {
-    /// Minimum retention period (seconds)
-    #[serde(default)]
-    pub min_lifetime: Option<u64>,
-
-    /// Maximum retention period (seconds)
-    #[serde(default)]
-    pub max_lifetime: Option<u64>,
-}
-
-/// Retention purge job
-#[derive(Debug, Clone, Deserialize)]
-pub struct RetentionPurgeJob {
-    /// Purge interval (seconds)
-    #[serde(default = "default_purge_job_interval")]
-    pub interval: u64,
-
-    /// Maximum number of rooms per purge
-    #[serde(default = "default_purge_job_batch_size")]
-    pub batch_size: u32,
-}
-
-fn default_retention_purge_jobs() -> Vec<RetentionPurgeJob> {
-    vec![RetentionPurgeJob { interval: default_purge_job_interval(), batch_size: default_purge_job_batch_size() }]
-}
-
-fn default_purge_job_interval() -> u64 {
-    86400
-}
-
-fn default_purge_job_batch_size() -> u32 {
-    100
 }
 
 fn default_retention_lifecycle_cleanup_enabled() -> bool {
@@ -93,11 +37,6 @@ fn default_retention_audit_retention_days() -> u64 {
 impl Default for RetentionConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
-            default_policy: None,
-            allowed_lifetime_min: None,
-            allowed_lifetime_max: None,
-            purge_jobs: default_retention_purge_jobs(),
             lifecycle_cleanup_enabled: default_retention_lifecycle_cleanup_enabled(),
             lifecycle_cleanup_interval_secs: default_retention_lifecycle_interval_secs(),
             audit_retention_days: default_retention_audit_retention_days(),
@@ -112,34 +51,8 @@ mod tests {
     #[test]
     fn test_retention_config_default() {
         let config = RetentionConfig::default();
-        assert!(!config.enabled);
-        assert!(config.default_policy.is_none());
-        assert!(config.allowed_lifetime_min.is_none());
-        assert!(config.allowed_lifetime_max.is_none());
         assert!(config.lifecycle_cleanup_enabled);
         assert_eq!(config.lifecycle_cleanup_interval_secs, 300);
         assert_eq!(config.audit_retention_days, 90);
-    }
-
-    #[test]
-    fn test_retention_purge_job_default() {
-        let jobs = default_retention_purge_jobs();
-        assert_eq!(jobs.len(), 1);
-        assert_eq!(jobs[0].interval, 86400);
-        assert_eq!(jobs[0].batch_size, 100);
-    }
-
-    #[test]
-    fn test_retention_policy_creation() {
-        let policy = RetentionPolicy { min_lifetime: Some(3600), max_lifetime: Some(86400) };
-        assert_eq!(policy.min_lifetime, Some(3600));
-        assert_eq!(policy.max_lifetime, Some(86400));
-    }
-
-    #[test]
-    fn test_retention_purge_job_creation() {
-        let job = RetentionPurgeJob { interval: 3600, batch_size: 50 };
-        assert_eq!(job.interval, 3600);
-        assert_eq!(job.batch_size, 50);
     }
 }

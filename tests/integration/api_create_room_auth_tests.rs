@@ -86,7 +86,7 @@ async fn test_create_private_room_rejects_guest_token() {
 
     let request = Request::builder()
         .method("POST")
-        .uri("/_matrix/client/v3/rooms/create_private")
+        .uri("/_matrix/vendor/v1/rooms/create_private")
         .header("Authorization", format!("Bearer {guest_token}"))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({"name": "guest private room"}).to_string()))

@@ -144,84 +144,16 @@ impl MediaQuotaService {
         })
     }
 
-    /// See [`set_user_quota`].
-    #[instrument(skip(self))]
-    pub async fn set_user_quota(&self, request: SetUserQuotaRequest) -> Result<UserMediaQuota, ApiError> {
-        info!(
-            user_id = %request.user_id,
-            quota_config_id = ?request.quota_config_id,
-            custom_max_storage_bytes = ?request.custom_max_storage_bytes,
-            custom_max_file_size_bytes = ?request.custom_max_file_size_bytes,
-            custom_max_files_count = ?request.custom_max_files_count,
-            "Setting user quota"
-        );
-        self.storage.set_user_quota(request).await
-    }
-
-    /// See [`create_quota_config`].
-    #[instrument(skip(self))]
-    pub async fn create_quota_config(&self, request: CreateQuotaConfigRequest) -> Result<MediaQuotaConfig, ApiError> {
-        info!(
-            config_name = %request.name,
-            max_storage_bytes = request.max_storage_bytes,
-            max_file_size_bytes = request.max_file_size_bytes,
-            max_files_count = request.max_files_count,
-            is_default = ?request.is_default,
-            "Creating quota config"
-        );
-        self.storage.create_config(request).await
-    }
-
-    /// See [`list_quota_configs`].
-    #[instrument(skip(self))]
-    pub async fn list_quota_configs(&self) -> Result<Vec<MediaQuotaConfig>, ApiError> {
-        self.storage.list_configs().await
-    }
-
-    /// See [`delete_quota_config`].
-    #[instrument(skip(self))]
-    pub async fn delete_quota_config(&self, config_id: i64) -> Result<bool, ApiError> {
-        info!(config_id, "Deleting quota config");
-        self.storage.delete_config(config_id).await
-    }
-
     /// See [`get_server_quota`].
     #[instrument(skip(self))]
     pub async fn get_server_quota(&self) -> Result<ServerMediaQuota, ApiError> {
         self.storage.get_server_quota().await
     }
 
-    /// See [`update_server_quota`].
-    #[instrument(skip(self))]
-    pub async fn update_server_quota(
-        &self,
-        max_storage_bytes: Option<i64>,
-        max_file_size_bytes: Option<i64>,
-        max_files_count: Option<i32>,
-        alert_threshold_percent: Option<i32>,
-    ) -> Result<ServerMediaQuota, ApiError> {
-        info!(
-            max_storage_bytes = ?max_storage_bytes,
-            max_file_size_bytes = ?max_file_size_bytes,
-            max_files_count = ?max_files_count,
-            alert_threshold_percent = ?alert_threshold_percent,
-            "Updating server quota"
-        );
-        self.storage
-            .update_server_quota(max_storage_bytes, max_file_size_bytes, max_files_count, alert_threshold_percent)
-            .await
-    }
-
     /// See [`get_user_alerts`].
     #[instrument(skip(self))]
     pub async fn get_user_alerts(&self, user_id: &str, unread_only: bool) -> Result<Vec<MediaQuotaAlert>, ApiError> {
         self.storage.get_user_alerts(user_id, unread_only).await
-    }
-
-    /// See [`mark_alert_read`].
-    #[instrument(skip(self))]
-    pub async fn mark_alert_read(&self, alert_id: i64) -> Result<bool, ApiError> {
-        self.storage.mark_alert_read(alert_id).await
     }
 
     /// See [`get_usage_stats`].

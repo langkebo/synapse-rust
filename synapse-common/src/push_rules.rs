@@ -286,11 +286,6 @@ pub fn merge_default_push_rules(content: &mut Value, user_id: &str, username: &s
     }
 }
 
-/// Back-compat for callers that don't have a user context.
-pub fn get_default_push_rules() -> Value {
-    default_push_rules_for_user("@user:localhost", "user")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

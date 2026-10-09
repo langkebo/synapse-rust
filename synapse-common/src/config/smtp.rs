@@ -26,12 +26,6 @@ pub struct SmtpConfig {
     /// 是否使用TLS
     #[serde(default = "default_true")]
     pub tls: bool,
-    /// 验证码有效期（秒）
-    #[serde(default = "default_verification_expire")]
-    pub verification_token_expire: i64,
-    /// 速率限制配置
-    #[serde(default)]
-    pub rate_limit: SmtpRateLimitConfig,
 }
 
 fn default_smtp_enabled() -> bool {
@@ -44,35 +38,6 @@ fn default_smtp_port() -> u16 {
 
 fn default_true() -> bool {
     true
-}
-
-fn default_verification_expire() -> i64 {
-    900 // 15分钟
-}
-
-/// SMTP发送速率限制配置。
-#[derive(Debug, Clone, Deserialize)]
-pub struct SmtpRateLimitConfig {
-    /// 每分钟最大发送数
-    #[serde(default = "default_smtp_per_minute")]
-    pub per_minute: u32,
-    /// 每小时最大发送数
-    #[serde(default = "default_smtp_per_hour")]
-    pub per_hour: u32,
-}
-
-impl Default for SmtpRateLimitConfig {
-    fn default() -> Self {
-        Self { per_minute: default_smtp_per_minute(), per_hour: default_smtp_per_hour() }
-    }
-}
-
-fn default_smtp_per_minute() -> u32 {
-    3
-}
-
-fn default_smtp_per_hour() -> u32 {
-    10
 }
 
 #[cfg(test)]
@@ -92,14 +57,6 @@ mod tests {
         assert!(config.from.is_empty());
         // Default derive gives bool default of false, not true
         assert!(!config.tls);
-        assert_eq!(config.verification_token_expire, 0);
-    }
-
-    #[test]
-    fn test_smtp_rate_limit_config_default() {
-        let config = SmtpRateLimitConfig::default();
-        assert_eq!(config.per_minute, 3);
-        assert_eq!(config.per_hour, 10);
     }
 
     #[test]
@@ -107,8 +64,5 @@ mod tests {
         assert!(!default_smtp_enabled());
         assert_eq!(default_smtp_port(), 587);
         assert!(default_true());
-        assert_eq!(default_verification_expire(), 900);
-        assert_eq!(default_smtp_per_minute(), 3);
-        assert_eq!(default_smtp_per_hour(), 10);
     }
 }

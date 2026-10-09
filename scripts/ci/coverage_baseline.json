@@ -553,10 +553,6 @@
       "line_pct": 51.99
     },
     {
-      "path": "synapse-federation/memory_tracker.rs",
-      "line_pct": 98.54
-    },
-    {
       "path": "synapse-federation/server_acl.rs",
       "line_pct": 97.59
     },

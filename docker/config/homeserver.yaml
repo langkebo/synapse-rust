@@ -129,17 +129,15 @@ search:
 # To enable: set `enabled: true`, choose `scanner_type` (`clam_av` or `webhook`)
 # and configure its endpoint (ClamAV socket/host+port, or `webhook_url`).
 # When enabled, an unsafe verdict blocks the upload with 403 M_FORBIDDEN and a
-# scanner failure blocks it fail-closed (per `block_on_scan_failure`).
+# scanner failure blocks it fail-closed.
 content_scanner:
   enabled: false
-  block_on_scan_failure: true
 
 federation:
   enabled: true
   allow_ingress: true
   server_name: "${SERVER_NAME:-localhost}"
   federation_port: 8448
-  connection_pool_size: 100
   max_transaction_payload: 10485760
   signing_key: "${FEDERATION_SIGNING_KEY:?FEDERATION_SIGNING_KEY is required}"
   key_id: "${FEDERATION_KEY_ID:-ed25519:local}"
@@ -147,8 +145,6 @@ federation:
   allow_plaintext_signing_keys: false
   trusted_key_servers:
     - server_name: "matrix.org"
-  key_refresh_interval: 86400
-  suppress_key_server_warning: false
   signature_cache_ttl: 3600
   key_cache_ttl: 3600
   key_rotation_grace_period_ms: 600000
@@ -249,15 +245,6 @@ push:
   enabled: false
 
 retention:
-  enabled: true
-  default_policy:
-    min_lifetime: 86400
-    max_lifetime: 7776000
-  allowed_lifetime_min: 86400
-  allowed_lifetime_max: 7776000
-  purge_jobs:
-    - interval: 3600
-      batch_size: 500
   lifecycle_cleanup_enabled: true
   lifecycle_cleanup_interval_secs: 900
   audit_retention_days: 30
@@ -271,7 +258,6 @@ telemetry:
   metrics_enabled: true
   logs_enabled: false
   otlp_endpoint: "${OTLP_ENDPOINT:-http://otel-collector:4317}"
-  otlp_headers: null
   sampling_ratio: 0.1
   batch_export: true
   export_timeout_seconds: 30
@@ -286,4 +272,3 @@ prometheus:
   enabled: true
   port: 9090
   path: "/metrics"
-  include_namespace: true

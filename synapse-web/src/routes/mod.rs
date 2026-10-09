@@ -232,7 +232,7 @@ pub use oidc::create_oidc_router;
 pub use presence::create_presence_router;
 pub use push::create_push_router;
 pub use push_notification::create_push_notification_router;
-pub use push_rules::{get_default_push_rules, get_push_rules_default, get_push_rules_global_default};
+pub use push_rules::{get_push_rules_default, get_push_rules_global_default};
 pub use reactions::create_reactions_router;
 pub use relations::create_relations_router;
 pub use rendezvous::create_rendezvous_router;

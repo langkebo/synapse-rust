@@ -2,8 +2,8 @@ use super::error::CacheConfig;
 use super::local::LocalCache;
 use super::remote::RedisCache;
 use crate::invalidation::{
-    CacheInvalidationConfig, CacheInvalidationManager, CacheInvalidationMessage, InvalidationReceiver,
-    InvalidationType, CACHE_INVALIDATION_CHANNEL, DEFAULT_LOCAL_CACHE_TTL_SECS, DEFAULT_REDIS_CACHE_TTL_SECS,
+    CacheInvalidationConfig, CacheInvalidationManager, CacheInvalidationMessage, InvalidationType,
+    CACHE_INVALIDATION_CHANNEL, DEFAULT_LOCAL_CACHE_TTL_SECS, DEFAULT_REDIS_CACHE_TTL_SECS,
 };
 use crate::rate_limit_metrics::RateLimitMetrics;
 use deadpool_redis::Pool;
@@ -321,11 +321,6 @@ impl CacheManager {
                 .await?;
         }
         Ok(())
-    }
-
-    /// Returns a channel receiver for cache-invalidation pub/sub messages.
-    pub fn subscribe_to_invalidations(&self) -> Option<InvalidationReceiver> {
-        self.invalidation_manager.as_ref().and_then(|im| im.subscribe())
     }
 
     /// Applies a cache-invalidation message to the local L1 cache.

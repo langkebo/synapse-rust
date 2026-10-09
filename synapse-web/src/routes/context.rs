@@ -710,12 +710,6 @@ pub struct FederationContext {
     pub key_rotation_manager: synapse_federation::KeyRotationManager,
     /// The `federation_client` field.
     pub federation_client: Arc<dyn synapse_federation::client_api::FederationClientApi>,
-    /// The `event_auth_chain` field.
-    pub event_auth_chain: synapse_federation::EventAuthChain,
-    /// The `device_sync_manager` field.
-    pub device_sync_manager: synapse_federation::DeviceSyncManager,
-    /// The `federation_server_name` field.
-    pub federation_server_name: String,
     /// The `admin_audit_service` field.
     pub admin_audit_service: Option<Arc<synapse_services::admin::AdminAuditService>>,
     /// The `worker_manager` field.
@@ -780,9 +774,6 @@ impl FromRef<AppState> for FederationContext {
             account_device_list_service: state.services.account.account_device_list_service.clone(),
             key_rotation_manager: state.services.federation.key_rotation_manager.clone(),
             federation_client: state.services.federation.federation_client.clone(),
-            event_auth_chain: state.services.federation.event_auth_chain.clone(),
-            device_sync_manager: state.services.federation.device_sync_manager.clone(),
-            federation_server_name: state.services.federation.federation_server_name.clone(),
             admin_audit_service: state.services.admin.security.admin_audit_service.clone().into(),
             worker_manager: state.services.admin.modules.worker_manager.clone(),
             media_service: state.services.core.media_service.clone(),

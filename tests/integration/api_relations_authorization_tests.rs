@@ -297,7 +297,7 @@ async fn anti_screenshot_requires_power_level_not_only_membership() {
     // A plain member (power level 0) must NOT be able to flip this room-wide
     // STATE event: `com.hula.privacy` is governed by state_default.
     let request = put_json(
-        format!("/_matrix/client/v3/rooms/{room_id}/anti_screenshot"),
+        format!("/_matrix/vendor/v1/rooms/{room_id}/anti_screenshot"),
         &member_token,
         &json!({ "enabled": true }),
     );
@@ -310,7 +310,7 @@ async fn anti_screenshot_requires_power_level_not_only_membership() {
 
     // The creator (power level 100) still can.
     let request = put_json(
-        format!("/_matrix/client/v3/rooms/{room_id}/anti_screenshot"),
+        format!("/_matrix/vendor/v1/rooms/{room_id}/anti_screenshot"),
         &owner_token,
         &json!({ "enabled": true }),
     );

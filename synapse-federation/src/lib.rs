@@ -37,8 +37,6 @@ pub mod event_finalize;
 pub mod friend;
 /// The `key_rotation` module.
 pub mod key_rotation;
-/// The `memory_tracker` module.
-pub mod memory_tracker;
 
 pub mod make_response_validation;
 /// The `server_acl` module.
@@ -66,5 +64,4 @@ pub use event_broadcaster::EventBroadcaster;
 #[cfg(feature = "friends")]
 pub use friend::*;
 pub use key_rotation::{KeyRotationManager, KeyRotationManagerApi};
-pub use memory_tracker::{FederationMemoryReport, FederationMemoryTracker, MemoryStats};
 pub use server_acl::ServerAclContent;

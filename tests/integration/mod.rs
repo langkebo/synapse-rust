@@ -59,7 +59,6 @@ mod cache_tests;
 mod cleanup_tests;
 #[path = "../common/mod.rs"]
 mod common;
-mod concurrency_tests;
 mod database_integrity_tests;
 mod federation_error_tests;
 mod federation_existence_leak_tests;

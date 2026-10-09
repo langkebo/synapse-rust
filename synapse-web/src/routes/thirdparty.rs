@@ -83,6 +83,14 @@ pub struct LocationQuery {
     pub channel: Option<String>,
 }
 
+// The four `location`/`user` query endpoints below are registered but always
+// answer `M_UNRECOGNIZED`. This is by-design, not a phantom route: the spec
+// defines these as the "no bridge configured" surface, and `M_UNRECOGNIZED` is
+// the sanctioned reply when no third-party bridge resolves the query. They are
+// kept in the ledger so the route surface stays complete and clients get a
+// well-formed spec error rather than a 404. This mirrors the voice endpoints in
+// `_matrix/vendor/v1/voice` (which likewise stay registered and return a
+// spec-sanctioned error; see the by-design note there / FN-05).
 async fn get_location(
     State(_ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,

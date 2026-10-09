@@ -381,7 +381,7 @@ impl ServiceContainer {
         .await;
 
         // Federation — builds key_rotation_manager + federation_client; no rooms dependency
-        let federation = wiring::FederationServices::new(pool, cache, config, &infra.infra.task_queue).await;
+        let federation = wiring::FederationServices::new(pool, config).await;
 
         // Reuse member_storage created in build_storage_layer (for MSC4204 profile notifications)
         let member_storage = storage.member_storage.clone();

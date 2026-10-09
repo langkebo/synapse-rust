@@ -349,7 +349,7 @@ async fn test_thread_management_requires_room_creator() {
 
     let unfreeze_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v1/rooms/{}/threads/{}/unfreeze", room_id, thread_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/threads/{}/unfreeze", room_id, thread_id))
         .header("Authorization", format!("Bearer {}", member_token))
         .body(Body::empty())
         .unwrap();
@@ -376,7 +376,7 @@ async fn test_thread_management_requires_room_creator() {
 
     let owner_unfreeze_request = Request::builder()
         .method("POST")
-        .uri(format!("/_matrix/client/v1/rooms/{}/threads/{}/unfreeze", room_id, thread_id))
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/threads/{}/unfreeze", room_id, thread_id))
         .header("Authorization", format!("Bearer {}", owner_token))
         .body(Body::empty())
         .unwrap();

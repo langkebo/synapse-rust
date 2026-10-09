@@ -15,8 +15,6 @@ pub struct OpenTelemetryConfig {
     pub service_namespace: String,
     /// `otlp_endpoint` field.
     pub otlp_endpoint: Option<String>,
-    /// `otlp_headers` field.
-    pub otlp_headers: Option<std::collections::HashMap<String, String>>,
     /// `trace_enabled` field.
     pub trace_enabled: bool,
     /// `metrics_enabled` field.
@@ -47,7 +45,6 @@ impl Default for OpenTelemetryConfig {
             service_version: env!("CARGO_PKG_VERSION").to_string(),
             service_namespace: "matrix".to_string(),
             otlp_endpoint: None,
-            otlp_headers: None,
             trace_enabled: true,
             metrics_enabled: true,
             logs_enabled: false,
@@ -144,13 +141,11 @@ pub struct PrometheusConfig {
     pub port: u16,
     /// `path` field.
     pub path: String,
-    /// `include_namespace` field.
-    pub include_namespace: bool,
 }
 
 impl Default for PrometheusConfig {
     fn default() -> Self {
-        Self { enabled: false, port: 9090, path: "/metrics".to_string(), include_namespace: true }
+        Self { enabled: false, port: 9090, path: "/metrics".to_string() }
     }
 }
 

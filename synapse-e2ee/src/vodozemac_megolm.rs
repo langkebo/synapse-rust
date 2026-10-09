@@ -3,23 +3,13 @@
 //! This module provides a vodozemac-backed Megolm session manager that
 //! replaces the self-implemented AES-256-GCM Megolm path. It wraps
 //! `vodozemac::megolm::GroupSession` (sender) and
-//! `vodozemac::megolm::InboundGroupSession` (receiver) and provides
-//! the same API surface as the legacy `MegolmService`.
+//! `vodozemac::megolm::InboundGroupSession` (receiver).
 //!
 //! # Interoperability
 //!
 //! vodozemac 0.9 is the reference implementation used by Element Web,
 //! Android, and iOS. Using it directly guarantees cross-client
 //! compatibility and proper ratchet / forward-secrecy semantics.
-//!
-//! # Migration
-//!
-//! The legacy `e2ee::megolm::MegolmService` is retained for backward
-//! compatibility during migration. Once all deployments have migrated,
-//! the legacy path should be removed.
-//!
-//! See `docs/synapse-rust/E2EE_VODOZEMAC_MIGRATION.md` for the full
-//! migration plan.
 
 use crate::crypto::key_at_rest::KeyAtRest;
 use crate::megolm::models::{MegolmSession, RoomKeyDistributionData};
@@ -103,8 +93,8 @@ fn inbound_pickle_from_string(s: &str) -> Result<InboundGroupSessionPickle, ApiE
 /// # Receiver side
 ///
 /// ```ignore
-/// let session_key = /* from m.room_key to-device event */;
-/// svc.import_session("!room:example.com", "sender_key", &session_key).await?;
+/// // Inbound sessions are rehydrated from storage by `session_id`
+/// // (populated out-of-band from `m.room_key` to-device handling).
 /// let plaintext = svc.decrypt(&session_id, &ciphertext).await?;
 /// ```
 #[derive(Clone)]
@@ -122,12 +112,6 @@ impl MegolmVodozemacService {
     /// Create a new VodozemacMegolmService with the given at-rest encryption key.
     pub fn new(storage: MegolmSessionStorage, cache: Arc<CacheManager>, at_rest: KeyAtRest) -> Self {
         Self { storage, cache, server_metrics: None, at_rest }
-    }
-
-    /// See [`with_server_metrics`].
-    pub fn with_server_metrics(mut self, metrics: Arc<ServerMetrics>) -> Self {
-        self.server_metrics = Some(metrics);
-        self
     }
 
     /// Create a new outbound Megolm session for a room.
@@ -167,56 +151,6 @@ impl MegolmVodozemacService {
             room_id = %room_id,
             session_id = %session_id,
             "Created vodozemac Megolm outbound session"
-        );
-
-        Ok(session)
-    }
-
-    /// Import an inbound Megolm session from a shared session key.
-    ///
-    /// The `session_key` is the base64-encoded key received via a
-    /// `m.room_key` to-device event. This creates an
-    /// `InboundGroupSession` for decrypting messages from the sender.
-    pub async fn import_session(
-        &self,
-        room_id: &str,
-        sender_key: &str,
-        session_key: &str,
-    ) -> Result<MegolmSession, ApiError> {
-        let session_id = uuid::Uuid::new_v4().to_string();
-
-        let key = vodozemac::megolm::SessionKey::from_base64(session_key)
-            .map_err(|_| ApiError::decryption_error("Invalid session key".to_string()))?;
-
-        let inbound = InboundGroupSession::new(&key, SessionConfig::default());
-        let pickle_str = inbound_pickle_to_string(&inbound.pickle())?;
-
-        let session = MegolmSession {
-            id: uuid::Uuid::new_v4(),
-            session_id: session_id.clone(),
-            room_id: room_id.to_string(),
-            sender_key: sender_key.to_string(),
-            // inbound pickle written to `session_key` column
-            session_key: pickle_str,
-            algorithm: "m.megolm.v1.aes-sha2".to_string(),
-            message_index: 0,
-            created_ts: current_timestamp_utc(),
-            last_used_ts: current_timestamp_utc(),
-            expires_at: Some(current_timestamp_utc() + chrono::Duration::days(get_session_max_age_days())),
-        };
-
-        self.storage.create_session(&session).await?;
-
-        let cache_key = format!("megolm_session:{session_id}");
-        if let Err(e) = self.cache.set(&cache_key, &session, 600).await {
-            ::tracing::warn!(session_id = %session_id, cache_key = %cache_key, error = %e, "Failed to cache inbound megolm session");
-        }
-
-        ::tracing::info!(
-            room_id = %room_id,
-            sender_key = %sender_key,
-            session_id = %session_id,
-            "Imported vodozemac Megolm inbound session"
         );
 
         Ok(session)

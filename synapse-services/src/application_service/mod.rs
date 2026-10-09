@@ -315,16 +315,6 @@ impl ApplicationServiceManager {
             .map_err(|e| ApiError::internal_with_cause("Failed to count pending transactions", e))
     }
 
-    /// See [`start_sender`].
-    pub async fn start_sender(self: Arc<Self>, batch_limit: i64, flush_interval_secs: u64) {
-        let scheduler = Arc::new(ApplicationServiceScheduler::with_options(
-            self,
-            batch_limit.max(1) as usize,
-            flush_interval_secs.max(1).saturating_mul(1_000),
-        ));
-        let _ = scheduler.start(tokio_util::sync::CancellationToken::new());
-    }
-
     /// See [`query_user`].
     #[instrument(skip(self))]
     pub async fn query_user(&self, user_id: &str) -> Result<Option<String>, ApiError> {

@@ -268,7 +268,7 @@ impl MegolmSessionStorage {
         Ok(result.rows_affected())
     }
 
-    /// 单用户查询共享的 session key（vodozemac import_session 后使用）
+    /// 单用户查询共享的 session key（接收方读取共享密钥时使用）
     pub async fn get_session_key(&self, user_id: &str, session_id: &str) -> Result<Option<String>, ApiError> {
         let row = sqlx::query_as!(
             MegolmSessionKeyRow,

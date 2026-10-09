@@ -14,8 +14,6 @@ pub mod federation;
 pub mod moderation;
 /// The `service` module.
 pub mod service;
-/// The `transition` module.
-pub mod transition;
 pub use error::MembershipError;
 
 use crate::common::error::{ApiError, ApiResult};

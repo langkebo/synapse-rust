@@ -177,7 +177,6 @@ federation:
   allow_ingress: false
   server_name: "localhost"
   federation_port: 8448
-  connection_pool_size: 4
   max_transaction_payload: 10485760
 
 security:
