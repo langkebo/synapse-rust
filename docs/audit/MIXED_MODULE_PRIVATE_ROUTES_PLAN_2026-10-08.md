@@ -226,7 +226,7 @@ EOF
 | **M0 门禁补强** | ✅ 已执行（`313438dc0`） | — | — | — |
 | **M1 删冗余面** | ✅ 已执行（同批，净 −1） | — | ✅ 已执行（`7321f8ed`） | — |
 | **M2 MSC 归位** | ✅ **后端侧已执行**（净 0；8 条换前缀） | ✅ **已执行**（SDK `1d6258870`：sticky 5 处 + unfreeze 2 处 + 同族 freeze/mute/read/redact/stats/全局列表等共 30+ 处）；契约镜像与 codegen 同批重生成 | ⏸ 重打包 + pin | 已完成；SDK 落地方式见下「2026-10-09 跨仓跟进」 |
-| **M3 vendor 迁移** | ⏸ 待做（约 40 条） | 🟡 **Batch 1–3 的尾巴已清零**（SDK `1d6258870` + `1a02d6d6f`：`quality:path-contract` 45 → **0**） | ⏸ 重打包 + pin | SDK 目标分支已裁定：**在 `develop` 上做**；M3 本体的后端迁移仍未开始 |
+| **M3 vendor 迁移** | ⏸ 待做（约 40 条） | ✅ **镜像侧已收敛**（`develop` 清 198 条陈旧条目 + 修 56 处调用点，见下「2026-10-09 M3 收敛」）；**跨仓侧**由 `release/contract-entrypoint` 的 `6e3431513` 完成 | ✅ 已重钉（`sdk_commit=6e3431513` + tarball 重打包） | M3 **本体的后端迁移**（约 40 条 client → vendor）仍未开始 |
 | **M4 D1/D2 收尾** | ⏸ 待做 | — | — | M3 之后 |
 
 #### 2026-10-09 跨仓跟进（SDK 侧一笔做完，含 Batch 1–3 尾巴）
@@ -274,6 +274,56 @@ EOF
    - **生成契约表只增不减** ⇒ 类型断言会被**残留条目**静默满足（`rp()` 能通过一个后端
      已不注册的 v3 路径）。**类型绿 ≠ 路径对**；断言必须锁到目标前缀空间
      （本轮因此新增 `r4354` / `tpv` / `tv` / `rsvVendor` / `roomPathVendor|Msc4354`）。
+7. **⚠️ 2026-10-09 新增（契约门禁是「node 脚本 + vitest spec」两半）**：
+   `contract-sync --check` / `codegen --check` 只验**生成物一致性**；而「表里有、ledger 无」
+   的**差集**在 `spec/unit/contract-drift-gate.spec.ts`。改契约或同步镜像后必须**两半都跑**
+   —— 只跑 node 那半会让 198 条 sdk-only 静默漏过（本轮实测）。
+
+#### 2026-10-09 M3 收敛（`develop` 侧镜像追赶：清 198 条陈旧条目、修 56 处调用点）
+
+**起因**：`contract:codegen` 的三个来源是「既有条目 ∪ ledger ∪ ROUTE_CONTRACT.md」——
+**单调并集**，历史条目只增不减。`1d6258870` 把 ledger 镜像从旧版（1159 条）换到当前后端
+（1034 条）后，残留条目一次性暴露：`spec/unit/contract-drift-gate.spec.ts` 的差集由 ≈0
+跳到 **198 条 sdk-only**（该 spec 是 node 门禁之外的另一半，当时漏跑 —— 教训见本节末尾）。
+
+**处置一：清 198 条陈旧条目**（15 个模块的 `route-table.ts`）
+
+按 `collectObservedDrift()` 的判定逐条删除。**关键验证**：删后跑 `contract:codegen`，
+陈旧条目**不会**复活（三个来源都不再声明它们）⇒ `contract-drift-gate` 12/12 绿。
+分布：space 44 / friend 36 / widget 18 / voice 18 / room-summary 16 / thread 15 /
+burn-after-read 14 / room 12 / external-service 8 / cas 5 / notifications 4 /
+moderation 3 / e2ee 2 / search 2 / sync 1。
+
+**处置二：修 56 处 `__invalidPath`**（12 个模块）
+
+这些是上一步**暴露出来的真实漂移** —— 端点后端早已迁走，SDK 仍在打 client 前缀
+（⇒ 线上 404），此前被残留条目的类型断言掩盖。两类根因：
+
+| 根因 | 模块与改法 |
+| --- | --- |
+| 路径助手 strip 目标过时 | `bp`(burn) `StripV1`、`vp`(voice) `StripV3`、`np`(notifications) `StripV3`、`cp`(external-service) `StripV1` → `StripVendor`；`sp`(space/utils) → `StripV3 \| StripV1 \| StripVendor`（该表三种前缀混用） |
+| 约束语义 / 表引用错位 | room-summary 的 `rsv`/`_rsv` 与 6 处返回类型注解补 vendor 空间；`RoomManagerPath` 补 `StripVendor<RoomPath>`；`client-secure-backup-requests` 的 `sp` 补 `StripVendor<RoomPath>`（`my_rooms` 属 room 表） |
+
+**顺带修掉的真 404**（后端 ledger 只在 vendor，SDK 却打 client 前缀）：
+
+| 调用点 | 修法 |
+| --- | --- |
+| notifications 的 4 个 `/push/*` | `ClientPrefix.V3` → `VendorPrefix`（两条 `/notifications` 保持 v3） |
+| `RoomManager` 的 `translateText` / `getUserRooms` / `getMutualRooms` | 前缀改 `VendorPrefix` |
+| `e2ee.uploadSignatures` | `/keys/signatures` → `/keys/signatures/upload`（后端只注册 `/upload`） |
+| `external-service` | 删 `matrix_admin`（`/_matrix/admin/v1`）假变体 —— 后端无该组路由 |
+
+**spec 同步**：`notifications-manager`(4)、`room-manager`(7)、`room-summary`(4) 的 prefix 断言
+改 vendor / msc4354；`external-service.spec` 删 3 个 `matrix_admin` 用例。
+
+**门禁证据**：`tsc --noEmit` EXIT=0（起始 56 错 → 0）；`contract-drift-gate` 12/12；
+`quality:path-contract` EXIT=0；契约家族 8 道门禁 EXIT=0；`prettier --check` / `eslint` EXIT=0；
+`check_sdk_route_coverage.py` EXIT=0（allowlist 条目 0、命中 0）。
+
+**教训（新增纪律第 7 条）**：**matrix-js-sdk 的契约门禁是「node 脚本 + vitest spec」两半**
+—— `contract-sync --check` / `codegen --check` 只覆盖生成物一致性，
+**差集本身在 `spec/unit/contract-drift-gate.spec.ts`**。只跑 node 那半会漏掉
+「表里有、ledger 无」这一类；本轮的 198 条正是这样漏过去的。
 
 ---
 
