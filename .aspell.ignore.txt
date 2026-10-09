@@ -20,6 +20,7 @@
 # 追加（2026-10-05，全量系统测试报告 P1/P2 复测）：acao（CORS `ACAO` 被脚本小写化）、cpus、mem（docker 资源记号 cpus=/mem=）、geolocation、html（报告引用的 .html 产物）、vu（k6 虚拟用户 `VU` 被脚本小写化）。
 # 追加（2026-10-06，全量测试与性能门禁验证登记）：contrib、pgcrypto（migrations/README.md）、github、opengraph（全面报告 §1.5 运行证据）。
 # 追加（2026-10-09，冗余审查 §17.5 记录）：extern（Rust `extern crate` 关键字被脚本小写化）、ser（`ser/de` 缩写被斜杠切出）。
+# 追加（2026-10-09，ROUTE_CONTRACT 附录 B 审计登记）：callsite（T1_CALLSITE 分桶名被脚本小写化）、submittoken、unquarantine（3PID/admin media 端点路径段）。
 # 项目技术词典：aspell 通用英文词典（en_US）不含本仓技术语料的词汇。
 abi
 acao
@@ -133,6 +134,7 @@ buildx
 burnafterreadservice
 cachehitratelow
 cacheregistry
+callsite
 camelcase
 cancellable
 cancellationtoken
@@ -836,6 +838,7 @@ structs
 subagent
 subdirectory
 subgraph
+submittoken
 submodule
 submodules
 subquery
@@ -940,6 +943,7 @@ unmerged
 unpadded
 unprocessable
 unprotect
+unquarantine
 unrecognised
 untraited
 updates

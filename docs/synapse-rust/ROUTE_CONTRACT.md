@@ -1488,4 +1488,104 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 ---
 
-*本文件由 `scripts/contract/extract_registered.py` + `gen_contract_doc.py` 生成。路由面随代码变化，请定期重新生成。附录 A 为人工维护增补。*
+*本文件由 `scripts/contract/extract_registered.py` + `gen_contract_doc.py` 生成。路由面随代码变化，请定期重新生成。附录 A / 附录 B 为人工维护增补。*
+
+---
+
+## 附录 B — SDK 封装完整性审计（matrix-js-sdk，2026-10-09）
+
+> 本附录为人工维护，基于 **SDK Manager 源码 + 后端 handler 源码双侧实读**，逐条核对「已封装后端功能」的完整性；重新生成脚本不覆盖本段。
+> **审计对象**：`@langkebo/matrix-js-sdk@40.2.0-langkebo.5`（`/Users/ljf/Desktop/hu_ts/matrix-js-sdk`）。
+> **后端事实源**：本文件路由面（1030 条路由 / 65 模块）+ `synapse-web/src/routes/**` handler 源码。
+> **证据产物**：`artifacts/sdk-contract-gap-report.md`（1195 行）、`artifacts/sdk-contract-gap.json`、`scripts/quality/path-contract-coverage.json`；镜像 commit `09074226`。
+
+### B.0 审计方法与口径
+
+- **三级证据法**（`scripts/audit/compare-routes.mjs`）：
+  - **L1 声明面**：SDK `src/**/__generated__/route-table.ts` 生成的路由声明（弱，仅代表「约定」）。
+  - **L2 调用面**：Manager 中 `(prefix, path)` 的**真实调用点**（最强证据，构成主指标）。
+  - **L3 构造面**：路径字符串构造器字面量（弱，30 候选前缀命中，不校验 method）。
+- **双口径覆盖率**：声明面覆盖率 = 732/1025 = **71.4%**；实现面覆盖率 = 579/644 = **89.9%**（**主指标**）。
+- **分桶**：T1_CALLSITE 331 / T2_CONSTRUCTOR 563 / T3_DECLARED_ONLY 70 / DRIFT 0 / CONDITIONAL 1 / GAP 65。
+- **scope 分类**：CLIENT_FACING 644 / SERVER_ONLY 383 / ROOT_OR_SSO 2 / NON_NAMESPACED 1。
+- **严重等级口径**：**P1** = 功能不可用或静默返回错误结果（含 400/解析失败/数据丢失）；**P2** = 边缘场景、静默降级或非主链路；**P3** = 代码卫生。本审计**未发现 P0**。
+
+### B.1 结论速览
+
+| 类别 | P1 | P2 | 合计 | 判定 |
+|---|---:|---:|---:|---|
+| 功能遗漏（GAP） | 0 | 3 | 3 | 后端已注册、SDK 无消费者 |
+| 接口不匹配（路径/契约） | 4 | 2 | 6 | 路径或响应包裹结构不一致 |
+| 参数传递错误（body/query） | 10 | 2 | 12 | 键名/必填缺失，多为 400 |
+| 响应解析异常（形状/格式） | 5 | 1 | 6 | 裸数组/包裹/序列化格式不符 |
+| **合计** | **19** | **8** | **27** | 全部含双侧 `file:line` 证据 |
+
+> 另有「已核实无问题」4 项（见 B.6）与「扫描器盲区/假阳性」说明（见 B.7）。
+
+### B.2 功能遗漏（后端已实现、SDK 未封装）
+
+| # | 功能模块 | 后端位置 | 影响范围 | 等级 |
+|---|---|---|---|---|
+| G-01 | app_service 通配代理 | `synapse-web/src/routes/app_service.rs:722-723`（`any(proxy_to_as)`，`/_matrix/app/v1/proxy/{as_id}/{*path}` + `/_matrix/client/v1/proxy/{as_id}/{*path}`） | 通配代理的全部 method（对应 gap report §2 客户端面缺口 7 条）；SDK 无任何消费者。属纯代理性质，是否需 SDK 封装待定 | P2 |
+| G-02 | admin.media protect/unprotect | `synapse-web/src/routes/admin/media.rs:57`、`:59`（`protect/{server_name}/{media_id}` 与 `protect/{media_id}`）、`:66`（`unprotect/{media_id}`） | SDK `admin/sub-managers/admin-media-manager.ts` 仅封装 quarantine（:117）/unquarantine（:141），**无 protect/unprotect** → 媒体保护功能缺失 | P2 |
+| G-03 | account 邮箱验证 submitToken | `synapse-web/src/routes/assembly.rs:384`（`account/password/email/submitToken`）、`:390`（`account/3pid/email/submitToken`） | SDK `account/index.ts:257` 仅硬编码 `/register/email/submitToken`；密码重置 / 3PID 绑定的邮箱验证码提交流程无封装 | P2 |
+
+### B.3 接口不匹配（路径或响应包裹结构）
+
+| # | 功能模块 | SDK 位置 | 后端位置 | 影响与证据 | 等级 |
+|---|---|---|---|---|---|
+| M-01 | media 签名下载 | `src/media/index.ts:439-470`（`getDownloadUrl`，客户端把 `signature`/`ts` 挂到 `:464-467`） | 真实签名端点 `synapse-web/src/routes/media/mod.rs:113-117` → handler `download.rs:320`（读 `signature:325` + **`expires:330`**）；普通 `download_media`（`download.rs:298`）**完全忽略**签名参数 | SDK 把签名附加到 `/_matrix/media/{version}/download`（或 `/_matrix/client/v1/media/download`），后端忽略 → 签名不生效；且 SDK 传 `ts`、后端读 `expires`；SDK 从不构造 `/download_signed/...` | P1 |
+| M-02 | cas 服务列表 | `src/cas/index.ts:57-60`（`CasServiceListResponse { services: CasService[] }`）、`listServices` 调用 `:149-155` | `synapse-web/src/routes/cas.rs:307-311` `list_services` 返回**裸数组** `Vec<ServiceResponse>` | SDK 期望 `{services:[]}`，实际收到数组 → `response.services` 为 `undefined`，列表恒为空 | P1 |
+| M-05 | thread 搜索 | `src/thread/index.ts:180-198`（`searchThreads` 发 query `term`） | `synapse-web/src/routes/handlers/thread.rs:53-57`（`SearchQuery { q: String, limit }`，`q` **必填**） | 后端读 `q`、缺 `q` 反序列化失败 → 搜索请求 400；`term` 被忽略 | P1 |
+| M-06 | e2ee 密钥请求字段名 | `src/room-keys/index.ts:35-43`（`RoomKeyRequest.state`，值域 `pending/approved/rejected`） | `synapse-web/src/routes/e2ee/devices.rs:395-414`（`serialize_room_key_request` 输出 **`status`**，值域 `pending/cancelled/fulfilled`） | 字段名与值域双重不符 → 前端无法正确渲染密钥请求状态 | P1 |
+| M-04 | thread 房间话题列表 | `src/thread/index.ts:136-152`（`getRoomThreads` 发 query `include`） | `synapse-web/src/routes/handlers/thread.rs:59-64`（`ListQuery` 读 `include_all`） | `include` 被忽略 → `include_all` 恒为默认，全部话题拉取行为与预期不符（静默） | P2 |
+| M-07 | oidc 发现回退 | `src/client-auth.ts:59-61`（回退分支请求 `GET /auth_issuer`） | `synapse-web/src/routes/assembly.rs:198-204`（仅注册 `auth_metadata`，**无 `auth_issuer` 路由**） | 正常路径不触发；一旦落入 MSC2965 旧变体回退分支即 404 | P2 |
+
+### B.4 参数传递错误（body / query 键名或必填缺失）
+
+| # | 功能模块 | SDK 位置（发出） | 后端位置（期望） | 影响与证据 | 等级 |
+|---|---|---|---|---|---|
+| P-01 | room_summary 批量摘要 | `src/room-summary/index.ts:498-516`（`batchGetSummaries` 发 `is_suggested_only`，见 `:504`）；`:532-546`（`fetchBatchSummaries` 见 `:543`） | `synapse-web/src/routes/room_summary.rs:526-535`（`RoomSummaryBatchRequest`，`#[serde(deny_unknown_fields)]` + `#[serde(default, rename="suggested_only")]`） | 键名 `is_suggested_only` 为未知字段 → `deny_unknown_fields` **400**。对照：同文件 `batchGetRoomSummaries`（`:456`）发的是**正确**的 `suggested_only`（`:469`） | P1 |
+| P-02 | thread 创建话题 | `src/thread/index.ts:158-174`（`createThread` 发 `{event_id, name?}`） | `thread.rs:19-28`（`CreateThreadBody` 需 `root_event_id` + `content`） | 字段名不符且缺必填 → 反序列化失败 400 | P1 |
+| P-03 | thread 全局创建话题 | `src/thread/index.ts:503-517`（`createGlobalThread` 发 `{room_id, event_id, name?}`） | 同上 `thread.rs:19-28` | 同 P-02 | P1 |
+| P-04 | thread 创建回复 | `src/thread/index.ts:412-431`（`createThreadReply` 仅发 `{content}`） | `thread.rs:30-40`（`CreateReplyBody` 需 `event_id` + `root_event_id` + `content`） | 缺必填字段 → 400 | P1 |
+| P-05 | thread 标记已读 | `src/thread/index.ts:322-340`（`markThreadRead` 发 `{read_up_to}`） | `thread.rs:47-51`（`MarkReadBody` 需 `event_id` + `origin_server_ts`） | 字段名不符且缺必填 → 400 | P1 |
+| P-06 | thread 订阅 | `src/thread/index.ts:346-360`（`subscribeThread` 发 `{}`） | `thread.rs:42-45`（`SubscribeBody` 需 `notification_level`） | 缺必填字段 → 400 | P1 |
+| P-07 | cas proxy | `src/cas/index.ts:315-327`（`proxy` 发 query `targetService`） | `synapse-web/src/routes/cas.rs:58-59`（`ProxyQuery { target_service: String }`，**非 Option**） | 参数名不符且必填缺失 → 400 | P1 |
+| P-09 | cas 注册服务 | `src/cas/index.ts:170-185`（`createService` body 缺 `service_id`、用 `service_url` 代 `service_url_pattern`）；响应类型 `:69-72` 期望 `{id, name}` | `cas.rs:79-88`（`RegisterServiceBody` 需 `service_id` + `name` + `service_url_pattern`）；响应 `cas.rs:97-103` 用 `service_id`/`is_enabled` | 请求缺必填 + 响应字段名不符，注册服务链路不可用 | P1 |
+| P-10 | e2ee 创建密钥请求 | `src/room-keys/index.ts:49-53`（`CreateRoomKeyRequest` 仅 `room_id/session_id/device_id?`） | `synapse-web/src/routes/e2ee/devices.rs:376-382`（`CreateRoomKeyRequestBody` 需 `algorithm` + `room_id` + `session_id`） | 缺必填 `algorithm` → 400 | P1 |
+| P-12 | friend_room 添加好友 | `src/friend/sub-managers/friend-request-manager.ts:135-152`（`addFriend` body 于 `:149` 发 `{user_id, reason}`） | `synapse-web/src/routes/friend_room.rs:123-129`（`AddFriendRequest`，`#[serde(deny_unknown_fields)]`，字段为 `{user_id, message}`） | `reason` 为未知字段 → **400**。对照：同文件 `sendFriendRequest`（`:97-120`）发的是**正确**的 `message`（`:114`） | P1 |
+| P-08 | cas validate 系列 | `src/cas/index.ts:252-313`（`serviceValidate`/`proxyValidate`/`p3ServiceValidate` 发 query `pgtUrl`，见 `:261`/`:282`/`:303`） | `cas.rs:51`/`:67`/`:75`（读 `pgt_url`，均 `Option`） | 参数名不符 → 后端静默丢弃（无 400，`pgt_url` 恒为 None） | P2 |
+| P-11 | e2ee 列表分页 | `src/device-keys/index.ts:398-414`（声明 `limit` 于 `:402`，但 params 仅写入 `status`/`room_id`/`session_id`，见 `:405-407`） | `synapse-web/src/routes/e2ee/devices.rs:338-351`（后端支持 `limit` 分页） | `limit` 参数从未下发 → 分页能力失效（静默） | P2 |
+
+### B.5 响应解析异常（形状 / 包裹 / 序列化格式）
+
+| # | 功能模块 | SDK 位置（期望） | 后端位置（实际） | 影响与证据 | 等级 |
+|---|---|---|---|---|---|
+| R-01 | thread 话题回复列表 | `src/thread/index.ts:388-406`（`getThreadReplies`）；响应类型 `IThreadRepliesResponse { replies[], next_batch? }`（`:107-110`） | `thread.rs:453-458`（`get_replies` 返回**裸数组** `Json<Vec<ReplyResponse>>`） | SDK 取 `.replies` 得 `undefined` → 回复列表恒空、分页丢失 | P1 |
+| R-03 | cas 校验响应格式 | `src/cas/index.ts:98-107`（`CasServiceValidateResponse`/`CasProxyResponse`，按 **JSON** 解析） | `cas.rs:191-207`（`service_validate` 返回 **`text/plain`** `yes\n{user}\n`）；`proxy_validate`/`proxy`/`p3_service_validate`（`cas.rs:209/237/249`）返回 **XML** | JSON 解析非 JSON 响应 → 抛错；CAS 校验链路不可用 | P1 |
+| R-04 | media 分块上传 | `src/media/index.ts:138-163`：`ChunkUploadResponse.received_bytes`（`:141`）、`ChunkUploadCompleteResponse.upload_id`（`:146`）、`ChunkUploadProgressResponse.received_chunks/bytes_received/total_bytes`（`:160-162`） | `synapse-web/src/routes/media/upload.rs`：chunk 返回 `uploaded_chunks/uploaded_size/status`（`:269-274`）、complete 返回 `content_uri/media_id/size`（`:292-294`）、progress 返回 `uploaded_chunks/uploaded_size/total_size`（`:335-342`） | 字段名系统性不符 → 分块进度/完成结果字段读到 `undefined`（`received_bytes`、`upload_id`、`received_chunks` 等） | P1 |
+| R-05 | e2ee 创建密钥请求响应 | `src/e2ee/index.ts:135-141`（`RoomKeyRequestResponse` 声明 `room_id/session_id/algorithm/state`）、`createRoomKeyRequest` `:308-310` | `synapse-web/src/routes/e2ee/devices.rs:275-300`（仅返回 `{request_id}`） | 期望的 4 个字段全部缺失 → 调用方拿到全 `undefined` | P1 |
+| R-06 | e2ee 密钥请求列表分页 | `src/device-keys/index.ts:161-163` 与 `src/room-keys/index.ts:45-47`（`RoomKeyRequestsResponse` 仅 `requests`，**缺 `next_batch`**） | `synapse-web/src/routes/e2ee/devices.rs:319-351`（返回 `requests` + **`next_batch`**） | `next_batch` 游标丢失 → 无法翻页（数据截断） | P1 |
+| R-02 | thread 话题详情 | `src/thread/index.ts:225-238`（`getThread`）；响应类型 `IThreadResponse { thread }`（`:112-114`） | `thread.rs:359-364`（`get_thread` 返回 `ThreadDetailResponse`，**非 `{thread}` 包裹**） | 取 `.thread` 得 `undefined`（形状不符） | P2 |
+
+### B.6 已核实无问题（防误报留痕）
+
+| 功能模块 | SDK 位置 | 后端位置 | 结论 |
+|---|---|---|---|
+| admin 房间 redact | `src/admin/sub-managers/admin-room-manager.ts:480-486`（`POST /admin/room/{roomId}/redact`，V3 前缀） | `synapse-web/src/routes/admin/room/mod.rs:148-151`；响应 `{redacted}`（`management.rs:652-654`） | ✅ 路径与响应字段一致 |
+| appservices 管理面字面路径 | `src/.../app-service/index.ts`（统一 `/appservices`） | `synapse-web/src/routes/app_service.rs:728-744` | ✅ 一致（无历史下划线 bug） |
+| m.call.* 呼叫事件 | 走通用 `sendEvent`（`PUT /rooms/$roomId/send/$eventType/$txnId`，`client-send-paths.ts:43`） | `synapse-web/src/routes/room.rs:64` | ✅ 命中通用发事件端点 |
+| pushrules global | `getPushRulesByScope("global")` → `/pushrules/global` | `synapse-web/src/routes/push.rs:19` | ✅ 命中 |
+
+### B.7 扫描器口径与已知盲区
+
+1. **服务端面缺口 58 条不构成 SDK 问题**：gap report §6 的 58 条（federation 30 / admin 15 / app_service 13）多为 `SERVER_ONLY` 面（联邦/管理内部），非 SDK 客户端受众；仅 app_service 通配代理（G-01）与客户端面相关。
+2. **T3 70 条含解析器盲区假阳性**：分布于 key_backup 18 / media 15 / assembly 13 / cas 9 / push_notification 4 / msc4108_rendezvous 3 / room_summary 3 / oidc 2 / thread 2 / friend_room 1。经源码核对，**key_backup 的 `room_keys/keys` 族实际已实现**（`src/rust-crypto/backup.ts:624/691/756/772/977`、`PerSessionKeyBackupDownloader.ts:264`），属 T3 构造面识别盲区（构造器路径未命中调用面）→ **非真缺口**。其余 T3 项需按本轮同样方法逐条人工复核，勿直接当缺口处理。
+3. **`path-contract` 门禁实测（`pnpm quality:path-contract`）**：扫描 459 文件、提取 608 调用、匹配 579（含 1 通配）、豁免 29、**不匹配 0**、动态跳过 56、**未校验 8**、域外 7、已校验包装器 11、恒等包装器 46、**未覆盖包装器 3**。
+   - **未校验 8 个调用点**（动态路径，绕过静态校验）：形态 `this-method 4 / identifier 2 / other 1 / concat 1`；文件 `client-auth.ts:1`、`client.ts:1`、`room-summary/sub-managers/room-invite-policy-manager.ts:4`、`rust-crypto/backup.ts:1`、`rust-crypto/rust-crypto.ts:1`；包装器 `authedRequest 3 / request 1 / requestV3 4`。`client-auth.ts` 的未校验项即 M-07（`/auth_issuer` 回退）。
+   - **未覆盖包装器 3 个**：`requestOtherUrl`、`rawJsonRequest`、`sendToDeviceRequest`——这些包装器发起的请求不在静态校验覆盖内，需人工兜底。
+4. **复现命令**（在 `/Users/ljf/Desktop/hu_ts/matrix-js-sdk`）：
+   - 审计：`pnpm contract:sync && pnpm contract:codegen && node scripts/audit/compare-routes.mjs`
+   - 门禁：`pnpm quality:path-contract`（另有 `quality:admin-response-contract` / `quality:contract-drift` / `quality:sdk-contracts` / `quality:route-set-parity`）。
+5. **口径提示**：`generate_sdk_ledger_fixtures.sh` 注释称 “all-extensions all=1407” 为**陈旧注释**，与实测 1030 不符；一律以本文件头部计数与 `sdk-contract-gap.json` 实测为准。
