@@ -161,10 +161,14 @@ MIXED_MODULE_CLIENT_ROUTES_FILE = "mixed_module_client_routes.txt"
 # 2026-10-08 M2：把 8 条**移出 client v1/v3 前缀**（MSC4354 sticky ×3 与 MSC3946 pinned ×3
 # 归位到 `/_matrix/client/unstable/org.matrix.msc{4354,3946}`；`thread/{event_id}` 与
 # `unfreeze` 归位 `/_matrix/vendor/v1`）⇒ 54 → **46**、清单 104 → 96 条。
+# 2026-10-09 M3：把**其余 46 条**私有端点整批迁 `/_matrix/vendor/v1`（`room.rs` 的
+# `create_room_shared_compat_router` 6 条 + `create_room_v3_router` 36 条 + 直接注册的
+# `create_private` 1 条，另有 3 条含 GET/PUT 双方法）⇒ 46 → **0**、清单 96 → 50 条。
+# 混合模块的 client 前缀下**已无私有端点**；`v3` router 只剩 spec/msc 五条。
 #
 # ⚠️ 只有真的把它们删掉或迁到 `/_matrix/vendor/v1` 才允许下调；判据 D 已经从
 # "集合"维度把住增删，这个数字是**数值**维度的第二道护栏（集合判据被误改时仍能兜住）。
-MIXED_MODULE_PRIVATE_COUNT = 46
+MIXED_MODULE_PRIVATE_COUNT = 0
 
 
 def normalize(path: str) -> str:

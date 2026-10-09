@@ -317,44 +317,6 @@ pub(crate) async fn invite_user(
     })))
 }
 
-/// See [`invite_user_by_room`].
-pub(crate) async fn invite_user_by_room(
-    State(ctx): State<RoomContext>,
-    headers: HeaderMap,
-    auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
-    Json(body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
-    let request_id = resolve_request_id(&headers);
-
-    validate_room_id(&room_id)?;
-
-    let invitee = body
-        .get("user_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("User ID required".to_string()))?;
-
-    validate_user_id(invitee)?;
-
-    ctx.room_auth.can_invite_user(&room_id, &auth_user.user_id).await?;
-
-    ::tracing::info!(
-        request_id = %request_id,
-        user_id = %auth_user.user_id,
-        invitee = %invitee,
-        room_id = %room_id,
-        "User inviting another user to room"
-    );
-
-    ctx.room_service.membership().invite_user(&room_id, &auth_user.user_id, invitee).await?;
-
-    Ok(Json(json!({
-        "room_id": room_id,
-        "invited_user_id": invitee,
-        "invited_ts": current_timestamp_millis()
-    })))
-}
-
 /// See [`get_room_members`].
 ///
 /// MSC4502: Supports `at` (cursor), `dir` (f|b), `limit` (max 1000),

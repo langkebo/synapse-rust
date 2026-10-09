@@ -38,14 +38,15 @@
 
 | 维度               | 值                                                                  | 取证                                                         |
 | ---------------- | ------------------------------------------------------------------ | ---------------------------------------------------------- |
-| 混合模块 client 路由总数 | **105**（`room.rs` 94 / `moderation.rs` 4 / `handlers/thread.rs` 7） | `scripts/contract/mixed_module_client_routes.txt`          |
-| 其中 **private**   | **55**（`room.rs` 54 / `handlers/thread.rs` 1）                      | 同上，第 3 列标签                                                 |
+| 混合模块 client 路由总数 | **50**（M3 后；M1 前为 105 —— `room.rs` 94 / `moderation.rs` 4 / `handlers/thread.rs` 7） | `scripts/contract/mixed_module_client_routes.txt` |
+| 其中 **private**   | **0**（✅ M3 已整批迁 `/_matrix/vendor/v1`；M1 前为 55）                    | 同上，第 3 列标签                                                 |
 | 其中 msc           | 7                                                                  | 同上                                                         |
 | 其中 spec          | 43                                                                 | 同上                                                         |
 | 门禁覆盖             | 判据 D 双向 ratchet（新增即红）                                              | `test_extract_registered.py::check_standard_prefix_bucket` |
 
 > ⚠️ 口径提醒：`LEDGER_CEILING = 5` 的口径**只统计 `WHOLESALE_PRIVATE_FILES`（整模块私有文件）**，  
-> 混合模块的私有面**从未**被它覆盖 —— 因此这 55 条既不进台账、也不受 ceiling 约束。
+> 混合模块的私有面**从未**被它覆盖 —— 因此这 55 条（M3 后已归零）既不进台账、
+> 也不受 ceiling 约束。
 
 ### 1.2 消费者取证（含方法论警告）
 
@@ -214,10 +215,54 @@ EOF
   ⇒ **必须两端同批**，不能像 Batch 3 那样只做后端。
 - 规模建议：按 SDK sub-manager 切分（`room-summary/*` 一批、`room-member/*` 一批），每批 ≤ 10 条。
 
+**执行记录（2026-10-09，后端侧 ✅）**
+
+实际规模是 **46 个 `(method, path)` / 43 条 unique 路径** —— 此前文档里的"约 40 条"是粗估。
+落点分三处：
+
+| 位置 | 条数 | 内容 |
+| --- | --- | --- |
+| `create_room_shared_compat_router` | 6 | search / membership/{user_id} / receipts/{receipt_type}/{event_id} / members/recent / version / invites |
+| `create_room_v3_router` | 36 | get_membership_events / permissions / resolve / notifications / capabilities / sync / timeline / unread_count / turn_server / metadata / vault_data(GET+PUT) / retention / spaces / encrypted_events / reduced_events / device/{device_id} / rendered/ / external_ids / event_perspective / fragments/{user_id} / service_types / event/{event_id}/url / translate / convert / sign / verify / keys / keys/count / keys/version / keys/claim / room_keys/keys / message_queue / keys/{event_id} / anti_screenshot(GET+PUT) |
+| `create_room_router`（直接注册） | 1 | `/_matrix/client/v3/rooms/create_private` |
+
+迁移后 `create_room_v3_router` **只剩 spec/msc 五条**（`createRoom`、`account_data/{type}`、
+`threads/{thread_id}`、`join`、`knock`），`create_room_shared_compat_router` 只剩规范端点。
+
+**契约链**：`gen_derived_routes --bootstrap` → 两条车道 fixtures → `--check`（1033 rows）→
+`ROUTE_CONTRACT.md`（1034 → **1031**）→ `route-table.json` → 两份集成快照（重生成）。
+守卫 **66 条全绿**（含 `MIXED_MODULE_PRIVATE_COUNT` **46 → 0**、`mixed_module_client_routes.txt`
+**96 → 50 条**）；`doc_credibility_guard_tests` **10/10**；`cargo check` 零 warning。
+
+⚠️ **跨仓窗口**：本批**只做了后端**。SDK 侧 ~28 处调用点（`room-summary/sub-managers/*`、
+`room-member/index.ts`、`room/RoomManager.ts`）与 Tjg 重打包按「后端 → SDK → Tjg」紧随完成
+（未发布项目无部署，窗口期无实际影响）。
+
 ### M4 — 类别 D1/D2 的收尾裁定
 
 - D1：逐条复核 handler，判定"是否等价写法"。等价 ⇒ 删；不等价 ⇒ 迁 vendor。
 - D2：**列出全部 43 条（M1 后 42）的三层消费者取证结果**，逐条在"删 vs 迁"上签字（本表给的是建议，不是结论）。
+
+**执行记录（2026-10-09）**
+
+**D1 —— 只删真重复（2 组）**：
+
+| 条目 | 判据（已复核源码） | 处置 |
+| --- | --- | --- |
+| `GET/PUT /rooms/{room_id}/visibility` | `assembly.rs:404` 的 `/directory/list/room/{room_id}` **用的正是同一对 handler** `get_room_visibility` / `set_room_visibility` ⇒ 完全等价 | **删** |
+| `POST /invite/{room_id}` | 与 `POST /rooms/{room_id}/invite` 是**两个 handler**，但 `invite_user_by_room` **缺** "邀请不存在的本地用户须返回 400" 的校验（`invite_user` 有）⇒ 弱化版 + 非规范路径 | **删**（并删孤立的 `invite_user_by_room` 函数 37 行） |
+
+**复核后判定不等价的**（保留在 vendor）：`sync` / `timeline` / `message_queue` /
+`reduced_events`（room-scoped vs 全局 `/sync`、`/messages`）、`search`（vs `/search`）、
+`room_keys/keys`（vs 全局 `/room_keys/keys`）、`keys{,/count,/version,/claim}`（vs E2EE 全局
+`/keys/*`）；`invites`、`members/recent`、`membership/{user_id}` 的**响应形状**与 `/members`
+不同。⇒ 这些是 room-scoped 私有能力，粒度不同，**不是等价写法**。
+
+**D2 —— 22 条三层零消费者：保留在 vendor，登记待裁定**
+
+逐条三层取证（后端 handler / SDK 调用点 / Tjg 使用）后**不删**：M3 已同时达成"前缀治理"与
+"保留能力"两个目标，而删除属产品决策。清单见 §2 类别 D2。**裁定条件**：产品确认某项私有
+能力不再需要时，从 `create_room_vendor_router` 删除并同步 SDK 生成物。
 
 ### 3.1 排期总表与跨仓前置（2026-10-08）
 
@@ -226,8 +271,8 @@ EOF
 | **M0 门禁补强** | ✅ 已执行（`313438dc0`） | — | — | — |
 | **M1 删冗余面** | ✅ 已执行（同批，净 −1） | — | ✅ 已执行（`7321f8ed`） | — |
 | **M2 MSC 归位** | ✅ **后端侧已执行**（净 0；8 条换前缀） | ✅ **已执行**（SDK `1d6258870`：sticky 5 处 + unfreeze 2 处 + 同族 freeze/mute/read/redact/stats/全局列表等共 30+ 处）；契约镜像与 codegen 同批重生成 | ⏸ 重打包 + pin | 已完成；SDK 落地方式见下「2026-10-09 跨仓跟进」 |
-| **M3 vendor 迁移** | ⏸ 待做（约 40 条） | ✅ **镜像侧已收敛**（`develop` 清 198 条陈旧条目 + 修 56 处调用点，见下「2026-10-09 M3 收敛」）；**跨仓侧**由 `release/contract-entrypoint` 的 `6e3431513` 完成 | ✅ 已重钉（`sdk_commit=6e3431513` + tarball 重打包） | M3 **本体的后端迁移**（约 40 条 client → vendor）仍未开始 |
-| **M4 D1/D2 收尾** | ⏸ 待做 | — | — | M3 之后 |
+| **M3 vendor 迁移** | ✅ **已执行**（46 条整批迁 vendor；`ROUTE_CONTRACT.md` 1034 → **1031**、private 计数 46 → **0**） | ✅ 镜像侧已收敛（`develop` 清 198 条陈旧条目 + 修 56 处调用点）；跨仓侧由 `release/contract-entrypoint` 的 `6e3431513` 完成 | ⚠️ **SDK 侧 ~28 处调用点跟随待做**（`room-summary/*` 等） | 后端已完成；SDK/Tjg 跟随按「后端 → SDK → Tjg」在紧随批次 |
+| **M4 D1/D2 收尾** | ✅ **D1 已裁定**（删 2 组真重复）；D2 22 条**登记保留** | — | — | D2 的删除属产品决策，已登记待裁定 |
 
 #### 2026-10-09 跨仓跟进（SDK 侧一笔做完，含 Batch 1–3 尾巴）
 

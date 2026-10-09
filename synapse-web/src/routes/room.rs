@@ -15,12 +15,12 @@ use crate::routes::{
     get_room_membership, get_room_message_queue, get_room_metadata, get_room_notifications, get_room_rendered,
     get_room_service_types, get_room_spaces, get_room_state, get_room_sync, get_room_thread, get_room_thread_by_id,
     get_room_timeline, get_room_turn_server, get_room_unread_count, get_room_user_fragments, get_room_vault_data,
-    get_room_version, get_room_visibility, get_single_event, get_state_by_type, get_state_event,
-    get_state_event_empty_key, get_user_rooms, invite_user, invite_user_by_room, join_room, join_room_by_id_or_alias,
-    kick_user, knock_room, leave_room, pinned, put_power_levels, put_state_event, put_state_event_empty_key,
-    put_state_event_no_key, redact_event, room_initial_sync, search_room_messages, send_message, send_receipt,
-    send_state_event, set_read_markers, set_room_account_data, set_room_vault_data, set_room_visibility,
-    sign_room_event, sticky_event, translate_room_event, translate_text, unban_user, verify_room_event, AppState,
+    get_room_version, get_single_event, get_state_by_type, get_state_event, get_state_event_empty_key, get_user_rooms,
+    invite_user, join_room, join_room_by_id_or_alias, kick_user, knock_room, leave_room, pinned, put_power_levels,
+    put_state_event, put_state_event_empty_key, put_state_event_no_key, redact_event, room_initial_sync,
+    search_room_messages, send_message, send_receipt, send_state_event, set_read_markers, set_room_account_data,
+    set_room_vault_data, sign_room_event, sticky_event, translate_room_event, translate_text,
+    unban_user, verify_room_event, AppState,
 };
 use axum::{
     extract::{Path, State},
@@ -39,10 +39,7 @@ fn create_room_shared_compat_router() -> Router<AppState> {
     Router::new()
         .route("/rooms/{room_id}", get(get_room_info))
         .route("/rooms/{room_id}/messages", get(get_messages))
-        .route("/rooms/{room_id}/search", post(search_room_messages))
-        .route("/rooms/{room_id}/membership/{user_id}", get(get_room_membership))
         .route("/rooms/{room_id}/receipt/{receipt_type}/{event_id}", post(send_receipt))
-        .route("/rooms/{room_id}/receipts/{receipt_type}/{event_id}", get(get_receipts))
         .route("/rooms/{room_id}/read_markers", post(set_read_markers).put(set_read_markers))
         .route("/rooms/{room_id}/aliases", get(get_room_aliases))
         .route("/rooms/{room_id}/join", post(join_room))
@@ -51,11 +48,8 @@ fn create_room_shared_compat_router() -> Router<AppState> {
         .route("/rooms/{room_id}/forget", post(forget_room))
         .route("/rooms/{room_id}/initialSync", get(room_initial_sync))
         .route("/rooms/{room_id}/members", get(get_room_members))
-        .route("/rooms/{room_id}/members/recent", get(get_room_members_recent))
         .route("/rooms/{room_id}/joined_members", get(get_joined_members))
-        .route("/rooms/{room_id}/version", get(get_room_version))
         .route("/rooms/{room_id}/invite", post(invite_user))
-        .route("/rooms/{room_id}/invites", get(get_room_invites))
         .route("/rooms/{room_id}/state/{event_type}/{state_key}", put(put_state_event).get(get_state_event))
         .route("/rooms/{room_id}/state/{event_type}/", put(put_state_event_empty_key).get(get_state_event_empty_key))
         .route(
@@ -79,46 +73,10 @@ fn create_room_v3_router() -> Router<AppState> {
     create_room_shared_compat_router()
         .merge(create_room_power_levels_compat_router())
         .route("/createRoom", post(create_room))
-        .route("/rooms/{room_id}/get_membership_events", post(get_membership_events))
-        .route("/rooms/{room_id}/visibility", get(get_room_visibility).put(set_room_visibility))
-        .route("/rooms/{room_id}/permissions", get(get_room_permissions))
-        .route("/rooms/{room_id}/resolve", get(get_room_resolve))
-        .route("/rooms/{room_id}/notifications", get(get_room_notifications))
-        .route("/rooms/{room_id}/capabilities", get(get_room_capabilities))
-        .route("/rooms/{room_id}/sync", get(get_room_sync))
-        .route("/rooms/{room_id}/timeline", get(get_room_timeline))
-        .route("/rooms/{room_id}/unread_count", get(get_room_unread_count))
         .route("/rooms/{room_id}/account_data/{type}", get(get_room_account_data).put(set_room_account_data))
-        .route("/rooms/{room_id}/turn_server", get(get_room_turn_server))
-        .route("/rooms/{room_id}/metadata", get(get_room_metadata))
-        .route("/rooms/{room_id}/vault_data", get(get_room_vault_data).put(set_room_vault_data))
-        .route("/rooms/{room_id}/retention", get(get_retention_policy))
-        .route("/rooms/{room_id}/spaces", get(get_room_spaces))
-        .route("/rooms/{room_id}/encrypted_events", get(get_room_encrypted_events))
-        .route("/rooms/{room_id}/reduced_events", get(get_room_reduced_events))
-        .route("/rooms/{room_id}/device/{device_id}", get(get_room_device))
-        .route("/rooms/{room_id}/rendered/", get(get_room_rendered))
-        .route("/rooms/{room_id}/external_ids", get(get_room_external_ids))
-        .route("/rooms/{room_id}/event_perspective", get(get_room_event_perspective))
-        .route("/rooms/{room_id}/fragments/{user_id}", get(get_room_user_fragments))
-        .route("/rooms/{room_id}/service_types", get(get_room_service_types))
-        .route("/rooms/{room_id}/event/{event_id}/url", get(get_room_event_url))
-        .route("/rooms/{room_id}/translate/{event_id}", post(translate_room_event))
-        .route("/rooms/{room_id}/convert/{event_id}", post(convert_room_event))
-        .route("/rooms/{room_id}/sign/{event_id}", put(sign_room_event))
-        .route("/rooms/{room_id}/verify/{event_id}", post(verify_room_event))
-        .route("/rooms/{room_id}/keys", get(get_room_keys))
-        .route("/rooms/{room_id}/keys/count", get(get_room_key_count))
-        .route("/rooms/{room_id}/keys/version", get(get_room_keys_version))
-        .route("/rooms/{room_id}/keys/claim", post(claim_room_keys))
-        .route("/rooms/{room_id}/room_keys/keys", put(forward_room_keys))
-        .route("/rooms/{room_id}/message_queue", get(get_room_message_queue))
         .route("/rooms/{room_id}/threads/{thread_id}", get(get_room_thread_by_id))
-        .route("/rooms/{room_id}/keys/{event_id}", get(get_event_keys))
         .route("/join/{room_id_or_alias}", post(join_room_by_id_or_alias))
         .route("/knock/{room_id_or_alias}", post(knock_room))
-        .route("/invite/{room_id}", post(invite_user_by_room))
-        .route("/rooms/{room_id}/anti_screenshot", get(get_anti_screenshot).put(set_anti_screenshot))
 }
 
 /// MSC4354 sticky events —— **归位到 unstable 前缀**，不再借稳定 `v3`。
@@ -157,6 +115,49 @@ fn create_room_vendor_router() -> Router<AppState> {
             get(pinned::get_pinned_events).post(pinned::pin_event),
         )
         .route("/rooms/{room_id}/pinned_events/{event_id}", delete(pinned::unpin_event))
+        // ── M3：其余私有端点从 `/_matrix/client/v3` 整批归位（见
+        // docs/audit/MIXED_MODULE_PRIVATE_ROUTES_PLAN_2026-10-08.md §3 M3）。
+        // 不留 client 别名 —— 未发布项目无向后兼容义务（AGENTS.md 铁律 1）。
+        .route("/rooms/{room_id}/search", post(search_room_messages))
+        .route("/rooms/{room_id}/membership/{user_id}", get(get_room_membership))
+        .route("/rooms/{room_id}/receipts/{receipt_type}/{event_id}", get(get_receipts))
+        .route("/rooms/{room_id}/members/recent", get(get_room_members_recent))
+        .route("/rooms/{room_id}/version", get(get_room_version))
+        .route("/rooms/{room_id}/invites", get(get_room_invites))
+        .route("/rooms/{room_id}/get_membership_events", post(get_membership_events))
+        .route("/rooms/{room_id}/permissions", get(get_room_permissions))
+        .route("/rooms/{room_id}/resolve", get(get_room_resolve))
+        .route("/rooms/{room_id}/notifications", get(get_room_notifications))
+        .route("/rooms/{room_id}/capabilities", get(get_room_capabilities))
+        .route("/rooms/{room_id}/sync", get(get_room_sync))
+        .route("/rooms/{room_id}/timeline", get(get_room_timeline))
+        .route("/rooms/{room_id}/unread_count", get(get_room_unread_count))
+        .route("/rooms/{room_id}/turn_server", get(get_room_turn_server))
+        .route("/rooms/{room_id}/metadata", get(get_room_metadata))
+        .route("/rooms/{room_id}/vault_data", get(get_room_vault_data).put(set_room_vault_data))
+        .route("/rooms/{room_id}/retention", get(get_retention_policy))
+        .route("/rooms/{room_id}/spaces", get(get_room_spaces))
+        .route("/rooms/{room_id}/encrypted_events", get(get_room_encrypted_events))
+        .route("/rooms/{room_id}/reduced_events", get(get_room_reduced_events))
+        .route("/rooms/{room_id}/device/{device_id}", get(get_room_device))
+        .route("/rooms/{room_id}/rendered/", get(get_room_rendered))
+        .route("/rooms/{room_id}/external_ids", get(get_room_external_ids))
+        .route("/rooms/{room_id}/event_perspective", get(get_room_event_perspective))
+        .route("/rooms/{room_id}/fragments/{user_id}", get(get_room_user_fragments))
+        .route("/rooms/{room_id}/service_types", get(get_room_service_types))
+        .route("/rooms/{room_id}/event/{event_id}/url", get(get_room_event_url))
+        .route("/rooms/{room_id}/translate/{event_id}", post(translate_room_event))
+        .route("/rooms/{room_id}/convert/{event_id}", post(convert_room_event))
+        .route("/rooms/{room_id}/sign/{event_id}", put(sign_room_event))
+        .route("/rooms/{room_id}/verify/{event_id}", post(verify_room_event))
+        .route("/rooms/{room_id}/keys", get(get_room_keys))
+        .route("/rooms/{room_id}/keys/count", get(get_room_key_count))
+        .route("/rooms/{room_id}/keys/version", get(get_room_keys_version))
+        .route("/rooms/{room_id}/keys/claim", post(claim_room_keys))
+        .route("/rooms/{room_id}/room_keys/keys", put(forward_room_keys))
+        .route("/rooms/{room_id}/message_queue", get(get_room_message_queue))
+        .route("/rooms/{room_id}/keys/{event_id}", get(get_event_keys))
+        .route("/rooms/{room_id}/anti_screenshot", get(get_anti_screenshot).put(set_anti_screenshot))
 }
 
 /// See [`create_room_router`].
@@ -166,7 +167,7 @@ pub fn create_room_router() -> Router<AppState> {
         .nest("/_matrix/client/v3", create_room_v3_router())
         .nest("/_matrix/vendor/v1", create_room_vendor_router())
         .nest("/_matrix/client/unstable/org.matrix.msc4354", create_room_msc4354_router())
-        .route("/_matrix/client/v3/rooms/create_private", post(create_private_room))
+        .route("/_matrix/vendor/v1/rooms/create_private", post(create_private_room))
         // MSC2666: Unstable prefix alias for mutual rooms
         .route("/_matrix/client/unstable/uk.half-shot.msc2666/user/mutual_rooms", get(get_mutual_rooms))
 }
