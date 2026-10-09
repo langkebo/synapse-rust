@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1030**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1027**
 - 含路由注册的模块文件：**65**
 - `derived_routes.rs` 中的 `registered_by` 标签：**73**
 - 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
@@ -69,7 +69,7 @@
 **逐模块清单里的两种标注**（都从派生表反解，不是人工维护）：
 
 - 〔仅 `X` profile〕 —— 该路由**只**在 profile `X` 下注册，默认构建里不存在（即上表成员）；
-- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1032 行去重为 1030 条的来源。
+- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1029 行去重为 1027 条的来源。
 
 当前共 **2** 条双档注册：
 
@@ -247,13 +247,11 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}`
 - `PUT` `/_matrix/vendor/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}`
 
-### 其他 (Other) （23 条）
+### 其他 (Other) （21 条）
 
-#### `handlers/thread.rs` — 23 条 ✅派生表
+#### `handlers/thread.rs` — 21 条 ✅派生表
 
 - `DELETE` `/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}`
-- `GET` `/_matrix/client/unstable/org.matrix.msc4155/rooms/{room_id}/threads`
-- `GET` `/_matrix/client/unstable/org.matrix.msc4156/threads/subscribed`
 - `GET` `/_matrix/client/v1/rooms/{room_id}/threads`
 - `GET` `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}`
 - `GET` `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies`
@@ -344,9 +342,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_matrix/vendor/v1/external_services/{service_id}`
 - `PUT` `/_synapse/admin/v1/external_services/{as_id}`
 
-### 好友 (Friends) （29 条）
+### 好友 (Friends) （28 条）
 
-#### `friend_room.rs` — 29 条 ✅派生表
+#### `friend_room.rs` — 28 条 ✅派生表
 
 - `DELETE` `/_matrix/vendor/v1/friends/groups/{group_id}`
 - `DELETE` `/_matrix/vendor/v1/friends/groups/{group_id}/remove/{user_id}`
@@ -356,7 +354,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/vendor/v1/friends/dm/{user_id}`
 - `GET` `/_matrix/vendor/v1/friends/groups`
 - `GET` `/_matrix/vendor/v1/friends/groups/{group_id}/friends`
-- `GET` `/_matrix/vendor/v1/friends/request/received`
 - `GET` `/_matrix/vendor/v1/friends/requests/incoming`
 - `GET` `/_matrix/vendor/v1/friends/requests/outgoing`
 - `GET` `/_matrix/vendor/v1/friends/search`

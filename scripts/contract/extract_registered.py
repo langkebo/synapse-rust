@@ -1121,12 +1121,6 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}"): {
         "auth": "user"
     },
-    ("GET", "/_matrix/client/unstable/org.matrix.msc4155/rooms/{room_id}/threads"): {
-        "query_params": "from,include_all,limit"
-    },
-    ("GET", "/_matrix/client/unstable/org.matrix.msc4156/threads/subscribed"): {
-        "query_params": "from,include_all,limit"
-    },
     ("GET", "/_matrix/client/v1/room_keys/keys"): {"query_params": "version"},
     ("GET", "/_matrix/client/v1/room_keys/keys/{room_id}"): {"query_params": "version"},
     ("GET", "/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}"): {

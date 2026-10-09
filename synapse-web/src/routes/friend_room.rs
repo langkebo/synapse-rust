@@ -40,10 +40,6 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
             post(send_friend_request),
         )
         .route(
-            "/_matrix/vendor/v1/friends/request/received",
-            get(get_received_requests),
-        )
-        .route(
             "/_matrix/vendor/v1/friends/request/{user_id}/accept",
             post(accept_friend_request),
         )
@@ -536,31 +532,6 @@ async fn update_friend_displayname(
         "displayname": body.display_name,
         "updated_ts": current_timestamp_millis()
     })))
-}
-
-async fn get_received_requests(
-    State(ctx): State<FriendContext>,
-    auth_user: AuthenticatedUser,
-) -> Result<axum::response::Response, ApiError> {
-    let requests: Vec<serde_json::Value> = ctx.friend_room_service.get_incoming_requests(&auth_user.user_id).await?;
-
-    let body: Json<Value> = Json(json!({ "requests": requests }));
-    let mut response: axum::response::Response = body.into_response();
-    response.headers_mut().insert(
-        axum::http::header::HeaderName::from_static("deprecation"),
-        axum::http::HeaderValue::from_static("true"),
-    );
-    response.headers_mut().insert(
-        axum::http::header::HeaderName::from_static("link"),
-        axum::http::HeaderValue::from_static(
-            "</_matrix/vendor/v1/friends/requests/incoming>; rel=\"successor-version\"",
-        ),
-    );
-    response.headers_mut().insert(
-        axum::http::header::HeaderName::from_static("sunset"),
-        axum::http::HeaderValue::from_static("2027-01-01"),
-    );
-    Ok(response)
 }
 
 async fn get_friend_status(

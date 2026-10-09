@@ -1,5 +1,5 @@
 fn all_derived_always_rows() -> Vec<DerivedRoute> {
-    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1011);
+    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1008);
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/", "assembly::create_router");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
@@ -199,24 +199,6 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             "/_matrix/client/unstable/org.matrix.msc4143/rtc/transports",
             "assembly::create_router",
         );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::GET,
-            "/_matrix/client/unstable/org.matrix.msc4155/rooms/{room_id}/threads",
-            "thread",
-        )
-        .with_query_params(&["from", "include_all", "limit"]);
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::GET,
-            "/_matrix/client/unstable/org.matrix.msc4156/threads/subscribed",
-            "thread",
-        )
-        .with_query_params(&["from", "include_all", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -2951,11 +2933,6 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     #[cfg(feature = "friends")]
     {
         let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/vendor/v1/friends/request", "friend_room");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    #[cfg(feature = "friends")]
-    {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/friends/request/received", "friend_room");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "friends")]

@@ -163,45 +163,12 @@ pub fn create_thread_routes(state: AppState) -> Router<AppState> {
 
     // ---- MSC3856 规范端点：留在 /_matrix/client/v1 ----
     let client_routes = Router::new()
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/threads",
-            get(list_threads),
-        )
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}",
-            get(get_thread),
-        )
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies",
-            post(add_reply),
-        )
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies",
-            get(get_replies),
-        )
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/subscribe",
-            post(subscribe_thread),
-        )
-        .route(
-            "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unsubscribe",
-            post(unsubscribe_thread),
-        )
-        // MSC4155 unstable compat stub (same handlers as v1).
-        //
-        // ⚠️ 这里**不再**把 `.../msc4156/threads/subscribed` 标注为 MSC4156 兼容。
-        // MSC4156 = "Migrate server_name to via"（join/knock 的 via 参数），
-        // 与线程无关；线程订阅是用户私有态（account_data），不跨服务器同步。
-        // 该 unstable 路径保留仅为已发布客户端的向后兼容，**不是** MSC4156 表面；
-        // 真正的 MSC4156 支持见 members.rs 的 `extract_via_servers`。
-        .route(
-            "/_matrix/client/unstable/org.matrix.msc4155/rooms/{room_id}/threads",
-            get(list_threads),
-        )
-        .route(
-            "/_matrix/client/unstable/org.matrix.msc4156/threads/subscribed",
-            get(get_subscribed_threads),
-        );
+        .route("/_matrix/client/v1/rooms/{room_id}/threads", get(list_threads))
+        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}", get(get_thread))
+        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies", post(add_reply))
+        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies", get(get_replies))
+        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/subscribe", post(subscribe_thread))
+        .route("/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unsubscribe", post(unsubscribe_thread));
 
     vendor_routes.merge(client_routes).with_state(state)
 }

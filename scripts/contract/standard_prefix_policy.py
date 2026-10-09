@@ -111,12 +111,6 @@ MSC_KEEP = {
         "用它判断服务端是否支持（matrix-js-sdk/src/server-capabilities/index.ts:424），"
         "稳定入口是 `/_matrix/vendor/v1/user/mutual_rooms`，两者用途不同 ⇒ 保留",
     ),
-    ("GET", "/_matrix/client/unstable/org.matrix.msc4156/threads/subscribed"): (
-        4156,
-        "线程订阅（用户私有态）的 **unstable 兼容位**，仅为已发布客户端保留 "
-        "（handlers/thread.rs:191-196 自述：它不是 MSC4156 表面）；主路径为 "
-        "`/_matrix/client/v1/threads/subscribed`",
-    ),
 }
 
 # 混合模块（既有标准端点也有私有端点）里已人工识别出的私有端点。
