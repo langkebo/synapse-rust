@@ -117,6 +117,7 @@ bfs
 bigint
 bigserial
 binaryheap
+biome
 blackbox
 bool
 booleans
@@ -282,6 +283,7 @@ enums
 env
 errcode
 errexit
+eslint
 esm
 etag
 eventbroadcaster
@@ -961,6 +963,7 @@ varchar
 vcpu
 vec
 vendored
+vendorprefix
 venv
 vh
 victoriametrics
