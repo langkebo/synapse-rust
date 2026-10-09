@@ -19,8 +19,8 @@ use crate::routes::{
     invite_user, join_room, join_room_by_id_or_alias, kick_user, knock_room, leave_room, pinned, put_power_levels,
     put_state_event, put_state_event_empty_key, put_state_event_no_key, redact_event, room_initial_sync,
     search_room_messages, send_message, send_receipt, send_state_event, set_read_markers, set_room_account_data,
-    set_room_vault_data, sign_room_event, sticky_event, translate_room_event, translate_text,
-    unban_user, verify_room_event, AppState,
+    set_room_vault_data, sign_room_event, sticky_event, translate_room_event, translate_text, unban_user,
+    verify_room_event, AppState,
 };
 use axum::{
     extract::{Path, State},
