@@ -39,10 +39,21 @@ if ! bash ./scripts/quality/preflight.sh $preflight_args; then
 fi
 
 # preflight 里的 `cargo fmt --all` 可能刚改过工作区文件 ⇒ 暂存快照过期，必须重新 add。
-if [ -n "$(git diff --name-only)" ]; then
+#
+# ⚠️ 判据必须取「**已暂存 ∩ 未暂存**」的交集，而不是「未暂存集合非空」：
+#   要拦的只有一种情况 —— preflight 改了**已进入本次提交**的文件，于是"提交的内容"
+#   不再是门禁刚判绿的那份快照（提交进去的会是未格式化的旧快照，CI 的 fmt 棘轮随后判红）。
+#   旧实现在多写者仓库里会误伤：**任何人**留在工作区的未提交文件（含他人 WIP）都让
+#   所有提交被拦，绕过只剩 `--no-verify`，而那会把本 hook 的全部门禁一并绕掉
+#   （正是文件头记录的两次"红进主干"的成因）。仅未暂存的他人文件不构成暂存快照过期。
+stale_snapshot="$(comm -12 \
+  <(git -c core.quotePath=false diff --name-only | sort) \
+  <(git -c core.quotePath=false diff --cached --name-only | sort))"
+if [ -n "$stale_snapshot" ]; then
   echo ""
-  echo "❌ preflight 修改了工作区文件（多半是 cargo fmt）—— 请重新 git add 后再提交："
-  git diff --name-only | sed 's/^/     /'
+  echo "❌ preflight 修改了**已暂存**的文件（多半是 cargo fmt）—— 暂存快照已过期，请重新 git add 后再提交："
+  printf '%s\n' "$stale_snapshot" | sed 's/^/     /'
+  echo "   （仅存在于工作区、未进入本次提交的文件不会被本检查拦下）"
   exit 1
 fi
 
