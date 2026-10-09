@@ -131,7 +131,6 @@ pub fn create_widget_router() -> Router<AppState> {
             "/_matrix/vendor/v1/rooms/{room_id}/widgets/{widget_id}/capabilities",
             get(get_room_widget_capabilities).put(set_room_widget_capabilities),
         )
-        .route("/_matrix/vendor/v1/rooms/{room_id}/widgets/{widget_id}/send", post(send_room_widget_message))
         .route("/_matrix/vendor/v1/widgets/{widget_id}/permissions", post(set_widget_permission))
         .route("/_matrix/vendor/v1/widgets/{widget_id}/permissions", get(get_widget_permissions))
         .route("/_matrix/vendor/v1/widgets/{widget_id}/permissions/{user_id}", delete(delete_widget_permission))
@@ -537,49 +536,6 @@ async fn set_room_widget_capabilities(
         "widget_id": widget_id,
         "room_id": room_id
     })))
-}
-
-/// The `SendWidgetMessageBody` struct.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SendWidgetMessageBody {
-    #[serde(rename = "type")]
-    /// The `msg_type` field.
-    pub msg_type: String,
-    /// The `content` field.
-    pub content: serde_json::Value,
-}
-
-async fn send_room_widget_message(
-    State(ctx): State<AdminContext>,
-    auth_user: AuthenticatedUser,
-    Path((room_id, widget_id)): Path<(String, String)>,
-    Json(body): Json<SendWidgetMessageBody>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    ensure_room_member_strict_admin(
-        &ctx,
-        &auth_user,
-        &room_id,
-        "You must be a member of this room to send widget messages",
-    )
-    .await?;
-
-    let widget = ctx.widget_service.get_widget(&widget_id).await?.ok_or(ApiError::not_found("Widget not found"))?;
-
-    if widget.room_id != room_id {
-        return Err(ApiError::bad_request("Widget does not belong to this room".to_string()));
-    }
-
-    // Widget messaging should be sent as a room event (e.g. `m.widget.*`)
-    // through the standard event pipeline, not synthesized here. Returning a
-    // fake `event_id` without persisting would mislead clients into thinking
-    // the message was delivered. Until the full event-pipeline integration is
-    // implemented, reject with a clear error so callers know to use the
-    // standard room send endpoint instead.
-    let _ = body;
-    Err(ApiError::bad_request(
-        "Widget messaging is not supported via this endpoint. Send widget events through the standard room send API (PUT /_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}) instead.",
-    ))
 }
 
 #[cfg(test)]

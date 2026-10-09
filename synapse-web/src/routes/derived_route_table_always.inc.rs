@@ -1,5 +1,5 @@
 fn all_derived_always_rows() -> Vec<DerivedRoute> {
-    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1012);
+    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1011);
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/", "assembly::create_router");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
@@ -3502,7 +3502,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/rooms/{room_id}/sync", "room");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/rooms/{room_id}/sync", "room")
+            .with_query_params(&["full_state", "since", "timeout"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -3636,15 +3637,6 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         let e = RouteEntry::new(
             axum::http::Method::PUT,
             "/_matrix/vendor/v1/rooms/{room_id}/widgets/{widget_id}/capabilities",
-            "widget",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    #[cfg(feature = "widgets")]
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/vendor/v1/rooms/{room_id}/widgets/{widget_id}/send",
             "widget",
         );
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });

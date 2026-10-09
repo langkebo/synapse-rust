@@ -1,5 +1,5 @@
 # route-ledger snapshot: worker-enabled
-count: 1023
+count: 1022
 
 DELETE /_matrix/app/v1/proxy/{as_id}/{*path} [app_service]
 DELETE /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device [assembly::create_router]
@@ -782,7 +782,6 @@ POST /_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/read [thread]
 POST /_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/unfreeze [thread]
 POST /_matrix/vendor/v1/rooms/{room_id}/translate/{event_id} [room]
 POST /_matrix/vendor/v1/rooms/{room_id}/verify/{event_id} [room]
-POST /_matrix/vendor/v1/rooms/{room_id}/widgets/{widget_id}/send [widget]
 POST /_matrix/vendor/v1/search_recipients [search]
 POST /_matrix/vendor/v1/search_rooms [search]
 POST /_matrix/vendor/v1/spaces [space]

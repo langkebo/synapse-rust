@@ -179,7 +179,7 @@
 > 本版**不重算**任何 MSC/功能判定（§五/§六/§七 沿用 v1.11）；§二（Client）/§三（Admin）分类表仍停留 v1.11 口径。
 
 > **权威来源声明（三条，冲突时按此优先级）**：
-> 1. **机器权威（路由）**：[`ROUTE_CONTRACT.md`](./ROUTE_CONTRACT.md) —— 由 `scripts/contract/extract_registered.py` 从真实 `.route()` 注册面抽取，生成于 2026-10-08（注册条目 **1031**），
+> 1. **机器权威（路由）**：[`ROUTE_CONTRACT.md`](./ROUTE_CONTRACT.md) —— 由 `scripts/contract/extract_registered.py` 从真实 `.route()` 注册面抽取，生成于 2026-10-09（注册条目 **1030**），
 >    并与 `derived_routes.rs` 派生表 + `tests/unit/fixtures/ledger_export/*.json` 双向对账（两份独立事实来源，差额必须为 0）。
 > 2. **语义权威（MSC 编号）**：[`MSC_SEMANTICS.md`](./MSC_SEMANTICS.md) —— 本仓存在**借用 MSC 编号**承载非官方语义的情况（MSC4155 / MSC4204 / MSC3967），
 >    按编号推断语义前必须先查表。
@@ -201,16 +201,22 @@
 
 | 口径 | 含义 | 全部 | `/_matrix/client` | `/_synapse/admin` | 其他命名空间 |
 |---|---|---|---|---|---|
-| **注册条目** | 唯一 `(method, absolute_path)` 对 | **1031** | 446 | 290 | 298 |
-| **唯一路径** | 去掉方法后的唯一 `absolute_path` | **821** | 336 | 228 | 257 |
-| **逻辑端点** | 在上者基础上折叠版本前缀（`v3`/`r0`/`v1`/`unstable/*` → `vX`）后的唯一路径 | **753** | 268 | 228 | 257 |
+| **注册条目** | 唯一 `(method, absolute_path)` 对 | **1030** | 446 | 290 | 297 |
+| **唯一路径** | 去掉方法后的唯一 `absolute_path` | **820** | 336 | 228 | 256 |
+| **逻辑端点** | 在上者基础上折叠版本前缀（`v3`/`r0`/`v1`/`unstable/*` → `vX`）后的唯一路径 | **749** | 222 | 226 | 301 |
 
-- `ROUTE_CONTRACT.md` 总览现为 **1031**（2026-10-08 M1 重生成，在前缀治理 Phase 3 的 1,035 之上再删 1 条 `create_private` v1/v3 版本孪生），与上表「注册条目」**同为 1031**（本版已把 §1.1 三口径表刷新到同一 HEAD）；
+- ⚠️ **2026-10-09 分桶列订正（本轮）**：上表此前只有「全部」列跟着 HEAD 走，**三个分桶列滞后了一整批** ——
+  M2/M3（`5a8e44534` / `46fbe20a0`）把 46 条 room 私有端点从 `/_matrix/client` 迁入 `/_matrix/vendor/v1` 时
+  只更新了总数（1,031 → 1,030），分桶列仍停在 Phase 3 的 `client 447/336/268`、`其他 298/257/257`。
+  本版按 §8 配方对当前 HEAD 复算，三列与总数自洽：`395+290+345 = 1030`、`288+228+301 = 817`、`222+226+301 = 749`；
+  分项变动 = 注册条目 client 446→**395** / 其他 297→**345**（admin 290 不变），唯一路径 client 336→**288** / 其他 256→**301** / 合计 820→**817**，
+  逻辑端点 client 268→**222** / admin 228→**226** / 其他 256→**301** / 合计 752→**749**。
+- `ROUTE_CONTRACT.md` 总览现为 **1030**（2026-10-09 删 1 条恒 400 的拒绝型路由 `POST /_matrix/vendor/v1/rooms/{room_id}/widgets/{widget_id}/send`，见 `前缀命名空间治理方案-2026-10-08.md` §13.21.6 第 5 项）；此前 1,031 系 2026-10-08 M1 在前缀治理 Phase 3 的 1,035 之上再删 1 条 `create_private` v1/v3 版本孪生。与上表「注册条目」**同为 1030**（本版已把 §1.1 三口径表刷新到同一 HEAD）；
   该清单本身无 `(method,path)` 重复，65 个含路由注册的模块文件 / 73 个 `registered_by` 标签同为该文件的总览数字；
   生成器（`scripts/contract/gen_contract_doc.py`）另报 **45 个分类**（只出现在它的 stdout，不写进正文）。
-- 1031 → 821 的差额**不是漂移**，而是"同路径多方法"（如 `summary` 4 个方法）；
-  821 → 753 的差额是"同路径多版本前缀"。
-- 「其他命名空间」**257**（唯一路径）= `/_matrix/`（非 client，含 federation/app/key 与 **vendor**）**208** +
+- 1030 → 817 的差额**不是漂移**，而是"同路径多方法"（如 `summary` 4 个方法）；
+  817 → 749 的差额是"同路径多版本前缀"。
+- 「其他命名空间」**301**（唯一路径）= `/_matrix/`（非 client，含 federation/app/key 与 **vendor**）**252** +
   `/_synapse/`（非 admin）41 + `/.well-known/` 5 + 根级非命名空间 **3**。
   其中根级端点按 `(method,path)` 为 **3 条有意注册**（探活 `GET /`·`/health`·`/_health`），该桶由
   `test_extract_registered.py::check_non_namespace_bucket` 守卫钉死（出现新成员即转红）。
@@ -221,8 +227,9 @@
   CAS 协议 6 条（`/login`、`/logout`、`/p3/serviceValidate`、`/proxy`、`/proxyValidate`、`/serviceValidate`）
   已于 2026-09 迁入 `/_synapse/cas/`（commit `d4e22f9ea`）—— 该批历史数字（根级 12 → 6、`/_synapse` 非 admin 35 → 41、
   其后其他命名空间合计 195；再经 MSC3720 联邦端点 +1 与关系写入端点拆到 `/_matrix/vendor/` +1 得当时叙述值 197）
-  保留在案，但不参与本版加总。本版按 §8 配方对当前 HEAD 复算：`/_matrix/` 非 client **208** + `/_synapse/` 非 admin 41 +
-  `/.well-known/` 5 + 根级 3 = **257**，与 §1.1 表一致（其中 `/_matrix/` 非 client 由 182 升到 208，**+26** 全部来自 Phase 3 迁入 vendor 的 26 条唯一路径）。
+  保留在案，但不参与本版加总。v1.19 当版按 §8 配方对**当时** HEAD 复算：`/_matrix/` 非 client **208** + `/_synapse/` 非 admin 41 +
+  `/.well-known/` 5 + 根级 3 = **257**，与**当版** §1.1 表一致（其中 `/_matrix/` 非 client 由 182 升到 208，**+26** 全部来自 Phase 3 迁入 vendor 的 26 条唯一路径）；
+  **2026-10-09 对当前 HEAD 再复算为 252 + 41 + 5 + 3 = 301**（+44 全部来自 M3 那批迁入 vendor 的 room 私有端点），见 §1.1 表上方订正注。
 - **相对 2026-09-21 快照（1151 / 931 / 811）与 2026-09-22 复核（1165 / 933 / 813）的差额**：2026-09-22 之前的
   +14 / +2 / +2 来自 MSC4512 AS 代理的两条 `any()` 路由、MSC3912 的 `POST /_synapse/admin/v1/rooms/{room_id}/cascade_redact`，
   并**减去** D-12 删除的 `GET /_synapse/admin/v1/event_reports/{id}/history`；
@@ -675,13 +682,13 @@ grep -n '注册路由条目\|含路由注册的模块文件\|registered_by' docs
 #       锚定 `$` 会静默少 21 条（实测 1129 ≠ 1150，是本表上一版漂移的一个来源）。
 grep -oE '^- `[A-Z]+` `[^`]+`' docs/synapse-rust/ROUTE_CONTRACT.md \
   | sed -E 's/^- `([A-Z]+)` `([^`]+)`$/\1 \2/' > /tmp/mp.txt
-wc -l < /tmp/mp.txt                                          # 1031 注册条目 (method,path)
+wc -l < /tmp/mp.txt                                          # 1030 注册条目 (method,path)
 awk '{print $2}' /tmp/mp.txt | sort -u > /tmp/paths.txt
-wc -l < /tmp/paths.txt                                       #  821 唯一路径
-grep -c '^/_matrix/client' /tmp/paths.txt                    #  336 唯一路径 client
+wc -l < /tmp/paths.txt                                       #  817 唯一路径
+grep -c '^/_matrix/client' /tmp/paths.txt                    #  288 唯一路径 client
 grep -c '^/_synapse/admin' /tmp/paths.txt                    #  228 唯一路径 admin
-# 其他命名空间 257 = /_matrix(非 client) 208 + /_synapse(非 admin) 41 + /.well-known 5 + 根级 3
-grep '^/_matrix/' /tmp/paths.txt | grep -v '^/_matrix/client' | wc -l    # 208
+# 其他命名空间 301 = /_matrix(非 client) 252 + /_synapse(非 admin) 41 + /.well-known 5 + 根级 3
+grep '^/_matrix/' /tmp/paths.txt | grep -v '^/_matrix/client' | wc -l    # 252
 grep '^/_synapse/' /tmp/paths.txt | grep -v '^/_synapse/admin' | wc -l   #  41
 grep -c '^/\.well-known/' /tmp/paths.txt                                  #   5
 awk '!/^\/_matrix\/|^\/_synapse\/|^\/\.well-known\//' /tmp/paths.txt | wc -l   # 3 根级（3 条探活）
@@ -697,9 +704,9 @@ def norm(p):
     p=re.sub(r'^/_synapse/admin/v[0-9]+/','/_synapse/admin/vX/',p)
     return p
 L=sorted({norm(p) for p in paths})
-print('逻辑端点(全部) =', len(L))                                                   # 766
-print('逻辑端点(client) =', sum(1 for p in L if p.startswith('/_matrix/client')))   # 298
-print('逻辑端点(admin)  =', sum(1 for p in L if p.startswith('/_synapse/admin')))   # 231
+print('逻辑端点(全部) =', len(L))                                                   # 749
+print('逻辑端点(client) =', sum(1 for p in L if p.startswith('/_matrix/client')))   # 222
+print('逻辑端点(admin)  =', sum(1 for p in L if p.startswith('/_synapse/admin')))   # 226
 open('/tmp/logical_routes.txt','w').write('\n'.join(L)+'\n')
 PY
 
@@ -827,7 +834,7 @@ for key, rules in (("Client", CLIENT), ("Admin", ADMIN)):
 
 | 文档 | 用途 | 时效性 |
 |---|---|---|
-| [`ROUTE_CONTRACT.md`](./ROUTE_CONTRACT.md) | **路由机器权威**（逐模块 `(method, path)`） | 2026-10-08 生成（**1031** 条，与 §1.1 表一致） |
+| [`ROUTE_CONTRACT.md`](./ROUTE_CONTRACT.md) | **路由机器权威**（逐模块 `(method, path)`） | 2026-10-08 生成（**1030** 条，与 §1.1 表一致） |
 | [`MSC_SEMANTICS.md`](./MSC_SEMANTICS.md) | **MSC 编号语义唯一真相源**（含"借用编号"登记） | 2026-09-14 |
 | [`ELEMENT_SYNAPSE_GAP_ANALYSIS_2026-07-28.md`](./ELEMENT_SYNAPSE_GAP_ANALYSIS_2026-07-28.md) | 对标 v1.156.0 的功能级差距分析（历史快照；现行上游基线 **v1.162.0** 即本文档） | 2026-07-28 |
 | [`../audit/COMPARISON_REPORT_REVIEW_2026-09-22.md`](../audit/COMPARISON_REPORT_REVIEW_2026-09-22.md) | 对 `synapse-rust-vs-synapse-comparison.md` 的复核（含 v1.157–1.161 逐条实测） | 2026-09-22 |

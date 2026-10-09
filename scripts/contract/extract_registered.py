@@ -1224,7 +1224,7 @@ EXPECTED_ANNOTATIONS = {
         "GET",
         "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
     ): {"query_params": "dir,from,limit,org.matrix.msc3981.recurse,recurse,to"},
-    ("GET", "/_matrix/client/v3/rooms/{room_id}/sync"): {
+    ("GET", "/_matrix/vendor/v1/rooms/{room_id}/sync"): {
         "query_params": "full_state,since,timeout"
     },
     ("GET", "/_matrix/client/v3/spaces/{space_id}/hierarchy"): {
