@@ -1,17 +1,17 @@
 # Synapse Rust Performance Benchmark Report
 
-**Date:** 2026-10-07 13:04:11 UTC
-**Commit:** e17efb937a5cf800e22d246ca4846bc7328614b1
+**Date:** 2026-10-09 13:25:57 UTC
+**Commit:** 09074226611c8efb648052e9ae0a0429ad823301
 
 ## Results
 
-test pagination_offset_deep_page ... bench:       54176 ns/iter (+/- 224)
+test pagination_offset_deep_page ... bench:       33504 ns/iter (+/- 441)
 
-test pagination_keyset_deep_page ... bench:          54 ns/iter (+/- 0)
+test pagination_keyset_deep_page ... bench:          32 ns/iter (+/- 0)
 
-test state_resolution_chain_10 ... bench:         264 ns/iter (+/- 4)
+test state_resolution_chain_10 ... bench:         146 ns/iter (+/- 7)
 
-test state_resolution_chain_100 ... bench:         270 ns/iter (+/- 1)
+test state_resolution_chain_100 ... bench:         155 ns/iter (+/- 3)
 
-test auth_chain_build_10 ... bench:        6598 ns/iter (+/- 11)
+test auth_chain_build_10 ... bench:        5863 ns/iter (+/- 98)
 
