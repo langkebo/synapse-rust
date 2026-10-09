@@ -859,7 +859,11 @@ mod tests {
         let pool = Arc::new(PgPoolOptions::new().connect_lazy_with(PgConnectOptions::new()));
         let cache = Arc::new(synapse_cache::CacheManager::new(&CacheConfig::default()));
         let at_rest = crate::crypto::key_at_rest::KeyAtRest::new([0u8; 32]);
-        let megolm = Arc::new(MegolmProvider::from_env(MegolmSessionStorage::new(&pool), cache.clone(), at_rest));
+        let megolm = Arc::new(MegolmProvider::from_env(
+            MegolmSessionStorage::new(&pool, at_rest.clone()),
+            cache.clone(),
+            at_rest,
+        ));
         let storage = Arc::new(KeyRotationStorage::new(pool));
         KeyRotationService::new(megolm, storage, config)
     }

@@ -1,8 +1,6 @@
-use crate::key_request::models::{KeyRequestInfo, KeyRequestPagination, KeyShareResponse};
+use crate::key_request::models::{KeyRequestInfo, KeyRequestPagination};
 use crate::key_request::storage::KeyRequestStorage;
-use crate::megolm::MegolmProvider;
 use synapse_common::current_timestamp_millis;
-use synapse_common::map_database;
 use synapse_common::ApiError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,14 +40,13 @@ impl KeyRequestStatusFilter {
 /// The `KeyRequestService` type.
 pub struct KeyRequestService {
     storage: KeyRequestStorage,
-    megolm_service: MegolmProvider,
 }
 
 /// Implementation of [`KeyRequestService`] methods.
 impl KeyRequestService {
     /// See [`new`].
-    pub fn new(storage: KeyRequestStorage, megolm_service: MegolmProvider) -> Self {
-        Self { storage, megolm_service }
+    pub fn new(storage: KeyRequestStorage) -> Self {
+        Self { storage }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -100,60 +97,6 @@ impl KeyRequestService {
         let request =
             self.create_request(user_id, device_id, room_id, session_id, algorithm, Some("request"), None).await?;
         Ok(request.request_id)
-    }
-
-    /// See [`fulfill_request`].
-    pub async fn fulfill_request(
-        &self,
-        request_id: &str,
-        requesting_device_id: &str,
-    ) -> Result<Option<KeyShareResponse>, ApiError> {
-        let request = self.storage.get_request(request_id).await?;
-
-        let Some(request) = request else {
-            return Ok(None);
-        };
-
-        if request.is_fulfilled {
-            return Ok(None);
-        }
-
-        if request.device_id == requesting_device_id {
-            return Err(ApiError::bad_request("Cannot fulfill your own key request from the same device".to_string()));
-        }
-
-        let sessions = self
-            .megolm_service
-            .get_room_sessions(&request.room_id)
-            .await
-            .map_err(map_database!("Failed to get room sessions"))?;
-
-        let session = match sessions.iter().find(|s| s.session_id == request.session_id) {
-            Some(s) => s,
-            None => return Ok(None),
-        };
-
-        let session_key = session.session_key.clone();
-
-        self.storage.fulfill_request(request_id, requesting_device_id).await?;
-
-        let response = KeyShareResponse {
-            room_id: request.room_id.clone(),
-            session_id: request.session_id.clone(),
-            session_key,
-            sender_key: session.sender_key.clone(),
-            algorithm: session.algorithm.clone(),
-            forwarding_curve25519_key: None,
-        };
-
-        tracing::info!(
-            "Fulfilled key request {} for device {} in room {}",
-            request_id,
-            requesting_device_id,
-            response.room_id
-        );
-
-        Ok(Some(response))
     }
 
     /// See [`cancel_request`].

@@ -40,60 +40,6 @@ pub struct SecretStorageKey {
     pub created_ts: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-/// The `SecretStorageKeyCreationTerm` type.
-pub struct SecretStorageKeyCreationTerm {
-    /// The `key_id` field.
-    /// The `algorithm` field.
-    /// The `key` field.
-    /// The `iv` field.
-    /// The `mac` field.
-    pub key_id: String,
-    /// The `algorithm` field.
-    /// The `key` field.
-    /// The `iv` field.
-    /// The `mac` field.
-    pub algorithm: String,
-    /// The `key` field.
-    /// The `iv` field.
-    /// The `mac` field.
-    pub key: SecretStorageKeyCreationKey,
-    /// The `iv` field.
-    /// The `mac` field.
-    pub iv: Option<String>,
-    /// The `mac` field.
-    pub mac: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "algorithm")]
-/// The `SecretStorageKeyCreationKey` enum.
-///
-/// Only `m.secret_storage.v1.aes-hmac-sha2` is representable: the former
-/// MSC2697 `curve25519-aes-sha2` variant was removed together with its broken
-/// server-side crypto (it derived the AES key from the ciphertext itself, so no
-/// conforming client could ever decrypt a secret). A curve25519-bound key must
-/// be generated client-side; the server only stores its public description.
-pub enum SecretStorageKeyCreationKey {
-    /// AES-HMAC-SHA2 secret storage key.
-    #[serde(rename = "aes-hmac-sha2")]
-    AesHmacSha2(AesHmacSha2Key),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-/// The `AesHmacSha2Key` type.
-pub struct AesHmacSha2Key {
-    /// The `key` field.
-    /// The `iv` field.
-    /// The `mac` field.
-    pub key: String,
-    /// The `iv` field.
-    /// The `mac` field.
-    pub iv: String,
-    /// The `mac` field.
-    pub mac: String,
-}
-
 /// One encrypted secret, in the shape the spec requires for the
 /// `m.secret_storage.v1.aes-hmac-sha2` algorithm (`iv` / `ciphertext` / `mac`,
 /// all unpadded base64).
@@ -348,22 +294,6 @@ mod tests {
         assert_eq!(rt.encrypted_key, "enc");
         assert_eq!(rt.public_key, Some("pub".to_string()));
         assert_eq!(rt.created_ts, 1000);
-    }
-
-    #[test]
-    fn creation_key_enum_tagged_variants() {
-        let aes = SecretStorageKeyCreationKey::AesHmacSha2(AesHmacSha2Key {
-            key: "ak".to_string(),
-            iv: "iv".to_string(),
-            mac: "mac".to_string(),
-        });
-        let json_aes = serde_json::to_string(&aes).unwrap();
-        assert!(json_aes.contains("aes-hmac-sha2"));
-
-        let rt: SecretStorageKeyCreationKey = serde_json::from_str(&json_aes).unwrap();
-        match rt {
-            SecretStorageKeyCreationKey::AesHmacSha2(k) => assert_eq!(k.key, "ak"),
-        }
     }
 
     #[test]

@@ -17,7 +17,11 @@ use std::path::PathBuf;
 use synapse_common::ApiError;
 
 /// The version prefix for the at-rest format.
-const AT_REST_VERSION_PREFIX: &str = "v1:";
+///
+/// Exposed to the crate so callers that store already-sealed values (e.g.
+/// `megolm_sessions.session_key`, S-10) can tell a sealed value apart from a
+/// legacy plaintext one without duplicating the literal.
+pub(crate) const AT_REST_VERSION_PREFIX: &str = "v1:";
 
 /// Manages encryption-key-at-rest: seal (encrypt+persist) and open (decrypt+load).
 ///
@@ -63,7 +67,11 @@ impl KeyAtRest {
         let body = stored
             .strip_prefix(AT_REST_VERSION_PREFIX)
             .ok_or_else(|| ApiError::internal("session key missing at-rest version prefix"))?;
-        let sealed = base64::engine::general_purpose::STANDARD
+        // Must match the encoder in `seal` (`STANDARD_NO_PAD`): no-pad output is
+        // not canonical under `STANDARD`, whose decoder requires padding whenever
+        // the payload length dictates it, so decoding a sealed value of arbitrary
+        // length would fail.
+        let sealed = base64::engine::general_purpose::STANDARD_NO_PAD
             .decode(body)
             .map_err(|_| ApiError::internal("session key base64 decode failed"))?;
         if sealed.len() < 12 {
@@ -166,6 +174,23 @@ mod tests {
         let plaintext = b"test-secret-key-data-32bytes-long!!";
         let sealed = at_rest.seal(plaintext).unwrap();
         assert!(sealed.starts_with("v1:"));
+
+        let opened = at_rest.open(&sealed).unwrap();
+        assert_eq!(opened, plaintext);
+    }
+
+    /// A plaintext whose sealed length is not a multiple of 3 needs base64
+    /// padding, which `seal` omits. The decoder must accept it (S-10 stores
+    /// variable-length Megolm pickles, not just fixed-size 32-byte keys).
+    #[test]
+    fn test_seal_open_roundtrip_requires_padding() {
+        let at_rest = KeyAtRest::new([0x42; 32]);
+
+        let plaintext = b"pickle-sess-future";
+        assert_eq!(plaintext.len(), 18);
+        let sealed = at_rest.seal(plaintext).unwrap();
+        assert!(sealed.starts_with("v1:"));
+        assert!(!sealed.ends_with('='), "seal must not emit padding");
 
         let opened = at_rest.open(&sealed).unwrap();
         assert_eq!(opened, plaintext);

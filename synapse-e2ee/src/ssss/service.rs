@@ -83,76 +83,6 @@ impl SecretStorageService {
         self
     }
 
-    /// See [`create_key`].
-    ///
-    /// Only `m.secret_storage.v1.aes-hmac-sha2` can be generated server-side.
-    /// The MSC2697 `curve25519-aes-sha2` algorithm binds the key to a client
-    /// key pair via ECDH, so the server has no input from which to derive it —
-    /// requesting it is a `400`, and clients must upload such a key instead.
-    pub fn create_key(_user_id: &str, algorithm: &str) -> Result<SecretStorageKeyCreationTerm, ApiError> {
-        let key_id = format!("{}", uuid::Uuid::new_v4());
-
-        if is_aes_hmac_sha2(algorithm) {
-            return Self::create_aes_hmac_key(&key_id);
-        }
-
-        if algorithm == "org.matrix.msc2697.v1.curve25519-aes-sha2" {
-            return Err(ApiError::bad_request(
-                "curve25519-aes-sha2 key generation requires client key material (ECDH); \
-                 the server cannot generate it"
-                    .to_string(),
-            ));
-        }
-
-        Err(ApiError::bad_request(format!("Unsupported secret storage algorithm: {algorithm}")))
-    }
-
-    /// Generate a spec-compliant `m.secret_storage.v1.aes-hmac-sha2` key.
-    ///
-    /// Returns the raw key plus the key-validation `iv`/`mac` pair that belongs
-    /// in `m.secret_storage.key.<id>` (encrypt 32 zero bytes under the derived
-    /// AES key with `info = ""`, then HMAC the ciphertext under the derived MAC
-    /// key).
-    fn create_aes_hmac_key(key_id: &str) -> Result<SecretStorageKeyCreationTerm, ApiError> {
-        let mut key_bytes = Zeroizing::new([0u8; SSSS_KEY_LENGTH]);
-        rand::rng().fill_bytes(&mut *key_bytes);
-        let key_base64 = BASE64_NO_PAD.encode(*key_bytes);
-
-        let iv = generate_iv();
-        let (iv_base64, mac_base64) = key_validation_mac(&*key_bytes, &iv)?;
-
-        Ok(SecretStorageKeyCreationTerm {
-            key_id: key_id.to_string(),
-            algorithm: AES_HMAC_SHA2_SHORT.to_string(),
-            key: SecretStorageKeyCreationKey::AesHmacSha2(AesHmacSha2Key {
-                key: key_base64,
-                iv: iv_base64.clone(),
-                mac: mac_base64.clone(),
-            }),
-            iv: Some(iv_base64),
-            mac: Some(mac_base64),
-        })
-    }
-
-    /// See [`store_key`].
-    pub async fn store_key(&self, user_id: &str, key: &SecretStorageKeyCreationTerm) -> Result<(), ApiError> {
-        let encrypted_key = match &key.key {
-            SecretStorageKeyCreationKey::AesHmacSha2(ak) => ak.key.clone(),
-        };
-
-        let storage_key = SecretStorageKey {
-            key_id: key.key_id.clone(),
-            user_id: user_id.to_string(),
-            algorithm: key.algorithm.clone(),
-            encrypted_key,
-            public_key: None,
-            signatures: serde_json::json!({}),
-            created_ts: current_timestamp_millis(),
-        };
-
-        self.storage.create_key(&storage_key).await
-    }
-
     /// See [`store_account_data_key`].
     pub async fn store_account_data_key(&self, user_id: &str, key_id: &str, content: &Value) -> Result<(), ApiError> {
         let algorithm = content
@@ -411,15 +341,6 @@ fn aes_ctr_apply(key: &[u8; 32], iv: &[u8; SSSS_IV_LENGTH], data: &[u8]) -> Vec<
     buffer
 }
 
-/// The key-validation `(iv, mac)` pair: encrypt 32 zero bytes with
-/// `info = ""`, then HMAC the raw ciphertext under the derived MAC key.
-fn key_validation_mac(key: &[u8], iv: &[u8; SSSS_IV_LENGTH]) -> Result<(String, String), ApiError> {
-    let (aes_key, mac_key) = derive_keys(key, "")?;
-    let ciphertext = aes_ctr_apply(&aes_key, iv, &[0u8; 32]);
-    let mac = synapse_common::crypto::hmac_sha256(*mac_key, &ciphertext);
-    Ok((BASE64_NO_PAD.encode(iv), BASE64_NO_PAD.encode(mac)))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -458,45 +379,6 @@ mod tests {
             [0x60, 0x1e, 0xc3, 0x13, 0x77, 0x57, 0x89, 0xa5, 0xb7, 0xa7, 0xf5, 0x04, 0xbb, 0xf3, 0xd2, 0x28];
 
         assert_eq!(aes_ctr_apply(&key, &iv, &plaintext), expected.to_vec());
-    }
-
-    // ── key generation / validation ──────────────────────────────────
-
-    #[test]
-    fn create_aes_hmac_key_is_unpadded_and_has_validation_mac() {
-        let key = SecretStorageService::create_aes_hmac_key("k1").expect("key generation must succeed");
-        assert_eq!(key.algorithm, AES_HMAC_SHA2_SHORT);
-
-        let SecretStorageKeyCreationKey::AesHmacSha2(inner) = &key.key;
-        // Unpadded base64: 32 bytes -> 43 chars, 16 bytes -> 22 chars.
-        assert_eq!(inner.key.len(), 43, "raw key must be unpadded base64 of 32 bytes");
-        assert_eq!(inner.iv.len(), 22, "iv must be unpadded base64 of 16 bytes");
-        assert!(!inner.key.contains('=') && !inner.iv.contains('=') && !inner.mac.contains('='));
-        assert_eq!(key.iv.as_deref(), Some(inner.iv.as_str()));
-        assert_eq!(key.mac.as_deref(), Some(inner.mac.as_str()));
-    }
-
-    #[test]
-    fn create_key_rejects_curve25519_algorithm() {
-        let err = SecretStorageService::create_key("@test:example.com", "org.matrix.msc2697.v1.curve25519-aes-sha2")
-            .expect_err("curve25519 key generation must fail closed");
-        assert_eq!(err.kind, ApiErrorKind::BadRequest);
-        assert!(err.message.contains("curve25519"), "unexpected message: {}", err.message);
-    }
-
-    #[test]
-    fn create_key_rejects_unknown_algorithm() {
-        let err = SecretStorageService::create_key("@test:example.com", "unknown-algorithm")
-            .expect_err("unknown algorithm must fail");
-        assert_eq!(err.kind, ApiErrorKind::BadRequest);
-    }
-
-    #[test]
-    fn create_key_accepts_both_aes_hmac_sha2_spellings() {
-        for algorithm in [AES_HMAC_SHA2_SHORT, AES_HMAC_SHA2_SPEC] {
-            let key = SecretStorageService::create_key("@test:example.com", algorithm).expect("must generate");
-            assert_eq!(key.algorithm, AES_HMAC_SHA2_SHORT);
-        }
     }
 
     // ── IV rule ──────────────────────────────────────────────────────
@@ -631,21 +513,5 @@ mod tests {
             SecretStorageService::encrypt_secret("v", "name", &key_data).expect("padded base64 must be accepted");
         let plaintext = SecretStorageService::decrypt_secret(&encrypted, "name", &key_data).expect("decrypt");
         assert_eq!(plaintext, "v");
-    }
-
-    // ── key-validation MAC ───────────────────────────────────────────
-
-    #[test]
-    fn key_validation_mac_is_reproducible_and_key_bound() {
-        let raw = [0x88u8; 32];
-        let iv = generate_iv();
-        let (iv_b64, mac_b64) = key_validation_mac(&raw, &iv).expect("key mac");
-        let (iv_b64_again, mac_b64_again) = key_validation_mac(&raw, &iv).expect("key mac");
-        assert_eq!(iv_b64, iv_b64_again);
-        assert_eq!(mac_b64, mac_b64_again);
-
-        let other = [0x99u8; 32];
-        let (_, other_mac) = key_validation_mac(&other, &iv).expect("key mac");
-        assert_ne!(mac_b64, other_mac, "validation MAC must be bound to the key");
     }
 }

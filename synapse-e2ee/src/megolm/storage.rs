@@ -1,4 +1,5 @@
 use super::models::*;
+use crate::crypto::key_at_rest::{KeyAtRest, AT_REST_VERSION_PREFIX};
 use chrono::Utc;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -69,17 +70,39 @@ impl From<MegolmSessionRow> for MegolmSession {
 pub struct MegolmSessionStorage {
     /// The `pool` field.
     pub pool: Arc<PgPool>,
+    /// At-rest key used to `seal`/`open` the `session_key` column (S-10).
+    pub at_rest: KeyAtRest,
 }
 
 /// Implementation of [`MegolmSessionStorage`] methods.
 impl MegolmSessionStorage {
     /// See [`new`].
-    pub fn new(pool: &Arc<PgPool>) -> Self {
-        Self { pool: pool.clone() }
+    pub fn new(pool: &Arc<PgPool>, at_rest: KeyAtRest) -> Self {
+        Self { pool: pool.clone(), at_rest }
+    }
+
+    /// Encrypt a `session_key` for storage (S-10): AES-256-GCM, `v1:`-prefixed.
+    fn seal_session_key(&self, plaintext: &str) -> Result<String, ApiError> {
+        self.at_rest.seal(plaintext.as_bytes())
+    }
+
+    /// Decrypt a stored `session_key`.
+    ///
+    /// Rows written before at-rest encryption (S-10) hold a legacy plaintext
+    /// pickle with no `v1:` prefix; they are returned verbatim and re-sealed by
+    /// the next write, which is the lazy migration path.
+    fn open_session_key(&self, stored: &str) -> Result<String, ApiError> {
+        if stored.starts_with(AT_REST_VERSION_PREFIX) {
+            let plaintext = self.at_rest.open(stored)?;
+            String::from_utf8(plaintext).map_err(|_| ApiError::internal("megolm session key is not valid UTF-8"))
+        } else {
+            Ok(stored.to_string())
+        }
     }
 
     /// See [`create_session`].
     pub async fn create_session(&self, session: &MegolmSession) -> Result<(), ApiError> {
+        let sealed_key = self.seal_session_key(&session.session_key)?;
         sqlx::query!(
             r#"
             INSERT INTO megolm_sessions (
@@ -92,7 +115,7 @@ impl MegolmSessionStorage {
             &session.session_id,
             &session.room_id,
             &session.sender_key,
-            &session.session_key,
+            &sealed_key,
             &session.algorithm,
             session.message_index,
             session.created_ts.timestamp_millis(),
@@ -131,7 +154,14 @@ impl MegolmSessionStorage {
         .await
         .map_err(map_database!("Failed to load megolm session"))?;
 
-        Ok(row.map(Into::into))
+        match row {
+            Some(row) => {
+                let mut session: MegolmSession = row.into();
+                session.session_key = self.open_session_key(&session.session_key)?;
+                Ok(Some(session))
+            }
+            None => Ok(None),
+        }
     }
 
     /// See [`get_room_sessions`].
@@ -159,11 +189,16 @@ impl MegolmSessionStorage {
         .await
         .map_err(map_database!("Failed to load megolm sessions"))?;
 
-        Ok(rows.into_iter().map(Into::into).collect())
+        let mut sessions: Vec<MegolmSession> = rows.into_iter().map(Into::into).collect();
+        for session in &mut sessions {
+            session.session_key = self.open_session_key(&session.session_key)?;
+        }
+        Ok(sessions)
     }
 
     /// See [`update_session`].
     pub async fn update_session(&self, session: &MegolmSession) -> Result<(), ApiError> {
+        let sealed_key = self.seal_session_key(&session.session_key)?;
         sqlx::query!(
             r#"
             UPDATE megolm_sessions
@@ -174,7 +209,7 @@ impl MegolmSessionStorage {
             WHERE session_id = $1
             "#,
             &session.session_id,
-            &session.session_key,
+            &sealed_key,
             session.message_index,
             session.last_used_ts.timestamp_millis(),
             session.expires_at.map(|t| t.timestamp_millis()),
@@ -566,7 +601,7 @@ mod db_tests {
     async fn test_megolm_round_trip_on_migration_template() {
         let isolated = IsolatedTestPool::new(BASELINE_SQL).await.expect("isolated test pool");
         let pool = isolated.pool();
-        let storage = MegolmSessionStorage::new(&pool);
+        let storage = MegolmSessionStorage::new(&pool, KeyAtRest::new([0x42; 32]));
 
         let room_a = "!c26a:localhost";
         let room_b = "!c26b:localhost";
@@ -589,6 +624,17 @@ mod db_tests {
         assert_eq!(loaded.last_used_ts.timestamp_millis(), s1.last_used_ts.timestamp_millis());
         assert_eq!(loaded.expires_at, None);
         assert!(storage.get_session("missing").await.unwrap().is_none());
+
+        // S-10: the `session_key` column must be sealed at rest while `get_session`
+        // still hands back the plaintext pickle. The raw column is the only place
+        // that is allowed to see ciphertext.
+        let raw_key: String =
+            sqlx::query_scalar("SELECT session_key FROM megolm_sessions WHERE session_id = 'sess-a1'")
+                .fetch_one(&*pool)
+                .await
+                .unwrap();
+        assert!(raw_key.starts_with("v1:"), "session_key must be at-rest encrypted (S-10): {raw_key}");
+        assert_ne!(raw_key, "pickle-sess-a1", "the plaintext pickle must not be stored verbatim");
 
         // `session_id` is UNIQUE and `create_session` has no `ON CONFLICT`: the second
         // insert must surface a mapped DB error, not silently become an update.
@@ -697,5 +743,52 @@ mod db_tests {
                 .await
                 .unwrap();
         assert_eq!(key_rows, 2, "megolm_session_keys has no FK to megolm_sessions in the baseline");
+    }
+
+    /// S-10 legacy compatibility: a row written before at-rest encryption holds a
+    /// plaintext pickle (no `v1:` prefix). It must still read back verbatim, and a
+    /// subsequent write must re-seal it — the lazy migration path.
+    #[tokio::test]
+    async fn legacy_plaintext_session_key_reads_and_reseals() {
+        let isolated = IsolatedTestPool::new(BASELINE_SQL).await.expect("isolated test pool");
+        let pool = isolated.pool();
+        let storage = MegolmSessionStorage::new(&pool, KeyAtRest::new([0x42; 32]));
+
+        let legacy = make_session("sess-legacy", "!legacy:localhost", 0);
+        sqlx::query(
+            "INSERT INTO megolm_sessions (id, session_id, room_id, sender_key, session_key, algorithm, \
+             message_index, created_ts, last_used_ts, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        )
+        .bind(legacy.id)
+        .bind(&legacy.session_id)
+        .bind(&legacy.room_id)
+        .bind(&legacy.sender_key)
+        .bind("plaintext-legacy-pickle")
+        .bind(&legacy.algorithm)
+        .bind(legacy.message_index)
+        .bind(legacy.created_ts.timestamp_millis())
+        .bind(legacy.last_used_ts.timestamp_millis())
+        .bind(Option::<i64>::None)
+        .execute(&*pool)
+        .await
+        .unwrap();
+
+        // Read: pre-S-10 plaintext is returned as-is (no error, no mangling).
+        let loaded = storage.get_session("sess-legacy").await.unwrap().expect("legacy row");
+        assert_eq!(loaded.session_key, "plaintext-legacy-pickle");
+
+        // Write: the row is migrated to ciphertext on the next update.
+        storage.update_session(&loaded).await.unwrap();
+        let raw: String =
+            sqlx::query_scalar("SELECT session_key FROM megolm_sessions WHERE session_id = 'sess-legacy'")
+                .fetch_one(&*pool)
+                .await
+                .unwrap();
+        assert!(raw.starts_with("v1:"), "the legacy row must be re-sealed on write: {raw}");
+        assert_eq!(
+            storage.get_session("sess-legacy").await.unwrap().expect("re-read").session_key,
+            "plaintext-legacy-pickle",
+            "the migrated row must still read back as the original plaintext"
+        );
     }
 }

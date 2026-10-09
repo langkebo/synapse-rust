@@ -72,15 +72,17 @@ impl E2eeServices {
             .with_cross_signing_storage(cross_signing_storage_arc)
             .with_dehydrated_device_storage(dehydrated_device_storage.clone());
 
-        let megolm_storage = synapse_e2ee::megolm::MegolmSessionStorage::new(pool);
         // Propagated, not panicked: the message names the two config keys and is
         // surfaced by the composition root as a startup error.
         let at_rest_key = resolve_at_rest_key(megolm_encryption_key_path, macaroon_secret_key)?;
         let at_rest = KeyAtRest::new(at_rest_key);
+        // The same key protects both the server-side session store (`session_key`,
+        // S-10) and the shared-key archive (`megolm_session_keys`, S-9).
+        let megolm_storage = synapse_e2ee::megolm::MegolmSessionStorage::new(pool, at_rest.clone());
         let megolm_service = MegolmProvider::from_env(megolm_storage, cache.clone(), at_rest);
 
         let key_request_storage = synapse_e2ee::key_request::KeyRequestStorage::new(pool.as_ref());
-        let key_request_service = KeyRequestService::new(key_request_storage, megolm_service.clone());
+        let key_request_service = KeyRequestService::new(key_request_storage);
 
         let dehydrated_device_service =
             crate::dehydrated_device_service::DehydratedDeviceService::new(dehydrated_device_storage_arc);

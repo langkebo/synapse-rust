@@ -660,55 +660,60 @@ impl DeviceKeyService {
         // 消费者取证为零：SDK 侧的 body 由 rust-crypto 的 `SignatureUploadRequest` 直接
         // 给出裸映射，后端自己的单测与集成测试也都发裸映射；且对裸映射输入行为**等价**
         // （裸映射不含顶层 `signatures` 键，故原 `unwrap_or(body)` 本就取整个 body）。
-        let signatures = body;
+        //
+        // 显式类型校验（替代此前的静默落空）：请求体必须是 JSON 对象。旧写法用
+        // `if let Some(sig_map) = body.as_object() { ... }`，非对象输入（字符串/数组/null）
+        // 会**静默跳过**并返回 200 `{"failures":{}}`，把客户端的格式错误伪装成“无失败”，
+        // 掩盖调用方 bug。规范要求 body 为对象，故这里按 400 `M_BAD_JSON` 显式拒绝。
+        let sig_map = body
+            .as_object()
+            .ok_or_else(|| ApiError::bad_request("Request body must be a JSON object of signatures"))?;
 
-        if let Some(sig_map) = signatures.as_object() {
-            for (target_user_id, user_sigs) in sig_map {
-                if let Some(user_sig_map) = user_sigs.as_object() {
-                    for (target_key_id, sig_data) in user_sig_map {
-                        if let Some(sig_obj) = sig_data.as_object() {
-                            for (signing_user_id, signing_key_sigs) in sig_obj {
-                                // E2EE-06: 只允许已认证用户上传以自己名义的签名，
-                                // 防止攻击者伪造他人的交叉签名关系
-                                if signing_user_id != user_id {
-                                    tracing::warn!(
-                                        target: "e2ee",
-                                        auth_user = %user_id,
-                                        signing_user = %signing_user_id,
-                                        target_user = %target_user_id,
-                                        target_key = %target_key_id,
-                                        "Rejecting signature uploaded on behalf of another user"
-                                    );
-                                    failures
-                                        .entry(target_user_id.clone())
-                                        .or_insert_with(|| serde_json::json!({}))
-                                        .as_object_mut()
-                                        .map(|m| {
-                                            m.insert(
-                                                target_key_id.clone(),
-                                                serde_json::json!({
-                                                    "errcode": "M_FORBIDDEN",
-                                                    "error": "Cannot upload signatures on behalf of other users"
-                                                }),
-                                            )
-                                        });
-                                    continue;
-                                }
-                                if let Some(key_sigs) = signing_key_sigs.as_object() {
-                                    for (signing_key_id, signature) in key_sigs {
-                                        if let Err(e) = self
-                                            .storage
-                                            .store_signature(
-                                                target_user_id,
-                                                target_key_id,
-                                                signing_user_id,
-                                                signing_key_id,
-                                                signature.as_str().unwrap_or(""),
-                                            )
-                                            .await
-                                        {
-                                            tracing::error!("Failed to store signature for {target_key_id} (signed by {signing_key_id}): {e}");
-                                        }
+        for (target_user_id, user_sigs) in sig_map {
+            if let Some(user_sig_map) = user_sigs.as_object() {
+                for (target_key_id, sig_data) in user_sig_map {
+                    if let Some(sig_obj) = sig_data.as_object() {
+                        for (signing_user_id, signing_key_sigs) in sig_obj {
+                            // E2EE-06: 只允许已认证用户上传以自己名义的签名，
+                            // 防止攻击者伪造他人的交叉签名关系
+                            if signing_user_id != user_id {
+                                tracing::warn!(
+                                    target: "e2ee",
+                                    auth_user = %user_id,
+                                    signing_user = %signing_user_id,
+                                    target_user = %target_user_id,
+                                    target_key = %target_key_id,
+                                    "Rejecting signature uploaded on behalf of another user"
+                                );
+                                failures
+                                    .entry(target_user_id.clone())
+                                    .or_insert_with(|| serde_json::json!({}))
+                                    .as_object_mut()
+                                    .map(|m| {
+                                        m.insert(
+                                            target_key_id.clone(),
+                                            serde_json::json!({
+                                                "errcode": "M_FORBIDDEN",
+                                                "error": "Cannot upload signatures on behalf of other users"
+                                            }),
+                                        )
+                                    });
+                                continue;
+                            }
+                            if let Some(key_sigs) = signing_key_sigs.as_object() {
+                                for (signing_key_id, signature) in key_sigs {
+                                    if let Err(e) = self
+                                        .storage
+                                        .store_signature(
+                                            target_user_id,
+                                            target_key_id,
+                                            signing_user_id,
+                                            signing_key_id,
+                                            signature.as_str().unwrap_or(""),
+                                        )
+                                        .await
+                                    {
+                                        tracing::error!("Failed to store signature for {target_key_id} (signed by {signing_key_id}): {e}");
                                     }
                                 }
                             }
@@ -1017,6 +1022,25 @@ mod tests {
         let failures = response.get("failures").and_then(|f| f.as_object()).expect("failures object");
         assert!(failures.is_empty(), "own signature must not fail, got: {failures:?}");
         assert_eq!(store.signature_count().await, 1, "own signature must be stored");
+    }
+
+    #[tokio::test]
+    async fn upload_signatures_rejects_non_object_body() {
+        let store = InMemoryDeviceKeyStore::new();
+        let storage: Arc<dyn super::DeviceKeyStoreApi> = Arc::new(store.clone());
+        let service = DeviceKeyService::new(storage, make_test_cache());
+
+        // 非对象 body（数组/字符串/null）必须显式报错（400 M_BAD_JSON），
+        // 而不是静默返回 200 `{"failures":{}}` —— 后者会把调用方的格式错误
+        // 伪装成“无失败”。规范要求 body 是对象映射。
+        for body in [serde_json::json!(["not", "an", "object"]), serde_json::json!("oops"), serde_json::json!(null)] {
+            let err = service
+                .upload_signatures("@alice:example.com", body.clone())
+                .await
+                .expect_err(&format!("non-object body {body} must be rejected"));
+            assert!(err.code_is(MatrixErrorCode::BadJson), "expected M_BAD_JSON, got {}", err.code_str());
+            assert_eq!(store.signature_count().await, 0, "non-object body must store nothing");
+        }
     }
 
     // ------------------------------------------------------------------
