@@ -3,7 +3,7 @@ use crate::routes::extractors::UserId;
 use crate::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, Request, State},
-    http::{header, HeaderValue, StatusCode},
+    http::{header, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
