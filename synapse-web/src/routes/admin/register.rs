@@ -18,7 +18,6 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use std::net::SocketAddr;
@@ -115,18 +114,9 @@ fn ensure_admin_registration_environment(production_only: bool) -> Result<(), Bo
 }
 
 fn ip_matches_whitelist(ip: IpAddr, whitelist: &[String]) -> bool {
-    whitelist.iter().any(|entry| {
-        let candidate = entry.trim();
-        if candidate.is_empty() {
-            return false;
-        }
-
-        candidate
-            .parse::<IpNetwork>()
-            .map(|network| network.contains(ip))
-            .or_else(|_| candidate.parse::<IpAddr>().map(|allowed| allowed == ip))
-            .unwrap_or(false)
-    })
+    // 实现已收敛到 `utils::login_lockout::ip_in_allowlist`：此前这里与登录锁定豁免各有一份，
+    // 语义微妙的"受信 IP"判断有两份实现本身就是风险（改了一处漏另一处）。
+    crate::utils::login_lockout::ip_in_allowlist(ip, whitelist)
 }
 
 fn ensure_admin_registration_ip_policy(

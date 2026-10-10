@@ -6,3 +6,5 @@ pub(crate) mod auth;
 pub(crate) mod encoding;
 /// The `ip` module.
 pub(crate) mod ip;
+/// The `login_lockout` module.
+pub(crate) mod login_lockout;

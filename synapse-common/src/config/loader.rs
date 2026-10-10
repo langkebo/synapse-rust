@@ -337,6 +337,42 @@ mod tests {
         crate::config::test_env::remove("SYNAPSE__SECURITY__ADMIN_MFA_REQUIRED");
     }
 
+    // ── 登录锁定豁免名单是列表：env 覆盖**不可用**（实测）────────────
+
+    /// 实测：`security.login_lockout_ip_allowlist`（`Vec<String>`）**无法**用
+    /// `SYNAPSE__…` 环境变量覆盖。三种格式均失败（config crate 0.14）：
+    /// 逗号分隔 / JSON 数组 / 带下标（`…_ALLOWLIST__0`）—— 前两者报
+    /// `expected an array`，带下标则退化成 map 仍报 `expected an array`。
+    ///
+    /// 钉死该事实是为了**防止**运维手册写出「用 `SYNAPSE__SECURITY__..._ALLOWLIST`
+    /// 开豁免」这种看似合理、实则静默不生效的指引。结论：只能写在 `homeserver.yaml`。
+    #[test]
+    fn list_valued_security_field_cannot_be_overridden_by_env() {
+        let yaml = "security:\n  login_lockout_ip_allowlist: []\n";
+        let build = || {
+            config::Config::builder()
+                .add_source(config::File::from_str(yaml, config::FileFormat::Yaml))
+                .add_source(config::Environment::with_prefix("SYNAPSE").separator("__"))
+                .build()
+                .expect("config build")
+        };
+        for (label, value) in [("comma", "127.0.0.1,10.0.0.0/8"), ("json", "[\"127.0.0.1\"]")] {
+            crate::config::test_env::set("SYNAPSE__SECURITY__LOGIN_LOCKOUT_IP_ALLOWLIST", value);
+            assert!(
+                build().get_array("security.login_lockout_ip_allowlist").is_err(),
+                "格式 `{label}` 若开始生效，说明 config crate 行为变了 —— 应更新用例与文档"
+            );
+            crate::config::test_env::remove("SYNAPSE__SECURITY__LOGIN_LOCKOUT_IP_ALLOWLIST");
+        }
+        // 对照：YAML 列表是唯一可行通道，必须真的解析成两项。
+        let parsed: crate::config::security::SecurityConfig = serde_yaml::from_str(
+            "secret: s\nexpiry_time: 1\nrefresh_token_expiry: 2\n\
+             login_lockout_ip_allowlist:\n  - 127.0.0.1\n  - 10.0.0.0/8\n",
+        )
+        .expect("yaml list must deserialize");
+        assert_eq!(parsed.login_lockout_ip_allowlist.len(), 2, "YAML 才是该字段的官方通道");
+    }
+
     // ── ${VAR} simple substitution ─────────────────────────────────
 
     #[test]

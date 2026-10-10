@@ -56,6 +56,32 @@ pub struct SecurityConfig {
     #[serde(default = "default_login_lockout_fail_open")]
     /// `login_lockout_fail_open_on_redis_error` field.
     pub login_lockout_fail_open_on_redis_error: bool,
+    /// 单个出口 IP 的登录失败上限（跨用户名聚合，SEC-05）。
+    ///
+    /// 与 `login_failure_lockout_threshold`（按 (ip, username) 对）是两个独立桶：
+    /// 后者挡单账号爆破，本项挡「同一地址轮换用户名」的喷洒式爆破。
+    /// 必须 ≥ 前者，否则更具体的桶永远先触发、本桶形同虚设。
+    #[serde(default = "default_login_lockout_max_ip_attempts")]
+    /// `login_lockout_max_ip_attempts` field.
+    pub login_lockout_max_ip_attempts: u32,
+    /// 登录锁定豁免名单（IP 或 CIDR，例如 `127.0.0.1` / `10.0.0.0/8`）。
+    ///
+    /// 用途：受信出口（CI runner、内网 NAT、本机联调）不应被登录锁定波及 ——
+    /// 按 IP 聚合的锁定会让整个出口的**所有**用户名一起被拒 900 秒，
+    /// 直接把自动化测试打成「认证全失败」（2026-10-10 实测：API 全量测试因
+    /// 命中外层 IP 桶而静默降级为匿名探测，却仍报 100/100）。
+    ///
+    /// 安全边界：豁免只作用于**锁定**（不拒绝、不计数），限流（rate limit）与
+    /// 密码校验仍照常生效；且默认**空** —— 必须显式配置才放宽。
+    ///
+    /// ⚠️ 只能写在 `homeserver.yaml` 里：**无法**用
+    /// `SYNAPSE__SECURITY__LOGIN_LOCKOUT_IP_ALLOWLIST` 覆盖 —— 实测
+    /// 逗号分隔 / JSON 数组 / 带下标（`…_ALLOWLIST__0`）三种格式都不被接受
+    /// （`config` crate 0.14 报 `expected an array`）。该事实由
+    /// `config::loader::tests::list_valued_security_field_cannot_be_overridden_by_env` 钉死。
+    #[serde(default)]
+    /// `login_lockout_ip_allowlist` field.
+    pub login_lockout_ip_allowlist: Vec<String>,
     /// 是否强制管理员登录必须通过 MFA
     #[serde(default)]
     /// `admin_mfa_required` field.
@@ -124,6 +150,16 @@ fn default_login_lockout_duration_seconds() -> u64 {
 fn default_login_lockout_fail_open() -> bool {
     // 默认 false：fail-closed。Redis 故障时拒绝登录，避免 fail-open 暴力破解窗口。
     false
+}
+
+/// 单出口 IP 的登录失败上限默认值。
+///
+/// 与 `default_login_failure_lockout_threshold()`（5）保持 6 倍关系：足以让
+/// 「同地址轮换用户名」的喷洒式爆破撞墙，又不会把正常 NAT 出口的日常误输密码
+/// 直接锁死。原先该值硬编码在 `synapse-web/src/routes/auth_compat.rs`，
+/// 与这里的配置项并存在**两个真相源**，已收敛到配置。
+fn default_login_lockout_max_ip_attempts() -> u32 {
+    30
 }
 
 /// Defaults the admin.
@@ -200,6 +236,8 @@ impl Default for SecurityConfig {
             login_failure_lockout_threshold: default_login_failure_lockout_threshold(),
             login_lockout_duration_seconds: default_login_lockout_duration_seconds(),
             login_lockout_fail_open_on_redis_error: default_login_lockout_fail_open(),
+            login_lockout_max_ip_attempts: default_login_lockout_max_ip_attempts(),
+            login_lockout_ip_allowlist: Vec::new(),
             admin_mfa_required: false,
             admin_mfa_shared_secret: String::new(),
             admin_mfa_allowed_drift_steps: default_admin_mfa_allowed_drift_steps(),
@@ -344,5 +382,56 @@ impl Default for AdminRegistrationConfig {
             require_manual_approval: false,
             approval_tokens: Vec::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `secret` / `expiry_time` / `refresh_token_expiry` 没有 serde 默认值，
+    /// 必须显式给出；其余字段一律有 default。
+    fn minimal_security_yaml() -> &'static str {
+        "secret: test_secret\nexpiry_time: 3600\nrefresh_token_expiry: 604800\n"
+    }
+
+    #[test]
+    fn login_lockout_defaults_are_safe() {
+        let cfg: SecurityConfig =
+            serde_yaml::from_str(minimal_security_yaml()).expect("minimal security yaml must deserialize");
+
+        assert_eq!(cfg.login_failure_lockout_threshold, 5);
+        assert_eq!(cfg.login_lockout_duration_seconds, 900);
+        assert_eq!(cfg.login_lockout_max_ip_attempts, 30, "IP 聚合上限默认 30，且必须可配置");
+        assert!(cfg.login_lockout_ip_allowlist.is_empty(), "豁免名单默认必须为空 —— 放宽必须是显式动作");
+        assert!(!cfg.login_lockout_fail_open_on_redis_error, "默认 fail-closed");
+    }
+
+    /// 键名 ↔ 字段 直连断言。
+    ///
+    /// 存在的理由：2026-10-10 实测发现 `synapse-web/src/routes/auth_compat.rs`
+    /// 把锁定时长与 IP 上限**硬编码**（900s / 30 次），`homeserver.yaml` 里写
+    /// `login_lockout_duration_seconds: 300` **完全不生效** —— 运行态返回
+    /// `retry_after_ms: 900000` 而配置写着 300。这类「配置写了但没接线」的缺陷，
+    /// 只有"用真实键名反序列化后断言字段值"能锁住（改字段名/挪层级都会红）。
+    #[test]
+    fn login_lockout_yaml_keys_are_wired_to_fields() {
+        let yaml = format!(
+            "{minimal}\n{extra}",
+            minimal = minimal_security_yaml(),
+            extra = "login_lockout_duration_seconds: 300\n\
+                     login_failure_lockout_threshold: 7\n\
+                     login_lockout_max_ip_attempts: 42\n\
+                     login_lockout_ip_allowlist:\n  - 127.0.0.1\n  - 10.0.0.0/8\n  - ::1\n"
+        );
+        let cfg: SecurityConfig = serde_yaml::from_str(&yaml).expect("explicit security yaml must deserialize");
+
+        assert_eq!(cfg.login_lockout_duration_seconds, 300, "homeserver.yaml 的值必须真的被读进来");
+        assert_eq!(cfg.login_failure_lockout_threshold, 7);
+        assert_eq!(cfg.login_lockout_max_ip_attempts, 42);
+        assert_eq!(
+            cfg.login_lockout_ip_allowlist,
+            vec!["127.0.0.1".to_string(), "10.0.0.0/8".to_string(), "::1".to_string()]
+        );
     }
 }

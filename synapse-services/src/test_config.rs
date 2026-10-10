@@ -179,6 +179,8 @@ pub fn build_test_config() -> Config {
             login_failure_lockout_threshold: 5,
             login_lockout_duration_seconds: 900,
             login_lockout_fail_open_on_redis_error: true,
+            login_lockout_max_ip_attempts: 30,
+            login_lockout_ip_allowlist: Vec::new(),
             admin_mfa_required: false,
             admin_mfa_shared_secret: String::new(),
             admin_mfa_allowed_drift_steps: 1,

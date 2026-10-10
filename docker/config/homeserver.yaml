@@ -173,6 +173,26 @@ security:
   allow_legacy_hashes: false
   login_failure_lockout_threshold: 5
   login_lockout_duration_seconds: 300
+  # 单个出口 IP 的登录失败上限（跨用户名聚合，SEC-05）。
+  # 必须 ≥ login_failure_lockout_threshold，否则更具体的桶永远先触发。
+  login_lockout_max_ip_attempts: 30
+  # 登录锁定豁免名单（IP 或 CIDR）。**默认空** —— 放宽必须是显式动作。
+  #
+  # 为什么需要：按 IP 聚合的锁定会把同一出口的**所有**用户名一起拒掉
+  # （默认 30 次 / 300 秒）。CI runner、内网 NAT、本机联调都在这个出口后面，
+  # 一旦被锁，自动化登录全部失败 —— 2026-10-10 实测 API 全量测试因此静默
+  # 降级为匿名探测却仍报「100/100 优秀」。
+  #
+  # 注意：豁免只作用于**锁定**（不拒绝、不计数）；密码校验与限流照常生效。
+  # ⚠️ 本字段**不能**用 SYNAPSE__... 环境变量覆盖（实测 config crate 对
+  #    Vec<String> 的 env 覆盖不可用），只能写在这里。
+  # 下面两条只放行回环地址（外部不可达，安全）；跑测试的出口 IP 请按需追加，
+  # 例如 CI runner 出口或内网网段：
+  #   - 192.168.0.0/16
+  #   - 203.0.113.7
+  login_lockout_ip_allowlist:
+    - 127.0.0.1/32
+    - ::1/128
   # C9: 管理员 MFA 的 TOTP 共享密钥（base32）。默认空——dev 栈不设置
   # ADMIN_MFA_SHARED_SECRET 时 admin_mfa_required 保持 false；部署栈由
   # docker-compose 注入 SYNAPSE__SECURITY__ADMIN_MFA_REQUIRED=true 并强制本项非空。
