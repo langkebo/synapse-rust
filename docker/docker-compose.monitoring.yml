@@ -140,6 +140,38 @@ services:
         max-file: "3"
 
   # ---------------------------------------------------------------------------
+  # Pushgateway - Mock/一次性指标通道（开发自检用）
+  # ---------------------------------------------------------------------------
+  # 为什么需要它：Prometheus 没有「直接抓本地文件」的能力，`file_sd_configs`
+  # 也只能提供**目标列表**而非指标样本。本地无真实流量时想让面板有数据，
+  # 标准做法是把生成好的 Prometheus 文本经 Pushgateway 中转：
+  #   curl --data-binary @mock_synapse_metrics.prom \
+  #        http://127.0.0.1:9091/metrics/job/mock-synapse/instance/dev
+  # 对应 job 见 monitoring/prometheus/prometheus-with-mock.yml 的 `mock-synapse`。
+  pushgateway:
+    image: prom/pushgateway:v1.6.2
+    container_name: synapse-pushgateway
+    restart: unless-stopped
+    cpus: 0.25
+    mem_limit: 64m
+    networks:
+      - synapse_network
+    ports:
+      # 仅回环暴露：推送端在本机（脚本/人工），不对外
+      - "127.0.0.1:9091:9091"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9091/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ---------------------------------------------------------------------------
   # Node Exporter - 主机系统指标采集
   # ---------------------------------------------------------------------------
   node-exporter:

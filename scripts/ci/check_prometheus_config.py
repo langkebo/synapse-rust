@@ -1,0 +1,505 @@
+#!/usr/bin/env python3
+"""Prometheus 配置门禁：语法合法 + 规则可解析 + 目标真实存在 + 变体不漂移。
+
+## 为什么需要这个门禁
+
+2026-10-10 的运维巡检发现监控交付物存在一类**静默失效**：配置能提交、面板能加载，
+但永远没有数据。逐项取证如下：
+
+1. `monitoring/prometheus/prometheus.yml` 把 Alertmanager 的
+   `repeat_interval` / `send_resolved` 写在 Prometheus 的 `alerting.alertmanagers[]`
+   下 —— `promtool check config` 直接报
+   `field not found in type config.AlertmanagerConfig`，**Prometheus 拒绝启动**。
+   该文件此前从未被任何门禁校验过。
+
+2. 同一文件的 `metric_relabel_configs` 写成 `action: keep` + 正则
+   `(go_.*|process_.*|promhttp_.*)`，与注释（"过滤不需要的指标"）语义**相反**：
+   keep 会把 `synapse_*` / `http_requests_total` / `room_*` 等**全部应用指标丢掉**
+   → 所有业务面板恒 No data，且不报任何错。
+
+3. `prometheus-with-mock.yml` 用 `static_configs.targets: ["file://...prom"]`
+   + `file_sd_configs.files: ['.../*.prom']` 表达"MOCK 数据" —— 两者都非法
+   （`static_configs.targets` 只能是 `host:port`；`file_sd` 提供的是**目标列表**
+   而非指标样本），promtool 报 `path name ... is not valid for file discovery`。
+
+4. 配置里指向**不存在的主机**（`db:9187` / `redis:9121` / `grafana:3000`）时
+   Prometheus 不报错，只把该目标永久标 `down`，依赖它的面板静默变空 ——
+   本仓 `coturn` 正是这样长期 down 而无人察觉（见 A6）。
+
+因此本门禁做四件事，且**任何一步失败都必须让 CI 变红**（不允许静默跳过）：
+
+  A. `promtool check config` —— 抓取配置语法（含 rule_files 可达性）
+  B. `promtool check rules`  —— 告警/录制规则语法
+  C. **死目标守卫**：每个 `static_configs.targets` 的 host 必须是
+     compose 里真实存在的 service 名 / container_name，
+     或 `localhost` / `127.0.0.1`（自抓取），
+     或登记在 `scripts/ci/prometheus_target_allowlist`（必须写明理由）。
+  D. **漂移守卫**：`prometheus-with-mock.yml` 的 job 集合必须恰好等于
+     `prometheus.yml` 的 job 集合 ∪ `{mock-*}`。
+     两个文件内容几乎相同却各自演进，是本仓反复出现的"配置双副本"形态
+     （参见 docker-compose.yml 头部对 `docker/config/` 的单源纪律）。
+
+## promtool 从哪来
+
+优先用 Docker 镜像 `prom/prometheus:v2.47.0`（版本与
+`docker/docker-compose.monitoring.yml` 中实际部署的 Prometheus 钉死一致 ——
+用别的版本校验可能放过部署版本才有的字段错误）；没有 docker 时退回
+PATH 上的 `promtool`。两者都不可用时**判失败**而不是跳过 ——
+跳过等于门禁不存在。
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+try:
+    import yaml
+except ImportError:  # pragma: no cover - 环境缺依赖时给出可操作提示
+    print("FATAL: 需要 pyyaml（pip install pyyaml）", file=sys.stderr)
+    sys.exit(2)
+
+REPO = Path(__file__).resolve().parents[2]
+
+# promtool 容器镜像：与 monitoring compose 中的 Prometheus 版本保持一致。
+PROMETHEUS_IMAGE = "prom/prometheus:v2.47.0"
+
+ALLOWLIST = REPO / "scripts/ci/prometheus_target_allowlist"
+
+# 自抓取目标（容器内 localhost 即 Prometheus 自身）
+SELF_TARGETS = {"localhost", "127.0.0.1", "::1"}
+
+# 每个 Prometheus 配置 → 它应当在哪些 compose 文件的服务集合里找目标。
+# 键是配置路径（相对仓库根），值是 compose 路径列表。
+CONFIG_COMPOSE_MAP: dict[str, list[str]] = {
+    "monitoring/prometheus/prometheus.yml": [
+        "docker/docker-compose.yml",
+        "docker/docker-compose.monitoring.yml",
+    ],
+    "monitoring/prometheus/prometheus-with-mock.yml": [
+        "docker/docker-compose.yml",
+        "docker/docker-compose.monitoring.yml",
+    ],
+    "docker/deploy/prometheus/prometheus.yml": [
+        "docker/deploy/docker-compose.yml",
+        "docker/deploy/docker-compose.monitoring.yml",
+    ],
+}
+
+# 需要校验的规则文件（配置里的 rule_files 另行动态解析）
+RULE_FILES = [
+    "monitoring/alerting-rules.yml",
+    "docker/deploy/prometheus/alerting-rules.yml",
+    "docker/deploy/prometheus/recording-rules.yml",
+]
+
+# 漂移守卫的基准对：(变体配置, 基准配置)
+DRIFT_PAIRS = [
+    (
+        "monitoring/prometheus/prometheus-with-mock.yml",
+        "monitoring/prometheus/prometheus.yml",
+    ),
+]
+
+
+class Failure(Exception):
+    """一条可读的门禁失败。"""
+
+
+def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+
+def resolve_promtool() -> tuple[str, str]:
+    """返回 (kind, prefix)。
+
+    kind == "docker" 时 prefix 是镜像名，调用方负责把 `-v` 挂载放在镜像**之前**。
+    kind == "local" 时 prefix 是 promtool 可执行文件路径。
+
+    找不到就抛 Failure（不静默跳过）。
+    """
+    if shutil.which("docker"):
+        return "docker", PROMETHEUS_IMAGE
+    local = shutil.which("promtool")
+    if local:
+        return "local", local
+    raise Failure(
+        "既没有 promtool 也没有 docker —— 无法校验 Prometheus 配置。\n"
+        "  本门禁刻意不提供『跳过』分支：跳过等于门禁不存在（这正是被修的那类缺陷）。\n"
+        "  修法：安装 promtool，或安装 Docker（CI 上二者必有其一）。"
+    )
+
+
+def _docker_cmd(
+    image: str, mounts: list[tuple[Path, str]], args: list[str]
+) -> list[str]:
+    """组装 `docker run --entrypoint promtool <mounts> <image> <args>`。
+
+    挂载必须出现在镜像名**之前**，否则 docker 会把 `-v` 当成 promtool 的参数
+    （实测报 `unknown short flag '-v'`）。
+    """
+    cmd = ["docker", "run", "--rm", "--entrypoint", "promtool"]
+    for host, container in mounts:
+        cmd += ["-v", f"{host}:{container}:ro"]
+    cmd += [image, *args]
+    return cmd
+
+
+def resolve_rule_file(config_rel: str, raw_path: str) -> Path:
+    """把配置里声明的 rule_files 路径映射回仓库内的真实文件。"""
+    base = os.path.basename(raw_path)
+    candidates = [
+        (REPO / config_rel).parent / base,
+        REPO / "monitoring" / base,
+        REPO / "docker/deploy/prometheus" / base,
+    ]
+    host = next((c for c in candidates if c.is_file()), None)
+    if host is None:
+        raise Failure(
+            f"{config_rel} 的 rule_files 指向 {raw_path}，但仓库里找不到对应文件\n"
+            f"  （已尝试：{[str(c.relative_to(REPO)) for c in candidates]}）\n"
+            "  这会让 Prometheus 启动时直接失败，必须修。"
+        )
+    return host
+
+
+def check_config(kind: str, prefix: str, config_rel: str) -> list[str]:
+    """A: promtool check config（含 rule_files 可达性）。"""
+    config_abs = REPO / config_rel
+    if not config_abs.is_file():
+        return [f"{config_rel}: 文件不存在"]
+
+    doc = yaml.safe_load(config_abs.read_text()) or {}
+    rule_paths = [str(p) for p in (doc.get("rule_files") or [])]
+
+    try:
+        # 规则文件按**配置里声明的容器路径**回挂，这样 promtool 读到的路径
+        # 与真实启动时一致，校验结果最贴近生产行为。
+        rule_mounts = [(resolve_rule_file(config_rel, raw), raw) for raw in rule_paths]
+    except Failure as e:
+        return [str(e)]
+
+    if kind == "docker":
+        mounts = [(config_abs, "/tmp/prom-check.yml"), *rule_mounts]
+        cmd = _docker_cmd(prefix, mounts, ["check", "config", "/tmp/prom-check.yml"])
+        proc = _run(cmd)
+    else:
+        # 本地 promtool 读不到容器内绝对路径（/etc/prometheus/...），
+        # 因此把 rule_files 重写成宿主真实路径后再校验（临时文件，不改动仓库）。
+        import tempfile
+
+        rewritten = dict(doc)
+        rewritten["rule_files"] = [str(host) for host, _ in rule_mounts]
+        with tempfile.NamedTemporaryFile("w", suffix=".yml", delete=False) as fh:
+            yaml.safe_dump(rewritten, fh, allow_unicode=True, sort_keys=False)
+            tmp = fh.name
+        try:
+            proc = _run([prefix, "check", "config", tmp])
+        finally:
+            os.unlink(tmp)
+
+    if proc.returncode == 0 and "FAILED" not in proc.stdout:
+        return []
+    detail = (proc.stdout + proc.stderr).strip()
+    return [f"{config_rel}:\n{_indent(detail)}"]
+
+
+def check_rules(kind: str, prefix: str, rule_rel: str) -> list[str]:
+    """B: promtool check rules。"""
+    rule_abs = REPO / rule_rel
+    if not rule_abs.is_file():
+        return [f"{rule_rel}: 文件不存在"]
+
+    if kind == "docker":
+        cmd = _docker_cmd(
+            prefix, [(rule_abs, str(rule_abs))], ["check", "rules", str(rule_abs)]
+        )
+    else:
+        cmd = [prefix, "check", "rules", str(rule_abs)]
+
+    proc = _run(cmd)
+    if proc.returncode == 0 and "FAILED" not in proc.stdout:
+        return []
+    return [f"{rule_rel}:\n{_indent((proc.stdout + proc.stderr).strip())}"]
+
+
+def _indent(text: str, prefix: str = "      ") -> str:
+    return "\n".join(prefix + line for line in text.splitlines())
+
+
+def load_allowlist() -> dict[str, str]:
+    """读 allowlist：每行 `<host> <reason...>`；'#' 开头为注释。"""
+    if not ALLOWLIST.is_file():
+        return {}
+    out: dict[str, str] = {}
+    for lineno, raw in enumerate(ALLOWLIST.read_text().splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(None, 1)
+        if len(parts) != 2 or not parts[1].strip():
+            raise Failure(
+                f"{ALLOWLIST.relative_to(REPO)}:{lineno} 缺少理由（格式：`<host> <为什么允许>`）"
+            )
+        out[parts[0]] = parts[1].strip()
+    return out
+
+
+def _parse_declared_port(spec: str) -> str | None:
+    """从 compose 端口写法里取出**容器侧**端口号。
+
+    覆盖：`8008`、`8008:8008`、`127.0.0.1:9092:9090`、`3478:3478/udp`、
+    `49152-49351:49152-49351/udp`。容器侧端口恒为「去掉协议、去掉主机映射后的最后一段」，
+    端口区间取低端。
+    """
+    spec = spec.split("/", 1)[0].strip()
+    if not spec:
+        return None
+    last = spec.split(":")[-1]
+    if "-" in last:
+        last = last.split("-", 1)[0]
+    return last or None
+
+
+def compose_service_ports(compose_rel: str) -> dict[str, set[str]]:
+    """返回 {service 名 / container_name: 该服务声明的容器侧端口集合}。
+
+    只检查「host 存在」是不够的：`db:9187` 里的 `db` 确实是 compose 服务，
+    但 9187 上并没有 postgres_exporter 在监听 —— 这依然是永久 down 的目标
+    （2026-10-10 巡检时 `monitoring/prometheus.yml` 就是这样写的）。
+    所以必须连**端口**一起校验。
+    """
+    path = REPO / compose_rel
+    if not path.is_file():
+        return {}
+    doc = yaml.safe_load(path.read_text()) or {}
+    out: dict[str, set[str]] = {}
+    for svc, body in (doc.get("services") or {}).items():
+        ports: set[str] = set()
+        if isinstance(body, dict):
+            for raw in list(body.get("ports") or []) + list(body.get("expose") or []):
+                p = _parse_declared_port(str(raw))
+                if p:
+                    ports.add(p)
+        out[str(svc)] = ports
+        if isinstance(body, dict) and body.get("container_name"):
+            out[str(body["container_name"])] = ports
+    return out
+
+
+def _split_target(tgt: str) -> tuple[str, str | None]:
+    """`host:port` → (host, port)。去掉 scheme。"""
+    value = tgt.split("://", 1)[-1]
+    if value.startswith("["):  # IPv6 字面量
+        host, _, rest = value[1:].partition("]")
+        port = rest.lstrip(":") or None
+        return host, port
+    if ":" in value:
+        host, port = value.rsplit(":", 1)
+        return host, port
+    return value, None
+
+
+def check_dead_targets() -> list[str]:
+    """C: 死目标守卫（host 必须是 compose 服务，且端口必须被该服务声明）。"""
+    allow = load_allowlist()
+    problems: list[str] = []
+
+    for config_rel, compose_rels in CONFIG_COMPOSE_MAP.items():
+        config_abs = REPO / config_rel
+        if not config_abs.is_file():
+            continue
+        doc = yaml.safe_load(config_abs.read_text()) or {}
+
+        known: dict[str, set[str]] = {}
+        for c in compose_rels:
+            for name, ports in compose_service_ports(c).items():
+                known.setdefault(name, set()).update(ports)
+
+        for job in doc.get("scrape_configs") or []:
+            job_name = job.get("job_name", "<unnamed>")
+            targets: list[str] = []
+            for sc in job.get("static_configs") or []:
+                targets += [str(t) for t in (sc.get("targets") or [])]
+
+            if (
+                not targets
+                and not job.get("file_sd_configs")
+                and not job.get("dns_sd_configs")
+            ):
+                problems.append(
+                    f"{config_rel} job `{job_name}` 没有任何抓取目标来源"
+                    "（static_configs / file_sd_configs / dns_sd_configs 全为空）"
+                )
+
+            for tgt in targets:
+                host, port = _split_target(tgt)
+                if host in SELF_TARGETS:
+                    continue
+                if tgt in allow or host in allow:
+                    continue
+
+                if host not in known:
+                    problems.append(
+                        f"{config_rel} job `{job_name}` 的目标 `{tgt}` 指向 `{host}`，"
+                        "但它在 "
+                        + " / ".join(compose_rels)
+                        + " 里都不是 service/container_name。\n"
+                        "      → Prometheus 不会因此报错，只会把该目标永久标 `down`，\n"
+                        "        依赖它的面板静默变空（coturn 就是这样长期 down）。\n"
+                        "      修法：① 在 compose 中补该服务；或 ② 删掉这个 job；\n"
+                        f"      或 ③ 若确为外部/独立栈目标，登记到 {ALLOWLIST.relative_to(REPO)}"
+                        "（须写明理由）。"
+                    )
+                    continue
+
+                # 端口级校验：服务存在 ≠ 端口有监听者。
+                if port is not None and port not in known[host]:
+                    declared = sorted(known[host]) or ["（未声明任何端口）"]
+                    problems.append(
+                        f"{config_rel} job `{job_name}` 的目标 `{tgt}`：服务 `{host}` 存在，"
+                        f"但它并未声明端口 {port}（声明的只有 {declared}）。\n"
+                        "      → 该端口上没有监听者（例如 postgres_exporter 不在 9187、\n"
+                        "        redis_exporter 不在 9121），目标会永久 `down` 而无人察觉。\n"
+                        "      修法：在 compose 中补对应 exporter 服务并声明该端口，或删掉这个 job。"
+                    )
+    return problems
+
+
+def job_names(config_rel: str) -> list[str]:
+    doc = yaml.safe_load((REPO / config_rel).read_text()) or {}
+    return [str(j.get("job_name")) for j in (doc.get("scrape_configs") or [])]
+
+
+def check_drift() -> list[str]:
+    """D: 变体配置不得静默漂移。"""
+    problems: list[str] = []
+    for variant_rel, base_rel in DRIFT_PAIRS:
+        if not (REPO / variant_rel).is_file() or not (REPO / base_rel).is_file():
+            continue
+        base = set(job_names(base_rel))
+        variant = set(job_names(variant_rel))
+        extra = {j for j in variant - base if not j.startswith("mock-")}
+        missing = base - variant
+        if extra:
+            problems.append(
+                f"{variant_rel} 相对 {base_rel} 多出非 mock-* 的 job：{sorted(extra)}\n"
+                f"      → 变体只允许**新增 mock-\\* job**；其它差异会让两个文件各自漂移\n"
+                f"        （本仓的『配置双副本』老毛病）。请把公共部分收敛到基准文件。"
+            )
+        if missing:
+            problems.append(
+                f"{variant_rel} 相对 {base_rel} 缺少 job：{sorted(missing)}\n"
+                "      → 变体必须完整包含基准的 job，否则 dev 环境会静默少采集。"
+            )
+    return problems
+
+
+def check_external_label_kind() -> list[str]:
+    """E: 守住 `metric_relabel_configs` 的 keep/drop 语义陷阱。
+
+    只做定点检查：`source_labels: [__name__]` 且 `action: keep` 时，
+    若同时存在"过滤噪音指标"意图的注释，则几乎一定是写反了 —— 因为 keep +
+    Go 运行时前缀会把应用指标全部丢掉。这里直接禁止该组合出现在本仓配置里。
+    """
+    problems: list[str] = []
+    for config_rel in list(CONFIG_COMPOSE_MAP) + [
+        "docker/deploy/prometheus/prometheus.yml"
+    ]:
+        path = REPO / config_rel
+        if not path.is_file():
+            continue
+        doc = yaml.safe_load(path.read_text()) or {}
+        for job in doc.get("scrape_configs") or []:
+            for rc in job.get("metric_relabel_configs") or []:
+                if not isinstance(rc, dict):
+                    continue
+                src = [str(s) for s in (rc.get("source_labels") or [])]
+                if src != ["__name__"]:
+                    continue
+                if str(rc.get("action", "replace")) != "keep":
+                    continue
+                regex = str(rc.get("regex", ""))
+                if re.search(r"go_\.\*|process_\.\*|promhttp_\.\*", regex):
+                    problems.append(
+                        f"{config_rel} job `{job.get('job_name')}` 用 "
+                        f"`action: keep` + `regex: {regex}` 过滤 `__name__`。\n"
+                        "      → 这会把**所有应用指标**（synapse_* / http_requests_total / …）\n"
+                        "        全部丢掉，只留 Go 运行时指标 —— 与『过滤掉不需要的』意图相反，\n"
+                        "        且面板恒 No data 而不报错。改成 `action: drop`。"
+                    )
+    return problems
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("--json-report", help="把结果写一份 JSON 报告")
+    args = parser.parse_args()
+
+    all_problems: list[str] = []
+    sections: list[tuple[str, list[str]]] = []
+
+    try:
+        kind, prefix = resolve_promtool()
+    except Failure as e:
+        print(f"FAIL: {e}", file=sys.stderr)
+        return 1
+
+    desc = f"docker 镜像 {prefix}" if kind == "docker" else f"本地 promtool ({prefix})"
+    print(f"promtool: {desc}")
+    print()
+
+    for config_rel in CONFIG_COMPOSE_MAP:
+        sections.append(
+            (f"A. check config  {config_rel}", check_config(kind, prefix, config_rel))
+        )
+    for rule_rel in RULE_FILES:
+        sections.append(
+            (f"B. check rules   {rule_rel}", check_rules(kind, prefix, rule_rel))
+        )
+    sections.append(
+        ("C. 死目标守卫（目标必须在 compose 中存在）", check_dead_targets())
+    )
+    sections.append(("D. 变体漂移守卫（mock 变体 = 基准 + mock-*）", check_drift()))
+    sections.append(("E. keep/drop 语义守卫", check_external_label_kind()))
+
+    for title, problems in sections:
+        status = "OK" if not problems else f"FAIL（{len(problems)} 项）"
+        print(f"[{status}] {title}")
+        for p in problems:
+            print(f"  ✗ {p}")
+        all_problems += problems
+
+    print()
+    if all_problems:
+        print(
+            f"Prometheus 配置门禁：FAIL（共 {len(all_problems)} 项）", file=sys.stderr
+        )
+    else:
+        print("Prometheus 配置门禁：PASS")
+
+    if args.json_report:
+        report = {
+            "status": "fail" if all_problems else "pass",
+            "problems": all_problems,
+            "sections": [{"title": t, "problems": p} for t, p in sections],
+            "promtool": desc,
+        }
+        Path(args.json_report).write_text(
+            json.dumps(report, ensure_ascii=False, indent=2)
+        )
+        print(f"报告：{args.json_report}")
+
+    return 1 if all_problems else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

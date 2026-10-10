@@ -18,21 +18,40 @@ global:
     env: "${ENVIRONMENT:-production}"
 
 # 报警管理器配置
+#
+# ⚠️ 这里**只能**出现 Prometheus 侧认识的字面量：`static_configs` /
+# `file_sd_configs` / `dns_sd_configs` / `scheme` / `timeout` / `api_version` /
+# `path_prefix` / `bearer_token*` / `basic_auth` / `tls_config` 等。
+#
+# 曾误把 Alertmanager **自身** 的 `repeat_interval` / `send_resolved` 写在此处，
+# 导致 `promtool check config` 直接失败：
+#     field repeat_interval not found in type config.AlertmanagerConfig
+#     field send_resolved not found in type config.AlertmanagerConfig
+# Prometheus 会因配置非法而**拒绝启动**。
+# 这两项的正确归属是 Alertmanager 的 `global` / `route`（本仓已写在
+# monitoring/alertmanager/alertmanager.yml：global.repeat_interval = 4h，
+# critical 子路由 1h），无需也无法在 Prometheus 侧重复声明。
 alerting:
   alertmanagers:
     - static_configs:
         - targets:
             - alertmanager:9093
-      # 抑制重复告警
-      repeat_interval: 4h
-      # 发送给 Alertmanager 前等待时间
-      send_resolved: true
+      # 采集/推送超时；Alertmanager 不可达时不影响 Prometheus 自身抓取
+      timeout: 10s
 
 # 规则文件
 rule_files:
   - "/etc/prometheus/alerting-rules.yml"
 
 # 抓取配置
+#
+# ⚠️ 纪律：这里**只声明真实存在的目标**。
+#   一个指向不存在主机的 job 不会报错，只会永久 `down` 并让所有依赖它的面板静默
+#   变成 No data（本仓 coturn 就是这样长期 down 而无人察觉）。因此下面刻意**没有**
+#   postgres_exporter（db:9187）/ redis_exporter（redis:9121）/ Grafana 自监控：
+#   `docker/docker-compose.monitoring.yml` 里并不存在这三个服务/凭据文件。
+#   如需 DB / 缓存可观测性，请先在 compose 中加 exporter 服务，再回来补 job
+#   （见 monitoring/DEPLOYMENT.md 的「后续项」）。
 scrape_configs:
   # ===========================================================================
   # 1. Synapse-Rust 主服务
@@ -50,44 +69,22 @@ scrape_configs:
       # 标记服务版本
       - target_label: version
         replacement: "${SYNAPSE_VERSION:-latest}"
-    metric_relabel_configs:
-      # 过滤不需要的指标以减少存储压力
-      - source_labels: [__name__]
-        regex: '(go_.*|process_.*|promhttp_.*)'
-        action: keep
       # 添加实例标签
       - source_labels: [__address__]
         target_label: instance
         replacement: "synapse-rust-main"
+    metric_relabel_configs:
+      # ⚠️ 必须是 `drop` 而不是 `keep`！
+      # 这里曾是 `action: keep` + 正则 `(go_.*|process_.*|promhttp_.*)`，
+      # 语义与注释（"过滤不需要的指标"）**完全相反**：keep 只保留 Go 运行时自带的
+      # 三个前缀，把 synapse_* / http_requests_total / room_* / megolm_* 等
+      # **全部应用指标丢掉** → 所有业务面板恒为 No data，且不报任何错。
+      - source_labels: [__name__]
+        regex: '(go_.*|process_.*|promhttp_.*)'
+        action: drop
 
   # ===========================================================================
-  # 2. PostgreSQL 数据库
-  # ===========================================================================
-  - job_name: "postgres"
-    static_configs:
-      - targets: ["db:9187"]
-    metrics_path: "/metrics"
-    scrape_interval: 30s
-    scrape_timeout: 10s
-    relabel_configs:
-      - target_label: service
-        replacement: "postgresql"
-
-  # ===========================================================================
-  # 3. Redis 缓存
-  # ===========================================================================
-  - job_name: "redis"
-    static_configs:
-      - targets: ["redis:9121"]
-    metrics_path: "/metrics"
-    scrape_interval: 30s
-    scrape_timeout: 10s
-    relabel_configs:
-      - target_label: service
-        replacement: "redis"
-
-  # ===========================================================================
-  # 4. Node Exporter (主机系统指标)
+  # 2. Node Exporter (主机系统指标)
   # ===========================================================================
   - job_name: "node-exporter"
     static_configs:
@@ -100,7 +97,7 @@ scrape_configs:
         replacement: "node-exporter"
 
   # ===========================================================================
-  # 5. Prometheus 自身监控
+  # 3. Prometheus 自身监控
   # ===========================================================================
   - job_name: "prometheus"
     static_configs:
@@ -113,26 +110,7 @@ scrape_configs:
         replacement: "prometheus"
 
   # ===========================================================================
-  # 6. Grafana 自身监控
-  # ===========================================================================
-  - job_name: "grafana"
-    static_configs:
-      - targets: ["grafana:3000"]
-    metrics_path: "/metrics"
-    scrape_interval: 30s
-    scrape_timeout: 10s
-    relabel_configs:
-      - target_label: service
-        replacement: "grafana"
-    # Grafana 需要 API Key 才能暴露 metrics
-    authorization:
-      credentials_file: /etc/prometheus/grafana-api-key
-    # 忽略 TLS 验证（本地 Docker 网络）
-    tls_config:
-      insecure_skip_verify: true
-
-  # ===========================================================================
-  # 7. Alertmanager 自身监控
+  # 4. Alertmanager 自身监控
   # ===========================================================================
   - job_name: "alertmanager"
     static_configs:

@@ -192,6 +192,25 @@ jobs:
       - name: File-size ratchet (no new file over 500 lines)
         run: python3 scripts/ci/check_file_size_ratchet.py
 
+      # Observability: Prometheus 配置此前从未被任何门禁校验，2026-10-10 巡检
+      # 一次查出四类静默失效（详见脚本 docstring）：
+      #   ① `alerting.alertmanagers[]` 写了 Alertmanager 专属字段 → Prometheus
+      #      拒绝启动（`field not found in type config.AlertmanagerConfig`）；
+      #   ② `metric_relabel_configs` 用 `action: keep` + Go 运行时正则，把
+      #      **所有应用指标**丢掉（与注释意图相反）→ 面板恒 No data；
+      #   ③ mock 变体用 `static_configs.targets: ["file://…"]` + `file_sd_configs`
+      #      指向指标文本文件 → promtool `not valid for file discovery`；
+      #   ④ 目标指向不存在的主机/端口（`db:9187`、`redis:9121`）→ 目标永久
+      #      `down`、面板静默变空（本仓 coturn 即此形态）。
+      # 本门禁 = promtool check config/rules + 死目标守卫（host 与**端口**双重）
+      # + 变体漂移守卫 + keep/drop 语义守卫。刻意**不提供跳过分支**：
+      # promtool 与 docker 都缺失时判失败（跳过等于门禁不存在）。
+      # Red-proved 2026-10-10：注入非法字段 → exit 1；keep 写反 → exit 1；
+      # 端口级死目标（synapse-rust:9187）→ exit 1；变体多出非 mock-* job → exit 1；
+      # 恢复 → exit 0。
+      - name: Prometheus config gate (promtool + dead targets + variant drift)
+        run: python3 scripts/ci/check_prometheus_config.py
+
       # CQ-01: ~250 `#[allow(clippy::…)]` sites existed with no notion of *why*
       # any of them exists. This gate makes the suppression surface explicit and
       # one-way: a lint kind may only be suppressed if it is on

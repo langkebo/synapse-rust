@@ -19,14 +19,51 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-# Docker Compose 配置文件
-COMPOSE_FILES=(
-    "$PROJECT_ROOT/docker/docker-compose.yml"
-    "$PROJECT_ROOT/docker/docker-compose.monitoring.yml"
-)
-
 # 环境变量文件
 ENV_FILE="$PROJECT_ROOT/.env.monitoring.local"
+
+# -----------------------------------------------------------------------------
+# Compose 调用封装
+# -----------------------------------------------------------------------------
+# ⚠️ 这里必须显式传 `--project-directory "$PROJECT_ROOT"`，否则整个监控栈起不来：
+#
+#   compose 文件位于 `<repo>/docker/`，而其内部把 Prometheus / Grafana 的挂载源
+#   写成相对路径 `./monitoring/...`。Compose V2 的「项目目录」默认取**第一个
+#   `-f` 文件所在目录**（即 `<repo>/docker/`），于是 `./monitoring/...` 被解析成
+#   `<repo>/docker/monitoring/...` —— 该目录**并不存在**（真实文件在
+#   `<repo>/monitoring/`）。Docker 会把缺失的源自动建成**空目录**，Prometheus
+#   随即报 `read /etc/prometheus/prometheus.yml: is a directory` 并启动失败。
+#
+#   把项目目录钉死在仓库根之后，`./monitoring/...` 才解析到正确位置。
+#   实测判据：`docker compose --project-directory . -f docker/docker-compose.monitoring.yml config`
+#   与不带 `--project-directory` 时的 `source:` 绝对路径必须一致。
+#
+# 同时兼容 Compose V2（`docker compose`）与 V1（`docker-compose`）：本机只装了 V2，
+# 旧脚本硬性依赖 `docker-compose` 会在前置检查里直接退出。
+if docker compose version >/dev/null 2>&1; then
+    COMPOSE_BIN=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE_BIN=(docker-compose)
+else
+    COMPOSE_BIN=()
+fi
+
+# 全栈（基础服务 + 监控栈）
+compose() {
+    "${COMPOSE_BIN[@]}" \
+        --project-directory "$PROJECT_ROOT" \
+        -f "$PROJECT_ROOT/docker/docker-compose.yml" \
+        -f "$PROJECT_ROOT/docker/docker-compose.monitoring.yml" \
+        "$@"
+}
+
+# 仅基础服务栈（db / redis / synapse-rust）
+compose_base() {
+    "${COMPOSE_BIN[@]}" \
+        --project-directory "$PROJECT_ROOT" \
+        -f "$PROJECT_ROOT/docker/docker-compose.yml" \
+        "$@"
+}
 
 # -----------------------------------------------------------------------------
 # 函数定义
@@ -62,9 +99,9 @@ check_prerequisites() {
         exit 1
     fi
 
-    # 检查 Docker Compose
-    if ! command -v docker-compose &>/dev/null; then
-        echo -e "${RED}❌ Docker Compose 未安装，请先安装 Docker Compose${NC}"
+    # 检查 Docker Compose（V2 `docker compose` 或 V1 `docker-compose` 均可）
+    if [[ ${#COMPOSE_BIN[@]} -eq 0 ]]; then
+        echo -e "${RED}❌ Docker Compose 未安装，请先安装 Docker Compose（V2 的 'docker compose' 或 V1 的 'docker-compose'）${NC}"
         exit 1
     fi
 
@@ -116,9 +153,9 @@ start_monitoring() {
 
     # 启动基础服务（如果还没启动）
     echo -e "${BLUE}检查基础服务状态...${NC}"
-    if ! docker-compose -f docker/docker-compose.yml ps | grep -q "Up"; then
+    if ! compose_base ps | grep -q "Up"; then
         echo -e "${YELLOW}⚠️  基础服务未运行，先启动基础服务...${NC}"
-        docker-compose -f docker/docker-compose.yml up -d
+        compose_base up -d
         echo -e "${GREEN}✓ 基础服务已启动${NC}"
         echo ""
         echo -e "${YELLOW}⏳ 等待基础服务就绪 (30 秒)...${NC}"
@@ -128,9 +165,7 @@ start_monitoring() {
     # 启动监控栈
     echo -e "${BLUE}启动 Prometheus + Grafana + Alertmanager...${NC}"
     ENVIRONMENT="${ENVIRONMENT:-production}" \
-        docker-compose -f docker/docker-compose.yml \
-        -f docker/docker-compose.monitoring.yml \
-        up -d
+        compose up -d
 
     echo ""
     echo -e "${GREEN}========================================${NC}"
@@ -157,9 +192,7 @@ stop_monitoring() {
 
     cd "$PROJECT_ROOT"
 
-    docker-compose -f docker/docker-compose.yml \
-        -f docker/docker-compose.monitoring.yml \
-        down
+    compose down
 
     echo -e "${GREEN}✓ 监控栈已停止${NC}"
 }
@@ -172,9 +205,7 @@ restart_monitoring() {
 
     cd "$PROJECT_ROOT"
 
-    docker-compose -f docker/docker-compose.yml \
-        -f docker/docker-compose.monitoring.yml \
-        restart
+    compose restart
 
     echo -e "${GREEN}✓ 监控栈已重启${NC}"
     echo ""
@@ -192,13 +223,9 @@ show_logs() {
     cd "$PROJECT_ROOT"
 
     if [[ -z "$service" ]]; then
-        docker-compose -f docker/docker-compose.yml \
-            -f docker/docker-compose.monitoring.yml \
-            logs -f
+        compose logs -f
     else
-        docker-compose -f docker/docker-compose.yml \
-            -f docker/docker-compose.monitoring.yml \
-            logs -f "$service"
+        compose logs -f "$service"
     fi
 }
 
@@ -280,18 +307,26 @@ validate_config() {
 
     echo ""
 
-    # 尝试使用 promtool 验证（如果可用）
-    if command -v promtool &>/dev/null; then
-        echo "🔧 使用 promtool 验证 Prometheus 配置："
-        if promtool check config "$PROJECT_ROOT/monitoring/prometheus/prometheus.yml"; then
-            echo -e "${GREEN}✓ Prometheus config: Valid${NC}"
+    # -------------------------------------------------------------------------
+    # Prometheus 配置 / 规则：直接复用 CI 门禁，避免两处各写一份判定逻辑
+    # -------------------------------------------------------------------------
+    # 该脚本负责：promtool check config/rules + 死目标守卫（host 与端口双重）
+    # + 变体漂移守卫 + keep/drop 语义守卫。详见其 docstring。
+    echo "🔧 Prometheus 配置门禁（scripts/ci/check_prometheus_config.py）："
+    if command -v python3 &>/dev/null &&
+        [[ -f "$PROJECT_ROOT/scripts/ci/check_prometheus_config.py" ]]; then
+        if python3 "$PROJECT_ROOT/scripts/ci/check_prometheus_config.py"; then
+            echo -e "${GREEN}✓ Prometheus configs & rules: Valid${NC}"
         else
-            echo -e "${RED}✗ Prometheus config: Invalid${NC}"
+            echo -e "${RED}✗ Prometheus configs & rules: Invalid${NC}"
             files_ok=false
         fi
     else
-        echo "ℹ️  promtool 未安装，跳过语法验证（Docker 环境中会自动验证）"
+        echo -e "${RED}✗ 缺少 python3 或 scripts/ci/check_prometheus_config.py${NC}"
+        files_ok=false
     fi
+
+    echo ""
 
     # 尝试使用 amtool 验证（如果可用）
     if command -v amtool &>/dev/null; then
@@ -303,7 +338,7 @@ validate_config() {
             files_ok=false
         fi
     else
-        echo "ℹ️  amtool 未安装，跳过语法验证（Docker 环境中会自动验证）"
+        echo "ℹ️  amtool 未安装，跳过 Alertmanager 语法验证（容器内会校验）"
     fi
 
     echo ""
@@ -356,9 +391,7 @@ clean_monitoring() {
 
     echo -e "${BLUE}停止并删除监控栈...${NC}"
 
-    docker-compose -f docker/docker-compose.yml \
-        -f docker/docker-compose.monitoring.yml \
-        down -v
+    compose down -v
 
     echo -e "${GREEN}✓ 监控栈已清理${NC}"
 }

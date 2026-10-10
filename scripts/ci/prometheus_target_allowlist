@@ -1,0 +1,19 @@
+# Prometheus 抓取目标豁免清单
+#
+# 格式：`<host> <为什么允许>` —— 一行一条，两个字段，理由必填（缺理由门禁直接失败）。
+# '#' 开头的行与空行被忽略。
+#
+# 使用条件（从严）：
+#   只有当目标**确实可达**、但它所在的 compose 不在本仓同目录范围内时，才允许登记。
+#   若目标压根没有监听者（永久 down），正确做法是修 compose 或删 job —— 不是加到这里。
+#   条目会随环境变化失效，请定期复核并删除已不需要的行。
+
+# coturn 是**独立栈**（不在 docker/deploy/docker-compose*.yml 里），
+# 其 9641 指标端口由 coturn 自身暴露。
+# ⚠️ 现状：运行时该目标为 down —— coturn 在 coturn_turn_net，Prometheus 在
+#    synapse_network，跨网络 DNS 不可达（NXDOMAIN）。属**未修复缺陷**，
+#    见 OPS_REVIEW_synapse-rust_2026-10-10.md §A6。
+#    正解是把 coturn 接入同一网络（或给 Prometheus 加第二网络）。
+#    修好之前保留本行，以免门禁因一个已知问题长期变红、失去信噪比；
+#    修好后请立即删除本行（门禁会因此恢复对该目标的守卫）。
+coturn 独立栈目标（9641 由 coturn 自身暴露）；当前网络不可达待修，见 OPS_REVIEW_2026-10-10 §A6
