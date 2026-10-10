@@ -5,7 +5,7 @@ gen_route_table.py — 生成 docs/openapi/route-table.json（CI artifact）
 从 ledger JSON 读取所有端点，输出扁平 JSON 路由表。
 
 用法:
-  python3 scripts/api_test/gen_route_table.py [--ledger PATH] [--output PATH]
+  python3 scripts/api_test/gen_route_table.py --ledger PATH [--output PATH]   # --ledger 必填
 """
 
 from __future__ import annotations
@@ -76,7 +76,18 @@ def render_table(route_table: dict) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Generate route-table.json from ledger")
-    ap.add_argument("--ledger", default=str(DEFAULT_LEDGER), help="Path to ledger JSON")
+    ap.add_argument(
+        "--ledger",
+        required=True,
+        help=(
+            "Path to ledger JSON（**必填**）。"
+            "此前默认指向 `scripts/api_test/ledger.json` —— 那是 2026-08-12 的陈旧导出，"
+            "照默认跑会产出 3000+ 行伪改动（路由集不同），且本地 `--check` 与陈旧源自洽、"
+            "只在 CI 判红（已踩 2 次：`a421e7641`、2026-10-09，见后端 UNRESOLVED_ISSUES_SUMMARY DOC-13）。"
+            "CI 口径：用 `synapse_ledger_export --profile=default --timestamp=<artifact_common.FIXED_TIMESTAMP>` "
+            "现导出的 JSON 传进来。"
+        ),
+    )
     ap.add_argument(
         "--output", default=str(OUTPUT_FILE), help="Output path for route-table.json"
     )

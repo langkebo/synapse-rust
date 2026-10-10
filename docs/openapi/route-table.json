@@ -3,7 +3,7 @@
   "generated_at": "2026-09-16T00:00:00Z",
   "source": "synapse_ledger_export",
   "profile": "default",
-  "total_routes": 951,
+  "total_routes": 948,
   "_meta": {
     "generated_by": "gen_route_table.py",
     "note": "本文件由 CI 自动生成，禁止手改。如需刷新: python3 scripts/api_test/gen_route_table.py"
@@ -325,32 +325,6 @@
       "registered_by": "assembly::create_router",
       "path_params": [],
       "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/unstable/org.matrix.msc4155/rooms/{room_id}/threads",
-      "registered_by": "thread",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": [
-        "from",
-        "include_all",
-        "limit"
-      ],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/unstable/org.matrix.msc4156/threads/subscribed",
-      "registered_by": "thread",
-      "path_params": [],
-      "query_params": [
-        "from",
-        "include_all",
-        "limit"
-      ],
       "auth": null
     },
     {
@@ -4922,14 +4896,6 @@
     {
       "method": "POST",
       "path": "/_matrix/vendor/v1/friends/request",
-      "registered_by": "friend_room",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/vendor/v1/friends/request/received",
       "registered_by": "friend_room",
       "path_params": [],
       "query_params": [],
