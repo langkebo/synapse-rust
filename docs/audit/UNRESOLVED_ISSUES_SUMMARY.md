@@ -5,7 +5,7 @@
 > **基准**: Synapse v1.162.0 / Matrix Spec v1.15（v12 房间版本）  
 > **对应全面报告**: [`COMPREHENSIVE_LEGACY_ISSUES_REPORT_20261006.md`](COMPREHENSIVE_LEGACY_ISSUES_REPORT_20261006.md)  
 > **排查手段**: 静态代码审查 + 现有门禁/扫描（clippy、cargo deny/audit、machete、ci 脚本）；未执行全量测试与性能基准  
-> **定级总览**: **0 个 P0**、**0 个 P1**（原 3 条已于 2026-10-06 全部闭环，见 §2）、**26 个 P2**（**已于 2026-10-06 全部闭环**，最后一项 `COMPAT-05` 经报告 §8.11 复核闭环，见 §3.4）、**27 个 P3**（**已于 2026-10-06 全部处置**：21 条闭环 + 6 条 by-design 正式登记，见 §4 与报告 §8.11）；本轮复核推翻 **9 条**历史结论（见 §5）。**2026-10-09 增量复核新增登记 2 条 P3（`DOC-12` / `DOC-13`，见 §8.2），未新增 P0/P1/P2。**
+> **定级总览**: **0 个 P0**、**0 个 P1**（原 3 条已于 2026-10-06 全部闭环，见 §2）、**26 个 P2**（**已于 2026-10-06 全部闭环**，最后一项 `COMPAT-05` 经报告 §8.11 复核闭环，见 §3.4）、**27 个 P3**（**已于 2026-10-06 全部处置**：21 条闭环 + 6 条 by-design 正式登记，见 §4 与报告 §8.11）；本轮复核推翻 **9 条**历史结论（见 §5）。**2026-10-09 增量复核新增登记 2 条 P3（`DOC-12` / `DOC-13`，见 §8.2），未新增 P0/P1/P2。两条已于 2026-10-10 闭环（见 §8.5）。**
 
 ---
 
@@ -252,8 +252,8 @@
 
 | 编号 | 级别 | 问题 | 处置 |
 | --- | --- | --- | --- |
-| `DOC-12` | P3 | **SDK 仓** `docs/api-contract/*.md`（手维护模块页）系统性陈旧：「挂载版本」表停在 client 前缀；SDK Manager 方法名与实际不符（抽样 `widget.md` **5/18** 行） | 登记于 [`前缀命名空间治理方案-2026-10-08.md`](../前缀命名空间治理方案-2026-10-08.md) §13.22.6(c)；需独立刷新批次 |
-| `DOC-13` | P3 | `scripts/api_test/ledger.json` 陈旧（停在 2026-08-12 的路由集），而 `gen_route_table.py` 的**默认** `--ledger` 正指向它 ⇒ 照默认跑会产出 3000+ 行伪改动、且**本地 `--check` 会通过**（同源自洽），只在 CI 判红 | 已踩 2 次（`a421e7641`、2026-10-09）。CI 口径见 `ci.yml` 的 openapi-artifact job（default-feature 新鲜导出 + `artifact_common.FIXED_TIMESTAMP`）；建议把 `--ledger` 改为**必填** |
+| `DOC-12` | P3 | **SDK 仓** `docs/api-contract/*.md`（手维护模块页）系统性陈旧：「挂载版本」表停在 client 前缀；SDK Manager 方法名与实际不符（抽样 `widget.md` **5/18** 行） | 登记于 [`前缀命名空间治理方案-2026-10-08.md`](../前缀命名空间治理方案-2026-10-08.md) §13.22.6(c)；**2026-10-10 已闭环**：SDK 新增门禁 `quality:api-contract-doc-paths`，基线 `145 行 / 27 页` → **0**（71 行机械重写 + 27 行逐行判定），见该文 §13.32 |
+| `DOC-13` | P3 | `scripts/api_test/ledger.json` 陈旧（停在 2026-08-12 的路由集），而 `gen_route_table.py` 的**默认** `--ledger` 正指向它 ⇒ 照默认跑会产出 3000+ 行伪改动、且**本地 `--check` 会通过**（同源自洽），只在 CI 判红 | 已踩 2 次（`a421e7641`、2026-10-09）。CI 口径见 `ci.yml` 的 openapi-artifact job（default-feature 新鲜导出 + `artifact_common.FIXED_TIMESTAMP`）；**2026-10-10 已闭环**：`--ledger` 改**必填**（首跑即抓出 `docs/openapi/route-table.json` 951 vs 948 陈旧），见该文 §13.31.1 |
 
 ### 8.3 口径订正（同一 HEAD）
 
@@ -269,3 +269,14 @@
   已在 develop 按本仓既有形态登记 `by-design` 豁免 + 补 ⚠️ JSDoc；**`sendWidgetMessage()` 的存废 / 改接标准 send API 属产品决策**。
   详见 SDK 仓 `artifacts/remaining-issues-and-optimization-plan-2026-10-08.md` §7.5。
 - develop 侧同轮另清掉 3 条既有红（`docs-counts` 计数陈旧、`public-jsdoc-examples` 缺 `@example`、路径契约不匹配 + 覆盖棘轮未收紧），`pnpm lint` 与 `pnpm quality:contracts` 已双绿；见同文件 §7.5。
+
+### 8.5 2026-10-10 收口：`DOC-12` / `DOC-13` 双双闭环
+
+| 项 | 处置 | 证据 |
+| --- | --- | --- |
+| `DOC-13` | `scripts/api_test/gen_route_table.py` 的 `--ledger` 改为 **required**（帮助文本给出 CI 配方） | 改完**首跑**就抓到陈旧产物：`docs/openapi/route-table.json` 951 → **948**（`generated_at` 保持 `2026-10-10T00:00:00Z` 口径外的固定值）；SDK 侧同轮给 codegen 加**死条目自动剪枝**，消掉「单调并集残留」整类（见 SDK `artifacts/...-plan-2026-10-08.md` §9.12 与治理方案 §13.31） |
+| `DOC-12` | SDK 新增逐行门禁 `quality:api-contract-doc-paths`（含裸前缀豁免），刷新 17 个模块页 | 基线 `total 145 / 27 页` → **`0 / 0`**；机械重写 71 行 + 人工判定 27 行（能对上的改前缀/方法，对不上的**删行**）；详见治理方案 §13.32 |
+| 顺带销号 | `sdk-encapsulation-audit.md` §7.3 **C 类 3 条**（`backups` / `presence_routes` / `rate_limit_callbacks`）经回源证伪后**删代码**（方法 + 类型 + 单测） | 本仓全仓 `*.rs` 与 `tests/unit/fixtures/ledger_export_sdk/` 零命中；SDK develop `37dcce63a`、release `a321796e2`、Tjg pin `a321796e2`；path-contract 豁免 28 → 23（失效豁免硬失败倒逼） |
+
+> **口径提醒**：这两条 P3 都是「登记了、但没人愿意碰」的类型 —— 收口它们的不是新能力，而是
+> ①把判据变成**逐行/逐次实跑**（门禁），②**回源**（后端到底有没有这条路由），③删掉不留痕（铁律 1）。
