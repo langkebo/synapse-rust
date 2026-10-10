@@ -258,7 +258,7 @@ lines = []
 lines.append("# synapse-rust 路由契约（Route Contract）")
 lines.append("")
 lines.append(
-    f"> 自动生成于 {datetime.date.today().isoformat()}，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含 `derived_route_table.inc.rs`）派生覆盖。"
+    f"> 自动生成于 {datetime.date.today().isoformat()}，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含按 profile 拆分的 `derived_route_table_{{always,worker,oidc}}.inc.rs`）派生覆盖。"
 )
 lines.append(">")
 lines.append(
