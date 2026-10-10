@@ -255,7 +255,7 @@
 | 编号 | 级别 | 问题 | 处置 |
 | --- | --- | --- | --- |
 | `DOC-12` | P3 | **SDK 仓** `docs/api-contract/*.md`（手维护模块页）系统性陈旧：「挂载版本」表停在 client 前缀；SDK Manager 方法名与实际不符（抽样 `widget.md` **5/18** 行） | 登记于 [`前缀命名空间治理方案-2026-10-08.md`](../前缀命名空间治理方案-2026-10-08.md) §13.22.6(c)；**2026-10-10 已闭环**：SDK 新增门禁 `quality:api-contract-doc-paths`，基线 `145 行 / 27 页` → **0**（71 行机械重写 + 27 行逐行判定），见该文 §13.32 |
-| `DOC-13` | P3 | `scripts/api_test/ledger.json` 陈旧（停在 2026-08-12 的路由集），而 `gen_route_table.py` 的**默认** `--ledger` 正指向它 ⇒ 照默认跑会产出 3000+ 行伪改动、且**本地 `--check` 会通过**（同源自洽），只在 CI 判红 | 已踩 2 次（`a421e7641`、2026-10-09）。CI 口径见 `ci.yml` 的 openapi-artifact job（default-feature 新鲜导出 + `artifact_common.FIXED_TIMESTAMP`）；**2026-10-10 已闭环**：`--ledger` 改**必填**（首跑即抓出 `docs/openapi/route-table.json` 951 vs 948 陈旧），见该文 §13.31.1 |
+| `DOC-13` | P3 | `scripts/api_test/ledger.json` 陈旧（停在 2026-08-12 的路由集），而 `gen_route_table.py` 的**默认** `--ledger` 正指向它 ⇒ 照默认跑会产出 3000+ 行伪改动、且**本地 `--check` 会通过**（同源自洽），只在 CI 判红 | 已踩 2 次（`a421e7641`、2026-10-09）。CI 口径见 `ci.yml` 的 openapi-artifact job（default-feature 新鲜导出 + `artifact_common.FIXED_TIMESTAMP`）；**2026-10-10 已闭环**：`--ledger` 改**必填**（首跑即抓出 `docs/openapi/route-table.json` 951 vs 948 陈旧），见该文 §13.31.1；**孪生体同日收口**：`scripts/api_test/ledger.json`（未门控、冻结在 2026-08-12，却被 4 个脚本当默认输入）已删除 + 新守卫防复活，见该文 §13.35 |
 
 ### 8.3 口径订正（同一 HEAD）
 
