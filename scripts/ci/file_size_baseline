@@ -175,7 +175,6 @@
 705 synapse-storage/src/user_store_fake.rs
 704 synapse-web/src/routes/dm.rs
 703 synapse-storage/src/saml/repository.rs
-701 synapse-e2ee/src/megolm/storage.rs
 699 synapse-services/src/background_update_service.rs
 695 synapse-e2ee/src/vodozemac_megolm.rs
 689 synapse-storage/src/openid_token.rs
@@ -253,11 +252,8 @@
 517 synapse-services/src/friend_room_service/groups.rs
 517 synapse-web/src/routes/device.rs
 514 synapse-services/src/room/state/auth_events.rs
-512 synapse-common/src/config/federation.rs
 509 synapse-storage/src/baseline_tables.rs
 508 synapse-storage/src/test_mocks/thread.rs
-507 synapse-common/src/config/voip.rs
 503 synapse-web/src/middleware/rate_limit.rs
 503 synapse-web/src/routes/background_update.rs
 502 synapse-federation/src/friend/friend_federation.rs
-501 synapse-services/src/wiring/admin.rs
