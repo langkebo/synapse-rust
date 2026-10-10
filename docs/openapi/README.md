@@ -31,7 +31,7 @@ python3 scripts/api_test/refresh_openapi_specs.py
 python3 scripts/api_test/refresh_openapi_specs.py --profile default --skip-export
 
 # 方式 3: 手动分步
-bash scripts/api_test/export_ledger.sh --profile=default --output=scripts/api_test/ledger.json
+bash scripts/api_test/export_ledger.sh --profile=default   # 输出 reports/ledger_default.json（gitignore）
 python3 scripts/api_test/generate_openapi.py --all-profiles
 ```
 
@@ -45,7 +45,7 @@ python3 scripts/api_test/generate_openapi.py --all-profiles
   "specs": {
     "default": {
       "file": "openapi/client.yaml",
-      "ledger_file": "scripts/api_test/ledger.json",
+      "ledger_file": "scripts/api_test/reports/ledger_default.json",
       "profile_flags": {"oidc_enabled": false, "worker_enabled": false, "saml_enabled": false},
       "client_server_endpoints": 898,
       "operations": 898,
@@ -69,7 +69,8 @@ python3 scripts/api_test/generate_openapi.py --all-profiles
 
 ## Auth 推断策略 (Week 1 Task 2)
 
-`ledger.json`（**全量 1096 端点**，含 client/federation/admin/media 等全部前缀）
+导出的 ledger JSON（落点 `scripts/api_test/reports/ledger_{profile}.json`，gitignored；
+**不再有任何提交进仓库的默认清单**，见 `docs/前缀命名空间治理方案-2026-10-08.md` §13.35）
 中仅 1 个端点带有 `auth` 字段标记。
 其余 1095 个通过 **启发式规则** 自动补全:
 
@@ -85,7 +86,8 @@ python3 scripts/api_test/generate_openapi.py --all-profiles
 ledger `auth` 字段 > 启发式推断,已标记的端点以 ledger 为准。
 
 > ⚠️ **两个计数口径不可混用**：
-> - `ledger.json` 全量 = **1096** 端点（含所有前缀）。
+> - 导出的 ledger 全量（含所有前缀）—— 下面两个数字是 **2026-08 的快照**，随 feature/路由增删而变，
+>   请以 `python3 -c "import json;print(json.load(open('scripts/api_test/reports/ledger_default.json'))['entry_count'])"` 为准。
 > - `client.yaml` default profile = **898** operations（仅 `/_matrix/client/`，是 ledger 全量的客户端子集）。
 >
 > 下方覆盖度表按 `client.yaml`（898）口径统计。
@@ -138,14 +140,14 @@ git diff --stat docs/openapi/route-table.json
 采用 **策略 A (零侵入 RouteLedger)**:
 
 ```
-RouteLedger (Rust) → synapse_ledger_export binary → ledger.json (JSON)
+RouteLedger (Rust) → synapse_ledger_export binary → reports/ledger_{profile}.json (JSON)
                                                      ↓
                            generate_openapi.py        →  client.yaml (OpenAPI 3.0.3)
                            refresh_openapi_specs.py  →  client-{oidc,worker,saml,all}.yaml + index.json
 ```
 
 - **零 Rust 代码改动** — 不需要 `utoipa` 或在 handler 上加宏
-- **依赖现有基础设施** — `synapse_ledger_export` 和 `ledger.json` 已存在
+- **依赖现有基础设施** — `synapse_ledger_export` 已存在（清单每次现导出，不再依赖仓库里的 JSON）
 - **增量式完善** — metadata 先出, schema 后续迭代补充
 
 参考: `python3 scripts/api_test/generate_openapi.py --help`

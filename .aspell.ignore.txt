@@ -662,6 +662,7 @@ pymalloc
 pynacl
 pypi
 pytest
+pyyaml
 qa
 qcjr
 qhwx
@@ -710,6 +711,7 @@ removeroom
 repo
 reportroom
 req
+requestbody
 requesttoken
 reqwest
 resolved

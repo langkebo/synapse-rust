@@ -23,11 +23,12 @@
 | `../../docs/openapi/client.yaml` | 生成的 OpenAPI 规范（可被 Swagger UI / schemathesis 使用） |
 | `../../docs/openapi/index.json` | OpenAPI manifest 索引 |
 
-> **关于路由清单**：`ledger.json` 使用与 Docker 镜像一致的 features
-> （`server,core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends`）
-> 导出，共 1292 条。仓库内 `tests/unit/fixtures/ledger_export/default.json` 是
-> default-features 构建（1242 条，仅含 voice/saml/cas 之外的默认路由），仅供单元测试
-> golden-file 使用。路由有增删时请重新执行 `./export_ledger.sh` 刷新 `ledger.json`。
+> **关于路由清单**：清单只有两个合法来源 —— ① `run_api_tests.py` 默认**现导出**
+> （features 与 Docker 镜像一致）；② 调用方显式给出 `--ledger <path>`（文件不存在即报错，不回退）。
+> 仓库里**不再有任何**被当作默认输入的 ledger JSON：`scripts/api_test/ledger.json` 曾长期充当默认值、
+> 冻结在 2026-08-12（1043 条），已被删除（见 `docs/前缀命名空间治理方案-2026-10-08.md` §13.35）。
+> `export_ledger.sh` 的输出落在 `reports/`（gitignore）；`tests/unit/fixtures/ledger_export/default.json`
+> 是 default-features 的 golden-file，只服务单元测试。
 
 ## 快速开始
 

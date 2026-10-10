@@ -132,6 +132,10 @@ test-results-fixed/
 # k6 负载测试输出（run-load-test.sh / scripts/load-test/matrix-load-test.js）
 load-test-results/
 load-test-run*.ndjson
+
+# 路由清单**不再**以仓库文件作默认输入（见 docs/前缀命名空间治理方案-2026-10-08.md §13.35）：
+# 现导出的清单落在 scripts/api_test/reports/（已随 reports/ 一起忽略）。
+scripts/api_test/ledger.json
 .DS_Store
 .trae/
 .gstack/

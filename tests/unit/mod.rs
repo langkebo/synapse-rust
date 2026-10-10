@@ -11,6 +11,7 @@ mod common;
 mod admin_api_tests;
 mod admin_extra_api_tests;
 mod api_optimized_features_tests;
+mod api_test_ledger_source_tests;
 mod app_service_api_tests;
 mod background_update_api_tests;
 

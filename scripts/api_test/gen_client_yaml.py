@@ -32,7 +32,9 @@ LEDGER_EXPORT_BIN = "synapse_ledger_export"
 GENERATOR_SCRIPT = SCRIPT_DIR / "generate_openapi.py"
 OUTPUT_DIR = PROJECT_ROOT / "docs" / "openapi"
 OUTPUT_FILE = OUTPUT_DIR / "client.yaml"
-LEDGER_DEFAULT = SCRIPT_DIR / "ledger.json"
+LEDGER_DEFAULT = (
+    SCRIPT_DIR / "reports" / "ledger_default.json"
+)  # export_ledger.sh 的默认输出
 
 # `FIXED_TIMESTAMP` lives in artifact_common.py (the single literal, also read by
 # `.github/workflows/ci.yml`'s export step and carried by
@@ -116,7 +118,7 @@ def main() -> int:
     ap.add_argument(
         "--skip-export",
         action="store_true",
-        help="Skip cargo export, use existing ledger.json",
+        help="Skip cargo export, reuse reports/ledger_default.json (from export_ledger.sh)",
     )
     ap.add_argument(
         "--check",
@@ -133,6 +135,14 @@ def main() -> int:
     # Phase 1: Export ledger JSON (unless skipped)
     if args.skip_export:
         ledger_path = LEDGER_DEFAULT
+        if not ledger_path.exists():
+            print(
+                f"[gen_client_yaml] --skip-export 需要现成清单，但 {ledger_path} 不存在：\n"
+                f"  先生成它：bash scripts/api_test/export_ledger.sh --profile=default\n"
+                f"  或去掉 --skip-export 让本脚本自己 cargo 导出。",
+                file=sys.stderr,
+            )
+            return 1
         print(f"[gen_client_yaml] --skip-export: using {ledger_path}")
     else:
         ledger_path = run_cargo_export(args.commit, args.timestamp)

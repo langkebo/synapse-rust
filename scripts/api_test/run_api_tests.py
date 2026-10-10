@@ -28,8 +28,8 @@ Synapse-Rust 全量 API 路由健康测试执行器
     # 手动指定 token（跳过自动登录），并开启写操作探测
     python3 run_api_tests.py --token "syt_xxx" --allow-write
 
-    # 导出最新路由清单后测试（首次运行建议：需要 cargo 编译，耗时较长）
-    python3 run_api_tests.py --export-ledger
+    # 默认即用 cargo **现导出**最新路由清单（首次较慢）；也可显式给出清单文件
+    python3 run_api_tests.py --ledger /path/to/ledger.json
 
     # 只测某个模块（registered_by 过滤，如 admin）
     python3 run_api_tests.py --only-module admin
@@ -68,9 +68,6 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
 DEFAULT_CONFIG = SCRIPT_DIR / "config.yaml"
 DEFAULT_EXPECTATIONS = SCRIPT_DIR / "expectations.yaml"
-DEFAULT_LEDGER = (
-    PROJECT_ROOT / "tests" / "unit" / "fixtures" / "ledger_export" / "default.json"
-)
 
 VERDICT_PASS = "PASS"
 VERDICT_WARN = "WARN"
@@ -288,16 +285,21 @@ def export_ledger(profile: str = "default") -> Optional[Path]:
 
 
 def resolve_ledger(cfg: dict) -> Optional[Path]:
-    raw = cfg.get("ledger_path") or str(DEFAULT_LEDGER)
-    p = Path(raw)
+    """解析**显式**指定的路由清单（`config.yaml#ledger_path` 或 `--ledger`）。
+
+    ⚠️ 刻意**没有**「回退到提交进仓库的某份 ledger」这一分支：`scripts/api_test/ledger.json`
+    曾经就是那种默认值，冻结在 2026-08-12（1043 条）却仍被 4 个脚本当输入 ——
+    本地跑出来的结论自成一体、却是过期的（见 `docs/前缀命名空间治理方案-2026-10-08.md` §13.35）。
+    清单只有两个合法来源：① 本进程现导出（`export_ledger`）；② 调用方显式给出的路径。
+    """
+    raw = cfg.get("ledger_path")
+    if not raw or str(raw).strip().lower() == "auto":
+        return None
+    p = Path(str(raw))
     if not p.is_absolute():
         p = (SCRIPT_DIR / p).resolve()
     if not p.exists():
-        # 回退到默认 fixture
-        if DEFAULT_LEDGER.exists():
-            print(f"[ledger] 指定清单不存在，回退默认：{DEFAULT_LEDGER}")
-            return DEFAULT_LEDGER
-        return None
+        raise FileNotFoundError(f"指定的路由清单不存在：{p}")
     return p
 
 
@@ -1343,11 +1345,8 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     p.add_argument("--env", help="环境名 dev|test|prod（覆盖 config.yaml）")
     p.add_argument("--base-url", help="目标基础 URL，如 https://matrix.test")
     p.add_argument("--token", help="访问令牌（跳过自动登录）")
-    p.add_argument("--ledger", help="路由清单 JSON 路径（覆盖默认）")
     p.add_argument(
-        "--export-ledger",
-        action="store_true",
-        help="先编译并导出最新路由清单（需要 cargo，耗时较长）",
+        "--ledger", help="显式指定路由清单 JSON 路径（缺省则用 cargo 现导出）"
     )
     p.add_argument(
         "--verify-tls",
@@ -1384,17 +1383,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     t_start = time.monotonic()
 
-    # ---- 1. 路由清单 ----
-    ledger_path: Optional[Path] = None
-    if cli.export_ledger:
-        ledger_path = export_ledger()
-        if ledger_path is None:
-            print("⚠️ ledger 导出失败，回退默认清单", file=sys.stderr)
-    if ledger_path is None:
+    # ---- 1. 路由清单（显式路径优先；否则现导出；绝不静默使用仓库里的旧清单）----
+    try:
         ledger_path = resolve_ledger(cfg)
+    except FileNotFoundError as exc:
+        print(f"❌ {exc}", file=sys.stderr)
+        return 2
+    if ledger_path is None:
+        ledger_path = export_ledger()
     if ledger_path is None:
         print(
-            "❌ 未找到路由清单。请先运行 --export-ledger 或检查 ledger_path 配置。",
+            "❌ 未获得路由清单：现导出失败（需要 cargo），且未显式指定 --ledger。",
             file=sys.stderr,
         )
         return 2

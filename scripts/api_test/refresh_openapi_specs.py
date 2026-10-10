@@ -42,9 +42,10 @@ ALL_PROFILES = ["default", "oidc", "worker", "saml", "all"]
 EXPORT_SCRIPT = SCRIPT_DIR / "export_ledger.sh"
 REPORTS_DIR = SCRIPT_DIR / "reports"
 OPENAPI_DIR = PROJECT_ROOT / "docs" / "openapi"
-LEDGER_DEFAULT = (
-    SCRIPT_DIR / "ledger.json"
-)  # 兼容: export_ledger.sh 默认输出到 scripts/api_test/ledger.json
+# 注：本脚本**不**持有任何「默认清单」常量 —— 每个 profile 都从
+# `reports/ledger_{profile}.json`（`export_ledger.sh` 的输出，gitignored）读；
+# 曾指向仓库根的 `scripts/api_test/ledger.json`（无门控、冻结在 2026-08-12）的默认值已删除，
+# 见 `docs/前缀命名空间治理方案-2026-10-08.md` §13.35。
 
 GENERATOR_SCRIPT = SCRIPT_DIR / "generate_openapi.py"
 

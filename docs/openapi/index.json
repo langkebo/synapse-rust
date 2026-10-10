@@ -5,7 +5,7 @@
   "specs": {
     "default": {
       "file": "openapi/client.yaml",
-      "ledger_file": "scripts/api_test/ledger.json",
+      "ledger_file": "scripts/api_test/reports/ledger_default.json",
       "profile_flags": {
         "oidc_enabled": false,
         "worker_enabled": false,

@@ -485,7 +485,7 @@ def build_openapi(
 # Multi-profile mode (Week 1 Task 2)
 # ─────────────────────────────────────────────────────────────────────────────
 PROFILE_TO_PATH: dict[str, str] = {
-    "default": "scripts/api_test/ledger.json",  # current default ledger
+    "default": "scripts/api_test/reports/ledger_default.json",  # export_ledger.sh 的默认输出
     # 其他 profile 需要先跑 export_ledger.sh 重新生成,模板路径如下:
     "oidc": "scripts/api_test/reports/ledger_oidc.json",
     "worker": "scripts/api_test/reports/ledger_worker.json",
