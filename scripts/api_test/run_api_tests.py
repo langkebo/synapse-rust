@@ -121,6 +121,14 @@ class ProbeResult:
     checks: List[str] = field(default_factory=list)  # 人类可读的校验说明
     issues: List[str] = field(default_factory=list)  # 失败/警告原因
     error: Optional[str] = None  # 连接错误等
+    # 本探测**实际**是否带了访问令牌。
+    #
+    # 存在的理由（2026-10-10）：报告此前只记录「写探测开/关」，于是**认证完全失败、
+    # 全部降级为匿名探测**时，评分口径毫无变化 —— 1016/1016、健康度 100/100、
+    # exit 0，而实际只是"匿名访问被正确拒绝"，跟接口功能正确性无关。
+    # 这是典型的「不会失败的门禁」：看起来恒绿，实则什么都没验证。
+    # 现在把"是否真的带上了 token"变成一等数据，认证覆盖率随之可计算、可门禁。
+    used_token: bool = False
 
 
 @dataclass
@@ -949,6 +957,38 @@ def build_report(
         else 0.0
     )
 
+    # ---- 认证覆盖率（一等指标）----
+    #
+    # 语义：**本应**带 token 的探测里，实际带上了多少。
+    # 分母取 `authed` / `authed-write` 两类探测（它们的设计意图就是已认证访问），
+    # 分子取其中 `used_token == True` 的。匿名探测不计入分母 —— 匿名访问成功
+    # 不是"认证覆盖"。
+    #
+    # 为什么必须显式存在：认证一旦失败（登录被限流/锁定、token 过期），
+    # 所有 authed 探测会静默塌缩成匿名 401 探测，而评分与退出码**毫无变化** ——
+    # 报告会给出「100/100 优秀」。2026-10-10 实测正是如此（登录被 IP 锁定，
+    # retry_after 900s，报告仍满分）。有了这个指标，退化就无处可藏。
+    authed_probes = [
+        p for c in cases for p in c.probes if p.spec.label in ("authed", "authed-write")
+    ]
+    authed_with_token = [p for p in authed_probes if p.used_token]
+    auth_coverage = (
+        round(len(authed_with_token) / len(authed_probes) * 100, 1)
+        if authed_probes
+        else None
+    )
+    # 只统计"带上了 token"是不够的：token 可能是**无效/过期/被吊销**的 ——
+    # 此时覆盖率名义上仍是 100%，但每个 authed 探测都吃 401/403，等于什么都没验证。
+    # 因此再记一个「被鉴权拒绝」的计数，让"带着坏 token 全红"与"根本没 token"都能被发现。
+    authed_rejected = [
+        p for p in authed_with_token if (p.http_status or 0) in AUTH_REJECT_CODES
+    ]
+    auth_reject_rate = (
+        round(len(authed_rejected) / len(authed_with_token) * 100, 1)
+        if authed_with_token
+        else None
+    )
+
     failures = []
     for c in cases:
         if c.verdict == VERDICT_FAIL:
@@ -1063,6 +1103,14 @@ def build_report(
             "grade": score_grade(score),
             "probe_requests": sum(len(c.probes) for c in cases),
             "duration": dur,
+            # 认证覆盖率：见上文计算处的长注释。None 表示"没有任何需要认证的探测"。
+            "auth_coverage": auth_coverage,
+            "authed_probes": len(authed_probes),
+            "authed_probes_with_token": len(authed_with_token),
+            "authed_probes_rejected": len(authed_rejected),
+            "auth_reject_rate": auth_reject_rate,
+            "user_token_obtained": bool(cfg.get("_token")),
+            "admin_token_obtained": bool(cfg.get("_admin_token")),
         },
         "modules": modules,
         "failures": failures,
@@ -1095,6 +1143,18 @@ def build_report(
     }
 
 
+def _render_auth_coverage(s: dict) -> str:
+    """把认证覆盖率渲染成人类可读字符串（报告里的一等指标）。"""
+    cov = s.get("auth_coverage")
+    if cov is None:
+        return "N/A（本次无需要认证的探测）"
+    mark = "✅" if cov >= 100.0 else ("⚠️" if cov > 0 else "❌")
+    return (
+        f"{mark} {cov}%"
+        f"（{s.get('authed_probes_with_token', 0)}/{s.get('authed_probes', 0)} 个认证探测实际带上 token）"
+    )
+
+
 def render_markdown(report: dict) -> str:
     s = report["summary"]
     m = report["meta"]
@@ -1105,6 +1165,7 @@ def render_markdown(report: dict) -> str:
         f"- **生成时间**: {m['generated_at']}  |  **总耗时**: {m['duration_total_s']}s",
         f"- **路由清单**: {m.get('ledger', {}).get('name', '-')}（{m.get('ledger', {}).get('entry_count', '-')} 条）",
         f"- **并发**: {m['concurrency']}  |  **超时**: {m['timeout_s']}s  |  **写探测**: {'开启' if m['allow_write'] else '关闭（仅匿名 401 探测）'}",
+        f"- **认证覆盖率**: {_render_auth_coverage(s)}",
         "",
         "## 总体统计",
         "",
@@ -1119,8 +1180,21 @@ def render_markdown(report: dict) -> str:
         f"| **健康度评分** | **{s['health_score']} / 100（{s['grade']}）** |",
         f"| 请求总数 | {s['probe_requests']} 次 |",
         f"| 平均响应 | {s['duration']['avg_ms']}ms  |  最大 {s['duration']['max_ms']}ms |",
+        f"| **认证覆盖率** | {_render_auth_coverage(s)} |",
         "",
     ]
+    # 认证覆盖率不是满分时的显式警告：此时"通过率/健康度"只反映匿名探测，
+    # 不能据此判断接口功能正确性。把这句话直接写进报告，避免读者误读评分。
+    if s.get("auth_coverage") is not None and s["auth_coverage"] < 100.0:
+        lines += [
+            "> ⚠️ **本次认证覆盖率不足 100%**："
+            f"应带 token 的探测共 {s['authed_probes']} 个，实际带上 token 的只有 "
+            f"{s['authed_probes_with_token']} 个（user token={'有' if s['user_token_obtained'] else '无'}，"
+            f"admin token={'有' if s['admin_token_obtained'] else '无'}）。",
+            "> 未带 token 的探测退化为**匿名 401 探测** —— 它只能证明「匿名访问被正确拒绝」，",
+            "> **不能**证明接口功能正确。上方的通过率与健康度分数只覆盖匿名部分，请勿据此判定可用性。",
+            "",
+        ]
     if s["failed"]:
         lines += [
             "## 失败接口详情",
@@ -1179,6 +1253,20 @@ def render_html(report: dict) -> str:
     grade = s["grade"]
     # 环形评分图：conic-gradient
     ring = f"conic-gradient(#22c55e 0% {score}%, #e5e7eb {score}% 100%)"
+    # 认证覆盖率不足时的显著横幅：防止读者把"匿名 401 全绿"误读为"接口功能正常"。
+    _cov = s.get("auth_coverage")
+    auth_banner = ""
+    if _cov is not None and _cov < 100.0:
+        auth_banner = (
+            '<div class="card" style="border-color:#f59e0b;background:#fffbeb;margin-bottom:16px">'
+            f"<b>⚠️ 认证覆盖率 {_cov}%</b> —— 应带 token 的探测 {s.get('authed_probes', 0)} 个，"
+            f"实际带上 token 的仅 {s.get('authed_probes_with_token', 0)} 个"
+            f"（user token={'有' if s.get('user_token_obtained') else '无'}，"
+            f"admin token={'有' if s.get('admin_token_obtained') else '无'}）。"
+            "<br>未带 token 的探测已退化为<b>匿名 401 探测</b>：它只能证明「匿名访问被正确拒绝」，"
+            "<b>不能</b>证明接口功能正确。下方的通过率与健康度分数仅覆盖匿名部分，请勿据此判定可用性。"
+            "</div>"
+        )
     fail_rows = ""
     for f in report["failures"]:
         diff = escape_html("; ".join(f["expected"]["diff"]))
@@ -1274,7 +1362,9 @@ def render_html(report: dict) -> str:
     环境 <b>{m["env"]}</b> · 目标 <b>{m["base_url"]}</b> · 生成 {m["generated_at"]} ·
     总耗时 {m["duration_total_s"]}s · 并发 {m["concurrency"]} ·
     写探测 {"开启" if m["allow_write"] else "关闭"} · TLS 校验 {"开启" if m["verify_tls"] else "关闭"}
+    · <b>认证覆盖率 {_render_auth_coverage(s)}</b>
   </div>
+  {auth_banner}
   <div class="grid">
     <div class="card" style="text-align:center">
       <div class="ring"><div class="ring-inner"><div class="score">{score}</div><div class="grade">{grade}</div></div></div>
@@ -1374,6 +1464,14 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     p.add_argument("--md-out", help="Markdown 报告输出路径")
     p.add_argument("--html-out", help="HTML 报告输出路径")
     p.add_argument("--quiet", action="store_true", help="减少日志输出")
+    p.add_argument(
+        "--allow-anonymous-only",
+        action="store_true",
+        help=(
+            "显式接受『认证降级』：配置了认证凭据但拿不到 token 时，默认会以非零码失败；"
+            "本旗标把该失败降级为警告（仅用于确实只想做匿名探测的场景，如公网压测）"
+        ),
+    )
     return p.parse_args(argv)
 
 
@@ -1500,6 +1598,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 else:
                     use_token = ctx["token"]
             res = execute_probe(probe.spec, cfg, use_token, extra_headers)
+            res.used_token = use_token is not None
             # 校验规则准备
             key = f"{probe.spec.method} {case.path}"
             rule = schemas.get(key) or {}
@@ -1600,10 +1699,74 @@ def main(argv: Optional[List[str]] = None) -> int:
         f"失败 {s['failed']} | 跳过 {s['skipped']}"
     )
     print(f"  健康度评分: {s['health_score']} / 100（{s['grade']}）")
+    print(f"  认证覆盖率: {_render_auth_coverage(s)}")
     print("=" * 64)
     print(f"  报告：{html_out}")
     print(f"        {md_out}")
     print(f"        {json_out}")
+
+    # ---- 5. 认证降级门禁 ----
+    #
+    # 为什么必须失败而不是只警告：认证一旦拿不到 token，所有 `authed` 探测会
+    # 静默塌缩成匿名 401 探测，而通过率/健康度**丝毫不变**。2026-10-10 实测：
+    # 1016/1016、100/100「优秀」、exit 0，实际只验证了"匿名访问被拒绝"。
+    # 这是「不会失败的门禁」的教科书形态 —— 放进 CI 只会制造虚假信心。
+    # 因此：配置了认证凭据却拿不到 token ⇒ 非零退出（可用 --allow-anonymous-only 显式豁免）。
+    user_expected = bool(
+        cfg.get("auth_token")
+        or (cfg.get("auth") or {}).get("username")
+        or (cfg.get("auth") or {}).get("password")
+    )
+    admin_expected = bool(
+        (cfg.get("admin") or {}).get("auth_token")
+        or (cfg.get("admin") or {}).get("username")
+        or (cfg.get("admin") or {}).get("password")
+    )
+    degraded: List[str] = []
+    if user_expected and not cfg.get("_token"):
+        degraded.append("普通用户 token 未获取到（全部 authed 探测已退化为匿名探测）")
+    if admin_expected and not cfg.get("_admin_token"):
+        degraded.append("admin token 未获取到（/_synapse/admin 探测已退化为匿名探测）")
+
+    # 第二类降级：token **带上了但没用**（无效/过期/被吊销）。
+    # 此时认证覆盖率仍是 100%，但每个 authed 探测都吃 401/403 —— 覆盖率的分子是对的，
+    # 语义却是空的。以「多数 authed 探测被鉴权拒绝」为判据。
+    reject_rate = s.get("auth_reject_rate")
+    if (
+        (s.get("authed_probes_with_token") or 0) > 0
+        and reject_rate is not None
+        and reject_rate > 50.0
+    ):
+        degraded.append(
+            f"token 已带上但被鉴权拒绝：{s['authed_probes_rejected']}/{s['authed_probes_with_token']} "
+            f"个 authed 探测返回 401/403（{reject_rate}%）—— token 可能无效/过期/被吊销"
+        )
+
+    if degraded:
+        head = "⚠️ 认证降级" if cli.allow_anonymous_only else "❌ 认证降级（门禁失败）"
+        print()
+        print(f"{head}：", file=sys.stderr)
+        for d in degraded:
+            print(f"  - {d}", file=sys.stderr)
+        print(
+            "  本报告的通过率与健康度**只覆盖匿名探测**，不能据此判断接口功能正确性。",
+            file=sys.stderr,
+        )
+        if cli.allow_anonymous_only:
+            print(
+                "  已指定 --allow-anonymous-only：降级被显式接受，退出码不受影响。",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "  修法：① 排查登录失败原因（常见：登录频率限流 M_LIMIT_EXCEEDED、"
+                "出口 IP 被登录锁定）；\n"
+                "        ② 或直接注入有效 token（--token / API_TEST_TOKEN）；\n"
+                "        ③ 若确实只想做匿名探测，显式传 --allow-anonymous-only。",
+                file=sys.stderr,
+            )
+            return 3
+
     return 0 if s["failed"] == 0 else 1
 
 

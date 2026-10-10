@@ -110,6 +110,52 @@ python3 run_api_tests.py --report-dir /tmp/api-reports
   - `api_test_report.md` — 摘要 + 失败明细 + 模块统计
   - `api_test_report.html` — 自包含可视化报告（评分环、状态卡、失败表格）
 
+## ⚠️ 认证覆盖率：评分的前置条件（2026-10-10 新增）
+
+**健康度分数只在认证覆盖率 100% 时才代表"接口功能"；否则它只代表"匿名访问被正确拒绝"。**
+
+历史缺陷：工具在**拿不到 token** 时会静默把所有 `authed` 探测降级为匿名探测，
+但通过率、健康度、退出码**一律不变** —— 报告给出 `1016/1016，100/100（优秀）`，
+而实际什么都没验证。这是典型的「不会失败的门禁」。
+
+现在认证覆盖率是一等指标，并在两个方向上都设了硬门禁：
+
+| 退化形态 | 判据 | 旧行为 | 现行为 |
+| --- | --- | --- | --- |
+| 根本没拿到 token | 配置了凭据但 `_token` 为空 | 静默降级，exit 0 | **exit 3** |
+| token 无效/过期/被吊销 | authed 探测中 >50% 返回 401/403 | 记 WARN，exit 0/1 | **exit 3** |
+
+报告中呈现位置：
+
+- 摘要首行 `认证覆盖率: ✅ 100.0%（467/467 个认证探测实际带上 token）`
+- 统计表新增一行「认证覆盖率」
+- 覆盖率不足时 Markdown/HTML 顶部出现显式警告横幅（说明分数只覆盖匿名部分）
+
+### 为什么需要"第二类判据"
+
+只看"是否带上了 token"不够：注入一个**格式合法但无效**的 token 时，
+覆盖率名义上仍是 100%，而每个 authed 探测都吃 401 —— 分子对了，语义是空的。
+实测（2026-10-10）：`API_TEST_TOKEN=syt_invalid_...` → 251/467 个 authed 探测 401/403 (53.7%)、
+健康度从 100.0 掉到 88.5、门禁 exit 3。
+
+### 排障：拿不到 token 时的常见原因
+
+1. **登录频率限流** `M_LIMIT_EXCEEDED`：响应体带 `retry_after_ms`，别硬重试。
+2. **出口 IP 被登录锁定**：服务端按 IP 聚合失败次数（默认 30 次）后锁定，
+   会把同一出口的**所有**账号一起拒掉（CI runner / NAT 办公网最容易中）。
+   豁免名单见 `docker/config/homeserver.yaml` 的
+   `security.login_lockout_ip_allowlist`（**只能写 YAML**，`SYNAPSE__…` 环境变量无法覆盖列表字段）。
+3. token 过期：改用 `--token` 注入新签发的 token。
+
+## 退出码
+
+- `0`：无失败接口
+- `1`：存在失败接口
+- `2`：运行错误（清单缺失 / 配置错误）
+- `3`：**认证降级**（配置了凭据但拿不到 token，或 token 被大面积鉴权拒绝）
+  —— 此时通过率/健康度不可用于判断接口功能。
+  若确实只想做匿名探测，显式传 `--allow-anonymous-only` 把该失败降级为警告。
+
 ## OpenAPI requestBody Schema 补全 (Week 2 Task 4 — 2026-09-01)
 
 **目标**: 将 Rust handler 函数的 `Json<TypeName>` 签名映射到 OpenAPI `requestBody` schema。
@@ -213,11 +259,3 @@ python3 -c "import yaml; d=yaml.safe_load(open('docs/openapi/client.yaml')); pri
 - 所有端点默认 200/400/401/403/404/429 响应
 
 **CI 集成**: 每次 PR diff `docs/openapi/client.yaml`; 端点增加 >5% 触发 review 提醒。
-
----
-
-## 退出码
-
-- `0`：无失败接口
-- `1`：存在失败接口
-- `2`：运行错误（清单缺失 / 配置错误）
