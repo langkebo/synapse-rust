@@ -1025,11 +1025,15 @@ start_monitoring() {
     fi
 
     log_info "启动监控栈 (project=$MONITORING_PROJECT)..."
-    if compose -p "$MONITORING_PROJECT" -f "$MONITORING_COMPOSE_FILE" up -d --remove-orphans >/dev/null 2>&1; then
+    # --force-recreate：核心栈重建时会连带重建共享网络（remove_existing_deployment），
+    # 而监控栈是独立 project、其容器仍绑定已失效的旧网络 ID。此时若复用旧容器，
+    # `up` 会因 "failed to set up container networking: network ... not found" 失败
+    # （2026-10-10 实测）。强制重建可保证监控容器始终挂到当前网络。
+    if compose -p "$MONITORING_PROJECT" -f "$MONITORING_COMPOSE_FILE" up -d --remove-orphans --force-recreate >/dev/null 2>&1; then
         log_success "监控栈已启动: prometheus / alertmanager / grafana / node-exporter / alert-handler"
     else
         log_warning "监控栈启动失败（不影响核心服务）。手动排查:"
-        log_warning "  cd $DEPLOY_ROOT && docker compose -p $MONITORING_PROJECT -f $MONITORING_COMPOSE_FILE up -d"
+        log_warning "  cd $DEPLOY_ROOT && docker compose -p $MONITORING_PROJECT -f $MONITORING_COMPOSE_FILE up -d --force-recreate"
     fi
     return 0
 }
