@@ -153,14 +153,18 @@ fn run_python(script: &Path, args: &[&str]) {
 
 /// E8: the OpenAPI `route-table.json` generator must be byte-deterministic and
 /// its output shape pinned. The artifact itself is now regenerated and gated:
-/// `docs/openapi/route-table.json` holds **1047** routes（2026-09-30 C74 重生成；
-/// 重生成前是 **1130** —— 又混入了 **83** 条非默认特性路由，与下面 2026-09-25 记录的那次
-/// 完全同型；详见本注释末尾的 2026-09-30 条目）。它来自
-/// 一次 fresh default-feature 导出（`generated_at` 2026-09-16T00:00:00Z），其中两条
-/// 早先缺失的无门控路由是
+/// `docs/openapi/route-table.json` currently holds **948** routes (golden lane ×
+/// default profile; its count is reconciled against
+/// `tests/unit/fixtures/ledger_export/default.json` by
+/// `scripts/contract/check_route_surface_reconciliation.py`, BE-1). Historically
+/// it drifted to **1047** on 2026-09-30 (1130 before that) and was **1033** on
+/// 2026-09-25 (1146 before that) — each a same-shaped **83**-route leak of
+/// non-default-feature routes, see the dated entries below. It comes from a fresh
+/// default-feature export (`generated_at` 2026-09-16T00:00:00Z); two no-gate
+/// routes that had been missing from it are
 /// `GET /_matrix/client/v3/auth/{auth_type}/fallback/web`
 /// (assembly::auth_compat) and `GET /_synapse/admin/v1/rate-limit-status`
-/// (admin::server)). The `openapi-artifact` job in `.github/workflows/ci.yml`
+/// (admin::server). The `openapi-artifact` job in `.github/workflows/ci.yml`
 /// now runs `gen_route_table.py --check --ledger <fresh default-feature
 /// export>` **before** the generation step that overwrites the file. What this
 /// test pins is the generator's own contract: same input → byte-identical
@@ -168,6 +172,11 @@ fn run_python(script: &Path, args: &[&str]) {
 /// order. A change to that shape requires a deliberate update of the pinned
 /// bytes below (AGENTS.md iron law 8). The `--check` red path is exercised too,
 /// so the mechanism is proven rather than declared.
+///
+/// The output also carries the source ledger's coordinate — `ledger_schema_version`,
+/// `lane`, `profile_flags` — so the artifact self-describes the `(lane, profile)`
+/// slice it was cut from (BE-1). The minimal input ledger below omits
+/// `profile_flags`, so `lane` and `profile_flags` pin as `null`.
 ///
 /// Measured 2026-09-25 with the exact CI commands (`cargo build --bin
 /// synapse_ledger_export`, i.e. the crate's default features):
@@ -234,9 +243,12 @@ fn test_route_table_generator_is_deterministic_and_shape_pinned() {
     // the route-table artifact's shape/order changed.
     const PINNED: &str = r#"{
   "schema_version": "1",
+  "ledger_schema_version": "1",
+  "lane": null,
   "generated_at": "2020-01-01T00:00:00Z",
   "source": "synapse_ledger_export",
   "profile": "default",
+  "profile_flags": null,
   "total_routes": 2,
   "_meta": {
     "generated_by": "gen_route_table.py",

@@ -39,17 +39,44 @@ def load_ledger(ledger_path: Path) -> dict:
     return data
 
 
+def derive_lane(profile_flags: dict | None) -> str | None:
+    """Feature lane of the source ledger, derived from `profile_flags`.
+
+    The two lanes (`golden` = default features, `sdk` = default + all-extensions)
+    differ by exactly one compile-time feature, `saml-sso`, which surfaces as
+    `profile_flags.saml_enabled` (see docs/openapi/README.md「权威口径与
+    (lane, profile) 坐标轴」). A new lane-dividing feature would invalidate this
+    derivation and must be revisited here.
+    """
+    if profile_flags is None:
+        return None
+    return "sdk" if profile_flags.get("saml_enabled") else "golden"
+
+
 def build_route_table(ledger: dict) -> dict:
-    """Build a flat route table from ledger entries."""
+    """Build a flat route table from ledger entries.
+
+    The artifact is self-describing about the coordinate it was cut from (BE-1):
+    alongside the ledger's own `schema_version`, it carries the source ledger's
+    `schema_version` (`ledger_schema_version`), the derived feature `lane`, and
+    the source `profile_flags`. `schema_version` here is *this artifact's* output
+    shape version and is unrelated to the ledger's `schema_version` — the two
+    names are deliberately kept distinct (BE-1 renamed the ambiguity away by
+    adding `ledger_schema_version`).
+    """
     entries = sorted(
         ledger["entries"],
         key=lambda e: (e["path"], e["method"], e["registered_by"]),
     )
+    profile_flags = ledger.get("profile_flags")
     return {
         "schema_version": "1",
+        "ledger_schema_version": ledger.get("schema_version"),
+        "lane": derive_lane(profile_flags),
         "generated_at": ledger.get("generated_at", ""),
         "source": "synapse_ledger_export",
         "profile": ledger.get("state_profile", "unknown"),
+        "profile_flags": profile_flags,
         "total_routes": len(entries),
         "_meta": {
             "generated_by": "gen_route_table.py",

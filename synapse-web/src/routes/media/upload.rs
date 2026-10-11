@@ -7,6 +7,7 @@ use axum::{
     http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::content_scanner::ContentType;
 use synapse_common::current_timestamp_millis;
@@ -47,17 +48,6 @@ pub(crate) fn ensure_local_media_server_name(ctx: &MediaContext, server_name: &s
         return Err(ApiError::not_found("Media not found".to_string()));
     }
     Ok(())
-}
-
-/// Read an integer query parameter that may arrive either as a JSON number or
-/// as a string.
-///
-/// Query strings are decoded with `serde_urlencoded`, which yields
-/// `Value::String` for every value, so `Value::as_i64()` always returns `None`
-/// for query params. Fall back to parsing the string form so numeric query
-/// parameters (e.g. `chunk_index`) are honoured.
-pub(crate) fn parse_query_i64(params: &Value, key: &str) -> Option<i64> {
-    params.get(key).and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +193,26 @@ pub(crate) async fn upload_media_with_id(
 // Chunked upload handlers
 // ---------------------------------------------------------------------------
 
+/// Query parameters for `POST /_matrix/media/v1/upload/chunk`.
+///
+/// Deserialised by axum's `Query<..>` extractor, which parses the query string
+/// through `serde_urlencoded`; numeric fields therefore accept the string form
+/// (e.g. `chunk_index=2`) natively.
+#[derive(Debug, Deserialize)]
+pub(crate) struct ChunkUploadQuery {
+    pub upload_id: String,
+    pub chunk_index: i64,
+    pub total_chunks: Option<i64>,
+    pub filename: Option<String>,
+    pub total_size: Option<i64>,
+}
+
+/// Query parameters for `GET /_matrix/media/v1/upload/chunk/progress`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct ChunkProgressQuery {
+    pub upload_id: String,
+}
+
 /// POST /_matrix/media/v1/upload/chunk/start
 pub(crate) async fn chunked_upload_start(
     State(ctx): State<MediaContext>,
@@ -246,30 +256,21 @@ pub(crate) async fn chunked_upload_chunk(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
     headers: HeaderMap,
-    Query(params): Query<Value>,
+    Query(query): Query<ChunkUploadQuery>,
     body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
-    // ISSUE-04: upload_id and chunk_index are required query params (read from query, not body)
-    let upload_id = params
-        .get("upload_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("upload_id is required as a query parameter".to_string()))?;
-    let chunk_index = parse_query_i64(&params, "chunk_index")
-        .ok_or_else(|| ApiError::bad_request("chunk_index is required as a query parameter".to_string()))?
-        as i32;
-    let total_chunks = parse_query_i64(&params, "total_chunks").unwrap_or(1) as i32;
-    let filename = params.get("filename").and_then(|v| v.as_str()).map(|s| s.to_string());
+    // ISSUE-04: upload_id and chunk_index are required query params (read from
+    // query, not body); the extractor rejects a missing required field with 400.
     let content_type = headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).map(|s| s.to_string());
-    let total_size = parse_query_i64(&params, "total_size");
 
     let request = synapse_services::media::chunked_upload::ChunkUploadRequest {
-        upload_id: Some(upload_id.to_string()),
-        chunk_index,
-        total_chunks,
+        upload_id: Some(query.upload_id),
+        chunk_index: query.chunk_index as i32,
+        total_chunks: query.total_chunks.unwrap_or(1) as i32,
         chunk_data: body.to_vec(),
-        filename,
+        filename: query.filename,
         content_type,
-        total_size,
+        total_size: query.total_size,
     };
 
     let response = ctx.media_domain_service.upload_chunk(request, &auth_user.user_id).await?;
@@ -327,14 +328,9 @@ pub(crate) async fn chunked_upload_cancel(
 pub(crate) async fn chunked_upload_progress(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
-    Query(params): Query<Value>,
+    Query(query): Query<ChunkProgressQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let upload_id = params
-        .get("upload_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("upload_id is required".to_string()))?;
-
-    let progress = ctx.media_domain_service.get_chunked_upload_progress(upload_id).await?;
+    let progress = ctx.media_domain_service.get_chunked_upload_progress(&query.upload_id).await?;
 
     if progress.user_id != auth_user.user_id {
         return Err(ApiError::forbidden("Upload does not belong to user"));
@@ -446,45 +442,32 @@ mod tests {
 
     #[test]
     fn test_chunk_upload_query_params_extraction() {
-        let params = json!({
-            "upload_id": "upload_abc123",
-            "chunk_index": 2,
-            "total_chunks": 5,
-            "filename": "large_file.zip",
-            "total_size": 52428800
-        });
+        // Exercises the axum `Query<..>` extractor directly so the
+        // serde_urlencoded string -> i64 parsing is covered (query values are
+        // always strings on the wire).
+        let uri: axum::http::Uri = "/_matrix/media/v1/upload/chunk?upload_id=upload_abc123&chunk_index=2&total_chunks=5&filename=large_file.zip&total_size=52428800"
+            .parse()
+            .unwrap();
+        let Query(query) = Query::<ChunkUploadQuery>::try_from_uri(&uri).expect("query should deserialize");
 
-        let upload_id = params.get("upload_id").and_then(|v| v.as_str());
-        let chunk_index = params.get("chunk_index").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-        let total_chunks = params.get("total_chunks").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
-        let filename = params.get("filename").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let total_size = params.get("total_size").and_then(|v| v.as_i64());
-
-        assert_eq!(upload_id, Some("upload_abc123"));
-        assert_eq!(chunk_index, 2);
-        assert_eq!(total_chunks, 5);
-        assert_eq!(filename.as_deref(), Some("large_file.zip"));
-        assert_eq!(total_size, Some(52428800));
+        assert_eq!(query.upload_id, "upload_abc123");
+        assert_eq!(query.chunk_index, 2);
+        assert_eq!(query.total_chunks, Some(5));
+        assert_eq!(query.filename.as_deref(), Some("large_file.zip"));
+        assert_eq!(query.total_size, Some(52428800));
     }
 
     #[test]
     fn test_chunk_upload_defaults_when_optional_params_missing() {
-        let params = json!({
-            "upload_id": "upload_def456",
-            "chunk_index": 0
-        });
+        let uri: axum::http::Uri =
+            "/_matrix/media/v1/upload/chunk?upload_id=upload_def456&chunk_index=0".parse().unwrap();
+        let Query(query) = Query::<ChunkUploadQuery>::try_from_uri(&uri).expect("query should deserialize");
 
-        let upload_id = params.get("upload_id").and_then(|v| v.as_str());
-        let chunk_index = params.get("chunk_index").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-        let total_chunks = params.get("total_chunks").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
-        let filename = params.get("filename").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let total_size = params.get("total_size").and_then(|v| v.as_i64());
-
-        assert_eq!(upload_id, Some("upload_def456"));
-        assert_eq!(chunk_index, 0);
-        assert_eq!(total_chunks, 1, "total_chunks should default to 1");
-        assert!(filename.is_none(), "filename should be None when not provided");
-        assert!(total_size.is_none(), "total_size should be None when not provided");
+        assert_eq!(query.upload_id, "upload_def456");
+        assert_eq!(query.chunk_index, 0);
+        assert_eq!(query.total_chunks.unwrap_or(1), 1, "total_chunks should default to 1");
+        assert!(query.filename.is_none(), "filename should be None when not provided");
+        assert!(query.total_size.is_none(), "total_size should be None when not provided");
     }
 
     #[test]
@@ -571,29 +554,24 @@ mod tests {
 
     #[test]
     fn test_chunk_upload_chunk_requires_upload_id_query_param() {
-        // Missing upload_id in query → should error
-        let params = json!({"chunk_index": 0});
-        let upload_id = params.get("upload_id").and_then(|v| v.as_str());
-        assert!(upload_id.is_none(), "missing upload_id should be detected");
+        // Missing upload_id in query → the extractor must reject the request.
+        let uri: axum::http::Uri = "/_matrix/media/v1/upload/chunk?chunk_index=0".parse().unwrap();
+        assert!(Query::<ChunkUploadQuery>::try_from_uri(&uri).is_err(), "missing upload_id should be rejected");
 
-        // Present upload_id → should succeed
-        let params = json!({"upload_id": "abc", "chunk_index": 0});
-        let upload_id = params.get("upload_id").and_then(|v| v.as_str());
-        assert!(upload_id.is_some());
+        // Present upload_id → should deserialize.
+        let uri: axum::http::Uri = "/_matrix/media/v1/upload/chunk?upload_id=abc&chunk_index=0".parse().unwrap();
+        assert_eq!(Query::<ChunkUploadQuery>::try_from_uri(&uri).unwrap().upload_id, "abc");
     }
 
     #[test]
     fn test_chunk_upload_chunk_requires_chunk_index_query_param() {
-        // Missing chunk_index → should error
-        let params = json!({"upload_id": "abc"});
-        let chunk_index = params.get("chunk_index").and_then(|v| v.as_i64());
-        assert!(chunk_index.is_none(), "missing chunk_index should be detected");
+        // Missing chunk_index → the extractor must reject the request.
+        let uri: axum::http::Uri = "/_matrix/media/v1/upload/chunk?upload_id=abc".parse().unwrap();
+        assert!(Query::<ChunkUploadQuery>::try_from_uri(&uri).is_err(), "missing chunk_index should be rejected");
 
-        // Present chunk_index → should succeed
-        let params = json!({"upload_id": "abc", "chunk_index": 5});
-        let chunk_index = params.get("chunk_index").and_then(|v| v.as_i64());
-        assert!(chunk_index.is_some());
-        assert_eq!(chunk_index.unwrap(), 5);
+        // Present chunk_index → should deserialize.
+        let uri: axum::http::Uri = "/_matrix/media/v1/upload/chunk?upload_id=abc&chunk_index=5".parse().unwrap();
+        assert_eq!(Query::<ChunkUploadQuery>::try_from_uri(&uri).unwrap().chunk_index, 5);
     }
 
     #[test]

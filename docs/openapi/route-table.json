@@ -1,8 +1,15 @@
 {
   "schema_version": "1",
+  "ledger_schema_version": "4",
+  "lane": "golden",
   "generated_at": "2026-09-16T00:00:00Z",
   "source": "synapse_ledger_export",
   "profile": "default",
+  "profile_flags": {
+    "oidc_enabled": false,
+    "worker_enabled": false,
+    "saml_enabled": false
+  },
   "total_routes": 948,
   "_meta": {
     "generated_by": "gen_route_table.py",
@@ -4566,7 +4573,13 @@
       "path": "/_matrix/media/v1/upload/chunk",
       "registered_by": "media",
       "path_params": [],
-      "query_params": [],
+      "query_params": [
+        "chunk_index",
+        "filename",
+        "total_chunks",
+        "total_size",
+        "upload_id"
+      ],
       "auth": null
     },
     {
@@ -4590,7 +4603,9 @@
       "path": "/_matrix/media/v1/upload/chunk/progress",
       "registered_by": "media",
       "path_params": [],
-      "query_params": [],
+      "query_params": [
+        "upload_id"
+      ],
       "auth": null
     },
     {

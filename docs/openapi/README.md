@@ -10,6 +10,34 @@
 | `index.json` | Manifest 索引 — 所有 profile 的 spec 路径 + 元数据 |
 | `route-table.json` | 路由表（入库，CI 对账 drift） |
 
+## 权威口径与 (lane, profile) 坐标轴
+
+> 后端路由面只有**一个机器权威**，其余产物都是它在某个坐标上的视图（BE-1 治理）。
+
+- **机器权威**：`synapse_ledger_export` 二进制导出的 ledger JSON。其 `schema_version`
+  由 [`synapse-web/src/routes/ledger_export.rs`](../../synapse-web/src/routes/ledger_export.rs)
+  的 `SCHEMA_VERSION` 定义（当前 `4`），受 `ledger_export_tests::schema_doc_version_matches_code`
+  与 6 份 fixture 双重守护。
+- **人类可读视图**：`docs/synapse-rust/ROUTE_CONTRACT.md`（`extract_registered.py` 静态解析
+  `synapse-web/src/routes/**` 的 `.route()/.nest()` 真实注册面，取 **union/all-feature** lane）。
+- **两个正交维度**，坐标 = `(lane, profile)`：
+
+  | 维度 | 取值 | 定义 |
+  | --- | --- | --- |
+  | lane（编译期 `#[cfg(feature = "…")]`） | `golden` / `sdk` | golden = 默认特性闭包；sdk = `default + all-extensions`。差值不是单一开关，而是整组 `all-extensions` 编译进来的门控路由：sdk 相对 golden 在 default profile 多 60 条（`saml-sso` 16 / `server-notifications` 15 / `cas-sso` 12 / `voice-extended` 12 / `voip-tracking` 5），在 all profile 多 61 条 |
+  | profile（运行期 guard） | `default ⊂ worker ⊂ all` | 由 `ProfileFlags` 的 `worker_enabled`/`oidc_enabled`/`saml_enabled` 决定，派生表按 `RouteProfile` 单调过滤（按 `(method,path)`；高 rank 的碰撞孪生会**替换**低 rank 条目，不新增 path） |
+
+- **权威计数** = sdk lane × all profile = **1027**（最大完整面，SDK 实际摄入的 lane；
+  等于 `tests/unit/fixtures/ledger_export_sdk/all.json` 的 `entry_count`，也等于
+  `ROUTE_CONTRACT.md` 的总览计数）。其余数字都是该坐标的**子集**，不是并列权威。
+- 6 个合法坐标的 fixture 落在 `tests/unit/fixtures/ledger_export{,_sdk}/{default,worker,all}.json`。
+- `docs/openapi/route-table.json` 是 **golden lane × default profile** 的扁平视图；其头部
+  `lane` / `profile` / `profile_flags` / `ledger_schema_version` **自描述**该坐标与来源 ledger
+  的 schema 版本（`schema_version` 字段则是本产物**自身**的输出 shape 版本，与 ledger 的
+  `schema_version` 无关）。该坐标一致性由
+  [`scripts/contract/check_route_surface_reconciliation.py`](../../scripts/contract/check_route_surface_reconciliation.py)
+  对账，**禁止手改**。
+
 ## client.yaml 概况 (default profile)
 
 - **端点**: 898 operations / 704 paths

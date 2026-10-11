@@ -4178,7 +4178,13 @@
       "path": "/_matrix/media/v1/upload/chunk",
       "registered_by": "media",
       "path_params": [],
-      "query_params": []
+      "query_params": [
+        "chunk_index",
+        "filename",
+        "total_chunks",
+        "total_size",
+        "upload_id"
+      ]
     },
     {
       "method": "POST",
@@ -4199,7 +4205,9 @@
       "path": "/_matrix/media/v1/upload/chunk/progress",
       "registered_by": "media",
       "path_params": [],
-      "query_params": []
+      "query_params": [
+        "upload_id"
+      ]
     },
     {
       "method": "POST",

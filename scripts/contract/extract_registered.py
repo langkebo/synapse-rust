@@ -1240,6 +1240,7 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/client/v3/thirdparty/user/{protocol}"): {
         "query_params": "nickname,search,server,userid"
     },
+    ("GET", "/_matrix/media/v1/upload/chunk/progress"): {"query_params": "upload_id"},
     ("GET", "/_matrix/vendor/v1/user/{user_id}/rooms/{room_id}/threads"): {
         "query_params": "from,include_all,limit"
     },
@@ -1344,6 +1345,9 @@ EXPECTED_ANNOTATIONS = {
     ("POST", "/_matrix/client/v4/sync"): {
         "rate_limit_exempt": True,
         "query_params": "pos,timeout,txn_id",
+    },
+    ("POST", "/_matrix/media/v1/upload/chunk"): {
+        "query_params": "chunk_index,filename,total_chunks,total_size,upload_id"
     },
     ("POST", "/_matrix/vendor/v1/friends/search"): {
         "query_params": "limit,mode,q,query"

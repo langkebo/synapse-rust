@@ -2735,7 +2735,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/media/v1/upload/chunk", "media");
+        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/media/v1/upload/chunk", "media")
+            .with_query_params(&["chunk_index", "filename", "total_chunks", "total_size", "upload_id"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -2747,7 +2748,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/media/v1/upload/chunk/progress", "media");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/media/v1/upload/chunk/progress", "media")
+            .with_query_params(&["upload_id"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {

@@ -51,6 +51,20 @@ EXTRACT_STRICT=1 python3 scripts/contract/extract_registered.py
 echo "==> Regenerating ${DOC} (gen_contract_doc.py) ..."
 python3 scripts/contract/gen_contract_doc.py
 
+# BE-1: the backend route surface has exactly ONE machine authority (the ledger
+# exported by `synapse_ledger_export`); every other artifact (ROUTE_CONTRACT.md,
+# docs/openapi/route-table.json) is a VIEW cut from it at some (lane, profile)
+# coordinate (see docs/openapi/README.md「权威口径与 (lane, profile) 坐标轴」).
+# Before BE-1 the count lived in several places with no gate tying them together,
+# so "同一路由面多口径" could drift silently. This reconciler turns the coordinate
+# contract into assertions that CAN fail (铁律 8): it cross-checks the committed
+# route-table against its declared fixture entry-for-entry, and ROUTE_CONTRACT's
+# authoritative count against the sdk×all fixture. `--mutation-check` injects a
+# coordinate defect and requires the gate to go red, proving it is falsifiable.
+echo "==> Route-surface reconciliation (BE-1, check_route_surface_reconciliation.py) ..."
+python3 scripts/contract/check_route_surface_reconciliation.py --mutation-check
+python3 scripts/contract/check_route_surface_reconciliation.py
+
 echo "==> Drift gate for derived_routes.rs (gen_derived_routes.py) ..."
 python3 scripts/contract/gen_derived_routes.py --check
 
