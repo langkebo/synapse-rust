@@ -49,6 +49,17 @@ pub(crate) fn ensure_local_media_server_name(ctx: &MediaContext, server_name: &s
     Ok(())
 }
 
+/// Read an integer query parameter that may arrive either as a JSON number or
+/// as a string.
+///
+/// Query strings are decoded with `serde_urlencoded`, which yields
+/// `Value::String` for every value, so `Value::as_i64()` always returns `None`
+/// for query params. Fall back to parsing the string form so numeric query
+/// parameters (e.g. `chunk_index`) are honoured.
+pub(crate) fn parse_query_i64(params: &Value, key: &str) -> Option<i64> {
+    params.get(key).and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+}
+
 // ---------------------------------------------------------------------------
 // Upload common helpers
 // ---------------------------------------------------------------------------
@@ -243,15 +254,13 @@ pub(crate) async fn chunked_upload_chunk(
         .get("upload_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("upload_id is required as a query parameter".to_string()))?;
-    let chunk_index = params
-        .get("chunk_index")
-        .and_then(|v| v.as_i64())
+    let chunk_index = parse_query_i64(&params, "chunk_index")
         .ok_or_else(|| ApiError::bad_request("chunk_index is required as a query parameter".to_string()))?
         as i32;
-    let total_chunks = params.get("total_chunks").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
+    let total_chunks = parse_query_i64(&params, "total_chunks").unwrap_or(1) as i32;
     let filename = params.get("filename").and_then(|v| v.as_str()).map(|s| s.to_string());
     let content_type = headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).map(|s| s.to_string());
-    let total_size = params.get("total_size").and_then(|v| v.as_i64());
+    let total_size = parse_query_i64(&params, "total_size");
 
     let request = synapse_services::media::chunked_upload::ChunkUploadRequest {
         upload_id: Some(upload_id.to_string()),
