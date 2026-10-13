@@ -606,12 +606,22 @@ impl CapabilityGovernance {
         // from the public surface — stock Element discovers sliding sync via the
         // standard MSC3886 identifier, not the `io.hula.*` namespace.
 
-        // MSC4452: Preview URL capabilities API (Synapse v1.154 #19715).
-        self.insert_enabled_capability(
-            &mut capabilities,
-            "io.element.msc4452.preview_url",
-            self.config.experimental.msc4452_enabled,
-        );
+        // MSC4452 / 上游 20298: URL 预览能力。
+        //
+        // Matrix v1.17 把该能力**稳定化**为 `m.preview_url`，所以稳定名要**无条件**
+        // 声明 —— 只认稳定名的客户端此前在本仓什么都发现不了。上游另外仍保留
+        // 稳定化前的 `io.element.msc4452.preview_url`（"Keep around while clients
+        // migrate away from MSC4452"），本仓沿用该别名。
+        //
+        // GAP（相对上游）：上游两者都取 `media.url_preview_enabled`，但本仓**没有**
+        // media 级开关 —— 承载 `url_preview_enabled` 的 `MediaStoreConfig` 在
+        // `synapse-common/src/config/mod.rs` 里仍是整段注释掉的未实现 stub，而
+        // 生效的 `url_preview` 只有 `ip_range_blacklist`。因此这里报的是**端点实际
+        // 执行的那个开关**（`experimental.msc4452_enabled`），保证能力声明与
+        // `GET /_matrix/media/v3/preview_url` 的 403 门控不会互相矛盾。
+        let url_preview_enabled = self.config.experimental.msc4452_enabled;
+        self.insert_enabled_capability(&mut capabilities, "m.preview_url", url_preview_enabled);
+        self.insert_enabled_capability(&mut capabilities, "io.element.msc4452.preview_url", url_preview_enabled);
 
         // MSC3720: Account status. Upstream advertises the unstable identifier
         // `org.matrix.msc3720.account_status` (the MSC has not been stabilised),
@@ -1137,6 +1147,7 @@ mod tests {
             "external_services",
             "io.hula.voice_extended",
             "io.hula.burn_after_read",
+            "m.preview_url",
             "io.element.msc4452.preview_url",
             "org.matrix.msc3720.account_status",
         ];

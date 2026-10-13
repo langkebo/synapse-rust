@@ -13,7 +13,7 @@
 - 本仓**确有差距**、建议排期的：
   1. **`/versions` 只宣告到 `v1.14`，上游已到 `v1.16` + `v1.17`**（最直接、最可验证的差距）。
   2. **MSC4210**：默认推送规则仍带三条 legacy 提及规则，上游与规格 v1.17 默认已移除。
-  3. **MSC4452**：`preview_url` 仍被默认关闭的实验开关门控，上游已**稳定化**为 `m.preview_url` 能力。
+  3. **MSC4452**：`preview_url` 只声明了不稳定别名，缺稳定能力名 `m.preview_url`。
   4. **MSC4354 Sticky Events**：本地有实现，但上游这轮有 **4 条修复**（历史可见性豁免覆盖、redact 与 sticky 的交互、到期口径）本地大概率未收口。
   5. **appservice `url: null`**：本地注册模型把 `url` 定为**必填** `String`，上游允许 `null`（bridge 双傀儡注册）⇒ 上游合法的注册文件在本仓会解析失败。
   6. **MSC4140**：本地已有发送端 `delay` 提示 + 管理端点；上游新增**专用调度端点**并改了取消语义，需对照 PR 确认是否等价。
@@ -80,7 +80,7 @@ curl -sSL "https://raw.githubusercontent.com/element-hq/synapse/develop/changelo
 | 20170 | 已支持稳定 + 不稳定双拼写（`synapse-web/src/routes/handlers/sync.rs:237-241`） | 基本对齐 | 仅补测试 |
 | 20081 | 已专项验证（`state_events_since_batch_keeps_the_last_local_users_leave`） | **本仓不受影响** | ✅ 批次 A |
 | 20220 | 默认规则仍含 **3 条 legacy** 提及规则（`synapse-common/src/push_rules.rs`） | **差距** | ✅ 批次 B（B1） |
-| 20298 | 已实现但被 `msc4452_enabled` 门控，默认 `false`（`synapse-common/src/config/experimental.rs:17,54`；`synapse-web/src/routes/media/preview.rs:36`） | **差距** | 批次 B |
+| 20298 | 只声明不稳定别名 `io.element.msc4452.preview_url`，缺稳定名（`synapse-services/src/capability_governance.rs`） | **差距** | ✅ 批次 B（B2） |
 | 20295 / 20322 / 20323 / 20324 | 有 MSC4354 实现（`synapse-web/src/routes/room.rs:82-95,169`），4 条修复未见对应收口 | **疑似差距** | 批次 C |
 | 19354 / 19495 | 发送端 `org.matrix.msc4140.delay`（`synapse-web/src/routes/handlers/room/mod.rs:141`）+ 管理端点（`synapse-web/src/routes/delayed_events.rs:97-98`）+ storage + 联邦 EDU | 待核实 | 批次 C |
 | 20273 | appservice 注册模型 `url: String` **必填**（`synapse-services/src/application_service/models.rs:41-42`） | **兼容性差距** | 批次 B |
@@ -126,7 +126,24 @@ MSC4210 移除的是**纯文本匹配**类的三条规则：
 
 #### 3.2.3 MSC4452 `preview_url` 稳定化（20298）
 
-本地已有端点与 403 门控，但能力名是实验性的 `io.element.msc4452.preview_url`，且默认关闭（`msc4452_enabled: false`）。上游将其稳定为 `m.preview_url` 能力。需要确认的是：**稳定化后是"能力名改变"还是"默认开关改变"**（或两者）。核实方法见 §6。
+上游 `synapse/rest/client/capabilities.py` 的权威写法：
+
+- **`m.preview_url`**：**无条件**声明，`enabled = config.media.url_preview_enabled`；
+- `io.element.msc4452.preview_url`：仅在 `experimental.msc4452_enabled` 时声明（注释原文
+  "Keep around while clients migrate away from MSC4452"），`enabled` 同上。
+
+本仓此前**只声明了不稳定别名**，且默认关闭（`experimental.msc4452_enabled: false`）⇒
+只认稳定名的客户端在本仓**什么都发现不了**。
+
+**核实中发现的连带事实（决定了实现只能怎么做）**：
+
+- 承载 `url_preview_enabled` 的 `MediaStoreConfig` 在 `synapse-common/src/config/mod.rs`
+  里是**整段被注释掉的未实现 stub**（"官方 Synapse 配置模块（未实现）"）；
+- 真正生效的 `config.url_preview`（`config/voip.rs` 的 `UrlPreviewConfig`）**只有
+  `ip_range_blacklist`，没有启用开关**。
+
+⇒ 本仓**没有** media 级开关可用，因此稳定名只能报端点实际执行的那个开关
+（`experimental.msc4452_enabled`），否则"能力说 enabled、端点却 403"会自相矛盾。
 
 #### 3.2.4 MSC4354 Sticky Events 的四条修复
 
@@ -151,7 +168,7 @@ MSC4210 移除的是**纯文本匹配**类的三条规则：
 ### 批次 B —— 行为语义对齐（P1）
 
 4. **B1（MSC4210）**：新增配置 `experimental_features.msc4210_enabled`，默认 `true`；为 `true` 时不下发 **3 条 legacy** 提及规则（`.m.rule.contains_display_name` / `.m.rule.contains_user_name` / `.m.rule.roomnotif`），**保留** `is_user_mention` / `is_room_mention`。默认值变更需在 CHANGELOG 与 `docs/` 明写。
-5. **B2（MSC4452）**：按 §6 的核实结果决定——稳定能力名 `m.preview_url`，并明确默认开关语义。
+5. **B2（MSC4452）**：**无条件**声明稳定能力名 `m.preview_url`（保留不稳定别名）；由于本仓无 media 级开关，两者都取 `experimental.msc4452_enabled`，与端点 403 门控保持一致。
 6. **B3（appservice `url: null`）**：`url` 改为 `Option<String>`；`None` 时**跳过**事件/临时数据排队（对齐 20273），并在启动日志标注"该 appservice 不接收推送"。
 7. **B4（20243）**：核实本地 `/requestToken` 是否可枚举账号；若是，加 `request_token_inhibit_3pid_errors`（默认 `true`）。
 
@@ -265,7 +282,7 @@ bash scripts/quality/preflight.sh
 
 ## 9. 批次 B 实施记录（B1，2026-10-13）
 
-**状态：B1 已实施；B2 / B3 / B4 待做。**
+**状态：B1 / B2 已实施；B3 有一个需要决策的设计岔口；B4 待核实。**
 
 ### 先订正了一处自己的错误
 
@@ -303,3 +320,44 @@ canonical 集合里的规则会从合并结果中丢弃，用户自定义（非 
 
 未跑：`tests/integration` 的 `/sync` 快照用例（需 DB，重型批次）——快照已按确定性差异手工同步，
 并做了 JSON 级校验。
+
+### B2 —— MSC4452 稳定能力名 `m.preview_url`
+
+| 落点 | 改动 |
+| --- | --- |
+| `synapse-services/src/capability_governance.rs` | **无条件**声明稳定能力 `m.preview_url`（与既有别名同值）；`known_keys` 同步 |
+| `tests/integration/snapshots/…capabilities_v3.snap` | 按字母序插入 `m.preview_url`（`m.forget_forced_upon_leave` 之后） |
+
+**为什么不照抄上游的开关**：上游 `m.preview_url.enabled = config.media.url_preview_enabled`，
+但本仓的 `MediaStoreConfig` 是**整段注释掉的未实现 stub**，生效的 `UrlPreviewConfig`
+只有 `ip_range_blacklist` —— **没有 media 级启用开关**。若照抄，就会出现"能力报 enabled、
+端点却因 `experimental.msc4452_enabled=false` 返回 403"的自相矛盾。故两者统一取端点实际
+执行的开关。**这是本仓与上游的已知结构差异，记在 §3.2.3。**
+
+未改：端点 403 门控本身（`routes/media/preview.rs`）保持原样 ⇒ 无路由/端点行为变更，
+也就不需要动 `tests/integration/api_media_routes_tests.rs`。
+
+### B3 —— appservice `url: null`：**存在一个必须由你决策的岔口**
+
+核实结论：上游 20273 允许 `url: null` 的 appservice 注册（bridge 双傀儡），本仓
+`AppServiceConfigFile.url` 是**必填** `String`，且 `validate_config_file` 显式拒绝空 url
+⇒ **上游合法的注册文件在本仓会直接解析/校验失败**。
+
+**岔口**：`application_services.url` 列是 **`TEXT NOT NULL`**
+（`migrations/00000000_unified_schema_v12.sql:2468`）。要真正支持 `null` 有两条路：
+
+1. **改 schema**：把该列改为可空 —— 但本仓只有单基线迁移文件，改它必须同步
+   `test_isolation_unification_tests::baseline_fingerprint_is_the_single_v12_source`
+   的 `EXPECTED_BASELINE_FINGERPRINT`（该指纹已漏改过 4 次）。
+2. **空串做哨兵**：`url: Option<String>` 解析为 `None` 时落库存 `""`，并把 `""` 作为
+   "不推送" 的哨兵，在排队与 ping 两处短路。无需 schema 变更，但引入一个隐式约定。
+
+两条都要顺带把"不为 `url: null` 的 appservice 排队事件/临时数据"（20273 的修复本体）做掉。
+**待你选 1 还是 2 之后再实施。**
+
+### B4 —— 待核实
+
+`request_token_inhibit_3pid_errors` 默认 `true`（上游 20243）用于防止 `/requestToken`
+泄露"邮箱是否已注册"。本仓尚未确认 `/account/3pid/email/requestToken` 与
+`/account/password/email/requestToken` 的响应是否对已注册/未注册邮箱有差异 ——
+需构造两次请求比对（§6 的 V4）。

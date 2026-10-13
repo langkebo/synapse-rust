@@ -16,6 +16,9 @@ expression: body
     "m.forget_forced_upon_leave": {
       "enabled": true
     },
+    "m.preview_url": {
+      "enabled": false
+    },
     "m.profile_fields": {
       "enabled": true
     },
