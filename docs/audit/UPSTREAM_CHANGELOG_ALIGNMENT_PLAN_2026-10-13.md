@@ -282,7 +282,7 @@ bash scripts/quality/preflight.sh
 
 ## 9. 批次 B 实施记录（B1，2026-10-13）
 
-**状态：B1 / B2 已实施；B3 有一个需要决策的设计岔口；B4 待核实。**
+**状态：B1 / B2 已实施并提交；B3 方案已定（列改为可空）待实施；B4 待核实。**
 
 ### 先订正了一处自己的错误
 
@@ -337,23 +337,54 @@ canonical 集合里的规则会从合并结果中丢弃，用户自定义（非 
 未改：端点 403 门控本身（`routes/media/preview.rs`）保持原样 ⇒ 无路由/端点行为变更，
 也就不需要动 `tests/integration/api_media_routes_tests.rs`。
 
-### B3 —— appservice `url: null`：**存在一个必须由你决策的岔口**
+### B3 —— appservice `url: null`（**方案已定：列改为可空**）
 
-核实结论：上游 20273 允许 `url: null` 的 appservice 注册（bridge 双傀儡），本仓
-`AppServiceConfigFile.url` 是**必填** `String`，且 `validate_config_file` 显式拒绝空 url
-⇒ **上游合法的注册文件在本仓会直接解析/校验失败**。
+**决策**：采用**方案 1** —— 把 `application_services.url` 改为可空，而不是用空串哨兵。
 
-**岔口**：`application_services.url` 列是 **`TEXT NOT NULL`**
-（`migrations/00000000_unified_schema_v12.sql:2468`）。要真正支持 `null` 有两条路：
+**决策依据（均已实测）**：
 
-1. **改 schema**：把该列改为可空 —— 但本仓只有单基线迁移文件，改它必须同步
-   `test_isolation_unification_tests::baseline_fingerprint_is_the_single_v12_source`
-   的 `EXPECTED_BASELINE_FINGERPRINT`（该指纹已漏改过 4 次）。
-2. **空串做哨兵**：`url: Option<String>` 解析为 `None` 时落库存 `""`，并把 `""` 作为
-   "不推送" 的哨兵，在排队与 ping 两处短路。无需 schema 变更，但引入一个隐式约定。
+- `AGENTS.md:72` 明文："**项目状态：未发布、无外部用户、无生产数据。因此不存在向后兼容义务。**"
+  ⇒ "已应用的迁移不可修改"这条义务在本仓**不成立**，直接改 baseline 是项目认可的路径。
+- `docker/db_migrate.sh` 比对基线**内容** md5，内容变化即打印"基线内容已变化，重放基线以应用变更"
+  并**容错重放** ⇒ 改 baseline **对存量库有效**；`docker/deploy/logs/deploy_20261007_090425.log:1852`
+  有该分支真实触发的记录。
+- 方案 2 省下的是"改 schema 的麻烦"，换来的是一个隐式约定（`""` = 无推送目标），
+  并让 admin API 与上游语义分叉 —— 不划算。
 
-两条都要顺带把"不为 `url: null` 的 appservice 排队事件/临时数据"（20273 的修复本体）做掉。
-**待你选 1 还是 2 之后再实施。**
+**实施步骤（有序，每步带验收）**：
+
+1. **baseline**：`migrations/00000000_unified_schema_v12.sql:2468` 的 `url TEXT NOT NULL` → `url TEXT`，
+   并在文件尾部追加一条幂等语句
+   `ALTER TABLE application_services ALTER COLUMN url DROP NOT NULL;`
+   —— ⚠️ **两条都要改**：`CREATE TABLE IF NOT EXISTS` 对已存在的表是 no-op，只有 ALTER 才能
+   把存量库的约束摘掉。
+2. **更新指纹**：`tests/unit/test_isolation_unification_tests.rs:190` 的
+   `EXPECTED_BASELINE_FINGERPRINT`（现值 `0de025c8669e0c96`）→ 以测试报出的新值为准；
+   跑该用例确认。**这一步不能忘** —— 它是"基线被字节级改动"的唯一守门人。
+3. **存储层**（`synapse-storage/src/application_service/`）：`ApplicationService.url` →
+   `Option<String>`；`RegisterApplicationServiceRequest.url` → `Option<String>`；
+   repository 的 SELECT / INSERT / UPDATE 处理 NULL。
+4. **服务层**（`synapse-services/src/application_service/`）：`AppServiceConfigFile.url` →
+   `Option<String>`；`validate_config_file` **接受**显式 `null` / 缺省，仍校验非空 URL 的合法性；
+   `None` 时**不排队**事件与临时数据（**这是 20273 的本体**）；`mod.rs:467` 的 ping 短路。
+5. **web 层**（`synapse-web/src/routes/app_service.rs`）：无 url 时 `/_matrix/app/v1/*` 代理
+   **fail-closed** 失败（没有目标主机）；admin 响应里 `url: null`。
+6. **测试**：注册一个 `url: null` 的 appservice ⇒ 启动成功、不产生排队行、代理失败、
+   admin 返回 null；并做变异自证（把 `None` 当 `Some("")` 用 ⇒ 用例必须红）。
+
+**⚠️ 取证中发现的隐藏语义冲突（必须一并定掉，否则会做出歧义 API）**：
+
+`UpdateApplicationServiceRequest.url` 现在是 `Option<String>`，语义是"**`None` = 不改**"
+（admin PATCH 用）。若同时让 `None` 表示"置为空"，同一个 `None` 就有两种含义。
+**本轮决议**：admin 更新路径**维持** `None = 不改`；**不支持**通过 admin API 把 url 清空
+（需要清空时用重新加载配置文件的方式）。这条差异会写进代码注释，避免"null 既能表示不改、
+又能表示清空"的歧义。
+
+**受影响面（已实测的消费点）**：推送（`application_service/transaction.rs:237`）、
+ping（`application_service/mod.rs:467`）、AS 代理目标
+（`synapse-web/src/routes/app_service.rs:437`）、admin 响应（同文件 `:705`）。
+
+**不需要动的**：路由字面量不变 ⇒ 无需重生成三张派生路由表/契约产物。
 
 ### B4 —— 待核实
 
