@@ -152,7 +152,12 @@ async fn get_account_data(
                 let username: &str = user_id.strip_prefix('@').and_then(|s| s.split(':').next()).unwrap_or("");
                 let mut content =
                     ctx.client_push_service.get_push_rules_content(user_id).await?.unwrap_or_else(|| json!({}));
-                crate::routes::push_rules::merge_default_push_rules(&mut content, user_id, username);
+                crate::routes::push_rules::merge_default_push_rules(
+                    &mut content,
+                    user_id,
+                    username,
+                    ctx.config.experimental.msc4210_enabled,
+                );
                 Ok(Json(content))
             } else if data_type == "m.secret_storage.default_key" {
                 // Compatibility bridge: when the user has any SSSS keys

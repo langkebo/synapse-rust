@@ -212,6 +212,9 @@ impl RoomSyncServices {
                 // `m.push_rules` account-data event.
                 push_storage: Some(Arc::new(synapse_storage::push::PushStorage::new(infra.pool.clone()))
                     as Arc<dyn synapse_storage::push::PushStoreApi>),
+                // MSC4210: hide the legacy mention rules unless the operator
+                // opted back in — must match `GET /pushrules`.
+                msc4210_enabled: infra.config.experimental.msc4210_enabled,
             }));
 
         let typing_service = Arc::new(crate::typing_service::TypingService::new(infra.cache.clone()));

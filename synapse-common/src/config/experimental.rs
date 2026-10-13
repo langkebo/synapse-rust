@@ -43,6 +43,28 @@ pub struct ExperimentalConfig {
     #[serde(default = "default_true")]
     /// `declare_private_extensions` field.
     pub declare_private_extensions: bool,
+
+    /// MSC4210: stop serving the **legacy** mention push rules.
+    ///
+    /// When enabled (the default, matching upstream Synapse and Matrix v1.17),
+    /// these three deprecated rules are hidden from every served rule set:
+    ///
+    /// - `.m.rule.contains_display_name`
+    /// - `.m.rule.contains_user_name`
+    /// - `.m.rule.roomnotif`
+    ///
+    /// The intentional-mention rules (`.m.rule.is_user_mention` and
+    /// `.m.rule.is_room_mention`) are **not** affected — MSC4210 removes
+    /// plaintext-matching rules only.
+    ///
+    /// ⚠️ This is a client-visible behaviour change: clients that rely on the
+    /// server-served legacy rules to turn a display-name or `@room` hit into a
+    /// notification will stop being notified for plaintext mentions. The MSC
+    /// itself calls that out as a known trade-off. Set to `false` to keep the
+    /// pre-v1.17 rule set.
+    #[serde(default = "default_true")]
+    /// `msc4210_enabled` field.
+    pub msc4210_enabled: bool,
 }
 
 fn default_true() -> bool {
@@ -51,7 +73,7 @@ fn default_true() -> bool {
 
 impl Default for ExperimentalConfig {
     fn default() -> Self {
-        Self { msc4452_enabled: false, msc3720_enabled: false, declare_private_extensions: true }
+        Self { msc4452_enabled: false, msc3720_enabled: false, declare_private_extensions: true, msc4210_enabled: true }
     }
 }
 
@@ -65,6 +87,7 @@ mod tests {
         assert!(!cfg.msc4452_enabled, "msc4452 should default to false");
         assert!(!cfg.msc3720_enabled, "msc3720 should default to false");
         assert!(cfg.declare_private_extensions, "declare_private_extensions should default to true");
+        assert!(cfg.msc4210_enabled, "msc4210 should default to true (Matrix v1.17 removed the legacy rules)");
     }
 
     #[test]
@@ -79,25 +102,33 @@ mod tests {
         assert!(!cfg.msc4452_enabled);
         assert!(!cfg.msc3720_enabled);
         assert!(cfg.declare_private_extensions);
+        assert!(cfg.msc4210_enabled);
     }
 
     #[test]
     fn deserialize_explicit_values_override_defaults() {
-        let yaml = "msc4452_enabled: true\nmsc3720_enabled: true\ndeclare_private_extensions: false\n";
+        let yaml =
+            "msc4452_enabled: true\nmsc3720_enabled: true\ndeclare_private_extensions: false\nmsc4210_enabled: false\n";
         let cfg: ExperimentalConfig = serde_yaml::from_str(yaml).expect("explicit YAML should override defaults");
         assert!(cfg.msc4452_enabled);
         assert!(cfg.msc3720_enabled);
         assert!(!cfg.declare_private_extensions);
+        assert!(!cfg.msc4210_enabled, "an explicit false must survive deserialization");
     }
 
     #[test]
     fn clone_preserves_values() {
-        let cfg =
-            ExperimentalConfig { msc4452_enabled: true, msc3720_enabled: false, declare_private_extensions: false };
+        let cfg = ExperimentalConfig {
+            msc4452_enabled: true,
+            msc3720_enabled: false,
+            declare_private_extensions: false,
+            msc4210_enabled: false,
+        };
         let cloned = cfg.clone();
         assert_eq!(cfg.msc4452_enabled, cloned.msc4452_enabled);
         assert_eq!(cfg.msc3720_enabled, cloned.msc3720_enabled);
         assert_eq!(cfg.declare_private_extensions, cloned.declare_private_extensions);
+        assert_eq!(cfg.msc4210_enabled, cloned.msc4210_enabled);
     }
 
     #[test]

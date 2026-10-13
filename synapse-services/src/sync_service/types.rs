@@ -171,6 +171,11 @@ pub struct SyncServiceDeps {
     /// live in the `push_rules` table (not in account data), so the sync service
     /// needs its own handle to derive them. When `None`, the spec defaults are used.
     pub push_storage: Option<Arc<dyn synapse_storage::push::PushStoreApi>>,
+    /// MSC4210: whether the three legacy mention rules are hidden from the
+    /// `m.push_rules` event this service emits. Must mirror
+    /// `experimental.msc4210_enabled` so `/sync`, `GET /pushrules` and
+    /// `GET /user/{userId}/account_data/m.push_rules` agree.
+    pub msc4210_enabled: bool,
 }
 
 /// The `SyncServiceRequest` struct.

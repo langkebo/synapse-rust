@@ -220,14 +220,15 @@ async fn get_push_rules(
     let row: Option<serde_json::Value> = ctx.client_push_service.get_push_rules_content(&auth_user.user_id).await?;
 
     let username: &str = auth_user.user_id.trim_start_matches('@').split(':').next().unwrap_or("");
+    let msc4210_enabled = ctx.config.experimental.msc4210_enabled;
 
     if let Some(content) = row {
         let mut content: Value = content;
-        merge_default_push_rules(&mut content, &auth_user.user_id, username);
+        merge_default_push_rules(&mut content, &auth_user.user_id, username, msc4210_enabled);
         return Ok(Json(content));
     }
 
-    Ok(Json(default_push_rules_for_user(&auth_user.user_id, username)))
+    Ok(Json(default_push_rules_for_user(&auth_user.user_id, username, msc4210_enabled)))
 }
 
 async fn get_push_rules_scope(
@@ -242,7 +243,12 @@ async fn get_push_rules_scope(
         // defaults, so this scope view stays consistent with `GET /pushrules`.
         let mut content: serde_json::Value =
             ctx.client_push_service.get_push_rules_content(&auth_user.user_id).await?.unwrap_or_else(|| json!({}));
-        crate::routes::push_rules::merge_default_push_rules(&mut content, &auth_user.user_id, username);
+        crate::routes::push_rules::merge_default_push_rules(
+            &mut content,
+            &auth_user.user_id,
+            username,
+            ctx.config.experimental.msc4210_enabled,
+        );
 
         if let Some(global) = content.get("global") {
             Ok(Json(global.clone()))

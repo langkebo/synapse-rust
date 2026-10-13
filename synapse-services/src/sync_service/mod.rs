@@ -56,6 +56,8 @@ pub struct SyncService {
     /// Authority for the synced `m.push_rules` account-data event (the `push_rules`
     /// table). `None` in tests ⇒ the spec defaults are emitted.
     pub(crate) push_storage: Option<Arc<dyn synapse_storage::push::PushStoreApi>>,
+    /// MSC4210: hide the three legacy mention rules from the `m.push_rules` event.
+    pub(crate) msc4210_enabled: bool,
 }
 
 /// Maximum number of (user, device, room) entries kept in the in-memory
@@ -95,6 +97,7 @@ impl SyncService {
             event_notifier: deps.event_notifier,
             sticky_event_storage: deps.sticky_event_storage,
             push_storage: deps.push_storage,
+            msc4210_enabled: deps.msc4210_enabled,
         }
     }
 
@@ -138,6 +141,10 @@ impl SyncService {
             // Likewise, `new()` keeps the spec-default push rules; production
             // wiring passes the real `push_rules` table via `from_deps`.
             push_storage: None,
+            // `new()` is test-only, so it mirrors the shipped default
+            // (`experimental.msc4210_enabled = true`): the integration snapshots
+            // must see the same rule set a production deployment serves.
+            msc4210_enabled: true,
         })
     }
 

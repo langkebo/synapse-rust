@@ -12,7 +12,7 @@
 - 本仓**已经对齐**的（无需行动）：MSC4222 双拼写、MSC2965 `auth_metadata`、20321 错误不泄露内部细节、20006 媒体孤儿文件（结构上不适用）。
 - 本仓**确有差距**、建议排期的：
   1. **`/versions` 只宣告到 `v1.14`，上游已到 `v1.16` + `v1.17`**（最直接、最可验证的差距）。
-  2. **MSC4210**：默认推送规则仍带四条"提及类"规则，上游默认已移除。
+  2. **MSC4210**：默认推送规则仍带三条 legacy 提及规则，上游与规格 v1.17 默认已移除。
   3. **MSC4452**：`preview_url` 仍被默认关闭的实验开关门控，上游已**稳定化**为 `m.preview_url` 能力。
   4. **MSC4354 Sticky Events**：本地有实现，但上游这轮有 **4 条修复**（历史可见性豁免覆盖、redact 与 sticky 的交互、到期口径）本地大概率未收口。
   5. **appservice `url: null`**：本地注册模型把 `url` 定为**必填** `String`，上游允许 `null`（bridge 双傀儡注册）⇒ 上游合法的注册文件在本仓会解析失败。
@@ -76,10 +76,10 @@ curl -sSL "https://raw.githubusercontent.com/element-hq/synapse/develop/changelo
 
 | 上游条目 | 本仓现状（实测位置） | 判定 | 行动 |
 | --- | --- | --- | --- |
-| 20333 / 20334 | `/versions` 宣告 `v1.1`…`v1.14`（`synapse-services/src/capability_governance.rs:68-87`） | **差距** | 批次 A |
+| 20333 / 20334 | `/versions` 宣告 `v1.1`…`v1.14`（`synapse-services/src/capability_governance.rs:68-87`） | **差距** | ✅ 批次 A |
 | 20170 | 已支持稳定 + 不稳定双拼写（`synapse-web/src/routes/handlers/sync.rs:237-241`） | 基本对齐 | 仅补测试 |
-| 20081 | 待专项验证 | 待核实 | 批次 A（测试） |
-| 20220 | 默认规则仍含 4 条提及规则（`synapse-common/src/push_rules.rs:21,70,83,94`） | **差距** | 批次 B |
+| 20081 | 已专项验证（`state_events_since_batch_keeps_the_last_local_users_leave`） | **本仓不受影响** | ✅ 批次 A |
+| 20220 | 默认规则仍含 **3 条 legacy** 提及规则（`synapse-common/src/push_rules.rs`） | **差距** | ✅ 批次 B（B1） |
 | 20298 | 已实现但被 `msc4452_enabled` 门控，默认 `false`（`synapse-common/src/config/experimental.rs:17,54`；`synapse-web/src/routes/media/preview.rs:36`） | **差距** | 批次 B |
 | 20295 / 20322 / 20323 / 20324 | 有 MSC4354 实现（`synapse-web/src/routes/room.rs:82-95,169`），4 条修复未见对应收口 | **疑似差距** | 批次 C |
 | 19354 / 19495 | 发送端 `org.matrix.msc4140.delay`（`synapse-web/src/routes/handlers/room/mod.rs:141`）+ 管理端点（`synapse-web/src/routes/delayed_events.rs:97-98`）+ storage + 联邦 EDU | 待核实 | 批次 C |
@@ -106,14 +106,23 @@ curl -sSL "https://raw.githubusercontent.com/element-hq/synapse/develop/changelo
 
 #### 3.2.2 MSC4210 提及规则（20220）
 
-`synapse-common/src/push_rules.rs` 的 `default_push_rules_for_user()` 当前产出：
+> ⚠️ **本节初稿写错了清单**（曾把 4 条"提及类"规则一并列出）。已按 MSC4210 原文与上游实现
+> （`element-hq/synapse` 的 `rust/src/push/mod.rs:635-641`）订正为 **3 条**。
 
-- `.m.rule.contains_user_name`（第 21 行）
-- `.m.rule.is_user_mention`（第 70 行）
-- `.m.rule.contains_display_name`（第 83 行）
-- `.m.rule.is_room_mention`（第 94 行）
+MSC4210 移除的是**纯文本匹配**类的三条规则：
 
-上游 MSC4210 把这四条从**默认**集合移除（改为需要显式配置才下发）。这是一条会直接改变客户端通知行为的语义变更，**不宜静默改默认值**——建议引入 `msc4210_enabled`（默认 `true`，与上游一致），保留回退开关一个发布周期。
+- `.m.rule.contains_display_name`
+- `.m.rule.contains_user_name`
+- `.m.rule.roomnotif`
+
+而 `.m.rule.is_user_mention` / `.m.rule.is_room_mention` 是**有意提及**（`m.mentions`）规则，
+**必须保留** —— 把它们一起删掉会静默破坏 `m.mentions`。
+
+上游在 `msc4210_enabled` 为真时**隐藏**（而非删除）这三条；本仓初稿给出的四条清单与
+"连有意提及一起删"的正确做法之间差之毫厘——**MSC 原文才是判据**。
+
+这是一条会直接改变客户端通知行为的语义变更（MSC 自述"旧客户端将收不到提及通知"）⇒
+引入 `msc4210_enabled` 开关，默认 `true`（对齐上游与规格 v1.17），并保留回退余地。
 
 #### 3.2.3 MSC4452 `preview_url` 稳定化（20298）
 
@@ -141,7 +150,7 @@ curl -sSL "https://raw.githubusercontent.com/element-hq/synapse/develop/changelo
 
 ### 批次 B —— 行为语义对齐（P1）
 
-4. **B1（MSC4210）**：新增配置 `experimental_features.msc4210_enabled`，默认 `true`；为 `true` 时 `default_push_rules_for_user()` 不下发四条提及规则。默认值变更需在 CHANGELOG 与 `docs/` 明写。
+4. **B1（MSC4210）**：新增配置 `experimental_features.msc4210_enabled`，默认 `true`；为 `true` 时不下发 **3 条 legacy** 提及规则（`.m.rule.contains_display_name` / `.m.rule.contains_user_name` / `.m.rule.roomnotif`），**保留** `is_user_mention` / `is_room_mention`。默认值变更需在 CHANGELOG 与 `docs/` 明写。
 5. **B2（MSC4452）**：按 §6 的核实结果决定——稳定能力名 `m.preview_url`，并明确默认开关语义。
 6. **B3（appservice `url: null`）**：`url` 改为 `Option<String>`；`None` 时**跳过**事件/临时数据排队（对齐 20273），并在启动日志标注"该 appservice 不接收推送"。
 7. **B4（20243）**：核实本地 `/requestToken` 是否可枚举账号；若是，加 `request_token_inhibit_3pid_errors`（默认 `true`）。
@@ -251,3 +260,46 @@ bash scripts/quality/preflight.sh
 - **v1.15**：`GET /v1/room_summary/{roomIdOrAlias}`(MSC3266) **未注册**（本仓只有 `/_matrix/client/v1/rooms/{room_id}/summary`）；OAuth2 认证 API(MSC3861) 未实现；`hierarchy` 的 `allowed_room_ids`/`encryption`/`room_version` 未返回。✅ `GET /v1/auth_metadata`(MSC2965) 已实现。
 - **v1.16**：`?format=` on `GET /v3/rooms/{roomId}/state/{eventType}/{stateKey}` **未读取**（handler 无 Query 提取器）；`m.profile_fields` 能力已声明但稳定 `/{keyName}` 路由未注册（既有审计已记录的同一不一致）。✅ MSC4222 已实现（稳定 + 不稳定双拼写）。
 - **v1.17**：MSC4210 默认推送规则集未收口（→ 批次 B）；MSC4326/MSC4312/MSC4190 未实现。
+
+---
+
+## 9. 批次 B 实施记录（B1，2026-10-13）
+
+**状态：B1 已实施；B2 / B3 / B4 待做。**
+
+### 先订正了一处自己的错误
+
+本节所属的 §3.2.2 初稿把 MSC4210 要移除的规则写成 **4 条**（把 `is_user_mention` /
+`is_room_mention` 也算进去了）。按 MSC4210 原文与上游实现
+（`element-hq/synapse` 的 `rust/src/push/mod.rs:635-641`）**正确答案是 3 条**：
+`.m.rule.contains_display_name` / `.m.rule.contains_user_name` / `.m.rule.roomnotif`。
+`is_user_mention` / `is_room_mention` 是**有意提及**规则，**必须保留** —— 按初稿实施会静默
+破坏 `m.mentions`。**教训：清单类结论必须以 MSC 原文/上游实现为准，不能凭规则名望文生义。**
+
+### B1 —— MSC4210 默认隐藏 3 条 legacy 提及规则
+
+| 落点 | 改动 |
+| --- | --- |
+| `synapse-common/src/config/experimental.rs` | 新增 `msc4210_enabled`，`#[serde(default = "default_true")]`，默认 **`true`** |
+| `synapse-common/src/push_rules.rs` | 新增 `MSC4210_LEGACY_MENTION_RULE_IDS` 与 `remove_msc4210_legacy_rules()`；两个公开函数的签名加 `msc4210_enabled` |
+| `synapse-web/src/routes/push_rules.rs` / `push.rs` / `account_data.rs` | 处理器从 `ctx.config.experimental.msc4210_enabled` 取值 |
+| `synapse-services/src/sync_service/{types,mod,data_fetch}.rs` | `SyncServiceDeps` / `SyncService` 新增 `msc4210_enabled` 字段（`/sync` 的 `m.push_rules` 必须与 `GET /pushrules` 一致）；生产装配在 `wiring/rooms.rs` 读配置，测试用 `new()` 固定为 `true`（与出厂默认一致） |
+| `tests/integration/snapshots/…sync_authenticated_initial.snap` | 同步：`content` 变空数组，`override` 去掉 2 条；**`is_user_mention` / `is_room_mention` 保留** |
+
+**语义说明**：是"隐藏"而非"删除"——`merge_default_push_rules` 对 `default: true` 但已不在
+canonical 集合里的规则会从合并结果中丢弃，用户自定义（非 `default`）规则不受影响。
+
+**⚠️ 客户端可见的行为变更**：旧客户端若依赖服务端下发的 legacy 规则把"显示名命中 / `@room`"
+转成通知，将不再收到该类通知（MSC4210 自述的已知取舍）。需要回退时把
+`experimental.msc4210_enabled` 设为 `false` 即可，无需改代码。
+
+### 验证
+
+| 命令 | 结果 |
+| --- | --- |
+| `cargo check -p synapse-common -p synapse-services -p synapse-web --all-targets --features test-utils` | exit 0 |
+| `payload` 级校验：快照 JSON 可解析，规则总数 16，含 0 条 legacy、2 条有意提及规则 | OK |
+| 新增单测：`msc4210_legacy_id_list_matches_the_msc` / `msc4210_hides_exactly_the_three_legacy_mention_rules` / `msc4210_merge_drops_stored_legacy_rules_but_keeps_custom_ones` / `remove_msc4210_legacy_rules_tolerates_a_malformed_document` | 见提交说明 |
+
+未跑：`tests/integration` 的 `/sync` 快照用例（需 DB，重型批次）——快照已按确定性差异手工同步，
+并做了 JSON 级校验。

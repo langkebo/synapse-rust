@@ -399,10 +399,17 @@ impl SyncService {
         };
         let content = match derived {
             Some(mut content) => {
-                crate::sync_service::push_rules::merge_default_push_rules(&mut content, user_id, username);
+                crate::sync_service::push_rules::merge_default_push_rules(
+                    &mut content,
+                    user_id,
+                    username,
+                    self.msc4210_enabled,
+                );
                 content
             }
-            None => crate::sync_service::push_rules::default_push_rules_for_user(user_id, username),
+            None => {
+                crate::sync_service::push_rules::default_push_rules_for_user(user_id, username, self.msc4210_enabled)
+            }
         };
         if let Some(existing) = events.iter_mut().find(|e| e["type"] == "m.push_rules") {
             existing["content"] = content;
@@ -879,6 +886,7 @@ mod tests {
             event_notifier: None,
             sticky_event_storage: None,
             push_storage: None,
+            msc4210_enabled: true,
         })
     }
 
@@ -1097,6 +1105,7 @@ mod tests {
             event_notifier: None,
             sticky_event_storage: None,
             push_storage: None,
+            msc4210_enabled: true,
         })
     }
 
@@ -1179,6 +1188,7 @@ mod tests {
             event_notifier: None,
             sticky_event_storage: None,
             push_storage: None,
+            msc4210_enabled: true,
         })
     }
 

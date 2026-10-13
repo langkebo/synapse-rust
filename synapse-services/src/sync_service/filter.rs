@@ -1261,6 +1261,7 @@ mod tests {
             event_notifier: None,
             sticky_event_storage: None,
             push_storage: None,
+            msc4210_enabled: true,
         })
     }
 

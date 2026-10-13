@@ -1,20 +1,29 @@
 //! Default push-rule computation (pure logic, no HTTP or storage deps).
 //!
-//! This module is the single source of truth for the Matrix v1.11 default
-//! push-rule set and the merge logic that reconciles a persisted user's
-//! rule set with the spec defaults. Both the HTTP layer (`web/routes/push_rules`)
-//! and the sync service (`synapse-services/src/sync_service/push_rules`)
-//! consume these functions; do not duplicate the JSON definitions elsewhere.
+//! This module is the single source of truth for the default push-rule set and
+//! the merge logic that reconciles a persisted user's rule set with the spec
+//! defaults. Both the HTTP layer (`web/routes/push_rules`) and the sync service
+//! (`synapse-services/src/sync_service/push_rules`) consume these functions; do
+//! not duplicate the JSON definitions elsewhere.
+//!
+//! Since Matrix v1.17 the default set is the v1.11 set **minus** the three
+//! legacy mention rules that MSC4210 removed; that removal is gated by
+//! `experimental.msc4210_enabled` (default `true`) so an operator can opt back
+//! in for clients that still depend on plaintext mentions.
 //!
 //! Extracted from the web layer's HTTP handler module so that the sync service
 //! can compute default rules without depending on the web layer.
 
 use serde_json::{json, Value};
 
-/// Returns the Matrix v1.11 default push-rule set, parameterised with this
-/// user's localpart so `.m.rule.contains_user_name` matches their own MXID.
-pub fn default_push_rules_for_user(user_id: &str, username: &str) -> Value {
-    json!({
+/// Returns the default push-rule set, parameterised with this user's localpart
+/// so `.m.rule.contains_user_name` matches their own MXID.
+///
+/// `msc4210_enabled` (the shipped default) hides the three **legacy** mention
+/// rules that Matrix v1.17 removed — see [`MSC4210_LEGACY_MENTION_RULE_IDS`].
+/// The intentional-mention rules are unaffected.
+pub fn default_push_rules_for_user(user_id: &str, username: &str, msc4210_enabled: bool) -> Value {
+    let mut rules = json!({
         "global": {
             "content": [
                 {
@@ -215,7 +224,45 @@ pub fn default_push_rules_for_user(user_id: &str, username: &str) -> Value {
                 }
             ]
         }
-    })
+    });
+
+    if msc4210_enabled {
+        remove_msc4210_legacy_rules(&mut rules);
+    }
+
+    rules
+}
+
+/// The three **legacy** mention push rules that Matrix v1.17 (MSC4210) removed
+/// from the specification.
+///
+/// They are *hidden*, not deleted from storage: a user who had customised one
+/// of them keeps the row, it simply stops being served. `.m.rule.is_user_mention`
+/// and `.m.rule.is_room_mention` are **intentional**-mention rules and MUST keep
+/// being served — conflating the two would silently break `m.mentions`.
+pub const MSC4210_LEGACY_MENTION_RULE_IDS: &[&str] =
+    &[".m.rule.contains_display_name", ".m.rule.contains_user_name", ".m.rule.roomnotif"];
+
+/// Drop the [`MSC4210_LEGACY_MENTION_RULE_IDS`] from every rule kind of a
+/// `/pushrules`-shaped document.
+///
+/// `roomnotif` lives in `override` and `contains_user_name` in `content`, so all
+/// three kinds are scanned. Tolerates a missing or malformed `global` object so
+/// it is safe to call on a document that came straight from the database.
+pub fn remove_msc4210_legacy_rules(rules: &mut Value) {
+    let Some(global) = rules.get_mut("global").and_then(|g| g.as_object_mut()) else {
+        return;
+    };
+    for kind in ["content", "override", "underride"] {
+        let Some(list) = global.get_mut(kind).and_then(|v| v.as_array_mut()) else {
+            continue;
+        };
+        list.retain(|rule| {
+            rule.get("rule_id")
+                .and_then(Value::as_str)
+                .is_none_or(|rule_id| !MSC4210_LEGACY_MENTION_RULE_IDS.contains(&rule_id))
+        });
+    }
 }
 
 /// Merge any spec-default rules that the persisted user rule set is missing,
@@ -227,8 +274,13 @@ pub fn default_push_rules_for_user(user_id: &str, username: &str) -> Value {
 /// default rules. For default rules already present in the stored set, the
 /// stored `enabled` / `actions` values are preserved so the user's tweaks
 /// survive the merge.
-pub fn merge_default_push_rules(content: &mut Value, user_id: &str, username: &str) {
-    let defaults = default_push_rules_for_user(user_id, username);
+///
+/// A `default: true` row whose id is no longer in the canonical set (i.e. the
+/// MSC4210 legacy mention rules when `msc4210_enabled`) is therefore dropped
+/// from the merged output — the rule stops being served without the stored row
+/// being deleted.
+pub fn merge_default_push_rules(content: &mut Value, user_id: &str, username: &str, msc4210_enabled: bool) {
+    let defaults = default_push_rules_for_user(user_id, username, msc4210_enabled);
     let Some(default_global) = defaults.get("global").and_then(|g| g.as_object()) else {
         return;
     };
@@ -292,7 +344,7 @@ mod tests {
 
     #[test]
     fn default_rules_have_required_top_level_keys() {
-        let rules = default_push_rules_for_user("@alice:example.com", "alice");
+        let rules = default_push_rules_for_user("@alice:example.com", "alice", true);
         let global = rules.get("global").unwrap();
         for k in ["content", "override", "room", "sender", "underride"] {
             assert!(global.get(k).is_some(), "missing {k}");
@@ -301,7 +353,7 @@ mod tests {
 
     #[test]
     fn default_rules_include_required_override_ids() {
-        let rules = default_push_rules_for_user("@alice:example.com", "alice");
+        let rules = default_push_rules_for_user("@alice:example.com", "alice", true);
         let override_rules = rules["global"]["override"].as_array().unwrap();
         let ids: Vec<&str> = override_rules.iter().filter_map(|r| r["rule_id"].as_str()).collect();
         for required in [
@@ -323,7 +375,7 @@ mod tests {
 
     #[test]
     fn default_rules_include_msc_prefixed_underride_ids() {
-        let rules = default_push_rules_for_user("@alice:example.com", "alice");
+        let rules = default_push_rules_for_user("@alice:example.com", "alice", true);
         let underride_rules = rules["global"]["underride"].as_array().unwrap();
         let ids: Vec<&str> = underride_rules.iter().filter_map(|r| r["rule_id"].as_str()).collect();
         assert!(ids.contains(&".org.matrix.msc3914.rule.room.call"), "missing MSC3914 call rule in underride");
@@ -346,7 +398,7 @@ mod tests {
                 ]
             }
         });
-        merge_default_push_rules(&mut content, "@alice:example.com", "alice");
+        merge_default_push_rules(&mut content, "@alice:example.com", "alice", true);
         let underrides = content["global"]["underride"].as_array().unwrap();
         let call_rule = underrides.iter().find(|r| r["rule_id"] == ".org.matrix.msc3914.rule.room.call").unwrap();
         // User's enabled=false should survive the ID migration.
@@ -362,11 +414,98 @@ mod tests {
                 ]
             }
         });
-        merge_default_push_rules(&mut content, "@alice:example.com", "alice");
+        merge_default_push_rules(&mut content, "@alice:example.com", "alice", true);
         let overrides = content["global"]["override"].as_array().unwrap();
         let master = overrides.iter().find(|r| r["rule_id"] == ".m.rule.master").unwrap();
         assert_eq!(master["enabled"], true, "user-customised value preserved");
         let ids: Vec<&str> = overrides.iter().filter_map(|r| r["rule_id"].as_str()).collect();
         assert!(ids.contains(&".m.rule.suppress_edits"));
+    }
+
+    // -----------------------------------------------------------------------
+    // MSC4210 —— 旧版提及规则的移除（Matrix v1.17）
+    // -----------------------------------------------------------------------
+
+    /// Collect every `rule_id` in a `/pushrules`-shaped document, across all
+    /// three global kinds.
+    fn all_rule_ids(rules: &Value) -> Vec<String> {
+        let mut ids = Vec::new();
+        for kind in ["content", "override", "underride"] {
+            if let Some(list) = rules["global"][kind].as_array() {
+                ids.extend(list.iter().filter_map(|rule| rule["rule_id"].as_str().map(str::to_string)));
+            }
+        }
+        ids
+    }
+
+    /// MSC4210 原文只移除这三条 —— 把 `is_user_mention` / `is_room_mention`
+    /// 混进来会破坏有意提及，所以清单本身也要被钉住。
+    #[test]
+    fn msc4210_legacy_id_list_matches_the_msc() {
+        let mut sorted = MSC4210_LEGACY_MENTION_RULE_IDS.to_vec();
+        sorted.sort_unstable();
+        assert_eq!(sorted, vec![".m.rule.contains_display_name", ".m.rule.contains_user_name", ".m.rule.roomnotif"]);
+    }
+
+    #[test]
+    fn msc4210_hides_exactly_the_three_legacy_mention_rules() {
+        let hidden_ids = all_rule_ids(&default_push_rules_for_user("@alice:example.com", "alice", true));
+        for legacy in MSC4210_LEGACY_MENTION_RULE_IDS {
+            assert!(!hidden_ids.iter().any(|id| id == legacy), "{legacy} 必须停止下发：{hidden_ids:?}");
+        }
+        // 有意提及规则必须**保留**：连它们一起删会静默破坏 `m.mentions`。
+        for intentional in [".m.rule.is_user_mention", ".m.rule.is_room_mention"] {
+            assert!(hidden_ids.iter().any(|id| id == intentional), "{intentional} 必须保留：{hidden_ids:?}");
+        }
+
+        let kept_ids = all_rule_ids(&default_push_rules_for_user("@alice:example.com", "alice", false));
+        for legacy in MSC4210_LEGACY_MENTION_RULE_IDS {
+            assert!(kept_ids.iter().any(|id| id == legacy), "opt-out 时必须保留 {legacy}");
+        }
+    }
+
+    #[test]
+    fn msc4210_merge_drops_stored_legacy_rules_but_keeps_custom_ones() {
+        let stored = json!({
+            "global": {
+                "content": [
+                    {"rule_id": ".m.rule.contains_user_name", "default": true, "enabled": true,
+                     "pattern": "alice", "actions": []}
+                ],
+                "override": [
+                    {"rule_id": ".m.rule.contains_display_name", "default": true, "enabled": true,
+                     "conditions": [], "actions": []},
+                    {"rule_id": ".m.rule.roomnotif", "default": true, "enabled": true,
+                     "conditions": [], "actions": []},
+                    {"rule_id": "com.example.custom", "enabled": true, "conditions": [], "actions": []}
+                ]
+            }
+        });
+
+        let mut on = stored.clone();
+        merge_default_push_rules(&mut on, "@alice:example.com", "alice", true);
+        let on_ids = all_rule_ids(&on);
+        for legacy in MSC4210_LEGACY_MENTION_RULE_IDS {
+            assert!(!on_ids.iter().any(|id| id == legacy), "已持久化的 `default: true` 旧规则也应停止下发：{on_ids:?}");
+        }
+        assert!(on_ids.iter().any(|id| id == "com.example.custom"), "用户自定义规则不能被连带丢掉：{on_ids:?}");
+
+        let mut off = stored.clone();
+        merge_default_push_rules(&mut off, "@alice:example.com", "alice", false);
+        let off_ids = all_rule_ids(&off);
+        for legacy in MSC4210_LEGACY_MENTION_RULE_IDS {
+            assert!(off_ids.iter().any(|id| id == legacy), "opt-out 时必须保留 {legacy}");
+        }
+    }
+
+    #[test]
+    fn remove_msc4210_legacy_rules_tolerates_a_malformed_document() {
+        let mut empty = json!({});
+        remove_msc4210_legacy_rules(&mut empty);
+        assert_eq!(empty, json!({}), "空文档不应被改写");
+
+        let mut no_global = json!({"foo": 1});
+        remove_msc4210_legacy_rules(&mut no_global);
+        assert_eq!(no_global, json!({"foo": 1}), "缺 global 不应 panic 也不应改写");
     }
 }

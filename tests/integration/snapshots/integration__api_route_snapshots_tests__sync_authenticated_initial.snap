@@ -8,24 +8,7 @@ expression: body
       {
         "content": {
           "global": {
-            "content": [
-              {
-                "actions": [
-                  "notify",
-                  {
-                    "set_tweak": "highlight"
-                  },
-                  {
-                    "set_tweak": "sound",
-                    "value": "default"
-                  }
-                ],
-                "default": true,
-                "enabled": true,
-                "pattern": "redacted_sync_user",
-                "rule_id": ".m.rule.contains_user_name"
-              }
-            ],
+            "content": [],
             "override": [
               {
                 "actions": [],
@@ -120,26 +103,6 @@ expression: body
                   "notify",
                   {
                     "set_tweak": "highlight"
-                  },
-                  {
-                    "set_tweak": "sound",
-                    "value": "default"
-                  }
-                ],
-                "conditions": [
-                  {
-                    "kind": "contains_display_name"
-                  }
-                ],
-                "default": true,
-                "enabled": true,
-                "rule_id": ".m.rule.contains_display_name"
-              },
-              {
-                "actions": [
-                  "notify",
-                  {
-                    "set_tweak": "highlight"
                   }
                 ],
                 "conditions": [
@@ -156,28 +119,6 @@ expression: body
                 "default": true,
                 "enabled": true,
                 "rule_id": ".m.rule.is_room_mention"
-              },
-              {
-                "actions": [
-                  "notify",
-                  {
-                    "set_tweak": "highlight"
-                  }
-                ],
-                "conditions": [
-                  {
-                    "key": "content.body",
-                    "kind": "event_match",
-                    "pattern": "@room"
-                  },
-                  {
-                    "key": "room",
-                    "kind": "sender_notification_permission"
-                  }
-                ],
-                "default": true,
-                "enabled": true,
-                "rule_id": ".m.rule.roomnotif"
               },
               {
                 "actions": [

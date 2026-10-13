@@ -18,16 +18,17 @@ pub async fn get_push_rules_default(
     State(ctx): State<SyncContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
+    let msc4210_enabled = ctx.config.experimental.msc4210_enabled;
     let row: Option<Value> = ctx.client_push_service.get_push_rules_content(&auth_user.user_id).await?;
 
     let username: &str = auth_user.user_id.trim_start_matches('@').split(':').next().unwrap_or("");
 
     if let Some(mut content) = row {
-        merge_default_push_rules(&mut content, &auth_user.user_id, username);
+        merge_default_push_rules(&mut content, &auth_user.user_id, username, msc4210_enabled);
         return Ok(Json(content));
     }
 
-    Ok(Json(default_push_rules_for_user(&auth_user.user_id, username)))
+    Ok(Json(default_push_rules_for_user(&auth_user.user_id, username, msc4210_enabled)))
 }
 
 /// See [`get_push_rules_global_default`].
@@ -37,11 +38,12 @@ pub async fn get_push_rules_global_default(
 ) -> Result<Json<Value>, ApiError> {
     let username: String = auth_user.user_id.trim_start_matches('@').split(':').next().unwrap_or("").to_string();
     let user_id: String = auth_user.user_id.clone();
+    let msc4210_enabled = ctx.config.experimental.msc4210_enabled;
     let rules: Json<Value> = get_push_rules_default(State(ctx), auth_user).await?;
     if let Some(global) = rules.0.get("global") {
         Ok(Json(global.clone()))
     } else {
-        Ok(Json(default_push_rules_for_user(&user_id, &username)["global"].clone()))
+        Ok(Json(default_push_rules_for_user(&user_id, &username, msc4210_enabled)["global"].clone()))
     }
 }
 
@@ -51,7 +53,7 @@ mod tests {
 
     #[test]
     fn default_rules_have_required_top_level_keys() {
-        let rules = default_push_rules_for_user("@alice:example.com", "alice");
+        let rules = default_push_rules_for_user("@alice:example.com", "alice", true);
         let global = rules.get("global").unwrap();
         for k in ["content", "override", "room", "sender", "underride"] {
             assert!(global.get(k).is_some(), "missing {k}");
@@ -60,7 +62,7 @@ mod tests {
 
     #[test]
     fn default_rules_include_required_override_ids() {
-        let rules = default_push_rules_for_user("@alice:example.com", "alice");
+        let rules = default_push_rules_for_user("@alice:example.com", "alice", true);
         let override_rules = rules["global"]["override"].as_array().unwrap();
         let ids: Vec<&str> = override_rules.iter().filter_map(|r| r["rule_id"].as_str()).collect();
         for required in [
@@ -82,7 +84,7 @@ mod tests {
 
     #[test]
     fn default_rules_include_msc_prefixed_underride_ids() {
-        let rules = default_push_rules_for_user("@alice:example.com", "alice");
+        let rules = default_push_rules_for_user("@alice:example.com", "alice", true);
         let underride_rules = rules["global"]["underride"].as_array().unwrap();
         let ids: Vec<&str> = underride_rules.iter().filter_map(|r| r["rule_id"].as_str()).collect();
         assert!(ids.contains(&".org.matrix.msc3914.rule.room.call"), "missing MSC3914 call rule in underride");
@@ -105,7 +107,7 @@ mod tests {
                 ]
             }
         });
-        merge_default_push_rules(&mut content, "@alice:example.com", "alice");
+        merge_default_push_rules(&mut content, "@alice:example.com", "alice", true);
         let underrides = content["global"]["underride"].as_array().unwrap();
         let call_rule = underrides.iter().find(|r| r["rule_id"] == ".org.matrix.msc3914.rule.room.call").unwrap();
         // User's enabled=false should survive the ID migration.
@@ -121,7 +123,7 @@ mod tests {
                 ]
             }
         });
-        merge_default_push_rules(&mut content, "@alice:example.com", "alice");
+        merge_default_push_rules(&mut content, "@alice:example.com", "alice", true);
         let overrides = content["global"]["override"].as_array().unwrap();
         let master = overrides.iter().find(|r| r["rule_id"] == ".m.rule.master").unwrap();
         assert_eq!(master["enabled"], true, "user-customised value preserved");
