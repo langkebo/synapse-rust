@@ -159,7 +159,7 @@ mod tests {
             storage
                 .register(RegisterApplicationServiceRequest {
                     as_id: as_id.clone(),
-                    url: format!("http://127.0.0.1:18{:03}", idx),
+                    url: Some(format!("http://127.0.0.1:18{:03}", idx)),
                     as_token: format!("as_token_{as_id}"),
                     hs_token: format!("hs_token_{as_id}"),
                     sender: format!("@perf_{}:localhost", idx),
@@ -351,7 +351,7 @@ mod tests {
             manager
                 .register(RegisterApplicationServiceRequest {
                     as_id: as_id.clone(),
-                    url: mock_server.uri(),
+                    url: Some(mock_server.uri()),
                     as_token: format!("as_token_{as_id}"),
                     hs_token: format!("hs_token_{as_id}"),
                     sender: format!("@txn_{idx}:localhost"),
@@ -390,7 +390,7 @@ mod tests {
             manager
                 .register(RegisterApplicationServiceRequest {
                     as_id: as_id.clone(),
-                    url: mock_server.uri(),
+                    url: Some(mock_server.uri()),
                     as_token: format!("as_token_{as_id}"),
                     hs_token: format!("hs_token_{as_id}"),
                     sender: format!("@event_{idx}:localhost"),

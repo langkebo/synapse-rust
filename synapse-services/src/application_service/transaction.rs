@@ -234,7 +234,16 @@ impl ApplicationServiceManager {
         events: &[serde_json::Value],
         edus: Option<AppServiceEphemeralBatch>,
     ) -> Result<(), ApiError> {
-        let url = format!("{}/transactions/{}", service.url, transaction_id);
+        // Upstream 20273: `url: null` means "no push endpoint" (double-puppeting
+        // bridges). Nothing is queued for such a service, so this should be
+        // unreachable — but if it is reached, drop the delivery instead of
+        // building a URL out of a non-existent host.
+        let Some(base_url) = service.url.as_deref() else {
+            warn!(as_id = %service.as_id, transaction_id, "Application service has no url; dropping transaction");
+            return Ok(());
+        };
+
+        let url = format!("{}/transactions/{}", base_url, transaction_id);
 
         // Only include EDUs when the service has opted in AND the batch is non-empty.
         let effective_edus: Option<&AppServiceEphemeralBatch> = match &edus {
@@ -816,7 +825,7 @@ mod tests {
         ApplicationService {
             id: 1,
             as_id: "test-as".to_string(),
-            url: "http://localhost:8080".to_string(),
+            url: Some("http://localhost:8080".to_string()),
             as_token: "token".to_string(),
             hs_token: "hs_token".to_string(),
             sender_localpart: "testbot".to_string(),

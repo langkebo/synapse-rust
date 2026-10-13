@@ -1447,7 +1447,7 @@ mod tests {
         manager
             .register(RegisterApplicationServiceRequest {
                 as_id: failing_as_id.clone(),
-                url: failing_server.uri(),
+                url: Some(failing_server.uri()),
                 as_token: format!("as_token_{failing_as_id}"),
                 hs_token: format!("hs_token_{failing_as_id}"),
                 sender: "@bridge:localhost".to_string(),
@@ -1468,7 +1468,7 @@ mod tests {
         manager
             .register(RegisterApplicationServiceRequest {
                 as_id: healthy_txn_as_id.clone(),
-                url: healthy_txn_server.uri(),
+                url: Some(healthy_txn_server.uri()),
                 as_token: format!("as_token_{healthy_txn_as_id}"),
                 hs_token: format!("hs_token_{healthy_txn_as_id}"),
                 sender: "@bridge:localhost".to_string(),
@@ -1489,7 +1489,7 @@ mod tests {
         manager
             .register(RegisterApplicationServiceRequest {
                 as_id: healthy_event_as_id.clone(),
-                url: healthy_event_server.uri(),
+                url: Some(healthy_event_server.uri()),
                 as_token: format!("as_token_{healthy_event_as_id}"),
                 hs_token: format!("hs_token_{healthy_event_as_id}"),
                 sender: "@bridge:localhost".to_string(),

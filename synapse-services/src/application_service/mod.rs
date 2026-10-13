@@ -273,6 +273,15 @@ impl ApplicationServiceManager {
         let mut enqueued = 0_usize;
 
         for service in services {
+            // Upstream 20273: an appservice registered with `url: null` has no
+            // endpoint to push to, so queueing for it is pure waste — and when
+            // no *other* service matched, the old code made the server walk its
+            // entire event history for nothing. Checked before the regex-heavy
+            // `service_matches_event`.
+            if service.url.is_none() {
+                continue;
+            }
+
             if !self.service_matches_event(&service, room_id, sender, state_key) {
                 continue;
             }
@@ -464,7 +473,15 @@ impl ApplicationServiceManager {
             .map_err(|e| ApiError::internal_with_cause("Failed to get service", e))?
             .ok_or_else(|| ApiError::not_found("Application service not found"))?;
 
-        let url = format!("{}/_matrix/app/v1/ping", service.url);
+        // Upstream 20273: an appservice registered with `url: null` has no push
+        // endpoint, so there is nothing to ping. Fail soft ("not alive") instead
+        // of inventing a target host.
+        let Some(base_url) = service.url.as_deref() else {
+            warn!(as_id, "Application service has no url; skipping ping");
+            return Ok(false);
+        };
+
+        let url = format!("{}/_matrix/app/v1/ping", base_url);
 
         let response = self
             .http_client

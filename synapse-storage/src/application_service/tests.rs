@@ -36,7 +36,7 @@ fn test_namespaces_serialization() {
 fn test_register_application_service_request() {
     let request = RegisterApplicationServiceRequest {
         as_id: "irc-bridge".to_string(),
-        url: "http://localhost:9999".to_string(),
+        url: Some("http://localhost:9999".to_string()),
         as_token: "secret_token".to_string(),
         hs_token: "hs_secret".to_string(),
         sender: "@irc-bot:example.com".to_string(),

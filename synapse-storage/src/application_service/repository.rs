@@ -43,7 +43,7 @@ impl ApplicationServiceStorage {
                 created_ts, updated_ts, description, api_key, config
             "#,
             &request.as_id,
-            &request.url,
+            request.url.as_deref(),
             &request.as_token,
             &request.hs_token,
             &request.sender,
@@ -104,7 +104,7 @@ impl ApplicationServiceStorage {
                 created_ts, updated_ts, description, api_key, config
             "#,
             &request.as_id,
-            &request.url,
+            request.url.as_deref(),
             &request.as_token,
             &request.hs_token,
             &request.sender,

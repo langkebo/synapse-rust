@@ -9,7 +9,12 @@ pub struct ApplicationService {
     /// The `as_id` field.
     pub as_id: String,
     /// The `url` field.
-    pub url: String,
+    ///
+    /// `None` means this appservice has **no push endpoint** — the `url: null`
+    /// registration used by double-puppeting bridges (upstream 20273). The
+    /// server must not queue events/ephemeral data for it, and it cannot be
+    /// reached through the `/_matrix/app/v1/*` proxy.
+    pub url: Option<String>,
     #[serde(skip_serializing)]
     /// The `as_token` field.
     pub as_token: String,
@@ -139,8 +144,10 @@ pub struct ApplicationServiceUser {
 pub struct RegisterApplicationServiceRequest {
     /// The `as_id` field.
     pub as_id: String,
-    /// The `url` field.
-    pub url: String,
+    /// The `url` field. `None` registers an appservice with **no push
+    /// endpoint** (upstream 20273); such a registration still authenticates
+    /// with its tokens but receives nothing from the server.
+    pub url: Option<String>,
     /// The `as_token` field.
     pub as_token: String,
     /// The `hs_token` field.

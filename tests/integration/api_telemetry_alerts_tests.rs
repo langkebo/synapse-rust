@@ -50,7 +50,7 @@ async fn test_telemetry_metrics_alerts_and_ack() {
         .app_service_manager
         .register(RegisterApplicationServiceRequest {
             as_id: as_id.clone(),
-            url: "http://localhost:8080".to_string(),
+            url: Some("http://localhost:8080".to_string()),
             as_token: format!("test_as_token_{}", rand::random::<u32>()),
             hs_token: format!("test_hs_token_{}", rand::random::<u32>()),
             sender: "@telemetry_scheduler_bot:localhost".to_string(),
@@ -204,7 +204,7 @@ async fn test_telemetry_metrics_reflect_real_scheduler_recovery_flow() {
         .modules.app_service_manager
         .register(RegisterApplicationServiceRequest {
             as_id: failing_as_id.clone(),
-            url: failing_server.uri(),
+            url: Some(failing_server.uri()),
             as_token: format!("as_token_{failing_as_id}"),
             hs_token: format!("hs_token_{failing_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -229,7 +229,7 @@ async fn test_telemetry_metrics_reflect_real_scheduler_recovery_flow() {
         .app_service_manager
         .register(RegisterApplicationServiceRequest {
             as_id: healthy_txn_as_id.clone(),
-            url: healthy_txn_server.uri(),
+            url: Some(healthy_txn_server.uri()),
             as_token: format!("as_token_{healthy_txn_as_id}"),
             hs_token: format!("hs_token_{healthy_txn_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -253,7 +253,7 @@ async fn test_telemetry_metrics_reflect_real_scheduler_recovery_flow() {
         .modules.app_service_manager
         .register(RegisterApplicationServiceRequest {
             as_id: healthy_event_as_id.clone(),
-            url: healthy_event_server.uri(),
+            url: Some(healthy_event_server.uri()),
             as_token: format!("as_token_{healthy_event_as_id}"),
             hs_token: format!("hs_token_{healthy_event_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -440,7 +440,7 @@ async fn test_telemetry_metrics_preserve_explainable_mixed_contention_counts() {
             .app_service_manager
             .register(RegisterApplicationServiceRequest {
                 as_id: as_id.clone(),
-                url,
+                url: Some(url),
                 as_token: format!("as_token_{as_id}"),
                 hs_token: format!("hs_token_{as_id}"),
                 sender: "@bridge:localhost".to_string(),

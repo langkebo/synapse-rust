@@ -25,8 +25,10 @@ use synapse_services::application_service::{
 pub struct RegisterAppServiceBody {
     /// The `id` field.
     pub id: String,
-    /// The `url` field.
-    pub url: String,
+    /// The `url` field. Optional: `null` registers an appservice with **no push
+    /// endpoint** (upstream 20273) — it authenticates with its tokens but
+    /// receives nothing and cannot be proxied to.
+    pub url: Option<String>,
     /// The `as_token` field.
     pub as_token: String,
     /// The `hs_token` field.
@@ -176,8 +178,9 @@ pub struct AppServiceResponse {
     pub id: i64,
     /// The `as_id` field.
     pub as_id: String,
-    /// The `url` field.
-    pub url: String,
+    /// The `url` field. `null` for an appservice registered without a push
+    /// endpoint (upstream 20273) — reported as JSON `null`, not `""`.
+    pub url: Option<String>,
     /// The `sender` field.
     pub sender: String,
     /// The `description` field.
@@ -433,8 +436,15 @@ pub async fn proxy_to_as(
         return Err(ApiError::unauthorized("Invalid HS token"));
     }
 
-    // Construct target URL
-    let target_url = format!("{}/_matrix/app/v1/{}", service.url.trim_end_matches('/'), path);
+    // Construct target URL. An appservice registered with `url: null`
+    // (upstream 20273) has no endpoint at all, so there is nothing to forward
+    // to — fail closed rather than building a URL out of thin air.
+    let Some(base_url) = service.url.as_deref() else {
+        return Err(ApiError::service_unavailable(
+            "Application service is registered with `url: null` and has no endpoint to proxy to",
+        ));
+    };
+    let target_url = format!("{}/_matrix/app/v1/{}", base_url.trim_end_matches('/'), path);
 
     // Forward the request through the process-wide pooled client (audit F-1):
     // a fresh `reqwest::Client` per request would drop connection reuse and the
@@ -771,11 +781,37 @@ async fn get_user_appservice(
 mod tests {
     use super::*;
 
+    /// B3 / 上游 20273：无推送端点的 appservice 在 admin 响应里必须是 JSON `null`，
+    /// 不能折成空串 —— 客户端要靠 `null` 才能区分"没有 url"与"url 是空串"。
+    #[test]
+    fn app_service_response_reports_a_missing_url_as_json_null() {
+        let service = synapse_services::application_service::ApplicationService {
+            id: 7,
+            as_id: "nullurl-bridge".to_string(),
+            url: None,
+            as_token: "as-token".to_string(),
+            hs_token: "hs-token".to_string(),
+            sender_localpart: "@nullurlbot:example.com".to_string(),
+            is_enabled: true,
+            is_rate_limited: false,
+            protocols: vec![],
+            namespaces: serde_json::json!({}),
+            created_ts: 0,
+            updated_ts: None,
+            description: None,
+            api_key: None,
+            config: serde_json::json!({}),
+        };
+
+        let body = serde_json::to_value(AppServiceResponse::from(service)).expect("serialize response");
+        assert!(body["url"].is_null(), "`url: None` 必须序列化成 JSON null，实际：{body}");
+    }
+
     #[test]
     fn test_register_app_service_body_into_request_uses_sender_fallback() {
         let body = RegisterAppServiceBody {
             id: "as-1".to_string(),
-            url: "https://example.com".to_string(),
+            url: Some("https://example.com".to_string()),
             as_token: "as-token".to_string(),
             hs_token: "hs-token".to_string(),
             sender: None,
@@ -797,7 +833,7 @@ mod tests {
     fn test_register_app_service_body_into_request_requires_sender() {
         let body = RegisterAppServiceBody {
             id: "as-1".to_string(),
-            url: "https://example.com".to_string(),
+            url: Some("https://example.com".to_string()),
             as_token: "as-token".to_string(),
             hs_token: "hs-token".to_string(),
             sender: None,

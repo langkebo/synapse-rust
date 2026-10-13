@@ -144,7 +144,7 @@ async fn register_test_appservice(pool: &Arc<sqlx::PgPool>, as_id: &str) -> Arc<
         pool,
         RegisterApplicationServiceRequest {
             as_id: as_id.to_string(),
-            url: "http://localhost:9999".to_string(),
+            url: Some("http://localhost:9999".to_string()),
             as_token: format!("as_token_{as_id}"),
             hs_token: format!("hs_token_{as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -862,7 +862,7 @@ async fn test_appservice_successful_delivery_completes_transaction_and_marks_eve
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: as_id.clone(),
-            url: mock_server.uri(),
+            url: Some(mock_server.uri()),
             as_token: format!("as_token_{as_id}"),
             hs_token: format!("hs_token_{as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -955,7 +955,7 @@ async fn test_bridge_e2e_send_message_delivers_real_room_event_payload() {
         &pool,
         RegisterApplicationServiceRequest {
             as_id: bridge_as_id.clone(),
-            url: mock_server.uri(),
+            url: Some(mock_server.uri()),
             as_token: format!("as_token_{bridge_as_id}"),
             hs_token: format!("hs_token_{bridge_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -1077,7 +1077,7 @@ async fn test_bridge_e2e_membership_events_deliver_real_room_member_payloads() {
         &pool,
         RegisterApplicationServiceRequest {
             as_id: bridge_as_id.clone(),
-            url: mock_server.uri(),
+            url: Some(mock_server.uri()),
             as_token: format!("as_token_{bridge_as_id}"),
             hs_token: format!("hs_token_{bridge_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -1156,7 +1156,7 @@ async fn test_appservice_background_sender_flushes_pending_queue() {
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: as_id.clone(),
-            url: mock_server.uri(),
+            url: Some(mock_server.uri()),
             as_token: format!("as_token_{as_id}"),
             hs_token: format!("hs_token_{as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -1248,7 +1248,7 @@ async fn test_appservice_fatal_delivery_failures_disable_service_and_persist_sta
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: as_id.clone(),
-            url: failing_server.uri(),
+            url: Some(failing_server.uri()),
             as_token: format!("as_token_{as_id}"),
             hs_token: format!("hs_token_{as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -1361,7 +1361,7 @@ async fn test_appservice_scheduler_does_not_block_healthy_service_during_retry_b
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: failing_as_id.clone(),
-            url: failing_server.uri(),
+            url: Some(failing_server.uri()),
             as_token: format!("as_token_{failing_as_id}"),
             hs_token: format!("hs_token_{failing_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -1383,7 +1383,7 @@ async fn test_appservice_scheduler_does_not_block_healthy_service_during_retry_b
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: healthy_as_id.clone(),
-            url: healthy_server.uri(),
+            url: Some(healthy_server.uri()),
             as_token: format!("as_token_{healthy_as_id}"),
             hs_token: format!("hs_token_{healthy_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -1501,7 +1501,7 @@ async fn test_appservice_scheduler_keeps_single_pending_transaction_per_service(
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: as_id.clone(),
-            url: failing_server.uri(),
+            url: Some(failing_server.uri()),
             as_token: format!("as_token_{as_id}"),
             hs_token: format!("hs_token_{as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -1598,7 +1598,7 @@ async fn test_appservice_scheduler_prioritizes_pending_transactions_over_pending
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: transaction_as_id.clone(),
-            url: transaction_server.uri(),
+            url: Some(transaction_server.uri()),
             as_token: format!("as_token_{transaction_as_id}"),
             hs_token: format!("hs_token_{transaction_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -1620,7 +1620,7 @@ async fn test_appservice_scheduler_prioritizes_pending_transactions_over_pending
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: event_as_id.clone(),
-            url: event_server.uri(),
+            url: Some(event_server.uri()),
             as_token: format!("as_token_{event_as_id}"),
             hs_token: format!("hs_token_{event_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -1739,7 +1739,7 @@ async fn test_appservice_scheduler_keeps_pending_transactions_ahead_of_event_buc
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: txn_a_as_id.clone(),
-            url: txn_a_server.uri(),
+            url: Some(txn_a_server.uri()),
             as_token: format!("as_token_{txn_a_as_id}"),
             hs_token: format!("hs_token_{txn_a_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -1761,7 +1761,7 @@ async fn test_appservice_scheduler_keeps_pending_transactions_ahead_of_event_buc
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: txn_b_as_id.clone(),
-            url: txn_b_server.uri(),
+            url: Some(txn_b_server.uri()),
             as_token: format!("as_token_{txn_b_as_id}"),
             hs_token: format!("hs_token_{txn_b_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -1783,7 +1783,7 @@ async fn test_appservice_scheduler_keeps_pending_transactions_ahead_of_event_buc
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: event_a_as_id.clone(),
-            url: event_a_server.uri(),
+            url: Some(event_a_server.uri()),
             as_token: format!("as_token_{event_a_as_id}"),
             hs_token: format!("hs_token_{event_a_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -1805,7 +1805,7 @@ async fn test_appservice_scheduler_keeps_pending_transactions_ahead_of_event_buc
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: event_b_as_id.clone(),
-            url: event_b_server.uri(),
+            url: Some(event_b_server.uri()),
             as_token: format!("as_token_{event_b_as_id}"),
             hs_token: format!("hs_token_{event_b_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -1935,7 +1935,7 @@ async fn test_appservice_scheduler_capacity_limit_persists_state() {
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: first_as_id.clone(),
-            url: first_server.uri(),
+            url: Some(first_server.uri()),
             as_token: format!("as_token_{first_as_id}"),
             hs_token: format!("hs_token_{first_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -1957,7 +1957,7 @@ async fn test_appservice_scheduler_capacity_limit_persists_state() {
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: second_as_id.clone(),
-            url: second_server.uri(),
+            url: Some(second_server.uri()),
             as_token: format!("as_token_{second_as_id}"),
             hs_token: format!("hs_token_{second_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -2094,7 +2094,7 @@ async fn test_appservice_scheduler_rotates_capacity_limited_service_under_sustai
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: first_as_id.clone(),
-            url: first_server.uri(),
+            url: Some(first_server.uri()),
             as_token: format!("as_token_{first_as_id}"),
             hs_token: format!("hs_token_{first_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -2116,7 +2116,7 @@ async fn test_appservice_scheduler_rotates_capacity_limited_service_under_sustai
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: second_as_id.clone(),
-            url: second_server.uri(),
+            url: Some(second_server.uri()),
             as_token: format!("as_token_{second_as_id}"),
             hs_token: format!("hs_token_{second_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -2138,7 +2138,7 @@ async fn test_appservice_scheduler_rotates_capacity_limited_service_under_sustai
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: third_as_id.clone(),
-            url: third_server.uri(),
+            url: Some(third_server.uri()),
             as_token: format!("as_token_{third_as_id}"),
             hs_token: format!("hs_token_{third_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -2285,7 +2285,7 @@ async fn test_appservice_scheduler_rotates_capacity_limited_service_under_sustai
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: first_as_id.clone(),
-            url: first_server.uri(),
+            url: Some(first_server.uri()),
             as_token: format!("as_token_{first_as_id}"),
             hs_token: format!("hs_token_{first_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -2307,7 +2307,7 @@ async fn test_appservice_scheduler_rotates_capacity_limited_service_under_sustai
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: second_as_id.clone(),
-            url: second_server.uri(),
+            url: Some(second_server.uri()),
             as_token: format!("as_token_{second_as_id}"),
             hs_token: format!("hs_token_{second_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -2329,7 +2329,7 @@ async fn test_appservice_scheduler_rotates_capacity_limited_service_under_sustai
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: third_as_id.clone(),
-            url: third_server.uri(),
+            url: Some(third_server.uri()),
             as_token: format!("as_token_{third_as_id}"),
             hs_token: format!("hs_token_{third_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -2482,7 +2482,7 @@ async fn test_appservice_scheduler_handles_mixed_event_and_transaction_backlog_u
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: transaction_heavy_as_id.clone(),
-            url: transaction_heavy_server.uri(),
+            url: Some(transaction_heavy_server.uri()),
             as_token: format!("as_token_{transaction_heavy_as_id}"),
             hs_token: format!("hs_token_{transaction_heavy_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -2504,7 +2504,7 @@ async fn test_appservice_scheduler_handles_mixed_event_and_transaction_backlog_u
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: transaction_light_as_id.clone(),
-            url: transaction_light_server.uri(),
+            url: Some(transaction_light_server.uri()),
             as_token: format!("as_token_{transaction_light_as_id}"),
             hs_token: format!("hs_token_{transaction_light_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -2527,7 +2527,7 @@ async fn test_appservice_scheduler_handles_mixed_event_and_transaction_backlog_u
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: event_heavy_as_id.clone(),
-            url: event_heavy_server.uri(),
+            url: Some(event_heavy_server.uri()),
             as_token: format!("as_token_{event_heavy_as_id}"),
             hs_token: format!("hs_token_{event_heavy_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -2676,7 +2676,7 @@ async fn test_appservice_scheduler_mixed_backlog_does_not_block_healthy_services
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: failing_as_id.clone(),
-            url: failing_server.uri(),
+            url: Some(failing_server.uri()),
             as_token: format!("as_token_{failing_as_id}"),
             hs_token: format!("hs_token_{failing_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -2698,7 +2698,7 @@ async fn test_appservice_scheduler_mixed_backlog_does_not_block_healthy_services
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: healthy_transaction_as_id.clone(),
-            url: healthy_transaction_server.uri(),
+            url: Some(healthy_transaction_server.uri()),
             as_token: format!("as_token_{healthy_transaction_as_id}"),
             hs_token: format!("hs_token_{healthy_transaction_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -2721,7 +2721,7 @@ async fn test_appservice_scheduler_mixed_backlog_does_not_block_healthy_services
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: healthy_event_as_id.clone(),
-            url: healthy_event_server.uri(),
+            url: Some(healthy_event_server.uri()),
             as_token: format!("as_token_{healthy_event_as_id}"),
             hs_token: format!("hs_token_{healthy_event_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -2877,7 +2877,7 @@ async fn test_appservice_scheduler_long_window_mixed_backlog_preserves_fairness_
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: failing_as_id.clone(),
-            url: failing_server.uri(),
+            url: Some(failing_server.uri()),
             as_token: format!("as_token_{failing_as_id}"),
             hs_token: format!("hs_token_{failing_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -2899,7 +2899,7 @@ async fn test_appservice_scheduler_long_window_mixed_backlog_preserves_fairness_
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: healthy_txn_a_as_id.clone(),
-            url: healthy_txn_a_server.uri(),
+            url: Some(healthy_txn_a_server.uri()),
             as_token: format!("as_token_{healthy_txn_a_as_id}"),
             hs_token: format!("hs_token_{healthy_txn_a_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -2921,7 +2921,7 @@ async fn test_appservice_scheduler_long_window_mixed_backlog_preserves_fairness_
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: healthy_txn_b_as_id.clone(),
-            url: healthy_txn_b_server.uri(),
+            url: Some(healthy_txn_b_server.uri()),
             as_token: format!("as_token_{healthy_txn_b_as_id}"),
             hs_token: format!("hs_token_{healthy_txn_b_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -2944,7 +2944,7 @@ async fn test_appservice_scheduler_long_window_mixed_backlog_preserves_fairness_
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: event_heavy_a_as_id.clone(),
-            url: event_heavy_a_server.uri(),
+            url: Some(event_heavy_a_server.uri()),
             as_token: format!("as_token_{event_heavy_a_as_id}"),
             hs_token: format!("hs_token_{event_heavy_a_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -2967,7 +2967,7 @@ async fn test_appservice_scheduler_long_window_mixed_backlog_preserves_fairness_
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: event_heavy_b_as_id.clone(),
-            url: event_heavy_b_server.uri(),
+            url: Some(event_heavy_b_server.uri()),
             as_token: format!("as_token_{event_heavy_b_as_id}"),
             hs_token: format!("hs_token_{event_heavy_b_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -3147,7 +3147,7 @@ async fn test_appservice_scheduler_continuous_event_ingress_does_not_starve_even
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: healthy_txn_a_as_id.clone(),
-            url: healthy_txn_a_server.uri(),
+            url: Some(healthy_txn_a_server.uri()),
             as_token: format!("as_token_{healthy_txn_a_as_id}"),
             hs_token: format!("hs_token_{healthy_txn_a_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -3169,7 +3169,7 @@ async fn test_appservice_scheduler_continuous_event_ingress_does_not_starve_even
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: healthy_txn_b_as_id.clone(),
-            url: healthy_txn_b_server.uri(),
+            url: Some(healthy_txn_b_server.uri()),
             as_token: format!("as_token_{healthy_txn_b_as_id}"),
             hs_token: format!("hs_token_{healthy_txn_b_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -3192,7 +3192,7 @@ async fn test_appservice_scheduler_continuous_event_ingress_does_not_starve_even
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: event_heavy_a_as_id.clone(),
-            url: event_heavy_a_server.uri(),
+            url: Some(event_heavy_a_server.uri()),
             as_token: format!("as_token_{event_heavy_a_as_id}"),
             hs_token: format!("hs_token_{event_heavy_a_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -3215,7 +3215,7 @@ async fn test_appservice_scheduler_continuous_event_ingress_does_not_starve_even
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: event_heavy_b_as_id.clone(),
-            url: event_heavy_b_server.uri(),
+            url: Some(event_heavy_b_server.uri()),
             as_token: format!("as_token_{event_heavy_b_as_id}"),
             hs_token: format!("hs_token_{event_heavy_b_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -3419,7 +3419,7 @@ async fn test_appservice_scheduler_super_event_heavy_service_begins_dispatch_wit
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: transaction_light_a_as_id.clone(),
-            url: transaction_light_a_server.uri(),
+            url: Some(transaction_light_a_server.uri()),
             as_token: format!("as_token_{transaction_light_a_as_id}"),
             hs_token: format!("hs_token_{transaction_light_a_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -3441,7 +3441,7 @@ async fn test_appservice_scheduler_super_event_heavy_service_begins_dispatch_wit
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: transaction_light_b_as_id.clone(),
-            url: transaction_light_b_server.uri(),
+            url: Some(transaction_light_b_server.uri()),
             as_token: format!("as_token_{transaction_light_b_as_id}"),
             hs_token: format!("hs_token_{transaction_light_b_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -3463,7 +3463,7 @@ async fn test_appservice_scheduler_super_event_heavy_service_begins_dispatch_wit
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: transaction_light_c_as_id.clone(),
-            url: transaction_light_c_server.uri(),
+            url: Some(transaction_light_c_server.uri()),
             as_token: format!("as_token_{transaction_light_c_as_id}"),
             hs_token: format!("hs_token_{transaction_light_c_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -3486,7 +3486,7 @@ async fn test_appservice_scheduler_super_event_heavy_service_begins_dispatch_wit
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: super_event_heavy_as_id.clone(),
-            url: super_event_heavy_server.uri(),
+            url: Some(super_event_heavy_server.uri()),
             as_token: format!("as_token_{super_event_heavy_as_id}"),
             hs_token: format!("hs_token_{super_event_heavy_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -3685,7 +3685,7 @@ async fn test_appservice_scheduler_recovers_after_transient_failure_without_rest
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: failing_as_id.clone(),
-            url: failing_server.uri(),
+            url: Some(failing_server.uri()),
             as_token: format!("as_token_{failing_as_id}"),
             hs_token: format!("hs_token_{failing_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -3707,7 +3707,7 @@ async fn test_appservice_scheduler_recovers_after_transient_failure_without_rest
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: healthy_txn_a_as_id.clone(),
-            url: healthy_txn_a_server.uri(),
+            url: Some(healthy_txn_a_server.uri()),
             as_token: format!("as_token_{healthy_txn_a_as_id}"),
             hs_token: format!("hs_token_{healthy_txn_a_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -3729,7 +3729,7 @@ async fn test_appservice_scheduler_recovers_after_transient_failure_without_rest
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: healthy_txn_b_as_id.clone(),
-            url: healthy_txn_b_server.uri(),
+            url: Some(healthy_txn_b_server.uri()),
             as_token: format!("as_token_{healthy_txn_b_as_id}"),
             hs_token: format!("hs_token_{healthy_txn_b_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -3752,7 +3752,7 @@ async fn test_appservice_scheduler_recovers_after_transient_failure_without_rest
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: event_heavy_a_as_id.clone(),
-            url: event_heavy_a_server.uri(),
+            url: Some(event_heavy_a_server.uri()),
             as_token: format!("as_token_{event_heavy_a_as_id}"),
             hs_token: format!("hs_token_{event_heavy_a_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -3775,7 +3775,7 @@ async fn test_appservice_scheduler_recovers_after_transient_failure_without_rest
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: event_heavy_b_as_id.clone(),
-            url: event_heavy_b_server.uri(),
+            url: Some(event_heavy_b_server.uri()),
             as_token: format!("as_token_{event_heavy_b_as_id}"),
             hs_token: format!("hs_token_{event_heavy_b_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -4020,7 +4020,7 @@ async fn test_appservice_scheduler_recovers_multiple_retry_backoff_services_with
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: failing_a_as_id.clone(),
-            url: failing_a_server.uri(),
+            url: Some(failing_a_server.uri()),
             as_token: format!("as_token_{failing_a_as_id}"),
             hs_token: format!("hs_token_{failing_a_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -4042,7 +4042,7 @@ async fn test_appservice_scheduler_recovers_multiple_retry_backoff_services_with
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: failing_b_as_id.clone(),
-            url: failing_b_server.uri(),
+            url: Some(failing_b_server.uri()),
             as_token: format!("as_token_{failing_b_as_id}"),
             hs_token: format!("hs_token_{failing_b_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -4064,7 +4064,7 @@ async fn test_appservice_scheduler_recovers_multiple_retry_backoff_services_with
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: healthy_txn_as_id.clone(),
-            url: healthy_txn_server.uri(),
+            url: Some(healthy_txn_server.uri()),
             as_token: format!("as_token_{healthy_txn_as_id}"),
             hs_token: format!("hs_token_{healthy_txn_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -4087,7 +4087,7 @@ async fn test_appservice_scheduler_recovers_multiple_retry_backoff_services_with
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: event_heavy_a_as_id.clone(),
-            url: event_heavy_a_server.uri(),
+            url: Some(event_heavy_a_server.uri()),
             as_token: format!("as_token_{event_heavy_a_as_id}"),
             hs_token: format!("hs_token_{event_heavy_a_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -4110,7 +4110,7 @@ async fn test_appservice_scheduler_recovers_multiple_retry_backoff_services_with
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: event_heavy_b_as_id.clone(),
-            url: event_heavy_b_server.uri(),
+            url: Some(event_heavy_b_server.uri()),
             as_token: format!("as_token_{event_heavy_b_as_id}"),
             hs_token: format!("hs_token_{event_heavy_b_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -4315,7 +4315,7 @@ async fn test_appservice_scheduler_uses_custom_backlog_thresholds_for_limited_se
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: first_as_id.clone(),
-            url: first_server.uri(),
+            url: Some(first_server.uri()),
             as_token: format!("as_token_{first_as_id}"),
             hs_token: format!("hs_token_{first_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -4337,7 +4337,7 @@ async fn test_appservice_scheduler_uses_custom_backlog_thresholds_for_limited_se
     manager
         .register(RegisterApplicationServiceRequest {
             as_id: second_as_id.clone(),
-            url: second_server.uri(),
+            url: Some(second_server.uri()),
             as_token: format!("as_token_{second_as_id}"),
             hs_token: format!("hs_token_{second_as_id}"),
             sender: "@bridge:localhost".to_string(),
@@ -4435,7 +4435,7 @@ async fn test_appservice_scheduler_default_capacity_limit_handles_ninth_service(
         manager
             .register(RegisterApplicationServiceRequest {
                 as_id: as_id.clone(),
-                url: server.uri(),
+                url: Some(server.uri()),
                 as_token: format!("as_token_{as_id}"),
                 hs_token: format!("hs_token_{as_id}"),
                 sender: "@bridge:localhost".to_string(),
@@ -4564,7 +4564,7 @@ async fn test_appservice_scheduler_persists_different_backlog_state_for_default_
         manager
             .register(RegisterApplicationServiceRequest {
                 as_id: first_as_id.clone(),
-                url: first_server.uri(),
+                url: Some(first_server.uri()),
                 as_token: format!("as_token_{first_as_id}"),
                 hs_token: format!("hs_token_{first_as_id}"),
                 sender: "@bridge:localhost".to_string(),
@@ -4588,7 +4588,7 @@ async fn test_appservice_scheduler_persists_different_backlog_state_for_default_
         manager
             .register(RegisterApplicationServiceRequest {
                 as_id: second_as_id.clone(),
-                url: second_server.uri(),
+                url: Some(second_server.uri()),
                 as_token: format!("as_token_{second_as_id}"),
                 hs_token: format!("hs_token_{second_as_id}"),
                 sender: "@bridge:localhost".to_string(),
@@ -4685,7 +4685,7 @@ async fn test_appservice_scheduler_persists_different_backlog_state_for_default_
         manager
             .register(RegisterApplicationServiceRequest {
                 as_id: first_as_id.clone(),
-                url: first_server.uri(),
+                url: Some(first_server.uri()),
                 as_token: format!("as_token_{first_as_id}"),
                 hs_token: format!("hs_token_{first_as_id}"),
                 sender: "@bridge:localhost".to_string(),
@@ -4708,7 +4708,7 @@ async fn test_appservice_scheduler_persists_different_backlog_state_for_default_
         manager
             .register(RegisterApplicationServiceRequest {
                 as_id: second_as_id.clone(),
-                url: second_server.uri(),
+                url: Some(second_server.uri()),
                 as_token: format!("as_token_{second_as_id}"),
                 hs_token: format!("hs_token_{second_as_id}"),
                 sender: "@bridge:localhost".to_string(),

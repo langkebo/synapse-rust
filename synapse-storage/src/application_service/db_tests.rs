@@ -53,7 +53,7 @@ fn make_registration(
 ) -> RegisterApplicationServiceRequest {
     RegisterApplicationServiceRequest {
         as_id: as_id.to_string(),
-        url: url.to_string(),
+        url: Some(url.to_string()),
         as_token: as_token.to_string(),
         hs_token: hs_token.to_string(),
         sender: sender.to_string(),
@@ -88,7 +88,7 @@ async fn test_register_creates_service() {
     let svc = storage.register(req).await.expect("register should succeed");
 
     assert_eq!(svc.as_id, as_id);
-    assert_eq!(svc.url, "http://localhost:9001");
+    assert_eq!(svc.url.as_deref(), Some("http://localhost:9001"));
     assert_eq!(svc.as_token, as_token);
     assert_eq!(svc.hs_token, hs_token);
     assert_eq!(svc.sender_localpart, sender);
@@ -160,21 +160,21 @@ async fn test_upsert_registration_updates_existing() {
     // First upsert = insert
     let req1 = make_registration(&as_id, "http://localhost:9001", &as_token, &hs_token, &sender);
     let svc1 = storage.upsert_registration(req1).await.expect("first upsert should succeed");
-    assert_eq!(svc1.url, "http://localhost:9001");
+    assert_eq!(svc1.url.as_deref(), Some("http://localhost:9001"));
 
     // Second upsert with different URL = update
     let req2 = RegisterApplicationServiceRequest {
-        url: "http://localhost:9002".to_string(),
+        url: Some("http://localhost:9002".to_string()),
         ..make_registration(&as_id, "http://localhost:9002", &as_token, &hs_token, &sender)
     };
     let svc2 = storage.upsert_registration(req2).await.expect("second upsert should succeed");
     assert_eq!(svc2.as_id, as_id);
-    assert_eq!(svc2.url, "http://localhost:9002");
+    assert_eq!(svc2.url.as_deref(), Some("http://localhost:9002"));
 
     // Verify only one row exists
     let fetched = storage.get_by_id(&as_id).await.expect("get_by_id should succeed");
     assert!(fetched.is_some());
-    assert_eq!(fetched.unwrap().url, "http://localhost:9002");
+    assert_eq!(fetched.unwrap().url.as_deref(), Some("http://localhost:9002"));
 
     cleanup_with_suffix(&pool, &suffix).await;
 }
@@ -422,7 +422,7 @@ async fn test_update_modifies_fields() {
         .await
         .expect("update should succeed")
         .expect("app service should exist after registration");
-    assert_eq!(updated.url, "http://localhost:9999");
+    assert_eq!(updated.url.as_deref(), Some("http://localhost:9999"));
     assert_eq!(updated.description.as_deref(), Some("Updated description"));
     assert!(updated.is_rate_limited);
     assert_eq!(updated.protocols, vec!["irc", "matrix"]);
@@ -431,7 +431,7 @@ async fn test_update_modifies_fields() {
     // Verify persisted
     let fetched = storage.get_by_id(&as_id).await.expect("get_by_id should succeed");
     let fetched = fetched.unwrap();
-    assert_eq!(fetched.url, "http://localhost:9999");
+    assert_eq!(fetched.url.as_deref(), Some("http://localhost:9999"));
     assert_eq!(fetched.description.as_deref(), Some("Updated description"));
 
     cleanup_with_suffix(&pool, &suffix).await;
@@ -889,7 +889,7 @@ async fn test_namespace_methods_and_statistics_roundtrip() {
     storage
         .register(RegisterApplicationServiceRequest {
             as_id: as_a.clone(),
-            url: "http://as-a.test".to_string(),
+            url: Some("http://as-a.test".to_string()),
             as_token: format!("as_token_a_{suffix}"),
             hs_token: format!("hs_token_a_{suffix}"),
             sender: format!("_nsw_a_{suffix}"),
@@ -911,7 +911,7 @@ async fn test_namespace_methods_and_statistics_roundtrip() {
     storage
         .register(RegisterApplicationServiceRequest {
             as_id: as_b.clone(),
-            url: "http://as-b.test".to_string(),
+            url: Some("http://as-b.test".to_string()),
             as_token: format!("as_token_b_{suffix}"),
             hs_token: format!("hs_token_b_{suffix}"),
             sender: format!("_nsw_b_{suffix}"),
@@ -1012,6 +1012,46 @@ async fn test_namespace_methods_and_statistics_roundtrip() {
         1,
         "the statistics upsert must keep one row per as_id"
     );
+
+    cleanup_with_suffix(&pool, &suffix).await;
+}
+
+/// B3 / 上游 20273：`url: null` 的注册必须真的落成 **SQL NULL**，而不是空串。
+///
+/// 这条用例是"列改可空"改动的核心证明：只要列上还挂着 `NOT NULL`（或有人把
+/// `None` 用 `unwrap_or_default()` 折成 `""`），`url: null` 与 `url: ''` 就再也
+/// 分不开了，而 20273 的"不排队"判定正是靠 `None`。
+#[tokio::test]
+async fn register_with_null_url_round_trips_as_sql_null() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = ApplicationServiceStorage::new(&pool);
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let as_id = format!("as_nullurl_{suffix}");
+
+    cleanup_with_suffix(&pool, &suffix).await;
+
+    let mut request = make_registration(
+        &as_id,
+        "http://placeholder.invalid:1",
+        &format!("as_token_{suffix}"),
+        &format!("hs_token_{suffix}"),
+        &format!("@nullurlbot_{suffix}:test.example.com"),
+    );
+    request.url = None;
+
+    let service = storage.register(request).await.expect("register with `url: None` must succeed");
+    assert_eq!(service.url, None, "register 必须原样返回 None");
+
+    // 直接问数据库，而不是只看 Rust 侧：列值必须真的是 NULL。
+    let is_sql_null: bool = sqlx::query_scalar("SELECT url IS NULL FROM application_services WHERE as_id = $1")
+        .bind(&as_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("read url nullability");
+    assert!(is_sql_null, "`url: None` 必须落成 SQL NULL；空串会让 `url: null` 与 `url: ''` 无法区分");
+
+    let fetched = storage.get_by_id(&as_id).await.expect("get_by_id").expect("row must exist");
+    assert_eq!(fetched.url, None, "读回来也必须是 None");
 
     cleanup_with_suffix(&pool, &suffix).await;
 }

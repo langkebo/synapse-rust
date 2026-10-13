@@ -267,7 +267,7 @@ impl ExternalServiceIntegration {
 
         let request = RegisterApplicationServiceRequest {
             as_id: as_id.clone(),
-            url: config.webhook_url.clone().unwrap_or_default(),
+            url: config.webhook_url.clone(),
             as_token: uuid::Uuid::new_v4().to_string(),
             hs_token: uuid::Uuid::new_v4().to_string(),
             sender: format!("@{}-bot:{}", config.service_id, self.server_name),
@@ -525,11 +525,12 @@ impl ExternalServiceIntegration {
             .map_err(|e| ApiError::internal_with_cause("Failed to get service", e))?
             .ok_or_else(|| ApiError::not_found("Service not found"))?;
 
-        if service.url.is_empty() {
+        let Some(base_url) = service.url.as_deref() else {
+            // No webhook configured ⇒ nothing to probe; treat as healthy.
             return Ok(true);
-        }
+        };
 
-        let health_url = format!("{}/health", service.url);
+        let health_url = format!("{}/health", base_url);
 
         match self.http_client.get(&health_url).timeout(Duration::from_secs(10)).send().await {
             Ok(resp) if resp.status().is_success() => {
@@ -609,14 +610,14 @@ impl ExternalServiceIntegration {
             .map_err(|e| ApiError::internal_with_cause("Failed to get service", e))?
             .ok_or_else(|| ApiError::not_found("Service not found"))?;
 
-        if service.url.is_empty() {
+        let Some(base_url) = service.url.as_deref() else {
             debug!(service_id = %as_id, url_configured = false, "Service has no URL configured, skipping send");
             return Ok(());
-        }
+        };
 
         let response = self
             .http_client
-            .post(&service.url)
+            .post(base_url)
             .header("Authorization", format!("Bearer {}", service.hs_token))
             .json(&event)
             .send()
@@ -702,7 +703,7 @@ mod tests {
         let service = ApplicationService {
             id: 1,
             as_id: "generic_webhook_test".to_string(),
-            url: String::new(),
+            url: None,
             as_token: "as-token".to_string(),
             hs_token: "hs-token".to_string(),
             sender_localpart: "@bot:example.com".to_string(),

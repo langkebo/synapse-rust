@@ -282,7 +282,7 @@ bash scripts/quality/preflight.sh
 
 ## 9. 批次 B 实施记录（B1，2026-10-13）
 
-**状态：B1 / B2 已实施并提交；B3 方案已定（列改为可空）待实施；B4 待核实。**
+**状态：B1 / B2 / B3 已实施；B4 待核实。**
 
 ### 先订正了一处自己的错误
 
@@ -385,6 +385,54 @@ ping（`application_service/mod.rs:467`）、AS 代理目标
 （`synapse-web/src/routes/app_service.rs:437`）、admin 响应（同文件 `:705`）。
 
 **不需要动的**：路由字面量不变 ⇒ 无需重生成三张派生路由表/契约产物。
+
+### B3 实施记录（2026-10-14）
+
+| 步骤 | 落点 | 结果 |
+| --- | --- | --- |
+| 1 | `migrations/00000000_unified_schema_v12.sql` | `CREATE TABLE` 的 `url TEXT NOT NULL` → `url TEXT`，**并在文件尾部追加**幂等 `ALTER TABLE application_services ALTER COLUMN url DROP NOT NULL;`（照抄 `e2ee_audit_log.device_id` 的先例） |
+| 2 | `tests/unit/test_isolation_unification_tests.rs` | `EXPECTED_BASELINE_FINGERPRINT` → `5076e5daa3c35b1d`（按 R10 第①条**先用旧值自检**哈希实现，再取新值） |
+| 3 | `synapse-storage/src/application_service/{models,repository}.rs` | `ApplicationService.url` / `RegisterApplicationServiceRequest.url` → `Option<String>`；INSERT 参数改 `as_deref()` |
+| 4 | `synapse-services/src/application_service/{models,mod,transaction}.rs` | 配置模型可空；`validate_config_file` 接受 `null`／拒绝空串（报错指向 `url: null`）；**`enqueue_matching_event` 跳过无 url 的服务（20273 本体）**；ping 与事务投递短路 |
+| 5 | `synapse-web/src/routes/app_service.rs` | `RegisterAppServiceBody.url` → `Option`；`AppServiceResponse.url` → `Option`（admin 返回 JSON `null`）；**代理在无 url 时 fail-closed（503）** |
+| 6 | 连带 | `external_service_integration.rs` 的两处 `is_empty()` 判定改 `is_none()`（原来"无 webhook"被折成空串，现在如实为 `None`）；测试构造点 13 处 + 集成/性能测试 66 处加 `Some(...)` |
+| 7 | `.sqlx/` | **必须重生成**（见下） |
+
+**⚠️ 计划里没写到、实施中才发现的两件事**：
+
+1. **`.sqlx` 离线缓存必须重生成**。appservice 的 CRUD 用的是 `sqlx::query_as!`（编译期校验宏），
+   而 `.cargo/config.toml` 全局设了 `SQLX_OFFLINE=true` ⇒ 列一改可空，缓存里的类型就对不上。
+   重生成的**正确姿势是范围要盖住测试与特性**：
+   `cargo sqlx prepare --workspace -D <url> -- --all-targets --features test-utils --all-features`。
+   只用默认范围会**误删 123 个测试专用查询的缓存**（我实测踩到，已 `git checkout` 还原后重做）；
+   正确范围下只改 **7 个文件**，且正好是 appservice 的 2 INSERT / 4 SELECT / 1 UPDATE。
+2. **本机没有可直接用于 `prepare` 的库**。本地 `synapse` 库其实**落后于 baseline**
+   （缺 `media_metadata.content_hash`、缺 invite blocklist 表，实测 52 个无关报错），
+   所以流程是：`createdb synapse_b3_prepare` → `psql -f migrations/00000000_unified_schema_v12.sql`
+   → 用它做 `prepare`。**不要**拿本地 `synapse` 库直接 prepare。
+
+**语义确认**：`update` 用 `url = COALESCE($2, url)`，因此 admin 的 `None` 仍然是"不改"，
+与 §9 的决议一致（不支持经 admin API 清空 url）。
+
+**验证**：
+
+| 命令 / 用例 | 结果 |
+| --- | --- |
+| `cargo check --workspace --all-targets --features test-utils --all-features`（离线） | exit 0 |
+| `cargo clippy --workspace --all-targets --features test-utils --all-features --locked -- -D warnings` | exit 0 |
+| `nextest --test unit -E 'test(baseline_fingerprint)'` | **PASS**（复算值被真实 fixture 认可） |
+| `register_with_null_url_round_trips_as_sql_null`（存储层，DB） | **PASS** —— 直接断言 `SELECT url IS NULL` |
+| `enqueue_skips_appservices_without_a_push_endpoint`（服务层，DB） | **PASS** —— 含对照组（有 url 的那个必须排队 1 条） |
+| `parse_config_accepts_null_url_as_no_push_endpoint` / `_accepts_omitted_url` / `_rejects_empty_url_and_points_at_null` / `_still_rejects_an_invalid_url` | 4/4 PASS |
+| `app_service_response_reports_a_missing_url_as_json_null` | PASS |
+| `check_baseline_consolidation` / `check_migration_consistency` / `check_schema_table_coverage` / `check_schema_contract_coverage` / `check_schema_blind_guards` | 全 exit 0 |
+
+**变异自证**：把 `enqueue_matching_event` 的判定反转为 `service.url.is_some()` ⇒ 用例红，
+报 `left: 1, right: 0`（无 url 的 AS 被排了 1 条）；还原后绿。
+
+**未覆盖**：代理路由 `/_matrix/app/v1/proxy/{as_id}/{path}` 的 503 分支**没有自动化用例**
+（需要完整 app + DB 的集成夹具）。该分支是 `let-else` fail-closed，代码路径已人工核对，
+但**没有**测试兜底 —— 记在此处，避免被误读为"已测"。
 
 ### B4 —— 待核实
 

@@ -187,7 +187,11 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // 先用**旧值**自检哈希实现（`9508229d2` 的迁移字节 216817 ⇒ `33f8a783ed0d2e8b` 逐字节吻合，
 // 证明哈希实现未变）后才取新值。该漏同步让 `--test unit` 的
 // `baseline_fingerprint_is_the_single_v12_source` 在 HEAD 上再次常红，是 R10 checklist 第①条的又一漏项。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "0de025c8669e0c96";
+// 2026-10-14（上游对齐 B3：`application_services.url` 改为可空）：
+// baseline 内容再变（+803 字节，`bytes=218585`）⇒ 按 R10 第①条独立复算；
+// 先用**旧值**自检哈希实现（HEAD 的迁移字节 217782 ⇒ `0de025c8669e0c96` 逐字节吻合，
+// 证明哈希实现未变）后才取新值 `5076e5daa3c35b1d`。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "5076e5daa3c35b1d";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

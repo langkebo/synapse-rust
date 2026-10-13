@@ -505,7 +505,7 @@ mod tests {
         let app_service = synapse_services::application_service::ApplicationService {
             id: 1,
             as_id: "trendradar_news-bot".into(),
-            url: "https://trendradar.example.com".into(),
+            url: Some("https://trendradar.example.com".into()),
             as_token: "as-secret".into(),
             hs_token: "hs-secret".into(),
             sender_localpart: "trendradar".into(),

@@ -125,7 +125,7 @@ fn test_namespaces_structure() {
 fn test_register_request_minimal() {
     let request = synapse_storage::application_service::RegisterApplicationServiceRequest {
         as_id: "minimal-as".to_string(),
-        url: "http://localhost:8080".to_string(),
+        url: Some("http://localhost:8080".to_string()),
         as_token: "token".to_string(),
         hs_token: "hs_token".to_string(),
         sender: "@bot:example.com".to_string(),
@@ -145,7 +145,7 @@ fn test_register_request_minimal() {
 fn test_register_request_full() {
     let request = synapse_storage::application_service::RegisterApplicationServiceRequest {
         as_id: "full-as".to_string(),
-        url: "http://localhost:9999".to_string(),
+        url: Some("http://localhost:9999".to_string()),
         as_token: "as_token".to_string(),
         hs_token: "hs_token".to_string(),
         sender: "@bridge:example.com".to_string(),
@@ -316,7 +316,7 @@ fn test_service_matches_event_for_user_and_room_namespaces() {
     let service = ApplicationService {
         id: 1,
         as_id: "bridge".to_string(),
-        url: "http://localhost:9999".to_string(),
+        url: Some("http://localhost:9999".to_string()),
         as_token: "as-token".to_string(),
         hs_token: "hs-token".to_string(),
         sender_localpart: "@bridge:example.com".to_string(),
@@ -411,7 +411,7 @@ fn make_service_with_protocols(as_id: &str, protocols: Vec<&str>) -> Application
     ApplicationService {
         id: 1,
         as_id: as_id.to_string(),
-        url: "http://localhost:9999".to_string(),
+        url: Some("http://localhost:9999".to_string()),
         as_token: "token".to_string(),
         hs_token: "hs_token".to_string(),
         sender_localpart: format!("@{as_id}:example.com"),
@@ -469,4 +469,135 @@ fn aggregate_protocols_skips_services_with_no_protocols() {
 
     let result = ApplicationServiceManager::aggregate_protocols(&services);
     assert!(result.as_object().unwrap().is_empty(), "service with no protocols should not contribute entries");
+}
+
+// ── B3 / 上游 20273：`url: null` 的 appservice（无推送端点）────────────────────
+
+/// `url: null` 是**合法**注册：bridge 双傀儡就是这种形态。
+#[test]
+fn parse_config_accepts_null_url_as_no_push_endpoint() {
+    let manager = test_manager();
+    let raw_config = r#"
+id: nullurl-bridge
+url: null
+as_token: appservice-token
+hs_token: homeserver-token
+sender: '@nullurlbot:example.com'
+"#;
+
+    let request = manager
+        .parse_config_file_contents(raw_config, "inline")
+        .expect("`url: null` must be accepted (upstream 20273)");
+    assert_eq!(request.url, None, "`url: null` 必须解析成 None，而不是空串");
+}
+
+/// 省略 `url` 与显式 `null` 等价（serde 对 `Option<String>` 的既有语义）。
+#[test]
+fn parse_config_accepts_omitted_url() {
+    let manager = test_manager();
+    let raw_config = r#"
+id: omitted-url-bridge
+as_token: appservice-token
+hs_token: homeserver-token
+sender: '@omittedbot:example.com'
+"#;
+
+    let request = manager.parse_config_file_contents(raw_config, "inline").expect("omitted url must be accepted");
+    assert_eq!(request.url, None);
+}
+
+/// 空串**不是** `null` 的同义词 —— 它必须被拒绝，并在报错里指明正确写法，
+/// 否则配置里的手滑会静默退化成"没有推送端点"。
+#[test]
+fn parse_config_rejects_empty_url_and_points_at_null() {
+    let manager = test_manager();
+    let raw_config = r#"
+id: empty-url-bridge
+url: ""
+as_token: appservice-token
+hs_token: homeserver-token
+sender: '@emptybot:example.com'
+"#;
+
+    let result = manager.parse_config_file_contents(raw_config, "inline");
+    assert!(result.is_err(), "empty url must be rejected");
+    let error_text = if let Err(error) = result { error.to_string() } else { String::new() };
+    assert!(error_text.contains("url: null"), "报错必须指向 `url: null` 的正确写法，实际：{error_text}");
+}
+
+/// 非空的 `url` 仍要被校验成合法 URL —— 可空化不能顺带放宽这一条。
+#[test]
+fn parse_config_still_rejects_an_invalid_url() {
+    let manager = test_manager();
+    let raw_config = r#"
+id: bad-url-bridge
+url: "not a url"
+as_token: appservice-token
+hs_token: homeserver-token
+sender: '@badurlbot:example.com'
+"#;
+
+    let result = manager.parse_config_file_contents(raw_config, "inline");
+    assert!(result.is_err(), "an invalid non-null url must still be rejected");
+}
+
+/// 上游 20273 的本体：`url: null` 的 appservice **一行排队记录都不该产生**，
+/// 而有 `url` 的照常排队（对照组，防止"谁都别排队"这种把测试做绿的假实现）。
+#[tokio::test]
+async fn enqueue_skips_appservices_without_a_push_endpoint() {
+    let pool = crate::test_utils::prepare_isolated_test_pool().await.expect("isolated test pool");
+    let manager = ApplicationServiceManager::new(
+        Arc::new(ApplicationServiceStorage::new(&pool)),
+        Arc::new(EventStorage::new(&pool, "example.com".to_string())),
+        "example.com".to_string(),
+    );
+
+    // 非独占：两个 appservice 共用同一命名空间，事件才会同时命中两者 —— 这样
+    // 唯一的差别就只剩 `url`，对照组才成立（独占命名空间只允许一个属主）。
+    let namespaces = serde_json::json!({
+        "users": [],
+        "aliases": [],
+        "rooms": [{"exclusive": false, "regex": "!bridge-.*:example\\.com"}]
+    });
+
+    let registration = |as_id: &str, url: Option<&str>| RegisterApplicationServiceRequest {
+        as_id: as_id.to_string(),
+        url: url.map(str::to_string),
+        as_token: format!("{as_id}-as-token"),
+        hs_token: format!("{as_id}-hs-token"),
+        sender: format!("@{as_id}:example.com"),
+        description: None,
+        is_rate_limited: Some(false),
+        protocols: None,
+        namespaces: Some(namespaces.clone()),
+        api_key: None,
+        config: None,
+    };
+
+    manager.register(registration("null_url_as", None)).await.expect("`url: null` registration must succeed");
+    manager.register(registration("with_url_as", Some("http://127.0.0.1:1"))).await.expect("register");
+
+    let enqueued = manager
+        .enqueue_matching_event(
+            "$evt_b3:example.com",
+            "!bridge-room:example.com",
+            "m.room.message",
+            "@alice:example.com",
+            &serde_json::json!({"body": "hi"}),
+            None,
+        )
+        .await
+        .expect("enqueue_matching_event");
+
+    assert_eq!(enqueued, 1, "只有带 url 的那个 appservice 应该被排队（对照组）");
+    assert_eq!(
+        manager.count_pending_events("null_url_as").await.expect("count pending"),
+        0,
+        "`url: null` 的 appservice 必须一行排队都没有（上游 20273）"
+    );
+    assert_eq!(
+        manager.count_pending_events("with_url_as").await.expect("count pending"),
+        1,
+        "对照组：有 url 的 appservice 必须照常排队"
+    );
 }

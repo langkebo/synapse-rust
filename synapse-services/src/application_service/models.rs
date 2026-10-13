@@ -43,7 +43,15 @@ fn cached_regex(pattern: &str) -> Option<&'static Regex> {
 #[derive(Debug, Deserialize)]
 pub(super) struct AppServiceConfigFile {
     id: String,
-    url: String,
+    /// `url: null` (or an omitted key) registers an appservice with **no push
+    /// endpoint** — the double-puppeting bridge shape from upstream 20273.
+    /// It still authenticates with its tokens, but the server never queues
+    /// events/ephemeral data for it and the `/_matrix/app/v1/*` proxy has no
+    /// host to forward to.
+    ///
+    /// `Option<String>` also means serde treats a missing key as `None`; an
+    /// explicit `url:` with a non-null value must still be a valid URL.
+    url: Option<String>,
     as_token: String,
     hs_token: String,
     #[serde(default)]
@@ -137,7 +145,8 @@ impl ApplicationServiceManager {
 
         Ok(RegisterApplicationServiceRequest {
             as_id: id.trim().to_owned(),
-            url: url.trim().to_owned(),
+            // `url: null` (or an omitted `url`) ⇒ no push endpoint (upstream 20273).
+            url: url.map(|value| value.trim().to_owned()),
             as_token: as_token.trim().to_owned(),
             hs_token: hs_token.trim().to_owned(),
             sender,
@@ -158,19 +167,27 @@ impl ApplicationServiceManager {
             )));
         }
 
-        if config.url.trim().is_empty() {
-            return Err(ApiError::bad_request(format!(
-                "Application service config '{}' is missing a non-empty url",
-                config_label
-            )));
+        // `url: null` ⇒ no push endpoint (upstream 20273); an **empty string** is
+        // still rejected so a typo cannot silently degrade into "no url" — the
+        // operator has to say `null` on purpose.
+        match config.url.as_deref().map(str::trim) {
+            None => {}
+            Some("") => {
+                return Err(ApiError::bad_request(format!(
+                    "Application service config '{}' has an empty url — write `url: null` for an appservice \
+                     with no push endpoint",
+                    config_label
+                )));
+            }
+            Some(url) => {
+                Url::parse(url).map_err(|e| {
+                    ApiError::bad_request(format!(
+                        "Application service config '{}' has invalid url '{}': {}",
+                        config_label, url, e
+                    ))
+                })?;
+            }
         }
-
-        Url::parse(config.url.trim()).map_err(|e| {
-            ApiError::bad_request(format!(
-                "Application service config '{}' has invalid url '{}': {}",
-                config_label, config.url, e
-            ))
-        })?;
 
         if config.as_token.trim().is_empty() {
             return Err(ApiError::bad_request(format!(

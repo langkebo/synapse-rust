@@ -2465,7 +2465,11 @@ CREATE TABLE IF NOT EXISTS registration_token_batches (
 CREATE TABLE IF NOT EXISTS application_services (
     id BIGSERIAL,
     as_id TEXT NOT NULL,
-    url TEXT NOT NULL,
+    -- 2026-10-14: `url` 改为可空 —— 对齐上游 20273，`url: null` 的 appservice
+    -- （bridge 双傀儡注册）没有推送端点，服务器不得为它排队事件/临时数据。
+    -- ⚠️ 存量库靠文件尾部的幂等 `ALTER ... DROP NOT NULL` 摘约束
+    -- （`CREATE TABLE IF NOT EXISTS` 对已存在的表是 no-op）。
+    url TEXT,
     as_token TEXT NOT NULL,
     hs_token TEXT NOT NULL,
     sender_localpart TEXT NOT NULL,
@@ -5345,3 +5349,10 @@ CREATE INDEX IF NOT EXISTS idx_widgets_user_id ON widgets(user_id);
 -- 无索引时删除一条事件要全表扫 events 找 `redacted_by = ?`。绝大多数行为 NULL，
 -- 故用部分索引（与既有 idx_events_redacts 同构），避免在 21 个索引之上再加一棵全量 btree。
 CREATE INDEX IF NOT EXISTS idx_events_redacted_by ON events(redacted_by) WHERE redacted_by IS NOT NULL;
+
+-- 2026-10-14: MSC/上游 20273 —— appservice 的 `url` 允许为 NULL（"无推送端点"）。
+--
+-- 上面的 `CREATE TABLE IF NOT EXISTS application_services` 只对**新库**生效；
+-- 存量库的表已经存在，`IF NOT EXISTS` 是 no-op，因此必须由这条幂等 ALTER 摘掉约束
+-- （与 `ALTER TABLE e2ee_audit_log ALTER COLUMN device_id DROP NOT NULL` 同构）。
+ALTER TABLE application_services ALTER COLUMN url DROP NOT NULL;

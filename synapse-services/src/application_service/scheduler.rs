@@ -1046,7 +1046,7 @@ mod tests {
             ApplicationService {
                 id: 1,
                 as_id: "alpha".to_string(),
-                url: "http://localhost".to_string(),
+                url: Some("http://localhost".to_string()),
                 as_token: "a".to_string(),
                 hs_token: "b".to_string(),
                 sender_localpart: "@alpha:example.com".to_string(),
@@ -1063,7 +1063,7 @@ mod tests {
             ApplicationService {
                 id: 2,
                 as_id: "beta".to_string(),
-                url: "http://localhost".to_string(),
+                url: Some("http://localhost".to_string()),
                 as_token: "a".to_string(),
                 hs_token: "b".to_string(),
                 sender_localpart: "@beta:example.com".to_string(),
@@ -1104,7 +1104,7 @@ mod tests {
             ApplicationService {
                 id: 1,
                 as_id: "alpha".to_string(),
-                url: "http://localhost".to_string(),
+                url: Some("http://localhost".to_string()),
                 as_token: "a".to_string(),
                 hs_token: "b".to_string(),
                 sender_localpart: "@alpha:example.com".to_string(),
@@ -1121,7 +1121,7 @@ mod tests {
             ApplicationService {
                 id: 2,
                 as_id: "beta".to_string(),
-                url: "http://localhost".to_string(),
+                url: Some("http://localhost".to_string()),
                 as_token: "a".to_string(),
                 hs_token: "b".to_string(),
                 sender_localpart: "@beta:example.com".to_string(),
@@ -1161,7 +1161,7 @@ mod tests {
             ApplicationService {
                 id: 1,
                 as_id: "alpha".to_string(),
-                url: "http://localhost".to_string(),
+                url: Some("http://localhost".to_string()),
                 as_token: "a".to_string(),
                 hs_token: "b".to_string(),
                 sender_localpart: "@alpha:example.com".to_string(),
@@ -1178,7 +1178,7 @@ mod tests {
             ApplicationService {
                 id: 2,
                 as_id: "beta".to_string(),
-                url: "http://localhost".to_string(),
+                url: Some("http://localhost".to_string()),
                 as_token: "a".to_string(),
                 hs_token: "b".to_string(),
                 sender_localpart: "@beta:example.com".to_string(),
@@ -1195,7 +1195,7 @@ mod tests {
             ApplicationService {
                 id: 3,
                 as_id: "gamma".to_string(),
-                url: "http://localhost".to_string(),
+                url: Some("http://localhost".to_string()),
                 as_token: "a".to_string(),
                 hs_token: "b".to_string(),
                 sender_localpart: "@gamma:example.com".to_string(),
@@ -1212,7 +1212,7 @@ mod tests {
             ApplicationService {
                 id: 4,
                 as_id: "delta".to_string(),
-                url: "http://localhost".to_string(),
+                url: Some("http://localhost".to_string()),
                 as_token: "a".to_string(),
                 hs_token: "b".to_string(),
                 sender_localpart: "@delta:example.com".to_string(),
