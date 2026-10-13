@@ -39,6 +39,7 @@ mod key_backup_api_tests;
 mod key_rotation_route_tests;
 mod key_rotation_service_tests;
 mod ledger_export_tests;
+mod ledger_fingerprint_tests;
 mod media_api_tests;
 mod media_quota_api_tests;
 mod media_service_tests;

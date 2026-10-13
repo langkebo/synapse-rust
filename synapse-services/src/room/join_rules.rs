@@ -14,7 +14,7 @@
 //!   skipped validation, and preserved declaration order.
 //!
 //! Same input, two answers: a latent drift source recorded in
-//! `docs/audit/AUDIT_SUMMARY_2026-09-12.md` §3 and
+//! `docs/audit/archive/AUDIT_SUMMARY_2026-09-12.md` §3 and
 //! `docs/audit/sdk-encapsulation-audit.md` §8. Both call sites now go through
 //! [`extract_allowed_join_rooms`]; `/summary` adds only the join-rule gate in
 //! [`extract_allowed_room_ids`].

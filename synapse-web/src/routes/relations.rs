@@ -56,7 +56,7 @@ fn create_relations_core_router() -> Router<AppState> {
 /// ⚠️ 刻意用 `pub(crate)`（而不是 `pub`）：SDK 的
 /// `scripts/quality/check-sdk-contract-alignment.mjs` 把"文件里第一个
 /// `pub fn create_*router`"当作**根工厂**去遍历路由树，这里若写成 `pub`，它会把我
-/// 当成根、只看到 vendor 的这条写入路由，于是 `docs/api-contract/relations.md` 里所有
+/// 当成根、只看到 vendor 的这条写入路由，于是 `matrix-js-sdk/docs/api-contract/relations.md` 里所有
 /// 客户端读取路由都被判成"后端不存在"（实测 4 条误报）。`pub(crate)` 对 crate 内调用
 /// 完全够用（assembly.rs 同 crate），且不含子串 `pub fn`，不会被那个启发式选中。
 pub(crate) fn create_relations_vendor_router() -> Router<AppState> {
@@ -77,7 +77,7 @@ pub fn create_relations_router(state: AppState) -> Router<AppState> {
         // 关系写入是非标准方法（spec 只有 GET 读），按 ISSUE-13 挂 vendor 前缀。
         // 刻意**在本文件里 nest**（而不是让 assembly 的 vendor router 去 merge）：
         // SKD 对齐门禁以「文件里第一个 pub fn create_*router」为根遍历路由树，
-        // 写入端点必须能从 relations.rs 的根工厂到达，否则 docs/api-contract/relations.md
+        // 写入端点必须能从 relations.rs 的根工厂到达，否则 matrix-js-sdk/docs/api-contract/relations.md
         // 里这条路径会被判成"后端不存在"。
         .nest("/_matrix/vendor/v1", create_relations_vendor_router())
         .with_state(state)

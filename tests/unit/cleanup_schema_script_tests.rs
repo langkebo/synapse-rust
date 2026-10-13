@@ -4,7 +4,7 @@
 //!
 //! The script is the only byte-level remedy for test-schema accumulation, and it
 //! shipped with four defects that made it simultaneously ineffective and unsafe
-//! (see `docs/audit/P5_test_schema_accumulation_2026-09-12.md`):
+//! (see `docs/audit/archive/P5_test_schema_accumulation_2026-09-12.md`):
 //!
 //! 1. matched only `test_%`, so `media_test_*` (1,033) and `synapse_test_*` (48)
 //!    could never be cleaned;

@@ -1241,7 +1241,7 @@ fn collect_rs_sources(dir: &std::path::Path, out: &mut String, visited: &mut usi
 
 /// Guard 8: every test name the P1-D design document pins must exist in Rust.
 ///
-/// `docs/audit/P1D_seed_allowlist_design_2026-09-14.md` is the written contract
+/// `docs/audit/archive/P1D_seed_allowlist_design_2026-09-14.md` is the written contract
 /// for the seed allowlist. It used to promise `seed_reference_tables_match_baseline`
 /// (the real guard is `the_seed_allowlist_matches_what_the_baseline_seeds`) and
 /// `allowlist_clone_matches_full_clone_row_for_row` (folded into

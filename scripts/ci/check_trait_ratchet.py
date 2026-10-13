@@ -88,13 +88,34 @@ def read_baseline() -> tuple[int, int]:
 def main() -> int:
     total, store_api = count()
     if "--update" in sys.argv:
-        BASELINE.write_text(
-            "# Trait-count ratchet baseline (A5 / B4-1). See scripts/ci/check_trait_ratchet.py.\n"
-            "# The numbers may only go DOWN. Bump them deliberately and say why.\n"
-            f"TOTAL={total}\n"
-            f"STORE_API={store_api}\n",
-            encoding="utf-8",
-        )
+        # Rewrite ONLY the `TOTAL=` / `STORE_API=` value lines; keep every other
+        # line verbatim. The baseline file's own header says the numbers must be
+        # bumped "deliberately and say why", and the file carries one block of
+        # dated reasons per bump — a whole-file overwrite silently deleted all of
+        # them (observed 2026-10-13: 79 lines -> 4). Appending the new reason is
+        # still a human job; refusing to write on a malformed file is the script's.
+        lines = BASELINE.read_text(encoding="utf-8").splitlines(keepends=True)
+        replaced: set[str] = set()
+        out: list[str] = []
+        for line in lines:
+            key = line.strip().partition("=")[0].strip()
+            if key == "TOTAL" and "TOTAL" not in replaced:
+                out.append(f"TOTAL={total}\n")
+                replaced.add("TOTAL")
+            elif key == "STORE_API" and "STORE_API" not in replaced:
+                out.append(f"STORE_API={store_api}\n")
+                replaced.add("STORE_API")
+            else:
+                out.append(line)
+        missing = sorted({"TOTAL", "STORE_API"} - replaced)
+        if missing:
+            print(
+                f"FAIL: baseline {BASELINE} is missing line(s) {missing}; "
+                "refusing to rewrite it (restore the file first)",
+                file=sys.stderr,
+            )
+            return 1
+        BASELINE.write_text("".join(out), encoding="utf-8")
         print(f"trait_count: baseline updated to TOTAL={total} STORE_API={store_api}")
         return 0
 

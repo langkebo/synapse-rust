@@ -275,7 +275,7 @@ impl AuthService {
         let existing = self.user_service.get_user_by_username(username).await?;
 
         if existing.as_ref().is_some_and(|user| user.user_id != user_id) {
-            return Err(ApiError::conflict("Username already exists".to_string()));
+            return Err(ApiError::user_in_use("Username already exists".to_string()));
         }
 
         let password_hash = self.hash_password_for_storage(password).await?;

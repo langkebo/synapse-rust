@@ -14,7 +14,7 @@
 //! The presence of `405` (and the expected methods in `Allow`) is what
 //! proves the route is wired through `create_key_backup_router`.
 //!
-//! See `docs/synapse-rust/SPEC_ALIGNMENT_PLAN_2026-05-01.md` §1.2 (R4 / T2).
+//! See 已删除的 SPEC_ALIGNMENT_PLAN_2026-05-01 §1.2 (R4 / T2).
 
 use axum::{body::Body, http::Request};
 use hyper::StatusCode;

@@ -234,7 +234,7 @@ async fn test_cache_manager_delete() {
 /// and fell back to the builder TTL. Callers therefore got a different L1
 /// lifetime than they asked for — the login-lockout counter
 /// (`LOGIN_LOCKOUT_TTL_SECS = 900`) was retained for the full builder TTL
-/// instead. See `docs/audit/P1_security_2026-09-10.md`.
+/// instead. See `docs/audit/archive/P1_security_2026-09-10.md`.
 #[tokio::test]
 #[allow(missing_docs)]
 async fn set_honours_per_write_ttl_for_local_tier() {

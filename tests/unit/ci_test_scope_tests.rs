@@ -35,7 +35,7 @@
 //!
 //! ~~When the `--isolated` migration lands, remove the `#[ignore]` attributes~~
 //! and add `--workspace` to the `--lib` step in `.github/workflows/ci.yml`.**
-//! See `docs/audit/P5_workspace_test_isolation_2026-09-11.md`.
+//! See `docs/audit/archive/P5_workspace_test_isolation_2026-09-11.md`.
 //!
 //! ## What this test enforces
 //!
@@ -90,7 +90,7 @@ fn nextest_invocations() -> Vec<(String, String)> {
 ///
 /// **Remove the `#[ignore]` in the same commit that adds `--workspace` to the
 /// `--lib` step in `ci.yml`.** See
-/// `docs/audit/P5_workspace_test_isolation_2026-09-11.md`.
+/// `docs/audit/archive/P5_workspace_test_isolation_2026-09-11.md`.
 #[test]
 fn nextest_invocations_declare_their_scope() {
     let invocations = nextest_invocations();
@@ -746,7 +746,7 @@ fn snapshot_gate_is_insta_assert_only() {
 /// 一条不再匹配的 ignore 就变成"依赖降级回受影响版本时继续静默放行"的通道 ——
 /// 门禁看起来更严，实际更弱。
 ///
-/// 这两件事在 `docs/audit/PROJECT_ACTUAL_ISSUES_2026-09-14.md` M-6 里已被记录过
+/// 这两件事在 `docs/audit/archive/PROJECT_ACTUAL_ISSUES_2026-09-14.md` M-6 里已被记录过
 /// （cargo-deny 报了 3 条 `warning[advisory-not-detected]`），但当时建议"3 条全删"，
 /// 没有核对 cargo-audit 侧，所以一直没修。
 ///

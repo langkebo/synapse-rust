@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "fingerprint_algorithm": "sha256 over one line per entry, in `entries` order: method \\t path \\t registered_by \\t path_params(comma-joined) \\t query_params(comma-joined) \\t auth (empty string when absent); each line is newline-terminated, concatenated with no separator",
+  "ledger_schema_version": "4",
+  "profiles": {
+    "all": {
+      "entry_count": 1027,
+      "route_surface_sha256": "2c8261a5c547253a2e318104c851462bd23d6db35a64d136ed552359cb04a9f7"
+    },
+    "default": {
+      "entry_count": 1008,
+      "route_surface_sha256": "6733cccd665274484574918b8a1157643949c084b0460c6569919ab36a274e96"
+    },
+    "worker": {
+      "entry_count": 1019,
+      "route_surface_sha256": "1eb6e5d522a81420f091102b0a5ca0337690e9bd561ae6d5568b7e29ca0a7d3f"
+    }
+  }
+}

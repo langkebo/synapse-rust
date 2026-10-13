@@ -184,7 +184,7 @@ pub(crate) use common::integration_tests_required;
 /// *is* available — the tests silently "passed" without running a single assertion.
 /// That is the only end-to-end guard for the ledger contract chain
 /// (`route_manifest → router_ledger → ledger_export → SDK`), so the chain was
-/// never actually validated. See `docs/audit/PROJECT_ACTUAL_ISSUES_2026-09-14.md` §2.5.
+/// never actually validated. See `docs/audit/archive/PROJECT_ACTUAL_ISSUES_2026-09-14.md` §2.5.
 /// `database_integrity_tests` × 5 hit the same silent skip through
 /// `connect_integrity_pool()` returning `None`, and now route through this helper too.
 ///

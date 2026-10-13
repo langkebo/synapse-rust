@@ -16,7 +16,7 @@ use tower_http::compression::{predicate::SizeAbove, CompressionLayer};
 /// [`axum::Router`] exposes.
 ///
 /// This is the substitute for the axum route-walker API we don't have — see
-/// R4 / O2 in `docs/synapse-rust/SPEC_ALIGNMENT_PLAN_2026-05-01.md`. It is
+/// R4 / O2 in 已删除的 SPEC_ALIGNMENT_PLAN_2026-05-01. It is
 /// **derived**, not hand-written: `scripts/contract/extract_registered.py`
 /// scrapes the real `.route(...)` surface and
 /// `scripts/contract/gen_derived_routes.py` materialises it into

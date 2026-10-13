@@ -10,7 +10,7 @@
 //! created the schema, Rust never runs destructors for `static`s at process
 //! exit, and fire-and-forget cleanup tasks spawned on a background runtime
 //! are cancelled when the process dies. All three variants were measured
-//! leaking 100% of schemas (see `docs/audit/P5_test_schema_accumulation_2026-09-12.md`
+//! leaking 100% of schemas (see `docs/audit/archive/P5_test_schema_accumulation_2026-09-12.md`
 //! and `synapse-storage/src/test_isolation.rs`), which is how the local test
 //! database accumulated 23,662 leftover schemas.
 //!

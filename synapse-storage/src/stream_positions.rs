@@ -1,7 +1,7 @@
 //! 各 stream 的当前位置 —— 指标 `synapse_storage_stream_current_position` 的数据源。
 //!
 //! **只收录真的有单调位置列、且生产路径会推进的 stream。** 为什么另外几张看起来
-//! 像 stream 的表不在这里（取证见 `docs/audit/OPTIMIZATION_EXECUTION_PLAN_2026-09-15.md`
+//! 像 stream 的表不在这里（取证见 `docs/audit/archive/OPTIMIZATION_EXECUTION_PLAN_2026-09-15.md`
 //! §8.3 L-1）：
 //!
 //! * `sync_stream_id`：只有 seed 写入，全仓无读/写者；

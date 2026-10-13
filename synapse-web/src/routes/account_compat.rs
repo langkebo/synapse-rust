@@ -662,7 +662,7 @@ pub(crate) async fn add_threepid(
             medium = medium,
             "3PID address is already bound to a different account"
         );
-        return Err(ApiError::conflict("This 3PID is already bound to a different account".to_string()));
+        return Err(ApiError::threepid_in_use("This 3PID is already bound to a different account".to_string()));
     }
 
     // 仅在本地校验通过后，才可选地把 3PID 推到身份服务器。这里使用与本地校验

@@ -26,6 +26,7 @@ schema 上失效"这一类缺陷（B3-3 / F 系列问题的根源模式）。
 
 from __future__ import annotations
 
+import datetime
 import re
 import sys
 from pathlib import Path
@@ -65,11 +66,12 @@ SCAN_GLOBS = [
 ]
 
 # ── patterns ─────────────────────────────────────────────────────────────────
-# (regex, message, severity)
-# severity: 'error' → CI 失败；'warning' → 打印但通过
-PATTERNS: list[tuple[str, str, str]] = [
+# (id, regex, message, severity)
+# severity: 'error' → CI 失败；'warning' → 需在 WARNING_BUDGET 登记后才放行
+PATTERNS: list[tuple[str, str, str, str]] = [
     # 1. 危险的 public DROP —— 非豁免文件中出现即 error
     (
+        "SBG-01",
         r"DROP\s+SCHEMA\s+(?:IF\s+EXISTS\s+)?public\s+CASCADE",
         "DROP SCHEMA public CASCADE outside allowlisted reset scripts",
         "error",
@@ -77,6 +79,7 @@ PATTERNS: list[tuple[str, str, str]] = [
     # 2. Rust 里的 schema 字面量比较（B3-3 类缺陷的直接特征）
     #    例如: current_schema() == Some("public") / schema != "public"
     (
+        "SBG-02",
         r"""current_schema\(\)\s*[=!]=\s*(?:Some\()?["']public["']""",
         "hardcoded 'public' comparison against current_schema() — guard is schema-blind "
         "(fails on isolated test schemas); use the configured schema name instead",
@@ -87,6 +90,7 @@ PATTERNS: list[tuple[str, str, str]] = [
     #    但仍报 warning 保留可见性，便于后续审计人员核查上下文。
     #    真正危险的模式是 Rust current_schema() 字面量比较（pattern 2，error 级）。
     (
+        "SBG-03",
         r"table_schema\s*=\s*['\"]public['\"]",
         "hardcoded table_schema='public' in catalog query — verify this is intentional "
         "(guards must cover the active schema, not just public)",
@@ -94,11 +98,31 @@ PATTERNS: list[tuple[str, str, str]] = [
     ),
     # 4. PGOPTIONS 显式把 public 挂进 search_path
     (
+        "SBG-04",
         r"search_path=[^'\"]*public",
         "search_path includes public schema — verify test isolation intent",
         "warning",
     ),
 ]
+
+# ── 告警预算：warning 不再"打印即通过" ─────────────────────────────────────────
+# 旧行为是 `warning` 永不挡 CI（`PASSED with warnings` + exit 0），观察到的唯一一条
+# 因此可以长期无人处理（2026-10-13 审计 §2 B3 记录该形态）。现在改成：
+#   ① 每条允许存在的 warning 必须在此**登记**（编号 → 理由 + 到期日 + 允许条数）；
+#   ② 未登记的 warning、已过期的登记、超预算的条数 ⇒ **升级为 error**（exit 1）。
+# 到期日的含义是"到这天必须二选一：修掉，或把理由/日期重新评估后再登记"。
+WARNING_BUDGET: dict[str, dict] = {
+    "SBG-03": {
+        "reason": (
+            "`scripts/ci/converge_public_schema.sh:242` 的 `table_schema='public'` 是**收敛脚本自身**"
+            "在清点 public schema 剩余表数（该脚本的职责就是操作 public），语义上必须写死 public；"
+            "已确认非 schema-blind 缺陷。保留告警是为了让它继续可见。"
+            "（对照：`synapse-test-utils` / `synapse-common/test_isolation.rs` 等同类命中已在 SAFE_FILES 降级）"
+        ),
+        "expires": "2027-01-31",
+        "allowed": 1,
+    },
+}
 
 
 def iter_scan_files() -> list[Path]:
@@ -146,13 +170,14 @@ def check_file(filepath: Path) -> list[dict]:
     for lineno, line in enumerate(text.splitlines(), 1):
         if is_comment_only(line, filepath.suffix):
             continue
-        for pattern, msg, severity in PATTERNS:
+        for rule_id, pattern, msg, severity in PATTERNS:
             if re.search(pattern, line, re.IGNORECASE):
                 # 豁免文件：降级为 info 且不计入汇总（保留可见性）
                 if is_exempt:
                     severity = "info"
                 issues.append(
                     {
+                        "id": rule_id,
                         "file": relname,
                         "line": lineno,
                         "msg": msg,
@@ -172,23 +197,66 @@ def main() -> int:
     warns = [i for i in all_issues if i["severity"] == "warning"]
     infos = [i for i in all_issues if i["severity"] == "info"]
 
+    # 告警预算判定：未登记 / 已过期 / 超预算 的 warning 一律升级为 error。
+    # 这样 "PASSED with warnings" 只可能出现在"预算内且未过期"的情形。
+    today = datetime.date.today().isoformat()
+    budget_violations: list[str] = []
+    upgraded_ids: set[int] = set()
+    counted: dict[str, int] = {}
+    for issue in warns:
+        rule_id = issue["id"]
+        entry = WARNING_BUDGET.get(rule_id)
+        where = f"{issue['file']}:{issue['line']}"
+        if entry is None:
+            budget_violations.append(
+                f"{rule_id} 未登记：{where} —— 新增告警必须在 WARNING_BUDGET 登记"
+                "（编号 + 理由 + 到期日 + 允许条数），或直接修掉"
+            )
+            upgraded_ids.add(id(issue))
+            continue
+        if entry["expires"] < today:
+            budget_violations.append(
+                f"{rule_id} 登记已到期（{entry['expires']}）：{where}"
+            )
+            upgraded_ids.add(id(issue))
+            continue
+        counted[rule_id] = counted.get(rule_id, 0) + 1
+        allowed = int(entry.get("allowed", 1))
+        if counted[rule_id] > allowed:
+            budget_violations.append(
+                f"{rule_id} 超预算（{counted[rule_id]} > {allowed}）：{where}"
+            )
+            upgraded_ids.add(id(issue))
+
     if all_issues:
         print("Schema-blind guard check results:")
         print("=" * 80)
         for issue in all_issues:
-            print(f"[{issue['severity'].upper():7s}] {issue['file']}:{issue['line']}")
+            tag = "error" if id(issue) in upgraded_ids else issue["severity"]
+            print(f"[{tag.upper():7s}] {issue['id']}  {issue['file']}:{issue['line']}")
             print(f"         {issue['msg']}")
             print(f"         {issue['content']}")
         print("=" * 80)
 
+    if budget_violations:
+        print("WARNING BUDGET VIOLATIONS（下列告警已升级为 error）:")
+        for v in budget_violations:
+            print(f"  - {v}")
+        print("=" * 80)
+
     print(
-        f"Summary: {len(errors)} errors, {len(warns)} warnings, {len(infos)} exempted(info)"
+        f"Summary: {len(errors)} errors, {len(warns)} warnings "
+        f"({len(upgraded_ids)} 条未登记/过期/超预算 ⇒ 计为 error), {len(infos)} exempted(info)"
     )
-    if errors:
+    if errors or budget_violations:
         print("\nFAILED: schema-blind guard violations (see above)")
         return 1
     if warns:
-        print("\nPASSED with warnings — review the flagged lines above.")
+        print("\nPASSED with warnings — 全部已在 WARNING_BUDGET 登记且未过期：")
+        for rule_id, n in sorted(counted.items()):
+            print(
+                f"  - {rule_id}: {n} 条（登记到期日 {WARNING_BUDGET[rule_id]['expires']}）"
+            )
         return 0
     print("PASSED: no schema-blind patterns detected")
     return 0

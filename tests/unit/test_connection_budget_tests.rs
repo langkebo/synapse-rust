@@ -17,7 +17,7 @@
 //!
 //! Potential demand is therefore `concurrency × pool_max`, which vastly exceeds
 //! PostgreSQL's default `max_connections = 100`. Observed symptom (documented in
-//! `docs/audit/P0_baseline_2026-09-10.md` §2.2.1): the same commit produced
+//! 已删除的 P0 基线记录 §2.2.1): the same commit produced
 //! "1417 passed / 9 flagged" at low system load but "1408 passed, 12 failed,
 //! 7 timed out" under load — and the full timed-out set passed 13/13 in 2.3 min
 //! when re-run serially. That is starvation, not a code defect.

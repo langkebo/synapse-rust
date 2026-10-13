@@ -222,7 +222,7 @@ pub(crate) async fn get_key_history(
 // `src/web/routes/key_backup.rs` (registered through `create_key_backup_router`
 // in `assembly.rs`). They were duplicated here historically and the routes
 // silently won the merge over the spec-compliant ones; see
-// `docs/synapse-rust/SPEC_ALIGNMENT_PLAN_2026-05-01.md` §1.2 for the audit.
+// 已删除的 SPEC_ALIGNMENT_PLAN_2026-05-01 §1.2 for the audit.
 
 #[cfg(test)]
 mod tests {

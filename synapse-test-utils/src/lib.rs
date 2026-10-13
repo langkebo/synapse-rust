@@ -193,7 +193,7 @@ const DEFAULT_TEST_DB_INIT_TIMEOUT_SECS: u64 = 300;
 // History: the same commit reported "1417 passed / 9 flagged" at low load and
 // "1408 passed, 12 failed, 7 timed out" under load, while the timed-out set
 // passed 13/13 when re-run serially — starvation, not a code defect (see
-// docs/audit/P0_baseline_2026-09-10.md §2.2.1). Keep heavy groups on low
+// 已删除的 P0 基线记录 §2.2.1). Keep heavy groups on low
 // `--test-threads`, or lower TEST_DB_MAX_CONNECTIONS.
 const DEFAULT_TEST_DB_SHARED_CLONE_CONCURRENCY: usize = 12;
 const TEST_TEMPLATE_SCHEMA_REVISION: u32 = 2;

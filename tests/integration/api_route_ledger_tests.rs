@@ -2,7 +2,7 @@
 //! [`Router`].
 //!
 //! The ledger is the substitute we ship for the route-walker API axum does
-//! not expose (R4 / O2 in `docs/synapse-rust/SPEC_ALIGNMENT_PLAN_2026-05-01.md`).
+//! not expose (R4 / O2 in 已删除的 SPEC_ALIGNMENT_PLAN_2026-05-01).
 //! Manifest-only validation catches *internal* duplicates, but a manifest
 //! entry that no longer has a real route behind it (e.g. someone deleted a
 //! `.route(...)` call without removing the manifest entry) would silently

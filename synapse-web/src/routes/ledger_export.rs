@@ -193,6 +193,51 @@ pub fn render(artifact: &LedgerArtifact) -> String {
     }
 }
 
+/// Canonical one-line projection of a single entry, consumed by
+/// [`route_surface_sha256`].
+///
+/// **The exact byte layout is a cross-language contract** — `matrix-js-sdk`
+/// re-derives the same fingerprint in JS (`scripts/contract-sync.mjs`), so any
+/// change here is a breaking change to the fingerprint and must be mirrored
+/// there in the same batch.
+fn entry_fingerprint_line(e: &LedgerEntryJson) -> String {
+    format!(
+        "{}\t{}\t{}\t{}\t{}\t{}\n",
+        e.method,
+        e.path,
+        e.registered_by,
+        e.path_params.join(","),
+        e.query_params.join(","),
+        e.auth.as_deref().unwrap_or(""),
+    )
+}
+
+/// Content fingerprint of the route surface: sha256 (lowercase hex) over the
+/// concatenated [`entry_fingerprint_line`]s, **in `entries` order**.
+///
+/// ## Why this exists
+///
+/// The SDK-lane fixtures (`tests/unit/fixtures/ledger_export_sdk/`) are
+/// byte-stable goldens, so their `synapse_rust_commit` can only be a zero
+/// placeholder and `generated_at` a fixed sentinel. That left the cross-repo
+/// binding anchored to *"the sibling checkout's HEAD at the moment the mirror
+/// was regenerated"* — a **working-tree position**, not the ledger's
+/// **content** (2026-10-13 audit §2 B1 / §4 X2; `verify-sdk-pin.mjs` had to
+/// patch around it by asking "did anything touch the route surface since?").
+///
+/// This fingerprint restores a content-level binding: any consumer re-derives
+/// the same value from the fixture it ingested, with **no access to this
+/// repository** and no dependence on commit history.
+pub fn route_surface_sha256(entries: &[LedgerEntryJson]) -> String {
+    use sha2::{Digest, Sha256};
+
+    let mut hasher = Sha256::new();
+    for e in entries {
+        hasher.update(entry_fingerprint_line(e).as_bytes());
+    }
+    format!("{:x}", hasher.finalize())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -692,9 +692,9 @@ fn test_add_threepid_returns_conflict_when_already_bound() {
     let rows_affected: u64 = 0;
     assert_eq!(rows_affected, 0);
 
-    let err = ApiError::conflict("This 3PID is already bound to a different account".to_string());
+    let err = ApiError::threepid_in_use("This 3PID is already bound to a different account".to_string());
     assert_eq!(err.kind, ApiErrorKind::Conflict);
-    assert_eq!(err.code, MatrixErrorCode::UserInUse);
+    assert_eq!(err.code, MatrixErrorCode::ThreepidInUse);
 }
 
 #[test]
@@ -993,10 +993,10 @@ fn test_error_code_mapping_for_database_failures() {
 
 #[test]
 fn test_error_code_mapping_for_conflict() {
-    // add_threepid returns ApiError::conflict(...) when rows_affected == 0.
-    let err = ApiError::conflict("This 3PID is already bound to a different account".to_string());
+    // add_threepid returns ApiError::threepid_in_use(...) when rows_affected == 0.
+    let err = ApiError::threepid_in_use("This 3PID is already bound to a different account".to_string());
     assert_eq!(err.kind, ApiErrorKind::Conflict);
-    assert_eq!(err.code, MatrixErrorCode::UserInUse);
+    assert_eq!(err.code, MatrixErrorCode::ThreepidInUse);
 }
 
 // ============================================================================

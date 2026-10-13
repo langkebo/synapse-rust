@@ -138,7 +138,13 @@ pub const SUPPORTED_ROOM_VERSIONS: &[RoomVersionCapability] = &[
     // v12（MSC4304）= room v11 + MSC4289（创建者特权）+ MSC4291（room ID = create 事件 id）
     // + MSC4297（State Resolution v2.1）+ MSC4307（`auth_events` 同房校验）。
     //
-    // 现状（逐项见 `docs/audit/ROOM_V12_PLAN_STATUS_2026-09-27.md`，状态表 24/24 全 ✅）：
+    // 现状（逐项见 `docs/audit/ROOM_V12_PLAN_STATUS_2026-09-27.md` §1 表，该表自述 24/24 全 ✅）：
+    // ⚠️ 那是**文档声明**，不是机器判据 —— `docs/audit/**` 的**内容**不受任何门禁保护
+    // （唯一相关的判据只保证"被引用的文档存在"：见
+    // tests/unit/doc_credibility_guard_tests.rs::code_referenced_docs_exist）。
+    // 引用这条收敛度之前必须回源码抽样核对。2026-10-13 的抽样复核只确认了 MSC4291
+    // （`synapse-services/src/room/lifecycle/create.rs` 引入并使用了 `room_id_from_create_event_id`），
+    // 其余 23 项未复核；见 OPS_ARTIFACTS/TJG_MAP_DRIVEN_BACKEND_SDK_AUDIT_2026-10-13.md §2 B6。
     // MSC4291 创建侧（C-1/C-2）与无域名 room id 语法/DB CHECK（C-3）、MSC4307 规则 3.5（B-2）、
     // v12 的 `auth_events` 不含 create（D-4）、入站 create 形态（D-1）、升级顺序（C-4）、
     // MSC4289（E 组）与 MSC4297（F 组）均已落地；v12 已不再属"声明领先实现"。

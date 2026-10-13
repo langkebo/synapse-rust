@@ -26,11 +26,12 @@ mod tests {
     }
 
     #[test]
-    fn tags_error_duplicate_maps_to_409_user_in_use() {
+    fn tags_error_duplicate_maps_to_409_conflict() {
         let api: ApiError = TagsError::Duplicate.into();
         let (kind, code, message) = golden(&api);
         assert_eq!(*kind, ApiErrorKind::Conflict);
-        assert_eq!(*code, MatrixErrorCode::UserInUse);
+        // Generic 409 (no catch-all Matrix errcode) → M_UNKNOWN, not M_USER_IN_USE.
+        assert_eq!(*code, MatrixErrorCode::Unknown);
         assert!(
             message.contains("Tag already exists"),
             "domain Display text must survive the conversion, got: {message}"

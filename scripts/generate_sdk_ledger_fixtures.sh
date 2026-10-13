@@ -35,4 +35,12 @@ for profile in default worker all; do
         --output="${OUTPUT_DIR}/${profile}.json"
 done
 
+# The JSON fixtures above are byte-stable goldens, so they cannot carry a
+# meaningful commit (they hold a zero placeholder by design). Write the
+# content-fingerprint sidecar instead — see src/bin/synapse_ledger_fingerprint.rs
+# for why: it records what the ledger's *content* is, so a consumer can re-derive
+# the same digest from the fixture it ingested without access to this repo
+# (2026-10-13 audit §2 B1 / §4 X2).
+cargo run --quiet --bin synapse_ledger_fingerprint -- --dir="${OUTPUT_DIR}"
+
 printf 'sdk ledger fixtures written to %s\n' "${OUTPUT_DIR}"

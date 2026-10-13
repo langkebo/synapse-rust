@@ -537,3 +537,122 @@ fn the_stale_claim_checker_rejects_an_unretracted_claim() {
     assert_eq!(found.len(), 2, "两个证伪短语都必须被判违规：{found:?}");
     assert!(stale_claim_violations(&format!("~~{stale_phrases}~~"), &root).is_empty(), "删除线包裹后不再违规");
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 2026-10-13（审计 §2 B2）：把「被引用的文档必须存在」从 1 份扩到全仓源码引用
+// ═════════════════════════════════════════════════════════════════════════════
+
+/// 被**测试显式断言不存在**的路径。
+///
+/// 它们出现在"死引用"的负向样本里：`sqlx_ratio_gate_tests.rs` 断言某条错误信息曾指向一个
+/// 不存在的文件；本文件的 4 条伪造引用用于证明路径检查器真的在跑（而非空转）。把它们判为
+/// 违规，等于要求守卫删掉自己的红证明。
+const INTENTIONALLY_ABSENT_DOCS: [&str; 5] = [
+    "docs/synapse-rust/M3_SQLX_MIGRATION_PLAN.md",
+    "docs/synapse-rust/api-reference.md",
+    "docs/synapse-rust/api-reference-v2.md",
+    "docs/synapse-rust/route-contract-v9.md",
+    "docs/…/不存在.md",
+];
+
+/// 递归收集目录下的 `.rs` 文件（跳过 `target/`、`.git/`、`node_modules/`）。
+fn collect_rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if path.is_dir() {
+            if name == "target" || name == ".git" || name == "node_modules" {
+                continue;
+            }
+            collect_rust_files(&path, out);
+        } else if name.ends_with(".rs") {
+            out.push(path);
+        }
+    }
+}
+
+/// 源码里引用的**本仓**文档路径必须存在（2026-10-13 审计 §2 B2）。
+///
+/// ## 为什么需要
+///
+/// 本文件此前只守卫 [`DOC`] **一份**文档，而代码里到处把 `docs/**` 当**证据**引用 ——
+/// `synapse-common/src/room_versions.rs` 引状态表声称"24/24 全 ✅"、
+/// `synapse-services/src/room/state_record.rs` 引同一文件的 §4.6、多个测试引审计轮次报告。
+/// 引用一旦悬空，读者会把"文档不存在"误读成"结论不成立"，或者更糟 —— 把已删除的表当成现状。
+///
+/// 首次启用时（本轮）扫出 **16 处指向已归档文档**（引用没跟着归档动作更新 —— 文档已移入
+/// 同目录树下的 `archive/` 子目录，引用仍指向其原位置）+ **6 处指向已删除文档**，已全部修正。
+///
+/// ## 边界（有意，与 [`referenced_repo_paths`] 同口径）
+///
+/// 本 doc 注释自己也被这条判据扫，
+/// 所以**不能**在这里举「本仓 docs/ 下的示例路径」：占位符同样会被判违规（首次运行就抓到
+/// 本注释里的两个占位符，这正是判据在工作而非空转的实证）。
+///
+/// 只认**反引号包裹**与 **markdown 链接**两种形态、且从 `docs/` 起的路径。裸提及
+/// （`// docs/x/y.md §2` 不带反引号）与跨仓路径（`matrix-js-sdk/docs/…`）不在范围内 ——
+/// 后者由 SDK 仓自己的守卫负责。
+///
+/// ## 判据（红）
+///
+/// 把上面任一被引用的文档改名 ⇒ 本测试失败并列出「引用路径 ← 引用者」。
+/// [`the_doc_reference_scanner_has_teeth`] 另作探测下限，防止"扫描器什么都没扫到"空转通过。
+#[test]
+fn code_referenced_docs_exist() {
+    let root = repo_root();
+    let mut files = Vec::new();
+    for top in ["src", "tests", "benches"] {
+        collect_rust_files(&root.join(top), &mut files);
+    }
+    let mut crate_dirs: Vec<PathBuf> = fs::read_dir(&root)
+        .expect("repo root readable")
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|p| p.is_dir() && p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("synapse-")))
+        .collect();
+    crate_dirs.sort();
+    for dir in &crate_dirs {
+        collect_rust_files(&dir.join("src"), &mut files);
+    }
+
+    let mut violations: Vec<String> = Vec::new();
+    let mut checked = 0usize;
+    for file in &files {
+        let Ok(text) = fs::read_to_string(file) else {
+            continue;
+        };
+        let rel_file = file
+            .strip_prefix(&root)
+            .map_or_else(|_| file.display().to_string(), |p| p.to_string_lossy().replace('\\', "/"));
+        for reference in referenced_repo_paths(&text) {
+            if !reference.starts_with("docs/") || !reference.ends_with(".md") {
+                continue;
+            }
+            checked += 1;
+            if INTENTIONALLY_ABSENT_DOCS.contains(&reference.as_str()) {
+                continue;
+            }
+            if !root.join(&reference).exists() {
+                violations.push(format!("{reference}  <-  {rel_file}"));
+            }
+        }
+    }
+
+    assert!(
+        checked >= 40,
+        "扫描器只找到 {checked} 处 docs/ 引用，低于下限 40 —— 数量骤降说明扫描器坏了\
+         （路径/后缀过滤写错），不是「仓库变干净了」"
+    );
+    assert!(
+        violations.is_empty(),
+        "源码引用了不存在的文档（{} 处）：\n  {}\n\
+         修法：① 文档被归档 ⇒ 路径补成 `docs/<区>/archive/<名>`；\
+         ② 文档已删除 ⇒ 去掉 `docs/...` 路径形态（保留历史指代并注明已删除），或改指现行文档；\
+         ③ 确属「故意引用不存在路径」的负向样本 ⇒ 加进 INTENTIONALLY_ABSENT_DOCS 并写明理由。",
+        violations.len(),
+        violations.join("\n  ")
+    );
+}

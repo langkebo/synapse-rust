@@ -25,7 +25,7 @@ use crate::room::summary::RoomSummaryService;
 // MSC3083 `allow`-array parsing now lives in the single canonical
 // `room::join_rules` module so the authorization gate and the `/summary`
 // projection cannot drift apart again (see its module docs, and
-// `docs/audit/AUDIT_SUMMARY_2026-09-12.md` §3). Re-exported here to keep the
+// `docs/audit/archive/AUDIT_SUMMARY_2026-09-12.md` §3). Re-exported here to keep the
 // existing intra-crate call sites and `super::*` test imports unchanged.
 pub(crate) use crate::room::join_rules::extract_allowed_join_rooms;
 

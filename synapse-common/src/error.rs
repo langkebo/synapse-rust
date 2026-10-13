@@ -81,6 +81,40 @@ impl ApiErrorKind {
 }
 
 // ---------------------------------------------------------------------------
+// HTTP status divergence registry (BE-2)
+// ---------------------------------------------------------------------------
+
+/// `(kind, code)` pairs where a constructor **intentionally** sets an HTTP
+/// status (via [`ApiErrorKind::default_http_status`]) that differs from the
+/// Matrix-spec status implied by the errcode ([`MatrixErrorCode::http_status`]).
+///
+/// The single source of truth for an `ApiError`'s HTTP status is its `kind`
+/// (see `ApiError::into_response`); `code` only fills the body's `errcode`
+/// field. The two are set independently, so a divergence is legal — but it must
+/// be *known*. Every divergence reachable through an `ApiError` constructor is
+/// listed here with a reason; the guard test
+/// `test_api_error_status_divergences_are_registered` fails on any unregistered
+/// divergence, and `test_status_divergence_whitelist_has_no_stale_entries`
+/// fails if an entry here stops being reachable.
+pub const STATUS_DIVERGENCE_WHITELIST: &[(ApiErrorKind, MatrixErrorCode)] = &[
+    // `invalid_credentials()`: the spec mandates 401 + M_FORBIDDEN for a failed
+    // login (M_FORBIDDEN's own spec status is 403).
+    (ApiErrorKind::Unauthorized, MatrixErrorCode::Forbidden),
+    // `gone()`: 410 Gone. Matrix defines no M_GONE, so the errcode is
+    // M_NOT_FOUND (whose spec status is 404).
+    (ApiErrorKind::Gone, MatrixErrorCode::NotFound),
+    // `service_unavailable()`: 503 with no dedicated Matrix errcode → M_UNKNOWN
+    // (whose spec status is 500).
+    (ApiErrorKind::ServiceUnavailable, MatrixErrorCode::Unknown),
+    // `server_not_trusted()`: 403 Forbidden to the caller. M_SERVER_NOT_TRUSTED's
+    // canonical status is 502, which is only meaningful on the federation hop.
+    (ApiErrorKind::Forbidden, MatrixErrorCode::ServerNotTrusted),
+    // `conflict()`: generic 409 conflict with no catch-all Matrix errcode →
+    // M_UNKNOWN (whose spec status is 500).
+    (ApiErrorKind::Conflict, MatrixErrorCode::Unknown),
+];
+
+// ---------------------------------------------------------------------------
 // ApiError — structured error with kind / code / cause
 // ---------------------------------------------------------------------------
 
@@ -282,10 +316,20 @@ impl ApiError {
         }
     }
 
-    /// Builds a 409 `M_USER_IN_USE` conflict error.
-    /// Builds a 409 Conflict error with `M_USER_IN_USE` errcode.
+    /// Builds a generic 409 Conflict error.
+    ///
+    /// Matrix defines no catch-all errcode for 409, so this carries `M_UNKNOWN`.
+    /// Prefer a specific constructor — [`user_in_use`](Self::user_in_use) (400),
+    /// [`room_in_use`](Self::room_in_use), [`threepid_in_use`](Self::threepid_in_use),
+    /// or [`conflict_with`](Self::conflict_with) — whenever the conflict has a
+    /// known Matrix errcode.
+    ///
+    /// Historically this hard-coded `M_USER_IN_USE`, which mislabelled every
+    /// generic conflict (e.g. a duplicate tag reporting "user in use"). The
+    /// intentional status/errcode divergence is registered in
+    /// [`STATUS_DIVERGENCE_WHITELIST`].
     pub fn conflict(message: impl Into<String>) -> Self {
-        Self { kind: ApiErrorKind::Conflict, code: MatrixErrorCode::UserInUse, message: message.into(), cause: None }
+        Self { kind: ApiErrorKind::Conflict, code: MatrixErrorCode::Unknown, message: message.into(), cause: None }
     }
 
     /// Conflict with a specific Matrix error code.
@@ -1218,7 +1262,8 @@ mod tests {
     fn test_api_error_conflict_construction() {
         let err = ApiError::conflict("duplicate");
         assert_eq!(err.kind, ApiErrorKind::Conflict);
-        assert_eq!(err.code, MatrixErrorCode::UserInUse);
+        // Generic 409 has no catch-all Matrix errcode → M_UNKNOWN (not M_USER_IN_USE).
+        assert_eq!(err.code, MatrixErrorCode::Unknown);
     }
 
     #[test]
@@ -1859,6 +1904,145 @@ mod tests {
         for code in &conflict_codes {
             assert_eq!(code.http_status(), StatusCode::CONFLICT, "{code:?} should be CONFLICT");
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // BE-2: HTTP status / errcode divergence guard
+    // -----------------------------------------------------------------------
+
+    /// Every constructor that pins a *fixed* `(kind, code)` pair, as
+    /// `(name, ApiError)`.
+    ///
+    /// `conflict_with` and the `with_code` builder are deliberately excluded:
+    /// they are open escape hatches that accept an arbitrary errcode.
+    ///
+    /// NB: when adding an `ApiError` constructor, add it here too — this list is
+    /// exactly what the divergence guard iterates over.
+    fn all_fixed_api_error_constructors() -> Vec<(&'static str, ApiError)> {
+        vec![
+            ("bad_request", ApiError::bad_request("x")),
+            ("unknown_pos", ApiError::unknown_pos("x")),
+            ("bad_pagination", ApiError::bad_pagination("x")),
+            ("key_too_large", ApiError::key_too_large("x")),
+            ("profile_too_large", ApiError::profile_too_large("x")),
+            ("unauthorized", ApiError::unauthorized("x")),
+            ("invalid_credentials", ApiError::invalid_credentials()),
+            ("forbidden", ApiError::forbidden("x")),
+            ("not_found", ApiError::not_found("x")),
+            ("not_implemented", ApiError::not_implemented("x")),
+            ("conflict", ApiError::conflict("x")),
+            ("internal", ApiError::internal("x")),
+            ("service_unavailable", ApiError::service_unavailable("x")),
+            ("content_scan_failed", ApiError::content_scan_failed("x")),
+            ("content_scan_disabled", ApiError::content_scan_disabled("x")),
+            ("database_with_context", ApiError::database_with_context("x", &"y")),
+            ("internal_with_context", ApiError::internal_with_context("x", &"y")),
+            ("database", ApiError::database("x")),
+            ("database_with_cause", ApiError::database_with_cause("x", io_err())),
+            ("internal_with_cause", ApiError::internal_with_cause("x", io_err())),
+            ("internal_with_boxed_cause", ApiError::internal_with_boxed_cause("x", Box::new(io_err()))),
+            ("cache", ApiError::cache("x")),
+            ("gone", ApiError::gone("x")),
+            ("authentication", ApiError::authentication("x")),
+            ("validation", ApiError::validation("x")),
+            ("invalid_input", ApiError::invalid_input("x")),
+            ("crypto", ApiError::crypto("x")),
+            ("rate_limited", ApiError::rate_limited("x")),
+            ("rate_limited_with_retry", ApiError::rate_limited_with_retry(1000)),
+            ("missing_token", ApiError::missing_token()),
+            ("not_json", ApiError::not_json("x")),
+            ("user_deactivated", ApiError::user_deactivated("x")),
+            ("invalid_username", ApiError::invalid_username("x")),
+            ("user_in_use", ApiError::user_in_use("x")),
+            ("room_in_use", ApiError::room_in_use("x")),
+            ("invalid_room_state", ApiError::invalid_room_state("x")),
+            ("threepid_in_use", ApiError::threepid_in_use("x")),
+            ("threepid_not_found", ApiError::threepid_not_found("x")),
+            ("threepid_auth_failed", ApiError::threepid_auth_failed("x")),
+            ("threepid_denied", ApiError::threepid_denied("x")),
+            ("server_not_trusted", ApiError::server_not_trusted("x")),
+            ("unsupported_room_version", ApiError::unsupported_room_version("x")),
+            ("incompatible_room_version", ApiError::incompatible_room_version("x")),
+            ("bad_state", ApiError::bad_state("x")),
+            ("guest_access_forbidden", ApiError::guest_access_forbidden("x")),
+            ("captcha_needed", ApiError::captcha_needed("x")),
+            ("captcha_invalid", ApiError::captcha_invalid("x")),
+            ("missing_param", ApiError::missing_param("x")),
+            ("invalid_param", ApiError::invalid_param("x")),
+            ("too_large", ApiError::too_large("x")),
+            ("exclusive", ApiError::exclusive("x")),
+            ("resource_limit_exceeded", ApiError::resource_limit_exceeded("x")),
+            ("cannot_leave_server_notice_room", ApiError::cannot_leave_server_notice_room("x")),
+            ("unknown", ApiError::unknown("x")),
+            ("unrecognized", ApiError::unrecognized("x")),
+            ("request_timeout", ApiError::request_timeout("x")),
+            ("decryption_error", ApiError::decryption_error("x")),
+            ("encryption_error", ApiError::encryption_error("x")),
+        ]
+    }
+
+    fn io_err() -> std::io::Error {
+        std::io::Error::other("y")
+    }
+
+    fn is_registered_status_divergence(kind: ApiErrorKind, code: MatrixErrorCode) -> bool {
+        STATUS_DIVERGENCE_WHITELIST.iter().any(|(k, c)| *k == kind && *c == code)
+    }
+
+    /// `ApiError::into_response` derives the HTTP status from `kind` while the
+    /// errcode comes from `code`. Any constructor whose `kind` status differs
+    /// from its `code` spec status is a "divergence" and must be registered in
+    /// `STATUS_DIVERGENCE_WHITELIST`.
+    #[test]
+    fn test_api_error_status_divergences_are_registered() {
+        let mut unregistered = Vec::new();
+        for (name, err) in all_fixed_api_error_constructors() {
+            let kind_status = err.kind.default_http_status();
+            let code_status = err.code.http_status();
+            if kind_status != code_status && !is_registered_status_divergence(err.kind, err.code) {
+                unregistered
+                    .push(format!("{name}: kind={:?}({kind_status}) code={:?}({code_status})", err.kind, err.code));
+            }
+        }
+        assert!(
+            unregistered.is_empty(),
+            "unregistered HTTP status divergence(s) — fix the constructor or add to STATUS_DIVERGENCE_WHITELIST:\n{}",
+            unregistered.join("\n")
+        );
+    }
+
+    /// The registry must not rot: every entry must be both *reachable* through a
+    /// constructor and *actually divergent*. A stale entry is a bug.
+    #[test]
+    fn test_status_divergence_whitelist_has_no_stale_entries() {
+        let observed: Vec<(ApiErrorKind, MatrixErrorCode)> = all_fixed_api_error_constructors()
+            .into_iter()
+            .filter(|(_, err)| err.kind.default_http_status() != err.code.http_status())
+            .map(|(_, err)| (err.kind, err.code))
+            .collect();
+
+        for entry in STATUS_DIVERGENCE_WHITELIST {
+            assert!(
+                observed.contains(entry),
+                "STATUS_DIVERGENCE_WHITELIST entry {entry:?} is stale — no constructor produces it (or it no longer diverges)"
+            );
+        }
+        for pair in &observed {
+            assert!(
+                is_registered_status_divergence(pair.0, pair.1),
+                "constructor divergence {pair:?} is missing from STATUS_DIVERGENCE_WHITELIST"
+            );
+        }
+    }
+
+    /// Mutation-check (铁律 8): prove the guard can actually fail. A real
+    /// divergence nobody registered must be rejected; a registered one accepted.
+    #[test]
+    fn test_status_divergence_guard_can_fail() {
+        // Forbidden(403) + M_NOT_FOUND(404) is a genuine divergence, unregistered.
+        assert!(!is_registered_status_divergence(ApiErrorKind::Forbidden, MatrixErrorCode::NotFound));
+        // Sanity: a registered divergence is accepted.
+        assert!(is_registered_status_divergence(ApiErrorKind::Gone, MatrixErrorCode::NotFound));
     }
 
     // -----------------------------------------------------------------------

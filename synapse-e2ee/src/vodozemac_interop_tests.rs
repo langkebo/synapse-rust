@@ -1,7 +1,7 @@
 //! E2EE vodozemac interop test harness.
 //!
 //! This module provides the scaffolding for the cross-client matrix
-//! described in `docs/synapse-rust/E2EE_VODOZEMAC_MIGRATION.md` §4.
+//! described in `docs/synapse-rust/archive/E2EE_VODOZEMAC_MIGRATION.md` §4.
 //!
 //! Test groups:
 //! 1. `olm_*` — Olm interop (account lifecycle, session establishment,

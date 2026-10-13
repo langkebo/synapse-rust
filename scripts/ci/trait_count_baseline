@@ -1,7 +1,16 @@
 # Trait-count ratchet baseline (A5 / B4-1). See scripts/ci/check_trait_ratchet.py.
 # The numbers may only go DOWN. Bump them deliberately and say why.
-TOTAL=69
+TOTAL=68
 STORE_API=33
+#
+# 2026-10-13  TOTAL 69 -> 68 (-1) —— 棘轮回填（B4；见 OPS_ARTIFACTS/TJG_MAP_DRIVEN_BACKEND_SDK_AUDIT_2026-10-13.md §2 B4）
+#   来源：`75864fdb5`「refactor(services,storage,web): 清理死代码、抽出跨层 helper，并同步测试与文档」
+#         删除了 `pub trait RoomServiceApi: Send + Sync`（该 trait 由 `64ed9291d` 引入）。
+#   回填前基线停在 2026-10-03 的 69，而 HEAD 实测 68 —— 棘轮此前松一格（已下降未回填）。
+#   纯收紧，未新增任何接缝；`*StoreApi` 未变（33 == 33），存储抽象棘轮未被放宽。
+#   ⚠️ 本次同时修掉 `--update` 的一处自伤：它此前整文件覆盖写基线，会把这些带日期的理由块一起删掉
+#      （2026-10-13 实测 79 行 -> 4 行）。现已改为只替换 TOTAL=/STORE_API= 两行，并在文件缺行时拒绝写入；
+#      追加理由仍是人工动作。
 #
 # 2026-10-03  TOTAL 68 -> 69 (+1) —— worker 事件总线的发布接缝 trait（P-5）
 #   来源：synapse-services/src/worker/event_sink.rs

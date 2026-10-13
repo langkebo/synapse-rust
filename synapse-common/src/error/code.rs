@@ -155,7 +155,15 @@ impl MatrixErrorCode {
         }
     }
 
-    /// Returns the canonical HTTP status code for this Matrix error code.
+    /// Returns the Matrix-spec HTTP status associated with this error code.
+    ///
+    /// NOT the source of truth for a live `ApiError`'s HTTP status: on the wire
+    /// the status is derived from the error's `kind` (`ApiErrorKind::default_http_status`),
+    /// while the errcode only fills the body's `errcode` field. This mapping is
+    /// used by the test-only `ApiResponse` path and as the reference side of the
+    /// `STATUS_DIVERGENCE_WHITELIST` guard (`ApiError::into_response` never calls
+    /// this). Do not treat a difference between the two as a bug — register
+    /// intentional divergences in that whitelist instead.
     pub fn http_status(&self) -> StatusCode {
         match self {
             Self::Forbidden => StatusCode::FORBIDDEN,

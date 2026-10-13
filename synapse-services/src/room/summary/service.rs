@@ -334,7 +334,7 @@ impl RoomSummaryService {
 // MSC3083 `allow`-array parsing now lives in the single canonical
 // `room::join_rules` module so this `/summary` projection and the membership
 // authorization gate cannot drift apart again (see its module docs, and
-// `docs/audit/AUDIT_SUMMARY_2026-09-12.md` §3). Re-exported here to keep the
+// `docs/audit/archive/AUDIT_SUMMARY_2026-09-12.md` §3). Re-exported here to keep the
 // existing call site and test imports unchanged.
 pub(crate) use crate::room::join_rules::extract_allowed_room_ids;
 

@@ -46,7 +46,7 @@
 //! *config*: both mount `docker/config/`, and neither keeps a copy.
 //! `docker/deploy/config/` used to be a hand-synced copy; it drifted (dev
 //! `sync.enabled: false` vs deploy `true`,
-//! see `docs/audit/S_series_verification_2026-09-11.md` §2) and `/sync` ended up
+//! see `docs/audit/archive/S_series_verification_2026-09-11.md` §2) and `/sync` ended up
 //! with no rate limiting at all. Same failure mode as the migrations duplicate
 //! directory (`2b16dc3c`), same fix: one source, mounted by path.
 

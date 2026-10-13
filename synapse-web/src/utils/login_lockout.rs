@@ -237,7 +237,7 @@ pub(crate) async fn clear_login_failures(cache: &synapse_cache::CacheManager, ip
 // P1 login-lockout hardening — tests
 // ---------------------------------------------------------------------------
 //
-// Background: `docs/audit/P1_security_2026-09-10.md`.
+// Background: `docs/audit/archive/P1_security_2026-09-10.md`.
 //
 // The audit initially suspected that `check_login_lockout`'s `_ => Ok(())` arm
 // let a Redis outage disable the brute-force lock. Direct measurement showed
