@@ -64,7 +64,15 @@ impl ClientApiVersionSupport {
 /// The server only registers the `/_matrix/client/v3` route surface, so it
 /// declares the stable v1 family exclusively. The legacy `r0.x` versions are
 /// intentionally NOT advertised: declaring them would promise an r0 endpoint
-/// surface that does not exist.
+/// surface that does not exist. (Upstream Synapse still lists `r0.0.1` ..
+/// `r0.6.1` for historical reasons — see `rust/src/handlers/versions.py` in
+/// `element-hq/synapse`. Clients must not rely on them.)
+///
+/// The **ceiling** of this list is this repo's declared Matrix baseline, and
+/// `AGENTS.md` §"Current external baselines" points at it as the single source
+/// of truth. Every entry MUST have a matching row in
+/// [`CLIENT_API_VERSION_EVIDENCE`]; `declared_versions_have_evidence` fails
+/// otherwise, so "bump the ceiling" can never be a one-line change.
 pub(crate) const CLIENT_API_VERSION_SUPPORT: &[ClientApiVersionSupport] = &[
     ClientApiVersionSupport::stable("v1.1"),
     ClientApiVersionSupport::stable("v1.2"),
@@ -84,6 +92,75 @@ pub(crate) const CLIENT_API_VERSION_SUPPORT: &[ClientApiVersionSupport] = &[
     // All other v1.14 changes (server_name removal from join/knock,
     // editorial clarifications) are already supported.
     ClientApiVersionSupport::stable("v1.14"),
+    // v1.15 (spec 2025-06-26) — see `CLIENT_API_VERSION_EVIDENCE` for the
+    // per-item detail and the explicit gaps.
+    ClientApiVersionSupport::stable("v1.15"),
+    // v1.16 (spec 2025-09-17) — headline feature MSC4222 is implemented.
+    ClientApiVersionSupport::stable("v1.16"),
+    // v1.17 (spec 2025-12-18) — no new C-S endpoints; MSC4210 is behavioural.
+    ClientApiVersionSupport::stable("v1.17"),
+];
+
+/// One `(version, evidence)` row per [`CLIENT_API_VERSION_SUPPORT`] entry.
+///
+/// `evidence` is the concrete, greppable justification for declaring the
+/// version: the spec changelog that introduced it, the C-S API items it
+/// contains, and an explicit `GAP:` marker for anything this server does
+/// **not** implement. Marking a gap in the open is deliberate — declaring a
+/// version is an interop promise, so an unimplemented item has to be visible
+/// here rather than discovered by a client at runtime.
+///
+/// `declared_versions_have_evidence` pins this list 1:1 to
+/// [`CLIENT_API_VERSION_SUPPORT`] (same order, same length, no duplicates) and
+/// requires every row's evidence to cite **its own** spec changelog file
+/// (`content/changelog/<version>.md`). Copy-pasting a neighbouring row
+/// therefore fails the guard instead of silently mislabelling a version.
+///
+/// `#[cfg(test)]` because the guard is the only consumer: this table carries no
+/// runtime behavior, it exists so that the declaration above can never drift
+/// away from its justification.
+#[cfg(test)]
+const CLIENT_API_VERSION_EVIDENCE: &[(&str, &str)] = &[
+    ("v1.1", "matrix-spec content/changelog/v1.1.md —— 历史基线；本仓 `/_matrix/client/v3` 路由面已覆盖"),
+    ("v1.2", "matrix-spec content/changelog/v1.2.md —— 历史基线；本仓 `/_matrix/client/v3` 路由面已覆盖"),
+    ("v1.3", "matrix-spec content/changelog/v1.3.md —— 历史基线；本仓 `/_matrix/client/v3` 路由面已覆盖"),
+    ("v1.4", "matrix-spec content/changelog/v1.4.md —— 历史基线；本仓 `/_matrix/client/v3` 路由面已覆盖"),
+    ("v1.5", "matrix-spec content/changelog/v1.5.md —— 历史基线；本仓 `/_matrix/client/v3` 路由面已覆盖"),
+    ("v1.6", "matrix-spec content/changelog/v1.6.md —— 历史基线；本仓 `/_matrix/client/v3` 路由面已覆盖"),
+    ("v1.7", "matrix-spec content/changelog/v1.7.md —— 历史基线；本仓 `/_matrix/client/v3` 路由面已覆盖"),
+    ("v1.8", "matrix-spec content/changelog/v1.8.md —— 历史基线；本仓 `/_matrix/client/v3` 路由面已覆盖"),
+    ("v1.9", "matrix-spec content/changelog/v1.9.md —— 历史基线；本仓 `/_matrix/client/v3` 路由面已覆盖"),
+    ("v1.10", "matrix-spec content/changelog/v1.10.md —— 历史基线；本仓 `/_matrix/client/v3` 路由面已覆盖"),
+    ("v1.11", "matrix-spec content/changelog/v1.11.md —— 历史基线；本仓 `/_matrix/client/v3` 路由面已覆盖"),
+    ("v1.12", "matrix-spec content/changelog/v1.12.md —— 历史基线；本仓 `/_matrix/client/v3` 路由面已覆盖"),
+    ("v1.13", "matrix-spec content/changelog/v1.13.md —— 历史基线；本仓 `/_matrix/client/v3` 路由面已覆盖"),
+    (
+        "v1.14",
+        "matrix-spec content/changelog/v1.14.md —— MSC4239（默认房间版本）等；\
+         GAP: POST /v3/users/{userId}/report (MSC4260) 见 VERSION_GAP_ANALYSIS.md",
+    ),
+    (
+        "v1.15",
+        "matrix-spec content/changelog/v1.15.md —— 新增 GET /v1/room_summary/{roomIdOrAlias}(MSC3266)、\
+         GET /v1/auth_metadata(MSC2965)、m.topic 富文本(MSC3765)、Olm 事件携带设备密钥(MSC4147)、\
+         OAuth2 认证 API(MSC3861)；GAP: room_summary 路径未注册、OAuth2 API 未实现、\
+         hierarchy 的 allowed_room_ids/encryption/room_version 未返回。\
+         `GET /v1/auth_metadata` 已实现（derived_route_table_always.inc.rs）",
+    ),
+    (
+        "v1.16",
+        "matrix-spec content/changelog/v1.16.md —— MSC4222 `use_state_after`/`state_after`（已实现，稳定+不稳定双拼写）；\
+         GAP: `?format=` on GET /v3/rooms/{roomId}/state/{eventType}/{stateKey} 未读取；\
+         GAP: MSC4133 `m.profile_fields` 能力已声明但稳定 /{keyName} 路由未注册；\
+         room v12 相关 MSC4289/4291/4297/4307 与 MSC4175/MSC4311 见 room v12 审计文档",
+    ),
+    (
+        "v1.17",
+        "matrix-spec content/changelog/v1.17.md —— 无新增 C-S 端点；\
+         MSC4210 默认移除 legacy mention 推送规则；MSC4326/MSC4312/MSC4190（appservice 设备伪装、\
+         m.oauth UIA、appservice 免 legacy 认证）；GAP: MSC4210 默认规则集未收口、\
+         MSC4326/MSC4312/MSC4190 未实现",
+    ),
 ];
 
 const BASE_UNSTABLE_FEATURES: &[(&str, bool)] = &[
@@ -669,6 +746,99 @@ mod tests {
         assert!(
             versions.iter().all(|version| !version.as_str().unwrap_or_default().starts_with("r0")),
             "the /versions response must not include legacy r0 versions"
+        );
+    }
+
+    /// Pure predicate behind [`declared_versions_have_evidence`].
+    ///
+    /// Returns one human-readable violation per problem, so the checker itself
+    /// can be proven non-vacuous by the two red-proof tests below — "守卫存在"
+    /// 不等于"守卫在工作"（AGENTS.md 铁律 8）。
+    fn evidence_violations(support: &[ClientApiVersionSupport], evidence: &[(&str, &str)]) -> Vec<String> {
+        let mut found = Vec::new();
+
+        if support.len() != evidence.len() {
+            found.push(format!(
+                "CLIENT_API_VERSION_EVIDENCE 有 {} 行，但 CLIENT_API_VERSION_SUPPORT 有 {} 项 —— \
+                 每声明一个版本都必须同步写一行证据",
+                evidence.len(),
+                support.len()
+            ));
+        }
+
+        for (index, declared) in support.iter().enumerate() {
+            let version = declared.version();
+            let Some((row_version, text)) = evidence.get(index) else {
+                found.push(format!("{version} 没有对应的证据行"));
+                continue;
+            };
+            if *row_version != version {
+                found.push(format!("第 {index} 行版本错位：support 为 {version}，evidence 为 {row_version}"));
+            }
+            if text.trim().len() < 8 {
+                found.push(format!("{version} 的证据过短：{text:?}"));
+            }
+            // 必须引用**自己的**规格 changelog 文件：复制相邻行会在这里变红。
+            let citation = format!("content/changelog/{version}.md");
+            if !text.contains(&citation) {
+                found.push(format!("{version} 的证据未引用其自身的规格 changelog（应含 `{citation}`）：{text}"));
+            }
+            for placeholder in ["TODO", "FIXME", "XXX"] {
+                if text.contains(placeholder) {
+                    found.push(format!("{version} 的证据仍是占位符（{placeholder}）"));
+                }
+            }
+        }
+
+        found
+    }
+
+    #[test]
+    fn declared_versions_have_evidence() {
+        let violations = evidence_violations(CLIENT_API_VERSION_SUPPORT, CLIENT_API_VERSION_EVIDENCE);
+        assert!(
+            violations.is_empty(),
+            "声明客户端 API 版本时必须同步在 CLIENT_API_VERSION_EVIDENCE 里写明依据与缺口：\n  - {}",
+            violations.join("\n  - ")
+        );
+    }
+
+    /// **红证明**：把上一行原样复制成下一行（版本与引用文件都没改）必须被判违规。
+    #[test]
+    fn the_evidence_checker_rejects_a_copy_pasted_row() {
+        let support = &[ClientApiVersionSupport::stable("v1.16"), ClientApiVersionSupport::stable("v1.17")];
+        let copy_pasted = &[
+            ("v1.16", "matrix-spec content/changelog/v1.16.md —— 复制来源行"),
+            ("v1.17", "matrix-spec content/changelog/v1.16.md —— 忘了改版本与文件"),
+        ];
+        let violations = evidence_violations(support, copy_pasted);
+        assert!(
+            violations.iter().any(|violation| violation.contains("v1.17")),
+            "复制粘贴的证据必须被判违规，实际：{violations:?}"
+        );
+    }
+
+    /// **红证明**：漏写一行证据（长度不匹配）必须被判违规。
+    #[test]
+    fn the_evidence_checker_rejects_a_missing_row() {
+        let support = &[ClientApiVersionSupport::stable("v1.16"), ClientApiVersionSupport::stable("v1.17")];
+        let only_one = &[("v1.16", "matrix-spec content/changelog/v1.16.md —— 只有一行")];
+        let violations = evidence_violations(support, only_one);
+        assert!(
+            violations.iter().any(|violation| violation.contains("v1.17")),
+            "漏写证据行必须被判违规，实际：{violations:?}"
+        );
+    }
+
+    /// **红证明**：证据里留占位符必须被判违规。
+    #[test]
+    fn the_evidence_checker_rejects_a_placeholder() {
+        let support = &[ClientApiVersionSupport::stable("v1.17")];
+        let placeholder = &[("v1.17", "matrix-spec content/changelog/v1.17.md TODO")];
+        let violations = evidence_violations(support, placeholder);
+        assert!(
+            violations.iter().any(|violation| violation.contains("占位符")),
+            "占位符证据必须被判违规，实际：{violations:?}"
         );
     }
 

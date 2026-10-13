@@ -3,7 +3,7 @@
 > 审查日期: 2026-07-28
 > synapse-rust 版本: v6.2.0
 > Element Synapse 基线: v1.156.0 (2026-07-07)（本文档为历史快照；现行上游基线见 [`API_COVERAGE_REPORT.md`](./API_COVERAGE_REPORT.md) 的 **v1.162.0**）
-> Matrix Specification 基线: v1.14（本仓库 `CLIENT_API_VERSION_SUPPORT` 声明上限，唯一权威见 `synapse-services/src/capability_governance.rs`）
+> Matrix Specification 基线: v1.14（本仓库 `CLIENT_API_VERSION_SUPPORT` 声明上限，唯一权威见 `synapse-services/src/capability_governance.rs`）（本文档出具时为 v1.14；该上限于 2026-10-13 升至 **v1.17**，逐版本依据与缺口见同一常量的 `CLIENT_API_VERSION_EVIDENCE`）
 
 ---
 

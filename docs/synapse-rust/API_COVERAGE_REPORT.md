@@ -9,7 +9,7 @@
 > 见 `docs/audit/ROOM_V12_PLAN_STATUS_2026-09-27.md`。
 
 > **对齐基准**：element-hq/synapse **v1.162.0**（发布于 2026-09-29，当前最新稳定版）；上游 `CHANGES.md` 已核对 1.157→1.162 全部条目。
-> Matrix Specification 基线：**v1.14**（本仓库 `/versions` 声明上限，唯一权威为 `synapse-services/src/capability_governance.rs` 的 `CLIENT_API_VERSION_SUPPORT`；上游 v1.162 release notes 引用 `spec.matrix.org/v1.19`，但本服务器未声明 v1.15+，故不以之为基线）。
+> Matrix Specification 基线：**v1.14**（**本报告取证时**的口径；唯一权威为 `synapse-services/src/capability_governance.rs` 的 `CLIENT_API_VERSION_SUPPORT`）。⚠️ 2026-10-13 起该常量上限已升至 **v1.17**（逐版本依据与已知缺口见同文件的 `CLIENT_API_VERSION_EVIDENCE`），本报告**尚未**针对 v1.15–v1.17 重新取证；逐条差距与排期见 `docs/audit/UPSTREAM_CHANGELOG_ALIGNMENT_PLAN_2026-10-13.md`。上游 v1.162 release notes 引用 `spec.matrix.org/v1.19`，与本仓声明基线是两个概念，勿混。
 > **本次复核日期**：2026-09-29；本表全部取证的仓库 HEAD 为 `74bb9c522`（`git log -1`）。
 > v1.6 的取证 HEAD 为 `9e26ee31a`（2026-09-25，分支 `opt/consolidated`）；其后路由注册面经 §1.1 末段列出的
 > 三批提交（`88001b4a9` → `d4e22f9ea` → HEAD）推进，故本版三口径计数整体上移。

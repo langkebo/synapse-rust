@@ -40,6 +40,12 @@
 | **[sdk-encapsulation-audit.md](sdk-encapsulation-audit.md)** | SDK 封装审计 | ✅ Active |
 | **[CAS_ROUTER_PREFIX_MISSING_2026-09-29.md](CAS_ROUTER_PREFIX_MISSING_2026-09-29.md)** | CAS 路由器前缀缺失 | ✅ Active |
 
+### 上游对齐
+
+| 文档 | 描述 | 状态 |
+|------|------|------|
+| **[UPSTREAM_CHANGELOG_ALIGNMENT_PLAN_2026-10-13.md](UPSTREAM_CHANGELOG_ALIGNMENT_PLAN_2026-10-13.md)** | 上游 `changelog.d`（24 条）逐条对照与对齐优化方案 | ✅ Active |
+
 ### 其他规划文档
 
 | 文档 | 描述 | 状态 |

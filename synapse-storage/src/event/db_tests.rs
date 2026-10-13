@@ -3533,3 +3533,79 @@ async fn test_find_related_events_and_cascade_targets() {
     let depth1 = storage.find_cascade_targets(&root, 1).await.expect("find_cascade_targets depth 1");
     assert_eq!(depth1, vec![root.clone()], "max_depth=1 时只有根节点");
 }
+
+/// MSC4222 / 上游 Synapse #20081：增量 `/sync` 的 `state_after` 不得丢掉
+/// **离开者本人**的 `m.room.member` leave 事件 —— 边界情形是离开者为该房
+/// **最后一个本地用户**（上游 2026-10 的修复正是针对它）。
+///
+/// 本仓这条链路结构上更安全：`get_state_events_since_batch` 是 `{col} > since`
+/// **无上界**、且**不按当前成员过滤**的查询（见 `event/state.rs`），所以只要离开
+/// 事件的 `stream_ordering > since`，它就必然进入 `state_after`。本用例把这个
+/// 不变量钉住：将来若有人给该查询加上"只看仍是成员的 state_key"之类的过滤、
+/// 或补上时间上界，这里会红。
+#[tokio::test]
+async fn state_events_since_batch_keeps_the_last_local_users_leave() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+    let room_id = format!("!lastlocal_{}:example.com", uuid::Uuid::new_v4());
+    let alice = "@lastlocal:example.com";
+
+    ensure_test_room(&pool, &room_id).await;
+    ensure_test_user(&pool, alice).await;
+
+    let member_event = |event_id: String, membership: &str, ts: i64| CreateEventParams {
+        event_id,
+        room_id: room_id.clone(),
+        user_id: alice.to_string(),
+        event_type: "m.room.member".to_string(),
+        content: serde_json::json!({ "membership": membership }),
+        state_key: Some(alice.to_string()),
+        origin_server_ts: ts,
+        redacts: None,
+    };
+
+    let base = current_timestamp_millis();
+    let join_id = format!("$join_{}:example.com", uuid::Uuid::new_v4());
+    storage
+        .create_event_with_graph(member_event(join_id.clone(), "join", base), &[], &[], 1, None)
+        .await
+        .expect("insert join");
+
+    // 增量游标取"join 之后、leave 之前"的 stream_ordering。
+    let since: i64 = sqlx::query_scalar("SELECT COALESCE(MAX(stream_ordering), 0) FROM events WHERE room_id = $1")
+        .bind(&room_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("read max stream_ordering");
+
+    let leave_id = format!("$leave_{}:example.com", uuid::Uuid::new_v4());
+    storage
+        .create_event_with_graph(member_event(leave_id.clone(), "leave", base + 1), &[], &[], 2, None)
+        .await
+        .expect("insert leave");
+
+    let by_room = storage
+        .get_state_events_since_batch(std::slice::from_ref(&room_id), SinceFilter::StreamOrdering(since))
+        .await
+        .expect("state events since batch");
+
+    let events = by_room.get(&room_id).expect("room should be present in the batch");
+    let alice_member = events
+        .iter()
+        .find(|event| event.state_key.as_deref() == Some(alice))
+        .expect("最后一个本地用户的 m.room.member 必须出现在 state_after 的取数结果里");
+
+    assert_eq!(
+        alice_member.content.get("membership").and_then(serde_json::Value::as_str),
+        Some("leave"),
+        "DISTINCT ON 必须取该 state_key 的最新一条（leave），实际：{}",
+        alice_member.content
+    );
+    assert_eq!(alice_member.event_id, leave_id);
+    assert!(
+        events.iter().all(|event| event.event_id != join_id),
+        "`since` 之前的 join 不得出现 —— 证明下界生效，结果是 state_after 而非全量状态"
+    );
+
+    let _ = storage.delete_room_events(&room_id).await;
+}

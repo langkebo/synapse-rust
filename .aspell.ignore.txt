@@ -659,6 +659,7 @@ pushrules
 pushstoreapi
 py
 pycharm
+pydantic
 pylance
 pymalloc
 pynacl
@@ -722,6 +723,7 @@ rg
 rgv
 rhel
 rhs
+ripgrep
 rng
 roadmap
 roi
@@ -901,6 +903,7 @@ tokio
 toml
 toolchain
 totp
+towncrier
 toybox
 traceback
 tracecontext
