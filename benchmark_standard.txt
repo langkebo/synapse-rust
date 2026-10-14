@@ -1,90 +1,93 @@
 state_resolution_chain_10
-                        time:   [150.40 ns 151.67 ns 152.83 ns]
-                        change: [-5.6601% -4.5683% -3.4053%] (p = 0.00 < 0.05)
-                        Performance has improved.
-Found 1 outliers among 20 measurements (5.00%)
-  1 (5.00%) high mild
-
-state_resolution_chain_100
-                        time:   [158.43 ns 159.40 ns 160.57 ns]
-                        change: [-5.5669% -4.1166% -2.7916%] (p = 0.00 < 0.05)
-                        Performance has improved.
-Found 1 outliers among 20 measurements (5.00%)
-  1 (5.00%) high mild
-
-auth_chain_build_10     time:   [5.7686 µs 5.8203 µs 5.8877 µs]
-                        change: [+0.0528% +1.3889% +2.9378%] (p = 0.07 > 0.05)
+                        time:   [272.69 ns 275.89 ns 278.90 ns]
+                        change: [-1.8922% -0.3417% +1.6458%] (p = 0.71 > 0.05)
                         No change in performance detected.
 Found 1 outliers among 20 measurements (5.00%)
   1 (5.00%) high mild
 
+state_resolution_chain_100
+                        time:   [274.97 ns 276.43 ns 278.35 ns]
+                        change: [-0.5688% -0.0705% +0.4366%] (p = 0.80 > 0.05)
+                        No change in performance detected.
+Found 6 outliers among 20 measurements (30.00%)
+  3 (15.00%) low mild
+  2 (10.00%) high mild
+  1 (5.00%) high severe
+
+auth_chain_build_10     time:   [6.6278 µs 6.6315 µs 6.6362 µs]
+                        change: [-1.5290% -1.3661% -1.2244%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 2 outliers among 20 measurements (10.00%)
+  1 (5.00%) high mild
+  1 (5.00%) high severe
+
 membership_transitions/ban_to_join
-                        time:   [1.1248 ns 1.1281 ns 1.1319 ns]
-Found 2 outliers among 100 measurements (2.00%)
-  1 (1.00%) high mild
-  1 (1.00%) high severe
-membership_transitions/ban_to_invite
-                        time:   [1.1171 ns 1.1252 ns 1.1327 ns]
-Found 3 outliers among 100 measurements (3.00%)
-  2 (2.00%) high mild
-  1 (1.00%) high severe
-membership_transitions/ban_to_knock
-                        time:   [1.1261 ns 1.1519 ns 1.1835 ns]
+                        time:   [2.4929 ns 2.4949 ns 2.4972 ns]
 Found 8 outliers among 100 measurements (8.00%)
   3 (3.00%) high mild
   5 (5.00%) high severe
-membership_transitions/self_ban
-                        time:   [926.20 ps 930.88 ps 936.01 ps]
-Found 3 outliers among 100 measurements (3.00%)
-  1 (1.00%) high mild
-  2 (2.00%) high severe
-membership_transitions/banned_self_leave
-                        time:   [960.62 ps 967.30 ps 974.42 ps]
-Found 4 outliers among 100 measurements (4.00%)
-  1 (1.00%) high mild
-  3 (3.00%) high severe
-membership_transitions/invite_of_banned
-                        time:   [1.0436 ns 1.0462 ns 1.0494 ns]
-Found 15 outliers among 100 measurements (15.00%)
-  9 (9.00%) high mild
-  6 (6.00%) high severe
-membership_transitions/join_restricted_not_invited
-                        time:   [1.2442 ns 1.2628 ns 1.2868 ns]
+membership_transitions/ban_to_invite
+                        time:   [2.4900 ns 2.4913 ns 2.4928 ns]
 Found 8 outliers among 100 measurements (8.00%)
-  2 (2.00%) low mild
-  3 (3.00%) high mild
+  1 (1.00%) high mild
+  7 (7.00%) high severe
+membership_transitions/ban_to_knock
+                        time:   [2.2022 ns 2.2057 ns 2.2097 ns]
+Found 5 outliers among 100 measurements (5.00%)
+  2 (2.00%) high mild
   3 (3.00%) high severe
-membership_transitions/invite_to_join
-                        time:   [953.60 ps 969.57 ps 991.03 ps]
-Found 3 outliers among 100 measurements (3.00%)
-  3 (3.00%) high severe
-membership_transitions/leave_to_invite
-                        time:   [1.1285 ns 1.1340 ns 1.1403 ns]
-Found 3 outliers among 100 measurements (3.00%)
-  3 (3.00%) high severe
-membership_transitions/knock_to_join
-                        time:   [1.0324 ns 1.0388 ns 1.0475 ns]
+membership_transitions/self_ban
+                        time:   [2.1848 ns 2.1881 ns 2.1922 ns]
+Found 12 outliers among 100 measurements (12.00%)
+  7 (7.00%) high mild
+  5 (5.00%) high severe
+membership_transitions/banned_self_leave
+                        time:   [2.0467 ns 2.0611 ns 2.0796 ns]
+Found 9 outliers among 100 measurements (9.00%)
+  9 (9.00%) high severe
+membership_transitions/invite_of_banned
+                        time:   [2.2760 ns 2.2818 ns 2.2878 ns]
 Found 2 outliers among 100 measurements (2.00%)
-  2 (2.00%) high severe
-membership_transitions/leave_to_leave
-                        time:   [978.26 ps 989.72 ps 1.0065 ns]
-Found 16 outliers among 100 measurements (16.00%)
-  2 (2.00%) low severe
-  6 (6.00%) low mild
+  1 (1.00%) high mild
+  1 (1.00%) high severe
+membership_transitions/join_restricted_not_invited
+                        time:   [3.1143 ns 3.1153 ns 3.1164 ns]
+Found 8 outliers among 100 measurements (8.00%)
   4 (4.00%) high mild
   4 (4.00%) high severe
+membership_transitions/invite_to_join
+                        time:   [2.0216 ns 2.0233 ns 2.0256 ns]
+Found 7 outliers among 100 measurements (7.00%)
+  2 (2.00%) high mild
+  5 (5.00%) high severe
+membership_transitions/leave_to_invite
+                        time:   [2.2284 ns 2.2298 ns 2.2312 ns]
+Found 3 outliers among 100 measurements (3.00%)
+  1 (1.00%) high mild
+  2 (2.00%) high severe
+membership_transitions/knock_to_join
+                        time:   [2.2004 ns 2.2031 ns 2.2070 ns]
+Found 6 outliers among 100 measurements (6.00%)
+  4 (4.00%) high mild
+  2 (2.00%) high severe
+membership_transitions/leave_to_leave
+                        time:   [2.1278 ns 2.1307 ns 2.1337 ns]
+Found 9 outliers among 100 measurements (9.00%)
+  5 (5.00%) high mild
+  4 (4.00%) high severe
 membership_transitions/join_to_join
-                        time:   [932.77 ps 942.96 ps 955.56 ps]
-Found 5 outliers among 100 measurements (5.00%)
-  1 (1.00%) high mild
-  4 (4.00%) high severe
+                        time:   [2.0516 ns 2.0566 ns 2.0619 ns]
+Found 6 outliers among 100 measurements (6.00%)
+  5 (5.00%) high mild
+  1 (1.00%) high severe
 membership_transitions/knock_to_knock
-                        time:   [994.83 ps 1.0108 ns 1.0318 ns]
-Found 5 outliers among 100 measurements (5.00%)
-  1 (1.00%) high mild
-  4 (4.00%) high severe
+                        time:   [2.1044 ns 2.1069 ns 2.1095 ns]
+Found 3 outliers among 100 measurements (3.00%)
+  2 (2.00%) high mild
+  1 (1.00%) high severe
 membership_transitions/none_to_join
-                        time:   [1.0516 ns 1.0576 ns 1.0634 ns]
-Found 1 outliers among 100 measurements (1.00%)
-  1 (1.00%) high mild
+                        time:   [2.2317 ns 2.2377 ns 2.2455 ns]
+Found 9 outliers among 100 measurements (9.00%)
+  4 (4.00%) high mild
+  5 (5.00%) high severe
 
