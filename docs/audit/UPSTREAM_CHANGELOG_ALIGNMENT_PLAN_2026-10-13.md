@@ -8,16 +8,23 @@
 
 ## 0. TL;DR
 
-- 上游 `changelog.d` 共 **24 条**未发布条目，可归为 6 类：规格宣告、MSC 特性、Sticky Events 修复、联邦/资料、安全隐私、性能正确性。
-- 本仓**已经对齐**的（无需行动）：MSC4222 双拼写、MSC2965 `auth_metadata`、20321 错误不泄露内部细节、20006 媒体孤儿文件（结构上不适用）。
-- 本仓**确有差距**、建议排期的：
-  1. **`/versions` 只宣告到 `v1.14`，上游已到 `v1.16` + `v1.17`**（最直接、最可验证的差距）。
-  2. **MSC4210**：默认推送规则仍带三条 legacy 提及规则，上游与规格 v1.17 默认已移除。
-  3. **MSC4452**：`preview_url` 只声明了不稳定别名，缺稳定能力名 `m.preview_url`。
-  4. **MSC4354 Sticky Events**：本地有实现，但上游这轮有 **4 条修复**（历史可见性豁免覆盖、redact 与 sticky 的交互、到期口径）本地大概率未收口。
-  5. **appservice `url: null`**：本地注册模型把 `url` 定为**必填** `String`，上游允许 `null`（bridge 双傀儡注册）⇒ 上游合法的注册文件在本仓会解析失败。
-  6. **MSC4140**：本地已有发送端 `delay` 提示 + 管理端点；上游新增**专用调度端点**并改了取消语义，需对照 PR 确认是否等价。
-- 明确**不适用**：MSC4426/MSC4259（本仓无 user status）、SQLite→PG 序列（本仓 PG-only）。
+> ⚠️ 本节原为 2026-10-13 的**初判**。下面是 **2026-10-14 收口**后的实际处置结果；
+> 逐条结论见 §3.1，实施记录见 §8（批次 A）、§9（批次 B）、§10（批次 C）、§11（本轮复核）。
+
+**24 条未发布条目的处置结果**
+
+| 结果 | 条目 | 依据 |
+| --- | --- | --- |
+| **已实现** | 20333 / 20334（版本宣告）、20220（MSC4210）、20298（MSC4452）、20273（appservice `url: null`）、20243（防枚举）、20323（撤回即失效） | §8 / §9 / §10 |
+| **已对齐，仅补测试或已有测试** | 20170（MSC4222 双拼写，`sync.rs:279` 已有测试）、20081（`state_events_since_batch_…`）、20143、20321 | §8 / §3.1 |
+| **结构性不适用（附本仓理由，非"没找到"）** | 20006、20202、20302、20312、20315、20328、20295、20322、20324 | §3.1 / §10.2 |
+| **未实施 —— 登记为待决策 / 独立特性** | 19354（专用调度端点）、20294（Clock 抽象）、20324（MSC4354 expiry 特性） | §11.3 |
+
+**当前宣告口径**：`/versions` 已宣告 `v1.1`…**`v1.17`**（唯一权威 =
+`synapse-services/src/capability_governance.rs` 的 `CLIENT_API_VERSION_SUPPORT`；
+本仓有意不含上游的 `r0.0.1`…`r0.6.1`，理由见该常量注释）。
+
+**本仓不适用**：MSC4426 / MSC4259（无 user status 功能）、SQLite→PG 序列（PG-only）。
 
 ---
 
@@ -77,24 +84,24 @@ curl -sSL "https://raw.githubusercontent.com/element-hq/synapse/develop/changelo
 | 上游条目                          | 本仓现状（实测位置）                                                                                                                                                  | 判定         | 行动         |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ---------- |
 | 20333 / 20334                 | `/versions` 宣告 `v1.1`…`v1.14`（`synapse-services/src/capability_governance.rs:68-87`）                                                                        | **差距**     | ✅ 批次 A     |
-| 20170                         | 已支持稳定 + 不稳定双拼写（`synapse-web/src/routes/handlers/sync.rs:237-241`）                                                                                           | 基本对齐       | 仅补测试       |
+| 20170 | 已支持稳定 + 不稳定双拼写（`synapse-web/src/routes/handlers/sync.rs:237-241`），且**测试已在册**（`msc4222_use_state_after_accepts_both_spellings`，`sync.rs:279`） | **已对齐** | 完成（无需再补测试） |
 | 20081                         | 已专项验证（`state_events_since_batch_keeps_the_last_local_users_leave`）                                                                                          | **本仓不受影响** | ✅ 批次 A     |
 | 20220                         | 默认规则仍含 **3 条 legacy** 提及规则（`synapse-common/src/push_rules.rs`）                                                                                              | **差距**     | ✅ 批次 B（B1） |
 | 20298                         | 只声明不稳定别名 `io.element.msc4452.preview_url`，缺稳定名（`synapse-services/src/capability_governance.rs`）                                                             | **差距**     | ✅ 批次 B（B2） |
 | 20295 / 20322 / 20323 / 20324 | 有 MSC4354 实现（`synapse-web/src/routes/room.rs:82-95,169`）。逐条判定：**20323 已修复**（撤回即失效，§10.1）；**20295 N/A**（本仓 sticky 不注入 timeline，且本仓根本没有历史可见性过滤，§10.2）；**20322 / 20324 无对应形态**（无"持久化批次"概念、无 expiry 字段） | **已收口** | 批次 C（完成） |
-| 19354 / 19495                 | 发送端 `org.matrix.msc4140.delay`（`synapse-web/src/routes/handlers/room/mod.rs:141`）+ 管理端点（`synapse-web/src/routes/delayed_events.rs:97-98`）+ storage + 联邦 EDU | 待核实        | 批次 C       |
-| 20273                         | appservice 注册模型 `url: String` **必填**（`synapse-services/src/application_service/models.rs:41-42`）                                                            | **兼容性差距**  | 批次 B       |
-| 20243                         | 未找到该配置项或其等价防枚举逻辑                                                                                                                                            | 待核实        | 批次 B       |
+| 19354 / 19495 | 发送端 `delay` **查询参数**已修（`handlers/room/mod.rs`，§10 的 C2）；管理端点 `GET/POST .../delayed_events/{delay_id}`（`routes/delayed_events.rs:98`）+ storage + 联邦 EDU。19495 的隐式取消**结构性不存在**：唯一取消入口是显式 `action: cancel`，且按 `id` 单键 | **部分对齐** | 见 §11.3 —— **19354 的专用调度端点未实现** |
+| 20273 | `url` 已改 `Option<String>`，`None` 时**跳过**事件/临时数据排队（§9 的 B3） | **已实现** | ✅ 批次 B（B3） |
+| 20243 | `ServerConfig.request_token_inhibit_3pid_errors`（默认 `true`）已落地；实测另有**真正的**枚举通道 —— `/submitToken` 的会话存在性预言机，已一并关闭（§9 的 B4 / B4.7） | **已实现** | ✅ 批次 B（B4 / B4.7） |
 | 20006                         | 全局 body 上限由路由层前置拦截（`src/server/router.rs:37-39`）⇒ 超限在落盘前 400/413                                                                                            | 不适用        | 无          |
 | 20321                         | `ApiError::message()` 对 `Internal` 返回泛化文案，细节只进日志（`synapse-common/src/error.rs:888-900`）                                                                     | 已对齐        | 无          |
 | 20202                         | 本仓无"配置禁用 server-default 推送规则"的开关                                                                                                                            | 不适用        | 无          |
 | 20143                         | `.well-known/matrix/client` 仅回 `m.homeserver` / `m.tile_server`（`synapse-web/src/routes/handlers/versions.rs:142-154`）                                      | 已对齐        | 无          |
 | 20302                         | 本仓 PG-only，无 SQLite 迁移路径                                                                                                                                    | 不适用        | 无          |
-| 20312                         | 本仓无 `EventInternalMetadata` 结构                                                                                                                              | 架构差异       | 无          |
-| 20315                         | 未定位到"按 sender 跳过规则"的评估路径                                                                                                                                    | 待核实        | 低优先        |
+| 20312 | 本仓无事件级内存元数据结构（`EventInternalMetadata` 不存在）；`received_ts` 仅存在于 `event_reports` 表与 `EventReport` 结构（`synapse-storage/src/event/models.rs:291`），不是事件内部元数据字段 | **架构差异（无对应形态）** | 无 |
+| 20315 | 本仓**没有服务端推送规则评估引擎**（`set_tweak` 只出现在默认规则字面量里，`push/service.rs` 的 "rule evaluation" 只在文档注释中）⇒ 没有"逐事件评估并跳过 sender"这一步 | **结构性不适用** | ✅ 批次 C（C3） |
 | 20328                         | 本仓无 MSC4426 User Status 功能                                                                                                                                  | 不适用        | 无          |
-| 20294                         | Rust 侧无统一 Clock 抽象                                                                                                                                          | 可选改进       | 低优先        |
-| 20331                         | 有 worker 门控；`/auth_metadata` 是否可由 worker 服务未标注                                                                                                              | 低优先        | 低优先        |
+| 20294 | 生产侧无统一 `Clock` 抽象（`routes/rendezvous.rs:208,213` 与 `storage/rendezvous.rs` 直接调 `current_timestamp_millis()`）；但**测试替身已注入时钟**（`test_mocks/rendezvous.rs:42` 的 `clock: Arc<Mutex<i64>>`，读到即自增）⇒ rendezvous 的时间可控性已具备 | **等价物已存在** | 不重构（§11.3） |
+| 20331 | 上游是**纯文档**条目。本仓同样成立且机制已在：`/auth_metadata` 落在 `WorkerType::Frontend` 的 `owned_route_prefixes = ["/_matrix/client/*"]` 内 ⇒ 可由 Frontend worker 服务；本轮补文档（`docs/synapse-rust/MSC_SEMANTICS.md` 的 MSC2965 行） | **已对齐（补文档）** | ✅ 本轮 |
 
 ### 3.2 重点条目明细
 
@@ -157,6 +164,10 @@ MSC4210 移除的是**纯文本匹配**类的三条规则：
 
 ## 4. 优化方案
 
+> **执行状态（2026-10-14）**：批次 A（A1–A3）、批次 B（B1–B5）、批次 C（C1–C3）已全部实施并分提交入库；
+> C4 判「等效物已存在，不重构」（§3.1 的 20294 行）、C2 的 19354 专用端点登记为待决策（§11.3）；
+> 批次 D 的 `docs/audit/INDEX.md` 已登记本文件，`CHANGELOG.md` 按"发布时成批撰写"的既有惯例本批不追加。
+
 ### 批次 A —— 规格版本对齐（P1，低风险高价值）
 
 1. **A1**：把 `CLIENT_API_VERSION_SUPPORT` 补到 `v1.16`、`v1.17`；**逐条**核对两个版本相对 `v1.14` 的新增端点/字段，能实现的补实现，不能实现的在注释里写明缺口（沿用现有"v1.14 注释"的写法，但要求可回源）。
@@ -201,19 +212,17 @@ bash scripts/quality/preflight.sh
 
 ---
 
-## 6. 待核实项（附可复现命令）
+## 6. 待核实项（附可复现命令与其结论）
 
-| #  | 问题                                  | 核实命令 / 方法                                                                     |
-| -- | ----------------------------------- | ----------------------------------------------------------------------------- |
-| V1 | 上游 v1.15/v1.16/v1.17 相对 v1.14 新增了什么 | 读 `matrix-spec` 对应版本的 changelog；或对比上游 `synapse/rest/client/versions.py`       |
-| V2 | MSC4452 稳定化是否改默认开关                  | 读上游 PR #20298 与其 `experimental` 配置 diff                                       |
-| V3 | MSC4140 是否需要"专用端点"                  | 读上游 PR #19354 的 REST 路由 diff，比对本地 `delayed_events.rs`                         |
-| V4 | 本地 `/requestToken` 是否泄露账号存在性        | 对已注册/未注册邮箱各发一次 `/account/3pid/email/requestToken`，比较响应                        |
-| V5 | 本地推送评估是否跳过 sender                   | `rg -n "sender" synapse-services/src/push* synapse-services/src/sync_service` |
-| V6 | 20315 的提速是否适用本仓                     | 同 V5                                                                          |
-| V7 | `/auth_metadata` 能否由 worker 服务      | `synapse-web/src/routes/worker.rs` 的门控清单是否含该路径                                |
-
----
+| # | 待核实的问题 | 核实命令 / 方法 | 结论 |
+| -- | --- | --- | --- |
+| V1 | 上游 v1.15/v1.16/v1.17 相对 v1.14 新增了什么 | 读 `matrix-spec` 对应版本的 changelog；或对比上游的版本宣告表 | ✅ 已核实（批次 A）。**口径订正**：上游的版本列表已迁到 **Rust** 侧 `rust/src/handlers/versions.rs`，不再是 Python 的 `synapse/rest/client/versions.py` |
+| V2 | MSC4452 稳定化是否改默认开关 | 读上游 PR #20298 与其 `experimental` 配置 diff | ✅ 已核实（B2）：稳定名 `m.preview_url` 的 `enabled` 取自 `media.url_preview_enabled`；本仓无 media 级开关 ⇒ 稳定名与别名同取端点实际执行的 `experimental.msc4452_enabled` |
+| V3 | MSC4140 是否需要"专用端点" | 读上游 PR #19354 的 REST 路由 diff，比对本地 `delayed_events.rs` | ✅ 已核实（C2）：**需要，且本仓未实现** —— 上游新增 `PUT .../org.matrix.msc4140/rooms/{roomId}/delayed_event/{eventType}/{txnId}` 并**弃用** `/send`、`/state` 上的 `delay` 查询参数。本地已把查询参数修好（§10 C2），专用端点登记为待决策（§11.3） |
+| V4 | 本地 `/requestToken` 是否泄露账号存在性 | 对已注册/未注册邮箱各发一次 `/account/3pid/email/requestToken`，比较响应 | ✅ 已核实（B4）：三条 `/requestToken` 均不可枚举；实测另有**一条真实通道** —— `/submitToken` 的会话存在性预言机，已关闭（B4.7） |
+| V5 | 本地推送评估是否跳过 sender | `git grep -n "sender" -- synapse-services/src/push synapse-services/src/sync_service` | ✅ 已核实（C3）：本仓**没有服务端推送规则评估引擎** ⇒ 该优化无对应对象 |
+| V6 | 20315 的提速是否适用本仓 | 同 V5 | ✅ 同上（结构性不适用） |
+| V7 | `/auth_metadata` 能否由 worker 服务 | `synapse-web/src/routes/worker.rs` 的门控清单是否含该路径 | ✅ 已核实（本轮）：它不在 `DELAYED_EVENTS_WORKER_PATHS`（该集合**只**列 MSC4140 族），但**已被 `WorkerType::Frontend` 的 `/_matrix/client/*` 前缀覆盖** ⇒ 可由 Frontend worker 服务；本轮补文档 |
 
 ## 7. 说明
 
@@ -794,3 +803,56 @@ git grep -n 'history_visibility' -- '*.rs' | grep -vE 'm\.room\.history_visibili
 而是一条独立的、跨多个端点的实现缺口。本轮**只做取证与记录，未实施**：实施前需要先定义
 "谁在什么时刻能看到"（成员事件的 stream ordering 与事件 stream ordering 的比较规则）并逐端点接入，
 属独立批次。记录在此是为了避免它被 20295 的 N/A 结论顺带盖过去。
+
+---
+
+## 11. 本轮（2026-10-14 第二次）复核与剩余问题清单
+
+### 11.1 本轮做了什么
+
+- 复核 24 条条目并给出**终态**（§0 的处置表 + §3.1 的逐条行）。
+- 补齐两处此前只写"待核实"的判定：**20294**（Clock 抽象）与 **20331**（`/auth_metadata` 的 worker 可服务性）。
+- 订正两处**过时判定**：20170 的"仅补测试"（测试其实已在册：`msc4222_use_state_after_accepts_both_spellings`）、20312 的 `received_ts` 归属（它属于 `event_reports` / `EventReport`，不是事件级内部元数据）。
+- 批次 D：`docs/audit/INDEX.md` 早已登记本文件；`CHANGELOG.md` 按既有惯例**不按提交追加** —— 该文件的条目按**发布版本**成批撰写（当前最新条目为 v6.2.0 / 2026-07-22），且没有任何工作流或脚本要求提交时更新它（`git grep CHANGELOG .github/workflows scripts tests` 为空）。
+
+### 11.2 复核用的可复现命令
+
+```bash
+git grep -n 'msc4222.use_state_after' -- synapse-web/src/routes/handlers/sync.rs
+git grep -n 'owned_route_prefixes' -- synapse-storage/src/worker/tests.rs
+git grep -n 'clock' -- synapse-storage/src/test_mocks/rendezvous.rs
+git grep -n 'received_ts' -- synapse-storage/src/event/models.rs
+git grep -n 'CHANGELOG' -- .github/workflows scripts tests/unit
+```
+
+### 11.3 仍未做 / 待决策（按建议优先级）
+
+1. **19354：MSC4140 专用调度端点** —— 唯一仍未对齐的**产品**面。
+
+   上游 `synapse/rest/client/room.py::RoomDelayedEventRestServlet`（PR #19354，merged 2026-10-08）：
+
+   ```text
+   PUT /_matrix/client/unstable/org.matrix.msc4140/rooms/{roomId}/delayed_event/{eventType}/{txnId}
+   body: { delay_ms: PositiveInt, content: object,
+           state_key?: string, "org.matrix.msc4354.sticky_duration_ms"?: int }
+   → 200 { "delay_id": "..." }
+   ```
+
+   上游同时**弃用** `/send` 与 `/state` 上的 `delay` 查询参数（PR 原文："This should deprecate the `delay` query parameter on the `/send` and `/state` endpoints."），但**未移除** ⇒ 本仓 C2 的修复已让"查询参数"这条通路可用，缺的只是"只认专用端点"的新客户端。
+
+   另有三条上游管理子路径与一个列表端点本仓没有：`POST .../delayed_events/{delay_id}/{cancel,send,restart}` 与 `GET .../delayed_events`。功能上已由本地 `POST .../delayed_events/{delay_id}` 的 `action` 字段覆盖 ⇒ 属**形态差异**，不是能力缺失。
+
+   **成本**：新增一条路由必须连带重生成契约链 —— 三张 `derived_route_table_*.inc.rs`、两份 fixtures + `manifest.json` 指纹、`docs/openapi/route-table.json`、`ROUTE_CONTRACT.md`、`route_ledger_*.snapshot`、以及 `docs/synapse-rust-vs-synapse-comparison.md` 的注册路由计数。另需决定是否把新路径加入 `DELAYED_EVENTS_WORKER_PATHS`：Guard B 用 `path.contains("delayed_events")` 过滤，而该路径是**单数** `delayed_event` ⇒ 不加也不会红，但语义上属同族（建议加入）。
+
+   **建议**：等 MSC4140 的 unstable 形态稳定后一次性做（上游自己仍在该 MSC 的 PR 之间调整），避免为一个仍在变动的路径付契约链重生成的全价。
+
+2. **20324：MSC4354 的 expiry 特性**（不是 bug）。本仓 sticky 无 `expires_at`/TTL 概念 ⇒ 属**特性缺口**；上游那一条修的是"上报值与服务端追踪值不一致"，在本仓无对应对象。是否引入 TTL 是产品决策。
+
+3. **20294：统一 `Clock` 抽象**（可选项）。测试替身已注入时钟（`test_mocks/rendezvous.rs:42` 的 `clock: Arc<Mutex<i64>>`，读到即自增），生产侧没有统一抽象。若将来要断言 `routes/rendezvous.rs` 生成的 `message_id` / `sent_ts` 的确定性，才需要引入；否则纯属重构。
+
+4. **历史可见性强制执行** —— **由 §10.2 的 20295 判定顺带发现，比 20295 大得多**：`m.room.history_visibility` 被存储、被回显、被当作鉴权事件保护，但**从未在任何读端点上强制执行** ⇒ `GET /rooms/{roomId}/messages`、`/context/{eventId}`、`/event/{eventId}`、`/sync` 对"加入前历史"不做任何裁剪。需要先定义"谁在什么时刻能看到"（成员事件的 stream ordering 与事件的 stream ordering 的比较规则），再逐端点接入。
+
+### 11.4 与本方案无关、但复核中确认的两条环境事实
+
+- `grep` 在本机被 toybox 替换：**BRE 扩展 `\|` / `\+` 会静默返回空**，看起来像"确实没有匹配"。本文件的所有检索结论都应视为"用 `Grep` 工具（ripgrep）或 `grep -E` 得到"；本轮就因此误判过一次（"tests 里没有延迟事件测试"）。
+- `docs/audit/UPSTREAM_CHANGELOG_ALIGNMENT_PLAN_2026-10-13.md` 会被一个 **markdown 表格格式化器**反复回写（表格补空格填充、行尾硬换行、注入连续空行触发 MD012，并曾整段吞掉新章节）。提交前应核对索引快照（`git show :<path>`），提交后核对 `git show HEAD:<path>` 的行数与章节标记。
