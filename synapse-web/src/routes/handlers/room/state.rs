@@ -5,8 +5,9 @@ use super::{
 use crate::routes::context::RoomContext;
 use crate::routes::extractors::RoomId;
 use crate::routes::{validate_room_id, AuthenticatedUser};
-use axum::extract::{Json, Path, State};
+use axum::extract::{Json, Path, Query, State};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use synapse_common::current_timestamp_millis;
 use synapse_common::map_internal;
 use synapse_common::ApiError;
@@ -192,6 +193,7 @@ pub(crate) async fn send_state_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_type)): Path<(RoomId, String)>,
+    Query(query): Query<HashMap<String, String>>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -231,6 +233,7 @@ pub(crate) async fn send_state_event(
         &final_event_type,
         state_key.clone(),
         &body,
+        &query,
         None,
     )
     .await?
@@ -292,6 +295,7 @@ pub(crate) async fn put_state_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_type, state_key)): Path<(RoomId, String, String)>,
+    Query(query): Query<HashMap<String, String>>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -316,6 +320,7 @@ pub(crate) async fn put_state_event(
         &final_event_type,
         Some(state_key.clone()),
         &body,
+        &query,
         None,
     )
     .await?
@@ -423,11 +428,18 @@ pub(crate) async fn put_power_levels(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
+    Query(query): Query<HashMap<String, String>>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     // Delegate to put_state_event_empty_key with event_type hardcoded
-    put_state_event_empty_key(State(ctx), auth_user, Path((room_id, "m.room.power_levels".to_string())), Json(body))
-        .await
+    put_state_event_empty_key(
+        State(ctx),
+        auth_user,
+        Path((room_id, "m.room.power_levels".to_string())),
+        Query(query),
+        Json(body),
+    )
+    .await
 }
 
 /// See [`put_state_event_empty_key`].
@@ -435,6 +447,7 @@ pub(crate) async fn put_state_event_empty_key(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_type)): Path<(RoomId, String)>,
+    Query(query): Query<HashMap<String, String>>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -454,6 +467,7 @@ pub(crate) async fn put_state_event_empty_key(
         &final_event_type,
         Some("".to_string()),
         &body,
+        &query,
         None,
     )
     .await?
@@ -494,6 +508,7 @@ pub(crate) async fn put_state_event_no_key(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_type)): Path<(RoomId, String)>,
+    Query(query): Query<HashMap<String, String>>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -513,6 +528,7 @@ pub(crate) async fn put_state_event_no_key(
         &final_event_type,
         Some("".to_string()),
         &body,
+        &query,
         None,
     )
     .await?

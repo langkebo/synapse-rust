@@ -264,6 +264,7 @@ pub(crate) async fn send_message(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_type, txn_id)): Path<(RoomId, String, String)>,
+    Query(query): Query<HashMap<String, String>>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -333,10 +334,10 @@ pub(crate) async fn send_message(
         .await?;
     }
 
-    // MSC4140: If the body contains `org.matrix.msc4140.delay`, schedule the
-    // event as a delayed event instead of sending immediately. The server
-    // returns a `delay_id` (numeric) that clients use to cancel/restart/send
-    // via the management endpoint.
+    // MSC4140: If the request (query parameter, or the legacy body field)
+    // carries `org.matrix.msc4140.delay`, schedule the event as a delayed event
+    // instead of sending immediately. The server returns a `delay_id` (numeric)
+    // that clients use to cancel/restart/send via the management endpoint.
     if let Some(response) = super::schedule_delayed_event_if_requested(
         &ctx,
         &auth_user.user_id,
@@ -345,6 +346,7 @@ pub(crate) async fn send_message(
         &event_type,
         None,
         &body,
+        &query,
         Some(&txn_id),
     )
     .await?

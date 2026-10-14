@@ -611,3 +611,106 @@ B4.1 记录的"生命周期仍可区分"是**真的可利用**：拿垃圾 token
 - 关闭（默认）⇒ 已注册名报 `available: false`、未用名报 `true` —— 这是**基线**，
   没有它，第二条用例即使对着一个"恒返回 true"的空实现也会绿；
 - 开启 ⇒ 两者**都**报 `true`，且响应**形状**一致（仅 `username` 回显不同）。
+
+---
+
+## 10. 批次 C 实施记录（C1/C2/C3，2026-10-14）
+
+### C3 —— 20315（推送规则评估跳过 sender）：**结构性不适用**
+
+本仓**没有服务端推送规则评估引擎**：rules 只被存储与下发（`/pushrules` 的 CRUD +
+sync 的 `m.push_rules` 账号数据），`set_tweak` 只出现在 `synapse-common/src/push_rules.rs`
+的默认规则**字面量**里，投递走 `/_matrix/vendor/v1/push/send`（调用方自带通知内容）。
+`synapse-services/src/push/service.rs` 里"push rule evaluation"只存在于文档注释中，配套的
+`get_ignored_users` **没有任何调用者**。没有"逐事件评估规则"这一步，也就没有可跳过的
+sender 检查 —— 不是"没找到"，是没有这个计算。
+
+### C2 —— MSC4140 的 delay 参数位置：**已修复**
+
+#### C2.1 缺陷（实测）
+
+上游把 delay 读作**查询参数**。下面是 `element-hq/synapse@develop` 的
+`synapse/rest/client/room.py`：
+
+```python
+def _parse_request_for_delayed_event_delay(request, msc4140_enabled) -> Duration | None:
+    delay_param_name = "org.matrix.msc4140.delay"
+    delay_ms = parse_integer(request, delay_param_name, negative=True)
+```
+
+本仓此前只读**请求体**同名字段，且四个写路径都没有 `Query` 提取器：
+
+| 调用点 | 结果 |
+| --- | --- |
+| `handlers/room/events.rs` `send_message`（`/send`） | 无 `Query` ⇒ 查询串里的 delay 完全不可见 |
+| `handlers/room/state.rs` `send_state_event` / `put_state_event` / `put_state_event_empty_key` / `put_state_event_no_key` | 同上 |
+
+后果具体：按 MSC/上游实现的客户端发 `?org.matrix.msc4140.delay=30000`，本仓**忽略延迟、
+立即投递** —— 客户端以为还能撤回，消息已经出去了。上游的调用点只有两个 servlet，与本仓
+这四个调用点一一对应。
+
+#### C2.2 修法
+
+- 新增常量 `MSC4140_DELAY_QUERY_PARAM` 与纯函数 `msc4140_query_delay_ms()`
+  （`handlers/room/mod.rs`）。解析规则对齐上游 `parse_integer(..., negative=True)`：
+  非整数值 ⇒ 400 `M_INVALID_PARAM`（**不是**静默忽略）；负值**放行**到下游的 `> 0` 检查，
+  使 `0` / `-1` / `-99999` 得到**同一条**错误（上游同样用这个拆分保证一种错误对应一种错误）。
+- `schedule_delayed_event_if_requested()` 增加 `query: &HashMap<String, String>` 参数，
+  取值 **query 优先、body 兜底**。body 是"旧拼写"，保留它是因为删除会**静默改变既有
+  客户端的时序**（本该延迟的变成立即投递）。
+- 四个写路径 + `put_power_levels` 委托点补 `Query<HashMap<String, String>>` 提取器
+  （`Query` 放在 `Json` **之前** —— 提取器按声明顺序求值，只有 `Json` 消费 body，必须最后），
+  并把查询表透传给共享函数。
+- 既有 `> 0` / `≤ 24h` 两条校验**原样保留**。⚠️ 已知的**外观性**差异：这两条返回的是
+  400 `M_BAD_JSON`（`ApiError::bad_request`），而上游对非正值也用 `M_INVALID_PARAM`。
+  本轮只给新增的"非整数"用 `M_INVALID_PARAM`，是因为"保留既有校验"优先于"统一 errcode"；
+  若要统一，是 `mod.rs` 里两处 `ApiError::bad_request` → `ApiError::invalid_input` 的一行改动。
+
+#### C2.3 为什么用动态 `Query<HashMap<..>>` 而不是具名结构体
+
+契约链的 `query_params` 真源是 `scripts/contract/ledger_annotations.txt`；具名
+`Query<Struct>` 会被反向守卫判为 `ok`（字段名可解析），从而**必须**同步注解表 +
+脚本内 `EXPECTED_ANNOTATIONS` + 三张 `derived_route_table_*.inc.rs` + 两份 fixtures +
+`route-table.json` + 集成快照 —— 这正是本仓最高频的"既有红"形态。动态类型被守卫显式
+归类为 `manual`（`_NON_STRUCT_QUERY_TYPES` 含 `HashMap`）并"刻意不介入"，因此本次修复
+**不动契约链**（已实测 `bash scripts/contract/check_route_contract.sh` exit 0）。代价是
+参数名不进 ledger —— 由本节的文字与下面的测试承担记录。仓内已有先例：
+`routes/key_rotation.rs` 的两处查询处理器就是 `Query<HashMap<String, String>>`。
+
+#### C2.4 验证
+
+`tests/integration/api_delayed_state_event_tests.rs`（驱动生产 router + 真实 DB）：
+
+| 用例 | 断言 |
+| --- | --- |
+| `test_query_delay_schedules_a_state_event` | `?…delay=60000` 且 body 无该字段 ⇒ 有 `delay_id`，库内 `delay_ms = 60000`，管理端点可见且内容已剔除该字段 |
+| `test_query_delay_schedules_a_message_event` | `/send/…?…delay=30000` ⇒ 有 `delay_id`，库内 `30000` |
+| `test_query_delay_wins_over_the_legacy_body_field` | query=60000 且 body=1000 ⇒ 库内 **60000**（直接读 `delayed_events.delay_ms`，而不是回读请求） |
+| `test_query_delay_is_validated` | `abc` / 空值 / `0` / `-1` / `86400001` ⇒ 全部 400（`abc` 额外断言 `M_INVALID_PARAM`），并附**对照**：同一路由的合法值仍能调度 |
+| `test_absent_delay_hint_still_sends_immediately` | 无任何 hint ⇒ 返回 `event_id`、无 `delay_id` |
+| 既有 4 条 body 形式用例 | 原样通过 ⇒ 兜底路径未回归 |
+
+**变异自证**（红 → 还原 → 绿）：
+
+- **M1** 让 `msc4140_query_delay_ms()` 恒返回 `Ok(None)` ⇒ 前三条红，而
+  `test_absent_delay_hint_still_sends_immediately` 保持绿（归因干净：红的是被改的那条路径，
+  不是"测试写错"）；
+- **M2** 把 `query_delay_ms.or(body_delay_ms)` 反转为 `body_delay_ms.or(query_delay_ms)`
+  ⇒ 只有"query 优先"那条红。
+
+#### C2.5 顺带查实（**本轮未做**）
+
+上游在 `_parse_request_for_delayed_event_delay` 里还有一个 `msc4140_enabled` 开关：未开启时
+请求延迟事件返回 **403 `M_FORBIDDEN`**。本仓**没有**这个开关（延迟事件恒开启），按"未实现
+即不宣告"的口径不构成不一致；若要支持，需要新增配置项 + 403 分支，属独立改动。
+
+### C1 —— MSC4354 四条修复：**部分适用，见下**
+
+- **20322**（persist 后同批次 redact）：本仓无 persistence 集成 ⇒ 无对应形态。
+- **20323**（persist 后 redact ⇒ 应去置顶）：**真实缺口** —— `get_all_is_sticky_events`
+  只按 `is_sticky = true` 选行，**不检查事件是否已被 redact**。
+- **20324**（expiry 口径）：本仓无 expiry 概念 ⇒ 属特性缺失，不是 bug 修复。
+- **20295**（历史可见性豁免覆盖全部 C-S 端点）：**待取证**（需先确认本地哪些读端点施加
+  历史可见性）。
+
+⚠️ C1 的 20323 与 20295 本轮**未实施**，只完成判定；实施前需按 §6 的口径再做一轮取证。

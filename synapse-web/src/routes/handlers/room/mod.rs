@@ -21,6 +21,7 @@ pub(crate) use state::*;
 use crate::routes::context::RoomContext;
 use crate::routes::{ensure_room_member_ctx, ensure_room_member_strict_ctx, AuthenticatedUser};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use synapse_common::{parse_pagination_token, parse_stream_token, ApiError};
 use synapse_services::delayed_event_service::CreateDelayedEventRequest;
 
@@ -116,9 +117,48 @@ pub(crate) async fn ensure_room_state_write_access(
     Ok(())
 }
 
-/// MSC4140: if `body` carries an `org.matrix.msc4140.delay` hint, store the event
-/// as a pending delayed event and return the client-facing `delay_id`; otherwise
-/// return `None` so the caller sends the event immediately.
+/// MSC4140's delay hint parameter name, read from the request **query string**.
+///
+/// The specification — and upstream Synapse
+/// (`_parse_request_for_delayed_event_delay` → `parse_integer(request,
+/// "org.matrix.msc4140.delay", negative=True)`) — both put it in the query
+/// string. This server originally read a same-named **body** field only, which
+/// made a spec-conformant client's `?org.matrix.msc4140.delay=30000` silently
+/// meaningless: the event went out immediately while the client still believed it
+/// could be cancelled.
+pub(crate) const MSC4140_DELAY_QUERY_PARAM: &str = "org.matrix.msc4140.delay";
+
+/// Parse the delay hint out of the query string; `None` when it is absent.
+///
+/// Deliberately stricter than the legacy body field: upstream answers a
+/// non-integer query value with a 400 `M_INVALID_PARAM` rather than ignoring it,
+/// so a typo cannot silently degrade a delayed send into an immediate one
+/// (`invalid_input` carries the same errcode as upstream's `parse_integer`).
+/// Negatives pass through here so that the caller's `<= 0` check owns the single
+/// "must be positive" error — the same split upstream uses, which keeps one
+/// message for `0`, `-1` and `-99999` instead of two rejections for one mistake.
+///
+/// `trim` before parsing mirrors Python's `int(str)`, which tolerates
+/// surrounding whitespace.
+pub(crate) fn msc4140_query_delay_ms(query: &HashMap<String, String>) -> Result<Option<i64>, ApiError> {
+    let Some(raw) = query.get(MSC4140_DELAY_QUERY_PARAM) else {
+        return Ok(None);
+    };
+    raw.trim()
+        .parse::<i64>()
+        .map(Some)
+        .map_err(|_| ApiError::invalid_input(format!("Query parameter {MSC4140_DELAY_QUERY_PARAM} must be an integer")))
+}
+
+/// MSC4140: if the request carries an `org.matrix.msc4140.delay` hint, store the
+/// event as a pending delayed event and return the client-facing `delay_id`;
+/// otherwise return `None` so the caller sends the event immediately.
+///
+/// The hint is read from the **query string** first (the spec/upstream location,
+/// see [`MSC4140_DELAY_QUERY_PARAM`]); the request body field of the same name is
+/// still accepted as a fallback, because that is the only form this server
+/// understood before and dropping it would silently re-time existing clients'
+/// requests. The query string wins when both are present.
 ///
 /// Shared by the message (`/send`) and state (`/state`) write paths so that a
 /// delayed **state** event carries its real `state_key` into `delayed_events` and
@@ -136,9 +176,15 @@ pub(crate) async fn schedule_delayed_event_if_requested(
     event_type: &str,
     state_key: Option<String>,
     body: &serde_json::Value,
+    query: &HashMap<String, String>,
     txn_id: Option<&str>,
 ) -> Result<Option<axum::extract::Json<serde_json::Value>>, ApiError> {
-    let Some(delay_ms) = body.get("org.matrix.msc4140.delay").and_then(|v| v.as_i64()) else {
+    let query_delay_ms = msc4140_query_delay_ms(query)?;
+    // Legacy body spelling, kept lenient (`as_i64()` ⇒ a non-integer means "no
+    // delay") — exactly the behaviour that existed before the query form was
+    // recognised. Only the spec location is strict.
+    let body_delay_ms = body.get(MSC4140_DELAY_QUERY_PARAM).and_then(|v| v.as_i64());
+    let Some(delay_ms) = query_delay_ms.or(body_delay_ms) else {
         return Ok(None);
     };
 
@@ -155,10 +201,12 @@ pub(crate) async fn schedule_delayed_event_if_requested(
     }
 
     // Remove the MSC4140 delay field from the content before storing — it is a
-    // transport-level scheduling hint, not part of the event content.
+    // transport-level scheduling hint, not part of the event content. (A hint
+    // sent as a query parameter is not in the content to begin with; the removal
+    // only matters for the legacy body spelling.)
     let mut content = body.clone();
     if let Some(obj) = content.as_object_mut() {
-        obj.remove("org.matrix.msc4140.delay");
+        obj.remove(MSC4140_DELAY_QUERY_PARAM);
     }
 
     let request = CreateDelayedEventRequest {
