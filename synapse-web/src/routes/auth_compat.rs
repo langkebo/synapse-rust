@@ -11,7 +11,7 @@ use axum::{
     Json,
 };
 use serde_json::{json, Value};
-use synapse_common::ApiError;
+use synapse_common::{ApiError, MatrixErrorCode};
 /// See [`register`].
 pub(crate) async fn register(
     State(ctx): State<AuthContext>,
@@ -129,6 +129,72 @@ pub(crate) async fn check_username_availability(
     })))
 }
 
+/// Which `/requestToken` flow is being served.
+///
+/// The anti-enumeration gate has to know **which** answer about an address's
+/// registration state is the sensitive one, because the two directions are
+/// opposite: a password reset leaks "no account uses this address", while
+/// registration / 3PID-add leak "an account already uses this address".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RequestTokenPurpose {
+    /// `POST /account/password/email/requestToken`.
+    PasswordReset,
+    /// `POST /register/email/requestToken`.
+    Register,
+    /// `POST /account/3pid/email/requestToken`.
+    ThreePidAdd,
+}
+
+impl RequestTokenPurpose {
+    /// The `session_data.purpose` marker persisted with the verification
+    /// session. The 3PID-add completion path matches on the literal
+    /// `"3pid_add"`, so these values are load-bearing.
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::PasswordReset => "password_reset",
+            Self::Register => "register",
+            Self::ThreePidAdd => "3pid_add",
+        }
+    }
+}
+
+/// Does this flow's response have to hide `is_registered`?
+///
+/// `true` means the observed registration state is exactly the fact an attacker
+/// is probing for, so the response must not vary with it. This is the predicate
+/// that `request_token_inhibit_3pid_errors` gates.
+///
+/// Deliberately a pure function so the truth table is exercised by unit tests
+/// without needing a live `AuthContext` (an anti-enumeration test that never
+/// calls production code cannot fail when the behaviour is removed).
+pub(crate) fn hides_registration_state(purpose: RequestTokenPurpose, is_registered: bool) -> bool {
+    match purpose {
+        // Hides "this address is *not* registered".
+        RequestTokenPurpose::PasswordReset => !is_registered,
+        // Hides "this address is already taken".
+        RequestTokenPurpose::Register | RequestTokenPurpose::ThreePidAdd => is_registered,
+    }
+}
+
+/// The error returned once `request_token_inhibit_3pid_errors` is turned off.
+///
+/// Statuses and codes are the ones the Matrix spec documents for these
+/// endpoints (both `400`): `M_THREEPID_NOT_FOUND` for the password-reset request
+/// (`password_management.yaml`; the spec wording explicitly adds that
+/// `M_THREEPID_IN_USE` "may not be returned" here), and `M_THREEPID_IN_USE` for
+/// registration — which `/account/3pid/email/requestToken` is specified to
+/// mirror (`administrative_contact.yaml`).
+fn honest_request_token_error(purpose: RequestTokenPurpose) -> ApiError {
+    match purpose {
+        RequestTokenPurpose::PasswordReset => ApiError::threepid_not_found("Email not found".to_string()),
+        RequestTokenPurpose::Register | RequestTokenPurpose::ThreePidAdd => {
+            // Note: 400, not the 409 that `ApiError::threepid_in_use` builds —
+            // the spec puts `M_THREEPID_IN_USE` under 400 for this endpoint.
+            ApiError::bad_request("Email is already in use".to_string()).with_code(MatrixErrorCode::ThreepidInUse)
+        }
+    }
+}
+
 /// See [`request_email_verification`].
 pub(crate) async fn request_email_verification(
     State(ctx): State<AuthContext>,
@@ -141,19 +207,34 @@ pub(crate) async fn request_email_verification(
         &body,
         "/_matrix/client/v3/register/email/submitToken",
         None,
-        "register",
+        RequestTokenPurpose::Register,
         &request_id,
     )
     .await
 }
 
-/// See [`request_email_verification_with_submit_path`].
+/// Issue (or appear to issue) an email verification token for `email`.
+///
+/// `actor_user_id` is the authenticated caller when the flow has one (3PID-add);
+/// `purpose` selects both the persisted session marker and the direction of the
+/// anti-enumeration gate.
+///
+/// Anti-enumeration (`request_token_inhibit_3pid_errors`, default `true`,
+/// upstream 20243): when the registration state we just learned is the sensitive
+/// one for this flow, the response must not vary with it. A session is still
+/// created — so the client gets a *real* `sid` and a byte-identical response —
+/// but it is bound to **no** user. Every downstream consumer requires a bound
+/// user (the 3PID-add completion path rejects a session without one), so the
+/// placeholder can never be redeemed into a password reset or a 3PID binding.
+///
+/// With the knob off, the honest spec error is returned instead. Either way the
+/// caller cannot tell the two registration states apart from this endpoint.
 pub(crate) async fn request_email_verification_with_submit_path(
     ctx: &AuthContext,
     body: &Value,
     submit_path: &str,
-    user_id: Option<&str>,
-    purpose: &str,
+    actor_user_id: Option<&str>,
+    purpose: RequestTokenPurpose,
     request_id: &str,
 ) -> Result<Json<Value>, ApiError> {
     let email = body
@@ -172,10 +253,46 @@ pub(crate) async fn request_email_verification_with_submit_path(
 
     let _send_attempt = body.get("send_attempt").and_then(|v| v.as_u64()).unwrap_or(1);
 
+    // ── Anti-enumeration gate ────────────────────────────────────────────────
+    // Resolve the address once, then decide whether what we learned is something
+    // this flow must not disclose.
+    let owner_user_id = ctx.account_identity_service.resolve_user_id_by_email(email, request_id).await;
+    let is_registered = owner_user_id.is_some();
+
+    if purpose == RequestTokenPurpose::PasswordReset && !is_registered {
+        // Operator-side observability only; never surfaced to the client.
+        ::tracing::info!(
+            request_id = %request_id,
+            event = "password_reset_email_not_registered",
+            email = %email,
+            "Password reset requested for an email with no associated account"
+        );
+    }
+
+    let must_hide = hides_registration_state(purpose, is_registered);
+    if must_hide && !ctx.config.server.request_token_inhibit_3pid_errors {
+        return Err(honest_request_token_error(purpose));
+    }
+
+    // The session is bound to a user only when this flow legitimately knows one
+    // *and* we are not hiding a registration state. Dropping the binding is what
+    // makes the placeholder inert.
+    let session_user_id: Option<&str> = if must_hide {
+        None
+    } else {
+        match purpose {
+            RequestTokenPurpose::PasswordReset => owner_user_id.as_deref(),
+            RequestTokenPurpose::Register => None,
+            RequestTokenPurpose::ThreePidAdd => actor_user_id,
+        }
+    };
+
+    let purpose_marker = purpose.as_str();
+
     let token = ctx.credential_auth.generate_email_verification_token().map_err(|e| {
         ::tracing::error!(
             request_id = %request_id,
-            purpose = %purpose,
+            purpose = %purpose_marker,
             error = %e,
             "Failed to generate email verification token"
         );
@@ -184,19 +301,19 @@ pub(crate) async fn request_email_verification_with_submit_path(
 
     let session_data = serde_json::json!({
         "client_secret": client_secret,
-        "purpose": purpose,
+        "purpose": purpose_marker,
     });
 
     let token_id = ctx
         .email_verification_service
-        .create_verification_token(email, &token, 3600, user_id, Some(session_data))
+        .create_verification_token(email, &token, 3600, session_user_id, Some(session_data))
         .await
         .map_err(|e| {
             ::tracing::error!(
                 request_id = %request_id,
-                purpose = %purpose,
+                purpose = %purpose_marker,
                 email = %email,
-                user_id = ?user_id,
+                user_id = ?session_user_id,
                 error = %e,
                 "Failed to store email verification token"
             );
@@ -209,9 +326,10 @@ pub(crate) async fn request_email_verification_with_submit_path(
 
     ::tracing::info!(
         request_id = %request_id,
-        purpose = %purpose,
+        purpose = %purpose_marker,
         email = %email,
-        user_id = ?user_id,
+        user_id = ?session_user_id,
+        registration_state_hidden = must_hide,
         sid = %sid,
         "Email verification token created"
     );
@@ -254,7 +372,13 @@ pub(crate) async fn submit_email_token(
 
     let sid_int: i64 = sid.parse().map_err(|_| ApiError::bad_request("Invalid session ID format".to_string()))?;
 
-    ctx.email_verification_service.validate_and_consume_token(sid_int, token, client_secret).await?;
+    // `request_token_inhibit_3pid_errors` (default true) also hides *which*
+    // session ids exist: without it, an unknown `sid` and a wrong token are
+    // rejected with different messages, and `sid` is a small sequential integer,
+    // so the difference is trivial to walk.
+    ctx.email_verification_service
+        .validate_and_consume_token(sid_int, token, client_secret, ctx.config.server.request_token_inhibit_3pid_errors)
+        .await?;
 
     Ok(Json(json!({
         "success": true
@@ -870,4 +994,62 @@ pub(crate) async fn auth_fallback_web(
     );
 
     Ok(axum::response::Html(html))
+}
+
+#[cfg(test)]
+mod request_token_anti_enumeration_tests {
+    use super::{hides_registration_state, honest_request_token_error, RequestTokenPurpose};
+    use synapse_common::{ApiErrorKind, MatrixErrorCode};
+
+    /// The two directions are opposite, and getting one backwards silently
+    /// *creates* the leak the flag exists to close: a password reset hides
+    /// "unregistered", registration / 3PID-add hide "already taken".
+    #[test]
+    fn hides_exactly_the_sensitive_registration_state_per_purpose() {
+        assert!(
+            hides_registration_state(RequestTokenPurpose::PasswordReset, false),
+            "a password reset must hide that the address has no account"
+        );
+        assert!(
+            !hides_registration_state(RequestTokenPurpose::PasswordReset, true),
+            "an address with an account is not the sensitive fact for a password reset"
+        );
+
+        for purpose in [RequestTokenPurpose::Register, RequestTokenPurpose::ThreePidAdd] {
+            assert!(hides_registration_state(purpose, true), "{purpose:?} must hide that the address is already taken");
+            assert!(!hides_registration_state(purpose, false), "{purpose:?} has nothing to hide for an unused address");
+        }
+    }
+
+    /// The honest branch must match the Matrix spec's statuses and errcodes:
+    /// both are 400, with `M_THREEPID_NOT_FOUND` for password reset and
+    /// `M_THREEPID_IN_USE` for registration / 3PID-add (the latter is specified
+    /// as mirroring `/register/email/requestToken`).
+    #[test]
+    fn honest_errors_match_the_spec_statuses_and_codes() {
+        let not_found = honest_request_token_error(RequestTokenPurpose::PasswordReset);
+        assert_eq!(not_found.kind, ApiErrorKind::BadRequest);
+        assert_eq!(not_found.code, MatrixErrorCode::ThreepidNotFound);
+        assert_eq!(not_found.message, "Email not found");
+
+        for purpose in [RequestTokenPurpose::Register, RequestTokenPurpose::ThreePidAdd] {
+            let in_use = honest_request_token_error(purpose);
+            assert_eq!(
+                in_use.kind,
+                ApiErrorKind::BadRequest,
+                "the spec puts M_THREEPID_IN_USE under 400 for these endpoints, not 409"
+            );
+            assert_eq!(in_use.code, MatrixErrorCode::ThreepidInUse);
+            assert_eq!(in_use.message, "Email is already in use");
+        }
+    }
+
+    /// `session_data.purpose` is matched literally by the 3PID-add completion
+    /// path, so the markers are wire contract, not cosmetics.
+    #[test]
+    fn session_purpose_markers_are_stable() {
+        assert_eq!(RequestTokenPurpose::PasswordReset.as_str(), "password_reset");
+        assert_eq!(RequestTokenPurpose::Register.as_str(), "register");
+        assert_eq!(RequestTokenPurpose::ThreePidAdd.as_str(), "3pid_add");
+    }
 }

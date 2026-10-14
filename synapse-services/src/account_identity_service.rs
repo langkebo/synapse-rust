@@ -170,8 +170,17 @@ impl AccountIdentityService {
             .map_err(|e| ApiError::internal_with_cause("Failed to get r30 users", e))
     }
 
-    /// See [`resolve_password_reset_user_id_by_email`].
-    pub async fn resolve_password_reset_user_id_by_email(&self, email: &str, request_id: &str) -> Option<String> {
+    /// 解析 `email` 归属的本地用户，未注册则返回 `None`。
+    ///
+    /// 先查已验证的 threepid，再回退到用户表（可能尚未验证的邮箱）。两个
+    /// 消费者共用同一"已注册"口径：
+    ///
+    /// - 密码重置流程用它挑出要重置的账户；
+    /// - `/requestToken` 的防枚举闸门用它判断该地址是否已关联账户
+    ///   （`request_token_inhibit_3pid_errors`）。
+    ///
+    /// `request_id` 仅用于关联安全审计日志。
+    pub async fn resolve_user_id_by_email(&self, email: &str, request_id: &str) -> Option<String> {
         match self.threepid_storage.get_verified_threepid_by_address("email", email).await {
             Ok(Some(threepid)) => Some(threepid.user_id),
             Ok(None) => match self.lookup_user_by_email(email).await {
@@ -180,10 +189,10 @@ impl AccountIdentityService {
                     tracing::warn!(
                         target: "security_audit",
                         request_id = %request_id,
-                        event = "password_reset_email_lookup_failed",
+                        event = "email_lookup_failed",
                         email = %email,
                         error = %e,
-                        "Failed to resolve email owner during password reset request"
+                        "Failed to resolve the account owning an email address"
                     );
                     None
                 }
@@ -192,10 +201,10 @@ impl AccountIdentityService {
                 tracing::warn!(
                     target: "security_audit",
                     request_id = %request_id,
-                    event = "password_reset_threepid_lookup_failed",
+                    event = "threepid_lookup_failed",
                     email = %email,
                     error = %e,
-                    "Failed to resolve verified threepid during password reset request"
+                    "Failed to resolve a verified email threepid"
                 );
                 None
             }
@@ -436,21 +445,21 @@ mod tests {
         assert!(svc.get_user_by_identifier("@unknown:example.com").await.unwrap().is_none());
     }
 
-    // ── resolve_password_reset_user_id_by_email ─────────────────────
+    // ── resolve_user_id_by_email ────────────────────────────────────
 
     #[tokio::test]
     async fn resolve_password_reset_returns_user_id_when_threepid_found() {
         let store = Arc::new(InMemoryThreepidStore::new());
         store.seed_threepid("@alice:example.com", "email", "alice@example.com").await;
         let svc = make_service(store);
-        let result = svc.resolve_password_reset_user_id_by_email("alice@example.com", "req-1").await;
+        let result = svc.resolve_user_id_by_email("alice@example.com", "req-1").await;
         assert_eq!(result, Some("@alice:example.com".to_string()));
     }
 
     #[tokio::test]
     async fn resolve_password_reset_returns_none_when_no_match() {
         let svc = make_service(Arc::new(InMemoryThreepidStore::new()));
-        let result = svc.resolve_password_reset_user_id_by_email("unknown@example.com", "req-1").await;
+        let result = svc.resolve_user_id_by_email("unknown@example.com", "req-1").await;
         assert_eq!(result, None);
     }
 

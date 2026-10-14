@@ -98,6 +98,14 @@ pub fn build_test_config() -> Config {
             // (including the spec-defined `m.key.verification.*` relay) is exercisable.
             to_device_max_recipients: 5000,
             to_device_max_payload_bytes: 64 * 1024,
+            // Same `..Default::default()` caveat as above, for a `bool` this time:
+            // the field defaults to `false` here while production (which reads a
+            // YAML file) gets `true` from `#[serde(default = "default_true")]`.
+            // Stating it explicitly keeps the test container in the same
+            // anti-enumeration mode as production; otherwise the `/requestToken`
+            // integration tests would silently exercise the *honest* branch
+            // (the opposite of what ships).
+            request_token_inhibit_3pid_errors: true,
             ..Default::default()
         },
         database: DatabaseConfig {

@@ -119,6 +119,7 @@ mod invite_blocklist_tests_migrated;
 mod matrixrtc_tests_migrated;
 mod registration_service_tests_migrated;
 mod relations_service_tests_migrated;
+mod request_token_enumeration_tests;
 mod room_service_tests_migrated;
 mod sliding_sync_service_tests_migrated;
 mod sync_handlers_coverage_tests;

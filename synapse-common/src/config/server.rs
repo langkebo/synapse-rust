@@ -415,6 +415,27 @@ pub struct ServerConfig {
     /// `to_device_max_payload_bytes` field.
     pub to_device_max_payload_bytes: usize,
 
+    /// 抑制 `/requestToken` 系列端点泄露"某邮箱是否已关联账户"。
+    ///
+    /// 上游 Synapse 同名配置（`request_token_inhibit_3pid_errors`，2026 年
+    /// 起默认 `true`，见 `changelog.d/20243.bugfix`）。语义：
+    ///
+    /// - `true`（默认）：端点**不**因注册态而改变响应。密码重置对未注册邮箱
+    ///   照样返回 200（占位会话），注册 / 绑定 3PID 对已占用邮箱同样返回
+    ///   200（不落会话）。客户端无法据此枚举账户。
+    /// - `false`：返回上游同款的诚实错误 —— 注册 / 绑定 3PID
+    ///   返回 `400 M_THREEPID_IN_USE`，密码重置返回 `400 M_THREEPID_NOT_FOUND`。
+    ///
+    /// 同一开关还关闭 `/submitToken` 的**会话存在性**预言机：为 `true` 时，
+    /// 未知 `sid` 与"token 不匹配"返回完全相同的错误，客户端无法探测哪些
+    /// 会话 ID 真实存在（上游 `RegistrationStore._ignore_unknown_session_error`）。
+    ///
+    /// 这是一项**折中**：既不真的发信（避免被当作垃圾邮件放大器），也不告诉
+    /// 客户端哪些地址已绑定账户。默认 `true` ⇒ 与上游一致。
+    #[serde(default = "default_true")]
+    /// `request_token_inhibit_3pid_errors` field.
+    pub request_token_inhibit_3pid_errors: bool,
+
     /// 管理员踢出用户（`evict_user_from_joined_rooms`）时的最大并发房间数。
     ///
     /// 单用户加入的房间数可能高达数百至数千；并发移除受此上限节流，

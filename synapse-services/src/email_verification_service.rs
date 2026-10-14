@@ -38,13 +38,18 @@ impl EmailVerificationService {
     }
 
     /// Validate and consume a submitted token (single-use).
+    ///
+    /// `inhibit_unknown_session` comes from
+    /// `request_token_inhibit_3pid_errors` and makes an unknown `sid` fail with
+    /// the same error as a wrong token (see the storage-layer docs).
     pub async fn validate_and_consume_token(
         &self,
         token_id: i64,
         submitted_token: &str,
         client_secret: &str,
+        inhibit_unknown_session: bool,
     ) -> Result<EmailVerificationToken, ApiError> {
-        self.storage.validate_and_consume_token(token_id, submitted_token, client_secret).await
+        self.storage.validate_and_consume_token(token_id, submitted_token, client_secret, inhibit_unknown_session).await
     }
 
     /// Atomically claim an already-used token row, for the "the token was

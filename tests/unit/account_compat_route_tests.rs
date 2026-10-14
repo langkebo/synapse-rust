@@ -781,38 +781,25 @@ fn test_get_threepids_response_validated_ts_defaults_to_zero() {
 // ============================================================================
 // request_password_email_verification — anti-enumeration contract
 // ============================================================================
-
-#[test]
-fn test_request_password_email_verification_requires_email() {
-    let body = json!({});
-    let email = body.get("email").and_then(|v| v.as_str());
-    assert!(email.is_none());
-
-    let err = ApiError::bad_request("Email is required".to_string());
-    assert_eq!(err.kind, ApiErrorKind::BadRequest);
-}
-
-#[test]
-fn test_request_password_email_verification_returns_same_response_for_unknown_email() {
-    // P-040: The handler returns the same response shape whether or not the
-    // email maps to an existing user — preventing account enumeration.
-    // When resolved_user_id is None, a placeholder session is still created
-    // and the success response is returned identically.
-    let resolved_user_id: Option<&str> = None;
-
-    // In both branches, the handler returns:
-    //   { sid, submit_url, expires_in: 3600 }
-    let response = json!({
-        "sid": "1",
-        "submit_url": "https://example.com/_matrix/client/v3/account/password/email/submitToken",
-        "expires_in": 3600
-    });
-    assert!(response.get("sid").is_some());
-    assert!(response.get("submit_url").is_some());
-    assert_eq!(response["expires_in"].as_u64(), Some(3600));
-    // The placeholder branch is determined by whether user_id is Some.
-    let _ = resolved_user_id;
-}
+//
+// The two tests that used to live here ("..._requires_email" and
+// "..._returns_same_response_for_unknown_email") were *paper* tests: they built
+// `ApiError`/`json!` literals by hand, asserted on those literals, and never
+// called the handler. Deleting the anti-enumeration logic from the handler left
+// them green, which is the one thing a test must not do.
+//
+// `request_email_verification_with_submit_path` lives in a private module, so it
+// cannot be reached from this target. The real coverage is now:
+//
+//   * `synapse-web/src/routes/auth_compat.rs`
+//     `mod request_token_anti_enumeration_tests` — calls the production
+//     predicates (`hides_registration_state`, `honest_request_token_error`).
+//   * `tests/integration/request_token_enumeration_tests.rs` — drives the
+//     production router end to end and asserts that a registered and an
+//     unregistered address are indistinguishable (and that flipping
+//     `request_token_inhibit_3pid_errors` brings the honest spec errors back).
+//   * `synapse-storage/src/email_verification.rs` — the `/submitToken`
+//     unknown-session oracle must not be distinguishable from a wrong token.
 
 // ============================================================================
 // try_fetch_remote_profile — local vs remote user detection

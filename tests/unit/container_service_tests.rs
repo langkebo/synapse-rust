@@ -124,6 +124,24 @@ fn test_config_has_server_section() {
     let _idle = config.server.idle_timeout;
 }
 
+/// `ServerConfig` derives `Default`, so the `#[serde(default = "default_true")]`
+/// on `request_token_inhibit_3pid_errors` does **not** apply to
+/// `build_test_config()` (a struct literal ending in `..Default::default()`).
+/// The test container must state it explicitly, or every `/requestToken` test
+/// silently exercises the *honest* branch while production runs the inhibited
+/// one — a difference that is invisible in a green test run.
+///
+/// Pinned here because the integration tests set the flag explicitly (they need
+/// both directions), so nothing else would notice the two diverging.
+#[test]
+fn test_config_enables_request_token_anti_enumeration_like_production() {
+    let config = build_test_config();
+    assert!(
+        config.server.request_token_inhibit_3pid_errors,
+        "test config must mirror production's default (`true`), see server.rs::ServerConfig"
+    );
+}
+
 #[test]
 fn test_config_has_federation_section() {
     let config = build_test_config();

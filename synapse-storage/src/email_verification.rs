@@ -27,6 +27,15 @@ pub struct EmailVerificationToken {
 
 // ── Trait ───────────────────────────────────────────────────────────────
 
+/// Rejection returned when the submitted token does not match its session.
+///
+/// Shared with the unknown-session branch of
+/// [`EmailVerificationStorage::validate_and_consume_token`], which has to be
+/// byte-identical to it when unknown sessions are inhibited (upstream
+/// `request_token_inhibit_3pid_errors`, changelog `20243`). Kept as a constant
+/// so the two branches cannot drift apart into an enumeration oracle.
+pub const INVALID_TOKEN_MESSAGE: &str = "Invalid verification token";
+
 // ── Postgres implementation ─────────────────────────────────────────────
 
 /// The `EmailVerificationStorage` struct.
@@ -91,19 +100,33 @@ impl EmailVerificationStorage {
     /// Shared validation for submitToken: checks existence, usage, expiration,
     /// token match, and client_secret match against session_data. Marks the
     /// token as used on success.
+    ///
+    /// `inhibit_unknown_session` mirrors upstream's
+    /// `RegistrationStore._ignore_unknown_session_error`, driven by
+    /// `request_token_inhibit_3pid_errors`. When set, an unknown `token_id` is
+    /// rejected with the **same** error as a wrong token, so a caller cannot
+    /// probe which session ids exist. That matters here: `sid` is the token row
+    /// id (a small sequential integer), so the oracle would otherwise be trivial
+    /// to walk.
     pub async fn validate_and_consume_token(
         &self,
         token_id: i64,
         submitted_token: &str,
         client_secret: &str,
+        inhibit_unknown_session: bool,
     ) -> Result<EmailVerificationToken, ApiError> {
         let verification_token = self
             .get_verification_token_by_id(token_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get verification token", e))?;
 
-        let verification_token = verification_token
-            .ok_or_else(|| ApiError::bad_request("Invalid session ID or session not found".to_string()))?;
+        let verification_token = match verification_token {
+            Some(row) => row,
+            // Indistinguishable from the wrong-token rejection below: same
+            // status, same errcode, same message.
+            None if inhibit_unknown_session => return Err(ApiError::bad_request(INVALID_TOKEN_MESSAGE.to_string())),
+            None => return Err(ApiError::bad_request("Invalid session ID or session not found".to_string())),
+        };
 
         if verification_token.is_used {
             return Err(ApiError::bad_request("Verification token has already been used".to_string()));
@@ -115,7 +138,7 @@ impl EmailVerificationStorage {
         }
 
         if verification_token.token != submitted_token {
-            return Err(ApiError::bad_request("Invalid verification token".to_string()));
+            return Err(ApiError::bad_request(INVALID_TOKEN_MESSAGE.to_string()));
         }
 
         // Mirror the legacy session_data->client_secret check.
@@ -313,23 +336,23 @@ mod tests {
         assert!(duplicate.is_err(), "token UNIQUE 约束必须拒绝重复 token");
 
         // validate_and_consume_token：客户端密钥不符 / token 不符 / 过期 / 已用过 都必须被拒。
-        assert!(storage.validate_and_consume_token(with_session, "tok-session", "wrong").await.is_err());
-        assert!(storage.validate_and_consume_token(with_session, "wrong-token", "s3cret").await.is_err());
+        assert!(storage.validate_and_consume_token(with_session, "tok-session", "wrong", false).await.is_err());
+        assert!(storage.validate_and_consume_token(with_session, "wrong-token", "s3cret", false).await.is_err());
         assert!(!storage.get_verification_token_by_id(with_session).await.unwrap().unwrap().is_used);
 
         let consumed = storage
-            .validate_and_consume_token(with_session, "tok-session", "s3cret")
+            .validate_and_consume_token(with_session, "tok-session", "s3cret", false)
             .await
             .expect("valid token must be consumed");
         assert_eq!(consumed.id, with_session);
         assert!(storage.get_verification_token_by_id(with_session).await.unwrap().unwrap().is_used);
         // 已用过 ⇒ 再校验必须失败（不可重放）。
-        assert!(storage.validate_and_consume_token(with_session, "tok-session", "s3cret").await.is_err());
+        assert!(storage.validate_and_consume_token(with_session, "tok-session", "s3cret", false).await.is_err());
 
         // 过期：`expires_in_seconds` 为负 ⇒ `expires_at` 已在过去。
         let expired =
             storage.create_verification_token("expired@example.com", "tok-expired", -10, None, None).await.unwrap();
-        assert!(storage.validate_and_consume_token(expired, "tok-expired", "").await.is_err());
+        assert!(storage.validate_and_consume_token(expired, "tok-expired", "", false).await.is_err());
 
         // claim_used_token：未使用过 ⇒ None；校验（=is_used）之后 ⇒ Some 且行被**物理删除**（不可重放）。
         assert!(storage.claim_used_token(bare).await.unwrap().is_none());
@@ -343,5 +366,56 @@ mod tests {
         assert!(removed >= 1, "at least the expired row must be removed");
         assert!(storage.get_verification_token_by_id(expired).await.unwrap().is_none());
         assert!(storage.get_verification_token_by_id(bare).await.unwrap().is_some());
+    }
+
+    /// 存储层半边：`request_token_inhibit_3pid_errors` 打开时，**未知会话 ID**
+    /// 必须与"token 不符"被完全相同地拒绝；关掉时两者恢复可区分。
+    ///
+    /// 断言的是两条错误彼此相等，而不是某个字面量消息 —— 这样即使没有本用例，
+    /// 也能保证两分支不会各自漂移到可区分。
+    #[tokio::test]
+    async fn unknown_session_is_indistinguishable_from_a_wrong_token_when_inhibiting() {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        let storage = EmailVerificationStorage::new(&pool);
+
+        let real = storage
+            .create_verification_token(
+                "oracle@example.com",
+                "tok-real",
+                3600,
+                None,
+                Some(serde_json::json!({"client_secret": "s3cret", "purpose": "register"})),
+            )
+            .await
+            .expect("create");
+
+        // 一个真实存在但与 token 不符的会话，与一个根本不存在的 sid。
+        let missing_id = real + 1_000_000;
+        assert!(storage.get_verification_token_by_id(missing_id).await.unwrap().is_none());
+
+        let hidden = storage
+            .validate_and_consume_token(missing_id, "whatever", "s3cret", true)
+            .await
+            .expect_err("unknown session must be rejected");
+        let wrong_token = storage
+            .validate_and_consume_token(real, "not-the-token", "s3cret", true)
+            .await
+            .expect_err("wrong token must be rejected");
+
+        // `ApiError` 的 `PartialEq` 比较 (kind, code, message) —— 正是客户端能观察到的三元组。
+        assert_eq!(
+            hidden, wrong_token,
+            "with inhibition on, an unknown sid must be rejected exactly like a wrong token"
+        );
+        assert_eq!(hidden.message, INVALID_TOKEN_MESSAGE, "both branches share the constant");
+
+        // 关掉抑制 ⇒ 未知会话重新可区分（operator 显式选择的行为）。
+        let revealed = storage
+            .validate_and_consume_token(missing_id, "whatever", "s3cret", false)
+            .await
+            .expect_err("unknown session must still be rejected");
+        assert_eq!(revealed.message, "Invalid session ID or session not found");
+        assert_ne!(revealed, hidden, "with inhibition off the unknown-session rejection is intentionally distinct");
     }
 }

@@ -1,4 +1,4 @@
-use super::auth_compat::{request_email_verification_with_submit_path, session_client_secret};
+use super::auth_compat::{request_email_verification_with_submit_path, session_client_secret, RequestTokenPurpose};
 use crate::routes::context::AuthContext;
 use crate::routes::extractors::UserId;
 use crate::routes::extractors::{AuthenticatedUser, MatrixJson, OptionalAuthenticatedUser};
@@ -460,35 +460,19 @@ pub(crate) async fn request_password_email_verification(
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
-    let email = body
-        .get("email")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Email is required".to_string()))?;
 
-    // 不向客户端暴露"邮箱是否注册"。即便查不到对应账户也照样创建一个
-    // user_id=None 的占位验证会话；下游 change_password_uia 在
-    // m.login.email.identity 分支显式拒绝 user_id 为空的 session，
-    // 所以占位会话无法被用来重置任何账户的密码，但响应却与命中账户
-    // 的情况完全一致 —— 切断 OWASP A07 类账户枚举通道。
-    let resolved_user_id =
-        ctx.account_identity_service.resolve_password_reset_user_id_by_email(email, &request_id).await;
-
-    if resolved_user_id.is_none() {
-        ::tracing::info!(
-            target: "security_audit",
-            request_id = %request_id,
-            event = "password_reset_email_not_registered",
-            email = %email,
-            "Password reset requested for an email with no associated account"
-        );
-    }
-
+    // 不向客户端暴露"邮箱是否注册"。`RequestTokenPurpose::PasswordReset` 交给
+    // 共享实现去判定：仍创建一个验证会话（客户端拿到真实 `sid`，响应与命中
+    // 账户时逐字节一致），但会话不绑定任何用户 —— 下游 `change_password_uia`
+    // 在 m.login.email.identity 分支显式拒绝 user_id 为空的 session，所以占位
+    // 会话无法重置任何账户的密码。切断 OWASP A07 类账户枚举通道。
+    // 开关见 `synapse-common/src/config/server.rs::request_token_inhibit_3pid_errors`。
     request_email_verification_with_submit_path(
         &ctx,
         &body,
         "/_matrix/client/v3/account/password/email/submitToken",
-        resolved_user_id.as_deref(),
-        "password_reset",
+        None,
+        RequestTokenPurpose::PasswordReset,
         &request_id,
     )
     .await
@@ -706,7 +690,7 @@ pub(crate) async fn request_3pid_add_email_verification(
         &body,
         "/_matrix/client/v3/account/3pid/email/submitToken",
         Some(auth_user.user_id.as_str()),
-        "3pid_add",
+        RequestTokenPurpose::ThreePidAdd,
         &request_id,
     )
     .await
