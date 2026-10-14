@@ -1173,8 +1173,15 @@ CI 在**本批改动之前**的 HEAD（`cc56d479e`，run 38509545932）已有 3 
 
 本地另有 5 类（属环境伪影、既有漂移或待定性）：
 
-- `ci_test_scope_tests::*` 两条：用例内部 `Command::new("bash")` 跑 grep，子进程落到 CLI 前置的 toybox shim；
-  **实证**：同一条 `grep -rnE '\bunsafe…'` toybox 得 0 行、`/usr/bin/grep` 得 2 行 ⇒ 在 HEAD 上本来就红。
+- `ci_test_scope_tests::every_db_test_binary_registers_the_exit_drain`：用例内部 `Command::new("bash")` 跑 grep，
+  子进程落到 CLI 前置的 toybox shim；**实证**：同一条 `grep -rnE '\bunsafe…'` toybox 得 0 行、`/usr/bin/grep`
+  得 2 行 ⇒ **纯本机假红**（CI 的 GNU grep 下通过）。
+- `ci_test_scope_tests::rand_rng_step_is_a_ratchet_with_an_honest_baseline` —— **不是环境伪影，是真红**
+  （2026-10-14 第六轮校正：本条原先被并进上面那条"两条同因"的说法里）。该用例跑的是 `git grep`
+  （**不受** grep shim 影响），实测 **39** 而 `scripts/ci/rand_rng_baseline` 停在 **40**。
+  引入提交 = `06bd99a97`（2026-10-10「删除明文密钥死代码」）：删掉一处 `rand::rng()` 却**没有同步基线**
+  ⇒ CI 同样会红。**已收口**：`bash scripts/ci/check_rand_rng_ratchet.sh --update` 收紧为 **39**
+  —— 方向是**收紧**（禁止新增 `rand::rng()` 的棘轮更严），且正是官方脚本自己指示的动作。
 - `sqlx_ratio_gate_tests::*` 4 条：file-broker 拦 `synapse-services/src/builtin_oidc_provider.rs` 导致 census 子进程崩；
   `PYTHONPATH=<pyshim> SYNAPSE_BROKER_ROOT=$PWD` 复跑即绿。
 - `sqlx_dynamic_literal_guard_tests::no_new_production_literal_dynamic_sql`：报
@@ -1438,7 +1445,7 @@ not-null constraint`**。未被发现的原因有两条：唯一调用者 `rotat
 | 编号 | 发现 | 判据 | 可选处置 |
 | --- | --- | --- | --- |
 | **M-04** | `KeyRotationConfig::max_session_age_days` **完全不生效** | 该字段被读取、持久化、经 API 暴露、并在 4 个测试里断言，但 `key_rotation/service.rs` 里**没有任何读者**；真正的最大寿命来自 `MEGOLM_SESSION_MAX_AGE_DAYS` 环境变量（默认 7 天）→ 写进 `expires_at`，再由 `should_rotate` 的 `expires_at` 分支生效 | 二选一：删掉这个旋钮，**或**让环境变量从它取值。**不能**两者并存 —— 同一策略两个真源，违反铁律 2 |
-| **M-05** | `key_rotation_log` **在生产没有写入者**，而读者是活的 | 唯一写入者是未接线的 `KeyRotationService`；读者 `GET /_matrix/vendor/v1/keys/rotation/history/{device_id}`（`routes/key_rotation.rs:268`）经 `FederationKeyRotationService::get_device_rotation_history` ⇒ **该端点恒返回空列表**。且存在模型错配：联邦**签名密钥**是 per-server，而该读者按 `(user, device)` 过滤 | 先定模型 —— 这张表记的是 megolm 轮换（per user/device）还是联邦签名密钥轮换（per server），再接写者 |
+| **M-05** | `key_rotation_log` **在生产没有写入者**，而读者是活的 | 唯一写入者是未接线的 `KeyRotationService`；读者 `GET /_matrix/vendor/v1/keys/rotation/history/{device_id}`（`routes/key_rotation.rs:268`）经 `FederationKeyRotationService::get_device_rotation_history` ⇒ **该端点恒返回空列表**。且存在模型错配：联邦**签名密钥**是 per-server，而该读者按 `(user, device)` 过滤 | 先定模型 —— 这张表记的是 megolm 轮换（per user/device）还是联邦签名密钥轮换（per server），再接写者 ⇒ **已裁决，见 §11.15**：模型 = **megolm（per user/device）**；模型已钉进代码（模块文档 + 列集守卫），`/check` 的跨域 interval 借用已修；写者登记为**依赖**（启用服务端 megolm / bridge），**不伪造** |
 
 #### 11.11.6 联邦 PDU：memory 里的结论**已过时**，在 HEAD 上重判为「已实施」
 
@@ -1599,3 +1606,77 @@ backfill 决策）；② 入站事件**不落远端 `signatures`/`hashes`** ⇒ 
   （ROUTE_CONTRACT.md 与 HEAD 的漂移检查在**提交后**复核）
 - 章节棘轮（基线 **85** 条 + 对照 HEAD）→ 绿；真实工件变异（app 快照 #58）→ 红并指名 19 条
 - `.sqlx`：**1319 条**（2 删 3 增：两条 unread 改文本 + 新列表查询）；行数棘轮仍 `257 over 500`，**未新增超限文件**
+
+### 11.15 M-05 裁决：`key_rotation_log` 记 **megolm 轮换（per user/device）**，不是联邦签名密钥轮换（per server）
+
+M-05 的处置要求是「先定模型 …… 再接写者」。本节定模型；写者的处置见 §11.15.3（结论：**不伪造**）。
+
+**裁决：`key_rotation_log` = megolm 会话轮换的审计日志，作用域 per `(user, device, room)`。**
+
+**判据一：仓库现状（四条，全部可在基线/源码上复核）**
+
+| 判据 | 事实 | 指向 |
+| --- | --- | --- |
+| 列集 | `key_rotation_log(user_id TEXT NOT NULL, device_id TEXT NOT NULL, room_id TEXT, rotation_type TEXT NOT NULL, old_key_id, new_key_id, reason, rotated_at BIGINT)`（baseline:712） | **没有** `(server_name, key_id)` 这一对；只有 user/device/room |
+| 同族表 | `key_rotation_state(user_id, room_id)`（:2188）、`key_rotation_pending(room_id, triggered_by_user_id)`（:2180） | 全族 user/room 作用域 |
+| 唯一写者 | `KeyRotationStorage::log_rotation(user, device, room, "megolm")` | `rotation_type` 全仓只写过 `"megolm"`（`synapse-e2ee/src/key_rotation/service.rs:269`） |
+| 唯一读者 | `GET /_matrix/vendor/v1/keys/rotation/history/{device_id}` | 路径参数就是 `device_id`（`routes/key_rotation.rs:268`） |
+
+**判据二：规范**
+
+- 客户端-服务端 API `/#mroomencryption`：megolm 轮换是**客户端**义务 —— `rotation_period_msgs`（默认 100 条消息）与 `rotation_period_ms`（建议 604800000，即一周）由房间的 `m.room.encryption` 事件给出，**由客户端在上限到达后自行换会话**。服务端在 E2EE 里的角色是中继 `m.room_key`、存 device/cross-signing/backup 密钥。
+- ⇒ 服务端侧的"轮换日志"**不是**规范对象，属于厂商扩展；本表落在 `/_matrix/vendor/v1` 前缀下，与这一点自洽。
+
+**判据三：上游 element-hq/synapse**
+
+- 上游**没有**这张表。服务器签名密钥的历史是**配置**，不是数据库日志：`old_signing_keys`（`homeserver.yaml`）+ `signing.key` 文件，经 `GET /_matrix/key/v2/server` 的 `old_verify_keys` 对外发布。Synapse 文档原文：*"The keys that the server used to sign messages with but won't use to sign new messages. For each key, key should be the base64-encoded public key, and `expired_ts` should be the time (in milliseconds since the unix epoch) that it was last used."*
+- 该语义本仓**已按上游实现**，且落在另一张表上：`federation_signing_keys(server_name, key_id, …, ts_valid_until_ms)`（baseline:1689，PK `(server_name, key_id)`）+ `KeyRotationManager::get_server_keys_response()` 产出 `verify_keys` / `old_verify_keys` / `valid_until_ts`（`synapse-federation/src/key_rotation.rs:795`）。其轮换调度器也**已接线生产**（`src/server/mod.rs:380` → `start_auto_rotation`）。
+
+**⇒ 两个域各自成立，混淆点只在路由面**：`/_matrix/vendor/v1/keys/rotation/{rotate,revoke,status,config}` 是**per-server** 的联邦签名密钥管理，而 `{history/{device_id},check}` 读的是**per-(user,device)** 的 megolm 日志。M-05 记的"模型错配"由此而来。
+
+#### 11.15.1 混装造成的**真 bug**：`/check` 忽略已存的 interval（已修）
+
+- 事实：`GET/POST /_matrix/vendor/v1/keys/rotation/check` 读的是**megolm 域**的 `key_rotation_log`，但 interval 原先**直接**取 `config.federation.key_rotation_grace_period_ms` —— 那是**配置文件里的静态值**，完全忽略运维经 `PUT/POST /keys/rotation/config` 写进 `key_rotation_config.interval_ms` 的值。
+- 后果：同一路由族里两个端点对"当前生效的间隔"给出**不同答案** —— `/config` 读存储、会回显运维设的 7 天，`/check` 仍按 600000 ms 判定。
+- 修法：抽出 `resolve_rotation_interval_ms(stored, config_default_ms)` 作为**唯一**解析规则，`/config` 与 `/check` 共用；非正值（0/负）按"未设置"处理 —— 与联邦调度器读**同一个 key** 时的 `> 0` 规则一致（`federation/src/key_rotation.rs:396`），否则 `interval_ms=0` 会让 `now - last > 0` 恒真、即"永远需要轮换"。`/check` 顺带把存储读失败**上报**（`ApiError::internal`），不再静默回退。
+- 守卫：`tests/unit/key_rotation_route_tests.rs` 新增 4 条 —— 优先取存储值 / 无值回退 / 非正值视为未设置 / `/config` 与 `/check` 对同一 stored 值给出同一 interval。
+
+#### 11.15.2 把模型钉进代码（防再次混装）
+
+- `synapse-e2ee/src/key_rotation/mod.rs` 模块文档写明本模块拥有的是 **megolm/Olm 会话轮换域**，列出上表四条判据与上游对照，并指明联邦签名密钥域归属 `synapse-federation::key_rotation` + `federation_signing_keys`。
+- 新增**机器可检**的边界守卫 `key_rotation_log_is_user_device_scoped_not_server_scoped`
+  （`synapse-e2ee/src/key_rotation/service/db_tests.rs`，隔离 schema 上读 `information_schema.columns`）：
+  - `key_rotation_log` 必须保留 `user_id` / `device_id` / `room_id` / `rotation_type` / `rotated_at`；
+  - **不得**出现 `server_name` / `verify_key` / `public_key` / `secret_key` —— 一旦出现，就说明联邦签名密钥域**又被并回** megolm 日志（M-05 的混装复发），与该表的读写双方语义都不再自洽；
+  - 对照表 `federation_signing_keys` 必须保留 `server_name` / `key_id`，且**不得**有 `user_id`。
+
+  这条件守卫的作用是：把"这张表是什么"从**注释里的共识**变成**会判红的约束**，堵住"把 M-05 当成『表太小、加两列就好』"这条路。
+
+#### 11.15.3 「接写者」的处置：**不伪造**（登记为依赖，不硬做）
+
+- 事实（M-05 的另一半仍然成立）：唯一写者 `KeyRotationService::rotate_megolm_session` **仍未接线**，故 `GET …/history/{device_id}` 在生产恒返回**空列表**。
+- 本轮**刻意不接写者**，理由三条，均可在源码上复核：
+  1. **服务端侧 megolm 会话在生产根本不会被创建** —— `MegolmProvider::create_session` 在非测试代码里的**唯一**调用点就是那个未接线的 `rotate_megolm_session`（`synapse-e2ee/src/key_rotation/service.rs:267`）；`megolm_sessions` 在生产只有清理任务在读/删（`src/server/mod.rs:692` → `delete_expired_sessions`）。
+  2. **规范把 megolm 轮换放在客户端**（§11.15 判据二）；服务端持有并轮换 megolm 只在 **bridge / server-side-megolm** 场景成立 —— 本仓装配层自述："Matrix does **not** require a homeserver to hold megolm keys: Megolm is a client-side ratchet … upstream Synapse likewise starts with no megolm key configured"（`synapse-services/src/wiring/e2ee.rs:126`）。
+  3. 因此"给这张表硬接一个写者"等于**制造一个不存在的产品行为**：要么定时替用户轮换其客户端自己的会话（规范外），要么填合成行 —— 而本仓对伪造已是明文纪律（`routes/federation/pdu.rs`：**禁止**填 `[]`/`0` 伪造）。
+- ⇒ 正确处置：**登记为"依赖：启用服务端 megolm（bridge 场景）"**。真正启用那天，写者是现成的 `rotate_all_user_sessions`。
+- **未做的事（明确边界）**：没有改 `/history` 的路径或语义、没有删任何端点、没有动路由面 ⇒ **零契约链变更**（本节不需要 9 步重生成）。若将来决定把 megolm 日志面**迁出** federation 命名的路由族（如 `/_matrix/vendor/v1/e2ee/megolm/rotation/history/{device_id}`），那是一次**独立的、会动契约链**的决策，需单独授权。
+
+#### 11.15.4 本节改动的验证（全部实跑）
+
+- `cargo check -p synapse-e2ee -p synapse-web -p synapse-services --all-features` → **EXIT=0**
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings` → **EXIT=0**
+- `cargo fmt --all --check` → **EXIT=0**
+- `nextest --test unit --features test-utils -E 'test(key_rotation)'` → **68 passed**
+  （含新增 4 条：优先取存储值 / 无值回退 / 非正值视为未设置 / `/config` 与 `/check` 一致）
+- `nextest -p synapse-e2ee --lib --all-features -E 'test(key_rotation)'` → **14 passed**
+  （含新增列集守卫 `key_rotation_log_is_user_device_scoped_not_server_scoped`，11.5s 隔离 schema）
+- **变异自证（列集守卫）**：给基线 `key_rotation_log` 加一列 `server_name TEXT` ⇒
+  该守卫 **FAILED（EXIT=100）** 并指名 `server_name`、打印整份列集；`git checkout --` 还原后复跑绿。
+- 章节棘轮：基线 **92 → 97**（本节 5 条新标题已用 `--update` 纳入基线，同样受棘轮保护）；对照 HEAD 超集通过。
+- 路由面：`check_route_contract.sh` → **EXIT=0**（`route-table.json = 953`、`ROUTE_CONTRACT.md = 1032`、
+  `derived 表 1034 行`、`SDK ⊆ ledger 0 例外`）—— 未动路由字面量，**零契约链变更**。
+- **全量 `--test unit` 的两条红都不是本节引入**（§11.8 本地清单）：
+  ① `every_db_test_binary_registers_the_exit_drain` = toybox `grep` 的 ERE `\b` 假空（纯本机）；
+  ② `rand_rng_step_is_a_ratchet_with_an_honest_baseline` = **真红**（`git grep` 不受 shim 影响）：
+     实测 39 / baseline 40，引入提交 `06bd99a97` 未同步基线 ⇒ **本轮单独提交收紧为 39**。
