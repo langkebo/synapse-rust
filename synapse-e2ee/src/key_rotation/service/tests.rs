@@ -186,3 +186,66 @@ async fn test_should_rotate_false_when_not_expired() {
     let session = make_session(0, Utc::now() - Duration::days(1), Some(Utc::now() + Duration::days(30)));
     assert!(!svc.should_rotate(&session).await.unwrap(), "recent session should not rotate");
 }
+
+// -----------------------------------------------------------
+// 模型守卫（M-05 / 审计 §11.15）：key_rotation_log 属 megolm 域，不是联邦签名密钥域
+// -----------------------------------------------------------
+
+/// 取出 `CREATE TABLE [IF NOT EXISTS] <name> (...);` 的整段 DDL（小写，便于大小写无关断言）。
+///
+/// 找不到时返回空串 —— 调用方据此断言"表必须存在"，而不是悄悄跳过。
+fn ddl_block(sql: &str, table: &str) -> String {
+    let needle = format!("create table if not exists {table} (");
+    let Some(start) = sql.to_lowercase().find(&needle) else {
+        return String::new();
+    };
+    let rest = &sql[start..];
+    let end = rest.find(");").map_or(rest.len(), |i| i + 2);
+    rest[..end].to_lowercase()
+}
+
+/// `key_rotation_log` 记的是 **megolm 会话轮换**，作用域 per `(user_id, device_id, room_id)`。
+/// 它**不是**联邦签名密钥轮换 —— 后者是 per `(server_name, key_id)`，落在**另一张表**
+/// `federation_signing_keys` 上（上游 Synapse 对应 `old_signing_keys` + `signing.key`，
+/// 经 `/_matrix/key/v2/server` 的 `old_verify_keys` 发布）。
+///
+/// 这条守卫防的是把两个域**再并回一起**：一旦有人为了"让 `/history` 不再恒空"而给这张表加
+/// `server_name` 之类的列，它就不再是它的写者（`log_rotation(user, device, room, "megolm")`）
+/// 与读者（`GET …/keys/rotation/history/{device_id}`）所说的那个东西了。
+///
+/// 为什么用**文本级**断言而非查 `information_schema`：schema 的唯一真源就是这份基线 SQL
+/// （`IsolatedTestPool::new(BASELINE_SQL)` 逐字节施加它），所以文本级判据既等价又不需要数据库。
+/// 另有一处棘轮副作用要避开：`#[cfg(test)]` 模块里的**任何** `sqlx::query*` 都会被
+/// `sqlx_ratio_gate` 计入"测试基础设施动态 SQL"，而 `#[cfg(test)]` 内的 sqlx **宏**又进不了
+/// `cargo sqlx prepare`（`--all-targets` 会 E0432）；纯断言两者都不触碰。
+#[test]
+fn key_rotation_log_stays_user_device_scoped_not_server_scoped() {
+    let baseline = include_str!("../../../../migrations/00000000_unified_schema_v12.sql");
+
+    let log_ddl = ddl_block(baseline, "key_rotation_log");
+    assert!(!log_ddl.is_empty(), "baseline 里必须存在 `CREATE TABLE IF NOT EXISTS key_rotation_log`");
+    for required in ["user_id", "device_id", "room_id", "rotation_type", "old_key_id", "new_key_id", "rotated_at"] {
+        assert!(
+            log_ddl.contains(required),
+            "key_rotation_log 必须保留 `{required}` —— 它是 per-(user, device, room) 的 megolm 轮换日志:\n{log_ddl}"
+        );
+    }
+    for forbidden in ["server_name", "verify_key", "public_key", "secret_key"] {
+        assert!(
+            !log_ddl.contains(forbidden),
+            "key_rotation_log 必须是 user/device 作用域：出现 server 作用域列 `{forbidden}` 说明联邦签名密钥域\
+             又被并回了 megolm 日志（M-05 的混装复发，见审计 §11.15）:\n{log_ddl}"
+        );
+    }
+
+    // 对照：per-server 的签名密钥历史在另一张表上，键是 (server_name, key_id)。
+    let signing_keys_ddl = ddl_block(baseline, "federation_signing_keys");
+    assert!(!signing_keys_ddl.is_empty(), "baseline 里必须存在 `CREATE TABLE IF NOT EXISTS federation_signing_keys`");
+    for required in ["server_name", "key_id"] {
+        assert!(
+            signing_keys_ddl.contains(required),
+            "federation_signing_keys 必须保留 `{required}`:\n{signing_keys_ddl}"
+        );
+    }
+    assert!(!signing_keys_ddl.contains("user_id"), "联邦签名密钥是 per-server、不是 per-user:\n{signing_keys_ddl}");
+}

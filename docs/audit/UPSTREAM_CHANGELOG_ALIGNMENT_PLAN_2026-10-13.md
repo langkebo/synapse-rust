@@ -1644,11 +1644,18 @@ M-05 的处置要求是「先定模型 …… 再接写者」。本节定模型�
 #### 11.15.2 把模型钉进代码（防再次混装）
 
 - `synapse-e2ee/src/key_rotation/mod.rs` 模块文档写明本模块拥有的是 **megolm/Olm 会话轮换域**，列出上表四条判据与上游对照，并指明联邦签名密钥域归属 `synapse-federation::key_rotation` + `federation_signing_keys`。
-- 新增**机器可检**的边界守卫 `key_rotation_log_is_user_device_scoped_not_server_scoped`
-  （`synapse-e2ee/src/key_rotation/service/db_tests.rs`，隔离 schema 上读 `information_schema.columns`）：
-  - `key_rotation_log` 必须保留 `user_id` / `device_id` / `room_id` / `rotation_type` / `rotated_at`；
+- 新增**机器可检**的边界守卫 `key_rotation_log_stays_user_device_scoped_not_server_scoped`
+  （`synapse-e2ee/src/key_rotation/service/tests.rs`）：
+  - `key_rotation_log` 的 DDL 必须保留 `user_id` / `device_id` / `room_id` / `rotation_type` / `old_key_id` / `new_key_id` / `rotated_at`；
   - **不得**出现 `server_name` / `verify_key` / `public_key` / `secret_key` —— 一旦出现，就说明联邦签名密钥域**又被并回** megolm 日志（M-05 的混装复发），与该表的读写双方语义都不再自洽；
   - 对照表 `federation_signing_keys` 必须保留 `server_name` / `key_id`，且**不得**有 `user_id`。
+
+  **判据形态：文本级，不查库。** schema 的唯一真源就是那份基线 SQL（`IsolatedTestPool::new(BASELINE_SQL)`
+  逐字节施加它），所以解析 DDL 文本既等价又不需要数据库。**第一版写成隔离 schema + `information_schema.columns`
+  查询，已改**（见 §11.15.5）：`#[cfg(test)]` 模块里的任何 `sqlx::query*` 都会被 `sqlx_ratio_gate` 计数
+  —— 而这个文件（`#[cfg(test)] mod x;` 写在非 `mod.rs` 里）会被那个已知误判算进 **`production`** 分区；
+  而在 `#[cfg(test)]` 里改用 sqlx **宏**也不行，那些宏进不了 `cargo sqlx prepare`
+  （`--all-targets` 会 E0432）。纯断言两者都不触碰 ⇒ **额外动态 SQL = 0**。
 
   这条件守卫的作用是：把"这张表是什么"从**注释里的共识**变成**会判红的约束**，堵住"把 M-05 当成『表太小、加两列就好』"这条路。
 
@@ -1676,7 +1683,27 @@ M-05 的处置要求是「先定模型 …… 再接写者」。本节定模型�
 - 章节棘轮：基线 **92 → 97**（本节 5 条新标题已用 `--update` 纳入基线，同样受棘轮保护）；对照 HEAD 超集通过。
 - 路由面：`check_route_contract.sh` → **EXIT=0**（`route-table.json = 953`、`ROUTE_CONTRACT.md = 1032`、
   `derived 表 1034 行`、`SDK ⊆ ledger 0 例外`）—— 未动路由字面量，**零契约链变更**。
-- **全量 `--test unit` 的两条红都不是本节引入**（§11.8 本地清单）：
-  ① `every_db_test_binary_registers_the_exit_drain` = toybox `grep` 的 ERE `\b` 假空（纯本机）；
+- **全量 `--test unit`（1505/1833 实跑，nextest 失败即停）的 3 条红都不是本节改动的产物**（§11.8 本地清单）：
+  ① `every_db_test_binary_registers_the_exit_drain` = toybox `grep` 的 ERE `\b` 假空（**纯本机**，GNU grep 下通过）；
   ② `rand_rng_step_is_a_ratchet_with_an_honest_baseline` = **真红**（`git grep` 不受 shim 影响）：
-     实测 39 / baseline 40，引入提交 `06bd99a97` 未同步基线 ⇒ **本轮单独提交收紧为 39**。
+     实测 39 / baseline 40，引入提交 `06bd99a97` 未同步基线 ⇒ **本轮单独提交收紧为 39**；
+  ③ `sqlx_dynamic_literal_guard_tests` / `sqlx_ratio_gate_tests` = 既有红（见 §11.15.5）。
+
+#### 11.15.5 顺带取证：`sqlx` 两条棘轮的真实计数（并确保本轮**不加重**它）
+
+- `sqlx_ratio_gate_tests::sqlx_ratio_gate_counts_dynamic_calls_in_workspace_crates` 拆除本轮干扰后的实测：
+  `dynamic=865 static=1352 total=2217 ratio=0.3902 query_builder=17`，分区 `production=102 test=763`，
+  基线 `production<=103 test<=758 static>=1349 query_builder<=18` ⇒ 唯一违规是
+  **`test` 分区 758 → 763（+5）**，**与本轮改动无关**；`production` 分区是 `102 <= 103`（低于基线 1 处）。
+- `sqlx_dynamic_literal_guard_tests::no_new_production_literal_dynamic_sql` 拆除本轮干扰后只报 **1 个文件**：
+  `synapse-e2ee/src/megolm/storage/db_tests.rs` **6 处** —— §11.8 已登记的既有误判（该文件不在本批改动内；
+  根因是 `#[cfg(test)] mod x;` 写在**非 `mod.rs`** 文件里时模块路径解析有误，测试区被判成生产区）。
+- **第一版把模型守卫写成 `db_tests.rs` 里的 `information_schema` 查询，恰好被同一个误判算进了"生产区"**：
+  实测 `production=103`（正好贴住基线天花板 103），字面量守卫也据此多报了 1 个文件。
+  改为**文本级**断言（§11.15.2）后：`production` 回落到 **102**、字面量守卫的文件数回到 **1**
+  ⇒ **本轮对两条 sqlx 棘轮的净贡献 = 0，且不再贴天花板。**
+- **未收口的既有部分保持不动**（修它要动 `scripts/ci/sqlx_dynamic_ratio_baseline` /
+  `sqlx_literal_production_baseline`，属独立批次，纪律同 §11.8 对该条的登记）。
+  **⚠️ 改本仓任何 `#[cfg(test)]` 模块前先想清楚**：里面多一个 `sqlx::query*` 会顶到 `production` 分区
+  （`#[cfg(test)] mod x;` 写在非 `mod.rs` 时被判成生产区），而用宏又会因 `--all-targets` 进不了 `.sqlx` 缓存
+  ⇒ 纯断言 / 纯逻辑测试是唯一零代价的形态。

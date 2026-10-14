@@ -29,7 +29,8 @@
 //!   server-side log of it is a vendor extension — hence `/_matrix/vendor/v1`.
 //!
 //! The machine-checked version of this boundary lives in
-//! `service::db_tests::key_rotation_log_is_user_device_scoped_not_server_scoped`.
+//! `service::tests::key_rotation_log_stays_user_device_scoped_not_server_scoped`
+//! (a text-level assertion on the baseline DDL — no database, no dynamic SQL).
 
 /// The `service` module.
 pub mod service;
