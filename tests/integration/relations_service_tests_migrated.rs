@@ -20,6 +20,16 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
+/// The caller these service-level tests act as.
+///
+/// `RelationsService::get_relations` requires a caller because a relation is an
+/// ordinary room event and must obey `m.room.history_visibility`. These tests
+/// build rooms with **no** `m.room.history_visibility` state event, so every room
+/// resolves to `shared` and the cut is `Unrestricted` — they exercise relation
+/// filtering, not visibility. Visibility has its own suite
+/// (`api_history_visibility_tests.rs`), including the `/relations` case.
+const TEST_CALLER: &str = "@caller:localhost";
+
 /// Mirrors the production wiring: relation senders persist through the same
 /// `MessagingService` write entry every other local event uses.
 fn create_service(pool: &Arc<sqlx::PgPool>) -> RelationsService {
@@ -306,7 +316,7 @@ async fn test_get_relations_empty() {
     crate::ensure_test_room(&pool, &room_id).await;
     let relates_to = format!("$orig_{suffix}:localhost");
 
-    let response = service.get_relations(&room_id, &relates_to, RelationQuery::default()).await.unwrap();
+    let response = service.get_relations(&room_id, TEST_CALLER, &relates_to, RelationQuery::default()).await.unwrap();
 
     assert!(response.chunk.is_empty());
     assert_eq!(response.total, Some(0));
@@ -334,7 +344,7 @@ async fn test_get_relations_with_data() {
     };
     service.send_annotation(request).await.unwrap();
 
-    let response = service.get_relations(&room_id, &relates_to, RelationQuery::default()).await.unwrap();
+    let response = service.get_relations(&room_id, TEST_CALLER, &relates_to, RelationQuery::default()).await.unwrap();
 
     assert_eq!(response.chunk.len(), 1);
     assert_eq!(response.total, Some(1));
@@ -377,6 +387,7 @@ async fn test_get_relations_filtered_by_type() {
     let response = service
         .get_relations(
             &room_id,
+            TEST_CALLER,
             &relates_to,
             RelationQuery { rel_type: Some("m.annotation".to_string()), ..Default::default() },
         )
@@ -423,13 +434,14 @@ async fn test_get_relations_filtered_by_event_type() {
     service.send_reference(reference_req).await.unwrap();
 
     // 不过滤时应同时看到两条，作为过滤生效的对照。
-    let all = service.get_relations(&room_id, &relates_to, RelationQuery::default()).await.unwrap();
+    let all = service.get_relations(&room_id, TEST_CALLER, &relates_to, RelationQuery::default()).await.unwrap();
     assert_eq!(all.chunk.len(), 2);
     assert_eq!(all.total, Some(2));
 
     let reactions = service
         .get_relations(
             &room_id,
+            TEST_CALLER,
             &relates_to,
             RelationQuery { event_type: Some("m.reaction".to_string()), ..Default::default() },
         )
@@ -441,6 +453,7 @@ async fn test_get_relations_filtered_by_event_type() {
     let messages = service
         .get_relations(
             &room_id,
+            TEST_CALLER,
             &relates_to,
             RelationQuery { event_type: Some("m.room.message".to_string()), ..Default::default() },
         )
@@ -473,7 +486,7 @@ async fn test_get_relations_with_limit() {
     }
 
     let response = service
-        .get_relations(&room_id, &relates_to, RelationQuery { limit: Some(3), ..Default::default() })
+        .get_relations(&room_id, TEST_CALLER, &relates_to, RelationQuery { limit: Some(3), ..Default::default() })
         .await
         .unwrap();
 
@@ -690,7 +703,7 @@ async fn test_redacted_relation_excluded_from_get_relations() {
 
     service.redact_relation(&room_id, &annotation.event_id, &sender).await.unwrap();
 
-    let response = service.get_relations(&room_id, &relates_to, RelationQuery::default()).await.unwrap();
+    let response = service.get_relations(&room_id, TEST_CALLER, &relates_to, RelationQuery::default()).await.unwrap();
 
     assert!(response.chunk.is_empty());
     assert_eq!(response.total, Some(0));
@@ -814,7 +827,12 @@ async fn test_get_relations_backward_direction() {
     }
 
     let response = service
-        .get_relations(&room_id, &relates_to, RelationQuery { direction: Some("b".to_string()), ..Default::default() })
+        .get_relations(
+            &room_id,
+            TEST_CALLER,
+            &relates_to,
+            RelationQuery { direction: Some("b".to_string()), ..Default::default() },
+        )
         .await
         .unwrap();
 
@@ -1030,6 +1048,7 @@ async fn msc3981_recursion_matches_the_reference_graph() {
     let direct = service
         .get_relations(
             &room_id,
+            TEST_CALLER,
             &root,
             RelationQuery {
                 rel_type: Some("m.thread".to_string()),
@@ -1048,6 +1067,7 @@ async fn msc3981_recursion_matches_the_reference_graph() {
     let recursed = service
         .get_relations(
             &room_id,
+            TEST_CALLER,
             &root,
             RelationQuery {
                 limit: Some(50),
@@ -1066,6 +1086,7 @@ async fn msc3981_recursion_matches_the_reference_graph() {
     let backward = service
         .get_relations(
             &room_id,
+            TEST_CALLER,
             &root,
             RelationQuery {
                 limit: Some(2),
@@ -1082,6 +1103,7 @@ async fn msc3981_recursion_matches_the_reference_graph() {
     let default = service
         .get_relations(
             &room_id,
+            TEST_CALLER,
             &root,
             RelationQuery { limit: Some(50), direction: Some("f".to_string()), ..Default::default() },
         )
@@ -1096,6 +1118,7 @@ async fn msc3981_recursion_matches_the_reference_graph() {
     let annotations = service
         .get_relations(
             &room_id,
+            TEST_CALLER,
             &root,
             RelationQuery {
                 rel_type: Some("m.annotation".to_string()),
@@ -1114,6 +1137,7 @@ async fn msc3981_recursion_matches_the_reference_graph() {
     let reactions = service
         .get_relations(
             &room_id,
+            TEST_CALLER,
             &root,
             RelationQuery {
                 rel_type: Some("m.annotation".to_string()),
@@ -1131,6 +1155,7 @@ async fn msc3981_recursion_matches_the_reference_graph() {
     let messages = service
         .get_relations(
             &room_id,
+            TEST_CALLER,
             &root,
             RelationQuery {
                 event_type: Some("m.room.message".to_string()),
@@ -1148,6 +1173,7 @@ async fn msc3981_recursion_matches_the_reference_graph() {
     let malformed = service
         .get_relations(
             &room_id,
+            TEST_CALLER,
             &root,
             RelationQuery {
                 limit: Some(50),
@@ -1184,6 +1210,7 @@ async fn msc3981_recursion_stops_at_the_advertised_depth() {
     let response = service
         .get_relations(
             &room_id,
+            TEST_CALLER,
             &root,
             RelationQuery {
                 limit: Some(50),

@@ -227,7 +227,7 @@ async fn relations_response(
 
     tracing::debug!(room_id = %room_id, event_id = %event_id, "Getting relations");
 
-    let response = ctx.relations_service.get_relations(room_id, event_id, relation_query).await?;
+    let response = ctx.relations_service.get_relations(room_id, &auth_user.user_id, event_id, relation_query).await?;
 
     Ok(Json(RelationsResponse {
         chunk: response.chunk,

@@ -109,6 +109,88 @@ async fn single_event_status(app: &axum::Router, token: &str, room_id: &str, eve
     ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap().status()
 }
 
+/// Send an `m.annotation` (reaction) targeting `target`, returning its event id.
+async fn react(app: &axum::Router, token: &str, room_id: &str, txn_id: &str, target: &str) -> String {
+    let request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/send/m.reaction/{txn_id}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({ "m.relates_to": { "rel_type": "m.annotation", "event_id": target, "key": "👍" } }).to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "reaction send must succeed");
+
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    json["event_id"].as_str().expect("send must return an event_id").to_string()
+}
+
+/// The annotation `event_id`s `/relations/{target}/m.annotation` returns.
+async fn annotation_event_ids(app: &axum::Router, token: &str, room_id: &str, target: &str) -> Vec<String> {
+    let request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/relations/{target}/m.annotation"))
+        .header("Authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "/relations must succeed");
+
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    json["chunk"]
+        .as_array()
+        .expect("/relations must return a chunk array")
+        .iter()
+        .filter_map(|event| event["event_id"].as_str().map(ToOwned::to_owned))
+        .collect()
+}
+
+/// A relation is an ordinary room event, so an annotation made before the caller
+/// was involved must not be served either.
+#[tokio::test]
+async fn relations_hide_annotations_created_before_the_caller_joined() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let alice = super::create_test_user(&app).await;
+    let room_id = create_public_room(&app, &alice).await;
+
+    let target = send_message(&app, &alice, &room_id, "r-root", "root").await;
+    let before_bob = react(&app, &alice, &room_id, "r-pre", &target).await;
+
+    let bob = super::create_test_user(&app).await;
+    join_room(&app, &bob, &room_id).await;
+    let after_bob = react(&app, &alice, &room_id, "r-post", &target).await;
+
+    // Precondition: under the creation default (`shared`) both annotations reach
+    // Bob, so the assertion below is about the policy and not about the relation
+    // never having been indexed.
+    let shared = annotation_event_ids(&app, &bob, &room_id, &target).await;
+    assert!(
+        shared.contains(&before_bob) && shared.contains(&after_bob),
+        "precondition: `shared` must expose both annotations: {shared:?}"
+    );
+
+    assert_eq!(set_history_visibility(&app, &alice, &room_id, "joined").await, StatusCode::OK);
+
+    let joined = annotation_event_ids(&app, &bob, &room_id, &target).await;
+    assert!(joined.contains(&after_bob), "an annotation made after the join must stay visible: {joined:?}");
+    assert!(!joined.contains(&before_bob), "`joined` must hide annotations made before the caller joined: {joined:?}");
+
+    // Control: the creator sees both, so this is a per-caller boundary.
+    let alice_ids = annotation_event_ids(&app, &alice, &room_id, &target).await;
+    assert!(
+        alice_ids.contains(&before_bob) && alice_ids.contains(&after_bob),
+        "the creator must keep seeing both annotations: {alice_ids:?}"
+    );
+}
+
 /// The `event_id`s of one room's timeline in an initial `/sync`.
 async fn sync_timeline_event_ids(app: &axum::Router, token: &str, room_id: &str) -> Vec<String> {
     let request = Request::builder()

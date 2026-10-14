@@ -850,7 +850,7 @@ git grep -n 'CHANGELOG' -- .github/workflows scripts tests/unit
 
 3. **20294：统一 `Clock` 抽象**（可选项）。测试替身已注入时钟（`test_mocks/rendezvous.rs:42` 的 `clock: Arc<Mutex<i64>>`，读到即自增），生产侧没有统一抽象。若将来要断言 `routes/rendezvous.rs` 生成的 `message_id` / `sent_ts` 的确定性，才需要引入；否则纯属重构。
 
-4. ~~**历史可见性强制执行**~~ —— **2026-10-14 第三轮已部分实施（3 条读路径）**，见 §11.6。`/sync`、`/relations`、`/search`、`/notifications` **仍未接入**（理由与待办清单见该节）—— 这一条仍是本方案**剩余的最大缺口**。
+4. ~~**历史可见性强制执行**~~ —— **2026-10-14 第三轮已实施 5 条读路径**，见 §11.6。`/search`、`/notifications` **仍未接入**（理由见该节表格）。
 
 ### 11.4 与本方案无关、但复核中确认的两条环境事实
 
@@ -916,7 +916,7 @@ cargo nextest run --test unit --features test-utils --locked \
 
 ---
 
-### 11.6 第三轮（2026-10-14）：`m.room.history_visibility` 强制执行（部分读路径）
+### 11.6 第三轮（2026-10-14）：`m.room.history_visibility` 强制执行（5 条读路径）
 
 **原判定**（§11.3 第 4 条，由 §10.2 的 20295 判定顺带发现）：该值被存储、被回显、被当作鉴权事件保护，但**从未在任何读端点上强制执行** —— 任何当前成员都能翻到房间创建以来的全部历史，包括自己加入之前的一切。
 
@@ -931,26 +931,29 @@ cargo nextest run --test unit --features test-utils --locked \
 
 - **规则来源**：上游 `synapse/visibility.py::_check_membership`（本轮实测拉取原文核对）。上游按"**事件发生那一刻**的成员身份"判定；本仓没有为每个事件保留 state group，故把同一判定表达为**一条 stream-ordering 边界**（房间可见性值不变时二者等价）。
 - **策略真源**：读**当前 `m.room.history_visibility` state event**，不读 `rooms.history_visibility` 投影 —— 投影只在建房与 summary 更新时写，客户端事后改可见性（power level 100 的普通状态事件）会被旧值误判。
-- **边界查询**：新增 `EventReader::get_membership_boundary_stream_ordering`（实现落 `synapse-storage/src/event/state.rs`），对 `m.room.member` 取 `MIN(stream_ordering)`。`None`（从未被邀请/加入）⇒ **什么都看不到**，不是"全都能看"。
-- **已接入的读路径**：
+- **边界查询**：新增 `EventReader::get_membership_boundary_stream_ordering`（实现落 `synapse-storage/src/event/history_boundary.rs`），对 `m.room.member` 取 `MIN(stream_ordering)`。`None`（从未被邀请/加入）⇒ **什么都看不到**，不是"全都能看"。
+- **已接入的读路径**（5 条）：
   1. `GET /rooms/{roomId}/messages`（`MessagingService::get_room_messages`）—— 只过滤**返回页**，分页游标仍取自未过滤页，避免客户端在"加入前历史"上原地打转；
   2. `GET /rooms/{roomId}/event/{eventId}`（新增 `MessagingService::get_event_for_client`）—— 边界外的事件返回 **404** 而非 403，否则该端点会变成"这个事件存在但你无权看"的预言机；
-  3. `GET /rooms/{roomId}/context/{eventId}` —— 目标事件走同一个 `get_event_for_client`。
+  3. `GET /rooms/{roomId}/context/{eventId}` —— 目标事件走同一个 `get_event_for_client`；
+  4. `GET /sync` 时间线（`sync_service/history_visibility.rs`，`d1b454d5c`）—— **曾经是唯一不需要客户端任何动作就会泄露的路径**：新成员首次（无 `since` 的）sync 会自动拿到加入前时间线。裁剪发生在 `apply_timeline_limit` **之前**，使 `limited` 描述"调用者可读的这一页"；
+  5. `GET /rooms/{roomId}/relations/{eventId}/{relType}`（`RelationsService::get_relations`，本批）—— 裁剪在**派生分页游标之前**，游标因此只指向可见切片（否则"跳过一条被隐藏的 relation"会连带跳过一条可见的）。`get_relations` 的 `user_id` 是**必填参数**（不是 `Option`），即规则不可因"忘记传调用者"而被绕过。
 
-**仍未接入（本轮有意不做，附理由）**：
+**仍未接入**：
 
-| 端点 | 为什么本轮不做 |
+| 端点 | 为什么没做 |
 | --- | --- |
-| `/sync`（含 sliding sync）时间线 | 过滤点落在 `SyncService::build_sync_response` 读 `room_events` 之处，但同一处输入还决定 `rooms_to_include` 与 `apply_timeline_limit` 两个判定；改动会改变"房间是否出现在 sync 里"的语义，需要单独一轮 sync 行为验证 |
-| `/relations`、`/search`、`/notifications` | 各有独立的事件装配点；`/search` 的 `search_joined_room_events` 还需把 `stream_ordering` 带出到结果结构体 |
+| `/search` | `search_joined_room_events` 的结果结构体里没有 `stream_ordering`，要先把该列带出到结果类型（改存储层返回类型） |
+| `/notifications` | 通知事件的装配点独立，且其"未读"计数与可见性裁剪的交互需要单独定义（裁剪掉的通知是否计入 unread？） |
 
-⇒ **典型症状仍在**：`joined` 房间里新加入的成员在**首次 `/sync`** 时仍可能收到加入前的时间线。这一条必须由后续批次关闭，上表即其待办清单。
+⇒ §11.6 初次落地时记的"**首次 `/sync` 会泄露加入前时间线**"这一条**已关闭**。
 
 **有意保留的简化**（已写进模块文档）：
 
 - 可见性值中途变化时按**当前值**回溯整条时间线（上游按每个事件当时的值）。方向是**更严**，不会更松。
 - 曾"加入 → 离开 → 再加入"的用户保留最初一次的权限（上游对自身成员事件取"更 joined"的一侧，理由相同）。
 - 未知/损坏的值回落到 `shared`（＝**fail-open**），与上游 `get_effective_room_visibility_from_state` 一致：该值来自受鉴权保护的状态事件，"读不出来"意味着"没有记录策略"，而不是"隐藏一切"。
+- `/relations` **只裁剪关系事件本身，不校验被指向的 target 事件是否可见**。上游会连 target 一起判；本仓不判的原因是服务级测试大量使用**不存在的** target event id（`$orig_…`），加 target 校验会连测试语义一起改。target 本身的可见性由 `/event`（已接入）把关。
 
 **验证（实跑）**：
 
@@ -960,16 +963,20 @@ export TEST_DATABASE_URL=$DATABASE_URL TEST_DB_TEMPLATE_SCHEMA=test_template_ci 
 cargo nextest run --test integration --all-features --locked -E 'test(history_visibility)'
 ```
 
-`tests/integration/api_history_visibility_tests.rs` 共 3 条真实路由测试：`joined` 隐藏加入前消息**且保留**加入后消息、创建者仍看得见全部（证明边界是**按调用者**的）、切回 `shared` 恢复历史；`invited` 下"从未被邀请者"仍受自己的 join 边界约束；单事件读对被隐藏事件返回 404。
+`tests/integration/api_history_visibility_tests.rs` 共 5 条真实路由测试：`joined` 隐藏加入前消息**且保留**加入后消息、创建者仍看得见全部（证明边界是**按调用者**的）、切回 `shared` 恢复历史；`invited` 下"从未被邀请者"仍受自己的 join 边界约束；单事件读对被隐藏事件返回 404；**`/sync`** 时间线同样隐藏加入前消息；**`/relations`** 对加入前发出的 annotation 同样隐藏。
 
-**变异自证（红 → 还原 → 绿，两条）**：
+**变异自证（红 → 还原 → 绿，四条）**：
 
 | 变异 | 期望 | 实测 |
 | --- | --- | --- |
 | `/messages` 的过滤谓词恒真 | `joined_visibility_…` 转红 | ✅ 红：`joined` visibility must hide history from before the caller joined |
 | `get_event_for_client` 的边界检查恒假 | `single_event_read_…` 转红 | ✅ 红（同批 3 条全红） |
+| `/sync` 的接线换成 `HistoryCut::Unrestricted` | `sync_timeline_…` 转红 | ✅ 红：`joined` visibility must hide pre-join history from /sync as well |
+| `/relations` 的过滤谓词恒真 | `relations_hide_annotations_…` 转红 | ✅ 红：`joined` must hide annotations made before the caller joined |
 
-两条均从备份 `cp` 还原、`sha256sum` 比对一致、`grep -rn MUTATION synapse-services/src` 为 0。
+四条均从备份 `cp` 还原、`sha256sum` 比对一致、`grep -c MUTATION` 为 0。
+
+**`/sync` 的实现要点（性能）**：`SyncService::history_cuts` 是**批量**的 —— 一次 sync 覆盖所有 joined 房间，逐房间照搬单房间规则要 2N 次查询；实现改为 ① 一次 `get_state_events_by_type_batch` 取全部房间的可见性值，② 只对 `invited`/`joined` 的房间再做边界查询。`shared` 是房间版本默认值，故绝大多数 sync 的第二步**执行 0 次**。它被并进既有的 `tokio::try_join!`（与其余房间数据同一轮往返，不增加串行等待）。
 
 **⚠️ 本批顺带修正的真实缺口**：`tests/integration` 目标带
 `required-features = ["test-utils", "privacy-ext", "voice-extended", "voip-tracking", "beacons", "server-notifications"]`

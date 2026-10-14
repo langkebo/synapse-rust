@@ -423,9 +423,14 @@ impl RelationsService {
     }
 
     /// See [`get_relations`].
+    ///
+    /// `user_id` is required (rather than optional) on purpose: the visibility
+    /// rule must not be skippable by *forgetting* to pass a caller. There is no
+    /// un-enforced sibling of this method.
     pub async fn get_relations(
         &self,
         room_id: &str,
+        user_id: &str,
         relates_to_event_id: &str,
         query: RelationQuery,
     ) -> Result<RelationsResponse, ApiError> {
@@ -466,6 +471,15 @@ impl RelationsService {
             .get_relations(params)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get relations", e))?;
+
+        // `m.room.history_visibility`: a relation is an event in this room like any
+        // other, so one created before the caller was involved must not be served.
+        // The cut is applied **before** the cursors below are derived, so `next_batch`
+        // / `prev_batch` describe the visible slice — paginating past a hidden
+        // relation must not skip a visible one.
+        let cut = self.messaging.history_cut(room_id, user_id).await?;
+        let relations: Vec<_> =
+            relations.into_iter().filter(|relation| cut.allows(Some(relation.stream_ordering))).collect();
 
         // 递归路径不统计 `total`：`count_relations` 只数**直接**关系，而递归返回集
         // 是它的超集，报这个偏小的数字比不报更糟。
