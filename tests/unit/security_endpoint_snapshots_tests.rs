@@ -212,7 +212,7 @@ fn snapshot_key_rotation_config_shape() {
 fn snapshot_key_rotation_check_shape() {
     // Mirrors check_needs_rotation handler output (GET/POST /check):
     //   { "needs_rotation": <bool>, "last_rotation": <i64|null>,
-    //     "interval_ms": <u64> }
+    //     "interval_ms": <integer> }
     // No prior rotation → last_rotation is null (stable, no redaction needed).
     let body = json!({
         "needs_rotation": true,

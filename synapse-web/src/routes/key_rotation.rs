@@ -9,6 +9,34 @@ use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::types::DeviceId;
 
+/// Resolve the rotation interval (milliseconds) used by the admin key-rotation
+/// surface.
+///
+/// Two sources, in priority order:
+/// 1. the operator-set value persisted in `key_rotation_config.interval_ms`
+///    (written by `PUT/POST /keys/rotation/config`), then
+/// 2. the config-file default `federation.key_rotation_grace_period_ms`.
+///
+/// A non-positive stored value counts as unset (the federation scheduler reads
+/// the same key with the same `> 0` rule).
+///
+/// `/config` and `/check` **must** share this rule. They used to disagree:
+/// `/config` reported the stored value while `/check` silently used the
+/// config-file default, so an operator who set an interval saw `/config` echo
+/// it back and `/check` ignore it.
+///
+/// **Scope (M-05 / §11.15).** This helper only governs *which interval is in
+/// force*. It does not decide what is being rotated: `key_rotation_log` is the
+/// **E2EE megolm** rotation audit log, scoped per `(user_id, device_id,
+/// room_id)` — not federation signing-key rotation, which is per
+/// `(server_name, key_id)` and lives in `federation_signing_keys`.
+pub fn resolve_rotation_interval_ms(stored: Option<i64>, config_default_ms: u64) -> i64 {
+    match stored {
+        Some(value) if value > 0 => value,
+        _ => config_default_ms as i64,
+    }
+}
+
 /// See [`get_key_rotation_status`].
 pub async fn get_key_rotation_status(
     State(ctx): State<DeviceContext>,
@@ -189,8 +217,10 @@ pub async fn configure_key_rotation(
 
     Ok(Json(json!({
         "enabled": status.get("rotation_enabled"),
-        "interval_ms": persisted_interval_ms
-            .unwrap_or(ctx.config.federation.key_rotation_grace_period_ms as i64),
+        "interval_ms": resolve_rotation_interval_ms(
+            persisted_interval_ms,
+            ctx.config.federation.key_rotation_grace_period_ms,
+        ),
         "rotation_interval_days": status.get("rotation_interval_days"),
         "rotation_threshold_days": status.get("rotation_threshold_days"),
         "grace_period_minutes": status.get("grace_period_minutes"),
@@ -232,11 +262,17 @@ pub async fn check_needs_rotation(
         }
     };
 
+    let stored_interval_ms = ctx.key_rotation_service.get_interval_ms().await.map_err(|e| {
+        tracing::error!("Failed to read key rotation interval: {e}");
+        ApiError::internal("Internal server error".to_string())
+    })?;
+    let interval_ms =
+        resolve_rotation_interval_ms(stored_interval_ms, ctx.config.federation.key_rotation_grace_period_ms);
+
     let now = current_timestamp_millis();
-    let interval_ms = ctx.config.federation.key_rotation_grace_period_ms;
 
     let needs_rotation = match last_rotation {
-        Some(last) => now - last > interval_ms as i64,
+        Some(last) => now - last > interval_ms,
         None => true,
     };
 

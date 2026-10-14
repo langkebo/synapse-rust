@@ -20,6 +20,7 @@
 
 use serde_json::{json, Value};
 use synapse_web::routes::declared_ledger_all;
+use synapse_web::routes::key_rotation::resolve_rotation_interval_ms;
 use synapse_web::routes::route_ledger::RouteEntry;
 
 /// The `key_rotation` slice of the derived route table.
@@ -478,4 +479,53 @@ fn test_revoke_admin_gate_uses_distinct_message() {
     let rotation_message = "Key rotation management requires server admin privileges";
     assert_ne!(revoke_message, rotation_message);
     assert!(revoke_message.contains("revocation"));
+}
+
+// ============================================================================
+// /config + /check — the interval rule both endpoints must share
+//
+// M-05: `check_needs_rotation` used to read
+// `config.federation.key_rotation_grace_period_ms` directly and therefore
+// ignored the operator-set value persisted by `/config`. An operator who set an
+// interval saw `/config` echo it back while `/check` kept using the config-file
+// default. Both endpoints now go through this one helper.
+// ============================================================================
+
+#[test]
+fn test_interval_resolution_prefers_the_stored_operator_value() {
+    // 3_600_000 (1h) written by PUT /config must win over the 600_000 default.
+    assert_eq!(resolve_rotation_interval_ms(Some(3_600_000), 600_000), 3_600_000);
+}
+
+#[test]
+fn test_interval_resolution_falls_back_to_the_config_default() {
+    assert_eq!(resolve_rotation_interval_ms(None, 600_000), 600_000);
+}
+
+#[test]
+fn test_interval_resolution_treats_non_positive_stored_values_as_unset() {
+    // `interval_ms = 0` would make `now - last > 0` true for every caller, i.e.
+    // "always needs rotation". It must fall back instead — the same `> 0` rule
+    // the federation scheduler applies to the same config key.
+    assert_eq!(resolve_rotation_interval_ms(Some(0), 600_000), 600_000);
+    assert_eq!(resolve_rotation_interval_ms(Some(-1), 600_000), 600_000);
+}
+
+#[test]
+fn test_check_and_config_agree_on_the_interval_in_force() {
+    // Regression pin: with a 7-day interval stored via /config, /check must use
+    // it rather than the config-file default.
+    let config_default_ms = 600_000_u64;
+    let stored_by_config = Some(7 * 24 * 3_600_000_i64);
+    let in_force = resolve_rotation_interval_ms(stored_by_config, config_default_ms);
+
+    assert_eq!(in_force, 604_800_000);
+    assert_ne!(
+        in_force, config_default_ms as i64,
+        "/check must not fall back to the config default while a value is stored"
+    );
+    // ...and that interval is what decides `needs_rotation` one hour after a rotation.
+    let now = 1_700_000_000_000_i64;
+    assert!(!compute_needs_rotation(Some(now - 3_600_000), now, in_force));
+    assert!(compute_needs_rotation(Some(now - 3_600_000), now, config_default_ms as i64));
 }
