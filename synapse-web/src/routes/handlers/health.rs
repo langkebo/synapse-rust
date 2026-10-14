@@ -211,7 +211,7 @@ mod rate_limit_health_tests {
     }
 
     fn write_valid_config(path: &std::path::Path) {
-        std::fs::write(path, serde_yaml::to_string(&RateLimitConfigFile::default()).expect("serialize"))
+        std::fs::write(path, serde_norway::to_string(&RateLimitConfigFile::default()).expect("serialize"))
             .expect("write temp config");
     }
 

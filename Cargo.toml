@@ -82,7 +82,7 @@ deadpool-redis = { workspace = true }
 
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-serde_yaml = { workspace = true }
+serde_norway = { workspace = true }
 
 rand = { workspace = true }
 sha2 = { workspace = true, features = ["oid"] }
@@ -283,7 +283,10 @@ redis = { version = "0.29" }
 deadpool-redis = "0.20"
 serde = { version = "1.0" }
 serde_json = "1.0"
-serde_yaml = "0.9"
+# serde_yaml 0.9 已随其底层 `unsafe-libyaml` 一起被上游归档（RUSTSEC-2024-0449）；
+# `serde_norway` 是同一份 0.9 代码的维护 fork，API 逐项对应（`from_str`/`to_string`/
+# `Value`/`Error`），底层换成维护中的 `unsafe-libyaml-norway` ⇒ 无需 waiver 即消除该条。
+serde_norway = "0.9"
 rand = "0.9"
 sha1 = "0.10"
 sha2 = { version = "0.10" }

@@ -775,8 +775,8 @@ fn every_postgres_service_raises_shm_size_and_declares_options_once() {
     let mut offenders: Vec<String> = Vec::new();
     for path in entries {
         let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path:?} must be readable: {e}"));
-        let doc: serde_yaml::Value =
-            serde_yaml::from_str(&text).unwrap_or_else(|e| panic!("{path:?} must be valid YAML: {e}"));
+        let doc: serde_norway::Value =
+            serde_norway::from_str(&text).unwrap_or_else(|e| panic!("{path:?} must be valid YAML: {e}"));
         if let Some(jobs) = doc.get("jobs").and_then(|jobs| jobs.as_mapping()) {
             for (job_name, job) in jobs {
                 let Some(services) = job.get("services").and_then(|services| services.as_mapping()) else {

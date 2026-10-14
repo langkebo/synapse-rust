@@ -398,7 +398,7 @@ mod tests {
     #[test]
     fn login_lockout_defaults_are_safe() {
         let cfg: SecurityConfig =
-            serde_yaml::from_str(minimal_security_yaml()).expect("minimal security yaml must deserialize");
+            serde_norway::from_str(minimal_security_yaml()).expect("minimal security yaml must deserialize");
 
         assert_eq!(cfg.login_failure_lockout_threshold, 5);
         assert_eq!(cfg.login_lockout_duration_seconds, 900);
@@ -424,7 +424,7 @@ mod tests {
                      login_lockout_max_ip_attempts: 42\n\
                      login_lockout_ip_allowlist:\n  - 127.0.0.1\n  - 10.0.0.0/8\n  - ::1\n"
         );
-        let cfg: SecurityConfig = serde_yaml::from_str(&yaml).expect("explicit security yaml must deserialize");
+        let cfg: SecurityConfig = serde_norway::from_str(&yaml).expect("explicit security yaml must deserialize");
 
         assert_eq!(cfg.login_lockout_duration_seconds, 300, "homeserver.yaml 的值必须真的被读进来");
         assert_eq!(cfg.login_failure_lockout_threshold, 7);

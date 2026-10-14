@@ -230,7 +230,7 @@ fn rate_limit_config_adapter_stays_deleted() {
 #[test]
 fn bundled_homeserver_yaml_declares_tight_rc_reports_limit() {
     let text = read(HOMESERVER_CONFIG);
-    let value: serde_yaml::Value = serde_yaml::from_str(&text).expect("homeserver.yaml must parse");
+    let value: serde_norway::Value = serde_norway::from_str(&text).expect("homeserver.yaml must parse");
 
     let rule = value
         .get("rate_limit")

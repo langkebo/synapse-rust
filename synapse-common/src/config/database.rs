@@ -364,7 +364,8 @@ username: synapse
 password: secret
 name: synapse
 ";
-        let cfg: DatabaseConfig = serde_yaml::from_str(yaml_str).expect("serde should accept missing optional fields");
+        let cfg: DatabaseConfig =
+            serde_norway::from_str(yaml_str).expect("serde should accept missing optional fields");
         assert_eq!(cfg.port, 5432, "port 应默认 5432");
         assert_eq!(cfg.max_size, 50, "max_size 应默认 50（对齐 Synapse）");
         assert_eq!(cfg.connection_timeout, 60, "connection_timeout 应默认 60s");
@@ -390,7 +391,7 @@ password: any
 name: any
 ";
         let from_serde: DatabaseConfig =
-            serde_yaml::from_str(yaml_str).expect("serde should accept missing optional fields");
+            serde_norway::from_str(yaml_str).expect("serde should accept missing optional fields");
         assert_eq!(from_default.max_size, from_serde.max_size);
         assert_eq!(from_default.connection_timeout, from_serde.connection_timeout);
         assert_eq!(from_default.max_lifetime_secs, from_serde.max_lifetime_secs);

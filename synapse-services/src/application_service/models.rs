@@ -67,7 +67,7 @@ pub(super) struct AppServiceConfigFile {
     #[serde(default)]
     description: Option<String>,
     #[serde(flatten)]
-    extra: BTreeMap<String, serde_yaml::Value>,
+    extra: BTreeMap<String, serde_norway::Value>,
 }
 
 /// The `AppServiceConfigNamespaces` struct.
@@ -109,7 +109,7 @@ impl ApplicationServiceManager {
         raw_config: &str,
         config_label: &str,
     ) -> Result<RegisterApplicationServiceRequest, ApiError> {
-        let config: AppServiceConfigFile = serde_yaml::from_str(raw_config).map_err(|e| {
+        let config: AppServiceConfigFile = serde_norway::from_str(raw_config).map_err(|e| {
             ApiError::bad_request(format!("Invalid application service config '{}': {}", config_label, e))
         })?;
 

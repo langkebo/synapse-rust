@@ -146,7 +146,7 @@ mod tests {
     #[test]
     fn deserialize_empty_uses_defaults() {
         let yaml = "{}\n";
-        let cfg: TranslateConfig = serde_yaml::from_str(yaml).expect("empty YAML should deserialize with defaults");
+        let cfg: TranslateConfig = serde_norway::from_str(yaml).expect("empty YAML should deserialize with defaults");
         assert!(!cfg.enabled);
         assert_eq!(cfg.provider, "google");
         assert!(cfg.api_key.is_empty());
@@ -168,7 +168,7 @@ cache_ttl_secs: 3600
 timeout_secs: 30
 max_text_length: 10000
 ";
-        let cfg: TranslateConfig = serde_yaml::from_str(yaml).expect("explicit YAML should override defaults");
+        let cfg: TranslateConfig = serde_norway::from_str(yaml).expect("explicit YAML should override defaults");
         assert!(cfg.enabled);
         assert_eq!(cfg.provider, "deepl");
         assert_eq!(cfg.api_key, "secret-key-12345");

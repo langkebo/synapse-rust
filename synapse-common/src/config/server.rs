@@ -721,7 +721,7 @@ mod tests {
 
     #[test]
     fn exclude_rooms_from_presence_parses_from_yaml() {
-        let config: ServerConfig = serde_yaml::from_str(minimal_server_yaml()).expect("parse should succeed");
+        let config: ServerConfig = serde_norway::from_str(minimal_server_yaml()).expect("parse should succeed");
         assert!(config.exclude_rooms_from_presence.is_empty());
     }
 
@@ -736,7 +736,7 @@ exclude_rooms_from_presence:
 "#,
             minimal_server_yaml_body()
         );
-        let config: ServerConfig = serde_yaml::from_str(&yaml).expect("parse should succeed");
+        let config: ServerConfig = serde_norway::from_str(&yaml).expect("parse should succeed");
         assert_eq!(config.exclude_rooms_from_presence, vec!["!internal:example.com", "!lobby:example.com"]);
     }
 
@@ -744,19 +744,19 @@ exclude_rooms_from_presence:
 
     #[test]
     fn last_active_granularity_defaults_to_two_minutes() {
-        let config: ServerConfig = serde_yaml::from_str(minimal_server_yaml()).expect("parse should succeed");
+        let config: ServerConfig = serde_norway::from_str(minimal_server_yaml()).expect("parse should succeed");
         assert_eq!(config.last_active_granularity, 120_000, "default should be 120000 ms (2 min)");
     }
 
     #[test]
     fn sync_online_timeout_defaults_to_thirty_seconds() {
-        let config: ServerConfig = serde_yaml::from_str(minimal_server_yaml()).expect("parse should succeed");
+        let config: ServerConfig = serde_norway::from_str(minimal_server_yaml()).expect("parse should succeed");
         assert_eq!(config.sync_online_timeout, 30_000, "default should be 30000 ms (30 s)");
     }
 
     #[test]
     fn idle_timeout_defaults_to_five_minutes() {
-        let config: ServerConfig = serde_yaml::from_str(minimal_server_yaml()).expect("parse should succeed");
+        let config: ServerConfig = serde_norway::from_str(minimal_server_yaml()).expect("parse should succeed");
         assert_eq!(config.idle_timeout, 300_000, "default should be 300000 ms (5 min)");
     }
 
@@ -771,7 +771,7 @@ idle_timeout: 180000
 "#,
             minimal_server_yaml_body()
         );
-        let config: ServerConfig = serde_yaml::from_str(&yaml).expect("parse should succeed");
+        let config: ServerConfig = serde_norway::from_str(&yaml).expect("parse should succeed");
         assert_eq!(config.last_active_granularity, 60_000);
         assert_eq!(config.sync_online_timeout, 15_000);
         assert_eq!(config.idle_timeout, 180_000);
@@ -794,7 +794,7 @@ map_style_url: "https://tiles.example.com/style.json"
 "#,
             minimal_server_yaml_body()
         );
-        let config: ServerConfig = serde_yaml::from_str(&yaml).expect("parse should succeed");
+        let config: ServerConfig = serde_norway::from_str(&yaml).expect("parse should succeed");
         assert_eq!(config.map_style_url.as_deref(), Some("https://tiles.example.com/style.json"));
     }
 

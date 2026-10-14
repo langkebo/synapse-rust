@@ -98,7 +98,8 @@ mod tests {
     #[test]
     fn deserialize_empty_uses_defaults() {
         let yaml = "{}\n";
-        let cfg: ExperimentalConfig = serde_yaml::from_str(yaml).expect("empty YAML should deserialize with defaults");
+        let cfg: ExperimentalConfig =
+            serde_norway::from_str(yaml).expect("empty YAML should deserialize with defaults");
         assert!(!cfg.msc4452_enabled);
         assert!(!cfg.msc3720_enabled);
         assert!(cfg.declare_private_extensions);
@@ -109,7 +110,7 @@ mod tests {
     fn deserialize_explicit_values_override_defaults() {
         let yaml =
             "msc4452_enabled: true\nmsc3720_enabled: true\ndeclare_private_extensions: false\nmsc4210_enabled: false\n";
-        let cfg: ExperimentalConfig = serde_yaml::from_str(yaml).expect("explicit YAML should override defaults");
+        let cfg: ExperimentalConfig = serde_norway::from_str(yaml).expect("explicit YAML should override defaults");
         assert!(cfg.msc4452_enabled);
         assert!(cfg.msc3720_enabled);
         assert!(!cfg.declare_private_extensions);

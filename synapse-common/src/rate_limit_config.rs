@@ -17,7 +17,7 @@ pub enum RateLimitConfigError {
     ReadError(#[source] std::io::Error),
     #[error("Failed to parse config file: {0}")]
     /// `ParseError` variant.
-    ParseError(#[source] serde_yaml::Error),
+    ParseError(#[source] serde_norway::Error),
     #[error("Config validation error: {0}")]
     /// `ValidationError` variant.
     ValidationError(String),
@@ -265,14 +265,14 @@ impl RateLimitConfigFile {
     /// Performs load.
     pub async fn load<P: AsRef<Path>>(path: P) -> Result<Self, RateLimitConfigError> {
         let content = fs::read_to_string(path.as_ref()).await.map_err(RateLimitConfigError::ReadError)?;
-        let config: Self = serde_yaml::from_str(&content).map_err(RateLimitConfigError::ParseError)?;
+        let config: Self = serde_norway::from_str(&content).map_err(RateLimitConfigError::ParseError)?;
         config.validate()?;
         Ok(config)
     }
 
     /// Performs save.
     pub async fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), RateLimitConfigError> {
-        let content = serde_yaml::to_string(self).map_err(RateLimitConfigError::ParseError)?;
+        let content = serde_norway::to_string(self).map_err(RateLimitConfigError::ParseError)?;
         if let Some(parent) = path.as_ref().parent() {
             fs::create_dir_all(parent).await.map_err(RateLimitConfigError::ReadError)?;
         }
@@ -375,7 +375,8 @@ impl RateLimitConfigManager {
     pub async fn from_file<P: Into<PathBuf>>(path: P) -> Result<Self, RateLimitConfigError> {
         let path = path.into();
         let contents = tokio::fs::read_to_string(&path).await.map_err(RateLimitConfigError::ReadError)?;
-        let config: RateLimitConfigFile = serde_yaml::from_str(&contents).map_err(RateLimitConfigError::ParseError)?;
+        let config: RateLimitConfigFile =
+            serde_norway::from_str(&contents).map_err(RateLimitConfigError::ParseError)?;
         config.validate()?;
         let manager = Self {
             config: Arc::new(RwLock::new(config)),
@@ -439,7 +440,7 @@ impl RateLimitConfigManager {
             }
         };
 
-        let new_config = match serde_yaml::from_str::<RateLimitConfigFile>(&contents) {
+        let new_config = match serde_norway::from_str::<RateLimitConfigFile>(&contents) {
             Ok(config) => config,
             Err(e) => {
                 let error = RateLimitConfigError::ParseError(e);
@@ -804,7 +805,7 @@ mod degradation_tests {
     async fn manager_loaded_from_file_reports_file_source() {
         let file = NamedTempFile::new().expect("temp file");
         let config = RateLimitConfigFile::default();
-        std::fs::write(file.path(), serde_yaml::to_string(&config).expect("serialize")).expect("write");
+        std::fs::write(file.path(), serde_norway::to_string(&config).expect("serialize")).expect("write");
 
         let manager = RateLimitConfigManager::from_file(file.path()).await.expect("load");
         let degradation = manager.degradation();
@@ -831,7 +832,7 @@ mod degradation_tests {
     #[tokio::test]
     async fn reload_failure_records_error_and_counters() {
         let file = NamedTempFile::new().expect("temp file");
-        std::fs::write(file.path(), serde_yaml::to_string(&RateLimitConfigFile::default()).expect("ser"))
+        std::fs::write(file.path(), serde_norway::to_string(&RateLimitConfigFile::default()).expect("ser"))
             .expect("write");
         let manager = RateLimitConfigManager::from_file(file.path()).await.expect("load");
         assert_eq!(manager.degradation().consecutive_failures, 0);
@@ -860,7 +861,7 @@ mod degradation_tests {
     #[tokio::test]
     async fn successful_reload_clears_degradation() {
         let file = NamedTempFile::new().expect("temp file");
-        std::fs::write(file.path(), serde_yaml::to_string(&RateLimitConfigFile::default()).expect("ser"))
+        std::fs::write(file.path(), serde_norway::to_string(&RateLimitConfigFile::default()).expect("ser"))
             .expect("write");
         let manager = RateLimitConfigManager::from_file(file.path()).await.expect("load");
 
@@ -868,7 +869,7 @@ mod degradation_tests {
         assert!(manager.reload().await.is_err());
         assert_eq!(manager.degradation().consecutive_failures, 1);
 
-        std::fs::write(file.path(), serde_yaml::to_string(&RateLimitConfigFile::default()).expect("ser"))
+        std::fs::write(file.path(), serde_norway::to_string(&RateLimitConfigFile::default()).expect("ser"))
             .expect("restore");
         manager.reload().await.expect("reload should recover");
 
@@ -883,7 +884,7 @@ mod degradation_tests {
         // The watcher holds an Arc; the health endpoint holds a clone. They must
         // observe the same state.
         let file = NamedTempFile::new().expect("temp file");
-        std::fs::write(file.path(), serde_yaml::to_string(&RateLimitConfigFile::default()).expect("ser"))
+        std::fs::write(file.path(), serde_norway::to_string(&RateLimitConfigFile::default()).expect("ser"))
             .expect("write");
         let manager = Arc::new(RateLimitConfigManager::from_file(file.path()).await.expect("load"));
         let clone = manager.clone();
@@ -905,7 +906,7 @@ mod degradation_tests {
         // freshly constructed manager is already "in sync". That makes the very
         // first watcher tick the common case, not an edge case.
         let file = NamedTempFile::new().expect("temp file");
-        std::fs::write(file.path(), serde_yaml::to_string(&RateLimitConfigFile::default()).expect("ser"))
+        std::fs::write(file.path(), serde_norway::to_string(&RateLimitConfigFile::default()).expect("ser"))
             .expect("write");
         let manager = RateLimitConfigManager::from_file(file.path()).await.expect("load");
 
@@ -930,13 +931,13 @@ mod degradation_tests {
     #[tokio::test]
     async fn reload_applies_an_actual_content_change() {
         let file = NamedTempFile::new().expect("temp file");
-        std::fs::write(file.path(), serde_yaml::to_string(&RateLimitConfigFile::default()).expect("ser"))
+        std::fs::write(file.path(), serde_norway::to_string(&RateLimitConfigFile::default()).expect("ser"))
             .expect("write");
         let manager = RateLimitConfigManager::from_file(file.path()).await.expect("load");
 
         let mut changed = RateLimitConfigFile::default();
         changed.default.per_second = 42;
-        std::fs::write(file.path(), serde_yaml::to_string(&changed).expect("ser")).expect("rewrite");
+        std::fs::write(file.path(), serde_norway::to_string(&changed).expect("ser")).expect("rewrite");
         manager.reload().await.expect("reload after real change");
 
         assert_eq!(manager.get_config().default.per_second, 42, "a real content change must be picked up");
@@ -949,7 +950,7 @@ mod degradation_tests {
         // honour the file" for "nothing changed".
         let file = NamedTempFile::new().expect("temp file");
         let path = file.path().to_path_buf();
-        std::fs::write(&path, serde_yaml::to_string(&RateLimitConfigFile::default()).expect("ser")).expect("write");
+        std::fs::write(&path, serde_norway::to_string(&RateLimitConfigFile::default()).expect("ser")).expect("write");
 
         let manager = RateLimitConfigManager::new(RateLimitConfigFile::default(), path);
         assert_eq!(manager.degradation().source, ConfigSource::Defaults);
@@ -999,7 +1000,7 @@ default:
   burst_size: 20
 bogus_hypothetical_key: 5
 ";
-        let result: Result<RateLimitConfigFile, _> = serde_yaml::from_str(yaml);
+        let result: Result<RateLimitConfigFile, _> = serde_norway::from_str(yaml);
         let err = result.expect_err("未知顶层键必须被拒绝，否则配置写错会被静默忽略");
         let msg = err.to_string();
         assert!(
@@ -1016,7 +1017,7 @@ sync:
   enabled: true
   typo_here: 3
 ";
-        let result: Result<RateLimitConfigFile, _> = serde_yaml::from_str(yaml);
+        let result: Result<RateLimitConfigFile, _> = serde_norway::from_str(yaml);
         assert!(result.is_err(), "sync 段内的未知键同样必须被拒绝");
     }
 
@@ -1029,7 +1030,7 @@ default:
   per_sec: 10
   burst_size: 20
 ";
-        let result: Result<RateLimitConfigFile, _> = serde_yaml::from_str(yaml);
+        let result: Result<RateLimitConfigFile, _> = serde_norway::from_str(yaml);
         assert!(result.is_err(), "限流规则内的拼写错误必须被拒绝");
     }
 
@@ -1039,7 +1040,7 @@ default:
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../docker/config/rate_limit.yaml");
         let text = std::fs::read_to_string(path).expect("shipped rate_limit.yaml must be readable");
         let parsed: RateLimitConfigFile =
-            serde_yaml::from_str(&text).expect("shipped rate_limit.yaml must parse under strict rules");
+            serde_norway::from_str(&text).expect("shipped rate_limit.yaml must parse under strict rules");
         assert!(parsed.default.per_second > 0, "应解析出默认限流规则");
     }
 
@@ -1050,7 +1051,7 @@ default:
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../docker/config/rate_limit.yaml");
         let text = std::fs::read_to_string(path).expect("rate_limit.yaml must be readable");
         let parsed: RateLimitConfigFile =
-            serde_yaml::from_str(&text).expect("rate_limit.yaml must parse under strict rules");
+            serde_norway::from_str(&text).expect("rate_limit.yaml must parse under strict rules");
         assert!(parsed.sync.enabled, "sync 限流应为启用（见 S 系列修复）");
     }
 
@@ -1058,9 +1059,9 @@ default:
     fn default_config_round_trips_through_yaml() {
         // `RateLimitConfigFile::default()` is the fallback when the file is
         // missing; it must satisfy the same strict schema.
-        let text = serde_yaml::to_string(&RateLimitConfigFile::default()).expect("serialize");
+        let text = serde_norway::to_string(&RateLimitConfigFile::default()).expect("serialize");
         let reparsed: RateLimitConfigFile =
-            serde_yaml::from_str(&text).expect("默认配置必须能通过严格校验（否则缺失文件时无法回退）");
+            serde_norway::from_str(&text).expect("默认配置必须能通过严格校验（否则缺失文件时无法回退）");
         assert_eq!(reparsed.enabled, RateLimitConfigFile::default().enabled);
     }
 }
@@ -1196,7 +1197,7 @@ mod watcher_recovery_tests {
         // The file shows up, carrying a *different* rule.
         let on_disk =
             RateLimitConfigFile { default: RateLimitRule { per_second: 50, burst_size: 100 }, ..Default::default() };
-        std::fs::write(&path, serde_yaml::to_string(&on_disk).expect("serialize")).expect("write");
+        std::fs::write(&path, serde_norway::to_string(&on_disk).expect("serialize")).expect("write");
 
         manager.reload().await.expect("文件出现后 reload 必须成功");
 

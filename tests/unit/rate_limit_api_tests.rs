@@ -281,7 +281,7 @@ fn sensitive_endpoints_have_tight_limits() {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/docker/config/rate_limit.yaml");
     let raw = std::fs::read_to_string(path).expect("read rate_limit.yaml");
     let cfg: synapse_rust::common::rate_limit_config::RateLimitConfigFile =
-        serde_yaml::from_str(&raw).expect("parse rate_limit.yaml");
+        serde_norway::from_str(&raw).expect("parse rate_limit.yaml");
     for p in ["/_matrix/client/v3/register", "/_matrix/client/v3/account/password"] {
         let rule =
             cfg.endpoints.iter().find(|e| e.path == p).unwrap_or_else(|| panic!("no explicit rate-limit rule for {p}"));

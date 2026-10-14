@@ -365,7 +365,7 @@ mod tests {
             crate::config::test_env::remove("SYNAPSE__SECURITY__LOGIN_LOCKOUT_IP_ALLOWLIST");
         }
         // 对照：YAML 列表是唯一可行通道，必须真的解析成两项。
-        let parsed: crate::config::security::SecurityConfig = serde_yaml::from_str(
+        let parsed: crate::config::security::SecurityConfig = serde_norway::from_str(
             "secret: s\nexpiry_time: 1\nrefresh_token_expiry: 2\n\
              login_lockout_ip_allowlist:\n  - 127.0.0.1\n  - 10.0.0.0/8\n",
         )

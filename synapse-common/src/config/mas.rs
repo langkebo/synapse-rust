@@ -84,7 +84,7 @@ mod tests {
         // when `#[serde(default)]` is applied at the parent) must deserialize
         // using defaults without error.
         let yaml = "{}\n";
-        let cfg: MasConfig = serde_yaml::from_str(yaml).expect("empty YAML should deserialize with defaults");
+        let cfg: MasConfig = serde_norway::from_str(yaml).expect("empty YAML should deserialize with defaults");
         assert!(!cfg.enabled);
         assert!(cfg.issuer_url.is_empty());
         assert!(cfg.client_id.is_empty());
@@ -95,7 +95,7 @@ mod tests {
     #[test]
     fn mas_config_deserialize_explicit_values() {
         let yaml = "enabled: true\nissuer_url: https://mas.example.com\nclient_id: synapse-rust\nclient_secret: s3cret\nadmin_token: admin-tok\n";
-        let cfg: MasConfig = serde_yaml::from_str(yaml).expect("explicit YAML should deserialize");
+        let cfg: MasConfig = serde_norway::from_str(yaml).expect("explicit YAML should deserialize");
         assert!(cfg.enabled);
         assert_eq!(cfg.issuer_url, "https://mas.example.com");
         assert_eq!(cfg.client_id, "synapse-rust");

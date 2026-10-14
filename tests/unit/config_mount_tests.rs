@@ -260,7 +260,7 @@ fn homeserver_yaml_deserializes_into_config() {
     let yaml_text = fs::read_to_string(&yaml_path)
         .unwrap_or_else(|e| panic!("docker/config/homeserver.yaml must be readable for serde round-trip test: {e}"));
 
-    let cfg: Config = serde_yaml::from_str(&yaml_text)
+    let cfg: Config = serde_norway::from_str(&yaml_text)
         .unwrap_or_else(|e| panic!("homeserver.yaml must deserialize into Config: {e}"));
 
     // 基本 sanity 检查：确保反序列化产生了有意义的值
