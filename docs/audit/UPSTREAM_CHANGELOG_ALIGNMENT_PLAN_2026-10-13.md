@@ -1063,3 +1063,37 @@ CI 在**本批改动之前**的 HEAD（`cc56d479e`，run 38509545932）已有 3 
 把计数从 257 推到 258。本批因此把历史可见性边界查询放进新模块
 `synapse-storage/src/event/history_boundary.rs`（51 行），`state.rs` 回到 487 行，棘轮维持 `257 (baseline 253)`。
 **改本仓任何"已经接近 500 行"的文件前，先跑一次棘轮脚本比对数字。**
+
+---
+
+### 11.9 E5（本文件被"陈旧副本"覆盖）：排查结论与处置
+
+**现象**（2026-10-14 实测 2 次；此前累计 ≥4 次）：本文件在工作区被替换成一份**更旧、且表格被重新补空**的副本 —— `git status` 显示该文件「已修改」，diff 规模 **188 增 / 270 删**，`^### 11\.` 由 8 条掉到 6 条（§11.7/§11.8 **整段消失**）。因为格式依旧合法，**markdownlint / aspell 全绿** ⇒ 损伤是静默的。
+
+**已排除的假设（逐条给出判据，均可复现）**
+
+| 假设 | 判据 | 结论 |
+| --- | --- | --- |
+| 另一个 WorkBuddy 会话持陈旧缓冲回写 | 扫 `~/.workbuddy/traces/*/trace_*.json` 中含本文件路径的 **18 个 trace，`sessionId` 全部是本会话** `53602ade`；同级会话 `ee2a6cf3`（cwd `~/Desktop/hu_ts`）对本文件**零写入** | **否证** |
+| 仓库工具链重排表格后回写 | 全仓无任何脚本写 `docs/audit/*.md`；`.pre-commit-config.yaml` 只有 trailing-whitespace / end-of-file / mixed-line-ending / check-json / pretty-format-json / check-toml / check-yaml / cargo-fmt / ruff-format / shfmt —— **没有任何 markdown 格式化器**；`preflight.sh` 对 md 只跑 markdownlint + aspell（只读） | **否证** |
+| `Edit` 工具基于陈旧读缓存做读-改-写 | 对照实验：先用 `printf` 从 bash 追加哨兵（`Edit` 不知情），再用 `Edit` 改首行标题 ⇒ **哨兵保留、章节仍 8 条、diff 恰好 3 行** | **否证** |
+| `git stash` 应用了旧内容 | `git stash list` 只有一条 `WIP on feature/2026-10-01-…`，其树里**没有**本文件 | **否证** |
+
+**剩下的事实（可复现）**
+
+- 工作区那份**不等于任何一个历史修订**：`git diff 6ef02fa1e 4504bc5bd -- <本文件>` 只有 **2 增 / 82 删**，而现场是 **188/270**。
+- 它 = **更旧的内容 + 表格重新补空**。而"补空表格"是**本仓常态风格**：HEAD 版本文件自身就有 **9 处**补空分隔行（`^\| -{10,} \|`），另有 3 个文档同样如此；补空在本文件中自 `d63337805`（08:01）起出现。
+- ⇒ 写入者产出的是**"读得更早、写得更晚"、且顺手重排表格**的副本 —— 这是**文档重写者**（LLM 会话 / 编辑器侧保存）的指纹，不是 formatter、不是 git、也不是另一个 agent 会话。
+
+**处置（本轮落地）**
+
+1. **章节棘轮**：新增 `scripts/ci/check_plan_doc_sections.py` + 基线 `scripts/ci/plan_doc_sections_baseline`（43 条标题）。
+   基线里的标题在文档里找不到 ⇒ **判红并指名缺失章节**；新增/重排不红；`--update` 供有意删改（纪律同 `file_size_baseline`）。
+   已接入 `scripts/quality/preflight.sh`（仅当本文件进入改动集时运行）。变异自证：对副本删掉 §11.8 后
+   `--doc /tmp/plan_doc_mutated.md` **判红**并打印 `✗ ### 11.8 …`。
+2. **恢复规程**：`git checkout -- docs/audit/UPSTREAM_CHANGELOG_ALIGNMENT_PLAN_2026-10-13.md`。
+   **本文件内容以 git 为准**；工作区版本可疑时先还原，再核 `grep -c '^### 11\.'`。
+3. **提交纪律**：文档改动放最后、改完立刻提交；提交后必须 `git status` 干净。
+
+**仍未根除的部分**：写入者不在仓库内，仓库侧**无法阻止**它再次发生 —— 棘轮只保证下次**立刻判红**而非静默。
+若再次出现，唯一还有用的一手信息是"**发生时刻 + 当时开着的编辑器 / 预览面板**"：这是尚未排除的一侧。

@@ -83,6 +83,19 @@ if [ -n "$md" ]; then
     run "markdownlint" npx --yes markdownlint-cli@0.49.1 -c .markdownlint.json $md
 fi
 
+# 章节棘轮：`docs/audit/UPSTREAM_CHANGELOG_ALIGNMENT_PLAN_2026-10-13.md` 反复被一份
+# **陈旧且重排过表格的副本**覆盖，每次都**整段吞掉**最新章节（2026-10-14 实测 2 次）。
+# 而 markdownlint / aspell 对"少了一整节"完全无感（文件仍能解析、格式也合法）
+# ⇒ 必须有独立的一条**会红**的判据，否则损伤要等到人重读文档才被发现。
+# 只在文档本身进入改动集时跑：它读的就是这一个文件，文件没变结论不可能变。
+# 排查过程与恢复步骤见该文档 §11.9。
+step "文档：章节棘轮（防整段被吞）"
+if printf '%s\n' "$changed" | grep -qF 'UPSTREAM_CHANGELOG_ALIGNMENT_PLAN_2026-10-13.md'; then
+    run "check_plan_doc_sections.py" python3 scripts/ci/check_plan_doc_sections.py
+else
+    echo "SKIP 本次未改动该文档 ⇒ 棘轮读的文件未变"
+fi
+
 step "契约 gate"
 if [ -z "$(printf '%s\n' "$changed" | grep -E 'ROUTE_CONTRACT|ledger_annotations|extract_registered|derived_route|ledger_export|route-table\.json|route_ledger' || true)" ]; then
     run "check_route_contract.sh" bash scripts/contract/check_route_contract.sh

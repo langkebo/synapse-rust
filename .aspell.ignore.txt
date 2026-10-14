@@ -19,10 +19,10 @@
 # 追加（2026-10-06，全量测试与性能门禁验证登记）：contrib、pgcrypto（migrations/README.md）、github、opengraph（全面报告 §1.5 运行证据）。
 # 追加（2026-10-09，冗余审查 §17.5 记录）：extern（Rust `extern crate` 关键字被脚本小写化）、ser（`ser/de` 缩写被斜杠切出）。
 # 追加（2026-10-09，ROUTE_CONTRACT 附录 B 审计登记）：callsite（T1_CALLSITE 分桶名被脚本小写化）、submittoken、unquarantine（3PID/admin media 端点路径段）。
+# 追加（2026-10-10，运维巡检 4 项修复）：authed（认证覆盖率术语，scripts/api_test/README.md）。
 # 项目技术词典：aspell 通用英文词典（en_US）不含本仓技术语料的词汇。
 # 由本轮实测生成：CI run 35494141985 的 577 词 ∪ 本地 aspell 0.60.8.2 的 757 词 ∪ 原有 17 词。
 # 内容为「合法技术词」，不是「忽略拼写错误」：通用英文词的错拼（recieve/seperate/occured…）
-# 追加（2026-10-10，运维巡检 4 项修复）：authed（认证覆盖率术语，scripts/api_test/README.md）。
 abi
 acao
 accessexclusivelock
@@ -489,6 +489,7 @@ linter
 linux
 livekit
 ljf
+llm
 llvm
 loc
 localcache
