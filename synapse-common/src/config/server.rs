@@ -179,6 +179,37 @@ pub struct ServerConfig {
     /// 是否允许用户注册
     pub enable_registration: bool,
 
+    /// 抑制"该用户名已被占用"这一类错误，用于切断账号枚举。
+    ///
+    /// 上游 Synapse 同名配置（`registration.inhibit_user_in_use_error`，**默认
+    /// `false`**；实现见上游 `synapse/config/registration.py`，语义见上游仓库
+    /// 配置文档的 `inhibit_user_in_use_error` 一节 —— 那是**上游**文档路径，
+    /// 本仓没有该文件）。上游的原文语义是：
+    ///
+    /// > 开启后 `GET /register/available` 会把**任何**用户名都报成可用，且
+    /// > `/register` **开始**一次已存在用户名的注册时不再报错；但**注册完成时**
+    /// > 用户名冲突**仍会**报错。
+    ///
+    /// 本仓与之对应的两处：
+    ///
+    /// - `GET /register/available`（`auth_compat::check_username_availability`）：
+    ///   开启后**不再查库**，直接回 `available: true` —— 该端点因此不再是成员
+    ///   存在性探针。
+    /// - `POST /register`：本仓**没有**"开始注册"时的预检，`M_USER_IN_USE` 本来
+    ///   就只来自完成时的 `INSERT`（`synapse-services/src/auth/register.rs`），
+    ///   正是上游明确**不抑制**的那一种 ⇒ **无需改动**，两条默认值下行为一致。
+    ///
+    /// ⚠️ 这是一项**折中而非完整修复**：即使开启，`POST /register` 完成时的冲突
+    /// 仍会报错（上游亦然），客户端仍可用"试着注册"来区分；它挡掉的是那条
+    /// **廉价、无副作用**的探测路径。默认值与上游一致（`false`）。
+    ///
+    /// 注意 `bool` 的 `Default::default()` 恰好也是 `false`，因此本字段在
+    /// "YAML 缺省"与"测试容器 `..Default::default()`"两条路径上**取值一致**
+    /// （与 `request_token_inhibit_3pid_errors` 的 `default_true` 情形相反）。
+    #[serde(default)]
+    /// `inhibit_user_in_use_error` field.
+    pub inhibit_user_in_use_error: bool,
+
     /// 是否启用注册验证码
     pub enable_registration_captcha: bool,
 

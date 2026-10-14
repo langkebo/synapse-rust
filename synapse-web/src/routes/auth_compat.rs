@@ -115,6 +115,22 @@ pub(crate) async fn check_username_availability(
         return Err(e.into());
     }
 
+    // `inhibit_user_in_use_error` (upstream parity, default `false`): report every
+    // well-formed localpart as available **without touching the users table**, so
+    // this endpoint stops being a membership oracle. Registration still rejects a
+    // conflicting localpart when it *completes* (the unique-violation path in
+    // `synapse-services/src/auth/register.rs`), which upstream keeps even with the
+    // flag on.
+    //
+    // The syntax check above stays unconditional on purpose: an invalid localpart
+    // is rejected regardless of which accounts exist, so a 400 here leaks nothing.
+    if ctx.config.server.inhibit_user_in_use_error {
+        return Ok(Json(json!({
+            "available": true,
+            "username": username
+        })));
+    }
+
     let user_id = format!("@{}:{}", username, ctx.server_name);
     // U-2: username availability is an *existence* probe, not an authorization
     // one. A deactivated account's row still exists and `register_with_device_name`

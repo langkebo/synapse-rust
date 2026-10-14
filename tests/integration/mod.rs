@@ -117,6 +117,7 @@ mod federation_service_tests_migrated;
 mod invite_blocklist_tests_migrated;
 #[cfg(feature = "voip-tracking")]
 mod matrixrtc_tests_migrated;
+mod register_enumeration_tests;
 mod registration_service_tests_migrated;
 mod relations_service_tests_migrated;
 mod request_token_enumeration_tests;

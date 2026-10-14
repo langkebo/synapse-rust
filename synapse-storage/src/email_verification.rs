@@ -97,9 +97,9 @@ impl EmailVerificationStorage {
         Ok(())
     }
 
-    /// Shared validation for submitToken: checks existence, usage, expiration,
-    /// token match, and client_secret match against session_data. Marks the
-    /// token as used on success.
+    /// Shared validation for submitToken: checks existence, token match, usage,
+    /// expiration and client_secret match against session_data. Marks the token
+    /// as used on success.
     ///
     /// `inhibit_unknown_session` mirrors upstream's
     /// `RegistrationStore._ignore_unknown_session_error`, driven by
@@ -108,6 +108,26 @@ impl EmailVerificationStorage {
     /// probe which session ids exist. That matters here: `sid` is the token row
     /// id (a small sequential integer), so the oracle would otherwise be trivial
     /// to walk.
+    ///
+    /// # Why the token is compared **first** (order is load-bearing)
+    ///
+    /// Only the unknown-`sid` branch used to be masked, which left the session
+    /// *lifecycle* as an oracle: a caller who probed an existing `sid` with a
+    /// garbage token learned `has already been used` or `has expired` before
+    /// the token comparison ever ran, and those two messages differ from the
+    /// unknown-session one. Comparing the token first makes every rejection
+    /// below reachable **only by a caller that already knows the token** — an
+    /// unknown `sid`, a used session and an expired one all answer with the
+    /// identical [`INVALID_TOKEN_MESSAGE`] to someone guessing.
+    ///
+    /// The lookup itself is an unconditional `SELECT` for both hits and misses,
+    /// so the reorder does not introduce a query-count difference either.
+    ///
+    /// The reorder is **unconditional**; `inhibit_unknown_session` only decides
+    /// whether the *unknown-`sid`* message is masked. An operator who sets it to
+    /// `false` gets the distinct `not found` message back for a session that
+    /// does not exist, but still has to present the token to see `used` /
+    /// `expired` — which is all a legitimate client ever does.
     pub async fn validate_and_consume_token(
         &self,
         token_id: i64,
@@ -128,6 +148,11 @@ impl EmailVerificationStorage {
             None => return Err(ApiError::bad_request("Invalid session ID or session not found".to_string())),
         };
 
+        // First, before any state check — see the ordering note above.
+        if verification_token.token != submitted_token {
+            return Err(ApiError::bad_request(INVALID_TOKEN_MESSAGE.to_string()));
+        }
+
         if verification_token.is_used {
             return Err(ApiError::bad_request("Verification token has already been used".to_string()));
         }
@@ -135,10 +160,6 @@ impl EmailVerificationStorage {
         let now = current_timestamp_millis();
         if verification_token.expires_at.is_none_or(|expires_at| expires_at < now) {
             return Err(ApiError::bad_request("Verification token has expired".to_string()));
-        }
-
-        if verification_token.token != submitted_token {
-            return Err(ApiError::bad_request(INVALID_TOKEN_MESSAGE.to_string()));
         }
 
         // Mirror the legacy session_data->client_secret check.
@@ -417,5 +438,83 @@ mod tests {
             .expect_err("unknown session must still be rejected");
         assert_eq!(revealed.message, "Invalid session ID or session not found");
         assert_ne!(revealed, hidden, "with inhibition off the unknown-session rejection is intentionally distinct");
+    }
+
+    /// 顺序守卫：`is_used` / 已过期**不得**在 token 比对之前被拒。
+    ///
+    /// 只屏蔽"未知 sid"会留下**生命周期**预言机：拿垃圾 token 去探一个既有
+    /// `sid`，在 token 比对之前就能拿到"已用过"/"已过期"，而这两条消息与
+    /// "未知会话"不同 —— 于是 `sid`（自增整数）仍可被逐个分类。
+    ///
+    /// 断言四种探测路径的错误**彼此相等**（而非某个字面量），这样即使将来
+    /// 有人把校验顺序改回去，也会被这条用例抓住。
+    #[tokio::test]
+    async fn session_lifecycle_is_indistinguishable_from_an_unknown_sid() {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+        let storage = EmailVerificationStorage::new(&pool);
+
+        let session_data = || serde_json::json!({"client_secret": "s3cret", "purpose": "register"});
+
+        // 1) 一个已被正常消费的会话。
+        let used_id = storage
+            .create_verification_token("used@example.com", "tok-used", 3600, None, Some(session_data()))
+            .await
+            .expect("create used");
+        storage
+            .validate_and_consume_token(used_id, "tok-used", "s3cret", true)
+            .await
+            .expect("the real token must be consumable");
+        assert!(storage.get_verification_token_by_id(used_id).await.unwrap().unwrap().is_used);
+
+        // 2) 一个已过期的会话（expires_in 为负）。
+        let expired_id = storage
+            .create_verification_token("expired@example.com", "tok-expired", -10, None, Some(session_data()))
+            .await
+            .expect("create expired");
+
+        // 3) 一个根本不存在的 sid。
+        let unknown_id = expired_id + 1_000_000;
+        assert!(storage.get_verification_token_by_id(unknown_id).await.unwrap().is_none());
+
+        // 用**垃圾 token** 探测三者：必须给出完全相同的拒绝，才说明生命周期
+        // 不再是可区分的信号。
+        let unknown = storage
+            .validate_and_consume_token(unknown_id, "guessed", "s3cret", true)
+            .await
+            .expect_err("unknown sid must be rejected");
+        let used = storage
+            .validate_and_consume_token(used_id, "guessed", "s3cret", true)
+            .await
+            .expect_err("used session must be rejected");
+        let expired = storage
+            .validate_and_consume_token(expired_id, "guessed", "s3cret", true)
+            .await
+            .expect_err("expired session must be rejected");
+
+        assert_eq!(unknown, used, "a used session must not be distinguishable from an unknown sid");
+        assert_eq!(unknown, expired, "an expired session must not be distinguishable from an unknown sid");
+        assert_eq!(unknown.message, INVALID_TOKEN_MESSAGE);
+
+        // 抑制关闭只影响"未知 sid"那一条：token 比对仍在最前，所以拿垃圾 token
+        // 探测已用过的会话依旧得到 token 错误 —— 而只有持有 token 的调用方才会
+        // 看到"已用过/已过期"。
+        let revealed_used = storage
+            .validate_and_consume_token(used_id, "guessed", "s3cret", false)
+            .await
+            .expect_err("used session must still be rejected");
+        assert_eq!(revealed_used.message, INVALID_TOKEN_MESSAGE);
+        let revealed_unknown = storage
+            .validate_and_consume_token(unknown_id, "guessed", "s3cret", false)
+            .await
+            .expect_err("unknown sid must still be rejected");
+        assert_eq!(revealed_unknown.message, "Invalid session ID or session not found");
+
+        // 而正确的 token 仍然能看到精确状态（合法客户端的可调试性未被牺牲）。
+        let honest_expired = storage
+            .validate_and_consume_token(expired_id, "tok-expired", "s3cret", true)
+            .await
+            .expect_err("expired session must be rejected");
+        assert_eq!(honest_expired.message, "Verification token has expired");
     }
 }

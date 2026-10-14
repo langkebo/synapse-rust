@@ -280,9 +280,9 @@ bash scripts/quality/preflight.sh
 
 ---
 
-## 9. 批次 B 实施记录（B1，2026-10-13）
+## 9. 批次 B 实施记录（B1–B5，2026-10-13 → 2026-10-14）
 
-**状态：B1 / B2 / B3 / B4 已实施。**
+**状态：B1 / B2 / B3 / B4 已实施；B4.7（残余预言机）与 B5（`inhibit_user_in_use_error`）为 2026-10-14 追加。**
 
 ### 先订正了一处自己的错误
 
@@ -467,9 +467,10 @@ ping（`application_service/mod.rs:467`）、AS 代理目标
 本仓按同等语义实现：开关打开时，未知 `sid` 以**与 token 不符完全相同**的错误被拒；  
 两分支共用常量 `INVALID_TOKEN_MESSAGE`，防止日后各自漂移回可区分。
 
-**残余（如实记录，与上游同构）**：`is_used` 与"已过期"仍在 token 校验**之前**被拒，  
+**残余（原先与上游同构）**：`is_used` 与"已过期"原先在 token 校验**之前**被拒，  
 因此这两类错误与"未知会话"仍可区分。彻底消除需要重排校验顺序，而那会改变  
-`claim_used_token`（"已消费 ⇒ 返回上次结果"）这一既有语义 ⇒ **本轮不动**，记录在案。
+`claim_used_token`（"已消费 ⇒ 返回上次结果"）这一既有语义 ⇒ **已在 B4.7 关闭**（重排校验顺序，把 token 比对提到最前；`claim_used_token`  
+不受影响）。
 
 #### B4.2 顺带修掉一条**不可能失败**的测试
 
@@ -536,9 +537,77 @@ ping（`application_service/mod.rs:467`）、AS 代理目标
 2. **本文件曾被外部进程回写为旧版本**（工作区一度变回 244 行的旧稿、`§9` 整体消失，  
    但 HEAD 与索引始终正确）。恢复即可；如需长期避免，应查清是哪一个编辑器/会话持有陈旧缓冲。
 
-#### B4.6 需要决策的相邻项（**本轮未做**）
+#### B4.6 相邻项：`inhibit_user_in_use_error`（**已实施，见 B5**）
 
 `GET /register/available` 与 `POST /register` 的 `M_USER_IN_USE` 同样是账号枚举通道，上游有  
 **独立**开关 `registration.inhibit_user_in_use_error`（`register.py:367/458/604`，默认 `false`）。  
-它**不在**本轮 24 条 changelog 内，故未纳入 B4。本仓 `/register/available` 目前返回真实  
-可用性（`auth_compat.rs:120-129`，带注释说明"报 available 反而是谎"）。是否一并收口，待定。
+它**不在**本轮 24 条 changelog 内。**已按上游语义实施，见 §9 的 B5 节。**
+
+#### B4.7 残余预言机已关闭（追加，2026-10-14）
+
+B4.1 记录的"生命周期仍可区分"是**真的可利用**：拿垃圾 token 探一个既有 `sid`，在 token  
+比对之前就会拿到 `has already been used` / `has expired`，而这两条与未知会话的消息不同 ——  
+于是自增的 `sid` 仍能被逐个归类。
+
+修法是**把 token 比对提到所有状态检查之前**（`synapse-storage/src/email_verification.rs`
+的 `validate_and_consume_token`）：
+
+| 原顺序 | 新顺序 |
+| --- | --- |
+| 1 行存在性 → 2 `is_used` → 3 过期 → 4 token 比对 → 5 client_secret | 1 行存在性 → **2 token 比对** → 3 `is_used` → 4 过期 → 5 client_secret |
+
+- 于是**未知 sid / 已用过 / 已过期**对"不知道 token"的调用方给出**完全相同**的
+  `INVALID_TOKEN_MESSAGE`；而"已用过/已过期"只对**持有 token** 的调用方可见 —— 那正是
+  合法客户端的场景，可调试性没有被牺牲。
+- **不改** `claim_used_token`（"已消费 ⇒ 返回上次结果"），其语义与顺序无关。
+- 重排是**无条件**的；`inhibit_unknown_session=false` 时只影响"未知 sid"那一条消息。
+- **无新增查询**：行查找对命中/未命中都是同一条 `SELECT`，顺序变化不引入查询条数差异。
+- 回归守卫：`session_lifecycle_is_indistinguishable_from_an_unknown_sid`
+  —— 用垃圾 token 分别探"未知 / 已用过 / 已过期"，断言四条错误**彼此相等**（不是断言字面量）。
+
+> 与上游的关系：上游在该处仍是"状态先于 token"，所以本仓在这一条上**比上游更严**。
+> 这是有意的：上游的 `_ignore_unknown_session_error` 只遮了未知会话，没遮生命周期。
+
+---
+
+### B5 —— `/register/available` 成员存在性探针（枚举抑制，2026-10-14）
+
+**非 changelog 项**（上游独立开关，不在本轮 24 条之内），按上游语义一并收口。
+
+#### B5.0 上游语义（逐字取自上游配置文档）
+
+`registration.inhibit_user_in_use_error`，**默认 `false`**：
+
+> 开启后 `/register/available` 会把**任何**用户名都报成可用，且 `/register` **开始**一次
+> 已存在用户名的注册时不再报错；但**注册完成时**用户名冲突**仍会**报错。
+
+#### B5.1 本仓对应面（实测）
+
+| 上游触点 | 本仓现状 | 结论 |
+| --- | --- | --- |
+| `GET /register/available` 早退返回 `available: true` | `auth_compat::check_username_availability` 用 `user_exists` 真实探库 | **需要改** |
+| `POST /register` 的"开始注册"预检（上游 `check_username`） | **不存在**：`M_USER_IN_USE` 只来自完成时 `create_user` 的唯一键冲突（`synapse-services/src/auth/register.rs:83-90`） | **无需改** —— 两条默认值下行为一致，且这正是上游明确**不**抑制的那一种 |
+
+#### B5.2 实施
+
+- `ServerConfig.inhibit_user_in_use_error: bool`（`#[serde(default)]`）。⚠️ 与
+  `request_token_inhibit_3pid_errors` 相反：`bool` 的 `Default::default()` 恰为 `false`，
+  与 serde 默认**一致** ⇒ **不存在**"YAML 缺省 vs 测试容器 `..Default::default()`"
+  取值相反的那个陷阱（B4.4 第 1 条）。
+- 开启时 `/register/available` **不再查库**，直接回 `{"available": true, "username": …}`。
+- **保留** `validate_username` 语法检查（与上游"先解析后短路"的顺序略有差异，**有意**）：
+  非法 localpart 无论谁存在都报 400，不泄露任何信息；保留它让端点契约不随开关变化。
+
+#### B5.3 这是一项折中，不是完整修复（重要）
+
+即使开启，`POST /register` **完成时**的冲突**仍会**报错（上游亦然，由 `users.user_id`
+唯一索引决定），客户端依旧能用"试着注册"来区分。它挡掉的是那条**廉价、无副作用**的
+探测路径。两处都已在代码注释里写明，避免被误读为"已彻底防枚举"。
+
+#### B5.4 验证
+
+`tests/integration/register_enumeration_tests.rs`（驱动生产 router）：
+
+- 关闭（默认）⇒ 已注册名报 `available: false`、未用名报 `true` —— 这是**基线**，
+  没有它，第二条用例即使对着一个"恒返回 true"的空实现也会绿；
+- 开启 ⇒ 两者**都**报 `true`，且响应**形状**一致（仅 `username` 回显不同）。
