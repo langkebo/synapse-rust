@@ -1,6 +1,7 @@
 use super::types::*;
 use super::SyncService;
 use crate::map_internal;
+use crate::room::messaging::history_visibility::HistoryCut;
 use crate::*;
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
@@ -104,6 +105,7 @@ impl SyncService {
             account_data_events,
             (to_device_events, to_device_stream_id),
             (device_lists, device_list_stream_id),
+            history_cuts,
         ) = tokio::try_join!(
             self.get_state_events_for_sync_batch(
                 &rooms_to_include,
@@ -117,6 +119,10 @@ impl SyncService {
             self.get_account_data_events(user_id),
             self.get_to_device_events(user_id, device_id, since_token),
             self.get_device_lists(user_id, since_token),
+            // `m.room.history_visibility`: resolved in the same round trip as the
+            // rest of the room data (one state batch for all rooms, plus a
+            // boundary read only for the restrictive ones).
+            self.history_cuts(&rooms_to_include, user_id),
         )?;
 
         // MSC4354: Pre-fetch all room IDs where this user has sticky events.
@@ -193,6 +199,12 @@ impl SyncService {
             }
 
             let events = room_events.get(room_id).cloned().unwrap_or_default();
+            // `m.room.history_visibility`: drop the entries this caller is not
+            // entitled to see *before* the timeline limit is applied, so `limited`
+            // describes the slice the caller can actually read rather than one the
+            // server just refused to hand over.
+            let events =
+                Self::apply_history_cut(events, history_cuts.get(room_id).copied().unwrap_or(HistoryCut::Unrestricted));
             let (timeline_events, timeline_limited) = Self::apply_timeline_limit(&events, timeline_limit);
             let state_events = Self::apply_sync_filter_to_values(
                 state_by_room.get(room_id).cloned().unwrap_or_default(),

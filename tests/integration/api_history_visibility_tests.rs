@@ -109,6 +109,76 @@ async fn single_event_status(app: &axum::Router, token: &str, room_id: &str, eve
     ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap().status()
 }
 
+/// The `event_id`s of one room's timeline in an initial `/sync`.
+async fn sync_timeline_event_ids(app: &axum::Router, token: &str, room_id: &str) -> Vec<String> {
+    let request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/sync?timeout=0")
+        .header("Authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "/sync must succeed");
+
+    let body = axum::body::to_bytes(response.into_body(), 4 * 1024 * 1024).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    json["rooms"]["join"][room_id]["timeline"]["events"]
+        .as_array()
+        .map(|events| events.iter().filter_map(|event| event["event_id"].as_str().map(ToOwned::to_owned)).collect())
+        .unwrap_or_default()
+}
+
+/// The worst form of the leak: no client action at all — a newly joined member's
+/// very first `/sync` used to hand over the room's whole pre-join history.
+#[tokio::test]
+async fn sync_timeline_hides_history_from_before_the_caller_joined() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let alice = super::create_test_user(&app).await;
+    let room_id = create_public_room(&app, &alice).await;
+
+    let before_bob = send_message(&app, &alice, &room_id, "s1", "before-bob").await;
+    let bob = super::create_test_user(&app).await;
+    join_room(&app, &bob, &room_id).await;
+    let after_bob = send_message(&app, &alice, &room_id, "s2", "after-bob").await;
+
+    // Precondition: under the creation default (`shared`) Bob's sync carries the
+    // earlier message too — otherwise the assertion below would be vacuous.
+    let shared_ids = sync_timeline_event_ids(&app, &bob, &room_id).await;
+    assert!(
+        shared_ids.contains(&before_bob),
+        "precondition: `shared` must expose pre-join history through /sync: {shared_ids:?}"
+    );
+
+    assert_eq!(set_history_visibility(&app, &alice, &room_id, "joined").await, StatusCode::OK);
+
+    let joined_ids = sync_timeline_event_ids(&app, &bob, &room_id).await;
+    assert!(
+        joined_ids.contains(&after_bob),
+        "a message sent after the caller joined must stay in the timeline: {joined_ids:?}"
+    );
+    assert!(
+        !joined_ids.contains(&before_bob),
+        "`joined` visibility must hide pre-join history from /sync as well: {joined_ids:?}"
+    );
+
+    // Control: the creator was in the room before both messages, so this is a
+    // per-caller boundary rather than a blanket wipe.
+    let alice_ids = sync_timeline_event_ids(&app, &alice, &room_id).await;
+    assert!(
+        alice_ids.contains(&before_bob) && alice_ids.contains(&after_bob),
+        "the creator must keep seeing the full timeline: {alice_ids:?}"
+    );
+
+    // Control 2: back to `shared` restores the earlier history, proving the
+    // filtering above came from the policy and not from the event disappearing.
+    assert_eq!(set_history_visibility(&app, &alice, &room_id, "shared").await, StatusCode::OK);
+    let restored = sync_timeline_event_ids(&app, &bob, &room_id).await;
+    assert!(restored.contains(&before_bob), "`shared` must restore pre-join history: {restored:?}");
+}
+
 /// The core leak, at the endpoint clients actually page with.
 #[tokio::test]
 async fn joined_visibility_hides_history_from_before_the_caller_joined() {

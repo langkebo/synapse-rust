@@ -3,6 +3,7 @@ mod api_trait;
 mod data_fetch;
 mod event_fetch;
 mod filter;
+mod history_visibility;
 mod lazy_load;
 mod metrics;
 /// The `push_rules` module.
