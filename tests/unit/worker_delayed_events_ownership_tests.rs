@@ -11,8 +11,18 @@
 //! * Guard A — [`delayed_events_worker_paths_are_registered_routes`]: every entry
 //!   of the set must be an actually registered route (catches typos / drift).
 //! * Guard B — [`registered_delayed_events_routes_are_all_listed`]: every
-//!   registered route whose path contains `delayed_events` must be present in the
+//!   registered route whose path contains `delayed_event` must be present in the
 //!   set (catches a missing entry when a route is added).
+//!
+//! ⚠️ Guard B matches the **singular stem** `delayed_event` on purpose. The
+//! family spells its two halves differently — the scheduling endpoint is
+//! `…/rooms/{room_id}/delayed_event/{event_type}/{txn_id}` (singular, upstream
+//! MSC4140's own spelling) while the management endpoints are
+//! `…/delayed_events/{delay_id}` (plural) — so a `contains("delayed_events")`
+//! scan skips the scheduling route entirely. That is exactly what happened when
+//! `PUT …/rooms/{room_id}/delayed_event/…` was added: the old filter could not
+//! see it, and the entry escaped the set. Matching the stem covers both
+//! spellings, and the missing entry was then proven to fail (see red proof).
 //!
 //! The truth source is `synapse_web::routes::declared_ledger_all()` — the ledger
 //! API backed by `synapse-web/src/routes/derived_route_table_always.inc.rs`,
@@ -26,7 +36,10 @@
 //!
 //! * typo the single entry (`.../delayed_events_typo/{delay_id}`) ⇒ Guard A red;
 //! * drop the single entry (`&[]`) ⇒ Guard B red (and Guard A's non-vacuity
-//!   assertion fires as well, since an empty set cannot fail Guard A otherwise).
+//!   assertion fires as well, since an empty set cannot fail Guard A otherwise);
+//! * drop **only** the singular scheduling entry, leaving the plural one ⇒
+//!   Guard B red with that one path named — which is also the red proof that the
+//!   singular-stem filter is load-bearing rather than decorative.
 
 use std::collections::HashSet;
 
@@ -66,19 +79,28 @@ fn delayed_events_worker_paths_are_registered_routes() {
 
 /// Guard B — family coverage.
 ///
-/// Every registered route whose path contains `delayed_events` must be present in
+/// Every registered route whose path contains `delayed_event` must be present in
 /// `DELAYED_EVENTS_WORKER_PATHS`, so a newly added route cannot silently escape
 /// the explicit set.
+///
+/// The stem is the **singular** `delayed_event`, which also matches the plural
+/// `delayed_events` — the family uses both spellings and only the stem covers
+/// them.
 #[test]
 fn registered_delayed_events_routes_are_all_listed() {
     let ledger = declared_ledger_all();
     let family: HashSet<&str> =
-        ledger.iter().map(|entry| entry.path).filter(|path| path.contains("delayed_events")).collect();
+        ledger.iter().map(|entry| entry.path).filter(|path| path.contains("delayed_event")).collect();
 
     assert!(
         !family.is_empty(),
         "Guard B cannot run vacuously: the derived route ledger must contain at least one \
-         delayed_events route"
+         delayed-events route"
+    );
+    assert!(
+        family.len() >= 2,
+        "both halves of the family must be in the ledger (the scheduling route is singular, the \
+         management route plural); got {family:?}"
     );
 
     for path in family {
@@ -111,6 +133,9 @@ fn delayed_events_gate_rejects_non_family_paths() {
         "/_synapse/worker/v1/replication/stream",
         // Same family prefix, but not a registered route (no `{delay_id}`).
         "/_matrix/client/unstable/org.matrix.msc4140/delayed_events",
+        // Singular scheduling path with a segment missing (the registered
+        // template has `{event_type}/{txn_id}` after `delayed_event`).
+        "/_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}",
         // Concrete instance instead of the registered path template.
         "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/42",
         // Extra segment past the registered template.

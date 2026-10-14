@@ -1,5 +1,5 @@
 # route-ledger snapshot: worker-enabled
-count: 1019
+count: 1020
 
 DELETE /_matrix/app/v1/proxy/{as_id}/{*path} [app_service]
 DELETE /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device [assembly::create_router]
@@ -921,6 +921,7 @@ PUT /_matrix/app/v1/proxy/{as_id}/{*path} [app_service]
 PUT /_matrix/app/v1/transactions/{as_id}/{txn_id} [app_service]
 PUT /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device [assembly::create_router]
 PUT /_matrix/client/unstable/org.matrix.msc4108/rendezvous/{session_id} [msc4108_rendezvous]
+PUT /_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id} [delayed_events]
 PUT /_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name} [assembly::create_router]
 PUT /_matrix/client/v1/presence/{user_id}/status [presence]
 PUT /_matrix/client/v1/profile/{user_id}/avatar_url [assembly::account_compat]

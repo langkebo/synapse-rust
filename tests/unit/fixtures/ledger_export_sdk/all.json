@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": true
   },
-  "entry_count": 1027,
+  "entry_count": 1028,
   "entries": [
     {
       "method": "GET",
@@ -285,6 +285,18 @@
       "registered_by": "delayed_events",
       "path_params": [
         "delay_id"
+      ],
+      "query_params": [],
+      "auth": "user"
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}",
+      "registered_by": "delayed_events",
+      "path_params": [
+        "room_id",
+        "event_type",
+        "txn_id"
       ],
       "query_params": [],
       "auth": "user"

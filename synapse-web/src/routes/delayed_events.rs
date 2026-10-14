@@ -1,30 +1,182 @@
 //! MSC4140 — Cancellable delayed events route handlers.
 //!
-//! Implements the Gen 1 generic management endpoint for delayed events.
-//! Clients schedule a delayed event by sending a normal `PUT /rooms/{roomId}/send/...`
-//! with an `org.matrix.msc4140.delay` field in the body; the server returns a
-//! `delay_id`. This module provides the management endpoints to cancel,
-//! restart (heartbeat), or force-send a pending delayed event.
+//! Implements both scheduling surfaces:
+//!
+//! * the **delay hint** on the ordinary send paths (`/send` with
+//!   `?org.matrix.msc4140.delay=`, and the `/state` variants) — see
+//!   `handlers::room::schedule_delayed_event_if_requested`;
+//! * the **dedicated endpoint** (`PUT .../rooms/{roomId}/delayed_event/…`),
+//!   which upstream added in the same PR and now recommends.
+//!
+//! Whichever door the client used, the server returns a `delay_id` and this
+//! module provides the management endpoints to cancel, restart (heartbeat), or
+//! force-send the pending event.
 //!
 //! Endpoints:
+//!   PUT  /_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}
 //!   GET  /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}
 //!   POST /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}
 //!   { "action": "send" | "cancel" | "restart" }
 //!
 //! See: <https://github.com/matrix-org/matrix-spec-proposals/pull/4140>
 
-use crate::routes::context::AdminContext;
-use crate::routes::extractors::AuthenticatedUser;
+use crate::routes::context::{AdminContext, RoomContext};
+use crate::routes::extractors::{AuthenticatedUser, RoomId};
+use crate::routes::handlers::room::{
+    ensure_message_write_access, ensure_room_state_write_access, normalize_room_event_type,
+    schedule_delayed_event_core, MSC4140_MAX_DELAY_MS, MSC4140_SCHEDULE_TXN_NAMESPACE,
+};
+use crate::routes::sticky_event::MSC4354_STICKY_DURATION_FIELD;
+use crate::routes::validate_room_id;
 use crate::routes::AppState;
 use axum::{
     extract::{Json, Path, State},
     http::HeaderMap,
-    routing::get,
+    routing::{get, put},
     Router,
 };
 use serde_json::{json, Value};
 use synapse_common::ApiError;
 use synapse_services::delayed_event_service::DelayedEventAction;
+
+/// MSC4140 — Schedule a delayed event through the dedicated endpoint.
+///
+/// `PUT /_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}`
+///
+/// Upstream introduced this endpoint and **deprecated without removing** the
+/// `delay` query parameter on `/send` and `/state`; this handler is the mirror
+/// of those two paths — same room check, same write authorization, same
+/// `delay_ms` bounds — only the hint's *location* differs.
+///
+/// **The authorization here is not decoration.** The background dispatcher that
+/// later replays a due row (`src/server/mod.rs`) writes through `room_service`
+/// and re-checks nothing, so an under-authorized schedule is an under-authorized
+/// write that happens minutes later, on a background task. Whether `state_key`
+/// is present selects which gate runs — and it also selects which write path
+/// the dispatcher will use, so the gate always matches the eventual write.
+///
+/// `delay_id` in the response is a **number**, deliberately unlike upstream's
+/// string form: this server's `delay_id` is a `BIGSERIAL` and the management
+/// endpoints parse it with `Path<i64>`, so a string here would hand out an id
+/// its own siblings cannot read back.
+pub(crate) async fn schedule_delayed_event(
+    State(ctx): State<RoomContext>,
+    auth_user: AuthenticatedUser,
+    Path((room_id, event_type, txn_id)): Path<(RoomId, String, String)>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+
+    if !ctx.room_service.state().room_exists(&room_id).await? {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
+    let parsed = parse_schedule_request(&body)?;
+
+    let event_type = normalize_room_event_type(&event_type);
+
+    if parsed.state_key.is_some() {
+        ensure_room_state_write_access(&ctx, &auth_user, &room_id, &event_type, &parsed.content).await?;
+
+        return schedule_delayed_event_core(
+            &ctx,
+            &auth_user.user_id,
+            auth_user.device_id.as_deref().unwrap_or(""),
+            &room_id,
+            &event_type,
+            parsed.state_key,
+            parsed.content,
+            parsed.delay_ms,
+            Some(txn_id.as_str()),
+            MSC4140_SCHEDULE_TXN_NAMESPACE,
+        )
+        .await;
+    }
+
+    // Message path: the gate rewrites `content` in place (HTML sanitizer,
+    // content scan), so it must be handed ownership *before* the core stores it.
+    let mut content = parsed.content;
+    ensure_message_write_access(&ctx, &auth_user, &room_id, &event_type, &mut content).await?;
+
+    schedule_delayed_event_core(
+        &ctx,
+        &auth_user.user_id,
+        auth_user.device_id.as_deref().unwrap_or(""),
+        &room_id,
+        &event_type,
+        None,
+        content,
+        parsed.delay_ms,
+        Some(txn_id.as_str()),
+        MSC4140_SCHEDULE_TXN_NAMESPACE,
+    )
+    .await
+}
+
+/// The validated body of a dedicated-endpoint scheduling request.
+#[derive(Debug)]
+struct ScheduleRequest {
+    /// `delay_ms`, already checked to be positive and within [`MSC4140_MAX_DELAY_MS`].
+    delay_ms: i64,
+    /// `content` — the event body proper.
+    content: Value,
+    /// `state_key` — `None` for a message event, and for an explicit `null`.
+    state_key: Option<String>,
+}
+
+/// Validate the body of the dedicated endpoint.
+///
+/// Split out from the handler so the whole rejection matrix is testable without
+/// a database: every branch here is a decision about *what the client asked
+/// for*, taken before any state is touched.
+///
+/// Unevaluated JSON rather than a `Deserialize` struct, so a missing or mistyped
+/// field yields 400 `M_BAD_JSON` (this module's style — see
+/// `manage_delayed_event`) instead of axum's 422 deserialization rejection.
+fn parse_schedule_request(body: &Value) -> Result<ScheduleRequest, ApiError> {
+    // MSC4354's sticky duration is **refused, not dropped**. This server tracks
+    // sticky events as per-user pins (`POST /rooms/{roomId}/sticky_events`),
+    // not as a property of the event, so "schedule this and pin it" has no
+    // atomic form. Accepting the field and scheduling a plain event would
+    // silently downgrade what the client asked for; 501 says so out loud.
+    // Both spellings are checked because the pin endpoint accepts both.
+    if body.get(MSC4354_STICKY_DURATION_FIELD).is_some() || body.get("sticky_duration_ms").is_some() {
+        return Err(ApiError::not_supported(format!(
+            "'{MSC4354_STICKY_DURATION_FIELD}' is not supported on this endpoint: this server tracks sticky events \
+             as per-user pins (POST /rooms/{{roomId}}/sticky_events) rather than as an event property, so an event \
+             cannot be scheduled and pinned in one call"
+        )));
+    }
+
+    let delay_ms = body
+        .get("delay_ms")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| ApiError::bad_request("Missing or invalid 'delay_ms' field (must be an integer)".to_string()))?;
+    if delay_ms <= 0 {
+        return Err(ApiError::bad_request("'delay_ms' must be a positive integer (milliseconds)".to_string()));
+    }
+    if delay_ms > MSC4140_MAX_DELAY_MS {
+        return Err(ApiError::bad_request(format!("'delay_ms' must not exceed 24 hours ({MSC4140_MAX_DELAY_MS}ms)")));
+    }
+
+    // `content` is the event body itself (unlike `/send`, where the request body
+    // *is* the content and the hint sits beside it in the query string), so it
+    // is taken as a sub-object and never needs the hint stripped out of it.
+    let content =
+        body.get("content").filter(|value| value.is_object()).cloned().ok_or_else(|| {
+            ApiError::bad_request("Missing or invalid 'content' field (must be an object)".to_string())
+        })?;
+
+    // `null` means "no state key" — the same as upstream's absent optional, and
+    // unambiguous against `""` (a real, empty state key).
+    let state_key = match body.get("state_key") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(state_key)) => Some(state_key.clone()),
+        Some(_) => return Err(ApiError::bad_request("Invalid 'state_key' field (must be a string)".to_string())),
+    };
+
+    Ok(ScheduleRequest { delay_ms, content, state_key })
+}
 
 /// MSC4140 — Get a single pending delayed event.
 ///
@@ -94,13 +246,20 @@ pub(crate) async fn manage_delayed_event(
 
 /// MSC4140 router — mounts the delayed-events endpoints under the unstable
 /// namespace.
+///
+/// Both surfaces live here because they are one feature: the dedicated
+/// scheduling endpoint and the management endpoints that act on the `delay_id`
+/// it returns.
 pub fn create_delayed_events_router() -> Router<AppState> {
-    Router::new().route("/delayed_events/{delay_id}", get(get_delayed_event).post(manage_delayed_event))
+    Router::new()
+        .route("/delayed_events/{delay_id}", get(get_delayed_event).post(manage_delayed_event))
+        .route("/rooms/{room_id}/delayed_event/{event_type}/{txn_id}", put(schedule_delayed_event))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use synapse_common::ApiErrorKind;
 
     #[test]
     fn test_delayed_event_action_parse_valid() {
@@ -113,5 +272,122 @@ mod tests {
     fn test_delayed_event_action_parse_invalid() {
         assert!(DelayedEventAction::parse("delete").is_err());
         assert!(DelayedEventAction::parse("").is_err());
+    }
+
+    // ── Dedicated scheduling endpoint: the rejection matrix ──────────────────
+    //
+    // These are pure: no room, no database, no auth. What they pin down is that
+    // each malformed body fails *loudly and with the right status*, since the
+    // alternative — a lenient parse — would schedule something the client did
+    // not ask for and only surface it minutes later in the dispatcher's log.
+
+    fn kind_of(body: &Value) -> ApiErrorKind {
+        parse_schedule_request(body).expect_err("body must be rejected").kind
+    }
+
+    fn valid_body() -> Value {
+        json!({ "delay_ms": 60_000, "content": { "body": "later" } })
+    }
+
+    #[test]
+    fn schedule_body_accepts_the_minimal_valid_request() {
+        let parsed = parse_schedule_request(&valid_body()).expect("minimal body must parse");
+        assert_eq!(parsed.delay_ms, 60_000);
+        assert_eq!(parsed.content, json!({ "body": "later" }));
+        assert_eq!(parsed.state_key, None, "an absent state_key means a message event");
+    }
+
+    #[test]
+    fn schedule_body_delay_ms_is_required_and_integral() {
+        assert_eq!(kind_of(&json!({ "content": {} })), ApiErrorKind::BadRequest, "missing delay_ms");
+        assert_eq!(
+            kind_of(&json!({ "delay_ms": "60000", "content": {} })),
+            ApiErrorKind::BadRequest,
+            "string delay_ms"
+        );
+        assert_eq!(kind_of(&json!({ "delay_ms": 1.5, "content": {} })), ApiErrorKind::BadRequest, "float delay_ms");
+        assert_eq!(kind_of(&json!({ "delay_ms": null, "content": {} })), ApiErrorKind::BadRequest, "null delay_ms");
+    }
+
+    #[test]
+    fn schedule_body_delay_ms_must_be_positive_and_bounded() {
+        assert_eq!(kind_of(&json!({ "delay_ms": 0, "content": {} })), ApiErrorKind::BadRequest);
+        assert_eq!(kind_of(&json!({ "delay_ms": -1, "content": {} })), ApiErrorKind::BadRequest);
+        assert_eq!(
+            kind_of(&json!({ "delay_ms": MSC4140_MAX_DELAY_MS + 1, "content": {} })),
+            ApiErrorKind::BadRequest,
+            "one millisecond past the cap must be refused, not truncated"
+        );
+        // The boundary itself is inclusive on purpose: a client probing for the
+        // limit must see the same answer whichever door it used.
+        let at_cap = json!({ "delay_ms": MSC4140_MAX_DELAY_MS, "content": {} });
+        assert_eq!(parse_schedule_request(&at_cap).expect("the cap is inclusive").delay_ms, MSC4140_MAX_DELAY_MS);
+    }
+
+    #[test]
+    fn schedule_body_content_must_be_an_object() {
+        assert_eq!(kind_of(&json!({ "delay_ms": 1000 })), ApiErrorKind::BadRequest, "missing content");
+        assert_eq!(kind_of(&json!({ "delay_ms": 1000, "content": [] })), ApiErrorKind::BadRequest, "array content");
+        assert_eq!(kind_of(&json!({ "delay_ms": 1000, "content": "hi" })), ApiErrorKind::BadRequest, "string content");
+    }
+
+    #[test]
+    fn schedule_body_state_key_distinguishes_message_from_state() {
+        let absent = parse_schedule_request(&valid_body()).unwrap();
+        assert_eq!(absent.state_key, None);
+
+        let explicit_null = parse_schedule_request(&json!({
+            "delay_ms": 1000,
+            "content": {},
+            "state_key": null
+        }))
+        .unwrap();
+        assert_eq!(explicit_null.state_key, None, "an explicit null is the absent state_key, not an error");
+
+        let empty_key = parse_schedule_request(&json!({
+            "delay_ms": 1000,
+            "content": {},
+            "state_key": ""
+        }))
+        .unwrap();
+        assert_eq!(
+            empty_key.state_key,
+            Some(String::new()),
+            "the empty string is a real state key (a state event), not a missing one"
+        );
+
+        let named = parse_schedule_request(&json!({
+            "delay_ms": 1000,
+            "content": {},
+            "state_key": "topic"
+        }))
+        .unwrap();
+        assert_eq!(named.state_key.as_deref(), Some("topic"));
+
+        assert_eq!(
+            kind_of(&json!({ "delay_ms": 1000, "content": {}, "state_key": 5 })),
+            ApiErrorKind::BadRequest,
+            "a non-string state_key must not be coerced"
+        );
+    }
+
+    /// MSC4354's sticky duration is refused rather than silently dropped: the
+    /// event would otherwise be scheduled as a plain (unpinned) event while the
+    /// client believes it asked for a pinned one.
+    #[test]
+    fn schedule_body_refuses_the_sticky_duration_hint_with_501() {
+        for field in [MSC4354_STICKY_DURATION_FIELD, "sticky_duration_ms"] {
+            let mut body = valid_body();
+            body[field] = json!(60_000);
+            let error = parse_schedule_request(&body).expect_err("the sticky hint must not be accepted");
+            assert_eq!(error.kind, ApiErrorKind::NotImplemented, "field {field} must yield 501, got {error:?}");
+        }
+
+        // The refusal is about the *field*, not about any particular value: even
+        // a well-formed duration is refused, so the branch cannot be mistaken
+        // for a validation rule on the value.
+        let mut null_hint = valid_body();
+        null_hint[MSC4354_STICKY_DURATION_FIELD] = Value::Null;
+        assert_eq!(parse_schedule_request(&null_hint).unwrap_err().kind, ApiErrorKind::NotImplemented);
     }
 }

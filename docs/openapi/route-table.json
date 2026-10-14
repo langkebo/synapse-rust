@@ -2,7 +2,7 @@
   "schema_version": "1",
   "ledger_schema_version": "4",
   "lane": "golden",
-  "generated_at": "2026-09-16T00:00:00Z",
+  "generated_at": "2026-05-02T00:00:00Z",
   "source": "synapse_ledger_export",
   "profile": "default",
   "profile_flags": {
@@ -10,7 +10,7 @@
     "worker_enabled": false,
     "saml_enabled": false
   },
-  "total_routes": 948,
+  "total_routes": 949,
   "_meta": {
     "generated_by": "gen_route_table.py",
     "note": "本文件由 CI 自动生成，禁止手改。如需刷新: python3 scripts/api_test/gen_route_table.py"
@@ -322,6 +322,18 @@
       "registered_by": "delayed_events",
       "path_params": [
         "delay_id"
+      ],
+      "query_params": [],
+      "auth": "user"
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}",
+      "registered_by": "delayed_events",
+      "path_params": [
+        "room_id",
+        "event_type",
+        "txn_id"
       ],
       "query_params": [],
       "auth": "user"

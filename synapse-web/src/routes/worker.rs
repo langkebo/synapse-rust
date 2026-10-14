@@ -842,7 +842,11 @@ mod tests {
         assert_eq!(response.owned_route_prefixes, vec!["/_synapse/worker/v1/replication/*".to_string()]);
         assert_eq!(
             response.delayed_events_paths,
-            vec!["/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}".to_string()]
+            vec![
+                "/_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}"
+                    .to_string(),
+                "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}".to_string()
+            ]
         );
         assert_eq!(response.replication_streams, vec!["events".to_string()]);
         assert!(response.capabilities.can_persist_events);

@@ -16,25 +16,35 @@ use crate::worker::types::WorkerType;
 /// "may this worker serve *this* request?". This set is the fine-grained answer
 /// for the delayed-events family only.
 ///
-/// The family is registered as exactly two routes, both mounted by
+/// The family is registered as exactly three routes, all mounted by
 /// `synapse_web::routes::delayed_events::create_delayed_events_router()` and
-/// nested at `synapse-web/src/routes/assembly.rs:251`:
+/// nested at `synapse-web/src/routes/assembly.rs:256`:
 ///
+/// * `PUT  /_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}`
 /// * `GET  /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}`
 /// * `POST /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}`
 ///
-/// Both methods share one path, so the set holds one entry — the gate matches
-/// on the path, and listing the same path twice would be a redundant entry
-/// (AGENTS.md 铁律 1/2).
+/// The two management methods share one path, so the set holds two entries — the
+/// gate matches on the path, and listing the same path twice would be a
+/// redundant entry (AGENTS.md 铁律 1/2).
+///
+/// ⚠️ The scheduling endpoint's path is **singular** (`delayed_event`) while the
+/// management ones are plural. That is `matrix-spec-proposals` #4140's own
+/// spelling, not a typo here — but it also means a `contains("delayed_events")`
+/// scan silently skips it, which is why the family-coverage guard in
+/// `tests/unit/worker_delayed_events_ownership_tests.rs` matches on the singular
+/// stem `delayed_event` and therefore covers both spellings.
 ///
 /// This set **replaces the prefix only for this family**; the existing prefix
 /// ownership rules (and the topology validation built on them) stay untouched.
 /// Keep it in sync with the registered routes: the
 /// `delayed_events_worker_paths_*` guards under `tests/unit/` fail if an entry
-/// is not a registered route (typo/drift) or if a registered `delayed_events`
+/// is not a registered route (typo/drift) or if a registered delayed-events
 /// route is missing from it (family coverage).
-pub const DELAYED_EVENTS_WORKER_PATHS: &[&str] =
-    &["/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}"];
+pub const DELAYED_EVENTS_WORKER_PATHS: &[&str] = &[
+    "/_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}",
+    "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}",
+];
 
 /// Whether `path` is one of the MSC4140 delayed-events paths this worker
 /// topology knows about.

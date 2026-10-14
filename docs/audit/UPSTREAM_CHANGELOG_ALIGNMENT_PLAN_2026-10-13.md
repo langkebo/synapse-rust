@@ -990,12 +990,15 @@ cargo nextest run --test integration --all-features --locked -E 'test(history_vi
 
 ---
 
-### 11.7 19354（MSC4140 专用调度端点）—— 本轮未实施，给出可执行方案
+### 11.7 19354（MSC4140 专用调度端点）—— **2026-10-14 已实施**
 
-**为什么不做**：这是唯一仍未对齐的**产品**面，但它是一条**路由面**变更 —— 真实成本不是 handler（约 80 行），
+> **本节结构**：先留档**原方案**（用于对照"计划 vs 实际"），再给**实现记录**
+> —— 含两处与方案**不同的决定**及其判据、契约链 9 步的实际执行记录、验证与残留差异。
+
+**原方案的出发点（当时不做）**：这是唯一仍未对齐的**产品**面，但它是一条**路由面**变更 —— 真实成本不是 handler（约 80 行），
 而是整条契约链（3 张 `derived_route_table_*.inc.rs` + 6 份 fixtures + 2 份 `route_ledger_*.snapshot` +
 `docs/openapi/route-table.json` + `ROUTE_CONTRACT.md` + 对比文档计数 + `ledger_annotations.txt`）。
-只做一半，正是本文件 §「生成物漏刷」记录过的**最高频既有红形态**。故本轮把方案写死，留给独立批次。
+只做一半，正是本文件 §「生成物漏刷」记录过的**最高频既有红形态**。故当时把方案写死，留给独立批次。
 
 **handler 设计（可直接照做）**
 
@@ -1033,6 +1036,126 @@ cargo nextest run --test integration --all-features --locked -E 'test(history_vi
 9. 决定是否把新路径加入 `DELAYED_EVENTS_WORKER_PATHS`（Guard B 用 `path.contains("delayed_events")`，
    而新路径是**单数** `delayed_event` ⇒ 不加不会红，但语义上同族；建议加入）。
 
+#### 11.7.1 实现记录（2026-10-14）
+
+**与方案的两处偏离（都是必要的，且第 1 处是真实的提权）**
+
+1. **写鉴权不能只判成员** —— 方案原稿写的是 `ensure_room_member_admin(...)`。
+
+   取证：`src/server/mod.rs:841-871` 的 dispatcher 在到期派发时**不做任何再鉴权** ——
+   状态事件走 `room_service.messaging().create_event(...)`、消息走
+   `send_message_with_txn(...)`，两者都不查权限 ⇒ **排期时的检查是唯一的闸门**。
+   若只判成员，普通成员可以排一个 `m.room.power_levels`（`state_key: ""`），
+   由后台任务落库 —— **提权，且没有调用者可归因**。
+
+   改法：按 `state_key` 有无分别走 `ensure_room_state_write_access` 与新增的
+   `ensure_message_write_access`（＝`/send` 的**整套**前置门：power level / 房间加密 /
+   PL 变更规则 / MSC3806 内容扫描）。两者住 `handlers/room/write_access.rs`（从 `mod.rs` 拆出，见下），
+   `/send` 改为调用同一个函数 ⇒ 两扇门不可能再各自漂移。
+
+2. **`sticky_duration_ms` 取方案 ②：明确 501**，不取 ①（给 `delayed_events` 加列 + dispatcher 落地）。
+   理由（本仓模型使然）：本仓的 sticky 是 **per-`(room, user, event_type)` 的置顶槽位**
+   （`room_sticky_events` + `POST /rooms/{roomId}/sticky_events`），**不是事件的属性**；
+   "排期并在到期时自动置顶"会**静默覆盖**用户在同档位上已有的置顶（上游没有这个冲突，
+   因为它的 sticky 是事件属性）。且 ① 要连带第二次 schema 变更（基线指纹 + `.sqlx`）。
+   ⇒ 新增 `ApiError::not_supported()`（**501** + `M_UNKNOWN`），并把该 `(kind, code)` 分歧登记进
+   `STATUS_DIVERGENCE_WHITELIST`（Matrix 未为 501 定义 errcode）与
+   `all_fixed_api_error_constructors()`。**两种拼写都拒**
+   （`org.matrix.msc4354.sticky_duration_ms` 与短名 `sticky_duration_ms`），因为置顶端点两种都收。
+
+**落点**
+
+| 文件 | 改动 |
+| --- | --- |
+| `synapse-web/src/routes/delayed_events.rs` | 新增 `schedule_delayed_event`（PUT）＋纯函数 `parse_schedule_request`（校验矩阵，可离线单测）＋路由挂载 |
+| `synapse-web/src/routes/handlers/room/write_access.rs` | **新文件（120 行）**：`ensure_room_state_write_access`（自 `mod.rs` 迁入）＋新增 `ensure_message_write_access` |
+| `synapse-web/src/routes/handlers/room/mod.rs` | 拆出上者后 **501 → 403** 行；新增 `MSC4140_MAX_DELAY_MS`、`MSC4140_{SEND,SCHEDULE}_TXN_NAMESPACE`、`schedule_delayed_event_core`（两条排期面共用的存储＋幂等尾段） |
+| `synapse-web/src/routes/handlers/room/events.rs` | `send_message` 的前置门改为调用 `ensure_message_write_access`；**1456 → 1416** 行 |
+| `synapse-common/src/error.rs` | 新增 `ApiError::not_supported()` ＋分歧登记 ＋构造器清单 |
+| `synapse-services/src/worker/topology_validator.rs` | `DELAYED_EVENTS_WORKER_PATHS` 纳入新路径（见第 9 步） |
+| `synapse-web/src/routes/worker.rs` | 该集合的响应断言随之更新 |
+| `tests/integration/api_delayed_event_schedule_tests.rs` | **新文件**：7 条真实路由用例 |
+| `tests/unit/worker_delayed_events_ownership_tests.rs` | Guard B 过滤词由复数收紧为单数词干（见第 9 步） |
+
+**⚠️ 第 9 步的真实发现：Guard B 的过滤词**结构上**漏了这条路径**
+
+方案已预判"不加也不会红"，但根因比预判更值得记住：Guard B 用的是
+`path.contains("delayed_events")`（**复数**），而新路径是**单数** `delayed_event`
+⇒ 这条路径**不可能被该守卫发现**，不是"恰好没加进集合"。
+故把过滤词收紧为单数词干 `delayed_event`（同时覆盖两种拼写），并补一条"族内至少 2 条"的非空性断言；
+`delayed_events_gate_rejects_non_family_paths` 也补了一个单数形态的反例（少一段）。
+
+**⚠️ 棘轮（方案清单之外、实测撞到的教训）**
+
+把两个 helper 直接写进 `handlers/room/mod.rs` 后该文件变成 **501 行** ⇒ 越过 500 阈值、
+成为**新的超限文件**，把棘轮计数从 257 推到 **258**，`preflight` 因此在提交时**拦下了这次提交**。
+故拆出 `write_access.rs`，`mod.rs` 回到 **403 行**（`events.rs` 因前置门外移同时 1456 → 1416）。
+**改本仓任何"接近 500 行"的文件前，先跑一次棘轮。**
+
+**契约链 9 步的实际执行记录**
+
+| 步 | 命令 | 结果 |
+| --- | --- | --- |
+| 1 | `ledger_annotations.txt` ＋ `EXPECTED_ANNOTATIONS` 同批加 `PUT … + auth=user` | `check_annotation_fidelity` 未报差异 |
+| 2 | `gen_derived_routes.py --bootstrap` | 6/6 lane 报 `extra=[('PUT', '…/delayed_event/…')]`（预期红），三张表按预期重写 |
+| 3 | `generate_sdk_ledger_fixtures.sh` ＋ 三次 `synapse_ledger_export`（default features，钉 `2026-05-02T00:00:00Z` / 全 0 commit） | 7 个文件更新（6 份 JSON ＋ SDK `manifest.json`） |
+| 4 | `UPDATE_ROUTE_LEDGER_SNAPSHOTS=1 … -E 'test(api_route_ledger)'` | 15/15 通过，两份快照重生成 |
+| 5 | `gen_contract_doc.py` | `ROUTE_CONTRACT.md`：**1028** 条 / 65 模块（延迟事件族 2 → 3） |
+| 6 | `gen_route_table.py --ledger tests/unit/fixtures/ledger_export/default.json` | `route-table.json` **948 → 949**；`lane=golden` / `profile=default` / `generated_at=2026-05-02T00:00:00Z` |
+| 7 | 比较文档 3 处计数 ＋ `docs/openapi/README.md` 与对账脚本注释 | `1,027 → 1,028` 条注册路由；增量已接在历史台账后 |
+| 8 | `bash scripts/contract/check_route_contract.sh` | 全绿（派生表去重 1030 → 1028、6 坐标计数、`registered_by` 保真、cfg 门控、SDK⊆ledger 均通过） |
+| 9 | `DELAYED_EVENTS_WORKER_PATHS` ＋ Guard B 收紧 | 见上 |
+
+**验证（实跑）**
+
+```bash
+export DATABASE_URL=postgresql://synapse:synapse@localhost:5432/synapse_test
+export TEST_DATABASE_URL=$DATABASE_URL TEST_DB_TEMPLATE_SCHEMA=test_template_ci REDIS_URL=redis://localhost:6379
+
+cargo nextest run -p synapse-web --lib --features test-utils --locked \
+  -E 'test(delayed_event) + test(schedule_body)'                       # 8 passed
+cargo nextest run --test integration --all-features --locked \
+  -E 'test(delayed_event_schedule)'                                    # 7 passed
+```
+
+纯函数单测覆盖整个**校验/拒收矩阵**（无 DB、无房间）：`delay_ms` 缺失/非整数/浮点/`null`、
+`0`/负数/超上限（含**边界含入** `86_400_000` 与超上限 1ms）；`content` 缺失/数组/字符串；
+`state_key` 缺省/显式 `null`/空串/命名/数字；`sticky_duration_ms` 两种拼写、
+**即使值为 `null` 也拒**（证明该分支拒的是字段而非某个取值）。
+
+真实路由用例（`tests/integration/api_delayed_event_schedule_tests.rs`，7 条）：
+
+| 用例 | 钉住什么 |
+| --- | --- |
+| `dedicated_endpoint_schedules_a_message_event` | 返回的 `delay_id` 能被同族管理端点读回；库内恰 1 行 |
+| `dedicated_endpoint_carries_the_state_key_into_the_stored_row` | `state_key` 落库（决定 dispatcher 走状态路径）＋**对照**：无 `state_key` 时响应里不得出现该字段 |
+| `dedicated_endpoint_replays_the_same_delay_id_for_the_same_txn_id` | 同 txn 重放 ⇒ 同一 `delay_id` 且**不新增行** |
+| `dedicated_endpoint_and_send_keep_separate_idempotency_namespaces` | 两个方向都钉：先排期后普通 `/send` 同 txn ⇒ 得 `event_id` 而非 `delay_id`；先 `/send` 后排期 ⇒ 得 `delay_id` 而非 `event_id` |
+| `dedicated_endpoint_refuses_a_state_event_the_caller_may_not_write` | **反提权**：PL 0 成员排 `m.room.power_levels` ⇒ 403；两条对照（同成员可排消息、创建者可排同一状态事件） |
+| `dedicated_endpoint_refuses_non_members_and_unknown_rooms` | 非成员 403、未知房间 404 ＋ 对照（同 body 由成员发 ⇒ OK） |
+| `dedicated_endpoint_refuses_the_sticky_duration_hint` | **501 ＋ `M_UNKNOWN`** ＋ 对照（去掉该字段即 200） |
+
+**变异自证（红 → 还原 → 绿）**
+
+| 变异 | 期望 | 实测 |
+| --- | --- | --- |
+| A：把状态分支换回**方案原稿的"只判成员"**（`ensure_room_member_ctx` 取代 `ensure_room_state_write_access`） | `…refuses_a_state_event_the_caller_may_not_write` 转红 | ✅ **红**：`left: 200 / right: 403`，响应体 `{"delay_id":1}` —— 即"PL 0 的成员成功排下了 power_levels 写"，提权被实证 |
+| B1：Guard B 用**收紧后的单数词干**，且集合里删掉新路径 | `registered_delayed_events_routes_are_all_listed` 转红 | ✅ **红**：`Guard B failed: registered delayed_events route "…/delayed_event/{event_type}/{txn_id}" is missing from DELAYED_EVENTS_WORKER_PATHS` |
+| B2：过滤词退回**复数** `delayed_events`（集合仍缺该条目）—— 证"旧守卫结构上看不见它" | 该用例**绿**（＝洞） | ✅ **绿**：`1 passed`。与 B1 成对，即"旧守卫会放行、新守卫能抓住" |
+
+三条均从备份 `cp` 还原、`sha256sum` 与变异前**逐字节一致**、
+`grep -rn MUTATION synapse-web/src tests/unit/... synapse-services/...` 为 0。
+
+**残留差异（有意，属独立待办）**
+
+- 上游的三条管理子路径 `POST .../delayed_events/{delay_id}/{cancel,send,restart}` 与列表端点
+  `GET .../delayed_events` 仍未提供；功能已由既有 `POST .../{delay_id}` 的 `action` 覆盖 ⇒
+  属**形态差异**，不是能力缺失。
+- `/send`、`/state` 的 **query 参数**路径仍会**静默忽略** `org.matrix.msc4354.sticky_duration_ms`
+  （本轮只在新端点收紧为 501）。上游把该字段读作 query 参数放在这两条上，故这是一处
+  **尚存的静默丢弃**：要么在共享函数里对 query 形态也 501，要么等 MSC4354 形态稳定后一起做。
+  记录于此，以免被"新端点已经拒了"顺带盖过去。
+
 ### 11.8 本轮复核中发现、**与本方案无关**的既有红（勿误判为回归）
 
 CI 在**本批改动之前**的 HEAD（`cc56d479e`，run 38509545932）已有 3 个 job 失败：
@@ -1043,7 +1166,12 @@ CI 在**本批改动之前**的 HEAD（`cc56d479e`，run 38509545932）已有 3 
 | `Test & Lint (*)` | `check_dashboard_metrics.py` 新增 1 条 No-data 面板指标 `synapse_storage_stream_current_position`（`storage-performance.json`） |
 | `OpenAPI Artifact` | `client.yaml + route-table.json` 与源码不一致 |
 
-本地另有 4 类（属环境伪影或待定性）：
+**⚠️ 该 CI 日志本身不能用来断言"integration 车道是绿的"**：最近一次失败的
+`Test & Lint` 在更早的步骤（`check_dashboard_metrics.py`）中止，**integration 步骤根本没有执行**
+（该 job 的日志里 `api_route_ledger_tests` 零命中）。这一条在 2026-10-14 变成了实锤 ——
+见下面的 `route_ledger_*.snapshot` 条目。
+
+本地另有 5 类（属环境伪影、既有漂移或待定性）：
 
 - `ci_test_scope_tests::*` 两条：用例内部 `Command::new("bash")` 跑 grep，子进程落到 CLI 前置的 toybox shim；
   **实证**：同一条 `grep -rnE '\bunsafe…'` toybox 得 0 行、`/usr/bin/grep` 得 2 行 ⇒ 在 HEAD 上本来就红。
@@ -1061,6 +1189,16 @@ CI 在**本批改动之前**的 HEAD（`cc56d479e`，run 38509545932）已有 3 
   取自 `assembly::declared_ledger_all()` ⇒ 待查该函数为何不吐这条路由。**未更新快照** ——
   更新等于把"能力被少报"钉成契约；应先查清 `declared_ledger_all()`。
   归属证据：本批改动未触及任何 versions / capabilities / 派生表文件。
+- `api_route_ledger_tests::{declared_route_manifest_full_snapshot_matches_default_state,
+  ..._matches_worker_enabled_state}` —— **既有漂移，2026-10-14 已单独提交修复**
+  （提交标题 `chore(contract): 修正 route_ledger 集成快照的既有漂移（--all-features 口径）`）。
+  两条 `route_ledger_*.snapshot` 的 `count` 停在 **980 / 991**、不含任何
+  `[saml]` / `[cas]` 行，而 CI 与本地权威命令都是 `--all-features`，该口径下实际是 **1008 / 1019**
+  ⇒ 快照比实际**少 28 条**，这两条用例在 `--all-features` 下**本来就红**。
+  **判据（可复现、零副作用）**：把两条快照 `git checkout --` 回 HEAD 版，跑
+  `SQLX_OFFLINE=true cargo nextest run --test integration --all-features -E 'test(declared_route_manifest_full_snapshot)'`
+  ⇒ `2 failed`，左值 `count: 1009`（含紧随其后 19354 提交新增的 1 条）/ 右值 `count: 980`。
+  修复单独成一个提交，**不裹进 19354**，理由是两者动机不同、且前者是"接受既有状态"的批量对齐。
 
 **其中 file_size 棘轮对本仓有直接约束**：`synapse-storage/src/event/state.rs` 原为 **487 行**
 （阈值 500，且不在 `scripts/ci/file_size_baseline` 里）⇒ 往里加任何查询都会让它成为**新的超限文件**，

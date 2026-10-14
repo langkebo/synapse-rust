@@ -10,6 +10,8 @@ pub(crate) mod members;
 pub(crate) mod receipts;
 /// The `state` module.
 pub mod state;
+/// The `write_access` module — the pair of room-event write gates.
+pub(crate) mod write_access;
 
 pub(crate) use e2ee::*;
 pub(crate) use events::*;
@@ -17,9 +19,10 @@ pub(crate) use management::*;
 pub(crate) use members::*;
 pub(crate) use receipts::*;
 pub(crate) use state::*;
+pub(crate) use write_access::*;
 
 use crate::routes::context::RoomContext;
-use crate::routes::{ensure_room_member_ctx, ensure_room_member_strict_ctx, AuthenticatedUser};
+use crate::routes::{ensure_room_member_strict_ctx, AuthenticatedUser};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use synapse_common::{parse_pagination_token, parse_stream_token, ApiError};
@@ -91,32 +94,6 @@ pub(crate) fn state_event_content_response(content: &serde_json::Value) -> serde
     content.clone()
 }
 
-/// See [`ensure_room_state_write_access`].
-pub(crate) async fn ensure_room_state_write_access(
-    ctx: &RoomContext,
-    auth_user: &AuthenticatedUser,
-    room_id: &str,
-    event_type: &str,
-    content: &serde_json::Value,
-) -> Result<(), ApiError> {
-    ensure_room_member_ctx(ctx, auth_user, room_id, "You must be a member of this room to send state events").await?;
-
-    ctx.room_auth.verify_state_event_write(room_id, &auth_user.user_id, event_type).await?;
-
-    // A power-levels event must also satisfy the power-levels *change* rules
-    // (cannot elevate above yourself, cannot touch an equal-or-higher level, and
-    // — room v12+, MSC4289 rule 10.4 — must not name a creator). Those rules need
-    // the new content, which is why this is not folded into
-    // `verify_state_event_write`. The canonical client path for a power-levels
-    // update is `PUT /state/m.room.power_levels`, so the check has to live here
-    // and not only on the `/send` path.
-    if event_type == "m.room.power_levels" {
-        ctx.room_auth.verify_power_levels_change(room_id, &auth_user.user_id, content).await?;
-    }
-
-    Ok(())
-}
-
 /// MSC4140's delay hint parameter name, read from the request **query string**.
 ///
 /// The specification — and upstream Synapse
@@ -127,6 +104,13 @@ pub(crate) async fn ensure_room_state_write_access(
 /// meaningless: the event went out immediately while the client still believed it
 /// could be cancelled.
 pub(crate) const MSC4140_DELAY_QUERY_PARAM: &str = "org.matrix.msc4140.delay";
+
+/// The largest delay this server accepts, in milliseconds (24 hours).
+///
+/// One constant for **both** scheduling surfaces — the `delay` hint on `/send`
+/// and `/state`, and the `delay_ms` field of the dedicated endpoint — so a
+/// client cannot discover which door it used by probing the boundary.
+pub(crate) const MSC4140_MAX_DELAY_MS: i64 = 86_400_000;
 
 /// Parse the delay hint out of the query string; `None` when it is absent.
 ///
@@ -167,6 +151,10 @@ pub(crate) fn msc4140_query_delay_ms(query: &HashMap<String, String>) -> Result<
 ///
 /// `txn_id` is the message path's idempotency key (used to cache the returned
 /// `delay_id`); state endpoints have no transaction id and pass `None`.
+///
+/// Validation and the hint's location live here; storing the row and the
+/// idempotency bookkeeping live in [`schedule_delayed_event_core`], which the
+/// dedicated endpoint shares.
 #[allow(clippy::too_many_arguments)] // 写路径透传参数多，语义直白
 pub(crate) async fn schedule_delayed_event_if_requested(
     ctx: &RoomContext,
@@ -188,16 +176,16 @@ pub(crate) async fn schedule_delayed_event_if_requested(
         return Ok(None);
     };
 
-    // Validate delay is positive and bounded (max 24h = 86_400_000ms).
+    // Validate delay is positive and bounded (max 24h, see MSC4140_MAX_DELAY_MS).
     if delay_ms <= 0 {
         return Err(ApiError::bad_request(
             "org.matrix.msc4140.delay must be a positive integer (milliseconds)".to_string(),
         ));
     }
-    if delay_ms > 86_400_000 {
-        return Err(ApiError::bad_request(
-            "org.matrix.msc4140.delay must not exceed 24 hours (86_400_000ms)".to_string(),
-        ));
+    if delay_ms > MSC4140_MAX_DELAY_MS {
+        return Err(ApiError::bad_request(format!(
+            "org.matrix.msc4140.delay must not exceed 24 hours ({MSC4140_MAX_DELAY_MS}ms)"
+        )));
     }
 
     // Remove the MSC4140 delay field from the content before storing — it is a
@@ -207,6 +195,78 @@ pub(crate) async fn schedule_delayed_event_if_requested(
     let mut content = body.clone();
     if let Some(obj) = content.as_object_mut() {
         obj.remove(MSC4140_DELAY_QUERY_PARAM);
+    }
+
+    let response = schedule_delayed_event_core(
+        ctx,
+        user_id,
+        device_id,
+        room_id,
+        event_type,
+        state_key,
+        content,
+        delay_ms,
+        txn_id,
+        MSC4140_SEND_TXN_NAMESPACE,
+    )
+    .await?;
+
+    Ok(Some(response))
+}
+
+/// The `/send` + `/state` idempotency namespace.
+///
+/// Namespaced on purpose: this cache holds the `delay_id` of a *scheduled*
+/// event, while the same `txn:{user}:{room}:{txn}` key on the immediate path
+/// holds the **event_id** of a sent event. Sharing one namespace across the two
+/// surfaces would let a client's retry of a plain `/send` be answered with the
+/// other call's answer (see [`MSC4140_SCHEDULE_TXN_NAMESPACE`]).
+pub(crate) const MSC4140_SEND_TXN_NAMESPACE: &str = "txn";
+
+/// The dedicated endpoint's idempotency namespace.
+///
+/// Distinct from [`MSC4140_SEND_TXN_NAMESPACE`]: the two surfaces are different
+/// operations on the same `(room, txn_id)` coordinate, and a client that retries
+/// a plain `/send` and a scheduling call carrying the same `txn_id` must not be
+/// handed the other one's answer.
+pub(crate) const MSC4140_SCHEDULE_TXN_NAMESPACE: &str = "msc4140-delayed-event";
+
+/// Store a delayed event and build the client-facing `{"delay_id": N}` response.
+///
+/// The shared tail of both scheduling surfaces: the `delay` hint on `/send` and
+/// `/state` ([`schedule_delayed_event_if_requested`]) and the dedicated endpoint
+/// (`routes::delayed_events::schedule_delayed_event`). Callers own *validation
+/// and authorization*; this owns *storage + idempotency*.
+///
+/// Deliberately does **not** authorize. Every caller is required to run the
+/// matching write gate first, because the dispatcher replays the stored row
+/// without any further check.
+///
+/// The `txn_id` replay lookup lives here rather than in each caller so both
+/// surfaces dedupe identically; `txn_cache_namespace` is what keeps their cached
+/// values from colliding.
+#[allow(clippy::too_many_arguments)] // 写路径透传参数多，语义直白
+pub(crate) async fn schedule_delayed_event_core(
+    ctx: &RoomContext,
+    user_id: &str,
+    device_id: &str,
+    room_id: &str,
+    event_type: &str,
+    state_key: Option<String>,
+    content: serde_json::Value,
+    delay_ms: i64,
+    txn_id: Option<&str>,
+    txn_cache_namespace: &str,
+) -> Result<axum::extract::Json<serde_json::Value>, ApiError> {
+    let txn_id = txn_id.filter(|t| !t.is_empty());
+    let cache_key = txn_id.map(|t| format!("{txn_cache_namespace}:{user_id}:{room_id}:{t}"));
+
+    if let Some(cache_key) = cache_key.as_deref() {
+        if let Ok(Some(cached)) = ctx.cache.get::<String>(cache_key).await {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&cached) {
+                return Ok(axum::extract::Json(value));
+            }
+        }
     }
 
     let request = CreateDelayedEventRequest {
@@ -230,16 +290,14 @@ pub(crate) async fn schedule_delayed_event_if_requested(
         "MSC4140 delayed event scheduled"
     );
 
-    // Cache the delay_id against the txn_id for idempotency (message path only).
-    if let Some(txn_id) = txn_id.filter(|t| !t.is_empty()) {
-        let cache_key = format!("txn:{}:{}:{}", user_id, room_id, txn_id);
-        let cached = serde_json::json!({ "delay_id": delayed.id });
-        if let Err(e) = ctx.cache.set(&cache_key, &cached.to_string(), 3600).await {
+    let response = serde_json::json!({ "delay_id": delayed.id });
+    if let Some(cache_key) = cache_key.as_deref() {
+        if let Err(e) = ctx.cache.set(cache_key, &response.to_string(), 3600).await {
             ::tracing::warn!("Failed to cache delayed event txn_id dedup marker: {e}");
         }
     }
 
-    Ok(Some(axum::extract::Json(serde_json::json!({ "delay_id": delayed.id }))))
+    Ok(axum::extract::Json(response))
 }
 
 /// See [`get_room_event`].

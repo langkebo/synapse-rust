@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use synapse_common::current_timestamp_millis;
 use synapse_common::map_internal;
-use synapse_common::{ApiError, ContentSanitizer};
+use synapse_common::ApiError;
 use synapse_services::event::CreateEventParams;
 
 /// See [`get_single_event`].
@@ -290,52 +290,12 @@ pub(crate) async fn send_message(
         }
     }
 
-    ctx.room_auth.verify_message_event_write(&room_id, &auth_user.user_id, &event_type).await?;
-
-    if event_type == "m.room.encrypted" {
-        let is_encrypted = ctx.room_service.state().check_room_has_encryption(&room_id).await?;
-
-        if !is_encrypted {
-            return Err(ApiError::bad_request(
-                "Cannot send encrypted message to a room where encryption is not enabled. Enable encryption first by sending an m.room.encryption state event.".to_string(),
-            ));
-        }
-    }
-
-    if event_type == "m.room.power_levels" {
-        ctx.room_auth.verify_power_levels_change(&room_id, &auth_user.user_id, &body).await?;
-    }
-
+    // The whole message write gate — power level, room encryption, the
+    // power-levels change rules and the MSC3806 content scan — lives in one
+    // place (`ensure_message_write_access`) so the dedicated MSC4140 scheduling
+    // endpoint cannot become a second, weaker door into this same write.
     let mut body = body;
-    if event_type == "m.room.message" {
-        let format = body.get("format").and_then(|v| v.as_str()).unwrap_or("");
-        if format == "org.matrix.custom.html" {
-            if let Some(html) = body.get("formatted_body").and_then(|v| v.as_str()) {
-                let sanitizer = ContentSanitizer::default();
-                let cleaned = sanitizer.sanitize(html);
-                body["formatted_body"] = serde_json::Value::String(cleaned);
-            }
-        }
-        // MSC3806: scan the message body **when scanning is configured**.
-        //
-        // The policy (disabled ⇒ pass-through, scanner unreachable ⇒ fail-closed,
-        // `safe: false` ⇒ 403) lives in exactly one place,
-        // `content_scanner::scan_text_when_enabled`, the same way the media
-        // upload path uses `scan_when_enabled`.  Calling
-        // `ctx.content_scanner.scan_text(..).await?` directly here propagated
-        // `M_CONTENT_SCAN_DISABLED` (501) whenever scanning was off — and since
-        // `content_scanner.enabled: false` is the shipped default
-        // (`docker/config/homeserver.yaml`), that made **every** `m.room.message`
-        // send fail with 501 in the default configuration.
-        let text = body.get("body").and_then(|v| v.as_str()).unwrap_or("");
-        synapse_services::content_scanner::scan_text_when_enabled(
-            ctx.content_scanner.as_ref(),
-            ctx.metrics.as_ref(),
-            &format!("msg:{}:{}", room_id, auth_user.user_id),
-            text,
-        )
-        .await?;
-    }
+    super::ensure_message_write_access(&ctx, &auth_user, &room_id, &event_type, &mut body).await?;
 
     // MSC4140: If the request (query parameter, or the legacy body field)
     // carries `org.matrix.msc4140.delay`, schedule the event as a delayed event

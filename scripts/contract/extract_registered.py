@@ -1355,6 +1355,10 @@ EXPECTED_ANNOTATIONS = {
     ("POST", "/_synapse/admin/v1/push/cleanup"): {"query_params": "days"},
     ("POST", "/_synapse/admin/v1/push/process"): {"query_params": "batch_size"},
     ("POST", "/_synapse/room_summary/v1/updates/process"): {"query_params": "limit"},
+    (
+        "PUT",
+        "/_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}",
+    ): {"auth": "user"},
     ("PUT", "/_matrix/client/v1/room_keys/keys"): {"query_params": "version"},
     ("PUT", "/_matrix/client/v1/room_keys/keys/{room_id}"): {"query_params": "version"},
     ("PUT", "/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}"): {

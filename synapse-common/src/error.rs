@@ -112,6 +112,10 @@ pub const STATUS_DIVERGENCE_WHITELIST: &[(ApiErrorKind, MatrixErrorCode)] = &[
     // `conflict()`: generic 409 conflict with no catch-all Matrix errcode →
     // M_UNKNOWN (whose spec status is 500).
     (ApiErrorKind::Conflict, MatrixErrorCode::Unknown),
+    // `not_supported()`: 501 Not Implemented for a known-but-unimplemented
+    // extension field (e.g. an MSC field this server refuses to silently drop).
+    // Matrix defines no errcode for 501 → M_UNKNOWN (whose spec status is 500).
+    (ApiErrorKind::NotImplemented, MatrixErrorCode::Unknown),
 ];
 
 // ---------------------------------------------------------------------------
@@ -374,6 +378,27 @@ impl ApiError {
         Self {
             kind: ApiErrorKind::NotImplemented,
             code: MatrixErrorCode::ContentScanDisabled,
+            message: message.into(),
+            cause: None,
+        }
+    }
+
+    /// A well-formed request for a feature this server does not implement.
+    /// Returns **501 Not Implemented** + `M_UNKNOWN`.
+    ///
+    /// Distinct from [`not_implemented`](Self::not_implemented), which is a 404
+    /// `M_UNIMPLEMENTED` for an endpoint that does not exist at all. Use this one
+    /// when the endpoint exists and the request is understood, but a specific
+    /// field or extension is unsupported: the alternative is to accept the field
+    /// and silently discard it, which turns a client's explicit instruction into
+    /// a no-op that looks like success.
+    ///
+    /// Matrix defines no errcode for 501, so the code is the catch-all
+    /// `M_UNKNOWN` — registered as a status divergence for exactly that reason.
+    pub fn not_supported(message: impl Into<String>) -> Self {
+        Self {
+            kind: ApiErrorKind::NotImplemented,
+            code: MatrixErrorCode::Unknown,
             message: message.into(),
             cause: None,
         }
@@ -1935,6 +1960,7 @@ mod tests {
             ("service_unavailable", ApiError::service_unavailable("x")),
             ("content_scan_failed", ApiError::content_scan_failed("x")),
             ("content_scan_disabled", ApiError::content_scan_disabled("x")),
+            ("not_supported", ApiError::not_supported("x")),
             ("database_with_context", ApiError::database_with_context("x", &"y")),
             ("internal_with_context", ApiError::internal_with_context("x", &"y")),
             ("database", ApiError::database("x")),
