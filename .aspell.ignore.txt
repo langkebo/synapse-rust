@@ -58,6 +58,7 @@ ai
 aiconnection
 alertmanager
 alg
+alice
 aliyun
 all
 amd

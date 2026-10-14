@@ -96,6 +96,14 @@ impl SyncService {
         } else {
             HashMap::new()
         };
+        // `m.room.history_visibility` is resolved **before** the room data because
+        // it now feeds two consumers: the timeline filter *and* the unread counts'
+        // floor. The counts must consult the very same boundary the filter used —
+        // resolving it inside the join would let the two read a different member
+        // event and disagree. The cost is nil in the common case: one state batch
+        // for all rooms, plus a boundary read only for the restrictive ones.
+        let history_cuts = self.history_cuts(&rooms_to_include, user_id).await?;
+
         let (
             state_by_room,
             ephemeral_by_room,
@@ -105,7 +113,6 @@ impl SyncService {
             account_data_events,
             (to_device_events, to_device_stream_id),
             (device_lists, device_list_stream_id),
-            history_cuts,
         ) = tokio::try_join!(
             self.get_state_events_for_sync_batch(
                 &rooms_to_include,
@@ -114,15 +121,11 @@ impl SyncService {
             ),
             self.get_room_ephemeral_events_batch(&rooms_to_include),
             self.get_room_account_data_events_batch(user_id, &rooms_to_include),
-            self.get_unread_counts_batch(&rooms_to_include, user_id),
+            self.get_unread_counts_batch(&rooms_to_include, user_id, &history_cuts),
             self.get_presence_events(user_id, since_token),
             self.get_account_data_events(user_id),
             self.get_to_device_events(user_id, device_id, since_token),
             self.get_device_lists(user_id, since_token),
-            // `m.room.history_visibility`: resolved in the same round trip as the
-            // rest of the room data (one state batch for all rooms, plus a
-            // boundary read only for the restrictive ones).
-            self.history_cuts(&rooms_to_include, user_id),
         )?;
 
         // MSC4354: Pre-fetch all room IDs where this user has sticky events.
@@ -438,6 +441,7 @@ impl SyncService {
             room_filter,
             use_state_after,
             state_after_is_unstable,
+            history_cut,
         } = request;
         let since_ts = Self::event_since_ts(&since_token.cloned());
         // S6: always use StreamOrdering for membership state key queries.
@@ -445,6 +449,15 @@ impl SyncService {
             .as_ref()
             .map(|t| if t.stream_id > 0 && t.stream_id < Self::TIMESTAMP_TOKEN_MIN { t.stream_id } else { 0 })
             .unwrap_or(0);
+
+        // `m.room.history_visibility`: applied here, at the one place a per-room
+        // timeline is assembled, and **before** the timeline limit below — so
+        // `limited` describes the page the caller may actually read rather than a
+        // page that gets trimmed afterwards. It used to be applied only on the
+        // whole-account `/sync` path, which left `GET /rooms/{roomId}/sync`
+        // serving the room's pre-join history to a new member.
+        let events = Self::apply_history_cut(events, history_cut);
+
         let (
             changed_member_ids,
             state_list,
@@ -486,7 +499,8 @@ impl SyncService {
             },
             self.get_room_ephemeral_events(room_id, user_id),
             self.get_room_account_data_events(room_id, user_id),
-            self.get_unread_counts(room_id, user_id),
+            // Same `history_cut` as the timeline above: one resolution, two axes.
+            self.get_unread_counts(room_id, user_id, history_cut.unread_floor_ts()),
         )?;
 
         let (timeline_events, timeline_limited) = Self::apply_timeline_limit(&events, self.sync_event_limit());

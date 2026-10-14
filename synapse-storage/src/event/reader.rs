@@ -185,12 +185,17 @@ pub trait EventReader: Send + Sync {
         &self,
         room_id: &str,
         user_id: &str,
+        visibility_floor_ts: i64,
     ) -> Result<crate::room::RoomUnreadCounts, sqlx::Error>;
 
     /// See [`get_unread_counts_batch`].
+    ///
+    /// `room_floors` pairs each room with its `m.room.history_visibility` floor
+    /// (see [`get_unread_counts`]) — a pair per room rather than two parallel
+    /// slices, so the two can never fall out of step.
     async fn get_unread_counts_batch(
         &self,
-        room_ids: &[String],
+        room_floors: &[(String, i64)],
         user_id: &str,
     ) -> Result<Vec<crate::room::RoomUnreadCounts>, sqlx::Error>;
 
@@ -318,19 +323,23 @@ pub trait EventReader: Send + Sync {
     /// * `false` — `join` events only (`m.room.history_visibility: joined`);
     /// * `true`  — `invite` **or** `join` (`... : invited`).
     ///
-    /// `MIN` over the user's `m.room.member` events is deliberately the *first*
-    /// such membership, not the latest: a user who joined, left and rejoined
+    /// The **earliest** qualifying `m.room.member` event is deliberately the
+    /// first such membership, not the latest: a user who joined, left and rejoined
     /// retains their original entitlement (upstream `_check_membership` takes the
     /// "most joined" of the previous and current membership for the same reason).
     ///
     /// Returns `None` for a user who was never invited nor joined — callers must
     /// treat that as "sees nothing", not as "sees everything".
-    async fn get_membership_boundary_stream_ordering(
+    ///
+    /// Both coordinates live in one return value on purpose: the list surfaces
+    /// need `stream_ordering` while the count surfaces need `origin_server_ts`,
+    /// and two lookups could land on two different member events.
+    async fn get_membership_boundary(
         &self,
         room_id: &str,
         user_id: &str,
         include_invites: bool,
-    ) -> Result<Option<i64>, sqlx::Error>;
+    ) -> Result<Option<crate::event::MembershipBoundary>, sqlx::Error>;
 }
 
 // ── EventReader delegation impl for Postgres EventStorage ───────────────
@@ -622,16 +631,17 @@ impl crate::event::reader::EventReader for super::EventStorage {
         &self,
         room_id: &str,
         user_id: &str,
+        visibility_floor_ts: i64,
     ) -> Result<crate::room::RoomUnreadCounts, sqlx::Error> {
-        self.get_unread_counts(room_id, user_id).await
+        self.get_unread_counts(room_id, user_id, visibility_floor_ts).await
     }
 
     async fn get_unread_counts_batch(
         &self,
-        room_ids: &[String],
+        room_floors: &[(String, i64)],
         user_id: &str,
     ) -> Result<Vec<crate::room::RoomUnreadCounts>, sqlx::Error> {
-        self.get_unread_counts_batch(room_ids, user_id).await
+        self.get_unread_counts_batch(room_floors, user_id).await
     }
 
     async fn calculate_event_depth(&self, room_id: &str, prev_events: &[String]) -> Result<i64, sqlx::Error> {
@@ -642,12 +652,12 @@ impl crate::event::reader::EventReader for super::EventStorage {
         self.get_forward_extremities_in_room(room_id, limit).await
     }
 
-    async fn get_membership_boundary_stream_ordering(
+    async fn get_membership_boundary(
         &self,
         room_id: &str,
         user_id: &str,
         include_invites: bool,
-    ) -> Result<Option<i64>, sqlx::Error> {
-        self.get_membership_boundary_stream_ordering(room_id, user_id, include_invites).await
+    ) -> Result<Option<crate::event::MembershipBoundary>, sqlx::Error> {
+        self.get_membership_boundary(room_id, user_id, include_invites).await
     }
 }

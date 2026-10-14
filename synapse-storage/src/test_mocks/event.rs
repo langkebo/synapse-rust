@@ -1001,19 +1001,20 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
         &self,
         room_id: &str,
         _user_id: &str,
+        _visibility_floor_ts: i64,
     ) -> Result<crate::room::RoomUnreadCounts, sqlx::Error> {
         Ok(crate::room::RoomUnreadCounts { room_id: room_id.to_string(), highlight_count: 0, notification_count: 0 })
     }
 
     async fn get_unread_counts_batch(
         &self,
-        room_ids: &[String],
+        room_floors: &[(String, i64)],
         _user_id: &str,
     ) -> Result<Vec<crate::room::RoomUnreadCounts>, sqlx::Error> {
-        Ok(room_ids
+        Ok(room_floors
             .iter()
-            .map(|rid| crate::room::RoomUnreadCounts {
-                room_id: rid.clone(),
+            .map(|(room_id, _)| crate::room::RoomUnreadCounts {
+                room_id: room_id.clone(),
                 highlight_count: 0,
                 notification_count: 0,
             })
@@ -1030,15 +1031,16 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
         Ok(vec![])
     }
 
-    async fn get_membership_boundary_stream_ordering(
+    async fn get_membership_boundary(
         &self,
         room_id: &str,
         user_id: &str,
         include_invites: bool,
-    ) -> Result<Option<i64>, sqlx::Error> {
+    ) -> Result<Option<crate::event::MembershipBoundary>, sqlx::Error> {
         // Mirrors the SQL: the earliest `m.room.member` event for `user_id` whose
-        // `content.membership` is one of the allowed values. `None` when the mock
-        // holds no such event, which callers read as "never entitled".
+        // `content.membership` is one of the allowed values, returning **both**
+        // coordinates of that one row. `None` when the mock holds no such event,
+        // which callers read as "never entitled".
         let events = self.events.read().await;
         let boundary = events
             .values()
@@ -1052,8 +1054,13 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
                 Some("invite") => include_invites,
                 _ => false,
             })
-            .filter_map(|event| event.stream_ordering)
-            .min();
+            .filter_map(|event| {
+                event.stream_ordering.map(|stream_ordering| crate::event::MembershipBoundary {
+                    stream_ordering,
+                    origin_server_ts: event.origin_server_ts,
+                })
+            })
+            .min_by_key(|boundary| boundary.stream_ordering);
         Ok(boundary)
     }
 }

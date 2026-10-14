@@ -35,6 +35,7 @@ pub(crate) mod unread;
 /// The `writer` module.
 pub(crate) mod writer;
 
+pub use history_boundary::MembershipBoundary;
 pub use models::*;
 pub use reader::EventReader;
 pub use writer::EventWriter;

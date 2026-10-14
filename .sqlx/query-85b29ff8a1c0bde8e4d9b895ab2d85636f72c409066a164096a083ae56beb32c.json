@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                stream_ordering AS \"stream_ordering!\",\n                origin_server_ts AS \"origin_server_ts!\"\n            FROM events\n            WHERE room_id = $1\n              AND event_type = 'm.room.member'\n              AND state_key = $2\n              AND content->>'membership' = ANY($3)\n            ORDER BY stream_ordering\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "stream_ordering!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "origin_server_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "85b29ff8a1c0bde8e4d9b895ab2d85636f72c409066a164096a083ae56beb32c"
+}

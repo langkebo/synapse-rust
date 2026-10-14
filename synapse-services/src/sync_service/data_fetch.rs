@@ -1,6 +1,7 @@
 use super::types::*;
 use super::SyncService;
 use crate::map_internal;
+use crate::room::messaging::history_visibility::HistoryCut;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use synapse_common::current_timestamp_millis;
@@ -763,20 +764,33 @@ impl SyncService {
     }
 
     /// See [`get_unread_counts`].
-    pub(crate) async fn get_unread_counts(&self, room_id: &str, user_id: &str) -> ApiResult<(i64, i64)> {
+    ///
+    /// `visibility_floor_ts` is the room's `m.room.history_visibility` floor as a
+    /// wall clock (see [`HistoryCut::unread_floor_ts`]); `0` means "no policy".
+    pub(crate) async fn get_unread_counts(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        visibility_floor_ts: i64,
+    ) -> ApiResult<(i64, i64)> {
         let counts = self
             .event_reader
-            .get_unread_counts(room_id, user_id)
+            .get_unread_counts(room_id, user_id, visibility_floor_ts)
             .await
             .map_err(map_internal!("Failed to get unread counts"))?;
         Ok((counts.highlight_count, counts.notification_count))
     }
 
     /// See [`get_unread_counts_batch`].
+    ///
+    /// Takes the already-resolved `history_cuts` rather than deriving its own:
+    /// the counts must use the **same** boundary the timeline filter used, and
+    /// `/sync` resolves that once for every room (see `response.rs`).
     pub(crate) async fn get_unread_counts_batch(
         &self,
         room_ids: &[String],
         user_id: &str,
+        history_cuts: &HashMap<String, HistoryCut>,
     ) -> ApiResult<HashMap<String, (i64, i64)>> {
         let mut result: HashMap<String, (i64, i64)> =
             room_ids.iter().cloned().map(|room_id| (room_id, (0, 0))).collect();
@@ -784,9 +798,20 @@ impl SyncService {
             return Ok(result);
         }
 
+        // A missing entry means the room was not part of the cut resolution, which
+        // only happens for rooms the caller is leaving; `Unrestricted` (floor 0) is
+        // the neutral value there, and the read marker keeps deciding.
+        let room_floors: Vec<(String, i64)> = room_ids
+            .iter()
+            .map(|room_id| {
+                let cut = history_cuts.get(room_id).copied().unwrap_or(HistoryCut::Unrestricted);
+                (room_id.clone(), cut.unread_floor_ts())
+            })
+            .collect();
+
         let rows = self
             .event_reader
-            .get_unread_counts_batch(room_ids, user_id)
+            .get_unread_counts_batch(&room_floors, user_id)
             .await
             .map_err(map_internal!("Failed to get unread counts"))?;
 

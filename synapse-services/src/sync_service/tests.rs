@@ -2268,6 +2268,8 @@ async fn incremental_room_sync_returns_state_delta_not_empty() {
             room_filter: None, // default: lazy_load_members=false
             use_state_after: false,
             state_after_is_unstable: false,
+            // This case is about state-since semantics, not visibility.
+            history_cut: crate::room::messaging::history_visibility::HistoryCut::Unrestricted,
         })
         .await
         .expect("build_room_sync must not fail");

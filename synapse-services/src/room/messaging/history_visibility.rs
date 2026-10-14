@@ -92,16 +92,30 @@ impl HistoryVisibility {
 pub enum HistoryCut {
     /// No filtering: every event is visible.
     Unrestricted,
-    /// Only events whose `stream_ordering` is `>= from` are visible.
+    /// Only events at or after this boundary are visible **or countable**.
     ///
-    /// [`HistoryCut::NOTHING`] (`from == i64::MAX`) is the "was never entitled"
-    /// case: stream orderings are positive, so it matches nothing.
-    From(i64),
+    /// Both coordinates describe the **same** `m.room.member` event, looked up
+    /// once (see [`EventReader::get_membership_boundary`]): the list surfaces
+    /// compare `stream_ordering` ([`Self::allows`]), the count surfaces compare
+    /// `origin_server_ts` ([`Self::unread_floor_ts`]). They travel together so a
+    /// caller cannot resolve one axis and forget the other — which is how the
+    /// unread counts ended up leaking hidden history after every list surface had
+    /// been fixed.
+    ///
+    /// [`HistoryCut::NOTHING`] is the "was never entitled" case: stream orderings
+    /// are positive and no real timestamp reaches `i64::MAX`, so it matches
+    /// nothing on either axis.
+    From {
+        /// `stream_ordering` of the boundary member event.
+        stream_ordering: i64,
+        /// `origin_server_ts` of that same member event.
+        origin_server_ts: i64,
+    },
 }
 
 impl HistoryCut {
     /// A cut that hides everything: the caller has no qualifying membership.
-    pub const NOTHING: Self = Self::From(i64::MAX);
+    pub const NOTHING: Self = Self::From { stream_ordering: i64::MAX, origin_server_ts: i64::MAX };
 
     /// Whether an event at `stream_ordering` is inside this cut.
     ///
@@ -111,9 +125,31 @@ impl HistoryCut {
     pub fn allows(self, stream_ordering: Option<i64>) -> bool {
         match self {
             Self::Unrestricted => true,
-            Self::From(from) => stream_ordering.is_some_and(|position| position >= from),
+            Self::From { stream_ordering: from, .. } => stream_ordering.is_some_and(|position| position >= from),
         }
     }
+
+    /// The **wall-clock** floor the count surfaces (`unread_notifications`) must
+    /// apply, i.e. "the earliest event this caller may have counted at all".
+    ///
+    /// `0` for [`HistoryCut::Unrestricted`], because the count queries take
+    /// `GREATEST(read marker, floor)` and every real timestamp is above zero — so
+    /// the read marker keeps deciding, exactly as before this floor existed.
+    pub fn unread_floor_ts(self) -> i64 {
+        match self {
+            Self::Unrestricted => 0,
+            Self::From { origin_server_ts, .. } => origin_server_ts,
+        }
+    }
+}
+
+/// Turn the storage-layer boundary row into a cut, keeping both of its
+/// coordinates together.
+fn cut_from_boundary(boundary: Option<synapse_storage::event::MembershipBoundary>) -> HistoryCut {
+    boundary.map_or(HistoryCut::NOTHING, |boundary| HistoryCut::From {
+        stream_ordering: boundary.stream_ordering,
+        origin_server_ts: boundary.origin_server_ts,
+    })
 }
 
 /// The rule, expressed against any [`EventReader`].
@@ -134,11 +170,11 @@ pub(crate) async fn history_cut_with(
     }
 
     let boundary = reader
-        .get_membership_boundary_stream_ordering(room_id, user_id, visibility.counts_invites())
+        .get_membership_boundary(room_id, user_id, visibility.counts_invites())
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to resolve history visibility boundary", e))?;
 
-    Ok(boundary.map_or(HistoryCut::NOTHING, HistoryCut::From))
+    Ok(cut_from_boundary(boundary))
 }
 
 /// [`history_cut_with`] for many rooms at once, batched.
@@ -180,10 +216,10 @@ pub(crate) async fn history_cuts_for_rooms(
 
     for (room_id, include_invites) in restrictive {
         let boundary = reader
-            .get_membership_boundary_stream_ordering(&room_id, user_id, include_invites)
+            .get_membership_boundary(&room_id, user_id, include_invites)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to resolve history visibility boundary", e))?;
-        cuts.insert(room_id, boundary.map_or(HistoryCut::NOTHING, HistoryCut::From));
+        cuts.insert(room_id, cut_from_boundary(boundary));
     }
 
     Ok(cuts)
@@ -272,7 +308,7 @@ mod tests {
 
     #[test]
     fn from_is_inclusive_at_the_boundary_and_strict_before_it() {
-        let cut = HistoryCut::From(100);
+        let cut = HistoryCut::From { stream_ordering: 100, origin_server_ts: 0 };
         assert!(cut.allows(Some(100)), "the boundary event itself is the caller's own join/invite");
         assert!(cut.allows(Some(101)));
         assert!(!cut.allows(Some(99)));
@@ -281,7 +317,7 @@ mod tests {
     #[test]
     fn a_missing_stream_ordering_is_hidden_when_the_cut_restricts() {
         // "unknown position" must not be treated as "old enough to be public".
-        assert!(!HistoryCut::From(1).allows(None));
+        assert!(!HistoryCut::From { stream_ordering: 1, origin_server_ts: 0 }.allows(None));
         assert!(!HistoryCut::NOTHING.allows(None));
     }
 
@@ -289,5 +325,23 @@ mod tests {
     fn nothing_hides_every_real_event() {
         assert!(!HistoryCut::NOTHING.allows(Some(0)));
         assert!(!HistoryCut::NOTHING.allows(Some(i64::MAX - 1)));
+    }
+
+    /// The **count** axis must be neutral exactly when the cut is, and otherwise
+    /// must be the boundary event's own timestamp — never a number derived from
+    /// the stream position, which the count queries cannot compare against.
+    #[test]
+    fn the_unread_floor_is_the_boundary_timestamp_or_zero() {
+        assert_eq!(HistoryCut::Unrestricted.unread_floor_ts(), 0, "no policy ⇒ the read marker keeps deciding");
+        assert_eq!(
+            HistoryCut::From { stream_ordering: 100, origin_server_ts: 1_700_000_000_000 }.unread_floor_ts(),
+            1_700_000_000_000,
+            "the floor is the boundary event's wall clock, not its stream ordering"
+        );
+        assert_eq!(
+            HistoryCut::NOTHING.unread_floor_ts(),
+            i64::MAX,
+            "`never entitled` must floor out every real event, so the count is zero"
+        );
     }
 }

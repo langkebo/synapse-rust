@@ -850,7 +850,7 @@ git grep -n 'CHANGELOG' -- .github/workflows scripts tests/unit
 
 3. **20294：统一 `Clock` 抽象**（可选项）。测试替身已注入时钟（`test_mocks/rendezvous.rs:42` 的 `clock: Arc<Mutex<i64>>`，读到即自增），生产侧没有统一抽象。若将来要断言 `routes/rendezvous.rs` 生成的 `message_id` / `sent_ts` 的确定性，才需要引入；否则纯属重构。
 
-4. ~~**历史可见性强制执行**~~ —— **2026-10-14 第三轮已实施 6 条读路径**，见 §11.6。`/notifications` 判为**结构性不适用**、unread 计数另有一处缺口（均见该节表格）。
+4. ~~**历史可见性强制执行**~~ —— **2026-10-14 第三轮已实施 6 条读路径**，见 §11.6。`/notifications` 判为**结构性不适用**、unread 计数另有一处缺口（均见该节表格）；**该缺口与同一轮发现的第三条泄漏路径已于第四轮收口 → §11.10**。
 
 ### 11.4 与本方案无关、但复核中确认的两条环境事实
 
@@ -947,7 +947,7 @@ cargo nextest run --test unit --features test-utils --locked \
 | 端点 | 判定 |
 | --- | --- |
 | `/notifications` | **结构性不适用**（不需要接入）。`notifications` 表只由**显式推送**写入：生产调用链只有 `push/service.rs:341`（`PushNotificationService::send_notification`，由 `/_synapse/…` 推送端点触发），**事件管线不写这张表**（本仓与既有结论一致：没有服务端推送规则评估引擎）。⇒ 房间里发生的事件根本不会给"后加入的成员"产出一行 ⇒ 没有"加入前的通知"可供裁剪。**不发散地加过滤器**：加了只会造成"已覆盖"的错觉，并可能破坏"通知是发给某人的"这一语义。 |
-| unread 计数（`/sync`、sliding sync） | ⚠️ **另有一处真实缺口，未修**：`get_unread_counts`（`synapse-storage/src/event/unread.rs:25`）用 `read_markers` 的时间戳当窗口下界，**没有可见性下界**。新加入的成员在该房间**没有 read marker** ⇒ `last_read_ts = 0` ⇒ `notification_count` 会把**加入前**的非状态事件也数进去（计入条件是「非自己发送 + 非状态事件 + 时间戳晚于窗口下界」）。这是通过**计数**而非通过列表泄露的（较轻微，但确实是错的值）。**规则**：把窗口下界 clamp 到"该用户可见的最早事件"，即取 `GREATEST(read_marker_ts, 边界成员事件的 origin_server_ts)` —— 计数是时间戳口径，故需要边界事件的 `origin_server_ts`（现有的边界查询只回 `stream_ordering`，要一并带出）。**未做的原因**：属独立改动（改 `unread.rs` 的两个查询 + `get_unread_counts_batch` 的签名 + sync 的接线），且**不影响"列表是否泄露"**，故单列。 |
+| unread 计数（`/sync`、sliding sync） | ✅ **2026-10-14 第四轮已修**（并顺带发现同一轮的**第三条**泄漏路径）→ 见 **§11.10**。下表为该轮**修复前**的判定，保留以便对照：⚠️ **真实缺口**：`get_unread_counts`（`synapse-storage/src/event/unread.rs:25`）用 `read_markers` 的时间戳当窗口下界，**没有可见性下界**。新加入的成员在该房间**没有 read marker** ⇒ `last_read_ts = 0` ⇒ `notification_count` 会把**加入前**的非状态事件也数进去（计入条件是「非自己发送 + 非状态事件 + 时间戳晚于窗口下界」）。这是通过**计数**而非通过列表泄露的（较轻微，但确实是错的值）。**规则**：把窗口下界 clamp 到"该用户可见的最早事件"，即取 `GREATEST(read_marker_ts, 边界成员事件的 origin_server_ts)` —— 计数是时间戳口径，故需要边界事件的 `origin_server_ts`（现有的边界查询只回 `stream_ordering`，要一并带出）。**未做的原因**：属独立改动（改 `unread.rs` 的两个查询 + `get_unread_counts_batch` 的签名 + sync 的接线），且**不影响"列表是否泄露"**，故单列。 |
 
 ⇒ §11.6 初次落地时记的"**首次 `/sync` 会泄露加入前时间线**"这一条**已关闭**。
 
@@ -1239,3 +1239,102 @@ CI 在**本批改动之前**的 HEAD（`cc56d479e`，run 38509545932）已有 3 
 
 **仍未根除的部分**：写入者不在仓库内，仓库侧**无法阻止**它再次发生 —— 棘轮只保证下次**立刻判红**而非静默。
 若再次出现，唯一还有用的一手信息是"**发生时刻 + 当时开着的编辑器 / 预览面板**"：这是尚未排除的一侧。
+
+**第四次实测（2026-10-14 19:53:17）—— 这次拿到了时间戳**：提交 `0fb7fa8e0` 于 **19:40:52** 落地后，
+工作区在本轮第四次被替换成**第三轮之前**的副本（`### 11.6` 回到"**5 条读路径**"、`### 11.7` 回到
+"**本轮未实施**"、**§11.9 整段消失**、§11.7.1 消失），`git diff --numstat` = **239 增 / 417 删**（净 −178 行），
+文件 mtime = **19:53:17**，即**提交后 12 分 25 秒**。本次运行期间本会话**没有任何**对该文件的写入
+（期间只跑编译/测试）⇒ 再次坐实"写入者不在本会话、也不在仓库工具链内"这一结论。
+处置同前：`git checkout -- <file>` 从 HEAD 还原（9 个章节、§11.7.1/§11.9 复位），随后再改、再核。
+
+---
+
+### 11.10 第四轮（2026-10-14）：unread 计数的可见性下界 + `/rooms/{roomId}/sync` 的时间线
+
+本轮把 §11.6 表里唯一还开着的可见性缺口关掉，并**顺带发现同一类的第三条泄漏路径**。
+
+#### 一、先测量，再动手（"缺陷为真"的判据）
+
+新增 `tests/integration/api_history_visibility_tests.rs::unread_counts_ignore_history_from_before_the_caller_joined`：
+`joined` 房间 → alice 发 3 条 → bob 加入 → alice 再发 1 条 → 读 bob 的
+`rooms.join[<room>].unread_notifications`。**修复前实测**（非推测）：
+
+```text
+assertion `left == right` failed: only the readable (post-join) message may be counted …
+  left: 4
+ right: 1
+```
+
+即 bob 的**时间线只有 1 条**（3 条加入前消息被所有列表面隐藏），而**计数是 4** ——
+历史通过**计数**泄露。根因与 §11.6 的推断一致：加入**不写** read marker
+（唯一写入点是客户端 receipt 路径 `set_read_marker`），故 `last_read_ts` 落到 `0`。
+
+#### 二、规则与实现
+
+**规则**（与 §11.6 预告一致）：窗口下界取 `GREATEST(read_marker_ts, 边界成员事件的 origin_server_ts)`。
+
+| 落点 | 改动 |
+| --- | --- |
+| `synapse-storage/src/event/history_boundary.rs` | 新增 `MembershipBoundary { stream_ordering, origin_server_ts }`；边界查询由 `MIN(stream_ordering)` 改为 `ORDER BY stream_ordering LIMIT 1` —— **两个坐标必须来自同一行**，否则列表面与计数面会各自解出一个成员事件（先 invite 后 join）而互相矛盾 |
+| `synapse-storage/src/event/reader.rs` | `get_membership_boundary_stream_ordering` → `get_membership_boundary`（`Option<MembershipBoundary>`），trait / 实现 / 内存 mock 同步 |
+| `synapse-services/src/room/messaging/history_visibility.rs` | `HistoryCut::From` 携带两个坐标；新增 `unread_floor_ts()`：`Unrestricted → 0`（read marker 继续说话）、`From → 边界 ts`、`NOTHING → i64::MAX`（never-entitled ⇒ 计数为 0） |
+| `synapse-storage/src/event/unread.rs` | 两个查询各加一个下界参数，SQL 只需把 `COALESCE(...)` 包一层 `GREATEST(..., $n)`；批量版入参改为 `&[(room_id, floor_ts)]` —— **成对而非两个平行数组**：错位会把 A 房的下界安到 B 房上，两个方向都是计数型泄漏 |
+| `synapse-services/src/sync_service/{data_fetch,response,mod}.rs` | `/sync` 把 `history_cuts` 提到 `try_join!` **之前**，并把它一并交给 unread 批量（该值现在喂两个消费者）；`room_unread_counts` 单房间路径同样先解析 cut |
+
+**为什么把 `history_cuts` 提出 `try_join!`**：计数用的下界必须与时间线过滤用的是**同一次**解析结果；
+留在并发 join 里，两者可能各自解出一个边界。
+
+#### 三、顺带发现：`/rooms/{roomId}/sync` 从未裁剪时间线（第三条同类泄漏）
+
+`GET /_matrix/vendor/v1/rooms/{roomId}/sync`（**本仓自有客户端端点**；路由真伪只问派生表：
+`derived_route_table_always.inc.rs` 中 `registered_by = "room"`）走
+`SyncService::room_sync` → `build_room_sync`，而 `build_room_sync` **从不调用 `apply_history_cut`**
+—— §11.6 的整轮收口漏掉了这个时间线装配点 ⇒ 新成员可从该端点拿到加入前时间线（与最初 `/sync` 那个缺口同级）。
+
+**修法**：把 cut 做成 `BuildRoomSyncRequest` 的**必填字段**，由 `build_room_sync` 自己裁剪
+（裁剪发生在 `apply_timeline_limit` **之前**，使 `limited` 描述"调用者可读的这一页"），
+且**同一个 cut** 同时供给计数下界 ⇒ **一次解析、两个轴，调用方无法只做一半**。
+
+#### 四、验证（实跑）
+
+```bash
+export DATABASE_URL=postgresql://synapse:synapse@localhost:5432/synapse_test
+export TEST_DATABASE_URL=$DATABASE_URL TEST_DB_TEMPLATE_SCHEMA=test_template_ci REDIS_URL=redis://localhost:6379
+cargo nextest run --test integration --all-features --locked -E 'test(history_visibility)'   # 9 passed
+```
+
+| 用例 | 钉住什么 |
+| --- | --- |
+| `unread_counts_ignore_history_from_before_the_caller_joined` | 计数与列表用**同一套**边界（修复前红：4 vs 1） |
+| `unread_counts_still_count_history_a_shared_room_makes_readable` | **反向对照**：`shared` 房间里加入前消息**本来就可读**，必须照旧计 3 ⇒ 下界是**策略**下界，不是"按成员"下界（否则就是把一种 bug 换成另一种：静默少计） |
+| `room_sync_hides_history_from_before_the_caller_joined` | 单房间 sync 也隐藏加入前消息，且创建者仍看全（按调用者） |
+
+单测：`the_unread_floor_is_the_boundary_timestamp_or_zero`（三个分支）+ 既有 `HistoryCut` 用例改用结构体变体。
+
+**变异自证（红 → 还原 → 绿，两条）**
+
+| 变异 | 期望 | 实测 |
+| --- | --- | --- |
+| A：批量 SQL 里让 floor 参与但不生效（`tr.floor_ts - tr.floor_ts`；**保留参数引用**以免 PG 报"无法确定 $3 的类型"） | `unread_counts_ignore_history_…` 转红 | ✅ 红：`left: 4 / right: 1` —— 正是修复前的值 |
+| B：去掉 `build_room_sync` 的 `apply_history_cut` | `room_sync_hides_history_…` 转红 | ✅ 红：`joined` must hide the pre-join message on /rooms/{roomId}/sync too |
+
+两条均从备份 `cp` 还原、`sha256sum` 与变异前**逐字节一致**、`grep -rn MUTATION` 为 0。
+
+**`.sqlx`**：SQL 文本变更经唯一入口 `scripts/ci/sqlx_prepare.sh` 重生成 —— **3 删 3 增**
+（两条 unread + 边界查询），条数 **1318 → 1318（未缩容）**，无连带改动。
+
+**⚠️ 本地跑变异 A 的两个坑（本轮实测）**：
+① `SQLX_OFFLINE=false` 时 `DATABASE_URL` **必须是已迁移的库**：指向 `synapse_test`（`public` schema 未迁移）
+会得到 **1593 个 `cannot infer type`** 编译错误，看起来像"到处都坏了"；正确姿势是**编译期用
+`synapse_sqlx_scratch`、运行期用 `TEST_DATABASE_URL=synapse_test`**。
+② 变异**改了 SQL 文本** ⇒ OFFLINE 模式报 "no cached data"，故变异期间必须走在线模式，跑完还原（**不要**为此重生成 `.sqlx`）。
+
+**遗留（仍开着）**：
+
+- unread 的 floor 只对**受限**可见性生效（`shared`/`world_readable` 恒为 0）—— 已有反向对照用例，
+  但 `world_readable` 房间"非成员是否应有未读"未与上游逐条比对。
+- `/rooms/{roomId}/sync` 的时间线现已裁剪，但其 `state` 段仍返回**当前**状态（与 `/sync` 一致），
+  未按"事件发生时刻"回溯 —— 与 §11.6「有意保留的简化」同源，方向是更严。
+- 行数棘轮：本轮在**已超限**的文件上小幅增长（`sync_service/*`、`event/reader.rs`、`unread.rs` 等），
+  **未新增超限文件**（仍 `257 over 500 / baseline 253`）；未 `--update` —— 提升天花板会扩大免责面，
+  与棘轮"只降不升"的意图相反。

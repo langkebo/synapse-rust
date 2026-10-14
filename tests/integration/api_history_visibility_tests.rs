@@ -325,6 +325,170 @@ async fn sync_timeline_hides_history_from_before_the_caller_joined() {
     assert!(restored.contains(&before_bob), "`shared` must restore pre-join history: {restored:?}");
 }
 
+/// `unread_notifications` of one room in an initial `/sync`, as
+/// `(notification_count, highlight_count)`.
+async fn sync_unread_counts(app: &axum::Router, token: &str, room_id: &str) -> (i64, i64) {
+    let request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/sync?timeout=0")
+        .header("Authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "/sync must succeed");
+
+    let body = axum::body::to_bytes(response.into_body(), 4 * 1024 * 1024).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let counts = &json["rooms"]["join"][room_id]["unread_notifications"];
+    let read = |key: &str| counts[key].as_i64().unwrap_or_else(|| panic!("`{key}` missing from {counts}"));
+    (read("notification_count"), read("highlight_count"))
+}
+
+/// The **count** surface must use the same boundary as the list surfaces.
+///
+/// `/messages`, `/sync`'s timeline, `/relations` and `/search` all hide pre-join
+/// history — but a count is not a list, and it was computed from the read marker
+/// alone. A member who joined later has **no read marker** in that room (joining
+/// does not write one; only a client receipt does), so `last_read_ts` fell back to
+/// `0` and every pre-join message was counted as unread. The client then showed
+/// "4 unread" over an empty timeline — wrong, and a (count-only) hash of history
+/// it is not allowed to read.
+#[tokio::test]
+async fn unread_counts_ignore_history_from_before_the_caller_joined() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let alice = super::create_test_user(&app).await;
+    let room_id = create_public_room(&app, &alice).await;
+
+    for index in 0..3 {
+        send_message(&app, &alice, &room_id, &format!("u-pre-{index}"), "pre-join").await;
+    }
+    assert_eq!(set_history_visibility(&app, &alice, &room_id, "joined").await, StatusCode::OK);
+
+    let bob = super::create_test_user(&app).await;
+    join_room(&app, &bob, &room_id).await;
+
+    // The one message Bob is allowed to see, and therefore the only one that may
+    // be counted. It doubles as the control that the count is not simply stuck at
+    // zero: without it, a `0` assertion would pass against any constant-zero
+    // implementation.
+    let visible = send_message(&app, &alice, &room_id, "u-post", "after-bob").await;
+
+    // Precondition: Bob's timeline really does contain only the post-join message,
+    // so "1 unread" and "1 readable message" are the same statement.
+    let timeline = sync_timeline_event_ids(&app, &bob, &room_id).await;
+    assert!(timeline.contains(&visible), "the post-join message must be visible: {timeline:?}");
+    assert_eq!(timeline.iter().filter(|id| id.as_str() == visible).count(), 1);
+
+    let (notifications, highlights) = sync_unread_counts(&app, &bob, &room_id).await;
+    assert_eq!(
+        notifications, 1,
+        "only the readable (post-join) message may be counted; the 3 pre-join messages are hidden \
+         from every list surface, so counting them is a count-only leak of history"
+    );
+    assert_eq!(highlights, 0, "none of them mentions Bob");
+}
+
+/// The `event_id`s in one room's timeline from `GET /rooms/{roomId}/sync`.
+///
+/// That endpoint lives under `/_matrix/vendor/v1` (this project's own client
+/// surface rather than a spec one) — see
+/// `synapse-web/src/routes/derived_route_table_always.inc.rs`.
+async fn room_sync_event_ids(app: &axum::Router, token: &str, room_id: &str) -> Vec<String> {
+    let request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/vendor/v1/rooms/{room_id}/sync?timeout=0"))
+        .header("Authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "/rooms/{{roomId}}/sync must succeed");
+
+    let body = axum::body::to_bytes(response.into_body(), 4 * 1024 * 1024).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    json["timeline"]["events"]
+        .as_array()
+        .map(|events| events.iter().filter_map(|event| event["event_id"].as_str().map(ToOwned::to_owned)).collect())
+        .unwrap_or_default()
+}
+
+/// The **per-room** sync is a read path like the whole-account one, and it was
+/// the one timeline builder that never consulted the policy.
+///
+/// `GET /rooms/{roomId}/sync` assembles the room's timeline through the same
+/// builder as `/sync` but reached it without a cut, so a newly joined member got
+/// the room's pre-join history from here after `/sync` itself had been fixed.
+#[tokio::test]
+async fn room_sync_hides_history_from_before_the_caller_joined() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let alice = super::create_test_user(&app).await;
+    let room_id = create_public_room(&app, &alice).await;
+
+    let before_bob = send_message(&app, &alice, &room_id, "rs1", "before-bob").await;
+    assert_eq!(set_history_visibility(&app, &alice, &room_id, "joined").await, StatusCode::OK);
+
+    let bob = super::create_test_user(&app).await;
+    join_room(&app, &bob, &room_id).await;
+    let after_bob = send_message(&app, &alice, &room_id, "rs2", "after-bob").await;
+
+    let bob_ids = room_sync_event_ids(&app, &bob, &room_id).await;
+    assert!(bob_ids.contains(&after_bob), "the post-join message must be served: {bob_ids:?}");
+    assert!(
+        !bob_ids.contains(&before_bob),
+        "`joined` must hide the pre-join message on /rooms/{{roomId}}/sync too: {bob_ids:?}"
+    );
+
+    // Control: the creator keeps seeing both, so the boundary is per-caller and
+    // the assertion above is not just "the timeline is empty".
+    let alice_ids = room_sync_event_ids(&app, &alice, &room_id).await;
+    assert!(
+        alice_ids.contains(&before_bob) && alice_ids.contains(&after_bob),
+        "the creator must keep seeing the full timeline: {alice_ids:?}"
+    );
+}
+
+/// The floor is a **policy** floor, not a membership floor.
+///
+/// Under `shared` (the room-version default) a member really can read the whole
+/// history, so those messages are legitimately unread for someone who has no read
+/// marker — flooring at "when you joined" here would have been a different bug
+/// (silent undercounting) in place of the one being fixed.
+#[tokio::test]
+async fn unread_counts_still_count_history_a_shared_room_makes_readable() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let alice = super::create_test_user(&app).await;
+    let room_id = create_public_room(&app, &alice).await;
+
+    let mut sent = Vec::new();
+    for index in 0..3 {
+        sent.push(send_message(&app, &alice, &room_id, &format!("sh-pre-{index}"), "shared history").await);
+    }
+
+    let bob = super::create_test_user(&app).await;
+    join_room(&app, &bob, &room_id).await;
+
+    // NB: `timeline.events` carries membership and state events too, so this
+    // asserts on the messages themselves rather than on the array's length.
+    let timeline = sync_timeline_event_ids(&app, &bob, &room_id).await;
+    for event_id in &sent {
+        assert!(timeline.contains(event_id), "`shared` exposes the pre-join messages: {timeline:?}");
+    }
+
+    let (notifications, _) = sync_unread_counts(&app, &bob, &room_id).await;
+    assert_eq!(
+        notifications, 3,
+        "every message Bob can read and has not read must be counted — the floor must not turn into \
+         a blanket membership floor"
+    );
+}
+
 /// The core leak, at the endpoint clients actually page with.
 #[tokio::test]
 async fn joined_visibility_hides_history_from_before_the_caller_joined() {

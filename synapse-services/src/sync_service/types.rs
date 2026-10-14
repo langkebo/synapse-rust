@@ -1,3 +1,4 @@
+use crate::room::messaging::history_visibility::HistoryCut;
 use crate::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -269,6 +270,15 @@ pub struct BuildRoomSyncRequest<'a> {
     pub use_state_after: bool,
     /// MSC4222: see [`SyncRequest::state_after_is_unstable`].
     pub state_after_is_unstable: bool,
+    /// This caller's `m.room.history_visibility`, already resolved.
+    ///
+    /// A **required** field rather than something the builder looks up itself:
+    /// `build_room_sync` assembles both the room's timeline and its unread
+    /// counts, and those two must agree about the boundary. Both axes come from
+    /// this one value, so a caller cannot supply the timeline cut and forget the
+    /// count floor (or the reverse) — which is exactly how the counts kept leaking
+    /// hidden history after every list surface had been fixed.
+    pub history_cut: HistoryCut,
 }
 
 /// The `BuildRoomSyncValueRequest` struct.

@@ -89,7 +89,7 @@ mod tests {
     #[test]
     fn a_restrictive_cut_drops_pre_boundary_events_and_keeps_the_boundary_one() {
         let events = vec![event(Some(1)), event(Some(2)), event(Some(3)), event(Some(4))];
-        let kept = SyncService::apply_history_cut(events, HistoryCut::From(3));
+        let kept = SyncService::apply_history_cut(events, HistoryCut::From { stream_ordering: 3, origin_server_ts: 0 });
         let positions: Vec<Option<i64>> = kept.iter().map(|e| e.stream_ordering).collect();
         assert_eq!(positions, vec![Some(3), Some(4)], "the caller's own join event must survive");
     }
@@ -97,7 +97,7 @@ mod tests {
     #[test]
     fn a_restrictive_cut_drops_events_without_a_stream_ordering() {
         let events = vec![event(Some(1)), event(None), event(Some(5))];
-        let kept = SyncService::apply_history_cut(events, HistoryCut::From(5));
+        let kept = SyncService::apply_history_cut(events, HistoryCut::From { stream_ordering: 5, origin_server_ts: 0 });
         assert_eq!(kept.len(), 1, "an unknown position is not 'old enough to be public'");
         assert_eq!(kept[0].stream_ordering, Some(5));
     }

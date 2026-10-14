@@ -305,6 +305,12 @@ impl SyncService {
 
         let events = room_events.get(room_id).cloned().unwrap_or_default();
         let event_count = events.len();
+        // `m.room.history_visibility` is resolved here so the timeline cut and the
+        // unread counts' floor come from one lookup (see `BuildRoomSyncRequest`).
+        // A per-room sync is a read path like any other, and this one used to hand
+        // a new member the room's pre-join history.
+        let history_cut =
+            crate::room::messaging::history_visibility::history_cut_with(&*self.event_reader, room_id, user_id).await?;
         let room_build_started = Instant::now();
         let room_sync = self
             .build_room_sync(BuildRoomSyncRequest {
@@ -319,6 +325,7 @@ impl SyncService {
                 // has no such opt-in, so it always emits the classic `state`.
                 use_state_after: false,
                 state_after_is_unstable: false,
+                history_cut,
             })
             .await?;
         let room_build_ms = room_build_started.elapsed().as_secs_f64() * 1000.0;
@@ -403,8 +410,16 @@ impl SyncService {
     }
 
     /// See [`room_unread_counts`].
+    ///
+    /// The room's `m.room.history_visibility` floor is resolved here so this
+    /// single-room view agrees with `/sync` (see
+    /// [`HistoryCut::unread_floor_ts`](crate::room::messaging::history_visibility::HistoryCut::unread_floor_ts)).
     pub async fn room_unread_counts(&self, room_id: &str, user_id: &str) -> ApiResult<(i64, i64)> {
-        let (highlight_count, notification_count) = self.get_unread_counts(room_id, user_id).await?;
+        let floor_ts =
+            crate::room::messaging::history_visibility::history_cut_with(&*self.event_reader, room_id, user_id)
+                .await?
+                .unread_floor_ts();
+        let (highlight_count, notification_count) = self.get_unread_counts(room_id, user_id, floor_ts).await?;
         Ok((notification_count, highlight_count))
     }
 

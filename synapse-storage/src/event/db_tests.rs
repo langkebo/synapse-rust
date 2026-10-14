@@ -2256,7 +2256,7 @@ async fn test_p1_7_unread_count_not_bloated_after_purge_history() {
 
     // Baseline: only e3 is unread (e1 is before marker e2)
     let baseline =
-        storage.get_unread_counts(&room_id, &reader).await.expect("baseline get_unread_counts should succeed");
+        storage.get_unread_counts(&room_id, &reader, 0).await.expect("baseline get_unread_counts should succeed");
     assert_eq!(baseline.notification_count, 1, "baseline: only e3 should be unread (e1 is before marker e2)");
 
     // Purge history before ts=1_000_002 → deletes e2 (ts=1_000_001 < cutoff, origin=remote)
@@ -2275,7 +2275,7 @@ async fn test_p1_7_unread_count_not_bloated_after_purge_history() {
 
     // P1-7 assertion: count must still be 1 (only e3), NOT 2 (e1+e3)
     let after_purge =
-        storage.get_unread_counts(&room_id, &reader).await.expect("post-purge get_unread_counts should succeed");
+        storage.get_unread_counts(&room_id, &reader, 0).await.expect("post-purge get_unread_counts should succeed");
     assert_eq!(
         after_purge.notification_count, 1,
         "P1-7: after purge_history deletes the marker event, unread count must NOT bloat. \
@@ -2900,16 +2900,14 @@ async fn test_soft_failed_events_hidden_from_all_consumer_read_paths() {
     assert_hidden("search_postgres_messages", user_fts.iter().map(|row| row.0.clone()).collect());
 
     // 7) 未读计数与消息计数。
-    let unread = storage.get_unread_counts(&room_id, &reader_id).await.expect("get_unread_counts");
+    let unread = storage.get_unread_counts(&room_id, &reader_id, 0).await.expect("get_unread_counts");
     assert_eq!(
         unread.notification_count, 1,
         "get_unread_counts: the soft-failed loser must not inflate the notification count"
     );
 
-    let unread_batch = storage
-        .get_unread_counts_batch(std::slice::from_ref(&room_id), &reader_id)
-        .await
-        .expect("get_unread_counts_batch");
+    let unread_batch =
+        storage.get_unread_counts_batch(&[(room_id.clone(), 0)], &reader_id).await.expect("get_unread_counts_batch");
     let batch_row = unread_batch.first().expect("one unread row per requested room");
     assert_eq!(
         batch_row.notification_count, 1,
@@ -3429,7 +3427,7 @@ async fn test_unread_highlight_counts_match_user_id_literally() {
     )
     .await;
 
-    let counts = storage.get_unread_counts(&room_id, &reader).await.expect("get_unread_counts should succeed");
+    let counts = storage.get_unread_counts(&room_id, &reader, 0).await.expect("get_unread_counts should succeed");
     assert_eq!(counts.room_id, room_id, "room_id 由参数回填");
     assert_eq!(counts.notification_count, 4, "四条来自他人的未读消息都算 notification");
     assert_eq!(
@@ -3438,7 +3436,7 @@ async fn test_unread_highlight_counts_match_user_id_literally() {
     );
 
     let batch = storage
-        .get_unread_counts_batch(std::slice::from_ref(&room_id), &reader)
+        .get_unread_counts_batch(&[(room_id.clone(), 0)], &reader)
         .await
         .expect("get_unread_counts_batch should succeed");
     assert_eq!(batch.len(), 1);
