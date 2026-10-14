@@ -1206,6 +1206,17 @@ CI 在**本批改动之前**的 HEAD（`cc56d479e`，run 38509545932）已有 3 
 `synapse-storage/src/event/history_boundary.rs`（51 行），`state.rs` 回到 487 行，棘轮维持 `257 (baseline 253)`。
 **改本仓任何"已经接近 500 行"的文件前，先跑一次棘轮脚本比对数字。**
 
+**2026-10-14 第五轮更新（→ §11.11）**：
+
+- 本节列的 CI 红里，**供应链那条已转绿**：`RUSTSEC-2024-0449`（`unsafe-libyaml`，经 `serde_yaml 0.9`）
+  已通过迁移 `serde_norway` **消除**，并顺带关掉 4 条当日新发布的 rustls 漏洞
+  ⇒ `cargo deny check advisories` = `advisories ok`、`cargo audit` EXIT=0（§11.11.1 / §11.11.2）。
+- 本节末尾那条 file_size 约束本轮**仍然遵守**：新增的 DB 守卫放进新文件
+  `synapse-e2ee/src/key_rotation/service/db_tests.rs`，`key_rotation/service.rs` 只做小幅增删
+  ⇒ 棘轮仍是 `257 over 500 (baseline 253)`，**未新增超限文件**。
+- 本节未列的"既有红"里，`M-01`/`M-02`/`N-01`/`L-02`（E2EE v2.0 计划）经重判**已修**，
+  另有两项**新发现只登记不改**（§11.11.3 / §11.11.5）。
+
 ---
 
 ### 11.9 E5（本文件被"陈旧副本"覆盖）：排查结论与处置
@@ -1246,6 +1257,14 @@ CI 在**本批改动之前**的 HEAD（`cc56d479e`，run 38509545932）已有 3 
 文件 mtime = **19:53:17**，即**提交后 12 分 25 秒**。本次运行期间本会话**没有任何**对该文件的写入
 （期间只跑编译/测试）⇒ 再次坐实"写入者不在本会话、也不在仓库工具链内"这一结论。
 处置同前：`git checkout -- <file>` 从 HEAD 还原（9 个章节、§11.7.1/§11.9 复位），随后再改、再核。
+
+**第五次实测（2026-10-14 21:03:38）—— 这次拿到了写入者的读窗口**：工作区再次被换成"第三轮之前"的副本
+（`### 11.6` 回到"5 条读路径"、`### 11.7` 回到"本轮未实施"、**§11.9 与 §11.10 整段消失**），
+`git diff --numstat` = **238 增 / 516 删**，mtime **21:03:38**。新证据：这份副本的**标题里带着 `EXPERIMENT` 后缀**，
+而那正是本会话在**上一轮做对照实验时、只存在了一两分钟的哨兵**（见上"对照实验"）⇒ 写入者的缓冲区是在
+**那个极短窗口内**读取的文件。据此用该哨兵串（含 JSON 转义形态）在 `~/.workbuddy`、
+`~/Library/Application Support`、`~/Library/Caches` 全量搜索，**零命中** ⇒ 宿主不是这些目录里的明文文件。
+处置同前：`git checkout -- <file>` 从 HEAD 还原（10 章节 / 45 条标题在位）。
 
 ---
 
@@ -1338,3 +1357,126 @@ cargo nextest run --test integration --all-features --locked -E 'test(history_vi
 - 行数棘轮：本轮在**已超限**的文件上小幅增长（`sync_service/*`、`event/reader.rs`、`unread.rs` 等），
   **未新增超限文件**（仍 `257 over 500 / baseline 253`）；未 `--update` —— 提升天花板会扩大免责面，
   与棘轮"只降不升"的意图相反。
+
+---
+
+### 11.11 第五轮（2026-10-14）：四条长期遗留项的 HEAD 重判与收口
+
+主题：`RUSTSEC-2024-0449`、联邦 PDU、Room v12 剩余项（A3/A4/A5/C1）、E2EE v2.0 计划
+（N-01 / M-01 / M-02 / M-03 / L-02）。方法是**在移动的 HEAD 上逐条重判**再动手 —— 事后证明有必要：
+其中"联邦 PDU"一整行结论已经过时（§11.11.6）。
+
+#### 11.11.1 RUSTSEC-2024-0449 —— 已消除（迁 `serde_norway`，不是加豁免）
+
+| 项 | 判据 |
+| --- | --- |
+| 链路 | `serde_yaml 0.9.34+deprecated` → `unsafe-libyaml 0.2.11`（上游已归档）|
+| 迁移目标 | `serde_norway 0.9.42` —— 同一份 0.9 代码的维护 fork，底层换 `unsafe-libyaml-norway 0.2.15` |
+| 调用面 | **49 处 / 14 个 `.rs`**：`from_str` 32、`to_string` 13、`Value` 2、`Error` 1；**全仓无 `use serde_yaml` 别名** ⇒ 纯文本替换，无结构改动 |
+| 依赖声明 | workspace `Cargo.toml` + 3 个 crate（common / services / web）|
+| 锁文件 | 恰 **20 增 / 20 删** —— 只换掉那两个 package 块，无连带升级 |
+| 未加豁免 | `.cargo/audit.toml` / `deny.toml` **均未**新增 ignore ⇒ 是消除而非遮蔽 |
+
+#### 11.11.2 顺带修复：4 条**当日新发布**的 rustls 漏洞（非本轮引入）
+
+迁移后 `cargo deny check advisories` 仍 FAILED，但命中项**不是** 0449：
+
+| advisory | 受影响 | 修复区间 | 内容 |
+| --- | --- | --- | --- |
+| RUSTSEC-2026-0346 | rustls 0.23.45 | `>= 0.23.46` | `Debug` 实现泄漏 TLS 会话秘密 |
+| RUSTSEC-2026-0347 | 同上 | 同上 | ECH 被拒后仍向外部服务器发送已缓冲的应用数据 |
+| RUSTSEC-2026-0348 | 同上 | 同上 | Brotli 证书解压可在认证前分配至 1 GiB |
+| RUSTSEC-2026-0349 | 同上 | 同上 | 未认证 ServerHello 可把后续连接降级到经典密钥交换 |
+
+四条 `date = "2026-10-14"`（**当天发布**），而仓库上一次 advisory 复核是 2026-09-21
+⇒ 属**既有暴露、新库才暴露**，非本轮引入。归属判据：`Cargo.lock` 的 diff **只有 yaml 两个 package 块**，
+本轮未触及 rustls。
+
+修复：补丁级升版 `cargo update -p rustls --precise 0.23.46`。rustls 是**传递依赖**
+（`lettre`（SMTP）与 `redis` TLS），清单里没有可钉的位置；防降级由 CI 的 supply-chain gate
+每次重跑覆盖，故不需要额外 pin。
+
+**结果（两个工具独立确认）**：`cargo deny check advisories` → `advisories ok`（EXIT=0）；
+`cargo audit --db <本地库快照> --no-fetch` → EXIT=0（载入 1314 条 advisory，零命中）。
+⇒ **供应链门禁首次转绿**。
+
+#### 11.11.3 E2EE v2.0 计划：五项逐条重判（4 项已修 + 1 项比报告更严重）
+
+| 任务 | 结论 | 判据 |
+| --- | --- | --- |
+| **N-01**（空的 algorithm/key 默认值） | ✅ 已修 | `cross_signing/service.rs:198/202/208/212` 一律 400；`:215`/`:218` 另加 `algorithm.is_empty()` 与 `public_key.is_empty()` 两道闸 |
+| **M-01**（配置解析静默回退） | ✅ 已修 | `key_rotation/service.rs:61, 68, 76, 84` 四处 `tracing::warn!` |
+| **M-02**（时间戳静默回退） | ✅ 已修 | `megolm/storage.rs:40, 44` 两处 `tracing::warn!` |
+| **M-03**（`log_rotation` 的 device_id） | ❌ **比报告更严重** ⇒ 本轮修 | 见 §11.11.4 |
+| **L-02**（文档注释写 "Panics"） | ✅ 已修 | `crypto/key_at_rest.rs` 已无 `Panics` |
+
+#### 11.11.4 M-03 实为「必然失败的 INSERT」—— 已修（不改 schema、不写占位值）
+
+原报告只说"缺设备追迹"。实测：`key_rotation_log.device_id` 在基线里是 **`TEXT NOT NULL`**，而
+`log_rotation` 绑定 `None::<String>` ⇒ **每次调用必然 `null value in column "device_id" violates
+not-null constraint`**。未被发现的原因有两条：唯一调用者 `rotate_megolm_session` 在生产**没有接线**
+（`KeyRotationService` 全仓只在测试里构造），且该模块此前**零 DB 覆盖**。
+
+修法：把 `device_id` 做成**必填 `&str`**，从 `rotate_megolm_session` / `rotate_all_user_sessions`
+一路透传 ⇒ **结构上不可能再绑 NULL**。刻意**不**写"unknown"之类的合成设备号：合成值在审计日志里
+与真值不可区分，且与本仓 `pdu.rs`「**禁止**填 `[]`/`0` 伪造」是同一条纪律。读者侧
+`get_device_rotation_history` 本就是 `(user_id, device_id)` 过滤，故这一改同时让读写语义对齐。
+
+**新增守卫** `synapse-e2ee/src/key_rotation/service/db_tests.rs`：真库往返（`log_rotation` → 读回 1 条、
+`new_key_id` 与 `rotated_at` 非空）+ **两个反向对照**（换设备、换用户都读不到）—— 一次钉住列的
+`NOT NULL`、参数顺序与读者的过滤。实测 PASS（14.6s）。
+
+**顺带修掉一处假告警**：`should_rotate` 的**正常**分支（没有任何触发器命中）挂着一句
+`warn!("Timestamp conversion failed or expired_at is invalid; treating session as not expired")`
+⇒ **每个健康会话都会刷**，而且是错误诊断（时间戳转换只在 `megolm/storage.rs` 的 row→model 边界发生一次，
+失败在那里已自报）。已删除。
+
+#### 11.11.5 本轮**新发现**、只登记不改（都是产品/模型决策，不是能"顺手修"的 bug）
+
+| 编号 | 发现 | 判据 | 可选处置 |
+| --- | --- | --- | --- |
+| **M-04** | `KeyRotationConfig::max_session_age_days` **完全不生效** | 该字段被读取、持久化、经 API 暴露、并在 4 个测试里断言，但 `key_rotation/service.rs` 里**没有任何读者**；真正的最大寿命来自 `MEGOLM_SESSION_MAX_AGE_DAYS` 环境变量（默认 7 天）→ 写进 `expires_at`，再由 `should_rotate` 的 `expires_at` 分支生效 | 二选一：删掉这个旋钮，**或**让环境变量从它取值。**不能**两者并存 —— 同一策略两个真源，违反铁律 2 |
+| **M-05** | `key_rotation_log` **在生产没有写入者**，而读者是活的 | 唯一写入者是未接线的 `KeyRotationService`；读者 `GET /_matrix/vendor/v1/keys/rotation/history/{device_id}`（`routes/key_rotation.rs:268`）经 `FederationKeyRotationService::get_device_rotation_history` ⇒ **该端点恒返回空列表**。且存在模型错配：联邦**签名密钥**是 per-server，而该读者按 `(user, device)` 过滤 | 先定模型 —— 这张表记的是 megolm 轮换（per user/device）还是联邦签名密钥轮换（per server），再接写者 |
+
+#### 11.11.6 联邦 PDU：memory 里的结论**已过时**，在 HEAD 上重判为「已实施」
+
+| 旧结论 | HEAD 实测 | 判据 |
+| --- | --- | --- |
+| `event_id` 非 v4+ reference hash | ✅ **已实施** | `synapse-federation/src/event_finalize.rs::finalize_local_pdu` 走完整链（内容哈希 → v3+ reference hash；v1/v2 保留服务端随机 ID），生产调用点至少 3 处：`room/lifecycle/create.rs:136`、`membership/federation.rs:864`、`services/graph_metadata.rs`。`crypto::generate_event_id` 已标 **DEPRECATED** 并指向 `event_id::compute_event_id` |
+| 本地 `create_event` 不落 `depth`/`prev_events`/`auth_events` | ✅ **已实施** | `GraphMetadataWriter` 装饰器已在 `synapse-services/src/wiring/rooms.rs:122` 接线（该处是 `Arc<dyn EventWriter>` 的**唯一**装配点），`create_event_with_pdu` 供事务路径显式供给；`lifecycle/creation_graph.rs`、`state/auth_events.rs` 均已把旧行为写成缺陷 |
+
+**仍成立的两条残留**（都不得用伪造绕过）：① 装饰器上线**之前**落库的历史行仍被判
+`MissingGraphMetadata` ⇒ 拒签而非伪造（方向正确，但"老房间的入站状态无法验签"是实际影响，需要专门的
+backfill 决策）；② 入站事件**不落远端 `signatures`/`hashes`** ⇒ 转发远端 PDU 只有本机签名。
+
+#### 11.11.7 Room v12 剩余项：在 `main@3439a0ebd` 上重判
+
+| 项 | 位置 | 结论 |
+| --- | --- | --- |
+| **A3** per-event state group | `synapse-storage/src/state_groups.rs`（954 行，API 完整）+ 基线四表 `state_groups` / `state_group_edges` / `event_to_state_groups` / `state_group_state` + `tests/integration/state_groups_idempotency_tests.rs` | **存储层已实现**，但**生产未接线** —— `synapse-services/src/room/state_record.rs:43` 自述 `event_to_state_groups` "today unused" |
+| **A4** backfill | 依赖 A3 | **仍未做**（随 A3 的接线一起） |
+| **A5** live 联邦互操作 | — | **未做**（需双机环境） |
+| **C1** 陈旧 `.sqlx` 缩容 | `.sqlx/` 1318 条 | **本轮未复核** —— 需与 census 逐条对照，属独立批次；`sqlx_cache_tooling_guard_tests` 管的是**脚本行为**，不是条目新鲜度 |
+
+#### 11.11.8 E5（本文件被"陈旧副本"覆盖）第 5 次：拿到了写入者的读窗口
+
+本轮开工时工作区又是**"第三轮之前"的副本**（§11.6 回到"5 条读路径"、§11.7 回到"本轮未实施"、
+§11.9 与 §11.10 **整段消失**），mtime **21:03:38**。
+
+**新证据**：这份副本的标题里带着 `EXPERIMENT` 后缀 —— 那是本会话在**上一轮做对照实验时、只存在了
+一两分钟的哨兵**。⇒ 写入者的缓冲区是在**那个窗口内**读的文件，之后才用陈旧内容回写。据此用该哨兵串
+（含 JSON 转义形态）在 `~/.workbuddy`、`~/Library/Application Support`、`~/Library/Caches` 搜索，
+**零命中** ⇒ 宿主不是这些目录里的明文文件（可能在进程内存，或压缩/私有格式里）。
+
+处置仍按 §11.9 规程：`git checkout -- <file>`，**内容以 git 为准**；还原后核验 10 章节 / 45 条标题在位。
+
+#### 11.11.9 本轮改动的验证（全部实跑）
+
+- `cargo check --workspace --all-targets --features test-utils --all-features --locked` → **EXIT=0**
+- `cargo clippy --workspace --all-targets --features test-utils --all-features -- -D warnings` → **EXIT=0**
+- `nextest --test unit --features test-utils`（配置 / 限流 / 流水线 / 迁移 / 基线指纹子集）→ **75 passed**
+- `nextest -p synapse-e2ee --lib --features test-utils -E 'test(key_rotation)'` → **13 passed**（含新 DB 守卫）
+  - 首轮出现一次 `LEAK` 标记，指向 `test_should_rotate_false_when_not_expired`；**复跑两次均无 LEAK、13/13 通过**
+    ⇒ 是 nextest 对 `build_service` 里共享 `CacheManager` 后台任务的**时序归属**，不是本轮引入
+- `cargo deny check advisories` → `advisories ok`；`cargo audit` → EXIT=0（1314 条 advisory，零命中）
+- 行数棘轮 → 仍 `257 over 500 (baseline 253)`，**未新增超限文件**（故不 `--update`）
