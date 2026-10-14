@@ -64,6 +64,7 @@ mod retention_api_tests;
 
 mod room_summary_api_tests;
 
+mod sanitizer_golden_tests;
 mod search_service_tests;
 mod self_silencing_config_tests;
 mod server_notification_api_tests;

@@ -79,7 +79,12 @@ url = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 
 validator = { version = "0.20.0", features = ["derive"] }
-ammonia = "4.1"
+# 4.2.3 是安全下限，不是偏好：4.1.4 命中 RUSTSEC-2021-0157（CSS `url("")` 注入）与
+# RUSTSEC-2021-0158（SVG animateMotion/animateTransform/animateColor XSS），
+# 两者都只在 >=4.1.7,<4.2.0 或 >=4.2.3 修好。声明最低版本可防止 `-Z minimal-versions`
+# 或一次 lock 重建把依赖悄悄降回脆弱版本。行为由
+# `tests/unit/sanitizer_golden_tests.rs` 的 golden 钉住。
+ammonia = "4.2.3"
 
 hex = "0.4.3"
 dns-lookup = "3.0.1"

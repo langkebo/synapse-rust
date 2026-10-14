@@ -631,6 +631,7 @@ pkcs
 plaintext
 pluggable
 png
+poc
 pooltimedout
 pos
 posix
@@ -860,6 +861,7 @@ substring
 summarised
 suppressions
 svc
+svg
 swimlane
 symdiff
 synccontext
