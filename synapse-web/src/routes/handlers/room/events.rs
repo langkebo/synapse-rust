@@ -29,7 +29,10 @@ pub(crate) async fn get_single_event(
 
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let event = ctx.room_service.messaging().get_event(&room_id, &event_id).await?;
+    // `get_event_for_client` (not `get_event`): an event from before the caller was
+    // involved in the room must not be readable, and must 404 rather than 403 so
+    // the endpoint cannot be used to probe a room's timeline.
+    let event = ctx.room_service.messaging().get_event_for_client(&room_id, &auth_user.user_id, &event_id).await?;
 
     Ok(Json(event))
 }

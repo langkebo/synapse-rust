@@ -305,6 +305,32 @@ pub trait EventReader: Send + Sync {
         room_id: &str,
         txn_id: &str,
     ) -> Result<Option<String>, sqlx::Error>;
+
+    /// The earliest `stream_ordering` at which `user_id` first became entitled to
+    /// read `room_id`'s history, or `None` if they never were.
+    ///
+    /// This is the **history-visibility boundary** (`m.room.history_visibility`):
+    /// under `joined`, a user may see events from the moment they joined; under
+    /// `invited`, from the moment they were invited. Everything strictly before
+    /// that point is "history from before they were involved" and must not be
+    /// served. Callers translate the two regimes with `include_invites`:
+    ///
+    /// * `false` — `join` events only (`m.room.history_visibility: joined`);
+    /// * `true`  — `invite` **or** `join` (`... : invited`).
+    ///
+    /// `MIN` over the user's `m.room.member` events is deliberately the *first*
+    /// such membership, not the latest: a user who joined, left and rejoined
+    /// retains their original entitlement (upstream `_check_membership` takes the
+    /// "most joined" of the previous and current membership for the same reason).
+    ///
+    /// Returns `None` for a user who was never invited nor joined — callers must
+    /// treat that as "sees nothing", not as "sees everything".
+    async fn get_membership_boundary_stream_ordering(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        include_invites: bool,
+    ) -> Result<Option<i64>, sqlx::Error>;
 }
 
 // ── EventReader delegation impl for Postgres EventStorage ───────────────
@@ -614,5 +640,14 @@ impl crate::event::reader::EventReader for super::EventStorage {
 
     async fn get_forward_extremities_in_room(&self, room_id: &str, limit: i64) -> Result<Vec<String>, sqlx::Error> {
         self.get_forward_extremities_in_room(room_id, limit).await
+    }
+
+    async fn get_membership_boundary_stream_ordering(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        include_invites: bool,
+    ) -> Result<Option<i64>, sqlx::Error> {
+        self.get_membership_boundary_stream_ordering(room_id, user_id, include_invites).await
     }
 }

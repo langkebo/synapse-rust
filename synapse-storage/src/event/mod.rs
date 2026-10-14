@@ -12,6 +12,8 @@ pub(crate) mod dag;
 pub(crate) mod depth;
 /// The `ephemeral` module.
 pub(crate) mod ephemeral;
+/// The `history_boundary` module.
+pub(crate) mod history_boundary;
 /// The `models` module.
 pub(crate) mod models;
 /// The `pagination` module.

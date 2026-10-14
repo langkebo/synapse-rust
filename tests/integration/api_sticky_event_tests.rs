@@ -40,7 +40,7 @@ mod sticky_event_integration_suite {
         ensure_room_and_user(&pool, room_id, user_id).await;
 
         storage
-            .set_is_sticky_event(room_id, user_id, event_id, event_type, true)
+            .set_is_sticky_event(room_id, user_id, event_id, event_type, true, None)
             .await
             .expect("Failed to set sticky event");
 
@@ -79,17 +79,17 @@ mod sticky_event_integration_suite {
         ensure_room_and_user(&pool, room_id, user_id).await;
 
         storage
-            .set_is_sticky_event(room_id, user_id, "$event1:localhost", "m.room.message", true)
+            .set_is_sticky_event(room_id, user_id, "$event1:localhost", "m.room.message", true, None)
             .await
             .expect("Failed to set sticky event 1");
 
         storage
-            .set_is_sticky_event(room_id, user_id, "$event2:localhost", "m.room.topic", true)
+            .set_is_sticky_event(room_id, user_id, "$event2:localhost", "m.room.topic", true, None)
             .await
             .expect("Failed to set sticky event 2");
 
         storage
-            .set_is_sticky_event(room_id, user_id, "$event3:localhost", "m.room.avatar", true)
+            .set_is_sticky_event(room_id, user_id, "$event3:localhost", "m.room.avatar", true, None)
             .await
             .expect("Failed to set sticky event 3");
 
@@ -114,12 +114,12 @@ mod sticky_event_integration_suite {
         ensure_room_and_user(&pool, "!room2:localhost", user_id).await;
 
         storage
-            .set_is_sticky_event("!room1:localhost", user_id, "$event1:localhost", "m.room.message", true)
+            .set_is_sticky_event("!room1:localhost", user_id, "$event1:localhost", "m.room.message", true, None)
             .await
             .expect("Failed to set sticky event");
 
         storage
-            .set_is_sticky_event("!room2:localhost", user_id, "$event2:localhost", "m.room.message", true)
+            .set_is_sticky_event("!room2:localhost", user_id, "$event2:localhost", "m.room.message", true, None)
             .await
             .expect("Failed to set sticky event");
 
@@ -142,12 +142,12 @@ mod sticky_event_integration_suite {
         ensure_room_and_user(&pool, room_id, user_id).await;
 
         storage
-            .set_is_sticky_event(room_id, user_id, "$event1:localhost", event_type, true)
+            .set_is_sticky_event(room_id, user_id, "$event1:localhost", event_type, true, None)
             .await
             .expect("Failed to set initial sticky event");
 
         storage
-            .set_is_sticky_event(room_id, user_id, "$event2:localhost", event_type, true)
+            .set_is_sticky_event(room_id, user_id, "$event2:localhost", event_type, true, None)
             .await
             .expect("Failed to update sticky event");
 
@@ -166,6 +166,8 @@ mod sticky_event_integration_suite {
             event_id: "$event:localhost".to_string(),
             event_type: "m.room.message".to_string(),
             is_sticky: true,
+            sticky_duration_ms: None,
+            expires_at: None,
             created_ts: 1700000000000i64,
             updated_ts: 1700000000000i64,
         };

@@ -24,8 +24,8 @@ app_service.rs:665
 app_service.rs:684
 
 # Sticky event routes (storage mutation ACK)
-sticky_event.rs:157
-sticky_event.rs:175
+sticky_event.rs:158
+sticky_event.rs:176
 
 # Room tag routes (state mutation ACK)
 tags.rs:105

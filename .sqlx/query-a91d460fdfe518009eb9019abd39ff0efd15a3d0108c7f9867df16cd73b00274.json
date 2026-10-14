@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT MIN(stream_ordering) AS \"boundary?\"\n            FROM events\n            WHERE room_id = $1\n              AND event_type = 'm.room.member'\n              AND state_key = $2\n              AND content->>'membership' = ANY($3)\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "boundary?",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a91d460fdfe518009eb9019abd39ff0efd15a3d0108c7f9867df16cd73b00274"
+}

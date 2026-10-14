@@ -714,6 +714,33 @@ impl MessagingService {
 
     /// See [`get_event`].
     pub async fn get_event(&self, room_id: &str, event_id: &str) -> ApiResult<serde_json::Value> {
+        let event = self.fetch_room_event(room_id, event_id).await?;
+        Ok(Self::event_to_client_json(&event))
+    }
+
+    /// Client-facing read of a single event that honours
+    /// `m.room.history_visibility`.
+    ///
+    /// An event from before the caller was involved in the room is reported as
+    /// **not found**, not forbidden: otherwise `GET /event/{eventId}` becomes an
+    /// oracle for "this event exists but you may not see it", and lets anyone
+    /// probe a room's timeline by event id.
+    pub async fn get_event_for_client(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_id: &str,
+    ) -> ApiResult<serde_json::Value> {
+        let event = self.fetch_room_event(room_id, event_id).await?;
+        let cut = self.history_cut(room_id, user_id).await?;
+        if !cut.allows(event.stream_ordering) {
+            return Err(ApiError::not_found("Event not found".to_string()));
+        }
+        Ok(Self::event_to_client_json(&event))
+    }
+
+    /// Load one event and check it really belongs to `room_id`.
+    async fn fetch_room_event(&self, room_id: &str, event_id: &str) -> ApiResult<synapse_storage::RoomEvent> {
         let event = self
             .event_reader
             .get_event(event_id)
@@ -725,7 +752,16 @@ impl MessagingService {
             return Err(ApiError::not_found("Event not found in this room".to_string()));
         }
 
-        Ok(json!({
+        Ok(event)
+    }
+
+    /// The client-server JSON shape of a single event.
+    ///
+    /// Shared by [`Self::get_event`] and [`Self::get_event_for_client`] so the two
+    /// cannot drift apart — the only difference between them is the visibility
+    /// check, never the payload.
+    fn event_to_client_json(event: &synapse_storage::RoomEvent) -> serde_json::Value {
+        json!({
             "event_id": event.event_id,
             "sender": event.user_id,
             "type": event.event_type,
@@ -733,7 +769,7 @@ impl MessagingService {
             "room_id": event.room_id,
             "origin_server_ts": event.origin_server_ts,
             "state_key": event.state_key,
-        }))
+        })
     }
 
     /// See [`get_pending_events`].

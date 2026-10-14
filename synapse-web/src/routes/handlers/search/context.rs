@@ -25,7 +25,11 @@ pub(crate) async fn get_event_context(
 
     ensure_room_member_strict_ctx(&ctx, &auth_user, &room_id, "Not a member of this room").await?;
 
-    let target_event = ctx.room_service.messaging().get_event(&room_id, &event_id).await?;
+    // `get_event_for_client`: under `invited`/`joined`, a target event from before
+    // the caller was involved in the room is reported as not found, so `/context`
+    // cannot be used to read pre-join history by event id.
+    let target_event =
+        ctx.room_service.messaging().get_event_for_client(&room_id, &auth_user.user_id, &event_id).await?;
 
     let target_ts = target_event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0);
 

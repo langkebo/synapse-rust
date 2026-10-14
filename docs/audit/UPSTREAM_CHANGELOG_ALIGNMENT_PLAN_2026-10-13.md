@@ -89,7 +89,7 @@ curl -sSL "https://raw.githubusercontent.com/element-hq/synapse/develop/changelo
 | 20081                         | 已专项验证（`state_events_since_batch_keeps_the_last_local_users_leave`）                                                                                          | **本仓不受影响** | ✅ 批次 A     |
 | 20220                         | 默认规则仍含 **3 条 legacy** 提及规则（`synapse-common/src/push_rules.rs`）                                                                                              | **差距**     | ✅ 批次 B（B1） |
 | 20298                         | 只声明不稳定别名 `io.element.msc4452.preview_url`，缺稳定名（`synapse-services/src/capability_governance.rs`）                                                             | **差距**     | ✅ 批次 B（B2） |
-| 20295 / 20322 / 20323 / 20324 | 有 MSC4354 实现（`synapse-web/src/routes/room.rs:82-95,169`）。逐条判定：**20323 已修复**（撤回即失效，§10.1）；**20295 N/A**（本仓 sticky 不注入 timeline，且本仓根本没有历史可见性过滤，§10.2）；**20322 无对应形态**（无"持久化批次"概念）；**20324 已实现**（sticky expiry，上报值＝追踪值，§11.5） | **已收口** | 批次 C + §11.5 |
+| 20295 / 20322 / 20323 / 20324 | 有 MSC4354 实现（`synapse-web/src/routes/room.rs:82-95,169`）。逐条判定：**20323 已修复**（撤回即失效，§10.1）；**20295 N/A**（本仓 sticky 不注入 timeline，且本仓根本没有历史可见性过滤 —— 该缺口已于 §11.6 部分收口，§10.2）；**20322 无对应形态**（无"持久化批次"概念）；**20324 已实现**（sticky expiry，上报值＝追踪值，§11.5） | **已收口** | 批次 C + §11.5 |
 | 19354 / 19495 | 发送端 `delay` **查询参数**已修（`handlers/room/mod.rs`，§10 的 C2）；管理端点 `GET/POST .../delayed_events/{delay_id}`（`routes/delayed_events.rs:98`）+ storage + 联邦 EDU。19495 的隐式取消**结构性不存在**：唯一取消入口是显式 `action: cancel`，且按 `id` 单键 | **部分对齐** | 见 §11.3 —— **19354 的专用调度端点未实现** |
 | 20273 | `url` 已改 `Option<String>`，`None` 时**跳过**事件/临时数据排队（§9 的 B3） | **已实现** | ✅ 批次 B（B3） |
 | 20243 | `ServerConfig.request_token_inhibit_3pid_errors`（默认 `true`）已落地；实测另有**真正的**枚举通道 —— `/submitToken` 的会话存在性预言机，已一并关闭（§9 的 B4 / B4.7） | **已实现** | ✅ 批次 B（B4 / B4.7） |
@@ -850,7 +850,7 @@ git grep -n 'CHANGELOG' -- .github/workflows scripts tests/unit
 
 3. **20294：统一 `Clock` 抽象**（可选项）。测试替身已注入时钟（`test_mocks/rendezvous.rs:42` 的 `clock: Arc<Mutex<i64>>`，读到即自增），生产侧没有统一抽象。若将来要断言 `routes/rendezvous.rs` 生成的 `message_id` / `sent_ts` 的确定性，才需要引入；否则纯属重构。
 
-4. **历史可见性强制执行** —— **由 §10.2 的 20295 判定顺带发现，比 20295 大得多**：`m.room.history_visibility` 被存储、被回显、被当作鉴权事件保护，但**从未在任何读端点上强制执行** ⇒ `GET /rooms/{roomId}/messages`、`/context/{eventId}`、`/event/{eventId}`、`/sync` 对"加入前历史"不做任何裁剪。需要先定义"谁在什么时刻能看到"（成员事件的 stream ordering 与事件的 stream ordering 的比较规则），再逐端点接入。
+4. ~~**历史可见性强制执行**~~ —— **2026-10-14 第三轮已部分实施（3 条读路径）**，见 §11.6。`/sync`、`/relations`、`/search`、`/notifications` **仍未接入**（理由与待办清单见该节）—— 这一条仍是本方案**剩余的最大缺口**。
 
 ### 11.4 与本方案无关、但复核中确认的两条环境事实
 
@@ -913,3 +913,66 @@ cargo nextest run --test unit --features test-utils --locked \
 - 跨服务端到期时刻由各自时钟推算（偏差上界即 1h 时长上限），未做绝对时刻同步。
 
 **顺带修复（既有红，非本批引入）**：`scripts/shell_routes_allowlist.txt` 里 `app_service.rs` 的 3 条登记行号（636/655/674）与 `synapse-web/src/routes/app_service.rs` 实测位置（646/665/684）**在 HEAD 上就已漂移 10 行**，导致 `placeholder_scan_tests::test_empty_json_successes_are_allowlisted` 在 HEAD 上本来就红（判据：`git diff --stat HEAD -- synapse-web/src/routes/app_service.rs` 为空，且该 allowlist 未被任何提交更新）。本批一并改正；同一 guard 里 `sticky_event.rs` 的两条因本次改动而位移（134/152 → 157/175）也已同步。
+
+---
+
+### 11.6 第三轮（2026-10-14）：`m.room.history_visibility` 强制执行（部分读路径）
+
+**原判定**（§11.3 第 4 条，由 §10.2 的 20295 判定顺带发现）：该值被存储、被回显、被当作鉴权事件保护，但**从未在任何读端点上强制执行** —— 任何当前成员都能翻到房间创建以来的全部历史，包括自己加入之前的一切。
+
+**本轮落地**：新增 `synapse-services/src/room/messaging/history_visibility.rs`，把该值收敛为**一个**可测的判定。
+
+| 值 | 谁可读 | 边界 |
+| --- | --- | --- |
+| `world_readable` | 任何人 | 不裁剪 |
+| `shared` | 成员 | 不裁剪 |
+| `invited` | 自被邀请起 | 首个 `invite`/`join` 成员事件的 `stream_ordering` |
+| `joined` | 自加入起 | 首个 `join` 成员事件的 `stream_ordering` |
+
+- **规则来源**：上游 `synapse/visibility.py::_check_membership`（本轮实测拉取原文核对）。上游按"**事件发生那一刻**的成员身份"判定；本仓没有为每个事件保留 state group，故把同一判定表达为**一条 stream-ordering 边界**（房间可见性值不变时二者等价）。
+- **策略真源**：读**当前 `m.room.history_visibility` state event**，不读 `rooms.history_visibility` 投影 —— 投影只在建房与 summary 更新时写，客户端事后改可见性（power level 100 的普通状态事件）会被旧值误判。
+- **边界查询**：新增 `EventReader::get_membership_boundary_stream_ordering`（实现落 `synapse-storage/src/event/state.rs`），对 `m.room.member` 取 `MIN(stream_ordering)`。`None`（从未被邀请/加入）⇒ **什么都看不到**，不是"全都能看"。
+- **已接入的读路径**：
+  1. `GET /rooms/{roomId}/messages`（`MessagingService::get_room_messages`）—— 只过滤**返回页**，分页游标仍取自未过滤页，避免客户端在"加入前历史"上原地打转；
+  2. `GET /rooms/{roomId}/event/{eventId}`（新增 `MessagingService::get_event_for_client`）—— 边界外的事件返回 **404** 而非 403，否则该端点会变成"这个事件存在但你无权看"的预言机；
+  3. `GET /rooms/{roomId}/context/{eventId}` —— 目标事件走同一个 `get_event_for_client`。
+
+**仍未接入（本轮有意不做，附理由）**：
+
+| 端点 | 为什么本轮不做 |
+| --- | --- |
+| `/sync`（含 sliding sync）时间线 | 过滤点落在 `SyncService::build_sync_response` 读 `room_events` 之处，但同一处输入还决定 `rooms_to_include` 与 `apply_timeline_limit` 两个判定；改动会改变"房间是否出现在 sync 里"的语义，需要单独一轮 sync 行为验证 |
+| `/relations`、`/search`、`/notifications` | 各有独立的事件装配点；`/search` 的 `search_joined_room_events` 还需把 `stream_ordering` 带出到结果结构体 |
+
+⇒ **典型症状仍在**：`joined` 房间里新加入的成员在**首次 `/sync`** 时仍可能收到加入前的时间线。这一条必须由后续批次关闭，上表即其待办清单。
+
+**有意保留的简化**（已写进模块文档）：
+
+- 可见性值中途变化时按**当前值**回溯整条时间线（上游按每个事件当时的值）。方向是**更严**，不会更松。
+- 曾"加入 → 离开 → 再加入"的用户保留最初一次的权限（上游对自身成员事件取"更 joined"的一侧，理由相同）。
+- 未知/损坏的值回落到 `shared`（＝**fail-open**），与上游 `get_effective_room_visibility_from_state` 一致：该值来自受鉴权保护的状态事件，"读不出来"意味着"没有记录策略"，而不是"隐藏一切"。
+
+**验证（实跑）**：
+
+```bash
+export DATABASE_URL=postgresql://synapse:synapse@localhost:5432/synapse_test
+export TEST_DATABASE_URL=$DATABASE_URL TEST_DB_TEMPLATE_SCHEMA=test_template_ci REDIS_URL=redis://localhost:6379
+cargo nextest run --test integration --all-features --locked -E 'test(history_visibility)'
+```
+
+`tests/integration/api_history_visibility_tests.rs` 共 3 条真实路由测试：`joined` 隐藏加入前消息**且保留**加入后消息、创建者仍看得见全部（证明边界是**按调用者**的）、切回 `shared` 恢复历史；`invited` 下"从未被邀请者"仍受自己的 join 边界约束；单事件读对被隐藏事件返回 404。
+
+**变异自证（红 → 还原 → 绿，两条）**：
+
+| 变异 | 期望 | 实测 |
+| --- | --- | --- |
+| `/messages` 的过滤谓词恒真 | `joined_visibility_…` 转红 | ✅ 红：`joined` visibility must hide history from before the caller joined |
+| `get_event_for_client` 的边界检查恒假 | `single_event_read_…` 转红 | ✅ 红（同批 3 条全红） |
+
+两条均从备份 `cp` 还原、`sha256sum` 比对一致、`grep -rn MUTATION synapse-services/src` 为 0。
+
+**⚠️ 本批顺带修正的真实缺口**：`tests/integration` 目标带
+`required-features = ["test-utils", "privacy-ext", "voice-extended", "voip-tracking", "beacons", "server-notifications"]`
+⇒ **`cargo clippy --features test-utils` 编译不到这个目标**（Cargo 直接跳过），只有 `--all-features` 才编译。
+20324 批次因此漏改了 `tests/integration/api_sticky_event_tests.rs`（5 参调用 + 旧结构体字面量），
+本批一并修复。**教训**：本仓的"工作区 clippy"必须带 `--all-features`，否则整个 integration 目标被静默跳过。

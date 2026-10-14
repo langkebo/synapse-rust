@@ -1,0 +1,230 @@
+//! `m.room.history_visibility` enforcement on the client read paths.
+//!
+//! Before this guard existed the value was stored, echoed in room summaries and
+//! protected as an auth event, but **no read path consulted it**: a member could
+//! page back through the room's entire history, including everything that
+//! happened before they were ever invited or joined.
+//!
+//! These tests drive the real router, so they fail if the wiring is removed from
+//! the handlers as well as if the policy itself is wrong.
+
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
+};
+use serde_json::{json, Value};
+use tower::ServiceExt;
+
+async fn create_public_room(app: &axum::Router, token: &str) -> String {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/createRoom")
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({ "name": "History Visibility Room", "preset": "public_chat", "visibility": "public" }).to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "createRoom must succeed");
+
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    json["room_id"].as_str().expect("createRoom must return a room_id").to_string()
+}
+
+async fn send_message(app: &axum::Router, token: &str, room_id: &str, txn_id: &str, text: &str) -> String {
+    let request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/send/m.room.message/{txn_id}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "msgtype": "m.text", "body": text }).to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "send must succeed");
+
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    json["event_id"].as_str().expect("send must return an event_id").to_string()
+}
+
+async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/join"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({}).to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "join must succeed");
+}
+
+async fn set_history_visibility(app: &axum::Router, token: &str, room_id: &str, value: &str) -> StatusCode {
+    let request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/state/m.room.history_visibility"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "history_visibility": value }).to_string()))
+        .unwrap();
+
+    ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap().status()
+}
+
+/// The `event_id`s in a `/messages` chunk, in server order.
+async fn messages_event_ids(app: &axum::Router, token: &str, room_id: &str) -> Vec<String> {
+    let request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/messages?dir=b&limit=100"))
+        .header("Authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "/messages must succeed");
+
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    json["chunk"]
+        .as_array()
+        .expect("/messages must return a chunk array")
+        .iter()
+        .filter_map(|event| event["event_id"].as_str().map(ToOwned::to_owned))
+        .collect()
+}
+
+async fn single_event_status(app: &axum::Router, token: &str, room_id: &str, event_id: &str) -> StatusCode {
+    let request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/event/{event_id}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+
+    ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap().status()
+}
+
+/// The core leak, at the endpoint clients actually page with.
+#[tokio::test]
+async fn joined_visibility_hides_history_from_before_the_caller_joined() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let alice = super::create_test_user(&app).await;
+    let room_id = create_public_room(&app, &alice).await;
+
+    // Sent before Bob is in the room.
+    let before_bob = send_message(&app, &alice, &room_id, "before", "before-bob").await;
+
+    let bob = super::create_test_user(&app).await;
+    join_room(&app, &bob, &room_id).await;
+
+    // Sent after Bob joined.
+    let after_bob = send_message(&app, &alice, &room_id, "after", "after-bob").await;
+
+    // Precondition: under the room's default (`shared`, set at creation) both
+    // messages are visible to Bob — otherwise the assertion below is vacuous,
+    // because hiding them would prove nothing about the policy.
+    let shared_ids = messages_event_ids(&app, &bob, &room_id).await;
+    assert!(
+        shared_ids.contains(&before_bob),
+        "precondition: `shared` must expose pre-join history, chunk={shared_ids:?}"
+    );
+    assert!(shared_ids.contains(&after_bob), "precondition: the post-join message must be visible");
+
+    // Now make it restrictive.
+    assert_eq!(
+        set_history_visibility(&app, &alice, &room_id, "joined").await,
+        StatusCode::OK,
+        "the creator must be able to set m.room.history_visibility"
+    );
+
+    let joined_ids = messages_event_ids(&app, &bob, &room_id).await;
+    assert!(
+        joined_ids.contains(&after_bob),
+        "a message sent after the caller joined must stay visible: chunk={joined_ids:?}"
+    );
+    assert!(
+        !joined_ids.contains(&before_bob),
+        "`joined` visibility must hide history from before the caller joined: chunk={joined_ids:?}"
+    );
+
+    // Control 1: the creator, who was in the room from the start, keeps seeing
+    // everything — this must be a *per-caller* boundary, not a blanket wipe.
+    let alice_ids = messages_event_ids(&app, &alice, &room_id).await;
+    assert!(
+        alice_ids.contains(&before_bob) && alice_ids.contains(&after_bob),
+        "the creator joined before both messages and must see both: chunk={alice_ids:?}"
+    );
+
+    // Control 2: going back to `shared` restores the earlier history, proving the
+    // earlier assertion came from the policy and not from the message vanishing.
+    assert_eq!(set_history_visibility(&app, &alice, &room_id, "shared").await, StatusCode::OK);
+    let restored = messages_event_ids(&app, &bob, &room_id).await;
+    assert!(restored.contains(&before_bob), "`shared` must restore pre-join history: chunk={restored:?}");
+}
+
+/// `invited` is one step looser than `joined`: being invited is enough.
+#[tokio::test]
+async fn invited_visibility_exposes_history_from_the_invite() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let alice = super::create_test_user(&app).await;
+    let room_id = create_public_room(&app, &alice).await;
+
+    let before_join = send_message(&app, &alice, &room_id, "t1", "before-join").await;
+    let bob = super::create_test_user(&app).await;
+    join_room(&app, &bob, &room_id).await;
+    let after_join = send_message(&app, &alice, &room_id, "t2", "after-join").await;
+
+    assert_eq!(set_history_visibility(&app, &alice, &room_id, "invited").await, StatusCode::OK);
+
+    // Bob was never invited (he joined a public room directly), so his boundary is
+    // his *join*: `invited` must behave like `joined` for him.
+    let ids = messages_event_ids(&app, &bob, &room_id).await;
+    assert!(ids.contains(&after_join), "post-join message must be visible: chunk={ids:?}");
+    assert!(
+        !ids.contains(&before_join),
+        "a caller who was never invited is still bounded by their join: chunk={ids:?}"
+    );
+}
+
+/// `GET /event/{eventId}` must not become an oracle for hidden events.
+#[tokio::test]
+async fn single_event_read_hides_a_pre_join_event_before_its_id() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let alice = super::create_test_user(&app).await;
+    let room_id = create_public_room(&app, &alice).await;
+
+    let before_bob = send_message(&app, &alice, &room_id, "t1", "before-bob").await;
+    let bob = super::create_test_user(&app).await;
+    join_room(&app, &bob, &room_id).await;
+    let after_bob = send_message(&app, &alice, &room_id, "t2", "after-bob").await;
+
+    assert_eq!(set_history_visibility(&app, &alice, &room_id, "joined").await, StatusCode::OK);
+
+    assert_eq!(
+        single_event_status(&app, &bob, &room_id, &before_bob).await,
+        StatusCode::NOT_FOUND,
+        "a pre-join event must be reported as missing, not served"
+    );
+    assert_eq!(
+        single_event_status(&app, &bob, &room_id, &after_bob).await,
+        StatusCode::OK,
+        "a post-join event must still be readable"
+    );
+    // Control: the creator may still fetch the earlier event by id.
+    assert_eq!(
+        single_event_status(&app, &alice, &room_id, &before_bob).await,
+        StatusCode::OK,
+        "the creator must keep access to events from before Bob joined"
+    );
+}

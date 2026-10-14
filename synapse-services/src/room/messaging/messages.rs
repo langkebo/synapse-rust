@@ -599,8 +599,16 @@ impl MessagingService {
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get messages", e))?;
 
+        // `m.room.history_visibility`: hide whatever happened before the caller was
+        // involved in the room. The cut is applied to the **returned page only** —
+        // the pagination cursor below is derived from the unfiltered page, so a
+        // client paging back through pre-join history still advances instead of
+        // looping forever on an empty chunk.
+        let cut = self.history_cut(room_id, user_id).await?;
+
         let event_list: Vec<serde_json::Value> = events
             .iter()
+            .filter(|e| cut.allows(e.stream_ordering))
             .map(|e| {
                 json!({
                     "type": e.event_type,

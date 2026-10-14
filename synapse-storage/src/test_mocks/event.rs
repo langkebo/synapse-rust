@@ -1029,6 +1029,33 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
         // In-memory mock returns empty extremities
         Ok(vec![])
     }
+
+    async fn get_membership_boundary_stream_ordering(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        include_invites: bool,
+    ) -> Result<Option<i64>, sqlx::Error> {
+        // Mirrors the SQL: the earliest `m.room.member` event for `user_id` whose
+        // `content.membership` is one of the allowed values. `None` when the mock
+        // holds no such event, which callers read as "never entitled".
+        let events = self.events.read().await;
+        let boundary = events
+            .values()
+            .filter(|event| {
+                event.room_id == room_id
+                    && event.event_type == "m.room.member"
+                    && event.state_key.as_deref() == Some(user_id)
+            })
+            .filter(|event| match event.content.get("membership").and_then(|v| v.as_str()) {
+                Some("join") => true,
+                Some("invite") => include_invites,
+                _ => false,
+            })
+            .filter_map(|event| event.stream_ordering)
+            .min();
+        Ok(boundary)
+    }
 }
 
 // ── EventWriter implementation for InMemoryEventStore ──────────────────

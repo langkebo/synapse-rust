@@ -4,6 +4,8 @@ pub mod burn_after_read;
 pub mod error;
 /// The `events` module.
 pub mod events;
+/// `m.room.history_visibility` enforcement for the client read paths.
+pub mod history_visibility;
 /// The `messages` module.
 pub mod messages;
 /// The `read_markers` module.
