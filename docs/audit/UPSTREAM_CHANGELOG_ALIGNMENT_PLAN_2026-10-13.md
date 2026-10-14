@@ -1265,6 +1265,8 @@ CI 在**本批改动之前**的 HEAD（`cc56d479e`，run 38509545932）已有 3 
 **那个极短窗口内**读取的文件。据此用该哨兵串（含 JSON 转义形态）在 `~/.workbuddy`、
 `~/Library/Application Support`、`~/Library/Caches` 全量搜索，**零命中** ⇒ 宿主不是这些目录里的明文文件。
 处置同前：`git checkout -- <file>` 从 HEAD 还原（10 章节 / 45 条标题在位）。
+**根因已在 §11.12 定位**：写入者是**宿主 app 进程**（Electron），内容是它自己 `modify_backup` 里那份
+带哨兵的快照 —— 所以"每次都回放同一版旧内容"这件事终于有了机制解释。
 
 ---
 
@@ -1480,3 +1482,120 @@ backfill 决策）；② 入站事件**不落远端 `signatures`/`hashes`** ⇒ 
     ⇒ 是 nextest 对 `build_service` 里共享 `CacheManager` 后台任务的**时序归属**，不是本轮引入
 - `cargo deny check advisories` → `advisories ok`；`cargo audit` → EXIT=0（1314 条 advisory，零命中）
 - 行数棘轮 → 仍 `257 over 500 (baseline 253)`，**未新增超限文件**（故不 `--update`）
+
+---
+
+### 11.12 E5 根因定位：写入者是**宿主 app 进程**（第 5 次之后）
+
+**结论**：覆盖本文件的是 **WorkBuddy 桌面 app 进程自己**（Electron，实测 PID **33790**），内容取自它保存在
+`~/.workbuddy/workspace/sessions/<sessionId>/modify_backup/` 里的**它自己的快照** —— 不是另一个 agent
+会话、不是仓库工具链、不是 `Edit` 的读缓存、不是 `git stash`（这四条上一轮已逐条否证）。
+
+**证据链**（每条可复现）：
+
+| # | 判据 | 实测 |
+| --- | --- | --- |
+| 1 | 谁持有该文件 | `lsof docs/audit/UPSTREAM_CHANGELOG_ALIGNMENT_PLAN_2026-10-13.md` → **`Electron 33790` 持有两个 `REG` 读 FD** |
+| 2 | app 的快照仓库 | `…/workspace/sessions/<sid>/modify_backup/`（**11247** 条），命名 `<seq>.<a 或 m>.<hash>.<basename>`；本文档有 **23** 条（序号 37…59）；索引在 `.modify_backup_meta/<hash>.<basename>`（文件内容就是绝对路径） |
+| 3 | **决定性** | 快照 `58.m.a0189dd3.UPSTREAM_CHANGELOG_ALIGNMENT_PLAN_2026-10-13.md`（mtime **19:53:17**、105805 B）= **8 个 `### 11.` 章节** ＋ `5 条读路径` ＋ **20 行补空表格分隔行** ＋ **含 `EXPERIMENT` 哨兵** ⇒ 与"被覆盖时观察到的形态"逐项吻合 |
+| 4 | 哨兵的排他性 | 该哨兵只在本会话某 **1~2 分钟**窗口内存在过（对照实验的产物），且 `git log --all -S` 显示它从未以标题形态进入任何提交 |
+| 5 | 时间窗 | 19:53:17 与 21:03:38 两次现场，本会话对该文件**零写入**（同期只在跑编译/测试） |
+
+**处置（仓库侧能做的四件事，全部已落地）**：
+
+1. **判据扩到"对照 HEAD"**：`check_plan_doc_sections.py` 除基线棘轮外，新增"`git show HEAD:<doc>` 的标题
+   必须仍在本文件里"。它**不依赖基线**，所以基线万一被误 `--update` 也拦得住，还能抓基线尚未收录的新章节。
+2. **标题层级从 `##`/`###` 扩到 `####`**：第 4 次吞掉的正是 `#### 11.7.1`（基线条目 45 → **85**）。
+3. **执行时机：从"文档进入改动集才跑"改为每次都跑，并追加到 `pre-push`**。原门控恰好绕开真实故障形态 ——
+   覆盖发生在你正在改**别的**文件的时候，于是下一次提交（改的不是这份文档）会 SKIP 掉守卫，损伤就一直躺在
+   工作区里。pre-push 的存在理由有两条：`--no-verify` 只要绕过一次 pre-commit 就永久生效；且**覆盖可以发生在
+   提交之后**（第 4 次就是提交后 12 分 25 秒）。
+4. **变异自证（用真实工件，不是构造的）**：把 app 快照 **#58 直接覆盖**到文档上 ⇒ 两条判据同时判红、逐条
+   指名 **19 条**缺失章节（含 §11.6 / §11.7 / §11.7.1 / §11.9 / §11.10 / §11.11.1–9）、EXIT=1；
+   `git checkout --` 还原后 **sha256 逐字节一致**，复跑绿。
+
+**仍未根除的部分**：写入者不在仓库内，仓库侧**无法阻止**它再次发生 —— 现在能保证的是"**不可能静默**"。
+用户侧可做的两件事：① 不要长期在 app 里打开/预览该文件（第 1 条指的就是它持有的句柄）；
+② 若要清掉那份陈旧缓冲，删 `…/modify_backup/58.m.a0189dd3.*` 即可（**app 的数据目录属非项目路径，
+未经确认我不代删**）。
+
+### 11.13 §11.7.1 与 §11.10 的残留收口
+
+#### 11.13.1 MSC4140：补齐上游另外 4 条端点（形态差异 → 逐条对齐）
+
+上游 `release-v1.161` 的 `synapse/rest/client/delayed_events.py` 注册 **6** 个 servlet；本仓此前只有 2 条
+（`GET`/`POST …/{delay_id}` 与专用调度端点）。本轮补齐：
+
+| 新端点 | 上游来源 | 实现要点 |
+| --- | --- | --- |
+| `POST …/delayed_events/{delay_id}/cancel` | `CancelDelayedEventServlet` | 与 `POST …/{delay_id}` + `{"action":"cancel"}` **共用同一个** `apply_action`（含 ownership fail-closed）—— 三条子路径不各写一份，否则"多开一扇门"就是权限悄悄溜走的地方 |
+| `POST …/delayed_events/{delay_id}/restart` | `RestartDelayedEventServlet` | 同上 |
+| `POST …/delayed_events/{delay_id}/send` | `SendDelayedEventServlet` | 同上 |
+| `GET …/delayed_events` | `DelayedEventsServlet` | `{"delayed_events":[…]}`，每条与单事件 GET **共用** `delayed_event_response()`；上游的 `from`/`limit` 分页**未实现**（上游自己也只有 `# TODO`） |
+
+存储层新增 `list_pending_delayed_events_for_user`，**用户过滤写在 SQL 里**而不是取回后再过滤：这里没有单个
+`delay_id` 可以校验归属，列表端点必须**无法**返回别人的行。
+
+按契约链 9 步重生成：注解两处 → 3 张派生表（**1034** 行）→ 两条 fixture lane → 2 份 ledger 快照
+（1009 → **1013**）→ `route-table.json`（949 → **953**）→ `ROUTE_CONTRACT.md`（1028 → **1032**；延迟事件族
+3 → **7** 条）→ 比较文档计数 → `DELAYED_EVENTS_WORKER_PATHS`（2 → **6** 条）。
+
+> 顺带修掉一处**既有瑕疵**：worker 守卫的反例里原本写着 `…/msc4140/delayed_events`（"同前缀但没有路由"）。
+> 该路径本轮成为**真路由** ⇒ 反例改为 `/_matrix/client/v3/delayed_events`（**错命名空间**，仍是真正的"非本族"）。
+
+#### 11.13.2 `?delay=` 传统路径也拒绝 `sticky_duration_ms`（501，与专用端点同门同理由）
+
+原残留说"`/send`、`/state` 的 query 参数路径**静默忽略** `sticky_duration_ms`"。实测把它说得更准一点：
+① 代码里**根本没有**这个 query 参数（只有 `org.matrix.msc4140.delay`），未知 query 参数被忽略本就是规范要求；
+② 但在 `/send` 上**请求体就是事件内容** ⇒ 该键会被**当成消息内容存下去**，而客户端以为自己做了
+"排期 + 置顶"。这与专用端点的 501 是同一个问题，所以现在**两扇门一致拒绝**（同样的 501、同样的理由），
+且只在**真的请求了 delay** 时触发 —— 普通 `/send` 完全不受影响。
+
+#### 11.13.3 §11.10(i) unread 现在要求**当前是成员**（含可达性实测）
+
+上游规则（已拉原文核对）：unread 来自 **push actions**，而
+`BulkPushRuleEvaluator.action_for_pushing_events` 只遍历 `get_local_users_in_room`
+（release-v1.161 `bulk_push_rule_evaluator.py:189`）⇒ **不在房间里的人没有推送动作，也就没有未读**。
+
+本仓是"读时算"的，没有这样的写入者，所以规则必须落在查询里。**可达性不是理论问题**：
+`GET /rooms/{roomId}/unread_count` 的门是 `ensure_room_view_access`（**可见性**，不是成员），
+于是 `world_readable` 房间里的**陌生人**能过这道门，而 `last_read_ts` 因为"非成员没有 read marker"保持 `0`
+⇒ 他会被告知**整个房间的非状态事件历史**就是他的未读数。
+
+修法：两条 unread 查询都加 `EXISTS (… room_memberships … membership IN ('join','invite'))`（保留 `invite`
+是为了被邀请者仍能看到邀请通知）。新增真库守卫 `test_unread_counts_require_current_membership`，三向断言：
+非成员 **0** → 加入后同一批事件计 **3** → 离开后回到 **0**（杜绝"恒返回 0"式的假绿）。既有 3 个 unread DB
+用例补了 `join` 种子 —— 有未读的人本来就该在房间里，缺种子是测试简化留下的失真。
+
+**变异自证**：把单房间查询的成员闸门换成 `TRUE` ⇒ 守卫转红，实测 `left: 3 / right: 0`
+（`非成员不得有未读（上游：不为其生成推送动作）`）；还原后 `sha256` 逐字节一致。
+
+#### 11.13.4 §11.10(ii) `/rooms/{roomId}/sync` 的 state 段：判据与**阻塞项**
+
+实测（`sync_service/response.rs`）：`state_list: Vec<Value>`，只过 sync filter
+（`apply_sync_filter_to_values`），**不过 `history_cut`**；`is_incremental` 为假时走
+`get_room_state_events_batch`（**当前全量状态**），为真时走增量。
+
+**形式与上游一致**（初始 sync 返回当前全量状态、增量 sync 返回 delta）—— 此前记的"方向更严"是把这两种
+情形混作了一句话。真正的差异只有一条：**state 段没有按可见性裁剪**（timeline 有）。
+
+要做"按事件时刻回溯 / 按可见性过滤 state"，需要 `event_to_state_groups` 的**逐事件**映射，而该表的生产
+写入者**尚未接线**（A3，见 §11.11.7 与 `state_record.rs:43` 自述 "today unused"）⇒ 本轮**登记为 A3 的依赖项，
+不硬做**：在没有映射的前提下"实现"它只能退回当前状态（假修）或伪造历史状态（更糟）。
+
+### 11.14 第六轮改动的验证（全部实跑）
+
+- `cargo check --workspace --all-targets --features test-utils --all-features --locked` → **EXIT=0**（在线模式复核）
+- `cargo clippy --workspace --all-targets --features test-utils --all-features -- -D warnings` → **EXIT=0**
+- `nextest --test unit`（delayed_event / worker 守卫 / 计数与可信度子集）→ **14 passed**（含修正后的反例）
+- `nextest --test integration --all-features -E 'test(delayed_event_schedule)'` → **10 passed**
+  （新增 3 条：子路径与 action 形态等价、子路径不绕过归属、列表只返回调用者自己的待发事件）
+- `nextest -p synapse-storage --lib -E 'test(unread)'` → **11 passed**（含新的成员闸门守卫）
+- `nextest --test integration -E 'test(api_route_ledger)'`（`UPDATE_ROUTE_LEDGER_SNAPSHOTS=1`）→ **15 passed**，
+  两份快照各 **+4 行**（`count: 1009 → 1013`）
+- `gen_derived_routes.py --check` → `table reproduces all 1034 rows`、**OK**
+- `check_route_contract.sh` 的两条对账：`route-table.json = ledger_export/default（953 条）`、
+  `权威计数 (sdk × all) = ROUTE_CONTRACT.md = 1032 条`、`所有 SDK 调用的端点都在 ledger 中`
+  （ROUTE_CONTRACT.md 与 HEAD 的漂移检查在**提交后**复核）
+- 章节棘轮（基线 **85** 条 + 对照 HEAD）→ 绿；真实工件变异（app 快照 #58）→ 红并指名 19 条
+- `.sqlx`：**1319 条**（2 删 3 增：两条 unread 改文本 + 新列表查询）；行数棘轮仍 `257 over 500`，**未新增超限文件**
