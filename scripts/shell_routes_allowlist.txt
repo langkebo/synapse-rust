@@ -19,13 +19,13 @@
 
 # AppService routes (spec-allowed / real ACK after successful namespace or
 # transaction handling)
-app_service.rs:636
-app_service.rs:655
-app_service.rs:674
+app_service.rs:646
+app_service.rs:665
+app_service.rs:684
 
 # Sticky event routes (storage mutation ACK)
-sticky_event.rs:134
-sticky_event.rs:152
+sticky_event.rs:157
+sticky_event.rs:175
 
 # Room tag routes (state mutation ACK)
 tags.rs:105

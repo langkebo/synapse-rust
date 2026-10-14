@@ -35,6 +35,31 @@ pub struct StickyEventQuery {
     pub event_type: Option<String>,
 }
 
+/// MSC4354's request field for a sticky duration, as spelled by the proposal
+/// (upstream `synapse/api/constants.py::StickyEvent.REQUEST_PARAM_NAME`).
+///
+/// Accepted alongside the shorter `sticky_duration_ms` so a client written
+/// against the MSC works without translation.
+pub const MSC4354_STICKY_DURATION_FIELD: &str = "org.matrix.msc4354.sticky_duration_ms";
+
+/// Extract a sticky duration from one entry of the `events` array.
+///
+/// Both `org.matrix.msc4354.sticky_duration_ms` (proposal spelling) and
+/// `sticky_duration_ms` (short form) are accepted; the proposal spelling wins if
+/// both are present so a client can never accidentally shadow its own value.
+/// A non-integer value is a client error rather than a silent "never expires".
+fn sticky_duration_from_event(event: &Value) -> Result<Option<i64>, ApiError> {
+    for key in [MSC4354_STICKY_DURATION_FIELD, "sticky_duration_ms"] {
+        if let Some(value) = event.get(key) {
+            return value
+                .as_i64()
+                .map(Some)
+                .ok_or_else(|| ApiError::invalid_param(format!("{key} must be an integer number of milliseconds")));
+        }
+    }
+    Ok(None)
+}
+
 /// Get sticky event metadata for a room
 /// GET /_matrix/client/v3/rooms/{room_id}/sticky_events
 pub async fn get_sticky_events(
@@ -46,6 +71,20 @@ pub async fn get_sticky_events(
     validate_room_id(&room_id)?;
     ensure_room_member_ctx(&ctx, &auth_user, &room_id, "Not a member of this room").await?;
 
+    /// Render one pin. `sticky_expiry_ts` is read straight from the tracked
+    /// column, so what a client is told is exactly what the server expires on
+    /// (upstream changelog 20324).
+    fn render(event: &synapse_services::room::StickyEvent) -> Value {
+        serde_json::json!({
+            "room_id": event.room_id,
+            "user_id": event.user_id,
+            "event_id": event.event_id,
+            "event_type": event.event_type,
+            "sticky_duration_ms": event.sticky_duration_ms,
+            "sticky_expiry_ts": event.expires_at,
+        })
+    }
+
     // If specific event_type is requested
     if let Some(event_type) = query.event_type {
         let sticky_event: Option<synapse_services::room::StickyEvent> = ctx
@@ -54,19 +93,11 @@ pub async fn get_sticky_events(
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get sticky event", e))?;
 
-        match sticky_event {
-            Some(event) => Ok(Json(serde_json::json!({
-                "events": [{
-                    "room_id": event.room_id,
-                    "user_id": event.user_id,
-                    "event_id": event.event_id,
-                    "event_type": event.event_type
-                }]
-            }))),
-            None => Ok(Json(serde_json::json!({
-                "events": []
-            }))),
-        }
+        let events = match sticky_event {
+            Some(event) => vec![render(&event)],
+            None => Vec::new(),
+        };
+        Ok(Json(serde_json::json!({ "events": events })))
     } else {
         // Get all sticky events
         let sticky_events: Vec<synapse_services::room::StickyEvent> = ctx
@@ -75,17 +106,7 @@ pub async fn get_sticky_events(
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get sticky events", e))?;
 
-        let events: Vec<Value> = sticky_events
-            .into_iter()
-            .map(|e| {
-                serde_json::json!({
-                    "room_id": e.room_id,
-                    "user_id": e.user_id,
-                    "event_id": e.event_id,
-                    "event_type": e.event_type
-                })
-            })
-            .collect();
+        let events: Vec<Value> = sticky_events.iter().map(render).collect();
 
         Ok(Json(serde_json::json!({
             "events": events
@@ -121,14 +142,17 @@ pub async fn set_sticky_events(
             .ok_or_else(|| ApiError::bad_request("Missing event_id".to_string()))?;
         validate_event_id(event_id_str)?;
 
+        let sticky_duration_ms = sticky_duration_from_event(event)?;
+
         let stored_event: serde_json::Value = ctx.room_service.messaging().get_event(&room_id, event_id_str).await?;
         let stored_event_id = stored_event.get("event_id").and_then(|v| v.as_str()).unwrap_or(event_id_str);
 
-        // Set the sticky event
+        // Set the sticky event. The service already classifies an out-of-range
+        // duration as a client error, so propagate rather than re-wrapping it into
+        // a 500.
         ctx.room_service
-            .set_is_sticky_event(&room_id, &auth_user.user_id, stored_event_id, event_type, true)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to set sticky event", e))?;
+            .set_is_sticky_event(&room_id, &auth_user.user_id, stored_event_id, event_type, true, sticky_duration_ms)
+            .await?;
     }
 
     Ok(empty_json())
@@ -258,5 +282,52 @@ mod tests {
                 event.get("event_type").and_then(|v: &serde_json::Value| v.as_str()).ok_or("Missing event_type");
             assert!(result.is_err());
         }
+    }
+
+    // --- MSC4354 sticky duration (upstream 20324) ---
+
+    #[test]
+    fn test_sticky_duration_absent_means_never_expires() {
+        assert_eq!(sticky_duration_from_event(&json!({"event_type": "m.room.message"})).unwrap(), None);
+    }
+
+    #[test]
+    fn test_sticky_duration_accepts_both_spellings() {
+        assert_eq!(sticky_duration_from_event(&json!({"sticky_duration_ms": 60000})).unwrap(), Some(60_000));
+        assert_eq!(sticky_duration_from_event(&json!({MSC4354_STICKY_DURATION_FIELD: 60000})).unwrap(), Some(60_000));
+    }
+
+    #[test]
+    fn test_sticky_duration_proposal_spelling_wins_when_both_present() {
+        let event = json!({
+            MSC4354_STICKY_DURATION_FIELD: 60_000,
+            "sticky_duration_ms": 1,
+        });
+        assert_eq!(
+            sticky_duration_from_event(&event).unwrap(),
+            Some(60_000),
+            "the proposal spelling must not be shadowed by the short form"
+        );
+    }
+
+    #[test]
+    fn test_sticky_duration_rejects_non_integer() {
+        // A non-integer must be an error, not a silent "never expires" — otherwise a
+        // typo'd duration produces a pin that outlives the request.
+        for bad in [json!("60000"), json!(1.5), json!(true), json!(null)] {
+            let event = json!({"sticky_duration_ms": bad});
+            assert!(
+                sticky_duration_from_event(&event).is_err(),
+                "expected a client error for {bad}, got {:?}",
+                sticky_duration_from_event(&event)
+            );
+        }
+    }
+
+    #[test]
+    fn test_sticky_duration_rejects_negative_at_the_boundary() {
+        // Range policy itself lives in storage; the route must merely *forward* it so
+        // the single source of truth (MAX_STICKY_DURATION_MS) is not duplicated here.
+        assert_eq!(sticky_duration_from_event(&json!({"sticky_duration_ms": -1})).unwrap(), Some(-1));
     }
 }

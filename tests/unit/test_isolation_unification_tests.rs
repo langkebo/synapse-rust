@@ -191,7 +191,7 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // baseline 内容再变（+803 字节，`bytes=218585`）⇒ 按 R10 第①条独立复算；
 // 先用**旧值**自检哈希实现（HEAD 的迁移字节 217782 ⇒ `0de025c8669e0c96` 逐字节吻合，
 // 证明哈希实现未变）后才取新值 `5076e5daa3c35b1d`。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "5076e5daa3c35b1d";
+const EXPECTED_BASELINE_FINGERPRINT: &str = "5654afa2ea622aff";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

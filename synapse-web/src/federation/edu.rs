@@ -909,10 +909,14 @@ async fn handle_delayed_event_edu(
 ///     "event_type": "m.room.message",
 ///     "event_id": "$event:server",
 ///     "is_sticky": true,
+///     "sticky_duration_ms": 60000,
 ///     "ts": 1234567890
 ///   }
 /// }
 /// ```
+///
+/// `sticky_duration_ms` is optional (`org.matrix.msc4354.sticky_duration_ms`,
+/// upstream 20324): `null`/absent means the pin never expires.
 ///
 /// On receipt, we persist the sticky event metadata locally so it appears
 /// in future `/sync` responses for local users in the room.
@@ -948,13 +952,17 @@ async fn handle_sticky_event_edu(
 
     let is_sticky = content.get("is_sticky").and_then(|v| v.as_bool()).unwrap_or(true);
     let event_id = content.get("event_id").and_then(|v| v.as_str()).map(|s| s.to_string()).unwrap_or_default();
+    // MSC4354 / upstream 20324: the peer's requested sticky duration (nullable).
+    // Absent ⇒ "never expires", i.e. exactly the pre-20324 wire behaviour, so an
+    // older peer that omits the field keeps working.
+    let sticky_duration_ms = content.get("sticky_duration_ms").and_then(|v| v.as_i64());
 
     // Persist the sticky event metadata from federation.
     // When is_sticky=true, store with the origin server as the user_id (federated sticky events
     // are server-level, not tied to a specific local user).
     // When is_sticky=false, clear the sticky event for that event_type.
     let result = if is_sticky {
-        ctx.room_service.set_is_sticky_event(&room_id, origin, &event_id, &event_type, true).await
+        ctx.room_service.set_is_sticky_event(&room_id, origin, &event_id, &event_type, true, sticky_duration_ms).await
     } else {
         ctx.room_service.clear_is_sticky_event(&room_id, origin, &event_type).await
     };

@@ -17,8 +17,9 @@
 | --- | --- | --- |
 | **已实现** | 20333 / 20334（版本宣告）、20220（MSC4210）、20298（MSC4452）、20273（appservice `url: null`）、20243（防枚举）、20323（撤回即失效） | §8 / §9 / §10 |
 | **已对齐，仅补测试或已有测试** | 20170（MSC4222 双拼写，`sync.rs:279` 已有测试）、20081（`state_events_since_batch_…`）、20143、20321 | §8 / §3.1 |
-| **结构性不适用（附本仓理由，非"没找到"）** | 20006、20202、20302、20312、20315、20328、20295、20322、20324 | §3.1 / §10.2 |
-| **未实施 —— 登记为待决策 / 独立特性** | 19354（专用调度端点）、20294（Clock 抽象）、20324（MSC4354 expiry 特性） | §11.3 |
+| **结构性不适用（附本仓理由，非"没找到"）** | 20006、20202、20302、20312、20315、20328、20295、20322 | §3.1 / §10.2 |
+| **本轮新补（2026-10-14 第三轮）** | 20324（MSC4354 sticky expiry —— 原判"特性缺口"，现已实现） | §11.5 |
+| **未实施 —— 登记为待决策 / 独立特性** | 19354（专用调度端点）、20294（Clock 抽象） | §11.3 |
 
 **当前宣告口径**：`/versions` 已宣告 `v1.1`…**`v1.17`**（唯一权威 =
 `synapse-services/src/capability_governance.rs` 的 `CLIENT_API_VERSION_SUPPORT`；
@@ -88,7 +89,7 @@ curl -sSL "https://raw.githubusercontent.com/element-hq/synapse/develop/changelo
 | 20081                         | 已专项验证（`state_events_since_batch_keeps_the_last_local_users_leave`）                                                                                          | **本仓不受影响** | ✅ 批次 A     |
 | 20220                         | 默认规则仍含 **3 条 legacy** 提及规则（`synapse-common/src/push_rules.rs`）                                                                                              | **差距**     | ✅ 批次 B（B1） |
 | 20298                         | 只声明不稳定别名 `io.element.msc4452.preview_url`，缺稳定名（`synapse-services/src/capability_governance.rs`）                                                             | **差距**     | ✅ 批次 B（B2） |
-| 20295 / 20322 / 20323 / 20324 | 有 MSC4354 实现（`synapse-web/src/routes/room.rs:82-95,169`）。逐条判定：**20323 已修复**（撤回即失效，§10.1）；**20295 N/A**（本仓 sticky 不注入 timeline，且本仓根本没有历史可见性过滤，§10.2）；**20322 / 20324 无对应形态**（无"持久化批次"概念、无 expiry 字段） | **已收口** | 批次 C（完成） |
+| 20295 / 20322 / 20323 / 20324 | 有 MSC4354 实现（`synapse-web/src/routes/room.rs:82-95,169`）。逐条判定：**20323 已修复**（撤回即失效，§10.1）；**20295 N/A**（本仓 sticky 不注入 timeline，且本仓根本没有历史可见性过滤，§10.2）；**20322 无对应形态**（无"持久化批次"概念）；**20324 已实现**（sticky expiry，上报值＝追踪值，§11.5） | **已收口** | 批次 C + §11.5 |
 | 19354 / 19495 | 发送端 `delay` **查询参数**已修（`handlers/room/mod.rs`，§10 的 C2）；管理端点 `GET/POST .../delayed_events/{delay_id}`（`routes/delayed_events.rs:98`）+ storage + 联邦 EDU。19495 的隐式取消**结构性不存在**：唯一取消入口是显式 `action: cancel`，且按 `id` 单键 | **部分对齐** | 见 §11.3 —— **19354 的专用调度端点未实现** |
 | 20273 | `url` 已改 `Option<String>`，`None` 时**跳过**事件/临时数据排队（§9 的 B3） | **已实现** | ✅ 批次 B（B3） |
 | 20243 | `ServerConfig.request_token_inhibit_3pid_errors`（默认 `true`）已落地；实测另有**真正的**枚举通道 —— `/submitToken` 的会话存在性预言机，已一并关闭（§9 的 B4 / B4.7） | **已实现** | ✅ 批次 B（B4 / B4.7） |
@@ -728,8 +729,7 @@ def _parse_request_for_delayed_event_delay(request, msc4140_enabled) -> Duration
 - **20322**（同一持久化批次内被 redact ⇒ 不应 sticky）：**无对应形态**。本仓没有"同一批次持久化"这一步，
   sticky 由独立的客户端调用设置，不存在"批次内先置顶、后撤回"的竞态。
 - **20323**（持久化**之后**被 redact ⇒ 移除 sticky）：**真实缺口，已修复** —— 见 §10.1。
-- **20324**（到期上报值与服务端追踪值不一致）：**无对应形态**。本仓没有 expiry 字段，也就没有"上报值"，
-  属 MSC4354 的 expiry **特性缺失**（特性缺口，不是 bug 修复）。
+- **20324**（到期上报值与服务端追踪值不一致）：**2026-10-14 第三轮已实现**。原判"无对应形态"是对"缺口"的正确描述，但本轮把该缺口补上了 —— 见 §11.5。
 - **20295**（历史可见性豁免覆盖全部 C-S 端点）：**结构性不适用（N/A）** —— 见 §10.2。
 
 #### 10.1 20323 —— 撤回即失效（已修复）
@@ -846,7 +846,7 @@ git grep -n 'CHANGELOG' -- .github/workflows scripts tests/unit
 
    **建议**：等 MSC4140 的 unstable 形态稳定后一次性做（上游自己仍在该 MSC 的 PR 之间调整），避免为一个仍在变动的路径付契约链重生成的全价。
 
-2. **20324：MSC4354 的 expiry 特性**（不是 bug）。本仓 sticky 无 `expires_at`/TTL 概念 ⇒ 属**特性缺口**；上游那一条修的是"上报值与服务端追踪值不一致"，在本仓无对应对象。是否引入 TTL 是产品决策。
+2. ~~**20324：MSC4354 的 expiry 特性**~~ —— **2026-10-14 第三轮已实施**，见 §11.5（不再是待决策项）。
 
 3. **20294：统一 `Clock` 抽象**（可选项）。测试替身已注入时钟（`test_mocks/rendezvous.rs:42` 的 `clock: Arc<Mutex<i64>>`，读到即自增），生产侧没有统一抽象。若将来要断言 `routes/rendezvous.rs` 生成的 `message_id` / `sent_ts` 的确定性，才需要引入；否则纯属重构。
 
@@ -856,3 +856,60 @@ git grep -n 'CHANGELOG' -- .github/workflows scripts tests/unit
 
 - `grep` 在本机被 toybox 替换：**BRE 扩展 `\|` / `\+` 会静默返回空**，看起来像"确实没有匹配"。本文件的所有检索结论都应视为"用 `Grep` 工具（ripgrep）或 `grep -E` 得到"；本轮就因此误判过一次（"tests 里没有延迟事件测试"）。
 - `docs/audit/UPSTREAM_CHANGELOG_ALIGNMENT_PLAN_2026-10-13.md` 会被一个 **markdown 表格格式化器**反复回写（表格补空格填充、行尾硬换行、注入连续空行触发 MD012，并曾整段吞掉新章节）。提交前应核对索引快照（`git show :<path>`），提交后核对 `git show HEAD:<path>` 的行数与章节标记。
+
+---
+
+### 11.5 第三轮（2026-10-14）：20324 MSC4354 sticky expiry 已实现
+
+**上游原文**（`changelog.d/20324.bugfix`，本轮实测拉取，非二手转述）：
+
+> Fix the expiry of MSC4354 Sticky Events being reported differently to how the server tracks them.
+
+**原判定回顾**（§10.2）：本仓 sticky 无 expiry 字段 ⇒ 判"无对应形态 / 特性缺口"。该描述正确，但缺口本身可以补 —— 本轮补上了。
+
+**落点**：
+
+| 项 | 位置 | 说明 |
+| --- | --- | --- |
+| schema | `migrations/00000000_unified_schema_v12.sql`（`room_sticky_events` 段 + 文件末尾幂等 ALTER） | 新增 `sticky_duration_ms` / `expires_at`；两列由 `ck_room_sticky_events_expiry_pair` 强制**成对**（避免"报了时长却永不失效"），另有 `ck_room_sticky_events_duration_positive` |
+| 解析 | `synapse-storage/src/sticky_event.rs` 的 `resolve_sticky_expiry` | 同一个 `now_ms` 同时决定 `created_ts` 与 `expires_at`；上限 `MAX_STICKY_DURATION_MS = 3_600_000`（＝上游 `StickyEvent.MAX_DURATION`）；用 `saturating_add` 防时钟接近 i64 上限时回绕成负数（那会让置顶**永不过期**） |
+| 读路径 | 同文件的 `get_is_sticky_event` / `get_all_is_sticky_events` / `get_rooms_with_is_sticky_events` | 统一谓词 `expires_at IS NULL OR expires_at > now`（严格大于 ⇒ 到达截止时刻即已失效） |
+| 回报 | `synapse-web/src/routes/sticky_event.rs` | `GET` 响应新增 `sticky_expiry_ts`（直接读 `expires_at` 同一列）与 `sticky_duration_ms`；`POST` 接受提案拼写 `org.matrix.msc4354.sticky_duration_ms` 与短名 `sticky_duration_ms`，提案拼写优先 |
+| 错误分类 | `synapse-storage` 的 `SetStickyEventError` + `synapse-services/src/room/service.rs` | 时长越界映射为 **400**（`invalid_param`），不再被上层包成 500 |
+| 联邦 | `synapse-services/src/room/service.rs`、`synapse-web/src/federation/edu.rs` | EDU 透传 `sticky_duration_ms`；旧对等端缺该字段 ⇒ 回落"永不过期"，与改动前线上行为一致 |
+
+**为什么"上报值＝追踪值"在本实现里是结构性的**：客户端拿到的 `sticky_expiry_ts` 就是读路径用于过滤的那一列 `expires_at`，两者**不存在**第二次计算，因此不可能像上游那样分叉。测试再钉一层 `expires_at == created_ts + sticky_duration_ms`，因为"哪一次时钟读取"仍是一个可写错的地方（下表变异 ② 就是这一类）。
+
+**验证（全部实跑，命令可复制）**：
+
+```bash
+export DATABASE_URL=postgresql://synapse:synapse@localhost:5432/synapse_test
+export TEST_DATABASE_URL=$DATABASE_URL
+
+cargo nextest run -p synapse-storage --lib --features test-utils --locked -E 'test(sticky)'   # 19 passed
+cargo nextest run -p synapse-web --lib --features test-utils --locked -E 'test(sticky)'       # 15 passed
+cargo nextest run --test unit --features test-utils --locked \
+  -E 'test(baseline_fingerprint_is_the_single_v12_source)'                                    # passed
+```
+
+基线指纹随 schema 变更同步更新：`5076e5daa3c35b1d` → **`5654afa2ea622aff`**（`tests/unit/test_isolation_unification_tests.rs` 的 `EXPECTED_BASELINE_FINGERPRINT`，用 FNV-1a64 独立复算过）。`.sqlx` 缓存经唯一入口 `scripts/ci/sqlx_prepare.sh` 重生成：**4 删 4 增**（正好是被改的 4 条查询，未缩容）。
+
+**变异自证（红 → 还原 → 绿，两条都做）**：
+
+| 变异 | 期望 | 实测 |
+| --- | --- | --- |
+| 把 `expires_at > $4` 改成恒真（`$4::bigint - $4::bigint + 1`） | `test_expired_pin_is_not_reported_on_any_read_path` 转红 | ✅ 红：`20324: an expired pin must not be reported` |
+| 让 `expires_at` 用**另一次**时钟读取计算（`now + 1`），模拟 20324 的漂移形态 | `test_reported_expiry_is_the_tracked_expiry` 转红 | ✅ 红：`left 1791952745118 / right 1791952745117`（差 1ms 被抓） |
+
+两条变异均从备份 `cp` 还原、`sha256sum` 比对一致、`grep -c MUTATION` 为 0。
+
+> ⚠️ 变异 ① 改变了 `query_as!` 的 SQL 文本 ⇒ `SQLX_OFFLINE=true` 下会报 "no cached data"。
+> 做法：变异期间改用在线模式 `SQLX_OFFLINE=false DATABASE_URL=<已迁移库>` 编译（本仓的
+> `synapse_sqlx_scratch`），跑完再还原。**不要**为变异去重生成 `.sqlx`。
+
+**残留差异（有意，非缺陷）**：
+
+- 上游把 duration 作为 `/send`、`/state` 的 **query 参数**传入；本仓的 sticky 是**服务端置顶表**模型，时长从 `POST /rooms/{room_id}/sticky_events` 的请求体读取。这是两种不同的 MSC4354 落地形态，本文件 §10.2 已登记过该形态差异。
+- 跨服务端到期时刻由各自时钟推算（偏差上界即 1h 时长上限），未做绝对时刻同步。
+
+**顺带修复（既有红，非本批引入）**：`scripts/shell_routes_allowlist.txt` 里 `app_service.rs` 的 3 条登记行号（636/655/674）与 `synapse-web/src/routes/app_service.rs` 实测位置（646/665/684）**在 HEAD 上就已漂移 10 行**，导致 `placeholder_scan_tests::test_empty_json_successes_are_allowlisted` 在 HEAD 上本来就红（判据：`git diff --stat HEAD -- synapse-web/src/routes/app_service.rs` 为空，且该 allowlist 未被任何提交更新）。本批一并改正；同一 guard 里 `sticky_event.rs` 的两条因本次改动而位移（134/152 → 157/175）也已同步。

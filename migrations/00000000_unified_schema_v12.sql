@@ -613,9 +613,25 @@ CREATE TABLE IF NOT EXISTS room_sticky_events (
     event_id TEXT NOT NULL,
     event_type TEXT NOT NULL,
     is_sticky BOOLEAN NOT NULL DEFAULT TRUE,
+    -- MSC4354 / 上游 changelog 20324：置顶是可**过期**的。
+    --   `sticky_duration_ms` 是客户端请求的置顶时长（上限 1h，见
+    --   `StickyEventStorage::MAX_STICKY_DURATION_MS`）；`expires_at` 是服务端
+    --   实际追踪的失效时刻（= 写入时刻 + duration）。
+    --   NULL 语义：`sticky_duration_ms IS NULL` ⇒ 调用方未请求过期；
+    --   `expires_at IS NULL` ⇒ 永不过期。两者必须同时为 NULL 或同时非 NULL
+    --   （由 `ck_room_sticky_events_expiry_pair` 强制），否则会出现
+    --   「上报了时长却永不失效」这种上报值与追踪值不一致的状态 —— 那正是 20324 修的缺陷。
+    sticky_duration_ms BIGINT,
+    expires_at BIGINT,
     created_ts BIGINT NOT NULL,
     updated_ts BIGINT NOT NULL,
     CONSTRAINT uq_room_sticky_events_room_user_type UNIQUE (room_id, user_id, event_type),
+    CONSTRAINT ck_room_sticky_events_expiry_pair CHECK (
+        (sticky_duration_ms IS NULL) = (expires_at IS NULL)
+    ),
+    CONSTRAINT ck_room_sticky_events_duration_positive CHECK (
+        sticky_duration_ms IS NULL OR sticky_duration_ms > 0
+    ),
     CONSTRAINT fk_room_sticky_events_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE,
     CONSTRAINT fk_room_sticky_events_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
@@ -5356,3 +5372,37 @@ CREATE INDEX IF NOT EXISTS idx_events_redacted_by ON events(redacted_by) WHERE r
 -- 存量库的表已经存在，`IF NOT EXISTS` 是 no-op，因此必须由这条幂等 ALTER 摘掉约束
 -- （与 `ALTER TABLE e2ee_audit_log ALTER COLUMN device_id DROP NOT NULL` 同构）。
 ALTER TABLE application_services ALTER COLUMN url DROP NOT NULL;
+
+-- 2026-10-14: MSC4354 / 上游 changelog 20324 —— sticky 置顶需要**过期**语义。
+--
+-- 上面的 `CREATE TABLE IF NOT EXISTS room_sticky_events` 只对**新库**生效；
+-- 存量库的表已存在，`IF NOT EXISTS` 是 no-op，因此新列必须由幂等 ALTER 补上
+-- （与上面的 `application_services.url` 同构）。
+ALTER TABLE room_sticky_events ADD COLUMN IF NOT EXISTS sticky_duration_ms BIGINT;
+ALTER TABLE room_sticky_events ADD COLUMN IF NOT EXISTS expires_at BIGINT;
+
+-- 存量行：`sticky_duration_ms` / `expires_at` 都是 NULL ⇒ 永不过期，语义与改动前一致。
+-- 约束用 `NOT VALID` 添加：存量行必然满足（两列同为 NULL），但显式声明避免
+-- 在大表上做一次全量校验扫描。
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'ck_room_sticky_events_expiry_pair'
+    ) THEN
+        ALTER TABLE room_sticky_events
+            ADD CONSTRAINT ck_room_sticky_events_expiry_pair
+            CHECK ((sticky_duration_ms IS NULL) = (expires_at IS NULL)) NOT VALID;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'ck_room_sticky_events_duration_positive'
+    ) THEN
+        ALTER TABLE room_sticky_events
+            ADD CONSTRAINT ck_room_sticky_events_duration_positive
+            CHECK (sticky_duration_ms IS NULL OR sticky_duration_ms > 0) NOT VALID;
+    END IF;
+END $$;
+
+-- 过期扫描只关心「仍是置顶且带失效时刻」的行，用部分索引避免在既有
+-- `idx_room_sticky_events_user_sticky` 之上再加一棵全量 btree。
+CREATE INDEX IF NOT EXISTS idx_room_sticky_events_expires_at
+    ON room_sticky_events(expires_at) WHERE is_sticky AND expires_at IS NOT NULL;

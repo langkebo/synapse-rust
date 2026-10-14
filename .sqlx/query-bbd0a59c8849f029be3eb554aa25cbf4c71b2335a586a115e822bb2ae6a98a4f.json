@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT DISTINCT room_id FROM room_sticky_events\n            WHERE user_id = $1 AND is_sticky = true\n              AND (expires_at IS NULL OR expires_at > $2)\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "room_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "bbd0a59c8849f029be3eb554aa25cbf4c71b2335a586a115e822bb2ae6a98a4f"
+}

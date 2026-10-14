@@ -602,6 +602,11 @@ impl RoomService {
     ///
     /// MSC4354: When a sticky event is set/updated, broadcast an EDU to federated peers
     /// so they can maintain consistent sticky event state across the federation.
+    ///
+    /// `sticky_duration_ms` is the optional MSC4354 duration
+    /// (`org.matrix.msc4354.sticky_duration_ms`); `None` keeps the historical
+    /// "never expires" behaviour. Out-of-range values are **client errors**, not
+    /// 500s: they are rejected before anything is persisted.
     pub async fn set_is_sticky_event(
         &self,
         room_id: &str,
@@ -609,19 +614,28 @@ impl RoomService {
         event_id: &str,
         event_type: &str,
         is_sticky: bool,
+        sticky_duration_ms: Option<i64>,
     ) -> ApiResult<()> {
         // Persist the sticky event metadata
         self.sticky_event_storage
-            .set_is_sticky_event(room_id, user_id, event_id, event_type, is_sticky)
+            .set_is_sticky_event(room_id, user_id, event_id, event_type, is_sticky, sticky_duration_ms)
             .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to set sticky event", e))?;
+            .map_err(|e| match e {
+                synapse_storage::sticky_event::SetStickyEventError::Duration(inner) => {
+                    ApiError::invalid_param(inner.to_string())
+                }
+                other @ synapse_storage::sticky_event::SetStickyEventError::Database(_) => {
+                    ApiError::internal_with_cause("Failed to set sticky event", other)
+                }
+            })?;
 
         // MSC4354 Federation broadcast: notify peers about sticky event change
         // Only broadcast if this originated locally (not from federation).
         // We determine this by checking if user_id matches our server name (federated
         // updates use the origin server as user_id to avoid conflicts).
         if is_sticky && user_id != self.server_name {
-            self.broadcast_sticky_event_update(room_id, user_id, event_id, event_type, true).await?;
+            self.broadcast_sticky_event_update(room_id, user_id, event_id, event_type, true, sticky_duration_ms)
+                .await?;
         }
 
         Ok(())
@@ -666,7 +680,7 @@ impl RoomService {
         // MSC4354 Federation broadcast: notify peers about sticky event removal
         // Only broadcast if this originated locally (not from federation).
         if user_id != self.server_name {
-            self.broadcast_sticky_event_update(room_id, user_id, "", event_type, false).await?;
+            self.broadcast_sticky_event_update(room_id, user_id, "", event_type, false, None).await?;
         }
 
         Ok(())
@@ -687,6 +701,7 @@ impl RoomService {
         event_id: &str,
         event_type: &str,
         is_sticky: bool,
+        sticky_duration_ms: Option<i64>,
     ) -> ApiResult<()> {
         // Anti-loop: never re-broadcast a change that originated from a federated
         // peer (inbound handler persists under the remote origin as user_id).
@@ -710,6 +725,10 @@ impl RoomService {
 
         // Construct MSC4354 sticky event EDU
         // Based on receipts.rs pattern but adapted for sticky events
+        //
+        // `sticky_duration_ms` (nullable) is carried so peers can track the same
+        // expiry. Each server resolves the absolute deadline from its own clock, so
+        // skew across peers is bounded by the 1h cap rather than unbounded.
         let sticky_edu = serde_json::json!({
             "edu_type": "org.matrix.msc4354.sticky_event",
             "room_id": room_id,
@@ -718,6 +737,7 @@ impl RoomService {
                 "event_type": event_type,
                 "event_id": event_id,
                 "is_sticky": is_sticky,
+                "sticky_duration_ms": sticky_duration_ms,
                 "ts": current_timestamp_millis()
             }
         });

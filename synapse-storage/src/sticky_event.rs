@@ -6,6 +6,114 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
+/// MSC4354's upper bound on a sticky duration: **1 hour**.
+///
+/// Mirrors upstream `synapse/api/constants.py::StickyEvent.MAX_DURATION`
+/// (`Duration(hours=1)`), which is the value the reference implementation
+/// enforces for `org.matrix.msc4354.sticky_duration_ms`.
+pub const MAX_STICKY_DURATION_MS: i64 = 3_600_000;
+
+/// A client-requested sticky duration was not acceptable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StickyDurationError {
+    /// Zero or negative durations are meaningless: the pin would expire in the past.
+    NotPositive(i64),
+    /// Beyond [`MAX_STICKY_DURATION_MS`].
+    TooLong {
+        /// What the client asked for.
+        requested: i64,
+        /// The cap that was exceeded.
+        max: i64,
+    },
+}
+
+impl std::fmt::Display for StickyDurationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotPositive(requested) => {
+                write!(f, "sticky_duration_ms must be greater than zero, got {requested}")
+            }
+            Self::TooLong { requested, max } => {
+                write!(f, "sticky_duration_ms {requested} exceeds the MSC4354 maximum of {max}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for StickyDurationError {}
+
+/// A sticky pin's expiry, as **resolved by the server**.
+///
+/// Both fields are derived once, at write time, and then persisted verbatim:
+/// [`Self::duration_ms`] is what gets reported back to the client and
+/// [`Self::expires_at`] is what the read paths compare against "now". Keeping
+/// them in one value is the whole point of upstream changelog **20324** — when
+/// the reported duration and the tracked expiry are computed independently they
+/// drift, and clients see a pin that outlives (or dies before) the value they
+/// were told.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StickyExpiry {
+    /// Requested sticky duration in milliseconds.
+    pub duration_ms: i64,
+    /// Absolute server-side expiry: `now_ms + duration_ms`.
+    pub expires_at: i64,
+}
+
+/// Validate a client-requested sticky duration and resolve it into a
+/// [`StickyExpiry`].
+///
+/// `Ok(None)` means the caller did not ask for an expiry, so the pin never
+/// expires — that is the pre-20324 behaviour and stays the default.
+///
+/// The returned `expires_at` is computed from the *same* `now_ms` used for the
+/// row's `created_ts`, so `expires_at - created_ts == duration_ms` holds exactly
+/// and cannot drift from what clients are told.
+pub fn resolve_sticky_expiry(now_ms: i64, requested: Option<i64>) -> Result<Option<StickyExpiry>, StickyDurationError> {
+    let Some(duration_ms) = requested else {
+        return Ok(None);
+    };
+    if duration_ms <= 0 {
+        return Err(StickyDurationError::NotPositive(duration_ms));
+    }
+    if duration_ms > MAX_STICKY_DURATION_MS {
+        return Err(StickyDurationError::TooLong { requested: duration_ms, max: MAX_STICKY_DURATION_MS });
+    }
+    Ok(Some(StickyExpiry { duration_ms, expires_at: now_ms.saturating_add(duration_ms) }))
+}
+
+/// Failure modes of [`StickyEventStorage::set_is_sticky_event`].
+#[derive(Debug)]
+pub enum SetStickyEventError {
+    /// The requested duration was rejected (client error — surface as 400).
+    Duration(StickyDurationError),
+    /// Persistence failed (server error — surface as 500).
+    Database(sqlx::Error),
+}
+
+impl std::fmt::Display for SetStickyEventError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Duration(e) => write!(f, "{e}"),
+            Self::Database(e) => write!(f, "failed to persist sticky event: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for SetStickyEventError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Duration(e) => Some(e),
+            Self::Database(e) => Some(e),
+        }
+    }
+}
+
+impl From<sqlx::Error> for SetStickyEventError {
+    fn from(e: sqlx::Error) -> Self {
+        Self::Database(e)
+    }
+}
+
 /// The `StickyEventStorage` struct.
 #[derive(Clone)]
 pub struct StickyEventStorage {
@@ -18,7 +126,16 @@ impl StickyEventStorage {
         Self { pool }
     }
 
-    /// Set is_sticky event metadata for a room
+    /// Set is_sticky event metadata for a room.
+    ///
+    /// `sticky_duration_ms` is the optional MSC4354 duration
+    /// (`org.matrix.msc4354.sticky_duration_ms`). `None` means "never expires"
+    /// and is stored as SQL NULL in both `sticky_duration_ms` and `expires_at`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SetStickyEventError::Duration`] when the duration is not a
+    /// positive number of milliseconds, or exceeds [`MAX_STICKY_DURATION_MS`].
     pub async fn set_is_sticky_event(
         &self,
         room_id: &str,
@@ -26,21 +143,34 @@ impl StickyEventStorage {
         event_id: &str,
         event_type: &str,
         is_sticky: bool,
-    ) -> Result<(), sqlx::Error> {
+        sticky_duration_ms: Option<i64>,
+    ) -> Result<(), SetStickyEventError> {
         let now = current_timestamp_millis();
+        let expiry = resolve_sticky_expiry(now, sticky_duration_ms).map_err(SetStickyEventError::Duration)?;
+        let (duration_ms, expires_at) = match expiry {
+            Some(e) => (Some(e.duration_ms), Some(e.expires_at)),
+            None => (None, None),
+        };
 
         sqlx::query!(
             r"
-            INSERT INTO room_sticky_events (room_id, user_id, event_id, event_type, is_sticky, created_ts, updated_ts)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO room_sticky_events
+                (room_id, user_id, event_id, event_type, is_sticky, sticky_duration_ms, expires_at, created_ts, updated_ts)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (room_id, user_id, event_type)
-            DO UPDATE SET event_id = EXCLUDED.event_id, is_sticky = EXCLUDED.is_sticky, updated_ts = EXCLUDED.updated_ts
+            DO UPDATE SET event_id = EXCLUDED.event_id,
+                          is_sticky = EXCLUDED.is_sticky,
+                          sticky_duration_ms = EXCLUDED.sticky_duration_ms,
+                          expires_at = EXCLUDED.expires_at,
+                          updated_ts = EXCLUDED.updated_ts
             ",
             room_id,
             user_id,
             event_id,
             event_type,
             is_sticky,
+            duration_ms,
+            expires_at,
             now,
             now,
         )
@@ -50,45 +180,58 @@ impl StickyEventStorage {
         Ok(())
     }
 
-    /// Get is_sticky event for a room and user by event type
+    /// Get is_sticky event for a room and user by event type.
+    ///
+    /// Pins whose `expires_at` has passed are **not** returned: this predicate —
+    /// not the stored `is_sticky` flag — is what "the server tracks".
     pub async fn get_is_sticky_event(
         &self,
         room_id: &str,
         user_id: &str,
         event_type: &str,
     ) -> Result<Option<StickyEvent>, sqlx::Error> {
-        // `StickyEvent` 的字段与投影列一一对应且全部 NOT NULL ⇒ 直接 `query_as!`（无需元组/手工映射）。
+        let now = current_timestamp_millis();
+        // `StickyEvent` 的字段与投影列一一对应 ⇒ 直接 `query_as!`（无需元组/手工映射）。
         sqlx::query_as!(
             StickyEvent,
             r"
-            SELECT room_id, user_id, event_id, event_type, is_sticky, created_ts, updated_ts
+            SELECT room_id, user_id, event_id, event_type, is_sticky,
+                   sticky_duration_ms, expires_at, created_ts, updated_ts
             FROM room_sticky_events
             WHERE room_id = $1 AND user_id = $2 AND event_type = $3 AND is_sticky = true
+              AND (expires_at IS NULL OR expires_at > $4)
             ",
             room_id,
             user_id,
             event_type,
+            now,
         )
         .fetch_optional(&*self.pool)
         .await
     }
 
-    /// Get all is_sticky events for a room and user
+    /// Get all is_sticky events for a room and user.
+    ///
+    /// Expired pins are filtered out, same as [`Self::get_is_sticky_event`].
     pub async fn get_all_is_sticky_events(
         &self,
         room_id: &str,
         user_id: &str,
     ) -> Result<Vec<StickyEvent>, sqlx::Error> {
+        let now = current_timestamp_millis();
         sqlx::query_as!(
             StickyEvent,
             r"
-            SELECT room_id, user_id, event_id, event_type, is_sticky, created_ts, updated_ts
+            SELECT room_id, user_id, event_id, event_type, is_sticky,
+                   sticky_duration_ms, expires_at, created_ts, updated_ts
             FROM room_sticky_events
             WHERE room_id = $1 AND user_id = $2 AND is_sticky = true
+              AND (expires_at IS NULL OR expires_at > $3)
             ORDER BY event_type
             ",
             room_id,
             user_id,
+            now,
         )
         .fetch_all(&*self.pool)
         .await
@@ -120,14 +263,20 @@ impl StickyEventStorage {
         Ok(())
     }
 
-    /// Get rooms with is_sticky events for a user (for sync)
+    /// Get rooms with is_sticky events for a user (for sync).
+    ///
+    /// Rooms whose only pins have already expired are omitted, so a client is
+    /// never told to sync a room on account of a stale pin.
     pub async fn get_rooms_with_is_sticky_events(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
+        let now = current_timestamp_millis();
         let rows: Vec<String> = sqlx::query_scalar!(
             r"
             SELECT DISTINCT room_id FROM room_sticky_events
             WHERE user_id = $1 AND is_sticky = true
+              AND (expires_at IS NULL OR expires_at > $2)
             ",
             user_id,
+            now,
         )
         .fetch_all(&*self.pool)
         .await?;
@@ -139,6 +288,7 @@ impl StickyEventStorage {
 /// Sticky Event - Following project field naming standards
 /// - created_ts: NOT NULL, milliseconds timestamp
 /// - updated_ts: NOT NULL (or NULLABLE if appropriate), milliseconds timestamp
+/// - sticky_duration_ms / expires_at: NULL together (never expires) or both set
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct StickyEvent {
     /// The `room_id` field.
@@ -151,6 +301,13 @@ pub struct StickyEvent {
     pub event_type: String,
     /// The `is_sticky` field.
     pub is_sticky: bool,
+    /// Client-requested sticky duration in milliseconds, or `None` for "never expires".
+    pub sticky_duration_ms: Option<i64>,
+    /// Absolute server-side expiry (`created_ts + sticky_duration_ms`), or `None`.
+    ///
+    /// This is the value the read paths compare against "now" **and** the value
+    /// reported to clients, so the two can never disagree (upstream 20324).
+    pub expires_at: Option<i64>,
     /// The `created_ts` field.
     pub created_ts: i64,
     /// The `updated_ts` field.
@@ -169,12 +326,15 @@ mod tests {
             event_id: "$event:localhost".to_string(),
             event_type: "m.room.message".to_string(),
             is_sticky: true,
+            sticky_duration_ms: None,
+            expires_at: None,
             created_ts: 1700000000000i64,
             updated_ts: 1700000000000i64,
         };
 
         assert_eq!(event.room_id, "!room:localhost");
         assert!(event.is_sticky);
+        assert_eq!(event.expires_at, None, "no requested duration must mean 'never expires'");
     }
 
     #[test]
@@ -184,6 +344,58 @@ mod tests {
         for event_type in valid_types {
             assert!(event_type.starts_with("m.") || event_type.starts_with("com."));
         }
+    }
+
+    // --- `resolve_sticky_expiry`: pure, no DB ---
+
+    #[test]
+    fn test_resolve_sticky_expiry_absent_means_missing_expiry() {
+        assert_eq!(resolve_sticky_expiry(1_000, None).expect("no duration is valid"), None);
+    }
+
+    #[test]
+    fn test_resolve_sticky_expiry_is_created_ts_plus_duration() {
+        // The whole point of 20324: the expiry the server tracks is *derived from
+        // the same instant* as the row's created_ts, so the reported duration and
+        // the tracked deadline cannot drift apart.
+        let resolved = resolve_sticky_expiry(1_000, Some(60_000)).expect("valid duration").expect("some expiry");
+        assert_eq!(resolved.duration_ms, 60_000);
+        assert_eq!(resolved.expires_at, 61_000);
+        assert_eq!(resolved.expires_at - 1_000, resolved.duration_ms);
+    }
+
+    #[test]
+    fn test_resolve_sticky_expiry_accepts_the_maximum() {
+        let resolved = resolve_sticky_expiry(0, Some(MAX_STICKY_DURATION_MS)).expect("the cap itself is allowed");
+        assert_eq!(resolved.expect("some expiry").expires_at, MAX_STICKY_DURATION_MS);
+    }
+
+    #[test]
+    fn test_resolve_sticky_expiry_rejects_non_positive() {
+        for requested in [0_i64, -1, i64::MIN] {
+            assert_eq!(
+                resolve_sticky_expiry(0, Some(requested)),
+                Err(StickyDurationError::NotPositive(requested)),
+                "{requested} ms must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn test_resolve_sticky_expiry_rejects_beyond_the_msc4354_cap() {
+        let requested = MAX_STICKY_DURATION_MS + 1;
+        assert_eq!(
+            resolve_sticky_expiry(0, Some(requested)),
+            Err(StickyDurationError::TooLong { requested, max: MAX_STICKY_DURATION_MS }),
+        );
+    }
+
+    #[test]
+    fn test_resolve_sticky_expiry_saturates_instead_of_wrapping() {
+        // A near-i64::MAX "now" plus a valid duration must not wrap into a
+        // negative expiry (which would make the pin live forever).
+        let resolved = resolve_sticky_expiry(i64::MAX - 10, Some(60_000)).expect("valid duration");
+        assert_eq!(resolved.expect("some expiry").expires_at, i64::MAX);
     }
 }
 
@@ -282,7 +494,10 @@ mod db_tests {
         ensure_test_user(&pool, user_id).await;
         ensure_test_room(&pool, room_id).await;
 
-        storage.set_is_sticky_event(room_id, user_id, event_id, event_type, true).await.expect("set should succeed");
+        storage
+            .set_is_sticky_event(room_id, user_id, event_id, event_type, true, None)
+            .await
+            .expect("set should succeed");
 
         let found = storage
             .get_is_sticky_event(room_id, user_id, event_type)
@@ -337,13 +552,13 @@ mod db_tests {
 
         // Set initial sticky event
         storage
-            .set_is_sticky_event(room_id, user_id, event_id_a, event_type, true)
+            .set_is_sticky_event(room_id, user_id, event_id_a, event_type, true, None)
             .await
             .expect("first set should succeed");
 
         // Update with a different event_id (same room/user/type triggers ON CONFLICT DO UPDATE)
         storage
-            .set_is_sticky_event(room_id, user_id, event_id_b, event_type, true)
+            .set_is_sticky_event(room_id, user_id, event_id_b, event_type, true, None)
             .await
             .expect("second set should succeed");
 
@@ -373,7 +588,10 @@ mod db_tests {
         ensure_test_room(&pool, room_id).await;
 
         // Set and verify
-        storage.set_is_sticky_event(room_id, user_id, event_id, event_type, true).await.expect("set should succeed");
+        storage
+            .set_is_sticky_event(room_id, user_id, event_id, event_type, true, None)
+            .await
+            .expect("set should succeed");
         assert!(storage.get_is_sticky_event(room_id, user_id, event_type).await.unwrap().is_some());
 
         // Clear it
@@ -401,11 +619,11 @@ mod db_tests {
         ensure_test_room(&pool, room_id).await;
 
         storage
-            .set_is_sticky_event(room_id, user_id, event_id1, "m.room.message", true)
+            .set_is_sticky_event(room_id, user_id, event_id1, "m.room.message", true, None)
             .await
             .expect("set 1 should succeed");
         storage
-            .set_is_sticky_event(room_id, user_id, event_id2, "m.room.topic", true)
+            .set_is_sticky_event(room_id, user_id, event_id2, "m.room.topic", true, None)
             .await
             .expect("set 2 should succeed");
 
@@ -438,11 +656,11 @@ mod db_tests {
         cleanup_sticky(&pool, room_b, user_id).await;
 
         storage
-            .set_is_sticky_event(room_a, user_id, event_id, "m.room.message", true)
+            .set_is_sticky_event(room_a, user_id, event_id, "m.room.message", true, None)
             .await
             .expect("set room_a should succeed");
         storage
-            .set_is_sticky_event(room_b, user_id, event_id, "m.room.topic", true)
+            .set_is_sticky_event(room_b, user_id, event_id, "m.room.topic", true, None)
             .await
             .expect("set room_b should succeed");
 
@@ -471,7 +689,10 @@ mod db_tests {
         ensure_test_room(&pool, room_id).await;
 
         // Set -> Get -> Clear -> Get (should be gone) -> Set again -> Get (should be back)
-        storage.set_is_sticky_event(room_id, user_id, event_id, event_type, true).await.expect("set 1 should succeed");
+        storage
+            .set_is_sticky_event(room_id, user_id, event_id, event_type, true, None)
+            .await
+            .expect("set 1 should succeed");
 
         let found = storage
             .get_is_sticky_event(room_id, user_id, event_type)
@@ -486,7 +707,10 @@ mod db_tests {
         assert!(after_clear.is_none(), "should be gone after clear");
 
         // Re-set (same room/user/type — row still exists with is_sticky=false, ON CONFLICT DO UPDATE flips it back)
-        storage.set_is_sticky_event(room_id, user_id, event_id, event_type, true).await.expect("set 2 should succeed");
+        storage
+            .set_is_sticky_event(room_id, user_id, event_id, event_type, true, None)
+            .await
+            .expect("set 2 should succeed");
 
         let found_again = storage
             .get_is_sticky_event(room_id, user_id, event_type)
@@ -528,11 +752,11 @@ mod db_tests {
         cleanup_sticky(&pool, room_id, user_id).await;
 
         storage
-            .set_is_sticky_event(room_id, user_id, pinned_event, "m.room.message", true)
+            .set_is_sticky_event(room_id, user_id, pinned_event, "m.room.message", true, None)
             .await
             .expect("pinning the first event should succeed");
         storage
-            .set_is_sticky_event(room_id, user_id, untouched_event, "m.room.topic", true)
+            .set_is_sticky_event(room_id, user_id, untouched_event, "m.room.topic", true, None)
             .await
             .expect("pinning the second event should succeed");
         assert_eq!(
@@ -561,6 +785,188 @@ mod db_tests {
         // this, a mutation that deletes *every* sticky row would look correct.
         assert_eq!(remaining.len(), 1, "the untouched pin must survive: {remaining:?}");
         assert_eq!(remaining[0].event_id, *untouched_event);
+
+        cleanup_sticky(&pool, room_id, user_id).await;
+    }
+
+    /// Force a pin's tracked expiry without waiting for wall-clock time to pass.
+    ///
+    /// Deliberately writes `expires_at` (the tracked column) rather than
+    /// `is_sticky`: the point of these tests is that the *expiry* is what
+    /// retires a pin, so they must not be satisfiable by flipping the flag.
+    async fn force_expiry(pool: &PgPool, room_id: &str, user_id: &str, event_type: &str, expires_at: i64) {
+        sqlx::query(
+            "UPDATE room_sticky_events SET expires_at = $4 WHERE room_id = $1 AND user_id = $2 AND event_type = $3",
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .bind(event_type)
+        .bind(expires_at)
+        .execute(pool)
+        .await
+        .expect("forcing the expiry should succeed");
+    }
+
+    /// MSC4354 / upstream **20324**: a pin that has reached its tracked expiry
+    /// must stop being reported — on *every* read path, including the sync one.
+    #[tokio::test]
+    async fn test_expired_pin_is_not_reported_on_any_read_path() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = StickyEventStorage::new(pool.clone());
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = &format!("!room_exp_{suffix}:test.com");
+        let user_id = &format!("@user_exp_{suffix}:test.com");
+        let event_id = &format!("$ev_exp_{suffix}:test.com");
+        let event_type = "m.room.message";
+
+        ensure_test_user(&pool, user_id).await;
+        ensure_test_room(&pool, room_id).await;
+        cleanup_sticky(&pool, room_id, user_id).await;
+
+        storage
+            .set_is_sticky_event(room_id, user_id, event_id, event_type, true, Some(60_000))
+            .await
+            .expect("setting a pin with a duration should succeed");
+
+        // Control: while the expiry is in the future the pin *is* reported.
+        assert!(
+            storage.get_is_sticky_event(room_id, user_id, event_type).await.expect("read should succeed").is_some(),
+            "precondition: an unexpired pin must be reported, otherwise the assertion below is vacuous"
+        );
+        assert_eq!(
+            storage.get_rooms_with_is_sticky_events(user_id).await.expect("rooms read should succeed"),
+            vec![room_id.to_string()],
+            "precondition: the room must be listed while the pin is live"
+        );
+
+        // Move the tracked expiry into the past.
+        force_expiry(&pool, room_id, user_id, event_type, current_timestamp_millis() - 1).await;
+
+        assert!(
+            storage
+                .get_is_sticky_event(room_id, user_id, event_type)
+                .await
+                .expect("single read should succeed")
+                .is_none(),
+            "20324: an expired pin must not be reported"
+        );
+        assert!(
+            storage.get_all_is_sticky_events(room_id, user_id).await.expect("bulk read should succeed").is_empty(),
+            "20324: the bulk read (used by /sync) must drop expired pins too"
+        );
+        assert!(
+            storage.get_rooms_with_is_sticky_events(user_id).await.expect("rooms read should succeed").is_empty(),
+            "20324: a room whose only pin expired must not be advertised as sticky"
+        );
+
+        // The row itself is *not* deleted — expiry is a read-side predicate, so a
+        // later re-pin of the same (room, user, type) still updates in place.
+        let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM room_sticky_events WHERE room_id = $1")
+            .bind(room_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("counting rows should succeed");
+        assert_eq!(rows, 1, "expiry must not delete the row");
+
+        cleanup_sticky(&pool, room_id, user_id).await;
+    }
+
+    /// The 20324 invariant proper: the expiry **reported** to clients is exactly
+    /// the expiry the server **tracks**. Falsified by any implementation that
+    /// recomputes one of the two independently (e.g. reporting
+    /// `now + duration` at read time while tracking `created_ts + duration`).
+    #[tokio::test]
+    async fn test_reported_expiry_is_the_tracked_expiry() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = StickyEventStorage::new(pool.clone());
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = &format!("!room_20324_{suffix}:test.com");
+        let user_id = &format!("@user_20324_{suffix}:test.com");
+        let event_id = &format!("$ev_20324_{suffix}:test.com");
+        let event_type = "m.room.message";
+        let duration_ms = 120_000_i64;
+
+        ensure_test_user(&pool, user_id).await;
+        ensure_test_room(&pool, room_id).await;
+        cleanup_sticky(&pool, room_id, user_id).await;
+
+        storage
+            .set_is_sticky_event(room_id, user_id, event_id, event_type, true, Some(duration_ms))
+            .await
+            .expect("setting a pin with a duration should succeed");
+
+        let reported = storage
+            .get_is_sticky_event(room_id, user_id, event_type)
+            .await
+            .expect("read should succeed")
+            .expect("pin should be present");
+
+        let reported_expiry = reported.expires_at.expect("a pin set with a duration must carry an expiry");
+        assert_eq!(reported.sticky_duration_ms, Some(duration_ms), "the requested duration must round-trip");
+        assert_eq!(
+            reported_expiry,
+            reported.created_ts + duration_ms,
+            "the reported expiry must be created_ts + requested duration"
+        );
+
+        // Now read what the *tracker* would compare against, straight from the
+        // column: if these ever differ, reported != tracked and clients are lied to.
+        let tracked: Option<i64> =
+            sqlx::query_scalar("SELECT expires_at FROM room_sticky_events WHERE room_id = $1 AND user_id = $2")
+                .bind(room_id)
+                .bind(user_id)
+                .fetch_one(&*pool)
+                .await
+                .expect("reading the tracked expiry should succeed");
+        assert_eq!(
+            Some(reported_expiry),
+            tracked,
+            "20324: the expiry sent to clients must be the same value the server expires on"
+        );
+
+        // Boundary: the predicate is strict (`expires_at > now`), so a pin whose
+        // tracked expiry is exactly "now" is already retired — a client is never
+        // shown a pin past the deadline it was told.
+        force_expiry(&pool, room_id, user_id, event_type, current_timestamp_millis()).await;
+        assert!(
+            storage.get_is_sticky_event(room_id, user_id, event_type).await.expect("read should succeed").is_none(),
+            "the pin must retire at its reported expiry, not one tick later"
+        );
+
+        cleanup_sticky(&pool, room_id, user_id).await;
+    }
+
+    /// A duration outside MSC4354's range is a client error and must not be
+    /// silently clamped into a pin that lives longer (or shorter) than asked.
+    #[tokio::test]
+    async fn test_set_rejects_out_of_range_duration() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = StickyEventStorage::new(pool.clone());
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = &format!("!room_bad_{suffix}:test.com");
+        let user_id = &format!("@user_bad_{suffix}:test.com");
+        let event_id = &format!("$ev_bad_{suffix}:test.com");
+
+        ensure_test_user(&pool, user_id).await;
+        ensure_test_room(&pool, room_id).await;
+        cleanup_sticky(&pool, room_id, user_id).await;
+
+        let err = storage
+            .set_is_sticky_event(room_id, user_id, event_id, "m.room.message", true, Some(0))
+            .await
+            .expect_err("zero must be rejected");
+        assert!(matches!(err, SetStickyEventError::Duration(StickyDurationError::NotPositive(0))), "got {err:?}");
+
+        let err = storage
+            .set_is_sticky_event(room_id, user_id, event_id, "m.room.message", true, Some(MAX_STICKY_DURATION_MS + 1))
+            .await
+            .expect_err("over the cap must be rejected");
+        assert!(matches!(err, SetStickyEventError::Duration(StickyDurationError::TooLong { .. })), "got {err:?}");
+
+        assert!(
+            storage.get_all_is_sticky_events(room_id, user_id).await.expect("read should succeed").is_empty(),
+            "a rejected set must not leave any pin behind"
+        );
 
         cleanup_sticky(&pool, room_id, user_id).await;
     }
