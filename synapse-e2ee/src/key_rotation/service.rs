@@ -243,20 +243,30 @@ impl KeyRotationService {
             }
         }
 
-        tracing::warn!(
-            session_id = %session.session_id,
-            room_id = %session.room_id,
-            "Timestamp conversion failed or expired_at is invalid; treating session as not expired"
-        );
-
+        // Reaching this point is the **normal** outcome: no trigger fired. A
+        // `warn!` claiming "timestamp conversion failed or expired_at is invalid"
+        // used to sit here, which meant it fired for every healthy session — log
+        // spam plus a false diagnosis. Timestamp conversion happens exactly once,
+        // at the row→model boundary (`megolm/storage.rs`), and reports its own
+        // failures there, so this path has nothing to say.
         Ok(false)
     }
 
     /// See [`rotate_megolm_session`].
-    pub async fn rotate_megolm_session(&self, room_id: &str, user_id: &str) -> Result<MegolmSession, ApiError> {
+    ///
+    /// `device_id` is required because a rotation is performed **by a device**: the
+    /// audit row it writes is keyed by one (`key_rotation_log.device_id` is
+    /// `NOT NULL`) and the only reader, `get_device_rotation_history` — behind
+    /// `GET /_matrix/vendor/v1/keys/rotation/history/{device_id}` — filters on it.
+    pub async fn rotate_megolm_session(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<MegolmSession, ApiError> {
         let new_session = self.megolm_service.create_session(room_id, user_id).await?;
 
-        self.storage.log_rotation(user_id, room_id, "megolm").await?;
+        self.storage.log_rotation(user_id, device_id, room_id, "megolm").await?;
 
         self.share_new_key(room_id, &new_session, user_id).await?;
 
@@ -266,14 +276,14 @@ impl KeyRotationService {
     }
 
     /// See [`rotate_all_user_sessions`].
-    pub async fn rotate_all_user_sessions(&self, user_id: &str) -> Result<Vec<String>, ApiError> {
+    pub async fn rotate_all_user_sessions(&self, user_id: &str, device_id: &str) -> Result<Vec<String>, ApiError> {
         let mut rotated_rooms = Vec::new();
 
         let rooms = self.storage.get_encrypted_rooms(user_id).await?;
 
         for room_id in rooms {
             if self.should_rotate_for_room(user_id, &room_id).await? {
-                self.rotate_megolm_session(&room_id, user_id).await?;
+                self.rotate_megolm_session(&room_id, user_id, device_id).await?;
                 rotated_rooms.push(room_id);
             }
         }
@@ -422,15 +432,31 @@ impl KeyRotationStorage {
     }
 
     /// See [`log_rotation`].
-    pub async fn log_rotation(&self, user_id: &str, room_id: &str, rotation_type: &str) -> Result<(), ApiError> {
+    ///
+    /// `device_id` is **required**, not `Option`: `key_rotation_log.device_id` is
+    /// `NOT NULL`, so a caller binding SQL NULL aborts the whole rotation with
+    /// `null value in column "device_id" violates not-null constraint`. That is
+    /// exactly what this used to do (`None::<String>`), and it went unnoticed
+    /// because the only caller, `rotate_megolm_session`, is not wired into
+    /// production. A mandatory parameter removes the failure by construction
+    /// rather than papering over it with a placeholder id — a synthetic id would
+    /// also be indistinguishable from a real one in the audit trail.
+    pub async fn log_rotation(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        room_id: &str,
+        rotation_type: &str,
+    ) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
         let new_key_id = uuid::Uuid::new_v4().to_string();
 
         tracing::debug!(
             user_id = %user_id,
+            device_id = %device_id,
             room_id = %room_id,
             rotation_type = %rotation_type,
-            "Logging key rotation (device_id unknown)"
+            "Logging key rotation"
         );
 
         sqlx::query!(
@@ -438,7 +464,7 @@ impl KeyRotationStorage {
              (user_id, device_id, room_id, rotation_type, old_key_id, new_key_id, reason, rotated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
             user_id,
-            None::<String>,
+            device_id,
             room_id,
             rotation_type,
             None::<String>,
@@ -842,5 +868,7 @@ impl KeyRotationStorageApi for KeyRotationStorage {
     }
 }
 
+#[cfg(test)]
+mod db_tests;
 #[cfg(test)]
 mod tests;
