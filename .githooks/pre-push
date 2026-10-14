@@ -20,6 +20,24 @@ set -uo pipefail
 
 BYPASS_HINT="  绕过：git push --no-verify（仅紧急情况）"
 
+# ── Stage 0（阻断，最便宜先跑）：方案文档的章节棘轮 ────────────────────────────
+# 为什么在 pre-push 也放一份：`docs/audit/UPSTREAM_CHANGELOG_ALIGNMENT_PLAN_2026-10-13.md`
+# 会被**宿主 app 进程**用一份陈旧的缓存副本覆盖（2026-10-14 实测 5 次），每次都整段吞掉
+# 最新章节。pre-commit 里已有该步骤，但（a）它可以被 `--no-verify` 绕过一次就永久生效、
+# （b）覆盖发生在提交之后（实测有一次在提交后 12 分 25 秒）—— 也就是说**已经提交过的内容
+# 也可能被工作区的那份覆盖"回退"**。push 是最后一道闸门，且该检查 ~30ms，没有理由不做。
+# 判据与恢复步骤见该文档 §11.9 / §11.12。
+if [ -f scripts/ci/check_plan_doc_sections.py ]; then
+  if ! python3 scripts/ci/check_plan_doc_sections.py; then
+    echo ""
+    echo "❌ push 被拦下：方案文档有章节被吞掉了（基线或 HEAD 里有、工作区里没有）。"
+    echo "   恢复：git checkout -- docs/audit/UPSTREAM_CHANGELOG_ALIGNMENT_PLAN_2026-10-13.md"
+    echo "$BYPASS_HINT"
+    exit 1
+  fi
+  echo "✅ 方案文档章节棘轮通过（基线 + 对照 HEAD）"
+fi
+
 # ── Stage 1（阻断）：clippy，作用域与 ci.yml 的 blocking 矩阵一致 ──────────────
 # `--workspace` + `--all-targets` 二者缺一都会漏掉 member crate 或测试代码（历史上都漏过）。
 # 只跑 `--all-features` 这一档：feature 只增不减，它是默认档的超集；默认档独有的

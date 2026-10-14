@@ -83,18 +83,18 @@ if [ -n "$md" ]; then
     run "markdownlint" npx --yes markdownlint-cli@0.49.1 -c .markdownlint.json $md
 fi
 
-# 章节棘轮：`docs/audit/UPSTREAM_CHANGELOG_ALIGNMENT_PLAN_2026-10-13.md` 反复被一份
-# **陈旧且重排过表格的副本**覆盖，每次都**整段吞掉**最新章节（2026-10-14 实测 2 次）。
-# 而 markdownlint / aspell 对"少了一整节"完全无感（文件仍能解析、格式也合法）
-# ⇒ 必须有独立的一条**会红**的判据，否则损伤要等到人重读文档才被发现。
-# 只在文档本身进入改动集时跑：它读的就是这一个文件，文件没变结论不可能变。
-# 排查过程与恢复步骤见该文档 §11.9。
-step "文档：章节棘轮（防整段被吞）"
-if printf '%s\n' "$changed" | grep -qF 'UPSTREAM_CHANGELOG_ALIGNMENT_PLAN_2026-10-13.md'; then
-    run "check_plan_doc_sections.py" python3 scripts/ci/check_plan_doc_sections.py
-else
-    echo "SKIP 本次未改动该文档 ⇒ 棘轮读的文件未变"
-fi
+# 章节棘轮：`docs/audit/UPSTREAM_CHANGELOG_ALIGNMENT_PLAN_2026-10-13.md` 反复（5 次）被一份
+# **陈旧且重排过表格的副本**覆盖，每次都**整段吞掉**最新章节。根因是宿主 app 进程回放它自己
+# 缓存的那份旧副本（证据见文档 §11.9 / §11.12），仓库侧无法阻止写入 ⇒ 唯一能做的是让它
+# **不可能静默**：markdownlint / aspell 对"少了一整节"完全无感（文件仍能解析、格式也合法）。
+#
+# ⚠️ 2026-10-14 修正：本步骤原先**只在文档进入改动集时**才跑（理由："文件没变结论不可能变"）。
+# 那个门控恰好绕过了真正的故障形态 —— 覆盖发生在你**正在改别的文件**的时候，于是下一次提交
+# （改的不是这份文档）会 SKIP 掉这条守卫，损伤就一直躺在工作区里。脚本本身 ~30ms，改为**每次都跑**。
+# 判据有两条：基线棘轮（`scripts/ci/plan_doc_sections_baseline`）+ **对照 `git show HEAD:<doc>`**
+# （不依赖基线，因此基线万一被误 `--update` 也拦得住）。
+step "文档：章节棘轮（防整段被吞，含对照 HEAD）"
+run "check_plan_doc_sections.py" python3 scripts/ci/check_plan_doc_sections.py
 
 step "契约 gate"
 if [ -z "$(printf '%s\n' "$changed" | grep -E 'ROUTE_CONTRACT|ledger_annotations|extract_registered|derived_route|ledger_export|route-table\.json|route_ledger' || true)" ]; then
