@@ -246,6 +246,25 @@ mod db_tests {
             .expect("failed to cleanup sticky events");
     }
 
+    /// Insert a minimal `events` row (NOT NULL columns only) so that a redaction
+    /// has a real row to act on.
+    async fn ensure_test_event(pool: &PgPool, room_id: &str, sender: &str, event_id: &str, event_type: &str) {
+        let now = current_timestamp_millis();
+        sqlx::query(
+            r#"INSERT INTO events (event_id, room_id, sender, event_type, content, origin_server_ts)
+               VALUES ($1, $2, $3, $4, '{}'::jsonb, $5)
+               ON CONFLICT (event_id) DO NOTHING"#,
+        )
+        .bind(event_id)
+        .bind(room_id)
+        .bind(sender)
+        .bind(event_type)
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("failed to create test event");
+    }
+
     // --- Tests ---
 
     #[tokio::test]
@@ -476,6 +495,72 @@ mod db_tests {
             .expect("should be found after set 2");
         assert_eq!(found_again.event_id, *event_id);
         assert!(found_again.is_sticky);
+
+        cleanup_sticky(&pool, room_id, user_id).await;
+    }
+
+    /// MSC4354 Sticky Events (upstream #20323): **redacting an event removes its
+    /// stickiness**, even when the redaction lands long after the event was
+    /// persisted. Before the fix the pin survived the redaction, so sync /
+    /// sliding-sync / `GET /sticky_events` kept advertising an event whose
+    /// content had been wiped.
+    ///
+    /// This drives the real redaction entry point (`EventStorage::redact_event_content`)
+    /// rather than a hand-written `UPDATE room_sticky_events`, because the whole
+    /// point of the fix is that *that* function owns the cleanup — a test that
+    /// deletes the row itself would pass even with the fix reverted.
+    #[tokio::test]
+    async fn test_redacting_an_event_removes_its_stickiness() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = StickyEventStorage::new(pool.clone());
+        let events = crate::event::EventStorage::new(&pool, "test.localhost".to_string());
+
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = &format!("!room_unstick_{suffix}:test.com");
+        let user_id = &format!("@user_unstick_{suffix}:test.com");
+        let pinned_event = &format!("$pinned_{suffix}:test.com");
+        let untouched_event = &format!("$untouched_{suffix}:test.com");
+
+        ensure_test_user(&pool, user_id).await;
+        ensure_test_room(&pool, room_id).await;
+        ensure_test_event(&pool, room_id, user_id, pinned_event, "m.room.message").await;
+        ensure_test_event(&pool, room_id, user_id, untouched_event, "m.room.topic").await;
+        cleanup_sticky(&pool, room_id, user_id).await;
+
+        storage
+            .set_is_sticky_event(room_id, user_id, pinned_event, "m.room.message", true)
+            .await
+            .expect("pinning the first event should succeed");
+        storage
+            .set_is_sticky_event(room_id, user_id, untouched_event, "m.room.topic", true)
+            .await
+            .expect("pinning the second event should succeed");
+        assert_eq!(
+            storage.get_all_is_sticky_events(room_id, user_id).await.unwrap().len(),
+            2,
+            "both events must start out pinned, otherwise the assertion below is vacuous"
+        );
+
+        events.redact_event_content(pinned_event, None).await.expect("redaction should succeed");
+
+        assert!(
+            storage
+                .get_is_sticky_event(room_id, user_id, "m.room.message")
+                .await
+                .expect("single read should succeed")
+                .is_none(),
+            "MSC4354 #20323: the redacted event must not be reported as sticky"
+        );
+
+        let remaining = storage.get_all_is_sticky_events(room_id, user_id).await.expect("bulk read should succeed");
+        assert!(
+            remaining.iter().all(|e| e.event_id != *pinned_event),
+            "the redacted event must not survive in the bulk read either: {remaining:?}"
+        );
+        // Control: redacting one event must not un-stick the others — without
+        // this, a mutation that deletes *every* sticky row would look correct.
+        assert_eq!(remaining.len(), 1, "the untouched pin must survive: {remaining:?}");
+        assert_eq!(remaining[0].event_id, *untouched_event);
 
         cleanup_sticky(&pool, room_id, user_id).await;
     }

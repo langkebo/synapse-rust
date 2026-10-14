@@ -81,7 +81,7 @@ curl -sSL "https://raw.githubusercontent.com/element-hq/synapse/develop/changelo
 | 20081                         | 已专项验证（`state_events_since_batch_keeps_the_last_local_users_leave`）                                                                                          | **本仓不受影响** | ✅ 批次 A     |
 | 20220                         | 默认规则仍含 **3 条 legacy** 提及规则（`synapse-common/src/push_rules.rs`）                                                                                              | **差距**     | ✅ 批次 B（B1） |
 | 20298                         | 只声明不稳定别名 `io.element.msc4452.preview_url`，缺稳定名（`synapse-services/src/capability_governance.rs`）                                                             | **差距**     | ✅ 批次 B（B2） |
-| 20295 / 20322 / 20323 / 20324 | 有 MSC4354 实现（`synapse-web/src/routes/room.rs:82-95,169`），4 条修复未见对应收口                                                                                        | **疑似差距**   | 批次 C       |
+| 20295 / 20322 / 20323 / 20324 | 有 MSC4354 实现（`synapse-web/src/routes/room.rs:82-95,169`）。逐条判定：**20323 已修复**（撤回即失效，§10.1）；**20295 N/A**（本仓 sticky 不注入 timeline，且本仓根本没有历史可见性过滤，§10.2）；**20322 / 20324 无对应形态**（无"持久化批次"概念、无 expiry 字段） | **已收口** | 批次 C（完成） |
 | 19354 / 19495                 | 发送端 `org.matrix.msc4140.delay`（`synapse-web/src/routes/handlers/room/mod.rs:141`）+ 管理端点（`synapse-web/src/routes/delayed_events.rs:97-98`）+ storage + 联邦 EDU | 待核实        | 批次 C       |
 | 20273                         | appservice 注册模型 `url: String` **必填**（`synapse-services/src/application_service/models.rs:41-42`）                                                            | **兼容性差距**  | 批次 B       |
 | 20243                         | 未找到该配置项或其等价防枚举逻辑                                                                                                                                            | 待核实        | 批次 B       |
@@ -704,13 +704,93 @@ def _parse_request_for_delayed_event_delay(request, msc4140_enabled) -> Duration
 请求延迟事件返回 **403 `M_FORBIDDEN`**。本仓**没有**这个开关（延迟事件恒开启），按"未实现
 即不宣告"的口径不构成不一致；若要支持，需要新增配置项 + 403 分支，属独立改动。
 
-### C1 —— MSC4354 四条修复：**部分适用，见下**
+### C1 —— MSC4354 四条修复（2026-10-14）
 
-- **20322**（persist 后同批次 redact）：本仓无 persistence 集成 ⇒ 无对应形态。
-- **20323**（persist 后 redact ⇒ 应去置顶）：**真实缺口** —— `get_all_is_sticky_events`
-  只按 `is_sticky = true` 选行，**不检查事件是否已被 redact**。
-- **20324**（expiry 口径）：本仓无 expiry 概念 ⇒ 属特性缺失，不是 bug 修复。
-- **20295**（历史可见性豁免覆盖全部 C-S 端点）：**待取证**（需先确认本地哪些读端点施加
-  历史可见性）。
+本仓的 MSC4354 与上游**不是同一个模型**，判定必须按本仓模型做，不能照搬上游的措辞：
 
-⚠️ C1 的 20323 与 20295 本轮**未实施**，只完成判定；实施前需按 §6 的口径再做一轮取证。
+| 维度 | 上游 Synapse | 本仓 |
+| --- | --- | --- |
+| sticky 是什么 | **事件自身的属性**：发送时带 `sticky_duration_ms`，服务端把 TTL 写进事件的 `unsigned` | **按用户的置顶行**：`room_sticky_events(room_id, user_id, event_type, event_id, is_sticky)`，由客户端 `POST /rooms/{room_id}/sticky_events` 显式设置 |
+| 到期 | 有 `expires_at` 列 + 后台清理任务 | **无 expiry 概念** |
+| 下发形态 | sticky **事件本身留在 timeline** 里 | 只下发一个**旁的元数据数组** `sticky_events: [{event_type, event_id, is_sticky}]`，**不注入 timeline** |
+
+逐条判定：
+
+- **20322**（同一持久化批次内被 redact ⇒ 不应 sticky）：**无对应形态**。本仓没有"同一批次持久化"这一步，
+  sticky 由独立的客户端调用设置，不存在"批次内先置顶、后撤回"的竞态。
+- **20323**（持久化**之后**被 redact ⇒ 移除 sticky）：**真实缺口，已修复** —— 见 §10.1。
+- **20324**（到期上报值与服务端追踪值不一致）：**无对应形态**。本仓没有 expiry 字段，也就没有"上报值"，
+  属 MSC4354 的 expiry **特性缺失**（特性缺口，不是 bug 修复）。
+- **20295**（历史可见性豁免覆盖全部 C-S 端点）：**结构性不适用（N/A）** —— 见 §10.2。
+
+#### 10.1 20323 —— 撤回即失效（已修复）
+
+**缺陷**：`room_sticky_events` 只按 `event_id` 记录置顶，**没有任何一步在事件被撤回时清理它**。
+撤回之后 `get_is_sticky_event` / `get_all_is_sticky_events` / `get_rooms_with_is_sticky_events`
+仍会返回该行 ⇒ `/sync`、sliding sync 与 `GET /rooms/{room_id}/sticky_events` 会继续把一个
+"内容已被抹掉的事件"报成置顶。
+
+**修法（与上游同款：写入时清理，而不是读时过滤）**：在 `EventStorage::redact_event_content`
+（`synapse-storage/src/event/redaction.rs`）里，把"改写事件内容"与"删除该事件的置顶行"放进
+**同一个事务**（本仓硬规则：多语句写必须 `begin → execute ×N → commit`）。
+
+选写入时清理而不是读时过滤，理由是**可遗忘面**：撤回有四个调用点（客户端 `/redact`、
+MSC3912 级联、管理端批量、worker 延迟撤回），读路径有五个（单条 / 全量 / 按房间 / sync /
+sliding sync）。把不变量放在**唯一的撤回汇聚点**上，未来新增撤回路径不可能漏掉；读时过滤则
+要求每一个新读路径都记得加 JOIN，漏一个就是一个静默的错。上游也是这个选择：
+`synapse/storage/databases/main/sticky_events.py::delete_sticky_events_txn`（其文档字符串写着
+"This is used when an event is redacted"），由事件持久化路径调用。
+
+**为什么这里是唯一的跨模块写者**：`room_sticky_events` 的其余写者都在 `sticky_event.rs`。
+本条 DELETE 刻意写在撤回路径上——正是"只有一个汇聚点"才使得它不可能被忘掉。
+`redact_event_content` 确实是 `events` 表被置为已撤回的**唯一**入口（本 crate 里另外两处
+`is_redacted = TRUE` 写的是 `thread_replies` 与 `event_relations`，不是 `events`）。
+
+**删除按 `event_id` 单独作键（跨用户、跨房间）**：事件被撤回是对**所有人**生效，只清撤回者的行会
+让其余用户的置顶变成同一个 bug 换个位置。上游同理（其 DELETE 也不带用户维度）。
+另外上游是 DELETE 而不是"把 `is_sticky` 置 false"，本仓跟随 DELETE：置顶本身不再存在。
+
+**刻意不加 `(event_id)` 索引**：该表每个 `(room_id, user_id, event_type)` 只有一行
+（`ON CONFLICT DO UPDATE` 原地更新），行数上界是 用户 × 房间 × 事件类型，远小于事件表规模；
+而上游的 `sticky_events` 是**追加型**表，这正是他们需要绕道 `events.stream_ordering` 才敢删的原因。
+若将来该表的增长性质改变，这条决定需要重新评估。
+
+**验证**：`synapse-storage/src/sticky_event.rs` 的 `db_tests::test_redacting_an_event_removes_its_stickiness`
+驱动**真实的** `EventStorage::redact_event_content`（而不是手写 `UPDATE room_sticky_events` ——
+后者把修复回退掉也照样绿），并带一个**对照**：另一个未被撤回的事件必须仍然置顶，
+否则"删掉全部置顶行"的变异也会看起来正确。该测试位于 `--workspace --lib --all-features` 车道，
+CI 的 `cargo nextest run --workspace --lib --all-features` 会真跑它。
+
+#### 10.2 20295 —— 历史可见性豁免：**N/A**（附带一个更大的发现）
+
+上游 `tests/rest/client/test_sticky_events.py::test_joined_history_visibility_messages_returns_sticky_events`
+给出了这条修复的确切语义：在 `history_visibility: joined` 的房间里，后加入的用户 backfill `/messages`
+时**看不到**加入前的普通消息，但**看得到**加入前的 sticky 事件（测试注释原文：
+"the sticky event (which is exempt from history visibility)"）。20295 修的是"这条豁免原先只在部分端点生效"。
+
+本仓判 **N/A**，两条独立理由，每条都可复现：
+
+1. **本仓的 sticky 不进入 timeline**。它只作为房间对象上的 `sticky_events` 元数据数组下发：
+   `synapse-services/src/sync_service/response.rs:242-262` 的 `obj.insert("sticky_events", …)`、
+   `synapse-services/src/sliding_sync_service/filters.rs:223-244` 的 `room_json["sticky_events"] = …`，
+   以及 `GET /rooms/{room_id}/sticky_events` 返回的 `{events:[{room_id,user_id,event_id,event_type}]}`。
+   没有任何路径因为"某个事件是 sticky"而改变**事件本身**是否被返回 ⇒ 没有可豁免的对象。
+2. **本仓没有历史可见性过滤**。`history_visibility` 在 Rust 源码里只出现在四类位置，全是存储或元数据：
+   存列与读列（`rooms` / `room_summaries`）、`GET /rooms/{roomId}` 回显、`world_readable` 派生位
+   （目录与搜索用）、以及作为**鉴权事件类型**与 **redaction 保护字段**。事件读取路径
+   （`synapse-storage/src/event/reader.rs` 的分页查询、sync 的 timeline 构造）里**一句可见性判断都没有**。
+
+复现命令（第二条若只剩存储用途，即证明上述第 2 点）：
+
+```bash
+grep -nE 'visib|membership|joined' synapse-storage/src/event/reader.rs
+git grep -n 'history_visibility' -- '*.rs' | grep -vE 'm\.room\.history_visibility|INSERT INTO rooms|room_summar'
+```
+
+⚠️ **由此暴露一个比 20295 大得多、且与本轮无关的真实缺口**：`m.room.history_visibility`
+**被存储、被回显、被当作鉴权事件保护，但从未在任何读端点上强制执行**。也就是说
+`GET /rooms/{roomId}/messages`、`/context/{eventId}`、`/event/{eventId}`、`/sync` 目前对
+"加入前历史"不做任何裁剪。这不属于 20295 的范围（20295 是给 sticky 开豁免，而不是实现可见性），
+而是一条独立的、跨多个端点的实现缺口。本轮**只做取证与记录，未实施**：实施前需要先定义
+"谁在什么时刻能看到"（成员事件的 stream ordering 与事件 stream ordering 的比较规则）并逐端点接入，
+属独立批次。记录在此是为了避免它被 20295 的 N/A 结论顺带盖过去。

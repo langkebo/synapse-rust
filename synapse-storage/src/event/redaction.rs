@@ -91,6 +91,12 @@ impl EventStorage {
     /// `m.room.power_levels`).  This keeps redacted state events functional
     /// and matches Synapse/Synapse-Rust federation hash computation.
     ///
+    /// It is also **the single chokepoint** through which an event in `events`
+    /// becomes redacted (the only other `is_redacted = TRUE` writes in this
+    /// crate target `thread_replies` / `event_relations`, not `events`), which
+    /// is why the MSC4354 un-stick below lives here rather than at each of the
+    /// four callers (client handler, MSC3912 cascade, admin batch, worker).
+    ///
     /// `redaction_event_id` is the id of the `m.room.redaction` event that
     /// caused this redaction — a self-referential FK to `events.event_id`
     /// (`fk_events_redacted_by`), **not** a user id. It is `None` when the
@@ -110,11 +116,18 @@ impl EventStorage {
         let Some(row) = row else {
             // Event not found — nothing to redact.  This is benign for
             // federation redaction PDUs that target events we don't have.
+            // Nothing can be pinned to a row that does not exist either, so the
+            // MSC4354 cleanup below has nothing to do in this case.
             return Ok(());
         };
 
         let redacted_content = synapse_common::redaction::redact_content(&row.event_type, &row.content);
         let now = current_timestamp_millis();
+
+        // Redacting the event and un-sticking it are one unit of work: a
+        // half-applied pair would leave a pin pointing at content that no longer
+        // exists (and a client rendering a "pinned" row it cannot fetch).
+        let mut tx = self.pool.begin().await?;
 
         sqlx::query!(
             "UPDATE events SET content = $1, is_redacted = true, redacted_at = $2, redacted_by = $3 WHERE event_id = $4",
@@ -123,8 +136,33 @@ impl EventStorage {
             redaction_event_id,
             event_id,
         )
-        .execute(&*self.pool)
+        .execute(&mut *tx)
         .await?;
+
+        // MSC4354 Sticky Events / upstream #20323: "Remove the stickiness of
+        // Sticky Events when they are redacted after persistence."
+        //
+        // The delete is keyed on `event_id` alone, across every user and room
+        // that pinned it: a redacted event is redacted for everyone, so keeping
+        // the pin for the *other* users who had pinned it would be the same bug
+        // one row over. Upstream does the same
+        // (`sticky_events.py::delete_sticky_events_txn`, called from the event
+        // persistence path) and likewise deletes rather than clearing a flag.
+        //
+        // ⚠️ This is the only writer of `room_sticky_events` outside
+        // `sticky_event.rs`, and that is deliberate: enforcing the invariant at
+        // the one redaction chokepoint is what makes it impossible for a future
+        // redaction path to forget it (four callers exist today).
+        //
+        // There is no index on `room_sticky_events.event_id`, so this is a scan
+        // of that table. It is deliberately left unindexed: the table holds one
+        // row per `(room_id, user_id, event_type)` ever pinned — upserted in
+        // place, bounded by users × rooms × event types — unlike upstream's
+        // append-only `sticky_events`, whose missing index is why they route the
+        // lookup through `events.stream_ordering`.
+        sqlx::query!("DELETE FROM room_sticky_events WHERE event_id = $1", event_id).execute(&mut *tx).await?;
+
+        tx.commit().await?;
         Ok(())
     }
 
