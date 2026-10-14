@@ -2242,6 +2242,7 @@ async fn test_p1_7_unread_count_not_bloated_after_purge_history() {
     let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
     ensure_test_room(&pool, &room_id).await;
     ensure_test_user(&pool, &reader).await;
+    join_room(&pool, &room_id, &reader).await;
     ensure_test_user(&pool, &other).await;
 
     // e1: LOCAL event from @other (origin='self', survives purge)
@@ -2706,6 +2707,7 @@ async fn test_soft_failed_events_hidden_from_all_consumer_read_paths() {
     ensure_test_room(&pool, &room_id).await;
     ensure_test_user(&pool, &sender_id).await;
     ensure_test_user(&pool, &reader_id).await;
+    join_room(&pool, &room_id, &reader_id).await;
 
     // `get_unread_counts*` 需要 `read_markers` 的 LEFT JOIN 有一行可连接，
     // 否则 last_read CTE 为空、计数恒为 0，断言将失去区分度。
@@ -3357,6 +3359,7 @@ async fn test_unread_highlight_counts_match_user_id_literally() {
 
     ensure_test_room(&pool, &room_id).await;
     ensure_test_user(&pool, &reader).await;
+    join_room(&pool, &room_id, &reader).await;
     ensure_test_user(&pool, &sender).await;
 
     // 读标记指向**不存在**的事件：`last_read_ts` 落到 read_markers.origin_server_ts（0），
@@ -3606,4 +3609,88 @@ async fn state_events_since_batch_keeps_the_last_local_users_leave() {
     );
 
     let _ = storage.delete_room_events(&room_id).await;
+}
+
+// --- §11.10：unread 以"当前是成员"为前提 ---
+
+/// Helper: seed a `join` membership so `user_id` counts as *being in* the room.
+///
+/// `get_unread_counts` now requires this (see `unread.rs`): the rule upstream gets
+/// for free from push actions has to be spelled out here.
+async fn join_room(pool: &Pool<Postgres>, room_id: &str, user_id: &str) {
+    sqlx::query(
+        r#"INSERT INTO room_memberships (room_id, user_id, membership, joined_ts, sender)
+           VALUES ($1, $2, 'join', $3, $2)"#,
+    )
+    .bind(room_id)
+    .bind(user_id)
+    .bind(synapse_common::current_timestamp_millis())
+    .execute(pool)
+    .await
+    .expect("seed join membership should succeed");
+}
+
+/// A non-member has **no** unread, however readable the room's history is.
+///
+/// Upstream derives unread from push actions, and
+/// `BulkPushRuleEvaluator.action_for_pushing_events` only iterates
+/// `get_local_users_in_room` (release-v1.161, `bulk_push_rule_evaluator.py:189`)
+/// ⇒ someone who never joined has no push actions ⇒ `notification_count == 0`.
+///
+/// This was reachable, not theoretical: `GET /rooms/{roomId}/unread_count` gates
+/// on `ensure_room_view_access` (visibility, **not** membership), so in a
+/// `world_readable` room a stranger passed the gate and — with `last_read_ts = 0`
+/// because a non-member has no read marker — was told the room's entire non-state
+/// history was their unread count.
+///
+/// Both directions are asserted so the guard cannot be satisfied by "return 0
+/// always": joining must make the very same events countable, and leaving must
+/// stop it again.
+#[tokio::test]
+async fn test_unread_counts_require_current_membership() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+
+    let suffix = uuid::Uuid::new_v4();
+    let room_id = format!("!unread_member_{suffix}:example.com");
+    let reader = format!("@unread_member_r_{suffix}:example.com");
+    let sender = format!("@unread_member_s_{suffix}:example.com");
+    let base = 1_700_000_000_000i64;
+
+    ensure_test_room(&pool, &room_id).await;
+    ensure_test_user(&pool, &reader).await;
+    ensure_test_user(&pool, &sender).await;
+    for index in 0..3i64 {
+        insert_remote_event(
+            &pool,
+            &format!("$unread_member_e{index}_{suffix}:remote.example.com"),
+            &room_id,
+            &sender,
+            base + index * 1000,
+            "remote",
+        )
+        .await;
+    }
+
+    // --- 非成员：历史可读，但一条都不算"未读" ---
+    let before = storage.get_unread_counts(&room_id, &reader, 0).await.expect("unread counts");
+    assert_eq!(before.notification_count, 0, "非成员不得有未读（上游：不为其生成推送动作）");
+    let batch_before =
+        storage.get_unread_counts_batch(&[(room_id.clone(), 0)], &reader).await.expect("batch unread counts");
+    assert_eq!(batch_before[0].notification_count, 0, "批量变体必须应用同一条规则");
+
+    // --- 加入之后：同样这三条开始计入（证明闸门是"成员"，不是"恒为 0"）---
+    join_room(&pool, &room_id, &reader).await;
+    let after = storage.get_unread_counts(&room_id, &reader, 0).await.expect("unread counts");
+    assert_eq!(after.notification_count, 3, "加入后同一批事件才是未读");
+
+    // --- 离开之后：不再累积 ---
+    sqlx::query("UPDATE room_memberships SET membership = 'leave' WHERE room_id = $1 AND user_id = $2")
+        .bind(&room_id)
+        .bind(&reader)
+        .execute(&*pool)
+        .await
+        .expect("mark reader as left");
+    let left = storage.get_unread_counts(&room_id, &reader, 0).await.expect("unread counts");
+    assert_eq!(left.notification_count, 0, "已离开者不再是成员 ⇒ 不得有未读");
 }

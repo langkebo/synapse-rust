@@ -35,6 +35,22 @@ impl EventStorage {
     /// and `%` are `LIKE` metacharacters and Matrix localparts may contain `_` ⇒ a
     /// *different* user id differing only at an underscore position was counted as
     /// a mention of the reader (`%` would widen the pattern to "match anything").
+    ///
+    /// Membership is a precondition, not a filter (`EXISTS … room_memberships`).
+    ///
+    /// Upstream derives unread from **push actions**, and
+    /// `BulkPushRuleEvaluator.action_for_pushing_events` only iterates
+    /// `get_local_users_in_room` (release-v1.161, `bulk_push_rule_evaluator.py:189`)
+    /// ⇒ a user who is not in the room has no push actions and therefore **no
+    /// unread**, however readable the room is.
+    ///
+    /// This computed-on-read design has no such writer, so the rule has to live in
+    /// the query. Without it, `GET /rooms/{roomId}/unread_count` — whose gate is
+    /// `ensure_room_view_access`, i.e. *visibility*, not membership — would answer a
+    /// total stranger in a `world_readable` room with the room's entire non-state
+    /// history as their "unread count": `last_read_ts` stays `0` (a non-member has
+    /// no read marker) and nothing else stops the count. `invite` is included so an
+    /// invited user still sees the invite; `join` is the normal case.
     pub async fn get_unread_counts(
         &self,
         room_id: &str,
@@ -79,6 +95,12 @@ impl EventStorage {
              AND ev.state_key IS NULL
              AND ev.soft_failed = FALSE
              AND ev.origin_server_ts > lr.last_read_ts
+             AND EXISTS (
+                 SELECT 1 FROM room_memberships m
+                 WHERE m.room_id = $1
+                   AND m.user_id = $2
+                   AND m.membership IN ('join', 'invite')
+             )
             GROUP BY lr.last_read_ts
             "#,
             room_id,
@@ -164,6 +186,12 @@ impl EventStorage {
              AND ev.state_key IS NULL
              AND ev.soft_failed = FALSE
              AND ev.origin_server_ts > lr.last_read_ts
+             AND EXISTS (
+                 SELECT 1 FROM room_memberships m
+                 WHERE m.room_id = tr.room_id
+                   AND m.user_id = $1
+                   AND m.membership IN ('join', 'invite')
+             )
             GROUP BY tr.room_id, lr.last_read_ts
             "#,
             user_id,
