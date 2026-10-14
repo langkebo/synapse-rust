@@ -9,8 +9,15 @@
 use std::sync::Arc;
 use synapse_common::ApiError;
 
-pub use synapse_storage::delayed_events::{CreateDelayedEventRequest, DelayedEventAction};
-use synapse_storage::delayed_events::{DelayedEvent, DelayedEventStorageApi};
+// `DelayedEvent` is part of this module's **public** API — `schedule`, `get`,
+// `list_for_user` and `manage` all return or describe it — so callers must be
+// able to name it. Re-exported here because `synapse-web` does not (and should
+// not) depend on `synapse-storage` directly: the route layer speaks the service
+// seam, and a route that has to add a storage dependency just to name a return
+// type is the seam leaking. `CreateDelayedEventRequest` / `DelayedEventAction`
+// are already re-exported for the same reason.
+use synapse_storage::delayed_events::DelayedEventStorageApi;
+pub use synapse_storage::delayed_events::{CreateDelayedEventRequest, DelayedEvent, DelayedEventAction};
 
 /// Service for MSC4140 cancellable delayed events.
 pub struct DelayedEventService {
@@ -105,6 +112,21 @@ impl DelayedEventService {
             "MSC4140 delayed event managed"
         );
         Ok(())
+    }
+
+    /// List the caller's **pending** delayed events, oldest first.
+    ///
+    /// Backs `GET /_matrix/client/unstable/org.matrix.msc4140/delayed_events`.
+    ///
+    /// The `user_id` filter is pushed **into the storage query** (see
+    /// [`DelayedEventStorageApi::list_pending_delayed_events_for_user`]) rather
+    /// than applied here: unlike [`Self::get`]/[`Self::manage`], there is no
+    /// single `delay_id` to check ownership against, so "only my rows" has to be
+    /// a property of the query itself.
+    pub async fn list_for_user(&self, caller_id: &str) -> Result<Vec<DelayedEvent>, ApiError> {
+        let events = self.storage.list_pending_delayed_events_for_user(caller_id).await?;
+        tracing::debug!(user_id = %caller_id, count = events.len(), "MSC4140 pending delayed events listed");
+        Ok(events)
     }
 }
 

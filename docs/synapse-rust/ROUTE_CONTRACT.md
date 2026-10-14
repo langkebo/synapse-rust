@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1028**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1032**
 - 含路由注册的模块文件：**65**
 - `derived_routes.rs` 中的 `registered_by` 标签：**73**
 - 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
@@ -69,7 +69,7 @@
 **逐模块清单里的两种标注**（都从派生表反解，不是人工维护）：
 
 - 〔仅 `X` profile〕 —— 该路由**只**在 profile `X` 下注册，默认构建里不存在（即上表成员）；
-- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1030 行去重为 1028 条的来源。
+- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1034 行去重为 1032 条的来源。
 
 当前共 **2** 条双档注册：
 
@@ -604,12 +604,16 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_matrix/client/v1/proxy/{as_id}/{*path}`
 - `PUT` `/_synapse/admin/v1/appservices/{as_id}`
 
-### 延迟事件 （3 条）
+### 延迟事件 （7 条）
 
-#### `delayed_events.rs` — 3 条 ✅派生表
+#### `delayed_events.rs` — 7 条 ✅派生表
 
+- `GET` `/_matrix/client/unstable/org.matrix.msc4140/delayed_events`
 - `GET` `/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}`
 - `POST` `/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}`
+- `POST` `/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/cancel`
+- `POST` `/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/restart`
+- `POST` `/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/send`
 - `PUT` `/_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}`
 
 ### 房间 (Room) （115 条）

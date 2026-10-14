@@ -51,6 +51,7 @@ DELETE /_matrix/client/v1/room_keys/keys/{room_id}/{session_id}	query_params=ver
 DELETE /_matrix/client/v3/room_keys/keys	query_params=version
 DELETE /_matrix/client/v3/room_keys/keys/{room_id}	query_params=version
 DELETE /_matrix/client/v3/room_keys/keys/{room_id}/{session_id}	query_params=version
+GET /_matrix/client/unstable/org.matrix.msc4140/delayed_events	auth=user
 GET /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}	auth=user
 GET /_matrix/client/v1/room_keys/keys	query_params=version
 GET /_matrix/client/v1/room_keys/keys/{room_id}	query_params=version
@@ -146,6 +147,9 @@ GET /_synapse/worker/v1/tasks	query_params=limit
 GET /_synapse/worker/v1/workers/{worker_id}/commands	query_params=limit
 POST /_matrix/client/unstable/org.matrix.msc3575/sync	rate_limit_exempt=true query_params=pos,timeout,txn_id
 POST /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}	auth=user
+POST /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/cancel	auth=user
+POST /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/restart	auth=user
+POST /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/send	auth=user
 POST /_matrix/client/unstable/org.matrix.simplified_msc3575/sync	rate_limit_exempt=true query_params=pos,timeout,txn_id
 POST /_matrix/client/v1/sync	rate_limit_exempt=true query_params=pos,timeout,txn_id
 POST /_matrix/client/v4/sync	rate_limit_exempt=true query_params=pos,timeout,txn_id

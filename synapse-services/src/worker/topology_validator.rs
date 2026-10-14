@@ -21,10 +21,14 @@ use crate::worker::types::WorkerType;
 /// nested at `synapse-web/src/routes/assembly.rs:256`:
 ///
 /// * `PUT  /_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}`
+/// * `GET  /_matrix/client/unstable/org.matrix.msc4140/delayed_events`
 /// * `GET  /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}`
 /// * `POST /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}`
+/// * `POST /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/cancel`
+/// * `POST /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/restart`
+/// * `POST /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/send`
 ///
-/// The two management methods share one path, so the set holds two entries — the
+/// The single-event path carries both `GET` and `POST`, so it is one entry — the
 /// gate matches on the path, and listing the same path twice would be a
 /// redundant entry (AGENTS.md 铁律 1/2).
 ///
@@ -43,7 +47,11 @@ use crate::worker::types::WorkerType;
 /// route is missing from it (family coverage).
 pub const DELAYED_EVENTS_WORKER_PATHS: &[&str] = &[
     "/_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}",
+    "/_matrix/client/unstable/org.matrix.msc4140/delayed_events",
     "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}",
+    "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/cancel",
+    "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/restart",
+    "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/send",
 ];
 
 /// Whether `path` is one of the MSC4140 delayed-events paths this worker

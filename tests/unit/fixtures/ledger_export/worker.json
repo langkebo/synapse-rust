@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": false
   },
-  "entry_count": 960,
+  "entry_count": 964,
   "entries": [
     {
       "method": "GET",
@@ -271,6 +271,14 @@
     },
     {
       "method": "GET",
+      "path": "/_matrix/client/unstable/org.matrix.msc4140/delayed_events",
+      "registered_by": "delayed_events",
+      "path_params": [],
+      "query_params": [],
+      "auth": "user"
+    },
+    {
+      "method": "GET",
       "path": "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}",
       "registered_by": "delayed_events",
       "path_params": [
@@ -282,6 +290,36 @@
     {
       "method": "POST",
       "path": "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}",
+      "registered_by": "delayed_events",
+      "path_params": [
+        "delay_id"
+      ],
+      "query_params": [],
+      "auth": "user"
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/cancel",
+      "registered_by": "delayed_events",
+      "path_params": [
+        "delay_id"
+      ],
+      "query_params": [],
+      "auth": "user"
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/restart",
+      "registered_by": "delayed_events",
+      "path_params": [
+        "delay_id"
+      ],
+      "query_params": [],
+      "auth": "user"
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/send",
       "registered_by": "delayed_events",
       "path_params": [
         "delay_id"

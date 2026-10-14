@@ -1,5 +1,5 @@
 fn all_derived_always_rows() -> Vec<DerivedRoute> {
-    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1009);
+    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1013);
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/", "assembly::create_router");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
@@ -178,6 +178,15 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     {
         let e = RouteEntry::new(
             axum::http::Method::GET,
+            "/_matrix/client/unstable/org.matrix.msc4140/delayed_events",
+            "delayed_events",
+        )
+        .with_auth("user");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(
+            axum::http::Method::GET,
             "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}",
             "delayed_events",
         )
@@ -188,6 +197,33 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         let e = RouteEntry::new(
             axum::http::Method::POST,
             "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}",
+            "delayed_events",
+        )
+        .with_auth("user");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(
+            axum::http::Method::POST,
+            "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/cancel",
+            "delayed_events",
+        )
+        .with_auth("user");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(
+            axum::http::Method::POST,
+            "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/restart",
+            "delayed_events",
+        )
+        .with_auth("user");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(
+            axum::http::Method::POST,
+            "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/send",
             "delayed_events",
         )
         .with_auth("user");

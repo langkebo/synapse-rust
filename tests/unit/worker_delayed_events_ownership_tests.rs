@@ -131,8 +131,12 @@ fn delayed_events_gate_rejects_non_family_paths() {
         "/_matrix/client/v3/sync",
         "/_synapse/admin/v1/users",
         "/_synapse/worker/v1/replication/stream",
-        // Same family prefix, but not a registered route (no `{delay_id}`).
-        "/_matrix/client/unstable/org.matrix.msc4140/delayed_events",
+        // Same collection-ish shape, wrong namespace: the family lives under
+        // `/_matrix/client/unstable/org.matrix.msc4140/`, never under `v3`.
+        // (This replaced `…/msc4140/delayed_events`, which became a **real**
+        // route on 2026-10-14 — the list endpoint, §11.7.1 — and therefore can no
+        // longer serve as the "prefix-but-no-route" negative control.)
+        "/_matrix/client/v3/delayed_events",
         // Singular scheduling path with a segment missing (the registered
         // template has `{event_type}/{txn_id}` after `delayed_event`).
         "/_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}",

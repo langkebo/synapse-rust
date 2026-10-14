@@ -102,4 +102,18 @@ impl DelayedEventStorageApi for InMemoryDelayedEventStore {
         due.truncate(limit.max(0) as usize);
         Ok(due)
     }
+
+    async fn list_pending_delayed_events_for_user(&self, user_id: &str) -> Result<Vec<DelayedEvent>, ApiError> {
+        // Mirrors the SQL: user-scoped + pending-only, oldest first.
+        let mut mine: Vec<DelayedEvent> = self
+            .events
+            .read()
+            .await
+            .values()
+            .filter(|e| e.user_id == user_id && e.status == "pending")
+            .cloned()
+            .collect();
+        mine.sort_by_key(|e| e.id);
+        Ok(mine)
+    }
 }

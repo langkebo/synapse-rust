@@ -22,6 +22,7 @@ pub(crate) use state::*;
 pub(crate) use write_access::*;
 
 use crate::routes::context::RoomContext;
+use crate::routes::sticky_event::MSC4354_STICKY_DURATION_FIELD;
 use crate::routes::{ensure_room_member_strict_ctx, AuthenticatedUser};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -175,6 +176,25 @@ pub(crate) async fn schedule_delayed_event_if_requested(
     let Some(delay_ms) = query_delay_ms.or(body_delay_ms) else {
         return Ok(None);
     };
+
+    // MSC4354's sticky duration is **refused, not dropped**, on this path too.
+    //
+    // The dedicated endpoint answers 501 for the same field (see
+    // `routes::delayed_events::parse_schedule_request`); here the legacy `?delay=`
+    // path used to accept the request and schedule a plain event, which left the
+    // client believing it had scheduled *and pinned* — and, because on `/send`
+    // the body **is** the event content, the stray key would be stored as message
+    // content. One rule, one reason, both doors: this server pins sticky events
+    // per `(room, user, event_type)` via `POST /rooms/{roomId}/sticky_events`, so
+    // "schedule and pin" has no atomic form, and saying that out loud beats
+    // half-doing it.
+    if body.get(MSC4354_STICKY_DURATION_FIELD).is_some() || body.get("sticky_duration_ms").is_some() {
+        return Err(ApiError::not_supported(format!(
+            "'{MSC4354_STICKY_DURATION_FIELD}' is not supported on the delayed path: this server tracks sticky \
+             events as per-user pins (POST /rooms/{{roomId}}/sticky_events) rather than as an event property, so \
+             an event cannot be scheduled and pinned in one call"
+        )));
+    }
 
     // Validate delay is positive and bounded (max 24h, see MSC4140_MAX_DELAY_MS).
     if delay_ms <= 0 {

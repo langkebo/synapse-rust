@@ -429,3 +429,205 @@ async fn dedicated_endpoint_refuses_the_sticky_duration_hint() {
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// §11.7.1: the three convenience sub-paths + the list endpoint
+//
+// Upstream serves these from their own servlets (`CancelDelayedEventServlet`,
+// `RestartDelayedEventServlet`, `SendDelayedEventServlet`, `DelayedEventsServlet`
+// in `synapse/rest/client/delayed_events.py`, release-v1.161). They are the same
+// operations as `POST …/{delay_id}` with an `action` body, so the thing worth
+// pinning is that the extra doors **do not skip the ownership check** and that
+// the list cannot show anyone else's rows.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `POST …/delayed_events/{delay_id}/{action}` — no body, matching upstream.
+async fn manage_via_subpath(app: &axum::Router, token: &str, delay_id: i64, action: &str) -> (StatusCode, Value) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/{action}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from("{}"))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    (status, serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({})))
+}
+
+/// `GET …/delayed_events`.
+async fn list_delayed(app: &axum::Router, token: &str) -> (StatusCode, Value) {
+    let request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/unstable/org.matrix.msc4140/delayed_events")
+        .header("Authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    (status, serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({})))
+}
+
+/// The `delay_id`s in a list response.
+fn listed_delay_ids(body: &Value) -> Vec<i64> {
+    body.get("delayed_events")
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(|item| item.get("delay_id").and_then(Value::as_i64)).collect())
+        .unwrap_or_default()
+}
+
+#[tokio::test]
+async fn convenience_subpaths_act_on_the_same_row_as_the_action_body() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let alice = super::create_test_user(&app).await;
+    let room_id = create_public_room(&app, &alice).await;
+
+    let (status, body) = schedule(
+        &app,
+        &alice,
+        &room_id,
+        "m.room.message",
+        "subpath-restart",
+        json!({ "delay_ms": 60_000, "content": { "body": "later" } }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "scheduling must succeed first: {body}");
+    let restart_id = delay_id_of(&body);
+
+    // `restart` (heartbeat) keeps the row pending and answers MSC4140's `{}`.
+    let (status, body) = manage_via_subpath(&app, &alice, restart_id, "restart").await;
+    assert_eq!(status, StatusCode::OK, "restart sub-path must succeed: {body}");
+    assert_eq!(body, json!({}), "MSC4140 success body is an empty object");
+    let (status, body) = get_delayed(&app, &alice, restart_id).await;
+    assert_eq!(status, StatusCode::OK, "the row must still be readable after restart: {body}");
+
+    // `cancel` settles it...
+    let (status, body) = manage_via_subpath(&app, &alice, restart_id, "cancel").await;
+    assert_eq!(status, StatusCode::OK, "cancel sub-path must succeed: {body}");
+    // ...so a second cancel is the "no longer pending" error, not a second 200.
+    let (status, body) = manage_via_subpath(&app, &alice, restart_id, "cancel").await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "a settled row must be refused by the sub-path too (same service transition): {body}"
+    );
+
+    // `send` (send now) on a fresh row.
+    let (status, body) = schedule(
+        &app,
+        &alice,
+        &room_id,
+        "m.room.message",
+        "subpath-send",
+        json!({ "delay_ms": 60_000, "content": { "body": "now" } }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let send_id = delay_id_of(&body);
+    let (status, body) = manage_via_subpath(&app, &alice, send_id, "send").await;
+    assert_eq!(status, StatusCode::OK, "send sub-path must succeed: {body}");
+    assert_eq!(body, json!({}));
+}
+
+#[tokio::test]
+async fn subpaths_do_not_bypass_ownership() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let alice = super::create_test_user(&app).await;
+    let bob = super::create_test_user(&app).await;
+    let room_id = create_public_room(&app, &alice).await;
+    join_room(&app, &bob, &room_id).await;
+
+    let (status, body) = schedule(
+        &app,
+        &alice,
+        &room_id,
+        "m.room.message",
+        "owned-by-alice",
+        json!({ "delay_ms": 60_000, "content": { "body": "mine" } }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let delay_id = delay_id_of(&body);
+
+    // Every sub-path must answer a foreign caller exactly like the body form: 404,
+    // so the endpoint never confirms that someone else's delay_id exists.
+    for action in ["cancel", "restart", "send"] {
+        let (status, _) = manage_via_subpath(&app, &bob, delay_id, action).await;
+        assert_eq!(
+            status,
+            StatusCode::NOT_FOUND,
+            "'{action}' must not let a non-owner act on the row (and must not leak its existence)"
+        );
+    }
+
+    // Still pending for its owner — the three attempts above changed nothing.
+    let (status, _) = get_delayed(&app, &alice, delay_id).await;
+    assert_eq!(status, StatusCode::OK, "the owner's row must be untouched");
+}
+
+#[tokio::test]
+async fn the_list_endpoint_returns_only_the_callers_pending_events() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let alice = super::create_test_user(&app).await;
+    let bob = super::create_test_user(&app).await;
+    let room_id = create_public_room(&app, &alice).await;
+    join_room(&app, &bob, &room_id).await;
+
+    let mut alice_ids = Vec::new();
+    for index in 0..2 {
+        let (status, body) = schedule(
+            &app,
+            &alice,
+            &room_id,
+            "m.room.message",
+            &format!("list-alice-{index}"),
+            json!({ "delay_ms": 60_000, "content": { "body": "a" } }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        alice_ids.push(delay_id_of(&body));
+    }
+    let (status, body) = schedule(
+        &app,
+        &bob,
+        &room_id,
+        "m.room.message",
+        "list-bob-0",
+        json!({ "delay_ms": 60_000, "content": { "body": "b" } }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let bob_id = delay_id_of(&body);
+
+    let (status, body) = list_delayed(&app, &alice).await;
+    assert_eq!(status, StatusCode::OK, "list must succeed: {body}");
+    let mut listed = listed_delay_ids(&body);
+    listed.sort_unstable();
+    let mut expected = alice_ids.clone();
+    expected.sort_unstable();
+    assert_eq!(listed, expected, "only the caller's own pending events may be listed");
+
+    // Settled rows drop out of the list (upstream reads the pending view only),
+    // and the other user's row was never in it.
+    let (status, _) = manage_via_subpath(&app, &alice, alice_ids[0], "cancel").await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, body) = list_delayed(&app, &alice).await;
+    let listed = listed_delay_ids(&body);
+    assert_eq!(listed.len(), 1, "a cancelled event must no longer be listed: {body}");
+    assert!(!listed.contains(&bob_id), "another user's event must never appear: {body}");
+
+    // A user with nothing pending gets an empty array, not an error.
+    let (status, body) = list_delayed(&app, &bob).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(listed_delay_ids(&body), vec![bob_id], "bob sees exactly his own: {body}");
+}

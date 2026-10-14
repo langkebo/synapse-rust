@@ -123,6 +123,18 @@ pub trait DelayedEventStorageApi: Send + Sync {
 
     /// Get all pending delayed events that are due (scheduled_ts <= now).
     async fn get_due_events(&self, now_ts: i64, limit: i64) -> Result<Vec<DelayedEvent>, ApiError>;
+
+    /// List one user's **pending** delayed events, oldest first.
+    ///
+    /// Backs the `GET .../org.matrix.msc4140/delayed_events` list endpoint.
+    /// Only `pending` rows are returned, matching upstream's `get_all_for_user`
+    /// (a settled row — `sent`/`cancelled`/`failed` — can no longer be acted on,
+    /// so listing it would only invite a client to try).
+    ///
+    /// Scoped to `user_id` in the query itself rather than filtered afterwards:
+    /// the endpoint must never be able to leak another user's delayed events, and
+    /// a filter that lives at the call site is one refactor away from not running.
+    async fn list_pending_delayed_events_for_user(&self, user_id: &str) -> Result<Vec<DelayedEvent>, ApiError>;
 }
 
 /// PostgreSQL implementation of `DelayedEventStorageApi`.
@@ -266,6 +278,28 @@ impl DelayedEventStorageApi for DelayedEventStorage {
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get due delayed events", e))?;
+
+        Ok(events)
+    }
+
+    async fn list_pending_delayed_events_for_user(&self, user_id: &str) -> Result<Vec<DelayedEvent>, ApiError> {
+        // `id ASC` = upstream's ordering by `delay_id`, so the list is stable and
+        // a client can diff successive calls.
+        let events = sqlx::query_as!(
+            DelayedEvent,
+            r#"
+            SELECT id, room_id, user_id, device_id, event_id, event_type,
+                   state_key, content, delay_ms, scheduled_ts, created_ts,
+                   status, retry_count, last_error
+            FROM delayed_events
+            WHERE user_id = $1 AND status = 'pending'
+            ORDER BY id ASC
+            "#,
+            user_id
+        )
+        .fetch_all(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Failed to list pending delayed events", e))?;
 
         Ok(events)
     }

@@ -1118,6 +1118,9 @@ EXPECTED_ANNOTATIONS = {
     ("DELETE", "/_matrix/client/v3/room_keys/keys/{room_id}/{session_id}"): {
         "query_params": "version"
     },
+    ("GET", "/_matrix/client/unstable/org.matrix.msc4140/delayed_events"): {
+        "auth": "user"
+    },
     ("GET", "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}"): {
         "auth": "user"
     },
@@ -1334,6 +1337,18 @@ EXPECTED_ANNOTATIONS = {
     ("POST", "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}"): {
         "auth": "user"
     },
+    (
+        "POST",
+        "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/cancel",
+    ): {"auth": "user"},
+    (
+        "POST",
+        "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/restart",
+    ): {"auth": "user"},
+    (
+        "POST",
+        "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/send",
+    ): {"auth": "user"},
     ("POST", "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"): {
         "rate_limit_exempt": True,
         "query_params": "pos,timeout,txn_id",

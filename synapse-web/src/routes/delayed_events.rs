@@ -32,12 +32,12 @@ use crate::routes::AppState;
 use axum::{
     extract::{Json, Path, State},
     http::HeaderMap,
-    routing::{get, put},
+    routing::{get, post, put},
     Router,
 };
 use serde_json::{json, Value};
 use synapse_common::ApiError;
-use synapse_services::delayed_event_service::DelayedEventAction;
+use synapse_services::delayed_event_service::{DelayedEvent, DelayedEventAction};
 
 /// MSC4140 — Schedule a delayed event through the dedicated endpoint.
 ///
@@ -199,17 +199,49 @@ pub(crate) async fn get_delayed_event(
     let request_id = crate::utils::auth::resolve_request_id(&headers);
     let event = ctx.delayed_event_service.get(delay_id, &auth_user.user_id, &request_id).await?;
 
+    Ok(Json(delayed_event_response(&event)))
+}
+
+/// Serialise one delayed event the way MSC4140 reports it.
+///
+/// Shared by the single-event and the list endpoint so the two can never drift:
+/// upstream serves both from the same `DelayedEventResponse.asdict()`.
+///
+/// Shape: `delay_id`, `room_id`, `type`, optional `state_key`, `delay_ms`,
+/// `delayed_since_ts` (the scheduling time), `content`. `state_key` is omitted
+/// when absent — upstream filters out `None` values rather than emitting `null`.
+fn delayed_event_response(event: &DelayedEvent) -> Value {
     let mut body = serde_json::Map::new();
     body.insert("delay_id".to_string(), json!(event.id));
     body.insert("room_id".to_string(), json!(event.room_id));
     body.insert("type".to_string(), json!(event.event_type));
-    if let Some(state_key) = event.state_key {
+    if let Some(state_key) = event.state_key.as_ref() {
         body.insert("state_key".to_string(), json!(state_key));
     }
     body.insert("delay_ms".to_string(), json!(event.delay_ms));
     body.insert("delayed_since_ts".to_string(), json!(event.created_ts));
-    body.insert("content".to_string(), event.content);
-    Ok(Json(Value::Object(body)))
+    body.insert("content".to_string(), event.content.clone());
+    Value::Object(body)
+}
+
+/// MSC4140 — List the caller's pending delayed events.
+///
+/// `GET /_matrix/client/unstable/org.matrix.msc4140/delayed_events`
+///
+/// Response is `{"delayed_events": [ … ]}` with the same per-item shape as the
+/// single-event GET. The caller's own events only — the filter is part of the
+/// storage query, not a post-filter (see `DelayedEventService::list_for_user`).
+///
+/// Upstream serves `from`/`limit` pagination from this endpoint but has not
+/// implemented it (`# TODO: Support Pagination stream API`), and this server
+/// matches that: no pagination parameters are read, and none are honoured.
+pub(crate) async fn list_delayed_events(
+    State(ctx): State<AdminContext>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    let events = ctx.delayed_event_service.list_for_user(&auth_user.user_id).await?;
+    let listed: Vec<Value> = events.iter().map(delayed_event_response).collect();
+    Ok(Json(json!({ "delayed_events": listed })))
 }
 
 /// MSC4140 Gen 1 — Manage a delayed event.
@@ -226,8 +258,6 @@ pub(crate) async fn manage_delayed_event(
     Path(delay_id): Path<i64>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let request_id = crate::utils::auth::resolve_request_id(&headers);
-
     // Parse action from untyped JSON so missing/invalid fields return M_BAD_JSON
     // (400) rather than axum's default 422 deserialization rejection.
     let action_str = body
@@ -236,23 +266,86 @@ pub(crate) async fn manage_delayed_event(
         .ok_or_else(|| ApiError::bad_request("Missing or invalid 'action' field (must be a string)".to_string()))?;
     let action = DelayedEventAction::parse(action_str)?;
 
+    apply_action(&ctx, &headers, &auth_user.user_id, delay_id, action).await
+}
+
+/// Apply one management action, returning MSC4140's empty-object success body.
+///
+/// Shared by the generic `POST …/{delay_id}` (action in the body) and the three
+/// convenience sub-paths `…/{delay_id}/{cancel,restart,send}` that upstream
+/// serves from separate servlets. Those are the *same* operation with the action
+/// fixed by the path, so they must not grow a second implementation — and in
+/// particular must not bypass the ownership check.
+async fn apply_action(
+    ctx: &AdminContext,
+    headers: &HeaderMap,
+    user_id: &str,
+    delay_id: i64,
+    action: DelayedEventAction,
+) -> Result<Json<Value>, ApiError> {
+    let request_id = crate::utils::auth::resolve_request_id(headers);
+
     // Ownership (fail-closed) and the pending-state transitions live in the
     // service; a foreign or missing delay_id both surface as M_NOT_FOUND.
-    ctx.delayed_event_service.manage(delay_id, action, &auth_user.user_id, &request_id).await?;
+    ctx.delayed_event_service.manage(delay_id, action, user_id, &request_id).await?;
 
     // MSC4140 success response is an empty JSON object.
     Ok(Json(json!({})))
 }
 
+/// MSC4140 — `POST …/delayed_events/{delay_id}/cancel`.
+///
+/// Upstream serves this from `CancelDelayedEventServlet`; the action is fixed by
+/// the path, so no request body is read (an empty body is expected, and one sent
+/// anyway is ignored — upstream does not parse it either).
+pub(crate) async fn cancel_delayed_event(
+    State(ctx): State<AdminContext>,
+    headers: HeaderMap,
+    auth_user: AuthenticatedUser,
+    Path(delay_id): Path<i64>,
+) -> Result<Json<Value>, ApiError> {
+    apply_action(&ctx, &headers, &auth_user.user_id, delay_id, DelayedEventAction::Cancel).await
+}
+
+/// MSC4140 — `POST …/delayed_events/{delay_id}/restart` (heartbeat).
+pub(crate) async fn restart_delayed_event(
+    State(ctx): State<AdminContext>,
+    headers: HeaderMap,
+    auth_user: AuthenticatedUser,
+    Path(delay_id): Path<i64>,
+) -> Result<Json<Value>, ApiError> {
+    apply_action(&ctx, &headers, &auth_user.user_id, delay_id, DelayedEventAction::Restart).await
+}
+
+/// MSC4140 — `POST …/delayed_events/{delay_id}/send` (send now).
+pub(crate) async fn send_delayed_event(
+    State(ctx): State<AdminContext>,
+    headers: HeaderMap,
+    auth_user: AuthenticatedUser,
+    Path(delay_id): Path<i64>,
+) -> Result<Json<Value>, ApiError> {
+    apply_action(&ctx, &headers, &auth_user.user_id, delay_id, DelayedEventAction::Send).await
+}
+
 /// MSC4140 router — mounts the delayed-events endpoints under the unstable
 /// namespace.
 ///
-/// Both surfaces live here because they are one feature: the dedicated
-/// scheduling endpoint and the management endpoints that act on the `delay_id`
-/// it returns.
+/// All surfaces live here because they are one feature: the dedicated scheduling
+/// endpoint, the read endpoints, and the management endpoints that act on the
+/// `delay_id` the scheduling endpoint returns.
+///
+/// The route list mirrors upstream's `register_servlets` in
+/// `synapse/rest/client/delayed_events.py` one-for-one, including the three
+/// `{delay_id}/{cancel,restart,send}` convenience paths — they exist so a client
+/// can name the operation in the path instead of in a body, and they resolve to
+/// the same `manage` call.
 pub fn create_delayed_events_router() -> Router<AppState> {
     Router::new()
+        .route("/delayed_events", get(list_delayed_events))
         .route("/delayed_events/{delay_id}", get(get_delayed_event).post(manage_delayed_event))
+        .route("/delayed_events/{delay_id}/cancel", post(cancel_delayed_event))
+        .route("/delayed_events/{delay_id}/restart", post(restart_delayed_event))
+        .route("/delayed_events/{delay_id}/send", post(send_delayed_event))
         .route("/rooms/{room_id}/delayed_event/{event_type}/{txn_id}", put(schedule_delayed_event))
 }
 

@@ -845,7 +845,11 @@ mod tests {
             vec![
                 "/_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}"
                     .to_string(),
-                "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}".to_string()
+                "/_matrix/client/unstable/org.matrix.msc4140/delayed_events".to_string(),
+                "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}".to_string(),
+                "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/cancel".to_string(),
+                "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/restart".to_string(),
+                "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/send".to_string()
             ]
         );
         assert_eq!(response.replication_streams, vec!["events".to_string()]);
