@@ -19,7 +19,7 @@
 | **已对齐，仅补测试或已有测试** | 20170（MSC4222 双拼写，`sync.rs:279` 已有测试）、20081（`state_events_since_batch_…`）、20143、20321 | §8 / §3.1 |
 | **结构性不适用（附本仓理由，非"没找到"）** | 20006、20202、20302、20312、20315、20328、20295、20322 | §3.1 / §10.2 |
 | **本轮新补（2026-10-14 第三轮）** | 20324（MSC4354 sticky expiry —— 原判"特性缺口"，现已实现） | §11.5 |
-| **未实施 —— 登记为待决策 / 独立特性** | 19354（专用调度端点）、20294（Clock 抽象） | §11.3 |
+| **未实施 —— 登记为待决策 / 独立特性** | 19354（专用调度端点，方案见 §11.7）、20294（Clock 抽象） | §11.7 / §11.3 |
 
 **当前宣告口径**：`/versions` 已宣告 `v1.1`…**`v1.17`**（唯一权威 =
 `synapse-services/src/capability_governance.rs` 的 `CLIENT_API_VERSION_SUPPORT`；
@@ -844,7 +844,7 @@ git grep -n 'CHANGELOG' -- .github/workflows scripts tests/unit
 
    **成本**：新增一条路由必须连带重生成契约链 —— 三张 `derived_route_table_*.inc.rs`、两份 fixtures + `manifest.json` 指纹、`docs/openapi/route-table.json`、`ROUTE_CONTRACT.md`、`route_ledger_*.snapshot`、以及 `docs/synapse-rust-vs-synapse-comparison.md` 的注册路由计数。另需决定是否把新路径加入 `DELAYED_EVENTS_WORKER_PATHS`：Guard B 用 `path.contains("delayed_events")` 过滤，而该路径是**单数** `delayed_event` ⇒ 不加也不会红，但语义上属同族（建议加入）。
 
-   **建议**：等 MSC4140 的 unstable 形态稳定后一次性做（上游自己仍在该 MSC 的 PR 之间调整），避免为一个仍在变动的路径付契约链重生成的全价。
+   **建议**：等 MSC4140 的 unstable 形态稳定后一次性做（上游自己仍在该 MSC 的 PR 之间调整），避免为一个仍在变动的路径付契约链重生成的全价。**2026-10-14 第三轮复核后的结论不变，但已给出可直接照做的实施方案（含 handler 设计、契约链重生成清单、以及一个必须先定的产品决策）→ §11.7。**
 
 2. ~~**20324：MSC4354 的 expiry 特性**~~ —— **2026-10-14 第三轮已实施**，见 §11.5（不再是待决策项）。
 
@@ -976,3 +976,83 @@ cargo nextest run --test integration --all-features --locked -E 'test(history_vi
 ⇒ **`cargo clippy --features test-utils` 编译不到这个目标**（Cargo 直接跳过），只有 `--all-features` 才编译。
 20324 批次因此漏改了 `tests/integration/api_sticky_event_tests.rs`（5 参调用 + 旧结构体字面量），
 本批一并修复。**教训**：本仓的"工作区 clippy"必须带 `--all-features`，否则整个 integration 目标被静默跳过。
+
+---
+
+### 11.7 19354（MSC4140 专用调度端点）—— 本轮未实施，给出可执行方案
+
+**为什么不做**：这是唯一仍未对齐的**产品**面，但它是一条**路由面**变更 —— 真实成本不是 handler（约 80 行），
+而是整条契约链（3 张 `derived_route_table_*.inc.rs` + 6 份 fixtures + 2 份 `route_ledger_*.snapshot` +
+`docs/openapi/route-table.json` + `ROUTE_CONTRACT.md` + 对比文档计数 + `ledger_annotations.txt`）。
+只做一半，正是本文件 §「生成物漏刷」记录过的**最高频既有红形态**。故本轮把方案写死，留给独立批次。
+
+**handler 设计（可直接照做）**
+
+- 路径：`PUT /_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}`
+  —— 加到 `create_delayed_events_router()` 即可，它已经被 `assembly.rs:257` nest 在
+  `/_matrix/client/unstable/org.matrix.msc4140` 之下，拼出来就是上游的同一条路径。
+- 签名：`State<AdminContext>` + `HeaderMap` + `AuthenticatedUser` + `Path<(RoomId, String, String)>` + `Json<Value>`；
+  先 `ensure_room_member_admin(...)`（`AdminContext` 版本，见 `room_access.rs:77`），再 `normalize_room_event_type(&event_type)`。
+- 请求体：`delay_ms` 必填正整数且 ≤ `86_400_000`；`content` 必填对象；`state_key` 可选字符串；
+  `org.matrix.msc4354.sticky_duration_ms` 可选整数（见下）。
+- 响应：`{"delay_id": <数字>}` —— 与上游的**字符串**形态**有意不同**：本仓 `delay_id` 是 `BIGSERIAL` i64，
+  同族的 `GET`/`POST /delayed_events/{delay_id}` 用 `Path<i64>` 解析，返回字符串会让本仓自己的管理端点无法消费。
+- 幂等：缓存键 `msc4140-delayed-event:{user}:{room}:{txn}` → `{"delay_id": N}`（ttl 1h）。
+  **前缀必须与 `/send` 的 `txn:` 区分**：那个命名空间存的是**立即发送**的 event_id，共用会让同 txn 的普通 `/send` 顶掉调度调用。
+- **`sticky_duration_ms` 本批不支持**：`delayed_events` 表没有该列，能诚实的只有两条路 ——
+  ① 加列并在 dispatcher 真正发出事件时调用 `set_is_sticky_event(...)`（会连带第二次 schema 变更：
+  基线指纹 + `.sqlx`，值得单独一个 commit）；② 明确返回 501。
+  **唯独不能"收下但忽略"** —— 那是静默丢弃客户端要求的行为，正是 20324 想消灭的那类不一致。
+
+**契约链重生成清单（顺序不可反，每步都有门禁）**
+
+1. `scripts/contract/ledger_annotations.txt` **同时**改 `extract_registered.py` 的 `EXPECTED_ANNOTATIONS`
+   （两者须逐键相等）；新行：`PUT /_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}` + `auth=user`
+   （提取器推不出 auth，照抄同族两条 MSC4140 端点的写法）。
+2. `python3 scripts/contract/gen_derived_routes.py --bootstrap`（fixture 与源码面同时变化时会死锁在 `verify_fixtures()`）。
+3. 重导 fixtures：`cargo build --bin synapse_ledger_export`（**default features**）
+   → `--profile={default,worker,all}` × 两个 lane（sdk lane 另加 `--features all-extensions`），
+   钉 `--timestamp=2026-05-02T00:00:00Z --commit=000…0`。
+4. `tests/integration/snapshots/route_ledger_{default,worker_enabled}.snapshot`（**最常漏**）。
+5. `python3 scripts/contract/gen_contract_doc.py` → `docs/synapse-rust/ROUTE_CONTRACT.md`。
+6. `docs/openapi/route-table.json`：输入必须是 **CI 口径**（default-feature 新鲜导出 + `FIXED_TIMESTAMP`）。
+7. `docs/synapse-rust-vs-synapse-comparison.md` 的 `N 条注册路由` 计数（守卫
+   `doc_credibility_guard_tests::counts_match_the_route_contract`）。
+8. 最后手动 `bash scripts/contract/check_route_contract.sh` —— **preflight 在改动集触及契约链文件时会 SKIP 契约 gate，exit 0 不等于契约链绿**。
+9. 决定是否把新路径加入 `DELAYED_EVENTS_WORKER_PATHS`（Guard B 用 `path.contains("delayed_events")`，
+   而新路径是**单数** `delayed_event` ⇒ 不加不会红，但语义上同族；建议加入）。
+
+### 11.8 本轮复核中发现、**与本方案无关**的既有红（勿误判为回归）
+
+CI 在**本批改动之前**的 HEAD（`cc56d479e`，run 38509545932）已有 3 个 job 失败：
+
+| 失败 job | 根因（CI 日志原文） |
+| --- | --- |
+| `Repo Sanity` | `file_size: 779 files scanned, 257 over 500 (baseline 253)` —— `scripts/ci/check_file_size_ratchet.py` 被顶红（`capability_governance.rs: 1016 -> 1197`、`application_service/*`、`sync_service/*`） |
+| `Test & Lint (*)` | `check_dashboard_metrics.py` 新增 1 条 No-data 面板指标 `synapse_storage_stream_current_position`（`storage-performance.json`） |
+| `OpenAPI Artifact` | `client.yaml + route-table.json` 与源码不一致 |
+
+本地另有 4 类（属环境伪影或待定性）：
+
+- `ci_test_scope_tests::*` 两条：用例内部 `Command::new("bash")` 跑 grep，子进程落到 CLI 前置的 toybox shim；
+  **实证**：同一条 `grep -rnE '\bunsafe…'` toybox 得 0 行、`/usr/bin/grep` 得 2 行 ⇒ 在 HEAD 上本来就红。
+- `sqlx_ratio_gate_tests::*` 4 条：file-broker 拦 `synapse-services/src/builtin_oidc_provider.rs` 导致 census 子进程崩；
+  `PYTHONPATH=<pyshim> SYNAPSE_BROKER_ROOT=$PWD` 复跑即绿。
+- `sqlx_dynamic_literal_guard_tests::no_new_production_literal_dynamic_sql`：报
+  `synapse-e2ee/src/megolm/storage/db_tests.rs` 6 处"生产区"字面量，而该文件**未被本批改动**，
+  且 `sqlx_query_census.py`（内部无子进程）独立复现同一误判 ⇒ 疑似 `#[cfg(test)] mod x;` 写在
+  **非 `mod.rs`** 文件里时模块路径解析有误。**未改**：修它要同时下调棘轮基线，应单独批次。
+- `api_route_snapshots_tests::{snapshot_versions_endpoint, snapshot_capabilities_v3}`：
+  差异为 `org.matrix.msc3245: true → false` 与 `m.room.summary.enabled: true → false`。
+  两者由**路由面**推导（`capability_governance.rs::msc3245_capability` / `room_summary_capability`
+  → `manifest_has_route("GET", "/_matrix/client/v3/rooms/{room_id}/summary")`），而该路由确实存在于
+  `derived_route_table_always.inc.rs`（17 处命中），`collect_route_surface()`（`handlers/versions.rs:52`）
+  取自 `assembly::declared_ledger_all()` ⇒ 待查该函数为何不吐这条路由。**未更新快照** ——
+  更新等于把"能力被少报"钉成契约；应先查清 `declared_ledger_all()`。
+  归属证据：本批改动未触及任何 versions / capabilities / 派生表文件。
+
+**其中 file_size 棘轮对本仓有直接约束**：`synapse-storage/src/event/state.rs` 原为 **487 行**
+（阈值 500，且不在 `scripts/ci/file_size_baseline` 里）⇒ 往里加任何查询都会让它成为**新的超限文件**，
+把计数从 257 推到 258。本批因此把历史可见性边界查询放进新模块
+`synapse-storage/src/event/history_boundary.rs`（51 行），`state.rs` 回到 487 行，棘轮维持 `257 (baseline 253)`。
+**改本仓任何"已经接近 500 行"的文件前，先跑一次棘轮脚本比对数字。**
