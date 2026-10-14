@@ -39,6 +39,7 @@
 //!   the same reason), so events during the gap are visible here.
 
 use super::service::MessagingService;
+use std::collections::HashMap;
 use synapse_common::ApiError;
 
 /// The state event that carries the policy.
@@ -115,49 +116,116 @@ impl HistoryCut {
     }
 }
 
-impl MessagingService {
-    /// The room's effective history visibility.
-    ///
-    /// Read from the **current `m.room.history_visibility` state event**, not from
-    /// the `rooms.history_visibility` projection: the projection is written at
-    /// room creation and by room-summary updates, so a client that changes the
-    /// value later (it is an ordinary state event with power level 100) would keep
-    /// being judged by the stale copy.
-    ///
-    /// No state event ⇒ [`HistoryVisibility::Shared`], the same fail-open default
-    /// [`HistoryVisibility::parse`] applies to an unreadable value.
-    async fn room_history_visibility(&self, room_id: &str) -> Result<HistoryVisibility, ApiError> {
-        let state_event = self
-            .event_reader
-            .get_state_event(room_id, HISTORY_VISIBILITY_EVENT_TYPE, "")
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to get room history visibility", e))?;
-
-        let raw = state_event
-            .as_ref()
-            .and_then(|event| event.content.get("history_visibility"))
-            .and_then(|value| value.as_str());
-
-        Ok(raw.map_or(HistoryVisibility::Shared, HistoryVisibility::parse))
+/// The rule, expressed against any [`EventReader`].
+///
+/// This is **the** implementation: `MessagingService` (`/messages`、`/event`、`/context`)、
+/// `SyncService`（`/sync` 时间线）与 `SearchService`（`/search`）都调它，避免同一判定出现
+/// 第二份实现 —— 读路径各写一份是本缺口最初能长期存在的原因。
+///
+/// 一个 `invited`/`joined` 房间多一次边界查询；`shared`/`world_readable`（绝大多数）**零额外查询**。
+pub(crate) async fn history_cut_with(
+    reader: &dyn synapse_storage::event::EventReader,
+    room_id: &str,
+    user_id: &str,
+) -> Result<HistoryCut, ApiError> {
+    let visibility = room_history_visibility(reader, room_id).await?;
+    if !visibility.restricts_history() {
+        return Ok(HistoryCut::Unrestricted);
     }
 
-    /// What `user_id` may see of `room_id`'s history.
-    ///
-    /// One extra query for `invited`/`joined` rooms and **no** extra query for
-    /// `shared`/`world_readable`, which is the overwhelming majority.
-    pub(crate) async fn history_cut(&self, room_id: &str, user_id: &str) -> Result<HistoryCut, ApiError> {
-        let visibility = self.room_history_visibility(room_id).await?;
-        if !visibility.restricts_history() {
-            return Ok(HistoryCut::Unrestricted);
-        }
+    let boundary = reader
+        .get_membership_boundary_stream_ordering(room_id, user_id, visibility.counts_invites())
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Failed to resolve history visibility boundary", e))?;
 
-        let boundary = self
-            .event_reader
-            .get_membership_boundary_stream_ordering(room_id, user_id, visibility.counts_invites())
+    Ok(boundary.map_or(HistoryCut::NOTHING, HistoryCut::From))
+}
+
+/// [`history_cut_with`] for many rooms at once, batched.
+///
+/// 一次 `/sync` / 一页 `/search` 会覆盖多个房间，逐房间照搬单房间规则要 **2N** 次查询；
+/// 这里改成 ① 一次 `get_state_events_by_type_batch` 取全部房间的可见性值，
+/// ② 只对 `invited`/`joined` 的房间再做边界查询。`shared` 是房间版本默认值，
+/// 故绝大多数调用的第二步**执行 0 次**。
+pub(crate) async fn history_cuts_for_rooms(
+    reader: &dyn synapse_storage::event::EventReader,
+    room_ids: &[String],
+    user_id: &str,
+) -> Result<HashMap<String, HistoryCut>, ApiError> {
+    if room_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let state_by_room = reader
+        .get_state_events_by_type_batch(room_ids, HISTORY_VISIBILITY_EVENT_TYPE)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Failed to read room history visibility", e))?;
+
+    let mut cuts: HashMap<String, HistoryCut> = HashMap::with_capacity(room_ids.len());
+    let mut restrictive: Vec<(String, bool)> = Vec::new();
+
+    for room_id in room_ids {
+        if let Some(cut) = cuts.get(room_id) {
+            // 同一房间可能被调用方重复传入（例如某一页里同一房间多条命中）。
+            let _ = cut;
+            continue;
+        }
+        let visibility = visibility_from_state_events(state_by_room.get(room_id));
+        if visibility.restricts_history() {
+            restrictive.push((room_id.clone(), visibility.counts_invites()));
+        } else {
+            cuts.insert(room_id.clone(), HistoryCut::Unrestricted);
+        }
+    }
+
+    for (room_id, include_invites) in restrictive {
+        let boundary = reader
+            .get_membership_boundary_stream_ordering(&room_id, user_id, include_invites)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to resolve history visibility boundary", e))?;
+        cuts.insert(room_id, boundary.map_or(HistoryCut::NOTHING, HistoryCut::From));
+    }
 
-        Ok(boundary.map_or(HistoryCut::NOTHING, HistoryCut::From))
+    Ok(cuts)
+}
+
+/// The room's effective history visibility, read from the **current
+/// `m.room.history_visibility` state event**.
+///
+/// 不读 `rooms.history_visibility` 投影：投影只在建房与 summary 更新时写，客户端事后改
+/// 可见性（power level 100 的普通状态事件）会被旧值误判。
+///
+/// No state event ⇒ [`HistoryVisibility::Shared`], the same fail-open default
+/// [`HistoryVisibility::parse`] applies to an unreadable value.
+async fn room_history_visibility(
+    reader: &dyn synapse_storage::event::EventReader,
+    room_id: &str,
+) -> Result<HistoryVisibility, ApiError> {
+    let state_event = reader
+        .get_state_event(room_id, HISTORY_VISIBILITY_EVENT_TYPE, "")
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Failed to get room history visibility", e))?;
+
+    Ok(visibility_from_state_event(state_event.as_ref()))
+}
+
+/// 从一条 `m.room.history_visibility` 状态事件取策略。见 [`room_history_visibility`] 的默认值说明。
+fn visibility_from_state_event(event: Option<&synapse_storage::event::StateEvent>) -> HistoryVisibility {
+    event
+        .and_then(|event| event.content.get("history_visibility"))
+        .and_then(|value| value.as_str())
+        .map_or(HistoryVisibility::Shared, HistoryVisibility::parse)
+}
+
+/// 从批量查询结果里取策略（每个房间至多一条：该状态事件只有空 state key）。
+fn visibility_from_state_events(events: Option<&Vec<synapse_storage::event::StateEvent>>) -> HistoryVisibility {
+    visibility_from_state_event(events.and_then(|events| events.first()))
+}
+
+impl MessagingService {
+    /// What `user_id` may see of `room_id`'s history. See [`history_cut_with`].
+    pub(crate) async fn history_cut(&self, room_id: &str, user_id: &str) -> Result<HistoryCut, ApiError> {
+        history_cut_with(&*self.event_reader, room_id, user_id).await
     }
 }
 

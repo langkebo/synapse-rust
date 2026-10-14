@@ -10,13 +10,10 @@
 //! (initial, `since`-less) sync handed them the pre-join history automatically.
 
 use super::SyncService;
-use crate::room::messaging::history_visibility::{HistoryCut, HistoryVisibility};
+use crate::room::messaging::history_visibility::HistoryCut;
 use std::collections::HashMap;
 use synapse_common::ApiError;
 use synapse_storage::event::RoomEvent;
-
-/// The state event that carries the policy.
-const HISTORY_VISIBILITY_EVENT_TYPE: &str = "m.room.history_visibility";
 
 impl SyncService {
     /// Resolve every room's [`HistoryCut`] for `user_id`.
@@ -37,48 +34,9 @@ impl SyncService {
         room_ids: &[String],
         user_id: &str,
     ) -> Result<HashMap<String, HistoryCut>, ApiError> {
-        if room_ids.is_empty() {
-            return Ok(HashMap::new());
-        }
-
-        let state_by_room = self
-            .event_reader
-            .get_state_events_by_type_batch(room_ids, HISTORY_VISIBILITY_EVENT_TYPE)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to read room history visibility", e))?;
-
-        let mut cuts: HashMap<String, HistoryCut> = HashMap::with_capacity(room_ids.len());
-        let mut restrictive: Vec<(String, bool)> = Vec::new();
-
-        for room_id in room_ids {
-            // `m.room.history_visibility` has a single state key (the empty one),
-            // so "the current value" is the only row this can return; a missing or
-            // unparsable value falls back to `shared` exactly as the single-room
-            // rule does.
-            let visibility = state_by_room
-                .get(room_id)
-                .and_then(|events| events.first())
-                .and_then(|event| event.content.get("history_visibility"))
-                .and_then(|value| value.as_str())
-                .map_or(HistoryVisibility::Shared, HistoryVisibility::parse);
-
-            if visibility.restricts_history() {
-                restrictive.push((room_id.clone(), visibility.counts_invites()));
-            } else {
-                cuts.insert(room_id.clone(), HistoryCut::Unrestricted);
-            }
-        }
-
-        for (room_id, include_invites) in restrictive {
-            let boundary = self
-                .event_reader
-                .get_membership_boundary_stream_ordering(&room_id, user_id, include_invites)
-                .await
-                .map_err(|e| ApiError::internal_with_cause("Failed to resolve history visibility boundary", e))?;
-            cuts.insert(room_id, boundary.map_or(HistoryCut::NOTHING, HistoryCut::From));
-        }
-
-        Ok(cuts)
+        // 实现在 `room::messaging::history_visibility::history_cuts_for_rooms`（单一来源，
+        // 与 `/messages`、`/search` 共用）；本方法只负责把 `event_reader` 递过去。
+        crate::room::messaging::history_visibility::history_cuts_for_rooms(&*self.event_reader, room_ids, user_id).await
     }
 
     /// Drop the timeline entries a room's policy hides from the caller.

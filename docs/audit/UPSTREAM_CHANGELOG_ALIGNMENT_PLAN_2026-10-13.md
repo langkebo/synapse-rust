@@ -850,7 +850,7 @@ git grep -n 'CHANGELOG' -- .github/workflows scripts tests/unit
 
 3. **20294：统一 `Clock` 抽象**（可选项）。测试替身已注入时钟（`test_mocks/rendezvous.rs:42` 的 `clock: Arc<Mutex<i64>>`，读到即自增），生产侧没有统一抽象。若将来要断言 `routes/rendezvous.rs` 生成的 `message_id` / `sent_ts` 的确定性，才需要引入；否则纯属重构。
 
-4. ~~**历史可见性强制执行**~~ —— **2026-10-14 第三轮已实施 5 条读路径**，见 §11.6。`/search`、`/notifications` **仍未接入**（理由见该节表格）。
+4. ~~**历史可见性强制执行**~~ —— **2026-10-14 第三轮已实施 6 条读路径**，见 §11.6。`/notifications` 判为**结构性不适用**、unread 计数另有一处缺口（均见该节表格）。
 
 ### 11.4 与本方案无关、但复核中确认的两条环境事实
 
@@ -916,7 +916,7 @@ cargo nextest run --test unit --features test-utils --locked \
 
 ---
 
-### 11.6 第三轮（2026-10-14）：`m.room.history_visibility` 强制执行（5 条读路径）
+### 11.6 第三轮（2026-10-14）：`m.room.history_visibility` 强制执行（6 条读路径）
 
 **原判定**（§11.3 第 4 条，由 §10.2 的 20295 判定顺带发现）：该值被存储、被回显、被当作鉴权事件保护，但**从未在任何读端点上强制执行** —— 任何当前成员都能翻到房间创建以来的全部历史，包括自己加入之前的一切。
 
@@ -932,19 +932,22 @@ cargo nextest run --test unit --features test-utils --locked \
 - **规则来源**：上游 `synapse/visibility.py::_check_membership`（本轮实测拉取原文核对）。上游按"**事件发生那一刻**的成员身份"判定；本仓没有为每个事件保留 state group，故把同一判定表达为**一条 stream-ordering 边界**（房间可见性值不变时二者等价）。
 - **策略真源**：读**当前 `m.room.history_visibility` state event**，不读 `rooms.history_visibility` 投影 —— 投影只在建房与 summary 更新时写，客户端事后改可见性（power level 100 的普通状态事件）会被旧值误判。
 - **边界查询**：新增 `EventReader::get_membership_boundary_stream_ordering`（实现落 `synapse-storage/src/event/history_boundary.rs`），对 `m.room.member` 取 `MIN(stream_ordering)`。`None`（从未被邀请/加入）⇒ **什么都看不到**，不是"全都能看"。
-- **已接入的读路径**（5 条）：
+- **已接入的读路径**（6 条）：
   1. `GET /rooms/{roomId}/messages`（`MessagingService::get_room_messages`）—— 只过滤**返回页**，分页游标仍取自未过滤页，避免客户端在"加入前历史"上原地打转；
   2. `GET /rooms/{roomId}/event/{eventId}`（新增 `MessagingService::get_event_for_client`）—— 边界外的事件返回 **404** 而非 403，否则该端点会变成"这个事件存在但你无权看"的预言机；
   3. `GET /rooms/{roomId}/context/{eventId}` —— 目标事件走同一个 `get_event_for_client`；
   4. `GET /sync` 时间线（`sync_service/history_visibility.rs`，`d1b454d5c`）—— **曾经是唯一不需要客户端任何动作就会泄露的路径**：新成员首次（无 `since` 的）sync 会自动拿到加入前时间线。裁剪发生在 `apply_timeline_limit` **之前**，使 `limited` 描述"调用者可读的这一页"；
   5. `GET /rooms/{roomId}/relations/{eventId}/{relType}`（`RelationsService::get_relations`，本批）—— 裁剪在**派生分页游标之前**，游标因此只指向可见切片（否则"跳过一条被隐藏的 relation"会连带跳过一条可见的）。`get_relations` 的 `user_id` 是**必填参数**（不是 `Option`），即规则不可因"忘记传调用者"而被绕过。
+  6. `POST /search`（`SearchService::search_room_events`）—— 存储查询把 `stream_ordering` 带出到 `SearchRoomEvent`（`#[serde(skip)]`，**不改变响应形状**），服务按页内出现过的房间**批量**求 cut 后裁剪；`next_batch` 仍由未过滤页导出。
+- **连带修掉一个缓存缺陷**（由 `/search` 的测试暴露）：`/search` 的缓存键是 `(user, term, limit, next_batch)`，**不含可见性** ⇒ 一次 `shared → joined` 变更后，缓存会继续吐出**加入前的命中**直到条目过期（`m.room.history_visibility` 是普通状态事件，客户端随时可改）。修法：新增 `SearchService::has_restrictive_room`，**只要调用者参与的房间里有任何受限策略就完全绕过缓存**（读与写都绕），并把该调用**失败即视为受限**（fail-closed）—— 内部错误不能变成"静默地按无策略判定"。全 `shared` 的常见情形缓存照旧生效。
+- **规则只有一份实现**：`room::messaging::history_visibility::{history_cut_with, history_cuts_for_rooms}` 是唯一实现，`/messages`、`/event`、`/context`（`MessagingService::history_cut`）、`/sync`（`SyncService::history_cuts`）、`/search` 都调它。读路径各写一份正是本缺口能长期存在的原因。
 
 **仍未接入**：
 
-| 端点 | 为什么没做 |
+| 端点 | 判定 |
 | --- | --- |
-| `/search` | `search_joined_room_events` 的结果结构体里没有 `stream_ordering`，要先把该列带出到结果类型（改存储层返回类型） |
-| `/notifications` | 通知事件的装配点独立，且其"未读"计数与可见性裁剪的交互需要单独定义（裁剪掉的通知是否计入 unread？） |
+| `/notifications` | **结构性不适用**（不需要接入）。`notifications` 表只由**显式推送**写入：生产调用链只有 `push/service.rs:341`（`PushNotificationService::send_notification`，由 `/_synapse/…` 推送端点触发），**事件管线不写这张表**（本仓与既有结论一致：没有服务端推送规则评估引擎）。⇒ 房间里发生的事件根本不会给"后加入的成员"产出一行 ⇒ 没有"加入前的通知"可供裁剪。**不发散地加过滤器**：加了只会造成"已覆盖"的错觉，并可能破坏"通知是发给某人的"这一语义。 |
+| unread 计数（`/sync`、sliding sync） | ⚠️ **另有一处真实缺口，未修**：`get_unread_counts`（`synapse-storage/src/event/unread.rs:25`）用 `read_markers` 的时间戳当窗口下界，**没有可见性下界**。新加入的成员在该房间**没有 read marker** ⇒ `last_read_ts = 0` ⇒ `notification_count` 会把**加入前**的非状态事件也数进去（计入条件是「非自己发送 + 非状态事件 + 时间戳晚于窗口下界」）。这是通过**计数**而非通过列表泄露的（较轻微，但确实是错的值）。**规则**：把窗口下界 clamp 到"该用户可见的最早事件"，即取 `GREATEST(read_marker_ts, 边界成员事件的 origin_server_ts)` —— 计数是时间戳口径，故需要边界事件的 `origin_server_ts`（现有的边界查询只回 `stream_ordering`，要一并带出）。**未做的原因**：属独立改动（改 `unread.rs` 的两个查询 + `get_unread_counts_batch` 的签名 + sync 的接线），且**不影响"列表是否泄露"**，故单列。 |
 
 ⇒ §11.6 初次落地时记的"**首次 `/sync` 会泄露加入前时间线**"这一条**已关闭**。
 
@@ -963,9 +966,9 @@ export TEST_DATABASE_URL=$DATABASE_URL TEST_DB_TEMPLATE_SCHEMA=test_template_ci 
 cargo nextest run --test integration --all-features --locked -E 'test(history_visibility)'
 ```
 
-`tests/integration/api_history_visibility_tests.rs` 共 5 条真实路由测试：`joined` 隐藏加入前消息**且保留**加入后消息、创建者仍看得见全部（证明边界是**按调用者**的）、切回 `shared` 恢复历史；`invited` 下"从未被邀请者"仍受自己的 join 边界约束；单事件读对被隐藏事件返回 404；**`/sync`** 时间线同样隐藏加入前消息；**`/relations`** 对加入前发出的 annotation 同样隐藏。
+`tests/integration/api_history_visibility_tests.rs` 共 6 条真实路由测试：`joined` 隐藏加入前消息**且保留**加入后消息、创建者仍看得见全部（证明边界是**按调用者**的）、切回 `shared` 恢复历史；`invited` 下"从未被邀请者"仍受自己的 join 边界约束；单事件读对被隐藏事件返回 404；**`/sync`** 时间线同样隐藏加入前消息；**`/relations`** 对加入前发出的 annotation 同样隐藏；**`/search`** 对加入前写入的命中同样隐藏（这条同时钉住了上面的缓存缺陷：若缓存仍被使用，该用例在"先 `shared` 后 `joined`"的顺序下必然失败）。
 
-**变异自证（红 → 还原 → 绿，四条）**：
+**变异自证（红 → 还原 → 绿，五条）**：
 
 | 变异 | 期望 | 实测 |
 | --- | --- | --- |
@@ -973,8 +976,9 @@ cargo nextest run --test integration --all-features --locked -E 'test(history_vi
 | `get_event_for_client` 的边界检查恒假 | `single_event_read_…` 转红 | ✅ 红（同批 3 条全红） |
 | `/sync` 的接线换成 `HistoryCut::Unrestricted` | `sync_timeline_…` 转红 | ✅ 红：`joined` visibility must hide pre-join history from /sync as well |
 | `/relations` 的过滤谓词恒真 | `relations_hide_annotations_…` 转红 | ✅ 红：`joined` must hide annotations made before the caller joined |
+| `/search` 的过滤谓词恒真 | `search_hides_hits_…` 转红 | ✅ 红：`joined` must hide search hits from before the caller joined |
 
-四条均从备份 `cp` 还原、`sha256sum` 比对一致、`grep -c MUTATION` 为 0。
+五条均从备份 `cp` 还原、`sha256sum` 比对一致、`grep -c MUTATION` 为 0。
 
 **`/sync` 的实现要点（性能）**：`SyncService::history_cuts` 是**批量**的 —— 一次 sync 覆盖所有 joined 房间，逐房间照搬单房间规则要 2N 次查询；实现改为 ① 一次 `get_state_events_by_type_batch` 取全部房间的可见性值，② 只对 `invited`/`joined` 的房间再做边界查询。`shared` 是房间版本默认值，故绝大多数 sync 的第二步**执行 0 次**。它被并进既有的 `tokio::try_join!`（与其余房间数据同一轮往返，不增加串行等待）。
 

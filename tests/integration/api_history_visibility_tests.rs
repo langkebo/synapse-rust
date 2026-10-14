@@ -191,6 +191,70 @@ async fn relations_hide_annotations_created_before_the_caller_joined() {
     );
 }
 
+/// `POST /search` for a `room_events` term, returning the `event_id`s it matched.
+async fn search_event_ids(app: &axum::Router, token: &str, term: &str) -> Vec<String> {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/search")
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "search_categories": { "room_events": { "search_term": term } } }).to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "/search must succeed");
+
+    let body = axum::body::to_bytes(response.into_body(), 2 * 1024 * 1024).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    json["search_categories"]["room_events"]["results"]
+        .as_array()
+        .expect("/search must return a results array")
+        .iter()
+        .filter_map(|hit| hit["result"]["event_id"].as_str().map(ToOwned::to_owned))
+        .collect()
+}
+
+/// A search hit is an ordinary room event, so one from before the caller was
+/// involved must not be served either — otherwise `/search` becomes the way to
+/// read pre-join history that `/messages` and `/sync` now hide.
+#[tokio::test]
+async fn search_hides_hits_from_before_the_caller_joined() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let alice = super::create_test_user(&app).await;
+    let room_id = create_public_room(&app, &alice).await;
+
+    // A term that appears only in these two messages, so the hit set is exactly
+    // what this test put there.
+    let term = "zqxjvp";
+    let before_bob = send_message(&app, &alice, &room_id, "q1", &format!("{term} before")).await;
+    let bob = super::create_test_user(&app).await;
+    join_room(&app, &bob, &room_id).await;
+    let after_bob = send_message(&app, &alice, &room_id, "q2", &format!("{term} after")).await;
+
+    // Precondition: under the creation default (`shared`) both are searchable —
+    // otherwise the assertion below proves nothing about the policy.
+    let shared = search_event_ids(&app, &bob, term).await;
+    assert!(
+        shared.contains(&before_bob) && shared.contains(&after_bob),
+        "precondition: `shared` must expose both search hits: {shared:?}"
+    );
+
+    assert_eq!(set_history_visibility(&app, &alice, &room_id, "joined").await, StatusCode::OK);
+
+    let joined = search_event_ids(&app, &bob, term).await;
+    assert!(joined.contains(&after_bob), "a hit from after the join must stay visible: {joined:?}");
+    assert!(!joined.contains(&before_bob), "`joined` must hide search hits from before the caller joined: {joined:?}");
+
+    // Control: the creator was in the room before both messages.
+    let alice_ids = search_event_ids(&app, &alice, term).await;
+    assert!(
+        alice_ids.contains(&before_bob) && alice_ids.contains(&after_bob),
+        "the creator must keep seeing both hits: {alice_ids:?}"
+    );
+}
+
 /// The `event_id`s of one room's timeline in an initial `/sync`.
 async fn sync_timeline_event_ids(app: &axum::Router, token: &str, room_id: &str) -> Vec<String> {
     let request = Request::builder()

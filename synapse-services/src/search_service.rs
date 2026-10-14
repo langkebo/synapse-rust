@@ -209,6 +209,13 @@ pub struct SearchRoomEvent {
     pub content: Value,
     /// The `origin_server_ts` field.
     pub origin_server_ts: i64,
+    /// The event's `stream_ordering` — **internal only**.
+    ///
+    /// Carried so the service can evaluate `m.room.history_visibility` (the rule is
+    /// defined on stream positions). `serde(skip)` keeps it out of the client
+    /// response: the search result shape must not change.
+    #[serde(skip)]
+    pub stream_ordering: Option<i64>,
 }
 
 /// The `SearchRoomEventsPage` struct.
@@ -796,6 +803,34 @@ impl SearchService {
         Ok(())
     }
 
+    /// Whether **any** room this user is in carries a restrictive
+    /// `m.room.history_visibility`.
+    ///
+    /// `/search` caches its assembled page under `(user, term, limit, next_batch)`
+    /// — a key that knows **nothing** about visibility. Serving such an entry after
+    /// a room flips `shared → joined` would keep handing out pre-join hits until
+    /// the entry expires, so the caller must either bypass the cache entirely or
+    /// prove the policy cannot matter. This answers the latter: when no room the
+    /// user is in restricts history, the cached page is policy-independent.
+    ///
+    /// Fails **closed** at the call site (`unwrap_or(true)` on error means "assume
+    /// restrictive ⇒ skip the cache"): an internal error must not turn into a
+    /// silently policy-blind cache hit.
+    pub async fn has_restrictive_room(&self, user_id: &str) -> ApiResult<bool> {
+        let room_storage = self.room_storage()?;
+        let event_storage = self.event_storage()?;
+        let rooms = room_storage
+            .get_user_rooms(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to get joined rooms", e))?;
+        if rooms.is_empty() {
+            return Ok(false);
+        }
+        let cuts =
+            crate::room::messaging::history_visibility::history_cuts_for_rooms(&event_storage, &rooms, user_id).await?;
+        Ok(cuts.values().any(|cut| *cut != crate::room::messaging::history_visibility::HistoryCut::Unrestricted))
+    }
+
     /// See [`is_enabled`].
     pub fn is_enabled(&self) -> bool {
         self.enabled
@@ -879,24 +914,50 @@ impl SearchService {
 
         let has_more = rows.len() > limit as usize;
         let visible_rows = if has_more { &rows[..limit as usize] } else { &rows[..] };
+
+        // `m.room.history_visibility`：调用者加入之前发生的命中不得返回。
+        // 只对本页出现的房间求 cut（批量：一次状态查询 + 每个受限房间一次边界查询），
+        // 且只过滤**返回集** —— 下面的 next_batch 仍由未过滤页导出，否则客户端会在
+        // "全是隐藏命中"的页上原地打转。
+        let page_rooms: Vec<String> = {
+            let mut rooms: Vec<String> = visible_rows.iter().map(|row| row.1.clone()).collect();
+            rooms.sort();
+            rooms.dedup();
+            rooms
+        };
+        let cuts =
+            crate::room::messaging::history_visibility::history_cuts_for_rooms(&event_storage, &page_rooms, user_id)
+                .await?;
+
         let results = visible_rows
             .iter()
-            .map(|(event_id, room_id, sender, event_type, content, origin_server_ts)| SearchRoomEvent {
-                event_id: event_id.clone(),
-                room_id: room_id.clone(),
-                sender: sender.clone(),
-                event_type: event_type.clone(),
-                content: content.clone(),
-                origin_server_ts: *origin_server_ts,
+            .filter(|row| {
+                cuts.get(&row.1)
+                    .copied()
+                    .unwrap_or(crate::room::messaging::history_visibility::HistoryCut::Unrestricted)
+                    .allows(row.6)
+            })
+            .map(|(event_id, room_id, sender, event_type, content, origin_server_ts, stream_ordering)| {
+                SearchRoomEvent {
+                    event_id: event_id.clone(),
+                    room_id: room_id.clone(),
+                    sender: sender.clone(),
+                    event_type: event_type.clone(),
+                    content: content.clone(),
+                    origin_server_ts: *origin_server_ts,
+                    stream_ordering: *stream_ordering,
+                }
             })
             .collect();
         let next_batch = if has_more {
-            visible_rows.last().map(|(event_id, _room_id, _sender, _event_type, _content, origin_server_ts)| {
-                encode_room_events_cursor(&RoomEventsCursor {
-                    origin_server_ts: *origin_server_ts,
-                    event_id: event_id.clone(),
-                })
-            })
+            visible_rows.last().map(
+                |(event_id, _room_id, _sender, _event_type, _content, origin_server_ts, _stream_ordering)| {
+                    encode_room_events_cursor(&RoomEventsCursor {
+                        origin_server_ts: *origin_server_ts,
+                        event_id: event_id.clone(),
+                    })
+                },
+            )
         } else {
             None
         };

@@ -227,8 +227,15 @@ async fn search_room_events(
         limit,
         next_batch.unwrap_or("")
     );
-    if let Ok(Some(cached)) = ctx.cache.get::<Value>(&cache_key).await {
-        return Ok(cached);
+    // 缓存键不含可见性 ⇒ 只有当调用者参与的房间**都不受限**时，缓存结果才与策略无关。
+    // 否则一次 `shared → joined` 的变更会继续从缓存里吐出加入前的命中，直到条目过期
+    // （`m.room.history_visibility` 是普通状态事件，客户端随时可改）。
+    // 出错时**保守绕过缓存**（`unwrap_or(true)`）：内部错误不能变成"静默地按无策略判定"。
+    let cacheable = !ctx.search_service.has_restrictive_room(user_id).await.unwrap_or(true);
+    if cacheable {
+        if let Ok(Some(cached)) = ctx.cache.get::<Value>(&cache_key).await {
+            return Ok(cached);
+        }
     }
 
     let filter = search.filter.as_ref().map(|filter| RoomEventsSearchFilter {
@@ -275,8 +282,10 @@ async fn search_room_events(
         "next_batch": page.next_batch
     });
 
-    if let Err(e) = ctx.cache.set(&cache_key, &result, SEARCH_CACHE_TTL_SECS).await {
-        ::tracing::warn!("Failed to cache search room results: {e}");
+    if cacheable {
+        if let Err(e) = ctx.cache.set(&cache_key, &result, SEARCH_CACHE_TTL_SECS).await {
+            ::tracing::warn!("Failed to cache search room results: {e}");
+        }
     }
 
     Ok(result)

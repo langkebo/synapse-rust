@@ -57,13 +57,17 @@ impl EventStorage {
         senders: Option<&[String]>,
         cursor: Option<(&str, i64)>,
         limit: i64,
-    ) -> Result<Vec<(String, String, String, String, serde_json::Value, i64)>, sqlx::Error> {
+    ) -> Result<Vec<(String, String, String, String, serde_json::Value, i64, Option<i64>)>, sqlx::Error> {
         if joined_rooms.is_empty() {
             return Ok(Vec::new());
         }
 
+        // `stream_ordering` is carried out of here (not returned to clients) because
+        // it is the only key `m.room.history_visibility` can be evaluated against:
+        // the service layer drops hits that predate the caller's membership
+        // boundary. See `services/room/messaging/history_visibility.rs`.
         let mut query_builder = QueryBuilder::<Postgres>::new(
-            "SELECT event_id, room_id, sender, event_type, content, origin_server_ts FROM events \
+            "SELECT event_id, room_id, sender, event_type, content, origin_server_ts, stream_ordering FROM events \
              WHERE soft_failed = FALSE AND ",
         );
 
