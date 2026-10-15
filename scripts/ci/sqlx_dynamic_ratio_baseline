@@ -3283,8 +3283,15 @@
 #   这是有意设计（防"静态换动态"），不是缺陷。
 BASELINE_QUERY_BUILDER=17
 BASELINE_DYNAMIC_PRODUCTION=96
-BASELINE_DYNAMIC_TEST_INFRA=769
-BASELINE_STATIC=1353
+# 2026-10-15: 769 → 768（按实测收紧；棘轮是**上限**，留着 1 个空位等于允许一次静默回归）。
+#   本批（方案 B4.3）只新增了**静态**查询，这一项是复核实测时发现的既有余量。
+BASELINE_DYNAMIC_TEST_INFRA=768
+# 2026-10-15: 1353 → 1354（+1，方案 B4.3）。新增
+#   `synapse-storage/src/schema_health_check.rs` 的 `check_invalid_indexes()` —— 它让
+#   **半建索引**（`pg_index.indisvalid = false`）可见；此前只查"缺表/缺列/缺索引名"，
+#   而 CONCURRENTLY 失败留下的索引**名字还在**，所以完全不可见。这一项是**下限**，
+#   按"零余量"原则收紧到实测值（留余量 = 允许静态查询被悄悄删掉）。
+BASELINE_STATIC=1354
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=865
 

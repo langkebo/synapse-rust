@@ -44,6 +44,14 @@ load_env() {
     # `drift-detection.yml` 只给 DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD，
     # 不给 DATABASE_URL，只认后者会把这两条 CI 判死。
     local user_supplied_db_host="${DB_HOST:-}"
+    # 除 DATABASE_URL 外，**分项给出的 DB_\* 也属于"调用方显式指定"**，必须记下来：
+    # source `.env` 会把它们一并覆盖（见下方恢复逻辑）。2026-10-15 实测事故：
+    # 只传 `DB_NAME=<临时库>` 时被 `docker/.env` 覆盖成 `synapse`
+    # ⇒ "给临时库跑迁移"实际打到了**正在服务中的应用库**上。
+    local user_supplied_db_name="${DB_NAME:-}"
+    local user_supplied_db_user="${DB_USER:-}"
+    local user_supplied_db_port="${DB_PORT:-}"
+    local user_supplied_db_password="${DB_PASSWORD:-}"
     CALLER_SUPPLIED_DATABASE_URL="$user_supplied_database_url"
     CALLER_SUPPLIED_DB_HOST="$user_supplied_db_host"
     export CALLER_SUPPLIED_DATABASE_URL
@@ -94,6 +102,17 @@ load_env() {
                 export DB_PASSWORD="${creds#*:}"
             fi
         fi
+    else
+        # 没有 DATABASE_URL 时，把调用方显式给出的分项 DB_* 恢复回来 ——
+        # 上面 `set -a; . "$env_file"` 已经把它们覆盖成 `.env` 的值。
+        # 优先级：DATABASE_URL（若给）> 调用方 DB_* > `.env` > 内置默认。
+        # 判据（为什么这条对 CI 零影响）：`docker/.env` 在 `.gitignore` 里
+        # （`.gitignore:15`）⇒ CI 全新检出根本没有这个文件，也就谈不上覆盖。
+        if [ -n "$user_supplied_db_host" ]; then export DB_HOST="$user_supplied_db_host"; fi
+        if [ -n "$user_supplied_db_port" ]; then export DB_PORT="$user_supplied_db_port"; fi
+        if [ -n "$user_supplied_db_name" ]; then export DB_NAME="$user_supplied_db_name"; fi
+        if [ -n "$user_supplied_db_user" ]; then export DB_USER="$user_supplied_db_user"; fi
+        if [ -n "$user_supplied_db_password" ]; then export DB_PASSWORD="$user_supplied_db_password"; fi
     fi
 
     export DB_HOST="${DB_HOST:-localhost}"
@@ -262,6 +281,92 @@ psql_db() {
 
 psql_admin() {
     psql_exec "postgres" "$@"
+}
+
+# 迁移 advisory lock 的**取锁语句**（B4.2，2026-10-15）。
+#
+# key 与 Rust 侧**同一表达式**：`synapse-services/src/database_initializer/mod.rs`
+# 的 `migration_lock_key()` 用的是
+#     hashtext(COALESCE(current_database() || ':' || current_schema(), current_database() || ':'))::bigint
+# 这里照抄同一条表达式，而**不是**各自硬编码一个魔数 —— 魔数会漂移，表达式不会。
+# 两处都留了互相指认的注释。
+#
+# `COALESCE` 不是装饰：`current_schema()` 在 `search_path` 为空时返回 NULL（D-69），
+# 少了它 `hashtext(NULL)` 也是 NULL ⇒ 取锁语句本身会失败。
+migration_lock_statement() {
+    echo "SELECT pg_advisory_lock(hashtext(COALESCE(current_database() || ':' || current_schema(), current_database() || ':'))::bigint);"
+}
+
+# ---------------------------------------------------------------------------
+# 迁移锁的**持有会话**（B4.2，2026-10-15）
+# ---------------------------------------------------------------------------
+# 为什么必须是"一个长驻会话"：advisory lock 是**会话级**的，而一次 `migrate` 会开
+# 好几个 psql 会话（记账建表 → 应用迁移文件 → 写账本）。只在"应用文件"那次会话里
+# 取锁覆盖不到记账阶段 —— 实测并发两次 `migrate` 时，后到的那个会在
+# `ensure_schema_migrations_table` 上撞目录竞态并失败：
+#     ERROR: duplicate key value violates unique constraint "pg_type_typname_nsp_index"
+# ⇒ 必须让**一个会话**在整次命令期间持锁。
+#
+# 机制：后台 psql 从 FIFO 读语句（按住不放，读到 EOF 才退出 ⇒ 锁一直握着），
+# 取到锁后打印哨兵；主流程等到哨兵出现才继续（这同时给出了"阻塞等待"的语义）。
+# 结束时关闭写端 ⇒ psql 收到 EOF ⇒ 会话结束 ⇒ 锁自动释放。
+#
+# ⚠️ 用**固定 fd**（`exec 9>`）而不是 `exec {fd}>`：macOS 自带 `/bin/bash` 是
+#    **3.2**，不支持动态 fd 语法；本脚本的 shebang 就是 `#!/bin/bash`。
+MIGRATION_LOCK_FD=9
+MIGRATION_LOCK_DIR=""
+MIGRATION_LOCK_HOLDER_PID=""
+
+acquire_migration_lock() {
+    MIGRATION_LOCK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/synapse-miglock.XXXXXX")"
+    local in_fifo="$MIGRATION_LOCK_DIR/in"
+    local out_file="$MIGRATION_LOCK_DIR/out"
+    : >"$out_file"
+    mkfifo "$in_fifo"
+
+    # 读者先起（FIFO 的写端 open 会阻塞到有读者为止）
+    psql_db -q -A -t -f - <"$in_fifo" >>"$out_file" 2>&1 &
+    MIGRATION_LOCK_HOLDER_PID=$!
+
+    eval "exec $MIGRATION_LOCK_FD>\"$in_fifo\""
+
+    {
+        migration_lock_statement
+        printf "SELECT 'SYNAPSE_MIGRATION_LOCK_ACQUIRED';\n"
+    } >&"$MIGRATION_LOCK_FD"
+
+    local waited=0
+    while ! grep -q 'SYNAPSE_MIGRATION_LOCK_ACQUIRED' "$out_file" 2>/dev/null; do
+        if ! kill -0 "$MIGRATION_LOCK_HOLDER_PID" 2>/dev/null; then
+            log_error "迁移锁持有会话异常退出，未取得锁:"
+            sed 's/^/    /' "$out_file" >&2
+            release_migration_lock
+            return 1
+        fi
+        # 已有持有者时，上面的取锁语句会让本会话**阻塞等待**，这里就一直等哨兵。
+        sleep 0.2 2>/dev/null || sleep 1
+        waited=$((waited + 1))
+        if [ "$waited" -gt 900 ]; then
+            log_error "等待迁移 advisory lock 超时（约 3 分钟）；可能有卡死的迁移会话"
+            release_migration_lock
+            return 1
+        fi
+    done
+    log_success "已获取迁移 advisory lock（持有会话 pid=${MIGRATION_LOCK_HOLDER_PID}，与 Rust 侧同一 key）"
+    return 0
+}
+
+release_migration_lock() {
+    if [ -n "$MIGRATION_LOCK_DIR" ]; then
+        # 关写端 ⇒ 持有会话读到 EOF ⇒ 退出 ⇒ 锁释放
+        eval "exec $MIGRATION_LOCK_FD>&-" 2>/dev/null || true
+        if [ -n "$MIGRATION_LOCK_HOLDER_PID" ]; then
+            wait "$MIGRATION_LOCK_HOLDER_PID" 2>/dev/null || true
+        fi
+        rm -rf "$MIGRATION_LOCK_DIR"
+        MIGRATION_LOCK_DIR=""
+        MIGRATION_LOCK_HOLDER_PID=""
+    fi
 }
 
 now_ms() {
@@ -458,33 +563,83 @@ apply_sql_file() {
     local version="${filename%.sql}"
     local started_at
     started_at="$(now_ms)"
+    local finished_at
     local checksum
     checksum="$(file_content_checksum "$file")"
+    local err_file
+    err_file="$(mktemp)"
+    local psql_rc=0
 
     log_info "应用迁移: $filename"
+    # 锁由**整次命令的长驻持有会话**持有（见 acquire_migration_lock）：这里刻意
+    # **不再**单独取锁 —— 同一把会话级锁若在本会话再取一次，会与持有者互相等待
+    # （持有者要等命令结束才释放）⇒ 自死锁。
 
+    # ------------------------------------------------------------------
+    # 迁移锁（B4.2）：在**同一个 psql 会话**里先取会话级 advisory lock，再跑文件内容。
+    #   * 会话结束（正常或报错）即自动释放 ⇒ 不需要显式 unlock，也就没有
+    #     "unlock 失败反而把一次成功的迁移变成错误"这种边角。
+    #   * ⚠️ 不可把 `pg_advisory_lock` 放到**另一次** psql 调用里：会话级锁会随那次
+    #     调用结束立刻释放，等于没锁 —— 这是 advisory lock 在 shell 里最常见的误用。
+    #   * 锁的粒度是"每个被应用的迁移文件"。本仓库**没有时间戳增量文件**（schema 变更
+    #     直接折入唯一基线），所以实际上就等于"整次 migrate 全程持锁"。
+    # ------------------------------------------------------------------
     if [ "$tolerant" = "true" ]; then
-        psql_db <"$file" >/dev/null 2>&1 || true
-        local finished_at
+        # 容错模式：逐语句跑、个别语句失败不中断（基线含 `CREATE INDEX CONCURRENTLY`
+        # 等不能在事务块里执行的语句）。
+        #
+        # ⚠️ 这里**不能靠 psql 退出码判断成败**（2026-10-15 实测）：不带
+        #    `ON_ERROR_STOP` 时，即使语句报错 psql 也返回 **0** ——
+        #    含 `SELECT 1/0` 的脚本 `exit=0`，加 `ON_ERROR_STOP=1` 才 `exit=3`。
+        #    所以判据只能是 **stderr 里的 `ERROR:` 行**。
+        #
+        # 判据为何可靠：基线**确实幂等** —— 实测把整份基线重放到已迁移库，
+        #    `ERROR` 行数 **0**（`psql_db` 用 `client_min_messages=warning`，
+        #    NOTICE 已被压掉）。因此"重放出现 ERROR" ⇒ 真有问题，
+        #    而不是"预期内的重复对象"。
+        psql_db <"$file" >/dev/null 2>"$err_file" || psql_rc=$?
+
+        local error_count=0
+        error_count="$(grep -c '^ERROR' "$err_file" 2>/dev/null || true)"
+        error_count="${error_count:-0}"
+
         finished_at="$(now_ms)"
-        record_migration "$version" "$filename" "$((finished_at - started_at))" TRUE "$checksum"
-        log_success "迁移完成 (容错模式): $filename"
-        return 0
+        if [ "$psql_rc" -eq 0 ] && [ "$error_count" -eq 0 ]; then
+            record_migration "$version" "$filename" "$((finished_at - started_at))" TRUE "$checksum"
+            log_success "迁移完成 (容错模式): $filename"
+            rm -f "$err_file"
+            return 0
+        fi
+
+        # 记实话：**不把半迁移记成成功**。否则叠加"checksum 相同即 early return"，
+        # 半迁移会被永久固化成一个"已应用"的版本（见
+        # docs/audit/DB_OPTIMIZATION_PLAN_2026-10-15.md §5 B4.1）。
+        record_migration "$version" "$filename" "$((finished_at - started_at))" FALSE "$checksum" || true
+        log_error "容错模式仍有语句失败: $filename（psql 退出码=$psql_rc，ERROR 行数=$error_count）"
+        if [ "$error_count" -gt 0 ]; then
+            log_error "失败语句（最多 10 条）:"
+            grep '^ERROR' "$err_file" | head -10 | sed 's/^/    /' >&2
+        fi
+        log_error "已记为 is_success=FALSE。调用方（如 docker/entrypoint.sh 的"
+        log_error "STOP_ON_MIGRATION_FAILURE）据此决定是否阻断启动。"
+        rm -f "$err_file"
+        return 1
     fi
 
-    if psql_db -v ON_ERROR_STOP=1 <"$file" >/dev/null; then
-        local finished_at
+    if psql_db -v ON_ERROR_STOP=1 <"$file" >/dev/null 2>"$err_file"; then
         finished_at="$(now_ms)"
         record_migration "$version" "$filename" "$((finished_at - started_at))" TRUE "$checksum"
         log_success "迁移完成: $filename"
+        rm -f "$err_file"
         return 0
     fi
 
-    local finished_at
     finished_at="$(now_ms)"
     psql_db -c "ABORT;" >/dev/null 2>&1 || true
     record_migration "$version" "$filename" "$((finished_at - started_at))" FALSE "$checksum" || true
     log_error "迁移失败: $filename"
+    head -20 "$err_file" 2>/dev/null | sed 's/^/    /' >&2
+    rm -f "$err_file"
     return 1
 }
 
@@ -517,12 +672,17 @@ init_database() {
         # 就是"有待应用的变更"。基线是幂等的（只有 IF NOT EXISTS / DROP IF EXISTS
         # 与一次幂等的去重 DELETE），因此以容错模式重放。
         log_warning "基线内容已变化，重放基线以应用变更: $baseline_name (记录: ${recorded_checksum:-<空>} / 当前: $baseline_checksum)"
-        apply_sql_file "$baseline_file" "true"
+        # ⚠️ 必须传播失败：容错模式现在会如实报告"仍有语句失败"（B4.1）。
+        # 这里若照旧 `return 0`，失败就被吞掉，而 checksum 已被记为"当前值" ⇒
+        # 下一次跑会 early return，半迁移永远修不回来。
+        apply_sql_file "$baseline_file" "true" || return 1
         return 0
     fi
 
     if table_exists "users"; then
         log_info "检测到现有业务表，使用容错模式应用基线迁移"
+        # 注意：这里刻意不吞返回值 —— `if/else` 的退出码取自最后执行的命令，
+        # 因此 `init_database` 会把 apply_sql_file 的失败如实传给调用方。
         apply_sql_file "$baseline_file" "true"
     else
         apply_sql_file "$baseline_file"
@@ -697,12 +857,18 @@ main() {
             log_target_banner
             check_db_connection
             cleanup_stale_connections
+            # 写操作：整次命令持迁移锁（B4.2）。trap 保证任何退出路径都会释放
+            # （脚本在子进程里运行，不会影响调用方的 trap）。
+            trap 'release_migration_lock' EXIT INT TERM
+            acquire_migration_lock || exit 1
             init_database
             ;;
         migrate)
             log_target_banner
             check_db_connection
             cleanup_stale_connections
+            trap 'release_migration_lock' EXIT INT TERM
+            acquire_migration_lock || exit 1
             apply_pending_migrations
             ;;
         status)

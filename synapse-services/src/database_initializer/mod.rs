@@ -297,6 +297,11 @@ impl DatabaseInitService {
     /// contend on one lock while different schemas (e.g. per-test clones) do not.
     /// Extracted so the lock protocol can be tested without running the whole
     /// migration directory.
+    ///
+    /// ⚠️ 2026-10-15（方案 B4.2）：**shell 迁移路径也取同一把锁** —— 见
+    /// `docker/db_migrate.sh` 的 `migration_lock_statement()`，那里照抄了下面这条
+    /// **同一个表达式**（不是硬编码魔数）。改这里必须同步改那里，反之亦然：
+    /// 两条路径各自取不同的 key 就等于没有互斥，而"看起来有锁"比"明说没锁"更危险。
     async fn migration_lock_key(&self) -> Result<i64, sqlx::Error> {
         // D-69：`current_schema()` 在 `search_path` 为空（或指向不存在的 schema）时返回 NULL，
         // 于是 `hashtext(NULL)` 是 NULL，而调用方 `let lock_key: i64` 会以 `UnexpectedNullError`

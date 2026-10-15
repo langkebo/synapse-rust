@@ -174,21 +174,36 @@ pub async fn build_database_pool(config: &Config) -> Result<PgPool, Box<dyn std:
                     if !result.missing_columns.is_empty() {
                         ::tracing::error!("  Missing columns: {:?}", result.missing_columns);
                     }
+                    // B4.3：半建/失效索引（`indisvalid = false`）。单独报，并且**与缺表缺列
+                    // 同等对待**：UNIQUE 索引失效时唯一性根本没被强制 ⇒ 是正确性问题。
+                    if !result.invalid_indexes.is_empty() {
+                        ::tracing::error!(
+                            "  Invalid (half-built) indexes: {:?} \
+                             — 通常是 `CREATE INDEX CONCURRENTLY` 中途失败留下的；\
+                             它们看起来「存在」但优化器不会用，UNIQUE 索引还会失去唯一性约束。",
+                            result.invalid_indexes
+                        );
+                    }
                     if !result.repaired_indexes.is_empty() {
                         ::tracing::info!("  Repaired indexes: {:?}", result.repaired_indexes);
                     }
-                    // 如果有严重问题（缺少表或列），给出可执行的修复指引后退出
-                    if !result.missing_tables.is_empty() || !result.missing_columns.is_empty() {
+                    // 如果有严重问题（缺少表/列，或半建索引），给出可执行的修复指引后退出
+                    if !result.missing_tables.is_empty()
+                        || !result.missing_columns.is_empty()
+                        || !result.invalid_indexes.is_empty()
+                    {
                         ::tracing::error!(
                             "💡 To fix: run pending migrations against your database, e.g.\n   \
                              DATABASE_URL=\"postgresql://USER:PASS@HOST:PORT/DBNAME\" \\\n   \
                              bash docker/db_migrate.sh migrate\n   \
+                             半建索引需先 `DROP INDEX CONCURRENTLY <name>` 再重建。\n   \
                              If you understand the risk and want to start anyway, set \
                              {} (NOT recommended for production).",
                             skip_schema_check_hint()
                         );
                         return Err(format!(
-                            "Database schema validation failed: missing critical tables or columns. \
+                            "Database schema validation failed: missing critical tables/columns \
+                             or half-built indexes. \
                              Run `docker/db_migrate.sh migrate` against the configured database \
                              (or set {} to bypass this check).",
                             skip_schema_check_hint()

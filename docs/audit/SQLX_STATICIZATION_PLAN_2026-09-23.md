@@ -2191,11 +2191,22 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 <!-- sqlx-plan-numbers:start -->
 <!-- 以下数字由 `scripts/ci/check_plan_numbers_fresh.sh` 与基线/实测现算比对；改基线必须同步改这里。 -->
 BASELINE_DYNAMIC_PRODUCTION=96
-BASELINE_DYNAMIC_TEST_INFRA=769
-BASELINE_STATIC=1353
+BASELINE_DYNAMIC_TEST_INFRA=768
+BASELINE_STATIC=1354
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1319
+SQLX_CACHE_ENTRIES=1320
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-15 更新（方案 B4.3：让半建索引可见）**，三项数字按实测同步：
+> - `BASELINE_STATIC` **1353 → 1354**（+1）：新增
+>   `synapse-storage/src/schema_health_check.rs::check_invalid_indexes()` —— 它检查
+>   `pg_index.indisvalid = false` 的索引。此前只查"缺表 / 缺列 / 缺索引**名字**"，
+>   而 `CREATE INDEX CONCURRENTLY` 失败会留下**名字仍在、实际不可用**的索引 ⇒ 完全不可见
+>   （若是 UNIQUE 索引，唯一性根本没被强制）。
+> - `SQLX_CACHE_ENTRIES` **1319 → 1320**（+1）：上一条新增的 `query_scalar!` 走唯一入口
+>   `scripts/ci/sqlx_prepare.sh` 重生成后新增 1 条缓存（`query-67d9859f…json`）。
+> - `BASELINE_DYNAMIC_TEST_INFRA` **769 → 768**：本批只动静态计数，这一项是复核时**实测**
+>   发现的既有余量（棘轮是上限，留 1 个空位等于允许一次静默回归）⇒ 按"零余量"一并收紧。
 
 > **2026-10-15 更新 `SQLX_CACHE_ENTRIES` 1320 → 1319**（方案 B5.4）：删掉了
 > `synapse-services/src/database_initializer/mod.rs` 里那条

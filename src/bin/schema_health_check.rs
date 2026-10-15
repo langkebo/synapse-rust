@@ -106,6 +106,8 @@ fn print_summary(result: &HealthCheckResult) {
     println!("Missing tables:        {}", result.missing_tables.len());
     println!("Missing columns:       {}", result.missing_columns.len());
     println!("Missing indexes:       {}", result.missing_indexes.len());
+    // B4.3：半建/失效索引（indisvalid=false）—— 与缺表/缺列同级，都会让 `passed=false`。
+    println!("Invalid indexes:       {}", result.invalid_indexes.len());
     println!("Repaired indexes:      {}", result.repaired_indexes.len());
     println!("Applied migrations:    {}", result.applied_migration_count);
     println!("Missing migrations:    {}", result.missing_migrations.len());
@@ -132,6 +134,16 @@ fn print_summary(result: &HealthCheckResult) {
     if !result.missing_indexes.is_empty() {
         println!("⚠️  Missing indexes:");
         for i in &result.missing_indexes {
+            println!("   - {i}");
+        }
+        println!();
+    }
+
+    // B4.3：半建/失效索引要**逐条列出名字** —— 处置动作是
+    // `DROP INDEX CONCURRENTLY <name>` 后重建，只有计数看不出该删哪个。
+    if !result.invalid_indexes.is_empty() {
+        println!("❌ Invalid (half-built) indexes — 需 DROP 后重建:");
+        for i in &result.invalid_indexes {
             println!("   - {i}");
         }
         println!();

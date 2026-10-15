@@ -226,6 +226,13 @@ pub struct HealthCheckResult {
     pub missing_columns: Vec<String>,
     /// The `missing_indexes` field.
     pub missing_indexes: Vec<String>,
+    /// B4.3（2026-10-15）：**半建/失效**的索引（`pg_index.indisvalid = false`）。
+    ///
+    /// 为什么单列一项：`CREATE INDEX CONCURRENTLY` 失败（被取消、撞唯一约束、连接断）
+    /// 会**留下一个名字存在但不可用的索引** —— 所有按名字查索引的健康检查都会说"在"，
+    /// 而查询实际不会用它；若是 UNIQUE 索引，**唯一性根本没有被强制**（正确性问题，
+    /// 不只是慢）。此前这一项完全不可见。
+    pub invalid_indexes: Vec<String>,
     /// The `repaired_indexes` field.
     pub repaired_indexes: Vec<String>,
     /// The `warnings` field.
@@ -245,6 +252,7 @@ impl Default for HealthCheckResult {
             missing_tables: Vec::new(),
             missing_columns: Vec::new(),
             missing_indexes: Vec::new(),
+            invalid_indexes: Vec::new(),
             repaired_indexes: Vec::new(),
             warnings: Vec::new(),
             baseline_drift: 0,
@@ -307,6 +315,19 @@ pub async fn run_schema_health_check(
     // 4. 检查字段命名一致性（警告）
     let mut naming_issues = check_field_naming_issues(pool).await?;
     result.warnings.append(&mut naming_issues);
+
+    // 4b. B4.3：检查**半建/失效**的索引（critical）
+    //
+    // 位置刻意放在缺索引检查之后、迁移完整性之前：它回答的是"索引建到一半了吗"，
+    // 与"索引缺了"是两回事（前者按名字查在、实际不可用）。见 `invalid_indexes` 的注释。
+    result.invalid_indexes = check_invalid_indexes(pool).await?;
+    if !result.invalid_indexes.is_empty() {
+        result.passed = false;
+        error!(
+            invalid_index_count = result.invalid_indexes.len(),
+            "Invalid (half-built) indexes: {:?}", result.invalid_indexes
+        );
+    }
 
     // 5. DB-02 新增：迁移完整性检查
     //
@@ -446,6 +467,35 @@ async fn check_missing_indexes(
 }
 
 /// 检查字段命名问题（警告级别）
+/// B4.3（2026-10-15）：找出**半建/失效**的索引。
+///
+/// `CREATE INDEX CONCURRENTLY` 失败时 PostgreSQL 会保留该索引的目录项并置
+/// `indisvalid = false`（`indisready` 可能仍为 true）—— 于是：
+///   * 所有"按名字查索引在不在"的检查都会说"在"（`check_missing_indexes` 就是这种）；
+///   * 优化器**不会**用它 ⇒ 相关查询退化成顺序扫描；
+///   * 若是 UNIQUE 索引，**唯一性没有被强制** ⇒ 正确性问题，不只是性能问题。
+/// 因此按 critical 处理（`passed = false`，启动路径 fail closed）。
+///
+/// 用 `current_schema()` 限定，与同文件其它检查一致。
+async fn check_invalid_indexes(pool: &Pool<Postgres>) -> Result<Vec<String>, sqlx::Error> {
+    // 单列输出（`relname || ...`）以便与同文件其它检查一样用 `query_scalar!`。
+    // 按 R4 约定断言非空：`relname` 取自 `pg_class`（目录名，永不为 NULL），
+    // 但经连接/表达式后 Describe 不透传 NOT NULL。
+    let invalid: Vec<String> = sqlx::query_scalar!(
+        r#"SELECT c.relname::text || ' (valid=false, ready=' || i.indisready::text || ')' AS "entry!"
+           FROM pg_index i
+           JOIN pg_class c ON c.oid = i.indexrelid
+           JOIN pg_namespace n ON n.oid = c.relnamespace
+           WHERE (NOT i.indisvalid OR NOT i.indisready)
+             AND n.nspname = current_schema()
+           ORDER BY c.relname"#
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(invalid)
+}
+
 async fn check_field_naming_issues(pool: &Pool<Postgres>) -> Result<Vec<String>, sqlx::Error> {
     let mut issues = Vec::new();
 

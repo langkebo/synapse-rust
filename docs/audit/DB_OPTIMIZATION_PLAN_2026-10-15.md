@@ -185,38 +185,78 @@
 
 ### B4.1 容错模式按**实际退出码**记录成败（P2 最高价值项）
 
-- **现状**：`docker/db_migrate.sh:452-458`，`psql … || true` 之后**无条件** `record_migration … TRUE`；
+> ⚠️ **2026-10-15 落地时的更正：这个标题本身就是错的判据。** 实测（`psql < 含 SELECT 1/0 的脚本`）：
+> 不带 `ON_ERROR_STOP` 时**语句报错 psql 仍返回 0**；只有加 `ON_ERROR_STOP=1` 才返回 3。
+> 而容错模式恰恰不能用 `ON_ERROR_STOP`（它要"个别语句失败不中断"）⇒ **退出码在这里恒为 0，
+> 按退出码判成败等于没判**。实际采用的判据是 **stderr 里的 `ERROR:` 行数**（见下）。
+> 另外 `STOP_ON_MIGRATION_FAILURE` **早已存在**（`docker/entrypoint.sh` / `docker/docker-entrypoint.sh`，
+> 默认 `true`）—— 不需要新开关，只要让 `db_migrate.sh` **如实返回非零**即可。
+
+- **现状**：`docker/db_migrate.sh`，`psql … || true` 之后**无条件** `record_migration … TRUE`；
   叠加 `init_database()` 的"checksum 相同即 early return" ⇒ 半迁移可被**永久固化**为已应用。
-- **改动**：
+- **实际改动（已实施）**：
   ```bash
-  if psql_db <"$file" >/dev/null 2>&1; then
-      record_migration "$version" "$filename" "…" TRUE "$checksum"
+  # 容错模式：捕获 stderr，按其中的 ERROR 行数判成败
+  psql_db <"$file" >/dev/null 2>"$err_file" || psql_rc=$?
+  error_count="$(grep -c '^ERROR' "$err_file" 2>/dev/null || true)"
+  if [ "$psql_rc" -eq 0 ] && [ "$error_count" -eq 0 ]; then
+      record_migration … TRUE  …
   else
-      record_migration "$version" "$filename" "…" FALSE "$checksum"   # ← 记实话
-      log_error "容错模式仍有语句失败：$filename（已记为失败，需人工核对）"
-      # 依 STOP_ON_MIGRATION_FAILURE 决定是否 exit 1（deploy 栈默认 true ⇒ 阻断部署）
+      record_migration … FALSE …      # ← 记实话
+      # 打印失败语句，并 return 1；由 entrypoint 的 STOP_ON_MIGRATION_FAILURE 决定是否阻断
   fi
   ```
-- **判据（变异自证）**：在基线里临时插一条必错 DDL（如 `CREATE TABLE users (x int);`）⇒
-  `schema_migrations.is_success = false` **且** `STOP_ON_MIGRATION_FAILURE=true` 时部署中止；移除后恢复绿。
+  同时修掉 `init_database()` 里"调用后 `return 0`"的吞错（它让失败在**记账路径**上被吃掉）。
+- **判据（已自证）**：见 §13.8 —— 旧脚本 `exit=0 / is_success=true`（缺陷复现），
+  新脚本 `exit=1 / is_success=false`，且**出错后的语句仍被执行**（容错语义保留）。
 - **回滚**：单文件改动。
 
 ### B4.2 shell 迁移路径补 advisory lock（与 Rust 侧**同一把 key**）
 
+> ⚠️ **2026-10-15 落地时的两处更正**：
+> 1. **不能只在"应用迁移文件"那次会话里取锁**：一次 `migrate` 会开好几个 psql 会话
+>    （记账建表 → 应用文件 → 写账本），只锁中间那段**覆盖不到记账阶段**。实测并发两次
+>    `migrate` 时，后到的会在 `ensure_schema_migrations_table` 撞目录竞态：
+>    `ERROR: duplicate key value violates unique constraint "pg_type_typname_nsp_index"`。
+>    ⇒ 改为**一个长驻会话在整次命令期间持锁**（FIFO + 哨兵，见 §13.8）。
+> 2. 顺带发现一个**自死锁陷阱**：既有长驻持有者，又在应用文件的会话里再取同一把锁，
+>    两个会话会互相等待（持有者只在本命令结束才释放）⇒ 落地时必须**只保留一处取锁**。
+>
+> 另一处实现细节：macOS 自带 `/bin/bash` 是 **3.2**，不能用 `exec {fd}>` 动态 fd 语法，
+> 必须用固定 fd（本脚本 shebang 就是 `#!/bin/bash`）。
+
 - **改动**：`docker/db_migrate.sh` 在主流程外层取/放 `pg_advisory_lock(<同 key>)`；
-  key **从 Rust 常量派生同一数值**（`synapse-services/src/database_initializer/mod.rs:293` 附近），
+  key **从 Rust 常量派生同一数值**（`synapse-services/src/database_initializer/mod.rs`），
   并在两处加注释互相指认，避免两套协议各自漂移。
-- **判据**：并发跑两次 `db_migrate.sh migrate` ⇒ 一个阻塞等待、无交错 DDL；日志出现"已获取迁移 advisory lock"。
+- **实际做法**：两侧都用**同一条表达式**
+  `hashtext(COALESCE(current_database() || ':' || current_schema(), current_database() || ':'))::bigint`
+  派生 key（不是各自硬编码魔数 —— 魔数会漂移，表达式不会）；
+  shell 侧由 `acquire_migration_lock()` 起一个后台 psql 从 FIFO 读语句并持有会话级锁，
+  等到哨兵出现才继续；`trap … EXIT INT TERM` 保证任何退出路径都释放。
+- **判据（已自证，见 §13.8）**：并发两次 `migrate` ⇒ **两次都成功、零目录竞态**（带锁）；
+  把取锁调用变异掉 ⇒ **复现目录竞态**（`exit=(0,3)`）；外部先持同一把锁 ⇒ migrate **阻塞等待**
+  （墙钟 ≥ 持有时长）⇒ 证明与 Rust 侧是同一把 key。
 
 ### B4.3 让 `CREATE INDEX CONCURRENTLY` 失败**可见**
 
-- **改动**：`src/server/database.rs` 的 schema 健康检查（或 `run_schema_health_check`）增加一项：
-  ```sql
-  SELECT indexrelid::regclass FROM pg_index WHERE NOT indisvalid;
-  ```
-  非空 ⇒ 记 `ERROR` 并列入"critical"（当前只查缺表/缺列，**半建索引完全不可见**）。
-- **判据（变异自证）**：手工制造一个 INVALID 索引（`CREATE INDEX CONCURRENTLY` 中途取消）⇒
-  启动日志报错；删除 ⇒ 通过。
+> ✅ **2026-10-15 已实施**。落点与本节原写的位置不同：schema 健康检查的**真正实现**在
+> `synapse-storage/src/schema_health_check.rs`（`src/server/database.rs` 只是启动期的调用方与日志）。
+
+- **改动（已实施）**：
+  - `schema_health_check.rs`：`HealthCheckResult` 新增 `invalid_indexes`，新增
+    `check_invalid_indexes()`（`pg_index` 上 `NOT indisvalid OR NOT indisready`，限定 `current_schema()`），
+    非空即 `passed = false` + `error!`（**critical**，与缺表/缺列同级）；
+  - `src/server/database.rs`：启动期把它与缺表/缺列一起视为致命（fail closed，`SKIP_SCHEMA_CHECK`
+    仍是逃生门），并在修复指引里给出 `DROP INDEX CONCURRENTLY` 的处置线索；
+  - `src/bin/schema_health_check.rs`：汇总里加计数，并**逐条列出索引名**（处置要按名字删，
+    只看计数不知道该删哪个）。
+- **为什么按 critical 处理**：`indisvalid = false` 时优化器不会用它（退化为顺序扫描），
+  而若是 **UNIQUE** 索引，**唯一性根本没有被强制** —— 这是正确性问题，不只是性能问题。
+- **判据（已自证，见 §13.8）**：造一个必失败的 `CREATE UNIQUE INDEX CONCURRENTLY`（撞重复值）
+  ⇒ PG 侧留下 `indisvalid=false indisready=false` 的索引；健康检查从 `Invalid indexes: 0`
+  变为 `Status: FAILED / Invalid indexes: 1` 并列出名字；删掉后回到 0。
+- ⚠️ 新增的 `query_scalar!` 会改变静态计数 ⇒ 已同步 `BASELINE_STATIC` 1353 → **1354** 与
+  `SQLX_CACHE_ENTRIES` 1319 → **1320**（见 SQLx 方案文档的数字块）。
 
 ### B4.4 3 条 CHECK 改 `NOT VALID` + 独立 `VALIDATE CONSTRAINT`（§6.5）
 
@@ -393,7 +433,7 @@
 | ~~B1.5 恢复演练~~ | ✅ 首次演练已完成（**实测 RTO = 5s**，行数逐项一致），记录在 `docs/runbook/DB_RESTORE_DRILL.md` §2.3 | — |
 | B1.2 异地副本 | 脚本钩子已就绪，但**落点未定**（需一个真实的异地存储） | D2 定下落点后填 `BACKUP_OFFSITE_REMOTE` |
 | **B2 观测面** | ✅ **已落地**（本批）：exporter + 两 job + 6 条告警 + 备份新鲜度上报 + promtool 门禁。**未做**：① 复制延迟/槽积压告警（**故意不做**：当前无备库，配了只会永远无数据）；② Grafana 面板（告警已能叫醒人，面板属体验优化，可后补） | 上备库后补复制类告警；需要面板时再补 |
-| B4 迁移可靠性 | 改动迁移路径（`db_migrate.sh` 语义 + advisory lock + INVALID 索引检测），影响面大，需单独的变异自证 | 单独一批授权 |
+| ~~B4 迁移可靠性~~ | ✅ **已落地**（§13.8）：B4.1 容错模式按 `ERROR` 行数记成败 + 传播失败；B4.2 整次命令持**与 Rust 同一表达式**的 advisory lock；B4.3 半建索引（`indisvalid=false`）列为 critical。**B4.4 仍未做**（方案自己标注"可选、后置"：改基线要同步指纹，且无大表上线压力） | B4.4 待定 |
 | ~~B5.1① 孤儿对象报告~~ | ✅ **已落地**（§13.4）：`scripts/report_orphan_db_objects.py` + `docs/runbook/DB_ORPHAN_OBJECT_AUDIT.md` | — |
 | ~~B5.3 清 4 张废弃表~~ | ✅ **已落地**（§13.5）：全流程走完并复核归零 | — |
 | B6.2 / B6.3 | 需要真实查询清单 / 测量数据（JSONB 清单、7 组前缀冗余索引登记） | 使用方数据 |
@@ -567,6 +607,34 @@ UNIQUE 版属冗余。**先把"哪一种是对的口径"定下来再折入基线
 
 **未做**：`TURN_SHARED_SECRET`（15 字符）与 `coturn` 的门配置耦合，轮换需同时改两处并重启 ⇒
 属独立变更，登记为待办而非顺手改掉。
+
+### 13.8 B4：迁移可靠性（2026-10-15，授权后执行）
+
+**范围**：B4.1 / B4.2 / B4.3 已做；**B4.4（3 条 CHECK 改 `NOT VALID`）未做** —— 方案 §5 自己
+标注"可选、后置"（改基线要同步指纹，且当前无大表上线压力），本批不顺手改。
+
+#### 落地时对方案的三处**更正**（照字面实现会出错）
+
+| # | 方案原写法 | 实测/落地结论 |
+|---|---|---|
+| 1 | B4.1「**按实际退出码**记录成败」 | ❌ **该判据不成立**：不带 `ON_ERROR_STOP` 时 psql **语句报错仍返回 0**（`SELECT 1/0` 实测 `exit=0`；加 `ON_ERROR_STOP=1` 才 `exit=3`），而容错模式恰恰不能用 `ON_ERROR_STOP` ⇒ 退出码恒为 0。**改用 stderr 的 `ERROR:` 行数** |
+| 2 | B4.1「依 `STOP_ON_MIGRATION_FAILURE` 决定是否 exit 1」 | 该开关**早已存在**并已接在 entrypoint（`docker/entrypoint.sh:130`、`docker/docker-entrypoint.sh:130`，默认 true）⇒ 只需让 `db_migrate.sh` **如实返回非零**，不必新增开关 |
+| 3 | B4.2「在主流程外层取/放 `pg_advisory_lock`」 | 若只在"应用迁移文件"那次会话取锁，**覆盖不到记账阶段** —— 实测并发时后到者会撞 `pg_type_typname_nsp_index`（目录竞态）。⇒ 改为**长驻会话整次命令持锁**；并注意**不能两处同时取锁**（会自死锁）；且 macOS `/bin/bash` 是 3.2，不能用 `export {fd}>` 动态 fd |
+
+#### 四项改动与自证
+
+| 项 | 改动 | 自证（实测） |
+|---|---|---|
+| **B4.1** | `apply_sql_file` 容错分支：捕获 stderr、按 `^ERROR` 行数判成败；失败则 `record_migration … FALSE` + 打印失败语句 + `return 1`。并修掉 `init_database` 里"调用后无条件 `return 0`"的**吞错**（在"基线内容已变化 ⇒ 重放"这条路径上尤其致命） | 自证库预建 `users` 以强制走容错分支：**旧脚本**（HEAD 版）`exit=0 / is_success=true`（**缺陷复现**）；**新脚本** `exit=1 / is_success=false`；且 `proof_after_error` 表仍被创建 ⇒ **容错语义保留**（出错不中断）；干净基线 ⇒ `exit=0 / is_success=true`（不误伤） |
+| **B4.2** | 新增 `migration_lock_statement()`（**与 Rust 同一表达式**，互加指认注释）+ `acquire_migration_lock()` / `release_migration_lock()`（后台 psql 经 FIFO 持有会话级锁，哨兵确认到手，`trap … EXIT INT TERM` 释放）；`main` 的 `init`/`migrate` 分支整次命令持锁 | 并发两次 `migrate`：**带锁 `exit=(0,0)`、目录竞态 ERROR=0**；把取锁调用变性掉 ⇒ **`exit=(0,3)`、复现 `pg_type_typname_nsp_index`**；外部先持**同一表达式**的锁 5s ⇒ migrate **阻塞**（墙钟 10s ≥ 5s）⇒ 证明与 Rust 侧同 key |
+| **B4.3** | `schema_health_check.rs` 新增 `invalid_indexes` + `check_invalid_indexes()`（`NOT indisvalid OR NOT indisready`），非空即 `passed=false`；`src/server/database.rs` 列入启动致命项并给 `DROP INDEX CONCURRENTLY` 线索；`src/bin/schema_health_check.rs` 加计数 + 逐条列名 | 造 `CREATE UNIQUE INDEX CONCURRENTLY` 撞重复值 ⇒ PG 侧 `indisvalid=false indisready=false`；健康检查由 `Invalid indexes: 0` 变为 **`Status: FAILED` / `Invalid indexes: 1`** 并列出 `b43_bad_idx (valid=false, ready=false)`；删表后回到 0（自证残留已清理，scratch 库孤儿报告仍 8/8 ✅） |
+| **附带** | `load_env` 现在也**认调用方的分项 `DB_*`**（此前只有 `DATABASE_URL` 算"调用方指定"，其余被 `.env` 覆盖） | 差分自证：同目录 `.env` 写 `DB_NAME=clobbered_by_env`、调用方传 `DB_NAME=explicit_target` ⇒ **旧脚本显示 `clobbered_by_env`**（覆盖成立）、**新脚本显示 `explicit_target`**（显式优先）。**动因是一次真实事故**：只传 `DB_NAME` 时目标被 `.env` 改成 `synapse`，"给临时库跑迁移"实际打到了在跑的应用库（已核实活库**未受影响**：`applied_ts` 未变、无 `proof_*` 表残留）。CI 零影响（`docker/.env` 是 gitignored，CI 无此文件） |
+
+#### 数字同步
+
+新增一条 `query_scalar!` ⇒ `BASELINE_STATIC` 1353 → **1354**、`SQLX_CACHE_ENTRIES` 1319 → **1320**
+（`.sqlx` 经唯一入口重生成，仅新增 1 条）；复核时另发现 `BASELINE_DYNAMIC_TEST_INFRA` 实测 768
+而基线写 769（余量 1）⇒ 按"零余量"一并收紧为 **768**。三处已同步到 SQLx 方案文档的数字块与棘轮基线文件。
 
 ---
 
