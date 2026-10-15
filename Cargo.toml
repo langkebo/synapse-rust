@@ -135,7 +135,7 @@ fake = "2.9"
 quickcheck = "1.0"
 quickcheck_macros = "1.0"
 tempfile = "3"
-arbitrary = { version = "1", features = ["derive"] }
+arbitrary = { version = "1.4", features = ["derive"] }
 mockall = "0.13"
 wiremock = "0.6"
 # insta: snapshot testing for locking API output shapes
@@ -294,7 +294,7 @@ hmac = "0.12"
 base64 = "0.22"
 chrono = { version = "0.4" }
 thiserror = "2.0"
-uuid = { version = "1" }
+uuid = { version = "1.24" }
 futures = "0.3"
 bytes = "1"
 regex = "1.10"

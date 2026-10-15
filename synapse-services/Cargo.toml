@@ -82,7 +82,7 @@ chrono = { workspace = true, features = ["serde"] }
 thiserror = { workspace = true }
 uuid = { workspace = true, features = ["v4", "serde"] }
 futures = { workspace = true }
-dashmap = { version = "6", features = ["serde"] }
+dashmap = { version = "6.2", features = ["serde"] }
 regex = { workspace = true }
 
 reqwest = { workspace = true, features = ["json"] }

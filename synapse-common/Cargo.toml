@@ -101,6 +101,6 @@ fake = "2.9"
 quickcheck = "1.0"
 quickcheck_macros = "1.0"
 tempfile = "3"
-arbitrary = { version = "1", features = ["derive"] }
+arbitrary = { version = "1.4", features = ["derive"] }
 mockall = "0.13"
 wiremock = "0.6"

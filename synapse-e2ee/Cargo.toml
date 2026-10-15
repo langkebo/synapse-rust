@@ -51,4 +51,4 @@ typenum = "1"
 
 vodozemac = "0.11"
 
-dashmap = { version = "6", features = ["serde"] }
+dashmap = { version = "6.2", features = ["serde"] }
