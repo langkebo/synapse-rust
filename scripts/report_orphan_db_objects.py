@@ -501,8 +501,8 @@ def main() -> int:
         "--strict",
         action="store_true",
         help=(
-            "存在孤儿表/视图、未应用对象、或未被验证（NOT VALID）的 CHECK 约束时以 1 退出"
-            "（供巡检使用；白名单内的有意项不计）"
+            "存在孤儿表/视图、未应用的表/视图或显式命名约束、或未被验证（NOT VALID）的 CHECK 约束时"
+            "以 1 退出（供巡检使用；白名单内的有意项不计）"
         ),
     )
     args = parser.parse_args()
@@ -541,9 +541,13 @@ def main() -> int:
     else:
         print_report(report, args.baseline, args)
 
+    # ⚠️ 四类都算"未收敛"：漏掉 `missing_constraints` 会让"库里少了基线该有的约束"这种
+    # **最该拦**的状态反而 exit 0（2026-10-15 实测：把三条 CHECK 的守卫改成 `<>` 后，全新库上
+    # 三条约束一条都没建、报告列了 10 条"未应用约束"，而 `--strict` 仍是 exit 0）。
     if args.strict and (
         report["orphan_relations"]
         or report["missing_relations"]
+        or report["missing_constraints"]
         or report["unvalidated_checks"]
     ):
         return 1

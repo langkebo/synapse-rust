@@ -850,6 +850,9 @@ v1/v3 混合 id、关 autovacuum、真实 `events` 约束逐字）：
 - **`VALIDATE` 与 autovacuum 互斥**：`VALIDATE CONSTRAINT` 持 `ShareUpdateExclusiveLock`，
   而 autovacuum 也取该锁 ⇒ 两者互堵。所以这三条的全表校验不只是"CPU 大户"，还会与后台清理
   互相阻塞；这正是本条要把"定义没变"的场合彻底跳过的主要动机。
+  **实测（同日，构造同锁争用）**：一个会话持 SUE 时 —— `VACUUM (ANALYZE)`（autovacuum 取同一把锁）
+  报 `canceling statement due to lock timeout`（无争用时同一命令成功）、`ALTER TABLE … ADD COLUMN`
+  被挡；而 `SELECT` 与 `INSERT` **都成功** ⇒ 精确说法是"**不挡读写，挡后台清理与 DDL**"。
 
 #### 仍然存在的缺口（登记，不在本批）
 

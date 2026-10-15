@@ -348,8 +348,11 @@ grep -nE 'NOT VALID|VALIDATE CONSTRAINT' migrations/00000000_unified_schema_v12.
 | 第 1 步**有输出**（表达式真变了） | 该表跑一次 `VALIDATE`：**不阻塞读写**，但 CPU 密集。实测速率约 **2–4.5 µs/行**（与数据形态相关）⇒ 5M 行 ≈ 10–23 s、20M 行 ≈ 81 s |
 | 新增了**其它**表上的 `ADD CONSTRAINT … CHECK (…)`（无 `NOT VALID`） | ⚠️ 那条**仍会**在 `ADD` 期间持有排他锁并扫表；只有上面三条热表约束装了"定义变化才重建"的守卫 |
 
-⚠️ **`VALIDATE` 与 autovacuum 互相阻塞**：两者都取 `ShareUpdateExclusiveLock`。带表达式变更的
-发布建议放低峰，并在发布前确认没有正在跑的 autovacuum：
+⚠️ **`VALIDATE` 与 autovacuum 互相阻塞**：两者都取 `ShareUpdateExclusiveLock`。
+**实测（一个会话持该锁时的行为）**：`VACUUM (ANALYZE)`（autovacuum 取同一把锁）报
+`canceling statement due to lock timeout`，而无争用时同一命令成功；同一个窗口里 `SELECT` 与
+`INSERT` **都成功**、`ALTER TABLE … ADD COLUMN` 被挡 ⇒ 一句话：**不挡读写，挡后台清理与 DDL**。
+带表达式变更的发布建议放低峰，并在发布前确认没有正在跑的 autovacuum：
 
 ```bash
 docker exec -it synapse-postgres psql -U synapse -d synapse -c \

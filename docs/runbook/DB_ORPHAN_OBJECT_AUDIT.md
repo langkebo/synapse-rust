@@ -41,7 +41,7 @@ DATABASE_URL="$(bash scripts/lib/db_credentials.sh url synapse)" \
 # 机器可读（供趋势对比/留存）
 python3 scripts/report_orphan_db_objects.py --json-report /tmp/orphans.json
 
-# 巡检模式：存在孤儿表/视图、未应用对象、或未被验证（NOT VALID）的 CHECK 约束时 exit 1
+# 巡检模式：存在孤儿表/视图、未应用的表/视图或显式命名约束、或未被验证（NOT VALID）的 CHECK 约束时 exit 1
 python3 scripts/report_orphan_db_objects.py --strict
 ```
 
@@ -234,6 +234,22 @@ CHECK 在空克隆上被重建为 `convalidated = true`（实测三载体：合�
 | 变异后 `VALIDATE` 还原 | ✅ 0 | exit 0 |
 
 `--strict` 的退出条件相应从「孤儿表/视图 ∨ 未应用对象」扩为「再 ∨ 本节的非白名单条目」。
+
+### 5.2 `--strict` 的退出条件（2026-10-15 收口）
+
+四类都算"未收敛"，缺任何一类都会让巡检**静默放过**最该拦的状态：
+
+| # | 条件 | 为什么必须计入 |
+|---|---|---|
+| ① | 孤儿表/视图 | 基线没有、老库有 ⇒ 换机器形态就变 |
+| ② | 未应用的表/视图 | 基线有、库里没有 ⇒ 迁移没跑完/被手改 |
+| ③ | **未应用的显式命名约束** | 同上，作用在约束上（**原先漏了这一类**） |
+| ④ | 未被验证（NOT VALID）的 CHECK（白名单除外） | `ADD … NOT VALID` 忘了配对 `VALIDATE` ⇒ 约束是摆设 |
+
+⚠️ ③ 原先只写在 `--strict` 的 help 文本里（"未应用对象"），实现里**没算**。实测证据：
+把基线三条 CHECK 的守卫变异成 `<>`（会静默不建约束）后，报告正确列出 **10 条"未应用约束"**，
+而 `--strict` 仍 **exit 0** ⇒ 巡检会放过它。现已并入条件；同日复核 `--strict` 在真库与全新库上
+仍为 exit 0（两类缺失均为 0）。
 
 ## 6. 相关文件
 
