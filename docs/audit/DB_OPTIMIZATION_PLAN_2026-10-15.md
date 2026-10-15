@@ -451,7 +451,7 @@
 | ~~B1.4 调度~~ | ✅ 已提供 systemd unit/timer + crontab 备选（安装说明见 `docker/deploy/systemd/README.md`） | — |
 | ~~B1.5 恢复演练~~ | ✅ 首次演练已完成（**实测 RTO = 5s**，行数逐项一致），记录在 `docs/runbook/DB_RESTORE_DRILL.md` §2.3 | — |
 | B1.2 异地副本 | 脚本钩子已就绪，但**落点未定**（需一个真实的异地存储） | D2 定下落点后填 `BACKUP_OFFSITE_REMOTE` |
-| **B2 观测面** | ✅ **已落地**（本批）：exporter + 两 job + 6 条告警 + 备份新鲜度上报 + promtool 门禁。**未做**：① 复制延迟/槽积压告警（**故意不做**：当前无备库，配了只会永远无数据）；② Grafana 面板（告警已能叫醒人，面板属体验优化，可后补） | 上备库后补复制类告警；需要面板时再补 |
+| **B2 观测面** | ✅ **已落地**：exporter + 两 job + 6 条告警 + 备份新鲜度上报 + promtool 门禁。**已补齐（§13.10）**：Grafana 补了 `postgresql.json`（20 个面板，23 个指标名逐个在 Prometheus 里验过有数据），并修掉 `check_dashboard_metrics.py` 的一处**误报**（它把动态模板注册的指标记成违规 ⇒ HEAD 的 CI 由此变红）。**仍未做**：复制延迟/槽积压告警（**故意不做**：当前无备库，配了只会永远无数据） | 上备库后补复制类告警 |
 | ~~B4 迁移可靠性~~ | ✅ **全部落地**（§13.8 + §13.9）：B4.1 容错模式按 `ERROR` 行数记成败 + 传播失败；B4.2 整次命令持**与 Rust 同一表达式**的 advisory lock；B4.3 半建索引（`indisvalid=false`）列为 critical；**B4.4** 三条 CHECK 改 `NOT VALID` + 独立 `VALIDATE`（排他锁窗口 603 ms → 6 ms、被阻塞写 3 → 0；并发现"模板路线看不到 `NOT VALID`"的守卫盲区，已登记） | 无遗留子项 |
 | ~~B5.1① 孤儿对象报告~~ | ✅ **已落地**（§13.4）：`scripts/report_orphan_db_objects.py` + `docs/runbook/DB_ORPHAN_OBJECT_AUDIT.md` | — |
 | ~~B5.3 清 4 张废弃表~~ | ✅ **已落地**（§13.5）：全流程走完并复核归零 | — |
@@ -731,6 +731,54 @@ UNIQUE 版属冗余。**先把"哪一种是对的口径"定下来再折入基线
 | 变异后 `VALIDATE` 还原 | ✅ 0 | exit 0 |
 
 运维说明见 `docs/runbook/DB_ORPHAN_OBJECT_AUDIT.md` **§5.1**（该报告分节数因此 8 → 9）。
+
+### 13.10 B2 收尾：PostgreSQL 面板 + 修掉面板门禁的一处误报（2026-10-15）
+
+#### 起因与两个发现
+
+§13.3 把 B2 的「Grafana 面板」标为"可后补"。补之前先做**可达性核对**（这正是
+`scripts/ci/check_dashboard_metrics.py` 存在的理由：面板引用不存在的指标名时只会安静显示
+"No data"，甚至标题与语义错位后显示一个自信的错数字），于是查出两件事：
+
+1. **PG 观测面此前零可视化**：`docker/deploy/grafana/dashboards/*.json` 里 `pg_*` 命中 **0**，
+   白名单与棘轮基线也没有任何 PG 条目 —— 数据齐全（exporter + 2 job + 6 条告警）但没人看得到。
+2. **门禁本身在 HEAD 上误报**：`storage-performance.json` 引用的
+   `synapse_storage_stream_current_position` 被记为"三处都查不到" ⇒ 门禁 exit 1 ⇒ **CI 红**。实查：
+   - 它由 `collector.create_dynamic_gauge_template("synapse_storage_stream_current_position", vec!["stream"])`
+     注册（`synapse-common/src/server_metrics.rs:347`），而 `DynamicGaugeTemplate::new` **原样持有**
+     传入名（`synapse-common/src/metrics.rs:523`）；
+   - 运行中的 Prometheus 里 `count(synapse_storage_stream_current_position)` = **1 条序列（值 6）**
+     ⇒ **面板引用是正确的**；症结是门禁的 `REGISTER_RE` 只认 `register_*` / `get_*`，扫不到动态模板。
+   - 隔离验证：在 pin 到 HEAD 的临时 worktree 里跑同一门禁 ⇒ **同样 exit 1、同一条** ⇒ 与本次改动无关。
+
+#### 交付
+
+| # | 内容 |
+|---|---|
+| ① | **`docker/deploy/grafana/dashboards/postgresql.json`** —— 20 个面板，四组：可用性与容量（`pg_up` / 库体积 / WAL 体积 / 实例信息）、连接与锁（占用率、按 `state` 的连接、按 `mode` 的锁、最长事务）、WAL 归档与备份（归档段累计与失败、归档年龄、备份新鲜度 —— 阈值与 4 条告警**逐个对齐**）、事务与表级健康（提交/回滚、缓存命中率、死锁、临时文件、死元组 Top10、表体积 Top10、最久未 autovacuum、exporter 自监控） |
+| ② | `scripts/ci/dashboard_metrics_allowlist` 增 postgres_exporter **22 条** + pushgateway **1 条**（`synapse_backup_*`，来源 `scripts/backup_database.sh`），每条写清来源；并注明这 22 个名字是**逐字取自运行中 exporter 的 `/metrics`**、且在 Prometheus 里逐个验过有数据 |
+| ③ | `scripts/ci/check_dashboard_metrics.py` 增 `DYNAMIC_TEMPLATE_RE`，把 `create_dynamic_{gauge,counter,histogram}_template("name", …)` 也当注册点（与 `register_*` 同口径展开 `_total/_bucket/_count/_sum`），并同步模块 docstring 的"判据"段 |
+
+#### 判据（实测）
+
+- **指标可达性**：23 个指标名**逐个**在运行中的 Prometheus 验过有数据
+  （`pg_up=1`、`sum(pg_stat_activity_count)=11`、`pg_settings_max_connections=250`、
+  `synapse_backup_last_success_timestamp_seconds=1792046614`、`pg_stat_user_tables_n_dead_tup` 220 条序列）；
+  `postgres` 与 `pushgateway` 两个 scrape job 均 `health=up`。
+- **门禁**：修复前 `违规 1 / exit 1`（HEAD 上同样，已用隔离 worktree 复现）；修复后
+  **`违规 0 / exit 0`**（已知名 713 → **756** —— 其中 23 条来自我的白名单、20 条 = 4 个动态模板名 × 5 种展开）。
+  **变异自证**：把 `DYNAMIC_TEMPLATE_RE` 改成永不匹配 ⇒ `违规 1 / exit 1` ⇒ 该正则**承重**。
+  新正则全仓实际命中 **4 个**名（`cache_operations_total`、`room_operations_total`、
+  `stream_position`、`synapse_storage_stream_current_position`）⇒ **不是按前缀放行**。
+  ⚠️ 与 `REGISTER_RE` 一致，它会扫到 doc 示例与测试里的调用（其中 2 处属此类），
+  属**既有口径**，本批未收窄。
+- **Grafana 端到端**：`GET /api/search?query=PostgreSQL` ⇒ `uid=postgresql`、`folder=synapse-rust`；
+  再走 Grafana 的**数据源代理**跑代表性面板查询，全部返回序列：`pg_up=1`、连接占用率 `0.044`、
+  备份新鲜度 `23824 s`（≈6.6 h，阈值 93600 s 之内）、缓存命中率 `1`、
+  `topk(10, time() - pg_stat_user_tables_last_autovacuum)` **10 条序列** ⇒ 面板渲染时**真有数据**。
+- **归属判定**：dev 栈（`monitoring/`）的 Prometheus **没有** `postgres` job
+  （只有 `synapse-rust`/`node-exporter`/`prometheus`/`alertmanager`）⇒ 面板**只**放 deploy 栈，
+  避免造出"必然 No data"的面板（正是该门禁要防的形态）。
 
 ---
 

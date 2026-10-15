@@ -14,6 +14,8 @@
   1. Rust 侧的注册点    `register_{counter,gauge,histogram}[...]("name")`
                         （直方图展开出 `name_bucket` / `name_count` / `name_sum`，
                           计数器兼容 `name_total`）
+                        ＋ `create_dynamic_{gauge,counter,histogram}_template("name", …)`
+                        （动态模板以**同名**注册，见 `DYNAMIC_TEMPLATE_RE` 的注释）
   2. Prometheus 录制规则 `- record: <name>`
   3. 显式外部白名单      `scripts/ci/dashboard_metrics_allowlist`
                         （node_exporter / prometheus 自监控 / alertmanager / coturn
@@ -58,6 +60,18 @@ RUST_SCAN_DIRS = [
 
 REGISTER_RE = re.compile(
     r"""(?:register_|get_)(?:counter|gauge|histogram)[a-z_]*\s*\(\s*"([^"]+)"\s*"""
+)
+# 动态模板也注册了**同名**指标，只是不经过 `register_*` 包装 ⇒ 上面那条正则扫不到。
+#
+# 依据（2026-10-15 实测）：`synapse-common/src/server_metrics.rs` 用
+# `create_dynamic_gauge_template("synapse_storage_stream_current_position", vec!["stream"])`
+# 注册；`DynamicGaugeTemplate::new` **原样持有**这个名字（`metrics.rs`），运行中的
+# Prometheus 里 `count(synapse_storage_stream_current_position)` = 1 条序列 ⇒
+# `storage-performance.json` 的引用是**正确的**。但本门禁原先只认 `register_*`，
+# 于是**在 HEAD 上把它误报成违规**（CI 因此变红）。
+# 三个 helper 同名同构：`create_dynamic_{gauge,counter,histogram}_template`。
+DYNAMIC_TEMPLATE_RE = re.compile(
+    r"""create_dynamic_(?:gauge|counter|histogram)_template\s*\(\s*"([^"]+)"\s*"""
 )
 RECORD_RE = re.compile(r"^\s*-\s*record:\s*(\S+)\s*$", re.MULTILINE)
 # 表达式里的字符串字面量与标签匹配器里的标识符都不是指标名。
@@ -109,10 +123,11 @@ def registered_names(repo: Path) -> set[str]:
             except OSError as exc:  # pragma: no cover
                 raise GateError(f"读取 {p} 失败：{exc}") from exc
             base.update(REGISTER_RE.findall(text))
+            base.update(DYNAMIC_TEMPLATE_RE.findall(text))
     if not base:
         raise GateError(
-            '在 Rust 源码里一个 register_*("name") 都没扫到 —— 扫描范围失效，'
-            "不要把它当成'没有指标'"
+            '在 Rust 源码里一个 register_*("name") 或 create_dynamic_*_template("name", …) '
+            "都没扫到 —— 扫描范围失效，不要把它当成'没有指标'"
         )
     out = set()
     for name in base:

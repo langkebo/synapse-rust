@@ -23,3 +23,38 @@ turn_packet_processed           coturn exporter：已处理报文数
 turn_ratelimit_occupied_buckets coturn exporter：已占用限流桶
 turn_ratelimit_total_buckets    coturn exporter：限流桶总数
 turn_total_traffic_rcvb         coturn exporter：接收字节数（累计）
+
+# ── postgres_exporter（job `postgres`，抓 synapse-postgres-exporter:9187）──────
+# 服务于 `docker/deploy/grafana/dashboards/postgresql.json`。
+# 这 22 个名字**逐字取自运行中 exporter 的 `/metrics`**，并在 Prometheus 里逐个用
+# `query` 确认**有数据**（2026-10-15 实测：pg_up=1、sum(pg_stat_activity_count)=11、
+# pg_settings_max_connections=250、pg_stat_user_tables_n_dead_tup 220 条序列）——
+# 不是照 exporter 文档抄的：面板"引用一套不存在的名字"正是本门禁存在的理由。
+# 标签口径提醒：`pg_locks_count.mode` 是**小写**形态（`accessexclusivelock`）。
+pg_up                               postgres_exporter：能否连上 PG（0/1）
+pg_static                           postgres_exporter：实例版本（version / short_version）
+pg_database_size_bytes              postgres_exporter：库体积（按 datname）
+pg_wal_size_bytes                   postgres_exporter：WAL 目录体积
+pg_settings_max_connections         postgres_exporter：max_connections 当前值
+pg_stat_activity_count              postgres_exporter：连接数（按 state / usename / datname）
+pg_stat_activity_max_tx_duration    postgres_exporter：最长事务时长秒数（按 state）
+pg_locks_count                      postgres_exporter：锁数量（按 mode / datname）
+pg_stat_archiver_archived_count     postgres_exporter：已归档 WAL 段累计
+pg_stat_archiver_failed_count       postgres_exporter：归档失败累计
+pg_stat_archiver_last_archive_age   postgres_exporter：距上一段归档的秒数
+pg_stat_database_xact_commit        postgres_exporter：已提交事务累计（按 datname）
+pg_stat_database_xact_rollback      postgres_exporter：回滚事务累计（按 datname）
+pg_stat_database_blks_hit           postgres_exporter：缓存命中的块数（按 datname）
+pg_stat_database_blks_read          postgres_exporter：从磁盘读的块数（按 datname）
+pg_stat_database_deadlocks          postgres_exporter：死锁累计（按 datname）
+pg_stat_database_temp_bytes         postgres_exporter：临时文件写入字节（按 datname）
+pg_stat_user_tables_n_dead_tup      postgres_exporter：死元组数（按 relname / schemaname）
+pg_stat_user_tables_size_bytes      postgres_exporter：表体积（按 relname / schemaname）
+pg_stat_user_tables_last_autovacuum postgres_exporter：上次 autovacuum 时间戳（0 = 从未）
+pg_exporter_last_scrape_error       postgres_exporter：自身上次抓取 PG 的错误数
+pg_scrape_collector_success         postgres_exporter：各采集器成功率（按 collector）
+
+# ── 备份脚本上报到 pushgateway（job `pushgateway`）───────────────────────────
+# ⚠️ 这条**不由 postgres_exporter 产生**，来源是 `scripts/backup_database.sh` 成功后的
+# `curl --data-binary` 上报。面板用它算"备份新鲜度"，与告警 PostgresBackupStale 同源。
+synapse_backup_last_success_timestamp_seconds  pushgateway：上次备份成功的时间戳（scripts/backup_database.sh 上报）
