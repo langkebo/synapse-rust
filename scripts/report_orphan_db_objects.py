@@ -21,8 +21,11 @@
 
 * **只读**：只跑 `SELECT`（`pg_class` / `pg_index` / `pg_constraint` / `pg_depend`），
   **不执行任何 DDL/DML**。默认退出码 0（它是**报告**，不是门禁）。
-* 报告四个方向：孤儿表/视图、未应用对象、孤儿索引（再按"是否挂在孤儿表上"分组）、
-  孤儿**显式命名**约束。
+* 报告五个方向：孤儿表/视图、未应用对象、孤儿索引（再按"是否挂在孤儿表上"分组）、
+  孤儿**显式命名**约束、`NOT VALID`（未被验证）的 **CHECK** 约束。
+  最后一项是 2026-10-15（方案 B4.4）补的：`NOT VALID` 只拦**新**写入、既有行不被校验
+  —— 也就是"`ADD … NOT VALID` 忘了配对 `VALIDATE`"的典型形态；而**模板路线的测试看不到它**
+  （`LIKE … INCLUDING ALL` 克隆会把 CHECK 重建为已验证），所以只能在真实库上查。
 * 三类刻意的假阳性规避（都是实测踩出来的，别删）：
   1. **扩展自带对象**（`pg_stat_statements` / `pg_stat_statements_info`）——
      靠 `pg_depend.deptype = 'e'` 排除，否则装了扩展就一片红；
@@ -132,6 +135,19 @@ def is_generated_name(name: str, patterns: list[re.Pattern[str]]) -> bool:
 # 故先摘掉 VALIDATE 子句再解析"定义"，并把这类引用单列报告。
 _VALIDATE_RE = re.compile(r"VALIDATE\s+CONSTRAINT\s+([a-z_][a-z0-9_]*)", re.IGNORECASE)
 
+# 已知**有意**为 `NOT VALID`、且基线**不打算** `VALIDATE` 的 CHECK 约束（按约束名）。
+#
+# 依据 `migrations/00000000_unified_schema_v12.sql` 的 MSC4354 sticky 段：那两条约束是在
+# 同一块刚 `ADD COLUMN expires_at` 之后加的，存量行两列同为 `NULL` ⇒ 必然满足；作者选
+# `NOT VALID` 只为**省掉大表上的一次全量扫描**（基线原注释就写了这条理由）。
+#
+# ⚠️ 往这里加条目必须写清"为什么不校验"。默认口径是：`NOT VALID` 的 CHECK 就是**缺口**
+# —— 它只约束新写入，历史数据不被校验，等于约束对存量行形同虚设。
+_UNVALIDATED_CHECK_ALLOWLIST = {
+    "ck_room_sticky_events_expiry_pair",
+    "ck_room_sticky_events_duration_positive",
+}
+
 
 def read_baseline(
     path: pathlib.Path,
@@ -182,6 +198,17 @@ LIVE_QUERIES = {
         "JOIN pg_namespace n ON n.oid = con.connamespace "
         "JOIN pg_class t ON t.oid = con.conrelid "
         "WHERE n.nspname = %(schema)s AND con.contype <> 't' "
+        "AND " + _NOT_EXTENSION_MEMBER.format(alias="t") + " ORDER BY 1"
+    ),
+    # `convalidated = false` 的 **CHECK** 约束（即 `NOT VALID`）。
+    # 只取 `contype = 'c'` 是**有意的**：基线里另有十几条 `NOT VALID` 的**外键**
+    # （`CREATE TABLE` 内联声明 —— 新建表本就无行可验，风险为零），混进来只会淹没信号。
+    # CHECK 的 `NOT VALID` 才是真实缺口：只拦新写入、历史行不被校验。
+    "unvalidated_check": (
+        "SELECT con.conname || '|' || t.relname FROM pg_constraint con "
+        "JOIN pg_namespace n ON n.oid = con.connamespace "
+        "JOIN pg_class t ON t.oid = con.conrelid "
+        "WHERE n.nspname = %(schema)s AND con.contype = 'c' AND NOT con.convalidated "
         "AND " + _NOT_EXTENSION_MEMBER.format(alias="t") + " ORDER BY 1"
     ),
 }
@@ -245,6 +272,7 @@ def collect_live(prefix: list[str], args: argparse.Namespace) -> dict:
         "index": set(),
         "constraint": set(),
         "constraint_backed_index": set(),
+        "unvalidated_check": set(),
     }
     index_owner: dict[str, str] = {}
     constraint_owner: dict[str, str] = {}
@@ -271,6 +299,11 @@ def collect_live(prefix: list[str], args: argparse.Namespace) -> dict:
         name, _, table = line.rpartition("|")
         live["constraint"].add(name.lower())
         constraint_owner[name.lower()] = table.lower()
+
+    for line in run_query(prefix, LIVE_QUERIES["unvalidated_check"], args.schema):
+        # 固定两段：约束名|所属表名（表名只用于人工核对，分组不需要）
+        name, _, _table = line.rpartition("|")
+        live["unvalidated_check"].add(name.lower())
 
     live["_index_owner"] = index_owner
     live["_constraint_owner"] = constraint_owner
@@ -305,6 +338,9 @@ def build_report(
     orphan_constraints = live_named_constraint - base_named_constraint
     index_owner: dict[str, str] = live["_index_owner"]
     constraint_owner: dict[str, str] = live["_constraint_owner"]
+    # `NOT VALID` 的 CHECK：扣掉白名单里"有意为之"的那几条，剩下的都是缺口
+    live_unvalidated_check = live["unvalidated_check"]
+    unvalidated_checks = live_unvalidated_check - _UNVALIDATED_CHECK_ALLOWLIST
     return {
         "orphan_relations": sorted(orphan_relations),
         "missing_relations": sorted(base_relations - live_relations),
@@ -330,6 +366,11 @@ def build_report(
         "missing_constraints": sorted(base_named_constraint - live_named_constraint),
         # VALIDATE 引用了、但基线从未创建的名字 ⇒ 对应守卫分支永不触发
         "dead_validate_references": sorted(validated - defs["constraint"]),
+        # `NOT VALID` 的 CHECK（已扣除白名单）：只拦新写入、历史行不被校验
+        "unvalidated_checks": sorted(unvalidated_checks),
+        "unvalidated_checks_allowlisted": sorted(
+            live_unvalidated_check & _UNVALIDATED_CHECK_ALLOWLIST
+        ),
         "counts": {
             "baseline_relations": len(base_relations),
             "live_relations": len(live_relations),
@@ -338,6 +379,7 @@ def build_report(
             "live_constraint_backed_indexes": len(live["constraint_backed_index"]),
             "baseline_named_constraints": len(base_named_constraint),
             "live_named_constraints": len(live_named_constraint),
+            "live_unvalidated_checks": len(live_unvalidated_check),
             "generated_name_templates": len(generated),
         },
     }
@@ -406,6 +448,19 @@ def print_report(
         "守卫永不成立、校验被静默跳过。若该约束由别处创建且本就 VALIDATED，则无实际影响，"
         "但仍属**陈旧引用**，应把名字对齐。",
     )
+    section(
+        "`NOT VALID`（未被验证）的 CHECK 约束 —— 只拦新写入，历史行不被校验",
+        report["unvalidated_checks"],
+        "规范写法是 `ADD CONSTRAINT … NOT VALID` 之后**在同一份基线里**独立 "
+        "`ALTER TABLE … VALIDATE CONSTRAINT …`（方案 B4.4）。⚠️ 模板路线的测试**看不到**这种遗漏"
+        "（`LIKE … INCLUDING ALL` 克隆会把 CHECK 重建为已验证），只有真实库才看得见。",
+    )
+    if report["unvalidated_checks_allowlisted"]:
+        print(
+            "（另有已知**有意**为之、不计入上项的："
+            + "、".join(report["unvalidated_checks_allowlisted"])
+            + "；理由见脚本顶部 `_UNVALIDATED_CHECK_ALLOWLIST`）"
+        )
     print()
     if report["orphan_relations"] or report["missing_relations"]:
         print("结论：存在**结构性漂移**（不只是多几个索引）。")
@@ -437,7 +492,10 @@ def main() -> int:
     parser.add_argument(
         "--strict",
         action="store_true",
-        help="存在孤儿表/视图或未应用对象时以 1 退出（供巡检使用）",
+        help=(
+            "存在孤儿表/视图、未应用对象、或未被验证（NOT VALID）的 CHECK 约束时以 1 退出"
+            "（供巡检使用；白名单内的有意项不计）"
+        ),
     )
     args = parser.parse_args()
 
@@ -475,7 +533,11 @@ def main() -> int:
     else:
         print_report(report, args.baseline, args)
 
-    if args.strict and (report["orphan_relations"] or report["missing_relations"]):
+    if args.strict and (
+        report["orphan_relations"]
+        or report["missing_relations"]
+        or report["unvalidated_checks"]
+    ):
         return 1
     return 0
 

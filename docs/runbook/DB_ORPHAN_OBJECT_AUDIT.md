@@ -41,7 +41,7 @@ DATABASE_URL="$(bash scripts/lib/db_credentials.sh url synapse)" \
 # 机器可读（供趋势对比/留存）
 python3 scripts/report_orphan_db_objects.py --json-report /tmp/orphans.json
 
-# 巡检模式：存在孤儿表/视图或未应用对象时 exit 1
+# 巡检模式：存在孤儿表/视图、未应用对象、或未被验证（NOT VALID）的 CHECK 约束时 exit 1
 python3 scripts/report_orphan_db_objects.py --strict
 ```
 
@@ -110,7 +110,8 @@ END IF;
 ### 3.3 B5.4：报告上剩余 3 项**已全部收敛**（2026-10-15）
 
 B5.3 之后报告剩 3 项。它们**不是"该删的表"**，而是"**同一张表的多个定义方互相漂移**"——
-处置前必须先定口径。现已全部收敛，报告 **8 个分节全绿**。
+处置前必须先定口径。现已全部收敛，报告全绿。**分节数在 2026-10-15 晚间由 8 增至 9**
+（新增「`NOT VALID`（未被验证）的 CHECK 约束」一节，见 §5 末行）。
 
 #### 成因定论：**谁先创建，决定形态**（这解释了整类现象）
 
@@ -156,8 +157,9 @@ DATABASE_URL="$(bash scripts/lib/db_credentials.sh url <库>)" \
 - 容器库执行两条收敛语句（即基线里那两条）⇒ 约束集合变为
   `pk_schema_migrations, uq_schema_migrations_version`（**与基线完全一致**）、冗余索引消失、
   `version` 的唯一保护仍在。
-- 报告 **8/8 分节 ✅**：孤儿关系 0、未应用关系 0、孤儿索引 0（两类）、孤儿约束 0（两类）、
-  未应用约束 0、VALIDATE 死引用 0。
+- 报告分节全 ✅（**当时是 8/8**；2026-10-15 晚间新增第 9 节「`NOT VALID` 的 CHECK」，
+  实测该节在真库上为 **0** + 白名单内 2 条有意项，故仍是全绿）：孤儿关系 0、未应用关系 0、
+  孤儿索引 0（两类）、孤儿约束 0（两类）、未应用约束 0、VALIDATE 死引用 0。
 - 指纹 `48e404226830f749` → **`306314fd1316fa2d`**（+3196 字节，按 R10 约定先自检旧值再取值）。
 - `.sqlx` 经唯一入口 `scripts/ci/sqlx_prepare.sh` 重生成：**变更前 `--check` PASS**
   （`OK: .sqlx 与数据库元数据一致`，对 `synapse_sqlx_scratch`）⇒ 重生成后的差异只可能是本次
@@ -192,7 +194,7 @@ DATABASE_URL="$(bash scripts/lib/db_credentials.sh url <库>)" \
 ## 5. 工具刻意规避的假阳性（改脚本前先读）
 
 报告类工具的失败模式与门禁相反：**门禁怕漏报，报告怕误报**（狼来了就没人看了）。
-因此有四道过滤，全部有实测支撑（关掉任一都会爆出已知误报量）：
+因此有五道过滤，全部有实测支撑（关掉任一都会爆出已知误报量）：
 
 | 过滤 | 关掉后的误报 | 依据 |
 |---|---|---|
@@ -201,8 +203,37 @@ DATABASE_URL="$(bash scripts/lib/db_credentials.sh url <库>)" \
 | 排除**基线用 `%I` 动态生成**的约束名（模板从基线派生） | 孤儿约束 5 → **119**（106 条 `*_user_id_format` + 8 条 `*_mxc_format` + …） | 实测 |
 | 排除**自动命名**约束（`_pkey`/`_key`/`_fkey`/`_check` 结尾） | 孤儿约束 5 → **138** | 实测 |
 | 摘除 `VALIDATE CONSTRAINT` 再解析"定义" | 死引用 1 → **0**（被掩盖） | 实测 |
+| 排除白名单内**有意** `NOT VALID` 的 CHECK（`ck_room_sticky_events_*`） | 未被验证的 CHECK 0 → **2** | 实测（真库 `synapse`） |
 
 这套对照由 `--` 变异自证脚本验证过（关掉每个过滤器 → 数字按上表膨胀；开启 → 回到真值 4/1/5/1）。
+
+### 5.1 「`NOT VALID` 的 CHECK」一节（2026-10-15 晚新增；方案 B4.4 的配套守卫）
+
+**为什么需要**：`ADD CONSTRAINT … CHECK (…) NOT VALID` 之后若忘了配对
+`ALTER TABLE … VALIDATE CONSTRAINT`，约束**只拦新写入、历史行不被校验**。这类遗漏
+**模板路线的测试看不到** —— 隔离机制克隆走 `CREATE TABLE … (LIKE … INCLUDING ALL)`，
+CHECK 在空克隆上被重建为 `convalidated = true`（实测三载体：合法模板 `true` / 变异模板
+`false` / **克隆 `true`**）。所以判据只能落在**真实库**上 —— 本工具正好跑在真实库上。
+
+**口径**：只取 `contype = 'c'`。基线里另有十几条 `NOT VALID` 的**外键**（`CREATE TABLE`
+内联声明 —— 新建表本就无行可验、风险为零），混进来只会淹没信号。
+
+**白名单**：`ck_room_sticky_events_expiry_pair` / `ck_room_sticky_events_duration_positive`
+是**有意**不校验的（基线 5431-5432 的注释写明理由：同一块刚 `ADD COLUMN expires_at`，
+存量行两列同为 `NULL` ⇒ 必然满足，声明 `NOT VALID` 只为省掉大表上的一次全量扫描）。
+⚠️ 它们只在**老库**上是 `NOT VALID`（新库由 `CREATE TABLE` 带的是已验证定义）——
+所以这 2 条只会在老库上出现。往白名单加条目必须写清"为什么不校验"。
+
+**判据（实测）**：
+
+| 场景 | 本节 | `--strict` |
+|---|---|---|
+| 真库 `synapse` | ✅ 0（白名单点名 2 条） | exit 0 |
+| 全新库（应用当前基线） | ✅ 0（该库上 2 条本就已验证，白名单为空） | exit 0 |
+| 变异：把 `ck_rooms_room_id_format` 改成 `NOT VALID` | ⚠️ **1**，点名 `ck_rooms_room_id_format` | **exit 1** |
+| 变异后 `VALIDATE` 还原 | ✅ 0 | exit 0 |
+
+`--strict` 的退出条件相应从「孤儿表/视图 ∨ 未应用对象」扩为「再 ∨ 本节的非白名单条目」。
 
 ## 6. 相关文件
 

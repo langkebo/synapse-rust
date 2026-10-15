@@ -277,14 +277,16 @@
   （约 1.2 s DDL 墙钟），差异只在"持什么锁"。
 - **指纹**：基线 +2570 字节（226557 → 229127）⇒ `EXPECTED_BASELINE_FINGERPRINT`
   `306314fd1316fa2d` → **`9e954f0c9c50755e`**（按 R10 先自检旧值）。
-- ⚠️ **发现的一处守卫盲区（登记，未在本批修）**：模板路线**看不到**这种遗漏 ——
+- ⚠️ **发现的一处守卫盲区 —— 已同日补上守卫**：模板路线**看不到**这种遗漏 ——
   隔离机制克隆用 `CREATE TABLE … (LIKE … INCLUDING ALL)`（`synapse-common/src/test_isolation.rs:897`），
   CHECK 约束在**空克隆**上被重建为 `convalidated = true`，所以 `monitoring::db_tests`
   无法察觉模板里的 `NOT VALID`（已实测：变异模板 `convalidated=false`，但测试仍通过）。
-  ⇒ 现阶段唯一能发现"忘了配对 VALIDATE"的是**真实迁移路径**上的直接查询。
-  建议后续给 `scripts/report_orphan_db_objects.py` 增一节"`NOT VALID` 的 CHECK"（该脚本已有
-  "VALIDATE 死引用"一节，扩一节成本极低；注意 `room_sticky_events` 的两条 `NOT VALID` CHECK
-  是**有意**的，需按白名单排除，否则会误报）。
+  ⇒ 判据只能落在**真实库**上。**处置（同日完成）**：给 `scripts/report_orphan_db_objects.py`
+  增了「`NOT VALID`（未被验证）的 CHECK 约束」一节（该脚本本就有"VALIDATE 死引用"一节），
+  并把 `--strict` 的退出条件扩到覆盖它；`room_sticky_events` 那两条**有意**的 `NOT VALID` CHECK
+  按约束名进白名单（依据见基线 5431-5432 的原注释）。自证：真库/全新库 ✅0、`--strict` exit 0；
+  变异（把 `ck_rooms_room_id_format` 改回 `NOT VALID`）⇒ ⚠️**1** 并点名该约束、`--strict` **exit 1**；
+  还原 ⇒ 0。运维说明见 `docs/runbook/DB_ORPHAN_OBJECT_AUDIT.md` §5.1。
 
 ---
 
@@ -698,7 +700,7 @@ UNIQUE 版属冗余。**先把"哪一种是对的口径"定下来再折入基线
 | **变异自证** | 删掉 3 行 `VALIDATE` 后走**真实迁移路径**（`MIGRATIONS_DIR` 指向变异副本，不碰仓库基线） | 变异 ⇒ 三条 `convalidated=**false**`，且 `verify_data_integrity` 第 2 段那条查询精确列出 `rooms.…` / `events.…` / `room_memberships.…`；还原 ⇒ 三条 `true`、该查询返回"(无)" |
 | `.sqlx` | 本批不新增/删除任何 SQL 查询 | `.sqlx` **零改动** ⇒ `BASELINE_STATIC` / `SQLX_CACHE_ENTRIES` 不变 |
 
-#### ⚠️ 顺带发现的一处**守卫盲区**（已登记，未在本批修）
+#### ⚠️ 顺带发现的一处**守卫盲区** —— 同日补上守卫
 
 **模板路线看不到 `NOT VALID`。** `monitoring::integrity_violation_tests` 第 1 行断言"干净模板上
 没有任何发现"，看着像本项的天然守卫；但**实测：删掉 3 行 `VALIDATE` 后该测试仍然通过**。
@@ -712,11 +714,23 @@ UNIQUE 版属冗余。**先把"哪一种是对的口径"定下来再折入基线
 | 变异指纹模板 `…13c6b61b484ae697` | `convalidated = false` |
 | 任一 per-test 克隆（`LIKE … INCLUDING ALL`） | **`convalidated = true`（不变）** ⇒ 测试看不到模板的 NOT VALID |
 
-⇒ 现阶段能发现"忘了配对 `VALIDATE`"的只有**真实迁移路径上的直接查询**。
-**建议（不在本批）**：给 `scripts/report_orphan_db_objects.py` 增一节"`NOT VALID` 的 CHECK"
-（该脚本已有"VALIDATE 引用死分支"一节，扩一节成本极低）。⚠️ 注意 `room_sticky_events`
-的两条 `NOT VALID` CHECK 是**有意**的（同一块刚 `ADD COLUMN expires_at`，老行必然不满足），
-须白名单排除，否则误报。
+**处置（同日完成，不再是待办）**：给 `scripts/report_orphan_db_objects.py` 增了
+「`NOT VALID`（未被验证）的 CHECK 约束」一节（只取 `contype = 'c'`，避免基线里十几条
+`NOT VALID` 外键淹没信号），并把 `--strict` 退出条件扩到覆盖它；
+`ck_room_sticky_events_expiry_pair` / `…_duration_positive` 按**约束名**进白名单
+（依据 = 基线 5431-5432 的原注释：同块刚 `ADD COLUMN expires_at`，存量行两列同为 `NULL`
+⇒ 必然满足，`NOT VALID` 只为省一次全量扫描；且它们只在**老库**上才是 `NOT VALID`）。
+
+**该守卫的判据（实测）**：
+
+| 场景 | 新节 | `--strict` |
+|---|---|---|
+| 真库 `synapse` | ✅ 0（白名单点名 2 条） | exit 0 |
+| 全新库（应用当前基线） | ✅ 0 | exit 0 |
+| 变异：`ck_rooms_room_id_format` 改回 `NOT VALID` | ⚠️ **1**，点名该约束 | **exit 1** |
+| 变异后 `VALIDATE` 还原 | ✅ 0 | exit 0 |
+
+运维说明见 `docs/runbook/DB_ORPHAN_OBJECT_AUDIT.md` **§5.1**（该报告分节数因此 8 → 9）。
 
 ---
 
