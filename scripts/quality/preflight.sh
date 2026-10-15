@@ -96,6 +96,12 @@ fi
 step "文档：章节棘轮（防整段被吞，含对照 HEAD）"
 run "check_plan_doc_sections.py" python3 scripts/ci/check_plan_doc_sections.py
 
+# 文档数字随访：方案文档引用的棘轮数字必须与基线/实测一致。
+# 与上面那条**同理每次都跑**（~10ms）：2026-10-15 的故障形态正是"棘轮口径改了/基线动了，
+# 而文档照旧声称全绿"—— 只在该文档进入改动集时才跑，就恰好绕过它。
+step "文档：方案数字随访（对照棘轮基线 + .sqlx 条数）"
+run "check_plan_numbers_fresh.sh" bash scripts/ci/check_plan_numbers_fresh.sh
+
 step "契约 gate"
 if [ -z "$(printf '%s\n' "$changed" | grep -E 'ROUTE_CONTRACT|ledger_annotations|extract_registered|derived_route|ledger_export|route-table\.json|route_ledger' || true)" ]; then
     run "check_route_contract.sh" bash scripts/contract/check_route_contract.sh
