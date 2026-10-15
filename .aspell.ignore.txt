@@ -138,6 +138,7 @@ buildable
 buildkit
 buildx
 burnafterreadservice
+busybox
 cachehitratelow
 cacheregistry
 callsite
