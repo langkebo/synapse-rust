@@ -344,7 +344,7 @@ grep -nE 'NOT VALID|VALIDATE CONSTRAINT' migrations/00000000_unified_schema_v12.
 
 | 情况 | 影响 |
 |---|---|
-| 第 1 步**无输出** | 这三条不会被重建 ⇒ 重放**不会**在 `events`/`rooms`/`room_memberships` 上做全表校验 |
+| 第 1 步**无输出** | 这三条不会被重建。**前提是它们都已 `convalidated=true`** —— 那时 `VALIDATE` 是空操作（实测：已 valid 的约束再 `VALIDATE` 不扫表）⇒ 重放**不会**在这三张表上做全表校验。⚠️ 若某条卡在 `NOT VALID`（上一次 `VALIDATE` 失败过），"P1-2b" 段会照常补校验 ⇒ **那时会扫表**；发布后核验那一步会把这个状态抓出来 |
 | 第 1 步**有输出**（表达式真变了） | 该表跑一次 `VALIDATE`：**不阻塞读写**，但 CPU 密集。实测速率约 **2–4.5 µs/行**（与数据形态相关）⇒ 5M 行 ≈ 10–23 s、20M 行 ≈ 81 s |
 | 新增了**其它**表上的 `ADD CONSTRAINT … CHECK (…)`（无 `NOT VALID`） | ⚠️ 那条**仍会**在 `ADD` 期间持有排他锁并扫表；只有上面三条热表约束装了"定义变化才重建"的守卫 |
 

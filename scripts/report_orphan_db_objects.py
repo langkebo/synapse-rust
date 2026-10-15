@@ -14,8 +14,16 @@
 `docker/db_migrate.sh`、`synapse-services/src/database_initializer/mod.rs` **三处**
 分别创建，唯独基线里没有 ⇒ 新库与老库形态分叉）。
 
-根因：基线 `00000000_unified_schema_v12.sql` 里 `DROP TABLE` 计数为 **0**（只增不减），
-所以老库永久保留早期迁移链的残留，而全新库不会有 —— **同一个版本号、两种库形态**。
+根因（**历史形态**）：基线 `00000000_unified_schema_v12.sql` 当时是 create-only + `IF NOT EXISTS`
+（`DROP TABLE` 计数为 **0**），所以老库永久保留早期迁移链的残留，而全新库不会有 ——
+**同一个版本号、两种库形态**。
+
+2026-10-15 已把这条根因处理掉（口径收紧，不是删报告）：基线末尾新增「废弃表清理」段
+（4 条 `DROP TABLE IF EXISTS`，方案 B5.3）把上面 4 张表折进去，`idx_schema_migrations_version`
+则由「账本表口径收敛」段（方案 B5.4）的 `DROP INDEX IF EXISTS` 清掉 ⇒ 老库与全新库收敛。
+本脚本的意义不变：**这类「基线没有、老库有」的漂移，除它之外没有别的门禁看得见**。
+（注：现在基线里还有 3 处 `DROP TABLE _ck_probe_*`，那是 B4.5 的临时探针表在 `DO` 块内的自清理，
+与「废弃表清理」是两回事。）
 
 ## 本脚本做什么、不做什么
 
