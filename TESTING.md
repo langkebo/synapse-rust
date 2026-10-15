@@ -611,7 +611,10 @@ docker run -d --name synapse_postgres \
   -p 5432:5432 \
   postgres:16
 
-# 设置环境变量
+# 设置环境变量（下面这个一次性容器自己用了 POSTGRES_PASSWORD=synapse，所以值是 `synapse`）
+# ⚠️ 若本机已在跑 **deploy 栈**（docker/deploy：占用 5432，且口令是部署时随机生成的），
+#    上面的 `docker run` 会端口冲突，直连也要用那个口令：
+#    export DATABASE_URL="$(bash scripts/lib/db_credentials.sh url synapse_test)"
 export DATABASE_URL="postgres://synapse:synapse@localhost:5432/synapse_test"
 
 # 运行测试

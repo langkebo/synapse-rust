@@ -62,7 +62,13 @@ help:
 #   2) DATABASE_URL —— schema_health_check 等**宿主进程**需要宿主可达地址，
 #      必须先 `cd docker && docker compose -f docker-compose.yml
 #      -f docker-compose.dev-host-access.yml up -d db` 才能用。
-DATABASE_URL ?= postgresql://synapse:synapse@localhost:5432/synapse
+#
+# 口令**不在这里写死**：deploy 栈部署时会生成随机强口令，单一来源是
+# scripts/lib/db_credentials.sh（优先级：DB_PASSWORD → docker/deploy/.env 的
+# POSTGRES_PASSWORD → docker/.env 的 DB_PASSWORD → 兜底 synapse）。这里直接问
+# 它，避免在 Makefile 里再抄一份"从哪个文件读口令"的逻辑。
+DB_PASSWORD ?= $(shell bash scripts/lib/db_credentials.sh password 2>/dev/null || echo synapse)
+DATABASE_URL ?= postgresql://synapse:$(DB_PASSWORD)@localhost:5432/synapse
 export DATABASE_URL
 
 # compose 栈定位（只影响走容器 exec 的查询目标；路径相对仓库根）

@@ -31,7 +31,10 @@ BENCH_PORT="${BENCH_PORT:-8008}"
 BENCH_DB_HOST="${BENCH_DB_HOST:-localhost}"
 BENCH_DB_PORT="${BENCH_DB_PORT:-5432}"
 BENCH_DB_USER="${BENCH_DB_USER:-synapse}"
-BENCH_DB_PASSWORD="${BENCH_DB_PASSWORD:-synapse}"
+# 口令的单一来源见 scripts/lib/db_credentials.sh（deploy 栈生成随机强口令）。
+# shellcheck source=lib/db_credentials.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/db_credentials.sh"
+BENCH_DB_PASSWORD="${BENCH_DB_PASSWORD:-$(db_password)}"
 BENCH_DB_NAME="${BENCH_DB_NAME:-synapse}"
 BENCH_REDIS_ENABLE="${BENCH_REDIS_ENABLE:-false}"
 BENCH_REDIS_URL="${BENCH_REDIS_URL:-redis://localhost:16379}"

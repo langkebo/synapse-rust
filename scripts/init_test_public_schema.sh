@@ -43,7 +43,14 @@ DB_HOST="${TEST_DB_HOST:-localhost}"
 # 全套 harness 必须一致，见 tests/unit/test_db_url_convention_tests.rs。
 DB_PORT="${TEST_DB_PORT:-5432}"
 DB_USER="${TEST_DB_USER:-synapse}"
-DB_PASSWORD="${TEST_DB_PASSWORD:-synapse}"
+# 口令/用户的**单一来源**：scripts/lib/db_credentials.sh
+# （优先级：TEST_DB_PASSWORD → docker/deploy/.env 的 POSTGRES_PASSWORD →
+#   docker/.env 的 DB_PASSWORD → 兜底 synapse）。
+# 为什么不能硬编码 `synapse`：deploy 栈部署时会生成随机强口令，硬编码值会以
+# "看起来只是用了默认值、其实是错口令"的方式失败。
+# shellcheck source=lib/db_credentials.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/db_credentials.sh"
+DB_PASSWORD="$(db_password)"
 DB_NAME="${TEST_DB_NAME:-synapse_test}"
 TARGET_SCHEMA="${TARGET_SCHEMA:-public}"
 RESET_PUBLIC="${RESET_PUBLIC:-0}"

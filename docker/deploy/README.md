@@ -195,13 +195,37 @@ docker/deploy/
 | SERVER_NAME | matrix.test | 服务器域名 |
 | PUBLIC_BASEURL | https://matrix.test | 对外公开 URL |
 | SYNAPSE_IMAGE | synapse-rust:local | 镜像引用 |
-| POSTGRES_PASSWORD | (必填) | 数据库密码 |
+| POSTGRES_PASSWORD | (必填) | 数据库密码。**弱口令会被拒绝部署**（见下"数据库口令的三条约定"） |
 | REDIS_PASSWORD | (必填) | Redis 密码 |
 | SSL_CERT / SSL_KEY | cert.pem / key.pem | ssl/ 目录下证书文件名 |
 | TURN_SHARED_SECRET | (必填，须替换占位符) | TURN 共享密钥（须与 coturn 一致） |
 | TURN_HOST / TURN_PORT / TURNS_PORT | 127.0.0.1 / 3478 / 5349 | 本地 coturn 地址 |
 
 **密钥生成**：`./scripts/generate-secrets.sh` 可自动补全缺失的随机密钥。
+
+**数据库口令的三条约定**（2026-10-15 起）：
+
+1. **部署时自动生成强口令**：`generate-secrets.sh missing` 会把"弱值"也当成"缺失"来补 ——
+   判据是「命中弱口令名单（`synapse` / `postgres` / `admin` …）或长度 < 16」。
+   此前它只认 `.env.example` 的 `CHANGE_ME`，于是 `POSTGRES_PASSWORD=synapse` 会通过
+   所有检查一路留到生产（实测事故形态）。
+2. **弱口令会挡住部署**：`deploy.sh` 在环境检查阶段调
+   `./scripts/generate-secrets.sh check-password postgres`，弱值即 `exit 1`。
+   确需保留自定义口令时置 `ALLOW_WEAK_DB_PASSWORD=1`（会打警告，不静默放行）。
+3. **口令会收敛到已有数据卷**：`POSTGRES_PASSWORD` 只在**首次 initdb** 时被 entrypoint
+   用来创建角色；数据卷已存在时，改 `.env` **不会**改变库里的口令。所以 `deploy.sh`
+   在 postgres 就绪后、迁移之前执行 `converge_db_password`：先以 `.env` 的口令走
+   **非 loopback** 认证探测（容器内 `127.0.0.1` 在 `pg_hba` 里是 `trust`，用它探等于没探），
+   不一致就 `ALTER ROLE` 收敛，然后复验。`verify_database` 同样改用认证路径 ——
+   原实现走 `trust`，"口令错了也报连接正常"。
+
+本机脚本要连这个库时**别硬编码口令**，用单一来源 `scripts/lib/db_credentials.sh`：
+
+```bash
+bash scripts/lib/db_credentials.sh url synapse         # 完整 URL
+eval "$(bash scripts/lib/db_credentials.sh exports)"   # 导出 DB_USER/DB_PASSWORD/... 
+bash scripts/lib/db_credentials.sh source              # 打印口令来自哪个文件（排障用，不泄露口令）
+```
 
 ---
 

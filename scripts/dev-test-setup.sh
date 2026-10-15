@@ -34,6 +34,10 @@ case "${1:-up}" in
         # 另一个库名上（并在容器里凭空建库）。这也让 H-14 护栏
         # （docker/db_migrate.sh：不显式给 DATABASE_URL 就拒绝宿主 psql 打 loopback）
         # 不会误伤这条正常的开发路径。
+        #
+        # 口令用 `synapse` 是**对的**：本脚本面向 **dev 栈**（docker/docker-compose.yml），
+        # 它的口令来源是 `docker/.env` 的 `DB_PASSWORD`。**deploy 栈**的口令不同
+        # （部署时随机生成），要连 deploy 栈请用 scripts/lib/db_credentials.sh。
         DATABASE_URL="postgres://synapse:synapse@localhost:5432/synapse_test" \
             bash docker/db_migrate.sh migrate
 

@@ -32,8 +32,12 @@
 #      （除非 `ALLOW_CACHE_SHRINK=1` —— 只有"确实删除了查询"时才允许）。
 #
 # ── 用法 ─────────────────────────────────────────────────────────────────────
+#   # 口令取自 scripts/lib/db_credentials.sh（deploy 栈部署时会生成随机强口令，
+#   # 所以别再照抄 `synapse:synapse` —— 那会以"错口令"的形式失败）。
+#   PW="$(bash scripts/lib/db_credentials.sh password)"
+#
 #   # 重生成缓存（唯一允许的写入路径）
-#   DATABASE_URL=postgresql://synapse:synapse@localhost:5432/<已迁移库> \
+#   DATABASE_URL="postgresql://synapse:${PW}@localhost:5432/<已迁移库>" \
 #     bash scripts/ci/sqlx_prepare.sh
 #
 #   # 只核对（`check_sqlx_cache_fresh.sh --full` 就是委托到这里）
@@ -51,10 +55,10 @@
 # 没有"已迁移的库"时，先建一个（不要用共享的 `synapse_test.public` —— 它会被并发
 # seed 收敛/重建）：
 #   createdb synapse_prepare && \
-#   TEST_DATABASE_URL=postgresql://synapse:synapse@localhost:5432/synapse_prepare \
+#   TEST_DATABASE_URL="postgresql://synapse:${PW}@localhost:5432/synapse_prepare" \
 #     RESET_PUBLIC=0 TARGET_SCHEMA=public bash scripts/init_test_public_schema.sh
 # 另一个现成的已迁移 schema 是 CI seed 刚重建的模板（会被并发 seed 重建，注意时机）：
-#   DATABASE_URL='postgresql://synapse:synapse@localhost:5432/synapse_test?options=-csearch_path%3Dtest_template_ci'
+#   DATABASE_URL="postgresql://synapse:${PW}@localhost:5432/synapse_test?options=-csearch_path%3Dtest_template_ci"
 #
 # 退出码：0 = 缓存已生成/一致；1 = 前提不满足 / prepare 失败 / 缓存被缩容（已回滚）。
 set -euo pipefail
@@ -87,7 +91,8 @@ if [[ -z "${DATABASE_URL:-}" ]]; then
 ::error::必须显式给出 DATABASE_URL —— 本脚本刻意没有默认值。
         默认某个库正是"对着空 schema 生成缓存"的成因（D-77：prepare 会先清空 .sqlx 再重写）。
         用法：
-          DATABASE_URL=postgresql://synapse:synapse@localhost:5432/<已迁移库> \
+          PW="$(bash scripts/lib/db_credentials.sh password)"
+          DATABASE_URL="postgresql://synapse:${PW}@localhost:5432/<已迁移库>" \
             bash scripts/ci/sqlx_prepare.sh
         没有已迁移的库时，按脚本头部注释建一个（不要指向共享的 synapse_test.public）。
 MSG

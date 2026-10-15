@@ -49,7 +49,10 @@ echo "==> Sliding Sync Performance Threshold Gate (P2-13)"
 #    因此优先用它（最准确），不可用时退化为 TCP 端口探测（bash /dev/tcp），
 #    再不行用 python3。这样门禁不会因为缺少 CLI 工具而永久报"数据库不可达"。
 # ---------------------------------------------------------------------------
-DB_URL="${BENCHMARK_DATABASE_URL:-postgresql://synapse:synapse@localhost:5432/synapse_bench}"
+# 口令的单一来源见 scripts/lib/db_credentials.sh（deploy 栈生成随机强口令）。
+# shellcheck source=../lib/db_credentials.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/db_credentials.sh"
+DB_URL="${BENCHMARK_DATABASE_URL:-postgresql://synapse:$(db_password)@localhost:5432/synapse_bench}"
 
 # 从 postgresql://user:pass@host:port/db 中取出 host 与 port。
 db_host_port() {

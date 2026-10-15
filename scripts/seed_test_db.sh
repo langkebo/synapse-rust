@@ -17,7 +17,10 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-5432}"
 DB_USER="${DB_USER:-synapse}"
-DB_PASSWORD="${DB_PASSWORD:-synapse}"
+# 口令的单一来源见 scripts/lib/db_credentials.sh（deploy 栈生成随机强口令）。
+# shellcheck source=lib/db_credentials.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/db_credentials.sh"
+DB_PASSWORD="$(db_password)"
 DB_NAME="${DB_NAME:-synapse}"
 BENCH_PASSWORD="${BENCH_PASSWORD:-benchmark123}"
 

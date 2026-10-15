@@ -20,7 +20,10 @@ export PGHOST="${PGHOST:-localhost}"
 export PGPORT="${PGPORT:-5432}"
 export PGUSER="${PGUSER:-synapse}"
 export PGDATABASE="${PGDATABASE:-synapse_test}"
-export PGPASSWORD="${PGPASSWORD:-synapse}"
+# 口令的单一来源见 scripts/lib/db_credentials.sh（deploy 栈生成随机强口令）。
+# shellcheck source=lib/db_credentials.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/db_credentials.sh"
+export PGPASSWORD="${PGPASSWORD:-$(db_password)}"
 
 TARGET_LOCKS="${TEST_DB_MAX_LOCKS_PER_TXN:-256}"
 CONTAINER="${TEST_DB_CONTAINER-synapse-test-db}"

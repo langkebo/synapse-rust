@@ -28,7 +28,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 POSTGRES_USER="${POSTGRES_USER:-synapse}"
-POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-synapse}"
+# 口令的单一来源见 scripts/lib/db_credentials.sh（deploy 栈生成随机强口令）。
+# shellcheck source=lib/db_credentials.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/db_credentials.sh"
+POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(db_password)}"
 POSTGRES_DB="${POSTGRES_DB:-synapse_ci}"
 POSTGRES_PORT="${POSTGRES_PORT:-5432}"
 POSTGRES_HOST="${POSTGRES_HOST:-127.0.0.1}"

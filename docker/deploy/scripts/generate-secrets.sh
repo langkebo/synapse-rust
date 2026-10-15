@@ -77,8 +77,13 @@ generate_missing_or_all() {
         return 1
     }
 
-    maybe_set_secret "POSTGRES_PASSWORD" "$(generate_password 32)" "$force_generate"
-    maybe_set_secret "REDIS_PASSWORD" "$(generate_password 32)" "$force_generate"
+    # 口令类键走 maybe_set_password：它把"弱值"也当成"缺失"处理。
+    # 只用 placeholder_or_empty 是不够的 —— 它认得出 `CHANGE_ME`，却认不出
+    # `synapse` / `postgres` 这类"看着像真值、其实是弱值"的口令，于是生成阶段
+    # 静默跳过，弱口令就一直留在生产里（2026-10-15 实测：`.env` 的
+    # POSTGRES_PASSWORD 就是 `synapse`，而 deploy.sh 的检查一路放行）。
+    maybe_set_password "POSTGRES_PASSWORD" "$(generate_password 32)" "$force_generate"
+    maybe_set_password "REDIS_PASSWORD" "$(generate_password 32)" "$force_generate"
     maybe_set_secret "ADMIN_SHARED_SECRET" "$(generate_hex_key 64)" "$force_generate"
     maybe_set_secret "REGISTRATION_SHARED_SECRET" "$(generate_hex_key 64)" "$force_generate"
     maybe_set_secret "SECRET_KEY" "$(generate_hex_key 64)" "$force_generate"
@@ -112,6 +117,30 @@ placeholder_or_empty() {
     [ -z "$value" ] || [[ "$value" == __REQUIRED_* ]] || [[ "$value" == *"change-me"* ]] || [[ "$value" == *"your-"* ]] || [[ "$value" == *"CHANGE_ME"* ]]
 }
 
+# 口令强度的**单一判据**（deploy.sh 通过 `check-password` 复用它，不另抄一份名单）。
+#
+# 为什么需要它：`placeholder_or_empty` 只认 `.env.example` 的 `CHANGE_ME` 形态。
+# 但真实事故形态是"值看起来是合法的"——`synapse` / `postgres` / `admin` 这类
+# 与项目名、角色名同形的弱口令，能通过一切"非空且不像占位符"的检查，
+# 于是一路留到生产。2026-10-15 实测本仓库 `.env` 的 POSTGRES_PASSWORD 就是
+# `synapse`。这里显式列名单 + 设长度下限。
+#
+# 放行：确有必要保留自定义口令时置 `ALLOW_WEAK_DB_PASSWORD=1`（会打警告，不静默）。
+MIN_PASSWORD_LENGTH=16
+WEAK_PASSWORDS="synapse postgres password passwd changeme change_me admin root test dev secret matrix synapse_dev synapse_rust"
+
+is_weak_password() {
+    local value="${1:-}"
+    [ -z "$value" ] && return 0
+    local lower
+    lower="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+    local candidate
+    for candidate in $WEAK_PASSWORDS; do
+        [ "$lower" = "$candidate" ] && return 0
+    done
+    [ "${#value}" -lt "$MIN_PASSWORD_LENGTH" ]
+}
+
 maybe_set_secret() {
     local key=$1
     local new_value=$2
@@ -127,28 +156,80 @@ maybe_set_secret() {
     fi
 }
 
+# 密码类键：把"弱"也当作"缺失"来补。
+#
+# 与 maybe_set_secret 的唯一区别是多了 is_weak_password 这一条判据，并且
+# 轮换时会明确说"因为原值弱"而不是笼统的"已生成"——否则运维会以为口令一直是
+# 随机值，从而失去"我改过它"的线索。
+maybe_set_password() {
+    local key=$1
+    local new_value=$2
+    local force_generate=${3:-false}
+    local old_value
+    old_value="$(current_env_value "$key")"
+
+    if [ "${ALLOW_WEAK_DB_PASSWORD:-0}" = "1" ] && ! placeholder_or_empty "$old_value"; then
+        log_warning "$key: 当前值偏弱，但 ALLOW_WEAK_DB_PASSWORD=1 显式放行，保持原值"
+        return 0
+    fi
+
+    if [ "$force_generate" = "true" ]; then
+        update_env_file "$key" "$new_value"
+        log_warning "$key: 已强制重新生成"
+    elif placeholder_or_empty "$old_value"; then
+        update_env_file "$key" "$new_value"
+        log_info "$key: 缺失或为占位符，已生成"
+    elif is_weak_password "$old_value"; then
+        update_env_file "$key" "$new_value"
+        log_warning "$key: 原值偏弱（长度 ${#old_value}，命中弱口令判据），已轮换为强随机值"
+    else
+        log_info "$key: 已存在且强度足够，跳过"
+    fi
+}
+
 # 更新 .env 文件中的密钥
+#
+# 刻意**不用** `sed -i`：BSD 与 GNU 的 `-i` 语义不同（`-i ''` vs `-i`），
+# 而且在被包装过的 shell 环境里 `-i ''` 会被当成文件名吃掉，实测报
+# `sed: s|^A=.*|A=CHANGED|: No such file or directory` —— 于是"生成了密钥"
+# 的日志是真的，写回 `.env` 却根本没发生。纯 bash 逐行重写两边都成立，
+# 也顺带避免了"值里含 `|` / `&` 时 sed 替换语义被吃掉"这一类问题。
 update_env_file() {
     local key=$1
     local value=$2
 
-    if [ -f "$ENV_FILE" ]; then
-        # 检查 key 是否存在
-        if grep -q "^${key}=" "$ENV_FILE"; then
-            # 更新现有值
-            if [[ "$OSTYPE" == "darwin"* ]]; then
-                sed -i '' "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
-            else
-                sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
-            fi
-        else
-            # 添加新值
-            echo "${key}=${value}" >>"$ENV_FILE"
-        fi
-    else
+    [ -f "$ENV_FILE" ] || {
         log_error ".env 文件不存在: $ENV_FILE"
         return 1
+    }
+
+    local tmp
+    tmp="$(mktemp "${ENV_FILE}.tmp.XXXXXX")" || {
+        log_error "无法在 $(dirname "$ENV_FILE") 创建临时文件"
+        return 1
+    }
+
+    local replaced=false
+    local line
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            "${key}="*)
+                printf '%s=%s\n' "$key" "$value" >>"$tmp"
+                replaced=true
+                ;;
+            *)
+                printf '%s\n' "$line" >>"$tmp"
+                ;;
+        esac
+    done <"$ENV_FILE"
+
+    if [ "$replaced" = "false" ]; then
+        printf '%s=%s\n' "$key" "$value" >>"$tmp"
     fi
+
+    # 覆盖写回（保留原 inode 与权限：.env 常被 chmod 600，也可能是 bind mount）
+    cat "$tmp" >"$ENV_FILE"
+    rm -f "$tmp"
 }
 
 # 生成所有密钥
@@ -219,6 +300,7 @@ show_help() {
     echo "  worker-replication  轮换 worker 复制密钥（轮换后需重启所有 worker）"
     echo "  olm-pickle  生成 OLM 账户 pickle 密钥（32 字节 hex）"
     echo "  admin-mfa  生成管理员 MFA 的 TOTP base32 密钥"
+    echo "  check-password [postgres|redis]  检查口令强度（弱则退出码 1；供 deploy.sh 复用）"
     echo "  help      显示此帮助信息"
     echo ""
     echo "示例:"
@@ -236,6 +318,30 @@ main() {
             ;;
         missing)
             generate_missing_secrets
+            ;;
+        check-password | check-db-password)
+            # 口令强度的**唯一实现**在这里；deploy.sh 调这个子命令，不另抄名单。
+            local target=${2:-postgres}
+            local key
+            case "$target" in
+                postgres | postgresql | db) key="POSTGRES_PASSWORD" ;;
+                redis) key="REDIS_PASSWORD" ;;
+                *)
+                    log_error "未知目标: $target（可用: postgres, redis）"
+                    return 1
+                    ;;
+            esac
+            local value
+            value="$(current_env_value "$key")"
+            if [ "${ALLOW_WEAK_DB_PASSWORD:-0}" = "1" ]; then
+                log_warning "${key}: 弱口令检查被 ALLOW_WEAK_DB_PASSWORD=1 跳过"
+                return 0
+            fi
+            if placeholder_or_empty "$value" || is_weak_password "$value"; then
+                log_error "${key} 未设置或属于弱口令（长度 ${#value}，下限 ${MIN_PASSWORD_LENGTH}）"
+                return 1
+            fi
+            log_success "${key} 强度检查通过（长度 ${#value}）"
             ;;
         postgres | redis | admin | registration | secret | macaroon | form | worker-replication | olm-pickle | admin-mfa)
             local secret=$(generate_single_secret "$command")

@@ -128,8 +128,10 @@ search:
 
 ```bash
 export SYNAPSE_CONFIG_PATH=homeserver.yaml
-# 迁移必须显式给出目标（见下方「统一口径」）：这里指向你本地那台 PostgreSQL
-export DATABASE_URL=postgres://synapse:synapse@localhost:5432/synapse
+# 迁移必须显式给出目标（见下方「统一口径」）：这里指向你本地那台 PostgreSQL。
+# 口令**不要照抄具体值** —— deploy 栈（docker/deploy）部署时会生成随机强口令，
+# 唯一来源是 scripts/lib/db_credentials.sh（见 docs/audit/DB_REVIEW_2026-10-15.md §16.7）：
+export DATABASE_URL="$(bash scripts/lib/db_credentials.sh url synapse)"
 bash docker/db_migrate.sh migrate
 bash docker/db_migrate.sh validate
 cargo run --release

@@ -71,7 +71,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../.." # repo root (scripts/ci -> repo root)
 
-export TEST_DATABASE_URL="${TEST_DATABASE_URL:-postgresql://synapse:synapse@localhost:5432/synapse_test}"
+# 口令的单一来源见 scripts/lib/db_credentials.sh（deploy 栈生成随机强口令）。
+# shellcheck source=../lib/db_credentials.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/db_credentials.sh"
+export TEST_DATABASE_URL="${TEST_DATABASE_URL:-postgresql://synapse:$(db_password)@localhost:5432/synapse_test}"
 TEMPLATE_SCHEMA="${TEMPLATE_SCHEMA:-${TEST_DB_TEMPLATE_SCHEMA:-test_template_ci}}"
 MODE="${CONVERGE_MODE:-apply}"
 MIN_TABLES="${MIN_TABLES:-100}"

@@ -534,6 +534,40 @@ UNIQUE 版属冗余。**先把"哪一种是对的口径"定下来再折入基线
 > （`prepare_test_db.sh` 跑通，`public` 218 表 + 模板 218 表）。
 > 本节曾记的两条"暂时失效"Workflow 均已恢复。
 
+### 13.7 口令强化：部署时生成强随机口令（2026-10-15，收官）
+
+**起因**：§13.6 之后仍有一处**主动欠下的技术债** —— 为了恢复"`localhost:5432` = 项目库"
+这一被多处硬编码的假设，当时把库口令对齐到了 `synapse`（弱值）。
+
+**改造四步**（全部落在**部署脚本**里，不再是"记住要手工做"）：
+
+| # | 改造 | 落点 |
+|---|---|---|
+| ① | 生成：**弱口令也当成"缺失"** | `docker/deploy/scripts/generate-secrets.sh` 新增 `is_weak_password()`（弱口令名单 ＋ 长度下限 16）与 `maybe_set_password()` |
+| ② | 闸门：**弱口令拒绝部署** | `docker/deploy/deploy.sh` 的 `check_env_file` 调 `check-password postgres`（判据**单一实现**，不另抄名单） |
+| ③ | 收敛：**口令落到已有数据卷** | 新增 `converge_db_password()`（postgres 就绪后、迁移**之前**：非 loopback 探测 ⇒ 不一致则 `ALTER ROLE` ⇒ 复验） |
+| ④ | 校验：**验证必须真的经过口令** | `verify_database()` 原走容器内 `trust`（**口令错了也报"连接正常"**），改为容器 IP ＋ 显式口令 |
+
+**工具链同步**：新增 `scripts/lib/db_credentials.sh` 作为口令的**单一来源**，接入 11 个脚本与
+`Makefile`（逐项明细见 `docs/audit/DB_REVIEW_2026-10-15.md` **§16.7**）。
+**CI 零影响**：CI 没有 `docker/deploy/.env` ⇒ 解析落到兜底 `synapse`，与历史行为一致。
+
+**实测**：库口令 32 字符随机；`synapse-app` healthy 且日志 **0 条 ERROR/WARN**；
+`/health` **200 ＋ `status: ok`**（该端点内部就是 `SELECT 1`）；`prepare_test_db.sh` **EXIT=0**；
+约定守卫 `test_db_url_convention_tests` **9/9**。
+
+**顺带修掉的三处既有缺陷**：① `generate-secrets.sh` 的 `update_env_file` 由 `sed -i` 改为纯 bash
+（BSD/GNU 的 `-i` 语义不同，某些 shell 会把 `-i ''` 当文件名吃掉 ⇒ "密钥已生成"的日志为真但
+**并没有写回 `.env`**）；② `scripts/generate_env.sh` 生成随机口令却把 `DATABASE_URL` 写死成
+`synapse:synapse`（同一份输出里自相矛盾）；③ **`deploy.sh` 的日志门禁是"假绿"** ——
+`grep -Ei '\b(ERROR)\b'` 的 `\b` 不属于 POSIX ERE，在 toybox/busybox 一类实现下**静默失配**，
+于是 `verify_logs_clean` "分析容器日志"什么都没匹配到却打印 `SUCCESS`。已改 POSIX 字符类
+＋ 新增 `verify_log_filters_are_live()` **过滤器自检**（变异自证：正则改回 `\b` ⇒ 自检立刻判红）。
+自检后真栈实测：**已知=1（唯一那条是白名单内的预期 Megolm 告警）、未知=0、无 ERROR ⇒ rc=0**。
+
+**未做**：`TURN_SHARED_SECRET`（15 字符）与 `coturn` 的门配置耦合，轮换需同时改两处并重启 ⇒
+属独立变更，登记为待办而非顺手改掉。
+
 ---
 
 *方案生成：2026-10-15 · 依据 `docs/audit/DB_REVIEW_2026-10-15.md`（实测取证版）*

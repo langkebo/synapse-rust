@@ -31,8 +31,10 @@ python3 scripts/report_orphan_db_objects.py --container synapse-postgres \
 
 # 容器不可用时用连接串直连（需要本机 psql）
 # `127.0.0.1:5432` 现在**就是本项目库**：容器已把 5432 发布到宿主回环
-# （2026-10-15「环境收敛」，宿主自装 PG 已全部停用）。所以下面这条可直接用：
-DATABASE_URL="postgresql://synapse:synapse@127.0.0.1:5432/synapse" \
+# （2026-10-15「环境收敛」，宿主自装 PG 已全部停用）。
+# 口令**不要硬编码**：deploy 栈部署时会生成随机强口令，唯一来源是
+# scripts/lib/db_credentials.sh（报告 §16.7）。
+DATABASE_URL="$(bash scripts/lib/db_credentials.sh url synapse)" \
     python3 scripts/report_orphan_db_objects.py --dsn-env DATABASE_URL
 # 也可以用其审查**任意库**（如 CI/临时库）：把库名换掉即可。环境沿革见报告 §16。
 
@@ -125,7 +127,7 @@ B5.3 之后报告剩 3 项。它们**不是"该删的表"**，而是"**同一张
 判据（用本工具即可区分任意库）：
 
 ```bash
-DATABASE_URL="postgresql://synapse:synapse@127.0.0.1:5432/<库>" \
+DATABASE_URL="$(bash scripts/lib/db_credentials.sh url <库>)" \
   python3 scripts/report_orphan_db_objects.py --dsn-env DATABASE_URL
 ```
 
@@ -163,8 +165,9 @@ DATABASE_URL="postgresql://synapse:synapse@127.0.0.1:5432/<库>" \
   ⚠️ 该源库当天晚些时候从宿主 PG 迁到了**容器内**（宿主自装 PG 全部停用）：
   已在容器里重建 `synapse_sqlx_scratch`（用 `init_test_public_schema.sh` 应用基线）并复测
   `--check` = **OK**。现在的调用方式是
-  `DATABASE_URL="postgresql://synapse:synapse@127.0.0.1:5432/synapse_sqlx_scratch" \
-   [ALLOW_CACHE_SHRINK=1] bash scripts/ci/sqlx_prepare.sh`。沿革见报告 §16。
+  `DATABASE_URL="$(bash scripts/lib/db_credentials.sh url synapse_sqlx_scratch)" \
+   [ALLOW_CACHE_SHRINK=1] bash scripts/ci/sqlx_prepare.sh`。沿革见报告 §16，
+  口令来源见 §16.7（部署时随机生成，不要硬编码）。
 
 ## 4. 处置流程（清理孤儿表之前必读）
 

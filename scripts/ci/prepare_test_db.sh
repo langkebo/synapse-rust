@@ -53,7 +53,12 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../.." # repo root (scripts/ci -> repo root)
 
-export TEST_DATABASE_URL="${TEST_DATABASE_URL:-postgresql://synapse:synapse@localhost:5432/synapse_test}"
+# 口令的单一来源见 scripts/lib/db_credentials.sh（deploy 栈部署时会生成随机强
+# 口令，硬编码 `synapse` 会以"错口令"的形式失败）。端口与库名仍按 H-12 约定
+# 写死在这一行 —— tests/unit/test_db_url_convention_tests.rs 会断言它。
+# shellcheck source=../lib/db_credentials.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/db_credentials.sh"
+export TEST_DATABASE_URL="${TEST_DATABASE_URL:-postgresql://synapse:$(db_password)@localhost:5432/synapse_test}"
 export DATABASE_URL="$TEST_DATABASE_URL"
 unset SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE
 

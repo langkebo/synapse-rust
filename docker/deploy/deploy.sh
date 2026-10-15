@@ -1077,6 +1077,19 @@ check_env_file() {
     chmod +x scripts/generate-secrets.sh
     ./scripts/generate-secrets.sh missing >/dev/null
 
+    # 口令强度闸门。
+    #
+    # `missing` 已经把弱口令轮换掉了，这里再判一次不是重复生成，而是**挡住**
+    # 另外两条路径：① `.env` 被人手工改回弱值；② 生成脚本因故没跑到。
+    # 判据复用 generate-secrets.sh 的 `check-password`（口令强度的单一实现），
+    # 不在这里另抄一份弱口令名单 —— 两份名单必然漂移。
+    if ! ./scripts/generate-secrets.sh check-password postgres >/dev/null 2>&1; then
+        log_error "POSTGRES_PASSWORD 属于弱口令，拒绝部署。"
+        log_error "  改强： ./scripts/generate-secrets.sh postgres   （生成 32 字符随机值并写回 .env）"
+        log_error "  或显式放行（不推荐）： ALLOW_WEAK_DB_PASSWORD=1 ./deploy.sh <命令>"
+        exit 1
+    fi
+
     load_env
 
     local required_vars=(
@@ -1483,6 +1496,64 @@ run_migrations() {
     log_success "数据库架构验证通过"
 }
 
+# ---------------------------------------------------------------------------
+# 数据库口令收敛（2026-10-15）
+# ---------------------------------------------------------------------------
+# 为什么必须有这一步：
+#   compose 里的 `POSTGRES_PASSWORD` **只在首次 initdb 时**被 entrypoint 用来
+#   创建角色。数据卷已存在时，改 `.env` 并不会改变库里的口令（角色早就建好了）
+#   ⇒ app 带着新口令去连、库里还是旧口令。2026-10-15 实测正是如此：改完 `.env`
+#   后必须手工 `ALTER ROLE` 才真正生效。这一步把"手工"变成部署的一部分。
+#
+# 探测**必须走非 loopback**：容器内 pg_hba 对 `local` 与 `127.0.0.1/32` 是
+# `trust`，用它们探口令会永远"通过"（实测：错误口令 + loopback ⇒ 成功；
+# 错误口令 + 容器 IP ⇒ `password authentication failed`）。
+db_auth_host() {
+    docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$1" 2>/dev/null | awk '{print $1}'
+}
+
+db_password_probe() {
+    # 0 = 以给定口令通过认证；非 0 = 不一致 / 库未就绪
+    local container="$1" host="$2" user="$3" db="$4" password="$5"
+    [ -n "$host" ] || return 1
+    docker exec -e PGPASSWORD="$password" "$container" \
+        psql -w -h "$host" -U "$user" -d "$db" -tAc "SELECT 1" >/dev/null 2>&1
+}
+
+converge_db_password() {
+    DEPLOYMENT_PHASE="database-password"
+    local container="synapse-postgres"
+    local user="${POSTGRES_USER:-postgres}"
+    local db="${POSTGRES_DB:-synapse}"
+    local password="${POSTGRES_PASSWORD:-}"
+    local auth_host
+    auth_host="$(db_auth_host "$container")"
+
+    if db_password_probe "$container" "$auth_host" "$user" "$db" "$password"; then
+        log_success "数据库口令与 .env 一致（无需收敛）"
+        return 0
+    fi
+
+    log_warning "数据库口令与 .env 不一致（.env 轮换过口令，或数据卷来自更早的部署）⇒ 收敛"
+    # 用容器内的本地 socket（trust）以超级用户身份改口令；口令经 psql 变量传入，
+    # 由 psql 负责引用，避免口令里的引号/反斜杠破坏 SQL。
+    docker exec -i -u postgres "$container" \
+        psql -q -v ON_ERROR_STOP=1 -U "$user" -d "$db" \
+        -v role_name="$user" -v new_password="$password" <<'SQL'
+ALTER ROLE :"role_name" PASSWORD :'new_password';
+SQL
+
+    if db_password_probe "$container" "$auth_host" "$user" "$db" "$password"; then
+        log_success "数据库口令已收敛"
+        return 0
+    fi
+
+    log_error "数据库口令收敛失败：以 .env 的值仍无法通过认证"
+    log_error "  排查：docker exec -u postgres $container psql -U $user -c '\\du'"
+    log_error "  手工：docker exec -u postgres $container psql -U $user -c \"ALTER ROLE $user PASSWORD '<新口令>'\""
+    return 1
+}
+
 start_services() {
     DEPLOYMENT_PHASE="service-start"
     log_info "启动基础服务..."
@@ -1490,6 +1561,9 @@ start_services() {
     compose up -d postgres redis
     wait_for_container_health synapse-postgres "${HEALTHCHECK_RETRIES:-30}" "${HEALTHCHECK_INTERVAL:-5}"
     wait_for_container_health synapse-redis "${HEALTHCHECK_RETRIES:-30}" "${HEALTHCHECK_INTERVAL:-5}"
+
+    # 口令先与 .env 对齐，再让 migrator / app 用它 —— 顺序反了就会以旧口令连库。
+    converge_db_password
 
     run_migrations
 
@@ -1510,8 +1584,25 @@ start_services() {
 verify_database() {
     DEPLOYMENT_PHASE="verify-database"
     log_info "验证数据库连接..."
-    compose exec -T postgres psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-synapse}" -c "SELECT 1;" >/dev/null
-    log_success "数据库连接正常"
+
+    # 原实现是 `compose exec postgres psql -c "SELECT 1"`：那条连接走容器内
+    # socket，pg_hba 里是 `trust` ⇒ **口令错了也照样通过**，等于没验证
+    # （app 恰恰是按口令连的，于是"验证通过"与"app 连不上"可以同时成立）。
+    # 这里改为走容器 IP + 显式口令，真正经过 scram-sha-256 认证。
+    local container="synapse-postgres"
+    local user="${POSTGRES_USER:-postgres}"
+    local db="${POSTGRES_DB:-synapse}"
+    local auth_host
+    auth_host="$(db_auth_host "$container")"
+
+    if ! db_password_probe "$container" "$auth_host" "$user" "$db" "${POSTGRES_PASSWORD:-}"; then
+        log_error "数据库口令认证失败：以 .env 的 POSTGRES_PASSWORD 经 $auth_host:5432 连不上"
+        log_error "  app 会以同样的原因连不上库（/health 的数据库探针会返回 unhealthy）"
+        log_error "  处理：让 deploy.sh 重新跑一次（会执行口令收敛），或手工 ALTER ROLE"
+        return 1
+    fi
+
+    log_success "数据库连接正常（已通过口令认证）"
 }
 
 # 数据库结构与项目版本一致性校验（部署门禁）：
@@ -1612,6 +1703,32 @@ verify_health_endpoints() {
 # 已知告警白名单（格式: 匹配子串|原因）。
 # 这些告警来自基础镜像或宿主 Docker 环境，与本次部署正确性无关；任何不在白名单
 # 内的 WARNING 都被视为"需要修复的问题"。新增条目必须写明可核实的原因。
+# 日志级别匹配用**跨 grep 实现一致**的写法（POSIX 字符类），刻意不用 `\b`：
+# `\b` 不属于 POSIX ERE —— GNU grep（CI）与 macOS BSD grep 支持它，但 toybox / busybox
+# 的某些构建会**静默失配**。实测 2026-10-15：同一条含 `WARN`/`ERROR` 的样本，
+# `/usr/bin/grep -Ei '\b(ERROR)\b'` 命中，而 PATH 更靠前的另一实现报"无匹配"
+# ⇒ 这道门禁会**什么都没匹配到却打印通过**（假绿），比直接报错危险得多。
+LOG_LEVEL_RE_ERROR='(^|[^A-Za-z])(ERROR)([^A-Za-z]|$)'
+LOG_LEVEL_RE_WARN='(^|[^A-Za-z])(WARN(ING)?)([^A-Za-z]|$)'
+
+# 过滤器**自检**：用一个必然含 ERROR/WARN 的样本证明匹配真的生效。
+# 没有这一步，"过滤器坏了"与"日志很干净"在输出上完全不可区分 —— 而两者的运维含义相反。
+verify_log_filters_are_live() {
+    local sample='  0.100000000s  WARN probe: canary  0.200000000s  ERROR probe: canary'
+    local hit
+    hit="$(printf '%s\n' "$sample" | grep -Eo "$LOG_LEVEL_RE_ERROR" | head -1)"
+    if [ -z "$hit" ]; then
+        log_error "日志级别过滤器自检失败：含 ERROR 的样本未被匹配到（过滤器失效 ⇒ 日志门禁不可信）"
+        return 1
+    fi
+    hit="$(printf '%s\n' "$sample" | grep -Eo "$LOG_LEVEL_RE_WARN" | head -1)"
+    if [ -z "$hit" ]; then
+        log_error "日志级别过滤器自检失败：含 WARN 的样本未被匹配到（过滤器失效 ⇒ 日志门禁不可信）"
+        return 1
+    fi
+    return 0
+}
+
 LOG_WARNING_ALLOWLIST=(
     'no usable system locales|基础镜像未生成 locale，仅影响 psql/i18n 输出格式'
     'enabling "trust" authentication|容器内网 pg_hba trust 认证（5432 未对外暴露）'
@@ -1630,11 +1747,14 @@ verify_logs_clean() {
     DEPLOYMENT_PHASE="verify-logs"
     log_info "分析容器日志中的 ERROR / WARNING..."
 
+    # 先证明过滤器是活的，再据此下任何结论（见 verify_log_filters_are_live 的注释）。
+    verify_log_filters_are_live || return 1
+
     local log_dump
     log_dump="$(compose logs --no-color --tail=400 2>&1 || true)"
 
     local errors
-    errors="$(echo "$log_dump" | grep -Ei '\b(ERROR)\b' |
+    errors="$(echo "$log_dump" | grep -Ei "$LOG_LEVEL_RE_ERROR" |
         grep -v 'no usable system locales' |
         grep -v 'enabling "trust" authentication' |
         grep -v 'Missing indexes' |
@@ -1644,7 +1764,7 @@ verify_logs_clean() {
         true)"
 
     local warn_lines
-    warn_lines="$(echo "$log_dump" | grep -Ei '\bWARN(ING)?\b' || true)"
+    warn_lines="$(echo "$log_dump" | grep -Ei "$LOG_LEVEL_RE_WARN" || true)"
 
     local allowed_summary="" unknown_warnings=""
     local allowed_count=0 unknown_count=0

@@ -28,7 +28,10 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
-DATABASE_URL="${DATABASE_URL:-postgresql://synapse:synapse@localhost:5432/synapse_test}"
+# 口令的单一来源见 scripts/lib/db_credentials.sh（deploy 栈生成随机强口令）。
+# shellcheck source=../lib/db_credentials.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/db_credentials.sh"
+DATABASE_URL="${DATABASE_URL:-postgresql://synapse:$(db_password)@localhost:5432/synapse_test}"
 TEST_DATABASE_URL="${TEST_DATABASE_URL:-$DATABASE_URL}"
 TEST_DB_TEMPLATE_SCHEMA="${TEST_DB_TEMPLATE_SCHEMA:-test_template_ci}"
 OUTPUT_DIR="${OUTPUT_DIR:-coverage}"
