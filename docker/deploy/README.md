@@ -313,8 +313,23 @@ PostgreSQL 的 `max_connections` 是**全局**资源，而每个 synapse 进程�
 | 最大并发进程数 | 4 |
 | 测试/管理保留 | 20 |
 | PostgreSQL max_connections | 250 |
+| PostgreSQL pids_limit | 300 |
+| 预期并发排序/哈希节点数（work_mem 预算） | 100 |
 
 不变式：`每进程池上限 × 进程数 + 保留 ≤ max_connections` → `50 × 4 + 20 = 220 ≤ 250` ✅
+
+**另两条同源不变式**（2026-10-15 起由同一门禁断言，见
+`docs/audit/DB_REVIEW_2026-10-15.md` §4/§5）：
+
+- **pids**：`pids_limit ≥ max_connections + 常驻进程数(7) + max_worker_processes(8)`
+  → `300 ≥ 250 + 7 + 8 = 265` ✅
+  （常驻进程实测：postmaster / logger / checkpointer / bgwriter / walwriter /
+  autovacuum launcher / logical replication launcher = **7** 个；并行 worker 也占 pid。
+  256 时 250+7=257 > 256 ⇒ 连接打满后段报 `could not fork new process`，客户端看到的是"连接失败"。）
+- **内存**：`shared_buffers + work_mem × 预期并发 + maintenance_work_mem ≤ 0.8 × mem_limit`
+  → `256MB + 4MB × 100 + 64MB = 720MB ≤ 0.8 × 1536MB = 1229MB` ✅
+  （`work_mem` 是**每排序/哈希节点**上限，不是每连接上限；按 `max_connections` 算最坏情况会得出
+  4GB 这种必然打穿的数，故这里用"预期并发"这一显式登记的预算量，而不是假装 250 个连接同时排序。）
 
 **部署前必查**：PostgreSQL 默认 `max_connections = 100`，那种情况下最多只能跑
 **1 个 worker**（`50 × 1 + 20 = 70`）；要跑 4 个 worker 必须显式把

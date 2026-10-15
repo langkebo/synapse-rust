@@ -99,6 +99,59 @@ def runtime_max_connections() -> int:
     return int(m.group(1))
 
 
+AUX_PROCESSES = 7
+"""PostgreSQL 常驻**非连接**进程数（实测，docs/audit/DB_REVIEW_2026-10-15.md §4）：
+postmaster / logger / checkpointer / background writer / walwriter / autovacuum launcher /
+logical replication launcher。并行 worker 另计（`max_worker_processes`），它们同样占 pid。"""
+
+MEM_BUDGET_RATIO = 0.8
+"""内存预算只允许用掉容器 `mem_limit` 的 80%，其余留给页缓存与瞬时尖峰。"""
+
+
+def _mb(value: str) -> int:
+    """把 `256MB` / `1536m` / `4MB` 这类写法统一成 MB 整数。"""
+    m = re.fullmatch(r"(\d+)\s*([Mm][Bb]?)?", value.strip())
+    if not m:
+        raise ValueError(f"无法解析内存量：{value!r}")
+    return int(m.group(1))
+
+
+def runtime_pids_limit() -> int:
+    """从真实运行 compose 读 PostgreSQL 容器的 `pids_limit`（deploy 栈是权威）。"""
+    text = _read(COMPOSE)
+    m = re.search(r"POSTGRES_PIDS_LIMIT:-(\d+)", text)
+    if not m:
+        m = re.search(r"^\s*pids_limit:[ \t]*(\d+)", text, re.MULTILINE)
+    if not m:
+        _fail_missing(COMPOSE, "`POSTGRES_PIDS_LIMIT` 默认值")
+    return int(m.group(1))
+
+
+def runtime_mem_limit_mb() -> int:
+    """从真实运行 compose 读 PostgreSQL 容器的 `mem_limit`（MB）。"""
+    text = _read(COMPOSE)
+    m = re.search(r"POSTGRES_MEMORY_LIMIT:-(\d+m)", text)
+    if not m:
+        _fail_missing(COMPOSE, "`POSTGRES_MEMORY_LIMIT` 默认值")
+    return _mb(m.group(1))
+
+
+def pg_conf_mb(param: str) -> int:
+    """从 canonical postgres.conf 读内存类参数（统一为 MB）。"""
+    text = _read(POSTGRES_CONF)
+    m = re.search(rf"^{param}[ \t]*=[ \t]*([0-9]+[A-Za-z]*)", text, re.MULTILINE)
+    if not m:
+        _fail_missing(POSTGRES_CONF, f"`{param}`")
+    return _mb(m.group(1))
+
+
+def pg_conf_int(param: str, default: int) -> int:
+    """从 canonical postgres.conf 读整型参数；文件里没写就走 PG 默认值。"""
+    text = _read(POSTGRES_CONF)
+    m = re.search(rf"^{param}[ \t]*=[ \t]*(\d+)", text, re.MULTILINE)
+    return int(m.group(1)) if m else default
+
+
 def documented_budget() -> dict[str, int]:
     """Parse the budget table from docker/deploy/README.md."""
     if not BUDGET_DOC.exists():
@@ -110,6 +163,8 @@ def documented_budget() -> dict[str, int]:
         "max_processes": r"最大并发进程数\s*\|\s*(\d+)",
         "reserve": r"测试/管理保留\s*\|\s*(\d+)",
         "max_connections": r"PostgreSQL max_connections\s*\|\s*(\d+)",
+        "pids_limit": r"PostgreSQL pids_limit\s*\|\s*(\d+)",
+        "work_mem_concurrency": r"并发排序/哈希节点数[^|]*\|\s*(\d+)",
     }
     out: dict[str, int] = {}
     for name, pat in keys.items():
@@ -180,6 +235,58 @@ def main() -> int:
     print(
         f"✅ 连接预算成立：{needed} ≤ {runtime_max}（余量 {runtime_max - needed}）；"
         "文档 == 代码 == 运行配置"
+    )
+
+    # 5) pids 预算（DB_REVIEW_2026-10-15 §4）：连接数够了但进程数不够，一样连不上。
+    #    `max_connections` 只算"连接进程"，不含 postmaster/checkpointer 等常驻进程与并行 worker。
+    pids_limit = runtime_pids_limit()
+    if doc["pids_limit"] != pids_limit:
+        print(
+            f"❌ 文档与运行配置漂移：docker/deploy/README.md 写 PostgreSQL pids_limit = "
+            f"{doc['pids_limit']}，而 docker/deploy/docker-compose.yml 实际为 {pids_limit}。",
+            file=sys.stderr,
+        )
+        return 1
+    workers = pg_conf_int("max_worker_processes", 8)
+    pids_needed = runtime_max + AUX_PROCESSES + workers
+    print(
+        f"pids 预算：max_connections {runtime_max} + 常驻进程 {AUX_PROCESSES} + 并行 worker {workers} "
+        f"= {pids_needed}，运行 pids_limit = {pids_limit}"
+    )
+    if pids_needed > pids_limit:
+        print(
+            f"❌ pids 超预算 {pids_needed} > {pids_limit}：连接打满后段会 "
+            "`could not fork new process` —— 客户端看到的是**连接失败**而不是排队（极难归因）。"
+            "请提高 POSTGRES_PIDS_LIMIT / DB_PIDS_LIMIT，或降低 max_connections，并同步预算表。",
+            file=sys.stderr,
+        )
+        return 1
+
+    # 6) 内存预算（DB_REVIEW_2026-10-15 §5）：`work_mem` 是**每排序/哈希节点**上限，不是每连接上限。
+    #    按 max_connections 算最坏情况会得出必然打穿的数，故用文档里**显式登记**的"预期并发"。
+    shared_buffers = pg_conf_mb("shared_buffers")
+    work_mem = pg_conf_mb("work_mem")
+    maintenance = pg_conf_mb("maintenance_work_mem")
+    mem_limit = runtime_mem_limit_mb()
+    concurrency = doc["work_mem_concurrency"]
+    mem_needed = shared_buffers + work_mem * concurrency + maintenance
+    mem_budget = int(mem_limit * MEM_BUDGET_RATIO)
+    print(
+        f"内存预算：shared_buffers {shared_buffers}MB + work_mem {work_mem}MB × 预期并发 {concurrency} "
+        f"+ maintenance {maintenance}MB = {mem_needed}MB，上限 = mem_limit {mem_limit}MB × "
+        f"{MEM_BUDGET_RATIO:.0%} = {mem_budget}MB"
+    )
+    if mem_needed > mem_budget:
+        print(
+            f"❌ 内存超预算 {mem_needed}MB > {mem_budget}MB：cgroup OOM 杀的是 **postmaster** ⇒ "
+            "整库重启（而不是「杀掉一个慢查询」）。请下调 work_mem / 上调 POSTGRES_MEMORY_LIMIT，"
+            "或下调文档里的预期并发并说明理由。",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(
+        f"✅ pids 预算成立：{pids_needed} ≤ {pids_limit}；内存预算成立：{mem_needed}MB ≤ {mem_budget}MB"
     )
     return 0
 

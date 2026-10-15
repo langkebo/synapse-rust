@@ -119,7 +119,9 @@ behavioural
 bejoin
 bencher
 bfs
+bgwriter
 bigint
+bigram
 bigserial
 binaryheap
 biome
@@ -152,8 +154,10 @@ cdata
 cdn
 ceo
 cfg
+cgroup
 chacha
 changelog
+checkpointer
 chmod
 chvq
 cidr
@@ -200,6 +204,7 @@ credentialauth
 creds
 crlf
 cron
+crontab
 crt
 crypto
 cryptographic
@@ -214,12 +219,14 @@ ctas
 cte
 ctrl
 ctx
+ctype
 cve
 cwd
 dags
 dalek
 dashmap
 dbacp
+dcs
 ddl
 deadpool
 debian
@@ -308,6 +315,7 @@ exploitability
 expr
 extern
 externalservices
+failover
 fakeauth
 fakecredentialauth
 fakeroomauth
@@ -364,6 +372,7 @@ gstack
 guc
 gvpm
 gx
+gz
 gzip
 hadolint
 halfopen
@@ -465,6 +474,7 @@ junit
 jwks
 jwt
 kahn
+kb
 kegsay
 keyatrest
 keychain
@@ -568,6 +578,7 @@ mysqlcheck
 namespace
 namespaced
 nan
+nas
 newtype
 nextest
 nginx
@@ -616,6 +627,7 @@ parameterised
 params
 pastey
 pathspec
+patroni
 pbkdf
 pcre
 pdu
@@ -623,14 +635,18 @@ pdugraphfields
 pdus
 pem
 perf
+pgbackrest
 pgbouncer
 pgcrypto
+pgdata
 pgpool
 pgpooloptions
 pgsql
 pid
+pids
 piechart
 pipefail
+pitr
 pkce
 pkcs
 plaintext
@@ -655,6 +671,7 @@ probabilistically
 proc
 prometheus
 promql
+promtool
 prost
 prs
 psycopg
@@ -692,7 +709,9 @@ rav
 ravif
 rbac
 rc
+rclone
 rcpx
+rdb
 reachability
 readme
 readreceipts
@@ -712,11 +731,13 @@ refreshtokenrepository
 refreshtokenstorage
 regexes
 registrationservice
+reindex
 relationsrepository
 relationsservice
 relationsstorage
 relationsstoreapi
 removeroom
+repmgr
 repo
 reportroom
 req
@@ -760,8 +781,11 @@ routeentry
 routeledger
 routemodule
 routetree
+rpo
 rsa
+rsync
 rtc
+rto
 rulebook
 ruma
 runbook
@@ -850,6 +874,7 @@ stdin
 stdlib
 stdout
 sto
+stonith
 storages
 storeapi
 strace
@@ -875,6 +900,7 @@ syncdatafetch
 synchrotron
 syncresponse
 syncservice
+systemd
 table
 tagserror
 takedown
@@ -933,6 +959,7 @@ truncated
 tsc
 tsdb
 tst
+tsvector
 ttf
 ttl
 turbofish
@@ -1012,6 +1039,8 @@ vus
 waf
 wal
 walkthroughs
+walsender
+walwriter
 warmup
 wasm
 webhook

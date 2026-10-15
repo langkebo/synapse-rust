@@ -27,7 +27,11 @@ services:
     cpus: ${POSTGRES_CPU_LIMIT:-1.5}
     mem_limit: ${POSTGRES_MEMORY_LIMIT:-1536m}
     memswap_limit: ${POSTGRES_MEMORY_LIMIT:-1536m}
-    pids_limit: ${POSTGRES_PIDS_LIMIT:-256}
+    # 300 = max_connections(250) + 常驻进程(7：postmaster/logger/checkpointer/bgwriter/walwriter/
+    # autovacuum launcher/logical replication launcher) + 并行 worker 预算(8) + 余量。
+    # 256 时 250+7=257 > 256 ⇒ 连接打满后段 "could not fork new process"（连接失败而非排队）。
+    # 实测依据：docs/audit/DB_REVIEW_2026-10-15.md §4；不变式由 check_connection_budget.py 断言。
+    pids_limit: ${POSTGRES_PIDS_LIMIT:-300}
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
