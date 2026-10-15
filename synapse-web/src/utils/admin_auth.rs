@@ -104,7 +104,12 @@ pub(crate) async fn authorize_admin_from_services(
             .and_then(|value| value.to_str().ok())
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .ok_or_else(|| ApiError::forbidden("Sensitive admin operation requires MFA code".to_string()))?;
+            .ok_or_else(|| {
+                ApiError::forbidden(
+                "Sensitive admin operation requires MFA code: pass a 6-digit TOTP code in the 'x-admin-mfa-code' header"
+                    .to_string(),
+            )
+            })?;
 
         verify_totp_code(security, mfa_code, Some(&user))?;
     }
@@ -140,10 +145,12 @@ async fn enforce_admin_login_mfa_impl(
         return Ok(());
     }
 
-    let mfa_code = mfa_code
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| ApiError::forbidden("Admin login requires MFA code".to_string()))?;
+    let mfa_code = mfa_code.map(str::trim).filter(|value| !value.is_empty()).ok_or_else(|| {
+        ApiError::forbidden(
+            "Admin login requires MFA code: pass a 6-digit TOTP code in the 'mfa_code' field of the login request body"
+                .to_string(),
+        )
+    })?;
 
     verify_totp_code(security, mfa_code, Some(&user))
 }
