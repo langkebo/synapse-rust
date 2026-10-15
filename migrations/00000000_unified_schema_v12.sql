@@ -4717,6 +4717,8 @@ END $$;
 -- 「DROP + 无条件重声明」。注意 `ALTER TABLE … DROP CONSTRAINT IF EXISTS` 后
 -- 紧接 `ADD CONSTRAINT` 在 PostgreSQL 里是合法语法（ADD COLUMN IF NOT EXISTS
 -- 的相邻位置限制不适用于 ADT），不要"为避免重复定义"而改回 IF NOT EXISTS 包裹。
+-- ⚠️ B4.4：末尾是 `NOT VALID`，全表校验统一在下方 "P1-2b" 段做 —— 改这里必须同步
+-- 那一段，否则约束会停在 NOT VALID（`verify_data_integrity` 会报出来）。
 DO $$
 BEGIN
     ALTER TABLE rooms DROP CONSTRAINT IF EXISTS ck_rooms_room_id_format;
@@ -4724,7 +4726,7 @@ BEGIN
         CHECK (
             room_id ~ '^![a-zA-Z0-9._=+/-]{43}$'
             OR room_id ~ '^![a-zA-Z0-9._=+./-]+:[a-zA-Z0-9.-]+$'
-        );
+        ) NOT VALID;
 END $$;
 
 -- event_id 格式：两种合法形态
@@ -4737,6 +4739,7 @@ END $$;
 -- 任何本地事件（消息/状态/成员/tombstone）的 INSERT 都会撞 23514 check violation，
 -- 等于写路径整体不可用 —— 而这件事只在**真 schema** 上才会暴露（纯构造用例看不到），
 -- 所以这里必须与 event_id 的实现同批修掉。
+-- ⚠️ B4.4：末尾是 `NOT VALID`，全表校验在下述 "P1-2b" 段统一做（同上，不可只改一处）。
 DO $$
 BEGIN
     -- 重新声明而不是 IF NOT EXISTS：长期存在的库（本机 public、各测试模板）里
@@ -4748,7 +4751,7 @@ BEGIN
             -- （`$<millis>$<base64url>:<server>`），漏掉它会连 v1/v2 的 ID 一起拒掉。
             event_id ~ '^\$[a-zA-Z0-9._=+$/-]+:[a-zA-Z0-9.-]+$'
             OR event_id ~ '^\$[a-zA-Z0-9._=+/-]{43}$'
-        );
+        ) NOT VALID;
 END $$;
 
 -- sender 格式（Matrix user_id）
@@ -5087,7 +5090,37 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_device_signatures_target
 -- 又天然按当前 search_path 定位表，不再依赖"全库同名约束"这种非 schema 级判断。
 ALTER TABLE room_memberships DROP CONSTRAINT IF EXISTS ck_room_memberships_valid;
 ALTER TABLE room_memberships ADD CONSTRAINT ck_room_memberships_valid
-    CHECK (membership IN ('invite', 'join', 'knock', 'leave', 'ban', 'forget'));
+    CHECK (membership IN ('invite', 'join', 'knock', 'leave', 'ban', 'forget')) NOT VALID;
+
+-- ============================================================
+-- P1-2b: 三条 CHECK 的独立 VALIDATE（B4.4）
+-- ============================================================
+-- 上面三处（`ck_rooms_room_id_format` / `ck_events_event_id_format` /
+-- `ck_room_memberships_valid`）把 `ADD CONSTRAINT … CHECK (…)` 补了 `NOT VALID`，
+-- 全表校验**统一移到了本段**。两种写法的锁语义差异：
+--
+--   - `ADD CONSTRAINT … CHECK (…)`（原写法）
+--     ⇒ 持 `AccessExclusiveLock`，时长 = 全表扫描时长（扫描期间**所有**读写都被挡）；
+--   - `ADD CONSTRAINT … CHECK (…) NOT VALID`
+--     ⇒ 仍持 `AccessExclusiveLock`，但不扫表 ⇒ 时长 ≈ 0；
+--   - `ALTER TABLE … VALIDATE CONSTRAINT …`（本段）
+--     ⇒ 持 `ShareUpdateExclusiveLock`，时长 = 全表扫描时长（**不挡读写**）。
+--
+-- 即：扫描量没变，但它不再挡写。`NOT VALID` 只豁免"ADD 那一刻已存在的行"，
+-- 之后的新写入照样被 CHECK 拦住（实测：含违规既有行时 ADD 成功，而新增的违规行
+-- 仍报 23514）。收益只体现在**带数据的库**上（新建库里两张表是空的、两者等价），
+-- 所以这条对"把 baseline 重放到已有库"这条路径才有意义。
+--
+-- ⚠️ 本段**不能省**：`verify_data_integrity`（`synapse-storage/src/monitoring.rs`）
+-- 会对**核心表**上任何 `NOT VALID` 的 CHECK 报 `UnvalidatedConstraint`，而
+-- `monitoring::db_tests` 断言该报告恒为 "0 违规 / 100 分" ⇒ 漏了 VALIDATE 会直接
+-- 让测试变红。新增 CHECK 时，`ADD … NOT VALID` 与其 VALIDATE 必须成对出现。
+-- ⚠️ `VALIDATE` 会**如实失败**（`… check constraint "…" of relation "…" is violated
+-- by some row`）——那说明库里存在违反该格式约束的历史数据，应作为真实数据缺陷处理，
+-- 不要"改成 NOT VALID 了事"（那只会把约束变成摆设，并被上面那条检查抓出来）。
+ALTER TABLE rooms VALIDATE CONSTRAINT ck_rooms_room_id_format;
+ALTER TABLE events VALIDATE CONSTRAINT ck_events_event_id_format;
+ALTER TABLE room_memberships VALIDATE CONSTRAINT ck_room_memberships_valid;
 
 -- ============================================================
 -- P1-3: event_edges prev_event_id FK

@@ -474,6 +474,7 @@ async fn check_missing_indexes(
 ///   * 所有"按名字查索引在不在"的检查都会说"在"（`check_missing_indexes` 就是这种）；
 ///   * 优化器**不会**用它 ⇒ 相关查询退化成顺序扫描；
 ///   * 若是 UNIQUE 索引，**唯一性没有被强制** ⇒ 正确性问题，不只是性能问题。
+///
 /// 因此按 critical 处理（`passed = false`，启动路径 fail closed）。
 ///
 /// 用 `current_schema()` 限定，与同文件其它检查一致。
@@ -604,6 +605,7 @@ mod tests {
             missing_tables: vec!["users".to_string()],
             missing_columns: vec!["events.room_id".to_string()],
             missing_indexes: vec!["idx_events_room".to_string()],
+            invalid_indexes: vec!["idx_events_room_invalid (valid=false, ready=false)".to_string()],
             repaired_indexes: vec![],
             warnings: vec!["test warning".to_string()],
             baseline_drift: 3,
@@ -613,6 +615,7 @@ mod tests {
 
         assert!(!result.passed);
         assert_eq!(result.missing_tables.len(), 1);
+        assert_eq!(result.invalid_indexes.len(), 1);
         assert_eq!(result.baseline_drift, 3);
         assert_eq!(result.applied_migration_count, 5);
         assert_eq!(result.missing_migrations, vec![20240101000001]);
@@ -673,6 +676,10 @@ mod tests {
             missing_tables: vec!["users".to_string(), "rooms".to_string()],
             missing_columns: vec!["events.room_id".to_string(), "users.user_id".to_string()],
             missing_indexes: vec!["idx_events_room".to_string(), "uq_users_username".to_string()],
+            invalid_indexes: vec![
+                "idx_a_invalid (valid=false, ready=false)".to_string(),
+                "idx_b_invalid (valid=false, ready=true)".to_string(),
+            ],
             repaired_indexes: vec![],
             warnings: vec!["test warning 1".to_string(), "test warning 2".to_string()],
             baseline_drift: 5,
@@ -684,6 +691,8 @@ mod tests {
         assert_eq!(result.missing_tables.len(), 2);
         assert_eq!(result.missing_columns.len(), 2);
         assert_eq!(result.missing_indexes.len(), 2);
+        // B4.3：半建索引单独计数（`passed=false` 的 critical 来源之一）
+        assert_eq!(result.invalid_indexes.len(), 2);
         assert_eq!(result.warnings.len(), 2);
         assert_eq!(result.baseline_drift, 5);
         assert_eq!(result.applied_migration_count, 10);

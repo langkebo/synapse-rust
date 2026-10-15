@@ -215,7 +215,9 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route(
             "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events",
-            get(handlers::dehydrated_device::get_dehydrated_device_events),
+            // POST = MSC3814/ruma 规范形态（body 游标）；GET = Synapse v1.157 兼容别名（query 游标）
+            get(handlers::dehydrated_device::get_dehydrated_device_events)
+                .post(handlers::dehydrated_device::post_dehydrated_device_events),
         )
         .route(
             "/_matrix/client/unstable/org.matrix.msc4143/rtc/transports",

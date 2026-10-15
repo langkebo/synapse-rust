@@ -111,18 +111,53 @@ pub async fn delete_dehydrated_device(
 /// underlying `to_device_messages` table, returning the cursor as a string in
 /// `next_batch`. When the cursor stops advancing the queue is empty and the
 /// client is expected to `DELETE` the dehydrated device.
+///
+/// # 方法形态
+///
+/// - **`POST`（规范形态）**：MSC3814 / ruma `dehydrated_device::get_events`
+///   规定 `POST …/dehydrated_device/{device_id}/events`，分页游标放 JSON body
+///   的 `next_batch`（可省略）。matrix-js-sdk 上游（rust-crypto
+///   `DehydratedDeviceManager`）与本 SDK fork 的 `claimDevice()` 均按此发出。
+/// - **`GET`（Synapse 兼容别名，弃用中）**：Synapse v1.157 #19896 以 GET +
+///   query 形态实现（`next_batch`、`limit`）。保留以兼容按 Synapse 行为
+///   编排的旧客户端；新集成一律使用 POST。
 pub async fn get_dehydrated_device_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(device_id): Path<DeviceId>,
     Query(query): Query<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    // MSC3814 / upstream v1.157 #19896: GET with both parameters as query
-    // parameters (`next_batch`, `limit`), not in a JSON body.
+    // Synapse v1.157 #19896 (兼容别名): GET 把游标与页长都放 query
     let next_batch = query.get("next_batch").and_then(|v| v.as_str());
     let limit = query.get("limit").and_then(|v| v.as_i64()).unwrap_or(100);
     let response =
         ctx.dehydrated_device_service.claim_events(&auth_user.user_id, device_id.as_str(), next_batch, limit).await?;
+    Ok(Json(response))
+}
+
+/// `POST …/dehydrated_device/{device_id}/events` 的请求体。
+///
+/// MSC3814：仅携带分页游标 `next_batch`（可省略/可为空 body——上游 js-sdk
+/// 首次拉取时发 `{}`）。本服务器不 exposed 页长参数（ruma 契约中亦无）。
+#[derive(Debug, Default, serde::Deserialize)]
+pub struct ClaimEventsBody {
+    next_batch: Option<String>,
+}
+
+/// MSC3814 规范形态（见 [`get_dehydrated_device_events`] 的方法形态说明）：
+/// `POST …/dehydrated_device/{device_id}/events`，游标在 JSON body。
+pub async fn post_dehydrated_device_events(
+    State(ctx): State<RoomContext>,
+    auth_user: AuthenticatedUser,
+    Path(device_id): Path<DeviceId>,
+    body: Option<Json<ClaimEventsBody>>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let next_batch = body.and_then(|Json(b)| b.next_batch);
+    // ruma 契约无页长字段；沿用 GET 别名相同的默认页长
+    let response = ctx
+        .dehydrated_device_service
+        .claim_events(&auth_user.user_id, device_id.as_str(), next_batch.as_deref(), 100)
+        .await?;
     Ok(Json(response))
 }
 

@@ -258,16 +258,33 @@
 - ⚠️ 新增的 `query_scalar!` 会改变静态计数 ⇒ 已同步 `BASELINE_STATIC` 1353 → **1354** 与
   `SQLX_CACHE_ENTRIES` 1319 → **1320**（见 SQLx 方案文档的数字块）。
 
-### B4.4 3 条 CHECK 改 `NOT VALID` + 独立 `VALIDATE CONSTRAINT`（§6.5）
+### B4.4 3 条 CHECK 改 `NOT VALID` + 独立 `VALIDATE CONSTRAINT`（§6.5）—— ✅ 已实施
 
 - **改动**：基线中 `ck_rooms_room_id_format` / `ck_events_event_id_format` / `ck_room_memberships_valid`
   的 `ADD CONSTRAINT … CHECK (…)` 改为 `ADD CONSTRAINT … CHECK (…) NOT VALID`，
-  再在**同文件后段**（独立语句）`ALTER TABLE … VALIDATE CONSTRAINT …`。
-- **收益**：`DROP` 仍取 `AccessExclusiveLock`（瞬时），但**全表校验不再阻塞写入**；
-  `VALIDATE` 可另择窗口执行。
-- **判据**：造百万行 `events` 副本，对比两种写法在 `pg_locks` 中的持锁时长与阻塞的写事务数。
-- ⚠️ **本项可选、后置**：改动会重写基线（`EXPECTED_BASELINE_FINGERPRINT` 必须同步）；
-  若近期无大表上线，可先只做 B4.1–B4.3。
+  再在**同文件后段**（新增的 "P1-2b" 段，独立语句）`ALTER TABLE … VALIDATE CONSTRAINT …`。
+- ⚠️ **落地时更正了本方案里锁语义写反的地方**（原文说"`NOT VALID` 只取 `ShareUpdateExclusive`"）：
+  实测**两种写法的 `ADD` 都取 `AccessExclusiveLock`**，区别是**扫不扫表** ——
+  `NOT VALID` 不扫 ⇒ 排他锁窗口 ≈ 0；`VALIDATE` 才取 `ShareUpdateExclusiveLock`（不阻塞读写）承载扫描。
+- **判据（实测，4,000,000 行表 + 关闭 autovacuum）**：
+
+  | 写法 | `AccessExclusiveLock` 持有 | `ShareUpdateExclusiveLock` 持有 | 并发 INSERT 30 笔（`lock_timeout=150ms`） |
+  |---|---|---|---|
+  | 原：`ADD … CHECK (…)` | **603 ms** | 0 | **27 成功 / 3 被锁阻塞** |
+  | 新：`ADD … NOT VALID` + `VALIDATE` | **6 ms** | 785 ms（扫描在这里） | **30 成功 / 0 被锁阻塞** |
+
+  ⇒ 排他锁窗口缩短约 **100×**，被阻塞的写事务 **3 → 0**。两种写法的**总工作量相同**
+  （约 1.2 s DDL 墙钟），差异只在"持什么锁"。
+- **指纹**：基线 +2570 字节（226557 → 229127）⇒ `EXPECTED_BASELINE_FINGERPRINT`
+  `306314fd1316fa2d` → **`9e954f0c9c50755e`**（按 R10 先自检旧值）。
+- ⚠️ **发现的一处守卫盲区（登记，未在本批修）**：模板路线**看不到**这种遗漏 ——
+  隔离机制克隆用 `CREATE TABLE … (LIKE … INCLUDING ALL)`（`synapse-common/src/test_isolation.rs:897`），
+  CHECK 约束在**空克隆**上被重建为 `convalidated = true`，所以 `monitoring::db_tests`
+  无法察觉模板里的 `NOT VALID`（已实测：变异模板 `convalidated=false`，但测试仍通过）。
+  ⇒ 现阶段唯一能发现"忘了配对 VALIDATE"的是**真实迁移路径**上的直接查询。
+  建议后续给 `scripts/report_orphan_db_objects.py` 增一节"`NOT VALID` 的 CHECK"（该脚本已有
+  "VALIDATE 死引用"一节，扩一节成本极低；注意 `room_sticky_events` 的两条 `NOT VALID` CHECK
+  是**有意**的，需按白名单排除，否则会误报）。
 
 ---
 
@@ -433,7 +450,7 @@
 | ~~B1.5 恢复演练~~ | ✅ 首次演练已完成（**实测 RTO = 5s**，行数逐项一致），记录在 `docs/runbook/DB_RESTORE_DRILL.md` §2.3 | — |
 | B1.2 异地副本 | 脚本钩子已就绪，但**落点未定**（需一个真实的异地存储） | D2 定下落点后填 `BACKUP_OFFSITE_REMOTE` |
 | **B2 观测面** | ✅ **已落地**（本批）：exporter + 两 job + 6 条告警 + 备份新鲜度上报 + promtool 门禁。**未做**：① 复制延迟/槽积压告警（**故意不做**：当前无备库，配了只会永远无数据）；② Grafana 面板（告警已能叫醒人，面板属体验优化，可后补） | 上备库后补复制类告警；需要面板时再补 |
-| ~~B4 迁移可靠性~~ | ✅ **已落地**（§13.8）：B4.1 容错模式按 `ERROR` 行数记成败 + 传播失败；B4.2 整次命令持**与 Rust 同一表达式**的 advisory lock；B4.3 半建索引（`indisvalid=false`）列为 critical。**B4.4 仍未做**（方案自己标注"可选、后置"：改基线要同步指纹，且无大表上线压力） | B4.4 待定 |
+| ~~B4 迁移可靠性~~ | ✅ **全部落地**（§13.8 + §13.9）：B4.1 容错模式按 `ERROR` 行数记成败 + 传播失败；B4.2 整次命令持**与 Rust 同一表达式**的 advisory lock；B4.3 半建索引（`indisvalid=false`）列为 critical；**B4.4** 三条 CHECK 改 `NOT VALID` + 独立 `VALIDATE`（排他锁窗口 603 ms → 6 ms、被阻塞写 3 → 0；并发现"模板路线看不到 `NOT VALID`"的守卫盲区，已登记） | 无遗留子项 |
 | ~~B5.1① 孤儿对象报告~~ | ✅ **已落地**（§13.4）：`scripts/report_orphan_db_objects.py` + `docs/runbook/DB_ORPHAN_OBJECT_AUDIT.md` | — |
 | ~~B5.3 清 4 张废弃表~~ | ✅ **已落地**（§13.5）：全流程走完并复核归零 | — |
 | B6.2 / B6.3 | 需要真实查询清单 / 测量数据（JSONB 清单、7 组前缀冗余索引登记） | 使用方数据 |
@@ -610,8 +627,9 @@ UNIQUE 版属冗余。**先把"哪一种是对的口径"定下来再折入基线
 
 ### 13.8 B4：迁移可靠性（2026-10-15，授权后执行）
 
-**范围**：B4.1 / B4.2 / B4.3 已做；**B4.4（3 条 CHECK 改 `NOT VALID`）未做** —— 方案 §5 自己
-标注"可选、后置"（改基线要同步指纹，且当前无大表上线压力），本批不顺手改。
+**范围**：B4.1 / B4.2 / B4.3 已做；**B4.4（3 条 CHECK 改 `NOT VALID`）** 方案 §5 自己
+标注"可选、后置"（改基线要同步指纹，且当前无大表上线压力），本批不顺手改 ——
+**用户授权后已于同日补做，见 §13.9**。
 
 #### 落地时对方案的三处**更正**（照字面实现会出错）
 
@@ -635,6 +653,70 @@ UNIQUE 版属冗余。**先把"哪一种是对的口径"定下来再折入基线
 新增一条 `query_scalar!` ⇒ `BASELINE_STATIC` 1353 → **1354**、`SQLX_CACHE_ENTRIES` 1319 → **1320**
 （`.sqlx` 经唯一入口重生成，仅新增 1 条）；复核时另发现 `BASELINE_DYNAMIC_TEST_INFRA` 实测 768
 而基线写 769（余量 1）⇒ 按"零余量"一并收紧为 **768**。三处已同步到 SQLx 方案文档的数字块与棘轮基线文件。
+
+---
+
+### 13.9 B4.4：三条 CHECK 改 `NOT VALID` + 独立 `VALIDATE`（2026-10-15，同日补做）
+
+方案 §5 原把它标为"可选、后置"。用户授权后执行，使 B4 **无遗留子项**。
+
+#### 改动（`migrations/00000000_unified_schema_v12.sql`，+36/-3）
+
+| # | 改动 |
+|---|---|
+| ① | `ck_rooms_room_id_format` / `ck_events_event_id_format` / `ck_room_memberships_valid` 的 `ADD CONSTRAINT … CHECK (…)` 末尾加 `NOT VALID`（前两条在 `DO $$` 块内，第三条是裸语句） |
+| ② | 新增 "P1-2b" 段：三行 `ALTER TABLE … VALIDATE CONSTRAINT …`（独立语句，指向 `rooms` / `events` / `room_memberships`） |
+| ③ | 两处交叉指认注释（"改这里必须同步 P1-2b"）+ 该段的锁语义说明块 |
+| ④ | `tests/unit/test_isolation_unification_tests.rs`：`EXPECTED_BASELINE_FINGERPRINT` `306314fd1316fa2d` → **`9e954f0c9c50755e`**（基线 226557 → 229127 字节；按 R10 **先用改动前的实际常量自检哈希实现**，逐字节吻合后才取新值） |
+
+#### 落地时更正方案里**写反**的一处
+
+方案 §6.5 原文说 `ADD … NOT VALID`「只取 `ShareUpdateExclusive`，不阻塞读写」——**写反了**。
+实测：**`ADD CONSTRAINT`（无论带不带 `NOT VALID`）都取 `AccessExclusiveLock`**；
+`NOT VALID` 的作用是**不扫表**（于是排他锁窗口 ≈ 0），**扫描**才由 `VALIDATE CONSTRAINT`
+在 `ShareUpdateExclusiveLock` 下做 —— 那一步才是"不阻塞读写"的那一步。
+
+#### 判据（方案 §5 要求的两项，实测）
+
+4,000,000 行表、`autovacuum_enabled = false`（消除 autovacuum 持 SUE 污染采样）：
+
+| 写法 | `AccessExclusiveLock` 持有 | `ShareUpdateExclusiveLock` 持有 | 并发 INSERT 30 笔（`lock_timeout=150ms`） |
+|---|---|---|---|
+| 原：`ADD … CHECK (…)` | **603 ms** | 0 | 27 成功 / **3 被锁阻塞** |
+| 新：`ADD … NOT VALID` + `VALIDATE` | **6 ms** | 785 ms（扫描在此） | **30 成功 / 0 被锁阻塞** |
+
+⇒ 排他锁窗口缩短约 **100×**、被阻塞的写事务 **3 → 0**，而**总工作量不变**
+（两种写法的 DDL 墙钟都约 1.2 s，差异只在"持什么锁"）。
+
+#### 端到端与自证
+
+| 项 | 做法 | 结果 |
+|---|---|---|
+| 设计前置 | 4 项语义确认 | ① `ADD … NOT VALID` 后 `convalidated=false`、`VALIDATE` 后 `true`；② **对已 valid 的约束重复 `VALIDATE` 不报错**（⇒ 裸写法安全，无需 `IF NOT convalidated` 守卫）；③ `NOT VALID` **仍拦新写**（既有违规行可通过 ADD，新增违规行仍 23514）；④ `VALIDATE` 遇既有违规行**如实失败** |
+| 真实迁移路径 | `db_migrate.sh migrate` 到一次性库（fresh + replay 各一次） | 两次均 `exit=0`、stderr `^ERROR` = **0**；三条约束终态 **`convalidated=true`**；账本 `is_success=true`；孤儿报告 **8/8 ✅**（含"VALIDATE 死分支 = 0"） |
+| 解析面回归 | 用 `report_orphan_db_objects.py` 的解析器对比新旧基线 | `table 218` / `index 343` / `constraint 334` / `view 4` **全部不变**；`VALIDATE 引用 1 → 4`，新增的三条正是本批三条、**无丢失** ⇒ 无文档计数需同步 |
+| **变异自证** | 删掉 3 行 `VALIDATE` 后走**真实迁移路径**（`MIGRATIONS_DIR` 指向变异副本，不碰仓库基线） | 变异 ⇒ 三条 `convalidated=**false**`，且 `verify_data_integrity` 第 2 段那条查询精确列出 `rooms.…` / `events.…` / `room_memberships.…`；还原 ⇒ 三条 `true`、该查询返回"(无)" |
+| `.sqlx` | 本批不新增/删除任何 SQL 查询 | `.sqlx` **零改动** ⇒ `BASELINE_STATIC` / `SQLX_CACHE_ENTRIES` 不变 |
+
+#### ⚠️ 顺带发现的一处**守卫盲区**（已登记，未在本批修）
+
+**模板路线看不到 `NOT VALID`。** `monitoring::integrity_violation_tests` 第 1 行断言"干净模板上
+没有任何发现"，看着像本项的天然守卫；但**实测：删掉 3 行 `VALIDATE` 后该测试仍然通过**。
+根因已定位：隔离机制克隆走 `CREATE TABLE … (LIKE … INCLUDING ALL)`
+（`synapse-common/src/test_isolation.rs:897`），CHECK 约束在**空克隆**上被重建
+⇒ `convalidated = true`。实测同一约束在两个模板与克隆里的取值：
+
+| 载体 | `ck_rooms_room_id_format` 等三条 |
+|---|---|
+| 合法指纹模板 `…9e954f0c9c50755e` | `convalidated = true` |
+| 变异指纹模板 `…13c6b61b484ae697` | `convalidated = false` |
+| 任一 per-test 克隆（`LIKE … INCLUDING ALL`） | **`convalidated = true`（不变）** ⇒ 测试看不到模板的 NOT VALID |
+
+⇒ 现阶段能发现"忘了配对 `VALIDATE`"的只有**真实迁移路径上的直接查询**。
+**建议（不在本批）**：给 `scripts/report_orphan_db_objects.py` 增一节"`NOT VALID` 的 CHECK"
+（该脚本已有"VALIDATE 引用死分支"一节，扩一节成本极低）。⚠️ 注意 `room_sticky_events`
+的两条 `NOT VALID` CHECK 是**有意**的（同一块刚 `ADD COLUMN expires_at`，老行必然不满足），
+须白名单排除，否则误报。
 
 ---
 

@@ -146,6 +146,14 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     {
         let e = RouteEntry::new(
             axum::http::Method::POST,
+            "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events",
+            "assembly::create_router",
+        );
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(
+            axum::http::Method::POST,
             "/_matrix/client/unstable/org.matrix.msc4108/rendezvous",
             "msc4108_rendezvous",
         );

@@ -588,6 +588,30 @@
         "post"
       ]
     ],
+    "cancel_delayed_event": [
+      [
+        "/delayed_events/{delay_id}/cancel",
+        "post"
+      ]
+    ],
+    "restart_delayed_event": [
+      [
+        "/delayed_events/{delay_id}/restart",
+        "post"
+      ]
+    ],
+    "send_delayed_event": [
+      [
+        "/delayed_events/{delay_id}/send",
+        "post"
+      ]
+    ],
+    "schedule_delayed_event": [
+      [
+        "/rooms/{room_id}/delayed_event/{event_type}/{txn_id}",
+        "put"
+      ]
+    ],
     "delete_devices": [
       [
         "/delete_devices",
@@ -858,7 +882,7 @@
     ],
     "unfreeze_thread": [
       [
-        "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unfreeze",
+        "/_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id}/unfreeze",
         "post"
       ]
     ],
@@ -1098,12 +1122,6 @@
         "put"
       ]
     ],
-    "search_room_messages": [
-      [
-        "/rooms/{room_id}/search",
-        "post"
-      ]
-    ],
     "send_receipt": [
       [
         "/rooms/{room_id}/receipt/{receipt_type}/{event_id}",
@@ -1198,6 +1216,30 @@
         "post"
       ]
     ],
+    "join_room_by_id_or_alias": [
+      [
+        "/join/{room_id_or_alias}",
+        "post"
+      ]
+    ],
+    "knock_room": [
+      [
+        "/knock/{room_id_or_alias}",
+        "post"
+      ]
+    ],
+    "translate_text": [
+      [
+        "/translate",
+        "post"
+      ]
+    ],
+    "search_room_messages": [
+      [
+        "/rooms/{room_id}/search",
+        "post"
+      ]
+    ],
     "get_membership_events": [
       [
         "/rooms/{room_id}/get_membership_events",
@@ -1240,37 +1282,9 @@
         "put"
       ]
     ],
-    "join_room_by_id_or_alias": [
-      [
-        "/join/{room_id_or_alias}",
-        "post"
-      ]
-    ],
-    "knock_room": [
-      [
-        "/knock/{room_id_or_alias}",
-        "post"
-      ]
-    ],
-    "invite_user_by_room": [
-      [
-        "/invite/{room_id}",
-        "post"
-      ]
-    ],
-    "translate_text": [
-      [
-        "/translate",
-        "post"
-      ]
-    ],
     "create_private_room": [
       [
-        "/_matrix/client/v3/rooms/create_private",
-        "post"
-      ],
-      [
-        "/_matrix/client/v1/rooms/create_private",
+        "/_matrix/vendor/v1/rooms/create_private",
         "post"
       ]
     ],
@@ -1482,12 +1496,6 @@
       [
         "/_matrix/vendor/v1/widgets/{widget_id}",
         "put"
-      ]
-    ],
-    "send_room_widget_message": [
-      [
-        "/_matrix/vendor/v1/rooms/{room_id}/widgets/{widget_id}/send",
-        "post"
       ]
     ],
     "set_widget_permission": [
@@ -1707,7 +1715,6 @@
     "set_widget_permission": "SetPermissionBody",
     "create_widget_session": "CreateSessionBody",
     "set_room_widget_capabilities": "WidgetCapabilitiesBody",
-    "send_room_widget_message": "SendWidgetMessageBody",
     "register_worker": "RegisterWorkerBody",
     "heartbeat": "HeartbeatBody",
     "send_command": "SendCommandBody",
@@ -2506,7 +2513,14 @@
             "type": "string"
           },
           "url": {
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "as_token": {
             "type": "string"
@@ -2581,7 +2595,6 @@
         },
         "required": [
           "id",
-          "url",
           "as_token",
           "hs_token"
         ]
@@ -4664,26 +4677,6 @@
       "file": "synapse-web/src/routes/widget.rs",
       "field_count": 1
     },
-    "SendWidgetMessageBody": {
-      "schema": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "type": "string"
-          },
-          "content": {
-            "type": "object",
-            "additionalProperties": true
-          }
-        },
-        "required": [
-          "type",
-          "content"
-        ]
-      },
-      "file": "synapse-web/src/routes/widget.rs",
-      "field_count": 2
-    },
     "RegisterWorkerBody": {
       "schema": {
         "type": "object",
@@ -5084,11 +5077,6 @@
       "/_matrix/vendor/v1/widgets/{widget_id}/sessions",
       "post",
       "CreateSessionBody"
-    ],
-    "post /_matrix/vendor/v1/rooms/{room_id}/widgets/{widget_id}/send": [
-      "/_matrix/vendor/v1/rooms/{room_id}/widgets/{widget_id}/send",
-      "post",
-      "SendWidgetMessageBody"
     ]
   },
   "skipped": [

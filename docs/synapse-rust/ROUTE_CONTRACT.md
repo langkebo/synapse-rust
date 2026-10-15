@@ -1203,9 +1203,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_matrix/federation/v2/send_join/{room_id}/{event_id}`
 - `PUT` `/_matrix/federation/v2/send_leave/{room_id}/{event_id}`
 
-### 装配 (Assembly) （109 条）
+### 装配 (Assembly) （110 条）
 
-#### `assembly.rs` — 109 条 ✅派生表
+#### `assembly.rs` — 110 条 ✅派生表
 
 - `DELETE` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device`
 - `DELETE` `/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}`
@@ -1264,6 +1264,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/vendor/v1/rooms/{room_id}/invite_blocklist`
 - `GET` `/health`
 - `POST` `/_matrix/client/unstable/org.matrix.msc3720/account_status`
+- `POST` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events`
 - `POST` `/_matrix/client/v1/account/3pid`
 - `POST` `/_matrix/client/v1/account/3pid/add`
 - `POST` `/_matrix/client/v1/account/3pid/bind`

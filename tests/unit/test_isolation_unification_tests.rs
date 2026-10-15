@@ -210,7 +210,14 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // （原为死分支）。共 +3196 字节，`bytes=226557`）⇒ 按 R10 第①条独立复算 FNV-1a 64 得
 // `306314fd1316fa2d`；先用**改动前的实际常量** `48e404226830f749` 自检哈希实现
 // （改动前字节 223361 逐字节吻合，证明哈希实现未变）后才取新值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "306314fd1316fa2d";
+// 2026-10-15（方案 B4.4：三条 CHECK 改 `NOT VALID` + 独立 `VALIDATE`，见 §13.9）：
+// baseline 再变（`ck_rooms_room_id_format` / `ck_events_event_id_format` /
+// `ck_room_memberships_valid` 的 `ADD CONSTRAINT … CHECK (…)` 末尾补 `NOT VALID`，
+// 全表校验改由新增的 "P1-2b" 段统一 `VALIDATE CONSTRAINT`；另加说明与两处交叉指认
+// 注释。共 +2570 字节，`bytes=229127`）⇒ 按 R10 第①条独立复算 FNV-1a 64 得
+// `9e954f0c9c50755e`；先用**改动前的实际常量** `306314fd1316fa2d` 自检哈希实现
+// （改动前字节 226557 逐字节吻合，证明哈希实现未变）后才取新值。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "9e954f0c9c50755e";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))
