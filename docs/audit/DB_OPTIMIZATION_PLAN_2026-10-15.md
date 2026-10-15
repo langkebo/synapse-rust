@@ -527,10 +527,12 @@ UNIQUE 版属冗余。**先把"哪一种是对的口径"定下来再折入基线
 此前若误把它当容器库，会对着另一套数据下结论。判据与命令见
 `.workbuddy/memory/local-env-pitfalls.md` §8。
 
-> ⚠️ **当天晚些时候该宿主实例已停**（`brew services` 显示 `postgresql@15 = none`；
-> 另一版本 `postgresql@18` 是**空集群**且在启动中）⇒ 上面的 `.sqlx` 重生成源**当前不可用**，
-> 测试套件默认的 `localhost:5432/synapse_test` 也失去依托。影响面与恢复建议（推荐把容器
-> 5432 发布到宿主回环、并停掉 PG18 让出端口）见 `docs/audit/DB_REVIEW_2026-10-15.md` **§16**。
+> ✅ **当天晚些时候已按决策收敛（详见报告 §16）**：宿主两台 Homebrew PG **全部停用**
+> （根因是 `brew services` 对 `postgresql@18` 的 ~10 秒重试循环，日志时间线见 §16.2），
+> **容器 5432 发布到宿主回环** ⇒ `localhost:5432` 重新等价于"项目库"；
+> 并在**容器内**重建 `synapse_sqlx_scratch`（`.sqlx --check` = OK）与 `synapse_test`
+> （`prepare_test_db.sh` 跑通，`public` 218 表 + 模板 218 表）。
+> 本节曾记的两条"暂时失效"Workflow 均已恢复。
 
 ---
 

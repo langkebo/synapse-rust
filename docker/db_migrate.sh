@@ -173,22 +173,25 @@ detect_psql_backend() {
         PSQL_USE_DOCKER=0
         PSQL_DOCKER_CONTAINER=""
 
-        # ── 护栏：别把命令打在"另一个 PostgreSQL"上 ──────────────────────────
+        # ── 护栏：隐式目标不猜 ────────────────────────────────────────────────
         #
-        # dev 栈与 deploy 栈都**不把 5432 发布到宿主**（应用在容器网络内直连
-        # `db:5432` / `postgres:5432`）。所以从宿主执行本脚本时，`localhost:5432`
-        # 永远不是 compose 栈的数据库，而是宿主自己那一台。
+        # ⚠️ 2026-10-15「环境收敛」后的前提已变：**容器 5432 已发布到宿主回环**
+        # （两个 compose 都加了 `ports: ["127.0.0.1:5432:5432"]`），所以
+        # `localhost:5432` **现在通常就是本项目库**；宿主自装的两台 Homebrew PG 已全部停用。
+        # 这条护栏**仍然保留**，但理由从"那个端口上是**别人的** PG"变成了
+        # **"隐式目标本身就不该被猜"** —— 由 `docker/.env` 兜底出来的目标无法说明
+        # "这一刀该落在哪"，而 DDL 打错实例的代价是**建库/改表**（见下面的 H-14 事故）。
         #
         # 2026-09-15 实测（复现步骤：裸跑 `bash docker/db_migrate.sh validate`）：
-        # 宿主 5432 是本机 Homebrew PostgreSQL，脚本在它上面
+        # 当时宿主 5432 是本机 Homebrew PostgreSQL，脚本在它上面
         # **建了库**（"[INFO] 数据库不存在，尝试创建: synapse"）之后才报"表缺失" ——
         # 一条只读语气的命令改动了错误的实例（PROJECT_ACTUAL_ISSUES §6 H-14）。
         if host_psql_target_is_implicit_loopback; then
             if [ "${SYNAPSE_DB_MIGRATE_ALLOW_HOST_PSQL:-0}" != "1" ]; then
                 log_error "拒绝执行：本次要用宿主 psql 连 ${DB_HOST}:${DB_PORT}，而目标是从 docker/.env 兜底出来的默认值。"
-                log_error "两个 compose 栈都不把 5432 发布到宿主，因此 $DB_HOST:$DB_PORT 上的是**另一个**"
-                log_error "PostgreSQL 实例（宿主自装的那台）。继续执行会在那个实例上建库 / 迁移，"
-                log_error "而它可能根本不是你想要的库。"
+                log_error "DDL 打错实例的代价是建库/改表，所以本脚本不接受**猜出来**的目标。"
+                log_error "（2026-10-15 起 $DB_HOST:$DB_PORT 上通常已是**本项目**库 —— 容器 5432 发布到回环；"
+                log_error "  但「通常是本项目库」仍不足以让脚本替你决定。）"
                 log_error "请改用其中之一："
                 log_error "  * 显式指定目标： DATABASE_URL=postgres://user:pass@host:port/dbname bash docker/db_migrate.sh <command>"
                 log_error "  * 或分项给出： DB_HOST=<host> DB_PORT=<port> DB_NAME=<db> DB_USER=<user> DB_PASSWORD=<pass> bash docker/db_migrate.sh <command>"

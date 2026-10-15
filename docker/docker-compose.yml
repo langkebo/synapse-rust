@@ -105,6 +105,11 @@ services:
     # 256 时 250+7=257 > 256 ⇒ 连接打满后段会 "could not fork new process"（表现为连接失败而非排队）。
     # 不变式由 scripts/ci/check_connection_budget.py 断言。
     pids_limit: ${DB_PIDS_LIMIT:-300}
+    # 5432 发布到宿主回环（2026-10-15，与 deploy 栈同一决策）：恢复
+    # "`localhost:5432` = 项目库"这一被多处硬编码的假设。**只绑 127.0.0.1**。
+    # 端口写死 5432，理由见 deploy 栈同一处的注释。
+    ports:
+      - "127.0.0.1:5432:5432"
     # [O3-4] dev 栈补 shm_size，与 deploy 对齐，避免大连接数下 shared memory 不足
     shm_size: "256m"
     env_file:

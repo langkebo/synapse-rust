@@ -486,6 +486,7 @@ keyverificationmanager
 kib
 kpi
 langkebo
+launchd
 lcov
 libc
 libcrypto
@@ -650,6 +651,7 @@ pitr
 pkce
 pkcs
 plaintext
+plist
 pluggable
 png
 poc

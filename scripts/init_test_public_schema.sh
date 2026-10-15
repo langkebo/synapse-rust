@@ -6,8 +6,10 @@
 #      才正确跳过它们。
 #   2. **sqlx-cli 0.8.x 不认迁移文件首行的 `-- no-transaction` 指令**（2026-09-19
 #      用最小探针复现：只含该指令 + 一条 `CREATE INDEX CONCURRENTLY` 的迁移仍然
-#      报 "cannot run inside a transaction block"）。baseline 里有 14 处
-#      `CREATE INDEX CONCURRENTLY`，所以 `sqlx migrate run` 在当前基线下必然失败。
+#      报 "cannot run inside a transaction block"）。baseline 里有 **9 条**
+#      `CREATE [UNIQUE] INDEX CONCURRENTLY` 语句（2026-10-15 按语句级口径实测；
+#      注意 `grep -c CONCURRENTLY` 得 **14** 是因为把注释里的提及也数成了行），
+#      所以 `sqlx migrate run` 在当前基线下必然失败。
 #      psql 默认 autocommit（不加 `-1`），不存在这个问题。
 #
 # 用法：

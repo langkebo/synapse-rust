@@ -138,7 +138,7 @@ cargo run --release
 统一口径：
 
 - 部署与升级的唯一迁移执行入口是 `docker/db_migrate.sh {init|migrate|status|validate}`；仓库里不存在第二套迁移执行路径
-- 该入口必须能确定目标：只认 `DATABASE_URL`，或 `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASSWORD`。裸跑会落到 `docker/.env` 的兜底值 `localhost:5432`，而两个 compose 栈都不把 5432 发布到宿主 —— 那个端口上是宿主自装的 PostgreSQL，脚本因此在动手前就拒绝执行（H-14）；确实要打宿主实例时显式放行 `SYNAPSE_DB_MIGRATE_ALLOW_HOST_PSQL=1`
+- 该入口必须能确定目标：只认 `DATABASE_URL`，或 `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASSWORD`。裸跑会落到 `docker/.env` 的兜底值 `localhost:5432`，脚本因此在动手前就拒绝执行（H-14）—— 理由是 **DDL 打错实例的代价是建库/改表，不接受"猜出来"的目标**。（2026-10-15「环境收敛」后 `localhost:5432` 通常**就是本项目库**：容器已把 5432 发布到宿主回环、宿主自装的两台 Homebrew PG 已全部停用；但"通常是本项目库"仍不足以让脚本替你决定。）确实要打该实例时显式放行 `SYNAPSE_DB_MIGRATE_ALLOW_HOST_PSQL=1`
 - 新环境统一以 `migrations/00000000_unified_schema_v12.sql` 作为**唯一**基线；目录下不存在时间戳增量文件、扩展文件或 `.undo.sql` 回滚文件（`migrations/README.md` 是这条约定的权威说明）
 - Docker 容器只是由入口脚本自动调用该迁移入口，不构成第二套迁移方案
 - 服务启动默认只执行 schema health check，不执行运行时迁移

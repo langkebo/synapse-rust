@@ -32,6 +32,18 @@ services:
     # 256 时 250+7=257 > 256 ⇒ 连接打满后段 "could not fork new process"（连接失败而非排队）。
     # 实测依据：docs/audit/DB_REVIEW_2026-10-15.md §4；不变式由 check_connection_budget.py 断言。
     pids_limit: ${POSTGRES_PIDS_LIMIT:-300}
+    # 5432 **发布到宿主回环**（2026-10-15「环境收敛」决策）：
+    #   此前两栈都**刻意不发布** 5432 ⇒ 宿主 `localhost:5432` 上是**另一台** PostgreSQL
+    #   （宿主自装的 Homebrew 实例）。那台现已停用，改为把**项目库**发布到回环，
+    #   恢复"`localhost:5432` = 项目库"这一**被多处硬编码的假设**
+    #   （`tests/common/mod.rs`、`synapse-services/src/test_utils.rs`、`synapse-common/src/test_isolation.rs`、
+    #    benches、README、Makefile 的默认值都是 `postgres://synapse:synapse@localhost:5432/...`）。
+    #   ⚠️ **只绑 `127.0.0.1`**（与栈内 pushgateway 同做法），绝不绑 `0.0.0.0`。
+    #   ⚠️ 端口写死 5432 而不做成变量：本次目的就是恢复该端口语义，可配置化等于又变回不确定。
+    #   ⚠️ 宿主若自行在 5432 起 PG，本容器重启会**绑不上端口**（届时先停宿主实例）。
+    #   副作用：`docker/db_migrate.sh` 的 H-14 护栏语义随之变化 —— 见该脚本对应注释。
+    ports:
+      - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}

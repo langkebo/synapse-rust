@@ -30,11 +30,11 @@ python3 scripts/report_orphan_db_objects.py --container synapse-postgres \
     --user synapse --db synapse --schema public
 
 # 容器不可用时用连接串直连（需要本机 psql）
-# ⚠️ 别照抄下面这个地址当"默认值"：`127.0.0.1:5432` 上**不是** compose 栈的库（两栈都刻意不发布
-#    5432），而是宿主自装的 PostgreSQL。2026-10-15 晚起宿主 `postgresql@15` **已停**、
-#    `postgresql@18`（空集群）在启动中 ⇒ 该地址目前连不到任何已迁移的库。见报告 §16。
-DATABASE_URL=postgresql://<用户>:<口令>@<可达主机>:<端口>/<已迁移库> \
+# `127.0.0.1:5432` 现在**就是本项目库**：容器已把 5432 发布到宿主回环
+# （2026-10-15「环境收敛」，宿主自装 PG 已全部停用）。所以下面这条可直接用：
+DATABASE_URL="postgresql://synapse:synapse@127.0.0.1:5432/synapse" \
     python3 scripts/report_orphan_db_objects.py --dsn-env DATABASE_URL
+# 也可以用其审查**任意库**（如 CI/临时库）：把库名换掉即可。环境沿革见报告 §16。
 
 # 机器可读（供趋势对比/留存）
 python3 scripts/report_orphan_db_objects.py --json-report /tmp/orphans.json
@@ -160,9 +160,11 @@ DATABASE_URL="postgresql://synapse:synapse@127.0.0.1:5432/<库>" \
 - `.sqlx` 经唯一入口 `scripts/ci/sqlx_prepare.sh` 重生成：**变更前 `--check` PASS**
   （`OK: .sqlx 与数据库元数据一致`，对 `synapse_sqlx_scratch`）⇒ 重生成后的差异只可能是本次
   删掉的那条 DDL 查询；缩容需显式 `ALLOW_CACHE_SHRINK=1`。
-  ⚠️ **但该源库在宿主 PG15 上，当天晚些时候它已停** ⇒ 宿主现在连不到任何已迁移的库，
-  重生成路径暂时断开（`--check` 只能在 CI 做）。恢复方案见报告 §16.3（推荐把容器 5432
-  发布到宿主回环，再在容器内建一个 `synapse_sqlx_scratch`）。
+  ⚠️ 该源库当天晚些时候从宿主 PG 迁到了**容器内**（宿主自装 PG 全部停用）：
+  已在容器里重建 `synapse_sqlx_scratch`（用 `init_test_public_schema.sh` 应用基线）并复测
+  `--check` = **OK**。现在的调用方式是
+  `DATABASE_URL="postgresql://synapse:synapse@127.0.0.1:5432/synapse_sqlx_scratch" \
+   [ALLOW_CACHE_SHRINK=1] bash scripts/ci/sqlx_prepare.sh`。沿革见报告 §16。
 
 ## 4. 处置流程（清理孤儿表之前必读）
 
