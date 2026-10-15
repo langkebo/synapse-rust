@@ -739,7 +739,7 @@ fn collect_router_source_files(dir: &Path, out: &mut Vec<PathBuf>) {
             collect_router_source_files(&path, out);
             continue;
         }
-        if !path.extension().is_some_and(|e| e == "rs") {
+        if path.extension().is_none_or(|e| e != "rs") {
             continue;
         }
         let is_derived = path

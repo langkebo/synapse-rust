@@ -1,0 +1,587 @@
+{
+  "id": null,
+  "uid": "postgresql",
+  "title": "PostgreSQL",
+  "tags": [
+    "synapse-rust",
+    "database"
+  ],
+  "timezone": "utc",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "15s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "数据库可达（pg_up）",
+      "type": "stat",
+      "description": "postgres_exporter 能否连上 PG。0 = 连不上（此时其余 PG 面板全部无数据，先看这条）。",
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "pg_up",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "数据库体积（synapse）",
+      "type": "stat",
+      "gridPos": {
+        "h": 7,
+        "w": 5,
+        "x": 4,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "pg_database_size_bytes{datname=\"synapse\"}",
+          "refId": "A",
+          "legendFormat": "{{datname}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "WAL 体积",
+      "type": "stat",
+      "description": "归档失败时 PG 会保留 pg_wal 等待重试 —— 体积持续上涨是磁盘被撑满的前兆（对应告警 PostgresArchiveFailing）。",
+      "gridPos": {
+        "h": 7,
+        "w": 5,
+        "x": 9,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "pg_wal_size_bytes",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1073741824
+              },
+              {
+                "color": "red",
+                "value": 2147483648
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "实例信息",
+      "type": "table",
+      "gridPos": {
+        "h": 7,
+        "w": 10,
+        "x": 14,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "pg_static",
+          "refId": "A",
+          "legendFormat": "{{short_version}}",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "连接占用率",
+      "type": "stat",
+      "description": "PG 侧口径（区别于应用连接池视角）。阈值与告警 PostgresConnectionsSaturating 同为 0.85；耗尽的表现是随机连接失败，不是排队。",
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 0,
+        "y": 7
+      },
+      "targets": [
+        {
+          "expr": "sum(pg_stat_activity_count) / sum(pg_settings_max_connections)",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "活动连接（按状态）",
+      "type": "timeseries",
+      "description": "关注 idle in transaction：它顶住 vacuum 水位，也会在迁移期挡住 DDL。",
+      "gridPos": {
+        "h": 7,
+        "w": 9,
+        "x": 6,
+        "y": 7
+      },
+      "targets": [
+        {
+          "expr": "sum by (state) (pg_stat_activity_count)",
+          "refId": "A",
+          "legendFormat": "{{state}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "锁数量（按模式）",
+      "type": "timeseries",
+      "description": "accessexclusivelock / shareupdateexclusivelock 的抬升是迁移期阻塞链的直接证据（B4.4 的判据就是这两把锁的持有时间）。",
+      "gridPos": {
+        "h": 7,
+        "w": 9,
+        "x": 15,
+        "y": 7
+      },
+      "targets": [
+        {
+          "expr": "sum by (mode) (pg_locks_count)",
+          "refId": "A",
+          "legendFormat": "{{mode}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "WAL 归档段（累计 / 失败）",
+      "type": "timeseries",
+      "description": "archived 应单调增长；failed 一旦 >0 即 PITR 断档（告警 PostgresArchiveFailing）。",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "targets": [
+        {
+          "expr": "pg_stat_archiver_archived_count",
+          "refId": "A",
+          "legendFormat": "已归档"
+        },
+        {
+          "expr": "pg_stat_archiver_failed_count",
+          "refId": "B",
+          "legendFormat": "归档失败"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "最近归档段年龄",
+      "type": "timeseries",
+      "description": "archive_timeout=900s ⇒ 低写入时也应每 15 分钟落一段；阈值 3600s 与告警 PostgresArchiveStalled 一致。",
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 12,
+        "y": 14
+      },
+      "targets": [
+        {
+          "expr": "pg_stat_archiver_last_archive_age",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 3600
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "备份新鲜度",
+      "type": "timeseries",
+      "description": "由备份脚本上报到 pushgateway。阈值 93600s（26h）与告警 PostgresBackupStale 一致；指标缺失由 PostgresBackupMetricMissing 兜住。",
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 18,
+        "y": 14
+      },
+      "targets": [
+        {
+          "expr": "time() - max(synapse_backup_last_success_timestamp_seconds)",
+          "refId": "A",
+          "legendFormat": "距上次成功备份"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 93600
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "最长事务时长",
+      "type": "timeseries",
+      "description": "阈值 300s 与告警 PostgresLongRunningTransaction 一致。长事务 ⇒ vacuum 回收不了 ⇒ 表/索引膨胀。",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 21
+      },
+      "targets": [
+        {
+          "expr": "max(pg_stat_activity_max_tx_duration{state!=\"idle\"})",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 12,
+      "title": "事务速率（提交 / 回滚）",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 21
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(pg_stat_database_xact_commit{datname=\"synapse\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "提交"
+        },
+        {
+          "expr": "sum(rate(pg_stat_database_xact_rollback{datname=\"synapse\"}[5m]))",
+          "refId": "B",
+          "legendFormat": "回滚"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "title": "缓存命中率",
+      "type": "stat",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 21
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(pg_stat_database_blks_hit{datname=\"synapse\"}[5m])) / (sum(rate(pg_stat_database_blks_hit{datname=\"synapse\"}[5m])) + sum(rate(pg_stat_database_blks_read{datname=\"synapse\"}[5m])))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.95
+              },
+              {
+                "color": "green",
+                "value": 0.99
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 14,
+      "title": "死锁速率",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 28
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(pg_stat_database_deadlocks{datname=\"synapse\"}[5m]))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "title": "临时文件写入速率",
+      "type": "timeseries",
+      "description": "排序/哈希落盘的字节速率。持续非零说明 work_mem（预算表定为 4MB）压不住，是调大 work_mem 或加索引的信号。",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 28
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(pg_stat_database_temp_bytes{datname=\"synapse\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps"
+        }
+      }
+    },
+    {
+      "id": 16,
+      "title": "死元组 Top10（autovacuum 候选）",
+      "type": "table",
+      "description": "死元组堆积是膨胀的直接指标；长事务会阻止回收（见「最长事务时长」）。",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 28
+      },
+      "targets": [
+        {
+          "expr": "topk(10, pg_stat_user_tables_n_dead_tup{datname=\"synapse\"})",
+          "refId": "A",
+          "legendFormat": "{{relname}}",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "title": "表体积 Top10",
+      "type": "table",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 35
+      },
+      "targets": [
+        {
+          "expr": "topk(10, pg_stat_user_tables_size_bytes{datname=\"synapse\"})",
+          "refId": "A",
+          "legendFormat": "{{relname}}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        }
+      }
+    },
+    {
+      "id": 18,
+      "title": "最久未 autovacuum",
+      "type": "table",
+      "description": "= now - last_autovacuum。数值极大（或为「从未」量级）说明该表长时间没被自动清理 —— 结合死元组一起看。",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 35
+      },
+      "targets": [
+        {
+          "expr": "topk(10, time() - pg_stat_user_tables_last_autovacuum{datname=\"synapse\"})",
+          "refId": "A",
+          "legendFormat": "{{relname}}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "id": 19,
+      "title": "exporter 最近抓取错误",
+      "type": "stat",
+      "description": "非 0 表示 exporter 自己抓 PG 失败 —— 此时其余「无数据」是采集侧问题，不是数据库问题。",
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 16,
+        "y": 35
+      },
+      "targets": [
+        {
+          "expr": "pg_exporter_last_scrape_error",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 20,
+      "title": "采集器成功率",
+      "type": "table",
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 20,
+        "y": 35
+      },
+      "targets": [
+        {
+          "expr": "pg_scrape_collector_success",
+          "refId": "A",
+          "legendFormat": "{{collector}}",
+          "instant": true
+        }
+      ]
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  }
+}
