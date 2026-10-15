@@ -1621,6 +1621,7 @@ LOG_WARNING_ALLOWLIST=(
     'Missing indexes|启动期索引建议（非必需索引），已由 schema 健康检查覆盖'
     'update-alternatives|基础镜像包安装信息'
     'rehash: warning: skipping ca-certificates.crt|基础镜像 ca-certificates 提示'
+    'Server-side Megolm rotation is not running|server.megolm_device_id 未设置时的预期状态：本项目 Megolm 在客户端持有（Matrix 标准模型），仅服务端会话部署才需配置该键'
 )
 
 # 日志告警分析：区分 ERROR（一律阻断）、已知 WARNING（附原因，仅提示）、
