@@ -395,7 +395,7 @@
 | **B2 观测面** | ✅ **已落地**（本批）：exporter + 两 job + 6 条告警 + 备份新鲜度上报 + promtool 门禁。**未做**：① 复制延迟/槽积压告警（**故意不做**：当前无备库，配了只会永远无数据）；② Grafana 面板（告警已能叫醒人，面板属体验优化，可后补） | 上备库后补复制类告警；需要面板时再补 |
 | B4 迁移可靠性 | 改动迁移路径（`db_migrate.sh` 语义 + advisory lock + INVALID 索引检测），影响面大，需单独的变异自证 | 单独一批授权 |
 | ~~B5.1① 孤儿对象报告~~ | ✅ **已落地**（§13.4）：`scripts/report_orphan_db_objects.py` + `docs/runbook/DB_ORPHAN_OBJECT_AUDIT.md` | — |
-| B5.3 清 4 张废弃表 | 含 `DROP TABLE` ⇒ 必须①有新备份 ②逐表 `pg_dump -t` 存证 ③折入基线（只清本机库＝假收敛） | 授权（流程见 runbook §4） |
+| ~~B5.3 清 4 张废弃表~~ | ✅ **已落地**（§13.5）：全流程走完并复核归零 | — |
 | B6.2 / B6.3 | 需要真实查询清单 / 测量数据（JSONB 清单、7 组前缀冗余索引登记） | 使用方数据 |
 | ~~B2+. 监控配置"双份副本收敛"~~ | ⚠️ **我的判断错了，已收回**：`monitoring/` 不是陈旧副本，而是 **dev 栈**的配置（被 `docker/docker-compose.monitoring.yml` 真实挂载、`scripts/deploy-monitoring.sh` 校验）；`docker/deploy/prometheus/` 归 **deploy 栈**。两者**属于两个栈，不能删**。真问题是 dev 那份带 6 处损坏模板 ⇒ **已修**；门禁口径也改为"用**所有已部署版本里最新的** promtool 校验**全部**配置"（§13.4） | 无需决策；若将来真要合并两栈配置，那是架构决定 |
 | **B6.1 中文检索** | 已实测完成（见下）；**迁移决策未定**（改 ctype 要新建库 + dump/restore + **REINDEX 3 个 `lower()` 表达式索引**） | 业务方确认"中文搜索"是否为当前交付项 |
@@ -445,6 +445,37 @@
 （`VALIDATE CONSTRAINT fk_cross_signing_keys_user`，而基线创建的是 `..._user_id`
 ⇒ 该守卫分支**永不触发**；实测库里该外键 `convalidated=true`，故**无实际影响**，
 但名字应对齐）。
+
+### 13.5 本批（B5.3：清理 4 张废弃表）
+
+按 runbook §4 的五步流程执行，**每一步都有可复核的产物**：
+
+| 步 | 动作 | 实测产物 / 结论 |
+|---|---|---|
+| ① | **新的全量备份**（硬前置，成功前不许动库） | `synapse_pg_20261015_161059.dump`（17 MB；`pg_restore --list` **1990 条目**校验通过）＋ Redis RDB |
+| ② | **逐表存证**（唯一恢复路径，落**仓库之外**） | `pre-drop-evidence-2026-10-15/{4 张表}.dump`（`pg_dump -Fc`，`TABLE DATA` 段齐、均 0 行）＋ `SNAPSHOT.txt`（行/列/索引数：4/7 列等见文件） |
+| ③ | **依赖核对 + 零副作用演练** | 无外部外键指向这 4 张；`BEGIN; DROP TABLE <4 张>; ROLLBACK;` ⇒ **DROP 成功、回滚后 4 张完好** ⇒ **无需 `CASCADE`** |
+| ④ | **折入基线 + 同步指纹** | baseline 末尾新增「废弃表清理」段（4 条 `DROP TABLE IF EXISTS`，附证据注释与"为何要有这段"的说明，**+2030 字节 / 5438 行**）；指纹 `5654afa2ea622aff` → **`48e404226830f749`**（按 R10 第①条：先用**改动前实际常量**自检哈希实现 —— 改动前 221331 字节逐字节吻合 —— 再取新值） |
+| ⑤ | **执行 + 复核** | dev 库执行这 4 条 ⇒ 孤儿对象 **4 表 / 7 索引 / 5 约束 → 0 / 0 / 0**；报告结论变为「表/视图与基线一致」 |
+
+**自证**：
+
+- **指纹守哨单测** `cargo test --test unit --features test-utils
+  baseline_fingerprint_is_the_single_v12_source` ⇒ **1 passed**。它同时证明两件事：
+  ① 新常量与基线字节逐字节一致；② **fixture 侧 `concat!` 的基线字符串仍哈希到同一值**
+  （否则会静默铸出**第二份**全量模板 —— 这正是该测试存在的理由）。
+- **基线固化守卫** `check_baseline_consolidation.py` ⇒ 通过（未被 `DROP` 段误判为重复对象）。
+- **表覆盖门禁** `check_schema_table_coverage.py` ⇒ 通过（4 张表在代码侧只剩注释，无查询引用）。
+- **章节棘轮 / 数字随访** ⇒ 通过。
+
+**为什么这一步不能省成"只清本机库"**：那样换一台机器/新库还会长出同样的残留（或反过来缺表）。
+折入基线后，**老库与新库收敛到同一形态**；对全新库这些 `DROP` 是 no-op。
+
+**本批刻意不做（属 B5.4，需先定口径）**：报告残留的 3 项。最值得注意的是
+`idx_schema_migrations_version` —— 它有**三个创建者、两种定义**（`db_migrate.sh:339` 建 **UNIQUE**、
+`init-db.sql:34` 与 `database_initializer/mod.rs:365` 建**非唯一**），`IF NOT EXISTS` 下
+**谁先跑谁赢**（实测库里是非唯一版）；而表上已有 `uq_schema_migrations_version` 保证唯一性，
+UNIQUE 版属冗余。**先把"哪一种是对的口径"定下来再折入基线**，否则等于把随机性写进单一来源。
 
 ---
 

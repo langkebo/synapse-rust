@@ -228,7 +228,16 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 > | `key_signatures.idx_key_signatures_target` | `uq_key_signatures_signature` | 均在 | 严格前缀，**未被实测证明"无人使用"** |
 > | `space_hierarchy.idx_space_hierarchy_space` | `uq_space_hierarchy` | 均在 | 严格前缀，同上 |
 > | ~~`push_devices.idx_push_devices_user`~~ | ~~`uq_push_devices_user_device_pushkey`~~ | **已删除** | 死表清理：复数表 `push_devices` 无任何代码引用（代码实际使用单数表 `push_device`），表与索引已从 baseline 移除 |
-> | `device_lists_outbound_pokes.idx_device_lists_outbound_pokes_user` | `pk_device_lists_outbound_pokes` | 均在 | 严格前缀，同上 |
+> | ~~`device_lists_outbound_pokes.idx_device_lists_outbound_pokes_user`~~ | ~~`pk_device_lists_outbound_pokes`~~ | **已删除** | 该表同样已不在 baseline（上表"均在"是陈旧记录）。2026-10-15 实测：**老库仍残留**该表及其 3 个索引 ⇒ 见下方"死表清理"注 |
+>
+> **2026-10-15 死表清理（方案 B5.3）**：上表的"已从 baseline 移除"只对**新库**成立 ——
+> 基线此前是 **create-only + `IF NOT EXISTS`**（`DROP TABLE` 计数 = 0），所以**老库永久残留**。
+> 实测残留 4 张（`device_lists_outbound_pokes` / `room_state_events` / `leak_alerts` / `push_devices`，
+> 均 0 行、代码侧零引用），现已：
+> ① 逐表 `pg_dump -t` 存证（仓库外 `…/hu_ts/backups/pre-drop-evidence-2026-10-15/`）；
+> ② 在 baseline 末尾新增幂等 `DROP TABLE IF EXISTS` 段（对全新库是 no-op）；
+> ③ 在 dev 库执行并复核 —— 孤儿对象从 4 表/7 索引/5 约束归 **0**。
+> 复核工具：`scripts/report_orphan_db_objects.py`（只读）。
 > | `device_keys.idx_device_keys_fallback` | `uq_device_keys_user_device_key` | 均在 | **§2 分类有误**：前者是**部分索引** `WHERE is_fallback AND NOT fallback_used`，谓词选择性与体积收益真实存在，**不是**长索引的严格前缀（本文件 §1 已把它记为有意的部分索引） |
 > | `room_memberships.idx_room_memberships_user_membership` | `idx_room_memberships_user_status` | 均在 | **不可删**：`synapse-storage/src/schema_health_check.rs` 的 `REQUIRED_INDEXES` 把它列为必需索引，删除会让启动健康检查持续报缺失 |
 > | `sliding_sync_tokens.idx_sliding_sync_tokens_user` | `idx_sliding_sync_tokens_unique`（含 `COALESCE(conn_id,'')` 表达式） | 均在 | 前导列为普通列，可前缀扫描；未实测 |

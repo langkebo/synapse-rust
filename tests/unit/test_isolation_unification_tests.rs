@@ -191,7 +191,16 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // baseline 内容再变（+803 字节，`bytes=218585`）⇒ 按 R10 第①条独立复算；
 // 先用**旧值**自检哈希实现（HEAD 的迁移字节 217782 ⇒ `0de025c8669e0c96` 逐字节吻合，
 // 证明哈希实现未变）后才取新值 `5076e5daa3c35b1d`。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "5654afa2ea622aff";
+// 2026-10-15（方案 B5.3：基线末尾新增「废弃表清理」段，4 条 `DROP TABLE IF EXISTS`）：
+// baseline 再变（+2030 字节，`bytes=223361`）⇒ 按 R10 第①条独立复算 FNV-1a 64 得
+// `48e404226830f749`；先用**改动前的实际常量** `5654afa2ea622aff` 自检哈希实现
+// （改动前字节 221331 逐字节吻合，证明哈希实现未变）后才取新值。
+// ⚠️ 本节改动同时把基线从"create-only"变成"含幂等清理"：目的是让**老库**（残留 4 张
+// 废弃表）与**全新库**（从未有这些表）收敛到同一形态；对全新库是 no-op。
+// （注：上一行记的 `5076e5daa3c35b1d` 与本次改动前的实际常量不一致 ⇒ 2026-10-14 之后
+//  还有一次改动未补记，与 155-157 / 181-184 行记录的是**同一类漏同步**。故本次一律以
+//  「改动前的实际常量」作自检基线，而不是以上一行的文字记录。）
+const EXPECTED_BASELINE_FINGERPRINT: &str = "48e404226830f749";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

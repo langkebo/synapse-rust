@@ -5406,3 +5406,32 @@ END $$;
 -- `idx_room_sticky_events_user_sticky` 之上再加一棵全量 btree。
 CREATE INDEX IF NOT EXISTS idx_room_sticky_events_expires_at
     ON room_sticky_events(expires_at) WHERE is_sticky AND expires_at IS NOT NULL;
+
+-- ============================================================
+-- 废弃表清理：让老库与新库收敛（2026-10-15，方案 B5.3）
+-- ============================================================
+-- 为什么要有这一段（本基线此前 `DROP TABLE` 计数 = 0）：
+--   基线是 **create-only + `IF NOT EXISTS`**。"曾经创建、后来从基线移除"的表在
+--   **老库上永久残留**、在**全新库上不存在** ⇒ 同一个版本号、两种库形态
+--   （既有门禁 `check_schema_table_coverage.py` 只做「代码 → 基线」方向，看不见这个）。
+--
+-- 实测残留（2026-10-15，dev 栈真实库；均 **0 行**、代码侧**零引用**，全仓只剩注释记录）：
+--   | 表 | 行 | 列 | 索引 | 代码侧记录 |
+--   |---|---|---|---|---|
+--   | `device_lists_outbound_pokes` | 0 | 5 | 4 | 注释：已按铁律 1 整表删除（2026-10-03） |
+--   | `room_state_events`           | 0 | 7 | 2 | D-100（该表没有读者，`copy_room_state` 是唯一写入者） |
+--   | `leak_alerts`                 | 0 | 10 | 4 | 零引用 |
+--   | `push_devices`                | 0 | 14 | 3 | 零引用（代码实际使用单数表 `push_device`） |
+--
+-- 删除前取证（唯一恢复路径，落在**仓库之外**）：
+--   `…/hu_ts/backups/pre-drop-evidence-2026-10-15/<表名>.dump`（`pg_dump -Fc`，逐表）
+--   ＋ 同目录 `SNAPSHOT.txt`（行/列/索引数）
+--   ＋ 当次全量备份 `synapse_pg_20261015_161059.dump`（17MB，`pg_restore --list` 1990 条目通过）。
+--
+-- 语义：对**已有库**是幂等清理；对**全新库**是无害 no-op（表从未存在）。
+-- 已实测**无需 `CASCADE`**（无外部外键指向它们；事务内 DROP + ROLLBACK 演练通过）。
+-- 生效方式：基线按 checksum 变更整体重放（`db_migrate.sh` / Rust `database_initializer`）。
+DROP TABLE IF EXISTS device_lists_outbound_pokes;
+DROP TABLE IF EXISTS room_state_events;
+DROP TABLE IF EXISTS leak_alerts;
+DROP TABLE IF EXISTS push_devices;

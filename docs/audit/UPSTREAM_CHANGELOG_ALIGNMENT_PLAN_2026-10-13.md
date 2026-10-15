@@ -892,7 +892,7 @@ cargo nextest run --test unit --features test-utils --locked \
   -E 'test(baseline_fingerprint_is_the_single_v12_source)'                                    # passed
 ```
 
-基线指纹随 schema 变更同步更新：`5076e5daa3c35b1d` → **`5654afa2ea622aff`**（`tests/unit/test_isolation_unification_tests.rs` 的 `EXPECTED_BASELINE_FINGERPRINT`，用 FNV-1a64 独立复算过）。`.sqlx` 缓存经唯一入口 `scripts/ci/sqlx_prepare.sh` 重生成：**4 删 4 增**（正好是被改的 4 条查询，未缩容）。
+基线指纹随 schema 变更同步更新：`5076e5daa3c35b1d` → **`5654afa2ea622aff`**（`tests/unit/test_isolation_unification_tests.rs` 的 `EXPECTED_BASELINE_FINGERPRINT`，用 FNV-1a64 独立复算过）。`.sqlx` 缓存经唯一入口 `scripts/ci/sqlx_prepare.sh` 重生成：**4 删 4 增**（正好是被改的 4 条查询，未缩容）。（后续现状：该常量在 2026-10-15 的 B5.3 批次中已随基线新增"废弃表清理"段再次变更为 `48e404226830f749` —— 以上两值是**当时**的值，不是当前值；当前值以 `EXPECTED_BASELINE_FINGERPRINT` 为准。）
 
 **变异自证（红 → 还原 → 绿，两条都做）**：
 

@@ -90,6 +90,26 @@ END IF;
 （创建语句本身就是 VALIDATED），**所以这处没有造成实际影响**；
 但它是一条应当对齐名字的陈旧引用 —— 今天无害不代表明天无害。
 
+### 3.2 清理执行记录（2026-10-15，方案 B5.3，已执行）
+
+按 §4 的流程对上述 **4 张废弃表**执行完毕：
+
+| 步骤 | 证据 |
+|---|---|
+| ① 新的全量备份 | `…/hu_ts/backups/synapse_pg_20261015_161059.dump`（17 MB；`pg_restore --list` **1990 条目**校验通过） |
+| ② 逐表存证 | `…/hu_ts/backups/pre-drop-evidence-2026-10-15/{device_lists_outbound_pokes,room_state_events,leak_alerts,push_devices}.dump`（`pg_dump -Fc`，均 `TABLE DATA` 段存在、0 行）＋ `SNAPSHOT.txt`（行/列/索引数） |
+| ③ 依赖核对 | 无外部外键指向这 4 张；事务内 `DROP`+`ROLLBACK` 演练通过（**无需 `CASCADE`**） |
+| ④ 折入基线 | baseline 末尾新增幂等 `DROP TABLE IF EXISTS` 段（含证据注释）；指纹 `5654afa2ea622aff` → **`48e404226830f749`**（+2030 字节，按 R10 约定先自检旧值再取值） |
+| ⑤ 执行 + 复核 | dev 库执行这 4 条 ⇒ 孤儿对象 **4 表 / 7 索引 / 5 约束 → 0 / 0 / 0**；报告结论变为"表/视图与基线一致" |
+
+**仍留在报告里的 3 项（不是"该删的表"，属 B5.4）**：
+
+| 项 | 现状 | 为什么不在 B5.3 里顺手改 |
+|---|---|---|
+| `idx_schema_migrations_version` | 库里有、基线无 | 它有**三个创建者**且**定义不一致**：`docker/db_migrate.sh:339` 建的是 **UNIQUE**，而 `docker/deploy/scripts/init-db.sql:34` 与 `synapse-services/src/database_initializer/mod.rs:365` 建的是**非唯一**；`IF NOT EXISTS` ⇒ **谁先跑谁赢**（实测库里是非唯一版）。表上本已有 `uq_schema_migrations_version` 保证唯一，UNIQUE 版属冗余。**折入基线前必须先定"哪一种是正确口径"**，属设计决定 |
+| `pk_schema_migrations` 未应用 | 基线声明此名、库里是 `schema_migrations_pkey` | 重命名需要 `ALTER TABLE … RENAME CONSTRAINT`，且要判断"这张由**运行时**（而非基线）管理的账本表该不该由基线拥有命名权" |
+| `VALIDATE CONSTRAINT fk_cross_signing_keys_user`（死引用） | 基线内陈旧名字 | 改动在基线正文（不是末尾追加），会与正在进行的其它基线改动冲突；且实测**无实际影响**，优先级低 |
+
 ## 4. 处置流程（清理孤儿表之前必读）
 
 1. **先备份**（前置条件，不可跳过）：`docs/runbook/DB_RESTORE_DRILL.md` 的流程 + `scripts/backup_database.sh`
