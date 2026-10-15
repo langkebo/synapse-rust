@@ -1,10 +1,10 @@
-test pagination_offset_deep_page ... bench:      135512 ns/iter (+/- 1131)
+test pagination_offset_deep_page ... bench:       54712 ns/iter (+/- 2206)
 
-test pagination_keyset_deep_page ... bench:          53 ns/iter (+/- 0)
+test pagination_keyset_deep_page ... bench:          54 ns/iter (+/- 0)
 
-test state_resolution_chain_10 ... bench:         201 ns/iter (+/- 4)
+test state_resolution_chain_10 ... bench:         281 ns/iter (+/- 4)
 
-test state_resolution_chain_100 ... bench:         210 ns/iter (+/- 2)
+test state_resolution_chain_100 ... bench:         272 ns/iter (+/- 1)
 
-test auth_chain_build_10 ... bench:        8942 ns/iter (+/- 156)
+test auth_chain_build_10 ... bench:        6806 ns/iter (+/- 16)
 
