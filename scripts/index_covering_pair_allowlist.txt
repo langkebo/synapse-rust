@@ -1,0 +1,18 @@
+# 同键「覆盖 vs 普通」索引对 —— 已裁定的白名单
+#
+# 为什么有这个文件：`scripts/check_baseline_consolidation.py::covering_pair_indexes()`
+# 会找出"键列完全相同、但一个带 INCLUDE"的索引对。这类**不是"可删重复"**：
+#   覆盖版（INCLUDE）支持 index-only scan，普通版更小；取舍取决于**真实执行计划**，
+#   不能用元数据判断（本仓在 2026-09-17 报告里已因"凭元数据下结论"栽过一次，见该文 §11.2）。
+# 所以口径是：**新出现的同键覆盖对一律判红**，要保留必须在下面登记并附裁定依据。
+#
+# 格式（字段用 `|` 分隔，缺项留空）：
+#   table|unique|method|键列(规范化)|WHERE 谓词(规范化)|索引名(逗号分隔，按字母序)
+#
+# 裁定依据：docs/audit/DB_REVIEW_2026-09-17.md §3 与 §14.3（2026-09-18 实测）。
+# 结论 = **两者都保留**：两个同键索引在**真实代码路径**下分别被计划器选中
+# （覆盖版服务 index-only scan 的同步查询，普通版在需要回表时更省页）。
+# 该裁定推翻了同文 §3 "二选一"的初判 —— 记在这里以防后人再按静态分析删掉任何一个。
+# 复测方法（有生产数据时）：`pg_relation_size(…)` 对比 + `EXPLAIN (ANALYZE, BUFFERS)`
+# 跑典型同步查询，再决定是否重新裁定。
+events|plain|btree|room_id, stream_ordering desc||idx_events_room_stream_ordering,idx_events_sync_covering

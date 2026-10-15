@@ -378,6 +378,7 @@
 | **B1.3 / B1.2** | `013f9e9dd` | 修 dev 备份脚本「静默空备份」（`set -eo pipefail`、去管道用重定向、**体积下限** + `pg_restore --list` 校验）、`BACKUP_DIR` 默认移出 `/tmp`、日志目录前置创建、可选异地同步（rclone，未配置显式 SKIP） | **三阶段变异自证**：老脚本 + 桩（pg_dump 必败）→ `exit 0` + **20 字节空归档**（缺陷复现）；新脚本 + 同一桩 → `exit 1` 且打印 pg_dump 原始报错；真环境 → `exit 0`、18MB、`pg_restore --list` 通过 |
 | **B1.1 / B1.4 / B1.5** | （本批） | `archive_mode=on` + `archive_timeout=900s` + `wal_keep_size=256MB`；归档落点 `./wal_archive` **在 PGDATA 之外**（两个 compose 都挂了卷、`deploy.sh` 建目录、`.gitignore` 登记）；systemd unit/timer 模板 + crontab 备选；`docs/runbook/DB_RESTORE_DRILL.md`（含 PITR 步骤与异常分支） | **实测**：① 重建容器 4s 内 healthy，数据完好（events 56246 / rooms 7868）；② `pg_switch_wal()` 后 `archived=1 failed=0`，宿主目录出现 16MB 归档段 ⇒ 归档链路真通；③ **恢复演练 PASS**：5s 恢复，6 张表行数 + `public` 索引数（693）**逐项相等**，演练库已清理 |
 | **B3** | `cd59b60fc` | `pids_limit` 256→300、`work_mem` 16MB→4MB、预算表补两行、`check_connection_budget.py` **新增 pids 与内存两条不变式** | **RED 自证**：pids 300→200 ⇒ 红；work_mem→16MB ⇒ 红；README pids 300→301 ⇒ 命中"文档与运行配置漂移"；还原 ⇒ 绿 |
+| **B5.2** | （本批） | `_INDEX_DEF_RE` 改为整条语句 + **配平括号**解析键列（覆盖 343/343 条定义）；新增 `covering_pair_indexes()` 让同键「覆盖 vs 普通」对**可见**，已裁定项登记 `scripts/index_covering_pair_allowlist.txt` | **RED 自证**：复制一条带 `INCLUDE` 的索引 ⇒ 旧守卫 `exit 0`（盲区）/ 新守卫 `exit 1`；复制一条表达式索引 ⇒ 同样 0/1；还原 ⇒ 绿 |
 | 文档 | `7997e700d`、`c6a2d0cd8` | 审查报告 + 本方案 + 执行记录 | preflight 全绿（aspell / markdownlint / 章节棘轮 / 数字随访 / 契约 gate / 可信度守卫） |
 
 推送：`426e82999..7997e700d`（pre-push：clippy `--all-features` + cargo-deny + cargo-machete 全绿）。
@@ -392,7 +393,7 @@
 | B1.2 异地副本 | 脚本钩子已就绪，但**落点未定**（需一个真实的异地存储） | D2 定下落点后填 `BACKUP_OFFSITE_REMOTE` |
 | **B2 观测面** | 需要**新建只读角色**（`pg_monitor`）+ 镜像按 digest 钉版 + 告警单元测试；归档目录的磁盘余量告警也应同批上 | 一次性 DB 角色变更（属变更窗口） |
 | B4 迁移可靠性 | 改动迁移路径（`db_migrate.sh` 语义 + advisory lock + INVALID 索引检测），影响面大，需单独的变异自证 | 单独一批授权 |
-| B5 对象卫生与守卫 | 前置（B1 备份可用化）**已满足**；B5.2（守卫修 INCLUDE/表达式）可独立先做；B5.3 含 `DROP TABLE` ⇒ 仍需逐表 `pg_dump -t` 存证 | 授权后即可开始（建议先做 B5.2） |
+| B5 对象卫生与守卫 | 前置（B1 备份可用化）**已满足**；**B5.2 守卫修复已落地**（见 §13.2）；B5.1①（孤儿对象报告脚本）与 B5.3（清 4 张废弃表，含 `DROP TABLE`）仍需授权 —— 后者要逐表 `pg_dump -t` 存证 | 授权后即可开始（建议先做 B5.1①） |
 | B6.2 / B6.3 | 需要真实查询清单 / 测量数据 | 使用方数据 |
 | **B6.1 中文检索** | 已实测完成（见下）；**迁移决策未定**（改 ctype 要新建库 + dump/restore + **REINDEX 3 个 `lower()` 表达式索引**） | 业务方确认"中文搜索"是否为当前交付项 |
 

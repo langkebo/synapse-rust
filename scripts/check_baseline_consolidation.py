@@ -162,15 +162,52 @@ def scan_surface_problems(
     return problems
 
 
-# ── 重复对象检测（2026-09-17 新增）─────────────────────────────────────────────
-# 索引定义（含 CONCURRENTLY 与 WHERE 部分谓词）
+# ── 重复对象检测（2026-09-17 新增；2026-10-15 修覆盖盲区）─────────────────────
+# 索引定义：**只匹配到 `;` 为止的整条语句**，键列交给 `_index_parts()` 用**配平括号**解析。
+#
+# ⚠️ 2026-10-15 修复（方案 B5.2，判据见 docs/audit/DB_REVIEW_2026-10-15.md §8）：
+# 旧写法 `\((?P<cols>[^)]*)\)(?P<where>\s+WHERE\s+[^;]*)?;` 要求右括号后**只能是** WHERE 或 `;`，
+# 于是两类定义**直接失配、对重复检测隐形**：
+#   ① 表达式索引（`ON users(lower(username))`——嵌套括号使 `[^)]*` 提前收尾）；
+#   ② 覆盖索引（`… (room_id, stream_ordering DESC) INCLUDE (event_id, …)`）。
+# 实测后果：守卫只覆盖 335/343 条索引定义，并**漏掉了真实存在的一对同键索引**
+# `idx_events_room_stream_ordering` / `idx_events_sync_covering`（键列完全相同）。
 _INDEX_DEF_RE = re.compile(
     r"CREATE\s+(?P<uniq>UNIQUE\s+)?INDEX(?:\s+CONCURRENTLY)?(?:\s+IF\s+NOT\s+EXISTS)?\s+"
-    r"(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\s+ON\s+(?P<table>[a-zA-Z_][a-zA-Z0-9_]*)\s*"
-    r"(?:USING\s+(?P<method>[a-zA-Z_][a-zA-Z0-9_]*)\s*)?\((?P<cols>[^)]*)\)"
-    r"(?P<where>\s+WHERE\s+[^;]*)?;",
+    r"(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\s+ON\s+(?:ONLY\s+)?(?P<table>[a-zA-Z_][a-zA-Z0-9_]*)\s*"
+    r"(?:USING\s+(?P<method>[a-zA-Z_][a-zA-Z0-9_]*)\s*)?"
+    r"(?P<tail>.*?);",
     re.IGNORECASE | re.DOTALL,
 )
+
+
+def _balanced_group(text: str, start: int) -> str | None:
+    """从 `text[start] == '('` 起取出**配平**内容（支持嵌套：`lower(username)`、`(a->>'b')`）。"""
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == "(":
+            depth += 1
+        elif text[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return text[start + 1 : i]
+    return None
+
+
+def _index_parts(tail: str) -> tuple[str, str, bool]:
+    """把 `CREATE INDEX` 的尾段拆成 (键列文本, WHERE 文本, 是否含 INCLUDE)。"""
+    p = tail.find("(")
+    if p < 0:
+        return "", "", False
+    cols = _balanced_group(tail, p)
+    if cols is None:
+        return "", "", False
+    rest = tail[p + len(cols) + 2 :]
+    include = bool(re.search(r"\bINCLUDE\s*\(", rest, re.IGNORECASE))
+    wm = re.search(r"\bWHERE\b(.*)$", rest, re.IGNORECASE | re.DOTALL)
+    return cols, (wm.group(1) if wm else ""), include
+
+
 # 表级外键（在 CREATE TABLE 体内）与 ALTER TABLE ... ADD CONSTRAINT 形式的外键
 _ALTER_FK_RE = re.compile(
     r"ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?P<table>[a-zA-Z_][a-zA-Z0-9_]*)\s+ADD\s+CONSTRAINT\s+"
@@ -190,18 +227,82 @@ def _norm(cols: str) -> str:
 
 
 def duplicate_indexes(text: str) -> dict[tuple, list[str]]:
-    """(table, unique, method, cols, where) -> [index names] with len > 1."""
+    """(table, unique, method, cols, where, include) -> [index names] with len > 1.
+
+    键列用配平括号解析（见 `_INDEX_DEF_RE` 上方注释）；`include` 参与判重：
+    同键但一个带 `INCLUDE`、一个不带 ⇒ 属于 `covering_pair_indexes()` 的口径，
+    **不在这里**当"可删重复"（覆盖版是超集，删哪个要按真实计划定）。
+    """
     groups: dict[tuple, list[str]] = {}
     for m in _INDEX_DEF_RE.finditer(text):
+        cols, where, include = _index_parts(m.group("tail") or "")
         key = (
             m.group("table").lower(),
             bool(m.group("uniq")),
             (m.group("method") or "btree").lower(),
-            _norm(m.group("cols")),
-            _norm(m.group("where") or ""),
+            _norm(cols),
+            _norm(where),
+            include,
         )
         groups.setdefault(key, []).append(m.group("name"))
     return {k: v for k, v in groups.items() if len(v) > 1}
+
+
+# 已被裁定"两者都保留"的同键覆盖对（白名单）。
+# 格式：`table|唯一性|方法|键列|谓词|索引名(逗号分隔，任意序)`；`#` 起头为注释。
+COVERING_PAIR_ALLOWLIST_FILE = (
+    pathlib.Path(__file__).resolve().parent / "index_covering_pair_allowlist.txt"
+)
+
+
+def _covering_allowlist() -> set[str]:
+    if not COVERING_PAIR_ALLOWLIST_FILE.exists():
+        return set()
+    out = set()
+    for raw in COVERING_PAIR_ALLOWLIST_FILE.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if line and not line.startswith("#"):
+            out.add(line)
+    return out
+
+
+def covering_pair_indexes(text: str) -> dict[str, list[str]]:
+    """同键但 `INCLUDE` 不同的索引对（覆盖索引 vs 普通索引）。
+
+    这类**不是"可删重复"**：覆盖版支持 index-only scan，普通版更小，取舍取决于真实执行计划
+    （本仓 `events` 那一对已由 2026-09-18 实测裁定"两者都保留"，见
+    docs/audit/DB_REVIEW_2026-09-17.md §14.3）。
+    但**必须可见** —— 否则"同键两棵树"会静默累积写放大。已裁定的对登记在
+    `scripts/index_covering_pair_allowlist.txt`，**新增**的对即判红。
+    """
+    by_key: dict[tuple, list[str]] = {}
+    for m in _INDEX_DEF_RE.finditer(text):
+        cols, where, include = _index_parts(m.group("tail") or "")
+        key = (
+            m.group("table").lower(),
+            bool(m.group("uniq")),
+            (m.group("method") or "btree").lower(),
+            _norm(cols),
+            _norm(where),
+        )
+        by_key.setdefault(key, []).append(
+            f"{m.group('name')}{'[INCLUDE]' if include else ''}"
+        )
+    allowed = _covering_allowlist()
+    out: dict[str, list[str]] = {}
+    for (table, uniq, method, cols, where), names in by_key.items():
+        plain = [n for n in names if not n.endswith("[INCLUDE]")]
+        covering = [n for n in names if n.endswith("[INCLUDE]")]
+        if not (plain and covering):
+            continue
+        signature = (
+            f"{table}|{'unique' if uniq else 'plain'}|{method}|{cols}|{where}|"
+            f"{','.join(sorted(n.replace('[INCLUDE]', '') for n in names))}"
+        )
+        if signature in allowed:
+            continue
+        out[signature] = names
+    return out
 
 
 def duplicate_foreign_keys(text: str) -> dict[tuple, list[str]]:
@@ -283,23 +384,36 @@ def main() -> int:
 
     dup_idx = duplicate_indexes(baseline_text)
     dup_fk = duplicate_foreign_keys(baseline_text)
-    if dup_idx or dup_fk:
-        print(f"❌ {baseline.name} 存在重复对象（折叠历史迁移时折进了两份）:")
-        for (tbl, uniq, method, cols, where), names in sorted(dup_idx.items()):
+    cov_pairs = covering_pair_indexes(baseline_text)
+    if dup_idx or dup_fk or cov_pairs:
+        print(f"❌ {baseline.name} 存在重复/同键覆盖索引对象:")
+        for (tbl, uniq, method, cols, where, include), names in sorted(dup_idx.items()):
             kind = "UNIQUE " if uniq else ""
             extra = f" WHERE {where}" if where else ""
+            inc = " INCLUDE" if include else ""
             print(
-                f"   - 索引 [{tbl}] {kind}{method} ({cols}){extra}: {', '.join(sorted(names))}"
+                f"   - 索引 [{tbl}] {kind}{method} ({cols}){extra}{inc}: {', '.join(sorted(names))}"
             )
             print(
-                "     同一 (表, 列集, 唯一性, 方法, 谓词) 只需一个；保留约束索引，删除普通索引。"
+                "     同一 (表, 列集, 唯一性, 方法, 谓词, INCLUDE) 只需一个；保留约束索引，删除普通索引。"
             )
         for (tbl, col, parent), names in sorted(dup_fk.items()):
             print(f"   - 外键 [{tbl}.{col} → {parent}]: {', '.join(sorted(names))}")
             print(
                 "    同一列上的多个外键会让删除动作重复触发（CASCADE 会压过 NO ACTION），只保留一个。"
             )
-        print("\n见 docs/audit/DB_REVIEW_2026-09-17.md §1/§5。")
+        for signature, names in sorted(cov_pairs.items()):
+            print(
+                f"   - 同键『覆盖 vs 普通』对: {', '.join(sorted(names))}  [{signature}]"
+            )
+            print(
+                "     两者键列相同 ⇒ 每次写入维护两棵同键 B-tree。**不要自动删**："
+                "覆盖版支持 index-only scan、普通版更小，按真实执行计划裁定；"
+                f"已裁定的对请登记到 {COVERING_PAIR_ALLOWLIST_FILE.name}（附裁定依据）。"
+            )
+        print(
+            "\n见 docs/audit/DB_REVIEW_2026-09-17.md §1/§5、docs/audit/DB_REVIEW_2026-10-15.md §8。"
+        )
         return 1
 
     if missing:
@@ -314,7 +428,8 @@ def main() -> int:
         return 1
 
     print(
-        f"✅ {baseline.name} 已吸收全部 {len(ts_files)} 个增量迁移的对象；无重复索引/外键。"
+        f"✅ {baseline.name} 已吸收全部 {len(ts_files)} 个增量迁移的对象；"
+        "无重复索引/外键，无未登记的同键覆盖对。"
     )
     return 0
 
