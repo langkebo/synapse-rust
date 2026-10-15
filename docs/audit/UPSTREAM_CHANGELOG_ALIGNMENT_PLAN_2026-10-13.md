@@ -1666,7 +1666,10 @@ M-05 的处置要求是「先定模型 …… 再接写者」。本节定模型�
   1. **服务端侧 megolm 会话在生产根本不会被创建** —— `MegolmProvider::create_session` 在非测试代码里的**唯一**调用点就是那个未接线的 `rotate_megolm_session`（`synapse-e2ee/src/key_rotation/service.rs:267`）；`megolm_sessions` 在生产只有清理任务在读/删（`src/server/mod.rs:692` → `delete_expired_sessions`）。
   2. **规范把 megolm 轮换放在客户端**（§11.15 判据二）；服务端持有并轮换 megolm 只在 **bridge / server-side-megolm** 场景成立 —— 本仓装配层自述："Matrix does **not** require a homeserver to hold megolm keys: Megolm is a client-side ratchet … upstream Synapse likewise starts with no megolm key configured"（`synapse-services/src/wiring/e2ee.rs:126`）。
   3. 因此"给这张表硬接一个写者"等于**制造一个不存在的产品行为**：要么定时替用户轮换其客户端自己的会话（规范外），要么填合成行 —— 而本仓对伪造已是明文纪律（`routes/federation/pdu.rs`：**禁止**填 `[]`/`0` 伪造）。
-- ⇒ 正确处置：**登记为"依赖：启用服务端 megolm（bridge 场景）"**。真正启用那天，写者是现成的 `rotate_all_user_sessions`。
+- ⇒ 当时的正确处置：**登记为"依赖：启用服务端 megolm（bridge 场景）"**。**该依赖已在 §11.16 收口**
+  （2026-10-15）：接上了**定时自动轮换执行器**，写者是 `KeyRotationService::sweep_rotations`
+  （内部走 `rotate_megolm_session` → `log_rotation`），执行者身份由新增配置 `server.megolm_device_id`
+  显式提供；未配置该键时执行器**不启动**（fail-closed）。
 - **未做的事（明确边界）**：没有改 `/history` 的路径或语义、没有删任何端点、没有动路由面 ⇒ **零契约链变更**（本节不需要 9 步重生成）。若将来决定把 megolm 日志面**迁出** federation 命名的路由族（如 `/_matrix/vendor/v1/e2ee/megolm/rotation/history/{device_id}`），那是一次**独立的、会动契约链**的决策，需单独授权。
 
 #### 11.15.4 本节改动的验证（全部实跑）
@@ -1707,3 +1710,59 @@ M-05 的处置要求是「先定模型 …… 再接写者」。本节定模型�
   **⚠️ 改本仓任何 `#[cfg(test)]` 模块前先想清楚**：里面多一个 `sqlx::query*` 会顶到 `production` 分区
   （`#[cfg(test)] mod x;` 写在非 `mod.rs` 时被判成生产区），而用宏又会因 `--all-targets` 进不了 `.sqlx` 缓存
   ⇒ 纯断言 / 纯逻辑测试是唯一零代价的形态。
+
+### 11.16 服务端 megolm 轮换执行器：接线（§11.15.3 的「接写者」收口）
+
+§11.15.3 把"接写者"登记为「依赖：启用服务端 megolm（bridge 场景）」。本节把执行器接上线，
+依赖项因此关闭 —— 但**方式**是"显式开关 + 默认不启动"，而不是伪造行为。
+
+#### 11.16.1 两处决策（已确认）
+
+| 决策点 | 选定 | 依据 |
+| --- | --- | --- |
+| 驱动方式 | **定时自动轮换** | 与 `KeyRotationConfig`（`enable_auto_rotation` / `olm_rotation_days` / `megolm_rotation_messages`）以及客户端契约文档（`matrix-js-sdk/docs/api-contract/key-rotation.md`）里 `enabled` = "是否启用自动轮换"、`interval_ms` = "轮换间隔" 的描述一致；而这几个旋钮在本轮之前**全部没有读者** |
+| 执行者身份 | **新增显式配置 `server.megolm_device_id`** | `key_rotation_log.device_id` 是 `NOT NULL`，而 `megolm_sessions` 只记 `room_id` + `sender_key`，不带设备身份；§11.15.3 已明文禁止写 `unknown` 之类合成值 ⇒ 身份必须由运维**显式声明** |
+
+#### 11.16.2 实现（4 个站点）
+
+1. **配置**（`synapse-common/src/config/server.rs`）：新增 `megolm_device_id: Option<String>`（`#[serde(default)]`，默认 `None`）。
+   `None` ⇒ **执行器不启动**并 `warn!` 一次（fail-closed）。该键同时就是"本部署是否持有服务端 megolm 会话"的显式开关。
+   `docker/config/homeserver.yaml` 已补注释样例。
+2. **候选查询**（`KeyRotationStorage::list_rotatable_sessions(max_messages, max_idle_ms, now_ms)`）：
+   - 三个阈值与 `should_rotate` **同源**（消息数上限 / 会话寿命 `expires_at` / 空闲时长）；
+   - `last_used_ts` 为 NULL 时 `COALESCE(…, created_ts)` —— 与 row→model 层的回退口径**同一口径**，不是第二套规则；
+   - **每个 `(room_id, sender_key)` 只看 `created_ts` 最新的那一行**（`DISTINCT ON`，`session_id` 破平）。
+     这条是必须的：轮换只**新增**一行、**不删**被取代的旧行（旧行要留着解历史消息），而旧行会**永远**
+     满足"超出消息上限 / 已过期" ⇒ 不过滤就会**每轮再轮换一次**、会话行数随运行时间无界增长。
+3. **服务入口**（`KeyRotationService::sweep_rotations(device_id) -> RotationSweep { candidates, rotated, failed }`）：
+   - `enable_auto_rotation == false` ⇒ **直接返回、不查库**（该旋钮的第一个也是唯一读者）；
+   - 逐个 best-effort：单个会话失败只 `warn!` 并计入 `failed`，**不中断整轮** —— 中断会让后面的房间被整轮跳过，
+     而调度器下一轮还要再等一个周期。
+4. **装配根**（`src/server/mod.rs`）：与既有 megolm 清理任务并列的后台任务；
+   - **只在 `run_global_maintenance` 的节点上跑** ⇒ 多进程部署下只有一个写入者，不会两个进程对同一房间重复轮换；
+   - `CancellationToken` + `biased` `select!`（仓内后台任务硬规则）；
+   - 扫描周期 = 常量 `MEGOLM_ROTATION_INTERVAL_SECS`（6h），**刻意与 `MEGOLM_CLEANUP_INTERVAL_SECS` 分成两个常量**：
+     清理删的是过期行、轮换动的是仍要用的行，合并成一个常量会让二者将来无法分别调节；
+   - 每轮先 `reload_config()`：`PUT/POST /_matrix/vendor/v1/keys/rotation/config` 写的是 `key_rotation_config`，
+     不重读则阈值改动要重启才生效。
+
+#### 11.16.3 修掉了什么
+
+- **M-05 的另一半**：`key_rotation_log` 在生产**不再是"无写入者"** —— 读者
+  `GET /_matrix/vendor/v1/keys/rotation/history/{device_id}` 不再恒为空列表。
+- **`KeyRotationConfig` 的 4 个字段从死旋钮变成生效**（`enable_auto_rotation` / `olm_rotation_days` /
+  `megolm_rotation_messages`；`max_session_age_days` 的域仍归 `MEGOLM_SESSION_MAX_AGE_DAYS` 环境变量，见 M-04，未动）。
+- **默认行为零变化**：未配置 `megolm_device_id` 时不启任务、不查库、只 `warn!` 一次。
+
+#### 11.16.4 验证（全部实跑）
+
+- `nextest -p synapse-e2ee --lib --all-features -E 'test(key_rotation)'` → **19 passed**（新增 5 条）
+  - 端到端：种一条到期会话 → 一轮扫描 → 审计行能被**原先恒空的读者**读出（`new_key_id` 非空、时间戳非 0、设备隔离）
+  - **防无界轮换**：第二轮扫描必须 0 轮换（旧行仍在表里且仍"超限"）
+  - 负对照：新鲜会话不动；`enable_auto_rotation = false` 时不动
+  - **一致性守卫**：6 例用例表上 `should_rotate` ⟺ `list_rotatable_sessions` 逐例一致
+- `cargo check -p synapse-rust --all-features` → **EXIT=0**（接线）；`cargo clippy` 见 §11.16.4 追加行
+- `.sqlx`：**1319 → 1320**（新增 1 条），经 `scripts/ci/sqlx_prepare.sh`（先在线模式验编译，再重生成）
+- **变异自证**：去掉候选查询里的 `DISTINCT ON (room_id, sender_key)` ⇒ 防无界轮换用例
+  **FAILED（EXIT=100）**，断言文案即"the superseded row must not keep the room due, or every sweep would
+  rotate again"；还原后复跑绿。

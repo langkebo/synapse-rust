@@ -40,4 +40,6 @@ pub use service::KeyRotationLog;
 pub use service::KeyRotationService;
 pub use service::KeyRotationStorage;
 pub use service::KeyRotationStorageApi;
+pub use service::RotatableSession;
 pub use service::RotationStatus;
+pub use service::RotationSweep;

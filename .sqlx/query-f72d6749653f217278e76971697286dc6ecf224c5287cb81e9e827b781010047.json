@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT latest.room_id, latest.sender_key\n            FROM (\n                SELECT DISTINCT ON (room_id, sender_key)\n                       room_id, sender_key, message_index, created_ts, last_used_ts, expires_at\n                FROM megolm_sessions\n                ORDER BY room_id, sender_key, created_ts DESC, session_id DESC\n            ) AS latest\n            WHERE latest.message_index >= $1\n               OR (latest.expires_at IS NOT NULL AND latest.expires_at <= $3)\n               OR (COALESCE(latest.last_used_ts, latest.created_ts) <= $2)\n            ORDER BY latest.room_id, latest.sender_key\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "sender_key",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "f72d6749653f217278e76971697286dc6ecf224c5287cb81e9e827b781010047"
+}

@@ -64,6 +64,16 @@ const DRAIN_TIMEOUT_SECS: u64 = 30;
 /// Fallback for [`ServerConfig::megolm_cleanup_interval_secs`] when config is 0.
 const MEGOLM_CLEANUP_INTERVAL_SECS: u64 = 6 * 3600;
 
+/// 服务端 megolm 轮换执行器的**扫描周期**（秒）。
+///
+/// 与 [`MEGOLM_CLEANUP_INTERVAL_SECS`] 取同一个值纯属工程便利（两者都是"每隔多久看一眼
+/// megolm 会话表"），但**语义不同、刻意分成两个常量**：清理删的是过期行，轮换动的是
+/// 仍要用的行 —— 合并成一个常量会让二者将来无法分别调节。
+///
+/// **是否轮换**由 `key_rotation_config` 里的三个阈值决定（`olm_rotation_days` /
+/// `megolm_rotation_messages` / 会话自身的 `expires_at`），本常量只决定"多久检查一次"。
+const MEGOLM_ROTATION_INTERVAL_SECS: u64 = 6 * 3600;
+
 /// Fallback for [`ServerConfig::pruning_interval_secs`] when config is 0.
 const PRUNING_INTERVAL_SECS: u64 = 86400;
 
@@ -714,6 +724,82 @@ impl SynapseServer {
                     }
                 }
             });
+        }
+
+        if run_global_maintenance {
+            // 服务端 megolm 轮换执行器（审计 §11.16 / M-05 的"接写者"）。
+            //
+            // Matrix 把 megolm 轮换定为**客户端**义务，服务端侧 megolm 只在 bridge /
+            // server-side-Megolm 场景成立 —— 所以本任务**默认不启动**：
+            // `server.megolm_device_id` 未配置即视为"本部署不持有服务端 megolm 会话"，
+            // 只告警一次。这正是 fail-closed：不猜、不落合成设备号（§11.15.3）。
+            //
+            // 只由维护节点跑（`run_global_maintenance`）⇒ 多进程部署下只有一个写入者，
+            // 不会两个进程对同一房间重复轮换。
+            let megolm_device_id = self.app_state.services.core.config.server.megolm_device_id.clone();
+            if let Some(device_id) = megolm_device_id {
+                let rotation_service = std::sync::Arc::new(
+                    synapse_e2ee::key_rotation::KeyRotationService::new_with_db_config(
+                        std::sync::Arc::new(self.app_state.services.e2ee.megolm_service.clone()),
+                        std::sync::Arc::new(self.app_state.services.core.key_rotation_storage.clone()),
+                        synapse_e2ee::key_rotation::KeyRotationConfig::default(),
+                    )
+                    .await,
+                );
+                let shutdown = self.app_state.services.shutdown_token.clone();
+                tokio::spawn(async move {
+                    let mut interval_timer = tokio::time::interval(Duration::from_secs(MEGOLM_ROTATION_INTERVAL_SECS));
+                    interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                    interval_timer.tick().await; // skip immediate tick after startup
+
+                    loop {
+                        tokio::select! {
+                            biased;
+                            _ = shutdown.cancelled() => {
+                                ::tracing::info!("Server-side megolm rotation task shutting down");
+                                break;
+                            }
+                            _ = interval_timer.tick() => {
+                                // 每轮重读 `key_rotation_config`：`PUT/POST
+                                // /_matrix/vendor/v1/keys/rotation/config` 写的就是那张表，
+                                // 不重读则阈值改动要重启才生效。
+                                if let Err(error) = rotation_service.reload_config().await {
+                                    ::tracing::warn!(
+                                        %error,
+                                        "Failed to reload key rotation config; using the in-memory snapshot"
+                                    );
+                                }
+                                match rotation_service.sweep_rotations(&device_id).await {
+                                    Ok(sweep) if sweep.rotated > 0 || sweep.failed > 0 => {
+                                        ::tracing::info!(
+                                            candidates = sweep.candidates,
+                                            rotated = sweep.rotated,
+                                            failed = sweep.failed,
+                                            %device_id,
+                                            "Server-side megolm rotation sweep completed"
+                                        );
+                                    }
+                                    Ok(_) => {
+                                        ::tracing::debug!(
+                                            "Server-side megolm rotation sweep: no session needed rotation"
+                                        );
+                                    }
+                                    Err(error) => {
+                                        ::tracing::warn!(%error, "Server-side megolm rotation sweep failed");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            } else {
+                ::tracing::warn!(
+                    "Server-side Megolm rotation is not running: `server.megolm_device_id` is unset. \
+                     This is the expected state for deployments that keep Megolm where Matrix puts it \
+                     (on the client); set it to the device id the server should use as its own \
+                     Megolm device if this deployment holds server-side Megolm sessions."
+                );
+            }
         }
 
         if run_global_maintenance {

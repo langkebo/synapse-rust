@@ -379,6 +379,22 @@ pub struct ServerConfig {
     /// `megolm_cleanup_interval_secs` field.
     pub megolm_cleanup_interval_secs: u64,
 
+    /// 服务端**自己**执行 megolm 轮换时使用的设备身份。
+    ///
+    /// Matrix 并不要求 homeserver 持有 megolm 密钥（megolm 是客户端棘轮），但持有
+    /// 服务端侧 megolm 会话的部署（bridge 场景）需要给"服务器作为一台设备"一个
+    /// **明确的身份**：`key_rotation_log.device_id` 是 `NOT NULL`，而
+    /// `megolm_sessions` 只记 `room_id` + `sender_key`，本身不带设备身份。
+    /// 刻意**不**用 `unknown` 之类的合成值 —— 合成值在审计日志里与真值不可区分。
+    ///
+    /// `None`（默认）表示**不执行**服务端侧 megolm 轮换：轮换执行器不启动，并告警一次。
+    /// 因此本项是"是否启用服务端 megolm 轮换"的显式开关（fail-closed）。
+    ///
+    /// 示例: "SERVER_MEGOLM"
+    #[serde(default)]
+    /// `megolm_device_id` field.
+    pub megolm_device_id: Option<String>,
+
     /// 数据裁剪间隔（秒）。
     ///
     /// 定期裁剪以下过期数据：
@@ -650,6 +666,35 @@ mod tests {
 
     fn make_config() -> ServerConfig {
         ServerConfig::default()
+    }
+
+    /// `megolm_device_id` 默认 `None` ⇒ 服务端 megolm 轮换执行器**不启动**。
+    ///
+    /// 这是刻意的 fail-closed：Matrix 把 megolm 轮换放在客户端，服务端侧 megolm 只在
+    /// bridge 场景成立，所以"默认不轮换"才是正常状态；要轮换必须显式声明身份
+    /// （`key_rotation_log.device_id` 是 NOT NULL，而本仓拒绝写合成设备号）。
+    #[test]
+    fn megolm_device_id_defaults_to_none_so_the_rotation_executor_stays_off() {
+        assert_eq!(make_config().megolm_device_id, None);
+    }
+
+    #[test]
+    fn megolm_device_id_parses_from_the_server_section() {
+        // `ServerConfig` 里没有 `#[serde(default)]` 的非 Option 字段必须逐个给出，
+        // 否则 serde 会先报 `missing field`，测不到本键。
+        let yaml = "\
+name: example.com
+max_image_resolution: 1000000
+enable_registration: true
+enable_registration_captcha: false
+background_tasks_interval: 60
+expire_access_token: true
+expire_access_token_lifetime: 86400
+refresh_token_sliding_window_size: 3600
+megolm_device_id: SERVER_MEGOLM
+";
+        let parsed: ServerConfig = serde_norway::from_str(yaml).expect("deserialize");
+        assert_eq!(parsed.megolm_device_id.as_deref(), Some("SERVER_MEGOLM"));
     }
 
     #[test]

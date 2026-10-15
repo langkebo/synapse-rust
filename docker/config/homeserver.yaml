@@ -33,6 +33,12 @@ server:
   # 配置却读不出/非 base64/长度不对**才拒绝启动。显式配置可让该密钥与 macaroon
   # 轮换解耦（轮换 macaroon 会使已存的服务端 megolm 行不可解密）。
   # megolm_encryption_key_path: "/app/data/megolm.key"
+  # 服务端 megolm 轮换执行器的**设备身份**（`key_rotation_log.device_id` 是 NOT NULL）。
+  # 未配置 = 不执行服务端侧 megolm 轮换（执行器不启动并 warn 一次）—— 这是默认，
+  # 也正是适合"按 Matrix 规范把 megolm 留在客户端"的部署的状态。
+  # 只有本部署确实持有**服务端侧** megolm 会话（bridge / server-side-Megolm）时才需要设置，
+  # 值为服务器自己这台"设备"的设备号；刻意不提供合成默认值（合成值在审计日志里与真值不可区分）。
+  # megolm_device_id: "SERVER_MEGOLM"
   # Background-task tuning (seconds). Defaults shown; 0 falls back to compile-time constant.
   # federation_retry_max_count: 5
   # drain_timeout_secs: 30

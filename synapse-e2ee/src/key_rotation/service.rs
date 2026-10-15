@@ -181,6 +181,34 @@ struct RotationStatusRow {
     last_rotation: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+/// 一天的毫秒数 —— 把 `olm_rotation_days` 折算成 `list_rotatable_sessions` 需要的时间戳边界。
+const MS_PER_DAY: i64 = 86_400_000;
+
+/// 一条**服务端自有**、已达轮换阈值的 megolm 会话（`megolm_sessions` 的一行）。
+///
+/// **语义约定（有守卫钉住）**：`sender_key` 在本仓**唯一**的生产写入路径下就等于归属
+/// **user id** —— `KeyRotationService::rotate_megolm_session(room_id, user_id, device_id)`
+/// 把 `user_id` 当 `sender_key` 传给 `create_session(room_id, sender_key)`。因此本结构可以
+/// 直接喂回 `rotate_megolm_session`，并由 `log_rotation` 记成该用户的轮换。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RotatableSession {
+    /// The `room_id` field.
+    pub room_id: String,
+    /// `megolm_sessions.sender_key` —— 见类型文档：等于归属 user id。
+    pub sender_key: String,
+}
+
+/// 一次轮换扫描的结果（定时执行器每轮返回一份，用于日志与测试断言）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RotationSweep {
+    /// 命中的候选会话数。
+    pub candidates: usize,
+    /// 实际完成轮换的会话数。
+    pub rotated: usize,
+    /// 轮换失败的会话数（逐个 best-effort，失败不中断整轮）。
+    pub failed: usize,
+}
+
 /// Implementation of [`KeyRotationService`] methods.
 impl KeyRotationService {
     /// See [`new`].
@@ -300,6 +328,57 @@ impl KeyRotationService {
     /// See [`get_rotation_status`].
     pub async fn get_rotation_status(&self, user_id: &str) -> Result<RotationStatus, ApiError> {
         self.storage.get_rotation_status(user_id).await
+    }
+
+    /// 对**服务端自有**的 megolm 会话做一次轮换扫描 —— 定时执行器的入口。
+    ///
+    /// `device_id` 是"服务器作为一台设备"的身份，来自 `server.megolm_device_id`：
+    /// `key_rotation_log.device_id` 是 `NOT NULL`，而本仓拒绝写 `unknown` 这类合成值
+    /// （审计 §11.15.3），所以调用方**必须显式提供**。
+    ///
+    /// `enable_auto_rotation == false` 时**直接返回、不查库** —— 这是
+    /// [`KeyRotationConfig::enable_auto_rotation`] 的第一个也是唯一读者（在本轮之前它是个死旋钮）。
+    ///
+    /// 逐个 best-effort：单个会话轮换失败只记 `warn!` 并计入 `failed`，不中断整轮
+    /// （中断会让后面的房间被整轮跳过，而调度器下轮还要等一个周期）。
+    pub async fn sweep_rotations(&self, device_id: &str) -> Result<RotationSweep, ApiError> {
+        let config = self.config.read().await.clone();
+        if !config.enable_auto_rotation {
+            return Ok(RotationSweep::default());
+        }
+
+        let now_ms = current_timestamp_millis();
+        let max_idle_ms = config.olm_rotation_days.saturating_mul(MS_PER_DAY);
+        let candidates =
+            self.storage.list_rotatable_sessions(config.megolm_rotation_messages, max_idle_ms, now_ms).await?;
+
+        let mut sweep = RotationSweep { candidates: candidates.len(), rotated: 0, failed: 0 };
+        for candidate in &candidates {
+            match self.rotate_megolm_session(&candidate.room_id, &candidate.sender_key, device_id).await {
+                Ok(_) => sweep.rotated += 1,
+                Err(error) => {
+                    sweep.failed += 1;
+                    tracing::warn!(
+                        room_id = %candidate.room_id,
+                        owner = %candidate.sender_key,
+                        %error,
+                        "Server-side megolm rotation failed for this session; continuing the sweep"
+                    );
+                }
+            }
+        }
+
+        if sweep.rotated > 0 || sweep.failed > 0 {
+            tracing::info!(
+                candidates = sweep.candidates,
+                rotated = sweep.rotated,
+                failed = sweep.failed,
+                %device_id,
+                "Server-side megolm rotation sweep finished"
+            );
+        }
+
+        Ok(sweep)
     }
 
     async fn share_new_key(
@@ -615,6 +694,52 @@ impl KeyRotationStorage {
                 .map_err(map_database!("delete_expired_sessions"))?;
 
         Ok(result.rows_affected() as i64)
+    }
+
+    /// 列出**需要轮换**的服务端自有 megolm 会话。
+    ///
+    /// 判据与 [`KeyRotationService::should_rotate`] **同源**（三个阈值：消息数上限、
+    /// 会话最长寿命、空闲时长上限），但在 SQL 里先做粗筛：`megolm_sessions` 可能很大，
+    /// 而 `should_rotate` 要先把行 rehydrate 成 `MegolmSession`（含 at-rest 解封）——
+    /// 为筛掉绝大多数不该动的行而解封每一行是纯浪费。两处实现的一致性由
+    /// `key_rotation/service/tests.rs` 的**一致性守卫**钉住（同一策略、两个站点、且被判据约束）。
+    ///
+    /// **每个 `(room_id, sender_key)` 只看最新那一行**（`created_ts` 最新、`session_id` 破平）：
+    /// 轮换只**新增**一行而**不删**旧行（旧行要留着解历史消息），所以若不过滤，旧行会永远
+    /// 满足"已过期" ⇒ 每轮都再轮换一次 ⇒ 会话行数无界增长。
+    ///
+    /// `last_used_ts` 允许为 NULL；row→model 层把它回退成 `created_ts`（`megolm/storage.rs`），
+    /// 故这里的 `COALESCE` 是同一口径，不是第二套规则。
+    pub async fn list_rotatable_sessions(
+        &self,
+        max_messages: i64,
+        max_idle_ms: i64,
+        now_ms: i64,
+    ) -> Result<Vec<RotatableSession>, ApiError> {
+        let idle_cutoff_ms = now_ms.saturating_sub(max_idle_ms);
+        let rows = sqlx::query!(
+            r"
+            SELECT latest.room_id, latest.sender_key
+            FROM (
+                SELECT DISTINCT ON (room_id, sender_key)
+                       room_id, sender_key, message_index, created_ts, last_used_ts, expires_at
+                FROM megolm_sessions
+                ORDER BY room_id, sender_key, created_ts DESC, session_id DESC
+            ) AS latest
+            WHERE latest.message_index >= $1
+               OR (latest.expires_at IS NOT NULL AND latest.expires_at <= $3)
+               OR (COALESCE(latest.last_used_ts, latest.created_ts) <= $2)
+            ORDER BY latest.room_id, latest.sender_key
+            ",
+            max_messages,
+            idle_cutoff_ms,
+            now_ms,
+        )
+        .fetch_all(&*self.pool)
+        .await
+        .map_err(map_database!("list_rotatable_sessions"))?;
+
+        Ok(rows.into_iter().map(|row| RotatableSession { room_id: row.room_id, sender_key: row.sender_key }).collect())
     }
 
     /// See [`get_rotation_status`].
