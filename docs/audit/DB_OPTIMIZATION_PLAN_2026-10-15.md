@@ -394,14 +394,57 @@
 | B1.2 异地副本 | 脚本钩子已就绪，但**落点未定**（需一个真实的异地存储） | D2 定下落点后填 `BACKUP_OFFSITE_REMOTE` |
 | **B2 观测面** | ✅ **已落地**（本批）：exporter + 两 job + 6 条告警 + 备份新鲜度上报 + promtool 门禁。**未做**：① 复制延迟/槽积压告警（**故意不做**：当前无备库，配了只会永远无数据）；② Grafana 面板（告警已能叫醒人，面板属体验优化，可后补） | 上备库后补复制类告警；需要面板时再补 |
 | B4 迁移可靠性 | 改动迁移路径（`db_migrate.sh` 语义 + advisory lock + INVALID 索引检测），影响面大，需单独的变异自证 | 单独一批授权 |
-| B5 对象卫生与守卫 | 前置（B1 备份可用化）**已满足**；**B5.2 守卫修复已落地**（见 §13.2）；B5.1①（孤儿对象报告脚本）与 B5.3（清 4 张废弃表，含 `DROP TABLE`）仍需授权 —— 后者要逐表 `pg_dump -t` 存证 | 授权后即可开始（建议先做 B5.1①） |
-| B6.2 / B6.3 | 需要真实查询清单 / 测量数据 | 使用方数据 |
-| **B2+. 监控配置双份副本收敛**（本轮新发现） | `docker/deploy/prometheus/` 是**线上实际使用**的那份（`README_MONITORING.md:132` 明说），`monitoring/` 下另有一份平行副本且已漂移 **514 行**、且陈旧副本里带着 6 处**已损坏**的模板（`{{ $values.X }}` + 对字符串 `range` ⇒ 触发必渲染失败）。本轮改动已按 live 那份落；**但没有收敛两份** —— 因为删除/指针化涉及部署路径，需要你确认哪种放法 | 决策：① 直接删 `monitoring/` 下的副本（`monitoring/prometheus/`、`monitoring/alerting-rules.yml`）② 或保留但加"两份必须一致"的门禁（比 ① 多一份维护成本） |
+| ~~B5.1① 孤儿对象报告~~ | ✅ **已落地**（§13.4）：`scripts/report_orphan_db_objects.py` + `docs/runbook/DB_ORPHAN_OBJECT_AUDIT.md` | — |
+| B5.3 清 4 张废弃表 | 含 `DROP TABLE` ⇒ 必须①有新备份 ②逐表 `pg_dump -t` 存证 ③折入基线（只清本机库＝假收敛） | 授权（流程见 runbook §4） |
+| B6.2 / B6.3 | 需要真实查询清单 / 测量数据（JSONB 清单、7 组前缀冗余索引登记） | 使用方数据 |
+| ~~B2+. 监控配置"双份副本收敛"~~ | ⚠️ **我的判断错了，已收回**：`monitoring/` 不是陈旧副本，而是 **dev 栈**的配置（被 `docker/docker-compose.monitoring.yml` 真实挂载、`scripts/deploy-monitoring.sh` 校验）；`docker/deploy/prometheus/` 归 **deploy 栈**。两者**属于两个栈，不能删**。真问题是 dev 那份带 6 处损坏模板 ⇒ **已修**；门禁口径也改为"用**所有已部署版本里最新的** promtool 校验**全部**配置"（§13.4） | 无需决策；若将来真要合并两栈配置，那是架构决定 |
 | **B6.1 中文检索** | 已实测完成（见下）；**迁移决策未定**（改 ctype 要新建库 + dump/restore + **REINDEX 3 个 `lower()` 表达式索引**） | 业务方确认"中文搜索"是否为当前交付项 |
 
 **B6.1 实测结论（本轮已完成测量部分）**：`datctype = C` ⇒ `show_trgm('北京') = {}` ⇒ 中文模式
 `%北京%` 走 Seq Scan、ASCII 模式走 Bitmap Index Scan；探针库（`LC_CTYPE='C.UTF-8'`）实测
 `show_trgm('北京')` 恢复非空 ⇒ **修复路径明确且不需要换基础镜像**（alpine/musl 支持 `C.UTF-8`）。
+
+### 13.4 本批（监控配置纠偏 + B5.1①）
+
+本批起因是**复核上一批**，结果查出三件事，其中第一件是**我自己引入的 CI 红**：
+
+| # | 问题 | 性质 | 处置 |
+|---|---|---|---|
+| 1 | **B2 引入的 `postgres` job 触发既有「死目标守卫」**：`synapse-postgres-exporter:9187` 未在 compose 里声明端口 | 🔴 **我的回归**（GitHub CI 当时是红的） | 给 exporter 加 `expose: ["9187"]`（该守卫第 286 行确实同时读 `ports` 与 `expose`）。**教训**：这道门禁**只在 CI 与 `scripts/deploy-monitoring.sh` 里跑，不在 preflight 里** ⇒ 改监控配置后必须手动跑 `python3 scripts/ci/check_prometheus_config.py` |
+| 2 | **promtool 版本盲区**：门禁硬编码 `prom/prometheus:v2.47.0`，而 deploy 栈实际运行 **v2.48.1**；`promtool check rules` **自 v2.48 起才校验 annotation 模板** | 🟡 既有盲区（不是我引入） | 门禁改为**从两个监控 compose 派生钉版、取最新**用它校验全部配置；升版会被立刻吸收 |
+| 3 | **dev 套 6 处损坏模板**（`{{ $values.X }}` + 对字符串做 `range` ⇒ 触发时必渲染失败） | 🟡 真缺陷 | 最小修复（改为直接引用 `$labels.X`）；live 那份本来就干净 |
+| 4 | **B5.1① 孤儿对象报告** | ✅ 新交付 | `scripts/report_orphan_db_objects.py`（只读）+ `docs/runbook/DB_ORPHAN_OBJECT_AUDIT.md` |
+
+**自证 1（版本盲区）—— 同一变异分别喂给"修复前"与"修复后"的门禁**：
+
+| 变异 | 旧门禁（硬编码 v2.47.0） | 新门禁（派生最新） |
+|---|---|---|
+| 往规则文件注入 `{{ $values.stage }}` | `rc=0` —— **PASS（盲区）** | `rc=1` —— FAIL（抓住，报 3 项） |
+| 删掉 exporter 的 `expose: ["9187"]` | `rc=1` | `rc=1` |
+| 把 deploy 钉版改成 v2.99.0 | — | 派生值 = `prom/prometheus:v2.99.0`（升版被吸收） |
+| 还原 | `rc=0` | `rc=0` |
+
+**自证 2（孤儿报告的四道过滤都真的在挡误报）—— 同一份库、只开关过滤器**：
+
+| 配置 | 孤儿关系 | 孤儿索引(存活表) | 孤儿约束 | VALIDATE 死引用 |
+|---|---|---|---|---|
+| **全部过滤开启（真值）** | **4** | **1** | **5** | **1** |
+| 关掉「扩展对象」过滤 | 6 | 1 | 5 | 1 |
+| 关掉「生成式模板」过滤 | 4 | 1 | **119** | 1 |
+| 关掉「自动命名」过滤 | 4 | 1 | **138** | 1 |
+| 不摘除 `VALIDATE` 再解析 | 4 | 1 | 5 | **0（被掩盖）** |
+
+> 报告类工具的失败模式与门禁相反：**门禁怕漏报，报告怕误报**。这四道过滤若不生效，
+> 这份报告第一眼就会给出 6/347/119/138 的噪声 ⇒ 没人会再看它。故四道都做了开关对照自证。
+
+**只读实测结论**（详表见 runbook §3）：孤儿表 **4** 张（`device_lists_outbound_pokes`、
+`room_state_events`、`leak_alerts`、`push_devices`，**均 0 行**）、孤儿索引 **1** 条
+（`idx_schema_migrations_version` —— 由 `init-db.sql`/`db_migrate.sh`/Rust 引导代码
+**三处**分别创建，基线里没有）、未应用约束 **1** 条（`pk_schema_migrations` 命名漂移：
+基线叫这个名字、库里是 `schema_migrations_pkey`）、基线内陈旧引用 **1** 条
+（`VALIDATE CONSTRAINT fk_cross_signing_keys_user`，而基线创建的是 `..._user_id`
+⇒ 该守卫分支**永不触发**；实测库里该外键 `convalidated=true`，故**无实际影响**，
+但名字应对齐）。
 
 ---
 
