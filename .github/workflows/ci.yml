@@ -1042,14 +1042,22 @@ jobs:
           toolchain: 1.93.0
 
       - name: Install cargo-deny
-        run: cargo install cargo-deny --locked
+        # 钉住版本：deny.toml 的 schema（version = 2）与 supply_chain_gate.sh 的
+        # flag 探测（--hide-inclusion-graph / --hide-spans / --show-stats / --format）
+        # 都按特定 cargo-deny 版本校准；未钉版本时上游一次大版本升级就可能让
+        # `cargo deny check` 的行为漂移成静默放行。与 cargo-geiger 的钉版策略一致。
+        run: cargo install cargo-deny --version '^0.19' --locked
 
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+        # 钉住版本：`.cargo/audit.toml` 是 cargo-audit 的配置单一真相源，0.22 起从该
+        # 路径读取；未钉版本时上游可能改变配置解析或 JSON schema，让门禁失真。
+        run: cargo install cargo-audit --version '^0.22' --locked
 
-      # Run the unified supply-chain gate. This is the same script that
-      # `repo-sanity` invokes for fast PR feedback; the next step then enforces the
-      # RUSTSEC-2026-0097 watch-out as a ratchet on `rand::rng()` (no *new* usages).
+      # Run the unified supply-chain gate. This is the ONLY real invocation:
+      # `repo-sanity` deliberately does NOT call it (that job installs no Rust
+      # toolchain and neither tool, so the gate would just exit 2 there — see
+      # that job's note). The next step then enforces the RUSTSEC-2026-0097
+      # watch-out as a ratchet on `rand::rng()` (no *new* usages).
       - name: Supply-chain gate (cargo-deny + cargo-audit)
         run: bash scripts/ci/supply_chain_gate.sh
 
