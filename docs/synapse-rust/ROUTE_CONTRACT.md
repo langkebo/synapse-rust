@@ -9,10 +9,10 @@
 ## 总览
 
 - 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1032**
-- 含路由注册的模块文件：**65**
-- `derived_routes.rs` 中的 `registered_by` 标签：**73**
+- 含路由注册的模块文件：**66**
+- `derived_routes.rs` 中的 `registered_by` 标签：**74**
 - 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
-- 已被派生表覆盖的模块：**65**
+- 已被派生表覆盖的模块：**66**
 
 > **路径为何是绝对的**：本清单由 `extract_registered.py` 从真实 router 构造解析得到，
 > 已递归应用 `.nest("/prefix", ..)` 的前缀。
@@ -1203,11 +1203,10 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_matrix/federation/v2/send_join/{room_id}/{event_id}`
 - `PUT` `/_matrix/federation/v2/send_leave/{room_id}/{event_id}`
 
-### 装配 (Assembly) （110 条）
+### 装配 (Assembly) （104 条）
 
-#### `assembly.rs` — 110 条 ✅派生表
+#### `assembly.rs` — 104 条 ✅派生表
 
-- `DELETE` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device`
 - `DELETE` `/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}`
 - `DELETE` `/_matrix/client/v3/directory/room/{room_alias}`
 - `DELETE` `/_matrix/client/v3/directory/room/{room_id}/alias/{room_alias}`
@@ -1218,9 +1217,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/.well-known/matrix/support`
 - `GET` `/_health`
 - `GET` `/_matrix/client/unstable/org.matrix.msc2965/auth_metadata`
-- `GET` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device`
-- `GET` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/status`
-- `GET` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events`
 - `GET` `/_matrix/client/unstable/org.matrix.msc4143/rtc/transports`
 - `GET` `/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}`
 - `GET` `/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}`
@@ -1264,7 +1260,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/vendor/v1/rooms/{room_id}/invite_blocklist`
 - `GET` `/health`
 - `POST` `/_matrix/client/unstable/org.matrix.msc3720/account_status`
-- `POST` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events`
 - `POST` `/_matrix/client/v1/account/3pid`
 - `POST` `/_matrix/client/v1/account/3pid/add`
 - `POST` `/_matrix/client/v1/account/3pid/bind`
@@ -1303,7 +1298,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_matrix/vendor/v1/rooms/{room_id}/invite_blocklist`
 - `POST` `/_matrix/vendor/v1/search_recipients`
 - `POST` `/_matrix/vendor/v1/search_rooms`
-- `PUT` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device`
 - `PUT` `/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}`
 - `PUT` `/_matrix/client/v1/profile/{user_id}/avatar_url`
 - `PUT` `/_matrix/client/v1/profile/{user_id}/displayname`
@@ -1318,7 +1312,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_matrix/client/v3/rooms/{room_id}/send/m.call.hangup/{txn_id}`
 - `PUT` `/_matrix/client/v3/rooms/{room_id}/send/m.call.invite/{txn_id}`
 
-### 设备 (Device) （6 条）
+### 设备 (Device) （12 条）
 
 #### `device.rs` — 6 条 ✅派生表
 
@@ -1328,6 +1322,15 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_matrix/client/v3/delete_devices`
 - `POST` `/_matrix/client/v3/keys/device_list_updates`
 - `PUT` `/_matrix/client/v3/devices/{device_id}`
+
+#### `handlers/dehydrated_device.rs` — 6 条 ✅派生表
+
+- `DELETE` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device`
+- `GET` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device`
+- `GET` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/status`
+- `GET` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events`
+- `POST` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events`
+- `PUT` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device`
 
 ### 访客 (Guest) （3 条）
 

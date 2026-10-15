@@ -95,6 +95,8 @@ federation/membership/mod.rs::create_router     federation
 handlers/search/mod.rs::create_room_context_router   search
 handlers/search/mod.rs::create_search_router    search
 handlers/thread.rs::create_thread_routes        thread
+# MSC3814 dehydrated device 族：独立 sub-router，ledger 模块名比文件路径短
+handlers/dehydrated_device.rs::create_dehydrated_device_router    dehydrated_device
 
 # --- 一个文件注册两个 ledger 名字 ---------------------------------------------
 worker.rs::create_worker_body_router            worker_body

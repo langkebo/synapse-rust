@@ -107,7 +107,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         let e = RouteEntry::new(
             axum::http::Method::DELETE,
             "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device",
-            "assembly::create_router",
+            "dehydrated_device",
         );
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
@@ -115,7 +115,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         let e = RouteEntry::new(
             axum::http::Method::GET,
             "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device",
-            "assembly::create_router",
+            "dehydrated_device",
         );
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
@@ -123,7 +123,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         let e = RouteEntry::new(
             axum::http::Method::PUT,
             "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device",
-            "assembly::create_router",
+            "dehydrated_device",
         );
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
@@ -131,7 +131,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         let e = RouteEntry::new(
             axum::http::Method::GET,
             "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/status",
-            "assembly::create_router",
+            "dehydrated_device",
         );
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
@@ -139,7 +139,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         let e = RouteEntry::new(
             axum::http::Method::GET,
             "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events",
-            "assembly::create_router",
+            "dehydrated_device",
         );
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
@@ -147,7 +147,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         let e = RouteEntry::new(
             axum::http::Method::POST,
             "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events",
-            "assembly::create_router",
+            "dehydrated_device",
         );
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }

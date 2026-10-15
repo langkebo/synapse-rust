@@ -6,13 +6,45 @@
 
 use crate::routes::context::RoomContext;
 use crate::routes::ApiError;
+use crate::routes::AppState;
 use crate::routes::AuthenticatedUser;
 use axum::{
     extract::{Path, Query, State},
-    Json,
+    routing::get,
+    Json, Router,
 };
 use serde_json::json;
 use synapse_common::types::DeviceId;
+
+/// MSC3814 — dehydrated device route family.
+///
+/// Registered as a **dedicated sub-router** (not inlined into
+/// `assembly::create_router`) so the contract extractor assigns these routes
+/// their own `registered_by` key (`dehydrated_device`) instead of lumping them
+/// into the `assembly` bucket. That is what lets the ledger expose this family
+/// as an independently enumerable module to SDK codegen.
+///
+/// Paths are relative to `/_matrix/client/unstable/org.matrix.msc3814.v1`
+/// (the nest prefix in `assembly.rs`).
+///
+/// Named `create_dehydrated_device_router` rather than `create_router`: the
+/// contract extractor resolves router-builder calls by leaf name (module
+/// qualifiers are not disambiguating), so the name must be globally unique —
+/// matching the sibling convention (`create_search_router`,
+/// `create_thread_routes`, `create_vendor_router`).
+pub fn create_dehydrated_device_router() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/dehydrated_device",
+            get(get_dehydrated_device).put(put_dehydrated_device).delete(delete_dehydrated_device),
+        )
+        .route("/dehydrated_device/status", get(get_dehydrated_device_status))
+        .route(
+            "/dehydrated_device/{device_id}/events",
+            // POST = MSC3814/ruma 规范形态（body 游标）；GET = Synapse v1.157 兼容别名（query 游标）
+            get(get_dehydrated_device_events).post(post_dehydrated_device_events),
+        )
+}
 
 /// Return `true` when the user has at least one well-known SSSS account_data
 /// event present: `m.secret_storage.default_key` (which names the default

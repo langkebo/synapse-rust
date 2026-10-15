@@ -203,21 +203,13 @@ pub fn create_router(state: AppState) -> Router {
             "/_matrix/client/v1/auth_metadata",
             get(handlers::auth_discovery::get_auth_metadata),
         )
-        .route(
-            "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device",
-            get(handlers::dehydrated_device::get_dehydrated_device)
-                .put(handlers::dehydrated_device::put_dehydrated_device)
-                .delete(handlers::dehydrated_device::delete_dehydrated_device),
-        )
-        .route(
-            "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/status",
-            get(handlers::dehydrated_device::get_dehydrated_device_status),
-        )
-        .route(
-            "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events",
-            // POST = MSC3814/ruma 规范形态（body 游标）；GET = Synapse v1.157 兼容别名（query 游标）
-            get(handlers::dehydrated_device::get_dehydrated_device_events)
-                .post(handlers::dehydrated_device::post_dehydrated_device_events),
+        // MSC3814 — dehydrated device family. Nested (not inlined) so the
+        // contract extractor buckets these routes under their own
+        // `registered_by` key (`dehydrated_device`) rather than `assembly`,
+        // making the family independently enumerable by SDK codegen.
+        .nest(
+            "/_matrix/client/unstable/org.matrix.msc3814.v1",
+            handlers::dehydrated_device::create_dehydrated_device_router(),
         )
         .route(
             "/_matrix/client/unstable/org.matrix.msc4143/rtc/transports",
