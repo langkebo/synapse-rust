@@ -5599,15 +5599,6 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     #[cfg(feature = "external-services")]
     {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_synapse/external/trendradar/{service_id}/webhook",
-            "external_service",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    #[cfg(feature = "external-services")]
-    {
         let e =
             RouteEntry::new(axum::http::Method::POST, "/_synapse/external/webhook/{service_id}", "external_service");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });

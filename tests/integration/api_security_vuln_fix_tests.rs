@@ -3,7 +3,7 @@
 //! 对应文档：docs/路由安全漏洞修复清单-2026-08-06.md
 //!
 //! P0 — media r1 下载未授权访问（VULN-01 / VULN-02）
-//! P1 — webhook 端点认证顺序错误（VULN-03 / VULN-04 / VULN-05）
+//! P1 — webhook 端点认证顺序错误（VULN-03 / VULN-05）
 //!
 //! 这些测试断言修复后的行为：无凭证请求应返回 401 Unauthorized。
 //! 修复前会失败（media 返回 200，webhook 返回 422），修复后通过。
@@ -153,38 +153,6 @@ async fn vuln_02_media_r1_download_with_filename_without_auth_returns_401() {
 }
 
 // --------------------------------------------------------------------------- //
-// P1 — VULN-04: POST /_synapse/external/trendradar/{service_id}/webhook 认证顺序
-// --------------------------------------------------------------------------- //
-
-#[tokio::test]
-async fn vuln_04_trendradar_webhook_without_auth_returns_401() {
-    let Some(app) = setup_app().await else {
-        eprintln!("[skip] 测试数据库不可用，跳过 VULN-04");
-        return;
-    };
-
-    let request = Request::builder()
-        .method("POST")
-        .uri("/_synapse/external/trendradar/test_service_id/webhook")
-        .header("Content-Type", "application/json")
-        .body(Body::from(json!({}).to_string()))
-        .unwrap();
-
-    let request = super::with_local_connect_info(request);
-    let response = app.clone().oneshot(request).await.unwrap();
-    let status = response.status();
-    let body = read_json(response).await;
-
-    assert_eq!(
-        status,
-        StatusCode::UNAUTHORIZED,
-        "VULN-04: trendradar webhook 无认证头应返回 401，实际返回 {} | body: {}",
-        status,
-        body
-    );
-}
-
-// --------------------------------------------------------------------------- //
 // P1 — VULN-05: POST /_synapse/external/webhook/{service_id} 认证顺序
 // --------------------------------------------------------------------------- //
 
@@ -221,7 +189,7 @@ async fn vuln_05_generic_webhook_without_auth_returns_401() {
 // --------------------------------------------------------------------------- //
 
 #[tokio::test]
-async fn vuln_04_05_webhook_with_auth_not_blocked_by_401() {
+async fn vuln_05_webhook_with_auth_not_blocked_by_401() {
     let Some(app) = setup_app().await else {
         eprintln!("[skip] 测试数据库不可用，跳过 webhook 正向测试");
         return;

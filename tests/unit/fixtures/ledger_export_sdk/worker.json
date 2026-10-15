@@ -8791,15 +8791,6 @@
     },
     {
       "method": "POST",
-      "path": "/_synapse/external/trendradar/{service_id}/webhook",
-      "registered_by": "external_service",
-      "path_params": [
-        "service_id"
-      ],
-      "query_params": []
-    },
-    {
-      "method": "POST",
       "path": "/_synapse/external/webhook/{service_id}",
       "registered_by": "external_service",
       "path_params": [

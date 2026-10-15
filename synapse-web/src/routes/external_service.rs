@@ -102,7 +102,6 @@ fn external_service_integration(ctx: &AdminContext) -> Arc<ExternalServiceIntegr
 
 fn parse_service_type(s: &str) -> Result<ExternalServiceType, ApiError> {
     match s.to_lowercase().as_str() {
-        "trendradar" => Ok(ExternalServiceType::TrendRadar),
         "generic_webhook" | "webhook" => Ok(ExternalServiceType::GenericWebhook),
         "irc_bridge" | "irc" => Ok(ExternalServiceType::IrcBridge),
         "slack_bridge" | "slack" => Ok(ExternalServiceType::SlackBridge),
@@ -287,26 +286,6 @@ pub async fn update_external_service(
     Ok(Json(ExternalServiceResponse::from(service)))
 }
 
-/// See [`handle_trendradar_webhook`].
-pub async fn handle_trendradar_webhook(
-    State(ctx): State<AdminContext>,
-    Path(service_id): Path<String>,
-    headers: HeaderMap,
-    Json(payload): Json<TrendRadarPayload>,
-) -> Result<impl IntoResponse, ApiError> {
-    let integration = external_service_integration(&ctx);
-
-    let request_id = resolve_request_id(&headers);
-    integration
-        .handle_trendradar_webhook(&request_id, &service_id, payload, extract_webhook_auth(&headers, None))
-        .await?;
-
-    Ok(Json(serde_json::json!({
-        "status": "success",
-        "message": "TrendRadar webhook processed successfully"
-    })))
-}
-
 /// See [`handle_generic_webhook`].
 pub async fn handle_generic_webhook(
     State(ctx): State<AdminContext>,
@@ -429,9 +408,7 @@ pub fn create_external_service_router(state: AppState) -> Router<AppState> {
             put(client_update_external_service).delete(client_delete_external_service),
         );
 
-    let public_routes = Router::new()
-        .route("/_synapse/external/trendradar/{service_id}/webhook", post(handle_trendradar_webhook))
-        .route("/_synapse/external/webhook/{service_id}", post(handle_generic_webhook));
+    let public_routes = Router::new().route("/_synapse/external/webhook/{service_id}", post(handle_generic_webhook));
 
     // VULN-03/04/05: require at least one auth credential header before body
     // deserialization. Without this, `Json<Payload>` returns 422 (leaking the
@@ -447,7 +424,6 @@ mod tests {
 
     #[test]
     fn test_parse_service_type() {
-        assert!(matches!(parse_service_type("trendradar"), Ok(ExternalServiceType::TrendRadar)));
         assert!(matches!(parse_service_type("webhook"), Ok(ExternalServiceType::GenericWebhook)));
         assert!(matches!(parse_service_type("irc"), Ok(ExternalServiceType::IrcBridge)));
         assert!(parse_service_type("unknown").is_err());
@@ -456,7 +432,7 @@ mod tests {
     #[test]
     fn test_register_external_service_body_deserialization() {
         let json = r#"{
-            "service_type": "trendradar",
+            "service_type": "generic_webhook",
             "service_id": "news-bot",
             "display_name": "News Bot",
             "webhook_url": "https://example.com/webhook",
@@ -464,7 +440,7 @@ mod tests {
         }"#;
 
         let body: RegisterExternalServiceBody = serde_json::from_str(json).unwrap();
-        assert_eq!(body.service_type, "trendradar");
+        assert_eq!(body.service_type, "generic_webhook");
         assert_eq!(body.service_id, "news-bot");
         assert!(body.webhook_url.is_some());
         assert!(body.display_name == "News Bot");
@@ -488,8 +464,9 @@ mod tests {
     #[test]
     fn test_list_services_query_deserialization() {
         // With service_type filter
-        let query_with_filter: ListServicesQuery = serde_json::from_str(r#"{"service_type": "trendradar"}"#).unwrap();
-        assert_eq!(query_with_filter.service_type, Some("trendradar".into()));
+        let query_with_filter: ListServicesQuery =
+            serde_json::from_str(r#"{"service_type": "generic_webhook"}"#).unwrap();
+        assert_eq!(query_with_filter.service_type, Some("generic_webhook".into()));
 
         // Without service_type filter (default)
         let query_no_filter: ListServicesQuery = serde_json::from_str("{}").unwrap();
@@ -504,24 +481,24 @@ mod tests {
         // the rest are inert fixtures.
         let app_service = synapse_services::application_service::ApplicationService {
             id: 1,
-            as_id: "trendradar_news-bot".into(),
-            url: Some("https://trendradar.example.com".into()),
+            as_id: "generic_webhook_news-bot".into(),
+            url: Some("https://webhook.example.com".into()),
             as_token: "as-secret".into(),
             hs_token: "hs-secret".into(),
-            sender_localpart: "trendradar".into(),
+            sender_localpart: "webhook".into(),
             is_enabled: true,
             is_rate_limited: false,
             protocols: Vec::new(),
             namespaces: serde_json::json!({}),
             created_ts: 1234567890,
             updated_ts: None,
-            description: Some("TrendRadar news bot".into()),
+            description: Some("Generic webhook bot".into()),
             api_key: Some("api-key".into()),
             config: serde_json::json!({}),
         };
 
         let response: ExternalServiceResponse = app_service.into();
-        assert_eq!(response.service_type, "trendradar");
+        assert_eq!(response.service_type, "generic_webhook");
         assert_eq!(response.service_id, "news-bot");
         assert!(response.is_enabled);
     }

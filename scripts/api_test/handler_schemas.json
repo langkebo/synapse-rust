@@ -748,12 +748,6 @@
         "put"
       ]
     ],
-    "handle_trendradar_webhook": [
-      [
-        "/_synapse/external/trendradar/{service_id}/webhook",
-        "post"
-      ]
-    ],
     "handle_generic_webhook": [
       [
         "/_synapse/external/webhook/{service_id}",
@@ -1644,7 +1638,6 @@
     "block_user": "BlockUserBody",
     "register_external_service": "RegisterExternalServiceBody",
     "update_external_service": "UpdateExternalServiceBody",
-    "handle_trendradar_webhook": "TrendRadarPayload",
     "handle_generic_webhook": "WebhookPayload",
     "client_update_external_service": "UpdateExternalServiceBody",
     "create_feature_flag": "CreateFeatureFlagRequest",

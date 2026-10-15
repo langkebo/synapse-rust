@@ -19,8 +19,8 @@ pub use crate::background_update_service::*;
 pub use crate::e2ee_audit::*;
 #[cfg(feature = "external-services")]
 pub use crate::external_service_integration::{
-    ExternalServiceConfig, ExternalServiceIntegration, ExternalServiceType, ServiceHealthStatus, TrendRadarConfig,
-    TrendRadarPayload, WebhookAuthInput, WebhookPayload,
+    ExternalServiceConfig, ExternalServiceIntegration, ExternalServiceType, ServiceHealthStatus, WebhookAuthInput,
+    WebhookPayload,
 };
 pub use crate::telemetry_service::*;
 pub use crate::translation_service::*;

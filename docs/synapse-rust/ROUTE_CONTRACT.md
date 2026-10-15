@@ -325,9 +325,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_matrix/client/v1/presence/{user_id}/status`
 - `PUT` `/_matrix/client/v3/presence/{user_id}/status`
 
-### 外部服务 （12 条）
+### 外部服务 （11 条）
 
-#### `external_service.rs` — 12 条 ✅派生表
+#### `external_service.rs` — 11 条 ✅派生表
 
 - `DELETE` `/_matrix/vendor/v1/external_services/{service_id}`
 - `DELETE` `/_synapse/admin/v1/external_services/{as_id}`
@@ -337,7 +337,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_synapse/admin/v1/external_services/{as_id}/health`
 - `POST` `/_synapse/admin/v1/external_services`
 - `POST` `/_synapse/admin/v1/external_services/{as_id}/health/check`
-- `POST` `/_synapse/external/trendradar/{service_id}/webhook`
 - `POST` `/_synapse/external/webhook/{service_id}`
 - `PUT` `/_matrix/vendor/v1/external_services/{service_id}`
 - `PUT` `/_synapse/admin/v1/external_services/{as_id}`

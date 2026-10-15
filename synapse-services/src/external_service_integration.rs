@@ -32,8 +32,6 @@ pub struct ExternalServiceConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ExternalServiceType {
-    /// The `TrendRadar` variant.
-    TrendRadar,
     /// The `GenericWebhook` variant.
     GenericWebhook,
     /// The `IrcBridge` variant.
@@ -49,7 +47,6 @@ pub enum ExternalServiceType {
 impl std::fmt::Display for ExternalServiceType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ExternalServiceType::TrendRadar => write!(f, "trendradar"),
             ExternalServiceType::GenericWebhook => write!(f, "generic_webhook"),
             ExternalServiceType::IrcBridge => write!(f, "irc_bridge"),
             ExternalServiceType::SlackBridge => write!(f, "slack_bridge"),
@@ -57,55 +54,6 @@ impl std::fmt::Display for ExternalServiceType {
             ExternalServiceType::Custom => write!(f, "custom"),
         }
     }
-}
-
-/// The `TrendRadarConfig` struct.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrendRadarConfig {
-    /// The `topic` field.
-    pub topic: String,
-    /// The `server_url` field.
-    pub server_url: Option<String>,
-    /// The `include_rss` field.
-    pub include_rss: bool,
-    /// The `include_hotlist` field.
-    pub include_hotlist: bool,
-    /// The `keywords` field.
-    pub keywords: Vec<String>,
-    /// The `max_items` field.
-    pub max_items: usize,
-}
-
-impl Default for TrendRadarConfig {
-    fn default() -> Self {
-        Self {
-            topic: "matrix-news".to_string(),
-            server_url: None,
-            include_rss: true,
-            include_hotlist: true,
-            keywords: vec![],
-            max_items: 20,
-        }
-    }
-}
-
-/// The `TrendRadarPayload` struct.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrendRadarPayload {
-    /// The `title` field.
-    pub title: String,
-    /// The `content` field.
-    pub content: String,
-    /// The `source` field.
-    pub source: String,
-    /// The `timestamp` field.
-    pub timestamp: i64,
-    /// The `url` field.
-    pub url: Option<String>,
-    /// The `keywords` field.
-    pub keywords: Vec<String>,
-    /// The `metadata` field.
-    pub metadata: Option<serde_json::Value>,
 }
 
 /// The `WebhookPayload` struct.
@@ -316,19 +264,6 @@ impl ExternalServiceIntegration {
         let alias_prefix = format!("#{}_{{}}:{}", config.service_id, self.server_name);
 
         match config.service_type {
-            ExternalServiceType::TrendRadar => {
-                serde_json::json!({
-                    "users": [{
-                        "exclusive": true,
-                        "regex": format!(r"@trendradar_.*:{}", self.server_name)
-                    }],
-                    "aliases": [{
-                        "exclusive": true,
-                        "regex": format!(r"#trendradar_.*:{}", self.server_name)
-                    }],
-                    "rooms": []
-                })
-            }
             ExternalServiceType::IrcBridge => {
                 serde_json::json!({
                     "users": [{
@@ -356,77 +291,6 @@ impl ExternalServiceIntegration {
                 })
             }
         }
-    }
-
-    /// See [`handle_trendradar_webhook`].
-    #[instrument(skip(self, payload), fields(request_id = %request_id))]
-    pub async fn handle_trendradar_webhook(
-        &self,
-        request_id: &str,
-        service_id: &str,
-        payload: TrendRadarPayload,
-        auth: WebhookAuthInput,
-    ) -> Result<(), ApiError> {
-        info!(
-            %request_id,
-            service_id = %service_id,
-            title_present = !payload.title.is_empty(),
-            keyword_count = payload.keywords.len(),
-            "Handling TrendRadar webhook"
-        );
-
-        let as_id = format!("trendradar_{}", service_id);
-        let service = self
-            .storage
-            .get_by_id(&as_id)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to get service", e))?
-            .ok_or_else(|| ApiError::not_found("Service not found"))?;
-
-        let signed_payload = serde_json::to_value(&payload)
-            .map_err(|e| ApiError::internal_with_cause("Failed to serialize webhook payload", e))?;
-        self.verify_webhook_auth(&service, &auth, &signed_payload)?;
-
-        let event_content = serde_json::json!({
-            "msgtype": "m.text",
-            "body": format!("**{}**\n\n{}\n\n来源: {} | 关键词: {}",
-                payload.title,
-                payload.content,
-                payload.source,
-                payload.keywords.join(", ")
-            ),
-            "format": "org.matrix.custom.html",
-            "formatted_body": format!(
-                "<h3>{}</h3><p>{}</p><p><small>来源: {} | 关键词: {}</small></p>",
-                payload.title,
-                payload.content,
-                payload.source,
-                payload.keywords.join(", ")
-            ),
-            "external_url": payload.url,
-            "source": payload.source,
-            "keywords": payload.keywords,
-        });
-
-        let event_id = format!("${}:{}", uuid::Uuid::new_v4(), self.server_name);
-        let room_id = format!("!trendradar_{}:{}", service_id, self.server_name);
-
-        self.storage
-            .add_event(
-                &event_id,
-                &as_id,
-                &room_id,
-                "m.room.message",
-                &format!("@trendradar_{}:{}", service_id, self.server_name),
-                event_content,
-                None,
-            )
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to add event", e))?;
-
-        self.update_health_status(&as_id, true, None).await;
-
-        Ok(())
     }
 
     /// See [`handle_generic_webhook`].
@@ -652,34 +516,7 @@ mod tests {
 
     #[test]
     fn test_external_service_type_display() {
-        assert_eq!(ExternalServiceType::TrendRadar.to_string(), "trendradar");
         assert_eq!(ExternalServiceType::GenericWebhook.to_string(), "generic_webhook");
-    }
-
-    #[test]
-    fn test_trendradar_config_default() {
-        let config = TrendRadarConfig::default();
-        assert_eq!(config.topic, "matrix-news");
-        assert!(config.include_rss);
-        assert!(config.include_hotlist);
-        assert_eq!(config.max_items, 20);
-    }
-
-    #[test]
-    fn test_trendradar_payload_serialization() {
-        let payload = TrendRadarPayload {
-            title: "Test News".to_string(),
-            content: "Test content".to_string(),
-            source: "test".to_string(),
-            timestamp: 1234567890,
-            url: Some("https://example.com".to_string()),
-            keywords: vec!["test".to_string()],
-            metadata: None,
-        };
-
-        let json = serde_json::to_string(&payload).unwrap();
-        let deserialized: TrendRadarPayload = serde_json::from_str(&json).unwrap();
-        assert_eq!(payload.title, deserialized.title);
     }
 
     #[test]
@@ -752,7 +589,7 @@ mod tests {
     fn test_service_health_status() {
         let status = ServiceHealthStatus {
             service_id: "test".to_string(),
-            service_type: ExternalServiceType::TrendRadar,
+            service_type: ExternalServiceType::GenericWebhook,
             is_healthy: true,
             last_check_ts: 1234567890,
             last_success_ts: Some(1234567890),
