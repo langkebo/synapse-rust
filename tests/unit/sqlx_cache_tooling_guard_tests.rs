@@ -77,6 +77,15 @@ impl Sandbox {
         let root = std::env::temp_dir().join(format!("sqlx_tool_{tag}_{}_{unique}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("scripts/ci")).expect("create scripts dir");
+        // 被点名的脚本会 `source ../lib/db_credentials.sh` 取数据库口令的**单一来源**
+        // （2026-10-15 起，见 `scripts/lib/db_credentials.sh`）。沙箱只按名单拷贝脚本，
+        // 所以这份被 source 的依赖必须一并带上 —— 否则脚本在沙箱里第一行就退出，
+        // 测试看到的是 `No such file or directory` 而不是它本该验证的那条栏杆。
+        // 无条件拷贝（而不是只给需要的用例）：沙箱是为了复现"脚本真实所处的环境"，
+        // 少带依赖只会把未来的接线变成又一个难查的假红。
+        fs::create_dir_all(root.join("scripts/lib")).expect("create scripts/lib dir");
+        fs::copy(repo_root().join("scripts/lib/db_credentials.sh"), root.join("scripts/lib/db_credentials.sh"))
+            .expect("copy scripts/lib/db_credentials.sh");
         let bin = root.join("bin");
         fs::create_dir_all(&bin).expect("create bin dir");
         fs::create_dir_all(root.join("state")).expect("create state dir");

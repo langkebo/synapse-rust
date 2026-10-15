@@ -1008,6 +1008,13 @@ fn every_db_test_binary_registers_the_exit_drain() {
         // `unsafe impl` / `unsafe trait` / `unsafe extern`), so match that shape
         // and only that. This still catches every genuine occurrence — including
         // the two `#[cfg(test)]` `set_var`/`remove_var` blocks this guard pins.
+        //
+        // ⚠️ 边界用 `(^|[^[:alnum:]_])` / `([^[:alnum:]_]|$)` 而**不是** `\b`：`\b` 是
+        // GNU/BSD grep 的**扩展**，而本机 CLI 会把 `grep` 换成 toybox 0.8.13，它对 `\b`
+        // **静默返回空**（实测：`printf 'unsafe {\n' | toybox-grep -nE '\bunsafe'` 得到 0 行，
+        // 去掉 `\b` 得到 1 行）⇒ 这条守卫在那种环境下**假红**，还会把整轮单测带停。
+        // 语义等价：`fn\b` ⇔ `fn([^[:alnum:]_]|$)`；`\bunsafe` ⇔ `(^|[^[:alnum:]_])unsafe`。
+        // 别"顺手改回 `\b`"——它只在本机工具链下坏，CI（GNU grep）看不出来。
         let dir = if std::path::Path::new(pathspec).is_file() {
             std::path::Path::new(pathspec).parent().map_or(pathspec, |p| p.to_str().unwrap())
         } else {
@@ -1021,7 +1028,7 @@ fn every_db_test_binary_registers_the_exit_drain() {
         let out = std::process::Command::new("bash")
             .arg("-c")
             .arg(format!(
-                "grep -rnE '\\bunsafe[[:space:]]*(\\{{|fn\\b|impl\\b|trait\\b|extern\\b)' {dir} 2>/dev/null | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|///|//!)' || true"
+                "grep -rnE '(^|[^[:alnum:]_])unsafe[[:space:]]*(\\{{|fn|impl|trait|extern)([^[:alnum:]_]|$)' {dir} 2>/dev/null | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|///|//!)' || true"
             ))
             .current_dir(&root)
             .output()
