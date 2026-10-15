@@ -192,10 +192,12 @@ impl DatabaseInitService {
 
         match result {
             Ok(Some(last_init_ts)) => {
-                let now = chrono::Utc::now().timestamp();
-                let elapsed = now - last_init_ts;
+                // 毫秒口径（规范 §2.2）：`value` 与 `created_ts`/`updated_ts` 同一时刻写入，
+                // 单位必须一致；TTL 配置以秒为单位，比较前换算为毫秒。
+                let now_ms = chrono::Utc::now().timestamp_millis();
+                let elapsed_ms = now_ms - last_init_ts;
 
-                if elapsed > 0 && elapsed < self.cache_ttl_seconds {
+                if elapsed_ms > 0 && elapsed_ms < self.cache_ttl_seconds.saturating_mul(1000) {
                     return Ok(true);
                 }
             }
@@ -211,10 +213,12 @@ impl DatabaseInitService {
     }
 
     async fn update_init_timestamp(&self) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp();
+        // 毫秒口径（规范 §2.2）：`created_ts`/`updated_ts` 列一律毫秒时间戳，
+        // `value`（last_init_ts）与列保持同一单位，供 `check_cache_valid` 换算比较。
+        let now_ms = chrono::Utc::now().timestamp_millis();
         // `value` 是 TEXT 而 `created_ts`/`updated_ts` 是 BIGINT ⇒ 先在调用点算好
         // 字符串，避免把临时值直接塞进宏实参。
-        let now_text = now.to_string();
+        let now_text = now_ms.to_string();
 
         sqlx::query!(
             r"
@@ -225,7 +229,7 @@ impl DatabaseInitService {
                 updated_ts = EXCLUDED.updated_ts
             ",
             now_text,
-            now,
+            now_ms,
         )
         .execute(&*self.pool)
         .await?;
@@ -759,8 +763,9 @@ mod tests {
         test_utils::prepare_isolated_test_pool().await.expect("isolated baseline test pool must be available")
     }
 
-    /// 缓存三态：空表未命中 → 写入时间戳后命中（`check_cache_valid` 要求 `elapsed > 0`，
-    /// 故必须跨过一个整秒，否则同秒内读回是 `elapsed == 0` ⇒ 判定未命中，用例会假红）。
+    /// 缓存三态：空表未命中 → 写入时间戳后命中（`check_cache_valid` 要求 `elapsed_ms > 0`，
+    /// 时间戳为毫秒口径，sleep 数毫秒即可保证读回时 `elapsed_ms > 0`，否则同毫秒内读回
+    /// 是 `elapsed_ms == 0` ⇒ 判定未命中，用例会假红）。
     #[tokio::test]
     async fn cache_misses_then_hits_after_timestamp_write() {
         let pool = baseline_pool().await;
@@ -769,7 +774,7 @@ mod tests {
         assert!(!init.check_cache_valid().await.expect("check_cache_valid on an empty table"), "空表必须判为无缓存");
 
         init.update_init_timestamp().await.expect("update_init_timestamp must upsert db_metadata");
-        tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
         assert!(init.check_cache_valid().await.expect("check_cache_valid after write"), "刚写入的时间戳必须命中");
     }

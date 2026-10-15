@@ -573,7 +573,7 @@ async fn bench_friend_list_100_limit_50() {
         .map(|i| {
             serde_json::json!({
                 "user_id": format!("@friend{}_{suffix}:example.com", i),
-                "since": chrono::Utc::now().timestamp(),
+                "since": current_timestamp_millis(),
                 "status": "normal",
                 "added_at": current_timestamp_millis(),
                 "dm_room_id": null,
@@ -712,7 +712,7 @@ async fn bench_friend_list_1000_sharded() {
         let shard_char = shard_for_user_id(&friend_id);
         shards_map.entry(shard_char).or_default().push(serde_json::json!({
             "user_id": friend_id,
-            "since": chrono::Utc::now().timestamp(),
+            "since": current_timestamp_millis(),
             "status": "normal",
             "added_at": current_timestamp_millis(),
             "dm_room_id": null,
@@ -932,7 +932,7 @@ async fn bench_friend_list_cursor_pagination_1000() {
         let shard_char = shard_for_user_id(&friend_id);
         shards_map.entry(shard_char).or_default().push(serde_json::json!({
             "user_id": friend_id,
-            "since": chrono::Utc::now().timestamp(),
+            "since": current_timestamp_millis(),
             "status": "normal",
             "added_at": current_timestamp_millis(),
             "dm_room_id": null,

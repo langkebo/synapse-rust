@@ -1422,7 +1422,9 @@ impl FriendRoomService {
             if !exists {
                 friends_array.push(json!({
                     "user_id": friend_id,
-                    "since": chrono::Utc::now().timestamp(),
+                    // 毫秒口径（规范 §2.2）：与同对象 added_at/dm_room_updated_ts 一律毫秒，
+                    // 历史上此处为秒（timestamp()），已统一。
+                    "since": current_timestamp_millis(),
                     "status": "normal",
                     "added_at": current_timestamp_millis(),
                     "dm_room_id": dm_room_id,

@@ -178,80 +178,81 @@ impl RefreshTokenService {
             }
         }
 
-        let revoked = self
-            .storage
-            .revoke_token_cas(&old_token_hash, "Rotated")
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to revoke old token", e))?;
-
-        if !revoked {
-            // CAS failed — token was already revoked. Distinguish between:
-            //   1. Concurrent retry (revoked_reason == "Rotated"): a legitimate
-            //      parallel refresh or network retry. Do NOT nuke the family.
-            //   2. Actual replay attack (revoked_reason is null or different):
-            //      revoke the entire family as before.
-            let current_token = self
-                .storage
-                .get_token(&old_token_hash)
-                .await
-                .map_err(|e| ApiError::internal_with_cause("Failed to re-read token after CAS miss", e))?;
-
-            if let Some(ref t) = current_token {
-                if t.revoked_reason.as_deref() == Some("Rotated") {
-                    // Benign race: another refresh already rotated this token.
-                    warn!(
-                        user_id = %old_token.user_id,
-                        family_id = %family_id,
-                        device_id = ?old_token.device_id,
-                        "Token already rotated by a concurrent refresh; returning benign error"
-                    );
-                    return Err(ApiError::unauthorized(
-                        "Refresh token has already been used. Please use the new token.",
-                    ));
-                }
-            }
-
-            // Genuine replay or unknown state — revoke the family.
-            warn!(
-                user_id = %old_token.user_id,
-                family_id = %family_id,
-                device_id = ?old_token.device_id,
-                "Token reuse detected (CAS miss with non-Rotated reason); revoking family"
-            );
-
-            self.storage
-                .mark_family_compromised(&family_id)
-                .await
-                .map_err(|e| ApiError::internal_with_cause("Failed to mark family compromised", e))?;
-
-            self.storage
-                .revoke_all_user_tokens(&old_token.user_id, "Token rotation race condition")
-                .await
-                .map_err(|e| ApiError::internal_with_cause("Failed to revoke tokens", e))?;
-
-            return Err(ApiError::unauthorized("Token reuse detected. All tokens revoked."));
-        }
-
+        // CONC-02: revoke-old / insert-new / record-rotation happen in one
+        // transaction. A `None` result means the CAS lost (the old token was
+        // already revoked) and nothing was written.
         let new_token_record = self
             .storage
-            .create_token(CreateRefreshTokenRequest {
-                token_hash: new_token_hash.clone(),
-                user_id: old_token.user_id.clone(),
-                device_id: old_token.device_id.clone(),
-                access_token_id: Some(new_access_token_id.to_string()),
-                scope: old_token.scope.clone(),
-                expires_at: current_timestamp_millis() + self.default_expiry_ms,
-                client_info: old_token.client_info.clone(),
-                ip_address: ip_address.map(|s| s.to_string()),
-                user_agent: user_agent.map(|s| s.to_string()),
-            })
+            .rotate_token_atomic(
+                &old_token_hash,
+                "Rotated",
+                CreateRefreshTokenRequest {
+                    token_hash: new_token_hash,
+                    user_id: old_token.user_id.clone(),
+                    device_id: old_token.device_id.clone(),
+                    access_token_id: Some(new_access_token_id.to_string()),
+                    scope: old_token.scope.clone(),
+                    expires_at: current_timestamp_millis() + self.default_expiry_ms,
+                    client_info: old_token.client_info.clone(),
+                    ip_address: ip_address.map(|s| s.to_string()),
+                    user_agent: user_agent.map(|s| s.to_string()),
+                },
+                &family_id,
+                "refresh",
+            )
             .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to create new token", e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to rotate refresh token", e))?;
 
-        self.storage
-            .record_rotation(&family_id, Some(&old_token_hash), &new_token_hash, "refresh")
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to record rotation", e))?;
+        let new_token_record = match new_token_record {
+            Some(record) => record,
+            None => {
+                // CAS failed — token was already revoked. Distinguish between:
+                //   1. Concurrent retry (revoked_reason == "Rotated"): a legitimate
+                //      parallel refresh or network retry. Do NOT nuke the family.
+                //   2. Actual replay attack (revoked_reason is null or different):
+                //      revoke the entire family as before.
+                let current_token = self
+                    .storage
+                    .get_token(&old_token_hash)
+                    .await
+                    .map_err(|e| ApiError::internal_with_cause("Failed to re-read token after CAS miss", e))?;
+
+                if let Some(ref t) = current_token {
+                    if t.revoked_reason.as_deref() == Some("Rotated") {
+                        // Benign race: another refresh already rotated this token.
+                        warn!(
+                            user_id = %old_token.user_id,
+                            family_id = %family_id,
+                            device_id = ?old_token.device_id,
+                            "Token already rotated by a concurrent refresh; returning benign error"
+                        );
+                        return Err(ApiError::unauthorized(
+                            "Refresh token has already been used. Please use the new token.",
+                        ));
+                    }
+                }
+
+                // Genuine replay or unknown state — revoke the family.
+                warn!(
+                    user_id = %old_token.user_id,
+                    family_id = %family_id,
+                    device_id = ?old_token.device_id,
+                    "Token reuse detected (CAS miss with non-Rotated reason); revoking family"
+                );
+
+                self.storage
+                    .mark_family_compromised(&family_id)
+                    .await
+                    .map_err(|e| ApiError::internal_with_cause("Failed to mark family compromised", e))?;
+
+                self.storage
+                    .revoke_all_user_tokens(&old_token.user_id, "Token rotation race condition")
+                    .await
+                    .map_err(|e| ApiError::internal_with_cause("Failed to revoke tokens", e))?;
+
+                return Err(ApiError::unauthorized("Token reuse detected. All tokens revoked."));
+            }
+        };
 
         let usage_request = RecordUsageRequest::new(old_token.id, &old_token.user_id, new_access_token_id, true);
 

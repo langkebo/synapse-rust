@@ -200,6 +200,36 @@ impl RefreshTokenStoreApi for InMemoryRefreshTokenStore {
         Ok(())
     }
 
+    async fn rotate_token_atomic(
+        &self,
+        old_token_hash: &str,
+        revoke_reason: &str,
+        new_token: CreateRefreshTokenRequest,
+        _family_id: &str,
+        _rotation_reason: &str,
+    ) -> Result<Option<RefreshToken>, sqlx::Error> {
+        // CAS: revoke the old token only if it is still active. Mirror the
+        // SQL path's `WHERE token_hash = $1 AND is_revoked = FALSE`.
+        let old_id = match self.token_hash_index.read().await.get(old_token_hash).copied() {
+            Some(id) => id,
+            None => return Ok(None),
+        };
+        {
+            let mut tokens = self.tokens.write().await;
+            match tokens.get_mut(&old_id) {
+                Some(token) if !token.is_revoked => {
+                    token.is_revoked = true;
+                    token.revoked_reason = Some(revoke_reason.to_string());
+                }
+                // Already revoked (or vanished) → CAS miss.
+                _ => return Ok(None),
+            }
+        }
+        // Insert the new token (mirrors `insert_refresh_token`).
+        let token = RefreshTokenStoreApi::create_token(self, new_token).await?;
+        Ok(Some(token))
+    }
+
     async fn get_rotations(&self, _family_id: &str) -> Result<Vec<RefreshTokenRotation>, sqlx::Error> {
         Ok(Vec::new())
     }

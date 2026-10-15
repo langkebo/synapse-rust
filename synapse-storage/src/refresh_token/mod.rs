@@ -291,6 +291,19 @@ pub trait RefreshTokenStoreApi: Send + Sync {
         new_token_hash: &str,
         reason: &str,
     ) -> Result<(), sqlx::Error>;
+    /// See [`rotate_token_atomic`].
+    ///
+    /// Atomic rotation: CAS-revoke the old token, insert the new token, and
+    /// record the rotation in one transaction. Returns `Ok(None)` when the old
+    /// token was already revoked (CAS miss).
+    async fn rotate_token_atomic(
+        &self,
+        old_token_hash: &str,
+        revoke_reason: &str,
+        new_token: CreateRefreshTokenRequest,
+        family_id: &str,
+        rotation_reason: &str,
+    ) -> Result<Option<RefreshToken>, sqlx::Error>;
     /// See [`get_rotations`].
     async fn get_rotations(&self, family_id: &str) -> Result<Vec<RefreshTokenRotation>, sqlx::Error>;
     /// See [`add_to_blacklist`].
@@ -340,7 +353,19 @@ impl RefreshTokenStorage {
     /// See [`create_token`].
     pub async fn create_token(&self, request: CreateRefreshTokenRequest) -> Result<RefreshToken, sqlx::Error> {
         let now = current_timestamp_millis();
+        let mut conn = self.pool.acquire().await?;
+        Self::insert_refresh_token(&mut conn, &request, now).await
+    }
 
+    /// Insert a refresh-token row on a caller-provided connection/transaction.
+    ///
+    /// Factored out of [`create_token`] so that [`rotate_token_atomic`] can
+    /// reuse the identical SQL inside its rotation transaction (CONC-02).
+    async fn insert_refresh_token(
+        conn: &mut sqlx::PgConnection,
+        request: &CreateRefreshTokenRequest,
+        now: i64,
+    ) -> Result<RefreshToken, sqlx::Error> {
         let row = sqlx::query_as!(
             RefreshToken,
             r#"
@@ -377,7 +402,7 @@ impl RefreshTokenStorage {
             request.ip_address.as_deref(),
             request.user_agent.as_deref()
         )
-        .fetch_one(&*self.pool)
+        .fetch_one(&mut *conn)
         .await?;
 
         Ok(row)
@@ -534,6 +559,21 @@ impl RefreshTokenStorage {
 
     /// See [`revoke_token_cas`].
     pub async fn revoke_token_cas(&self, token_hash: &str, reason: &str) -> Result<bool, sqlx::Error> {
+        let mut conn = self.pool.acquire().await?;
+        Self::revoke_token_cas_on(&mut conn, token_hash, reason).await
+    }
+
+    /// Compare-and-swap revoke of a refresh token on a caller-provided
+    /// connection/transaction. Returns `true` if this call performed the
+    /// revocation, `false` if the token was already revoked (or absent).
+    ///
+    /// Factored out of [`revoke_token_cas`] so that [`rotate_token_atomic`]
+    /// can reuse the identical SQL inside its rotation transaction (CONC-02).
+    async fn revoke_token_cas_on(
+        conn: &mut sqlx::PgConnection,
+        token_hash: &str,
+        reason: &str,
+    ) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
             r#"
             UPDATE refresh_tokens SET
@@ -544,7 +584,7 @@ impl RefreshTokenStorage {
             token_hash,
             reason
         )
-        .execute(&*self.pool)
+        .execute(&mut *conn)
         .await?;
 
         Ok(result.rows_affected() > 0)
@@ -763,6 +803,11 @@ impl RefreshTokenStorage {
     }
 
     /// See [`record_rotation`].
+    ///
+    /// CONC-03: the rotation-log insert and the family counter update run in a
+    /// single transaction so they cannot diverge. A rotation row whose family
+    /// counter never advanced would desynchronise the next refresh's replay
+    /// check (`refresh_token_families` vs `refresh_token_rotations`).
     pub async fn record_rotation(
         &self,
         family_id: &str,
@@ -771,7 +816,25 @@ impl RefreshTokenStorage {
         reason: &str,
     ) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
+        let mut tx = self.pool.begin().await?;
+        Self::record_rotation_on(&mut tx, family_id, old_token_hash, new_token_hash, reason, now).await?;
+        tx.commit().await?;
+        Ok(())
+    }
 
+    /// Append a rotation-log row and bump the family counters on a
+    /// caller-provided connection/transaction.
+    ///
+    /// Factored out of [`record_rotation`] so that [`rotate_token_atomic`] can
+    /// reuse the identical SQL inside its rotation transaction (CONC-02/03).
+    async fn record_rotation_on(
+        conn: &mut sqlx::PgConnection,
+        family_id: &str,
+        old_token_hash: Option<&str>,
+        new_token_hash: &str,
+        reason: &str,
+        now: i64,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
             INSERT INTO refresh_token_rotations (family_id, old_token_hash, new_token_hash, rotated_ts, rotation_reason)
@@ -783,7 +846,7 @@ impl RefreshTokenStorage {
             now,
             reason
         )
-        .execute(&*self.pool)
+        .execute(&mut *conn)
         .await?;
 
         sqlx::query!(
@@ -796,10 +859,43 @@ impl RefreshTokenStorage {
             family_id,
             now
         )
-        .execute(&*self.pool)
+        .execute(&mut *conn)
         .await?;
 
         Ok(())
+    }
+
+    /// CONC-02: atomically rotate a refresh token.
+    ///
+    /// Performs the compare-and-swap revocation of the old token, the insertion
+    /// of the new token, and the rotation-log/family-counter update inside a
+    /// single transaction. Returns:
+    ///   * `Ok(Some(new_token))` when this call won the CAS and rotated, or
+    ///   * `Ok(None)` when the old token was already revoked (CAS miss), in
+    ///     which case nothing is written and the caller applies its replay /
+    ///     benign-race policy.
+    pub async fn rotate_token_atomic(
+        &self,
+        old_token_hash: &str,
+        revoke_reason: &str,
+        new_token: CreateRefreshTokenRequest,
+        family_id: &str,
+        rotation_reason: &str,
+    ) -> Result<Option<RefreshToken>, sqlx::Error> {
+        let now = current_timestamp_millis();
+        let mut tx = self.pool.begin().await?;
+
+        if !Self::revoke_token_cas_on(&mut tx, old_token_hash, revoke_reason).await? {
+            tx.rollback().await?;
+            return Ok(None);
+        }
+
+        let row = Self::insert_refresh_token(&mut tx, &new_token, now).await?;
+        Self::record_rotation_on(&mut tx, family_id, Some(old_token_hash), &new_token.token_hash, rotation_reason, now)
+            .await?;
+
+        tx.commit().await?;
+        Ok(Some(row))
     }
 
     /// See [`get_rotations`].
@@ -1047,6 +1143,17 @@ impl RefreshTokenStoreApi for RefreshTokenStorage {
         reason: &str,
     ) -> Result<(), sqlx::Error> {
         self.record_rotation(family_id, old_token_hash, new_token_hash, reason).await
+    }
+
+    async fn rotate_token_atomic(
+        &self,
+        old_token_hash: &str,
+        revoke_reason: &str,
+        new_token: CreateRefreshTokenRequest,
+        family_id: &str,
+        rotation_reason: &str,
+    ) -> Result<Option<RefreshToken>, sqlx::Error> {
+        self.rotate_token_atomic(old_token_hash, revoke_reason, new_token, family_id, rotation_reason).await
     }
 
     async fn get_rotations(&self, family_id: &str) -> Result<Vec<RefreshTokenRotation>, sqlx::Error> {
@@ -1963,6 +2070,117 @@ mod tests {
         );
         assert_eq!(rows[1].new_token_hash, "new_hash_1");
         assert!(rows[0].id > rows[1].id, "the tie-break must be monotonic in id");
+    }
+
+    /// CONC-02: `rotate_token_atomic` must revoke the old token, insert the new
+    /// one, and record the rotation in a single transaction, so the three
+    /// effects can never be observed partially applied.
+    #[tokio::test]
+    async fn test_db_rotate_token_atomic_rotates_and_records() {
+        let pool = match get_rt_test_pool().await {
+            Some(p) => p,
+            None => return,
+        };
+        setup_refresh_token_db(&pool).await;
+
+        let storage = RefreshTokenStorage::new(&pool);
+        let suffix = rt_unique_suffix();
+        let user_id = format!("@user_{suffix}:localhost");
+        let family_id = format!("family_{suffix}");
+        let future_ts = current_timestamp_millis() + 3_600_000;
+
+        storage.create_family(&family_id, &user_id, None).await.expect("Failed to create family");
+        let old = storage
+            .create_token(make_create_request(suffix, &user_id, future_ts))
+            .await
+            .expect("Failed to create old token");
+        let old_hash = old.token_hash.clone();
+
+        let mut new_req = make_create_request(suffix, &user_id, future_ts);
+        new_req.token_hash = format!("rotated_hash_{suffix}");
+        let new_hash = new_req.token_hash.clone();
+
+        let rotated = storage
+            .rotate_token_atomic(&old_hash, "Rotated", new_req, &family_id, "refresh")
+            .await
+            .expect("rotate_token_atomic should succeed");
+
+        let new_token = rotated.expect("CAS on an active token must win");
+        assert_eq!(new_token.token_hash, new_hash);
+        assert!(!new_token.is_revoked);
+
+        // The old token is revoked with the supplied reason.
+        let old_after = storage
+            .get_token(&old_hash)
+            .await
+            .expect("Failed to get old token")
+            .expect("old token row must still exist");
+        assert!(old_after.is_revoked);
+        assert_eq!(old_after.revoked_reason.as_deref(), Some("Rotated"));
+
+        // The rotation log and the family counter advanced together.
+        let rotations = storage.get_rotations(&family_id).await.expect("Failed to get rotations");
+        assert_eq!(rotations.len(), 1);
+        assert_eq!(rotations[0].old_token_hash.as_deref(), Some(old_hash.as_str()));
+        assert_eq!(rotations[0].new_token_hash, new_hash);
+
+        let family = storage.get_family(&family_id).await.expect("Failed to get family").unwrap();
+        assert_eq!(family.refresh_count, 1, "the family counter must advance with the rotation row");
+        assert!(family.last_refresh_ts.is_some());
+    }
+
+    /// CONC-02: when the old token is already revoked (CAS miss) — or does not
+    /// exist at all — `rotate_token_atomic` writes nothing and returns `None`.
+    #[tokio::test]
+    async fn test_db_rotate_token_atomic_cas_miss_writes_nothing() {
+        let pool = match get_rt_test_pool().await {
+            Some(p) => p,
+            None => return,
+        };
+        setup_refresh_token_db(&pool).await;
+
+        let storage = RefreshTokenStorage::new(&pool);
+        let suffix = rt_unique_suffix();
+        let user_id = format!("@user_{suffix}:localhost");
+        let family_id = format!("family_{suffix}");
+        let future_ts = current_timestamp_millis() + 3_600_000;
+
+        storage.create_family(&family_id, &user_id, None).await.expect("Failed to create family");
+        let old = storage
+            .create_token(make_create_request(suffix, &user_id, future_ts))
+            .await
+            .expect("Failed to create old token");
+
+        let mut new_req = make_create_request(suffix, &user_id, future_ts);
+        new_req.token_hash = format!("rotated_hash_{suffix}");
+        let new_hash = new_req.token_hash.clone();
+
+        // Pre-revoke the old token so the CAS (`is_revoked = FALSE`) must lose.
+        storage.revoke_token(&old.token_hash, "user_logout").await.expect("Failed to pre-revoke");
+
+        let miss = storage
+            .rotate_token_atomic(&old.token_hash, "Rotated", new_req, &family_id, "refresh")
+            .await
+            .expect("rotate_token_atomic should succeed");
+        assert!(miss.is_none(), "CAS on an already-revoked token must lose");
+
+        // Nothing was written: no new token, no rotation row, no family bump,
+        // and the original revoke reason is untouched.
+        assert!(storage.get_token(&new_hash).await.expect("Failed to get new token").is_none());
+        assert!(storage.get_rotations(&family_id).await.expect("Failed to get rotations").is_empty());
+        let family = storage.get_family(&family_id).await.expect("Failed to get family").unwrap();
+        assert_eq!(family.refresh_count, 0, "a losing CAS must not advance the family counter");
+        let old_after = storage.get_token(&old.token_hash).await.expect("Failed to get old token").unwrap();
+        assert_eq!(old_after.revoked_reason.as_deref(), Some("user_logout"));
+
+        // A token that never existed is also a no-op.
+        let mut unknown_req = make_create_request(suffix, &user_id, future_ts);
+        unknown_req.token_hash = format!("unknown_hash_{suffix}");
+        let unknown = storage
+            .rotate_token_atomic("nonexistent_hash", "Rotated", unknown_req, &family_id, "refresh")
+            .await
+            .expect("rotate_token_atomic should succeed");
+        assert!(unknown.is_none(), "rotating an unknown token must be a no-op");
     }
 
     #[tokio::test]

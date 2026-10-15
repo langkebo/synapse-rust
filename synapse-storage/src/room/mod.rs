@@ -1124,32 +1124,6 @@ impl RoomStorage {
         Ok(())
     }
 
-    /// See [`set_room_account_data`].
-    pub async fn set_room_account_data(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        event_type: &str,
-        content: &serde_json::Value,
-    ) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp();
-        sqlx::query!(
-            r"
-            INSERT INTO room_account_data (user_id, room_id, data_type, data, created_ts, updated_ts)
-            VALUES ($1, $2, $3, $4, $5, $5)
-            ON CONFLICT (user_id, room_id, data_type) DO UPDATE SET data = EXCLUDED.data, updated_ts = EXCLUDED.updated_ts
-            ",
-            user_id,
-            room_id,
-            event_type,
-            content,
-            now
-        )
-        .execute(&*self.pool)
-        .await?;
-        Ok(())
-    }
-
     /// Look up the `origin_server_ts` of an event by id. Returns `None` if the
     /// event does not exist (e.g. already purged). Used to populate the
     /// redundant `read_markers.origin_server_ts` column so that
@@ -1196,9 +1170,27 @@ impl RoomStorage {
         event_id: &str,
         marker_type: &str,
     ) -> Result<(), sqlx::Error> {
+        let mut conn = self.pool.acquire().await?;
+        Self::upsert_read_marker(&mut conn, room_id, user_id, event_id, marker_type).await
+    }
+
+    /// Upsert a read marker on a caller-provided connection/transaction.
+    ///
+    /// Factored out of [`update_read_marker_with_type`] so that
+    /// [`update_read_marker_monotonic`] can perform its read-check-write
+    /// sequence atomically inside a single transaction + row lock (CONC-01).
+    async fn upsert_read_marker(
+        conn: &mut sqlx::PgConnection,
+        room_id: &str,
+        user_id: &str,
+        event_id: &str,
+        marker_type: &str,
+    ) -> Result<(), sqlx::Error> {
         let now: i64 = current_timestamp_millis();
         // P1-7: cache origin_server_ts so get_unread_counts survives purge_history
-        let event_ts = self.lookup_event_origin_server_ts(event_id).await?;
+        let event_ts = sqlx::query_scalar!("SELECT origin_server_ts FROM events WHERE event_id = $1", event_id)
+            .fetch_optional(&mut *conn)
+            .await?;
         sqlx::query!(
             r"
             INSERT INTO read_markers (room_id, user_id, event_id, marker_type, created_ts, updated_ts, origin_server_ts)
@@ -1215,7 +1207,7 @@ impl RoomStorage {
             now,
             event_ts
         )
-        .execute(&*self.pool)
+        .execute(&mut *conn)
         .await?;
         Ok(())
     }
@@ -1257,6 +1249,11 @@ impl RoomStorage {
     /// otherwise falls back to `origin_server_ts`.
     ///
     /// Returns `true` if the marker was updated, `false` if silently dropped.
+    ///
+    /// CONC-01: the read-check-write sequence runs inside a single transaction
+    /// with a `SELECT ... FOR UPDATE` row lock on the marker, so concurrent
+    /// calls for the same `(room_id, user_id, marker_type)` cannot
+    /// interleave and lose a forward update (or wrongly accept a backward one).
     pub async fn update_read_marker_monotonic(
         &self,
         room_id: &str,
@@ -1265,13 +1262,29 @@ impl RoomStorage {
         marker_type: &str,
         allow_backward: bool,
     ) -> Result<bool, sqlx::Error> {
-        // Get current marker
-        let current_event_id = self.get_read_marker(room_id, user_id, marker_type).await?;
+        let mut tx = self.pool.begin().await?;
+
+        // Lock the marker row (if any) for the duration of the transaction.
+        // A missing row is not locked; the subsequent upsert's ON CONFLICT
+        // resolves the insertion race between concurrent writers.
+        let current_event_id = sqlx::query_scalar!(
+            r"
+            SELECT event_id FROM read_markers
+            WHERE room_id = $1 AND user_id = $2 AND marker_type = $3
+            FOR UPDATE
+            ",
+            room_id,
+            user_id,
+            marker_type
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
 
         match current_event_id {
             None => {
                 // No existing marker → allow update
-                self.update_read_marker_with_type(room_id, user_id, event_id, marker_type).await?;
+                Self::upsert_read_marker(&mut tx, room_id, user_id, event_id, marker_type).await?;
+                tx.commit().await?;
                 Ok(true)
             }
             Some(current_id) => {
@@ -1283,7 +1296,7 @@ impl RoomStorage {
                 // Fetch event positions for comparison
                 let new_pos =
                     sqlx::query!(r"SELECT stream_ordering, origin_server_ts FROM events WHERE event_id = $1", event_id)
-                        .fetch_optional(&*self.pool)
+                        .fetch_optional(&mut *tx)
                         .await?
                         .map(|r| (r.stream_ordering, r.origin_server_ts));
 
@@ -1291,7 +1304,7 @@ impl RoomStorage {
                     r"SELECT stream_ordering, origin_server_ts FROM events WHERE event_id = $1",
                     current_id.as_str()
                 )
-                .fetch_optional(&*self.pool)
+                .fetch_optional(&mut *tx)
                 .await?
                 .map(|r| (r.stream_ordering, r.origin_server_ts));
 
@@ -1299,7 +1312,8 @@ impl RoomStorage {
                 let (new_pos, current_pos) = match (new_pos, current_pos) {
                     (Some(n), Some(c)) => (n, c),
                     _ => {
-                        self.update_read_marker_with_type(room_id, user_id, event_id, marker_type).await?;
+                        Self::upsert_read_marker(&mut tx, room_id, user_id, event_id, marker_type).await?;
+                        tx.commit().await?;
                         return Ok(true);
                     }
                 };
@@ -1310,16 +1324,14 @@ impl RoomStorage {
                     _ => new_pos.1 < current_pos.1, // fallback to origin_server_ts
                 };
 
-                if !is_backward {
-                    // Forward or equal move → always allow
-                    self.update_read_marker_with_type(room_id, user_id, event_id, marker_type).await?;
-                    Ok(true)
-                } else if allow_backward && marker_type == "m.fully_read" {
-                    // MSC4446: backward allowed only for m.fully_read with flag
-                    self.update_read_marker_with_type(room_id, user_id, event_id, marker_type).await?;
+                if !is_backward || (allow_backward && marker_type == "m.fully_read") {
+                    // Forward/equal move, or MSC4446 backward move for m.fully_read
+                    Self::upsert_read_marker(&mut tx, room_id, user_id, event_id, marker_type).await?;
+                    tx.commit().await?;
                     Ok(true)
                 } else {
-                    // Backward move not allowed → silently drop
+                    // Backward move not allowed → silently drop (release lock)
+                    tx.rollback().await?;
                     Ok(false)
                 }
             }
@@ -2102,33 +2114,6 @@ mod db_tests {
             .await
             .expect("get_user_room_list_summary should succeed");
         assert!(summaries.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_set_room_account_data_upsert() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = RoomStorage::new(&pool);
-        let room_id = format!("!acct_{}:example.com", uuid::Uuid::new_v4());
-        let user_id = format!("@acct_user_{}:example.com", uuid::Uuid::new_v4());
-
-        // Insert
-        storage
-            .set_room_account_data(&room_id, &user_id, "m.fully_read", &json!({"event_id": "$e1:example.com"}))
-            .await
-            .expect("set_room_account_data insert should succeed");
-
-        // Upsert (same key, different content)
-        storage
-            .set_room_account_data(&room_id, &user_id, "m.fully_read", &json!({"event_id": "$e2:example.com"}))
-            .await
-            .expect("set_room_account_data upsert should succeed");
-
-        // Cleanup
-        sqlx::query("DELETE FROM room_account_data WHERE user_id = $1")
-            .bind(&user_id)
-            .execute(&*pool)
-            .await
-            .expect("cleanup room_account_data");
     }
 
     #[tokio::test]

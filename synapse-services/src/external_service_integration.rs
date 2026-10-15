@@ -196,6 +196,10 @@ impl ExternalServiceIntegration {
             }
         }
 
+        // fail-closed：`secure_compare("", "")` 为真，空串密钥（如注册数据缺省）
+        // 会让空 token/signature header 通过认证，必须在比较前剔除。
+        secrets.retain(|secret| !secret.is_empty());
+
         secrets
     }
 

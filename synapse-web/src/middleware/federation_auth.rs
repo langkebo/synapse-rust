@@ -6,8 +6,6 @@ use axum::response::IntoResponse;
 use axum::{body::Body, middleware::Next, response::Response};
 use base64::Engine;
 use serde_json::Value;
-use std::fs;
-use std::path::PathBuf;
 use std::sync::Arc;
 use synapse_common::check_url_and_resolve;
 use synapse_common::current_timestamp_millis;
@@ -275,13 +273,20 @@ pub async fn replication_http_auth_middleware(
     let secret = if let Some(s) = &ctx.config.worker.replication.http.secret {
         s.clone()
     } else if let Some(p) = &ctx.config.worker.replication.http.secret_path {
-        match fs::read_to_string(PathBuf::from(p)) {
+        // tokio::fs：这是每请求中间件路径，阻塞的 std::fs 读会把 tokio worker
+        // 线程挂在该文件 IO 上；错误语义不变（读失败 ⇒ 401，fail-closed）。
+        match tokio::fs::read_to_string(p).await {
             Ok(s) => s.trim().to_string(),
             Err(_) => return ApiError::unauthorized("Replication secret not available".to_string()).into_response(),
         }
     } else {
         return ApiError::unauthorized("Replication secret not configured".to_string()).into_response();
     };
+    // fail-closed：`secure_compare("", "")` 为真，空密钥（含 secret_path 文件全空白）
+    // 会让空 header 通过认证，必须在比较前显式拒绝。
+    if secret.is_empty() {
+        return ApiError::unauthorized("Replication secret not configured".to_string()).into_response();
+    }
     let token = request.headers().get("x-synapse-worker-secret").and_then(|h| h.to_str().ok()).unwrap_or_default();
     if !synapse_common::crypto::secure_compare(token, &secret) {
         return ApiError::unauthorized("Invalid replication secret".to_string()).into_response();
