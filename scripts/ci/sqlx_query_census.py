@@ -19,8 +19,17 @@
 逐行扫描剥离后的代码，维护花括号深度。遇到形如 `#[cfg(test)]` 或
 `#[cfg(any(test, …))]` 的属性行时记下 `pending`，**下一个 `{`** 会把该属性所修饰的
 条目的块体划入 test 区（`mod tests { … }` 是主要形态），块闭合即退出。
-`#[cfg(test)]` 挂在没有块体的条目（如 `use`）上时，`pending` 会顺延到下一个 `{`；
-这是已知的近似，输出中通过 `--list-uncertain` 可人工复核（本仓未出现）。
+`#[cfg(test)]` 挂在**无块体**的条目（如 `use` 或 `mod x;`）上时，`pending` 会顺延到
+下一个 `{` —— 这是**已知近似**：若同一文件在该声明之后还有生产条目，它会被误算进
+test 区（生产计数偏低）。本仓的 `#[cfg(test)] mod x;` 一律写在文件末尾，实测未受影响；
+往文件尾部追加生产代码前请先确认这一点（无 `--list-uncertain` 模式，用
+`--list-production-dynamic` 逐点核对是最直接的检查方式）。
+
+此外，`#[cfg(test)] mod x;`（**无块体**）的目标文件整份算 test 区，由
+`collect_test_gated_files` 解析。该解析必须覆盖**两种子模块布局**：
+`foo/mod.rs` + 同级 `foo/x.rs`，以及 `foo.rs` + `foo/x.rs`（Rust 2018 目录模块）。
+只认前者会让"声明在普通文件里的测试模块"整份被算成生产区 —— 详见该函数的
+docstring（2026-10-15 修复，影响面 6 处）。
 
 ## 用法
 
@@ -205,8 +214,21 @@ def collect_test_gated_files(sources: list[Path]) -> set[Path]:
     """解析 `#[cfg(test)] mod x;`（含 `pub(crate)`、跨行）声明的文件。
 
     仅靠"文件内是否出现 `#[cfg(test)]`"会漏掉整份测试模块文件——它们的属性写在
-    声明方（`mod.rs`）里，例如 `event/db_tests.rs` 由 `event/mod.rs` 的
+    声明方里，例如 `event/db_tests.rs` 由 `event/mod.rs` 的
     `#[cfg(test)] mod db_tests;` 引入。把这类文件整份归入 test 区，生产计数才准。
+
+    ⚠️ **两种子模块布局都要解析**（2026-10-15 修复）。Rust 的子模块既可以放在
+    声明方**同目录**（`foo/mod.rs` + 同级 `foo/X.rs`），也可以放在**同名目录**下
+    （`foo.rs` + `foo/X.rs`，Rust 2018 目录模块）。旧实现只找前者，于是声明在
+    **普通文件**里的 `#[cfg(test)] mod x;` 解析不到目标文件 ⇒ 整份测试模块被当成
+    **生产区**：
+
+      * 实测后果（`db2ba7916` 把 `synapse-e2ee/src/megolm/storage.rs` 的内联测试块
+        外置成 `megolm/storage/db_tests.rs`）：那 6 处动态 SQL 从 test 区**漂移**到
+        production 区 ⇒ 生产计数虚高 6、测试计数虚低 6 ⇒ **测试区棘轮少报 6 处违规**
+        （真实 758→769，门禁只报 758→763），同时生产区额度被虚耗 6 处。
+      * 对照：同批外置的 `synapse-services/src/media/mod.rs`（**模块根**）不受影响 ——
+        这正是"只认模块根"这个旧口径的错误所在。
     """
     gated: set[Path] = set()
     for path in sources:
@@ -216,8 +238,12 @@ def collect_test_gated_files(sources: list[Path]) -> set[Path]:
         code = "\n".join(strip_code(text))
         for name in TEST_MOD_DECL_RE.findall(code):
             for candidate in (
+                # 布局 ①：声明方是模块根（`foo/mod.rs`）⇒ 子模块在同目录
                 path.parent / f"{name}.rs",
                 path.parent / name / "mod.rs",
+                # 布局 ②：声明方是普通文件（`foo.rs`）⇒ 子模块在 `foo/` 目录下
+                path.with_suffix("") / f"{name}.rs",
+                path.with_suffix("") / name / "mod.rs",
             ):
                 if candidate.is_file():
                     gated.add(candidate.resolve())
@@ -613,6 +639,32 @@ def list_production_dynamic(root: Path) -> int:
             path, force_test=path.resolve() in test_gated
         ):
             if region != "production":
+                continue
+            print(f"{path.relative_to(root).as_posix()}:{line_no}:{kind}")
+    return 0
+
+
+def list_test_dynamic(root: Path) -> int:
+    """打印 **test 区**每个动态调用点 `path:line:literal|param|runtime`。
+
+    与 `list_production_dynamic` 严格对称（同一个 `iter_dynamic_sites`、同一个
+    `collect_test_gated_files`），只是过滤方向相反。
+
+    存在的理由：`dynamic_test` 是四道棘轮之一，但此前**没有对应的列出模式** ——
+    要查"测试区到底新增了哪几处"只能靠逐提交二分或临时脚本（2026-10-15 复核就是
+    这么定位那 6 处漂移的）。棘轮的每个分区都该能把它计数的**逐点**倒出来，否则
+    判红之后的下一步永远要重造轮子。
+
+    扫描面与 ratio 棘轮一致：只含各 crate 的 `src/`（`SCAN_DIRS`），**不含**
+    独立测试目录 `tests/`（后者不在该棘轮的扫描范围内）。
+    """
+    sources = collect_sources(root)
+    test_gated = collect_test_gated_files(sources)
+    for path in sources:
+        for line_no, region, kind in iter_dynamic_sites(
+            path, force_test=path.resolve() in test_gated
+        ):
+            if region != "test":
                 continue
             print(f"{path.relative_to(root).as_posix()}:{line_no}:{kind}")
     return 0
@@ -1048,6 +1100,14 @@ def main() -> int:
         help="列出生产区每个动态调用点 path:line:literal|param|runtime（ROOT 缺省取 --root）",
     )
     parser.add_argument(
+        "--list-test-dynamic",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="ROOT",
+        help="列出 test 区每个动态调用点 path:line:literal|param|runtime（与 --list-production-dynamic 对称）",
+    )
+    parser.add_argument(
         "--list-test-ddl",
         nargs="?",
         const="",
@@ -1085,6 +1145,9 @@ def main() -> int:
         return list_production_dynamic(
             Path(args.list_production_dynamic or args.root).resolve()
         )
+
+    if args.list_test_dynamic is not None:
+        return list_test_dynamic(Path(args.list_test_dynamic or args.root).resolve())
 
     if args.list_test_ddl is not None:
         for hit in collect_test_ddl(Path(args.list_test_ddl or args.root).resolve()):

@@ -78,9 +78,23 @@
 # 排除：target/、.git/、.claude/（.claude/worktrees 下有旧仓库副本，
 #       会随本地 worktree 状态漂移，导致基线无法稳定复现）
 #
-# ⚠️ 计数**包含** crate 内 `#[cfg(test)]` 内联测试模块
-#    （例如 synapse-storage/src/event/db_tests.rs）。
+# ⚠️ 计数**包含** crate 内 `#[cfg(test)]` 的测试代码，两种形态都算 test 区：
+#    ① **内联块** `#[cfg(test)] mod tests { … }`；
+#    ② **整份文件** `#[cfg(test)] mod x;` 的目标文件（`foo/mod.rs` + `foo/x.rs`
+#       与 `foo.rs` + `foo/x.rs` 两种布局都解析 —— 后者是 2026-10-15 补上的，
+#       详见本文件末尾"口径变更"块）。
+#    ⇒ 举例要选**能体现陷阱**的那个：`synapse-e2ee/src/megolm/storage/db_tests.rs`
+#      由 **非模块根** 的 `megolm/storage.rs` 声明，是该口径最容易被写漏的形态
+#      （曾经因此被误算进生产区 6 处）。反例警示：`event/db_tests.rs` 由
+#      **模块根** `event/mod.rs` 声明，**一直是对的** —— 旧版注释拿它举例，会把
+#      排查方向引偏（2026-10-15 订正）。
 #    独立测试目录 tests/ 与 artifacts/ **不在**扫描范围内。
+#
+# ⚠️ 已知近似（与 ① 同源，未修）：`#[cfg(test)]` 挂在**无块体**的条目上时，
+#    扫描器的 `pending` 会顺延到**下一个 `{`**。若同一文件在该声明之后还有
+#    生产条目，它会被误算进 test 区（生产计数**偏低**）。本仓的
+#    `#[cfg(test)] mod x;` 一律写在文件末尾，故实测未受影响；这是一条
+#    "往文件尾部追加生产代码前先想清楚"的约束。
 #
 # ⚠️ 2026-09-22 修正：脚本现已排除 doc comments（//! /// 行），
 #    且正则匹配 turbofish 形式 `sqlx::query_as::<(...)>/sqlx::query_scalar::<(...)>`
@@ -3230,12 +3244,49 @@
 #   `.sqlx/` 同步缩容 8 条（按条目内容逐字核对后删除：`query-9c5f6304…` / `4a5a9a79…` /
 #   `8aeea445…` / `2ec4407f…` / `dd3c5f92…` / `ff984448…` / `1c314172…` / `22426ab1…`）
 #   ⇒ 1324 → **1316**。
-BASELINE_QUERY_BUILDER=18
-BASELINE_DYNAMIC_PRODUCTION=103
-BASELINE_DYNAMIC_TEST_INFRA=758
-BASELINE_STATIC=1349
+# ── 2026-10-15 口径变更：分区解析补上"Rust 2018 目录模块"布局 ──────────────────
+#   改动：`sqlx_query_census.py::collect_test_gated_files` 原先只解析
+#   `foo/mod.rs` + 同级 `foo/X.rs`，**漏掉** `foo.rs` + `foo/X.rs`。
+#   后果（已实测定位到引入提交 `db2ba7916`"外置 4 个超限文件的测试模块"）：它把
+#   `synapse-e2ee/src/megolm/storage.rs` 的**内联** `#[cfg(test)]` 块外置成
+#   `megolm/storage/db_tests.rs`（声明在**普通文件** `storage.rs` 里）⇒ 那 6 处动态
+#   SQL 从 test 区漂移到 production 区。同批外置的 `synapse-services/src/media/mod.rs`
+#   是**模块根**，不受影响 —— 这正是旧口径的错误所在。
+#   影响面：production **虚高 6**、test **虚低 6** ⇒ 测试区棘轮**少报 6 处违规**
+#   （真实 758 → 769，旧口径只报 758 → 763），生产区额度同时被虚耗 6 处。
+#   本次变更后实测（本树）：
+#     * `dynamic_production` 103 → **96**（= 无该漂移时的真值；与基线提交
+#       `090742266` 实测逐项吻合 ⇒ 生产侧自那次基线以来**零新增**）
+#     * `dynamic_test`      758 → **769**（+11，逐文件归因见下）
+#   测试区 +11 的逐文件归因（用修好的 census 与基线提交 `090742266` 逐文件 diff）：
+#     `synapse-storage/src/sticky_event.rs`                        +4（1697e030e / a4be3e7ac）
+#     `synapse-storage/src/event/db_tests.rs`                      +3（043b0bbe1 / 4c7f3e17b）
+#     `synapse-e2ee/src/megolm/storage/db_tests.rs`                +3（db2ba7916 外置时新增用例）
+#     `synapse-storage/src/application_service/db_tests.rs`        +1（09c028a08）
+#   全部是 `#[cfg(test)]` 夹具，已按 **D-112** 逐处登记（理由见方案 §7.3 与复核文档批次 B）：
+#   它们要验证的正是"API 故意不暴露的那一维"（at-rest 密文、SQL NULL vs JSON null、
+#   tracked vs reported、历史成员状态、流序上界），且 `#[cfg(test)]` 里**用不了宏**（P8）
+#   ⇒ 回收换不来任何编译期检查，处置口径是"登记 > 硬改"。
+#     * `dynamic`           861 → **865**
+#   这是一次**口径变更**（先例见下方 2026-09-23 的"口径变更：生产 / #[cfg(test)] 分区"），
+#   不是放行：`production` 方向是**收紧**（103 → 96，取消 7 处静默余量）。
+#   ⚠️ 测试区的 769 含上面那 11 处真实新增 —— 它们**不是**本次口径变更的一部分，
+#   已逐处定性与登记（D-112），故基线直接采用实测值 769（无静默余量）。
+# ── 2026-10-15 批次 C：三道绿道按实测收紧（取消静默余量）─────────────────────
+#   本仓纪律（§0.1）："各批**按实测值**直接收紧，不再留余量"。收紧前的余量为
+#   production 7 处（虚高导致）/ static 4 / query_builder 1 ⇒ 那 4 处/1 处就是
+#   **允许静默回归的额度**，与棘轮的用途（拦住新增）相反。
+#   本批：`static` 1349 → **1353**、`query_builder` 18 → **17**（production 96 已在
+#   上方口径变更里收紧；`test` 见批次 B 的登记结论，保持 769）。
+#   ⚠️ `static` 是"只禁减"：收紧到实测值后，**删代码导致的静态查询减少也会判红**，
+#   需同步下调基线并说明（先例 C55-0 的 1303 → 1301、C57-0 的 163 → 162）——
+#   这是有意设计（防"静态换动态"），不是缺陷。
+BASELINE_QUERY_BUILDER=17
+BASELINE_DYNAMIC_PRODUCTION=96
+BASELINE_DYNAMIC_TEST_INFRA=769
+BASELINE_STATIC=1353
 # 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=861
+BASELINE_DYNAMIC=865
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

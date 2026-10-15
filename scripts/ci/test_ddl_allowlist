@@ -68,6 +68,13 @@ synapse-storage/src/baseline_tables.rs::tests::removal_parser_handles_both_spell
 synapse-storage/src/test_isolation.rs::search_path_tests::split_handles_functions_do_blocks_and_comments
 synapse-storage/src/test_isolation.rs::search_path_tests::split_handles_quoted_identifiers_and_escapes
 synapse-storage/src/test_isolation.rs::search_path_tests::strip_copy_blocks_removes_seed_data
+#    （2026-10-15 追加）M-05 的**模型守卫**：解析基线 DDL 文本断言 `key_rotation_log`
+#    保持 user/device 作用域、`federation_signing_keys` 是 per-server —— `ddl_block()`
+#    里的 `CREATE TABLE … (` 是**定位 needle**，测试只做字符串比对，既不建表也不连库
+#    （无数据库依赖，随 unit 车道跑）。因此它属本组"字符串夹具、从不执行"，
+#    **不属于**下面 D-36 那组"真正该迁移到 isolated_test_pool()"的站点。
+synapse-e2ee/src/key_rotation/service/tests.rs::ddl_block
+synapse-e2ee/src/key_rotation/service/tests.rs::key_rotation_log_stays_user_device_scoped_not_server_scoped
 
 # —— D-36 类：模块自建的简化 schema（`CREATE TABLE IF NOT EXISTS` 补表）。这些是
 #    真正该被迁移到 `isolated_test_pool()` 的站点；登记在此只为让守卫对**新增**站点
