@@ -22,7 +22,12 @@ use axum::http::Method;
 use axum::{body::Body, http::Request};
 use futures::stream::{self, StreamExt};
 use hyper::StatusCode;
-use std::{env, fs, path::PathBuf};
+use regex::Regex;
+use std::{
+    collections::HashSet,
+    env, fs,
+    path::{Path, PathBuf},
+};
 use synapse_web::routes::declared_ledger_for;
 use synapse_web::routes::route_ledger::RouteLedger;
 use synapse_web::routes::state::AppState;
@@ -513,4 +518,369 @@ async fn voip_tracking_routes_are_declared_when_feature_enabled() {
     };
     assert!(has_declared_route(&ledger, Method::PUT, "/_matrix/client/v3/rooms/{room_id}/send/m.call.invite/{txn_id}"));
     assert!(has_declared_route(&ledger, Method::GET, "/_matrix/client/v3/rooms/{room_id}/call/{call_id}"));
+}
+
+// ---------------------------------------------------------------------------
+// 反向兜底（handoff 2026-xx-15 §5.3 / 建议 B）
+// ---------------------------------------------------------------------------
+//
+// 上面那条 `declared_route_manifest_entries_are_actually_wired` 只覆盖单向
+// 「声明 → 接线」。本测试补上**反方向**：「router 源码里实际注册的 `.route(...)`
+// 站点 ⊆ 已提交的 ledger 镜像」。缺了它，新增一条 `.route(...)` 却忘了同步
+// `derived_route_table_*.inc.rs` 时没有任何测试会红，缺口会顺着
+// ledger → SDK 镜像 → codegen 一路"隐形"下去 —— 本次 MSC3814 的
+// `POST .../dehydrated_device/{device_id}/events` 一度就只在 derived 表里以 GET
+// 出现，SDK 的 `claimDevice()`（POST）在 ledger 里"无对应条目"。
+//
+// 它**不是**语义级解析器，只是"新路径必须被声明"的粗粒度兜底；权威仍是
+// `python3 scripts/contract/gen_derived_routes.py --check`（双向 + 双 lane fixture
+// 硬门禁）与 `EXTRACT_STRICT=1 extract_registered.py` 的 S-14 `undeclared` 检查。
+// 之所以要这层冗余：那条 Python 门禁是 CI 步骤，而本断言随
+// `cargo test --test integration` 一起被本地/CI 直接执行。
+//
+// 镜像对象刻意选 `tests/unit/fixtures/ledger_export_sdk/all.json`
+// （SDK lane × ALL profile，entry_count = 1032）：它是 SDK codegen 真正消费的那一份，
+// 且与本次编译启用的 feature 集合无关。不用编译期内联的 `derived_route_manifest`
+// 是因为后者受 `#[cfg]` 裁剪，拿它当基线在默认 feature 下会把 feature-gated 路由
+// 误报成"未声明"。
+//
+// 匹配规则（与验证过的原型一致）：路径字面量以 `/_` 开头 → 精确匹配 `(METHOD, path)`；
+// 否则（相对路径，例如 `"/capabilities"`）→ 按 `path.ends_with(literal)` 匹配。
+// 解析不出方法名的站点直接跳过（宁可少覆盖，不误报）。
+
+/// 被比较的 ledger 镜像：SDK lane × ALL profile 的 fixture。
+const LEDGER_MIRROR_FIXTURE: &str = "tests/unit/fixtures/ledger_export_sdk/all.json";
+/// 需要扫描的 router 源码根（相对仓库根）。
+const ROUTE_SOURCE_ROOT: &str = "synapse-web/src/routes";
+/// `any()` 展开后的全部方法。
+const ALL_HTTP_METHODS: [&str; 7] = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"];
+
+/// 扫描器用到的正则集合。构造函数集中放置，避免每次调用重新编译。
+struct RouteScanRegexes {
+    /// `.route(` （转义点号，避免误命中 `aroute(` 之类）。
+    route_call: Regex,
+    /// `"<字符串字面量>"`，捕获组 1 = 去掉引号后的内容。
+    string_lit: Regex,
+    /// 方法调用：允许 `axum::routing::` 之类的全限定前缀，捕获组 1 = 方法名。
+    /// `\b` 替代 lookbehind（Rust `regex` 不支持后者），足以排除 `output(`/`budget(`。
+    method_call: Regex,
+    /// `#[cfg(test)]`（容忍空白）。
+    cfg_test: Regex,
+    /// 行首的 `mod NAME {`（容忍 `pub(crate)` 前缀）。
+    gated_mod: Regex,
+}
+
+impl RouteScanRegexes {
+    fn new() -> Self {
+        Self {
+            route_call: Regex::new(r"\.route\s*\(").expect("route_call 正则必须可编译"),
+            string_lit: Regex::new(r#""((?:[^"\\]|\\.)*)""#).expect("string_lit 正则必须可编译"),
+            method_call: Regex::new(
+                r"\b(?:[A-Za-z_][A-Za-z0-9_]*::)*(get|post|put|delete|patch|head|options|any)\s*\(",
+            )
+            .expect("method_call 正则必须可编译"),
+            cfg_test: Regex::new(r"#\s*\[\s*cfg\s*\(\s*test\s*\)\s*\]").expect("cfg_test 正则必须可编译"),
+            gated_mod: Regex::new(r"^(?:pub(?:\s*\([^)]*\))?\s+)?mod\s+[A-Za-z_][A-Za-z0-9_]*\s*\{")
+                .expect("gated_mod 正则必须可编译"),
+        }
+    }
+}
+
+/// 剥离 `//` 行注释与 `/* */` 块注释，**保留**字符串字面量内容（后续要靠它取路径）。
+///
+/// 逐字节扫描：多字节 UTF-8 的首字节都 ≥ 0x80，永不等于待识别的 ASCII 分隔符，
+/// 因此按字节比较是安全的；被丢弃的都是整段 ASCII 定界区间，结果仍是合法 UTF-8。
+fn strip_rust_comments(src: &str) -> String {
+    let bytes = src.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if c == b'"' {
+            out.push(c);
+            i += 1;
+            while i < bytes.len() {
+                let d = bytes[i];
+                out.push(d);
+                if d == b'\\' {
+                    if i + 1 < bytes.len() {
+                        out.push(bytes[i + 1]);
+                    }
+                    i += 2;
+                    continue;
+                }
+                i += 1;
+                if d == b'"' {
+                    break;
+                }
+            }
+            continue;
+        }
+        if c == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if c == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            i += 2;
+            continue;
+        }
+        out.push(c);
+        i += 1;
+    }
+    String::from_utf8(out).expect("剥离注释后仍应是合法 UTF-8")
+}
+
+/// 从 `open`（指向 `(` 或 `{`）出发，返回配平的 `)`/`}` 的字节下标；字符串字面量感知。
+/// 未配平时返回 `None`（调用方据此跳过，不误报）。
+fn match_delim(src: &str, open: usize) -> Option<usize> {
+    let bytes = src.as_bytes();
+    let (open_b, close_b) = (bytes.get(open).copied()?, if bytes[open] == b'(' { b')' } else { b'}' });
+    let mut depth = 0i32;
+    let mut i = open;
+    let mut in_str = false;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if in_str {
+            if c == b'\\' {
+                i += 2;
+                continue;
+            }
+            if c == b'"' {
+                in_str = false;
+            }
+        } else if c == b'"' {
+            in_str = true;
+        } else if c == open_b {
+            depth += 1;
+        } else if c == close_b {
+            depth -= 1;
+            if depth == 0 {
+                return Some(i);
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// 从 `#[cfg(test)]` 之后跳过属性/文档注释/空白，若紧接着是 `mod NAME {`，
+/// 返回该 `{` 的字节下标；否则返回 `None`（说明这个 `#[cfg(test)]` 挂在非 `mod`
+/// 条目上，例如 `fn` —— 只跳过属性本身即可）。
+fn gated_mod_open_brace(src: &str, mut i: usize, re: &RouteScanRegexes) -> Option<usize> {
+    loop {
+        let rest = &src[i..];
+        let trimmed = rest.trim_start();
+        i += rest.len() - trimmed.len();
+        if i >= src.len() {
+            return None;
+        }
+        if trimmed.starts_with("///") || trimmed.starts_with("//!") || trimmed.starts_with("//") {
+            i += trimmed.find('\n').unwrap_or(trimmed.len());
+            continue;
+        }
+        if trimmed.starts_with("#[") {
+            i += trimmed.find(']')? + 1;
+            continue;
+        }
+        break;
+    }
+    let cap = re.gated_mod.captures(&src[i..])?;
+    let whole = cap.get(0)?;
+    if whole.start() != 0 {
+        return None;
+    }
+    Some(i + whole.end() - 1)
+}
+
+/// 剔除所有 `#[cfg(test)] mod NAME { ... }` 块 —— 测试模块里也会构造 router，
+/// 其路径不在生产 ledger 里，不剔除必然误报。
+///
+/// 采用"逐个 `#[cfg(test)]` + 属性跳过 + `mod NAME {` + 括号配平"的写法，
+/// 而非"截断到第一个 `#[cfg(test)]`"：`space/lifecycle_query.rs` 里 test mod
+/// 在前、router builder 在后，截断式会连生产代码一起丢掉。
+fn strip_test_mods(src: &str, re: &RouteScanRegexes) -> String {
+    let mut out = String::with_capacity(src.len());
+    let mut pos = 0usize;
+    while let Some(m) = re.cfg_test.find_at(src, pos) {
+        let Some(brace) = gated_mod_open_brace(src, m.end(), re) else {
+            out.push_str(&src[pos..m.end()]);
+            pos = m.end();
+            continue;
+        };
+        let Some(close) = match_delim(src, brace) else {
+            out.push_str(&src[pos..]);
+            return out;
+        };
+        out.push_str(&src[pos..m.start()]);
+        pos = close + 1;
+    }
+    out.push_str(&src[pos..]);
+    out
+}
+
+/// 递归收集 `*.rs` 文件，跳过 `tests/` 子目录与 `derived_route_table_*.inc.rs`
+/// （后者是生成物，不是 router 源）。
+fn collect_router_source_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if path.file_name().is_some_and(|n| n == "tests") {
+                continue;
+            }
+            collect_router_source_files(&path, out);
+            continue;
+        }
+        if !path.extension().is_some_and(|e| e == "rs") {
+            continue;
+        }
+        let is_derived = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with("derived_route_table_") && n.ends_with(".inc.rs"));
+        if is_derived {
+            continue;
+        }
+        out.push(path);
+    }
+}
+
+/// 从一段（未剥注释的）Rust 源码里抽出所有 `.route("<lit>", <chain>)` 站点，
+/// 返回 `(METHOD, literal)` 对（`any()` → 展开成 7 个方法；解析不出方法则跳过）。
+fn route_sites_in_source(raw: &str, re: &RouteScanRegexes) -> Vec<(String, String)> {
+    let src = strip_test_mods(&strip_rust_comments(raw), re);
+    let mut out = Vec::new();
+    for m in re.route_call.find_iter(&src) {
+        let Some(close) = match_delim(&src, m.end() - 1) else {
+            continue;
+        };
+        let chain = &src[m.end() - 1..=close];
+        let Some(lit_cap) = re.string_lit.captures(chain) else {
+            continue;
+        };
+        let literal = lit_cap.get(1).expect("string_lit 必须含捕获组 1").as_str();
+        if !literal.starts_with('/') {
+            continue;
+        }
+        let rest = &chain[lit_cap.get(0).expect("string_lit 必须整段命中").end()..];
+        let mut methods: Vec<String> = Vec::new();
+        for mm in re.method_call.captures_iter(rest) {
+            let name = mm.get(1).expect("method_call 必须含捕获组 1").as_str();
+            if name == "any" {
+                methods.extend(ALL_HTTP_METHODS.iter().map(|s| (*s).to_string()));
+            } else {
+                methods.push(name.to_ascii_uppercase());
+            }
+        }
+        for method in methods {
+            out.push((method, literal.to_string()));
+        }
+    }
+    out
+}
+
+/// 读取 ledger 镜像 fixture，返回其 `(METHOD, path)` 集合。
+fn ledger_mirror_tuples(fixture: &Path) -> HashSet<(String, String)> {
+    let raw = fs::read_to_string(fixture).unwrap_or_else(|e| panic!("无法读取 ledger 镜像 {}：{e}", fixture.display()));
+    let json: serde_json::Value = serde_json::from_str(&raw).expect("ledger 镜像必须是合法 JSON");
+    let entries = json.get("entries").and_then(|v| v.as_array()).expect("ledger 镜像缺少 entries 数组");
+    let mut out = HashSet::with_capacity(entries.len());
+    for entry in entries {
+        let method = entry.get("method").and_then(|v| v.as_str()).expect("entry.method 必须是字符串");
+        let path = entry.get("path").and_then(|v| v.as_str()).expect("entry.path 必须是字符串");
+        out.insert((method.to_string(), path.to_string()));
+    }
+    assert!(!out.is_empty(), "ledger 镜像 {} 为空", fixture.display());
+    out
+}
+
+/// 扫描器自证（铁律 8：不能失败的门禁不是门禁）：合成源码上必须命中普通站点、
+/// 展开 `any()`、识别全限定方法调用，并且**忽略** `#[cfg(test)] mod` 内的站点。
+#[test]
+fn route_source_scanner_is_well_formed() {
+    let re = RouteScanRegexes::new();
+    let synthetic = r#"
+        pub fn create_demo_router() -> Router<AppState> {
+            Router::new()
+                .route("/demo", get(handler))
+                .route("/demo/{id}", axum::routing::delete(remove).post(update))
+                .route("/demo/any", any(proxy))
+        }
+        // `// .route("/commented_out", get(x))` 必须被注释剥离忽略
+        #[cfg(test)]
+        mod tests {
+            fn build() -> Router<AppState> {
+                Router::new().route("/__test_only", get(t))
+            }
+        }
+    "#;
+
+    let sites: HashSet<(String, String)> = route_sites_in_source(synthetic, &re).into_iter().collect();
+
+    let expect = |m: &str, p: &str| (m.to_string(), p.to_string());
+    assert!(sites.contains(&expect("GET", "/demo")), "普通站点未命中：{sites:?}");
+    assert!(sites.contains(&expect("DELETE", "/demo/{id}")), "全限定 `axum::routing::delete` 未命中：{sites:?}");
+    assert!(sites.contains(&expect("POST", "/demo/{id}")), "链式 `.post()` 未命中：{sites:?}");
+    for m in ALL_HTTP_METHODS {
+        assert!(sites.contains(&expect(m, "/demo/any")), "`any()` 未展开出 {m}：{sites:?}");
+    }
+    assert!(!sites.iter().any(|(_, p)| p == "/__test_only"), "`#[cfg(test)] mod` 内的路由必须被忽略：{sites:?}");
+    assert!(!sites.iter().any(|(_, p)| p == "/commented_out"), "注释里的 `.route()` 必须被忽略：{sites:?}");
+    assert_eq!(sites.len(), 1 + 2 + ALL_HTTP_METHODS.len(), "不应有额外命中：{sites:?}");
+}
+
+/// 反向兜底：`synapse-web/src/routes/**` 里每个 `.route("<lit>", <chain>)` 站点
+/// 都必须能在 ledger 镜像里找到对应条目。
+#[test]
+fn source_route_sites_are_declared_in_ledger_mirror() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let re = RouteScanRegexes::new();
+
+    let mirror = ledger_mirror_tuples(&root.join(LEDGER_MIRROR_FIXTURE));
+
+    let mut files = Vec::new();
+    collect_router_source_files(&root.join(ROUTE_SOURCE_ROOT), &mut files);
+    assert!(
+        !files.is_empty(),
+        "必须至少扫描到一个 router 源文件（CARGO_MANIFEST_DIR 推导错了？root={})",
+        root.display()
+    );
+
+    let mut scanned = 0usize;
+    let mut missing = Vec::new();
+    for path in &files {
+        let raw = fs::read_to_string(path).expect("router 源码必须可按 UTF-8 读取");
+        for (method, literal) in route_sites_in_source(&raw, &re) {
+            scanned += 1;
+            let covered = if literal.starts_with("/_") {
+                mirror.contains(&(method.clone(), literal.clone()))
+            } else {
+                // 相对路径字面量（例如 `"/capabilities"`）：ledger 里记的是拼接后的
+                // 绝对路径，按后缀匹配。
+                mirror.iter().any(|(m, p)| m == &method && p.ends_with(&literal))
+            };
+            if !covered {
+                let rel = path.strip_prefix(&root).unwrap_or(path);
+                missing.push(format!("{}: {method} {literal}", rel.display()));
+            }
+        }
+    }
+
+    assert!(scanned > 0, "扫描到 0 个 `.route()` 站点 —— 扫描器可能被改坏了");
+    assert!(
+        missing.is_empty(),
+        "以下 `.route()` 站点未在 ledger 镜像（{LEDGER_MIRROR_FIXTURE}）里声明 —— 新增路由后必须重新生成派生产物：\n  \
+         python3 scripts/contract/gen_derived_routes.py --bootstrap\n  \
+         bash scripts/generate_sdk_ledger_fixtures.sh\n共 {} 处：\n{}",
+        missing.len(),
+        missing.join("\n")
+    );
 }
