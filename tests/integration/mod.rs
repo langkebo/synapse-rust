@@ -304,9 +304,12 @@ pub async fn get_test_pool() -> Option<Arc<sqlx::PgPool>> {
 }
 
 fn should_fallback_to_isolated_pool(error: &str) -> bool {
-    let error = error.to_ascii_lowercase();
     error.contains("out of shared memory")
-        || error.contains("failed to clone template")
+        // 共享 clone 的真实失败前缀是 `clone of {schema} from {template} failed:`
+        // （synapse_common::test_isolation::clone_schema_from_template）。曾有
+        // "failed to clone template" 匹配词，但代码库中没有任何产生方 —— 死匹配器，
+        // 导致模板重建窗口的 "schema ... does not exist" 竞态直接 panic 而非回退。
+        || error.contains("clone of ")
         || error.contains("template schema initialization")
 }
 

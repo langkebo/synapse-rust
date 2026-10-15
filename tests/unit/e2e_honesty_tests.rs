@@ -150,7 +150,9 @@ fn user_flow_tests_remain_an_explicit_opt_in() {
 ///
 /// Note the scan deliberately matches a *real* attribute line, not the string
 /// `#[ignore]` inside a comment or a `contains("#[ignore")` assertion — 10 of the
-/// 14 original hits were prose.
+/// 14 original hits were prose. Both the bare form and an explicit empty reason
+/// (`#[ignore = ""]`) are rejected, and a trailing `// ...` comment does not
+/// launder the bare attribute into looking like a documented one.
 #[test]
 fn ignored_tests_must_carry_a_reason() {
     fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
@@ -190,8 +192,12 @@ fn ignored_tests_must_carry_a_reason() {
         };
         for (idx, line) in source.lines().enumerate() {
             let trimmed = line.trim();
-            // A real attribute: the line is exactly `#[ignore]`.
-            if trimmed == "#[ignore]" {
+            // A *real* attribute line — not the literal string `#[ignore]` in a
+            // comment or a `contains("#[ignore")` assertion. Drop any trailing
+            // `// ...` comment first, then reject both the bare form and an
+            // explicit empty reason (`#[ignore = ""]`), which is equally silent.
+            let code = trimmed.split("//").next().unwrap_or(trimmed).trim();
+            if code == "#[ignore]" || code == "#[ignore = \"\"]" {
                 offenders.push(format!(
                     "{}:{} — bare `#[ignore]`; use `#[ignore = \"<why, and how to run it>\"]`",
                     path.strip_prefix(&root).unwrap_or(&path).display(),

@@ -7,13 +7,13 @@
     {
       "package": "synapse-common",
       "count": 2,
-      "why": "Hand-written `#[cfg(test)]` blocks calling `std::env::set_var`/`remove_var` in synapse-common/src/config/mod.rs (:759, :924) — Rust 2024 requires `unsafe` for those.",
+      "why": "Hand-written `#[cfg(test)]` blocks calling `std::env::set_var`/`remove_var` in synapse-common/src/config/mod.rs (:2316, :2322) — Rust 2024 requires `unsafe` for those.",
       "review_by": "2026-12-21"
     },
     {
       "package": "synapse-services",
       "count": 2,
-      "why": "Same pattern in synapse-services/src/worker/topology_validator.rs (:663, :675, inside `mod tests`).",
+      "why": "Same pattern in synapse-services/src/worker/topology_validator.rs (:725, :737, inside `mod tests`).",
       "review_by": "2026-12-21"
     },
     {
