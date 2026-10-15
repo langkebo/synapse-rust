@@ -527,6 +527,11 @@ UNIQUE 版属冗余。**先把"哪一种是对的口径"定下来再折入基线
 此前若误把它当容器库，会对着另一套数据下结论。判据与命令见
 `.workbuddy/memory/local-env-pitfalls.md` §8。
 
+> ⚠️ **当天晚些时候该宿主实例已停**（`brew services` 显示 `postgresql@15 = none`；
+> 另一版本 `postgresql@18` 是**空集群**且在启动中）⇒ 上面的 `.sqlx` 重生成源**当前不可用**，
+> 测试套件默认的 `localhost:5432/synapse_test` 也失去依托。影响面与恢复建议（推荐把容器
+> 5432 发布到宿主回环、并停掉 PG18 让出端口）见 `docs/audit/DB_REVIEW_2026-10-15.md` **§16**。
+
 ---
 
 *方案生成：2026-10-15 · 依据 `docs/audit/DB_REVIEW_2026-10-15.md`（实测取证版）*
