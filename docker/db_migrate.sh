@@ -318,7 +318,7 @@ check_db_connection() {
 ensure_schema_migrations_table() {
     psql_db -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
 CREATE TABLE IF NOT EXISTS schema_migrations (
-    id BIGSERIAL PRIMARY KEY,
+    id BIGSERIAL,
     version TEXT NOT NULL,
     name TEXT,
     checksum TEXT,
@@ -326,7 +326,12 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     execution_time_ms BIGINT,
     is_success BOOLEAN NOT NULL DEFAULT TRUE,
     description TEXT,
-    executed_at BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
+    executed_at BIGINT DEFAULT ((EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT),
+    -- ⚠️ 必须与 canonical 基线 `migrations/00000000_unified_schema_v12.sql` 的
+    -- `schema_migrations` 定义一致：**命名式 PK**。此前写内联 `PRIMARY KEY` ⇒ 实际名字是
+    -- PostgreSQL 自动生成的 `schema_migrations_pkey`，与基线声明的 `pk_schema_migrations`
+    -- 不一致（且引导总是先建表 ⇒ 基线的命名永不生效）。老库由基线的幂等 RENAME 收敛。
+    CONSTRAINT pk_schema_migrations PRIMARY KEY (id),
     CONSTRAINT uq_schema_migrations_version UNIQUE (version)
 );
 ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS name TEXT;
@@ -336,7 +341,13 @@ ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS execution_time_ms BIGINT;
 ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS is_success BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS description TEXT;
 ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS executed_at BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_schema_migrations_version ON schema_migrations(version);
+-- ⚠️ 刻意**不建** `idx_schema_migrations_version`（2026-10-15，方案 B5.4）：
+-- 它与上面的 `uq_schema_migrations_version`（UNIQUE(version)）**完全重复** ——
+-- 同一列的又一棵 btree，只带来双倍写放大与双倍空间，不提供任何新能力。
+-- 更糟的是本处曾写 `CREATE UNIQUE INDEX`、而 `docker/deploy/scripts/init-db.sql` 与
+-- Rust `database_initializer` 写的是非唯一 ⇒ `IF NOT EXISTS` 下**谁先跑谁赢**，
+-- 同一版本号在不同机器上得到不同语义。三方已统一为"不建"，老库由基线的
+-- `DROP INDEX IF EXISTS` 收敛。
 SQL
 }
 

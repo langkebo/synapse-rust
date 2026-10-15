@@ -2194,8 +2194,16 @@ BASELINE_DYNAMIC_PRODUCTION=96
 BASELINE_DYNAMIC_TEST_INFRA=769
 BASELINE_STATIC=1353
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1320
+SQLX_CACHE_ENTRIES=1319
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-15 更新 `SQLX_CACHE_ENTRIES` 1320 → 1319**（方案 B5.4）：删掉了
+> `synapse-services/src/database_initializer/mod.rs` 里那条
+> `CREATE INDEX IF NOT EXISTS idx_schema_migrations_version …` 的 `sqlx::query!`（该索引与
+> `uq_schema_migrations_version UNIQUE(version)` **完全重复**），经唯一入口
+> `scripts/ci/sqlx_prepare.sh` 重生成 ⇒ 缓存恰好少 **1** 条
+> （`git status .sqlx/` 只有 1 个 `D`，被删条目 = `query-397d7c455db6c795…json`）。
+> 本块其余四个 `BASELINE_*` 未变（`check_sqlx_dynamic_ratio.sh` 仍绿）。
 
 **教训**：判据必须**带复核日期**，否则"全绿"会随代码漂移变成假陈述。因此本次新增
 `scripts/ci/check_plan_numbers_fresh.sh`（把上面这个块与 `sqlx_dynamic_ratio_baseline` 现算比对，

@@ -476,6 +476,56 @@
 `init-db.sql:34` 与 `database_initializer/mod.rs:365` 建**非唯一**），`IF NOT EXISTS` 下
 **谁先跑谁赢**（实测库里是非唯一版）；而表上已有 `uq_schema_migrations_version` 保证唯一性，
 UNIQUE 版属冗余。**先把"哪一种是对的口径"定下来再折入基线**，否则等于把随机性写进单一来源。
+（→ **同日已在 §13.6 的 B5.4 中定下口径并收敛**：该索引被判为**纯冗余**，三方一律不建。）
+
+### 13.6 B5.4：账本表口径收敛 + 报告全绿（2026-10-15）
+
+**起因**：B5.3 之后报告剩 3 项。它们不是"该删的表"，而是"**同一张表的多个定义方互相漂移**"，
+必须先定口径。**现已全部收敛，报告 8/8 分节全绿。**
+
+#### 成因定论：**谁先创建，决定形态**
+
+`schema_migrations` 有**四个**定义方（canonical 基线 ＋ `docker/db_migrate.sh` ＋
+`docker/deploy/scripts/init-db.sql` ＋ `synapse-services/src/database_initializer/mod.rs`），
+而**引导路径必然先建它**（迁移器要先有账本表才能记录迁移）⇒ `CREATE TABLE IF NOT EXISTS`
+让"引导那份"赢，**基线的定义在实践上从不生效** —— 四处不一致长期无人发现的原因即此。
+
+实测（用 `report_orphan_db_objects.py --dsn-env` 扫各库）：
+
+| 库 | 创建者 | 形态 |
+|---|---|---|
+| `synapse_sqlx_scratch`、`synapse_sqlx_prep_v12` | **基线**直接创建 | **规范**：PK 名 `pk_schema_migrations`、无冗余索引（报告全 0） |
+| 容器 `synapse`、`synapse_ci_verify`、宿主 `synapse` | **引导**先创建 | **漂移**：PK 自动名 `schema_migrations_pkey` ＋ 多一棵冗余索引 |
+
+#### 四项处置
+
+| # | 项 | 定论 | 处置 |
+|---|---|---|---|
+| ① | `idx_schema_migrations_version` | **纯冗余**（`uq_schema_migrations_version UNIQUE(version)` 已提供同列唯一 btree）＋三处定义不一致（`db_migrate.sh` 建 **UNIQUE**、另两处非唯一 ⇒ `IF NOT EXISTS` 下"谁先跑谁赢"） | **三方一律不建**；基线清理段 `DROP INDEX IF EXISTS` 收敛老库 |
+| ② | `pk_schema_migrations` 未应用 | 引导用内联 `PRIMARY KEY` ⇒ 实际名 `schema_migrations_pkey`（列相同） | **三方改命名式**；基线幂等 `RENAME CONSTRAINT` 收敛老库 |
+| ③ | `VALIDATE … fk_cross_signing_keys_user` | 基线查/校验旧名，实际创建的是 `..._user_id` ⇒ 整块**死代码**（实测该外键本就 VALIDATED） | 改为实际名（**纯一致性清理、零行为变化**） |
+| ④ | 基线 `executed_at` 默认值 | `::BIGINT * 1000`（**先取整再乘**）⇒ 毫秒恒为 `000`（实测 `…011000` vs 另三处 `…011206`）—— **又一处"不生效的定义"里藏着的 bug** | 对齐为先乘再取整 |
+
+#### 验证
+
+- 容器库执行基线里那两条收敛语句 ⇒ 约束集合变为
+  `pk_schema_migrations, uq_schema_migrations_version`（**与基线完全一致**）、冗余索引消失、
+  `version` 的唯一保护仍在。
+- 报告 **8/8 分节 ✅**（孤儿关系/未应用关系/孤儿索引×2/孤儿约束×2/未应用约束/VALIDATE 死引用 全 0）。
+- 指纹 `48e404226830f749` → **`306314fd1316fa2d`**（+3196 字节；按 R10 约定**先用改动前实际常量
+  自检哈希实现**——改动前 223361 字节逐字节吻合——再取新值）。
+- `.sqlx`：**变更前**对 `synapse_sqlx_scratch` 跑 `--check` 得
+  `OK: .sqlx 与数据库元数据一致`（→ 建立了可信基线，重生成的差异只可能来自本次改动）；
+  经唯一入口 `scripts/ci/sqlx_prepare.sh` 重生成（缩容需显式 `ALLOW_CACHE_SHRINK=1`）⇒
+  **缓存 1320 → 1319，被删条目恰好就是那条冗余索引的 DDL 查询**（`git status .sqlx/` 仅 1 个 `D`）。
+
+#### 附：一处环境发现（影响"该对着哪个库操作"）
+
+本机有**两个 PostgreSQL 实例**：容器 `synapse-postgres`（PG **16.15**，deploy 栈真数据，
+**5432 未发布到宿主**）与宿主 Homebrew（PG **15.18**，`127.0.0.1:5432`，**28 个库**，含
+`.sqlx` 重生成源 `synapse_sqlx_scratch`）。**`localhost:5432` 不是容器** ——
+此前若误把它当容器库，会对着另一套数据下结论。判据与命令见
+`.workbuddy/memory/local-env-pitfalls.md` §8。
 
 ---
 

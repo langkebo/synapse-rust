@@ -102,13 +102,61 @@ END IF;
 | ④ 折入基线 | baseline 末尾新增幂等 `DROP TABLE IF EXISTS` 段（含证据注释）；指纹 `5654afa2ea622aff` → **`48e404226830f749`**（+2030 字节，按 R10 约定先自检旧值再取值） |
 | ⑤ 执行 + 复核 | dev 库执行这 4 条 ⇒ 孤儿对象 **4 表 / 7 索引 / 5 约束 → 0 / 0 / 0**；报告结论变为"表/视图与基线一致" |
 
-**仍留在报告里的 3 项（不是"该删的表"，属 B5.4）**：
+### 3.3 B5.4：报告上剩余 3 项**已全部收敛**（2026-10-15）
 
-| 项 | 现状 | 为什么不在 B5.3 里顺手改 |
+B5.3 之后报告剩 3 项。它们**不是"该删的表"**，而是"**同一张表的多个定义方互相漂移**"——
+处置前必须先定口径。现已全部收敛，报告 **8 个分节全绿**。
+
+#### 成因定论：**谁先创建，决定形态**（这解释了整类现象）
+
+`schema_migrations` 这张账本表有**四个**定义方：canonical 基线、`docker/db_migrate.sh`、
+`docker/deploy/scripts/init-db.sql`、`synapse-services/src/database_initializer/mod.rs`。
+而**引导路径必然先建它**（迁移器要先有账本表才能记录迁移）⇒ `CREATE TABLE IF NOT EXISTS`
+让"引导那份"赢，**基线的定义在实践上从不生效** —— 这正是四处不一致长期无人发现的原因。
+
+| 库 | 创建者 | 实测形态 |
 |---|---|---|
-| `idx_schema_migrations_version` | 库里有、基线无 | 它有**三个创建者**且**定义不一致**：`docker/db_migrate.sh:339` 建的是 **UNIQUE**，而 `docker/deploy/scripts/init-db.sql:34` 与 `synapse-services/src/database_initializer/mod.rs:365` 建的是**非唯一**；`IF NOT EXISTS` ⇒ **谁先跑谁赢**（实测库里是非唯一版）。表上本已有 `uq_schema_migrations_version` 保证唯一，UNIQUE 版属冗余。**折入基线前必须先定"哪一种是正确口径"**，属设计决定 |
-| `pk_schema_migrations` 未应用 | 基线声明此名、库里是 `schema_migrations_pkey` | 重命名需要 `ALTER TABLE … RENAME CONSTRAINT`，且要判断"这张由**运行时**（而非基线）管理的账本表该不该由基线拥有命名权" |
-| `VALIDATE CONSTRAINT fk_cross_signing_keys_user`（死引用） | 基线内陈旧名字 | 改动在基线正文（不是末尾追加），会与正在进行的其它基线改动冲突；且实测**无实际影响**，优先级低 |
+| `synapse_sqlx_scratch`、`synapse_sqlx_prep_v12` | **基线**直接创建 | 规范形态：PK 名 `pk_schema_migrations`、无冗余索引（报告全 0） |
+| 容器 `synapse`、`synapse_ci_verify`、宿主 `synapse` | **引导**先创建 | 漂移形态：PK 自动命名 `schema_migrations_pkey`、多一棵 `idx_schema_migrations_version` |
+
+判据（用本工具即可区分任意库）：
+
+```bash
+DATABASE_URL="postgresql://synapse:synapse@127.0.0.1:5432/<库>" \
+  python3 scripts/report_orphan_db_objects.py --dsn-env DATABASE_URL
+```
+
+#### 三项处置
+
+| 项 | 定论 | 处置 |
+|---|---|---|
+| `idx_schema_migrations_version` | **纯冗余**：`uq_schema_migrations_version UNIQUE (version)` 已提供 (version) 上的唯一 btree；这棵同列 btree 只带来双倍写放大＋双倍空间。且三处引导定义不一致（`db_migrate.sh` 建 **UNIQUE**、另两处非唯一）⇒ `IF NOT EXISTS` 下"谁先跑谁赢" | **三方一律不建**（`db_migrate.sh` / `init-db.sql` / Rust 均删该语句）；基线清理段加 `DROP INDEX IF EXISTS …` 使老库收敛 |
+| `pk_schema_migrations` | 基线声明此名、引导建的是自动名 `schema_migrations_pkey`（**列相同、名字不同**） | **三方改为命名式** `CONSTRAINT pk_schema_migrations PRIMARY KEY (id)`；基线清理段加幂等 `RENAME CONSTRAINT` 使老库收敛 |
+| `VALIDATE … fk_cross_signing_keys_user`（死引用） | 基线查/校验的是**旧名**，而它创建的是 `fk_cross_signing_keys_user_id` ⇒ 整块**死代码**。实测库里该外键本就 `convalidated=true`（创建时没写 `NOT VALID`） | 修正为实际名（**纯一致性清理、零行为变化**；保留了防御性：若某个老库上它是 `NOT VALID`，现在会真的被校验） |
+
+#### 顺带修掉的第四处不一致：`executed_at` 精度
+
+实测同一时刻两种写法的结果：
+
+| 写法 | 结果 |
+|---|---|
+| 基线原写法 `EXTRACT(EPOCH FROM NOW())::BIGINT * 1000`（**先取整再乘**） | `…011000` —— 毫秒恒为 `000`，**丢精度** |
+| 另三处写法 `(EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT`（先乘再取整） | `…011206` |
+
+已把基线改为后者（与另三处一致）。因为引导总是先建表，基线那句在实践上从不生效 ——
+**又一处"不生效的定义"里藏着的 bug**。
+
+#### 验证
+
+- 容器库执行两条收敛语句（即基线里那两条）⇒ 约束集合变为
+  `pk_schema_migrations, uq_schema_migrations_version`（**与基线完全一致**）、冗余索引消失、
+  `version` 的唯一保护仍在。
+- 报告 **8/8 分节 ✅**：孤儿关系 0、未应用关系 0、孤儿索引 0（两类）、孤儿约束 0（两类）、
+  未应用约束 0、VALIDATE 死引用 0。
+- 指纹 `48e404226830f749` → **`306314fd1316fa2d`**（+3196 字节，按 R10 约定先自检旧值再取值）。
+- `.sqlx` 经唯一入口 `scripts/ci/sqlx_prepare.sh` 重生成：**变更前 `--check` PASS**
+  （`OK: .sqlx 与数据库元数据一致`，对 `synapse_sqlx_scratch`）⇒ 重生成后的差异只可能是本次
+  删掉的那条 DDL 查询；缩容需显式 `ALLOW_CACHE_SHRINK=1`。
 
 ## 4. 处置流程（清理孤儿表之前必读）
 

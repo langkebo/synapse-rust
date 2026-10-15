@@ -2920,7 +2920,13 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     execution_time_ms BIGINT,
     is_success BOOLEAN NOT NULL DEFAULT TRUE,
     description TEXT,
-    executed_at BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000),
+    -- ⚠️ 必须与 `docker/db_migrate.sh` / `docker/deploy/scripts/init-db.sql` /
+    -- `synapse-services/src/database_initializer/mod.rs` 的表达式一致：**先乘再取整**。
+    -- 原写法 `EXTRACT(EPOCH FROM NOW())::BIGINT * 1000` 先把秒截成整数再乘 1000
+    -- ⇒ 毫秒恒为 `000`（实测 `…011000` vs `…011206`），丢精度；而这四处里
+    -- **引导路径总是先建表**（迁移器要先有账本表才能记录迁移），所以基线这句
+    -- 在实践上从不生效 —— 正因如此，这种不一致才长期没被发现。
+    executed_at BIGINT DEFAULT ((EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT),
     CONSTRAINT pk_schema_migrations PRIMARY KEY (id),
     CONSTRAINT uq_schema_migrations_version UNIQUE (version)
 );
@@ -5214,15 +5220,22 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_e2ee_audit_log_room_event
 -- P2-3: cross_signing_keys FK VALIDATE
 -- ============================================================
 -- 生产部署后独立运行（耗时但仅持有 ShareUpdateExclusiveLock）
+--
+-- ⚠️ 2026-10-15 修正：本块原先查/校验的是 **旧名** `fk_cross_signing_keys_user`，
+-- 而本文件创建的实际是 `fk_cross_signing_keys_user_id`（见上面的 DO 块）⇒
+-- `IF EXISTS` 永不成立、**整块是死代码**（由 `scripts/report_orphan_db_objects.py`
+-- 的"VALIDATE 引用了从未创建的名字"一节测出）。实测库里该外键本就是 VALIDATED
+-- （创建语句没写 `NOT VALID`），故修正后仍是 no-op —— 这是**纯一致性清理**，
+-- 但保留了防御性：若某个老库上它是 `NOT VALID`，现在会真的被校验。
 DO $$
 BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_constraint
-        WHERE conname = 'fk_cross_signing_keys_user'
+        WHERE conname = 'fk_cross_signing_keys_user_id'
         AND conrelid = 'cross_signing_keys'::regclass
         AND NOT convalidated
     ) THEN
-        ALTER TABLE cross_signing_keys VALIDATE CONSTRAINT fk_cross_signing_keys_user;
+        ALTER TABLE cross_signing_keys VALIDATE CONSTRAINT fk_cross_signing_keys_user_id;
     END IF;
 END $$;
 
@@ -5435,3 +5448,34 @@ DROP TABLE IF EXISTS device_lists_outbound_pokes;
 DROP TABLE IF EXISTS room_state_events;
 DROP TABLE IF EXISTS leak_alerts;
 DROP TABLE IF EXISTS push_devices;
+
+-- ------------------------------------------------------------
+-- 账本表（schema_migrations）的口径收敛（2026-10-15，方案 B5.4）
+-- ------------------------------------------------------------
+-- 这张表有**四个**定义方：本基线 ＋ `docker/db_migrate.sh` ＋
+-- `docker/deploy/scripts/init-db.sql` ＋ `synapse-services/src/database_initializer/mod.rs`。
+-- 而**引导路径必然先建它**（迁移器要先有账本表才能记录迁移）⇒ `CREATE TABLE IF NOT EXISTS`
+-- 让"引导那份"赢，本基线的定义在实践上**从不生效** —— 这正是它的四处不一致长期无人发现的原因。
+-- 实测到的两条漂移及处置：
+--
+-- ① **冗余索引**：`uq_schema_migrations_version UNIQUE (version)` 已经提供 (version) 上的唯一
+--    btree，而早期引导又额外建了一棵同列的 `idx_schema_migrations_version`（纯重复：双倍写放大
+--    ＋双倍空间）。更糟的是三处引导对它的定义还不一致 —— `db_migrate.sh` 建的是 **UNIQUE**、
+--    另两处建非唯一 ⇒ `IF NOT EXISTS` 下**谁先跑谁赢**，同一版本号在不同机器上得到不同语义。
+--    三方已统一为"不建"，老库在此收敛（判据：该索引在 `uq_..._version` 之上不提供任何新能力）。
+DROP INDEX IF EXISTS idx_schema_migrations_version;
+--
+-- ② **PK 命名**：本基线声明 `pk_schema_migrations`，而三处引导此前写内联 `PRIMARY KEY`
+--    ⇒ 实际名字由 PostgreSQL 自动生成为 `schema_migrations_pkey`（列相同、名字不同）。
+--    三方已改为命名式，这里把老库收敛。幂等：已命名时 `IF EXISTS` 不成立。
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'schema_migrations_pkey'
+        AND conrelid = 'schema_migrations'::regclass
+    ) THEN
+        ALTER TABLE schema_migrations
+            RENAME CONSTRAINT schema_migrations_pkey TO pk_schema_migrations;
+    END IF;
+END $$;

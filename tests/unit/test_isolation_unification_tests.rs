@@ -200,7 +200,17 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // （注：上一行记的 `5076e5daa3c35b1d` 与本次改动前的实际常量不一致 ⇒ 2026-10-14 之后
 //  还有一次改动未补记，与 155-157 / 181-184 行记录的是**同一类漏同步**。故本次一律以
 //  「改动前的实际常量」作自检基线，而不是以上一行的文字记录。）
-const EXPECTED_BASELINE_FINGERPRINT: &str = "48e404226830f749";
+// 2026-10-15（方案 B5.4：账本表口径收敛 + 死引用修正）：
+// baseline 再变（三处改动：① `schema_migrations.executed_at` 默认值改为**先乘再取整**
+// 以保住毫秒精度 —— 原写法 `::BIGINT * 1000` 让毫秒恒为 `000`；② 末尾新增
+// 「账本表口径收敛」段：`DROP INDEX IF EXISTS idx_schema_migrations_version`（与
+// `uq_schema_migrations_version` 完全重复）＋ 幂等 `RENAME CONSTRAINT` 把老库的
+// `schema_migrations_pkey` 收敛为 `pk_schema_migrations`；③ 修正 `P2-3` 块里
+// VALIDATE 的**旧名** `fk_cross_signing_keys_user` → 实际创建名 `..._user_id`
+// （原为死分支）。共 +3196 字节，`bytes=226557`）⇒ 按 R10 第①条独立复算 FNV-1a 64 得
+// `306314fd1316fa2d`；先用**改动前的实际常量** `48e404226830f749` 自检哈希实现
+// （改动前字节 223361 逐字节吻合，证明哈希实现未变）后才取新值。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "306314fd1316fa2d";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

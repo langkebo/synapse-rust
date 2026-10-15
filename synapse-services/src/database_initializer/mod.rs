@@ -341,7 +341,7 @@ impl DatabaseInitService {
     async fn ensure_schema_migrations_table(&self) -> Result<(), sqlx::Error> {
         let create_table_sql = r"
             CREATE TABLE IF NOT EXISTS schema_migrations (
-                id BIGSERIAL PRIMARY KEY,
+                id BIGSERIAL,
                 version TEXT NOT NULL,
                 name TEXT,
                 checksum TEXT,
@@ -353,20 +353,24 @@ impl DatabaseInitService {
                 -- `docker/db_migrate.sh` 一致：executed_at 是毫秒 bigint，不是 timestamptz。
                 -- 写成 TIMESTAMPTZ 时，若该表已按 bigint 建立（基线迁移先执行），
                 -- 本表的写入会报 type mismatch，迁移记录全部丢失。
-                executed_at BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
+                executed_at BIGINT DEFAULT ((EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT),
+                -- ⚠️ 命名式 PK（2026-10-15，方案 B5.4）：内联 `PRIMARY KEY` 会让实际名字变成
+                -- 自动生成的 `schema_migrations_pkey`，与基线的 `pk_schema_migrations` 漂移
+                -- （引导总是先建表 ⇒ 基线的命名永不生效）。老库由基线的幂等 RENAME 收敛。
+                CONSTRAINT pk_schema_migrations PRIMARY KEY (id),
                 CONSTRAINT uq_schema_migrations_version UNIQUE (version)
             )
         ";
 
         sqlx::raw_sql(create_table_sql).execute(&*self.pool).await?;
 
-        sqlx::query!(
-            r"
-            CREATE INDEX IF NOT EXISTS idx_schema_migrations_version ON schema_migrations(version)
-            ",
-        )
-        .execute(&*self.pool)
-        .await?;
+        // ⚠️ 刻意**不建** `idx_schema_migrations_version`（2026-10-15，方案 B5.4）：
+        // 它与 `uq_schema_migrations_version`（UNIQUE(version)）**完全重复** —— 同列第二棵 btree，
+        // 只带来双倍写放大与双倍空间，不提供任何新能力。此前这里（以及 `db_migrate.sh` /
+        // `deploy/scripts/init-db.sql`）各自建它，且定义还不一致（`db_migrate.sh` 建 UNIQUE、
+        // 其余非唯一）⇒ `IF NOT EXISTS` 下"谁先跑谁赢"。三方已统一为"不建"，
+        // 老库由 canonical 基线的 `DROP INDEX IF EXISTS` 段收敛。
+        // 删掉本查询同时要求重生成 `.sqlx`（唯一入口 `scripts/ci/sqlx_prepare.sh`）。
 
         info!(table_name = %"schema_migrations", "数据库迁移记录表已就绪");
         Ok(())
