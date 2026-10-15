@@ -4719,14 +4719,56 @@ END $$;
 -- 的相邻位置限制不适用于 ADT），不要"为避免重复定义"而改回 IF NOT EXISTS 包裹。
 -- ⚠️ B4.4：末尾是 `NOT VALID`，全表校验统一在下方 "P1-2b" 段做 —— 改这里必须同步
 -- 那一段，否则约束会停在 NOT VALID（`verify_data_integrity` 会报出来）。
+--
+-- ⚠️ B4.5（2026-10-15）：本条的 DROP+ADD 改成**只在定义变化时**才做。三条 CHECK
+-- （本条 + `ck_events_event_id_format` + `ck_room_memberships_valid`）同型，写法与理由同此。
+--
+--   为什么值得改：基线重放是**全量**的（checksum 一变就重放整份），而这三条的全表校验
+--   代价随表增长 —— 实测 `events`（真实正则）：5,000,000 行 10.4 s、20,000,000 行 80.8 s，
+--   CPU 密集且持 `ShareUpdateExclusiveLock`（⇒ **与 autovacuum 互斥**，会把发布窗口
+--   与后台清理互相堵住）。定义没变，就不该每次发布都重付这份代价。
+--   比较方式：用一张**临时探针表**让 PG 自己把期望表达式反解析成文本，再与库里现状的
+--   `pg_get_expr(conbin, conrelid)` 比。不硬编码 `pg_constraintdef()` 的输出——实测它会把
+--   ` NOT VALID` 一起拼进来、且随 PG 版本变；也不看 `convalidated`（那是 "P1-2b" 的职责）。
+--   ⚠️ 三条**写法约束**，违反会伤到解析基线的工具或引入静默漂移：
+--     ① 探针表必须写 `CREATE TEMP TABLE`：漏掉 `TEMP` 会被
+--        `scripts/report_orphan_db_objects.py` 的 `DEF_RE` 当成基线里的**真实表**；
+--     ② 探针的约束名必须走 `%I` 占位符、**不写字面量**：字面量同样被它当成基线真实约束，
+--        而该约束只活在临时表上 ⇒ 报告会永久报一条"未应用约束"；
+--     ③ 表达式只在 `ck_expr` 里写一次，探针与真实 DDL 都从它生成 —— 写两份就会多出
+--        「改了真实 DDL、忘了改探针」的静默漂移通道，那是本项最危险的失败模式。
+--   老库 / 测试模板带着**旧定义**时照样会被修：反解析结果与期望不同 ⇒ 走重建分支，
+--   与原先"无条件 DROP+ADD"等效（这正是当年不用 `IF NOT EXISTS` 包裹的原因）。
+--   跳过重建是**安全**的：库里定义已经等于期望值；若它恰好停在 `NOT VALID`，
+--   "P1-2b" 段会照常补校验（实测：已 valid 的约束再 `VALIDATE` 不扫表）。
 DO $$
+DECLARE
+    ck_expr text := $chk$room_id ~ '^![a-zA-Z0-9._=+/-]{43}$'
+                       OR room_id ~ '^![a-zA-Z0-9._=+./-]+:[a-zA-Z0-9.-]+$'$chk$;
+    wanted text;
+    current_def text;
 BEGIN
-    ALTER TABLE rooms DROP CONSTRAINT IF EXISTS ck_rooms_room_id_format;
-    ALTER TABLE rooms ADD CONSTRAINT ck_rooms_room_id_format
-        CHECK (
-            room_id ~ '^![a-zA-Z0-9._=+/-]{43}$'
-            OR room_id ~ '^![a-zA-Z0-9._=+./-]+:[a-zA-Z0-9.-]+$'
-        ) NOT VALID;
+    CREATE TEMP TABLE _ck_probe_rooms (room_id text);
+    EXECUTE format('ALTER TABLE _ck_probe_rooms ADD CONSTRAINT %I CHECK (%s)',
+                   'ck_rooms_room_id_format_probe', ck_expr);
+    SELECT pg_get_expr(conbin, conrelid) INTO wanted FROM pg_constraint
+     WHERE conname = 'ck_rooms_room_id_format_probe'
+       AND conrelid = '_ck_probe_rooms'::regclass;
+    DROP TABLE _ck_probe_rooms;
+
+    -- 现状定义。用 `'rooms'::regclass` 走同一条 search_path 解析 ⇒ 与下面的 ALTER
+    -- 必然指向同一张表（比"全库同名约束"这种非 schema 级判断可靠）。
+    SELECT pg_get_expr(conbin, conrelid) INTO current_def FROM pg_constraint
+     WHERE conname = 'ck_rooms_room_id_format' AND conrelid = 'rooms'::regclass;
+
+    -- ⚠️ 必须用 `IS DISTINCT FROM`：约束不存在时 `current_def` 是 NULL，而
+    -- `NULL <> wanted` 的结果是 NULL ⇒ 分支不进入 ⇒ **新库上约束根本不会被创建**
+    -- （实测确认过这个静默失效）。
+    IF current_def IS DISTINCT FROM wanted THEN
+        ALTER TABLE rooms DROP CONSTRAINT IF EXISTS ck_rooms_room_id_format;
+        EXECUTE format('ALTER TABLE rooms ADD CONSTRAINT ck_rooms_room_id_format'
+                       ' CHECK (%s) NOT VALID', ck_expr);
+    END IF;
 END $$;
 
 -- event_id 格式：两种合法形态
@@ -4740,18 +4782,32 @@ END $$;
 -- 等于写路径整体不可用 —— 而这件事只在**真 schema** 上才会暴露（纯构造用例看不到），
 -- 所以这里必须与 event_id 的实现同批修掉。
 -- ⚠️ B4.4：末尾是 `NOT VALID`，全表校验在下述 "P1-2b" 段统一做（同上，不可只改一处）。
+-- ⚠️ B4.5：改成"只在定义变化时才重建"；写法与三条理由见 `ck_rooms_room_id_format` 上方说明块。
+-- `$` 必须留在字符类里：本地 ID 的 opaque 段自身含一个 `$`
+-- （`$<millis>$<base64url>:<server>`），漏掉它会连 v1/v2 的 ID 一起拒掉。
 DO $$
+DECLARE
+    ck_expr text := $chk$event_id ~ '^\$[a-zA-Z0-9._=+$/-]+:[a-zA-Z0-9.-]+$'
+                       OR event_id ~ '^\$[a-zA-Z0-9._=+/-]{43}$'$chk$;
+    wanted text;
+    current_def text;
 BEGIN
-    -- 重新声明而不是 IF NOT EXISTS：长期存在的库（本机 public、各测试模板）里
-    -- 已经带着旧定义，只加不换会让它们继续带着坏约束，本地与 CI 从此分叉。
-    ALTER TABLE events DROP CONSTRAINT IF EXISTS ck_events_event_id_format;
-    ALTER TABLE events ADD CONSTRAINT ck_events_event_id_format
-        CHECK (
-            -- `$` 必须留在字符类里：本地 ID 的 opaque 段自身含一个 `$`
-            -- （`$<millis>$<base64url>:<server>`），漏掉它会连 v1/v2 的 ID 一起拒掉。
-            event_id ~ '^\$[a-zA-Z0-9._=+$/-]+:[a-zA-Z0-9.-]+$'
-            OR event_id ~ '^\$[a-zA-Z0-9._=+/-]{43}$'
-        ) NOT VALID;
+    CREATE TEMP TABLE _ck_probe_events (event_id text);
+    EXECUTE format('ALTER TABLE _ck_probe_events ADD CONSTRAINT %I CHECK (%s)',
+                   'ck_events_event_id_format_probe', ck_expr);
+    SELECT pg_get_expr(conbin, conrelid) INTO wanted FROM pg_constraint
+     WHERE conname = 'ck_events_event_id_format_probe'
+       AND conrelid = '_ck_probe_events'::regclass;
+    DROP TABLE _ck_probe_events;
+
+    SELECT pg_get_expr(conbin, conrelid) INTO current_def FROM pg_constraint
+     WHERE conname = 'ck_events_event_id_format' AND conrelid = 'events'::regclass;
+
+    IF current_def IS DISTINCT FROM wanted THEN
+        ALTER TABLE events DROP CONSTRAINT IF EXISTS ck_events_event_id_format;
+        EXECUTE format('ALTER TABLE events ADD CONSTRAINT ck_events_event_id_format'
+                       ' CHECK (%s) NOT VALID', ck_expr);
+    END IF;
 END $$;
 
 -- sender 格式（Matrix user_id）
@@ -5088,9 +5144,31 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_device_signatures_target
 -- 而本约束原先只允许 invite/join/knock/leave/ban ⇒ 每次 forget 都 23514 失败。
 -- 用 DROP IF EXISTS + ADD 重建：既让已存在该约束的库（生产库/public）拿到新定义，
 -- 又天然按当前 search_path 定位表，不再依赖"全库同名约束"这种非 schema 级判断。
-ALTER TABLE room_memberships DROP CONSTRAINT IF EXISTS ck_room_memberships_valid;
-ALTER TABLE room_memberships ADD CONSTRAINT ck_room_memberships_valid
-    CHECK (membership IN ('invite', 'join', 'knock', 'leave', 'ban', 'forget')) NOT VALID;
+-- ⚠️ B4.5：改成"只在定义变化时才重建"；写法与三条理由见 `ck_rooms_room_id_format` 上方说明块。
+DO $$
+DECLARE
+    ck_expr text := $chk$membership IN ('invite', 'join', 'knock', 'leave', 'ban', 'forget')$chk$;
+    wanted text;
+    current_def text;
+BEGIN
+    CREATE TEMP TABLE _ck_probe_memberships (membership text);
+    EXECUTE format('ALTER TABLE _ck_probe_memberships ADD CONSTRAINT %I CHECK (%s)',
+                   'ck_room_memberships_valid_probe', ck_expr);
+    SELECT pg_get_expr(conbin, conrelid) INTO wanted FROM pg_constraint
+     WHERE conname = 'ck_room_memberships_valid_probe'
+       AND conrelid = '_ck_probe_memberships'::regclass;
+    DROP TABLE _ck_probe_memberships;
+
+    SELECT pg_get_expr(conbin, conrelid) INTO current_def FROM pg_constraint
+     WHERE conname = 'ck_room_memberships_valid'
+       AND conrelid = 'room_memberships'::regclass;
+
+    IF current_def IS DISTINCT FROM wanted THEN
+        ALTER TABLE room_memberships DROP CONSTRAINT IF EXISTS ck_room_memberships_valid;
+        EXECUTE format('ALTER TABLE room_memberships ADD CONSTRAINT ck_room_memberships_valid'
+                       ' CHECK (%s) NOT VALID', ck_expr);
+    END IF;
+END $$;
 
 -- ============================================================
 -- P1-2b: 三条 CHECK 的独立 VALIDATE（B4.4）

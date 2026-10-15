@@ -966,6 +966,7 @@ tst
 tsvector
 ttf
 ttl
+tup
 turbofish
 turnserver
 twilio

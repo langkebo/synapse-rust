@@ -17,8 +17,9 @@
 6. [SSL/TLS 证书](#ssltls-证书)
 7. [VoIP / TURN 集成](#voip--turn-集成)
 8. [服务管理](#服务管理)
-9. [备份与恢复](#备份与恢复)
-10. [故障排查](#故障排查)
+9. [数据库迁移（基线重放）语义](#数据库迁移基线重放语义)
+10. [备份与恢复](#备份与恢复)
+11. [故障排查](#故障排查)
 
 ---
 
@@ -298,6 +299,83 @@ docker compose down -v       # 停止并删除数据卷（危险，数据丢失�
 - `https://matrix.test/health`
 - `http://localhost:8008/health`
 - `https://matrix.test/_matrix/client/versions`
+
+---
+
+## 数据库迁移（基线重放）语义
+
+`migrator` 只跑一份统一基线 `migrations/00000000_unified_schema_v12.sql`（**没有**时间戳增量文件），
+所以"改 schema"＝"改基线"。运行时只有两条规则（`docker/db_migrate.sh`）：
+
+| 记账 checksum vs 文件 checksum | 行为 |
+|---|---|
+| **相同** | `基线迁移已记录且内容未变` ⇒ **直接跳过**，什么都没执行 |
+| **不同** | `基线内容已变化，重放基线以应用变更` ⇒ **整份基线重放**（容错模式；仍有语句失败则报错退出） |
+
+⇒ "这次发布会不会碰数据库"取决于**基线文件内容**，与镜像 tag 无关：
+
+```bash
+git diff <上次发布的提交> -- migrations/00000000_unified_schema_v12.sql
+```
+
+### 重放代价：整份基线重跑，但绝大部分语句是幂等空操作
+
+重放会再执行一遍全部 `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX CONCURRENTLY IF NOT EXISTS`
+等，正常情况下这些"已存在、跳过"。历史上**唯一随数据量线性增长**的是三张核心表上的
+`CHECK` 约束重建 —— 已于 2026-10-15 修掉（方案 §13.9 / §13.11）：
+
+- **B4.4**：`ADD CONSTRAINT … CHECK (…)` → `ADD … NOT VALID` + 独立 `VALIDATE CONSTRAINT`。
+  `ADD`（两种写法都取 `AccessExclusiveLock`，差别只在**是否扫表**）不再扫表 ⇒
+  **排他锁窗口从"全表扫描时长"降到近 0**；扫描改由 `VALIDATE` 在 `ShareUpdateExclusiveLock`
+  下做（**不阻塞读写**）。实测（真实 `events` 约束、5,000,000 行）：AE 持有 **11,776 ms → 6 ms**、
+  并发写 30 笔从 **全阻塞** 变成 **0 阻塞**。
+- **B4.5**：这三条约束改成**只在定义变化时**才重建 ⇒ 定义没变的重放**不再重跑全表校验**。
+
+### 发布前必查：本次基线变更是否触及热表约束
+
+```bash
+# 1) 是否动了三条热表 CHECK 的表达式
+git diff <上次发布的提交> -- migrations/00000000_unified_schema_v12.sql \
+  | grep -E '^[+-].*(ck_events_event_id_format|ck_rooms_room_id_format|ck_room_memberships_valid)'
+
+# 2) 是否有新增的会扫表的语句（新增 CHECK 的 NOT VALID / VALIDATE 是否配对齐全）
+grep -nE 'NOT VALID|VALIDATE CONSTRAINT' migrations/00000000_unified_schema_v12.sql
+```
+
+| 情况 | 影响 |
+|---|---|
+| 第 1 步**无输出** | 这三条不会被重建 ⇒ 重放**不会**在 `events`/`rooms`/`room_memberships` 上做全表校验 |
+| 第 1 步**有输出**（表达式真变了） | 该表跑一次 `VALIDATE`：**不阻塞读写**，但 CPU 密集。实测速率约 **2–4.5 µs/行**（与数据形态相关）⇒ 5M 行 ≈ 10–23 s、20M 行 ≈ 81 s |
+| 新增了**其它**表上的 `ADD CONSTRAINT … CHECK (…)`（无 `NOT VALID`） | ⚠️ 那条**仍会**在 `ADD` 期间持有排他锁并扫表；只有上面三条热表约束装了"定义变化才重建"的守卫 |
+
+⚠️ **`VALIDATE` 与 autovacuum 互相阻塞**：两者都取 `ShareUpdateExclusiveLock`。带表达式变更的
+发布建议放低峰，并在发布前确认没有正在跑的 autovacuum：
+
+```bash
+docker exec -it synapse-postgres psql -U synapse -d synapse -c \
+  "SELECT relname, last_autovacuum FROM pg_stat_user_tables
+    WHERE relname IN ('events','rooms','room_memberships');"
+
+# 发布期间观察
+docker exec -it synapse-postgres psql -U synapse -d synapse -c \
+  "SELECT pid, state, wait_event_type, query FROM pg_stat_activity WHERE query ILIKE '%VALIDATE%';"
+```
+
+### 发布后核验
+
+```bash
+# 三条约束必须都是"已验证"；残留 NOT VALID ⇒ 说明 VALIDATE 没跑成功
+docker exec -it synapse-postgres psql -U synapse -d synapse -c \
+  "SELECT conname, convalidated FROM pg_constraint
+    WHERE conname IN ('ck_rooms_room_id_format','ck_events_event_id_format','ck_room_memberships_valid');"
+
+# 只读巡检：孤儿对象 / 未应用对象 / 未验证的 CHECK / VALIDATE 死引用
+python3 scripts/report_orphan_db_objects.py --dsn-env DATABASE_URL
+```
+
+`VALIDATE` 失败会**如实报错**（`check constraint "…" of relation "…" is violated by some row`）——
+那说明库里存在违反格式约束的历史数据，应作为**真实数据缺陷**处理，不要"改回 `NOT VALID` 了事"
+（那只会把约束变成摆设，并被上面的巡检抓出来）。详见 `docs/runbook/DB_ORPHAN_OBJECT_AUDIT.md`。
 
 ---
 

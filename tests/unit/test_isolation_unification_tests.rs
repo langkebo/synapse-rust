@@ -217,7 +217,13 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // 注释。共 +2570 字节，`bytes=229127`）⇒ 按 R10 第①条独立复算 FNV-1a 64 得
 // `9e954f0c9c50755e`；先用**改动前的实际常量** `306314fd1316fa2d` 自检哈希实现
 // （改动前字节 226557 逐字节吻合，证明哈希实现未变）后才取新值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "9e954f0c9c50755e";
+// 2026-10-15（方案 B4.5：三条 CHECK 只在**定义变化**时才 DROP+ADD，见 §13.11）：
+// baseline 再变（三处 `DO $$` 块改为「临时探针表反解析期望定义 + `pg_get_expr` 比对 +
+// `IS DISTINCT FROM` 守卫」，表达式经 `$chk$…$chk$` 单一定义源传给探针与真实 DDL；
+// 三条覆盖全表校验的说明与写法约束注释。共 +4957 字节，`bytes=234084`）⇒ 按 R10 第①条
+// 独立复算 FNV-1a 64 得 `46adae9a7958a336`；先用**改动前的实际常量** `9e954f0c9c50755e`
+// 自检哈希实现（改动前字节 229127 逐字节吻合，证明哈希实现未变）后才取新值。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "46adae9a7958a336";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))
