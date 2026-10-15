@@ -1132,7 +1132,7 @@ create_directories() {
     # 注意：不要 mkdir config —— 配置的唯一真相源是 $PROJECT_ROOT/docker/config/，
     # 在 deploy 目录下创建空的 config/ 会形成"看似有副本"的假象，并让 compose
     # 挂载到空目录（镜像内 /app/config 本身为空，服务会因缺配置启动失败）。
-    mkdir -p ssl media logs backups
+    mkdir -p ssl media logs backups wal_archive
     # $SYNAPSE_DATA_DIR 是 /app/data 的宿主机落点（见 docker-compose.yml 的 volumes
     # 注释）。必须在 `compose up` 之前存在，否则 Docker 会代为创建；那样在 Linux
     # 上目录属主是 root，而容器以 uid 1000 运行，后续写 signing.key 可能失败。

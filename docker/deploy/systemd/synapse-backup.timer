@@ -1,0 +1,13 @@
+[Unit]
+Description=每日 02:30 触发 synapse-rust PostgreSQL 备份
+
+[Timer]
+# 每天 02:30；随机延迟 5 分钟避免与其它定时任务同时打满 IO
+OnCalendar=*-*-* 02:30:00
+RandomizedDelaySec=300
+# 机器当时关机/休眠 ⇒ 开机的下一个周期补跑（不静默丢掉一次备份）
+Persistent=true
+Unit=synapse-backup.service
+
+[Install]
+WantedBy=timers.target

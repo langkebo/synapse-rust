@@ -72,6 +72,9 @@ docker/logs/
 backups/
 *.backup
 
+# WAL 归档目录（方案 B1.1）：归档产物不入库，但**目录必须在 PGDATA 之外**
+wal_archive/
+
 # Docker deploy 目录敏感文件
 docker/deploy/.env
 docker/deploy/media/

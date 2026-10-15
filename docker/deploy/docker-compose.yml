@@ -44,6 +44,10 @@ services:
       - config_file=/etc/postgresql/postgresql.conf
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # WAL 归档落点：**必须在 PGDATA 之外**（方案 B1.1）。放数据卷里等于
+      # "归档与数据同损"，PITR 就没意义了。Linux 上宿主目录需 `chmod 777`
+      # 或 `chown 70:70`（容器内 postgres 跑在 uid 70）。
+      - ./wal_archive:/var/lib/postgresql/wal_archive
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init-db.sql:ro
       # 保持**单文件**挂载：宿主文件名是 `postgres.conf`，容器要读的是
       # `/etc/postgresql/postgresql.conf`。改成目录挂载（`../config:/etc/postgresql`）

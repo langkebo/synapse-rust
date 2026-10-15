@@ -1,0 +1,18 @@
+[Unit]
+Description=synapse-rust PostgreSQL 每日备份
+Documentation=file:../../../docs/runbook/DB_RESTORE_DRILL.md
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# ⚠️ 安装路径需与本机一致（默认按 /opt/synapse-rust 写；deploy.sh 的安装目录若不同请改这两行）
+WorkingDirectory=/opt/synapse-rust
+Environment=BACKUP_DIR=/var/backups/synapse
+Environment=KEEP_DAYS=7
+# 备份体积下限（字节）：低于它即判失败，防"空备份记成功"
+Environment=BACKUP_MIN_BYTES=1024
+# 异地同步：填上即启用（需本机已装并配置 rclone）；不填则脚本**显式 SKIP** 并告警
+#Environment=BACKUP_OFFSITE_REMOTE=synapse-offsite:pg-backups
+ExecStart=/bin/bash /opt/synapse-rust/scripts/backup_database.sh
+TimeoutStartSec=30min

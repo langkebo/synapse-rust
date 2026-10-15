@@ -117,6 +117,10 @@ services:
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # WAL 归档落点：**必须在 PGDATA 之外**（方案 B1.1）。放数据卷里等于
+      # "归档与数据同损"，PITR 就没意义了。宿主目录需可写（Docker Desktop 下
+      # 一般自动映射为当前用户；Linux 上需 chmod 777 或 chown 70:70）。
+      - ./wal_archive:/var/lib/postgresql/wal_archive
       # 保持单文件挂载：宿主文件名 `postgres.conf` 与容器要读的
       # `/etc/postgresql/postgresql.conf` 名称不同，目录挂载会让 postgres
       # 找不到配置文件而崩溃。理由详见 docker/deploy/docker-compose.yml。
