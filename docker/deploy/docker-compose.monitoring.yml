@@ -160,6 +160,73 @@ services:
     networks:
       - synapse-network
 
+  # ------------------------------------------------- postgres_exporter（DB 观测）
+  # 为什么现在才有：`prometheus.yml` 顶部写着一条纪律 —— "只声明真实存在的目标"，
+  # 因为指向不存在主机的 job 只会永久 `down`，并让依赖它的面板静默变成 No data。
+  # 所以顺序必须是**先有本服务、再有 `postgres` job**；两者缺一即自相矛盾。
+  #
+  # 权限：**只读角色** `synapse_monitor`（LOGIN + pg_monitor + CONNECT），
+  # 口令来自 `docker/deploy/.env` 的 `MONITOR_DB_PASSWORD`（已 gitignore），
+  # 由 `scripts/create-monitoring-role.sh` 幂等施加。
+  # **不要**图省事直接复用 `POSTGRES_USER` —— 那是 owner 账号，等于把写权限给采集器。
+  synapse-postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: synapse-postgres-exporter
+    restart: unless-stopped
+    cpus: ${POSTGRES_EXPORTER_CPU_LIMIT:-0.3}
+    mem_limit: ${POSTGRES_EXPORTER_MEMORY_LIMIT:-128m}
+    environment:
+      # sslmode 与核心栈 DATABASE_URL 保持一致（同网络内未启用 TLS）
+      DATA_SOURCE_NAME: "postgresql://${MONITOR_DB_ROLE:-synapse_monitor}:${MONITOR_DB_PASSWORD:?MONITOR_DB_PASSWORD must be set (见 docker/deploy/.env)}@postgres:5432/${POSTGRES_DB:-synapse}?sslmode=disable"
+      # 只采集显式列出的库，避免误连模板/测试库
+      PG_EXPORTER_AUTO_DISCOVER_DATABASES: "false"
+    # 刻意**不映射**宿主端口：Prometheus 与它同网络，直连 :9187，最小暴露面
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9187/metrics || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    networks:
+      - synapse-network
+
+  # ------------------------------------------------------------- Pushgateway
+  # 为什么现在加（2026-10-15 方案 B2）：
+  #   "备份新鲜度"是**外部定时任务**产生的信号，Prometheus 抓不到 —— 必须由备份脚本
+  #   主动上报（`scripts/backup_database.sh` 的 `BACKUP_PUSHGATEWAY_URL`），
+  #   再被 `PostgresBackupStale` / `PostgresBackupMetricMissing` 两条告警消费。
+  #   ⚠️ 事实核查：**deploy 栈此前没有这个服务**（`docker/docker-compose.monitoring.yml`
+  #   里有，但那是 dev 侧；本机运行的 deploy 栈 `docker ps` 里并没有 pushgateway），
+  #   所以"备份新鲜度"当时根本没有数据源，不是"看起来正常"而是"从未存在"。
+  synapse-pushgateway:
+    image: prom/pushgateway:v1.6.2
+    container_name: synapse-pushgateway
+    restart: unless-stopped
+    cpus: ${PUSHGATEWAY_CPU_LIMIT:-0.25}
+    mem_limit: ${PUSHGATEWAY_MEMORY_LIMIT:-64m}
+    ports:
+      # 只绑回环：备份脚本跑在**宿主**上（systemd timer），需要经 127.0.0.1 上报。
+      # 不绑 0.0.0.0 —— pushgateway 默认无鉴权，暴露到公网等于让人伪造备份成功。
+      - "127.0.0.1:${PUSHGATEWAY_PORT:-9091}:9091"
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9091/-/healthy || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    networks:
+      - synapse-network
+
   # ------------------------------------------------------------ Alert Handler
   # alertmanager.yml 把通知投递到 http://alert-handler:8080/api/v1/alerts*，
   # 因此本服务的 DNS 名必须是 `alert-handler`，且 app.py 必须提供这些路由。

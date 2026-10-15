@@ -14,6 +14,9 @@
 #   PG_CONTAINER - PostgreSQL 容器名 (默认: synapse-postgres)
 #   REDIS_CONTAINER - Redis 容器名 (默认: synapse-redis)
 #   BACKUP_OFFSITE_REMOTE - 可选，rclone remote:path；设置后会把备份同步到异地
+#   BACKUP_PUSHGATEWAY_URL - 可选，pushgateway 基址（如 http://127.0.0.1:9091）；
+#                            设置后把"最近成功备份时间戳/体积"上报，供
+#                            PostgresBackupStale / PostgresBackupMetricMissing 告警使用
 #   BACKUP_MIN_BYTES - 备份体积下限 (默认: 1024)，低于它即判失败（防"空备份记成功"）
 #
 # Crontab 示例 (每日凌晨 2 点执行):
@@ -39,6 +42,9 @@ COMPRESS="${COMPRESS:-true}"
 BACKUP_MIN_BYTES="${BACKUP_MIN_BYTES:-1024}"
 # 异地同步（可选）：设置后调用 rclone；未设置时**显式打印 SKIP**，不静默跳过
 BACKUP_OFFSITE_REMOTE="${BACKUP_OFFSITE_REMOTE:-}"
+# pushgateway 上报（可选）：备份新鲜度告警的数据源；未设置时**显式打印 SKIP**
+BACKUP_PUSHGATEWAY_URL="${BACKUP_PUSHGATEWAY_URL:-}"
+BACKUP_PUSHGATEWAY_JOB="${BACKUP_PUSHGATEWAY_JOB:-synapse_backup}"
 
 # 日期格式
 DATE=$(date +%Y%m%d_%H%M%S)
@@ -265,6 +271,29 @@ Backup Host: $(hostname)
 EOF
 
     log_success "Backup manifest created: $MANIFEST_FILE"
+
+    # ----------------------------------------------------------------------------
+    # 上报备份新鲜度到 pushgateway（可选；供 PostgresBackupStale 告警使用）
+    # ----------------------------------------------------------------------------
+    # 为什么必须上报：Prometheus 只能看见"被采集到的时序"。备份是外部定时任务，
+    # 没有天然导出器 —— 不上报就等于**没有**这条监控（而且看起来一切正常）。
+    if [ -n "$BACKUP_PUSHGATEWAY_URL" ]; then
+        local ts
+        ts=$(date +%s)
+        if command -v curl >/dev/null 2>&1 &&
+            printf '# TYPE synapse_backup_last_success_timestamp_seconds gauge\nsynapse_backup_last_success_timestamp_seconds %s\n# TYPE synapse_backup_last_size_bytes gauge\nsynapse_backup_last_size_bytes %s\n' \
+                "$ts" "$PG_BYTES" |
+            curl -fsS --data-binary @- "${BACKUP_PUSHGATEWAY_URL%/}/metrics/job/${BACKUP_PUSHGATEWAY_JOB}" >/dev/null; then
+            log_success "已上报备份新鲜度到 pushgateway（ts=${ts}, size=${PG_BYTES}B）"
+        else
+            # 备份**本身是成功的**，这里失败只影响可观测性；但"以为有监控其实没有"比
+            # "没有监控"更危险，所以在显式配置了 URL 的情况下判失败。
+            log_error "上报 pushgateway 失败：备份已成功，但『备份新鲜度』告警将失去数据源"
+            exit 1
+        fi
+    else
+        log_warning "SKIP pushgateway 上报：未设置 BACKUP_PUSHGATEWAY_URL —— 备份新鲜度告警没有数据源（等于这条监控不存在）"
+    fi
 
     # ----------------------------------------------------------------------------
     # 完成

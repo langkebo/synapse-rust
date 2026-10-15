@@ -159,6 +159,95 @@ groups:
           description: "P95 查询延迟超过 500ms（当前 {{ $value | humanize }}ms）"
 
   # =========================================================================
+  # Group 3b: PostgreSQL 自身健康 + 备份/归档新鲜度（2026-10-15，方案 B2）
+  # =========================================================================
+  # 与上面 Group 3（`database-health`）的区别，别混：
+  #   * Group 3 是**应用视角** —— 应用的连接池利用率、db_connections_*、查询耗时。
+  #     应用池一切正常，不代表 PG 本身正常。
+  #   * 本组是**PG 自身视角** —— 归档是否在走、长事务/锁、PG 侧连接数上限、
+  #     以及"备份到底有没有成功"（外部定时任务，必须由脚本上报才能观测）。
+  #
+  # ⚠️ 数据源是 `postgres` job（postgres_exporter，只读角色 synapse_monitor）。
+  #    该 job 不存在时本组永远 inactive —— 那是"没数据"，**不是"健康"**。
+  #    因此 job 与本组必须同批增删（见 docker-compose.monitoring.yml 的 exporter 注释）。
+  # ⚠️ 标签集不同会让向量运算**静默返回空**（本仓踩过）：下面凡做除法一律先 `sum()`/`max()`。
+  # ⚠️ `absent()` 用于兜住"指标从来没出现过" —— 比"值不对"更隐蔽。
+  # ⚠️ 磁盘余量**不在本组**：沿用 infrastructure 组既有的 `HostDiskSpaceLow`
+  #    （注意它没有 fstype 过滤，会把 tmpfs/overlay 也算进去 —— 见方案 B2 的后续项）。
+  # 单元测试：docker/deploy/prometheus/promtool/alerting-rules.test.yml（promtool test rules）。
+  - name: postgres-server-health
+    rules:
+      # 归档失败：WAL 送不出去 ⇒ PITR 断档，且 pg_wal 会持续增长直到涨满磁盘
+      - alert: PostgresArchiveFailing
+        expr: pg_stat_archiver_failed_count > 0
+        for: 5m
+        labels:
+          severity: critical
+          category: database
+        annotations:
+          summary: "🚨 PostgreSQL WAL 归档失败（累计 {{ $value }} 次）—— PITR 已断档"
+          description: "归档失败时 PG 会**保留** pg_wal 等待重试，磁盘会持续增长，最终撑停数据库。\n先查归档目录：docker/deploy/wal_archive 是否存在、可写、所在卷是否已满。\n检查：docker exec synapse-postgres psql -U synapse -c \"SELECT * FROM pg_stat_archiver\""
+
+      # 归档停滞：archive_timeout=900s ⇒ 低写入时也应每 15 分钟落一段，超 1 小时即异常
+      - alert: PostgresArchiveStalled
+        expr: pg_stat_archiver_last_archive_age > 3600
+        for: 10m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "⚠️ PostgreSQL 归档停滞（{{ $value | humanizeDuration }} 没有新归档段）"
+          description: "archive_timeout=900s，正常情况下 15 分钟内必有一段。超 1 小时说明归档链路断了（目录不可写/卷满/命令失败），RPO 正在变大。"
+
+      # 备份新鲜度：由备份脚本上报到 pushgateway（>26h 未成功备份）
+      - alert: PostgresBackupStale
+        expr: time() - max(synapse_backup_last_success_timestamp_seconds) > 93600
+        for: 15m
+        labels:
+          severity: critical
+          category: database
+        annotations:
+          summary: "🚨 数据库备份已过期（最近一次成功备份超过 26 小时）"
+          description: "备份脚本 success 后会上报时间戳；该值变旧说明定时任务没跑或跑失败。\n检查：systemctl list-timers synapse-backup.timer / systemctl --failed / journalctl -u synapse-backup\n注意：本告警只在**曾经上报过**之后才可能触发，'从没上报'由 PostgresBackupMetricMissing 兜住。"
+
+      # 兜底：备份指标从未出现（定时任务压根没装 / 从没成功过）——没有这条，
+      # 「从没上报」会让 PostgresBackupStale 永远为空，看起来像"从未出问题"
+      - alert: PostgresBackupMetricMissing
+        expr: absent(synapse_backup_last_success_timestamp_seconds)
+        for: 30m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "⚠️ 没有收到任何备份成功上报（备份新鲜度不可判定）"
+          description: "要么定时任务尚未安装，要么备份从未成功过、要么 BACKUP_PUSHGATEWAY_URL 未配置。\n装法见 docker/deploy/systemd/README.md；没有上报就等于没有这条监控。"
+
+      # 连接数逼近 max_connections（**PG 侧**口径，区别于 Group 3 的应用池视角）
+      - alert: PostgresConnectionsSaturating
+        expr: |
+          sum(pg_stat_activity_count)
+          /
+          sum(pg_settings_max_connections) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "⚠️ PostgreSQL 连接数逼近上限（{{ $value | humanizePercentage }}）"
+          description: "max_connections=250，且容器 pids_limit 也要够（常驻进程 + 并行 worker 都占 pid）。\n连接耗尽的表现是**随机连接失败**，不是排队。检查 pg_stat_activity 里的 LONG-RUNNING 与 idle in transaction。"
+
+      # 长事务（>5 分钟）：VACUUM 失效 → 膨胀；也是迁移期排他锁/阻塞链的常见成因
+      - alert: PostgresLongRunningTransaction
+        expr: max(pg_stat_activity_max_tx_duration{state!="idle"}) > 300
+        for: 5m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "⚠️ PostgreSQL 存在超过 5 分钟的长事务（{{ $value | humanizeDuration }}）"
+          description: "长事务会顶住 vacuum 的回收水位（表/索引膨胀），也可能在迁移期挡住 DDL。\n定位：SELECT pid, now()-xact_start AS age, state, query FROM pg_stat_activity WHERE xact_start IS NOT NULL ORDER BY age DESC;"
+
+  # =========================================================================
   # Group 4: HTTP API Health (RED Methodology)
   # =========================================================================
   - name: http-api-health

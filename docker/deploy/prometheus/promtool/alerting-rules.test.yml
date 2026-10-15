@@ -1,0 +1,168 @@
+# promtool 单元测试：monitoring/alerting-rules.yml
+#
+# 为什么需要它：告警规则是"只有出事才有反应"的代码 —— 指标名打错、标签集不一致导致
+# 向量运算静默为空、阈值写反，这些在**没出事时**全都看起来正常。单元测试是唯一能在
+# 离线状态证明"该响会响、不该响不响"的手段。
+#
+# 跑法（本机无 promtool 时用镜像）：
+#   docker run --rm -v "$PWD/monitoring:/m" --entrypoint promtool \
+#     prom/prometheus:v2.48.1 test rules /m/promtool/alerting-rules.test.yml
+#
+# 纪律：
+#   1. 每个告警**至少配一个反例**（正例证明会响，反例证明不是恒定触发）。
+#   2. promtool 要求 `exp_annotations` **逐字匹配**（含模板渲染结果）。因此改了规则里的
+#      summary/description 或改了输入序列值，必须同步改这里 —— 这是刻意的：
+#      告警文案是给夜里被叫起来的人看的，不该被无意改掉。
+rule_files:
+  - ../alerting-rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  # ── 归档失败：failed_count=1 ⇒ 应响（5m for）────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'pg_stat_archiver_failed_count{server="postgres:5432"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: PostgresArchiveFailing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              category: database
+              server: postgres:5432
+            exp_annotations:
+              summary: "🚨 PostgreSQL WAL 归档失败（累计 1 次）—— PITR 已断档"
+              description: "归档失败时 PG 会**保留** pg_wal 等待重试，磁盘会持续增长，最终撑停数据库。\n先查归档目录：docker/deploy/wal_archive 是否存在、可写、所在卷是否已满。\n检查：docker exec synapse-postgres psql -U synapse -c \"SELECT * FROM pg_stat_archiver\""
+
+  # 反例：failed_count=0 ⇒ 不应响
+  - interval: 1m
+    input_series:
+      - series: 'pg_stat_archiver_failed_count{server="postgres:5432"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: PostgresArchiveFailing
+        exp_alerts: []
+
+  # ── 归档停滞：>> 3600s ⇒ 应响 ───────────────────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'pg_stat_archiver_last_archive_age{server="postgres:5432"}'
+        values: '4000x25'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: PostgresArchiveStalled
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              category: database
+              server: postgres:5432
+            exp_annotations:
+              summary: "⚠️ PostgreSQL 归档停滞（1h 6m 40s 没有新归档段）"
+              description: "archive_timeout=900s，正常情况下 15 分钟内必有一段。超 1 小时说明归档链路断了（目录不可写/卷满/命令失败），RPO 正在变大。"
+
+  # 反例：600s（10 分钟，正常）⇒ 不应响
+  - interval: 1m
+    input_series:
+      - series: 'pg_stat_archiver_last_archive_age{server="postgres:5432"}'
+        values: '600x25'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: PostgresArchiveStalled
+        exp_alerts: []
+
+  # ── 备份过期：时间戳停在纪元、time() 已走 2 天 ⇒ 应响 ────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'synapse_backup_last_success_timestamp_seconds{job="synapse_backup"}'
+        values: '0x3000'
+    alert_rule_test:
+      - eval_time: 2d
+        alertname: PostgresBackupStale
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              category: database
+            exp_annotations:
+              summary: "🚨 数据库备份已过期（最近一次成功备份超过 26 小时）"
+              description: "备份脚本 success 后会上报时间戳；该值变旧说明定时任务没跑或跑失败。\n检查：systemctl list-timers synapse-backup.timer / systemctl --failed / journalctl -u synapse-backup\n注意：本告警只在**曾经上报过**之后才可能触发，'从没上报'由 PostgresBackupMetricMissing 兜住。"
+
+  # ── 备份指标缺失：absent() 兜底 ⇒ 应响（否则"从没上报"会被当成正常）──────
+  - interval: 1m
+    input_series:
+      - series: 'up{job="synapse-rust"}'
+        values: '1x100'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: PostgresBackupMetricMissing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              category: database
+            exp_annotations:
+              summary: "⚠️ 没有收到任何备份成功上报（备份新鲜度不可判定）"
+              description: "要么定时任务尚未安装，要么备份从未成功过、要么 BACKUP_PUSHGATEWAY_URL 未配置。\n装法见 docker/deploy/systemd/README.md；没有上报就等于没有这条监控。"
+
+  # ── 连接数饱和：220/250 = 88% ⇒ 应响 ────────────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'pg_stat_activity_count{datname="synapse",state="active",server="postgres:5432"}'
+        values: '220x20'
+      - series: 'pg_settings_max_connections{server="postgres:5432"}'
+        values: '250x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: PostgresConnectionsSaturating
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              category: database
+            exp_annotations:
+              summary: "⚠️ PostgreSQL 连接数逼近上限（88%）"
+              description: "max_connections=250，且容器 pids_limit 也要够（常驻进程 + 并行 worker 都占 pid）。\n连接耗尽的表现是**随机连接失败**，不是排队。检查 pg_stat_activity 里的 LONG-RUNNING 与 idle in transaction。"
+
+  # 反例：100/250 = 40% ⇒ 不应响
+  - interval: 1m
+    input_series:
+      - series: 'pg_stat_activity_count{datname="synapse",state="active",server="postgres:5432"}'
+        values: '100x20'
+      - series: 'pg_settings_max_connections{server="postgres:5432"}'
+        values: '250x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: PostgresConnectionsSaturating
+        exp_alerts: []
+
+  # ── 长事务：active 400s ⇒ 应响 ──────────────────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'pg_stat_activity_max_tx_duration{datname="synapse",state="active"}'
+        values: '400x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: PostgresLongRunningTransaction
+        exp_alerts:
+          # 注意：expr 用 `max(...)` 做聚合 ⇒ **标签被聚合掉**，告警实例上只有下面这两个。
+          # （这不是笔误：单库部署下 datname 属冗余；若将来多库需要区分，
+          #   应改成 `max by (datname) (...)` 并同步改本测试。）
+          - exp_labels:
+              severity: warning
+              category: database
+            exp_annotations:
+              summary: "⚠️ PostgreSQL 存在超过 5 分钟的长事务（6m 40s）"
+              description: "长事务会顶住 vacuum 的回收水位（表/索引膨胀），也可能在迁移期挡住 DDL。\n定位：SELECT pid, now()-xact_start AS age, state, query FROM pg_stat_activity WHERE xact_start IS NOT NULL ORDER BY age DESC;"
+
+  # 反例：idle 400s ⇒ 不应响（验证 state 过滤真的生效）
+  - interval: 1m
+    input_series:
+      - series: 'pg_stat_activity_max_tx_duration{datname="synapse",state="idle"}'
+        values: '400x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: PostgresLongRunningTransaction
+        exp_alerts: []
+
+  # 注：磁盘余量告警 `HostDiskSpaceLow` 由 infrastructure 组既有规则覆盖（本组不重复定义），
+  #     它的测试应加在那边；这里刻意不做，避免"同名两条规则各自半测"的假象。

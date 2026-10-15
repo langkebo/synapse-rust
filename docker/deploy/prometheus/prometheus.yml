@@ -117,7 +117,40 @@ scrape_configs:
           service: alertmanager
           team: sre-team
 
-  # === 7. cAdvisor（容器资源监控，可选）===
+  # === 7. PostgreSQL（postgres_exporter）=== 2026-10-15 方案 B2
+  # 在此之前"数据库侧零监控"：DB 相关告警全是**应用视角**（应用的连接池/错误率），
+  # 看不见归档是否在走、长事务、PG 侧连接上限 —— 那些只有 PG 自己知道。
+  # 服务：docker-compose.monitoring.yml 的 synapse-postgres-exporter（只读角色 synapse_monitor）。
+  # 依赖告警：alerting-rules.yml 的 Group 3b（postgres-server-health）。
+  - job_name: postgres
+    static_configs:
+      - targets:
+          - synapse-postgres-exporter:9187
+        labels:
+          role: database
+          service: postgres
+          team: sre-team
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # === 8. Pushgateway（备份新鲜度上报）=== 2026-10-15 方案 B2
+  # 备份是**外部定时任务**，Prometheus 抓不到 —— 必须由 scripts/backup_database.sh
+  # 上报成功时间戳，再被 PostgresBackupStale / PostgresBackupMetricMissing 消费。
+  # 没有这个 job，那两条告警的时间戳就不是时序数据，永远无法触发。
+  - job_name: pushgateway
+    static_configs:
+      - targets:
+          - synapse-pushgateway:9091
+        labels:
+          role: monitoring
+          service: pushgateway
+          team: sre-team
+    scrape_interval: 60s
+    scrape_timeout: 10s
+    # pushgateway 的指标自带 job/instance 标签，保留它们（否则上报内容被覆盖）
+    honor_labels: true
+
+  # === 9. cAdvisor（容器资源监控，可选）===
   # 注释掉，按需启用
   # - job_name: cadvisor
   #   static_configs:

@@ -173,6 +173,17 @@ jobs:
       - name: Connection budget invariant
         run: python3 scripts/ci/check_connection_budget.py
 
+      # 告警规则是"只有出事才有反应"的代码：指标名打错、标签集不一致导致向量运算
+      # **静默返回空**、阈值写反 —— 这些在没出事时全都看起来正常。
+      # promtool 是唯一能在离线路由里证明"该响会响、不该响不响"的手段。
+      # 镜像版本必须与 docker-compose.monitoring.yml 的 prom/prometheus 一致。
+      - name: Prometheus rules + unit tests (promtool)
+        run: |
+          docker run --rm -v "$PWD/docker/deploy/prometheus:/m" --entrypoint promtool \
+            prom/prometheus:v2.48.1 check rules /m/alerting-rules.yml
+          docker run --rm -v "$PWD/docker/deploy/prometheus:/m" --entrypoint promtool \
+            prom/prometheus:v2.48.1 test rules /m/promtool/alerting-rules.test.yml
+
       # A5 / B4-1: `pub trait` and `*StoreApi` counts may only go DOWN. The
       # baseline (`scripts/ci/trait_count_baseline`, TOTAL=65 / STORE_API=33) has
       # existed since 2026-09-15, but no workflow ever read it, so the ratchet

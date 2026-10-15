@@ -14,5 +14,7 @@ Environment=KEEP_DAYS=7
 Environment=BACKUP_MIN_BYTES=1024
 # 异地同步：填上即启用（需本机已装并配置 rclone）；不填则脚本**显式 SKIP** 并告警
 #Environment=BACKUP_OFFSITE_REMOTE=synapse-offsite:pg-backups
+# 备份新鲜度上报：填上即启用（pushgateway 与监控栈同网络/同机）。**不填则 PostgresBackupStale 告警没有数据源**
+#Environment=BACKUP_PUSHGATEWAY_URL=http://127.0.0.1:9091
 ExecStart=/bin/bash /opt/synapse-rust/scripts/backup_database.sh
 TimeoutStartSec=30min

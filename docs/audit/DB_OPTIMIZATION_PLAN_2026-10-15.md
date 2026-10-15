@@ -379,6 +379,7 @@
 | **B1.1 / B1.4 / B1.5** | （本批） | `archive_mode=on` + `archive_timeout=900s` + `wal_keep_size=256MB`；归档落点 `./wal_archive` **在 PGDATA 之外**（两个 compose 都挂了卷、`deploy.sh` 建目录、`.gitignore` 登记）；systemd unit/timer 模板 + crontab 备选；`docs/runbook/DB_RESTORE_DRILL.md`（含 PITR 步骤与异常分支） | **实测**：① 重建容器 4s 内 healthy，数据完好（events 56246 / rooms 7868）；② `pg_switch_wal()` 后 `archived=1 failed=0`，宿主目录出现 16MB 归档段 ⇒ 归档链路真通；③ **恢复演练 PASS**：5s 恢复，6 张表行数 + `public` 索引数（693）**逐项相等**，演练库已清理 |
 | **B3** | `cd59b60fc` | `pids_limit` 256→300、`work_mem` 16MB→4MB、预算表补两行、`check_connection_budget.py` **新增 pids 与内存两条不变式** | **RED 自证**：pids 300→200 ⇒ 红；work_mem→16MB ⇒ 红；README pids 300→301 ⇒ 命中"文档与运行配置漂移"；还原 ⇒ 绿 |
 | **B5.2** | （本批） | `_INDEX_DEF_RE` 改为整条语句 + **配平括号**解析键列（覆盖 343/343 条定义）；新增 `covering_pair_indexes()` 让同键「覆盖 vs 普通」对**可见**，已裁定项登记 `scripts/index_covering_pair_allowlist.txt` | **RED 自证**：复制一条带 `INCLUDE` 的索引 ⇒ 旧守卫 `exit 0`（盲区）/ 新守卫 `exit 1`；复制一条表达式索引 ⇒ 同样 0/1；还原 ⇒ 绿 |
+| **B2** | （本批） | 只读角色脚本 + `synapse-postgres-exporter` + `postgres`/`pushgateway` 两个 job + 新告警组 `postgres-server-health`（6 条）+ 备份脚本上报 pushgateway + `promtool` 门禁进 CI | **端到端实测**：角色正向可读/负向不可写；两目标 `health=up`；6 条规则 `state=inactive`+`health=ok` 持续求值；备份指标已入 Prometheus。**RED 自证**：改坏归档阈值/连接阈值/删除 `state!="idle"` ⇒ 测试分别判红，还原 ⇒ 绿 |
 | 文档 | `7997e700d`、`c6a2d0cd8` | 审查报告 + 本方案 + 执行记录 | preflight 全绿（aspell / markdownlint / 章节棘轮 / 数字随访 / 契约 gate / 可信度守卫） |
 
 推送：`426e82999..7997e700d`（pre-push：clippy `--all-features` + cargo-deny + cargo-machete 全绿）。
@@ -391,10 +392,11 @@
 | ~~B1.4 调度~~ | ✅ 已提供 systemd unit/timer + crontab 备选（安装说明见 `docker/deploy/systemd/README.md`） | — |
 | ~~B1.5 恢复演练~~ | ✅ 首次演练已完成（**实测 RTO = 5s**，行数逐项一致），记录在 `docs/runbook/DB_RESTORE_DRILL.md` §2.3 | — |
 | B1.2 异地副本 | 脚本钩子已就绪，但**落点未定**（需一个真实的异地存储） | D2 定下落点后填 `BACKUP_OFFSITE_REMOTE` |
-| **B2 观测面** | 需要**新建只读角色**（`pg_monitor`）+ 镜像按 digest 钉版 + 告警单元测试；归档目录的磁盘余量告警也应同批上 | 一次性 DB 角色变更（属变更窗口） |
+| **B2 观测面** | ✅ **已落地**（本批）：exporter + 两 job + 6 条告警 + 备份新鲜度上报 + promtool 门禁。**未做**：① 复制延迟/槽积压告警（**故意不做**：当前无备库，配了只会永远无数据）；② Grafana 面板（告警已能叫醒人，面板属体验优化，可后补） | 上备库后补复制类告警；需要面板时再补 |
 | B4 迁移可靠性 | 改动迁移路径（`db_migrate.sh` 语义 + advisory lock + INVALID 索引检测），影响面大，需单独的变异自证 | 单独一批授权 |
 | B5 对象卫生与守卫 | 前置（B1 备份可用化）**已满足**；**B5.2 守卫修复已落地**（见 §13.2）；B5.1①（孤儿对象报告脚本）与 B5.3（清 4 张废弃表，含 `DROP TABLE`）仍需授权 —— 后者要逐表 `pg_dump -t` 存证 | 授权后即可开始（建议先做 B5.1①） |
 | B6.2 / B6.3 | 需要真实查询清单 / 测量数据 | 使用方数据 |
+| **B2+. 监控配置双份副本收敛**（本轮新发现） | `docker/deploy/prometheus/` 是**线上实际使用**的那份（`README_MONITORING.md:132` 明说），`monitoring/` 下另有一份平行副本且已漂移 **514 行**、且陈旧副本里带着 6 处**已损坏**的模板（`{{ $values.X }}` + 对字符串 `range` ⇒ 触发必渲染失败）。本轮改动已按 live 那份落；**但没有收敛两份** —— 因为删除/指针化涉及部署路径，需要你确认哪种放法 | 决策：① 直接删 `monitoring/` 下的副本（`monitoring/prometheus/`、`monitoring/alerting-rules.yml`）② 或保留但加"两份必须一致"的门禁（比 ① 多一份维护成本） |
 | **B6.1 中文检索** | 已实测完成（见下）；**迁移决策未定**（改 ctype 要新建库 + dump/restore + **REINDEX 3 个 `lower()` 表达式索引**） | 业务方确认"中文搜索"是否为当前交付项 |
 
 **B6.1 实测结论（本轮已完成测量部分）**：`datctype = C` ⇒ `show_trgm('北京') = {}` ⇒ 中文模式
