@@ -85,7 +85,7 @@ groups:
           category: latency
         annotations:
           summary: "⚠️ 消息投递 P95 延迟 > 1 秒 (当前：{{ $value | humanizeDuration }})"
-          description: "SYNAPSE 消息投递端到端延迟 P95 超过 1 秒\n阶段分布:\n{{ range $labels.stage }}  - {{ $labels.stage }}: {{ $values.stage }}\n{{ end }}\n可能原因：队列积压、下游服务延迟"
+          description: "SYNAPSE 消息投递端到端延迟 P95 超过 1 秒\n阶段: {{ $labels.stage }}\n可能原因：队列积压、下游服务延迟"
 
       # Sync 延迟 P95 > 2 秒
       - alert: SlowSyncLatency
@@ -113,7 +113,7 @@ groups:
           category: encryption
         annotations:
           summary: "⚠️ E2EE 握手 P95 延迟 > 3 秒 (当前：{{ $value | humanizeDuration }})"
-          description: "SYNAPSE E2EE 密钥交换 P95 延迟过高\n算法分布:\n{{ range $labels.algorithm }}  - {{ $labels.algorithm }}: {{ $values.algorithm }}\n{{ end }}\n可能原因：设备数量过多、网络延迟"
+          description: "SYNAPSE E2EE 密钥交换 P95 延迟过高\n算法: {{ $labels.algorithm }}\n可能原因：设备数量过多、网络延迟"
 
   - name: synapse-resource-utilization
     interval: 30s
@@ -156,7 +156,7 @@ groups:
           category: performance
         annotations:
           summary: "⚠️ 缓存命中率下降 (当前：{{ $value | humanizePercentage }})"
-          description: "SYNAPSE 整体缓存命中率下降到 {{ $value | humanizePercentage }}, 低于 80% 阈值\n缓存类型分布:\n{{ range $labels.cache_type }}  - {{ $labels.cache_type }}: {{ $values.cache_type }}\n{{ end }}\n建议：检查缓存失效策略和数据访问模式"
+          description: "SYNAPSE 整体缓存命中率下降到 {{ $value | humanizePercentage }}, 低于 80% 阈值\n缓存类型: {{ $labels.cache_type }}\n建议：检查缓存失效策略和数据访问模式"
 
       # Redis 连接错误
       - alert: RedisConnectionErrors
@@ -188,7 +188,7 @@ groups:
           category: federation
         annotations:
           summary: "⚠️ Federation 操作错误率过高 ({{ $value | humanizePercentage }})"
-          description: "SYNAPSE 对外 Federation 请求错误率达到 {{ $value | humanizePercentage }}\n目标服务器分布:\n{{ range $labels.target_server }}  - {{ $labels.target_server }}: {{ $values.target_server }}\n{{ end }}\n建议：检查远程服务器可达性和签名验证"
+          description: "SYNAPSE 对外 Federation 请求错误率达到 {{ $value | humanizePercentage }}\n目标服务器: {{ $labels.target_server }}\n建议：检查远程服务器可达性和签名验证"
 
       # Federation 超时率上升
       - alert: HighFederationTimeoutRate
@@ -201,7 +201,7 @@ groups:
           category: federation
         annotations:
           summary: "⚠️ Federation 请求超时率 > 20%"
-          description: "SYNAPSE Federation 请求超时比例过高\n超时分类:\n{{ range $labels.timeout_class }}  - {{ $labels.timeout_class }}: {{ $values.timeout_class }}\n{{ end }}\n建议：检查网络质量和远程服务器性能"
+          description: "SYNAPSE Federation 请求超时比例过高\n超时类别: {{ $labels.timeout_class }}\n建议：检查网络质量和远程服务器性能"
 
   - name: synapse-business-metrics
     interval: 30s
@@ -221,7 +221,7 @@ groups:
           category: business
         annotations:
           summary: "ℹ️ 房间创建失败率异常 ({{ $value | humanizePercentage }})"
-          description: "SYNAPSE 房间创建失败率达到 {{ $value | humanizePercentage }}\n错误类型分布:\n{{ range $labels.error_type }}  - {{ $labels.error_type }}: {{ $values.error_type }}\n{{ end }}\n建议：分析失败原因和用户行为模式"
+          description: "SYNAPSE 房间创建失败率达到 {{ $value | humanizePercentage }}\n错误类型: {{ $labels.error_type }}\n建议：分析失败原因和用户行为模式"
 
       # 认证失败率突增
       - alert: SpikeInAuthFailures

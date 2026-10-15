@@ -180,7 +180,13 @@ services:
       DATA_SOURCE_NAME: "postgresql://${MONITOR_DB_ROLE:-synapse_monitor}:${MONITOR_DB_PASSWORD:?MONITOR_DB_PASSWORD must be set (见 docker/deploy/.env)}@postgres:5432/${POSTGRES_DB:-synapse}?sslmode=disable"
       # 只采集显式列出的库，避免误连模板/测试库
       PG_EXPORTER_AUTO_DISCOVER_DATABASES: "false"
-    # 刻意**不映射**宿主端口：Prometheus 与它同网络，直连 :9187，最小暴露面
+    # 刻意**不映射**宿主端口（不写 `ports:`）：Prometheus 与它同网络，直连 :9187，最小暴露面。
+    # 但必须用 `expose:` **声明**该端口 —— 这不是装饰：
+    #   `scripts/ci/check_prometheus_config.py` 的「死目标守卫」要求 `postgres` job 的
+    #   目标端口在 compose 里被声明过（该守卫同时读 `ports` 与 `expose`），
+    #   否则判红。2026-10-15 本服务首次加入时正是漏了这行，把 CI 判红了。
+    expose:
+      - "9187"
     healthcheck:
       test: [ "CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9187/metrics || exit 1" ]
       interval: 30s

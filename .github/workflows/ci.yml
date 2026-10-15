@@ -176,13 +176,17 @@ jobs:
       # 告警规则是"只有出事才有反应"的代码：指标名打错、标签集不一致导致向量运算
       # **静默返回空**、阈值写反 —— 这些在没出事时全都看起来正常。
       # promtool 是唯一能在离线路由里证明"该响会响、不该响不响"的手段。
-      # 镜像版本必须与 docker-compose.monitoring.yml 的 prom/prometheus 一致。
-      - name: Prometheus rules + unit tests (promtool)
+      #
+      # 这一步**只跑单元测试**：`check rules` / `check config` 已由上一道
+      # `check_prometheus_config.py` 覆盖（它对全部 6 个文件都跑，且镜像版本从 compose 派生）。
+      # 这里刻意也派生镜像、不硬编码 —— 硬编码会让门禁工具与部署版本静默分叉，
+      # 而 promtool 的行为**确实随版本变化**：v2.47 不校验 annotation 模板，v2.48 校验。
+      - name: Prometheus alert unit tests (promtool)
         run: |
+          IMG=$(grep -oE 'prom/prometheus:v[0-9.]+' docker/deploy/docker-compose.monitoring.yml | head -1)
+          echo "promtool image: $IMG"
           docker run --rm -v "$PWD/docker/deploy/prometheus:/m" --entrypoint promtool \
-            prom/prometheus:v2.48.1 check rules /m/alerting-rules.yml
-          docker run --rm -v "$PWD/docker/deploy/prometheus:/m" --entrypoint promtool \
-            prom/prometheus:v2.48.1 test rules /m/promtool/alerting-rules.test.yml
+            "$IMG" test rules /m/promtool/alerting-rules.test.yml
 
       # A5 / B4-1: `pub trait` and `*StoreApi` counts may only go DOWN. The
       # baseline (`scripts/ci/trait_count_baseline`, TOTAL=65 / STORE_API=33) has

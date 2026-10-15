@@ -67,8 +67,63 @@ except ImportError:  # pragma: no cover - 环境缺依赖时给出可操作提�
 
 REPO = Path(__file__).resolve().parents[2]
 
-# promtool 容器镜像：与 monitoring compose 中的 Prometheus 版本保持一致。
-PROMETHEUS_IMAGE = "prom/prometheus:v2.47.0"
+# promtool 容器镜像：**从各监控栈的 compose 派生**，取其中最**新**的版本。
+#
+# 为什么不硬编码（2026-10-15 实测）：
+#   `promtool check rules` 自 v2.48 起会**校验 annotation 模板**，v2.47 **不校验**。
+#   同一份 `monitoring/alerting-rules.yml`：
+#     prom/prometheus:v2.47.0 → exit 0（对 6 处 `{{ $values.X }}` 视而不见）
+#     prom/prometheus:v2.48.1 → exit 1（逐条报 undefined variable "$values"）
+#   而两个栈的钉版并不相同（dev=v2.47.0、deploy=v2.48.1）。本门禁原先硬编码 v2.47.0，
+#   于是"**触发时必炸**的告警模板在门禁下长期显示 OK" —— 又一个版本敏感型盲区。
+#
+# 规则：用**所有已部署版本里最新的那个**校验全部配置 = 用最严格的工具检查；
+# 且任何一处 compose 升版都会被这条派生逻辑立刻吸收，不会静默落后。
+MONITORING_COMPOSE_FILES = [
+    "docker/docker-compose.monitoring.yml",
+    "docker/deploy/docker-compose.monitoring.yml",
+]
+_PROM_IMAGE_RE = re.compile(r"image:\s*(prom/prometheus:(v[0-9][0-9.]*))")
+
+
+def _version_key(image: str) -> tuple[int, ...]:
+    version = image.rsplit(":", 1)[1]
+    return tuple(int(part) for part in version.lstrip("v").split(".") if part.isdigit())
+
+
+def derive_prometheus_image() -> str:
+    """从各监控 compose 的钉版里取**最新**的 prom/prometheus 镜像名。"""
+    pins: dict[str, list[str]] = {}
+    for rel in MONITORING_COMPOSE_FILES:
+        path = REPO / rel
+        if not path.is_file():
+            continue
+        for match in _PROM_IMAGE_RE.finditer(path.read_text()):
+            pins.setdefault(match.group(1), []).append(rel)
+    if not pins:
+        raise Failure(
+            "无法从任何监控 compose 派生出 prom/prometheus 镜像版本（已尝试："
+            + ", ".join(MONITORING_COMPOSE_FILES)
+            + "）。\n"
+            "      → 找不到版本就无法校验配置；**不允许**退回硬编码默认值"
+            "（那正是本门禁 2026-10-15 之前的盲区根源）。"
+        )
+    newest = max(pins, key=_version_key)
+    if len(pins) > 1:
+        print(f"monitoring compose 存在多个 prom/prometheus 钉版：{sorted(pins)}")
+        print(f"  → 用最新的 {newest} 校验全部配置（最严格口径）。")
+    return newest
+
+
+_prometheus_image_cache: str | None = None
+
+
+def prometheus_image() -> str:
+    global _prometheus_image_cache
+    if _prometheus_image_cache is None:
+        _prometheus_image_cache = derive_prometheus_image()
+    return _prometheus_image_cache
+
 
 ALLOWLIST = REPO / "scripts/ci/prometheus_target_allowlist"
 
@@ -125,7 +180,7 @@ def resolve_promtool() -> tuple[str, str]:
     找不到就抛 Failure（不静默跳过）。
     """
     if shutil.which("docker"):
-        return "docker", PROMETHEUS_IMAGE
+        return "docker", prometheus_image()
     local = shutil.which("promtool")
     if local:
         return "local", local
