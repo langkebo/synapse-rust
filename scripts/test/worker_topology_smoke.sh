@@ -11,7 +11,25 @@
 #   SKIP_BUILD=1 scripts/test/worker_topology_smoke.sh # 复用已有镜像（迭代时用）
 #   KEEP_STACK=1 scripts/test/worker_topology_smoke.sh # 不清栈，便于事后看 docker logs
 #
+# 隔离：本脚本用专用的 compose 项目名（默认 `synapse-worker-smoke`）与专用端口
+# （默认 18008），并在起栈前断言端口空闲 —— 因为 `docker-compose.yml` 的
+# `container_name` 写死成 `${COMPOSE_PROJECT_NAME:-synapse}-*`，用默认项目名会与
+# **正在运行的生产栈同名**并把它重建掉。详见下面 PROJECT_NAME 处的注释。
+#
 # 退出码：0 = 全部断言通过；非 0 = 任一步失败（失败处会打印它期望什么、实际看到什么）。
+#
+# ⚠️ 已知缺口（2026-10-17 实测，**当前必然失败**，原因是代码而非环境）：
+#   worker 进程**没有任何可用的自注册路径**。`POST /_synapse/worker/v1/register` 挂在
+#   admin 鉴权后面（`synapse-web/src/routes/worker.rs` 的 route_layer → `admin_auth_middleware`
+#   → 要求管理员 access token + RBAC），而 worker 手里只有共享密钥；共享密钥那侧
+#   （`create_worker_body_router`）只挂了 heartbeat/命令/事件，**没有 register**。
+#   与此同时 `update_worker_status` 是 `UPDATE workers ... WHERE worker_id = $1`
+#   （非 upsert、且**不检查影响行数**）⇒ 未知 worker 的心跳**静默改 0 行**。
+#   ⇒ 在真实多进程部署里注册表恒为空，`runtime.missing` 会把每个声明实例都列出来，
+#   `get_active()` 为空、负载均衡无候选、`select_worker_for_task` 对 worker 专属任务恒 None。
+#   （历史上没暴露：集成测试是用**管理员令牌**显式注册的，见
+#   `tests/integration/api_worker_heartbeat_stats_tests.rs`。）
+#   修复方案与代价见审计文档 §4 的批次 **W-G**。
 #
 # ⚠️ 一处**故意与文档不同**的地方（勿当成漏做）：
 #   `docs/audit/WORKER_TOPOLOGY_VERIFICATION_AUDIT_2026-10-16.md` §4 W-D 第 3 条原本要求
@@ -27,8 +45,18 @@ set -euo pipefail
 readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 readonly COMPOSE_BASE="$ROOT_DIR/docker/docker-compose.yml"
 readonly COMPOSE_WORKERS="$ROOT_DIR/docker/docker-compose.workers.yml"
-readonly PROJECT_NAME="${COMPOSE_PROJECT_NAME:-synapse}"
-readonly SYNAPSE_PORT="${SYNAPSE_PORT:-8008}"
+
+# ⚠️ 专用 compose 项目名，**不要**用默认值。默认项目从 compose 文件所在目录推导（`docker`），
+# 而 `docker-compose.yml` 里每个 `container_name` 都写死成 `${COMPOSE_PROJECT_NAME:-synapse}-*`
+# ⇒ 默认情况下本脚本想要的 `synapse-postgres` / `synapse-redis` 与**正在运行的生产栈同名**，
+# `up -d` 会直接把它们**重建掉**（实测本机就有一台在跑的 deploy 栈，容器 `synapse-app`）。
+# 换成一个专用项目名后，容器名/网络/数据卷全部独立，脚本不会碰到任何既有栈。
+readonly PROJECT_NAME="${COMPOSE_PROJECT_NAME:-synapse-worker-smoke}"
+export COMPOSE_PROJECT_NAME="$PROJECT_NAME"
+
+# 同理：不要占用生产端口。8008 通常已被在跑的实例占用，默认换到 18008；
+# 启动前还会显式检查端口是否空闲（见 assert_port_free）。
+readonly SYNAPSE_PORT="${SYNAPSE_PORT:-18008}"
 readonly BASE_URL="http://127.0.0.1:${SYNAPSE_PORT}"
 
 # 必须与 docker/config/homeserver.yaml 的 worker.instance_map 以及
@@ -65,16 +93,27 @@ assert_eq() { # assert_eq <实际> <期望> <说明>
 }
 
 compose() {
-    docker compose -f "$COMPOSE_BASE" -f "$COMPOSE_WORKERS" "$@"
+    docker compose -p "$PROJECT_NAME" -f "$COMPOSE_BASE" -f "$COMPOSE_WORKERS" "$@"
+}
+
+# 端口必须先空闲：否则我们要么起不来，要么把自己的请求打到**别人的**实例上，
+# 于是断言对象不是这套栈（假绿），或"清理"时把别人的容器一起 `down` 掉。
+assert_port_free() {
+    if lsof -nP -iTCP:"$SYNAPSE_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+        fail "端口 ${SYNAPSE_PORT} 已被占用 —— 换一个 SYNAPSE_PORT（不要指向正在运行的实例）"
+        return 1
+    fi
+    return 0
 }
 
 teardown() {
     if [[ "${KEEP_STACK:-0}" == "1" ]]; then
-        skip "KEEP_STACK=1 ⇒ 栈保留；清理：docker compose -f docker/docker-compose.yml -f docker/docker-compose.workers.yml down"
+        skip "KEEP_STACK=1 ⇒ 栈保留；清理：docker compose -p $PROJECT_NAME -f docker/docker-compose.yml -f docker/docker-compose.workers.yml down"
         return
     fi
     log "收栈"
     # 不带 -v：保留 db/redis 数据卷，脚本可以反复跑而不必每次重建数据。
+    # 带 -p 专用项目名：绝不触碰其他 compose 项目（例如正在运行的生产栈）。
     compose down --remove-orphans >/dev/null 2>&1 || true
 }
 
@@ -253,6 +292,7 @@ main() {
     log "环境检查"
     require_commands || return 1
     require_env_file || return 1
+    assert_port_free || return 1
 
     if [[ "${SKIP_BUILD:-0}" == "1" ]]; then
         log "起栈（复用已有镜像）"

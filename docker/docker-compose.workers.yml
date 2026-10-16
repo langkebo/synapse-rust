@@ -13,10 +13,19 @@
 #    只 mount 了 `/metrics` 一条路由）。因此 HTTP 请求面仍然只有 master 一个实例，
 #    真正的请求分流（nginx 把 `/_matrix/client/*/sync` 打到 sync worker）**今天做不到**
 #    —— 见 docker/nginx/worker-routing.conf 的说明与 `docs/audit/...W-8/W-F`。
-# 2. 6 个 worker 服务跑的是**同一个二进制**，`WORKER_INSTANCE_NAME` 只声明"它被期望
-#    承担哪个职责域"。这个声明不是装饰：master 侧的拓扑校验、`instance_map`、
-#    `GET /_synapse/worker/v1/topology/validate` 的 `runtime.missing` 都以它为准
-#    ⇒ 声明了却没起来，端点会直接报出来（这正是 W-A 补上的那半边）。
+# 2. 5 个 worker 服务跑的是**同一个二进制**，`WORKER_INSTANCE_NAME` 声明"它被期望承担哪个
+#    职责域"。该变量之所以有效，是因为 `docker/config/homeserver.yaml` 里的 `instance_name`
+#    写成了 `${WORKER_INSTANCE_NAME:-master}`（`resolve_env_variables` 才会替换它）——
+#    写成字面量 `"master"` 时 5 个进程会**全部自称 master**，per-service 的实例名成了摆设。
+#    这个声明会被 master 侧的拓扑校验、`instance_map`、`GET /_synapse/worker/v1/topology/validate`
+#    的 `runtime.missing` 拿来对账。
+#    ⚠️ **但本栈起来的 worker 目前注册不进注册表**（代码缺口，非配置问题）：唯一的注册入口
+#    `POST /_synapse/worker/v1/register` 挂在 **admin 鉴权**后面（要求管理员令牌），
+#    而 worker 手里只有共享密钥；共享密钥那侧没有 register。与此同时心跳只是
+#    `UPDATE workers ... WHERE worker_id = $1`（`synapse-storage/src/worker/repository.rs:144`，
+#    非 upsert、且**不检查影响行数**）⇒ 未知 worker 的心跳**静默改 0 行**。
+#    ⇒ 照现状起栈，`runtime.missing` 会把 5 个实例**全部**列出来，任务派发也找不到候选。
+#    修复方案（不动鉴权面、不触发契约链）见审计文档 §4 的批次 **W-G**。
 # 3. `SYNAPSE__WORKER__ENABLED=true` 只加在 master 上：worker 注册/心跳面只有在
 #    `worker.enabled && worker.replication.http.enabled` 时才 mount
 #    （`WorkerBodyModule::merge_into`），master 不开这个开关，worker 注册不上。

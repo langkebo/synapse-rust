@@ -152,7 +152,7 @@ MSC4306（线程订阅，已实现线程相关读取面）与媒体隔离（`med
 | 部署形态 | 判定 | 依据 |
 |----------|------|------|
 | **单进程（默认）** | ✅ **可用且零风险** | `worker.enabled=false` 时全部归属判定回落 `Master`（`topology_validator.rs:305-323`），拓扑校验退化为 `validate_topology(&[Master])`（`:359-361`）；A2/A3/A4/B1/B2 等既有功能不经过 worker 面 |
-| **多进程** | ⚠️ **控制面可用且已可观测；请求面仍单点** | **W-A…W-E 之后**：运行时对账（W-A）、拒绝启动开关与部署前离线入口（W-B）、负载均衡接线（W-C）、参考多进程栈 + 烟测 + 部署一致性守卫（W-D）、指标/告警/面板（W-E）都已落地。**仍然缺的**：能提供 Matrix API 的实例**只有根二进制**（worker 进程只开 `/metrics`，见 W-D 实施记录），且没有任何按角色裁剪 HTTP 面的代码（`worker.worker_app` 从未被读取）⇒ **HTTP 请求分流做不到**，`/topology` 里的"谁拥有哪个前缀"仍是**不可执行的声明**。这一项登记为 **W-F** |
+| **多进程** | ⚠️ **模型与端点可用；但注册路径缺失 ⇒ 真实部署下拓扑恒为空；请求面仍单点** | **W-A…W-E 之后**：运行时对账（W-A）、拒绝启动开关与部署前离线入口（W-B）、负载均衡接线（W-C）、参考多进程栈 + 烟测 + 部署一致性守卫（W-D）、指标/告警/面板（W-E）都已落地。**仍然缺两件**：① **worker 无法自注册**（唯一入口在 admin 鉴权后面、worker 只有共享密钥，且未知 worker 的心跳静默改 0 行）⇒ 注册表在真实部署里恒为空，`runtime.missing` 会列出每个声明实例、`get_active()` 为空、任务派发恒 `None` ⇒ 登记为 **W-G**；② 能提供 Matrix API 的实例**只有根二进制**（worker 进程只开 `/metrics`，见 W-D 实施记录），且没有任何按角色裁剪 HTTP 面的代码（`worker.worker_app` 从未被读取）⇒ **HTTP 请求分流做不到**，`/topology` 里的"谁拥有哪个前缀"仍是**不可执行的声明** ⇒ 登记为 **W-F** |
 
 **一句话**：Worker 模块**不是半成品**，是**"有躯干、缺神经"**——静态模型与运行时注册表都在，
 缺的是把两者接起来（对账）、把结论变成强制（strict）、把结论变成可观测（端点 + 指标）。
@@ -341,6 +341,67 @@ MSC4306（线程订阅，已实现线程相关读取面）与媒体隔离（`med
 - ⚠️ **烟测本身未在本轮实跑**（要构建 release 镜像）。这正是 W-8 说的"证据"缺口，
   现在只差一条命令：`scripts/test/worker_topology_smoke.sh`。
 
+#### W-D 复核（2026-10-17）：**参考栈的"注册"环节在代码里根本不存在** ⇒ 归入新批次 W-G
+
+准备实跑烟测时逐行核对了注册路径，结论是本批交付的参考栈**跑起来也不会产生预期的拓扑**。
+这一步值得单独记下来，因为它同时推翻了本批交付物里的两处表述：
+
+1. **worker 进程没有任何可用的自注册路径。**
+   - 全仓唯一的注册入口是 `POST /_synapse/worker/v1/register`，它挂在 admin 鉴权后面
+     （`synapse-web/src/routes/worker.rs` 的 `route_layer` → `admin_auth_middleware` →
+     `synapse-web/src/utils/admin_auth.rs:32` 要求**管理员 access token** + RBAC）。
+   - worker 手里只有**共享密钥**；共享密钥那侧的 `create_worker_body_router` 只挂了
+     heartbeat / connect / disconnect / 命令 / 任务 / 复制位点 / 事件，**没有 register**。
+   - `src/bin/synapse_worker.rs` 也只发心跳（`src/worker/heartbeat.rs` 只有一条 heartbeat 端点），
+     从不注册。
+2. **未知 worker 的心跳是静默空操作。**
+   `WorkerStorage::update_worker_status` 是
+   `UPDATE workers SET status = $2, last_heartbeat_ts = $3 WHERE worker_id = $1`
+   （`synapse-storage/src/worker/repository.rs:144-161`）—— 既不是 upsert，**也不检查影响行数**。
+   `update_heartbeat`（`:168`）同样。⇒ 注册表里没有该行时，心跳返回 200、日志无异常、改 0 行。
+
+**后果（任何真实多进程部署）**：`workers` 表对 worker 实例恒为空 ⇒
+`WorkerManager::get_active()` 为空 ⇒ 拓扑端点的 `live_instances` 为空、W-A 的 `runtime.missing`
+会把**每个**声明实例都列出来；负载均衡无候选（`storage.get_worker` 返回 None）；
+`select_worker_for_task` 对 worker 专属任务恒为 `None`（LB 空 ⇒ 回退 ⇒ 注册表也空）。
+唯一"知道"worker 存在的是**内存里的** `HealthChecker`（心跳 handler 在更早一步就把它注册进去了），
+所以健康检查看起来是正常的 —— 这让缺陷更难被发现。
+
+**为什么至今没暴露**：`tests/integration/api_worker_heartbeat_stats_tests.rs` 是用
+**管理员令牌**显式调用 `/register` 造出注册行的（该文件 :51-55 + `get_admin_token`）。
+也就是说，"生产里谁来注册"这个问题从来没有被任何测试问到过。
+
+**同时修正的两处交付物表述**（已改）：
+- `docker/docker-compose.workers.yml` 的头注释原先写"声明了却没起来，端点会直接报出来"，
+  隐含"worker 会注册"—— 已改为点明注册路径缺失、并把 `WORKER_INSTANCE_NAME` 的有效性条件写清。
+- `docker/config/homeserver.yaml` 的 `worker.instance_name` 由字面量 `"master"` 改为
+  `${WORKER_INSTANCE_NAME:-master}`：字面量下 `WORKER_INSTANCE_NAME` **完全不生效**，
+  5 个 worker 进程会全部自称 master（`resolved_current_instance_name` 只在配置值含 `${` 时
+  才回退读环境变量）。不设该环境变量时解析结果仍是 `master` ⇒ 单进程部署零变化。
+
+**因此**：本批的烟测脚本在修好 W-G 之前**必然失败**，且它失败得**正确** —— 这正是它存在的价值。
+脚本头部已写明这一点，避免后来者把代码缺陷当成环境问题排查。
+
+### W-G（2026-10-17 新增）：让 worker 能自注册 —— **参考栈与任务派发的前提**
+
+**最小方案（不动鉴权面、不加新路由 ⇒ 不触发契约链）**：把 `POST /workers/{worker_id}/heartbeat`
+做成**自声明式**：
+1. `HeartbeatBody` 增两个**可选**字段 `worker_name` / `worker_type`（body 已有 `deny_unknown_fields`，
+   新增可选字段对旧客户端兼容）。
+2. handler 在 worker_id 未知时用这两个字段补建注册行（复用现有 `RegisterWorkerRequest` 路径），
+   已知时行为不变。
+3. `HeartbeatSender` 带上这两个字段 —— 值就是 worker 进程自己已经算得出来的
+   `resolved_current_instance_name(config)` 与 `current_instance_worker_type(config)`
+   （前提是 `worker.instance_name` 写成 `${WORKER_INSTANCE_NAME:-master}`，本批已改）。
+- **为什么选它**：心跳路由本来就在共享密钥保护下，且该密钥已经能发命令、领任务、读事件流、
+  写复制位点 —— **创建自己的注册行不比这些更敏感**，信任边界不变；而"移动/新增 register 路由
+  到共享密钥面"会改变路由集 ⇒ 触发契约链（3 张派生表 + 6 个 fixtures + 2 个 ledger 快照 +
+  `ROUTE_CONTRACT.md` + `route-table.json` + 文档计数），代价与风险都更大。
+- **判据**：未知 worker 首次心跳 ⇒ 注册行出现且 `worker_name` 来自配置实例名（正控）；
+  已知 worker 心跳 ⇒ 不改变既有行（负控）；不传新字段的旧客户端 ⇒ 行为与今天一致（负控，
+  即仍然不建行、不报错）；`runtime.missing` 在多进程烟测里为空（端到端）。
+- **验收**：`scripts/test/worker_topology_smoke.sh` 全绿（它今天在注册断言处必然失败）。
+
 ### W-E：拓扑可观测性
 
 指标建议：`synapse_worker_topology_valid`、`synapse_worker_registered_total`、
@@ -412,6 +473,9 @@ C4（MSC4354 请求面）改动面**不重叠**；W-B 动 `src/server/mod.rs`；
 ⇒ **W-F（按角色收敛 HTTP 面）是唯一还挡在"真正的请求分流"前面的东西**；
 它动路由装配 ⇒ 会连带契约链与 `src/server/mod.rs`（后者已在行数棘轮红名单里），
 建议单独一批、单独评估。
+
+**另加 W-G（2026-10-17 复核新增）**：worker 自注册路径缺失（详见 W-D 复核一节）。
+它是**参考栈与任务派发**的前提，且是"最小改动、不触发契约链"的形态 ⇒ 建议优先于 W-F 做。
 
 ---
 
