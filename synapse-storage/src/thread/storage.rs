@@ -8,7 +8,7 @@ use synapse_common::current_timestamp_millis;
 
 use super::models::{
     CreateThreadReplyParams, CreateThreadRootParams, ThreadListParams, ThreadReadReceipt, ThreadRelation, ThreadReply,
-    ThreadRoot, ThreadStatistics, ThreadSubscription, ThreadSummary,
+    ThreadRoot, ThreadSearchParams, ThreadSearchRow, ThreadStatistics, ThreadSubscription, ThreadSummary,
 };
 /// The `ThreadStorage` struct.
 #[derive(Clone)]
@@ -850,24 +850,29 @@ impl ThreadStorage {
     }
 
     /// See [`search_threads`].
-    pub async fn search_threads(
-        &self,
-        room_id: &str,
-        query: &str,
-        limit: Option<i32>,
-    ) -> Result<Vec<ThreadSummary>, sqlx::Error> {
-        let limit = i64::from(limit.unwrap_or(20));
+    ///
+    /// 按相关性排序的搜索，**keyset 分页**：`params.cursor` 给上一页最后一行的排序键，
+    /// 本页取它之后的行。游标谓词必须与 `ORDER BY` 严格对应
+    /// （`search_relevance DESC, sort_ts DESC, thread_id ASC`），否则会静默漏行/重复。
+    pub async fn search_threads(&self, params: ThreadSearchParams) -> Result<Vec<ThreadSearchRow>, sqlx::Error> {
+        let limit = i64::from(params.limit.unwrap_or(20));
         // Escape special characters in the query for ILIKE and plainto_tsquery
         // Double % for literal % in LIKE patterns. _ needs escaping too. Single quotes need escaping.
-        let escaped_query = query.replace('%', r"%%").replace('_', r"\_").replace('\'', r"''");
+        let escaped_query = params.query.replace('%', r"%%").replace('_', r"\_").replace('\'', r"''");
 
-        // NOTE(C9): `search_relevance` is a ranking-only column with no `ThreadSummary`
-        // field, and `query_as!` constructs the struct from *every* described column, so
-        // the ranked query is wrapped in a subquery that projects exactly the struct's
-        // columns. Ordering is unchanged: `q.search_relevance DESC` then the same sort
-        // timestamp (`sort_ts`) as before.
+        // 游标三件套：由构造方保证"要么同时给、要么同时不给"；SQL 侧用 `$4 IS NULL` 判"无游标"。
+        let (cursor_relevance, cursor_sort_ts, cursor_thread_id) = match &params.cursor {
+            Some(cursor) => (Some(cursor.search_relevance), Some(cursor.sort_ts), Some(cursor.thread_id.as_str())),
+            None => (None, None, None),
+        };
+
+        // NOTE(C9): `search_relevance` / `sort_ts` 只是**排序键**、不在 `ThreadSummary` 的对外形状里，
+        // 但它们必须一并投影出来 —— `query_as!` 生成的是结构体字面量（按查询列名逐字段构造），
+        // 排序键要在返回结构体里有对应字段，上层才能据此生成下一页的 `next_batch`。
+        // 排序仍是 `search_relevance DESC, sort_ts DESC`，末位补 `thread_id ASC` 以获得**全序**
+        // （有并列时若顺序不确定，keyset 分页会漏行或重复）。
         sqlx::query_as!(
-            ThreadSummary,
+            ThreadSearchRow,
             r#"
             SELECT
                 q.id,
@@ -885,7 +890,10 @@ impl ThreadStorage {
                 q.participants AS "participants!",
                 q.is_frozen AS "is_frozen!",
                 q.created_ts,
-                q.updated_ts AS "updated_ts!"
+                q.updated_ts AS "updated_ts!",
+                -- 排序键：仅为生成下一页游标而回传，不进对外形状
+                q.search_relevance AS "search_relevance!",
+                q.sort_ts AS "sort_ts!"
             FROM (
                 SELECT
                     tr.id,
@@ -913,7 +921,9 @@ impl ThreadStorage {
                         COALESCE(similarity(COALESCE(e.content->>'body', ''), $2), 0.0),
                         COALESCE(ts_rank_cd(to_tsvector('english', COALESCE(latest_reply.latest_content->>'body', '')), plainto_tsquery('english', $2)), 0.0),
                         COALESCE(similarity(COALESCE(latest_reply.latest_content->>'body', ''), $2), 0.0)
-                    ) AS search_relevance,
+                    -- ⚠️ 必须显式提升为 double precision：`ts_rank_cd` 与 `similarity` 实测都返回
+                    -- `real`（float4），不提类型的话 Rust 侧会映射成 f32，游标精度随之退化。
+                    )::double precision AS search_relevance,
                     COALESCE(latest_reply.latest_origin_server_ts, e.origin_server_ts, tr.created_ts) AS sort_ts
                 FROM thread_roots tr
                 LEFT JOIN events e
@@ -956,12 +966,19 @@ impl ThreadStorage {
                       OR COALESCE(latest_reply.latest_content->>'body', '') % $2
                   )
             ) AS q
-            ORDER BY q.search_relevance DESC, q.sort_ts DESC NULLS LAST
+            WHERE $4::double precision IS NULL
+               OR q.search_relevance < $4
+               OR (q.search_relevance = $4 AND q.sort_ts < $5)
+               OR (q.search_relevance = $4 AND q.sort_ts = $5 AND q.thread_id > $6)
+            ORDER BY q.search_relevance DESC, q.sort_ts DESC NULLS LAST, q.thread_id ASC
             LIMIT $3
             "#,
-            room_id,
+            params.room_id.as_str(),
             &escaped_query,
-            limit
+            limit,
+            cursor_relevance,
+            cursor_sort_ts,
+            cursor_thread_id
         )
         .fetch_all(&*self.pool)
         .await
@@ -1121,12 +1138,7 @@ pub trait ThreadStoreApi: Send + Sync {
         thread_id: &str,
     ) -> Result<Option<ThreadStatistics>, sqlx::Error>;
     /// See [`search_threads`].
-    async fn search_threads(
-        &self,
-        room_id: &str,
-        query: &str,
-        limit: Option<i32>,
-    ) -> Result<Vec<ThreadSummary>, sqlx::Error>;
+    async fn search_threads(&self, params: ThreadSearchParams) -> Result<Vec<ThreadSearchRow>, sqlx::Error>;
     /// See [`freeze_thread`].
     async fn freeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error>;
     /// See [`unfreeze_thread`].
@@ -1295,13 +1307,8 @@ impl ThreadStoreApi for ThreadStorage {
         self.get_thread_statistics(room_id, thread_id).await
     }
 
-    async fn search_threads(
-        &self,
-        room_id: &str,
-        query: &str,
-        limit: Option<i32>,
-    ) -> Result<Vec<ThreadSummary>, sqlx::Error> {
-        self.search_threads(room_id, query, limit).await
+    async fn search_threads(&self, params: ThreadSearchParams) -> Result<Vec<ThreadSearchRow>, sqlx::Error> {
+        self.search_threads(params).await
     }
 
     async fn freeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error> {

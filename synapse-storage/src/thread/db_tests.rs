@@ -1276,8 +1276,15 @@ async fn test_search_threads_finds_match() {
         .expect("should create root");
 
     // Search for the unique keyword
-    let results =
-        storage.search_threads(&room_id, "UniqueSearchableKeyword", Some(10)).await.expect("search should succeed");
+    let results = storage
+        .search_threads(ThreadSearchParams {
+            room_id: room_id.clone(),
+            query: "UniqueSearchableKeyword".to_string(),
+            limit: Some(10),
+            cursor: None,
+        })
+        .await
+        .expect("search should succeed");
     assert!(results.iter().any(|s| s.thread_id == thread_id), "should find our thread by keyword");
 
     // Cleanup the event
@@ -1312,8 +1319,15 @@ async fn test_search_threads_no_match() {
         .expect("should create root");
 
     // Search for a keyword that doesn't match
-    let results =
-        storage.search_threads(&room_id, "ZZZNoMatchAtAllZZZ", Some(10)).await.expect("search should succeed");
+    let results = storage
+        .search_threads(ThreadSearchParams {
+            room_id: room_id.clone(),
+            query: "ZZZNoMatchAtAllZZZ".to_string(),
+            limit: Some(10),
+            cursor: None,
+        })
+        .await
+        .expect("search should succeed");
     assert!(results.iter().all(|s| s.thread_id != thread_id), "should not find our thread with non-matching query");
 
     let _ = sqlx::query("DELETE FROM events WHERE event_id = $1").bind(&root_event_id).execute(&*pool).await;

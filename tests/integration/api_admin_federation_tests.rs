@@ -631,3 +631,77 @@ async fn test_federation_admission_destinations_include_status() {
         .expect("server should appear in destinations");
     assert_eq!(entry["status"], "pending");
 }
+
+/// `POST …/federation/blacklist/{server_name}` 必须**接住 body**。
+///
+/// 交接单 §6 Q4：修复前 handler 只取 `Path(server_name)`、没有 `Json` 提取器（body 被静默丢弃），
+/// service 又硬编码 `reason: None` —— 而**读路径** `GET …/blacklist` 会回传 `reason`
+/// ⇒ 写入丢字段、读取回空，调用方完全无法察觉。
+///
+/// 这条测试同时钉住三件事：① body 里的 `reason` 能落库并读回；② `expires_in_days` 真的
+/// 换算成 `expires_at`（直查 DB，因为读接口不回传它）；③ `expires_in_days <= 0` 必须 400
+/// （否则会静默写出一条**创建即过期**、等于没拉黑的条目）。
+#[tokio::test]
+async fn test_admin_federation_blacklist_body_reason_and_expiry_are_persisted() {
+    let Some((app, pool)) = setup_test_context().await else {
+        return;
+    };
+    let admin_token = get_super_admin_token(&app, &pool).await;
+    let suffix = rand::random::<u32>();
+    let server_name = format!("body-reason-{}.example.com", suffix);
+
+    let add_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_synapse/admin/v1/federation/blacklist/{}", server_name))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "reason": "spam relay", "expires_in_days": 30 }).to_string()))
+        .unwrap();
+    let add_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), add_request).await.unwrap();
+    assert_eq!(add_response.status(), StatusCode::OK);
+
+    // ① 读路径必须回传刚写进去的 reason（修复前恒为 null）
+    let list_request = Request::builder()
+        .uri("/_synapse/admin/v1/federation/blacklist")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+    let list_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), list_request).await.unwrap();
+    assert_eq!(list_response.status(), StatusCode::OK);
+    let list_body = axum::body::to_bytes(list_response.into_body(), 8192).await.unwrap();
+    let list_json: Value = serde_json::from_slice(&list_body).unwrap();
+    let entry = list_json["blacklist"]
+        .as_array()
+        .expect("blacklist must be an array")
+        .iter()
+        .find(|entry| entry["server_name"] == server_name)
+        .expect("the entry we just added must be listed");
+    assert_eq!(entry["reason"], "spam relay", "body 里的 reason 必须落库并能读回（修复前恒为 null）");
+
+    // ② `expires_in_days` 必须换算成 expires_at（读接口不回传，故直查 DB）
+    let expires_at: Option<i64> =
+        sqlx::query_scalar("SELECT expires_at FROM federation_blacklist WHERE server_name = $1")
+            .bind(&server_name)
+            .fetch_one(&*pool)
+            .await
+            .expect("blacklist row must exist");
+    let expires_at = expires_at.expect("expires_in_days=30 必须换算成 expires_at");
+    let now = synapse_common::current_timestamp_millis();
+    let thirty_days_ms = 30_i64 * 24 * 60 * 60 * 1000;
+    assert!(
+        (expires_at - now - thirty_days_ms).abs() < 60_000,
+        "expires_at 应在 now+30d 附近（容差 1 分钟），实际差值 {} ms",
+        expires_at - now - thirty_days_ms
+    );
+
+    // ③ 非正数天数必须 400（"创建即过期"= 静默无效写）
+    let invalid_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_synapse/admin/v1/federation/blacklist/zero-days-{}.example.com", suffix))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "expires_in_days": 0 }).to_string()))
+        .unwrap();
+    let invalid_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), invalid_request).await.unwrap();
+    assert_eq!(invalid_response.status(), StatusCode::BAD_REQUEST);
+}

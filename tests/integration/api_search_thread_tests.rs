@@ -507,3 +507,93 @@ async fn test_global_threads_only_include_joined_rooms() {
     assert!(!threads.iter().any(|thread| thread["thread_id"] == thread_id));
     assert_eq!(json["total"], 0);
 }
+
+/// 调 `GET …/rooms/{room_id}/threads/search`，返回 (状态码, JSON)。
+async fn room_thread_search(
+    app: &axum::Router,
+    token: &str,
+    room_id: &str,
+    term: &str,
+    limit: Option<u32>,
+    from: Option<&str>,
+) -> (StatusCode, Value) {
+    let mut uri = format!("/_matrix/vendor/v1/rooms/{}/threads/search?q={}", room_id, term);
+    if let Some(limit) = limit {
+        uri.push_str(&format!("&limit={limit}"));
+    }
+    if let Some(from) = from {
+        uri.push_str(&format!("&from={from}"));
+    }
+
+    let request = Request::builder()
+        .method("GET")
+        .uri(uri)
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+    (status, json)
+}
+
+/// 话题搜索必须与同族 `list_threads` **同形**（信封 + `next_batch` 游标），且游标能续读。
+///
+/// 交接单 §6 Q5：修复前返回**裸数组**且 `from` 被静默忽略 ⇒ 对接的 SDK 按
+/// `IThreadListResponse { threads; next_batch? }` 读 ⇒ `result.threads` 恒为 `undefined`、
+/// 结果集被 `limit` 截断后无法续读（该方法完全不可用）。这条测试同时钉住
+/// ① 信封形状、② `limit` 截断时必给 `next_batch`、③ 相邻页不重复、④ 畸形游标 400。
+#[tokio::test]
+async fn test_room_thread_search_returns_envelope_and_paginates_by_cursor() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let token = super::create_test_user(&app).await;
+    let room_id = create_room(&app, &token).await;
+
+    // 造 2 条命中：命中来自**最新回复**的 body（`thread_replies.content`）。
+    let mut expected = Vec::new();
+    for i in 0..2 {
+        let root_event_id = send_message(&app, &token, &room_id, &format!("search_root_txn_{i}")).await;
+        let thread_id = create_thread(&app, &token, &room_id, &root_event_id).await;
+        add_reply(&app, &token, &room_id, &thread_id, &root_event_id, &format!("$search_reply_{i}:localhost")).await;
+        expected.push(thread_id);
+    }
+    expected.sort();
+
+    // ① 未截断：信封对象（不是裸数组）、没有 next_batch
+    let (status, full) = room_thread_search(&app, &token, &room_id, "thread", None, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(full.is_object(), "响应必须是信封对象 —— SDK 按 IThreadListResponse 读 `threads`");
+    assert_eq!(full["threads"].as_array().expect("`threads` 必须是数组").len(), 2);
+    assert!(full["next_batch"].is_null(), "未截断时不应给 next_batch");
+
+    // ② limit=1 截断：必须给出 next_batch
+    let (status, page1) = room_thread_search(&app, &token, &room_id, "thread", Some(1), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let page1_threads = page1["threads"].as_array().expect("`threads` 必须是数组");
+    assert_eq!(page1_threads.len(), 1);
+    let cursor = page1["next_batch"].as_str().expect("被截断的页必须带 next_batch").to_string();
+
+    // ③ 第二页给出**另一条**，且没有更多
+    let (status, page2) = room_thread_search(&app, &token, &room_id, "thread", Some(1), Some(&cursor)).await;
+    assert_eq!(status, StatusCode::OK);
+    let page2_threads = page2["threads"].as_array().expect("`threads` 必须是数组");
+    assert_eq!(page2_threads.len(), 1);
+    assert_ne!(page2_threads[0]["thread_id"], page1_threads[0]["thread_id"], "相邻页不得重复同一行");
+    assert!(page2["next_batch"].is_null(), "已是最后一页");
+
+    // 两页并集 == 全部命中（游标**不漏行**）
+    let mut seen = vec![
+        page1_threads[0]["thread_id"].as_str().expect("thread_id").to_string(),
+        page2_threads[0]["thread_id"].as_str().expect("thread_id").to_string(),
+    ];
+    seen.sort();
+    assert_eq!(seen, expected);
+
+    // ④ 畸形游标：必须 400 —— 静默降级成"第一页"会让客户端拿到错的一页却不报错
+    let (status, _) = room_thread_search(&app, &token, &room_id, "thread", Some(1), Some("not-a-cursor")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}

@@ -387,8 +387,20 @@ impl AdminFederationService {
     }
 
     /// See [`add_to_blacklist`].
+    ///
+    /// `reason` / `expires_in_days` 取自 `POST …/federation/blacklist/{server_name}` 的**可选 body**。
+    ///
+    /// ⚠️ 2026-10-16 修复：这两个字段原先**没有任何入口** —— HTTP handler 只取 `Path(server_name)`
+    /// 且没有 `Json` 提取器（body 被静默丢弃）、此处又硬编码 `None`，而**读路径**
+    /// `GET …/federation/blacklist` 会回传 `reason` ⇒ 调用方发的 body 完全无效却不报错。
     #[instrument(skip(self))]
-    pub async fn add_to_blacklist(&self, server_name: &str, admin_user_id: &str) -> Result<(), ApiError> {
+    pub async fn add_to_blacklist(
+        &self,
+        server_name: &str,
+        admin_user_id: &str,
+        reason: Option<String>,
+        expires_in_days: Option<i32>,
+    ) -> Result<(), ApiError> {
         let existing = self.federation_blacklist_storage.get_blacklist_entry(server_name).await?;
         if existing.as_ref().is_some_and(|entry| entry.is_enabled) {
             return Err(ApiError::conflict("Server is already blacklisted".to_string()));
@@ -399,8 +411,8 @@ impl AdminFederationService {
                 AddBlacklistRequest {
                     server_name: server_name.to_string(),
                     block_type: "blacklist".to_string(),
-                    reason: None,
-                    expires_in_days: None,
+                    reason,
+                    expires_in_days,
                 },
                 admin_user_id,
             )

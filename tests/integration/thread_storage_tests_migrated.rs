@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use sqlx::Row;
 use std::sync::atomic::{AtomicU64, Ordering};
-use synapse_storage::thread::{CreateThreadReplyParams, CreateThreadRootParams, ThreadStorage};
+use synapse_storage::thread::{CreateThreadReplyParams, CreateThreadRootParams, ThreadSearchParams, ThreadStorage};
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -226,10 +226,99 @@ async fn test_thread_root_and_reply_roundtrip() {
     assert_eq!(statistics.first_reply_ts, Some(1234));
     assert_eq!(statistics.last_reply_ts, Some(1234));
 
-    let search_results = storage.search_threads(&room_id, "hello", Some(10)).await.expect("Failed to search threads");
+    let search_results = storage
+        .search_threads(ThreadSearchParams {
+            room_id: room_id.clone(),
+            query: "hello".to_string(),
+            limit: Some(10),
+            cursor: None,
+        })
+        .await
+        .expect("Failed to search threads");
 
     assert_eq!(search_results.len(), 1);
     assert_eq!(search_results[0].thread_id, thread_id);
+
+    cleanup(&pool, &room_id, &[creator, replier, reader]).await;
+}
+
+/// 搜索分页（keyset）必须**不重不漏**地覆盖全部命中行。
+///
+/// 这是 Q5 修复的核心判据（SDK↔后端交接单 §6 Q5）：修复前 `search_threads` 返回裸数组、
+/// 被 `limit` 静默截断且不认 `from`，客户端无法续读。这里逐页翻到底，断言
+/// ① 每页条数 == limit、② 页间**无重叠**、③ 并集 == 全部命中、④ 末页为空（没有多出第 4 条）。
+#[tokio::test]
+async fn test_search_threads_cursor_pagination_is_complete_and_non_overlapping() {
+    let pool = crate::require_test_pool().await;
+
+    let storage = ThreadStorage::new(&pool);
+    let suffix = unique_suffix();
+    let (creator, replier, reader, room_id, _seed_thread_id) = seed_room(&pool, suffix).await;
+
+    // 三条根 + 三条回复，body 长度**各异** ⇒ 相关性分数不同（避免三行完全并列；并列时
+    // 靠 `thread_id ASC` 兜底成全序，这正是不漏行的前提）。
+    let marker = format!("cursorsearch{suffix}");
+    let mut expected = Vec::new();
+    for i in 0..3usize {
+        let thread_id = format!("thread-{suffix}-{i}");
+        let root_event_id = format!("$cursorroot{suffix}-{i}:localhost");
+        storage
+            .create_thread_root(CreateThreadRootParams {
+                room_id: room_id.clone(),
+                root_event_id: root_event_id.clone(),
+                sender: creator.clone(),
+                thread_id: Some(thread_id.clone()),
+            })
+            .await
+            .expect("Failed to create thread root");
+
+        // 命中来自**最新回复**的 body（`thread_replies.content`），不是根事件。
+        let body = format!("{marker} {}", "padding ".repeat(i));
+        storage
+            .create_thread_reply(CreateThreadReplyParams {
+                room_id: room_id.clone(),
+                thread_id: thread_id.clone(),
+                event_id: format!("$cursorreply{suffix}-{i}:localhost"),
+                root_event_id: root_event_id.clone(),
+                sender: replier.clone(),
+                in_reply_to_event_id: Some(root_event_id.clone()),
+                content: serde_json::json!({ "body": body, "msgtype": "m.text" }),
+                origin_server_ts: 1000 + i as i64,
+            })
+            .await
+            .expect("Failed to create thread reply");
+
+        expected.push(thread_id);
+    }
+
+    // 每页 1 条 ⇒ 需要翻 3 页，第 4 次请求必须为空。
+    let mut seen: Vec<String> = Vec::new();
+    let mut cursor = None;
+    for page_index in 0..4 {
+        let page = storage
+            .search_threads(ThreadSearchParams {
+                room_id: room_id.clone(),
+                query: marker.clone(),
+                limit: Some(1),
+                cursor: cursor.clone(),
+            })
+            .await
+            .expect("Failed to search threads");
+
+        if page_index == 3 {
+            assert!(page.is_empty(), "第 4 页必须为空 —— 否则说明命中数多于 3，或游标谓词漏掉了终止条件");
+            break;
+        }
+
+        assert_eq!(page.len(), 1, "第 {page_index} 页应恰好 1 条（既未截断、也没多给）");
+        let (_, next_cursor) = page.into_iter().next().expect("page must have one row").split();
+        seen.push(next_cursor.thread_id.clone());
+        cursor = Some(next_cursor);
+    }
+
+    seen.sort();
+    expected.sort();
+    assert_eq!(seen, expected, "逐页翻完应不重不漏地覆盖全部命中行（与排序无关）");
 
     cleanup(&pool, &room_id, &[creator, replier, reader]).await;
 }

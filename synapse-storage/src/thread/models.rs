@@ -167,6 +167,101 @@ pub struct ThreadSummary {
     pub updated_ts: i64,
 }
 
+/// 搜索结果的 **keyset 游标**：`(search_relevance, sort_ts, thread_id)`。
+///
+/// 搜索按**相关性**排序（`search_relevance DESC, sort_ts DESC, thread_id ASC`），
+/// 所以翻页必须带上**完整排序键**才能稳定续读 —— 只带 `thread_id`（像
+/// `list_thread_roots` 那样）会漏掉"相关性更低但 thread_id 更大"的整段结果。
+/// 与 `/search` 的 `PostgresSearchCursor { rank, origin_server_ts, event_id }` 同源。
+#[derive(Debug, Clone, PartialEq)]
+pub struct ThreadSearchCursor {
+    /// The `search_relevance` field.
+    pub search_relevance: f64,
+    /// The `sort_ts` field.
+    pub sort_ts: i64,
+    /// The `thread_id` field.
+    pub thread_id: String,
+}
+
+/// `search_threads` 的返回行：`ThreadSummary` 的全部列 + **两个排序键**列。
+///
+/// 为什么不直接复用 `ThreadSummary`：`query_as!` 展开成了**结构体字面量**
+/// （`sqlx` 的 `quote_query_as` 按查询列名逐字段构造，不走 `FromRow`），
+/// 因此投影列与结构体字段必须严格一一对应 —— 多选出来的排序键必须显式声明。
+/// 两个键都**不进对外形状**（handler 只回 `ThreadSummary`），用 [`Self::split`] 拆开。
+#[derive(Debug, Clone)]
+pub struct ThreadSearchRow {
+    /// The `id` field.
+    pub id: i64,
+    /// The `room_id` field.
+    pub room_id: String,
+    /// The `thread_id` field.
+    pub thread_id: String,
+    /// The `root_event_id` field.
+    pub root_event_id: String,
+    /// The `root_sender` field.
+    pub root_sender: String,
+    /// The `root_content` field.
+    pub root_content: serde_json::Value,
+    /// The `root_origin_server_ts` field.
+    pub root_origin_server_ts: i64,
+    /// The `latest_event_id` field.
+    pub latest_event_id: Option<String>,
+    /// The `latest_sender` field.
+    pub latest_sender: Option<String>,
+    /// The `latest_content` field.
+    pub latest_content: Option<serde_json::Value>,
+    /// The `latest_origin_server_ts` field.
+    pub latest_origin_server_ts: Option<i64>,
+    /// The `reply_count` field.
+    pub reply_count: i32,
+    /// The `participants` field.
+    pub participants: serde_json::Value,
+    /// The `is_frozen` field.
+    pub is_frozen: bool,
+    /// The `created_ts` field.
+    pub created_ts: i64,
+    /// The `updated_ts` field.
+    pub updated_ts: i64,
+    /// 相关性分数 `GREATEST(ts_rank_cd(...), similarity(...))`。
+    ///
+    /// ⚠️ 必须在 SQL 里显式 `::double precision`：`ts_rank_cd` 与 `similarity` 实测都返回
+    /// `real`（float4），若不提升类型，`query_as!` 会把它映射成 `f32`，游标精度也随之退化。
+    pub search_relevance: f64,
+    /// 排序时间戳 `COALESCE(最新回复 ts, 根事件 ts, 根记录 ts)`（仅排序/游标用）。
+    pub sort_ts: i64,
+}
+
+impl ThreadSearchRow {
+    /// 拆成（对外形状, 本行的排序键）。
+    pub fn split(self) -> (ThreadSummary, ThreadSearchCursor) {
+        let cursor = ThreadSearchCursor {
+            search_relevance: self.search_relevance,
+            sort_ts: self.sort_ts,
+            thread_id: self.thread_id.clone(),
+        };
+        let summary = ThreadSummary {
+            id: self.id,
+            room_id: self.room_id,
+            thread_id: self.thread_id,
+            root_event_id: self.root_event_id,
+            root_sender: self.root_sender,
+            root_content: self.root_content,
+            root_origin_server_ts: self.root_origin_server_ts,
+            latest_event_id: self.latest_event_id,
+            latest_sender: self.latest_sender,
+            latest_content: self.latest_content,
+            latest_origin_server_ts: self.latest_origin_server_ts,
+            reply_count: self.reply_count,
+            participants: self.participants,
+            is_frozen: self.is_frozen,
+            created_ts: self.created_ts,
+            updated_ts: self.updated_ts,
+        };
+        (summary, cursor)
+    }
+}
+
 /// The `ThreadStatistics` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ThreadStatistics {
@@ -241,6 +336,24 @@ pub struct ThreadListParams {
     pub from: Option<String>,
     /// The `include_all` field.
     pub include_all: bool,
+}
+
+/// `search_threads` 的参数。
+///
+/// 与 [`ThreadListParams`] 的区别：搜索**按相关性排序**，游标必须是完整的排序键
+/// （见 [`ThreadSearchCursor`]），不能像列表那样只用 `thread_id`。
+#[derive(Debug, Clone)]
+pub struct ThreadSearchParams {
+    /// The `room_id` field.
+    pub room_id: String,
+    /// The `query` field.
+    pub query: String,
+    /// The `limit` field.
+    pub limit: Option<i32>,
+    /// 上一页最后一行的排序键；`None` = 第一页。
+    ///
+    /// 三个字段由构造方保证**要么同时给、要么同时不给**（SQL 用 `$4 IS NULL` 判"无游标"）。
+    pub cursor: Option<ThreadSearchCursor>,
 }
 
 /// The `ThreadWithReplies` struct.

@@ -85,6 +85,23 @@ pub struct BlacklistQuery {
     pub from: Option<String>,
 }
 
+/// `POST …/federation/blacklist/{server_name}` 的**可选**请求体。
+///
+/// - `server_name` 走**路径参数**、`block_type` 由路由固定为 `blacklist` ⇒ body 只留下面两个可选项；
+///   这里故意**不加** `#[serde(deny_unknown_fields)]`（与本文件其他 body 结构体不同）：
+///   body 里若顺带带了 `server_name` / `block_type`，应当被忽略而不是 400 —— 路径才是权威。
+/// - 整个 body 也是可选的：SDK 只在有 `reason` 时才发 body
+///   （`admin-federation-manager.ts` 的 `reason ? { reason } : undefined`），
+///   且无 body 时它**不会**设 `Content-Type: application/json` ⇒ `Option<Json<..>>` 取到 `None`。
+///   若写成必选的 `Json<..>`，那条"不带 body"的调用会直接 415。
+#[derive(Debug, Default, Deserialize)]
+pub struct AddBlacklistBody {
+    /// The `reason` field.
+    pub reason: Option<String>,
+    /// The `expires_in_days` field.
+    pub expires_in_days: Option<i32>,
+}
+
 #[cfg(test)]
 mod cursor_tests {
     use super::{decode_pending_federation_cursor, encode_pending_federation_cursor};
@@ -339,8 +356,12 @@ pub async fn add_to_blacklist(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(server_name): Path<ServerName>,
+    body: Option<Json<AddBlacklistBody>>,
 ) -> Result<Json<Value>, ApiError> {
-    ctx.admin_federation_service.add_to_blacklist(&server_name, &admin.user_id).await?;
+    // ⚠️ 2026-10-16 修复：这里原先**没有** body 提取器 ⇒ `reason` / `expires_in_days`
+    // 被静默丢弃，而 `GET …/federation/blacklist` 会回传 `reason`（写入丢、读取回）。
+    let AddBlacklistBody { reason, expires_in_days } = body.map(|Json(body)| body).unwrap_or_default();
+    ctx.admin_federation_service.add_to_blacklist(&server_name, &admin.user_id, reason, expires_in_days).await?;
     Ok(Json(json!({})))
 }
 

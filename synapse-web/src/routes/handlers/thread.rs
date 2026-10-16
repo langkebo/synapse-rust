@@ -12,8 +12,9 @@ use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use synapse_services::thread_service::{
-    CreateReplyRequest, CreateThreadRequest, GetThreadRequest, ListThreadsRequest, MarkReadRequest, SubscribeRequest,
-    SubscribedThreadsResponse, ThreadDetailResponse, ThreadListResponse, UnreadThreadsResponse,
+    CreateReplyRequest, CreateThreadRequest, GetThreadRequest, ListThreadsRequest, MarkReadRequest,
+    SearchThreadsRequest, SubscribeRequest, SubscribedThreadsResponse, ThreadDetailResponse, ThreadListResponse,
+    UnreadThreadsResponse,
 };
 
 #[derive(Debug, Deserialize)]
@@ -54,6 +55,11 @@ struct MarkReadBody {
 struct SearchQuery {
     q: String,
     limit: Option<i32>,
+    /// 续读游标：来自上一页响应里的 `next_batch`（**不透明**，只应原样回传）。
+    ///
+    /// 与 `ListQuery.from` 语义不同：搜索按相关性排序，这个游标编的是**排序键三元组**，
+    /// 不是 `thread_id`。
+    from: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -514,17 +520,32 @@ async fn get_unread_threads(
     Ok(Json(response))
 }
 
+/// 房间内话题搜索（`GET …/rooms/{room_id}/threads/search?q=<term>`）。
+///
+/// ⚠️ 2026-10-16 契约修复：返回形状由**裸数组**改为 `ThreadListResponse` 信封
+/// （`threads` + `next_batch` + `total`），与同族 `list_threads` 一致 —— 对接的 SDK
+/// 正是按信封读的（`IThreadListResponse { threads; next_batch? }`），此前
+/// `result.threads` 恒为 `undefined`（该方法完全不可用）；同时 `from` 此前被**静默忽略**，
+/// 现在生效（结果集此前还被 `limit` 静默截断且无法续读）。
 async fn search_threads(
     State(ctx): State<RoomContext>,
     Path(room_id): Path<RoomId>,
     Query(query): Query<SearchQuery>,
     auth_user: AuthenticatedUser,
-) -> Result<Json<Vec<synapse_services::thread_service::ThreadSummary>>, ApiError> {
+) -> Result<Json<ThreadListResponse>, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, room_id.as_str()).await?;
 
-    let results: Vec<synapse_services::thread_service::ThreadSummary> =
-        ctx.thread_service.search_threads(room_id.as_str(), &query.q, query.limit).await?;
-    Ok(Json(results))
+    let response = ctx
+        .thread_service
+        .search_threads(SearchThreadsRequest {
+            room_id: room_id.to_string(),
+            query: query.q,
+            limit: query.limit,
+            from: query.from,
+        })
+        .await?;
+
+    Ok(Json(response))
 }
 
 async fn get_stats(

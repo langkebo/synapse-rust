@@ -458,24 +458,62 @@ impl crate::thread::ThreadStoreApi for InMemoryThreadStore {
 
     async fn search_threads(
         &self,
-        room_id: &str,
-        query: &str,
-        limit: Option<i32>,
-    ) -> Result<Vec<crate::thread::ThreadSummary>, sqlx::Error> {
-        let limit = limit.unwrap_or(50) as usize;
+        params: crate::thread::ThreadSearchParams,
+    ) -> Result<Vec<crate::thread::ThreadSearchRow>, sqlx::Error> {
+        let limit = params.limit.unwrap_or(20) as usize;
+        let q = params.query.to_lowercase();
         let summaries = self.summaries.read().await;
-        let q = query.to_lowercase();
-        Ok(summaries
+
+        let mut rows: Vec<crate::thread::ThreadSearchRow> = summaries
             .values()
-            .filter(|s| s.room_id == room_id)
+            .filter(|s| s.room_id == params.room_id)
             .filter(|s| {
                 s.thread_id.to_lowercase().contains(&q)
                     || s.root_event_id.to_lowercase().contains(&q)
                     || s.root_sender.to_lowercase().contains(&q)
             })
-            .take(limit)
-            .cloned()
-            .collect())
+            .map(|s| crate::thread::ThreadSearchRow {
+                id: s.id,
+                room_id: s.room_id.clone(),
+                thread_id: s.thread_id.clone(),
+                root_event_id: s.root_event_id.clone(),
+                root_sender: s.root_sender.clone(),
+                root_content: s.root_content.clone(),
+                root_origin_server_ts: s.root_origin_server_ts,
+                latest_event_id: s.latest_event_id.clone(),
+                latest_sender: s.latest_sender.clone(),
+                latest_content: s.latest_content.clone(),
+                latest_origin_server_ts: s.latest_origin_server_ts,
+                reply_count: s.reply_count,
+                participants: s.participants.clone(),
+                is_frozen: s.is_frozen,
+                created_ts: s.created_ts,
+                updated_ts: s.updated_ts,
+                // mock 不做相关性打分 ⇒ 恒为 0.0。于是"排序 + 游标谓词"退化成
+                // `(sort_ts DESC, thread_id ASC)` 的普通 keyset，而这与**生产 SQL 在各行
+                // 相关性相等时的行为逐字一致**（生产侧用的是同一套三段谓词，只在第一段
+                // `rel < cursor.rel` 上因 0.0 而恒假）。所以下面的实现可以安全地
+                // 用来验证分页语义本身（不漏行、不重复），但不能用来验证"排序质量"。
+                search_relevance: 0.0,
+                sort_ts: s.updated_ts,
+            })
+            .collect();
+
+        // 与生产一致的顺序：`search_relevance DESC`（此处恒等）、`sort_ts DESC`、`thread_id ASC`。
+        rows.sort_by(|a, b| b.sort_ts.cmp(&a.sort_ts).then_with(|| a.thread_id.cmp(&b.thread_id)));
+
+        if let Some(cursor) = &params.cursor {
+            rows.retain(|row| {
+                row.search_relevance < cursor.search_relevance
+                    || (row.search_relevance == cursor.search_relevance && row.sort_ts < cursor.sort_ts)
+                    || (row.search_relevance == cursor.search_relevance
+                        && row.sort_ts == cursor.sort_ts
+                        && row.thread_id > cursor.thread_id)
+            });
+        }
+
+        rows.truncate(limit);
+        Ok(rows)
     }
 
     async fn freeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error> {

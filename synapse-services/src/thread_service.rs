@@ -1,10 +1,17 @@
 use std::sync::Arc;
 use synapse_common::error::ApiError;
-use synapse_storage::thread::{CreateThreadReplyParams, CreateThreadRootParams, ThreadListParams, ThreadStoreApi};
+use synapse_common::MAX_PAGINATION_LIMIT;
+use synapse_storage::thread::{
+    CreateThreadReplyParams, CreateThreadRootParams, ThreadListParams, ThreadSearchCursor, ThreadSearchParams,
+    ThreadStoreApi,
+};
 pub use synapse_storage::thread::{
     ThreadReadReceipt, ThreadReply, ThreadRoot, ThreadStatistics, ThreadSubscription, ThreadSummary,
 };
 use tracing::{debug, info, warn};
+
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 
 /// The `CreateThreadRequest` struct.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -58,6 +65,52 @@ pub struct ListThreadsRequest {
     pub from: Option<String>,
     /// The `include_all` field.
     pub include_all: bool,
+}
+
+/// The `SearchThreadsRequest` struct.
+///
+/// 与 `ListThreadsRequest` 的关键差别：搜索**按相关性排序**，所以 `from` 是"排序键游标"
+/// （见 `encode_thread_search_cursor` / `decode_thread_search_cursor`），
+/// 语义与列表的 `thread_id` 游标**不同、不可互换**。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SearchThreadsRequest {
+    /// The `room_id` field.
+    pub room_id: String,
+    /// The `query` field.
+    pub query: String,
+    /// The `limit` field.
+    pub limit: Option<i32>,
+    /// The `from` field.
+    pub from: Option<String>,
+}
+
+/// 编码搜索分页游标：`base64url_no_pad("{search_relevance}|{sort_ts}|{thread_id}")`。
+///
+/// 与 `/search` 的 `encode_postgres_search_cursor` 同法（同样是"排序键三元组"、同样
+/// base64url 不透明令牌）。`f64` 走 `Display` 输出 —— Rust 保证是**最短且可精确往返**的
+/// 十进制形式，解析回来与写入前的位模式一致，所以 SQL 里 `search_relevance = $4` 是精确比较。
+fn encode_thread_search_cursor(cursor: &ThreadSearchCursor) -> String {
+    let raw = format!("{}|{}|{}", cursor.search_relevance, cursor.sort_ts, cursor.thread_id);
+    URL_SAFE_NO_PAD.encode(raw.as_bytes())
+}
+
+/// 解码搜索分页游标；格式不符 / 任一字段不可解析即 `None`。
+///
+/// ⚠️ 调用方必须把它转成 **400**，不可当成"没有游标" —— 那会静默返回第一页，
+/// 而客户端以为这是第 N 页的续读（"静默返回错的一页"比报错难查得多）。
+fn decode_thread_search_cursor(cursor: &str) -> Option<ThreadSearchCursor> {
+    let decoded = URL_SAFE_NO_PAD.decode(cursor).ok()?;
+    let decoded = String::from_utf8(decoded).ok()?;
+    let (relevance, rest) = decoded.split_once('|')?;
+    let (sort_ts, thread_id) = rest.split_once('|')?;
+    if thread_id.is_empty() {
+        return None;
+    }
+    Some(ThreadSearchCursor {
+        search_relevance: relevance.parse().ok()?,
+        sort_ts: sort_ts.parse().ok()?,
+        thread_id: thread_id.to_string(),
+    })
 }
 
 /// The `SubscribeRequest` struct.
@@ -614,16 +667,70 @@ impl ThreadService {
     }
 
     /// See [`search_threads`].
-    pub async fn search_threads(
-        &self,
-        room_id: &str,
-        query: &str,
-        limit: Option<i32>,
-    ) -> Result<Vec<ThreadSummary>, ApiError> {
-        self.storage.search_threads(room_id, query, limit).await.map_err(|e| {
-            warn!(error = %e, "Failed to search threads");
-            ApiError::internal_with_cause("Failed to search threads", e)
-        })
+    ///
+    /// 返回 `ThreadListResponse`（与 `list_threads` **同形**）：`threads` 是本页、
+    /// `next_batch` 是续读游标（不透明）。
+    ///
+    /// ⚠️ 2026-10-16 契约修复：此前返回**裸数组** `Vec<ThreadSummary>` 且不认 `from`
+    /// ⇒ 对接的 SDK 两头都错（发了一个后端不认的 `from`，又按信封读裸数组 ⇒
+    /// `result.threads` 恒为 `undefined`，该方法完全不可用）。
+    ///
+    /// 分页用 **keyset**（不是 offset）：按相关性排序的结果集用位置分页会在"翻页途中
+    /// 有新回复"时跳行/重复，而 keyset 只依赖上一页最后一行的排序键。取 `limit + 1` 行判
+    /// `has_more`（与 `/search`、`get_subscribed_threads` 同法），避免"恰好取满"时多发一个
+    /// 无用的 `next_batch`。
+    pub async fn search_threads(&self, request: SearchThreadsRequest) -> Result<ThreadListResponse, ApiError> {
+        // 页长夹在 [1, MAX_PAGINATION_LIMIT]：上界是必须的 —— 下面要取 `limit + 1` 判 `has_more`，
+        // 不设上界时极大 limit 既撑爆内存、又让 `i32` 加法有机会溢出。
+        let limit = request.limit.unwrap_or(20).clamp(1, MAX_PAGINATION_LIMIT as i32);
+
+        let cursor = match request.from.as_deref() {
+            None => None,
+            // 显式 400（不降级成"第一页"）：静默返回错的一页比报错难查得多。
+            Some(token) => Some(
+                decode_thread_search_cursor(token).ok_or_else(|| ApiError::bad_request("Invalid pagination cursor"))?,
+            ),
+        };
+
+        let mut rows = self
+            .storage
+            .search_threads(ThreadSearchParams {
+                room_id: request.room_id,
+                query: request.query,
+                limit: Some(limit + 1),
+                cursor,
+            })
+            .await
+            .map_err(|e| {
+                warn!(error = %e, "Failed to search threads");
+                ApiError::internal_with_cause("Failed to search threads", e)
+            })?;
+
+        let has_more = rows.len() as i32 > limit;
+        if has_more {
+            rows.truncate(limit as usize);
+        }
+
+        // `next_batch` 取**本页最后一行**的排序键；没有下一页时必须是 `None`
+        // （客户端以它的有无判定是否继续翻页）。
+        let next_batch = if has_more {
+            rows.last().map(|row| {
+                encode_thread_search_cursor(&ThreadSearchCursor {
+                    search_relevance: row.search_relevance,
+                    sort_ts: row.sort_ts,
+                    thread_id: row.thread_id.clone(),
+                })
+            })
+        } else {
+            None
+        };
+
+        let threads: Vec<ThreadSummary> = rows.into_iter().map(|row| row.split().0).collect();
+        // 与同族 `list_threads` 口径一致：`total` 是**本页条数**，不是全量命中数
+        // （全量计数要额外一次 `COUNT(*)`，本族端点都不做）。
+        let total = threads.len() as i32;
+
+        Ok(ThreadListResponse { threads, next_batch, total })
     }
 
     /// See [`freeze_thread`].
@@ -1036,5 +1143,61 @@ mod tests {
             service.get_subscribed_threads("@alice:example.com", Some(50), Some(last_id)).await.expect("page 2");
         assert_eq!(page2.subscribed.len(), 5);
         assert!(page2.next_batch.is_none());
+    }
+
+    // ---- 搜索分页游标的编解码 ----
+
+    #[test]
+    fn thread_search_cursor_roundtrip_is_bit_exact() {
+        let cursor = super::ThreadSearchCursor {
+            search_relevance: 0.060_792_71_f64,
+            sort_ts: 1_700_000_000_123,
+            thread_id: "$root:example.com".to_string(),
+        };
+
+        let decoded = super::decode_thread_search_cursor(&super::encode_thread_search_cursor(&cursor))
+            .expect("roundtrip must decode");
+
+        assert_eq!(decoded, cursor);
+        // ⚠️ 承重断言：这个 f64 会原样进 SQL 的 `search_relevance = $4`（精确比较），
+        // 所以必须**逐位**往返，不能用近似相等来判。
+        assert_eq!(
+            decoded.search_relevance.to_bits(),
+            cursor.search_relevance.to_bits(),
+            "f64 经 Display → parse 必须逐位往返"
+        );
+    }
+
+    #[test]
+    fn thread_search_cursor_keeps_thread_id_containing_separator() {
+        // thread_id 若含 `|`：只按**前两个**分隔符切分，剩余整段仍是 thread_id（不截断）。
+        let cursor =
+            super::ThreadSearchCursor { search_relevance: 1.0, sort_ts: 7, thread_id: "$weird|id:x".to_string() };
+
+        let decoded =
+            super::decode_thread_search_cursor(&super::encode_thread_search_cursor(&cursor)).expect("must decode");
+
+        assert_eq!(decoded.thread_id, "$weird|id:x");
+    }
+
+    #[test]
+    fn thread_search_cursor_rejects_malformed_payloads() {
+        use base64::Engine as _;
+        let enc = |raw: &[u8]| super::URL_SAFE_NO_PAD.encode(raw);
+
+        let cases = [
+            ("不是 base64", "not-base64!!".to_string()),
+            ("没有分隔符", enc(b"1700000000123")),
+            ("thread_id 为空", enc(b"0.5|1700000000123|")),
+            ("相关性不是数字", enc(b"abc|1700000000123|$t:x")),
+            ("时间戳不是数字", enc(b"0.5|abc|$t:x")),
+        ];
+
+        for (label, token) in cases {
+            assert!(
+                super::decode_thread_search_cursor(&token).is_none(),
+                "{label}：必须解码失败 —— 否则会被当成有效游标，静默返回错误的一页"
+            );
+        }
     }
 }

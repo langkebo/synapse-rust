@@ -64,6 +64,13 @@ impl FederationBlacklistService {
             return Err(ApiError::bad_request("Invalid block type"));
         }
 
+        // ⚠️ `expires_in_days <= 0` 会写出一条**创建即过期**的条目：读路径按 `expires_at` 判过期
+        // （见 `check_server`）⇒ 调用方以为已拉黑、实际毫无效果，且**不会报错**。
+        // 要求正数，让这种"静默无效写"在入口处响亮失败。
+        if request.expires_in_days.is_some_and(|days| days <= 0) {
+            return Err(ApiError::bad_request("expires_in_days must be greater than 0"));
+        }
+
         let expires_at = request.expires_in_days.map(|days| {
             let expiry = chrono::Utc::now() + chrono::Duration::days(days as i64);
             expiry.timestamp_millis()
