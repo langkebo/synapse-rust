@@ -426,7 +426,7 @@
 | v12/v13 房间可创建 | 1.158 | **PARTIAL（v12 已可创建；v13 已移除）** | 同上 `:151` `RoomVersionCapability::stable("12")`（`can_create = true`）；v1–v11 为 `stable_no_create`（`:120-150`）；`"13"` 不列入（`:114-118`，Q5(b)，上游规范稳定列表止于 v12、1.161 只识别 `1..12`）。**订正（2026-10-02）**：MSC4297（state resolution v2.1）**已实现并接线到生产路径**（分叉时 `resolve_forked_state` → `resolve_state_for_version_with_rules`，v12+ 空 state map 起步），v12 **不再**「声明领先实现」（`docs/audit/ROOM_V12_PLAN_STATUS_2026-09-27.md`） |
 | 缩略图动画支持（`animated` 查询参数） | 1.158 | **MISSING** | `animated` 在 `synapse-web/src/routes/` 与 `synapse-services/` 中均 **0 命中** |
 | MSC4335 媒体上传超限返回 `M_USER_LIMIT_EXCEEDED` | 1.158 | **PARTIAL** | 错误码已定义（`synapse-common/src/error/code.rs:83,131,225,292`），但**未见**媒体上传限额路径使用它（`synapse-services/` 0 命中） |
-| **MSC3814 脱水设备 `/events` 端点由 POST 改为 GET + query** | 1.157 | **TRUE（已对齐，2026-09-25 复测）** | `ROUTE_CONTRACT.md` 在册为 `GET /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events`；契约产物（派生表 / fixture / 快照 / route-table / client.yaml）已同批再生成 |
+| **MSC3814 脱水设备 `/events` 端点（上游 1.157 曾由 POST 改为 GET + query）** | 1.157 | **已按规范形态恢复 POST 并保留 GET 别名（2026-10-16 订正）** | `ROUTE_CONTRACT.md` 在册为 **`GET` 与 `POST` 两条** `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events`；契约产物（派生表 / fixture / 快照 / route-table / client.yaml）已同批再生成。**为何不跟上游收紧为 GET-only**：MSC3814 / ruma 的规范形态是 `POST` + body 游标，而对接的 `matrix-js-sdk` fork（`src/dehydrated-device/index.ts` 的 `claimDevice()`）就是按 `POST` 发出 ⇒ GET-only 会让规范客户端无路可走（该缺口见 `docs/前缀命名空间治理方案-2026-10-08.md`） |
 | **删除 `GET /_matrix/client/unstable/org.matrix.msc2965/auth_issuer`** | 1.161 | **TRUE（已对齐，2026-09 摘除）** | 本仓已删除该端点（commit `76e5f9136`，见 `docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md` D-90）；`/_matrix/client/unstable/org.matrix.msc2965/auth_metadata`（另一条 MSC2965 端点）仍在册 |
 | **MSC4140 新增"获取单个延迟事件"端点** | 1.161 | **PARTIAL（联邦 EDU 已补齐 + GET 单事件端点已落地）** | 单事件端点 `GET /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}` 已**落地 handler 与路由**（`synapse-web/src/routes/delayed_events.rs:41-61,97-99`；2026-10-01，路由 ledger 已同步，worker ledger 亦在册）；**联邦 EDU 已实现** —— `synapse-federation/src/edu.rs:37,67,83` 的 `EduType::DelayedEvent` ⇄ `"m.delayed_event"`，消费点 `synapse-web/src/federation/edu.rs:631`。**仍缺**：schedule 路径把 `state_key` 硬编码为 `None`（`synapse-services/src/delayed_event_service.rs:123`；行号已随 L1 新增 `get` 方法漂移，旧报告 `:94` 作废） |
 | **MSC4502 定向房间成员查询** | 1.160 | **PARTIAL（编号借用）** | 已核查（2026-10-04）：官方 MSC4502 = 新 CS 端点 `GET /_matrix/client/v3/rooms/{roomId}/is_joined`（query 恰取 `mxid` 或 `server_name`）+ appservice `scopes` + OAuth scope（*proposals*，Open / `needs-implementation`），本仓**均未实现**（全仓无 `is_joined`）；编号借给 `/members` 的 `at`/`dir`/`limit`/`membership`/`not_membership` 分页，落点 `synapse-web/src/routes/handlers/room/members.rs`、`synapse-storage/src/membership/mod.rs`（详见 `MSC_SEMANTICS.md` §1.1） |
@@ -567,7 +567,7 @@
 | **v12/v13 房间创建** | ✅ **仅 v12 可创建**（2026-09-27 G-1，`7489b247f`；`room_versions.rs:151` `stable("12")`） | v1–v11 为 `stable_no_create`、v13 已移除（Q5(b)）；**订正（2026-10-02）**：MSC4297（state resolution v2.1）已实现并接线到生产路径（写入分叉时 `resolve_forked_state` → `resolve_state_for_version_with_rules`），已无遗留项 |
 | **`rc_reports` 限流桶** | ✅ **已实现**（`directory_reporting.rs:235,293`）；~~缺失~~ | — |
 | **MSC4140 联邦 EDU** | ✅ **已实现**（`edu.rs:37,67,83`）；~~缺失~~ | 仍缺：schedule 的 `state_key` 硬编码 `None`（`delayed_event_service.rs:94`） |
-| **MSC3814 `/events` 方法** | ✅ **已对齐（GET）**；~~漂移（POST）~~ | — |
+| **MSC3814 `/events` 方法** | ✅ **GET + POST 双形态**（2026-10-16 订正）：`POST` = 规范形态（游标在 body）、`GET` = 上游兼容别名（游标在 query）；~~曾收紧为 GET-only~~ | — |
 | **Content Scanner** | ✅ **已装配且已接入生产路径**（**订正（2026-10-04）**：`wiring/core.rs:66,179` 构造 + `config/mod.rs:242` 配置；消费点 `media/upload.rs:89,137` `scan_when_enabled`、`handlers/room/events.rs:317` `scan_text_when_enabled`；原"已装配但无消费者 / 0 调用点 / 孤儿模块"旧判作废） | 仍无持久化（扫描 verdict 不落库） |
 
 ### 6.3 Admin 媒体端点（2026-09 补齐、2026-10-05 去重，差距已收敛）
@@ -639,7 +639,7 @@
 |---|---|---|---|---|
 | B1 | **v11 撤回格式**：`room_version > 10` 时把目标 id 写入 `content.redacts` | ✅ **已修**（服务层按房间版本注入，出站 PDU 不再重复写顶层） | 新增测试：v11 房间撤回的 `content.redacts` == 目标 id；v10 仍在顶层 | 本报告 §5.2 首次指出 |
 | B2 | **`rc_reports` 限流桶** | ✅ **已修**（per-user 桶 + 可配规则 + 守卫测试） | 命中限流返回 429 + `retry-after` | 上游 1.161 #20036 |
-| B3 | **MSC3814 `/events` 改为 GET + query**，`next_batch` 末页返回 null | ✅ **已修**（契约产物同批再生成） | 契约测试断言方法为 GET、末页 `next_batch` 为 null | 上游 1.157 #19896 |
+| B3 | **MSC3814 `/events` 改为 GET + query**，`next_batch` 末页返回 null | ✅ **已修**（契约产物同批再生成）；**2026-10-16 订正**：方法恢复为 **GET + POST 双形态**（见本报告 §5.1 对应行） | 契约测试断言方法集合为 **{GET, POST}**（`assembly_route_tests::dehydrated_device_events_declared_manifest_is_get_plus_post`）、末页 `next_batch` 为 null | 上游 1.157 #19896 |
 | B4 | **移除上游已删除的 `msc2965/auth_issuer`**（或明确记录为有意兼容） | ✅ **已移除**（`76e5f9136`，2026-09；残留 `auth_metadata` 属另一条 MSC2965 端点） | 决策记录；若保留需标注为"上游已删除的本仓扩展" | 上游 1.161 #20163 |
 | B5 | **v12/v13 支持边界决策**：实现 v12 认证规则并放开创建，或明确记录"仅 join/federate" | ✅ **已决策并落地**（Q1=a：仅 v12 可创建；`room_versions.rs:151` `stable("12")`，v1–v11 `stable_no_create`，v13 移除） | 决策记录 + `capabilities.available` 仅 `"12"` 与之一致 | 上游 1.158 |
 | B6 | **v1.157.2 安全公告同类性逐条判定** | ✅ **已做**（对比报告 §14.5，共 11 条：3 条需动作、2 条需代理侧复核、6 条已有守卫） | 对照表 + 结论 | 上游 1.157.2 |

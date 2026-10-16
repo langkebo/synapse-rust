@@ -415,19 +415,39 @@ fn test_top_level_inline_manifest_contributes_routes_to_default_profile() {
     }
 }
 
-/// B4：dehydrated device `/events` 必须是 **GET only**（MSC3814 / 上游 v1.157 #19896）。
+/// dehydrated device `/events` 的**声明清单**必须是 **GET 与 POST 并存**（POST = MSC3814 规范形态，GET = Synapse 兼容别名）。
 ///
-/// 该端点原为 POST + body 游标；若回退，回归会在这里变红（而不是只在契约产物里）。
+/// ⚠️ **本测试钉的是"声明清单 / 契约产物"（`derived_route_table_*.inc.rs`），不是源码级注册面**：
+/// `declared_ledger_all()` 读代码生成物，所以**只改 `handlers/dehydrated_device.rs` 并不会让它变红**
+/// —— 实测：把源码里的 `.post(...)` 临时删掉，本测试仍 PASS。源码 ↔ 产物的漂移由
+/// `scripts/contract/check_route_contract.sh` 负责拦；本测试拦的是另一类缺陷：产物被重生成成
+/// GET-only，或被人手改成多余/缺失的方法（后者曾真实发生：产物先加了 POST、测试没跟上）。
+///
+/// **为什么放弃 GET-only**（2026-10-16 裁定；旧测试名是 `..._is_get_only`）：
+///  * 2026-09-25 曾按**上游 Synapse v1.157（#19896）的 `GET` + query 形态**把该端点收紧为 GET only
+///    （原 B4 决定：游标 `next_batch`、页长 `limit` 都走 query），理由是"与上游对齐"。
+///  * 但 MSC3814 / ruma 的**规范形态是 `POST` + JSON body 游标**，而**真实客户端就按 POST 发出**：
+///    对接的 `matrix-js-sdk` fork 在 `src/dehydrated-device/index.ts` 的 `claimDevice()` 里用
+///    `Method.Post` + `body`；同仓 `docs/前缀命名空间治理方案-2026-10-08.md` 也记过这条缺口
+///    （"SDK 发 `POST …/dehydrated_device/{device_id}/events`，后端只有 GET"）。
+///    ⇒ **GET-only 会让规范客户端无路可走**，所以恢复 POST，并把 GET 保留为兼容别名。
+///  * 两条形态**语义不等价**，别当成同一个端点：POST 的游标在 JSON body（ruma 契约无页长字段
+///    ⇒ 固定页长），GET 的游标与页长都在 query。
 #[test]
-fn dehydrated_device_events_route_is_get_only() {
-    use axum::http::Method;
+fn dehydrated_device_events_declared_manifest_is_get_plus_post() {
     use synapse_web::routes::declared_ledger_all;
 
-    let ledger = declared_ledger_all();
-    let entries: Vec<_> =
-        ledger.iter().filter(|entry| entry.path.ends_with("/dehydrated_device/{device_id}/events")).collect();
+    const PATH: &str = "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events";
 
-    assert_eq!(entries.len(), 1, "该路径应恰好注册一次，实际 {entries:?}");
-    assert_eq!(entries[0].method, Method::GET, "必须是 GET（query 参数 next_batch/limit）");
-    assert_ne!(entries[0].method, Method::POST, "不得再注册 POST 形态");
+    let ledger = declared_ledger_all();
+    let mut methods: Vec<&str> =
+        ledger.iter().filter(|entry| entry.path == PATH).map(|entry| entry.method.as_str()).collect();
+    methods.sort_unstable();
+
+    assert_eq!(
+        methods,
+        vec!["GET", "POST"],
+        "该路径必须恰好注册 GET（Synapse 兼容别名，游标在 query）与 POST（MSC3814 规范形态，游标在 body）两条：\
+         少了 POST 会让规范客户端无路可走，出现第三种方法则是越权注册"
+    );
 }
