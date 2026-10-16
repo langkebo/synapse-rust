@@ -1,12 +1,37 @@
 # Synapse-Rust 与 Synapse (Python) 地址：https://github.com/element-hq/synapse 对比分析报告
 
-> **状态（2026-10-01）**：**当前口径是 §18（v1.10 对照 Synapse v1.162.0）**。§1–§17 为历史轮次记录，
-> 其中 §11.2/§11.3/§12.4/§12.5/§15.3 有若干已被后续提交修掉却仍写作"缺失"的**假缺口**，清单见 §18.5。
+> **状态（2026-10-16）**：**当前口径是 §19（v1.11 对照 Synapse v1.163.0）**。§18 为上一轮口径（v1.10 对照
+> v1.162.0），§1–§17 为更早的历史轮次记录。§11.2/§11.3/§12.4/§12.5/§15.3 有若干已被后续提交修掉却仍写作
+> "缺失"的**假缺口**，清单见 §18.5；§19.6 另给出**对 §18 自身口径**的作废清单（含 §18.4 中已过时的两条）。
 > 另：本文多处记"v12/v13 为 `stable_parse_only`、不可创建"，已过时：v12 是**唯一可创建**版本（G-1），
 > 版本 13 已从能力表移除（Q5(b)）。v12 语义落地情况见 `docs/audit/ROOM_V12_PLAN_STATUS_2026-09-27.md`。
 
-> **文档版本**: v1.10
-> **更新日期**: 2026-10-01
+> **文档版本**: v1.11
+> **更新日期**: 2026-10-16
+> **v1.11 更新说明**:
+> - **上游基线升级到 Synapse v1.163.0（2026-10-14 发布；rc1 2026-10-06）**，新增 **§19**（当前口径）。
+>   本轮**不再以既有文档为基线**，而是回到上游 `v1.162.0...v1.163.0` 的 147 个变更文件逐项取证，
+>   再对本仓源码逐条实测。结论摘要：
+>   - **已对齐（含超前）**：Matrix 版本宣告（本仓已到 `v1.17`，上游本版才补 `v1.14`/`v1.15`）、
+>     MSC4354 sticky 的到期语义与联邦 EDU、MSC4140 专用调度端点、OTK 单算法 500 上限、
+>     profile 未设置字段返回 `{}`、`/relations` 的 `recurse`、stream 位置指标。
+>   - **真实差距（P0/P1）**：① **账户注销是"只置标志位"**——不退出房间、不清推送器、不取消 MSC4140
+>     延迟事件（上游 #20247 只修了延迟事件这一条，本仓整条注销管线都缺）；② **`/preview_url` 是桩**：
+>     不抓取远端 HTML，返回**伪造的 OpenGraph**（含拼出来的 `og:image`），上游同版本正在收紧该字段
+>     （#20211）；③ **应用服务（MSC2409）临时数据投递未接线**（`AppServiceEphemeralBatch` 只有类型与
+>     载荷构造函数，没有从回执流取数的生产调用方），上游 #20108 修的是"超过 100 条回执被永久跳过"；
+>     ④ **lazy-load 成员缓存只记 user_id、不记事件 id 与响应位置**（上游 #20289 的同类缺陷，且本仓
+>     缓存持久化到 `device_storage`，丢失窗口更宽）；⑤ **MSC4075（MatrixRTC 邀请/来电）推送规则缺失**——
+>     既无默认规则（`synapse-common/src/push_rules.rs`），也未宣告 `org.matrix.msc4075`；
+>     ⑥ **MSC4354 的 `org.matrix.msc4354` 未在 `/versions.unstable_features` 宣告**——实现存在但客户端
+>     发现不了；⑦ **profile 更新缺 `LEFT_ROOM` 语义**（上游 #20203：离开最后一个共享房后要告知客户端
+>     删除本地资料），本仓以 `users.updated_ts` 轮询替代，无法表达"不再共享房间"。
+>   - **结构性不适用**（附本仓理由，非"没找到"）：Python/twisted/poetry/GIL（#20246/#20252/#20267/
+>     #20259/#20354）、`user_ips` 表（本仓无该表）、thread 级角标计数（本仓计数为房间粒度，无跨房
+>     `thread_id` 污染面）、MAS 委派的前提下 Admin API 拒建用户（#20241；MAS 运行时未接线，见 §18.4 ①）。
+>   - 另附 **§19.6 口径更正**：§18.4 的两条声明已过时（recurse 已实现、MSC4140 专用端点已实现），
+>     以及 §18 的证据栅格中 v1.15 那句"hierarchy 的 `allowed_room_ids` 未返回"**已作废**。
+> - **v1.10 上游基线升级到 Synapse v1.162.0（2026-09-29 发布）+ 本仓差距复核（2026-10-01）**：
 > **更新说明**:
 > - **v1.10 上游基线升级到 Synapse v1.162.0（2026-09-29 发布）+ 本仓差距复核（2026-10-01）**：
 >   新增 **§18**（当前口径），按"① 上游变更要点 ② 逐项对照 ③ 分优先级建议 ④ 待验证清单"组织。
@@ -94,7 +119,7 @@
 >   修正 vodozemac 版本与 crate 计数；补充 MSC4140/3912/4242 状态与 v1.161 Bug 修复核查项。
 > **生成日期**: 2026-09-16
 > **对比对象**: synapse-rust (Rust 重写实现) vs element-hq/synapse (Python 原始实现)
-> **对齐基准**: Synapse v1.162.0（2026-09-29 发布，`release-v1.162` CHANGES.md；v1.162.0 = rc1 + 无重大变更）
+> **对齐基准**: Synapse v1.163.0（2026-10-14 发布，`release-v1.163` CHANGES.md；v1.163.0 = rc1 + Redis/pip 启动修复）
 
 ## 目录
 
@@ -115,7 +140,8 @@
 15. [v1.6 本轮复核（2026-09-25）](#15-v16-本轮复核2026-09-25)
 16. [v1.8 代码验证更正（2026-09-26）](#16-v18-代码验证更正2026-09-26)
 17. [2026-09-27 行动清单](#17-2026-09-27-行动清单)
-18. [v1.10 对照 Synapse v1.162.0（2026-10-01，当前口径）](#18-v110-对照-synapse-v11620-2026-10-01当前口径)
+18. [v1.10 对照 Synapse v1.162.0（2026-10-01）](#18-v110-对照-synapse-v11620-2026-10-01当前口径)
+19. [v1.11 对照 Synapse v1.163.0（2026-10-16，当前口径）](#19-v111-对照-synapse-v11630-2026-10-16当前口径)
 
 ---
 
@@ -129,10 +155,13 @@
 | v1.5 P0 收口 | 2026-09-23 | — | §14.2–§14.6 |
 | v1.6 复核 | 2026-09-25 | `opt/consolidated` @ `9e26ee31a` | §15 |
 | v1.8 代码验证 | 2026-09-26 | `opt/consolidated` @ `9e26ee31a` | §16–§17 |
-| **v1.10 上游升级 + 差距复核** | **2026-10-01** | **`opt/consolidated`；上游 Synapse `v1.162.0`** | **§18（当前口径）** |
+| v1.10 上游升级 + 差距复核 | 2026-10-01 | `opt/consolidated`；上游 Synapse `v1.162.0` | §18 |
+| **v1.11 上游升级 + 现状重判** | **2026-10-16** | **`main` @ `86ee4e957`；上游 Synapse `v1.163.0`** | **§19（当前口径）** |
 
-> **§18 是唯一"当前状态"口径**。§1–§12 中与 §18 冲突的表述一律作废（§12.2 仅作历史对照），
-> 假缺口清单见 §18.5。
+> **§19 是唯一"当前状态"口径**。§18 降级为上一轮口径；§1–§18 中与 §19 冲突的表述一律以 §19 为准
+> （历史章节仍保留原文，其"当前口径"指针按既有门禁指向 §18.5，改指针会破坏
+> `tests/unit/doc_credibility_guard_tests.rs` 的 `historical_sections_point_at_the_current_scope`，
+> 故**不修改**历史指针，由本节统一覆盖）。§19.6 给出对 §18 自身口径的作废清单。
 
 ---
 
@@ -1373,3 +1402,308 @@ TEST_DATABASE_URL=... cargo nextest run --features performance-tests,test-utils 
 TEST_DATABASE_URL=... cargo nextest run --features performance-tests,test-utils \
     --test performance_manual admission_gate_hanging_rule --nocapture
 ```
+
+---
+
+## 19. v1.11 对照 Synapse v1.163.0（2026-10-16，当前口径）
+
+### 19.1 方法与基线
+
+**上游基线**：`element-hq/synapse` tag **`v1.163.0`（2026-10-14 发布）**，对比区间
+`v1.162.0`（2026-09-29）→ `v1.163.0`，共 **50 个提交 / 147 个变更文件**。取数方式：
+
+```bash
+# 1) 确认最新版本与发布时间
+curl -sS "https://api.github.com/repos/element-hq/synapse/releases?per_page=5" \
+  | python3 -c 'import json,sys;[print(r["tag_name"],r["published_at"]) for r in json.load(sys.stdin)]'
+# 2) 版本级 changelog（raw.githubusercontent 对大文件会超时，改用 jsDelivr）
+curl -sS "https://cdn.jsdelivr.net/gh/element-hq/synapse@release-v1.163/CHANGES.md"
+# 3) 变更文件清单（含增删行数）
+curl -sS "https://api.github.com/repos/element-hq/synapse/compare/v1.162.0...v1.163.0"
+# 4) 逐文件取两版内容后本地 diff（权威判据是 diff，不是 changelog 措辞）
+curl -sS "https://cdn.jsdelivr.net/gh/element-hq/synapse@release-v1.162/<path>" -o old
+curl -sS "https://cdn.jsdelivr.net/gh/element-hq/synapse@release-v1.163/<path>" -o new
+```
+
+**本仓基线**：`main` @ `86ee4e957`（2026-10-16 工作区干净；注册路由条目 **1,036**，含路由模块 **66**，
+以 `docs/synapse-rust/ROUTE_CONTRACT.md` 为准）。
+
+**判定原则**（与前几轮一致，此处重申）：
+1. **不采信模块名、注释与既有文档的自述**，只认 `路径:行号` 级别的源码实测；
+2. 上游是 Python / twisted / poetry 实现的条目，**先判"本仓是否有对应形态"**，无形态即标
+   「结构性不适用」并写出理由，不用"没找到"代替结论；
+3. **已实现但未宣告**、**已宣告但未实现**都算差距（前者客户端发现不了，后者是最危险的过度承诺），
+   两者分列；
+4. 全部"不存在 / 未接线"类结论在写入前都在本 HEAD 上实跑过检索命令。
+
+⚠️ 本机 `grep` 被 toybox 替换，BRE 扩展 `\|` 与 `\b` **静默返回空**（`-E` 也救不了 `\b`）——
+本轮所有检索一律走 `Grep` 工具（ripgrep），裸 `grep` 的结果不作为判据。
+
+### 19.2 上游 v1.163.0 变更全量归纳
+
+**Features（6 条）**
+
+| 编号 | 内容 | 影响面 |
+|---|---|---|
+| #20137 / #20286 | 宣告支持 Matrix **v1.14** / **v1.15**（`rust/src/handlers/versions.rs` 的 `versions` 数组延长） | 互操作承诺 |
+| #20165 | MSC4354 Sticky Events **补齐**：对错过 EDUs 的远端 homeserver 做 catch-up | 联邦一致性 |
+| #20227 | 新增 **MSC4075**（MatrixRTC 邀请/通知）推送规则：`rust/src/push/base_rules.rs` **+171 行**（含 6 条单测），`rust/src/push/mod.rs` 加 `msc4075_enabled` 门控 | 通知/来电 |
+| #20230 | 任务调度器并发可配：新增 `synapse/config/task_scheduler.py`，`task_scheduler.max_concurrent_tasks`，默认 **5**，并拒绝 `bool` / 非正整数 | 运维/并发 |
+| #20247 | 账户注销时**取消该用户的 MSC4140 延迟事件**（放在注销流程最前） | 安全/数据 |
+
+**Bugfixes（12 条，剔除 Python-only 的 #20354）**
+
+| 编号 | 内容 | 影响面 |
+|---|---|---|
+| #20108 | 应用服务回执：单次流更新 > 100 条回执时会被永久跳过 —— 改为**分页取到 `reached_token`** 并循环投递，首次投递取最新（`BACKWARDS`）、后续取最旧（`FORWARDS`） | AS 集成 / 数据丢失 |
+| #20186 | MSC4354 sticky 在 `/sync` 与 sliding sync 改用**分片令牌**，避免同一事件出现在多个 sync 响应 | 同步正确性 |
+| #20203 | 用户离开最后一个共享房后，告知客户端**删除本地缓存资料**（`profile_updates` 流新增 `LEFT_ROOM`，`record_profile_updates_txn` 从「单用户」改为「集合 + `target_users`」） | 隐私/陈旧数据 |
+| #20211 | `/preview_url`：媒体被**哈希自动隔离**时不得再回 `og:image`；并改为"直接丢弃下载物 + 删缓存文件（含空父目录）"而非落库后返回永远 404 的 `mxc://` | 内容安全 |
+| #20231 | `limit_profile_requests_to_users_who_share_rooms` 依赖认证 ⇒ 未同时开启 `require_auth_for_profile_requests` 时**拒绝启动** | 安全（静默失效） |
+| #20232 | 持久化**前**被 redact 的 sticky event 不得 sticky | 正确性 |
+| #20233 | 新加入房间时把该房**全部** sticky events 下推 legacy `/sync` | 客户端一致性 |
+| #20237 | 推送角标计数：摘要匹配键从 `thread_id` 改为 `(room_id, thread_id)`，修掉**跨房污染** | 通知计数 |
+| #20241 | MAS 委派认证时 Admin API **拒绝**创建用户（403 `M_FORBIDDEN`） | 认证边界 |
+| #20274 | `auth` 为 `null` 或非对象时，需要用户交互认证的端点**返回 500** → 改为 400 | API 健壮性 |
+| #20289 | lazy-load 成员 + 旧 `since` 令牌时 membership 事件丢失 —— 引入 `LazyLoadedMembersCache`，**记录每个成员事件被发送时的 `next_batch` 位置**，请求开始时忘掉 `since` 之后记录的条目 | 同步正确性 |
+| #20262 | Docker/worker：`GET` 单个延迟事件端点支持 worker | 部署 |
+
+**Removals（1 条）**
+
+| 编号 | 内容 |
+|---|---|
+| #20256 | **移除"可发送 sticky 状态事件"的能力** —— MSC4354 删掉了状态事件的 sticky 语义，`/send` 与 `/state` 上的 `sticky_duration_ms` 查询参数一并删除 |
+
+**Internal / 性能 / 可观测（12 条，剔除纯 CI 与 Python 依赖类）**
+
+| 编号 | 内容 | 对本仓的含义 |
+|---|---|---|
+| #19301 | URL 预览 HTML 解析换 `beautifulsoup4` | 实现形态不适用，#20211 的**语义**适用 |
+| #20095 | 新增 `synapse_notifier_wait_for_stream_token_timeouts` 指标（按滞后 stream 打标签）+ 超时日志打印**滞后流明细** | 可观测缺口 |
+| #20285 | `user_ips` 降低 prune 频率（减轻 DB 压力） | 本仓无该表 |
+| #20252 / #20267 | 完成 Rust future / 从 Rust 调 Python 时**不在 tokio worker 线程取 GIL** | 本仓纯 Rust，**不适用** |
+| #20253 | `cryptography` 46.0.7 → 50.0.1（CVE-2026-69248 / 69249 / 69247，官方称均**不影响** Synapse）+ `pyOpenSSL` 26.0.0 → 26.4.0 | **CVE 编号不适用于 Rust 依赖**，但"按版本对齐安全公告"的做法须在本仓用 `cargo deny` 复现 |
+| #20259 / #20255 / #20258 / #20270 / #20293 | Twisted 25.5.0→26.4.0、dependabot 改月度合并、`PATTERNS` 类型注解、Complement go 依赖、`sytest` 构建依赖 | 构建/工具链，**不适用** |
+| #20283 | 管理 API 删房 + `new_room_user_id` 时忽略挂起用户加入失败 | 边缘语义 |
+
+**v1.162.0 遗留项（本轮一并复核，避免"只追最新版"造成漏检）**：状态决议缓存（#20185）、当前房间
+状态单点缓存（#20160）、`/relations` 递归查询内联 join（#20182，大房 10–100x）、本地缩略图异步打开
+（#20100）、`synapse_storage_stream_current_position`（#20097）、`/room_summary` 的 `join_rules`
+陈旧（#20205）。
+
+### 19.3 逐条对照（本仓实测）
+
+判定标记：**✅ 已对齐** / **🟡 部分** / **❌ 差距** / **⚪ 结构性不适用**
+
+| 上游条目 | 本仓现状（实测位置） | 判定 | 处置 |
+|---|---|---|---|
+| #20137 / #20286（宣告 v1.14/v1.15） | `CLIENT_API_VERSION_SUPPORT` 已含 `v1.1`…**`v1.17`**，且每条都有 `CLIENT_API_VERSION_EVIDENCE` 证据行 + 守卫（`synapse-services/src/capability_governance.rs`） | **✅ 已对齐（超前两版）** | 无 |
+| #20165（sticky 联邦 catch-up） | EDU 类型已注册（`synapse-federation/src/edu.rs` 的 `EduType::StickyEvent` ↔ `org.matrix.msc4354.sticky_event`），出站广播在 `synapse-services/src/room/service.rs::broadcast_sticky_event_update`；**未实现"对错过 EDU 的远端补发"** | **🟡 部分** | §19.5 批次 C |
+| #20227（MSC4075 推送规则） | `synapse-common/src/push_rules.rs` 的默认规则集共 19 条 `rule_id`，**无** `.org.matrix.msc4075.rule.rtc.invite_for_me` / `...invite_for_room`；全仓检索 `4075` **0 命中**；`capability_governance.rs` 亦未宣告 `org.matrix.msc4075*` | **❌ 差距（P1）** | §19.5 批次 A |
+| #20230（`task_scheduler.max_concurrent_tasks`） | 全仓检索 `task_scheduler` **0 命中**；并发相关实现只在应用服务调度器（`synapse-services/src/application_service/scheduler.rs` 的容量/退避选项） | **❌ 差距（P2，配置面）** | §19.5 批次 D |
+| #20247（注销时取消延迟事件） | 注销链路：`synapse-web/src/routes/account_compat.rs` → `synapse-services/src/registration_service.rs::deactivate_account` → `synapse-services/src/auth/account.rs::deactivate_user`。该函数只做：置 `is_deactivated`、删 token、撤销 refresh token、删设备、清缓存；**全仓无 `cancel_all` / `cancel_for_user` 形态**，延迟事件零处理 | **❌ 差距（P0 之一）** | §19.5 批次 A |
+| #20108（AS 回执分页） | `synapse-services/src/application_service/transaction.rs` 定义了 `AppServiceEphemeralBatch { presence, receipts, typing }` 与载荷构造函数，但**该类型只在本文件与测试里出现** ⇒ 没有从回执流取数并投递的生产调用方 | **❌ 差距（P1，整块缺）** | §19.5 批次 B |
+| #20186（sticky 分片令牌） | 本仓 sticky 是 `(room_id, user_id, event_type)` 唯一键的表 + EDU 广播（`synapse-storage/src/sticky_event.rs`），同步侧未引入分片位置概念；本仓亦无 `MultiWriterStreamToken` 对应类型 | **❌ 差距（P1，形态不同）** | §19.5 批次 C |
+| #20203（离开末个共享房 ⇒ 删除本地资料） | 本仓**没有** `profile_updates` 流（`migrations/00000000_unified_schema_v12.sql` 无该表）；sliding sync 的 `profile_updates` 扩展以 `users.updated_ts` 轮询实现（`synapse-services/src/sliding_sync_service/extensions.rs`、`synapse-storage/src/user/storage.rs::get_user_profiles_updated_since`）⇒ **无法表达 `LEFT_ROOM`**（"不再共享房间"不是一次资料写入） | **❌ 差距（P1，隐私）** | §19.5 批次 B |
+| #20211（隔离媒体不回 og:image） | 本仓 `/preview_url` 是**桩**：`synapse-web/src/routes/media/preview.rs` 调 `synapse-services/src/media_service.rs::preview_url`，后者不抓取 `url`，返回**伪造的 OpenGraph**，其中 `og:image` 由 `format!("{url}/preview.png")` 拼出。媒体隔离机制本身存在（`synapse-services/src/media/mod.rs`、`synapse-services/src/media/quarantine_tests.rs`） | **❌ 差距（P1，含伪造字段）** | §19.5 批次 B |
+| #20231（profile 限制需认证） | 本仓该配置项**不存在**（`require_auth_for_profile_requests` / `limit_profile_requests_to_users_who_share_rooms` 均 0 命中）；等价能力走自研的 `user_privacy_settings`（`synapse-storage/src/privacy.rs::can_view_profile`，`contacts` 模式 = 同房 join），接线在 `synapse-web/src/routes/account_compat.rs::enforce_profile_visibility` | **⚪ 结构性不适用（等价物存在，缺"启动期一致性校验"这一形态）** | 登记，不排期 |
+| #20232（持久化前 redact 不得 sticky） | 本仓无"持久化批次"概念；撤回即失效已有（`synapse-storage/src/event/redaction.rs` 与 §10.1 的既有判定） | **✅ 已对齐（无对应形态）** | 无 |
+| #20233（新加入时下推全部 sticky） | 本仓 sticky 不注入 timeline；新加入房间的补发未实现 | **❌ 差距（P2）** | §19.5 批次 C |
+| #20237（角标跨房污染） | 本仓未读计数为**房间粒度**（`synapse-services/src/room/summary/stats.rs::increment_unread_notifications`、`synapse-services/src/room/messaging/history_visibility.rs` 的可见性下界），全仓无 `unread_thread_notifications` 等 thread 级计数 ⇒ 不存在"`thread_id` 跨房比较"这一步 | **⚪ 结构性不适用** | 无 |
+| #20241（MAS 下 Admin API 拒建用户） | MAS/委派认证运行时未接线（§18.4 ① 仍在册）⇒ 前提不成立；本仓 `is_admin` 建用户路径在 `synapse-web/src/routes/admin/user.rs` | **⚪ 结构性不适用（前提未落地）** | 与 MAS 接线同批 |
+| #20274（`auth` 为 null/非对象 ⇒ 500） | 本仓 UIA 的 `auth` 是 `&Value`，`validate_auth` 全程用 `auth.get(...)` 取值（`synapse-services/src/uia_service.rs`），缺键即落到 `build_uia_response` 的 `M_UIA_REQUIRED` 分支；调用点如 `synapse-web/src/routes/device.rs::require_password_uia` | **✅ 已对齐（形态上不受该缺陷影响）** | 见 §19.7 V-19-1 |
+| #20289（lazy-load + 旧 since 丢成员） | `synapse-services/src/sync_service/lazy_load.rs::get_known_lazy_loaded_members` 的缓存值是 **`HashSet<String>`（仅 user_id）**，持久化在 `device_storage`（`synapse-services/src/sync_service/data_fetch.rs` 的 `get_lazy_loaded_members` / `upsert_lazy_loaded_members`）。**没有事件 id、没有响应位置** ⇒ 客户端"没收到"与"已收到"无法区分，丢失即永久 | **❌ 差距（P1）** | §19.5 批次 B |
+| #20262（worker 支持取单个延迟事件） | 已在册：`synapse-services/src/worker/topology_validator.rs` 的 `DELAYED_EVENTS_WORKER_PATHS` 枚举了 7 条（含 `GET .../delayed_events/{delay_id}`），`docs/synapse-rust/ROUTE_CONTRACT.md` 同形 | **✅ 已对齐** | 无 |
+| #20256（移除 sticky 状态事件） | 本仓 `set_sticky_events`（`synapse-web/src/routes/sticky_event.rs`）从请求体取 `event_type` + `event_id`，只校验事件存在，**不区分状态事件**；同时本仓并不读取 `/send`、`/state` 上的 `sticky_duration_ms`（全仓 0 命中）⇒ "查询参数"这一半已天然对齐，**"状态事件不得 sticky"这一半缺守卫** | **🟡 部分** | §19.5 批次 A |
+| #20095（notifier 等待超时指标） | 全仓检索 `synapse_notifier` **0 命中**；已注册指标见 `src/server/mod.rs`（应用服务调度器一族）、`synapse-common/src/metrics.rs` 与 `synapse-common/src/server_metrics.rs`（`synapse_total_users` / `synapse_total_rooms` / `synapse_storage_stream_current_position` 等） | **❌ 差距（P2，可观测）** | §19.5 批次 D |
+| #20285（`user_ips` 降频清理） | 全仓检索 `user_ips` **0 命中**（`.rs` 与 `.sql` 皆无） | **⚪ 结构性不适用（无该表）** | 无 |
+| #20097（stream 当前位置指标） | 已在册：`synapse-common/src/metrics.rs` 与 `synapse-common/src/server_metrics.rs` 的 `synapse_storage_stream_current_position`（per-stream 标签），数据源 `synapse-storage/src/stream_positions.rs` | **✅ 已对齐** | 无 |
+| #20182（`/relations` 递归 join 提速） | `recurse` 双拼写已实现（`synapse-web/src/routes/relations.rs::recurse_flag`），递归 CTE 在 `synapse-storage/src/relations/mod.rs`，已有 `EXPLAIN (ANALYZE)` 证据（§8.3 M-6 卡片） | **✅ 已对齐** | 无 |
+| #20185 / #20160（状态决议 / 当前状态缓存） | 状态决议结果缓存已交付（`synapse-services/src/room/state_record.rs`，§18 的 M-5）；**"当前房间状态单点查询缓存"未单独建** —— 但本仓有共享 `room_state` 缓存（`synapse-services/src/room_state_cache.rs`，§18 的 V-10 已复用） | **✅ 已对齐（复用同一实现）** | 无 |
+| #20100（本地缩略图异步） | 本仓缩略图走 `synapse-services/src/media/mod.rs::get_thumbnail` → 媒体服务；未见阻塞式打开 | **✅ 形态上已对齐** | 见 §19.7 V-19-3 |
+| #20246（tracing "Closing scope" 误报） | 该告警来自上游 twisted/tracing 桥接层 | **⚪ 结构性不适用** | 无 |
+| #20252 / #20267（GIL）、#20259 / #20354（Twisted / Redis 客户端库）、`beautifulsoup4`、#20255 / #20258 / #20270 / #20293 | Python / 依赖 / CI 专属 | **⚪ 结构性不适用** | 无 |
+
+### 19.4 真实剩余差距
+
+#### 19.4.1 功能（按优先级）
+
+> ID 前缀 `UG-`（Upstream Gap），**只在 §19 内引用** —— 与文档其他章节的 `G-1`（房间版本）、
+> `U-n`（遗留问题）、`M-n`/`L-n`（优化项）**不是同一套编号**。
+
+| ID | 差距 | 为什么是真差距 | 证据 |
+|---|---|---|---|
+| **UG-1（P0）** | **账户注销只置标志位**：不退出/踢出房间、不清推送器、不解除 3PID、不取消 MSC4140 延迟事件 | 上游注销是一条完整管线（离开全部房间 + 刷新未读 + 删 pusher + 删 threepid + **取消延迟事件**），本仓只做"停用 + 撤 token + 删设备"。后果：注销用户的房间成员事件仍为 `join`（成员列表/权限计算继续算他）、已排期的延迟事件仍会**在注销后发出**、推送器残留 | `synapse-services/src/auth/account.rs`；`synapse-services/src/registration_service.rs` |
+| **UG-2（P1）** | **MSC4075 默认推送规则缺失** | 本仓无服务端推送规则评估引擎（§18.3 已裁定），但**默认规则集是下发给客户端的资产**（`GET /pushrules`）。缺这两条 ⇒ 客户端拿不到 MatrixRTC 邀请/来电的 `notify + sound:ring` 规则，来电不会响铃 | `synapse-common/src/push_rules.rs` |
+| **UG-3（P1）** | **MSC4354 实现存在但未在 `/versions.unstable_features` 宣告** | 客户端按能力位决定是否启用置顶；实现存在而不宣告 = 功能对存量客户端不可见 | `synapse-services/src/capability_governance.rs` 的 `BASE_UNSTABLE_FEATURES` |
+| **UG-4（P1）** | **AS（MSC2409）临时数据投递未接线** | `AppServiceEphemeralBatch` 有类型、有载荷构造、有单测，但没有消费回执/在线状态流的生产路径 ⇒ 依赖回执的 bridge 拿不到数据。上游 #20108 修的是"分页导致永久跳过"，本仓连分页都没有 | `synapse-services/src/application_service/transaction.rs`、`synapse-services/src/application_service/scheduler.rs` |
+| **UG-5（P1）** | **lazy-load 成员缓存缺少"客户端是否收到"的位置维度** | 缓存值是裸 `HashSet<String>`，且**持久化到 `device_storage`**。客户端超时重试或从旧 token 恢复时，缓存仍认为"已发送" ⇒ 成员事件永久丢失（上游 #20289 的同类缺陷，本仓丢失窗口更宽） | `synapse-services/src/sync_service/lazy_load.rs` |
+| **UG-6（P1）** | **`/preview_url` 返回伪造的 OpenGraph** | 桩实现会返回不存在的 `og:image`（`{url}/preview.png`）与占位标题/描述，把它当真的客户端会显示**捏造的链接预览**；且真正的抓取尚未实现（当前只有 IP 黑名单校验，没有 DNS-rebinding 钉扎） | `synapse-web/src/routes/media/preview.rs`、`synapse-services/src/media_service.rs` |
+| **UG-7（P2）** | MSC4354 联邦 catch-up（#20165）与新加入房间补发（#20233）缺 | 远端错过 EDU 后其 sticky 状态永久不一致；新加入房间的客户端看不到既有 sticky | `synapse-services/src/room/service.rs`、`synapse-federation/src/edu.rs` |
+| **UG-8（P2）** | `task_scheduler.max_concurrent_tasks` 缺 | 并发上限不可配 ⇒ 重负载下只能改代码 | 全仓 0 命中 |
+| **UG-9（P2）** | `synapse_notifier_wait_for_stream_token_timeouts` 缺 | worker 等不到流位置时只有日志没有指标 ⇒ 无法告警 | `src/server/mod.rs` 与 `synapse-common/src/metrics.rs` 的指标清单 |
+
+#### 19.4.2 性能
+
+| ID | 项 | 本仓现状 | 与上游差距 |
+|---|---|---|---|
+| **P-1** | `/relations` 递归查询 | 递归 CTE 已在递归内 join `events`，有 50k 事件夹具的 `EXPLAIN` 证据 | **无差距**（#20182 语义已覆盖） |
+| **P-2** | 状态决议 / 当前状态缓存 | 决议缓存 + 共享 `room_state` 缓存 | **无差距**（#20185 / #20160 语义已覆盖） |
+| **P-3** | 缩略图/媒体打开 | 未见阻塞式打开 | 形态上对齐（待验证，见 §19.7 V-19-3） |
+| **P-4** | lazy-load 成员过滤 | 缓存命中率高但**正确性有洞**（UG-5）；若为修正确性改成"每次都回源"，会把缓存查询退化成每房一次 `device_storage` 往返（`get_lazy_loaded_members` 已带 `LruCache` 兜底，故回源只在进程内未命中时发生） | 修 UG-5 时必须**保留**进程内 `LruCache`，只把条目结构从 `HashSet` 换成 `(event_id, next_batch)` 映射 |
+| **P-5** | AS 回执投递 | 未接线（UG-4）；接线时必须照抄上游的**分页 + `reached_token` 循环**，否则会引入忙循环（`reached_token` 不推进而 `to_token` 很大时）—— 上游的循环在 `reached_token >= new_token` 时退出，实现时须钉死这一退出条件 | 结构对齐上游 |
+| **P-6** | DB 维护 | 本仓无 `user_ips` 表 ⇒ #20285 无对象；但**后台清理任务本身**是否按"降低频率"的同一思路评估过，未取证 | 无需动作 |
+
+#### 19.4.3 安全
+
+| ID | 项 | 本仓现状 | 判定 |
+|---|---|---|---|
+| **S-1** | Rust 依赖安全公告 | `cargo deny check advisories` → **`advisories ok`**（2026-10-16 实测；`deny.toml` 在仓，pre-push 同款门禁） | **无未处理公告**（⚠️ 该结论依赖本地 advisory 库的抓取时间，见 V-19-7） |
+| **S-2** | 上游 #20253 的 CVE（`cryptography` 三枚） | 均为 Python 包 CVE，**不映射**到本仓 Rust 依赖 | 不适用 |
+| **S-3** | profile 请求限制的静默失效（#20231） | 本仓配置项不存在，不会"配了不生效"；等价策略在 `synapse-storage/src/privacy.rs::can_view_profile` 且已有调用点（`synapse-web/src/routes/account_compat.rs`） | **无该风险** |
+| **S-4** | 隔离媒体的 `og:image`（#20211） | 被 UG-6 覆盖（桩实现根本不查隔离状态） | 由 UG-6 承接 |
+| **S-5** | 注销用户仍可能触发已排期的延迟事件 | 上游视为安全问题（"不要在注销流程进行中发出"）而优先取消；本仓未做 | **由 UG-1 承接（P0）** |
+| **S-6** | 账号枚举 / 第三方规则 / SSRF 面 | 前几轮已收口（§18.3 #21、§18.7.1）；本轮无新增面 | 无 |
+
+### 19.5 可执行优化方案
+
+> 每批**独立提交**、独立验证；改路由字面量或默认规则集时按 §5 的"连带重生成"清单同步契约链
+> （标注 → 3 张派生表 → 6 份 ledger fixture → `docs/synapse-rust/ROUTE_CONTRACT.md`
+> → `docs/openapi/route-table.json`），**只做一半是既有最高频的红**。
+
+**批次 A —— 正确性/安全（P0+P1，建议先做）**
+
+1. **A1（UG-1）注销语义补全**（在 `synapse-services/src/registration_service.rs::deactivate_account`
+   内按固定顺序编排，任一步失败按"已完成步骤可重入"设计）：
+   `cancel_all_for_user(user_id)`（**先做**，对齐上游注释"不要让延迟事件在注销过程中发出"）
+   → 离开全部房间（发 `leave` 成员事件，走既有 membership 服务，避免绕过事件鉴权）
+   → 删除该用户全部 pusher → 清未读计数 → 删设备与 token（**已有，顺序挪到最后**）。
+   验收：① 延迟事件不再触发；② 用户不再是任何房的 `join`；③ 服务重启后状态可复现（不依赖内存）。
+   **变异自证**：注释掉 `cancel_all_for_user` ⇒ 必须有用例变红。
+2. **A2（UG-3）MSC4354 能力宣告**：在 `BASE_UNSTABLE_FEATURES` 增加 `org.matrix.msc4354`
+   （取值与该功能真实可用性一致，**不要**写成常量 `true` 而绕过配置），同时核对 sticky 路由
+   实际注册面（当前挂在 `/_matrix/client/unstable/org.matrix.msc4354/...`）。
+   验收：`GET /_matrix/client/versions` 含该键；`capability_governance` 的单测覆盖三态。
+3. **A3（#20256 的剩余一半）sticky 状态事件守卫**：`set_sticky_events` 在写入前拒绝
+   `state_key` 存在的目标事件（400），错误码与文案按"该能力已从 MSC4354 移除"给出。
+   验收：状态事件请求 ⇒ 400 且不落库；普通 `m.room.message` 不受影响（负控）。
+4. **A4（UG-2）MSC4075 默认推送规则**：在 `synapse-common/src/push_rules.rs` 的 override 段、
+   `.m.rule.is_user_mention` **之前**插入两条：
+   - `org.matrix.msc4075.rule.rtc.invite_for_me`：`event_match(type = org.matrix.msc4075.rtc.notification)`
+     ＋ `event_property_contains_type(content.m.mentions.user_ids, UserId)` ⇒
+     `["notify", {"set_tweak":"sound","value":"ring"}]`
+   - `org.matrix.msc4075.rule.rtc.invite_for_room`：同上 type ＋
+     `event_property_is(content.m.mentions.room = true)` ＋ `sender_notification_permission(room)` ⇒ 同上动作
+
+   两条都用 `default: true` / `enabled: true`；并加配置开关与"开关关闭 ⇒ 不下发"的行为断言。
+   **迁移注意**：`default_push_rules_for_user` 被 `synapse-web/src/routes/push_rules.rs` 与
+   `synapse-services/src/sync_service` 共用，改默认集必然波及推送规则快照类用例，须同批更新。
+5. **A5（S-1）安全公告纳入例行**：把 `cargo deny check advisories` 的实跑输出（版本 + 时间）
+   记入审计文档；**不要**只写"已检查"。
+
+**批次 B —— 数据正确性与隐私（P1）**
+
+1. **B1（UG-5）lazy-load 缓存结构升级**：把条目从 `HashSet<String>` 改为
+   `{ user_id -> (event_id, sent_at_room_position) }`，并在每次 `/sync` 请求开始时按 `since`
+   丢弃"位置晚于 `since`"的条目（对齐上游 `LazyLoadedMembersCache::start_request`）。
+   **必须**同时保留进程内 `LruCache`（避免正确性修复退化成每房一次 DB 往返，见 P-4）。
+   验收：构造"客户端拿到响应但没保存 token 就重登"的场景 ⇒ 成员事件必须重发；
+   红证明：把 `start_request` 改成不丢弃 ⇒ 用例变红。
+2. **B2（UG-6）`/preview_url` 收口（两选一，须显式决策）**
+   - **方案 ①（推荐，低风险）**：维持桩，但**只回 `url`**，删掉全部伪造字段
+     （`title` / `description` / `og:*` / `matrix:image:size`），并保持端点默认关闭
+     （现状 `experimental.msc4452_enabled = false`）。
+   - **方案 ②**：实现真实抓取 —— 必须走已验证 IP 的**钉扎客户端**（`check_url_and_resolve`
+     返回的 `verified_ips` → 钉扎），遵守重定向次数与体积上限，HTML 解析走独立限流，
+     并在媒体命中"哈希隔离"时**既不落库也不回 `og:image`**（对齐 #20211）。
+   - ⚠️ 无论哪条：**不得**保留 `format!("{url}/preview.png")` 这类拼造字段。
+3. **B3（UG-4）AS 回执投递接线**：新增"从回执流取数 → 填 `AppServiceEphemeralBatch.receipts`
+   → 经 `synapse-services/src/application_service/scheduler.rs` 投递"的生产路径，
+   并照抄上游三要素：① 每 AS 记 `read_receipt` 流位置；② 单次取数**有上限**并返回
+   `reached_token`；③ 外层 `while` 直到 `reached_token >= new_token` 才停（**退出条件必须钉死**，
+   否则退化为忙循环）。首次投递取最新（`BACKWARDS`）以免回填全历史。
+   验收：构造单个流位置 >100 条回执 ⇒ 全部投递且不重复；负控：位置不推进时不进入无限循环。
+
+**批次 C —— 联邦与同步一致性（P2）**
+
+1. **C1（UG-7a）sticky 联邦 catch-up**：记录"本机已向某远端同步到哪个 sticky 位置"，
+   远端重连/回执成功后补发缺失 EDU；**不要**用"每次广播全量 sticky"代替（会放大联邦流量）。
+2. **C2（UG-7b）新加入房间补发 sticky**：新成员加入时，把该房当前全部 sticky 事件按其
+   `event_type` 投影进该成员的同步结果（本仓 sticky 不注入 timeline，故投递点选在同步装配侧
+   而非事件流侧），并保证与 `GET .../sticky_events` 的可见集合一致。
+3. **C3（#20186 的形态差异）**：本仓 sticky 表是单机唯一键模型。若**将来**要上多写者/多 worker
+   部署，再引入"分片位置"（`instance_name` + 每写者位置）；**现在不做**，只把
+   "同一 sticky 事件可能重复出现在多个 sync 响应"这一风险写成注释与回归用例，
+   避免后续无人知道上游为何改成分片令牌。
+
+**批次 D —— 运维与可观测（P2，低成本）**
+
+1. **D1（UG-8）**：新增 `task_scheduler` 配置段，键名 `max_concurrent_tasks`，默认 5，
+   **拒绝布尔与非正整数**（上游为此写了显式分支 —— YAML 的 `true` 在弱类型语言里会被当 `1`，
+   本仓 Rust 侧同样要把"能反序列化成整数但语义是布尔"的输入挡掉）。
+2. **D2（UG-9）**：新增 `synapse_notifier_wait_for_stream_token_timeouts`（按滞后的 stream
+   打标签）+ 超时日志带上**滞后流的当前值与目标值**（上游为此写了 `_describe_lagging_streams`，
+   因为"等不到"的现场只有这一行日志能还原）。
+3. **D3**：把本批新增指标补进 monitoring 面板与规则白名单的**同一提交**（本仓既有教训：
+   Prometheus 不自动重载规则、面板指标名是静态正则校验，漏一处即静默失配）。
+
+**批次 E —— 文档与门禁（与 A–D 同步）**
+
+1. 每批完成后更新 `CHANGELOG.md` 与 `docs/audit/INDEX.md`，并复跑 §19.8 的验证清单。
+2. 本文档计数与 `docs/synapse-rust/ROUTE_CONTRACT.md` 的一致性由
+   `tests/unit/doc_credibility_guard_tests.rs` 守卫，改动路由面时**必须**同批重生成。
+
+### 19.6 本轮作废 / 更正的历史声明
+
+**（a）对 §18 自身口径的更正**（§18 是 2026-10-01 的判定，下列各项在其后已落地）：
+
+| §18 原声明 | 实际状态（本 HEAD 实测） | 证据 |
+|---|---|---|
+| §18.4 ⑧「`/relations` 无 `recurse`（MSC3981）」 | **已实现**：`recurse` 稳定名 + `org.matrix.msc3981.recurse` 拼写均被读取，缺省为 `None` 而非 `false` | `synapse-web/src/routes/relations.rs` |
+| §18.4 ②「MSC4311 宽限开关是死配置 + knock stripped state 缺失」 | 已按 §18.6 V-2 落地（跨实现联调 V-2b / V-2c 已绿） | §18.6 V-2 行 |
+| §18.4 ①「委派认证/MAS 运行时未接线」 | **仍然成立**（本轮复核未发现接线点） | `synapse-services/src/auth/mas_validator.rs` |
+| §18 证据栅格中 v1.15 行「GAP: hierarchy 的 `allowed_room_ids` … 未返回」 | **已作废**：`allowed_room_ids` 已实现并返回 | `synapse-services/src/room/join_rules.rs::extract_allowed_room_ids` |
+| §18.4 ⑩ / §18.5(b)「MSC4140 专用调度端点未实现」 | **已作废**：`PUT .../org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}` 等 7 条已注册 | `docs/synapse-rust/ROUTE_CONTRACT.md` 的 `delayed_events.rs` 小节、`synapse-web/src/routes/handlers/room/write_access.rs` |
+
+**（b）对本轮初稿的自我更正**：本轮起草时曾把「注销时延迟事件未取消」写成"MSC4140 未实现"，
+取证时发现 MSC4140 本身**已完整实现**（7 条路由 + 服务 + 存储 + 联邦 EDU），真实缺口只是
+**注销路径没有取消钩子**。这条更正本身即是 UG-1 的证据形态：**"功能存在"与"生命周期接上了"是两件事**。
+
+### 19.7 待核实项（附可复现命令与预期）
+
+| # | 验证点 | 命令 / 方法 | 预期 |
+|---|---|---|---|
+| V-19-1 | #20274：`auth` 为 `null` 时 UIA 端点是否 500 | 对 `DELETE /_matrix/client/v3/devices/{deviceId}` 发 `{"auth": null}` 与 `{"auth": "x"}`，看状态码 | 期望 400/401 + `M_UIA_REQUIRED`；若出现 500 则该项升级为差距 |
+| V-19-2 | UG-3：`org.matrix.msc4354` 是否真的未宣告 | `curl -s /_matrix/client/versions` 看 `unstable_features` | 当前预期**不含**该键（若已含则本轮结论有误） |
+| V-19-3 | #20100：缩略图是否阻塞事件循环 | 对 `GET /_matrix/client/v1/media/thumbnail/...` 并发压测，观察 p99 与线程池 | 期望无 worker 饥饿 |
+| V-19-4 | UG-4：AS 临时数据是否真的零投递 | 配一个 `ephemeral: true` 的 AS，发一条回执，抓 AS 侧 HTTP | 当前预期**收不到** `m.receipt` EDU；收到则 UG-4 作废 |
+| V-19-5 | UG-1：注销后延迟事件是否仍发出 | 建用户 → 排期一条 30s 延迟消息 → 立即注销 → 等 60s | 当前预期**会发出**（缺陷复现）；修后必须不发出 |
+| V-19-6 | UG-1：注销用户是否仍在房间成员里 | 注销后查 `room_memberships` / 当前状态里的 `m.room.member` | 当前预期仍为 `join` |
+| V-19-7 | S-1：安全公告库新鲜度 | `cargo deny check advisories` 的输出是否表明拉到了最新 DB；必要时先 `cargo deny fetch` | 避免"用陈旧库得出 advisories ok" |
+
+### 19.8 验证与门禁
+
+```bash
+# 0) 环境前置：清隔离 schema（残留会把 4.6s 用例拖过 120s 终止线，见 §18.7.3）
+DATABASE_URL=... bash scripts/cleanup_test_schemas.sh --apply
+# 1) 编译与静态检查（两档不可互相替代；照抄 pre-push 那一行）
+SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils --locked -- -D warnings
+SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils --all-features --locked -- -D warnings
+# 2) 本轮涉及模块的用例
+cargo nextest run -p synapse-common --lib -E 'test(/push_rules|default_push/)'
+cargo nextest run -p synapse-services --lib --features test-utils -E 'test(/lazy_load|capability|deactivat/)'
+cargo nextest run -p synapse-web --lib --features test-utils -E 'test(/sticky|preview|profile/)'
+# 3) 文档守卫 + 契约链（本文件任何计数/路径改动都必须过这两条）
+cargo nextest run --test unit --features test-utils -E 'test(doc_credibility_guard_tests)'
+bash scripts/contract/check_route_contract.sh
+# 4) 依赖安全
+cargo deny check advisories
+# 5) 格式（真实门禁是棘轮脚本，不是裸 rustfmt）
+./scripts/check_fmt_ratchet.sh
+```
+
+**⚠️ 本轮不做的三件事**（有意，写入以防后续被当成遗漏）：
+① 不跟随 #20186 的分片令牌改造（本仓无多写者流模型，改造面大于收益，见批次 C3）；
+② 不为对齐 #20285 而引入 `user_ips` 表（那是新增功能，不是对齐）；
+③ 不因 #20231 新增 `limit_profile_requests_to_users_who_share_rooms` 配置项
+（本仓已有语义更细的 `user_privacy_settings`，加第二个开关会制造"同一职责两份实现"）。

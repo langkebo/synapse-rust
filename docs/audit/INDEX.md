@@ -45,6 +45,7 @@
 | 文档 | 描述 | 状态 |
 |------|------|------|
 | **[UPSTREAM_CHANGELOG_ALIGNMENT_PLAN_2026-10-13.md](UPSTREAM_CHANGELOG_ALIGNMENT_PLAN_2026-10-13.md)** | 上游 `changelog.d`（24 条）逐条对照与对齐优化方案 | ✅ Active |
+| **[../synapse-rust-vs-synapse-comparison.md](../synapse-rust-vs-synapse-comparison.md) §19** | 上游 **Synapse v1.163.0**（2026-10-14）对照 + 本仓现状重判（当前口径；含 P0/P1 差距与批次 A–E 方案） | ✅ Active（2026-10-16） |
 
 ### 其他规划文档
 
