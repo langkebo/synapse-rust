@@ -143,6 +143,12 @@ impl ApplicationServiceManager {
             })?)
         };
 
+        // MSC4512: reject a bad `proxy_prefix` / `proxy_url` pair up front, using
+        // the exact decoder the request path applies to the stored config.
+        if let Some(value) = config_json.as_ref() {
+            super::proxy::validate_proxy_config_value(value, config_label)?;
+        }
+
         Ok(RegisterApplicationServiceRequest {
             as_id: id.trim().to_owned(),
             // `url: null` (or an omitted `url`) ⇒ no push endpoint (upstream 20273).

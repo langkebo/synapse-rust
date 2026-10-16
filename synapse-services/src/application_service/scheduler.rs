@@ -375,6 +375,25 @@ impl ApplicationServiceScheduler {
         )
     }
 
+    /// 用配置的**每 tick 派发容量**构造调度器（生产接线用）。
+    ///
+    /// 这是上游 `task_scheduler.max_concurrent_tasks`（默认 5）在本仓的落点：
+    /// 本仓没有上游那个通用的 `TaskScheduler`，与之最接近的容量旋钮就是本调度器
+    /// 的「一次 tick 最多派发多少个 AS」。**两者语义并不完全等价** —— 上游限制的是
+    /// 同时在跑的任务数，本仓 tick 内是**顺序** `await`（每 tick 至多派发
+    /// `max_services_per_tick` 个 AS），故该值约束的是"每 tick 的派发量"而非
+    /// "同时在飞的投递数"（见 `max_services_per_tick` 字段注释）。
+    pub fn with_max_services_per_tick(manager: Arc<ApplicationServiceManager>, max_services_per_tick: usize) -> Self {
+        Self::with_capacity_options(
+            manager,
+            MAX_EVENTS_PER_TRANSACTION,
+            SCHEDULER_TICK_INTERVAL_MS,
+            max_services_per_tick,
+            HIGH_PENDING_EVENT_THRESHOLD,
+            HIGH_PENDING_TRANSACTION_THRESHOLD,
+        )
+    }
+
     /// See [`with_capacity_options`].
     pub fn with_capacity_options(
         manager: Arc<ApplicationServiceManager>,

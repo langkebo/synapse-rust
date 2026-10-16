@@ -236,6 +236,7 @@ pub fn build_test_config() -> Config {
         telemetry: synapse_common::telemetry_config::OpenTelemetryConfig::default(),
         prometheus: synapse_common::telemetry_config::PrometheusConfig::default(),
         performance: synapse_common::config::PerformanceConfig::default(),
+        task_scheduler: synapse_common::config::TaskSchedulerConfig::default(),
         experimental: synapse_common::config::ExperimentalConfig::default(),
         identity: synapse_common::config::IdentityConfig::default(),
         translate: synapse_common::config::TranslateConfig::default(),

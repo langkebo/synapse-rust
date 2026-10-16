@@ -1,5 +1,5 @@
 fn all_derived_always_rows() -> Vec<DerivedRoute> {
-    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1017);
+    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1019);
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/", "assembly::create_router");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
@@ -75,6 +75,14 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/app/v1/{as_id}", "app_service");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(
+            axum::http::Method::POST,
+            "/_matrix/client/unstable/io.element.msc4512/appservice/fed_proxy",
+            "app_service",
+        );
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -420,6 +428,10 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     {
         let e =
             RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/account/whoami", "assembly::account_compat");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v1/appservice/fed_proxy", "app_service");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {

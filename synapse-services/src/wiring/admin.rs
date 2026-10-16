@@ -220,13 +220,25 @@ impl AdminServices {
             Arc::new(ApplicationServiceStorage::new(pool));
         let app_service_event_concrete = Arc::new(EventStorage::new(pool, config.server.get_server_name().to_owned()));
         let app_service_event_reader: Arc<dyn synapse_storage::event::EventReader> = app_service_event_concrete.clone();
-        let app_service_manager = Arc::new(crate::application_service::ApplicationServiceManager::new(
-            app_service_storage.clone(),
-            app_service_event_reader.clone(),
-            config.server.get_server_name().to_owned(),
-        ));
+        // MSC2409: the manager needs a room-store seam to page `event_receipts`
+        // and deliver ephemeral (receipt) EDUs to appservices.
+        let app_service_room_store: Arc<dyn synapse_storage::room::RoomStoreApi> = Arc::new(RoomStorage::new(pool));
+        let app_service_manager = Arc::new(
+            crate::application_service::ApplicationServiceManager::new(
+                app_service_storage.clone(),
+                app_service_event_reader.clone(),
+                config.server.get_server_name().to_owned(),
+            )
+            .with_room_store(app_service_room_store),
+        );
+        // 上游 `task_scheduler.max_concurrent_tasks`（默认 5，见 #20230）在本仓的落点：
+        // 本仓没有上游那个通用的 `TaskScheduler`，最接近的容量旋钮是 AS 调度器的
+        // 「每 tick 最多派发多少个 AS」（tick 内是顺序 await，故为派发量而非并发量）。
         let app_service_scheduler =
-            Arc::new(crate::application_service::ApplicationServiceScheduler::new(app_service_manager.clone()));
+            Arc::new(crate::application_service::ApplicationServiceScheduler::with_max_services_per_tick(
+                app_service_manager.clone(),
+                config.task_scheduler.max_concurrent_tasks,
+            ));
         #[cfg(feature = "external-services")]
         let external_service_integration =
             Arc::new(crate::external_service_integration::ExternalServiceIntegration::new(

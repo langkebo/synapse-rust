@@ -147,6 +147,17 @@ pub trait RoomStoreApi: Send + Sync {
         event_id: &str,
     ) -> Result<Vec<Receipt>, sqlx::Error>;
 
+    /// See [`get_latest_receipt_position`].
+    async fn get_latest_receipt_position(&self) -> Result<i64, sqlx::Error>;
+
+    /// See [`get_receipts_since`].
+    async fn get_receipts_since(
+        &self,
+        from_exclusive: i64,
+        to_inclusive: i64,
+        limit: i64,
+    ) -> Result<Vec<ReceiptStreamEntry>, sqlx::Error>;
+
     /// See [`update_read_marker_with_type`].
     async fn update_read_marker_with_type(
         &self,
@@ -439,6 +450,19 @@ impl RoomStoreApi for super::RoomStorage {
         event_id: &str,
     ) -> Result<Vec<Receipt>, sqlx::Error> {
         self.get_receipts(room_id, receipt_type, event_id).await
+    }
+
+    async fn get_latest_receipt_position(&self) -> Result<i64, sqlx::Error> {
+        self.get_latest_receipt_position().await
+    }
+
+    async fn get_receipts_since(
+        &self,
+        from_exclusive: i64,
+        to_inclusive: i64,
+        limit: i64,
+    ) -> Result<Vec<ReceiptStreamEntry>, sqlx::Error> {
+        self.get_receipts_since(from_exclusive, to_inclusive, limit).await
     }
 
     async fn update_read_marker_with_type(

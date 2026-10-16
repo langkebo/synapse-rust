@@ -2194,8 +2194,15 @@ BASELINE_DYNAMIC_PRODUCTION=96
 BASELINE_DYNAMIC_TEST_INFRA=769
 BASELINE_STATIC=1361
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1326
+SQLX_CACHE_ENTRIES=1328
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-17 更新（R2/UG-4：AS 临时数据投递接线）**，数字块一项按实测同步：
+> - `SQLX_CACHE_ENTRIES` **1326 → 1328**（+2）：新增 seam
+>   `RoomStoreApi::get_latest_receipt_position()`（`SELECT COALESCE(MAX(id),0) … event_receipts`）与
+>   `get_receipts_since(from_exclusive, to_inclusive, limit)`（回执流游标读），经唯一入口
+>   `scripts/ci/sqlx_prepare.sh` 重生成后新增 2 条缓存（`query-4aea15c5…json` / `query-50cd82b7…json`）。
+>   其余四个 `BASELINE_*` 未变。
 
 > **2026-10-16 更新（P1 批次：功能缺口/安全面 5 项）**，数字块一项按实测同步：
 > - `SQLX_CACHE_ENTRIES` **1329 → 1326**（−3）：本轮改了四处 SQL 文本（房间别名冲突

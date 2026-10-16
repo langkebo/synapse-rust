@@ -683,6 +683,7 @@ psycopg
 purgetimer
 pushdevice
 pushgateway
+pushkey
 pushnotificationservice
 pushrules
 pushstoreapi
