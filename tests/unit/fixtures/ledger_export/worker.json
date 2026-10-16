@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": false
   },
-  "entry_count": 964,
+  "entry_count": 968,
   "entries": [
     {
       "method": "GET",
@@ -5393,6 +5393,7 @@
         "room_id"
       ],
       "query_params": [
+        "from",
         "limit",
         "q"
       ]
@@ -6861,6 +6862,24 @@
       "query_params": []
     },
     {
+      "method": "DELETE",
+      "path": "/_synapse/admin/v1/invite/allowlist/{user_id}",
+      "registered_by": "admin::server",
+      "path_params": [
+        "user_id"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/invite/allowlist/{user_id}",
+      "registered_by": "admin::server",
+      "path_params": [
+        "user_id"
+      ],
+      "query_params": []
+    },
+    {
       "method": "GET",
       "path": "/_synapse/admin/v1/invite/blocklist",
       "registered_by": "admin::server",
@@ -6875,6 +6894,24 @@
       "path": "/_synapse/admin/v1/invite/blocklist",
       "registered_by": "admin::server",
       "path_params": [],
+      "query_params": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/_synapse/admin/v1/invite/blocklist/{user_id}",
+      "registered_by": "admin::server",
+      "path_params": [
+        "user_id"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/invite/blocklist/{user_id}",
+      "registered_by": "admin::server",
+      "path_params": [
+        "user_id"
+      ],
       "query_params": []
     },
     {

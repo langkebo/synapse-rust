@@ -223,7 +223,13 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // 三条覆盖全表校验的说明与写法约束注释。共 +4957 字节，`bytes=234084`）⇒ 按 R10 第①条
 // 独立复算 FNV-1a 64 得 `46adae9a7958a336`；先用**改动前的实际常量** `9e954f0c9c50755e`
 // 自检哈希实现（改动前字节 229127 逐字节吻合，证明哈希实现未变）后才取新值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "46adae9a7958a336";
+// 2026-10-16（交接单 Q1：全局邀请名单补 per-user 端点，两张全局表各加审计列）：
+// baseline 再变（`global_invite_blocklist` / `global_invite_allowlist` 各加
+// `reason` / `created_by` 两列，并补 4 条 `ADD COLUMN IF NOT EXISTS` 让**老库**
+// 重放基线时也能取到这两列；共 +964 字节，`bytes=235048`）⇒ 按 R10 第①条独立复算
+// FNV-1a 64 得 `c1894a91182775f0`；先用**改动前的实际常量** `46adae9a7958a336`
+// 对 HEAD 基线自检哈希实现（234084 字节逐字节吻合，证明哈希实现未变）后才取新值。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "c1894a91182775f0";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

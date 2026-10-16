@@ -1,6 +1,6 @@
 # synapse-rust 路由契约（Route Contract）
 
-> 自动生成于 2026-10-15，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含按 profile 拆分的 `derived_route_table_{always,worker,oidc}.inc.rs`）派生覆盖。
+> 自动生成于 2026-10-16，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含按 profile 拆分的 `derived_route_table_{always,worker,oidc}.inc.rs`）派生覆盖。
 >
 > 本文件是后端 HTTP 契约的**事实来源之一**（机器侧权威为 `derived_routes.rs` 生成的 `RouteLedger`，启动时校验、集成测试 PATCH 探测）。人工文档（INDEX.md / API_COVERAGE_REPORT.md）须与之保持一致。
 >
@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1032**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1036**
 - 含路由注册的模块文件：**66**
 - `derived_routes.rs` 中的 `registered_by` 标签：**74**
 - 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
@@ -69,7 +69,7 @@
 **逐模块清单里的两种标注**（都从派生表反解，不是人工维护）：
 
 - 〔仅 `X` profile〕 —— 该路由**只**在 profile `X` 下注册，默认构建里不存在（即上表成员）；
-- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1034 行去重为 1032 条的来源。
+- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1038 行去重为 1036 条的来源。
 
 当前共 **2** 条双档注册：
 
@@ -939,7 +939,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/client/v3/thirdparty/user`
 - `GET` `/_matrix/client/v3/thirdparty/user/{protocol}`
 
-### 管理 (Admin) （142 条）
+### 管理 (Admin) （146 条）
 
 #### `admin/room/mod.rs` — 45 条 ✅派生表
 
@@ -1017,8 +1017,10 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_synapse/admin/v1/users/{user_id}/admin`
 - `PUT` `/_synapse/admin/v2/users/{user_id}`
 
-#### `admin/server.rs` — 17 条 ✅派生表
+#### `admin/server.rs` — 21 条 ✅派生表
 
+- `DELETE` `/_synapse/admin/v1/invite/allowlist/{user_id}`
+- `DELETE` `/_synapse/admin/v1/invite/blocklist/{user_id}`
 - `GET` `/_synapse/admin/v1/config`
 - `GET` `/_synapse/admin/v1/experimental_features`
 - `GET` `/_synapse/admin/v1/health`
@@ -1034,7 +1036,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_synapse/admin/v1/whois/{user_id}`
 - `GET` `/_synapse/admin/v1/whois/{user_id}/{device_id}`
 - `POST` `/_synapse/admin/v1/invite/allowlist`
+- `POST` `/_synapse/admin/v1/invite/allowlist/{user_id}`
 - `POST` `/_synapse/admin/v1/invite/blocklist`
+- `POST` `/_synapse/admin/v1/invite/blocklist/{user_id}`
 - `POST` `/_synapse/admin/v1/restart`
 
 #### `admin/notification.rs` — 15 条 ✅派生表

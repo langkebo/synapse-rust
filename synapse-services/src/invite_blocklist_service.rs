@@ -41,6 +41,37 @@ pub const METRIC_INVITE_REJECTED_IGNORE: &str = "invite_rejected_ignore";
 /// Counter for invites that could not be evaluated due to a storage error.
 pub const METRIC_INVITE_EVAL_ERROR: &str = "invite_eval_error";
 
+/// Matrix user-ID 格式校验。
+///
+/// **与基线两条表 CHECK 的表达式同源**（`migrations/00000000_unified_schema_v12.sql` 的
+/// `ck_global_invite_blocklist_user_id_format` / `ck_global_invite_allowlist_user_id_format`）：
+///
+/// ```text
+/// ^@[a-zA-Z0-9._=+./-]+:[a-zA-Z0-9.-]+$
+/// ```
+///
+/// 为什么在服务层先校验一次：非法 user_id 交给数据库只会撞 CHECK 约束，客户端拿到的是
+/// 500（存储错误）而不是可诊断的 400；而 per-user 端点上"看起来成功、实际没写进去"的 200
+/// 比 400 更糟。
+///
+/// 故意**不加长度上限**：基线 CHECK 没有，加了就等于多出一条规则。
+fn is_valid_matrix_user_id(user_id: &str) -> bool {
+    let Some(rest) = user_id.strip_prefix('@') else {
+        return false;
+    };
+    let Some((localpart, server_name)) = rest.split_once(':') else {
+        return false;
+    };
+    if localpart.is_empty() || server_name.is_empty() {
+        return false;
+    }
+    // `split_once` 取第一个 ':'，server 段里再出现 ':' 会被下面的字符集拒掉
+    // （正确：基线的 server 段字符集不含 ':'）。
+    let local_ok = localpart.chars().all(|c| c.is_ascii_alphanumeric() || "._=+/-".contains(c));
+    let server_ok = server_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
+    local_ok && server_ok
+}
+
 /// The invite-policy gate the membership layer enforces.
 ///
 /// Deliberately narrow: the membership layer must be able to *enforce* policy
@@ -259,6 +290,76 @@ impl InviteBlocklistService {
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to set global allowlist", e))
     }
+
+    /// 把**一个**用户加入全局邀请黑名单（per-user、幂等）—— 交接单 Q1 / 决策 D4。
+    ///
+    /// `created_by` 由 handler 从**已认证的管理员身份**填入，永不取自请求体：否则审计字段
+    /// 本身就可以被任意管理员伪造。
+    ///
+    /// 返回 `(already_present, removed_from_other_list)`：前者 `true` 表示"本来就在名单里"
+    /// （重复 POST ⇒ 200 + `already_present`，且**不覆盖**既有 reason / created_by）。
+    pub async fn add_to_global_invite_blocklist(
+        &self,
+        user_id: &str,
+        reason: Option<String>,
+        created_by: &str,
+    ) -> Result<(bool, bool), ApiError> {
+        if !is_valid_matrix_user_id(user_id) {
+            return Err(ApiError::bad_request(format!("Invalid user ID: {user_id}")));
+        }
+        let (inserted, removed_from_other) = self
+            .storage
+            .add_to_global_invite_blocklist(user_id, reason.as_deref(), Some(created_by))
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to add global blocklist entry", e))?;
+        Ok((!inserted, removed_from_other))
+    }
+
+    /// 把**一个**用户移出全局邀请黑名单（per-user、幂等）—— 交接单 Q1 / 决策 D4。
+    ///
+    /// 返回 `removed`：`false` 表示该用户本来就不在名单里（端点仍返回 200）。
+    pub async fn remove_from_global_invite_blocklist(&self, user_id: &str) -> Result<bool, ApiError> {
+        if !is_valid_matrix_user_id(user_id) {
+            return Err(ApiError::bad_request(format!("Invalid user ID: {user_id}")));
+        }
+        self.storage
+            .remove_from_global_invite_blocklist(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to remove global blocklist entry", e))
+    }
+
+    /// 把**一个**用户加入全局邀请白名单（per-user、幂等）—— 交接单 Q1 / 决策 D4。
+    ///
+    /// 与 [`Self::add_to_global_invite_blocklist`] 对称（幂等 + 审计 + 跨表互斥）。
+    pub async fn add_to_global_invite_allowlist(
+        &self,
+        user_id: &str,
+        reason: Option<String>,
+        created_by: &str,
+    ) -> Result<(bool, bool), ApiError> {
+        if !is_valid_matrix_user_id(user_id) {
+            return Err(ApiError::bad_request(format!("Invalid user ID: {user_id}")));
+        }
+        let (inserted, removed_from_other) = self
+            .storage
+            .add_to_global_invite_allowlist(user_id, reason.as_deref(), Some(created_by))
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to add global allowlist entry", e))?;
+        Ok((!inserted, removed_from_other))
+    }
+
+    /// 把**一个**用户移出全局邀请白名单（per-user、幂等）—— 交接单 Q1 / 决策 D4。
+    ///
+    /// 返回 `removed`：`false` 表示该用户本来就不在名单里（端点仍返回 200）。
+    pub async fn remove_from_global_invite_allowlist(&self, user_id: &str) -> Result<bool, ApiError> {
+        if !is_valid_matrix_user_id(user_id) {
+            return Err(ApiError::bad_request(format!("Invalid user ID: {user_id}")));
+        }
+        self.storage
+            .remove_from_global_invite_allowlist(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to remove global allowlist entry", e))
+    }
 }
 
 #[async_trait::async_trait]
@@ -362,6 +463,26 @@ mod tests {
     use super::*;
     use serde_json::json;
     use synapse_storage::test_mocks::InMemoryAccountDataStore;
+
+    #[test]
+    fn validate_matrix_user_id_matches_baseline_check() {
+        for ok in ["@alice:example.com", "@a.b_c=d+e/f-g:host.example.org", "@u:localhost", "@a:b-1.x"] {
+            assert!(is_valid_matrix_user_id(ok), "{ok} 应当合法");
+        }
+        for bad in [
+            "",
+            "alice:example.com", // 缺 '@'
+            "@alice",            // 缺 ':'
+            "@:host",            // 本地段为空
+            "@a:",               // 服务段为空
+            "@a:b c",            // 空格
+            "@a:b:1234",         // 服务段含 ':'
+            "@a#b:c",            // '#' 不在基线字符集里
+            "@a:b/c",            // '/' 不在服务段字符集里
+        ] {
+            assert!(!is_valid_matrix_user_id(bad), "{bad} 应当非法");
+        }
+    }
 
     /// A service whose room lists are empty, so only the account policy can
     /// produce a verdict. Exercises the MSC4155 parsing without Postgres.

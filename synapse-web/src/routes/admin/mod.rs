@@ -4,6 +4,8 @@ pub mod audit;
 pub mod cleanup;
 /// The `federation` module.
 pub mod federation;
+/// The `invite_lists` module.
+pub mod invite_lists;
 /// The `media` module.
 pub mod media;
 /// The `notification` module.

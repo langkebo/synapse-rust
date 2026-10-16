@@ -584,6 +584,10 @@ CREATE TABLE IF NOT EXISTS global_invite_blocklist (
     id BIGSERIAL,
     user_id TEXT NOT NULL,
     created_ts BIGINT NOT NULL,
+    -- Q1（2026-10-16）：per-user 端点（`POST …/invite/blocklist/{user_id}`）的审计归因。
+    -- 两列**可空**：整体替换端点与存量行都不写它们 ⇒ 老数据零迁移成本。
+    reason TEXT,
+    created_by TEXT,
     CONSTRAINT pk_global_invite_blocklist PRIMARY KEY (id),
     CONSTRAINT uq_global_invite_blocklist_user UNIQUE (user_id)
 );
@@ -592,9 +596,20 @@ CREATE TABLE IF NOT EXISTS global_invite_allowlist (
     id BIGSERIAL,
     user_id TEXT NOT NULL,
     created_ts BIGINT NOT NULL,
+    -- 同 blocklist：per-user 端点的审计归因（可空）。
+    reason TEXT,
+    created_by TEXT,
     CONSTRAINT pk_global_invite_allowlist PRIMARY KEY (id),
     CONSTRAINT uq_global_invite_allowlist_user UNIQUE (user_id)
 );
+
+-- ⚠️ 上面两条 `CREATE TABLE IF NOT EXISTS` 对**已存在**这两张表的库（本机 public、老库）
+-- **不会**加列，所以必须再补一次幂等 ALTER —— 否则老库重放基线后，per-user 端点会报
+-- `column "reason" does not exist`。全新库上这四条是 no-op。
+ALTER TABLE global_invite_blocklist ADD COLUMN IF NOT EXISTS reason TEXT;
+ALTER TABLE global_invite_blocklist ADD COLUMN IF NOT EXISTS created_by TEXT;
+ALTER TABLE global_invite_allowlist ADD COLUMN IF NOT EXISTS reason TEXT;
+ALTER TABLE global_invite_allowlist ADD COLUMN IF NOT EXISTS created_by TEXT;
 
 CREATE TABLE IF NOT EXISTS room_tags (
     id BIGSERIAL PRIMARY KEY,

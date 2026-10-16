@@ -1,4 +1,10 @@
-// Invite Blocking Storage - MSC4380
+// 房间级与全局邀请名单（本仓扩展）—— 存储层。
+//
+// ⚠️ 归号订正（2026-10-16）：本文件**不是** MSC4380。MSC4380（Matrix v1.18 已纳入）定义的是
+// **用户自己**拒收邀请的单个开关（`default_action: "block" | "allow"`），其正文把
+// 「按 user ID / 服务器 / Space 屏蔽」列为**未来扩展**并指向 MSC4155。本文件实现的是
+// **房主控制谁能被邀请进本房间**的名单，属本仓扩展。
+// 依据：docs/audit/INVITE_PERUSER_POLICY_PROPOSAL_2026-10-16.md §7.2。
 // Allows room admins to control who can be invited to a room
 // Following project field naming standards
 
@@ -144,7 +150,7 @@ impl InviteBlocklistStorage {
     pub async fn get_global_invite_blocklist(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
         let rows = sqlx::query!(
             r#"
-            SELECT user_id, created_ts FROM global_invite_blocklist
+            SELECT user_id, created_ts, reason, created_by FROM global_invite_blocklist
             ORDER BY created_ts DESC, user_id ASC
             "#,
         )
@@ -156,7 +162,11 @@ impl InviteBlocklistStorage {
             .map(|row| {
                 serde_json::json!({
                     "user_id": row.user_id,
-                    "created_ts": row.created_ts
+                    "created_ts": row.created_ts,
+                    // Q1（2026-10-16）：per-user 端点写入的审计归因。整体替换端点与存量行
+                    // 这两列是 NULL（序列化为 null），消费方必须容忍。
+                    "reason": row.reason,
+                    "created_by": row.created_by
                 })
             })
             .collect())
@@ -166,7 +176,7 @@ impl InviteBlocklistStorage {
     pub async fn get_global_invite_allowlist(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
         let rows = sqlx::query!(
             r#"
-            SELECT user_id, created_ts FROM global_invite_allowlist
+            SELECT user_id, created_ts, reason, created_by FROM global_invite_allowlist
             ORDER BY created_ts DESC, user_id ASC
             "#,
         )
@@ -178,7 +188,11 @@ impl InviteBlocklistStorage {
             .map(|row| {
                 serde_json::json!({
                     "user_id": row.user_id,
-                    "created_ts": row.created_ts
+                    "created_ts": row.created_ts,
+                    // Q1（2026-10-16）：per-user 端点写入的审计归因。整体替换端点与存量行
+                    // 这两列是 NULL（序列化为 null），消费方必须容忍。
+                    "reason": row.reason,
+                    "created_by": row.created_by
                 })
             })
             .collect())
@@ -263,6 +277,102 @@ impl InviteBlocklistStorage {
         Ok(())
     }
 
+    /// Add one user to the global invite blocklist (per-user, idempotent).
+    ///
+    /// Q1（2026-10-16 决策 D3/D4/D5）三段语义：
+    ///   * **幂等**：重复调用不报错，且**不覆盖**既有 `reason` / `created_by`
+    ///     （`ON CONFLICT (user_id) DO NOTHING`）—— 重复 POST 应当是"状态不变"，不是"改写记录"；
+    ///   * **跨表互斥**：加入 blocklist 时把同一 user 从 allowlist 移除，使"同一人同时出现在
+    ///     两个全局名单"不再因单条增删而产生。
+    ///     ⚠️ 整体替换端点（[`Self::set_global_invite_blocklist`]）**不做**互斥：它是声明式
+    ///     全量设置，调用方给出什么名单就存什么名单；
+    ///   * **审计**：`reason` / `created_by` 落库（调用方不得自行伪造 `created_by`）。
+    ///
+    /// 返回 `(inserted, removed_from_other_list)`：前者 `false` 表示"本来就在名单里"。
+    pub async fn add_to_global_invite_blocklist(
+        &self,
+        user_id: &str,
+        reason: Option<&str>,
+        created_by: Option<&str>,
+    ) -> Result<(bool, bool), sqlx::Error> {
+        let now = current_timestamp_millis();
+        let mut tx = self.pool.begin().await?;
+
+        let deleted =
+            sqlx::query!("DELETE FROM global_invite_allowlist WHERE user_id = $1", user_id).execute(&mut *tx).await?;
+
+        let inserted_row = sqlx::query!(
+            r#"
+            INSERT INTO global_invite_blocklist (user_id, created_ts, reason, created_by)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (user_id) DO NOTHING
+            "#,
+            user_id,
+            now,
+            reason,
+            created_by,
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok((inserted_row.rows_affected() > 0, deleted.rows_affected() > 0))
+    }
+
+    /// Remove one user from the global invite blocklist (per-user, idempotent).
+    ///
+    /// 返回 `true` 表示确实删掉了一行；`false` 表示本来就不在名单里（端点同样返回 200）。
+    pub async fn remove_from_global_invite_blocklist(&self, user_id: &str) -> Result<bool, sqlx::Error> {
+        let deleted = sqlx::query!("DELETE FROM global_invite_blocklist WHERE user_id = $1", user_id)
+            .execute(&*self.pool)
+            .await?;
+        Ok(deleted.rows_affected() > 0)
+    }
+
+    /// Add one user to the global invite allowlist (per-user, idempotent).
+    ///
+    /// 与 [`Self::add_to_global_invite_blocklist`] 对称：幂等、审计、并把同一 user
+    /// 从 **blocklist** 移除（跨表互斥）。返回 `(inserted, removed_from_other_list)`。
+    pub async fn add_to_global_invite_allowlist(
+        &self,
+        user_id: &str,
+        reason: Option<&str>,
+        created_by: Option<&str>,
+    ) -> Result<(bool, bool), sqlx::Error> {
+        let now = current_timestamp_millis();
+        let mut tx = self.pool.begin().await?;
+
+        let deleted =
+            sqlx::query!("DELETE FROM global_invite_blocklist WHERE user_id = $1", user_id).execute(&mut *tx).await?;
+
+        let inserted_row = sqlx::query!(
+            r#"
+            INSERT INTO global_invite_allowlist (user_id, created_ts, reason, created_by)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (user_id) DO NOTHING
+            "#,
+            user_id,
+            now,
+            reason,
+            created_by,
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok((inserted_row.rows_affected() > 0, deleted.rows_affected() > 0))
+    }
+
+    /// Remove one user from the global invite allowlist (per-user, idempotent).
+    ///
+    /// 返回 `true` 表示确实删掉了一行；`false` 表示本来就不在名单里（端点同样返回 200）。
+    pub async fn remove_from_global_invite_allowlist(&self, user_id: &str) -> Result<bool, sqlx::Error> {
+        let deleted = sqlx::query!("DELETE FROM global_invite_allowlist WHERE user_id = $1", user_id)
+            .execute(&*self.pool)
+            .await?;
+        Ok(deleted.rows_affected() > 0)
+    }
+
     /// Get global invite blocklist (all users) with pagination.
     pub async fn get_global_invite_blocklist_paginated(
         &self,
@@ -271,7 +381,7 @@ impl InviteBlocklistStorage {
     ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
         let rows = sqlx::query!(
             r#"
-            SELECT user_id, created_ts FROM global_invite_blocklist
+            SELECT user_id, created_ts, reason, created_by FROM global_invite_blocklist
             ORDER BY created_ts DESC, user_id ASC
             LIMIT $1 OFFSET $2
             "#,
@@ -286,7 +396,11 @@ impl InviteBlocklistStorage {
             .map(|row| {
                 serde_json::json!({
                     "user_id": row.user_id,
-                    "created_ts": row.created_ts
+                    "created_ts": row.created_ts,
+                    // Q1（2026-10-16）：per-user 端点写入的审计归因。整体替换端点与存量行
+                    // 这两列是 NULL（序列化为 null），消费方必须容忍。
+                    "reason": row.reason,
+                    "created_by": row.created_by
                 })
             })
             .collect())
@@ -300,7 +414,7 @@ impl InviteBlocklistStorage {
     ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
         let rows = sqlx::query!(
             r#"
-            SELECT user_id, created_ts FROM global_invite_allowlist
+            SELECT user_id, created_ts, reason, created_by FROM global_invite_allowlist
             ORDER BY created_ts DESC, user_id ASC
             LIMIT $1 OFFSET $2
             "#,
@@ -315,7 +429,11 @@ impl InviteBlocklistStorage {
             .map(|row| {
                 serde_json::json!({
                     "user_id": row.user_id,
-                    "created_ts": row.created_ts
+                    "created_ts": row.created_ts,
+                    // Q1（2026-10-16）：per-user 端点写入的审计归因。整体替换端点与存量行
+                    // 这两列是 NULL（序列化为 null），消费方必须容忍。
+                    "reason": row.reason,
+                    "created_by": row.created_by
                 })
             })
             .collect())

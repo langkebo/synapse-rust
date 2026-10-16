@@ -1,4 +1,10 @@
-// Invite Blocklist Routes - MSC4380
+// 房间级邀请名单（本仓扩展）—— 路由层视图。
+//
+// ⚠️ 归号订正（2026-10-16）：本文件**不是** MSC4380。MSC4380（Matrix v1.18 已纳入）定义的是
+// **用户自己**拒收邀请的单个开关（`default_action: "block" | "allow"`），其正文把
+// 「按 user ID / 服务器 / Space 屏蔽」列为**未来扩展**并指向 MSC4155。本文件实现的是
+// **房主控制谁能被邀请进本房间**的名单，属本仓扩展。
+// 依据：docs/audit/INVITE_PERUSER_POLICY_PROPOSAL_2026-10-16.md §7.2。
 // Allows room admins to control who can be invited to a room
 
 use crate::routes::context::AdminContext;

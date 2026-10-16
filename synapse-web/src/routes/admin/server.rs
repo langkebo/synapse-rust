@@ -1,11 +1,17 @@
 use crate::routes::context::AdminContext;
 use crate::routes::{AdminUser, AppState};
+// Q1（2026-10-16）：邀请名单的 handler 全部搬进 `admin/invite_lists.rs`
+// （行数棘轮 + 内聚），这里只保留路由注册。
+use super::invite_lists::{
+    add_global_invite_allowlist_user, add_global_invite_blocklist_user, get_invite_allowlist_admin,
+    get_invite_blocklist_admin, remove_global_invite_allowlist_user, remove_global_invite_blocklist_user,
+    set_global_invite_allowlist_admin, set_global_invite_blocklist_admin,
+};
 use axum::{
-    extract::{Path, Query, State},
-    routing::{get, post},
+    extract::{Path, State},
+    routing::{delete, get, post},
     Json, Router,
 };
-use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::types::{DeviceId, UserId};
 use synapse_common::ApiError;
@@ -33,6 +39,24 @@ pub fn create_server_router(_state: AppState) -> Router<crate::routes::AppState>
         .route(
             "/_synapse/admin/v1/invite/allowlist",
             get(get_invite_allowlist_admin).post(set_global_invite_allowlist_admin),
+        )
+        // Q1（2026-10-16 决策 D4/D6）：per-user 子资源，幂等增删。
+        // 与上面的整体替换端点并存：整体替换是"声明式全量"，per-user 是"单条增量"。
+        .route(
+            "/_synapse/admin/v1/invite/blocklist/{user_id}",
+            post(add_global_invite_blocklist_user),
+        )
+        .route(
+            "/_synapse/admin/v1/invite/blocklist/{user_id}",
+            delete(remove_global_invite_blocklist_user),
+        )
+        .route(
+            "/_synapse/admin/v1/invite/allowlist/{user_id}",
+            post(add_global_invite_allowlist_user),
+        )
+        .route(
+            "/_synapse/admin/v1/invite/allowlist/{user_id}",
+            delete(remove_global_invite_allowlist_user),
         )
 }
 
@@ -390,96 +414,6 @@ pub async fn get_jitsi_config(_admin: AdminUser, State(ctx): State<AdminContext>
         "jwt_auth_type": "none",
         "server_name": ctx.server_name
     })))
-}
-
-/// See [`get_invite_blocklist_admin`].
-#[axum::debug_handler]
-pub async fn get_invite_blocklist_admin(
-    _admin: AdminUser,
-    State(ctx): State<AdminContext>,
-    Query(params): Query<InviteListParams>,
-) -> Result<Json<Value>, ApiError> {
-    let blocklist = ctx.invite_blocklist_service.get_global_invite_blocklist(params.limit, params.offset).await?;
-    let count = ctx.invite_blocklist_service.get_global_invite_blocklist_count().await?;
-
-    Ok(Json(json!({
-        "blocklist": blocklist,
-        "total_count": count,
-        "limit": params.limit,
-        "offset": params.offset
-    })))
-}
-
-/// See [`get_invite_allowlist_admin`].
-#[axum::debug_handler]
-pub async fn get_invite_allowlist_admin(
-    _admin: AdminUser,
-    State(ctx): State<AdminContext>,
-    Query(params): Query<InviteListParams>,
-) -> Result<Json<Value>, ApiError> {
-    let allowlist = ctx.invite_blocklist_service.get_global_invite_allowlist(params.limit, params.offset).await?;
-    let count = ctx.invite_blocklist_service.get_global_invite_allowlist_count().await?;
-
-    Ok(Json(json!({
-        "allowlist": allowlist,
-        "total_count": count,
-        "limit": params.limit,
-        "offset": params.offset
-    })))
-}
-
-/// Pagination parameters for the invite blocklist/allowlist admin endpoints.
-#[derive(Deserialize, Debug, Clone, Copy)]
-pub struct InviteListParams {
-    /// Maximum number of rows to return. Defaults to 100.
-    #[serde(default = "default_limit")]
-    pub limit: i64,
-    /// Number of rows to skip for pagination. Defaults to 0.
-    #[serde(default)]
-    pub offset: i64,
-}
-
-/// Request body for setting the global invite list.
-#[derive(Deserialize, Debug)]
-pub struct InviteListWriteBody {
-    /// User IDs to include in the global list.
-    pub user_ids: Vec<String>,
-}
-
-/// Replace the global invite blocklist.
-/// POST /_synapse/admin/v1/invite/blocklist
-#[axum::debug_handler]
-pub async fn set_global_invite_blocklist_admin(
-    _admin: AdminUser,
-    State(ctx): State<AdminContext>,
-    Json(body): Json<InviteListWriteBody>,
-) -> Result<Json<Value>, ApiError> {
-    ctx.invite_blocklist_service.set_global_invite_blocklist(body.user_ids).await?;
-
-    Ok(Json(json!({
-        "status": "ok",
-        "action": "set_global_invite_blocklist"
-    })))
-}
-
-/// Replace the global invite allowlist.
-/// POST /_synapse/admin/v1/invite/allowlist
-#[axum::debug_handler]
-pub async fn set_global_invite_allowlist_admin(
-    _admin: AdminUser,
-    State(ctx): State<AdminContext>,
-    Json(body): Json<InviteListWriteBody>,
-) -> Result<Json<Value>, ApiError> {
-    ctx.invite_blocklist_service.set_global_invite_allowlist(body.user_ids).await?;
-
-    Ok(Json(json!({
-        "status": "ok",
-        "action": "set_global_invite_allowlist"
-    })))
-}
-
-fn default_limit() -> i64 {
-    100
 }
 
 #[cfg(test)]

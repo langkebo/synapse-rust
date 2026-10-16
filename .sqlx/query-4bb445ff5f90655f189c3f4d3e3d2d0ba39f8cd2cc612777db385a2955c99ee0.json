@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO global_invite_blocklist (user_id, created_ts, reason, created_by)\n            VALUES ($1, $2, $3, $4)\n            ON CONFLICT (user_id) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4bb445ff5f90655f189c3f4d3e3d2d0ba39f8cd2cc612777db385a2955c99ee0"
+}

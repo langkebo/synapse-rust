@@ -790,6 +790,7 @@ rsa
 rsync
 rtc
 rto
+rtt
 rulebook
 ruma
 runbook

@@ -1146,7 +1146,9 @@ EXPECTED_ANNOTATIONS = {
         "query_params": "from,include_all,limit"
     },
     ("GET", "/_matrix/vendor/v1/rooms/{room_id}/threads/search"): {
-        "query_params": "limit,q"
+        # Q5（2026-10-15）给该 handler 加了 `from` 游标：handler 解析
+        # ['from','limit','q']，本表与 ledger_annotations.txt 必须同步（2026-10-16 补齐）。
+        "query_params": "from,limit,q"
     },
     ("GET", "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}"): {
         "query_params": "include_replies,reply_limit"

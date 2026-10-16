@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO global_invite_allowlist (user_id, created_ts, reason, created_by)\n            VALUES ($1, $2, $3, $4)\n            ON CONFLICT (user_id) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b381e42e52baed12218f6d3315104397c0d6ffa5ef2b51d86a2c1ae56ff546f5"
+}

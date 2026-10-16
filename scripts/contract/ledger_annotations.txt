@@ -61,7 +61,11 @@ GET /_matrix/client/v1/rooms/{room_id}/relations/{event_id}	query_params=dir,fro
 GET /_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}	query_params=dir,from,limit,org.matrix.msc3981.recurse,recurse,to
 GET /_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}	query_params=dir,from,limit,org.matrix.msc3981.recurse,recurse,to
 GET /_matrix/client/v1/rooms/{room_id}/threads	query_params=from,include_all,limit
-GET /_matrix/vendor/v1/rooms/{room_id}/threads/search	query_params=limit,q
+# `from` 是 Q5（2026-10-15）新增的游标参数，当时漏同步本表 ⇒ EXTRACT_STRICT 的
+# 「ledger annotations 忠实性」检查报 query_params mismatch（2026-10-16 补齐）。
+# ⚠️ 改该 handler 的 query 参数时**必须**同步下面这一行；行尾不能写 `#` 注释
+#（本表把非 key=value 的 token 一律判为 unknown key ⇒ 直接 RED）。
+GET /_matrix/vendor/v1/rooms/{room_id}/threads/search	query_params=from,limit,q
 GET /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}	query_params=include_replies,reply_limit
 GET /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies	query_params=from,include_all,limit
 GET /_matrix/vendor/v1/spaces/public	query_params=from,limit

@@ -2,7 +2,7 @@
   "schema_version": "1",
   "ledger_schema_version": "4",
   "lane": "golden",
-  "generated_at": "2026-05-02T00:00:00Z",
+  "generated_at": "2026-09-16T00:00:00Z",
   "source": "synapse_ledger_export",
   "profile": "default",
   "profile_flags": {
@@ -10,7 +10,7 @@
     "worker_enabled": false,
     "saml_enabled": false
   },
-  "total_routes": 953,
+  "total_routes": 957,
   "_meta": {
     "generated_by": "gen_route_table.py",
     "note": "本文件由 CI 自动生成，禁止手改。如需刷新: python3 scripts/api_test/gen_route_table.py"
@@ -5989,6 +5989,7 @@
         "room_id"
       ],
       "query_params": [
+        "from",
         "limit",
         "q"
       ],
@@ -7623,6 +7624,26 @@
       "auth": null
     },
     {
+      "method": "DELETE",
+      "path": "/_synapse/admin/v1/invite/allowlist/{user_id}",
+      "registered_by": "admin::server",
+      "path_params": [
+        "user_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/invite/allowlist/{user_id}",
+      "registered_by": "admin::server",
+      "path_params": [
+        "user_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
       "method": "GET",
       "path": "/_synapse/admin/v1/invite/blocklist",
       "registered_by": "admin::server",
@@ -7638,6 +7659,26 @@
       "path": "/_synapse/admin/v1/invite/blocklist",
       "registered_by": "admin::server",
       "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "DELETE",
+      "path": "/_synapse/admin/v1/invite/blocklist/{user_id}",
+      "registered_by": "admin::server",
+      "path_params": [
+        "user_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/invite/blocklist/{user_id}",
+      "registered_by": "admin::server",
+      "path_params": [
+        "user_id"
+      ],
       "query_params": [],
       "auth": null
     },
