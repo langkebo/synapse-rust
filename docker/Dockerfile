@@ -99,8 +99,13 @@ RUN rm -f rust-toolchain rust-toolchain.toml
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/workspace/target,sharing=locked \
-    cargo build --release --locked ${CARGO_FEATURE_ARGS} --bin synapse-rust --bin healthcheck && \
+    cargo build --release --locked ${CARGO_FEATURE_ARGS} --bin synapse-rust --bin synapse_worker --bin healthcheck && \
     install -Dm755 target/release/synapse-rust          /out/app/synapse-rust && \
+    # W-D: the worker process binary. Without it a containerised multi-process
+    # topology cannot start a single worker — `synapse_worker` consumes the Redis
+    # job queue, registers/heartbeats against the master, and serves its own
+    # `/metrics`; nothing else in the image can play that role.
+    install -Dm755 target/release/synapse_worker        /out/app/synapse_worker && \
     install -Dm755 target/release/healthcheck           /out/app/healthcheck && \
     install -Dm755 docker/db_migrate.sh                 /out/app/scripts/db_migrate.sh && \
     install -Dm755 docker/deploy/scripts/container-migrate.sh /out/app/scripts/container-migrate.sh && \

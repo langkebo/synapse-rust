@@ -222,6 +222,42 @@ worker:
   #     synapse-rust --validate-topology   # 0=可部署 1=配置有错 2=配置加载失败
   topology:
     strict: false
+  # ── 参考多进程拓扑（W-D）─────────────────────────────────────────────────
+  # 以下键**只在 SYNAPSE__WORKER__ENABLED=true 时生效**：单进程部署走
+  # `worker.enabled: false` 的早退分支（校验直接 valid），instance_map 没有消费者。
+  # 多进程栈：
+  #   docker compose -f docker/docker-compose.yml -f docker/docker-compose.workers.yml up -d
+  #
+  # ⚠️ 这里**故意不声明 background_worker**：`global_maintenance_owner()` 只要发现有实例
+  #    名为 background_worker，就把「全局维护」（prune / appservice 调度 …）的归属判给它；
+  #    而本仓的 worker 进程（`synapse_worker`）只消费 Redis 队列、**不跑那些维护任务**
+  #    ⇒ 声明它等于让维护静默停摆（master 会因为"归属不是我"而跳过，见
+  #    `should_run_global_maintenance` 的调用点）。要加它，必须让**根二进制**以
+  #    WORKER_INSTANCE_NAME=background_worker 运行，或先统一 duty 模型（审计 W-7）。
+  #
+  # host/port 是**声明**而非连接参数：本仓 instance_map 的消费者只有拓扑校验与运行时
+  # 对账（谁"应该在场"），没有按它建连的代码；容器栈里写服务名便于运维对照。
+  instance_map:
+    client_reader:
+      host: "client_reader"
+      port: 8008
+      tls: false
+    event_persister:
+      host: "event_persister"
+      port: 8008
+      tls: false
+    sync_worker:
+      host: "sync_worker"
+      port: 8008
+      tls: false
+    federation_reader:
+      host: "federation_reader"
+      port: 8008
+      tls: false
+    media_repository:
+      host: "media_repository"
+      port: 8008
+      tls: false
   replication:
     enabled: true
     server_name: "${SERVER_NAME:-localhost}"
