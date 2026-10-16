@@ -9,7 +9,8 @@
 >
 > **取证方式**：全部为本仓源码实测（标注 `文件:行`）；上游对照取
 > `element-hq/synapse@release-v1.163` 的 `synapse/config/workers.py`（665 行）。
-> 本文件是**审计与方案**，不含实现改动；实施按 §4 的批次推进。
+> 本文件原为**审计与方案**；§4 的 W-A…W-E **五批已实施完毕**，每批附「实施记录」
+> （含实测证据与对原设计的修正）。仍未做的只有 **W-F**（按角色收敛 HTTP 面），见 §4 末。
 
 ---
 
@@ -151,7 +152,7 @@ MSC4306（线程订阅，已实现线程相关读取面）与媒体隔离（`med
 | 部署形态 | 判定 | 依据 |
 |----------|------|------|
 | **单进程（默认）** | ✅ **可用且零风险** | `worker.enabled=false` 时全部归属判定回落 `Master`（`topology_validator.rs:305-323`），拓扑校验退化为 `validate_topology(&[Master])`（`:359-361`）；A2/A3/A4/B1/B2 等既有功能不经过 worker 面 |
-| **多进程** | ⚠️ **机制可用、证据不足** | 注册/心跳/任务/命令/复制位点/健康检查/事件汇均有实现与用例；但 W-1（不阻断）+ W-2（无对账）+ W-5（LB 未启用）+ W-8（无参考部署/烟测）叠加 ⇒ 现状是"**能跑，但出问题不好查**" |
+| **多进程** | ⚠️ **控制面可用且已可观测；请求面仍单点** | **W-A…W-E 之后**：运行时对账（W-A）、拒绝启动开关与部署前离线入口（W-B）、负载均衡接线（W-C）、参考多进程栈 + 烟测 + 部署一致性守卫（W-D）、指标/告警/面板（W-E）都已落地。**仍然缺的**：能提供 Matrix API 的实例**只有根二进制**（worker 进程只开 `/metrics`，见 W-D 实施记录），且没有任何按角色裁剪 HTTP 面的代码（`worker.worker_app` 从未被读取）⇒ **HTTP 请求分流做不到**，`/topology` 里的"谁拥有哪个前缀"仍是**不可执行的声明**。这一项登记为 **W-F** |
 
 **一句话**：Worker 模块**不是半成品**，是**"有躯干、缺神经"**——静态模型与运行时注册表都在，
 缺的是把两者接起来（对账）、把结论变成强制（strict）、把结论变成可观测（端点 + 指标）。
@@ -238,6 +239,25 @@ MSC4306（线程订阅，已实现线程相关读取面）与媒体隔离（`med
    这是"拓扑验证"最实用的形态，也能直接进 preflight。
 4. **判据**：`strict=false` 非法配置仍启动（负控）；`strict=true` 返回 `Err`（正控）；退出码用例。
 
+#### W-B 实施记录（2026-10-16，已交付）
+
+- 配置面：`synapse-common/src/config/worker.rs` 增 `topology.strict`（默认 false）。
+  容器配置 `docker/config/homeserver.yaml` 显式写出该键并附用法注释（否则运维根本不知道有它）。
+- 强制力：新增 `synapse-services/src/worker/topology_gate.rs` 的
+  `check_startup_topology(&WorkerConfig) -> StartupTopologyCheck { validation, fatal }`；
+  `src/server/mod.rs` 的启动块改为 `fatal ⇒ return Err(..)`，否则维持原 `warn!` 文案并提示开关。
+  **单独成模块的理由**：拒绝启动否则只能靠"拿坏配置真起一次服务器（含数据库）"才观察得到；
+  做成纯函数后两个极性都是普通单测。顺带避开行数棘轮（`topology_validator.rs` 已在其上限之上）。
+- **`strict` 只升级 error，不升级 warning** —— 与 `TopologyValidation::valid`（恰好在有 error 时为 false）
+  同一定义，保证"部署前 `--validate-topology`"和"启动路径"对"可不可部署"不会给出两个答案。
+- 离线入口：新增 `src/cli.rs`，根 bin 与 `synapse_worker` bin **都**接 `--validate-topology`；
+  退出码 **0=可部署 / 1=拓扑有 error / 2=配置加载失败**，只读配置、不连库不连 Redis。
+  标志按**精确匹配**而非前缀（`--validate-topology-strict` 这种写错的名字不能悄悄跳过启动并 exit 0）。
+- **实跑证据**（本机 debug 二进制，真实 `docker/config/homeserver.yaml`）：
+  缺 `DB_PASSWORD` ⇒ `exit 2` 并打印 `Failed to load configuration: ...`；
+  补齐 10 个必需 env 后 ⇒ `worker topology: OK (0 warning(s))`、`exit 0`。
+- 判据：`--test unit -E 'test(topology_cli)'` 5/5；`-p synapse-services --lib -E 'test(topology_gate)'` 5/5。
+
 ### W-C：生产启用负载均衡（默认关）
 
 `wiring/admin.rs` 增 `if config.worker.load_balancing.enabled { manager.enable_load_balancer(strategy) }`；
@@ -245,6 +265,21 @@ MSC4306（线程订阅，已实现线程相关读取面）与媒体隔离（`med
 - **默认关闭的理由**：今天 `select_worker_fallback` 已按健康度过滤（`manager.rs:723-743`），
   开启 LB 会**改变选主行为** ⇒ 必须显式开启。
 - **判据**：默认关闭时选主结果与今天一致（负控）；开启 + 一个候选不健康 ⇒ 不选中它（正控）。
+
+#### W-C 实施记录（2026-10-16，已交付）
+
+- 策略枚举是**服务层 `LoadBalanceStrategy` 的配置侧镜像**（`snake_case` 拼写）：`synapse-common`
+  不能依赖 `synapse-services`，两边靠 `load_balancer.rs` 里的 `From` 桥接 ⇒ 任一侧加变体即**编译失败**。
+- 接线：`wiring/admin.rs` 新增 `apply_load_balancing(&mut WorkerManager, &WorkerLoadBalancingConfig)`；
+  装配处由 `let m = Arc::new(Manager::new(..).with_health_checker(..))` 改为先建 `mut`、再 apply、最后
+  `Arc::new` —— 因为 `enable_load_balancer` 取 `&mut self`，包进 `Arc` 后就再也调不到了。
+- 判据（`tests/unit/worker_load_balancing_tests.rs`，6 条，用 `InMemoryWorkerStore` 假注册表）：
+  默认 ⇒ 不挂 balancer（**负控，默认路径零变化**）；开启 ⇒ 真的挂上（正是过去缺的接线）；
+  4 个策略逐条映射 + YAML 拼写逐条反序列化；开启且某候选"注册表里有、健康检查器没有它的读数"
+  ⇒ 选中的必须是另一个（该状态生产可达到：`update_worker_status` 在 worker 上报
+  `stopping/stopped/error` 时会把它从 checker 摘掉而注册表行还在）；
+  **并钉住反向事实**：若只剩这个不可信候选，选主**仍会**返回它（`select_fallback_candidate` 只在
+  健康集合非空时才按健康过滤）—— 免得前一条被读成"绝不会用到不可信的 worker"。
 
 ### W-D：参考多进程部署 + 端到端烟测（**水平扩展成熟度的唯一证据来源**）
 
@@ -256,6 +291,56 @@ MSC4306（线程订阅，已实现线程相关读取面）与媒体隔离（`med
    `runtime.missing` 为空 → 发 1 条消息 + 1 次 `/sync` → 断言事件落库、`/sync` 由 sync worker 返回。
 - **判据**：脚本可重复执行；任一步失败退出非 0。
 
+#### W-D 实施记录（2026-10-16，已交付）——含两处对上述设计的**修正**
+
+**先修正第 2 与第 3 条的前提**（都是实现过程中实测的，不是推测）：
+
+- **worker 进程不提供 Matrix API**：`src/bin/synapse_worker.rs` 只 mount 了一条 `/metrics`
+  路由（第 183 行），它在代码里的角色是"消费 Redis 任务队列 + 注册/心跳 + 暴露自己的指标"。
+  ⇒ 上文第 2 条「把 `/_matrix/client/*/sync` 打到 `sync_worker`」**今天做不到**（打过去 502）。
+  要成立必须先让实例按角色收敛自己的 HTTP 面 —— 已登记为新批次 **W-F**（见下）。
+- **路由归属模型没有任何生产消费者**：全仓检索 `owned_route_prefixes` /
+  `may_serve_delayed_events_route`，只有拓扑校验器与 `/topology` 响应在用；
+  配置项 `worker.worker_app` **从未被读取**（只有定义、默认值与它自己的单测）。
+- **镜像里没有 worker 二进制**：`docker/Dockerfile` 原先只
+  `cargo build .. --bin synapse-rust --bin healthcheck` 并 install 这两个 ⇒
+  `command: ["/app/synapse_worker"]` 必然 "not found"。本批补上 build + install。
+
+**交付物**
+
+- `docker/docker-compose.workers.yml`（新增）：**叠加**在 dev 栈上的 override
+  （`-f docker-compose.yml -f docker-compose.workers.yml`）。master 打开
+  `SYNAPSE__WORKER__ENABLED=true`（注册/心跳面只在 `worker.enabled` 时 mount），
+  另起 5 个 `synapse_worker`：`client_reader` / `event_persister` / `sync_worker` /
+  `federation_reader` / `media_repository`。配置仍只有一份（挂 `./config` 目录）。
+- `docker/config/homeserver.yaml`：补 `worker.instance_map`。**为什么拓扑写在 YAML 而不是 env**
+  ——实测：env 只能覆盖标量，数组/映射不行
+  （`SYNAPSE__WORKER__STREAM_WRITERS__EVENTS='["x"]'` → `invalid type: string, expected a sequence`），
+  而 `SYNAPSE__WORKER__ENABLED=true` 这类标量可以 ⇒ 单进程栈完全不受影响
+  （`enabled: false` 时校验早退、`instance_map` 无消费者；`stream_writers` 保持默认值，
+  因为它同样是**声明面**：全仓没有按它决定写入方的代码）。
+- `docker/nginx/worker-routing.conf` + `proxy_headers.inc`（新增）、README 重写：
+  反代参考。**现启用的只有 master 一路**，分流写法作为注释保留并写明原因。
+- `scripts/test/worker_topology_smoke.sh`（新增）：起栈 → 等健康 → 容器内
+  `--validate-topology`（断言退出码 0）→ 取管理员令牌（nonce + HMAC-SHA256，沿用
+  `scripts/test/api-integration_test.sh` 的既有流程）→ 轮询
+  `GET /_synapse/worker/v1/topology/validate` 断言 `runtime.valid`、`runtime.missing == []`、
+  且每个声明实例都出现在 `live_instances` → 建房间/发消息/`/sync` 读回 → 收栈；
+  任一步失败退出非 0（`SKIP_BUILD=1` 复用镜像、`KEEP_STACK=1` 保留现场）。
+- `tests/unit/worker_topology_deployment_tests.rs`（新增，6 条）：把三份文件的**声明集合**钉成一致
+  （compose 的 `WORKER_INSTANCE_NAME` ＝ yaml 的 `instance_map` 键 ＝ 烟测脚本的
+  `DECLARED_INSTANCES`），并校验每个名字都能被 `WorkerType::instance_map_keys` 归类、
+  master 开了 worker 面、worker 有 `SYNAPSE_WORKER_BASE_URL` 与共享密钥、镜像里真有 worker 二进制。
+
+**验证**
+
+- `docker compose config`（叠加后）→ 退出 0；8 个服务齐备；master 侧
+  `SYNAPSE__WORKER__ENABLED: "true"`，worker 侧实例名与密钥到位。
+- `nginx -t`（nginx:alpine，`--add-host synapse-rust:127.0.0.1`）→ syntax is ok / test is successful。
+- 部署一致性守卫 6/6；`bash -n` + `shfmt -d -i 4 -ci` 无 diff。
+- ⚠️ **烟测本身未在本轮实跑**（要构建 release 镜像）。这正是 W-8 说的"证据"缺口，
+  现在只差一条命令：`scripts/test/worker_topology_smoke.sh`。
+
 ### W-E：拓扑可观测性
 
 指标建议：`synapse_worker_topology_valid`、`synapse_worker_registered_total`、
@@ -266,11 +351,67 @@ MSC4306（线程订阅，已实现线程相关读取面）与媒体隔离（`med
   且面板只能放进"真的抓了该 exporter"的栈（dev 栈没有 `postgres` job）。⇒ **先定指标名 → 注册 →
   同批改门禁白名单与面板**，不要分两次。
 
+#### W-E 实施记录（2026-10-16，已交付）——含一处指标名**改名**
+
+- **`uncovered_domains` → `unowned_streams`**：W-A 实际实现的是"**流**没有在活的属主"
+  （`RuntimeTopologyReport::unowned_streams`），不是"职责域"的口径。指标名照实命名，
+  避免"名字比实现说得多"。同理告警写的是流，不是域。
+- 实现：新增 `synapse-services/src/worker/topology_metrics.rs`（157 行）。
+  `WorkerTopologyMetrics::register(&MetricsCollector)` +
+  `spawn_worker_topology_metrics(manager, config, collector, shutdown)`（30s 一轮，
+  与 Prometheus 对该 job 的 `scrape_interval` 对齐；遵守 `select! { biased; shutdown }` 契约；
+  **只在 `worker.enabled` 时启动**；读注册表失败时**保留上次的值**而不是清零）。
+- `valid` 做成 **gauge 而非 counter**：要回答的是"**现在**这套部署是否成立"。
+- 注册名写字面量（门禁从源码文本抽取），测试**断言渲染出来的 /metrics 文本**。
+- 判据：`--test unit -E 'test(worker_topology_metrics)'` **5/5**（匹配的部署 ⇒ `valid 1` 且缺口全 0；
+  声明未运行 ⇒ `valid 0` + `missing_instances 1`；心跳过期 ⇒ 计数 + 该实例 age 序列；
+  从未心跳 ⇒ 计入 `stale_instances` 但**无** age 序列；重复注册不分裂序列）。
+- 告警：`docker/deploy/prometheus/alerting-rules.yml` 新增 `worker-topology` 组 3 条
+  （`WorkerTopologyInvalid` / `WorkerStreamUnowned` / `WorkerInstanceHeartbeatStale`）。
+- 面板：`docker/deploy/grafana/dashboards/backend-services.json` 新增 2 块（y=24）。
+- 门禁：`check_dashboard_metrics.py` **OK（786 个已知名、0 违规）**；
+  `check_prometheus_config.py` **PASS**（含 `promtool check rules` 对新增告警的校验）；
+  `check_metric_instrumentation.py` 通过（未新增 `ServerMetrics::record_*`，棘轮未动）。
+- 未做（同批不再扩面）：`monitoring/` 那套 dev 告警栈未同步加同名规则；
+  worker 二进制自身 `/metrics`（端口 9091）在 deploy 栈里仍是注释掉的 job —— W-D 已让 worker
+  真的能跑，启用它属于独立一小步。
+
+### W-F（本轮新增）：按角色收敛 HTTP 面 —— **W-D 第 2 条的前提**
+
+W-D 实测暴露的结构性缺口：本仓**只有根二进制提供 Matrix API**，worker 进程只开 `/metrics`，
+且没有任何按角色裁剪路由的代码 ⇒ "水平扩展"目前只覆盖**控制面与后台任务**
+（注册 / 心跳 / 任务 / 命令 / 复制位点 / 队列消费），**不覆盖 HTTP 请求面**。
+`/topology` 里"谁拥有哪个前缀"的回答因此是**声明**，无法验证也无法执行。
+
+1. 在 `SynapseServer` 的路由装配处按 `current_instance_worker_type(config)` 裁剪：
+   `master` = 全量；`sync_worker` = `/_matrix/client/*/sync` + 必要依赖；`federation_reader` =
+   联邦读取面；`client_reader` = 其余 client；`media_repository` = media；其余 = 管理/复制面。
+2. 归属表以 `WorkerType::owned_route_prefixes` 为**唯一**来源（现在它只是元数据）。
+3. ⚠️ 会触及契约链（路由装配改变 ⇒ 派生表/fixtures/`ROUTE_CONTRACT.md` 同批重生成），
+   且 `src/server/mod.rs` 已在行数棘轮红名单里 ⇒ 装配逻辑应落新模块而不是继续堆在该文件。
+- **判据**：每个角色只返回自己拥有的前缀（正控）；未拥有的前缀返回 404（负控）；
+  `master` 行为逐字节不变（负控）。做完之后 W-D 第 2 条（nginx 分流）才可启用。
+
 ### 排期与其他批次的冲突面
 
 W-A 只动 `synapse-services/src/worker/` 与 `synapse-web/src/routes/worker.rs`，与 §19.5 的 B3（AS 临时数据）、
 C4（MSC4354 请求面）改动面**不重叠**；W-B 动 `src/server/mod.rs`；W-C/W-D 动 `wiring/admin.rs` 与 `docker/`。
 ⇒ 建议：**W-A 一批（可立即做）→ W-B 一批 → W-C/W-D/W-E 按需**。
+
+**实施进度（2026-10-16 收口）**：**W-A…W-E 五批全部落地**，各自独立成 commit（分支
+`feat/w-topology-completion`，基于 `fix/p1-functional-security-gaps`）：
+
+| 批次 | 提交 | 一句话 |
+|------|------|--------|
+| W-A | `a0afaf1e0` | 运行时对账（声明 vs 注册）+ 两个端点扩字段（纯读） |
+| W-B | `710c83b78` | `topology.strict` 可拒绝启动 + `--validate-topology` 离线退出码 |
+| W-C | `c995942c9` | 负载均衡真正接进生产（默认关）+ 策略映射钉死 |
+| W-D | `e0ece61fb` | 参考多进程栈 + nginx 参考 + 端到端烟测脚本 + 部署一致性守卫 |
+| W-E | `6e5e3e3ad` | 拓扑指标 + 3 条告警 + 2 块面板 |
+
+⇒ **W-F（按角色收敛 HTTP 面）是唯一还挡在"真正的请求分流"前面的东西**；
+它动路由装配 ⇒ 会连带契约链与 `src/server/mod.rs`（后者已在行数棘轮红名单里），
+建议单独一批、单独评估。
 
 ---
 

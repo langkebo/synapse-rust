@@ -233,7 +233,7 @@ synapse-rust 采用 Cargo Workspace：`[workspace] members` 声明 8 个 crate�
 | | 优势 | 劣势 |
 |---|------|------|
 | **Synapse** | - 成熟的多进程 Worker 架构，生产验证<br>- 灵活的 Python 模块系统，快速迭代<br>- 丰富的模块化扩展点（spam checker, third-party rules 等） | - Worker 进程间通信复杂，部署门槛高<br>- Python 包边界模糊，容易产生循环依赖<br>- 单进程内 GIL 限制并行度 |
-| **synapse-rust** | - Cargo Workspace 编译时依赖检查，杜绝循环依赖<br- 单进程即可利用多核，部署简单<br>- Tower 中间件链类型安全，编译时验证 | - Worker 拓扑的**静态校验已成型**（`synapse-services/src/worker/topology_validator.rs`，启动时执行），但**只记日志不阻断**，且**运行时对账 / 强制力 / 参考多进程部署**未做<br>- 模块化扩展点不如 Python 灵活<br>- 编译时间长（464K 行 Rust 代码全量编译） |
+| **synapse-rust** | - Cargo Workspace 编译时依赖检查，杜绝循环依赖<br- 单进程即可利用多核，部署简单<br>- Tower 中间件链类型安全，编译时验证 | - Worker 拓扑**静态校验 + 运行时对账**均已成型（`synapse-services/src/worker/topology_validator.rs`、`synapse-services/src/worker/runtime_topology.rs`），可用 `worker.topology.strict` 拒绝启动、也可 `--validate-topology` 在部署前拿退出码<br>- **缺口**：提供 Matrix API 的实例仍只有根二进制（worker 进程只开 `/metrics`），HTTP 请求分流未做（见 §19.9.1 的 W-F）<br>- 模块化扩展点不如 Python 灵活<br>- 编译时间长（464K 行 Rust 代码全量编译） |
 
 ---
 
@@ -334,7 +334,7 @@ synapse-rust 在 `Cargo.toml` 中声明了 5 个 criterion 基准测试套件（
 |------|-------------------|--------------|
 | **Worker 模型** | 多进程 Worker（generic_worker, federation_sender 等），通过 Redis 共享状态 | TCP Worker 拓扑（`worker/tcp.rs`, `worker/manager.rs`, `worker/load_balancer.rs`） |
 | **Worker 发现** | 静态配置 | 健康检查（运行时，心跳驱动）+ 拓扑**静态**校验；**运行时对账（声明 vs 注册）未做** ⇒ 见 [docs/audit/WORKER_TOPOLOGY_VERIFICATION_AUDIT_2026-10-16.md](docs/audit/WORKER_TOPOLOGY_VERIFICATION_AUDIT_2026-10-16.md) |
-| **负载均衡** | 手动配置 Worker 类型分流 | 内置 `load_balancer` 模块（**默认未启用**：`enable_load_balancer` 目前只有测试调用点） |
+| **负载均衡** | 手动配置 Worker 类型分流 | 内置 `load_balancer` 模块，已接进生产装配（`synapse-services/src/wiring/admin.rs` 的 `apply_load_balancing`），**默认关闭**（`worker.load_balancing.enabled: false`）；开启后按策略在健康 worker 间选主，关闭时行为与改造前逐字节相同 |
 | **Redis 共享** | tx-redis（Twisted binding） | deadpool-redis 0.20（连接池 + tokio-rustls） |
 
 ### 5.2 垂直扩展
@@ -370,7 +370,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | | 优势 | 劣势 |
 |---|------|------|
 | **Synapse** | - Worker 模式成熟，大规模部署验证<br>- 模块系统（Pluggable Modules）灵活扩展<br>- 社区有大量运维经验 | - Worker 部署复杂，需要额外进程管理<br>- 每进程 GIL 限制，垂直扩展效率低<br>- 配置繁琐 |
-| **synapse-rust** | - 单进程即可利用多核，部署简单<br>- Feature Flag 控制编译，最小化二进制<br>- 内置负载均衡和健康检查<br>- TCP Worker 拓扑可动态扩展 | - Worker 拓扑仍在完善中<br>- 缺乏大规模生产验证<br>- 水平扩展方案成熟度待验证 |
+| **synapse-rust** | - 单进程即可利用多核，部署简单<br>- Feature Flag 控制编译，最小化二进制<br>- 内置负载均衡和健康检查<br>- TCP Worker 拓扑可动态扩展 | - Worker 控制面（注册 / 心跳 / 任务 / 命令 / 复制位点 / 队列消费）已可跑、可对账、可告警；**但 HTTP 请求分流未做**（worker 进程不提供 Matrix API）⇒ 水平扩展对请求面仍不成立<br>- 缺乏大规模生产验证 |
 
 ---
 
@@ -766,7 +766,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
   相关历史公告可引 `GHSA-c3hm-hxwf-g5c6`（CVE-2024-34063）与 `GHSA-j8cm-g7r6-hfpq`（CVE-2024-40640）。
   —— 上一版本写作"CVE-2026-XXXX 系列"属占位符，不应出现在正式报告。
 - SDK 封装层存在已知 Bug（URL 重复前缀、batch 接口不存在等）。
-- Worker 拓扑：**静态配置校验已成型**（`synapse-services/src/worker/topology_validator.rs`，启动时执行，但**只记日志不阻断**），而**运行时对账 / 强制力 / 参考多进程部署**未做 ⇒ 水平扩展成熟度待验证（独立审计见 [docs/audit/WORKER_TOPOLOGY_VERIFICATION_AUDIT_2026-10-16.md](docs/audit/WORKER_TOPOLOGY_VERIFICATION_AUDIT_2026-10-16.md)）。
+- Worker 拓扑：**静态配置校验 + 运行时对账（声明 vs 注册）均已成型**，且已有强制力（`worker.topology.strict`）、部署前离线入口（`--validate-topology`）、参考多进程栈与端到端烟测、指标/告警/面板；**剩余的唯一结构性缺口是 HTTP 请求分流**——提供 Matrix API 的实例仍只有根二进制，worker 进程只开 `/metrics`，且没有按角色裁剪路由的代码（登记为 W-F）；⇒ 水平扩展对**控制面**成立、对**请求面**不成立（独立审计与实施记录见 [docs/audit/WORKER_TOPOLOGY_VERIFICATION_AUDIT_2026-10-16.md](docs/audit/WORKER_TOPOLOGY_VERIFICATION_AUDIT_2026-10-16.md)）。
 - **协议正确性风险（v1.4 代码取证重排，优先级最高）**：
   - **【P0｜2026-09-25 重判：部分修复】联邦 `/send_join` 响应**：字段已补 —— `synapse-web/src/routes/federation/membership/join.rs:209-212`（v1）与 `:357-361`（v2）现返回 `state` + `auth_chain`，旧判"仅返回 `event_id`/`room_id`"**已作废**；**但仍不合规**：① 缺规范必需的 `event`（已签名 join 事件），v1 还缺 `[200, {…}]` 包装；② `state`/`auth_chain` 条目是手工拼装（`{event_id, sender, type, content, state_key}`，见 `synapse-services/src/room/messaging/events.rs:74-85`），**无 `hashes`/`signatures`/`depth`/`prev_events`/`auth_events`** ⇒ 合规远端**仍无法验签**。根因（本地事件不落 PDU 图元数据）未动，见 §14.4。**"合规远端无法完成入房"的结论依然成立。**
   - **【新 P0】OIDC 回调提权**：`routes/oidc/sso.rs:215-232` 仅按 `localpart` 命中本地用户即签发令牌，未校验 OIDC subject 绑定；可接管任意同名账号（含 admin）。同仓 `routes/oidc/provider.rs:187-201` 已有正确检查。（2026-09-23 独立复核：属实，两条路径语义不一致。）
@@ -1936,3 +1936,32 @@ cargo deny check advisories
 完善方案见审计文档 §4 的批次 **W-A…W-E**（**W-A 为纯读、无 schema/启动/响应字段变更，建议先做**；
 W-B 为严格模式 + 离线 `--validate-topology` 入口）。本节改动只涉及文档，仍须过 §19.8 的
 文档守卫与契约链两条门禁。
+
+### 19.9.1 W-A…W-E 实施结果与"请求面仍单点"的复核（2026-10-16 收口）
+
+§19.9 列出的缺口**已全部整改**，五批各自成 commit（分支 `feat/w-topology-completion`）：
+
+| 原缺口 | 现状 |
+|--------|------|
+| 拓扑非法不阻断启动 | `worker.topology.strict: true` ⇒ 校验有 error 即 `Err` 拒绝启动（默认 false，存量行为零变化） |
+| 没有运行时对账 | `synapse-services/src/worker/runtime_topology.rs` 的 `evaluate_runtime_topology` 产出 `missing` / `stale` / `unexpected` / `unowned_streams` / `writer_violations`；端点 `…/topology/validate` 新增 `runtime` 字段 |
+| `/topology` 返回硬编码 | 新增 `live` 字段（真实注册表快照），既有 `workers` / `deployment_presets` 经 `#[serde(flatten)]` 原样保留 |
+| 负载均衡只有测试接线 | `wiring/admin.rs` 的 `apply_load_balancing` 接进生产装配（**默认关**），策略映射有编译期保证 |
+| 零参考多进程部署 | `docker/docker-compose.workers.yml` + `docker/nginx/` 参考 + `scripts/test/worker_topology_smoke.sh` + 部署一致性守卫 |
+| 无拓扑指标 / 告警 | `synapse_worker_topology_valid` / `_registered_total` / `_missing_instances` / `_stale_instances` / `_unowned_streams` / `_instance_last_heartbeat_age_seconds{instance}` + 3 条告警 + 2 块面板 |
+| 部署前无法判 | `--validate-topology`，退出码 0/1/2（根 bin 与 `synapse_worker` bin 都接） |
+
+**复核发现的新事实（原先三处文档都没写，属本轮实测）**：
+
+1. **HTTP 请求分流在服务端不存在**：worker 进程（`synapse_worker`）只 mount `/metrics`；
+   全仓没有任何生产代码按 `WorkerType::owned_route_prefixes` 裁剪自己的路由，
+   配置项 `worker.worker_app` **从未被读取**。⇒ `docker/nginx/` 里"把 `/_matrix/client/*/sync`
+   打到 sync_worker"今天只会 502；本仓 worker 拓扑真正覆盖的是**控制面与后台任务**。
+   已登记为独立批次 **W-F**（按角色收敛 HTTP 面），它是"请求级水平扩展"的唯一前置。
+2. **镜像原先不含 worker 二进制**：`docker/Dockerfile` 只 build/install `synapse-rust` 与
+   `healthcheck` ⇒ 容器化的多进程栈**根本起不来**（`/app/synapse_worker` not found）。已补。
+3. **`stream_writers` 目前是纯声明面**：全仓没有按它决定"谁来写这条流"的代码
+   （与 `instance_map` 不同——后者至少被拓扑校验与运行时对账消费）。⇒ 声明它不会改变写入行为。
+
+⇒ 因此本仓**不应**再写作「Worker 拓扑仍在建设中」；准确表述是
+「**控制面已成型并可观测；请求面仍单点，分流待 W-F**」。
