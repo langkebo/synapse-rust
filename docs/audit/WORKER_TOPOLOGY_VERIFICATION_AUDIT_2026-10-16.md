@@ -417,13 +417,17 @@ C4（MSC4354 请求面）改动面**不重叠**；W-B 动 `src/server/mod.rs`；
 
 ## 5. 待核实（本轮未取证，勿当作结论）
 
+> **状态（2026-10-16 收口）**：**V-W-2 已关闭**（见下表）；**V-W-5 已部分取证**（下面的结论只覆盖
+> 已读到的调用点）；**V-W-1 / V-W-3 / V-W-4 仍开放**，其中 V-W-4 需要上游 `workers.py` 与本仓
+> events 写入路径的逐行对照，V-W-1 需要多进程烟测（`scripts/test/worker_topology_smoke.sh` 已就绪）。
+
 | 编号 | 待核实项 | 核实方式 |
 |------|----------|----------|
-| V-W-1 | 多进程下 `worker_events` 的写入者与消费者是否唯一（是否会出现两个实例消费同一流位置） | 读 `event_sink.rs` + `worker_events` 表 DDL + 多进程烟测 |
-| V-W-2 | 多实例命名（`client_reader-1` / `client_reader-2`）是否都被 `worker_type_for_instance_name` 正确归类 | 单测：`topology_validator.rs:188-197` 的前后缀匹配已处理 `-N`/`_N` 形态，需对角化用例确认 |
-| V-W-3 | `WorkerTopologySummary` 是否被前端/外部工具消费（决定 W-A 能否直接扩字段） | 全仓检索消费方 + `docs/openapi/` |
-| V-W-4 | 上游 `RoutableShardedWorkerHandlingConfig` 的"按房间路由到不同 events writer"本仓是否等价（本仓允许 `events` 多属主，但分片规则未取证） | 读 `workers.py:440-445` 与本仓 events 写入路径 |
-| V-W-5 | `worker.enabled: true` 时，master 与 worker 对同一个「职责」是否会**双重执行**（上游注释明确写"No effort is made to ensure only a single instance of these tasks is running"，本仓是否更强） | 读 `should_run_global_maintenance` 的全部消费点 |
+| V-W-1 | 多进程下 `worker_events` 的写入者与消费者是否唯一（是否会出现两个实例消费同一流位置） | 读 `event_sink.rs` + `worker_events` 表 DDL + 多进程烟测 —— **未做** |
+| V-W-2 | 多实例命名（`client_reader-1` / `client_reader-2`）是否都被 `worker_type_for_instance_name` 正确归类 | ✅ **已关闭（2026-10-16）**：`tests/unit/worker_instance_naming_tests.rs` 对角化覆盖 10 个类型的 `-N` / `_N` 两种分隔符，并负控 `client_readerx`（仅前缀相同但后缀不是 `-`/`_` ⇒ 回落 Master）与 `worker.enabled=false` 恒为 Master；另钉住"声明带后缀的 `background_worker` 会把全局维护归属交给它" |
+| V-W-3 | `WorkerTopologySummary` 是否被前端/外部工具消费（决定 W-A 能否直接扩字段） | 全仓检索消费方 + `docs/openapi/` —— **未做**；W-A 已按"不动既有字段"实现（`#[serde(flatten)]` + 纯新增 `live`），因此该结论即便为"有人消费"也不影响兼容性 |
+| V-W-4 | 上游 `RoutableShardedWorkerHandlingConfig` 的"按房间路由到不同 events writer"本仓是否等价（本仓允许 `events` 多属主，但分片规则未取证） | 读 `workers.py:440-445` 与本仓 events 写入路径 —— **未做** |
+| V-W-5 | `worker.enabled: true` 时，master 与 worker 对同一个「职责」是否会**双重执行**（上游注释明确写"No effort is made to ensure only a single instance of these tasks is running"，本仓是否更强） | 🔶 **部分取证（2026-10-16）**：本仓的"职责"只有**全局维护**一项有归属判定（`should_run_global_maintenance`，消费点见 §1.2 表：`src/server/mod.rs` 启动块与 `wiring/admin.rs` 的 appservice 调度）；`topology_gate`/`topology_validator` 不参与。因此**不会双重执行**——但代价是"归属给了一个跑不了这些任务的进程"时**静默不执行**（W-D 实施记录里的 `background_worker` 陷阱）。**其余职责（pusher / appservice 通知 / user directory / 联邦发送）本仓没有归属模型**（W-7），所以"是否会双重执行"对它们尚无意义 |
 
 ---
 

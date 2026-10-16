@@ -98,6 +98,7 @@ mod security_signature_check_tests;
 
 #[cfg(test)]
 mod worker_coverage_tests;
+mod worker_instance_naming_tests;
 mod worker_load_balancing_tests;
 mod worker_runtime_topology_tests;
 mod worker_topology_cli_tests;
