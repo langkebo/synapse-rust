@@ -4,6 +4,7 @@ use tracing::{info, warn};
 
 use synapse_common::config::worker::{validate_replication_http_secret, WorkerConfig};
 
+use crate::worker::runtime_topology::stream_writer_sets;
 use crate::worker::types::WorkerType;
 
 /// Explicit path set for the MSC4140 delayed-events management family.
@@ -218,19 +219,6 @@ pub fn resolved_current_instance_name(config: &WorkerConfig) -> String {
     } else {
         configured.to_string()
     }
-}
-
-fn stream_writer_sets(config: &WorkerConfig) -> [(&'static str, &Vec<String>); 8] {
-    [
-        ("events", &config.stream_writers.events),
-        ("typing", &config.stream_writers.typing),
-        ("to_device", &config.stream_writers.to_device),
-        ("account_data", &config.stream_writers.account_data),
-        ("receipts", &config.stream_writers.receipts),
-        ("presence", &config.stream_writers.presence),
-        ("push_rules", &config.stream_writers.push_rules),
-        ("device_lists", &config.stream_writers.device_lists),
-    ]
 }
 
 fn allowed_stream_writer_types(stream_name: &str) -> &'static [WorkerType] {

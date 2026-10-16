@@ -13,10 +13,12 @@ use std::str::FromStr;
 use crate::middleware::replication_http_auth_middleware;
 use crate::routes::response_helpers::{created_json_from, json_from, json_vec_from, require_found, status_json};
 use crate::routes::{AdminUser, AppState};
-use synapse_common::config::worker::WorkerConfig;
 use synapse_common::ApiError;
 use synapse_services::worker::topology_validator::{may_serve_delayed_events_route, DELAYED_EVENTS_WORKER_PATHS};
 use synapse_services::worker::types::*;
+
+/// The topology endpoints (W-A): the static catalogue plus the live registry.
+pub mod worker_topology;
 
 /// The `RegisterWorkerBody` struct.
 #[derive(Debug, Deserialize)]
@@ -293,108 +295,6 @@ impl From<WorkerTaskAssignment> for WorkerTaskResponse {
     }
 }
 
-/// The `WorkerStreamWriterOwners` struct.
-#[derive(Debug, Serialize)]
-pub struct WorkerStreamWriterOwners {
-    /// The `stream_name` field.
-    pub stream_name: String,
-    /// The `owners` field.
-    pub owners: Vec<String>,
-}
-
-/// The `WorkerRouteOwnerExpectation` struct.
-#[derive(Debug, Serialize)]
-pub struct WorkerRouteOwnerExpectation {
-    /// The `probe` field.
-    pub probe: String,
-    /// The `path` field.
-    pub path: String,
-    /// The `expected_owner` field.
-    pub expected_owner: String,
-}
-
-/// The `WorkerTopologyValidationResponse` struct.
-#[derive(Debug, Serialize)]
-pub struct WorkerTopologyValidationResponse {
-    /// The `worker_enabled` field.
-    pub worker_enabled: bool,
-    /// The `instance_name` field.
-    pub instance_name: String,
-    /// The `known_instances` field.
-    pub known_instances: Vec<String>,
-    /// The `replication_enabled` field.
-    pub replication_enabled: bool,
-    /// The `replication_http_enabled` field.
-    pub replication_http_enabled: bool,
-    /// The `validation` field.
-    pub validation: synapse_services::worker::topology_validator::TopologyValidation,
-    /// The `stream_writers` field.
-    pub stream_writers: Vec<WorkerStreamWriterOwners>,
-    /// The `route_owner_expectations` field.
-    pub route_owner_expectations: Vec<WorkerRouteOwnerExpectation>,
-}
-
-fn build_topology_validation_response(config: &WorkerConfig) -> WorkerTopologyValidationResponse {
-    let mut known_instances = vec!["master".to_string(), config.instance_name.clone()];
-    known_instances.extend(config.instance_map.keys().cloned());
-    known_instances.sort();
-    known_instances.dedup();
-
-    let stream_writers = vec![
-        WorkerStreamWriterOwners { stream_name: "events".to_string(), owners: config.stream_writers.events.clone() },
-        WorkerStreamWriterOwners { stream_name: "typing".to_string(), owners: config.stream_writers.typing.clone() },
-        WorkerStreamWriterOwners {
-            stream_name: "to_device".to_string(),
-            owners: config.stream_writers.to_device.clone(),
-        },
-        WorkerStreamWriterOwners {
-            stream_name: "account_data".to_string(),
-            owners: config.stream_writers.account_data.clone(),
-        },
-        WorkerStreamWriterOwners {
-            stream_name: "receipts".to_string(),
-            owners: config.stream_writers.receipts.clone(),
-        },
-        WorkerStreamWriterOwners {
-            stream_name: "presence".to_string(),
-            owners: config.stream_writers.presence.clone(),
-        },
-        WorkerStreamWriterOwners {
-            stream_name: "push_rules".to_string(),
-            owners: config.stream_writers.push_rules.clone(),
-        },
-        WorkerStreamWriterOwners {
-            stream_name: "device_lists".to_string(),
-            owners: config.stream_writers.device_lists.clone(),
-        },
-    ];
-    let route_owner_expectations = [
-        synapse_services::worker::topology_validator::RouteOwnerProbe::Sync,
-        synapse_services::worker::topology_validator::RouteOwnerProbe::Media,
-        synapse_services::worker::topology_validator::RouteOwnerProbe::Federation,
-    ]
-    .into_iter()
-    .map(|probe| WorkerRouteOwnerExpectation {
-        probe: probe.as_str().to_string(),
-        path: probe.path().to_string(),
-        expected_owner: synapse_services::worker::topology_validator::expected_route_owner_for_probe(config, probe)
-            .as_str()
-            .to_string(),
-    })
-    .collect();
-
-    WorkerTopologyValidationResponse {
-        worker_enabled: config.enabled,
-        instance_name: config.instance_name.clone(),
-        known_instances,
-        replication_enabled: config.replication.enabled,
-        replication_http_enabled: config.replication.http.enabled,
-        validation: synapse_services::worker::topology_validator::validate_worker_config(config),
-        stream_writers,
-        route_owner_expectations,
-    }
-}
-
 /// See [`register_worker`].
 pub async fn register_worker(
     State(ctx): State<AdminContext>,
@@ -654,19 +554,6 @@ pub async fn get_statistics(
     Ok(Json(stats))
 }
 
-/// See [`get_topology`].
-pub async fn get_topology(_state: State<AdminContext>, _admin_user: AdminUser) -> Result<impl IntoResponse, ApiError> {
-    Ok(Json(WorkerTopologySummary::baseline()))
-}
-
-/// See [`get_topology_validation`].
-pub async fn get_topology_validation(
-    State(ctx): State<AdminContext>,
-    _admin_user: AdminUser,
-) -> Result<impl IntoResponse, ApiError> {
-    Ok(Json(build_topology_validation_response(&ctx.config.worker)))
-}
-
 /// See [`get_type_statistics`].
 pub async fn get_type_statistics(
     State(ctx): State<AdminContext>,
@@ -707,8 +594,8 @@ pub fn create_worker_admin_router(state: &AppState) -> Router<AppState> {
         .route("/_synapse/worker/v1/tasks", get(get_pending_tasks))
         .route("/_synapse/worker/v1/tasks/claim/{worker_id}", post(claim_next_task))
         .route("/_synapse/worker/v1/tasks/{task_id}/claim/{worker_id}", post(claim_task))
-        .route("/_synapse/worker/v1/topology", get(get_topology))
-        .route("/_synapse/worker/v1/topology/validate", get(get_topology_validation))
+        .route("/_synapse/worker/v1/topology", get(worker_topology::get_topology))
+        .route("/_synapse/worker/v1/topology/validate", get(worker_topology::get_topology_validation))
         .route("/_synapse/worker/v1/statistics", get(get_statistics))
         .route("/_synapse/worker/v1/statistics/types", get(get_type_statistics))
         .route("/_synapse/worker/v1/select/{task_type}", get(select_worker))
@@ -744,6 +631,48 @@ pub fn create_worker_body_router(state: &AppState) -> Router<AppState> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::routes::worker::worker_topology::{
+        build_topology_validation_response, WorkerLiveInstance, WorkerTopologyResponse,
+    };
+    use synapse_common::config::worker::WorkerConfig;
+    use synapse_services::worker::runtime_topology::{RegisteredInstance, RuntimeTopologySnapshot};
+
+    /// A registry snapshot in which every named instance is freshly heartbeated.
+    fn runtime_snapshot(instance_names: &[&str]) -> RuntimeTopologySnapshot {
+        let now_ms = 1_000_000;
+        RuntimeTopologySnapshot {
+            registered: instance_names
+                .iter()
+                .map(|name| RegisteredInstance {
+                    instance_name: (*name).to_string(),
+                    worker_id: format!("id-{name}"),
+                    status: "running".to_string(),
+                    last_heartbeat_ts: Some(now_ms),
+                })
+                .collect(),
+            now_ms,
+            heartbeat_timeout_secs: 90,
+        }
+    }
+
+    /// A worker-enabled configuration declaring `event_persister` as the sole
+    /// writer of the event stream (the split topology's most common shape).
+    fn split_configuration() -> WorkerConfig {
+        let mut config = WorkerConfig { enabled: true, instance_name: "master".to_string(), ..WorkerConfig::default() };
+        config.instance_map.insert(
+            "event_persister".to_string(),
+            synapse_common::config::worker::InstanceLocationConfig {
+                host: "127.0.0.1".to_string(),
+                port: 9102,
+                tls: false,
+            },
+        );
+        config.stream_writers.events = vec!["event_persister".to_string()];
+        config.replication.enabled = true;
+        config.replication.http.enabled = true;
+        config.replication.http.secret = Some("test-secret".to_string());
+        config
+    }
 
     #[test]
     fn test_register_worker_body_into_request_parses_worker_type() {
@@ -880,7 +809,7 @@ mod tests {
         config.replication.http.enabled = true;
         config.replication.http.secret = Some("test-secret".to_string());
 
-        let response = build_topology_validation_response(&config);
+        let response = build_topology_validation_response(&config, &runtime_snapshot(&["event_persister"]));
 
         assert!(response.validation.valid);
         assert!(response.known_instances.iter().any(|name| name == "master"));
@@ -926,7 +855,10 @@ mod tests {
         config.replication.http.enabled = true;
         config.replication.http.secret = Some("test-secret".to_string());
 
-        let response = build_topology_validation_response(&config);
+        let response = build_topology_validation_response(
+            &config,
+            &runtime_snapshot(&["sync_worker", "media_repository", "federation_reader"]),
+        );
 
         assert!(response
             .route_owner_expectations
@@ -940,5 +872,68 @@ mod tests {
             .route_owner_expectations
             .iter()
             .any(|entry| entry.probe == "federation" && entry.expected_owner == "federation_reader"));
+    }
+
+    #[test]
+    fn test_topology_validation_reports_a_declared_instance_that_is_not_running() {
+        // The gap this endpoint previously could not see: the configuration is
+        // self-consistent (`validation.valid` stays true) but the instance that
+        // is supposed to write the event stream never started.
+        let config = split_configuration();
+
+        let response = build_topology_validation_response(&config, &runtime_snapshot(&[]));
+
+        assert!(response.validation.valid, "the static verdict must not change with runtime state");
+        assert!(!response.runtime.valid);
+        assert_eq!(response.runtime.missing, vec!["event_persister".to_string()]);
+        assert_eq!(response.runtime.unowned_streams, vec!["events".to_string()]);
+    }
+
+    #[test]
+    fn test_topology_validation_runtime_is_valid_when_every_declared_instance_runs() {
+        let config = split_configuration();
+
+        let response = build_topology_validation_response(&config, &runtime_snapshot(&["event_persister"]));
+
+        assert!(response.runtime.valid, "unexpected errors: {:?}", response.runtime.errors);
+        assert_eq!(response.runtime.live_instances, vec!["event_persister".to_string()]);
+        assert!(response.runtime.missing.is_empty());
+    }
+
+    #[test]
+    fn test_topology_validation_leaves_the_runtime_report_empty_when_workers_are_disabled() {
+        // A monolith deployment has no registry to reconcile against; the new
+        // field must not turn into a permanent alarm there.
+        let config = WorkerConfig::default();
+
+        let response = build_topology_validation_response(&config, &runtime_snapshot(&[]));
+
+        assert!(response.runtime.valid);
+        assert!(response.runtime.errors.is_empty());
+        assert!(response.runtime.declared_instances.is_empty());
+    }
+
+    #[test]
+    fn test_topology_response_flattens_the_static_catalogue_and_adds_live() {
+        // The pre-existing top-level fields must survive the wrapper unchanged,
+        // otherwise adding `live` would break every current consumer.
+        let response = WorkerTopologyResponse {
+            catalogue: WorkerTopologySummary::baseline(),
+            live: vec![WorkerLiveInstance {
+                instance_name: "event_persister".to_string(),
+                worker_id: "id-1".to_string(),
+                worker_type: "event_persister".to_string(),
+                status: "running".to_string(),
+                last_heartbeat_ts: Some(1_000_000),
+                last_heartbeat_age_secs: Some(3),
+            }],
+        };
+
+        let value = serde_json::to_value(&response).expect("the topology response must serialize");
+
+        assert!(value.get("workers").is_some(), "`workers` must stay a top-level field");
+        assert!(value.get("deployment_presets").is_some(), "`deployment_presets` must stay top-level");
+        assert_eq!(value["live"][0]["instance_name"], "event_persister");
+        assert_eq!(value["live"][0]["last_heartbeat_age_secs"], 3);
     }
 }
