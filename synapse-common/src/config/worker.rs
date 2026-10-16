@@ -46,6 +46,9 @@ pub struct WorkerConfig {
     #[serde(default)]
     /// `topology` field.
     pub topology: WorkerTopologyConfig,
+    #[serde(default)]
+    /// `load_balancing` field.
+    pub load_balancing: WorkerLoadBalancingConfig,
 }
 
 fn default_worker_instance_name() -> String {
@@ -80,6 +83,44 @@ pub struct WorkerTopologyConfig {
     pub strict: bool,
 }
 
+/// Worker-selection policy (W-C).
+///
+/// Off by default. The fallback selector already filters candidates by health, so
+/// turning load balancing on changes *which* healthy worker is chosen (round
+/// robin over the live set instead of the first healthy candidate) — a behaviour
+/// change a deployment must ask for. Before this, `enable_load_balancer` had no
+/// production call site at all: every task went through the fallback, so the
+/// documented "built-in load balancer" was true of the tests and nothing else.
+#[derive(Debug, Clone, Copy, Deserialize, Default)]
+pub struct WorkerLoadBalancingConfig {
+    #[serde(default)]
+    /// `enabled` field.
+    pub enabled: bool,
+    #[serde(default)]
+    /// `strategy` field.
+    pub strategy: WorkerLoadBalanceStrategy,
+}
+
+/// Which of a type's live workers receives the next task (W-C).
+///
+/// A configuration-level mirror of the service layer's own strategy enum: the
+/// config crate cannot depend on `synapse-services`, so the two are bridged by a
+/// `From` impl there. Variant names are the `snake_case` spellings, which is what
+/// an operator writes in YAML.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerLoadBalanceStrategy {
+    #[default]
+    /// Hand tasks to each live worker in turn.
+    RoundRobin,
+    /// Prefer the worker with the fewest active connections.
+    LeastConnections,
+    /// Round robin, weighted by each worker's reported capacity.
+    WeightedRoundRobin,
+    /// Pick uniformly at random among the live candidates.
+    Random,
+}
+
 impl Default for WorkerConfig {
     fn default() -> Self {
         Self {
@@ -92,6 +133,7 @@ impl Default for WorkerConfig {
             lock_max_retry_interval_ms: default_lock_max_retry_interval_ms(),
             lock_max_retries: default_lock_max_retries(),
             topology: WorkerTopologyConfig::default(),
+            load_balancing: WorkerLoadBalancingConfig::default(),
         }
     }
 }
