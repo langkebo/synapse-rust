@@ -1587,7 +1587,8 @@ curl -sS "https://cdn.jsdelivr.net/gh/element-hq/synapse@release-v1.163/<path>" 
 
 | ID | 差距 | 为什么是真差距 | 证据 |
 |---|---|---|---|
-| **UG-1（P0）** | **账户注销只置标志位**：不退出/踢出房间、不清推送器、不解除 3PID、不取消 MSC4140 延迟事件 | 上游注销是一条完整管线（离开全部房间 + 刷新未读 + 删 pusher + 删 threepid + **取消延迟事件**），本仓只做"停用 + 撤 token + 删设备"。后果：注销用户的房间成员事件仍为 `join`（成员列表/权限计算继续算他）、已排期的延迟事件仍会**在注销后发出**、推送器残留 | `synapse-services/src/auth/account.rs`；`synapse-services/src/registration_service.rs` |
+| **UG-1（P0）** | **账户注销只置标志位**：不退出/踢出房间、不清推送器、不解除 3PID、不取消 MSC4140 延迟事件 | **已修（2026-10-16，见 §19.5.1）**：`synapse-services/src/account_deactivation_service.rs` 落地完整管线。**残余**见 UG-11 | `synapse-services/src/account_deactivation_service.rs`；`synapse-services/src/auth/account.rs` |
+| **UG-11（P2，UG-1 的残余）** | 注销仍未覆盖上游的另外几项：threepid 解绑/删除、账户数据与推送规则清理、线程订阅与备份键删除、用户目录摘除、**待处理邀请/敲击的拒绝**、以及"退房"上游是**异步可重试**（`add_user_pending_deactivation` + 后台 parting 循环）而本仓是同步逐房 | 这几项都需要各自独立的 storage 面（本仓无 `user_directory`、无 pending-deactivation 表），且不是安全缺口（延迟事件已先取消）。同步逐房在超大账号上会让注销请求变长 —— 已登记 | 见 §19.5.1 的 A1 实施记录 |
 | **UG-2（P1）** | **MSC4075 默认推送规则缺失** | 本仓无服务端推送规则评估引擎（§18.3 已裁定），但**默认规则集是下发给客户端的资产**（`GET /pushrules`）。缺这两条 ⇒ 客户端拿不到 MatrixRTC 邀请/来电的 `notify + sound:ring` 规则，来电不会响铃 | `synapse-common/src/push_rules.rs` |
 | **UG-3（P1）** | **MSC4354 实现存在但未在 `/versions.unstable_features` 宣告** | 客户端按能力位决定是否启用置顶；实现存在而不宣告 = 功能对存量客户端不可见 | `synapse-services/src/capability_governance.rs` 的 `BASE_UNSTABLE_FEATURES` |
 | **UG-4（P1）** | **AS（MSC2409）临时数据投递未接线** | `AppServiceEphemeralBatch` 有类型、有载荷构造、有单测，但没有消费回执/在线状态流的生产路径 ⇒ 依赖回执的 bridge 拿不到数据。上游 #20108 修的是"分页导致永久跳过"，本仓连分页都没有 | `synapse-services/src/application_service/transaction.rs`、`synapse-services/src/application_service/scheduler.rs` |
@@ -1727,33 +1728,47 @@ curl -sS "https://cdn.jsdelivr.net/gh/element-hq/synapse@release-v1.163/<path>" 
 | A4（UG-2）MSC4075 默认推送规则 | ✅ 已实施（**默认关闭，与上游同向**） | `synapse-common/src/push_rules.rs`：两条规则 + `MSC4075_RTC_RULE_IDS` + `remove_msc4075_rtc_rules`；开关 `experimental.msc4075_enabled`（默认 `false`）穿到 `/pushrules`、`/sync`、`account_data` 三条读取面（`synapse-web/src/routes/push_rules.rs`、`synapse-web/src/routes/push.rs`、`synapse-web/src/routes/account_data.rs`、`synapse-services/src/sync_service/data_fetch.rs`）。判据 6 条：规则存在性、动作精确等于 `["notify", {"set_tweak": "sound", "value": "ring"}]`、`invite_for_me` 带**具体 user id**（不是 `value_type` 模板）、`invite_for_room` 带房间通知权限门、**顺序必须排在 `.m.rule.is_user_mention` 之前**、开关关闭后已持久化的默认行也停发。开关留 false 是**有意**的：上游 `experimental.msc4075_enabled` 默认也是 `False`；要真正拿到来电响铃把该键置 `true` |
 | A5（安全公告） | ✅ 已做 | `cargo deny check advisories` → `advisories ok`（2026-10-16 实跑）；advisory 库新鲜度仍列为 V-19-7 |
 | B2（UG-6）`/preview_url` 收口 | ✅ 已实施（方案①） | `synapse-services/src/media_service.rs::preview_url` 只回 `url`，删掉 `title`/`description`/`og:*`/`matrix:image:size` 与拼出来的 `og:image`；`synapse-web/src/routes/media/preview.rs` 同时删掉"Preview unavailable"合成分支（该分支原先也能产出 OpenGraph 形状的伪造字段）。**无需重生成 api 台账**：`scripts/api_test/response_schemas.json` 把该端点记为 403（默认关闭），schema 是错误形状 |
-| A1（UG-1）注销语义 | ⏳ **未实施**（方案已细化到文件级，见下） | 原因与清单见下 |
+| A1（UG-1）注销语义 | ✅ **已实施**（2026-10-16） | 新增 `synapse-services/src/account_deactivation_service.rs`（见下方实施记录）；路由改调它；`RegistrationService::deactivate_account`（只有"置标志位"的旧入口）**已删除**，避免两条路径通向同一状态变更 |
 
-**A1 实施清单**（改动点均已逐一验证存在，可直接执行）：
+**A1 实施记录（2026-10-16）**
 
-1. `synapse-services/src/delayed_event_service.rs` 增 `cancel_all_for_user(user_id)`：复用
-   `list_pending_delayed_events_for_user` + `cancel_delayed_event`，**不新增 SQL**
-   （避免动 `.sqlx` 与四道棘轮基线）。
-2. 新增注销编排模块（`synapse-services/src/` 下的 `account_deactivation_service.rs`，**尚未创建** ——
-   本清单是待执行方案，不是已落地的事实），按序编排：
-   ① 取消延迟事件（**先做**，对齐上游注释"不要让延迟事件在注销过程中发出"）
-   → ② 退全部已加入房间（`room_service.membership().get_joined_rooms()` + `leave_room()`，
-   走既有 membership 服务以免绕过事件鉴权）→ ③ 删该用户全部 pusher → ④ 清未读
-   → ⑤ 置停用 + 撤 token / 删设备（复用现有 `synapse-services/src/auth/account.rs::deactivate_user`）。
-3. **装配位置**：该服务同时依赖 `rooms`（membership）与 `admin`（`DelayedEventService` 构造于
-   `synapse-services/src/wiring/admin.rs`）两个装配组 ⇒ 必须在 `synapse-services/src/container.rs`
-   的相位之后构造；塞进 `RegistrationService`（构造于 `synapse-services/src/wiring/core.rs`）会撞装配顺序。
-4. `synapse-web/src/routes/context.rs` 的 `AuthContext` 加字段 + `FromRef`；
-   `synapse-web/src/routes/account_compat.rs::deactivate_account` 改调它。
-5. ⚠️ **连带代价（唯一需要动 SQL 的地方）**：`pushers` 表**无外键**
-   （`migrations/00000000_unified_schema_v12.sql` 的 `pushers` DDL 只有 PK 与一条 UNIQUE）
-   ⇒ 删设备**不会**连带删 pusher，需要一条 `DELETE FROM pushers WHERE user_id = $1`；
-   该静态查询要同步 `scripts/ci/sqlx_dynamic_ratio_baseline` 的 `BASELINE_STATIC`（1354 → 1355）、
-   `docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md` 的数字块（含 `SQLX_CACHE_ENTRIES`），
-   并跑 `scripts/ci/sqlx_prepare.sh` 生成 `.sqlx` 条目。
+管线顺序（与上游 v1.163.0 的差异都在注释里写明理由）：
 
-**A1 验收**（V-19-5 / V-19-6）：注销后已排期的 30s 延迟消息**不得**发出；注销用户**不得**再是任何房间的
-`join`；**变异自证** = 注释掉 `cancel_all_for_user` 必须有用例变红（否则该用例只是在测"函数被调用过"）。
+1. `DelayedEventService::cancel_all_for_user()` —— **最先**且 fail-fast（对齐上游注释"不要让它们在注销过程中发出"）。
+   新增方法复用 `list_pending_delayed_events_for_user` + `cancel_delayed_event`，**不新增 SQL**：
+   单行取消路径就是客户端 `action: cancel` 走的同一条路，写第二份 bulk `UPDATE` 会在"什么算 pending"上漂移。
+2. 退出全部已加入房间 —— **逐房 best-effort**（列出失败仍是致命，见下）。
+   走 `RoomService::membership()`（状态机 + 事件鉴权 + summary 刷新），不绕过去。
+3. `PushStoreApi::delete_all_pushers_for_user()` —— fail-fast。**新增静态 SQL**
+   `DELETE FROM pushers WHERE user_id = $1`（`pushers` 表无外键指向 `devices`，删设备不会连带删）。
+4. `CredentialAuth::deactivate_user()` —— 置标志位 + 撤 token + 删设备，**最后**（不可逆步骤放最后，见下）。
+
+**两处刻意的顺序/容错设计**（都有单测锁定）：
+
+- **不可逆步骤放最后**：上游是先标记注销、再**异步**退房（`add_user_pending_deactivation` + 后台循环重试）。
+  本仓没有那张重试表，所以把顺序对调 —— 否则"已注销但仍在房间里"会永久卡住，且没有任何机制补完。
+  判据 `irreversible_teardown_is_the_last_step`（**只看终态无法区分顺序**，故断言调用日志）。
+- **列表失败致命、单房失败容忍**：列出房间失败是瞬时（DB 抖动）⇒ `Err` 让用户重试；
+  单房退出失败通常是永久的（坏房、鉴权拒绝、远端不可达）⇒ 记 `warn` 并继续，
+  否则用户永远注销不掉。判据 `a_failed_room_listing_aborts_before_the_irreversible_step` 与
+  `a_single_unpartable_room_does_not_block_deactivation`。
+
+**数据面连带（唯一需要动 SQLx 的地方）**：`.sqlx/` 新增 1 条
+（`query-27e9366f…json`，`DELETE FROM pushers WHERE user_id = $1`，参数 `Text`、无返回列）；
+`scripts/ci/sqlx_dynamic_ratio_baseline` 的 `BASELINE_STATIC` **1354 → 1361**（本批 +1，
+其余 +6 是本文件上次钉版 2026-10-15 之后其它已提交批次累积的未钉版实测值，已在该文件注释里注明）；
+`docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md` 的数字块同步（`BASELINE_STATIC=1361`、
+`SQLX_CACHE_ENTRIES=1328 → 1329`），由 `scripts/ci/check_plan_numbers_fresh.sh` 核验（已跑通）。
+
+⚠️ **`.sqlx` 生成的坑（实测）**：在 `synapse_sqlx_scratch` 上跑 `scripts/ci/sqlx_prepare.sh` 时，
+`cargo sqlx prepare` 先清空 `.sqlx/` 再逐条 describe，本轮那次 describe 中途失败
+（`synapse-storage` 12 处 E0282），脚本按设计回滚了快照 —— 但磁盘上仍一度少了 186 个条目，
+且被环境的批量删除屏障拦了一下。处置：`git checkout -- .sqlx` 恢复已跟踪条目，
+保留脚本已写出的**那 1 个**新条目（已核对内容正确），再用 `cargo check`（`SQLX_OFFLINE=true`）
+证实缓存完整。
+
+**A1 仍未覆盖**（登记为 UG-11，非安全缺口）：threepid 解绑/删除、账户数据与推送规则清理、
+线程订阅与备份键删除、用户目录摘除、**待处理邀请/敲击的拒绝**、以及"退房"的异步化。
 
 ### 19.6 本轮作废 / 更正的历史声明
 

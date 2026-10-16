@@ -129,6 +129,14 @@ impl PushStoreApi for MockPushStore {
         Ok(())
     }
 
+    async fn delete_all_pushers_for_user(&self, _user_id: &str) -> Result<u64, sqlx::Error> {
+        let state = self.state.lock().unwrap().clone();
+        if state.fail_all {
+            return Err(storage_error());
+        }
+        Ok(0)
+    }
+
     async fn upsert_push_rule(
         &self,
         _user_id: &str,

@@ -129,6 +129,17 @@ pub trait PushStoreApi: Send + Sync {
     /// See [`delete_pusher`].
     async fn delete_pusher(&self, user_id: &str, device_id: &str, pushkey: &str) -> Result<(), sqlx::Error>;
 
+    /// See [`PushStorage::delete_all_pushers_for_user`].
+    ///
+    /// Returns the number of rows removed. Used by account deactivation:
+    /// `pushers` has **no foreign key** to `devices`, so deleting a user's
+    /// devices does *not* remove their pushers — upstream Synapse has to delete
+    /// them explicitly too (`deactivate_account.py`: "Most of the pushers will
+    /// have been deleted when we logged out the associated devices above, but we
+    /// still need to delete pushers not associated with devices, e.g. email
+    /// pushers").
+    async fn delete_all_pushers_for_user(&self, user_id: &str) -> Result<u64, sqlx::Error>;
+
     #[allow(clippy::too_many_arguments)]
     /// See [`upsert_push_rule`].
     async fn upsert_push_rule(
@@ -290,6 +301,18 @@ impl PushStorage {
         .execute(&*self.pool)
         .await?;
         Ok(())
+    }
+
+    /// Remove **every** pusher belonging to `user_id`, returning the row count.
+    ///
+    /// Deliberately not built on [`Self::delete_pusher`]: that one keys on
+    /// `(user_id, device_id, pushkey)`, so it can only reach pushers whose device
+    /// still exists *and* whose key the caller already knows. Deactivation needs
+    /// the opposite ("everything this user has left"), which is why it takes a
+    /// single statement rather than a read-then-delete loop.
+    pub async fn delete_all_pushers_for_user(&self, user_id: &str) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query!("DELETE FROM pushers WHERE user_id = $1", user_id).execute(&*self.pool).await?;
+        Ok(result.rows_affected())
     }
 
     // ── push_rules ───────────────────────────────────────────────────────
@@ -579,6 +602,10 @@ impl PushStoreApi for PushStorage {
 
     async fn delete_pusher(&self, user_id: &str, device_id: &str, pushkey: &str) -> Result<(), sqlx::Error> {
         self.delete_pusher(user_id, device_id, pushkey).await
+    }
+
+    async fn delete_all_pushers_for_user(&self, user_id: &str) -> Result<u64, sqlx::Error> {
+        self.delete_all_pushers_for_user(user_id).await
     }
 
     async fn upsert_push_rule(

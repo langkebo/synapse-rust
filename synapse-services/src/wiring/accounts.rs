@@ -20,6 +20,10 @@ pub struct AccountServices {
     pub account_device_list_service: Arc<crate::account_device_list_service::AccountDeviceListService>,
     /// The `account_identity_service` field.
     pub account_identity_service: Arc<crate::account_identity_service::AccountIdentityService>,
+    /// The account deactivation pipeline (cancels MSC4140 delayed events, parts
+    /// the user from their rooms, deletes pushers, then tears down the identity).
+    /// Built in the container's phase 4, where the room and admin groups exist.
+    pub account_deactivation_service: Arc<crate::account_deactivation_service::AccountDeactivationService>,
     /// The `user_storage` field.
     pub user_storage: Arc<dyn UserStore>,
     /// The `threepid_storage` field.
@@ -66,6 +70,10 @@ pub struct AccountServicesDeps {
     pub account_device_list_service: Arc<crate::account_device_list_service::AccountDeviceListService>,
     /// The `account_identity_service` field.
     pub account_identity_service: Arc<crate::account_identity_service::AccountIdentityService>,
+    /// The account deactivation pipeline (cancels MSC4140 delayed events, parts
+    /// the user from their rooms, deletes pushers, then tears down the identity).
+    /// Built in the container's phase 4, where the room and admin groups exist.
+    pub account_deactivation_service: Arc<crate::account_deactivation_service::AccountDeactivationService>,
     /// The `user_service` field.
     pub user_service: Arc<UserService>,
 }
@@ -76,6 +84,7 @@ impl AccountServices {
         Self {
             account_device_list_service: deps.account_device_list_service,
             account_identity_service: deps.account_identity_service,
+            account_deactivation_service: deps.account_deactivation_service,
             user_storage: deps.user_storage,
             threepid_storage: deps.threepid_storage,
             device_storage: deps.device_storage,

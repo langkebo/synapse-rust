@@ -501,7 +501,11 @@ pub(crate) async fn deactivate_account(
 
     let user_id = auth_user.user_id.clone();
 
-    ctx.registration_service.deactivate_account(&user_id).await?;
+    // The full deactivation pipeline: cancel MSC4140 delayed events → part from
+    // every room → delete pushers → revoke tokens/devices. This used to call the
+    // bare identity teardown, which left scheduled messages able to fire, the
+    // user still joined to their rooms, and pushers alive.
+    ctx.account_deactivation_service.deactivate(&user_id).await?;
 
     ctx.cache.delete(&format!("user:active:{user_id}")).await;
 

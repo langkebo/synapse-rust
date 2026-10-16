@@ -413,6 +413,10 @@ pub struct AuthContext {
     pub admin_audit_service: Option<Arc<synapse_services::admin::AdminAuditService>>,
     /// The `account_identity_service` field.
     pub account_identity_service: Arc<synapse_services::account_identity_service::AccountIdentityService>,
+    /// The account deactivation pipeline (MSC4140 cancel → part rooms →
+    /// delete pushers → revoke tokens/devices). The deactivate route must call
+    /// this rather than the bare identity teardown.
+    pub account_deactivation_service: Arc<synapse_services::account_deactivation_service::AccountDeactivationService>,
     /// The `uia_service` field.
     pub uia_service: Arc<synapse_services::uia_service::UiaService>,
     /// The `federation_client` field.
@@ -454,6 +458,7 @@ impl FromRef<AppState> for AuthContext {
             config: state.services.core.config.clone(),
             admin_audit_service: state.services.admin.security.admin_audit_service.clone().into(),
             account_identity_service: state.services.account.account_identity_service.clone(),
+            account_deactivation_service: state.services.account.account_deactivation_service.clone(),
             uia_service: state.services.extensions.uia_service.clone(),
             federation_client: state.services.federation.federation_client.clone(),
             email_verification_service: state.services.admin.user.email_verification_service.clone(),

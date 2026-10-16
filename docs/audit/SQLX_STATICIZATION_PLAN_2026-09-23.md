@@ -2192,9 +2192,9 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 <!-- 以下数字由 `scripts/ci/check_plan_numbers_fresh.sh` 与基线/实测现算比对；改基线必须同步改这里。 -->
 BASELINE_DYNAMIC_PRODUCTION=96
 BASELINE_DYNAMIC_TEST_INFRA=768
-BASELINE_STATIC=1354
+BASELINE_STATIC=1361
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1328
+SQLX_CACHE_ENTRIES=1329
 <!-- sqlx-plan-numbers:end -->
 
 > **2026-10-15 更新（方案 B4.3：让半建索引可见）**，三项数字按实测同步：

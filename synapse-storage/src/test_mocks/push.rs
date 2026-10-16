@@ -124,6 +124,16 @@ impl PushStoreApi for InMemoryPushStore {
         Ok(())
     }
 
+    async fn delete_all_pushers_for_user(&self, user_id: &str) -> Result<u64, sqlx::Error> {
+        // Mirrors `DELETE FROM pushers WHERE user_id = $1`: every device of the
+        // user, including pushers whose device no longer exists (the case that
+        // makes the single-statement form necessary).
+        let mut pushers = self.pushers.write().await;
+        let before = pushers.len();
+        pushers.retain(|(user, _, _), _| user != user_id);
+        Ok((before - pushers.len()) as u64)
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn upsert_push_rule(
         &self,

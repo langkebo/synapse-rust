@@ -42,6 +42,9 @@ pub mod capability_governance;
 pub mod account;
 /// The `account_data_service` module.
 pub mod account_data_service;
+
+/// Account deactivation pipeline (upstream `deactivate_account` parity).
+pub mod account_deactivation_service;
 /// The `account_device_list_service` module.
 pub mod account_device_list_service;
 /// The `account_identity_service` module.

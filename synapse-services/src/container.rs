@@ -590,6 +590,20 @@ impl ServiceContainer {
         let account_device_list_service =
             Arc::new(crate::account_device_list_service::AccountDeviceListService::new(storage.device_storage.clone()));
 
+        // Account deactivation pipeline. Assembled **here** (not inside any single
+        // group) because it needs three groups at once: `rooms` (membership),
+        // `admin` (MSC4140 delayed events) and the storage phase (credential
+        // auth for the final teardown). `RegistrationService` — the older, partial
+        // entry point — is built in the core phase, before rooms and admin exist.
+        let account_deactivation_service =
+            Arc::new(crate::account_deactivation_service::AccountDeactivationService::new(
+                storage.credential_auth.clone(),
+                rooms.room_service.clone(),
+                admin.modules.delayed_event_service.clone(),
+                Arc::new(synapse_storage::push::PushStorage::new(infra.infra.pool.clone()))
+                    as Arc<dyn synapse_storage::push::PushStoreApi>,
+            ));
+
         Self {
             e2ee,
             rooms,
@@ -609,6 +623,7 @@ impl ServiceContainer {
                 account_device_list_service,
                 account_identity_service,
                 user_service: storage.user_service.clone(),
+                account_deactivation_service,
             }),
             sso,
             extensions,

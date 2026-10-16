@@ -128,6 +128,51 @@ impl DelayedEventService {
         tracing::debug!(user_id = %caller_id, count = events.len(), "MSC4140 pending delayed events listed");
         Ok(events)
     }
+
+    /// Cancel **every pending** delayed event owned by `user_id`; returns how
+    /// many were actually cancelled.
+    ///
+    /// Account deactivation calls this **first**, mirroring upstream Synapse
+    /// v1.163.0 (`deactivate_account.py`: "Cancel the user's delayed events
+    /// (MSC4140). Do this first, so that none of them get sent while the rest of
+    /// the deactivation is in progress."). Without it a user who scheduled a
+    /// message and then deactivated their account would still have it delivered
+    /// — the deactivation would be a security hole rather than a state change.
+    ///
+    /// Deliberately composed from the existing list + per-row cancel instead of a
+    /// bulk `UPDATE`: the single-row path is the one the client-facing `cancel`
+    /// action already exercises (status transition, "no longer pending" rule), so
+    /// there is exactly one place where "what it means to cancel" is expressed. A
+    /// second bulk statement could drift on which statuses count as pending.
+    ///
+    /// A row that settles between the list and the cancel is skipped rather than
+    /// treated as an error: `cancel_delayed_event` returns `false` for it, and
+    /// "someone else already settled it" is not a deactivation failure.
+    pub async fn cancel_all_for_user(&self, user_id: &str) -> Result<usize, ApiError> {
+        let pending = self.storage.list_pending_delayed_events_for_user(user_id).await?;
+        let total = pending.len();
+        let mut cancelled = 0usize;
+
+        for event in pending {
+            if self.storage.cancel_delayed_event(event.id).await? {
+                cancelled += 1;
+            } else {
+                tracing::debug!(
+                    user_id = %user_id,
+                    delay_id = event.id,
+                    "MSC4140 delayed event settled before deactivation could cancel it; skipping"
+                );
+            }
+        }
+
+        tracing::info!(
+            user_id = %user_id,
+            cancelled,
+            pending = total,
+            "MSC4140 pending delayed events cancelled for account deactivation"
+        );
+        Ok(cancelled)
+    }
 }
 
 #[cfg(test)]
@@ -236,5 +281,66 @@ mod tests {
             .await
             .expect_err("settled event must be hidden (upstream filters is_processed=false)");
         assert_eq!(err.kind, ApiErrorKind::NotFound);
+    }
+
+    // ── cancel_all_for_user (account deactivation) ────────────────────────
+
+    #[tokio::test]
+    async fn cancel_all_for_user_cancels_every_pending_row_of_that_user() {
+        let store = Arc::new(InMemoryDelayedEventStore::new());
+        let service = Arc::new(DelayedEventService::new(store.clone()));
+        let first = service.schedule(request("@alice:example.com")).await.expect("schedule 1").id;
+        let second = service.schedule(request("@alice:example.com")).await.expect("schedule 2").id;
+
+        let cancelled = service.cancel_all_for_user("@alice:example.com").await.expect("cancel all");
+
+        assert_eq!(cancelled, 2, "both pending rows must be cancelled");
+        assert_eq!(store.status_of(first).await.as_deref(), Some("cancelled"));
+        assert_eq!(store.status_of(second).await.as_deref(), Some("cancelled"));
+        assert!(
+            service.list_for_user("@alice:example.com").await.expect("list").is_empty(),
+            "nothing may stay pending after deactivation"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancel_all_for_user_leaves_other_users_alone() {
+        let store = Arc::new(InMemoryDelayedEventStore::new());
+        let service = Arc::new(DelayedEventService::new(store.clone()));
+        let alice = service.schedule(request("@alice:example.com")).await.expect("alice").id;
+        let bob = service.schedule(request("@bob:example.com")).await.expect("bob").id;
+
+        let cancelled = service.cancel_all_for_user("@alice:example.com").await.expect("cancel all");
+
+        assert_eq!(cancelled, 1);
+        assert_eq!(store.status_of(alice).await.as_deref(), Some("cancelled"));
+        assert_eq!(
+            store.status_of(bob).await.as_deref(),
+            Some("pending"),
+            "another user's delayed event must survive — the filter is per-owner, not global"
+        );
+    }
+
+    /// A row that settles between the list and the cancel must be **skipped**, not
+    /// turned into a deactivation failure: `cancel_delayed_event` reports `false`
+    /// for it, and the count must reflect only what this call actually cancelled.
+    #[tokio::test]
+    async fn cancel_all_for_user_counts_only_rows_it_actually_cancelled() {
+        let store = Arc::new(InMemoryDelayedEventStore::new());
+        let service = Arc::new(DelayedEventService::new(store.clone()));
+        let already_sent = service.schedule(request("@alice:example.com")).await.expect("schedule").id;
+        service.manage(already_sent, DelayedEventAction::Send, "@alice:example.com", "req").await.expect("send");
+
+        let cancelled = service.cancel_all_for_user("@alice:example.com").await.expect("cancel all");
+
+        assert_eq!(cancelled, 0, "a settled row is not a cancellation");
+        assert_eq!(store.status_of(already_sent).await.as_deref(), Some("sent"));
+    }
+
+    #[tokio::test]
+    async fn cancel_all_for_user_is_a_noop_when_nothing_is_pending() {
+        let store = Arc::new(InMemoryDelayedEventStore::new());
+        let service = Arc::new(DelayedEventService::new(store.clone()));
+        assert_eq!(service.cancel_all_for_user("@nobody:example.com").await.expect("cancel all"), 0);
     }
 }

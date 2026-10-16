@@ -3291,7 +3291,14 @@ BASELINE_DYNAMIC_TEST_INFRA=768
 #   **半建索引**（`pg_index.indisvalid = false`）可见；此前只查"缺表/缺列/缺索引名"，
 #   而 CONCURRENTLY 失败留下的索引**名字还在**，所以完全不可见。这一项是**下限**，
 #   按"零余量"原则收紧到实测值（留余量 = 允许静态查询被悄悄删掉）。
-BASELINE_STATIC=1354
+# 2026-10-16: 1354 → **1361**（按实测收紧到零余量）。
+#   来源：① 本次账户注销批 +1 —— `synapse-storage/src/push/mod.rs` 的
+#   `delete_all_pushers_for_user()`（`DELETE FROM pushers WHERE user_id = $1`；
+#   `pushers` 无 FK 指向 `devices`，删设备不会连带删 pusher，所以必须有一条
+#   用户级 DELETE）；② 其余 +6 是本文件上次钉版（2026-10-15 批次 B4.3）之后
+#   其它批次提交累积的**未钉版**实测值 —— 本轮只是把测量值与基线对齐，
+#   不声称那 6 处属于本批。留 7 点余量等于允许 7 次静默删除静态查询，故收紧。
+BASELINE_STATIC=1361
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=865
 

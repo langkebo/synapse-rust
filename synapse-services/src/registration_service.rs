@@ -196,13 +196,6 @@ impl RegistrationService {
         Ok(())
     }
 
-    /// See [`deactivate_account`].
-    #[::tracing::instrument(skip_all, fields(user_id = %user_id))]
-    pub async fn deactivate_account(&self, user_id: &str) -> ApiResult<()> {
-        self.credential_auth.deactivate_user(user_id).await?;
-        Ok(())
-    }
-
     /// See [`get_profile`].
     #[::tracing::instrument(skip_all, fields(user_id = %user_id))]
     pub async fn get_profile(&self, user_id: &str) -> ApiResult<serde_json::Value> {
