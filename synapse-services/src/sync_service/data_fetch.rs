@@ -405,12 +405,16 @@ impl SyncService {
                     user_id,
                     username,
                     self.msc4210_enabled,
+                    self.msc4075_enabled,
                 );
                 content
             }
-            None => {
-                crate::sync_service::push_rules::default_push_rules_for_user(user_id, username, self.msc4210_enabled)
-            }
+            None => crate::sync_service::push_rules::default_push_rules_for_user(
+                user_id,
+                username,
+                self.msc4210_enabled,
+                self.msc4075_enabled,
+            ),
         };
         if let Some(existing) = events.iter_mut().find(|e| e["type"] == "m.push_rules") {
             existing["content"] = content;
@@ -912,6 +916,7 @@ mod tests {
             sticky_event_storage: None,
             push_storage: None,
             msc4210_enabled: true,
+            msc4075_enabled: false,
         })
     }
 
@@ -1131,6 +1136,7 @@ mod tests {
             sticky_event_storage: None,
             push_storage: None,
             msc4210_enabled: true,
+            msc4075_enabled: false,
         })
     }
 
@@ -1214,6 +1220,7 @@ mod tests {
             sticky_event_storage: None,
             push_storage: None,
             msc4210_enabled: true,
+            msc4075_enabled: false,
         })
     }
 

@@ -59,6 +59,8 @@ pub struct SyncService {
     pub(crate) push_storage: Option<Arc<dyn synapse_storage::push::PushStoreApi>>,
     /// MSC4210: hide the three legacy mention rules from the `m.push_rules` event.
     pub(crate) msc4210_enabled: bool,
+    /// MSC4075: serve the two MatrixRTC rules in the `m.push_rules` event.
+    pub(crate) msc4075_enabled: bool,
 }
 
 /// Maximum number of (user, device, room) entries kept in the in-memory
@@ -99,6 +101,7 @@ impl SyncService {
             sticky_event_storage: deps.sticky_event_storage,
             push_storage: deps.push_storage,
             msc4210_enabled: deps.msc4210_enabled,
+            msc4075_enabled: deps.msc4075_enabled,
         }
     }
 
@@ -146,6 +149,9 @@ impl SyncService {
             // (`experimental.msc4210_enabled = true`): the integration snapshots
             // must see the same rule set a production deployment serves.
             msc4210_enabled: true,
+            // `new()` is test-only, so it mirrors the shipped default
+            // (`experimental.msc4075_enabled = false`, same as upstream).
+            msc4075_enabled: false,
         })
     }
 

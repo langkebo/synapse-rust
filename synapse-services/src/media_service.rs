@@ -952,23 +952,27 @@ impl MediaService {
 
     /// See [`preview_url`].
     ///
-    /// **Stub**: this does not fetch `url`. It returns placeholder OpenGraph
-    /// metadata so the endpoint (gated behind `msc4452_enabled`, default off)
-    /// has a well-formed shape. A real implementation must perform the fetch on
-    /// the verified IPs returned by `check_url_and_resolve`, pinned via
-    /// `http_client::pinned_client_for_url`, before advertising MSC4452.
+    /// **Stub, and deliberately a *honest* one**: this does not fetch `url`, so
+    /// it cannot know anything about the page. It therefore returns only the
+    /// caller's own `url` and **no OpenGraph fields at all**.
+    ///
+    /// It used to fabricate `title` / `description` / `og:title` /
+    /// `og:description` and — worst of all — an `og:image` built with
+    /// `format!("{url}/preview.png")`, a resource that does not exist. A client
+    /// that trusted those fields rendered a **made-up link preview**, and any
+    /// deployment that turned the endpoint on (it is off by default, see
+    /// `experimental.msc4452_enabled`) would have shipped fabricated metadata
+    /// for every URL. Upstream v1.163.0 (#20211) hardened this area of the
+    /// response instead of widening it, which is the same direction.
+    ///
+    /// A real implementation must, in one place: fetch on the verified IPs
+    /// returned by [`synapse_common::check_url_and_resolve`], pinned via
+    /// `http_client::pinned_client_for_url` (otherwise DNS rebinding re-opens
+    /// the SSRF hole between the check and the request), honour redirect and
+    /// size limits, and **drop the download entirely when the media hashes to
+    /// quarantined content** — never emit `og:image` for it.
     pub fn preview_url(&self, url: &str, _ts: i64) -> ApiResult<serde_json::Value> {
-        Ok(serde_json::json!({
-            "url": url,
-            "title": "URL Preview",
-            "description": "Preview for the requested URL",
-            "og:title": "URL Preview",
-            "og:description": "Open Graph description",
-            "og:image": format!("{}/preview.png", url),
-            "matrix:image:size": 1024,
-            "og:image:width": 800,
-            "og:image:height": 600
-        }))
+        Ok(serde_json::json!({ "url": url }))
     }
 
     /// See [`get_media_info`].

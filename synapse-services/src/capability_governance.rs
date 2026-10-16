@@ -316,6 +316,11 @@ impl CapabilityGovernance {
         unstable_features.insert("org.matrix.msc3814".to_string(), json!(self.msc3814_capability().enabled()));
         unstable_features.insert("org.matrix.msc4143".to_string(), json!(self.msc4143_capability().enabled()));
         unstable_features.insert("org.matrix.msc4186".to_string(), json!(self.msc4186_capability().enabled()));
+        // MSC4354: Sticky events — 上游 v1.163.0 仍在宣告这个不稳定名（其值为
+        // `experimental.msc4354_enabled`）。本仓 sticky 路由无条件注册、无配置开关，
+        // 故取值由路由面推导（见 `msc4354_capability` 的注释）。此前**只实现不宣告**，
+        // 客户端因此发现不了该功能。
+        unstable_features.insert("org.matrix.msc4354".to_string(), json!(self.msc4354_capability().enabled()));
         // MSC4155: Invite permission config — account-level invite policy
         unstable_features.insert("org.matrix.msc4155".to_string(), json!(true));
         // MSC3873: Ignore user for invites — block invites from ignored users
@@ -412,6 +417,31 @@ impl CapabilityGovernance {
     /// simplified v4 endpoint instead of the MSC3575 unstable path.
     fn msc4186_capability(&self) -> CapabilityFlag {
         CapabilityFlag::route_surface(self.manifest_has_route("POST", "/_matrix/client/v4/sync"))
+    }
+
+    /// MSC4354 (Sticky events): declared when the sticky-events write route is
+    /// registered (`POST /_matrix/client/unstable/org.matrix.msc4354/rooms/{room_id}/sticky_events`).
+    ///
+    /// ⚠️ **本仓与上游的门控形状不同，宣告值因此也不同 —— 这是有意的**：
+    /// 上游把 MSC4354 藏在 `experimental.msc4354_enabled`（默认 **false**）后面，
+    /// 于是 `org.matrix.msc4354` 报告的是那个开关；本仓自 `08d014626` 起
+    /// sticky 路由**只按路由面注册**（`synapse-web/src/routes/room.rs` 的
+    /// `create_room_msc4354_router()` 被无条件 `.nest()`，全仓无
+    /// `msc4354` 配置项 —— 检索 `msc4354` 在 `synapse-common/src/config/` 下 0 命中），
+    /// 即"路由在服务 = 功能可用"。因此这里必须由**路由面**推导：
+    ///
+    /// * 硬写 `true` 会在路由被门控掉时对客户端撒谎；
+    /// * 硬写 `false` 会与"端点真的在服务"矛盾，客户端于是永远发现不了这个已实现的功能
+    ///   （这正是本项被登记为差距的原因）。
+    ///
+    /// 路由面推导同时保证了这条不可变量：**声明的能力永不指向本机未注册的路径**。
+    fn msc4354_capability(&self) -> CapabilityFlag {
+        CapabilityFlag::route_surface(
+            self.manifest_has_route(
+                "POST",
+                "/_matrix/client/unstable/org.matrix.msc4354/rooms/{room_id}/sticky_events",
+            ),
+        )
     }
 
     /// MSC3720 (Account status): declared only when the route is registered
@@ -713,6 +743,7 @@ mod tests {
             ("POST", "/_matrix/client/v1/widgets"),
             ("PUT", "/_matrix/vendor/v1/rooms/{room_id}/burn"),
             ("POST", "/_matrix/client/unstable/org.matrix.msc3720/account_status"),
+            ("POST", "/_matrix/client/unstable/org.matrix.msc4354/rooms/{room_id}/sticky_events"),
         ];
         CapabilityGovernance::new(
             config,
@@ -882,6 +913,8 @@ mod tests {
             // names are advertised.
             "org.matrix.msc3981",
             "org.matrix.msc3981.stable",
+            // MSC4354: sticky events — 上游 v1.163.0 宣告该名；本仓由路由面推导
+            "org.matrix.msc4354",
         ];
         for key in expected_unstable {
             assert!(unstable.contains_key(*key), "missing unstable feature: {key}");
@@ -895,6 +928,35 @@ mod tests {
             "private io.hula.burn_after_read must not leak to /versions"
         );
         assert!(!unstable.contains_key("io.hula.friends"), "private io.hula.friends must not leak to /versions");
+    }
+
+    /// MSC4354 must be **derived from the served route surface**, not hardcoded.
+    ///
+    /// Both directions are asserted, and the second one is the real guard: a
+    /// hardcoded `true` would keep advertising sticky events on a build where
+    /// the route is not registered (a promise the server cannot keep), while a
+    /// hardcoded `false` would hide a feature that *is* being served — which is
+    /// exactly the defect this declaration was added to fix.
+    #[test]
+    fn test_msc4354_is_declared_from_the_sticky_route_surface_only() {
+        const STICKY_WRITE: &str = "/_matrix/client/unstable/org.matrix.msc4354/rooms/{room_id}/sticky_events";
+        let config = Config::default();
+
+        let served = governance_with_routes(&config, vec![("POST", STICKY_WRITE)]);
+        assert_eq!(
+            served.build_client_versions()["unstable_features"]["org.matrix.msc4354"],
+            json!(true),
+            "sticky write route registered => MSC4354 must be advertised"
+        );
+
+        // Negative control: same config, route absent. A constant declaration
+        // cannot satisfy both this and the assertion above.
+        let not_served = governance_with_routes(&config, vec![("POST", "/_matrix/client/v3/createRoom")]);
+        assert_eq!(
+            not_served.build_client_versions()["unstable_features"]["org.matrix.msc4354"],
+            json!(false),
+            "sticky write route absent => MSC4354 must NOT be advertised"
+        );
     }
 
     // -----------------------------------------------------------------------

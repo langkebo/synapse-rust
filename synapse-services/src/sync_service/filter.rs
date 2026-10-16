@@ -1262,6 +1262,7 @@ mod tests {
             sticky_event_storage: None,
             push_storage: None,
             msc4210_enabled: true,
+            msc4075_enabled: false,
         })
     }
 

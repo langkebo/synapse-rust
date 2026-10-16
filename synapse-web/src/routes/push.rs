@@ -221,14 +221,15 @@ async fn get_push_rules(
 
     let username: &str = auth_user.user_id.trim_start_matches('@').split(':').next().unwrap_or("");
     let msc4210_enabled = ctx.config.experimental.msc4210_enabled;
+    let msc4075_enabled = ctx.config.experimental.msc4075_enabled;
 
     if let Some(content) = row {
         let mut content: Value = content;
-        merge_default_push_rules(&mut content, &auth_user.user_id, username, msc4210_enabled);
+        merge_default_push_rules(&mut content, &auth_user.user_id, username, msc4210_enabled, msc4075_enabled);
         return Ok(Json(content));
     }
 
-    Ok(Json(default_push_rules_for_user(&auth_user.user_id, username, msc4210_enabled)))
+    Ok(Json(default_push_rules_for_user(&auth_user.user_id, username, msc4210_enabled, msc4075_enabled)))
 }
 
 async fn get_push_rules_scope(
@@ -248,6 +249,7 @@ async fn get_push_rules_scope(
             &auth_user.user_id,
             username,
             ctx.config.experimental.msc4210_enabled,
+            ctx.config.experimental.msc4075_enabled,
         );
 
         if let Some(global) = content.get("global") {

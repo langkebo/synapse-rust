@@ -23,6 +23,7 @@ expression: body
     "org.matrix.msc4143": true,
     "org.matrix.msc4155": true,
     "org.matrix.msc4186": true,
+    "org.matrix.msc4354": true,
     "org.matrix.msc4445.initial_sync_timeline_topological_ordering": true,
     "org.matrix.msc4446": true,
     "org.matrix.simplified_msc3575": true,

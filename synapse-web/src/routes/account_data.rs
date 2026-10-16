@@ -157,6 +157,7 @@ async fn get_account_data(
                     user_id,
                     username,
                     ctx.config.experimental.msc4210_enabled,
+                    ctx.config.experimental.msc4075_enabled,
                 );
                 Ok(Json(content))
             } else if data_type == "m.secret_storage.default_key" {

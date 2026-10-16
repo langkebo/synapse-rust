@@ -42,6 +42,20 @@ pub struct StickyEventQuery {
 /// against the MSC works without translation.
 pub const MSC4354_STICKY_DURATION_FIELD: &str = "org.matrix.msc4354.sticky_duration_ms";
 
+/// Whether a client-shaped event JSON describes a **state** event.
+///
+/// `state_key` is the only discriminator the client projection carries: the
+/// event serializer always emits the key, with `null` for timeline events and
+/// a string (possibly the empty string) for state events. An absent key is
+/// treated as "not a state event" — the route only ever feeds it events read
+/// back from storage, which are produced by the same serializer.
+///
+/// Kept as a pure function so the MSC4354 rule "no sticky state events"
+/// (upstream v1.163.0 #20256) is testable without an HTTP round trip.
+fn is_state_event(event: &Value) -> bool {
+    event.get("state_key").and_then(|value| value.as_str()).is_some()
+}
+
 /// Extract a sticky duration from one entry of the `events` array.
 ///
 /// Both `org.matrix.msc4354.sticky_duration_ms` (proposal spelling) and
@@ -146,6 +160,25 @@ pub async fn set_sticky_events(
 
         let stored_event: serde_json::Value = ctx.room_service.messaging().get_event(&room_id, event_id_str).await?;
         let stored_event_id = stored_event.get("event_id").and_then(|v| v.as_str()).unwrap_or(event_id_str);
+
+        // MSC4354 no longer allows **state** events to be sticky.
+        //
+        // Upstream Synapse removed that capability in v1.163.0 (#20256: "Remove
+        // the ability to send state events that are sticky, as this feature was
+        // removed from MSC4354"), so a state event carrying a sticky duration is
+        // no longer something a conforming server accepts. This route is wider
+        // than the upstream request surface in that it names an `event_id`
+        // directly, so without this guard a client could mark `m.room.name` (or
+        // any other state event) sticky — behaviour no other homeserver will
+        // reproduce, which makes the pinned item unshareable across federation.
+        //
+        // `state_key` is the discriminator: `m.room.message` and friends carry
+        // `null` there, state events carry the (possibly empty) state key.
+        if is_state_event(&stored_event) {
+            return Err(ApiError::bad_request(
+                "State events cannot be sticky (MSC4354 removed sticky state events)".to_string(),
+            ));
+        }
 
         // Set the sticky event. The service already classifies an out-of-range
         // duration as a client error, so propagate rather than re-wrapping it into
@@ -329,5 +362,28 @@ mod tests {
         // Range policy itself lives in storage; the route must merely *forward* it so
         // the single source of truth (MAX_STICKY_DURATION_MS) is not duplicated here.
         assert_eq!(sticky_duration_from_event(&json!({"sticky_duration_ms": -1})).unwrap(), Some(-1));
+    }
+
+    // --- MSC4354: state events cannot be sticky (upstream v1.163.0 #20256) ---
+
+    #[test]
+    fn test_state_event_is_detected_by_a_string_state_key() {
+        // The serializer always emits `state_key`; state events carry a string
+        // (the empty string for `m.room.name`-style events with an empty key).
+        assert!(is_state_event(&json!({"type": "m.room.name", "state_key": ""})));
+        assert!(is_state_event(&json!({"type": "m.room.member", "state_key": "@alice:example.com"})));
+    }
+
+    #[test]
+    fn test_timeline_event_is_not_a_state_event() {
+        // Negative control: the real serializer writes `"state_key": null` for
+        // timeline events. If this predicate ever reported `true` here, the guard
+        // would reject every ordinary sticky message.
+        assert!(!is_state_event(&json!({"type": "m.room.message", "state_key": null})));
+        // Absent key is also not a state event (defensive: never over-reject).
+        assert!(!is_state_event(&json!({"type": "m.room.message"})));
+        // A non-string state_key is not something the serializer produces; treat it
+        // as "not a state event" rather than rejecting on malformed input.
+        assert!(!is_state_event(&json!({"type": "m.room.message", "state_key": 7})));
     }
 }

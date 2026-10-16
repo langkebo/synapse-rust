@@ -65,6 +65,31 @@ pub struct ExperimentalConfig {
     #[serde(default = "default_true")]
     /// `msc4210_enabled` field.
     pub msc4210_enabled: bool,
+
+    /// MSC4075: MatrixRTC invites and notifications.
+    ///
+    /// When enabled, the two default override push rules added by upstream
+    /// Synapse v1.163.0 (#20227) are served to clients:
+    ///
+    /// - `.org.matrix.msc4075.rule.rtc.invite_for_me`
+    /// - `.org.matrix.msc4075.rule.rtc.invite_for_room`
+    ///
+    /// Both act with `notify` + `{"set_tweak": "sound", "value": "ring"}`, so a
+    /// client that receives an `org.matrix.msc4075.rtc.notification` event it was
+    /// mentioned by starts ringing. They are placed **immediately before**
+    /// `.m.rule.is_user_mention` / `.m.rule.is_room_mention`: override rules are
+    /// first-match-wins, so the generic mention rules would otherwise mask them.
+    ///
+    /// **Default `false`, matching upstream** (`experimental.msc4075_enabled`
+    /// defaults to `False` there too, since the MSC is still unstable). Set to
+    /// `true` to actually deliver RTC call invitations and ringing to clients.
+    ///
+    /// ⚠️ Nothing else changes when this is off: a client that never receives a
+    /// `org.matrix.msc4075.rtc.notification` event sees no behavioural
+    /// difference, which is why the flag is safe to leave at the default.
+    #[serde(default)]
+    /// `msc4075_enabled` field.
+    pub msc4075_enabled: bool,
 }
 
 fn default_true() -> bool {
@@ -73,7 +98,13 @@ fn default_true() -> bool {
 
 impl Default for ExperimentalConfig {
     fn default() -> Self {
-        Self { msc4452_enabled: false, msc3720_enabled: false, declare_private_extensions: true, msc4210_enabled: true }
+        Self {
+            msc4452_enabled: false,
+            msc3720_enabled: false,
+            declare_private_extensions: true,
+            msc4210_enabled: true,
+            msc4075_enabled: false,
+        }
     }
 }
 
@@ -88,6 +119,10 @@ mod tests {
         assert!(!cfg.msc3720_enabled, "msc3720 should default to false");
         assert!(cfg.declare_private_extensions, "declare_private_extensions should default to true");
         assert!(cfg.msc4210_enabled, "msc4210 should default to true (Matrix v1.17 removed the legacy rules)");
+        assert!(
+            !cfg.msc4075_enabled,
+            "msc4075 should default to false — same as upstream's experimental.msc4075_enabled"
+        );
     }
 
     #[test]
@@ -104,17 +139,21 @@ mod tests {
         assert!(!cfg.msc3720_enabled);
         assert!(cfg.declare_private_extensions);
         assert!(cfg.msc4210_enabled);
+        assert!(!cfg.msc4075_enabled, "a missing msc4075_enabled key must fall back to false");
     }
 
     #[test]
     fn deserialize_explicit_values_override_defaults() {
-        let yaml =
-            "msc4452_enabled: true\nmsc3720_enabled: true\ndeclare_private_extensions: false\nmsc4210_enabled: false\n";
+        let yaml = "msc4452_enabled: true\nmsc3720_enabled: true\ndeclare_private_extensions: false\nmsc4210_enabled: false\nmsc4075_enabled: true\n";
         let cfg: ExperimentalConfig = serde_norway::from_str(yaml).expect("explicit YAML should override defaults");
         assert!(cfg.msc4452_enabled);
         assert!(cfg.msc3720_enabled);
         assert!(!cfg.declare_private_extensions);
         assert!(!cfg.msc4210_enabled, "an explicit false must survive deserialization");
+        assert!(
+            cfg.msc4075_enabled,
+            "an explicit true must survive deserialization — otherwise the RTC rules could never be switched on"
+        );
     }
 
     #[test]
@@ -124,12 +163,14 @@ mod tests {
             msc3720_enabled: false,
             declare_private_extensions: false,
             msc4210_enabled: false,
+            msc4075_enabled: true,
         };
         let cloned = cfg.clone();
         assert_eq!(cfg.msc4452_enabled, cloned.msc4452_enabled);
         assert_eq!(cfg.msc3720_enabled, cloned.msc3720_enabled);
         assert_eq!(cfg.declare_private_extensions, cloned.declare_private_extensions);
         assert_eq!(cfg.msc4210_enabled, cloned.msc4210_enabled);
+        assert_eq!(cfg.msc4075_enabled, cloned.msc4075_enabled);
     }
 
     #[test]

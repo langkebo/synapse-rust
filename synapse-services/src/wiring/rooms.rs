@@ -215,6 +215,8 @@ impl RoomSyncServices {
                 // MSC4210: hide the legacy mention rules unless the operator
                 // opted back in — must match `GET /pushrules`.
                 msc4210_enabled: infra.config.experimental.msc4210_enabled,
+                // MSC4075: RTC invite/ring rules — must match `GET /pushrules`.
+                msc4075_enabled: infra.config.experimental.msc4075_enabled,
             }));
 
         let typing_service = Arc::new(crate::typing_service::TypingService::new(infra.cache.clone()));

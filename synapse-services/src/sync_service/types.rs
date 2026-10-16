@@ -177,6 +177,11 @@ pub struct SyncServiceDeps {
     /// `experimental.msc4210_enabled` so `/sync`, `GET /pushrules` and
     /// `GET /user/{userId}/account_data/m.push_rules` agree.
     pub msc4210_enabled: bool,
+    /// MSC4075: whether the two MatrixRTC push rules are served in the
+    /// `m.push_rules` event this service emits. Must mirror
+    /// `experimental.msc4075_enabled` so `/sync`, `GET /pushrules` and
+    /// `GET /user/{userId}/account_data/m.push_rules` agree.
+    pub msc4075_enabled: bool,
 }
 
 /// The `SyncServiceRequest` struct.

@@ -51,12 +51,9 @@ pub(crate) async fn preview_url(
 
     let ts = params.get("ts").and_then(|v| v.as_i64()).unwrap_or_else(current_timestamp_millis);
 
-    match ctx.media_domain_service.preview_url(url, ts) {
-        Ok(preview) => Ok(Json(preview)),
-        Err(e) => Ok(Json(json!({
-            "url": url,
-            "title": "Preview unavailable",
-            "description": format!("Could not generate preview: {}", e.message())
-        }))),
-    }
+    // The previewer is a stub that cannot fail (it performs no fetch), so there is
+    // no error branch to synthesise a payload for. It used to answer failures with
+    // a hand-built `title`/`description` pair, which was a second place able to
+    // emit fabricated OpenGraph-shaped data — see `preview_url`'s doc comment.
+    Ok(Json(ctx.media_domain_service.preview_url(url, ts)?))
 }
