@@ -337,6 +337,15 @@ pub struct LazyLoadMembersRequest<'a> {
     pub timeline_limited: bool,
     /// The `enabled` field.
     pub enabled: bool,
+    /// MSC4222: whether the caller will hand this state block to the client as
+    /// `state_after` (the state at the **end** of the returned timeline) instead
+    /// of the classic `state` (the state at its **start**, which the client
+    /// re-aims by layering the timeline on top of it).
+    ///
+    /// The two forms disagree about what a membership change from *outside* the
+    /// returned timeline window means — see
+    /// [`SyncService::state_block_describes_the_timeline_start`].
+    pub state_after: bool,
     /// The position (`next_batch` stream id) of the response being built.
     /// Recorded against every membership this response hands over, so a later
     /// request can tell "the client processed what carried it" from "it did not"
