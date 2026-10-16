@@ -481,30 +481,34 @@ C4（MSC4354 请求面）改动面**不重叠**；W-B 动 `src/server/mod.rs`；
 
 ## 5. 待核实（本轮未取证，勿当作结论）
 
-> **状态（2026-10-16 收口）**：**V-W-2 已关闭**（见下表）；**V-W-5 已部分取证**（下面的结论只覆盖
-> 已读到的调用点）；**V-W-1 / V-W-3 / V-W-4 仍开放**，其中 V-W-4 需要上游 `workers.py` 与本仓
-> events 写入路径的逐行对照，V-W-1 需要多进程烟测（`scripts/test/worker_topology_smoke.sh` 已就绪）。
+> **状态（2026-10-17 复核）**：**V-W-2 / V-W-3 / V-W-4 已关闭**，**V-W-1 / V-W-5 部分取证**。
+> 真正还"没人问过"的只剩两处：`worker_events` 写入侧在多进程压力下的表现（V-W-1 未取证的那半），
+> 以及"其余职责没有归属模型"这一结构事实（V-W-5 的另一半，本质是 W-7）。
 
 | 编号 | 待核实项 | 核实方式 |
 |------|----------|----------|
-| V-W-1 | 多进程下 `worker_events` 的写入者与消费者是否唯一（是否会出现两个实例消费同一流位置） | 读 `event_sink.rs` + `worker_events` 表 DDL + 多进程烟测 —— **未做** |
+| V-W-1 | 多进程下 `worker_events` 的写入者与消费者是否唯一（是否会出现两个实例消费同一流位置） | 🔶 **部分取证（2026-10-17，源码级）**：① **任务队列**走 Redis **消费组**（`src/bin/synapse_worker.rs:86-87` 的 `group_name = "synapse_workers"` / `consumer_name = worker-<id>`，经 `consume_loop`）⇒ 同一个任务只会投给一个消费者；② **`worker_events` 的读侧**是 `GET /_synapse/worker/v1/events` → `get_events_since(stream_id, limit)`（`synapse-web/src/routes/worker.rs:540`），**位置由调用方携带**、服务端不保存 offset ⇒ 不同消费者各持自己的位置，重复读到同一行是**设计的扇出**而非重复处理；③ **写侧不唯一是设计**（`NotifyingEventWriter` + `WorkerEventSink`，`synapse-services/src/wiring/rooms.rs:110`）。**未取证**：多实例并发写同一张表的压力表现 —— 需多进程烟测（`scripts/test/worker_topology_smoke.sh`） |
 | V-W-2 | 多实例命名（`client_reader-1` / `client_reader-2`）是否都被 `worker_type_for_instance_name` 正确归类 | ✅ **已关闭（2026-10-16）**：`tests/unit/worker_instance_naming_tests.rs` 对角化覆盖 10 个类型的 `-N` / `_N` 两种分隔符，并负控 `client_readerx`（仅前缀相同但后缀不是 `-`/`_` ⇒ 回落 Master）与 `worker.enabled=false` 恒为 Master；另钉住"声明带后缀的 `background_worker` 会把全局维护归属交给它" |
-| V-W-3 | `WorkerTopologySummary` 是否被前端/外部工具消费（决定 W-A 能否直接扩字段） | 全仓检索消费方 + `docs/openapi/` —— **未做**；W-A 已按"不动既有字段"实现（`#[serde(flatten)]` + 纯新增 `live`），因此该结论即便为"有人消费"也不影响兼容性 |
-| V-W-4 | 上游 `RoutableShardedWorkerHandlingConfig` 的"按房间路由到不同 events writer"本仓是否等价（本仓允许 `events` 多属主，但分片规则未取证） | 读 `workers.py:440-445` 与本仓 events 写入路径 —— **未做** |
+| V-W-3 | `WorkerTopologySummary` 是否被前端/外部工具消费（决定 W-A 能否直接扩字段） | ✅ **已关闭（2026-10-17）**：全仓**非 Rust 引用只剩契约链产物**（`artifacts/registered_routes.json`、`docs/openapi/route-table.json`、`tests/unit/fixtures/ledger_export*/…` —— 它们只登记**路径**，不看响应体）与两份审计文档；**没有任何前端 / SDK / 工具消费响应体**。`deployment_presets` 除 Rust 源码与本文档外零引用（印证 §2 W-3 的"预设目前没有消费者"）⇒ W-A 的加法式 `live` 字段安全，且今后改响应体只受本仓 Rust 测试约束 |
+| V-W-4 | 上游 `RoutableShardedWorkerHandlingConfig` 的"按房间路由到不同 events writer"本仓是否等价（本仓允许 `events` 多属主，但分片规则未取证） | ✅ **已关闭（2026-10-17，以论证代替上游逐行对照）**：本仓**没有任何代码按 `stream_writers` 决定谁来写**（全仓消费者只有拓扑校验与运行时对账，见 §1 与 W-D 实施记录）⇒ 不存在等价物，也不存在"漏实现某条分片规则"的问题：上游那是**行为**，本仓目前只是**声明**。要谈等价，先要有 W-F（按角色收敛 HTTP 面）或专门的写入方路由 |
+| V-W-5 | `worker.enabled: true` 时，master 与 worker 对同一个「职责」是否会**双重执行**（上游注释明确写"No effort is made to ensure only a single instance of these tasks is running"，本仓是否更强） | 🔶 **部分取证（2026-10-16）**：本仓的"职责"只有**全局维护**一项有归属判定（`should_run_global_maintenance`，消费点见 §1.2 表：`src/server/mod.rs` 启动块与 `wiring/admin.rs` 的 appservice 调度）；`topology_gate`/`topology_validator` 不参与。因此**不会双重执行**——但代价是"归属给了一个跑不了这些任务的进程"时**静默不执行**（W-D 实施记录里的 `background_worker` 陷阱）。**其余职责（pusher / appservice 通知 / user directory / 联邦发送）本仓没有归属模型**（W-7），所以"是否会双重执行"对它们尚无意义 |
 | V-W-5 | `worker.enabled: true` 时，master 与 worker 对同一个「职责」是否会**双重执行**（上游注释明确写"No effort is made to ensure only a single instance of these tasks is running"，本仓是否更强） | 🔶 **部分取证（2026-10-16）**：本仓的"职责"只有**全局维护**一项有归属判定（`should_run_global_maintenance`，消费点见 §1.2 表：`src/server/mod.rs` 启动块与 `wiring/admin.rs` 的 appservice 调度）；`topology_gate`/`topology_validator` 不参与。因此**不会双重执行**——但代价是"归属给了一个跑不了这些任务的进程"时**静默不执行**（W-D 实施记录里的 `background_worker` 陷阱）。**其余职责（pusher / appservice 通知 / user directory / 联邦发送）本仓没有归属模型**（W-7），所以"是否会双重执行"对它们尚无意义 |
 
 ---
 
 ## 6. 文档同步（对 `docs/synapse-rust-vs-synapse-comparison.md`）
 
-> **状态（2026-10-16）**：下表四处文案**已落地**，并在对比报告里新增 §19.9 记录本轮重判。
+> **状态（2026-10-17）**：下表四处文案已在当时落地，并在对比报告里新增 §19.9 记录重判。
+> **但其中两处的措辞随后又被 W-A…W-E 的实施推进了一次**（"只记日志不阻断"→ 已有 `topology.strict`；
+> "运行时对账未做"→ 已做；"LB 只有测试调用点"→ 已接进生产装配）⇒ **以对比报告 §19.9.1 为准**，
+> 下表保留的是当时的修正记录。
 
 | 位置 | 原文案（问题） | 已改为 |
 |------|----------------|----------|
-| §2.3 劣势行 | 「Worker 拓扑验证仍在建设中（`topology_validator.rs`）」——**低估**：验证器已成型且已接线 | 「拓扑**静态校验已成型**（`worker/topology_validator.rs`，启动时执行）但**只记日志不阻断**；**运行时对账**（声明 vs 注册）、严格模式与管理面实况未做」 |
+| §2.3 劣势行 | 「Worker 拓扑验证仍在建设中（`topology_validator.rs`）」——**低估**：验证器已成型且已接线 | 「拓扑**静态校验已成型**（`worker/topology_validator.rs`，启动时执行）但**只记日志不阻断**；**运行时对账**（声明 vs 注册）、严格模式与管理面实况未做」→ 后续见 §19.9.1 |
 | §5.1「Worker 发现」 | 「健康检查 + 拓扑验证」——没说清后者是静态的 | 「健康检查（运行时）+ 拓扑**静态**校验；运行时对账见 `docs/audit/WORKER_TOPOLOGY_VERIFICATION_AUDIT_2026-10-16.md`」 |
-| §5.1「负载均衡」 | 「内置 load_balancer 模块」——**生产未启用**（只有测试接线） | 「内置 load_balancer 模块（**默认未启用**：`enable_load_balancer` 目前只有测试调用点）」 |
-| §12.4 风险提示 | 「Worker 拓扑验证仍在建设中，水平扩展方案成熟度待验证」 | 「Worker 拓扑：静态校验已成型，**运行时对账/强制力/参考多进程部署**未做 ⇒ 水平扩展成熟度待验证（见审计文档）」 |
+| §5.1「负载均衡」 | 「内置 load_balancer 模块」——**生产未启用**（只有测试接线） | 「内置 load_balancer 模块（**默认未启用**：`enable_load_balancer` 目前只有测试调用点）」→ 后续见 §19.9.1 |
+| §12.4 风险提示 | 「Worker 拓扑验证仍在建设中，水平扩展方案成熟度待验证」 | 「Worker 拓扑：静态校验已成型，**运行时对账/强制力/参考多进程部署**未做 ⇒ 水平扩展成熟度待验证（见审计文档）」→ 后续见 §19.9.1 |
 
 ⚠️ 改该文档必须过 `tests/unit/doc_credibility_guard_tests.rs`（反引号内仓库相对路径必须存在；
 「N 条注册路由 / N 个模块」计数必须与 `docs/synapse-rust/ROUTE_CONTRACT.md` 一致；五个历史章节标题
