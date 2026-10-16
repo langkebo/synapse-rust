@@ -42,7 +42,8 @@ mkdir -p "$(dirname "$OUTPUT")"
 # ⚠️ `server` 特性已于 H-6 从根 crate 移除（零 `#[cfg(feature = "server")]` 门控、纯死标志），
 # 继续传它会让 cargo 直接报「does not contain this feature」。该 bug 使本脚本自 H-6 起恒失败，
 # `ledger.json` 因此冻结在 2026-08-12（见 `docs/audit/GATE_INTEGRITY_SWEEP_2026-09-19.md` E8）。
-FEATURES="core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends"
+# 使用与 `deploy.sh --all` 一致的 `all-extensions`，保证 ledger 覆盖全部已编译路由。
+FEATURES="all-extensions"
 
 echo "[ledger] profile=$PROFILE features=$FEATURES"
 echo "[ledger] 编译并导出（首次较慢，之后增量秒级）..."

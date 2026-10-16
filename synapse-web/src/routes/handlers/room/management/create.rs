@@ -65,6 +65,7 @@ pub(crate) async fn create_private_room(
     headers: HeaderMap,
     Json(mut body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    body.as_object().ok_or_else(|| ApiError::invalid_param("Request body must be a JSON object".to_string()))?;
     body["preset"] = serde_json::Value::String("private_chat".to_string());
     body["visibility"] = serde_json::Value::String("private".to_string());
     create_room(State(ctx), auth_user, headers, Json(body)).await
@@ -83,6 +84,10 @@ pub(crate) async fn create_room(
     if auth_user.is_guest {
         return Err(ApiError::forbidden("Guests cannot create rooms".to_string()));
     }
+    // 请求体必须是 JSON 对象：与 Synapse `parse_json_object_from_request` 一致，
+    // 非对象（数组/字符串/数字/null）返回 400 M_INVALID_PARAM，避免下游各字段
+    // 读取全部落空后静默按"默认配置"建房。
+    body.as_object().ok_or_else(|| ApiError::invalid_param("Request body must be a JSON object".to_string()))?;
     let request_id = resolve_request_id(&headers);
     let user_id = auth_user.user_id.as_str();
 

@@ -254,10 +254,11 @@ def _find_mkcert_ca() -> Optional[str]:
 def export_ledger(profile: str = "default") -> Optional[Path]:
     """调用 cargo 编译并运行 synapse_ledger_export，返回导出 JSON 路径。
 
-    使用与 Docker 镜像一致的 features（core-private-chat,widgets,
-    external-services,voice-extended,cas-sso,saml-sso,friends）。
+    使用与 `deploy.sh --all`（all-extensions）部署镜像一致的 features，
+    确保 ledger 覆盖全部已编译路由（含 server-notifications / beacons /
+    voip-tracking / privacy-ext / builtin-oidc）。
     """
-    features = "core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends"
+    features = "all-extensions"
     out = (
         SCRIPT_DIR
         / "reports"
