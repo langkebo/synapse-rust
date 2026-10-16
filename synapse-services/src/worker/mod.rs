@@ -16,6 +16,8 @@ pub mod storage;
 pub mod tcp;
 /// The startup enforcement of the topology verdict (W-B).
 pub mod topology_gate;
+/// The topology metrics (W-E).
+pub mod topology_metrics;
 /// The `topology_validator` module.
 pub mod topology_validator;
 /// The `types` module.
@@ -32,6 +34,7 @@ pub use runtime_topology::{
 };
 pub use storage::WorkerStoreApi;
 pub use topology_gate::{check_startup_topology, StartupTopologyCheck};
+pub use topology_metrics::{spawn_worker_topology_metrics, WorkerTopologyMetrics, DEFAULT_EVALUATION_INTERVAL};
 pub use topology_validator::{
     current_instance_worker_type, expected_route_owner_for_probe, global_maintenance_owner,
     may_serve_delayed_events_route, resolved_current_instance_name, should_run_global_maintenance, validate_topology,

@@ -102,6 +102,7 @@ mod worker_load_balancing_tests;
 mod worker_runtime_topology_tests;
 mod worker_topology_cli_tests;
 mod worker_topology_deployment_tests;
+mod worker_topology_metrics_tests;
 
 mod room_domain_refactor_tests;
 mod schema_lifecycle_guard_tests;

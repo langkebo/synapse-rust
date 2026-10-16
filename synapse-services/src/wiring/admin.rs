@@ -280,6 +280,20 @@ impl AdminServices {
         apply_load_balancing(&mut worker_manager, &config.worker.load_balancing);
         let worker_manager = Arc::new(worker_manager);
 
+        // W-E: publish the topology reconciliation as gauges (topology_valid,
+        // registered/missing/stale counts, per-instance heartbeat age) so an alert
+        // can fire on "the deployment is not what it says it is" without anyone
+        // polling an endpoint. Only when workers are enabled: a monolith has no
+        // registry, and a constant "valid" series would be coverage theatre.
+        if config.worker.enabled {
+            crate::worker::spawn_worker_topology_metrics(
+                worker_manager.clone(),
+                config.worker.clone(),
+                metrics.clone(),
+                shutdown_token.clone(),
+            );
+        }
+
         // 驱动周期性活性探测（心跳超时 → Unhealthy），随进程 shutdown 一起停止。
         let (health_shutdown_tx, health_shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
         tokio::spawn(async move {
