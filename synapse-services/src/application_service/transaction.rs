@@ -65,18 +65,21 @@ pub fn build_transaction_payload(
 }
 
 /// Check whether an application service has opted into receiving ephemeral
-/// events per MSC2409. Returns `true` when the service's `config` JSON
-/// contains `de.sorunome.msc2409: true` (pre-stabilization flag) or
-/// `ephemeral: true` (post-stabilization flag, Matrix v1.156+).
+/// events per MSC2409.
+///
+/// Any one of the following keys set to `true` in the service's `config` JSON
+/// opts the service in:
+///
+/// - `de.sorunome.msc2409.push_ephemeral` — the key upstream Synapse reads
+///   from an application service registration file.
+/// - `receive_ephemeral` — the field name some bridges (e.g. mautrix) emit for
+///   servers that implement the stabilized MSC2409 behaviour.
+/// - `de.sorunome.msc2409` / `ephemeral` — legacy short forms accepted by this
+///   server before the keys above were aligned with upstream.
 pub fn appservice_receives_ephemeral(service: &ApplicationService) -> bool {
-    let config = &service.config;
-    if config.get("de.sorunome.msc2409").and_then(|v| v.as_bool()) == Some(true) {
-        return true;
-    }
-    if config.get("ephemeral").and_then(|v| v.as_bool()) == Some(true) {
-        return true;
-    }
-    false
+    const OPT_IN_KEYS: [&str; 4] =
+        ["de.sorunome.msc2409.push_ephemeral", "receive_ephemeral", "de.sorunome.msc2409", "ephemeral"];
+    OPT_IN_KEYS.iter().any(|key| service.config.get(*key).and_then(|v| v.as_bool()) == Some(true))
 }
 
 /// Constant `APPSERVICE_RETRY_BACKOFF_BASE_MS`.
@@ -852,6 +855,27 @@ mod tests {
         // Post-stabilization flag (Matrix v1.156 uses the stabilized form)
         let service = make_appservice_with_config(json!({"ephemeral": true}));
         assert!(appservice_receives_ephemeral(&service));
+    }
+
+    #[test]
+    fn appservice_receives_ephemeral_true_when_synapse_push_ephemeral_flag_set() {
+        // Upstream Synapse reads `de.sorunome.msc2409.push_ephemeral` from the
+        // application service registration file.
+        let service = make_appservice_with_config(json!({"de.sorunome.msc2409.push_ephemeral": true}));
+        assert!(appservice_receives_ephemeral(&service));
+    }
+
+    #[test]
+    fn appservice_receives_ephemeral_true_when_receive_ephemeral_flag_set() {
+        // Field name emitted by some bridges for a stabilized MSC2409 server.
+        let service = make_appservice_with_config(json!({"receive_ephemeral": true}));
+        assert!(appservice_receives_ephemeral(&service));
+    }
+
+    #[test]
+    fn appservice_receives_ephemeral_false_when_synapse_push_ephemeral_disabled() {
+        let service = make_appservice_with_config(json!({"de.sorunome.msc2409.push_ephemeral": false}));
+        assert!(!appservice_receives_ephemeral(&service));
     }
 
     #[test]

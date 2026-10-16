@@ -554,7 +554,7 @@ pub(crate) async fn login(
 
         let access_token = ctx
             .token_auth
-            .generate_access_token(user_id, device_id, user.is_admin)
+            .generate_appservice_access_token(user_id, device_id, user.is_admin, &service.as_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to generate access token", e))?;
 

@@ -430,6 +430,161 @@ async fn dedicated_endpoint_refuses_the_sticky_duration_hint() {
     assert_eq!(status, StatusCode::OK, "{body}");
 }
 
+/// `PUT /send/...` carrying MSC4354's sticky-duration hint in the query string,
+/// exactly as a spec-conformant client sends it. Returns the status and body so
+/// the caller can read the `event_id` back out.
+async fn send_with_sticky_hint(
+    app: &axum::Router,
+    token: &str,
+    room_id: &str,
+    txn_id: &str,
+    hint: &str,
+    duration_ms: i64,
+) -> (StatusCode, Value) {
+    let request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/send/m.room.message/{txn_id}?{hint}={duration_ms}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "msgtype": "m.text", "body": "sticky" }).to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    (status, serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({})))
+}
+
+/// `GET /rooms/{roomId}/event/{eventId}` — the read path a client uses to see the
+/// `unsigned` block of an event it just sent.
+async fn get_room_event(app: &axum::Router, token: &str, room_id: &str, event_id: &str) -> (StatusCode, Value) {
+    let request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/event/{event_id}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    (status, serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({})))
+}
+
+/// MSC4354 (V-19-9): the `/send` sticky-duration hint must be *recorded*, not
+/// dropped.
+///
+/// Upstream reads `org.matrix.msc4354.sticky_duration_ms` from `/send`'s query
+/// string and writes the resolved TTL into the event's `unsigned` as
+/// `msc4354_sticky_duration_ttl_ms`, so a client can read back how long its
+/// message stays pinned. This server historically routed sticky through a
+/// separate per-user endpoint; the two models coexist, and this test pins down
+/// the upstream one: after the send, the number a conformant client reads must
+/// be the number it asked for.
+#[tokio::test]
+async fn send_sticky_duration_hint_is_recorded_on_unsigned() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let alice = super::create_test_user(&app).await;
+    let room_id = create_public_room(&app, &alice).await;
+
+    let (status, body) =
+        send_with_sticky_hint(&app, &alice, &room_id, "sticky-send-1", "org.matrix.msc4354.sticky_duration_ms", 60_000)
+            .await;
+    assert_eq!(status, StatusCode::OK, "a valid sticky hint must not fail the send: {body}");
+    let event_id = body["event_id"].as_str().expect("a send must return an event_id").to_string();
+
+    let (status, event) = get_room_event(&app, &alice, &room_id, &event_id).await;
+    assert_eq!(status, StatusCode::OK, "the sent event must be readable: {event}");
+    assert_eq!(
+        event["unsigned"]["msc4354_sticky_duration_ttl_ms"].as_i64(),
+        Some(60_000),
+        "the requested sticky TTL must round-trip through `unsigned`, got {event}"
+    );
+
+    // Control: the same send *without* the hint must not grow a sticky TTL — so
+    // the assertion above is about the hint, not about every event carrying one.
+    let (status, body) = send_immediately(&app, &alice, &room_id, "sticky-send-control", "plain").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let plain_id = body["event_id"].as_str().expect("a send must return an event_id").to_string();
+    let (status, plain) = get_room_event(&app, &alice, &room_id, &plain_id).await;
+    assert_eq!(status, StatusCode::OK, "{plain}");
+    assert!(
+        plain["unsigned"].get("msc4354_sticky_duration_ttl_ms").is_none(),
+        "an event sent without the hint must not carry a sticky TTL: {plain}"
+    );
+}
+
+/// The short (non-namespaced) spelling is accepted as an alias, and the
+/// namespaced spelling wins when both are present — the same precedence the
+/// server's own sticky routes have always used.
+#[tokio::test]
+async fn send_sticky_duration_short_alias_is_accepted() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let alice = super::create_test_user(&app).await;
+    let room_id = create_public_room(&app, &alice).await;
+
+    let (status, body) =
+        send_with_sticky_hint(&app, &alice, &room_id, "sticky-alias", "sticky_duration_ms", 30_000).await;
+    assert_eq!(status, StatusCode::OK, "the short alias must be honoured: {body}");
+    let event_id = body["event_id"].as_str().expect("a send must return an event_id").to_string();
+
+    let (status, event) = get_room_event(&app, &alice, &room_id, &event_id).await;
+    assert_eq!(status, StatusCode::OK, "{event}");
+    assert_eq!(
+        event["unsigned"]["msc4354_sticky_duration_ttl_ms"].as_i64(),
+        Some(30_000),
+        "the short alias must resolve to the same `unsigned` field: {event}"
+    );
+}
+
+/// The bound is enforced *before* anything is written: a duration over one hour
+/// (or non-positive, or not a number) is refused with 400 `M_INVALID_PARAM`,
+/// never silently clamped or dropped.
+#[tokio::test]
+async fn send_sticky_duration_hint_out_of_range_is_rejected() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let alice = super::create_test_user(&app).await;
+    let room_id = create_public_room(&app, &alice).await;
+
+    // 1 ms over the one-hour cap.
+    let (status, body) = send_with_sticky_hint(
+        &app,
+        &alice,
+        &room_id,
+        "sticky-too-long",
+        "org.matrix.msc4354.sticky_duration_ms",
+        3_600_001,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "an over-long duration must be refused: {body}");
+    assert_eq!(body["errcode"].as_str(), Some("M_INVALID_PARAM"), "{body}");
+
+    // Zero is not a duration.
+    let (status, body) =
+        send_with_sticky_hint(&app, &alice, &room_id, "sticky-zero", "org.matrix.msc4354.sticky_duration_ms", 0).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "a non-positive duration must be refused: {body}");
+    assert_eq!(body["errcode"].as_str(), Some("M_INVALID_PARAM"), "{body}");
+
+    // Control: the cap itself is allowed — the refusal above is about being
+    // strictly over the limit, not about the limit being off by one.
+    let (status, body) = send_with_sticky_hint(
+        &app,
+        &alice,
+        &room_id,
+        "sticky-at-cap",
+        "org.matrix.msc4354.sticky_duration_ms",
+        3_600_000,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "the cap itself must be accepted: {body}");
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // §11.7.1: the three convenience sub-paths + the list endpoint
 //

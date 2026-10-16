@@ -37,7 +37,7 @@ use synapse_storage::User;
 /// Default: all methods return errors. Use [`Self::with_validate_token_ok`]
 /// to configure token validation.
 pub struct FakeTokenAuth {
-    validate_token_response: RwLock<Option<ApiResult<(String, Option<String>, bool, bool, bool)>>>,
+    validate_token_response: RwLock<Option<ApiResult<(String, Option<String>, bool, bool, bool, Option<String>)>>>,
     token_expiry_value: RwLock<i64>,
 }
 
@@ -48,7 +48,7 @@ impl FakeTokenAuth {
     }
 
     /// See [`with_validate_token_ok`].
-    pub fn with_validate_token_ok(self, result: (String, Option<String>, bool, bool, bool)) -> Self {
+    pub fn with_validate_token_ok(self, result: (String, Option<String>, bool, bool, bool, Option<String>)) -> Self {
         *self.validate_token_response.write().unwrap() = Some(Ok(result));
         self
     }
@@ -68,7 +68,10 @@ impl Default for FakeTokenAuth {
 
 #[async_trait]
 impl crate::auth::TokenAuth for FakeTokenAuth {
-    async fn validate_token(&self, _token: &str) -> ApiResult<(String, Option<String>, bool, bool, bool)> {
+    async fn validate_token(
+        &self,
+        _token: &str,
+    ) -> ApiResult<(String, Option<String>, bool, bool, bool, Option<String>)> {
         self.validate_token_response
             .read()
             .unwrap()
@@ -631,6 +634,7 @@ mod tests {
             false,
             false,
             true,
+            None,
         ));
 
         let trait_obj: Arc<dyn TokenAuth> = Arc::new(auth);

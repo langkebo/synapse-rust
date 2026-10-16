@@ -150,6 +150,7 @@ fn make_stream_event(event_id: &str, room_id: &str, stream_ordering: i64) -> cra
         origin: "self".into(),
         stream_ordering: Some(stream_ordering),
         redacts: None,
+        unsigned: None,
     }
 }
 

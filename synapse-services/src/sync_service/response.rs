@@ -857,6 +857,7 @@ mod tests {
             origin: "ex.com".into(),
             stream_ordering: Some(100),
             redacts: None,
+            unsigned: None,
         }
     }
 

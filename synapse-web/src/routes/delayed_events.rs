@@ -134,17 +134,20 @@ struct ScheduleRequest {
 /// field yields 400 `M_BAD_JSON` (this module's style — see
 /// `manage_delayed_event`) instead of axum's 422 deserialization rejection.
 fn parse_schedule_request(body: &Value) -> Result<ScheduleRequest, ApiError> {
-    // MSC4354's sticky duration is **refused, not dropped**. This server tracks
-    // sticky events as per-user pins (`POST /rooms/{roomId}/sticky_events`),
-    // not as a property of the event, so "schedule this and pin it" has no
-    // atomic form. Accepting the field and scheduling a plain event would
-    // silently downgrade what the client asked for; 501 says so out loud.
+    // MSC4354's sticky duration is **refused, not dropped**, on this endpoint:
+    // it carries the same field as a body key (the `/send` and `/state` surfaces
+    // take it as a query parameter and do honour it — see
+    // `handlers::room::apply_msc4354_sticky_ttl`). A sticky duration is recorded
+    // on the sent event's `unsigned`, but a scheduled event is stored in
+    // `delayed_events` and replayed by the dispatcher, with no moment at which
+    // that write could happen. Accepting the field and scheduling a plain event
+    // would silently downgrade what the client asked for; 501 says so out loud.
     // Both spellings are checked because the pin endpoint accepts both.
     if body.get(MSC4354_STICKY_DURATION_FIELD).is_some() || body.get("sticky_duration_ms").is_some() {
         return Err(ApiError::not_supported(format!(
-            "'{MSC4354_STICKY_DURATION_FIELD}' is not supported on this endpoint: this server tracks sticky events \
-             as per-user pins (POST /rooms/{{roomId}}/sticky_events) rather than as an event property, so an event \
-             cannot be scheduled and pinned in one call"
+            "'{MSC4354_STICKY_DURATION_FIELD}' cannot be combined with a scheduled send: the sticky duration is \
+             recorded on the sent event's unsigned projection, which a delayed event (stored and replayed later) \
+             has no opportunity to set. Send the event immediately with the sticky hint, or schedule it without one"
         )));
     }
 

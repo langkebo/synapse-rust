@@ -761,6 +761,7 @@ impl MessagingService {
     /// cannot drift apart — the only difference between them is the visibility
     /// check, never the payload.
     fn event_to_client_json(event: &synapse_storage::RoomEvent) -> serde_json::Value {
+        let age = synapse_common::current_timestamp_millis().saturating_sub(event.origin_server_ts).max(0);
         json!({
             "event_id": event.event_id,
             "sender": event.user_id,
@@ -769,6 +770,7 @@ impl MessagingService {
             "room_id": event.room_id,
             "origin_server_ts": event.origin_server_ts,
             "state_key": event.state_key,
+            "unsigned": crate::sync_helpers::merged_unsigned(event.unsigned.as_ref(), age),
         })
     }
 
@@ -1084,6 +1086,7 @@ mod tests {
             origin: String::new(),
             stream_ordering: None,
             redacts: None,
+            unsigned: None,
         }
     }
 

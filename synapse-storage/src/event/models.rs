@@ -60,6 +60,10 @@ pub struct RoomEvent {
     /// Target event_id for `m.room.redaction` events (P0-05).  `None` for
     /// non-redaction events or redaction events that do not specify a target.
     pub redacts: Option<String>,
+    /// Server-computed / server-annotated `unsigned` block (JSONB), e.g.
+    /// `msc4354_sticky_duration_ttl_ms` written by the MSC4354 `/send` hint.
+    /// Serialized back into the client projection by `sync_helpers`.
+    pub unsigned: Option<serde_json::Value>,
 }
 
 /// Aggregate counts for a single room, computed entirely on the SQL side.

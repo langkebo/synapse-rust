@@ -907,6 +907,7 @@ mod tests {
             origin: origin.to_string(),
             stream_ordering: None,
             redacts: None,
+            unsigned: None,
         }
     }
 

@@ -21,7 +21,7 @@ pub(crate) async fn whoami(State(ctx): State<AuthContext>, headers: HeaderMap) -
     // P-035: Return spec-compliant errcodes for the whoami endpoint.
     // Missing token -> M_MISSING_TOKEN; invalid/expired token -> M_UNKNOWN_TOKEN.
     let token = bearer_token(&headers).map_err(|_| ApiError::missing_token())?;
-    let (user_id, device_id, _is_admin, _is_shadow_banned, is_guest) =
+    let (user_id, device_id, _is_admin, _is_shadow_banned, is_guest, _appservice_id) =
         ctx.token_auth.validate_token(&token).await.map_err(|e| {
             if e.kind == synapse_common::ApiErrorKind::Internal {
                 ApiError::internal_with_cause("Token validation error", e)
@@ -67,7 +67,7 @@ pub(crate) async fn enforce_profile_visibility(
     let token = bearer_token(headers).ok();
     let requester_id = if let Some(t) = token {
         match auth_service.validate_token(&t).await {
-            Ok((id, _, _, _, _)) => Some(id),
+            Ok((id, _, _, _, _, _)) => Some(id),
             Err(e) => {
                 // DB/internal errors must propagate (fail-closed); auth failures
                 // (expired / invalid / revoked) correctly degrade to anonymous.
@@ -270,7 +270,7 @@ async fn take_rc_profile_for_caller(
     // Resolve the caller: authenticated user_id, or fall back to the path
     // user_id (for GET /profile/{user_id} without auth).
     let caller = match bearer_token(headers).ok() {
-        Some(token) => ctx.token_auth.validate_token(&token).await.ok().map(|(id, _, _, _, _)| id),
+        Some(token) => ctx.token_auth.validate_token(&token).await.ok().map(|(id, _, _, _, _, _)| id),
         None => None,
     };
     let key_user = caller.as_deref().unwrap_or(path_user_id);

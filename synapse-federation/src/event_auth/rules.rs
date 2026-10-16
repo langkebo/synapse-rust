@@ -382,6 +382,7 @@ mod tests {
             origin: "example.org".to_string(),
             stream_ordering: Some(1),
             redacts: None,
+            unsigned: None,
         }
     }
 

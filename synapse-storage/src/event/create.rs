@@ -30,7 +30,7 @@ impl EventStorage {
             RETURNING event_id, room_id, sender as user_id, event_type, content, state_key,
                       COALESCE(depth, 0) as "depth!", origin_server_ts as "processed_ts",
                       origin_server_ts, 0::BIGINT as "not_before!", 'pending' as "status?",
-                      'self' as "origin!", stream_ordering, redacts
+                      'self' as "origin!", stream_ordering, redacts, unsigned
             "#,
             &params.event_id,
             &params.room_id,
@@ -76,7 +76,7 @@ impl EventStorage {
             RETURNING event_id, room_id, sender as user_id, event_type, content, state_key,
                       COALESCE(depth, 0) as "depth!", origin_server_ts as "processed_ts",
                       origin_server_ts, 0::BIGINT as "not_before!", 'pending' as "status?",
-                      'self' as "origin!", stream_ordering, redacts
+                      'self' as "origin!", stream_ordering, redacts, unsigned
             "#,
             &params.event_id,
             &params.room_id,
@@ -315,7 +315,7 @@ impl EventStorage {
             RETURNING event_id, room_id, sender as user_id, event_type, content, state_key,
                       COALESCE(depth, 0) as "depth!", origin_server_ts as "processed_ts",
                       origin_server_ts, 0::BIGINT as "not_before!", 'pending' as "status?",
-                      'self' as "origin!", stream_ordering, redacts
+                      'self' as "origin!", stream_ordering, redacts, unsigned
             "#,
             &params.event_id,
             &params.room_id,
@@ -409,7 +409,7 @@ impl EventStorage {
                    COALESCE(depth, 0) as "depth!", COALESCE(origin_server_ts, 0) as "origin_server_ts!",
                    COALESCE(origin_server_ts, 0) as "processed_ts!",
                    COALESCE(not_before, 0) as "not_before!", status, COALESCE(origin, 'self') as "origin!",
-                   stream_ordering, redacts
+                   stream_ordering, redacts, unsigned
             FROM events
             WHERE room_id = $1 AND event_type = 'm.room.create'
             ORDER BY origin_server_ts ASC

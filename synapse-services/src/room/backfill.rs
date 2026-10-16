@@ -406,6 +406,7 @@ mod tests {
             origin: "test.server".to_string(),
             stream_ordering: None,
             redacts: None,
+            unsigned: None,
         }
     }
 

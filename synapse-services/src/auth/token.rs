@@ -11,7 +11,10 @@ use synapse_storage::refresh_token::CreateRefreshTokenRequest;
 
 impl AuthService {
     /// See [`validate_token`].
-    pub async fn validate_token(&self, token: &str) -> ApiResult<(String, Option<String>, bool, bool, bool)> {
+    pub async fn validate_token(
+        &self,
+        token: &str,
+    ) -> ApiResult<(String, Option<String>, bool, bool, bool, Option<String>)> {
         ::tracing::debug!(target: "token_validation", "Validating token");
 
         // MSC3861: When a MAS token validator is configured, first try the
@@ -29,7 +32,7 @@ impl AuthService {
                         user_id = %claims.user_id,
                         "MAS token validated successfully"
                     );
-                    return Ok((claims.user_id, claims.device_id, claims.is_admin, false, claims.is_guest));
+                    return Ok((claims.user_id, claims.device_id, claims.is_admin, false, claims.is_guest, None));
                 }
                 Ok(None) => {
                     ::tracing::debug!(target: "token_validation", "Token is not a MAS token, falling back to local HS256 path");
@@ -138,7 +141,14 @@ impl AuthService {
                         }
                     };
 
-                    Ok((cached_claims.user_id, cached_claims.device_id.clone(), is_admin, is_shadow_banned, is_guest))
+                    Ok((
+                        cached_claims.user_id,
+                        cached_claims.device_id.clone(),
+                        is_admin,
+                        is_shadow_banned,
+                        is_guest,
+                        cached_claims.appservice_id.clone(),
+                    ))
                 } else {
                     Err(ApiError::unauthorized("User not found or deactivated".to_string()))
                 };
@@ -176,6 +186,7 @@ impl AuthService {
                         u.is_admin,
                         u.is_shadow_banned,
                         u.is_guest,
+                        cached_claims.appservice_id.clone(),
                     ))
                 } else {
                     Err(ApiError::unauthorized("User is deactivated".to_string()))
@@ -215,7 +226,14 @@ impl AuthService {
                     .await?;
                 self.cache.set(&format!("user:guest:{}", claims.sub), u.is_guest, USER_ACTIVE_CACHE_TTL_SECS).await?;
                 self.cache.set_token(token, &final_claims, TOKEN_CACHE_TTL_SECS).await;
-                Ok((final_claims.user_id, final_claims.device_id.clone(), is_admin, u.is_shadow_banned, u.is_guest))
+                Ok((
+                    final_claims.user_id,
+                    final_claims.device_id.clone(),
+                    is_admin,
+                    u.is_shadow_banned,
+                    u.is_guest,
+                    final_claims.appservice_id.clone(),
+                ))
             }
             None => {
                 ::tracing::debug!(target: "token_validation", "User not found in database");
@@ -226,6 +244,29 @@ impl AuthService {
 
     /// See [`generate_access_token`].
     pub async fn generate_access_token(&self, user_id: &str, device_id: &str, admin: bool) -> ApiResult<String> {
+        self.generate_access_token_with_appservice(user_id, device_id, admin, None).await
+    }
+
+    /// MSC4190: mint an access token that records the impersonating
+    /// application service, so device-management endpoints can skip
+    /// user-interactive auth for requests made on behalf of a virtual user.
+    pub async fn generate_appservice_access_token(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        admin: bool,
+        appservice_id: &str,
+    ) -> ApiResult<String> {
+        self.generate_access_token_with_appservice(user_id, device_id, admin, Some(appservice_id.to_string())).await
+    }
+
+    async fn generate_access_token_with_appservice(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        admin: bool,
+        appservice_id: Option<String>,
+    ) -> ApiResult<String> {
         let now = Utc::now();
         let claims = super::ClaimsBuilder::new()
             .sub(user_id.to_string())
@@ -236,6 +277,7 @@ impl AuthService {
             .device_id(Some(device_id.to_string()))
             .iss(&self.server_name)
             .aud(&self.server_name)
+            .appservice_id(appservice_id)
             .build();
 
         let mut header = Header::new(Algorithm::HS256);

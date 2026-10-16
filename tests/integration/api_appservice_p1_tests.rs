@@ -879,3 +879,180 @@ async fn test_appservice_login_impersonates_exclusive_namespace_user() {
     let bad_token_response = app.clone().oneshot(bad_token_login).await.unwrap();
     assert_eq!(bad_token_response.status(), StatusCode::UNAUTHORIZED);
 }
+
+/// MSC4190: an App Service may manage the devices of the virtual user it
+/// impersonates **without** user-interactive auth, and `PUT /devices/{deviceId}`
+/// upserts (201 on create, 200 on update). Mirrors upstream
+/// `synapse/rest/client/devices.py`, which short-circuits UIA when
+/// `requester.app_service_id` is set.
+#[tokio::test]
+async fn test_appservice_device_management_skips_uia_msc4190() {
+    let Some(app) = setup_fresh_test_app().await else {
+        return;
+    };
+    let (admin_token, _) = get_admin_token(&app).await;
+
+    let suffix = rand::random::<u32>();
+    let username = format!("asdev{suffix}");
+    let user_id = format!("@{username}:localhost");
+    let as_token = format!("as_dev_token_{suffix}");
+    let as_id = format!("test_as_dev_{suffix}");
+
+    // 1. 注册带排他 users 命名空间的 AS
+    let register_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/appservices")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {admin_token}"))
+        .body(Body::from(
+            json!({
+                "id": as_id,
+                "url": "http://localhost:8080",
+                "as_token": as_token,
+                "hs_token": format!("hs_dev_{suffix}"),
+                "sender_localpart": format!("botdev{suffix}"),
+                "namespaces": {
+                    "users": [{"regex": format!("^@{username}:localhost$"), "exclusive": true}],
+                    "aliases": [],
+                    "rooms": []
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = app.clone().oneshot(register_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED, "AppService 注册应成功");
+
+    // 2. 创建命名空间内的用户
+    let register_user = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "username": username,
+                "password": "AsDevPass123!",
+                "auth": {"type": "m.login.dummy"}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let register_user_response = app.clone().oneshot(register_user).await.unwrap();
+    if register_user_response.status() != StatusCode::OK {
+        eprintln!("Skipping MSC4190 device management test: user registration disabled in this config");
+        return;
+    }
+
+    // 3. AS 登录命名空间内的用户，拿到带 appservice_id 的访问令牌
+    let login_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/login")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {as_token}"))
+        .body(Body::from(
+            json!({
+                "type": "m.login.application_service",
+                "identifier": {"type": "m.id.user", "user": user_id},
+                "device_id": "ASDEV"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let login_response = app.clone().oneshot(login_request).await.unwrap();
+    assert_eq!(login_response.status(), StatusCode::OK, "AS 登录应成功");
+    let body = axum::body::to_bytes(login_response.into_body(), 8192).await.unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let as_access_token = value["access_token"].as_str().unwrap().to_string();
+
+    // 4. PUT 新设备 → 201 Created（AS upsert 的创建分支）
+    let put_new = Request::builder()
+        .method("PUT")
+        .uri("/_matrix/client/v3/devices/ASNEW")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {as_access_token}"))
+        .body(Body::from(json!({"display_name": "AS device"}).to_string()))
+        .unwrap();
+    let put_new_response = app.clone().oneshot(put_new).await.unwrap();
+    assert_eq!(put_new_response.status(), StatusCode::CREATED, "AS PUT 新设备应返回 201（MSC4190 upsert 创建分支）");
+
+    // 5. 再次 PUT 同一设备 → 200 OK（AS upsert 的更新分支）
+    let put_existing = Request::builder()
+        .method("PUT")
+        .uri("/_matrix/client/v3/devices/ASNEW")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {as_access_token}"))
+        .body(Body::from(json!({"display_name": "AS device v2"}).to_string()))
+        .unwrap();
+    let put_existing_response = app.clone().oneshot(put_existing).await.unwrap();
+    assert_eq!(
+        put_existing_response.status(),
+        StatusCode::OK,
+        "AS PUT 已存在设备应返回 200（MSC4190 upsert 更新分支）"
+    );
+
+    // 6. DELETE 单设备（不带 UIA auth）→ 200，证明 AS 免 UIA
+    let delete_one = Request::builder()
+        .method("DELETE")
+        .uri("/_matrix/client/v3/devices/ASNEW")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {as_access_token}"))
+        .body(Body::from("{}"))
+        .unwrap();
+    let delete_one_response = app.clone().oneshot(delete_one).await.unwrap();
+    assert_eq!(delete_one_response.status(), StatusCode::OK, "AS DELETE /devices/{{id}} 应免 UIA 直接成功");
+
+    // 7. PUT 另一台设备后用 POST /delete_devices 批量删除（同样免 UIA）
+    let put_batch = Request::builder()
+        .method("PUT")
+        .uri("/_matrix/client/v3/devices/ASBATCH")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {as_access_token}"))
+        .body(Body::from(json!({}).to_string()))
+        .unwrap();
+    let put_batch_response = app.clone().oneshot(put_batch).await.unwrap();
+    assert_eq!(put_batch_response.status(), StatusCode::CREATED);
+
+    let delete_batch = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/delete_devices")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {as_access_token}"))
+        .body(Body::from(json!({"devices": ["ASBATCH"]}).to_string()))
+        .unwrap();
+    let delete_batch_response = app.clone().oneshot(delete_batch).await.unwrap();
+    assert_eq!(delete_batch_response.status(), StatusCode::OK, "AS POST /delete_devices 应免 UIA 直接成功");
+
+    // 8. 安全边界：AS 不得 upsert 属于其他用户的设备
+    let register_other = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "username": format!("otherdev{suffix}"),
+                "password": "AsDevPass123!",
+                "auth": {"type": "m.login.dummy"}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let register_other_response = app.clone().oneshot(register_other).await.unwrap();
+    assert_eq!(register_other_response.status(), StatusCode::OK);
+    let other_body = axum::body::to_bytes(register_other_response.into_body(), 8192).await.unwrap();
+    let other_value: serde_json::Value = serde_json::from_slice(&other_body).unwrap();
+    let other_device_id = other_value["device_id"].as_str().unwrap().to_string();
+
+    let put_foreign = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/devices/{other_device_id}"))
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {as_access_token}"))
+        .body(Body::from(json!({"display_name": "hijack"}).to_string()))
+        .unwrap();
+    let put_foreign_response = app.clone().oneshot(put_foreign).await.unwrap();
+    assert_eq!(
+        put_foreign_response.status(),
+        StatusCode::NOT_FOUND,
+        "AS 不得 upsert 属于其他用户的设备（应返回 404，与「无此设备」不可区分）"
+    );
+}

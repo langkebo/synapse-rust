@@ -30,6 +30,12 @@ pub struct Claims {
     #[serde(skip_serializing_if = "Option::is_none")]
     /// `aud` field.
     pub aud: Option<String>,
+    /// MSC4190: the application service that impersonated this user, if any.
+    /// Set only on tokens minted through `m.login.application_service`; lets
+    /// appservices manage devices without user-interactive auth.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// `appservice_id` field.
+    pub appservice_id: Option<String>,
 }
 
 /// Builder for constructing [`Claims`] with consistent defaults.
@@ -43,6 +49,7 @@ pub struct ClaimsBuilder {
     device_id: Option<String>,
     iss: Option<String>,
     aud: Option<String>,
+    appservice_id: Option<String>,
 }
 
 impl ClaimsBuilder {
@@ -58,6 +65,7 @@ impl ClaimsBuilder {
             device_id: None,
             iss: None,
             aud: None,
+            appservice_id: None,
         }
     }
 
@@ -116,6 +124,12 @@ impl ClaimsBuilder {
         self
     }
 
+    /// MSC4190: Record the application service that impersonated the user.
+    pub fn appservice_id(mut self, appservice_id: Option<String>) -> Self {
+        self.appservice_id = appservice_id;
+        self
+    }
+
     #[allow(
         clippy::expect_used,
         reason = "ClaimsBuilder contract: sub and exp are required; build is fail-fast on programmer error"
@@ -134,6 +148,7 @@ impl ClaimsBuilder {
             device_id: self.device_id,
             iss: self.iss,
             aud: self.aud,
+            appservice_id: self.appservice_id,
         }
     }
 }

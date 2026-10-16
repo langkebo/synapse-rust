@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key, origin_server_ts, is_redacted, redacts)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9)\n            RETURNING event_id, room_id, sender as user_id, event_type, content, state_key,\n                      COALESCE(depth, 0) as \"depth!\", origin_server_ts as \"processed_ts\",\n                      origin_server_ts, 0::BIGINT as \"not_before!\", 'pending' as \"status?\",\n                      'self' as \"origin!\", stream_ordering, redacts\n            ",
+  "query": "\n            INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key, origin_server_ts, is_redacted, redacts, depth, prev_events, auth_events)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9, $10, $11, $12)\n            RETURNING event_id, room_id, sender as user_id, event_type, content, state_key,\n                      COALESCE(depth, 0) as \"depth!\", origin_server_ts as \"processed_ts\",\n                      origin_server_ts, 0::BIGINT as \"not_before!\", 'pending' as \"status?\",\n                      'self' as \"origin!\", stream_ordering, redacts, unsigned\n            ",
   "describe": {
     "columns": [
       {
@@ -72,6 +72,11 @@
         "ordinal": 13,
         "name": "redacts",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "unsigned",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -84,7 +89,10 @@
         "Jsonb",
         "Text",
         "Int8",
-        "Text"
+        "Text",
+        "Int8",
+        "Jsonb",
+        "Jsonb"
       ]
     },
     "nullable": [
@@ -101,8 +109,9 @@
       null,
       null,
       true,
+      true,
       true
     ]
   },
-  "hash": "a5754710c4fbd139227af3eaa1a49c4d9e2ebf10feea263e757913fd1b274c2a"
+  "hash": "b5c967bae3afed437b6e64c2c41487847d02b07d77df6edcba067bc29db7dd07"
 }

@@ -16,6 +16,9 @@ pub struct AuthenticatedUser {
     pub is_shadow_banned: bool,
     /// The `is_guest` field.
     pub is_guest: bool,
+    /// MSC4190: the application service impersonating this user, if the token
+    /// was minted through `m.login.application_service`.
+    pub appservice_id: Option<String>,
     /// The `access_token` field.
     pub access_token: String,
 }
@@ -33,6 +36,8 @@ pub struct OptionalAuthenticatedUser {
     pub is_shadow_banned: bool,
     /// The `is_guest` field.
     pub is_guest: bool,
+    /// MSC4190: the application service impersonating this user, if any.
+    pub appservice_id: Option<String>,
     /// The `access_token` field.
     pub access_token: Option<String>,
 }
@@ -77,9 +82,15 @@ where
             let token = token_result?;
             let result = state.token_auth().validate_token(&token).await;
             match result {
-                Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => {
-                    Ok(Self { user_id, device_id, is_admin, is_shadow_banned, is_guest, access_token: token })
-                }
+                Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest, appservice_id)) => Ok(Self {
+                    user_id,
+                    device_id,
+                    is_admin,
+                    is_shadow_banned,
+                    is_guest,
+                    appservice_id,
+                    access_token: token,
+                }),
                 Err(e) => Err(e),
             }
         }
@@ -103,12 +114,13 @@ where
         async move {
             match token_result {
                 Ok(token) => match state.token_auth().validate_token(&token).await {
-                    Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => Ok(Self {
+                    Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest, appservice_id)) => Ok(Self {
                         user_id: Some(user_id),
                         device_id,
                         is_admin,
                         is_shadow_banned,
                         is_guest,
+                        appservice_id,
                         access_token: Some(token),
                     }),
                     // B-9 fix: previously, an invalid token was silently
@@ -124,6 +136,7 @@ where
                     is_admin: false,
                     is_shadow_banned: false,
                     is_guest: false,
+                    appservice_id: None,
                     access_token: None,
                 }),
             }
@@ -283,6 +296,7 @@ mod tests {
             is_admin: false,
             is_shadow_banned: false,
             is_guest: false,
+            appservice_id: None,
             access_token: None,
         };
     }

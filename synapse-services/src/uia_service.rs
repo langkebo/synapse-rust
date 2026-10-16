@@ -340,7 +340,7 @@ impl UiaService {
         // In the UIA context, the token is typically a login token issued
         // during the m.login.token registration/login flow.
         match token_auth.validate_token(token).await {
-            Ok((token_user_id, _, _, _, _)) => {
+            Ok((token_user_id, _, _, _, _, _)) => {
                 if token_user_id != user_id {
                     return Err(ApiError::forbidden("Token belongs to a different user".to_string()));
                 }

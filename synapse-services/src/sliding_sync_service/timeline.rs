@@ -76,6 +76,7 @@ mod tests {
             origin: "ex.com".into(),
             stream_ordering,
             redacts: None,
+            unsigned: None,
         }
     }
 

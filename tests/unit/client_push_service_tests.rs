@@ -52,6 +52,8 @@ struct MockPushStoreState {
     /// Configured return value for `ack_notification` — `true` makes the mock
     /// report a successful ack (the service maps `Some(id)` → `Ok(true)`).
     ack_returns_some: bool,
+    /// Configured return value for `count_push_rules_excluding`.
+    rule_count: i64,
 }
 
 impl MockPushStore {
@@ -182,6 +184,20 @@ impl PushStoreApi for MockPushStore {
             return Err(storage_error());
         }
         Ok(())
+    }
+
+    async fn count_push_rules_excluding(
+        &self,
+        _user_id: &str,
+        _scope: &str,
+        _kind: &str,
+        _rule_id: &str,
+    ) -> Result<i64, sqlx::Error> {
+        let state = self.state.lock().unwrap().clone();
+        if state.fail_all {
+            return Err(storage_error());
+        }
+        Ok(state.rule_count)
     }
 
     async fn get_push_rule_enabled(

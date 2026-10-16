@@ -462,6 +462,7 @@ async fn test_p2_12_refresh_token_invalidates_old_access_token_cache() {
         device_id: Some(device_id.clone()),
         iss: Some("localhost".to_string()),
         aud: Some("localhost".to_string()),
+        appservice_id: None,
     };
     cache.set_token(&old_access_token, &claims, 3600).await;
 

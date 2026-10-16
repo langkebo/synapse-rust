@@ -294,12 +294,25 @@ impl AuthService {
 
 #[async_trait::async_trait]
 impl crate::auth::TokenAuth for AuthService {
-    async fn validate_token(&self, token: &str) -> ApiResult<(String, Option<String>, bool, bool, bool)> {
+    async fn validate_token(
+        &self,
+        token: &str,
+    ) -> ApiResult<(String, Option<String>, bool, bool, bool, Option<String>)> {
         self.validate_token(token).await
     }
 
     async fn generate_access_token(&self, user_id: &str, device_id: &str, admin: bool) -> ApiResult<String> {
         self.generate_access_token(user_id, device_id, admin).await
+    }
+
+    async fn generate_appservice_access_token(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        admin: bool,
+        appservice_id: &str,
+    ) -> ApiResult<String> {
+        self.generate_appservice_access_token(user_id, device_id, admin, appservice_id).await
     }
 
     async fn generate_refresh_token(&self, user_id: &str, device_id: &str, access_token: &str) -> ApiResult<String> {

@@ -136,6 +136,7 @@ fn room_event_reexport_is_constructible_with_all_fields() {
         origin: "self".to_string(),
         stream_ordering: Some(1),
         redacts: None,
+        unsigned: None,
     };
 
     assert_eq!(event.event_id, "$event:example.com");
@@ -161,6 +162,7 @@ fn room_event_reexport_clones_correctly() {
         origin: "self".to_string(),
         stream_ordering: None,
         redacts: None,
+        unsigned: None,
     };
 
     let cloned = event.clone();

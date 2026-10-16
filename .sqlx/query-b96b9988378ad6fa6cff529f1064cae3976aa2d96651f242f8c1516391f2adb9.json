@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT event_id, room_id, COALESCE(user_id, sender) AS \"user_id!\", event_type, content, state_key,\n                   COALESCE(depth, 0) AS \"depth!\", COALESCE(origin_server_ts, 0) AS \"origin_server_ts!\",\n                   COALESCE(origin_server_ts, 0) AS \"processed_ts!\",\n                   COALESCE(not_before, 0) AS \"not_before!\", status, COALESCE(origin, 'self') AS \"origin!\",\n                   stream_ordering, redacts\n            FROM events\n            WHERE room_id = $1\n              AND event_type = 'm.room.message'\n              AND soft_failed = FALSE\n              AND to_tsvector('english', content) @@ plainto_tsquery('english', $2)\n            ORDER BY origin_server_ts DESC\n            LIMIT $3\n            ",
+  "query": "\n            SELECT event_id, room_id, sender as user_id, event_type, content, state_key,\n                   COALESCE(depth, 0) AS \"depth!\", origin_server_ts,\n                   origin_server_ts AS \"processed_ts\",\n                   COALESCE(not_before, 0) AS \"not_before!\", status,\n                   COALESCE(origin, 'self') AS \"origin!\", stream_ordering, redacts, unsigned\n            FROM events WHERE event_id = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -15,7 +15,7 @@
       },
       {
         "ordinal": 2,
-        "name": "user_id!",
+        "name": "user_id",
         "type_info": "Text"
       },
       {
@@ -40,12 +40,12 @@
       },
       {
         "ordinal": 7,
-        "name": "origin_server_ts!",
+        "name": "origin_server_ts",
         "type_info": "Int8"
       },
       {
         "ordinal": 8,
-        "name": "processed_ts!",
+        "name": "processed_ts",
         "type_info": "Int8"
       },
       {
@@ -72,31 +72,35 @@
         "ordinal": 13,
         "name": "redacts",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "unsigned",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Text",
-        "Int8"
+        "Text"
       ]
     },
     "nullable": [
       false,
       false,
-      null,
+      false,
       false,
       false,
       true,
       null,
-      null,
-      null,
+      false,
+      false,
       null,
       true,
       null,
+      true,
       true,
       true
     ]
   },
-  "hash": "21f076233e90d5662ae913419a0eda3b76adf0d86c2223bb71c8059e5a93602e"
+  "hash": "b96b9988378ad6fa6cff529f1064cae3976aa2d96651f242f8c1516391f2adb9"
 }
