@@ -561,7 +561,90 @@ impl EventBroadcaster {
         );
     }
 
-    /// See [`retry_pending_transactions`.
+    /// C1（§19.5 批次 C）：把 `federation_queue` 里遗留的 `status='pending'` 行重新装载进内存重试队列。
+    ///
+    /// 出站事务失败时只写库留痕（`pending` 行），但此前**没有任何代码在重启或远端重连后重放**
+    /// 它们 —— 内存队列（[`EventBroadcaster::pending_queue`]）启动时恒为空，于是"留痕即丢"。
+    /// 本方法由后台维护循环在**进程启动时**与**每轮 tick**调用，读回 pending 行、反序列化回
+    /// [`FederationTransaction`] 并塞回内存队列，交给 [`Self::retry_pending_transactions`] 补发。
+    ///
+    /// 幂等：内存队列里已存在的 `db_id` 会被跳过，重复调用不会重复装载同一条遗留行。
+    /// 无法反序列化（结构漂移）或超出 [`MAX_PENDING_QUEUE_ENTRIES`] 而被淘汰的行会被标记 `failed`，
+    /// 避免留下永远无法推进的 `pending` 行。
+    pub async fn replay_pending_transactions(&self) -> Result<usize, FederationBroadcastError> {
+        let Some(pool) = self.pool.as_ref() else {
+            return Ok(0);
+        };
+        // 没有联邦客户端时重试不可能成功，直接跳过（否则会把同一批行反复装载又反复失败）。
+        if self.federation_client.is_none() {
+            return Ok(0);
+        }
+
+        let storage = synapse_storage::federation_queue::FederationQueueStorage::new(pool.clone());
+        let entries = match storage.get_all_pending().await {
+            Ok(entries) => entries,
+            Err(e) => {
+                ::tracing::warn!("Failed to load pending federation transactions for replay: {}", e);
+                return Ok(0);
+            }
+        };
+
+        let now = current_timestamp_millis();
+        let mut replayed = 0usize;
+        let mut stale: Vec<i64> = Vec::new();
+
+        {
+            let mut queue = self.pending_queue.write().await;
+            let mut known: std::collections::HashSet<i64> = queue.iter().filter_map(|pending| pending.db_id).collect();
+
+            for entry in entries {
+                if known.contains(&entry.id) {
+                    continue;
+                }
+
+                let transaction = match serde_json::from_value::<FederationTransaction>(entry.content.clone()) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        ::tracing::warn!("Dropping unreplayable federation_queue row {}: {}", entry.id, e);
+                        stale.push(entry.id);
+                        continue;
+                    }
+                };
+
+                // 与 `enqueue_for_retry` 一致：溢出时淘汰最旧（front）条目并标记 `failed`。
+                while queue.len() >= MAX_PENDING_QUEUE_ENTRIES {
+                    let dropped_db_id = queue.first().and_then(|pending| pending.db_id);
+                    queue.remove(0);
+                    if let Some(db_id) = dropped_db_id {
+                        stale.push(db_id);
+                    }
+                }
+
+                queue.push(PendingTransaction {
+                    destination: entry.destination,
+                    transaction,
+                    retry_count: entry.retry_count.max(0) as u32,
+                    next_retry_at: now,
+                    db_id: Some(entry.id),
+                });
+                known.insert(entry.id);
+                replayed += 1;
+            }
+        }
+
+        // `update_db_status` 是 async ⇒ 必须在释放 `pending_queue` 写锁之后再调用。
+        for db_id in stale {
+            self.update_db_status(db_id, "failed").await;
+        }
+
+        if replayed > 0 {
+            ::tracing::info!("Replayed {} pending federation transactions from federation_queue", replayed);
+        }
+
+        Ok(replayed)
+    }
+
+    /// See [`retry_pending_transactions`].
     pub async fn retry_pending_transactions(&self) -> Result<usize, FederationBroadcastError> {
         let client = match &self.federation_client {
             Some(c) => c.clone(),
@@ -999,5 +1082,75 @@ mod db_tests {
         send_batch(&ok_client, &ok_queue, &Some((*pool).clone()), &[1000], &batches, "dest.example.com").await;
         assert!(ok_queue.read().await.is_empty());
         assert_eq!(ok_mock.sent_transactions().await.len(), 1);
+    }
+
+    /// C1：`replay_pending_transactions` 把重启前落库的 pending 行装回内存队列，且重复调用幂等。
+    #[tokio::test]
+    async fn replay_pending_transactions_requeues_persisted_rows() {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+
+        let mock = Arc::new(crate::test_mocks::MockFederationClient::new("origin.example.com"));
+        let client: Arc<dyn FederationClientApi> = mock.clone();
+        let broadcaster =
+            EventBroadcaster::new("origin.example.com".to_string()).with_pool((*pool).clone()).with_client(client);
+
+        // 模拟"上一进程崩溃前"的遗留：一条已落库、状态 `pending` 的失败事务。
+        let db_id = broadcaster
+            .persist_transaction_to_db("dest.example.com", &transaction("replay-1"))
+            .await
+            .expect("persisted row id");
+        assert!(broadcaster.pending_queue.read().await.is_empty(), "内存队列启动时应为空");
+
+        let replayed = broadcaster.replay_pending_transactions().await.expect("replay");
+        assert_eq!(replayed, 1);
+        {
+            let queue = broadcaster.pending_queue.read().await;
+            assert_eq!(queue.len(), 1);
+            assert_eq!(queue[0].db_id, Some(db_id));
+            assert_eq!(queue[0].destination, "dest.example.com");
+            assert_eq!(queue[0].transaction.transaction_id, "replay-1");
+            // pending 行不携带行级"已发送"信息 ⇒ 立刻可重试（`next_retry_at` 不晚于现在）。
+            assert!(queue[0].next_retry_at <= current_timestamp_millis());
+        }
+
+        // 幂等：第二次调用不会再装载同一条行。
+        let replayed_again = broadcaster.replay_pending_transactions().await.expect("replay again");
+        assert_eq!(replayed_again, 0, "已装载的 db_id 必须被跳过");
+        assert_eq!(broadcaster.pending_queue.read().await.len(), 1);
+    }
+
+    /// C1：内容无法反序列化回 `FederationTransaction` 的 pending 行在重放时被标记 `failed`，
+    /// 不会永远卡在 `pending`。
+    #[tokio::test]
+    async fn replay_pending_transactions_marks_unreplayable_rows_failed() {
+        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
+        let pool = isolated.pool();
+
+        let mock = Arc::new(crate::test_mocks::MockFederationClient::new("origin.example.com"));
+        let client: Arc<dyn FederationClientApi> = mock.clone();
+        let broadcaster =
+            EventBroadcaster::new("origin.example.com".to_string()).with_pool((*pool).clone()).with_client(client);
+
+        // 内容不是合法的 `FederationTransaction`（模拟结构漂移）。
+        let storage = synapse_storage::federation_queue::FederationQueueStorage::new((*pool).clone());
+        let bad_id = storage
+            .insert(&synapse_storage::federation_queue::InsertFederationQueueRequest {
+                destination: "dest.example.com".to_string(),
+                event_id: "txn:drifted".to_string(),
+                event_type: "m.edu".to_string(),
+                room_id: None,
+                content: serde_json::json!({"not": "a transaction"}),
+                created_ts: current_timestamp_millis(),
+            })
+            .await
+            .expect("insert drifted row");
+
+        let replayed = broadcaster.replay_pending_transactions().await.expect("replay");
+        assert_eq!(replayed, 0, "无法反序列化的行不能进入重试队列");
+        assert!(broadcaster.pending_queue.read().await.is_empty());
+
+        let (_, _, _, _, status, _, _) = queue_row(&pool, bad_id).await;
+        assert_eq!(status.as_deref(), Some("failed"), "不可重放的行必须标记 failed");
     }
 }

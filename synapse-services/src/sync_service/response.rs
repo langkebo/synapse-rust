@@ -264,6 +264,13 @@ impl SyncService {
             // Only fetch for rooms that have sticky events configured, avoiding
             // a query on every room of a wide initial sync (the sticky_rooms
             // set was pre-fetched in the try_join above).
+            //
+            // C2（§19.5 批次 C）：这里与 `GET /rooms/{room_id}/sticky_events`
+            // 落到**同一个** per-user 读取 `StickyEventStorage::get_all_is_sticky_events(room_id, user_id)`
+            // （过期过滤 `is_sticky = true AND (expires_at IS NULL OR expires_at > now)` 也在该读取内），
+            // 因此对任一 (room, user)，`/sync` 的 `sticky_events` 集合**恒等于** `GET` 端点返回的集合。
+            // 直接后果：新加入房间的成员在该读取下集合为空（sticky 是 per-user 的，无 per-room 广播抄本），
+            // `/sync` 与 `GET` 两路同时为空 —— 二者恒等，无需在加入路径补发。
             if let Some(storage) = self.sticky_event_storage.as_ref() {
                 if sticky_rooms.iter().any(|r| r == room_id) {
                     if let Ok(events) = storage.get_all_is_sticky_events(room_id, user_id).await {

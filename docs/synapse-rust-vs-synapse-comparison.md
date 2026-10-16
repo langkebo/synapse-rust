@@ -1602,7 +1602,7 @@ curl -sS "https://cdn.jsdelivr.net/gh/element-hq/synapse@release-v1.163/<path>" 
 | **UG-4（P1）** | **AS（MSC2409）临时数据投递未接线** | **部分修复（2026-10-16，见 §19.5.1）**：本轮按裁定范围只做「**配置键对齐**」——`appservice_receives_ephemeral(service)` 现认 4 个键（上游键 `de.sorunome.msc2409.push_ephemeral`、mautrix 键 `receive_ephemeral`、命名空间 `de.sorunome.msc2409`、`ephemeral`），使"按上游键配置的 AS"不再静默收不到。**投递接线仍未做**：`deliver_transaction_with_edus(…, None)` 依旧传 `None`，消费回执/在线状态流的生产路径仍缺 ⇒ 依赖回执的 bridge 拿不到数据。上游 #20108 修的是"分页导致永久跳过"，本仓连分页都没有 | `synapse-services/src/application_service/transaction.rs`、`synapse-services/src/application_service/scheduler.rs`；残余的投递面见 P-5 |
 | **UG-5（P1）** | **lazy-load 成员缓存缺少"客户端是否收到"的位置维度** | **已修（2026-10-16，见 §19.5.1）**：条目改为 `成员 → (event id, 承载它的响应位置)`，每次 `/sync` 请求按 `since` 修剪"位置晚于 since"的条目；初始同步清空并**不信任**持久化行。持久化的位置落在基线新增的可空列 `last_sent_position` 上（可空 ⇒ 与"真实位置 0"可区分；存量行 `NULL` 即"未记录"、一律不抑制） | `synapse-services/src/sync_service/lazy_load.rs`；`synapse-storage/src/device/mod.rs` |
 | **UG-6（P1）** | **`/preview_url` 返回伪造的 OpenGraph** | 桩实现会返回不存在的 `og:image`（`{url}/preview.png`）与占位标题/描述，把它当真的客户端会显示**捏造的链接预览**；且真正的抓取尚未实现（当前只有 IP 黑名单校验，没有 DNS-rebinding 钉扎） | `synapse-web/src/routes/media/preview.rs`、`synapse-services/src/media_service.rs` |
-| **UG-7（P2）** | MSC4354 联邦 catch-up（#20165）与新加入房间补发（#20233）缺 | 远端错过 EDU 后其 sticky 状态永久不一致；新加入房间的客户端看不到既有 sticky | `synapse-services/src/room/service.rs`、`synapse-federation/src/edu.rs` |
+| **UG-7（P2）** | MSC4354 联邦 catch-up（#20165）与新加入房间补发（#20233）缺 | **已实施（2026-10-17，见 §19.5.1「批次 C 实施记录」，C1 改最小闭环）**：C1 复用 `federation_queue` 做启动/定期重放（重放**已落库事务**，非 per-destination 位点增量补发）；C2 收敛为「`/sync` sticky 集合 == `GET .../sticky_events` 集合」（**按用户置顶语义不变**）；C3 写「单写者假设」注释 + 唯一键单行回归。**残余**：无逐 destination 的 sticky 增量补发；本仓 sticky 仍是**按用户**置顶，非上游的房级广播 | `synapse-services/src/room/service.rs`、`synapse-federation/src/edu.rs` |
 | **UG-8（P2）** | `task_scheduler.max_concurrent_tasks` 缺 | 并发上限不可配 ⇒ 重负载下只能改代码 | 全仓 0 命中 |
 | **UG-9（P2）** | `synapse_notifier_wait_for_stream_token_timeouts` 缺 | worker 等不到流位置时只有日志没有指标 ⇒ 无法告警**（§19.6(b) 已改判：本仓无 Twisted notifier 的"等 worker 追上流位置"机制，该指标无观测对象 ⇒ ⚪ 结构性不适用）** | `src/server/mod.rs` 与 `synapse-common/src/metrics.rs` 的指标清单 |
 | **UG-10（P1）** | **缺 MSC4354 的标准请求面**：上游用 `/send?org.matrix.msc4354.sticky_duration_ms=…` 把事件本身标记为 sticky，并把 sticky TTL 放在事件的 `unsigned` 上；本仓原先**不读这个查询参数**，改用自研的 `POST/DELETE/GET .../rooms/{room_id}/sticky_events`（`(room_id, user_id, event_type)` 唯一键的按用户置顶表） | **已修（2026-10-16，方案 ⓐ 补上游面，见 §19.5.1）**：`PUT /rooms/{roomId}/send/{eventType}/{txnId}` 现读 `?org.matrix.msc4354.sticky_duration_ms=<ms>`（含短名 `sticky_duration_ms` 回退），命名空间字段优先，非整数/`<=0`/越界 → 400 `M_INVALID_PARAM`，并把 TTL 写入事件的 `unsigned.msc4354_sticky_duration_ttl_ms` 投影。**残余**：上游的 `/state` 面本仓**未接线**（该查询参数只在 `/send` 解析）；既有私有 `sticky_events` 路由**保留**；`/sync` 的 sticky 标记仍由私有 `room_sticky_events` 表驱动，`/send` 的查询参数只落 `unsigned` 投影 | §19.5 C4（**已决策 ⓐ**：补齐上游面）；残余 `/state` 面登记于 §19.7 V-19-9 |
@@ -1850,7 +1850,7 @@ describe；`.sqlx/` 缓存按 `scripts/ci/sqlx_prepare.sh`（`ALLOW_CACHE_SHRINK
 
 **P1/P2 续作实施记录（2026-10-17，分支 `fix/p1-functional-security-gaps`）**
 
-承接 §18.8.1 剩余项与 §19.5 批次 C/UG 项，本轮交付 R2–R5、R7 五组（判据与残余如实登记）：
+承接 §18.8.1 剩余项与 §19.5 批次 C/UG 项，本轮交付 R2–R7 六组（判据与残余如实登记）：
 
 | 项 | 状态 | 交付物与判据 |
 |---|---|---|
@@ -1859,12 +1859,54 @@ describe；`.sqlx/` 缓存按 `scripts/ci/sqlx_prepare.sh`（`ALLOW_CACHE_SHRINK
 | R4 = §18.8.1 L1429（AS 联邦侧代理）= MSC4512 | ✅ 已修 | ① 代理侧：新增 `synapse-web/src/routes/msc4512_proxy.rs`——统一 fallback（`routes/assembly.rs` 由 `router.fallback(...)` 接管）按注册文件 `proxy_prefix` 动态分派 C-S（`/_matrix/client/(unstable/[^/]+\|v[^/]+)/{prefix}/…`）与 S-S（`/_matrix/federation/...`）请求，授权后转发到 `proxy_url`；双向剥离 hop-by-hop 头（复用 `app_service.rs::is_hop_by_hop_header`，改 `pub(crate)`）与入站 `Authorization`，改注入 `Authorization: Bearer <hs_token>` 及 `X-Matrix-User-Identifier`（C-S）/ `X-Matrix-Origin`（S-S）。② 发起侧：`POST /_matrix/client/v1/appservice/fed_proxy`（+ unstable 孪生 `/_matrix/client/unstable/io.element.msc4512/appservice/fed_proxy`，均注册于 `create_app_service_router`）实现规范全部校验与错误码（`M_FEDPROXY_DESTINATION_DENIED` / `M_FEDPROXY_PATH_NOT_ALLOWED` / `M_FEDPROXY_CONNECTION_FAILED` 等）；`synapse-common/src/error/code.rs` 补码。③ 策略对齐上游 Synapse：`synapse-services/src/application_service/proxy.rs`（新建）含 `ALLOWED_PROXY_PREFIXES = {"rtc/livekit"}` 白名单、`ProxyScheme`、`validate_proxy_config_value`（`proxy_prefix`/`proxy_url` 必须成对）、`resolve_proxy_target`；`experimental.msc4512_enabled` 默认 `false`。配置沿用 `AppServiceConfigFile` 的 `#[serde(flatten)] extra` ⇒ **零迁移**。判据：`msc4512_proxy` 4 单测 + `application_service::proxy` 21 单测全通过；`cargo check -p synapse-web --all-features` 通过。**契约链连带**：2 条新路由 ⇒ 重生成三张派生表 + 两条 fixture lane（golden 3 份 + sdk 3 份 + `manifest.json`）+ 两份 ledger 集成快照 + `docs/openapi/route-table.json`（957 → **959**）+ `ROUTE_CONTRACT.md`（**1,038 路由 / 66 模块**） |
 | R5 = §18.8.1 L1433 / UG-10：MSC4354 标准请求面 `/state` 残余 | ✅ 已修 | `synapse-web/src/routes/handlers/room/state.rs`（+40 行）：`send_state_event` / `put_state_event` / `put_state_event_empty_key` / `put_state_event_no_key` 四路径均取 `msc4354_query_sticky_duration_ms(&query)?`（持久化前校验，越界 400）并在持久化后 `apply_msc4354_sticky_ttl(&ctx, &event_id, duration_ms).await?` 落 `unsigned` 投影。判据：既有 `/send` 3 用例 + `/state` 面复用同一助手函数 |
 | R7 = UG-8 + §19.5 D1：`task_scheduler` 配置段 | ✅ 已修 | 新增 `synapse-common/src/config/task_scheduler.rs`（`max_concurrent_tasks` 等键），`synapse-services/src/wiring/admin.rs` 改为 `ApplicationServiceScheduler::with_max_services_per_tick(manager, config.task_scheduler.max_concurrent_tasks)` ⇒ 上游 `task_scheduler` 并发上限有了对应物（见 V-19-8 改判） |
+| R6 = C1 + C2 + C3（§19.5 批次 C）= UG-7：sticky 联邦 catch-up + 新加入房间补发 sticky | ✅ 已实施（**C1 改最小闭环**） | 见下方「批次 C 实施记录（2026-10-17）」。C1 复用 `federation_queue` 做启动/定期重放（**零迁移、零 `.sqlx` 变更**）；C2 收敛为「`/sync` sticky 集合 == `GET .../sticky_events` 集合」并由构造保证；C3 以注释 + 唯一键单行回归用例登记 |
 
 **本轮数据面连带**：R4 零迁移（`extra` → `config` JSONB），无新增 `.sqlx` 条目；R2 新增的两条
 receipt 流查询已入 `.sqlx` 缓存。契约链按 `scripts/contract/check_route_contract.sh` 全链重生成后通过。
+R6 亦**零迁移、零 `.sqlx` 变更**（C1 复用已入缓存的 `get_all_pending`）。
+
+**批次 C 实施记录（2026-10-17）**
+
+1. **C1（UG-7a）sticky 联邦 catch-up —— 偏离 §19.5 C1 原方案，改用最小闭环**：
+   - **原方案**：为每个 destination 记录"本机已同步到哪个 sticky 位置"（per-destination 位点表），
+     远端重连/回执成功后**补发缺失 EDU**。
+   - **本轮裁定（用户答复）**：**最小闭环 —— 复用 `federation_queue` 做启动（及定期）重放**，
+     把已落库的 `status='pending'` 行在启动/每轮 tick 重新装载并重放。**零迁移、零 `.sqlx` 变更**，
+     不新增 per-destination 位点表。
+   - **实现**：`synapse-federation/src/event_broadcaster.rs` 新增
+     `EventBroadcaster::replay_pending_transactions()` —— 用 `FederationQueueStorage::get_all_pending()`
+     读回 `status='pending'` 行，反序列化回 `FederationTransaction` 塞回内存重试队列，交给既有
+     `retry_pending_transactions()` 补发。**幂等**：内存队列里已存在的 `db_id` 跳过，重复调用不重装；
+     **不可反序列化（结构漂移）或超 `MAX_PENDING_QUEUE_ENTRIES` 被淘汰的行标 `failed`**，
+     不留永远无法推进的 `pending` 行（淘汰/标失败在释放写锁后做，因 `update_db_status` 是 async）。
+     接线在 `src/server/mod.rs` 后台维护循环的**启动**处与**每轮 tick**（`retry_pending_transactions` 之前）。
+     未配联邦客户端或未配 pool 时直接返回 0（避免把同一批行反复装载又反复失败）。
+   - **判据**：`event_broadcaster.rs::mod db_tests` 的
+     `replay_pending_transactions_requeues_persisted_rows`（回装 + `db_id`/`transaction_id`/`next_retry_at`
+     正确 + **幂等负控**：二次调用返回 0 且队列仍 1 条）与
+     `replay_pending_transactions_marks_unreplayable_rows_failed`（结构漂移行标 `failed`，不空转）。
+   - **残余（如实登记）**：这是"重启/重连后重放**已落库事务**"的 catch-up，与上游"per-destination
+     sticky 位点 + 增量补发"**语义不等价** —— 本仓 sticky 不注入 timeline、也不逐 destination 记位点，
+     故**未实现逐 destination 的 sticky 增量补发**。若将来确需，须引入 per-destination 位点（§19.5 C1 原方案）。
+2. **C2（UG-7b）新加入房间补发 sticky —— 保守读法（用户裁定）**：
+   - **裁定**：只保证「**新成员 `/sync` 的 sticky 集合恒等于其 `GET .../sticky_events` 集合**」，
+     **不改现有语义**、不在加入路径补发。
+   - **事实依据**：`/sync` 的 sticky 注入（`synapse-services/src/sync_service/response.rs`，MSC4354 段）
+     与 `GET .../sticky_events`（`synapse-web/src/routes/sticky_event.rs`）**共用同一** per-user 读取
+     `StickyEventStorage::get_all_is_sticky_events(room_id, user_id)`（过期过滤 `is_sticky=true AND
+     (expires_at IS NULL OR expires_at > now)` 在该读取内完成）⇒ 两路集合**恒等由构造保证**；
+     新成员两路皆空，无需在加入路径补发。
+   - **落地**：`response.rs` 的 MSC4354 注入注释追加 C2 段，显式声明"同源 ⇒ 恒等；新成员无需补发"。
+   - **判据**：`tests/integration/api_sticky_event_tests.rs::sticky_view_is_identical_for_sync_and_get_and_empty_for_new_members`
+     （pinned 用户读到既有集合；new_member 读到空集）。
+3. **C3（#20186 的形态差异）**：按 §19.5 C3「现在不做，只写注释与回归用例」落地。
+   - `synapse-storage/src/sticky_event.rs::set_is_sticky_event` 注释新增「单写者假设（C3）」：
+     唯一键 `(room_id, user_id, event_type)`（`ON CONFLICT … DO UPDATE`）保证单写者模型下同键恒一行；
+     多写者/分片是被本轮**未做**的边界，届时需按分片位置去重或改 per-room 广播抄本。
+   - **判据**：`api_sticky_event_tests.rs::sticky_event_unique_key_keeps_one_row_per_room_user_type`
+     （同 `(room, user, type)` 写两次 ⇒ 仅 1 行且为后写值）。
 
 **本轮未做（如实登记）**：
-- **R6 = C1 + C2（§19.5 批次 C）= UG-7**：sticky 联邦 catch-up + 新加入房间补发 sticky —— 待办。
 - **R8 = UG-11 = §19.5.1 A1 残余**：注销残余（threepid 解绑、账数据/推送规则清理、线程订阅与备份键删除、用户目录摘除、待处理邀请/敲击拒绝、退房异步化）—— 待办。
 - **R1（P0 PDU 保留发送方签名/哈希）**：本轮范围明确不含（用户答复未选）。
 

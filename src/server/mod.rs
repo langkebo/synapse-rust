@@ -586,6 +586,15 @@ impl SynapseServer {
             let mut media_cleanup_counter: u64 = 0;
             let mut federation_retry_counter: u64 = 0;
             tokio::spawn(async move {
+                // C1（§19.5 批次 C）：启动时先重放 `federation_queue` 里遗留的 pending 事务。
+                // 内存重试队列启动时恒为空 ⇒ 不重放则重启前的失败事务"留痕即丢"。
+                match event_broadcaster.replay_pending_transactions().await {
+                    Ok(n) if n > 0 => {
+                        ::tracing::info!("Federation replay: {} pending transactions re-queued at startup", n);
+                    }
+                    Err(e) => ::tracing::warn!("Federation replay at startup failed: {}", e),
+                    _ => {}
+                }
                 let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(bg_tick_secs));
                 loop {
                     tokio::select! {
@@ -620,6 +629,10 @@ impl SynapseServer {
                             federation_retry_counter += 1;
                             if federation_retry_counter >= fed_retry_threshold {
                                 federation_retry_counter = 0;
+                                // C1：先重放遗留 pending 行（远端重连后补发缺失事务），再重试内存队列。
+                                if let Err(e) = event_broadcaster.replay_pending_transactions().await {
+                                    ::tracing::warn!("Federation replay failed: {}", e);
+                                }
                                 if let Ok(retried) = event_broadcaster.retry_pending_transactions().await {
                                     if retried > 0 {
                                         ::tracing::info!("Federation retry: {} transactions retried", retried);
