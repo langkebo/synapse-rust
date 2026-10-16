@@ -14,8 +14,9 @@ use synapse_rust::common::BackgroundJob;
 use synapse_rust::common::RedisTaskQueue;
 use synapse_rust::storage::event::EventStorage;
 use synapse_rust::worker::heartbeat::{
-    collect_load_stats, heartbeat_interval, resolve_base_url, resolve_secret, HeartbeatSender,
+    collect_load_stats, heartbeat_interval, resolve_base_url, resolve_secret, HeartbeatSender, WorkerIdentity,
 };
+use synapse_rust::worker::topology_validator::{current_instance_worker_type, resolved_current_instance_name};
 use synapse_rust::worker::{WorkerLoadStatsUpdate, WorkerRuntimeConfig};
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
@@ -252,7 +253,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let heartbeat_handle = match heartbeat_secret {
         Some(secret) => {
             let base_url = resolve_base_url(std::env::var("SYNAPSE_WORKER_BASE_URL").ok(), config.server.port);
-            let sender = HeartbeatSender::new(base_url, worker_id.clone(), secret, heartbeat_interval);
+            // W-G: announce who we are, so the heartbeat can create our registry row.
+            // Without this a worker holding only the shared secret can never register
+            // (the register route needs an admin token), and `update_worker_status` is a
+            // plain UPDATE that quietly changes zero rows — the worker then beats for
+            // ever while the topology reports it missing.
+            let identity = WorkerIdentity {
+                worker_name: resolved_current_instance_name(&config.worker),
+                worker_type: current_instance_worker_type(&config.worker).as_str().to_string(),
+                host: Some(metrics_host.clone()),
+                port: Some(metrics_port),
+            };
+            tracing::info!(
+                worker_name = %identity.worker_name,
+                worker_type = %identity.worker_type,
+                "Worker self-announcement enabled (W-G)"
+            );
+            let sender =
+                HeartbeatSender::new(base_url, worker_id.clone(), secret, heartbeat_interval).with_identity(identity);
             tracing::info!(
                 worker_id = %worker_id,
                 interval_ms = heartbeat_interval.as_millis() as u64,

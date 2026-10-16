@@ -402,6 +402,57 @@ MSC4306（线程订阅，已实现线程相关读取面）与媒体隔离（`med
   即仍然不建行、不报错）；`runtime.missing` 在多进程烟测里为空（端到端）。
 - **验收**：`scripts/test/worker_topology_smoke.sh` 全绿（它今天在注册断言处必然失败）。
 
+#### W-G 实施记录（2026-10-17，已交付）
+
+**代码**
+- `synapse-web/src/routes/worker/worker_self_announce.rs`（新增）：`HeartbeatBody`（含 4 个可选身份字段）、
+  `HeartbeatBody::announced_identity()`（纯解析）、`announce_if_unknown()`（首次心跳建行）。
+  `worker.rs` 里原来的 `HeartbeatBody` 定义改为 `pub use`，公共路径不变。
+  ⚠️ **行数实况（勿按直觉写）**：`worker.rs` 基线 936，**p1 上就已经是 944**，引入 W-A 后 939，
+  本批 **941**（净 +2）—— 把结构体移出去换来的空间被新增的 `mod`/`pub use`/调用与注释吃掉了，
+  **文件仍在基线之上**；不过这个超额是 p1 带来的，不是本批引入。
+  顺带核了一遍整张棘轮：`scripts/ci/file_size_baseline` 的 253 条里 **61 条增长 + 24 条变小/缺失**
+  ⇒ 该 gate 在本分支上**整体就是红的**（两个方向都红），要把某单个文件弄回基线内并不能让它变绿，
+  那是单独一批的事（`--update` 或逐文件收敛）。
+- `src/worker/heartbeat.rs`：`WorkerIdentity` + `HeartbeatSender::with_identity()`（builder，不动既有
+  `new` 的参数与调用点）；载荷构造抽成 `payload()` 以便对**线上形状**做单测。
+- `src/bin/synapse_worker.rs`：用 `resolved_current_instance_name`、`current_instance_worker_type`
+  以及自己的 metrics 监听地址组装身份。
+- `docker/docker-compose.workers.yml`：worker 服务补 `SYNAPSE__WORKER__ENABLED=true`。
+  **这是本轮第二个实测出来的栈级缺陷**：`resolved_current_instance_name` /
+  `current_instance_worker_type` 在 `worker.enabled == false` 时**直接早退返回 master**（与
+  `instance_name` 无关）⇒ 上一批的 worker 服务会**全部自称 master**，5 个声明实例仍然全部报 missing。
+
+**判据（离线，11 条 — 全部通过）**
+- `-p synapse-rust --lib -E 'test(heartbeat::tests)'` → **16/16**（含 4 条新增：不带身份时身份字段
+  **缺席而非 null**（`deny_unknown_fields` 的旧 master 才不会拒；这是混合部署不炸的关键）、
+  带身份时逐字段上送、空白名视为未宣告、`with_identity` 不改变默认）。
+- `-p synapse-web --lib -E 'test(worker_self_announce)'` → **7/7**（旧心跳仍可反序列化且不宣告；
+  10 个 `WorkerType` **线上拼写**逐个可解析；用实例名拼写当类型会被 400 拒掉而不是静默忽略；
+  空白名/半个宣告不报错；仍拒绝未知字段）。
+
+**端到端实跑（真实多进程，隔离环境）**
+
+环境：专用 PG（`postgres:16-alpine`，`--tmpfs` 即用即弃，宿主端口 15432）、专用 Redis（16399）、
+master 监听 18008、5 个 `synapse_worker` 真进程（metrics 19091-19095）；
+**不触碰本机正在运行的那套 deploy 栈**（它占着 8008/5432/6379）。
+
+| 步骤 | 结果 |
+|------|------|
+| master 启动（含运行时迁移 218 张表 + schema 校验 + Redis 连通） | ✅ 3s 内 `/health` 就绪 |
+| `--validate-topology`（W-B） | ✅ 退出码 0，`worker topology: OK (0 warning(s))` |
+| 起 5 个 worker 前注册表行数 | `0`（正好是修复前的处境） |
+| 起 5 个 worker 后（等首拍心跳） | ✅ **5 行**，`worker_name` = `client_reader,event_persister,federation_reader,media_repository,sync_worker`（与声明集合完全一致 ⇒ 也证明了 `instance_name` 占位符生效） |
+| `GET /_synapse/worker/v1/topology/validate` | ✅ **`runtime.valid=true`、`missing=[]`、`live=[5 个声明实例]`** |
+| 负控：不带身份的未知 worker 心跳 | ✅ HTTP 200、**不建行**（旧客户端行为不变，也正是修复前所有 worker 的处境） |
+
+⇒ **W-G 的验收通过**，且这是 W-A…W-G 全程**第一次**真的把多进程拓扑跑起来并拿到端点证据。
+
+**实跑中另外踩到（已修）**：烟测脚本的管理员引导有两处会让断言永远失败的坑 ——
+① 注册密码必须满足密码策略（纯小写十六进制被 400 `M_INVALID_PARAM` 拒）；② 必须带
+`user_type: super_admin` **且它要参与 HMAC**，否则角色归一化成"无角色"、RBAC 拒掉
+`/_synapse/worker/*`（实测 403）。两者都已写进脚本注释与实现。
+
 ### W-E：拓扑可观测性
 
 指标建议：`synapse_worker_topology_valid`、`synapse_worker_registered_total`、

@@ -18,18 +18,19 @@
 #
 # 退出码：0 = 全部断言通过；非 0 = 任一步失败（失败处会打印它期望什么、实际看到什么）。
 #
-# ⚠️ 已知缺口（2026-10-17 实测，**当前必然失败**，原因是代码而非环境）：
-#   worker 进程**没有任何可用的自注册路径**。`POST /_synapse/worker/v1/register` 挂在
-#   admin 鉴权后面（`synapse-web/src/routes/worker.rs` 的 route_layer → `admin_auth_middleware`
-#   → 要求管理员 access token + RBAC），而 worker 手里只有共享密钥；共享密钥那侧
-#   （`create_worker_body_router`）只挂了 heartbeat/命令/事件，**没有 register**。
-#   与此同时 `update_worker_status` 是 `UPDATE workers ... WHERE worker_id = $1`
+# ✅ 曾经的缺口已修（W-G，2026-10-17）：worker 进程**没有自注册路径** —— 唯一入口
+#   `POST /_synapse/worker/v1/register` 挂在 admin 鉴权后面（要管理员令牌），而 worker
+#   只有共享密钥；而 `update_worker_status` 是 `UPDATE workers ... WHERE worker_id = $1`
 #   （非 upsert、且**不检查影响行数**）⇒ 未知 worker 的心跳**静默改 0 行**。
-#   ⇒ 在真实多进程部署里注册表恒为空，`runtime.missing` 会把每个声明实例都列出来，
-#   `get_active()` 为空、负载均衡无候选、`select_worker_for_task` 对 worker 专属任务恒 None。
-#   （历史上没暴露：集成测试是用**管理员令牌**显式注册的，见
-#   `tests/integration/api_worker_heartbeat_stats_tests.rs`。）
-#   修复方案与代价见审计文档 §4 的批次 **W-G**。
+#   现在心跳会带上 worker 自己的身份（`worker_name`/`worker_type`/`host`/`port`），
+#   master 在首次心跳时为它建注册行（`synapse-web/src/routes/worker/worker_self_announce.rs`），
+#   不动鉴权面、不新增路由 ⇒ 不触发契约链。旧客户端（不带身份）行为不变。
+#
+# ⚠️ 本脚本踩过、后来者也会踩的两个鉴权细节：
+#   1. 管理员注册的密码**必须满足密码策略**（至少一个大写字母）；纯小写十六进制会被
+#      400 `M_INVALID_PARAM` 拒掉，表现为"拿不到管理员令牌"。
+#   2. 注册管理员**必须带 `user_type`（如 `super_admin`）且它要参与 HMAC**；否则角色
+#      归一化成"无角色"，RBAC 会拒掉 `/_synapse/worker/*`（实测 403）。
 #
 # ⚠️ 一处**故意与文档不同**的地方（勿当成漏做）：
 #   `docs/audit/WORKER_TOPOLOGY_VERIFICATION_AUDIT_2026-10-16.md` §4 W-D 第 3 条原本要求
@@ -190,21 +191,29 @@ admin_token() { # 走 W-B 无关的既有管理员引导流程（nonce + HMAC-SH
     fi
 
     local username="smoke_admin_$(date +%s)_$$"
-    local password="smoke-$(openssl rand -hex 12)"
+    # ⚠️ 必须满足本仓的密码策略（至少含大写字母等）——纯小写十六进制会被
+    # `POST /_synapse/admin/v1/register` 以 400 `M_INVALID_PARAM` 拒掉，
+    # 表现为"拿不到管理员令牌"，很容易被误当成权限/nonce 问题。
+    local password="Smoke-$(openssl rand -hex 8)!Aa1"
     local mac
     mac="$(
         python3 - "$nonce" "$username" "$password" "$admin_secret" <<'PY'
 import hashlib, hmac, sys
 nonce, username, password, secret = sys.argv[1:5]
-message = nonce.encode() + b"\x00" + username.encode() + b"\x00" + password.encode() + b"\x00" + b"admin\x00\x00\x00"
+# 布局见 synapse-services/src/admin_registration_service.rs 的 update_admin_registration_mac：
+#   nonce \0 username \0 password \0 ("admin\0\0\0" | "notadmin") [\0 user_type]
+message = (nonce.encode() + b"\x00" + username.encode() + b"\x00" + password.encode()
+           + b"\x00" + b"admin\x00\x00\x00" + b"\x00" + b"super_admin")
 print(hmac.new(secret.encode(), message, hashlib.sha256).hexdigest())
 PY
     )"
 
+    # ⚠️ `user_type` 不能省，且必须参与上面的 MAC：没有它，管理员角色归一化成"无角色"，
+    # RBAC 会拒掉 `/_synapse/worker/*`（实测 403）⇒ 本脚本的拓扑断言永远过不去。
     local response
     response="$(curl -fsS -X POST "$BASE_URL/_synapse/admin/v1/register" \
         -H 'Content-Type: application/json' \
-        -d "{\"nonce\":\"$nonce\",\"username\":\"$username\",\"password\":\"$password\",\"admin\":true,\"mac\":\"$mac\"}")" || {
+        -d "{\"nonce\":\"$nonce\",\"username\":\"$username\",\"password\":\"$password\",\"admin\":true,\"user_type\":\"super_admin\",\"mac\":\"$mac\"}")" || {
         fail "管理员注册请求失败"
         return 1
     }
@@ -322,5 +331,5 @@ if [[ "$failures" -eq 0 && "$status" -eq 0 ]]; then
     echo "全部通过"
     exit 0
 fi
-echo "有失败项（failures=$failures）" >&2
+echo "有失败项（failures=${failures}）" >&2
 exit 1

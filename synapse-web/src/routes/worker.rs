@@ -17,6 +17,8 @@ use synapse_common::ApiError;
 use synapse_services::worker::topology_validator::{may_serve_delayed_events_route, DELAYED_EVENTS_WORKER_PATHS};
 use synapse_services::worker::types::*;
 
+/// Worker self-announcement on the heartbeat (W-G).
+pub mod worker_self_announce;
 /// The topology endpoints (W-A): the static catalogue plus the live registry.
 pub mod worker_topology;
 
@@ -60,14 +62,10 @@ impl RegisterWorkerBody {
 }
 
 /// The `HeartbeatBody` struct.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct HeartbeatBody {
-    /// The `status` field.
-    pub status: String,
-    /// The `load_stats` field.
-    pub load_stats: Option<WorkerLoadStatsUpdate>,
-}
+///
+/// Defined in [`worker_self_announce`] (W-G) next to the rule that consumes its
+/// identity fields; re-exported so the path used by callers stays the same.
+pub use worker_self_announce::HeartbeatBody;
 
 /// The `SendCommandBody` struct.
 #[derive(Debug, Deserialize)]
@@ -349,6 +347,10 @@ pub async fn heartbeat(
     Json(body): Json<HeartbeatBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let status: WorkerStatus = WorkerStatus::from_str(&body.status).map_err(ApiError::bad_request)?;
+
+    // W-G: a worker holding only the shared secret had no way to create its registry
+    // row, and the status UPDATE below silently changes 0 rows for an unknown worker.
+    worker_self_announce::announce_if_unknown(&ctx, &worker_id, &body).await?;
 
     ctx.worker_manager.heartbeat(&worker_id, status, body.load_stats).await?;
 

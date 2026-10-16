@@ -81,10 +81,39 @@ pub fn resolve_base_url(configured: Option<String>, server_port: u16) -> String 
 /// Heartbeat payload. Mirrors the route's `HeartbeatBody` — no `worker_id`
 /// field, which arrives in the path and is rejected by `deny_unknown_fields` if
 /// sent in the body.
+///
+/// The four identity fields (W-G) are what let the route create the registry row on
+/// first contact; they are `Option` so the payload stays valid against a master that
+/// predates them, and so a worker with an unset identity keeps heartbeating.
 #[derive(Debug, Serialize)]
 struct HeartbeatPayload<'a> {
     status: &'a str,
     load_stats: Option<WorkerLoadStatsUpdate>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    worker_name: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    worker_type: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    host: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    port: Option<u16>,
+}
+
+/// The identity a worker announces about itself on every heartbeat (W-G).
+///
+/// `worker_name` must be the **configured instance name**
+/// (`resolved_current_instance_name`) and `worker_type` the type `WorkerType::from_str`
+/// accepts — the route feeds the former to `worker_name` and parses the latter.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WorkerIdentity {
+    /// The instance name this process is configured as.
+    pub worker_name: String,
+    /// The worker type it serves, in `WorkerType::as_str` spelling.
+    pub worker_type: String,
+    /// Where it can be reached (a `synapse_worker` only serves `/metrics`).
+    pub host: Option<String>,
+    /// See [`WorkerIdentity::host`].
+    pub port: Option<u16>,
 }
 
 /// POSTs worker heartbeats to the homeserver's worker surface.
@@ -95,6 +124,7 @@ pub struct HeartbeatSender {
     worker_id: String,
     secret: String,
     interval: Duration,
+    identity: WorkerIdentity,
 }
 
 impl HeartbeatSender {
@@ -103,12 +133,51 @@ impl HeartbeatSender {
     /// Uses the process-wide shared `reqwest` client (connection pool + bounded
     /// timeouts) rather than constructing a new client per request.
     pub fn new(base_url: String, worker_id: String, secret: String, interval: Duration) -> Self {
-        Self { client: default_client(), base_url, worker_id, secret, interval }
+        Self { client: default_client(), base_url, worker_id, secret, interval, identity: WorkerIdentity::default() }
+    }
+
+    /// Announce this worker's identity on every heartbeat (W-G).
+    ///
+    /// Without it the route cannot create the registry row (see
+    /// `synapse-web/src/routes/worker/worker_self_announce.rs`), so the worker stays
+    /// invisible to the topology despite beating happily: `update_worker_status` is a
+    /// plain UPDATE that silently changes zero rows for an unknown worker.
+    ///
+    /// Builder rather than another `new` parameter so existing constructors and their
+    /// tests keep working unchanged.
+    #[must_use]
+    pub fn with_identity(mut self, identity: WorkerIdentity) -> Self {
+        self.identity = identity;
+        self
+    }
+
+    /// The identity currently announced (empty by default).
+    pub fn identity(&self) -> &WorkerIdentity {
+        &self.identity
     }
 
     /// The full heartbeat URL for this worker.
     pub fn endpoint(&self) -> String {
         format!("{}/_synapse/worker/v1/workers/{}/heartbeat", self.base_url, self.worker_id)
+    }
+
+    /// The payload for one heartbeat, identity fields included when announced (W-G).
+    ///
+    /// Split from [`send`] so the wire shape is unit-testable without an HTTP server.
+    /// The one property that matters most: when nothing is announced the identity keys
+    /// are **absent**, not null — the route deserializes with `deny_unknown_fields`, and
+    /// a pre-W-G master would reject keys it does not know.
+    fn payload(&self, status: &'static str, load_stats: Option<WorkerLoadStatsUpdate>) -> HeartbeatPayload<'_> {
+        let announced_name = self.identity.worker_name.trim();
+        let announced_type = self.identity.worker_type.trim();
+        HeartbeatPayload {
+            status,
+            load_stats,
+            worker_name: (!announced_name.is_empty()).then_some(announced_name),
+            worker_type: (!announced_type.is_empty()).then_some(announced_type),
+            host: self.identity.host.as_deref(),
+            port: self.identity.port,
+        }
     }
 
     /// Send one heartbeat.
@@ -117,7 +186,7 @@ impl HeartbeatSender {
     /// the route deliberately returns 500 when persisting `load_stats` fails, so
     /// callers must log at WARN and retry on the next tick.
     pub async fn send(&self, status: WorkerStatus, load_stats: Option<WorkerLoadStatsUpdate>) -> Result<(), String> {
-        let payload = HeartbeatPayload { status: status.as_str(), load_stats };
+        let payload = self.payload(status.as_str(), load_stats);
         let endpoint = self.endpoint();
 
         let response = self
@@ -294,5 +363,87 @@ mod tests {
         );
 
         assert_eq!(sender.endpoint(), "https://master.example.com/_synapse/worker/v1/workers/worker-1/heartbeat");
+    }
+
+    // === W-G: the heartbeat carries the worker's identity so the route can create the
+    // registry row (a worker holding only the shared secret has no register route) ===
+
+    fn sender_without_identity() -> HeartbeatSender {
+        HeartbeatSender::new(
+            "http://127.0.0.1:8008".to_string(),
+            "worker-1".to_string(),
+            "secret".to_string(),
+            Duration::from_millis(5000),
+        )
+    }
+
+    #[test]
+    fn a_heartbeat_without_an_announced_identity_omits_the_identity_keys() {
+        // Absent, not null: the route uses `deny_unknown_fields`, and a master that
+        // predates W-G rejects keys it does not know. This is what keeps a mixed
+        // deployment (new worker, old master) working.
+        let sender = sender_without_identity();
+        let value = serde_json::to_value(sender.payload("running", None)).expect("payload must serialize");
+        let object = value.as_object().expect("payload is a JSON object");
+
+        assert_eq!(object.get("status").and_then(|v| v.as_str()), Some("running"));
+        for key in ["worker_name", "worker_type", "host", "port"] {
+            assert!(
+                !object.contains_key(key),
+                "'{key}' must be absent (not null) when nothing is announced; got {value}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_announced_identity_is_carried_on_every_heartbeat() {
+        let sender = sender_without_identity().with_identity(WorkerIdentity {
+            worker_name: "event_persister".to_string(),
+            worker_type: "event_persister".to_string(),
+            host: Some("127.0.0.1".to_string()),
+            port: Some(9091),
+        });
+
+        let value = serde_json::to_value(sender.payload("running", None)).expect("payload must serialize");
+
+        assert_eq!(value.get("worker_name").and_then(|v| v.as_str()), Some("event_persister"));
+        assert_eq!(value.get("worker_type").and_then(|v| v.as_str()), Some("event_persister"));
+        assert_eq!(value.get("host").and_then(|v| v.as_str()), Some("127.0.0.1"));
+        assert_eq!(value.get("port").and_then(|v| v.as_u64()), Some(9091));
+    }
+
+    #[test]
+    fn a_blank_announced_name_is_treated_as_not_announced() {
+        // A deployment that leaves the instance name unset must keep heartbeating
+        // rather than start sending a name the route would refuse to build a row from.
+        let sender = sender_without_identity().with_identity(WorkerIdentity {
+            worker_name: "   ".to_string(),
+            worker_type: String::new(),
+            host: None,
+            port: None,
+        });
+
+        let value = serde_json::to_value(sender.payload("running", None)).expect("payload must serialize");
+        let object = value.as_object().expect("payload is a JSON object");
+
+        assert!(!object.contains_key("worker_name"), "a blank name must not be announced");
+        assert!(!object.contains_key("worker_type"), "a blank type must not be announced");
+    }
+
+    #[test]
+    fn with_identity_is_a_builder_that_leaves_the_original_alone() {
+        // `with_identity` takes `self` by value; the point of pinning it is that the
+        // default (no identity) stays the default for every existing constructor call.
+        let plain = sender_without_identity();
+        assert_eq!(plain.identity(), &WorkerIdentity::default());
+
+        let announced = sender_without_identity().with_identity(WorkerIdentity {
+            worker_name: "sync_worker".to_string(),
+            worker_type: "synchrotron".to_string(),
+            host: None,
+            port: None,
+        });
+        assert_eq!(announced.identity().worker_name, "sync_worker");
+        assert_eq!(announced.identity().worker_type, "synchrotron");
     }
 }

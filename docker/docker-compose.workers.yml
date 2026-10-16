@@ -18,14 +18,12 @@
 #    写成了 `${WORKER_INSTANCE_NAME:-master}`（`resolve_env_variables` 才会替换它）——
 #    写成字面量 `"master"` 时 5 个进程会**全部自称 master**，per-service 的实例名成了摆设。
 #    这个声明会被 master 侧的拓扑校验、`instance_map`、`GET /_synapse/worker/v1/topology/validate`
-#    的 `runtime.missing` 拿来对账。
-#    ⚠️ **但本栈起来的 worker 目前注册不进注册表**（代码缺口，非配置问题）：唯一的注册入口
-#    `POST /_synapse/worker/v1/register` 挂在 **admin 鉴权**后面（要求管理员令牌），
-#    而 worker 手里只有共享密钥；共享密钥那侧没有 register。与此同时心跳只是
-#    `UPDATE workers ... WHERE worker_id = $1`（`synapse-storage/src/worker/repository.rs:144`，
-#    非 upsert、且**不检查影响行数**）⇒ 未知 worker 的心跳**静默改 0 行**。
-#    ⇒ 照现状起栈，`runtime.missing` 会把 5 个实例**全部**列出来，任务派发也找不到候选。
-#    修复方案（不动鉴权面、不触发契约链）见审计文档 §4 的批次 **W-G**。
+#    的 `runtime.missing` 拿来对账。**注册由心跳自声明完成**（W-G）：worker 首次心跳会带上
+#    `worker_name`/`worker_type`/`host`/`port`，master 据此建出注册行
+#    （此前 worker 只有共享密钥、拿不到 register 路由所需的 admin 令牌，
+#    而 `update_worker_status` 是普通 UPDATE、对未知 worker 静默改 0 行）。
+#    ⚠️ 因此下面每个 worker 服务都必须带 `SYNAPSE__WORKER__ENABLED=true`
+#    （见 `&worker-environment` 的注释），否则它会自称 master。
 # 3. `SYNAPSE__WORKER__ENABLED=true` 只加在 master 上：worker 注册/心跳面只有在
 #    `worker.enabled && worker.replication.http.enabled` 时才 mount
 #    （`WorkerBodyModule::merge_into`），master 不开这个开关，worker 注册不上。
@@ -52,6 +50,12 @@ x-worker-base: &worker-base
     - synapse_network
   environment: &worker-environment
     SYNAPSE_CONFIG_PATH: /app/config/homeserver.yaml
+    # ⚠️ worker 进程**也必须**打开这个开关，否则它们会自称 "master"：
+    # `resolved_current_instance_name` / `current_instance_worker_type` 在
+    # `worker.enabled == false` 时**直接早退返回 master**（与 instance_name 无关），
+    # 于是每个 worker 的心跳都会宣告 worker_name="master" ⇒ 5 个声明的实例全部仍报 missing。
+    # 这是部署级开关（同一份配置每个进程都读），不是"只有 master 才需要"。
+    SYNAPSE__WORKER__ENABLED: "true"
     # worker 进程不做迁移：6 个 worker 抢着建表是并发 DDL，不是"更保险"。
     RUN_MIGRATIONS: "false"
     VERIFY_SCHEMA: "false"
