@@ -214,6 +214,14 @@ admin_registration:
 worker:
   enabled: false
   instance_name: "master"
+  # W-B：静态拓扑校验发现 error 时是否拒绝启动。
+  #   默认 false = 与既有部署行为一致（校验结果只打 warn，进程照常启动）；
+  #   设为 true 后非法 worker 配置会让进程**启动即失败**，而不是把错误推迟到
+  #   运行期以「事件不落库」的形式暴露。
+  #   部署前想先拿到退出码（不改运行时行为）可用：
+  #     synapse-rust --validate-topology   # 0=可部署 1=配置有错 2=配置加载失败
+  topology:
+    strict: false
   replication:
     enabled: true
     server_name: "${SERVER_NAME:-localhost}"

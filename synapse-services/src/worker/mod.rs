@@ -14,6 +14,8 @@ pub mod runtime_topology;
 pub mod storage;
 /// The `tcp` module.
 pub mod tcp;
+/// The startup enforcement of the topology verdict (W-B).
+pub mod topology_gate;
 /// The `topology_validator` module.
 pub mod topology_validator;
 /// The `types` module.
@@ -29,6 +31,7 @@ pub use runtime_topology::{
     StreamCardinality, REQUIRED_STREAM_CARDINALITY,
 };
 pub use storage::WorkerStoreApi;
+pub use topology_gate::{check_startup_topology, StartupTopologyCheck};
 pub use topology_validator::{
     current_instance_worker_type, expected_route_owner_for_probe, global_maintenance_owner,
     may_serve_delayed_events_route, resolved_current_instance_name, should_run_global_maintenance, validate_topology,

@@ -30,6 +30,13 @@ type SmtpMailer = lettre::AsyncSmtpTransport<Tokio1Executor>;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Offline `--validate-topology` (W-B): a worker process reads the same
+    // configuration file as the daemon, so the pre-deploy check must be reachable
+    // from this binary too. Handled before any connection is opened.
+    if synapse_rust::cli::wants_topology_validation(std::env::args()) {
+        std::process::exit(synapse_rust::cli::run_offline_topology_check());
+    }
+
     tracing_subscriber::fmt::init();
 
     let config = Config::load()?;

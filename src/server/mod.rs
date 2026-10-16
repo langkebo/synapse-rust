@@ -205,12 +205,20 @@ impl SynapseServer {
 
         // Startup topology validation — ensures worker configuration is consistent before proceeding
         {
-            let validation = synapse_services::worker::topology_validator::validate_worker_config(&config.worker);
-            validation.log();
-            if !validation.valid {
+            let topology = synapse_services::worker::topology_gate::check_startup_topology(&config.worker);
+            topology.validation.log();
+            if let Some(reason) = &topology.fatal {
+                // W-B: `worker.topology.strict` escalates the advisory verdict to a
+                // refusal to start, mirroring `worker_replication_secret_check` above.
+                // Off by default on purpose — an existing deployment carrying a latent
+                // (and so far harmless) configuration problem must keep starting.
+                return Err(format!("FATAL: worker topology validation failed: {reason}").into());
+            }
+            if !topology.validation.valid {
                 ::tracing::warn!(
                     "Topology validation failed — check worker configuration. \
-                     The server will continue to start, but the worker topology may be misconfigured."
+                     The server will continue to start, but the worker topology may be misconfigured. \
+                     Set worker.topology.strict=true to make this fatal."
                 );
             }
         }

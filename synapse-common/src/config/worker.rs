@@ -43,6 +43,9 @@ pub struct WorkerConfig {
     #[serde(default = "default_lock_max_retries")]
     /// `lock_max_retries` field.
     pub lock_max_retries: u32,
+    #[serde(default)]
+    /// `topology` field.
+    pub topology: WorkerTopologyConfig,
 }
 
 fn default_worker_instance_name() -> String {
@@ -57,6 +60,26 @@ fn default_lock_max_retries() -> u32 {
     3
 }
 
+/// Startup enforcement policy for the worker topology (W-B).
+///
+/// The validator (`validate_worker_config`) has always existed and always run at
+/// startup; what it lacked was *teeth*: its verdict went to the log and the
+/// process started anyway. `strict` turns the same verdict into a refusal to
+/// start, so a deployment whose `stream_writers.events` points at an instance
+/// that does not exist fails immediately instead of surfacing later as "events
+/// are not being persisted".
+///
+/// Defaults to `false` on purpose: turning it on by default would abort startup
+/// for every existing deployment that carries a latent (and so far harmless)
+/// configuration problem. The switch is opt-in, matching this repository's
+/// convention that a new switch never changes behaviour until it is set.
+#[derive(Debug, Clone, Copy, Deserialize, Default)]
+pub struct WorkerTopologyConfig {
+    #[serde(default)]
+    /// `strict` field.
+    pub strict: bool,
+}
+
 impl Default for WorkerConfig {
     fn default() -> Self {
         Self {
@@ -68,6 +91,7 @@ impl Default for WorkerConfig {
             replication: ReplicationConfig::default(),
             lock_max_retry_interval_ms: default_lock_max_retry_interval_ms(),
             lock_max_retries: default_lock_max_retries(),
+            topology: WorkerTopologyConfig::default(),
         }
     }
 }
