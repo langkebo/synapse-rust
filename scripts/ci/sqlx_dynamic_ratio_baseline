@@ -3285,7 +3285,17 @@ BASELINE_QUERY_BUILDER=17
 BASELINE_DYNAMIC_PRODUCTION=96
 # 2026-10-15: 769 → 768（按实测收紧；棘轮是**上限**，留着 1 个空位等于允许一次静默回归）。
 #   本批（方案 B4.3）只新增了**静态**查询，这一项是复核实测时发现的既有余量。
-BASELINE_DYNAMIC_TEST_INFRA=768
+# 2026-10-16: 768 → **769**（+1，B1/UG-5 lazy-load 位置列）。
+#   来源唯一：`synapse-storage/src/device/mod.rs` 的 `#[cfg(test)] mod tests` 里那条
+#   **运行时** `sqlx::query("INSERT INTO lazy_loaded_members (…) VALUES ($1…$5)")` ——
+#   它要造一行**列引入前**的存量数据（`last_sent_position IS NULL`），而生产 API
+#   （`upsert_lazy_loaded_members`）按定义**跳过**无位置的条目，所以这条夹具**故意**绕开
+#   类型化 API，无法改成静态宏（`#[cfg(test)]` 内的 `query!` 不进 `cargo sqlx prepare`，
+#   `--all-targets` 会 E0432 —— 见本文件上方同一条说明）。
+#   该行是**一次性**插入，且已断言"读回来是 `NULL`"（判据：`an unrecorded position must stay NULL`），
+#   所以它不会被复制到其它夹具；**收紧方向**：若将来给 `LazyLoadedMemberRow` 增加
+#   "显式写入未记录位置"的合法入口（而不是靠夹具直插），这一项应同步回落 768。
+BASELINE_DYNAMIC_TEST_INFRA=769
 # 2026-10-15: 1353 → 1354（+1，方案 B4.3）。新增
 #   `synapse-storage/src/schema_health_check.rs` 的 `check_invalid_indexes()` —— 它让
 #   **半建索引**（`pg_index.indisvalid = false`）可见；此前只查"缺表/缺列/缺索引名"，

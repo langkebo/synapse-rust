@@ -229,7 +229,13 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // 重放基线时也能取到这两列；共 +964 字节，`bytes=235048`）⇒ 按 R10 第①条独立复算
 // FNV-1a 64 得 `c1894a91182775f0`；先用**改动前的实际常量** `46adae9a7958a336`
 // 对 HEAD 基线自检哈希实现（234084 字节逐字节吻合，证明哈希实现未变）后才取新值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "c1894a91182775f0";
+// 2026-10-16（B1/UG-5：lazy-load 成员缓存补「响应位置」= 上游 #20289 同族修复）：
+// baseline 再变（`lazy_loaded_members` 加**可空**列 `last_sent_position BIGINT`，
+// 并补 1 条 `ADD COLUMN IF NOT EXISTS` 让**老库**重放基线时也能取到该列；
+// 共 1062 字节，`bytes=236110`）⇒ 按 R10 第①条独立复算 FNV-1a 64 得
+// `0bea2dcc031b8c94`；先用**改动前的实际常量** `c1894a91182775f0` 对 HEAD 基线自检哈希实现
+// （235048 字节逐字节吻合，证明哈希实现未变）后才取新值。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "0bea2dcc031b8c94";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

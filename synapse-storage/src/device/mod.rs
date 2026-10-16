@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use sqlx::{Pool, Postgres};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
@@ -110,7 +110,7 @@ pub trait DeviceListStoreApi: Send + Sync {
         user_id: &str,
         device_id: &str,
         room_id: &str,
-    ) -> Result<HashSet<String>, sqlx::Error>;
+    ) -> Result<Vec<LazyLoadedMemberRow>, sqlx::Error>;
 
     /// See [`upsert_lazy_loaded_members`].
     async fn upsert_lazy_loaded_members(
@@ -118,7 +118,7 @@ pub trait DeviceListStoreApi: Send + Sync {
         user_id: &str,
         device_id: &str,
         room_id: &str,
-        member_user_ids: &HashSet<String>,
+        members: &[LazyLoadedMemberRow],
     ) -> Result<u64, sqlx::Error>;
 
     // ── device management (widened set) ────────────────────────────────────
@@ -164,6 +164,28 @@ pub struct Device {
     pub appservice_id: Option<String>,
     /// The `ignored_user_list` field.
     pub ignored_user_list: Option<String>,
+}
+
+/// One persisted lazy-load entry: a member we have already sent to a
+/// lazy-loading device, plus the position of the `/sync` response that carried
+/// them.
+///
+/// The position is what makes the persisted suppression sound (upstream #20289
+/// has the same field in memory): a client only comes back with a token at or
+/// past the position of a response it actually *processed*, so an entry whose
+/// position is newer than the request's `since` describes a response the client
+/// never received and must not suppress that member.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LazyLoadedMemberRow {
+    /// `member_user_id`.
+    pub member_user_id: String,
+    /// `last_sent_position`: the `next_batch` position of the response that
+    /// carried this membership. `None` means "not recorded" (a row written
+    /// before this column existed) and is treated as "possibly not delivered",
+    /// so it never suppresses. `Some(0)` is a *real* position: a quiet room can
+    /// legitimately have `next_batch == 0`, which is why the column is nullable
+    /// instead of defaulting to 0.
+    pub last_sent_position: Option<i64>,
 }
 
 /// The `DeviceStorage` struct.
@@ -272,15 +294,20 @@ impl DeviceStorage {
     }
 
     /// See [`get_lazy_loaded_members`].
+    ///
+    /// Returns the stored `(member, position)` pairs **unfiltered**: comparing a
+    /// position against the caller's `since` is a decision for the sync layer
+    /// (`LazyLoadedMemberState`), which is the only place that knows whether the
+    /// request was incremental at all.
     pub async fn get_lazy_loaded_members(
         &self,
         user_id: &str,
         device_id: &str,
         room_id: &str,
-    ) -> Result<HashSet<String>, sqlx::Error> {
-        let members: Vec<String> = sqlx::query_scalar!(
+    ) -> Result<Vec<LazyLoadedMemberRow>, sqlx::Error> {
+        let rows = sqlx::query!(
             r#"
-            SELECT member_user_id
+            SELECT member_user_id, last_sent_position
             FROM lazy_loaded_members
             WHERE user_id = $1 AND device_id = $2 AND room_id = $3
             "#,
@@ -291,23 +318,45 @@ impl DeviceStorage {
         .fetch_all(&*self.pool)
         .await?;
 
-        Ok(members.into_iter().collect())
+        Ok(rows
+            .into_iter()
+            .map(|row| LazyLoadedMemberRow {
+                member_user_id: row.member_user_id,
+                last_sent_position: row.last_sent_position,
+            })
+            .collect())
     }
 
     /// See [`upsert_lazy_loaded_members`].
+    ///
+    /// Each member carries **its own** position: members recorded in different
+    /// responses must keep the position of the response that actually carried
+    /// them, otherwise pruning by `since` would either drop a member the client
+    /// did receive or keep one it did not.
+    ///
+    /// A member without a position ([`LazyLoadedMemberRow::last_sent_position`] is
+    /// `None`) is **skipped**: a row that cannot say when it was sent can never
+    /// suppress anything, so storing it would only mislead the next reader. This
+    /// also keeps the parameter a plain `BIGINT[]` — the element type sqlx's
+    /// offline metadata pins.
     pub async fn upsert_lazy_loaded_members(
         &self,
         user_id: &str,
         device_id: &str,
         room_id: &str,
-        member_user_ids: &HashSet<String>,
+        members: &[LazyLoadedMemberRow],
     ) -> Result<u64, sqlx::Error> {
-        if member_user_ids.is_empty() {
+        let members: Vec<&LazyLoadedMemberRow> =
+            members.iter().filter(|member| member.last_sent_position.is_some()).collect();
+        if members.is_empty() {
             return Ok(0);
         }
 
         let now = current_timestamp_millis();
-        let member_user_ids: Vec<String> = member_user_ids.iter().cloned().collect();
+        let member_user_ids: Vec<String> = members.iter().map(|m| m.member_user_id.clone()).collect();
+        // The filter above guarantees `Some`, and the sync layer only ever
+        // persists members it just sent, whose position is the response's.
+        let positions: Vec<i64> = members.iter().filter_map(|m| m.last_sent_position).collect();
         let result = sqlx::query!(
             r#"
             INSERT INTO lazy_loaded_members (
@@ -316,18 +365,20 @@ impl DeviceStorage {
                 room_id,
                 member_user_id,
                 created_ts,
-                updated_ts
+                updated_ts,
+                last_sent_position
             )
-            SELECT $1, $2, $3, member_user_id, $4, $4
-            FROM UNNEST($5::TEXT[]) AS member_user_id
+            SELECT $1, $2, $3, member_user_id, $4, $4, last_sent_position
+            FROM UNNEST($5::TEXT[], $6::BIGINT[]) AS t(member_user_id, last_sent_position)
             ON CONFLICT (user_id, device_id, room_id, member_user_id)
-            DO UPDATE SET updated_ts = EXCLUDED.updated_ts
+            DO UPDATE SET updated_ts = EXCLUDED.updated_ts, last_sent_position = EXCLUDED.last_sent_position
             "#,
             user_id,
             device_id,
             room_id,
             now,
-            &member_user_ids[..]
+            &member_user_ids[..],
+            &positions[..]
         )
         .execute(&*self.pool)
         .await?;
@@ -1300,7 +1351,7 @@ impl DeviceListStoreApi for DeviceStorage {
         user_id: &str,
         device_id: &str,
         room_id: &str,
-    ) -> Result<HashSet<String>, sqlx::Error> {
+    ) -> Result<Vec<LazyLoadedMemberRow>, sqlx::Error> {
         self.get_lazy_loaded_members(user_id, device_id, room_id).await
     }
 
@@ -1309,9 +1360,9 @@ impl DeviceListStoreApi for DeviceStorage {
         user_id: &str,
         device_id: &str,
         room_id: &str,
-        member_user_ids: &HashSet<String>,
+        members: &[LazyLoadedMemberRow],
     ) -> Result<u64, sqlx::Error> {
-        self.upsert_lazy_loaded_members(user_id, device_id, room_id, member_user_ids).await
+        self.upsert_lazy_loaded_members(user_id, device_id, room_id, members).await
     }
 
     async fn delete_user_devices_batch(&self, user_id: &str, device_ids: &[String]) -> Result<u64, sqlx::Error> {
@@ -1338,7 +1389,6 @@ impl DeviceListStoreApi for DeviceStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
 
     #[test]
     fn test_device_struct() {
@@ -1613,6 +1663,7 @@ mod tests {
                 member_user_id TEXT NOT NULL,
                 created_ts BIGINT NOT NULL,
                 updated_ts BIGINT NOT NULL,
+                last_sent_position BIGINT,
                 PRIMARY KEY (user_id, device_id, room_id, member_user_id)
             )
             "#,
@@ -1640,17 +1691,54 @@ mod tests {
             .await
             .expect("Failed to create device");
 
-        let members = HashSet::from(["@alice:localhost".to_string(), "@bob:localhost".to_string()]);
-        storage
+        // Distinct positions on purpose: the row carries the position of the
+        // response that actually delivered *that* member, so a per-member
+        // position must survive the round trip.
+        let members = vec![
+            LazyLoadedMemberRow { member_user_id: "@alice:localhost".to_string(), last_sent_position: Some(41) },
+            LazyLoadedMemberRow { member_user_id: "@bob:localhost".to_string(), last_sent_position: Some(42) },
+            // No position ⇒ nothing to prove ⇒ not written at all.
+            LazyLoadedMemberRow { member_user_id: "@carol:localhost".to_string(), last_sent_position: None },
+        ];
+        let affected = storage
             .upsert_lazy_loaded_members("@alice:localhost", "DEVICE123", "!room:localhost", &members)
             .await
             .expect("Failed to store lazy-loaded members");
+        assert_eq!(affected, 2, "a member without a position must not be stored");
 
-        let before_delete = storage
+        let mut before_delete = storage
             .get_lazy_loaded_members("@alice:localhost", "DEVICE123", "!room:localhost")
             .await
             .expect("Failed to fetch lazy-loaded members");
-        assert_eq!(before_delete, members);
+        before_delete.sort_by(|a, b| a.member_user_id.cmp(&b.member_user_id));
+        let mut expected = vec![members[0].clone(), members[1].clone()];
+        expected.sort_by(|a, b| a.member_user_id.cmp(&b.member_user_id));
+        assert_eq!(before_delete, expected, "positions must round-trip per member");
+
+        // A pre-existing row (written before the column existed) reads back as
+        // `NULL`, which the sync layer treats as "not recorded" — so the two
+        // states stay distinguishable in the database too.
+        sqlx::query(
+            r#"
+            INSERT INTO lazy_loaded_members (user_id, device_id, room_id, member_user_id, created_ts, updated_ts)
+            VALUES ($1, $2, $3, $4, $5, $5)
+            "#,
+        )
+        .bind("@alice:localhost")
+        .bind("DEVICE123")
+        .bind("!room:localhost")
+        .bind("@carol:localhost")
+        .bind(current_timestamp_millis())
+        .execute(&*pool)
+        .await
+        .expect("Failed to insert a legacy row");
+        let legacy = storage
+            .get_lazy_loaded_members("@alice:localhost", "DEVICE123", "!room:localhost")
+            .await
+            .expect("Failed to fetch lazy-loaded members");
+        let carol =
+            legacy.iter().find(|row| row.member_user_id == "@carol:localhost").expect("legacy row must be readable");
+        assert_eq!(carol.last_sent_position, None, "an unrecorded position must stay NULL");
 
         let rows = storage.delete_user_device("@alice:localhost", "DEVICE123").await.expect("Failed to delete device");
         assert_eq!(rows, 1);

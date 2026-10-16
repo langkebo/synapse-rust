@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT member_user_id, last_sent_position\n            FROM lazy_loaded_members\n            WHERE user_id = $1 AND device_id = $2 AND room_id = $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "member_user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "last_sent_position",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "f3fb0484862a0234c2ff4d8b903d7a50689b57926366871e800b584cb35f41b7"
+}

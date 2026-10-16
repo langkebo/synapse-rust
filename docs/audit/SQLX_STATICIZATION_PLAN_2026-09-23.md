@@ -2191,12 +2191,22 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 <!-- sqlx-plan-numbers:start -->
 <!-- 以下数字由 `scripts/ci/check_plan_numbers_fresh.sh` 与基线/实测现算比对；改基线必须同步改这里。 -->
 BASELINE_DYNAMIC_PRODUCTION=96
-BASELINE_DYNAMIC_TEST_INFRA=768
+BASELINE_DYNAMIC_TEST_INFRA=769
 BASELINE_STATIC=1361
 BASELINE_QUERY_BUILDER=17
 SQLX_CACHE_ENTRIES=1329
 <!-- sqlx-plan-numbers:end -->
 
+> **2026-10-16 更新（B1/UG-5：lazy-load 成员缓存补"响应位置"）**，数字块一项按实测同步：
+> - `BASELINE_DYNAMIC_TEST_INFRA` **768 → 769**（+1）：`synapse-storage/src/device/mod.rs` 的
+>   `#[cfg(test)] mod tests` 里新增一条**运行时** `sqlx::query` 夹具，用来造一行
+>   "列引入前"的存量数据（`last_sent_position IS NULL`）。生产 API 按定义跳过无位置的条目，
+>   所以这条夹具**必须**绕开类型化 API；而 `#[cfg(test)]` 里的 `query!` 不进
+>   `cargo sqlx prepare`（`--all-targets` 会 E0432），无法改成静态。该行一次性插入并断言
+>   "读回来是 `NULL`"；**收紧方向**：若将来生产 API 增加"显式写入未记录位置"的合法入口，
+>   这一项应回落 768。`BASELINE_STATIC=1361` 与 `SQLX_CACHE_ENTRIES=1329` **不变**
+>   （两条查询是**改写**而非新增，缓存条目同样一进一出）。
+>
 > **2026-10-15 更新（方案 B4.3：让半建索引可见）**，三项数字按实测同步：
 > - `BASELINE_STATIC` **1353 → 1354**（+1）：新增
 >   `synapse-storage/src/schema_health_check.rs::check_invalid_indexes()` —— 它检查

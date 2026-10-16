@@ -1,9 +1,13 @@
 use super::*;
-use crate::device::{Device, DeviceListStoreApi};
+use crate::device::{Device, DeviceListStoreApi, LazyLoadedMemberRow};
 use synapse_common::current_timestamp_millis;
 
-/// In-memory lazy-loaded members: `(user_id, device_id, room_id) → member set`.
-type LazyLoadedMembersMap = HashMap<(String, String, String), std::collections::HashSet<String>>;
+/// In-memory lazy-loaded members:
+/// `(user_id, device_id, room_id) → (member_user_id → last_sent_position)`.
+///
+/// The value mirrors the real table's `last_sent_position` column, so the sync
+/// layer's position-based pruning is exercised by the in-memory store too.
+type LazyLoadedMembersMap = HashMap<(String, String, String), HashMap<String, Option<i64>>>;
 
 /// In-memory device list store mirroring [`crate::device::DeviceStorage`].
 ///
@@ -13,7 +17,7 @@ type LazyLoadedMembersMap = HashMap<(String, String, String), std::collections::
 pub struct InMemoryDeviceListStore {
     devices: Arc<tokio::sync::RwLock<HashMap<String, Device>>>,
     stream_id: Arc<tokio::sync::RwLock<i64>>,
-    /// (user_id, device_id, room_id) → set of member user_ids.
+    /// (user_id, device_id, room_id) → member_user_id → last_sent_position.
     lazy_loaded_members: Arc<tokio::sync::RwLock<LazyLoadedMembersMap>>,
 }
 
@@ -217,9 +221,13 @@ impl DeviceListStoreApi for InMemoryDeviceListStore {
         user_id: &str,
         device_id: &str,
         room_id: &str,
-    ) -> Result<HashSet<String>, sqlx::Error> {
+    ) -> Result<Vec<LazyLoadedMemberRow>, sqlx::Error> {
         let key = (user_id.to_string(), device_id.to_string(), room_id.to_string());
-        Ok(self.lazy_loaded_members.read().await.get(&key).cloned().unwrap_or_default())
+        let stored = self.lazy_loaded_members.read().await.get(&key).cloned().unwrap_or_default();
+        Ok(stored
+            .into_iter()
+            .map(|(member_user_id, last_sent_position)| LazyLoadedMemberRow { member_user_id, last_sent_position })
+            .collect())
     }
 
     async fn upsert_lazy_loaded_members(
@@ -227,16 +235,25 @@ impl DeviceListStoreApi for InMemoryDeviceListStore {
         user_id: &str,
         device_id: &str,
         room_id: &str,
-        member_user_ids: &HashSet<String>,
+        members: &[LazyLoadedMemberRow],
     ) -> Result<u64, sqlx::Error> {
         let key = (user_id.to_string(), device_id.to_string(), room_id.to_string());
         let mut store = self.lazy_loaded_members.write().await;
         let entry = store.entry(key).or_default();
-        let before = entry.len() as u64;
-        for member in member_user_ids {
-            entry.insert(member.clone());
+        let mut affected = 0u64;
+        for member in members {
+            // Same rule as the real store: a member without a position cannot
+            // prove anything, so it is not stored at all.
+            let Some(position) = member.last_sent_position else {
+                continue;
+            };
+            // Mirrors the real `ON CONFLICT … DO UPDATE`: an existing row is
+            // rewritten (new position) and does not count as a new row.
+            if entry.insert(member.member_user_id.clone(), Some(position)).is_none() {
+                affected += 1;
+            }
         }
-        Ok((entry.len() as u64).saturating_sub(before))
+        Ok(affected)
     }
 
     async fn insert_device_list_change(

@@ -96,6 +96,11 @@ impl SyncService {
         } else {
             HashMap::new()
         };
+        // The response's position, computed **before** the room loop because the
+        // lazy-load bookkeeping needs it: every membership handed over below is
+        // recorded against the very token the client will present next, and the
+        // two must be the same number (upstream #20289 records `now_token`).
+        let stream_id = Self::next_event_stream_id(since_token, &room_events, Some(&state_change_ts_by_room));
         // `m.room.history_visibility` is resolved **before** the room data because
         // it now feeds two consumers: the timeline filter *and* the unread counts'
         // floor. The counts must consult the very same boundary the filter used —
@@ -225,6 +230,8 @@ impl SyncService {
                     changed_member_ids: changed_members_by_room.get(room_id),
                     timeline_limited,
                     enabled: lazy_load_members,
+                    response_position: stream_id,
+                    since_position: since_stream_ordering,
                 })
                 .await;
             let state_events = Self::apply_event_fields_to_values(state_events, event_fields);
@@ -294,7 +301,6 @@ impl SyncService {
             }
         }
 
-        let stream_id = Self::next_event_stream_id(since_token, &room_events, Some(&state_change_ts_by_room));
         let device_one_time_keys_count = self.build_device_one_time_keys_count(user_id, device_id).await?;
 
         let device_unused_fallback_key_types = self.build_device_unused_fallback_key_types(user_id, device_id).await?;
@@ -442,6 +448,7 @@ impl SyncService {
             use_state_after,
             state_after_is_unstable,
             history_cut,
+            response_position,
         } = request;
         let since_ts = Self::event_since_ts(&since_token.cloned());
         // S6: always use StreamOrdering for membership state key queries.
@@ -517,6 +524,8 @@ impl SyncService {
                 changed_member_ids: Some(&changed_member_ids),
                 timeline_limited,
                 enabled: lazy_load_members,
+                response_position,
+                since_position: Some(since_stream_ord),
             })
             .await;
         // state_list already contains the delta computed by

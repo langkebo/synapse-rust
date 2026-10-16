@@ -26,6 +26,9 @@
 >     ⑥ **MSC4354 的 `org.matrix.msc4354` 未在 `/versions.unstable_features` 宣告**——实现存在但客户端
 >     发现不了；⑦ **profile 更新缺 `LEFT_ROOM` 语义**（上游 #20203：离开最后一个共享房后要告知客户端
 >     删除本地资料），本仓以 `users.updated_ts` 轮询替代，无法表达"不再共享房间"。
+>   - **修复进度（2026-10-16，逐项见 §19.5.1）**：上列 ①（A1 注销管线）、②（B2 `preview_url`）、
+>     ④（B1 lazy-load 位置维度）、⑤（A4 MSC4075 规则）、⑥（A2 MSC4354 宣告）**已落地**；
+>     ③（B3 AS 临时数据投递）与 ⑦（profile `LEFT_ROOM` 语义）仍未实施。
 >   - **结构性不适用**（附本仓理由，非"没找到"）：Python/twisted/poetry/GIL（#20246/#20252/#20267/
 >     #20259/#20354）、`user_ips` 表（本仓无该表）、thread 级角标计数（本仓计数为房间粒度，无跨房
 >     `thread_id` 污染面）、MAS 委派的前提下 Admin API 拒建用户（#20241；MAS 运行时未接线，见 §18.4 ①）。
@@ -1566,7 +1569,7 @@ curl -sS "https://cdn.jsdelivr.net/gh/element-hq/synapse@release-v1.163/<path>" 
 | #20237（角标跨房污染） | 本仓未读计数为**房间粒度**（`synapse-services/src/room/summary/stats.rs::increment_unread_notifications`、`synapse-services/src/room/messaging/history_visibility.rs` 的可见性下界），全仓无 `unread_thread_notifications` 等 thread 级计数 ⇒ 不存在"`thread_id` 跨房比较"这一步 | **⚪ 结构性不适用** | 无 |
 | #20241（MAS 下 Admin API 拒建用户） | MAS/委派认证运行时未接线（§18.4 ① 仍在册）⇒ 前提不成立；本仓 `is_admin` 建用户路径在 `synapse-web/src/routes/admin/user.rs` | **⚪ 结构性不适用（前提未落地）** | 与 MAS 接线同批 |
 | #20274（`auth` 为 null/非对象 ⇒ 500） | 本仓 UIA 的 `auth` 是 `&Value`，`validate_auth` 全程用 `auth.get(...)` 取值（`synapse-services/src/uia_service.rs`），缺键即落到 `build_uia_response` 的 `M_UIA_REQUIRED` 分支；调用点如 `synapse-web/src/routes/device.rs::require_password_uia` | **✅ 已对齐（形态上不受该缺陷影响）** | 见 §19.7 V-19-1 |
-| #20289（lazy-load + 旧 since 丢成员） | `synapse-services/src/sync_service/lazy_load.rs::get_known_lazy_loaded_members` 的缓存值是 **`HashSet<String>`（仅 user_id）**，持久化在 `device_storage`（`synapse-services/src/sync_service/data_fetch.rs` 的 `get_lazy_loaded_members` / `upsert_lazy_loaded_members`）。**没有事件 id、没有响应位置** ⇒ 客户端"没收到"与"已收到"无法区分，丢失即永久 | **❌ 差距（P1）** | §19.5 批次 B |
+| #20289（lazy-load + 旧 since 丢成员） | 原本：`synapse-services/src/sync_service/lazy_load.rs` 的缓存值是 **`HashSet<String>`（仅 user_id）**，并持久化到 `device_storage`；**没有事件 id、没有响应位置** ⇒ 客户端"没收到"与"已收到"无法区分，丢失即永久。**本轮已按上游语义重做**（见 §19.5.1）：条目改为 `成员 → (event id, 承载它的响应位置)`、每次请求按 `since` 修剪、初始同步不信任任何持久化行；持久化的位置由基线新增**可空**列 `last_sent_position` 承载 | **✅ 已修（本轮）** | §19.5.1 |
 | #20262（worker 支持取单个延迟事件） | 已在册：`synapse-services/src/worker/topology_validator.rs` 的 `DELAYED_EVENTS_WORKER_PATHS` 枚举了 7 条（含 `GET .../delayed_events/{delay_id}`），`docs/synapse-rust/ROUTE_CONTRACT.md` 同形 | **✅ 已对齐** | 无 |
 | #20256（移除 sticky 状态事件） | 本仓 `set_sticky_events`（`synapse-web/src/routes/sticky_event.rs`）取 `event_type` + `event_id`，**本轮已加守卫**：目标事件带 `state_key` ⇒ 400 且不落库（纯谓词 `is_state_event` + 正负控单测）。另一处口径已更正：上游的 MSC4354 请求面是 `/send` 的 `org.matrix.msc4354.sticky_duration_ms` 查询参数，本仓**没有**那个面（见 §19.4.1 UG-10 与 §19.6(b)） | **✅ 已修（本轮）** | §19.5.1 |
 | #20095（notifier 等待超时指标） | 全仓检索 `synapse_notifier` **0 命中**（本仓无 Twisted notifier 的"等 worker 追上流位置"机制）⇒ 该指标在本仓无对应观测对象 | **⚪ 结构性不适用（§19.6(b) 改判）** | 无 |
@@ -1592,7 +1595,7 @@ curl -sS "https://cdn.jsdelivr.net/gh/element-hq/synapse@release-v1.163/<path>" 
 | **UG-2（P1）** | **MSC4075 默认推送规则缺失** | 本仓无服务端推送规则评估引擎（§18.3 已裁定），但**默认规则集是下发给客户端的资产**（`GET /pushrules`）。缺这两条 ⇒ 客户端拿不到 MatrixRTC 邀请/来电的 `notify + sound:ring` 规则，来电不会响铃 | `synapse-common/src/push_rules.rs` |
 | **UG-3（P1）** | **MSC4354 实现存在但未在 `/versions.unstable_features` 宣告** | 客户端按能力位决定是否启用置顶；实现存在而不宣告 = 功能对存量客户端不可见 | `synapse-services/src/capability_governance.rs` 的 `BASE_UNSTABLE_FEATURES` |
 | **UG-4（P1）** | **AS（MSC2409）临时数据投递未接线** | `AppServiceEphemeralBatch` 有类型、有载荷构造、有单测，但没有消费回执/在线状态流的生产路径 ⇒ 依赖回执的 bridge 拿不到数据。上游 #20108 修的是"分页导致永久跳过"，本仓连分页都没有 | `synapse-services/src/application_service/transaction.rs`、`synapse-services/src/application_service/scheduler.rs` |
-| **UG-5（P1）** | **lazy-load 成员缓存缺少"客户端是否收到"的位置维度** | 缓存值是裸 `HashSet<String>`，且**持久化到 `device_storage`**。客户端超时重试或从旧 token 恢复时，缓存仍认为"已发送" ⇒ 成员事件永久丢失（上游 #20289 的同类缺陷，本仓丢失窗口更宽） | `synapse-services/src/sync_service/lazy_load.rs` |
+| **UG-5（P1）** | **lazy-load 成员缓存缺少"客户端是否收到"的位置维度** | **已修（2026-10-16，见 §19.5.1）**：条目改为 `成员 → (event id, 承载它的响应位置)`，每次 `/sync` 请求按 `since` 修剪"位置晚于 since"的条目；初始同步清空并**不信任**持久化行。持久化的位置落在基线新增的可空列 `last_sent_position` 上（可空 ⇒ 与"真实位置 0"可区分；存量行 `NULL` 即"未记录"、一律不抑制） | `synapse-services/src/sync_service/lazy_load.rs`；`synapse-storage/src/device/mod.rs` |
 | **UG-6（P1）** | **`/preview_url` 返回伪造的 OpenGraph** | 桩实现会返回不存在的 `og:image`（`{url}/preview.png`）与占位标题/描述，把它当真的客户端会显示**捏造的链接预览**；且真正的抓取尚未实现（当前只有 IP 黑名单校验，没有 DNS-rebinding 钉扎） | `synapse-web/src/routes/media/preview.rs`、`synapse-services/src/media_service.rs` |
 | **UG-7（P2）** | MSC4354 联邦 catch-up（#20165）与新加入房间补发（#20233）缺 | 远端错过 EDU 后其 sticky 状态永久不一致；新加入房间的客户端看不到既有 sticky | `synapse-services/src/room/service.rs`、`synapse-federation/src/edu.rs` |
 | **UG-8（P2）** | `task_scheduler.max_concurrent_tasks` 缺 | 并发上限不可配 ⇒ 重负载下只能改代码 | 全仓 0 命中 |
@@ -1729,6 +1732,7 @@ curl -sS "https://cdn.jsdelivr.net/gh/element-hq/synapse@release-v1.163/<path>" 
 | A5（安全公告） | ✅ 已做 | `cargo deny check advisories` → `advisories ok`（2026-10-16 实跑）；advisory 库新鲜度仍列为 V-19-7 |
 | B2（UG-6）`/preview_url` 收口 | ✅ 已实施（方案①） | `synapse-services/src/media_service.rs::preview_url` 只回 `url`，删掉 `title`/`description`/`og:*`/`matrix:image:size` 与拼出来的 `og:image`；`synapse-web/src/routes/media/preview.rs` 同时删掉"Preview unavailable"合成分支（该分支原先也能产出 OpenGraph 形状的伪造字段）。**无需重生成 api 台账**：`scripts/api_test/response_schemas.json` 把该端点记为 403（默认关闭），schema 是错误形状 |
 | A1（UG-1）注销语义 | ✅ **已实施**（2026-10-16） | 新增 `synapse-services/src/account_deactivation_service.rs`（见下方实施记录）；路由改调它；`RegistrationService::deactivate_account`（只有"置标志位"的旧入口）**已删除**，避免两条路径通向同一状态变更 |
+| B1（UG-5）lazy-load 缓存位置维度 | ✅ **已实施**（2026-10-16） | 缓存条目改为 `成员 → (event id, 承载它的响应位置)` + 每请求按 `since` 修剪（上游 `LazyLoadedMembersCache::start_request` 语义）；持久化位置走基线新增的**可空**列 `last_sent_position`（见下方实施记录） |
 
 **A1 实施记录（2026-10-16）**
 
@@ -1769,6 +1773,44 @@ curl -sS "https://cdn.jsdelivr.net/gh/element-hq/synapse@release-v1.163/<path>" 
 
 **A1 仍未覆盖**（登记为 UG-11，非安全缺口）：threepid 解绑/删除、账户数据与推送规则清理、
 线程订阅与备份键删除、用户目录摘除、**待处理邀请/敲击的拒绝**、以及"退房"的异步化。
+
+**B1 实施记录（2026-10-16）**
+
+上游语义（逐行取证 `synapse/handlers/sync.py` v1.163）：缓存按 `(user, device)` 一份，
+条目 = `成员 → (最后发出的 event id, 承载它的那次响应的 next_batch 位置)`，
+内部上限 100、`ExpiringCache` 30 分钟；`start_request(since)` 在 `since` 缺失时**全清**、
+否则删掉位置晚于 `since` 的条目；过滤判据是"变更过的成员无条件发，其余看
+`was_sent(member, event_id)`"。
+
+本仓落地（与上游的每处差异都写了理由）：
+
+1. 缓存键仍是 `(user, device, room)`（比上游细一档，且与持久化表的粒度一致）；
+   `start_request` 因此在 `apply_lazy_load_members` 里按房调用。
+2. `mark_sent` 记的位置是**本次响应的 `next_batch`**，并且该位置在房间循环**之前**就算好
+   （整账户路径与单房路径各自 `next_event_stream_id`）—— 记下的数必须与发给客户端的 token
+   是同一个，否则修剪规则会拿位置去比一个语义不同的 token。
+3. **只记录真正交付的成员**：上游对过滤后的 `state_ids` 与 `timeline_state` 记；本仓原先会把
+   _被自己抑制掉的_成员也写回缓存，那会让"成员变更"永久被吞（旧 event id 盖住新 event id）。
+4. **交接集合按成员去重**：同一成员可能同时出现在 timeline 与 state 块里，而持久化是**一条**
+   `UNNEST … ON CONFLICT DO UPDATE` —— PostgreSQL 会拒绝对同一冲突行更新两次。这是本轮单测
+   抓出来的真缺陷：不去重时持久化会直接报错。
+5. 持久化行的位置落在基线新增的**可空**列 `last_sent_position` 上：不用 `DEFAULT 0`，因为
+   真实位置**可以是 0**（空房/静默房的 `next_batch`），"未记录"必须能与它区分。写入跳过无位置的
+   条目；加载只用"位置 ≤ `since`"的行（`NULL` 与"晚于 `since`"都不抑制）；初始同步（无 `since`）
+   **整条读路径跳过** —— 对齐上游 `start_request(None)` 的"新客户端必须收到全部成员"。
+6. 缓存仍是进程内 `LruCache`（P-4 的要求）：回源只在进程内未命中时发生一次，不会退化成
+   每房一次 DB 往返。
+
+数据面连带：基线改动 = 加列 + 1 条 `ADD COLUMN IF NOT EXISTS`（+1062 字节），
+`EXPECTED_BASELINE_FINGERPRINT` 按 R10 第①条独立复算为 `0bea2dcc031b8c94`
+（先用改动前的常量 `c1894a91182775f0` 对 235048 字节自检哈希实现，通过后才取新值）；
+两条查询文本变更 ⇒ `.sqlx` 条目按 `sha256(query 原文)` **离线手写**（实测条目内的 `hash`
+字段就是该值，`check_sqlx_cache_fresh.sh --static` 正是按此核对 ⇒ 无需
+`cargo sqlx prepare` / describe，绕开 A1 那次缓存事故）；静态查询总数不变（1361），棘轮基线不动。
+
+判据（全部离线可跑）：`LazyLoadedMemberState` 的 8 条状态机用例（位置修剪、初始同步全清、
+事件 id 感知、`NULL` 位置不抑制、恢复行晚于 token 不抑制、恢复行被更旧的 token 修剪、
+位置上界只前移），加上既有过滤用例（含 limited 分支的负控）全部通过。
 
 ### 19.6 本轮作废 / 更正的历史声明
 

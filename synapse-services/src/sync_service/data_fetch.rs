@@ -1071,7 +1071,7 @@ mod tests {
             user_id: &str,
             device_id: &str,
             room_id: &str,
-        ) -> Result<HashSet<String>, sqlx::Error> {
+        ) -> Result<Vec<synapse_storage::device::LazyLoadedMemberRow>, sqlx::Error> {
             self.inner.get_lazy_loaded_members(user_id, device_id, room_id).await
         }
 
@@ -1080,9 +1080,9 @@ mod tests {
             user_id: &str,
             device_id: &str,
             room_id: &str,
-            member_user_ids: &HashSet<String>,
+            members: &[synapse_storage::device::LazyLoadedMemberRow],
         ) -> Result<u64, sqlx::Error> {
-            self.inner.upsert_lazy_loaded_members(user_id, device_id, room_id, member_user_ids).await
+            self.inner.upsert_lazy_loaded_members(user_id, device_id, room_id, members).await
         }
 
         async fn delete_user_devices_batch(&self, user_id: &str, device_ids: &[String]) -> Result<u64, sqlx::Error> {

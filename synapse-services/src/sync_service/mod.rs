@@ -21,6 +21,7 @@ pub use types::{
 };
 
 use crate::*;
+use lazy_load::LazyLoadedMemberState;
 use lru::LruCache;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
@@ -46,7 +47,7 @@ pub struct SyncService {
     pub(crate) device_key_storage: Arc<dyn DeviceKeyStoreApi>,
     pub(crate) key_rotation_storage: KeyRotationStorage,
     pub(crate) to_device_storage: synapse_e2ee::to_device::ToDeviceStorage,
-    pub(crate) lazy_loaded_members_cache: Arc<RwLock<LruCache<LazyLoadedMembersCacheKey, HashSet<String>>>>,
+    pub(crate) lazy_loaded_members_cache: Arc<RwLock<LruCache<LazyLoadedMembersCacheKey, LazyLoadedMemberState>>>,
     pub(crate) metrics: Arc<MetricsCollector>,
     pub(crate) performance: synapse_common::config::PerformanceConfig,
     pub(crate) cache: Arc<synapse_cache::CacheManager>,
@@ -64,12 +65,14 @@ pub struct SyncService {
 }
 
 /// Maximum number of (user, device, room) entries kept in the in-memory
-/// lazy-loaded members cache before LRU eviction kicks in. When the cache
-/// is full, the least-recently-used entry is evicted; this preserves hot
-/// keys instead of clearing everything (which could cause a thundering-herd
-/// stampede against the database on heavily-shared rooms). The cache is
-/// an optimization to avoid repeated DB lookups; an eviction only causes
-/// a temporary increase in database queries.
+/// lazy-loaded members cache **keys** before LRU eviction kicks in. A key is one
+/// `(user, device, room)`; its value holds that room's already-sent memberships
+/// (member id → event id + response position), i.e. the members the timeline has
+/// referenced so far. When the cache is full the least-recently-used key is
+/// evicted; this preserves hot keys instead of clearing everything (which could
+/// cause a thundering-herd stampede against the database on heavily-shared
+/// rooms). The cache is an optimization to avoid repeated DB lookups; an
+/// eviction only causes a temporary increase in database queries.
 const LAZY_LOADED_MEMBERS_CACHE_MAX_ENTRIES: usize = 50_000;
 
 impl SyncService {
@@ -317,6 +320,10 @@ impl SyncService {
         // a new member the room's pre-join history.
         let history_cut =
             crate::room::messaging::history_visibility::history_cut_with(&*self.event_reader, room_id, user_id).await?;
+        // Computed before the room is built (not after) because the lazy-load
+        // state records each sent membership against this very position; the
+        // later `next_batch` reuses the same value so the two cannot drift.
+        let stream_id = Self::next_event_stream_id(&since_token, &room_events, None);
         let room_build_started = Instant::now();
         let room_sync = self
             .build_room_sync(BuildRoomSyncRequest {
@@ -332,6 +339,7 @@ impl SyncService {
                 use_state_after: false,
                 state_after_is_unstable: false,
                 history_cut,
+                response_position: stream_id,
             })
             .await?;
         let room_build_ms = room_build_started.elapsed().as_secs_f64() * 1000.0;
@@ -342,7 +350,6 @@ impl SyncService {
             _ => serde_json::Map::new(),
         };
 
-        let stream_id = Self::next_event_stream_id(&since_token, &room_events, None);
         result.insert(
             "next_batch".to_string(),
             json!(SyncToken {

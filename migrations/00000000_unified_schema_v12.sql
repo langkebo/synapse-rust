@@ -2816,8 +2816,20 @@ CREATE TABLE IF NOT EXISTS lazy_loaded_members (
     member_user_id TEXT NOT NULL,
     created_ts BIGINT NOT NULL,
     updated_ts BIGINT NOT NULL,
+    -- 上游 #20289 同族修复（B1）：记录「承载该成员的那次 `/sync` 响应的 `next_batch` 位置」。
+    -- 客户端只有**处理过**该响应之后才会带着 ≥ 该位置的 token 回来，所以位置晚于本次请求
+    -- `since` 的条目属于「客户端没收到」，加载时必须忽略（下次重发）。
+    -- **可空**：`NULL` = 未记录（本列引入前的存量行）⇒ 一律按「可能未送达」处理、不参与
+    -- 抑制；存量行会在下次重发该成员时被 `DO UPDATE` 覆盖为真实位置，因此自愈。
+    -- 不用 `DEFAULT 0` 是因为真实位置**可以是 0**（空房/静默房的 `next_batch`），
+    -- 两者必须能区分。
+    last_sent_position BIGINT,
     CONSTRAINT pk_lazy_loaded_members PRIMARY KEY (user_id, device_id, room_id, member_user_id)
 );
+
+-- ⚠️ 上面这条 `CREATE TABLE IF NOT EXISTS` 对**已存在**该表的库（本机 public、老库）不生效，
+-- 必须显式补列（幂等）。可空列 ⇒ 存量行零迁移成本，且 PG 不需要重写表。
+ALTER TABLE lazy_loaded_members ADD COLUMN IF NOT EXISTS last_sent_position BIGINT;
 
 CREATE TABLE IF NOT EXISTS presence (
     user_id TEXT NOT NULL,

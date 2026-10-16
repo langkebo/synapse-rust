@@ -284,6 +284,13 @@ pub struct BuildRoomSyncRequest<'a> {
     /// count floor (or the reverse) — which is exactly how the counts kept leaking
     /// hidden history after every list surface had been fixed.
     pub history_cut: HistoryCut,
+    /// The position (`next_batch` stream id) of the response being built.
+    ///
+    /// Passed in rather than recomputed here so the number the lazy-load state
+    /// records is **the same** token the client is handed: if they could drift,
+    /// the pruning rule would compare a position against a token that encodes
+    /// something else. Required for the same reason as `history_cut`.
+    pub response_position: i64,
 }
 
 /// The `BuildRoomSyncValueRequest` struct.
@@ -330,6 +337,14 @@ pub struct LazyLoadMembersRequest<'a> {
     pub timeline_limited: bool,
     /// The `enabled` field.
     pub enabled: bool,
+    /// The position (`next_batch` stream id) of the response being built.
+    /// Recorded against every membership this response hands over, so a later
+    /// request can tell "the client processed what carried it" from "it did not"
+    /// (upstream #20289).
+    pub response_position: i64,
+    /// The request's `since` position, i.e. what the client's token proves it
+    /// processed. `None` is an initial sync.
+    pub since_position: Option<i64>,
 }
 
 /// The `RoomFilter` struct.

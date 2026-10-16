@@ -1,3 +1,4 @@
+use super::lazy_load::LazyLoadedMemberState;
 use super::types::*;
 use super::SyncService;
 use crate::*;
@@ -577,16 +578,19 @@ fn test_apply_lazy_load_members_keeps_only_timeline_members_and_self() {
         json!({
             "type": "m.room.member",
             "state_key": "@alice:localhost",
+            "event_id": "$ev_@alice:localhost",
             "content": { "membership": "join" }
         }),
         json!({
             "type": "m.room.member",
             "state_key": "@bob:localhost",
+            "event_id": "$ev_@bob:localhost",
             "content": { "membership": "join" }
         }),
         json!({
             "type": "m.room.member",
             "state_key": "@carol:localhost",
+            "event_id": "$ev_@carol:localhost",
             "content": { "membership": "join" }
         }),
         json!({
@@ -616,7 +620,7 @@ fn test_apply_lazy_load_members_keeps_only_timeline_members_and_self() {
         state_events,
         &timeline_events,
         "@alice:localhost",
-        &HashSet::new(),
+        &LazyLoadedMemberState::default(),
         false,
         &HashSet::new(),
         false,
@@ -627,8 +631,8 @@ fn test_apply_lazy_load_members_keeps_only_timeline_members_and_self() {
     assert!(filtered.iter().any(|event| event["state_key"] == "@bob:localhost"));
     assert!(filtered.iter().any(|event| event["type"] == "m.room.name"));
     assert!(!filtered.iter().any(|event| event["state_key"] == "@carol:localhost"));
-    assert!(known_now.contains("@bob:localhost"));
-    assert!(known_now.contains("@alice:localhost"));
+    assert!(sent_now_has(&known_now, "@bob:localhost"));
+    assert!(sent_now_has(&known_now, "@alice:localhost"));
 }
 
 #[test]
@@ -637,11 +641,13 @@ fn test_apply_lazy_load_members_skips_cached_members_by_default() {
         json!({
             "type": "m.room.member",
             "state_key": "@alice:localhost",
+            "event_id": "$ev_@alice:localhost",
             "content": { "membership": "join" }
         }),
         json!({
             "type": "m.room.member",
             "state_key": "@bob:localhost",
+            "event_id": "$ev_@bob:localhost",
             "content": { "membership": "join" }
         }),
         json!({
@@ -671,7 +677,7 @@ fn test_apply_lazy_load_members_skips_cached_members_by_default() {
         state_events,
         &timeline_events,
         "@alice:localhost",
-        &HashSet::from([String::from("@bob:localhost")]),
+        &known_members(&["@bob:localhost"]),
         false,
         &HashSet::new(),
         false,
@@ -681,7 +687,11 @@ fn test_apply_lazy_load_members_skips_cached_members_by_default() {
     assert!(filtered.iter().any(|event| event["state_key"] == "@alice:localhost"));
     assert!(!filtered.iter().any(|event| event["state_key"] == "@bob:localhost"));
     assert!(filtered.iter().any(|event| event["type"] == "m.room.name"));
-    assert!(known_now.contains("@bob:localhost"));
+    // Only what was handed over is recorded. @bob was suppressed *because* its
+    // entry already exists; re-recording it would let a later membership change
+    // be suppressed by an event id the client never received.
+    assert!(sent_now_has(&known_now, "@alice:localhost"));
+    assert!(!sent_now_has(&known_now, "@bob:localhost"));
 }
 
 #[test]
@@ -690,11 +700,13 @@ fn test_apply_lazy_load_members_can_include_redundant_members() {
         json!({
             "type": "m.room.member",
             "state_key": "@alice:localhost",
+            "event_id": "$ev_@alice:localhost",
             "content": { "membership": "join" }
         }),
         json!({
             "type": "m.room.member",
             "state_key": "@bob:localhost",
+            "event_id": "$ev_@bob:localhost",
             "content": { "membership": "join" }
         }),
     ];
@@ -719,7 +731,7 @@ fn test_apply_lazy_load_members_can_include_redundant_members() {
         state_events,
         &timeline_events,
         "@alice:localhost",
-        &HashSet::from([String::from("@bob:localhost")]),
+        &known_members(&["@bob:localhost"]),
         true,
         &HashSet::new(),
         false,
@@ -736,11 +748,13 @@ fn test_apply_lazy_load_members_includes_state_delta_members_on_incremental_sync
         json!({
             "type": "m.room.member",
             "state_key": "@alice:localhost",
+            "event_id": "$ev_@alice:localhost",
             "content": { "membership": "join" }
         }),
         json!({
             "type": "m.room.member",
             "state_key": "@dave:localhost",
+            "event_id": "$ev_@dave:localhost",
             "content": { "membership": "join" }
         }),
     ];
@@ -749,7 +763,7 @@ fn test_apply_lazy_load_members_includes_state_delta_members_on_incremental_sync
         state_events,
         &[],
         "@alice:localhost",
-        &HashSet::new(),
+        &LazyLoadedMemberState::default(),
         false,
         &HashSet::from([String::from("@dave:localhost")]),
         false,
@@ -758,7 +772,7 @@ fn test_apply_lazy_load_members_includes_state_delta_members_on_incremental_sync
     assert_eq!(filtered.len(), 2);
     assert!(filtered.iter().any(|event| event["state_key"] == "@alice:localhost"));
     assert!(filtered.iter().any(|event| event["state_key"] == "@dave:localhost"));
-    assert!(known_now.contains("@dave:localhost"));
+    assert!(sent_now_has(&known_now, "@dave:localhost"));
 }
 
 #[test]
@@ -766,6 +780,7 @@ fn test_apply_lazy_load_members_replays_cached_state_delta_members() {
     let state_events = vec![json!({
         "type": "m.room.member",
         "state_key": "@dave:localhost",
+        "event_id": "$ev_@dave:localhost",
         "content": { "membership": "join" }
     })];
 
@@ -773,7 +788,7 @@ fn test_apply_lazy_load_members_replays_cached_state_delta_members() {
         state_events,
         &[],
         "@alice:localhost",
-        &HashSet::from([String::from("@dave:localhost")]),
+        &known_members(&["@dave:localhost"]),
         false,
         &HashSet::from([String::from("@dave:localhost")]),
         false,
@@ -781,7 +796,7 @@ fn test_apply_lazy_load_members_replays_cached_state_delta_members() {
 
     assert_eq!(filtered.len(), 1);
     assert_eq!(filtered[0]["state_key"], "@dave:localhost");
-    assert!(known_now.contains("@dave:localhost"));
+    assert!(sent_now_has(&known_now, "@dave:localhost"));
 }
 
 #[test]
@@ -1400,6 +1415,21 @@ fn make_non_member_event(event_type: &str) -> Value {
     })
 }
 
+/// A state in which the client already holds `members`' memberships, recorded at
+/// position 1 with the event ids `make_member_event` assigns.
+fn known_members(members: &[&str]) -> LazyLoadedMemberState {
+    let mut state = LazyLoadedMemberState::default();
+    for member in members {
+        state.mark_sent(member, &format!("$ev_{member}"), 1);
+    }
+    state
+}
+
+/// Whether a response handed over `member`'s membership.
+fn sent_now_has(sent_now: &[(String, String)], member: &str) -> bool {
+    sent_now.iter().any(|(sent, _)| sent == member)
+}
+
 fn make_timeline_event(user_id: &str, event_type: &str, state_key: Option<&str>) -> synapse_storage::RoomEvent {
     synapse_storage::RoomEvent {
         event_id: format!("$tl_{}", user_id),
@@ -1426,7 +1456,7 @@ fn test_lazy_load_timeline_limited_non_members_pass_through() {
         state_events.clone(),
         &[],
         "@alice:b",
-        &HashSet::new(),
+        &LazyLoadedMemberState::default(),
         false,
         &HashSet::new(),
         true,
@@ -1438,8 +1468,7 @@ fn test_lazy_load_timeline_limited_non_members_pass_through() {
 #[test]
 fn test_lazy_load_timeline_limited_filters_known_members() {
     let state_events = vec![make_member_event("@alice:b"), make_member_event("@bob:b")];
-    let mut known = HashSet::new();
-    known.insert("@alice:b".to_string());
+    let known = known_members(&["@alice:b"]);
     let (filtered, known_now) = SyncService::apply_lazy_load_members_with_cache(
         state_events,
         &[],
@@ -1452,15 +1481,16 @@ fn test_lazy_load_timeline_limited_filters_known_members() {
     // Only @bob:b passes (not in known_members)
     assert_eq!(filtered.len(), 1);
     assert_eq!(filtered[0]["state_key"], json!("@bob:b"));
-    // known_now collects all member state_keys
-    assert_eq!(known_now.len(), 2);
+    // Only the membership actually handed over is recorded: recording the one we
+    // suppressed would let every later response keep suppressing it.
+    assert_eq!(known_now.len(), 1);
+    assert!(sent_now_has(&known_now, "@bob:b"));
 }
 
 #[test]
 fn test_lazy_load_timeline_limited_include_redundant_keeps_all() {
     let state_events = vec![make_member_event("@alice:b"), make_member_event("@bob:b")];
-    let mut known = HashSet::new();
-    known.insert("@alice:b".to_string());
+    let known = known_members(&["@alice:b"]);
     let (filtered, known_now) = SyncService::apply_lazy_load_members_with_cache(
         state_events,
         &[],
@@ -1483,7 +1513,7 @@ fn test_lazy_load_timeline_limited_member_without_state_key_filtered() {
         state_events,
         &[],
         "@alice:b",
-        &HashSet::new(),
+        &LazyLoadedMemberState::default(),
         false,
         &HashSet::new(),
         true,
@@ -1500,14 +1530,14 @@ fn test_lazy_load_required_members_from_user_id() {
         state_events,
         &[],
         "@alice:b",
-        &HashSet::new(),
+        &LazyLoadedMemberState::default(),
         false,
         &HashSet::new(),
         false,
     );
     // @alice:b is required (the user themselves)
     assert_eq!(filtered.len(), 1);
-    assert!(known_now.contains("@alice:b"));
+    assert!(sent_now_has(&known_now, "@alice:b"));
 }
 
 #[test]
@@ -1518,7 +1548,7 @@ fn test_lazy_load_required_members_from_timeline_senders() {
         state_events,
         &[tl],
         "@alice:b",
-        &HashSet::new(),
+        &LazyLoadedMemberState::default(),
         false,
         &HashSet::new(),
         false,
@@ -1535,7 +1565,7 @@ fn test_lazy_load_required_members_from_timeline_member_state_keys() {
         state_events,
         &[tl],
         "@alice:b",
-        &HashSet::new(),
+        &LazyLoadedMemberState::default(),
         false,
         &HashSet::new(),
         false,
@@ -1555,7 +1585,7 @@ fn test_lazy_load_required_members_from_changed_member_ids() {
         state_events,
         &[],
         "@alice:b",
-        &HashSet::new(),
+        &LazyLoadedMemberState::default(),
         false,
         &changed,
         false,
@@ -1576,7 +1606,7 @@ fn test_lazy_load_non_member_events_always_pass() {
         state_events,
         &[],
         "@alice:b",
-        &HashSet::new(),
+        &LazyLoadedMemberState::default(),
         false,
         &HashSet::new(),
         false,
@@ -1587,8 +1617,7 @@ fn test_lazy_load_non_member_events_always_pass() {
 #[test]
 fn test_lazy_load_known_members_filtered_when_not_redundant() {
     let state_events = vec![make_member_event("@bob:b")];
-    let mut known = HashSet::new();
-    known.insert("@bob:b".to_string());
+    let known = known_members(&["@bob:b"]);
     // Make @bob:b required via timeline
     let tl = make_timeline_event("@bob:b", "m.room.message", None);
     let (filtered, _known_now) = SyncService::apply_lazy_load_members_with_cache(
@@ -1607,8 +1636,7 @@ fn test_lazy_load_known_members_filtered_when_not_redundant() {
 #[test]
 fn test_lazy_load_changed_member_included_even_if_known() {
     let state_events = vec![make_member_event("@bob:b")];
-    let mut known = HashSet::new();
-    known.insert("@bob:b".to_string());
+    let known = known_members(&["@bob:b"]);
     let mut changed = HashSet::new();
     changed.insert("@bob:b".to_string());
     // Make @bob:b required via timeline
@@ -1632,7 +1660,7 @@ fn test_lazy_load_empty_state_events() {
         vec![],
         &[],
         "@alice:b",
-        &HashSet::new(),
+        &LazyLoadedMemberState::default(),
         false,
         &HashSet::new(),
         false,
@@ -1649,7 +1677,7 @@ fn test_lazy_load_no_member_events_in_state() {
         state_events,
         &[tl],
         "@alice:b",
-        &HashSet::new(),
+        &LazyLoadedMemberState::default(),
         false,
         &HashSet::new(),
         false,
@@ -1664,7 +1692,7 @@ fn test_lazy_load_timeline_limited_empty_state_and_timeline() {
         vec![],
         &[],
         "@alice:b",
-        &HashSet::new(),
+        &LazyLoadedMemberState::default(),
         false,
         &HashSet::new(),
         true,
@@ -1688,22 +1716,21 @@ fn test_lazy_load_known_now_excludes_non_members() {
         state_events,
         &timeline,
         "@alice:b",
-        &HashSet::new(),
+        &LazyLoadedMemberState::default(),
         false,
         &changed,
         false,
     );
-    // known_now = members from timeline, so @charlie:b
-    assert!(known_now.contains("@charlie:b"));
-    // @bob:b is in timeline but NOT a member event → not in known_now
-    assert!(!known_now.contains("@bob:b"));
+    // sent_now = members from timeline, so @charlie:b
+    assert!(sent_now_has(&known_now, "@charlie:b"));
+    // @bob:b is in timeline but NOT a member event → not handed over
+    assert!(!sent_now_has(&known_now, "@bob:b"));
 }
 
 #[test]
 fn test_lazy_load_include_redundant_keeps_known_members() {
     let state_events = vec![make_member_event("@bob:b")];
-    let mut known = HashSet::new();
-    known.insert("@bob:b".to_string());
+    let known = known_members(&["@bob:b"]);
     // Make @bob:b required
     let tl = make_timeline_event("@bob:b", "m.room.message", None);
     let (filtered, _known_now) = SyncService::apply_lazy_load_members_with_cache(
@@ -2271,6 +2298,7 @@ async fn incremental_room_sync_returns_state_delta_not_empty() {
             state_after_is_unstable: false,
             // This case is about state-since semantics, not visibility.
             history_cut: crate::room::messaging::history_visibility::HistoryCut::Unrestricted,
+            response_position: 5,
         })
         .await
         .expect("build_room_sync must not fail");
