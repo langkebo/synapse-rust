@@ -114,7 +114,7 @@ pub async fn client_audit_middleware(
     // 解析发起用户；仅对已通过 token 校验的请求记录审计。
     let actor = match extract_token(&headers, &uri) {
         Some(token) => match state.token_auth().validate_token(&token).await {
-            Ok((user_id, _, is_admin, _, _)) => Some((user_id, is_admin)),
+            Ok((user_id, _, is_admin, _, _, _)) => Some((user_id, is_admin)),
             Err(_) => None,
         },
         None => None,
@@ -173,7 +173,7 @@ pub async fn shadow_ban_middleware(
     };
 
     match ctx.token_auth.validate_token(&token).await {
-        Ok((_, _, _, is_shadow_banned, is_guest)) => {
+        Ok((_, _, _, is_shadow_banned, is_guest, _)) => {
             if is_shadow_banned {
                 ::tracing::warn!(
                     target: "security_audit",
@@ -272,7 +272,7 @@ pub async fn admin_auth_middleware(
             let status = response.status().as_u16();
             let (actor_id, device_id, _authenticated_admin) = match bearer_token(&headers) {
                 Ok(token) => match ctx.token_auth.validate_token(&token).await {
-                    Ok((user_id, device_id, is_admin, _, _)) => (user_id, device_id, Some(is_admin)),
+                    Ok((user_id, device_id, is_admin, _, _, _)) => (user_id, device_id, Some(is_admin)),
                     Err(_) => ("anonymous".to_string(), None, None),
                 },
                 Err(_) => ("anonymous".to_string(), None, None),

@@ -159,6 +159,7 @@ mod tests {
             origin: String::new(),
             stream_ordering: None,
             redacts: None,
+            unsigned: None,
         }
     }
 

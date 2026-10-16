@@ -48,7 +48,7 @@ fn column_const_cases() -> Vec<ColumnConstCase> {
             const_name: "ROOM_EVENT_COLS",
             columns: crate::event::ROOM_EVENT_COLS,
             table: "events",
-            // `RoomEvent` 的 14 个字段。⚠️ 第 9 列必须叫 `processed_at`：字段名是 `processed_ts`，
+            // `RoomEvent` 的 15 个字段。⚠️ 第 9 列必须叫 `processed_at`：字段名是 `processed_ts`，
             // 靠 `#[sqlx(rename = "processed_at")]` 对上（C38/D-19 的实测）。
             expected_columns: &[
                 "event_id",
@@ -65,6 +65,7 @@ fn column_const_cases() -> Vec<ColumnConstCase> {
                 "origin",
                 "stream_ordering",
                 "redacts",
+                "unsigned",
             ],
         },
         ColumnConstCase {

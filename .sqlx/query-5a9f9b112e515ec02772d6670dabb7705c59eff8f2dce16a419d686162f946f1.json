@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key, origin_server_ts, is_redacted, redacts, depth, prev_events, auth_events)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9, $10, $11, $12)\n            RETURNING event_id, room_id, sender as user_id, event_type, content, state_key,\n                      COALESCE(depth, 0) as \"depth!\", origin_server_ts as \"processed_ts\",\n                      origin_server_ts, 0::BIGINT as \"not_before!\", 'pending' as \"status?\",\n                      'self' as \"origin!\", stream_ordering, redacts\n            ",
+  "query": "\n            SELECT event_id, room_id, sender as user_id, event_type, content, state_key,\n                   COALESCE(depth, 0) AS \"depth!\", origin_server_ts,\n                   origin_server_ts AS \"processed_ts\",\n                   COALESCE(not_before, 0) AS \"not_before!\", status,\n                   COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') AS \"origin!\",\n                   stream_ordering, redacts, unsigned\n            FROM events\n            WHERE room_id = $1 AND status = 'pending'\n            ORDER BY origin_server_ts ASC\n            LIMIT $2\n            ",
   "describe": {
     "columns": [
       {
@@ -40,12 +40,12 @@
       },
       {
         "ordinal": 7,
-        "name": "processed_ts",
+        "name": "origin_server_ts",
         "type_info": "Int8"
       },
       {
         "ordinal": 8,
-        "name": "origin_server_ts",
+        "name": "processed_ts",
         "type_info": "Int8"
       },
       {
@@ -55,7 +55,7 @@
       },
       {
         "ordinal": 10,
-        "name": "status?",
+        "name": "status",
         "type_info": "Text"
       },
       {
@@ -72,22 +72,17 @@
         "ordinal": 13,
         "name": "redacts",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "unsigned",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
       "Left": [
         "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Jsonb",
-        "Text",
-        "Int8",
-        "Text",
-        "Int8",
-        "Jsonb",
-        "Jsonb"
+        "Int8"
       ]
     },
     "nullable": [
@@ -101,11 +96,12 @@
       false,
       false,
       null,
+      true,
       null,
-      null,
+      true,
       true,
       true
     ]
   },
-  "hash": "6728c2dd53d0bddd4eb25384c0744fb895b67bfd1fe743898edbf34578283826"
+  "hash": "5a9f9b112e515ec02772d6670dabb7705c59eff8f2dce16a419d686162f946f1"
 }

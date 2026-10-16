@@ -40,7 +40,7 @@ pub use models::*;
 pub use reader::EventReader;
 pub use writer::EventWriter;
 
-/// Canonical 14-column SELECT list for `RoomEvent` deserialization.
+/// Canonical 15-column SELECT list for `RoomEvent` deserialization.
 ///
 /// Used by `event/basic.rs` and `event/batch.rs` to avoid hand-rolling the same
 /// column list across 15+ query methods. Mirrors the pattern already in use
@@ -69,7 +69,7 @@ pub const ROOM_EVENT_COLS: &str = "\
     COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, \
     COALESCE(origin_server_ts, 0) as processed_at, COALESCE(not_before, 0) as not_before, \
     status, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, \
-    stream_ordering, redacts";
+    stream_ordering, redacts, unsigned";
 
 #[cfg(test)]
 mod tests;

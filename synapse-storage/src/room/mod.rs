@@ -846,13 +846,16 @@ impl RoomStorage {
             .map(|(_, s)| s.to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "localhost".to_string());
-        sqlx::query!(
+        // ELEMENTSEC-2026-1729: an alias that already points at another room must
+        // never be silently repointed. `DO NOTHING` turns the clash into a
+        // *detectable* conflict — zero rows affected — which the caller maps to
+        // 409 `M_ROOM_IN_USE` instead of moving the alias out from under its
+        // current room.
+        let result = sqlx::query!(
             r"
             INSERT INTO room_aliases (room_alias, room_id, server_name, created_ts)
             VALUES ($1, $2, $3, $4)
-            ON CONFLICT (room_alias) DO UPDATE SET
-                room_id = EXCLUDED.room_id,
-                created_ts = EXCLUDED.created_ts
+            ON CONFLICT (room_alias) DO NOTHING
             ",
             normalized_alias,
             room_id,
@@ -861,6 +864,14 @@ impl RoomStorage {
         )
         .execute(&*self.pool)
         .await?;
+        if result.rows_affected() == 0 {
+            tracing::warn!(
+                alias = %normalized_alias,
+                room_id,
+                "refusing to repoint room alias already bound to another room"
+            );
+            return Err(sqlx::Error::RowNotFound);
+        }
         Ok(())
     }
 

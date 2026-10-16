@@ -467,6 +467,7 @@ mod tests {
             origin: "example.com".to_string(),
             stream_ordering: Some(1),
             redacts: None,
+            unsigned: None,
         };
         assert_eq!(event.event_id, "$test_event");
         assert_eq!(event.room_id, "!test:example.com");

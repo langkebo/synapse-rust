@@ -348,7 +348,7 @@ impl EventStorage {
                    COALESCE(depth, 0) AS "depth!", COALESCE(origin_server_ts, 0) AS "origin_server_ts!",
                    COALESCE(origin_server_ts, 0) AS "processed_ts!",
                    COALESCE(not_before, 0) AS "not_before!", status, COALESCE(origin, 'self') AS "origin!",
-                   stream_ordering, redacts
+                   stream_ordering, redacts, unsigned
             FROM events
             WHERE room_id = $1
               AND event_type = 'm.room.message'

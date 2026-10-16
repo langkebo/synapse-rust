@@ -53,6 +53,7 @@ fn test_room_event_struct() {
         origin: "self".to_string(),
         stream_ordering: Some(1),
         redacts: None,
+        unsigned: None,
     };
 
     assert_eq!(event.event_id, "$event123:example.com");
@@ -175,6 +176,7 @@ fn test_event_content_serialization() {
         origin: "self".to_string(),
         stream_ordering: Some(0),
         redacts: None,
+        unsigned: None,
     };
 
     assert_eq!(event.content["msgtype"], "m.text");

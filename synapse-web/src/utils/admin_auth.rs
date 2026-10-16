@@ -39,7 +39,7 @@ pub(crate) async fn authorize_admin_from_services(
     path: &str,
 ) -> Result<AuthorizedAdmin, ApiError> {
     let access_token = super::auth::bearer_token(headers)?;
-    let (user_id, device_id, is_admin, _, _): (String, Option<String>, bool, bool, bool) =
+    let (user_id, device_id, is_admin, _, _, _): (String, Option<String>, bool, bool, bool, Option<String>) =
         auth_service.validate_token(&access_token).await?;
 
     if !is_admin {

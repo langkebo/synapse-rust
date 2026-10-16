@@ -533,6 +533,7 @@ matrixrtc
 matrixrtcstorage
 matview
 matviews
+mautrix
 mcp
 mcs
 md

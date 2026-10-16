@@ -317,6 +317,15 @@ pub(crate) async fn send_message(
         return Ok(response);
     }
 
+    // MSC4354: a `?org.matrix.msc4354.sticky_duration_ms=` hint on `/send` is
+    // honoured by recording the TTL on the sent event's `unsigned`. Parsed here —
+    // after the delayed path above, which refuses the delay+sticky combination
+    // outright — so an invalid duration fails before the event is written. The
+    // dedicated `/delayed_event` surface and the private `sticky_events` pins
+    // remain separate; see `apply_msc4354_sticky_ttl` for how the two models
+    // coexist.
+    let sticky_duration_ms = super::msc4354_query_sticky_duration_ms(&query)?;
+
     // ISSUE-03: txn 去重的唯一事实源是 DB 唯一约束（room_event_txn_dedup），
     // 上方缓存仅为快路径；缓存丢失/过期时重试仍返回同一 event_id。
     let result = ctx
@@ -324,6 +333,16 @@ pub(crate) async fn send_message(
         .messaging()
         .send_message_with_txn(&room_id, &auth_user.user_id, &event_type, &body, &txn_id)
         .await?;
+
+    if let Some(duration_ms) = sticky_duration_ms {
+        if let Some(event_id) = result.get("event_id").and_then(|v| v.as_str()) {
+            // Propagate a failure here rather than swallow it: the event is
+            // already persisted and the txn is *not* cached yet, so a retry
+            // re-enters through `send_message_with_txn` (returning the same
+            // event_id via DB dedup) and re-attempts the `unsigned` write.
+            super::apply_msc4354_sticky_ttl(&ctx, event_id, duration_ms).await?;
+        }
+    }
 
     if !txn_id.is_empty() {
         let cache_key = format!("txn:{}:{}:{}", auth_user.user_id, room_id, txn_id);

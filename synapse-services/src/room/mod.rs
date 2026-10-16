@@ -48,7 +48,7 @@ pub mod utils;
 pub use crate::typing_service::{TypingService, TypingUser};
 pub use service::{
     decode_room_search_cursor, encode_room_search_cursor, CreateRoomConfig, RoomSearchCursor, RoomSearchOrder,
-    RoomService, RoomServiceConfig, RoomTag, StickyEvent,
+    RoomService, RoomServiceConfig, RoomTag, StickyEvent, MAX_STICKY_DURATION_MS,
 };
 pub use space::SpaceService;
 pub use summary::{

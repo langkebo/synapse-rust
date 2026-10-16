@@ -2194,9 +2194,15 @@ BASELINE_DYNAMIC_PRODUCTION=96
 BASELINE_DYNAMIC_TEST_INFRA=769
 BASELINE_STATIC=1361
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1329
+SQLX_CACHE_ENTRIES=1326
 <!-- sqlx-plan-numbers:end -->
 
+> **2026-10-16 更新（P1 批次：功能缺口/安全面 5 项）**，数字块一项按实测同步：
+> - `SQLX_CACHE_ENTRIES` **1329 → 1326**（−3）：本轮改了四处 SQL 文本（房间别名冲突
+>   `ON CONFLICT DO NOTHING`、push 规则上界校验、AS 设备管理、MSC4354 标准请求面），
+>   经唯一入口 `scripts/ci/sqlx_prepare.sh` 重生成后旧条目连同失效查询一并清出（13 删 10 增）。
+>   其余四个 `BASELINE_*` 未变。
+>
 > **2026-10-16 更新（B1/UG-5：lazy-load 成员缓存补"响应位置"）**，数字块一项按实测同步：
 > - `BASELINE_DYNAMIC_TEST_INFRA` **768 → 769**（+1）：`synapse-storage/src/device/mod.rs` 的
 >   `#[cfg(test)] mod tests` 里新增一条**运行时** `sqlx::query` 夹具，用来造一行

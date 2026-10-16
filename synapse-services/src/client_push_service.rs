@@ -4,6 +4,45 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use synapse_storage::push::{PushRuleScopedRow, PushStoreApi};
 
+/// Maximum UTF-8 byte length of a push rule ID. Mirrors upstream Synapse's
+/// `push_rules.rule_id_length` (ELEMENTSEC-2026-1071).
+const MAX_PUSH_RULE_ID_LEN: usize = 300;
+
+/// Maximum combined UTF-8 byte size of a rule's serialised `conditions` +
+/// `actions`. Mirrors upstream Synapse's `push_rules.rule_size`.
+const MAX_PUSH_RULE_SIZE: usize = 1024;
+
+/// Maximum number of push rules a single user may store. Mirrors upstream
+/// Synapse's `push_rules.rule_count`.
+const MAX_PUSH_RULES_PER_USER: i64 = 10_000;
+
+/// Combined UTF-8 byte size of a rule's serialised `conditions` + `actions`,
+/// the quantity bounded by [`MAX_PUSH_RULE_SIZE`].
+///
+/// Mirrors upstream Synapse's `_push_rule_size_for_limits`: the length of the
+/// compact JSON encoding, not a pretty-printed one. An absent (`None`)
+/// `conditions` value contributes zero bytes.
+fn push_rule_size(conditions: Option<&Value>, actions: &Value) -> usize {
+    let conditions_len = conditions.map(|c| c.to_string().len()).unwrap_or(0);
+    conditions_len + actions.to_string().len()
+}
+
+/// Enforce the per-rule `rule_id` length and `conditions` + `actions` size
+/// caps, returning a 413 `M_TOO_LARGE` on violation.
+fn ensure_push_rule_within_limits(rule_id: &str, conditions: Option<&Value>, actions: &Value) -> Result<(), ApiError> {
+    if rule_id.len() > MAX_PUSH_RULE_ID_LEN {
+        return Err(ApiError::too_large(format!(
+            "Push rule ID length {} exceeds the limit of {MAX_PUSH_RULE_ID_LEN}",
+            rule_id.len()
+        )));
+    }
+    let size = push_rule_size(conditions, actions);
+    if size > MAX_PUSH_RULE_SIZE {
+        return Err(ApiError::too_large(format!("Push rule size {size} exceeds the limit of {MAX_PUSH_RULE_SIZE}")));
+    }
+    Ok(())
+}
+
 /// Map one `push_rules` row to its Matrix JSON representation.
 ///
 /// Shared by the per-kind reader and the full-document builder so the two
@@ -228,6 +267,21 @@ impl ClientPushService {
 
     /// See [`upsert_push_rule`].
     pub async fn upsert_push_rule(&self, request: UpsertPushRuleRequest) -> Result<i64, ApiError> {
+        // ELEMENTSEC-2026-1071: bound rule count and per-rule size before touching
+        // storage, so an abusive client cannot exhaust disk/memory. The cheap
+        // in-memory checks run first; the per-user count (one indexed `COUNT(*)`)
+        // runs last so it is only paid when the request is otherwise well-formed.
+        ensure_push_rule_within_limits(&request.rule_id, request.conditions.as_ref(), &request.actions)?;
+        let existing = self
+            .push_storage
+            .count_push_rules_excluding(&request.user_id, &request.scope, &request.kind, &request.rule_id)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to count push rules", e))?;
+        if existing >= MAX_PUSH_RULES_PER_USER {
+            return Err(ApiError::too_large(format!(
+                "Push rule count {existing} exceeds the limit of {MAX_PUSH_RULES_PER_USER}"
+            )));
+        }
         let now = current_timestamp_millis();
         self.push_storage
             .upsert_push_rule(
@@ -294,6 +348,17 @@ impl ClientPushService {
         rule_id: &str,
         actions: &Value,
     ) -> Result<(), ApiError> {
+        // ELEMENTSEC-2026-1071: replacing a rule's actions changes its total size,
+        // so re-check the cap against the stored conditions. A missing rule is a
+        // silent no-op (unchanged behaviour), hence the check is skipped for it.
+        let rules = self
+            .push_storage
+            .get_user_push_rules(user_id, scope, kind)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to get push rules", e))?;
+        if let Some(row) = rules.iter().find(|row| row.rule_id == rule_id) {
+            ensure_push_rule_within_limits(rule_id, row.conditions.as_ref(), actions)?;
+        }
         self.push_storage
             .update_push_rule_actions(user_id, scope, kind, rule_id, actions)
             .await
@@ -417,6 +482,7 @@ mod tests {
     use super::*;
     use crate::test_mocks::InMemoryPushStore;
     use serde_json::json;
+    use synapse_common::MatrixErrorCode;
 
     fn build_service() -> ClientPushService {
         ClientPushService::new(Arc::new(InMemoryPushStore::new()))
@@ -517,6 +583,97 @@ mod tests {
         svc.upsert_push_rule(rule_req("@eve:example.com", ".m.rule.eve", json!([{"kind": "dont_notify"}])))
             .await
             .expect("overwrite via ON CONFLICT must succeed");
+    }
+
+    #[tokio::test]
+    async fn test_upsert_push_rule_rejects_oversized_rule_id() {
+        // ELEMENTSEC-2026-1071: a rule ID longer than 300 bytes is rejected.
+        let svc = build_service();
+        let long_id = "a".repeat(MAX_PUSH_RULE_ID_LEN + 1);
+        let err = svc
+            .upsert_push_rule(rule_req("@mallory:example.com", &long_id, json!([{"kind": "notify"}])))
+            .await
+            .expect_err("oversized rule ID must be rejected");
+        assert!(err.code_is(MatrixErrorCode::TooLarge), "must be 413 M_TOO_LARGE, got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn test_upsert_push_rule_accepts_rule_id_at_limit() {
+        let svc = build_service();
+        let max_id = "a".repeat(MAX_PUSH_RULE_ID_LEN);
+        svc.upsert_push_rule(rule_req("@mallory:example.com", &max_id, json!([{"kind": "notify"}])))
+            .await
+            .expect("rule ID exactly at the limit must be accepted");
+    }
+
+    #[tokio::test]
+    async fn test_upsert_push_rule_rejects_oversized_rule() {
+        // `actions` alone exceeding the 1024-byte combined cap must be rejected.
+        let svc = build_service();
+        let fat_actions = json!([{"kind": "notify", "blob": "x".repeat(MAX_PUSH_RULE_SIZE)}]);
+        let err = svc
+            .upsert_push_rule(rule_req("@mallory:example.com", ".m.rule.fat", fat_actions))
+            .await
+            .expect_err("oversized rule must be rejected");
+        assert!(err.code_is(MatrixErrorCode::TooLarge), "must be 413 M_TOO_LARGE, got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn test_upsert_push_rule_accepts_rule_at_size_limit() {
+        let svc = build_service();
+        // Pad to exactly the limit: the serialised action list plus its two
+        // enclosing brackets must total `MAX_PUSH_RULE_SIZE` bytes.
+        let pad = "x".repeat(MAX_PUSH_RULE_SIZE - r#"[{"kind":"notify","blob":""}]"#.len());
+        let actions = json!([{"kind": "notify", "blob": pad}]);
+        assert_eq!(push_rule_size(None, &actions), MAX_PUSH_RULE_SIZE);
+        svc.upsert_push_rule(rule_req("@mallory:example.com", ".m.rule.at_limit", actions))
+            .await
+            .expect("rule exactly at the size limit must be accepted");
+    }
+
+    #[tokio::test]
+    async fn test_upsert_push_rule_rejects_rule_at_count_limit() {
+        // ELEMENTSEC-2026-1071: a user at the per-user cap cannot add another rule.
+        let svc = build_service();
+        let user = "@quentin:example.com";
+        for i in 0..MAX_PUSH_RULES_PER_USER {
+            svc.upsert_push_rule(rule_req(user, &format!(".m.rule.{i}"), json!([{"kind": "notify"}])))
+                .await
+                .expect("seeding rules below the cap must succeed");
+        }
+        let err = svc
+            .upsert_push_rule(rule_req(user, ".m.rule.one_too_many", json!([{"kind": "notify"}])))
+            .await
+            .expect_err("adding a rule past the cap must be rejected");
+        assert!(err.code_is(MatrixErrorCode::TooLarge), "must be 413 M_TOO_LARGE, got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn test_upsert_push_rule_allows_updating_existing_rule_at_count_limit() {
+        // The rule being written is excluded from the count, so re-saving an
+        // existing rule (an update, not an insert) stays allowed at the cap.
+        let svc = build_service();
+        let user = "@rhea:example.com";
+        for i in 0..MAX_PUSH_RULES_PER_USER {
+            svc.upsert_push_rule(rule_req(user, &format!(".m.rule.{i}"), json!([{"kind": "notify"}])))
+                .await
+                .expect("seeding rules below the cap must succeed");
+        }
+        svc.upsert_push_rule(rule_req(user, ".m.rule.0", json!([{"kind": "dont_notify"}])))
+            .await
+            .expect("updating an existing rule at the cap must succeed");
+    }
+
+    #[tokio::test]
+    async fn test_set_push_rule_actions_rejects_oversized_actions() {
+        let svc = build_service();
+        svc.upsert_push_rule(rule_req("@tina:example.com", ".m.rule.tina", json!([{"kind": "notify"}]))).await.unwrap();
+        let fat_actions = json!([{"kind": "notify", "blob": "x".repeat(MAX_PUSH_RULE_SIZE)}]);
+        let err = svc
+            .set_push_rule_actions("@tina:example.com", "global", "room", ".m.rule.tina", &fat_actions)
+            .await
+            .expect_err("oversized actions must be rejected");
+        assert!(err.code_is(MatrixErrorCode::TooLarge), "must be 413 M_TOO_LARGE, got {err:?}");
     }
 
     #[tokio::test]

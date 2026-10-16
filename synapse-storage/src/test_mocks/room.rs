@@ -139,11 +139,17 @@ impl InMemoryRoomStore {
     }
 
     /// See [`set_room_alias`].
+    ///
+    /// 与真实存储层同契约：别名已被占用时**拒绝**（不静默改指），返回可判别错误。
     pub async fn set_room_alias(&self, room_id: &str, alias: &str, _created_by: &str) -> Result<(), String> {
         if !self.rooms.read().await.contains_key(room_id) {
             return Err(format!("room {room_id} not found"));
         }
-        self.aliases.write().await.insert(alias.to_string(), room_id.to_string());
+        let mut aliases = self.aliases.write().await;
+        if aliases.contains_key(alias) {
+            return Err(format!("alias {alias} is already taken"));
+        }
+        aliases.insert(alias.to_string(), room_id.to_string());
         Ok(())
     }
 
@@ -220,7 +226,12 @@ impl crate::room::api::RoomStoreApi for InMemoryRoomStore {
         if !self.rooms.read().await.contains_key(room_id) {
             return Err(sqlx::Error::Protocol("room not found".into()));
         }
-        self.aliases.write().await.insert(alias.to_string(), room_id.to_string());
+        let mut aliases = self.aliases.write().await;
+        if aliases.contains_key(alias) {
+            // 与真实存储层同契约：别名已被占用 ⇒ 可判别冲突（服务层翻成 409 M_ROOM_IN_USE）。
+            return Err(sqlx::Error::RowNotFound);
+        }
+        aliases.insert(alias.to_string(), room_id.to_string());
         Ok(())
     }
 

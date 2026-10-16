@@ -21,6 +21,7 @@ mod cache_integration_tests {
             iat: now,
             iss: None,
             aud: None,
+            appservice_id: None,
         }
     }
 

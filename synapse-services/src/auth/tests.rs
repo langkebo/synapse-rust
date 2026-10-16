@@ -17,6 +17,7 @@ fn test_claims_struct() {
         device_id: Some("DEVICE123".to_string()),
         iss: None,
         aud: None,
+        appservice_id: None,
     };
     assert_eq!(claims.sub, "@test:example.com");
     assert_eq!(claims.user_id, "@test:example.com");
@@ -36,6 +37,7 @@ fn test_claims_with_admin() {
         device_id: None,
         iss: None,
         aud: None,
+        appservice_id: None,
     };
     assert!(claims.is_admin);
     assert!(claims.device_id.is_none());
@@ -69,6 +71,7 @@ fn test_claims_serialization() {
         device_id: Some("DEVICE123".to_string()),
         iss: None,
         aud: None,
+        appservice_id: None,
     };
     let json = serde_json::to_string(&claims).unwrap();
     let deserialized: Claims = serde_json::from_str(&json).unwrap();
@@ -178,6 +181,7 @@ fn test_claims_expiration_validation() {
         device_id: None,
         iss: None,
         aud: None,
+        appservice_id: None,
     };
     assert!(valid_claims.exp > now);
 
@@ -191,6 +195,7 @@ fn test_claims_expiration_validation() {
         device_id: None,
         iss: None,
         aud: None,
+        appservice_id: None,
     };
     assert!(expired_claims.exp < now);
 }
@@ -207,6 +212,7 @@ fn test_claims_device_id_optional() {
         device_id: Some("DEVICE123".to_string()),
         iss: None,
         aud: None,
+        appservice_id: None,
     };
     assert!(claims_with_device.device_id.is_some());
 
@@ -220,6 +226,7 @@ fn test_claims_device_id_optional() {
         device_id: None,
         iss: None,
         aud: None,
+        appservice_id: None,
     };
     assert!(claims_without_device.device_id.is_none());
 }
@@ -238,6 +245,7 @@ fn test_jwt_encode_decode() {
         device_id: Some("DEVICE456".to_string()),
         iss: None,
         aud: None,
+        appservice_id: None,
     };
 
     let mut header = Header::new(Algorithm::HS256);
@@ -270,6 +278,7 @@ fn test_jwt_decode_wrong_secret() {
         device_id: None,
         iss: None,
         aud: None,
+        appservice_id: None,
     };
 
     let mut header = Header::new(Algorithm::HS256);
@@ -297,6 +306,7 @@ fn test_jwt_expired_token() {
         device_id: None,
         iss: None,
         aud: None,
+        appservice_id: None,
     };
 
     let mut header = Header::new(Algorithm::HS256);
@@ -324,6 +334,7 @@ fn test_jwt_tampered_token() {
         device_id: None,
         iss: None,
         aud: None,
+        appservice_id: None,
     };
 
     let mut header = Header::new(Algorithm::HS256);
@@ -372,6 +383,7 @@ fn test_claims_json_roundtrip() {
         device_id: Some("MYDEVICE".to_string()),
         iss: None,
         aud: None,
+        appservice_id: None,
     };
 
     let json = serde_json::to_string(&original).unwrap();
@@ -397,6 +409,7 @@ fn test_claims_json_structure() {
         device_id: Some("DEV1".to_string()),
         iss: None,
         aud: None,
+        appservice_id: None,
     };
 
     let json = serde_json::to_string(&claims).unwrap();
@@ -469,6 +482,7 @@ fn test_auth_service_jwt_generation_direct() {
         device_id: Some("DEVICE1".to_string()),
         iss: None,
         aud: None,
+        appservice_id: None,
     };
 
     let mut header = Header::new(Algorithm::HS256);
@@ -502,6 +516,7 @@ fn test_auth_service_jwt_admin_flag_direct() {
         device_id: Some("DEVICE2".to_string()),
         iss: None,
         aud: None,
+        appservice_id: None,
     };
 
     let mut header = Header::new(Algorithm::HS256);
@@ -532,6 +547,7 @@ fn test_auth_service_jwt_expiration_direct() {
         device_id: Some("DEVICE".to_string()),
         iss: None,
         aud: None,
+        appservice_id: None,
     };
 
     let token = encode(&Header::new(Algorithm::HS256), &claims, &EncodingKey::from_secret(jwt_secret)).unwrap();

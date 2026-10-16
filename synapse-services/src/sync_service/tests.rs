@@ -614,6 +614,7 @@ fn test_apply_lazy_load_members_keeps_only_timeline_members_and_self() {
         origin: "self".to_string(),
         stream_ordering: Some(1),
         redacts: None,
+        unsigned: None,
     }];
 
     let (filtered, known_now) = SyncService::apply_lazy_load_members_with_cache(
@@ -671,6 +672,7 @@ fn test_apply_lazy_load_members_skips_cached_members_by_default() {
         origin: "self".to_string(),
         stream_ordering: Some(1),
         redacts: None,
+        unsigned: None,
     }];
 
     let (filtered, known_now) = SyncService::apply_lazy_load_members_with_cache(
@@ -725,6 +727,7 @@ fn test_apply_lazy_load_members_can_include_redundant_members() {
         origin: "self".to_string(),
         stream_ordering: Some(1),
         redacts: None,
+        unsigned: None,
     }];
 
     let (filtered, _) = SyncService::apply_lazy_load_members_with_cache(
@@ -821,6 +824,7 @@ fn test_rooms_to_include_keeps_rooms_with_state_delta_membership() {
                 origin: "self".to_string(),
                 stream_ordering: Some(1),
                 redacts: None,
+                unsigned: None,
             }],
         ),
         ("!state:localhost".to_string(), Vec::new()),
@@ -945,6 +949,7 @@ fn sample_room_event(event_id_suffix: &str) -> RoomEvent {
         origin: "example.com".to_string(),
         stream_ordering: Some(1),
         redacts: None,
+        unsigned: None,
     }
 }
 
@@ -1446,6 +1451,7 @@ fn make_timeline_event(user_id: &str, event_type: &str, state_key: Option<&str>)
         origin: "matrix.org".into(),
         stream_ordering: Some(1),
         redacts: None,
+        unsigned: None,
     }
 }
 

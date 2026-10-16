@@ -209,7 +209,7 @@ impl EventStorage {
                    COALESCE(depth, 0) AS "depth!", COALESCE(origin_server_ts, 0) AS "origin_server_ts!",
                    COALESCE(origin_server_ts, 0) AS "processed_ts!",
                    COALESCE(not_before, 0) AS "not_before!", status, COALESCE(origin, 'self') AS "origin!",
-                   stream_ordering, redacts
+                   stream_ordering, redacts, unsigned
             FROM events
             WHERE event_id = ANY($1)
             "#,
@@ -308,7 +308,7 @@ impl EventStorage {
                    origin_server_ts AS "processed_ts",
                    COALESCE(not_before, 0) AS "not_before!", status,
                    COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') AS "origin!",
-                   stream_ordering, redacts
+                   stream_ordering, redacts, unsigned
             FROM events
             WHERE room_id = $1 AND status = 'pending'
             ORDER BY origin_server_ts ASC
@@ -385,6 +385,7 @@ mod tests {
             origin: "self".into(),
             stream_ordering: Some(1),
             redacts: None,
+            unsigned: None,
         }
     }
 
