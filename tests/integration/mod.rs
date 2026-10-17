@@ -49,6 +49,7 @@ mod api_security_headers_tests;
 mod api_security_vuln_fix_tests;
 mod api_space_routes_tests;
 mod api_sticky_event_tests;
+mod api_sticky_state_event_tests;
 mod api_sync_filter_tests;
 mod api_sync_isolation_rate_limit_tests;
 mod api_telemetry_alerts_tests;

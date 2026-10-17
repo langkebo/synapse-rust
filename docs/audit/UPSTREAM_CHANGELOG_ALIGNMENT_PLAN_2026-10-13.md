@@ -1863,9 +1863,15 @@ per-user pin 表 `room_sticky_events`；**驱动 `/sync` 与 sliding sync 里 `s
 **教训（值得记住的形态）**：跨分支并行推进同一 MSC 时，"残余 / 缺口"这类判断**必须写在它基于的
 提交上**（本节现在都带 `base` 标注）。否则合并提交一到，结论当天过期，而读者看到的是肯定语气。
 
-**当前真正的残余只剩一条**：
+**发现时唯一的真残余（已在同一天补齐）**：
 
-- `/state` 面**零测试覆盖**：`msc4354_query_sticky_duration_ms` 在 `/state` 的 4 处调用都没有对应用例
-  （`/send` 那侧有 3 条，见 §11.17.3）。检索面三查（测试文件内 `sticky` 字样、integration/unit 两目录、
-  `a3664aca7` 的改动清单）均无命中。⇒ 这是**新增的能力没有护栏**，不是文档问题。
+- `/state` 面**零测试覆盖**（2026-10-17 实测）：`msc4354_query_sticky_duration_ms` 在 `/state` 的 4 处
+  调用都没有对应用例（`/send` 那侧有 3 条，见 §11.17.3）。检索面三查（测试文件内 `sticky` 字样、
+  integration/unit 两目录、`a3664aca7` 的改动清单）均无命中。⇒ 这是**新增能力没有护栏**，不是文档问题。
+  **已补**：`tests/integration/api_sticky_state_event_tests.rs` —— 3 条，覆盖**三种写入形态**
+  （`PUT /state/{type}`、`PUT /state/{type}/` 空 key、`PUT /state/{type}/{state_key}`，它们是三个不同
+  handler，只测一条就会漏掉"某个门忘了接线"），每条都带负控（无 hint ⇒ 不得长出 TTL；越界 ⇒ 400
+  且状态未落库）。**实跑 3/3 通过**；**变异自证**：把 `state.rs` 四处
+  `msc4354_query_sticky_duration_ms(&query)?` 全换成 `None` ⇒ 三条**全部变红**（越界那条同时丢掉 400，
+  故也红），还原后复绿。
 - `/delayed_event` 专用端点仍 **501**（刻意，理由见上）。
