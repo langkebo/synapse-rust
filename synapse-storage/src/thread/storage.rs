@@ -359,6 +359,25 @@ impl ThreadStorage {
         .await
     }
 
+    /// Remove **every** thread subscription belonging to `user_id`, returning the count.
+    ///
+    /// Used by account deactivation: [`Self::unsubscribe_from_thread`] keys on
+    /// `(room_id, thread_id, user_id)`, which the deactivation call site does not
+    /// have. One statement removes the user's subscriptions across all threads.
+    pub async fn delete_all_subscriptions_for_user(&self, user_id: &str) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"
+            DELETE FROM thread_subscriptions
+            WHERE user_id = $1
+            "#,
+            user_id
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
     /// See [`unsubscribe_from_thread`].
     pub async fn unsubscribe_from_thread(
         &self,

@@ -19,7 +19,12 @@
 //! * the user stayed a `join` member of every room (so member lists, power-level
 //!   arithmetic and room summaries kept counting them);
 //! * pushers survived — `pushers` has no foreign key to `devices`, so deleting
-//!   the devices does not remove them.
+//!   the devices does not remove them;
+//! * the user's threepids, account data, room account data, push rules, thread
+//!   subscriptions and E2EE backups all survived, so a "deactivated" account
+//!   still had addresses and key material attached to it;
+//! * outstanding **invites and knocks** were left standing: the user was gone
+//!   but still reachable through a pending membership nobody had rejected.
 //!
 //! # Why it is not a method on `RegistrationService`
 //!
@@ -38,14 +43,36 @@
 //! steps:
 //!
 //! 1. cancel delayed events (**fail-fast**, security-critical);
-//! 2. part every joined room (**best-effort per room**, fail-fast on listing);
+//! 2. part every joined room **and reject every pending invite/knock**
+//!    (**best-effort per room**, fail-fast on listing);
 //! 3. delete all pushers (**fail-fast**);
-//! 4. revoke tokens/devices and mark deactivated (**fail-fast, last**).
+//! 4. purge the account-scoped rows — account data, room account data, push
+//!    rules, thread subscriptions, threepids and E2EE backups (**fail-fast**);
+//! 5. revoke tokens/devices and mark deactivated (**fail-fast, last**).
 //!
 //! Putting the irreversible step last means a retry after a partial failure is
 //! meaningful: the user can press "deactivate" again and the pipeline re-runs
 //! from the top. Doing it first would leave an account that is deactivated but
 //! still in rooms, with no mechanism to finish the job.
+//!
+//! # Rejecting pending invites/knocks
+//!
+//! Step 2 targets the union of *joined* and *pending* (`invite` / `knock`) rooms.
+//! A pending membership is not a `join`, so the old pipeline skipped it and the
+//! invitee stayed reachable; driving `leave` on it is exactly upstream's
+//! `reject_invite`/`retract_knock` (see
+//! [`synapse_common::membership_transition`]: a self-`leave` from `invite`/`knock`
+//! is legal), so no new transition had to be invented.
+//!
+//! # What "purge" does **not** touch
+//!
+//! The `user_directory` table has no Rust reader or writer anywhere in this repo
+//! — it is dead schema. The user-visible behaviour upstream gets by deleting a
+//! `user_directory` row ("this user no longer turns up in a directory search")
+//! is already provided by the `is_deactivated` filter every directory query
+//! applies (`COALESCE(is_deactivated, FALSE) = FALSE`). Adding a `DELETE` against
+//! a table nothing reads would be motion without effect, so it is deliberately
+//! omitted — the flag is the mechanism, and it is set by step 5.
 //!
 //! # Error policy (deliberate, and asymmetric on purpose)
 //!
@@ -58,8 +85,15 @@
 
 use std::sync::Arc;
 
+use sqlx::PgPool;
 use synapse_common::{ApiError, ApiResult};
-use synapse_storage::push::PushStoreApi;
+use synapse_e2ee::backup::storage::KeyBackupStorage;
+use synapse_e2ee::secure_backup::SecureBackupService;
+use synapse_storage::account_data::AccountDataStorage;
+use synapse_storage::push::{PushStorage, PushStoreApi};
+use synapse_storage::room_account_data::RoomAccountDataStorage;
+use synapse_storage::thread::ThreadStorage;
+use synapse_storage::threepid::ThreepidStorage;
 
 use crate::auth::CredentialAuth;
 use crate::delayed_event_service::DelayedEventService;
@@ -80,6 +114,15 @@ pub trait RoomParting: Send + Sync {
     /// Rooms `user_id` is currently joined to.
     async fn joined_rooms(&self, user_id: &str) -> ApiResult<Vec<String>>;
 
+    /// Rooms `user_id` has a **pending** membership in — `invite` or `knock`,
+    /// but not `join`. Disjoint from [`Self::joined_rooms`].
+    ///
+    /// Deactivation must reject these too; otherwise the account is gone but a
+    /// pending invite keeps it addressable. Rejecting is just a self-`leave`
+    /// ([`Self::part`]) — the membership state machine already allows that from
+    /// `invite`/`knock`.
+    async fn pending_rooms(&self, user_id: &str) -> ApiResult<Vec<String>>;
+
     /// Make `user_id` leave `room_id`.
     async fn part(&self, room_id: &str, user_id: &str) -> ApiResult<()>;
 }
@@ -88,6 +131,10 @@ pub trait RoomParting: Send + Sync {
 impl RoomParting for RoomService {
     async fn joined_rooms(&self, user_id: &str) -> ApiResult<Vec<String>> {
         self.membership().get_joined_rooms(user_id).await
+    }
+
+    async fn pending_rooms(&self, user_id: &str) -> ApiResult<Vec<String>> {
+        self.membership().get_pending_rooms(user_id).await
     }
 
     async fn part(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
@@ -110,6 +157,100 @@ pub struct DeactivationReport {
     pub rooms_failed: usize,
     /// Pusher rows deleted.
     pub pushers_deleted: u64,
+    /// Account-scoped rows removed by [`UserDataPurger`], per table.
+    pub purged: PurgedUserData,
+}
+
+/// Rows removed by [`UserDataPurger::purge`], one count per table.
+///
+/// Split out (rather than summed) so an operator reading the audit log can tell
+/// *which* store still held data for an account they thought they had deleted.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PurgedUserData {
+    /// `account_data` rows.
+    pub account_data_deleted: u64,
+    /// `room_account_data` rows.
+    pub room_account_data_deleted: u64,
+    /// `push_rules` rows.
+    pub push_rules_deleted: u64,
+    /// `thread_subscriptions` rows.
+    pub thread_subscriptions_deleted: u64,
+    /// `user_threepids` rows.
+    pub threepids_removed: u64,
+    /// `key_backups` rows (their `backup_keys` cascade away with them).
+    pub key_backups_deleted: u64,
+    /// `secure_key_backups` rows (their session keys cascade away with them).
+    pub secure_backups_deleted: u64,
+}
+
+/// The account-scoped cleanup half of the pipeline.
+///
+/// A seam for the same reason [`RoomParting`] is one: it lets the *pipeline*
+/// (order, error policy, "irreversible step last") be tested offline with a fake,
+/// while production uses [`StorageUserDataPurger`] over the real stores.
+#[async_trait::async_trait]
+pub trait UserDataPurger: Send + Sync {
+    /// Remove every account-scoped row owned by `user_id` that deactivation is
+    /// responsible for. See [`PurgedUserData`] for the tables.
+    async fn purge(&self, user_id: &str) -> ApiResult<PurgedUserData>;
+}
+
+/// Production [`UserDataPurger`]: seven storage handles, all built from one pool.
+///
+/// Composing them here (rather than taking seven `Arc<dyn …>` constructor
+/// arguments) keeps the container wiring to a single `new(&pool)` and keeps the
+/// service's dependency list — the tests' fake surface — at one seam.
+pub struct StorageUserDataPurger {
+    account_data: AccountDataStorage,
+    room_account_data: RoomAccountDataStorage,
+    push_storage: PushStorage,
+    thread_storage: ThreadStorage,
+    threepid_storage: ThreepidStorage,
+    key_backup_storage: KeyBackupStorage,
+    secure_backup: SecureBackupService,
+}
+
+impl StorageUserDataPurger {
+    /// Build every store from `pool`. Each storage's constructor takes the pool
+    /// by one of three flavors (`&Arc`, `Arc`, `&`), so they are all fed from the
+    /// same handle.
+    pub fn new(pool: &Arc<PgPool>) -> Self {
+        Self {
+            account_data: AccountDataStorage::new(pool),
+            room_account_data: RoomAccountDataStorage::new(pool),
+            push_storage: PushStorage::new(pool.clone()),
+            thread_storage: ThreadStorage::new(pool),
+            threepid_storage: ThreepidStorage::new(pool.as_ref()),
+            key_backup_storage: KeyBackupStorage::new(pool),
+            secure_backup: SecureBackupService::new(pool),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl UserDataPurger for StorageUserDataPurger {
+    async fn purge(&self, user_id: &str) -> ApiResult<PurgedUserData> {
+        Ok(PurgedUserData {
+            account_data_deleted: self.account_data.delete_all_account_data_for_user(user_id).await?,
+            room_account_data_deleted: self.room_account_data.delete_all_room_account_data_for_user(user_id).await?,
+            push_rules_deleted: self.push_storage.delete_all_push_rules_for_user(user_id).await.map_err(|e| {
+                ApiError::internal_with_cause("Failed to delete push rules during account deactivation", e)
+            })?,
+            thread_subscriptions_deleted: self
+                .thread_storage
+                .delete_all_subscriptions_for_user(user_id)
+                .await
+                .map_err(|e| {
+                    ApiError::internal_with_cause(
+                        "Failed to delete thread subscriptions during account deactivation",
+                        e,
+                    )
+                })?,
+            threepids_removed: self.threepid_storage.remove_threepids_by_user(user_id).await?,
+            key_backups_deleted: self.key_backup_storage.delete_all_for_user(user_id).await?,
+            secure_backups_deleted: self.secure_backup.delete_all_for_user(user_id).await?,
+        })
+    }
 }
 
 /// Orchestrates the account-deactivation pipeline. See the module docs for the
@@ -122,6 +263,7 @@ pub struct AccountDeactivationService {
     rooms: Arc<dyn RoomParting>,
     delayed_events: Arc<DelayedEventService>,
     push_storage: Arc<dyn PushStoreApi>,
+    user_data: Arc<dyn UserDataPurger>,
 }
 
 impl AccountDeactivationService {
@@ -131,8 +273,9 @@ impl AccountDeactivationService {
         rooms: Arc<dyn RoomParting>,
         delayed_events: Arc<DelayedEventService>,
         push_storage: Arc<dyn PushStoreApi>,
+        user_data: Arc<dyn UserDataPurger>,
     ) -> Self {
-        Self { credential_auth, rooms, delayed_events, push_storage }
+        Self { credential_auth, rooms, delayed_events, push_storage, user_data }
     }
 
     /// Run the full deactivation pipeline for `user_id`.
@@ -158,11 +301,17 @@ impl AccountDeactivationService {
                 ApiError::internal_with_cause("Failed to delete pushers during account deactivation", e)
             })?;
 
-        // 4. The irreversible step, last so that a retry after a partial failure
+        // 4. Account-scoped cleanup: account data, room account data, push rules,
+        //    thread subscriptions, threepids, E2EE backups. Fail-fast — a
+        //    half-purged account is a privacy leak, and the teardown below has not
+        //    run yet, so a retry re-runs this from the top.
+        let purged = self.user_data.purge(user_id).await?;
+
+        // 5. The irreversible step, last so that a retry after a partial failure
         //    is meaningful.
         self.credential_auth.deactivate_user(user_id).await?;
 
-        let report = DeactivationReport { delayed_events_cancelled, rooms_left, rooms_failed, pushers_deleted };
+        let report = DeactivationReport { delayed_events_cancelled, rooms_left, rooms_failed, pushers_deleted, purged };
         ::tracing::info!(
             target: "security_audit",
             event = "account_deactivation_pipeline_completed",
@@ -171,18 +320,30 @@ impl AccountDeactivationService {
             rooms_left,
             rooms_failed,
             pushers_deleted,
+            account_data_deleted = purged.account_data_deleted,
+            room_account_data_deleted = purged.room_account_data_deleted,
+            push_rules_deleted = purged.push_rules_deleted,
+            thread_subscriptions_deleted = purged.thread_subscriptions_deleted,
+            threepids_removed = purged.threepids_removed,
+            key_backups_deleted = purged.key_backups_deleted,
+            secure_backups_deleted = purged.secure_backups_deleted,
             "Account deactivation pipeline completed"
         );
         Ok(report)
     }
 
-    /// Leave every room the user is joined to, tolerating per-room failures.
+    /// Leave every room the user is joined to, and reject every pending
+    /// invite/knock, tolerating per-room failures.
     async fn part_rooms(&self, user_id: &str) -> ApiResult<(usize, usize)> {
-        let joined = self.rooms.joined_rooms(user_id).await?;
+        // `joined` and `pending` are disjoint by construction (a membership is one
+        // of join/invite/knock), so the union has no duplicates to dedupe.
+        let mut targets = self.rooms.joined_rooms(user_id).await?;
+        targets.extend(self.rooms.pending_rooms(user_id).await?);
+
         let mut left = 0usize;
         let mut failed = 0usize;
 
-        for room_id in joined {
+        for room_id in targets {
             match self.rooms.part(&room_id, user_id).await {
                 Ok(()) => left += 1,
                 Err(error) => {
@@ -231,6 +392,7 @@ mod tests {
     /// or specific rooms.
     struct FakeRooms {
         joined: Vec<String>,
+        pending: Vec<String>,
         fail_listing: bool,
         fail_rooms: Vec<String>,
         log: Arc<Log>,
@@ -245,12 +407,37 @@ mod tests {
             Ok(self.joined.clone())
         }
 
+        async fn pending_rooms(&self, _user_id: &str) -> ApiResult<Vec<String>> {
+            if self.fail_listing {
+                return Err(ApiError::internal("listing rooms failed"));
+            }
+            Ok(self.pending.clone())
+        }
+
         async fn part(&self, room_id: &str, _user_id: &str) -> ApiResult<()> {
             self.log.record(format!("part:{room_id}"));
             if self.fail_rooms.iter().any(|room| room == room_id) {
                 return Err(ApiError::internal("parting failed"));
             }
             Ok(())
+        }
+    }
+
+    /// `UserDataPurger` fake: records the call and returns a caller-set count.
+    struct FakePurger {
+        log: Arc<Log>,
+        purged: PurgedUserData,
+        fail: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl UserDataPurger for FakePurger {
+        async fn purge(&self, _user_id: &str) -> ApiResult<PurgedUserData> {
+            self.log.record("purge");
+            if self.fail {
+                return Err(ApiError::internal("purge failed"));
+            }
+            Ok(self.purged)
         }
     }
 
@@ -348,7 +535,22 @@ mod tests {
         log: Arc<Log>,
     }
 
-    fn harness(joined: Vec<&str>, fail_listing: bool, fail_rooms: Vec<&str>, credential_auth_fails: bool) -> Harness {
+    /// Fakes the pipeline's two data-cleaning seams. The common case (nothing to
+    /// purge, no failure) is [`Default`], so most tests can pass `PurgerSpec::default()`.
+    #[derive(Default)]
+    struct PurgerSpec {
+        purged: PurgedUserData,
+        fail: bool,
+    }
+
+    fn harness(
+        joined: Vec<&str>,
+        pending: Vec<&str>,
+        fail_listing: bool,
+        fail_rooms: Vec<&str>,
+        credential_auth_fails: bool,
+        purger: PurgerSpec,
+    ) -> Harness {
         let log = Arc::new(Log::default());
         let delayed_store = Arc::new(InMemoryDelayedEventStore::new());
         let push_store = Arc::new(InMemoryPushStore::new());
@@ -357,12 +559,14 @@ mod tests {
             Arc::new(FakeCredentialAuth { log: log.clone(), fail: credential_auth_fails }),
             Arc::new(FakeRooms {
                 joined: joined.into_iter().map(str::to_string).collect(),
+                pending: pending.into_iter().map(str::to_string).collect(),
                 fail_listing,
                 fail_rooms: fail_rooms.into_iter().map(str::to_string).collect(),
                 log: log.clone(),
             }),
             Arc::new(DelayedEventService::new(delayed_store.clone())),
             push_store.clone(),
+            Arc::new(FakePurger { log: log.clone(), purged: purger.purged, fail: purger.fail }),
         );
 
         Harness { service, delayed_store, push_store, log }
@@ -386,7 +590,7 @@ mod tests {
 
     #[tokio::test]
     async fn deactivate_cancels_delayed_events_parts_rooms_and_tears_down() {
-        let h = harness(vec!["!a:example.com", "!b:example.com"], false, vec![], false);
+        let h = harness(vec!["!a:example.com", "!b:example.com"], vec![], false, vec![], false, PurgerSpec::default());
         let delayed = seed_delayed_event(&h.delayed_store, "@alice:example.com").await;
 
         let report = h.service.deactivate("@alice:example.com").await.expect("deactivate");
@@ -399,7 +603,7 @@ mod tests {
             Some("cancelled"),
             "the scheduled message must not survive deactivation"
         );
-        assert_eq!(h.log.entries(), vec!["part:!a:example.com", "part:!b:example.com", "deactivate"]);
+        assert_eq!(h.log.entries(), vec!["part:!a:example.com", "part:!b:example.com", "purge", "deactivate"]);
     }
 
     /// The invariant the inversion in the module docs buys: the irreversible step
@@ -407,19 +611,29 @@ mod tests {
     /// that only checked the final state would pass even if `deactivate` ran first.
     #[tokio::test]
     async fn irreversible_teardown_is_the_last_step() {
-        let h = harness(vec!["!a:example.com"], false, vec![], false);
+        let h = harness(vec!["!a:example.com"], vec![], false, vec![], false, PurgerSpec::default());
 
         h.service.deactivate("@alice:example.com").await.expect("deactivate");
 
         let entries = h.log.entries();
         let teardown_at = entries.iter().position(|e| e == "deactivate").expect("teardown must be logged");
         assert_eq!(teardown_at, entries.len() - 1, "teardown must come after every parting attempt: {entries:?}");
-        assert!(entries[..teardown_at].iter().all(|e| e.starts_with("part:")), "{entries:?}");
+        assert!(
+            entries[..teardown_at].iter().all(|e| e.starts_with("part:") || e == "purge"),
+            "only the reversible cleanup steps may precede the teardown: {entries:?}"
+        );
     }
 
     #[tokio::test]
     async fn a_single_unpartable_room_does_not_block_deactivation() {
-        let h = harness(vec!["!good:example.com", "!broken:example.com"], false, vec!["!broken:example.com"], false);
+        let h = harness(
+            vec!["!good:example.com", "!broken:example.com"],
+            vec![],
+            false,
+            vec!["!broken:example.com"],
+            false,
+            PurgerSpec::default(),
+        );
 
         let report = h.service.deactivate("@alice:example.com").await.expect("deactivation must still complete");
 
@@ -429,10 +643,11 @@ mod tests {
     }
 
     /// Fail-closed: without the room list we cannot part, and the error is
-    /// transient — the user retries. The irreversible step must NOT have run.
+    /// transient — the user retries. Neither the purge nor the irreversible step
+    /// must have run.
     #[tokio::test]
     async fn a_failed_room_listing_aborts_before_the_irreversible_step() {
-        let h = harness(vec![], true, vec![], false);
+        let h = harness(vec![], vec![], true, vec![], false, PurgerSpec::default());
 
         let err = h.service.deactivate("@alice:example.com").await.expect_err("listing failure must be fatal");
 
@@ -441,11 +656,15 @@ mod tests {
             !h.log.entries().iter().any(|e| e == "deactivate"),
             "must not deactivate when parting could not even be attempted"
         );
+        assert!(
+            !h.log.entries().iter().any(|e| e == "purge"),
+            "must not purge when parting could not even be attempted"
+        );
     }
 
     #[tokio::test]
     async fn a_failed_teardown_surfaces_as_an_error() {
-        let h = harness(vec!["!a:example.com"], false, vec![], true);
+        let h = harness(vec!["!a:example.com"], vec![], false, vec![], true, PurgerSpec::default());
 
         let err = h.service.deactivate("@alice:example.com").await.expect_err("teardown failure must propagate");
 
@@ -454,19 +673,19 @@ mod tests {
 
     #[tokio::test]
     async fn deactivate_is_a_noop_without_rooms_or_delayed_events() {
-        let h = harness(vec![], false, vec![], false);
+        let h = harness(vec![], vec![], false, vec![], false, PurgerSpec::default());
 
         let report = h.service.deactivate("@alice:example.com").await.expect("deactivate");
 
         assert_eq!(report, DeactivationReport::default());
-        assert_eq!(h.log.entries(), vec!["deactivate"]);
+        assert_eq!(h.log.entries(), vec!["purge", "deactivate"]);
     }
 
     /// The pusher step must reach the storage seam: `deactivate` has to delete the
     /// user's pushers, and `pushers` has no FK to `devices` to fall back on.
     #[tokio::test]
     async fn deactivate_deletes_the_users_pushers() {
-        let h = harness(vec![], false, vec![], false);
+        let h = harness(vec![], vec![], false, vec![], false, PurgerSpec::default());
         h.push_store
             .upsert_pusher(
                 "@alice:example.com",
@@ -490,6 +709,69 @@ mod tests {
         assert!(
             h.push_store.get_pushers("@alice:example.com", Some("DEVICE")).await.expect("read pushers").is_empty(),
             "no pusher may survive deactivation"
+        );
+    }
+
+    /// A deactivation must reject outstanding invites and retract knocks, not just
+    /// part joined rooms — otherwise the account is gone but still addressable
+    /// through a pending membership.
+    #[tokio::test]
+    async fn deactivate_rejects_pending_invites_and_knocks() {
+        let h = harness(
+            vec!["!joined:example.com"],
+            vec!["!invite:example.com", "!knock:example.com"],
+            false,
+            vec![],
+            false,
+            PurgerSpec::default(),
+        );
+
+        let report = h.service.deactivate("@alice:example.com").await.expect("deactivate");
+
+        assert_eq!(report.rooms_left, 3, "the joined room and both pending rooms must be left");
+        assert_eq!(report.rooms_failed, 0);
+        let entries = h.log.entries();
+        for room in ["part:!joined:example.com", "part:!invite:example.com", "part:!knock:example.com"] {
+            assert!(entries.contains(&room.to_string()), "missing {room}: {entries:?}");
+        }
+    }
+
+    /// The purge step must reach the storage seam, and its per-table counts must
+    /// surface on the report so an operator can see what was actually removed.
+    #[tokio::test]
+    async fn deactivate_purges_account_data_and_reports_the_counts() {
+        let purged = PurgedUserData {
+            account_data_deleted: 2,
+            room_account_data_deleted: 3,
+            push_rules_deleted: 4,
+            thread_subscriptions_deleted: 5,
+            threepids_removed: 1,
+            key_backups_deleted: 1,
+            secure_backups_deleted: 1,
+        };
+        let h = harness(vec![], vec![], false, vec![], false, PurgerSpec { purged, fail: false });
+
+        let report = h.service.deactivate("@alice:example.com").await.expect("deactivate");
+
+        assert_eq!(report.purged, purged, "the purge counts must be carried on the report");
+        assert!(h.log.entries().contains(&"purge".to_string()), "the purge seam must be exercised");
+    }
+
+    /// Fail-fast: a purge failure is a privacy leak in the making, so it must abort
+    /// before the irreversible teardown — leaving a retryable, not-yet-deactivated
+    /// account rather than a deactivated one that still holds data.
+    #[tokio::test]
+    async fn a_failed_purge_aborts_before_the_irreversible_step() {
+        let h =
+            harness(vec![], vec![], false, vec![], false, PurgerSpec { purged: PurgedUserData::default(), fail: true });
+
+        let err = h.service.deactivate("@alice:example.com").await.expect_err("purge failure must be fatal");
+
+        assert_eq!(err.kind, synapse_common::ApiErrorKind::Internal);
+        assert!(
+            !h.log.entries().iter().any(|e| e == "deactivate"),
+            "the teardown must not run when the purge failed: {:?}",
+            h.log.entries()
         );
     }
 }

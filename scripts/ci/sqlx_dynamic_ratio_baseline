@@ -3308,7 +3308,22 @@ BASELINE_DYNAMIC_TEST_INFRA=769
 #   用户级 DELETE）；② 其余 +6 是本文件上次钉版（2026-10-15 批次 B4.3）之后
 #   其它批次提交累积的**未钉版**实测值 —— 本轮只是把测量值与基线对齐，
 #   不声称那 6 处属于本批。留 7 点余量等于允许 7 次静默删除静态查询，故收紧。
-BASELINE_STATIC=1361
+# 2026-10-17: 1361 → **1367**（+6，UG-11 账户注销数据面收尾）。六处全是
+#   "按 user_id 全量删除"的静态 `DELETE`，各有其非空理由（键形 DELETE 够不到它们在
+#   注销时的目标行）：
+#     ① `synapse-storage/src/account_data/mod.rs` `delete_all_account_data_for_user()`
+#        —— `DELETE FROM account_data WHERE user_id = $1`（`delete_account_data` 要
+#        `(user_id, data_type)` 键，注销者并不知道用户有哪些 data_type）；
+#     ② `synapse-storage/src/room_account_data.rs` —— 同上，房间级账户数据；
+#     ③ `synapse-storage/src/push/mod.rs` `delete_all_push_rules_for_user()`
+#        —— `DELETE FROM push_rules WHERE user_id = $1`（`delete_push_rule` 要四元键）；
+#     ④ `synapse-storage/src/thread/storage.rs` —— `DELETE FROM thread_subscriptions`；
+#     ⑤ `synapse-e2ee/src/backup/storage.rs` `delete_all_for_user()` —— `key_backups`
+#        （`backup_keys` 靠 FK 级联走）；
+#     ⑥ `synapse-e2ee/src/secure_backup/service.rs` —— `secure_key_backups`
+#        （`secure_backup_session_keys` 靠 FK 级联走）。
+#   仍按"零余量"收紧到实测值。
+BASELINE_STATIC=1367
 # 兼容旧接口：总数 = 生产 + 测试基础设施
 BASELINE_DYNAMIC=865
 

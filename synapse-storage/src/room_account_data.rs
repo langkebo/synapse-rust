@@ -187,6 +187,19 @@ impl RoomAccountDataStorage {
         Ok(())
     }
 
+    /// Remove **every** room-account-data row belonging to `user_id`, returning the count.
+    ///
+    /// Used by account deactivation: [`Self::delete_room_account_data`] needs the
+    /// exact `(user_id, room_id, data_type)` triple, which a deactivation call site
+    /// does not have. A single statement removes them all.
+    pub async fn delete_all_room_account_data_for_user(&self, user_id: &str) -> Result<u64, ApiError> {
+        let result = sqlx::query!(r#"DELETE FROM room_account_data WHERE user_id = $1"#, user_id)
+            .execute(self.pool.as_ref())
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to delete room account data", e))?;
+        Ok(result.rows_affected())
+    }
+
     /// See [`delete_room_account_data`].
     pub async fn delete_room_account_data(
         &self,

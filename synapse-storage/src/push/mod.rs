@@ -333,6 +333,17 @@ impl PushStorage {
         Ok(result.rows_affected())
     }
 
+    /// Remove **every** push rule belonging to `user_id`, returning the row count.
+    ///
+    /// Counterpart to [`Self::delete_all_pushers_for_user`] and used by the same
+    /// caller: [`Self::delete_push_rule`] keys on `(user_id, scope, kind, rule_id)`,
+    /// so it cannot reach rules the caller does not name. Deactivation needs all of
+    /// them — a deactivated account's rules are dead weight that nothing else clears.
+    pub async fn delete_all_push_rules_for_user(&self, user_id: &str) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query!("DELETE FROM push_rules WHERE user_id = $1", user_id).execute(&*self.pool).await?;
+        Ok(result.rows_affected())
+    }
+
     // ── push_rules ───────────────────────────────────────────────────────
 
     /// See [`upsert_push_rule`].

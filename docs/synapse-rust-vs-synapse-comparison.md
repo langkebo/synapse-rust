@@ -1596,7 +1596,7 @@ curl -sS "https://cdn.jsdelivr.net/gh/element-hq/synapse@release-v1.163/<path>" 
 | ID | 差距 | 为什么是真差距 | 证据 |
 |---|---|---|---|
 | **UG-1（P0）** | **账户注销只置标志位**：不退出/踢出房间、不清推送器、不解除 3PID、不取消 MSC4140 延迟事件 | **已修（2026-10-16，见 §19.5.1）**：`synapse-services/src/account_deactivation_service.rs` 落地完整管线。**残余**见 UG-11 | `synapse-services/src/account_deactivation_service.rs`；`synapse-services/src/auth/account.rs` |
-| **UG-11（P2，UG-1 的残余）** | 注销仍未覆盖上游的另外几项：threepid 解绑/删除、账户数据与推送规则清理、线程订阅与备份键删除、用户目录摘除、**待处理邀请/敲击的拒绝**、以及"退房"上游是**异步可重试**（`add_user_pending_deactivation` + 后台 parting 循环）而本仓是同步逐房 | 这几项都需要各自独立的 storage 面（本仓无 `user_directory`、无 pending-deactivation 表），且不是安全缺口（延迟事件已先取消）。同步逐房在超大账号上会让注销请求变长 —— 已登记 | 见 §19.5.1 的 A1 实施记录 |
+| **UG-11（P2，UG-1 的残余）** | 注销的**账户级数据面**：threepid 解绑/删除、账户数据（`account_data` + `room_account_data`）与推送规则清理、线程订阅与 E2EE 备份键删除、用户目录摘除、**待处理邀请/敲击的拒绝** | **已修（2026-10-17，见 §19.5.1「A1 残余收尾」）**：新增 `StorageUserDataPurger`（六条 `user_id` 全量 `DELETE`：account data / room account data / push rules / thread subscriptions / key backups / secure key backups）+ 复用既有 `remove_threepids_by_user`，接入管线第 4 步；`part_rooms` 扩为 **joined ∪ pending**（自 `invite`/`knock` 走 `leave` 即上游的拒绝邀请/撤回敲击）。**用户目录**为 dead schema（全仓无 Rust 读写），行为缺口已由每次目录查询的 `is_deactivated` 过滤满足 ⇒ 不写无效 `DELETE`。**残余**：上游"退房"是**异步可重试**（`add_user_pending_deactivation` + 后台 parting 循环）而本仓仍是**同步逐房** —— 无该重试表，同步逐房在超大账号上会让注销请求变长，已登记 | 见 §19.5.1 的 A1 实施记录 |
 | **UG-2（P1）** | **MSC4075 默认推送规则缺失** | 本仓无服务端推送规则评估引擎（§18.3 已裁定），但**默认规则集是下发给客户端的资产**（`GET /pushrules`）。缺这两条 ⇒ 客户端拿不到 MatrixRTC 邀请/来电的 `notify + sound:ring` 规则，来电不会响铃 | `synapse-common/src/push_rules.rs` |
 | **UG-3（P1）** | **MSC4354 实现存在但未在 `/versions.unstable_features` 宣告** | 客户端按能力位决定是否启用置顶；实现存在而不宣告 = 功能对存量客户端不可见 | `synapse-services/src/capability_governance.rs` 的 `BASE_UNSTABLE_FEATURES` |
 | **UG-4（P1）** | **AS（MSC2409）临时数据投递未接线** | **部分修复（2026-10-16，见 §19.5.1）**：本轮按裁定范围只做「**配置键对齐**」——`appservice_receives_ephemeral(service)` 现认 4 个键（上游键 `de.sorunome.msc2409.push_ephemeral`、mautrix 键 `receive_ephemeral`、命名空间 `de.sorunome.msc2409`、`ephemeral`），使"按上游键配置的 AS"不再静默收不到。**投递接线仍未做**：`deliver_transaction_with_edus(…, None)` 依旧传 `None`，消费回执/在线状态流的生产路径仍缺 ⇒ 依赖回执的 bridge 拿不到数据。上游 #20108 修的是"分页导致永久跳过"，本仓连分页都没有 | `synapse-services/src/application_service/transaction.rs`、`synapse-services/src/application_service/scheduler.rs`；残余的投递面见 P-5 |
@@ -1760,11 +1760,13 @@ curl -sS "https://cdn.jsdelivr.net/gh/element-hq/synapse@release-v1.163/<path>" 
 1. `DelayedEventService::cancel_all_for_user()` —— **最先**且 fail-fast（对齐上游注释"不要让它们在注销过程中发出"）。
    新增方法复用 `list_pending_delayed_events_for_user` + `cancel_delayed_event`，**不新增 SQL**：
    单行取消路径就是客户端 `action: cancel` 走的同一条路，写第二份 bulk `UPDATE` 会在"什么算 pending"上漂移。
-2. 退出全部已加入房间 —— **逐房 best-effort**（列出失败仍是致命，见下）。
+2. 退出全部已加入房间 **并拒绝待处理的邀请/敲击** —— **逐房 best-effort**（列出失败仍是致命，见下）。
    走 `RoomService::membership()`（状态机 + 事件鉴权 + summary 刷新），不绕过去。
 3. `PushStoreApi::delete_all_pushers_for_user()` —— fail-fast。**新增静态 SQL**
    `DELETE FROM pushers WHERE user_id = $1`（`pushers` 表无外键指向 `devices`，删设备不会连带删）。
-4. `CredentialAuth::deactivate_user()` —— 置标志位 + 撤 token + 删设备，**最后**（不可逆步骤放最后，见下）。
+4. `StorageUserDataPurger::purge()` —— 账户数据 / 房间账户数据 / 推送规则 / 线程订阅 / threepid /
+   备份键，fail-fast（**2026-10-17 补入，见下方「A1 残余收尾」**）。
+5. `CredentialAuth::deactivate_user()` —— 置标志位 + 撤 token + 删设备，**最后**（不可逆步骤放最后，见下）。
 
 **两处刻意的顺序/容错设计**（都有单测锁定）：
 
@@ -1790,8 +1792,53 @@ curl -sS "https://cdn.jsdelivr.net/gh/element-hq/synapse@release-v1.163/<path>" 
 保留脚本已写出的**那 1 个**新条目（已核对内容正确），再用 `cargo check`（`SQLX_OFFLINE=true`）
 证实缓存完整。
 
-**A1 仍未覆盖**（登记为 UG-11，非安全缺口）：threepid 解绑/删除、账户数据与推送规则清理、
-线程订阅与备份键删除、用户目录摘除、**待处理邀请/敲击的拒绝**、以及"退房"的异步化。
+**A1 残余收尾（UG-11，2026-10-17）**
+
+上一批把管线的**骨架**补齐后，登记了六项账户级残余（UG-11）。本轮按裁定「**数据清理 5 项，
+退房保持同步**」收尾——只补"数据面"，不动"退房的同步/异步"（见文末残余）。
+
+1. **账户级数据清理**：新增 `synapse-services/src/account_deactivation_service.rs` 的
+   `UserDataPurger` seam + 生产实现 `StorageUserDataPurger`，接在管线**第 4 步**（清推送器之后、
+   不可逆 teardown 之前），fail-fast。**为什么是"全量删"而不是复用既有 delete**：既有入口都是
+   **键形**的（`delete_account_data` 要 `(user_id, data_type)`、`delete_push_rule` 要
+   `(user_id, scope, kind, rule_id)`），而注销者手上**只有 user_id**、并不知道该用户有哪些
+   `data_type`/规则 ⇒ 六条 `WHERE user_id = $1` 的静态 `DELETE` 是本场景唯一可行的形状。
+   级联表不单独删：`backup_keys` 随 `key_backups`（FK `ON DELETE CASCADE`）、
+   `secure_backup_session_keys` 随 `secure_key_backups` 走。
+2. **threepid**：复用**既有** `ThreepidStorage::remove_threepids_by_user()`（无需新增 SQL）。
+3. **待处理邀请/敲击的拒绝**：`RoomParting` / `MembershipService` 扩一个
+   `get_pending_rooms()`，`part_rooms` 的目标集合由 `joined` 改为 **`joined ∪ pending`**（二者
+   按 membership 取值天然不交）。**不必发明新迁移**：一次自我 `leave` 从 `invite`/`knock` 出
+   发就是上游的 `reject_invite` / `retract_knock`，`synapse_common::membership_transition`
+   已放行该转换。
+4. **用户目录摘除——为什么不做**：`user_directory` 表在本仓**没有任何 Rust 读写**（dead schema），
+   上游删该行想达到的用户可见效果（"搜不到这个已注销用户"）本仓已由目录查询的
+   `COALESCE(is_deactivated, FALSE) = FALSE` 过滤**天然满足**。对一张没人读的表写 `DELETE`
+   是**有动作无效果**，故刻意省略，改为在模块文档里写明"机制就是那个标志位、由第 5 步置上"。
+   这与"不写无效 SQL"一致，也是本轮**没有**把它算进"5 项数据清理"的原因。
+
+**判据**（`account_deactivation_service.rs` 的 `#[cfg(test)] mod tests`，全离线）：
+`deactivate_rejects_pending_invites_and_knocks`（pending 房也进 part 目标集）、
+`deactivate_purges_account_data_and_reports_the_counts`（purge 在 teardown **之前**且计数回填
+`DeactivationReport.purged`）、`a_failed_purge_aborts_before_the_irreversible_step`（purge 失败
+⇒ `Err` 且**未**调用不可逆步），以及被同步更新的顺序/容错不变式（`irreversible_teardown_is_the_last_step`、
+`deactivate_cancels_…`、`deactivate_is_a_noop_…`、`a_failed_room_listing_…`）。
+
+**数据面连带**：`.sqlx/` 新增 **6** 条（上述六条 `DELETE`），经唯一入口 `scripts/ci/sqlx_prepare.sh`
+重生成；`scripts/ci/sqlx_dynamic_ratio_baseline` 的 `BASELINE_STATIC` **1361 → 1367**；
+`docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md` 数字块同步（`BASELINE_STATIC=1367`、
+`SQLX_CACHE_ENTRIES=1328 → 1334`），由 `scripts/ci/check_plan_numbers_fresh.sh` 核验（已跑通）。
+
+⚠️ **一处环境事实（本轮踩到，供后人省事）**：重生成时**不能**用 `test_template_ci` schema ——
+它是**旧迁移的副本**（`global_invite_blocklist` 只建了 `id/user_id/created_ts`，缺
+`reason`/`created_by`），`cargo sqlx prepare` 会对不上列的查询吐一批**误导性的** E0282
+（看起来像源码坏了）。正解是用一个**与当前基线一致**的已迁移库（本轮用 scratch 库
+`synapse_prepare.public`，218 表、列齐），prepare 一次通过、无缩容。
+
+**UG-11 仅剩的残余**（非安全缺口）：上游"退房"是**异步可重试**的
+（`add_user_pending_deactivation` 表 + 后台 parting 循环），本仓没有那张重试表，仍是**同步逐房**
+—— 超大账号上会让注销请求变长。本轮按裁定**保持同步**（同步逐房仍是"不可逆步骤最后"这条
+可重试语义的前提）。
 
 **B1 实施记录（2026-10-16）**
 
@@ -1907,7 +1954,7 @@ R6 亦**零迁移、零 `.sqlx` 变更**（C1 复用已入缓存的 `get_all_pen
      （同 `(room, user, type)` 写两次 ⇒ 仅 1 行且为后写值）。
 
 **本轮未做（如实登记）**：
-- **R8 = UG-11 = §19.5.1 A1 残余**：注销残余（threepid 解绑、账数据/推送规则清理、线程订阅与备份键删除、用户目录摘除、待处理邀请/敲击拒绝、退房异步化）—— 待办。
+- **R8 = UG-11 = §19.5.1 A1 残余**：**已收尾（2026-10-17，见 §19.5.1「A1 残余收尾」）**——threepid 解绑、账数据/推送规则清理、线程订阅与备份键删除、待处理邀请/敲击拒绝**均已落地**；用户目录摘除以 `is_deactivated` 过滤满足（dead schema，不写无效 `DELETE`）。**仅剩残余**：退房仍为**同步逐房**（上游为异步可重试的 `add_user_pending_deactivation` + 后台 parting 循环），已登记于 UG-11 行。
 - **R1（P0 PDU 保留发送方签名/哈希）**：本轮范围明确不含（用户答复未选）。
 
 ### 19.6 本轮作废 / 更正的历史声明
