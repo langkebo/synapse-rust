@@ -383,6 +383,21 @@ impl ApiError {
         }
     }
 
+    /// MSC4190: an application service called `POST /register` for a virtual user
+    /// without `inhibit_login: true`.
+    ///
+    /// 返回 400 + `M_APPSERVICE_LOGIN_UNSUPPORTED`（与上游同码同状态）。语义是
+    /// "服务器不会替 AS 登录"：AS 要么显式 `inhibit_login: true` 只建用户，要么改用
+    /// `m.login.application_service` 走 `/login` 拿 token。
+    pub fn appservice_login_unsupported(message: impl Into<String>) -> Self {
+        Self {
+            kind: ApiErrorKind::BadRequest,
+            code: MatrixErrorCode::AppserviceLoginUnsupported,
+            message: message.into(),
+            cause: None,
+        }
+    }
+
     /// MSC4512: the `fed_proxy` destination is this server itself, or a server
     /// that is broadly refused for federation.
     /// Returns 403 Forbidden + `M_FEDPROXY_DESTINATION_DENIED`.

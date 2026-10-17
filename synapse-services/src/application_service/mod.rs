@@ -372,6 +372,17 @@ impl ApplicationServiceManager {
             && Self::namespace_matches(&service.namespaces, "users", user_id, true)
     }
 
+    /// Registration gate for `POST /register` (MSC4190).
+    ///
+    /// 与 [`Self::can_login_as`] 的区别：**注册只要求落在服务的任一 `users` 命名空间**
+    /// （上游 `is_interested_in_user` 的口径），只有登录/冒充才要求 `exclusive`。
+    /// 两者不能混用 —— 拿 `exclusive` 当注册门会把"共享命名空间的 AS"挡在门外，
+    /// 那是配置允许、上游也允许的形态。
+    pub fn is_interested_in_user(&self, service: &ApplicationService, user_id: &str) -> bool {
+        Self::is_local_user_id(user_id, &self.server_name)
+            && Self::namespace_matches(&service.namespaces, "users", user_id, false)
+    }
+
     /// See [`query_room_alias`].
     #[instrument(skip(self))]
     pub async fn query_room_alias(&self, alias: &str) -> Result<Option<String>, ApiError> {

@@ -846,7 +846,7 @@ git grep -n 'CHANGELOG' -- .github/workflows scripts tests/unit
 
 2. ~~**20324：MSC4354 的 expiry 特性**~~ —— **2026-10-14 第三轮已实施**，见 §11.5（不再是待决策项）。
 
-3. **20294：统一 `Clock` 抽象**（可选项）。测试替身已注入时钟（`test_mocks/rendezvous.rs:42` 的 `clock: Arc<Mutex<i64>>`，读到即自增），生产侧没有统一抽象。若将来要断言 `routes/rendezvous.rs` 生成的 `message_id` / `sent_ts` 的确定性，才需要引入；否则纯属重构。
+3. ~~**20294：统一 `Clock` 抽象**~~ —— **已裁决关闭（2026-10-17）**。生产侧确实没有统一抽象（`routes/rendezvous.rs:208,213` 与 `storage/rendezvous.rs:258,285` 直接调 `current_timestamp_millis()`），但**测试替身已注入时钟**（`synapse-storage/src/test_mocks/rendezvous.rs:42` 的 `clock: Arc<Mutex<i64>>`，读到即自增）⇒ "让 `message_id` / `sent_ts` 可断言"这个唯一目的已经达到。引入 `trait Clock` 要穿透 4 个调用点 + 所有装配点，收益为负；等真有第二个需要替换时钟的用例出现再说。
 
 4. ~~**历史可见性强制执行**~~ —— **2026-10-14 第三轮已实施 6 条读路径**，见 §11.6。`/notifications` 判为**结构性不适用**、unread 计数另有一处缺口（均见该节表格）；**该缺口与同一轮发现的第三条泄漏路径已于第四轮收口 → §11.10**。
 

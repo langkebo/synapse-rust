@@ -523,16 +523,23 @@ A1 是**手动门禁**（manual gate，不接入 CI），用于交叉验证本�
 | 项 | §9 的说法 | 当前实际 | 判定 |
 | --- | --- | --- | --- |
 | **A3** per-event state group | 仍需实施 | **已实现且已接生产写路径**：`synapse-services/src/room/state_record.rs` 的 `StateRecord::after_state_event` 在 `MessagingService::create_event_with_graph` 提交后调用（`room/messaging/events.rs:471`，失败只 warn、降级回时间戳推导）；另一条由联邦 join 状态批自行调用。三种结果：分叉 ⇒ 用 v2.1 解析后写入；已有记录 ⇒ copy-forward；**既无分叉也无记录 ⇒ 什么都不做**（最后这条正是 A4 的缺口） | ❌ 不再成立（已接线） |
-| **A4** 存量房间回填 | 仍需实施（依赖 A3） | **仍成立**：`state_groups.rs` 无回填函数、基线迁移无回填语句；且按上一条，**任何从未分叉的房间永远不会有 state group** ⇒ 读路径一直走 `event/state.rs:93-120` 的 `DISTINCT ON … origin_server_ts DESC` 兜底 | ✅ 存在 |
+| **A4** 存量房间回填 | 仍需实施（依赖 A3） | **已实施（2026-10-17，改「首写播种」而非离线迁移）**：`copy_forward` 的"无记录"分支不再直接返回，改为 `seed_from_current_state` —— 用一次 `EventReader::get_state_events`（按状态集大小的单查询，与历史长度无关）把当前推导出的状态落成 group 0，此后所有写入走 copy-forward。原先"从未分叉的房间永远没有 group"的洞因此闭合 | ✅ 已修 |
 | **A5** live 联邦互操作 | 仍需实施（需双主机环境） | **仍成立**：`tests/interop/fixtures/README.md` 仍自认沙箱做不到 live `/send_join` + `/send`，现行做法是"把字节交给对等端实现复算" | ✅ 存在（环境依赖） |
 | **C1** 4 条陈旧 `.sqlx` | 建议缩容 | **已不存在**：`query-2f037a14…` / `3044683f…` / `8642abbd…` / `e4d56bc6…` 在 `.sqlx/` 里**零命中**（当前 1335 条，其中 1 条是别的会话新加的） | ❌ 不再成立 |
 
-**A4 的建议改法（比"一次性回填迁移"便宜且能自愈）**：把当前"既无分叉也无记录 ⇒ 什么都不做"改成
-"**首写时播种**" —— 该房间第一次写状态事件时，用一次 `origin_server_ts` 推导得到当前状态作为 group 0，
-落下之后走 copy-forward。这样：
+**A4 已按"首写时播种"实施（2026-10-17）**，而不是离线回填迁移：
 
-- 不需要离线迁移，也不需要知道"哪些房间没有记录"（存量房间在下一次状态变更时自动收敛）；
-- 单房间只多付**一次**全量状态读，且不在消息热路径上（只有状态事件触发）；
-- 收敛完成后，`state_groups` 成为唯一真源，A4 的"删除时间戳分支"才有条件做。
+- `copy_forward` 的"无记录"分支改为 `seed_from_current_state(room_id, event_id)`；
+- 播种源是 `EventReader::get_state_events`（**一条**按状态集大小的查询），**不是**
+  `StateWalker::state_at` —— 后者要沿 `prev_events` 递归整条历史，大房间是 O(历史长度) 次查询；
+- 不需要离线迁移、不需要知道"哪些房间没有记录"：存量房间在下一次状态变更时自动收敛；
+- 单房间只多付一次全量状态读，且只在状态事件路径上（消息在调用前就返回）；
+- **已知竞态**（与 copy-forward 同类，不新增类别）：两个并发的首个状态写都看不到记录时会各播一份，
+  `create_state_group` 按 `state_hash` upsert + 读路径取 `id` 最大的组 ⇒ 后者胜出。彻底消除需要
+  按房间串行化状态写（上游也这么做），属独立改动。
 
-**不建议现在做的**：A5（需要双主机名 + 互信 CA，沙箱内无法执行，且不阻塞其余条目）。
+**判据**：`state_record::db_tests::first_state_write_seeds_a_record_for_an_unforked_room`
+—— 线性 DAG 上让**第二条** topic 的 `origin_server_ts` 更旧（DAG 后继），断言读路径返回第二条：
+时间戳推导会选第一条，只有"记录接管"才能拿到第二条。变异自证：把分支改回 `Ok(())` ⇒ 该用例必红。
+
+**仍未做**：A5（需要双主机名 + 互信 CA，沙箱内无法执行，且不阻塞其余条目）。

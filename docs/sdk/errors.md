@@ -107,6 +107,7 @@ interface MatrixError {
 | `M_INVALID_PARAM` | 参数非法 |
 | `M_INVALID_USERNAME` | 用户名格式无效 |
 | `M_USER_IN_USE` | 用户 ID 已被占用 |
+| `M_APPSERVICE_LOGIN_UNSUPPORTED` | 应用服务调 `POST /register` 时**没给** `inhibit_login: true`（MSC4190）。该端点只建用户、不签发 token；AS 要 token 请走 `POST /login` 的 `m.login.application_service` |
 | `M_INVALID_ROOM_STATE` | 房间状态对该操作无效 |
 | `M_BAD_STATE` | 房间状态与预期不符 |
 | `M_UNSUPPORTED_ROOM_VERSION` | 请求的房间版本不受支持 |

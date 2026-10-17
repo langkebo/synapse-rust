@@ -28,9 +28,13 @@
 //! * otherwise, if the room already has a record: the new event is folded into it
 //!   (**copy-forward**), so a later write cannot leave the record stale (the read
 //!   path treats the newest group as the whole current state);
-//! * otherwise (no fork, no record): nothing happens. The room stays on the
-//!   event-log derivation, which agrees with resolution as long as the DAG never
-//!   forked.
+//! * otherwise (no fork, no record): the room's first state write **seeds** the
+//!   record from the state the event-log derivation currently returns (A4). Before
+//!   this existed, a room that never forked never got a record at all, so the read
+//!   path stayed on `DISTINCT ON … origin_server_ts DESC` forever — and that
+//!   derivation can disagree with the DAG order, because `origin_server_ts` is the
+//!   sender's clock and federated events may arrive with an older timestamp.
+//!   Seeding is one full state read **per room**, never per write.
 //!
 //! Only **state** events pay for this — messages return before the first query, so
 //! the hot message path is untouched.
@@ -240,9 +244,17 @@ impl StateRecord<'_> {
             .into_iter()
             .next()
         else {
-            // No record yet: the event log stays authoritative. Creating a record
-            // here would mean materialising the whole state on every write.
-            return Ok(());
+            // A4（2026-10-17）：**首写播种**。
+            //
+            // 此前这里直接 `Ok(())`，理由是"没有记录就让事件日志当权威，建记录等于每次写都
+            // 物化全量状态"。前半句对、后半句只在"每次写都播种"时才成立 —— 播种成功后房间
+            // 就有记录了，之后一律走 copy-forward，代价是**每个房间一次**全量状态读。
+            //
+            // 不播种的后果（A4 的实质，不只是性能）：从未分叉的房间永远没有记录，读路径
+            // 永远走 `DISTINCT ON … origin_server_ts DESC`。而 `origin_server_ts` 是发送方
+            // 时钟，联邦事件可以带着偏旧的时间戳后到 —— 那条推导会给出**与 DAG 顺序相反**
+            // 的当前状态。没有记录 ⇒ 这条路径永远关不掉。
+            return self.seed_from_current_state(room_id, event_id).await;
         };
 
         // A3 IMPLEMENTATION: Check idempotency first
@@ -283,6 +295,48 @@ impl StateRecord<'_> {
         });
 
         self.persist(room_id, event_id, &entries, &[current.id]).await
+    }
+
+    /// Seed the room's record from the state the event-log derivation currently
+    /// returns (A4).
+    ///
+    /// One-shot per room: after this succeeds the room has a record, so every later
+    /// state write takes the [`Self::copy_forward`] branch and the seed never runs
+    /// again.
+    ///
+    /// **为什么用 `get_state_events` 而不是 `StateWalker::state_at`**：后者要沿
+    /// `prev_events` 递归整条历史（大房间是 O(历史长度) 次查询），而这里只需要"当前状态"
+    /// 这一张快照 —— `get_state_events` 是一条按房间状态集大小的查询，与历史长度无关。
+    /// 代价是它读到的正是**要被替换掉的那条推导**；这是可接受的：播种的语义就是
+    /// "把推导的结果固化成记录"，之后的所有变更由 copy-forward 维护，推导不再被读。
+    ///
+    /// **已知竞态（与 copy-forward 同类，不新增类别）**：两个并发的首个状态写都看不到记录
+    /// 时，会各自播种一份；`create_state_group` 按 `state_hash` upsert、读路径取 `id` 最大的
+    /// 组，因此后者胜出，先播种的那一份可能少一个并发事件。要彻底消除需要按房间串行化
+    /// 状态写（上游也是这么做的），属独立改动。
+    async fn seed_from_current_state(&self, room_id: &str, event_id: &str) -> ApiResult<()> {
+        let derived = self
+            .event_reader
+            .get_state_events(room_id)
+            .await
+            .map_err(|error| ApiError::internal_with_cause("Failed to read the room's current state", error))?;
+
+        let entries: Vec<StateGroupStateEntry> = derived
+            .into_iter()
+            .filter_map(|event| {
+                // 状态集只由 `(event_type, state_key)` 构成；任一缺失都不是状态事件。
+                let state_key = event.state_key?;
+                let event_type = event.event_type?;
+                Some(StateGroupStateEntry { event_type, state_key, event_id: event.event_id })
+            })
+            .collect();
+
+        if entries.is_empty() {
+            // 连 create 都没有（异常房间）：留空记录比留错记录安全，继续走推导。
+            return Ok(());
+        }
+
+        self.persist(room_id, event_id, &entries, &[]).await
     }
 
     /// Write `entries` as a new state group for the room, bound to `event_id`.
@@ -758,7 +812,6 @@ mod db_tests {
             member_storage: Arc::new(InMemoryMemberStore::new()),
             server_name: "example.com".to_string(),
             beacon_service: None,
-            task_queue: None,
             relations_storage: Arc::new(InMemoryRelationsStore::new()),
             event_broadcaster: None,
             app_service_manager: None,
@@ -1151,6 +1204,149 @@ mod db_tests {
             topic_id(&storage, &room_id).await,
             Some(topic_a.to_string()),
             "and the read path must serve the branch the auth rules authorise"
+        );
+    }
+
+    /// **A4**：没有分叉、也没有记录的房间，第一次写状态事件时**播种**出记录。
+    ///
+    /// 修复前这条必然红：`copy_forward` 在"无记录"分支直接 `Ok(())`，于是从未分叉的房间
+    /// 永远没有 state group，读路径永远走 `DISTINCT ON … origin_server_ts DESC`。
+    ///
+    /// 用例故意让**第二条** topic 的 `origin_server_ts` **更旧**（DAG 上是后继）：
+    /// - 时间戳推导会选第一条（`ts` 更新）；
+    /// - 记录（copy-forward）会选第二条（DAG 顺序）；
+    /// ⇒ 读路径取到哪一条，直接证明"记录已经接管、推导不再被读"。
+    #[tokio::test]
+    async fn first_state_write_seeds_a_record_for_an_unforked_room() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let storage = EventStorage::new(&pool, "example.com".to_string());
+        let room_storage = RoomStorage { pool: pool.clone() };
+        let state_groups = StateGroupStorage::new(&pool);
+        let room_id = format!("!seed_{}:example.com", uuid::Uuid::new_v4());
+        create_room(&room_storage, &room_id).await;
+
+        let now = current_timestamp_millis();
+        let create = "$seed_create:example.com";
+        let alice_join = "$seed_alice_join:example.com";
+        let topic_1 = "$seed_topic_1:example.com";
+
+        storage
+            .create_event_with_graph(
+                state_params(
+                    &room_id,
+                    create,
+                    "@alice:example.com",
+                    "m.room.create",
+                    "",
+                    serde_json::json!({ "creator": "@alice:example.com", "room_version": "12" }),
+                    now,
+                ),
+                &[],
+                &[],
+                1,
+                None,
+            )
+            .await
+            .expect("create");
+        storage
+            .create_event_with_graph(
+                state_params(
+                    &room_id,
+                    alice_join,
+                    "@alice:example.com",
+                    "m.room.member",
+                    "@alice:example.com",
+                    serde_json::json!({ "membership": "join" }),
+                    now + 1,
+                ),
+                &[create.to_string()],
+                &[create.to_string()],
+                2,
+                None,
+            )
+            .await
+            .expect("alice join");
+        storage
+            .create_event_with_graph(
+                state_params(
+                    &room_id,
+                    topic_1,
+                    "@alice:example.com",
+                    "m.room.topic",
+                    "",
+                    serde_json::json!({ "topic": "first" }),
+                    now + 2,
+                ),
+                &[alice_join.to_string()],
+                &[create.to_string(), alice_join.to_string()],
+                3,
+                None,
+            )
+            .await
+            .expect("topic 1");
+
+        assert!(
+            state_groups.get_room_state_groups(&room_id, 1).await.expect("groups").is_empty(),
+            "前提：这条房间路径没有分叉，写状态事件之前也没有任何记录"
+        );
+        assert_eq!(topic_id(&storage, &room_id).await, Some(topic_1.to_string()), "播种前读路径走时间戳推导");
+
+        record(&storage, &room_storage, &state_groups, &ResolutionCache::new())
+            .after_state_event(&room_id, topic_1, "m.room.topic", "")
+            .await
+            .expect("the first state write must seed the record");
+
+        let groups = state_groups.get_room_state_groups(&room_id, 10).await.expect("groups");
+        assert_eq!(groups.len(), 1, "首个状态写必须正好播种出一条记录，实得 {} 条", groups.len());
+        assert_eq!(
+            state_groups.get_state_group_for_event(topic_1).await.expect("binding"),
+            Some(groups[0].id),
+            "触发写入的事件必须绑定到播种出的记录"
+        );
+        let entries = state_groups.get_state_at_group(groups[0].id).await.expect("entries");
+        let has = |ty: &str, key: &str, eid: &str| {
+            entries.iter().any(|e| e.event_type == ty && e.state_key == key && e.event_id == eid)
+        };
+        assert!(has("m.room.create", "", create), "记录里必须有 create");
+        assert!(has("m.room.member", "@alice:example.com", alice_join), "记录里必须有成员事件");
+        assert!(has("m.room.topic", "", topic_1), "记录里必须有刚写入的 topic");
+
+        // 第二条 topic：DAG 上是 topic_1 的后继，但 origin_server_ts **更旧**。
+        let topic_2 = "$seed_topic_2:example.com";
+        storage
+            .create_event_with_graph(
+                state_params(
+                    &room_id,
+                    topic_2,
+                    "@alice:example.com",
+                    "m.room.topic",
+                    "",
+                    serde_json::json!({ "topic": "second-but-older-timestamp" }),
+                    now, // 比 topic_1 的 now+2 更旧
+                ),
+                &[topic_1.to_string()],
+                &[create.to_string(), alice_join.to_string()],
+                4,
+                None,
+            )
+            .await
+            .expect("topic 2");
+
+        record(&storage, &room_storage, &state_groups, &ResolutionCache::new())
+            .after_state_event(&room_id, topic_2, "m.room.topic", "")
+            .await
+            .expect("the second state write must fold forward");
+
+        let groups = state_groups.get_room_state_groups(&room_id, 10).await.expect("groups");
+        assert_eq!(groups.len(), 2, "第二次写状态事件应新增一条记录（不是重新播种）");
+        assert_eq!(
+            topic_id(&storage, &room_id).await,
+            Some(topic_2.to_string()),
+            "读路径必须返回 DAG 上更晚的那条 topic —— 时间戳更旧也一样。\
+             若仍返回 `{}`，说明读路径还在走时间戳推导（A4 未生效）",
+            topic_1
         );
     }
 }

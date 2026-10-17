@@ -124,6 +124,37 @@ HTTP/1.1 401 Unauthorized
 | 缺密码（非 guest） | 400 | `M_BAD_JSON`（`error: Password required`） |
 | 未完成 UIA | 401 | `M_UIA_REQUIRED`（注册入口此处 errcode 体里给的是 flows 对象，不含 errcode 字段时按 401+flows 处理） |
 
+### 应用服务注册虚拟用户（MSC4190）
+
+应用服务（AS）用**自己的 `as_token`** 调 `POST /register`，为它命名空间内的用户建号：
+
+```http
+POST /_matrix/client/v3/register
+Authorization: Bearer <as_token>
+Content-Type: application/json
+
+{ "username": "asbot_alice", "inhibit_login": true, "displayname": "AS Alice" }
+```
+
+```json
+{ "user_id": "@asbot_alice:example.org", "well_known": { "m.homeserver": { "base_url": "..." } } }
+```
+
+判据（缺一条就偏离上游）：
+
+| 条件 | 结果 |
+|---|---|
+| `inhibit_login` 为 `true` | 建用户；**响应里没有 `access_token` / `device_id`**（这条路径不登录） |
+| 缺 `inhibit_login` 或为 `false` | **400 `M_APPSERVICE_LOGIN_UNSUPPORTED`** —— 服务器不会替 AS 登录 |
+| `username` 缺失 | 400 `M_BAD_JSON`（AS 注册**不**自动生成 localpart） |
+| 用户不在该 AS 的 `users` 命名空间 | 403 `M_FORBIDDEN` |
+
+> **身份判定看 token，不看 body 里的 `type`**：token 属于某个 AS 才走这条分支（与上游一致）。
+> 校验用的是**任一** `users` 命名空间条目，**不要求 `exclusive`** —— `exclusive` 只在
+> `/login` 的 `m.login.application_service` 冒充时要求。
+>
+> 要拿 token 请走 `POST /login`：`{"type": "m.login.application_service", "identifier": {"type": "m.id.user", "user": "asbot_alice"}}`。
+
 ---
 
 ## 登录

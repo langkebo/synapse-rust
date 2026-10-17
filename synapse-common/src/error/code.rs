@@ -43,6 +43,11 @@ pub enum MatrixErrorCode {
     UserInUse,
     /// M_INVALID_USERNAME: The username is invalid.
     InvalidUsername,
+    /// M_APPSERVICE_LOGIN_UNSUPPORTED: an application service asked `/register`
+    /// for a virtual user **without** `inhibit_login: true` (MSC4190). The server
+    /// must not mint an access token on the appservice's behalf here — the AS gets
+    /// one for its users through `POST /login` with `m.login.application_service`.
+    AppserviceLoginUnsupported,
     /// M_ROOM_IN_USE: The desired room alias is already taken.
     RoomInUse,
     /// M_INVALID_ROOM_STATE: The room state is invalid for this operation.
@@ -132,6 +137,7 @@ impl MatrixErrorCode {
             Self::UserDeactivated => "M_USER_DEACTIVATED",
             Self::UserInUse => "M_USER_IN_USE",
             Self::InvalidUsername => "M_INVALID_USERNAME",
+            Self::AppserviceLoginUnsupported => "M_APPSERVICE_LOGIN_UNSUPPORTED",
             Self::RoomInUse => "M_ROOM_IN_USE",
             Self::InvalidRoomState => "M_INVALID_ROOM_STATE",
             Self::ThreepidInUse => "M_THREEPID_IN_USE",
@@ -193,6 +199,8 @@ impl MatrixErrorCode {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::UserDeactivated => StatusCode::FORBIDDEN,
             Self::UserInUse => StatusCode::BAD_REQUEST,
+            // MSC4190：AS 注册虚拟用户时漏传 `inhibit_login: true` ⇒ 400。
+            Self::AppserviceLoginUnsupported => StatusCode::BAD_REQUEST,
             Self::InvalidUsername => StatusCode::BAD_REQUEST,
             Self::RoomInUse => StatusCode::CONFLICT,
             Self::InvalidRoomState => StatusCode::BAD_REQUEST,
@@ -255,6 +263,7 @@ impl MatrixErrorCode {
             "M_UNAUTHORIZED" => Some(Self::Unauthorized),
             "M_USER_DEACTIVATED" => Some(Self::UserDeactivated),
             "M_USER_IN_USE" => Some(Self::UserInUse),
+            "M_APPSERVICE_LOGIN_UNSUPPORTED" => Some(Self::AppserviceLoginUnsupported),
             "M_INVALID_USERNAME" => Some(Self::InvalidUsername),
             "M_ROOM_IN_USE" => Some(Self::RoomInUse),
             "M_INVALID_ROOM_STATE" => Some(Self::InvalidRoomState),

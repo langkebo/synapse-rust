@@ -399,6 +399,10 @@ impl crate::auth::CredentialAuth for AuthService {
         self.verify_user_credentials(user_id, password).await
     }
 
+    async fn register_without_login(&self, username: &str, displayname: Option<&str>) -> ApiResult<User> {
+        AuthService::register_without_login(self, username, displayname).await
+    }
+
     async fn register_guest_account(&self) -> ApiResult<(User, String, String)> {
         self.register_guest_account().await
     }

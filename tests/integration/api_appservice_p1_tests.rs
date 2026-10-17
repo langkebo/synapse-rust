@@ -1207,3 +1207,141 @@ async fn test_appservice_pusher_management_via_login() {
     let pushers_after_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(pushers_after_json["pushers"], json!([]), "删除后 pusher 列表应为空");
 }
+
+// ============================================================================
+// MSC4190：应用服务**注册**虚拟用户（`POST /register`）
+//
+// 这条面此前整体缺失：`/register` 完全不认 AS token，只接受 `auth.type` 里的
+// `m.login.demo/password` 之类，`inhibit_login` 全仓零命中 —— 于是
+// `M_APPSERVICE_LOGIN_UNSUPPORTED` 这个码也就没有存在的地方。
+//
+// 三条判据（与上游同口径）：
+// 1. AS token + `inhibit_login: true` ⇒ 200，**只回 user_id**（无 access_token / device_id）；
+// 2. 缺 `inhibit_login`（或 false）⇒ 400 `M_APPSERVICE_LOGIN_UNSUPPORTED`；
+// 3. 用户不在该 AS 的 `users` 命名空间 ⇒ 403。
+// ============================================================================
+
+/// 注册一个带 `users` 命名空间的 AS，返回 `(as_token, 命名空间前缀)`。
+async fn register_appservice_with_user_namespace(app: &axum::Router) -> (String, String) {
+    let (admin_token, _) = get_admin_token(app).await;
+    let suffix = rand::random::<u32>();
+    let as_token = format!("as_token_register_{suffix}");
+    let namespace_pattern = format!("@asbot_{suffix}.*:localhost");
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/appservices")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {admin_token}"))
+        .body(Body::from(
+            json!({
+                "id": format!("test_as_register_{suffix}"),
+                "url": "http://localhost:8080",
+                "as_token": &as_token,
+                "hs_token": format!("hs_token_register_{suffix}"),
+                "sender_localpart": format!("bot_register_{suffix}"),
+                "namespaces": {
+                    "users": [{ "regex": &namespace_pattern, "exclusive": true }]
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED, "AS registration fixture must succeed");
+    (as_token, format!("asbot_{suffix}"))
+}
+
+async fn register_as_user(
+    app: &axum::Router,
+    as_token: &str,
+    username: &str,
+    body: serde_json::Value,
+) -> (StatusCode, serde_json::Value) {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/register")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {as_token}"))
+        .body(Body::from(body.to_string()))
+        .unwrap();
+
+    let response = app.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+    let _ = username;
+    (status, json)
+}
+
+/// 正向：`inhibit_login: true` ⇒ 建用户，**不签发会话**。
+#[tokio::test]
+async fn test_appservice_register_user_without_login() {
+    let Some(app) = setup_fresh_test_app().await else {
+        return;
+    };
+    let (as_token, prefix) = register_appservice_with_user_namespace(&app).await;
+    let username = format!("{prefix}_alice");
+
+    let (status, json) = register_as_user(
+        &app,
+        &as_token,
+        &username,
+        json!({ "username": &username, "inhibit_login": true, "displayname": "AS Alice" }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "AS 注册必须成功，响应: {json}");
+    assert_eq!(json["user_id"], format!("@{username}:localhost"), "必须回本地用户 id");
+    assert!(
+        json.get("access_token").is_none() && json.get("device_id").is_none(),
+        "`inhibit_login: true` 下不得签发会话，实得: {json}"
+    );
+
+    // 用户真的建出来了：公开 profile 能读到，且 displayname 生效。
+    let profile_request = Request::builder()
+        .uri(format!("/_matrix/client/v3/profile/@{username}:localhost"))
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(profile_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "注册出的用户必须可查");
+    let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let profile: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(profile["displayname"], "AS Alice", "displayname 必须落库，实得: {profile}");
+}
+
+/// 负控：缺 `inhibit_login` ⇒ 400 `M_APPSERVICE_LOGIN_UNSUPPORTED`（该码此前全仓零命中）。
+#[tokio::test]
+async fn test_appservice_register_requires_inhibit_login() {
+    let Some(app) = setup_fresh_test_app().await else {
+        return;
+    };
+    let (as_token, prefix) = register_appservice_with_user_namespace(&app).await;
+
+    for body in [
+        json!({ "username": format!("{prefix}_noflag") }),
+        json!({ "username": format!("{prefix}_false"), "inhibit_login": false }),
+    ] {
+        let (status, json) = register_as_user(&app, &as_token, "ignored", body).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "缺/假 inhibit_login 必须 400，实得: {json}");
+        assert_eq!(
+            json["errcode"], "M_APPSERVICE_LOGIN_UNSUPPORTED",
+            "必须是 MSC4190 的稳定码（不是泛化的 M_BAD_JSON），实得: {json}"
+        );
+    }
+}
+
+/// 负控：用户不在 AS 的 `users` 命名空间 ⇒ 403，且**不建用户**。
+#[tokio::test]
+async fn test_appservice_register_rejects_user_outside_namespace() {
+    let Some(app) = setup_fresh_test_app().await else {
+        return;
+    };
+    let (as_token, _prefix) = register_appservice_with_user_namespace(&app).await;
+    let username = format!("outsider_{}", rand::random::<u32>());
+
+    let (status, json) =
+        register_as_user(&app, &as_token, &username, json!({ "username": &username, "inhibit_login": true })).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "命名空间外的用户必须被拒，实得: {json}");
+}

@@ -56,6 +56,17 @@ pub trait CredentialAuth: Send + Sync {
     /// See [`verify_user_credentials`].
     async fn verify_user_credentials(&self, user_id: &str, password: &str) -> ApiResult<()>;
 
+    /// MSC4190：应用服务注册虚拟用户 —— **只建用户，不签发 access_token / device**。
+    ///
+    /// 默认实现返回 `M_UNRECOGNIZED`：这个方法只为真实服务（`AuthService`）而加，
+    /// 测试替身（`FakeCredentialAuth`）不该被迫实现一条它永远不该走的路径。
+    async fn register_without_login(&self, username: &str, displayname: Option<&str>) -> ApiResult<User> {
+        let _ = (username, displayname);
+        Err(synapse_common::ApiError::not_implemented(
+            "register_without_login is not implemented by this credential auth".to_string(),
+        ))
+    }
+
     /// See [`register_guest_account`].
     async fn register_guest_account(&self) -> ApiResult<(User, String, String)>;
 

@@ -117,4 +117,50 @@ impl AuthService {
 
         Ok((user, access_token, refresh_token, device_id))
     }
+
+    /// 应用服务注册虚拟用户（MSC4190）：**只建用户，不签发 token、不建设备**。
+    ///
+    /// 为什么不能复用 [`Self::register_with_device_name`]：那条路径会顺便设备化并签发
+    /// access/refresh token，而 AS 注册的语义恰恰是"不要登录"——AS 之后要么用
+    /// `m.login.application_service` 替该用户换 token，要么直接用 `as_token` 代理。
+    /// 若在这里发 token，等于把一个不该存在的会话写进 `devices` / `access_tokens`。
+    ///
+    /// 密码为 `None`：虚拟用户不靠密码登录（这也是 AS 用户常见的形态）。
+    /// 用户名/密码策略**不适用于**这条路径（没有密码可校验），但用户名格式仍校验。
+    pub async fn register_without_login(&self, username: &str, displayname: Option<&str>) -> ApiResult<User> {
+        if username.is_empty() {
+            return Err(ApiError::missing_param("Username is required".to_string()));
+        }
+        if let Err(error) = self.validator.validate_username(username) {
+            return Err(ApiError::invalid_username(error.to_string()));
+        }
+
+        let user_id = format!("@{username}:{}", self.server_name);
+        let user = self.user_storage.create_user(&user_id, username, None, false).await.map_err(|error| {
+            if error.to_string().contains("duplicate key") || error.to_string().contains("unique constraint") {
+                ApiError::user_in_use("Username already exists".to_string())
+            } else {
+                ApiError::internal_with_cause("Failed to create user", error)
+            }
+        })?;
+
+        if let Some(name) = displayname {
+            if let Err(error) = self.user_service.update_displayname(&user.user_id, Some(name)).await {
+                ::tracing::warn!(
+                    error = %error,
+                    user_id = %user.user_id,
+                    "Failed to set displayname during appservice registration"
+                );
+            }
+        }
+
+        ::tracing::info!(
+            target: "security_audit",
+            event = "appservice_user_registered",
+            user_id = user.user_id(),
+            "Application service registered a virtual user (no login)"
+        );
+
+        Ok(user)
+    }
 }

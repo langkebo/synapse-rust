@@ -15,6 +15,7 @@ use synapse_common::{ApiError, MatrixErrorCode};
 /// See [`register`].
 pub(crate) async fn register(
     State(ctx): State<AuthContext>,
+    headers: HeaderMap,
     Query(query): Query<Value>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Response, ApiError> {
@@ -40,6 +41,15 @@ pub(crate) async fn register(
             }
         }))
         .into_response());
+    }
+
+    // MSC4190：应用服务注册虚拟用户。
+    //
+    // 判据同上游 —— **看 token，不看 body 里的 type**：AS 用它的 as_token 调
+    // `POST /register`，服务器认出这是 AS 就按 AS 语义处理。用 body 判会挡住
+    // 按上游写法实现的 bridge（它们不带 `type`）。
+    if let Some(service) = appservice_for_register(&ctx, &headers).await? {
+        return register_appservice_user(&ctx, &service, &body).await;
     }
 
     let auth = body.get("auth").cloned();
@@ -98,6 +108,71 @@ pub(crate) async fn register(
     Ok(Json(
         ctx.registration_service.register_user(&username, password, displayname, initial_device_display_name).await?,
     )
+    .into_response())
+}
+
+/// 若请求携带的 token 属于某个应用服务，返回该服务（MSC4190 的注册身份判据）。
+///
+/// 只在**确实带了 `Authorization`** 时才尝试解析：普通客户端不带 token、或带的是用户
+/// token 时一律按普通注册处理（`validate_token` 不认用户 token ⇒ 落到 `None`）。
+async fn appservice_for_register(
+    ctx: &AuthContext,
+    headers: &HeaderMap,
+) -> Result<Option<synapse_services::application_service::ApplicationService>, ApiError> {
+    if !headers.contains_key(axum::http::header::AUTHORIZATION) {
+        return Ok(None);
+    }
+    let Ok(as_token) = crate::routes::app_service::extract_as_token(headers) else {
+        return Ok(None);
+    };
+    match ctx.app_service_manager.validate_token(&as_token).await {
+        Ok(service) => Ok(Some(service)),
+        // 不是 AS token：按普通注册继续，让后面的分支给出 `password required` 或 401，
+        // 避免把普通客户端误判成 AS（误判的代价是它永远注册不上）。
+        Err(_) => Ok(None),
+    }
+}
+
+/// MSC4190 的注册语义：**只建用户、不登录**。
+///
+/// 三条判据（缺一条就偏离上游）：
+/// 1. `inhibit_login` 必须显式为 `true` —— 否则 400 `M_APPSERVICE_LOGIN_UNSUPPORTED`。
+///    这条路径**不签发 token**；静默忽略会让 AS 以为拿到了会话。
+/// 2. 用户必须落在该 AS 的 `users` 命名空间内（**任一条目即可**，不要求 `exclusive`，
+///    与上游 `is_interested_in_user` 同口径；`exclusive` 只在 `/login` 冒充时要求）。
+/// 3. 响应只有 `user_id`（+ `well_known`），**没有** `access_token` / `device_id`。
+async fn register_appservice_user(
+    ctx: &AuthContext,
+    service: &synapse_services::application_service::ApplicationService,
+    body: &Value,
+) -> Result<Response, ApiError> {
+    let inhibit_login = body.get("inhibit_login").and_then(Value::as_bool).unwrap_or(false);
+    if !inhibit_login {
+        return Err(ApiError::appservice_login_unsupported(
+            "Application services must register users with 'inhibit_login' set to true",
+        ));
+    }
+
+    let username = body.get("username").and_then(Value::as_str).ok_or_else(|| {
+        ApiError::bad_request("username is required for application service registration".to_string())
+    })?;
+
+    let user_id = format!("@{username}:{}", ctx.server_name);
+    if !ctx.app_service_manager.is_interested_in_user(service, &user_id) {
+        return Err(ApiError::forbidden(
+            "Cannot register this user: it is outside the application service's user namespace".to_string(),
+        ));
+    }
+
+    let displayname = body.get("displayname").and_then(Value::as_str);
+    let user = ctx.credential_auth.register_without_login(username, displayname).await?;
+
+    Ok(Json(json!({
+        "user_id": user.user_id,
+        "well_known": {
+            "m.homeserver": { "base_url": ctx.config.server.get_public_baseurl() }
+        }
+    }))
     .into_response())
 }
 
