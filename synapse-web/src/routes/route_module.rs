@@ -253,7 +253,7 @@ impl RouteModule for FriendModule {
 #[cfg(feature = "voice-extended")]
 impl RouteModule for VoiceModule {
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState> {
-        router.merge(voice::create_voice_router(state))
+        router.merge(voice::create_voice_router(&state))
     }
 }
 

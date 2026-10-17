@@ -89,7 +89,7 @@ pub fn voice_multipart_body_limit(max_upload_size: usize) -> usize {
 }
 
 /// See [`create_voice_router`].
-pub fn create_voice_router(state: AppState) -> Router<AppState> {
+pub fn create_voice_router(state: &AppState) -> Router<AppState> {
     let body_limit = voice_multipart_body_limit(state.services.core.config.server.max_upload_size as usize);
     Router::new()
 // ISSUE-13: 私有端点唯一规范位置是 /_matrix/vendor/v1（client 别名已按 AGENTS.md 铁律 1 删除）
