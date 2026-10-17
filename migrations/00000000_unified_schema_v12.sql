@@ -2981,7 +2981,11 @@ CREATE TABLE IF NOT EXISTS delayed_events (
     created_ts BIGINT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
     retry_count INTEGER NOT NULL DEFAULT 0,
-    last_error TEXT
+    last_error TEXT,
+    -- MSC4354 sticky duration requested at scheduling time, applied to the event's
+    -- `unsigned` when the dispatcher finally sends it (upstream PR #19354 stores it
+    -- the same way: ``sticky_duration_ms`` on ``delayed_events``).
+    sticky_duration_ms BIGINT
 );
 
 CREATE TABLE IF NOT EXISTS rendezvous_session (

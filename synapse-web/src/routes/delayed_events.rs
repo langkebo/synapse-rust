@@ -23,19 +23,19 @@
 use crate::routes::context::{AdminContext, RoomContext};
 use crate::routes::extractors::{AuthenticatedUser, RoomId};
 use crate::routes::handlers::room::{
-    ensure_message_write_access, ensure_room_state_write_access, normalize_room_event_type,
+    ensure_message_write_access, ensure_room_state_write_access, msc4354_sticky_duration, normalize_room_event_type,
     schedule_delayed_event_core, MSC4140_MAX_DELAY_MS, MSC4140_SCHEDULE_TXN_NAMESPACE,
 };
-use crate::routes::sticky_event::MSC4354_STICKY_DURATION_FIELD;
 use crate::routes::validate_room_id;
 use crate::routes::AppState;
 use axum::{
-    extract::{Json, Path, State},
+    extract::{Json, Path, Query, State},
     http::HeaderMap,
     routing::{get, post, put},
     Router,
 };
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use synapse_common::ApiError;
 use synapse_services::delayed_event_service::{DelayedEvent, DelayedEventAction};
 
@@ -63,6 +63,7 @@ pub(crate) async fn schedule_delayed_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_type, txn_id)): Path<(RoomId, String, String)>,
+    Query(query): Query<HashMap<String, String>>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -71,7 +72,7 @@ pub(crate) async fn schedule_delayed_event(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let parsed = parse_schedule_request(&body)?;
+    let parsed = parse_schedule_request(&body, &query)?;
 
     let event_type = normalize_room_event_type(&event_type);
 
@@ -87,6 +88,7 @@ pub(crate) async fn schedule_delayed_event(
             parsed.state_key,
             parsed.content,
             parsed.delay_ms,
+            parsed.sticky_duration_ms,
             Some(txn_id.as_str()),
             MSC4140_SCHEDULE_TXN_NAMESPACE,
         )
@@ -107,6 +109,7 @@ pub(crate) async fn schedule_delayed_event(
         None,
         content,
         parsed.delay_ms,
+        parsed.sticky_duration_ms,
         Some(txn_id.as_str()),
         MSC4140_SCHEDULE_TXN_NAMESPACE,
     )
@@ -122,6 +125,8 @@ struct ScheduleRequest {
     content: Value,
     /// `state_key` — `None` for a message event, and for an explicit `null`.
     state_key: Option<String>,
+    /// MSC4354 sticky duration to apply when the event is finally sent.
+    sticky_duration_ms: Option<i64>,
 }
 
 /// Validate the body of the dedicated endpoint.
@@ -133,23 +138,14 @@ struct ScheduleRequest {
 /// Unevaluated JSON rather than a `Deserialize` struct, so a missing or mistyped
 /// field yields 400 `M_BAD_JSON` (this module's style — see
 /// `manage_delayed_event`) instead of axum's 422 deserialization rejection.
-fn parse_schedule_request(body: &Value) -> Result<ScheduleRequest, ApiError> {
-    // MSC4354's sticky duration is **refused, not dropped**, on this endpoint:
-    // it carries the same field as a body key (the `/send` and `/state` surfaces
-    // take it as a query parameter and do honour it — see
-    // `handlers::room::apply_msc4354_sticky_ttl`). A sticky duration is recorded
-    // on the sent event's `unsigned`, but a scheduled event is stored in
-    // `delayed_events` and replayed by the dispatcher, with no moment at which
-    // that write could happen. Accepting the field and scheduling a plain event
-    // would silently downgrade what the client asked for; 501 says so out loud.
-    // Both spellings are checked because the pin endpoint accepts both.
-    if body.get(MSC4354_STICKY_DURATION_FIELD).is_some() || body.get("sticky_duration_ms").is_some() {
-        return Err(ApiError::not_supported(format!(
-            "'{MSC4354_STICKY_DURATION_FIELD}' cannot be combined with a scheduled send: the sticky duration is \
-             recorded on the sent event's unsigned projection, which a delayed event (stored and replayed later) \
-             has no opportunity to set. Send the event immediately with the sticky hint, or schedule it without one"
-        )));
-    }
+fn parse_schedule_request(body: &Value, query: &HashMap<String, String>) -> Result<ScheduleRequest, ApiError> {
+    // MSC4354: a sticky duration **is** accepted here (upstream PR #19354 carries
+    // the same field as a body key). It is stored on the row and applied by the
+    // dispatcher right after the send — see
+    // `synapse_services::room::scheduled_dispatch::dispatch_due_event`. Both the
+    // body field and the query parameter are read (upstream tolerates both while
+    // the MSC settles); disagreeing values are 400, never a silent pick.
+    let sticky_duration_ms = msc4354_sticky_duration(Some(body), query)?;
 
     let delay_ms = body
         .get("delay_ms")
@@ -178,7 +174,16 @@ fn parse_schedule_request(body: &Value) -> Result<ScheduleRequest, ApiError> {
         Some(_) => return Err(ApiError::bad_request("Invalid 'state_key' field (must be a string)".to_string())),
     };
 
-    Ok(ScheduleRequest { delay_ms, content, state_key })
+    // Upstream rejects this combination outright ("Sticky state events are not
+    // allowed"): a state event's `unsigned` TTL has no client meaning, and the
+    // dispatcher would have nowhere to apply it.
+    if state_key.is_some() && sticky_duration_ms.is_some() {
+        return Err(ApiError::invalid_param(
+            "Sticky state events are not allowed: cannot combine `state_key` with a sticky duration".to_string(),
+        ));
+    }
+
+    Ok(ScheduleRequest { delay_ms, content, state_key, sticky_duration_ms })
 }
 
 /// MSC4140 — Get a single pending delayed event.
@@ -354,7 +359,13 @@ pub fn create_delayed_events_router() -> Router<AppState> {
 
 #[cfg(test)]
 mod tests {
+    /// Parse a body with no query-string hints (the common case).
+    fn parse(body: &Value) -> Result<ScheduleRequest, ApiError> {
+        parse_schedule_request(body, &HashMap::new())
+    }
+
     use super::*;
+    use crate::routes::sticky_event::MSC4354_STICKY_DURATION_FIELD;
     use synapse_common::ApiErrorKind;
 
     #[test]
@@ -378,7 +389,7 @@ mod tests {
     // not ask for and only surface it minutes later in the dispatcher's log.
 
     fn kind_of(body: &Value) -> ApiErrorKind {
-        parse_schedule_request(body).expect_err("body must be rejected").kind
+        parse(body).expect_err("body must be rejected").kind
     }
 
     fn valid_body() -> Value {
@@ -387,7 +398,7 @@ mod tests {
 
     #[test]
     fn schedule_body_accepts_the_minimal_valid_request() {
-        let parsed = parse_schedule_request(&valid_body()).expect("minimal body must parse");
+        let parsed = parse(&valid_body()).expect("minimal body must parse");
         assert_eq!(parsed.delay_ms, 60_000);
         assert_eq!(parsed.content, json!({ "body": "later" }));
         assert_eq!(parsed.state_key, None, "an absent state_key means a message event");
@@ -417,7 +428,7 @@ mod tests {
         // The boundary itself is inclusive on purpose: a client probing for the
         // limit must see the same answer whichever door it used.
         let at_cap = json!({ "delay_ms": MSC4140_MAX_DELAY_MS, "content": {} });
-        assert_eq!(parse_schedule_request(&at_cap).expect("the cap is inclusive").delay_ms, MSC4140_MAX_DELAY_MS);
+        assert_eq!(parse(&at_cap).expect("the cap is inclusive").delay_ms, MSC4140_MAX_DELAY_MS);
     }
 
     #[test]
@@ -429,10 +440,10 @@ mod tests {
 
     #[test]
     fn schedule_body_state_key_distinguishes_message_from_state() {
-        let absent = parse_schedule_request(&valid_body()).unwrap();
+        let absent = parse(&valid_body()).unwrap();
         assert_eq!(absent.state_key, None);
 
-        let explicit_null = parse_schedule_request(&json!({
+        let explicit_null = parse(&json!({
             "delay_ms": 1000,
             "content": {},
             "state_key": null
@@ -440,7 +451,7 @@ mod tests {
         .unwrap();
         assert_eq!(explicit_null.state_key, None, "an explicit null is the absent state_key, not an error");
 
-        let empty_key = parse_schedule_request(&json!({
+        let empty_key = parse(&json!({
             "delay_ms": 1000,
             "content": {},
             "state_key": ""
@@ -452,7 +463,7 @@ mod tests {
             "the empty string is a real state key (a state event), not a missing one"
         );
 
-        let named = parse_schedule_request(&json!({
+        let named = parse(&json!({
             "delay_ms": 1000,
             "content": {},
             "state_key": "topic"
@@ -467,23 +478,17 @@ mod tests {
         );
     }
 
-    /// MSC4354's sticky duration is refused rather than silently dropped: the
-    /// event would otherwise be scheduled as a plain (unpinned) event while the
-    /// client believes it asked for a pinned one.
+    /// MSC4354's sticky duration is **carried**, not refused: the row stores it and
+    /// the dispatcher applies it at send time. (Bounds, conflicts and the
+    /// state-key rule are covered next to the parser, in
+    /// `handlers::room::tests`.)
     #[test]
-    fn schedule_body_refuses_the_sticky_duration_hint_with_501() {
+    fn schedule_body_carries_the_sticky_duration_hint() {
         for field in [MSC4354_STICKY_DURATION_FIELD, "sticky_duration_ms"] {
             let mut body = valid_body();
             body[field] = json!(60_000);
-            let error = parse_schedule_request(&body).expect_err("the sticky hint must not be accepted");
-            assert_eq!(error.kind, ApiErrorKind::NotImplemented, "field {field} must yield 501, got {error:?}");
+            assert_eq!(parse(&body).unwrap().sticky_duration_ms, Some(60_000), "field {field}");
         }
-
-        // The refusal is about the *field*, not about any particular value: even
-        // a well-formed duration is refused, so the branch cannot be mistaken
-        // for a validation rule on the value.
-        let mut null_hint = valid_body();
-        null_hint[MSC4354_STICKY_DURATION_FIELD] = Value::Null;
-        assert_eq!(parse_schedule_request(&null_hint).unwrap_err().kind, ApiErrorKind::NotImplemented);
+        assert_eq!(parse(&valid_body()).unwrap().sticky_duration_ms, None);
     }
 }

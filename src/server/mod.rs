@@ -941,41 +941,18 @@ impl SynapseServer {
                                 continue;
                             }
 
-                            // Dispatch the event. State events (`state_key` present) must go
-                            // through `create_event` to preserve state semantics; plain
-                            // messages use `send_message_with_txn` (the synthetic event_id
-                            // from delayed_events doubles as the txn_id for deduplication).
-                            let send_result = if let Some(state_key) = event.state_key.clone() {
-                                room_service
-                                    .messaging()
-                                    .create_event(
-                                        CreateEventParams {
-                                            event_id: synapse_common::crypto::generate_event_id(&server_name),
-                                            room_id: event.room_id.clone(),
-                                            user_id: event.user_id.clone(),
-                                            event_type: event.event_type.clone(),
-                                            content: event.content.clone(),
-                                            state_key: Some(state_key),
-                                            origin_server_ts: current_timestamp_millis(),
-                                            redacts: None,
-                                        },
-                                        None,
-                                    )
-                                    .await
-                                    .map(|_| ())
-                            } else {
-                                room_service
-                                    .messaging()
-                                    .send_message_with_txn(
-                                        &event.room_id,
-                                        &event.user_id,
-                                        &event.event_type,
-                                        &event.content,
-                                        &event.event_id, // txn_id for dedup (synthetic placeholder)
-                                    )
-                                    .await
-                                    .map(|_| ())
-                            };
+                            // Dispatch the event (extracted to
+                            // `room::scheduled_dispatch` so it is testable and so
+                            // this file stops growing). That helper also applies
+                            // MSC4354's sticky TTL after a scheduled *message*
+                            // is sent; a scheduled state event can never carry one
+                            // (rejected at scheduling time).
+                            let send_result = synapse_services::room::scheduled_dispatch::dispatch_due_event(
+                                &room_service,
+                                &server_name,
+                                &event,
+                            )
+                            .await;
 
                             match send_result {
                                 Ok(_) => {

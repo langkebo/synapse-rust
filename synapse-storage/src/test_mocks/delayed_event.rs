@@ -56,6 +56,7 @@ impl DelayedEventStorageApi for InMemoryDelayedEventStore {
             state_key: request.state_key,
             content: request.content,
             delay_ms: request.delay_ms,
+            sticky_duration_ms: request.sticky_duration_ms,
             scheduled_ts: now + request.delay_ms,
             created_ts: now,
             status: "pending".to_string(),

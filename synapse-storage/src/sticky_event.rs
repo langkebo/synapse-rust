@@ -13,6 +13,14 @@ use synapse_common::current_timestamp_millis;
 /// enforces for `org.matrix.msc4354.sticky_duration_ms`.
 pub const MAX_STICKY_DURATION_MS: i64 = 3_600_000;
 
+/// The `unsigned` key a resolved sticky TTL is recorded under.
+///
+/// `unsigned` sits outside the signed bytes and the content hash, so writing it
+/// after the event is persisted cannot invalidate the event's signature — which is
+/// why both the immediate surfaces (`/send`, `/state`) and the delayed-event
+/// dispatcher write here rather than into `content`.
+pub const STICKY_TTL_UNSIGNED_FIELD: &str = "msc4354_sticky_duration_ttl_ms";
+
 /// A client-requested sticky duration was not acceptable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StickyDurationError {
@@ -773,7 +781,7 @@ mod db_tests {
             "both events must start out pinned, otherwise the assertion below is vacuous"
         );
 
-        events.redact_event_content(pinned_event, None).await.expect("redaction should succeed");
+        events.redact_event_content(pinned_event, room_id, None).await.expect("redaction should succeed");
 
         assert!(
             storage

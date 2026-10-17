@@ -27,6 +27,8 @@ pub use membership::service::MembershipService;
 /// The `messaging` module.
 pub mod messaging;
 pub use messaging::service::MessagingService;
+/// MSC4140 dispatch of one due delayed event (extracted from the server loop).
+pub mod scheduled_dispatch;
 /// The `service` module.
 pub mod service;
 /// The `space` module.

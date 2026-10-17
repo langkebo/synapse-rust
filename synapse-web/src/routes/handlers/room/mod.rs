@@ -149,7 +149,7 @@ pub(crate) const MSC4354_STICKY_DURATION_SHORT_FIELD: &str = "sticky_duration_ms
 /// Mirrors upstream `EventUnsignedContentFields.STICKY_TTL`
 /// (`"msc4354_sticky_duration_ttl_ms"`): the name a spec-conformant client
 /// inspects to learn how long an event stays pinned.
-pub(crate) const MSC4354_STICKY_TTL_UNSIGNED_FIELD: &str = "msc4354_sticky_duration_ttl_ms";
+pub(crate) const MSC4354_STICKY_TTL_UNSIGNED_FIELD: &str = synapse_services::room::service::STICKY_TTL_UNSIGNED_FIELD;
 
 /// Parse the `org.matrix.msc4354.sticky_duration_ms` hint out of the query
 /// string; `None` when it is absent.
@@ -168,6 +168,16 @@ pub(crate) fn msc4354_query_sticky_duration_ms(query: &HashMap<String, String>) 
     let duration_ms = raw.trim().parse::<i64>().map_err(|_| {
         ApiError::invalid_param(format!("Query parameter {MSC4354_STICKY_DURATION_FIELD} must be an integer"))
     })?;
+    validate_sticky_bounds(duration_ms)?;
+    Ok(Some(duration_ms))
+}
+
+/// Reject a sticky duration outside `0 < n <= MAX_STICKY_DURATION_MS`.
+///
+/// Shared by the query-string form ([`msc4354_query_sticky_duration_ms`]) and the
+/// body form ([`msc4354_sticky_duration`]) so the two doors cannot drift apart:
+/// the same number must be acceptable (or not) wherever the client puts it.
+fn validate_sticky_bounds(duration_ms: i64) -> Result<(), ApiError> {
     if duration_ms <= 0 {
         return Err(ApiError::invalid_param(format!(
             "{MSC4354_STICKY_DURATION_FIELD} must be a positive integer (milliseconds)"
@@ -178,6 +188,46 @@ pub(crate) fn msc4354_query_sticky_duration_ms(query: &HashMap<String, String>) 
             "{MSC4354_STICKY_DURATION_FIELD} must not exceed 1 hour ({MAX_STICKY_DURATION_MS}ms)"
         )));
     }
+    Ok(())
+}
+
+/// Parse MSC4354's sticky hint from a request **body** and/or the query string.
+///
+/// The dedicated delayed-event endpoint carries the hint as a body field
+/// (`StickyDelayedEventBodyModel` upstream), while `/send` and `/state` carry it
+/// in the query string. Upstream tolerates both while the MSC settles, and so does
+/// this: two present values must agree, otherwise 400 — silently picking one
+/// would let the caller believe a different TTL was stored than the one applied.
+///
+/// `None` means "not asked for"; a JSON `null` counts as absent (JSON has no
+/// `Absent` sentinel, and a serialised optional field conveys the same thing).
+pub(crate) fn msc4354_sticky_duration(
+    body: Option<&serde_json::Value>,
+    query: &HashMap<String, String>,
+) -> Result<Option<i64>, ApiError> {
+    let from_query = msc4354_query_sticky_duration_ms(query)?;
+    let from_body = body.map(msc4354_sticky_duration_from_body).transpose()?.flatten();
+
+    match (from_query, from_body) {
+        (Some(query_ms), Some(body_ms)) if query_ms != body_ms => {
+            Err(ApiError::invalid_param(format!("Conflicting values given for {MSC4354_STICKY_DURATION_FIELD}")))
+        }
+        (from_query, from_body) => Ok(from_query.or(from_body)),
+    }
+}
+
+fn msc4354_sticky_duration_from_body(body: &serde_json::Value) -> Result<Option<i64>, ApiError> {
+    let Some(raw) = body.get(MSC4354_STICKY_DURATION_FIELD).or_else(|| body.get(MSC4354_STICKY_DURATION_SHORT_FIELD))
+    else {
+        return Ok(None);
+    };
+    if raw.is_null() {
+        return Ok(None);
+    }
+    let duration_ms = raw
+        .as_i64()
+        .ok_or_else(|| ApiError::invalid_param(format!("'{MSC4354_STICKY_DURATION_FIELD}' must be an integer")))?;
+    validate_sticky_bounds(duration_ms)?;
     Ok(Some(duration_ms))
 }
 
@@ -248,28 +298,26 @@ pub(crate) async fn schedule_delayed_event_if_requested(
         return Ok(None);
     };
 
-    // MSC4354's sticky duration and MSC4140's delay are **mutually exclusive**
-    // on this path: refused, not silently dropped.
+    // MSC4354: a sticky hint **may** accompany a scheduled send. The TTL cannot be
+    // recorded at scheduling time (there is no event yet), so it is stored on the
+    // `delayed_events` row and applied by the dispatcher immediately after the
+    // send — which is exactly what upstream PR #19354 does
+    // (`delayed_events_handler.add(..., sticky_duration_ms=...)` and, at send
+    // time, `event_dict[StickyEvent.EVENT_FIELD_NAME] = StickyEventField(...)`).
     //
-    // Outside the delay path, `/send` now honours the sticky hint (see
-    // [`msc4354_query_sticky_duration_ms`] / [`apply_msc4354_sticky_ttl`]) by
-    // writing the TTL onto the sent event's `unsigned`. A delayed event has no
-    // such moment — it is stored in `delayed_events` and replayed by the
-    // dispatcher, which has no hook to attach an `unsigned` TTL — so "schedule
-    // and pin" has no atomic form. Refusing beats half-doing it: previously the
-    // hint was accepted and ignored, leaving the client believing it had pinned
-    // an event that went out unpinned. The dedicated endpoint answers 501 for the
-    // same field (see `routes::delayed_events::parse_schedule_request`).
-    let sticky_hint_present = query.contains_key(MSC4354_STICKY_DURATION_FIELD)
-        || query.contains_key(MSC4354_STICKY_DURATION_SHORT_FIELD)
-        || body.get(MSC4354_STICKY_DURATION_FIELD).is_some()
-        || body.get(MSC4354_STICKY_DURATION_SHORT_FIELD).is_some();
-    if sticky_hint_present {
-        return Err(ApiError::not_supported(format!(
-            "'{MSC4354_STICKY_DURATION_FIELD}' cannot be combined with a delayed send: the sticky duration is \
-             recorded on the sent event's unsigned projection, which a delayed event (stored and replayed later) \
-             has no opportunity to set. Send the event immediately with the sticky hint, or schedule it without one"
-        )));
+    // Only the **query** is read here: on `/send` the request body *is* the event
+    // content, so a `sticky_duration_ms` key inside it is content, not a hint.
+    // Upstream reads this parameter from the query string on `/send` and `/state`
+    // for the same reason.
+    //
+    // A sticky **state** event is the one combination upstream forbids outright
+    // ("Sticky state events are not allowed"), and the same refusal belongs here:
+    // a state event's `unsigned` TTL has no client meaning.
+    let sticky_duration_ms = msc4354_query_sticky_duration_ms(query)?;
+    if sticky_duration_ms.is_some() && state_key.is_some() {
+        return Err(ApiError::invalid_param(
+            "Sticky state events are not allowed: cannot combine `state_key` with a sticky duration".to_string(),
+        ));
     }
 
     // Validate delay is positive and bounded (max 24h, see MSC4140_MAX_DELAY_MS).
@@ -302,6 +350,7 @@ pub(crate) async fn schedule_delayed_event_if_requested(
         state_key,
         content,
         delay_ms,
+        sticky_duration_ms,
         txn_id,
         MSC4140_SEND_TXN_NAMESPACE,
     )
@@ -351,6 +400,7 @@ pub(crate) async fn schedule_delayed_event_core(
     state_key: Option<String>,
     content: serde_json::Value,
     delay_ms: i64,
+    sticky_duration_ms: Option<i64>,
     txn_id: Option<&str>,
     txn_cache_namespace: &str,
 ) -> Result<axum::extract::Json<serde_json::Value>, ApiError> {
@@ -373,6 +423,7 @@ pub(crate) async fn schedule_delayed_event_core(
         state_key,
         content,
         delay_ms,
+        sticky_duration_ms,
     };
 
     let delayed = ctx.delayed_event_service.schedule(request).await?;
@@ -420,14 +471,45 @@ pub(crate) struct UpgradeRoomResponse {
 #[cfg(test)]
 mod tests {
     use super::{
-        msc4354_query_sticky_duration_ms, parse_pagination_direction, parse_room_messages_from_token,
-        state_event_content_response, MSC4354_STICKY_DURATION_FIELD, MSC4354_STICKY_DURATION_SHORT_FIELD,
+        msc4354_query_sticky_duration_ms, msc4354_sticky_duration, parse_pagination_direction,
+        parse_room_messages_from_token, state_event_content_response, MSC4354_STICKY_DURATION_FIELD,
+        MSC4354_STICKY_DURATION_SHORT_FIELD,
     };
     use serde_json::json;
     use std::collections::HashMap;
+    use synapse_common::error::ApiErrorKind;
 
     fn query(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         pairs.iter().map(|(k, v)| ((*k).to_string(), (*v).to_string())).collect()
+    }
+
+    /// MSC4354 on the **delayed** surfaces: the hint is accepted from the request
+    /// body (the dedicated endpoint's location) and/or the query string (`/send`,
+    /// `/state`), and two disagreeing values are a client error rather than a
+    /// silent pick.
+    #[test]
+    fn sticky_duration_is_read_from_body_and_query() {
+        let body =
+            |value: serde_json::Value| json!({ "delay_ms": 1000, "content": {}, MSC4354_STICKY_DURATION_FIELD: value });
+
+        assert_eq!(msc4354_sticky_duration(Some(&body(json!(60_000))), &query(&[])).unwrap(), Some(60_000));
+
+        let via_query = query(&[(MSC4354_STICKY_DURATION_FIELD, "30000")]);
+        assert_eq!(msc4354_sticky_duration(Some(&json!({})), &via_query).unwrap(), Some(30_000));
+        assert_eq!(
+            msc4354_sticky_duration(Some(&body(json!(30_000))), &via_query).unwrap(),
+            Some(30_000),
+            "agreeing values are fine"
+        );
+        assert_eq!(
+            msc4354_sticky_duration(Some(&body(json!(60_000))), &via_query).unwrap_err().kind,
+            ApiErrorKind::BadRequest,
+            "disagreeing body/query values must not be silently resolved"
+        );
+
+        // Absent everywhere, and an explicit `null`, both mean "no hint".
+        assert_eq!(msc4354_sticky_duration(Some(&json!({})), &query(&[])).unwrap(), None);
+        assert_eq!(msc4354_sticky_duration(Some(&body(serde_json::Value::Null)), &query(&[])).unwrap(), None);
     }
 
     // MSC4354 (UG-10): the sticky duration hint is read from the query string,

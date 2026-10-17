@@ -582,6 +582,7 @@ mod tests {
                 state_key: None,
                 content: serde_json::json!({ "body": "later" }),
                 delay_ms: 60_000,
+                sticky_duration_ms: None,
             })
             .await
             .expect("seed delayed event")

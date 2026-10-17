@@ -1069,6 +1069,12 @@ cargo nextest run --test integration --all-features --locked -E 'test(history_vi
    `all_fixed_api_error_constructors()`。**两种拼写都拒**
    （`org.matrix.msc4354.sticky_duration_ms` 与短名 `sticky_duration_ms`），因为置顶端点两种都收。
 
+   > **2026-10-17 更新：改为取方案 ① 并已落地，见 §11.18。**
+   > 当时那条"会静默覆盖用户已有置顶"的理由**不成立**：它把两种模型混为一谈 ——
+   > 延迟投递写入的是**事件的 `unsigned` 属性**（上游模型），**不碰** `room_sticky_events`
+   > 置顶槽位，因此不存在覆盖。<br>
+   > 这条错误的口径值得留在这里：判断"能不能做"时，必须说清写的是哪张表。
+
 **落点**
 
 | 文件 | 改动 |
@@ -1875,3 +1881,47 @@ per-user pin 表 `room_sticky_events`；**驱动 `/sync` 与 sliding sync 里 `s
   `msc4354_query_sticky_duration_ms(&query)?` 全换成 `None` ⇒ 三条**全部变红**（越界那条同时丢掉 400，
   故也红），还原后复绿。
 - `/delayed_event` 专用端点仍 **501**（刻意，理由见上）。
+
+### 11.18 MSC4140 × MSC4354：延迟事件的 sticky TTL 改为「落地」（原判 501 → 取方案 ①）
+
+**背景**：§11.7 当时在两个方案里选了 **②**（该字段明确 501），并把理由写成"① 给
+`delayed_events` 加列 + dispatcher 落地 … 值得单独一个 commit"。本轮把这个 commit 做了。
+
+**上游怎么做的（2026-10-17 逐文件取证 `element-hq/synapse@develop`）** —— 它直接回答了
+"延迟事件没有落 `unsigned` 的时机"这句话：
+
+- `synapse/rest/client/room.py::RoomDelayedEventRestServlet`：body 走
+  `StickyDelayedEventBodyModel`（`sticky_duration_ms` 以 `StickyEvent.REQUEST_PARAM_NAME`
+  为别名），**同时**读同名 **query** 参数；两者都给出且不等 ⇒ 400
+  `Conflicting values given for …`；`<= 0` ⇒ 400 `must be strictly positive`；
+  **`state_key` 与 sticky 同时出现 ⇒ 400 `Sticky state events are not allowed`**。
+- `synapse/handlers/delayed_events.py`：`add(..., sticky_duration_ms=...)` 原样落库；
+  `_send_event()` 在**发送那一刻**注入
+  `event_dict[StickyEvent.EVENT_FIELD_NAME] = StickyEventField(duration_ms=...)`。
+  ⇒ **时机是投递时**，值随行持久化 —— 不是"没有时机"。
+- `synapse/storage/databases/main/delayed_events.py`：`delayed_events.sticky_duration_ms`
+  可空列；INSERT 写入，`process_timeout_delayed_events` 与 `process_target_delayed_event`
+  都把它读回（`int(row[6])`）。
+
+**本仓实现（四层各一处）**：
+
+| 面 | 改动 |
+| --- | --- |
+| 基线 | `delayed_events` 加 `sticky_duration_ms BIGINT`（可空）；基线指纹 `0bea2dcc031b8c94 → dda1c0d97cc60b47` |
+| 存储 | `DelayedEvent` / `CreateDelayedEventRequest` 各加字段；4 条 `query_as!` 同步（`.sqlx` 4 换 4，条目数仍 **1334**） |
+| 解析 | 新 `msc4354_sticky_duration(body, query)`：body 两种拼写 + query 两种拼写；**冲突 ⇒ 400**；`0 < n <= 1h`；`state_key` + sticky ⇒ 400（上游同文案同意图） |
+| 投递 | 新 `synapse_services::room::scheduled_dispatch::dispatch_due_event`（从 `src/server/mod.rs` 抽出，顺带让"排期 → 真的发出去"第一次有回归覆盖）：消息路径发送后把 TTL 写进 `unsigned`；状态路径不写（若异常携带则 `warn!`） |
+
+**与 `/send`、`/state` 的关系**：`/send?delay=` 与 `/state?delay=` 现在也把 query 里的 sticky
+透传进行（上游同样透传）。`/state` 的**非延迟**写入本仓仍接受 sticky，而上游在该端点硬编码
+`None` —— 这是本仓既有的**超集**行为，本批不改变它；延迟路径下的 `state_key` + sticky 则
+**拒绝**（与上游一致）。
+
+**判据（全部实跑）**：
+
+- 解析：`sticky_duration_is_read_from_body_and_query`（body / query / 冲突 / `null`）+
+  专用端点 `schedule_body_carries_the_sticky_duration_hint`。
+- 存储：`delayed_event_lifecycle_round_trip_on_the_migration_template`（**新模板指纹**，证明列真的在库里）。
+- 端到端：`tests/integration/api_delayed_sticky_dispatch_tests.rs` 3 条 —— 排期（body 带 hint）
+  → 行上有值 → **真派发** → `GET /room/{id}/event/{eid}` 的 `unsigned` 读回同一个 TTL；
+  负控（不带 hint 不得长出 TTL）；sticky 状态事件 ⇒ 400 `M_INVALID_PARAM`。
