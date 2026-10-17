@@ -1686,6 +1686,64 @@ fn test_lazy_load_no_member_events_in_state() {
     assert!(known_now.is_empty());
 }
 
+/// MSC4222 × lazy-load: whether a membership change from outside a limited
+/// timeline is replayed depends on **which form** the client reads the block as.
+///
+/// `apply_lazy_load_members` resolves "limited" × "`state` or `state_after`" into
+/// one bit before filtering, so both directions are asserted here — the
+/// `state_after` one is the fix, the classic one is the deliberately locked
+/// behaviour it must not disturb.
+#[tokio::test]
+async fn timeline_limited_replays_membership_changes_only_for_state_after() {
+    let event_store = std::sync::Arc::new(synapse_storage::test_mocks::InMemoryEventStore::new());
+    let service = sync_service_for_notifier_test(event_store, None, 100);
+
+    let user_id = "@alice:b";
+    let room_id = "!state-after:b";
+    // The client already holds @bob's membership (recorded at position 1), and
+    // @bob's membership changed since the caller's token — i.e. the delta falls
+    // after `since` but outside the returned (limited) window.
+    {
+        let mut cache = service.lazy_loaded_members_cache.write().await;
+        cache.put(LazyLoadedMembersCacheKey::new(user_id, None, room_id), known_members(&["@bob:b"]));
+    }
+    let changed = HashSet::from([String::from("@bob:b")]);
+
+    let apply = |state_after: bool| {
+        let service = &service;
+        let changed = &changed;
+        async move {
+            service
+                .apply_lazy_load_members(LazyLoadMembersRequest {
+                    state_events: vec![make_member_event("@bob:b")],
+                    timeline_events: &[],
+                    user_id,
+                    device_id: None,
+                    room_id,
+                    room_filter: None,
+                    changed_member_ids: Some(changed),
+                    timeline_limited: true,
+                    state_after,
+                    enabled: true,
+                    response_position: 2,
+                    since_position: Some(1),
+                })
+                .await
+        }
+    };
+
+    // Classic `state`: the client layers the timeline onto this block, so a delta
+    // from after the window is deliberately withheld.
+    let classic = apply(false).await;
+    assert!(classic.is_empty(), "a limited classic `state` block must not replay out-of-window membership changes");
+
+    // `state_after`: nothing is layered onto the block, so withholding it would
+    // lose the membership for good (upstream #20289's second defect).
+    let after = apply(true).await;
+    assert_eq!(after.len(), 1, "a `state_after` block must carry the changed membership");
+    assert_eq!(after[0]["state_key"], json!("@bob:b"));
+}
+
 #[test]
 fn test_lazy_load_timeline_limited_empty_state_and_timeline() {
     let (filtered, known_now) = SyncService::apply_lazy_load_members_with_cache(

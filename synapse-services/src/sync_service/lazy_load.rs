@@ -167,6 +167,26 @@ impl SyncService {
         restored
     }
 
+    /// Whether the state block this response carries describes the state **at
+    /// the start** of the returned timeline, i.e. the form the client re-aims by
+    /// layering the returned timeline on top of it.
+    ///
+    /// A **limited classic `state`** block does. The client only sees the events
+    /// inside the window, so a membership delta that happened *after* the window
+    /// describes a state the shown events do not — replaying it would be a lie
+    /// (that behaviour is deliberate and locked in by the
+    /// `test_lazy_load_timeline_limited_*` cases).
+    ///
+    /// A **`state_after`** block (MSC4222) does not. It *is* the state at the end
+    /// of the timeline and the client layers nothing onto it, so that same delta
+    /// is exactly what the client is missing — and the next request's `since` has
+    /// already moved past it, so dropping it loses the membership for good. That
+    /// is upstream #20289's second defect in its worst form (`state_after` clients
+    /// never see the change again).
+    pub(crate) fn state_block_describes_the_timeline_start(timeline_limited: bool, state_after: bool) -> bool {
+        timeline_limited && !state_after
+    }
+
     /// See [`persist_lazy_loaded_members`].
     async fn persist_lazy_loaded_members(
         &self,
@@ -205,6 +225,7 @@ impl SyncService {
             room_filter,
             changed_member_ids,
             timeline_limited,
+            state_after,
             enabled,
             response_position,
             since_position,
@@ -216,11 +237,11 @@ impl SyncService {
         let cache_key = LazyLoadedMembersCacheKey::new(user_id, device_id, room_id);
         let known = self.lazy_loaded_member_state(&cache_key, user_id, device_id, room_id, since_position).await;
         let include_redundant_members = Self::room_filter_requests_redundant_members(room_filter);
-        // A limited timeline deliberately does not replay membership changes that
-        // fall outside the returned window: with `state` the client reconstructs
-        // the room by layering the timeline onto the block, so a delta from after
-        // that window would describe a state the shown events do not.
-        let changed_member_ids = changed_member_ids.filter(|_| !timeline_limited).cloned().unwrap_or_default();
+        // Only a classic `state` block has to describe the state at the *start* of
+        // the returned timeline; that is the case which must not replay deltas
+        // from outside the window (see the helper for why `state_after` differs).
+        let state_at_timeline_start = Self::state_block_describes_the_timeline_start(timeline_limited, state_after);
+        let changed_member_ids = changed_member_ids.filter(|_| !state_at_timeline_start).cloned().unwrap_or_default();
         let (filtered_events, sent_now) = Self::apply_lazy_load_members_with_cache(
             state_events,
             timeline_events,
@@ -228,7 +249,7 @@ impl SyncService {
             &known,
             include_redundant_members,
             &changed_member_ids,
-            timeline_limited,
+            state_at_timeline_start,
         );
 
         // Commit under one lock, and only the memberships this response actually
@@ -253,6 +274,12 @@ impl SyncService {
     /// Pure: it decides what to hand over and reports every membership it handed
     /// over as `(member_user_id, event_id)`, so the caller can record exactly
     /// those.
+    ///
+    /// `state_at_timeline_start` is the **derived** decision from
+    /// [`SyncService::state_block_describes_the_timeline_start`], not the raw
+    /// `limited` flag: the caller resolves "limited" × "which form the client
+    /// reads" into one bit before any filtering happens, so this function cannot
+    /// apply the reconstruction rule to a `state_after` block.
     pub(crate) fn apply_lazy_load_members_with_cache(
         state_events: Vec<Value>,
         timeline_events: &[RoomEvent],
@@ -260,7 +287,7 @@ impl SyncService {
         known: &LazyLoadedMemberState,
         include_redundant_members: bool,
         changed_member_ids: &HashSet<String>,
-        timeline_limited: bool,
+        state_at_timeline_start: bool,
     ) -> (Vec<Value>, Vec<(String, String)>) {
         // Memberships riding the returned timeline are in the client's hands, so
         // they count as sent (upstream records `timeline_state` as well).
@@ -270,7 +297,10 @@ impl SyncService {
             .filter_map(|event| Some((event.state_key.clone()?, event.event_id.clone())))
             .collect();
 
-        if timeline_limited {
+        // Reconstruction form: the block must describe the state at the start of
+        // the window, so only memberships the client does not already have are
+        // handed over (no `required_members` gating, no changed-set replay).
+        if state_at_timeline_start {
             let mut kept = Vec::with_capacity(state_events.len());
             for event in state_events {
                 if event.get("type").and_then(|value| value.as_str()) != Some("m.room.member") {
@@ -449,6 +479,26 @@ mod tests {
         state.start_request(Some(3));
 
         assert!(!state.was_sent("@bob:b", "$bob1"), "its position is newer than the client's token");
+    }
+
+    #[test]
+    fn only_a_classic_state_block_is_read_as_the_timeline_start() {
+        // Reconstruction form: a limited classic `state` block describes the state
+        // at the *start* of the window, so deltas from after it must not be
+        // replayed.
+        assert!(SyncService::state_block_describes_the_timeline_start(true, false));
+
+        // `state_after` is the state at the *end* of the timeline and nothing is
+        // layered onto it: the same delta is exactly what the client is missing,
+        // so it must be replayed. This is the case that used to be lost for good.
+        assert!(
+            !SyncService::state_block_describes_the_timeline_start(true, true),
+            "a `state_after` block must replay membership changes from outside a limited window"
+        );
+
+        // Nothing was cut, so the window is the whole delta either way.
+        assert!(!SyncService::state_block_describes_the_timeline_start(false, false));
+        assert!(!SyncService::state_block_describes_the_timeline_start(false, true));
     }
 
     #[test]
