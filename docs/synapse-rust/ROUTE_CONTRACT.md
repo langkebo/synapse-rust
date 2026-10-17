@@ -1648,7 +1648,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 |---|---|---|---|
 | I-01 | **P1** | `/summaries` 的成员投影表 `room_summary_members` **未随 membership 维护**：join 不写（新加入房间在 `/summaries` 里看不到）、leave 不清理（user1 实测 49 条已 leave 房间仍在返回）。`INNER JOIN` 把缺失放大成静默数据丢失。 | `synapse-services/src/room/summary/service.rs:54`；`synapse-storage/src/room_summary/repository.rs:231-247`；`synapse-services/src/room/membership/actions.rs:64`（`join_room` 无任何 summary 调用） |
 | I-02 | **P1** | 裸 `axum::extract::Json<T>` 的端点错误响应**缺 `errcode`**：`createRoom` 的 415 / 语法错 400 均返回 `text/plain`；`summaries/batch` 未知字段返回 **422 `text/plain`** 且泄漏内部字段名。`MatrixJson` 已正确实现但仅 17 处使用，裸 `Json` ≥60 处。 | `routes/handlers/room/management/create.rs:79`；对照 `routes/extractors/json.rs:16-35` |
-| I-03 | P2 | 登录失败返回 **`401` + `M_FORBIDDEN`**（状态码与 errcode 非同族），且连续 3 次失败**无限流**（无 `429/retry_after_ms`）。 | `POST /_matrix/client/v3/login` |
+| I-03 | P2 | 登录失败返回 **`401` + `M_FORBIDDEN`**：规范（`login.yaml`）规定失败为 **403 `M_FORBIDDEN`**，401 会让「通用 401 处理」误伤登录接口。~~且连续 3 次失败无限流~~ → **2026-10-18 复核更正：限流存在**（第 6 次 429 + `retry_after_ms=300000`，阈值 `login_failure_lockout_threshold: 5`；原报告只试了 3 次）。 | `POST /_matrix/client/v3/login`；`synapse-services/src/auth/login.rs:53`；`synapse-web/src/utils/login_lockout.rs` |
 | I-04 | P2 | `createRoom` 对 `{"name":123}` **静默接受并 200**（`Json<Value>` 无类型校验，非字符串被跳过）。 | `create.rs` |
 | I-05 | P3 | `/summaries` 的 `INNER JOIN room_summary_members` 使"投影无行"变成永久不可见（无告警、无回退）。 | `repository.rs:237` |
 
@@ -1657,3 +1657,15 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 **一处需澄清的"疑似越权"**：普通用户 `/summaries` 返回的 12 条非 joined 房间，经 `room_memberships` 对拍确认全部是 **invite**（invite 用户看摘要符合语义），**不构成越权**；越权判据必须对拍成员关系，不能只看列表内容。
 
 **修复优先级**：I-01（同事务写投影 + 回填脚本 + DB 一致性测试）→ I-02（全局 `JsonRejection → ApiError` 或批量换 `MatrixJson` + 契约测试）→ I-03/I-04 → I-05。
+
+**2026-10-18 复核（`docs/audit/LIVE_INTEGRATION_BACKEND_FINDINGS_AUDIT_2026-10-18.md`）**：
+上表 5 条逐条重跑了一遍（代码 + 活体 + DB 对拍），**4 条成立、I-03 部分成立**。更正与补充：
+
+- **I-03 的「不限流」不成立**：登录锁定是好的（`(ip, username)` 5 次 / IP 30 次 / 300 s），
+  实测第 6 次即 429；原报告只有 3 次取样。但「401 vs 规范的 403」成立，且**被单元测试钉死**
+  （`auth/tests.rs:742` 断言 `kind=Unauthorized`），改的时候要同步改断言与注释。
+- **I-01 是双向错的**：除 leave 残留（投影多 71/49/14 条）外，join 也不写投影
+  （真实有、投影无 3 条，其中 1 条为本轮活体造出）；且 `kick`/`ban` 同样没有投影维护
+  （`moderation.rs` 只有两处 invite 写投影）。
+- **I-02 规模低估约 4 倍**：裸 `Json` 提取器实测 **254 处 / 82 文件**，`MatrixJson` 22 处。
+- **I-04 同源补一条**：`createRoom` 的未知字段也被静默接受（`Json<Value>` 既无类型校验也无未知字段拒绝）。
