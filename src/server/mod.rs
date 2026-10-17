@@ -657,6 +657,52 @@ impl SynapseServer {
             });
         }
 
+        // UG-11: upstream's `_user_parter_loop`. Deactivation enqueues an account
+        // in `user_pending_deactivations` and returns; this task drains the queue
+        // so a user in thousands of rooms cannot block the request. It runs in its
+        // own task (not with the maintenance batch above) because one huge account
+        // must not delay the retention/media/federation ticks.
+        if run_global_maintenance {
+            let deactivation_service = self.app_state.services.account.account_deactivation_service.clone();
+            let parting_notify = deactivation_service.pending_parting_notify();
+            let configured_bg_interval = self.app_state.services.core.config.server.background_tasks_interval;
+            let parting_tick_secs =
+                if configured_bg_interval > 0 { configured_bg_interval } else { BACKGROUND_TASK_INTERVAL_SECS };
+            let mut shutdown_rx_parting = shutdown_tx.subscribe();
+            tokio::spawn(async move {
+                // Restart recovery: upstream registers `_start_user_parting` with
+                // `call_when_running`, so an unfinished parting survives a restart.
+                if let Err(error) = deactivation_service.process_pending_parts().await {
+                    ::tracing::warn!("Pending account parting at startup failed; will retry: {}", error);
+                }
+
+                // The startup pass above already drained once; don't repeat it on
+                // the immediate first tick.
+                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(parting_tick_secs));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                interval.tick().await;
+
+                loop {
+                    tokio::select! {
+                        _ = interval.tick() => {
+                            if let Err(error) = deactivation_service.process_pending_parts().await {
+                                ::tracing::warn!("Pending account parting failed; will retry: {}", error);
+                            }
+                        }
+                        _ = parting_notify.notified() => {
+                            if let Err(error) = deactivation_service.process_pending_parts().await {
+                                ::tracing::warn!("Pending account parting (woken) failed; will retry: {}", error);
+                            }
+                        }
+                        _ = shutdown_rx_parting.recv() => {
+                            ::tracing::info!("Pending account parting task shutting down");
+                            break;
+                        }
+                    }
+                }
+            });
+        }
+
         if run_global_maintenance {
             let dehydrated_service = self.app_state.services.e2ee.dehydrated_device_service.clone();
             let dehydrated_cleanup_interval_secs =

@@ -153,6 +153,8 @@ pub mod token;
 pub mod trigram_ranking;
 /// The `user` module.
 pub mod user;
+/// The `user_deactivation` module.
+pub mod user_deactivation;
 /// The `user_store_fake` module.
 pub mod user_store_fake;
 /// The `worker` module.
