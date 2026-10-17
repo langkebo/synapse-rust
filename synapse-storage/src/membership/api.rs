@@ -64,6 +64,21 @@ pub trait MemberStoreApi: Send + Sync {
     /// See [`get_shared_room_users`].
     async fn get_shared_room_users(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error>;
 
+    /// Users the requester no longer shares a joined room with, where the split
+    /// happened after `since_ts`.
+    ///
+    /// Backs MSC4262 `LEFT_ROOM` (upstream #20203): clients must be told to drop
+    /// cached profile data once they no longer share a room with a user. Two
+    /// directions are covered: somebody else left (`leave`/`ban`) a room the
+    /// requester is still joined to, or the requester themself left a room.
+    ///
+    /// See [`RoomMemberStorage::get_users_no_longer_sharing_rooms_since`].
+    async fn get_users_no_longer_sharing_rooms_since(
+        &self,
+        user_id: &str,
+        since_ts: i64,
+    ) -> Result<Vec<String>, sqlx::Error>;
+
     /// See [`get_sync_rooms`].
     async fn get_sync_rooms(&self, user_id: &str, include_leave: bool) -> Result<Vec<UserRoomMembership>, sqlx::Error>;
 
@@ -270,6 +285,14 @@ impl MemberStoreApi for super::RoomMemberStorage {
 
     async fn get_shared_room_users(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
         self.get_shared_room_users(user_id).await
+    }
+
+    async fn get_users_no_longer_sharing_rooms_since(
+        &self,
+        user_id: &str,
+        since_ts: i64,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        self.get_users_no_longer_sharing_rooms_since(user_id, since_ts).await
     }
 
     async fn get_sync_rooms(&self, user_id: &str, include_leave: bool) -> Result<Vec<UserRoomMembership>, sqlx::Error> {

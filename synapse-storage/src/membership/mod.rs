@@ -358,6 +358,74 @@ impl RoomMemberStorage {
         .await
     }
 
+    /// See [`MemberStoreApi::get_users_no_longer_sharing_rooms_since`].
+    ///
+    /// MSC4262 `LEFT_ROOM` (upstream #20203). Two directions are covered:
+    ///
+    /// * **(A)** someone left/banned from a room the requester is still joined
+    ///   to (`membership <> 'join'` with `updated_ts > since_ts`);
+    /// * **(B)** the requester themself left a room — everyone who had already
+    ///   joined that room before the departure no longer shares a room with
+    ///   them.
+    ///
+    /// Users the requester still shares *any* joined room with are excluded.
+    /// `joined_ts IS NOT NULL` filters out invite-only memberships that never
+    /// became a joined room, so we never leak an ID that never shared a room.
+    ///
+    /// `updated_ts` is the change signal: `add_member`, `remove_member`,
+    /// `forget_member`, `force_leave_membership` and `ban_member` all write it.
+    pub async fn get_users_no_longer_sharing_rooms_since(
+        &self,
+        user_id: &str,
+        since_ts: i64,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        sqlx::query_scalar::<_, String>(
+            r"
+            WITH my_changes AS (
+                SELECT room_id, membership, COALESCE(updated_ts, 0) AS changed_ts
+                FROM room_memberships
+                WHERE user_id = $1 AND COALESCE(updated_ts, 0) > $2
+            ),
+            departed_rooms AS (
+                SELECT room_id, changed_ts FROM my_changes WHERE membership <> 'join'
+            ),
+            joined_rooms AS (
+                SELECT room_id
+                FROM room_memberships
+                WHERE user_id = $1 AND membership = 'join'
+            )
+            SELECT DISTINCT other.user_id
+            FROM room_memberships other
+            WHERE other.user_id <> $1
+              AND other.membership IN ('join', 'leave', 'ban')
+              AND other.joined_ts IS NOT NULL
+              AND (
+                  (
+                      other.room_id IN (SELECT room_id FROM joined_rooms)
+                      AND other.membership <> 'join'
+                      AND COALESCE(other.updated_ts, 0) > $2
+                  )
+                  OR EXISTS (
+                      SELECT 1 FROM departed_rooms d
+                      WHERE d.room_id = other.room_id
+                        AND other.joined_ts < d.changed_ts
+                  )
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM room_memberships mine
+                  JOIN room_memberships theirs ON mine.room_id = theirs.room_id
+                  WHERE mine.user_id = $1 AND mine.membership = 'join'
+                    AND theirs.user_id = other.user_id AND theirs.membership = 'join'
+              )
+            ",
+        )
+        .bind(user_id)
+        .bind(since_ts)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
     /// See [`remove_all_members`].
     pub async fn remove_all_members(&self, room_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query!(
@@ -373,18 +441,24 @@ impl RoomMemberStorage {
 
     /// See [`ban_member`].
     pub async fn ban_member(&self, room_id: &str, user_id: &str, banned_by: &str) -> Result<(), sqlx::Error> {
-        sqlx::query!(
+        // Runtime query (not `query!`): `updated_ts` is required so the MSC4262
+        // LEFT_ROOM window sees the ban, and adding a column to the cached
+        // macro would force a `.sqlx` regeneration.
+        let now = current_timestamp_millis();
+        sqlx::query(
             r"
-            INSERT INTO room_memberships (room_id, user_id, membership, banned_by)
-            VALUES ($1, $2, 'ban', $3)
+            INSERT INTO room_memberships (room_id, user_id, membership, banned_by, updated_ts)
+            VALUES ($1, $2, 'ban', $3, $4)
             ON CONFLICT (room_id, user_id) DO UPDATE SET
                 membership = 'ban',
-                banned_by = EXCLUDED.banned_by
+                banned_by = EXCLUDED.banned_by,
+                updated_ts = EXCLUDED.updated_ts
             ",
-            room_id,
-            user_id,
-            banned_by,
         )
+        .bind(room_id)
+        .bind(user_id)
+        .bind(banned_by)
+        .bind(now)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -1330,6 +1404,30 @@ mod db_tests {
         .expect("failed to create test user");
     }
 
+    /// Insert a membership row with explicit timestamps so LEFT_ROOM windows
+    /// can be exercised deterministically.
+    async fn insert_membership_row(
+        pool: &sqlx::PgPool,
+        room_id: &str,
+        user_id: &str,
+        membership: &str,
+        joined_ts: Option<i64>,
+        updated_ts: i64,
+    ) {
+        sqlx::query(
+            "INSERT INTO room_memberships (room_id, user_id, membership, joined_ts, updated_ts) \
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .bind(membership)
+        .bind(joined_ts)
+        .bind(updated_ts)
+        .execute(pool)
+        .await
+        .expect("failed to insert membership row");
+    }
+
     async fn cleanup_membership_data(pool: &sqlx::PgPool, suffix: &str) {
         let pattern = format!("%{suffix}%");
         sqlx::query("DELETE FROM room_memberships WHERE user_id LIKE $1").bind(&pattern).execute(pool).await.expect(
@@ -1847,6 +1945,94 @@ mod db_tests {
 
         let shared = storage.get_shared_room_users(&user_a).await.unwrap();
         assert!(shared.is_empty());
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    // ── 9b. get_users_no_longer_sharing_rooms_since (MSC4262 LEFT_ROOM) ──
+
+    #[tokio::test]
+    async fn test_left_room_reports_a_user_who_left_a_room_i_still_joined() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let me = format!("@mem_left_me_{suffix}:localhost");
+        let alice = format!("@mem_left_alice_{suffix}:localhost");
+        let bob = format!("@mem_left_bob_{suffix}:localhost");
+        let room_shared = format!("!room_left_shared_{suffix}:localhost");
+        let room_other = format!("!room_left_other_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_shared).await;
+        ensure_test_room(&pool, &room_other).await;
+        for user in [&me, &alice, &bob] {
+            ensure_test_user(&pool, user).await;
+        }
+
+        const JOINED: i64 = 1_000;
+        const SINCE: i64 = 1_500;
+        const LEFT: i64 = 2_000;
+
+        insert_membership_row(&pool, &room_shared, &me, "join", Some(JOINED), JOINED).await;
+        insert_membership_row(&pool, &room_shared, &alice, "join", Some(JOINED), JOINED).await;
+        insert_membership_row(&pool, &room_shared, &bob, "leave", Some(JOINED), LEFT).await;
+        insert_membership_row(&pool, &room_other, &me, "join", Some(JOINED), JOINED).await;
+        insert_membership_row(&pool, &room_other, &bob, "join", Some(JOINED), LEFT).await;
+
+        // bob still shares `room_other`, so nothing is reported yet.
+        let users = storage.get_users_no_longer_sharing_rooms_since(&me, SINCE).await.unwrap();
+        assert!(users.is_empty(), "still sharing a room must suppress LEFT_ROOM: {users:?}");
+
+        sqlx::query("DELETE FROM room_memberships WHERE room_id = $1 AND user_id = $2")
+            .bind(&room_other)
+            .bind(&bob)
+            .execute(pool.as_ref())
+            .await
+            .unwrap();
+
+        let users = storage.get_users_no_longer_sharing_rooms_since(&me, SINCE).await.unwrap();
+        assert_eq!(users, vec![bob]);
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_left_room_reports_room_mates_after_i_left() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let me = format!("@mem_dep_me_{suffix}:localhost");
+        let alice = format!("@mem_dep_alice_{suffix}:localhost");
+        let carol = format!("@mem_dep_carol_{suffix}:localhost");
+        let dave = format!("@mem_dep_dave_{suffix}:localhost");
+        let eve = format!("@mem_dep_eve_{suffix}:localhost");
+        let room_left = format!("!room_dep_left_{suffix}:localhost");
+        let room_other = format!("!room_dep_other_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_left).await;
+        ensure_test_room(&pool, &room_other).await;
+        for user in [&me, &alice, &carol, &dave, &eve] {
+            ensure_test_user(&pool, user).await;
+        }
+
+        const JOINED: i64 = 1_000;
+        const SINCE: i64 = 2_500;
+        const MY_LEAVE: i64 = 3_000;
+        const JOINED_LATER: i64 = 4_000;
+
+        insert_membership_row(&pool, &room_left, &me, "leave", Some(JOINED), MY_LEAVE).await;
+        insert_membership_row(&pool, &room_left, &alice, "join", Some(JOINED), JOINED).await;
+        insert_membership_row(&pool, &room_left, &carol, "join", Some(JOINED_LATER), JOINED_LATER).await;
+        insert_membership_row(&pool, &room_left, &dave, "join", Some(JOINED), JOINED).await;
+        // Invite-only membership never became a joined room, so it must not leak.
+        insert_membership_row(&pool, &room_left, &eve, "invite", None, JOINED).await;
+        insert_membership_row(&pool, &room_other, &me, "join", Some(JOINED), JOINED).await;
+        insert_membership_row(&pool, &room_other, &dave, "join", Some(JOINED), JOINED).await;
+
+        let mut users = storage.get_users_no_longer_sharing_rooms_since(&me, SINCE).await.unwrap();
+        users.sort();
+        assert_eq!(users, vec![alice], "only room mates present before my leave, minus still-shared users");
 
         cleanup_membership_data(&pool, &suffix).await;
     }

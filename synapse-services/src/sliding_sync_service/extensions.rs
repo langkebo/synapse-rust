@@ -315,7 +315,19 @@ impl SlidingSyncService {
         let local_profiles: std::collections::HashMap<String, synapse_storage::user::UserProfile> =
             updated_profiles.into_iter().filter(|(uid, _)| uid.starts_with('@') && uid != user_id).collect();
 
-        if local_profiles.is_empty() {
+        // MSC4262 LEFT_ROOM (upstream #20203): users the client no longer
+        // shares a joined room with. A `null` profile tells clients to drop
+        // their cached copy. This must be checked even when there are no
+        // profile updates — a departure can be the only signal in a sync.
+        let departed: Vec<String> = self
+            .member_storage
+            .get_users_no_longer_sharing_rooms_since(user_id, since_ts)
+            .await?
+            .into_iter()
+            .filter(|uid| uid.starts_with('@') && uid != user_id)
+            .collect();
+
+        if local_profiles.is_empty() && departed.is_empty() {
             return Ok(None);
         }
 
@@ -330,6 +342,11 @@ impl SlidingSyncService {
                     "updated_ts": profile.updated_ts,
                 }),
             );
+        }
+
+        // A fresher profile wins over LEFT_ROOM if both are present.
+        for uid in departed {
+            users_map.entry(uid).or_insert(serde_json::Value::Null);
         }
 
         let payload = serde_json::json!({ "users": users_map });

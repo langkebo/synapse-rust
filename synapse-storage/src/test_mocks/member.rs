@@ -201,6 +201,66 @@ impl crate::membership::api::MemberStoreApi for InMemoryMemberStore {
         Ok(shared)
     }
 
+    async fn get_users_no_longer_sharing_rooms_since(
+        &self,
+        user_id: &str,
+        since_ts: i64,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let members = self.members.read().await;
+        let mut result: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        // Rooms the requester is still joined to.
+        let joined_rooms: std::collections::HashSet<&str> = members
+            .values()
+            .filter(|m| m.user_id == user_id && m.membership == "join")
+            .map(|m| m.room_id.as_str())
+            .collect();
+
+        // (A) Somebody left/banned a room the requester is still in.
+        for other in members.values() {
+            if other.user_id != user_id
+                && other.membership != "join"
+                && other.membership != "invite"
+                && other.membership != "forget"
+                && other.joined_ts.is_some()
+                && joined_rooms.contains(other.room_id.as_str())
+                && other.updated_ts.unwrap_or(0) > since_ts
+            {
+                result.insert(other.user_id.clone());
+            }
+        }
+
+        // (B) The requester left a room: everyone already there stopped sharing.
+        for mine in members.values() {
+            if mine.user_id != user_id || mine.membership == "join" {
+                continue;
+            }
+            let left_ts = mine.updated_ts.unwrap_or(0);
+            if left_ts <= since_ts {
+                continue;
+            }
+            for other in members.values() {
+                if other.room_id == mine.room_id
+                    && other.user_id != user_id
+                    && matches!(other.membership.as_str(), "join" | "leave" | "ban")
+                    && other.joined_ts.is_some_and(|joined| joined < left_ts)
+                {
+                    result.insert(other.user_id.clone());
+                }
+            }
+        }
+
+        // Drop anyone the requester still shares a joined room with.
+        let shared: std::collections::HashSet<&str> = members
+            .values()
+            .filter(|m| m.user_id != user_id && m.membership == "join" && joined_rooms.contains(m.room_id.as_str()))
+            .map(|m| m.user_id.as_str())
+            .collect();
+        let mut result: Vec<String> = result.into_iter().filter(|uid| !shared.contains(uid.as_str())).collect();
+        result.sort();
+        Ok(result)
+    }
+
     async fn get_sync_rooms(
         &self,
         user_id: &str,
