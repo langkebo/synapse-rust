@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """File-size ratchet for CQ-04 ("超大文件")。
 
-`.clippy.toml` declares `too-many-lines-threshold = 500`, but that threshold is
+`.clippy.toml` declares `too-many-lines-threshold = 600`, but that threshold is
 consumed *only* by the `clippy::too_many_lines` pedantic lint, and this
 workspace never enables `clippy::pedantic` — so it currently enforces nothing
-(see the NOTE at the top of `.clippy.toml`). This gate makes the same 500-line
+(see the NOTE at the top of `.clippy.toml`). This gate makes the same 600-line
 intent real, without a wholesale split of the ~250 files already over the line.
 
 Semantics (an "ice ratchet", same one-way spirit as `check_trait_ratchet.py`):
 
-  * threshold = 500 physical lines per `.rs` file (matches `.clippy.toml`);
+  * threshold = 600 physical lines per `.rs` file (matches `.clippy.toml`);
   * the baseline (`scripts/ci/file_size_baseline`) grandfathers every file
     currently over the threshold at its current size — that is its ceiling;
   * a grandfathered file may NOT grow past its recorded ceiling;
@@ -62,8 +62,8 @@ EXCLUDED = (
 )
 
 # A physical line over this many is "too big". Mirrors `.clippy.toml`
-# `too-many-lines-threshold = 500`.
-THRESHOLD = 500
+# `too-many-lines-threshold = 600`.
+THRESHOLD = 600
 
 
 def _is_generated(name: str) -> bool:

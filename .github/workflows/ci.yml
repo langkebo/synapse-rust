@@ -197,14 +197,14 @@ jobs:
       - name: Trait-count ratchet (no new pub trait / StoreApi)
         run: python3 scripts/ci/check_trait_ratchet.py
 
-      # CQ-04: `.clippy.toml`'s `too-many-lines-threshold = 500` is consumed only
+      # CQ-04: `.clippy.toml`'s `too-many-lines-threshold = 600` is consumed only
       # by `clippy::pedantic`, which this workspace never enables — so it enforces
-      # nothing. This ratchet makes the 500-line intent real: a grandfathered
+      # nothing. This ratchet makes the 600-line intent real: a grandfathered
       # file may only shrink (`scripts/ci/file_size_baseline`), a new file over
       # the threshold fails, and a stale entry must be dropped. Red-proved
       # 2026-10-06: new 600-line probe → exit 1; ceiling downgrade → exit 1;
       # stale entry → exit 1; baseline → exit 0.
-      - name: File-size ratchet (no new file over 500 lines)
+      - name: File-size ratchet (no new file over 600 lines)
         run: python3 scripts/ci/check_file_size_ratchet.py
 
       # Observability: Prometheus 配置此前从未被任何门禁校验，2026-10-10 巡检

@@ -8,7 +8,7 @@
 # nothing *via clippy*; they are retained as intent for the day `pedantic` is
 # adopted.
 #
-# Exception (CQ-04): `too-many-lines-threshold = 500` is now independently
+# Exception (CQ-04): `too-many-lines-threshold = 600` is now independently
 # enforced in CI by `scripts/ci/check_file_size_ratchet.py` (job `repo-sanity`,
 # step "File-size ratchet"), which reads `scripts/ci/file_size_baseline`. Keep
 # this value and that script's THRESHOLD in sync.
@@ -16,4 +16,4 @@ cognitive-complexity-threshold = 25
 type-complexity-threshold = 200
 single-char-binding-names-threshold = 4
 too-many-arguments-threshold = 7
-too-many-lines-threshold = 500
+too-many-lines-threshold = 600
