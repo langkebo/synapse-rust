@@ -1,24 +1,21 @@
 //! Domain service for messaging operations — events, messages, receipts,
-//! read markers, burn-after-read, and federation broadcast.
+//! read markers, and federation broadcast.
 //!
 //! Extracted from RoomService as part of the domain split plan (Task 2).
 
 use crate::common::error::ApiResult;
-use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_cache::CacheManager;
-use synapse_common::task_queue::RedisTaskQueue;
 use synapse_storage::event::{EventReader, EventWriter, RoomEvent};
 use synapse_storage::membership::MemberStoreApi;
 use synapse_storage::relations::RelationsStoreApi;
 use synapse_storage::room::RoomStoreApi;
-use tokio::sync::RwLock;
 
 use crate::room::state_record::ResolutionCache;
 use crate::room::summary::RoomSummaryService;
 
 /// Domain service for messaging operations — events, messages, receipts,
-/// read markers, burn-after-read, and federation broadcast.
+/// read markers, and federation broadcast.
 #[derive(Clone)]
 pub struct MessagingService {
     pub(crate) event_reader: Arc<dyn EventReader>,
@@ -31,8 +28,6 @@ pub struct MessagingService {
     #[cfg(not(feature = "beacons"))]
     #[allow(dead_code)]
     pub(crate) beacon_service: Option<()>, // Feature-gated placeholder
-    pub(crate) task_queue: Option<Arc<RedisTaskQueue>>,
-    pub(crate) active_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
     pub(crate) event_broadcaster: Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>,
     pub(crate) relations_storage: Arc<dyn RelationsStoreApi>,
     /// Application service manager for dispatching events to bridges.
@@ -72,8 +67,6 @@ pub struct MessagingServiceConfig {
     #[cfg(not(feature = "beacons"))]
     /// The `beacon_service` field.
     pub beacon_service: Option<()>,
-    /// The `task_queue` field.
-    pub task_queue: Option<Arc<RedisTaskQueue>>,
     /// The `relations_storage` field.
     pub relations_storage: Arc<dyn RelationsStoreApi>,
     /// The `event_broadcaster` field.
@@ -105,8 +98,6 @@ impl MessagingService {
             beacon_service: config.beacon_service,
             #[cfg(not(feature = "beacons"))]
             beacon_service: None,
-            task_queue: config.task_queue,
-            active_tasks: Arc::new(RwLock::new(HashMap::new())),
             event_broadcaster: config.event_broadcaster,
             relations_storage: config.relations_storage.clone(),
             app_service_manager: config.app_service_manager,

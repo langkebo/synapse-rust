@@ -111,7 +111,6 @@ mod tests {
             member_storage: Arc::new(InMemoryMemberStore::new()),
             server_name: "test.example.com".to_string(),
             beacon_service: None,
-            task_queue: None,
             relations_storage: Arc::new(InMemoryRelationsStore::new()),
             event_broadcaster: None,
             app_service_manager: None,

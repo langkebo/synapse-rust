@@ -61,12 +61,15 @@ pub async fn enable_burn(
 
     let enabled = body.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
 
-    let burn_after_ms = body.get("burn_after_ms").and_then(|v| v.as_i64()).unwrap_or(60_000); // Default 1 minute
+    // Explicit `burn_after_ms` wins; otherwise use the reader's stored default
+    // (`PUT /user/burn/config`); otherwise one minute.
+    let explicit_burn_after_ms = body.get("burn_after_ms").and_then(|v| v.as_i64());
+    // Propagate `ApiError` as-is: the service already maps storage failures to
+    // 500 and returns 400 for an out-of-range delay. Wrapping it here would
+    // turn that validation error into an opaque 500.
+    let burn_after_ms = ctx.burn_after_read.resolve_burn_after_ms(&auth_user.user_id, explicit_burn_after_ms).await?;
 
-    ctx.burn_after_read
-        .set_burn_enabled(&auth_user.user_id, &room_id, enabled, burn_after_ms)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to enable burn", e))?;
+    ctx.burn_after_read.set_burn_enabled(&auth_user.user_id, &room_id, enabled, burn_after_ms).await?;
 
     Ok(Json(json!({
         "enabled": enabled,
@@ -109,7 +112,7 @@ pub async fn get_burn_settings(
         }))),
         None => Ok(Json(json!({
             "enabled": false,
-            "burn_after_ms": 60_000,
+            "burn_after_ms": synapse_services::burn_after_read_service::DEFAULT_BURN_AFTER_MS,
         }))),
     }
 }
@@ -216,6 +219,10 @@ pub async fn get_pending_burns(
                 "event_id": p.event_id,
                 "created_at": p.created_ts,
                 "delete_ts": p.delete_ts,
+                // Processed rows stay listed for a retention window so an
+                // offline client can still learn that the message burned.
+                "is_processed": p.is_processed,
+                "is_dead_letter": p.is_dead_letter,
             })
         })
         .collect();
@@ -264,12 +271,13 @@ pub async fn set_global_burn_config(
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let default_burn_ms: i64 = body.get("default_burn_ms").and_then(|v| v.as_i64()).unwrap_or(60_000);
+    let default_burn_ms = body
+        .get("default_burn_ms")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(synapse_services::burn_after_read_service::DEFAULT_BURN_AFTER_MS);
 
-    ctx.burn_after_read
-        .set_user_default(&auth_user.user_id, default_burn_ms)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to set config", e))?;
+    // Keep the service's 400 for an out-of-range value instead of wrapping it.
+    ctx.burn_after_read.set_user_default(&auth_user.user_id, default_burn_ms).await?;
 
     Ok(Json(json!({
         "default_burn_ms": default_burn_ms,

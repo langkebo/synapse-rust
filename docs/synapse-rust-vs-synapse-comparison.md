@@ -648,7 +648,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | 功能 | Synapse (Python) | synapse-rust | 对齐状态 |
 |------|-------------------|--------------|----------|
 | **好友系统** | 无（标准 Matrix 无此功能） | ✅ 独有扩展（`friend_room_service/` 含 groups/models/sharding，完整实现 + 联邦好友同步 `synapse-federation/src/friend/`） | ✅ 完整实现 |
-| **阅后即焚** | 无 | ✅ 独有扩展（`burn_after_read_service.rs` 完整实现，含 BURN_MAX_RETRY=5 死信处理 + 定时扫描器） | ✅ 完整实现 |
+| **阅后即焚** | 无 | ✅ 独有扩展（`burn_after_read_service.rs`）：**用户级时间注册表**而非服务端 redact（房间事件只有一份共享副本，redact 会导致「一人读即全员删」）；`schedule_burn` 重复调用取 `LEAST` 保证不顺延；`burn_after_ms` 边界校验 **1s–7d**（越界返回 400，历史遗留越界存储值读时回退 60s 默认）；`BURN_MAX_RETRY=5` 死信处理 + 5s 定时扫描器；pending 保留 7 天 / burn log 保留 30 天，由小时级 `purge_history` 清理；`/burn/pending` 在保留窗口内同时返回已处理行并暴露 `is_processed` / `is_dead_letter`，离线客户端仍可获知消息已焚 | ✅ 完整实现 |
 | **信标/位置** | 无标准实现 | ✅ 独有扩展（`beacon_service.rs` 完整实现，含配额限制、背压控制、缓存） | ✅ 完整实现 |
 | **内容扫描** | 模块化扩展 | ~~🔴 **已装配但无消费者（2026-09-25 复核，"从未被构造/未接入 config"作废）**：`synapse-services/src/wiring/core.rs:66,179` 已构造 `ContentScanner` 并注入 `CoreServices`，配置项已接入（`synapse-common/src/config/mod.rs:242`，类型在 `synapse-common/src/content_scanner/mod.rs`）；**但** `scan`/`scan_text`/`scan_media` 在生产路径 **0 调用点**，且 `synapse-storage/` **无**存储模块、`migrations/` **无**相关表 ⇒ 配置打开也不产生任何扫描行为~~ → **订正（2026-10-06，DOC-04）**：✅ **已装配且已接入生产路径** —— 装配 `synapse-services/src/wiring/core.rs:66,180`，消费 `synapse-web/src/routes/media/upload.rs:89,137`（`scan_when_enabled`）与 `synapse-web/src/routes/handlers/room/events.rs:327`（`scan_text_when_enabled`），是否实际扫描由 `content_scanner` 配置开关决定 | ✅ 已接线（开关决定是否扫描） |
 | **短信推送** | 有（通过 Push Gateway） | ✅ `SmsProvider` trait（`sms_provider/mod.rs:16`）+ 三种实现：`NoopSmsProvider`（默认桩）、**通用 `HttpSmsProvider`（`:48`）**、`AliyunSmsProvider`（`aliyun.rs:43`）；工厂支持 `"aliyun"/"http"/"generic_http"` → 缺 Twilio 等厂商专用实现，但可用通用 HTTP 接入 | ✅ 已实现（厂商专用实现缺） |
@@ -1464,7 +1464,7 @@ TEST_DATABASE_URL=... cargo nextest run --features performance-tests,test-utils 
 
 | 项 | 状态 |
 |---|---|
-| AS 错误码 `M_APPSERVICE_LOGIN_UNSUPPORTED` | **2026-10-17 复核：不是「只欠一个错误码」** —— `POST /register`（`synapse-web/src/routes/auth_compat.rs:16`）**完全不认 AS token**（`extract_as_token` 只出现在 `/login` 的 `m.login.application_service` 分支，`:522`），`inhibit_login` 全仓 **0 命中**。即 MSC4190 的**注册面整体缺失**（AS 以 as_token 调 `/register` 建虚拟用户 + 强制 `inhibit_login=true`），该错误码只是这条路径上的一个返回值。⇒ 决策要按「是否实现 AS 注册面」来定，不是「补一个字符串」 |
+| ~~AS 错误码 `M_APPSERVICE_LOGIN_UNSUPPORTED`~~ → **已实现（2026-10-17）** | 复核发现缺的不是一个字符串：`POST /register` 原先**完全不认 AS token**（`extract_as_token` 只在 `/login` 用），`inhibit_login` 全仓 0 命中 ⇒ **MSC4190 的注册面整体缺失**。本轮按「实现」落地：`/register` 认 as_token → 要求 `inhibit_login: true`（否则 400 `M_APPSERVICE_LOGIN_UNSUPPORTED`）→ 校验 `users` 命名空间（任一条目，不要求 exclusive）→ 只建用户、**不签发 token/设备**。详见 §19.11 |
 
 ---
 
@@ -2161,3 +2161,60 @@ cargo nextest run --test integration \
   - 换成 `DefaultBodyLimit::disable()` ⇒ 正向用例**通过**：证明请求体本身没有问题，
     缺陷纯粹是"上限被 2 MiB 默认值遮蔽"，不是解析/存储能力不足。
   - 从备份还原 ⇒ `1 passed`（未用 `git checkout`，避免连带回滚同文件里的未提交改动）。
+
+---
+
+### 19.11 MSC4190 注册面 + Room v12 A4 首写播种（2026-10-17）
+
+两件都是上一轮"遗留项复核"（§18.8.1 / `ROOM_V12_UPSTREAM_ALIGNMENT_OPTIMIZATION_2026-09-28.md` §11）
+给出的建议，本轮按建议实施。
+
+#### 19.11.1 MSC4190：应用服务注册虚拟用户
+
+**此前状态**：`POST /register` 不认 as_token，`inhibit_login` 全仓 0 命中 ⇒ 该错误码没有存在的地方，
+AS 只能靠 `/login` + `m.login.application_service` 为**已存在**的用户换 token，无法创建虚拟用户。
+
+**实现**（四处）：
+
+| 面 | 改动 |
+| --- | --- |
+| 错误码 | `MatrixErrorCode::AppserviceLoginUnsupported` → `M_APPSERVICE_LOGIN_UNSUPPORTED`（400），含 `as_str` / `http_status` / `from_str` 三处映射 + `ApiError::appservice_login_unsupported(...)` |
+| 命名空间门 | `ApplicationServiceManager::is_interested_in_user` —— 与 `can_login_as` 的区别是**不要求 `exclusive`**（上游 `is_interested_in_user` 口径：注册只要落在服务的任一 `users` 命名空间；`exclusive` 只在登录/冒充时要求） |
+| 服务层 | `CredentialAuth` trait 新增 `register_without_login`（默认实现返回 `M_UNRECOGNIZED`，供测试替身继承），`AuthService` 覆盖为"`create_user` + displayname，**不建设备、不签 token**" |
+| 路由 | `register` 增加 `HeaderMap`：token 属于某 AS ⇒ 走 AS 分支（`inhibit_login` 必须为 true；`username` 必填；命名空间校验；响应只有 `user_id` + `well_known`） |
+
+**判据**（`tests/integration/api_appservice_p1_tests.rs`，3 条）：
+
+- `test_appservice_register_user_without_login` —— 200、`user_id` 正确、**响应里没有 `access_token`/`device_id`**，
+  且新用户可由 `GET /profile/{user_id}` 查到、`displayname` 已落库；
+- `test_appservice_register_requires_inhibit_login` —— 缺字段与显式 `false` 两态都必须是
+  **400 `M_APPSERVICE_LOGIN_UNSUPPORTED`**（不是泛化的 `M_BAD_JSON`）；
+- `test_appservice_register_rejects_user_outside_namespace` —— 命名空间外 403。
+
+**已知取舍**：token 存在但**不是** AS token 时按普通注册继续（避免把带用户 token 的客户端误判成 AS）；
+代价是"AS 用了错误的 as_token"会得到 `Password required` 而不是 401。此口径写在函数注释里。
+
+#### 19.11.2 Room v12 A4：首写时播种
+
+**缺陷**：`copy_forward` 在"无记录"分支直接 `Ok(())` ⇒ **从未分叉的房间永远没有 state group**，
+读路径永远走 `DISTINCT ON … origin_server_ts DESC`。而 `origin_server_ts` 是发送方时钟，
+联邦事件可带着偏旧时间戳后到 ⇒ 该推导会给出**与 DAG 顺序相反**的当前状态。
+
+**改法**：该分支改为 `seed_from_current_state` —— 用 `EventReader::get_state_events` 取一次当前状态
+（单查询、与房间历史长度无关；不用 `StateWalker::state_at`，那要沿 `prev_events` 递归整条历史）
+落成 group 0，之后一律 copy-forward。
+
+**判据**（`state_record::db_tests::first_state_write_seeds_a_record_for_an_unforked_room`）：
+线性 DAG 上让**第二条** topic 的 `origin_server_ts` **更旧**（DAG 上是后继），断言读路径返回第二条 ——
+时间戳推导会选第一条，只有"记录接管"才能拿到第二条；同时断言首个状态写恰好播 1 条记录、
+事件已绑定、记录含 create/member/topic。
+
+**残余**：并发的首个状态写会各播一份（`state_hash` upsert + 取 `id` 最大者胜出），
+与既有 copy-forward 同类竞态；彻底消除需按房间串行化状态写。
+
+#### 19.11.3 MSC4242 存储面的孤儿查询已删
+
+`find_events_referencing_missing_state`（`synapse-storage/src/event/dag.rs`）**无生产调用者**，
+且 MSC4242 至今无房间版本指派（上游联邦 PR 已关闭未合并）。按"不留半个功能"的处置**删除**
+（连同 `event/db_tests.rs` 里唯一的用例），git 历史保留实现。剩余 MSC4242 面：schema 的
+`events.prev_state_events` 列 + 一个只读 `get_prev_state_events`（**无写入者**）。

@@ -219,7 +219,6 @@ impl RoomService {
             beacon_service: config.beacon_service.clone(),
             #[cfg(not(feature = "beacons"))]
             beacon_service: None,
-            task_queue: config.task_queue.clone(),
             relations_storage: config.relations_storage.clone(),
             event_broadcaster: infra.event_broadcaster.clone(),
             app_service_manager: infra.app_service_manager.clone(),

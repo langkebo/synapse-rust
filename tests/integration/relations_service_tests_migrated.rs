@@ -48,7 +48,6 @@ fn create_service(pool: &Arc<sqlx::PgPool>) -> RelationsService {
         member_storage,
         server_name: "localhost".to_string(),
         beacon_service: None,
-        task_queue: None,
         relations_storage: storage.clone(),
         event_broadcaster: None,
         app_service_manager: None,

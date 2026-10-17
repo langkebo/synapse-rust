@@ -725,6 +725,41 @@ impl crate::burn_after_read::BurnAfterReadStoreApi for InMemoryBurnAfterReadStor
             .collect())
     }
 
+    async fn get_processed_burns(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        min_delete_ts: i64,
+    ) -> Result<Vec<crate::burn_after_read::BurnPendingRow>, sqlx::Error> {
+        let pending = self.pending.read().await;
+        let logs = self.logs.read().await;
+        Ok(pending
+            .iter()
+            .filter(|p| {
+                p.user_id == user_id
+                    && p.room_id == room_id
+                    && p.is_processed
+                    && p.delete_ts >= min_delete_ts
+                    && logs.iter().any(|l| l.user_id == p.user_id && l.event_id == p.event_id)
+            })
+            .cloned()
+            .collect())
+    }
+
+    async fn purge_processed_burns(&self, cutoff_ts: i64) -> Result<u64, sqlx::Error> {
+        let mut pending = self.pending.write().await;
+        let before = pending.len();
+        pending.retain(|p| !((p.is_processed || p.is_dead_letter) && p.delete_ts < cutoff_ts));
+        Ok((before - pending.len()) as u64)
+    }
+
+    async fn purge_burn_log(&self, cutoff_ts: i64) -> Result<u64, sqlx::Error> {
+        let mut logs = self.logs.write().await;
+        let before = logs.len();
+        logs.retain(|l| l.burned_ts >= cutoff_ts);
+        Ok((before - logs.len()) as u64)
+    }
+
     async fn get_expired_burns(&self, now_ms: i64) -> Result<Vec<crate::burn_after_read::BurnPendingRow>, sqlx::Error> {
         Ok(self
             .pending

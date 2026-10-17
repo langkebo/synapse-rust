@@ -51,9 +51,6 @@ pub const SESSION_MAX_LIFETIME_SECS: u64 = 1800;
 /// Session idle timeout (10 minutes)
 pub const SESSION_IDLE_TIMEOUT_SECS: u64 = 600;
 
-/// Burn-after-read delay before event redaction (30 seconds)
-pub const BURN_AFTER_READ_DELAY_SECS: u64 = 30;
-
 // ============================================================================
 // Validation Constants
 // ============================================================================

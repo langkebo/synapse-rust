@@ -222,11 +222,22 @@ if (privacyEvent && privacyEvent.getContent().action === "block_screenshot") {
 
 ### 3. 阅后即焚 (Burn After Reading)
 
-支持对单条消息启用阅后即焚。无需专用 API，通过消息元数据（Metadata）驱动。
+阅后即焚是**每个读者各自的时间注册表**，不是服务端删除器。房间事件只有一份、由全体成员共享，
+因此服务端**永远不会**因为某个读者读到消息就 redact 该事件（那会一次性删掉所有人的消息）。
 
 **前端实现：**
 
-1.  **发送消息**：在 `content` 中添加 `burn_after_read: true`。
+1.  **开启房间级配置**（每个用户各自设置）：
+
+```javascript
+await fetch(`/_matrix/vendor/v1/rooms/${roomId}/burn`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ enabled: true, burn_after_ms: 60_000 }),
+});
+```
+
+2.  **发送消息**：在 `content` 中添加 `burn_after_read: true`。
 
 ```javascript
 client.sendMessage(roomId, {
@@ -236,17 +247,27 @@ client.sendMessage(roomId, {
 });
 ```
 
-2.  **触发销毁**：当用户阅读消息后，发送标准的已读回执 (`m.read`)。
+3.  **登记阅读**：消息出现在视口中时，调用专用端点（**不是** `m.read`，`m.read` 不参与该流程）：
 
 ```javascript
-// 当消息出现在视口中时
-client.sendReadReceipt(event);
+// POST /_matrix/vendor/v1/rooms/{room_id}/burn/{event_id}
+// → { "success": true, "will_delete_at": <毫秒时间戳> }
 ```
 
-**后端自动行为：**
-- 后端收到 `m.read` 回执后，检测到目标消息带有 `burn_after_read` 标记。
-- 启动 **30秒** 倒计时。
-- 倒计时结束后，自动执行 `Redaction`（物理删除）操作，消息内容将被永久清除。
+服务端在 `burn_after_read_pending` 中为「当前用户 + 该事件」登记一个截止时间。
+重复登记不会顺延：存储层取两者中更早的 `delete_ts`。
+发送者不能标记自己的消息，否则返回 `M_FORBIDDEN`。
+
+**后端行为：**
+
+- 后台扫描器每 5 秒取一次 `delete_ts <= now` 的待处理行，写入幂等审计日志（`burn_after_read_log`）后标记为已处理；
+  写入失败会累加 `retry_count`，连续 5 次失败后置为死信（`is_dead_letter`），不再重试。
+- 客户端通过 `GET /_matrix/vendor/v1/rooms/{room_id}/burn/pending` 取回待销毁清单，并在本地删除。
+- 服务端**不执行 redaction**。事件数据的物理删除由 retention（`m.room.retention`）按房间级策略负责，
+  这是房间范围策略，不构成越权。
+
+其余扩展端点：`DELETE /rooms/{room_id}/burn/{event_id}`（取消）、`PUT /user/burn/config`（用户默认值）、
+`GET /user/burn/stats`（统计）。完整清单见 `docs/sdk/extensions.md`。
 
 ## 最近修复
 

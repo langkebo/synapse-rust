@@ -120,6 +120,21 @@ pub trait BurnAfterReadStoreApi: Send + Sync {
     async fn cancel_burn(&self, user_id: &str, room_id: &str, event_id: &str) -> Result<(), sqlx::Error>;
     /// See [`get_pending_burns`].
     async fn get_pending_burns(&self, user_id: &str, room_id: &str) -> Result<Vec<BurnPendingRow>, sqlx::Error>;
+    /// Rows already processed by the sweep whose `delete_ts` is at or after
+    /// `min_delete_ts`. Joined against the burn log so that rows cancelled via
+    /// `cancel_burn` (also `is_processed = TRUE`) are *not* reported as burned.
+    async fn get_processed_burns(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        min_delete_ts: i64,
+    ) -> Result<Vec<BurnPendingRow>, sqlx::Error>;
+    /// Delete processed/dead-letter rows whose `delete_ts` is before
+    /// `cutoff_ts`. Returns the number of deleted rows.
+    async fn purge_processed_burns(&self, cutoff_ts: i64) -> Result<u64, sqlx::Error>;
+    /// Delete burn log entries older than `cutoff_ts`. Returns the number of
+    /// deleted rows.
+    async fn purge_burn_log(&self, cutoff_ts: i64) -> Result<u64, sqlx::Error>;
     /// See [`get_expired_burns`].
     /// Excludes dead-letter rows (`is_dead_letter = TRUE`).
     async fn get_expired_burns(&self, now_ms: i64) -> Result<Vec<BurnPendingRow>, sqlx::Error>;
@@ -276,6 +291,63 @@ impl BurnAfterReadStorage {
         .await?;
 
         Ok(rows)
+    }
+
+    /// See [`get_processed_burns`].
+    ///
+    /// Uses runtime-bound SQL rather than the `query_as!` macro so no `.sqlx`
+    /// cache regeneration is required for this query.
+    pub async fn get_processed_burns(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        min_delete_ts: i64,
+    ) -> Result<Vec<BurnPendingRow>, sqlx::Error> {
+        sqlx::query_as::<_, BurnPendingRow>(
+            r"
+            SELECT p.id, p.user_id, p.room_id, p.event_id, p.created_ts, p.delete_ts,
+                   p.is_processed, p.retry_count, p.last_error, p.is_dead_letter
+            FROM burn_after_read_pending p
+            INNER JOIN burn_after_read_log l
+                ON l.user_id = p.user_id AND l.event_id = p.event_id
+            WHERE p.user_id = $1
+              AND p.room_id = $2
+              AND p.is_processed = TRUE
+              AND p.delete_ts >= $3
+            ORDER BY p.delete_ts ASC
+            ",
+        )
+        .bind(user_id)
+        .bind(room_id)
+        .bind(min_delete_ts)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
+    /// See [`purge_processed_burns`].
+    pub async fn purge_processed_burns(&self, cutoff_ts: i64) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query(
+            r"
+            DELETE FROM burn_after_read_pending
+            WHERE (is_processed = TRUE OR is_dead_letter = TRUE)
+              AND delete_ts < $1
+            ",
+        )
+        .bind(cutoff_ts)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
+    /// See [`purge_burn_log`].
+    pub async fn purge_burn_log(&self, cutoff_ts: i64) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query("DELETE FROM burn_after_read_log WHERE burned_ts < $1")
+            .bind(cutoff_ts)
+            .execute(&*self.pool)
+            .await?;
+
+        Ok(result.rows_affected())
     }
 
     /// See [`get_expired_burns`].
@@ -516,6 +588,23 @@ impl BurnAfterReadStoreApi for BurnAfterReadStorage {
 
     async fn get_pending_burns(&self, user_id: &str, room_id: &str) -> Result<Vec<BurnPendingRow>, sqlx::Error> {
         self.get_pending_burns(user_id, room_id).await
+    }
+
+    async fn get_processed_burns(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        min_delete_ts: i64,
+    ) -> Result<Vec<BurnPendingRow>, sqlx::Error> {
+        self.get_processed_burns(user_id, room_id, min_delete_ts).await
+    }
+
+    async fn purge_processed_burns(&self, cutoff_ts: i64) -> Result<u64, sqlx::Error> {
+        self.purge_processed_burns(cutoff_ts).await
+    }
+
+    async fn purge_burn_log(&self, cutoff_ts: i64) -> Result<u64, sqlx::Error> {
+        self.purge_burn_log(cutoff_ts).await
     }
 
     async fn get_expired_burns(&self, now_ms: i64) -> Result<Vec<BurnPendingRow>, sqlx::Error> {
@@ -1159,5 +1248,142 @@ mod db_tests {
         assert!(has_future || remaining.len() == 1, "only the future burn should remain in pending");
 
         cleanup_burn_pending(&pool, &user_id, &room_id).await;
+    }
+
+    // 12. get_processed_burns only reports rows that were actually burned.
+    #[tokio::test]
+    async fn test_get_processed_burns_requires_a_burn_log_entry() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = BurnAfterReadStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let user_id = format!("@procvis_{suffix}:test.com");
+        let room_id = format!("!procvis_{suffix}:test.com");
+
+        cleanup_burn_pending(&pool, &user_id, &room_id).await;
+        cleanup_burn_log(&pool, &user_id).await;
+
+        let now = current_timestamp_millis();
+
+        // Burned: logged and marked processed → must be reported.
+        let burned_event = format!("$burned_{suffix}");
+        let burned = storage
+            .schedule_burn(&user_id, &room_id, &burned_event, now - 1_000)
+            .await
+            .expect("schedule_burn should succeed");
+        storage
+            .log_burned_event(&user_id, &room_id, &burned_event, now)
+            .await
+            .expect("log_burned_event should succeed");
+        storage.mark_burn_processed(burned.id).await.expect("mark_burn_processed should succeed");
+
+        // Cancelled: `cancel_burn` also sets is_processed, but with no log entry.
+        let cancelled_event = format!("$cancelled_{suffix}");
+        storage
+            .schedule_burn(&user_id, &room_id, &cancelled_event, now - 1_000)
+            .await
+            .expect("schedule_burn should succeed");
+        storage.cancel_burn(&user_id, &room_id, &cancelled_event).await.expect("cancel_burn should succeed");
+
+        // Fallen out of the retention window → filtered by min_delete_ts.
+        let old_event = format!("$old_{suffix}");
+        let old = storage
+            .schedule_burn(&user_id, &room_id, &old_event, now - 60_000)
+            .await
+            .expect("schedule_burn should succeed");
+        storage.log_burned_event(&user_id, &room_id, &old_event, now).await.expect("log_burned_event should succeed");
+        storage.mark_burn_processed(old.id).await.expect("mark_burn_processed should succeed");
+
+        let rows = storage
+            .get_processed_burns(&user_id, &room_id, now - 5_000)
+            .await
+            .expect("get_processed_burns should succeed");
+
+        let events: Vec<&str> = rows.iter().map(|r| r.event_id.as_str()).collect();
+        assert_eq!(events, vec![burned_event.as_str()], "only the logged, non-cancelled, in-window row is reported");
+
+        cleanup_burn_pending(&pool, &user_id, &room_id).await;
+        cleanup_burn_log(&pool, &user_id).await;
+    }
+
+    // 13. purge_processed_burns deletes only processed/dead-letter rows past the cutoff.
+    #[tokio::test]
+    async fn test_purge_processed_burns_respects_cutoff_and_state() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = BurnAfterReadStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let user_id = format!("@purgeproc_{suffix}:test.com");
+        let room_id = format!("!purgeproc_{suffix}:test.com");
+
+        cleanup_burn_pending(&pool, &user_id, &room_id).await;
+
+        let now = current_timestamp_millis();
+        let cutoff = now - 30_000;
+
+        let expired_processed = storage
+            .schedule_burn(&user_id, &room_id, &format!("$ep_{suffix}"), now - 60_000)
+            .await
+            .expect("schedule_burn should succeed");
+        let fresh_processed = storage
+            .schedule_burn(&user_id, &room_id, &format!("$fp_{suffix}"), now - 1_000)
+            .await
+            .expect("schedule_burn should succeed");
+        let expired_unprocessed = storage
+            .schedule_burn(&user_id, &room_id, &format!("$eu_{suffix}"), now - 60_000)
+            .await
+            .expect("schedule_burn should succeed");
+
+        storage.mark_burn_processed(expired_processed.id).await.expect("mark should succeed");
+        storage.mark_burn_processed(fresh_processed.id).await.expect("mark should succeed");
+
+        let purged = storage.purge_processed_burns(cutoff).await.expect("purge_processed_burns should succeed");
+        assert_eq!(purged, 1, "only the processed row older than the cutoff is purged");
+
+        let remaining: Vec<i64> =
+            sqlx::query_scalar("SELECT id FROM burn_after_read_pending WHERE user_id = $1 ORDER BY id")
+                .bind(&user_id)
+                .fetch_all(&*pool)
+                .await
+                .expect("select remaining rows");
+        assert_eq!(
+            remaining,
+            vec![fresh_processed.id, expired_unprocessed.id],
+            "fresh processed and unprocessed rows must survive"
+        );
+
+        cleanup_burn_pending(&pool, &user_id, &room_id).await;
+    }
+
+    // 14. purge_burn_log deletes only log rows older than the cutoff.
+    #[tokio::test]
+    async fn test_purge_burn_log_respects_cutoff() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = BurnAfterReadStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let user_id = format!("@purgelog_{suffix}:test.com");
+        let room_id = format!("!purgelog_{suffix}:test.com");
+
+        cleanup_burn_log(&pool, &user_id).await;
+
+        let now = current_timestamp_millis();
+        storage
+            .log_burned_event(&user_id, &room_id, &format!("$old_{suffix}"), now - 90_000)
+            .await
+            .expect("log old event should succeed");
+        storage
+            .log_burned_event(&user_id, &room_id, &format!("$new_{suffix}"), now)
+            .await
+            .expect("log new event should succeed");
+
+        let purged = storage.purge_burn_log(now - 60_000).await.expect("purge_burn_log should succeed");
+        assert_eq!(purged, 1, "only the log row older than the cutoff is purged");
+
+        let remaining: Vec<String> = sqlx::query_scalar("SELECT event_id FROM burn_after_read_log WHERE user_id = $1")
+            .bind(&user_id)
+            .fetch_all(&*pool)
+            .await
+            .expect("select remaining log rows");
+        assert_eq!(remaining, vec![format!("$new_{suffix}")]);
+
+        cleanup_burn_log(&pool, &user_id).await;
     }
 }

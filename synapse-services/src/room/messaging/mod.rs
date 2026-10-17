@@ -1,5 +1,3 @@
-/// The `burn_after_read` module.
-pub mod burn_after_read;
 /// Domain error types for room messaging.
 pub mod error;
 /// The `events` module.
