@@ -1507,8 +1507,12 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 > 本附录为人工维护，基于 **SDK Manager 源码 + 后端 handler 源码双侧实读**，逐条核对「已封装后端功能」的完整性；重新生成脚本不覆盖本段。
 > **审计对象**：`@langkebo/matrix-js-sdk@40.2.0-langkebo.5`（`/Users/ljf/Desktop/hu_ts/matrix-js-sdk`）。
-> **后端事实源**：本文件路由面（1030 条路由 / 65 模块）+ `synapse-web/src/routes/**` handler 源码。
-> **证据产物**：`artifacts/sdk-contract-gap-report.md`（1195 行）、`artifacts/sdk-contract-gap.json`、`scripts/quality/path-contract-coverage.json`；镜像 commit `09074226`。
+> **后端事实源**：本文件路由面（**1038** 条路由 / **50** 个模块）+ `synapse-web/src/routes/**` handler 源码。
+> 　· 计数口径（2026-10-17 复核）：**1038** = `all` profile 去重后的 `method + path` 条目数（`tests/unit/fixtures/ledger_export_sdk/all.json` 的 `entry_count`，与 `derived_route_table_*.inc.rs` 生成表逐条一致）；
+> 　· **50** = 按 `registered_by` 首段归并的模块数（细粒度 `registered_by` 共 **73** 个；旧文本写的「65 模块」是更早的目录分桶口径，已废弃）。
+> **证据产物**：`artifacts/sdk-contract-gap-report.md`、`artifacts/sdk-contract-gap.json`、`scripts/quality/path-contract-coverage.json`；镜像 commit **`2946e19eb`**（2026-10-17）。
+> ⚠️ **时点提示**：本节 B.1–B.7 的**所有数字**（覆盖率、分桶、缺口条数）都是 **2026-10-09 审计时点**的口径，此后后端与 SDK 均有前进；
+> 　　需要当前值请以 `compare-routes.mjs` 的当次输出为准。**结论层面的复核见 B.8（2026-10-17）**。
 
 ### B.0 审计方法与口径
 
@@ -1516,9 +1520,10 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
   - **L1 声明面**：SDK `src/**/__generated__/route-table.ts` 生成的路由声明（弱，仅代表「约定」）。
   - **L2 调用面**：Manager 中 `(prefix, path)` 的**真实调用点**（最强证据，构成主指标）。
   - **L3 构造面**：路径字符串构造器字面量（弱，30 候选前缀命中，不校验 method）。
-- **双口径覆盖率**：声明面覆盖率 = 732/1025 = **71.4%**；实现面覆盖率 = 579/644 = **89.9%**（**主指标**）。
-- **分桶**：T1_CALLSITE 331 / T2_CONSTRUCTOR 563 / T3_DECLARED_ONLY 70 / DRIFT 0 / CONDITIONAL 1 / GAP 65。
-- **scope 分类**：CLIENT_FACING 644 / SERVER_ONLY 383 / ROOT_OR_SSO 2 / NON_NAMESPACED 1。
+- **双口径覆盖率**（2026-10-09 时点）：声明面覆盖率 = 732/1025 = **71.4%**；实现面覆盖率 = 579/644 = **89.9%**（**主指标**）。
+  - 2026-10-17 复核值：声明面 983/1033 ≈ **95.2%**、实现面 589/641 ≈ **91.9%**（口径与分桶见 B.8）。
+- **分桶**（2026-10-09 时点）：T1_CALLSITE 331 / T2_CONSTRUCTOR 563 / T3_DECLARED_ONLY 70 / DRIFT 0 / CONDITIONAL 1 / GAP 65。
+- **scope 分类**（2026-10-09 时点）：CLIENT_FACING 644 / SERVER_ONLY 383 / ROOT_OR_SSO 2 / NON_NAMESPACED 1。
 - **严重等级口径**：**P1** = 功能不可用或静默返回错误结果（含 400/解析失败/数据丢失）；**P2** = 边缘场景、静默降级或非主链路；**P3** = 代码卫生。本审计**未发现 P0**。
 
 ### B.1 结论速览
@@ -1599,4 +1604,36 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 4. **复现命令**（在 `/Users/ljf/Desktop/hu_ts/matrix-js-sdk`）：
    - 审计：`pnpm contract:sync && pnpm contract:codegen && node scripts/audit/compare-routes.mjs`
    - 门禁：`pnpm quality:path-contract`（另有 `quality:admin-response-contract` / `quality:contract-drift` / `quality:sdk-contracts` / `quality:route-set-parity`）。
-5. **口径提示**：`generate_sdk_ledger_fixtures.sh` 注释称 “all-extensions all=1407” 为**陈旧注释**，与实测 1030 不符；一律以本文件头部计数与 `sdk-contract-gap.json` 实测为准。
+5. **口径提示**：`generate_sdk_ledger_fixtures.sh` 注释称 “all-extensions all=1407” 为**陈旧注释**，与实测 **1038**（2026-10-17 口径；2026-10-09 时为 1030）不符；一律以本文件头部计数与 `sdk-contract-gap.json` 当次实测为准。
+
+### B.8 复核结论（2026-10-17，双侧源码 + 真实后端联调）
+
+> 复核口径：后端 `2946e19eb`、SDK `@langkebo/matrix-js-sdk`，逐条回源 SDK 方法体与后端 handler 提取器，**不接受仅凭字符串命中判定已修**。
+
+**B.2–B.5 的 27 条：26 条已在 SDK 侧修复，1 条待产品决策。**
+
+| 分组 | 条数 | 结论 |
+|---|---:|---|
+| B.2 功能遗漏（GAP） | 3 | G-01（`appservice/fed_proxy` 通配代理）**仍未封装且待产品决策**；其余 2 条已随本轮封装修复 |
+| B.3 接口不匹配（路径/契约） | 6 | 全部已修 |
+| B.4 参数传递错误（body/query） | 12 | 全部已修（`createThread.name` 见下条说明） |
+| B.5 响应解析异常（形状/格式） | 6 | 全部已修（`getThreadReplies`/`getThread` 已适配裸响应形状；CAS 已改 `text/plain`/XML 解析；分块上传字段名已对齐；密钥请求列表已补 `next_batch`） |
+
+**复核后需保留的两条已知语义缺陷（非"未修"，是修复不彻底）**：
+
+1. `createThread` / `createGlobalThread` 的 `name` 参数**静默无效** —— 后端 `CreateThreadBody.content` 声明为 `_content`（`synapse-web/src/routes/handlers/thread.rs`，下划线前缀 ⇒ Rust 侧不读取，仅占位接受），且 `content` 类型是 `Value` ⇒ 传错也不报错。SDK 现仍保留该参数（避免破坏公开 API），已在 JSDoc 标注。**待定**：后端是否把 `content` 落库，或 SDK 删参数。
+2. `markThreadRead` 的 `origin_server_ts` 原固定发 `Date.now()`（客户端时钟）。SDK 已改为 **显式入参 > 本地缓存事件 `getTs()` > `Date.now()`** 的三级取值；后端 `MarkReadBody.origin_server_ts: i64` 语义未变。
+
+**T3「仅声明」条目的处置口径（重要，勿当缺口清单）**：
+
+2026-10-17 复核时 T3 = **79** 条。按本附录自带的「范围」列：`SERVER_ONLY` **24** / `CLIENT_FACING` 52 / `NON_NAMESPACED` 1 / `ROOT_OR_SSO` 2。客户端面 55 条逐条探证据后，「无调用点」有五种成因：
+
+| 成因 | 代表 | 是否缺口 |
+|---|---|---|
+| 解析器盲区（实际已实现） | `key_backup` 的 `room_keys/keys` 全 18 条均命中 `src/key-backup/*.ts` | ❌ 否 |
+| URL 构造器（设计上无调用点） | `media` 的 `r0`/`r1`/`v1`/`v3` `/download`、`download_signed` —— `getDownloadUrl()` 只拼链接给 `<img>` | ❌ 否 |
+| 通用端点承载 | `m.call.*` 走 `sendEvent` | ❌ 否 |
+| 尾斜杠 / 版本变体 | `pushrules/global/`（SDK 用无尾斜杠版）；`media/preview_url` 的 v1 变体 | ❌ 否 |
+| 真未封 | `appservice/fed_proxy` × 2 | ⚠️ 待决策 |
+
+⇒ **24 条连客户端面都不是；真正需要产品决策的只有 G-01。**
