@@ -5,22 +5,6 @@ use std::collections::HashSet;
 use super::models::PersistedGraphFields;
 use super::EventStorage;
 
-/// Decode `events.prev_state_events`（JSONB，形如 `["$e1", "$e2"]`）。
-///
-/// D-91（先修）：两处调用点原先都写 `serde_json::from_value(json).unwrap_or_default()`，
-/// 把"列里的 JSON 形状不对"静默降级成"没有前驱状态事件" —— 与"该列本就为 NULL"无法区分，
-/// 属数据路径上的吞错（`unwrap_or_default` 的典型形态，与 D-33/D-72 同族）。
-/// 现在 fail-closed：形状不对返回 `sqlx::Error::Decode`，让脏数据在调用点可见，
-/// 而不是被当成"这个事件没有状态前驱"继续参与 DAG 遍历。
-fn prev_state_events_from_json(event_id: &str, json: serde_json::Value) -> Result<Vec<String>, sqlx::Error> {
-    serde_json::from_value(json).map_err(|e| {
-        sqlx::Error::Decode(Box::new(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            format!("events.prev_state_events for {event_id} is not a JSON array of strings: {e}"),
-        )))
-    })
-}
-
 impl EventStorage {
     /// Batch-check which event IDs exist locally.  Returns the subset of
     /// `event_ids` that are **missing** from the `events` table.  Used by
@@ -150,7 +134,7 @@ impl EventStorage {
     /// See [`get_forward_extremities_count`].
     ///
     /// D-92（先修）：原实现读的是 `content->>'prev_event_id'`，那是**旧的 JSONB 内容约定** ——
-    /// 现代写入路径（`create_event_with_graph` / `create_state_event_with_dag`）只写
+    /// 现代写入路径（`create_event_with_graph` / `create_event_with_pdu`）只写
     /// `event_edges`，没有任何生产代码再往 `content` 里塞 `prev_event_id`，于是那个子查询恒为空集、
     /// `NOT IN (空)` 恒真，再加上额外的 `state_key IS NOT NULL` 过滤，它实际返回的是
     /// **"房间里的状态事件数"**，与 [`Self::get_forward_extremities_in_room`] 的"DAG 叶节点"不是
@@ -180,7 +164,7 @@ impl EventStorage {
     /// This is the set a newly-created event must list in `prev_events` to
     /// extend every branch of the room DAG. It is derived from `event_edges`,
     /// which the graph write paths populate (`create_event_with_graph` /
-    /// `create_state_event_with_dag`), so it is a real DAG query — unlike
+    /// `create_event_with_pdu`), so it is a real DAG query — unlike
     /// [`Self::get_latest_event_ids_in_room`], which merely returns the newest
     /// events by `origin_server_ts` for backfill seeding and would report an
     /// ancestor as a tip.
@@ -249,37 +233,5 @@ impl EventStorage {
         .fetch_all(&*self.pool)
         .await?;
         Ok(rows)
-    }
-
-    // =========================================================================
-    // MSC4242 State DAG methods (P2-14)
-    // =========================================================================
-
-    /// Get the `prev_state_events` for a given event (MSC4242 State DAG).
-    ///
-    /// Returns `None` if the event does not exist or has no `prev_state_events`
-    /// (i.e. it is not a state event in an MSC4242 room version).
-    ///
-    /// This is the state-DAG equivalent of reading `prev_events` for the room
-    /// DAG. The returned event IDs form the edges of the state DAG.
-    pub async fn get_prev_state_events(&self, event_id: &str) -> Result<Option<Vec<String>>, sqlx::Error> {
-        // 可空列 + `fetch_optional` ⇒ `Option<Option<Value>>`（R6 ②：两层），与原来的
-        // `Option<(Option<Value>,)>` 同形。
-        let row = sqlx::query_scalar!("SELECT prev_state_events FROM events WHERE event_id = $1", event_id)
-            .fetch_optional(&*self.pool)
-            .await?;
-
-        match row {
-            None => Ok(None),
-            Some(None) => Ok(None),
-            Some(Some(json)) => {
-                let ids = prev_state_events_from_json(event_id, json)?;
-                if ids.is_empty() {
-                    Ok(None)
-                } else {
-                    Ok(Some(ids))
-                }
-            }
-        }
     }
 }

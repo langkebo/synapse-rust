@@ -19,9 +19,13 @@
 
 # AppService routes (spec-allowed / real ACK after successful namespace or
 # transaction handling)
-app_service.rs:646
-app_service.rs:665
-app_service.rs:684
+#
+# 2026-10-17：三处整体 +3 —— `a3664aca7` 在 `app_service.rs` 上方插入了代码，
+# 站点从 646/665/684 漂到 649/668/687（本文件头部已写明：行号漂移要在同一提交里跟改，
+# 这是设计好的信号，不是噪声）。
+app_service.rs:649
+app_service.rs:668
+app_service.rs:687
 
 # Sticky event routes (storage mutation ACK)
 sticky_event.rs:191

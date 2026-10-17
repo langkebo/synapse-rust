@@ -12,8 +12,7 @@
 //!
 //! **What the projection can and cannot know.** `depth` / `prev_events` /
 //! `auth_events` are persisted for every known-room-version write: the inbound
-//! federation paths use `EventStorage::create_event_with_graph` /
-//! `EventStorage::create_state_event_with_dag`, and locally-produced events go
+//! federation paths use `EventStorage::create_event_with_graph`, and locally-produced events go
 //! through `MessagingService::create_event`, which resolves the graph fields and
 //! persists them via `create_event_with_pdu` (see `graph_metadata`). A row can
 //! still carry SQL `NULL` graph columns — it predates that write path, or its

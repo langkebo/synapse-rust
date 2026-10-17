@@ -1,12 +1,20 @@
-# 遗留问题全面排查（2026-10-17，基线 `00a94e95a`）
+# 遗留问题全面排查（2026-10-17）
 
 > 目的：给"项目还剩什么问题"一个**当前可复核**的答案。本文只列**本轮实测**的结论，
 > 每条带文件:行与可复现命令；已被证伪或已修的历史结论统一收进 §5，避免重复立项。
 >
-> 基线：`00a94e95a`（工作区干净，0 个未提交改动）。
-> 方法：读码 + 跑门禁 + 失败项逐条定位到提交/行号；不采信文档里的"仍存在/已修复"字样。
+> **两段式**：§1–§7 是**排查快照**（基线 `00a94e95a`，只读代码与跑门禁，不动代码）；
+> **§8 是执行记录**（同日按 §7 的顺序把 R-1…R-6 与 L-1…L-3 全部闭环，附判据与变异自证）。
+> 先读 §8 看现状，§1–§7 保留为"当时为什么这么判"的证据链。
 
-## 1. 门禁结果总表
+## 0. 一句话现状（执行后）
+
+`cargo nextest --test unit` **1884 tests / 1884 passed**；五条静态棘轮与基线一致；
+`check_sqlx_cache_fresh.sh` 通过（解析器缺陷已修，不再误报）；路由契约保持绿。
+R-1…R-6 全部闭环，L-1…L-3 已处置（L-1 连 schema 一起清空、L-2 删字段、L-3 加可执行提示）。
+L-4…L-8 的结论不变（其中 L-7 仍需一次专门时段）。
+
+## 1. 门禁结果总表（**修复前快照**，基线 `00a94e95a`）
 
 | 门禁 | 结果 | 备注 |
 | --- | --- | --- |
@@ -162,3 +170,130 @@
 **验收判据**：上述 1–6 完成后，`nextest --test unit` 应 1883/1883 通过、
 `check_sqlx_dynamic_ratio.sh` 与 `check_trait_ratchet.py` 与 baseline 一致，
 `check_sqlx_cache_fresh.sh` 通过；`check_route_contract.sh` 保持绿。
+
+---
+
+## 8. 执行记录（2026-10-17，按 §7 的顺序逐项闭环）
+
+> 本节只写**做完之后**的事实：改了什么、判据是什么、变异是否自证。每项都可单独复核。
+
+### 8.1 门禁前后对照
+
+| 门禁 | §1（修复前） | 现在 |
+| --- | --- | --- |
+| `nextest --test unit --features test-utils` | ❌ 8 failed / 1883 | ✅ **1884 / 1884 passed**（2 skipped） |
+| `check_sqlx_dynamic_ratio.sh` | ❌ 生产 104 > 96；测试 770 > 769 | ✅ 生产 96、测试 768、静态 1373、builder 17 —— 四项全等于基线 |
+| `check_trait_ratchet.py` | ❌ 71 > 68 | ✅ 71 = 71（带理由上调） |
+| `check_sqlx_cache_fresh.sh` | ❌ 误报 1 处 | ✅ 1369 处静态字面量全命中 |
+| `check_plan_numbers_fresh.sh` | ✅ | ✅（`.sqlx` 1341、两处基线同步） |
+| `check_file_size_ratchet.py` / `check_fmt_ratchet.sh` / `check_clippy_allow_ratchet.py` | ✅ | ✅ |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | ✅（缓存命中） | ✅（真实重编译） |
+| `scripts/contract/check_route_contract.sh` | ✅ | ✅（未改路由字面量） |
+| `cargo deny check advisories` | ✅ | ✅（未改依赖） |
+
+### 8.2 R-1 基线指纹漂移 —— 已修（1 行 + 记录）
+
+- 实测：`migrations/00000000_unified_schema_v12.sql` 的 FNV-1a 64 与常量不符。
+- 根因订正：`0063f09ff` 同时改了迁移与常量，但**写进常量的值本身算错了**（注释记的
+  `bytes=237198` 也与实际 237691 不符）。
+- 修法：按 R10 第①条独立复算。自检链完整 —— `36221e71b` 的 `236378` 字节 →
+  `dda1c0d97cc60b47`，与那次改动之后、`0063f09ff` 之前的实际常量吻合，证明哈希实现未变。
+- 五处 `include_str!`（storage / services / e2ee×2 / federation）全部指向同一文件，
+  改一处常量即全绿。
+
+### 8.3 R-6 `check_sqlx_cache_fresh.sh` 误报 —— 已修（解析器）
+
+- 根因：`sqlx_query_census.read_string_literal` 未实现 Rust 的行尾 `\` 续行语义
+  （原样保留换行 + 缩进），于是任何用续行写的 SQL 字面量都算出与缓存不符的摘要。
+- 修法：遇到 `\` + `\n`/`\r\n` 时删除换行并吞掉续行的**全部前导空白**（与 Rust 一致）。
+- **变异自证**：把该分支删掉（回到修复前）⇒ 新用例
+  `sqlx_cache_fresh_honours_rust_line_continuation` **0 passed / 1 failed**，失败信息为
+  "续行字面量按 Rust 语义折叠后应命中缓存"；还原 ⇒ 1 passed，且整仓 1369 处静态字面量全命中。
+- 用例本身是**双向**的：正向用折叠后的摘要登记缓存（必须通过），反向用「未折叠」的摘要
+  登记（必须失败）—— 否则重写解析器时会静默回归。
+
+### 8.4 R-2 生产区字面量动态 SQL 8 处 —— 已全部静态化
+
+| 文件 | 处数 | 改法 |
+| --- | --- | --- |
+| `synapse-storage/src/burn_after_read.rs` | 3 | `get_processed_burns` / `purge_processed_burns` / `purge_burn_log` → `query_as!` / `query!` |
+| `synapse-storage/src/user_deactivation.rs` | 3 | INSERT / SELECT / DELETE → `query!` / `query_scalar!` / `query!` |
+| `synapse-storage/src/membership/mod.rs` | 2 | `get_users_no_longer_sharing_rooms_since` / `ban_member` → `query_scalar!` / `query!` |
+
+- 这 8 处都是**固定 SQL**（不存在"运行期决定文本"的情形），所以走编译期校验而不是
+  `&sql`（后者只是把计数从 `literal` 挪到 `param`，把债务藏起来）。
+- `.sqlx` 由 `scripts/ci/sqlx_prepare.sh`（唯一入口）对**新迁移的库**重生成：1335 → **1341**。
+  净 +6 的账：新增 8 条、两处 `ORDER BY` 变更使 2 条旧条目失效、`prepare` 另清掉 2 条
+  **历史陈旧条目**（旧 `ban_member`（无 `updated_ts`）与已删的 MSC4242 孤儿查询）——
+  这也顺带说明"缓存里的死条目"此前无人发现，因为 `check_cache_fresh` 只查"源码→缓存"单向。
+- `membership/mod.rs` 剩下的 4 处 `runtime` 是既有的合法动态（keyset 分页拼装），未动。
+
+### 8.5 R-3 `ORDER BY delete_ts` 决胜键 —— 三处补齐
+
+`burn_after_read.rs` 的 `get_pending_burns` / `get_processed_burns` / `get_expired_burns`
+全部补 `id ASC`（`delete_ts` 是毫秒值，同毫秒批量入队时"取前 N 条"不可复现）。
+按"修好要收紧基线"跑了 `check_ts_order_tiebreak.py --update`：`burn_after_read.rs 2 → 0`，
+基线只剩一处删除（`69 处 / 29 个文件`）。
+
+### 8.6 R-4 三处 `Ok(empty_json())` —— 是**行号漂移**，不是缺条目
+
+- 原判"未进 allowlist"不准确：`scripts/shell_routes_allowlist.txt` 里本来就有
+  `app_service.rs:646/665/684`，但 `a3664aca7` 在文件上方插了 3 行，站点漂到
+  `649/668/687`。该文件头部已写明"行号漂移要在同一提交里跟改，这是设计好的信号"。
+- 处置：跟改三行并写明漂移来源（同时保留"spec 规定空响应"的语义）。
+
+### 8.7 R-5 `pub trait` 68 → 71 —— 认可这批 seam，带上调理由
+
+`account_deactivation_service.rs` 的 `RoomParting` / `PendingDeactivations` / `UserDataPurger`：
+每个都有**生产实现**（`RoomService` / `UserDeactivationStorage` / `StorageUserDataPurger`）与
+**测试替身**（`FakeRooms` / `FakePending` / `FakePurger`），且是**不同方向**的依赖
+（退房 / 排队 / 删数据）⇒ 不合并。理由块写进 `scripts/ci/trait_count_baseline`，
+`STORE_API` 保持 33（存储抽象面未放宽）。
+
+### 8.8 L-6 `m.profile_fields` 声明/实现不一致 —— 已消除（改按路由面推导）
+
+- **原判需要订正**：稳定 `GET/PUT/DELETE /_matrix/client/v3/profile/{user_id}/{key_name}`
+  **早就注册了**（`assembly.rs` 的 `// Stable MSC4133: Extended profile fields`）。
+  真正的问题是能力位**硬编码 `true`**，与路由面无关 —— 一旦某分支没挂路由，能力位仍说"有"。
+- 修法：新增 `profile_fields_capability()`，按
+  `manifest_has_route("GET", "/_matrix/client/v3/profile/{user_id}/{key_name}")` 推导；
+  同时订正 `capability_governance.rs` 里那条过时的 `GAP:` 注记。
+- 回归：`test_msc4133_profile_fields_tracks_the_stable_route_only` —— 正向（稳定路由在服务
+  ⇒ true）、反向（只有不稳定命名空间 ⇒ false，且响应体一致）。常量实现无法同时满足两条。
+
+### 8.9 L-1 MSC4242 残留 —— 代码 + schema 一起清空
+
+- 删 `create_state_event_with_dag`（`event/create.rs`，**零调用方**）与
+  `get_prev_state_events` + `prev_state_events_from_json`（`event/dag.rs`，零调用方），
+  连同三个 `db_tests`（持久化 / 回滚 / malformed-json）与五处已失效的引用注释。
+- 从基线移除 `events.prev_state_events` 列 + 两个 partial index（GIN 与
+  `(room_id, event_id)`）—— 没有写入方也没有读取方，留着只让 `events` 每次插入多维护两个索引。
+- 后果：基线 `237691 → 236554` 字节，模板指纹 `65b6701ed356b3d1 → 16a162d3c01f87ce`；
+  静态查询 −4（3 条宏在 `create_state_event_with_dag`、1 条在 `get_prev_state_events`），
+  测试区动态夹具 −3 ⇒ 两处基线按实测量化下调（见 §8.1）。
+
+### 8.10 L-2 `worker.worker_app` —— 删除字段
+
+全仓零读取点（除默认值与一条断言它是 `None` 的测试），示例配置也从不使用。留着它的唯一
+效果是"配置里写了却不起作用"：运维按上游习惯写 `worker_app: synapse.app.synchrotron`
+会以为改了角色，实际角色仍由 `instance_name` 推导。本仓的角色来源保持**单一**
+（`worker.instance_name` ↔ `WorkerType::instance_map_keys()` 前缀匹配，
+`WORKER_INSTANCE_NAME` 走同一解析器）。serde 默认忽略未知字段，旧配置不会加载失败。
+
+### 8.11 L-3 `stream_writers` 纯声明面 —— 从"沉默"改成"可执行提示"
+
+- 结构体文档明确写"本版本是纯声明面，没有写入路径消费者"。
+- `validate_worker_config` 在配置**偏离默认值**（每路仅 `master`）时追加一条 warning，
+  并放在 `!enabled` 早退**之前** —— worker 关着但配了分流同样要提示。
+- 回归：`topology_flags_stream_writers_as_declarative_only` 三向断言（默认不得有提示、
+  偏离必须有、`enabled=false` 也必须有）。
+
+### 8.12 仍未做（结论不变，不属于本轮范围）
+
+| ID | 状态 | 为什么不在本轮 |
+| --- | --- | --- |
+| **L-4** `preview_url` 桩 | 保持 | 真抓取要同时做 DNS 钉扎 + SSRF 白名单，是独立特性而不是"修缺陷" |
+| **L-5** sticky 无逐 destination 补发 | 保持 | 等上游 MSC 定稿；当前形态已在对比报告登记为残余 |
+| **L-7** 全量集成套件 | 保持 | 需一次专门时段（~2 h 串行）；本轮只跑受影响的子集 |
+| **L-8** `#[ignore]` 20+ 处 | 保持 | 每处都有理由且被 `e2e_honesty_tests` 强制；建议给"需真实 homeserver"那批加 `just e2e` 入口 |
+| **A5** live 联邦互操作 | 保持 | 需双主机名 + 互信 CA |

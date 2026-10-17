@@ -151,7 +151,8 @@ const CLIENT_API_VERSION_EVIDENCE: &[(&str, &str)] = &[
         "v1.16",
         "matrix-spec content/changelog/v1.16.md —— MSC4222 `use_state_after`/`state_after`（已实现，稳定+不稳定双拼写）；\
          GAP: `?format=` on GET /v3/rooms/{roomId}/state/{eventType}/{stateKey} 未读取；\
-         GAP: MSC4133 `m.profile_fields` 能力已声明但稳定 /{keyName} 路由未注册；\
+         MSC4133 `m.profile_fields`：稳定 `/{keyName}` 路由**已注册**（assembly.rs），\
+         且能力位自 2026-10-17 起按该路由面推导（不再硬编码 true）；\
          room v12 相关 MSC4289/4291/4297/4307 与 MSC4175/MSC4311 见 room v12 审计文档",
     ),
     (
@@ -342,6 +343,16 @@ impl CapabilityGovernance {
     // -----------------------------------------------------------------------
     // Capability flag functions (route-surface driven)
     // -----------------------------------------------------------------------
+
+    /// MSC4133 `m.profile_fields`：**稳定** `/{keyName}` 路由是否已注册。
+    ///
+    /// 为什么必须探稳定路径：能力位的语义是"客户端可以走稳定 API"，而不稳定命名空间
+    /// （`uk.tcpip.msc4133`）存在并不等于稳定路径存在。此前这里是硬编码 `true`，
+    /// 于是"声明"与"实现"可能相反（该形态最容易让客户端 404）。改为按路由面推导后，
+    /// 不存在稳定路由时能力位自然为 `false`。
+    fn profile_fields_capability(&self) -> CapabilityFlag {
+        CapabilityFlag::route_surface(self.manifest_has_route("GET", "/_matrix/client/v3/profile/{user_id}/{key_name}"))
+    }
 
     fn room_summary_capability(&self) -> CapabilityFlag {
         // 探针必须指向**实际在服务的**路径：房间摘要挂在
@@ -627,10 +638,14 @@ impl CapabilityGovernance {
         );
         self.insert_enabled_capability(&mut capabilities, "m.voice", self.voice_capability().enabled());
         self.insert_enabled_capability(&mut capabilities, "m.thread", self.thread_capability().enabled());
-        // MSC4133: Extended profile fields — unstable routes exist at
-        // `uk.tcpip.msc4133` namespace; declare stable capability so
-        // clients can discover profile field support.
-        self.insert_enabled_capability(&mut capabilities, "m.profile_fields", true);
+        // MSC4133: Extended profile fields. **按稳定路由面推导**，不再无条件 `true` ——
+        // 这个能力位承诺的是"稳定 `/{keyName}` 可用"，而 `uk.tcpip.msc4133` 命名空间
+        // 只代表不稳定拼写（客户端只看能力位就会直接打稳定路径）。
+        self.insert_enabled_capability(
+            &mut capabilities,
+            "m.profile_fields",
+            self.profile_fields_capability().enabled(),
+        );
         // MSC4267: Auto-forget rooms on leave. When a user leaves a room with
         // `forget: true`, the server atomically marks the membership as 'forget'
         // in the same transaction as the leave event, preventing a race window
@@ -743,6 +758,7 @@ mod tests {
             ("POST", "/_matrix/client/v3/account/password"),
             ("PUT", "/_matrix/client/v3/profile/{user_id}/displayname"),
             ("PUT", "/_matrix/client/v3/profile/{user_id}/avatar_url"),
+            ("GET", "/_matrix/client/v3/profile/{user_id}/{key_name}"),
             ("POST", "/_matrix/client/v3/account/3pid"),
             ("GET", "/_matrix/vendor/v1/friends"),
             ("GET", "/_matrix/vendor/v1/external_services/health"),
@@ -995,6 +1011,50 @@ mod tests {
         assert!(widgets_served.widget_capability().enabled(), "vendor widgets 路由在服务 => widget 能力必须为 true");
         let widgets_phantom = governance_with_routes(&config, vec![("POST", WIDGETS_CLIENT_PHANTOM)]);
         assert!(!widgets_phantom.widget_capability().enabled(), "client/v1/widgets 不存在，不能驱动该能力");
+    }
+
+    /// MSC4133 `m.profile_fields` 必须**按稳定路由面推导**，不能硬编码 `true`。
+    ///
+    /// 这个能力位的语义是"客户端可以走**稳定** `GET /profile/{userId}/{keyName}`"。
+    /// 此前实现是 `insert_enabled_capability(..., true)`，于是：
+    ///   · 若稳定路由未被注册（例如某个特性/装配分支漏挂），能力位仍然说"有" ⇒
+    ///     客户端直接打稳定路径拿到 404 —— 这正是"对外承诺与实现相反"；
+    ///   · 反过来，只声明不稳定命名空间（`uk.tcpip.msc4133`）也不足以让客户端
+    ///     走稳定 API。
+    ///
+    /// 正向：稳定路由在服务 ⇒ `true`；反向：只有不稳定路由 ⇒ `false`。
+    /// 常量实现无法同时满足这两条，因此"改回 `true`"会被本用例立刻挡下。
+    #[test]
+    fn test_msc4133_profile_fields_tracks_the_stable_route_only() {
+        const STABLE: &str = "/_matrix/client/v3/profile/{user_id}/{key_name}";
+        const UNSTABLE_ONLY: &str = "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}";
+        let config = Config::default();
+
+        let served = governance_with_routes(&config, vec![("GET", STABLE)]);
+        assert!(
+            served.profile_fields_capability().enabled(),
+            "稳定 profile/{{user_id}}/{{key_name}} 路由在服务 => m.profile_fields 必须为 true"
+        );
+
+        let unstable_only = governance_with_routes(&config, vec![("GET", UNSTABLE_ONLY)]);
+        assert!(
+            !unstable_only.profile_fields_capability().enabled(),
+            "只有不稳定命名空间不能驱动 m.profile_fields（能力位承诺的是稳定 API）"
+        );
+
+        // 与响应体一致：能力位取自同一推导，不是另一条硬编码路径。
+        let body = served.build_capabilities_response(true);
+        assert_eq!(
+            body["capabilities"]["m.profile_fields"]["enabled"],
+            json!(true),
+            "响应体里的 m.profile_fields 必须与推导一致"
+        );
+        let body_unstable_only = unstable_only.build_capabilities_response(true);
+        assert_eq!(
+            body_unstable_only["capabilities"]["m.profile_fields"]["enabled"],
+            json!(false),
+            "缺少稳定路由时响应体也必须报 false"
+        );
     }
 
     // -----------------------------------------------------------------------

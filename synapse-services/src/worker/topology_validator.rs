@@ -335,6 +335,27 @@ pub fn should_run_global_maintenance(config: &WorkerConfig) -> bool {
 
 /// Validate the configured worker topology using the actual `worker` config.
 ///
+/// `stream_writers` 是否偏离默认（每一路都只有 `master`）。
+///
+/// 默认值由 `default_stream_writers()` 给出 = `["master"]`；任何一路指向别的实例
+/// 就算偏离。用于 L-3 的部署前提示（该配置尚无写入路径消费者）。
+fn stream_writers_deviate_from_default(config: &WorkerConfig) -> bool {
+    let default = ["master".to_string()];
+    let writers = &config.stream_writers;
+    [
+        &writers.events,
+        &writers.typing,
+        &writers.to_device,
+        &writers.account_data,
+        &writers.receipts,
+        &writers.presence,
+        &writers.push_rules,
+        &writers.device_lists,
+    ]
+    .into_iter()
+    .any(|owners| owners.as_slice() != default.as_slice())
+}
+
 /// This supplements `validate_topology(...)` by checking:
 /// 1. stream writer owners reference known instances
 /// 2. multi-worker setups enable replication
@@ -343,6 +364,23 @@ pub fn should_run_global_maintenance(config: &WorkerConfig) -> bool {
 pub fn validate_worker_config(config: &WorkerConfig) -> TopologyValidation {
     let inferred_workers = configured_worker_types(config);
     let mut validation = TopologyValidation::new();
+
+    // L-3（2026-10-17）：`worker.stream_writers` 目前是**纯声明面**。
+    //
+    // 它被解析、被校验（基数 / 实例存在性）、被 `/_synapse/worker/v1/topology/validate`
+    // 暴露，但**没有任何写入路径消费者** —— 把 `events` 指给 `event_persister`
+    // 不会把事件写入搬到那个实例上，写入仍然由本进程处理。
+    //
+    // 一条 warning 比沉默好：运维按上游 Synapse 的习惯配了 `stream_writers`，
+    // 却看不到任何效果时，错误会被归因到"分流没生效"而不是"这个配置还没接"。
+    // 放在 `!enabled` 早退**之前**，这样即使 worker 关着也能看到这条提示。
+    if stream_writers_deviate_from_default(config) {
+        validation.add_warning(concat!(
+            "worker.stream_writers 已偏离默认值（每路仅 master），但本版本的写入路径仍由本实例处理。\n",
+            "该配置目前是纯声明（被解析、校验并在 /_synapse/worker/v1/topology/validate 暴露），",
+            "没有消费者。不要据此认为事件/回执等写入已经分流。"
+        ));
+    }
 
     if !config.enabled {
         return validate_topology(&[WorkerType::Master]);
@@ -516,6 +554,52 @@ mod tests {
         let result = validate_worker_config(&WorkerConfig::default());
         assert!(result.valid);
         assert!(result.errors.is_empty());
+    }
+
+    /// L-3：`stream_writers` 是**纯声明面**，偏离默认值时必须给出可见提示。
+    ///
+    /// 为什么需要：它被解析、被基数/实例校验、被 topology 端点暴露，但写入路径没有
+    /// 消费者。运维按上游习惯配了 `events: [event_persister]` 后看不到任何变化，
+    /// 归因很容易落到"分流没生效"而不是"这个配置还没接"。
+    ///
+    /// 双向断言：默认配置**不得**有这条 warning（否则等于噪声，所有人都会忽略它）；
+    /// 偏离默认时必须有，且即使 `worker.enabled = false` 也要有 —— 关着 worker 却
+    /// 配了分流的场景同样需要提示。
+    #[test]
+    fn topology_flags_stream_writers_as_declarative_only() {
+        const MARKER: &str = "纯声明";
+
+        let default_config = WorkerConfig::default();
+        let default_result = validate_worker_config(&default_config);
+        assert!(
+            !default_result.warnings.iter().any(|w| w.contains(MARKER)),
+            "默认配置（每路只有 master）不得出现该提示，否则它会退化成噪声: {:?}",
+            default_result.warnings
+        );
+
+        let mut deviating =
+            WorkerConfig { enabled: true, instance_name: "master".to_string(), ..WorkerConfig::default() };
+        deviating.instance_map.insert(
+            "event_persister".to_string(),
+            InstanceLocationConfig { host: "127.0.0.1".to_string(), port: 8102, tls: false },
+        );
+        deviating.stream_writers.events = vec!["event_persister".to_string()];
+        let result = validate_worker_config(&deviating);
+        assert!(
+            result.warnings.iter().any(|w| w.contains(MARKER)),
+            "stream_writers 偏离默认时必须提示它尚无消费者: {:?}",
+            result.warnings
+        );
+
+        // 关着 worker 也要提示：配置已经写成"分流"了，沉默会让人以为生效。
+        let mut disabled = WorkerConfig { enabled: false, ..WorkerConfig::default() };
+        disabled.stream_writers.receipts = vec!["synchrotron".to_string()];
+        let disabled_result = validate_worker_config(&disabled);
+        assert!(
+            disabled_result.warnings.iter().any(|w| w.contains(MARKER)),
+            "worker 关闭时也应对已声明的分流给提示: {:?}",
+            disabled_result.warnings
+        );
     }
 
     #[test]

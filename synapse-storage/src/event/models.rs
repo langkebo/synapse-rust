@@ -141,7 +141,7 @@ pub struct StateEvent {
     /// `None` (or SQL `NULL`) means the row was written by
     /// [`EventStorage::create_event`](super::EventStorage::create_event), which
     /// does **not** persist the graph columns; only the inbound federation
-    /// paths (`create_event_with_graph` / `create_state_event_with_dag`) do.
+    /// paths (`create_event_with_graph` / `create_event_with_pdu`) do.
     /// Consumers that rebuild a federation PDU must surface this absence
     /// instead of substituting an empty array — see
     /// `synapse_web::routes::federation::pdu`.

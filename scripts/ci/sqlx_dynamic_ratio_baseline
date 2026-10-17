@@ -3295,7 +3295,18 @@ BASELINE_DYNAMIC_PRODUCTION=96
 #   该行是**一次性**插入，且已断言"读回来是 `NULL`"（判据：`an unrecorded position must stay NULL`），
 #   所以它不会被复制到其它夹具；**收紧方向**：若将来给 `LazyLoadedMemberRow` 增加
 #   "显式写入未记录位置"的合法入口（而不是靠夹具直插），这一项应同步回落 768。
-BASELINE_DYNAMIC_TEST_INFRA=769
+# 2026-10-17: 769 → **768**（按实测收紧；中间曾实测 770，随后被 L-1 的删除吃掉）。
+#   本批（R-2/R-3/L-1）的净效果：
+#     · `aa074981f` 在 `synapse-storage/src/burn_after_read.rs` 的 `db_tests` 里加了两条
+#       `remaining` 断言（读 `burn_after_read_pending` 的 id / `burn_after_read_log` 的
+#       event_id），`86e2cc2a2` 另加两处 ⇒ 实测一度到 770；
+#     · L-1 删除 MSC4242 的三个 `db_tests`（持久化 / 回滚 / malformed-json）带走 3 处
+#       动态夹具 ⇒ 净落到 768。
+#   为什么这些夹具不能改静态：`#[cfg(test)]` 内的 `query!` 宏不进 `cargo sqlx prepare`
+#   （默认 target 集），而 `--all-targets` 会 E0432（本文件上方 2026-09-22 条目已实测），
+#   全仓 `static_test = 0` 正是这条约束的一致结果。
+#   按"零余量"收紧到实测值：留 1 点余量等于允许一次静默回归。
+BASELINE_DYNAMIC_TEST_INFRA=768
 # 2026-10-15: 1353 → 1354（+1，方案 B4.3）。新增
 #   `synapse-storage/src/schema_health_check.rs` 的 `check_invalid_indexes()` —— 它让
 #   **半建索引**（`pg_index.indisvalid = false`）可见；此前只查"缺表/缺列/缺索引名"，
@@ -3323,9 +3334,17 @@ BASELINE_DYNAMIC_TEST_INFRA=769
 #     ⑥ `synapse-e2ee/src/secure_backup/service.rs` —— `secure_key_backups`
 #        （`secure_backup_session_keys` 靠 FK 级联走）。
 #   仍按"零余量"收紧到实测值。
-BASELINE_STATIC=1367
-# 兼容旧接口：总数 = 生产 + 测试基础设施
-BASELINE_DYNAMIC=865
+# 2026-10-17: 1367 → 1377 → **1373**（先按实测收紧，再因删除死代码下调）。
+#   ① +8：本批 R-2 把 8 处生产字面量动态 SQL 改为 `query!` / `query_as!` /
+#      `query_scalar!`（`burn_after_read.rs` 3、`user_deactivation.rs` 3、`membership/mod.rs` 2）；
+#   ② +2：上次钉版（1367）之后其它批次累积的**未钉版**实测值（本轮只做对齐，不声称属于本批）；
+#   ③ −4：L-1 删除 MSC4242 死代码 —— `create_state_event_with_dag`（3 条静态宏）与
+#      `get_prev_state_events`（1 条）。**这是有意的删除**，不是"静态换动态"，
+#      所以按"只禁减"的规则必须同步下调基线并写明来源（先例：C55-0 的 1303 → 1301）。
+#   最终 1367 + 8 + 2 − 4 = 1373 = 实测值，零余量。
+BASELINE_STATIC=1373
+# 兼容旧接口：总数 = 生产 + 测试基础设施（96 + 768 = 864；本项不入棘轮，仅保持一致）
+BASELINE_DYNAMIC=864
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

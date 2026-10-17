@@ -33,15 +33,15 @@ impl UserDeactivationStorage {
     /// Idempotent (`ON CONFLICT DO NOTHING`): a retried deactivation must not
     /// fail just because a previous attempt already wrote the row.
     pub async fn add_user_pending_deactivation(&self, user_id: &str) -> Result<(), ApiError> {
-        sqlx::query(
+        sqlx::query!(
             r#"
             INSERT INTO user_pending_deactivations (user_id, created_ts)
             VALUES ($1, $2)
             ON CONFLICT (user_id) DO NOTHING
             "#,
+            user_id,
+            synapse_common::current_timestamp_millis(),
         )
-        .bind(user_id)
-        .bind(synapse_common::current_timestamp_millis())
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to enqueue pending deactivation", e))?;
@@ -53,7 +53,7 @@ impl UserDeactivationStorage {
     /// `created_ts` first, then `user_id`, so two rows written in the same
     /// millisecond still drain in a deterministic order.
     pub async fn get_user_pending_deactivation(&self) -> Result<Option<String>, ApiError> {
-        sqlx::query_scalar::<_, String>(
+        sqlx::query_scalar!(
             r#"
             SELECT user_id FROM user_pending_deactivations
             ORDER BY created_ts, user_id
@@ -67,8 +67,7 @@ impl UserDeactivationStorage {
 
     /// Remove `user_id` from the queue; `true` when a row was deleted.
     pub async fn del_user_pending_deactivation(&self, user_id: &str) -> Result<bool, ApiError> {
-        let result = sqlx::query("DELETE FROM user_pending_deactivations WHERE user_id = $1")
-            .bind(user_id)
+        let result = sqlx::query!("DELETE FROM user_pending_deactivations WHERE user_id = $1", user_id)
             .execute(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to clear pending deactivation", e))?;

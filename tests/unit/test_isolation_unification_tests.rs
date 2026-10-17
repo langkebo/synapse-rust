@@ -241,7 +241,16 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // （改动前字节 236378 逐字节吻合，证明哈希实现未变）后才取新值。
 // （注：上一行记的 `0bea2dcc031b8c94` 与本次改动前的实际常量不一致 ⇒ 2026-10-16 之后
 //  还有一次改动未补记，与 155-157 / 181-184 行记录的是**同一类漏同步**。）
-const EXPECTED_BASELINE_FINGERPRINT: &str = "7a9773b755bea292";
+// 2026-10-17（R-1：订正上一段写错的新值）：上一段记的 `7a9773b755bea292` **不是**该次改动后的
+// 真实指纹，且记的 `bytes=237198` 也与实际不符（实际 237691）—— 即 `0063f09ff` 改了迁移、
+// 也改了常量，但两者不符。本行按 R10 第①条重新独立复算：当前文件 `237691` 字节
+// ⇒ FNV-1a 64 = `65b6701ed356b3d1`。自检：改动前一次迁移提交 `36221e71b` 为 `236378` 字节
+// ⇒ `dda1c0d97cc60b47`，与该提交之后、`0063f09ff` 之前的实际常量吻合，证明哈希实现未变。
+// 2026-10-17（L-1：移除 MSC4242 死列 `events.prev_state_events` 与两个 partial index）：
+// baseline 由 `237691` 降到 `236554` 字节 ⇒ FNV-1a 64 = `16a162d3c01f87ce`。
+// 自检：改动前常量 `65b6701ed356b3d1` 与改动前的 `237691` 字节逐字节吻合（本轮已实测），
+// 证明哈希实现未变。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "16a162d3c01f87ce";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

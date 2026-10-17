@@ -754,7 +754,7 @@ async fn inbound_pdu_signature_material_round_trips() {
 /// （`event_edges` 上的 DAG 叶节点），而不是"状态事件数"。
 ///
 /// 旧实现读 `content->>'prev_event_id'` —— 那是旧 JSONB 内容约定，现代写入路径
-/// （`create_event_with_graph` / `create_state_event_with_dag`）只写 `event_edges`，于是该子查询
+/// （`create_event_with_graph` / `create_event_with_pdu`）只写 `event_edges`，于是该子查询
 /// 恒为空集、`NOT IN (空)` 恒真，再加上额外的 `state_key IS NOT NULL`，它实际数的是**状态事件**。
 /// 旧用例只断言 `count >= 0`（恒真，永远不会红）。这里用**消息**事件（`state_key` 为 NULL）
 /// 构造线性 DAG 与分叉，让"叶节点计数"与"状态事件计数"给出不同答案。
@@ -850,28 +850,6 @@ async fn test_get_event_graph_fields_round_trip() {
 
     // 缺事件 ⇒ None（不是报错）。
     assert!(storage.get_event_graph_fields("$graphfields_absent:example.com").await.unwrap().is_none());
-}
-
-/// D-91：`events.prev_state_events` 形状不对时必须**报 Decode 错**，而不是静默当成"没有前驱"。
-#[tokio::test]
-async fn test_malformed_prev_state_events_is_an_error() {
-    let (_isolated, pool) = test_pool().await;
-    let storage = EventStorage::new(&pool, test_server_name());
-    let room_id = format!("!malformed_pse_{}:example.com", uuid::Uuid::new_v4());
-    ensure_test_room(&pool, &room_id).await;
-
-    sqlx::query(
-        "INSERT INTO events (event_id, room_id, sender, event_type, content, origin_server_ts, prev_state_events) \
-         VALUES ('$malformed_pse_1:example.com', $1, '@test:example.com', 'm.room.message', '{}'::jsonb, 100, $2)",
-    )
-    .bind(&room_id)
-    .bind(serde_json::json!({"not": "an array"}))
-    .execute(&*pool)
-    .await
-    .expect("insert malformed row");
-
-    let err = storage.get_prev_state_events("$malformed_pse_1:example.com").await.expect_err("must not swallow");
-    assert!(matches!(err, sqlx::Error::Decode(_)), "expected Decode, got {err:?}");
 }
 
 // --- create_event_with_graph / signatures_and_hashes ---
@@ -2289,87 +2267,6 @@ async fn test_p1_7_unread_count_not_bloated_after_purge_history() {
     let _ = storage.delete_room_events(&room_id).await;
 }
 
-// =============================================================================
-// P2-14: MSC4242 State DAG — prev_state_events storage and query
-// =============================================================================
-//
-// MSC4242 adds `prev_state_events` to state events, forming a state DAG
-// distinct from the room DAG (`prev_events`). These tests verify the storage
-// layer can persist and retrieve `prev_state_events`, which is the tracer
-// bullet for MSC4242 support.
-
-/// P2-14 RED: A state event created with `prev_state_events` must persist
-/// them to the `events.prev_state_events` column and return them via
-/// `get_prev_state_events`.
-#[tokio::test]
-async fn test_p2_14_state_event_stores_prev_state_events() {
-    let (_isolated, pool) = test_pool().await;
-    let storage = EventStorage::new(&pool, test_server_name());
-
-    let suffix = uuid::Uuid::new_v4();
-    let room_id = format!("!p214a_{}:example.com", suffix);
-    let event_id = format!("$p214a_state_{}:example.com", suffix);
-    let prev_state_1 = format!("$p214a_prev1_{}:example.com", suffix);
-    let prev_state_2 = format!("$p214a_prev2_{}:example.com", suffix);
-    let user_id = "@p214sender:example.com";
-
-    // Cleanup
-    let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
-    ensure_test_room(&pool, &room_id).await;
-    ensure_test_user(&pool, user_id).await;
-
-    // event_edges.prev_event_id has an FK to events.event_id, so the two
-    // prev_state rows must already exist before the state event is created.
-    for prev_state_id in [&prev_state_1, &prev_state_2] {
-        let prev_params = CreateEventParams {
-            event_id: prev_state_id.clone(),
-            room_id: room_id.clone(),
-            user_id: user_id.to_string(),
-            event_type: "m.room.member".to_string(),
-            content: serde_json::json!({"membership": "join"}),
-            state_key: Some(user_id.to_string()),
-            origin_server_ts: current_timestamp_millis(),
-            redacts: None,
-        };
-        storage.create_event(prev_params, None).await.expect("prev_state event should be created");
-    }
-
-    let params = CreateEventParams {
-        event_id: event_id.clone(),
-        room_id: room_id.clone(),
-        user_id: user_id.to_string(),
-        event_type: "m.room.member".to_string(),
-        content: serde_json::json!({"membership": "join"}),
-        state_key: Some("@p214sender:example.com".to_string()),
-        origin_server_ts: current_timestamp_millis(),
-        redacts: None,
-    };
-
-    // Create a state event with prev_state_events (MSC4242).
-    let prev_state_events = vec![prev_state_1.clone(), prev_state_2.clone()];
-    storage
-        .create_state_event_with_dag(params, &[], &[], &prev_state_events, 1, None)
-        .await
-        .expect("create_state_event_with_dag should succeed");
-
-    // Query back the prev_state_events.
-    let result = storage.get_prev_state_events(&event_id).await.expect("get_prev_state_events should succeed");
-    assert!(result.is_some(), "get_prev_state_events must return Some for event with prev_state_events");
-    let retrieved = result.unwrap();
-    assert_eq!(retrieved.len(), 2, "must retrieve exactly 2 prev_state_events");
-    assert!(
-        retrieved.contains(&prev_state_1),
-        "retrieved prev_state_events must contain {prev_state_1}, got {retrieved:?}"
-    );
-    assert!(
-        retrieved.contains(&prev_state_2),
-        "retrieved prev_state_events must contain {prev_state_2}, got {retrieved:?}"
-    );
-
-    // Cleanup
-    let _ = storage.delete_room_events(&room_id).await;
-}
-
 /// B8：`create_event_with_graph` 的 `tx=None` 分支必须原子。
 ///
 /// 注入手段：`fk_event_edges_prev` 外键拒绝不存在的 `prev_event_id`
@@ -2413,53 +2310,6 @@ async fn create_event_with_graph_rolls_back_event_when_edges_insert_fails() {
     // 用既有 reader 断言行不存在：不新增动态 SQL 调用点（SQLx 棘轮会把
     // `#[cfg(test)]` 内联模块里的 `sqlx::query_scalar` 计入 dynamic）。
     let persisted = storage.get_event("$dag_rollback:example.com").await.expect("get_event");
-    assert!(persisted.is_none(), "events 行不得在 event_edges 失败后残留（半写窗口）");
-}
-
-/// 同一类半写窗口的另一半：`create_state_event_with_dag` 在**没有调用方事务**时，
-/// 此前同样是"先 autocommit 落 `events`、再于事务外插 `event_edges`"
-/// （`create.rs` 原文注释即 `Populate event_edges outside a transaction`）。
-/// B8 只修了 `create_event_with_graph`，这条并行路径被漏掉 —— 两处实现漂移，
-/// 正是 AGENTS.md 铁律 2（同一职责只允许一份实现）要防的情形。
-/// 注入手段与断言与上面那条用例完全对齐：不存在的 `prev_event_id` 触发
-/// `fk_event_edges_prev`，修复后整笔回滚。
-#[tokio::test]
-async fn create_state_event_with_dag_rolls_back_event_when_edges_insert_fails() {
-    let (_guard, pool) = test_pool().await;
-    let room_id = "!dag_state_rollback:example.com";
-    ensure_test_room(&pool, room_id).await;
-    let storage = EventStorage::new(&pool, test_server_name());
-
-    // 对照组：没有 prev_* 时该路径必须成功；否则"失败后无残留"可能只是第一个
-    // INSERT 就失败了，测试会假绿。
-    let control = CreateEventParams {
-        event_id: "$dag_state_control:example.com".to_string(),
-        room_id: room_id.to_string(),
-        user_id: "@test:example.com".to_string(),
-        event_type: "m.room.member".to_string(),
-        content: serde_json::json!({ "membership": "join" }),
-        state_key: Some("@test:example.com".to_string()),
-        origin_server_ts: current_timestamp_millis(),
-        redacts: None,
-    };
-    storage.create_state_event_with_dag(control, &[], &[], &[], 0, None).await.expect("control insert must succeed");
-
-    let params = CreateEventParams {
-        event_id: "$dag_state_rollback:example.com".to_string(),
-        room_id: room_id.to_string(),
-        user_id: "@test:example.com".to_string(),
-        event_type: "m.room.member".to_string(),
-        content: serde_json::json!({ "membership": "join" }),
-        state_key: Some("@test:example.com".to_string()),
-        origin_server_ts: current_timestamp_millis(),
-        redacts: None,
-    };
-    let result = storage
-        .create_state_event_with_dag(params, &["$missing_prev:example.com".to_string()], &[], &[], 1, None)
-        .await;
-    assert!(result.is_err(), "event_edges 外键失败必须让整笔写入失败");
-
-    let persisted = storage.get_event("$dag_state_rollback:example.com").await.expect("get_event");
     assert!(persisted.is_none(), "events 行不得在 event_edges 失败后残留（半写窗口）");
 }
 

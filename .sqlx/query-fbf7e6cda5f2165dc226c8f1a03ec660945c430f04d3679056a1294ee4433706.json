@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH my_changes AS (\n                SELECT room_id, membership, COALESCE(updated_ts, 0) AS changed_ts\n                FROM room_memberships\n                WHERE user_id = $1 AND COALESCE(updated_ts, 0) > $2\n            ),\n            departed_rooms AS (\n                SELECT room_id, changed_ts FROM my_changes WHERE membership <> 'join'\n            ),\n            joined_rooms AS (\n                SELECT room_id\n                FROM room_memberships\n                WHERE user_id = $1 AND membership = 'join'\n            )\n            SELECT DISTINCT other.user_id\n            FROM room_memberships other\n            WHERE other.user_id <> $1\n              AND other.membership IN ('join', 'leave', 'ban')\n              AND other.joined_ts IS NOT NULL\n              AND (\n                  (\n                      other.room_id IN (SELECT room_id FROM joined_rooms)\n                      AND other.membership <> 'join'\n                      AND COALESCE(other.updated_ts, 0) > $2\n                  )\n                  OR EXISTS (\n                      SELECT 1 FROM departed_rooms d\n                      WHERE d.room_id = other.room_id\n                        AND other.joined_ts < d.changed_ts\n                  )\n              )\n              AND NOT EXISTS (\n                  SELECT 1\n                  FROM room_memberships mine\n                  JOIN room_memberships theirs ON mine.room_id = theirs.room_id\n                  WHERE mine.user_id = $1 AND mine.membership = 'join'\n                    AND theirs.user_id = other.user_id AND theirs.membership = 'join'\n              )\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "fbf7e6cda5f2165dc226c8f1a03ec660945c430f04d3679056a1294ee4433706"
+}

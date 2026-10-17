@@ -4421,50 +4421,15 @@ CREATE INDEX IF NOT EXISTS idx_quarantined_media_changes_media ON quarantined_me
 -- ============================================================================
 
 
--- ---- 折入自 20260729140000_msc4242_state_dag_prev_state_events.sql ----
--- P2-14: MSC4242 State DAGs — add prev_state_events column to events table.
+-- ---- 20260729140000_msc4242_state_dag_prev_state_events.sql（2026-10-17 撤回）----
+-- MSC4242（state DAG）**未落地**：该 MSC 至今没有房间版本指派，上游实现 PR 已关闭
+-- 未合并。此前这里给 `events` 加了 `prev_state_events` 列 + 两个 partial index，
+-- 但全仓**没有任何写入方**（`create_event_with_graph` 恒留 NULL）也没有读取方
+-- （唯一的 `get_prev_state_events` 与 `create_state_event_with_dag` 已于同日删除）。
 --
--- MSC4242 introduces a state DAG for room state events, where edges are
--- defined by `prev_state_events` instead of `prev_events`. This forms a
--- partial order on state events only, distinct from the room DAG.
---
--- Key differences from the room DAG:
--- - `prev_events`: links ALL events (state + message) into the room DAG
--- - `prev_state_events`: links ONLY state events into the state DAG
---
--- The state DAG enables:
--- - Calculated `auth_events` (server-computed, not sender-specified)
--- - Faster state convergence across federation
--- - Mandated `/get_missing_events` backfill for unknown prev_state_events
---
--- This migration adds the `prev_state_events` JSONB column to store the
--- state DAG edges. It is nullable: existing events and non-state events
--- have NULL prev_state_events; only MSC4242 room versions populate it.
---
--- Safety: idempotent — uses DO $$ ... ADD COLUMN IF NOT EXISTS.
--- Backward compatible: NULL by default, no impact on existing queries.
-
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = current_schema() AND table_name = 'events' AND column_name = 'prev_state_events'
-    ) THEN
-        ALTER TABLE events ADD COLUMN prev_state_events JSONB;
-    END IF;
-END $$;
-
--- Index to support state DAG traversal queries (e.g. "find all events
--- whose prev_state_events contains X"). GIN index is optimal for JSONB
--- array containment checks: `prev_state_events @> '["$event_id"]'`
-CREATE INDEX IF NOT EXISTS idx_events_prev_state_events
-ON events USING GIN (prev_state_events)
-WHERE prev_state_events IS NOT NULL;
-
--- Index for fetching prev_state_events by event_id (the common read path).
-CREATE INDEX IF NOT EXISTS idx_events_state_dag_room
-ON events(room_id, event_id)
-WHERE prev_state_events IS NOT NULL;
+-- 留着它的唯一效果是：schema 看起来像"半个功能"，而每个 `events` 插入都要多维护
+-- 两个 partial index。按"不留半个功能"的处置把列与索引一并移除（先例：`search_index`
+-- 表的移除）。若将来 MSC4242 定稿，重新折入这条迁移即可（git 历史保留原实现）。
 
 -- ---- 折入自 20260810120000_add_to_device_sequence.sql ----
 -- E2EE-10: Ensure to-device messages are ordered by stream_id for delivery.

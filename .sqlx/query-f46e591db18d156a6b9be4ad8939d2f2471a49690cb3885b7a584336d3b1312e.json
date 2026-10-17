@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id, user_id, room_id, event_id, created_ts, delete_ts, is_processed,\n                   retry_count, last_error, is_dead_letter\n            FROM burn_after_read_pending\n            WHERE user_id = $1 AND room_id = $2 AND is_processed = FALSE\n            ORDER BY delete_ts ASC\n            ",
+  "query": "\n            SELECT p.id, p.user_id, p.room_id, p.event_id, p.created_ts, p.delete_ts,\n                   p.is_processed, p.retry_count, p.last_error, p.is_dead_letter\n            FROM burn_after_read_pending p\n            INNER JOIN burn_after_read_log l\n                ON l.user_id = p.user_id AND l.event_id = p.event_id\n            WHERE p.user_id = $1\n              AND p.room_id = $2\n              AND p.is_processed = TRUE\n              AND p.delete_ts >= $3\n            ORDER BY p.delete_ts ASC, p.id ASC\n            ",
   "describe": {
     "columns": [
       {
@@ -57,7 +57,8 @@
     "parameters": {
       "Left": [
         "Text",
-        "Text"
+        "Text",
+        "Int8"
       ]
     },
     "nullable": [
@@ -73,5 +74,5 @@
       false
     ]
   },
-  "hash": "56f7512834503251cfda6459e6a49c7862d96c85981e3d79ff7e2f48759eba1a"
+  "hash": "f46e591db18d156a6b9be4ad8939d2f2471a49690cb3885b7a584336d3b1312e"
 }

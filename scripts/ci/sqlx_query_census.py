@@ -707,6 +707,9 @@ def read_string_literal(text: str, i: int) -> tuple[str, int]:
 
     支持 `"…"`（含转义）、`b"…"`、`r"…"`、`r#"…"#`、`r##"…"##`、`br"…"`。
     与 `_starts_string_literal` 的识别范围保持一致。
+
+    普通字面量按 Rust 的**求值语义**解码（不只是"去掉引号"）：常见转义 + 行尾反斜杠
+    续行。缓存条目是对求值后的字符串求摘要的，只做字面量切片的解析器会在续行处算错。
     """
     j = i
     raw = False
@@ -745,6 +748,18 @@ def read_string_literal(text: str, i: int) -> tuple[str, int]:
     while j < len(text):
         ch = text[j]
         if ch == "\\" and j + 1 < len(text):
+            # Rust 的**行尾续行**转义：`\` + 换行 ⇒ 删除该换行，并吞掉下一行的全部
+            # 前导空白（Rust reference, STRING_CONTINUE）。
+            #
+            # 不实现它会让哈希算错：`sqlx` 按**求值后**的字符串建缓存条目，而原样保留
+            # 换行与缩进算出的摘要必然对不上 ⇒ `--check-cache-fresh` 对任何用续行写
+            # SQL 字面量的文件都报"缓存陈旧"（实际缓存是好的）。见
+            # `tests/unit/sqlx_ratio_gate_tests.rs` 的续行用例。
+            if text.startswith("\r\n", j + 1) or text[j + 1] == "\n":
+                j += 3 if text.startswith("\r\n", j + 1) else 2
+                while j < len(text) and text[j] in " \t\r\n":
+                    j += 1
+                continue
             nxt = text[j + 1]
             out.append(escapes.get(nxt, nxt))
             j += 2

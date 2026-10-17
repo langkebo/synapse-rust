@@ -2191,11 +2191,27 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 <!-- sqlx-plan-numbers:start -->
 <!-- 以下数字由 `scripts/ci/check_plan_numbers_fresh.sh` 与基线/实测现算比对；改基线必须同步改这里。 -->
 BASELINE_DYNAMIC_PRODUCTION=96
-BASELINE_DYNAMIC_TEST_INFRA=769
-BASELINE_STATIC=1367
+BASELINE_DYNAMIC_TEST_INFRA=768
+BASELINE_STATIC=1373
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1335
+SQLX_CACHE_ENTRIES=1338
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-17 更新（R-2/R-3：生产动态 SQL 静态化 + 决胜键）**，数字块三项按实测同步：
+> - `BASELINE_DYNAMIC_TEST_INFRA` **769 → 768**（按实测收紧。中间一度测到 770 ——
+>   `burn_after_read` 的 `db_tests` 新增两条 `remaining` 断言；随后 L-1 删掉 MSC4242 的三个
+>   `db_tests` 带走 3 处 ⇒ 净落 768）。夹具为何不能改静态见
+>   `scripts/ci/sqlx_dynamic_ratio_baseline` 的同日条目（`query!` 不进 prepare 的默认 target 集）。
+> - `BASELINE_STATIC` **1367 → 1373**（+8 本批静态化、+2 上次钉版后累积的未钉版实测值、
+>   −4 L-1 删除 MSC4242 死代码带走的静态宏；按"零余量"落到实测值）。
+> - `SQLX_CACHE_ENTRIES` **1335 → 1338**（净 +3）。分解：R-2 的 8 处静态化新增 8 条、
+>   两处 `ORDER BY` 变更使 2 条旧条目失效（净 0）、`prepare` 清掉 2 条历史陈旧条目
+>   （旧 `ban_member`（无 `updated_ts`）与已删的 MSC4242 孤儿查询）；
+>   随后 L-1 删除 MSC4242 死代码又清掉 **3** 条 —— `create_state_event_with_dag` 的两条
+>   `event_edges` 插入与其兄弟函数 `create_event_with_graph` 的 SQL 逐字节相同（共用缓存条目），
+>   所以 4 个宏只对应 3 个唯一条目。
+> `BASELINE_DYNAMIC_PRODUCTION` 保持 **96**：8 处字面量动态 SQL 静态化后，生产动态从
+> 实测 104 回到基线 96（该棘轮此前是红的）。
 
 > **2026-10-17 更新（UG-11：账户注销数据面收尾）**，数字块两项按实测同步：
 > - `BASELINE_STATIC` **1361 → 1367**（+6）：`StorageUserDataPurger` 需要六条"按

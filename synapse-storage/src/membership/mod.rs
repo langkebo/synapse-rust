@@ -379,7 +379,7 @@ impl RoomMemberStorage {
         user_id: &str,
         since_ts: i64,
     ) -> Result<Vec<String>, sqlx::Error> {
-        sqlx::query_scalar::<_, String>(
+        sqlx::query_scalar!(
             r"
             WITH my_changes AS (
                 SELECT room_id, membership, COALESCE(updated_ts, 0) AS changed_ts
@@ -419,9 +419,9 @@ impl RoomMemberStorage {
                     AND theirs.user_id = other.user_id AND theirs.membership = 'join'
               )
             ",
+            user_id,
+            since_ts,
         )
-        .bind(user_id)
-        .bind(since_ts)
         .fetch_all(&*self.pool)
         .await
     }
@@ -441,11 +441,11 @@ impl RoomMemberStorage {
 
     /// See [`ban_member`].
     pub async fn ban_member(&self, room_id: &str, user_id: &str, banned_by: &str) -> Result<(), sqlx::Error> {
-        // Runtime query (not `query!`): `updated_ts` is required so the MSC4262
-        // LEFT_ROOM window sees the ban, and adding a column to the cached
-        // macro would force a `.sqlx` regeneration.
+        // `updated_ts` 是必需的：MSC4262 的 LEFT_ROOM 窗口靠它判断"何时不再共享房间"，
+        // 缺了它 ban 不会从对端视图里消失。走 `query!` 让新增列在编译期被校验
+        // （早前为免 `.sqlx` 重生成写成运行期查询，代价是这条语句脱离校验面）。
         let now = current_timestamp_millis();
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO room_memberships (room_id, user_id, membership, banned_by, updated_ts)
             VALUES ($1, $2, 'ban', $3, $4)
@@ -454,11 +454,11 @@ impl RoomMemberStorage {
                 banned_by = EXCLUDED.banned_by,
                 updated_ts = EXCLUDED.updated_ts
             ",
+            room_id,
+            user_id,
+            banned_by,
+            now,
         )
-        .bind(room_id)
-        .bind(user_id)
-        .bind(banned_by)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
         Ok(())

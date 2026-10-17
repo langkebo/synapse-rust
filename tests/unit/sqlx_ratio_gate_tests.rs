@@ -375,3 +375,97 @@ fn parse_metric(output: &str, key: &str) -> Option<u64> {
     let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
     digits.parse().ok()
 }
+// =============================================================================
+// 2026-10-17（R-6）：`--check-cache-fresh` 必须按 Rust 的**求值语义**求摘要
+//
+// 缺陷现场：`synapse-storage/src/event/redaction.rs:142` 的 SQL 用行尾 `\` 续行写，
+// 解析器（`read_string_literal`）把续行的换行与缩进**原样保留** ⇒ 算出的摘要与
+// `.sqlx/query-4b366b1d….json` 对不上 ⇒ 门禁报"缓存陈旧"。而该缓存的 `query` 字段
+// 正是这条语句，`SQLX_OFFLINE=true` 也能完整编译 —— 缓存是好的，红的是解析器。
+//
+// 后果比假红更糟：错误信息把人引向"重跑 `sqlx_prepare.sh`"，而重跑不会改变任何
+// 结论（问题在解析器），于是**每次提交**都要绕过 preflight，红信号随之整体失效。
+//
+// 本用例用**双向**断言钉住：折叠后的摘要命中 ⇒ 通过；把"未折叠"的摘要登记为缓存
+// ⇒ 必须失败（否则这条用例只是恰好通过，重写解析器时会静默回归）。
+// =============================================================================
+
+/// 用行尾续行写的 `query!`。续行前的空格属于 SQL，续行后的缩进不属于 SQL。
+const CONTINUATION_SOURCE: &str = r#"
+fn f() {
+    let _ = sqlx::query!("UPDATE t SET a = $1 \
+         WHERE b = $2", 1i64, 2i64);
+}
+"#;
+
+/// Rust 求值后的字符串（`\` + 换行 + 下一行前导空白 被删除）。
+const CONTINUATION_COLLAPSED: &str = "UPDATE t SET a = $1 WHERE b = $2";
+
+/// 未按 Rust 语义求值的形态：解析器**原样保留**续行换行与缩进。
+const CONTINUATION_RAW: &str = "UPDATE t SET a = $1 \n         WHERE b = $2";
+
+fn sha256_hex(input: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+/// 建一棵只含 `src/lib.rs` + 指定 `.sqlx` 条目的临时树，返回根目录。
+fn cache_fixture_tree(query_digest: &str) -> PathBuf {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static SEQ: AtomicU32 = AtomicU32::new(0);
+    let root = std::env::temp_dir().join(format!(
+        "sqlx_cache_fresh_{}_{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::SeqCst)
+    ));
+    if root.exists() {
+        fs::remove_dir_all(&root).expect("clean temp root");
+    }
+    fs::create_dir_all(root.join("src")).expect("create src");
+    fs::create_dir_all(root.join(".sqlx")).expect("create .sqlx");
+    fs::write(root.join("src/lib.rs"), CONTINUATION_SOURCE).expect("write source");
+    fs::write(
+        root.join(".sqlx").join(format!("query-{query_digest}.json")),
+        "{\"db_name\":\"postgres\",\"query\":\"fixture\",\"describe\":{\"columns\":[],\"parameters\":{\"Left\":[]},\"nullable\":[]},\"hash\":\"fixture\"}",
+    )
+    .expect("write cache entry");
+    root
+}
+
+/// 运行 `--check-cache-fresh <root>`，返回 `(exit_code, 合并输出)`。
+fn run_cache_check(root: &std::path::Path) -> (i32, String) {
+    let out = Command::new("python3")
+        .arg(repo_root().join("scripts/ci/sqlx_query_census.py"))
+        .arg("--check-cache-fresh")
+        .arg(root)
+        .output()
+        .expect("census script must be runnable with python3");
+    (
+        out.status.code().unwrap_or(-1),
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr)),
+    )
+}
+
+/// 续行字面量：按 Rust 语义折叠后的摘要 ⇒ 命中；未折叠的摘要 ⇒ 必须报缺失。
+#[test]
+fn sqlx_cache_fresh_honours_rust_line_continuation() {
+    // 前提：两种形态确实不同，且各自摘要不同（否则本用例无判别力）。
+    assert_ne!(CONTINUATION_COLLAPSED, CONTINUATION_RAW, "夹具本身写错了：折叠前后必须不同，否则测不出解析器行为");
+    assert_ne!(sha256_hex(CONTINUATION_COLLAPSED), sha256_hex(CONTINUATION_RAW), "两种形态的摘要相同，用例无判别力");
+
+    // ① 正向：缓存条目按**求值后**的字符串命名（这正是 sqlx 的做法）。
+    let root = cache_fixture_tree(&sha256_hex(CONTINUATION_COLLAPSED));
+    let (code, output) = run_cache_check(&root);
+    assert_eq!(code, 0, "续行字面量按 Rust 语义折叠后应命中缓存；解析器若保留换行/缩进就会误报陈旧\n输出:\n{output}");
+    assert!(output.contains("全部命中"), "正向用例应报告全部命中，实际输出:\n{output}");
+    let _ = fs::remove_dir_all(&root);
+
+    // ② 反向：把"未折叠"的摘要登记为缓存 ⇒ 必须失败。
+    //    若这里通过了，说明检查器根本没有按 Rust 语义求值（重写解析器时的回归网）。
+    let root = cache_fixture_tree(&sha256_hex(CONTINUATION_RAW));
+    let (code, output) = run_cache_check(&root);
+    assert_eq!(code, 1, "只登记未折叠摘要时必须报缺失（否则判据无判别力，等于没有门禁）\n输出:\n{output}");
+    let _ = fs::remove_dir_all(&root);
+}

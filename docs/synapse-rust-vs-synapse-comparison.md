@@ -2072,7 +2072,7 @@ W-B 为严格模式 + 离线 `--validate-topology` 入口）。本节改动只�
 
 1. **HTTP 请求分流在服务端不存在**：worker 进程（`synapse_worker`）只 mount `/metrics`；
    全仓没有任何生产代码按 `WorkerType::owned_route_prefixes` 裁剪自己的路由，
-   配置项 `worker.worker_app` **从未被读取**。⇒ `docker/nginx/` 里"把 `/_matrix/client/*/sync`
+   配置项 `worker.worker_app` 已于 2026-10-17 **删除**（它从未被读取，见 §19.12）。⇒ `docker/nginx/` 里"把 `/_matrix/client/*/sync`
    打到 sync_worker"今天只会 502；本仓 worker 拓扑真正覆盖的是**控制面与后台任务**。
    已登记为独立批次 **W-F**（按角色收敛 HTTP 面），它是"请求级水平扩展"的唯一前置。
 2. **镜像原先不含 worker 二进制**：`docker/Dockerfile` 只 build/install `synapse-rust` 与
@@ -2212,9 +2212,16 @@ AS 只能靠 `/login` + `m.login.application_service` 为**已存在**的用户�
 **残余**：并发的首个状态写会各播一份（`state_hash` upsert + 取 `id` 最大者胜出），
 与既有 copy-forward 同类竞态；彻底消除需按房间串行化状态写。
 
-#### 19.11.3 MSC4242 存储面的孤儿查询已删
+#### 19.11.3 MSC4242 存储面已整体清空（2026-10-17，L-1）
 
-`find_events_referencing_missing_state`（`synapse-storage/src/event/dag.rs`）**无生产调用者**，
-且 MSC4242 至今无房间版本指派（上游联邦 PR 已关闭未合并）。按"不留半个功能"的处置**删除**
-（连同 `event/db_tests.rs` 里唯一的用例），git 历史保留实现。剩余 MSC4242 面：schema 的
-`events.prev_state_events` 列 + 一个只读 `get_prev_state_events`（**无写入者**）。
+MSC4242（state DAG）至今没有房间版本指派，上游实现 PR 已关闭未合并。按"不留半个功能"分两步清完：
+
+| 步骤 | 内容 |
+| --- | --- |
+| 第一步（本文件早前） | 删 `find_events_referencing_missing_state`（无生产调用者）及其唯一用例 |
+| 第二步（2026-10-17） | 删 `create_state_event_with_dag`（`event/create.rs`，零调用方）与 `get_prev_state_events` / `prev_state_events_from_json`（`event/dag.rs`，零调用方），连同三个 `db_tests`（持久化/回滚/malformed-json）与五处已失效的引用注释 |
+| 第三步（2026-10-17） | 从基线移除 `events.prev_state_events` 列与两个 partial index（`idx_events_prev_state_events` GIN、`idx_events_state_dag_room`）—— 既然没有写入方也没有读取方，留着只会让 `events` 的每次插入多维护两个索引，并让 schema 看起来像"半个功能"（先例：`search_index` 表的移除） |
+
+基线因此从 `237691` 降到 `236554` 字节，模板指纹 `65b6701ed356b3d1 → 16a162d3c01f87ce`
+（`test_isolation_unification_tests` 的常量已同步，5 处 `include_str!` 副本全部指向同一文件）。
+若 MSC4242 定稿，重新折入那条迁移即可 —— git 历史保留原实现与全部测试。

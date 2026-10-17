@@ -282,7 +282,7 @@ impl BurnAfterReadStorage {
                    retry_count, last_error, is_dead_letter
             FROM burn_after_read_pending
             WHERE user_id = $1 AND room_id = $2 AND is_processed = FALSE
-            ORDER BY delete_ts ASC
+            ORDER BY delete_ts ASC, id ASC
             ",
             user_id,
             room_id,
@@ -295,15 +295,17 @@ impl BurnAfterReadStorage {
 
     /// See [`get_processed_burns`].
     ///
-    /// Uses runtime-bound SQL rather than the `query_as!` macro so no `.sqlx`
-    /// cache regeneration is required for this query.
+    /// 用 `query_as!` 静态校验：SQL 文本是固定的，走编译期描述才能在列/类型漂移时
+    /// 直接编译失败。早前为"免去 `.sqlx` 重生成"而写成运行期 `query_as`，代价是这条
+    /// 查询脱离校验面（且生产动态 SQL 棘轮把字面量实参记为债务）。
     pub async fn get_processed_burns(
         &self,
         user_id: &str,
         room_id: &str,
         min_delete_ts: i64,
     ) -> Result<Vec<BurnPendingRow>, sqlx::Error> {
-        sqlx::query_as::<_, BurnPendingRow>(
+        sqlx::query_as!(
+            BurnPendingRow,
             r"
             SELECT p.id, p.user_id, p.room_id, p.event_id, p.created_ts, p.delete_ts,
                    p.is_processed, p.retry_count, p.last_error, p.is_dead_letter
@@ -314,26 +316,26 @@ impl BurnAfterReadStorage {
               AND p.room_id = $2
               AND p.is_processed = TRUE
               AND p.delete_ts >= $3
-            ORDER BY p.delete_ts ASC
+            ORDER BY p.delete_ts ASC, p.id ASC
             ",
+            user_id,
+            room_id,
+            min_delete_ts,
         )
-        .bind(user_id)
-        .bind(room_id)
-        .bind(min_delete_ts)
         .fetch_all(&*self.pool)
         .await
     }
 
     /// See [`purge_processed_burns`].
     pub async fn purge_processed_burns(&self, cutoff_ts: i64) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r"
             DELETE FROM burn_after_read_pending
             WHERE (is_processed = TRUE OR is_dead_letter = TRUE)
               AND delete_ts < $1
             ",
+            cutoff_ts,
         )
-        .bind(cutoff_ts)
         .execute(&*self.pool)
         .await?;
 
@@ -342,8 +344,7 @@ impl BurnAfterReadStorage {
 
     /// See [`purge_burn_log`].
     pub async fn purge_burn_log(&self, cutoff_ts: i64) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query("DELETE FROM burn_after_read_log WHERE burned_ts < $1")
-            .bind(cutoff_ts)
+        let result = sqlx::query!("DELETE FROM burn_after_read_log WHERE burned_ts < $1", cutoff_ts)
             .execute(&*self.pool)
             .await?;
 
@@ -362,7 +363,7 @@ impl BurnAfterReadStorage {
             WHERE delete_ts <= $1
               AND is_processed = FALSE
               AND is_dead_letter = FALSE
-            ORDER BY delete_ts ASC
+            ORDER BY delete_ts ASC, id ASC
             ",
             now_ms,
         )

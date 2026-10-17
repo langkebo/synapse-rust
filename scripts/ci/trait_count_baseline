@@ -1,7 +1,26 @@
 # Trait-count ratchet baseline (A5 / B4-1). See scripts/ci/check_trait_ratchet.py.
 # The numbers may only go DOWN. Bump them deliberately and say why.
-TOTAL=68
+TOTAL=71
 STORE_API=33
+#
+# 2026-10-17  TOTAL 68 -> 71 (+3) —— UG-11「注销异步可重试退房」的三个 DI 接缝
+#   来源：`d9bc4cb88`（`synapse-services/src/account_deactivation_service.rs`）
+#     · `pub trait RoomParting`           —— `joined_rooms` / `pending_rooms` / `part`
+#     · `pub trait PendingDeactivations`  —— `enqueue` / `next` / `remove`（队列，幂等）
+#     · `pub trait UserDataPurger`        —— `purge`（返回 `PurgedUserData` 计数）
+#   为什么放行（与下面 EventAdmissionGate / WorkerEventSink 同一判据）：
+#     · 每个都有一条**生产实现**，且都被装配进真实调用链：
+#       `impl RoomParting for RoomService`（:148）、
+#       `impl PendingDeactivations for UserDeactivationStorage`（:184）、
+#       `impl UserDataPurger for StorageUserDataPurger`（:285）；
+#     · 每个都有一条**测试替身**（`FakeRooms`/`FakePending`/`FakePurger`），这正是接缝
+#       存在的目的：注销流程要能在"退房失败后重试"这条路径上被确定性断言，而
+#       `RoomService` / `UserDeactivationStorage` 都要真库；
+#     · 三者是**不同方向**的依赖（退房 / 排队 / 删数据），变化原因不同 ⇒ 不合并。
+#       合并成 `RoomPartingAndPurge` 会把"房间成员语义变了"和"要删的表多了一张"绑在
+#       一次改动里，测试替身也会被迫一起变。
+#   代价与边界：`account_deactivation_service.rs` 已有 3 个 trait，本文件不因此放宽
+#     `STORE_API`（33 == 33，存储抽象面未动）。
 #
 # 2026-10-13  TOTAL 69 -> 68 (-1) —— 棘轮回填（B4；见 OPS_ARTIFACTS/TJG_MAP_DRIVEN_BACKEND_SDK_AUDIT_2026-10-13.md §2 B4）
 #   来源：`75864fdb5`「refactor(services,storage,web): 清理死代码、抽出跨层 helper，并同步测试与文档」

@@ -15,9 +15,17 @@ pub struct WorkerConfig {
     #[serde(default = "default_worker_instance_name")]
     /// `instance_name` field.
     pub instance_name: String,
-    #[serde(default)]
-    /// `worker_app` field.
-    pub worker_app: Option<String>,
+    // 2026-10-17（L-2）删除 `worker_app: Option<String>`。
+    //
+    // 它是早期从 Synapse 移植时留下的字段：全仓**零读取点**（除默认值与一条断言它为
+    // `None` 的测试），示例配置 `docker/config/homeserver.yaml` 也从不使用它。留着它
+    // 的唯一效果是"配置里写了却不起作用" —— 运维写 `worker_app: synapse.app.synchrotron`
+    // 会以为改了角色，实际角色仍由 `instance_name` 推导（`current_instance_worker_type`）。
+    //
+    // 本仓的角色来源是**单一**的：`worker.instance_name` ↔ `WorkerType::instance_map_keys()`
+    // 前缀匹配。要显式指定角色就设 `WORKER_INSTANCE_NAME`（多进程栈）
+    // 或 `worker.instance_name`（单进程），两者都汇入同一个解析器。
+    // serde 默认忽略未知字段，因此旧配置里的 `worker_app` 不会再导致加载失败。
     /// Enforce this instance's HTTP surface from the worker type's declared route prefixes.
     ///
     /// Off by default, and never applied to `master`, so existing deployments are
@@ -136,7 +144,6 @@ impl Default for WorkerConfig {
         Self {
             enabled: false,
             instance_name: default_worker_instance_name(),
-            worker_app: None,
             surface_gate: false,
             instance_map: HashMap::new(),
             stream_writers: StreamWriters::default(),
@@ -167,6 +174,14 @@ fn default_true() -> bool {
     true
 }
 
+/// 每一路（stream）声明的写入者实例列表。
+///
+/// ⚠️ **本版本是纯声明面**：它被解析、被校验（基数与实例存在性）、并在
+/// `GET /_synapse/worker/v1/topology/validate` 里暴露，但**没有写入路径消费者** ——
+/// 把 `events` 指给 `event_persister` 不会改变事件实际由哪个实例写入。
+/// `validate_worker_config` 会在配置偏离默认值时给出一条 warning 提醒这一点。
+/// 若将来接入写分流，需要同时改这里、`runtime_topology::stream_writer_sets`
+/// 与实际写入路径（当前只有前者）。
 #[derive(Debug, Clone, Deserialize)]
 /// Represents StreamWriters.
 pub struct StreamWriters {
@@ -342,7 +357,6 @@ mod tests {
         let config = WorkerConfig::default();
         assert!(!config.enabled);
         assert_eq!(config.instance_name, "master");
-        assert!(config.worker_app.is_none());
         assert!(config.instance_map.is_empty());
         assert_eq!(config.lock_max_retry_interval_ms, 5000);
         assert_eq!(config.lock_max_retries, 3);

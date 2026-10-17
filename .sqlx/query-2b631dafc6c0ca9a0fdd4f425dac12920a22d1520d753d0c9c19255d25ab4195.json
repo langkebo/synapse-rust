@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM burn_after_read_log WHERE burned_ts < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2b631dafc6c0ca9a0fdd4f425dac12920a22d1520d753d0c9c19255d25ab4195"
+}

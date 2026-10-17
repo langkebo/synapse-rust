@@ -42,7 +42,7 @@
 1432 synapse-common/src/server_metrics.rs
 1431 synapse-services/src/burn_after_read_service.rs
 1425 synapse-storage/src/beacon.rs
-1389 synapse-storage/src/burn_after_read.rs
+1390 synapse-storage/src/burn_after_read.rs
 1383 synapse-services/src/search_service.rs
 1367 synapse-services/src/room/membership/federation.rs
 1355 synapse-storage/src/matrixrtc.rs
@@ -53,7 +53,7 @@
 1332 synapse-storage/src/widget.rs
 1313 synapse-services/src/sync_service/data_fetch.rs
 1302 synapse-services/src/sync_service/filter.rs
-1296 synapse-services/src/capability_governance.rs
+1356 synapse-services/src/capability_governance.rs
 1295 synapse-storage/src/threepid.rs
 1295 synapse-web/src/routes/federation/keys.rs
 1288 synapse-services/src/application_service/scheduler.rs
@@ -125,7 +125,7 @@
 953 synapse-storage/src/sliding_sync/repository.rs
 952 synapse-storage/src/saml/db_tests.rs
 949 synapse-services/src/relations_service.rs
-944 synapse-services/src/worker/topology_validator.rs
+1028 synapse-services/src/worker/topology_validator.rs
 941 synapse-web/src/routes/worker.rs
 937 synapse-services/src/graph_metadata.rs
 934 synapse-common/src/password_hash_pool.rs
