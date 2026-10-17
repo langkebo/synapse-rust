@@ -8,6 +8,8 @@ pub mod load_balancer;
 pub mod manager;
 /// The `protocol` module.
 pub mod protocol;
+/// The runtime topology reconciliation (W-A).
+pub mod runtime_topology;
 /// The `storage` module.
 pub mod storage;
 /// The `tcp` module.
@@ -22,6 +24,10 @@ pub use health::{HealthCheckConfig, HealthCheckResult, HealthChecker, HealthStat
 pub use load_balancer::{LoadBalanceStrategy, WorkerLoadBalancer, WorkerLoadStats};
 pub use manager::WorkerManager;
 pub use protocol::{ReplicationCommand, ReplicationEvent, ReplicationProtocol};
+pub use runtime_topology::{
+    evaluate_runtime_topology, stream_writer_sets, RegisteredInstance, RuntimeTopologyReport, RuntimeTopologySnapshot,
+    StreamCardinality, REQUIRED_STREAM_CARDINALITY,
+};
 pub use storage::WorkerStoreApi;
 pub use topology_validator::{
     current_instance_worker_type, expected_route_owner_for_probe, global_maintenance_owner,
