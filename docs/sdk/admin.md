@@ -1,1339 +1,403 @@
-# 管理员 API
+# 管理 API（`/_synapse/admin/v1`）
 
-## 概述
-
-管理员 API 提供服务器管理和监控功能，需要管理员权限才能访问。
-
-### 权限要求
-
-所有管理员端点需要以下认证方式之一：
-- **Bearer Token**: 使用管理员用户的访问令牌
-- **Admin Header**: `Authorization: Bearer <admin_access_token>`
-
----
+服务端管理面，**266 条路由**。本页覆盖客户端/控制台常用部分；完整清单以
+`docs/openapi/route-table.json` 为准（`/_synapse/admin/v1/*`）。
 
 ## 目录
 
+- [认证与通用约定](#认证与通用约定)
 - [服务器信息](#服务器信息)
 - [用户管理](#用户管理)
+- [安全控制（封禁 / 限流 / 邀请名单）](#安全控制封禁--限流--邀请名单)
 - [房间管理](#房间管理)
-- [安全管理](#安全管理)
-- [管理员注册](#管理员注册)
+- [媒体管理](#媒体管理)
+- [举报管理](#举报管理)
+- [注册控制](#注册控制)
+- [后台任务与清理](#后台任务与清理)
+- [联邦管理](#联邦管理)
+- [审计与可观测](#审计与可观测)
+- [服务端管理（功能开关 / 保留策略 / 外部服务）](#服务端管理功能开关--保留策略--外部服务)
+- [管理端已知形状差异](#管理端已知形状差异)
+
+---
+
+## 认证与通用约定
+
+- **只认 `Authorization: Bearer <admin_token>`**；`?access_token=` 无效。
+- 缺头 → **401 `M_UNAUTHORIZED`**（不是 `M_MISSING_TOKEN`，与 client API 不同）。
+- 非管理员 token → **403 `M_FORBIDDEN`**。
+- 成功响应平铺；但注意少数端点返回 `{"status":"ok", "action":"..."}`（见
+  [管理端已知形状差异](#管理端已知形状差异)）。
+- **分页**：多数列表已从 `offset` 收敛到 **keyset 游标**——传 `offset > 0` 直接 400。
 
 ---
 
 ## 服务器信息
 
-### 获取服务器版本
+| 方法 | 端点 | 响应（实测/按实现） |
+|---|---|---|
+| `GET` | `/server_version` | `{"server_version": "6.2.0", "implementation": "synapse-rust"}` |
+| `GET` | `/status` | `{"db_ok": true, "server_ok": true, "up": true}` |
+| `GET` | `/config` | `{"server_name", "public_baseurl", "registration_enabled", "max_upload_size"}` |
+| `GET` | `/whoami` | 当前管理员 `{user_id, ...}` |
+| `GET` | `/statistics` | 见下 |
+| `GET` | `/server` | 服务端信息 |
+| `GET` | `/health` | 健康检查（比 `/status` 细） |
+| `GET` | `/rate-limit-status` | 全局限流状态 |
+| `GET` | `/experimental_features` | 实验特性开关（由 feature flags 表驱动） |
+| `POST` | `/restart` | 重启（需谨慎） |
 
-**端点:** `GET /_synapse/admin/v1/server_version`
+> ⚠️ **`GET /_synapse/admin/v1/server_version` 返回的是 `server_version` + `implementation`**，
+> **没有** `python_version`（那是上游 Synapse 的字段）。
+> `python_version` 只出现在无鉴权的 `GET /_matrix/server_version` 上，且值为字符串 `"Rust"`。
+>
+> ⚠️ **`/status` 只有三个布尔**，没有 `users` / `rooms` / `uptime`。要数量请用 `/statistics`。
 
-**需要认证:** 是 (管理员)
+### `/statistics`
 
-**响应:**
 ```json
 {
-  "version": "1.0.0",
-  "python_version": "3.9.0"
+  "total_users": 1234,
+  "total_rooms": 567,
+  "daily_active_users": 88,
+  "monthly_active_users": 320,
+  "r30_users": 410,
+  "non_deactivated_user_count": 1200,
+  "non_deactivated_user_count_by_app_service": { "": 1180, "my-as": 20 },
+  "total_messages": 89012,
+  "active_rooms": 120,
+  "total_members": 3400,
+  "encrypted_rooms": 210,
+  "daily_messages": 430
 }
 ```
 
-**请求示例:**
-```typescript
-const getServerVersion = async (accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_synapse/admin/v1/server_version`, {
-    headers: { 'Authorization': `Bearer ${accessToken}` }
-  });
-  return handleApiResponse<{
-    version: string;
-    python_version: string;
-  }>(response);
-};
-```
+### 其他统计端点
 
----
+| 端点 | 说明 |
+|---|---|
+| `GET /room_stats` / `/room_stats/{room_id}` | 房间统计 |
+| `GET /user_stats` | 用户统计总览 |
+| `GET /users/{user_id}/stats` | 单用户统计 |
+| `GET /telemetry/metrics` | 指标快照 |
+| `GET /telemetry/health` / `/telemetry/status` / `/telemetry/alerts` | 遥测状态与告警 |
+| `POST /telemetry/alerts/{alert_id}/ack` | 确认告警 |
 
-### 获取服务器状态
-
-**端点:** `GET /_synapse/admin/v1/status`
-
-**需要认证:** 是 (管理员)
-
-**响应:**
-```json
-{
-  "status": "running",
-  "version": "1.0.0",
-  "users": 1234,
-  "rooms": 567,
-  "uptime": 0
-}
-```
-
-**请求示例:**
-```typescript
-const getServerStatus = async (accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_synapse/admin/v1/status`, {
-    headers: { 'Authorization': `Bearer ${accessToken}` }
-  });
-  return handleApiResponse<{
-    status: string;
-    version: string;
-    users: number;
-    rooms: number;
-    uptime: number;
-  }>(response);
-};
-```
-
----
-
-### 获取服务器统计
-
-**端点:** `GET /_synapse/admin/v1/server_stats`
-
-**需要认证:** 是 (管理员)
-
-**响应:**
-```json
-{
-  "user_count": 1234,
-  "room_count": 567,
-  "total_message_count": 89012,
-  "database_pool_size": 20,
-  "cache_enabled": true
-}
-```
-
-**请求示例:**
-```typescript
-const getServerStats = async (accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_synapse/admin/v1/server_stats`, {
-    headers: { 'Authorization': `Bearer ${accessToken}` }
-  });
-  return handleApiResponse<{
-    user_count: number;
-    room_count: number;
-    total_message_count: number;
-    database_pool_size: number;
-    cache_enabled: boolean;
-  }>(response);
-};
-```
-
----
-
-### 获取服务器配置
-
-**端点:** `GET /_synapse/admin/v1/config`
-
-**需要认证:** 是 (管理员)
-
-**响应:**
-```json
-{
-  "server_name": "cjystx.top",
-  "version": "1.0.0",
-  "registration_enabled": true,
-  "guest_registration_enabled": false,
-  "password_policy": {
-    "enabled": true,
-    "minimum_length": 8,
-    "require_digit": true,
-    "require_lowercase": true,
-    "require_uppercase": true,
-    "require_symbol": true
-  },
-  "rate_limiting": {
-    "enabled": true,
-    "per_second": 10,
-    "burst_size": 50
-  }
-}
-```
+> **不存在** `GET /_synapse/admin/v1/server_stats`，也**不存在** `/media_stats`。
+> 历史文档里的这两个端点（以及 `server_stats` 的 `database_pool_size` / `cache_enabled` 字段）
+> 从未实现。
 
 ---
 
 ## 用户管理
 
-### 获取用户列表
+| 方法 | 端点 | 说明 |
+|---|---|---|
+| `GET` | `/users` | 列表（`limit`、`since`） |
+| `GET` | `/v2/users` | v2 列表 |
+| `GET` | `/users/{user_id}` | 详情 |
+| `PUT` | `/v2/users/{user_id}` | 更新（v2） |
+| `DELETE` | `/users/{user_id}` | 删除（连带数据） |
+| `PUT` | `/users/{user_id}/admin` | 设/取消管理员 |
+| `POST` | `/users/{user_id}/deactivate` | 停用 |
+| `POST` | `/users/{user_id}/password` | 重置密码 |
+| `POST` | `/users/batch` | 批量查询 |
+| `POST` | `/users/batch_deactivate` | 批量停用 |
+| `POST` | `/users/{user_id}/login` | 以该用户身份取 token（危险） |
+| `POST` | `/users/{user_id}/logout` | 踢下线 |
+| `POST` | `/users/{user_id}/evict` | 驱逐 |
+| `GET` | `/users/{user_id}/rooms` | 该用户加入的房间 |
+| `GET` | `/users/{user_id}/devices` | 设备列表 |
+| `POST` | `/users/{user_id}/devices/{device_id}/delete` | 删设备 |
+| `GET` | `/users/{user_id}/tokens` / `/refresh_tokens` | token 与 refresh token |
+| `DELETE` | `/users/{user_id}/refresh_tokens/{token_id}` | 吊销 refresh token |
+| `GET` | `/users/{user_id}/media` | 该用户的媒体 |
+| `GET`/`POST`/`DELETE` | `/users/{user_id}/shadow_ban` | 影子封禁（见下） |
+| `GET`/`PUT`/`DELETE` | `/users/{user_id}/rate_limit` | 限流覆盖 |
+| `GET`/`POST`/`DELETE` | `/users/{user_id}/override_ratelimit` | 同上（旧路径） |
+| `GET` | `/whois/{user_id}` / `/whois/{user_id}/{device_id}` | 在线信息 |
+| `GET` | `/user_sessions/{user_id}` | 会话 |
+| `POST` | `/user_sessions/{user_id}/invalidate` | 失效会话 |
+| `GET`/`POST` | `/account/{user_id}` | 账户操作 |
+| `GET` | `/account_validity/{user_id}` / `POST .../renew` | 账户有效期 |
 
-**端点:** `GET /_synapse/admin/v1/users`
+**`GET /users` 响应**：
 
-**需要认证:** 是 (管理员)
-
-**查询参数:**
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| limit | number | 否 | 每页数量 (默认 100) |
-| offset | number | 否 | 偏移量 (默认 0) |
-
-**响应:**
 ```json
 {
   "users": [
-    {
-      "name": "alice",
-      "is_guest": false,
-      "admin": true,
-      "deactivated": false,
-      "displayname": "Alice",
-      "avatar_url": "mxc://...",
-      "creation_ts": 1234567890,
-      "user_type": null
-    }
+    { "name": "alice", "is_guest": false, "admin": true, "deactivated": false,
+      "displayname": "Alice", "avatar_url": "mxc://...", "created_ts": 1759000000000,
+      "user_type": null }
   ],
-  "total": 1234
+  "total": 1234,
+  "next_batch": "eyJ0cyI6..."
 }
 ```
 
-**请求示例:**
-```typescript
-const getUsers = async (accessToken: string, options: {
-  limit?: number;
-  offset?: number;
-} = {}) => {
-  const url = new URL(`${BASE_URL}/_synapse/admin/v1/users`);
-  if (options.limit) url.searchParams.set('limit', options.limit.toString());
-  if (options.offset) url.searchParams.set('offset', options.offset.toString());
+| 参数 | 说明 |
+|---|---|
+| `limit` | 夹在服务端上下限内，默认 100 |
+| `since` | keyset 游标（上次的 `next_batch`） |
+| `offset` | ⚠️ `> 0` 直接 **400 `M_BAD_JSON`**（`Legacy offset pagination is no longer supported; use since cursor`） |
 
-  const response = await fetch(url.toString(), {
-    headers: { 'Authorization': `Bearer ${accessToken}` }
-  });
-  return handleApiResponse<{
-    users: UserInfo[];
-    total: number;
-  }>(response);
-};
-
-interface UserInfo {
-  name: string;
-  is_guest: boolean;
-  admin: boolean;
-  deactivated: boolean;
-  displayname?: string;
-  avatar_url?: string;
-  creation_ts: number;
-  user_type?: string;
-}
-```
+> 字段名是 **`name`**（不是 `user_id`），且 `created_ts` 是毫秒。
 
 ---
 
-## 举报管理
+## 安全控制（封禁 / 限流 / 邀请名单）
 
-### 获取举报列表
+本仓把"安全"拆成三组**真实存在**的端点，而不是历史文档里的 `/_synapse/admin/v1/security/*`
+（后者不存在）。
 
-**端点:** `GET /_synapse/admin/v1/reports`
+### 影子封禁
 
-**需要认证:** 是 (管理员)
+| 方法 | 端点 | 响应 |
+|---|---|---|
+| `POST` | `/users/{user_id}/shadow_ban` | `{"is_shadow_banned": true}` |
+| `DELETE` | `/users/{user_id}/shadow_ban` | `{}` |
 
-**查询参数:**
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| limit | number | 否 | 每页数量，默认 `100` |
-| since_score | number | 否 | Keyset 游标的评分字段，用于全量/状态排序分页 |
-| since_ts | number | 否 | Keyset 游标时间戳，按 `received_ts DESC` 分页 |
-| since_id | number | 否 | Keyset 游标主键，解决相同时间戳并列 |
+影子封禁的用户仍能正常收发（自己无感），但其消息**不投递给其他人**。用于处置刷屏账号
+而不暴露封禁动作。
 
-**说明:**
-- 原 `offset` 分页已收敛为 Keyset 分页，避免深分页带来的线性扫描退化。
-- `/_synapse/admin/v1/rooms/{room_id}/reports` 使用 `since_ts + since_id`。
-- `/_synapse/admin/v1/reports` 与状态筛选接口使用 `since_score + since_ts + since_id`。
+### 用户级限流
 
-**请求示例:**
-```typescript
-const getReports = async (accessToken: string, cursor?: {
-  limit?: number;
-  since_score?: number;
-  since_ts?: number;
-  since_id?: number;
-}) => {
-  const url = new URL(`${BASE_URL}/_synapse/admin/v1/reports`);
-  if (cursor?.limit) url.searchParams.set('limit', cursor.limit.toString());
-  if (cursor?.since_score !== undefined) url.searchParams.set('since_score', cursor.since_score.toString());
-  if (cursor?.since_ts !== undefined) url.searchParams.set('since_ts', cursor.since_ts.toString());
-  if (cursor?.since_id !== undefined) url.searchParams.set('since_id', cursor.since_id.toString());
+| 方法 | 端点 | 体/响应 |
+|---|---|---|
+| `GET` | `/users/{user_id}/rate_limit` | `{"messages_per_second": 10, "burst_count": 20}` |
+| `PUT` | `/users/{user_id}/rate_limit` | 体同上；成功回同样两字段 |
+| `DELETE` | `/users/{user_id}/rate_limit` | `{}`（回落全局） |
+| `GET`/`POST`/`DELETE` | `/users/{user_id}/override_ratelimit` | 旧路径，语义同上 |
 
-  const response = await fetch(url.toString(), {
-    headers: { 'Authorization': `Bearer ${accessToken}` }
-  });
-  return handleApiResponse<{ reports: ReportInfo[]; total: number }>(response);
-};
-```
+### 邀请白/黑名单
 
----
+| 方法 | 端点 | 说明 |
+|---|---|---|
+| `GET` | `/invite/blocklist` | `{"blocklist": [...], "total_count": N, "limit": L, "offset": O}` |
+| `POST` | `/invite/blocklist` | 整体设置（体含名单） |
+| `POST`/`DELETE` | `/invite/blocklist/{user_id}` | 单个增删 |
+| `GET`/`POST` | `/invite/allowlist` | 白名单，同构 |
+| `POST`/`DELETE` | `/invite/allowlist/{user_id}` | 单个增删 |
 
-### 获取用户详情
+> 这里的写入响应是 `{"status": "ok", "action": "set_global_invite_blocklist"}`
+> ——**这是全仓少数带 `status` 的成功响应**，客户端别把整个管理面都当成这个形状。
 
-**端点:** `GET /_synapse/admin/v1/users/{user_id}`
+### 举报相关限流
 
-**需要认证:** 是 (管理员)
-
-**响应:**
-```json
-{
-  "name": "alice",
-  "is_guest": false,
-  "admin": true,
-  "deactivated": false,
-  "displayname": "Alice",
-  "avatar_url": "mxc://...",
-  "creation_ts": 1234567890,
-  "user_type": null
-}
-```
-
-**请求示例:**
-```typescript
-const getUser = async (userId: string, accessToken: string) => {
-  const response = await fetch(
-    `${BASE_URL}/_synapse/admin/v1/users/${encodeURIComponent(userId)}`,
-    {
-      headers: { 'Authorization': `Bearer ${accessToken}` }
-    }
-  );
-  return handleApiResponse<UserInfo>(response);
-};
-```
-
----
-
-### 删除用户
-
-**端点:** `DELETE /_synapse/admin/v1/users/{user_id}`
-
-**需要认证:** 是 (管理员)
-
-**响应:**
-```json
-{
-  "user_id": "@alice:cjystx.top",
-  "deleted": true
-}
-```
-
-**请求示例:**
-```typescript
-const deleteUser = async (userId: string, accessToken: string) => {
-  const response = await fetch(
-    `${BASE_URL}/_synapse/admin/v1/users/${encodeURIComponent(userId)}`,
-    {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${accessToken}` }
-    }
-  );
-  return handleApiResponse<{
-    user_id: string;
-    deleted: boolean;
-  }>(response);
-};
-```
-
----
-
-### 设置管理员权限
-
-**端点:** `PUT /_synapse/admin/v1/users/{user_id}/admin`
-
-**需要认证:** 是 (管理员)
-
-**请求体:**
-```typescript
-interface SetAdminRequest {
-  admin: boolean;  // true = 设置为管理员, false = 取消管理员
-}
-```
-
-**响应:**
-```json
-{
-  "success": true
-}
-```
-
-**请求示例:**
-```typescript
-const setAdmin = async (userId: string, admin: boolean, accessToken: string) => {
-  const response = await fetch(
-    `${BASE_URL}/_synapse/admin/v1/users/${encodeURIComponent(userId)}/admin`,
-    {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ admin })
-    }
-  );
-  return handleApiResponse<{ success: boolean }>(response);
-};
-```
-
----
-
-### 停用用户
-
-**端点:** `POST /_synapse/admin/v1/users/{user_id}/deactivate`
-
-**需要认证:** 是 (管理员)
-
-**响应:**
-```json
-{
-  "id_server_unbind_result": "success"
-}
-```
-
-**请求示例:**
-```typescript
-const deactivateUser = async (userId: string, accessToken: string) => {
-  const response = await fetch(
-    `${BASE_URL}/_synapse/admin/v1/users/${encodeURIComponent(userId)}/deactivate`,
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({})
-    }
-  );
-  return handleApiResponse(response);
-};
-```
-
----
-
-### 重置用户密码
-
-**端点:** `POST /_synapse/admin/v1/users/{user_id}/password`
-
-**需要认证:** 是 (管理员)
-
-**请求体:**
-```typescript
-interface ResetPasswordRequest {
-  new_password: string;
-}
-```
-
-**响应:**
-```json
-{}
-```
-
-**请求示例:**
-```typescript
-const resetPassword = async (userId: string, newPassword: string, accessToken: string) => {
-  const response = await fetch(
-    `${BASE_URL}/_synapse/admin/v1/users/${encodeURIComponent(userId)}/password`,
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ new_password: newPassword })
-    }
-  );
-  return handleApiResponse(response);
-};
-```
-
----
-
-### 获取用户的房间列表
-
-**端点:** `GET /_synapse/admin/v1/users/{user_id}/rooms`
-
-**需要认证:** 是 (管理员)
-
-**响应:**
-```json
-{
-  "rooms": ["!room1:cjystx.top", "!room2:cjystx.top"]
-}
-```
-
-**请求示例:**
-```typescript
-const getUserRooms = async (userId: string, accessToken: string) => {
-  const response = await fetch(
-    `${BASE_URL}/_synapse/admin/v1/users/${encodeURIComponent(userId)}/rooms`,
-    {
-      headers: { 'Authorization': `Bearer ${accessToken}` }
-    }
-  );
-  return handleApiResponse<{ rooms: string[] }>(response);
-};
-```
-
----
-
-### 获取用户统计
-
-**端点:** `GET /_synapse/admin/v1/user_stats`
-
-**需要认证:** 是 (管理员)
-
-**响应:**
-```json
-{
-  "total_users": 1234,
-  "active_users": 1200,
-  "admin_users": 5,
-  "deactivated_users": 29,
-  "guest_users": 5,
-  "average_rooms_per_user": 2.5,
-  "user_registration_enabled": true
-}
-```
+| 方法 | 端点 |
+|---|---|
+| `GET` | `/event_reports/rate_limit/{user_id}` |
+| `POST` | `/event_reports/rate_limit/{user_id}/block` |
+| `POST` | `/event_reports/rate_limit/{user_id}/unblock` |
 
 ---
 
 ## 房间管理
 
-### 获取房间列表
+| 方法 | 端点 | 说明 |
+|---|---|---|
+| `GET` | `/rooms` | 房间列表（`search_term`、`limit`、`from`、`order_by`） |
+| `GET` | `/rooms/{room_id}` | 详情 |
+| `DELETE` | `/rooms/{room_id}` | 删除房间 |
+| `POST` | `/rooms/{room_id}/purge_history` | 按房间清理历史 |
+| `POST` | `/purge_history` | 清理历史（兼容入口，体含 `room_id` + `purge_up_to_ts`） |
+| `POST` | `/shutdown_room` | 关闭房间并移除成员 |
+| `POST` | `/purge_room` | 彻底清除房间 |
+| `GET` | `/rooms/{room_id}/members` | 成员列表 |
+| `GET` | `/rooms/{room_id}/state` | 状态 |
+| `GET` | `/rooms/{room_id}/messages` | 消息 |
+| `GET` | `/rooms/{room_id}/event_context/{event_id}` | 事件上下文 |
+| `GET` | `/rooms/{room_id}/aliases` | 别名 |
+| `GET` | `/rooms/{room_id}/listings` | 目录条目 |
+| `PUT` | `/rooms/{room_id}/listings/public` | 设公开 |
+| `GET` | `/rooms/{room_id}/media` | 房间媒体 |
+| `POST` | `/rooms/{room_id}/media/quarantine` / `unquarantine` | 隔离/解隔离 |
+| `POST` | `/rooms/{room_id}/block` / `unblock`（`DELETE /rooms/{room_id}/block`） | 阻断房间 |
+| `POST` | `/rooms/{room_id}/kick` / `ban` / `unban/{user_id}` | 管理成员 |
+| `PUT` | `/rooms/{room_id}/members/{user_id}` | 改成员状态 |
+| `POST`/`PUT` | `/rooms/{room_id}/make_admin` | 指定房间管理员 |
+| `POST` | `/rooms/{room_id}/cascade_redact` | 级联撤回 |
+| `POST` | `/rooms/{room_id}/backfill` | 触发回填 |
+| `GET` | `/rooms/{room_id}/forward_extremities` | 前向极值 |
+| `GET` | `/rooms/{room_id}/token_sync` | token 同步状态 |
+| `GET` | `/rooms/{room_id}/version` | 房间版本 |
+| `GET`/`POST` | `/rooms/search` | 房间搜索 |
+| `GET` | `/rooms/{room_id}/reports` | 房间举报 |
+| `POST` | `/rooms/cleanup` | 清理房间数据 |
 
-**端点:** `GET /_synapse/admin/v1/rooms`
+**`POST /purge_history`** 体：
 
-**需要认证:** 是 (管理员)
-
-**查询参数:**
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| limit | number | 否 | 每页数量 (默认 100) |
-| offset | number | 否 | 偏移量 (默认 0) |
-
-**响应:**
 ```json
-{
-  "rooms": [
-    {
-      "room_id": "!abc123:cjystx.top",
-      "name": "General Chat",
-      "topic": "General discussion",
-      "creator": "@alice:cjystx.top",
-      "joined_members": 15,
-      "joined_local_members": 10,
-      "is_public": true
-    }
-  ],
-  "total": 567
-}
+{ "room_id": "!x:matrix.test", "purge_up_to_ts": 1760000000000, "dry_run": false }
 ```
 
-**请求示例:**
-```typescript
-const getRooms = async (accessToken: string, options: {
-  limit?: number;
-  offset?: number;
-} = {}) => {
-  const url = new URL(`${BASE_URL}/_synapse/admin/v1/rooms`);
-  if (options.limit) url.searchParams.set('limit', options.limit.toString());
-  if (options.offset) url.searchParams.set('offset', options.offset.toString());
+响应：`{"success": true, "deleted_events": 1234, "dry_run": false}`
 
-  const response = await fetch(url.toString(), {
-    headers: { 'Authorization': `Bearer ${accessToken}` }
-  });
-  return handleApiResponse<{
-    rooms: RoomInfo[];
-    total: number;
-  }>(response);
-};
+**`POST /shutdown_room`** 体：`{"room_id": "..."}`
 
-interface RoomInfo {
-  room_id: string;
-  name: string;
-  topic: string;
-  creator: string;
-  joined_members: number;
-  joined_local_members: number;
-  is_public: boolean;
-}
-```
+响应：`{"kicked_users": [], "failed_to_kick_users": [], "closed_room": true}`
+
+> ⚠️ `kicked_users` / `failed_to_kick_users` **恒为空数组**（实现里成员移除在存储层完成，
+> 没有回传名单）。不要用这两个列表判断"谁被踢了"——需要名单请调 `/rooms/{id}/members` 对比。
 
 ---
 
-### 获取房间详情
+## 媒体管理
 
-**端点:** `GET /_synapse/admin/v1/rooms/{room_id}`
+| 方法 | 端点 | 说明 |
+|---|---|---|
+| `GET` | `/rooms/{room_id}/media` | 房间媒体列表 |
+| `GET` | `/users/{user_id}/media` | 用户媒体列表 |
+| `POST` | `/media/quarantine/{server_name}/{media_id}` | 隔离媒体 |
+| `POST` | `/media/unquarantine/{server_name}/{media_id}` | 解隔离 |
+| `POST` | `/media/protect/{media_id}` / `/media/protect/{server_name}/{media_id}` | 保护（不被清理） |
+| `POST` | `/media/unprotect/{media_id}` | 取消保护 |
+| `POST` | `/media/delete` | 删除媒体 |
+| `GET` | `/media/quarantine_changes` | 隔离变更日志 |
+| `GET` | `/quarantine_media/{media_id}/changes` | 单个媒体的变更 |
+| `POST` | `/purge_media_cache` | 清缓存 |
+| `GET`/`POST` | `/media_callbacks` | 媒体回调 |
 
-**需要认证:** 是 (管理员)
+**注意**：管理面**没有** `/media_stats`。要看媒体用量：
+`GET /_matrix/media/v1/quota/stats`（用户视角）或 `GET /media/quarantine_changes`。
 
-**响应:**
+被隔离的媒体对普通下载返回 **404**（不是 403），避免泄露"存在但被隔离"。
+
+---
+
+## 举报管理
+
+| 方法 | 端点 | 说明 |
+|---|---|---|
+| `GET` | `/event_reports` | 列表（`limit`、`since_ts`、`since_id`、`since_score`） |
+| `GET` | `/event_reports/{id}` | 详情 |
+| `PUT` | `/event_reports/{id}` | 更新 |
+| `DELETE` | `/event_reports/{id}` | 删除 |
+| `POST` | `/event_reports` | 创建（内部/兼容） |
+| `POST` | `/event_reports/{id}/resolve` / `dismiss` / `escalate` | 处置 |
+| `GET` | `/event_reports/count` | 计数 |
+| `GET` | `/event_reports/stats` | 统计 |
+| `GET` | `/event_reports/room/{room_id}` | 按房间 |
+| `GET` | `/event_reports/event/{event_id}` | 按事件 |
+| `GET` | `/event_reports/reporter/{reporter_user_id}` | 按举报人 |
+| `GET` | `/event_reports/status/{status}`、`/status/{status}/count` | 按状态 |
+| `GET` | `/reports`、`/reports/{report_id}`、`DELETE /reports/{report_id}` | 旧版兼容入口 |
+
+> **分页参数**是 `since_ts` / `since_id` / `since_score`（keyset），**不是 `offset`**。
+> 深分页用 `offset` 会 400。
+
+---
+
+## 注册控制
+
+| 方法 | 端点 | 说明 |
+|---|---|---|
+| `GET` | `/register/nonce` | 取 nonce（共享密钥注册第一步） |
+| `POST` | `/register` | 共享密钥注册管理员/用户 |
+| `GET` | `/registration_tokens` | 令牌列表 |
+| `GET` | `/registration_tokens/{token}` | 单个 |
+| `POST` | `/registration_tokens` | 新建 |
+| `POST` | `/registration_tokens/{token}` | 更新 |
+| `GET` | `/password_auth_providers` / `POST` | 密码认证提供方 |
+
+**令牌对象**：
+
 ```json
-{
-  "room_id": "!abc123:cjystx.top",
-  "name": "General Chat",
-  "topic": "General discussion",
-  "creator": "@alice:cjystx.top",
-  "is_public": true,
-  "join_rule": "public"
-}
+{ "token": "abcd1234", "uses_allowed": 10, "pending": 0, "completed": 3 }
 ```
+
+`uses_allowed` 为 `null` 表示不限次数（内部 `max_uses = 0`）。`pending` 目前恒为 `0`。
+
+**共享密钥注册**流程：`GET /register/nonce` → HMAC(secret, nonce + user + password) →
+`POST /register` 带 `nonce` + `mac` + 用户信息。**与公开注册端点无关**，是创建管理员的唯一途径。
 
 ---
 
-### 删除房间
+## 后台任务与清理
 
-**端点:** `DELETE /_synapse/admin/v1/rooms/{room_id}`
-
-**需要认证:** 是 (管理员)
-
-**响应:**
-```json
-{
-  "room_id": "!abc123:cjystx.top",
-  "deleted": true
-}
-```
-
-**请求示例:**
-```typescript
-const deleteRoom = async (roomId: string, accessToken: string) => {
-  const response = await fetch(
-    `${BASE_URL}/_synapse/admin/v1/rooms/${encodeURIComponent(roomId)}`,
-    {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${accessToken}` }
-    }
-  );
-  return handleApiResponse<{
-    room_id: string;
-    deleted: boolean;
-  }>(response);
-};
-```
+| 方法 | 端点 | 说明 |
+|---|---|---|
+| `GET` | `/background_updates` | 列表 |
+| `GET` | `/background_updates/status`、`/status/{status}/count` | 状态 |
+| `GET` | `/background_updates/stats` | 统计 |
+| `GET` | `/background_updates/count`、`/next`、`/pending`、`/running` | 队列视图 |
+| `POST` | `/background_updates` | 注册任务 |
+| `POST` | `/background_updates/retry_failed` | 重试失败项 |
+| `POST` | `/background_updates/cleanup_locks` | 清理死锁 |
+| `GET`/`POST`/`DELETE` | `/background_updates/{job_name}` | 单任务 |
+| `POST` | `/background_updates/{job_name}/start` / `complete` / `fail` / `progress` / `cancel` | 生命周期 |
+| `GET` | `/background_updates/{job_name}/history` | 历史 |
+| `POST` | `/cleanup/all`、`/cleanup/rooms`、`/cleanup/tokens` | 清理 |
+| `POST` | `/captcha/cleanup` | 清验证码 |
+| `GET`/`POST`/`DELETE` | `/retention/policy`、`/retention/policy/{room_id}` | 保留策略 |
+| `GET` | `/retention/status`、`POST /retention/run` | 状态/触发 |
+| `GET`/`POST` | `/account_data_callbacks`、`/media_callbacks` | 回调注册 |
 
 ---
 
-### 关闭房间
+## 联邦管理
 
-**端点:** `POST /_synapse/admin/v1/shutdown_room`
-
-**需要认证:** 是 (管理员)
-
-**请求体:**
-```typescript
-interface ShutdownRoomRequest {
-  room_id: string;
-}
-```
-
-**响应:**
-```json
-{
-  "kicked_users": [],
-  "failed_to_kick_users": [],
-  "closed_room": true
-}
-```
-
-**请求示例:**
-```typescript
-const shutdownRoom = async (roomId: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_synapse/admin/v1/shutdown_room`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ room_id: roomId })
-  });
-  return handleApiResponse(response);
-};
-```
+| 方法 | 端点 | 说明 |
+|---|---|---|
+| `GET` | `/federation/destinations` | 目的端列表 |
+| `GET`/`POST`/`DELETE` | `/federation/blacklist[/{server_name}]` | 黑名单 |
+| `GET` | `/federation/cache` | 缓存视图 |
+| `POST` | `/federation/cache/clear`、`DELETE /federation/cache/{key}` | 清缓存 |
+| `POST` | `/federation/confirm` | 确认目的端 |
+| `POST` | `/federation/resolve` | 解析 server |
+| `POST` | `/federation/rewrite` | 改写目的端 |
+| `POST` | `/federation/destinations/{destination}/reset_connection` | 重置连接 |
+| `GET` | `/appservices/*` | AS 注册与状态（`/appservices/{as_id}/...`） |
+| `GET`/`POST`/`PUT`/`DELETE` | `/external_services[/{as_id}]` | 外部服务 |
 
 ---
 
-### 清除历史消息
+## 审计与可观测
 
-**端点:** `POST /_synapse/admin/v1/purge_history`
+| 方法 | 端点 | 说明 |
+|---|---|---|
+| `GET` | `/audit/events` | 审计事件列表 |
+| `GET` | `/audit/events/{event_id}` | 单条 |
+| `POST` | `/audit/events` | 写入（内部） |
+| `GET` | `/modules`、`/modules/{module_name}` | 模块列表 |
+| `GET` | `/modules/logs/{module_name}` | **模块日志**（唯一的日志读取入口） |
+| `POST` | `/modules/{module_name}/enable`、`PUT /modules/{module_name}/config` | 模块开关/配置 |
+| `GET` | `/modules/spam_check/{event_id}`、`/modules/spam_check/sender/{sender}` | 反垃圾检查 |
+| `GET` | `/modules/third_party_rule/{event_id}`、`/modules/type/{module_type}` | 第三方规则 |
+| `POST` | `/modules/check_spam`、`/modules/check_third_party_rule` | 主动检查 |
+| `GET` | `/feature-flags`、`/feature-flags/{flag_key}` | 功能开关 |
+| `POST`/`PATCH` | `/feature-flags`、`/feature-flags/{flag_key}` | 写开关 |
+| `GET` | `/policy/status`、`POST /policy/check` | 策略 |
+| `GET`/`POST` | `/push/config`、`/push/cleanup`、`/push/process` | 推送管理 |
 
-**需要认证:** 是 (管理员)
-
-**请求体:**
-```typescript
-interface PurgeHistoryRequest {
-  room_id: string;
-  purge_up_to_ts?: number;  // Unix 时间戳 (毫秒)
-}
-```
-
-**响应:**
-```json
-{
-  "success": true,
-  "deleted_events": 1234
-}
-```
-
-**请求示例:**
-```typescript
-const purgeHistory = async (
-  roomId: string,
-  purgeUpToTs?: number,
-  accessToken: string
-) => {
-  const response = await fetch(`${BASE_URL}/_synapse/admin/v1/purge_history`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      room_id: roomId,
-      purge_up_to_ts: purgeUpToTs
-    })
-  });
-  return handleApiResponse<{
-    success: boolean;
-    deleted_events: number;
-  }>(response);
-};
-```
+> ⚠️ **不存在** `GET /_synapse/admin/v1/logs`。要看日志只能按模块：
+> `/modules/logs/{module_name}`。全局日志走外部日志系统（容器 stdout）。
 
 ---
 
-## 安全管理
+## 服务端管理（功能开关 / 保留策略 / 外部服务）
 
-### 获取安全事件
-
-**端点:** `GET /_synapse/admin/v1/security/events`
-
-**需要认证:** 是 (管理员)
-
-**响应:**
-```json
-{
-  "events": [
-    {
-      "id": 1,
-      "event_type": "admin_action:block_ip",
-      "user_id": "@admin:cjystx.top",
-      "ip_address": "192.168.1.100",
-      "user_agent": null,
-      "details": null,
-      "created_at": 1234567890
-    }
-  ],
-  "total": 1
-}
-```
-
-**请求示例:**
-```typescript
-const getSecurityEvents = async (accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_synapse/admin/v1/security/events`, {
-    headers: { 'Authorization': `Bearer ${accessToken}` }
-  });
-  return handleApiResponse<{
-    events: SecurityEvent[];
-    total: number;
-  }>(response);
-};
-
-interface SecurityEvent {
-  id: number;
-  event_type: string;
-  user_id?: string;
-  ip_address?: string;
-  user_agent?: string;
-  details?: string;
-  created_at: number;
-}
-```
+| 方法 | 端点 | 说明 |
+|---|---|---|
+| `GET` | `/spaces`、`/spaces/{space_id}`、`/spaces/{space_id}/rooms`、`/spaces/{space_id}/users`、`/spaces/{space_id}/stats` | 空间管理 |
+| `GET` | `/jitsi/config` | Jitsi 配置 |
+| `GET` | `/push/config` | 推送配置 |
+| `GET` | `/policy/status` | 策略状态 |
+| `POST` | `/restart` | 重启服务 |
 
 ---
 
-### 获取 IP 封禁列表
-
-**端点:** `GET /_synapse/admin/v1/security/ip/blocks`
-
-**需要认证:** 是 (管理员)
-
-**响应:**
-```json
-{
-  "blocked_ips": [
-    {
-      "ip_address": "192.168.1.0/24",
-      "reason": "Spam activity",
-      "blocked_at": 1234567890,
-      "expires_at": null
-    }
-  ],
-  "total": 1
-}
-```
-
-**请求示例:**
-```typescript
-const getIpBlocks = async (accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_synapse/admin/v1/security/ip/blocks`, {
-    headers: { 'Authorization': `Bearer ${accessToken}` }
-  });
-  return handleApiResponse<{
-    blocked_ips: BlockedIp[];
-    total: number;
-  }>(response);
-};
-
-interface BlockedIp {
-  ip_address: string;
-  reason?: string;
-  blocked_at: number;
-  expires_at?: number;
-}
-```
-
----
-
-### 封禁 IP 地址
-
-**端点:** `POST /_synapse/admin/v1/security/ip/block`
-
-**需要认证:** 是 (管理员)
-
-**请求体:**
-```typescript
-interface BlockIpRequest {
-  ip_address: string;
-  reason?: string;
-  expires_at?: string;  // ISO 8601 格式
-}
-```
-
-**响应:**
-```json
-{
-  "success": true,
-  "ip_address": "192.168.1.100"
-}
-```
-
-**请求示例:**
-```typescript
-const blockIp = async (
-  ipAddress: string,
-  reason?: string,
-  expiresAt?: string,
-  accessToken: string
-) => {
-  const response = await fetch(`${BASE_URL}/_synapse/admin/v1/security/ip/block`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      ip_address: ipAddress,
-      reason,
-      expires_at: expiresAt
-    })
-  });
-  return handleApiResponse<{
-    success: boolean;
-    ip_address: string;
-  }>(response);
-};
-```
-
----
-
-### 解除 IP 封禁
-
-**端点:** `POST /_synapse/admin/v1/security/ip/unblock`
-
-**需要认证:** 是 (管理员)
-
-**请求体:**
-```typescript
-interface UnblockIpRequest {
-  ip_address: string;
-}
-```
-
-**响应:**
-```json
-{
-  "success": true,
-  "ip_address": "192.168.1.100",
-  "message": "IP unblocked"
-}
-```
-
-**请求示例:**
-```typescript
-const unblockIp = async (ipAddress: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_synapse/admin/v1/security/ip/unblock`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ ip_address: ipAddress })
-  });
-  return handleApiResponse<{
-    success: boolean;
-    ip_address: string;
-    message: string;
-  }>(response);
-};
-```
-
----
-
-### 获取 IP 声誉
-
-**端点:** `GET /_synapse/admin/v1/security/ip/reputation/{ip}`
-
-**需要认证:** 是 (管理员)
-
-**响应:**
-```json
-{
-  "ip_address": "192.168.1.100",
-  "score": 50,
-  "last_seen_at": 1234567890,
-  "updated_at": 1234567890,
-  "details": null
-}
-```
-
-**请求示例:**
-```typescript
-const getIpReputation = async (ip: string, accessToken: string) => {
-  const response = await fetch(
-    `${BASE_URL}/_synapse/admin/v1/security/ip/reputation/${encodeURIComponent(ip)}`,
-    {
-      headers: { 'Authorization': `Bearer ${accessToken}` }
-    }
-  );
-  return handleApiResponse<{
-    ip_address: string;
-    score: number;
-    last_seen_at: number;
-    updated_at: number;
-    details?: string;
-  }>(response);
-};
-```
-
----
-
-## 管理员注册
-
-### 获取注册 Nonce
-
-**端点:** `GET /_synapse/admin/v1/register/nonce`
-
-**需要认证:** 否
-
-**说明:** 此端点用于获取注册管理员账号所需的 nonce（一次性令牌），有速率限制。
-
-**响应:**
-```json
-{
-  "nonce": "random_nonce_string",
-  "expires_at": 1234567890
-}
-```
-
-**请求示例:**
-```typescript
-const getAdminRegisterNonce = async () => {
-  const response = await fetch(`${BASE_URL}/_synapse/admin/v1/register/nonce`);
-  return handleApiResponse<{
-    nonce: string;
-    expires_at: number;
-  }>(response);
-};
-```
-
----
-
-### 注册管理员账号
-
-**端点:** `POST /_synapse/admin/v1/register`
-
-**需要认证:** 否
-
-**说明:** 使用 nonce 注册管理员账号，有速率限制。
-
-**请求体:**
-```typescript
-interface AdminRegisterRequest {
-  username: string;
-  password: string;
-  nonce: string;
-  admin_token?: string;  // 可选的管理员令牌
-}
-```
-
-**响应:**
-```json
-{
-  "access_token": "syt_...",
-  "user_id": "@admin:cjystx.top",
-  "device_id": "DEVICE_ID"
-}
-```
-
-**请求示例:**
-```typescript
-const adminRegister = async (
-  username: string,
-  password: string,
-  nonce: string,
-  adminToken?: string
-) => {
-  const response = await fetch(`${BASE_URL}/_synapse/admin/v1/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      username,
-      password,
-      nonce,
-      admin_token: adminToken
-    })
-  });
-  return handleApiResponse<{
-    access_token: string;
-    user_id: string;
-    device_id: string;
-  }>(response);
-};
-```
-
----
-
-## 日志和监控
-
-### 获取服务器日志
-
-**端点:** `GET /_synapse/admin/v1/logs`
-
-**需要认证:** 是 (管理员)
-
-**查询参数:**
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| level | string | 否 | 日志级别 (debug, info, warn, error) |
-| limit | number | 否 | 限制数量 |
-
-**响应:**
-```json
-{
-  "logs": [
-    {
-      "timestamp": "2026-02-11T12:00:00Z",
-      "level": "info",
-      "message": "Server started successfully",
-      "module": "synapse::server"
-    }
-  ],
-  "total": 1,
-  "level_filter": "info"
-}
-```
-
----
-
-### 获取媒体统计
-
-**端点:** `GET /_synapse/admin/v1/media_stats`
-
-**需要认证:** 是 (管理员)
-
-**响应:**
-```json
-{
-  "total_storage_bytes": 1073741824,
-  "total_storage_human": "1.00 GB",
-  "file_count": 1234,
-  "media_directory": "/app/data/media",
-  "thumbnail_enabled": true,
-  "max_upload_size_mb": 50
-}
-```
-
----
-
-## 完整管理服务示例
-
-```typescript
-class AdminService {
-  constructor(private auth: AuthService) {}
-
-  // ========== 服务器信息 ==========
-  async getServerInfo() {
-    const [version, status, stats, config] = await Promise.all([
-      this.request('/_synapse/admin/v1/server_version'),
-      this.request('/_synapse/admin/v1/status'),
-      this.request('/_synapse/admin/v1/server_stats'),
-      this.request('/_synapse/admin/v1/config')
-    ]);
-
-    return { version, status, stats, config };
-  }
-
-  // ========== 用户管理 ==========
-  async getUsers(options: { limit?: number; offset?: number } = {}) {
-    const params = new URLSearchParams();
-    if (options.limit) params.set('limit', options.limit.toString());
-    if (options.offset) params.set('offset', options.offset.toString());
-
-    return this.request(`/_synapse/admin/v1/users?${params}`);
-  }
-
-  async getUser(userId: string) {
-    return this.request(`/_synapse/admin/v1/users/${encodeURIComponent(userId)}`);
-  }
-
-  async deleteUser(userId: string) {
-    return this.request(
-      `/_synapse/admin/v1/users/${encodeURIComponent(userId)}`,
-      'DELETE'
-    );
-  }
-
-  async setAdminStatus(userId: string, isAdmin: boolean) {
-    return this.request(
-      `/_synapse/admin/v1/users/${encodeURIComponent(userId)}/admin`,
-      'PUT',
-      { admin: isAdmin }
-    );
-  }
-
-  async deactivateUser(userId: string) {
-    return this.request(
-      `/_synapse/admin/v1/users/${encodeURIComponent(userId)}/deactivate`,
-      'POST',
-      {}
-    );
-  }
-
-  async resetUserPassword(userId: string, newPassword: string) {
-    return this.request(
-      `/_synapse/admin/v1/users/${encodeURIComponent(userId)}/password`,
-      'POST',
-      { new_password: newPassword }
-    );
-  }
-
-  // ========== 房间管理 ==========
-  async getRooms(options: { limit?: number; offset?: number } = {}) {
-    const params = new URLSearchParams();
-    if (options.limit) params.set('limit', options.limit.toString());
-    if (options.offset) params.set('offset', options.offset.toString());
-
-    return this.request(`/_synapse/admin/v1/rooms?${params}`);
-  }
-
-  async getRoom(roomId: string) {
-    return this.request(`/_synapse/admin/v1/rooms/${encodeURIComponent(roomId)}`);
-  }
-
-  async deleteRoom(roomId: string) {
-    return this.request(
-      `/_synapse/admin/v1/rooms/${encodeURIComponent(roomId)}`,
-      'DELETE'
-    );
-  }
-
-  async shutdownRoom(roomId: string) {
-    return this.request(
-      '/_synapse/admin/v1/shutdown_room',
-      'POST',
-      { room_id: roomId }
-    );
-  }
-
-  async purgeRoomHistory(roomId: string, beforeTs?: number) {
-    return this.request(
-      '/_synapse/admin/v1/purge_history',
-      'POST',
-      {
-        room_id: roomId,
-        purge_up_to_ts: beforeTs
-      }
-    );
-  }
-
-  // ========== 安全管理 ==========
-  async getSecurityEvents() {
-    return this.request('/_synapse/admin/v1/security/events');
-  }
-
-  async getIpBlocks() {
-    return this.request('/_synapse/admin/v1/security/ip/blocks');
-  }
-
-  async blockIp(ipAddress: string, reason?: string, expiresAt?: string) {
-    return this.request(
-      '/_synapse/admin/v1/security/ip/block',
-      'POST',
-      {
-        ip_address: ipAddress,
-        reason,
-        expires_at: expiresAt
-      }
-    );
-  }
-
-  async unblockIp(ipAddress: string) {
-    return this.request(
-      '/_synapse/admin/v1/security/ip/unblock',
-      'POST',
-      { ip_address: ipAddress }
-    );
-  }
-
-  async getIpReputation(ip: string) {
-    return this.request(`/_synapse/admin/v1/security/ip/reputation/${encodeURIComponent(ip)}`);
-  }
-
-  // ========== 日志和统计 ==========
-  async getLogs(level = 'info', limit = 100) {
-    const params = new URLSearchParams({ level, limit: limit.toString() });
-    return this.request(`/_synapse/admin/v1/logs?${params}`);
-  }
-
-  async getMediaStats() {
-    return this.request('/_synapse/admin/v1/media_stats');
-  }
-
-  async getUserStats() {
-    return this.request('/_synapse/admin/v1/user_stats');
-  }
-
-  // 私有方法
-  private async request(endpoint: string, method = 'GET', body?: any) {
-    const url = `${BASE_URL}${endpoint}`;
-    const options: RequestInit = {
-      method,
-      headers: {
-        'Authorization': `Bearer ${this.auth.accessToken}`,
-        'Content-Type': 'application/json'
-      }
-    };
-
-    if (body && method !== 'GET') {
-      options.body = JSON.stringify(body);
-    }
-
-    const response = await fetch(url, options);
-    return this.auth.handleResponse(response);
-  }
-}
-```
-
----
-
-## React Hook 示例
-
-```typescript
-import { useState, useCallback } from 'react';
-
-interface UseAdminResult {
-  users: UserInfo[];
-  rooms: RoomInfo[];
-  ipBlocks: BlockedIp[];
-  loading: boolean;
-  error: string | null;
-  getUsers: () => Promise<void>;
-  deleteUser: (userId: string) => Promise<void>;
-  blockIp: (ip: string, reason?: string) => Promise<void>;
-  unblockIp: (ip: string) => Promise<void>;
-}
-
-export function useAdmin(accessToken: string): UseAdminResult {
-  const [users, setUsers] = useState<UserInfo[]>([]);
-  const [rooms, setRooms] = useState<RoomInfo[]>([]);
-  const [ipBlocks, setIpBlocks] = useState<BlockedIp[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const getUsers = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await fetch(`${BASE_URL}/_synapse/admin/v1/users`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      });
-      const result = await response.json();
-      setUsers(result.users || []);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [accessToken]);
-
-  const deleteUser = useCallback(async (userId: string) => {
-    const response = await fetch(
-      `${BASE_URL}/_synapse/admin/v1/users/${encodeURIComponent(userId)}`,
-      {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      }
-    );
-    if (!response.ok) {
-      throw new Error('Failed to delete user');
-    }
-    await getUsers();
-  }, [accessToken, getUsers]);
-
-  const blockIp = useCallback(async (ip: string, reason?: string) => {
-    const response = await fetch(`${BASE_URL}/_synapse/admin/v1/security/ip/block`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ ip_address: ip, reason })
-    });
-    if (!response.ok) {
-      throw new Error('Failed to block IP');
-    }
-  }, [accessToken]);
-
-  const unblockIp = useCallback(async (ip: string) => {
-    const response = await fetch(`${BASE_URL}/_synapse/admin/v1/security/ip/unblock`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ ip_address: ip })
-    });
-    if (!response.ok) {
-      throw new Error('Failed to unblock IP');
-    }
-  }, [accessToken]);
-
-  return {
-    users,
-    rooms,
-    ipBlocks,
-    loading,
-    error,
-    getUsers,
-    deleteUser,
-    blockIp,
-    unblockIp
-  };
-}
-```
-
----
-
-## 安全注意事项
-
-1. **保护管理员 Token**: 管理员访问令牌具有完全权限，必须妥善保管
-2. **记录管理操作**: 所有管理操作都会记录到安全事件日志中
-3. **IP 封禁**: 支持单 IP 和 CIDR 范围封禁
-4. **速率限制**: 管理员注册接口有严格的速率限制
-5. **审计日志**: 定期检查安全事件日志以发现异常活动
+## 管理端已知形状差异
+
+这几条是接入管理面最容易踩的坑：
+
+| 差异 | 说明 |
+|---|---|
+| **401 的 errcode** | 管理面缺 token 是 `M_UNAUTHORIZED`；client API 是 `M_MISSING_TOKEN` |
+| **`{"status":"ok"}` 确实存在** | 仅 `/invite/blocklist`、`/invite/allowlist` 等少数写端点如此；其余平铺 |
+| **偏移分页已废** | `/users` 等传 `offset>0` → 400 `M_BAD_JSON` |
+| **`/status` 只有三个布尔** | 数量统计在 `/statistics` |
+| **`server_version` 无 `python_version`** | 字段名是 `server_version` + `implementation` |
+| **`shutdown_room` 名单恒空** | 成员确实被移除，但响应不给名单 |
+| **`/server_stats`、`/media_stats`、`/logs`、`/security/*` 不存在** | 分别映射到 `/statistics`+`/room_stats`、`/media/*`、`/modules/logs/*`、`/users/{id}/shadow_ban` + `/users/{id}/rate_limit` + `/invite/blocklist` |
+| **举报分页是 keyset** | `since_ts` / `since_id` / `since_score` |

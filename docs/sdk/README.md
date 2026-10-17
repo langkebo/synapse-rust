@@ -1,573 +1,153 @@
-# Synapse Rust Matrix Server - SDK 前端开发文档
+# Synapse Rust — SDK / 前端接入契约
 
-## 概述
+面向客户端（Tjg / HuLa / Element 类 SDK）的接口契约文档。**每一条端点、字段、状态码都以本仓
+源码为准**；`docs/openapi/route-table.json`（由 `scripts/api_test/gen_route_table.py` 从路由表生成，
+959 条）是端点存在性的唯一权威来源。
 
-本文档为前端开发人员提供 Synapse Rust Matrix 服务器的完整 API 接口说明和开发指南。
+## 服务与部署事实
 
-### 服务器信息
+| 项 | 值 | 来源 |
+|---|---|---|
+| 产品版本 | `6.2.0` | `Cargo.toml` 的 `[workspace.package].version`，`GET /_matrix/server_version` 原样上报 |
+| 协议 | Matrix Client-Server **v1.1 – v1.17**（`versions` 数组） | `GET /_matrix/client/v3/versions` |
+| 默认房间版本 | `12` | `capabilities.m.room_versions.default` |
+| 本地基址 | `http://127.0.0.1:8008`（容器 `synapse-app` 映射到宿主回环） | `docker/config/homeserver.yaml` 的 `server.public_baseurl` 默认值 |
+| 参考 server_name | `matrix.test` | `/.well-known/matrix/client` 实测返回 `{"m.homeserver":{"base_url":"https://matrix.test"}}` |
+| 单文件上传上限 | 52428800（50 MiB） | `server.max_upload_size`，`GET /_matrix/client/v3/media/config` 同值 |
+| 服务端语言 | 单一 `en`（`server_version.python_version` 固定为 `"Rust"`） | `handlers/versions.rs` |
 
+> 生产部署的 `server_name` / `public_baseurl` 由 `SERVER_NAME` / `PUBLIC_BASEURL` 环境变量注入，
+> 不要硬编码本文的示例域名。
+
+## 文档地图
+
+| 文档 | 覆盖范围 |
+|---|---|
+| [discovery.md](./discovery.md) | `/versions`、`/capabilities`、`.well-known/*`、`/login` 流程发现、健康检查 |
+| [authentication.md](./authentication.md) | 注册（含 UIA）、登录、登出、refresh、账户资料、密码、停用、3PID、guest 升级 |
+| [devices.md](./devices.md) | 设备与会话、`delete_devices`、Presence、Pushers、Notifications |
+| [sync.md](./sync.md) | `/sync`（v3 GET 与 v1/v4 POST）、Filter、Account Data、Tags、回执与 typing 的 sync 投影 |
+| [rooms.md](./rooms.md) | 创建/加入/离开、成员、状态事件、别名与目录、层级、房间信息、报告 |
+| [messages.md](./messages.md) | 发送/编辑/撤回、历史分页、relations / reactions / threads / pinned、搜索、context |
+| [friends.md](./friends.md) | `/_matrix/vendor/v1/friends/*`（好友、请求、分组、搜索、建议、私信） |
+| [media.md](./media.md) | 上传（含分片）、鉴权与非鉴权下载、缩略图、配额、preview_url |
+| [e2ee.md](./e2ee.md) | 设备密钥、一次性密钥、cross-signing、key backup（`room_keys`）、密钥轮换 |
+| [extensions.md](./extensions.md) | `/_matrix/vendor/v1/*` 扩展：房间摘要、线程、置顶、延迟事件、Sticky、Direct、Spaces |
+| [admin.md](./admin.md) | `/_synapse/admin/v1/*`（用户、房间、媒体、联邦、后台任务、注册令牌） |
+| [errors.md](./errors.md) | 错误响应格式、全部 `errcode`、限流头、重试策略 |
+
+## 三条必须知道的全局契约
+
+### 1. 没有 `{status, data}` 信封
+
+成功响应就是**业务对象本身**；无返回体的端点返回 `{}`（空对象，不是 204、不是 `{"status":"ok"}`）。
+历史版本文档里的 `{"status": "ok", "data": {...}}` 从未在本服务实现过，按它解析会拿到 `undefined`。
+
+```jsonc
+// POST /_matrix/client/v3/login 的 200
+{ "access_token": "...", "refresh_token": "...", "expires_in": 3600000,
+  "device_id": "...", "user_id": "@alice:matrix.test",
+  "well_known": { "m.homeserver": { "base_url": "https://matrix.test" } } }
+
+// PUT /_matrix/client/v3/rooms/{room}/send/m.room.message/{txn}
+{ "event_id": "$abc:matrix.test" }
 ```
-BASE_URL: http://localhost:8008
-测试域名: matrix.test
-版本: 6.2.0
-协议: Matrix Client-Server API
+
+错误响应形状唯一：
+
+```json
+{ "errcode": "M_INVALID_PARAM", "error": "The 'dir' parameter must be 'f' or 'b'" }
 ```
 
----
+### 2. Token 只能放 `Authorization` 头
 
-## 目录结构
+服务端只从 `Authorization: Bearer <token>` 取 token（`utils/auth.rs::extract_token`）；
+**`?access_token=` 查询参数会被静默忽略**，请求随即 401 `M_UNAUTHORIZED`（已实测）。
 
-```
-docs/sdk/
-├── README.md                    # 本文档 - 总览
-├── authentication.md            # 用户认证与注册
-├── rooms.md                     # 房间管理
-├── friends.md                   # 好友系统
-├── messages.md                  # 消息与事件
-├── media.md                     # 媒体文件
-├── e2ee.md                      # 端到端加密
-├── admin.md                     # 管理员接口
-└── errors.md                    # 错误处理
+```bash
+# 有效
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8008/_matrix/client/v3/account/whoami
+# 无效：query 里的 token 不被读取
+curl "http://127.0.0.1:8008/_matrix/client/v3/sync?access_token=$TOKEN"   # → 401
 ```
 
----
+对 `<img>` / `<video>` 这类不能带头部的场景：**用非鉴权的 `/_matrix/media/v3/download/...`
+与 `/_matrix/media/v3/thumbnail/...`**（无需 token），或由前端 `fetch` 拿到 blob 再 `createObjectURL`。
+详见 [media.md](./media.md)。
 
-## 文档导航
+### 3. 401 的 errcode 分两种
 
-### 核心功能
+| 场景 | errcode | 说明 |
+|---|---|---|
+| 缺 token（client API） | `M_MISSING_TOKEN` | `Missing access token` |
+| 缺/坏 `Authorization` 头（media、admin、federation 等） | `M_UNAUTHORIZED` | `Missing or invalid authorization header` |
+| token 无效/过期 | `M_UNKNOWN_TOKEN` | 客户端应清 token 并重新登录 |
 
-| 文档 | 描述 | 主要端点 |
-|------|------|----------|
-| [认证](./authentication.md) | 用户注册、登录、Token 管理 | `/_matrix/client/v3/login` |
-| [房间](./rooms.md) | 创建房间、加入、成员管理 | `/_matrix/client/v3/createRoom` |
-| [好友](./friends.md) | 好友请求、私信、好友列表 | `/_matrix/vendor/v1/friends` |
-| [消息](./messages.md) | 发送消息、历史记录、回执 | `/_matrix/client/v3/send` |
-| [媒体](./media.md) | 上传下载、缩略图 | `/_matrix/media/v3/upload` |
+## API 版本前缀
 
-### 高级功能
+| 前缀 | 用途 | 备注 |
+|---|---|---|
+| `/_matrix/client/v3/` | Matrix 客户端 API 主体 | 379 条 |
+| `/_matrix/client/v1/` | 较新的稳定端点（threads、relations、media、profile 部分） | 与 v3 并存，不是替代 |
+| `/_matrix/client/unstable/` | MSC 命名空间（`org.matrix.msc4140`、`msc4354`、`msc3575`、`msc3814`…） | 需 `/versions` 的 `unstable_features` 为 `true` |
+| `/_matrix/media/v3/` | 媒体（**非鉴权**直链） | 另见 `/_matrix/client/v1/media/*`（需鉴权） |
+| `/_matrix/vendor/v1/` | 本仓客户端扩展（好友、摘要、线程、置顶、burn、spaces…） | 185 条，非 Matrix 规范 |
+| `/_synapse/admin/v1/` | 管理 API | 266 条，需管理员 token |
+| `/_matrix/federation/v1/` | 服务端互通 | 客户端不应调用 |
 
-| 文档 | 描述 | 主要端点 |
-|------|------|----------|
-| [E2EE](./e2ee.md) | 端到端加密、设备密钥 | `/_matrix/client/v3/keys/upload` |
-| [管理](./admin.md) | 服务器管理、用户管理 | `/_synapse/admin/v1/` |
-| [错误](./errors.md) | 错误码、处理最佳实践 | - |
+> `/_matrix/client/v1/` 中的 "v1" 是**端点版本**，与本服务产品版本 `6.2.0` 无关。
 
----
+## 分页约定（按端点而异，勿套用统一模型）
 
-## 快速开始
+本服务**没有**统一的 `offset/since` 分页协议，不同家族各自成约：
 
-### 1. 用户登录
+| 家族 | 机制 | 关键字段 |
+|---|---|---|
+| `/sync` | 增量游标 | `next_batch`，`since` |
+| `/rooms/{id}/messages` | 方向游标 | `from` / `to` / `dir`（缺省 `b`），响应 `start` / `end` / `chunk` |
+| `/_matrix/vendor/v1/friends` | **Keyset 游标**（`offset` 已废弃） | 请求 `from`，响应 `next_batch` / `next_offset`；传 `offset` 直接 400 |
+| `/_synapse/admin/v1/reports` 等 | Keyset | `since_ts` / `since_id` / `since_score` |
+| `/publicRooms` | `since` + `limit` | `next_batch` |
+
+`limit` 上限因端点而异（`/messages` 最大 1000、`friends` 最大 200），**不要假设全局 10–1000**。
+
+## 错误处理最小实现
 
 ```typescript
-const login = async (username: string, password: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/v3/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      type: 'm.login.password',
-      user: username,
-      password: password
-    })
-  });
-
-  const data = await response.json();
-  // 保存 access_token
-  localStorage.setItem('access_token', data.access_token);
-  localStorage.setItem('user_id', data.user_id);
-  return data;
-};
-```
-
-### 2. 发送消息
-
-```typescript
-const sendMessage = async (roomId: string, text: string, token: string) => {
-  const txnId = Date.now().toString();
-  const response = await fetch(
-    `${BASE_URL}/_matrix/client/v3/rooms/${roomId}/send/m.room.message/${txnId}`,
-    {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        msgtype: 'm.text',
-        body: text
-      })
-    }
-  );
-  return response.json();
-};
-```
-
-### 3. 获取好友列表
-
-```typescript
-const getFriends = async (token: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/vendor/v1/friends`, {
-    headers: { 'Authorization': `Bearer ${token}` }
-  });
-  const result = await response.json();
-  return result.data || [];
-};
-```
-
-### 4. 上传图片
-
-```typescript
-const uploadImage = async (file: File, token: string) => {
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('filename', file.name);
-
-  const response = await fetch(`${BASE_URL}/_matrix/media/v3/upload`, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${token}` },
-    body: formData
-  });
-  const result = await response.json();
-  return result.content_uri;
-};
-```
-
----
-
-## API 版本说明
-
-| 版本前缀 | 用途 |
-|---------|------|
-| `/_matrix/client/v3/` | 标准 Matrix 客户端 API |
-| `/_matrix/client/v1/` | 自定义增强功能 (好友系统) |
-| `/_matrix/media/v3/` | 媒体 API |
-| `/_synapse/admin/v1/` | 管理员 API |
-| `/_matrix/federation/v1/` | 联邦 API (跨服务器通信) |
-
----
-
-## 国际化（i18n）
-
-本服务器**仅支持英文（`en`）单语**，不提供多语言的服务端文案。该立场在认证发现端点中显式声明：
-
-- `GET /.well-known/openid-configuration` → `"ui_locales_supported": ["en"]`
-- `GET /_matrix/client/v1/auth_metadata`（MSC2965 认证发现）→ `"ui_locales_supported": ["en"]`
-
-客户端应将 `en` 视为**唯一**受支持语言；如需其他语种文案，须由客户端侧自行本地化处理，服务端不会返回翻译后的界面文案。
-
----
-
-## HTTP 状态码
-
-| 状态码 | 含义 | 使用场景 |
-|--------|------|----------|
-| 200 | OK | 请求成功 |
-| 201 | Created | 资源创建成功 |
-| 400 | Bad Request | 请求参数错误 |
-| 401 | Unauthorized | 未认证或 Token 无效 |
-| 403 | Forbidden | 权限不足 |
-| 404 | Not Found | 资源不存在 |
-| 405 | Method Not Allowed | 方法不允许 |
-| 409 | Conflict | 资源冲突 (如用户名已存在) |
-| 413 | Payload Too Large | 请求体过大 |
-| 429 | Too Many Requests | 请求过于频繁 |
-| 500 | Internal Server Error | 服务器内部错误 |
-| 501 | Not Implemented | 功能未实现 |
-
----
-
-## 常见错误码
-
-| 错误码 | 说明 |
-|--------|------|
-| `M_BAD_JSON` | JSON 格式错误 |
-| `M_NOT_JSON` | 非 JSON 内容 |
-| `M_NOT_FOUND` | 资源不存在 |
-| `M_MISSING_TOKEN` | 缺少 Token |
-| `M_UNKNOWN_TOKEN` | Token 无效 |
-| `M_UNAUTHORIZED` | 需要认证 |
-| `M_LIMIT_EXCEEDED` | 超出速率限制 |
-| `M_USER_IN_USE` | 用户名已被占用 |
-| `M_INVALID_USERNAME` | 用户名格式无效 |
-| `M_INVALID_PARAM` | 参数非法 |
-| `M_FORBIDDEN` | 禁止访问 |
-
-> 详细错误处理请参考 [errors.md](./errors.md)
-
----
-
-## 分页支持
-
-列表类接口支持分页:
-
-```typescript
-interface PaginationParams {
-  limit?: number;    // 每页数量 (默认: 100, 范围: 10-1000)
-  offset?: number;   // 偏移量
-  since?: string;    // 起始 Token
-}
-
-interface PaginatedResponse<T> {
-  data: T[];
-  next_token?: string;  // 下一页 Token
-  total?: number;      // 总数
-}
-```
-
----
-
-## 最佳实践
-
-### 1. Token 管理
-
-```typescript
-class AuthManager {
-  private token: string = '';
-  private refreshToken: string = '';
-
-  async login(username: string, password: string) {
-    const response = await fetch(`${BASE_URL}/_matrix/client/v3/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        type: 'm.login.password',
-        user: username,
-        password: password
-      })
-    });
-    const data = await response.json();
-    this.token = data.access_token;
-    this.refreshToken = data.refresh_token;
-
-    // 保存到本地存储
-    localStorage.setItem('access_token', this.token);
-    localStorage.setItem('refresh_token', this.refreshToken);
-  }
-
-  async refreshAccessToken() {
-    const response = await fetch(`${BASE_URL}/_matrix/client/v3/refresh`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.refreshToken}`,
-        'Content-Type': 'application/json'
-      }
-    });
-    const data = await response.json();
-    this.token = data.access_token;
-    localStorage.setItem('access_token', this.token);
-  }
-
-  getHeaders() {
-    return {
-      'Authorization': `Bearer ${this.token}`,
-      'Content-Type': 'application/json'
-    };
-  }
-}
-```
-
-### 2. 错误处理
-
-```typescript
-class ApiError extends Error {
-  constructor(
-    public errcode: string,
-    public message: string,
-    public status: number
-  ) {
+export class MatrixApiError extends Error {
+  constructor(readonly errcode: string, message: string, readonly status: number,
+              readonly retryAfterMs?: number) {
     super(message);
-    this.name = 'ApiError';
   }
 }
 
-async function handleApiResponse<T>(response: Response): Promise<T> {
-  // 成功响应直接返回业务负载；错误响应形如 { errcode, error }
-  const data = await response.json();
+export async function call<T>(base: string, path: string, token: string | null,
+                             init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  headers.set('Content-Type', 'application/json');
+  if (token) headers.set('Authorization', `Bearer ${token}`);
 
-  if (!response.ok) {
-    throw new ApiError(
-      data.errcode || 'M_UNKNOWN',
-      data.error || 'Request failed',
-      response.status
+  const res = await fetch(base + path, { ...init, headers });
+  const body = res.status === 204 ? {} : await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    throw new MatrixApiError(
+      body.errcode ?? 'M_UNKNOWN',
+      body.error ?? `HTTP ${res.status}`,
+      res.status,
+      body.retry_after_ms,
     );
   }
-
-  return data as T;
+  return body as T;
 }
 ```
 
-### 3. 请求拦截器
+完整错误码清单见 [errors.md](./errors.md)。
 
-```typescript
-class ApiClient {
-  private baseURL: string;
-  private token: string = '';
+## 一致性约束（写文档/改代码时的口径）
 
-  constructor(baseURL: string) {
-    this.baseURL = baseURL;
-
-    // 从本地存储恢复 Token
-    this.token = localStorage.getItem('access_token') || '';
-  }
-
-  setToken(token: string) {
-    this.token = token;
-    localStorage.setItem('access_token', token);
-  }
-
-  async request<T>(
-    endpoint: string,
-    options: RequestInit = {}
-  ): Promise<T> {
-    const url = `${this.baseURL}${endpoint}`;
-
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(this.token && { 'Authorization': `Bearer ${this.token}` }),
-        ...options.headers
-      }
-    });
-
-    return handleApiResponse<T>(response);
-  }
-
-  // 便捷方法
-  get<T>(endpoint: string) {
-    return this.request<T>(endpoint, { method: 'GET' });
-  }
-
-  post<T>(endpoint: string, data: any) {
-    return this.request<T>(endpoint, {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
-  }
-
-  put<T>(endpoint: string, data: any) {
-    return this.request<T>(endpoint, {
-      method: 'PUT',
-      body: JSON.stringify(data)
-    });
-  }
-
-  delete<T>(endpoint: string) {
-    return this.request<T>(endpoint, { method: 'DELETE' });
-  }
-}
-
-// 使用
-const api = new ApiClient('http://localhost:8008');
-
-// 登录
-const loginData = await api.post('/_matrix/client/v3/login', {
-  type: 'm.login.password',
-  user: 'alice',
-  password: 'password123'
-});
-api.setToken(loginData.access_token);
-
-// 发送消息
-await api.put(
-  `/_matrix/client/v3/rooms/${roomId}/send/m.room.message/${txnId}`,
-  { msgtype: 'm.text', body: 'Hello!' }
-);
-
-// 获取好友
-const friends = await api.get<FriendInfo[]>('/_matrix/vendor/v1/friends');
-```
-
-### 4. 速率限制处理
-
-```typescript
-let requestQueue = Promise.resolve();
-const MIN_REQUEST_INTERVAL = 100; // 100ms
-
-async function rateLimitedFetch(url: string, options?: RequestInit) {
-  await requestQueue;
-  requestQueue = new Promise(resolve =>
-    setTimeout(resolve, MIN_REQUEST_INTERVAL)
-  );
-  return fetch(url, options);
-}
-
-// 或者使用更高级的令牌桶算法
-class RateLimiter {
-  private queue: Array<() => void> = [];
-  private running = 0;
-  private maxConcurrent = 5;
-
-  async run<T>(fn: () => Promise<T>): Promise<T> {
-    if (this.running >= this.maxConcurrent) {
-      await new Promise(resolve => this.queue.push(resolve));
-    }
-
-    this.running++;
-    try {
-      return await fn();
-    } finally {
-      this.running--;
-      const next = this.queue.shift();
-      if (next) next();
-    }
-  }
-}
-```
-
----
-
-## 完整服务类示例
-
-```typescript
-// services/index.ts
-export class MatrixService {
-  private api: ApiClient;
-
-  constructor(baseURL: string) {
-    this.api = new ApiClient(baseURL);
-  }
-
-  // 认证
-  async login(username: string, password: string) {
-    return this.api.post('/_matrix/client/v3/login', {
-      type: 'm.login.password',
-      user: username,
-      password
-    });
-  }
-
-  async register(username: string, password: string) {
-    return this.api.post('/_matrix/client/v3/register', {
-      username,
-      password
-    });
-  }
-
-  // 房间
-  async createRoom(options: CreateRoomOptions) {
-    return this.api.post('/_matrix/client/v3/createRoom', options);
-  }
-
-  async joinRoom(roomId: string) {
-    return this.api.post(`/_matrix/client/v3/rooms/${roomId}/join`, {});
-  }
-
-  // 好友
-  async getFriends() {
-    return this.api.get('/_matrix/vendor/v1/friends');
-  }
-
-  async sendFriendRequest(userId: string, message?: string) {
-    return this.api.post('/_matrix/vendor/v1/friends/request', {
-      user_id: userId,
-      message
-    });
-  }
-
-  // 消息
-  async sendMessage(roomId: string, text: string) {
-    const txnId = Date.now().toString();
-    return this.api.put(
-      `/_matrix/client/v3/rooms/${roomId}/send/m.room.message/${txnId}`,
-      { msgtype: 'm.text', body: text }
-    );
-  }
-
-  // 媒体
-  async uploadMedia(file: File) {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('filename', file.name);
-
-    const response = await fetch(`${this.api.baseURL}/_matrix/media/v3/upload`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${this.api.token}` },
-      body: formData
-    });
-    return handleApiResponse<{ content_uri: string }>(response);
-  }
-}
-```
-
----
-
-## TypeScript 类型定义
-
-```typescript
-// types/index.ts
-
-// 用户
-export interface UserInfo {
-  user_id: string;
-  username?: string;
-  displayname?: string;
-  avatar_url?: string;
-  is_admin?: boolean;
-  deactivated?: boolean;
-}
-
-// 房间
-export interface RoomInfo {
-  room_id: string;
-  name?: string;
-  topic?: string;
-  avatar_url?: string;
-  is_public: boolean;
-  joined_members: number;
-}
-
-// 好友
-export interface FriendInfo {
-  user_id: string;
-  display_name?: string;
-  avatar_url?: string;
-  since: number;
-  status?: string;
-  last_active?: number;
-  note?: string;
-  dm_room_id?: string;
-  is_private?: boolean;
-}
-
-// 消息
-export interface Message {
-  event_id: string;
-  room_id: string;
-  sender: string;
-  content: MessageContent;
-  origin_server_ts: number;
-}
-
-export interface MessageContent {
-  msgtype: 'm.text' | 'm.image' | 'm.file' | 'm.audio';
-  body: string;
-  url?: string;
-  info?: {
-    mimetype?: string;
-    size?: number;
-    w?: number;
-    h?: number;
-  };
-}
-
-// 错误响应
-export interface MatrixError {
-  errcode: string;
-  error: string;
-  retry_after_ms?: number;
-}
-```
-
----
-
-## 资源链接
-
-- [Matrix 官方文档](https://spec.matrix.org/)
-- [认证 API](./authentication.md)
-- [房间 API](./rooms.md)
-- [好友系统 API](./friends.md)
-- [消息 API](./messages.md)
-- [媒体 API](./media.md)
-- [E2EE API](./e2ee.md)
-- [管理 API](./admin.md)
-- [错误处理](./errors.md)
+1. **端点存在性**只以 `docs/openapi/route-table.json` 为准；改路由必须同步契约链
+   （`scripts/contract/check_route_contract.sh`）。
+2. **响应字段**以 handler 里 `json!({...})` / `Serialize` 结构体为准；本文每篇的示例均按此提取。
+3. **能力发现**优先于猜测：客户端应读 `/versions` 的 `unstable_features` 与 `/capabilities`，
+   而不是按版本号硬编码分支。

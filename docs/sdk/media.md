@@ -1,486 +1,303 @@
-# 媒体文件 API
+# 媒体：上传、下载、缩略图
 
 ## 目录
 
-- [上传媒体](#上传媒体)
-- [下载媒体](#下载媒体)
+- [两条媒体面：鉴权与非鉴权](#两条媒体面鉴权与非鉴权)
+- [上传](#上传)
+- [上传（指定 media_id）](#上传指定-media_id)
+- [分片上传（大文件）](#分片上传大文件)
+- [下载](#下载)
 - [缩略图](#缩略图)
 - [媒体配置](#媒体配置)
+- [配额](#配额)
+- [删除媒体](#删除媒体)
+- [URL 预览](#url-预览)
+- [已知限制与错误](#已知限制与错误)
+- [客户端接入建议](#客户端接入建议)
 
 ---
 
-## 上传媒体
+## 两条媒体面：鉴权与非鉴权
 
-### 上传媒体文件
+本仓同时挂了两套媒体路由，**语义不同**，混用会 401：
 
-**端点:** `POST /_matrix/media/v3/upload`
+| 面 | 下载/缩略图前缀 | 是否要 `Authorization` | 典型用途 |
+|---|---|---|---|
+| 传统（Matrix v1 之前） | `/_matrix/media/v3/*`（另有 `r0` / `r1` / `v1` 别名） | **不需要** | `<img src>`、`<video src>` 直链 |
+| 鉴权（Matrix v1.11+） | `/_matrix/client/v1/media/*` | **需要** | 私有媒体，防止链接泄露即公开 |
 
-**需要认证:** 是
+实测：
 
-**请求格式:** `application/json`
+```bash
+# 非鉴权面：404 说明媒体不存在，不会因缺 token 而 401
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8008/_matrix/media/v3/download/matrix.test/nonexistent
+# → 404
 
-**请求体:**
+# 鉴权面：缺头直接 401 M_UNAUTHORIZED
+curl -s http://127.0.0.1:8008/_matrix/client/v1/media/download/matrix.test/nonexistent
+# → {"errcode":"M_UNAUTHORIZED","error":"Missing or invalid authorization header"}
+```
+
+⚠️ **`?access_token=` 不被接受**（服务端只读 `Authorization` 头，已实测 401）。
+所以 `<img>` 要么走非鉴权面，要么 `fetch` 成 blob：
+
 ```typescript
-interface UploadMediaRequest {
-  content: string | number[];  // Base64 编码的字符串或字节数组
-  filename?: string;           // 文件名
-  content_type?: string;       // MIME 类型 (默认: application/octet-stream)
+async function authedImageUrl(base: string, mxc: string, token: string) {
+  const { server, mediaId } = parseMxc(mxc);
+  const res = await fetch(`${base}/_matrix/client/v1/media/download/${server}/${mediaId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`media ${res.status}`);
+  return URL.createObjectURL(await res.blob());   // 记得用完 revokeObjectURL
+}
+
+function parseMxc(mxc: string): { server: string; mediaId: string } {
+  // mxc://server/media_id
+  const rest = mxc.replace(/^mxc:\/\//, '');
+  const slash = rest.indexOf('/');
+  return { server: rest.slice(0, slash), mediaId: rest.slice(slash + 1) };
 }
 ```
 
-**请求示例 (Base64):**
+---
+
+## 上传
+
+**端点**：`POST /_matrix/media/v3/upload`（另有 `v1`、`r0` 别名）
+
+**认证**：是（`Authorization: Bearer`）
+
+**请求体是原始字节**——不是 JSON、不是 base64、不是 multipart：
+
+```http
+POST /_matrix/media/v3/upload?filename=photo.jpg
+Authorization: Bearer <token>
+Content-Type: image/jpeg
+
+<二进制内容>
+```
+
+| 元数据 | 来源（优先级从高到低） |
+|---|---|
+| 文件名 | `?filename=` → `Content-Disposition: filename=` |
+| MIME | `?content_type=` → `Content-Type` 头 → `application/octet-stream` |
+
+服务端会用 `infer` 嗅探真实类型覆盖声明的 MIME（防伪装）。
+
 ```typescript
-const uploadMediaBase64 = async (base64Content: string, filename: string, mimeType: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/media/v3/upload`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
+async function uploadFile(base: string, token: string, file: File) {
+  const res = await fetch(
+    `${base}/_matrix/media/v3/upload?filename=${encodeURIComponent(file.name)}`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': file.type || 'application/octet-stream',
+      },
+      body: file,                                  // 直接传 File/Blob，不要 FormData
     },
-    body: JSON.stringify({
-      content: base64Content,
-      filename,
-      content_type: mimeType
-    })
-  });
-  return handleApiResponse<{
-    content_uri: string;
-  }>(response);
-};
+  );
+  if (!res.ok) throw await res.json();
+  return (await res.json()) as { content_uri: string; media_id?: string; size?: number };
+}
 ```
 
-**请求示例 (字节数组):**
-```typescript
-const uploadMediaBytes = async (bytes: number[], filename: string, mimeType: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/media/v3/upload`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      content: bytes,
-      filename,
-      content_type: mimeType
-    })
-  });
-  return handleApiResponse<{
-    content_uri: string;
-  }>(response);
-};
-```
+**成功响应**：
 
-**从 File 对象转换为 Base64 上传:**
-```typescript
-const fileToBase64 = (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      // 移除 data:image/xxx;base64, 前缀
-      const base64 = result.split(',')[1];
-      resolve(base64);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-};
-
-const uploadFile = async (file: File, accessToken: string) => {
-  const base64 = await fileToBase64(file);
-  return uploadMediaBase64(base64, file.name, file.type, accessToken);
-};
-```
-
-**响应:**
 ```json
-{
-  "status": "ok",
-  "data": {
-    "content_uri": "mxc://cjystx.top/abcdef123456"
-  }
-}
+{ "content_uri": "mxc://matrix.test/AbCdEf123" }
 ```
+
+部分版本还会带 `media_id` / `size`（分片上传完成时一定带）。**只依赖 `content_uri`** 最稳。
+
+**错误**
+
+| 场景 | 状态 | errcode |
+|---|---|---|
+| 缺 token | 401 | `M_UNAUTHORIZED` |
+| 空 body | 400 | `M_BAD_JSON`（`No file content provided`） |
+| 超过 `max_upload_size` | 413 | `M_TOO_LARGE`（全局 body limit 在中间件层先拦） |
+| 超过用户配额 | 403 | `M_RESOURCE_LIMIT_EXCEEDED` |
+| 内容扫描判定不安全（MSC3806 启用时） | 502 | `M_CONTENT_SCAN_FAILED`（fail-closed） |
+| 扫描服务不可用且启用 | 502 | `M_CONTENT_SCAN_FAILED` |
+
+> **历史文档错误**：旧版 `media.md` 说"用 `application/json`，body 里放 `content`（base64 或
+> 字节数组）"。本服务**从未**支持这种形态——按它写会得到 400/413，或把一个 base64 字符串
+> 当成文件原样存下来（文件内容损坏）。
 
 ---
 
-## 下载媒体
+## 上传（指定 media_id）
 
-### 下载媒体文件
+`PUT /_matrix/media/v3/upload/{server_name}/{media_id}`
 
-**端点:** `GET /_matrix/media/v3/download/{server_name}/{media_id}`
+- 由客户端决定 `media_id`（用于"先在客户端定好 media_id 再上传"的两段式流程）。
+- `server_name` 必须是**本机** server_name，否则 400（`server_name must match local server`）。
+- 其余同普通上传；响应同上。
+- 已存在的 `media_id` 会被覆盖（幂等重传）。
 
-**参数说明:**
-- `server_name`: 服务器名 (如: `cjystx.top`)
-- `media_id`: 媒体 ID (从 content_uri 中提取，如 `mxc://cjystx.top/abcdef123456` → `abcdef123456`)
+---
 
-**请求示例:**
-```typescript
-const downloadMedia = (contentUri: string) => {
-  // 解析 content_uri: mxc://server/media_id
-  const url = new URL(contentUri);
-  const server = url.hostname;
-  const mediaId = url.pathname.slice(1);
+## 分片上传（大文件）
 
-  return `${BASE_URL}/_matrix/media/v3/download/${server}/${mediaId}`;
-};
+适合断点续传与大文件（单块上限由 `chunk_size_limit` 给出）。全部在 `/_matrix/media/v1/upload/chunk/*`。
 
-// React 组件中使用
-const ImageComponent: React.FC<{ uri: string; alt?: string }> = ({ uri, alt }) => {
-  const src = downloadMedia(uri);
+| 步骤 | 方法 | 端点 | 体/参数 |
+|---|---|---|---|
+| 1. 开始 | `POST` | `/upload/chunk/start` | `{"filename","content_type","total_size","total_chunks"}` |
+| 2. 传块 | `POST` | `/upload/chunk?upload_id=&chunk_index=&total_chunks=&filename=&total_size=` | **原始字节**，`Content-Type` 为块类型 |
+| 3. 查进度 | `GET` | `/upload/chunk/progress?upload_id=` | — |
+| 4. 完成 | `POST` | `/upload/chunk/complete` | `{"upload_id": "..."}` |
+| 取消 | `POST` | `/upload/chunk/cancel` | `{"upload_id": "..."}` |
 
-  return <img src={src} alt={alt} />;
-};
+**1) start 响应**
 
-// 或者直接下载文件
-const downloadFile = async (contentUri: string, filename: string, accessToken: string) => {
-  const url = downloadMedia(contentUri);
-
-  const response = await fetch(url, {
-    headers: { 'Authorization': `Bearer ${accessToken}` }
-  });
-
-  const blob = await response.blob();
-  const blobUrl = window.URL.createObjectURL(blob);
-
-  const a = document.createElement('a');
-  a.href = blobUrl;
-  a.download = filename;
-  a.click();
-
-  window.URL.revokeObjectURL(blobUrl);
-};
+```json
+{ "upload_id": "up_abc", "chunk_size_limit": 10485760, "max_file_size": 52428800 }
 ```
+
+`total_size` 超过 `max_file_size` → **400**（提前拒绝，不必传完才发现）。
+`total_chunks < 1` → 400。
+
+**2) 每块响应**
+
+```json
+{ "upload_id": "up_abc", "chunk_index": 0, "uploaded_chunks": 1, "total_chunks": 3,
+  "uploaded_size": 10485760, "status": "in_progress" }
+```
+
+`upload_id` 与 `chunk_index` 是**查询参数**（不是 body）；缺失 → 400。
+
+**3) progress 响应**
+
+```json
+{ "upload_id": "up_abc", "filename": "big.mp4", "content_type": "video/mp4",
+  "total_size": 30000000, "uploaded_size": 20971520, "total_chunks": 3,
+  "uploaded_chunks": 2, "status": "in_progress", "expires_at": 1760703600000 }
+```
+
+**4) complete 响应**
+
+```json
+{ "content_uri": "mxc://matrix.test/AbCdEf123", "media_id": "AbCdEf123", "size": 30000000 }
+```
+
+`upload_id` 不属于调用者 → 403（`Upload does not belong to user`）。
+
+---
+
+## 下载
+
+| 地址 | 鉴权 | 说明 |
+|---|---|---|
+| `GET /_matrix/media/v3/download/{server}/{media_id}` | 否 | 主用直链 |
+| `GET /_matrix/media/v3/download/{server}/{media_id}/{filename}` | 否 | 带文件名（`Content-Disposition` 更友好） |
+| `GET /_matrix/client/v1/media/download/{server}/{media_id}[/{filename}]` | **是** | 鉴权面 |
+| `GET /_matrix/media/v3/download_signed/{server}/{media_id}[/{filename}]` | 否 | 签名 URL（带过期签名） |
+| `GET /_matrix/media/{v1,r0,r1}/download/...` | 否 | 历史版本别名 |
+
+- 远端媒体（`server != 本机`）会经联邦拉取并缓存；拉取失败 → 502（`M_NOT_FOUND` 只在确无）。
+- 被隔离（quarantine）的媒体 → 返回 404（`ensure_media_not_quarantined`）。
+- 响应带 `Content-Type`、`Content-Length`、`Cache-Control`；`/{filename}` 形态额外带
+  `Content-Disposition: inline; filename=...`。
 
 ---
 
 ## 缩略图
 
-### 获取媒体缩略图
+`GET /_matrix/media/v3/thumbnail/{server}/{media_id}`
+`GET /_matrix/client/v1/media/thumbnail/{server}/{media_id}`（鉴权）
 
-**端点:** `GET /_matrix/media/v3/thumbnail/{server_name}/{media_id}`
+| 参数 | 默认 | 约束 |
+|---|---|---|
+| `width` | **800** | `> 10000` 或非数字按默认处理 |
+| `height` | **600** | 同上 |
+| `method` | **`scale`** | `crop` / `scale`（其他值原样传下去，由图像层决定） |
+| `animated` | `false` | `true` 时返回动图缩略图（Phase 1：检测 + 首帧回退） |
 
-**查询参数:**
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| width | number | 否 | 期望宽度 (默认 800) |
-| height | number | 否 | 期望高度 (默认 600) |
-| method | string | 否 | 缩放方法 (crop, scale，默认 scale) |
-
-**请求示例:**
-```typescript
-const getThumbnailUrl = (
-  contentUri: string,
-  width = 256,
-  height = 256,
-  method = 'crop'
-) => {
-  const url = new URL(contentUri);
-  const server = url.hostname;
-  const mediaId = url.pathname.slice(1);
-
-  const thumbnailUrl = `${BASE_URL}/_matrix/media/v3/thumbnail/${server}/${mediaId}?width=${width}&height=${height}&method=${method}`;
-  return thumbnailUrl;
-};
-
-// React 组件中使用
-const ThumbnailImage: React.FC<{ uri: string; width?: number; height?: number }> = ({
-  uri,
-  width = 256,
-  height = 256
-}) => {
-  const src = getThumbnailUrl(uri, width, height);
-
-  return <img src={src} alt="thumbnail" style={{ width, height }} />;
-};
-```
+> 语义提醒：`scale` 保比例缩放到**不超过** `width×height`；`crop` 先居中裁剪到目标比例再缩放。
+> 头像类 UI 用 `crop`，消息内预览图用 `scale`。
 
 ---
 
 ## 媒体配置
 
-### 获取媒体配置
+三条路径读**同一份配置**，且**全都要求 `Authorization`**（实测：缺 token 一律 401
+`M_UNAUTHORIZED`，包括 `/_matrix/media/v3/config` 与 `/_matrix/media/v1/config`）：
 
-**端点:** `GET /_matrix/media/v1/config`
+| 端点 | 鉴权 |
+|---|---|
+| `GET /_matrix/media/v3/config`（另有 `v1`、`r0` 别名） | **是** |
+| `GET /_matrix/client/v1/media/config` | **是** |
 
-**响应:**
 ```json
-{
-  "m.upload.size": 52428800
-}
+{ "m.upload.size": 52428800 }
 ```
 
-**请求示例:**
-```typescript
-const getMediaConfig = async (accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/media/v1/config`, {
-    headers: { 'Authorization': `Bearer ${accessToken}` }
-  });
-  return handleApiResponse<{
-    'm.upload.size': number;   // 最大上传大小 (字节，默认 50MB)
-  }>(response);
-};
-```
+⚠️ 历史文档暗示可以用 `/_matrix/media/v1/config` 在登录前探测上限——**不成立**，它同样 401。
+要在登录前给用户展示"最大 50 MiB"，用本地常量兜底，登录后再用本端点校准。
+
+值来源：`server.max_upload_size`（`homeserver.yaml` 默认 `52428800`）。
 
 ---
 
-## 完整媒体服务示例
+## 配额
 
-```typescript
-class MediaService {
-  constructor(private auth: AuthService) {}
+| 方法 | 端点 | 响应 |
+|---|---|---|
+| `GET` | `/_matrix/media/v1/quota/check` | `{"limit": N, "used": M, "remaining": K, "rule": "global"}` |
+| `GET` | `/_matrix/media/v1/quota/stats` | `{"user_id", "storage_bytes", "media_count", "limit_bytes", "statistics"}` |
+| `GET` | `/_matrix/media/v1/quota/alerts` | `{"alerts": [{"alert_id","alert_type","threshold_percent","current_usage_bytes","quota_limit_bytes","message"}]}` |
 
-  // 上传 Base64 数据
-  async uploadBase64(
-    base64Data: string,
-    filename: string,
-    mimeType: string
-  ): Promise<string> {
-    const response = await fetch(`${BASE_URL}/_matrix/media/v3/upload`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.auth.accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        content: base64Data,
-        filename,
-        content_type: mimeType
-      })
-    });
-
-    const result = await this.auth.handleResponse<{ content_uri: string }>(response);
-    return result.content_uri;
-  }
-
-  // 上传字节数组
-  async uploadBytes(
-    bytes: number[],
-    filename: string,
-    mimeType: string
-  ): Promise<string> {
-    const response = await fetch(`${BASE_URL}/_matrix/media/v3/upload`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.auth.accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        content: bytes,
-        filename,
-        content_type: mimeType
-      })
-    });
-
-    const result = await this.auth.handleResponse<{ content_uri: string }>(response);
-    return result.content_uri;
-  }
-
-  // 从 File 对象上传
-  async uploadFile(file: File): Promise<string> {
-    const base64 = await this.fileToBase64(file);
-    return this.uploadBase64(base64, file.name, file.type);
-  }
-
-  private fileToBase64(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        const base64 = result.split(',')[1];
-        resolve(base64);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  }
-
-  // 获取下载 URL
-  getDownloadUrl(contentUri: string): string {
-    const url = new URL(contentUri);
-    const server = url.hostname;
-    const mediaId = url.pathname.slice(1);
-
-    return `${BASE_URL}/_matrix/media/v3/download/${server}/${mediaId}`;
-  }
-
-  // 获取缩略图 URL
-  getThumbnailUrl(
-    contentUri: string,
-    width = 256,
-    height = 256,
-    method: 'crop' | 'scale' = 'crop'
-  ): string {
-    const url = new URL(contentUri);
-    const server = url.hostname;
-    const mediaId = url.pathname.slice(1);
-
-    return `${BASE_URL}/_matrix/media/v3/thumbnail/${server}/${mediaId}?width=${width}&height=${height}&method=${method}`;
-  }
-
-  // 下载文件
-  async downloadFile(contentUri: string): Promise<Blob> {
-    const url = this.getDownloadUrl(contentUri);
-    const response = await fetch(url, {
-      headers: { 'Authorization': `Bearer ${this.auth.accessToken}` }
-    });
-    return response.blob();
-  }
-
-  // 获取媒体配置
-  async getConfig() {
-    const response = await fetch(`${BASE_URL}/_matrix/media/v1/config`, {
-      headers: { 'Authorization': `Bearer ${this.auth.accessToken}` }
-    });
-    return this.auth.handleResponse<{
-      'm.upload.size': number;
-    }>(response);
-  }
-}
-```
+上传被配额拒绝时是 **403 `M_RESOURCE_LIMIT_EXCEEDED`**（不是 413）。
+`413 M_TOO_LARGE` 只表示"单请求体超过 `max_upload_size`"。
 
 ---
 
-## React Hook 示例
+## 删除媒体
 
-```typescript
-import { useState, useCallback } from 'react';
-import { MediaService } from './services/media';
+`POST /_matrix/media/v3/delete/{server_name}/{media_id}`（另有 `v1`、`r0`）
 
-interface UseMediaResult {
-  uploading: boolean;
-  progress: number;
-  upload: (file: File) => Promise<string>;
-  uploadBase64: (base64: string, filename: string, mimeType: string) => Promise<string>;
-  getThumbnail: (uri: string, width?: number, height?: number) => string;
-  download: (uri: string) => Promise<void>;
-  getDownloadUrl: (uri: string) => string;
-}
+响应：`{"deleted": true, "media_id": "AbCdEf123"}`
 
-export function useMedia(accessToken: string): UseMediaResult {
-  const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState(0);
-
-  const mediaService = new MediaService(new AuthService(accessToken));
-
-  const upload = useCallback(async (file: File) => {
-    setUploading(true);
-    setProgress(0);
-
-    try {
-      const contentUri = await mediaService.uploadFile(file);
-      setProgress(100);
-      return contentUri;
-    } finally {
-      setUploading(false);
-      setProgress(0);
-    }
-  }, [accessToken]);
-
-  const uploadBase64 = useCallback(async (
-    base64: string,
-    filename: string,
-    mimeType: string
-  ) => {
-    setUploading(true);
-    try {
-      return await mediaService.uploadBase64(base64, filename, mimeType);
-    } finally {
-      setUploading(false);
-    }
-  }, [accessToken]);
-
-  const getThumbnail = useCallback((
-    uri: string,
-    width = 256,
-    height = 256
-  ) => {
-    return mediaService.getThumbnailUrl(uri, width, height);
-  }, [accessToken]);
-
-  const download = useCallback(async (uri: string) => {
-    const blob = await mediaService.downloadFile(uri);
-    const url = window.URL.createObjectURL(blob);
-
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `file_${Date.now()}`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-
-    window.URL.revokeObjectURL(url);
-  }, [accessToken]);
-
-  const getDownloadUrl = useCallback((uri: string) => {
-    return mediaService.getDownloadUrl(uri);
-  }, [accessToken]);
-
-  return {
-    uploading,
-    progress,
-    upload,
-    uploadBase64,
-    getThumbnail,
-    download,
-    getDownloadUrl
-  };
-}
-```
+只能删自己上传的媒体；他人媒体 → 403 `M_FORBIDDEN`。管理员可用
+`POST /_synapse/admin/v1/media/delete`（见 [admin.md](./admin.md)）。
 
 ---
 
-## 媒体类型常量
+## URL 预览
 
-```typescript
-// 支持的 MIME 类型
-export const SUPPORTED_IMAGE_TYPES = [
-  'image/jpeg',
-  'image/png',
-  'image/gif',
-  'image/webp',
-  'image/svg+xml'
-];
+`GET /_matrix/media/v3/preview_url?url=<encoded>`（另有 `v1`、`r0`、`client/v1`）
 
-export const SUPPORTED_AUDIO_TYPES = [
-  'audio/ogg',
-  'audio/mpeg',
-  'audio/wav',
-  'audio/webm'
-];
+- 需要 `Authorization`（实测缺 token → 401）。
+- 受 `experimental.msc4452_enabled` 门控：关闭时 **403 `M_FORBIDDEN`**。
+- 能力位：`capabilities.m.preview_url.enabled`（当前 `false`）。
 
-export const SUPPORTED_VIDEO_TYPES = [
-  'video/mp4',
-  'video/webm',
-  'video/ogg'
-];
-
-export const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
-export const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
-
-// 文件类型验证
-export function validateImageFile(file: File): boolean {
-  return SUPPORTED_IMAGE_TYPES.includes(file.type) &&
-         file.size <= MAX_IMAGE_SIZE;
-}
-
-export function validateAudioFile(file: File): boolean {
-  return SUPPORTED_AUDIO_TYPES.includes(file.type) &&
-         file.size <= MAX_FILE_SIZE;
-}
-
-export function validateVideoFile(file: File): boolean {
-  return SUPPORTED_VIDEO_TYPES.includes(file.type) &&
-         file.size <= MAX_FILE_SIZE;
-}
-```
+客户端应先用能力位判断，不要靠 403 试探。
 
 ---
 
-## 注意事项
+## 已知限制与错误
 
-1. **上传格式**: 此服务器使用 JSON 格式上传媒体，支持 Base64 编码字符串或字节数组
-2. **文件大小限制**: 默认最大上传大小为 50MB
-3. **认证**: 所有媒体上传操作需要认证
-4. **内容 URI**: 上传成功后返回的 `content_uri` 格式为 `mxc://server_name/media_id`
-5. **缩略图**: 缩略图默认尺寸为 800x600，可通过查询参数自定义
+| 场景 | 状态 | errcode / 说明 |
+|---|---|---|
+| 缺 token（任何媒体写操作） | 401 | `M_UNAUTHORIZED` |
+| 媒体不存在 | 404 | `M_NOT_FOUND`（`Media not found`） |
+| `server_name` 不是本机（指定 ID 上传） | 400 | `M_BAD_JSON` |
+| 空内容上传 | 400 | `M_BAD_JSON`（`No file content provided`） |
+| 单请求体超限 | 413 | `M_TOO_LARGE` |
+| 用户配额超限 | 403 | `M_RESOURCE_LIMIT_EXCEEDED` |
+| 内容扫描拒绝 | 502 | `M_CONTENT_SCAN_FAILED` |
+| URL 预览关闭 | 403 | `M_FORBIDDEN` |
+| 远端媒体拉取失败 | 502 | `M_UNKNOWN`（`error` 含联邦失败原因） |
+
+---
+
+## 客户端接入建议
+
+1. **上传走原始字节**，`Content-Type` 传真实 MIME，`filename` 放 query。
+2. **消息里存 `mxc://`**，渲染时才拼 URL——不要存 `http://` 直链（换域名即失效）。
+3. **图片列表用缩略图**（`width`/`height` 按 UI 实际尺寸取，别一律 800×600 白耗带宽）。
+4. **需要保密的内容走鉴权面**并 `fetch` 成 blob；公开头像/表情用非鉴权面换缓存优势。
+5. **大文件用分片**，并用 `progress` 实现断点续传；`expires_at` 过期后重新 `start`。
+6. **上传前先 `quota/check`**，避免传完几十 MB 才被 403 打回。

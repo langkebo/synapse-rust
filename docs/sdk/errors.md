@@ -37,7 +37,9 @@ interface MatrixError {
 ```
 
 > HTTP 状态码由实现内部的错误类别独立决定（见下方「HTTP 状态码」），与 `errcode` 并非一一绑定。
-> 429 响应会额外返回 `retry_after_ms`，并附带 `Retry-After` / `X-RateLimit-Retry-After-Ms` / `X-RateLimit-Limit` / `X-RateLimit-Remaining` 响应头。
+> 429 响应会额外返回 `retry_after_ms`，并附带三个响应头：
+> `Retry-After`（秒，向上取整）、`X-RateLimit-Retry-After-Ms`（毫秒）、`X-RateLimit-Remaining`（恒为 `0`）。
+> **没有** `X-RateLimit-Limit`——源码注释里提到该头，但实现并未写入，客户端不要依赖它。
 
 ---
 
@@ -61,7 +63,7 @@ interface MatrixError {
 | 401 Unauthorized | 未认证或认证失败 | `M_MISSING_TOKEN`, `M_UNKNOWN_TOKEN`, `M_UNAUTHORIZED` |
 | 403 Forbidden | 无权限访问 | `M_FORBIDDEN`, `M_USER_DEACTIVATED`, `M_GUEST_ACCESS_FORBIDDEN` |
 | 404 Not Found | 资源不存在 | `M_NOT_FOUND`, `M_UNKNOWN_DEVICE` |
-| 405 Method Not Allowed | 功能不支持 | `M_UNSUPPORTED` |
+| 405 Method Not Allowed | 路径存在但方法不允许 | `M_UNRECOGNIZED` |
 | 409 Conflict | 资源冲突 | `M_ROOM_IN_USE`, `M_THREEPID_IN_USE`, `M_EXCLUSIVE` |
 | 413 Payload Too Large | 请求体过大 | `M_TOO_LARGE` |
 | 429 Too Many Requests | 超过速率限制 | `M_LIMIT_EXCEEDED`, `M_USER_LIMIT_EXCEEDED` |
@@ -156,7 +158,16 @@ interface MatrixError {
 
 | 错误码 | 说明 |
 |--------|------|
-| `M_UNSUPPORTED` | 服务器不支持该功能（如在线状态被禁用） |
+| `M_UNRECOGNIZED` | 该路径存在但不支持此方法 |
+
+实测（对 `/_matrix/client/v3/sync` 发 POST，该路径只有 GET）：
+
+```json
+{ "errcode": "M_UNRECOGNIZED", "error": "Method not allowed for this endpoint" }
+```
+
+> **不存在 `M_UNSUPPORTED`**（历史文档写过，该码从未实现）。方法不允许与
+> "端点不存在"共用 `M_UNRECOGNIZED`，只能靠 HTTP 状态（405 vs 404）区分。
 
 ---
 
@@ -200,16 +211,39 @@ interface MatrixError {
 
 | 错误码 | HTTP 状态 | 说明 |
 |--------|-----------|------|
-| `M_UNKNOWN` | 500 | 未知错误 |
-| `M_UNRECOGNIZED` | 501 | 操作未实现（与 400 的同名码复用，见下） |
+| `M_UNKNOWN` | 500 | 未知错误（也是 501/503 等"无专用 errcode"情形的载体） |
 | `M_CONTENT_SCAN_DISABLED` | 501 | 内容扫描器已禁用 (MSC3806) |
-| `M_SERVER_NOT_TRUSTED` | 502 | 目标服务器不受信任 |
+| `M_SERVER_NOT_TRUSTED` | 502 | 目标服务器不受信任（**对调用方是 403**，502 只用于联邦跳；见白名单） |
 | `M_CONTENT_SCAN_FAILED` | 502 | 内容扫描失败，fail-closed (MSC3806) |
+| `M_UNKNOWN` | 503 | 服务暂不可用（如必需依赖离线） |
 | `M_REQUEST_TIMEOUT` | 504 | 请求超时 |
 
-> `M_UNRECOGNIZED` 在实现中由两个变体共用：`Unrecognized`（400，未知请求）与
-> `Unimplemented`（501，未实现操作）。两者 `errcode` 字符串相同，客户端应结合
-> HTTP 状态区分。
+**501 的 errcode 是 `M_UNKNOWN`，不是 `M_UNRECOGNIZED`**：
+
+`ApiError::not_supported()` 用 `ApiErrorKind::NotImplemented` + `MatrixErrorCode::Unknown`，
+因为 Matrix 规范没有为 501 定义 errcode。该组合登记在
+`STATUS_DIVERGENCE_WHITELIST`（`synapse-common/src/error.rs`），
+由守卫测试保证"未登记的 状态↔errcode 分歧"会让 CI 变红。
+
+```json
+{ "errcode": "M_UNKNOWN", "error": "'org.matrix.msc4354.sticky_duration_ms' cannot be combined with ..." }
+```
+
+> 另有一条真实分歧：登录失败返回 **401 + `M_FORBIDDEN`**（规范要求 401，而 `M_FORBIDDEN`
+> 本身的规范状态是 403）。客户端判断"密码错"要看 `errcode`，不能只看状态码。
+
+---
+
+### 联邦代理错误（`M_FEDPROXY_*`）
+
+这三个码只在**联邦代理**（forward proxy）模式下出现，普通客户端几乎不会遇到，
+但接入第三方代理网关时会看到：
+
+| 错误码 | HTTP 状态 | 说明 |
+|---|---|---|
+| `M_FEDPROXY_DESTINATION_DENIED` | 403 | 目标 server 不在允许列表 |
+| `M_FEDPROXY_PATH_NOT_ALLOWED` | 403 | 请求路径不在代理允许的路径集合内 |
+| `M_FEDPROXY_CONNECTION_FAILED` | 502 | 无法连接上游 homeserver |
 
 ---
 
@@ -718,51 +752,71 @@ const fetchWithRetry = async (
 
 ### 6. 错误日志上报
 
+**服务端没有客户端错误上报端点。** 路由表中不存在
+`/_matrix/client/v1/logs/error`（历史文档写的这个地址会 404），也没有任何接收客户端日志的
+`/client/*` 端点。日志能力只有管理侧的两处：
+
+| 端点 | 用途 |
+|---|---|
+| `GET /_synapse/admin/v1/modules/logs/{module_name}` | 读某个模块的服务端日志 |
+| `GET /_synapse/admin/v1/audit/events` | 管理操作审计 |
+
+所以客户端错误要么打到**自建日志服务**，要么走第三方（Sentry 等）。下面是"先本地聚合、
+再批量上报自建端点"的最小实现：
+
 ```typescript
 interface ErrorLog {
   timestamp: number;
   message: string;
   stack?: string;
-  code?: string;
+  errcode?: string;
   status?: number;
   url?: string;
   userAgent?: string;
-  userId?: string;
 }
 
-const logError = (error: Error | ApiError, context?: Record<string, any>) => {
-  const log: ErrorLog = {
+const buffer: ErrorLog[] = [];
+
+export function logError(error: Error | MatrixApiError, context?: Record<string, unknown>) {
+  const entry: ErrorLog = {
     timestamp: Date.now(),
     message: error.message,
     stack: error.stack,
-    url: window.location.href,
+    url: location.href,
     userAgent: navigator.userAgent,
-    userId: getCurrentUserId()
   };
-
-  if (error instanceof ApiError) {
-    log.code = error.errcode;
-    log.status = error.status;
+  if (error instanceof MatrixApiError) {
+    entry.errcode = error.errcode;
+    entry.status = error.status;
   }
+  buffer.push(entry);
+  if (import.meta.env.DEV) console.error('[API Error]', entry, context);
 
-  // 发送到错误收集服务
-  fetch(`${BASE_URL}/_matrix/client/v1/logs/error`, {
+  // 每 30s 或满 20 条批量发到**你自己的**采集端点（不是 Matrix 服务端）
+  scheduleFlush();
+}
+
+async function flush() {
+  if (!buffer.length) return;
+  const batch = buffer.splice(0, buffer.length);
+  await fetch('/__client_logs', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${getAccessToken()}`
-    },
-    body: JSON.stringify({ ...log, context })
-  }).catch(() => {
-    // 忽略上报失败
-  });
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entries: batch }),
+    keepalive: true,
+  }).catch(() => { /* 上报失败不影响主流程 */ });
+}
 
-  // 开发环境打印到控制台
-  if (import.meta.env.DEV) {
-    console.error('[API Error]', log);
-  }
-};
+let timer: number | undefined;
+function scheduleFlush() {
+  if (timer) return;
+  timer = window.setTimeout(() => { timer = undefined; void flush(); }, 30_000);
+}
 ```
+
+> 若要上报**内容违规**而不是程序错误，用规范的举报端点：
+> `POST /rooms/{room_id}/report/{event_id}`、`POST /users/{user_id}/report`
+> （见 [rooms.md](./rooms.md#举报)）。
 
 ---
 

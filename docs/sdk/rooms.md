@@ -1,624 +1,344 @@
-# 房间管理 API
+# 房间管理
+
+覆盖建房、加入/离开、成员与权限、状态事件、别名与目录、层级与升级。
+消息发送与历史见 [messages.md](./messages.md)；房间摘要/线程/置顶等扩展见 [extensions.md](./extensions.md)。
 
 ## 目录
 
 - [创建房间](#创建房间)
-- [加入/离开房间](#加入离开房间)
-- [邀请用户](#邀请用户)
-- [房间成员管理](#房间成员管理)
-- [房间状态](#房间状态)
-- [房间目录](#房间目录)
+- [加入 / 敲门 / 离开 / 遗忘](#加入--敲门--离开--遗忘)
+- [成员管理](#成员管理)
+- [状态事件](#状态事件)
+- [房间信息](#房间信息)
+- [别名与目录可见性](#别名与目录可见性)
+- [公共房间列表](#公共房间列表)
+- [层级与空间](#层级与空间)
+- [房间升级](#房间升级)
+- [举报](#举报)
+- [响应形状速查](#响应形状速查)
 
 ---
 
 ## 创建房间
 
-### 创建房间
+**端点**：`POST /_matrix/client/v3/createRoom`
 
-**端点:** `POST /_matrix/client/v3/createRoom`
+**认证**：是
 
-**需要认证:** 是
+**请求体**（字段以 `management/create.rs` 为准）：
 
-**请求体:**
 ```typescript
 interface CreateRoomRequest {
-  visibility?: 'public' | 'private';  // 可见性，默认 private
-  name?: string;                      // 房间名称
-  topic?: string;                     // 房间主题
-  invite?: string[];                  // 邀请的用户 ID 列表
-  room_alias_name?: string;           // 房间别名
-  preset?: 'private_chat' | 'trusted_private_chat' | 'public_chat';  // 预设
-  creation_content?: {                // 初始内容
-    type?: string;                     // 事件类型
-    state_key?: string;                // 状态键
-    content?: object;                  // 事件内容
-  };
-  is_direct?: boolean;                // 是否为私聊
-}
-```
-
-**请求示例:**
-```typescript
-const createRoom = async (accessToken: string, options: CreateRoomRequest) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/v3/createRoom`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(options)
-  });
-  return handleApiResponse<{
-    room_id: string;
-  }>(response);
-};
-
-// 创建普通私聊房间
-const createDMRoom = async (userId: string, accessToken: string) => {
-  return createRoom(accessToken, {
-    preset: 'trusted_private_chat',
-    invite: [userId],
-    is_direct: true
-  });
-};
-
-// 创建公共房间
-const createPublicRoom = async (name: string, topic: string, accessToken: string) => {
-  return createRoom(accessToken, {
-    visibility: 'public',
-    name,
-    topic,
-    preset: 'public_chat'
-  });
-};
-```
-
-**响应:**
-```json
-{
-  "status": "ok",
-  "data": {
-    "room_id": "!abc123:matrix.server.com"
-  }
-}
-```
-
----
-
-## 加入/离开房间
-
-### 加入房间
-
-**端点:** `POST /_matrix/client/v3/rooms/{room_id}/join`
-
-**需要认证:** 是
-
-**请求示例:**
-```typescript
-const joinRoom = async (roomId: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/join`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({})  // 空对象或包含 third_party_signed 信息
-  });
-  return handleApiResponse(response);
-};
-```
-
----
-
-### 离开房间
-
-**端点:** `POST /_matrix/client/v3/rooms/{room_id}/leave`
-
-**需要认证:** 是
-
-**请求示例:**
-```typescript
-const leaveRoom = async (roomId: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/leave`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({})
-  });
-  return handleApiResponse(response);
-};
-```
-
----
-
-### 踢出用户
-
-**端点:** `POST /_matrix/client/v3/rooms/{room_id}/kick`
-
-**请求体:**
-```typescript
-interface KickRequest {
-  user_id: string;
-  reason?: string;
-}
-```
-
-**请求示例:**
-```typescript
-const kickUser = async (roomId: string, userId: string, reason: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/kick`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      user_id: userId,
-      reason
-    })
-  });
-  return handleApiResponse(response);
-};
-```
-
----
-
-### 封禁用户
-
-**端点:** `POST /_matrix/client/v3/rooms/{room_id}/ban`
-
-**请求体:**
-```typescript
-interface BanRequest {
-  user_id: string;
-  reason?: string;
-}
-```
-
-**请求示例:**
-```typescript
-const banUser = async (roomId: string, userId: string, reason: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/ban`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      user_id: userId,
-      reason
-    })
-  });
-  return handleApiResponse(response);
-};
-```
-
----
-
-### 解除封禁
-
-**端点:** `POST /_matrix/client/v3/rooms/{room_id}/unban`
-
-**请求体:**
-```typescript
-interface UnbanRequest {
-  user_id: string;
-}
-```
-
-**请求示例:**
-```typescript
-const unbanUser = async (roomId: string, userId: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/unban`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      user_id: userId
-    })
-  });
-  return handleApiResponse(response);
-};
-```
-
----
-
-## 邀请用户
-
-### 邀请用户加入房间
-
-**端点:** `POST /_matrix/client/v3/rooms/{room_id}/invite`
-
-**请求体:**
-```typescript
-interface InviteRequest {
-  user_id: string;
-}
-```
-
-**请求示例:**
-```typescript
-const inviteUser = async (roomId: string, userId: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/invite`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      user_id: userId
-    })
-  });
-  return handleApiResponse(response);
-};
-```
-
----
-
-## 房间成员管理
-
-### 获取房间成员列表
-
-**端点:** `GET /_matrix/client/v3/rooms/{room_id}/members`
-
-**需要认证:** 是
-
-**参数:**
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| limit | number | 否 | 限制返回数量 |
-| since | string | 否 | 从哪个成员开始 |
-| membership | string | 否 | 过滤成员状态 (join/invite/leave) |
-
-**请求示例:**
-```typescript
-const getRoomMembers = async (roomId: string, accessToken: string) => {
-  const url = new URL(`${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/members`);
-  url.searchParams.set('limit', '100');
-
-  const response = await fetch(url.toString(), {
-    headers: { 'Authorization': `Bearer ${accessToken}` }
-  });
-  return handleApiResponse<{
-    chunk: RoomMember[];
-  }>(response);
-};
-
-interface RoomMember {
-  room_id: string;
-  user_id: string;
-  membership: 'join' | 'invite' | 'leave' | 'ban';
-  display_name?: string;
-  avatar_url?: string;
-}
-```
-
----
-
-### 获取成员事件
-
-**端点:** `POST /_matrix/client/v3/rooms/{room_id}/get_membership_events`
-
-**请求体:**
-```typescript
-interface MembershipEventsRequest {
-  user_id?: string;
-  limit?: number;
-  since?: string;
-}
-```
-
-**请求示例:**
-```typescript
-const getMembershipEvents = async (roomId: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/get_membership_events`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      limit: 100
-    })
-  });
-  return handleApiResponse<{
-    chunk: Event[];
-    start: string;
-    end: string;
-  }>(response);
-};
-```
-
----
-
-## 房间状态
-
-### 获取房间状态
-
-**端点:** `GET /_matrix/client/v3/rooms/{room_id}/state`
-
-**需要认证:** 是
-
-**请求示例:**
-```typescript
-const getRoomState = async (roomId: string, accessToken: string) => {
-  const response = await fetch(`${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state`, {
-    headers: { 'Authorization': `Bearer ${accessToken}` }
-  });
-  return handleApiResponse<Event[]>(response);
-};
-```
-
----
-
-### 获取特定状态事件
-
-**端点:** `GET /_matrix/client/v3/rooms/{room_id}/state/{event_type}/{state_key}`
-
-**请求示例:**
-```typescript
-// 获取房间名称
-const getRoomName = async (roomId: string, accessToken: string) => {
-  const response = await fetch(
-    `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.name/`,
-    { headers: { 'Authorization': `Bearer ${accessToken}` } }
-  );
-  return handleApiResponse<{ name: string }>(response);
-};
-
-// 获取成员列表
-const getRoomMembersState = async (roomId: string, accessToken: string) => {
-  const response = await fetch(
-    `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.member/`,
-    { headers: { 'Authorization': `Bearer ${accessToken}` } }
-  );
-  return handleApiResponse(response);
-};
-```
-
----
-
-### 设置房间状态
-
-**端点:** `PUT /_matrix/client/v3/rooms/{room_id}/state/{event_type}/{state_key}`
-
-**请求示例:**
-```typescript
-// 设置房间名称
-const setRoomName = async (roomId: string, name: string, accessToken: string) => {
-  const response = await fetch(
-    `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.name/`,
-    {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        name
-      })
-    }
-  );
-  return handleApiResponse(response);
-};
-
-// 设置房间主题
-const setRoomTopic = async (roomId: string, topic: string, accessToken: string) => {
-  const response = await fetch(
-    `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.topic/`,
-    {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        topic
-      })
-    }
-  );
-  return handleApiResponse(response);
-};
-
-// 设置房间头像
-const setRoomAvatar = async (roomId: string, avatarUrl: string, accessToken: string) => {
-  const response = await fetch(
-    `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.avatar/`,
-    {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        url: avatarUrl
-      })
-    }
-  );
-  return handleApiResponse(response);
-};
-```
-
----
-
-### 设置加入规则
-
-**端点:** `PUT /_matrix/client/v3/rooms/{room_id}/state/m.room.join_rules/`
-
-**请求体:**
-```typescript
-interface JoinRules {
-  join_rule: 'public' | 'invite' | 'knock' | 'restricted';
-  allow?: string[];
-}
-```
-
-**请求示例:**
-```typescript
-const setJoinRules = async (roomId: string, rule: 'public' | 'invite', accessToken: string) => {
-  const response = await fetch(
-    `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.join_rules/`,
-    {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        join_rule: rule
-      })
-    }
-  );
-  return handleApiResponse(response);
-};
-```
-
----
-
-## 房间目录
-
-### 获取公共房间列表
-
-**端点:** `GET /_matrix/client/v3/publicRooms`
-
-**参数:**
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| limit | number | 否 | 每批数量 (默认 10) |
-| since | string | 否 | 分页 Token |
-| server | string | 否 | 指定服务器 |
-| filter | string | 否 | 过滤条件 |
-
-**请求示例:**
-```typescript
-const getPublicRooms = async (limit = 100, since?: string) => {
-  const url = new URL(`${BASE_URL}/_matrix/client/v3/publicRooms`);
-  url.searchParams.set('limit', limit.toString());
-  if (since) url.searchParams.set('since', since);
-
-  const response = await fetch(url.toString());
-  return handleApiResponse<{
-    chunk: PublicRoom[];
-    next_batch: string;
-    total_room_count_estimate?: number;
-  }>(response);
-};
-
-interface PublicRoom {
-  room_id: string;
+  visibility?: 'public' | 'private';         // 目录可见性，默认 private
+  room_alias_name?: string;                  // localpart（不含域名）
   name?: string;
   topic?: string;
-  num_joined_members: number;
-  world_readable: boolean;
-  guest_can_join: boolean;
+  invite?: Array<string | { user_id: string; reason?: string }>;  // 最多 100 个
+  invite_3pid?: Array<object>;
+  preset?: 'private_chat' | 'trusted_private_chat' | 'public_chat';
+  is_direct?: boolean;
+  room_version?: string;                     // 默认取 capabilities.m.room_versions.default（当前 "12"）
+  creation_content?: Record<string, unknown>; // 任意 m.room.create 内容，如 { "m.federate": false }
+  initial_state?: Array<{ type: string; state_key?: string; content: object }>;
+  power_level_content_override?: object;
+  room_type?: string;                        // 如 "m.space"；也可用 creation_content.type
+  ignore_duplicate_name?: boolean;           // 允许重名（默认 false）
+}
+```
+
+**响应**：`{ "room_id": "!abc:matrix.test" }`
+
+**行为与错误**
+
+| 场景 | 结果 |
+|---|---|
+| `preset` 非法 | 400 `M_INVALID_PARAM`（`Invalid preset value`） |
+| `invite` 超过 100 人 | 400 `M_BAD_JSON`（`Too many invites (max 100)`） |
+| `room_version` 不支持 | 400 `M_UNSUPPORTED_ROOM_VERSION` |
+| `room_version` 与默认不兼容 | 400 `M_INCOMPATIBLE_ROOM_VERSION` |
+| 别名已被占用 | 400 `M_ROOM_IN_USE` |
+| 重名且 `ignore_duplicate_name=false` | 400（`M_ROOM_IN_USE` 语义） |
+
+> `creation_content` 不是 `{type, state_key, content}` 结构——它**直接就是** `m.room.create` 的
+> content。历史文档把它写成三层嵌套，客户端照此传会创建出错误的 create 事件。
+
+---
+
+## 加入 / 敲门 / 离开 / 遗忘
+
+| 方法 | 端点 | 说明 |
+|---|---|---|
+| `POST` | `/rooms/{room_id}/join` | 按房间 ID 加入 |
+| `POST` | `/join/{room_id_or_alias}` | 按 ID **或别名**加入（推荐：别名场景唯一可用路径） |
+| `POST` | `/knock/{room_id_or_alias}` | 敲门（`join_rule=knock` 时） |
+| `POST` | `/rooms/{room_id}/leave` | 离开 |
+| `POST` | `/rooms/{room_id}/forget` | 遗忘（离开后清理本地房间记录） |
+
+**加入**请求体可空 `{}`；`third_party_signed` 用于第三方邀请。响应 `{ "room_id": "..." }`。
+
+**离开时连带遗忘**（MSC4267，能力 `m.forget_forced_upon_leave`）：
+
+```json
+POST /_matrix/client/v3/rooms/{roomId}/leave
+{ "forget": true }
+```
+
+`forget` 在**请求体**里（不是查询参数）。为 `true` 时服务端在**同一事务**内完成
+leave + forget，事后单独调 `/forget` 不会与它竞争。
+
+**错误**
+
+| 场景 | 状态 | errcode |
+|---|---|---|
+| 房间不存在 | 404 | `M_NOT_FOUND` |
+| 被 ban | 403 | `M_FORBIDDEN` |
+| 需要邀请 / 敲门 | 403 | `M_FORBIDDEN` |
+| 别名无法解析 | 404 | `M_NOT_FOUND` |
+
+---
+
+## 成员管理
+
+| 方法 | 端点 | 请求体 |
+|---|---|---|
+| `POST` | `/rooms/{room_id}/invite` | `{"user_id": "@bob:x", "reason": "可选"}` |
+| `POST` | `/rooms/{room_id}/kick` | `{"user_id": "...", "reason": "可选"}` |
+| `POST` | `/rooms/{room_id}/ban` | `{"user_id": "...", "reason": "可选"}` |
+| `POST` | `/rooms/{room_id}/unban` | `{"user_id": "...", "reason": "可选"}` |
+| `GET` | `/rooms/{room_id}/members` | 见下 |
+| `GET` | `/rooms/{room_id}/joined_members` | `{"joined": {"@u:x": {"display_name": "...", "avatar_url": "..."}}}` |
+| `GET` | `/joined_rooms` | `{"joined_rooms": ["!a:x", "!b:x"]}` |
+| `POST` | `/_matrix/vendor/v1/rooms/{room_id}/get_membership_events` | 成员变更历史（**vendor 路径**） |
+| `GET` | `/_matrix/vendor/v1/rooms/{room_id}/members/recent` | 最近加入成员 |
+| `GET` | `/_matrix/vendor/v1/rooms/{room_id}/membership/{user_id}` | 单人成员状态 |
+
+**`GET /rooms/{room_id}/members` 查询参数**
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `at` | 无 | MSC4502 分页游标（取上次响应的 `next_batch`） |
+| `limit` | `100` | 夹在 `1..=1000`（负数不再透传到 SQL） |
+| `membership` | 无 | `join` / `invite` / `leave` / `ban` / `knock` |
+| `not_membership` | 无 | 排除某状态 |
+
+响应为 `{ "chunk": [ <m.room.member 事件> ], "next_batch": "<游标>" }`。
+非成员访问**私有房间**的成员列表 → 403 `M_FORBIDDEN`。
+
+**权限失败**统一 403 `M_FORBIDDEN`；被操作者不存在 → 404 `M_NOT_FOUND`。
+踢人/封禁需要足够的 `m.room.power_levels`，不足时 403（不会静默成功）。
+
+---
+
+## 状态事件
+
+### 读取
+
+| 方法 | 端点 | 说明 |
+|---|---|---|
+| `GET` | `/rooms/{room_id}/state` | 全部状态事件，**包在 `{"events": [...]}` 里**（见下方⚠️） |
+| `GET` | `/rooms/{room_id}/state?type={event_type}` | MSC4497：按类型过滤（精确匹配） |
+| `GET` | `/rooms/{room_id}/state/{event_type}` | 该类型 `state_key=""` 事件的 **content** |
+| `GET` | `/rooms/{room_id}/state/{event_type}/` | 同上（尾斜杠形式，等价） |
+| `GET` | `/rooms/{room_id}/state/{event_type}/{state_key}` | 指定状态键的 **content**；不存在 → 404 `M_NOT_FOUND` |
+
+> ⚠️ **`GET /rooms/{id}/state` 返回的是对象 `{"events": [...]}`，不是规范要求的裸数组。**
+> 客户端写 `const state = await res.json(); state.filter(...)` 会抛
+> `state.filter is not a function`。稳妥写法：`const events = res.events ?? res;`
+>
+> 这是本仓与 Matrix 规范的一处实际偏离（`handlers/room/state.rs` 直接 `json!({"events": ...})`）。
+> 单事件读（`/state/{type}/{key}`）则符合规范：**只返回 content**，不含 `event_id` / `type`。
+
+### 写入
+
+| 方法 | 端点 | 说明 |
+|---|---|---|
+| `PUT` | `/rooms/{room_id}/state/{event_type}` | 写 `state_key=""` |
+| `PUT` | `/rooms/{room_id}/state/{event_type}/` | 尾斜杠 = 空 `state_key` |
+| `PUT` | `/rooms/{room_id}/state/{event_type}/{state_key}` | 写指定状态键 |
+| `POST` | `/rooms/{room_id}/state/{event_type}` | 同上（POST 形态） |
+
+响应 `{ "event_id": "$..." }`。
+
+**MSC4354 Sticky 时长**：上述写路径与 `/send` 一样接受 sticky 参数
+（`?org.matrix.msc4354.sticky_duration_ms=` 或短名 `sticky_duration_ms`），
+取值必须为 `1..=3600000`（1 小时），超界/非整数 → 400 `M_INVALID_PARAM`。
+详见 [extensions.md](./extensions.md#sticky-事件msc4354)。
+
+**常用状态事件**
+
+| 类型 | content 示例 |
+|---|---|
+| `m.room.name` | `{"name": "项目组"}` |
+| `m.room.topic` | `{"topic": "..."}` |
+| `m.room.avatar` | `{"url": "mxc://..."}` |
+| `m.room.join_rules` | `{"join_rule": "public"\|"invite"\|"knock"\|"restricted"\|"knock_restricted", "allow": [{"type":"m.room_membership","room_id":"!x"}]}` |
+| `m.room.history_visibility` | `{"history_visibility": "shared"\|"invited"\|"joined"\|"world_readable"}` |
+| `m.room.guest_access` | `{"guest_access": "can_join"\|"forbidden"}` |
+| `m.room.encryption` | `{"algorithm": "m.megolm.v1.aes-sha2", "rotation_period_ms": 604800000}` |
+| `m.room.power_levels` | `{"users": {"@a:x": 100}, "events": {...}, "invite": 0, "kick": 50, ...}` |
+
+> `m.room.join_rules` 用 `restricted` 时 `allow` 是**对象数组**（`{"type","room_id"}`），
+> 不是字符串数组。旧文档写成 `allow?: string[]` 是错的。
+
+---
+
+## 房间信息
+
+`GET /_matrix/client/v3/rooms/{room_id}`
+
+**要求**：调用者必须是房间成员，否则 404 `M_NOT_FOUND`（`Room not found or not a member`）。
+
+```json
+{
+  "room_id": "!abc:matrix.test",
+  "name": "项目组",
+  "avatar_url": "mxc://matrix.test/xyz",
+  "topic": "排期与评审",
+  "canonical_alias": "#project:matrix.test",
+  "joined_members_count": 12,
+  "invited_members_count": 1,
+  "world_readable": false,
+  "guest_can_join": false,
+  "membership": "join"
+}
+```
+
+其他房间级读取端点：
+
+| 方法 | 端点 | 说明 |
+|---|---|---|
+| `GET` | `/rooms/{room_id}/aliases` | 该房间的本地别名列表 |
+| `GET` | `/rooms/{room_id}/event/{event_id}` | 单个事件（**含 `unsigned`**，sticky TTL 要在这里读） |
+| `GET` | `/rooms/{room_id}/initialSync` | 旧版初始同步（`/sync` 已覆盖，仅为兼容保留） |
+| `GET` | `/rooms/{room_id}/ephemeral` | 瞬时事件 |
+| `GET` | `/rooms/{room_id}/context/{event_id}` | 事件上下文（前后各若干条） |
+| `GET` | `/rooms/{room_id}/messages` | 历史（见 [messages.md](./messages.md)） |
+
+---
+
+## 别名与目录可见性
+
+**这是两个不同的东西**，历史文档把它们混成了一个端点：
+
+| 目的 | 方法 | 端点 |
+|---|---|---|
+| 创建别名 | `PUT` | `/directory/room/{room_alias}` |
+| 删除别名 | `DELETE` | `/directory/room/{room_alias}` |
+| 解析别名 | `GET` | `/directory/room/{room_alias}` → `{"room_id": "...", "servers": [...]}` |
+| 房间挂别名 | `PUT` | `/directory/room/{room_id}/alias/{room_alias}` |
+| 房间摘别名 | `DELETE` | `/directory/room/{room_id}/alias/{room_alias}` |
+| 列房间别名 | `GET` | `/directory/room/{room_id}/alias` |
+| **设置目录可见性** | `PUT` | `/directory/list/room/{room_id}` — 体 `{"visibility": "public"\|"private"}` |
+| **读取目录可见性** | `GET` | `/directory/list/room/{room_id}` → `{"visibility": "..."}` |
+| 取消公开发布 | `DELETE` | `/directory/list/room/{room_id}` |
+
+- `PUT /directory/room/{room_alias}` 体：`{"room_id": "!x", "servers": ["matrix.test"]}`。
+- 别名格式必须为 `#localpart:server`；非法 → 400 `M_INVALID_PARAM`。
+- 别名已存在 → 400 `M_ROOM_IN_USE`；调用者无权 → 403 `M_FORBIDDEN`。
+
+> **没有** `PUT /directory/room/{room_id}`。想改"是否公开"，用 `/directory/list/room/{room_id}`。
+
+---
+
+## 公共房间列表
+
+| 方法 | 端点 | 说明 |
+|---|---|---|
+| `GET` | `/publicRooms` | 查询（`limit`、`since`、`server`、`filter`） |
+| `POST` | `/publicRooms` | 带 filter 体的查询（更可靠，避免 URL 长度限制） |
+
+**响应**：
+
+```json
+{
+  "chunk": [
+    { "room_id": "!x:matrix.test", "name": "项目组", "topic": "...", "avatar_url": "mxc://...",
+      "num_joined_members": 12, "world_readable": true, "guest_can_join": false,
+      "canonical_alias": "#project:matrix.test", "join_rule": "public", "room_type": null }
+  ],
+  "next_batch": "t7",
+  "total_room_count_estimate": 42
+}
+```
+
+`POST` 体：
+
+```json
+{
+  "limit": 20,
+  "since": "t7",
+  "filter": { "generic_search_term": "项目", "room_types": ["m.space"] },
+  "include_all_networks": false,
+  "third_party_instance_id": null
 }
 ```
 
 ---
 
-### 设置房间目录
+## 层级与空间
 
-**端点:** `PUT /_matrix/client/v3/directory/room/{room_id}`
+| 方法 | 端点 | 版本 |
+|---|---|---|
+| `GET` | `/rooms/{room_id}/hierarchy` | v3 |
+| `GET` | `/client/v1/rooms/{room_id}/hierarchy` | v1 |
+| `GET` | `/spaces/{space_id}/hierarchy` | v1 / v3 |
+| `GET` | `/spaces/{space_id}/hierarchy/v1` | 显式 v1 |
 
-**请求体:**
-```typescript
-interface DirectoryRoomRequest {
-  visibility: 'public' | 'private';
-}
-```
+参数：`suggested_only`、`limit`、`max_depth`、`from`。
 
-**请求示例:**
-```typescript
-const setRoomDirectory = async (roomId: string, visibility: 'public', accessToken: string) => {
-  const response = await fetch(
-    `${BASE_URL}/_matrix/client/v3/directory/room/${encodeURIComponent(roomId)}`,
-    {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ visibility })
-    }
-  );
-  return handleApiResponse(response);
-};
-```
+空间（`room_type: "m.space"`）的完整管理（`/_matrix/vendor/v1/spaces/*`：
+children、tree_path、summary、members、invite/join/leave）见 [extensions.md](./extensions.md#spaces)。
 
 ---
 
-### 删除房间目录
+## 房间升级
 
-**端点:** `DELETE /_matrix/client/v3/directory/room/{room_id}`
+`POST /_matrix/client/v3/rooms/{room_id}/upgrade`
 
-**请求示例:**
-```typescript
-const deleteRoomDirectory = async (roomId: string, accessToken: string) => {
-  const response = await fetch(
-    `${BASE_URL}/_matrix/client/v3/directory/room/${encodeURIComponent(roomId)}`,
-    {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${accessToken}` }
-    }
-  );
-  return handleApiResponse(response);
-};
+```json
+{ "new_version": "12" }
 ```
+
+**响应**：`{"replacement_room": "!new:matrix.test"}`
+
+- 需要 `m.room.tombstone` 的写权限；不足 → 403 `M_FORBIDDEN`。
+- 房间版本未知 → 400 `M_UNSUPPORTED_ROOM_VERSION`。
+- 升级会在旧房间写入 `m.room.tombstone` 并在新房间建 `m.room.create`；
+  客户端应把旧房间标记为"已升级"，按 `replacement_room` 跳转。
 
 ---
 
-## 完整房间服务示例
+## 举报
 
-```typescript
-class RoomService {
-  constructor(private auth: AuthService) {}
+| 方法 | 端点 | 体 |
+|---|---|---|
+| `POST` | `/rooms/{room_id}/report` | `{"reason": "..."}`（举报房间） |
+| `POST` | `/rooms/{room_id}/report/{event_id}` | `{"reason": "...", "score": -100..0}`（举报事件） |
+| `POST` | `/users/{user_id}/report` | `{"reason": "..."}`（举报用户） |
+| `POST` | `/client/v1/rooms/{room_id}/report/{event_id}` | v1 变体 |
 
-  async createPrivateChat(userId: string) {
-    return this.createRoom({
-      preset: 'trusted_private_chat',
-      invite: [userId],
-      is_direct: true
-    });
-  }
+响应 `{}`。举报进入管理端的 `/_synapse/admin/v1/event_reports`（见 [admin.md](./admin.md)）。
 
-  async createRoom(options: CreateRoomRequest) {
-    const response = await fetch(`${BASE_URL}/_matrix/client/v3/createRoom`, {
-      method: 'POST',
-      headers: this.auth.getAuthHeaders(),
-      body: JSON.stringify(options)
-    });
-    return this.auth.handleResponse(response);
-  }
+---
 
-  async sendMessage(roomId: string, message: string) {
-    const txnId = Date.now().toString();
-    const response = await fetch(
-      `${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`,
-      {
-        method: 'PUT',
-        headers: this.auth.getAuthHeaders(),
-        body: JSON.stringify({
-          msgtype: 'm.text',
-          body: message
-        })
-      }
-    );
-    return this.auth.handleResponse(response);
-  }
+## 响应形状速查
 
-  async getMessages(roomId: string, limit = 50, from?: string) {
-    const url = new URL(`${BASE_URL}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/messages`);
-    url.searchParams.set('limit', limit.toString());
-    if (from) url.searchParams.set('from', from);
-
-    const response = await fetch(url.toString(), {
-      headers: { 'Authorization': `Bearer ${this.auth.accessToken}` }
-    });
-    return this.auth.handleResponse(response);
-  }
-}
-```
+| 端点 | 成功响应 |
+|---|---|
+| `POST /createRoom` | `{"room_id"}` |
+| `POST /rooms/{id}/join`、`/join/{idOrAlias}` | `{"room_id"}` |
+| `POST /rooms/{id}/leave`、`/knock/*`、`/forget` | `{}` |
+| `POST /rooms/{id}/invite`、`/kick`、`/ban`、`/unban` | `{}` |
+| `PUT /rooms/{id}/state/*`、`POST /rooms/{id}/state/*` | `{"event_id"}` |
+| `GET /rooms/{id}/state` | `{"events": [...]}`（**不是裸数组**） |
+| `GET /rooms/{id}/state/{type}/{key}` | 该事件的 `content`（**只有 content**，不含 event_id） |
+| `GET /rooms/{id}/members` | `{"chunk": [...], "next_batch"?: "..."}` |
+| `GET /rooms/{id}/joined_members` | `{"joined": {"@u": {"display_name", "avatar_url"}}}` |
+| `GET /joined_rooms` | `{"joined_rooms": [...]}` |
+| `GET /rooms/{id}` | 房间信息对象（见上） |
+| `GET /rooms/{id}/aliases` | `{"aliases": [...]}` |
+| `GET /directory/room/{alias}` | `{"room_id", "servers": [...]}` |
+| `PUT/DELETE /directory/*` | `{}` |
+| `GET/PUT /directory/list/room/{id}` | `{"visibility"}` / `{}` |
+| `POST /rooms/{id}/upgrade` | `{"replacement_room"}` |
+| `POST /rooms/{id}/report*` | `{}` |
