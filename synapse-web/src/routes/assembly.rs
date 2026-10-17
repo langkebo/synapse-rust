@@ -299,15 +299,12 @@ pub fn create_router(state: AppState) -> Router {
 
     // Fallback handler: unmatched routes return M_UNRECOGNIZED per Matrix spec.
     // Without this, axum returns an empty-body 404 which breaks client error handling.
-    // Uses pre-serialized Bytes to avoid per-request allocation from serde_json::json!().
-    const FALLBACK_BODY: &[u8] = b"{\"errcode\":\"M_UNRECOGNIZED\",\"error\":\"Unrecognized request\"}";
-    router = router.fallback(|| async {
-        (
-            axum::http::StatusCode::NOT_FOUND,
-            [(axum::http::header::CONTENT_TYPE, "application/json")],
-            axum::body::Bytes::from_static(FALLBACK_BODY),
-        )
-    });
+    // MSC4512 dispatch also lives here: a path under a registered application
+    // service `proxy_prefix` is not a static route, so it can only be resolved
+    // after every real route has been tried. `msc4512_proxy_fallback` forwards
+    // those requests (after authentication) and otherwise returns the same
+    // pre-serialized `M_UNRECOGNIZED` body.
+    router = router.fallback(super::msc4512_proxy::msc4512_proxy_fallback);
 
     let core_ctx = <crate::routes::context::CoreContext as axum::extract::FromRef<AppState>>::from_ref(&state);
 

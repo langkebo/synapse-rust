@@ -2192,10 +2192,27 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 <!-- 以下数字由 `scripts/ci/check_plan_numbers_fresh.sh` 与基线/实测现算比对；改基线必须同步改这里。 -->
 BASELINE_DYNAMIC_PRODUCTION=96
 BASELINE_DYNAMIC_TEST_INFRA=769
-BASELINE_STATIC=1361
+BASELINE_STATIC=1367
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1326
+SQLX_CACHE_ENTRIES=1334
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-17 更新（UG-11：账户注销数据面收尾）**，数字块两项按实测同步：
+> - `BASELINE_STATIC` **1361 → 1367**（+6）：`StorageUserDataPurger` 需要六条"按
+>   `user_id` 全量删除"的静态 `DELETE`（`account_data` / `room_account_data` /
+>   `push_rules` / `thread_subscriptions` / `key_backups` / `secure_key_backups`）——
+>   既有的键形删除（如 `delete_account_data((user_id, data_type))`）够不到注销时
+>   未知的那批行。级联表（`backup_keys` / `secure_backup_session_keys`）靠 FK 走，不计。
+> - `SQLX_CACHE_ENTRIES` **1328 → 1334**（+6）：上述六条经唯一入口
+>   `scripts/ci/sqlx_prepare.sh` 重生成后新增六条缓存，无缩容。`BASELINE_DYNAMIC_*` 不变。
+>   同批的"待处理邀请/敲击拒绝"**不新增 SQL**（复用 `get_sync_rooms` 过滤非 `join`）。
+
+> **2026-10-17 更新（R2/UG-4：AS 临时数据投递接线）**，数字块一项按实测同步：
+> - `SQLX_CACHE_ENTRIES` **1326 → 1328**（+2）：新增 seam
+>   `RoomStoreApi::get_latest_receipt_position()`（`SELECT COALESCE(MAX(id),0) … event_receipts`）与
+>   `get_receipts_since(from_exclusive, to_inclusive, limit)`（回执流游标读），经唯一入口
+>   `scripts/ci/sqlx_prepare.sh` 重生成后新增 2 条缓存（`query-4aea15c5…json` / `query-50cd82b7…json`）。
+>   其余四个 `BASELINE_*` 未变。
 
 > **2026-10-16 更新（P1 批次：功能缺口/安全面 5 项）**，数字块一项按实测同步：
 > - `SQLX_CACHE_ENTRIES` **1329 → 1326**（−3）：本轮改了四处 SQL 文本（房间别名冲突

@@ -104,6 +104,15 @@ pub enum MatrixErrorCode {
     ProfileTooLarge,
     /// M_UNKNOWN_DEVICE: The requested device does not exist (Matrix 1.17, MSC4326).
     UnknownDevice,
+    /// M_FEDPROXY_DESTINATION_DENIED: The MSC4512 `fed_proxy` destination is
+    /// this server itself, or a server that is broadly refused for federation.
+    FedProxyDestinationDenied,
+    /// M_FEDPROXY_PATH_NOT_ALLOWED: The MSC4512 `fed_proxy` path is not under
+    /// the calling appservice's `proxy_prefix`, or contains `.`/`..` segments.
+    FedProxyPathNotAllowed,
+    /// M_FEDPROXY_CONNECTION_FAILED: The MSC4512 `fed_proxy` request could not
+    /// be delivered to the destination server.
+    FedProxyConnectionFailed,
 }
 
 impl MatrixErrorCode {
@@ -152,6 +161,9 @@ impl MatrixErrorCode {
             Self::KeyTooLarge => "M_KEY_TOO_LARGE",
             Self::ProfileTooLarge => "M_PROFILE_TOO_LARGE",
             Self::UnknownDevice => "M_UNKNOWN_DEVICE",
+            Self::FedProxyDestinationDenied => "M_FEDPROXY_DESTINATION_DENIED",
+            Self::FedProxyPathNotAllowed => "M_FEDPROXY_PATH_NOT_ALLOWED",
+            Self::FedProxyConnectionFailed => "M_FEDPROXY_CONNECTION_FAILED",
         }
     }
 
@@ -216,6 +228,9 @@ impl MatrixErrorCode {
             Self::KeyTooLarge => StatusCode::BAD_REQUEST,
             Self::ProfileTooLarge => StatusCode::BAD_REQUEST,
             Self::UnknownDevice => StatusCode::NOT_FOUND,
+            Self::FedProxyDestinationDenied => StatusCode::FORBIDDEN,
+            Self::FedProxyPathNotAllowed => StatusCode::FORBIDDEN,
+            Self::FedProxyConnectionFailed => StatusCode::BAD_GATEWAY,
         }
     }
 
@@ -269,6 +284,9 @@ impl MatrixErrorCode {
             "M_KEY_TOO_LARGE" => Some(Self::KeyTooLarge),
             "M_PROFILE_TOO_LARGE" => Some(Self::ProfileTooLarge),
             "M_UNKNOWN_DEVICE" => Some(Self::UnknownDevice),
+            "M_FEDPROXY_DESTINATION_DENIED" => Some(Self::FedProxyDestinationDenied),
+            "M_FEDPROXY_PATH_NOT_ALLOWED" => Some(Self::FedProxyPathNotAllowed),
+            "M_FEDPROXY_CONNECTION_FAILED" => Some(Self::FedProxyConnectionFailed),
             _ => None,
         }
     }
@@ -377,5 +395,23 @@ mod tests {
         assert_eq!(encoded, "\"M_UNKNOWN_DEVICE\"");
         let decoded: MatrixErrorCode = serde_json::from_str(&encoded).expect("deserialize");
         assert_eq!(decoded, MatrixErrorCode::UnknownDevice);
+    }
+
+    /// MSC4512: the three `fed_proxy` errcodes must round-trip and carry the
+    /// HTTP statuses the MSC prescribes (403/403/502).
+    #[test]
+    fn fedproxy_codes_roundtrip_and_map_status() {
+        for (code, expected) in [
+            (MatrixErrorCode::FedProxyDestinationDenied, "M_FEDPROXY_DESTINATION_DENIED"),
+            (MatrixErrorCode::FedProxyPathNotAllowed, "M_FEDPROXY_PATH_NOT_ALLOWED"),
+            (MatrixErrorCode::FedProxyConnectionFailed, "M_FEDPROXY_CONNECTION_FAILED"),
+        ] {
+            assert_eq!(code.as_str(), expected);
+            assert_eq!(MatrixErrorCode::from_str(expected), Some(code));
+        }
+
+        assert_eq!(MatrixErrorCode::FedProxyDestinationDenied.http_status(), StatusCode::FORBIDDEN);
+        assert_eq!(MatrixErrorCode::FedProxyPathNotAllowed.http_status(), StatusCode::FORBIDDEN);
+        assert_eq!(MatrixErrorCode::FedProxyConnectionFailed.http_status(), StatusCode::BAD_GATEWAY);
     }
 }

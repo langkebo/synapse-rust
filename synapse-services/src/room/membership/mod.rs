@@ -88,6 +88,22 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_cause("Failed to get joined rooms", e))
     }
 
+    /// Rooms `user_id` has a **pending** membership in — `invite` or `knock`,
+    /// but not `join`.
+    ///
+    /// Used by account deactivation, which must reject outstanding invites and
+    /// retract knocks; a self-`leave` from either state is the rejection
+    /// ([`synapse_common::membership_transition`]). Disjoint from
+    /// [`Self::get_joined_rooms`], so the two lists can be concatenated safely.
+    pub async fn get_pending_rooms(&self, user_id: &str) -> ApiResult<Vec<String>> {
+        let memberships = self
+            .member_storage
+            .get_sync_rooms(user_id, false)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to get pending rooms", e))?;
+        Ok(memberships.into_iter().filter(|m| m.membership != "join").map(|m| m.room_id).collect())
+    }
+
     /// See [`get_shared_room_users`].
     pub async fn get_shared_room_users(&self, user_id: &str) -> ApiResult<Vec<String>> {
         self.member_storage

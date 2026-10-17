@@ -383,6 +383,42 @@ impl ApiError {
         }
     }
 
+    /// MSC4512: the `fed_proxy` destination is this server itself, or a server
+    /// that is broadly refused for federation.
+    /// Returns 403 Forbidden + `M_FEDPROXY_DESTINATION_DENIED`.
+    pub fn fed_proxy_destination_denied(message: impl Into<String>) -> Self {
+        Self {
+            kind: ApiErrorKind::Forbidden,
+            code: MatrixErrorCode::FedProxyDestinationDenied,
+            message: message.into(),
+            cause: None,
+        }
+    }
+
+    /// MSC4512: the `fed_proxy` path is not under the calling appservice's
+    /// `proxy_prefix`, or contains `.`/`..` segments.
+    /// Returns 403 Forbidden + `M_FEDPROXY_PATH_NOT_ALLOWED`.
+    pub fn fed_proxy_path_not_allowed(message: impl Into<String>) -> Self {
+        Self {
+            kind: ApiErrorKind::Forbidden,
+            code: MatrixErrorCode::FedProxyPathNotAllowed,
+            message: message.into(),
+            cause: None,
+        }
+    }
+
+    /// MSC4512: the `fed_proxy` request could not be delivered to the
+    /// destination server.
+    /// Returns 502 Bad Gateway + `M_FEDPROXY_CONNECTION_FAILED`.
+    pub fn fed_proxy_connection_failed(message: impl Into<String>) -> Self {
+        Self {
+            kind: ApiErrorKind::BadGateway,
+            code: MatrixErrorCode::FedProxyConnectionFailed,
+            message: message.into(),
+            cause: None,
+        }
+    }
+
     /// A well-formed request for a feature this server does not implement.
     /// Returns **501 Not Implemented** + `M_UNKNOWN`.
     ///
@@ -1960,6 +1996,9 @@ mod tests {
             ("service_unavailable", ApiError::service_unavailable("x")),
             ("content_scan_failed", ApiError::content_scan_failed("x")),
             ("content_scan_disabled", ApiError::content_scan_disabled("x")),
+            ("fed_proxy_destination_denied", ApiError::fed_proxy_destination_denied("x")),
+            ("fed_proxy_path_not_allowed", ApiError::fed_proxy_path_not_allowed("x")),
+            ("fed_proxy_connection_failed", ApiError::fed_proxy_connection_failed("x")),
             ("not_supported", ApiError::not_supported("x")),
             ("database_with_context", ApiError::database_with_context("x", &"y")),
             ("internal_with_context", ApiError::internal_with_context("x", &"y")),

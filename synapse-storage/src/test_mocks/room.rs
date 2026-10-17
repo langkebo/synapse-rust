@@ -373,6 +373,21 @@ impl crate::room::api::RoomStoreApi for InMemoryRoomStore {
         Ok(Vec::new())
     }
 
+    async fn get_latest_receipt_position(&self) -> Result<i64, sqlx::Error> {
+        // Receipts are not modeled in InMemoryRoomStore; the stream is always empty.
+        Ok(0)
+    }
+
+    async fn get_receipts_since(
+        &self,
+        _from_exclusive: i64,
+        _to_inclusive: i64,
+        _limit: i64,
+    ) -> Result<Vec<crate::room::ReceiptStreamEntry>, sqlx::Error> {
+        // Receipts are not modeled in InMemoryRoomStore; no rows to page through.
+        Ok(Vec::new())
+    }
+
     async fn update_read_marker_with_type(
         &self,
         room_id: &str,

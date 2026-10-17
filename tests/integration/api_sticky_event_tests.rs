@@ -158,6 +158,75 @@ mod sticky_event_integration_suite {
         assert_eq!(result.unwrap().event_id, "$event2:localhost");
     }
 
+    /// C2（§19.5 批次 C）：`/sync` 的 `sticky_events` 集合与
+    /// `GET /rooms/{room_id}/sticky_events` 的集合**同源** —— 两者都落到
+    /// `StickyEventStorage::get_all_is_sticky_events(room_id, user_id)`（过期过滤也在该读取内）。
+    /// 本用例锁定该"同源读"的两个后果：
+    /// 1) 有 pin 的用户读到同一集合（同一 (room, user, type) 由唯一键保证单行）；
+    /// 2) 新加入房间的成员读到空集 —— 因此 `/sync` 与 `GET` 两路同时为空、彼此恒等，
+    ///    加入路径无需任何补发。
+    #[tokio::test]
+    async fn sticky_view_is_identical_for_sync_and_get_and_empty_for_new_members() {
+        let pool = crate::require_test_pool().await;
+        let storage = StickyEventStorage::new(pool.clone());
+        let room_id = "!c2room:localhost";
+        let pinned_user = "@c2pinned:localhost";
+        let new_member = "@c2newbie:localhost";
+
+        ensure_room_and_user(&pool, room_id, pinned_user).await;
+        ensure_room_and_user(&pool, room_id, new_member).await;
+
+        storage
+            .set_is_sticky_event(room_id, pinned_user, "$s1:localhost", "m.room.message", true, None)
+            .await
+            .expect("Failed to set sticky event 1");
+        storage
+            .set_is_sticky_event(room_id, pinned_user, "$s2:localhost", "m.room.topic", true, None)
+            .await
+            .expect("Failed to set sticky event 2");
+
+        // 有 pin 的用户：该读取即 `/sync` 与 `GET` 两路端点共用的集合。
+        let pinned_view =
+            storage.get_all_is_sticky_events(room_id, pinned_user).await.expect("Failed to get pinned view");
+        let mut pinned_types: Vec<&str> = pinned_view.iter().map(|e| e.event_type.as_str()).collect();
+        pinned_types.sort_unstable();
+        assert_eq!(pinned_types, vec!["m.room.message", "m.room.topic"]);
+
+        // 新加入房间的成员：per-user 视角为空（无 per-room 广播抄本）⇒ 两路皆空、恒等。
+        let newbie_view =
+            storage.get_all_is_sticky_events(room_id, new_member).await.expect("Failed to get new member view");
+        assert!(newbie_view.is_empty(), "新成员的 sticky 集合必须为空，故 /sync 与 GET 恒等");
+    }
+
+    /// C3（§19.5 批次 C）：`room_sticky_events` 的唯一键
+    /// `(room_id, user_id, event_type)` 保证当前**单写者**模型下同一 sticky 事件恒为一行，
+    /// 因此不会在同一 `/sync` 响应里重复出现。多写者/分片位置是**未做**的边界（见代码内注释）。
+    #[tokio::test]
+    async fn sticky_event_unique_key_keeps_one_row_per_room_user_type() {
+        let pool = crate::require_test_pool().await;
+        let storage = StickyEventStorage::new(pool.clone());
+        let room_id = "!c3room:localhost";
+        let user_id = "@c3user:localhost";
+        let event_type = "m.room.message";
+
+        ensure_room_and_user(&pool, room_id, user_id).await;
+
+        // 同一 (room, user, type) 连续写两次（换 event_id）⇒ 唯一键走 DO UPDATE，仍只有一行。
+        storage
+            .set_is_sticky_event(room_id, user_id, "$first:localhost", event_type, true, None)
+            .await
+            .expect("Failed to set first sticky event");
+        storage
+            .set_is_sticky_event(room_id, user_id, "$second:localhost", event_type, true, None)
+            .await
+            .expect("Failed to update sticky event");
+
+        let all = storage.get_all_is_sticky_events(room_id, user_id).await.expect("Failed to get all sticky events");
+        let matching: Vec<&StickyEvent> = all.iter().filter(|e| e.event_type == event_type).collect();
+        assert_eq!(matching.len(), 1, "唯一键必须保证同一 (room, user, type) 单行");
+        assert_eq!(matching[0].event_id, "$second:localhost", "后写必须覆盖前写");
+    }
+
     #[test]
     fn test_sticky_event_struct() {
         let event = StickyEvent {

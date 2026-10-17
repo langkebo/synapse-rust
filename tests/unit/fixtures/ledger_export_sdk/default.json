@@ -8,7 +8,7 @@
     "worker_enabled": false,
     "saml_enabled": false
   },
-  "entry_count": 1017,
+  "entry_count": 1019,
   "entries": [
     {
       "method": "GET",
@@ -171,6 +171,13 @@
       "path_params": [
         "as_id"
       ],
+      "query_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/unstable/io.element.msc4512/appservice/fed_proxy",
+      "registered_by": "app_service",
+      "path_params": [],
       "query_params": []
     },
     {
@@ -528,6 +535,13 @@
       "method": "GET",
       "path": "/_matrix/client/v1/account/whoami",
       "registered_by": "assembly::account_compat",
+      "path_params": [],
+      "query_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v1/appservice/fed_proxy",
+      "registered_by": "app_service",
       "path_params": [],
       "query_params": []
     },

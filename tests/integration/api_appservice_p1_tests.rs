@@ -1056,3 +1056,154 @@ async fn test_appservice_device_management_skips_uia_msc4190() {
         "AS 不得 upsert 属于其他用户的设备（应返回 404，与「无此设备」不可区分）"
     );
 }
+
+/// App Service pusher 面：上游 Matrix 的 Application Service API **没有**专属 pusher
+/// 端点（见 spec「Client-Server API Extensions → Identity assertion」）—— AS 通过
+/// `m.login.application_service` 登录拿到带 `appservice_id` 的访问令牌后，直接调用
+/// 通用 C-S pusher 端点（`POST /pushers/set`、`GET /pushers`）即可管理其虚拟用户的
+/// pusher。本用例锁定这一链路不被后续改动破坏，与
+/// `test_appservice_device_management_skips_uia_msc4190` 同构。
+#[tokio::test]
+async fn test_appservice_pusher_management_via_login() {
+    let Some(app) = setup_fresh_test_app().await else {
+        return;
+    };
+    let (admin_token, _) = get_admin_token(&app).await;
+
+    let suffix = rand::random::<u32>();
+    let username = format!("aspush{suffix}");
+    let user_id = format!("@{username}:localhost");
+    let as_token = format!("as_push_token_{suffix}");
+    let as_id = format!("test_as_push_{suffix}");
+
+    // 1. 注册带排他 users 命名空间的 AS
+    let register_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/appservices")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {admin_token}"))
+        .body(Body::from(
+            json!({
+                "id": as_id,
+                "url": "http://localhost:8080",
+                "as_token": as_token,
+                "hs_token": format!("hs_push_{suffix}"),
+                "sender_localpart": format!("botpush{suffix}"),
+                "namespaces": {
+                    "users": [{"regex": format!("^@{username}:localhost$"), "exclusive": true}],
+                    "aliases": [],
+                    "rooms": []
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = app.clone().oneshot(register_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED, "AppService 注册应成功");
+
+    // 2. 创建命名空间内的用户
+    let register_user = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "username": username,
+                "password": "AsPushPass123!",
+                "auth": {"type": "m.login.dummy"}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let register_user_response = app.clone().oneshot(register_user).await.unwrap();
+    if register_user_response.status() != StatusCode::OK {
+        eprintln!("Skipping AS pusher test: user registration disabled in this config");
+        return;
+    }
+
+    // 3. AS 登录命名空间内的用户，拿到带 appservice_id 的访问令牌
+    let login_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/login")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {as_token}"))
+        .body(Body::from(
+            json!({
+                "type": "m.login.application_service",
+                "identifier": {"type": "m.id.user", "user": user_id},
+                "device_id": "ASPUSH"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let login_response = app.clone().oneshot(login_request).await.unwrap();
+    assert_eq!(login_response.status(), StatusCode::OK, "AS 登录应成功");
+    let body = axum::body::to_bytes(login_response.into_body(), 8192).await.unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let as_access_token = value["access_token"].as_str().unwrap().to_string();
+
+    // 4. AS 通过通用 C-S 端点创建 pusher → 200
+    let set_pusher = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/pushers/set")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {as_access_token}"))
+        .body(Body::from(
+            json!({
+                "pushkey": "as-pushkey-1",
+                "kind": "http",
+                "app_id": "com.example.bridge",
+                "app_display_name": "Bridge Push",
+                "device_display_name": "AS Device",
+                "lang": "en",
+                "data": {"url": "https://push.example.test"}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let set_pusher_response = app.clone().oneshot(set_pusher).await.unwrap();
+    assert_eq!(set_pusher_response.status(), StatusCode::OK, "AS 应能为其虚拟用户设置 pusher");
+
+    // 5. GET /pushers 能看到刚设置的 pusher
+    let get_pushers = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/pushers")
+        .header("Authorization", format!("Bearer {as_access_token}"))
+        .body(Body::empty())
+        .unwrap();
+    let get_pushers_response = app.clone().oneshot(get_pushers).await.unwrap();
+    assert_eq!(get_pushers_response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(get_pushers_response.into_body(), 8192).await.unwrap();
+    let pushers_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(pushers_json["pushers"][0]["pushkey"], json!("as-pushkey-1"));
+
+    // 6. kind=null 删除该 pusher → 200，GET 变空
+    let delete_pusher = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/pushers/set")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {as_access_token}"))
+        .body(Body::from(
+            json!({
+                "pushkey": "as-pushkey-1",
+                "kind": serde_json::Value::Null,
+                "app_id": "com.example.bridge"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let delete_pusher_response = app.clone().oneshot(delete_pusher).await.unwrap();
+    assert_eq!(delete_pusher_response.status(), StatusCode::OK, "AS 应能删除其虚拟用户的 pusher");
+
+    let get_pushers_after = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/pushers")
+        .header("Authorization", format!("Bearer {as_access_token}"))
+        .body(Body::empty())
+        .unwrap();
+    let get_pushers_after_response = app.clone().oneshot(get_pushers_after).await.unwrap();
+    assert_eq!(get_pushers_after_response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(get_pushers_after_response.into_body(), 8192).await.unwrap();
+    let pushers_after_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(pushers_after_json["pushers"], json!([]), "删除后 pusher 列表应为空");
+}

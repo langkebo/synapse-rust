@@ -132,6 +132,14 @@ impl StickyEventStorage {
     /// (`org.matrix.msc4354.sticky_duration_ms`). `None` means "never expires"
     /// and is stored as SQL NULL in both `sticky_duration_ms` and `expires_at`.
     ///
+    /// # 单写者假设（C3，§19.5 批次 C）
+    ///
+    /// 唯一键 `(room_id, user_id, event_type)` 保证同一 sticky 事件在当前**单写者**模型
+    /// （本进程独占写 `room_sticky_events`）下恒为一行，因此同一事件不会在同一 `/sync`
+    /// 响应里重复出现。**已知边界（本轮未做）**：若将来引入多写者 / 按房间分片（多进程各自
+    /// 写 sticky），唯一键只能约束库内单行，**不保证**同一 sticky 事件不会经不同分片重复
+    /// 出现在多个 sync 响应中；届时需要按分片位置去重或改用 per-room 广播抄本。当前部署形态下不需要。
+    ///
     /// # Errors
     ///
     /// Returns [`SetStickyEventError::Duration`] when the duration is not a

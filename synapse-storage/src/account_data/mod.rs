@@ -38,6 +38,19 @@ impl AccountDataStorage {
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
+
+    /// Remove **every** account-data row belonging to `user_id`, returning the count.
+    ///
+    /// Used by account deactivation. [`Self::delete_account_data`] keys on
+    /// `(user_id, data_type)`, so it can only remove a row the caller already names;
+    /// deactivation needs "everything this user has left" in a single statement.
+    pub async fn delete_all_account_data_for_user(&self, user_id: &str) -> Result<u64, ApiError> {
+        let result = sqlx::query!("DELETE FROM account_data WHERE user_id = $1", user_id)
+            .execute(&*self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to delete account data", e))?;
+        Ok(result.rows_affected())
+    }
 }
 
 #[async_trait::async_trait]

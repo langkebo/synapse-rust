@@ -796,6 +796,9 @@ impl FederationClient {
                 "GET" => self.http_client.get(&url),
                 "PUT" => self.http_client.put(&url),
                 "POST" => self.http_client.post(&url),
+                // MSC4512: the appservice `fed_proxy` endpoint forwards whatever
+                // method the appservice chose, including DELETE.
+                "DELETE" => self.http_client.delete(&url),
                 _ => return Err(FederationClientError::Connection(format!("Unsupported method: {method}"))),
             };
             let retry_request = retry_request.header("Authorization", &auth_header).header("Host", &resolved.host);
@@ -1364,6 +1367,35 @@ impl FederationClient {
     /// See [`health_check`.
     pub async fn health_check(&self, destination: &str) -> bool {
         self.get_version(destination).await.is_ok()
+    }
+
+    /// MSC4512: sign and send an arbitrary federation request on behalf of an
+    /// appservice, returning the remote HTTP status code and the decoded JSON
+    /// body (which becomes the `content` of the `fed_proxy` response).
+    ///
+    /// `path` is the full federation path **including** the query string, e.g.
+    /// `/_matrix/federation/v1/version?foo=bar`. A non-2xx response from the
+    /// remote is *not* an error: the caller relays the status back to the
+    /// appservice, so only signing / transport failures surface as `Err`.
+    pub async fn proxy_federation_request(
+        &self,
+        destination: &str,
+        method: &str,
+        path: &str,
+        body: Option<&str>,
+    ) -> Result<(u16, serde_json::Value), FederationClientError> {
+        let response = self.send_signed_request(method, path, destination, body).await?;
+        let status = response.status().as_u16();
+        let text = response.text().await.map_err(|e| FederationClientError::Connection(e.to_string()))?;
+        let content = if text.trim().is_empty() {
+            serde_json::Value::Object(serde_json::Map::new())
+        } else {
+            match serde_json::from_str(&text) {
+                Ok(value) => value,
+                Err(_) => serde_json::Value::String(text),
+            }
+        };
+        Ok((status, content))
     }
 }
 

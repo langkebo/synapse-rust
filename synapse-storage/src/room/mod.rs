@@ -1454,6 +1454,43 @@ impl RoomStorage {
             .collect())
     }
 
+    /// Returns the current head of the `event_receipts` stream (max `id`), or 0
+    /// when no receipt exists. Used as the `new_token` upper bound for MSC2409
+    /// appservice ephemeral (receipt) delivery.
+    pub async fn get_latest_receipt_position(&self) -> Result<i64, sqlx::Error> {
+        let position: Option<i64> = sqlx::query_scalar!(r#"SELECT COALESCE(MAX(id), 0) AS "max!" FROM event_receipts"#)
+            .fetch_optional(&*self.pool)
+            .await?;
+
+        Ok(position.unwrap_or(0))
+    }
+
+    /// Fetches the page of receipt-stream rows in `(from_exclusive, to_inclusive]`,
+    /// ordered ascending, capped at `limit`. Mirrors upstream Synapse's
+    /// `_handle_receipts` paging (bounded batch → `reached_token`).
+    pub async fn get_receipts_since(
+        &self,
+        from_exclusive: i64,
+        to_inclusive: i64,
+        limit: i64,
+    ) -> Result<Vec<ReceiptStreamEntry>, sqlx::Error> {
+        sqlx::query_as!(
+            ReceiptStreamEntry,
+            r#"
+            SELECT id, room_id, user_id, event_id, receipt_type, ts, data AS "data!"
+            FROM event_receipts
+            WHERE id > $1 AND id <= $2
+            ORDER BY id ASC
+            LIMIT $3
+            "#,
+            from_exclusive,
+            to_inclusive,
+            limit
+        )
+        .fetch_all(&*self.pool)
+        .await
+    }
+
     /// See [`get_rooms_map`].
     pub async fn get_rooms_map(
         &self,

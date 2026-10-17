@@ -17,11 +17,15 @@ pub mod scheduler;
 pub use scheduler::ApplicationServiceScheduler;
 
 mod models;
+/// MSC4512 application service proxying (config decoding, prefix matching,
+/// target resolution).
+pub mod proxy;
 #[cfg(test)]
 mod tests;
 mod transaction;
 
 pub use models::NamespacesInfo;
+pub use proxy::{AppServiceProxyConfig, AppServiceProxyTarget, ProxyScheme};
 
 /// The `ApplicationServiceManager` struct.
 pub struct ApplicationServiceManager {
@@ -29,6 +33,15 @@ pub struct ApplicationServiceManager {
     event_reader: Arc<dyn synapse_storage::event::EventReader>,
     http_client: Client,
     server_name: String,
+    /// Room storage seam used for MSC2409 ephemeral (receipt) delivery. Optional
+    /// so that call sites that never deliver receipts (notably most unit tests)
+    /// keep working with [`ApplicationServiceManager::new`] unchanged; production
+    /// wiring injects it via [`ApplicationServiceManager::with_room_store`].
+    room_store: Option<Arc<dyn synapse_storage::room::RoomStoreApi>>,
+    /// Short-TTL cache of the registered MSC4512 proxy routes, so that the
+    /// request fallback does not re-read the application service table for
+    /// every unmatched request.
+    proxy_route_cache: proxy::ProxyRouteCache,
 }
 
 impl ApplicationServiceManager {
@@ -55,7 +68,23 @@ impl ApplicationServiceManager {
                 synapse_common::http_client::default_client()
             });
 
-        Self { storage, event_reader, http_client, server_name }
+        Self {
+            storage,
+            event_reader,
+            http_client,
+            server_name,
+            room_store: None,
+            proxy_route_cache: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// Inject the room storage seam used for MSC2409 ephemeral (receipt)
+    /// delivery. Without it, receipt delivery is skipped (see
+    /// [`ApplicationServiceManager::deliver_pending_receipts`]).
+    #[must_use]
+    pub fn with_room_store(mut self, room_store: Arc<dyn synapse_storage::room::RoomStoreApi>) -> Self {
+        self.room_store = Some(room_store);
+        self
     }
 
     /// See [`load_from_config_files`].

@@ -248,6 +248,19 @@ impl KeyBackupStorage {
 
         Ok(())
     }
+
+    /// Delete **every** key-backup version for `user_id`, returning the number of
+    /// backup rows removed.
+    ///
+    /// Used by account deactivation. Unlike [`Self::delete_backup`] (which takes a
+    /// single version), this reaches all of the user's versions in one statement.
+    /// `backup_keys.backup_id` has `ON DELETE CASCADE` onto `key_backups`, so the
+    /// per-version key material is removed along with the versions.
+    pub async fn delete_all_for_user(&self, user_id: &str) -> Result<u64, ApiError> {
+        let result = sqlx::query!("DELETE FROM key_backups WHERE user_id = $1", user_id).execute(&*self.pool).await?;
+
+        Ok(result.rows_affected())
+    }
 }
 
 #[derive(Clone)]

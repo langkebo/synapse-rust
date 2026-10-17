@@ -51,6 +51,8 @@ pub mod server;
 pub mod sms;
 /// Module `smtp`.
 pub mod smtp;
+/// Module `task_scheduler`.
+pub mod task_scheduler;
 /// Module `translate`.
 pub mod translate;
 /// Module `voip`.
@@ -98,6 +100,8 @@ pub use server::ServerConfig;
 pub use sms::SmsConfig;
 /// Re-exported item.
 pub use smtp::SmtpConfig;
+/// Re-exported item.
+pub use task_scheduler::{TaskSchedulerConfig, DEFAULT_MAX_CONCURRENT_TASKS};
 /// Re-exported item.
 pub use translate::TranslateConfig;
 /// Re-exported item.
@@ -216,6 +220,10 @@ pub struct Config {
     #[serde(default)]
     /// `performance` field.
     pub performance: PerformanceConfig,
+    /// 后台任务调度器配置（上游 `task_scheduler.max_concurrent_tasks`，默认 5）
+    #[serde(default)]
+    /// `task_scheduler` field.
+    pub task_scheduler: TaskSchedulerConfig,
     /// 实验性功能配置
     #[serde(default)]
     /// `experimental` field.

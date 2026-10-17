@@ -379,7 +379,10 @@ pub async fn get_app_service_states(
 /// plus `host` and `content-length`, which [`reqwest`] derives from the target
 /// URL and the forwarded body. Relaying the caller's `Host`/`Content-Length`
 /// would describe a different request than the one the AS actually receives.
-fn is_hop_by_hop_header(name: &str) -> bool {
+///
+/// Shared with the MSC4512 proxy surface in
+/// [`crate::routes::msc4512_proxy`].
+pub(crate) fn is_hop_by_hop_header(name: &str) -> bool {
     matches!(
         name,
         "connection"
@@ -732,7 +735,15 @@ pub fn create_app_service_router(state: &AppState) -> Router<AppState> {
         .route("/_matrix/app/v1/proxy/{as_id}/{*path}", any(proxy_to_as))
         .route("/_matrix/client/v1/proxy/{as_id}/{*path}", any(proxy_to_as))
         .route("/_matrix/client/v3/appservice/user", get(query_user))
-        .route("/_matrix/client/v3/appservice/alias", get(query_room_alias));
+        .route("/_matrix/client/v3/appservice/alias", get(query_room_alias))
+        // MSC4512: application-service-initiated federation proxy. The
+        // unstable route is the MSC's own identifier; the stable one is where
+        // the endpoint is expected to land.
+        .route("/_matrix/client/v1/appservice/fed_proxy", post(crate::routes::msc4512_proxy::fed_proxy))
+        .route(
+            "/_matrix/client/unstable/io.element.msc4512/appservice/fed_proxy",
+            post(crate::routes::msc4512_proxy::fed_proxy),
+        );
 
     let admin_routes = Router::new()
         .route("/_synapse/admin/v1/appservices", get(list_app_services))

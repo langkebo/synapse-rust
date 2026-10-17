@@ -167,6 +167,7 @@ fn create_test_config() -> Config {
         telemetry: synapse_rust::common::OpenTelemetryConfig::default(),
         prometheus: synapse_rust::common::PrometheusConfig::default(),
         performance: synapse_rust::common::config::PerformanceConfig::default(),
+        task_scheduler: synapse_rust::common::config::TaskSchedulerConfig::default(),
         experimental: ExperimentalConfig::default(),
         identity: synapse_rust::common::config::IdentityConfig::default(),
         translate: synapse_rust::common::config::TranslateConfig::default(),
