@@ -168,6 +168,8 @@ MSC4210 移除的是**纯文本匹配**类的三条规则：
 > **执行状态（2026-10-14）**：批次 A（A1–A3）、批次 B（B1–B5）、批次 C（C1–C3）已全部实施并分提交入库；
 > C4 判「等效物已存在，不重构」（§3.1 的 20294 行）、C2 的 19354 专用端点登记为待决策（§11.3）；
 > 批次 D 的 `docs/audit/INDEX.md` 已登记本文件，`CHANGELOG.md` 按"发布时成批撰写"的既有惯例本批不追加。
+> ⚠️ **别把两个「C4」当同一件事**：本段说的是 **20294 `Clock` 抽象**；**对比报告 §19.5 的 C4 = UG-10
+> （MSC4354 标准请求面）** 是另一条，其复核结论见 §11.17。
 
 ### 批次 A —— 规格版本对齐（P1，低风险高价值）
 
@@ -723,6 +725,10 @@ def _parse_request_for_delayed_event_delay(request, msc4140_enabled) -> Duration
 | sticky 是什么 | **事件自身的属性**：发送时带 `sticky_duration_ms`，服务端把 TTL 写进事件的 `unsigned` | **按用户的置顶行**：`room_sticky_events(room_id, user_id, event_type, event_id, is_sticky)`，由客户端 `POST /rooms/{room_id}/sticky_events` 显式设置 |
 | 到期 | 有 `expires_at` 列 + 后台清理任务 | **无 expiry 概念** |
 | 下发形态 | sticky **事件本身留在 timeline** 里 | 只下发一个**旁的元数据数组** `sticky_events: [{event_type, event_id, is_sticky}]`，**不注入 timeline** |
+
+> **2026-10-16 起本仓多一维**：除上述 pin 模型外，`/send` 的 `?org.matrix.msc4354.sticky_duration_ms=`
+> 查询参数**也已接线**（把 TTL 落进事件 `unsigned`，即上游的"事件属性"模型），两套并存、各管一摊。
+> 取证与实跑见 §11.17；下面四条判定仍按 pin 模型成立。
 
 逐条判定：
 
@@ -1766,3 +1772,72 @@ M-05 的处置要求是「先定模型 …… 再接写者」。本节定模型�
 - **变异自证**：去掉候选查询里的 `DISTINCT ON (room_id, sender_key)` ⇒ 防无界轮换用例
   **FAILED（EXIT=100）**，断言文案即"the superseded row must not keep the room due, or every sweep would
   rotate again"；还原后复跑绿。
+
+### 11.17 MSC4354 标准请求面（对比报告 §19.5 的 UG-10）：复核结论 = 方案 ⓐ 已实现
+
+> **先分清两个「C4」**：本文件 §4 的 C4 是 **20294 `Clock` 抽象**（已判"等效物已存在"）；
+> 本节说的是**对比报告 §19.5 的 C4**，即 UG-10「MSC4354 标准请求面」。两处字母撞名，勿混。
+
+**结论**：方案 **ⓐ（补上游 `/send` 查询面 + 把 TTL 落进事件的 `unsigned`）已在 HEAD 上实现**，
+而且不是"等效物"—— 它就是上游那个面本身；方案 **ⓑ（把私有 `sticky_events` 迁到
+`/_matrix/vendor/v1` 并撤销 A2 的宣告）不需要做**，因为客户端两条面**都在用**（见 §11.17.2）。
+本节**未改任何生产代码**，只补取证、实跑与记录。
+
+#### 11.17.1 复核取证（全部可回源）
+
+| # | 断言 | 证据 |
+| --- | --- | --- |
+| 1 | `/send` 读 `?org.matrix.msc4354.sticky_duration_ms=`（短名 `sticky_duration_ms` 回退，命名空间拼写优先） | `synapse-web/src/routes/handlers/room/events.rs:327` → `synapse-web/src/routes/handlers/room/mod.rs:163` |
+| 2 | 校验 `0 < n <= 3_600_000`；非整数 / 非正 / 越界 ⇒ 400，**不是**静默 no-op | `synapse-web/src/routes/handlers/room/mod.rs:176`；上界常量 `synapse-storage/src/sticky_event.rs:14`（对齐上游 `StickyEvent.MAX_DURATION`） |
+| 3 | 事件落库后把 TTL 写进 `unsigned.msc4354_sticky_duration_ttl_ms`；`unsigned` 在签名与内容哈希之外 ⇒ 事后写不改签名 | `synapse-web/src/routes/handlers/room/events.rs:343` → `synapse-web/src/routes/handlers/room/mod.rs:198`（字段名同文件 `:152`） |
+| 4 | 私有路由族**保留**（per-user 置顶语义不变） | `synapse-web/src/routes/room.rs:89`、`:169`（`.nest("/_matrix/client/unstable/org.matrix.msc4354", …)`）；清单 `synapse-web/src/routes/sticky_event.rs:22` |
+| 5 | 能力宣告与端点**同源**：`org.matrix.msc4354` 的取值由路由面推导，不是硬写 `true` | `synapse-services/src/capability_governance.rs:323` + `msc4354_capability()`（同文件 `:423` 起） |
+
+**为什么 ⓑ 不需要做 —— 两套模型各管一摊**：上游模型是**事件属性**（落 `unsigned`），本仓另有
+per-user pin 表 `room_sticky_events`；**驱动 `/sync` 与 sliding sync 里 `sticky_events` 数组的是后者**，
+`/send` 的查询参数只落 `unsigned` 投影（注释见 `synapse-web/src/routes/handlers/room/mod.rs:194`）。
+⇒ 补上游面**没有**动到既有置顶语义，两者不是"二选一"，§10 那张"两模型对照表"也不因此失真。
+
+#### 11.17.2 决策输入：客户端两条面都在用
+
+- **私有面**：SDK fork 的**生成式路由表** pin 了三条 unstable 路径（`GET`／`POST`
+  `/rooms/{room_id}/sticky_events`、`DELETE …/{event_type}`），客户端经 `RoomManager` 调用
+  —— 这是 Tjg 置顶 UI 的现用通路。
+- **上游面**：同一 SDK 的 `embedded.ts` 读查询选项 `org.matrix.msc4354.sticky_duration_ms` 并透传给
+  `sendRoomEvent`。
+
+⇒ 两端都在用。ⓑ 会让现用客户端掉线；ⓐ 是**唯一不破坏兼容**的选项 —— 这就是该条的决策依据，
+不再是"待决策"。（上两处属**兄弟仓库** `hu_ts/matrix-js-sdk`，此处只记形态，不作本仓证据链。）
+
+#### 11.17.3 实跑证据（隔离库、串行）
+
+`tests/integration/api_delayed_event_schedule_tests.rs` 三条用例，对隔离 PG 容器（`:15433`、`--tmpfs`）实跑：
+
+- `send_sticky_duration_hint_is_recorded_on_unsigned`
+- `send_sticky_duration_short_alias_is_accepted`
+- `send_sticky_duration_hint_out_of_range_is_rejected`
+
+⇒ **3/3 passed**。
+
+⚠️ **必须 `-j 1`**：并行时 pooled schema 克隆会 `deadlock detected`，文案自己写着
+"This is an infrastructure failure, not a missing database"（`tests/integration/mod.rs:546`）。
+那是**测试设施**问题；把它当缺陷去"修"会改错地方。
+
+#### 11.17.4 一处自我订正
+
+本轮先用**符号名**检索（`apply_msc4354_sticky_ttl` 只出现在生产代码里）得出"该路径**零测试覆盖**"
+—— **错的**：用例用**线上字面量** `org.matrix.msc4354.sticky_duration_ms` 断言，符号名压根不出现。
+⇒ 与 §11.4 同类：写"不存在 / 零覆盖"之前，必须换**多种检索面**（符号名 / 线上字面量 / 文件名）各查一遍。
+
+#### 11.17.5 残余与一处**记录冲突**（只登记、未改代码）
+
+- **上游的 `/state` 面本仓未接线**：`msc4354_query_sticky_duration_ms` 的**唯一调用点**是
+  `synapse-web/src/routes/handlers/room/events.rs:327`；`send_state_event`
+  （`synapse-web/src/routes/handlers/room/state.rs:192`）虽然收 `Query`，但只把它转给延迟事件解析，
+  **不读** sticky 字段。对比报告 §19.7 的 V-19-9 已登记同一条残余。
+- ⚠️ **`synapse-web/src/routes/delayed_events.rs:139` 的注释与事实不符**：它断言"`/send` 与 `/state`
+  两个面都把这个查询参数当真"，但 `/state` **不读**该字段（上面那条唯一调用点就是反证）。该端点对 sticky
+  字段本身是 **501 拒绝**（不是静默丢弃，理由正确、值得保留），错的只是这句旁证 —— 按"文档不得撒谎"
+  应改成只提 `/send`。**本轮只登记不改**：授权范围是文档记录，改注释会把一个代码文件带进本提交。
+- **`/delayed_event` 专用端点对同名字段仍 501**（刻意）：延迟事件没有"落 `unsigned`"的时机，
+  接受该字段等于静默降级 —— 理由写在 `synapse-web/src/routes/delayed_events.rs:140` 起的注释里。
