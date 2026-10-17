@@ -8,7 +8,7 @@ use crate::routes::extractors::MediaId;
 use crate::routes::extractors::RoomId;
 use crate::routes::extractors::UserId;
 use axum::{
-    extract::{Multipart, Path, Query, State},
+    extract::{DefaultBodyLimit, Multipart, Path, Query, State},
     routing::{get, post},
     Json, Router,
 };
@@ -60,8 +60,37 @@ pub struct VoiceListQuery {
     pub from: Option<i64>,
 }
 
+/// 多部分封装自身的开销上界（boundary、每个字段头、收尾 `--`、CRLF）。
+///
+/// 请求体上限要比"音频字节上限"多出这部分，否则**恰好等于上限**的音频会被封装开销
+/// 顶出去，客户端按 `/voice/config` 声明的 `max_size_bytes` 上传反而失败。
+const VOICE_MULTIPART_OVERHEAD_BYTES: usize = 64 * 1024;
+
+/// `/voice/upload` 的请求体上限（字节）。
+///
+/// 与 `/voice/config` 的 `max_size_bytes` **同源**：后者是权威的音频上限
+/// （`config.server.max_upload_size`），这里再加封装开销。
+///
+/// 为什么必须显式给：axum 的 `DefaultBodyLimit` 默认是 2 MiB，而 `Multipart`
+/// 提取器读的就是这个扩展 —— 不给的话，2 MiB 以上的音频在**传输层**被拒，而状态码是
+/// **400 `M_BAD_JSON`**（限制经解析器报成"解析失败"），客户端会误判成请求格式错误；
+/// 与此同时配置、handler 校验（`content.len() > max_size`）与 `/voice/config` 的宣告
+/// 都按 `server.max_upload_size` 算。即"宣告的上限不可达"，且失败原因指向错误的方向。
+///
+/// 注意本上限与全局上限（`src/server/router.rs` 的 `RequestBodyLimitLayer`，同取
+/// `max_upload_size`）的分工：真正拦住超限请求体的是**全局层**；本层的作用只是
+/// "不要用 2 MiB 的默认值把宣告的上限遮蔽掉"，因此刻意比全局层大一个封装开销。
+///
+/// 顺带收口 CVE-2026-102592（ELEMENTSEC-2026-1740，`multipart/form-data` 大小写绕过
+/// 导致内存耗尽）：本仓没有"先按键字符串比较再决定是否解析"的前置门，`Content-Type`
+/// 只影响 mime 解析（大小写不敏感），因此不存在可绕过的检查；内存占用由请求体上限界定。
+pub fn voice_multipart_body_limit(max_upload_size: usize) -> usize {
+    max_upload_size.saturating_add(VOICE_MULTIPART_OVERHEAD_BYTES)
+}
+
 /// See [`create_voice_router`].
-pub fn create_voice_router(_state: AppState) -> Router<AppState> {
+pub fn create_voice_router(state: AppState) -> Router<AppState> {
+    let body_limit = voice_multipart_body_limit(state.services.core.config.server.max_upload_size as usize);
     Router::new()
 // ISSUE-13: 私有端点唯一规范位置是 /_matrix/vendor/v1（client 别名已按 AGENTS.md 铁律 1 删除）
         .route("/_matrix/vendor/v1/voice/upload", post(upload_voice_message))
@@ -76,6 +105,9 @@ pub fn create_voice_router(_state: AppState) -> Router<AppState> {
         .route("/_matrix/vendor/v1/voice/{media_id}/optimize", post(optimize_voice_message))
         .route("/_matrix/vendor/v1/voice/{media_id}/transcription", post(transcribe_voice_message))
         .route("/_matrix/vendor/v1/voice/register", post(register_encrypted_voice))
+        // 只作用于本模块的路由：不给则落到 axum 的 2 MiB 默认值（见
+        // `voice_multipart_body_limit` 的说明）。GET 路由不受影响。
+        .layer(DefaultBodyLimit::max(body_limit))
 }
 
 /// Capability declaration for the extended voice surface.

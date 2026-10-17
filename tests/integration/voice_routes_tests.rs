@@ -518,3 +518,178 @@ async fn test_call_events_return_the_persisted_event_id() {
         assert_eq!(stored.as_deref(), Some(event_id.as_str()), "{label} must return the persisted row's ID");
     }
 }
+
+// ============================================================================
+// CVE-2026-102592 / ELEMENTSEC-2026-1740
+//   恶意 multipart/form-data 可耗尽内存；上游的缓解被"改变 Content-Type 大小写"绕过。
+//
+// 本仓的形态与上游不同：没有"先按键字符串比较、再决定是否解析"的前置门，
+// `Content-Type` 只参与 mime 解析（大小写不敏感），因此不存在可绕过的检查。
+// 真正的护栏是**请求体上限**——而它此前是缺失的：
+//   `/voice/upload` 没有自己的 `DefaultBodyLimit` ⇒ 落到 axum 的 2 MiB 默认值，
+//   而 `/voice/config` 的 `max_size_bytes` 与 handler 校验都按 `server.max_upload_size`。
+//   ⇒ 2 MiB ~ 50 MiB 之间的音频在**传输层**被拒，而状态码是 400 `M_BAD_JSON`
+//     （axum 的限制经 `Multipart` 报成解析失败）—— 看起来像客户端格式错误，比 413 更难诊断。
+//
+// 四个用例钉住：界要够（能收 >2 MiB）、界要存在（超限 413）、界与 Content-Type 的
+// 大小写无关、以及"流式（无 Content-Length）"形态下仍然被拒（只是状态码分类不同）。
+// ============================================================================
+
+/// 构造一个 `/voice/upload` 的 multipart 请求体。
+fn voice_multipart_body(audio: &[u8]) -> (String, Vec<u8>) {
+    const BOUNDARY: &str = "----voice-size-boundary";
+    let delimiter = format!("--{BOUNDARY}\r\n");
+    let mut body = Vec::with_capacity(audio.len() + 512);
+
+    body.extend_from_slice(delimiter.as_bytes());
+    body.extend_from_slice(b"Content-Disposition: form-data; name=\"file\"; filename=\"test.mp3\"\r\n");
+    body.extend_from_slice(b"Content-Type: audio/mpeg\r\n\r\n");
+    body.extend_from_slice(audio);
+    body.extend_from_slice(b"\r\n");
+
+    body.extend_from_slice(delimiter.as_bytes());
+    body.extend_from_slice(b"Content-Disposition: form-data; name=\"content_type\"\r\n\r\naudio/mpeg\r\n");
+
+    body.extend_from_slice(delimiter.as_bytes());
+    body.extend_from_slice(b"Content-Disposition: form-data; name=\"duration_ms\"\r\n\r\n1200\r\n");
+
+    body.extend_from_slice(format!("--{BOUNDARY}--\r\n").as_bytes());
+    (BOUNDARY.to_string(), body)
+}
+
+/// 发一个 `/voice/upload` 请求。
+///
+/// `with_content_length` 决定是否声明 `Content-Length`：真实客户端（hyper/reqwest）对
+/// 定长 body 一定会带；而 `oneshot` 不会自动补 header。两者的失败**位置**不同 ——
+/// 带 header 时上限层在进入 handler 前就拒（413），不带时由限流 body 在读取中报错、
+/// 经 `Multipart` 解析器转成 400。这个差异必须显式覆盖，否则测试会以为"413 永远成立"。
+async fn upload_voice_body(
+    app: &axum::Router,
+    token: &str,
+    audio: &[u8],
+    content_type_prefix: &str,
+    with_content_length: bool,
+) -> (StatusCode, Value) {
+    let (boundary, body) = voice_multipart_body(audio);
+    let mut builder = Request::builder()
+        .uri("/_matrix/vendor/v1/voice/upload")
+        .method("POST")
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", format!("{content_type_prefix}; boundary={boundary}"));
+    if with_content_length {
+        builder = builder.header("Content-Length", body.len());
+    }
+
+    let response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), builder.body(Body::from(body)).unwrap()).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+    (status, json)
+}
+
+/// 正向：`server.max_upload_size` 之内、但超过 axum 默认 2 MiB 的音频必须被接受。
+///
+/// 修复前这条必然红（实得 **400 `M_BAD_JSON`**，不是 413）：那时 `/voice/upload` 的请求体
+/// 上限是 axum 的默认 2 MiB，与 `/voice/config` 宣告的 `max_size_bytes` 不一致，且限制被
+/// `Multipart` 报成"解析失败"，客户端会误判为请求格式错误。
+#[tokio::test]
+async fn test_voice_upload_accepts_body_above_the_axum_default_limit() {
+    const MAX_UPLOAD: u64 = 4 * 1024 * 1024;
+    let Some((app, _state)) = super::setup_fresh_test_app_with_config(|container| {
+        super::config_mut(container).server.max_upload_size = MAX_UPLOAD;
+    })
+    .await
+    else {
+        return;
+    };
+
+    let token = create_test_user(&app).await;
+    // 2.5 MiB：> 2 MiB（axum 默认），< 4 MiB（权威上限）。
+    let audio = vec![0u8; 2_621_440];
+    let (status, json) = upload_voice_body(&app, &token, &audio, "multipart/form-data", true).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "2.5 MiB 语音必须被接受：`/voice/config` 宣告的上限是 {MAX_UPLOAD} 字节，响应: {json}"
+    );
+}
+
+/// 负控：声明了 `Content-Length` 的超限请求体 → 413 + `M_TOO_LARGE`。
+#[tokio::test]
+async fn test_voice_upload_rejects_body_above_the_configured_limit() {
+    const MAX_UPLOAD: u64 = 512 * 1024;
+    let Some((app, _state)) = super::setup_fresh_test_app_with_config(|container| {
+        super::config_mut(container).server.max_upload_size = MAX_UPLOAD;
+    })
+    .await
+    else {
+        return;
+    };
+
+    let token = create_test_user(&app).await;
+    let audio = vec![0u8; 512 * 1024 + 32 * 1024];
+    let (status, json) = upload_voice_body(&app, &token, &audio, "multipart/form-data", true).await;
+    assert_eq!(
+        status,
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "超过 `server.max_upload_size` 的请求体必须在传输层被拒，响应: {json}"
+    );
+    assert_eq!(json["errcode"], "M_TOO_LARGE", "413 必须是可识别的 Matrix 错误体，实得: {json}");
+}
+
+/// CVE 直接对应项：**改变 `Content-Type` 的大小写不得绕过上限**。
+///
+/// 上游的缓解是按 `Content-Type` 字面量判断，`Multipart/Form-Data` 因此绕过了它、
+/// 把恶意请求送进了解析器。本仓没有这类字面量判断（mime 解析大小写不敏感），
+/// 所以此处的判据是"同一个超限请求体，换大小写后仍然 413"。
+#[tokio::test]
+async fn test_voice_upload_body_limit_is_content_type_case_insensitive() {
+    const MAX_UPLOAD: u64 = 512 * 1024;
+    let Some((app, _state)) = super::setup_fresh_test_app_with_config(|container| {
+        super::config_mut(container).server.max_upload_size = MAX_UPLOAD;
+    })
+    .await
+    else {
+        return;
+    };
+
+    let token = create_test_user(&app).await;
+    let audio = vec![0u8; 512 * 1024 + 32 * 1024];
+    let (status, json) = upload_voice_body(&app, &token, &audio, "Multipart/Form-Data", true).await;
+    assert_eq!(
+        status,
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "大小写变体不得绕过请求体上限（CVE-2026-102592 的绕过机制在本仓不存在），响应: {json}"
+    );
+}
+
+/// 无 `Content-Length`（流式）的超限 body：**仍然被拒**，但当前分类是 400 而非 413。
+///
+/// 这不是安全缺陷（读取在到达上限时即中止，内存有界），而是一处**状态码分类**问题：
+/// 限制由"限流 body"在读取中触发，`Multipart` 把它报成解析失败，handler 映射成
+/// `M_BAD_JSON`。客户端据此会当成"请求格式错误"而不是"太大"。
+/// 本用例把这个现状**钉住**（改动它会立刻红），使"要么修、要么知情"成为显式选择。
+#[tokio::test]
+async fn test_voice_upload_streamed_body_without_content_length_is_still_rejected() {
+    const MAX_UPLOAD: u64 = 512 * 1024;
+    let Some((app, _state)) = super::setup_fresh_test_app_with_config(|container| {
+        super::config_mut(container).server.max_upload_size = MAX_UPLOAD;
+    })
+    .await
+    else {
+        return;
+    };
+
+    let token = create_test_user(&app).await;
+    let audio = vec![0u8; 512 * 1024 + 32 * 1024];
+    let (status, json) = upload_voice_body(&app, &token, &audio, "multipart/form-data", false).await;
+    assert!(
+        status == StatusCode::BAD_REQUEST || status == StatusCode::PAYLOAD_TOO_LARGE,
+        "流式超限 body 必须被拒（要么 413，要么解析层 400），实得 {status}: {json}"
+    );
+    assert!(
+        status != StatusCode::OK,
+        "流式超限 body 绝不能成功，响应: {json}"
+    );
+}

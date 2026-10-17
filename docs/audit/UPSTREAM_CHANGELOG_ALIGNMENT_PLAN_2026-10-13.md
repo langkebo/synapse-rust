@@ -90,7 +90,7 @@ curl -sSL "https://raw.githubusercontent.com/element-hq/synapse/develop/changelo
 | 20220                         | 默认规则仍含 **3 条 legacy** 提及规则（`synapse-common/src/push_rules.rs`）                                                                                              | **差距**     | ✅ 批次 B（B1） |
 | 20298                         | 只声明不稳定别名 `io.element.msc4452.preview_url`，缺稳定名（`synapse-services/src/capability_governance.rs`）                                                             | **差距**     | ✅ 批次 B（B2） |
 | 20295 / 20322 / 20323 / 20324 | 有 MSC4354 实现（`synapse-web/src/routes/room.rs:82-95,169`）。逐条判定：**20323 已修复**（撤回即失效，§10.1）；**20295 N/A**（本仓 sticky 不注入 timeline，且本仓根本没有历史可见性过滤 —— 该缺口已于 §11.6 部分收口，§10.2）；**20322 无对应形态**（无"持久化批次"概念）；**20324 已实现**（sticky expiry，上报值＝追踪值，§11.5） | **已收口** | 批次 C + §11.5 |
-| 19354 / 19495 | 发送端 `delay` **查询参数**已修（`handlers/room/mod.rs`，§10 的 C2）；管理端点 `GET/POST .../delayed_events/{delay_id}`（`routes/delayed_events.rs:98`）+ storage + 联邦 EDU。19495 的隐式取消**结构性不存在**：唯一取消入口是显式 `action: cancel`，且按 `id` 单键 | **部分对齐** | 见 §11.3 —— **19354 的专用调度端点未实现** |
+| 19354 / 19495 | 发送端 `delay` **查询参数**已修（`handlers/room/mod.rs`，§10 的 C2）；MSC4140 族 **6 条路由 / 7 个方法**（`routes/delayed_events.rs:352-357`，含专用调度端点 `PUT .../delayed_event/{event_type}/{txn_id}` 与上游同形管理子路径）+ storage + 联邦 EDU（§11.7 / §11.13.1）。19495 的隐式取消**结构性不存在**：唯一取消入口是显式 `action: cancel`，且按 `id` 单键 | **已对齐** | 见 §11.7、§11.13.1 |
 | 20273 | `url` 已改 `Option<String>`，`None` 时**跳过**事件/临时数据排队（§9 的 B3） | **已实现** | ✅ 批次 B（B3） |
 | 20243 | `ServerConfig.request_token_inhibit_3pid_errors`（默认 `true`）已落地；实测另有**真正的**枚举通道 —— `/submitToken` 的会话存在性预言机，已一并关闭（§9 的 B4 / B4.7） | **已实现** | ✅ 批次 B（B4 / B4.7） |
 | 20006                         | 全局 body 上限由路由层前置拦截（`src/server/router.rs:37-39`）⇒ 超限在落盘前 400/413                                                                                            | 不适用        | 无          |
@@ -221,7 +221,7 @@ bash scripts/quality/preflight.sh
 | -- | --- | --- | --- |
 | V1 | 上游 v1.15/v1.16/v1.17 相对 v1.14 新增了什么 | 读 `matrix-spec` 对应版本的 changelog；或对比上游的版本宣告表 | ✅ 已核实（批次 A）。**口径订正**：上游的版本列表已迁到 **Rust** 侧 `rust/src/handlers/versions.rs`，不再是 Python 的 `synapse/rest/client/versions.py` |
 | V2 | MSC4452 稳定化是否改默认开关 | 读上游 PR #20298 与其 `experimental` 配置 diff | ✅ 已核实（B2）：稳定名 `m.preview_url` 的 `enabled` 取自 `media.url_preview_enabled`；本仓无 media 级开关 ⇒ 稳定名与别名同取端点实际执行的 `experimental.msc4452_enabled` |
-| V3 | MSC4140 是否需要"专用端点" | 读上游 PR #19354 的 REST 路由 diff，比对本地 `delayed_events.rs` | ✅ 已核实（C2）：**需要，且本仓未实现** —— 上游新增 `PUT .../org.matrix.msc4140/rooms/{roomId}/delayed_event/{eventType}/{txnId}` 并**弃用** `/send`、`/state` 上的 `delay` 查询参数。本地已把查询参数修好（§10 C2），专用端点登记为待决策（§11.3） |
+| V3 | MSC4140 是否需要"专用端点" | 读上游 PR #19354 的 REST 路由 diff，比对本地 `delayed_events.rs` | ✅ 已核实并**已实施**：上游新增 `PUT .../org.matrix.msc4140/rooms/{roomId}/delayed_event/{eventType}/{txnId}` 并**弃用** `/send`、`/state` 上的 `delay` 查询参数。本仓两者均已落地（专用端点 §11.7，查询参数 §10 C2；上游其余管理子路径 §11.13.1） |
 | V4 | 本地 `/requestToken` 是否泄露账号存在性 | 对已注册/未注册邮箱各发一次 `/account/3pid/email/requestToken`，比较响应 | ✅ 已核实（B4）：三条 `/requestToken` 均不可枚举；实测另有**一条真实通道** —— `/submitToken` 的会话存在性预言机，已关闭（B4.7） |
 | V5 | 本地推送评估是否跳过 sender | `git grep -n "sender" -- synapse-services/src/push synapse-services/src/sync_service` | ✅ 已核实（C3）：本仓**没有服务端推送规则评估引擎** ⇒ 该优化无对应对象 |
 | V6 | 20315 的提速是否适用本仓 | 同 V5 | ✅ 同上（结构性不适用） |
@@ -833,24 +833,16 @@ git grep -n 'CHANGELOG' -- .github/workflows scripts tests/unit
 
 ### 11.3 仍未做 / 待决策（按建议优先级）
 
-1. **19354：MSC4140 专用调度端点** —— 唯一仍未对齐的**产品**面。
+1. ~~**19354：MSC4140 专用调度端点**~~ —— **已实施**，不再是待决策项。
 
-   上游 `synapse/rest/client/room.py::RoomDelayedEventRestServlet`（PR #19354，merged 2026-10-08）：
-
-   ```text
-   PUT /_matrix/client/unstable/org.matrix.msc4140/rooms/{roomId}/delayed_event/{eventType}/{txnId}
-   body: { delay_ms: PositiveInt, content: object,
-           state_key?: string, "org.matrix.msc4354.sticky_duration_ms"?: int }
-   → 200 { "delay_id": "..." }
-   ```
-
-   上游同时**弃用** `/send` 与 `/state` 上的 `delay` 查询参数（PR 原文："This should deprecate the `delay` query parameter on the `/send` and `/state` endpoints."），但**未移除** ⇒ 本仓 C2 的修复已让"查询参数"这条通路可用，缺的只是"只认专用端点"的新客户端。
-
-   另有三条上游管理子路径与一个列表端点本仓没有：`POST .../delayed_events/{delay_id}/{cancel,send,restart}` 与 `GET .../delayed_events`。功能上已由本地 `POST .../delayed_events/{delay_id}` 的 `action` 字段覆盖 ⇒ 属**形态差异**，不是能力缺失。
-
-   **成本**：新增一条路由必须连带重生成契约链 —— 三张 `derived_route_table_*.inc.rs`、两份 fixtures + `manifest.json` 指纹、`docs/openapi/route-table.json`、`ROUTE_CONTRACT.md`、`route_ledger_*.snapshot`、以及 `docs/synapse-rust-vs-synapse-comparison.md` 的注册路由计数。另需决定是否把新路径加入 `DELAYED_EVENTS_WORKER_PATHS`：Guard B 用 `path.contains("delayed_events")` 过滤，而该路径是**单数** `delayed_event` ⇒ 不加也不会红，但语义上属同族（建议加入）。
-
-   **建议**：等 MSC4140 的 unstable 形态稳定后一次性做（上游自己仍在该 MSC 的 PR 之间调整），避免为一个仍在变动的路径付契约链重生成的全价。**2026-10-14 第三轮复核后的结论不变，但已给出可直接照做的实施方案（含 handler 设计、契约链重生成清单、以及一个必须先定的产品决策）→ §11.7。**
+   `PUT /_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}`
+   已注册（`synapse-web/src/routes/delayed_events.rs:357`，`schedule_delayed_event`），
+   实测见 §11.7；上游另外三条管理子路径与列表端点也已在 §11.13.1 补齐。
+   当前 MSC4140 族共 **6 条路由 / 7 个方法**（`delayed_events.rs:352-357`）：
+   `GET /delayed_events`、`GET|POST /delayed_events/{delay_id}`、
+   `POST /delayed_events/{delay_id}/{cancel,restart,send}`、
+   `PUT /rooms/{room_id}/delayed_event/{event_type}/{txn_id}`。
+   上游对 `/send`、`/state` 的 `delay` 查询参数的弃用，本仓已按 C2 修好（§10）。
 
 2. ~~**20324：MSC4354 的 expiry 特性**~~ —— **2026-10-14 第三轮已实施**，见 §11.5（不再是待决策项）。
 
@@ -1456,7 +1448,7 @@ not-null constraint`**。未被发现的原因有两条：唯一调用者 `rotat
 
 | 编号 | 发现 | 判据 | 可选处置 |
 | --- | --- | --- | --- |
-| **M-04** | `KeyRotationConfig::max_session_age_days` **完全不生效** | 该字段被读取、持久化、经 API 暴露、并在 4 个测试里断言，但 `key_rotation/service.rs` 里**没有任何读者**；真正的最大寿命来自 `MEGOLM_SESSION_MAX_AGE_DAYS` 环境变量（默认 7 天）→ 写进 `expires_at`，再由 `should_rotate` 的 `expires_at` 分支生效 | 二选一：删掉这个旋钮，**或**让环境变量从它取值。**不能**两者并存 —— 同一策略两个真源，违反铁律 2 |
+| **M-04** | ~~`KeyRotationConfig::max_session_age_days` **完全不生效**~~ → **已裁决并实施（2026-10-17）** | 原缺陷：该字段被读取、持久化、经 API 暴露、并在 4 个测试里断言，但 `key_rotation/service.rs` 里**没有任何读者**；真正的最大寿命来自 `MEGOLM_SESSION_MAX_AGE_DAYS` 环境变量（默认 7 天）。**裁决（二选一取「让环境变量从它取值」）**：持久化配置为**唯一真源**，env **仅**作配置装载前的进程引导 fallback。实现：`vodozemac_megolm.rs` 的 `OnceLock` → `AtomicI64`（0 = 未配置）+ 独立引导 `OnceLock`，新增 `set_session_max_age_days`；`key_rotation/service.rs` 的 `apply_session_max_age` 在 `new` / `new_with_db_config` / `reload_config` / `update_config` 四处注入 | 判据：`vodozemac_megolm` 12 passed（含 `session_max_age_days_follows_rotation_config`）+ `key_rotation::service::db_tests` 6 passed；**已收口，无残余**（见 comparison §19.5.1 R10） |
 | **M-05** | `key_rotation_log` **在生产没有写入者**，而读者是活的 | 唯一写入者是未接线的 `KeyRotationService`；读者 `GET /_matrix/vendor/v1/keys/rotation/history/{device_id}`（`routes/key_rotation.rs:268`）经 `FederationKeyRotationService::get_device_rotation_history` ⇒ **该端点恒返回空列表**。且存在模型错配：联邦**签名密钥**是 per-server，而该读者按 `(user, device)` 过滤 | 先定模型 —— 这张表记的是 megolm 轮换（per user/device）还是联邦签名密钥轮换（per server），再接写者 ⇒ **已裁决，见 §11.15**：模型 = **megolm（per user/device）**；模型已钉进代码（模块文档 + 列集守卫），`/check` 的跨域 interval 借用已修；写者登记为**依赖**（启用服务端 megolm / bridge），**不伪造** |
 
 #### 11.11.6 联邦 PDU：memory 里的结论**已过时**，在 HEAD 上重判为「已实施」
@@ -1925,3 +1917,35 @@ per-user pin 表 `room_sticky_events`；**驱动 `/sync` 与 sliding sync 里 `s
 - 端到端：`tests/integration/api_delayed_sticky_dispatch_tests.rs` 3 条 —— 排期（body 带 hint）
   → 行上有值 → **真派发** → `GET /room/{id}/event/{eid}` 的 `unsigned` 读回同一个 TTL；
   负控（不带 hint 不得长出 TTL）；sticky 状态事件 ⇒ 400 `M_INVALID_PARAM`。
+
+---
+
+### 11.19 上游安全公告复核：CVE-2026-102592 / CVE-2026-102597（2026-10-17）
+
+**为什么写在这里**：这两条不在 changelog 里，但它们在 `docs/synapse-rust-vs-synapse-comparison.md`
+§14.4 安全表里长期挂「待深查」。本轮按**公告原文**（`GHSA-6wjm-9p2x-gvpm` /
+`GHSA-hgcg-p9gx-fq5f`，同在 Synapse **1.157.2** 修复）核对本仓承载面，并把结论钉成回归。
+完整裁决与用例表见该文件 **§19.10**。
+
+| 公告 | 本仓判定 | 依据 |
+| --- | --- | --- |
+| **CVE-2026-102592**（恶意 multipart 耗尽内存；缓解被 `Content-Type` 大小写绕过） | **不受影响** | 绕过的前提是「先按 `Content-Type` 字面量比较、再决定是否解析」。本仓 multipart 只走 `axum::extract::Multipart`（`multer`），`Content-Type` 只参与 `mime::Mime` 解析（大小写不敏感），没有这道门；内存由请求体上限界定 |
+| **CVE-2026-102597**（容忍路径尾随后缀，配合规范化代理绕过规则） | **应用层不适用** | axum 0.8 精确段匹配，`{param}` 只吃一段、通配必须显式 `{*wildcard}`，未匹配即 404 `M_UNRECOGNIZED`；`proxy_pass` 未带 URI 重写 ⇒ 规范化不产生额外暴露 |
+
+**复核顺带修掉的真实缺陷**：`/voice/upload` 原先没有自己的 `DefaultBodyLimit`，`Multipart`
+读到的是 axum 默认 **2 MiB**；而 `/voice/config` 的 `max_size_bytes` 与 handler 校验都按
+`server.max_upload_size`（默认 **50 000 000** 字节）算 ⇒ **2 MiB 以上的语音在传输层被拒，且状态码是 400 `M_BAD_JSON`**（限制经 `Multipart`
+报成解析失败，客户端会误判成格式错误），按宣告上传必失败。修法：`voice_multipart_body_limit(max_upload_size) = 上限 + 64 KiB`
+（multipart 封装开销），在 `create_voice_router` 上显式设层。这与 §11.15.1（`/check` 忽略已存
+interval）同类：**同一个策略两处口径，改一处不生效**。
+
+**判据（全部实跑）**：
+- `voice_routes_tests` 四条：2.5 MiB → 200（**修复前 400 `M_BAD_JSON`**）；超限 → 413 `M_TOO_LARGE`；
+  `Multipart/Form-Data` 大小写变体 → 仍 413；无 `Content-Length` 的流式超限体 → 仍被拒
+  （现状 400，断言放宽为「必须被拒」，见 §19.10.3 的残余）。
+- `api_auth_routes_tests::test_extraneous_path_suffix_and_trailing_slash_are_not_routed`：
+  五条带后缀 / 尾斜杠 / `..` 归一化的路径必须 404 + `M_UNRECOGNIZED`。
+
+**残余（只登记）**：流式（无 `Content-Length`）超限体的状态码是 400 `M_BAD_JSON` 而非
+413 `M_TOO_LARGE`。不是安全问题（读取到上限即停），属分类问题；要修需识别上游解析错误的文案，
+收益不抵脆弱性。

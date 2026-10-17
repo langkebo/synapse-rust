@@ -15,7 +15,7 @@
 >   - **已对齐（含超前）**：Matrix 版本宣告（本仓已到 `v1.17`，上游本版才补 `v1.14`/`v1.15`）、
 >     MSC4354 sticky 的到期语义与联邦 EDU、MSC4140 专用调度端点、OTK 单算法 500 上限、
 >     profile 未设置字段返回 `{}`、`/relations` 的 `recurse`、stream 位置指标。
->   - **真实差距（P0/P1）**：① **账户注销是"只置标志位"**——不退出房间、不清推送器、不取消 MSC4140
+>   - **当时识别出的真实差距（P0/P1；①–⑦ 已于 2026-10-16/17 全部修复）**：① **账户注销是"只置标志位"**——不退出房间、不清推送器、不取消 MSC4140
 >     延迟事件（上游 #20247 只修了延迟事件这一条，本仓整条注销管线都缺）；② **`/preview_url` 是桩**：
 >     不抓取远端 HTML，返回**伪造的 OpenGraph**（含拼出来的 `og:image`），上游同版本正在收紧该字段
 >     （#20211）；③ **应用服务（MSC2409）临时数据投递未接线**（`AppServiceEphemeralBatch` 只有类型与
@@ -25,18 +25,19 @@
 >     既无默认规则（`synapse-common/src/push_rules.rs`），也未宣告 `org.matrix.msc4075`；
 >     ⑥ **MSC4354 的 `org.matrix.msc4354` 未在 `/versions.unstable_features` 宣告**——实现存在但客户端
 >     发现不了；⑦ **profile 更新缺 `LEFT_ROOM` 语义**（上游 #20203：离开最后一个共享房后要告知客户端
->     删除本地资料），本仓以 `users.updated_ts` 轮询替代，无法表达"不再共享房间"。
->   - **修复进度（2026-10-16，逐项见 §19.5.1）**：上列 ①（A1 注销管线）、②（B2 `preview_url`）、
+>     删除本地资料），本仓原以 `users.updated_ts` 轮询替代，无法表达"不再共享房间"（**已修 2026-10-17**：
+>     `profile_updates.users[user] = null`，见 §19.5.1 R9）。
+>   - **修复进度（2026-10-17 更新，逐项见 §19.5.1）**：上列 ①（A1 注销管线）、②（B2 `preview_url`）、
+>     ③（B3/UG-4 AS 临时数据投递：`deliver_pending_receipts` 分页 + `reached_token` 循环已接线）、
 >     ④（B1 lazy-load 位置维度）、⑤（A4 MSC4075 规则）、⑥（A2 MSC4354 宣告）**已落地**；
->     ③（B3 AS 临时数据投递）**部分实施**（2026-10-16：仅对齐 MSC2409 配置键，回执投递接线仍未做）；
->     ⑦（profile `LEFT_ROOM` 语义）仍未实施。
+>     ⑦（profile `LEFT_ROOM` 语义）**已落地**（2026-10-17，零迁移）。
 >   - **另（§18.8.1「P1 功能缺口/安全面」5 项，2026-10-16 分支 `fix/p1-functional-security-gaps`）**：
 >     ① 房间别名静默改指、③ push rule 数量/体积上界、④ AS 设备管理免 UIA、⑤ MSC4354 标准请求面
->     （`/send` 面）**已修**；② AS 临时数据投递仅对齐配置键（投递仍未接线）。逐项见 §19.5.1 的
+>     （`/send` 面）**已修**；② AS 临时数据投递**已接线**（2026-10-17）。逐项见 §19.5.1 的
 >     「P1 实施记录」。
 >   - **结构性不适用**（附本仓理由，非"没找到"）：Python/twisted/poetry/GIL（#20246/#20252/#20267/
 >     #20259/#20354）、`user_ips` 表（本仓无该表）、thread 级角标计数（本仓计数为房间粒度，无跨房
->     `thread_id` 污染面）、MAS 委派的前提下 Admin API 拒建用户（#20241；MAS 运行时未接线，见 §18.4 ①）。
+>     `thread_id` 污染面）、MAS 委派的前提下 Admin API 拒建用户（#20241；MAS 运行时**已接线**，见 §19.6(a) 更正）。
 >   - 另附 **§19.6 口径更正**：§18.4 的两条声明已过时（recurse 已实现、MSC4140 专用端点已实现），
 >     以及 §18 的证据栅格中 v1.15 那句"hierarchy 的 `allowed_room_ids` 未返回"**已作废**。
 > - **v1.10 上游基线升级到 Synapse v1.162.0（2026-09-29 发布）+ 本仓差距复核（2026-10-01）**：
@@ -47,7 +48,7 @@
 >   `feature/2026-10-01-metrics-docs-updates`，tip `e1ffcb2ab`，2026-10-01 已合并进 `main`）：默认房间版本 12、OTK 单设备单算法 500 上限、
 >   `rc_profile`、profile 空字段 `{}`、hierarchy `allowed_room_ids`、稳定 `M_UNKNOWN_DEVICE`、
 >   非合规历史 user id 过滤、MSC4354 sticky EDU、缩略图异步（逐项证据与提交见 §18.3）。
->   **仍然存在的差距**（§18.4）按优先级为：① **委派认证/MAS 运行时未接线**（`with_mas_validator` 0 调用者）
+>   **仍然存在的差距**（§18.4）按优先级为：① ~~**委派认证/MAS 运行时未接线**~~ → **已接线**（2026-10-17 更正：`container.rs` 的 `build_mas_validator` → `with_mas_validator` 已注入，见 §19.6(a)）
 >   ② **MSC4311 宽限开关是死配置 + knock stripped state 缺失** ③ `redis.username` 缺上游的"必须配密码"启动校验
 >   ④ MSC4222 `since` 落批次内的边界 ⑤ room_summary `join_rules` 反规范化列可陈旧
 >   ⑥ 第三方规则回调未接入事件鉴权 ⑦ 状态决议缓存缺失 ⑧ `/relations` 无 `recurse`（MSC3981）
@@ -937,14 +938,14 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | 3 | ELEMENTSEC-2026-1717 / GHSA-27p5-4f45-gx76 | ✅ **已实现（2026-10-02，M-1）** | ✅ 不受影响（有纵深防御备注） | 路由先 `validate_federation_origin_can_observe_room`；storage 最终查询 `WHERE room_id = $1 AND event_id = ANY($2)`（CTE 本身未按房间限定，建议补注释） |
 | 4 | ELEMENTSEC-2026-1721 / GHSA-95fh-hv8c-chvq | 联邦错误回传导致客户端销毁加密状态 | ✅ 不受影响 | `From<FederationClientError> for ApiError` 一律映射为 500 `M_UNKNOWN`，远端状态码被丢弃 |
 | 5 | ELEMENTSEC-2026-1729 / GHSA-cjh7-rcpx-xpf8 | 房间别名重定向 | ⚠️ **本地可劫持（确认）** | `synapse-storage/src/room/mod.rs` 的 `ON CONFLICT (room_alias) DO UPDATE SET room_id = EXCLUDED.room_id` 会静默改指；路由无"别名已被占用"预检。联邦向量待深查 |
-| 6 | ELEMENTSEC-2026-1740 / GHSA-6wjm-9p2x-gvpm | `multipart/form-data` Content-Type 大小写绕过 DoS 缓解 | ⚠️ **待深查** | 本仓无手写 Content-Type 检查（multipart 仅经 axum `Multipart`，`routes/voice.rs`）；有全局 body 上限，但解析器内部行为属上游 |
+| 6 | ELEMENTSEC-2026-1740 / GHSA-6wjm-9p2x-gvpm | `multipart/form-data` Content-Type 大小写绕过 DoS 缓解 | ✅ **不受影响（2026-10-17 裁决）** | 绕过的前提是"先按 `Content-Type` 字面量比较、再决定是否解析"——本仓没有这道门：`Content-Type` 只参与 mime 解析（大小写不敏感），内存由**请求体上限**界定。⚠️ 复核中同时发现一处**真实缺陷（已修）**：`/voice/upload` 原先没有自己的 `DefaultBodyLimit` ⇒ 落到 axum 的 **2 MiB** 默认值，而 `/voice/config` 的 `max_size_bytes` 与 handler 校验都按 `server.max_upload_size`（默认 50 MiB）算 ⇒ **2 MiB 以上的音频在传输层被拒，且状态码是 400 `M_BAD_JSON`**（限制经 `Multipart` 报成解析失败）—— 客户端会误判成请求格式错误，比 413 更难诊断。现按 `max_upload_size + 64 KiB`（封装开销）显式设界；三条回归见 §19.10 |
 | 7 | ELEMENTSEC-2026-1714 / GHSA-qcjr-46gf-7f4r | `/get_event_auth` 缺已入房校验 | ✅ 不受影响 | 先 `validate_federation_origin_can_observe_room`，再按 `room_id` 限定取事件 |
 | 8 | ELEMENTSEC-2026-1718 / GHSA-r66v-qhwx-8rg4 | `/timestamp_to_event` 缺成员校验 | ✅ 不受影响 | 格式校验后调 `validate_federation_origin_can_observe_room` |
 | 9 | ELEMENTSEC-2026-1751 / GHSA-jhcg-5392-5mjw | Sliding Sync 畸形响应（非法房间名/头像/资料） | ✅ 不受影响（结构上不可能） | 相关字段均为 `Option<String>`，类型系统保证不会输出错误 JSON 类型 |
 | 10 | ELEMENTSEC-2026-1703 / GHSA-vh4c-pqh4-w3wq | 多余路径段被忽略 → 限流绕过 | ✅ 应用层不受影响 / ⚠️ 代理层待查 | axum 0.8 精确 `{param}` 匹配、无通配路由，fallback 404 `M_UNRECOGNIZED` |
-| 11 | ELEMENTSEC-2026-1760 / GHSA-hgcg-p9gx-fq5f | 尾随后缀被接受 → nginx 规范化代理绕过 | ⚠️ **待深查（代理配置）** | `docker/deploy/nginx/` 使用前缀 `location`，无 `merge_slashes`；需运维侧复核，Rust 代码内不可证 |
+| 11 | ELEMENTSEC-2026-1760 / GHSA-hgcg-p9gx-fq5f | 尾随后缀被接受 → nginx 规范化代理绕过 | ✅ **应用层不适用（2026-10-17 裁决）** | 上游成因是部分端点**容忍后缀**（`/path/extra` 命中 `/path`）；本仓 axum 0.8 精确段匹配（`{param}` 只吃一段，通配需显式注册 `{*wildcard}`），未匹配即落兜底 404 `M_UNRECOGNIZED`。代理层：nginx 规范化后的 URI 就是转发给后端的 URI（`proxy_pass` 未带 URI 重写），后端仍按精确路由判定 ⇒ 规范化不产生额外暴露；敏感面（admin）另有 token 门。回归守卫 `test_extraneous_path_suffix_and_trailing_slash_are_not_routed`（含 `..` 归一化形态），见 §19.10 |
 
-**结论**：需要动作或明确决策的是 #1（push rule 上限）与 #5（别名劫持）；需要代理/基础设施复核的是 #6 与 #11；其余 7 条本仓已有对应守卫。
+**结论**：需要动作或明确决策的是 #1（push rule 上限）与 #5（别名劫持），两条均已在 §19.5.1 修掉；#6 与 #11 已于 2026-10-17 裁决为**不受影响**（#6 的复核顺带揪出一处 body 上限缺陷并修掉，见 §19.10）；其余 7 条本仓已有对应守卫。**本表已闭环**。
 
 ### 14.6 并发写入者事故记录（流程）
 
@@ -1421,19 +1422,19 @@ TEST_DATABASE_URL=... cargo nextest run --features performance-tests,test-utils 
 
 | 级别 | 问题 | 复核结论（证据） |
 |---|---|---|
-| **P0** | 账户注销语义不完整（UG-1；上游 #20247） | `synapse-services/src/auth/account.rs:111-151` 的 `deactivate_user` 只做四件事：置停用位、删 access/refresh token、删设备、清两条缓存；**不退房、不清 pusher、不解绑 3PID、不取消延迟事件**。`synapse-services/src/delayed_event_service.rs` 亦无按用户批量取消接口 |
-| **P0** | 重发远程 PDU 缺发送方签名与哈希 | `synapse-web/src/routes/federation/pdu.rs:32-39` 的模块文档自认「入站事件不持久化上游 `signatures` / `hashes`，本仓重签只加本服务器签名」；`SignatureAction`（L58-64）现有 `KeepStored` / `SignLocally` / `EmitUnsigned`，**无**「保留发送方签名」态 |
+| ~~**P0**~~ | ~~账户注销语义不完整（UG-1；上游 #20247）~~ → **已修（2026-10-17）** | 新增 `synapse-services/src/account_deactivation_service.rs` 把注销做成完整流水线：取消 MSC4140 延迟事件（fail-fast，最先）→ 退房并拒绝 pending invite/knock → 删全部 pusher → 清理账户作用域数据（账户数据/房间账户数据/推送规则/线程订阅/3PID/E2EE 备份）→ 撤销 token/设备并置停用位（最后）。原先「只置停用位 + 删 token/设备」的 `deactivate_user` 已不再是生产注销路径 |
+| ~~**P0**~~ | ~~重发远程 PDU 缺发送方签名与哈希~~ → **原判定作废（2026-10-17 复核）** | 三条入站路径均已回写上游 `signatures` / `hashes`（统一谓词 `synapse_common::event_utils::signature_material` + `MessagingService::update_event_signatures_and_hashes`）：`/send`（`synapse-web/src/routes/federation/transaction.rs:712-736`）、`backfill`（`synapse-services/src/room/backfill.rs:344`）、入站邀请（`synapse-web/src/routes/federation/membership/invite.rs:238-245`）。`SignatureAction`（`synapse-web/src/routes/federation/pdu.rs:58-68`）实为 `KeepStored` / `SignLocally` / `RefuseIncomplete`（**无** `EmitUnsigned`），`KeepStored` 即「原样投射发送方签名」态；DB 回归 `inbound_pdu_signature_material_round_trips`（`synapse-storage/src/event/db_tests.rs:691-751`）锁定落库-读回闭环。**仅剩真实残余**：`event_id` 仍是 `$<ts>$<base64>:<server>`，非 v4+ 参考哈希 |
 | **P1** | ~~房间别名可被静默改指（ELEMENTSEC-2026-1729）~~ → **已修（2026-10-16，见 §19.5.1）** | `synapse-storage/src/room/mod.rs` 的 `set_room_alias` 改为 `ON CONFLICT (room_alias) DO NOTHING`（0 行受影响 ⇒ `sqlx::Error::RowNotFound`），不再 `DO UPDATE SET room_id = EXCLUDED.room_id`；服务层把它翻成 **409 `M_ROOM_IN_USE`** —— 已存在的别名不再被静默改指，对齐上游"失败而非改指"语义。证据：`synapse-services/src/room/state/aliases.rs`、回归 `tests/integration/room_alias_storage_tests_migrated.rs` |
 | **P1** | App Service（MSC2409）临时数据投递未接线（UG-4） | ✅ **已修（2026-10-17，见 §19.5.1）**：`synapse-services/src/application_service/transaction.rs`（+289 行）落地 EDU/回执投递接线 —— `AppServiceScheduler` 的 `deliver_transaction_with_edus` 生产调用方现从回执流取数并填 `AppServiceEphemeralBatch.receipts`；新 seam `RoomStoreApi::get_latest_receipt_position()` / `get_receipts_since(from_exclusive, to_inclusive, limit)`（`synapse-storage/src/room/api.rs`，模型 `ReceiptStreamEntry` 见 `room/models.rs`）提供按流位置分页；`synapse-services/src/wiring/admin.rs` 以 `.with_room_store(...)` 注入 `RoomStorage`。① 配置键口径同前（`appservice_receives_ephemeral` 认 `de.sorunome.msc2409.push_ephemeral` 与 `receive_ephemeral`）；② 现按上游规范写的 bridge opt-in 后**能收到 `m.receipt` EDU** |
 | **P1** | App Service pushers / 设备管理端点缺失 | **设备管理面已修（2026-10-16，MSC4190/MSC4326，见 §19.5.1）**：AS 用它自己的 token 调用客户端设备端点（`synapse-web/src/routes/device.rs`）即可管理所代理虚拟用户的设备 —— `appservice_id` 非空时**跳过 UIA**，`PUT /devices/{deviceId}` 走 upsert（201 新建 / 200 更新），未知设备用 MSC4326 稳定码 `M_UNKNOWN_DEVICE`。**pusher 面已解（2026-10-17 复核结论）**：上游 Matrix AS API **无专属 pusher 端点**，AS 经 `m.login.application_service` 登录取得带 `appservice_id` 的普通 access token 后，直接调用通用 C-S 端点 `POST /_matrix/client/v3/pushers/set` / `GET /_matrix/client/v3/pushers`（`synapse-web/src/routes/push.rs`）即管理虚拟用户 pusher ⇒ 原「pusher 面仍缺」判定**属误报**，回归测试 `test_appservice_pusher_management_via_login`（`tests/integration/api_appservice_p1_tests.rs`）锁定该链路 |
 | **P1** | App Service 联邦侧代理缺失 | ✅ **已修（2026-10-17，MSC4512，见 §19.5.1）**：新增 `synapse-web/src/routes/msc4512_proxy.rs` —— ① 统一 fallback（`routes/assembly.rs`）按注册文件 `proxy_prefix` 动态分派 C-S（`/_matrix/client/...`）与 S-S（`/_matrix/federation/...`）代理，命中后授权（C-S 复用 `utils::auth` 的 token 校验；S-S 复用 `middleware::federation_auth::authenticate_federation_request`）并转发到 `proxy_url`，转发前后双向剥离 hop-by-hop 头与入站 `Authorization`，改注入 AS `hs_token` 与 `X-Matrix-User-Identifier`（C-S）/ `X-Matrix-Origin`（S-S）；② 发起侧新端点 `POST /_matrix/client/v1/appservice/fed_proxy`（+ unstable 孪生 `POST /_matrix/client/unstable/io.element.msc4512/appservice/fed_proxy`）实现规范全部错误码（`M_FEDPROXY_DESTINATION_DENIED` / `M_FEDPROXY_PATH_NOT_ALLOWED` / `M_FEDPROXY_CONNECTION_FAILED`）；③ 策略对齐上游 Synapse：`ALLOWED_PROXY_PREFIXES = {"rtc/livekit"}` 白名单 + `experimental.msc4512_enabled` 默认 false。配置沿用 `AppServiceConfigFile` 的 `#[serde(flatten)] extra` ⇒ **零迁移** |
 | **P1** | MSC4242 仅存储层、HTTP 面未接线 | 存储层已进 v12 图路径（`synapse-storage/src/event/dag.rs`），HTTP 面缺；§18.4 L-2 已裁定不接线（受阻于 MSC4242 房间版本 + experiment） |
 | **P1** | ~~push rule 数量 / 体积无上界（ELEMENTSEC-2026-1071）~~ → **已修（2026-10-16，见 §19.5.1）** | `synapse-services/src/client_push_service.rs` 落地三道上界：`MAX_PUSH_RULE_ID_LEN = 300`、`MAX_PUSH_RULE_SIZE = 1024`（序列化动作长度，对齐上游 `_push_rule_size_for_limits`）、`MAX_PUSH_RULES_PER_USER = 10_000`；越界一律 **413 `M_TOO_LARGE`**，且**更新已有规则时放行**（不把已达上限的用户锁死） |
-| **P1** | lazy-load 成员缓存缺 sync 位置维度 | `synapse-services/src/sync_service/lazy_load.rs:15` 的缓存键为 `LazyLoadedMembersCacheKey::new(user_id, device_id, room_id)`，无 sync 位置维度 ⇒ 是否随位置失效需实测确认（列为待确认，非已确认缺陷） |
+| ~~**P1**~~ | ~~lazy-load 成员缓存缺 sync 位置维度~~ → **已修（2026-10-17，分支 `feat/b3-msc2409` 已并入 main）** | `synapse-services/src/sync_service/lazy_load.rs` 的成员状态现在按 sync 流位置记账：`start_request(since)` 先丢弃 `sent_at <= since` 的记录（稳态下直接跳过扫描）、`restore` 只复用 `last_sent_position <= since` 的持久化行、`mark_sent(..., response_position)` 把「本次响应位置」写进内存条目并持久化 `last_sent_position`。即：客户端换用更旧的 `since` 时不会再漏发该位置之后的成员变更 |
 | **P1** | ~~缺 MSC4354 标准请求面（设计性分歧）~~ → **已修（2026-10-16，方案 ⓐ 补上游面，见 §19.5.1）** | `PUT /rooms/{roomId}/send/{eventType}/{txnId}` 现读 `?org.matrix.msc4354.sticky_duration_ms=<ms>`（亦接受短名 `sticky_duration_ms`），把 sticky TTL 落进事件的客户端投影 `unsigned.msc4354_sticky_duration_ttl_ms`（上限 1h = `MAX_STICKY_DURATION_MS`，非整数/非正/越界 → 400 `M_INVALID_PARAM`）。**`/send` 与 `/state` 两面均已接线（`/state` 面 2026-10-17 补齐，见 §19.5.1）**：状态写路径 `send_state_event` / `put_state_event` / `put_state_event_empty_key` / `put_state_event_no_key`（`synapse-web/src/routes/handlers/room/state.rs`，+40 行）现同样解析 `msc4354_query_sticky_duration_ms` 并在持久化后 `apply_msc4354_sticky_ttl` 落 `unsigned` 投影。私有 `POST /rooms/{roomId}/sticky_events` 路由**保留**（per-user 置顶语义不变）；`delayed_events.rs` 的专用调度端点**也已接受**该字段（2026-10-17）：值随行持久化，由 dispatcher 在**发送时**写进 `unsigned` —— 上游 #19354 就是这么做的（`add(sticky_duration_ms=…)` + `_send_event()` 注入），详见 `docs/audit/UPSTREAM_CHANGELOG_ALIGNMENT_PLAN_2026-10-13.md` §11.18。两套语义的归属见 §19.5.1：**`/sync` 的 sticky 标记由私有 `room_sticky_events` 表驱动**，`/send`、`/state` 的查询参数只落 `unsigned` 投影 |
 | **P2** | SQLx 动态查询债务 | 基线文件 `scripts/ci/sqlx_dynamic_ratio_baseline` 仍在并受 ratchet 门禁约束 |
-| **P2** | MSC4502 / MSC4262 覆盖度 | 未在本轮复核中查到推进，暂维持「部分实现」 |
-| **P2** | ELEMENTSEC #6（multipart Content-Type）/ #11（nginx `merge_slashes`） | 未在本轮复核中查到落地改动，维持待查 |
+| **P2** | MSC4502 / MSC4262 覆盖度 | **MSC4262 已补齐（2026-10-17，零迁移）**：`LEFT_ROOM` 语义落地（`profile_updates.users[uid] = null`），见 §19.5.1 R9。**MSC4502 仍未复核**，维持「部分实现」 |
+| **P2** | ~~ELEMENTSEC #6（multipart Content-Type）/ #11（nginx `merge_slashes`）~~ → **已闭环（2026-10-17）** | #6 **结构性不适用** —— `multer 3.1.0` 用 `mime::Mime` 比较（大小写不敏感）+ 流式解析 + body 上限，无「按字符串前缀判 Content-Type」面。⚠️ 同一轮复核**顺带发现并修掉**一处真实缺陷：`/voice/upload` 未设 `DefaultBodyLimit` ⇒ 落到 axum 的 **2 MiB** 默认值，而 `/voice/config` 与 handler 都按 `server.max_upload_size` 算 ⇒ 2 MiB 以上的音频在传输层被拒且报成 400 `M_BAD_JSON`。现显式设界为 `max_upload_size + 64 KiB`，四条回归见 §19.10。#11 **应用层不适用**（axum 精确段匹配 + 404 兜底 `M_UNRECOGNIZED`，新增回归 `test_extraneous_path_suffix_and_trailing_slash_are_not_routed`，含 `..` 归一化形态）；仓库内 nginx 配置均无 `merge_slashes`（worker 分流未启用）⇒ 余下部分是代理层运维项，不改代码 |
 | **P2** | §18.7.3 P-6 / P-19 残留 | P-19 迁移后的**全量**集成套件结论仍未跑完（本轮仅覆盖高风险 59 条 + 手工压测 18 条 + 装配级 3 条） |
 
 #### 18.8.2 复核中被证伪的条目（应从问题清单移除）
@@ -1519,7 +1520,7 @@ curl -sS "https://cdn.jsdelivr.net/gh/element-hq/synapse@release-v1.163/<path>" 
 |---|---|---|
 | #20108 | 应用服务回执：单次流更新 > 100 条回执时会被永久跳过 —— 改为**分页取到 `reached_token`** 并循环投递，首次投递取最新（`BACKWARDS`）、后续取最旧（`FORWARDS`） | AS 集成 / 数据丢失 |
 | #20186 | MSC4354 sticky 在 `/sync` 与 sliding sync 改用**分片令牌**，避免同一事件出现在多个 sync 响应 | 同步正确性 |
-| #20203 | 用户离开最后一个共享房后，告知客户端**删除本地缓存资料**（`profile_updates` 流新增 `LEFT_ROOM`，`record_profile_updates_txn` 从「单用户」改为「集合 + `target_users`」） | 隐私/陈旧数据 |
+| #20203 | 用户离开最后一个共享房后，告知客户端**删除本地缓存资料**（`profile_updates` 流新增 `LEFT_ROOM`，`record_profile_updates_txn` 从「单用户」改为「集合 + `target_users`」） | 隐私/陈旧数据；**✅ 已修（2026-10-17，零迁移）**：`MemberStoreApi::get_users_no_longer_sharing_rooms_since` 基于 `room_memberships.updated_ts` 推导「不再共享房间」集合，`build_profile_updates_extension` 输出 `users[uid] = null` |
 | #20211 | `/preview_url`：媒体被**哈希自动隔离**时不得再回 `og:image`；并改为"直接丢弃下载物 + 删缓存文件（含空父目录）"而非落库后返回永远 404 的 `mxc://` | 内容安全 |
 | #20231 | `limit_profile_requests_to_users_who_share_rooms` 依赖认证 ⇒ 未同时开启 `require_auth_for_profile_requests` 时**拒绝启动** | 安全（静默失效） |
 | #20232 | 持久化**前**被 redact 的 sticky event 不得 sticky | 正确性 |
@@ -1562,9 +1563,9 @@ curl -sS "https://cdn.jsdelivr.net/gh/element-hq/synapse@release-v1.163/<path>" 
 | #20137 / #20286（宣告 v1.14/v1.15） | `CLIENT_API_VERSION_SUPPORT` 已含 `v1.1`…**`v1.17`**，且每条都有 `CLIENT_API_VERSION_EVIDENCE` 证据行 + 守卫（`synapse-services/src/capability_governance.rs`） | **✅ 已对齐（超前两版）** | 无 |
 | #20165（sticky 联邦 catch-up） | EDU 类型已注册（`synapse-federation/src/edu.rs` 的 `EduType::StickyEvent` ↔ `org.matrix.msc4354.sticky_event`），出站广播在 `synapse-services/src/room/service.rs::broadcast_sticky_event_update`；**未实现"对错过 EDU 的远端补发"** | **🟡 部分** | §19.5 批次 C |
 | #20227（MSC4075 推送规则） | 原本：`synapse-common/src/push_rules.rs` 的默认规则集共 19 条 `rule_id`，**无** MSC4075 两条；全仓检索 `4075` **0 命中**。**本轮已实现**（见 §19.5.1）：两条规则 + `experimental.msc4075_enabled` 开关（默认 **false**，与上游同向），`/versions` **不**宣告 `org.matrix.msc4075`（上游也不宣告 —— 见 §19.6(b)） | **✅ 已修（本轮）** | §19.5.1 |
-| #20230（`task_scheduler.max_concurrent_tasks`） | 全仓检索 `task_scheduler` **0 命中**；并发相关实现只在应用服务调度器（`synapse-services/src/application_service/scheduler.rs` 的容量/退避选项） | **❌ 差距（P2，配置面）** → 复核后改判为 **⚪ 待核实（§19.6(b)）** | §19.7 V-19-8 |
+| #20230（`task_scheduler.max_concurrent_tasks`） | 已落地：`synapse-common/src/config/task_scheduler.rs::TaskSchedulerConfig`（默认 5，拒绝 `0`/非正数），由 `synapse-services/src/wiring/admin.rs` 注入调度器 | **✅ 已修（2026-10-17）** | §19.5.1 |
 | #20247（注销时取消延迟事件） | 注销链路：`synapse-web/src/routes/account_compat.rs` → `synapse-services/src/registration_service.rs::deactivate_account` → `synapse-services/src/auth/account.rs::deactivate_user`。该函数只做：置 `is_deactivated`、删 token、撤销 refresh token、删设备、清缓存；**全仓无 `cancel_all` / `cancel_for_user` 形态**，延迟事件零处理 | **❌ 差距（P0 之一，未做）** | §19.5 A1 |
-| #20108（AS 回执分页） | `synapse-services/src/application_service/transaction.rs` 定义了 `AppServiceEphemeralBatch { presence, receipts, typing }` 与载荷构造函数，但**该类型只在本文件与测试里出现** ⇒ 没有从回执流取数并投递的生产调用方 | **❌ 差距（P1，整块缺）** | §19.5 批次 B |
+| #20108（AS 回执分页） | `synapse-services/src/application_service/transaction.rs::deliver_pending_receipts` 从 `event_receipts_stream` 分页取数（每批 `MAX_RECEIPTS_PER_TRANSACTION`），按 `reached_token` 循环直至 `>= new_token`；首投只播种位点。`process_pending_for_service` 每 tick 调用 | **✅ 已修（2026-10-17）** | §19.5.1 |
 | #20186（sticky 分片令牌） | 本仓 sticky 是 `(room_id, user_id, event_type)` 唯一键的表 + EDU 广播（`synapse-storage/src/sticky_event.rs`），同步侧未引入分片位置概念；本仓亦无 `MultiWriterStreamToken` 对应类型 | **❌ 差距（P1，形态不同）** | §19.5 批次 C |
 | #20203（离开末个共享房 ⇒ 删除本地资料） | 本仓**没有** `profile_updates` 流（`migrations/00000000_unified_schema_v12.sql` 无该表）；sliding sync 的 `profile_updates` 扩展以 `users.updated_ts` 轮询实现（`synapse-services/src/sliding_sync_service/extensions.rs`、`synapse-storage/src/user/storage.rs::get_user_profiles_updated_since`）⇒ **无法表达 `LEFT_ROOM`**（"不再共享房间"不是一次资料写入） | **❌ 差距（P1，隐私）** | §19.5 批次 B |
 | #20211（隔离媒体不回 og:image） | 本仓 `/preview_url` 原本是**桩**且返回**伪造的 OpenGraph**（`og:image` 由 `format!("{url}/preview.png")` 拼出）；**本轮已收口**（方案①，见 §19.5.1）：只回 `url`，删掉全部伪造字段与"Preview unavailable"合成分支。媒体隔离机制本身存在（`synapse-services/src/media/mod.rs`、`synapse-services/src/media/quarantine_tests.rs`） | **✅ 已修（本轮）** | §19.5.1 |
@@ -1595,15 +1596,15 @@ curl -sS "https://cdn.jsdelivr.net/gh/element-hq/synapse@release-v1.163/<path>" 
 
 | ID | 差距 | 为什么是真差距 | 证据 |
 |---|---|---|---|
-| **UG-1（P0）** | **账户注销只置标志位**：不退出/踢出房间、不清推送器、不解除 3PID、不取消 MSC4140 延迟事件 | **已修（2026-10-16，见 §19.5.1）**：`synapse-services/src/account_deactivation_service.rs` 落地完整管线。**残余**见 UG-11 | `synapse-services/src/account_deactivation_service.rs`；`synapse-services/src/auth/account.rs` |
-| **UG-11（P2，UG-1 的残余）** | 注销的**账户级数据面**：threepid 解绑/删除、账户数据（`account_data` + `room_account_data`）与推送规则清理、线程订阅与 E2EE 备份键删除、用户目录摘除、**待处理邀请/敲击的拒绝** | **已修（2026-10-17，见 §19.5.1「A1 残余收尾」）**：新增 `StorageUserDataPurger`（六条 `user_id` 全量 `DELETE`：account data / room account data / push rules / thread subscriptions / key backups / secure key backups）+ 复用既有 `remove_threepids_by_user`，接入管线第 4 步；`part_rooms` 扩为 **joined ∪ pending**（自 `invite`/`knock` 走 `leave` 即上游的拒绝邀请/撤回敲击）。**用户目录**为 dead schema（全仓无 Rust 读写），行为缺口已由每次目录查询的 `is_deactivated` 过滤满足 ⇒ 不写无效 `DELETE`。**残余**：上游"退房"是**异步可重试**（`add_user_pending_deactivation` + 后台 parting 循环）而本仓仍是**同步逐房** —— 无该重试表，同步逐房在超大账号上会让注销请求变长，已登记 | 见 §19.5.1 的 A1 实施记录 |
-| **UG-2（P1）** | **MSC4075 默认推送规则缺失** | 本仓无服务端推送规则评估引擎（§18.3 已裁定），但**默认规则集是下发给客户端的资产**（`GET /pushrules`）。缺这两条 ⇒ 客户端拿不到 MatrixRTC 邀请/来电的 `notify + sound:ring` 规则，来电不会响铃 | `synapse-common/src/push_rules.rs` |
-| **UG-3（P1）** | **MSC4354 实现存在但未在 `/versions.unstable_features` 宣告** | 客户端按能力位决定是否启用置顶；实现存在而不宣告 = 功能对存量客户端不可见 | `synapse-services/src/capability_governance.rs` 的 `BASE_UNSTABLE_FEATURES` |
-| **UG-4（P1）** | **AS（MSC2409）临时数据投递未接线** | **部分修复（2026-10-16，见 §19.5.1）**：本轮按裁定范围只做「**配置键对齐**」——`appservice_receives_ephemeral(service)` 现认 4 个键（上游键 `de.sorunome.msc2409.push_ephemeral`、mautrix 键 `receive_ephemeral`、命名空间 `de.sorunome.msc2409`、`ephemeral`），使"按上游键配置的 AS"不再静默收不到。**投递接线仍未做**：`deliver_transaction_with_edus(…, None)` 依旧传 `None`，消费回执/在线状态流的生产路径仍缺 ⇒ 依赖回执的 bridge 拿不到数据。上游 #20108 修的是"分页导致永久跳过"，本仓连分页都没有 | `synapse-services/src/application_service/transaction.rs`、`synapse-services/src/application_service/scheduler.rs`；残余的投递面见 P-5 |
+| **UG-1（P0）** | **账户注销只置标志位**：不退出/踢出房间、不清推送器、不解除 3PID、不取消 MSC4140 延迟事件 | **已修（2026-10-16，见 §19.5.1）**：`synapse-services/src/account_deactivation_service.rs` 落地完整管线；退房已改为**异步可重试**（UG-11，2026-10-17） | `synapse-services/src/account_deactivation_service.rs`；`synapse-services/src/auth/account.rs` |
+| **UG-11（P2，UG-1 的残余）** | 注销的**账户级数据面**：threepid 解绑/删除、账户数据（`account_data` + `room_account_data`）与推送规则清理、线程订阅与 E2EE 备份键删除、用户目录摘除、**待处理邀请/敲击的拒绝**；以及**退房的异步可重试模型** | **已全部落地（2026-10-17，见 §19.5.1「A1 残余收尾」与 R11）**：① 数据面 —— `StorageUserDataPurger`（六条 `user_id` 全量 `DELETE`）+ 既有 `remove_threepids_by_user`，接在不可逆 teardown 之前；② 待处理邀请/敲击 —— `get_pending_rooms()` 驱动自我 `leave`（即上游 `reject_invite`/`retract_knock`），且**保留在同步路径**（与上游一致）；③ 退房 —— 新增 `user_pending_deactivations` 表 + `UserDeactivationStorage` + `AccountDeactivationService::process_pending_parts()`（上游 `_user_parter_loop`），注销请求只入队后立即返回，服务器启动时与每个维护 tick（或入队 `Notify`）排空，进程重启可恢复。**用户目录**为 dead schema（全仓无 Rust 读写），行为缺口已由每次目录查询的 `is_deactivated` 过滤满足 ⇒ 不写无效 `DELETE` | 见 §19.5.1 的 A1 实施记录与 R11 |
+| **UG-2（P1）** | **MSC4075 默认推送规则缺失** | **已修（2026-10-16，见 §19.5.1 A4）**：`synapse-common/src/push_rules.rs` 落地两条 MatrixRTC 规则（`notify` + `set_tweak: sound=ring`，含 `invite_for_me` 的具体 user id 与 `invite_for_room` 的权限门），并穿到 `/pushrules`、`/sync`、`account_data` 三条读取面；开关 `experimental.msc4075_enabled` 默认 `false`（与上游同向）。要真正来电响铃需显式开启该键 | `synapse-common/src/push_rules.rs` |
+| **UG-3（P1）** | **MSC4354 实现存在但未在 `/versions.unstable_features` 宣告** | **已修（2026-10-16，见 §19.5.1 A2）**：`msc4354_capability()` 按**路由面**推导（而非硬写 `true`）+ `build_client_versions` 插入 `org.matrix.msc4354`；正负控判据见 A2 | `synapse-services/src/capability_governance.rs` 的 `BASE_UNSTABLE_FEATURES` |
+| **UG-4（P1）** | **AS（MSC2409）临时数据投递未接线** | **已修（2026-10-17）**：`ApplicationServiceManager::deliver_pending_receipts` 从回执流分页取数并按 `reached_token` 循环投递（首投只播种位点、不回溯），`process_pending_for_service` 每个 tick 调用；配置键解析见 §19.5.1 的配置对齐。残余形态见 P-5 | `synapse-services/src/application_service/transaction.rs`、`scheduler.rs` |
 | **UG-5（P1）** | **lazy-load 成员缓存缺少"客户端是否收到"的位置维度** | **已修（2026-10-16，见 §19.5.1）**：条目改为 `成员 → (event id, 承载它的响应位置)`，每次 `/sync` 请求按 `since` 修剪"位置晚于 since"的条目；初始同步清空并**不信任**持久化行。持久化的位置落在基线新增的可空列 `last_sent_position` 上（可空 ⇒ 与"真实位置 0"可区分；存量行 `NULL` 即"未记录"、一律不抑制） | `synapse-services/src/sync_service/lazy_load.rs`；`synapse-storage/src/device/mod.rs` |
-| **UG-6（P1）** | **`/preview_url` 返回伪造的 OpenGraph** | 桩实现会返回不存在的 `og:image`（`{url}/preview.png`）与占位标题/描述，把它当真的客户端会显示**捏造的链接预览**；且真正的抓取尚未实现（当前只有 IP 黑名单校验，没有 DNS-rebinding 钉扎） | `synapse-web/src/routes/media/preview.rs`、`synapse-services/src/media_service.rs` |
+| **UG-6（P1）** | **`/preview_url` 返回伪造的 OpenGraph** | **已修（2026-10-16，见 §19.5.1 B2）**：`preview_url` 只回 `url`，删掉拼出来的 `og:image` 与占位 `title`/`description`，也删掉了路由层"Preview unavailable"的合成分支。**仍为不抓取的桩**：返回 `{url}` 是"无伪造数据"的诚实形态，不是完整抓取实现；DNS-rebinding 钉扎在将来真正抓取时才需要 | `synapse-web/src/routes/media/preview.rs`、`synapse-services/src/media_service.rs` |
 | **UG-7（P2）** | MSC4354 联邦 catch-up（#20165）与新加入房间补发（#20233）缺 | **已实施（2026-10-17，见 §19.5.1「批次 C 实施记录」，C1 改最小闭环）**：C1 复用 `federation_queue` 做启动/定期重放（重放**已落库事务**，非 per-destination 位点增量补发）；C2 收敛为「`/sync` sticky 集合 == `GET .../sticky_events` 集合」（**按用户置顶语义不变**）；C3 写「单写者假设」注释 + 唯一键单行回归。**残余**：无逐 destination 的 sticky 增量补发；本仓 sticky 仍是**按用户**置顶，非上游的房级广播 | `synapse-services/src/room/service.rs`、`synapse-federation/src/edu.rs` |
-| **UG-8（P2）** | `task_scheduler.max_concurrent_tasks` 缺 | 并发上限不可配 ⇒ 重负载下只能改代码 | 全仓 0 命中 |
+| **UG-8（P2）** | `task_scheduler.max_concurrent_tasks` 缺 | **已修（2026-10-17，见 §19.5.1）**：`synapse-common/src/config/task_scheduler.rs` 落地 `TaskSchedulerConfig { max_concurrent_tasks }`（默认 5，自定义反序列化拒绝 `0` 与非正数），由 `synapse-services/src/wiring/admin.rs` 注入应用服务调度器 | `synapse-common/src/config/task_scheduler.rs`、`synapse-services/src/wiring/admin.rs` |
 | **UG-9（P2）** | `synapse_notifier_wait_for_stream_token_timeouts` 缺 | worker 等不到流位置时只有日志没有指标 ⇒ 无法告警**（§19.6(b) 已改判：本仓无 Twisted notifier 的"等 worker 追上流位置"机制，该指标无观测对象 ⇒ ⚪ 结构性不适用）** | `src/server/mod.rs` 与 `synapse-common/src/metrics.rs` 的指标清单 |
 | **UG-10（P1）** | **缺 MSC4354 的标准请求面**：上游用 `/send?org.matrix.msc4354.sticky_duration_ms=…` 把事件本身标记为 sticky，并把 sticky TTL 放在事件的 `unsigned` 上；本仓原先**不读这个查询参数**，改用自研的 `POST/DELETE/GET .../rooms/{room_id}/sticky_events`（`(room_id, user_id, event_type)` 唯一键的按用户置顶表） | **已修（2026-10-16，方案 ⓐ 补上游面，见 §19.5.1）**：`PUT /rooms/{roomId}/send/{eventType}/{txnId}` 现读 `?org.matrix.msc4354.sticky_duration_ms=<ms>`（含短名 `sticky_duration_ms` 回退），命名空间字段优先，非整数/`<=0`/越界 → 400 `M_INVALID_PARAM`，并把 TTL 写入事件的 `unsigned.msc4354_sticky_duration_ttl_ms` 投影。~~**残余**：上游的 `/state` 面本仓**未接线**~~ → **订正（2026-10-17，`a3664aca7`）**：`/state` 面**已接线**（四条写路径，与 `/send` 同一解析器）；既有私有 `sticky_events` 路由**保留**；`/sync` 的 sticky 标记仍由私有 `room_sticky_events` 表驱动，`/send` 的查询参数只落 `unsigned` 投影 | §19.5 C4（**已决策 ⓐ**：补齐上游面）；`/state` 面残余**已订正**（见 §19.7 V-19-9） |
 
@@ -1615,7 +1616,7 @@ curl -sS "https://cdn.jsdelivr.net/gh/element-hq/synapse@release-v1.163/<path>" 
 | **P-2** | 状态决议 / 当前状态缓存 | 决议缓存 + 共享 `room_state` 缓存 | **无差距**（#20185 / #20160 语义已覆盖） |
 | **P-3** | 缩略图/媒体打开 | 未见阻塞式打开 | 形态上对齐（待验证，见 §19.7 V-19-3） |
 | **P-4** | lazy-load 成员过滤 | 缓存命中率高但**正确性有洞**（UG-5）；若为修正确性改成"每次都回源"，会把缓存查询退化成每房一次 `device_storage` 往返（`get_lazy_loaded_members` 已带 `LruCache` 兜底，故回源只在进程内未命中时发生） | 修 UG-5 时必须**保留**进程内 `LruCache`，只把条目结构从 `HashSet` 换成 `(event_id, next_batch)` 映射 |
-| **P-5** | AS 回执投递 | **仍未接线（UG-4）**：本轮只对齐了配置键，`deliver_transaction_with_edus(…, None)` 依旧传 `None`。接线时必须照抄上游的**分页 + `reached_token` 循环**，否则会引入忙循环（`reached_token` 不推进而 `to_token` 很大时）—— 上游的循环在 `reached_token >= new_token` 时退出，实现时须钉死这一退出条件 | 结构对齐上游 |
+| **P-5** | AS 回执投递 | **已接线（2026-10-17，UG-4）**：`deliver_pending_receipts` 照抄上游语义 —— 从 `event_receipts_stream` 分页取数（`MAX_RECEIPTS_PER_TRANSACTION`）、按 `reached_token` 循环并在 `reached_token >= new_token` 退出（不会忙循环）；首投只播种 `read_receipt_position`、不回溯历史。由 `process_pending_for_service` 每 tick 调用，失败非致命 | 结构已对齐上游 |
 | **P-6** | DB 维护 | 本仓无 `user_ips` 表 ⇒ #20285 无对象；但**后台清理任务本身**是否按"降低频率"的同一思路评估过，未取证 | 无需动作 |
 
 #### 19.4.3 安全
@@ -1839,10 +1840,10 @@ curl -sS "https://cdn.jsdelivr.net/gh/element-hq/synapse@release-v1.163/<path>" 
 （看起来像源码坏了）。正解是用一个**与当前基线一致**的已迁移库（本轮用 scratch 库
 `synapse_prepare.public`，218 表、列齐），prepare 一次通过、无缩容。
 
-**UG-11 仅剩的残余**（非安全缺口）：上游"退房"是**异步可重试**的
-（`add_user_pending_deactivation` 表 + 后台 parting 循环），本仓没有那张重试表，仍是**同步逐房**
-—— 超大账号上会让注销请求变长。本轮按裁定**保持同步**（同步逐房仍是"不可逆步骤最后"这条
-可重试语义的前提）。
+**UG-11 的退房模型（2026-10-17 后续收尾，见 R11）**：上游"退房"是**异步可重试**的
+（`add_user_pending_deactivation` 表 + 后台 `_user_parter_loop`）。上一批按裁定先保持同步；
+本轮已改为同一模型 —— 注销只入队后立即返回，服务器启动时与每个维护 tick 排空，进程重启可恢复。
+详见 R11。
 
 **B1 实施记录（2026-10-16）**
 
@@ -1911,6 +1912,9 @@ describe；`.sqlx/` 缓存按 `scripts/ci/sqlx_prepare.sh`（`ALLOW_CACHE_SHRINK
 | R5 = §18.8.1 L1433 / UG-10：MSC4354 标准请求面 `/state` 残余 | ✅ 已修 | `synapse-web/src/routes/handlers/room/state.rs`（+40 行）：`send_state_event` / `put_state_event` / `put_state_event_empty_key` / `put_state_event_no_key` 四路径均取 `msc4354_query_sticky_duration_ms(&query)?`（持久化前校验，越界 400）并在持久化后 `apply_msc4354_sticky_ttl(&ctx, &event_id, duration_ms).await?` 落 `unsigned` 投影。判据：既有 `/send` 3 用例 + `/state` 面复用同一助手函数 |
 | R7 = UG-8 + §19.5 D1：`task_scheduler` 配置段 | ✅ 已修 | 新增 `synapse-common/src/config/task_scheduler.rs`（`max_concurrent_tasks` 等键），`synapse-services/src/wiring/admin.rs` 改为 `ApplicationServiceScheduler::with_max_services_per_tick(manager, config.task_scheduler.max_concurrent_tasks)` ⇒ 上游 `task_scheduler` 并发上限有了对应物（见 V-19-8 改判） |
 | R6 = C1 + C2 + C3（§19.5 批次 C）= UG-7：sticky 联邦 catch-up + 新加入房间补发 sticky | ✅ 已实施（**C1 改最小闭环**） | 见下方「批次 C 实施记录（2026-10-17）」。C1 复用 `federation_queue` 做启动/定期重放（**零迁移、零 `.sqlx` 变更**）；C2 收敛为「`/sync` sticky 集合 == `GET .../sticky_events` 集合」并由构造保证；C3 以注释 + 唯一键单行回归用例登记 |
+| R9 = ⑦ / 上游 #20203：profile `LEFT_ROOM`（MSC4262） | ✅ 已修（2026-10-17，零迁移） | ① 存储 seam：`MemberStoreApi::get_users_no_longer_sharing_rooms_since(user_id, since_ts)`（`synapse-storage/src/membership/api.rs`），`RoomMemberStorage` 以 `room_memberships.updated_ts` 为变更信号推导「不再共享房间」集合（`synapse-storage/src/membership/mod.rs`；运行时 SQL，避免 `.sqlx` 重生成）；② `ban_member` 补写 `updated_ts`（否则封禁不触发 LEFT_ROOM）；③ 服务层 `build_profile_updates_extension` 把该集合以 `users[uid] = null` 合入 `profile_updates`（已有更新优先，避免覆盖新资料）；④ `InMemoryMemberStore` 同步实现，保证服务层单测可用。判据：`membership::db_tests::test_left_room_*` 2 条（双向语义 + 仍共享房排除 + 仅 invite 不泄漏）；且 `profile_updates.users` 非空即触发 non-idle sync（`sliding_sync_service/mod.rs`） |
+| R10 = M-04：`KeyRotationConfig::max_session_age_days` 不生效 | ✅ 已修（2026-10-17，配置为唯一真源） | 原缺陷：该配置被读/写/API 暴露，但 `key_rotation/service.rs` **无读者**，真实寿命来自 `MEGOLM_SESSION_MAX_AGE_DAYS` 环境变量（默认 7 天）⇒ 同一策略两个真源。修复：`synapse-e2ee/src/vodozemac_megolm.rs` 把全局 `OnceLock` 改为 `AtomicI64`（0 = 未配置）+ 独立 `OnceLock` 引导 fallback，新增 `set_session_max_age_days(days)`；`synapse-e2ee/src/key_rotation/service.rs` 新增 `apply_session_max_age`，在 `new` / `new_with_db_config` / `reload_config` / `update_config` 四处注入 ⇒ 持久化配置**覆盖**环境变量，env 仅在配置装载前作为进程引导值。判据：`vodozemac_megolm::tests::session_max_age_days_follows_rotation_config`（12 passed）+ `key_rotation::service::db_tests`（6 passed，含持久化配置回读） |
+| R11 = UG-11 残余：注销退房改为**异步可重试** | ✅ 已修（2026-10-17，新增 1 张表） | 上游 `deactivate_account()` 只写 `user_pending_deactivations` 并由 `_user_parter_loop` 后台排空，本仓原先是同步逐房 ⇒ 超大账号会让注销请求变长、且无重启恢复。落地：① 迁移新增 `user_pending_deactivations(user_id PK, created_ts)`；② `synapse-storage/src/user_deactivation.rs` 提供入队/取队首/删行（运行时 SQL，避开 `.sqlx` 重生成）；③ `AccountDeactivationService` 新增 `PendingDeactivations` seam + `process_pending_parts()`（队列 FIFO，**列表失败保留行并停止本次 pass**，**单房失败记日志后仍删行**，与上游一致）；`deactivate()` 改为「同步拒绝 invite/knock → 入队 joined 退房 → pushers → purge → 不可逆 teardown → `Notify` 唤醒」；④ `src/server/mod.rs` 独立后台任务：启动先排空一次（重启恢复）＋ 每个 `background_tasks_interval` tick ＋ 入队 `Notify` ＋ shutdown 退出。判据：`account_deactivation_service::tests` 11 条（含 `process_pending_parts_keeps_the_row_when_listing_fails` / `process_pending_parts_drains_every_queued_user` / `deactivate_wakes_the_background_drain_loop`）+ `user_deactivation::db_tests`（FIFO、幂等、删除语义） |
 
 **本轮数据面连带**：R4 零迁移（`extra` → `config` JSONB），无新增 `.sqlx` 条目；R2 新增的两条
 receipt 流查询已入 `.sqlx` 缓存。契约链按 `scripts/contract/check_route_contract.sh` 全链重生成后通过。
@@ -1959,7 +1963,7 @@ R6 亦**零迁移、零 `.sqlx` 变更**（C1 复用已入缓存的 `get_all_pen
 
 **本轮未做（如实登记）**：
 - **R8 = UG-11 = §19.5.1 A1 残余**：**已收尾（2026-10-17，见 §19.5.1「A1 残余收尾」）**——threepid 解绑、账数据/推送规则清理、线程订阅与备份键删除、待处理邀请/敲击拒绝**均已落地**；用户目录摘除以 `is_deactivated` 过滤满足（dead schema，不写无效 `DELETE`）。**仅剩残余**：退房仍为**同步逐房**（上游为异步可重试的 `add_user_pending_deactivation` + 后台 parting 循环），已登记于 UG-11 行。
-- **R1（P0 PDU 保留发送方签名/哈希）**：本轮范围明确不含（用户答复未选）。
+- **R1（P0 PDU 保留发送方签名/哈希）**：~~本轮范围明确不含（用户答复未选）~~ → **后续已落地（2026-10-17 复核确认）**：`/send`、`backfill`、入站邀请三条路径均回写上游 `signatures` / `hashes`，见 §18.8.1「重发远程 PDU」行与 `synapse-storage/src/event/db_tests.rs:691-751`。
 
 ### 19.6 本轮作废 / 更正的历史声明
 
@@ -1969,9 +1973,9 @@ R6 亦**零迁移、零 `.sqlx` 变更**（C1 复用已入缓存的 `get_all_pen
 |---|---|---|
 | §18.4 ⑧「`/relations` 无 `recurse`（MSC3981）」 | **已实现**：`recurse` 稳定名 + `org.matrix.msc3981.recurse` 拼写均被读取，缺省为 `None` 而非 `false` | `synapse-web/src/routes/relations.rs` |
 | §18.4 ②「MSC4311 宽限开关是死配置 + knock stripped state 缺失」 | 已按 §18.6 V-2 落地（跨实现联调 V-2b / V-2c 已绿） | §18.6 V-2 行 |
-| §18.4 ①「委派认证/MAS 运行时未接线」 | **仍然成立**（本轮复核未发现接线点） | `synapse-services/src/auth/mas_validator.rs` |
+| §18.4 ①「委派认证/MAS 运行时未接线」 | **已作废**：运行时已接线 —— `build_mas_validator` 是唯一入口（含缺 audience 锚点时的第二道防线），返回值在容器装配阶段经 `with_mas_validator` 注入 `AuthService` | `synapse-services/src/container.rs:258-281`；`synapse-services/src/auth/mas_validator.rs`（`build_mas_validator_requires_full_configuration`） |
 | §18 证据栅格中 v1.15 行「GAP: hierarchy 的 `allowed_room_ids` … 未返回」 | **已作废**：`allowed_room_ids` 已实现并返回 | `synapse-services/src/room/join_rules.rs::extract_allowed_room_ids` |
-| §18.4 ⑩ / §18.5(b)「MSC4140 专用调度端点未实现」 | **已作废**：`PUT .../org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}` 等 7 条已注册 | `docs/synapse-rust/ROUTE_CONTRACT.md` 的 `delayed_events.rs` 小节、`synapse-web/src/routes/handlers/room/write_access.rs` |
+| §18.4 ⑩ / §18.5(b)「MSC4140 专用调度端点未实现」 | **已作废**：`PUT .../org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}` 等 **6 条路由 / 7 个方法**已注册（含上游同形的 `cancel` / `restart` / `send` 子路径与 `GET .../delayed_events` 列表） | `synapse-web/src/routes/delayed_events.rs:352-357` |
 
 **（b）对本轮初稿的自我更正**：本轮起草时曾把「注销时延迟事件未取消」写成"MSC4140 未实现"，
 取证时发现 MSC4140 本身**已完整实现**（7 条路由 + 服务 + 存储 + 联邦 EDU），真实缺口只是
@@ -2078,3 +2082,82 @@ W-B 为严格模式 + 离线 `--validate-topology` 入口）。本节改动只�
 
 ⇒ 因此本仓**不应**再写作「Worker 拓扑仍在建设中」；准确表述是
 「**控制面已成型并可观测；请求面的准入已可执行（W-F，2026-10-17），但参考栈的进程选型尚未切到根二进制实例**」。
+
+---
+
+### 19.10 ELEMENTSEC-2026-1740 / -1760 裁决（2026-10-17）
+
+> 这两条是 §14.4 安全表里最后两个「待深查」。本轮按**公告原文**核对本仓承载面，并把结论钉成
+> 回归。两个公告同批发布、同在 Synapse **1.157.2** 修复。
+
+#### 19.10.1 CVE-2026-102592 —— `multipart/form-data` 大小写绕过 → 内存耗尽
+
+**上游成因**：对恶意 multipart 请求的既有缓解按 `Content-Type` **字面量**判断，改变大小写
+（`Multipart/Form-Data`）即可绕过该门，请求进入解析器后整包缓冲进内存。
+
+**本仓判定：不受影响。** `routes/voice.rs` 的 multipart 解析走 `axum::extract::Multipart`
+（`multer`），`Content-Type` 只参与 `mime::Mime` 解析（大小写不敏感），**没有**「先比较字符串、
+再决定是否解析」的门 ⇒ 不存在可绕过的检查；内存由请求体上限界定。
+
+**但复核顺带揪出一处真实缺陷（已修）**：`/voice/upload` 原先**没有**自己的 `DefaultBodyLimit`，
+而 `Multipart` 读的正是这个扩展 ⇒ 上限落到 axum 的默认 **2 MiB**；与此同时 `/voice/config` 的
+`max_size_bytes` 与 handler 的 `content.len() > max_size` 都按 `server.max_upload_size`
+（默认 **50 000 000** 字节）算 ⇒ **2 MiB 以上的语音在传输层被拒，且状态码是 400 `M_BAD_JSON`**（`Failed to parse
+multipart data`）—— 客户端会误判成格式错误，比 413 更难诊断，按宣告上传必失败。与 §19.4 里反复出现的形态同类：配置/宣告一个值，实际生效另一个值。
+
+**修法**：`voice_multipart_body_limit(max_upload_size) = max_upload_size + 64 KiB`
+（multipart 封装开销：boundary、每个字段头、收尾），在 `create_voice_router` 上显式
+`.layer(DefaultBodyLimit::max(...))`。之所以要加开销：恰好等于上限的音频加上封装必然超限。
+
+**回归**（`tests/integration/voice_routes_tests.rs`）：
+
+| 用例 | 断言 |
+|---|---|
+| `test_voice_upload_accepts_body_above_the_axum_default_limit` | `max_upload_size = 4 MiB` 时 2.5 MiB 音频 → **200**（修复前 **400 `M_BAD_JSON`**，变异自证见 §19.10.4） |
+| `test_voice_upload_rejects_body_above_the_configured_limit` | 带 `Content-Length` 的超限体 → **413 `M_TOO_LARGE`** |
+| `test_voice_upload_body_limit_is_content_type_case_insensitive` | 同一个超限体、`Content-Type: Multipart/Form-Data` → 仍 **413**（CVE 的绕过机制在本仓不存在） |
+| `test_voice_upload_streamed_body_without_content_length_is_still_rejected` | 无 `Content-Length` 的超限体 → 仍被拒（现状 400，见 §19.10.3） |
+
+#### 19.10.2 CVE-2026-102597 —— 容忍尾随后缀 → 代理规则绕过
+
+**上游成因**：部分端点接受路径尾部的额外数据（`/path/extra` 命中 `/path`）。当服务位于会
+**先规范化路径**的反向代理之后（nginx 把 `/a/../b` 变成 `/b`）时，这类宽松匹配会让请求落到
+代理规则本意未覆盖的端点上。公告自评 Low，且「不应可直接利用」（敏感端点仍需 token）。
+
+**本仓判定：应用层不适用。** axum 0.8 精确段匹配（`{param}` 只吃一段，通配必须显式
+`{*wildcard}`），未匹配即落兜底 404 `M_UNRECOGNIZED`；路由面另有 `api_route_ledger_tests`
+的全表快照。代理层：`docker/deploy/nginx/**` 的 `proxy_pass` 未带 URI 重写 ⇒ 规范化的结果就是
+转发给后端的 URI，后端仍按精确路由判定，规范化不产生额外暴露；admin 面另有 token 门。
+公告给的两条 workaround 中，「不要用规范化路径做路由」对本仓不成立（我们不依赖代理规则保护
+端点），「敏感端点独立监听」属部署选项，不构成代码缺陷。
+
+**回归**：`api_auth_routes_tests::test_extraneous_path_suffix_and_trailing_slash_are_not_routed`
+—— 以下五条必须 404 + `M_UNRECOGNIZED`：`/versions/extra`、`/versions/`、
+`/register/and/more`、`/versions/../versions`（归一化形态）、
+`/_synapse/admin/v1/server_version/extra`。
+
+#### 19.10.3 残余（登记，不修）
+
+流式（**无 `Content-Length`**）的超限请求体：上限层在读取过程中中止，`Multipart` 把它报成
+解析失败，handler 映射为 **400 `M_BAD_JSON`** 而不是 413 `M_TOO_LARGE`。**不是安全问题**
+（读取在到达上限时即停，内存有界），属状态码分类问题；真实客户端对定长 body 一定带
+`Content-Length`，走 413 分支（修复前，**带** `Content-Length` 的请求也是这个 400 症状——那是 axum
+默认 2 MiB 经同一条路径报出来的，见 §19.10.1）。要改需在 handler 识别「长度超限」这一解析错误并改写状态码，
+依赖上游错误文案，收益不抵脆弱性 ⇒ 已用用例钉住现状，等 axum/multer 暴露结构化错误再说。
+
+#### 19.10.4 验证（全部实跑）
+
+```bash
+cargo nextest run --test integration \
+  --features 'test-utils voice-extended voip-tracking' -j 1 \
+  -E 'test(/voice_upload_|extraneous_path_suffix/)'
+```
+
+- 修复后：**5/5 通过**（4 条 voice + 1 条路径后缀）。
+- **变异自证**（把层去掉 ⇒ 回到修复前状态）：
+  - 删掉 `.layer(DefaultBodyLimit::max(...))` ⇒ 正向用例 `0 passed / 1 failed`，实得
+    **400 `M_BAD_JSON` "Failed to parse multipart data"**（`max_upload_size` 设为 4 MiB、
+    音频 2.5 MiB，全局层不拦，只有 axum 的 2 MiB 默认值会拦）—— 这就是修复前的真实症状。
+  - 换成 `DefaultBodyLimit::disable()` ⇒ 正向用例**通过**：证明请求体本身没有问题，
+    缺陷纯粹是"上限被 2 MiB 默认值遮蔽"，不是解析/存储能力不足。
+  - 从备份还原 ⇒ `1 passed`（未用 `git checkout`，避免连带回滚同文件里的未提交改动）。

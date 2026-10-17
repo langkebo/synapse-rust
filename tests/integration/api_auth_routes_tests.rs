@@ -303,3 +303,43 @@ async fn test_auth_fallback_web_route_matches_a_real_auth_type() {
         "the page must echo the requested auth stage, proving {{auth_type}} captured instead of matching literally"
     );
 }
+
+/// CVE-2026-102597 / ELEMENTSEC-2026-1760：多余的**后缀**路径段不得被路由。
+///
+/// 上游的部分端点会接受路径尾部的额外数据（`/path/extra` 命中 `/path`）。当服务在
+/// 反向代理之后、而代理在路由**之前**规范化路径（nginx 会把 `/a/../b` 变成 `/b`）时，
+/// 这类宽松匹配会让请求落到代理规则本意未覆盖的端点上 —— 属纵深防御损失。
+///
+/// 本仓用 axum 0.8 的精确段匹配（`{param}` 单段、`{*wildcard}` 需显式注册），
+/// 没有"容忍后缀"的注册方式，因此应用层免疫。这条用例把该性质钉成回归：
+/// 若将来引入前缀/通配式宽松匹配，下面这些请求会变成 200/400/401/405，用例立刻红。
+#[tokio::test]
+async fn test_extraneous_path_suffix_and_trailing_slash_are_not_routed() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    // 公开端点、需要认证的端点、敏感管理端点各覆盖一种形态。
+    let cases = [
+        "/_matrix/client/v3/versions/extra",
+        "/_matrix/client/v3/versions/",
+        "/_matrix/client/v3/register/and/more",
+        // 归一化代理的形态：后端若接受 `..`，代理会把这条变成 `/versions`。
+        "/_matrix/client/v3/versions/../versions",
+        "/_synapse/admin/v1/server_version/extra",
+    ];
+
+    for uri in cases {
+        let request = Request::builder().method("GET").uri(uri).body(Body::empty()).unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "`{uri}` 不得匹配任何已注册路由");
+
+        let body = axum::body::to_bytes(response.into_body(), 2048).await.unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            json["errcode"], "M_UNRECOGNIZED",
+            "`{uri}` 的兜底必须仍是可识别的 Matrix 错误体，实得: {json}"
+        );
+    }
+}
+
