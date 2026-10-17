@@ -1831,6 +1831,9 @@ per-user pin 表 `room_sticky_events`；**驱动 `/sync` 与 sliding sync 里 `s
 
 #### 11.17.5 残余与一处**记录冲突**（只登记、未改代码）
 
+> ⚠️ **本节写于 `20f8d321f`（base 分支）**：下面第 1、2 条都已随 p1 的 `a3664aca7` 失效 ——
+> **以 §11.17.6 为准**。保留原文是为了留住"残余判断必须标明 base"这个教训。
+
 - **上游的 `/state` 面本仓未接线**：`msc4354_query_sticky_duration_ms` 的**唯一调用点**是
   `synapse-web/src/routes/handlers/room/events.rs:327`；`send_state_event`
   （`synapse-web/src/routes/handlers/room/state.rs:192`）虽然收 `Query`，但只把它转给延迟事件解析，
@@ -1841,3 +1844,28 @@ per-user pin 表 `room_sticky_events`；**驱动 `/sync` 与 sliding sync 里 `s
   应改成只提 `/send`。**本轮只登记不改**：授权范围是文档记录，改注释会把一个代码文件带进本提交。
 - **`/delayed_event` 专用端点对同名字段仍 501**（刻意）：延迟事件没有"落 `unsigned`"的时机，
   接受该字段等于静默降级 —— 理由写在 `synapse-web/src/routes/delayed_events.rs:140` 起的注释里。
+
+#### 11.17.6 合并 p1 后的收口（2026-10-17）：`/state` 面已接线，注释冲突自解
+
+**触发**：把 `fix/p1-functional-security-gaps` 并入本分支（合并提交 `aeb633006`）后，p1 的
+`a3664aca7`（"补齐 AS 三面"）里**把 `/state` 面也接上了** —— `msc4354_query_sticky_duration_ms`
+现在有 **4 处调用**（`synapse-web/src/routes/handlers/room/state.rs:250`、`:345`、`:500`、`:569`）。
+
+**两条结论随之改变**：
+
+1. §11.17.5 第 1 条（"`/state` 未接线"）**关闭**：写入侧与 `/send` 同源（同一个解析器 ⇒ 同样的
+   `0 < n <= 3_600_000` 边界与 400 语义），TTL 同样经 `apply_msc4354_sticky_ttl` 落 `unsigned`。
+   对比报告 §19.7 的 V-19-9 里那条残余也应同步删掉（该文件本轮不在我手里，登记于此以便后续收口）。
+2. §11.17.5 第 2 条（"注释失真"）**自动失效**：`synapse-web/src/routes/delayed_events.rs:139` 写的
+   "`/send` 与 `/state` 两个面都把这个查询参数当真"现在**是对的**，**不需要改**。⇒ 那条"记录冲突"
+   是我与 p1 各自推进同一个 MSC 的不同面造成的**时序**问题，不是谁写错了。
+
+**教训（值得记住的形态）**：跨分支并行推进同一 MSC 时，"残余 / 缺口"这类判断**必须写在它基于的
+提交上**（本节现在都带 `base` 标注）。否则合并提交一到，结论当天过期，而读者看到的是肯定语气。
+
+**当前真正的残余只剩一条**：
+
+- `/state` 面**零测试覆盖**：`msc4354_query_sticky_duration_ms` 在 `/state` 的 4 处调用都没有对应用例
+  （`/send` 那侧有 3 条，见 §11.17.3）。检索面三查（测试文件内 `sticky` 字样、integration/unit 两目录、
+  `a3664aca7` 的改动清单）均无命中。⇒ 这是**新增的能力没有护栏**，不是文档问题。
+- `/delayed_event` 专用端点仍 **501**（刻意，理由见上）。
