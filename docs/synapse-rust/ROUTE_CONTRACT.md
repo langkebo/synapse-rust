@@ -1637,3 +1637,23 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 | 真未封 | `appservice/fed_proxy` × 2 | ⚠️ 待决策 |
 
 ⇒ **24 条连客户端面都不是；真正需要产品决策的只有 G-01。**
+
+### B.9 真实后端联调发现的后端缺陷（2026-10-17，`https://matrix.test`）
+
+> 联调方法：SDK 真实代码 + 原始 HTTP 探测 + DB 只读对拍（两侧各打一次，判定"谁错"）。
+> 详细复现步骤与证据见 `matrix-js-sdk/artifacts/live-integration-test-report-2026-10-17.md`。
+> 结论：主链路健康（75 个用例 74 通过），问题集中在**投影表一致性**与**错误响应规范性**。
+
+| ID | 级别 | 问题 | 证据位置 |
+|---|---|---|---|
+| I-01 | **P1** | `/summaries` 的成员投影表 `room_summary_members` **未随 membership 维护**：join 不写（新加入房间在 `/summaries` 里看不到）、leave 不清理（user1 实测 49 条已 leave 房间仍在返回）。`INNER JOIN` 把缺失放大成静默数据丢失。 | `synapse-services/src/room/summary/service.rs:54`；`synapse-storage/src/room_summary/repository.rs:231-247`；`synapse-services/src/room/membership/actions.rs:64`（`join_room` 无任何 summary 调用） |
+| I-02 | **P1** | 裸 `axum::extract::Json<T>` 的端点错误响应**缺 `errcode`**：`createRoom` 的 415 / 语法错 400 均返回 `text/plain`；`summaries/batch` 未知字段返回 **422 `text/plain`** 且泄漏内部字段名。`MatrixJson` 已正确实现但仅 17 处使用，裸 `Json` ≥60 处。 | `routes/handlers/room/management/create.rs:79`；对照 `routes/extractors/json.rs:16-35` |
+| I-03 | P2 | 登录失败返回 **`401` + `M_FORBIDDEN`**（状态码与 errcode 非同族），且连续 3 次失败**无限流**（无 `429/retry_after_ms`）。 | `POST /_matrix/client/v3/login` |
+| I-04 | P2 | `createRoom` 对 `{"name":123}` **静默接受并 200**（`Json<Value>` 无类型校验，非字符串被跳过）。 | `create.rs` |
+| I-05 | P3 | `/summaries` 的 `INNER JOIN room_summary_members` 使"投影无行"变成永久不可见（无告警、无回退）。 | `repository.rs:237` |
+
+**已核实无问题**（防复报）：401 三态（`M_MISSING_TOKEN` / `M_UNKNOWN_TOKEN` / 200）、403 admin 面、404 分 `M_UNRECOGNIZED` 与 `M_NOT_FOUND`、405、`400 M_INVALID_PARAM`（非法用户/房间 ID）、非成员读单房间 `/summary` 返回 403、`M_UIA_REQUIRED` 注销流程。
+
+**一处需澄清的"疑似越权"**：普通用户 `/summaries` 返回的 12 条非 joined 房间，经 `room_memberships` 对拍确认全部是 **invite**（invite 用户看摘要符合语义），**不构成越权**；越权判据必须对拍成员关系，不能只看列表内容。
+
+**修复优先级**：I-01（同事务写投影 + 回填脚本 + DB 一致性测试）→ I-02（全局 `JsonRejection → ApiError` 或批量换 `MatrixJson` + 契约测试）→ I-03/I-04 → I-05。
