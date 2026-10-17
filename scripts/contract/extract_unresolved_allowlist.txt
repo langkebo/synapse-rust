@@ -45,4 +45,5 @@ chain method .filter() in assembly.rs                         # iterator adapter
 chain method .merge_into() in assembly.rs                     # RouteModule dynamic dispatch — covered by the `merge_into` roots
 chain method .with_rate_limit_exempt_paths() in assembly.rs   # AppState mutation, not a router
 chain method .rank() in derived_routes.rs                     # Generated derived_route_manifest helper, not a route definition
+chain method .saturating_add() in voice.rs                    # `voice_multipart_body_limit`: integer headroom, not a router call
 chain method .sort_by() in derived_routes.rs                  # Generated dedup/sort helper, not a route definition

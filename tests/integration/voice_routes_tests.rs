@@ -688,8 +688,5 @@ async fn test_voice_upload_streamed_body_without_content_length_is_still_rejecte
         status == StatusCode::BAD_REQUEST || status == StatusCode::PAYLOAD_TOO_LARGE,
         "流式超限 body 必须被拒（要么 413，要么解析层 400），实得 {status}: {json}"
     );
-    assert!(
-        status != StatusCode::OK,
-        "流式超限 body 绝不能成功，响应: {json}"
-    );
+    assert!(status != StatusCode::OK, "流式超限 body 绝不能成功，响应: {json}");
 }

@@ -336,10 +336,6 @@ async fn test_extraneous_path_suffix_and_trailing_slash_are_not_routed() {
 
         let body = axum::body::to_bytes(response.into_body(), 2048).await.unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(
-            json["errcode"], "M_UNRECOGNIZED",
-            "`{uri}` 的兜底必须仍是可识别的 Matrix 错误体，实得: {json}"
-        );
+        assert_eq!(json["errcode"], "M_UNRECOGNIZED", "`{uri}` 的兜底必须仍是可识别的 Matrix 错误体，实得: {json}");
     }
 }
-
