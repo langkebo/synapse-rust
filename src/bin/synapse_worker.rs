@@ -137,7 +137,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         tracing::info!("[REDACT] Reason: {}", r);
                     }
 
-                    if let Err(e) = event_storage.redact_event_content(&event_id, None).await {
+                    if let Err(e) = event_storage.redact_event_content(&event_id, &room_id, None).await {
                         tracing::error!("[REDACT] Failed to redact event {}: {}", event_id, e);
                         return Err(e.to_string());
                     }

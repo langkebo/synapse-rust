@@ -893,9 +893,17 @@ impl MessagingService {
     /// caused this redaction — a self-referential FK to `events.event_id`
     /// (`fk_events_redacted_by`), **not** a user id. It is `None` when the
     /// redaction has no causing event (a server/operator action).
-    pub async fn redact_event_content(&self, event_id: &str, redaction_event_id: Option<&str>) -> ApiResult<()> {
+    ///
+    /// `room_id` must be the room the redaction was authorized in; it scopes
+    /// the write so an `event_id` from another room is never touched.
+    pub async fn redact_event_content(
+        &self,
+        event_id: &str,
+        room_id: &str,
+        redaction_event_id: Option<&str>,
+    ) -> ApiResult<()> {
         self.event_writer
-            .redact_event_content(event_id, redaction_event_id)
+            .redact_event_content(event_id, room_id, redaction_event_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to redact event content", e))
     }
@@ -1290,7 +1298,7 @@ mod tests {
             make_event("$e6:ex.com", "!room:ex.com", "@alice:ex.com", "m.room.message", json!({"body": "hello"}));
         let svc = make_service_with_events(vec![event]).await;
         // Should not panic — redact succeeds even with no-op mock.
-        svc.redact_event_content("$e6:ex.com", Some("$redaction:ex.com")).await.unwrap();
+        svc.redact_event_content("$e6:ex.com", "!room:ex.com", Some("$redaction:ex.com")).await.unwrap();
     }
 
     // -------------------------------------------------------------------------

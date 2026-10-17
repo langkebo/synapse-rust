@@ -4,17 +4,6 @@ use synapse_common::ApiResult;
 use synapse_storage::burn_after_read::BurnAfterReadStoreApi;
 use tokio::sync::RwLock;
 
-/// Maximum number of times a single burn row will be retried by the processor
-/// before it is moved to dead-letter state. Once dead-lettered, the scanner
-/// skips the row entirely so it cannot monopolize a sweep pass.
-///
-/// B-07 trade-off: 5 attempts gives ~5 sweeps before abandonment. The default
-/// sweep interval is 30s, so a fully-failed row stays in the hot path for ~2.5
-/// minutes before being moved out. Lower values (1-2) risk prematurely
-/// abandoning transiently-failing rows; higher values (10+) amplify duplicate
-/// redaction risk when mark_processed_batch fails repeatedly.
-pub const BURN_MAX_RETRY: i32 = 5;
-
 /// The `BurnSettings` struct.
 #[derive(Debug, Clone)]
 pub struct BurnSettings {
@@ -57,38 +46,26 @@ struct BurnProcessorState {
 }
 
 /// The `BurnAfterReadService` struct.
+///
+/// This service is a **per-user time registry**, not a deleter. `burn_after_ms`
+/// is a client-side preference: the server records when a given reader's copy
+/// should disappear, and the reader's own client does the local deletion. The
+/// server never redacts the event, because a room event has exactly one copy
+/// shared by every member — redacting it would delete the message for *all*
+/// members the moment *one* member reads it.
+///
+/// Server-side physical deletion remains the job of the retention service
+/// (`m.room.retention`), which is a room-wide policy and therefore not an
+/// escalation.
 pub struct BurnAfterReadService {
     storage: Arc<dyn BurnAfterReadStoreApi>,
-    event_writer: Arc<dyn synapse_storage::event::EventWriter>,
-    /// Room-state reader for the admission gate's `check_event_allowed`
-    /// context. The burn redaction is a local event, so the rules must see the
-    /// same room state the messaging path would show them.
-    event_reader: Arc<dyn synapse_storage::event::EventReader>,
-    server_name: String,
-    /// The third-party event admission gate (Synapse `check_event_allowed`).
-    /// The burn's `m.room.redaction` is a local write like any other: it is
-    /// consulted before the redaction is persisted, so a rule can refuse it.
-    event_admission_gate: Arc<dyn crate::module_service::EventAdmissionGate>,
     processor_state: Arc<RwLock<BurnProcessorState>>,
 }
 
 impl BurnAfterReadService {
     /// See [`new`].
-    pub fn new(
-        storage: Arc<dyn BurnAfterReadStoreApi>,
-        event_writer: Arc<dyn synapse_storage::event::EventWriter>,
-        event_reader: Arc<dyn synapse_storage::event::EventReader>,
-        event_admission_gate: Arc<dyn crate::module_service::EventAdmissionGate>,
-        server_name: String,
-    ) -> Self {
-        Self {
-            storage,
-            event_writer,
-            event_reader,
-            server_name,
-            event_admission_gate,
-            processor_state: Arc::new(RwLock::new(BurnProcessorState { is_running: false })),
-        }
+    pub fn new(storage: Arc<dyn BurnAfterReadStoreApi>) -> Self {
+        Self { storage, processor_state: Arc::new(RwLock::new(BurnProcessorState { is_running: false })) }
     }
 
     /// See [`set_burn_enabled`].
@@ -150,65 +127,12 @@ impl BurnAfterReadService {
     }
 
     /// See [`delete_burned_message`].
+    ///
+    /// Records that `user_id`'s copy of `event_id` has burned. The event itself
+    /// is left untouched: see the struct docs for why the server must not
+    /// redact it.
     pub async fn delete_burned_message(&self, user_id: &str, room_id: &str, event_id: &str) -> ApiResult<()> {
         let now = current_timestamp_millis();
-
-        // The redaction event is persisted FIRST: `events.redacted_by` is a
-        // self-referential FK to `events.event_id` (`fk_events_redacted_by`) and
-        // records the burn's `m.room.redaction` event id — not the burning
-        // user's id (which violated the constraint and left the content
-        // unredacted). Both the create and the redact steps remain best-effort
-        // (each failure is logged and only `log_burned_event` propagates), so a
-        // failed `create_event` still degrades to `redacted_by = NULL` ("no
-        // causing event") instead of aborting the burn.
-        //
-        // The admission gate is the one *not* best-effort step: it is consulted
-        // before any state changes, and its refusal propagates as `403` with
-        // nothing written — no redaction event, no redacted content, no audit
-        // row. A rule that refuses the redaction must not be able to leave a
-        // half-applied burn behind.
-        let mut params = synapse_storage::event::CreateEventParams {
-            event_id: synapse_common::crypto::generate_event_id(&self.server_name),
-            room_id: room_id.to_string(),
-            user_id: user_id.to_string(),
-            event_type: "m.room.redaction".to_string(),
-            content: serde_json::json!({"reason": "Burn after read"}),
-            state_key: None,
-            origin_server_ts: now,
-            redacts: None,
-        };
-
-        crate::module_service::consult_event_admission(
-            self.event_admission_gate.as_ref(),
-            self.event_reader.as_ref(),
-            &mut params,
-            true,
-        )
-        .await?;
-
-        let redaction_event_id = match self.event_writer.create_event(params, None).await {
-            Ok(event) => Some(event.event_id),
-            Err(e) => {
-                ::tracing::warn!(
-                    error = %e,
-                    user_id = %user_id,
-                    room_id = %room_id,
-                    event_id = %event_id,
-                    "Failed to create redaction event for burn"
-                );
-                None
-            }
-        };
-
-        if let Err(e) = self.event_writer.redact_event_content(event_id, redaction_event_id.as_deref()).await {
-            ::tracing::warn!(
-                error = %e,
-                user_id = %user_id,
-                room_id = %room_id,
-                event_id = %event_id,
-                "Failed to redact event content for burn"
-            );
-        }
 
         self.storage
             .log_burned_event(user_id, room_id, event_id, now)
@@ -244,22 +168,28 @@ impl BurnAfterReadService {
     }
 
     /// See [`schedule_burn`].
+    ///
+    /// Returns the effective deletion deadline. Re-scheduling the same event
+    /// never pushes an existing deadline back: the storage layer keeps the
+    /// earlier of the two, so a client re-reading a message cannot extend its
+    /// lifetime indefinitely.
     pub async fn schedule_burn(
         &self,
         user_id: &str,
         room_id: &str,
         event_id: &str,
         burn_after_ms: i64,
-    ) -> ApiResult<()> {
+    ) -> ApiResult<i64> {
         let now = current_timestamp_millis();
         let delete_at = now + burn_after_ms;
 
-        self.storage
+        let row = self
+            .storage
             .schedule_burn(user_id, room_id, event_id, delete_at)
             .await
             .map_err(|e| synapse_common::ApiError::internal_with_cause("Failed to schedule burn", e))?;
 
-        Ok(())
+        Ok(row.delete_ts)
     }
 
     /// See [`process_expired_burns`].
@@ -276,219 +206,45 @@ impl BurnAfterReadService {
             return Ok(Vec::new());
         }
 
-        // Three-step classification to keep the timeline consistent:
-        //
-        // 1. For each expired row, try to redact content + emit redaction event.
-        //    Both must succeed; otherwise the row stays unprocessed and the
-        //    next sweep retries (idempotency is the contract: a half-finished
-        //    burn would otherwise produce duplicate redaction events on the
-        //    next pass and pollute the room timeline).
-        //
-        // 2. After the per-row redact/create phase, batch-mark only the rows
-        //    whose redact+create BOTH succeeded, in a single SQL UPDATE, and
-        //    batch-insert their audit log entries in a single UNNEST INSERT.
-        //    This collapses 2N round-trips into 2, eliminating the N+1 the
-        //    previous loop had.
-        //
-        // 3. B-07 retry cap: if mark_processed_batch fails (a partial-success
-        //    state where redaction events ARE on the wire but the row stays
-        //    unprocessed), bump retry_count on those rows. Rows whose
-        //    retry_count reaches BURN_MAX_RETRY are moved to dead-letter state
-        //    so the scanner stops attempting them. The mark_processed_batch
-        //    failure path no longer produces an unbounded retry storm: at
-        //    worst the row is dead-lettered after BURN_MAX_RETRY attempts and
-        //    is no longer picked up. Any redaction events emitted before
-        //    dead-lettering remain on the timeline (which is the correct
-        //    behavior — a burn should not silently fail to redact because of
-        //    bookkeeping trouble).
-        let mut successfully_processed_ids: Vec<i64> = Vec::with_capacity(expired_rows.len());
-        let mut log_entries: Vec<(String, String, String, i64)> = Vec::with_capacity(expired_rows.len());
-        let mut expired = Vec::with_capacity(expired_rows.len());
+        // Plan B: the server is a per-user *time registry*, not a deleter. Each
+        // row belongs to exactly one reader; marking it processed tells that
+        // reader's client its deadline has passed. Redacting the event here
+        // would delete the single shared room event for *every* member, which
+        // is precisely the "one reader deletes for everyone" escalation this
+        // path must not have. Physical deletion stays with the retention
+        // service, where it is a room-wide policy.
+        let log_entries: Vec<(String, String, String, i64)> =
+            expired_rows.iter().map(|r| (r.user_id.clone(), r.room_id.clone(), r.event_id.clone(), now)).collect();
+        let ids: Vec<i64> = expired_rows.iter().map(|r| r.id).collect();
+        let expired = expired_rows
+            .into_iter()
+            .map(|r| BurnEvent {
+                id: r.id,
+                event_id: r.event_id,
+                room_id: r.room_id,
+                user_id: r.user_id,
+                created_ts: r.created_ts,
+                delete_ts: r.delete_ts,
+            })
+            .collect::<Vec<_>>();
 
-        for row in &expired_rows {
-            // Order matters and is forced by the schema: `events.redacted_by` is
-            // a self-referential FK to `events.event_id` (`fk_events_redacted_by`)
-            // and the service records the burn's own `m.room.redaction` event id.
-            // The redaction event therefore has to be persisted BEFORE the target
-            // UPDATE; the previous order passed `row.user_id` (never a valid
-            // event id), so every redaction failed the FK and the sweep skipped
-            // all rows forever. The "both must succeed, else retry next sweep"
-            // contract below is unchanged — only the two attempts swap places.
-            let mut params = synapse_storage::event::CreateEventParams {
-                event_id: synapse_common::crypto::generate_event_id(&self.server_name),
-                room_id: row.room_id.clone(),
-                user_id: row.user_id.clone(),
-                event_type: "m.room.redaction".to_string(),
-                content: serde_json::json!({"reason": "Burn after read"}),
-                state_key: None,
-                origin_server_ts: now,
-                redacts: None,
-            };
-
-            // The sweep is a background task with no client to answer, so a
-            // refusal takes the same shape as a failed `create_event` below:
-            // log, leave the row unprocessed, and let the next sweep retry.
-            if let Err(e) = crate::module_service::consult_event_admission(
-                self.event_admission_gate.as_ref(),
-                self.event_reader.as_ref(),
-                &mut params,
-                true,
-            )
-            .await
-            {
-                ::tracing::warn!(
-                    error = %e,
-                    burn_id = row.id,
-                    user_id = %row.user_id,
-                    room_id = %row.room_id,
-                    event_id = %row.event_id,
-                    retry_count = row.retry_count,
-                    "Burn redaction refused by the event admission gate; nothing redacted — \
-                     will retry next sweep"
-                );
-                continue;
-            }
-
-            let create_ok = self.event_writer.create_event(params, None).await;
-
-            let redaction_event_id = match create_ok {
-                Ok(event) => event.event_id,
-                Err(e) => {
-                    ::tracing::warn!(
-                        error = %e,
-                        burn_id = row.id,
-                        user_id = %row.user_id,
-                        room_id = %row.room_id,
-                        event_id = %row.event_id,
-                        retry_count = row.retry_count,
-                        "Failed to create redaction event for burn; nothing redacted yet — \
-                         will retry next sweep (idempotency: create+redact are re-entrant)"
-                    );
-                    continue;
-                }
-            };
-
-            if let Err(e) = self.event_writer.redact_event_content(&row.event_id, Some(&redaction_event_id)).await {
-                ::tracing::warn!(
-                    error = %e,
-                    burn_id = row.id,
-                    user_id = %row.user_id,
-                    room_id = %row.room_id,
-                    event_id = %row.event_id,
-                    redaction_event_id = %redaction_event_id,
-                    retry_count = row.retry_count,
-                    "Failed to redact event content for burn; will retry next sweep"
-                );
-                continue;
-            }
-
-            successfully_processed_ids.push(row.id);
-            log_entries.push((row.user_id.clone(), row.room_id.clone(), row.event_id.clone(), now));
-
-            expired.push(BurnEvent {
-                id: row.id,
-                event_id: row.event_id.clone(),
-                room_id: row.room_id.clone(),
-                user_id: row.user_id.clone(),
-                created_ts: row.created_ts,
-                delete_ts: row.delete_ts,
-            });
-        }
-
-        if !successfully_processed_ids.is_empty() {
-            if let Err(e) = self.storage.mark_burn_processed_batch(&successfully_processed_ids).await {
-                // B-07: increment retry_count and check cap. The previous behavior
-                // logged only a warn and let the next sweep reprocess — a partial
-                // failure loop that could run unbounded. Now we count attempts and
-                // dead-letter at BURN_MAX_RETRY.
-                let mark_err_str = e.to_string();
-                ::tracing::error!(
-                    error = %e,
-                    count = successfully_processed_ids.len(),
-                    "Failed to mark burns processed in batch; redaction events have been \
-                     emitted but rows will be reprocessed — bumping retry_count and \
-                     dead-lettering rows that exceed cap"
-                );
-
-                // Bump retry_count by 1 for all affected rows. Then ask the
-                // storage layer to dead-letter the ones that have already
-                // crossed the cap. We compute the set in memory: every row's
-                // current retry_count + 1; if that >= MAX, dead-letter.
-                let mut to_dead_letter: Vec<i64> = Vec::new();
-                for row in &expired_rows {
-                    if successfully_processed_ids.contains(&row.id) && row.retry_count + 1 >= BURN_MAX_RETRY {
-                        to_dead_letter.push(row.id);
-                    }
-                }
-                if let Err(e2) = self.storage.increment_retry_count(&successfully_processed_ids, &mark_err_str).await {
-                    ::tracing::error!(
-                        error = %e2,
-                        count = successfully_processed_ids.len(),
-                        "Failed to bump retry_count for affected burn rows; retry cap \
-                         cannot be enforced until the next successful UPDATE"
-                    );
-                }
-                if !to_dead_letter.is_empty() {
-                    if let Err(e2) = self.storage.mark_dead_letter(&to_dead_letter).await {
-                        ::tracing::error!(
-                            error = %e2,
-                            count = to_dead_letter.len(),
-                            "Failed to dead-letter burn rows that exceeded retry cap; \
-                             they will continue to be retried on each sweep"
-                        );
-                    } else {
-                        ::tracing::warn!(
-                            count = to_dead_letter.len(),
-                            cap = BURN_MAX_RETRY,
-                            "Moved burn rows to dead-letter state after exceeding retry cap; \
-                             their redaction events are already on the wire but the audit \
-                             log entry may be missing. Investigate the underlying cause \
-                             (e.g. mark_burn_processed_batch failure mode)."
-                        );
-                    }
-                }
-                // Do NOT return Err here: the redaction events are already on the wire.
-                // Returning the BurnEvent list lets the caller (the processor loop) carry
-                // on, and the next sweep will see the row as still unprocessed and re-run
-                // the redact+create sequence. The redact API is documented idempotent
-                // and the create step will reuse the new event_id only if the previous
-                // mark never landed — so duplicate redaction is the bounded failure mode.
-            }
-
-            if let Err(e) = self.storage.log_burned_event_batch(&log_entries).await {
-                // B-07: log_burned_event_batch has its own retry cap. A failure
-                // here means the redaction IS on the wire but the audit row is
-                // missing. We don't move the burn to dead-letter because of
-                // this — the redacted state is what matters most. Instead, we
-                // bump retry_count so the operator can see repeated failures
-                // and the row is bounded by the same cap as a mark_processed
-                // failure.
-                let log_err_str = e.to_string();
-                ::tracing::warn!(
-                    error = %e,
-                    count = log_entries.len(),
-                    "Failed to batch-insert burn log entries; bumping retry_count"
-                );
-                if let Err(e2) = self
-                    .storage
-                    .increment_retry_count(
-                        &successfully_processed_ids
-                            .iter()
-                            .filter(|id| {
-                                expired_rows.iter().any(|r| r.id == **id && r.retry_count + 1 >= BURN_MAX_RETRY)
-                            })
-                            .copied()
-                            .collect::<Vec<_>>(),
-                        &log_err_str,
-                    )
-                    .await
-                {
-                    ::tracing::warn!(
-                        error = %e2,
-                        "Failed to bump retry_count after log_burned_event_batch failure"
-                    );
-                }
-            }
+        // Log first, mark second: `log_burned_event_batch` is idempotent
+        // (`ON CONFLICT (user_id, event_id) DO NOTHING`), so a failed mark is
+        // retried on the next sweep without duplicating audit rows. The reverse
+        // order would lose the audit entry for good, because the mark already
+        // hides the row from `get_expired_burns`.
+        if let Err(e) = self.storage.log_burned_event_batch(&log_entries).await {
+            ::tracing::error!(
+                error = %e,
+                count = log_entries.len(),
+                "Failed to batch-insert burn log entries; rows stay unprocessed and the next sweep retries"
+            );
+        } else if let Err(e) = self.storage.mark_burn_processed_batch(&ids).await {
+            ::tracing::error!(
+                error = %e,
+                count = ids.len(),
+                "Failed to mark burns processed in batch; rows will be retried next sweep (audit log is idempotent)"
+            );
         }
 
         Ok(expired)
@@ -676,16 +432,7 @@ mod tests {
     #[tokio::test]
     async fn burn_processor_stops_on_shutdown() {
         let storage: Arc<dyn BurnAfterReadStoreApi> = Arc::new(NoopBurnStore);
-        let event_store = Arc::new(synapse_storage::test_mocks::InMemoryEventStore::new());
-        let event_writer: Arc<dyn synapse_storage::event::EventWriter> = event_store.clone();
-        let event_reader: Arc<dyn synapse_storage::event::EventReader> = event_store.clone();
-        let service = Arc::new(BurnAfterReadService::new(
-            storage,
-            event_writer,
-            event_reader,
-            Arc::new(crate::test_mocks::FakeEventAdmissionGate::new()),
-            "test".to_string(),
-        ));
+        let service = Arc::new(BurnAfterReadService::new(storage));
 
         let token = tokio_util::sync::CancellationToken::new();
         let handle = service.clone().start_burn_processor(token.clone()).await.expect("first start returns handle");
@@ -914,102 +661,7 @@ mod tests {
     }
 
     fn make_service(storage: Arc<dyn BurnAfterReadStoreApi>) -> Arc<BurnAfterReadService> {
-        let event_store = Arc::new(synapse_storage::test_mocks::InMemoryEventStore::new());
-        let event_writer: Arc<dyn synapse_storage::event::EventWriter> = event_store.clone();
-        let event_reader: Arc<dyn synapse_storage::event::EventReader> = event_store.clone();
-        Arc::new(BurnAfterReadService::new(
-            storage,
-            event_writer,
-            event_reader,
-            Arc::new(crate::test_mocks::FakeEventAdmissionGate::new()),
-            "test.example.com".to_string(),
-        ))
-    }
-
-    /// Like [`make_service`], but with a caller-supplied admission gate and the
-    /// backing event store handed back so a test can assert on what was (not)
-    /// persisted.
-    fn make_service_with_gate(
-        storage: Arc<dyn BurnAfterReadStoreApi>,
-        gate: Arc<dyn crate::module_service::EventAdmissionGate>,
-    ) -> (Arc<BurnAfterReadService>, Arc<synapse_storage::test_mocks::InMemoryEventStore>) {
-        let event_store = Arc::new(synapse_storage::test_mocks::InMemoryEventStore::new());
-        let event_writer: Arc<dyn synapse_storage::event::EventWriter> = event_store.clone();
-        let event_reader: Arc<dyn synapse_storage::event::EventReader> = event_store.clone();
-        let svc = Arc::new(BurnAfterReadService::new(
-            storage,
-            event_writer,
-            event_reader,
-            gate,
-            "test.example.com".to_string(),
-        ));
-        (svc, event_store)
-    }
-
-    // ── event admission gate on the burn redaction (D-1) ────────────────
-
-    /// 铁律 8 红探针：burn 的 `m.room.redaction` 必须真的过门禁。
-    ///
-    /// 拒绝型门禁下 `delete_burned_message` 必须返回 403，且零残留——既没有
-    /// 落一条 redaction 事件，也没有写审计行。删掉 `consult_event_admission`
-    /// 调用这一断言立刻变红。
-    #[tokio::test]
-    async fn delete_burned_message_refused_by_admission_rule_returns_forbidden_with_no_residue() {
-        let store = Arc::new(FakeBurnStore::new());
-        let (svc, event_store) = make_service_with_gate(
-            store.clone(),
-            Arc::new(crate::test_mocks::FakeEventAdmissionGate::denying("burns are not allowed")),
-        );
-
-        let err = svc
-            .delete_burned_message("@alice:ex.com", "!room:ex.com", "$event:ex.com")
-            .await
-            .expect_err("a refusing rule must fail the burn");
-        assert!(err.is_forbidden(), "expected 403, got: {err:?}");
-        assert!(
-            err.message().contains("burns are not allowed"),
-            "the rule's reason must surface, got: {}",
-            err.message()
-        );
-
-        assert!(
-            store.state.lock().expect("mutex poisoned").log_burned_calls.is_empty(),
-            "a refused burn must not write an audit row"
-        );
-        let written = event_store.get_room_events("!room:ex.com", 10).await.unwrap();
-        assert!(written.is_empty(), "a refused burn must not persist a redaction event, found: {written:?}");
-    }
-
-    /// 铁律 8 红探针（后台 sweep 分支）：`process_expired_burns` 遇到拒绝必须
-    /// `continue`——行保持未处理、不落 redaction、不写审计。
-    #[tokio::test]
-    async fn process_expired_burns_refused_by_admission_rule_leaves_row_unprocessed() {
-        let store = Arc::new(FakeBurnStore::with_expired_burns(vec![BurnPendingRow {
-            id: 7,
-            user_id: "@alice:ex.com".into(),
-            room_id: "!room:ex.com".into(),
-            event_id: "$event:ex.com".into(),
-            created_ts: 0,
-            delete_ts: 0,
-            is_processed: false,
-            retry_count: 0,
-            last_error: None,
-            is_dead_letter: false,
-        }]));
-        let (svc, event_store) = make_service_with_gate(
-            store.clone(),
-            Arc::new(crate::test_mocks::FakeEventAdmissionGate::denying("sweep denied")),
-        );
-
-        svc.process_expired_burns().await.unwrap();
-
-        {
-            let s = store.state.lock().expect("mutex poisoned");
-            assert!(s.mark_processed_calls.is_empty(), "a refused sweep must not mark the row processed");
-            assert!(s.log_burned_calls.is_empty(), "a refused sweep must not write an audit row");
-        }
-        let written = event_store.get_room_events("!room:ex.com", 10).await.unwrap();
-        assert!(written.is_empty(), "a refused sweep must not persist a redaction event, found: {written:?}");
+        Arc::new(BurnAfterReadService::new(storage))
     }
 
     #[tokio::test]
@@ -1094,10 +746,14 @@ mod tests {
     async fn schedule_burn_passes_now_plus_burn_after_as_delete_ts() {
         let store = Arc::new(FakeBurnStore::new());
         let svc = make_service(store.clone());
-        svc.schedule_burn("@alice:ex.com", "!room:ex.com", "$event:ex.com", 5_000).await.unwrap();
+        let result = svc.schedule_burn("@alice:ex.com", "!room:ex.com", "$event:ex.com", 5_000).await.unwrap();
         let calls = store.state.lock().expect("mutex poisoned").schedule_burn_calls.clone();
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].2, "$event:ex.com");
+        // The service must return the *stored* delete_ts so the client can show
+        // the real deadline (which may be earlier than now + burn_after_ms when
+        // an existing row is kept).
+        assert_eq!(result, calls[0].3);
         // delete_ts should be roughly now + 5_000 (allow 2s skew for test latency)
         let now = current_timestamp_millis();
         let delete_ts = calls[0].3;
@@ -1182,19 +838,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn delete_burned_message_logs_and_succeeds_even_if_event_writer_partially_fails() {
-        // delete_burned_message calls redact_event_content + create_event +
-        // log_burned_event. The first two failures are logged but NOT
-        // propagated; only log_burned_event failure propagates.
+    async fn delete_burned_message_only_writes_audit_and_never_redacts_the_event() {
+        // Plan B: a burn is a per-reader deadline, not a room-wide deletion.
+        // The service must record the burn in the audit log and leave the
+        // shared room event untouched.
         let store = Arc::new(FakeBurnStore::new());
         let svc = make_service(store.clone());
-        // InMemoryEventStore starts empty — redact_event_content will fail
-        // (event not found), create_event will succeed.
         svc.delete_burned_message("@alice:ex.com", "!room:ex.com", "$event:ex.com").await.unwrap();
         let s = store.state.lock().expect("mutex poisoned");
         assert_eq!(s.log_burned_calls.len(), 1, "log_burned_event must be called");
         assert_eq!(s.log_burned_calls[0].0, "@alice:ex.com");
         assert_eq!(s.log_burned_calls[0].2, "$event:ex.com");
+        assert!(s.mark_processed_calls.is_empty(), "delete_burned_message must not touch the pending burn row");
     }
 
     #[tokio::test]

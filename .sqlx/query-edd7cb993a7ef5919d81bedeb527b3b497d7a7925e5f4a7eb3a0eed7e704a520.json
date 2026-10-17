@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT event_id FROM events\n            WHERE room_id = $1\n              AND ((content->>'m.in_reply_to' IS NOT NULL\n                    AND content->'m.in_reply_to'->>'event_id' = $2)\n                OR (content->'m.relates_to' IS NOT NULL\n                    AND content->'m.relates_to'->>'event_id' = $2))\n            ORDER BY origin_server_ts ASC, stream_ordering ASC\n            LIMIT $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "edd7cb993a7ef5919d81bedeb527b3b497d7a7925e5f4a7eb3a0eed7e704a520"
+}

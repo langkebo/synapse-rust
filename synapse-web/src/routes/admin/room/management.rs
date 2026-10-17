@@ -636,7 +636,7 @@ pub async fn redact_room_events(
     // Passing `admin.user_id` violated the constraint and made the endpoint 500;
     // the `admin.redact_room_events` warn! entries (with `admin_user_id`) are the
     // attribution record.
-    let redacted = ctx.event_redaction_service.batch_redact_events(&event_ids, None).await?;
+    let redacted = ctx.event_redaction_service.batch_redact_events(&room_id, &event_ids, None).await?;
 
     tracing::warn!(
         request_id = %request_id,

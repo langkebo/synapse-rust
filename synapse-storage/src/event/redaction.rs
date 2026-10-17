@@ -101,23 +101,33 @@ impl EventStorage {
     /// caused this redaction — a self-referential FK to `events.event_id`
     /// (`fk_events_redacted_by`), **not** a user id. It is `None` when the
     /// redaction has no causing event (a server/operator action).
+    ///
+    /// `room_id` is the room the redaction was authorized in. It is part of
+    /// the WHERE clause on both statements so an event id from another room
+    /// can never be redacted by a redaction event scoped to this one.
     pub async fn redact_event_content(
         &self,
         event_id: &str,
+        room_id: &str,
         redaction_event_id: Option<&str>,
     ) -> Result<(), sqlx::Error> {
         // Fetch the event type and content so we can apply the per-type
         // retention table from synapse_common::redaction.
         // 用 `query!` 而不是元组版 `query_as!`：`query_as!` 不能构造元组（它按字段构造结构体）。
-        let row = sqlx::query!("SELECT event_type, content FROM events WHERE event_id = $1", event_id)
-            .fetch_optional(&*self.pool)
-            .await?;
+        let row = sqlx::query!(
+            "SELECT event_type, content FROM events WHERE event_id = $1 AND room_id = $2",
+            event_id,
+            room_id
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
 
         let Some(row) = row else {
-            // Event not found — nothing to redact.  This is benign for
-            // federation redaction PDUs that target events we don't have.
-            // Nothing can be pinned to a row that does not exist either, so the
-            // MSC4354 cleanup below has nothing to do in this case.
+            // Event not found (or belongs to another room) — nothing to
+            // redact.  This is benign for federation redaction PDUs that
+            // target events we don't have. Nothing can be pinned to a row that
+            // does not exist either, so the MSC4354 cleanup below has nothing
+            // to do in this case.
             return Ok(());
         };
 
@@ -130,11 +140,13 @@ impl EventStorage {
         let mut tx = self.pool.begin().await?;
 
         sqlx::query!(
-            "UPDATE events SET content = $1, is_redacted = true, redacted_at = $2, redacted_by = $3 WHERE event_id = $4",
+            "UPDATE events SET content = $1, is_redacted = true, redacted_at = $2, redacted_by = $3 \
+             WHERE event_id = $4 AND room_id = $5",
             &redacted_content,
             now,
             redaction_event_id,
             event_id,
+            room_id,
         )
         .execute(&mut *tx)
         .await?;
@@ -268,14 +280,18 @@ impl EventStorage {
     /// `redaction_event_id` is the id of the `m.room.redaction` event that
     /// caused this redaction (a self-referential FK to `events.event_id`), or
     /// `None` for an operator/server action with no causing event.
+    ///
+    /// `room_id` scopes every individual redaction to the room the admin
+    /// authorized the batch against.
     pub async fn batch_redact_events(
         &self,
+        room_id: &str,
         event_ids: &[String],
         redaction_event_id: Option<&str>,
     ) -> Result<u64, sqlx::Error> {
         let mut redacted = 0u64;
         for event_id in event_ids {
-            self.redact_event_content(event_id, redaction_event_id).await?;
+            self.redact_event_content(event_id, room_id, redaction_event_id).await?;
             redacted += 1;
         }
         Ok(redacted)

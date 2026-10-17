@@ -24,19 +24,30 @@ impl EventStorage {
     /// tie-break, so it is appended as the second key — the cascade walks
     /// reply/reaction chains, and an unstable order there makes the traversal
     /// (and therefore `redacted_count`) non-reproducible.
-    pub async fn find_related_events(&self, event_id: &str, limit: i64) -> Result<Vec<String>, sqlx::Error> {
+    ///
+    /// `room_id` restricts the traversal to the room the cascade was
+    /// authorized in: without it, an event whose content points at an event id
+    /// in another room would drag that foreign event into this cascade.
+    pub async fn find_related_events(
+        &self,
+        room_id: &str,
+        event_id: &str,
+        limit: i64,
+    ) -> Result<Vec<String>, sqlx::Error> {
         // 单列投影 ⇒ `query_scalar!`（R6 ⑤：`query_as!` 不能构造元组；`events.event_id`
         // 是 `TEXT NOT NULL` ⇒ 直接得到 `Vec<String>`，原先的 `map(|(id,)| id)` 随之消失）。
         let rows = sqlx::query_scalar!(
             r#"
             SELECT event_id FROM events
-            WHERE (content->>'m.in_reply_to' IS NOT NULL
-                   AND content->'m.in_reply_to'->>'event_id' = $1)
-               OR (content->'m.relates_to' IS NOT NULL
-                   AND content->'m.relates_to'->>'event_id' = $1)
+            WHERE room_id = $1
+              AND ((content->>'m.in_reply_to' IS NOT NULL
+                    AND content->'m.in_reply_to'->>'event_id' = $2)
+                OR (content->'m.relates_to' IS NOT NULL
+                    AND content->'m.relates_to'->>'event_id' = $2))
             ORDER BY origin_server_ts ASC, stream_ordering ASC
-            LIMIT $2
+            LIMIT $3
             "#,
+            room_id,
             event_id,
             limit,
         )
@@ -130,7 +141,12 @@ impl EventStorage {
     /// `visited.insert(root)` return `false`, so the root was silently dropped
     /// and [`Self::cascade_redact_event`] never redacted the event the admin
     /// asked for.
-    pub async fn find_cascade_targets(&self, event_id: &str, max_depth: u32) -> Result<Vec<String>, sqlx::Error> {
+    pub async fn find_cascade_targets(
+        &self,
+        room_id: &str,
+        event_id: &str,
+        max_depth: u32,
+    ) -> Result<Vec<String>, sqlx::Error> {
         let mut result = Vec::new();
         let mut visited = std::collections::HashSet::new();
         let mut queue = vec![event_id.to_string()];
@@ -152,7 +168,7 @@ impl EventStorage {
                 result.push(id.clone());
 
                 // Find related events
-                let related = self.find_related_events(&id, 1000).await?;
+                let related = self.find_related_events(room_id, &id, 1000).await?;
                 next_level.extend(related);
             }
 
@@ -168,6 +184,8 @@ impl EventStorage {
     /// Returns the number of events redacted.
     ///
     /// # Arguments
+    /// * `room_id` - The room the cascade was authorized in; every target is
+    ///   redacted with this room id so a cross-room event can never be hit
     /// * `event_id` - The event to redact and cascade from
     /// * `redaction_event_id` - The id of the `m.room.redaction` event that
     ///   caused this redaction (a self-referential FK to `events.event_id`),
@@ -179,12 +197,13 @@ impl EventStorage {
     /// Number of events successfully redacted
     pub async fn cascade_redact_event(
         &self,
+        room_id: &str,
         event_id: &str,
         redaction_event_id: Option<&str>,
         max_depth: u32,
     ) -> Result<u64, sqlx::Error> {
         // Find all cascade targets
-        let targets = self.find_cascade_targets(event_id, max_depth).await?;
+        let targets = self.find_cascade_targets(room_id, event_id, max_depth).await?;
 
         if targets.is_empty() {
             return Ok(0);
@@ -193,7 +212,7 @@ impl EventStorage {
         // Redact each event
         let mut redacted_count = 0u64;
         for target_id in targets {
-            self.redact_event_content(&target_id, redaction_event_id).await?;
+            self.redact_event_content(&target_id, room_id, redaction_event_id).await?;
             redacted_count += 1;
         }
 

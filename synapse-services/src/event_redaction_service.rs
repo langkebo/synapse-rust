@@ -49,11 +49,12 @@ impl EventRedactionService {
     /// `None` when there is no causing event (a server/operator action).
     pub async fn batch_redact_events(
         &self,
+        room_id: &str,
         event_ids: &[String],
         redaction_event_id: Option<&str>,
     ) -> Result<u64, ApiError> {
         self.storage
-            .batch_redact_events(event_ids, redaction_event_id)
+            .batch_redact_events(room_id, event_ids, redaction_event_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to batch redact events", e))
     }
@@ -75,12 +76,13 @@ impl EventRedactionService {
     /// Number of events successfully redacted
     pub async fn cascade_redact_event(
         &self,
+        room_id: &str,
         event_id: &str,
         redaction_event_id: Option<&str>,
         max_depth: u32,
     ) -> Result<u64, ApiError> {
         self.storage
-            .cascade_redact_event(event_id, redaction_event_id, max_depth)
+            .cascade_redact_event(room_id, event_id, redaction_event_id, max_depth)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to cascade redact event", e))
     }
@@ -168,7 +170,7 @@ impl EventRedactionService {
                 continue;
             }
 
-            if let Err(error) = self.storage.redact_event_content(&target_id, Some(redaction_event_id)).await {
+            if let Err(error) = self.storage.redact_event_content(&target_id, room_id, Some(redaction_event_id)).await {
                 // Keep going: one bad row must not silently drop the rest of the
                 // cascade, but it must not disappear either.
                 ::tracing::error!(

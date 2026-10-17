@@ -394,7 +394,7 @@ async fn test_redact_event_content() {
     storage.create_event(redaction_params, None).await.unwrap();
 
     storage
-        .redact_event_content(&event_id, Some(&redaction_event_id))
+        .redact_event_content(&event_id, &room_id, Some(&redaction_event_id))
         .await
         .expect("redact_event_content should succeed");
 
@@ -3516,22 +3516,22 @@ async fn test_find_related_events_and_cascade_targets() {
     )
     .await;
 
-    let related = storage.find_related_events(&root, 100).await.expect("find_related_events");
+    let related = storage.find_related_events(&room_id, &root, 100).await.expect("find_related_events");
     assert_eq!(related, vec![reaction.clone(), reply.clone()], "两条关系事件按 origin_server_ts ASC 排序");
 
-    let limited = storage.find_related_events(&root, 1).await.expect("find_related_events with LIMIT");
+    let limited = storage.find_related_events(&room_id, &root, 1).await.expect("find_related_events with LIMIT");
     assert_eq!(limited, vec![reaction.clone()], "LIMIT $2 取 ts 最早的一条");
 
-    let none = storage.find_related_events(&unrelated, 100).await.expect("find_related_events for unrelated");
+    let none = storage.find_related_events(&room_id, &unrelated, 100).await.expect("find_related_events for unrelated");
     assert!(none.is_empty(), "无关事件不得被反查命中");
 
     // 根事件必须留在 cascade 目标里（防回归：曾因预置 visited 让根被静默丢弃）
-    let targets = storage.find_cascade_targets(&root, 2).await.expect("find_cascade_targets");
+    let targets = storage.find_cascade_targets(&room_id, &root, 2).await.expect("find_cascade_targets");
     assert!(targets.contains(&root), "根事件必须在 cascade 目标里: {targets:?}");
     assert!(targets.contains(&reply) && targets.contains(&reaction), "关系事件必须在目标里: {targets:?}");
     assert!(!targets.contains(&unrelated), "无关事件不得进目标: {targets:?}");
 
-    let depth1 = storage.find_cascade_targets(&root, 1).await.expect("find_cascade_targets depth 1");
+    let depth1 = storage.find_cascade_targets(&room_id, &root, 1).await.expect("find_cascade_targets depth 1");
     assert_eq!(depth1, vec![root.clone()], "max_depth=1 时只有根节点");
 }
 
