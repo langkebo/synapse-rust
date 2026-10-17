@@ -26,8 +26,17 @@ use vodozemac::megolm::{
     GroupSession, GroupSessionPickle, InboundGroupSession, InboundGroupSessionPickle, SessionConfig,
 };
 
-/// Maximum age of a megolm session in days before rotation.
-static MEGOLM_SESSION_MAX_AGE_DAYS: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
+/// Configured maximum age of a megolm session in days (M-04).
+///
+/// `0` means "not configured yet", in which case the bootstrap fallback
+/// (`MEGOLM_SESSION_MAX_AGE_DAYS`, default 7) is used. Once
+/// [`set_session_max_age_days`] has been called with the DB-backed
+/// `KeyRotationConfig::max_session_age_days`, that value is the single
+/// source of truth.
+static MEGOLM_SESSION_MAX_AGE_DAYS: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
+/// Bootstrap value used only until the rotation config has been loaded.
+static MEGOLM_SESSION_MAX_AGE_FALLBACK: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
 
 /// E-04: a decrypted `message_index` jumping more than this many slots
 /// ahead of the last-known DB counter is treated as suspicious (replay or
@@ -37,13 +46,29 @@ static MEGOLM_SESSION_MAX_AGE_DAYS: std::sync::OnceLock<i64> = std::sync::OnceLo
 const MEGOLM_LARGE_INDEX_GAP: u32 = 100;
 
 fn get_session_max_age_days() -> i64 {
-    *MEGOLM_SESSION_MAX_AGE_DAYS.get_or_init(|| {
+    let configured = MEGOLM_SESSION_MAX_AGE_DAYS.load(std::sync::atomic::Ordering::Relaxed);
+    if configured > 0 {
+        return configured;
+    }
+    *MEGOLM_SESSION_MAX_AGE_FALLBACK.get_or_init(|| {
         std::env::var("MEGOLM_SESSION_MAX_AGE_DAYS")
             .ok()
             .and_then(|v| v.parse().ok())
             .filter(|d: &i64| *d > 0)
             .unwrap_or(7)
     })
+}
+
+/// Apply the DB-backed `KeyRotationConfig::max_session_age_days` (M-04).
+///
+/// The rotation config is the authoritative policy; the environment variable
+/// is only the process-bootstrap fallback used before any config has been
+/// loaded. The value is read when a session is created, so it applies to new
+/// sessions immediately and to reloads on the next rotation sweep.
+pub fn set_session_max_age_days(days: i64) {
+    if days > 0 {
+        MEGOLM_SESSION_MAX_AGE_DAYS.store(days, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 /// Serialise a `GroupSessionPickle` to a base64-encoded string for
@@ -516,6 +541,19 @@ impl MegolmVodozemacService {
 mod tests {
     use super::*;
     use vodozemac::megolm::{GroupSession, InboundGroupSession, SessionConfig};
+
+    /// M-04: the persisted rotation config is the single source of truth for
+    /// session lifetime; the env var is only the pre-config bootstrap value.
+    #[test]
+    fn session_max_age_days_follows_rotation_config() {
+        MEGOLM_SESSION_MAX_AGE_DAYS.store(0, std::sync::atomic::Ordering::Relaxed);
+        set_session_max_age_days(42);
+        assert_eq!(get_session_max_age_days(), 42);
+        // A non-positive value never clobbers an explicitly configured policy.
+        set_session_max_age_days(0);
+        assert_eq!(get_session_max_age_days(), 42);
+        MEGOLM_SESSION_MAX_AGE_DAYS.store(0, std::sync::atomic::Ordering::Relaxed);
+    }
 
     /// A freshly created outbound session can encrypt and then
     /// the same session key can be imported as an inbound session

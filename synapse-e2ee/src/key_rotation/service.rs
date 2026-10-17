@@ -21,6 +21,14 @@ const DEFAULT_OLM_ROTATION_DAYS: i64 = 7;
 const DEFAULT_MEGOLM_ROTATION_MESSAGES: i64 = 100;
 const DEFAULT_MAX_SESSION_AGE_DAYS: i64 = 90;
 
+/// M-04: make the persisted rotation config the single source of truth for
+/// megolm session lifetime. `vodozemac_megolm` reads this when stamping
+/// `expires_at` on a new session; the env var only covers the window before
+/// the config has ever been loaded.
+fn apply_session_max_age(config: &KeyRotationConfig) {
+    crate::vodozemac_megolm::set_session_max_age_days(config.max_session_age_days);
+}
+
 #[derive(Clone, Debug)]
 /// The `KeyRotationConfig` type.
 pub struct KeyRotationConfig {
@@ -217,6 +225,7 @@ impl KeyRotationService {
         storage: Arc<KeyRotationStorage>,
         config: KeyRotationConfig,
     ) -> Self {
+        apply_session_max_age(&config);
         Self { megolm_service, storage, config: Arc::new(tokio::sync::RwLock::new(config)) }
     }
 
@@ -231,12 +240,14 @@ impl KeyRotationService {
             fallback_config
         });
 
+        apply_session_max_age(&config);
         Self { megolm_service, storage, config: Arc::new(tokio::sync::RwLock::new(config)) }
     }
 
     /// See [`reload_config`].
     pub async fn reload_config(&self) -> Result<(), ApiError> {
         let new_config = KeyRotationConfig::load_from_storage(&self.storage).await?;
+        apply_session_max_age(&new_config);
         *self.config.write().await = new_config;
         Ok(())
     }
@@ -244,6 +255,7 @@ impl KeyRotationService {
     /// See [`update_config`].
     pub async fn update_config(&self, new_config: KeyRotationConfig) -> Result<(), ApiError> {
         new_config.persist_to_storage(&self.storage).await?;
+        apply_session_max_age(&new_config);
         *self.config.write().await = new_config;
         Ok(())
     }
