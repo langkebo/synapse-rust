@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id, room_id, user_id, device_id, event_id, event_type,\n                   state_key, content, delay_ms, scheduled_ts, created_ts,\n                   status, retry_count, last_error\n            FROM delayed_events WHERE id = $1\n            ",
+  "query": "\n            SELECT id, room_id, user_id, device_id, event_id, event_type,\n                   state_key, content, delay_ms, scheduled_ts, created_ts,\n                   status, retry_count, last_error, sticky_duration_ms\n            FROM delayed_events\n            WHERE user_id = $1 AND status = 'pending'\n            ORDER BY id ASC\n            ",
   "describe": {
     "columns": [
       {
@@ -72,11 +72,16 @@
         "ordinal": 13,
         "name": "last_error",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "sticky_duration_ms",
+        "type_info": "Int8"
       }
     ],
     "parameters": {
       "Left": [
-        "Int8"
+        "Text"
       ]
     },
     "nullable": [
@@ -93,8 +98,9 @@
       false,
       false,
       false,
+      true,
       true
     ]
   },
-  "hash": "cd2544b6a7e835f752fb94b67b72345ae05ca55b9d07da9c11dbe3c3a9a7dac1"
+  "hash": "dcd18e703a595ebe38547082e8c01a68846fd540bd1580d5eaa403bcbd0b8bb6"
 }

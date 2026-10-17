@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO delayed_events\n                (room_id, user_id, device_id, event_id, event_type, state_key,\n                 content, delay_ms, scheduled_ts, created_ts, status)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending')\n            RETURNING id, room_id, user_id, device_id, event_id, event_type,\n                      state_key, content, delay_ms, scheduled_ts, created_ts,\n                      status, retry_count, last_error\n            ",
+  "query": "\n            SELECT id, room_id, user_id, device_id, event_id, event_type,\n                   state_key, content, delay_ms, scheduled_ts, created_ts,\n                   status, retry_count, last_error, sticky_duration_ms\n            FROM delayed_events WHERE id = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -72,19 +72,15 @@
         "ordinal": 13,
         "name": "last_error",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "sticky_duration_ms",
+        "type_info": "Int8"
       }
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Jsonb",
-        "Int8",
-        "Int8",
         "Int8"
       ]
     },
@@ -102,8 +98,9 @@
       false,
       false,
       false,
+      true,
       true
     ]
   },
-  "hash": "dc0092bc400a01b7ddbc2d3d71c1fe51bce0facbac19292099f1fb5575caa94f"
+  "hash": "c23ea93d87add9dea3f56f4be5eb57355f4a6686bd54021c5d4c5887041e036c"
 }
