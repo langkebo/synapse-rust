@@ -1605,7 +1605,7 @@ curl -sS "https://cdn.jsdelivr.net/gh/element-hq/synapse@release-v1.163/<path>" 
 | **UG-7（P2）** | MSC4354 联邦 catch-up（#20165）与新加入房间补发（#20233）缺 | **已实施（2026-10-17，见 §19.5.1「批次 C 实施记录」，C1 改最小闭环）**：C1 复用 `federation_queue` 做启动/定期重放（重放**已落库事务**，非 per-destination 位点增量补发）；C2 收敛为「`/sync` sticky 集合 == `GET .../sticky_events` 集合」（**按用户置顶语义不变**）；C3 写「单写者假设」注释 + 唯一键单行回归。**残余**：无逐 destination 的 sticky 增量补发；本仓 sticky 仍是**按用户**置顶，非上游的房级广播 | `synapse-services/src/room/service.rs`、`synapse-federation/src/edu.rs` |
 | **UG-8（P2）** | `task_scheduler.max_concurrent_tasks` 缺 | 并发上限不可配 ⇒ 重负载下只能改代码 | 全仓 0 命中 |
 | **UG-9（P2）** | `synapse_notifier_wait_for_stream_token_timeouts` 缺 | worker 等不到流位置时只有日志没有指标 ⇒ 无法告警**（§19.6(b) 已改判：本仓无 Twisted notifier 的"等 worker 追上流位置"机制，该指标无观测对象 ⇒ ⚪ 结构性不适用）** | `src/server/mod.rs` 与 `synapse-common/src/metrics.rs` 的指标清单 |
-| **UG-10（P1）** | **缺 MSC4354 的标准请求面**：上游用 `/send?org.matrix.msc4354.sticky_duration_ms=…` 把事件本身标记为 sticky，并把 sticky TTL 放在事件的 `unsigned` 上；本仓原先**不读这个查询参数**，改用自研的 `POST/DELETE/GET .../rooms/{room_id}/sticky_events`（`(room_id, user_id, event_type)` 唯一键的按用户置顶表） | **已修（2026-10-16，方案 ⓐ 补上游面，见 §19.5.1）**：`PUT /rooms/{roomId}/send/{eventType}/{txnId}` 现读 `?org.matrix.msc4354.sticky_duration_ms=<ms>`（含短名 `sticky_duration_ms` 回退），命名空间字段优先，非整数/`<=0`/越界 → 400 `M_INVALID_PARAM`，并把 TTL 写入事件的 `unsigned.msc4354_sticky_duration_ttl_ms` 投影。**残余**：上游的 `/state` 面本仓**未接线**（该查询参数只在 `/send` 解析）；既有私有 `sticky_events` 路由**保留**；`/sync` 的 sticky 标记仍由私有 `room_sticky_events` 表驱动，`/send` 的查询参数只落 `unsigned` 投影 | §19.5 C4（**已决策 ⓐ**：补齐上游面）；残余 `/state` 面登记于 §19.7 V-19-9 |
+| **UG-10（P1）** | **缺 MSC4354 的标准请求面**：上游用 `/send?org.matrix.msc4354.sticky_duration_ms=…` 把事件本身标记为 sticky，并把 sticky TTL 放在事件的 `unsigned` 上；本仓原先**不读这个查询参数**，改用自研的 `POST/DELETE/GET .../rooms/{room_id}/sticky_events`（`(room_id, user_id, event_type)` 唯一键的按用户置顶表） | **已修（2026-10-16，方案 ⓐ 补上游面，见 §19.5.1）**：`PUT /rooms/{roomId}/send/{eventType}/{txnId}` 现读 `?org.matrix.msc4354.sticky_duration_ms=<ms>`（含短名 `sticky_duration_ms` 回退），命名空间字段优先，非整数/`<=0`/越界 → 400 `M_INVALID_PARAM`，并把 TTL 写入事件的 `unsigned.msc4354_sticky_duration_ttl_ms` 投影。~~**残余**：上游的 `/state` 面本仓**未接线**~~ → **订正（2026-10-17，`a3664aca7`）**：`/state` 面**已接线**（四条写路径，与 `/send` 同一解析器）；既有私有 `sticky_events` 路由**保留**；`/sync` 的 sticky 标记仍由私有 `room_sticky_events` 表驱动，`/send` 的查询参数只落 `unsigned` 投影 | §19.5 C4（**已决策 ⓐ**：补齐上游面）；`/state` 面残余**已订正**（见 §19.7 V-19-9） |
 
 #### 19.4.2 性能
 
@@ -1715,7 +1715,11 @@ curl -sS "https://cdn.jsdelivr.net/gh/element-hq/synapse@release-v1.163/<path>" 
      - **语义裁定（哪一套决定 `/sync`）**：`/sync` 里的 sticky 标记**仍由私有 `room_sticky_events` 表驱动**
        （per-user 置顶模型）；`/send` 的查询参数**只落 `unsigned` 投影**，不写 `room_sticky_events`，
        故**不改变 `/sync` 的 sticky 归属**。两套语义并存、互不覆写，避免既有一致性被打破。
-     - **残余**：上游的 `/state` 面本仓**未接线**（该查询参数只在 `/send` 解析），登记于 §19.7 V-19-9。
+     - ~~**残余**：上游的 `/state` 面本仓**未接线**（该查询参数只在 `/send` 解析），登记于 §19.7 V-19-9。~~
+       **订正（2026-10-17，`a3664aca7`）**：`/state` 面**已接线** —— `state.rs` 的四条写路径
+       （`put_state_event` / `put_state_event_empty_key` / `put_state_event_no_key` / `send_state_event`）
+       都调 `msc4354_query_sticky_duration_ms`，与 `/send` 同一解析器（同一组边界与 400 语义）。
+       护栏见 `tests/integration/api_sticky_state_event_tests.rs`（3 条，覆盖三种写入形态）。
    - **方案 ⓑ 归位私有（未采纳）**：承认现有路由是非上游扩展，把它从
      `/_matrix/client/unstable/org.matrix.msc4354/...` 迁到 `/_matrix/vendor/v1/...`
      （本仓既有惯例，ISSUE-13 已对 3 条路由这么做过），并**撤销** A2 的 `org.matrix.msc4354`
