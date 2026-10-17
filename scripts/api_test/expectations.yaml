@@ -155,8 +155,10 @@ overrides:
     expect_status: [200, 400, 401, 403, 429]
   "POST /_matrix/client/v3/register":
     expect_status: [400, 401, 403, 429]
+  # 访客注册：测试栈通过 SYNAPSE__SERVER__ENABLE_REGISTRATION=true 开启注册，
+  # 空 body 也会成功创建访客账号并返回 200（规范允许），故 200 属预期。
   "POST /_matrix/client/v3/register/guest":
-    expect_status: [400, 401, 403, 429]
+    expect_status: [200, 400, 401, 403, 429]
   "POST /_matrix/client/v3/register/email/submitToken":
     expect_status: [400, 401, 403, 429]
   "DELETE /_matrix/client/v3/register/captcha/clean":

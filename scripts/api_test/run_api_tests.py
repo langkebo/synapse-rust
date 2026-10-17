@@ -655,6 +655,19 @@ def _build_headers(
     return headers
 
 
+# 429 退避重试上限：限流桶按秒补充，1~2 次退避足以吸收集群式并发探测的突发。
+MAX_429_RETRIES = 2
+
+
+def _retry_after_seconds(resp, attempt: int) -> float:
+    raw = resp.headers.get("Retry-After")
+    try:
+        delay = float(raw)
+    except (TypeError, ValueError):
+        delay = float(attempt)
+    return max(0.2, min(delay, 3.0))
+
+
 def execute_probe(
     probe: ProbeSpec,
     cfg: dict,
@@ -669,17 +682,31 @@ def execute_probe(
     max_bytes = int(cfg.get("max_response_bytes"))
 
     url = f"{base_url}{probe.url}"
-    t0 = time.monotonic()
-    try:
-        resp = requests.request(
-            probe.method,
-            url,
-            headers=_build_headers(probe, token, extra_headers),
-            data=probe.body,
-            timeout=timeout,
-            verify=verify,
-            allow_redirects=False,
-        )
+    attempt = 0
+    while True:
+        t0 = time.monotonic()
+        try:
+            resp = requests.request(
+                probe.method,
+                url,
+                headers=_build_headers(probe, token, extra_headers),
+                data=probe.body,
+                timeout=timeout,
+                verify=verify,
+                allow_redirects=False,
+            )
+        except requests.exceptions.SSLError as e:
+            res.error = f"TLS 校验失败（可用 --no-verify-tls 或配置 verify_tls=false 关闭）：{type(e).__name__}"
+            break
+        except requests.exceptions.Timeout:
+            res.error = f"请求超时（>{timeout}s）"
+            break
+        except requests.exceptions.ConnectionError as e:
+            res.error = f"连接失败：{type(e).__name__}"
+            break
+        except requests.exceptions.RequestException as e:
+            res.error = f"请求异常：{e}"
+            break
         res.duration_ms = (time.monotonic() - t0) * 1000
         res.http_status = resp.status_code
         res.content_type = resp.headers.get("Content-Type", "")
@@ -694,14 +721,18 @@ def execute_probe(
             except json.JSONDecodeError:
                 res.parsed_json = None
                 res.checks.append("响应非合法 JSON")
-    except requests.exceptions.SSLError as e:
-        res.error = f"TLS 校验失败（可用 --no-verify-tls 或配置 verify_tls=false 关闭）：{type(e).__name__}"
-    except requests.exceptions.Timeout:
-        res.error = f"请求超时（>{timeout}s）"
-    except requests.exceptions.ConnectionError as e:
-        res.error = f"连接失败：{type(e).__name__}"
-    except requests.exceptions.RequestException as e:
-        res.error = f"请求异常：{e}"
+        # 429 是限流器按设计的拒绝，不代表端点不可用：按 Retry-After 有界退避后重试
+        # （限流桶按秒补充，集群式并发探测会瞬间打满 burst；不重试会把正常限流
+        # 误报成「可用性存疑」）。重试仍 429 时保持 WARN 判定。
+        if res.http_status == 429 and attempt < MAX_429_RETRIES:
+            attempt += 1
+            delay = _retry_after_seconds(resp, attempt)
+            res.checks.append(
+                f"429 限流，按 Retry-After 退避 {delay:.1f}s 后重试（第 {attempt} 次）"
+            )
+            time.sleep(delay)
+            continue
+        break
     return res
 
 

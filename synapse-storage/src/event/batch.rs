@@ -110,7 +110,8 @@ impl EventStorage {
         let mut query = QueryBuilder::<Postgres>::new(
             r"
             SELECT event_id, room_id, user_id, event_type, content, state_key,
-                   depth, origin_server_ts, processed_at, not_before, status, origin, stream_ordering, redacts
+                   depth, origin_server_ts, processed_at, not_before, status, origin, stream_ordering, redacts,
+                   unsigned
             FROM (
                 SELECT
                     event_id,
@@ -127,6 +128,7 @@ impl EventStorage {
                     COALESCE(origin, 'self') as origin,
                     stream_ordering,
                     redacts,
+                    unsigned,
                     ROW_NUMBER() OVER (
                         PARTITION BY room_id
                         ORDER BY stream_ordering ASC

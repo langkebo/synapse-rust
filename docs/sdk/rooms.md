@@ -220,23 +220,28 @@ leave + forget，事后单独调 `/forget` 不会与它竞争。
 
 **这是两个不同的东西**，历史文档把它们混成了一个端点：
 
-| 目的 | 方法 | 端点 |
-|---|---|---|
-| 创建别名 | `PUT` | `/directory/room/{room_alias}` |
-| 删除别名 | `DELETE` | `/directory/room/{room_alias}` |
-| 解析别名 | `GET` | `/directory/room/{room_alias}` → `{"room_id": "...", "servers": [...]}` |
-| 房间挂别名 | `PUT` | `/directory/room/{room_id}/alias/{room_alias}` |
-| 房间摘别名 | `DELETE` | `/directory/room/{room_id}/alias/{room_alias}` |
-| 列房间别名 | `GET` | `/directory/room/{room_id}/alias` |
-| **设置目录可见性** | `PUT` | `/directory/list/room/{room_id}` — 体 `{"visibility": "public"\|"private"}` |
-| **读取目录可见性** | `GET` | `/directory/list/room/{room_id}` → `{"visibility": "..."}` |
-| 取消公开发布 | `DELETE` | `/directory/list/room/{room_id}` |
+| 目的 | 方法 | 端点 | 成功响应 |
+|---|---|---|---|
+| 创建别名 | `PUT` | `/directory/room/{room_alias}` | `{"room_id", "alias", "created_ts"}` |
+| 删除别名 | `DELETE` | `/directory/room/{room_alias}` | `{"removed": true, "alias"}` |
+| 解析别名 | `GET` | `/directory/room/{room_alias}` | **`{"room_id"}`**（无 `servers`） |
+| 房间挂别名 | `PUT` | `/directory/room/{room_id}/alias/{room_alias}` | `{"room_id", "alias", "created_ts"}` |
+| 房间摘别名 | `DELETE` | `/directory/room/{room_id}/alias/{room_alias}` | `{}` |
+| 列房间别名 | `GET` | `/directory/room/{room_id}/alias` | `{"aliases": [...]}` |
+| **设置目录可见性** | `PUT` | `/directory/list/room/{room_id}` — 体 `{"visibility": "public"\|"private"}` | `{"room_id", "visibility", "updated_ts"}` |
+| **读取目录可见性** | `GET` | `/directory/list/room/{room_id}` | `{"visibility": "..."}` |
 
-- `PUT /directory/room/{room_alias}` 体：`{"room_id": "!x", "servers": ["matrix.test"]}`。
+- `PUT /directory/room/{room_alias}` 体**必须含 `room_id`**，且以 `!` 开头；
+  `servers` 字段即使传入也被忽略。
 - 别名格式必须为 `#localpart:server`；非法 → 400 `M_INVALID_PARAM`。
 - 别名已存在 → 400 `M_ROOM_IN_USE`；调用者无权 → 403 `M_FORBIDDEN`。
+- `PUT /directory/list/room/{room_id}` 需要成员 + 房间创建者（creator），否则 403；
+  `visibility` 只接受 `public` / `private`，否则 400 `M_BAD_JSON`。
 
 > **没有** `PUT /directory/room/{room_id}`。想改"是否公开"，用 `/directory/list/room/{room_id}`。
+> **也没有** `DELETE /directory/list/room/{room_id}`（该路由不存在，会得到 405）——
+> 取消公开发布用 `PUT` + `{"visibility": "private"}`。
+> 这些端点**只注册在 `v3`**，没有 `r0` / `v1` 变体。
 
 ---
 
@@ -244,8 +249,8 @@ leave + forget，事后单独调 `/forget` 不会与它竞争。
 
 | 方法 | 端点 | 说明 |
 |---|---|---|
-| `GET` | `/publicRooms` | 查询（`limit`、`since`、`server`、`filter`） |
-| `POST` | `/publicRooms` | 带 filter 体的查询（更可靠，避免 URL 长度限制） |
+| `GET` | `/publicRooms` | 查询（`limit`、`since`、`server`；**不读 `filter`**） |
+| `POST` | `/publicRooms` | 带 filter 体的查询（按关键词/房间类型过滤必须用这个） |
 
 **响应**：
 
@@ -272,6 +277,19 @@ leave + forget，事后单独调 `/forget` 不会与它竞争。
   "third_party_instance_id": null
 }
 ```
+
+**分页与过滤的硬约束**：
+
+- `limit`：GET/POST 均为默认 `20`，clamp 到 `1..=1000`。
+- `next_batch` **仅当**本次返回条数等于 `limit` 时才有；否则视为没有下一页。
+- **POST 且带 `generic_search_term` 时不返回 `next_batch`**——搜索结果不分页。
+- `chunk[].room_type` 在本仓**恒为 `null`**，不能用来识别 space。
+- `include_all_networks: true`、`third_party_instance_id` 非 `null`、`filter` 非对象、
+  `filter` 里出现这两个键、`generic_search_term` 非字符串、`room_types` 非数组
+  —— 全部 400 `M_INVALID_PARAM`。
+- `room_types` 的条目可为字符串或 `null`；`null` 表示"包含普通房间"。
+
+完整规则见 [directory.md](./directory.md#三房间目录-publicrooms)。
 
 ---
 
@@ -310,14 +328,22 @@ children、tree_path、summary、members、invite/join/leave）见 [extensions.m
 
 ## 举报
 
-| 方法 | 端点 | 体 |
-|---|---|---|
-| `POST` | `/rooms/{room_id}/report` | `{"reason": "..."}`（举报房间） |
-| `POST` | `/rooms/{room_id}/report/{event_id}` | `{"reason": "...", "score": -100..0}`（举报事件） |
-| `POST` | `/users/{user_id}/report` | `{"reason": "..."}`（举报用户） |
-| `POST` | `/client/v1/rooms/{room_id}/report/{event_id}` | v1 变体 |
+| 方法 | 端点 | 体 | 成功响应 |
+|---|---|---|---|
+| `POST` | `/rooms/{room_id}/report` | `{"reason"?, "description"?}`（举报房间） | `{"report_id", "room_id", "status": "submitted"}` |
+| `POST` | `/rooms/{room_id}/report/{event_id}` | `{"reason"?, "score"?}`（举报事件，score 默认 `-100`） | `{"report_id"}` |
+| `POST` | `/users/{user_id}/report` | `{"reason": "..."}`（举报用户；**字段必须存在**，可为空串） | `{}` |
+| `POST` | `/client/v1/rooms/{room_id}/report/{event_id}` | v1 变体 | `{"report_id"}` |
 
-响应 `{}`。举报进入管理端的 `/_synapse/admin/v1/event_reports`（见 [admin.md](./admin.md)）。
+- 事件/房间举报需要房间成员；事件不存在或不属于该房间 → 404。
+- 用户举报（MSC4260）：`reason` 缺失 → 400 `M_BAD_JSON`；用户不存在 → 404 `M_NOT_FOUND`；
+  允许举报自己。
+- **三种响应形状不同**，SDK 不要统一按 `{}` 处理。
+- `PUT /_matrix/vendor/v1/rooms/{room_id}/report/{event_id}/score` 恒 403；
+  `GET .../scanner_info` 恒返回 `scanner_enabled: false`。
+- 举报进入管理端的 `/_synapse/admin/v1/event_reports`（见 [admin.md](./admin.md)）。
+
+完整契约见 [directory.md](./directory.md) 的「举报」一节。
 
 ---
 
@@ -337,8 +363,13 @@ children、tree_path、summary、members、invite/join/leave）见 [extensions.m
 | `GET /joined_rooms` | `{"joined_rooms": [...]}` |
 | `GET /rooms/{id}` | 房间信息对象（见上） |
 | `GET /rooms/{id}/aliases` | `{"aliases": [...]}` |
-| `GET /directory/room/{alias}` | `{"room_id", "servers": [...]}` |
-| `PUT/DELETE /directory/*` | `{}` |
-| `GET/PUT /directory/list/room/{id}` | `{"visibility"}` / `{}` |
+| `GET /directory/room/{alias}` | `{"room_id"}`（**无 `servers`**） |
+| `PUT /directory/room/{alias}` | `{"room_id", "alias", "created_ts"}` |
+| `DELETE /directory/room/{alias}` | `{"removed": true, "alias"}` |
+| `PUT/DELETE /directory/room/{id}/alias/{alias}` | `{"room_id", "alias", "created_ts"}` / `{}` |
+| `GET /directory/list/room/{id}` | `{"visibility"}` |
+| `PUT /directory/list/room/{id}` | `{"room_id", "visibility", "updated_ts"}` |
 | `POST /rooms/{id}/upgrade` | `{"replacement_room"}` |
-| `POST /rooms/{id}/report*` | `{}` |
+| `POST /rooms/{id}/report/{event_id}` | `{"report_id"}` |
+| `POST /rooms/{id}/report` | `{"report_id", "room_id", "status": "submitted"}` |
+| `POST /users/{id}/report` | `{}` |

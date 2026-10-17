@@ -1,7 +1,13 @@
 # 本仓扩展（`/_matrix/vendor/v1`）
 
-`/_matrix/vendor/v1/*` 是本项目的**私有扩展命名空间**（185 条路由），不属于 Matrix 规范。
+`/_matrix/vendor/v1/*` 是本项目的**私有扩展命名空间**（197 条路由），不属于 Matrix 规范。
 标准客户端会忽略它们；自有客户端（Tjg / HuLa）依赖它们。
+
+这些路由按 Cargo 特性分组编译：`all-extensions` 构建（参考部署）包含全部 197 条；
+默认特性集（`core-private-chat` + `widgets` + `external-services` + `beacons`）缺少
+`friends` / `voice-extended` / `server-notifications` / `burn-after-read` 等，
+对应路由在该构建下**不存在，探测会得到 404**（不是空列表）。SDK 应以 `/capabilities`
+或首次调用结果判断，而不是假定某个扩展一定可用。
 
 **通用规则**
 
@@ -23,6 +29,7 @@
 - [房间杂项](#房间杂项)
 - [用户与会话杂项](#用户与会话杂项)
 - [推送扩展](#推送扩展)
+- [语音（voice）](#语音voice)
 - [能力与开关对照](#能力与开关对照)
 
 ---
@@ -81,9 +88,9 @@
 | `is_encrypted` | 等价于存在 `m.room.encryption` 状态 |
 
 > ⚠️ 摘要**不是实时的**：它由队列异步重算。需要实时性时用 `/sync` 或读状态事件。
-> 另外 `capabilities.m.room.summary` 当前恒为 `false`（探针路径写错，见
-> [discovery.md](./discovery.md#-已知能力声明缺陷探针路径与真实路由不一致)），
-> **不要**据此判断摘要是否可用。
+> `capabilities.m.room.summary` 由标准面路由
+> `GET /_matrix/client/v1/rooms/{room_id}/summary` 是否存在决定，本仓为 `true`。
+> 注意 `GET /_matrix/client/v3/rooms/{room_id}/summary` **不存在**，不要拿它做探针。
 
 **批量**：`GET /_synapse/room_summary/v1/summaries`（当前用户全部房间）、
 `POST /_synapse/room_summary/v1/summaries/batch`（指定房间批量）。
@@ -209,12 +216,17 @@
 
 ## Sticky 事件（MSC4354）
 
+路径前缀是 `/_matrix/client/unstable/org.matrix.msc4354`（**没有** `v3` 别名）。
+
 | 方法 | 端点 | 说明 |
 |---|---|---|
 | `GET` | `/rooms/{room_id}/sticky_events` | 列出房间 sticky 事件 |
-| `GET` | `/rooms/{room_id}/sticky_events/{event_type}` | 按类型 |
+| `GET` | `/rooms/{room_id}/sticky_events?event_type={type}` | 按类型过滤（query 参数，不是路径段） |
 | `POST` | `/rooms/{room_id}/sticky_events` | 设置 sticky |
 | `DELETE` | `/rooms/{room_id}/sticky_events/{event_type}` | 清除 |
+
+`event_type` 是 query 参数；`GET /rooms/{room_id}/sticky_events/{event_type}` **不存在**。
+`GET` 需要房间成员身份，非成员 403。
 
 **条目形状**：
 
@@ -236,8 +248,8 @@
 约束：
 
 - 取值 `1..=3600000`（毫秒，上限 1 小时）；非整数/越界 → **400 `M_INVALID_PARAM`**。
-- 短名 `sticky_duration_ms` 也接受，**命名空间名优先**。
-- TTL 落在事件的 `unsigned.matrix.msc4354_sticky_duration_ttl_ms`。
+- 短名 `sticky_duration_ms` 也接受，**命名空间名优先**；query 与 body 同时给且不一致 → 400 `M_INVALID_PARAM`。
+- TTL 落在事件的 `unsigned.msc4354_sticky_duration_ttl_ms`（**没有** `org.matrix.` 或 `matrix.` 前缀）。
 
 > ⚠️ 读 `unsigned` 必须用 `GET /rooms/{id}/event/{event_id}`——
 > `/messages` 的 `chunk` 与 `/sync` 的 `timeline.events` 都**不带** `unsigned`。
@@ -302,13 +314,25 @@
 
 | 方法 | 端点 | 说明 |
 |---|---|---|
-| `PUT` | `/rooms/{room_id}/burn` | 设置房间级 TTL |
-| `GET` | `/rooms/{room_id}/burn` | 读配置 |
-| `POST` | `/rooms/{room_id}/burn/{event_id}` | 标记某事件已读（启动倒计时） |
-| `DELETE` | `/rooms/{room_id}/burn/{event_id}` | 取消 |
-| `GET` | `/rooms/{room_id}/burn/pending` | 待焚毁列表 |
-| `PUT` | `/user/burn/config` | 用户级配置 |
-| `GET` | `/user/burn/stats` | 用户统计 |
+| `PUT` | `/rooms/{room_id}/burn` | 设置房间级 TTL；体可选 `{enabled, burn_after_ms}` → `{enabled, burn_after_ms}` |
+| `GET` | `/rooms/{room_id}/burn` | 读配置 → `{enabled, burn_after_ms}`；无记录时返回 `{enabled:false, burn_after_ms:<默认值>}` |
+| `POST` | `/rooms/{room_id}/burn/{event_id}` | 标记某事件已读（启动倒计时）→ `{success:true, will_delete_at}` |
+| `DELETE` | `/rooms/{room_id}/burn/{event_id}` | 取消 → `{success:true}` |
+| `GET` | `/rooms/{room_id}/burn/pending` | 待焚毁列表 → `{events:[...]}` |
+| `PUT` | `/user/burn/config` | 用户级默认 TTL（**只有 PUT，无 GET**）；体 `{default_burn_ms}` → 同名字段 |
+| `GET` | `/user/burn/stats` | 用户统计 → `{total_burned, total_pending, rooms_with_burn_enabled}` |
+
+`pending` 的每个元素：
+
+```json
+{ "event_id": "$x:matrix.test", "created_at": 1760700000000,
+  "delete_ts": 1760700060000, "is_processed": false, "is_dead_letter": false }
+```
+
+- `is_processed` **可能为 `true`**：已焚毁的记录会在保留窗口内继续返回，供离线客户端感知"这条消息已经烧掉"；`is_dead_letter` 表示重试耗尽。
+- `POST` 只能由**接收方**发起：对 `sender == 自己` 的事件 → 403；房间未启用 → 400 `M_BAD_JSON`。
+- 房间不存在 → 404；非房间成员 → 403。
+- `PUT /rooms/{room_id}/burn` 的 `burn_after_ms` 缺省时依次取用户默认值、再退回服务端默认值。
 
 ---
 
@@ -393,6 +417,132 @@
 
 ---
 
+## 语音（voice）
+
+12 条路由，全部受 Cargo 特性 `voice-extended` 门控（参考部署的 `all-extensions`
+包含它；默认特性集**不含**，此时这些路径一律 404）。语义按 MSC3245：**音频处理在客户端**，
+服务端只做存储、索引与统计。
+
+| 方法 | 端点 | 说明 |
+|---|---|---|
+| `GET` | `/voice/config` | 能力与上限声明（推荐作为 SDK 探针） |
+| `POST` | `/voice/upload` | `multipart/form-data` 上传语音（未加密房间） |
+| `POST` | `/voice/register` | 登记已通过标准 media 上传的**加密**语音 |
+| `GET` | `/voice/{media_id}` | 单条语音元数据（不是音频字节） |
+| `GET` | `/voice/room/{room_id}` | 房间语音列表（成员可见） |
+| `GET` | `/voice/user/{user_id}` | 某用户语音列表（**仅本人**） |
+| `GET` | `/voice/stats` | 我的语音统计 |
+| `GET` | `/voice/room/{room_id}/stats` | 房间语音统计（成员可见） |
+| `GET` | `/voice/user/{user_id}/stats` | 某用户统计（**仅本人**） |
+| `POST` | `/voice/{media_id}/convert` | 恒 **501** `M_UNRECOGNIZED` |
+| `POST` | `/voice/{media_id}/optimize` | 恒 **501** `M_UNRECOGNIZED` |
+| `POST` | `/voice/{media_id}/transcription` | 恒 **501** `M_UNRECOGNIZED` |
+
+**`GET /voice/config` 响应**（字段固定，`max_size_bytes` 取自 `server.max_upload_size`）：
+
+```json
+{
+  "enabled": true,
+  "max_duration": 600,
+  "max_duration_ms": 600000,
+  "allowed_formats": ["audio/ogg", "audio/mpeg", "audio/wav", "audio/webm", "audio/mp4", "audio/aac", "audio/flac"],
+  "supported_formats": ["audio/ogg", "audio/mpeg", "audio/wav", "audio/webm", "audio/mp4", "audio/aac", "audio/flac"],
+  "max_size_bytes": 52428800,
+  "content_type": "m.audio",
+  "voice_extension": "org.matrix.msc3245.voice",
+  "auto_transcribe": false,
+  "server_side_processing": { "convert": false, "optimize": false, "transcription": false }
+}
+```
+
+> `allowed_formats` 与 `supported_formats` 当前内容相同；两者都给出只是为了兼容旧客户端。
+> **不要调用**三个 `server_side_processing` 为 `false` 的端点——它们注册在路由表里只为
+> 覆盖完整，调用必得 501。
+
+**`POST /voice/upload`**（`multipart/form-data`）：
+
+| 字段 | 必填 | 语义 |
+|---|---|---|
+| `file` | ✅ | 音频字节；缺失 → 400 `File content is required` |
+| `content_type` | ❌ | 缺省时按魔数推断，再退回 `audio/ogg`；非 `audio/*` → 400 |
+| `room_id` | ❌ | 给了就必须是房间成员，否则 403；不给则只记到个人名下 |
+| `duration_ms` | ✅ | 正整数；缺失或 ≤0 → 400 `Duration must be positive` |
+| `waveform` | ❌ | 逗号分隔的整数序列（如 `0,128,255`），写入 `org.matrix.msc3245.voice.waveform` |
+
+- 音频上限 = `/voice/config` 的 `max_size_bytes`；HTTP 请求体上限比它多 64 KiB
+  （multipart 封装开销），因此**恰好等于上限**的音频可以正常上传。
+- 成功响应：
+
+```json
+{
+  "content_uri": "mxc://matrix.test/abc123",
+  "content": {
+    "body": "Voice message",
+    "msgtype": "m.audio",
+    "url": "mxc://matrix.test/abc123",
+    "info": { "mimetype": "audio/ogg", "size": 12345, "duration": 4200 },
+    "org.matrix.msc3245.voice": { "waveform": [0, 128, 255] }
+  },
+  "content_type": "audio/ogg",
+  "duration_ms": 4200,
+  "size": 12345
+}
+```
+
+`content` 可直接作为 `m.room.message` 事件内容发送；服务端不代发事件。
+
+**`POST /voice/register`**（加密房间用）。先走标准 `/_matrix/media/v3/upload` 上传密文，
+再用本端点登记，使其出现在语音列表里：
+
+```json
+{ "media_id": "abc123", "room_id": "!abc:matrix.test",
+  "content_type": "audio/ogg", "duration_ms": 4200, "size_bytes": 12345 }
+```
+
+- 响应 `{"content_uri": "mxc://...", "exists": false}`。
+- **幂等**：同一用户重复登记同一 `media_id` → 200 且 `"exists": true`。
+- 虽然 `room_id` 在类型上是可选的，handler 实际**要求它存在**（缺失 → 400
+  `room_id is required`），且调用者必须是房间成员（403）。
+
+**列表**：
+
+- 查询参数只接受 `limit` 与 `from`（`deny_unknown_fields`，多余参数 → 400）。
+- `limit` 缺省 **50**，clamp 到 `1..=100`；`from` 是上一页返回的 `next_batch`
+  （即最后一条的 `created_ts`）。
+- 响应：
+
+```json
+{
+  "room_id": "!abc:matrix.test",
+  "messages": [
+    { "media_id": "abc123", "user_id": "@alice:matrix.test", "room_id": "!abc:matrix.test",
+      "content_uri": "mxc://matrix.test/abc123", "content_type": "audio/ogg",
+      "duration_ms": 4200, "size_bytes": 12345, "created_ts": 1760700000000 }
+  ],
+  "next_batch": 1760700000000
+}
+```
+
+用户维度把 `room_id` 换成 `user_id`；`messages` 为空时 `next_batch` 为 `null`。
+`GET /voice/user/{user_id}` 只允许查自己，否则 403；房间维度要求成员身份，否则 403。
+
+**统计**：
+
+- `GET /voice/stats` → `{user_id, total_uploads, total_duration_ms, total_size_bytes, uploads_today}`
+- `GET /voice/user/{user_id}/stats` → 同上，且**仅本人**可查（403）
+- `GET /voice/room/{room_id}/stats` → `{room_id, total_uploads, total_duration_ms, total_size_bytes}`
+- 统计查询失败时返回**全零**并记 warning，不会 500。
+
+**`GET /voice/{media_id}`**：返回登记记录（`media_id` / `user_id` / `room_id` /
+`content_uri` / `content_type` / `duration_ms` / `size_bytes` / `created_ts`），
+不是音频字节。取音频请用标准 media 下载端点。权限：
+
+- 上传者本人或管理员：直接通过；
+- 其他人：记录带 `room_id` 时须为房间成员，否则 403；记录**无** `room_id` 时直接 403；
+- 记录不存在 → 404。
+
+---
+
 ## 能力与开关对照
 
 | 扩展 | 能力位 | 当前 |
@@ -402,8 +552,8 @@
 | 线程 | `capabilities.m.thread` | `true` |
 | 房间摘要 | `capabilities.m.room.summary` | `true`（探针已修；旧二进制为 `false`，功能一直可用） |
 | 扩展 profile | `capabilities.m.profile_fields` | `true` |
-| 语音 | `capabilities.m.voice` | `true` |
-| 扩展语音 | `capabilities.io.hula.voice_extended`（仅认证后） | `false`（`voice-extended` 不在默认特性集；开启后为 `true`） |
+| 语音（VoIP） | `capabilities.m.voice` | `true`——表示可签发 TURN 凭据（探针为 `GET /_matrix/client/v3/voip/turnServer`），与 `/_matrix/vendor/v1/voice/*` 无关 |
+| 扩展语音 | `capabilities.io.hula.voice_extended`（仅认证后） | 参考部署（`--features all-extensions`）为 `true`；需 `voice-extended` 特性 + `experimental.declare_private_extensions=true`，以 `/capabilities` 实测为准 |
 | 延迟事件 | `/versions` 的 `org.matrix.msc4140` | `true` |
 | Sticky | `/versions` 的 `org.matrix.msc4354` | 由路由面推导；早期二进制不声明 |
 | 脱水设备 | `/versions` 的 `org.matrix.msc3814` | `true` |

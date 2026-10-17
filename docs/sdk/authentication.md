@@ -8,6 +8,8 @@
 - [认证模型](#认证模型)
 - [注册](#注册)
 - [登录](#登录)
+- [SAML 2.0 单点登录](#saml-20-单点登录)
+- [CAS 单点登录](#cas-单点登录)
 - [登出与 refresh](#登出与-refresh)
 - [当前用户 whoami](#当前用户-whoami)
 - [用户资料 Profile](#用户资料-profile)
@@ -25,9 +27,12 @@
 1. **只有 `Authorization: Bearer <access_token>`** 会被读取；`?access_token=` 被忽略（401）。
 2. `refresh_token` **只从请求体读**（见下），不接受放在 `Authorization` 头。
 3. 登录成功后应保存 `access_token` + `refresh_token` + `device_id` + `user_id`；
-   `expires_in` 单位是**毫秒**（与 `expires_in_ms` 同义，字段名沿用 `expires_in`）。
+   `expires_in` 单位是**秒**（默认 `3600`，来自服务端 `token_expiry()`；不是毫秒）。
+   唯一例外是 QR 登录令牌 `POST /_matrix/client/v1/login/qr_token`，它返回 `expires_in_ms`。
 4. 需要用户二次验证的操作走 **UIA**：不带 `auth` 时返回 **401** + `flows`/`session`，
-   客户端选一个 flow 带上 `auth` 重试。errcode 为 **`M_UIA_REQUIRED`**。
+   客户端选一个 flow 带上 `auth` 重试。**401 体不保证带 errcode**：
+   `POST /register` 只有 `flows`/`params`/`session`；改密、停用、删设备等端点额外带
+   `errcode: "M_UIA_REQUIRED"`。**不要把"401 没有 errcode"当成异常**。
 
 ---
 
@@ -96,7 +101,7 @@ HTTP/1.1 401 Unauthorized
 {
   "access_token": "...",
   "refresh_token": "...",
-  "expires_in": 3600000,
+  "expires_in": 3600,
   "device_id": "ABCDEFGHIJ",
   "user_id": "@alice:matrix.test",
   "well_known": { "m.homeserver": { "base_url": "https://matrix.test" } }
@@ -122,7 +127,7 @@ HTTP/1.1 401 Unauthorized
 | 用户名格式非法 | 400 | `M_INVALID_USERNAME` |
 | 密码不满足策略 | 400 | `M_INVALID_PARAM`（`error` 说明具体规则） |
 | 缺密码（非 guest） | 400 | `M_BAD_JSON`（`error: Password required`） |
-| 未完成 UIA | 401 | `M_UIA_REQUIRED`（注册入口此处 errcode 体里给的是 flows 对象，不含 errcode 字段时按 401+flows 处理） |
+| 未完成 UIA | 401 | **无 errcode**，响应体只有 `flows`/`params`/`session`（按 401 + `flows` 处理） |
 
 ### 应用服务注册虚拟用户（MSC4190）
 
@@ -183,8 +188,20 @@ interface LoginRequest {
 **成功响应**：与注册相同（`access_token` / `refresh_token` / `expires_in` / `device_id` /
 `user_id` / `well_known`）。
 
-**其他 `type`**：`m.login.token`（QR/一次性 token）、`m.login.cas`、`m.login.sso`、
-`m.login.application_service`（仅 AS，且不出现在 `/login` 的 `flows` 中）。
+**其他 `type`**：`m.login.token`（QR/一次性 token）、`m.login.application_service`（仅 AS，
+且不出现在 `/login` 的 `flows` 中）。以下三种**受编译特性与运行时配置双重门控**：
+
+| `type` | 启用条件 | 参考部署 |
+|---|---|---|
+| `m.login.cas` | 仅看编译特性 `cas-sso`（**不看**运行时是否注册了 CAS 服务） | 出现在 `flows` 中 |
+| `m.login.sso` | 编译了 `saml-sso` / `cas-sso`，或运行时配置了外部 OIDC（`providers` 非空） | 出现在 `flows` 中（saml + cas） |
+| `m.login.oidc` | 编译时 `builtin-oidc` feature，**且**配置了内置 OIDC provider | 未配置时不出现在 `flows` |
+
+> `m.login.password` 与 `m.login.token` 在默认构建中**始终**出现在 `flows` 里。
+> ⚠️ 参考部署用 `--features all-extensions` 构建，因此 `flows` 会列出 `m.login.cas` 与
+> SAML/CAS 的 `identity_providers`，**即使运行时 SAML/CAS 尚未启用**。此时真正发起跳转
+> 会失败（SAML → 403，CAS → 500），客户端必须做降级（回退密码登录）。
+> 详见 [discovery.md](./discovery.md#登录流程发现-get-login)。
 
 **错误**
 
@@ -197,6 +214,82 @@ interface LoginRequest {
 
 > 登录失败计数按 `(client_ip, username)` 维度累计，登录成功后清零。429 时应退避到
 > `retry_after_ms` 之后再试，不要立即重试。
+
+### SAML 2.0 单点登录
+
+编译特性 `saml-sso`。**运行时未启用 SAML 时，下列端点全部返回 403** `M_FORBIDDEN`
+（`SAML authentication is not enabled`），而不是 404——路由已注册，功能未开启。
+
+| 方法 | 端点 | 响应 |
+|---|---|---|
+| `GET` | `/_matrix/client/v3/login/sso/redirect/saml?redirectUrl=` | **307** `Location: <IdP SSO URL>` |
+| `POST` | `/_matrix/client/v3/login/sso/redirect/saml` | `200 {"redirect_url": "<IdP SSO URL>"}` |
+| `GET` | `/_matrix/client/v3/login/saml/callback?SAMLResponse=&RelayState=` | `200`，见下方 `SamlAuthResult` |
+| `POST` | `/_matrix/client/v3/login/saml/callback` | 同上（请求体 JSON） |
+| `GET` | `/_matrix/client/v3/logout/saml` | 有活动会话 → `{"redirect_url": "..."}`；否则 `{"message": "No active SAML session found"}` |
+| `GET` | `/_matrix/client/v3/logout/saml/callback?SAMLResponse=` | `{"message": "Logout successful"}` |
+| `GET` | `/_matrix/client/v3/saml/metadata` | IdP 元数据（JSON）：`{entity_id, sso_url, slo_url, certificate}` |
+| `GET` | `/_matrix/client/v3/saml/sp_metadata` | SP 元数据（`application/xml; charset=utf-8`，交给 IdP 登记） |
+
+请求字段（`deny_unknown_fields`）：
+
+```typescript
+// GET 用 query / POST 用 JSON body
+interface SamlRedirectRequest {
+  redirectUrl?: string;   // 兼容 snake_case: redirect_url
+}
+
+// 回调：标准 SAML 字段为 PascalCase，同时接受 snake_case 别名
+interface SamlCallback {
+  SAMLResponse?: string;  // alias: saml_response（必填）
+  SAMLRequest?: string;   // alias: saml_request
+  RelayState?: string;    // alias: relay_state
+}
+```
+
+回调成功**直接返回 Matrix 凭据**，不经过 UIA：
+
+```json
+{
+  "user_id": "@alice:matrix.test",
+  "access_token": "...",
+  "device_id": "SAML_1f2e3d...",
+  "expires_in": 3600,
+  "refresh_token": "..."
+}
+```
+
+- `expires_in` 固定 3600 秒；`device_id` 由服务端生成，前缀 `SAML_`。
+- `refresh_token` 可能为 `null`（生成失败时仅记日志，access token 仍有效）。
+- 缺 `SAMLResponse` → **400 `M_BAD_JSON`**（`Missing SAML response`）。
+
+> `GET /logout/saml` 需要认证（`Authorization` 头）；它不是浏览器跳转端点，
+> 返回 JSON 里的 `redirect_url` 由前端自行跳转。真正的 SLO 回调是 `/logout/saml/callback`。
+
+### CAS 单点登录
+
+编译特性 `cas-sso`，且需要在管理面注册 CAS 服务（见 [admin.md](./admin.md#cas-管理)）。
+
+**客户端面**只有一条：
+
+| 方法 | 端点 | 响应 |
+|---|---|---|
+| `GET` | `/_matrix/client/v3/login/sso/redirect/cas?redirect_after=` | **302** `Location: /login?service=<urlencoded redirect_after>`；未配置 CAS → **500** `M_UNKNOWN` |
+
+> 注意：CAS 的 SSO 重定向**不指向外部 IdP**，而是回到本服务自己的 `/login?service=...`。
+> 未配置 CAS 时是 **500**（配置中间件拦截），不是 400/403。
+
+**CAS 协议面**（`/_synapse/cas/*`，由 CAS 服务端/IdP 调用，SDK 不应直接依赖）：
+
+| 方法 | 端点 | 响应 |
+|---|---|---|
+| `GET` | `/_synapse/cas/login?service=` | 302 到 `/cas/login?service=...` |
+| `GET` | `/_synapse/cas/serviceValidate?service=&ticket=` | `text/plain`：成功 `yes\n{user_id}\n`，失败 `no\n\n` |
+| `GET` | `/_synapse/cas/proxyValidate`、`/proxy`、`/p3/serviceValidate` | `application/xml; charset=utf-8`（成功含 `<cas:user>`，失败 `INVALID_TICKET`） |
+| `GET` | `/_synapse/cas/logout?service=` | 带 `service` → 302 到该地址；否则 200 HTML 页面 |
+
+> CAS 协议面未配置时由中间件统一返回 **500**（`CAS service is not available...`），
+> 与 SAML 的 403 行为不同。
 
 ---
 
@@ -239,6 +332,7 @@ async function refresh(base: string, refreshToken: string) {
 ```
 
 **响应**：`{ access_token, refresh_token, expires_in, device_id }`
+（`expires_in` 单位是**秒**，与登录响应一致）。
 
 **实测两种错误**（这是最高频的接入错误）：
 
@@ -279,7 +373,7 @@ async function refresh(base: string, refreshToken: string) {
 | `PUT` | `/profile/{user_id}/avatar_url` | 是（本人或管理员） | 体：`{"avatar_url": "mxc://..."}` |
 | `GET`/`PUT`/`DELETE` | `/profile/{user_id}/{key_name}` | 读：否；写：本人 | MSC4133 扩展字段 |
 | `GET` | `/profile/{user_id}/...`（`v1` 变体） | 否 | 与 v3 同义 |
-| `GET` | `/user_directory/profiles/{user_id}` | 是 | 目录视图（含共享房间判定） |
+| `GET` | `/user_directory/profiles/{user_id}` | 是 | 目录资料卡（**响应字段是 `displayname`**）；可见性规则见 [directory.md](./directory.md#13-目录资料卡) |
 
 **没有** `PUT /profile/{user_id}`（整体替换）。只支持按字段写。
 

@@ -126,9 +126,9 @@ interface MatrixError {
 
 | 错误码 | 说明 |
 |--------|------|
-| `M_MISSING_TOKEN` | 缺少访问令牌 |
-| `M_UNKNOWN_TOKEN` | 无效的访问令牌 |
-| `M_UNAUTHORIZED` | 需要认证 |
+| `M_MISSING_TOKEN` | 缺少访问令牌（仅 `whoami` 等少数端点显式区分） |
+| `M_UNKNOWN_TOKEN` | 无效或过期的访问令牌 |
+| `M_UNAUTHORIZED` | 需要认证 / `Authorization` 头缺失或格式错误（大多数端点的实际返回） |
 
 ---
 
@@ -264,10 +264,14 @@ const response = await fetch(`${BASE_URL}/_matrix/client/v3/sync`, {
 **响应 (401):**
 ```json
 {
-  "errcode": "M_MISSING_TOKEN",
-  "error": "Access token required"
+  "errcode": "M_UNAUTHORIZED",
+  "error": "Missing or invalid authorization header"
 }
 ```
+
+> 主流 client 端点的鉴权抽取器只认 `Authorization: Bearer`，缺头或头格式错误统一返回
+> `M_UNAUTHORIZED`。只有少数显式区分「缺 token」的端点（如
+> `GET /_matrix/client/v3/account/whoami`）才返回 `M_MISSING_TOKEN` + `Missing access token`。
 
 **处理方式:**
 ```typescript

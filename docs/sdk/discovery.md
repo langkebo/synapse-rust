@@ -3,7 +3,7 @@
 客户端启动时的第一个阶段：确定服务端在哪个地址、支持哪些协议版本、哪些不稳定特性可用。
 **不要按"产品版本号"硬编码分支**——一切以本页的响应为准。
 
-本页所有示例均取自本机运行中的 `synapse-app`（`6.2.0`）实测返回。
+本页所有示例均取自本仓 `6.2.0` 源码在默认配置（default profile）下的实际生成结果。
 
 ## 目录
 
@@ -35,7 +35,7 @@
     "m.require_identity_server": false,
     "m.supports_login_via_phone_number": false,
     "org.matrix.msc1763": true,
-    "org.matrix.msc3245": false,
+    "org.matrix.msc3245": true,
     "org.matrix.msc3266": true,
     "org.matrix.msc3814": true,
     "org.matrix.msc3873": true,
@@ -50,6 +50,7 @@
     "org.matrix.msc4143": true,
     "org.matrix.msc4155": true,
     "org.matrix.msc4186": true,
+    "org.matrix.msc4354": true,
     "org.matrix.msc4445.initial_sync_timeline_topological_ordering": true,
     "org.matrix.msc4446": true,
     "org.matrix.simplified_msc3575": true,
@@ -71,10 +72,9 @@
 | `m.lazy_load_members` | `/sync?filter=` 支持懒加载成员 | 可省带宽 |
 
 > **关于 `org.matrix.msc4354`（Sticky 事件）**：本仓源码在 `/versions.unstable_features`
-> 中声明该键，取值由路由面推导。该声明是**较新加入**的——运行中若部署的是此前的二进制，
-> 该键不会出现（本机 `synapse-app` 即为此种情况）。判断 Sticky 是否可用请以
-> `/_matrix/client/unstable/org.matrix.msc4354/rooms/{room_id}/sticky_events` 是否 404 为准，
-> 见 [extensions.md](./extensions.md)。
+> 中声明该键，取值由**路由面**推导——`POST /_matrix/client/unstable/org.matrix.msc4354/rooms/{room_id}/sticky_events`
+> 注册即 `true`（默认构建为 `true`；源码里没有 `msc4354` 配置开关）。
+> 仍建议以该端点是否 404 作为最终判据，见 [extensions.md](./extensions.md)。
 
 ---
 
@@ -105,7 +105,7 @@
     "m.preview_url": { "enabled": false },
     "m.profile_fields": { "enabled": true },
     "m.room.suggested": { "enabled": true },
-    "m.room.summary": { "enabled": false },
+    "m.room.summary": { "enabled": true },
     "m.room_versions": {
       "available": { "1": "stable", "2": "stable", "3": "stable", "4": "stable", "5": "stable",
                      "6": "stable", "7": "stable", "8": "stable", "9": "stable", "10": "stable",
@@ -143,35 +143,33 @@
 | `m.set_displayname` / `m.set_avatar_url` | 对应 `PUT /profile/{user_id}/displayname`、`/avatar_url` 是否开放 |
 | `m.3pid_changes` | 绑定/解绑邮箱手机是否开放 |
 | `m.forget_forced_upon_leave` | 支持 `POST /rooms/{room_id}/leave?forget=true`（离开与遗忘同一事务） |
-| `m.room_summary` | 房间摘要扩展。⚠️ **当前恒为 `false`**，见下方「已知能力声明缺陷」 |
+| `m.room.summary` | 房间摘要（`GET /_matrix/client/v1/rooms/{room_id}/summary` + `/_matrix/vendor/v1` 同名路径）。由 v1 路由存在性推导，默认 `true`；**没有 v3 路径** |
 | `m.room.suggested` | `m.room.suggested` 事件支持 |
 | `m.thread` | 线程（`/_matrix/client/v1/rooms/{id}/threads`） |
 | `m.profile_fields` | 扩展 profile 字段（MSC4133） |
 | `m.preview_url` / `io.element.msc4452.preview_url` | URL 预览。**两者取值相同**，均为 `experimental.msc4452_enabled`；为 `false` 时 `GET /_matrix/media/v3/preview_url` 返回 403 |
 | `org.matrix.msc3720.account_status` | 账户状态（`POST /_matrix/client/unstable/org.matrix.msc3720/account_status`，受 `experimental.msc3720_enabled` 控制；关闭时该路由返回 403） |
 
-> 上表与 `capabilities` 是**同一份事实**：`CapabilityGovernance` 用路由表（`declared_ledger_all()`）
-> 反推能力，因此"声明为 true 但路由不存在"在本仓不会发生。客户端可放心把能力当作开关
-> ——**但下面两项除外**，它们的探针路径本身写错了。
+> 上表与 `capabilities` 是**同一份事实**：`CapabilityGovernance` 用路由表
+> （`declared_ledger_all()`，即最宽特性面）反推能力，因此"声明为 true 但路由不存在"
+> 在本仓不会发生。少数能力还会叠加配置开关（`declare_private_extensions`、
+> `experimental.msc3720_enabled`、`experimental.msc4452_enabled`）。
+> 客户端可把能力位当作开关直接使用。
 
-### ⚠️ 已知能力声明缺陷（探针路径与真实路由不一致）
+### 能力探针口径（历史缺陷已修复）
 
-把 `capability_governance.rs` 里全部 19 个 `manifest_has_route(...)` 探针与真实路由逐条对账
-（默认 profile 959 条 + `voice-extended` 等特性下的路由），**2 条**探针指向了不存在的路径
-（其中 1 条只在测试里用），另有 1 条曾被误判为缺陷（其实是 feature 未启用）：
+历史上曾有两条探针指向了不存在的路径，导致能力位与真实路由相反；现已改为指向实际在服务的路由，
+并加了回归测试 `test_room_summary_and_widget_probes_point_at_served_routes`
+（正向断言"路由在服务 ⇒ 能力为 true"，反向断言"幽灵路径不驱动能力"）：
 
-| 能力 / 函数 | 探针写的路径 | 真实注册的路径 | 对外影响 |
-|---|---|---|---|
-| `m.room.summary`（`room_summary_capability`） | ~~`GET /_matrix/client/v3/rooms/{room_id}/summary`~~ → **已修为** `GET /_matrix/client/v1/rooms/{room_id}/summary` | 摘要实际注册在 v1 与 vendor 两处，**没有 v3** | 修复前恒为 `false`（能力说没有、接口其实可用）；修复后随路由面为 `true` |
-| `widget_capability` | ~~`POST /_matrix/client/v1/widgets`~~ → **已修为** `POST /_matrix/vendor/v1/widgets` | widgets 只在 vendor 前缀下 | 该函数未参与 `/capabilities` 响应（仅测试用），修复前恒 `false` |
-| `io.hula.voice_extended`（`voice_extended_capability`） | `GET /_matrix/vendor/v1/voice/config` | **存在**，但只在 `voice-extended` feature 下注册（默认特性集不含） | 探针**正确**：默认构建报 `false` 是对的；曾被误判为"路径不存在"——那是拿默认 profile 的路由表去比特性内路由 |
+| 能力 / 函数 | 探针路径 | 说明 |
+|---|---|---|
+| `m.room.summary`（`room_summary_capability`） | `GET /_matrix/client/v1/rooms/{room_id}/summary` | 摘要注册在 v1 与 vendor 两处，**没有 v3**；默认 `true` |
+| `widget_capability` | `POST /_matrix/vendor/v1/widgets` | widgets 只在 vendor 前缀下；该函数未参与 `/capabilities` 响应（仅测试用） |
+| `io.hula.voice_extended` | `GET /_matrix/vendor/v1/voice/config` | 路由常驻注册；还需 `experimental.declare_private_extensions = true`（默认 `true`） |
 
-**客户端结论**：优先按能力位判断；若遇到旧二进制（`m.room.summary` 仍为 `false`），
-可直接调用 `GET /_matrix/client/v1/rooms/{room_id}/summary`，以 404 判断不可用。
-
-> 前两条已修复（探针改指真实路由，并加回归测试
-> `test_room_summary_and_widget_probes_point_at_served_routes`：正向断言"路由在服务 ⇒ 能力为 true"，
-> 反向断言"幽灵路径不驱动能力"）。部署旧二进制时仍会看到 `false`——那是版本差异，不是文档错误。
+**客户端结论**：优先按能力位判断；若要兜底，可直接调用目标端点，以 404 判断不可用。
+部署旧二进制时可能看到与当前源码不同的取值——那是版本差异，不是文档错误。
 
 ---
 
@@ -179,9 +177,9 @@
 
 | 端点 | 认证 | 实测响应 |
 |---|---|---|
-| `GET /.well-known/matrix/client` | 无 | `{"m.homeserver":{"base_url":"https://matrix.test"}}` |
-| `GET /.well-known/matrix/server` | 无 | `{"m.server":"matrix.test:8448"}` |
-| `GET /.well-known/matrix/support` | 无 | 支持联系信息（`contacts` / `support_page`） |
+| `GET /.well-known/matrix/client` | 无 | `{"m.homeserver":{"base_url":"..."}}`；配置了 `map_style_url` 时额外含 `m.tile_server.map_style_url` |
+| `GET /.well-known/matrix/server` | 无 | `{"m.server":"host:8448"}`（端口取 `federation_port`） |
+| `GET /.well-known/matrix/support` | 无 | 配置了 `server.support_url` 时为 `{"support_page":"https://..."}`；否则为 `{}`（**不返回 `contacts`**） |
 | `GET /.well-known/openid-configuration` | 无 | OIDC 发现文档（`issuer`、`authorization_endpoint`、`token_endpoint`、`userinfo_endpoint`、`jwks_uri`） |
 | `GET /.well-known/jwks.json` | 无 | OIDC 签名公钥集 |
 
@@ -199,23 +197,40 @@
 {
   "flows": [
     { "type": "m.login.password" },
-    { "type": "m.login.token" },
-    { "type": "m.login.cas" },
-    {
-      "type": "m.login.sso",
-      "identity_providers": [
-        { "brand": "saml", "id": "saml", "name": "SAML" },
-        { "brand": "cas", "id": "cas", "name": "CAS" }
-      ]
-    }
+    { "type": "m.login.token" }
   ]
 }
 ```
 
-- 返回的 `type` 是**服务端实际能处理的**，随配置变化（`m.login.sso` 的 `identity_providers`
-  随 SAML/CAS 开关增减）。
+- **默认构建**只返回上面两种。参考部署用 `--features all-extensions` 构建，实测返回：
+
+```json
+{
+  "flows": [
+    { "type": "m.login.password" },
+    { "type": "m.login.token" },
+    { "type": "m.login.cas" },
+    { "type": "m.login.sso",
+      "identity_providers": [
+        { "id": "saml", "name": "SAML", "brand": "saml" },
+        { "id": "cas",  "name": "CAS",  "brand": "cas"  }
+      ] }
+  ]
+}
+```
+
+- ⚠️ **`flows` 的 SSO 项由编译特性决定，不反映运行时配置**（`auth_compat.rs::get_login_flows`）：
+  - `m.login.cas` 与 SAML/CAS 的 `identity_providers` 只要编入 `cas-sso` / `saml-sso` 就出现；
+  - `m.login.oidc` 需要 `builtin-oidc` **且**配置了内置 provider（这一项才看运行时）。
+  - 因此可能出现「`flows` 有 `saml`，但点进去 `GET /login/sso/redirect/saml` 返回 403」
+    （SAML 未启用）或「`cas` provider 存在，但重定向返回 500」（CAS 未配置）。
+  - SDK 应对跳转失败做降级：403/500 时回退到密码登录，而不是崩溃。
+- 返回的 `type` 随构建特性与配置变化。
 - `m.login.application_service` **不在此列表**（与上游一致），但 `POST /login` 仍接受它。
 - 客户端应遍历 `flows` 渲染登录方式，而不是内置固定列表。
+- 跳转端点：`GET /_matrix/client/v3/login/sso/redirect/saml?redirectUrl=` 与
+  `GET /_matrix/client/v3/login/sso/redirect/cas?redirect_after=`
+  （详见 [authentication.md](./authentication.md#saml-20-单点登录)）。
 
 > 注册的 UIA 流程与登录**不同**：`POST /register` 不带 `auth` 时返回 **401** 且体为
 > `{"flows":[{"stages":["m.login.dummy"]},{"stages":["m.login.password"]}],"params":{},"session":"<uuid>"}`。

@@ -13,7 +13,7 @@
       （method, path, registered_by, path_params, query_params）与
       `ledger_export/default.json` 逐条一致；
   R3  `ROUTE_CONTRACT.md` 总览计数 == `ledger_export_sdk/all.json` 的 entry_count
-      （= sdk lane × all profile = 权威计数，当前 1028）；
+      （= sdk lane × all profile = 权威计数，当前 1038）；
   R4  每个 lane 的 profile 单调性（按 `(method, path)`）：default ⊆ worker ⊆ all；
   R5  6 份 fixture 的 schema_version 一致；`saml_enabled` 仅在 sdk lane × all
       profile 为 true（它只在 `saml`/`all` 两个 profile 由

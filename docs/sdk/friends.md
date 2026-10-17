@@ -296,7 +296,7 @@ REST 语义——**不要**直接读写那个房间的状态事件。
 
 | 场景 | 状态 | errcode |
 |---|---|---|
-| 缺 token / 坏 token | 401 | `M_MISSING_TOKEN` / `M_UNKNOWN_TOKEN` |
+| 缺 token / 坏 token / token 过期 | 401 | `M_UNAUTHORIZED`（`Missing or invalid authorization header` / `Invalid token` / `Token expired`） |
 | `user_id` 格式非法 | 400 | `M_INVALID_PARAM` |
 | 请求体字段未知（`deny_unknown_fields`） | 400 | `M_BAD_JSON` |
 | 旧版 `offset` 分页 | 400 | `M_BAD_JSON` |

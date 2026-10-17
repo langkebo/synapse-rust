@@ -257,7 +257,7 @@ interface DeviceKeys {
 
 | 方法 | 端点 | 说明 |
 |---|---|---|
-| `POST` | `/room_keys/version` | 建备份 → `{"version": "1"}`；体 `{"algorithm": "m.megolm_backup.v1.curve25519-aes-sha2", "auth_data": {"public_key": "..."}}` |
+| `POST` | `/room_keys/version` | 建备份 → `{"version": "1760700000"}`（Unix **秒**时间戳字符串）；体 `{"algorithm": "m.megolm_backup.v1.curve25519-aes-sha2", "auth_data": {"public_key": "..."}}` |
 | `GET` | `/room_keys/version` | 最新版本（见下） |
 | `GET` | `/room_keys/version/{version}` | 指定版本 |
 | `PUT` | `/room_keys/version/{version}` | 更新 `auth_data`/`algorithm` |
@@ -270,10 +270,12 @@ interface DeviceKeys {
   "auth_data": { "public_key": "..." },
   "count": 128,
   "etag": "1",
-  "version": "1" }
+  "version": "1760700000" }
 ```
 
-- `auth_data` 必须含 `public_key`，否则 400。
+- `version` 是**创建时刻的 Unix 秒时间戳字符串**（不是自增序号），后续所有 `/room_keys/*` 调用都用它。
+- `auth_data` 必须存在且含非空 `public_key`，否则 400 `M_INVALID_PARAM`。
+- `algorithm` 可省略，默认 `m.megolm_backup.v1.curve25519-aes-sha2`；服务端**不做白名单校验**，原样存储。
 - `etag` 用于乐观并发：写入时可带 `?version=` 与 If-Match 语义（服务端按 `etag` 校验）。
 - 无任何备份版本时 `GET /room_keys/version` → **404 `M_NOT_FOUND`**（`No current backup version`）。
 
@@ -398,7 +400,7 @@ E2EE 客户端必须读这几个 `/sync` 字段（详见 [sync.md](./sync.md)）
 | `device_one_time_keys_count` | 判断是否需要补传 OTK |
 | `device_unused_fallback_key_types` | 判断是否需要补 fallback key |
 | `key_rotation_needed.rooms` | 需要轮换 megolm 的会话 |
-| `device_list_changes` | 与 `device_lists` 同义的兼容字段 |
+| `device_list_changes` | `device_lists` 的带计数投影：`{users:{uid:{change_type,device_count?}}, changed_count, left_count}`；与 `device_lists` 并列下发，不是同义副本 |
 
 ---
 

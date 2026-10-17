@@ -34,6 +34,12 @@ endpoints:
     rule:
       per_second: 5
       burst_size: 10
+  # 验证码状态查询是**只读轮询**端点（客户端等待短信/邮件时反复查询），
+  # 不应与注册尝试共享 5/s 的桶，否则正常轮询会被 429 误伤。
+  - path: "/_matrix/client/v3/register/captcha/status"
+    rule:
+      per_second: 20
+      burst_size: 40
   - path: "/_matrix/client/v3/account/password"
     match_type: "prefix"
     rule:
