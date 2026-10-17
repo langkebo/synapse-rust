@@ -12,6 +12,8 @@ pub mod protocol;
 pub mod runtime_topology;
 /// The `storage` module.
 pub mod storage;
+/// The worker HTTP surface gate (W-F): `owned_route_prefixes` made executable.
+pub mod surface_gate;
 /// The `tcp` module.
 pub mod tcp;
 /// The startup enforcement of the topology verdict (W-B).
@@ -33,6 +35,7 @@ pub use runtime_topology::{
     StreamCardinality, REQUIRED_STREAM_CARDINALITY,
 };
 pub use storage::WorkerStoreApi;
+pub use surface_gate::{prefix_matches, role_owns_path, INSTANCE_AGNOSTIC_PATHS};
 pub use topology_gate::{check_startup_topology, StartupTopologyCheck};
 pub use topology_metrics::{spawn_worker_topology_metrics, WorkerTopologyMetrics, DEFAULT_EVALUATION_INTERVAL};
 pub use topology_validator::{

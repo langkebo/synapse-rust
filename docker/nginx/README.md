@@ -14,15 +14,20 @@
 ## 为什么"分流到 worker"是注释掉的
 
 本仓的 worker 进程（`synapse_worker`）**只提供 `/metrics`**，不提供 Matrix API
-（`src/bin/synapse_worker.rs` 里只有一个 `/metrics` 路由）。并且没有任何生产代码按
-`WorkerType::owned_route_prefixes` 决定哪个实例 serve 哪些路径 —— 全仓检索这些 API
-只有拓扑校验器和 `/topology` 响应在用，`worker.worker_app` 更是从未被读取。
+（`src/bin/synapse_worker.rs` 里只有一个 `/metrics` 路由）。**这一条没有变**：那个二进制
+是队列消费者，不是第二个完整服务。
 
-⇒ 把 `/_matrix/client/*/sync` 打到 `sync_worker` 今天只会得到 502，因为服务端那一半
-不存在。要真做分流，需要先让实例按角色收敛自己的 HTTP 面（审计文档里的 **W-F**）。
+但**另一半在 2026-10-17 补上了**（审计文档的 **W-F**）：路由归属不再是"只有注释在讲"的模型 ——
+`worker.surface_gate: true` 会让非 master 实例对不属于自己角色的路径返回 404 `M_NOT_FOUND`
+（`synapse-services/src/worker/surface_gate.rs`，归属表 = `WorkerType::owned_route_prefixes`）。
 
-`worker-routing.conf` 里保留注释版的原因有两个：它是目标形态的记录；它让"路由归属模型
-超前于运行时"这一差距**在看配置文件时就可见**，而不是只写在文档里。
+⇒ 现在做分流的**正确姿势**是：**用根二进制按角色起实例**（各自 `server.port` +
+`WORKER_INSTANCE_NAME=sync_worker-1` 之类 + `surface_gate: true`），再把这几个端口写进下面的
+upstream。把 `/_matrix/client/*/sync` 打到 `synapse_worker` 仍然是 502 —— 那是进程的职责问题，
+不是准入问题。
+
+`worker-routing.conf` 里保留注释版的原因有两个：它是目标形态的记录；它让"参考栈用的是
+`synapse_worker`、而分流需要根二进制实例"这一差距**在看配置时就可见**，而不是只写在文档里。
 
 ## 用法
 

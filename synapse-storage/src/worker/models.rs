@@ -77,7 +77,7 @@ impl WorkerType {
         }
     }
 
-    /// See [`owned_route_prefixes`].
+    /// The route prefixes this worker type may answer — **enforced** by `worker.surface_gate` (W-F).
     pub fn owned_route_prefixes(&self) -> &'static [&'static str] {
         match self {
             Self::Master => &[
@@ -87,12 +87,12 @@ impl WorkerType {
                 "/_synapse/admin/*",
                 "/_synapse/worker/*",
             ],
-            Self::Frontend => &["/_matrix/client/*"],
+            Self::Frontend => &["/_matrix/client/*", "/_matrix/vendor/v1/*"],
             Self::Background => &["/_synapse/worker/*"],
             Self::EventPersister => &["/_synapse/worker/v1/replication/*"],
-            Self::Synchrotron => &["/_matrix/client/*/sync", "/_matrix/client/v3/sync"],
+            Self::Synchrotron => &["/_matrix/client/*/sync", "/_matrix/vendor/v1/rooms/*/sync"],
             Self::FederationSender => &[],
-            Self::FederationReader => &["/_matrix/federation/*"],
+            Self::FederationReader => &["/_matrix/federation/*", "/_matrix/key/*"],
             Self::MediaRepository => &["/_matrix/media/*"],
             Self::Pusher => &[],
             Self::AppService => &["/_matrix/app/*"],

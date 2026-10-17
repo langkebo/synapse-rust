@@ -3,9 +3,11 @@ use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::common::config::Config;
+use synapse_services::worker::topology_validator::current_instance_worker_type;
+use synapse_services::worker::types::WorkerType;
 use synapse_web::middleware::{
     http_metrics_middleware, payload_too_large_json_middleware, request_debug_middleware, request_timeout_middleware,
-    RequestTimeouts,
+    worker_surface_middleware, RequestTimeouts, WorkerSurfaceGate,
 };
 use synapse_web::routes::create_router;
 use synapse_web::AppState;
@@ -33,7 +35,33 @@ pub fn build_router(app_state: AppState, config: &Config) -> Router {
             .unwrap_or(synapse_common::config::server::DEFAULT_LONG_POLL_REQUEST_TIMEOUT_SECS),
     };
 
+    // W-F: make the worker type's declared route prefixes executable.
+    //
+    // `surface_gate` off (the default) resolves to `Master`, whose predicate
+    // short-circuits to "owns everything" — so the single-process surface is
+    // unchanged and pays one comparison per request. The layer is added
+    // unconditionally (rather than conditionally) so there is exactly one
+    // assembly path to reason about; the predicate, not the wiring, decides.
+    let effective_role = if config.worker.surface_gate {
+        let role = current_instance_worker_type(&config.worker);
+        if role != WorkerType::Master {
+            ::tracing::info!(
+                worker_type = role.as_str(),
+                "Enforcing the worker HTTP surface gate (worker.surface_gate = true): \
+                 this instance answers 404 for paths its role does not own"
+            );
+        }
+        role
+    } else {
+        WorkerType::Master
+    };
+    let surface_gate = WorkerSurfaceGate::new(effective_role);
+
     create_router(app_state)
+        // Innermost layer: a refused path still passes through the HTTP metrics,
+        // timeout and 413-rewriting layers outside it, so refusals are counted
+        // and never masquerade as infrastructure errors.
+        .layer(axum::middleware::from_fn_with_state(surface_gate, worker_surface_middleware))
         // G-1: 全局 body 上限读取权威字段 config.server.max_upload_size，
         // media 路由的 DefaultBodyLimit 也从同一字段派生（见 web/routes/media/mod.rs）
         .layer(RequestBodyLimitLayer::new(config.server.max_upload_size as usize))

@@ -233,7 +233,7 @@ synapse-rust 采用 Cargo Workspace：`[workspace] members` 声明 8 个 crate�
 | | 优势 | 劣势 |
 |---|------|------|
 | **Synapse** | - 成熟的多进程 Worker 架构，生产验证<br>- 灵活的 Python 模块系统，快速迭代<br>- 丰富的模块化扩展点（spam checker, third-party rules 等） | - Worker 进程间通信复杂，部署门槛高<br>- Python 包边界模糊，容易产生循环依赖<br>- 单进程内 GIL 限制并行度 |
-| **synapse-rust** | - Cargo Workspace 编译时依赖检查，杜绝循环依赖<br- 单进程即可利用多核，部署简单<br>- Tower 中间件链类型安全，编译时验证 | - Worker 拓扑**静态校验 + 运行时对账**均已成型（`synapse-services/src/worker/topology_validator.rs`、`synapse-services/src/worker/runtime_topology.rs`），可用 `worker.topology.strict` 拒绝启动、也可 `--validate-topology` 在部署前拿退出码<br>- **缺口**：提供 Matrix API 的实例仍只有根二进制（worker 进程只开 `/metrics`），HTTP 请求分流未做（见 §19.9.1 的 W-F）<br>- 模块化扩展点不如 Python 灵活<br>- 编译时间长（464K 行 Rust 代码全量编译） |
+| **synapse-rust** | - Cargo Workspace 编译时依赖检查，杜绝循环依赖<br- 单进程即可利用多核，部署简单<br>- Tower 中间件链类型安全，编译时验证 | - Worker 拓扑**静态校验 + 运行时对账**均已成型（`synapse-services/src/worker/topology_validator.rs`、`synapse-services/src/worker/runtime_topology.rs`），可用 `worker.topology.strict` 拒绝启动、也可 `--validate-topology` 在部署前拿退出码<br>- **请求分流**：路由准入自 2026-10-17 起**可执行**（`worker.surface_gate`，默认关、master 不受限，见 `synapse-services/src/worker/surface_gate.rs`）；但参考栈里的 worker 进程仍只开 `/metrics`，真分流要以**根二进制**按角色起实例（见 §19.9.1 与 W-F 实施记录）<br>- 模块化扩展点不如 Python 灵活<br>- 编译时间长（464K 行 Rust 代码全量编译） |
 
 ---
 
@@ -766,7 +766,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
   相关历史公告可引 `GHSA-c3hm-hxwf-g5c6`（CVE-2024-34063）与 `GHSA-j8cm-g7r6-hfpq`（CVE-2024-40640）。
   —— 上一版本写作"CVE-2026-XXXX 系列"属占位符，不应出现在正式报告。
 - SDK 封装层存在已知 Bug（URL 重复前缀、batch 接口不存在等）。
-- Worker 拓扑：**静态配置校验 + 运行时对账（声明 vs 注册）均已成型**，且已有强制力（`worker.topology.strict`）、部署前离线入口（`--validate-topology`）、参考多进程栈与端到端烟测、指标/告警/面板；**剩余的唯一结构性缺口是 HTTP 请求分流**——提供 Matrix API 的实例仍只有根二进制，worker 进程只开 `/metrics`，且没有按角色裁剪路由的代码（登记为 W-F）；⇒ 水平扩展对**控制面**成立、对**请求面**不成立（独立审计与实施记录见 [docs/audit/WORKER_TOPOLOGY_VERIFICATION_AUDIT_2026-10-16.md](docs/audit/WORKER_TOPOLOGY_VERIFICATION_AUDIT_2026-10-16.md)）。
+- Worker 拓扑：**静态配置校验 + 运行时对账（声明 vs 注册）均已成型**，且已有强制力（`worker.topology.strict`）、部署前离线入口（`--validate-topology`）、参考多进程栈与端到端烟测、指标/告警/面板；**请求分流的前提已于 2026-10-17 补齐（W-F）**——路由归属不再是注释级声明：`worker.surface_gate` 让非 master 实例对不属于自己角色的路径返回 404 `M_NOT_FOUND`；但**参考栈的进程选型未变**（worker 仍是只开 `/metrics` 的任务消费者），要分流必须以根二进制按角色起实例；⇒ 水平扩展对**控制面**成立、对**请求面**不成立（独立审计与实施记录见 [docs/audit/WORKER_TOPOLOGY_VERIFICATION_AUDIT_2026-10-16.md](docs/audit/WORKER_TOPOLOGY_VERIFICATION_AUDIT_2026-10-16.md)）。
 - **协议正确性风险（v1.4 代码取证重排，优先级最高）**：
   - **【P0｜2026-09-25 重判：部分修复】联邦 `/send_join` 响应**：字段已补 —— `synapse-web/src/routes/federation/membership/join.rs:209-212`（v1）与 `:357-361`（v2）现返回 `state` + `auth_chain`，旧判"仅返回 `event_id`/`room_id`"**已作废**；**但仍不合规**：① 缺规范必需的 `event`（已签名 join 事件），v1 还缺 `[200, {…}]` 包装；② `state`/`auth_chain` 条目是手工拼装（`{event_id, sender, type, content, state_key}`，见 `synapse-services/src/room/messaging/events.rs:74-85`），**无 `hashes`/`signatures`/`depth`/`prev_events`/`auth_events`** ⇒ 合规远端**仍无法验签**。根因（本地事件不落 PDU 图元数据）未动，见 §14.4。**"合规远端无法完成入房"的结论依然成立。**
   - **【新 P0】OIDC 回调提权**：`routes/oidc/sso.rs:215-232` 仅按 `localpart` 命中本地用户即签发令牌，未校验 OIDC subject 绑定；可接管任意同名账号（含 admin）。同仓 `routes/oidc/provider.rs:187-201` 已有正确检查。（2026-09-23 独立复核：属实，两条路径语义不一致。）
@@ -2077,4 +2077,4 @@ W-B 为严格模式 + 离线 `--validate-topology` 入口）。本节改动只�
    （与 `instance_map` 不同——后者至少被拓扑校验与运行时对账消费）。⇒ 声明它不会改变写入行为。
 
 ⇒ 因此本仓**不应**再写作「Worker 拓扑仍在建设中」；准确表述是
-「**控制面已成型并可观测；请求面仍单点，分流待 W-F**」。
+「**控制面已成型并可观测；请求面的准入已可执行（W-F，2026-10-17），但参考栈的进程选型尚未切到根二进制实例**」。

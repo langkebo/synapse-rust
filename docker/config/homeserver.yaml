@@ -228,6 +228,16 @@ worker:
   #     synapse-rust --validate-topology   # 0=可部署 1=配置有错 2=配置加载失败
   topology:
     strict: false
+  # W-F：把「本实例拥有哪些路由」从注释级声明变成**可执行的准入**。
+  #   默认 false ⇒ 与既有部署完全一致（任何实例都能应答全部路由）。
+  #   设 true 且本实例**不是 master** 时，凡不属于其角色前缀的路径一律 404 M_NOT_FOUND；
+  #   前缀表 = `WorkerType::owned_route_prefixes`（`synapse-storage/src/worker/models.rs`），
+  #   匹配规则（`*` = 一段或多段）与放行清单（`/health`、`/metrics`、`/versions`、
+  #   `.well-known/*`）见 `synapse-services/src/worker/surface_gate.rs`。
+  #   ⇒ 反代才能真的把 `/_matrix/client/*/sync` 只打到 sync 实例，而不是"打过去 502"。
+  #   ⚠️ master 永不受限；参考栈里的 `synapse_worker` 进程**只开 /metrics、不读这个开关**。
+  #   要做请求分流，必须以**根二进制**起每个角色（各自 port + WORKER_INSTANCE_NAME）。
+  surface_gate: false
   # ── 参考多进程拓扑（W-D）─────────────────────────────────────────────────
   # 以下键**只在 SYNAPSE__WORKER__ENABLED=true 时生效**：单进程部署走
   # `worker.enabled: false` 的早退分支（校验直接 valid），instance_map 没有消费者。

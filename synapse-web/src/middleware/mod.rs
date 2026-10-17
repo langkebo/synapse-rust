@@ -14,6 +14,8 @@ pub mod http_metrics;
 pub mod rate_limit;
 /// The `security` module.
 pub mod security;
+/// The worker HTTP surface gate (W-F).
+pub mod worker_surface;
 
 pub use auth::*;
 pub use cors::*;
@@ -23,6 +25,7 @@ pub use federation_rate_limit::*;
 pub use http_metrics::*;
 pub use rate_limit::*;
 pub use security::*;
+pub use worker_surface::*;
 
 use axum::http::{HeaderMap, Method};
 use regex::Regex;

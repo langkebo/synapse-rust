@@ -9,8 +9,8 @@
 >
 > **取证方式**：全部为本仓源码实测（标注 `文件:行`）；上游对照取
 > `element-hq/synapse@release-v1.163` 的 `synapse/config/workers.py`（665 行）。
-> 本文件原为**审计与方案**；§4 的 W-A…W-E **五批已实施完毕**，每批附「实施记录」
-> （含实测证据与对原设计的修正）。仍未做的只有 **W-F**（按角色收敛 HTTP 面），见 §4 末。
+> 本文件原为**审计与方案**；§4 的 W-A…W-G **七批已全部实施完毕**，每批附「实施记录」
+> （含实测证据与对原设计的修正）。**W-F（按角色收敛 HTTP 面）于 2026-10-17 落地**，见 §4 末。
 
 ---
 
@@ -152,7 +152,7 @@ MSC4306（线程订阅，已实现线程相关读取面）与媒体隔离（`med
 | 部署形态 | 判定 | 依据 |
 |----------|------|------|
 | **单进程（默认）** | ✅ **可用且零风险** | `worker.enabled=false` 时全部归属判定回落 `Master`（`topology_validator.rs:305-323`），拓扑校验退化为 `validate_topology(&[Master])`（`:359-361`）；A2/A3/A4/B1/B2 等既有功能不经过 worker 面 |
-| **多进程** | ⚠️ **模型与端点可用；但注册路径缺失 ⇒ 真实部署下拓扑恒为空；请求面仍单点** | **W-A…W-E 之后**：运行时对账（W-A）、拒绝启动开关与部署前离线入口（W-B）、负载均衡接线（W-C）、参考多进程栈 + 烟测 + 部署一致性守卫（W-D）、指标/告警/面板（W-E）都已落地。**仍然缺两件**：① **worker 无法自注册**（唯一入口在 admin 鉴权后面、worker 只有共享密钥，且未知 worker 的心跳静默改 0 行）⇒ 注册表在真实部署里恒为空，`runtime.missing` 会列出每个声明实例、`get_active()` 为空、任务派发恒 `None` ⇒ 登记为 **W-G**；② 能提供 Matrix API 的实例**只有根二进制**（worker 进程只开 `/metrics`，见 W-D 实施记录），且没有任何按角色裁剪 HTTP 面的代码（`worker.worker_app` 从未被读取）⇒ **HTTP 请求分流做不到**，`/topology` 里的"谁拥有哪个前缀"仍是**不可执行的声明** ⇒ 登记为 **W-F** |
+| **多进程** | ⚠️ **模型与端点可用；但注册路径缺失 ⇒ 真实部署下拓扑恒为空；请求面仍单点** | **W-A…W-E 之后**：运行时对账（W-A）、拒绝启动开关与部署前离线入口（W-B）、负载均衡接线（W-C）、参考多进程栈 + 烟测 + 部署一致性守卫（W-D）、指标/告警/面板（W-E）都已落地。**仍然缺两件**：① **worker 无法自注册**（唯一入口在 admin 鉴权后面、worker 只有共享密钥，且未知 worker 的心跳静默改 0 行）⇒ 注册表在真实部署里恒为空，`runtime.missing` 会列出每个声明实例、`get_active()` 为空、任务派发恒 `None` ⇒ 登记为 **W-G**；② ~~能提供 Matrix API 的实例**只有根二进制**，且没有任何按角色裁剪 HTTP 面的代码 ⇒ **HTTP 请求分流做不到**，"谁拥有哪个前缀"仍是**不可执行的声明**~~ ⇒ **W-F 已于 2026-10-17 落地**：`worker.surface_gate` 把归属表变成可执行准入（非 master 实例对不属于自己的路径返回 404），`/topology` 的前缀从此可核对；**仍缺的一步不是代码**，而是参考栈要把 worker 换成根二进制实例（实施记录见 §4 末） |
 
 **一句话**：Worker 模块**不是半成品**，是**"有躯干、缺神经"**——静态模型与运行时注册表都在，
 缺的是把两者接起来（对账）、把结论变成强制（strict）、把结论变成可观测（端点 + 指标）。
@@ -503,6 +503,47 @@ W-D 实测暴露的结构性缺口：本仓**只有根二进制提供 Matrix API
    且 `src/server/mod.rs` 已在行数棘轮红名单里 ⇒ 装配逻辑应落新模块而不是继续堆在该文件。
 - **判据**：每个角色只返回自己拥有的前缀（正控）；未拥有的前缀返回 404（负控）；
   `master` 行为逐字节不变（负控）。做完之后 W-D 第 2 条（nginx 分流）才可启用。
+
+**实施状态（2026-10-17）：已落地**，但与上方的原方案有**两处实质偏离**（都更省、更安全）：
+
+1. **用中间件做准入，不裁剪路由表**。原方案说"在路由装配处按角色裁剪"，但那会把一张被
+   契约门禁校验的路由表 fork 成 N 份变体 —— 某个角色少注册一条路由，正是契约链存在的理由。
+   实际做法：路由表原封不动，最内层加一个 `worker_surface_middleware`，非本角色的路径返回
+   404 `M_NOT_FOUND`。⇒ **不触发契约链**（路由字面量零改动），也不用碰 `src/server/mod.rs`。
+2. **不做"行为逐字节不变"的侥幸**：`worker.surface_gate` **默认 false**，且 `master` 在谓词里
+   直接短路放行 ⇒ 单进程部署**零变化、每请求零分配**（`role_owns_path` 第一行就返回）。
+
+**落地物**：
+
+| 文件 | 作用 |
+|------|------|
+| `synapse-services/src/worker/surface_gate.rs` | 纯谓词：`role_owns_path` / `prefix_matches` + `INSTANCE_AGNOSTIC_PATHS`（8 条离线用例） |
+| `synapse-web/src/middleware/worker_surface.rs` | `worker_surface_middleware` + `WorkerSurfaceGate`（3 条用例，含 404 `M_NOT_FOUND` 与 master 不放宽） |
+| `synapse-common/src/config/worker.rs` | `worker.surface_gate`（默认 false） |
+| `src/server/router.rs` | 装配点：`surface_gate` 开启且非 master 时打 info 日志并装载该层 |
+| `tests/unit/worker_surface_gate_tests.rs` | 与**真实路由表**（`declared_ledger_all()`）对账的 5 条守卫 |
+| `docker/config/homeserver.yaml` | 参考配置里的开关与边界说明 |
+
+**`*` 的语义（这条不写清楚就会 404 掉真流量）**：`*` 匹配**一个或多个**段。于是
+`/_matrix/client/*/sync` 同时覆盖 `/_matrix/client/v3/sync`、
+`/_matrix/client/v3/rooms/{room_id}/sync` 与
+`/_matrix/client/unstable/org.matrix.msc3575/sync`。若按"单段通配"实现，sliding sync 与
+room sync 会**同时 404** —— 而这两种形态正是客户端在用的。
+
+**两个被这批判出来的真实缺口（"声明变可执行"的副产品）**：
+- `frontend` 原先只声明 `/_matrix/client/*`，但本仓 **185 条**客户端路由挂在
+  `/_matrix/vendor/v1/*`（前缀命名空间治理的历史结果）⇒ 一个 client_reader 会 404 掉三分之一的
+  客户端 API。已把 `/_matrix/vendor/v1/*` 补进该角色。
+- `synchrotron` 原先声明 `/_matrix/client/*/sync`，但房间级 sync 注册为
+  `/_matrix/vendor/v1/rooms/{room_id}/sync` ⇒ 已补 `/_matrix/vendor/v1/rooms/*/sync`。
+  两条都由 `tests/unit/worker_surface_gate_tests.rs` **对账真实路由表**锁住。
+
+**刻意不做（边界，别当成遗漏）**：
+- `synapse_worker` 二进制**仍然只开 `/metrics`**，不读这个开关。要用上分流，必须以**根二进制**
+  起每个角色（各自 `server.port` + `WORKER_INSTANCE_NAME` + `surface_gate: true`）——
+  这与上游"每个 worker 跑同一个 app、只是职责不同"的形态一致，而把整套服务容器塞进
+  `synapse_worker` 只会让那个进程变成第二份完整服务。
+- `/_synapse/admin/*` **只属 master**：守卫用例对 9 个非 master 角色逐一负控。
 
 ### 排期与其他批次的冲突面
 

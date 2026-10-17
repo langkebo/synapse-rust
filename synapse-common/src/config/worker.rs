@@ -18,6 +18,16 @@ pub struct WorkerConfig {
     #[serde(default)]
     /// `worker_app` field.
     pub worker_app: Option<String>,
+    /// Enforce this instance's HTTP surface from the worker type's declared route prefixes.
+    ///
+    /// Off by default, and never applied to `master`, so existing deployments are
+    /// unchanged. When on, a non-master instance answers `404 M_NOT_FOUND` for any
+    /// path its role does not own — which is what lets a reverse proxy split
+    /// `/_matrix/client/*/sync` to a synchrotron without that instance silently
+    /// serving the whole client API as well.
+    #[serde(default)]
+    /// `surface_gate` field.
+    pub surface_gate: bool,
     #[serde(default)]
     /// `instance_map` field.
     pub instance_map: HashMap<String, InstanceLocationConfig>,
@@ -127,6 +137,7 @@ impl Default for WorkerConfig {
             enabled: false,
             instance_name: default_worker_instance_name(),
             worker_app: None,
+            surface_gate: false,
             instance_map: HashMap::new(),
             stream_writers: StreamWriters::default(),
             replication: ReplicationConfig::default(),

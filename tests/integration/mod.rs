@@ -58,6 +58,7 @@ mod api_verification_relay_tests;
 mod api_widget_tests;
 mod api_worker_heartbeat_stats_tests;
 mod api_worker_replication_auth_tests;
+mod api_worker_surface_gate_tests;
 mod cache_tests;
 mod cleanup_tests;
 #[path = "../common/mod.rs"]
