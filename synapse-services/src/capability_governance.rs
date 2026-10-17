@@ -344,7 +344,11 @@ impl CapabilityGovernance {
     // -----------------------------------------------------------------------
 
     fn room_summary_capability(&self) -> CapabilityFlag {
-        CapabilityFlag::route_surface(self.manifest_has_route("GET", "/_matrix/client/v3/rooms/{room_id}/summary"))
+        // 探针必须指向**实际在服务的**路径：房间摘要挂在
+        // `/_matrix/client/v1/rooms/{room_id}/summary`（以及 vendor 同名路径），
+        // **没有** v3 版本。此前探 `/_matrix/client/v3/...` ⇒ 该能力恒为 false，
+        // 而摘要接口一直可用（客户端据此判定"不支持摘要"会静默降级）。
+        CapabilityFlag::route_surface(self.manifest_has_route("GET", "/_matrix/client/v1/rooms/{room_id}/summary"))
     }
 
     /// MSC3266 (Room summary batch) capability is driven by the route surface:
@@ -389,7 +393,7 @@ impl CapabilityGovernance {
         // served by the room hierarchy endpoint (MSC2946). Derive from the
         // `/_matrix/client/v1/rooms/{room_id}/hierarchy` route registration instead
         // of aliasing `room_summary_capability()`, which tracks a different
-        // endpoint (`/_matrix/client/v3/rooms/{room_id}/summary`).
+        // endpoint (`/_matrix/client/v1/rooms/{room_id}/summary`).
         CapabilityFlag::route_surface(self.manifest_has_route("GET", "/_matrix/client/v1/rooms/{room_id}/hierarchy"))
     }
 
@@ -524,7 +528,10 @@ impl CapabilityGovernance {
 
     #[cfg(test)]
     fn widget_capability(&self) -> CapabilityFlag {
-        CapabilityFlag::route_surface(self.manifest_has_route("POST", "/_matrix/client/v1/widgets"))
+        // 窗口/Widget 的私有一族只在 `/_matrix/client/v1` 之外存续：
+        // `POST /_matrix/vendor/v1/widgets`。探 `/_matrix/client/v1/widgets` 会让
+        // 该能力恒为 false（无此路由），与"功能实际可用"矛盾。
+        CapabilityFlag::route_surface(self.manifest_has_route("POST", "/_matrix/vendor/v1/widgets"))
     }
 
     fn burn_after_read_capability(&self) -> CapabilityFlag {
@@ -725,7 +732,7 @@ mod tests {
     /// capabilities to return `true`.
     fn governance_with_full_routes(config: &Config) -> CapabilityGovernance {
         let routes = vec![
-            ("GET", "/_matrix/client/v3/rooms/{room_id}/summary"),
+            ("GET", "/_matrix/client/v1/rooms/{room_id}/summary"),
             ("POST", "/_synapse/room_summary/v1/summaries/batch"),
             ("GET", "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device"),
             ("GET", "/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"),
@@ -740,7 +747,7 @@ mod tests {
             ("GET", "/_matrix/vendor/v1/friends"),
             ("GET", "/_matrix/vendor/v1/external_services/health"),
             ("GET", "/_matrix/vendor/v1/voice/config"),
-            ("POST", "/_matrix/client/v1/widgets"),
+            ("POST", "/_matrix/vendor/v1/widgets"),
             ("PUT", "/_matrix/vendor/v1/rooms/{room_id}/burn"),
             ("POST", "/_matrix/client/unstable/org.matrix.msc3720/account_status"),
             ("POST", "/_matrix/client/unstable/org.matrix.msc4354/rooms/{room_id}/sticky_events"),
@@ -959,10 +966,40 @@ mod tests {
         );
     }
 
+    /// 能力声明的**探针路径**必须指向真实注册的路由。
+    ///
+    /// 这里两条曾经探的是不存在的路径：
+    /// - `GET /_matrix/client/v3/rooms/{room_id}/summary`（摘要实际在 v1/vendor）；
+    /// - `POST /_matrix/client/v1/widgets`（widgets 实际在 vendor）。
+    ///
+    /// 后果是能力恒为 `false`，而接口一直在服务 —— 声明与实现相反，
+    /// 客户端（含本仓的集成测试 `api_auth_routes_tests`）据此会走降级分支。
+    /// 正向 + 反向对照一起断言，避免"换个常量"式的伪修复。
+    #[test]
+    fn test_room_summary_and_widget_probes_point_at_served_routes() {
+        const SUMMARY_V1: &str = "/_matrix/client/v1/rooms/{room_id}/summary";
+        const SUMMARY_V3_PHANTOM: &str = "/_matrix/client/v3/rooms/{room_id}/summary";
+        const WIDGETS_VENDOR: &str = "/_matrix/vendor/v1/widgets";
+        const WIDGETS_CLIENT_PHANTOM: &str = "/_matrix/client/v1/widgets";
+        let config = Config::default();
+
+        let summary_served = governance_with_routes(&config, vec![("GET", SUMMARY_V1)]);
+        assert!(
+            summary_served.room_summary_capability().enabled(),
+            "摘要路由（v1）在服务 => m.room.summary 必须为 true"
+        );
+        let summary_phantom = governance_with_routes(&config, vec![("GET", SUMMARY_V3_PHANTOM)]);
+        assert!(!summary_phantom.room_summary_capability().enabled(), "v3 摘要路径不存在，不能驱动该能力");
+
+        let widgets_served = governance_with_routes(&config, vec![("POST", WIDGETS_VENDOR)]);
+        assert!(widgets_served.widget_capability().enabled(), "vendor widgets 路由在服务 => widget 能力必须为 true");
+        let widgets_phantom = governance_with_routes(&config, vec![("POST", WIDGETS_CLIENT_PHANTOM)]);
+        assert!(!widgets_phantom.widget_capability().enabled(), "client/v1/widgets 不存在，不能驱动该能力");
+    }
+
     // -----------------------------------------------------------------------
     // SSO provider tests
     // -----------------------------------------------------------------------
-
     #[test]
     #[cfg(not(feature = "cas-sso"))]
     fn test_sso_providers_none_by_default() {

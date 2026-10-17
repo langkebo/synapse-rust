@@ -400,10 +400,10 @@
 | 好友 | `capabilities.io.hula.friends`（**仅认证后**） | `true` |
 | 阅后即焚 | `capabilities.io.hula.burn_after_read`（仅认证后） | `true` |
 | 线程 | `capabilities.m.thread` | `true` |
-| 房间摘要 | `capabilities.m.room.summary` | **`false`（探针缺陷，功能实际可用）** |
+| 房间摘要 | `capabilities.m.room.summary` | `true`（探针已修；旧二进制为 `false`，功能一直可用） |
 | 扩展 profile | `capabilities.m.profile_fields` | `true` |
 | 语音 | `capabilities.m.voice` | `true` |
-| 扩展语音 | `capabilities.io.hula.voice_extended`（仅认证后） | `false`（探针路径不存在） |
+| 扩展语音 | `capabilities.io.hula.voice_extended`（仅认证后） | `false`（`voice-extended` 不在默认特性集；开启后为 `true`） |
 | 延迟事件 | `/versions` 的 `org.matrix.msc4140` | `true` |
 | Sticky | `/versions` 的 `org.matrix.msc4354` | 由路由面推导；早期二进制不声明 |
 | 脱水设备 | `/versions` 的 `org.matrix.msc3814` | `true` |

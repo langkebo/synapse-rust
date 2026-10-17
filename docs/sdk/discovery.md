@@ -156,21 +156,22 @@
 
 ### ⚠️ 已知能力声明缺陷（探针路径与真实路由不一致）
 
-把 `capability_governance.rs` 里全部 19 个 `manifest_has_route(...)` 探针与本仓 959 条真实路由
-逐条对账，有 3 条探针**指向不存在的路径**（其中 1 条不影响对外声明）：
+把 `capability_governance.rs` 里全部 19 个 `manifest_has_route(...)` 探针与真实路由逐条对账
+（默认 profile 959 条 + `voice-extended` 等特性下的路由），**2 条**探针指向了不存在的路径
+（其中 1 条只在测试里用），另有 1 条曾被误判为缺陷（其实是 feature 未启用）：
 
 | 能力 / 函数 | 探针写的路径 | 真实注册的路径 | 对外影响 |
 |---|---|---|---|
-| `m.room.summary`（`room_summary_capability`） | `GET /_matrix/client/v3/rooms/{room_id}/summary` | `GET /_matrix/client/v1/rooms/{room_id}/summary` 与 `GET /_matrix/vendor/v1/rooms/{room_id}/summary` | **恒为 `false`**：能力说没有，但摘要接口实际可用（实测 `GET /_matrix/client/v1/rooms/{id}/summary` 正常返回） |
-| `io.hula.voice_extended`（`voice_extended_capability`） | `GET /_matrix/vendor/v1/voice/config` | 路由表中**没有任何** `/_matrix/vendor/v1/voice/*` 路由 | 恒为 `false`（`voice-extended` 也不在默认 feature 集，行为上一致，属"碰巧正确"） |
-| `widget_capability` | `POST /_matrix/client/v1/widgets` | `POST /_matrix/vendor/v1/widgets` | **无对外影响**：该函数未参与 `/capabilities` 响应，仅测试引用 |
+| `m.room.summary`（`room_summary_capability`） | ~~`GET /_matrix/client/v3/rooms/{room_id}/summary`~~ → **已修为** `GET /_matrix/client/v1/rooms/{room_id}/summary` | 摘要实际注册在 v1 与 vendor 两处，**没有 v3** | 修复前恒为 `false`（能力说没有、接口其实可用）；修复后随路由面为 `true` |
+| `widget_capability` | ~~`POST /_matrix/client/v1/widgets`~~ → **已修为** `POST /_matrix/vendor/v1/widgets` | widgets 只在 vendor 前缀下 | 该函数未参与 `/capabilities` 响应（仅测试用），修复前恒 `false` |
+| `io.hula.voice_extended`（`voice_extended_capability`） | `GET /_matrix/vendor/v1/voice/config` | **存在**，但只在 `voice-extended` feature 下注册（默认特性集不含） | 探针**正确**：默认构建报 `false` 是对的；曾被误判为"路径不存在"——那是拿默认 profile 的路由表去比特性内路由 |
 
-**客户端结论**：房间摘要**不要**看 `m.room.summary`，直接调用
-`GET /_matrix/client/v1/rooms/{room_id}/summary`（或 vendor 同名路径）并以 404 判断可用性。
-`m.room.summary === false` 不代表服务端不支持。
+**客户端结论**：优先按能力位判断；若遇到旧二进制（`m.room.summary` 仍为 `false`），
+可直接调用 `GET /_matrix/client/v1/rooms/{room_id}/summary`，以 404 判断不可用。
 
-> 这三条是**代码缺陷**，已在本文登记；修复需要改探针路径并跑门禁，
-> 不属于文档改动范围。修复后 `m.room.summary` 会变为 `true`（路由存在时）。
+> 前两条已修复（探针改指真实路由，并加回归测试
+> `test_room_summary_and_widget_probes_point_at_served_routes`：正向断言"路由在服务 ⇒ 能力为 true"，
+> 反向断言"幽灵路径不驱动能力"）。部署旧二进制时仍会看到 `false`——那是版本差异，不是文档错误。
 
 ---
 
