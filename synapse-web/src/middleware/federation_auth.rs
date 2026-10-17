@@ -55,19 +55,60 @@ pub async fn federation_auth_middleware(
         return axum::http::StatusCode::NOT_FOUND.into_response();
     }
 
-    let (parts, body) = request.into_parts();
+    let (mut parts, body) = request.into_parts();
 
+    let body_limit = ctx.config.federation.max_transaction_payload.max(64 * 1024) as usize;
+
+    let body_bytes = match axum::body::to_bytes(body, body_limit).await {
+        Ok(b) => b,
+        Err(_) => return ApiError::unauthorized("Invalid request body".to_string()).into_response(),
+    };
+
+    let auth = match authenticate_federation_request(&ctx, &parts, &body_bytes).await {
+        Ok(auth) => auth,
+        Err(response) => return response,
+    };
+
+    parts.extensions.insert(auth);
+
+    let request = Request::from_parts(parts, Body::from(body_bytes));
+    next.run(request).await
+}
+
+/// Authenticate a signed federation request (`X-Matrix` authorization).
+///
+/// This is the shared verification core used by both the regular federation
+/// middleware ([`federation_auth_middleware`]) and the MSC4512 federation proxy
+/// fallback (which forwards Server-Server requests without running the full
+/// federation router). It performs, in order:
+///
+/// 1. `Authorization: X-Matrix ...` header parsing.
+/// 2. Origin format validation (`SecurityValidator::validate_origin`).
+/// 3. Destination matching against the local server name.
+/// 4. Canonicalisation of the signed request bytes (fails closed).
+/// 5. Signature verification (with the verify-key cache).
+/// 6. Signature-timestamp tolerance check (S1).
+/// 7. Replay-protection recording (S1).
+/// 8. Federation admission check (when admission mode is enabled).
+///
+/// On success the authenticated [`FederationRequestAuth`] is returned; on
+/// failure the caller receives a ready-to-send [`Response`].
+pub async fn authenticate_federation_request(
+    ctx: &FederationContext,
+    parts: &axum::http::request::Parts,
+    body_bytes: &[u8],
+) -> Result<FederationRequestAuth, Response> {
     let auth_header =
         parts.headers.get("authorization").or(parts.headers.get("Authorization")).and_then(|h| h.to_str().ok());
 
     let auth_header = match auth_header {
         Some(v) => v,
-        None => return ApiError::unauthorized("Missing federation signature".to_string()).into_response(),
+        None => return Err(ApiError::unauthorized("Missing federation signature".to_string()).into_response()),
     };
 
     let params = match parse_x_matrix_authorization(auth_header) {
         Some(p) => p,
-        None => return ApiError::unauthorized("Missing federation signature".to_string()).into_response(),
+        None => return Err(ApiError::unauthorized("Missing federation signature".to_string()).into_response()),
     };
 
     // S6: Validate origin format before any further processing.
@@ -80,11 +121,11 @@ pub async fn federation_auth_middleware(
             reason = %reason,
             "Federation request rejected: invalid origin format"
         );
-        return ApiError::unauthorized("Invalid federation origin".to_string()).into_response();
+        return Err(ApiError::unauthorized("Invalid federation origin".to_string()).into_response());
     }
 
     if let Some(ref dest) = params.destination {
-        if !is_local_federation_destination(&ctx, dest) {
+        if !is_local_federation_destination(ctx, dest) {
             ::tracing::warn!(
                 target: "security_audit",
                 event = "federation_destination_mismatch",
@@ -93,26 +134,21 @@ pub async fn federation_auth_middleware(
                 origin = params.origin,
                 "Federation request destination does not match local server - possible replay attack"
             );
-            return ApiError::unauthorized("Federation request destination does not match this server".to_string())
-                .into_response();
+            return Err(ApiError::unauthorized(
+                "Federation request destination does not match this server".to_string(),
+            )
+            .into_response());
         }
     }
 
     let destination = ctx.server_name.as_str();
 
-    let body_limit = ctx.config.federation.max_transaction_payload.max(64 * 1024) as usize;
-
-    let body_bytes = match axum::body::to_bytes(body, body_limit).await {
-        Ok(b) => b,
-        Err(_) => return ApiError::unauthorized("Invalid request body".to_string()).into_response(),
-    };
-
     let content = if body_bytes.is_empty() {
         None
     } else {
-        match serde_json::from_slice::<Value>(&body_bytes) {
+        match serde_json::from_slice::<Value>(body_bytes) {
             Ok(v) => Some(v),
-            Err(_) => return ApiError::unauthorized("Invalid JSON body".to_string()).into_response(),
+            Err(_) => return Err(ApiError::unauthorized("Invalid JSON body".to_string()).into_response()),
         }
     };
 
@@ -134,11 +170,11 @@ pub async fn federation_auth_middleware(
         content.as_ref(),
     ) {
         Ok(bytes) => bytes,
-        Err(error) => return error.into_response(),
+        Err(error) => return Err(error.into_response()),
     };
 
     let signature_valid = verify_federation_signature_with_cache(
-        &ctx,
+        ctx,
         &params.origin,
         &params.key,
         &params.sig,
@@ -154,7 +190,7 @@ pub async fn federation_auth_middleware(
             ctx.server_name,
             e
         );
-        return ApiError::unauthorized("Invalid federation signature".to_string()).into_response();
+        return Err(ApiError::unauthorized("Invalid federation signature".to_string()).into_response());
     }
 
     // S1 修复：签名时间戳校验。X-Matrix 头中的 `ts` 参数指示签名时间，
@@ -176,8 +212,8 @@ pub async fn federation_auth_middleware(
                     reason = %reason,
                     "Federation request rejected: signature timestamp out of tolerance"
                 );
-                return ApiError::unauthorized("Federation signature timestamp out of tolerance".to_string())
-                    .into_response();
+                return Err(ApiError::unauthorized("Federation signature timestamp out of tolerance".to_string())
+                    .into_response());
             }
         }
     } else if ctx.config.federation.replay_protection_enabled {
@@ -202,7 +238,7 @@ pub async fn federation_auth_middleware(
                 origin = %params.origin,
                 "Federation request rejected: signature replay detected within protection window"
             );
-            return ApiError::unauthorized("Federation request replay detected".to_string()).into_response();
+            return Err(ApiError::unauthorized("Federation request replay detected".to_string()).into_response());
         }
     }
 
@@ -212,33 +248,32 @@ pub async fn federation_auth_middleware(
         match ctx.admin_federation_service.check_admission(origin_server).await {
             Ok(Some(status)) if status != "active" => {
                 tracing::warn!("Federation request rejected from server '{}' with status '{}'", origin_server, status);
-                return ApiError::forbidden(format!(
+                return Err(ApiError::forbidden(format!(
                     "Server '{origin_server}' is not authorized for federation (status: {status})"
                 ))
-                .into_response();
+                .into_response());
             }
             Ok(None) => {
-                return ApiError::forbidden(format!(
+                return Err(ApiError::forbidden(format!(
                     "Server '{origin_server}' is pending federation admission approval"
                 ))
-                .into_response();
+                .into_response());
             }
             Ok(_) => {}
             Err(e) => {
                 tracing::warn!("Federation admission check failed for server '{}': {}", origin_server, e);
-                return ApiError::internal("Federation admission check failed".to_string()).into_response();
+                return Err(ApiError::internal("Federation admission check failed".to_string()).into_response());
             }
         }
     }
 
-    let mut parts = parts;
-    parts.extensions.insert(FederationRequestAuth { origin: params.origin, key_id: params.key });
-
-    let request = Request::from_parts(parts, Body::from(body_bytes));
-    next.run(request).await
+    Ok(FederationRequestAuth { origin: params.origin, key_id: params.key })
 }
 
-fn is_local_federation_destination(ctx: &FederationContext, destination: &str) -> bool {
+/// Whether `destination` names this homeserver under any of its configured
+/// names. Shared with the MSC4512 `fed_proxy` endpoint, which must refuse to
+/// send a federation request to itself.
+pub(crate) fn is_local_federation_destination(ctx: &FederationContext, destination: &str) -> bool {
     let server_config = &ctx.config.server;
     [
         ctx.server_name.as_str(),

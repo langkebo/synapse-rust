@@ -184,13 +184,7 @@ impl ExtensionServices {
         #[cfg(feature = "burn-after-read")]
         let burn_after_read = {
             let burn_storage = Arc::new(synapse_storage::burn_after_read::BurnAfterReadStorage::new(&infra.pool));
-            Arc::new(BurnAfterReadService::new(
-                burn_storage,
-                rooms.event_writer.clone(),
-                rooms.event_reader.clone(),
-                rooms.event_admission_gate.clone(),
-                infra.config.server.name.clone(),
-            ))
+            Arc::new(BurnAfterReadService::new(burn_storage))
         };
 
         let identity_storage = crate::identity::IdentityStorage::new(&infra.pool);

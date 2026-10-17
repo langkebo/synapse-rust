@@ -11,7 +11,6 @@ use axum::{
     Json, Router,
 };
 use serde_json::{json, Value};
-use synapse_common::current_timestamp_millis;
 
 /// See [`create_burn_after_read_router`].
 pub fn create_burn_after_read_router(state: AppState) -> Router<AppState> {
@@ -152,16 +151,28 @@ pub async fn mark_burn_read(
         return Err(ApiError::bad_request("Burn not enabled for this room".to_string()));
     }
 
-    let delete_ts = current_timestamp_millis() + burn_after_ms;
+    // The event must exist and belong to the room in the path. `get_event`
+    // resolves both checks internally (missing or cross-room → 404), so a
+    // caller cannot point at an event in a room they are not even in.
+    let event = ctx.room_service.messaging().get_event(&room_id, &event_id).await?;
 
-    ctx.burn_after_read
+    // Only the receiving side may start the timer. Allowing the sender to mark
+    // their own event as read would let them drive other members' burn state,
+    // which is exactly the escalation this endpoint must not permit.
+    let sender = event.get("sender").and_then(|v| v.as_str()).unwrap_or_default();
+    if sender == auth_user.user_id {
+        return Err(ApiError::forbidden("You cannot mark your own message as read".to_string()));
+    }
+
+    let will_delete_at = ctx
+        .burn_after_read
         .schedule_burn(&auth_user.user_id, &room_id, &event_id, burn_after_ms)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to schedule burn", e))?;
 
     Ok(Json(json!({
         "success": true,
-        "will_delete_at": delete_ts,
+        "will_delete_at": will_delete_at,
     })))
 }
 

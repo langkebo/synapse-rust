@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, room_id, user_id, event_id, receipt_type, ts, data AS \"data!\"\n            FROM event_receipts\n            WHERE id > $1 AND id <= $2\n            ORDER BY id ASC\n            LIMIT $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "receipt_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "data!",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "4aea15c5b0f930c4d0c4c8d1824ecde49514c52680fe4a8447937aba2063d22b"
+}

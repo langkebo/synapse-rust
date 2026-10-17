@@ -206,6 +206,18 @@ impl PushStoreApi for InMemoryPushStore {
         Ok(())
     }
 
+    async fn count_push_rules_excluding(
+        &self,
+        user_id: &str,
+        scope: &str,
+        kind: &str,
+        rule_id: &str,
+    ) -> Result<i64, sqlx::Error> {
+        let target = (user_id.to_string(), scope.to_string(), kind.to_string(), rule_id.to_string());
+        let rules = self.push_rules.read().await;
+        Ok(rules.keys().filter(|key| key.0 == user_id && **key != target).count() as i64)
+    }
+
     async fn get_push_rule_enabled(
         &self,
         user_id: &str,

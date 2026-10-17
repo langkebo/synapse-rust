@@ -18,6 +18,16 @@ pub struct WorkerConfig {
     #[serde(default)]
     /// `worker_app` field.
     pub worker_app: Option<String>,
+    /// Enforce this instance's HTTP surface from the worker type's declared route prefixes.
+    ///
+    /// Off by default, and never applied to `master`, so existing deployments are
+    /// unchanged. When on, a non-master instance answers `404 M_NOT_FOUND` for any
+    /// path its role does not own — which is what lets a reverse proxy split
+    /// `/_matrix/client/*/sync` to a synchrotron without that instance silently
+    /// serving the whole client API as well.
+    #[serde(default)]
+    /// `surface_gate` field.
+    pub surface_gate: bool,
     #[serde(default)]
     /// `instance_map` field.
     pub instance_map: HashMap<String, InstanceLocationConfig>,
@@ -43,6 +53,12 @@ pub struct WorkerConfig {
     #[serde(default = "default_lock_max_retries")]
     /// `lock_max_retries` field.
     pub lock_max_retries: u32,
+    #[serde(default)]
+    /// `topology` field.
+    pub topology: WorkerTopologyConfig,
+    #[serde(default)]
+    /// `load_balancing` field.
+    pub load_balancing: WorkerLoadBalancingConfig,
 }
 
 fn default_worker_instance_name() -> String {
@@ -57,17 +73,78 @@ fn default_lock_max_retries() -> u32 {
     3
 }
 
+/// Startup enforcement policy for the worker topology (W-B).
+///
+/// The validator (`validate_worker_config`) has always existed and always run at
+/// startup; what it lacked was *teeth*: its verdict went to the log and the
+/// process started anyway. `strict` turns the same verdict into a refusal to
+/// start, so a deployment whose `stream_writers.events` points at an instance
+/// that does not exist fails immediately instead of surfacing later as "events
+/// are not being persisted".
+///
+/// Defaults to `false` on purpose: turning it on by default would abort startup
+/// for every existing deployment that carries a latent (and so far harmless)
+/// configuration problem. The switch is opt-in, matching this repository's
+/// convention that a new switch never changes behaviour until it is set.
+#[derive(Debug, Clone, Copy, Deserialize, Default)]
+pub struct WorkerTopologyConfig {
+    #[serde(default)]
+    /// `strict` field.
+    pub strict: bool,
+}
+
+/// Worker-selection policy (W-C).
+///
+/// Off by default. The fallback selector already filters candidates by health, so
+/// turning load balancing on changes *which* healthy worker is chosen (round
+/// robin over the live set instead of the first healthy candidate) — a behaviour
+/// change a deployment must ask for. Before this, `enable_load_balancer` had no
+/// production call site at all: every task went through the fallback, so the
+/// documented "built-in load balancer" was true of the tests and nothing else.
+#[derive(Debug, Clone, Copy, Deserialize, Default)]
+pub struct WorkerLoadBalancingConfig {
+    #[serde(default)]
+    /// `enabled` field.
+    pub enabled: bool,
+    #[serde(default)]
+    /// `strategy` field.
+    pub strategy: WorkerLoadBalanceStrategy,
+}
+
+/// Which of a type's live workers receives the next task (W-C).
+///
+/// A configuration-level mirror of the service layer's own strategy enum: the
+/// config crate cannot depend on `synapse-services`, so the two are bridged by a
+/// `From` impl there. Variant names are the `snake_case` spellings, which is what
+/// an operator writes in YAML.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerLoadBalanceStrategy {
+    #[default]
+    /// Hand tasks to each live worker in turn.
+    RoundRobin,
+    /// Prefer the worker with the fewest active connections.
+    LeastConnections,
+    /// Round robin, weighted by each worker's reported capacity.
+    WeightedRoundRobin,
+    /// Pick uniformly at random among the live candidates.
+    Random,
+}
+
 impl Default for WorkerConfig {
     fn default() -> Self {
         Self {
             enabled: false,
             instance_name: default_worker_instance_name(),
             worker_app: None,
+            surface_gate: false,
             instance_map: HashMap::new(),
             stream_writers: StreamWriters::default(),
             replication: ReplicationConfig::default(),
             lock_max_retry_interval_ms: default_lock_max_retry_interval_ms(),
             lock_max_retries: default_lock_max_retries(),
+            topology: WorkerTopologyConfig::default(),
+            load_balancing: WorkerLoadBalancingConfig::default(),
         }
     }
 }

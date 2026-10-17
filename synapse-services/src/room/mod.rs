@@ -27,6 +27,8 @@ pub use membership::service::MembershipService;
 /// The `messaging` module.
 pub mod messaging;
 pub use messaging::service::MessagingService;
+/// MSC4140 dispatch of one due delayed event (extracted from the server loop).
+pub mod scheduled_dispatch;
 /// The `service` module.
 pub mod service;
 /// The `space` module.
@@ -48,7 +50,7 @@ pub mod utils;
 pub use crate::typing_service::{TypingService, TypingUser};
 pub use service::{
     decode_room_search_cursor, encode_room_search_cursor, CreateRoomConfig, RoomSearchCursor, RoomSearchOrder,
-    RoomService, RoomServiceConfig, RoomTag, StickyEvent,
+    RoomService, RoomServiceConfig, RoomTag, StickyEvent, MAX_STICKY_DURATION_MS,
 };
 pub use space::SpaceService;
 pub use summary::{

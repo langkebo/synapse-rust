@@ -1396,6 +1396,7 @@ async fn test_msc4140_cancel_succeeds_for_owner() {
         state_key: None,
         content: json!({ "body": "delayed", "msgtype": "m.text" }),
         delay_ms: 60_000,
+        sticky_duration_ms: None,
     };
     let event = storage.create_delayed_event(request).await.unwrap();
 
@@ -1440,6 +1441,7 @@ async fn test_msc4140_restart_succeeds_for_owner() {
         state_key: None,
         content: json!({ "body": "delayed", "msgtype": "m.text" }),
         delay_ms: 60_000,
+        sticky_duration_ms: None,
     };
     let event = storage.create_delayed_event(request).await.unwrap();
     let original_scheduled_ts = event.scheduled_ts;
@@ -1491,6 +1493,7 @@ async fn test_msc4140_non_owner_returns_404() {
         state_key: None,
         content: json!({ "body": "delayed", "msgtype": "m.text" }),
         delay_ms: 60_000,
+        sticky_duration_ms: None,
     };
     let event = storage.create_delayed_event(request).await.unwrap();
 

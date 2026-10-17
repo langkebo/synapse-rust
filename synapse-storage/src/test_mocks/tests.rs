@@ -124,7 +124,7 @@ async fn event_redact_content_replaces_with_empty_json() {
         redacts: None,
     };
     store.create_event(params).await.unwrap();
-    store.redact_event_content("$ev1:example.com", None).await.unwrap();
+    store.redact_event_content("$ev1:example.com", "!r:example.com", None).await.unwrap();
     let redacted = store.get_event("$ev1:example.com").await.unwrap().unwrap();
     assert_eq!(redacted.content, serde_json::json!({}));
 }
@@ -150,6 +150,7 @@ fn make_stream_event(event_id: &str, room_id: &str, stream_ordering: i64) -> cra
         origin: "self".into(),
         stream_ordering: Some(stream_ordering),
         redacts: None,
+        unsigned: None,
     }
 }
 
@@ -672,6 +673,16 @@ impl crate::burn_after_read::BurnAfterReadStoreApi for InMemoryBurnAfterReadStor
         event_id: &str,
         delete_ts: i64,
     ) -> Result<crate::burn_after_read::BurnPendingRow, sqlx::Error> {
+        // Mirror the Postgres upsert: re-scheduling never extends an existing
+        // deadline, and `created_ts` is preserved.
+        let mut pending = self.pending.write().await;
+        if let Some(existing) =
+            pending.iter_mut().find(|p| p.user_id == user_id && p.room_id == room_id && p.event_id == event_id)
+        {
+            existing.delete_ts = existing.delete_ts.min(delete_ts);
+            return Ok(existing.clone());
+        }
+
         let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let row = crate::burn_after_read::BurnPendingRow {
             id,
@@ -685,7 +696,7 @@ impl crate::burn_after_read::BurnAfterReadStoreApi for InMemoryBurnAfterReadStor
             last_error: None,
             is_dead_letter: false,
         };
-        self.pending.write().await.push(row.clone());
+        pending.push(row.clone());
         Ok(row)
     }
 

@@ -846,13 +846,16 @@ impl RoomStorage {
             .map(|(_, s)| s.to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "localhost".to_string());
-        sqlx::query!(
+        // ELEMENTSEC-2026-1729: an alias that already points at another room must
+        // never be silently repointed. `DO NOTHING` turns the clash into a
+        // *detectable* conflict — zero rows affected — which the caller maps to
+        // 409 `M_ROOM_IN_USE` instead of moving the alias out from under its
+        // current room.
+        let result = sqlx::query!(
             r"
             INSERT INTO room_aliases (room_alias, room_id, server_name, created_ts)
             VALUES ($1, $2, $3, $4)
-            ON CONFLICT (room_alias) DO UPDATE SET
-                room_id = EXCLUDED.room_id,
-                created_ts = EXCLUDED.created_ts
+            ON CONFLICT (room_alias) DO NOTHING
             ",
             normalized_alias,
             room_id,
@@ -861,6 +864,14 @@ impl RoomStorage {
         )
         .execute(&*self.pool)
         .await?;
+        if result.rows_affected() == 0 {
+            tracing::warn!(
+                alias = %normalized_alias,
+                room_id,
+                "refusing to repoint room alias already bound to another room"
+            );
+            return Err(sqlx::Error::RowNotFound);
+        }
         Ok(())
     }
 
@@ -1441,6 +1452,43 @@ impl RoomStorage {
                 data: r.data,
             })
             .collect())
+    }
+
+    /// Returns the current head of the `event_receipts` stream (max `id`), or 0
+    /// when no receipt exists. Used as the `new_token` upper bound for MSC2409
+    /// appservice ephemeral (receipt) delivery.
+    pub async fn get_latest_receipt_position(&self) -> Result<i64, sqlx::Error> {
+        let position: Option<i64> = sqlx::query_scalar!(r#"SELECT COALESCE(MAX(id), 0) AS "max!" FROM event_receipts"#)
+            .fetch_optional(&*self.pool)
+            .await?;
+
+        Ok(position.unwrap_or(0))
+    }
+
+    /// Fetches the page of receipt-stream rows in `(from_exclusive, to_inclusive]`,
+    /// ordered ascending, capped at `limit`. Mirrors upstream Synapse's
+    /// `_handle_receipts` paging (bounded batch → `reached_token`).
+    pub async fn get_receipts_since(
+        &self,
+        from_exclusive: i64,
+        to_inclusive: i64,
+        limit: i64,
+    ) -> Result<Vec<ReceiptStreamEntry>, sqlx::Error> {
+        sqlx::query_as!(
+            ReceiptStreamEntry,
+            r#"
+            SELECT id, room_id, user_id, event_id, receipt_type, ts, data AS "data!"
+            FROM event_receipts
+            WHERE id > $1 AND id <= $2
+            ORDER BY id ASC
+            LIMIT $3
+            "#,
+            from_exclusive,
+            to_inclusive,
+            limit
+        )
+        .fetch_all(&*self.pool)
+        .await
     }
 
     /// See [`get_rooms_map`].

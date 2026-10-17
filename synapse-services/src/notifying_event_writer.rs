@@ -27,12 +27,10 @@
 //!
 //! # Known gaps
 //!
-//! - `redact_event_content` receives only an `event_id`, with no `room_id` to
-//!   address a notification to. Redactions surface on the next poll.
 //! - `delete_remote_events_before` is a retention/purge path; it is not latency
 //!   sensitive and is deliberately silent.
 //!
-//! Both gaps degrade to "picked up within the poll timeout", never to a lost
+//! That gap degrades to "picked up within the poll timeout", never to a lost
 //! update, because waiters always re-read the database when they wake.
 
 use async_trait::async_trait;
@@ -146,9 +144,13 @@ impl EventWriter for NotifyingEventWriter {
         self.inner.update_event_unsigned(event_id, unsigned).await
     }
 
-    async fn redact_event_content(&self, event_id: &str, redaction_event_id: Option<&str>) -> Result<(), sqlx::Error> {
-        // No room_id in scope — see "Known gaps" in the module docs.
-        self.inner.redact_event_content(event_id, redaction_event_id).await
+    async fn redact_event_content(
+        &self,
+        event_id: &str,
+        room_id: &str,
+        redaction_event_id: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        self.inner.redact_event_content(event_id, room_id, redaction_event_id).await
     }
 
     async fn create_event_with_graph(

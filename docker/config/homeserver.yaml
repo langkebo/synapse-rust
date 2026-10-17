@@ -213,7 +213,67 @@ admin_registration:
 
 worker:
   enabled: false
-  instance_name: "master"
+  # ⚠️ 必须是 `${WORKER_INSTANCE_NAME:-master}` 而不是字面量 "master"：`resolve_env_variables`
+  # 会解析这个占位符（`worker.instance_name` 在它的覆盖列表里），于是多进程栈里每个 worker
+  # 服务设的 `WORKER_INSTANCE_NAME` 才能真正改变**该进程自称的实例名**
+  # （`current_instance_worker_type` / `global_maintenance_owner` / 注册行都读它）。
+  # 写成字面量时那 5 个 worker 进程会**全部自称 master**，per-service 的实例名成了摆设。
+  # 不设环境变量时解析结果仍是 "master" ⇒ 单进程部署零变化。
+  instance_name: "${WORKER_INSTANCE_NAME:-master}"
+  # W-B：静态拓扑校验发现 error 时是否拒绝启动。
+  #   默认 false = 与既有部署行为一致（校验结果只打 warn，进程照常启动）；
+  #   设为 true 后非法 worker 配置会让进程**启动即失败**，而不是把错误推迟到
+  #   运行期以「事件不落库」的形式暴露。
+  #   部署前想先拿到退出码（不改运行时行为）可用：
+  #     synapse-rust --validate-topology   # 0=可部署 1=配置有错 2=配置加载失败
+  topology:
+    strict: false
+  # W-F：把「本实例拥有哪些路由」从注释级声明变成**可执行的准入**。
+  #   默认 false ⇒ 与既有部署完全一致（任何实例都能应答全部路由）。
+  #   设 true 且本实例**不是 master** 时，凡不属于其角色前缀的路径一律 404 M_NOT_FOUND；
+  #   前缀表 = `WorkerType::owned_route_prefixes`（`synapse-storage/src/worker/models.rs`），
+  #   匹配规则（`*` = 一段或多段）与放行清单（`/health`、`/metrics`、`/versions`、
+  #   `.well-known/*`）见 `synapse-services/src/worker/surface_gate.rs`。
+  #   ⇒ 反代才能真的把 `/_matrix/client/*/sync` 只打到 sync 实例，而不是"打过去 502"。
+  #   ⚠️ master 永不受限；参考栈里的 `synapse_worker` 进程**只开 /metrics、不读这个开关**。
+  #   要做请求分流，必须以**根二进制**起每个角色（各自 port + WORKER_INSTANCE_NAME）。
+  surface_gate: false
+  # ── 参考多进程拓扑（W-D）─────────────────────────────────────────────────
+  # 以下键**只在 SYNAPSE__WORKER__ENABLED=true 时生效**：单进程部署走
+  # `worker.enabled: false` 的早退分支（校验直接 valid），instance_map 没有消费者。
+  # 多进程栈：
+  #   docker compose -f docker/docker-compose.yml -f docker/docker-compose.workers.yml up -d
+  #
+  # ⚠️ 这里**故意不声明 background_worker**：`global_maintenance_owner()` 只要发现有实例
+  #    名为 background_worker，就把「全局维护」（prune / appservice 调度 …）的归属判给它；
+  #    而本仓的 worker 进程（`synapse_worker`）只消费 Redis 队列、**不跑那些维护任务**
+  #    ⇒ 声明它等于让维护静默停摆（master 会因为"归属不是我"而跳过，见
+  #    `should_run_global_maintenance` 的调用点）。要加它，必须让**根二进制**以
+  #    WORKER_INSTANCE_NAME=background_worker 运行，或先统一 duty 模型（审计 W-7）。
+  #
+  # host/port 是**声明**而非连接参数：本仓 instance_map 的消费者只有拓扑校验与运行时
+  # 对账（谁"应该在场"），没有按它建连的代码；容器栈里写服务名便于运维对照。
+  instance_map:
+    client_reader:
+      host: "client_reader"
+      port: 8008
+      tls: false
+    event_persister:
+      host: "event_persister"
+      port: 8008
+      tls: false
+    sync_worker:
+      host: "sync_worker"
+      port: 8008
+      tls: false
+    federation_reader:
+      host: "federation_reader"
+      port: 8008
+      tls: false
+    media_repository:
+      host: "media_repository"
+      port: 8008
+      tls: false
   replication:
     enabled: true
     server_name: "${SERVER_NAME:-localhost}"

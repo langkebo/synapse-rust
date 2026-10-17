@@ -1,0 +1,158 @@
+//! Startup enforcement of the static worker-topology verdict (W-B).
+//!
+//! [`crate::worker::topology_validator::validate_worker_config`] reports; this
+//! module decides what the **startup path** does with that report. Until now the
+//! answer was hard-coded: log it and start anyway, which is how a
+//! `stream_writers.events` pointing at a non-existent instance turned into "events
+//! are not being persisted" hours later instead of a failed boot.
+//!
+//! The decision lives here rather than inline in `src/server/mod.rs` because a
+//! refusal to start is otherwise only observable by booting a real server against
+//! a deliberately broken configuration (database and all). As a plain function
+//! over `WorkerConfig`, both polarities are ordinary unit tests.
+//!
+//! Scope note: this is the **static** half only. Whether the declared instances
+//! are actually *running* cannot be decided at startup — nothing has registered
+//! yet — and is answered later by
+//! [`crate::worker::runtime_topology::evaluate_runtime_topology`].
+
+use synapse_common::config::worker::WorkerConfig;
+
+use crate::worker::topology_validator::{validate_worker_config, TopologyValidation};
+
+/// The startup topology check: the report, plus what the caller must do about it.
+#[derive(Debug, Clone)]
+pub struct StartupTopologyCheck {
+    /// What the static validator found.
+    pub validation: TopologyValidation,
+    /// `Some(reason)` when the caller must refuse to start. `None` means "log it
+    /// and continue", which is the behaviour for every configuration that is
+    /// valid, every configuration whose only findings are warnings, and every
+    /// configuration when `worker.topology.strict` is off (the default).
+    pub fatal: Option<String>,
+}
+
+/// Run the static validator and apply the configured enforcement policy.
+///
+/// `worker.topology.strict` only escalates **errors**: warnings stay advisory
+/// even under `strict`, matching [`TopologyValidation::valid`] — which is false
+/// exactly when there is an error — so the pre-deploy check
+/// (`--validate-topology`) and the startup path cannot disagree about whether a
+/// given configuration is deployable.
+pub fn check_startup_topology(config: &WorkerConfig) -> StartupTopologyCheck {
+    let validation = validate_worker_config(config);
+
+    // `valid` is false iff `errors` is non-empty, so this single condition cannot
+    // fire on a warning-only report.
+    let fatal = if !validation.valid && config.topology.strict { Some(validation.errors.join("; ")) } else { None };
+
+    StartupTopologyCheck { validation, fatal }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use synapse_common::config::worker::{ReplicationConfig, StreamWriters};
+
+    /// A worker-enabled configuration that the static validator rejects:
+    /// `instance_map` is populated while replication is off, which is the
+    /// multi-worker topology's most common missing switch.
+    fn invalid_config(strict: bool) -> WorkerConfig {
+        let mut config = WorkerConfig { enabled: true, instance_name: "master".to_string(), ..WorkerConfig::default() };
+        config.instance_map.insert(
+            "event_persister".to_string(),
+            synapse_common::config::worker::InstanceLocationConfig {
+                host: "127.0.0.1".to_string(),
+                port: 9102,
+                tls: false,
+            },
+        );
+        config.replication = ReplicationConfig::default();
+        config.topology.strict = strict;
+        config
+    }
+
+    /// A worker-enabled configuration the validator accepts, with replication on
+    /// and a real secret so the presence check passes.
+    fn valid_config(strict: bool) -> WorkerConfig {
+        let mut config = WorkerConfig { enabled: true, instance_name: "master".to_string(), ..WorkerConfig::default() };
+        config.instance_map.insert(
+            "event_persister".to_string(),
+            synapse_common::config::worker::InstanceLocationConfig {
+                host: "127.0.0.1".to_string(),
+                port: 9102,
+                tls: false,
+            },
+        );
+        config.replication.enabled = true;
+        config.replication.http.enabled = true;
+        config.replication.http.secret = Some("a-sufficiently-long-test-secret-value".to_string());
+        config.stream_writers =
+            StreamWriters { events: vec!["event_persister".to_string()], ..StreamWriters::default() };
+        config.topology.strict = strict;
+        config
+    }
+
+    #[test]
+    fn an_invalid_configuration_is_fatal_under_strict() {
+        // The positive control for W-B: this is the behaviour the switch exists for.
+        let check = check_startup_topology(&invalid_config(true));
+
+        assert!(!check.validation.valid, "the fixture must actually be invalid");
+        let reason = check.fatal.expect("strict must refuse to start on an invalid topology");
+        assert!(reason.contains("replication"), "the reason must carry the validator's message, got: {reason}");
+    }
+
+    #[test]
+    fn an_invalid_configuration_only_warns_by_default() {
+        // The negative control: without the switch, behaviour is exactly what it
+        // is today — the report is produced, and startup continues.
+        let check = check_startup_topology(&invalid_config(false));
+
+        assert!(!check.validation.valid);
+        assert!(check.fatal.is_none(), "strict is off, so startup must not be refused");
+    }
+
+    #[test]
+    fn a_valid_configuration_is_never_fatal_even_under_strict() {
+        let check = check_startup_topology(&valid_config(true));
+
+        assert!(check.validation.valid, "fixture must be valid, errors: {:?}", check.validation.errors);
+        assert!(check.fatal.is_none());
+    }
+
+    #[test]
+    fn warnings_alone_are_not_escalated_by_strict() {
+        // An instance name that maps to no known worker type yields a warning, not
+        // an error. `strict` escalates errors only, so this must still start: the
+        // two verdicts (pre-deploy `--validate-topology` and startup) share one
+        // definition of "deployable", which is `valid`.
+        let mut config = valid_config(true);
+        config.instance_map.insert(
+            "not_a_known_worker_type".to_string(),
+            synapse_common::config::worker::InstanceLocationConfig {
+                host: "127.0.0.1".to_string(),
+                port: 9103,
+                tls: false,
+            },
+        );
+
+        let check = check_startup_topology(&config);
+
+        assert!(check.validation.valid, "warnings must not make the report invalid");
+        assert!(!check.validation.warnings.is_empty(), "the fixture must produce a warning");
+        assert!(check.fatal.is_none());
+    }
+
+    #[test]
+    fn a_disabled_worker_block_is_valid_regardless_of_strictness() {
+        // Monolith deployments must not be affected by the switch at all.
+        let mut config = WorkerConfig::default();
+        config.topology.strict = true;
+
+        let check = check_startup_topology(&config);
+
+        assert!(check.validation.valid);
+        assert!(check.fatal.is_none());
+    }
+}

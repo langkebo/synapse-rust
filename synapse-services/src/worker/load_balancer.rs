@@ -19,6 +19,24 @@ pub enum LoadBalanceStrategy {
     Random,
 }
 
+/// Bridge the configuration's strategy spelling to this crate's strategy type.
+///
+/// The mirror exists because `synapse-common` (which owns `WorkerConfig`) cannot
+/// depend on `synapse-services`; the conversion lives here, next to the target
+/// type, so a variant added on either side fails to compile instead of silently
+/// mapping to the default.
+impl From<synapse_common::config::worker::WorkerLoadBalanceStrategy> for LoadBalanceStrategy {
+    fn from(strategy: synapse_common::config::worker::WorkerLoadBalanceStrategy) -> Self {
+        use synapse_common::config::worker::WorkerLoadBalanceStrategy as ConfigStrategy;
+        match strategy {
+            ConfigStrategy::RoundRobin => Self::RoundRobin,
+            ConfigStrategy::LeastConnections => Self::LeastConnections,
+            ConfigStrategy::WeightedRoundRobin => Self::WeightedRoundRobin,
+            ConfigStrategy::Random => Self::Random,
+        }
+    }
+}
+
 /// The `WorkerLoadStats` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkerLoadStats {

@@ -533,6 +533,7 @@ matrixrtc
 matrixrtcstorage
 matview
 matviews
+mautrix
 mcp
 mcs
 md
@@ -682,6 +683,7 @@ psycopg
 purgetimer
 pushdevice
 pushgateway
+pushkey
 pushnotificationservice
 pushrules
 pushstoreapi

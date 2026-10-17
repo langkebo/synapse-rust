@@ -1,16 +1,14 @@
-//! Burn-after-read redaction must record the burn's own `m.room.redaction`
-//! event, not the burning user's id.
+//! Burn-after-read is a per-reader time registry, not a room-wide deleter.
 //!
-//! `events.redacted_by` is a self-referential FK to `events.event_id`
-//! (`fk_events_redacted_by`). The burn-after-read service *does* persist a real
-//! `m.room.redaction` event, so the correct value is that event's id — but the
-//! service used to call `redact_event_content(..., Some(user_id))` **before**
-//! creating the redaction event, so the UPDATE always failed with a foreign-key
-//! violation and the burned message's content was never stripped.
+//! A room event has exactly one copy shared by every member, so redacting it
+//! when *one* member's timer expires would delete the message for everyone
+//! (the "one reader deletes for all" escalation). The server therefore only
+//! records the burn (pending row + audit log) and never touches the event;
+//! each reader's client performs the local deletion. Physical deletion stays
+//! with the retention service, which is a room-wide policy.
 //!
-//! These tests run against the real (isolated, migrated) schema, where the FK
-//! is live, and against the real `BurnAfterReadStorage` + `EventStorage`
-//! implementations.
+//! These tests run against the real (isolated, migrated) schema and the real
+//! `BurnAfterReadStorage` implementation.
 
 use axum::{
     body::Body,
@@ -21,7 +19,6 @@ use sqlx::Row;
 use std::sync::Arc;
 use synapse_services::burn_after_read_service::BurnAfterReadService;
 use synapse_storage::burn_after_read::{BurnAfterReadStorage, BurnAfterReadStoreApi};
-use synapse_storage::event::{EventReader, EventStorage, EventWriter};
 use tower::ServiceExt;
 
 /// Register a client user, returning `(access_token, user_id)`.
@@ -86,15 +83,7 @@ async fn burn_send_message(app: &axum::Router, token: &str, room_id: &str) -> St
 /// Build a real `BurnAfterReadService` over the isolated test pool.
 fn burn_service(pool: &Arc<sqlx::PgPool>) -> BurnAfterReadService {
     let storage: Arc<dyn BurnAfterReadStoreApi> = Arc::new(BurnAfterReadStorage::new(pool));
-    let writer: Arc<dyn EventWriter> = Arc::new(EventStorage::new(pool, "localhost".to_string()));
-    let reader: Arc<dyn EventReader> = Arc::new(EventStorage::new(pool, "localhost".to_string()));
-    BurnAfterReadService::new(
-        storage,
-        writer,
-        reader,
-        Arc::new(synapse_services::test_mocks::FakeEventAdmissionGate::new()),
-        "localhost".to_string(),
-    )
+    BurnAfterReadService::new(storage)
 }
 
 /// `(is_redacted, redacted_by)` for one event.
@@ -107,22 +96,20 @@ async fn burn_redaction_state(pool: &sqlx::PgPool, event_id: &str) -> (bool, Opt
     (row.get::<bool, _>("is_redacted"), row.get::<Option<String>, _>("redacted_by"))
 }
 
-/// The service's own redaction event id in `room_id`.
-async fn burn_redaction_event_id(pool: &sqlx::PgPool, room_id: &str) -> String {
-    sqlx::query_scalar(
-        "SELECT event_id FROM events WHERE room_id = $1 AND event_type = 'm.room.redaction' \
-         ORDER BY origin_server_ts DESC, event_id DESC LIMIT 1",
-    )
-    .bind(room_id)
-    .fetch_one(pool)
-    .await
-    .expect("the burn service must have persisted an m.room.redaction event")
+/// Number of audit rows recorded for one `(user, event)` pair.
+async fn burn_log_count(pool: &sqlx::PgPool, user_id: &str, event_id: &str) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM burn_after_read_log WHERE user_id = $1 AND event_id = $2")
+        .bind(user_id)
+        .bind(event_id)
+        .fetch_one(pool)
+        .await
+        .expect("counting the burn log must succeed")
 }
 
-/// The batch sweep (`process_expired_burns`) must persist the redaction event
-/// first, then point `redacted_by` at it — not at `row.user_id`.
+/// The sweep must mark the row processed and write the audit entry, but leave
+/// the shared room event untouched.
 #[tokio::test]
-async fn burn_expired_sweep_records_its_redaction_event_id() {
+async fn burn_expired_sweep_logs_and_marks_without_redacting_the_event() {
     let Some((app, pool, _cache)) = super::setup_fresh_test_app_with_pool().await else {
         return;
     };
@@ -136,21 +123,20 @@ async fn burn_expired_sweep_records_its_redaction_event_id() {
     service.schedule_burn(&user_id, &room_id, &event_id, -60_000).await.expect("schedule_burn must succeed");
 
     let expired = service.process_expired_burns().await.expect("the sweep must not fail");
-    assert_eq!(expired.len(), 1, "the expired burn must be processed, not skipped on a failed redact");
+    assert_eq!(expired.len(), 1, "the expired burn must be reported to the caller");
+    assert_eq!(expired[0].user_id, user_id);
+    assert_eq!(expired[0].event_id, event_id);
 
-    let redaction_event_id = burn_redaction_event_id(&pool, &room_id).await;
     let (is_redacted, redacted_by) = burn_redaction_state(&pool, &event_id).await;
-    assert!(is_redacted, "the burned message's content must actually be redacted");
-    assert_eq!(
-        redacted_by.as_deref(),
-        Some(redaction_event_id.as_str()),
-        "redacted_by must be the burn's own m.room.redaction event id, not the burning user"
-    );
+    assert!(!is_redacted, "one reader's burn must not redact the event for the whole room");
+    assert_eq!(redacted_by, None, "nothing may point at a redaction event");
+
+    assert_eq!(burn_log_count(&pool, &user_id, &event_id).await, 1, "the burn must be audited");
 }
 
-/// The single-message path (`delete_burned_message`) has the same contract.
+/// The single-message path has the same contract: audit only, no redaction.
 #[tokio::test]
-async fn burn_delete_burned_message_records_its_redaction_event_id() {
+async fn burn_delete_burned_message_logs_without_redacting_the_event() {
     let Some((app, pool, _cache)) = super::setup_fresh_test_app_with_pool().await else {
         return;
     };
@@ -162,14 +148,11 @@ async fn burn_delete_burned_message_records_its_redaction_event_id() {
     service
         .delete_burned_message(&user_id, &room_id, &event_id)
         .await
-        .expect("delete_burned_message must succeed (log_burned_event is the only fallible step)");
+        .expect("delete_burned_message only writes the audit row, so it must succeed");
 
-    let redaction_event_id = burn_redaction_event_id(&pool, &room_id).await;
     let (is_redacted, redacted_by) = burn_redaction_state(&pool, &event_id).await;
-    assert!(is_redacted, "the burned message's content must actually be redacted");
-    assert_eq!(
-        redacted_by.as_deref(),
-        Some(redaction_event_id.as_str()),
-        "redacted_by must be the burn's own m.room.redaction event id, not the burning user"
-    );
+    assert!(!is_redacted, "a per-user burn must not redact the shared room event");
+    assert_eq!(redacted_by, None, "nothing may point at a redaction event");
+
+    assert_eq!(burn_log_count(&pool, &user_id, &event_id).await, 1, "the burn must be audited");
 }

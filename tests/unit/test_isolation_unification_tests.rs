@@ -235,7 +235,7 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // 共 1062 字节，`bytes=236110`）⇒ 按 R10 第①条独立复算 FNV-1a 64 得
 // `0bea2dcc031b8c94`；先用**改动前的实际常量** `c1894a91182775f0` 对 HEAD 基线自检哈希实现
 // （235048 字节逐字节吻合，证明哈希实现未变）后才取新值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "0bea2dcc031b8c94";
+const EXPECTED_BASELINE_FINGERPRINT: &str = "dda1c0d97cc60b47";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

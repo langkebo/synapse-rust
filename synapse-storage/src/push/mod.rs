@@ -158,6 +158,24 @@ pub trait PushStoreApi: Send + Sync {
     async fn delete_push_rule(&self, user_id: &str, scope: &str, kind: &str, rule_id: &str)
         -> Result<u64, sqlx::Error>;
 
+    /// Count a user's push rules, excluding one `(scope, kind, rule_id)` triple.
+    ///
+    /// Backs the per-user push rule count limit (ELEMENTSEC-2026-1071). Excluding
+    /// the target rule lets an *update* of an already-counted rule through while
+    /// still capping the user's total at the limit.
+    ///
+    /// A dedicated `COUNT(*)` (served by `idx_push_rules_user`) is used rather
+    /// than [`Self::get_all_push_rules`] because the latter would materialise
+    /// every rule body on each write — the exact amplification the limit exists
+    /// to prevent.
+    async fn count_push_rules_excluding(
+        &self,
+        user_id: &str,
+        scope: &str,
+        kind: &str,
+        rule_id: &str,
+    ) -> Result<i64, sqlx::Error>;
+
     /// See [`update_push_rule_actions`].
     async fn update_push_rule_actions(
         &self,
@@ -315,6 +333,17 @@ impl PushStorage {
         Ok(result.rows_affected())
     }
 
+    /// Remove **every** push rule belonging to `user_id`, returning the row count.
+    ///
+    /// Counterpart to [`Self::delete_all_pushers_for_user`] and used by the same
+    /// caller: [`Self::delete_push_rule`] keys on `(user_id, scope, kind, rule_id)`,
+    /// so it cannot reach rules the caller does not name. Deactivation needs all of
+    /// them — a deactivated account's rules are dead weight that nothing else clears.
+    pub async fn delete_all_push_rules_for_user(&self, user_id: &str) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query!("DELETE FROM push_rules WHERE user_id = $1", user_id).execute(&*self.pool).await?;
+        Ok(result.rows_affected())
+    }
+
     // ── push_rules ───────────────────────────────────────────────────────
 
     /// See [`upsert_push_rule`].
@@ -370,6 +399,29 @@ impl PushStorage {
         .execute(&*self.pool)
         .await?;
         Ok(result.rows_affected())
+    }
+
+    /// See [`count_push_rules_excluding`].
+    pub async fn count_push_rules_excluding(
+        &self,
+        user_id: &str,
+        scope: &str,
+        kind: &str,
+        rule_id: &str,
+    ) -> Result<i64, sqlx::Error> {
+        let count = sqlx::query_scalar!(
+            r#"
+            SELECT COUNT(*) AS "count!" FROM push_rules
+            WHERE user_id = $1 AND NOT (scope = $2 AND kind = $3 AND rule_id = $4)
+            "#,
+            user_id,
+            scope,
+            kind,
+            rule_id,
+        )
+        .fetch_one(&*self.pool)
+        .await?;
+        Ok(count)
     }
 
     /// See [`update_push_rule_actions`].
@@ -641,6 +693,16 @@ impl PushStoreApi for PushStorage {
         actions: &Value,
     ) -> Result<(), sqlx::Error> {
         self.update_push_rule_actions(user_id, scope, kind, rule_id, actions).await
+    }
+
+    async fn count_push_rules_excluding(
+        &self,
+        user_id: &str,
+        scope: &str,
+        kind: &str,
+        rule_id: &str,
+    ) -> Result<i64, sqlx::Error> {
+        self.count_push_rules_excluding(user_id, scope, kind, rule_id).await
     }
 
     async fn get_push_rule_enabled(

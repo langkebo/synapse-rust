@@ -13,6 +13,14 @@ use synapse_common::current_timestamp_millis;
 /// enforces for `org.matrix.msc4354.sticky_duration_ms`.
 pub const MAX_STICKY_DURATION_MS: i64 = 3_600_000;
 
+/// The `unsigned` key a resolved sticky TTL is recorded under.
+///
+/// `unsigned` sits outside the signed bytes and the content hash, so writing it
+/// after the event is persisted cannot invalidate the event's signature — which is
+/// why both the immediate surfaces (`/send`, `/state`) and the delayed-event
+/// dispatcher write here rather than into `content`.
+pub const STICKY_TTL_UNSIGNED_FIELD: &str = "msc4354_sticky_duration_ttl_ms";
+
 /// A client-requested sticky duration was not acceptable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StickyDurationError {
@@ -131,6 +139,14 @@ impl StickyEventStorage {
     /// `sticky_duration_ms` is the optional MSC4354 duration
     /// (`org.matrix.msc4354.sticky_duration_ms`). `None` means "never expires"
     /// and is stored as SQL NULL in both `sticky_duration_ms` and `expires_at`.
+    ///
+    /// # 单写者假设（C3，§19.5 批次 C）
+    ///
+    /// 唯一键 `(room_id, user_id, event_type)` 保证同一 sticky 事件在当前**单写者**模型
+    /// （本进程独占写 `room_sticky_events`）下恒为一行，因此同一事件不会在同一 `/sync`
+    /// 响应里重复出现。**已知边界（本轮未做）**：若将来引入多写者 / 按房间分片（多进程各自
+    /// 写 sticky），唯一键只能约束库内单行，**不保证**同一 sticky 事件不会经不同分片重复
+    /// 出现在多个 sync 响应中；届时需要按分片位置去重或改用 per-room 广播抄本。当前部署形态下不需要。
     ///
     /// # Errors
     ///
@@ -765,7 +781,7 @@ mod db_tests {
             "both events must start out pinned, otherwise the assertion below is vacuous"
         );
 
-        events.redact_event_content(pinned_event, None).await.expect("redaction should succeed");
+        events.redact_event_content(pinned_event, room_id, None).await.expect("redaction should succeed");
 
         assert!(
             storage

@@ -24,9 +24,7 @@ pub fn room_event_to_json(event: &RoomEvent) -> Value {
         "origin_server_ts": event.origin_server_ts,
         "event_id": event.event_id,
         "room_id": event.room_id,
-        "unsigned": {
-            "age": age
-        }
+        "unsigned": merged_unsigned(event.unsigned.as_ref(), age)
     });
     if let Some(ref state_key) = event.state_key {
         obj["state_key"] = json!(state_key);
@@ -47,12 +45,24 @@ pub fn state_event_to_json(event: &StateEvent) -> Value {
         "origin_server_ts": event.origin_server_ts,
         "event_id": event.event_id,
         "room_id": event.room_id,
-        "unsigned": {
-            "age": age
-        }
+        "unsigned": merged_unsigned(event.unsigned.as_ref(), age)
     });
     if let Some(ref state_key) = event.state_key {
         obj["state_key"] = json!(state_key);
     }
     obj
+}
+
+/// Build the client-visible `unsigned` block: the server-computed `age` plus
+/// whatever the stored JSONB `unsigned` carried (e.g. the
+/// `msc4354_sticky_duration_ttl_ms` sticky TTL written by the `/send` hint).
+///
+/// `age` is authoritative and always wins over a stale stored value.
+pub(crate) fn merged_unsigned(stored: Option<&Value>, age: i64) -> Value {
+    let mut map = match stored {
+        Some(Value::Object(map)) => map.clone(),
+        _ => serde_json::Map::new(),
+    };
+    map.insert("age".to_string(), json!(age));
+    Value::Object(map)
 }

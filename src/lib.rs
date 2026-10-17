@@ -14,6 +14,8 @@
 /// The `cache` module.
 pub use synapse_cache as cache;
 pub use synapse_services::auth;
+/// Offline command-line entry points (`--validate-topology`, W-B).
+pub mod cli;
 /// The `common` module.
 pub mod common;
 /// The `e2ee` module.

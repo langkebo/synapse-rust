@@ -220,6 +220,20 @@ pub trait FederationClientApi: Send + Sync {
 
     /// Quick server reachability check via GET /version.
     async fn health_check(&self, destination: &str) -> bool;
+
+    /// MSC4512: sign and send an arbitrary federation request on behalf of an
+    /// appservice, returning the remote status code and the decoded body.
+    ///
+    /// `path` includes the query string. A non-2xx remote response is returned
+    /// as `Ok` so the caller can relay it; only signing / transport failures
+    /// are `Err`.
+    async fn proxy_federation_request(
+        &self,
+        destination: &str,
+        method: &str,
+        path: &str,
+        body: Option<&str>,
+    ) -> Result<(u16, serde_json::Value), FederationClientError>;
 }
 
 // ============================================================================
@@ -460,6 +474,16 @@ impl FederationClientApi for FederationClient {
 
     async fn health_check(&self, destination: &str) -> bool {
         FederationClient::health_check(self, destination).await
+    }
+
+    async fn proxy_federation_request(
+        &self,
+        destination: &str,
+        method: &str,
+        path: &str,
+        body: Option<&str>,
+    ) -> Result<(u16, serde_json::Value), FederationClientError> {
+        FederationClient::proxy_federation_request(self, destination, method, path, body).await
     }
 }
 

@@ -22,7 +22,7 @@ impl EventStorage {
                    COALESCE(depth, 0) AS "depth!", origin_server_ts,
                    origin_server_ts AS "processed_ts",
                    COALESCE(not_before, 0) AS "not_before!", status,
-                   COALESCE(origin, 'self') AS "origin!", stream_ordering, redacts
+                   COALESCE(origin, 'self') AS "origin!", stream_ordering, redacts, unsigned
             FROM events WHERE event_id = $1
             "#,
             event_id,

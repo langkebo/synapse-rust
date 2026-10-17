@@ -68,6 +68,7 @@ impl InMemoryEventStore {
             origin: String::new(),
             stream_ordering: None,
             redacts: params.redacts.clone(),
+            unsigned: None,
         };
         self.events.write().await.insert(params.event_id, event.clone());
         Ok(event)
@@ -114,9 +115,17 @@ impl InMemoryEventStore {
     }
 
     /// See [`redact_event_content`].
-    pub async fn redact_event_content(&self, event_id: &str, _redaction_event_id: Option<&str>) -> Result<(), String> {
+    pub async fn redact_event_content(
+        &self,
+        event_id: &str,
+        room_id: &str,
+        _redaction_event_id: Option<&str>,
+    ) -> Result<(), String> {
         let mut events = self.events.write().await;
         if let Some(event) = events.get_mut(event_id) {
+            if event.room_id != room_id {
+                return Ok(());
+            }
             event.content = serde_json::json!({});
             event.event_type = "m.room.redaction".to_string();
         }
@@ -1093,6 +1102,7 @@ impl crate::event::writer::EventWriter for InMemoryEventStore {
             origin: "self".to_string(),
             stream_ordering: Some(0),
             redacts: params.redacts,
+            unsigned: None,
         };
         self.events.write().await.insert(event.event_id.clone(), event.clone());
         Ok(event)
@@ -1115,9 +1125,17 @@ impl crate::event::writer::EventWriter for InMemoryEventStore {
         Ok(())
     }
 
-    async fn redact_event_content(&self, event_id: &str, _redaction_event_id: Option<&str>) -> Result<(), sqlx::Error> {
+    async fn redact_event_content(
+        &self,
+        event_id: &str,
+        room_id: &str,
+        _redaction_event_id: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
         let mut events = self.events.write().await;
         if let Some(event) = events.get_mut(event_id) {
+            if event.room_id != room_id {
+                return Ok(());
+            }
             event.content = serde_json::json!({});
         }
         Ok(())
@@ -1147,6 +1165,7 @@ impl crate::event::writer::EventWriter for InMemoryEventStore {
             origin: String::new(),
             stream_ordering: None,
             redacts: params.redacts,
+            unsigned: None,
         };
         self.events.write().await.insert(event.event_id.clone(), event.clone());
         Ok(event)
@@ -1279,6 +1298,7 @@ impl crate::event::writer::EventWriter for InMemoryEventStore {
                 origin: String::new(),
                 stream_ordering: None,
                 redacts: None,
+                unsigned: None,
             },
         );
         Ok(())
@@ -1342,6 +1362,7 @@ impl crate::event::writer::EventWriter for InMemoryEventStore {
             origin: "self".to_string(),
             stream_ordering: Some(0),
             redacts: params.redacts,
+            unsigned: None,
         };
         self.events.write().await.insert(event.event_id.clone(), event.clone());
         Ok(event)
@@ -1369,6 +1390,7 @@ mod tests {
             origin: String::new(),
             stream_ordering: None,
             redacts: None,
+            unsigned: None,
         }
     }
 

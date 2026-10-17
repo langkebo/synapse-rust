@@ -60,6 +60,8 @@ pub mod moderation;
 pub mod module;
 /// The `msc4108_rendezvous` module.
 pub mod msc4108_rendezvous;
+/// The `msc4512_proxy` module.
+pub mod msc4512_proxy;
 /// The `oidc` module.
 pub mod oidc;
 /// The `pinned` module.

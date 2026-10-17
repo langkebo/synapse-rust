@@ -25,7 +25,7 @@ pub use synapse_storage::room::{
     decode_room_search_cursor, encode_room_search_cursor, RoomSearchCursor, RoomSearchOrder,
 };
 pub use synapse_storage::room_tag::RoomTag;
-pub use synapse_storage::sticky_event::StickyEvent;
+pub use synapse_storage::sticky_event::{StickyEvent, MAX_STICKY_DURATION_MS, STICKY_TTL_UNSIGNED_FIELD};
 
 /// The `CreateRoomConfig` struct.
 #[derive(Debug, Default, Clone)]

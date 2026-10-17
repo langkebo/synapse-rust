@@ -90,6 +90,21 @@ pub struct ExperimentalConfig {
     #[serde(default)]
     /// `msc4075_enabled` field.
     pub msc4075_enabled: bool,
+
+    /// MSC4512: Application service proxying.
+    ///
+    /// When enabled, an application service that declares a `proxy_prefix`
+    /// (and matching `proxy_url`) in its registration file has requests under
+    /// `/_matrix/{client,federation}/<version>/<proxy_prefix>/...` forwarded to
+    /// that URL — see `synapse-services::application_service::proxy`.
+    ///
+    /// **Default `false`, matching upstream** (`experimental.msc4512_enabled`
+    /// defaults to `False` there too, since the MSC is still unstable). While
+    /// disabled the proxy surface is simply absent, so no appservice can claim
+    /// a prefix even if one is present in its registration.
+    #[serde(default)]
+    /// `msc4512_enabled` field.
+    pub msc4512_enabled: bool,
 }
 
 fn default_true() -> bool {
@@ -104,6 +119,7 @@ impl Default for ExperimentalConfig {
             declare_private_extensions: true,
             msc4210_enabled: true,
             msc4075_enabled: false,
+            msc4512_enabled: false,
         }
     }
 }
@@ -123,6 +139,10 @@ mod tests {
             !cfg.msc4075_enabled,
             "msc4075 should default to false — same as upstream's experimental.msc4075_enabled"
         );
+        assert!(
+            !cfg.msc4512_enabled,
+            "msc4512 should default to false — same as upstream's experimental.msc4512_enabled"
+        );
     }
 
     #[test]
@@ -140,11 +160,12 @@ mod tests {
         assert!(cfg.declare_private_extensions);
         assert!(cfg.msc4210_enabled);
         assert!(!cfg.msc4075_enabled, "a missing msc4075_enabled key must fall back to false");
+        assert!(!cfg.msc4512_enabled, "a missing msc4512_enabled key must fall back to false");
     }
 
     #[test]
     fn deserialize_explicit_values_override_defaults() {
-        let yaml = "msc4452_enabled: true\nmsc3720_enabled: true\ndeclare_private_extensions: false\nmsc4210_enabled: false\nmsc4075_enabled: true\n";
+        let yaml = "msc4452_enabled: true\nmsc3720_enabled: true\ndeclare_private_extensions: false\nmsc4210_enabled: false\nmsc4075_enabled: true\nmsc4512_enabled: true\n";
         let cfg: ExperimentalConfig = serde_norway::from_str(yaml).expect("explicit YAML should override defaults");
         assert!(cfg.msc4452_enabled);
         assert!(cfg.msc3720_enabled);
@@ -153,6 +174,10 @@ mod tests {
         assert!(
             cfg.msc4075_enabled,
             "an explicit true must survive deserialization — otherwise the RTC rules could never be switched on"
+        );
+        assert!(
+            cfg.msc4512_enabled,
+            "an explicit true must survive deserialization — otherwise the appservice proxy could never be switched on"
         );
     }
 
@@ -164,6 +189,7 @@ mod tests {
             declare_private_extensions: false,
             msc4210_enabled: false,
             msc4075_enabled: true,
+            msc4512_enabled: true,
         };
         let cloned = cfg.clone();
         assert_eq!(cfg.msc4452_enabled, cloned.msc4452_enabled);
@@ -171,6 +197,7 @@ mod tests {
         assert_eq!(cfg.declare_private_extensions, cloned.declare_private_extensions);
         assert_eq!(cfg.msc4210_enabled, cloned.msc4210_enabled);
         assert_eq!(cfg.msc4075_enabled, cloned.msc4075_enabled);
+        assert_eq!(cfg.msc4512_enabled, cloned.msc4512_enabled);
     }
 
     #[test]

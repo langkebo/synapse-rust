@@ -270,6 +270,23 @@ impl SecureBackupService {
 
         Ok(())
     }
+
+    /// Delete **every** secure backup for `user_id`, returning the number of backup
+    /// rows removed.
+    ///
+    /// Used by account deactivation. Unlike [`Self::delete_backup`] (which takes a
+    /// single `backup_id`), this reaches all of the user's backups in one statement.
+    /// `secure_backup_session_keys` has `ON DELETE CASCADE` onto `secure_key_backups`,
+    /// so the session keys go with them — no explicit two-step delete is needed here
+    /// as it is in `delete_backup`.
+    pub async fn delete_all_for_user(&self, user_id: &str) -> Result<u64, ApiError> {
+        let result = sqlx::query!("DELETE FROM secure_key_backups WHERE user_id = $1", user_id)
+            .execute(&*self.pool)
+            .await
+            .map_err(map_database!("delete_all_for_user"))?;
+
+        Ok(result.rows_affected())
+    }
 }
 
 // SQLx row type

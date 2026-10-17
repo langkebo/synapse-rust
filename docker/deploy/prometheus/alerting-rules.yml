@@ -441,3 +441,57 @@ groups:
         annotations:
           summary: "Prometheus 目标丢失"
           description: "目标 {{ $labels.job }} 无法抓取，检查网络和服务状态"
+
+  # =========================================================================
+  # Group: Worker 拓扑（W-E）
+  # =========================================================================
+  # 数据源：`synapse-services/src/worker/topology_metrics.rs`（W-E）周期性把
+  # `evaluate_runtime_topology` 的结论写成指标；只有当 `worker.enabled` 为真时才注册
+  # ⇒ 单进程部署下这些序列**不存在**，下面的规则不会触发（也不会误报）。
+  # 背景（为什么需要告警而不是只做端点）：拓扑"声明 vs 实际"不一致的后果是
+  # 「事件不落库 / 某个职责没人干」，而它不会让任何请求失败 —— 没人轮询端点就等于没有监控。
+  - name: worker-topology
+    rules:
+      - alert: WorkerTopologyInvalid
+        expr: synapse_worker_topology_valid == 0
+        for: 5m
+        labels:
+          severity: critical
+          category: availability
+          service: synapse-rust
+        annotations:
+          summary: "Worker 拓扑与配置不一致"
+          description: |-
+            实例 {{ $labels.instance }} 的运行中拓扑已连续 5 分钟不符合配置
+            （`synapse_worker_topology_valid == 0`）。
+            含义：配置里声明的某个 worker 没在跑，或有实例心跳停了，或有流没有在活的属主。
+            排查入口：`GET /_synapse/worker/v1/topology/validate` 的 `runtime.errors`
+            与 `runtime.missing` / `runtime.stale` / `runtime.unowned_streams`。
+
+      - alert: WorkerStreamUnowned
+        expr: synapse_worker_unowned_streams > 0
+        for: 5m
+        labels:
+          severity: warning
+          category: availability
+          service: synapse-rust
+        annotations:
+          summary: "有复制流没有在活的属主"
+          description: |-
+            {{ $value }} 条流（typing / receipts / events …）配置的属主实例**全部**不在活。
+            注意：本仓 `stream_writers` 目前只是声明面，写入路径不会因此中断 ——
+            这条告警说明的是"配置描述的分工与实际部署不符"，而不是"数据正在丢失"。
+
+      - alert: WorkerInstanceHeartbeatStale
+        expr: synapse_worker_instance_last_heartbeat_age_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+          category: availability
+          service: synapse-rust
+        annotations:
+          summary: "Worker 实例 {{ $labels.instance }} 心跳过期"
+          description: |-
+            实例 {{ $labels.instance }} 距最后一次心跳已 {{ $value }} 秒（阈值 300 秒，
+            健康检查的超时是 90 秒）。它仍在注册表里，但很可能已经不可用。
+            检查该实例的容器/进程状态与其 `SYNAPSE_WORKER_BASE_URL` 连通性。

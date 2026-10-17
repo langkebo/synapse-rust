@@ -28,6 +28,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Backtrace: {:?}", std::backtrace::Backtrace::capture());
     }));
 
+    // 0. Offline checks that must not depend on a running server. `--validate-topology`
+    //    answers with an exit code so a bad worker block can fail a deployment
+    //    instead of being logged and ignored at startup (W-B). Placed before
+    //    `Config::load` only in appearance: the check loads the configuration
+    //    itself, and exits the process rather than returning, so the normal
+    //    startup path below is untouched when the flag is absent.
+    if synapse_rust::cli::wants_topology_validation(std::env::args()) {
+        std::process::exit(synapse_rust::cli::run_offline_topology_check());
+    }
+
     // 1. Load configuration
     //    Config 加载发生在 init_telemetry 之前；tracing subscriber 尚未 setup，
     //    所以保留 eprintln! 作为用户可见的启动错误兜底。

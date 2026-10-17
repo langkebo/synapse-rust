@@ -501,6 +501,7 @@ async fn test_cache_manager_token_operations() {
         iat: now,
         iss: None,
         aud: None,
+        appservice_id: None,
     };
 
     manager.set_token("test_token", &claims, 3600).await;
@@ -596,6 +597,7 @@ fn test_claims_struct() {
         iat: 1234567890,
         iss: None,
         aud: None,
+        appservice_id: None,
     };
     assert_eq!(claims.user_id, "@user:example.com");
     assert_eq!(claims.device_id, Some("DEVICE456".to_string()));

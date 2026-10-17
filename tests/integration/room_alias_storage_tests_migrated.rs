@@ -257,3 +257,40 @@ async fn test_legacy_uppercase_data_normalized_after_migration() {
         storage.get_room_by_alias(&canonical_alias).await.expect("get_room_by_alias should succeed post-migration");
     assert_eq!(lookup, Some(room_id.clone()), "B-7 migration: post-migration lookup must resolve to the room");
 }
+
+/// ELEMENTSEC-2026-1729: an alias that is already taken must **not** be silently
+/// re-pointed to another room. `set_room_alias` must fail with a distinguishable
+/// conflict (0 rows affected ⇒ `RowNotFound`) and leave the original mapping
+/// intact; the service layer turns it into 409 `M_ROOM_IN_USE`.
+#[tokio::test]
+async fn test_set_room_alias_conflict_is_rejected_not_repointed() {
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool);
+    let storage = RoomStorage::new(&pool);
+    let suffix = unique_id();
+    let room_a = format!("!room_sec_a_{suffix}:localhost");
+    let room_b = format!("!room_sec_b_{suffix}:localhost");
+    let alias = format!("#SecAlias_{suffix}:example.com");
+
+    insert_room(&pool, &room_a).await;
+    insert_room(&pool, &room_b).await;
+
+    storage.set_room_alias(&room_a, &alias, "@crea_a:localhost").await.expect("first claim must succeed");
+
+    // Second claim by a different room must fail (no silent re-point).
+    let err = storage.set_room_alias(&room_b, &alias, "@crea_b:localhost").await;
+    assert!(
+        matches!(err, Err(sqlx::Error::RowNotFound)),
+        "occupied alias must produce a distinguishable conflict, got {err:?}"
+    );
+
+    // The alias still resolves to the original room.
+    assert_eq!(
+        storage.get_room_by_alias(&alias).await.expect("get_room_by_alias"),
+        Some(room_a.clone()),
+        "ELEMENTSEC-2026-1729: alias must not be re-pointed"
+    );
+
+    let _ = storage.delete_room(&room_a).await;
+    let _ = storage.delete_room(&room_b).await;
+}

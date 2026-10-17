@@ -49,6 +49,13 @@ pub struct DelayedEvent {
     pub retry_count: i32,
     /// The `last_error` field.
     pub last_error: Option<String>,
+    /// MSC4354 sticky duration (ms) requested when this event was scheduled.
+    ///
+    /// `None` for a plain delayed event. When set, the dispatcher records this TTL
+    /// on the sent event's `unsigned` projection — the same field `/send` and
+    /// `/state` write for an immediate send, so a client cannot tell a scheduled
+    /// sticky event from an immediate one.
+    pub sticky_duration_ms: Option<i64>,
 }
 
 /// Request to create a new delayed event.
@@ -68,6 +75,11 @@ pub struct CreateDelayedEventRequest {
     pub content: serde_json::Value,
     /// The `delay_ms` field.
     pub delay_ms: i64,
+    /// MSC4354 sticky duration (ms) to apply when the event is finally sent.
+    ///
+    /// Carried on the row rather than applied at scheduling time because the TTL
+    /// belongs to the event's `unsigned`, and no event exists yet.
+    pub sticky_duration_ms: Option<i64>,
 }
 
 /// Actions for the generic management endpoint (MSC4140 Gen 1).
@@ -159,18 +171,18 @@ impl DelayedEventStorageApi for DelayedEventStorage {
         let synthetic_event_id = format!("$delayed:{}:{}:{}", request.room_id, request.user_id, now);
 
         // `query_as!` 按**列名**构造结构体（R6 ⑤：多列 E0560 / 少列 E0063），投影与
-        // `DelayedEvent` 的 14 个字段一一对应；`state_key: Option<String>` 以 `.as_deref()`
+        // `DelayedEvent` 的 15 个字段一一对应；`state_key: Option<String>` 以 `.as_deref()`
         // 传入（R5 拒绝 `&Option<T>`）。
         let event = sqlx::query_as!(
             DelayedEvent,
             r#"
             INSERT INTO delayed_events
                 (room_id, user_id, device_id, event_id, event_type, state_key,
-                 content, delay_ms, scheduled_ts, created_ts, status)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending')
+                 content, delay_ms, scheduled_ts, created_ts, status, sticky_duration_ms)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', $11)
             RETURNING id, room_id, user_id, device_id, event_id, event_type,
                       state_key, content, delay_ms, scheduled_ts, created_ts,
-                      status, retry_count, last_error
+                      status, retry_count, last_error, sticky_duration_ms
             "#,
             &request.room_id,
             &request.user_id,
@@ -181,7 +193,8 @@ impl DelayedEventStorageApi for DelayedEventStorage {
             &request.content,
             request.delay_ms,
             scheduled_ts,
-            now
+            now,
+            request.sticky_duration_ms
         )
         .fetch_one(&*self.pool)
         .await
@@ -196,7 +209,7 @@ impl DelayedEventStorageApi for DelayedEventStorage {
             r#"
             SELECT id, room_id, user_id, device_id, event_id, event_type,
                    state_key, content, delay_ms, scheduled_ts, created_ts,
-                   status, retry_count, last_error
+                   status, retry_count, last_error, sticky_duration_ms
             FROM delayed_events WHERE id = $1
             "#,
             delay_id
@@ -266,7 +279,7 @@ impl DelayedEventStorageApi for DelayedEventStorage {
             r#"
             SELECT id, room_id, user_id, device_id, event_id, event_type,
                    state_key, content, delay_ms, scheduled_ts, created_ts,
-                   status, retry_count, last_error
+                   status, retry_count, last_error, sticky_duration_ms
             FROM delayed_events
             WHERE status = 'pending' AND scheduled_ts <= $1
             ORDER BY scheduled_ts ASC
@@ -290,7 +303,7 @@ impl DelayedEventStorageApi for DelayedEventStorage {
             r#"
             SELECT id, room_id, user_id, device_id, event_id, event_type,
                    state_key, content, delay_ms, scheduled_ts, created_ts,
-                   status, retry_count, last_error
+                   status, retry_count, last_error, sticky_duration_ms
             FROM delayed_events
             WHERE user_id = $1 AND status = 'pending'
             ORDER BY id ASC
@@ -404,6 +417,7 @@ mod db_tests {
             state_key: state_key.map(str::to_string),
             content: serde_json::json!({"body": "hi"}),
             delay_ms,
+            sticky_duration_ms: None,
         }
     }
 

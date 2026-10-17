@@ -1,6 +1,7 @@
 use super::{
-    ensure_room_state_write_access, ensure_room_view_access, normalize_room_event_type,
-    schedule_delayed_event_if_requested, state_event_content_response,
+    apply_msc4354_sticky_ttl, ensure_room_state_write_access, ensure_room_view_access,
+    msc4354_query_sticky_duration_ms, normalize_room_event_type, schedule_delayed_event_if_requested,
+    state_event_content_response,
 };
 use crate::routes::context::RoomContext;
 use crate::routes::extractors::RoomId;
@@ -241,6 +242,13 @@ pub(crate) async fn send_state_event(
         return Ok(response);
     }
 
+    // MSC4354: a `?org.matrix.msc4354.sticky_duration_ms=` hint on `/state` is
+    // honoured exactly as on `/send` — parsed *before* the write so a bad
+    // duration fails before the event is persisted, then recorded on the sent
+    // event's `unsigned` projection (a value outside the signed bytes, so the
+    // post-write update cannot invalidate the event's signature).
+    let sticky_duration_ms = msc4354_query_sticky_duration_ms(&query)?;
+
     let content = body;
 
     let state_event = ctx
@@ -264,6 +272,10 @@ pub(crate) async fn send_state_event(
         )
         .await
         .map_err(map_internal!("Failed to send state event"))?;
+
+    if let Some(duration_ms) = sticky_duration_ms {
+        apply_msc4354_sticky_ttl(&ctx, &state_event.event_id, duration_ms).await?;
+    }
 
     // `m.beacon_info`'s state_key is required to equal the sender, so the
     // event's own user_id is the state_key for the beacon row.
@@ -328,6 +340,10 @@ pub(crate) async fn put_state_event(
         return Ok(response);
     }
 
+    // MSC4354: honour the `?org.matrix.msc4354.sticky_duration_ms=` hint on the
+    // explicit-state-key `/state` write too (see [`send_state_event`]).
+    let sticky_duration_ms = msc4354_query_sticky_duration_ms(&query)?;
+
     let event = ctx
         .room_service
         .messaging()
@@ -346,6 +362,10 @@ pub(crate) async fn put_state_event(
         )
         .await
         .map_err(map_internal!("Failed to put state event"))?;
+
+    if let Some(duration_ms) = sticky_duration_ms {
+        apply_msc4354_sticky_ttl(&ctx, &event.event_id, duration_ms).await?;
+    }
 
     #[cfg(feature = "beacons")]
     if is_beacon_info_event(&event.event_type) {
@@ -475,6 +495,10 @@ pub(crate) async fn put_state_event_empty_key(
         return Ok(response);
     }
 
+    // MSC4354: honour the `?org.matrix.msc4354.sticky_duration_ms=` hint on the
+    // empty-state-key `/state` write too (see [`send_state_event`]).
+    let sticky_duration_ms = msc4354_query_sticky_duration_ms(&query)?;
+
     let event = ctx
         .room_service
         .messaging()
@@ -495,6 +519,10 @@ pub(crate) async fn put_state_event_empty_key(
         )
         .await
         .map_err(map_internal!("Failed to put state event"))?;
+
+    if let Some(duration_ms) = sticky_duration_ms {
+        apply_msc4354_sticky_ttl(&ctx, &event.event_id, duration_ms).await?;
+    }
 
     Ok(Json(json!({
         "event_id": event.event_id,
@@ -536,6 +564,10 @@ pub(crate) async fn put_state_event_no_key(
         return Ok(response);
     }
 
+    // MSC4354: honour the `?org.matrix.msc4354.sticky_duration_ms=` hint on the
+    // no-state-key `/state` write too (see [`send_state_event`]).
+    let sticky_duration_ms = msc4354_query_sticky_duration_ms(&query)?;
+
     let event = ctx
         .room_service
         .messaging()
@@ -556,6 +588,10 @@ pub(crate) async fn put_state_event_no_key(
         )
         .await
         .map_err(map_internal!("Failed to put state event"))?;
+
+    if let Some(duration_ms) = sticky_duration_ms {
+        apply_msc4354_sticky_ttl(&ctx, &event.event_id, duration_ms).await?;
+    }
 
     Ok(Json(json!({
         "event_id": event.event_id,

@@ -17,6 +17,19 @@ async fn require_password_uia(
     auth_user: &AuthenticatedUser,
     body: &Value,
 ) -> Result<(), Response> {
+    // MSC4190: an appservice may manage devices on behalf of the virtual user
+    // it impersonates without user-interactive auth. The upstream servlets
+    // short-circuit UIA when `requester.app_service_id` is set
+    // (`synapse/rest/client/devices.py`).
+    if auth_user.appservice_id.is_some() {
+        ::tracing::debug!(
+            target: "device_mgmt",
+            user_id = %auth_user.user_id,
+            "MSC4190: skipping user-interactive auth for appservice device management"
+        );
+        return Ok(());
+    }
+
     let auth = body.get("auth");
     // [FIXED] removed intermediate services.core binding
     // [FIXED] removed intermediate services.extensions binding
@@ -316,11 +329,42 @@ pub async fn update_device(
     auth_user: AuthenticatedUser,
     Path(device_id): Path<DeviceId>,
     Json(body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
-    if let Some(display_name) = body.get("display_name").and_then(|v| v.as_str()) {
+) -> Result<Response, ApiError> {
+    let display_name = body.get("display_name").and_then(|v| v.as_str());
+    if let Some(display_name) = display_name {
         if display_name.len() > 100 {
             return Err(ApiError::bad_request("display_name must not exceed 100 characters".to_string()));
         }
+    }
+
+    // MSC4190: an appservice may upsert a device for the virtual user it
+    // impersonates. Mirrors `synapse/rest/client/devices.py`, where an
+    // appservice `PUT /devices/{deviceId}` creates the device when missing
+    // (201) and updates it otherwise (200), with an empty response body.
+    if auth_user.appservice_id.is_some() {
+        let existing = ctx.account_device_list_service.get_device(device_id.as_str()).await?;
+        match existing {
+            Some(d) if d.user_id == auth_user.user_id => {
+                if let Some(display_name) = display_name {
+                    ctx.account_device_list_service
+                        .update_user_device_display_name(&auth_user.user_id, device_id.as_str(), display_name)
+                        .await?;
+                }
+                broadcast_device_list_update(&ctx, &auth_user.user_id, device_id.as_str()).await;
+                return Ok((StatusCode::OK, Json(json!({}))).into_response());
+            }
+            Some(_) => return Err(device_not_found_error()),
+            None => {
+                ctx.account_device_list_service
+                    .create_device(device_id.as_str(), &auth_user.user_id, display_name)
+                    .await?;
+                broadcast_device_list_update(&ctx, &auth_user.user_id, device_id.as_str()).await;
+                return Ok((StatusCode::CREATED, Json(json!({}))).into_response());
+            }
+        }
+    }
+
+    if let Some(display_name) = display_name {
         let rows_affected: u64 = ctx
             .account_device_list_service
             .update_user_device_display_name(&auth_user.user_id, device_id.as_str(), display_name)
@@ -340,7 +384,8 @@ pub async fn update_device(
         "device_id": device.device_id,
         "display_name": device.display_name,
         "updated_ts": current_timestamp_millis()
-    })))
+    }))
+    .into_response())
 }
 
 /// See [`delete_device`].

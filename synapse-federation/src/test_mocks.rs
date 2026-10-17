@@ -443,6 +443,16 @@ impl crate::client_api::FederationClientApi for MockFederationClient {
     async fn health_check(&self, _destination: &str) -> bool {
         false
     }
+
+    async fn proxy_federation_request(
+        &self,
+        _destination: &str,
+        _method: &str,
+        _path: &str,
+        _body: Option<&str>,
+    ) -> Result<(u16, serde_json::Value), FederationClientError> {
+        Err(FederationClientError::InvalidResponse("mock: proxy_federation_request not configured".into()))
+    }
 }
 
 // ============================================================================

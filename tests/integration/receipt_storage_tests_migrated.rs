@@ -65,3 +65,40 @@ async fn test_add_receipt_replaces_previous_event_for_same_user_and_type() {
     assert_eq!(new_receipts[0].user_id, user_id);
     assert_eq!(new_receipts[0].event_id, second_event_id);
 }
+
+/// MSC2409: appservice ephemeral delivery pages a per-service position over the
+/// `event_receipts` stream, so the stream must expose a monotonic head plus a
+/// bounded, ordered, half-open paging window.
+#[tokio::test]
+async fn test_receipt_stream_position_advances_and_pages_in_order() {
+    let pool = crate::require_test_pool().await;
+    let room_storage = RoomStorage::new(&pool);
+    let suffix = unique_id();
+    let room_id = format!("!receipt_stream_{suffix}:localhost");
+    let user_id = format!("@receipt_stream_user_{suffix}:localhost");
+    let first_event_id = format!("$receipt_stream_first_{suffix}:localhost");
+    let second_event_id = format!("$receipt_stream_second_{suffix}:localhost");
+
+    let before = room_storage.get_latest_receipt_position().await.unwrap();
+
+    room_storage.add_receipt(&user_id, &user_id, &room_id, &first_event_id, "m.read", &json!({})).await.unwrap();
+    room_storage.add_receipt(&user_id, &user_id, &room_id, &second_event_id, "m.read", &json!({})).await.unwrap();
+
+    let after = room_storage.get_latest_receipt_position().await.unwrap();
+    assert!(after > before, "stream position must advance after writing receipts");
+
+    // Rows must be paged back in ascending stream order.
+    let rows = room_storage.get_receipts_since(before, after, 1000).await.unwrap();
+    assert!(rows.windows(2).all(|w| w[0].id < w[1].id), "rows must come back in ascending id order");
+    let ours: Vec<&str> = rows.iter().filter(|r| r.room_id == room_id).map(|r| r.event_id.as_str()).collect();
+    assert_eq!(ours, vec![first_event_id.as_str(), second_event_id.as_str()]);
+
+    // `limit` caps a single page.
+    let one = room_storage.get_receipts_since(before, after, 1).await.unwrap();
+    assert_eq!(one.len(), 1);
+    assert!(one[0].id > before && one[0].id <= after);
+
+    // An exhausted window yields nothing (the loop's terminal condition).
+    let exhausted = room_storage.get_receipts_since(after, after, 1000).await.unwrap();
+    assert!(exhausted.is_empty());
+}

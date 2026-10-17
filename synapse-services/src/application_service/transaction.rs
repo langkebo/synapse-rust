@@ -65,18 +65,21 @@ pub fn build_transaction_payload(
 }
 
 /// Check whether an application service has opted into receiving ephemeral
-/// events per MSC2409. Returns `true` when the service's `config` JSON
-/// contains `de.sorunome.msc2409: true` (pre-stabilization flag) or
-/// `ephemeral: true` (post-stabilization flag, Matrix v1.156+).
+/// events per MSC2409.
+///
+/// Any one of the following keys set to `true` in the service's `config` JSON
+/// opts the service in:
+///
+/// - `de.sorunome.msc2409.push_ephemeral` — the key upstream Synapse reads
+///   from an application service registration file.
+/// - `receive_ephemeral` — the field name some bridges (e.g. mautrix) emit for
+///   servers that implement the stabilized MSC2409 behaviour.
+/// - `de.sorunome.msc2409` / `ephemeral` — legacy short forms accepted by this
+///   server before the keys above were aligned with upstream.
 pub fn appservice_receives_ephemeral(service: &ApplicationService) -> bool {
-    let config = &service.config;
-    if config.get("de.sorunome.msc2409").and_then(|v| v.as_bool()) == Some(true) {
-        return true;
-    }
-    if config.get("ephemeral").and_then(|v| v.as_bool()) == Some(true) {
-        return true;
-    }
-    false
+    const OPT_IN_KEYS: [&str; 4] =
+        ["de.sorunome.msc2409.push_ephemeral", "receive_ephemeral", "de.sorunome.msc2409", "ephemeral"];
+    OPT_IN_KEYS.iter().any(|key| service.config.get(*key).and_then(|v| v.as_bool()) == Some(true))
 }
 
 /// Constant `APPSERVICE_RETRY_BACKOFF_BASE_MS`.
@@ -97,6 +100,13 @@ pub(super) const APPSERVICE_STATE_DELIVERY_LAST_FAILURE_KIND: &str = "delivery_l
 pub(super) const APPSERVICE_STATE_DELIVERY_LAST_FAILURE_TS: &str = "delivery_last_failure_ts";
 /// Constant `APPSERVICE_STATE_DELIVERY_DISABLED_REASON`.
 pub(super) const APPSERVICE_STATE_DELIVERY_DISABLED_REASON: &str = "delivery_disabled_reason";
+/// Per-service state key holding the last delivered position of the
+/// `event_receipts` stream (MSC2409 ephemeral receipt delivery). Mirrors
+/// upstream Synapse's `set_appservice_stream_type_pos(service, "read_receipt", …)`.
+pub(super) const APPSERVICE_STATE_READ_RECEIPT_POSITION: &str = "read_receipt_position";
+/// Maximum number of receipt rows delivered per ephemeral transaction. Mirrors
+/// upstream Synapse's `MAX_EPHEMERAL_EVENTS_PER_TRANSACTION = 100`.
+pub(super) const MAX_RECEIPTS_PER_TRANSACTION: i64 = 100;
 /// Constant `APPSERVICE_SCHEDULER_STATE_KEYS`.
 pub(super) const APPSERVICE_SCHEDULER_STATE_KEYS: [&str; 13] = [
     SCHEDULER_STATE_LAST_TICK_TS,
@@ -163,8 +173,24 @@ impl ApplicationServiceManager {
             .map_err(|e| ApiError::internal_with_cause("Failed to get application service", e))?
             .ok_or_else(|| ApiError::not_found("Application service not found"))?;
 
+        let dispatched = self.dispatch_pending_events(&service, batch_limit).await?;
+
+        // MSC2409: the ephemeral (receipt) stream is independent of the room
+        // event stream, so it is drained on every pass regardless of whether any
+        // room events were dispatched. Failures are non-fatal here — the stream
+        // position is not advanced, so the next tick retries the same page.
+        if let Err(e) = self.deliver_pending_receipts(&service).await {
+            warn!(as_id = %service.as_id, %e, "Failed to deliver application service ephemeral receipts");
+        }
+
+        Ok(dispatched)
+    }
+
+    /// Drain the persisted room-event queue for one application service,
+    /// returning the number of room events dispatched.
+    async fn dispatch_pending_events(&self, service: &ApplicationService, batch_limit: i64) -> Result<usize, ApiError> {
         let pending_transactions =
-            self.storage.get_pending_transactions(as_id).await.map_err(|e| {
+            self.storage.get_pending_transactions(&service.as_id).await.map_err(|e| {
                 ApiError::internal_with_cause("Failed to get pending application service transactions", e)
             })?;
         if let Some(transaction) = pending_transactions.first() {
@@ -177,13 +203,13 @@ impl ApplicationServiceManager {
                 ApiError::internal_with_cause("Failed to decode pending application service transaction", e)
             })?;
             let txn_id = transaction.txn_id.as_str();
-            self.deliver_transaction(&service, txn_id, &events).await?;
+            self.deliver_transaction(service, txn_id, &events).await?;
             return Ok(0);
         }
 
         let pending_events = self
             .storage
-            .get_pending_events(as_id, batch_limit)
+            .get_pending_events(&service.as_id, batch_limit)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get pending application service events", e))?;
         if pending_events.is_empty() {
@@ -193,12 +219,202 @@ impl ApplicationServiceManager {
         let events = self.build_transaction_events(&pending_events).await?;
         let transaction_id = uuid::Uuid::new_v4().to_string();
         self.storage
-            .create_transaction(as_id, &transaction_id, &events)
+            .create_transaction(&service.as_id, &transaction_id, &events)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to create application service transaction", e))?;
-        self.deliver_transaction(&service, &transaction_id, &events).await?;
+        self.deliver_transaction(service, &transaction_id, &events).await?;
 
         Ok(pending_events.len())
+    }
+
+    /// Deliver pending MSC2409 ephemeral data (read receipts) to an application
+    /// service, paging the `event_receipts` stream exactly as upstream Synapse's
+    /// `_handle_receipts` loop does.
+    ///
+    /// The loop is bounded by three things (upstream "三要素"):
+    ///
+    /// 1. the per-service `read_receipt_position` state key records how far the
+    ///    service has been caught up;
+    /// 2. each page is capped at [`MAX_RECEIPTS_PER_TRANSACTION`] and reports a
+    ///    `reached_token`;
+    /// 3. the loop stops as soon as `reached_token >= new_token` (the pinned
+    ///    exit condition), so it can never spin forever.
+    ///
+    /// On the very first delivery the position is seeded to the current stream
+    /// head without delivering anything, so a freshly registered service is not
+    /// flooded with the entire receipt history.
+    ///
+    /// Returns the number of receipt EDUs delivered.
+    pub async fn deliver_pending_receipts(&self, service: &ApplicationService) -> Result<usize, ApiError> {
+        let Some(room_store) = self.room_store.as_ref() else {
+            return Ok(0);
+        };
+
+        // `url: null` means "no push endpoint" (double-puppeting bridges) and
+        // services that did not opt in receive no EDU at all.
+        if service.url.is_none() || !appservice_receives_ephemeral(service) {
+            return Ok(0);
+        }
+
+        let new_token = room_store
+            .get_latest_receipt_position()
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to read latest receipt position", e))?;
+        if new_token <= 0 {
+            return Ok(0);
+        }
+
+        let stored_position = self
+            .get_state(&service.as_id, APPSERVICE_STATE_READ_RECEIPT_POSITION)
+            .await?
+            .and_then(|state| state.state_value.trim().parse::<i64>().ok());
+        let Some(mut from_token) = stored_position else {
+            // First delivery: seed the position to the current head and skip
+            // backfill (upstream takes the latest token on the first read).
+            self.set_state(&service.as_id, APPSERVICE_STATE_READ_RECEIPT_POSITION, &new_token.to_string()).await?;
+            return Ok(0);
+        };
+
+        let mut delivered = 0_usize;
+
+        while from_token < new_token {
+            let page = room_store
+                .get_receipts_since(from_token, new_token, MAX_RECEIPTS_PER_TRANSACTION)
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to read receipt stream page", e))?;
+
+            if page.is_empty() {
+                // No rows left in range (e.g. all receipts were deleted): pin the
+                // position to the upper bound so we do not re-scan every tick.
+                self.set_state(&service.as_id, APPSERVICE_STATE_READ_RECEIPT_POSITION, &new_token.to_string()).await?;
+                break;
+            }
+
+            let reached_token = page.last().map_or(from_token, |entry| entry.id);
+
+            let edus = AppServiceEphemeralBatch { receipts: Self::receipt_edus(&page), ..Default::default() };
+            let transaction_id = uuid::Uuid::new_v4().to_string();
+            self.deliver_ephemeral_transaction(service, &transaction_id, &edus).await?;
+
+            // Advance the stream position only after a successful delivery so a
+            // failed transaction is retried instead of silently dropped.
+            self.set_state(&service.as_id, APPSERVICE_STATE_READ_RECEIPT_POSITION, &reached_token.to_string()).await?;
+
+            delivered += page.len();
+
+            // Pinned exit condition: stop once caught up with the upper bound.
+            if reached_token >= new_token {
+                break;
+            }
+            from_token = reached_token;
+        }
+
+        Ok(delivered)
+    }
+
+    /// Group a page of receipt-stream rows into per-room `m.receipt` EDUs of the
+    /// shape `{"type": "m.receipt", "room_id": <room>, "content": {<event>:
+    /// {<receipt_type>: {<user_id>: {"ts": <ts>}}}}}`.
+    fn receipt_edus(page: &[synapse_storage::room::ReceiptStreamEntry]) -> Vec<serde_json::Value> {
+        use std::collections::BTreeMap;
+
+        // room_id -> event_id -> receipt_type -> user_id -> ts
+        let mut rooms = BTreeMap::new();
+        for entry in page {
+            rooms
+                .entry(entry.room_id.clone())
+                .or_insert_with(BTreeMap::new)
+                .entry(entry.event_id.clone())
+                .or_insert_with(BTreeMap::new)
+                .entry(entry.receipt_type.clone())
+                .or_insert_with(BTreeMap::new)
+                .insert(entry.user_id.clone(), entry.ts);
+        }
+
+        rooms
+            .into_iter()
+            .map(|(room_id, events)| {
+                let content: serde_json::Map<String, serde_json::Value> = events
+                    .into_iter()
+                    .map(|(event_id, by_type)| {
+                        let types: serde_json::Map<String, serde_json::Value> = by_type
+                            .into_iter()
+                            .map(|(receipt_type, by_user)| {
+                                let users: serde_json::Map<String, serde_json::Value> =
+                                    by_user.into_iter().map(|(user_id, ts)| (user_id, json!({ "ts": ts }))).collect();
+                                (receipt_type, serde_json::Value::Object(users))
+                            })
+                            .collect();
+                        (event_id, serde_json::Value::Object(types))
+                    })
+                    .collect();
+
+                json!({ "type": "m.receipt", "room_id": room_id, "content": content })
+            })
+            .collect()
+    }
+
+    /// Deliver an ephemeral-only (MSC2409) transaction to an application service.
+    ///
+    /// Unlike [`ApplicationServiceManager::deliver_transaction_with_edus`] this
+    /// path has no persisted transaction row: nothing is written to the
+    /// transaction queue, and a delivery failure is reported to the caller so it
+    /// can retry the same page later without advancing the stream position.
+    async fn deliver_ephemeral_transaction(
+        &self,
+        service: &ApplicationService,
+        transaction_id: &str,
+        edus: &AppServiceEphemeralBatch,
+    ) -> Result<(), ApiError> {
+        let Some(base_url) = service.url.as_deref() else {
+            return Ok(());
+        };
+
+        let url = format!("{}/transactions/{}", base_url, transaction_id);
+        let payload = build_transaction_payload(&[], Some(edus));
+
+        let response = self
+            .http_client
+            .put(&url)
+            .header("Authorization", format!("Bearer {}", service.hs_token))
+            .json(&payload)
+            .send()
+            .await;
+
+        match response {
+            Ok(resp) if resp.status().is_success() => {
+                self.record_delivery_success(&service.as_id).await;
+                info!(as_id = %service.as_id, transaction_id, "Ephemeral transaction sent successfully");
+                Ok(())
+            }
+            Ok(resp) => {
+                let status = resp.status();
+                let error_body = resp.text().await.unwrap_or_default();
+                self.record_delivery_failure(
+                    &service.as_id,
+                    &format!("HTTP {status}: {error_body}"),
+                    Self::classify_http_failure(status),
+                    current_timestamp_millis(),
+                )
+                .await;
+
+                Err(ApiError::internal_with_context(
+                    "Application service returned error for ephemeral transaction",
+                    &format!("HTTP {status}"),
+                ))
+            }
+            Err(e) => {
+                self.record_delivery_failure(
+                    &service.as_id,
+                    &e.to_string(),
+                    TransactionFailureKind::Retryable,
+                    current_timestamp_millis(),
+                )
+                .await;
+
+                Err(ApiError::internal_with_cause("Failed to send ephemeral transaction", e))
+            }
+        }
     }
 
     /// See [`process_pending_queues`].
@@ -855,6 +1071,27 @@ mod tests {
     }
 
     #[test]
+    fn appservice_receives_ephemeral_true_when_synapse_push_ephemeral_flag_set() {
+        // Upstream Synapse reads `de.sorunome.msc2409.push_ephemeral` from the
+        // application service registration file.
+        let service = make_appservice_with_config(json!({"de.sorunome.msc2409.push_ephemeral": true}));
+        assert!(appservice_receives_ephemeral(&service));
+    }
+
+    #[test]
+    fn appservice_receives_ephemeral_true_when_receive_ephemeral_flag_set() {
+        // Field name emitted by some bridges for a stabilized MSC2409 server.
+        let service = make_appservice_with_config(json!({"receive_ephemeral": true}));
+        assert!(appservice_receives_ephemeral(&service));
+    }
+
+    #[test]
+    fn appservice_receives_ephemeral_false_when_synapse_push_ephemeral_disabled() {
+        let service = make_appservice_with_config(json!({"de.sorunome.msc2409.push_ephemeral": false}));
+        assert!(!appservice_receives_ephemeral(&service));
+    }
+
+    #[test]
     fn appservice_receives_ephemeral_false_when_no_flag() {
         let service = make_appservice_with_config(json!({}));
         assert!(!appservice_receives_ephemeral(&service));
@@ -895,5 +1132,59 @@ mod tests {
             typing: vec![],
         };
         assert!(!batch.is_empty());
+    }
+
+    // ── MSC2409: receipt EDU shaping ──────────────────────────────────
+
+    fn receipt_entry(
+        id: i64,
+        room_id: &str,
+        event_id: &str,
+        receipt_type: &str,
+        user_id: &str,
+        ts: i64,
+    ) -> synapse_storage::room::ReceiptStreamEntry {
+        synapse_storage::room::ReceiptStreamEntry {
+            id,
+            room_id: room_id.into(),
+            user_id: user_id.into(),
+            event_id: event_id.into(),
+            receipt_type: receipt_type.into(),
+            ts,
+            data: json!({}),
+        }
+    }
+
+    #[test]
+    fn receipt_edus_groups_rows_into_one_edu_per_room() {
+        let page = vec![
+            receipt_entry(1, "!r:example.com", "$e1", "m.read", "@a:example.com", 111),
+            receipt_entry(2, "!r:example.com", "$e1", "m.read", "@b:example.com", 222),
+            receipt_entry(3, "!r:example.com", "$e2", "m.read", "@a:example.com", 333),
+        ];
+        let edus = ApplicationServiceManager::receipt_edus(&page);
+        assert_eq!(edus.len(), 1, "a single room yields a single m.receipt EDU");
+        assert_eq!(edus[0]["type"], "m.receipt");
+        assert_eq!(edus[0]["room_id"], "!r:example.com");
+        let content = &edus[0]["content"];
+        assert_eq!(content["$e1"]["m.read"]["@a:example.com"]["ts"], 111);
+        assert_eq!(content["$e1"]["m.read"]["@b:example.com"]["ts"], 222);
+        assert_eq!(content["$e2"]["m.read"]["@a:example.com"]["ts"], 333);
+    }
+
+    #[test]
+    fn receipt_edus_splits_distinct_rooms() {
+        let page = vec![
+            receipt_entry(1, "!a:example.com", "$e1", "m.read", "@u:example.com", 1),
+            receipt_entry(2, "!b:example.com", "$e2", "m.read", "@u:example.com", 2),
+        ];
+        let edus = ApplicationServiceManager::receipt_edus(&page);
+        let rooms: Vec<&str> = edus.iter().map(|e| e["room_id"].as_str().unwrap()).collect();
+        assert_eq!(rooms, vec!["!a:example.com", "!b:example.com"]);
+    }
+
+    #[test]
+    fn receipt_edus_empty_page_yields_no_edu() {
+        assert!(ApplicationServiceManager::receipt_edus(&[]).is_empty());
     }
 }

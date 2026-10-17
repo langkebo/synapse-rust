@@ -488,8 +488,13 @@ impl EventWriter for GraphMetadataWriter {
         self.inner.update_event_unsigned(event_id, unsigned).await
     }
 
-    async fn redact_event_content(&self, event_id: &str, redaction_event_id: Option<&str>) -> Result<(), sqlx::Error> {
-        self.inner.redact_event_content(event_id, redaction_event_id).await
+    async fn redact_event_content(
+        &self,
+        event_id: &str,
+        room_id: &str,
+        redaction_event_id: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        self.inner.redact_event_content(event_id, room_id, redaction_event_id).await
     }
 
     async fn create_event_with_graph(

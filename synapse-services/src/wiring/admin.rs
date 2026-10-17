@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use synapse_cache::CacheManager;
+use synapse_common::config::worker::WorkerLoadBalancingConfig;
 use synapse_common::config::Config;
 use synapse_common::metrics::MetricsCollector;
 use synapse_common::task_queue::RedisTaskQueue;
@@ -21,6 +22,25 @@ pub use models::{
     AdminFederationServices, AdminMediaServices, AdminModuleServices, AdminSecurityServices, AdminServices,
     AdminUserServices,
 };
+
+/// Attach the load balancer to `manager` when the configuration asks for it (W-C).
+///
+/// Kept as a free function so the wiring decision is unit-testable without
+/// building the whole admin container: asserting "the switch actually reaches
+/// the manager" otherwise needs a database and a full service graph.
+///
+/// `enabled: false` (the default) leaves the manager exactly as constructed, so
+/// worker selection is byte-for-byte what it was before load balancing existed.
+pub fn apply_load_balancing(manager: &mut crate::worker::WorkerManager, config: &WorkerLoadBalancingConfig) {
+    if !config.enabled {
+        return;
+    }
+    manager.enable_load_balancer(config.strategy.into());
+    ::tracing::info!(
+        strategy = ?config.strategy,
+        "Worker load balancing enabled: task dispatch uses the configured strategy over live workers"
+    );
+}
 
 impl AdminServices {
     /// See [`new`].
@@ -220,13 +240,25 @@ impl AdminServices {
             Arc::new(ApplicationServiceStorage::new(pool));
         let app_service_event_concrete = Arc::new(EventStorage::new(pool, config.server.get_server_name().to_owned()));
         let app_service_event_reader: Arc<dyn synapse_storage::event::EventReader> = app_service_event_concrete.clone();
-        let app_service_manager = Arc::new(crate::application_service::ApplicationServiceManager::new(
-            app_service_storage.clone(),
-            app_service_event_reader.clone(),
-            config.server.get_server_name().to_owned(),
-        ));
+        // MSC2409: the manager needs a room-store seam to page `event_receipts`
+        // and deliver ephemeral (receipt) EDUs to appservices.
+        let app_service_room_store: Arc<dyn synapse_storage::room::RoomStoreApi> = Arc::new(RoomStorage::new(pool));
+        let app_service_manager = Arc::new(
+            crate::application_service::ApplicationServiceManager::new(
+                app_service_storage.clone(),
+                app_service_event_reader.clone(),
+                config.server.get_server_name().to_owned(),
+            )
+            .with_room_store(app_service_room_store),
+        );
+        // 上游 `task_scheduler.max_concurrent_tasks`（默认 5，见 #20230）在本仓的落点：
+        // 本仓没有上游那个通用的 `TaskScheduler`，最接近的容量旋钮是 AS 调度器的
+        // 「每 tick 最多派发多少个 AS」（tick 内是顺序 await，故为派发量而非并发量）。
         let app_service_scheduler =
-            Arc::new(crate::application_service::ApplicationServiceScheduler::new(app_service_manager.clone()));
+            Arc::new(crate::application_service::ApplicationServiceScheduler::with_max_services_per_tick(
+                app_service_manager.clone(),
+                config.task_scheduler.max_concurrent_tasks,
+            ));
         #[cfg(feature = "external-services")]
         let external_service_integration =
             Arc::new(crate::external_service_integration::ExternalServiceIntegration::new(
@@ -252,9 +284,27 @@ impl AdminServices {
         // WORK-04: worker 注册/心跳会写入 HealthChecker，选题时也据其健康度过
         // 滤；此前该子系统整体休眠（health_checker 恒为 None），现补齐接线。
         let health_checker = Arc::new(crate::worker::HealthChecker::new(crate::worker::HealthCheckConfig::default()));
-        let worker_manager = Arc::new(
-            crate::worker::WorkerManager::new(worker_storage.clone()).with_health_checker(health_checker.clone()),
-        );
+        let mut worker_manager =
+            crate::worker::WorkerManager::new(worker_storage.clone()).with_health_checker(health_checker.clone());
+        // W-C: opt-in load balancing. Default off ⇒ `select_worker_for_task` keeps
+        // taking the fallback path exactly as before, because an absent balancer is
+        // what selects it (`manager.rs`, `if let Some(lb) = &self.load_balancer`).
+        apply_load_balancing(&mut worker_manager, &config.worker.load_balancing);
+        let worker_manager = Arc::new(worker_manager);
+
+        // W-E: publish the topology reconciliation as gauges (topology_valid,
+        // registered/missing/stale counts, per-instance heartbeat age) so an alert
+        // can fire on "the deployment is not what it says it is" without anyone
+        // polling an endpoint. Only when workers are enabled: a monolith has no
+        // registry, and a constant "valid" series would be coverage theatre.
+        if config.worker.enabled {
+            crate::worker::spawn_worker_topology_metrics(
+                worker_manager.clone(),
+                config.worker.clone(),
+                metrics.clone(),
+                shutdown_token.clone(),
+            );
+        }
 
         // 驱动周期性活性探测（心跳超时 → Unhealthy），随进程 shutdown 一起停止。
         let (health_shutdown_tx, health_shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);

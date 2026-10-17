@@ -2,9 +2,19 @@
 
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
+use synapse_common::MatrixErrorCode;
 
 use super::super::utils::validate_room_alias_input;
 use super::service::RoomStateService;
+
+/// `true` 表示这次 `set_room_alias` 命中了已存在的别名（即"别名已被占用"）。
+///
+/// 判据同 `room::lifecycle::create_events::is_room_id_already_taken`：
+/// [`sqlx::Error::RowNotFound`]（`ON CONFLICT ... DO NOTHING` 的 0 行受影响形态）与 SQLSTATE
+/// `23505`（unique violation，裸 INSERT 或实现替身）都要认，避免"换一种写法就漏判"。
+fn is_alias_taken(err: &sqlx::Error) -> bool {
+    matches!(err, sqlx::Error::RowNotFound) || err.as_database_error().map(|e| e.is_unique_violation()).unwrap_or(false)
+}
 
 impl RoomStateService {
     /// See [`get_room_aliases`].
@@ -16,12 +26,23 @@ impl RoomStateService {
     }
 
     /// See [`set_room_alias`].
+    ///
+    /// ELEMENTSEC-2026-1729：别名已被占用时存储层返回可判别的冲突错误（0 行受影响），
+    /// 这里把它翻译成 **409 `M_ROOM_IN_USE`**，而不是 500。绝不静默改指。
     pub async fn set_room_alias(&self, room_id: &str, alias: &str, created_by: &str) -> ApiResult<()> {
         validate_room_alias_input(alias)?;
-        self.room_storage
-            .set_room_alias(room_id, alias, created_by)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to set room alias", e))
+        self.room_storage.set_room_alias(room_id, alias, created_by).await.map_err(|e| {
+            if is_alias_taken(&e) {
+                tracing::warn!(
+                    room_id = %room_id,
+                    room_alias = %alias,
+                    "别名已被占用 ⇒ 409 M_ROOM_IN_USE（拒绝静默改指）"
+                );
+                ApiError::conflict_with(MatrixErrorCode::RoomInUse, format!("Room alias {alias} is already taken"))
+            } else {
+                ApiError::internal_with_cause("Failed to set room alias", e)
+            }
+        })
     }
 
     /// See [`get_room_by_alias`].
@@ -138,6 +159,37 @@ mod tests {
         // Invalid alias format should fail validation
         let result = svc.set_room_alias("!room:ex.com", "invalid_no_hash", "@alice:ex.com").await;
         assert!(result.is_err(), "set_room_alias should reject invalid alias format");
+    }
+
+    /// ELEMENTSEC-2026-1729：别名已被占用时必须是 409 `M_ROOM_IN_USE`，不能静默改指，
+    /// 也不能降级成 500。
+    #[tokio::test]
+    async fn set_room_alias_conflict_maps_to_409_room_in_use() {
+        use synapse_common::error::{ApiErrorKind, MatrixErrorCode};
+
+        let store = Arc::new(InMemoryRoomStore::new());
+        store.create_room("!room:ex.com", "@alice:ex.com", "invite", "1", false).await.unwrap();
+        let svc = RoomStateService::new(RoomStateServiceConfig {
+            room_storage: store.clone(),
+            member_storage: Arc::new(InMemoryMemberStore::new()),
+            event_reader: Arc::new(InMemoryEventStore::new()),
+            event_writer: Arc::new(InMemoryEventStore::new()),
+            room_tag_storage: Arc::new(InMemoryRoomTagStore::new()),
+            user_storage: Arc::new(FakeUserStore::new()) as Arc<dyn synapse_storage::UserStore>,
+            server_name: "test.example.com".to_string(),
+        });
+
+        svc.set_room_alias("!room:ex.com", "#dup:ex.com", "@alice:ex.com").await.unwrap();
+
+        let err = svc
+            .set_room_alias("!room:ex.com", "#dup:ex.com", "@alice:ex.com")
+            .await
+            .expect_err("re-setting an occupied alias must fail");
+        assert_eq!(err.kind, ApiErrorKind::Conflict, "must be 409, not 500");
+        assert_eq!(err.code, MatrixErrorCode::RoomInUse, "must carry M_ROOM_IN_USE");
+
+        // The original mapping is untouched (no silent re-point).
+        assert_eq!(store.get_room_by_alias("#dup:ex.com").await.unwrap().as_deref(), Some("!room:ex.com"));
     }
 
     #[tokio::test]

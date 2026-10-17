@@ -18,6 +18,7 @@ pub use synapse_common::config::security::*;
 pub use synapse_common::config::server::*;
 pub use synapse_common::config::sms::*;
 pub use synapse_common::config::smtp::*;
+pub use synapse_common::config::task_scheduler::*;
 pub use synapse_common::config::translate::*;
 pub use synapse_common::config::voip::*;
 pub use synapse_common::config::worker::*;

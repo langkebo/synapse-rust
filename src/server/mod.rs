@@ -205,12 +205,20 @@ impl SynapseServer {
 
         // Startup topology validation — ensures worker configuration is consistent before proceeding
         {
-            let validation = synapse_services::worker::topology_validator::validate_worker_config(&config.worker);
-            validation.log();
-            if !validation.valid {
+            let topology = synapse_services::worker::topology_gate::check_startup_topology(&config.worker);
+            topology.validation.log();
+            if let Some(reason) = &topology.fatal {
+                // W-B: `worker.topology.strict` escalates the advisory verdict to a
+                // refusal to start, mirroring `worker_replication_secret_check` above.
+                // Off by default on purpose — an existing deployment carrying a latent
+                // (and so far harmless) configuration problem must keep starting.
+                return Err(format!("FATAL: worker topology validation failed: {reason}").into());
+            }
+            if !topology.validation.valid {
                 ::tracing::warn!(
                     "Topology validation failed — check worker configuration. \
-                     The server will continue to start, but the worker topology may be misconfigured."
+                     The server will continue to start, but the worker topology may be misconfigured. \
+                     Set worker.topology.strict=true to make this fatal."
                 );
             }
         }
@@ -586,6 +594,15 @@ impl SynapseServer {
             let mut media_cleanup_counter: u64 = 0;
             let mut federation_retry_counter: u64 = 0;
             tokio::spawn(async move {
+                // C1（§19.5 批次 C）：启动时先重放 `federation_queue` 里遗留的 pending 事务。
+                // 内存重试队列启动时恒为空 ⇒ 不重放则重启前的失败事务"留痕即丢"。
+                match event_broadcaster.replay_pending_transactions().await {
+                    Ok(n) if n > 0 => {
+                        ::tracing::info!("Federation replay: {} pending transactions re-queued at startup", n);
+                    }
+                    Err(e) => ::tracing::warn!("Federation replay at startup failed: {}", e),
+                    _ => {}
+                }
                 let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(bg_tick_secs));
                 loop {
                     tokio::select! {
@@ -620,6 +637,10 @@ impl SynapseServer {
                             federation_retry_counter += 1;
                             if federation_retry_counter >= fed_retry_threshold {
                                 federation_retry_counter = 0;
+                                // C1：先重放遗留 pending 行（远端重连后补发缺失事务），再重试内存队列。
+                                if let Err(e) = event_broadcaster.replay_pending_transactions().await {
+                                    ::tracing::warn!("Federation replay failed: {}", e);
+                                }
                                 if let Ok(retried) = event_broadcaster.retry_pending_transactions().await {
                                     if retried > 0 {
                                         ::tracing::info!("Federation retry: {} transactions retried", retried);
@@ -920,41 +941,18 @@ impl SynapseServer {
                                 continue;
                             }
 
-                            // Dispatch the event. State events (`state_key` present) must go
-                            // through `create_event` to preserve state semantics; plain
-                            // messages use `send_message_with_txn` (the synthetic event_id
-                            // from delayed_events doubles as the txn_id for deduplication).
-                            let send_result = if let Some(state_key) = event.state_key.clone() {
-                                room_service
-                                    .messaging()
-                                    .create_event(
-                                        CreateEventParams {
-                                            event_id: synapse_common::crypto::generate_event_id(&server_name),
-                                            room_id: event.room_id.clone(),
-                                            user_id: event.user_id.clone(),
-                                            event_type: event.event_type.clone(),
-                                            content: event.content.clone(),
-                                            state_key: Some(state_key),
-                                            origin_server_ts: current_timestamp_millis(),
-                                            redacts: None,
-                                        },
-                                        None,
-                                    )
-                                    .await
-                                    .map(|_| ())
-                            } else {
-                                room_service
-                                    .messaging()
-                                    .send_message_with_txn(
-                                        &event.room_id,
-                                        &event.user_id,
-                                        &event.event_type,
-                                        &event.content,
-                                        &event.event_id, // txn_id for dedup (synthetic placeholder)
-                                    )
-                                    .await
-                                    .map(|_| ())
-                            };
+                            // Dispatch the event (extracted to
+                            // `room::scheduled_dispatch` so it is testable and so
+                            // this file stops growing). That helper also applies
+                            // MSC4354's sticky TTL after a scheduled *message*
+                            // is sent; a scheduled state event can never carry one
+                            // (rejected at scheduling time).
+                            let send_result = synapse_services::room::scheduled_dispatch::dispatch_due_event(
+                                &room_service,
+                                &server_name,
+                                &event,
+                            )
+                            .await;
 
                             match send_result {
                                 Ok(_) => {

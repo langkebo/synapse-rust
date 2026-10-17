@@ -35,6 +35,7 @@ use serde::Serialize;
 use synapse_common::config::worker::WorkerConfig;
 
 use crate::worker::topology_validator::resolved_current_instance_name;
+use crate::worker::types::WorkerInfo;
 
 /// The instance name the main process always runs under.
 ///
@@ -111,6 +112,29 @@ pub struct RegisteredInstance {
     pub status: String,
     /// `last_heartbeat_ts`, or `None` when no heartbeat was ever recorded.
     pub last_heartbeat_ts: Option<i64>,
+}
+
+impl RegisteredInstance {
+    /// Project a registry row into the plain data an evaluation consumes.
+    ///
+    /// Lives here rather than at each call site so the operator-facing endpoint and
+    /// the metrics task (W-E) cannot disagree about what the registry says: both go
+    /// through this one mapping.
+    pub fn from_worker(worker: &WorkerInfo) -> Self {
+        Self {
+            instance_name: worker.worker_name.clone(),
+            worker_id: worker.worker_id.clone(),
+            status: worker.status.clone(),
+            last_heartbeat_ts: worker.last_heartbeat_ts,
+        }
+    }
+
+    /// Seconds since this instance's last heartbeat, or `None` when it never sent
+    /// one. Seconds (not milliseconds) because that is the unit Prometheus
+    /// conventions — and this crate's existing gauges — use for ages.
+    pub fn heartbeat_age_secs(&self, now_ms: i64) -> Option<i64> {
+        self.last_heartbeat_ts.map(|ts| now_ms.saturating_sub(ts) / 1000)
+    }
 }
 
 /// The registry and clock readings an evaluation needs.

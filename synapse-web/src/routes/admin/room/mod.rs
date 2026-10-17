@@ -825,7 +825,7 @@ pub async fn cascade_redact_event(
     // `admin.user_id` violated the constraint and made the endpoint 500. The
     // `admin.cascade_redact` warn! entries above/below are the attribution
     // record, and they already carry `admin_user_id`.
-    let redacted_count = ctx.event_redaction_service.cascade_redact_event(event_id, None, max_depth).await?;
+    let redacted_count = ctx.event_redaction_service.cascade_redact_event(&room_id, event_id, None, max_depth).await?;
 
     tracing::warn!(
         action = "admin.cascade_redact.complete",

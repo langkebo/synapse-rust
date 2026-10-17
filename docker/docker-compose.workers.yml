@@ -1,0 +1,159 @@
+# =============================================================================
+# synapse-rust — 参考多进程（worker）栈（W-D）
+# =============================================================================
+# 用法（**叠加**在 dev/CI 栈之上，不是独立副本）：
+#   docker compose -f docker/docker-compose.yml \
+#                  -f docker/docker-compose.workers.yml up -d
+# 本仓此前**没有任何**多进程部署参考物：docker-compose.yml 只有 `synapse-rust`
+# 一个应用服务，`docker/nginx/` 里连一份 conf 都没有 ⇒ 多进程拓扑从未端到端跑过。
+#
+# ── 这个栈里"worker"到底是什么（先读这段，否则会误解下面的服务）───────────────
+# 1. 本仓的 worker 进程 = `synapse_worker`：消费 Redis 任务队列、向 master 注册并
+#    持续心跳、自开 `/metrics`。它**不提供 Matrix API**（`src/bin/synapse_worker.rs`
+#    只 mount 了 `/metrics` 一条路由）。因此 HTTP 请求面仍然只有 master 一个实例，
+#    真正的请求分流（nginx 把 `/_matrix/client/*/sync` 打到 sync worker）**今天做不到**
+#    —— 见 docker/nginx/worker-routing.conf 的说明与 `docs/audit/...W-8/W-F`。
+# 2. 5 个 worker 服务跑的是**同一个二进制**，`WORKER_INSTANCE_NAME` 声明"它被期望承担哪个
+#    职责域"。该变量之所以有效，是因为 `docker/config/homeserver.yaml` 里的 `instance_name`
+#    写成了 `${WORKER_INSTANCE_NAME:-master}`（`resolve_env_variables` 才会替换它）——
+#    写成字面量 `"master"` 时 5 个进程会**全部自称 master**，per-service 的实例名成了摆设。
+#    这个声明会被 master 侧的拓扑校验、`instance_map`、`GET /_synapse/worker/v1/topology/validate`
+#    的 `runtime.missing` 拿来对账。**注册由心跳自声明完成**（W-G）：worker 首次心跳会带上
+#    `worker_name`/`worker_type`/`host`/`port`，master 据此建出注册行
+#    （此前 worker 只有共享密钥、拿不到 register 路由所需的 admin 令牌，
+#    而 `update_worker_status` 是普通 UPDATE、对未知 worker 静默改 0 行）。
+#    ⚠️ 因此下面每个 worker 服务都必须带 `SYNAPSE__WORKER__ENABLED=true`
+#    （见 `&worker-environment` 的注释），否则它会自称 master。
+# 3. `SYNAPSE__WORKER__ENABLED=true` 只加在 master 上：worker 注册/心跳面只有在
+#    `worker.enabled && worker.replication.http.enabled` 时才 mount
+#    （`WorkerBodyModule::merge_into`），master 不开这个开关，worker 注册不上。
+#    worker 实例的 `enabled` 保持默认 false 即可 —— 它们不需要那个 HTTP 面。
+#
+# ── 与 config_mount_tests.rs 的约束一致 ─────────────────────────────────────
+# 配置**只有一份**：`docker/config/`（挂目录，不挂单文件 —— 单文件 bind mount 绑
+# 的是 inode，宿主原子替换后容器里会"看不见"该文件而进程仍在用旧配置）。
+# 拓扑本身（`worker.instance_map` / `worker.stream_writers`）写在
+# `docker/config/homeserver.yaml` 里，因为 env 只能覆盖标量、**覆盖不了数组/映射**
+# （实测：`SYNAPSE__WORKER__STREAM_WRITERS__EVENTS='["x"]'` →
+# `invalid type: string, expected a sequence`）。worker 关闭时这些键是惰性数据。
+# =============================================================================
+
+x-worker-base: &worker-base
+  image: ${SYNAPSE_IMAGE:-synapse-rust}:${SYNAPSE_IMAGE_TAG:-latest}
+  restart: unless-stopped
+  cpus: ${WORKER_CPU_LIMIT:-0.5}
+  mem_limit: ${WORKER_MEMORY_LIMIT:-512m}
+  pids_limit: ${WORKER_PIDS_LIMIT:-256}
+  env_file:
+    - ./.env
+  networks:
+    - synapse_network
+  environment: &worker-environment
+    SYNAPSE_CONFIG_PATH: /app/config/homeserver.yaml
+    # ⚠️ worker 进程**也必须**打开这个开关，否则它们会自称 "master"：
+    # `resolved_current_instance_name` / `current_instance_worker_type` 在
+    # `worker.enabled == false` 时**直接早退返回 master**（与 instance_name 无关），
+    # 于是每个 worker 的心跳都会宣告 worker_name="master" ⇒ 5 个声明的实例全部仍报 missing。
+    # 这是部署级开关（同一份配置每个进程都读），不是"只有 master 才需要"。
+    SYNAPSE__WORKER__ENABLED: "true"
+    # worker 进程不做迁移：6 个 worker 抢着建表是并发 DDL，不是"更保险"。
+    RUN_MIGRATIONS: "false"
+    VERIFY_SCHEMA: "false"
+    # 心跳目标：容器里必须显式指向 master 的服务名；默认值 127.0.0.1:8008
+    # 是"宿主机上的主监听"，在容器内指向自己，注册永远不可能成功。
+    SYNAPSE_WORKER_BASE_URL: http://synapse-rust:8008
+    # 心跳凭证 = `worker.replication.http.secret`（同一把共享密钥，
+    # 由 replication_http_auth_middleware 校验）。留空会让 worker 启动后
+    # 只打一条 warn 并且**不发心跳** ⇒ 注册表里没有它，拓扑端点会报 missing。
+    WORKER_REPLICATION_SECRET: ${WORKER_REPLICATION_SECRET:?WORKER_REPLICATION_SECRET must be set}
+    DB_USER: ${DB_USER:-synapse}
+    DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+    DB_NAME: ${DB_NAME:-synapse}
+    DATABASE_URL: postgres://${DB_USER:-synapse}:${DB_PASSWORD:?DB_PASSWORD must be set}@db:5432/${DB_NAME:-synapse}
+    REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379
+    RUST_LOG: ${RUST_LOG:-info}
+    TZ: ${TZ:-Asia/Shanghai}
+  volumes:
+    - ./config:/app/config:ro
+    - ./data:/app/data
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    synapse-rust:
+      condition: service_healthy
+  # 镜像自带的 HEALTHCHECK 探的是 `/app/healthcheck` → master 的 `/health`，
+  # 而 worker 只开 `/metrics`（默认 9091）⇒ 直接套用会让每个 worker 恒判 unhealthy
+  # 并被 restart 循环打死。这里关掉它：存活信号是"注册 + 心跳"，
+  # 而心跳一旦停，master 侧的 `runtime.stale` / 指标会报出来（W-A/W-E）。
+  healthcheck:
+    disable: true
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  # ---------------------------------------------------------------------------
+  # master：仍然是唯一提供 Matrix API 的实例，但这次它加入拓扑（enabled=true），
+  # 于是会挂载 worker 注册/心跳/任务/命令面，并按 instance_map 认识各 worker。
+  # ---------------------------------------------------------------------------
+  synapse-rust:
+    environment:
+      SYNAPSE__WORKER__ENABLED: "true"
+      # 建议同时打开（W-B）：配置错误就不要起。想先观察再收紧就先留 false。
+      SYNAPSE__WORKER__TOPOLOGY__STRICT: ${WORKER_TOPOLOGY_STRICT:-false}
+
+  # ---------------------------------------------------------------------------
+  # worker 进程：同一二进制 + 不同实例名。名字必须能在
+  # `WorkerType::instance_map_keys()` 里找到（否则拓扑校验给一条 warning）：
+  #   client_reader / event_persister / sync_worker / federation_reader /
+  #   media_repository
+  # ⚠️ 这里**故意不含 background_worker**，与 `docker/config/homeserver.yaml` 的
+  #    instance_map 一致：声明它会让「全局维护」的归属判给一个**跑不了那些任务**的
+  #    `synapse_worker` 进程 ⇒ master 跳过、它不执行、维护静默停摆。理由与替代做法
+  #    写在 homeserver.yaml 该键旁边的注释里（审计 W-7）。
+  # ---------------------------------------------------------------------------
+  client_reader:
+    <<: *worker-base
+    container_name: ${COMPOSE_PROJECT_NAME:-synapse}-client-reader
+    command: ["/app/synapse_worker"]
+    environment:
+      <<: *worker-environment
+      WORKER_INSTANCE_NAME: client_reader
+      SYNAPSE_WORKER_ID: client_reader
+
+  event_persister:
+    <<: *worker-base
+    container_name: ${COMPOSE_PROJECT_NAME:-synapse}-event-persister
+    command: ["/app/synapse_worker"]
+    environment:
+      <<: *worker-environment
+      WORKER_INSTANCE_NAME: event_persister
+      SYNAPSE_WORKER_ID: event_persister
+
+  sync_worker:
+    <<: *worker-base
+    container_name: ${COMPOSE_PROJECT_NAME:-synapse}-sync-worker
+    command: ["/app/synapse_worker"]
+    environment:
+      <<: *worker-environment
+      WORKER_INSTANCE_NAME: sync_worker
+      SYNAPSE_WORKER_ID: sync_worker
+
+  federation_reader:
+    <<: *worker-base
+    container_name: ${COMPOSE_PROJECT_NAME:-synapse}-federation-reader
+    command: ["/app/synapse_worker"]
+    environment:
+      <<: *worker-environment
+      WORKER_INSTANCE_NAME: federation_reader
+      SYNAPSE_WORKER_ID: federation_reader
+
+  media_repository:
+    <<: *worker-base
+    container_name: ${COMPOSE_PROJECT_NAME:-synapse}-media-repository
+    command: ["/app/synapse_worker"]
+    environment:
+      <<: *worker-environment
+      WORKER_INSTANCE_NAME: media_repository
+      SYNAPSE_WORKER_ID: media_repository

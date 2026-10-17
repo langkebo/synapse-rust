@@ -224,8 +224,7 @@ impl BurnAfterReadStorage {
             INSERT INTO burn_after_read_pending (user_id, room_id, event_id, created_ts, delete_ts)
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (user_id, room_id, event_id) DO UPDATE SET
-                delete_ts = EXCLUDED.delete_ts,
-                created_ts = EXCLUDED.created_ts
+                delete_ts = LEAST(burn_after_read_pending.delete_ts, EXCLUDED.delete_ts)
             RETURNING id, user_id, room_id, event_id, created_ts, delete_ts, is_processed,
                       retry_count, last_error, is_dead_letter
             ",
