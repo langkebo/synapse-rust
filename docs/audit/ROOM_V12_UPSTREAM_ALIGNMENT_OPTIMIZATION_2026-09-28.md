@@ -512,3 +512,27 @@ A1 是**手动门禁**（manual gate，不接入 CI），用于交叉验证本�
 - **A5**: Live federation interop testing (requires dual-host environment)
 - **A6**: Expand fixtures beyond message/create
 - **C1**: Stale `.sqlx` shrink (4 files)
+
+---
+
+## 11. 剩余项现状复核（2026-10-17，逐项读码）
+
+> §9 是 2026-09-28 的快照。本轮把四条剩余项在**当前 HEAD** 上重跑了一遍，其中 **A3 与 C1 已不成立**
+> （§9 已过时），A4/A5 仍然成立。
+
+| 项 | §9 的说法 | 当前实际 | 判定 |
+| --- | --- | --- | --- |
+| **A3** per-event state group | 仍需实施 | **已实现且已接生产写路径**：`synapse-services/src/room/state_record.rs` 的 `StateRecord::after_state_event` 在 `MessagingService::create_event_with_graph` 提交后调用（`room/messaging/events.rs:471`，失败只 warn、降级回时间戳推导）；另一条由联邦 join 状态批自行调用。三种结果：分叉 ⇒ 用 v2.1 解析后写入；已有记录 ⇒ copy-forward；**既无分叉也无记录 ⇒ 什么都不做**（最后这条正是 A4 的缺口） | ❌ 不再成立（已接线） |
+| **A4** 存量房间回填 | 仍需实施（依赖 A3） | **仍成立**：`state_groups.rs` 无回填函数、基线迁移无回填语句；且按上一条，**任何从未分叉的房间永远不会有 state group** ⇒ 读路径一直走 `event/state.rs:93-120` 的 `DISTINCT ON … origin_server_ts DESC` 兜底 | ✅ 存在 |
+| **A5** live 联邦互操作 | 仍需实施（需双主机环境） | **仍成立**：`tests/interop/fixtures/README.md` 仍自认沙箱做不到 live `/send_join` + `/send`，现行做法是"把字节交给对等端实现复算" | ✅ 存在（环境依赖） |
+| **C1** 4 条陈旧 `.sqlx` | 建议缩容 | **已不存在**：`query-2f037a14…` / `3044683f…` / `8642abbd…` / `e4d56bc6…` 在 `.sqlx/` 里**零命中**（当前 1335 条，其中 1 条是别的会话新加的） | ❌ 不再成立 |
+
+**A4 的建议改法（比"一次性回填迁移"便宜且能自愈）**：把当前"既无分叉也无记录 ⇒ 什么都不做"改成
+"**首写时播种**" —— 该房间第一次写状态事件时，用一次 `origin_server_ts` 推导得到当前状态作为 group 0，
+落下之后走 copy-forward。这样：
+
+- 不需要离线迁移，也不需要知道"哪些房间没有记录"（存量房间在下一次状态变更时自动收敛）；
+- 单房间只多付**一次**全量状态读，且不在消息热路径上（只有状态事件触发）；
+- 收敛完成后，`state_groups` 成为唯一真源，A4 的"删除时间戳分支"才有条件做。
+
+**不建议现在做的**：A5（需要双主机名 + 互信 CA，沙箱内无法执行，且不阻塞其余条目）。
