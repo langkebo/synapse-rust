@@ -2194,7 +2194,7 @@ BASELINE_DYNAMIC_PRODUCTION=96
 BASELINE_DYNAMIC_TEST_INFRA=769
 BASELINE_STATIC=1367
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1334
+SQLX_CACHE_ENTRIES=1335
 <!-- sqlx-plan-numbers:end -->
 
 > **2026-10-17 更新（UG-11：账户注销数据面收尾）**，数字块两项按实测同步：
@@ -2213,6 +2213,14 @@ SQLX_CACHE_ENTRIES=1334
 >   `get_receipts_since(from_exclusive, to_inclusive, limit)`（回执流游标读），经唯一入口
 >   `scripts/ci/sqlx_prepare.sh` 重生成后新增 2 条缓存（`query-4aea15c5…json` / `query-50cd82b7…json`）。
 >   其余四个 `BASELINE_*` 未变。
+
+> **2026-10-17 更新（回执流游标修复：独立 `event_receipts_stream` 日志表）**，数字块一项按实测同步：
+> - `SQLX_CACHE_ENTRIES` **1334 → 1335**（+1）：游标读改为从只增日志表
+>   `event_receipts_stream` 取位置（`get_latest_receipt_position()` /
+>   `get_receipts_since(…)`），旧的两条基于 `event_receipts.id` 的查询失效被清出
+>   （`query-4aea15c5…json` / `query-50cd82b7…json`），新增三条
+>   （`query-04cfd812…json` / `query-a0fec287…json` / `query-b802262e…json`），
+>   净 +1。`BASELINE_DYNAMIC_*` / `BASELINE_STATIC` 不变。
 
 > **2026-10-16 更新（P1 批次：功能缺口/安全面 5 项）**，数字块一项按实测同步：
 > - `SQLX_CACHE_ENTRIES` **1329 → 1326**（−3）：本轮改了四处 SQL 文本（房间别名冲突

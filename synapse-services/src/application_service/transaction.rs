@@ -290,7 +290,7 @@ impl ApplicationServiceManager {
                 break;
             }
 
-            let reached_token = page.last().map_or(from_token, |entry| entry.id);
+            let reached_token = page.last().map_or(from_token, |entry| entry.stream_id);
 
             let edus = AppServiceEphemeralBatch { receipts: Self::receipt_edus(&page), ..Default::default() };
             let transaction_id = uuid::Uuid::new_v4().to_string();
@@ -1137,7 +1137,7 @@ mod tests {
     // ── MSC2409: receipt EDU shaping ──────────────────────────────────
 
     fn receipt_entry(
-        id: i64,
+        stream_id: i64,
         room_id: &str,
         event_id: &str,
         receipt_type: &str,
@@ -1145,7 +1145,7 @@ mod tests {
         ts: i64,
     ) -> synapse_storage::room::ReceiptStreamEntry {
         synapse_storage::room::ReceiptStreamEntry {
-            id,
+            stream_id,
             room_id: room_id.into(),
             user_id: user_id.into(),
             event_id: event_id.into(),

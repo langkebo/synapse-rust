@@ -288,13 +288,18 @@ pub struct Receipt {
     pub data: serde_json::Value,
 }
 
-/// One row of the `event_receipts` stream, carrying its monotonic `id` so that
-/// appservice MSC2409 ephemeral delivery can page through receipts the same way
-/// upstream Synapse advances its `read_receipt` stream position.
+/// One row of the `event_receipts_stream` log, carrying its monotonic
+/// `stream_id` so that appservice MSC2409 ephemeral delivery can page through
+/// receipts the same way upstream Synapse advances its `read_receipt` stream
+/// position.
+///
+/// This deliberately does not come from the `event_receipts` current-state
+/// table: updating a receipt rewrites that row in place without moving its
+/// `id`, so a cursor over it would miss same-key updates.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct ReceiptStreamEntry {
-    /// `event_receipts.id` — the monotonic stream position (BIGSERIAL).
-    pub id: i64,
+    /// `event_receipts_stream.stream_id` — the monotonic stream position (BIGSERIAL).
+    pub stream_id: i64,
     /// The `room_id` field.
     pub room_id: String,
     /// The `user_id` field.

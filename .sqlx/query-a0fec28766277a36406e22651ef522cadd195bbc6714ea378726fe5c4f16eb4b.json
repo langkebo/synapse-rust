@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id, room_id, user_id, event_id, receipt_type, ts, data AS \"data!\"\n            FROM event_receipts\n            WHERE id > $1 AND id <= $2\n            ORDER BY id ASC\n            LIMIT $3\n            ",
+  "query": "\n            SELECT stream_id, room_id, user_id, event_id, receipt_type, ts, data\n            FROM event_receipts_stream\n            WHERE stream_id > $1 AND stream_id <= $2\n            ORDER BY stream_id ASC\n            LIMIT $3\n            ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id",
+        "name": "stream_id",
         "type_info": "Int8"
       },
       {
@@ -35,7 +35,7 @@
       },
       {
         "ordinal": 6,
-        "name": "data!",
+        "name": "data",
         "type_info": "Jsonb"
       }
     ],
@@ -53,8 +53,8 @@
       false,
       false,
       false,
-      true
+      false
     ]
   },
-  "hash": "4aea15c5b0f930c4d0c4c8d1824ecde49514c52680fe4a8447937aba2063d22b"
+  "hash": "a0fec28766277a36406e22651ef522cadd195bbc6714ea378726fe5c4f16eb4b"
 }

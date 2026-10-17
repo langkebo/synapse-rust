@@ -89,16 +89,57 @@ async fn test_receipt_stream_position_advances_and_pages_in_order() {
 
     // Rows must be paged back in ascending stream order.
     let rows = room_storage.get_receipts_since(before, after, 1000).await.unwrap();
-    assert!(rows.windows(2).all(|w| w[0].id < w[1].id), "rows must come back in ascending id order");
+    assert!(rows.windows(2).all(|w| w[0].stream_id < w[1].stream_id), "rows must come back in ascending stream order");
     let ours: Vec<&str> = rows.iter().filter(|r| r.room_id == room_id).map(|r| r.event_id.as_str()).collect();
     assert_eq!(ours, vec![first_event_id.as_str(), second_event_id.as_str()]);
 
     // `limit` caps a single page.
     let one = room_storage.get_receipts_since(before, after, 1).await.unwrap();
     assert_eq!(one.len(), 1);
-    assert!(one[0].id > before && one[0].id <= after);
+    assert!(one[0].stream_id > before && one[0].stream_id <= after);
 
     // An exhausted window yields nothing (the loop's terminal condition).
     let exhausted = room_storage.get_receipts_since(after, after, 1000).await.unwrap();
     assert!(exhausted.is_empty());
+}
+
+/// Regression (main 上的既存缺陷): the cursor used to be `event_receipts.id`,
+/// which `ON CONFLICT DO UPDATE` rewrites **in place** without moving. A second
+/// receipt for the same `(event_id, room_id, user_id, receipt_type)` therefore
+/// left the head unchanged and was invisible to appservice delivery. The
+/// append-only `event_receipts_stream` log must advance on every write.
+#[tokio::test]
+async fn test_receipt_stream_advances_on_same_key_update() {
+    let pool = crate::require_test_pool().await;
+    let room_storage = RoomStorage::new(&pool);
+    let suffix = unique_id();
+    let room_id = format!("!receipt_update_{suffix}:localhost");
+    let user_id = format!("@receipt_update_user_{suffix}:localhost");
+    let event_id = format!("$receipt_update_event_{suffix}:localhost");
+
+    room_storage
+        .add_receipt(&user_id, &user_id, &room_id, &event_id, "m.read", &json!({"thread_id": "main"}))
+        .await
+        .unwrap();
+    let before = room_storage.get_latest_receipt_position().await.unwrap();
+
+    // Same key ⇒ `event_receipts` UPSERT path (its `id` does not move).
+    room_storage
+        .add_receipt(&user_id, &user_id, &room_id, &event_id, "m.read", &json!({"thread_id": "side"}))
+        .await
+        .unwrap();
+    let after = room_storage.get_latest_receipt_position().await.unwrap();
+
+    assert!(after > before, "an in-place update must still advance the receipt stream position");
+
+    let rows = room_storage.get_receipts_since(before, after, 1000).await.unwrap();
+    let ours: Vec<_> = rows.iter().filter(|r| r.room_id == room_id).collect();
+    assert_eq!(ours.len(), 1, "the same-key update must be visible as exactly one new log row");
+    assert_eq!(ours[0].event_id, event_id);
+    assert_eq!(ours[0].data, json!({"thread_id": "side"}), "the log row must carry the updated payload");
+
+    // The current-state table still holds exactly one row for the key.
+    let current = room_storage.get_receipts(&room_id, "m.read", &event_id).await.unwrap();
+    assert_eq!(current.len(), 1);
+    assert_eq!(current[0].data, json!({"thread_id": "side"}));
 }

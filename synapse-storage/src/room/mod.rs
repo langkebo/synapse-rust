@@ -1414,7 +1414,25 @@ impl RoomStorage {
             user_id,
             receipt_type,
             now,
-            receipt_data
+            &receipt_data
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        // 上面的当前状态行不能当流位置用（更新会重写同一行、`id` 不前移），
+        // 因此每次变更都同时往日志表追加一行。必须与状态行同一事务：状态表可见
+        // 而日志缺失的回执，会让所有桥接永久看不到这次变更。
+        sqlx::query!(
+            r"
+            INSERT INTO event_receipts_stream (room_id, event_id, user_id, receipt_type, ts, data, created_ts)
+            VALUES ($1, $2, $3, $4, $5, $6, $5)
+            ",
+            room_id,
+            event_id,
+            user_id,
+            receipt_type,
+            now,
+            &receipt_data
         )
         .execute(&mut *tx)
         .await?;
@@ -1454,13 +1472,19 @@ impl RoomStorage {
             .collect())
     }
 
-    /// Returns the current head of the `event_receipts` stream (max `id`), or 0
+    /// Returns the current head of the receipt stream log (max `stream_id`), or 0
     /// when no receipt exists. Used as the `new_token` upper bound for MSC2409
     /// appservice ephemeral (receipt) delivery.
+    ///
+    /// This must read `event_receipts_stream`, not `event_receipts`: the
+    /// current-state table rewrites a row in place on update without moving its
+    /// `id`, so a cursor over it would miss every re-receipt of the same
+    /// `(event_id, room_id, user_id, receipt_type)`.
     pub async fn get_latest_receipt_position(&self) -> Result<i64, sqlx::Error> {
-        let position: Option<i64> = sqlx::query_scalar!(r#"SELECT COALESCE(MAX(id), 0) AS "max!" FROM event_receipts"#)
-            .fetch_optional(&*self.pool)
-            .await?;
+        let position: Option<i64> =
+            sqlx::query_scalar!(r#"SELECT COALESCE(MAX(stream_id), 0) AS "max!" FROM event_receipts_stream"#)
+                .fetch_optional(&*self.pool)
+                .await?;
 
         Ok(position.unwrap_or(0))
     }
@@ -1477,10 +1501,10 @@ impl RoomStorage {
         sqlx::query_as!(
             ReceiptStreamEntry,
             r#"
-            SELECT id, room_id, user_id, event_id, receipt_type, ts, data AS "data!"
-            FROM event_receipts
-            WHERE id > $1 AND id <= $2
-            ORDER BY id ASC
+            SELECT stream_id, room_id, user_id, event_id, receipt_type, ts, data
+            FROM event_receipts_stream
+            WHERE stream_id > $1 AND stream_id <= $2
+            ORDER BY stream_id ASC
             LIMIT $3
             "#,
             from_exclusive,
