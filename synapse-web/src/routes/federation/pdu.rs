@@ -29,14 +29,21 @@
 //! incomplete PDU is never signed, because a valid content hash would only make
 //! an invalid PDU *look* verifiable to a lenient peer.
 //!
-//! Residual gaps that this module does **not** close (tracked in
+//! **Origin signatures are preserved.** The project's inbound paths already
+//! persist the **origin server's** `signatures` / `hashes`
+//! (`synapse_common::event_utils::signature_material` +
+//! `MessagingService::update_event_signatures_and_hashes`): `/send`
+//! (`federation/transaction.rs`), `backfill` (`room/service/backfill.rs`) and
+//! inbound invites (`federation/membership/invite.rs`). A re-emitted remote PDU
+//! therefore keeps the sender signature and projects it verbatim through
+//! [`SignatureAction::KeepStored`]; [`SignatureAction::SignLocally`] only applies
+//! to rows that carry no stored signature at all.
+//!
+//! Residual gap that this module does **not** close (tracked in
 //! `docs/audit/PROJECT_REMAINING_ISSUES_2026-09-14.md` §21):
-//!   1. inbound events do not persist the **origin server's** `signatures` /
-//!      `hashes`, so a re-emitted remote PDU still lacks the sender signature a
-//!      peer requires — signing here adds the local server's signature only;
-//!   2. `event_id` is `$<ts>$<base64>:<server>` (`synapse_common::crypto::generate_event_id`),
-//!      not the v4+ reference hash, so a v11 peer cannot accept these PDUs as canonical
-//!      however complete their field set is.
+//! `event_id` is `$<ts>$<base64>:<server>` (`synapse_common::crypto::generate_event_id`),
+//! not the v4+ reference hash, so a v11 peer cannot accept these PDUs as canonical
+//! however complete their field set is.
 
 use crate::routes::context::FederationContext;
 use serde_json::{json, Map, Value};

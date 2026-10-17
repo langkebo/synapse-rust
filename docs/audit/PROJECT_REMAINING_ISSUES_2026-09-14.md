@@ -1195,7 +1195,7 @@ grep -n 'StatusCode::' src/web/routes/msc4108_rendezvous.rs
 
 | 级别 | 问题 | 判据（可复现） |
 |---|---|---|
-| **P0（已收窄）** | 联邦 `/send_join` **响应面与 PDU 字段面已修**：v1 补 `[200, {…}]` 包装、补 `origin`；`state`/`auth_chain` 统一经 `routes/federation/pdu.rs::build_pdus` 投影（含此前完全缺失的 `origin_server_ts`，并复用库中 `hashes`/`signatures`，否则现场签名）。**残余三条**（详见 §21.5）：① 本地 `create_event` 不落 `depth`/`prev_events`/`auth_events` ⇒ 本地起源事件投影为 `MissingGraphMetadata` 并**故意不发签名**（不伪造）；② 入站事件不落原服务端 `signatures` ⇒ 转发远端 PDU 只有本机签名；③ `event_id` 非 reference hash（见下一行） | `synapse-web/src/routes/federation/pdu.rs`（新）；`membership/join.rs`；`federation/events.rs` |
+| **P0（已收窄）** | 联邦 `/send_join` **响应面与 PDU 字段面已修**：v1 补 `[200, {…}]` 包装、补 `origin`；`state`/`auth_chain` 统一经 `routes/federation/pdu.rs::build_pdus` 投影（含此前完全缺失的 `origin_server_ts`，并复用库中 `hashes`/`signatures`，否则现场签名）。**残余两条**（原第②条已于 2026-10-17 作废，见 §22.2）：① 本地 `create_event` 不落 `depth`/`prev_events`/`auth_events` ⇒ 本地起源事件投影为 `MissingGraphMetadata` 并**故意不发签名**（不伪造）；~~② 入站事件不落原服务端 `signatures`~~ → **已覆盖**：`/send`、`backfill`、入站邀请三条路径均回写；③ `event_id` 非 reference hash（见下一行） | `synapse-web/src/routes/federation/pdu.rs`（新）；`membership/join.rs`；`federation/events.rs` |
 | **P0** | **PDU 语义未对齐（独立于字段完备性）**：`event_id` 形如 `$<ms>_<rand>:<server>`，而非 v4+ 的 reference hash ⇒ 即便字段齐全，v11 对等端也无法把本仓 PDU 当规范事件接受 | `synapse-common/src/crypto.rs:149`（`generate_event_id`） |
 | **高** | E2EE SAS 4 处偏离规范（info 串缺公钥且顺序错 / emoji 仅 6 个且 decimal 被丢弃 / MAC 非 `hkdf-hmac-sha256.v2` / commitment 非 SHA-256）；`/keys/device_signing/verify_*` 私有 API 形状**阻塞**规范修法 | `synapse-e2ee/src/verification/service.rs` |
 | **高** | 客户端撤回不级联（MSC3912 级联**仅管理端可达**） | `synapse-web/src/routes/handlers/room/events.rs:990` |
@@ -1357,12 +1357,15 @@ curl -sS -o syn161.md https://raw.githubusercontent.com/element-hq/synapse/relea
    origin_server_ts, is_redacted, redacts`，**无** `depth`/`prev_events`/`auth_events`/`origin`。
    对比入站路径 `create_event_with_graph`（同文件 `:83-84`）**有**这三列——所以本地起源事件的
    PDU 会被判 `MissingGraphMetadata`。
-2. **入站事件不落远端 `signatures`** —— **需收窄**：入站**成员**事件已回填
-   （`synapse-web/src/routes/federation/membership/mod.rs:238` →
-   `update_event_signatures_and_hashes`，落库在 `event/signature.rs:10`）；但
-   `create_event_with_graph` 的 INSERT 本身**不含** `signatures`/`hashes`，
-   故其它入站路径（`/send` transaction 等）是否回填**未逐条确认** ⇒ 本条改为
-   "**部分路径未覆盖**"，而不是"完全没落"。
+2. ~~**入站事件不落远端 `signatures`**~~ —— **2026-10-17 复核：已覆盖，本条作废**。三条入站路径
+   均经 `synapse_common::event_utils::signature_material` +
+   `MessagingService::update_event_signatures_and_hashes` 回写：`/send`
+   （`synapse-web/src/routes/federation/transaction.rs:712-736`）、`backfill`
+   （`synapse-services/src/room/backfill.rs:344`）、入站邀请
+   （`synapse-web/src/routes/federation/membership/invite.rs:238-245`）。
+   `create_event_with_graph` 的 INSERT 本身不含 `signatures`/`hashes` 仍属实，但由上述
+   post-insert UPDATE 补齐（`synapse-storage/src/event/signature.rs`），
+   DB 回归 `inbound_pdu_signature_material_round_trips`（`synapse-storage/src/event/db_tests.rs:691-751`）锁定。
 3. **`event_id` 非 v4+ reference hash** —— 成立（描述见 N-5）。这是**独立于字段完备性**的
    语义缺口：即便字段齐全，v11 对等端也无法把本仓 PDU 当规范事件接受。
 
@@ -1451,7 +1454,7 @@ used. (#20163)`。
 | 高｜SAS「`emoji` 仅 6 个」 | ❌ **描述过期** | 现产出 7 个（`service.rs:310`）；真错在 `byte % 64` 映射 |
 | P0｜`event_id` 形如 `$<ms>_<rand>:<server>` | ⚠️ **口径修正** | 实为 `$<ts>$<b64>:<server>`（`crypto.rs:153` 的格式串是 `"${}${}:{}"`） |
 | 中｜`msc2965/auth_issuer`「1.161 已删」 | ⚠️ **口径收窄** | 上游只删了 `auth_issuer`（#20163），`auth_metadata` 未删 |
-| P0 残余②｜入站事件"不落"远端 `signatures` | ⚠️ **口径收窄** | 入站**成员**路径已回填（`federation/membership/mod.rs:238`）；其余入站路径未逐条确认 ⇒ "部分路径未覆盖" |
+| P0 残余②｜入站事件"不落"远端 `signatures` | ❌ **已作废（2026-10-17）** | `/send`、`backfill`、入站邀请三条路径均已回写（`transaction.rs:712-736` / `backfill.rs:344` / `invite.rs:238-245`），DB 回归在册 |
 | 中｜媒体配额"未强制" | ❌ **证伪**（真问题只是错误码） | `media/mod.rs:246-253,293` |
 | 低｜v12/v13 不可创建 | ⚠️ **降级为设计使然** | `room_versions.rs:108-115` 注释自述 fail-safe |
 
