@@ -2867,6 +2867,23 @@ CREATE TABLE IF NOT EXISTS event_receipts (
     CONSTRAINT uq_event_receipts_event_room_user_type UNIQUE (event_id, room_id, user_id, receipt_type)
 );
 
+-- 回执的**流日志**（对应上游 Synapse 的 `receipts_linearized`）。
+-- `event_receipts` 只保存每个 (event, room, user, receipt_type) 的**当前**状态：
+-- 更新会重写同一行、`id` **不会**前移，因此它不能当位置游标用（按 `id` 订阅
+-- 必然漏掉"同一行被更新"的那些变更）。应用服务（MSC2409）是按位置游标喂数据的，
+-- 所以每次回执写入都在同一事务内往这里追加一行。
+CREATE TABLE IF NOT EXISTS event_receipts_stream (
+    stream_id BIGSERIAL,
+    room_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    receipt_type TEXT NOT NULL,
+    ts BIGINT NOT NULL,
+    data JSONB NOT NULL DEFAULT '{}',
+    created_ts BIGINT NOT NULL,
+    CONSTRAINT pk_event_receipts_stream PRIMARY KEY (stream_id)
+);
+
 CREATE TABLE IF NOT EXISTS read_markers (
     id BIGSERIAL,
     room_id TEXT NOT NULL,
@@ -2986,6 +3003,16 @@ CREATE TABLE IF NOT EXISTS delayed_events (
     -- `unsigned` when the dispatcher finally sends it (upstream PR #19354 stores it
     -- the same way: ``sticky_duration_ms`` on ``delayed_events``).
     sticky_duration_ms BIGINT
+);
+
+-- Accounts whose joined-room parting is still owed after deactivation.
+-- Same table as upstream Synapse's `user_pending_deactivations`: deactivation
+-- writes a row and returns, and the background parting loop drains it. That
+-- keeps a huge account (thousands of rooms) from blocking the deactivation
+-- request, and lets a restart resume the unfinished work.
+CREATE TABLE IF NOT EXISTS user_pending_deactivations (
+    user_id TEXT NOT NULL PRIMARY KEY,
+    created_ts BIGINT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS rendezvous_session (

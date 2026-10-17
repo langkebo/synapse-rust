@@ -235,7 +235,13 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // 共 1062 字节，`bytes=236110`）⇒ 按 R10 第①条独立复算 FNV-1a 64 得
 // `0bea2dcc031b8c94`；先用**改动前的实际常量** `c1894a91182775f0` 对 HEAD 基线自检哈希实现
 // （235048 字节逐字节吻合，证明哈希实现未变）后才取新值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "dda1c0d97cc60b47";
+// 2026-10-17（B3/MSC2409：新增 `event_receipts_stream` 追加式回执日志表）：
+// baseline 再变（+820 字节，`bytes=237198`）⇒ 按 R10 第①条独立复算 FNV-1a 64 得
+// `7a9773b755bea292`；先用**改动前的实际常量** `dda1c0d97cc60b47` 自检哈希实现
+// （改动前字节 236378 逐字节吻合，证明哈希实现未变）后才取新值。
+// （注：上一行记的 `0bea2dcc031b8c94` 与本次改动前的实际常量不一致 ⇒ 2026-10-16 之后
+//  还有一次改动未补记，与 155-157 / 181-184 行记录的是**同一类漏同步**。）
+const EXPECTED_BASELINE_FINGERPRINT: &str = "7a9773b755bea292";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))
