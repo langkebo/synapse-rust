@@ -12,6 +12,13 @@
 
 /// The `backfill` module.
 pub mod backfill;
+
+/// 房间默认的 Megolm 算法标识。
+///
+/// DM 创建端点必须用它写 `m.room.encryption`（见 B-1）：
+/// 只给 `preset: private_chat` **不等于加密房间**——`private_chat` 只管
+/// join_rule / history_visibility，消息照样是明文，任何直连 vendor 端点的客户端都会造出明文私聊。
+pub const MEGOLM_V1_ALGORITHM: &str = "m.megolm.v1.aes-sha2";
 /// Outbound federation PDU construction/broadcast (single implementation).
 pub(crate) mod federation_broadcast;
 /// The `infrastructure` module.

@@ -1508,6 +1508,10 @@ impl FriendRoomService {
             preset: Some("trusted_private_chat".to_string()),
             invite_list: Some(vec![friend_id.to_string()]),
             is_direct: Some(true),
+            // B-1：这条是「加好友/接受好友后自动建 DM」的路径，
+            // 同样必须写 m.room.encryption —— 之前三条 DM 创建路径各写一份配置，
+            // 只改路由层会漏掉这里（`trusted_private_chat` 依然不加密消息）。
+            encryption: Some(crate::room::MEGOLM_V1_ALGORITHM.to_string()),
             ..Default::default()
         };
 

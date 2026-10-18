@@ -46,6 +46,12 @@ pub struct CreateDmRequest {
     #[validate(length(max = 50))]
     /// The `visibility` field.
     pub visibility: Option<String>,
+    /// 显式允许创建**明文**私聊（默认 `false`）。
+    ///
+    /// 默认行为是给房间写 `m.room.encryption`（Megolm），因为只给 `preset: private_chat`
+    /// 管不到消息加密 —— 那种"私聊"里的消息是明文的，服务端与联邦都能读。
+    /// 仅当调用方确实不需要 E2EE（自动化/机器人场景）时才传 `true`。
+    pub allow_plaintext: Option<bool>,
 }
 
 /// The `UpdateDmRequest` struct.
@@ -364,6 +370,18 @@ async fn find_existing_direct_room_id(
     Ok(get_direct_room_for_user(&direct_map, &invitees[0]))
 }
 
+/// DM 房间该用的加密算法：默认 Megolm，仅当调用方显式 `allow_plaintext: true` 时返回 `None`。
+///
+/// 抽成函数是为了让 friends / 非 friends 两条建房分支**共用同一判定**，
+/// 避免只改了一处（那正是 B-1 的成因）。
+fn dm_encryption_algorithm(body: &CreateDmRequest) -> Option<String> {
+    if body.allow_plaintext.unwrap_or(false) {
+        None
+    } else {
+        Some(synapse_services::room::MEGOLM_V1_ALGORITHM.to_string())
+    }
+}
+
 #[cfg(feature = "friends")]
 async fn create_dm_room_via_service(
     ctx: &RoomContext,
@@ -378,6 +396,9 @@ async fn create_dm_room_via_service(
         is_direct: Some(body.is_direct.unwrap_or(true)),
         visibility: body.visibility.clone().or_else(|| Some("private".to_string())),
         preset: Some("private_chat".to_string()),
+        // B-1：默认写 m.room.encryption。`preset: private_chat` 只管 join_rule /
+        // history_visibility，**不加密消息**；漏了这一步就等于造明文私聊。
+        encryption: dm_encryption_algorithm(body),
         room_type: (invitee_user_ids.len() > 1).then(|| "m.direct".to_string()),
         ..Default::default()
     };
@@ -408,6 +429,8 @@ async fn create_dm_room_via_service(
                 is_direct: Some(true),
                 visibility: body.visibility.clone().or_else(|| Some("private".to_string())),
                 preset: Some("private_chat".to_string()),
+                // B-1：同上，默认加密。
+                encryption: dm_encryption_algorithm(body),
                 ..Default::default()
             };
 
@@ -427,6 +450,9 @@ async fn create_dm_room_via_service(
             invite_list: Some(invitee_user_ids.to_vec()),
             is_direct: Some(body.is_direct.unwrap_or(true)),
             room_type: Some("m.direct".to_string()),
+            // B-1：多人 DM（群 DM）同样默认加密 —— 这类房间最容易漏，
+            // 因为它走的是另一条分支。
+            encryption: dm_encryption_algorithm(body),
             ..Default::default()
         };
 

@@ -746,7 +746,11 @@ async fn create_friend_dm(
         topic: None,
         invite_list: Some(vec![user_id.to_string()]),
         preset: Some("private_chat".to_string()),
-        encryption: None,
+        // B-1：好友 DM 一律写 m.room.encryption。
+        // 这个端点没有 body，因而不提供 allow_plaintext 逃生口：它是产品主路径，
+        // 造出明文私聊没有任何合理场景。需要明文（自动化/机器人）请走
+        // /_matrix/vendor/v1/create_dm 并显式传 allow_plaintext。
+        encryption: Some(synapse_services::room::MEGOLM_V1_ALGORITHM.to_string()),
         history_visibility: None,
         is_direct: Some(true),
         room_type: None,

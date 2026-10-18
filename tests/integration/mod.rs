@@ -19,6 +19,7 @@ mod api_delayed_sticky_dispatch_tests;
 mod api_device_key_purge_tests;
 mod api_device_presence_tests;
 mod api_device_routes_tests;
+mod api_dm_encryption_tests;
 mod api_e2ee_advanced_tests;
 mod api_enhanced_features_tests;
 mod api_error_compliance_tests;
