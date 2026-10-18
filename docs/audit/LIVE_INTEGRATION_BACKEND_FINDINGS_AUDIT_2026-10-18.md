@@ -378,3 +378,42 @@ curl -s -X POST $B/_matrix/client/v3/login -H 'Content-Type: application/json' \
 > 说明：I-03 的「第 6 次 429」判据依赖登录锁定；测试/联调阶段 `security.login_lockout_enabled: false`
 > 显式关闭（§6.5），因此本轮只验 403 同族，429 分支由单元用例
 > `lockout_backoff_escalates_then_caps` 覆盖，恢复开关后生效。
+
+### 6.13 复验补记（2026-10-18 下午，独立复核）
+
+§6.12 之后又做了一轮**从零重放**的复核（同一部署、同一 DB），并把两件"操作"留档：
+
+| 项 | 动作 | 实测 |
+| --- | --- | --- |
+| 启动开关 | `docker logs synapse-app \| grep DISABLED` | 两条 `WARN` 都在：`rate_limit.rs:28 Rate limiting is DISABLED`、`login_lockout.rs:45 Login lockout is DISABLED` |
+| 限流关闭 | 200 次 `GET /_matrix/client/versions`（并发 20） | **200/200 全部 200**，无 429 |
+| I-03 | 错误密码 ×3 | `403` + `M_FORBIDDEN`（锁定关闭 ⇒ 无 429，符合 §6.5） |
+| I-02 | `createRoom` + `text/plain` | `400` + `application/json` + `M_NOT_JSON` |
+| I-04 | `createRoom` + `{"name":123}` | `400` + `M_BAD_JSON`（`name: invalid type: integer`） |
+| I-01 | 新建 `public_chat` → 另一用户 join → 查 `/summaries` → leave → 再查 | join 后**命中**（152 个房间含该房间）→ leave 后**不含**（151） |
+| I-01 | `room_summary_members` 按房间抽查 | leave 后只剩创建者行（`@sdk_testuser2 join`），离开者行已删 |
+| I-01 | 全局两向 `EXCEPT` | stale=0 / missing=0（清理用房间已 leave，投影 0 行） |
+
+**存量回填已在真实库执行并留档**（回填后两向归零，与 §6.12 一致）：
+
+| 语句 | 影响行数 |
+| --- | --- |
+| ① 补齐缺失的 join/invite 投影行 | `INSERT 0 3` |
+| ② 删除真实状态不是 join/invite 的投影行 | `DELETE 148` |
+| ③ 重算漂移房间的聚合计数 | `UPDATE 32` |
+
+> 被删的 148 行在执行前已导出到 `/tmp/room_summary_members_stale_backup.csv`（含表头 149 行），
+> 需要回溯时可据此重放。执行前基线：stale=134 / missing=3 / 投影 8071 行；执行后 0 / 0 / 7926 行
+> （= 权威表 `join∪invite` 行数，两表完全一致）。
+
+**行数棘轮基线迁移**：`scripts/ci/file_size_baseline` 有 30 行变更（27 个 grandfathered 文件超限）。
+逐条可归因——其中 20 个 `routes/*.rs` 各 **+1 行**（`use crate::routes::MatrixJson;`）、
+`thread.rs` +51（I-07 的 content 拒绝逻辑）、`actions.rs`/`moderation.rs`/`repository.rs`（I-01 事务版）、
+`synapse-cache/{manager,tests}.rs`（P1 TTL 与计数器），另 `db_tests.rs` **减少** 150 行被同步收紧。
+按脚本提示（"deliberate, reviewed change"）执行了 `--update`；**未新增超限文件**（210 → 210）。
+
+> 第二次同步：`9df1f1d31` 之后 `c703f0d9b`（clippy 修复）与 B-1/B-3/B-4 的用例又让 15 个
+> grandfathered 文件长大（`invite_blocklist_service.rs` +79、`device_keys/service.rs` +49 等，
+> 全部属于本批交付），于是**已推送到 main 的基线在 HEAD 上是红的**。本轮再跑一次 `--update` 归零，
+> 同样未新增超限文件（仍 210）。**教训**：多会话并发时 `--update` 会被别人的后续改动再次推红，
+> 提交前必须以 `python3 scripts/ci/check_file_size_ratchet.py` 的退出码为准，而不是"我刚更新过"。
