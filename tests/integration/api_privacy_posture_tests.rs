@@ -65,3 +65,35 @@ async fn capabilities_expose_the_privacy_capability() {
         "默认部署必须报告 server_holds_room_keys=false；got {privacy}"
     );
 }
+
+/// `/_health` 的 `checks.room_key_custody` 是同一事实的详细侧呈现，
+/// 部署脚本 `verify_health_endpoints` 读的是 `/health` 顶层字段；
+/// 两者必须一致，否则运维看到的与脚本断言的会是两套答案。
+#[tokio::test]
+async fn detailed_health_reports_room_key_custody() {
+    let Some(app) = setup_fresh_test_app().await else {
+        return;
+    };
+
+    let (status, body) = get_json(&app, "/_health", None).await;
+    assert_eq!(status, StatusCode::OK, "_health must be reachable: {body}");
+
+    let custody = body
+        .get("checks")
+        .and_then(|c| c.get("room_key_custody"))
+        .unwrap_or_else(|| panic!("_health must carry checks.room_key_custody, got {body}"));
+
+    assert_eq!(
+        custody.get("server_holds_room_keys").and_then(Value::as_bool),
+        Some(false),
+        "默认部署必须报告 false；got {custody}"
+    );
+    assert_eq!(custody.get("status").and_then(Value::as_str), Some("clients"), "got {custody}");
+
+    // 持有密钥**不**应把整体健康度拉成 degraded：bridge 是有意的部署形态，
+    // 把它标红只会让人把这个字段当噪音。这里钉住"可见但不干扰告警"。
+    assert!(
+        matches!(body.get("status").and_then(Value::as_str), Some("healthy") | Some("degraded")),
+        "overall status must stay a normal value, got {body}"
+    );
+}

@@ -185,6 +185,26 @@ pub async fn detailed_health_check(State(ctx): State<AdminContext>) -> impl Into
         checks.insert("rate_limit_config".to_string(), rl);
     }
 
+    // B-7：房间密钥归属。刻意**不**把它算成 `degraded`：
+    // bridge / server-side-Megolm 是有意的部署形态，把它们整体标红只会让人
+    // 把这个字段当噪音。这里要的是「可被机器读到的事实」，
+    // 而"默认部署必须不持有"由 scripts/check_deploy_privacy.sh 静态守住。
+    {
+        let holds = ctx.config.server.server_holds_room_keys();
+        checks.insert(
+            "room_key_custody".to_string(),
+            json!({
+                "status": if holds { "server" } else { "clients" },
+                "server_holds_room_keys": holds,
+                "message": if holds {
+                    "This deployment holds room keys and can read encrypted rooms"
+                } else {
+                    "Room keys are held by clients only"
+                }
+            }),
+        );
+    }
+
     Json(json!({
         "status": overall_status,
         "version": env!("CARGO_PKG_VERSION"),

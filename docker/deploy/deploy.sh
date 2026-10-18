@@ -1693,11 +1693,31 @@ verify_health_endpoints() {
     DEPLOYMENT_PHASE="verify-health"
     log_info "验证健康检查接口..."
 
-    curl -fsS "http://localhost:${SYNAPSE_PORT:-8008}/health" >/dev/null
+    local health_body
+    health_body="$(curl -fsS "http://localhost:${SYNAPSE_PORT:-8008}/health")" || {
+        log_error "无法获取 /health 响应"
+        return 1
+    }
     curl -fsS "http://localhost:${HTTP_PORT:-80}/health" >/dev/null
     curl -fsS "http://localhost:${SYNAPSE_PORT:-8008}/_matrix/client/versions" >/dev/null
 
-    log_success "健康检查与 API 基础接口验证通过"
+    # B-7：断言本部署**不持有房间密钥**。
+    # 配了 server.megolm_device_id，服务端就能读所有加密房间 —— 那么"私聊是 E2EE"
+    # 这条承诺对这个部署就是假的。部署脚本是最后一道能看见真实运行态的地方。
+    #
+    # 字段**缺失也算失败**：旧镜像没有这个字段，必须让它显式暴露出来，
+    # 而不是"读不到就默认通过"。
+    if ! printf '%s' "$health_body" | grep -Eq '"server_holds_room_keys"'; then
+        log_error "/health 缺少 server_holds_room_keys 字段（镜像过旧？）⇒ 无法证明本部署不持有房间密钥"
+        return 1
+    fi
+    if printf '%s' "$health_body" | grep -Eq '"server_holds_room_keys"[[:space:]]*:[[:space:]]*true'; then
+        log_error "本部署启用了服务端 megolm（server_holds_room_keys=true）：服务端可读所有加密房间！"
+        log_error "请删除 server.megolm_device_id 后重新部署；否则不得对外声称端到端加密。"
+        return 1
+    fi
+
+    log_success "健康检查与 API 基础接口验证通过（server_holds_room_keys=false）"
 }
 
 # 已知告警白名单（格式: 匹配子串|原因）。
