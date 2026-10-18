@@ -192,15 +192,15 @@ security:
   login_lockout_max_duration_seconds: 3600
   # 登录失败锁定总开关。
   #
-  # ⚠️ 当前为 **false**：测试/调试阶段与限流一起关闭（用户 2026-10-18 指示）。
-  # 关闭后 `check_login_lockout` 直接放行、`record_login_failure` 不计数，
-  # 联调/压测不会再被 429 打断；代价是暴力破解防护为零，**只允许本机/内网测试环境**。
-  # 启动时会打印一次 `WARN ... Login lockout is DISABLED`。
+  # ✅ 当前为 **true**：2026-10-18 与 rate_limit 一同恢复开启（此前测试/联调
+  # 阶段曾显式关闭）。关闭后 `check_login_lockout` 直接放行、
+  # `record_login_failure` 不计数，暴力破解防护为零，且启动时打印一次
+  # `WARN ... Login lockout is DISABLED` —— 只允许本机/内网测试环境临时关闭。
   #
-  # ✅ 正式部署前必须改回 true。
-  # 需要现场复核 I-03 行为（前 5 次 403 M_FORBIDDEN、第 6 次 429 且
-  # retry_after_ms = login_lockout_duration_seconds）时，也临时改 true。
-  login_lockout_enabled: false
+  # I-03 现场判据：同一 (客户端 IP, 用户名) 前 5 次 403 M_FORBIDDEN，
+  # 第 6 次 429 且 retry_after_ms ≈ login_lockout_duration_seconds * 1000（默认 300000）。
+  # 回环地址在下面的 login_lockout_ip_allowlist 中豁免，探针须走非回环出口。
+  login_lockout_enabled: true
   # 单个出口 IP 的登录失败上限（跨用户名聚合，SEC-05）。
   # 必须 ≥ login_failure_lockout_threshold，否则更具体的桶永远先触发。
   login_lockout_max_ip_attempts: 30

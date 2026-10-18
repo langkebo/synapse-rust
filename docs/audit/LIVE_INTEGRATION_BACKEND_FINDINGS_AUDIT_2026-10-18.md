@@ -265,12 +265,13 @@ L2 侧 Lua `INCR` + 仅在 `count == 1` 时 `EXPIRE`，并返回 `PTTL` 供 L1 �
 
 ### 6.5 测试阶段的开关（重要）
 
-联调/压测阶段 429 会把真实缺陷伪装成"偶发失败"，因此**两条防护都显式关闭**，且都在启动时告警一次：
+联调/压测阶段 429 会把真实缺陷伪装成"偶发失败"，因此审计当时**两条防护都显式关闭**，且都在启动时告警一次。
+**2026-10-18 晚两条均已恢复 `true`**（与 `rate_limit.yaml` 的 `enabled: true` 一致），下表"关闭后的行为"仅作历史说明：
 
-| 开关 | 位置 | 关闭后的行为 | 恢复 |
-| --- | --- | --- | --- |
-| `rate_limit.enabled: false` | `docker/config/rate_limit.yaml`（生效值）+ `docker/config/homeserver.yaml`（回退值） | 中间件对每个请求直接放行，`default`/`endpoints`/`sync` 全部不生效 | 两处改回 `true` |
-| `security.login_lockout_enabled: false` | `docker/config/homeserver.yaml` | 不判定也不计数（`check_login_lockout` 直接放行） | 改回 `true`（默认值即 true） |
+| 开关 | 位置 | 当前值 | 关闭后的行为 | 恢复 |
+| --- | --- | --- | --- | --- |
+| `rate_limit.enabled` | `docker/config/rate_limit.yaml`（生效值）+ `docker/config/homeserver.yaml`（回退值） | `true`（审计时为 `false`） | 中间件对每个请求直接放行，`default`/`endpoints`/`sync` 全部不生效 | 两处改回 `true` |
+| `security.login_lockout_enabled` | `docker/config/homeserver.yaml` | `true`（审计时为 `false`） | 不判定也不计数（`check_login_lockout` 直接放行） | 改回 `true`（默认值即 true） |
 
 代码侧告警：`middleware/rate_limit.rs` 与 `utils/login_lockout.rs` 各用 `AtomicBool` 打一条
 `WARN ... DISABLED`（只打一次，避免刷日志）。**为什么必须留告警**：「没有 429」与「限流正常工作」
@@ -368,16 +369,16 @@ curl -s -X POST $B/_matrix/client/v3/login -H 'Content-Type: application/json' \
 | I-02a | `createRoom` 带 `Content-Type: text/plain` | **400** `application/json` + `M_NOT_JSON` |
 | I-02b | `createRoom` 带坏 JSON | **400** `application/json` + `M_NOT_JSON` |
 | I-02c | `summaries/batch` 类型错误 | **400** `application/json` + `M_BAD_JSON` |
-| I-03 | 错误密码登录 | **403** `application/json` + `M_FORBIDDEN`（测试阶段锁定关闭，无 429，符合 §6.5） |
+| I-03 | 错误密码登录 | **403** `application/json` + `M_FORBIDDEN`（审计时锁定关闭，无 429，符合 §6.5；当晚恢复 `true` 后可现场复核 429） |
 | I-04 | `{"name":123,"preset":"private_chat"}` | **400** `M_BAD_JSON`（`name: invalid type: integer`） |
 | I-04 | 合法 body `{"preset":"private_chat","name":"verify-legal"}` | **200** |
 | I-07 | 线程创建带非空 `content` | **400** `M_INVALID_PARAM` |
 | I-07 | 线程创建 `content: {}` | **200**（正常建线程） |
 | B-1 | `POST /_matrix/vendor/v1/create_dm` 后读 `m.room.encryption` | `{"algorithm":"m.megolm.v1.aes-sha2"}` |
 
-> 说明：I-03 的「第 6 次 429」判据依赖登录锁定；测试/联调阶段 `security.login_lockout_enabled: false`
-> 显式关闭（§6.5），因此本轮只验 403 同族，429 分支由单元用例
-> `lockout_backoff_escalates_then_caps` 覆盖，恢复开关后生效。
+> 说明：I-03 的「第 6 次 429」判据依赖登录锁定。审计当时 `security.login_lockout_enabled: false`
+> 显式关闭（§6.5），故本轮只验 403 同族；**2026-10-18 晚恢复 `true` 后**该分支已可现场复核，
+> 判据为同一 (IP, 用户名) 第 6 次返回 429 且 `retry_after_ms ≈ 300000`。
 
 ### 6.13 复验补记（2026-10-18 下午，独立复核）
 
