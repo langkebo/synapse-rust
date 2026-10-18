@@ -51,11 +51,10 @@ server:
   # maintenance_interval_secs: 86400
 
 rate_limit:
-  # ⚠️ 测试/调试阶段关闭（与 `docker/config/rate_limit.yaml` 的 `enabled` 保持一致）。
-  # 本字段只在**没有** rate_limit.yaml 时作为回退值生效；两处同时为 false 是为了让
+  # ✅ 限流已开启（与 `docker/config/rate_limit.yaml` 的 `enabled` 保持一致）。
+  # 本字段只在**没有** rate_limit.yaml 时作为回退值生效；两处同时为 true 是为了让
   # "限流开着还是关着" 在一个 `grep '^enabled'` 里就能看清，避免只改一处造成错觉。
-  # ✅ 正式部署前两处都要改回 true（自检见 rate_limit.yaml 顶部注释）。
-  enabled: false
+  enabled: true
   default:
     per_second: 20
     burst_size: 40

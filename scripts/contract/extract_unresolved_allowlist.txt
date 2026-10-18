@@ -29,7 +29,7 @@ ambiguous fn create_media_router (2 defs)        # admin/media.rs vs media/mod.r
 ambiguous fn create_room_router (2 defs)         # admin/room/mod.rs vs room.rs — both kept as roots
 ambiguous fn create_router (2 defs)              # assembly.rs vs federation/membership/mod.rs — both kept as roots
 ambiguous fn new (3 defs)                        # `RouteLedger::new()` / `Router::new()` — constructors, never router builders
-ambiguous fn from_ref (11 defs)                  # axum `FromRef` impls — request-state extraction, not routing
+ambiguous fn from_ref (12 defs)                  # axum `FromRef` impls — request-state extraction, not routing
 
 # --- opaque chain methods ----------------------------------------------------
 # Called on an accumulator that already holds the routes, so the correct action

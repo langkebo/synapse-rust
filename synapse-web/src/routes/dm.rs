@@ -780,6 +780,7 @@ mod tests {
             name: Some("DM".to_string()),
             topic: None,
             visibility: None,
+            allow_plaintext: None,
         }
     }
 

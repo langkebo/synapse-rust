@@ -344,36 +344,11 @@ async fn test_verify_user_credentials_nonexistent_user_returns_403_forbidden() {
 }
 
 #[tokio::test]
-async fn test_login_locked_account_returns_rate_limited() {
+async fn test_login_service_layer_does_not_enforce_lockout() {
     let pool = crate::require_test_pool().await;
-    let security = test_security();
-    let (auth, cache) = build_auth_with_cache(&pool, &security);
-
-    let username = unique_username();
-    let password = "StrongP@ss1!";
-    let (user, _access, _refresh, _device) = auth.register(&username, password, false, None).await.unwrap();
-
-    // Pre-seed the lockout cache key so is_account_locked() returns true.
-    let lockout_key = format!("auth:lockout:{}", user.user_id);
-    let lockout_until = chrono::Utc::now().timestamp() + 3600; // 1h in the future
-    cache.set(&lockout_key, &lockout_until, 3600).await.unwrap();
-
-    let result = auth.login(&username, password, None, None).await;
-    assert!(result.is_err());
-    let err = result.unwrap_err();
-    assert!(
-        err.is_rate_limited(),
-        "locked account login should be rate-limited, got {:?} ({})",
-        err.code(),
-        err.message()
-    );
-}
-
-#[tokio::test]
-async fn test_login_failure_lockout_after_threshold() {
-    let pool = crate::require_test_pool().await;
-    // Very low threshold so we trigger lockout quickly.
     let mut security = test_security();
+    // 即使把服务层阈值调到 2，服务层也不再做失败计数：锁定只在
+    // synapse-web/src/utils/login_lockout.rs（HTTP 入口）实现。
     security.login_failure_lockout_threshold = 2;
     security.login_lockout_duration_seconds = 3600;
     let (auth, cache) = build_auth_with_cache(&pool, &security);
@@ -382,22 +357,16 @@ async fn test_login_failure_lockout_after_threshold() {
     let password = "StrongP@ss1!";
     let (user, _access, _refresh, _device) = auth.register(&username, password, false, None).await.unwrap();
 
-    // Two wrong-password logins should trigger lockout (threshold = 2).
-    for _ in 0..2 {
+    for _ in 0..3 {
         let _ = auth.login(&username, "WrongPassword99!", None, None).await;
     }
 
-    // After lockout, even the correct password should be rate-limited.
     let lockout_key = format!("auth:lockout:{}", user.user_id);
-    let lockout_until: Option<i64> = cache.get(&lockout_key).await.unwrap();
-    assert!(lockout_until.is_some(), "lockout key should be set after threshold failures");
+    let lockout_until: Option<String> = cache.get(&lockout_key).await.unwrap();
+    assert!(lockout_until.is_none(), "service layer must not write per-account lockout keys");
 
     let result = auth.login(&username, password, None, None).await;
-    assert!(result.is_err());
-    assert!(
-        result.unwrap_err().is_rate_limited(),
-        "correct password should still be rate-limited while lockout is active"
-    );
+    assert!(result.is_ok(), "service layer must not lock the account: {:?}", result.err());
 }
 
 #[tokio::test]

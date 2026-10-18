@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE one_time_invites\n            SET claimed_by = NULL, claimed_at = NULL\n            WHERE token_hash = $1 AND claimed_by = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0c04fd1da33bfc005eac8a16fa3d1cd2367bbf18f2a9a52a8dd80454d6461919"
+}

@@ -19,9 +19,9 @@ use crate::routes::{
     get_room_version, get_single_event, get_state_by_type, get_state_event, get_state_event_empty_key, get_user_rooms,
     invite_user, join_room, join_room_by_id_or_alias, kick_user, knock_room, leave_room, pinned, put_power_levels,
     put_state_event, put_state_event_empty_key, put_state_event_no_key, redact_event, room_initial_sync,
-    search_room_messages, send_message, send_receipt, send_state_event, set_read_markers, set_room_account_data,
-    set_room_vault_data, sign_room_event, sticky_event, translate_room_event, translate_text, unban_user,
-    verify_room_event, AppState,
+    search_room_messages, send_message, send_receipt, send_state_event, set_read_markers, set_retention_policy,
+    set_room_account_data, set_room_vault_data, sign_room_event, sticky_event, translate_room_event, translate_text,
+    unban_user, verify_room_event, AppState,
 };
 use axum::{
     extract::{Path, State},
@@ -136,7 +136,7 @@ fn create_room_vendor_router() -> Router<AppState> {
         .route("/rooms/{room_id}/turn_server", get(get_room_turn_server))
         .route("/rooms/{room_id}/metadata", get(get_room_metadata))
         .route("/rooms/{room_id}/vault_data", get(get_room_vault_data).put(set_room_vault_data))
-        .route("/rooms/{room_id}/retention", get(get_retention_policy))
+        .route("/rooms/{room_id}/retention", get(get_retention_policy).put(set_retention_policy))
         .route("/rooms/{room_id}/spaces", get(get_room_spaces))
         .route("/rooms/{room_id}/encrypted_events", get(get_room_encrypted_events))
         .route("/rooms/{room_id}/reduced_events", get(get_room_reduced_events))

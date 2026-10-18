@@ -1,6 +1,5 @@
 use super::auth_generate_token;
 use super::AuthService;
-use chrono::Utc;
 use std::sync::Arc;
 use synapse_common::crypto::hash_password_with_params;
 use synapse_common::password_hash_pool::{PasswordHashError, PasswordHashPool};
@@ -11,6 +10,13 @@ use uuid::Uuid;
 
 impl AuthService {
     /// See [`login`].
+    ///
+    /// 账户级失败计数与锁定**不在这里**实现：唯一实现是
+    /// `synapse-web/src/utils/login_lockout.rs`（总开关、IP allowlist、
+    /// (ip, username) 与 per-IP 双桶、指数退避）。HTTP 登录入口
+    /// (`synapse-web/src/routes/auth_compat.rs`) 在调用本方法前后完成
+    /// `check_login_lockout` / `record_login_failure` / `clear_login_failures`。
+    /// 直接调用本方法的非 HTTP 路径（内部任务、测试）因此不做锁定。
     pub async fn login(
         &self,
         username: &str,
@@ -62,34 +68,15 @@ impl AuthService {
             _ => (Self::dummy_password_hash().to_string(), None),
         };
 
-        let lock_user_id = user_opt.as_ref().map(|u| u.user_id.clone());
-        let is_locked = match &lock_user_id {
-            Some(uid) => self.is_account_locked(uid).await?,
-            None => false,
-        };
-
         let password_ok = self.verify_user_password(password, &password_hash_owned).await?;
-
-        if is_locked {
-            self.do_log_login_failure(username, "account_locked").await;
-            return Err(ApiError::rate_limited(
-                "Account is temporarily locked due to too many failed login attempts. Please try again later."
-                    .to_string(),
-            ));
-        }
 
         let user = match user_for_success {
             Some(u) if password_ok => u,
             _ => {
-                if let Some(uid) = lock_user_id.as_deref() {
-                    self.record_login_failure(uid).await?;
-                }
                 self.do_log_login_failure(username, "invalid_credentials").await;
                 return Err(invalid());
             }
         };
-
-        self.clear_login_failures(&user.user_id).await?;
 
         if is_legacy_hash(&password_hash_owned) {
             if let Err(e) = self.migrate_password(&user.user_id, password).await {
@@ -126,72 +113,6 @@ impl AuthService {
         DUMMY
             .get_or_init(|| hash_password_with_params("no-such-user", 65536, 3, 1).expect("argon2 dummy hash"))
             .as_str()
-    }
-
-    async fn is_account_locked(&self, user_id: &str) -> ApiResult<bool> {
-        let key = format!("auth:lockout:{user_id}");
-        let lockout_until: Option<i64> = self.cache.get_checked(&key).await?;
-
-        if let Some(timestamp) = lockout_until {
-            if timestamp > Utc::now().timestamp() {
-                return Ok(true);
-            }
-            self.cache.delete(&key).await;
-        }
-        Ok(false)
-    }
-
-    async fn record_login_failure(&self, user_id: &str) -> ApiResult<()> {
-        let key = format!("auth:failures:{user_id}");
-        let failures: i64 = self.cache.get(&key).await?.unwrap_or(0i64).saturating_add(1);
-
-        if let Err(e) = self.cache.set(&key, &failures, self.login_lockout_duration_seconds).await {
-            ::tracing::warn!(
-                error = %e,
-                user_id = %user_id,
-                cache_key = %key,
-                failure_count = failures,
-                lockout_duration_seconds = self.login_lockout_duration_seconds,
-                "Failed to update login failure count in cache"
-            );
-        }
-
-        if failures >= self.login_failure_lockout_threshold as i64 {
-            let lockout_until = Utc::now().timestamp() + self.login_lockout_duration_seconds as i64;
-            let lockout_key = format!("auth:lockout:{user_id}");
-            // 安全关键：锁定写入必须 fail-closed，Redis 故障时返回错误让登录失败，
-            // 而非静默绕过账户锁定（审查 #13）。
-            let lockout_str = lockout_until.to_string();
-            self.cache.set_checked(&lockout_key, &lockout_str, self.login_lockout_duration_seconds).await?;
-
-            ::tracing::warn!(
-                target: "security_audit",
-                event = "account_locked",
-                user_id = user_id,
-                failure_count = failures,
-                lockout_duration_seconds = self.login_lockout_duration_seconds,
-                "Account locked due to too many failed login attempts"
-            );
-            self.record_security_audit(
-                "auth.account_locked",
-                "user",
-                user_id,
-                "failure",
-                serde_json::json!({
-                    "failure_count": failures,
-                    "lockout_duration_seconds": self.login_lockout_duration_seconds
-                }),
-            )
-            .await;
-        }
-
-        Ok(())
-    }
-
-    async fn clear_login_failures(&self, user_id: &str) -> ApiResult<()> {
-        let key = format!("auth:failures:{user_id}");
-        self.cache.delete(&key).await;
-        Ok(())
     }
 
     /// See [`verify_user_password`].

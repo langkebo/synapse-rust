@@ -29,6 +29,14 @@ pub const DM_MEGOLM_ROTATION_PERIOD_MS: i64 = 86_400_000;
 
 /// 私密房间（DM）的 Megolm 消息条数轮换阈值：50 条（默认 100）。
 pub const DM_MEGOLM_ROTATION_PERIOD_MSGS: i64 = 50;
+
+/// 私密 DM（`is_private: true`）的默认 retention：7 天。
+///
+/// B-5 只提供了 per-room retention 端点，没有默认值——客户端不显式设置就没有 TTL，
+/// 「私密房间 N 天后消失」的承诺就永远依赖客户端自觉。这里给私密 DM 一个服务端默认值。
+///
+/// 注意：retention 只删除本服务器事件，不会联邦删除、也不删媒体（见交接文档 §3）。
+pub const PRIVATE_DM_RETENTION_MAX_LIFETIME_MS: i64 = 7 * 24 * 60 * 60 * 1000;
 /// Outbound federation PDU construction/broadcast (single implementation).
 pub(crate) mod federation_broadcast;
 /// The `infrastructure` module.

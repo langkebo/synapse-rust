@@ -29,6 +29,7 @@ mod api_federation_key_fetch_limits_tests;
 mod api_federation_tests;
 mod api_federation_transaction_tests;
 mod api_friend_blocked_admission_tests;
+mod api_friend_dm_privacy_tests;
 mod api_history_visibility_tests;
 mod api_input_validation_tests;
 mod api_invite_blocklist_e2e_tests;
@@ -37,6 +38,7 @@ mod api_key_backup_route_table_tests;
 mod api_media_routes_tests;
 mod api_megolm_rotation_tests;
 mod api_msc3912_redaction_cascade_tests;
+mod api_one_time_invite_routes_tests;
 mod api_placeholder_contract_p0_tests;
 mod api_placeholder_contract_p1p2_tests;
 mod api_privacy_posture_tests;
@@ -46,6 +48,7 @@ mod api_public_rooms_tests;
 mod api_rate_limit_contract_tests;
 mod api_relations_authorization_tests;
 mod api_rendezvous_routes_tests;
+mod api_room_retention_tests;
 mod api_room_summary_routes_tests;
 mod api_room_sync_tests;
 mod api_route_ledger_tests;
@@ -190,7 +193,7 @@ pub fn with_local_connect_info(mut request: hyper::Request<axum::body::Body>) ->
 /// `skip_or_fail_without_db` and the pool helpers below.
 pub(crate) use common::integration_tests_required;
 
-/// Fail closed when CI requires a database but a fixture came back empty.
+/// Fail closed when a DB-backed fixture could not be built.
 ///
 /// 18 call sites (`api_route_ledger_tests` × 16, `api_key_backup_route_table_tests` × 2)
 /// used to `return` straight from the `else` arm, so under CI — where a database
@@ -201,19 +204,17 @@ pub(crate) use common::integration_tests_required;
 /// `database_integrity_tests` × 5 hit the same silent skip through
 /// `connect_integrity_pool()` returning `None`, and now route through this helper too.
 ///
-/// Reuses the existing `integration_tests_required()` decision (which already
-/// treats `CI=1` as "must not skip") rather than inventing a second env-var
-/// convention — iron rule 2: one implementation per responsibility.
+/// 2026-10-18（`BACKEND_OPEN_ISSUES_HANDOFF_2026-10-18.md` §1.1）：这里**不再**有
+/// 软跳过分支。`cargo test` 把 `return` 记为 `ok`，于是没有数据库的机器会在几十
+/// 毫秒内拿到一份全绿的集成套件。跳过即通过比失败更危险——它让"全绿"失去意义。
+/// 只跑不依赖数据库的用例时，请显式过滤（例如 `-- --skip api_`）。
 pub(crate) fn skip_or_fail_without_db() {
-    if integration_tests_required() {
-        panic!(
-            "integration test database is not available, but CI/INTEGRATION_TESTS_REQUIRED=1: \
-             refusing to silently skip. The ledger contract chain must not pass without running \
-             (see PROJECT_ACTUAL_ISSUES_2026-09-14.md §2.5). Check the step's TEST_DATABASE_URL \
-             and TEST_DB_TEMPLATE_SCHEMA."
-        );
-    }
-    eprintln!("Skipping: integration test database is not available");
+    panic!(
+        "integration test database is not available: refusing to skip-as-pass. \
+         Set TEST_DATABASE_URL (e.g. postgresql://synapse:synapse@localhost:55432/synapse_test) \
+         and make sure the schema is migrated; the ledger contract chain must not pass without \
+         running (see BACKEND_OPEN_ISSUES_HANDOFF_2026-10-18.md §1.1)."
+    );
 }
 
 fn integration_test_setup_timeout() -> Duration {
@@ -296,18 +297,14 @@ pub async fn get_test_pool() -> Option<Arc<sqlx::PgPool>> {
             Some(pool)
         }
         Err(error) => {
-            eprintln!(
-                "Skipping integration tests because schema setup failed: {}; {}",
+            // 2026-10-18：不再按 CI 开关决定是否 panic —— 跳过即通过会让
+            // 套件在无数据库时"全绿"（BACKEND_OPEN_ISSUES_HANDOFF_2026-10-18.md §1.1）。
+            panic!(
+                "Integration test schema setup failed: {}; {}. \
+                 Refusing to skip-as-pass: without a database these assertions never run.",
                 error,
                 describe_integration_test_setup(mode, started.elapsed())
             );
-            if integration_tests_required() {
-                panic!(
-                    "Integration tests require strict migration initialization to succeed, but schema setup failed: {}",
-                    error
-                );
-            }
-            None
         }
     }
 }
@@ -484,25 +481,28 @@ pub struct TestContext {
 /// every candidate URL; `resolve_test_database_url`'s own cache only remembers
 /// *success*, so re-probing in each of ~1.4k tests would recreate exactly the
 /// connection churn that cache was added to remove (P0-1 gate-drift).
-static TEST_DATABASE_REACHABLE: tokio::sync::OnceCell<bool> = tokio::sync::OnceCell::const_new();
+static TEST_DATABASE: tokio::sync::OnceCell<Result<(), String>> = tokio::sync::OnceCell::const_new();
 
-async fn test_database_reachable() -> bool {
-    *TEST_DATABASE_REACHABLE
-        .get_or_init(|| async {
-            match synapse_test_utils::resolve_test_database_url().await {
-                Ok(_) => true,
-                Err(error) => {
-                    eprintln!(
-                        "\n[integration] SKIPPING every DB-backed integration test: no reachable test database.\n\
-                         [integration] cause: {error}\n\
-                         [integration] Set TEST_DATABASE_URL (e.g. \
-                         postgresql://synapse:synapse@localhost:5432/synapse_test) to actually run them.\n"
-                    );
-                    false
-                }
-            }
-        })
-        .await
+/// Panic unless a test database is reachable.
+///
+/// 2026-10-18：这里曾经返回 `bool`，`false` 时所有 DB 用例走
+/// `let Some(app) = ... else { return; };` —— libtest 把 `return` 记为 `ok`，
+/// 于是没有数据库的机器会在 ~0.04s 内拿到一份全绿套件（实测 47 条）。
+/// 现在改成 fail-closed：没有数据库就让用例**失败**，而不是"静默通过"。
+/// 只跑非 DB 用例请用测试过滤（例如 `-- --skip api_`）。
+async fn require_test_database() {
+    let outcome =
+        TEST_DATABASE.get_or_init(|| async { synapse_test_utils::resolve_test_database_url().await.map(|_| ()) }).await;
+
+    if let Err(cause) = outcome {
+        panic!(
+            "\n[integration] No reachable test database: {cause}\n\
+             [integration] DB-backed integration tests no longer skip-as-pass; refusing to run.\n\
+             [integration] Set TEST_DATABASE_URL (e.g. \
+             postgresql://synapse:synapse@localhost:55432/synapse_test) and migrate it \
+             (see BACKEND_OPEN_ISSUES_HANDOFF_2026-10-18.md §1.1).\n"
+        );
+    }
 }
 
 impl TestContext {
@@ -522,18 +522,12 @@ impl TestContext {
     async fn build(isolated: bool) -> Option<Self> {
         init_tracing();
 
-        // `None` means *only* "this environment has no test database". Setup
-        // failures panic instead of returning `None`, because every DB-backed
-        // test starts with `let Some(app) = setup_test_app().await else { return; }`
-        // — collapsing an infrastructure failure into `None` turned a broken
-        // suite into a green one. That is not hypothetical: a schema clone
-        // refused with `permission denied for language c` silently skipped the
-        // whole integration suite, which in turn hid a `create_router` panic
-        // that made the server unable to start
-        // (docs/audit/DB_REVIEW_2026-09-17.md §13.6.1).
-        if !test_database_reachable().await {
-            return None;
-        }
+        // 2026-10-18：数据库不可达时 **panic**，不再 `return None`。
+        // 以前 `None` 会让每个用例走 `else { return; }`，libtest 记为 `ok`
+        // —— 基础设施故障被折叠成"通过"（实测 47 条 / 0.04s）。
+        // Setup failures 同样 panic；整个 `Option` 返回值仅为兼容既有
+        // ~50 个 `let Some(..) else { return; }` 调用点，实际恒为 `Some`。
+        require_test_database().await;
 
         let (pool, lease) = if isolated {
             // Isolated path: run full migrations, no pooling

@@ -19,6 +19,13 @@
 //! `scripts/ci/check_file_size_ratchet.py` 约束（受保护文件**只许缩小**），
 //! 把跨切的锁定关注点从路由文件里挪走同时让两边都合规。
 //!
+//! ## 2026-10-18 收敛：服务层副本已删除
+//!
+//! `synapse-services/src/auth/login.rs` 曾另有一套 `auth:failures:{user_id}` /
+//! `auth:lockout:{user_id}` 计数与锁定，只读两个配置值、**不读**总开关与
+//! allowlist，且返回的 429 不带 `retry_after_ms`。它与本模块语义重复、行为
+//! 不一致，已整体删除。现在账户级锁定**只**在这里实现，服务层不再做限流。
+//!
 //! ## 两套阈值（SEC-05）
 //!
 //! * `login_fail:{ip}:{username}` —— 按 (IP, 用户名) 对，挡单账号爆破；

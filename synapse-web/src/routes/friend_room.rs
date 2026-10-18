@@ -733,10 +733,24 @@ async fn get_friend_dm(
     })))
 }
 
+/// `POST /_matrix/vendor/v1/friends/dm/{user_id}` 的可选请求体（B-2）。
+///
+/// `is_private: true` 只在**新建**房间时生效：额外写 `history_visibility=invited`、
+/// `com.hula.privacy` state 与默认 7 天 retention；命中已有房间时只回显请求值。
+/// 契约见 `docs/sdk/friends.md`「私信房间」。
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CreateFriendDmRequest {
+    /// 是否创建私密 DM。
+    #[serde(default)]
+    pub is_private: Option<bool>,
+}
+
 /// Build the room config for a friend DM. Kept separate from the handler so the
 /// encryption policy is directly testable.
 fn build_friend_dm_room_config(
     friend_user_id: &str,
+    is_private: bool,
 ) -> synapse_services::friend_room_service::FriendRoomCreateRoomConfig {
     synapse_services::friend_room_service::FriendRoomCreateRoomConfig {
         visibility: Some("private".to_string()),
@@ -746,17 +760,25 @@ fn build_friend_dm_room_config(
         invite_list: Some(vec![friend_user_id.to_string()]),
         preset: Some("private_chat".to_string()),
         // B-1：好友 DM 一律写 m.room.encryption。
-        // 这个端点没有 body，因而不提供 allow_plaintext 逃生口：它是产品主路径，
+        // 这个端点只有可选的 `is_private` body，不提供 allow_plaintext 逃生口：它是产品主路径，
         // 造出明文私聊没有任何合理场景。需要明文（自动化/机器人）请走
         // /_matrix/vendor/v1/create_dm 并显式传 allow_plaintext。
         encryption: Some(crate::routes::dm::DM_ENCRYPTION_ALGORITHM.to_string()),
         // B-6：好友 DM 按「1 天 / 50 条」轮换 Megolm session。
         encryption_rotation_period_ms: Some(synapse_services::room::DM_MEGOLM_ROTATION_PERIOD_MS),
         encryption_rotation_period_msgs: Some(synapse_services::room::DM_MEGOLM_ROTATION_PERIOD_MSGS),
-        history_visibility: None,
+        // B-2：私密 DM 收紧历史可见性，并写 com.hula.privacy 标记；
+        // 非私密 DM 保持既有行为（交由 preset 默认值）。
+        history_visibility: is_private.then(|| "invited".to_string()),
         is_direct: Some(true),
         room_type: None,
-        initial_state: None,
+        initial_state: is_private.then(|| {
+            vec![json!({
+                "type": "com.hula.privacy",
+                "state_key": "",
+                "content": {"action": "block_screenshot", "is_private": true},
+            })]
+        }),
         creation_content: None,
         room_version: None,
         power_level_content_override: None,
@@ -767,20 +789,36 @@ async fn create_friend_dm(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Path(user_id): Path<UserId>,
+    body: Option<MatrixJson<CreateFriendDmRequest>>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
 
-    let config = build_friend_dm_room_config(&user_id);
+    let is_private = body.and_then(|MatrixJson(payload)| payload.is_private).unwrap_or(false);
+    let config = build_friend_dm_room_config(&user_id, is_private);
 
     let result: synapse_services::friend_room_service::EnsureDirectRoomResult = ctx
         .friend_room_service
         .ensure_direct_room(&auth_user.user_id, &user_id, config, Some(&auth_user.user_id))
         .await?;
 
+    // P1-2.3：私密 DM 的默认 retention 只写在新建房间上；失败不阻断建房间本身
+    // （房间已存在，重试会走 created=false 分支而不再补写，报 500 只会让客户端困惑）。
+    if result.created && is_private {
+        if let Err(error) = ctx.friend_room_service.apply_private_dm_default_retention(&result.room_id).await {
+            ::tracing::warn!(
+                room_id = %result.room_id,
+                user_id = %auth_user.user_id,
+                error = %error,
+                "Failed to apply default retention for private DM"
+            );
+        }
+    }
+
     Ok(Json(json!({
         "room_id": result.room_id,
         "user_id": user_id,
         "created": result.created,
+        "is_private": is_private,
     })))
 }
 
@@ -837,9 +875,41 @@ mod tests {
     /// B-1: creating a friend DM must request an encrypted room.
     #[test]
     fn test_friend_dm_room_config_is_encrypted() {
-        let config = build_friend_dm_room_config("@bob:example.com");
+        let config = build_friend_dm_room_config("@bob:example.com", false);
         assert_eq!(config.encryption.as_deref(), Some(crate::routes::dm::DM_ENCRYPTION_ALGORITHM));
         assert_eq!(config.invite_list, Some(vec!["@bob:example.com".to_string()]));
         assert_eq!(config.is_direct, Some(true));
+    }
+
+    /// B-2：非私密请求保持既有行为，不额外写 history_visibility / privacy state。
+    #[test]
+    fn test_friend_dm_room_config_public_keeps_defaults() {
+        let config = build_friend_dm_room_config("@bob:example.com", false);
+        assert_eq!(config.history_visibility, None);
+        assert_eq!(config.initial_state, None);
+    }
+
+    /// B-2：`is_private: true` 必须收紧历史可见性并写 `com.hula.privacy`。
+    #[test]
+    fn test_friend_dm_room_config_private_marks_history_and_privacy() {
+        let config = build_friend_dm_room_config("@bob:example.com", true);
+
+        assert_eq!(config.history_visibility.as_deref(), Some("invited"));
+
+        let initial_state = config.initial_state.expect("private DM must carry initial_state");
+        let privacy = initial_state
+            .iter()
+            .find(|event| event["type"] == "com.hula.privacy")
+            .expect("com.hula.privacy state must be present");
+        assert_eq!(privacy["state_key"], "");
+        assert_eq!(privacy["content"], serde_json::json!({"action": "block_screenshot", "is_private": true}));
+    }
+
+    /// B-2：请求体开了 `deny_unknown_fields`，多传字段必须报错。
+    #[test]
+    fn test_create_friend_dm_request_rejects_unknown_fields() {
+        assert!(serde_json::from_str::<CreateFriendDmRequest>(r#"{"is_private":true}"#).is_ok());
+        assert!(serde_json::from_str::<CreateFriendDmRequest>(r#"{}"#).is_ok());
+        assert!(serde_json::from_str::<CreateFriendDmRequest>(r#"{"is_private":true,"other":1}"#).is_err());
     }
 }

@@ -209,6 +209,9 @@ pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Requ
 
 #[cfg(test)]
 mod tests {
+    // 只有 `test-utils` 特性下的中间件集成测试会用到 `super` 里的
+    // `rate_limit_middleware` / `Request` / `Body`；不带该特性时为未使用导入。
+    #[cfg(feature = "test-utils")]
     use super::*;
     // The tests below pin `extract_client_ip`'s hop-walking directly; the middleware
     // itself now goes through `effective_client_ip`.

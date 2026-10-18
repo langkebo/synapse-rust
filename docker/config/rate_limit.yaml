@@ -1,22 +1,20 @@
 # =============================================================================
-# ⚠️ 测试/调试阶段：限流**整体关闭**（`enabled: false`）。
+# ✅ 限流已开启（`enabled: true`）。
 # =============================================================================
 # 本文件是限流中间件的**唯一生效配置**：`RATE_LIMIT_CONFIG_PATH` 指向它，
 # 加载后整体**替换** homeserver.yaml 的 `rate_limit:` 段（replace，不是合并）。
 # 因此这里的 `enabled` 一旦为 false，中间件对每个请求直接放行，
-# 下面所有 `default` / `endpoints` / `sync` 规则**全部不生效**（保留只为上线时直接复用）。
+# 下面所有 `default` / `endpoints` / `sync` 规则**全部不生效**。
 #
-# 为什么要关：联调/压测/API 全量测试会被限流误伤成 429，掩盖真实缺陷。
-# 已实测过的两类误伤：
-#   * 登录锁定与限流共用同一客户端 IP 维度，反向代理后所有人共享一个桶；
-#   * 批量脚本（api_test / k6）天然是突发流量，与 per_second 语义冲突。
+# 历史：测试/调试阶段曾整体关闭（联调/压测/API 全量测试会被限流误伤成 429），
+# 现已恢复开启。若再次关闭，需同时改 homeserver.yaml 的 `rate_limit.enabled`，
+# 并接受批量脚本（api_test / k6）与登录锁定共用 IP 桶带来的误伤。
 #
-# ✅ 正式部署前必须改回 `enabled: true`（并确认 `trust_forwarded` 与
-#    `trusted_proxies` 已按部署网络配置，否则桶按 nginx 的 IP 聚合）。
-#    自检：`grep -n '^enabled:' docker/config/rate_limit.yaml` 必须是 true；
+# 自检：`grep -n '^enabled:' docker/config/rate_limit.yaml` 必须是 true；
 #    `docker compose logs synapse | grep -i 'rate limit'` 不得出现 "DISABLED"。
+# `trust_forwarded` / `trusted_proxies` 已按部署网络子网配置，桶按真实客户端 IP 聚合。
 # =============================================================================
-enabled: false
+enabled: true
 default:
   per_second: 500
   burst_size: 1000

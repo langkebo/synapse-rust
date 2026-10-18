@@ -1233,13 +1233,26 @@ clear_project_caches() {
     fi
     log_info "彻底清理项目缓存（编译缓存 / 临时文件 / Docker 构建缓存）..."
 
-    # 1) Rust 编译缓存（cargo clean + 兜底删除残留 target 目录）
-    if command -v cargo >/dev/null 2>&1; then
-        (cd "$PROJECT_ROOT" && cargo clean) || log_warning "cargo clean 返回非零，继续兜底清理"
+    # 1) Rust 编译缓存
+    #
+    # **不再 `cargo clean` / `rm -rf target/`**（BACKEND_OPEN_ISSUES_HANDOFF_2026-10-18.md §1.4）：
+    # 默认部署走 Docker 构建（SKIP_HOST_BUILD=true），主机 target 与本次部署无关，
+    # 而 `target/` 是同一 worktree 里开发构建共享的 —— 清掉它会让下一次
+    # `cargo build/check/test` 全量重来（本项目全量编译以小时计）。
+    # 因此部署只认**自己的** target 目录；需要清理时显式开开关。
+    DEPLOY_CARGO_TARGET_DIR="${DEPLOY_CARGO_TARGET_DIR:-$PROJECT_ROOT/target/deploy}"
+    if [ "${DEPLOY_CLEAN_CARGO_TARGET:-false}" = "true" ]; then
+        if command -v cargo >/dev/null 2>&1; then
+            (cd "$PROJECT_ROOT" && CARGO_TARGET_DIR="$DEPLOY_CARGO_TARGET_DIR" cargo clean) ||
+                log_warning "cargo clean 返回非零，继续兜底清理"
+        else
+            log_warning "未找到 cargo，跳过 cargo clean"
+        fi
+        rm -rf "$DEPLOY_CARGO_TARGET_DIR"
+        log_info "已清理部署专用 target: $DEPLOY_CARGO_TARGET_DIR"
     else
-        log_warning "未找到 cargo，跳过 cargo clean"
+        log_info "保留 Rust 编译缓存（共享 target 不被部署清理；如需清理：DEPLOY_CLEAN_CARGO_TARGET=true）"
     fi
-    rm -rf "$PROJECT_ROOT/target"
 
     # 2) 部署临时文件：日志管道 + 历史部署日志只保留最近 10 份
     find "$LOG_DIR" -maxdepth 1 -name '.deploy_*.pipe' -delete 2>/dev/null || true
@@ -1280,6 +1293,9 @@ rebuild_project() {
         return
     fi
     log_info "重新编译项目 (主机预检)..."
+    # 主机预检产物写到部署专用 target，避免污染/复用开发共享的 `target/`
+    # （见 clear_project_caches 的说明）。
+    export CARGO_TARGET_DIR="${DEPLOY_CARGO_TARGET_DIR:-$PROJECT_ROOT/target/deploy}"
     if [ "$ENABLED_EXTENSIONS" = "all" ]; then
         (cd "$PROJECT_ROOT" && cargo build --release --locked --features all-extensions --bin synapse-rust --bin healthcheck)
     elif [ "$ENABLED_EXTENSIONS" = "none" ]; then

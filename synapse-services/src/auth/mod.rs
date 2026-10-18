@@ -91,20 +91,16 @@ pub struct AuthService {
     pub argon2_p_cost: u32,
     /// The `allow_legacy_hashes` field.
     pub allow_legacy_hashes: bool,
-    /// The `login_failure_lockout_threshold` field.
-    pub login_failure_lockout_threshold: u32,
-    /// The `login_lockout_duration_seconds` field.
-    pub login_lockout_duration_seconds: u64,
     /// MSC3861: Optional MAS token validator. When set (MAS deployed),
     /// `validate_token` first tries the MAS path for RS256/ES256/EdDSA
     /// JWTs before falling back to the local HS256 path. `None` preserves
     /// the legacy behavior (local tokens only).
     pub mas_validator: Option<Arc<dyn MasTokenValidator>>,
     /// C1: Tamper-evident audit storage. When set, security events
-    /// (login success/failure, account lockout, password change, token
-    /// revocation) are persisted to the `audit_events` table in addition
-    /// to tracing logs. `None` preserves the legacy tracing-only path
-    /// (tests / pre-wiring builds).
+    /// (login success/failure, password change, token revocation) are
+    /// persisted to the `audit_events` table in addition to tracing logs.
+    /// `None` preserves the legacy tracing-only path (tests / pre-wiring
+    /// builds).
     pub audit_storage: Option<Arc<dyn synapse_storage::audit::AuditEventStoreApi>>,
     /// B-4: purges `device_keys` rows when a device (or a whole account) is
     /// deleted. Late-bound with [`Self::set_device_key_purger`] because E2EE
@@ -184,8 +180,6 @@ impl AuthService {
             argon2_t_cost: security.argon2_t_cost,
             argon2_p_cost: security.argon2_p_cost,
             allow_legacy_hashes: security.allow_legacy_hashes,
-            login_failure_lockout_threshold: security.login_failure_lockout_threshold,
-            login_lockout_duration_seconds: security.login_lockout_duration_seconds,
             mas_validator: None,
             audit_storage: None,
             device_key_purger: Arc::new(std::sync::OnceLock::new()),

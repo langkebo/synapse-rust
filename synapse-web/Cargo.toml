@@ -77,3 +77,10 @@ infer = "0.19.0"
 serde_norway = { workspace = true }
 
 deadpool-redis = { workspace = true }
+
+# 单元测试（`#[cfg(test)]`）直接使用 `synapse_test_utils::{env_lock, EnvGuard}`。
+# 生产代码里的 `synapse-test-utils` 是 `test-utils` feature 下的可选依赖，但不带
+# feature 跑 `cargo test -p synapse-web --lib` 时 `#[cfg(test)]` 也需要它；因此
+# 另在 dev-dependencies 中声明（Cargo 会在测试构建中合并两者）。
+[dev-dependencies]
+synapse-test-utils = { path = "../synapse-test-utils" }

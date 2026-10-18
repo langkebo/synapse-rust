@@ -358,6 +358,8 @@ pub struct FriendRoomServiceConfig {
     pub account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
     /// Cache manager for friend list/room-id caching.
     pub cache: Arc<CacheManager>,
+    /// Per-room retention policies (private DM default TTL).
+    pub retention_storage: Arc<synapse_storage::retention::RetentionStorage>,
     /// This homeserver's name.
     pub server_name: String,
 }
@@ -370,6 +372,7 @@ pub struct FriendRoomService {
     pub(crate) presence_storage: std::sync::Arc<dyn synapse_storage::presence::PresenceStoreApi>,
     pub(crate) account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
     pub(crate) cache: Arc<CacheManager>,
+    pub(crate) retention_storage: Arc<synapse_storage::retention::RetentionStorage>,
     pub(crate) server_name: String,
     pub(crate) federation_client: Arc<FriendFederationClient>,
 }

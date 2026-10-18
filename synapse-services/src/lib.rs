@@ -136,6 +136,8 @@ pub mod oidc_service;
 pub mod oidc_session_service;
 /// The `oidc_user_mapping_service` module.
 pub mod oidc_user_mapping_service;
+/// The `one_time_invite_service` module.
+pub mod one_time_invite_service;
 /// The `presence_service` module.
 pub mod presence_service;
 /// The `push` module.

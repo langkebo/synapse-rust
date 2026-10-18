@@ -8,9 +8,9 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1038**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1041**
 - 含路由注册的模块文件：**66**
-- `derived_routes.rs` 中的 `registered_by` 标签：**74**
+- `derived_routes.rs` 中的 `registered_by` 标签：**75**
 - 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
 - 已被派生表覆盖的模块：**66**
 
@@ -69,7 +69,7 @@
 **逐模块清单里的两种标注**（都从派生表反解，不是人工维护）：
 
 - 〔仅 `X` profile〕 —— 该路由**只**在 profile `X` 下注册，默认构建里不存在（即上表成员）；
-- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1040 行去重为 1038 条的来源。
+- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1043 行去重为 1041 条的来源。
 
 当前共 **2** 条双档注册：
 
@@ -617,9 +617,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}/send`
 - `PUT` `/_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}`
 
-### 房间 (Room) （115 条）
+### 房间 (Room) （116 条）
 
-#### `room.rs` — 94 条 ✅派生表
+#### `room.rs` — 95 条 ✅派生表
 
 - `DELETE` `/_matrix/client/unstable/org.matrix.msc4354/rooms/{room_id}/sticky_events/{event_type}`
 - `DELETE` `/_matrix/vendor/v1/rooms/{room_id}/pinned_events/{event_id}`
@@ -712,6 +712,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_matrix/client/v3/rooms/{room_id}/state/{event_type}/`
 - `PUT` `/_matrix/client/v3/rooms/{room_id}/state/{event_type}/{state_key}`
 - `PUT` `/_matrix/vendor/v1/rooms/{room_id}/anti_screenshot`
+- `PUT` `/_matrix/vendor/v1/rooms/{room_id}/retention`
 - `PUT` `/_matrix/vendor/v1/rooms/{room_id}/room_keys/keys`
 - `PUT` `/_matrix/vendor/v1/rooms/{room_id}/sign/{event_id}`
 - `PUT` `/_matrix/vendor/v1/rooms/{room_id}/vault_data`
@@ -1209,9 +1210,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_matrix/federation/v2/send_join/{room_id}/{event_id}`
 - `PUT` `/_matrix/federation/v2/send_leave/{room_id}/{event_id}`
 
-### 装配 (Assembly) （104 条）
+### 装配 (Assembly) （106 条）
 
-#### `assembly.rs` — 104 条 ✅派生表
+#### `assembly.rs` — 106 条 ✅派生表
 
 - `DELETE` `/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}`
 - `DELETE` `/_matrix/client/v3/directory/room/{room_alias}`
@@ -1300,6 +1301,8 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_matrix/client/v3/user_directory/list`
 - `POST` `/_matrix/client/v3/user_directory/search`
 - `POST` `/_matrix/client/v3/voip/turnServer`
+- `POST` `/_matrix/vendor/v1/invites/claim`
+- `POST` `/_matrix/vendor/v1/invites/one-time`
 - `POST` `/_matrix/vendor/v1/rooms/{room_id}/invite_allowlist`
 - `POST` `/_matrix/vendor/v1/rooms/{room_id}/invite_blocklist`
 - `POST` `/_matrix/vendor/v1/search_recipients`
@@ -1507,9 +1510,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 > 本附录为人工维护，基于 **SDK Manager 源码 + 后端 handler 源码双侧实读**，逐条核对「已封装后端功能」的完整性；重新生成脚本不覆盖本段。
 > **审计对象**：`@langkebo/matrix-js-sdk@40.2.0-langkebo.5`（`/Users/ljf/Desktop/hu_ts/matrix-js-sdk`）。
-> **后端事实源**：本文件路由面（**1038** 条路由 / **50** 个模块）+ `synapse-web/src/routes/**` handler 源码。
-> 　· 计数口径（2026-10-17 复核）：**1038** = `all` profile 去重后的 `method + path` 条目数（`tests/unit/fixtures/ledger_export_sdk/all.json` 的 `entry_count`，与 `derived_route_table_*.inc.rs` 生成表逐条一致）；
-> 　· **50** = 按 `registered_by` 首段归并的模块数（细粒度 `registered_by` 共 **73** 个；旧文本写的「65 模块」是更早的目录分桶口径，已废弃）。
+> **后端事实源**：本文件路由面（**1041** 条路由 / **51** 个模块）+ `synapse-web/src/routes/**` handler 源码。
+> 　· 计数口径（2026-10-18 复核）：**1041** = `all` profile 去重后的 `method + path` 条目数（`tests/unit/fixtures/ledger_export_sdk/all.json` 的 `entry_count`，与 `derived_route_table_*.inc.rs` 生成表逐条一致）；
+> 　· **51** = 按 `registered_by` 首段归并的模块数（细粒度 `registered_by` 共 **74** 个；旧文本写的「65 模块」是更早的目录分桶口径，已废弃）。
 > **证据产物**：`artifacts/sdk-contract-gap-report.md`、`artifacts/sdk-contract-gap.json`、`scripts/quality/path-contract-coverage.json`；镜像 commit **`2946e19eb`**（2026-10-17）。
 > ⚠️ **时点提示**：本节 B.1–B.7 的**所有数字**（覆盖率、分桶、缺口条数）都是 **2026-10-09 审计时点**的口径，此后后端与 SDK 均有前进；
 > 　　需要当前值请以 `compare-routes.mjs` 的当次输出为准。**结论层面的复核见 B.8（2026-10-17）**。
@@ -1604,7 +1607,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 4. **复现命令**（在 `/Users/ljf/Desktop/hu_ts/matrix-js-sdk`）：
    - 审计：`pnpm contract:sync && pnpm contract:codegen && node scripts/audit/compare-routes.mjs`
    - 门禁：`pnpm quality:path-contract`（另有 `quality:admin-response-contract` / `quality:contract-drift` / `quality:sdk-contracts` / `quality:route-set-parity`）。
-5. **口径提示**：`generate_sdk_ledger_fixtures.sh` 注释称 “all-extensions all=1407” 为**陈旧注释**，与实测 **1038**（2026-10-17 口径；2026-10-09 时为 1030）不符；一律以本文件头部计数与 `sdk-contract-gap.json` 当次实测为准。
+5. **口径提示**：`generate_sdk_ledger_fixtures.sh` 注释称 “all-extensions all=1407” 为**陈旧注释**，与实测 **1041**（2026-10-18 口径；2026-10-17 时为 1038、2026-10-09 时为 1030）不符；一律以本文件头部计数与 `sdk-contract-gap.json` 当次实测为准。
 
 ### B.8 复核结论（2026-10-17，双侧源码 + 真实后端联调）
 

@@ -667,6 +667,66 @@ pub(crate) async fn get_retention_policy(
     })))
 }
 
+/// B-5: body for `PUT /_matrix/vendor/v1/rooms/{room_id}/retention`.
+///
+/// Field names mirror the admin endpoint (`max_lifetime` is milliseconds), so a
+/// client can move between the two without remapping.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RoomRetentionPolicyRequest {
+    #[serde(default)]
+    pub max_lifetime: Option<i64>,
+    #[serde(default)]
+    pub min_lifetime: Option<i64>,
+    #[serde(default)]
+    pub is_expire_on_clients: Option<bool>,
+}
+
+/// See [`set_retention_policy`].
+///
+/// Room admins (PL 100) can set a per-room retention policy without going
+/// through `/_synapse/admin/v1`. Semantics are identical to the admin endpoint:
+/// **only this server's events** are deleted, nothing is federated and media is
+/// untouched.
+pub(crate) async fn set_retention_policy(
+    State(ctx): State<RoomContext>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<RoomId>,
+    MatrixJson(body): MatrixJson<RoomRetentionPolicyRequest>,
+) -> Result<Json<Value>, ApiError> {
+    validate_room_id(&room_id)?;
+    if !ctx.room_service.state().room_exists(&room_id).await.map_err(ApiError::from)? {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
+    ctx.room_auth
+        .verify_room_admin(&room_id, &auth_user.user_id)
+        .await
+        .map_err(|_| ApiError::forbidden("Only room admins can set the retention policy".to_string()))?;
+
+    let policy = ctx
+        .retention_service
+        .set_room_policy(synapse_services::retention_service::CreateRoomRetentionPolicyRequest {
+            room_id: room_id.to_string(),
+            max_lifetime: body.max_lifetime,
+            min_lifetime: body.min_lifetime,
+            is_expire_on_clients: body.is_expire_on_clients,
+        })
+        .await?;
+
+    Ok(Json(json!({
+        "room_id": room_id,
+        "max_lifetime": policy.max_lifetime,
+        "min_lifetime": policy.min_lifetime,
+        // Response key matches the GET on the same path (`expire_on_clients`),
+        // even though the request field mirrors the admin endpoint
+        // (`is_expire_on_clients`). A client reading back what it wrote sees a
+        // stable shape either way.
+        "expire_on_clients": policy.is_expire_on_clients
+    })))
+}
+
 // =============================================================================
 // Query parameter deserialization helpers for RoomSyncQueryDto
 // =============================================================================
@@ -701,7 +761,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_bool_query_value, parse_u64_query_value};
+    use super::{parse_bool_query_value, parse_u64_query_value, RoomRetentionPolicyRequest};
 
     #[test]
     fn test_room_sync_parse_u64_query_value_accepts_decimal_string() {
@@ -715,5 +775,47 @@ mod tests {
         assert_eq!(parse_bool_query_value("1"), Some(true));
         assert_eq!(parse_bool_query_value("false"), Some(false));
         assert_eq!(parse_bool_query_value("0"), Some(false));
+    }
+
+    // ── B-5: vendor retention body ──────────────────────────────────────────
+    //
+    // The fields are all optional so the endpoint can express "clear this
+    // value" (`null`) without a separate DELETE. `deny_unknown_fields` keeps a
+    // typo (`max_lifetime_ms`, the name the plan originally used) from being
+    // silently ignored — a silently-ignored TTL would look like retention is
+    // on while nothing expires.
+
+    #[test]
+    fn test_room_retention_request_accepts_empty_object() {
+        let body: RoomRetentionPolicyRequest = serde_json::from_str("{}").expect("empty body must be valid");
+        assert_eq!(body.max_lifetime, None);
+        assert_eq!(body.min_lifetime, None);
+        assert_eq!(body.is_expire_on_clients, None);
+    }
+
+    #[test]
+    fn test_room_retention_request_parses_millisecond_lifetimes() {
+        let body: RoomRetentionPolicyRequest =
+            serde_json::from_str(r#"{"max_lifetime":604800000,"min_lifetime":0,"is_expire_on_clients":true}"#)
+                .expect("full body must parse");
+        assert_eq!(body.max_lifetime, Some(604_800_000));
+        assert_eq!(body.min_lifetime, Some(0));
+        assert_eq!(body.is_expire_on_clients, Some(true));
+    }
+
+    #[test]
+    fn test_room_retention_request_rejects_unknown_field() {
+        // `max_lifetime_ms` is the name the hardening plan originally proposed;
+        // it must 400 instead of silently dropping the value.
+        let err = serde_json::from_str::<RoomRetentionPolicyRequest>(r#"{"max_lifetime_ms":604800000}"#)
+            .expect_err("unknown field must be rejected");
+        assert!(err.to_string().contains("unknown field"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn test_room_retention_request_accepts_explicit_null() {
+        let body: RoomRetentionPolicyRequest =
+            serde_json::from_str(r#"{"max_lifetime":null}"#).expect("explicit null must parse as None");
+        assert_eq!(body.max_lifetime, None, "null 表示清除该值，而不是 400");
     }
 }

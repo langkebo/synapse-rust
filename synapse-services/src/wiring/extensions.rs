@@ -66,6 +66,8 @@ pub struct ExtensionServices {
     pub translation_service: Arc<crate::translation_service::TranslationService>,
     /// The `uia_service` field.
     pub uia_service: Arc<crate::uia_service::UiaService>,
+    /// B-9: mints and redeems one-time invite tokens.
+    pub one_time_invite_service: Arc<crate::one_time_invite_service::OneTimeInviteService>,
 }
 
 /// Dependency bundle for [`ExtensionServices::new`].
@@ -123,6 +125,7 @@ impl ExtensionServices {
                 presence_storage: presence_storage.clone(),
                 account_data_storage,
                 cache: infra.cache.clone(),
+                retention_storage: Arc::new(synapse_storage::retention::RetentionStorage::new(&infra.pool)),
                 server_name: infra.config.server.name.clone(),
             },
             Arc::new(federation.key_rotation_manager.clone()),
@@ -211,6 +214,14 @@ impl ExtensionServices {
 
         let uia_service = Arc::new(crate::uia_service::UiaService::new(infra.cache.clone(), ui_auth_session_timeout));
 
+        // B-9: one-time invites are always available — the table is part of the
+        // unified baseline, so there is no feature gate to honour here.
+        let one_time_invite_service = Arc::new(crate::one_time_invite_service::OneTimeInviteService::new(
+            Arc::new(synapse_storage::one_time_invite::OneTimeInviteStorage::new(infra.pool.clone())),
+            rooms.room_service.clone(),
+            infra.config.server.name.clone(),
+        ));
+
         Self {
             #[cfg(feature = "voice-extended")]
             voice_service,
@@ -235,6 +246,7 @@ impl ExtensionServices {
             identity_service,
             translation_service,
             uia_service,
+            one_time_invite_service,
         }
     }
 }

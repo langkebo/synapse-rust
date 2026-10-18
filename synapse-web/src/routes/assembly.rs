@@ -111,6 +111,10 @@ pub fn create_vendor_router() -> Router<AppState> {
             "/rooms/{room_id}/invite_allowlist",
             get(invite_blocklist::get_invite_allowlist).post(invite_blocklist::set_invite_allowlist),
         )
+        // B-9 one-time invites. Mint returns the plaintext token exactly once;
+        // claim consumes it atomically and creates the deferred room.
+        .route("/invites/one-time", post(one_time_invite::create_one_time_invite))
+        .route("/invites/claim", post(one_time_invite::claim_one_time_invite))
 }
 
 /// See [`create_router`].

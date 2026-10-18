@@ -64,6 +64,8 @@ pub mod msc4108_rendezvous;
 pub mod msc4512_proxy;
 /// The `oidc` module.
 pub mod oidc;
+/// The `one_time_invite` module.
+pub mod one_time_invite;
 /// The `pinned` module.
 pub mod pinned;
 /// The `presence` module.
@@ -217,8 +219,8 @@ pub(crate) use handlers::room::{
     get_state_event_empty_key, get_user_rooms, invite_user, join_room, join_room_by_id_or_alias, kick_user, knock_room,
     leave_room, put_power_levels, put_state_event, put_state_event_empty_key, put_state_event_no_key, redact_event,
     room_initial_sync, search_room_messages, send_message, send_receipt, send_state_event, set_read_markers,
-    set_room_account_data, set_room_vault_data, set_room_visibility, sign_room_event, translate_room_event,
-    translate_text, unban_user, upgrade_room, verify_room_event,
+    set_retention_policy, set_room_account_data, set_room_vault_data, set_room_visibility, sign_room_event,
+    translate_room_event, translate_text, unban_user, upgrade_room, verify_room_event,
 };
 pub use handlers::{
     get_capabilities, get_client_versions, get_server_version, get_well_known_client, get_well_known_server,

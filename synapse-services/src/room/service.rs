@@ -4,6 +4,7 @@ use crate::common::error::{ApiError, ApiResult};
 use crate::policy_service::PolicyService;
 use futures::stream;
 use futures::StreamExt;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -28,7 +29,13 @@ pub use synapse_storage::room_tag::RoomTag;
 pub use synapse_storage::sticky_event::{StickyEvent, MAX_STICKY_DURATION_MS, STICKY_TTL_UNSIGNED_FIELD};
 
 /// The `CreateRoomConfig` struct.
-#[derive(Debug, Default, Clone)]
+///
+/// `Serialize`/`Deserialize` exist for deferred room creation: B-9 stores the
+/// configuration of a one-time invite as `jsonb` and replays it when the token
+/// is claimed. Every field is `Option` and the struct has `#[serde(default)]`,
+/// so partial (or empty) JSON is valid input.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct CreateRoomConfig {
     // The pre-allocated-`room_id` escape hatch was removed under C-5 / decision
     // Q2(a): every creatable room version derives its id from its create event

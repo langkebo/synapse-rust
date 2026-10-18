@@ -2194,8 +2194,15 @@ BASELINE_DYNAMIC_PRODUCTION=96
 BASELINE_DYNAMIC_TEST_INFRA=768
 BASELINE_STATIC=1373
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1338
+SQLX_CACHE_ENTRIES=1342
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-18 更新（B-9：一次性邀请）**，数字块一项按实测同步：
+> - `SQLX_CACHE_ENTRIES` **1338 → 1342**（+4）：`one_time_invites` 的签发（`INSERT`）、
+>   原子 claim（`UPDATE … WHERE claimed_by IS NULL`）、按 `token_hash` 读状态，以及
+>   建房失败时释放占位（`UPDATE … SET claimed_by = NULL`）四条静态查询，经唯一入口
+>   `scripts/ci/sqlx_prepare.sh` 重生成后新增 4 条缓存，无缩容。
+>   `BASELINE_DYNAMIC_*` / `BASELINE_STATIC` / `BASELINE_QUERY_BUILDER` 不变。
 
 > **2026-10-17 更新（R-2/R-3：生产动态 SQL 静态化 + 决胜键）**，数字块三项按实测同步：
 > - `BASELINE_DYNAMIC_TEST_INFRA` **769 → 768**（按实测收紧。中间一度测到 770 ——

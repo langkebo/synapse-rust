@@ -674,6 +674,26 @@ CREATE TABLE IF NOT EXISTS blocked_rooms (
     reason TEXT
 );
 
+-- One-time invite tokens (B-9 vendor extension).
+--
+-- Only the SHA-256 hash of the token is persisted: the plaintext token exists
+-- solely inside the shareable link handed to the invitee, so a database dump
+-- cannot be replayed into a room. `claimed_by`/`claimed_at` are written in the
+-- same atomic UPDATE that consumes the token, which is what makes the invite
+-- single-use under concurrent claims.
+CREATE TABLE IF NOT EXISTS one_time_invites (
+    token_hash TEXT NOT NULL,
+    creator TEXT NOT NULL,
+    room_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+    expires_at BIGINT NOT NULL,
+    claimed_by TEXT,
+    claimed_at BIGINT,
+    created_ts BIGINT NOT NULL,
+    CONSTRAINT pk_one_time_invites PRIMARY KEY (token_hash),
+    CONSTRAINT ck_one_time_invites_claim_pair CHECK ((claimed_by IS NULL) = (claimed_at IS NULL)),
+    CONSTRAINT fk_one_time_invites_creator FOREIGN KEY (creator) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
 -- ============================================================================
 -- Part 3: E2EE Tables
 -- ============================================================================
@@ -3424,6 +3444,10 @@ CREATE INDEX IF NOT EXISTS idx_room_sticky_events_user_sticky ON room_sticky_eve
 
 -- Room retention policies
 CREATE INDEX IF NOT EXISTS idx_room_retention_policies_server_default ON room_retention_policies(is_server_default) WHERE is_server_default = TRUE;
+
+-- One-time invites
+CREATE INDEX IF NOT EXISTS idx_one_time_invites_creator ON one_time_invites(creator);
+CREATE INDEX IF NOT EXISTS idx_one_time_invites_unclaimed_expiry ON one_time_invites(expires_at) WHERE claimed_by IS NULL;
 
 -- Room stats current
 

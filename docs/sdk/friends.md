@@ -222,12 +222,23 @@ REST 语义——**不要**直接读写那个房间的状态事件。
 | 方法 | 端点 | 响应 |
 |---|---|---|
 | `GET` | `/friends/dm/{user_id}` | `{"room_id": "!dm:..." \| null, "user_id": "@bob:..."}` |
-| `POST` | `/friends/dm/{user_id}` | `{"room_id": "!dm:...", "user_id": "@bob:...", "created": true\|false}` |
+| `POST` | `/friends/dm/{user_id}` | `{"room_id": "!dm:...", "user_id": "@bob:...", "created": true\|false, "is_private": true\|false}` |
+
+`POST` 的 body **可选**：`{"is_private": true}`（也接受空 body / 无 body）。
 
 - `GET` 在**没有**私信房间时返回 `room_id: null`（**不是 404**）。
 - `POST` 是**幂等**的：已有房间时返回 `created: false` 与同一个 `room_id`。
-- 新建房间的参数固定为：`visibility=private`、`preset=private_chat`、`is_direct=true`、
-  邀请对方——客户端无法覆盖（避免建出不合规的 DM）。
+- 新建房间固定：`visibility=private`、`preset=private_chat`、`is_direct=true`、
+  `m.room.encryption = m.megolm.v1.aes-sha2`，邀请对方——客户端无法覆盖（避免建出不合规的 DM）。
+- `is_private: true`（B-2）在新建时额外写入：
+  `history_visibility = invited`，以及 `com.hula.privacy`
+  state（`{"action":"block_screenshot","is_private":true}`）。
+- 同一分支还会写默认 retention（`max_lifetime = 7 天`、`is_expire_on_clients = true`），
+  之后可用 `PUT /rooms/{room_id}/retention` 覆盖。注意 retention **只删除本服务器事件**，
+  不联邦删除、也不删媒体（对端服务器/媒体副本仍在）。
+- `is_private` **只对新建房间生效**；命中已有房间（`created: false`）时不会改写既有房间配置，
+  响应里的 `is_private` 只是回显本次请求值。
+- 请求体开了 `deny_unknown_fields`：传其他字段会 400 `M_BAD_JSON`。
 
 > 判断"这是不是 DM 房间"应看房间的 `m.room.member` 事件里 `is_direct: true`，
 > 或用 vendor 的 `GET /rooms/{room_id}/dm`（见 [extensions.md](./extensions.md)）。
@@ -308,8 +319,9 @@ REST 语义——**不要**直接读写那个房间的状态事件。
 > `M_INVALID_PARAM`（如 `user_id` 格式、`receipt_type` 白名单）。客户端分支建议按
 > **HTTP 400 + `error` 文案**处理，不要只认 errcode。
 
-> **所有请求体都开了 `deny_unknown_fields`**：多传一个字段（例如旧文档里的 `is_private`）
-> 直接 400 `M_BAD_JSON`，不是"忽略未知字段"。这一点在跨版本兼容时最容易踩。
+> **所有请求体都开了 `deny_unknown_fields`**：多传一个字段直接 400 `M_BAD_JSON`，
+> 不是"忽略未知字段"。这一点在跨版本兼容时最容易踩。
+> 例外：`POST /friends/dm/{user_id}` 现在**接受** `is_private`（见「私信房间」）。
 
 ---
 
@@ -323,5 +335,5 @@ REST 语义——**不要**直接读写那个房间的状态事件。
 | `POST .../{request_id}/decline` | ❌ 是 `/reject`，且路径是 `{user_id}` |
 | `DELETE /friends`（body 带 `user_id`） | ❌ 是 `DELETE /friends/{user_id}` |
 | `GET /friends` 返回 `{status, data}` | ❌ 返回 `{friends, total, next_batch, ...}` |
-| `POST /friends/dm/{user_id}` body `{is_private}` | ❌ 该端点**不读 body**：`is_private` 被静默忽略（建出的房间固定 `is_direct=true`、`private_chat`） |
+| `POST /friends/dm/{user_id}` body `{is_private}` | ✅ 已支持：可选 body，`true` 写入 `history_visibility=invited` + `com.hula.privacy`（仅新建房间生效） |
 | `check` 返回 `are_friends` | ✅ 仍在，但同时给 `is_friend` |

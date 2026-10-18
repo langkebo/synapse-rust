@@ -87,6 +87,8 @@ pub mod module;
 pub mod monitoring;
 /// OIDC storage domain group — re-exports oidc modules under `oidc::`.
 pub mod oidc;
+/// The `one_time_invite` module.
+pub mod one_time_invite;
 /// The `openid_token` module.
 pub mod openid_token;
 /// The `presence` module.

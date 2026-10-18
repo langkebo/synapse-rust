@@ -1009,3 +1009,19 @@ impl FromRef<AppState> for FriendContext {
         }
     }
 }
+
+// ── OneTimeInviteContext ──────────────────────────────────────────────────
+
+/// Context for the one-time invite routes (B-9). Carries only the invite
+/// service; the server name it embeds in deep links is already inside it.
+#[derive(Clone)]
+pub struct OneTimeInviteContext {
+    /// The `one_time_invite_service` field.
+    pub one_time_invite_service: Arc<synapse_services::one_time_invite_service::OneTimeInviteService>,
+}
+
+impl FromRef<AppState> for OneTimeInviteContext {
+    fn from_ref(state: &AppState) -> Self {
+        Self { one_time_invite_service: state.services.extensions.one_time_invite_service.clone() }
+    }
+}

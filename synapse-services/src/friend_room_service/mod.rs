@@ -75,6 +75,7 @@ impl FriendRoomService {
             presence_storage: config.presence_storage,
             account_data_storage: config.account_data_storage,
             cache: config.cache,
+            retention_storage: config.retention_storage,
             server_name: config.server_name,
             federation_client,
         }
@@ -934,6 +935,28 @@ impl FriendRoomService {
         .await?;
 
         Ok(EnsureDirectRoomResult { room_id, created: true })
+    }
+
+    /// B-2 / P1-2.3：给**新建**的私密 DM 写入默认 retention（7 天）。
+    ///
+    /// B-5 只提供 per-room retention 端点、没有默认值；不写这条策略，
+    /// 「私密房间 N 天后消失」就完全依赖客户端自觉。
+    ///
+    /// 只应在 `created == true` 时调用：命中已有房间时改写既有配置会违背幂等语义。
+    /// `is_expire_on_clients = true` 让客户端在 TTL 到期后一并隐藏消息，
+    /// 与服务端 `retention` 清理行为保持一致。
+    ///
+    /// 注意：retention 只删除本服务器事件，不联邦删除、也不删媒体。
+    pub async fn apply_private_dm_default_retention(&self, room_id: &str) -> Result<(), FriendRoomError> {
+        self.retention_storage
+            .create_room_policy(synapse_storage::retention::CreateRoomRetentionPolicyRequest {
+                room_id: room_id.to_string(),
+                max_lifetime: Some(crate::room::PRIVATE_DM_RETENTION_MAX_LIFETIME_MS),
+                min_lifetime: None,
+                is_expire_on_clients: Some(true),
+            })
+            .await?;
+        Ok(())
     }
 
     /// See [`create_or_reuse_direct_message_room`].

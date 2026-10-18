@@ -778,19 +778,24 @@ async fn test_login_no_password_user_returns_403_forbidden() {
 }
 
 #[tokio::test]
-async fn test_login_account_locked_returns_rate_limited() {
+async fn test_login_service_does_not_lock_account() {
     let h = super::test_harness::build_test_auth_service();
     let hash = hash_password_with_params("right", 65536, 3, 1).unwrap();
     h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
 
-    // 达到锁定阈值（login_failure_lockout_threshold = 5）。
+    // 服务层不承担失败计数/锁定：连续错误密码后，正确密码仍必须登录成功。
+    // 锁定唯一实现在 synapse-web/src/utils/login_lockout.rs（HTTP 入口），
+    // 因此这里刻意不期望 429。
     for _ in 0..5 {
         let _ = h.service.login("@alice:test", "wrong", None, None).await;
     }
 
-    // 第 6 次即使密码正确也被锁定（审查 #13：fail-closed）。
-    let err = h.service.login("@alice:test", "right", None, None).await.unwrap_err();
-    assert_eq!(err.kind, synapse_common::ApiErrorKind::RateLimited, "locked account must be 429");
+    let result = h.service.login("@alice:test", "right", None, None).await;
+    assert!(
+        result.is_ok(),
+        "AuthService::login must not lock accounts (lockout lives in the web layer): {:?}",
+        result.err()
+    );
 }
 
 // ============================================================================
@@ -1091,34 +1096,6 @@ async fn test_login_rejects_device_id_owned_by_different_user() {
     h.user_store.seed_user(make_test_user("@alice:test", Some(&alice_hash), false, false)).await;
     let err = h.service.login("@alice:test", "alice-pw", Some("BOBDEV"), None).await.unwrap_err();
     assert_eq!(err.kind, synapse_common::ApiErrorKind::Forbidden, "cross-user device_id must be 403");
-}
-
-// ============================================================================
-// is_account_locked (login.rs:124) — 过期 lockout key 清理路径，0 覆盖
-//
-// 触发行 131-132：lockout key 存在但 timestamp < now → 主动清理并返回 false，
-// 让用户能正常登录。这是 lockout 自动恢复的正常路径，必须覆盖。
-// ============================================================================
-
-#[tokio::test]
-async fn test_login_recovers_from_expired_account_lockout() {
-    use chrono::Duration;
-    let h = super::test_harness::build_test_auth_service();
-    let password = "right";
-    let hash = hash_password_with_params(password, 65536, 3, 1).unwrap();
-    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
-
-    // seed 一个 1 小时前过期的 lockout key（timestamp < now → 过期）。
-    let expired_ts = (Utc::now() - Duration::hours(1)).timestamp();
-    let key = "auth:lockout:@alice:test";
-    let _ = h.cache.set(key, &expired_ts.to_string(), 600).await;
-
-    // 登录应该成功：过期的 lockout 被清理（行 131-132），不阻断合法用户。
-    let (_user, _access, _refresh, _device) = h
-        .service
-        .login("@alice:test", password, None, None)
-        .await
-        .expect("expired lockout should not block valid login");
 }
 
 // ============================================================================

@@ -68,8 +68,6 @@ pub(crate) fn build_test_auth_service() -> TestAuthHarness {
         argon2_t_cost: 3,
         argon2_p_cost: 1,
         allow_legacy_hashes: false,
-        login_failure_lockout_threshold: 5,
-        login_lockout_duration_seconds: 300,
         mas_validator: None,
         audit_storage: None,
         device_key_purger: Arc::new(std::sync::OnceLock::new()),
