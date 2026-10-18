@@ -137,6 +137,7 @@ impl OneTimeInviteStorage {
 }
 
 #[cfg(test)]
+// 测试断言依赖显式 panic（expect/assert!）标记失败位置，测试代码里 panic 是预期语义。
 #[allow(clippy::panic)]
 mod db_tests {
     use super::*;

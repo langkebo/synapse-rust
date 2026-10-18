@@ -1,3 +1,16 @@
+# 2026-10-18: 卫生债巡检把漂移的红门禁重新收敛。
+#   dynamic_test 768 -> 769（+1）：
+#     (+1) `synapse-storage/src/one_time_invite.rs` 的 `db_tests::ensure_test_user`
+#          夹具：`one_time_invites.creator` 有指向 users 的 FK，插邀请行前必须先有
+#          夹具用户；`ON CONFLICT DO NOTHING` 的幂等 INSERT 只能动态写（cfg(test)
+#          内查询宏不被 `cargo sqlx prepare --workspace` 收集、`--all-targets` 又
+#          E0432 —— 2026-09-22 既有判据，见上）。
+#   dynamic_production 96 == 96 未动：9df1f1d31 引入的
+#     `synapse-e2ee/src/device_keys/storage.rs::list_device_ids` 当初刻意走运行期
+#     校验以免新增 .sqlx 条目，本轮按棘轮方向改回 `query_scalar!` 静态化
+#     （.sqlx 1342 -> 1343），生产动态计数不再增长。
+#   static 1373 -> 1380（下限上调锁定：自上次基线以来静态化净进展 +7）。
+#
 # 2026-09-22: dynamic 由 2146 上调到 2147（+1）。
 # ⚠️ 本文件注释里对「方案文档 §7.2 / §8.x」的引用指向 SQLx 静态化**历史快照**：
 #    docs/synapse-rust/archive/SQLX_STATICIZATION_PLAN_2026-09-23_HISTORY.md
@@ -3306,7 +3319,7 @@ BASELINE_DYNAMIC_PRODUCTION=96
 #   （默认 target 集），而 `--all-targets` 会 E0432（本文件上方 2026-09-22 条目已实测），
 #   全仓 `static_test = 0` 正是这条约束的一致结果。
 #   按"零余量"收紧到实测值：留 1 点余量等于允许一次静默回归。
-BASELINE_DYNAMIC_TEST_INFRA=768
+BASELINE_DYNAMIC_TEST_INFRA=769
 # 2026-10-15: 1353 → 1354（+1，方案 B4.3）。新增
 #   `synapse-storage/src/schema_health_check.rs` 的 `check_invalid_indexes()` —— 它让
 #   **半建索引**（`pg_index.indisvalid = false`）可见；此前只查"缺表/缺列/缺索引名"，
@@ -3342,9 +3355,9 @@ BASELINE_DYNAMIC_TEST_INFRA=768
 #      `get_prev_state_events`（1 条）。**这是有意的删除**，不是"静态换动态"，
 #      所以按"只禁减"的规则必须同步下调基线并写明来源（先例：C55-0 的 1303 → 1301）。
 #   最终 1367 + 8 + 2 − 4 = 1373 = 实测值，零余量。
-BASELINE_STATIC=1373
-# 兼容旧接口：总数 = 生产 + 测试基础设施（96 + 768 = 864；本项不入棘轮，仅保持一致）
-BASELINE_DYNAMIC=864
+BASELINE_STATIC=1380
+# 兼容旧接口：总数 = 生产 + 测试基础设施（96 + 769 = 865；本项不入棘轮，仅保持一致）
+BASELINE_DYNAMIC=865
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

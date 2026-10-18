@@ -427,11 +427,10 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
     }
 
     async fn list_device_ids(&self, user_id: &str) -> Result<Vec<String>, ApiError> {
-        // Runtime-checked rather than a `query!` macro so this addition needs no
-        // new `.sqlx` offline-cache entry; the projection is a single text column.
+        // 编译期校验（query_scalar!，.sqlx 离线缓存条目已入仓）：投影是单 text 列，
+        // 静态化符合 sqlx 动态 SQL 棘轮"生产动态应单调降"的方向。
         let device_ids: Vec<String> =
-            sqlx::query_scalar("SELECT DISTINCT device_id FROM device_keys WHERE user_id = $1")
-                .bind(user_id)
+            sqlx::query_scalar!("SELECT DISTINCT device_id FROM device_keys WHERE user_id = $1", user_id)
                 .fetch_all(&*self.pool)
                 .await
                 .map_err(map_database!("Failed to list device ids"))?;

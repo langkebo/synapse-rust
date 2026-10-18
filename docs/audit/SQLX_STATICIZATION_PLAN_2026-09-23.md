@@ -2191,11 +2191,20 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 <!-- sqlx-plan-numbers:start -->
 <!-- 以下数字由 `scripts/ci/check_plan_numbers_fresh.sh` 与基线/实测现算比对；改基线必须同步改这里。 -->
 BASELINE_DYNAMIC_PRODUCTION=96
-BASELINE_DYNAMIC_TEST_INFRA=768
-BASELINE_STATIC=1373
+BASELINE_DYNAMIC_TEST_INFRA=769
+BASELINE_STATIC=1380
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1342
+SQLX_CACHE_ENTRIES=1343
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-18 更新（卫生债巡检：棘轮漂移收敛）**，数字块三项按实测同步：
+> - `SQLX_CACHE_ENTRIES` **1342 → 1343**（+1）：B-9 批次里 `device_keys/storage.rs::
+>   list_device_ids` 当初刻意走运行期校验（免新增缓存条目），本轮按"生产动态应单调降"
+>   改回 `query_scalar!` 静态化，经唯一入口 `sqlx_prepare.sh` 重生成，无缩容。
+> - `BASELINE_DYNAMIC_TEST_INFRA` **768 → 769**（+1）：同批次 `one_time_invite.rs` 的
+>   `db_tests::ensure_test_user` 夹具 INSERT（FK 夹具用户，cfg(test) 不能走宏，
+>   2026-09-22 既有判据）。生产动态保持 **96** 未动。
+> - `BASELINE_STATIC` **1373 → 1380**（+7 下限上调锁定：自上次钉版以来的静态化净进展）。
 
 > **2026-10-18 更新（B-9：一次性邀请）**，数字块一项按实测同步：
 > - `SQLX_CACHE_ENTRIES` **1338 → 1342**（+4）：`one_time_invites` 的签发（`INSERT`）、

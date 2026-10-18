@@ -10,7 +10,7 @@
 //! arrives, so an unclaimed invite costs nothing beyond one row.
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use rand::RngCore;
+use rand::TryRngCore;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -90,7 +90,12 @@ impl OneTimeInviteService {
             .map_err(|e| ApiError::internal_with_context("serialize one-time invite room config", &e))?;
 
         let mut token_bytes = [0u8; 32];
-        rand::rng().fill_bytes(&mut token_bytes);
+        // 直连 OS CSPRNG：rand_rng 棘轮禁止新增线程句柄式随机源（RUSTSEC-2026-0097
+        // 纵深防御），令牌生成属安全敏感路径，须绕开线程本地句柄。rand_core 0.9 起
+        // OsRng 仅提供可失败 API，熵源故障时显式返回 500（fail-closed）而非 panic。
+        rand::rngs::OsRng
+            .try_fill_bytes(&mut token_bytes)
+            .map_err(|e| ApiError::internal_with_context("OS entropy source unavailable", &e))?;
         let token = URL_SAFE_NO_PAD.encode(token_bytes);
         let token_hash = Self::hash_token(&token);
 

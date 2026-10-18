@@ -387,7 +387,6 @@ fn dm_encryption_algorithm(body: &CreateDmRequest) -> Option<String> {
 ///
 /// B-6：默认交给客户端是 7 天 / 100 条；Megolm 没有 break-in recovery，
 /// 私聊按「1 天 / 50 条」轮换，把「一把 session key 泄露能解多少历史」压到最小。
-#[allow(clippy::type_complexity)]
 fn dm_encryption_rotation(body: &CreateDmRequest) -> (Option<i64>, Option<i64>) {
     if body.allow_plaintext.unwrap_or(false) {
         (None, None)

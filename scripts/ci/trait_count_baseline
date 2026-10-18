@@ -1,7 +1,29 @@
 # Trait-count ratchet baseline (A5 / B4-1). See scripts/ci/check_trait_ratchet.py.
 # The numbers may only go DOWN. Bump them deliberately and say why.
-TOTAL=71
+TOTAL=73
 STORE_API=33
+#
+# 2026-10-18  TOTAL 71 -> 73 (+2) —— B-3/B-9 安全批次补记的两个 DI 接缝 trait（卫生债巡检）
+#   来源：
+#     · `pub trait BlockedRelationChecker` —— `564927709`「fix(friend): 把 blocked 接进入准入判断（B-3）」，
+#       synapse-services/src/invite_blocklist_service.rs:88（`has_blocked(owner_id, other_id)`）；
+#     · `pub trait DeviceKeyPurger` —— `9df1f1d31`「fix(security): 闭环 L1 安全项 B-1/B-3/B-4 …」，
+#       synapse-e2ee/src/device_keys/service.rs:49（`purge_device_keys` / `purge_all_device_keys`）。
+#   为什么放行（与本文件 InvitePolicyGate / RoomParting 同一判据——依赖反转接缝）：
+#     · `BlockedRelationChecker`：MSC4155 邀请门禁（invite_blocklist_service）要问「拉黑了吗」，
+#       但判定数据在好友状态表里——接缝让它不依赖 friend_room_service，且随 `friends` 特性
+#       可选装配（container.rs:317-322，关闭时 `None` 不误拒）；生产实现
+#       `impl BlockedRelationChecker for FriendStatusBlockedRelationChecker`
+#       （friend_room_service/blocked_relation.rs:33），**刻意只读**（不走 create_friend_list_room，
+#       查询路径零副作用）。
+#     · `DeviceKeyPurger`：auth 层在删设备/注销账号时要清 E2EE 密钥，但接缝把依赖收窄成两个
+#       方法的窄接口，并用 `OnceLock` 晚绑定（auth/mod.rs:109、`set_device_key_purger` :208）
+#       断开容器装配顺序上的环；生产实现 `impl DeviceKeyPurger for DeviceKeyService`
+#       （device_keys/service.rs:57），trait 对象形态被 device_keys/service/tests.rs:396-404
+#       的用例直接钉住。
+#   两条都无测试假替身——它们服务的是**分层解耦**（跨 crate/跨特性装配）而非纯单测可构造性，
+#   与 2026-10-17 的三个注销 trait（有假替身、为可测性）互补；判据仍是"真实生产调用链上的接缝"。
+#   代价与边界：`STORE_API` 未动（33 == 33），存储抽象面没有放宽。
 #
 # 2026-10-17  TOTAL 68 -> 71 (+3) —— UG-11「注销异步可重试退房」的三个 DI 接缝
 #   来源：`d9bc4cb88`（`synapse-services/src/account_deactivation_service.rs`）
