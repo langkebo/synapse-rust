@@ -243,6 +243,10 @@ pub struct FriendRoomCreateRoomConfig {
     pub preset: Option<String>,
     /// The `encryption` field.
     pub encryption: Option<String>,
+    /// Megolm 时间轮换周期（毫秒），见 `CreateRoomConfig::encryption_rotation_period_ms`。
+    pub encryption_rotation_period_ms: Option<i64>,
+    /// Megolm 消息条数轮换阈值，见 `CreateRoomConfig::encryption_rotation_period_msgs`。
+    pub encryption_rotation_period_msgs: Option<i64>,
     /// The `history_visibility` field.
     pub history_visibility: Option<String>,
     /// The `is_direct` field.

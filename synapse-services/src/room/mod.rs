@@ -19,6 +19,16 @@ pub mod backfill;
 /// 只给 `preset: private_chat` **不等于加密房间**——`private_chat` 只管
 /// join_rule / history_visibility，消息照样是明文，任何直连 vendor 端点的客户端都会造出明文私聊。
 pub const MEGOLM_V1_ALGORITHM: &str = "m.megolm.v1.aes-sha2";
+
+/// 私密房间（DM）的 Megolm 时间轮换周期：1 天。
+///
+/// 规范/客户端默认是 **7 天**。Megolm 没有 break-in recovery —— 叶棘轮一旦泄露，
+/// 泄露前的内容在旧 session 里永久可解，缩短 session 生命周期是唯一可用的缓解，
+/// 所以私聊按天轮换，而不是按周。
+pub const DM_MEGOLM_ROTATION_PERIOD_MS: i64 = 86_400_000;
+
+/// 私密房间（DM）的 Megolm 消息条数轮换阈值：50 条（默认 100）。
+pub const DM_MEGOLM_ROTATION_PERIOD_MSGS: i64 = 50;
 /// Outbound federation PDU construction/broadcast (single implementation).
 pub(crate) mod federation_broadcast;
 /// The `infrastructure` module.

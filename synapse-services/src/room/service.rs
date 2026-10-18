@@ -52,6 +52,13 @@ pub struct CreateRoomConfig {
     pub preset: Option<String>,
     /// The `encryption` field.
     pub encryption: Option<String>,
+    /// Megolm session 的时间轮换周期（毫秒），写进 `m.room.encryption.rotation_period_ms`。
+    ///
+    /// B-6：Megolm 没有 break-in recovery，缩短 session 生命周期是唯一可用的缓解手段；
+    /// `None` 表示交给客户端默认值（7 天），私密房间不应走这条路。
+    pub encryption_rotation_period_ms: Option<i64>,
+    /// Megolm session 的消息条数轮换阈值，写进 `m.room.encryption.rotation_period_msgs`。
+    pub encryption_rotation_period_msgs: Option<i64>,
     /// The `history_visibility` field.
     pub history_visibility: Option<String>,
     /// The `is_direct` field.
@@ -775,6 +782,8 @@ impl From<crate::friend_room_service::FriendRoomCreateRoomConfig> for CreateRoom
             invite_reasons: None,
             preset: config.preset,
             encryption: config.encryption,
+            encryption_rotation_period_ms: config.encryption_rotation_period_ms,
+            encryption_rotation_period_msgs: config.encryption_rotation_period_msgs,
             history_visibility: config.history_visibility,
             is_direct: config.is_direct,
             room_type: config.room_type,

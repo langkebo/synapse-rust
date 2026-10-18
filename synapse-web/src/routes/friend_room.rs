@@ -751,6 +751,9 @@ async fn create_friend_dm(
         // 造出明文私聊没有任何合理场景。需要明文（自动化/机器人）请走
         // /_matrix/vendor/v1/create_dm 并显式传 allow_plaintext。
         encryption: Some(synapse_services::room::MEGOLM_V1_ALGORITHM.to_string()),
+        // B-6：好友 DM 按「1 天 / 50 条」轮换 Megolm session。
+        encryption_rotation_period_ms: Some(synapse_services::room::DM_MEGOLM_ROTATION_PERIOD_MS),
+        encryption_rotation_period_msgs: Some(synapse_services::room::DM_MEGOLM_ROTATION_PERIOD_MSGS),
         history_visibility: None,
         is_direct: Some(true),
         room_type: None,

@@ -374,6 +374,22 @@ async fn find_existing_direct_room_id(
 ///
 /// 抽成函数是为了让 friends / 非 friends 两条建房分支**共用同一判定**，
 /// 避免只改了一处（那正是 B-1 的成因）。
+/// DM 的 Megolm 轮换参数：(时间毫秒, 消息条数)。明文 DM 不写（没有 session 可轮换）。
+///
+/// B-6：默认交给客户端是 7 天 / 100 条；Megolm 没有 break-in recovery，
+/// 私聊按「1 天 / 50 条」轮换，把「一把 session key 泄露能解多少历史」压到最小。
+#[allow(clippy::type_complexity)]
+fn dm_encryption_rotation(body: &CreateDmRequest) -> (Option<i64>, Option<i64>) {
+    if body.allow_plaintext.unwrap_or(false) {
+        (None, None)
+    } else {
+        (
+            Some(synapse_services::room::DM_MEGOLM_ROTATION_PERIOD_MS),
+            Some(synapse_services::room::DM_MEGOLM_ROTATION_PERIOD_MSGS),
+        )
+    }
+}
+
 fn dm_encryption_algorithm(body: &CreateDmRequest) -> Option<String> {
     if body.allow_plaintext.unwrap_or(false) {
         None
@@ -399,6 +415,8 @@ async fn create_dm_room_via_service(
         // B-1：默认写 m.room.encryption。`preset: private_chat` 只管 join_rule /
         // history_visibility，**不加密消息**；漏了这一步就等于造明文私聊。
         encryption: dm_encryption_algorithm(body),
+        encryption_rotation_period_ms: dm_encryption_rotation(body).0,
+        encryption_rotation_period_msgs: dm_encryption_rotation(body).1,
         room_type: (invitee_user_ids.len() > 1).then(|| "m.direct".to_string()),
         ..Default::default()
     };
@@ -431,6 +449,8 @@ async fn create_dm_room_via_service(
                 preset: Some("private_chat".to_string()),
                 // B-1：同上，默认加密。
                 encryption: dm_encryption_algorithm(body),
+                encryption_rotation_period_ms: dm_encryption_rotation(body).0,
+                encryption_rotation_period_msgs: dm_encryption_rotation(body).1,
                 ..Default::default()
             };
 
@@ -453,6 +473,8 @@ async fn create_dm_room_via_service(
             // B-1：多人 DM（群 DM）同样默认加密 —— 这类房间最容易漏，
             // 因为它走的是另一条分支。
             encryption: dm_encryption_algorithm(body),
+            encryption_rotation_period_ms: dm_encryption_rotation(body).0,
+            encryption_rotation_period_msgs: dm_encryption_rotation(body).1,
             ..Default::default()
         };
 

@@ -35,6 +35,7 @@ mod api_invite_blocklist_e2e_tests;
 mod api_invite_blocklist_routes_tests;
 mod api_key_backup_route_table_tests;
 mod api_media_routes_tests;
+mod api_megolm_rotation_tests;
 mod api_msc3912_redaction_cascade_tests;
 mod api_placeholder_contract_p0_tests;
 mod api_placeholder_contract_p1p2_tests;

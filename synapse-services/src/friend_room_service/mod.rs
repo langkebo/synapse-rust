@@ -1526,6 +1526,9 @@ impl FriendRoomService {
             // 同样必须写 m.room.encryption —— 之前三条 DM 创建路径各写一份配置，
             // 只改路由层会漏掉这里（`trusted_private_chat` 依然不加密消息）。
             encryption: Some(crate::room::MEGOLM_V1_ALGORITHM.to_string()),
+            // B-6：同好友 DM 端点，按 1 天 / 50 条轮换。
+            encryption_rotation_period_ms: Some(crate::room::DM_MEGOLM_ROTATION_PERIOD_MS),
+            encryption_rotation_period_msgs: Some(crate::room::DM_MEGOLM_ROTATION_PERIOD_MSGS),
             ..Default::default()
         };
 

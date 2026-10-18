@@ -454,6 +454,19 @@ impl LifecycleService {
         if let Some(ref algorithm) = config.encryption {
             if !has_encryption_in_initial_state {
                 let encryption_ts = config.initial_state.as_ref().map_or(now + 9, |s| now + 9 + s.len() as i64);
+                // B-6：Megolm **没有 break-in recovery**，一旦叶棘轮泄露，泄露前的内容
+                // 在旧 session 里永久可解。缩短 session 生命周期是唯一可用的缓解，
+                // 所以轮换参数必须显式写进状态事件（不写就等于交给客户端默认值，
+                // 线上出现过不同客户端默认值不一致的情况）。
+                let mut content = json!({ "algorithm": algorithm });
+                if let Some(obj) = content.as_object_mut() {
+                    if let Some(ms) = config.encryption_rotation_period_ms {
+                        obj.insert("rotation_period_ms".to_string(), json!(ms));
+                    }
+                    if let Some(msgs) = config.encryption_rotation_period_msgs {
+                        obj.insert("rotation_period_msgs".to_string(), json!(msgs));
+                    }
+                }
                 let result = self
                     .write_creation_event(
                         &mut graph,
@@ -462,7 +475,7 @@ impl LifecycleService {
                         user_id,
                         "m.room.encryption",
                         Some(""),
-                        json!({ "algorithm": algorithm }),
+                        content,
                         encryption_ts,
                         true,
                         Some(&mut tx),
