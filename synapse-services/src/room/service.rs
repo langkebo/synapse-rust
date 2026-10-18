@@ -929,4 +929,18 @@ mod tests {
         assert_eq!(response["chunk"].as_array().unwrap().len(), 2);
         assert_eq!(response["total_room_count_estimate"], 2);
     }
+
+    /// B-1: the friend-DM config is converted into the generic create-room
+    /// config, so the encryption setting must survive that conversion.
+    #[cfg(feature = "friends")]
+    #[test]
+    fn test_friend_room_config_preserves_encryption() {
+        let friend_config = crate::friend_room_service::FriendRoomCreateRoomConfig {
+            encryption: Some("m.megolm.v1.aes-sha2".to_string()),
+            ..Default::default()
+        };
+
+        let config: CreateRoomConfig = friend_config.into();
+        assert_eq!(config.encryption.as_deref(), Some("m.megolm.v1.aes-sha2"));
+    }
 }

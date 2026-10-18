@@ -195,3 +195,225 @@ WITH s AS (SELECT user_id, room_id FROM room_summary_members WHERE membership IN
 SELECT (SELECT count(*) FROM (SELECT room_id,user_id FROM s EXCEPT SELECT room_id,user_id FROM m) a) AS stale_in_projection,
        (SELECT count(*) FROM (SELECT room_id,user_id FROM m EXCEPT SELECT room_id,user_id FROM s) b) AS missing_in_projection;"
 ```
+
+## 6. 执行记录（2026-10-18，按 §4 优先级落地）
+
+> 状态：**I-01…I-05、I-07 全部已改代码并补回归用例**（I-05 随 I-01 消解）；
+> **测试/调试阶段限流与登录锁定整体关闭**（见 §6.5），正式部署前需显式恢复。
+
+### 6.1 I-01 投影：同事务写入 + 一次性回填
+
+| 动作 | 位置 |
+| --- | --- |
+| `join` 落投影（有事务走 `add_member_in_tx`，无 pool 的测试环境降级 best-effort） | `room/membership/actions.rs`（`join_room`） |
+| `leave` / `leave+forget` 删投影（同一事务） | `actions.rs::remove_summary_member_projection` |
+| `kick` / `ban` / `unban` 删投影 | `room/membership/moderation.rs` |
+| 存储层事务版删除 + 同事务重算聚合计数 | `synapse-storage/src/room_summary/repository.rs::remove_member_in_tx`，trait 见 `api.rs` |
+| 存量漂移一次性回填（补缺失 / 删残留 / 重算计数，三段独立 DML，幂等） | `migrations/00000000_unified_schema_v12.sql` 末尾 |
+
+**基线指纹**：`16a162d3c01f87ce` → **`639e79110cb63fd3`**（236554 → 239515 字节）。
+按 R10 第①条**先用改动前的实际常量自检哈希实现**：对 `HEAD:migrations/…v12.sql`（236554 字节）复算得
+`16a162d3c01f87ce`，逐字节吻合后才取新值。
+
+### 6.2 I-02 裸 `Json<T>` → `MatrixJson`
+
+- 提取器位置 **289 处**已全部改为 `MatrixJson<…>`，`synapse-web/src/routes/**` 里**裸 `Json<` 提取器为 0**
+  （统计口径：`: Json<` / `Option<Json<`，排除返回类型 `Result<Json<…>, _>`）。
+- `extractors/json.rs` 的 `map_json_rejection` 同时驱动 `FromRequest` 与新增的
+  `OptionalFromRequest`（保持 Axum "无 Content-Type ⇒ None" 语义）。
+- **新增常驻契约测试** `tests/unit/matrix_json_contract_tests.rs`：对最小 router 打四种 body，
+  断言 `content-type: application/json` + `errcode` 非空：
+
+| 请求 | 修复前 | 修复后（本测试钉住） |
+| --- | --- | --- |
+| `Content-Type: text/plain` | 415 `text/plain` | 400 `M_NOT_JSON` |
+| `Content-Type: application/json` + 坏 JSON | 400 `text/plain` | 400 `M_NOT_JSON` |
+| 类型错误 / 未知字段 | 422 `text/plain` | 400 `M_BAD_JSON` |
+| 合法 body | 200 | 200（未变） |
+
+### 6.3 I-03 登录失败：403 同族 + 渐进退避
+
+- `ApiError::invalid_credentials()` → **403 `M_FORBIDDEN`**（`STATUS_DIVERGENCE_WHITELIST` 中
+  `(Unauthorized, Forbidden)` 条目同步删除）；`login.rs` 注释与 `auth/tests.rs` 四处断言同步改写。
+- **渐进退避**：`retry_after_ms = min(base × 2^(档位-1), login_lockout_max_duration_seconds × 1000)`，
+  新增配置 `security.login_lockout_max_duration_seconds`（默认 3600）。档位 = 连续失败次数 − 阈值
+  （**下限 1**，即刚达阈值时仍是配置的锁定窗口），已锁定状态下每重试一次升一档，
+  因此持续爆破的代价指数上升而不是每 5 分钟送 5 次免费尝试。
+- 新用例：`lockout_backoff_escalates_then_caps`（1s→2s→…→封顶 4s，单调不减）。
+
+### 6.4 「永久锁」的真正根因（比 §4 的 TTL 条目更深一层）
+
+排查 P1 的「`CacheManager::set` 的 TTL」时发现**三个叠加缺陷**，只改第一个不足以修好：
+
+| # | 缺陷 | 后果 | 修复 |
+| --- | --- | --- | --- |
+| a | `set` / `set_checked` 用 `local.set_raw`，忽略调用方 TTL | L1 一律按 builder TTL（**7200s**）过期 | 改 `set_raw_with_ttl`（`local_write`，`ttl=0` 保留"不过期"语义） |
+| b | **moka 以 `RemovalCause::Replaced` 回调驱逐监听器**，而监听器无条件删 deadline | **覆盖写一次就丢掉 per-key TTL** ⇒ 300 秒锁定在 L1 实际存活 2 小时；每次失败又重写，等于永不过期 | 监听器跳过 `Replaced`（`drop_deadline_unless_replaced`），通用缓存与四个命名空间都改 |
+| c | L1 从 Redis 回填时用 `set_raw`（builder TTL） | 一条只剩 60 秒的 L2 条目会在 L1 活 7200 秒 | 新增 `RedisCache::get_with_ttl` / `get_checked_with_ttl` / `get_batch_with_ttl`（`GET`+`PTTL` 同一次 pipeline），回填按剩余寿命写 |
+| d | `set_not_found` / `set_batch_serialized` 同样忽略 TTL | 负缓存/批量写最多多活 40 倍 | 统一走 `local_write` |
+
+**计数器改固定窗口**：新增 `CacheManager::increment_counter`（L1 侧 `increment_with_fixed_window`，
+L2 侧 Lua `INCR` + 仅在 `count == 1` 时 `EXPIRE`，并返回 `PTTL` 供 L1 同步）。
+`record_login_failure` 从 `get`+`set(ttl)` 改为它 ⇒ 窗口从**首次失败**起算、不再随重试顺延，
+攻击者无法靠"到期前再试一次"把受害者永久锁死。新用例
+`lockout_window_expires_even_under_continued_attempts` 用 1 秒窗口实测：锁定期间再打 4 次，1.1 秒后必须放行。
+
+**回归守卫**（`synapse-cache`，93 个用例全绿）：
+`set_honours_per_write_ttl_for_local_tier`、`overwriting_a_key_keeps_its_per_key_ttl`（钉住缺陷 b）、
+`set_not_found_honours_per_write_ttl`、`set_batch_serialized_honours_per_entry_ttl`、
+`increment_counter_is_a_fixed_window`。
+
+### 6.5 测试阶段的开关（重要）
+
+联调/压测阶段 429 会把真实缺陷伪装成"偶发失败"，因此**两条防护都显式关闭**，且都在启动时告警一次：
+
+| 开关 | 位置 | 关闭后的行为 | 恢复 |
+| --- | --- | --- | --- |
+| `rate_limit.enabled: false` | `docker/config/rate_limit.yaml`（生效值）+ `docker/config/homeserver.yaml`（回退值） | 中间件对每个请求直接放行，`default`/`endpoints`/`sync` 全部不生效 | 两处改回 `true` |
+| `security.login_lockout_enabled: false` | `docker/config/homeserver.yaml` | 不判定也不计数（`check_login_lockout` 直接放行） | 改回 `true`（默认值即 true） |
+
+代码侧告警：`middleware/rate_limit.rs` 与 `utils/login_lockout.rs` 各用 `AtomicBool` 打一条
+`WARN ... DISABLED`（只打一次，避免刷日志）。**为什么必须留告警**：「没有 429」与「限流正常工作」
+在客户端看来完全一样，带着 `false` 上线不会被任何测试发现。
+
+### 6.6 P2 部署侧：`trust_forwarded` 落地
+
+- 之前两个 compose 栈都**没有固定子网**（docker 自动分配），而 `trusted_proxies` 必须写死 CIDR
+  ⇒ 已给 `docker/docker-compose.yml` 与 `docker/deploy/docker-compose.yml` 的 `ipam` 加上
+  `${SYNAPSE_NETWORK_SUBNET:-192.168.97.0/24}`（与本机现有网络一致，无需重建）。
+- `rate_limit.trust_forwarded: true` + `trusted_proxies: ["192.168.97.0/24"]` 同时写入
+  `docker/config/rate_limit.yaml`（中间件）与 `docker/config/homeserver.yaml`（登录锁定读取的那半）。
+- `docker/deploy/.env.example` 补 `SYNAPSE_NETWORK_SUBNET`，并写明"与 YAML 的 trusted_proxies 必须一致"。
+- 顺带纠正一处误判：`synapse-nginx`（0.0.0.0:443 那个）每个代理 location 都设了
+  `X-Forwarded-For $proxy_add_x_forwarded_for`，**转发头链路本身是完整的**；
+  缺的只是服务端"信任该子网"的声明。
+
+> ⚠️ 生效前提：`trusted_proxies` 只在 `trust_forwarded: true` **且**对端确实落在该 CIDR 时生效；
+> 直连（例如 dev 栈 127.0.0.1:8008）仍用 TCP 对端地址，这是刻意的（防 XFF 伪造换桶）。
+
+### 6.7 判据（复现）
+
+```bash
+# 1) 投影两向为 0
+psql "$DATABASE_URL" -tAc "WITH s AS (SELECT user_id,room_id FROM room_summary_members WHERE membership IN ('join','invite')),
+  m AS (SELECT user_id,room_id FROM room_memberships WHERE membership IN ('join','invite'))
+SELECT (SELECT count(*) FROM (SELECT room_id,user_id FROM s EXCEPT SELECT room_id,user_id FROM m) a) AS stale,
+       (SELECT count(*) FROM (SELECT room_id,user_id FROM m EXCEPT SELECT room_id,user_id FROM s) b) AS missing;"
+
+# 2) body 解析失败一律 Matrix 错误体（关掉限流/锁定后仍成立）
+curl -si -X POST $B/_matrix/client/v3/createRoom -H "Authorization: Bearer $TOK" \
+  -H 'Content-Type: text/plain' --data-binary x | head -3          # 400 + application/json + M_NOT_JSON
+
+# 3) 登录失败 403（恢复锁定后）
+curl -s -X POST $B/_matrix/client/v3/login -H 'Content-Type: application/json' \
+  -d '{"type":"m.login.password","identifier":{"type":"m.id.user","user":"x"},"password":"WRONG"}'
+```
+
+### 6.8 I-04 强类型 body（本轮补齐）
+
+`synapse-web/src/routes/handlers/room/management/create.rs` 的 `CreateRoomBody` 已从
+`Json<Value>` 改为强类型 `#[derive(Deserialize)] #[serde(deny_unknown_fields)]` 结构体：
+
+| 键 | 类型 | 说明 |
+| --- | --- | --- |
+| `name` / `topic` / `preset` / `visibility` / `room_alias_name` / `room_type` | `Option<String>` | 高频键，类型错误即反序列化失败 |
+| `invite` | `Option<Vec<InviteEntry>>` | 支持纯字符串与 `{"user_id","reason"}` 两种形态 |
+| `is_direct` / `ignore_duplicate_name` | `Option<bool>` | |
+| `creation_content` / `power_level_content_override` | `Option<Map<String, Value>>` | 自由形态但必须是对象 |
+| `initial_state` / `invite_3pid` | `Option<Vec<Value>>` | 未实现的三方邀请显式拒绝 |
+
+- 错误路径：类型错误 / 未知字段 → `MatrixJson` 的 `JsonDataError` → **400 `M_BAD_JSON`**。
+- 回归用例 10 个（`create.rs` 测试模块）：`{"name":123}` 400、未知键 400、合法请求 200、
+  `invite` 两种形态、`topic` 落库等。
+
+### 6.9 I-07 线程 `content` 显式拒绝（本轮补齐）
+
+`handlers/thread.rs` 的 `reject_unsupported_thread_content`：
+
+| 输入 | 结果 |
+| --- | --- |
+| 缺省 / `null` / `{}` | 200（无可丢弃内容） |
+| 任意非空对象（如 `{"name":"标题"}`） | **400 `M_INVALID_PARAM`** |
+
+线程根的 content 由 `root_event_id` 指向的既有事件定义，`thread_roots` 表也无处存放客户端
+传入的 content，因此按"要么落库、要么拒绝"选后者。新增 3 个用例 + 既有 2 个用例全绿；
+`docker/deploy/api-integration_test.sh`、`scripts/test/api-integration_test.sh` 与
+`docs/synapse-rust/ROUTE_CONTRACT.md` 附录同步为"非空 content → 400 `M_INVALID_PARAM`"。
+
+### 6.10 I-01 单元测试（本轮补齐）
+
+| 用例 | 位置 | 断言 |
+| --- | --- | --- |
+| `join_upserts_room_summary_projection_from_invite` | `room/membership/actions.rs` | 预置 `invite` 投影行后 join ⇒ 投影变 `join` |
+| `leave_removes_room_summary_projection` | 同上 | leave ⇒ 投影行消失 |
+| `leave_and_forget_removes_room_summary_projection` | 同上 | leave+forget ⇒ 投影行消失 |
+| `ban_user_removes_summary_projection` | `room/membership/moderation.rs` | ban ⇒ 投影行消失 |
+| `kick_user_removes_summary_projection` | 同上 | kick ⇒ 投影行消失 |
+
+`cargo test -p synapse-services --lib --all-features room::membership` → **102 passed / 0 failed**。
+
+### 6.11 本轮未做
+
+- 全量集成套件（~2h）与 live 联邦互操作（需双主机名 + 互信 CA）。
+- live 联邦互操作依赖双主机名与互信 CA，本轮不启动。
+
+### 6.12 活体复验结果（2026-10-18 部署后）
+
+部署：`bash docker/deploy/deploy.sh --all`（构建 27m41s）→ 23/23 步通过；随后
+`--skip-build` 复跑亦 23/23 通过（日志 `docker/deploy/logs/deploy_20261018_120259.log`）。
+
+| 项 | 探针 | 实测 |
+| --- | --- | --- |
+| I-01 | 投影两向 `EXCEPT`（`room_summary_members` ↔ `room_memberships`，均限 `join`/`invite`） | stale=0，missing=0 |
+| I-02a | `createRoom` 带 `Content-Type: text/plain` | **400** `application/json` + `M_NOT_JSON` |
+| I-02b | `createRoom` 带坏 JSON | **400** `application/json` + `M_NOT_JSON` |
+| I-02c | `summaries/batch` 类型错误 | **400** `application/json` + `M_BAD_JSON` |
+| I-03 | 错误密码登录 | **403** `application/json` + `M_FORBIDDEN`（测试阶段锁定关闭，无 429，符合 §6.5） |
+| I-04 | `{"name":123,"preset":"private_chat"}` | **400** `M_BAD_JSON`（`name: invalid type: integer`） |
+| I-04 | 合法 body `{"preset":"private_chat","name":"verify-legal"}` | **200** |
+| I-07 | 线程创建带非空 `content` | **400** `M_INVALID_PARAM` |
+| I-07 | 线程创建 `content: {}` | **200**（正常建线程） |
+| B-1 | `POST /_matrix/vendor/v1/create_dm` 后读 `m.room.encryption` | `{"algorithm":"m.megolm.v1.aes-sha2"}` |
+
+> 说明：I-03 的「第 6 次 429」判据依赖登录锁定；测试/联调阶段 `security.login_lockout_enabled: false`
+> 显式关闭（§6.5），因此本轮只验 403 同族，429 分支由单元用例
+> `lockout_backoff_escalates_then_caps` 覆盖，恢复开关后生效。
+
+### 6.13 复验补记（2026-10-18 下午，独立复核）
+
+§6.12 之后又做了一轮**从零重放**的复核（同一部署、同一 DB），并把两件"操作"留档：
+
+| 项 | 动作 | 实测 |
+| --- | --- | --- |
+| 启动开关 | `docker logs synapse-app \| grep DISABLED` | 两条 `WARN` 都在：`rate_limit.rs:28 Rate limiting is DISABLED`、`login_lockout.rs:45 Login lockout is DISABLED` |
+| 限流关闭 | 200 次 `GET /_matrix/client/versions`（并发 20） | **200/200 全部 200**，无 429 |
+| I-03 | 错误密码 ×3 | `403` + `M_FORBIDDEN`（锁定关闭 ⇒ 无 429，符合 §6.5） |
+| I-02 | `createRoom` + `text/plain` | `400` + `application/json` + `M_NOT_JSON` |
+| I-04 | `createRoom` + `{"name":123}` | `400` + `M_BAD_JSON`（`name: invalid type: integer`） |
+| I-01 | 新建 `public_chat` → 另一用户 join → 查 `/summaries` → leave → 再查 | join 后**命中**（152 个房间含该房间）→ leave 后**不含**（151） |
+| I-01 | `room_summary_members` 按房间抽查 | leave 后只剩创建者行（`@sdk_testuser2 join`），离开者行已删 |
+| I-01 | 全局两向 `EXCEPT` | stale=0 / missing=0（清理用房间已 leave，投影 0 行） |
+
+**存量回填已在真实库执行并留档**（回填后两向归零，与 §6.12 一致）：
+
+| 语句 | 影响行数 |
+| --- | --- |
+| ① 补齐缺失的 join/invite 投影行 | `INSERT 0 3` |
+| ② 删除真实状态不是 join/invite 的投影行 | `DELETE 148` |
+| ③ 重算漂移房间的聚合计数 | `UPDATE 32` |
+
+> 被删的 148 行在执行前已导出到 `/tmp/room_summary_members_stale_backup.csv`（含表头 149 行），
+> 需要回溯时可据此重放。执行前基线：stale=134 / missing=3 / 投影 8071 行；执行后 0 / 0 / 7926 行
+> （= 权威表 `join∪invite` 行数，两表完全一致）。
+
+**行数棘轮基线迁移**：`scripts/ci/file_size_baseline` 有 30 行变更（27 个 grandfathered 文件超限）。
+逐条可归因——其中 20 个 `routes/*.rs` 各 **+1 行**（`use crate::routes::MatrixJson;`）、
+`thread.rs` +51（I-07 的 content 拒绝逻辑）、`actions.rs`/`moderation.rs`/`repository.rs`（I-01 事务版）、
+`synapse-cache/{manager,tests}.rs`（P1 TTL 与计数器），另 `db_tests.rs` **减少** 150 行被同步收紧。
+按脚本提示（"deliberate, reviewed change"）执行了 `--update`；**未新增超限文件**（210 → 210）。
+
+> 第二次同步：`9df1f1d31` 之后 `c703f0d9b`（clippy 修复）与 B-1/B-3/B-4 的用例又让 15 个
+> grandfathered 文件长大（`invite_blocklist_service.rs` +79、`device_keys/service.rs` +49 等，
+> 全部属于本批交付），于是**已推送到 main 的基线在 HEAD 上是红的**。本轮再跑一次 `--update` 归零，
+> 同样未新增超限文件（仍 210）。**教训**：多会话并发时 `--update` 会被别人的后续改动再次推红，
+> 提交前必须以 `python3 scripts/ci/check_file_size_ratchet.py` 的退出码为准，而不是"我刚更新过"。

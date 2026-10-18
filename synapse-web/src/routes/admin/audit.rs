@@ -1,5 +1,6 @@
 use crate::routes::context::AdminContext;
 use crate::routes::AdminUser;
+use crate::routes::MatrixJson;
 use crate::utils::auth::resolve_request_id as resolve_request_id_from_headers;
 use axum::{
     extract::{Path, Query, State},
@@ -64,7 +65,7 @@ pub struct AuditEventQueryParams {
 pub async fn create_audit_event(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Json(body): Json<CreateAuditEventBody>,
+    MatrixJson(body): MatrixJson<CreateAuditEventBody>,
 ) -> Result<Json<Value>, ApiError> {
     let event = ctx
         .admin_audit_service

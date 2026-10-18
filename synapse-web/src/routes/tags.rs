@@ -10,6 +10,7 @@ use crate::routes::extractors::UserId;
 use crate::routes::response_helpers::empty_json;
 use crate::routes::AppState;
 use crate::routes::AuthenticatedUser;
+use crate::routes::MatrixJson;
 use synapse_common::ApiError;
 
 /// The `TagContent` struct.
@@ -94,7 +95,7 @@ async fn put_tag(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((user_id, room_id, tag)): Path<(String, String, String)>,
-    Json(content): Json<TagContent>,
+    MatrixJson(content): MatrixJson<TagContent>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     if auth_user.user_id != user_id {
         return Err(ApiError::forbidden("Access denied".to_string()));

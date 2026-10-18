@@ -99,6 +99,10 @@ impl AuthService {
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to delete devices", e))?;
 
+        // B-4: logout-all removes every device row, so every device's keys must
+        // go too; otherwise peers keep a ghost device they can still encrypt to.
+        self.purge_all_device_keys(user_id).await;
+
         let logout_marker = format!("user:logout_all:{user_id}");
         let now = Utc::now().timestamp();
         self.cache.set_raw(&logout_marker, &now.to_string(), super::TOKEN_CACHE_TTL_SECS).await;

@@ -1,4 +1,5 @@
 use crate::routes::context::AdminContext;
+use crate::routes::MatrixJson;
 use crate::routes::{AppState, AuthenticatedUser};
 use axum::{
     extract::{Json, Path, State},
@@ -126,7 +127,7 @@ async fn get_pushers(State(ctx): State<AdminContext>, auth_user: AuthenticatedUs
 async fn set_pusher(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Json(raw): Json<Value>,
+    MatrixJson(raw): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     // P-053: Validate required fields up front so missing/empty fields return
     // 400 M_BAD_JSON instead of axum's 422 deserialization error.
@@ -301,7 +302,7 @@ async fn set_push_rule(
     Path((scope, kind, rule_id)): Path<(String, String, String)>,
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let actions: serde_json::Value = body.get("actions").cloned().unwrap_or(json!([]));
     let conditions: Option<serde_json::Value> = body.get("conditions").cloned();
@@ -332,7 +333,7 @@ async fn create_push_rule(
     Path((scope, kind, rule_id)): Path<(String, String, String)>,
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let actions: serde_json::Value = body.get("actions").cloned().unwrap_or(json!([]));
     let conditions: Option<serde_json::Value> = body.get("conditions").cloned();
@@ -377,7 +378,7 @@ async fn set_push_rule_actions(
     Path((scope, kind, rule_id)): Path<(String, String, String)>,
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let actions: serde_json::Value =
         if body.is_array() { body } else { body.get("actions").cloned().unwrap_or(json!([])) };
@@ -411,7 +412,7 @@ async fn set_push_rule_enabled(
     Path((scope, kind, rule_id)): Path<(String, String, String)>,
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let enabled: bool = body.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
 

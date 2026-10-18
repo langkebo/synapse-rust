@@ -12,6 +12,7 @@ use crate::routes::ApiError;
 use crate::routes::AuthenticatedUser;
 use synapse_services::account_data_service::EXTENDED_PROFILE_DATA_TYPE;
 
+use crate::routes::MatrixJson;
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -150,7 +151,7 @@ pub async fn put_extended_profile_field(
     State(ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,
     Path((user_id, key_name)): Path<(String, String)>,
-    Json(body): Json<serde_json::Value>,
+    MatrixJson(body): MatrixJson<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let auth_user = _auth_user;
     validators::validate_user_id(&user_id)?;

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use synapse_common::current_timestamp_millis;
 
 use crate::routes::room_access::ensure_room_member_ctx;
+use crate::routes::MatrixJson;
 use crate::routes::{AppState, AuthenticatedUser};
 use synapse_common::error::ApiError;
 
@@ -52,7 +53,7 @@ async fn add_reaction(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, _txn_id)): Path<(String, String)>,
-    Json(body): Json<serde_json::Value>,
+    MatrixJson(body): MatrixJson<serde_json::Value>,
 ) -> Result<Json<ReactionResponse>, ApiError> {
     // 验证房间存在
     if !ctx.room_service.state().room_exists(&room_id).await? {

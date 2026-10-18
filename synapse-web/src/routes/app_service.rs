@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::routes::extractors::UserId;
 use crate::routes::response_helpers::{created_json_from, empty_json, json_from, json_vec_from, require_found};
 use crate::routes::validators::validate_as_id;
+use crate::routes::MatrixJson;
 use crate::routes::{AdminUser, AppState, AuthenticatedUser};
 use synapse_common::ApiError;
 use synapse_services::application_service::{ApplicationService, UpdateApplicationServiceRequest};
@@ -261,7 +262,7 @@ pub(crate) fn extract_as_token(headers: &HeaderMap) -> Result<String, ApiError> 
 pub async fn register_app_service(
     State(ctx): State<AdminContext>,
     _admin: AdminUser,
-    Json(body): Json<RegisterAppServiceBody>,
+    MatrixJson(body): MatrixJson<RegisterAppServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = body.into_request()?;
 
@@ -297,7 +298,7 @@ pub async fn update_app_service(
     State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
     _admin: AdminUser,
-    Json(body): Json<UpdateAppServiceBody>,
+    MatrixJson(body): MatrixJson<UpdateAppServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_as_id(&as_id)?;
     let request = body.into_request();
@@ -339,7 +340,7 @@ pub async fn set_app_service_state(
     State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
     _admin: AdminUser,
-    Json(body): Json<SetStateBody>,
+    MatrixJson(body): MatrixJson<SetStateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_as_id(&as_id)?;
     let state_entry = ctx.app_service_manager.set_state(&as_id, &body.state_key, &body.state_value).await?;
@@ -503,7 +504,7 @@ pub async fn register_virtual_user(
     State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
     _admin: AdminUser,
-    Json(body): Json<RegisterVirtualUserBody>,
+    MatrixJson(body): MatrixJson<RegisterVirtualUserBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_as_id(&as_id)?;
     let user = ctx
@@ -557,7 +558,7 @@ pub async fn push_event(
     State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
     _admin: AdminUser,
-    Json(body): Json<PushEventBody>,
+    MatrixJson(body): MatrixJson<PushEventBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_as_id(&as_id)?;
     let event = ctx
@@ -632,7 +633,7 @@ pub async fn app_service_transactions(
     State(ctx): State<AdminContext>,
     Path((as_id, _txn_id)): Path<(String, String)>,
     headers: HeaderMap,
-    Json(body): Json<serde_json::Value>,
+    MatrixJson(body): MatrixJson<serde_json::Value>,
 ) -> Result<impl IntoResponse, ApiError> {
     let as_token = extract_as_token(&headers)?;
 

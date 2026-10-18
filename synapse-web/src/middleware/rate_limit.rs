@@ -19,6 +19,18 @@ pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Requ
 
     let enabled = file_config.as_ref().map_or(config.enabled, |c| c.enabled);
     if !enabled {
+        // 测试/调试阶段允许整体关闭（`docker/config/rate_limit.yaml` 的
+        // `enabled: false`）。这里**必须**留一条一次性告警：关掉之后
+        // `default` / `endpoints` / `sync` 全部不生效，而"没有 429"看起来
+        // 和"限流正常工作"完全一样，带 false 上线不会被任何客户端察觉。
+        static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            ::tracing::warn!(
+                "Rate limiting is DISABLED (rate_limit.enabled = false). \
+                 Every request bypasses the limiter — intended for test/debug deployments only; \
+                 set it back to true before going to production."
+            );
+        }
         return next.run(request).await;
     }
 

@@ -250,7 +250,11 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // baseline 由 `237691` 降到 `236554` 字节 ⇒ FNV-1a 64 = `16a162d3c01f87ce`。
 // 自检：改动前常量 `65b6701ed356b3d1` 与改动前的 `237691` 字节逐字节吻合（本轮已实测），
 // 证明哈希实现未变。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "16a162d3c01f87ce";
+// 2026-10-18（I-01：`room_summary_members` 投影一次性回填，三段幂等 DML）：
+// baseline 由 `236554` 增到 `239515` 字节 ⇒ FNV-1a 64 = `639e79110cb63fd3`。
+// 自检：用**改动前**的常量 `16a162d3c01f87ce` 复算 `HEAD:migrations/…v12.sql`（236554 字节）
+// 逐字节吻合，证明哈希实现未变后才取新值。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "639e79110cb63fd3";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

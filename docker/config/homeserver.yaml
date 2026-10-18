@@ -51,7 +51,11 @@ server:
   # maintenance_interval_secs: 86400
 
 rate_limit:
-  enabled: true
+  # ⚠️ 测试/调试阶段关闭（与 `docker/config/rate_limit.yaml` 的 `enabled` 保持一致）。
+  # 本字段只在**没有** rate_limit.yaml 时作为回退值生效；两处同时为 false 是为了让
+  # "限流开着还是关着" 在一个 `grep '^enabled'` 里就能看清，避免只改一处造成错觉。
+  # ✅ 正式部署前两处都要改回 true（自检见 rate_limit.yaml 顶部注释）。
+  enabled: false
   default:
     per_second: 20
     burst_size: 40
@@ -76,6 +80,11 @@ rate_limit:
     - "x-forwarded-for"
     - "x-real-ip"
     - "forwarded"
+  # 代理信任（登录锁定的客户端 IP 取值也走这里）。子网必须等于 docker compose
+  # 网络的 ipam 子网，见 `docker/docker-compose.yml` 的 `networks.synapse-network`。
+  trust_forwarded: true
+  trusted_proxies:
+    - "192.168.97.0/24"
   include_headers: true
   exempt_paths:
     - "/"
@@ -179,6 +188,20 @@ security:
   allow_legacy_hashes: false
   login_failure_lockout_threshold: 5
   login_lockout_duration_seconds: 300
+  # 渐进退避上限：第 1 档 = login_lockout_duration_seconds，之后每在锁定状态下再试
+  # 一次升一档（×2），封顶本值。固定等长锁定既拦不住持续爆破，又对误操作用户同等伤害。
+  login_lockout_max_duration_seconds: 3600
+  # 登录失败锁定总开关。
+  #
+  # ⚠️ 当前为 **false**：测试/调试阶段与限流一起关闭（用户 2026-10-18 指示）。
+  # 关闭后 `check_login_lockout` 直接放行、`record_login_failure` 不计数，
+  # 联调/压测不会再被 429 打断；代价是暴力破解防护为零，**只允许本机/内网测试环境**。
+  # 启动时会打印一次 `WARN ... Login lockout is DISABLED`。
+  #
+  # ✅ 正式部署前必须改回 true。
+  # 需要现场复核 I-03 行为（前 5 次 403 M_FORBIDDEN、第 6 次 429 且
+  # retry_after_ms = login_lockout_duration_seconds）时，也临时改 true。
+  login_lockout_enabled: false
   # 单个出口 IP 的登录失败上限（跨用户名聚合，SEC-05）。
   # 必须 ≥ login_failure_lockout_threshold，否则更具体的桶永远先触发。
   login_lockout_max_ip_attempts: 30

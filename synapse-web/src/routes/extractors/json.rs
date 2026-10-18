@@ -4,6 +4,39 @@ use synapse_common::ApiError;
 /// The `MatrixJson` struct.
 pub struct MatrixJson<T>(pub T);
 
+/// Drop-in replacement for `axum::Json` in extractor position: handlers that
+/// take the payload as a named argument (`body: MatrixJson<Value>`) keep
+/// working through deref, exactly like they did with `Json<Value>`.
+impl<T> std::ops::Deref for MatrixJson<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T> std::ops::DerefMut for MatrixJson<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.0
+    }
+}
+
+/// Map an Axum [`JsonRejection`] onto the Matrix error body.
+///
+///   M_NOT_JSON   — the request body is not valid JSON at all
+///                  (syntax error, wrong/absent Content-Type, unreadable body)
+///   M_BAD_JSON   — the body *is* valid JSON but does not match the
+///                  expected structure/type (deserialization error)
+fn map_json_rejection(rejection: JsonRejection) -> ApiError {
+    match rejection {
+        JsonRejection::JsonDataError(e) => ApiError::bad_request(format!("Invalid JSON data: {e}")),
+        JsonRejection::JsonSyntaxError(e) => ApiError::not_json(format!("JSON syntax error: {e}")),
+        JsonRejection::MissingJsonContentType(e) => {
+            ApiError::not_json(format!("Missing Content-Type: application/json: {e}"))
+        }
+        _ => ApiError::not_json(format!("JSON error: {rejection}")),
+    }
+}
+
 impl<S, T> axum::extract::FromRequest<S> for MatrixJson<T>
 where
     S: Send + Sync,
@@ -14,22 +47,25 @@ where
     async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
         match axum::extract::Json::<T>::from_request(req, state).await {
             Ok(axum::extract::Json(value)) => Ok(Self(value)),
-            Err(rejection) => {
-                // Matrix errcode mapping (spec: "Standard error response"):
-                //   M_NOT_JSON   — the request body is not valid JSON at all
-                //                  (syntax error, wrong/absent Content-Type, unreadable body)
-                //   M_BAD_JSON   — the body *is* valid JSON but does not match the
-                //                  expected structure/type (deserialization error)
-                let error = match rejection {
-                    JsonRejection::JsonDataError(e) => ApiError::bad_request(format!("Invalid JSON data: {e}")),
-                    JsonRejection::JsonSyntaxError(e) => ApiError::not_json(format!("JSON syntax error: {e}")),
-                    JsonRejection::MissingJsonContentType(e) => {
-                        ApiError::not_json(format!("Missing Content-Type: application/json: {e}"))
-                    }
-                    _ => ApiError::not_json(format!("JSON error: {rejection}")),
-                };
-                Err(error)
-            }
+            Err(rejection) => Err(map_json_rejection(rejection)),
+        }
+    }
+}
+
+/// Mirrors Axum's `Option<Json<T>>` semantics (no `Content-Type` ⇒ `None`)
+/// while keeping Matrix-shaped errors for malformed bodies.
+impl<S, T> axum::extract::OptionalFromRequest<S> for MatrixJson<T>
+where
+    S: Send + Sync,
+    T: serde::de::DeserializeOwned + Send,
+{
+    type Rejection = ApiError;
+
+    async fn from_request(req: axum::extract::Request, state: &S) -> Result<Option<Self>, Self::Rejection> {
+        match <axum::extract::Json<T> as axum::extract::OptionalFromRequest<S>>::from_request(req, state).await {
+            Ok(Some(axum::extract::Json(value))) => Ok(Some(Self(value))),
+            Ok(None) => Ok(None),
+            Err(rejection) => Err(map_json_rejection(rejection)),
         }
     }
 }

@@ -1,6 +1,8 @@
 // Built-in OIDC Provider endpoints: login, JWKS, and OpenID Discovery.
 
 use crate::routes::context::SsoContext;
+#[cfg(feature = "builtin-oidc")]
+use crate::routes::MatrixJson;
 use axum::{extract::State, Json};
 use serde::Serialize;
 use synapse_common::error::ApiError;
@@ -50,7 +52,7 @@ pub(crate) struct OpenIdDiscovery {
 #[cfg(feature = "builtin-oidc")]
 pub(crate) async fn builtin_oidc_login(
     State(ctx): State<SsoContext>,
-    Json(body): Json<serde_json::Value>,
+    MatrixJson(body): MatrixJson<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     use synapse_services::builtin_oidc_provider::AuthorizeRequest;
 

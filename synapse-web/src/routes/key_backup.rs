@@ -1,6 +1,7 @@
 use super::{AppState, AuthenticatedUser};
 use crate::routes::context::E2eeRoomContext;
 use crate::routes::extractors::RoomId;
+use crate::routes::MatrixJson;
 use axum::{
     extract::{Path, Query, State},
     response::IntoResponse,
@@ -118,7 +119,7 @@ pub struct UpdateBackupVersionBody {
 async fn create_backup_version(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<axum::response::Response, ApiError> {
     let algorithm = body.get("algorithm").and_then(|v| v.as_str()).unwrap_or("m.megolm_backup.v1.curve25519-aes-sha2");
     let auth_data = body.get("auth_data").cloned();
@@ -191,7 +192,7 @@ async fn update_backup_version(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path(version): Path<RoomId>,
-    Json(body): Json<UpdateBackupVersionBody>,
+    MatrixJson(body): MatrixJson<UpdateBackupVersionBody>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     if let Err(e) = body.validate() {
         return Err(synapse_common::error::ApiError::bad_request(e.to_string()));
@@ -413,7 +414,7 @@ async fn put_room_keys_all(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Query(q): Query<VersionQuery>,
-    Json(body): Json<RoomKeysBody>,
+    MatrixJson(body): MatrixJson<RoomKeysBody>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     write_all_rooms(&ctx, &auth_user.user_id, &q.version, body).await
 }
@@ -423,7 +424,7 @@ async fn put_room_keys_all_legacy(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path(version): Path<RoomId>,
-    Json(body): Json<RoomKeysBody>,
+    MatrixJson(body): MatrixJson<RoomKeysBody>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     write_all_rooms(&ctx, &auth_user.user_id, &version, body).await
 }
@@ -456,7 +457,7 @@ async fn put_room_keys_for_room(
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
     Query(q): Query<VersionQuery>,
-    Json(body): Json<RoomSessionsBody>,
+    MatrixJson(body): MatrixJson<RoomSessionsBody>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     write_room(&ctx, &auth_user.user_id, &q.version, &room_id, body).await
 }
@@ -466,7 +467,7 @@ async fn put_room_keys_for_room_legacy(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path((version, room_id)): Path<(String, String)>,
-    Json(body): Json<RoomSessionsBody>,
+    MatrixJson(body): MatrixJson<RoomSessionsBody>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     write_room(&ctx, &auth_user.user_id, &version, &room_id, body).await
 }
@@ -494,7 +495,7 @@ async fn put_room_key(
     auth_user: AuthenticatedUser,
     Path((room_id, session_id)): Path<(String, String)>,
     Query(q): Query<VersionQuery>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     write_session(&ctx, &auth_user.user_id, &q.version, &room_id, &session_id, body).await
 }
@@ -504,7 +505,7 @@ async fn put_room_key_legacy(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path((version, room_id, session_id)): Path<(String, String, String)>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     write_session(&ctx, &auth_user.user_id, &version, &room_id, &session_id, body).await
 }
@@ -627,7 +628,7 @@ pub struct BatchRecoverBody {
 async fn recover_keys(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<RecoverKeysBody>,
+    MatrixJson(body): MatrixJson<RecoverKeysBody>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     if let Err(e) = body.validate() {
         return Err(synapse_common::error::ApiError::bad_request(e.to_string()));
@@ -664,7 +665,7 @@ async fn verify_backup(
 async fn batch_recover_keys(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<BatchRecoverBody>,
+    MatrixJson(body): MatrixJson<BatchRecoverBody>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     if let Err(e) = body.validate() {
         return Err(synapse_common::error::ApiError::bad_request(e.to_string()));
@@ -800,7 +801,7 @@ pub fn resolve_import_version(body: &Value) -> Result<String, ApiError> {
 async fn import_keys(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     let room_keys = body
         .get("room_keys")
@@ -853,7 +854,7 @@ async fn import_keys_by_version(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path(version): Path<RoomId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     let room_keys = body
         .get("room_keys")

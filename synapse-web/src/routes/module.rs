@@ -1,5 +1,6 @@
 use crate::routes::context::AdminContext;
 use crate::routes::extractors::{EventId, UserId};
+use crate::routes::MatrixJson;
 use crate::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},
@@ -471,7 +472,7 @@ pub struct SpamCheckQuery {
 pub async fn create_module(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Json(body): Json<CreateModuleBody>,
+    MatrixJson(body): MatrixJson<CreateModuleBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = CreateModuleRequest {
         module_name: body.module_name,
@@ -536,7 +537,7 @@ pub async fn update_module_config(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(module_name): Path<String>,
-    Json(body): Json<UpdateModuleConfigBody>,
+    MatrixJson(body): MatrixJson<UpdateModuleConfigBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let module = ctx.module_service.update_module_config(&module_name, body.config).await?;
 
@@ -548,7 +549,7 @@ pub async fn enable_module(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(module_name): Path<String>,
-    Json(body): Json<EnableModuleBody>,
+    MatrixJson(body): MatrixJson<EnableModuleBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let module = ctx.module_service.enable_module(&module_name, body.is_enabled).await?;
 
@@ -570,7 +571,7 @@ pub async fn delete_module(
 pub async fn check_spam(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Json(body): Json<CheckSpamBody>,
+    MatrixJson(body): MatrixJson<CheckSpamBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let context = SpamCheckContext {
         event_id: body.event_id,
@@ -589,7 +590,7 @@ pub async fn check_spam(
 pub async fn check_third_party_rule(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Json(body): Json<CheckThirdPartyRuleBody>,
+    MatrixJson(body): MatrixJson<CheckThirdPartyRuleBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let context = ThirdPartyRuleContext {
         event_id: body.event_id,
@@ -668,7 +669,7 @@ pub async fn get_execution_logs(
 pub async fn create_account_validity(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Json(body): Json<CreateAccountValidityBody>,
+    MatrixJson(body): MatrixJson<CreateAccountValidityBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_user_exists(&ctx, &body.user_id).await?;
 
@@ -703,7 +704,7 @@ pub async fn renew_account(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(user_id): Path<UserId>,
-    Json(body): Json<RenewAccountBody>,
+    MatrixJson(body): MatrixJson<RenewAccountBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_user_exists(&ctx, &user_id).await?;
 
@@ -721,7 +722,7 @@ pub async fn renew_account(
 pub async fn create_password_auth_provider(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Json(body): Json<CreatePasswordAuthProviderBody>,
+    MatrixJson(body): MatrixJson<CreatePasswordAuthProviderBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = CreatePasswordAuthProviderRequest {
         provider_name: body.provider_name,
@@ -753,7 +754,7 @@ pub async fn get_password_auth_providers(
 pub async fn create_media_callback(
     State(ctx): State<AdminContext>,
     auth_user: AdminUser,
-    Json(body): Json<CreateMediaCallbackBody>,
+    MatrixJson(body): MatrixJson<CreateMediaCallbackBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = CreateMediaCallbackRequest {
         callback_name: body.callback_name,
@@ -803,7 +804,7 @@ pub async fn get_all_media_callbacks(
 pub async fn create_account_data_callback(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Json(body): Json<CreateAccountDataCallbackBody>,
+    MatrixJson(body): MatrixJson<CreateAccountDataCallbackBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = CreateAccountDataCallbackRequest {
         callback_name: body.callback_name,

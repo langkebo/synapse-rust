@@ -8,6 +8,7 @@ use crate::routes::context::RoomContext;
 use crate::routes::extractors::{EventId, RoomId};
 use crate::routes::room_access::ensure_room_member_ctx;
 use crate::routes::validators::{validate_event_id, validate_room_id};
+use crate::routes::MatrixJson;
 use crate::routes::{AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
@@ -248,7 +249,7 @@ async fn send_relation(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id, rel_type, txn_id)): Path<(String, String, String, String)>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<RelationSendResponse>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;

@@ -34,6 +34,27 @@ use std::net::IpAddr;
 
 use synapse_common::ApiError;
 
+/// 总开关关闭时只告警一次。
+///
+/// 用 `static` 而不是每次请求都 `warn!`：关锁定期间登录是热点路径，
+/// 逐请求打日志会淹没真正的告警。但也不能静默——带着 `false` 上线
+/// 意味着暴力破解防护为零，必须在日志里留下痕迹。
+fn warn_lockout_disabled_once() {
+    static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        tracing::warn!(
+            "Login lockout is DISABLED (security.login_lockout_enabled = false). \
+             Brute-force protection is OFF — intended for test/debug deployments only; \
+             set it back to true before going to production."
+        );
+    }
+}
+
+/// 登录锁定是否启用（配置默认 true）。
+fn lockout_enabled(config: &synapse_common::config::Config) -> bool {
+    config.security.login_lockout_enabled
+}
+
 /// Does `ip` match any entry of `allowlist`?
 ///
 /// Entries may be a bare address (`127.0.0.1`, `::1`) or a CIDR block
@@ -86,6 +107,30 @@ fn lockout_retry_after_ms(config: &synapse_common::config::Config) -> u64 {
     config.security.login_lockout_duration_seconds.saturating_mul(1000)
 }
 
+/// 渐进退避：第 `level` 档（从 1 起）的 `retry_after_ms`。
+///
+/// `base * 2^(level-1)`，并以 `login_lockout_max_duration_seconds` 封顶。
+/// 档位随「已锁定状态下的重试次数」增长，因此持续爆破的代价指数上升；
+/// 封顶则保证误伤不会变成实质性的长期拒绝服务。
+fn backoff_retry_after_ms(config: &synapse_common::config::Config, level: u32) -> u64 {
+    let base_seconds = config.security.login_lockout_duration_seconds;
+    // 上限小于基数时取两者较大值：否则「第 1 档」会被压到低于配置的锁定窗口，
+    // 让锁定看起来完全不生效。
+    let cap = config.security.login_lockout_max_duration_seconds.max(base_seconds);
+    let shift = level.saturating_sub(1).min(16);
+    lockout_retry_after_ms(config).saturating_mul(1u64 << shift).min(cap.saturating_mul(1000))
+}
+
+/// 由「连续失败次数」推出退避档位：**达到阈值仍是第 1 档**（base），
+/// 此后每在锁定状态下多试一次升一档。
+///
+/// 计数器是 `u64`（Redis `INCR`），阈值是配置里的 `u32`；档位本身不需要超过
+/// `u32`（`backoff_retry_after_ms` 另外做了 16 档封顶），故在此饱和收敛。
+fn backoff_level(failures: u64, threshold: u32) -> u32 {
+    let failures = u32::try_from(failures).unwrap_or(u32::MAX);
+    failures.saturating_sub(threshold).max(1)
+}
+
 /// 受信出口豁免：命中则**既不拒绝也不计数**。
 ///
 /// 只豁免「锁定」；密码校验与限流照常，因此不会成为绕过认证的后门。
@@ -113,6 +158,12 @@ pub(crate) async fn check_login_lockout(
     ip: &str,
     username: &str,
 ) -> Result<(), ApiError> {
+    // 测试/调试阶段的总开关：关闭时既不判定也不计数（见 `lockout_enabled`）。
+    if !lockout_enabled(config) {
+        warn_lockout_disabled_once();
+        return Ok(());
+    }
+
     if lockout_exempt(config, ip) {
         tracing::debug!(
             ip = %ip,
@@ -142,16 +193,25 @@ pub(crate) async fn check_login_lockout(
     }
     let per_pair_threshold = config.security.login_failure_lockout_threshold;
     let key = format!("login_fail:{ip}:{username}");
+    // 计数器窗口 = 配置的锁定时长，且**只在该键创建时安装**（见
+    // `CacheManager::increment_counter`）：窗口不随重试顺延，否则攻击者只要在
+    // 到期前再试一次就能把受害者的账号永久锁死。
+    let window_secs = config.security.login_lockout_duration_seconds;
     match cache.get::<u32>(&key).await {
         Ok(Some(count)) if count >= per_pair_threshold => {
+            // 已锁定状态下的每一次重试都推高档位：持续爆破的 retry_after 指数增长
+            // （封顶 `login_lockout_max_duration_seconds`），而窗口本身不延长。
+            let failures = cache.increment_counter(&key, window_secs).await.max(u64::from(count));
+            let retry_after_ms = backoff_retry_after_ms(config, backoff_level(failures, per_pair_threshold));
             tracing::warn!(
                 ip = %ip,
                 username = %username,
-                count,
+                count = failures,
                 threshold = per_pair_threshold,
+                retry_after_ms,
                 "Login locked out due to too many failures"
             );
-            return Err(ApiError::rate_limited_with_retry(lockout_retry_after_ms(config)));
+            return Err(ApiError::rate_limited_with_retry(retry_after_ms));
         }
         _ => {}
     }
@@ -162,13 +222,16 @@ pub(crate) async fn check_login_lockout(
     let ip_key = format!("login_ip_fail:{ip}");
     match cache.get::<u32>(&ip_key).await {
         Ok(Some(count)) if count >= ip_threshold => {
+            let failures = cache.increment_counter(&ip_key, window_secs).await.max(u64::from(count));
+            let retry_after_ms = backoff_retry_after_ms(config, backoff_level(failures, ip_threshold));
             tracing::warn!(
                 ip = %ip,
-                count,
+                count = failures,
                 threshold = ip_threshold,
+                retry_after_ms,
                 "Login locked out: too many failures from this IP"
             );
-            Err(ApiError::rate_limited_with_retry(lockout_retry_after_ms(config)))
+            Err(ApiError::rate_limited_with_retry(retry_after_ms))
         }
         _ => Ok(()),
     }
@@ -183,6 +246,12 @@ pub(crate) async fn record_login_failure(
     ip: &str,
     username: &str,
 ) {
+    // 总开关关闭时不计数：否则关掉锁定后计数器仍在写，重新打开时
+    // 整个测试期间累积的失败会立刻把用户锁死。
+    if !lockout_enabled(config) {
+        return;
+    }
+
     // 受信出口既不拒绝也不计数：否则 CI/NAT 出口会在多轮测试中把 IP 桶刷爆，
     // 连带把**同出口的正常用户**锁死 900 秒。
     if lockout_exempt(config, ip) {
@@ -207,17 +276,30 @@ pub(crate) async fn record_login_failure(
 
     // 计数器 TTL 与锁定时长同源，避免「锁定还没到期、计数器先过期」导致锁定
     // 提前失效（或反之，残留计数把下次登录立刻锁死）。
+    //
+    // 关键：TTL 只在**窗口开启时**安装一次（`increment_counter` 的固定窗口语义）。
+    // 此前这里是 `get` + `set(ttl)`，每次都顺延窗口；配合 L1 忽略 per-write TTL
+    // 的缺陷（builder 默认 2 小时），实际效果是「失败一次就锁 2 小时且可被无限续期」。
     let ttl = config.security.login_lockout_duration_seconds;
 
     let key = format!("login_fail:{ip}:{username}");
-    let current = cache.get::<u32>(&key).await.ok().flatten().unwrap_or(0);
-    let _ = cache.set(&key, current + 1, ttl).await;
+    let count = cache.increment_counter(&key, ttl).await;
+    if count == u64::from(config.security.login_failure_lockout_threshold) {
+        tracing::warn!(
+            ip = %ip,
+            username = %username,
+            count,
+            "Login failure threshold reached; account is now locked out"
+        );
+    }
 
     // SEC-05: bump the per-IP aggregate bucket on every failure (any username),
     // so rotating names still accumulates against the address.
     let ip_key = format!("login_ip_fail:{ip}");
-    let ip_current = cache.get::<u32>(&ip_key).await.ok().flatten().unwrap_or(0);
-    let _ = cache.set(&ip_key, ip_current + 1, ttl).await;
+    let ip_count = cache.increment_counter(&ip_key, ttl).await;
+    if ip_count == u64::from(config.security.login_lockout_max_ip_attempts) {
+        tracing::warn!(ip = %ip, count = ip_count, "Per-IP login failure threshold reached");
+    }
 }
 
 /// Clear login failure counter on successful login.
@@ -430,6 +512,68 @@ mod lockout_degradation_tests {
         assert!(
             check_login_lockout(&cache, &strict, "203.0.113.11", "no-redis-strict").await.is_err(),
             "fail_open_on_redis_error=false must refuse login while the backend is unavailable"
+        );
+    }
+
+    /// P2: 连续失败越多退避越长，且必然封顶在 `login_lockout_max_duration_seconds`。
+    ///
+    /// 需求来自联调报告的 I-03：固定 300 秒的等长锁定既拦不住持续爆破（每 5 分钟
+    /// 送 5 次免费尝试），又会对误操作的用户造成同等伤害。指数退避让持续爆破的
+    /// 代价快速上升，封顶则避免退避本身变成拒绝服务。
+    #[tokio::test]
+    async fn lockout_backoff_escalates_then_caps() {
+        let cache = cache_with_unreachable_redis();
+        let mut config = fail_closed_config();
+        config.security.login_failure_lockout_threshold = 2;
+        config.security.login_lockout_duration_seconds = 1;
+        config.security.login_lockout_max_duration_seconds = 4;
+
+        let (ip, username) = ("203.0.113.30", "escalate-victim");
+        for _ in 0..config.security.login_failure_lockout_threshold {
+            record_login_failure(&cache, &config, ip, username).await;
+        }
+
+        let mut observed = Vec::new();
+        for _ in 0..5 {
+            let err = check_login_lockout(&cache, &config, ip, username)
+                .await
+                .expect_err("threshold reached ⇒ still locked while the window is open");
+            observed.push(err.retry_after_ms().expect("429 must carry retry_after_ms"));
+        }
+
+        assert_eq!(observed[0], 1_000, "第 1 档必须等于配置的锁定窗口（1s）：{observed:?}");
+        assert!(observed[1] > observed[0], "已锁定状态下的重试必须升档：{observed:?}");
+        assert_eq!(*observed.last().unwrap(), 4_000, "必须封顶在 max_duration=4s：{observed:?}");
+        assert!(observed.windows(2).all(|window| window[1] >= window[0]), "退避必须单调不减：{observed:?}");
+    }
+
+    /// P2：窗口起点固定在**首次失败**，已锁定状态下的重试只升档、不顺延窗口。
+    ///
+    /// 这是「永久锁」的真正成因：计数器 TTL 每次失败都顺延（滑窗），攻击者只要在
+    /// 到期前再试一次，受害者就永远出不来；叠加 L1 忽略 per-write TTL 的老缺陷
+    /// （builder 默认 2 小时）就更明显。固定窗口保证锁定一定自然到期。
+    #[tokio::test]
+    async fn lockout_window_expires_even_under_continued_attempts() {
+        let cache = cache_with_unreachable_redis();
+        let mut config = fail_closed_config();
+        config.security.login_failure_lockout_threshold = 1;
+        config.security.login_lockout_duration_seconds = 1;
+        config.security.login_lockout_max_duration_seconds = 4;
+
+        let (ip, username) = ("203.0.113.31", "window-victim");
+        record_login_failure(&cache, &config, ip, username).await;
+        assert!(check_login_lockout(&cache, &config, ip, username).await.is_err(), "首次失败即达阈值，必须锁定");
+
+        // 攻击者在窗口内持续重试——每次都会升档，但都不得顺延窗口。
+        for _ in 0..4 {
+            let _ = check_login_lockout(&cache, &config, ip, username).await;
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(1_100)).await;
+
+        assert!(
+            check_login_lockout(&cache, &config, ip, username).await.is_ok(),
+            "窗口从首次失败起算，持续重试不得把它无限顺延"
         );
     }
 }

@@ -216,7 +216,7 @@ async fn test_login_success_after_register() {
 }
 
 #[tokio::test]
-async fn test_login_with_wrong_password_returns_401_unauthorized() {
+async fn test_login_with_wrong_password_returns_403_forbidden() {
     let pool = crate::require_test_pool().await;
     let security = test_security();
     let auth = build_auth(&pool, &security);
@@ -228,8 +228,8 @@ async fn test_login_with_wrong_password_returns_401_unauthorized() {
     let login_result = auth.login(&username, "WrongPassword99!", None, None).await;
     assert!(login_result.is_err());
     let err = login_result.unwrap_err();
-    // P-007 fix: HTTP 401 + M_FORBIDDEN (errcode stays M_FORBIDDEN, status is Unauthorized).
-    assert_eq!(err.kind, ApiErrorKind::Unauthorized, "wrong password must be 401 M_UNAUTHORIZED");
+    // Matrix spec (login.yaml): 403 + M_FORBIDDEN for a failed login attempt.
+    assert_eq!(err.kind, ApiErrorKind::Forbidden, "wrong password must be 403 M_FORBIDDEN");
     assert!(err.code_is(MatrixErrorCode::Forbidden), "expected M_FORBIDDEN for wrong password, got {:?}", err.code());
 
     // Failure counter should be incremented.
@@ -273,7 +273,7 @@ async fn test_login_with_initial_display_name_too_long_returns_bad_request() {
 }
 
 #[tokio::test]
-async fn test_login_deactivated_user_returns_401_unauthorized() {
+async fn test_login_deactivated_user_returns_403_forbidden() {
     let pool = crate::require_test_pool().await;
     let security = test_security();
     let auth = build_auth(&pool, &security);
@@ -292,9 +292,9 @@ async fn test_login_deactivated_user_returns_401_unauthorized() {
     let result = auth.login(&username, password, None, None).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    // P-007 fix: HTTP 401 + M_FORBIDDEN (deactivated user is indistinguishable
+    // 403 + M_FORBIDDEN (deactivated user is indistinguishable
     // from bad credentials to prevent user enumeration).
-    assert_eq!(err.kind, ApiErrorKind::Unauthorized, "deactivated user login must be 401");
+    assert_eq!(err.kind, ApiErrorKind::Forbidden, "deactivated user login must be 403");
     assert!(err.code_is(MatrixErrorCode::Forbidden), "deactivated user login should be M_FORBIDDEN");
 }
 
@@ -313,7 +313,7 @@ async fn test_verify_user_credentials_success() {
 }
 
 #[tokio::test]
-async fn test_verify_user_credentials_wrong_password_returns_401_unauthorized() {
+async fn test_verify_user_credentials_wrong_password_returns_403_forbidden() {
     let pool = crate::require_test_pool().await;
     let security = test_security();
     let auth = build_auth(&pool, &security);
@@ -324,13 +324,13 @@ async fn test_verify_user_credentials_wrong_password_returns_401_unauthorized() 
     let result = auth.verify_user_credentials(&user.user_id, "WrongPassword99!").await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    // P-007 fix: HTTP 401 + M_FORBIDDEN.
-    assert_eq!(err.kind, ApiErrorKind::Unauthorized, "wrong password must be 401");
+    // Matrix spec / Synapse `LoginError`: 403 + M_FORBIDDEN.
+    assert_eq!(err.kind, ApiErrorKind::Forbidden, "wrong password must be 403");
     assert!(err.code_is(MatrixErrorCode::Forbidden), "wrong password should yield M_FORBIDDEN");
 }
 
 #[tokio::test]
-async fn test_verify_user_credentials_nonexistent_user_returns_401_unauthorized() {
+async fn test_verify_user_credentials_nonexistent_user_returns_403_forbidden() {
     let pool = crate::require_test_pool().await;
     let security = test_security();
     let auth = build_auth(&pool, &security);
@@ -338,8 +338,8 @@ async fn test_verify_user_credentials_nonexistent_user_returns_401_unauthorized(
     let result = auth.verify_user_credentials("@nonexistent_cov:localhost", "anypassword").await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    // P-007 fix: HTTP 401 + M_FORBIDDEN (防用户枚举，与错误密码一致)。
-    assert_eq!(err.kind, ApiErrorKind::Unauthorized, "nonexistent user must be 401");
+    // 防用户枚举，与错误密码一致。
+    assert_eq!(err.kind, ApiErrorKind::Forbidden, "nonexistent user must be 403");
     assert!(err.code_is(MatrixErrorCode::Forbidden), "nonexistent user should yield M_FORBIDDEN");
 }
 

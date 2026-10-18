@@ -1,6 +1,7 @@
 use super::*;
 use crate::routes::context::RoomContext;
 use crate::routes::extractors::RoomId;
+use crate::routes::MatrixJson;
 
 fn decode_public_space_cursor(cursor: Option<&str>) -> Option<(i64, &str)> {
     let cursor = cursor?;
@@ -37,7 +38,7 @@ mod cursor_tests {
 pub(super) async fn create_space(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<CreateSpaceBody>,
+    MatrixJson(body): MatrixJson<CreateSpaceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_request(&body)?;
     let request: synapse_services::room::space::CreateSpaceRequest = body.into_request(auth_user.user_id.clone());
@@ -86,7 +87,7 @@ pub(super) async fn update_space(
     State(ctx): State<RoomContext>,
     Path(space_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<UpdateSpaceBody>,
+    MatrixJson(body): MatrixJson<UpdateSpaceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_request(&body)?;
     let request: synapse_services::room::space::UpdateSpaceRequest = body.into_request();

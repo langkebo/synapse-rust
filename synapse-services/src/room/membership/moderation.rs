@@ -190,6 +190,9 @@ impl MembershipService {
             return Ok(());
         }
 
+        // B-3: a blocked user must not be admitted through the knock path either.
+        self.invite_policy_gate.check_join_allowed(room_id, user_id).await?;
+
         // Delegate the state-machine verdict (join-rule allows knock, not
         // already joined/invited/banned) to the single transition rulebook.
         let ctx = TransitionCtx::state_only(join_rule, /* actor_is_target */ true, target_is_banned, false);
@@ -292,6 +295,9 @@ impl MembershipService {
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to ban user", e))?;
 
+        // I-01: a banned user must disappear from the room summary projection.
+        self.remove_summary_member_projection(room_id, user_id, None).await?;
+
         let ban_event = self
             .event_writer
             .create_event(
@@ -351,6 +357,9 @@ impl MembershipService {
             .unban_member(room_id, user_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to unban user", e))?;
+
+        // I-01: clear any projection row left over from before the ban.
+        self.remove_summary_member_projection(room_id, user_id, None).await?;
 
         let unban_event = self
             .event_writer
@@ -437,6 +446,9 @@ impl MembershipService {
             .remove_member(room_id, target_user_id, None)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to kick user", e))?;
+
+        // I-01: a kicked user must disappear from the room summary projection.
+        self.remove_summary_member_projection(room_id, target_user_id, None).await?;
 
         let kick_event = self
             .event_writer
@@ -588,6 +600,28 @@ mod tests {
             .await
             .expect_err("knock nonexistent room should fail");
         assert!(err.to_string().to_lowercase().contains("not found"), "expected not_found error, got: {}", err);
+    }
+
+    /// B-3: a blocked user must not be admitted through the knock path either,
+    /// even when the room's join rule would otherwise allow knocking.
+    #[tokio::test]
+    async fn knock_room_denied_by_policy_gate_is_rejected() {
+        let (mut svc, _user_store) = build_membership_service();
+        svc.invite_policy_gate = Arc::new(crate::test_mocks::FakeInvitePolicyGate::denying());
+
+        let room_id = "!knockblocked:test.localhost";
+        let user_id = "@blocked:test.localhost";
+        svc.room_storage
+            .create_room(room_id, "@creator:test.localhost", "knock", "1", false)
+            .await
+            .expect("create_room");
+
+        let err =
+            svc.knock_room(room_id, user_id, None).await.expect_err("a blocked user must not be allowed to knock");
+        assert_eq!(err.code, synapse_common::MatrixErrorCode::Forbidden, "expected M_FORBIDDEN, got: {err:?}");
+
+        let member = svc.member_storage.get_room_member(room_id, user_id).await.expect("get_room_member");
+        assert!(member.is_none(), "a rejected knock must not be persisted, got: {member:?}");
     }
 
     #[tokio::test]
@@ -796,6 +830,73 @@ mod tests {
             err.code,
             synapse_common::MatrixErrorCode::Forbidden,
             "expected the gate's M_FORBIDDEN, not a federation-client error: {err:?}"
+        );
+    }
+
+    // ── I-01: moderation must keep the `room_summary_members` projection clean ──
+
+    async fn seed_summary_member(svc: &MembershipService, room_id: &str, user_id: &str, membership: &str) {
+        svc.room_summary_service
+            .add_member(synapse_storage::room_summary::CreateSummaryMemberRequest {
+                room_id: room_id.to_string(),
+                user_id: user_id.to_string(),
+                display_name: None,
+                avatar_url: None,
+                membership: membership.to_string(),
+                is_hero: None,
+                last_active_ts: None,
+            })
+            .await
+            .expect("seed summary member");
+    }
+
+    #[tokio::test]
+    async fn ban_user_removes_summary_projection() {
+        let (svc, user_store) = build_membership_service();
+
+        let room_id = "!ban-summary:test.localhost";
+        let target = "@banned:test.localhost";
+        let moderator = "@mod:test.localhost";
+
+        svc.room_storage.create_room(room_id, moderator, "invite", "1", false).await.expect("create_room");
+        svc.member_storage.add_member(room_id, moderator, "join", None, None, None, None).await.expect("mod join");
+        svc.member_storage.add_member(room_id, target, "join", None, None, None, None).await.expect("target join");
+        seed_summary_member(&svc, room_id, target, "join").await;
+
+        let username = target.trim_start_matches('@').split(':').next().unwrap_or(target).to_string();
+        user_store.create_user(target, &username, None, false).await.expect("create_user");
+
+        svc.ban_user(room_id, target, moderator, Some("spam")).await.expect("ban_user should succeed");
+
+        let members = svc.room_summary_service.get_members(room_id).await.expect("get_members");
+        assert!(
+            members.iter().all(|m| m.user_id != target),
+            "a banned user must disappear from the summary projection, got: {members:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn kick_user_removes_summary_projection() {
+        let (svc, user_store) = build_membership_service();
+
+        let room_id = "!kick-summary:test.localhost";
+        let target = "@kicked:test.localhost";
+        let actor = "@mod:test.localhost";
+
+        svc.room_storage.create_room(room_id, actor, "invite", "1", false).await.expect("create_room");
+        svc.member_storage.add_member(room_id, actor, "join", None, None, None, None).await.expect("mod join");
+        svc.member_storage.add_member(room_id, target, "join", None, None, None, None).await.expect("target join");
+        seed_summary_member(&svc, room_id, target, "join").await;
+
+        let username = target.trim_start_matches('@').split(':').next().unwrap_or(target).to_string();
+        user_store.create_user(target, &username, None, false).await.expect("create_user");
+
+        svc.kick_user(room_id, target, actor, Some("behaving badly")).await.expect("kick_user should succeed");
+
+        let members = svc.room_summary_service.get_members(room_id).await.expect("get_members");
+        assert!(
+            members.iter().all(|m| m.user_id != target),
+            "a kicked user must disappear from the summary projection, got: {members:?}"
         );
     }
 }

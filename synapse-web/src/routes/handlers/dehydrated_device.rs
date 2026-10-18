@@ -8,6 +8,7 @@ use crate::routes::context::RoomContext;
 use crate::routes::ApiError;
 use crate::routes::AppState;
 use crate::routes::AuthenticatedUser;
+use crate::routes::MatrixJson;
 use axum::{
     extract::{Path, Query, State},
     routing::get,
@@ -80,7 +81,7 @@ pub async fn get_dehydrated_device(
 pub async fn put_dehydrated_device(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<serde_json::Value>,
+    MatrixJson(body): MatrixJson<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // P0: Precondition checks (MSC3814)
     // 1. Check if user has cross-signing keys
@@ -182,9 +183,9 @@ pub async fn post_dehydrated_device_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(device_id): Path<DeviceId>,
-    body: Option<Json<ClaimEventsBody>>,
+    body: Option<MatrixJson<ClaimEventsBody>>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let next_batch = body.and_then(|Json(b)| b.next_batch);
+    let next_batch = body.and_then(|MatrixJson(b)| b.next_batch);
     // ruma 契约无页长字段；沿用 GET 别名相同的默认页长
     let response = ctx
         .dehydrated_device_service

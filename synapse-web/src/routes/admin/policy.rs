@@ -14,6 +14,7 @@
 
 use crate::routes::context::AdminContext;
 use crate::routes::AdminUser;
+use crate::routes::MatrixJson;
 use axum::{
     extract::State,
     routing::{get, post},
@@ -126,7 +127,7 @@ pub async fn get_policy_status(_admin: AdminUser, State(ctx): State<AdminContext
 pub async fn check_policy(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Json(body): Json<PolicyCheckRequest>,
+    MatrixJson(body): MatrixJson<PolicyCheckRequest>,
 ) -> Result<Json<Value>, ApiError> {
     body.validate()?;
 

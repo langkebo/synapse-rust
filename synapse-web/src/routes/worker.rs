@@ -12,6 +12,7 @@ use std::str::FromStr;
 
 use crate::middleware::replication_http_auth_middleware;
 use crate::routes::response_helpers::{created_json_from, json_from, json_vec_from, require_found, status_json};
+use crate::routes::MatrixJson;
 use crate::routes::{AdminUser, AppState};
 use synapse_common::ApiError;
 use synapse_services::worker::topology_validator::{may_serve_delayed_events_route, DELAYED_EVENTS_WORKER_PATHS};
@@ -297,7 +298,7 @@ impl From<WorkerTaskAssignment> for WorkerTaskResponse {
 pub async fn register_worker(
     State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
-    Json(body): Json<RegisterWorkerBody>,
+    MatrixJson(body): MatrixJson<RegisterWorkerBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request: RegisterWorkerRequest = body.into_request()?;
 
@@ -344,7 +345,7 @@ pub async fn list_workers_by_type(
 pub async fn heartbeat(
     State(ctx): State<AdminContext>,
     Path(worker_id): Path<String>,
-    Json(body): Json<HeartbeatBody>,
+    MatrixJson(body): MatrixJson<HeartbeatBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let status: WorkerStatus = WorkerStatus::from_str(&body.status).map_err(ApiError::bad_request)?;
 
@@ -373,7 +374,7 @@ pub async fn send_command(
     State(ctx): State<AdminContext>,
     Path(worker_id): Path<String>,
     _admin_user: AdminUser,
-    Json(body): Json<SendCommandBody>,
+    MatrixJson(body): MatrixJson<SendCommandBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request: SendCommandRequest = body.into_request(worker_id);
 
@@ -408,7 +409,7 @@ pub async fn complete_command(
 pub async fn fail_command(
     State(ctx): State<AdminContext>,
     Path(command_id): Path<String>,
-    Json(body): Json<FailTaskBody>,
+    MatrixJson(body): MatrixJson<FailTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.worker_manager.fail_command(&command_id, &body.error).await?;
 
@@ -419,7 +420,7 @@ pub async fn fail_command(
 pub async fn assign_task(
     State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
-    Json(body): Json<AssignTaskBody>,
+    MatrixJson(body): MatrixJson<AssignTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request: AssignTaskRequest = body.into_request();
 
@@ -466,7 +467,7 @@ pub async fn claim_task(
 pub async fn complete_task(
     State(ctx): State<AdminContext>,
     Path(task_id): Path<String>,
-    Json(body): Json<CompleteTaskBody>,
+    MatrixJson(body): MatrixJson<CompleteTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.worker_manager.complete_task(&task_id, body.result).await?;
 
@@ -477,7 +478,7 @@ pub async fn complete_task(
 pub async fn fail_task(
     State(ctx): State<AdminContext>,
     Path(task_id): Path<String>,
-    Json(body): Json<FailTaskBody>,
+    MatrixJson(body): MatrixJson<FailTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.worker_manager.fail_task(&task_id, &body.error).await?;
 
@@ -488,7 +489,7 @@ pub async fn fail_task(
 pub async fn connect_worker(
     State(ctx): State<AdminContext>,
     Path(worker_id): Path<String>,
-    Json(body): Json<ConnectWorkerBody>,
+    MatrixJson(body): MatrixJson<ConnectWorkerBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.worker_manager.connect_to_worker(&worker_id, &body.address).await?;
 
@@ -525,7 +526,7 @@ pub async fn get_replication_position(
 pub async fn update_replication_position(
     State(ctx): State<AdminContext>,
     Path((worker_id, stream_name)): Path<(String, String)>,
-    Json(body): Json<StreamPosition>,
+    MatrixJson(body): MatrixJson<StreamPosition>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.worker_manager.update_replication_position(&worker_id, &stream_name, body.position).await?;
 

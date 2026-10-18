@@ -493,9 +493,10 @@ impl CacheManager {
         // L2: Redis Cache
         if self.use_redis {
             if let Some(redis) = &self.redis {
-                if let Some(val) = redis.get(key).await {
-                    // Populate L1 so subsequent synchronous reads hit locally.
-                    self.local.set_raw(key, &val);
+                if let Some((val, remaining_ttl)) = redis.get_with_ttl(key).await {
+                    // Populate L1 so subsequent synchronous reads hit locally,
+                    // honouring what is left of the L2 lifetime.
+                    self.backfill_l1(key, &val, remaining_ttl);
                     return Some(val);
                 }
             }
@@ -621,10 +622,11 @@ impl CacheManager {
         // L2: Redis Cache
         if self.use_redis {
             if let Some(redis) = &self.redis {
-                if let Some(val) = redis.get(&key).await {
+                if let Some((val, remaining_ttl)) = redis.get_with_ttl(&key).await {
                     if let Ok(result) = serde_json::from_str(&val) {
-                        // Populate L1
-                        self.local.set_raw(&key, &val);
+                        // Populate L1 with the *remaining* L2 lifetime, never a
+                        // fresh builder-TTL window (see `set` for why).
+                        self.backfill_l1(&key, &val, remaining_ttl);
                         self.note_cache_operation(&key, "get", "hit");
                         return Ok(Some(result));
                     }
@@ -652,17 +654,17 @@ impl CacheManager {
         // L2: Redis Cache — propagate errors (fail closed)
         if self.use_redis {
             if let Some(redis) = &self.redis {
-                let val = match redis.get_checked(&key).await {
+                let val = match redis.get_checked_with_ttl(&key).await {
                     Ok(val) => val,
                     Err(e) => {
                         self.note_cache_operation(&key, "get", "error");
                         return Err(ApiError::internal_with_cause("Redis GET failed", e));
                     }
                 };
-                if let Some(val) = val {
+                if let Some((val, remaining_ttl)) = val {
                     if let Ok(result) = serde_json::from_str(&val) {
-                        // Populate L1
-                        self.local.set_raw(&key, &val);
+                        // Populate L1 with the remaining L2 lifetime.
+                        self.backfill_l1(&key, &val, remaining_ttl);
                         self.note_cache_operation(&key, "get", "hit");
                         return Ok(Some(result));
                     }
@@ -708,13 +710,13 @@ impl CacheManager {
         // L2: Redis Cache - batch fetch missing keys via MGET
         if self.use_redis {
             if let Some(redis) = &self.redis {
-                let raw_values = redis.get_batch(&missing_keys).await;
+                let raw_values = redis.get_batch_with_ttl(&missing_keys).await;
                 for (idx, raw) in raw_values.into_iter().enumerate() {
                     let result_index = missing_indices[idx];
-                    if let Some(val) = raw {
+                    if let Some((val, remaining_ttl)) = raw {
                         if let Ok(result) = serde_json::from_str::<T>(&val) {
-                            // Populate L1
-                            self.local.set_raw(&missing_keys[idx], &val);
+                            // Populate L1 with the remaining L2 lifetime.
+                            self.backfill_l1(&missing_keys[idx], &val, remaining_ttl);
                             results[result_index] = Some(result);
                         }
                     }
@@ -736,7 +738,7 @@ impl CacheManager {
             // the builder-wide `CacheConfig::time_to_live`; callers that pass a
             // short TTL (or a lockout window such as 900s) silently got a
             // different L1 lifetime than they asked for.
-            self.local.set_raw_with_ttl(key, &val, Duration::from_secs(ttl));
+            self.local_write(key, &val, ttl);
             if self.use_redis {
                 if let Some(redis) = &self.redis {
                     // Best-effort L2 write (fail-open, see the doc comment):
@@ -764,7 +766,7 @@ impl CacheManager {
     /// fail closed on Redis outage rather than leaving the lock unset.
     pub async fn set_checked(&self, key: &str, value: &str, ttl: u64) -> Result<(), ApiError> {
         // P1: same per-write TTL guarantee as `set`.
-        self.local.set_raw_with_ttl(key, value, Duration::from_secs(ttl));
+        self.local_write(key, value, ttl);
         if self.use_redis {
             if let Some(redis) = &self.redis {
                 if let Err(e) = redis.set(key, value, ttl).await {
@@ -775,6 +777,71 @@ impl CacheManager {
         }
         self.note_cache_operation(key, "set", "success");
         Ok(())
+    }
+
+    /// Writes `value` into L1 with the caller's TTL, mirroring L2 semantics.
+    ///
+    /// `ttl == 0` means "no expiry" on the Redis side (`SET` without `EX`), so
+    /// the L1 builder TTL is used instead of an immediate deadline — treating 0
+    /// as "expire now" would make the L1 entry vanish while L2 kept it forever.
+    fn local_write(&self, key: &str, value: &str, ttl: u64) {
+        if ttl == 0 {
+            self.local.set_raw(key, value);
+        } else {
+            self.local.set_raw_with_ttl(key, value, Duration::from_secs(ttl));
+        }
+    }
+
+    /// Populates L1 from an L2 read, carrying the L2 entry's **remaining**
+    /// lifetime rather than starting a fresh builder-TTL window.
+    ///
+    /// `remaining_ttl` is `None` when the Redis key has no expiry; the L1
+    /// builder TTL is then the closest available approximation.
+    fn backfill_l1(&self, key: &str, value: &str, remaining_ttl: Option<u64>) {
+        match remaining_ttl {
+            Some(ms) => self.local.set_raw_with_ttl(key, value, Duration::from_millis(ms.max(1))),
+            None => self.local.set_raw(key, value),
+        }
+    }
+
+    /// Atomically increments a counter whose TTL is installed **only when the
+    /// key is created**, returning the new value.
+    ///
+    /// `record_login_failure` used to do `get` → `set(ttl)` on every attempt,
+    /// which restarts the window each time. Read together with the L1
+    /// builder-TTL bug in [`set`](Self::set) that produced the observed
+    /// "permanent lock": the advertised 300 s window could last 2 h in L1, and
+    /// a steady attacker could hold it open indefinitely on both tiers.
+    ///
+    /// With a fixed window the counter always decays: the window opens on the
+    /// first failure and is never extended, so the lock lifts on its own even
+    /// under sustained attack. Redis is authoritative when configured (it must
+    /// be, for cross-instance consistency); the shared count is mirrored into
+    /// L1 with the *same* remaining TTL so a following `get` cannot outlive it.
+    pub async fn increment_counter(&self, key: &str, ttl: u64) -> u64 {
+        if self.use_redis {
+            if let Some(redis) = &self.redis {
+                match redis.increment_with_ttl(key, ttl).await {
+                    Ok((count, remaining_ms)) => {
+                        self.local.set_raw_with_ttl(
+                            key,
+                            &count.to_string(),
+                            Duration::from_millis(remaining_ms.max(1)),
+                        );
+                        return count;
+                    }
+                    Err(e) => {
+                        ::tracing::warn!(
+                            target: "cache",
+                            cache_key = %key,
+                            error = %e,
+                            "Redis INCR failed; this failure was counted locally only"
+                        );
+                    }
+                }
+            }
+        }
+        self.local.increment_counter(key, Duration::from_secs(ttl))
     }
 
     /// Try to acquire a distributed lock (Redis SET NX EX).
@@ -822,8 +889,10 @@ impl CacheManager {
             return Ok(());
         }
         // L1: set all local entries synchronously
-        for (key, value, _ttl) in entries {
-            self.local.set_raw(key, value);
+        for (key, value, ttl) in entries {
+            // P1: per-entry TTL, not the builder default — batch callers
+            // (presence, member lists) pass short TTLs on purpose.
+            self.local_write(key, value, *ttl);
         }
         // L2: single Redis pipeline round-trip
         if self.use_redis {
@@ -905,7 +974,9 @@ impl CacheManager {
     /// Set negative cache for "not found" results to prevent repeated lookups
     pub async fn set_not_found(&self, key: &str, ttl: u64) -> Result<(), ApiError> {
         let marker = "NOT_FOUND";
-        self.local.set_raw(key, marker);
+        // P1: same per-write TTL guarantee as `set` — a negative entry must not
+        // outlive the TTL the caller asked for (the L1 builder default is 2 h).
+        self.local_write(key, marker, ttl);
         if self.use_redis {
             if let Some(redis) = &self.redis {
                 let _ = redis.set(key, marker, ttl).await;

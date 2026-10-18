@@ -95,6 +95,9 @@ struct StoragePhase {
     /// different list state.
     invite_blocklist_service: Arc<crate::invite_blocklist_service::InviteBlocklistService>,
     sticky_event_storage: Arc<synapse_storage::sticky_event::StickyEventStorage>,
+    /// The concrete auth service, kept so Phase 3 can late-bind the device-key
+    /// purger onto the same instance the route layer already holds (B-4).
+    auth_concrete: Arc<AuthService>,
 }
 
 /// Phase 3 output: domain assemblies + media service.
@@ -348,6 +351,7 @@ impl ServiceContainer {
             qr_login_storage,
             invite_blocklist_service,
             sticky_event_storage,
+            auth_concrete,
         }
     }
 
@@ -374,6 +378,12 @@ impl ServiceContainer {
             config.server.macaroon_secret_key.as_deref(),
         )
         .await?;
+
+        // B-4: device-key purging is a late-bound dependency. Auth is assembled
+        // in the storage phase (before E2EE exists), so the purger is bound here
+        // onto the same `AuthService` the route layer holds — every device
+        // deletion path then drops the matching `device_keys` rows.
+        storage.auth_concrete.set_device_key_purger(Arc::new(e2ee.device_keys_service.clone()));
 
         // Admin — builds app_service_manager; no rooms/federation/core dependency
         let admin = wiring::AdminServices::new(

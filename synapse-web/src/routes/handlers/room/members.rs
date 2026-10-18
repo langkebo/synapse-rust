@@ -1,5 +1,6 @@
 use super::ensure_room_view_access;
 use crate::routes::context::RoomContext;
+use crate::routes::MatrixJson;
 use crate::routes::{
     extractors::{RoomId, UserId},
     is_member_ctx, is_member_or_creator_ctx, validate_membership, validate_room_id, validate_user_id,
@@ -106,7 +107,7 @@ pub(crate) async fn join_room_by_id_or_alias(
     auth_user: AuthenticatedUser,
     Path(room_id_or_alias): Path<String>,
     Query(query): Query<Vec<(String, String)>>,
-    body: Option<Json<serde_json::Value>>,
+    body: Option<MatrixJson<serde_json::Value>>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
 
@@ -184,7 +185,7 @@ pub(crate) async fn leave_room(
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    body: Option<Json<Value>>,
+    body: Option<MatrixJson<Value>>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
@@ -193,7 +194,7 @@ pub(crate) async fn leave_room(
     // and defaults to `false`, so Element Web's plain leave requests are
     // unaffected. When `true`, the server runs leave + forget in a single
     // transaction so a subsequent explicit /forget cannot race in between.
-    let forget = body.as_ref().and_then(|Json(v)| v.get("forget")).and_then(|v| v.as_bool()).unwrap_or(false);
+    let forget = body.as_ref().and_then(|MatrixJson(v)| v.get("forget")).and_then(|v| v.as_bool()).unwrap_or(false);
 
     if forget {
         ctx.room_service.membership().leave_and_forget(&room_id, &auth_user.user_id).await?;
@@ -225,7 +226,7 @@ pub(crate) async fn knock_room(
     auth_user: AuthenticatedUser,
     Path(room_id_or_alias): Path<String>,
     Query(query): Query<Vec<(String, String)>>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
 
@@ -280,7 +281,7 @@ pub(crate) async fn invite_user(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -498,7 +499,7 @@ pub(crate) async fn get_membership_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -578,7 +579,7 @@ pub(crate) async fn kick_user(
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
@@ -626,7 +627,7 @@ pub(crate) async fn ban_user(
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
@@ -675,7 +676,7 @@ pub(crate) async fn unban_user(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 

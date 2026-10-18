@@ -106,6 +106,11 @@ pub struct AuthService {
     /// to tracing logs. `None` preserves the legacy tracing-only path
     /// (tests / pre-wiring builds).
     pub audit_storage: Option<Arc<dyn synapse_storage::audit::AuditEventStoreApi>>,
+    /// B-4: purges `device_keys` rows when a device (or a whole account) is
+    /// deleted. Late-bound with [`Self::set_device_key_purger`] because E2EE
+    /// services are assembled in the phase after auth; left unset in tests and
+    /// pre-wiring builds, where deletion keeps its legacy behaviour.
+    pub device_key_purger: Arc<std::sync::OnceLock<Arc<dyn synapse_e2ee::device_keys::DeviceKeyPurger>>>,
 }
 
 impl AuthService {
@@ -183,6 +188,7 @@ impl AuthService {
             login_lockout_duration_seconds: security.login_lockout_duration_seconds,
             mas_validator: None,
             audit_storage: None,
+            device_key_purger: Arc::new(std::sync::OnceLock::new()),
         }
     }
 
@@ -200,6 +206,56 @@ impl AuthService {
     /// Tests keep `None` (tracing-only path).
     pub fn with_audit_storage(self, storage: Arc<dyn synapse_storage::audit::AuditEventStoreApi>) -> Self {
         Self { audit_storage: Some(storage), ..self }
+    }
+
+    /// B-4: Late-bind the device-key purger. Called by the composition root once
+    /// the E2EE services (assembled after auth) exist. Idempotent: a second call
+    /// keeps the first value and logs, since only one instance is ever wired.
+    pub fn set_device_key_purger(&self, purger: Arc<dyn synapse_e2ee::device_keys::DeviceKeyPurger>) {
+        if self.device_key_purger.set(purger).is_err() {
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "device_key_purger_already_set",
+                "Device-key purger was already bound; keeping the existing one"
+            );
+        }
+    }
+
+    /// B-4: Delete the stored keys of a just-deleted device.
+    ///
+    /// Best-effort on purpose: the device row is already gone, so failing the
+    /// request would not roll it back — it would only report an error after the
+    /// deletion happened. Failures are logged so the leak stays observable.
+    pub(crate) async fn purge_device_keys(&self, user_id: &str, device_id: &str) {
+        let Some(purger) = self.device_key_purger.get() else {
+            return;
+        };
+        if let Err(e) = purger.purge_device_keys(user_id, device_id).await {
+            ::tracing::error!(
+                target: "security_audit",
+                event = "device_key_purge_failed",
+                user_id = user_id,
+                device_id = device_id,
+                error = %e,
+                "Failed to purge device keys after device deletion; the deleted device may remain reachable via /keys/query"
+            );
+        }
+    }
+
+    /// B-4: Delete the stored keys of every device of a deleted/deactivated user.
+    pub(crate) async fn purge_all_device_keys(&self, user_id: &str) {
+        let Some(purger) = self.device_key_purger.get() else {
+            return;
+        };
+        if let Err(e) = purger.purge_all_device_keys(user_id).await {
+            ::tracing::error!(
+                target: "security_audit",
+                event = "device_keys_purge_all_failed",
+                user_id = user_id,
+                error = %e,
+                "Failed to purge device keys after device/account deletion"
+            );
+        }
     }
 }
 

@@ -14,12 +14,13 @@ use super::{
     re_sign_pdu_locally,
 };
 use crate::routes::extractors::RoomId;
+use crate::routes::MatrixJson;
 
 /// See [`thirdparty_invite`].
 pub(crate) async fn thirdparty_invite(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let room_id = body
         .get("room_id")
@@ -103,7 +104,7 @@ pub(crate) async fn invite_v2(
     Extension(auth): Extension<FederationRequestAuth>,
     headers: HeaderMap,
     Path((room_id, path_event_id)): Path<(String, String)>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
 
@@ -437,7 +438,7 @@ pub(crate) async fn invite(
     Extension(auth): Extension<FederationRequestAuth>,
     headers: HeaderMap,
     Path((room_id, event_id)): Path<(String, String)>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     if let Some(origin) = body.get("origin").and_then(|v| v.as_str()) {
@@ -466,7 +467,7 @@ pub(crate) async fn exchange_third_party_invite(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     if !synapse_common::room_id::is_well_formed_room_id(&room_id) {
         return Err(ApiError::bad_request("Invalid room_id format"));

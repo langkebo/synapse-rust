@@ -257,6 +257,15 @@ impl DeviceKeyStoreApi for InMemoryDeviceKeyStore {
             .collect())
     }
 
+    async fn list_device_ids(&self, user_id: &str) -> Result<Vec<String>, ApiError> {
+        let keys = self.keys.read().await;
+        let mut device_ids: Vec<String> =
+            keys.keys().filter(|(uid, _, _)| uid == user_id).map(|(_, did, _)| did.clone()).collect();
+        device_ids.sort();
+        device_ids.dedup();
+        Ok(device_ids)
+    }
+
     async fn get_all_device_keys(&self, user_id: &str) -> Result<Vec<DeviceKey>, ApiError> {
         let keys = self.keys.read().await;
         let fallback_ids = self.fallback_key_ids.read().await;
@@ -338,15 +347,6 @@ impl DeviceKeyStoreApi for InMemoryDeviceKeyStore {
             keys.remove(&k);
         }
         Ok(())
-    }
-
-    async fn list_device_ids_with_keys(&self, user_id: &str) -> Result<Vec<String>, ApiError> {
-        let keys = self.keys.read().await;
-        let mut device_ids: Vec<String> =
-            keys.keys().filter(|(uid, _, _)| uid == user_id).map(|(_, did, _)| did.clone()).collect();
-        device_ids.sort();
-        device_ids.dedup();
-        Ok(device_ids)
     }
 
     async fn get_one_time_keys_count(&self, user_id: &str, device_id: &str) -> Result<i64, ApiError> {

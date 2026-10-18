@@ -2,6 +2,7 @@ use crate::routes::context::AdminContext;
 use crate::routes::extractors::{AuthenticatedUser, OptionalAuthenticatedUser};
 use crate::routes::extractors::{RoomAlias, RoomId, UserId};
 use crate::routes::public_rooms_filter::parse_public_rooms_filter;
+use crate::routes::MatrixJson;
 use crate::routes::{
     account_compat::{can_view_profile_for_requester_batch, enforce_profile_visibility},
     ensure_room_member_admin, validate_event_id, validate_room_alias, validate_room_id, validate_user_id,
@@ -77,7 +78,7 @@ pub(crate) async fn get_user_directory_profile(
 pub(crate) async fn search_user_directory(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let search_query = body.get("search_term").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
@@ -127,7 +128,7 @@ fn encode_user_cursor(created_ts: i64, user_id: &str) -> String {
 pub(crate) async fn list_user_directory(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(50).clamp(1, 200) as i64;
     let cursor = decode_user_cursor(body.get("since").and_then(|v| v.as_str()));
@@ -176,7 +177,7 @@ pub(crate) async fn report_event(
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(String, String)>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
@@ -217,7 +218,7 @@ pub(crate) async fn update_report_score(
     State(_ctx): State<AdminContext>,
     _auth_user: AuthenticatedUser,
     Path((_room_id, event_id)): Path<(String, String)>,
-    Json(_body): Json<Value>,
+    MatrixJson(_body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_event_id(&event_id)?;
     Err(ApiError::forbidden("Report score updates are not available via the client API".to_string()))
@@ -229,7 +230,7 @@ pub(crate) async fn report_room(
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
@@ -287,7 +288,7 @@ pub(crate) async fn report_user(
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(reported_user_id): Path<UserId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_user_id(&reported_user_id)?;
@@ -452,7 +453,7 @@ pub(crate) async fn set_room_alias_direct(
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_alias): Path<RoomAlias>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_room_alias(&room_alias)?;
@@ -596,7 +597,7 @@ mod cursor_tests {
 pub(crate) async fn query_public_rooms(
     State(ctx): State<AdminContext>,
     _auth_user: OptionalAuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(20).clamp(1, 1000) as i64;
     let cursor = decode_public_rooms_cursor(body.get("since").and_then(|v| v.as_str()));

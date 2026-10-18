@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::routes::extractors::RoomId;
 use crate::routes::response_helpers::{created_json, created_json_from, json_from, json_vec_from, require_found};
 use crate::routes::AppState;
+use crate::routes::MatrixJson;
 use crate::routes::{ensure_room_member_strict_ctx, AdminUser, AuthenticatedUser};
 use synapse_common::ApiError;
 use synapse_services::room::summary::{
@@ -263,7 +264,7 @@ pub async fn create_room_summary(
     State(ctx): State<RoomContext>,
     Path(room_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<CreateRoomSummaryRequest>,
+    MatrixJson(body): MatrixJson<CreateRoomSummaryRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_manage_access(&ctx, &auth_user, &room_id).await?;
 
@@ -278,7 +279,7 @@ pub async fn create_room_summary(
 pub async fn create_internal_room_summary(
     State(ctx): State<RoomContext>,
     _admin: AdminUser,
-    Json(body): Json<CreateRoomSummaryRequest>,
+    MatrixJson(body): MatrixJson<CreateRoomSummaryRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let summary: RoomSummaryResponse = ctx.room_service.room_summary_service().create_summary(body).await?;
 
@@ -290,7 +291,7 @@ pub async fn update_room_summary(
     State(ctx): State<RoomContext>,
     Path(room_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<UpdateSummaryBody>,
+    MatrixJson(body): MatrixJson<UpdateSummaryBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_manage_access(&ctx, &auth_user, &room_id).await?;
 
@@ -346,7 +347,7 @@ pub async fn add_member(
     State(ctx): State<RoomContext>,
     Path(room_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<CreateSummaryMemberRequest>,
+    MatrixJson(body): MatrixJson<CreateSummaryMemberRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_manage_access(&ctx, &auth_user, &room_id).await?;
 
@@ -362,7 +363,7 @@ pub async fn update_member(
     State(ctx): State<RoomContext>,
     Path((room_id, user_id)): Path<(String, String)>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<UpdateMemberBody>,
+    MatrixJson(body): MatrixJson<UpdateMemberBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_manage_access(&ctx, &auth_user, &room_id).await?;
 
@@ -406,7 +407,7 @@ pub async fn update_state(
     State(ctx): State<RoomContext>,
     Path((room_id, event_type, state_key)): Path<(String, String, String)>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<UpdateStateBody>,
+    MatrixJson(body): MatrixJson<UpdateStateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_manage_access(&ctx, &auth_user, &room_id).await?;
 
@@ -637,7 +638,7 @@ fn create_room_summary_private_router() -> Router<AppState> {
 pub async fn batch_get_room_summaries(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<RoomSummaryBatchRequest>,
+    MatrixJson(body): MatrixJson<RoomSummaryBatchRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     // Scope the request to what the caller may see.
     //

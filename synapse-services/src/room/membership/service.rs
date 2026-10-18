@@ -691,6 +691,12 @@ impl MembershipService {
             self.authorize_invite_policy(room_id, sender, target).await?;
         }
 
+        // B-3: an inbound join is still an admission decision — a blocked user
+        // must not gain membership through the federation path.
+        if to == Membership::Join {
+            self.invite_policy_gate.check_join_allowed(room_id, target).await?;
+        }
+
         Ok(())
     }
 
@@ -1136,15 +1142,23 @@ mod tests {
         assert!(r.is_err(), "an invite refused by the policy gate must be rejected, got: {r:?}");
     }
 
-    /// The gate is scoped to invites. A join arriving over federation must not
-    /// be filtered by the invite lists, or a room that blocks invites would
-    /// also stop its own members from joining.
+    /// B-3: an inbound join is an admission decision too. A user refused by the
+    /// room/global blocklists must not gain membership through federation.
     #[tokio::test]
-    async fn inbound_join_is_not_gated_by_invite_policy() {
+    async fn inbound_join_denied_by_policy_gate_is_rejected() {
         let mut svc = inbound_service(&[]).await;
         svc.invite_policy_gate = StdArc::new(crate::test_mocks::FakeInvitePolicyGate::denying());
         let r = svc.authorize_inbound_member_transition(ROOM, "@bob:remote", "@bob:remote", Membership::Join).await;
-        assert!(r.is_ok(), "a join is not an invite and must not be gated by invite policy: {r:?}");
+        assert!(r.is_err(), "a join refused by the admission gate must be rejected, got: {r:?}");
+    }
+
+    /// A permitted join is still accepted — the gate is consulted, not a blanket
+    /// denial.
+    #[tokio::test]
+    async fn inbound_join_allowed_by_policy_gate_is_accepted() {
+        let svc = inbound_service(&[]).await;
+        let r = svc.authorize_inbound_member_transition(ROOM, "@bob:remote", "@bob:remote", Membership::Join).await;
+        assert!(r.is_ok(), "a permitted join must be accepted, got: {r:?}");
     }
 
     // ── MSC2666: Mutual Rooms (get_mutual_rooms_between) ─────────

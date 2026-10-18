@@ -9,6 +9,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::routes::extractors::{EventId, RoomId, UserId};
+use crate::routes::MatrixJson;
 use crate::routes::{AdminUser, AppState, AuthenticatedUser};
 use synapse_common::ApiError;
 use synapse_services::event_report_service::{CreateEventReportRequest, EventReport, UpdateEventReportRequest};
@@ -138,7 +139,7 @@ impl From<EventReport> for ReportResponse {
 pub async fn create_report(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<CreateReportBody>,
+    MatrixJson(body): MatrixJson<CreateReportBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = CreateEventReportRequest {
         event_id: body.event_id,
@@ -256,7 +257,7 @@ pub async fn update_report(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(id): Path<i64>,
-    Json(body): Json<UpdateReportBody>,
+    MatrixJson(body): MatrixJson<UpdateReportBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request =
         UpdateEventReportRequest { status: body.status, score: body.score, resolved_by: None, resolution_reason: None };
@@ -271,7 +272,7 @@ pub async fn resolve_report(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(id): Path<i64>,
-    Json(body): Json<ResolveReportBody>,
+    MatrixJson(body): MatrixJson<ResolveReportBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let report = ctx.event_report_service.resolve_report(id, &_auth_user.user_id, &body.reason).await?;
 
@@ -283,7 +284,7 @@ pub async fn dismiss_report(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(id): Path<i64>,
-    Json(body): Json<DismissReportBody>,
+    MatrixJson(body): MatrixJson<DismissReportBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let report = ctx.event_report_service.dismiss_report(id, &_auth_user.user_id, &body.reason).await?;
 
@@ -332,7 +333,7 @@ pub async fn block_user(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(user_id): Path<UserId>,
-    Json(body): Json<BlockUserBody>,
+    MatrixJson(body): MatrixJson<BlockUserBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.event_report_service.block_user_reports(&user_id, body.blocked_until, &body.reason).await?;
 

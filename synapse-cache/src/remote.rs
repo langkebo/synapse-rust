@@ -225,6 +225,124 @@ impl RedisCache {
         }
     }
 
+    /// Like [`get`](Self::get) but also returns the key's remaining TTL, in one
+    /// round-trip (`GET` + `PTTL` pipelined).
+    ///
+    /// Needed when populating L1 from L2: writing the value into L1 with the
+    /// *builder* TTL (2 h by default) makes the entry outlive its Redis
+    /// counterpart by orders of magnitude, so a 5-minute login lock silently
+    /// becomes a two-hour one. The returned TTL is `None` when the key exists
+    /// without an expiry (or when `PTTL` cannot be interpreted).
+    pub async fn get_with_ttl(&self, key: &str) -> Option<(String, Option<u64>)> {
+        match self.get_checked_with_ttl(key).await {
+            Ok(value) => value,
+            Err(_) => {
+                self.degradation_metrics.write().record_redis_miss();
+                None
+            }
+        }
+    }
+
+    /// Failure-visible variant of [`get_with_ttl`](Self::get_with_ttl): Redis
+    /// errors are propagated instead of being reported as a cache miss.
+    pub async fn get_checked_with_ttl(&self, key: &str) -> Result<Option<(String, Option<u64>)>, CacheError> {
+        let result = self
+            .with_circuit_breaker("GET+PTTL", |mut conn| async move {
+                let mut pipe = redis::pipe();
+                pipe.cmd("GET").arg(key).cmd("PTTL").arg(key);
+                pipe.query_async::<(Option<String>, i64)>(&mut conn)
+                    .await
+                    .map_err(|e| CacheError::OperationFailed(e.to_string()))
+            })
+            .await;
+
+        match result {
+            Ok((Some(value), pttl)) => {
+                self.degradation_metrics.write().record_redis_hit();
+                Ok(Some((value, ttl_from_pttl(pttl))))
+            }
+            Ok((None, _)) => {
+                self.degradation_metrics.write().record_redis_miss();
+                Ok(None)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Batch variant of [`get_with_ttl`](Self::get_with_ttl): one pipelined
+    /// round-trip for all keys (`GET` + `PTTL` each). Missing keys yield `None`.
+    pub async fn get_batch_with_ttl(&self, keys: &[String]) -> Vec<Option<(String, Option<u64>)>> {
+        if keys.is_empty() {
+            return Vec::new();
+        }
+
+        let result = self
+            .with_circuit_breaker("GET+PTTL (batch)", |mut conn| async move {
+                let mut pipe = redis::pipe();
+                for key in keys {
+                    pipe.cmd("GET").arg(key).cmd("PTTL").arg(key);
+                }
+                pipe.query_async::<Vec<(Option<String>, i64)>>(&mut conn)
+                    .await
+                    .map_err(|_| CacheErrorWrapper::OperationFailed)
+            })
+            .await;
+
+        match result {
+            Ok(rows) => {
+                let mut metrics = self.degradation_metrics.write();
+                rows.into_iter()
+                    .map(|(value, pttl)| match value {
+                        Some(value) => {
+                            metrics.record_redis_hit();
+                            Some((value, ttl_from_pttl(pttl)))
+                        }
+                        None => {
+                            metrics.record_redis_miss();
+                            None
+                        }
+                    })
+                    .collect()
+            }
+            Err(_) => {
+                let mut metrics = self.degradation_metrics.write();
+                for _ in keys {
+                    metrics.record_redis_miss();
+                }
+                vec![None; keys.len()]
+            }
+        }
+    }
+
+    /// Atomically increments a counter, installing `ttl` only when the key is
+    /// created, and returns `(count, remaining_ttl_ms)`.
+    ///
+    /// `INCR` + conditional `EXPIRE` must be atomic, otherwise a crash between
+    /// the two leaves a counter that never expires — i.e. a permanent lock. The
+    /// `PTTL` is returned in the same script so the caller can mirror the
+    /// shared count into L1 with the *same* expiry instead of a fresh one.
+    pub async fn increment_with_ttl(&self, key: &str, ttl_secs: u64) -> Result<(u64, u64), CacheError> {
+        const SCRIPT: &str = r#"
+local count = redis.call("INCR", KEYS[1])
+if count == 1 then
+  redis.call("EXPIRE", KEYS[1], ARGV[1])
+end
+return {count, redis.call("PTTL", KEYS[1])}
+"#;
+        self.with_circuit_breaker("INCR", |mut conn| async move {
+            let (count, pttl): (i64, i64) = redis::cmd("EVAL")
+                .arg(SCRIPT)
+                .arg(1)
+                .arg(key)
+                .arg(ttl_secs)
+                .query_async(&mut conn)
+                .await
+                .map_err(|e| CacheError::OperationFailed(e.to_string()))?;
+            Ok((count.max(0) as u64, pttl.max(1) as u64))
+        })
+        .await
+    }
+
     /// Stores a string value in Redis L2 (using SET or SETEX depending on whether `ttl > 0`).
     pub async fn set(&self, key: &str, value: &str, ttl: u64) -> Result<(), CacheError> {
         use redis::AsyncCommands;
@@ -434,4 +552,11 @@ return {allowed, retry_after, remaining}
             }
         }
     }
+}
+
+/// Interpret a Redis `PTTL` reply: a positive value is the remaining lifetime in
+/// milliseconds; `-1` (no expiry) and `-2` (missing key) both mean "no TTL to
+/// honour", so the caller falls back to its own default instead of inventing one.
+fn ttl_from_pttl(pttl: i64) -> Option<u64> {
+    (pttl > 0).then_some(pttl as u64)
 }

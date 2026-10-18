@@ -61,6 +61,14 @@ pub trait RoomSummaryStoreApi: Send + Sync {
     ) -> Result<RoomSummaryMember, sqlx::Error>;
     /// See [`remove_member`].
     async fn remove_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error>;
+    /// I-01: transactional variant of `remove_member`, used by membership
+    /// leave/kick/ban paths that already own a transaction.
+    async fn remove_member_in_tx(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<(), sqlx::Error>;
     /// See [`get_members`].
     async fn get_members(&self, room_id: &str) -> Result<Vec<RoomSummaryMember>, sqlx::Error>;
     /// See [`set_state`].
@@ -188,6 +196,14 @@ impl RoomSummaryStoreApi for RoomSummaryStorage {
     }
     async fn remove_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
         self.remove_member(room_id, user_id).await
+    }
+    async fn remove_member_in_tx(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<(), sqlx::Error> {
+        self.remove_member_in_tx(room_id, user_id, tx).await
     }
     async fn get_members(&self, room_id: &str) -> Result<Vec<RoomSummaryMember>, sqlx::Error> {
         self.get_members(room_id).await

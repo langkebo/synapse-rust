@@ -1,5 +1,6 @@
 use super::*;
 use crate::routes::context::RoomContext;
+use crate::routes::MatrixJson;
 use synapse_common::types::RoomId;
 
 /// See [`get_space_members`].
@@ -93,7 +94,7 @@ pub(super) async fn invite_user(
     State(ctx): State<RoomContext>,
     Path(space_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<InviteUserBody>,
+    MatrixJson(body): MatrixJson<InviteUserBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_request(&body)?;
 

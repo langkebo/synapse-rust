@@ -1,6 +1,7 @@
 use crate::routes::context::AdminContext;
 use crate::routes::extractors::RoomId;
 use crate::routes::room_access::ensure_room_member_strict_admin;
+use crate::routes::MatrixJson;
 use crate::routes::{AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
@@ -143,7 +144,7 @@ pub fn create_widget_router() -> Router<AppState> {
 async fn create_widget(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Json(raw): Json<serde_json::Value>,
+    MatrixJson(raw): MatrixJson<serde_json::Value>,
 ) -> Result<Json<WidgetApiResponse>, ApiError> {
     // P-079: Validate required fields up front so missing/empty fields return
     // 400 M_BAD_JSON instead of axum's 422 deserialization error.
@@ -211,7 +212,7 @@ async fn update_widget(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path(widget_id): Path<String>,
-    Json(body): Json<UpdateWidgetBody>,
+    MatrixJson(body): MatrixJson<UpdateWidgetBody>,
 ) -> Result<Json<WidgetApiResponse>, ApiError> {
     let _widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "write").await?;
     if let Some(url) = body.url.as_deref() {
@@ -288,7 +289,7 @@ async fn set_widget_permission(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path(widget_id): Path<String>,
-    Json(body): Json<SetPermissionBody>,
+    MatrixJson(body): MatrixJson<SetPermissionBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let _widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "write").await?;
     let request = SetPermissionRequest { user_id: body.user_id, permissions: body.permissions };
@@ -324,7 +325,7 @@ async fn create_widget_session(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path(widget_id): Path<String>,
-    Json(body): Json<CreateSessionBody>,
+    MatrixJson(body): MatrixJson<CreateSessionBody>,
 ) -> Result<Json<SessionResponse>, ApiError> {
     let _widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "read").await?;
     if let Some(body_widget_id) = body.widget_id.as_deref() {
@@ -509,7 +510,7 @@ async fn set_room_widget_capabilities(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, widget_id)): Path<(String, String)>,
-    Json(body): Json<WidgetCapabilitiesBody>,
+    MatrixJson(body): MatrixJson<WidgetCapabilitiesBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_room_member_strict_admin(
         &ctx,

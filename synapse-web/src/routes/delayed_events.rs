@@ -28,6 +28,7 @@ use crate::routes::handlers::room::{
 };
 use crate::routes::validate_room_id;
 use crate::routes::AppState;
+use crate::routes::MatrixJson;
 use axum::{
     extract::{Json, Path, Query, State},
     http::HeaderMap,
@@ -64,7 +65,7 @@ pub(crate) async fn schedule_delayed_event(
     auth_user: AuthenticatedUser,
     Path((room_id, event_type, txn_id)): Path<(RoomId, String, String)>,
     Query(query): Query<HashMap<String, String>>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -264,7 +265,7 @@ pub(crate) async fn manage_delayed_event(
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(delay_id): Path<i64>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     // Parse action from untyped JSON so missing/invalid fields return M_BAD_JSON
     // (400) rather than axum's default 422 deserialization rejection.

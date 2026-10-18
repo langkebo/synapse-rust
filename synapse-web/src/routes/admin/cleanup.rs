@@ -1,4 +1,5 @@
 use crate::routes::context::AdminContext;
+use crate::routes::MatrixJson;
 use crate::routes::{AdminUser, AppState};
 use axum::{extract::State, routing::post, Json, Router};
 use serde_json::{json, Value};
@@ -18,7 +19,7 @@ pub fn create_cleanup_router(state: AppState) -> Router<crate::routes::AppState>
 pub async fn cleanup_all(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let min_age_ms = body.get("min_age_ms").and_then(|v| v.as_i64());
 
@@ -53,7 +54,7 @@ pub async fn cleanup_all(
 pub async fn cleanup_rooms(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let min_age_ms = body.get("min_age_ms").and_then(|v| v.as_i64());
     let results = ctx.room_service.state().cleanup_abnormal_data(min_age_ms).await?;

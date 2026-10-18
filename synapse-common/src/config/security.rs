@@ -42,10 +42,30 @@ pub struct SecurityConfig {
     #[serde(default = "default_login_failure_lockout_threshold")]
     /// `login_failure_lockout_threshold` field.
     pub login_failure_lockout_threshold: u32,
+    /// 是否启用登录失败锁定（**默认 true**）。
+    ///
+    /// 关掉之后 `check_login_lockout` 直接放行、`record_login_failure` 不计数，
+    /// 暴力破解防护随之消失。之所以提供这个开关：联调/压测/自动化测试里 429 会把
+    /// 真实缺陷掩盖成"偶发失败"，而限流与锁定是两条互不覆盖的防护
+    /// （`rate_limit.enabled` 只关限流中间件，**不影响**本锁定）。
+    ///
+    /// 启动时会打印一条 `WARN`（只打一次），避免带着 `false` 上线却无人发现。
+    #[serde(default = "default_login_lockout_enabled")]
+    /// `login_lockout_enabled` field.
+    pub login_lockout_enabled: bool,
     /// 锁定持续时间（秒）
     #[serde(default = "default_login_lockout_duration_seconds")]
     /// `login_lockout_duration_seconds` field.
     pub login_lockout_duration_seconds: u64,
+    /// 渐进退避的上限（秒）：连续失败越多，`retry_after_ms` 指数增长，但不超过本值。
+    ///
+    /// 首个锁定窗口仍由 `login_lockout_duration_seconds` 给出（退避第 1 档）；
+    /// 之后每次在**已锁定状态下**的重试都会把档位推高一档（×2），直到封顶。
+    /// 之所以要封顶：没有上限的退避会把一次误操作变成对该账号（或整个出口 IP）
+    /// 的长期拒绝服务。默认 3600，必须 ≥ `login_lockout_duration_seconds`。
+    #[serde(default = "default_login_lockout_max_duration_seconds")]
+    /// `login_lockout_max_duration_seconds` field.
+    pub login_lockout_max_duration_seconds: u64,
     /// 登录锁定机制在 Redis 不可用时是否放行（fail-open）。
     ///
     /// - false（默认）：Redis 挂掉时直接返回 503，拒绝所有登录请求（避免 fail-open 暴力破解窗口）
@@ -143,8 +163,16 @@ fn default_login_failure_lockout_threshold() -> u32 {
     5
 }
 
+fn default_login_lockout_enabled() -> bool {
+    true
+}
+
 fn default_login_lockout_duration_seconds() -> u64 {
     900
+}
+
+fn default_login_lockout_max_duration_seconds() -> u64 {
+    3600
 }
 
 fn default_login_lockout_fail_open() -> bool {
@@ -234,7 +262,9 @@ impl Default for SecurityConfig {
             argon2_p_cost: default_argon2_p_cost(),
             allow_legacy_hashes: default_allow_legacy_hashes(),
             login_failure_lockout_threshold: default_login_failure_lockout_threshold(),
+            login_lockout_enabled: default_login_lockout_enabled(),
             login_lockout_duration_seconds: default_login_lockout_duration_seconds(),
+            login_lockout_max_duration_seconds: default_login_lockout_max_duration_seconds(),
             login_lockout_fail_open_on_redis_error: default_login_lockout_fail_open(),
             login_lockout_max_ip_attempts: default_login_lockout_max_ip_attempts(),
             login_lockout_ip_allowlist: Vec::new(),
@@ -402,6 +432,11 @@ mod tests {
 
         assert_eq!(cfg.login_failure_lockout_threshold, 5);
         assert_eq!(cfg.login_lockout_duration_seconds, 900);
+        assert_eq!(
+            cfg.login_lockout_max_duration_seconds, 3600,
+            "渐进退避必须有上限，否则一次误操作会变成长期拒绝服务"
+        );
+        assert!(cfg.login_lockout_enabled, "登录锁定默认必须开启 —— 关闭只能是显式的测试动作");
         assert_eq!(cfg.login_lockout_max_ip_attempts, 30, "IP 聚合上限默认 30，且必须可配置");
         assert!(cfg.login_lockout_ip_allowlist.is_empty(), "豁免名单默认必须为空 —— 放宽必须是显式动作");
         assert!(!cfg.login_lockout_fail_open_on_redis_error, "默认 fail-closed");

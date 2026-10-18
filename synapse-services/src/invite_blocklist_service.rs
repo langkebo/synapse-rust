@@ -112,6 +112,18 @@ pub trait InvitePolicyGate: Send + Sync {
     /// invites wholesale because of an unparseable preference would make the
     /// account unreachable rather than merely unfiltered.
     async fn check_invite_allowed(&self, room_id: &str, inviter_id: &str, invitee_id: &str) -> ApiResult<()>;
+
+    /// Decide whether `user_id` may be admitted to `room_id` by joining or
+    /// knocking. Unlike [`Self::check_invite_allowed`] there is no inviter, so
+    /// only the parts of the policy that are independent of the inviter apply:
+    ///
+    /// 1. the room's blocklist / allowlist;
+    /// 2. the global server-wide blocklist / allowlist (honouring the DM-room
+    ///    bypass when enabled).
+    ///
+    /// The invitee's MSC4155 preferences and ignore list are deliberately not
+    /// consulted — they gate who may invite you, not whether you may join.
+    async fn check_join_allowed(&self, room_id: &str, user_id: &str) -> ApiResult<()>;
 }
 
 /// Service over the invite blocklist / allowlist tables.
@@ -494,6 +506,54 @@ impl InvitePolicyGate for InviteBlocklistService {
 
         Ok(())
     }
+
+    async fn check_join_allowed(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
+        let restriction = match self.storage.evaluate(room_id, user_id).await {
+            Ok(r) => r,
+            Err(e) => {
+                self.inc_counter(METRIC_INVITE_EVAL_ERROR);
+                return Err(ApiError::internal_with_cause("Failed to evaluate room restrictions", e));
+            }
+        };
+
+        if restriction.is_denied() {
+            self.inc_counter(METRIC_INVITE_REJECTED_ROOM);
+            ::tracing::warn!(
+                room_id = %room_id,
+                user_id = %user_id,
+                blocked = restriction.blocked,
+                allowlist_set = restriction.allowlist_set,
+                "Join rejected by the room invite lists"
+            );
+            return Err(ApiError::forbidden("This user cannot join this room".to_string()));
+        }
+
+        if !self.dm_rooms_bypass_global_policy || !self.is_dm_room_for_user(user_id, room_id).await? {
+            if self
+                .storage
+                .is_user_in_global_allowlist(user_id)
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to check global allowlist", e))?
+            {
+                self.inc_counter(METRIC_INVITE_ALLOWED_GLOBAL_ALLOW);
+            } else if self
+                .storage
+                .is_user_in_global_blocklist(user_id)
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to check global blocklist", e))?
+            {
+                self.inc_counter(METRIC_INVITE_REJECTED_GLOBAL_BLOCK);
+                ::tracing::warn!(
+                    room_id = %room_id,
+                    user_id = %user_id,
+                    "Join rejected by the global server-wide blocklist"
+                );
+                return Err(ApiError::forbidden("This user is globally blocked from joining rooms".to_string()));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl InviteBlocklistService {
@@ -508,6 +568,25 @@ impl InviteBlocklistService {
             return Ok(false);
         };
         Ok(content.get(inviter_id).is_some())
+    }
+
+    /// `true` when `room_id` is one of `user_id`'s own DM rooms, i.e. the
+    /// user's `m.direct` account data maps some peer to this room.
+    ///
+    /// Used by [`Self::check_join_allowed`] so the DM bypass also covers the
+    /// joining side of a direct message room. Missing or malformed account
+    /// data is treated as "not a DM room".
+    async fn is_dm_room_for_user(&self, user_id: &str, room_id: &str) -> ApiResult<bool> {
+        let content = self.account_data_store.get_account_data_content(user_id, "m.direct").await?;
+        let Some(content) = content else {
+            return Ok(false);
+        };
+        let Some(map) = content.as_object() else {
+            return Ok(false);
+        };
+        Ok(map
+            .values()
+            .any(|rooms| rooms.as_array().is_some_and(|ids| ids.iter().any(|id| id.as_str() == Some(room_id)))))
     }
 }
 

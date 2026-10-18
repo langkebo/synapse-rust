@@ -1,5 +1,6 @@
 use crate::routes::context::E2eeRoomContext;
 use crate::routes::extractors::RoomId;
+use crate::routes::MatrixJson;
 use crate::routes::{validate_room_id, AuthenticatedUser};
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
@@ -168,7 +169,7 @@ pub(crate) async fn claim_room_keys(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await? {
@@ -220,7 +221,7 @@ pub(crate) async fn forward_room_keys(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await? {

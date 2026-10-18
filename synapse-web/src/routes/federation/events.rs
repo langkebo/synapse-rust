@@ -11,6 +11,7 @@ use synapse_common::*;
 
 use crate::routes::extractors::EventId;
 use crate::routes::extractors::RoomId;
+use crate::routes::MatrixJson;
 /// See [`get_room_auth`].
 pub(super) async fn get_room_auth(
     State(ctx): State<FederationContext>,
@@ -37,7 +38,7 @@ pub(super) async fn get_missing_events(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 
@@ -339,7 +340,7 @@ pub(super) async fn get_public_rooms(
 pub(super) async fn post_public_rooms(
     State(ctx): State<FederationContext>,
     Query(_params): Query<Value>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(20).min(1000);
     // D-110（2026-09-30 裁定 ①）：federation 侧按 MSC2197 接线 `filter.generic_search_term`，

@@ -1,5 +1,6 @@
 use crate::routes::context::SsoContext;
 use crate::routes::extractors::UserId;
+use crate::routes::MatrixJson;
 use crate::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, Request, State},
@@ -286,7 +287,7 @@ async fn logout(
 async fn register_service(
     State(ctx): State<SsoContext>,
     _admin: AdminUser,
-    Json(body): Json<RegisterServiceBody>,
+    MatrixJson(body): MatrixJson<RegisterServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = RegisterServiceRequest {
         service_id: body.service_id,
@@ -328,7 +329,7 @@ async fn set_user_attribute(
     State(ctx): State<SsoContext>,
     _admin: AdminUser,
     Path(user_id): Path<UserId>,
-    Json(body): Json<SetAttributeBody>,
+    MatrixJson(body): MatrixJson<SetAttributeBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let attr = ctx.cas_service.set_user_attribute(&user_id, &body.attribute_name, &body.attribute_value).await?;
 

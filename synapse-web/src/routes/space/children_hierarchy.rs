@@ -1,6 +1,7 @@
 use super::*;
 use crate::routes::context::RoomContext;
 use crate::routes::extractors::RoomId;
+use crate::routes::MatrixJson;
 
 /// The `HierarchyV1Query` struct.
 #[derive(Debug, Deserialize)]
@@ -34,7 +35,7 @@ pub(super) async fn add_child(
     State(ctx): State<RoomContext>,
     Path(space_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<AddChildBody>,
+    MatrixJson(body): MatrixJson<AddChildBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_request(&body)?;
 

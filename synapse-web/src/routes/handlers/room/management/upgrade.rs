@@ -7,13 +7,14 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
 use crate::routes::context::RoomContext;
+use crate::routes::MatrixJson;
 
 /// See [`upgrade_room`].
 pub(crate) async fn upgrade_room(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<UpgradeRoomRequest>,
+    MatrixJson(body): MatrixJson<UpgradeRoomRequest>,
 ) -> Result<Json<UpgradeRoomResponse>, ApiError> {
     validate_room_id(&room_id)?;
 

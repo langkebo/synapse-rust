@@ -480,6 +480,51 @@ impl RoomSummaryStorage {
         Ok(())
     }
 
+    /// I-01: transactional variant of `remove_member`. Deletes the
+    /// `room_summary_members` row inside the caller's transaction and
+    /// refreshes the aggregate counts in the same transaction so a
+    /// `room_memberships` leave/kick/ban cannot leave a stale projection
+    /// row behind.
+    pub async fn remove_member_in_tx(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<(), sqlx::Error> {
+        tracing::info!(room_id = %room_id, user_id = %user_id, "Removing member from room summary (in tx)");
+        sqlx::query!("DELETE FROM room_summary_members WHERE room_id = $1 AND user_id = $2", room_id, user_id)
+            .execute(&mut **tx)
+            .await?;
+
+        let now = current_timestamp_millis();
+        // refresh_member_counts has no tx variant; do it inline.
+        sqlx::query!(
+            r"
+            UPDATE room_summaries
+            SET
+                member_count = counts.member_count,
+                joined_member_count = counts.joined_member_count,
+                invited_member_count = counts.invited_member_count,
+                updated_ts = $2
+            FROM (
+                SELECT
+                    COUNT(*)::BIGINT AS member_count,
+                    COUNT(*) FILTER (WHERE membership = 'join')::BIGINT AS joined_member_count,
+                    COUNT(*) FILTER (WHERE membership = 'invite')::BIGINT AS invited_member_count
+                FROM room_summary_members
+                WHERE room_id = $1
+            ) AS counts
+            WHERE room_summaries.room_id = $1
+            ",
+            room_id,
+            now
+        )
+        .execute(&mut **tx)
+        .await?;
+
+        Ok(())
+    }
+
     /// See [`get_members`].
     pub async fn get_members(&self, room_id: &str) -> Result<Vec<RoomSummaryMember>, sqlx::Error> {
         let rows = sqlx::query_as!(

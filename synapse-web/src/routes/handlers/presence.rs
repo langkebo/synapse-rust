@@ -1,6 +1,7 @@
 use crate::routes::context::RoomContext;
 use crate::routes::extractors::UserId;
 use crate::routes::response_helpers::filter_users_with_shared_rooms;
+use crate::routes::MatrixJson;
 use crate::routes::{validate_user_id, AuthenticatedUser};
 use crate::utils::auth::resolve_request_id;
 use axum::{
@@ -108,7 +109,7 @@ pub(crate) async fn set_presence(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(user_id): Path<UserId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_presence_enabled(&ctx)?;
     validate_user_id(&user_id)?;
@@ -146,7 +147,7 @@ pub(crate) async fn presence_list(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_presence_enabled(&ctx)?;
     let request_id = resolve_request_id(&headers);

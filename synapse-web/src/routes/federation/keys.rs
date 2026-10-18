@@ -1,6 +1,7 @@
 use crate::middleware::FederationRequestAuth;
 use crate::routes::context::FederationContext;
 use crate::routes::extractors::ServerName;
+use crate::routes::MatrixJson;
 use crate::utils::encoding::decode_base64_32;
 use axum::extract::{Extension, Json, Path, State};
 use base64::Engine;
@@ -99,7 +100,7 @@ pub(super) async fn key_query_all(
 /// server_keys array in the response."
 pub(super) async fn key_query_batch(
     State(ctx): State<FederationContext>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let Some(request_map) = body.get("server_keys").and_then(|v| v.as_object()) else {
         return Ok(Json(json!({ "server_keys": [] })));
@@ -161,7 +162,7 @@ pub(super) async fn key_query_batch(
 /// See [`key_clone`].
 pub(super) async fn key_clone(
     State(ctx): State<FederationContext>,
-    Json(_body): Json<Value>,
+    MatrixJson(_body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     server_key(State(ctx)).await
 }
@@ -170,7 +171,7 @@ pub(super) async fn key_clone(
 pub(super) async fn keys_claim(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let mut request: synapse_e2ee::device_keys::KeyClaimRequest =
         serde_json::from_value(body).map_err(|e| ApiError::bad_request(format!("Invalid claim request: {e}")))?;
@@ -211,7 +212,7 @@ pub(super) async fn keys_claim(
 pub(super) async fn keys_query(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let mut request: synapse_e2ee::device_keys::KeyQueryRequest =
         serde_json::from_value(body).map_err(|e| ApiError::bad_request(format!("Invalid query request: {e}")))?;
@@ -258,7 +259,7 @@ pub(super) async fn keys_query(
 pub(super) async fn keys_upload(
     State(_ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Json(_body): Json<Value>,
+    MatrixJson(_body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     ::tracing::info!(
         target: "security_audit",
@@ -274,7 +275,7 @@ pub(super) async fn keys_upload(
 pub(super) async fn legacy_keys_claim(
     State(_ctx): State<FederationContext>,
     Extension(_auth): Extension<FederationRequestAuth>,
-    Json(_body): Json<Value>,
+    MatrixJson(_body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     Err(ApiError::unrecognized(
         "Legacy federation keys claim endpoint is not supported. Please use /_matrix/federation/v1/user/keys/claim instead.",
@@ -285,7 +286,7 @@ pub(super) async fn legacy_keys_claim(
 pub(super) async fn legacy_keys_query(
     State(_ctx): State<FederationContext>,
     Extension(_auth): Extension<FederationRequestAuth>,
-    Json(_body): Json<Value>,
+    MatrixJson(_body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     Err(ApiError::unrecognized(
         "Legacy federation keys query endpoint is not supported. Please use /_matrix/federation/v1/user/keys/query instead.",

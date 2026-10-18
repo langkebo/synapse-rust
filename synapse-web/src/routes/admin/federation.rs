@@ -1,6 +1,7 @@
 use crate::routes::context::AdminContext;
 use crate::routes::extractors::ServerName;
 use crate::routes::AdminUser;
+use crate::routes::MatrixJson;
 use axum::{
     extract::{Path, Query, State},
     routing::{delete, get, post},
@@ -229,7 +230,7 @@ pub async fn get_destination_rooms(
 pub async fn rewrite_federation(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Json(body): Json<RewriteRequest>,
+    MatrixJson(body): MatrixJson<RewriteRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let from_server = &body.from;
     let to_server = &body.to;
@@ -254,7 +255,7 @@ pub async fn rewrite_federation(
 pub async fn resolve_federation(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Json(body): Json<ResolveRequest>,
+    MatrixJson(body): MatrixJson<ResolveRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let server_name = &body.server_name;
     let result = ctx.admin_federation_service.resolve_federation(server_name).await?;
@@ -275,7 +276,7 @@ pub async fn resolve_federation(
 pub async fn confirm_federation(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Json(body): Json<ConfirmRequest>,
+    MatrixJson(body): MatrixJson<ConfirmRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let result =
         ctx.admin_federation_service.confirm_federation(&body.server_name, body.accept, &admin.user_id).await?;
@@ -356,11 +357,11 @@ pub async fn add_to_blacklist(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(server_name): Path<ServerName>,
-    body: Option<Json<AddBlacklistBody>>,
+    body: Option<MatrixJson<AddBlacklistBody>>,
 ) -> Result<Json<Value>, ApiError> {
     // ⚠️ 2026-10-16 修复：这里原先**没有** body 提取器 ⇒ `reason` / `expires_in_days`
     // 被静默丢弃，而 `GET …/federation/blacklist` 会回传 `reason`（写入丢、读取回）。
-    let AddBlacklistBody { reason, expires_in_days } = body.map(|Json(body)| body).unwrap_or_default();
+    let AddBlacklistBody { reason, expires_in_days } = body.map(|MatrixJson(body)| body).unwrap_or_default();
     ctx.admin_federation_service.add_to_blacklist(&server_name, &admin.user_id, reason, expires_in_days).await?;
     Ok(Json(json!({})))
 }

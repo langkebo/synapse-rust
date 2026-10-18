@@ -6,6 +6,7 @@ use crate::routes::handlers::room::{
     create_private_room, ensure_room_state_write_access, get_room_device, get_room_permissions,
     get_room_reduced_events, get_room_resolve,
 };
+use crate::routes::MatrixJson;
 use crate::routes::{
     ban_user, claim_room_keys, convert_room_event, create_room, ensure_room_member_ctx, forget_room, forward_room_keys,
     get_event_keys, get_joined_members, get_membership_events, get_messages, get_power_levels, get_receipts,
@@ -251,7 +252,7 @@ async fn set_anti_screenshot(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Json(payload): Json<AntiScreenshotPayload>,
+    MatrixJson(payload): MatrixJson<AntiScreenshotPayload>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // This writes a room STATE event (`com.hula.privacy`, empty state key), so
     // membership alone is not enough: any joined user with power level 0 could

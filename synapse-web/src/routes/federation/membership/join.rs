@@ -13,6 +13,7 @@ use super::{
     dispatch_federation_member_event_to_appservice, federatable_room_version, project_and_sign_pdu_locally,
     validate_federation_member_event, validate_federation_user_origin, verify_inbound_join_pdu_integrity,
 };
+use crate::routes::MatrixJson;
 
 /// Build a join event template (pure, testable).
 ///
@@ -114,7 +115,7 @@ pub(crate) async fn send_join(
     Extension(auth): Extension<FederationRequestAuth>,
     headers: HeaderMap,
     Path((room_id, event_id)): Path<(String, String)>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     super::increment_gauge(&ctx, "federation_join_in_flight");
@@ -262,7 +263,7 @@ pub(crate) async fn send_join_v2(
     Extension(auth): Extension<FederationRequestAuth>,
     headers: HeaderMap,
     Path((room_id, event_id)): Path<(String, String)>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     super::increment_gauge(&ctx, "federation_join_in_flight");

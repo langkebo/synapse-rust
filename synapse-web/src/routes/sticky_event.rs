@@ -4,6 +4,7 @@
 use crate::routes::context::RoomContext;
 use crate::routes::extractors::RoomId;
 use crate::routes::response_helpers::empty_json;
+use crate::routes::MatrixJson;
 use crate::routes::{ensure_room_member_ctx, validate_event_id, validate_room_id, ApiError, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
@@ -134,7 +135,7 @@ pub async fn set_sticky_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     ensure_room_member_ctx(&ctx, &auth_user, &room_id, "Not a member of this room").await?;

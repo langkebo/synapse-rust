@@ -1,4 +1,5 @@
 use crate::routes::context::AdminContext;
+use crate::routes::MatrixJson;
 use crate::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},
@@ -71,7 +72,7 @@ pub async fn create_feature_flag(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     admin_user: AdminUser,
-    Json(body): Json<CreateFeatureFlagRequest>,
+    MatrixJson(body): MatrixJson<CreateFeatureFlagRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request_id = request_id(&headers);
     let flag = ctx.feature_flag_service.create_flag(&admin_user.user_id, &request_id, body).await?;
@@ -84,7 +85,7 @@ pub async fn update_feature_flag(
     headers: HeaderMap,
     admin_user: AdminUser,
     Path(flag_key): Path<String>,
-    Json(body): Json<UpdateFeatureFlagRequest>,
+    MatrixJson(body): MatrixJson<UpdateFeatureFlagRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request_id = request_id(&headers);
     let flag = ctx.feature_flag_service.update_flag(&admin_user.user_id, &request_id, &flag_key, body).await?;

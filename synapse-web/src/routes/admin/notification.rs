@@ -3,6 +3,8 @@ use crate::routes::context::AdminContext;
 #[cfg(feature = "server-notifications")]
 use crate::routes::AdminUser;
 #[cfg(feature = "server-notifications")]
+use crate::routes::MatrixJson;
+#[cfg(feature = "server-notifications")]
 use axum::extract::Query;
 #[cfg(feature = "server-notifications")]
 use axum::routing::post;
@@ -197,7 +199,7 @@ pub struct NotificationQuery {
 pub async fn create_notification(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Json(body): Json<CreateNotificationRequest>,
+    MatrixJson(body): MatrixJson<CreateNotificationRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let requested_target_user_ids = body.target_user_ids.clone().unwrap_or_default();
     ensure_target_users_exist(&ctx, &requested_target_user_ids).await?;
@@ -254,7 +256,7 @@ pub async fn update_notification(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(notification_id): Path<i64>,
-    Json(body): Json<UpdateNotificationRequest>,
+    MatrixJson(body): MatrixJson<UpdateNotificationRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let existing = ctx.server_notification_service.get_notification(notification_id).await?;
 
@@ -338,7 +340,7 @@ pub async fn list_active_notifications(
 pub async fn send_server_notice(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Json(body): Json<ServerNoticeRequest>,
+    MatrixJson(body): MatrixJson<ServerNoticeRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let target_user = ctx.user_service.get_user_by_identifier(&body.user_id).await?;
     let Some(target_user) = target_user else {
@@ -438,7 +440,7 @@ pub async fn update_user_notification(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(user_id): Path<UserId>,
-    Json(body): Json<UserNotificationRequest>,
+    MatrixJson(body): MatrixJson<UserNotificationRequest>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&ctx, &user_id).await?;
 

@@ -9,6 +9,7 @@
 
 use crate::routes::context::AdminContext;
 use crate::routes::extractors::RoomId;
+use crate::routes::MatrixJson;
 use crate::routes::{ensure_room_member_strict_admin, ApiError, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
@@ -76,7 +77,7 @@ pub async fn set_invite_blocklist(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_invite_list_manage_access(&ctx, &auth_user, &room_id).await?;
 
@@ -119,7 +120,7 @@ pub async fn set_invite_allowlist(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_invite_list_manage_access(&ctx, &auth_user, &room_id).await?;
 

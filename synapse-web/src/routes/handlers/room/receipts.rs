@@ -1,5 +1,6 @@
 use super::{ensure_room_view_access, get_room_event};
 use crate::routes::context::RoomContext;
+use crate::routes::MatrixJson;
 use crate::routes::{
     ensure_room_member_ctx, is_member_or_creator_ctx, validate_event_id, validate_receipt_type, validate_room_id,
     AuthenticatedUser,
@@ -78,7 +79,7 @@ pub(crate) async fn set_read_markers(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 

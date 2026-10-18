@@ -1,5 +1,6 @@
 use crate::routes::context::DeviceContext;
 use crate::routes::response_helpers::filter_users_with_shared_rooms;
+use crate::routes::MatrixJson;
 use crate::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
@@ -328,7 +329,7 @@ pub async fn update_device(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     Path(device_id): Path<DeviceId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Response, ApiError> {
     let display_name = body.get("display_name").and_then(|v| v.as_str());
     if let Some(display_name) = display_name {
@@ -393,7 +394,7 @@ pub async fn delete_device(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     Path(device_id): Path<DeviceId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Response, ApiError> {
     if let Err(challenge) = require_password_uia(&ctx, &auth_user, &body).await {
         return Ok(challenge);
@@ -410,7 +411,7 @@ pub async fn delete_device(
     // 可被 `/keys/query`、`/keys/claim` 继续查到 —— 等于留下一个能建 Olm 会话的幽灵设备。
     // 顺序：先撤销 token（安全关键），再清密钥；反过来的话设备还有 token，
     // 下一次 /sync 就会把密钥重新上传回来。
-    if let Err(err) = ctx.device_keys_service.delete_keys(&auth_user.user_id, device_id.as_str()).await {
+    if let Err(err) = ctx.device_keys_service.purge_device_keys(&auth_user.user_id, device_id.as_str()).await {
         tracing::error!(
             user_id = %auth_user.user_id,
             device_id = %device_id,
@@ -428,7 +429,7 @@ pub async fn delete_device(
 pub async fn delete_devices(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Response, ApiError> {
     if let Err(challenge) = require_password_uia(&ctx, &auth_user, &body).await {
         return Ok(challenge);
@@ -441,7 +442,7 @@ pub async fn delete_devices(
     // B-4：批量删除同样要清密钥。逐设备清理而不是整用户清空 ——
     // 用户可能还有别的设备在线（这里只删指定的几台）。
     for device_id in &device_ids {
-        if let Err(err) = ctx.device_keys_service.delete_keys(&auth_user.user_id, device_id).await {
+        if let Err(err) = ctx.device_keys_service.purge_device_keys(&auth_user.user_id, device_id).await {
             tracing::error!(
                 user_id = %auth_user.user_id,
                 device_id = %device_id,
@@ -462,7 +463,7 @@ pub async fn delete_devices(
 pub async fn get_device_list_updates(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let requested_users = body
         .get("users")

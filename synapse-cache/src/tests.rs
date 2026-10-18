@@ -753,3 +753,108 @@ fn test_attach_circuit_breaker_metrics_without_redis_is_noop() {
     cache.attach_circuit_breaker_metrics(&collector);
     assert!(collector.collect_metrics().is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// P1: L1 must never outlive the TTL the caller asked for.
+// ---------------------------------------------------------------------------
+
+/// `increment_counter` opens the window on the first increment and never
+/// extends it.
+///
+/// Before this, `record_login_failure` did `get` → `set(ttl)` on every attempt,
+/// so the window restarted each time and an attacker could hold a victim's
+/// account (or an egress IP) locked for as long as it kept re-attempting.
+#[tokio::test]
+#[allow(missing_docs)]
+async fn increment_counter_is_a_fixed_window() {
+    use std::time::Duration;
+
+    let manager = CacheManager::new(&CacheConfig::default());
+    let ttl = 1;
+
+    assert_eq!(manager.increment_counter("login_fail:test:fixed-window", ttl).await, 1);
+    assert_eq!(manager.increment_counter("login_fail:test:fixed-window", ttl).await, 2);
+    assert_eq!(manager.increment_counter("login_fail:test:fixed-window", ttl).await, 3);
+
+    // A read-back through the normal path sees the same count.
+    assert_eq!(manager.get::<u32>("login_fail:test:fixed-window").await.unwrap(), Some(3));
+
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+
+    assert_eq!(
+        manager.increment_counter("login_fail:test:fixed-window", ttl).await,
+        1,
+        "the window must restart from 1 once the fixed window has elapsed"
+    );
+}
+
+/// `set_not_found` used to write L1 through `set_raw`, i.e. the 2 h builder TTL,
+/// so a "not found" marker could outlive the requested TTL by 40×.
+#[tokio::test]
+#[allow(missing_docs)]
+async fn set_not_found_honours_per_write_ttl() {
+    use std::time::Duration;
+
+    let config = CacheConfig { max_capacity: 100_000, time_to_live: 3600 };
+    let manager = CacheManager::new(&config);
+
+    manager.set_not_found("p1:notfound:probe", 1).await.expect("set_not_found");
+    assert!(manager.is_not_found("p1:notfound:probe").await);
+
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+
+    assert!(!manager.is_not_found("p1:notfound:probe").await, "negative entry must expire on the requested ttl");
+}
+
+/// `set_batch_serialized` ignored the per-entry TTL for L1 entirely.
+#[tokio::test]
+#[allow(missing_docs)]
+async fn set_batch_serialized_honours_per_entry_ttl() {
+    use std::time::Duration;
+
+    let config = CacheConfig { max_capacity: 100_000, time_to_live: 3600 };
+    let manager = CacheManager::new(&config);
+
+    let entries = vec![("p1:batchttl:short".to_string(), "v".to_string(), 1u64)];
+    manager.set_batch_serialized(&entries).await.expect("set_batch_serialized");
+    assert_eq!(manager.get_raw("p1:batchttl:short").as_deref(), Some("v"));
+
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+
+    assert_eq!(
+        manager.get_raw("p1:batchttl:short"),
+        None,
+        "batch entries must expire on their own ttl, not the builder ttl"
+    );
+}
+
+/// Overwriting a key must **not** drop its per-key TTL.
+///
+/// `moka` invokes the eviction listener with `RemovalCause::Replaced` when an
+/// existing key is overwritten. The listener used to delete the side-table
+/// deadline unconditionally, so the *second* write to a key silently downgraded
+/// it to the builder TTL (2 h by default).
+///
+/// That is the concrete mechanism behind the reported "permanent login lock":
+/// the first failed attempt installed a 300 s lock, the second attempt's
+/// overwrite erased the deadline, and L1 then treated the counter as immortal.
+#[tokio::test]
+#[allow(missing_docs)]
+async fn overwriting_a_key_keeps_its_per_key_ttl() {
+    use std::time::Duration;
+
+    let config = CacheConfig { max_capacity: 100_000, time_to_live: 3600 };
+    let manager = CacheManager::new(&config);
+
+    manager.set("p1:overwrite:probe", &1u32, 1).await.expect("first write");
+    manager.set("p1:overwrite:probe", &2u32, 1).await.expect("overwrite");
+    assert_eq!(manager.get::<u32>("p1:overwrite:probe").await.unwrap(), Some(2), "overwrite must take effect");
+
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+
+    assert_eq!(
+        manager.get::<u32>("p1:overwrite:probe").await.unwrap(),
+        None,
+        "overwrite must keep the per-key ttl (1s); losing it falls back to the builder ttl (3600s)"
+    );
+}

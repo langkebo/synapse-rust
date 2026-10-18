@@ -3,6 +3,7 @@
 
 use crate::routes::context::RoomContext;
 use crate::routes::extractors::RoomId;
+use crate::routes::MatrixJson;
 use crate::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
@@ -372,8 +373,16 @@ async fn find_existing_direct_room_id(
 
 /// DM 房间该用的加密算法：默认 Megolm，仅当调用方显式 `allow_plaintext: true` 时返回 `None`。
 ///
-/// 抽成函数是为了让 friends / 非 friends 两条建房分支**共用同一判定**，
+/// 抽成函数是为了让 friends / 非 friends 三条建房分支**共用同一判定**，
 /// 避免只改了一处（那正是 B-1 的成因）。
+fn dm_encryption_algorithm(body: &CreateDmRequest) -> Option<String> {
+    if body.allow_plaintext.unwrap_or(false) {
+        None
+    } else {
+        Some(DM_ENCRYPTION_ALGORITHM.to_string())
+    }
+}
+
 /// DM 的 Megolm 轮换参数：(时间毫秒, 消息条数)。明文 DM 不写（没有 session 可轮换）。
 ///
 /// B-6：默认交给客户端是 7 天 / 100 条；Megolm 没有 break-in recovery，
@@ -390,11 +399,31 @@ fn dm_encryption_rotation(body: &CreateDmRequest) -> (Option<i64>, Option<i64>) 
     }
 }
 
-fn dm_encryption_algorithm(body: &CreateDmRequest) -> Option<String> {
-    if body.allow_plaintext.unwrap_or(false) {
-        None
-    } else {
-        Some(synapse_services::room::MEGOLM_V1_ALGORITHM.to_string())
+/// The encryption algorithm every DM room is created with. DMs must never be
+/// created unencrypted: clients rely on `m.room.encryption` being present to
+/// upgrade the conversation to Olm/Megolm.
+///
+/// 与 `synapse_services::room::MEGOLM_V1_ALGORITHM` 同源（const 引用 const），
+/// 避免算法字符串在两处各写一遍。
+pub(crate) const DM_ENCRYPTION_ALGORITHM: &str = synapse_services::room::MEGOLM_V1_ALGORITHM;
+
+#[cfg(feature = "friends")]
+fn build_dm_room_config(body: &CreateDmRequest, invitee_user_ids: &[String]) -> FriendRoomCreateRoomConfig {
+    FriendRoomCreateRoomConfig {
+        name: body.name.clone(),
+        topic: body.topic.clone(),
+        invite_list: Some(invitee_user_ids.to_vec()),
+        is_direct: Some(body.is_direct.unwrap_or(true)),
+        visibility: body.visibility.clone().or_else(|| Some("private".to_string())),
+        preset: Some("private_chat".to_string()),
+        // B-1：默认写 m.room.encryption。`preset: private_chat` 只管 join_rule /
+        // history_visibility，**不加密消息**；漏了这一步就等于造明文私聊。
+        encryption: dm_encryption_algorithm(body),
+        // B-6：Megolm 没有 break-in recovery ⇒ 私聊按 1 天 / 50 条轮换。
+        encryption_rotation_period_ms: dm_encryption_rotation(body).0,
+        encryption_rotation_period_msgs: dm_encryption_rotation(body).1,
+        room_type: (invitee_user_ids.len() > 1).then(|| "m.direct".to_string()),
+        ..Default::default()
     }
 }
 
@@ -405,21 +434,7 @@ async fn create_dm_room_via_service(
     invitee_user_ids: &[String],
     body: &CreateDmRequest,
 ) -> Result<String, ApiError> {
-    let config = FriendRoomCreateRoomConfig {
-        name: body.name.clone(),
-        topic: body.topic.clone(),
-        invite_list: Some(invitee_user_ids.to_vec()),
-        is_direct: Some(body.is_direct.unwrap_or(true)),
-        visibility: body.visibility.clone().or_else(|| Some("private".to_string())),
-        preset: Some("private_chat".to_string()),
-        // B-1：默认写 m.room.encryption。`preset: private_chat` 只管 join_rule /
-        // history_visibility，**不加密消息**；漏了这一步就等于造明文私聊。
-        encryption: dm_encryption_algorithm(body),
-        encryption_rotation_period_ms: dm_encryption_rotation(body).0,
-        encryption_rotation_period_msgs: dm_encryption_rotation(body).1,
-        room_type: (invitee_user_ids.len() > 1).then(|| "m.direct".to_string()),
-        ..Default::default()
-    };
+    let config = build_dm_room_config(body, invitee_user_ids);
 
     let result = ctx
         .friend_room_service
@@ -427,6 +442,39 @@ async fn create_dm_room_via_service(
         .await?;
 
     Ok(result.room_id)
+}
+
+#[cfg(not(feature = "friends"))]
+fn build_single_dm_room_config(body: &CreateDmRequest, invitee_user_ids: &[String]) -> CreateRoomConfig {
+    CreateRoomConfig {
+        name: body.name.clone(),
+        topic: body.topic.clone(),
+        invite_list: Some(invitee_user_ids.to_vec()),
+        is_direct: Some(true),
+        visibility: body.visibility.clone().or_else(|| Some("private".to_string())),
+        preset: Some("private_chat".to_string()),
+        encryption: dm_encryption_algorithm(body),
+        encryption_rotation_period_ms: dm_encryption_rotation(body).0,
+        encryption_rotation_period_msgs: dm_encryption_rotation(body).1,
+        ..Default::default()
+    }
+}
+
+#[cfg(not(feature = "friends"))]
+fn build_group_dm_room_config(body: &CreateDmRequest, invitee_user_ids: &[String]) -> CreateRoomConfig {
+    CreateRoomConfig {
+        name: body.name.clone(),
+        topic: body.topic.clone(),
+        visibility: Some(body.visibility.clone().unwrap_or_else(|| "private".to_string())),
+        preset: Some("private_chat".to_string()),
+        invite_list: Some(invitee_user_ids.to_vec()),
+        is_direct: Some(body.is_direct.unwrap_or(true)),
+        room_type: Some("m.direct".to_string()),
+        encryption: dm_encryption_algorithm(body),
+        encryption_rotation_period_ms: dm_encryption_rotation(body).0,
+        encryption_rotation_period_msgs: dm_encryption_rotation(body).1,
+        ..Default::default()
+    }
 }
 
 #[cfg(not(feature = "friends"))]
@@ -440,19 +488,7 @@ async fn create_dm_room_via_service(
         if let Some(existing_room_id) = find_existing_direct_room_id(ctx, owner_user_id, invitee_user_ids).await? {
             existing_room_id
         } else {
-            let config = CreateRoomConfig {
-                name: body.name.clone(),
-                topic: body.topic.clone(),
-                invite_list: Some(invitee_user_ids.to_vec()),
-                is_direct: Some(true),
-                visibility: body.visibility.clone().or_else(|| Some("private".to_string())),
-                preset: Some("private_chat".to_string()),
-                // B-1：同上，默认加密。
-                encryption: dm_encryption_algorithm(body),
-                encryption_rotation_period_ms: dm_encryption_rotation(body).0,
-                encryption_rotation_period_msgs: dm_encryption_rotation(body).1,
-                ..Default::default()
-            };
+            let config = build_single_dm_room_config(body, invitee_user_ids);
 
             let created = ctx.room_service.lifecycle().create_room(owner_user_id, config).await?;
 
@@ -462,21 +498,7 @@ async fn create_dm_room_via_service(
                 .to_string()
         }
     } else {
-        let config = CreateRoomConfig {
-            name: body.name.clone(),
-            topic: body.topic.clone(),
-            visibility: Some(body.visibility.clone().unwrap_or_else(|| "private".to_string())),
-            preset: Some("private_chat".to_string()),
-            invite_list: Some(invitee_user_ids.to_vec()),
-            is_direct: Some(body.is_direct.unwrap_or(true)),
-            room_type: Some("m.direct".to_string()),
-            // B-1：多人 DM（群 DM）同样默认加密 —— 这类房间最容易漏，
-            // 因为它走的是另一条分支。
-            encryption: dm_encryption_algorithm(body),
-            encryption_rotation_period_ms: dm_encryption_rotation(body).0,
-            encryption_rotation_period_msgs: dm_encryption_rotation(body).1,
-            ..Default::default()
-        };
+        let config = build_group_dm_room_config(body, invitee_user_ids);
 
         let response = ctx.room_service.lifecycle().create_room(owner_user_id, config).await?;
 
@@ -546,7 +568,7 @@ async fn load_dm_partner_info(
 pub async fn create_dm_room(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<CreateDmRequest>,
+    MatrixJson(body): MatrixJson<CreateDmRequest>,
 ) -> Result<Json<Value>, ApiError> {
     // Validate input
     body.validate().map_err(|e| ApiError::bad_request(format!("Validation error: {e}")))?;
@@ -597,7 +619,7 @@ pub async fn update_dm_room(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<UpdateDmRequest>,
+    MatrixJson(body): MatrixJson<UpdateDmRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let (mut direct_map, mut users, _) = load_direct_room_snapshot(&ctx, &auth_user.user_id, &room_id).await?;
 
@@ -748,5 +770,46 @@ mod tests {
 
         assert_eq!(get_direct_room_for_user(&direct_map, "@bob:example.com").as_deref(), Some("!room1:example.com"));
         assert_eq!(get_direct_room_for_user(&direct_map, "@carol:example.com"), None);
+    }
+
+    fn dm_request() -> CreateDmRequest {
+        CreateDmRequest {
+            user_id: None,
+            invite: None,
+            is_direct: None,
+            name: Some("DM".to_string()),
+            topic: None,
+            visibility: None,
+        }
+    }
+
+    /// B-1: the DM endpoint must always request an encrypted room, otherwise
+    /// clients silently get a plaintext conversation.
+    #[cfg(feature = "friends")]
+    #[test]
+    fn test_dm_room_config_is_encrypted() {
+        let invitees = vec!["@bob:example.com".to_string()];
+        let one_to_one = build_dm_room_config(&dm_request(), &invitees);
+        assert_eq!(one_to_one.encryption.as_deref(), Some(DM_ENCRYPTION_ALGORITHM));
+
+        let group_invitees = vec!["@bob:example.com".to_string(), "@carol:example.com".to_string()];
+        let group = build_dm_room_config(&dm_request(), &group_invitees);
+        assert_eq!(group.encryption.as_deref(), Some(DM_ENCRYPTION_ALGORITHM));
+        assert_eq!(group.room_type.as_deref(), Some("m.direct"));
+    }
+
+    /// B-1: same guarantee on the non-`friends` code path, for both the
+    /// one-to-one and the group DM builders.
+    #[cfg(not(feature = "friends"))]
+    #[test]
+    fn test_dm_room_config_is_encrypted() {
+        let invitees = vec!["@bob:example.com".to_string()];
+        let one_to_one = build_single_dm_room_config(&dm_request(), &invitees);
+        assert_eq!(one_to_one.encryption.as_deref(), Some(DM_ENCRYPTION_ALGORITHM));
+
+        let group_invitees = vec!["@bob:example.com".to_string(), "@carol:example.com".to_string()];
+        let group = build_group_dm_room_config(&dm_request(), &group_invitees);
+        assert_eq!(group.encryption.as_deref(), Some(DM_ENCRYPTION_ALGORITHM));
+        assert_eq!(group.room_type.as_deref(), Some("m.direct"));
     }
 }

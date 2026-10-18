@@ -8,13 +8,14 @@ use synapse_common::*;
 use super::{
     dispatch_federation_member_event_to_appservice, federatable_room_version, validate_federation_user_origin,
 };
+use crate::routes::MatrixJson;
 
 /// See [`knock_room`].
 pub(crate) async fn knock_room(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path((room_id, user_id)): Path<(String, String)>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_federation_user_origin(&auth.origin, &user_id)?;
     validate_federation_knock_event(&auth.origin, &room_id, &user_id, &body)?;

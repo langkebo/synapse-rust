@@ -764,7 +764,7 @@ pub(crate) async fn logout(
     // 仍可被 /keys/query、/keys/claim 查到 —— 登录态结束了，可建立 Olm 会话的设备还在。
     // 放在撤销 token 之后：先断权再清材料，避免设备在清理后又上传一遍。
     if let Some(device_id) = auth_user.device_id.as_deref() {
-        if let Err(err) = ctx.device_keys_service.delete_keys(&auth_user.user_id, device_id).await {
+        if let Err(err) = ctx.device_keys_service.purge_device_keys(&auth_user.user_id, device_id).await {
             tracing::error!(
                 user_id = %auth_user.user_id,
                 device_id = %device_id,
@@ -785,7 +785,7 @@ pub(crate) async fn logout_all(
     ctx.token_auth.logout_all(&auth_user.user_id).await?;
 
     // B-4：登出全部设备时清空该用户的全部密钥材料（逐设备清理，语义与单设备登出一致）。
-    if let Err(err) = ctx.device_keys_service.delete_all_keys(&auth_user.user_id).await {
+    if let Err(err) = ctx.device_keys_service.purge_all_device_keys(&auth_user.user_id).await {
         tracing::error!(
             user_id = %auth_user.user_id,
             "登出全部设备后清理密钥失败（密钥会残留在库中）: {err}"
@@ -799,7 +799,7 @@ pub(crate) async fn logout_all(
 /// See [`refresh_token`].
 pub(crate) async fn refresh_token(
     State(ctx): State<AuthContext>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let refresh_token = body
         .get("refresh_token")

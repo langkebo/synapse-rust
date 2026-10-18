@@ -39,6 +39,31 @@ pub struct DeviceKeyService {
     cache: Arc<CacheManager>,
 }
 
+/// Narrow capability used by the auth layer when a device row is deleted.
+///
+/// Defined here rather than in `synapse-services` so `DeviceKeyService` can
+/// implement it without the e2ee crate depending on the service layer. The auth
+/// service holds it as an optional late-bound dependency; tests and
+/// pre-wiring builds leave it unset, so deletion keeps working unchanged.
+#[async_trait::async_trait]
+pub trait DeviceKeyPurger: Send + Sync {
+    /// Remove every key stored for a deleted device.
+    async fn purge_device_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError>;
+    /// Remove every key stored for all devices of a deleted/deactivated user.
+    async fn purge_all_device_keys(&self, user_id: &str) -> Result<(), ApiError>;
+}
+
+#[async_trait::async_trait]
+impl DeviceKeyPurger for DeviceKeyService {
+    async fn purge_device_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
+        DeviceKeyService::purge_device_keys(self, user_id, device_id).await
+    }
+
+    async fn purge_all_device_keys(&self, user_id: &str) -> Result<(), ApiError> {
+        DeviceKeyService::purge_all_device_keys(self, user_id).await
+    }
+}
+
 /// Implementation of [`DeviceKeyService`] methods.
 impl DeviceKeyService {
     /// See [`new`].
@@ -620,44 +645,34 @@ impl DeviceKeyService {
         })
     }
 
-    /// 删除某设备的全部密钥材料（device key + one-time keys + fallback keys）。
+    /// Remove every key stored for a device.
     ///
-    /// ⚠️ 缓存必须清两类：
-    /// - `device_keys:{user}:{device}`：单设备查询；
-    /// - `device_keys_bulk:{user}`：`/keys/query` 的整用户结果（TTL 300s）。
-    ///   只清前者时，删完设备后 5 分钟内 `/keys/query` 仍会从 bulk 缓存里把它返回，
-    ///   「已删除」的设备在协议层依然可见 —— 这正是 B-4 要消灭的幽灵设备。
-    pub async fn delete_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
+    /// 设备被删除时**不重复记录** device-list change：设备存储（delete_device /
+    /// delete_devices）已经写过 `deleted` 条目，这里再写一次只会让对端看到两条重复变更。
+    /// 但密钥行本身必须删掉 —— `device_keys` 没有指向 `devices` 的外键，
+    /// 剩下的行会让已删除设备继续出现在 `/keys/query` 里、继续能被 `/keys/claim` 取用，
+    /// 于是对端仍能与它建立 Olm 会话（B-4 的幽灵设备）。
+    ///
+    /// ⚠️ 缓存要清**两类**：`device_keys:{user}:{device}` 与
+    /// `device_keys_bulk:{user}`（`/keys/query` 的整用户结果，TTL 300s）。
+    /// 只清单设备键时，删完设备后 5 分钟内查询仍会从 bulk 缓存里把它返回 ——
+    /// 行删了、缓存还在，等于没删。
+    pub async fn purge_device_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         self.storage.delete_device_keys(user_id, device_id).await?;
-
-        let cache_key = format!("device_keys:{user_id}:{device_id}");
-        self.cache.delete(&cache_key).await;
+        self.cache.delete(&format!("device_keys:{user_id}:{device_id}")).await;
         self.cache.delete(&format!("device_keys_bulk:{user_id}")).await;
-
-        // Same reasoning as the upload path: a missing "deleted" change leaves peers with a
-        // device they can still see (D-07). The delete itself is idempotent, so a retry is safe.
-        self.storage.record_device_list_change(user_id, Some(device_id), "deleted").await?;
-
         Ok(())
     }
 
-    /// 删除该用户**所有**设备的密钥材料（登出全部设备 / 管理员踢下线 / 设备批量删除）。
-    ///
-    /// 逐设备复用 [`Self::delete_keys`]，因此缓存失效与 device-list change 的语义与单设备删除完全一致，
-    /// 不会出现「批量路径漏记录变更」这种分叉。
-    ///
-    /// @returns 被清理的设备数
-    pub async fn delete_all_keys(&self, user_id: &str) -> Result<usize, ApiError> {
-        let device_ids = self.storage.list_device_ids_with_keys(user_id).await?;
-
-        for device_id in &device_ids {
-            self.delete_keys(user_id, device_id).await?;
+    /// Remove the keys of every device owned by `user_id`, without recording
+    /// device-list changes (see [`Self::purge_device_keys`]).
+    pub async fn purge_all_device_keys(&self, user_id: &str) -> Result<(), ApiError> {
+        for device_id in self.storage.list_device_ids(user_id).await? {
+            self.purge_device_keys(user_id, &device_id).await?;
         }
-
-        // 即使没有任何 device keys，bulk 缓存也可能还挂着上一次查询的空/旧结果
+        // 没有任何 device key 时 bulk 缓存也可能还挂着上次的空/旧结果
         self.cache.delete(&format!("device_keys_bulk:{user_id}")).await;
-
-        Ok(device_ids.len())
+        Ok(())
     }
 
     /// See [`get_key_changes`].

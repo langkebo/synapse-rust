@@ -7,6 +7,7 @@ use serde_json::Value;
 
 use crate::routes::context::RoomContext;
 use crate::routes::room_access::ensure_room_member_ctx;
+use crate::routes::MatrixJson;
 use crate::routes::{validate_event_id, validate_room_id, AuthenticatedUser};
 use synapse_common::error::ApiError;
 use synapse_common::types::{EventId, RoomId};
@@ -47,7 +48,7 @@ pub async fn pin_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<PinRequest>,
+    MatrixJson(body): MatrixJson<PinRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let room_id_str = room_id.as_str();
     validate_room_id(room_id_str)?;

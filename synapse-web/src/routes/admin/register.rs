@@ -8,6 +8,7 @@
 use crate::routes::context::AdminContext;
 use crate::routes::extractors::localhost_guard::{register_error_response, LocalhostGuard};
 use crate::routes::AppState;
+use crate::routes::MatrixJson;
 use crate::utils::ip::extract_client_ip;
 use axum::{
     body::Body,
@@ -237,7 +238,7 @@ async fn register(
     _guard: LocalhostGuard,
     headers: HeaderMap,
     connect_info: ConnectInfo<SocketAddr>,
-    Json(payload): Json<RegisterRequest>,
+    MatrixJson(payload): MatrixJson<RegisterRequest>,
 ) -> Result<Json<RegisterResponse>, Response<Body>> {
     // Validate input
     if let Err(e) = payload.validate() {
