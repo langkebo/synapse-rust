@@ -137,6 +137,14 @@ pub trait DeviceKeyStoreApi: Send + Sync {
     async fn get_device_counts_batch(&self, user_ids: &[String]) -> Result<HashMap<String, i64>, sqlx::Error>;
     /// Delete all device keys for a device.
     async fn delete_device_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError>;
+    /// List every device id that still has **any** row in `device_keys` for this user.
+    ///
+    /// Used by the logout / delete-device paths to purge key material. It must be
+    /// exhaustive — including devices that only uploaded one-time keys and never a
+    /// device identity key — which is why it does not reuse `get_all_device_keys`
+    /// (that one filters to `ed25519`/`curve25519` non-fallback rows and would
+    /// leave OTK-only devices behind).
+    async fn list_device_ids_with_keys(&self, user_id: &str) -> Result<Vec<String>, ApiError>;
     /// Get the count of one-time keys for a device.
     async fn get_one_time_keys_count(&self, user_id: &str, device_id: &str) -> Result<i64, ApiError>;
     /// Get one-time-key counts grouped by algorithm.
@@ -533,6 +541,25 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         .map_err(map_database!("delete_device_keys"))?;
 
         Ok(())
+    }
+
+    async fn list_device_ids_with_keys(&self, user_id: &str) -> Result<Vec<String>, ApiError> {
+        // 未类型化查询：新增 sqlx::query! 会要求在 `.sqlx` 离线缓存里补条目，
+        // 而补条目需要连真实的 PG（本仓 SQLX_OFFLINE=true）。这里只是一次
+        // `SELECT DISTINCT TEXT`，用 query_scalar 换取「不需要重新 prepare 离线数据」。
+        let device_ids = sqlx::query_scalar::<_, String>(
+            r"
+            SELECT DISTINCT device_id
+            FROM device_keys
+            WHERE user_id = $1
+            ",
+        )
+        .bind(user_id)
+        .fetch_all(&*self.pool)
+        .await
+        .map_err(map_database!("list_device_ids_with_keys"))?;
+
+        Ok(device_ids)
     }
 
     async fn get_one_time_keys_count(&self, user_id: &str, device_id: &str) -> Result<i64, ApiError> {

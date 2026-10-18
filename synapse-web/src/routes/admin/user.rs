@@ -662,6 +662,15 @@ pub async fn logout_user_devices(
     // 直接 DELETE FROM devices 会留下可继续换发新 access token 的 refresh token。
     ctx.token_auth.logout_all(&user.user_id).await?;
 
+    // B-4：踢下线同样要清密钥材料，否则被踢的设备仍能被 /keys/query 查到、被 /keys/claim 取到 OTK。
+    if let Err(err) = ctx.device_keys_service.delete_all_keys(&user.user_id).await {
+        tracing::error!(
+            user_id = %user.user_id,
+            "管理员踢下线后清理密钥失败（密钥会残留在库中）: {err}"
+        );
+        return Err(err);
+    }
+
     Ok(Json(json!({
         "devices_deleted": device_count
     })))

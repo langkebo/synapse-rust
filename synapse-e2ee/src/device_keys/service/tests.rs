@@ -341,3 +341,88 @@ async fn upload_keys_rejects_when_existing_keys_would_exceed_the_limit() {
     assert!(err.code_is(MatrixErrorCode::TooLarge));
     assert_eq!(err.code_str(), "M_TOO_LARGE");
 }
+
+// ------------------------------------------------------------------
+// B-4：设备下线 / 登出必须清掉密钥材料，且不能让缓存继续返回已删设备
+// ------------------------------------------------------------------
+
+#[tokio::test]
+async fn delete_keys_purges_only_the_target_device() {
+    let store = InMemoryDeviceKeyStore::new();
+    store.seed_key(make_device_key("@alice:example.com", "DEVICE_A", "ed25519")).await;
+    store.seed_key(make_device_key("@alice:example.com", "DEVICE_B", "ed25519")).await;
+    let storage: Arc<dyn super::DeviceKeyStoreApi> = Arc::new(store.clone());
+    let service = DeviceKeyService::new(storage, make_test_cache());
+
+    service.delete_keys("@alice:example.com", "DEVICE_A").await.expect("delete_keys");
+
+    assert!(
+        store.get_device_key("@alice:example.com", "DEVICE_A", "ed25519").await.expect("query").is_none(),
+        "target device key must be gone"
+    );
+    assert!(
+        store.get_device_key("@alice:example.com", "DEVICE_B", "ed25519").await.expect("query").is_some(),
+        "other devices must not be touched"
+    );
+}
+
+/// 回归点：`/keys/query` 的整用户结果有 300s 的 bulk 缓存（`device_keys_bulk:{user}`）。
+/// 只删行不清 bulk 缓存时，删完设备后 5 分钟内查询仍会返回它 ——
+/// 等于「设备已删除但协议层依然可见」。
+#[tokio::test]
+async fn delete_keys_invalidates_the_bulk_query_cache() {
+    let store = InMemoryDeviceKeyStore::new();
+    store.seed_key(make_device_key("@alice:example.com", "DEVICE_A", "ed25519")).await;
+    store.seed_key(make_device_key("@alice:example.com", "DEVICE_B", "ed25519")).await;
+    let caches = make_test_cache();
+    let storage: Arc<dyn super::DeviceKeyStoreApi> = Arc::new(store.clone());
+    let service = DeviceKeyService::new(storage, caches.clone());
+
+    // 第一次查询：把两台设备写进 bulk 缓存
+    let request =
+        || KeyQueryRequest { timeout: None, device_keys: serde_json::json!({ "@alice:example.com": [] }), token: None };
+    let first = service.query_keys(request()).await.expect("first query");
+    let devices =
+        first.device_keys["@alice:example.com"].as_object().expect("device map").keys().cloned().collect::<Vec<_>>();
+    assert!(devices.contains(&"DEVICE_A".to_string()), "precondition: DEVICE_A visible, got {devices:?}");
+
+    service.delete_keys("@alice:example.com", "DEVICE_A").await.expect("delete_keys");
+
+    let second = service.query_keys(request()).await.expect("second query");
+    let after =
+        second.device_keys["@alice:example.com"].as_object().expect("device map").keys().cloned().collect::<Vec<_>>();
+    assert!(
+        !after.contains(&"DEVICE_A".to_string()),
+        "deleted device must not be served from the bulk cache; got {after:?}"
+    );
+    assert!(after.contains(&"DEVICE_B".to_string()), "surviving device must still be listed");
+}
+
+#[tokio::test]
+async fn delete_all_keys_purges_every_device_of_the_user() {
+    let store = InMemoryDeviceKeyStore::new();
+    store.seed_key(make_device_key("@alice:example.com", "DEVICE_A", "ed25519")).await;
+    store.seed_key(make_device_key("@alice:example.com", "DEVICE_B", "ed25519")).await;
+    store.seed_key(make_device_key("@bob:example.com", "DEVICE_C", "ed25519")).await;
+    let storage: Arc<dyn super::DeviceKeyStoreApi> = Arc::new(store.clone());
+    let service = DeviceKeyService::new(storage, make_test_cache());
+
+    let purged = service.delete_all_keys("@alice:example.com").await.expect("delete_all_keys");
+
+    assert_eq!(purged, 2, "should report the two devices it cleaned");
+    assert!(store.get_all_device_keys("@alice:example.com").await.expect("query").is_empty());
+    assert!(
+        !store.get_all_device_keys("@bob:example.com").await.expect("query").is_empty(),
+        "other users must not be touched"
+    );
+}
+
+#[tokio::test]
+async fn delete_all_keys_on_user_without_keys_is_a_noop() {
+    let store = InMemoryDeviceKeyStore::new();
+    let storage: Arc<dyn super::DeviceKeyStoreApi> = Arc::new(store);
+    let service = DeviceKeyService::new(storage, make_test_cache());
+
+    let purged = service.delete_all_keys("@nobody:example.com").await.expect("delete_all_keys");
+    assert_eq!(purged, 0);
+}

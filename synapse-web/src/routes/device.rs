@@ -405,6 +405,20 @@ pub async fn delete_device(
         return Err(device_not_found_error());
     }
 
+    // B-4：设备下线后必须清掉它的密钥材料。
+    // 只删 `devices` 行的话，device_keys（含 OTK / fallback）仍留在库里，
+    // 可被 `/keys/query`、`/keys/claim` 继续查到 —— 等于留下一个能建 Olm 会话的幽灵设备。
+    // 顺序：先撤销 token（安全关键），再清密钥；反过来的话设备还有 token，
+    // 下一次 /sync 就会把密钥重新上传回来。
+    if let Err(err) = ctx.device_keys_service.delete_keys(&auth_user.user_id, device_id.as_str()).await {
+        tracing::error!(
+            user_id = %auth_user.user_id,
+            device_id = %device_id,
+            "撤销设备成功但清理密钥失败（密钥会残留在库中）: {err}"
+        );
+        return Err(err);
+    }
+
     broadcast_device_list_update(&ctx, &auth_user.user_id, device_id.as_str()).await;
 
     Ok(Json(json!({})).into_response())
@@ -423,6 +437,19 @@ pub async fn delete_devices(
     let device_ids = parse_device_ids(&body)?;
 
     ctx.token_auth.revoke_devices(&auth_user.user_id, &device_ids).await?;
+
+    // B-4：批量删除同样要清密钥。逐设备清理而不是整用户清空 ——
+    // 用户可能还有别的设备在线（这里只删指定的几台）。
+    for device_id in &device_ids {
+        if let Err(err) = ctx.device_keys_service.delete_keys(&auth_user.user_id, device_id).await {
+            tracing::error!(
+                user_id = %auth_user.user_id,
+                device_id = %device_id,
+                "批量撤销设备后清理密钥失败（密钥会残留在库中）: {err}"
+            );
+            return Err(err);
+        }
+    }
 
     for device_id in &device_ids {
         broadcast_device_list_update(&ctx, &auth_user.user_id, device_id).await;

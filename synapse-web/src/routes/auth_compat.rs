@@ -760,6 +760,20 @@ pub(crate) async fn logout(
 ) -> Result<Json<Value>, ApiError> {
     ctx.token_auth.logout(&auth_user.access_token, auth_user.device_id.as_deref()).await?;
 
+    // B-4：登出即清该设备的密钥材料。否则 device_keys / OTK 留在库里，
+    // 仍可被 /keys/query、/keys/claim 查到 —— 登录态结束了，可建立 Olm 会话的设备还在。
+    // 放在撤销 token 之后：先断权再清材料，避免设备在清理后又上传一遍。
+    if let Some(device_id) = auth_user.device_id.as_deref() {
+        if let Err(err) = ctx.device_keys_service.delete_keys(&auth_user.user_id, device_id).await {
+            tracing::error!(
+                user_id = %auth_user.user_id,
+                device_id = %device_id,
+                "登出成功但清理设备密钥失败（密钥会残留在库中）: {err}"
+            );
+            return Err(err);
+        }
+    }
+
     Ok(Json(json!({})))
 }
 
@@ -769,6 +783,15 @@ pub(crate) async fn logout_all(
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     ctx.token_auth.logout_all(&auth_user.user_id).await?;
+
+    // B-4：登出全部设备时清空该用户的全部密钥材料（逐设备清理，语义与单设备登出一致）。
+    if let Err(err) = ctx.device_keys_service.delete_all_keys(&auth_user.user_id).await {
+        tracing::error!(
+            user_id = %auth_user.user_id,
+            "登出全部设备后清理密钥失败（密钥会残留在库中）: {err}"
+        );
+        return Err(err);
+    }
 
     Ok(Json(json!({})))
 }

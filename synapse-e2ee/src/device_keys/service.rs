@@ -620,18 +620,44 @@ impl DeviceKeyService {
         })
     }
 
-    /// See [`delete_keys`].
+    /// 删除某设备的全部密钥材料（device key + one-time keys + fallback keys）。
+    ///
+    /// ⚠️ 缓存必须清两类：
+    /// - `device_keys:{user}:{device}`：单设备查询；
+    /// - `device_keys_bulk:{user}`：`/keys/query` 的整用户结果（TTL 300s）。
+    ///   只清前者时，删完设备后 5 分钟内 `/keys/query` 仍会从 bulk 缓存里把它返回，
+    ///   「已删除」的设备在协议层依然可见 —— 这正是 B-4 要消灭的幽灵设备。
     pub async fn delete_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         self.storage.delete_device_keys(user_id, device_id).await?;
 
         let cache_key = format!("device_keys:{user_id}:{device_id}");
         self.cache.delete(&cache_key).await;
+        self.cache.delete(&format!("device_keys_bulk:{user_id}")).await;
 
         // Same reasoning as the upload path: a missing "deleted" change leaves peers with a
         // device they can still see (D-07). The delete itself is idempotent, so a retry is safe.
         self.storage.record_device_list_change(user_id, Some(device_id), "deleted").await?;
 
         Ok(())
+    }
+
+    /// 删除该用户**所有**设备的密钥材料（登出全部设备 / 管理员踢下线 / 设备批量删除）。
+    ///
+    /// 逐设备复用 [`Self::delete_keys`]，因此缓存失效与 device-list change 的语义与单设备删除完全一致，
+    /// 不会出现「批量路径漏记录变更」这种分叉。
+    ///
+    /// @returns 被清理的设备数
+    pub async fn delete_all_keys(&self, user_id: &str) -> Result<usize, ApiError> {
+        let device_ids = self.storage.list_device_ids_with_keys(user_id).await?;
+
+        for device_id in &device_ids {
+            self.delete_keys(user_id, device_id).await?;
+        }
+
+        // 即使没有任何 device keys，bulk 缓存也可能还挂着上一次查询的空/旧结果
+        self.cache.delete(&format!("device_keys_bulk:{user_id}")).await;
+
+        Ok(device_ids.len())
     }
 
     /// See [`get_key_changes`].

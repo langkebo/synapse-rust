@@ -425,6 +425,8 @@ pub struct AuthContext {
     pub email_verification_service: Arc<synapse_services::email_verification_service::EmailVerificationService>,
     /// The `account_device_list_service` field.
     pub account_device_list_service: Arc<synapse_services::account_device_list_service::AccountDeviceListService>,
+    /// 设备密钥服务（登出路径要用它清理密钥材料，见 B-4）。
+    pub device_keys_service: synapse_e2ee::device_keys::DeviceKeyService,
     /// The `refresh_token_service` field.
     pub refresh_token_service: Arc<synapse_services::refresh_token_service::RefreshTokenService>,
     /// The `metrics` field.
@@ -463,6 +465,7 @@ impl FromRef<AppState> for AuthContext {
             federation_client: state.services.federation.federation_client.clone(),
             email_verification_service: state.services.admin.user.email_verification_service.clone(),
             account_device_list_service: state.services.account.account_device_list_service.clone(),
+            device_keys_service: state.services.e2ee.device_keys_service.clone(),
             refresh_token_service: state.services.admin.user.refresh_token_service.clone(),
             metrics: state.services.core.metrics.clone(),
             identity_service: state.services.extensions.identity_service.clone(),
@@ -516,6 +519,8 @@ pub struct AdminContext {
     pub account_identity_service: Arc<synapse_services::account_identity_service::AccountIdentityService>,
     /// The `account_device_list_service` field.
     pub account_device_list_service: Arc<synapse_services::account_device_list_service::AccountDeviceListService>,
+    /// 设备密钥服务（管理员踢下线时要清理密钥材料，见 B-4）。
+    pub device_keys_service: synapse_e2ee::device_keys::DeviceKeyService,
     /// The `invite_blocklist_storage` field.
     pub invite_blocklist_service: Arc<synapse_services::invite_blocklist_service::InviteBlocklistService>,
     // Admin — user
@@ -629,6 +634,7 @@ impl FromRef<AppState> for AdminContext {
             space_service: state.services.rooms.space_service.clone(),
             account_identity_service: state.services.account.account_identity_service.clone(),
             account_device_list_service: state.services.account.account_device_list_service.clone(),
+            device_keys_service: state.services.e2ee.device_keys_service.clone(),
             user_service: state.services.account.user_service.clone(),
             invite_blocklist_service: state.services.account.invite_blocklist_service.clone(),
             admin_user_service: state.services.admin.user.admin_user_service.clone(),
