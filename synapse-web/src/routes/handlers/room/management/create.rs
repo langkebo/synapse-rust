@@ -267,21 +267,21 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn parse_invites(invite: Value) -> Result<ParsedInvites, serde_json::Error> {
+    fn parse_invites(invite: &Value) -> Result<ParsedInvites, serde_json::Error> {
         serde_json::from_value::<CreateRoomBody>(json!({ "invite": invite }))
             .map(|body| parse_invite_entries(body.invite.as_deref().unwrap_or_default()))
     }
 
     #[test]
     fn parse_invite_entries_accepts_plain_strings() {
-        let (user_ids, reasons) = parse_invites(json!(["@alice:example.com", "@bob:example.com"])).unwrap();
+        let (user_ids, reasons) = parse_invites(&json!(["@alice:example.com", "@bob:example.com"])).unwrap();
         assert_eq!(user_ids, vec!["@alice:example.com", "@bob:example.com"]);
         assert!(reasons.is_empty());
     }
 
     #[test]
     fn parse_invite_entries_accepts_objects_with_reason() {
-        let (user_ids, reasons) = parse_invites(json!([
+        let (user_ids, reasons) = parse_invites(&json!([
             {"user_id": "@alice:example.com", "reason": "Welcome to the team!"},
             {"user_id": "@bob:example.com"}
         ]))
@@ -297,7 +297,7 @@ mod tests {
 
     #[test]
     fn parse_invite_entries_accepts_mixed_string_and_object_entries() {
-        let (user_ids, reasons) = parse_invites(json!([
+        let (user_ids, reasons) = parse_invites(&json!([
             "@alice:example.com",
             {"user_id": "@bob:example.com", "reason": "Project kick-off"}
         ]))
@@ -308,24 +308,24 @@ mod tests {
 
     #[test]
     fn parse_invite_entries_ignores_empty_reason() {
-        let (user_ids, reasons) = parse_invites(json!([{"user_id": "@alice:example.com", "reason": ""}])).unwrap();
+        let (user_ids, reasons) = parse_invites(&json!([{"user_id": "@alice:example.com", "reason": ""}])).unwrap();
         assert_eq!(user_ids, vec!["@alice:example.com"]);
         assert!(reasons.is_empty(), "empty reason should not be stored");
     }
 
     #[test]
     fn create_room_body_rejects_non_array_invite() {
-        assert!(parse_invites(json!("@alice:example.com")).is_err());
+        assert!(parse_invites(&json!("@alice:example.com")).is_err());
     }
 
     #[test]
     fn create_room_body_rejects_invite_object_without_user_id() {
-        assert!(parse_invites(json!([{"reason": "missing user_id"}])).is_err());
+        assert!(parse_invites(&json!([{"reason": "missing user_id"}])).is_err());
     }
 
     #[test]
     fn create_room_body_rejects_non_string_non_object_invite_entry() {
-        assert!(parse_invites(json!([123])).is_err());
+        assert!(parse_invites(&json!([123])).is_err());
     }
 
     #[test]
