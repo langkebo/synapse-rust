@@ -286,6 +286,26 @@ impl RoomSummaryService {
         Ok(())
     }
 
+    /// I-01: transactional variant of `remove_member`. The caller owns the
+    /// transaction so the membership row change and the summary projection
+    /// disappearance are committed atomically.
+    #[instrument(skip(self))]
+    pub async fn remove_member_in_tx(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<(), ApiError> {
+        debug!(room_id = %room_id, user_id = %user_id, "Removing member from room summary (in tx)");
+
+        self.storage
+            .remove_member_in_tx(room_id, user_id, tx)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to remove member in tx", e))?;
+
+        Ok(())
+    }
+
     /// See [`get_members`].
     #[instrument(skip(self))]
     pub async fn get_members(&self, room_id: &str) -> Result<Vec<RoomSummaryMember>, ApiError> {

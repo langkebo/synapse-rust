@@ -491,6 +491,13 @@ impl crate::invite_blocklist_service::InvitePolicyGate for FakeInvitePolicyGate 
         }
         Ok(())
     }
+
+    async fn check_join_allowed(&self, _room_id: &str, user_id: &str) -> ApiResult<()> {
+        if self.deny {
+            return Err(ApiError::forbidden(format!("{user_id} is not allowed to join")));
+        }
+        Ok(())
+    }
 }
 
 // ── Event admission gate ─────────────────────────────────────────────

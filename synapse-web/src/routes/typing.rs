@@ -3,6 +3,7 @@
 
 use crate::routes::context::RoomContext;
 use crate::routes::extractors::RoomId;
+use crate::routes::MatrixJson;
 use crate::routes::{ensure_room_member_strict_ctx, ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
@@ -26,7 +27,7 @@ pub async fn set_typing(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, user_id)): Path<(String, String)>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     if user_id != auth_user.user_id {
         return Err(ApiError::forbidden("Cannot set typing for other users".to_string()));
@@ -121,7 +122,7 @@ pub async fn get_user_typing(
 pub async fn bulk_get_typing(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let room_ids = body
         .get("rooms")

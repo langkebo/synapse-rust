@@ -90,6 +90,11 @@ impl MembershipService {
             return Ok(());
         }
 
+        // B-3: a blocked user is not admitted, even into a public room. The
+        // invite gate only covers invitations, so joins/knocks need their own
+        // check on the room and global blocklists.
+        self.invite_policy_gate.check_join_allowed(room_id, user_id).await?;
+
         // Delegate the state-machine verdict to the single membership-transition
         // rulebook. Joins need no power level, so the state-only ctx is exact.
         // For restricted / knock_restricted rooms, resolve whether the joiner
@@ -144,6 +149,32 @@ impl MembershipService {
             .increment_member_count(room_id, tx.as_mut())
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to update member count", e))?;
+
+        // I-01: keep the `room_summary_members` projection in sync with the
+        // authoritative `room_memberships` row. Inside the same transaction
+        // when a pool is available; best-effort for pool-less test setups.
+        let summary_request = synapse_storage::room_summary::CreateSummaryMemberRequest {
+            room_id: room_id.to_string(),
+            user_id: user_id.to_string(),
+            display_name: None,
+            avatar_url: None,
+            membership: "join".to_string(),
+            is_hero: None,
+            last_active_ts: None,
+        };
+        if let Some(tx) = tx.as_mut() {
+            self.room_summary_service
+                .add_member_in_tx(summary_request, tx)
+                .await
+                .map_err(|e| ApiError::internal_with_context("Failed to update room summary on join", &e))?;
+        } else if let Err(e) = self.room_summary_service.add_member(summary_request).await {
+            ::tracing::warn!(
+                room_id = %room_id,
+                user_id = %user_id,
+                error = %e,
+                "Failed to update room summary member on join (no shared tx — best effort)"
+            );
+        }
 
         if let Some(tx) = tx {
             tx.commit().await.map_err(|e| ApiError::internal_with_cause("Failed to commit join transaction", e))?;
@@ -239,6 +270,10 @@ impl MembershipService {
                 .await
                 .map_err(|e| ApiError::internal_with_cause("Failed to update member count", e))?;
         }
+
+        // I-01: drop the summary projection row in the same transaction so a
+        // departed member cannot keep the room visible in `/summaries`.
+        self.remove_summary_member_projection(room_id, user_id, tx.as_mut()).await?;
 
         if let Some(tx) = tx {
             tx.commit().await.map_err(|e| ApiError::internal_with_cause("Failed to commit leave transaction", e))?;
@@ -511,6 +546,9 @@ impl MembershipService {
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to forget room (in transaction)", e))?;
 
+        // I-01: remove the summary projection inside the same transaction.
+        self.remove_summary_member_projection(room_id, user_id, Some(&mut tx)).await?;
+
         tx.commit().await.map_err(|e| ApiError::internal_with_cause("Failed to commit leave+forget transaction", e))?;
 
         // Best-effort post-commit work — same as leave_room. Failures
@@ -557,6 +595,36 @@ impl MembershipService {
         );
 
         Ok(())
+    }
+
+    /// I-01: remove the `room_summary_members` projection for a user who is
+    /// leaving the room. Uses the caller's transaction when one exists so the
+    /// projection disappears atomically with the membership row; falls back to
+    /// a best-effort delete for pool-less test setups.
+    pub(crate) async fn remove_summary_member_projection(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> ApiResult<()> {
+        match tx {
+            Some(tx) => self
+                .room_summary_service
+                .remove_member_in_tx(room_id, user_id, tx)
+                .await
+                .map_err(|e| ApiError::internal_with_context("Failed to remove room summary on leave", &e)),
+            None => {
+                if let Err(e) = self.room_summary_service.remove_member(room_id, user_id).await {
+                    ::tracing::warn!(
+                        room_id = %room_id,
+                        user_id = %user_id,
+                        error = %e,
+                        "Failed to remove room summary member on leave (no shared tx — best effort)"
+                    );
+                }
+                Ok(())
+            }
+        }
     }
 }
 
@@ -822,6 +890,20 @@ mod tests {
         assert!(result.is_ok(), "join should succeed under public join_rule");
     }
 
+    /// B-3: a user refused by the room/global blocklists must not join, even
+    /// into a public room, and must not leave a membership row behind.
+    #[tokio::test]
+    async fn blocked_user_cannot_join_public_room() {
+        let mut svc = build_join_service("public", None, permissive_gate()).await;
+        svc.invite_policy_gate = Arc::new(crate::test_mocks::FakeInvitePolicyGate::denying());
+
+        let err = svc.join_room(ROOM_ID, USER_ID).await.unwrap_err();
+        assert_eq!(err, ApiError::forbidden(format!("{USER_ID} is not allowed to join")));
+
+        let member = svc.member_storage.get_room_member(ROOM_ID, USER_ID).await.unwrap();
+        assert!(member.is_none(), "a blocked join must not claim membership");
+    }
+
     // ── D-1: third-party event admission on membership events ──
 
     /// A registered rule that refuses must refuse the join *and* leave no
@@ -1080,5 +1162,71 @@ mod tests {
         let err = svc.leave_and_forget(unknown, USER_ID).await.unwrap_err();
         assert_eq!(err.kind, synapse_common::ApiErrorKind::BadRequest);
         assert!(err.message.contains("only valid for local rooms"), "unexpected error: {err:?}");
+    }
+
+    // ── I-01: `room_summary_members` projection follows membership ──
+
+    fn summary_member_request(
+        room_id: &str,
+        user_id: &str,
+        membership: &str,
+    ) -> synapse_storage::room_summary::CreateSummaryMemberRequest {
+        synapse_storage::room_summary::CreateSummaryMemberRequest {
+            room_id: room_id.to_string(),
+            user_id: user_id.to_string(),
+            display_name: None,
+            avatar_url: None,
+            membership: membership.to_string(),
+            is_hero: None,
+            last_active_ts: None,
+        }
+    }
+
+    /// A join must write (and, coming from an invite, upgrade) the
+    /// `room_summary_members` projection; otherwise `/summaries` and I-05's
+    /// `INNER JOIN` would never see the room.
+    #[tokio::test]
+    async fn join_upserts_room_summary_projection_from_invite() {
+        let svc = build_join_service("restricted", Some("invite"), permissive_gate()).await;
+        // Mirror production: the invite already produced a projection row.
+        svc.room_summary_service.add_member(summary_member_request(ROOM_ID, USER_ID, "invite")).await.unwrap();
+
+        svc.join_room(ROOM_ID, USER_ID).await.unwrap();
+
+        let members = svc.room_summary_service.get_members(ROOM_ID).await.unwrap();
+        let bob = members.iter().find(|m| m.user_id == USER_ID).expect("join must keep a projection row");
+        assert_eq!(bob.membership, "join", "invite → join must upgrade the projection, not leave it stale");
+    }
+
+    /// A leave must delete the projection row, or the room stays visible in
+    /// `/summaries` after the user has left it.
+    #[tokio::test]
+    async fn leave_removes_room_summary_projection() {
+        let svc = build_service(Arc::new(InMemoryKeyRotationStorage::new())).await;
+        svc.room_summary_service.add_member(summary_member_request(ROOM_ID, USER_ID, "join")).await.unwrap();
+
+        svc.leave_room(ROOM_ID, USER_ID).await.unwrap();
+
+        let members = svc.room_summary_service.get_members(ROOM_ID).await.unwrap();
+        assert!(
+            members.iter().all(|m| m.user_id != USER_ID),
+            "the departed user must disappear from the summary projection, got: {members:?}"
+        );
+    }
+
+    /// The leave+forget path runs in a single transaction; the projection
+    /// delete must ride along with it.
+    #[tokio::test]
+    async fn leave_and_forget_removes_room_summary_projection() {
+        let svc = build_service(Arc::new(InMemoryKeyRotationStorage::new())).await;
+        svc.room_summary_service.add_member(summary_member_request(ROOM_ID, USER_ID, "join")).await.unwrap();
+
+        svc.leave_and_forget(ROOM_ID, USER_ID).await.unwrap();
+
+        let members = svc.room_summary_service.get_members(ROOM_ID).await.unwrap();
+        assert!(
+            members.iter().all(|m| m.user_id != USER_ID),
+            "leave+forget must delete the summary projection, got: {members:?}"
+        );
     }
 }

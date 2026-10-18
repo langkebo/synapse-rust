@@ -1,5 +1,6 @@
 use crate::routes::context::SsoContext;
 use crate::routes::AppState;
+use crate::routes::MatrixJson;
 use crate::AuthenticatedUser;
 use axum::{
     extract::{Path, Query, State},
@@ -107,7 +108,7 @@ pub struct SamlMetadataResponse {
 /// See [`saml_login`].
 pub async fn saml_login(
     State(ctx): State<SsoContext>,
-    Json(body): Json<SamlLoginBody>,
+    MatrixJson(body): MatrixJson<SamlLoginBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     if !ctx.saml_service.is_enabled() {
         return Err(ApiError::forbidden("SAML authentication is not enabled"));
@@ -135,7 +136,7 @@ pub async fn saml_login_redirect(
 /// See [`saml_callback_post`].
 pub async fn saml_callback_post(
     State(ctx): State<SsoContext>,
-    Json(body): Json<SamlCallbackBody>,
+    MatrixJson(body): MatrixJson<SamlCallbackBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     handle_saml_callback(&ctx, body.saml_response.as_deref(), body.relay_state.as_deref()).await
 }
@@ -426,7 +427,7 @@ pub async fn get_saml_mapping_admin(
 pub async fn update_saml_mapping_admin(
     State(ctx): State<SsoContext>,
     Path(name_id): Path<String>,
-    Json(body): Json<UpdateSamlMappingBody>,
+    MatrixJson(body): MatrixJson<UpdateSamlMappingBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     if body.user_id.is_none() && body.attributes.is_none() {
         return Err(ApiError::bad_request("At least one of user_id / attributes must be provided"));
@@ -454,7 +455,7 @@ pub async fn delete_saml_mapping_admin(
 /// See [`saml_logout_admin`].
 pub async fn saml_logout_admin(
     State(ctx): State<SsoContext>,
-    Json(body): Json<SamlLogoutAdminBody>,
+    MatrixJson(body): MatrixJson<SamlLogoutAdminBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     if body.user_id.is_empty() {
         return Err(ApiError::bad_request("user_id is required"));
@@ -486,7 +487,7 @@ pub async fn get_saml_admin_config(State(ctx): State<SsoContext>) -> Result<impl
 /// See [`update_saml_admin_config`].
 pub async fn update_saml_admin_config(
     State(ctx): State<SsoContext>,
-    Json(body): Json<serde_json::Value>,
+    MatrixJson(body): MatrixJson<serde_json::Value>,
 ) -> Result<impl IntoResponse, ApiError> {
     let merged = ctx.saml_service.apply_runtime_overrides(body).await?;
     Ok(Json(merged))

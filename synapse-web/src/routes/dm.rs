@@ -3,6 +3,7 @@
 
 use crate::routes::context::RoomContext;
 use crate::routes::extractors::RoomId;
+use crate::routes::MatrixJson;
 use crate::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
@@ -364,14 +365,14 @@ async fn find_existing_direct_room_id(
     Ok(get_direct_room_for_user(&direct_map, &invitees[0]))
 }
 
+/// The encryption algorithm every DM room is created with. DMs must never be
+/// created unencrypted: clients rely on `m.room.encryption` being present to
+/// upgrade the conversation to Olm/Megolm.
+pub(crate) const DM_ENCRYPTION_ALGORITHM: &str = "m.megolm.v1.aes-sha2";
+
 #[cfg(feature = "friends")]
-async fn create_dm_room_via_service(
-    ctx: &RoomContext,
-    owner_user_id: &str,
-    invitee_user_ids: &[String],
-    body: &CreateDmRequest,
-) -> Result<String, ApiError> {
-    let config = FriendRoomCreateRoomConfig {
+fn build_dm_room_config(body: &CreateDmRequest, invitee_user_ids: &[String]) -> FriendRoomCreateRoomConfig {
+    FriendRoomCreateRoomConfig {
         name: body.name.clone(),
         topic: body.topic.clone(),
         invite_list: Some(invitee_user_ids.to_vec()),
@@ -379,8 +380,19 @@ async fn create_dm_room_via_service(
         visibility: body.visibility.clone().or_else(|| Some("private".to_string())),
         preset: Some("private_chat".to_string()),
         room_type: (invitee_user_ids.len() > 1).then(|| "m.direct".to_string()),
+        encryption: Some(DM_ENCRYPTION_ALGORITHM.to_string()),
         ..Default::default()
-    };
+    }
+}
+
+#[cfg(feature = "friends")]
+async fn create_dm_room_via_service(
+    ctx: &RoomContext,
+    owner_user_id: &str,
+    invitee_user_ids: &[String],
+    body: &CreateDmRequest,
+) -> Result<String, ApiError> {
+    let config = build_dm_room_config(body, invitee_user_ids);
 
     let result = ctx
         .friend_room_service
@@ -388,6 +400,35 @@ async fn create_dm_room_via_service(
         .await?;
 
     Ok(result.room_id)
+}
+
+#[cfg(not(feature = "friends"))]
+fn build_single_dm_room_config(body: &CreateDmRequest, invitee_user_ids: &[String]) -> CreateRoomConfig {
+    CreateRoomConfig {
+        name: body.name.clone(),
+        topic: body.topic.clone(),
+        invite_list: Some(invitee_user_ids.to_vec()),
+        is_direct: Some(true),
+        visibility: body.visibility.clone().or_else(|| Some("private".to_string())),
+        preset: Some("private_chat".to_string()),
+        encryption: Some(DM_ENCRYPTION_ALGORITHM.to_string()),
+        ..Default::default()
+    }
+}
+
+#[cfg(not(feature = "friends"))]
+fn build_group_dm_room_config(body: &CreateDmRequest, invitee_user_ids: &[String]) -> CreateRoomConfig {
+    CreateRoomConfig {
+        name: body.name.clone(),
+        topic: body.topic.clone(),
+        visibility: Some(body.visibility.clone().unwrap_or_else(|| "private".to_string())),
+        preset: Some("private_chat".to_string()),
+        invite_list: Some(invitee_user_ids.to_vec()),
+        is_direct: Some(body.is_direct.unwrap_or(true)),
+        room_type: Some("m.direct".to_string()),
+        encryption: Some(DM_ENCRYPTION_ALGORITHM.to_string()),
+        ..Default::default()
+    }
 }
 
 #[cfg(not(feature = "friends"))]
@@ -401,15 +442,7 @@ async fn create_dm_room_via_service(
         if let Some(existing_room_id) = find_existing_direct_room_id(ctx, owner_user_id, invitee_user_ids).await? {
             existing_room_id
         } else {
-            let config = CreateRoomConfig {
-                name: body.name.clone(),
-                topic: body.topic.clone(),
-                invite_list: Some(invitee_user_ids.to_vec()),
-                is_direct: Some(true),
-                visibility: body.visibility.clone().or_else(|| Some("private".to_string())),
-                preset: Some("private_chat".to_string()),
-                ..Default::default()
-            };
+            let config = build_single_dm_room_config(body, invitee_user_ids);
 
             let created = ctx.room_service.lifecycle().create_room(owner_user_id, config).await?;
 
@@ -419,16 +452,7 @@ async fn create_dm_room_via_service(
                 .to_string()
         }
     } else {
-        let config = CreateRoomConfig {
-            name: body.name.clone(),
-            topic: body.topic.clone(),
-            visibility: Some(body.visibility.clone().unwrap_or_else(|| "private".to_string())),
-            preset: Some("private_chat".to_string()),
-            invite_list: Some(invitee_user_ids.to_vec()),
-            is_direct: Some(body.is_direct.unwrap_or(true)),
-            room_type: Some("m.direct".to_string()),
-            ..Default::default()
-        };
+        let config = build_group_dm_room_config(body, invitee_user_ids);
 
         let response = ctx.room_service.lifecycle().create_room(owner_user_id, config).await?;
 
@@ -498,7 +522,7 @@ async fn load_dm_partner_info(
 pub async fn create_dm_room(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<CreateDmRequest>,
+    MatrixJson(body): MatrixJson<CreateDmRequest>,
 ) -> Result<Json<Value>, ApiError> {
     // Validate input
     body.validate().map_err(|e| ApiError::bad_request(format!("Validation error: {e}")))?;
@@ -549,7 +573,7 @@ pub async fn update_dm_room(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<UpdateDmRequest>,
+    MatrixJson(body): MatrixJson<UpdateDmRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let (mut direct_map, mut users, _) = load_direct_room_snapshot(&ctx, &auth_user.user_id, &room_id).await?;
 
@@ -700,5 +724,46 @@ mod tests {
 
         assert_eq!(get_direct_room_for_user(&direct_map, "@bob:example.com").as_deref(), Some("!room1:example.com"));
         assert_eq!(get_direct_room_for_user(&direct_map, "@carol:example.com"), None);
+    }
+
+    fn dm_request() -> CreateDmRequest {
+        CreateDmRequest {
+            user_id: None,
+            invite: None,
+            is_direct: None,
+            name: Some("DM".to_string()),
+            topic: None,
+            visibility: None,
+        }
+    }
+
+    /// B-1: the DM endpoint must always request an encrypted room, otherwise
+    /// clients silently get a plaintext conversation.
+    #[cfg(feature = "friends")]
+    #[test]
+    fn test_dm_room_config_is_encrypted() {
+        let invitees = vec!["@bob:example.com".to_string()];
+        let one_to_one = build_dm_room_config(&dm_request(), &invitees);
+        assert_eq!(one_to_one.encryption.as_deref(), Some(DM_ENCRYPTION_ALGORITHM));
+
+        let group_invitees = vec!["@bob:example.com".to_string(), "@carol:example.com".to_string()];
+        let group = build_dm_room_config(&dm_request(), &group_invitees);
+        assert_eq!(group.encryption.as_deref(), Some(DM_ENCRYPTION_ALGORITHM));
+        assert_eq!(group.room_type.as_deref(), Some("m.direct"));
+    }
+
+    /// B-1: same guarantee on the non-`friends` code path, for both the
+    /// one-to-one and the group DM builders.
+    #[cfg(not(feature = "friends"))]
+    #[test]
+    fn test_dm_room_config_is_encrypted() {
+        let invitees = vec!["@bob:example.com".to_string()];
+        let one_to_one = build_single_dm_room_config(&dm_request(), &invitees);
+        assert_eq!(one_to_one.encryption.as_deref(), Some(DM_ENCRYPTION_ALGORITHM));
+
+        let group_invitees = vec!["@bob:example.com".to_string(), "@carol:example.com".to_string()];
+        let group = build_group_dm_room_config(&dm_request(), &group_invitees);
+        assert_eq!(group.encryption.as_deref(), Some(DM_ENCRYPTION_ALGORITHM));
+        assert_eq!(group.room_type.as_deref(), Some("m.direct"));
     }
 }

@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use synapse_common::ApiError;
 use synapse_services::search_service::RoomEventsSearchFilter;
 
+use crate::routes::MatrixJson;
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::timeout;
@@ -180,7 +181,7 @@ pub(crate) async fn search(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Query(params): Query<HashMap<String, String>>,
-    Json(body): Json<SearchRequest>,
+    MatrixJson(body): MatrixJson<SearchRequest>,
 ) -> Result<Json<Value>, ApiError> {
     validate_search_request(&body)?;
 
@@ -359,7 +360,7 @@ pub(crate) struct SearchRecipientsRequest {
 pub(crate) async fn search_recipients(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<SearchRecipientsRequest>,
+    MatrixJson(body): MatrixJson<SearchRecipientsRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = body.limit.unwrap_or(10).min(50) as i64;
     let search_term = body.search_term.trim();
@@ -426,7 +427,7 @@ pub(crate) struct SearchRoomsRequest {
 pub(crate) async fn search_rooms(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<SearchRoomsRequest>,
+    MatrixJson(body): MatrixJson<SearchRoomsRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = body.limit.unwrap_or(10).min(50) as i64;
     let search_term = body.search_term.trim();

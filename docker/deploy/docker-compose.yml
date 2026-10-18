@@ -415,6 +415,14 @@ services:
 networks:
   synapse-network:
     driver: bridge
+    # 固定子网：`rate_limit.trusted_proxies` / 登录锁定的 `trusted_proxies` 必须写死
+    # 一个 CIDR，而 docker 默认是**自动分配**（换宿主机就可能从 172.x 变成别的），
+    # 那样转发头会被判为不可信 → 所有客户端又都算到 nginx 的容器 IP 上。
+    # 改这里必须同步改 `docker/config/homeserver.yaml` 与
+    # `docker/config/rate_limit.yaml` 的 `trusted_proxies`。
+    ipam:
+      config:
+        - subnet: ${SYNAPSE_NETWORK_SUBNET:-192.168.97.0/24}
     # 刻意**不**用 `${COMPOSE_PROJECT_NAME:-synapse}_network`：
     # 监控栈是以 `docker compose -p synapse-monitoring -f docker-compose.monitoring.yml`
     # 启动的，`-p` 会把 COMPOSE_PROJECT_NAME 覆盖成 `synapse-monitoring`，于是同一个

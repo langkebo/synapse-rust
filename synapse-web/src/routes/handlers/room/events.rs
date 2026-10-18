@@ -1,6 +1,7 @@
 use super::{ensure_room_view_access, get_room_event, parse_pagination_direction, parse_room_messages_from_token};
 use crate::routes::context::RoomContext;
 use crate::routes::extractors::{EventId, RoomId, UserId};
+use crate::routes::MatrixJson;
 use crate::routes::{validate_event_id, validate_room_id, AuthenticatedUser};
 use crate::utils::auth::resolve_request_id;
 use axum::{
@@ -268,7 +269,7 @@ pub(crate) async fn send_message(
     auth_user: AuthenticatedUser,
     Path((room_id, event_type, txn_id)): Path<(RoomId, String, String)>,
     Query(query): Query<HashMap<String, String>>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -673,7 +674,7 @@ pub(crate) async fn sign_room_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(RoomId, EventId)>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
@@ -727,7 +728,7 @@ pub(crate) async fn verify_room_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(RoomId, EventId)>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
@@ -777,7 +778,7 @@ pub(crate) async fn translate_room_event(
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(RoomId, EventId)>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
@@ -826,7 +827,7 @@ pub(crate) async fn translate_text(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
     _auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     let text = body.get("text").and_then(|v| v.as_str()).unwrap_or("");
@@ -958,7 +959,7 @@ pub(crate) async fn redact_event(
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id, _txn_id)): Path<(RoomId, EventId, String)>,
-    Json(mut body): Json<Value>,
+    MatrixJson(mut body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;

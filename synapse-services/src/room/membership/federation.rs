@@ -132,6 +132,9 @@ impl MembershipService {
             "Joining room via federation"
         );
 
+        // B-3: refuse locally-blocked users before contacting the remote server.
+        self.invite_policy_gate.check_join_allowed(room_id, user_id).await?;
+
         // Check room ACL before contacting the remote server
         self.check_outbound_server_acl(room_id, destination).await?;
 

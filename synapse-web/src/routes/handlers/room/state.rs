@@ -5,6 +5,7 @@ use super::{
 };
 use crate::routes::context::RoomContext;
 use crate::routes::extractors::RoomId;
+use crate::routes::MatrixJson;
 use crate::routes::{validate_room_id, AuthenticatedUser};
 use axum::extract::{Json, Path, Query, State};
 use serde_json::{json, Value};
@@ -195,7 +196,7 @@ pub(crate) async fn send_state_event(
     auth_user: AuthenticatedUser,
     Path((room_id, event_type)): Path<(RoomId, String)>,
     Query(query): Query<HashMap<String, String>>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -308,7 +309,7 @@ pub(crate) async fn put_state_event(
     auth_user: AuthenticatedUser,
     Path((room_id, event_type, state_key)): Path<(RoomId, String, String)>,
     Query(query): Query<HashMap<String, String>>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -449,7 +450,7 @@ pub(crate) async fn put_power_levels(
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
     Query(query): Query<HashMap<String, String>>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     // Delegate to put_state_event_empty_key with event_type hardcoded
     put_state_event_empty_key(
@@ -457,7 +458,7 @@ pub(crate) async fn put_power_levels(
         auth_user,
         Path((room_id, "m.room.power_levels".to_string())),
         Query(query),
-        Json(body),
+        MatrixJson(body),
     )
     .await
 }
@@ -468,7 +469,7 @@ pub(crate) async fn put_state_event_empty_key(
     auth_user: AuthenticatedUser,
     Path((room_id, event_type)): Path<(RoomId, String)>,
     Query(query): Query<HashMap<String, String>>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -537,7 +538,7 @@ pub(crate) async fn put_state_event_no_key(
     auth_user: AuthenticatedUser,
     Path((room_id, event_type)): Path<(RoomId, String)>,
     Query(query): Query<HashMap<String, String>>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 

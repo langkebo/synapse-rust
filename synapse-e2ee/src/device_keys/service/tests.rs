@@ -341,3 +341,69 @@ async fn upload_keys_rejects_when_existing_keys_would_exceed_the_limit() {
     assert!(err.code_is(MatrixErrorCode::TooLarge));
     assert_eq!(err.code_str(), "M_TOO_LARGE");
 }
+
+// ------------------------------------------------------------------
+// B-4: deleting a device must also delete its key material, otherwise
+// the device stays in `/keys/query` and `/keys/claim` — a ghost device
+// peers can still build an Olm session with.
+// ------------------------------------------------------------------
+
+const ALICE: &str = "@alice:example.com";
+const BOB: &str = "@bob:example.com";
+
+#[tokio::test]
+async fn purge_device_keys_removes_the_target_device_and_keeps_siblings() {
+    let store = InMemoryDeviceKeyStore::new();
+    store.seed_key(make_device_key(ALICE, "DEVICE_A", "ed25519")).await;
+    store.seed_key(make_device_key(ALICE, "DEVICE_A", "curve25519")).await;
+    let mut otk = make_device_key(ALICE, "DEVICE_A", "signed_curve25519");
+    otk.key_id = "signed_curve25519:AAAA".to_string();
+    store.seed_key(otk).await;
+    store.seed_key(make_device_key(ALICE, "DEVICE_B", "ed25519")).await;
+
+    let storage: Arc<dyn super::DeviceKeyStoreApi> = Arc::new(store.clone());
+    let service = DeviceKeyService::new(storage, make_test_cache());
+
+    assert_eq!(store.get_one_time_keys_count(ALICE, "DEVICE_A").await.unwrap(), 1);
+    service.purge_device_keys(ALICE, "DEVICE_A").await.expect("purge must succeed");
+
+    assert!(store.get_device_key(ALICE, "DEVICE_A", "ed25519").await.unwrap().is_none());
+    assert!(store.get_device_key(ALICE, "DEVICE_A", "curve25519").await.unwrap().is_none());
+    assert_eq!(store.get_one_time_keys_count(ALICE, "DEVICE_A").await.unwrap(), 0, "OTKs must go too");
+    assert!(
+        store.get_device_key(ALICE, "DEVICE_B", "ed25519").await.unwrap().is_some(),
+        "purging one device must not touch sibling devices"
+    );
+}
+
+#[tokio::test]
+async fn purge_all_device_keys_removes_every_device_of_the_user_only() {
+    let store = InMemoryDeviceKeyStore::new();
+    store.seed_key(make_device_key(ALICE, "DEVICE_A", "ed25519")).await;
+    store.seed_key(make_device_key(ALICE, "DEVICE_B", "ed25519")).await;
+    store.seed_key(make_device_key(BOB, "DEVICE_C", "ed25519")).await;
+
+    let storage: Arc<dyn super::DeviceKeyStoreApi> = Arc::new(store.clone());
+    let service = DeviceKeyService::new(storage, make_test_cache());
+
+    assert_eq!(store.list_device_ids(ALICE).await.unwrap(), vec!["DEVICE_A".to_string(), "DEVICE_B".to_string()]);
+    service.purge_all_device_keys(ALICE).await.expect("purge-all must succeed");
+
+    assert!(store.list_device_ids(ALICE).await.unwrap().is_empty(), "no keys may survive for a deleted account");
+    assert_eq!(store.list_device_ids(BOB).await.unwrap(), vec!["DEVICE_C".to_string()], "other users untouched");
+}
+
+/// The auth layer holds the purger as `Arc<dyn DeviceKeyPurger>`, so the trait
+/// object — not just the inherent method — must delete the keys.
+#[tokio::test]
+async fn device_key_purger_trait_object_purges_the_device() {
+    let store = InMemoryDeviceKeyStore::new();
+    store.seed_key(make_device_key(ALICE, "DEVICE_A", "ed25519")).await;
+
+    let storage: Arc<dyn super::DeviceKeyStoreApi> = Arc::new(store.clone());
+    let purger: Arc<dyn super::DeviceKeyPurger> = Arc::new(DeviceKeyService::new(storage, make_test_cache()));
+
+    purger.purge_device_keys(ALICE, "DEVICE_A").await.expect("trait purge must succeed");
+
+    assert!(store.get_device_key(ALICE, "DEVICE_A", "ed25519").await.unwrap().is_none());
+}

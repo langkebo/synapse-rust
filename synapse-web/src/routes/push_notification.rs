@@ -1,4 +1,5 @@
 use crate::routes::context::AdminContext;
+use crate::routes::MatrixJson;
 use crate::routes::{AdminUser, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
@@ -107,7 +108,7 @@ impl From<PushDevice> for DeviceResponse {
 pub async fn register_device(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<RegisterDeviceBody>,
+    MatrixJson(body): MatrixJson<RegisterDeviceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = RegisterDeviceRequest {
         user_id: auth_user.user_id.clone(),
@@ -157,7 +158,7 @@ pub async fn get_devices(
 pub async fn send_notification(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<SendNotificationBody>,
+    MatrixJson(body): MatrixJson<SendNotificationBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = SendNotificationRequest {
         user_id: auth_user.user_id.clone(),
@@ -304,7 +305,7 @@ pub async fn get_push_config(
 pub async fn put_push_config(
     State(ctx): State<AdminContext>,
     _admin: AdminUser,
-    Json(body): Json<SetPushConfigBody>,
+    MatrixJson(body): MatrixJson<SetPushConfigBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_push_config_patch(&body.config)?;
 

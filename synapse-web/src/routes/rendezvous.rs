@@ -1,5 +1,6 @@
 use crate::routes::context::AuthContext;
 use crate::routes::extractors::SessionId;
+use crate::routes::MatrixJson;
 use crate::routes::{AppState, OptionalAuthenticatedUser};
 use crate::utils::auth::resolve_request_id;
 use axum::{
@@ -31,7 +32,7 @@ pub fn create_rendezvous_router(state: AppState) -> Router<AppState> {
 async fn create_session(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
     // Note: the router is Router<AppState> — AuthContext extracted via FromRef
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -120,7 +121,7 @@ async fn update_session(
     headers: HeaderMap,
     auth_user: OptionalAuthenticatedUser,
     Path(session_id): Path<SessionId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     ensure_rendezvous_session_access(&ctx, &request_id, &headers, &auth_user, &session_id, "update").await?;
@@ -189,7 +190,7 @@ async fn send_message(
     headers: HeaderMap,
     auth_user: OptionalAuthenticatedUser,
     Path(session_id): Path<SessionId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     ensure_rendezvous_session_access(&ctx, &request_id, &headers, &auth_user, &session_id, "send messages").await?;

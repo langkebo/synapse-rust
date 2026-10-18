@@ -1,5 +1,6 @@
 /// The `management` module.
 pub mod management;
+use crate::routes::MatrixJson;
 /// The `spaces` module.
 pub mod spaces;
 /// The `types` module.
@@ -514,7 +515,7 @@ pub async fn get_room_messages_admin(
 pub async fn shutdown_room(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let room_id = body
         .get("room_id")
@@ -648,7 +649,7 @@ pub async fn search_room_messages_admin(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<SearchRoomMessagesRequest>,
+    MatrixJson(body): MatrixJson<SearchRoomMessagesRequest>,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await.map_err(ApiError::from)? {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -719,7 +720,7 @@ pub async fn get_room_forward_extremities(
 pub async fn search_all_rooms(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Json(body): Json<SearchAllRoomsRequest>,
+    MatrixJson(body): MatrixJson<SearchAllRoomsRequest>,
 ) -> Result<Json<Value>, ApiError> {
     search_all_rooms_impl(&ctx, body).await
 }
@@ -793,7 +794,7 @@ pub async fn cascade_redact_event(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let event_id = body
         .get("event_id")

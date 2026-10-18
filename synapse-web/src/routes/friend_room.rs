@@ -1,5 +1,6 @@
 use crate::routes::context::FriendContext;
 use crate::routes::extractors::UserId;
+use crate::routes::MatrixJson;
 use crate::routes::{
     account_compat::can_view_profile_for_requester_batch, validate_user_id, AppState, AuthenticatedUser,
 };
@@ -354,7 +355,7 @@ async fn send_friend_request(
     State(ctx): State<FriendContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Json(body): Json<AddFriendRequest>,
+    MatrixJson(body): MatrixJson<AddFriendRequest>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&body.user_id)?;
 
@@ -459,7 +460,7 @@ async fn update_friend_note(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Path(friend_id): Path<String>,
-    Json(body): Json<UpdateNoteRequest>,
+    MatrixJson(body): MatrixJson<UpdateNoteRequest>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&friend_id)?;
 
@@ -480,7 +481,7 @@ async fn update_friend_status(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Path(friend_id): Path<String>,
-    Json(body): Json<UpdateStatusRequest>,
+    MatrixJson(body): MatrixJson<UpdateStatusRequest>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&friend_id)?;
 
@@ -516,7 +517,7 @@ async fn update_friend_displayname(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Path(friend_id): Path<String>,
-    Json(body): Json<UpdateDisplaynameRequest>,
+    MatrixJson(body): MatrixJson<UpdateDisplaynameRequest>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&friend_id)?;
 
@@ -614,7 +615,7 @@ async fn get_friend_groups(
 async fn create_friend_group(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<CreateGroupRequest>,
+    MatrixJson(body): MatrixJson<CreateGroupRequest>,
 ) -> Result<Json<Value>, ApiError> {
     if body.name.is_empty() || body.name.len() > 50 {
         return Err(ApiError::bad_request("Group name must be between 1 and 50 characters".to_string()));
@@ -643,7 +644,7 @@ async fn rename_friend_group(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Path(group_id): Path<String>,
-    Json(body): Json<RenameGroupRequest>,
+    MatrixJson(body): MatrixJson<RenameGroupRequest>,
 ) -> Result<Json<Value>, ApiError> {
     if body.name.is_empty() || body.name.len() > 50 {
         return Err(ApiError::bad_request("Group name must be between 1 and 50 characters".to_string()));
@@ -732,21 +733,19 @@ async fn get_friend_dm(
     })))
 }
 
-async fn create_friend_dm(
-    State(ctx): State<FriendContext>,
-    auth_user: AuthenticatedUser,
-    Path(user_id): Path<UserId>,
-) -> Result<Json<Value>, ApiError> {
-    validate_user_id(&user_id)?;
-
-    let config = synapse_services::friend_room_service::FriendRoomCreateRoomConfig {
+/// Build the room config for a friend DM. Kept separate from the handler so the
+/// encryption policy is directly testable.
+fn build_friend_dm_room_config(
+    friend_user_id: &str,
+) -> synapse_services::friend_room_service::FriendRoomCreateRoomConfig {
+    synapse_services::friend_room_service::FriendRoomCreateRoomConfig {
         visibility: Some("private".to_string()),
         room_alias_name: None,
         name: None,
         topic: None,
-        invite_list: Some(vec![user_id.to_string()]),
+        invite_list: Some(vec![friend_user_id.to_string()]),
         preset: Some("private_chat".to_string()),
-        encryption: None,
+        encryption: Some(crate::routes::dm::DM_ENCRYPTION_ALGORITHM.to_string()),
         history_visibility: None,
         is_direct: Some(true),
         room_type: None,
@@ -754,7 +753,17 @@ async fn create_friend_dm(
         creation_content: None,
         room_version: None,
         power_level_content_override: None,
-    };
+    }
+}
+
+async fn create_friend_dm(
+    State(ctx): State<FriendContext>,
+    auth_user: AuthenticatedUser,
+    Path(user_id): Path<UserId>,
+) -> Result<Json<Value>, ApiError> {
+    validate_user_id(&user_id)?;
+
+    let config = build_friend_dm_room_config(&user_id);
 
     let result: synapse_services::friend_room_service::EnsureDirectRoomResult = ctx
         .friend_room_service
@@ -816,5 +825,14 @@ mod tests {
         });
 
         assert_eq!(resolve_friend_search_term(&query, Some(&body)), Some("from_body".to_string()));
+    }
+
+    /// B-1: creating a friend DM must request an encrypted room.
+    #[test]
+    fn test_friend_dm_room_config_is_encrypted() {
+        let config = build_friend_dm_room_config("@bob:example.com");
+        assert_eq!(config.encryption.as_deref(), Some(crate::routes::dm::DM_ENCRYPTION_ALGORITHM));
+        assert_eq!(config.invite_list, Some(vec!["@bob:example.com".to_string()]));
+        assert_eq!(config.is_direct, Some(true));
     }
 }

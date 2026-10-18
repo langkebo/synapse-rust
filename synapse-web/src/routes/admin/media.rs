@@ -1,5 +1,6 @@
 use crate::routes::context::AdminContext;
 use crate::routes::AdminUser;
+use crate::routes::MatrixJson;
 use axum::{
     extract::{Path, State},
     routing::{delete, get, post},
@@ -381,7 +382,7 @@ pub async fn quarantine_room_media(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<QuarantineRoomMediaRequest>,
+    MatrixJson(body): MatrixJson<QuarantineRoomMediaRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let stream_id =
         ctx.admin_media_service.quarantine_room_media(&room_id, body.user_id.as_deref(), &admin.user_id).await?;
@@ -403,7 +404,7 @@ pub async fn unquarantine_room_media(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<QuarantineRoomMediaRequest>,
+    MatrixJson(body): MatrixJson<QuarantineRoomMediaRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let stream_id =
         ctx.admin_media_service.unquarantine_room_media(&room_id, body.user_id.as_deref(), &admin.user_id).await?;
@@ -489,7 +490,7 @@ pub async fn quarantine_user_media(
 pub async fn delete_media_by_policy(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Json(body): Json<DeleteMediaByPolicyRequest>,
+    MatrixJson(body): MatrixJson<DeleteMediaByPolicyRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let before_ts = body.before_ts.unwrap_or(0);
     let max_size = body.max_size.unwrap_or(0);

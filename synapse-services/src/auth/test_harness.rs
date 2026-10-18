@@ -72,6 +72,7 @@ pub(crate) fn build_test_auth_service() -> TestAuthHarness {
         login_lockout_duration_seconds: 300,
         mas_validator: None,
         audit_storage: None,
+        device_key_purger: Arc::new(std::sync::OnceLock::new()),
     };
 
     TestAuthHarness { service, user_store, token_store, refresh_store, member_store, event_store, cache }

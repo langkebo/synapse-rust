@@ -1,4 +1,22 @@
-enabled: true
+# =============================================================================
+# ⚠️ 测试/调试阶段：限流**整体关闭**（`enabled: false`）。
+# =============================================================================
+# 本文件是限流中间件的**唯一生效配置**：`RATE_LIMIT_CONFIG_PATH` 指向它，
+# 加载后整体**替换** homeserver.yaml 的 `rate_limit:` 段（replace，不是合并）。
+# 因此这里的 `enabled` 一旦为 false，中间件对每个请求直接放行，
+# 下面所有 `default` / `endpoints` / `sync` 规则**全部不生效**（保留只为上线时直接复用）。
+#
+# 为什么要关：联调/压测/API 全量测试会被限流误伤成 429，掩盖真实缺陷。
+# 已实测过的两类误伤：
+#   * 登录锁定与限流共用同一客户端 IP 维度，反向代理后所有人共享一个桶；
+#   * 批量脚本（api_test / k6）天然是突发流量，与 per_second 语义冲突。
+#
+# ✅ 正式部署前必须改回 `enabled: true`（并确认 `trust_forwarded` 与
+#    `trusted_proxies` 已按部署网络配置，否则桶按 nginx 的 IP 聚合）。
+#    自检：`grep -n '^enabled:' docker/config/rate_limit.yaml` 必须是 true；
+#    `docker compose logs synapse | grep -i 'rate limit'` 不得出现 "DISABLED"。
+# =============================================================================
+enabled: false
 default:
   per_second: 500
   burst_size: 1000
@@ -64,6 +82,23 @@ ip_header_priority:
   - "x-forwarded-for"
   - "x-real-ip"
   - "forwarded"
+# 代理信任（I-03 配套）。**只有** 当请求的对端地址落在 `trusted_proxies` 内时才采信
+# 上面的转发头；否则一律用 TCP 对端地址。
+#
+# 为什么必须配：应用在 nginx 之后，裸看对端地址会把**所有**客户端算成 nginx 的
+# 容器 IP，于是按 IP 的限流桶、登录锁定桶都变成"全站一个桶"——
+# 一个攻击者打满 30 次，全站登录被一起锁死（这也正是联调报告里
+# "登录失败不限流/或者所有人一起被锁"两种相反现象的同一个根因）。
+#
+# 取值 = docker compose 网络子网（`docker/docker-compose.yml` 的
+# `networks.synapse-network.ipam.config.subnet`，默认 192.168.97.0/24）。
+# 改子网必须同步改这里，否则转发头被忽略（症状：限流桶又回到 nginx 上）。
+#
+# 生效时机：仅当本文件 `enabled: true` 时；测试阶段的登录锁定另由
+# `security.login_lockout_enabled` 控制（见 homeserver.yaml）。
+trust_forwarded: true
+trusted_proxies:
+  - "192.168.97.0/24"
 include_headers: true
 exempt_paths:
   - "/"

@@ -383,7 +383,9 @@ pub fn validate_worker_config(config: &WorkerConfig) -> TopologyValidation {
     }
 
     if !config.enabled {
-        return validate_topology(&[WorkerType::Master]);
+        let mut disabled = validate_topology(&[WorkerType::Master]);
+        disabled.warnings.append(&mut validation.warnings);
+        return disabled;
     }
 
     let mut known_instances: HashSet<String> =

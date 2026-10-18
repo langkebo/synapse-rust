@@ -1,6 +1,7 @@
 use crate::routes::context::AdminContext;
 use crate::routes::extractors::RoomId;
 use crate::routes::AdminUser;
+use crate::routes::MatrixJson;
 use axum::{
     extract::{Path, State},
     routing::{get, post},
@@ -66,7 +67,7 @@ pub async fn get_retention_policy(_admin: AdminUser, State(ctx): State<AdminCont
 pub async fn set_retention_policy(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Json(body): Json<RetentionPolicyRequest>,
+    MatrixJson(body): MatrixJson<RetentionPolicyRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let policy = ctx
         .retention_service
@@ -121,7 +122,7 @@ pub async fn set_room_retention_policy(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<RetentionPolicyRequest>,
+    MatrixJson(body): MatrixJson<RetentionPolicyRequest>,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -150,7 +151,7 @@ pub async fn set_room_retention_policy(
 pub async fn run_retention(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Json(body): Json<RunRetentionRequest>,
+    MatrixJson(body): MatrixJson<RunRetentionRequest>,
 ) -> Result<Json<Value>, ApiError> {
     match body.room_id {
         Some(room_id) => {

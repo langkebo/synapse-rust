@@ -1,5 +1,6 @@
 use crate::routes::context::AdminContext;
 use crate::routes::extractors::{RoomId, UserId};
+use crate::routes::MatrixJson;
 use crate::routes::{AppState, AuthenticatedUser};
 use axum::{
     extract::{Json, Path, State},
@@ -117,7 +118,7 @@ async fn set_account_data(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path((user_id, data_type)): Path<(UserId, String)>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id.as_str();
     if user_id != auth_user.user_id {
@@ -195,7 +196,7 @@ async fn set_room_account_data(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path((user_id, room_id, data_type)): Path<(UserId, RoomId, String)>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id.as_str();
     if user_id != auth_user.user_id {
@@ -229,7 +230,7 @@ async fn create_filter(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path(user_id): Path<UserId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id.as_str();
     if user_id != auth_user.user_id {

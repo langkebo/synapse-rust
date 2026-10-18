@@ -97,9 +97,6 @@ impl ApiErrorKind {
 /// divergence, and `test_status_divergence_whitelist_has_no_stale_entries`
 /// fails if an entry here stops being reachable.
 pub const STATUS_DIVERGENCE_WHITELIST: &[(ApiErrorKind, MatrixErrorCode)] = &[
-    // `invalid_credentials()`: the spec mandates 401 + M_FORBIDDEN for a failed
-    // login (M_FORBIDDEN's own spec status is 403).
-    (ApiErrorKind::Unauthorized, MatrixErrorCode::Forbidden),
     // `gone()`: 410 Gone. Matrix defines no M_GONE, so the errcode is
     // M_NOT_FOUND (whose spec status is 404).
     (ApiErrorKind::Gone, MatrixErrorCode::NotFound),
@@ -279,13 +276,16 @@ impl ApiError {
         }
     }
 
-    /// P-007 / Issue-2 fix: Matrix spec requires HTTP 401 + M_FORBIDDEN when
-    /// login credentials are invalid (wrong password or unknown user).
-    /// Previously this used `ApiError::forbidden()` (HTTP 403) which violates
-    /// the spec and breaks Matrix SDK clients that branch on HTTP status.
+    /// Matrix spec (`client-server/login.yaml`) mandates HTTP 403 + M_FORBIDDEN
+    /// when a login attempt fails (wrong password or unknown user) — 401 is
+    /// reserved for missing/invalid access tokens, so using it here made generic
+    /// 401 handling (e.g. token refresh) misfire on the login endpoint.
+    ///
+    /// UIA password checks share this constructor: Synapse's `LoginError` is
+    /// likewise 403 + M_FORBIDDEN.
     pub fn invalid_credentials() -> Self {
         Self {
-            kind: ApiErrorKind::Unauthorized,
+            kind: ApiErrorKind::Forbidden,
             code: MatrixErrorCode::Forbidden,
             message: "Invalid credentials".to_string(),
             cause: None,

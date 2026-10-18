@@ -1,5 +1,6 @@
 use crate::routes::context::DeviceContext;
 use crate::routes::response_helpers::filter_users_with_shared_rooms;
+use crate::routes::MatrixJson;
 use crate::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
@@ -328,7 +329,7 @@ pub async fn update_device(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     Path(device_id): Path<DeviceId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Response, ApiError> {
     let display_name = body.get("display_name").and_then(|v| v.as_str());
     if let Some(display_name) = display_name {
@@ -393,7 +394,7 @@ pub async fn delete_device(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     Path(device_id): Path<DeviceId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Response, ApiError> {
     if let Err(challenge) = require_password_uia(&ctx, &auth_user, &body).await {
         return Ok(challenge);
@@ -414,7 +415,7 @@ pub async fn delete_device(
 pub async fn delete_devices(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Response, ApiError> {
     if let Err(challenge) = require_password_uia(&ctx, &auth_user, &body).await {
         return Ok(challenge);
@@ -435,7 +436,7 @@ pub async fn delete_devices(
 pub async fn get_device_list_updates(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let requested_users = body
         .get("users")

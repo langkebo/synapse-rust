@@ -23,6 +23,7 @@
 
 use crate::routes::context::{AuthContext, FederationContext};
 use crate::routes::AuthenticatedUser;
+use crate::routes::MatrixJson;
 use axum::{extract::State, Json};
 use serde_json::{json, Map, Value};
 use synapse_common::ApiError;
@@ -91,7 +92,7 @@ fn map_error(error: AccountStatusError) -> ApiError {
 pub(crate) async fn client_account_status(
     State(ctx): State<AuthContext>,
     _auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_enabled(&ctx.config)?;
     let user_ids = parse_body(&body)?;
@@ -106,7 +107,7 @@ pub(crate) async fn client_account_status(
 /// `POST /_matrix/federation/unstable/org.matrix.msc3720/account_status`.
 pub(crate) async fn federation_account_status(
     State(ctx): State<FederationContext>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_enabled(&ctx.config)?;
     let user_ids = parse_body(&body)?;

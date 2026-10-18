@@ -1,5 +1,6 @@
 use crate::routes::context::RoomContext;
 use crate::routes::extractors::{RoomId, UserId};
+use crate::routes::MatrixJson;
 use crate::routes::{ensure_room_member_strict_ctx, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
@@ -22,10 +23,27 @@ struct CreateThreadBody {
     #[serde(default)]
     room_id: Option<String>,
     root_event_id: String,
-    #[serde(rename = "content")]
-    _content: serde_json::Value,
+    /// 线程根事件已存在（`root_event_id`），其 content 由该事件定义，
+    /// `thread_roots` 也无处存放客户端传入的 content —— 因此非空时显式拒绝，
+    /// 而不是接受后丢弃（见审计 I-07）。
+    #[serde(default)]
+    content: Option<serde_json::Value>,
     #[serde(rename = "origin_server_ts")]
     _origin_server_ts: Option<i64>,
+}
+
+/// 拒绝客户端传入的线程 `content`：接受却丢弃会让参数看起来可用（审计 I-07）。
+///
+/// 允许缺省、`null` 与空对象（无可丢弃内容）；其余形态一律 400 `M_INVALID_PARAM`。
+fn reject_unsupported_thread_content(content: Option<&Value>) -> Result<(), ApiError> {
+    match content {
+        None | Some(Value::Null) => Ok(()),
+        Some(Value::Object(map)) if map.is_empty() => Ok(()),
+        Some(_) => Err(ApiError::invalid_param(
+            "content is not supported when creating a thread; the thread root event's content is taken from root_event_id"
+                .to_string(),
+        )),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -278,9 +296,10 @@ async fn create_thread(
     State(ctx): State<RoomContext>,
     Path(room_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<CreateThreadBody>,
+    MatrixJson(body): MatrixJson<CreateThreadBody>,
 ) -> Result<Json<ThreadResponse>, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, &room_id).await?;
+    reject_unsupported_thread_content(body.content.as_ref())?;
 
     let user_id = auth_user.user_id;
     let request = CreateThreadRequest { room_id: room_id.to_string(), root_event_id: body.root_event_id };
@@ -403,7 +422,7 @@ async fn add_reply(
     State(ctx): State<RoomContext>,
     Path((room_id, thread_id)): Path<(RoomId, String)>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<CreateReplyBody>,
+    MatrixJson(body): MatrixJson<CreateReplyBody>,
 ) -> Result<Json<ReplyResponse>, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, room_id.as_str()).await?;
 
@@ -440,7 +459,7 @@ async fn subscribe_thread(
     State(ctx): State<RoomContext>,
     Path((room_id, thread_id)): Path<(RoomId, String)>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<SubscribeBody>,
+    MatrixJson(body): MatrixJson<SubscribeBody>,
 ) -> Result<Json<synapse_services::thread_service::ThreadSubscription>, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, room_id.as_str()).await?;
 
@@ -489,7 +508,7 @@ async fn mark_read(
     State(ctx): State<RoomContext>,
     Path((room_id, thread_id)): Path<(RoomId, String)>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<MarkReadBody>,
+    MatrixJson(body): MatrixJson<MarkReadBody>,
 ) -> Result<Json<synapse_services::thread_service::ThreadReadReceipt>, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, room_id.as_str()).await?;
 
@@ -583,11 +602,12 @@ async fn list_threads_global(
 async fn create_thread_global(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<CreateThreadBody>,
+    MatrixJson(body): MatrixJson<CreateThreadBody>,
 ) -> Result<Json<ThreadResponse>, ApiError> {
     let room_id = body.room_id.ok_or_else(|| ApiError::bad_request("room_id is required".to_string()))?;
 
     ensure_thread_room_access(&ctx, &auth_user, &room_id).await?;
+    reject_unsupported_thread_content(body.content.as_ref())?;
 
     let request = CreateThreadRequest { room_id, root_event_id: body.root_event_id };
 
@@ -655,5 +675,36 @@ mod tests {
         let route = "/_matrix/vendor/v1/user/{user_id}/rooms/{room_id}/threads";
         assert!(route.starts_with("/_matrix/vendor/v1/user/"));
         assert!(route.ends_with("/threads"));
+    }
+
+    fn thread_body(value: Value) -> CreateThreadBody {
+        serde_json::from_value(value).expect("CreateThreadBody should deserialize")
+    }
+
+    #[test]
+    fn test_create_thread_body_accepts_absent_content() {
+        let body = thread_body(json!({ "root_event_id": "$root:localhost" }));
+        assert!(body.content.is_none());
+        assert!(reject_unsupported_thread_content(body.content.as_ref()).is_ok());
+    }
+
+    #[test]
+    fn test_create_thread_body_accepts_empty_content_object() {
+        let body = thread_body(json!({ "root_event_id": "$root:localhost", "content": {} }));
+        assert!(reject_unsupported_thread_content(body.content.as_ref()).is_ok());
+    }
+
+    #[test]
+    fn test_create_thread_body_rejects_content_instead_of_discarding_it() {
+        let body = thread_body(json!({
+            "root_event_id": "$root:localhost",
+            "content": { "name": "我的线程标题" }
+        }));
+        assert!(body.content.is_some());
+
+        let error = reject_unsupported_thread_content(body.content.as_ref())
+            .expect_err("non-empty content must be rejected rather than silently dropped");
+        assert!(error.is_bad_request());
+        assert_eq!(error.matrix_code(), synapse_common::error::MatrixErrorCode::InvalidParam);
     }
 }

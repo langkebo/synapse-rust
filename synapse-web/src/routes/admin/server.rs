@@ -7,6 +7,7 @@ use super::invite_lists::{
     get_invite_blocklist_admin, remove_global_invite_allowlist_user, remove_global_invite_blocklist_user,
     set_global_invite_allowlist_admin, set_global_invite_blocklist_admin,
 };
+use crate::routes::MatrixJson;
 use axum::{
     extract::{Path, State},
     routing::{delete, get, post},
@@ -107,7 +108,7 @@ pub async fn get_server_version(_admin: AdminUser, State(ctx): State<AdminContex
 pub async fn restart_server(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     // Optional graceful shutdown delay (ms). Defaults to 100ms to let the
     // HTTP response flush before the process exits.

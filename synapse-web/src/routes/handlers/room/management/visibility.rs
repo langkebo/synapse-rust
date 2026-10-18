@@ -7,6 +7,7 @@ use synapse_common::map_internal;
 use synapse_common::ApiError;
 
 use crate::routes::context::RoomContext;
+use crate::routes::MatrixJson;
 
 /// See [`get_room_visibility`].
 #[axum::debug_handler]
@@ -37,7 +38,7 @@ pub(crate) async fn set_room_visibility(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));

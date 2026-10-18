@@ -198,3 +198,10 @@ networks:
   synapse_network:
     driver: bridge
     name: ${COMPOSE_PROJECT_NAME:-synapse}_network
+    # 与 `docker/deploy/docker-compose.yml` 保持同一子网：两个栈默认共用
+    # `synapse_network` 这一个网络，子网不一致会让 compose 报
+    # "network ... was found but has incorrect configuration"。
+    # 该子网同时是 `trusted_proxies` 的取值（见 docker/config/rate_limit.yaml）。
+    ipam:
+      config:
+        - subnet: ${SYNAPSE_NETWORK_SUBNET:-192.168.97.0/24}

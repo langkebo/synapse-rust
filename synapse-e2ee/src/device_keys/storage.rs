@@ -126,6 +126,12 @@ pub trait DeviceKeyStoreApi: Send + Sync {
     async fn get_device_keys(&self, user_id: &str, device_ids: &[String]) -> Result<Vec<DeviceKey>, ApiError>;
     /// Get all device keys for a user.
     async fn get_all_device_keys(&self, user_id: &str) -> Result<Vec<DeviceKey>, ApiError>;
+    /// List every device ID that still has *any* row in `device_keys`.
+    ///
+    /// Unlike [`Self::get_all_device_keys`] this is not filtered by algorithm or
+    /// fallback flag: it exists to enumerate the devices whose keys must be
+    /// purged when the device rows are deleted (B-4).
+    async fn list_device_ids(&self, user_id: &str) -> Result<Vec<String>, ApiError>;
     /// Get all device keys for a batch of user IDs.
     async fn get_all_device_keys_batch(&self, user_ids: &[String])
         -> Result<HashMap<String, Vec<DeviceKey>>, ApiError>;
@@ -418,6 +424,18 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         .map_err(map_database!("get_all_device_keys"))?;
 
         Ok(rows.into_iter().map(DeviceKeyRow::into_device_key).collect())
+    }
+
+    async fn list_device_ids(&self, user_id: &str) -> Result<Vec<String>, ApiError> {
+        // Runtime-checked rather than a `query!` macro so this addition needs no
+        // new `.sqlx` offline-cache entry; the projection is a single text column.
+        let device_ids: Vec<String> =
+            sqlx::query_scalar("SELECT DISTINCT device_id FROM device_keys WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_all(&*self.pool)
+                .await
+                .map_err(map_database!("Failed to list device ids"))?;
+        Ok(device_ids)
     }
 
     async fn get_all_device_keys_batch(

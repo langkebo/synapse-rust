@@ -35,7 +35,9 @@ impl AuthService {
             })?;
 
             if !self.verify_user_password(pwd, password_hash).await? {
-                return Err(ApiError::unauthorized("Current password is incorrect".to_string()));
+                // 与 Synapse 的 `LoginError(403, "Invalid password", M_FORBIDDEN)` 对齐：
+                // UIA 密码阶段失败是 403，而非 401（401 保留给 token 失效）。
+                return Err(ApiError::forbidden("Current password is incorrect".to_string()));
             }
         }
 
@@ -135,6 +137,10 @@ impl AuthService {
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to delete devices", e))?;
 
+        // B-4: the device rows are gone, so their key material must go too —
+        // otherwise /keys/query keeps advertising devices that no longer exist.
+        self.purge_all_device_keys(user_id).await;
+
         self.cache.delete(&format!("user:active:{user_id}")).await;
         self.cache.delete(&format!("user:admin:{user_id}")).await;
         // S4: 同步失效该用户全部 token 的撤销检查标记，保证停用即时生效。
@@ -178,6 +184,10 @@ impl AuthService {
             );
             return Err(ApiError::internal_with_cause("Failed to invalidate refresh tokens", e));
         }
+
+        // B-4: drop the deleted device's keys so it cannot be claimed as a ghost
+        // device. The device deletion already recorded the device-list change.
+        self.purge_device_keys(user_id, device_id).await;
 
         ::tracing::info!(
             target: "security_audit",
@@ -235,6 +245,9 @@ impl AuthService {
                 );
                 return Err(ApiError::internal_with_cause("Failed to invalidate refresh tokens", e));
             }
+
+            // B-4: purge this device's keys (device-list change is already recorded).
+            self.purge_device_keys(user_id, device_id).await;
         }
 
         ::tracing::info!(

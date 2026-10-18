@@ -13,6 +13,7 @@ use super::{
     dispatch_federation_member_event_to_appservice, federatable_room_version, re_sign_pdu_locally,
     validate_federation_member_event,
 };
+use crate::routes::MatrixJson;
 
 /// See [`make_leave`].
 pub(crate) async fn make_leave(
@@ -60,7 +61,7 @@ pub(crate) async fn send_leave(
     Extension(auth): Extension<FederationRequestAuth>,
     headers: HeaderMap,
     Path((room_id, event_id)): Path<(String, String)>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     super::validate_federation_origin(&auth.origin, body.get("origin").and_then(|v| v.as_str()))?;
@@ -131,7 +132,7 @@ pub(crate) async fn send_leave_v2(
     Extension(auth): Extension<FederationRequestAuth>,
     headers: HeaderMap,
     Path((room_id, event_id)): Path<(String, String)>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     if !synapse_common::room_id::is_well_formed_room_id(&room_id) {

@@ -14,6 +14,7 @@
 
 use crate::routes::context::AdminContext;
 use crate::routes::AdminUser;
+use crate::routes::MatrixJson;
 use axum::{
     extract::{Path, Query, State},
     Json,
@@ -83,7 +84,7 @@ pub struct InviteListWriteBody {
 pub async fn set_global_invite_blocklist_admin(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Json(body): Json<InviteListWriteBody>,
+    MatrixJson(body): MatrixJson<InviteListWriteBody>,
 ) -> Result<Json<Value>, ApiError> {
     ctx.invite_blocklist_service.set_global_invite_blocklist(body.user_ids).await?;
 
@@ -99,7 +100,7 @@ pub async fn set_global_invite_blocklist_admin(
 pub async fn set_global_invite_allowlist_admin(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Json(body): Json<InviteListWriteBody>,
+    MatrixJson(body): MatrixJson<InviteListWriteBody>,
 ) -> Result<Json<Value>, ApiError> {
     ctx.invite_blocklist_service.set_global_invite_allowlist(body.user_ids).await?;
 
@@ -133,9 +134,9 @@ pub async fn add_global_invite_blocklist_user(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(user_id): Path<UserId>,
-    body: Option<Json<InviteListEntryBody>>,
+    body: Option<MatrixJson<InviteListEntryBody>>,
 ) -> Result<Json<Value>, ApiError> {
-    let reason = body.and_then(|Json(body)| body.reason);
+    let reason = body.and_then(|MatrixJson(body)| body.reason);
     let (already_present, removed_from_other_list) =
         ctx.invite_blocklist_service.add_to_global_invite_blocklist(user_id.as_str(), reason, &admin.user_id).await?;
 
@@ -175,9 +176,9 @@ pub async fn add_global_invite_allowlist_user(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(user_id): Path<UserId>,
-    body: Option<Json<InviteListEntryBody>>,
+    body: Option<MatrixJson<InviteListEntryBody>>,
 ) -> Result<Json<Value>, ApiError> {
-    let reason = body.and_then(|Json(body)| body.reason);
+    let reason = body.and_then(|MatrixJson(body)| body.reason);
     let (already_present, removed_from_other_list) =
         ctx.invite_blocklist_service.add_to_global_invite_allowlist(user_id.as_str(), reason, &admin.user_id).await?;
 

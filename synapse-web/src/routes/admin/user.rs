@@ -1,6 +1,7 @@
 use super::audit::{record_audit_event, resolve_request_id};
 use crate::routes::context::AdminContext;
 use crate::routes::AdminUser;
+use crate::routes::MatrixJson;
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -308,7 +309,7 @@ pub async fn set_admin(
     State(ctx): State<AdminContext>,
     Path(user_id): Path<UserId>,
     headers: HeaderMap,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_super_admin_for_privilege_change(&admin)?;
 
@@ -446,7 +447,7 @@ pub async fn reset_user_password(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(user_id): Path<UserId>,
-    Json(body): Json<ResetPasswordBody>,
+    MatrixJson(body): MatrixJson<ResetPasswordBody>,
 ) -> Result<Json<Value>, ApiError> {
     ctx.validator.validate_password(&body.new_password)?;
 
@@ -762,7 +763,7 @@ pub async fn create_or_update_user_v2(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(user_id): Path<UserId>,
-    Json(body): Json<CreateUpdateUserRequest>,
+    MatrixJson(body): MatrixJson<CreateUpdateUserRequest>,
 ) -> Result<Json<Value>, ApiError> {
     if body.admin.is_some() || body.user_type.is_some() {
         ensure_super_admin_for_privilege_change(&admin)?;
@@ -849,7 +850,7 @@ pub struct BatchCreateUser {
 pub async fn batch_create_users(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Json(body): Json<BatchCreateUsersRequest>,
+    MatrixJson(body): MatrixJson<BatchCreateUsersRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let has_admin_request = body.users.iter().any(|u| u.admin.unwrap_or(false));
     if has_admin_request {
@@ -892,7 +893,7 @@ pub struct BatchDeactivateRequest {
 pub async fn batch_deactivate_users(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Json(body): Json<BatchDeactivateRequest>,
+    MatrixJson(body): MatrixJson<BatchDeactivateRequest>,
 ) -> Result<Json<Value>, ApiError> {
     if body.users.len() > 100 {
         return Err(ApiError::bad_request("Too many users in batch request (max 100)".to_string()));
@@ -1002,7 +1003,7 @@ pub async fn update_account(
     State(ctx): State<AdminContext>,
     Path(user_id): Path<UserId>,
     headers: HeaderMap,
-    Json(body): Json<UpdateAccountRequest>,
+    MatrixJson(body): MatrixJson<UpdateAccountRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
     let canonical_user_id = &user.user_id;

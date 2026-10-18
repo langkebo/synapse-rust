@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::routes::AdminUser;
 use crate::routes::AppState;
+use crate::routes::MatrixJson;
 use synapse_common::ApiError;
 use synapse_services::background_update_service::{
     BackgroundUpdate, BackgroundUpdateHistory, BackgroundUpdateStats, CreateBackgroundUpdateRequest,
@@ -199,7 +200,7 @@ impl From<BackgroundUpdateStats> for StatsResponse {
 pub async fn create_update(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Json(body): Json<CreateUpdateBody>,
+    MatrixJson(body): MatrixJson<CreateUpdateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = CreateBackgroundUpdateRequest {
         job_name: body.job_name,
@@ -292,7 +293,7 @@ pub async fn update_progress(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(job_name): Path<String>,
-    Json(body): Json<UpdateProgressBody>,
+    MatrixJson(body): MatrixJson<UpdateProgressBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let update =
         ctx.background_update_service.update_progress(&job_name, body.items_processed, body.total_items).await?;
@@ -316,7 +317,7 @@ pub async fn fail_update(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(job_name): Path<String>,
-    Json(body): Json<FailUpdateBody>,
+    MatrixJson(body): MatrixJson<FailUpdateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let update = ctx.background_update_service.fail_update(&job_name, &body.error_message).await?;
 

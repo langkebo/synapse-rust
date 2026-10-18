@@ -9,6 +9,7 @@ use synapse_services::oidc_service::OidcService;
 use validator::Validate;
 
 use super::current_unix_ts;
+use crate::routes::MatrixJson;
 
 /// OIDC Token Request
 #[derive(Debug, Deserialize, Validate)]
@@ -105,7 +106,7 @@ pub(crate) struct OidcAuthorizeRequest {
 /// OIDC Token endpoint — handles authorization code exchange and refresh token
 pub(crate) async fn oidc_token(
     State(ctx): State<SsoContext>,
-    Json(body): Json<OidcTokenRequest>,
+    MatrixJson(body): MatrixJson<OidcTokenRequest>,
 ) -> Result<Json<OidcTokenResponse>, ApiError> {
     // Validate input
     body.validate().map_err(|e| ApiError::bad_request(format!("Validation error: {e}")))?;
@@ -350,7 +351,7 @@ pub(crate) async fn oidc_userinfo(
 pub(crate) async fn oidc_logout(
     State(ctx): State<SsoContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<OidcLogoutRequest>,
+    MatrixJson(body): MatrixJson<OidcLogoutRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // If a device ID is provided, delete that device
     if let Some(device_id) = body.device_id {

@@ -1621,7 +1621,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 **复核后需保留的两条已知语义缺陷（非"未修"，是修复不彻底）**：
 
-1. `createThread` / `createGlobalThread` 的 `name` 参数**静默无效** —— 后端 `CreateThreadBody.content` 声明为 `_content`（`synapse-web/src/routes/handlers/thread.rs`，下划线前缀 ⇒ Rust 侧不读取，仅占位接受），且 `content` 类型是 `Value` ⇒ 传错也不报错。SDK 现仍保留该参数（避免破坏公开 API），已在 JSDoc 标注。**待定**：后端是否把 `content` 落库，或 SDK 删参数。
+1. `createThread` / `createGlobalThread` 的 `name` 参数**仍无效，但已由静默丢弃改为显式拒绝** —— 后端 `CreateThreadBody.content` 不再声明为 `_content`；线程根事件已存在（`root_event_id`），其 content 由该事件定义，`thread_roots` 无内容列，因此非空 `content` 现在返回 **400 `M_INVALID_PARAM`**（缺省 / `null` / `{}` 仍放行）。SDK 需删除 `name` 参数或改为发送根事件本身的内容（避免破坏公开 API 时可先保留并在 JSDoc 标注「会 400」）。
 2. `markThreadRead` 的 `origin_server_ts` 原固定发 `Date.now()`（客户端时钟）。SDK 已改为 **显式入参 > 本地缓存事件 `getTs()` > `Date.now()`** 的三级取值；后端 `MarkReadBody.origin_server_ts: i64` 语义未变。
 
 **T3「仅声明」条目的处置口径（重要，勿当缺口清单）**：

@@ -292,6 +292,16 @@ impl crate::room_summary::RoomSummaryStoreApi for InMemoryRoomSummaryStore {
         Ok(())
     }
 
+    async fn remove_member_in_tx(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<(), sqlx::Error> {
+        self.members.write().await.remove(&(room_id.to_string(), user_id.to_string()));
+        Ok(())
+    }
+
     async fn get_members(&self, room_id: &str) -> Result<Vec<crate::room_summary::RoomSummaryMember>, sqlx::Error> {
         let members = self.members.read().await;
         let mut result: Vec<_> =

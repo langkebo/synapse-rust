@@ -9,6 +9,7 @@ use synapse_common::types::DeviceId;
 use synapse_common::ApiError;
 
 use crate::routes::context::RoomContext;
+use crate::routes::MatrixJson;
 
 /// E10: strip null-valued keys from a response object built from a `Room`
 /// record. `Room` fields such as `name`/`topic`/`avatar_url` are
@@ -328,7 +329,7 @@ pub(crate) async fn set_room_vault_data(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await.map_err(ApiError::from)? {
@@ -584,7 +585,7 @@ pub(crate) async fn search_room_messages(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await.map_err(ApiError::from)? {

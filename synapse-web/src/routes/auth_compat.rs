@@ -776,7 +776,7 @@ pub(crate) async fn logout_all(
 /// See [`refresh_token`].
 pub(crate) async fn refresh_token(
     State(ctx): State<AuthContext>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let refresh_token = body
         .get("refresh_token")

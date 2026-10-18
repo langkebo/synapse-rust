@@ -5613,3 +5613,72 @@ BEGIN
             RENAME CONSTRAINT schema_migrations_pkey TO pk_schema_migrations;
     END IF;
 END $$;
+
+-- ============================================================
+-- I-01: `room_summary_members` 投影回填（2026-10-18）
+-- ============================================================
+-- 背景：join / leave / kick / ban 长期只写权威表 `room_memberships`，从未同步
+-- 投影表 `room_summary_members`，导致 `/summaries` 的可见性与真实成员状态双向
+-- 漂移（离开者仍可见、加入者不可见）。服务层现在已在同一事务内维护投影；
+-- 本段修复**存量**漂移，幂等，可随基线重放反复执行。
+--
+-- 三段必须是三条独立语句：同一条 WITH 里的数据修改 CTE 共享同一快照，
+-- 后续聚合看不到前面的 INSERT / DELETE。
+-- ① 补齐缺失的 join / invite 投影行
+INSERT INTO room_summary_members (
+    room_id, user_id, display_name, avatar_url, membership, is_hero, last_active_ts, updated_ts, created_ts
+)
+SELECT
+    m.room_id,
+    m.user_id,
+    m.display_name,
+    m.avatar_url,
+    m.membership,
+    FALSE,
+    CASE WHEN m.membership = 'join' THEN m.joined_ts ELSE m.invited_ts END,
+    (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT,
+    COALESCE(m.joined_ts, m.invited_ts, m.updated_ts, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT)
+FROM room_memberships m
+WHERE m.membership IN ('join', 'invite')
+ON CONFLICT (room_id, user_id) DO NOTHING;
+
+-- ② 删除真实状态不是 join / invite 的投影行（leave / ban / knock / 已无成员记录）
+DELETE FROM room_summary_members rsm
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM room_memberships m
+    WHERE m.room_id = rsm.room_id
+      AND m.user_id = rsm.user_id
+      AND m.membership IN ('join', 'invite')
+);
+
+-- ③ 重算聚合计数；只更新实际漂移的房间，避免无谓写放大。
+UPDATE room_summaries rs
+SET
+    member_count = counts.member_count,
+    joined_member_count = counts.joined_member_count,
+    invited_member_count = counts.invited_member_count,
+    updated_ts = (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT
+FROM (
+    SELECT
+        rs2.room_id,
+        COALESCE(agg.member_count, 0)::BIGINT AS member_count,
+        COALESCE(agg.joined_member_count, 0)::BIGINT AS joined_member_count,
+        COALESCE(agg.invited_member_count, 0)::BIGINT AS invited_member_count
+    FROM room_summaries rs2
+    LEFT JOIN (
+        SELECT
+            room_id,
+            COUNT(*)::BIGINT AS member_count,
+            COUNT(*) FILTER (WHERE membership = 'join')::BIGINT AS joined_member_count,
+            COUNT(*) FILTER (WHERE membership = 'invite')::BIGINT AS invited_member_count
+        FROM room_summary_members
+        GROUP BY room_id
+    ) agg ON agg.room_id = rs2.room_id
+) AS counts
+WHERE rs.room_id = counts.room_id
+  AND (
+      rs.member_count IS DISTINCT FROM counts.member_count
+      OR rs.joined_member_count IS DISTINCT FROM counts.joined_member_count
+      OR rs.invited_member_count IS DISTINCT FROM counts.invited_member_count
+  );

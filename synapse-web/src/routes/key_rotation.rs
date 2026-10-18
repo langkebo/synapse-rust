@@ -1,4 +1,5 @@
 use crate::routes::context::DeviceContext;
+use crate::routes::MatrixJson;
 use crate::routes::{AdminUser, ApiError, AppState};
 use axum::{
     extract::{Path, State},
@@ -63,7 +64,7 @@ pub async fn get_key_rotation_status_post(
 pub async fn rotate_keys(
     State(ctx): State<DeviceContext>,
     _admin: AdminUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let requested_key_id = body.get("key_id").and_then(|v| v.as_str()).map(|s| s.to_string());
 
@@ -112,7 +113,7 @@ pub async fn get_rotation_history(
 pub async fn revoke_old_keys(
     State(ctx): State<DeviceContext>,
     _admin: AdminUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let key_id = body.get("key_id").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -143,7 +144,7 @@ pub async fn revoke_old_keys(
 pub async fn configure_key_rotation(
     State(ctx): State<DeviceContext>,
     admin_user: AdminUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let enabled = body.get("enabled").and_then(|v| v.as_bool());
     let interval_ms = body.get("interval_ms").and_then(|v| v.as_i64());
@@ -231,9 +232,9 @@ pub async fn configure_key_rotation(
 pub async fn configure_key_rotation_post(
     State(ctx): State<DeviceContext>,
     admin_user: AdminUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    configure_key_rotation(State(ctx), admin_user, Json(body)).await
+    configure_key_rotation(State(ctx), admin_user, MatrixJson(body)).await
 }
 
 /// See [`check_needs_rotation`].

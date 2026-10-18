@@ -1,5 +1,6 @@
 use crate::routes::context::MediaContext;
 use crate::routes::extractors::{MediaId, ServerName};
+use crate::routes::MatrixJson;
 use crate::AuthenticatedUser;
 use axum::{
     body::Bytes,
@@ -217,7 +218,7 @@ pub(crate) struct ChunkProgressQuery {
 pub(crate) async fn chunked_upload_start(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let filename = body.get("filename").and_then(|v| v.as_str());
     let content_type = body.get("content_type").and_then(|v| v.as_str());
@@ -289,7 +290,7 @@ pub(crate) async fn chunked_upload_chunk(
 pub(crate) async fn chunked_upload_complete(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let upload_id = body
         .get("upload_id")
@@ -309,7 +310,7 @@ pub(crate) async fn chunked_upload_complete(
 pub(crate) async fn chunked_upload_cancel(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let upload_id = body
         .get("upload_id")
@@ -357,7 +358,7 @@ pub(crate) async fn chunked_upload_progress(
 pub(crate) async fn create_upload_token(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<impl IntoResponse, ApiError> {
     let filename = body.get("filename").and_then(|v| v.as_str()).unwrap_or("upload");
     let content_type = body.get("content_type").and_then(|v| v.as_str()).unwrap_or("application/octet-stream");

@@ -1,4 +1,5 @@
 use crate::routes::context::AdminContext;
+use crate::routes::MatrixJson;
 use crate::routes::{AdminUser, AppState};
 use axum::{
     extract::{Query, State},
@@ -65,7 +66,7 @@ pub struct VerifyResponse {
 /// See [`send_captcha`].
 pub async fn send_captcha(
     State(ctx): State<AdminContext>,
-    Json(body): Json<SendCaptchaBody>,
+    MatrixJson(body): MatrixJson<SendCaptchaBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request =
         SendCaptchaRequest { captcha_type: body.captcha_type, target: body.target, template_name: body.template_name };
@@ -82,7 +83,7 @@ pub async fn send_captcha(
 /// See [`verify_captcha`].
 pub async fn verify_captcha(
     State(ctx): State<AdminContext>,
-    Json(body): Json<VerifyCaptchaBody>,
+    MatrixJson(body): MatrixJson<VerifyCaptchaBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = VerifyCaptchaRequest { captcha_id: body.captcha_id, code: body.code };
 

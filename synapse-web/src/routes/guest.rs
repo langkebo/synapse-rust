@@ -1,4 +1,5 @@
 use crate::routes::context::AuthContext;
+use crate::routes::MatrixJson;
 use crate::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::State,
@@ -50,7 +51,7 @@ pub struct UpgradeGuestRequest {
 pub async fn upgrade_guest(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<UpgradeGuestRequest>,
+    MatrixJson(body): MatrixJson<UpgradeGuestRequest>,
 ) -> Result<Json<Value>, ApiError> {
     body.validate().map_err(|e| ApiError::bad_request(format!("Validation error: {e}")))?;
 

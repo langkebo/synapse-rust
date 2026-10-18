@@ -1,6 +1,7 @@
 use super::audit::{record_audit_event, resolve_request_id};
 use crate::routes::context::AdminContext;
 use crate::routes::AdminUser;
+use crate::routes::MatrixJson;
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -117,7 +118,7 @@ pub async fn set_user_rate_limit(
     State(ctx): State<AdminContext>,
     Path(user_id): Path<UserId>,
     headers: HeaderMap,
-    Json(body): Json<RateLimitRequest>,
+    MatrixJson(body): MatrixJson<RateLimitRequest>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&ctx, &user_id).await?;
 
@@ -189,7 +190,7 @@ pub async fn set_user_override_rate_limit(
     State(ctx): State<AdminContext>,
     Path(user_id): Path<UserId>,
     headers: HeaderMap,
-    body: Json<RateLimitRequest>,
+    body: MatrixJson<RateLimitRequest>,
 ) -> Result<Json<Value>, ApiError> {
     set_user_rate_limit(admin, State(ctx), Path(user_id), headers, body).await
 }

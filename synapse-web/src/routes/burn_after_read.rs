@@ -3,6 +3,7 @@
 
 use crate::routes::context::RoomContext;
 use crate::routes::room_access::ensure_room_member_ctx;
+use crate::routes::MatrixJson;
 use crate::routes::{validators, ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::Path,
@@ -42,7 +43,7 @@ pub async fn enable_burn(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validators::validate_room_id(&room_id)?;
     let room_exists: bool = ctx
@@ -269,7 +270,7 @@ pub async fn cancel_burn(
 pub async fn set_global_burn_config(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let default_burn_ms = body
         .get("default_burn_ms")

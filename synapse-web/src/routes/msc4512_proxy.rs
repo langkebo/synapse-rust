@@ -46,6 +46,7 @@ use tracing::warn;
 
 use crate::middleware::federation_auth::{authenticate_federation_request, is_local_federation_destination};
 use crate::routes::context::FederationContext;
+use crate::routes::MatrixJson;
 use crate::routes::{AppState, AuthenticatedUser};
 
 /// The response body shared with the plain fallback in
@@ -224,7 +225,7 @@ fn strip_access_token(target: &str) -> String {
 pub async fn fed_proxy(
     State(state): State<AppState>,
     auth: AuthenticatedUser,
-    Json(payload): Json<Value>,
+    MatrixJson(payload): MatrixJson<Value>,
 ) -> Result<Response, ApiError> {
     let Some(as_id) = auth.appservice_id.as_deref() else {
         return Err(ApiError::forbidden("This endpoint is only available to application services"));

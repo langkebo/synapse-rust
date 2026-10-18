@@ -3087,7 +3087,7 @@ if [ -n "$ROOM_ID" ]; then
         CREATE_THREAD_RESP=$(curl -s -X POST "$SERVER_URL/_matrix/vendor/v1/rooms/$ROOM_ID/threads" \
             -H "Authorization: Bearer $TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"root_event_id\":\"$THREAD_ROOT_ID\",\"content\":{\"body\":\"integration thread\"}}")
+            -d "{\"root_event_id\":\"$THREAD_ROOT_ID\"}")
         THREAD_ID=$(echo "$CREATE_THREAD_RESP" | grep -o '"thread_id":"[^"]*"' | cut -d'"' -f4)
         if [ -n "$THREAD_ID" ]; then
             THREAD_REPLY_ID="\$thread_reply_$(date +%s%N 2>/dev/null || date +%s)"

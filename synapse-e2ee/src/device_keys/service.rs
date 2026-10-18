@@ -39,6 +39,31 @@ pub struct DeviceKeyService {
     cache: Arc<CacheManager>,
 }
 
+/// Narrow capability used by the auth layer when a device row is deleted.
+///
+/// Defined here rather than in `synapse-services` so `DeviceKeyService` can
+/// implement it without the e2ee crate depending on the service layer. The auth
+/// service holds it as an optional late-bound dependency; tests and
+/// pre-wiring builds leave it unset, so deletion keeps working unchanged.
+#[async_trait::async_trait]
+pub trait DeviceKeyPurger: Send + Sync {
+    /// Remove every key stored for a deleted device.
+    async fn purge_device_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError>;
+    /// Remove every key stored for all devices of a deleted/deactivated user.
+    async fn purge_all_device_keys(&self, user_id: &str) -> Result<(), ApiError>;
+}
+
+#[async_trait::async_trait]
+impl DeviceKeyPurger for DeviceKeyService {
+    async fn purge_device_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
+        DeviceKeyService::purge_device_keys(self, user_id, device_id).await
+    }
+
+    async fn purge_all_device_keys(&self, user_id: &str) -> Result<(), ApiError> {
+        DeviceKeyService::purge_all_device_keys(self, user_id).await
+    }
+}
+
 /// Implementation of [`DeviceKeyService`] methods.
 impl DeviceKeyService {
     /// See [`new`].
@@ -631,6 +656,30 @@ impl DeviceKeyService {
         // device they can still see (D-07). The delete itself is idempotent, so a retry is safe.
         self.storage.record_device_list_change(user_id, Some(device_id), "deleted").await?;
 
+        Ok(())
+    }
+
+    /// Remove every key stored for a device **without** recording a device-list
+    /// change.
+    ///
+    /// Device deletion already appends the `deleted` entry through the device
+    /// storage, so repeating it here would duplicate the change. The key removal
+    /// itself cannot be skipped: `device_keys` has no foreign key to `devices`,
+    /// so surviving rows keep the deleted device visible to `/keys/query` and
+    /// usable by `/keys/claim` — a ghost device peers can still build Olm
+    /// sessions with (B-4).
+    pub async fn purge_device_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
+        self.storage.delete_device_keys(user_id, device_id).await?;
+        self.cache.delete(&format!("device_keys:{user_id}:{device_id}")).await;
+        Ok(())
+    }
+
+    /// Remove the keys of every device owned by `user_id`, without recording
+    /// device-list changes (see [`Self::purge_device_keys`]).
+    pub async fn purge_all_device_keys(&self, user_id: &str) -> Result<(), ApiError> {
+        for device_id in self.storage.list_device_ids(user_id).await? {
+            self.purge_device_keys(user_id, &device_id).await?;
+        }
         Ok(())
     }
 

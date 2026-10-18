@@ -23,21 +23,25 @@
 # 2026-10-17：三处整体 +3 —— `a3664aca7` 在 `app_service.rs` 上方插入了代码，
 # 站点从 646/665/684 漂到 649/668/687（本文件头部已写明：行号漂移要在同一提交里跟改，
 # 这是设计好的信号，不是噪声）。
-app_service.rs:649
-app_service.rs:668
-app_service.rs:687
+#
+# 2026-10-18：I-02 把裸 `Json<T>` 换成 `MatrixJson<T>`（app_service/sticky_event/
+# tags/voip 各多一行 `use`），九处站点整体 +1：649/668/687 → 650/669/688，
+# 191/209 → 192/210，105/119 → 106/120，246/307 → 247/308。
+app_service.rs:650
+app_service.rs:669
+app_service.rs:688
 
 # Sticky event routes (storage mutation ACK)
-sticky_event.rs:191
-sticky_event.rs:209
+sticky_event.rs:192
+sticky_event.rs:210
 
 # Room tag routes (state mutation ACK)
-tags.rs:105
-tags.rs:119
+tags.rs:106
+tags.rs:120
 
 # VoIP routes (signalling ACK)
-voip.rs:246
-voip.rs:307
+voip.rs:247
+voip.rs:308
 
 # E2EE routes (real ACK after persisted send-to-device, cross-signing, or
 # key-request cancellation)

@@ -1,5 +1,6 @@
 use crate::routes::context::AdminContext;
 use crate::routes::AdminUser;
+use crate::routes::MatrixJson;
 use axum::{
     extract::{Path, Query, State},
     routing::{delete, get, post},
@@ -113,7 +114,7 @@ pub async fn get_registration_tokens(
 pub async fn create_registration_token(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Json(body): Json<CreateTokenRequest>,
+    MatrixJson(body): MatrixJson<CreateTokenRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let token = body.token.unwrap_or_else(|| synapse_common::random_string(body.length.unwrap_or(16)));
     let max_uses = body.uses_allowed.unwrap_or(0);
@@ -172,7 +173,7 @@ pub async fn update_registration_token(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(token): Path<String>,
-    Json(body): Json<UpdateTokenRequest>,
+    MatrixJson(body): MatrixJson<UpdateTokenRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let row = ctx.admin_token_service.update_registration_token(&token, body.uses_allowed, body.expiry_time).await?;
 

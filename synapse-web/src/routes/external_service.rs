@@ -10,6 +10,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+use crate::routes::MatrixJson;
 use crate::routes::{AdminUser, AppState, AuthenticatedUser};
 use crate::utils::auth::resolve_request_id;
 use synapse_common::ApiError;
@@ -75,14 +76,33 @@ pub struct ExternalServiceResponse {
     pub created_ts: i64,
 }
 
+/// Service types whose names already contain an underscore. They must be
+/// matched before falling back to a first-underscore split, otherwise an
+/// `as_id` such as `generic_webhook_news-bot` is parsed as type `generic`.
+const UNDERSCOPED_SERVICE_TYPES: [&str; 5] =
+    ["generic_webhook", "discord_bridge", "slack_bridge", "irc_bridge", "custom"];
+
+/// Split an application service `as_id` into `(service_type, service_id)`.
+fn split_as_id(as_id: &str) -> (String, String) {
+    for service_type in UNDERSCOPED_SERVICE_TYPES {
+        if let Some(service_id) =
+            as_id.strip_prefix(service_type).and_then(|rest| rest.strip_prefix('_')).filter(|rest| !rest.is_empty())
+        {
+            return (service_type.to_string(), service_id.to_string());
+        }
+    }
+
+    match as_id.split_once('_') {
+        Some((service_type, service_id)) if !service_id.is_empty() => {
+            (service_type.to_string(), service_id.to_string())
+        }
+        _ => ("unknown".to_string(), as_id.to_string()),
+    }
+}
+
 impl From<synapse_services::application_service::ApplicationService> for ExternalServiceResponse {
     fn from(svc: synapse_services::application_service::ApplicationService) -> Self {
-        let parts: Vec<&str> = svc.as_id.splitn(2, '_').collect();
-        let (service_type, service_id) = if parts.len() == 2 {
-            (parts[0].to_string(), parts[1].to_string())
-        } else {
-            ("unknown".to_string(), svc.as_id.clone())
-        };
+        let (service_type, service_id) = split_as_id(&svc.as_id);
 
         Self {
             as_id: svc.as_id.clone(),
@@ -158,7 +178,7 @@ pub async fn register_external_service(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     _admin: AdminUser,
-    Json(body): Json<RegisterExternalServiceBody>,
+    MatrixJson(body): MatrixJson<RegisterExternalServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let service_type = parse_service_type(&body.service_type)?;
 
@@ -263,7 +283,7 @@ pub async fn update_external_service(
     Path(as_id): Path<String>,
     headers: HeaderMap,
     _admin: AdminUser,
-    Json(body): Json<UpdateExternalServiceBody>,
+    MatrixJson(body): MatrixJson<UpdateExternalServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let integration = external_service_integration(&ctx);
 
@@ -291,7 +311,7 @@ pub async fn handle_generic_webhook(
     State(ctx): State<AdminContext>,
     Path(service_id): Path<String>,
     headers: HeaderMap,
-    Json(payload): Json<WebhookPayload>,
+    MatrixJson(payload): MatrixJson<WebhookPayload>,
 ) -> Result<impl IntoResponse, ApiError> {
     let integration = external_service_integration(&ctx);
 
@@ -329,7 +349,7 @@ pub async fn client_update_external_service(
     headers: HeaderMap,
     _admin: AdminUser,
     Path(service_id): Path<String>,
-    Json(body): Json<UpdateExternalServiceBody>,
+    MatrixJson(body): MatrixJson<UpdateExternalServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let integration = external_service_integration(&ctx);
 

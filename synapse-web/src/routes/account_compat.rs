@@ -197,7 +197,7 @@ pub(crate) async fn update_displayname(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
     Path(user_id): Path<UserId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
     let user_id = user_id.as_str();
@@ -229,7 +229,7 @@ pub(crate) async fn update_avatar(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
     Path(user_id): Path<UserId>,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
     let user_id = user_id.as_str();
@@ -302,7 +302,7 @@ pub(crate) async fn change_password_uia(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
     auth_user: OptionalAuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<axum::response::Response, ApiError> {
     let request_id = resolve_request_id(&headers);
     let new_password = body
@@ -482,7 +482,7 @@ pub(crate) async fn request_password_email_verification(
 pub(crate) async fn deactivate_account(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<axum::response::Response, ApiError> {
     let auth = body.get("auth");
     if let Err(uia_response) = ctx
@@ -548,7 +548,7 @@ pub(crate) async fn add_threepid(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Json(body): Json<Value>,
+    MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     let user_id = &auth_user.user_id;
@@ -717,7 +717,7 @@ pub(crate) struct DeleteThreepidRequest {
 pub(crate) async fn delete_threepid(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<DeleteThreepidRequest>,
+    MatrixJson(body): MatrixJson<DeleteThreepidRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
 
@@ -730,7 +730,7 @@ pub(crate) async fn delete_threepid(
 pub(crate) async fn unbind_threepid(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<DeleteThreepidRequest>,
+    MatrixJson(body): MatrixJson<DeleteThreepidRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
 

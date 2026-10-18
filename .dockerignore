@@ -68,6 +68,10 @@ docker/obs_*
 # deploy/ 里除 scripts/ 外都是运行时数据, 其中 backups/ 就有 38MB
 # [P0-3] 新增：deploy/ssl/ 含 TLS 私钥，必须排除出构建上下文
 docker/deploy/backups/
+# PostgreSQL WAL 归档目录会随运行时间无限增长（实测 11GB）。
+# 它不是构建产物，但未排除时每次 docker build 都要把它整个推给 daemon，
+# 构建上下文从 ~200MB 膨胀到 10GB+，上下文传输要花十几分钟。
+docker/deploy/wal_archive/
 docker/deploy/logs/
 docker/deploy/media/
 docker/deploy/ssl/

@@ -7,6 +7,7 @@ use crate::routes::context::RoomContext;
 use crate::routes::extractors::MediaId;
 use crate::routes::extractors::RoomId;
 use crate::routes::extractors::UserId;
+use crate::routes::MatrixJson;
 use axum::{
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
     routing::{get, post},
@@ -386,7 +387,7 @@ async fn transcribe_voice_message(
 async fn register_encrypted_voice(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Json(req): Json<RegisterEncryptedVoiceRequest>,
+    MatrixJson(req): MatrixJson<RegisterEncryptedVoiceRequest>,
 ) -> Result<Json<Value>, ApiError> {
     // Validate room_id from request body
     let room_id = req.room_id.as_ref().ok_or_else(|| ApiError::bad_request("room_id is required".to_string()))?;

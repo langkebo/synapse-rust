@@ -94,8 +94,8 @@ impl NamespaceCache {
         let cache = Cache::builder()
             .max_capacity(max_capacity)
             .time_to_live(std::time::Duration::from_secs(ttl_secs))
-            .eviction_listener(move |key: Arc<String>, _value, _cause| {
-                deadlines_for_listener.write().remove(key.as_str());
+            .eviction_listener(move |key: Arc<String>, _value, cause| {
+                drop_deadline_unless_replaced(&deadlines_for_listener, key.as_str(), &cause);
             })
             .build();
         Self { cache, deadlines }
@@ -110,9 +110,9 @@ impl LocalCache {
         let cache = Cache::builder()
             .max_capacity(config.max_capacity)
             .time_to_live(std::time::Duration::from_secs(config.time_to_live))
-            // 容量驱逐时同步清理 deadline，避免旁路表泄漏
-            .eviction_listener(move |key: Arc<String>, _value, _cause| {
-                deadlines_for_listener.write().remove(key.as_str());
+            // 容量/过期驱逐时同步清理 deadline，避免旁路表泄漏
+            .eviction_listener(move |key: Arc<String>, _value, cause| {
+                drop_deadline_unless_replaced(&deadlines_for_listener, key.as_str(), &cause);
             })
             .build();
 
@@ -178,6 +178,29 @@ impl LocalCache {
         self.cache.insert(key.to_string(), value.to_string());
     }
 
+    /// Increments a decimal counter, installing `ttl` **only when the key is
+    /// created**, and returns the new value.
+    ///
+    /// Why "only when created" matters: a failure counter whose TTL is refreshed
+    /// on every increment is a *sliding* window. For login lockout that turns
+    /// into an unbounded lock — an attacker who keeps re-attempting just before
+    /// expiry holds the victim's account (or the whole NAT egress IP) locked for
+    /// as long as it keeps trying, even though the configured duration is 300 s.
+    /// Here the window starts at the first failure and is never extended, so the
+    /// lock always lifts on its own.
+    ///
+    /// The count is stored as a decimal string so it shares the same
+    /// namespace/deadline machinery as every other L1 entry.
+    pub fn increment_counter(&self, key: &str, ttl: std::time::Duration) -> u64 {
+        let now = std::time::Instant::now();
+        if let Some(ns_name) = route_key(key) {
+            if let Some(ns) = self.namespaces.get(ns_name) {
+                return increment_with_fixed_window(&ns.cache, &ns.deadlines, key, ttl, now);
+            }
+        }
+        increment_with_fixed_window(&self.cache, &self.deadlines, key, ttl, now)
+    }
+
     /// Retrieves the raw string value stored under `key`, returning `None` if absent or expired.
     pub fn get_raw(&self, key: &str) -> Option<String> {
         // D-2: 路由到独立命名空间缓存（如有）
@@ -220,4 +243,45 @@ impl LocalCache {
         self.deadlines.write().remove(token);
         self.cache.remove(token);
     }
+}
+
+/// 驱逐回调的 deadline 清理：**跳过 `Replaced`**。
+///
+/// `RemovalCause::Replaced` 表示"条目没被移除，只是值被覆盖"——moka 同样会回调。
+/// 在此删掉 deadline 会让 per-key TTL 静默失效：后续读回落回 builder 级 TTL
+/// （`CacheConfig::time_to_live`，默认 **7200 秒**）。
+///
+/// 这正是"用户名/IP 永久锁"的真正成因：登录锁定第一轮写入 300 秒的 deadline，
+/// 第二次失败覆盖计数时回调把 deadline 删了 ⇒ L1 认为该键永不过期，
+/// 于是 300 秒的锁定在进程内实际持续 2 小时（且每次失败都重新开始）。
+fn drop_deadline_unless_replaced(
+    deadlines: &parking_lot::RwLock<HashMap<String, std::time::Instant>>,
+    key: &str,
+    cause: &moka::notification::RemovalCause,
+) {
+    if !matches!(cause, moka::notification::RemovalCause::Replaced) {
+        deadlines.write().remove(key);
+    }
+}
+
+/// Fixed-window counter body shared by the generic cache and every namespace.
+///
+/// A live deadline means the current window is still open: add one and keep the
+/// existing deadline. No (or expired) deadline means a new window starts now.
+fn increment_with_fixed_window(
+    cache: &Cache<String, String>,
+    deadlines: &parking_lot::RwLock<HashMap<String, std::time::Instant>>,
+    key: &str,
+    ttl: std::time::Duration,
+    now: std::time::Instant,
+) -> u64 {
+    // The read guard must be dropped before taking the write guard below.
+    let window_open = deadlines.read().get(key).is_some_and(|deadline| *deadline > now);
+    let current: u64 = if window_open { cache.get(key).and_then(|value| value.parse().ok()).unwrap_or(0) } else { 0 };
+    let next = current.saturating_add(1);
+    if !window_open {
+        deadlines.write().insert(key.to_string(), now + ttl);
+    }
+    cache.insert(key.to_string(), next.to_string());
+    next
 }

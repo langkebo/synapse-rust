@@ -50,8 +50,8 @@ impl AuthService {
             .await
             .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
-        // P-007 fix: Matrix spec requires HTTP 401 + M_FORBIDDEN for invalid
-        // credentials (wrong password or unknown user).
+        // Matrix spec (login.yaml) requires HTTP 403 + M_FORBIDDEN when the
+        // login attempt fails (wrong password or unknown user).
         let invalid = || ApiError::invalid_credentials();
 
         let (password_hash_owned, user_for_success) = match user_opt.as_ref() {
