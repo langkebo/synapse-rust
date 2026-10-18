@@ -174,6 +174,12 @@ pub(crate) async fn send_to_device(
         }
     }
 
+    // B-8：to-device 反滥用限流。
+    // 这里**只限流、不拒绝通道**：to-device 是 SAS 验证 / 房间密钥分发的必经通道，
+    // 直接拒绝会打断正常端到端加密。但此前它完全没有任何速率约束 ——
+    // 任意登录用户都能对任意用户任意设备无限投递（探测在线、灌垃圾、放大型骚扰）。
+    enforce_to_device_rate_limit(&ctx, &auth_user.user_id, messages).await?;
+
     ctx.to_device_service
         .send_messages(&auth_user.user_id, sender_device_id, &event_type, Some(&transaction_id), messages)
         .await?;
@@ -417,6 +423,116 @@ pub(crate) fn serialize_room_key_request(request: synapse_e2ee::key_request::Key
         "fulfilled_by_device": request.fulfilled_by_device,
         "fulfilled_ts": request.fulfilled_ts,
     })
+}
+
+// ── B-8：to-device 反滥用限流 ────────────────────────────────────────────────
+
+/// 与接收方**共享房间**时的速率：每个 (发送方, 接收方) 每秒 2 个、突发 40。
+///
+/// 共享房间意味着双方本来就能互发房间事件，to-device 只是加密协商的辅助通道，
+/// 正常验证流程只有个位数消息，40 的突发已经非常宽松。
+const TO_DEVICE_TRUSTED_RATE_PER_SEC: u32 = 2;
+/// 共享房间时的突发容量。
+const TO_DEVICE_TRUSTED_BURST: u32 = 40;
+
+/// **无**共享房间时的速率：每秒 1 个、突发 5。
+///
+/// 这里刻意压得很紧：没有共享房间的 to-device 只有两种合理来源 ——
+/// 好友关系的验证流程，或刚被邀请进房前的密钥协商。两者都不需要高频。
+/// 攻击者用它探测在线状态 / 灌垃圾时，这个上限会把成本抬起来。
+const TO_DEVICE_UNTRUSTED_RATE_PER_SEC: u32 = 1;
+/// 无共享房间时的突发容量。
+const TO_DEVICE_UNTRUSTED_BURST: u32 = 5;
+
+/// 每个发送方一枚总桶：防止「换着 recipient 发」绕过上面的单对限流。
+const TO_DEVICE_SENDER_RATE_PER_SEC: u32 = 5;
+/// 单个发送方的突发容量。
+const TO_DEVICE_SENDER_BURST: u32 = 100;
+
+/// 取一个令牌；`Ok(false)` 表示桶已空。
+async fn take_to_device_token(
+    ctx: &DeviceContext,
+    key: &str,
+    rate_per_second: u32,
+    burst: u32,
+) -> Result<bool, ApiError> {
+    match ctx.cache.rate_limit_token_bucket_take(key, rate_per_second, burst).await {
+        Ok(decision) => Ok(decision.allowed),
+        Err(e) => {
+            // 限流后端故障时**放行**，但必须留痕：to-device 承载 E2EE 协商，
+            // 这里 fail-closed 会让「缓存挂掉」升级成「加密彻底不可用」。
+            tracing::warn!(
+                target: "security_audit",
+                event = "to_device_rate_limit_unavailable",
+                error = %e,
+                "to-device rate limiter unavailable, allowing the batch"
+            );
+            Ok(true)
+        }
+    }
+}
+
+/// 对一批 to-device 消息做限流。
+///
+/// 计费单位是 **(发送方, 接收用户)**，不是设备：给同一用户的 5 台设备群发算一次。
+async fn enforce_to_device_rate_limit(
+    ctx: &DeviceContext,
+    sender_user_id: &str,
+    messages: &Value,
+) -> Result<(), ApiError> {
+    let Some(msg_obj) = messages.as_object() else {
+        return Ok(());
+    };
+    let recipients: Vec<String> = msg_obj.keys().cloned().collect();
+    if recipients.is_empty() {
+        return Ok(());
+    }
+
+    let prefix = ctx.config.redis.key_prefix.as_str();
+
+    // 1) 每发送方的总桶：挡住「换 recipient」的扇出攻击
+    let sender_key = format!("{prefix}to_device_rl:sender:{sender_user_id}");
+    if !take_to_device_token(ctx, &sender_key, TO_DEVICE_SENDER_RATE_PER_SEC, TO_DEVICE_SENDER_BURST).await? {
+        tracing::warn!(
+            target: "security_audit",
+            event = "to_device_sender_rate_limited",
+            sender_user_id = %sender_user_id,
+            recipient_count = recipients.len(),
+            "to-device batch rejected by the per-sender rate limit"
+        );
+        return Err(ApiError::rate_limited("Too many to-device messages".to_string()));
+    }
+
+    // 2) 关系判定：共享房间 = 可信；其余按低频处理。
+    //    `filter_users_with_shared_rooms` 是 fail-closed 的（查询失败只保留自己），
+    //    所以后端抖动时会把所有人降级到低频档 —— 是收紧而不是放开。
+    let shared = filter_users_with_shared_rooms(&ctx.room_service, sender_user_id, &recipients).await;
+
+    for recipient in &recipients {
+        let trusted = shared.contains(recipient);
+        let (rate, burst) = if trusted {
+            (TO_DEVICE_TRUSTED_RATE_PER_SEC, TO_DEVICE_TRUSTED_BURST)
+        } else {
+            (TO_DEVICE_UNTRUSTED_RATE_PER_SEC, TO_DEVICE_UNTRUSTED_BURST)
+        };
+
+        let key = format!("{prefix}to_device_rl:{sender_user_id}:{recipient}");
+        if !take_to_device_token(ctx, &key, rate, burst).await? {
+            // 只有低频档被限才记审计：共享房间之间的正常协商不值得每次刷审计日志。
+            if !trusted {
+                tracing::warn!(
+                    target: "security_audit",
+                    event = "to_device_untrusted_recipient_rate_limited",
+                    sender_user_id = %sender_user_id,
+                    recipient_user_id = %recipient,
+                    "to-device to a non-shared-room user rejected by rate limit"
+                );
+            }
+            return Err(ApiError::rate_limited("Too many to-device messages".to_string()));
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
