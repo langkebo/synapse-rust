@@ -684,6 +684,7 @@ promtool
 prost
 prs
 psycopg
+publicrooms
 purgetimer
 pushdevice
 pushgateway
@@ -753,6 +754,7 @@ repo
 reportroom
 req
 requestbody
+requestknown
 requesttoken
 reqwest
 resolved
@@ -829,6 +831,7 @@ securenoncegenerator
 sed
 semver
 sendemail
+sendtodevice
 ser
 serde
 servercapabilities
