@@ -195,6 +195,16 @@ impl FriendRoomService {
         self.friend_storage.is_friend(&friend_room, target_id).await.map_err(FriendRoomError::Database)
     }
 
+    /// `owner_id` 是否拉黑了 `other_id`（单向）。
+    ///
+    /// 只读路径，不会为了查询顺手建好友房 —— 见
+    /// [`crate::friend_room_service::blocked_relation::is_blocked_by`]。
+    pub async fn is_blocked_by(&self, owner_id: &str, other_id: &str) -> Result<bool, FriendRoomError> {
+        crate::friend_room_service::blocked_relation::is_blocked_by(self.friend_storage.as_ref(), owner_id, other_id)
+            .await
+            .map_err(FriendRoomError::Database)
+    }
+
     /// 获取好友推荐
     pub async fn get_friend_suggestions(
         &self,

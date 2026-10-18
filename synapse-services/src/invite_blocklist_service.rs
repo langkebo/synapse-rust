@@ -38,6 +38,8 @@ pub const METRIC_INVITE_ALLOWED_GLOBAL_ALLOW: &str = "invite_allowed_global_allo
 pub const METRIC_INVITE_REJECTED_ACCOUNT_POLICY: &str = "invite_rejected_account_policy";
 /// Counter for invites rejected by the invitee's ignore list (MSC3873).
 pub const METRIC_INVITE_REJECTED_IGNORE: &str = "invite_rejected_ignore";
+/// Counter for invites rejected because the invitee has **blocked** the inviter.
+pub const METRIC_INVITE_REJECTED_BLOCKED: &str = "invite_rejected_blocked";
 /// Counter for invites that could not be evaluated due to a storage error.
 pub const METRIC_INVITE_EVAL_ERROR: &str = "invite_eval_error";
 
@@ -70,6 +72,22 @@ fn is_valid_matrix_user_id(user_id: &str) -> bool {
     let local_ok = localpart.chars().all(|c| c.is_ascii_alphanumeric() || "._=+/-".contains(c));
     let server_ok = server_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
     local_ok && server_ok
+}
+
+/// 判定「拉黑」关系的抽象（B-3）。
+///
+/// `blocked` 的真值存在**拉黑方**自己的好友状态里（`m.friends.list` 的
+/// `friends[].status = "blocked"`），所以这里必须按方向问：
+/// `has_blocked(owner, other)` = "owner 是否拉黑了 other"。
+///
+/// 为什么用 trait 而不是直接抓 `FriendRoomService`：
+/// 1. `InviteBlocklistService` 在 container 里比 friends 服务更早构造，反向往回依赖会成环；
+/// 2. `friends` 是可选特性，核心构建里根本没有好友服务；
+/// 3. 单测需要不依赖 PG 的替身。
+#[async_trait::async_trait]
+pub trait BlockedRelationChecker: Send + Sync {
+    /// `owner_id` 是否拉黑了 `other_id`。
+    async fn has_blocked(&self, owner_id: &str, other_id: &str) -> ApiResult<bool>;
 }
 
 /// The invite-policy gate the membership layer enforces.
@@ -110,12 +128,26 @@ pub struct InviteBlocklistService {
     /// skip the global server-wide blocklist/allowlist check.
     /// This implements the opt-out model for DM rooms.
     dm_rooms_bypass_global_policy: bool,
+    /// 可选的好友「拉黑」判定（B-3）。缺失时该层不生效（`friends` 特性关闭的构建）。
+    blocked_relation_checker: Option<Arc<dyn BlockedRelationChecker>>,
 }
 
 impl InviteBlocklistService {
     /// See [`new`].
     pub fn new(storage: Arc<InviteBlocklistStorage>, account_data_store: Arc<dyn AccountDataStoreApi>) -> Self {
-        Self { storage, account_data_store, metrics: None, dm_rooms_bypass_global_policy: false }
+        Self {
+            storage,
+            account_data_store,
+            metrics: None,
+            dm_rooms_bypass_global_policy: false,
+            blocked_relation_checker: None,
+        }
+    }
+
+    /// 挂上好友「拉黑」判定（B-3）。未挂时该层不生效——核心构建（无 `friends`）就是这样。
+    pub fn with_blocked_relation_checker(mut self, checker: Arc<dyn BlockedRelationChecker>) -> Self {
+        self.blocked_relation_checker = Some(checker);
+        self
     }
 
     /// Attach a metrics collector for recording invite rejection counters.
@@ -435,6 +467,29 @@ impl InvitePolicyGate for InviteBlocklistService {
                 "Invite rejected by the invitee's ignore list (MSC3873)"
             );
             return Err(ApiError::forbidden("This user is ignoring you".to_string()));
+        }
+
+        // B-3：好友「拉黑」必须真的拦人。
+        // 之前 `blocked` 只是 `m.friends.list` 里的一个标签，不进任何准入判断 ——
+        // A 拉黑 B 之后，B 照样能把 A 拉进房间。
+        //
+        // 方向刻意与 ignore 一致（单向）：只看「被邀请人是否拉黑了邀请人」。
+        // 拉黑方自己仍可以邀请对方（它随时可以取消拉黑），这样不会把拉黑变成不可逆。
+        if let Some(checker) = self.blocked_relation_checker.as_ref() {
+            let blocked = checker
+                .has_blocked(invitee_id, inviter_id)
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to evaluate friend block status", e))?;
+            if blocked {
+                self.inc_counter(METRIC_INVITE_REJECTED_BLOCKED);
+                ::tracing::warn!(
+                    room_id = %room_id,
+                    inviter_id = %inviter_id,
+                    invitee_id = %invitee_id,
+                    "Invite rejected because the invitee has blocked the inviter"
+                );
+                return Err(ApiError::forbidden("This user is blocked by the invitee".to_string()));
+            }
         }
 
         Ok(())

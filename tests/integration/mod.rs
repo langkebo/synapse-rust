@@ -28,6 +28,7 @@ mod api_federation_join_key_fetch_priority_tests;
 mod api_federation_key_fetch_limits_tests;
 mod api_federation_tests;
 mod api_federation_transaction_tests;
+mod api_friend_blocked_admission_tests;
 mod api_history_visibility_tests;
 mod api_input_validation_tests;
 mod api_invite_blocklist_e2e_tests;

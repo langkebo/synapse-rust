@@ -308,14 +308,26 @@ impl ServiceContainer {
         // rooms phase consumes the same `Arc` as its invite enforcement gate.
         // The MSC4155 policy is account data, so the gate reads it through the
         // account-data storage rather than the user store.
-        let invite_blocklist_service = Arc::new(
-            crate::invite_blocklist_service::InviteBlocklistService::new(
-                invite_blocklist_storage,
-                Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool)),
-            )
-            .with_metrics(metrics.clone())
-            .with_dm_rooms_bypass_global_policy(true),
-        );
+        // B-3：把好友「拉黑」接进入邀请门禁。
+        // 只在 friends 特性下挂：核心构建根本没有好友状态表，此时该层不生效（也不会误拒）。
+        #[cfg(feature = "friends")]
+        let blocked_relation_checker: Option<Arc<dyn crate::invite_blocklist_service::BlockedRelationChecker>> =
+            Some(Arc::new(crate::friend_room_service::blocked_relation::FriendStatusBlockedRelationChecker::new(
+                Arc::new(synapse_storage::friend_room::FriendRoomStorage::new(pool.clone())),
+            )));
+        #[cfg(not(feature = "friends"))]
+        let blocked_relation_checker: Option<Arc<dyn crate::invite_blocklist_service::BlockedRelationChecker>> = None;
+
+        let mut invite_blocklist_service = crate::invite_blocklist_service::InviteBlocklistService::new(
+            invite_blocklist_storage,
+            Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool)),
+        )
+        .with_metrics(metrics.clone())
+        .with_dm_rooms_bypass_global_policy(true);
+        if let Some(checker) = blocked_relation_checker {
+            invite_blocklist_service = invite_blocklist_service.with_blocked_relation_checker(checker);
+        }
+        let invite_blocklist_service = Arc::new(invite_blocklist_service);
         let sticky_event_storage: Arc<synapse_storage::sticky_event::StickyEventStorage> =
             Arc::new(StickyEventStorage::new(pool.clone()));
 

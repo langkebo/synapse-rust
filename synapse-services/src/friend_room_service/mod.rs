@@ -1,3 +1,5 @@
+/// B-3：好友「拉黑」判定（单向），供邀请门禁与好友请求/建 DM 共用。
+pub mod blocked_relation;
 /// Domain error types for friend room.
 pub mod error;
 /// The `groups` module.
@@ -206,6 +208,12 @@ impl FriendRoomService {
         let sender_friend_room = self.create_friend_list_room(sender_id).await?;
         if self.friend_storage.is_friend(&sender_friend_room, receiver_id).await? {
             return Err(FriendRoomError::FriendshipConflict(format!("User {receiver_id} is already your friend")));
+        }
+
+        // B-3：被拉黑方不能发好友请求。
+        // `blocked` 以前只是标签，谁都不看 —— 于是 A 拉黑 B 之后 B 仍能继续骚扰。
+        if self.is_blocked_by(receiver_id, sender_id).await? {
+            return Err(FriendRoomError::NotAuthorized("You are blocked by this user".to_string()));
         }
 
         if self.friend_storage.has_any_pending_request(sender_id, receiver_id).await? {
@@ -862,6 +870,12 @@ impl FriendRoomService {
         config: FriendRoomCreateRoomConfig,
         actor_user_id: Option<&str>,
     ) -> Result<EnsureDirectRoomResult, FriendRoomError> {
+        // B-3：被拉黑方不能拉人建 DM。
+        // 放在「查已有房间」之前：否则对方只要曾经有过 DM，就能靠复用拿到 room_id。
+        if self.is_blocked_by(friend_user_id, owner_user_id).await? {
+            return Err(FriendRoomError::NotAuthorized("You are blocked by this user".to_string()));
+        }
+
         if let Some(room_id) = self.get_existing_dm_room_id(owner_user_id, friend_user_id).await? {
             // Defensive join: if either user is only "invite" (not yet joined), auto-join.
             // This covers rooms created before the P0 fix and edge cases where the
