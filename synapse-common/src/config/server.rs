@@ -626,6 +626,25 @@ fn default_event_notifier_idle_timeout_secs() -> u64 {
 }
 
 impl ServerConfig {
+    /// 本部署是否**由服务端持有房间密钥**（B-7）。
+    ///
+    /// 只要 `megolm_device_id` 配了非空值，`MegolmProvider` 就会以该设备身份
+    /// encrypt/decrypt 房间事件 —— 服务端从此能读**所有**加密房间的内容，
+    /// 端到端加密对该部署不再成立。
+    ///
+    /// 这是全仓唯一判据：`/health`、`/_matrix/client/v3/capabilities` 与启动日志
+    /// 都必须读它，否则三处会各自漂移出不同答案。
+    ///
+    /// 空串与 `"none"` 视为**未启用**：配置模板里写 `megolm_device_id: ""` 是很常见的
+    /// 「留空」写法，把它当成启用会让运维在毫无预期的情况下关掉 E2EE 承诺。
+    #[must_use]
+    pub fn server_holds_room_keys(&self) -> bool {
+        self.megolm_device_id.as_deref().is_some_and(|id| {
+            let id = id.trim();
+            !id.is_empty() && !id.eq_ignore_ascii_case("none")
+        })
+    }
+
     /// 获取服务器名称。
     ///
     /// 优先使用 `server_name` 字段，如果不存在则使用 `name` 字段。
@@ -676,6 +695,21 @@ mod tests {
     #[test]
     fn megolm_device_id_defaults_to_none_so_the_rotation_executor_stays_off() {
         assert_eq!(make_config().megolm_device_id, None);
+    }
+
+    /// B-7：`server_holds_room_keys()` 是全仓唯一判据，边界必须钉死。
+    #[test]
+    fn server_holds_room_keys_covers_the_blank_and_none_spellings() {
+        let mut config = make_config();
+        assert!(!config.server_holds_room_keys(), "默认不持有");
+
+        config.megolm_device_id = Some("SERVER_MEGOLM".into());
+        assert!(config.server_holds_room_keys(), "真设备号 = 持有");
+
+        for blank in ["", "   ", "none", "NONE", "None"] {
+            config.megolm_device_id = Some(blank.into());
+            assert!(!config.server_holds_room_keys(), "空白 / none 是「留空」写法，不能当成启用（实测值: {blank:?}）");
+        }
     }
 
     #[test]

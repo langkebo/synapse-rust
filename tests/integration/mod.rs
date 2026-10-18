@@ -39,6 +39,7 @@ mod api_megolm_rotation_tests;
 mod api_msc3912_redaction_cascade_tests;
 mod api_placeholder_contract_p0_tests;
 mod api_placeholder_contract_p1p2_tests;
+mod api_privacy_posture_tests;
 mod api_profile_tests;
 mod api_protocol_alignment_tests;
 mod api_public_rooms_tests;

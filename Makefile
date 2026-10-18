@@ -199,6 +199,12 @@ route-lint:
 	@echo "Checking route layering..."
 	@bash scripts/quality/check_route_layering.sh
 
+# 部署隐私门禁（B-7）：仓库内任何部署配置都不得启用服务端 megolm。
+# 启用后服务端持有房间密钥、可读所有加密房间，E2EE 承诺不再成立。
+check-deploy-privacy:
+	@echo "Checking that no deployment config enables server-side Megolm..."
+	@bash scripts/check_deploy_privacy.sh
+
 # Route Contract Drift Gate (防漂移门禁)
 # 重生成 docs/synapse-rust/ROUTE_CONTRACT.md 并与已提交版本做归一化比对，
 # 结构性漂移即失败。对应 CI: scripts/contract/check_route_contract.sh
@@ -222,7 +228,7 @@ ci-schema-health-check:
 	@echo "Running CI schema health check (start temp DB if needed)..."
 	@bash scripts/ci_schema_health_check.sh
 
-check: fmt lint route-contract-check
+check: fmt lint route-contract-check check-deploy-privacy
 	@echo "Running all checks..."
 	@cargo check --all-features --locked
 

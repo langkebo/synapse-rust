@@ -25,12 +25,19 @@ pub async fn health_check(State(ctx): State<AdminContext>) -> impl IntoResponse 
 
     let rate_limit = rate_limit_config_health(ctx.rate_limit_config_manager.as_deref());
 
+    // B-7：服务端是否持有房间密钥必须**可被机器读取**。
+    // 之前这个事实只存在于配置文件里：配了 `megolm_device_id`，服务端就能读所有加密房间，
+    // 而任何探针 / 前端隐私说明都无从得知。部署形态与隐私承诺的一致性是产品前提，
+    // 不能靠"运维记得自己开过什么"。
+    let server_holds_room_keys = ctx.config.server.server_holds_room_keys();
+
     (
         http_status,
         Json(json!({
             "status": status,
             "timestamp": chrono::Utc::now().to_rfc3339(),
-            "rate_limit_config": rate_limit
+            "rate_limit_config": rate_limit,
+            "server_holds_room_keys": server_holds_room_keys
         })),
     )
 }

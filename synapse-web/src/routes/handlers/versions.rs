@@ -114,7 +114,24 @@ pub async fn get_capabilities(
     // non-standard `rooms` block here would duplicate the information, and
     // clients do not read it. Removed to keep a single source of truth.
     let response = governance.build_capabilities_response(auth.user_id.is_some());
+    // B-7：把部署形态的隐私事实一起返回（客户端靠它决定隐私说明怎么写）。
+    let mut response = response;
+    if let Some(caps) = response.get_mut("capabilities").and_then(|v| v.as_object_mut()) {
+        caps.insert(SERVER_HOLDS_ROOM_KEYS_CAPABILITY.to_string(), privacy_capability(&ctx.config));
+    }
     Json(response)
+}
+
+/// B-7：把「服务端是否持有房间密钥」放进 `/_matrix/client/v3/capabilities`。
+///
+/// 客户端不能只靠运维文档判断这条隐私边界：同一个前端可能连到自建部署
+/// （服务端不持密钥）与 bridge 部署（服务端持有全部房间密钥）。
+/// 放在 capabilities 里，客户端登录后就能读到并据此调整隐私说明。
+pub(crate) const SERVER_HOLDS_ROOM_KEYS_CAPABILITY: &str = "m.hula.privacy";
+
+/// 构造上面那条 capability 的内容。
+pub(crate) fn privacy_capability(config: &synapse_common::config::Config) -> serde_json::Value {
+    json!({ "server_holds_room_keys": config.server.server_holds_room_keys() })
 }
 
 // ---------------------------------------------------------------------------

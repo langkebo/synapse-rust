@@ -102,6 +102,14 @@ run "check_plan_doc_sections.py" python3 scripts/ci/check_plan_doc_sections.py
 step "文档：方案数字随访（对照棘轮基线 + .sqlx 条数）"
 run "check_plan_numbers_fresh.sh" bash scripts/ci/check_plan_numbers_fresh.sh
 
+# 部署隐私（B-7）：仓库内任何部署配置都不得启用服务端 megolm。
+# 配了 `megolm_device_id` 服务端就持有房间密钥、能读所有加密房间，
+# 「私聊是 E2EE」立刻变成假话。这条事实运行时可观测（/health +
+# security_audit 日志），但**默认值**只能靠静态检查守住。
+# 与上面两条文档棘轮同理每次都跑（~50ms）：故障形态恰恰是"改的是别的文件"。
+step "部署隐私：服务端不得持有房间密钥（B-7）"
+run "check_deploy_privacy.sh" bash scripts/check_deploy_privacy.sh
+
 step "契约 gate"
 if [ -z "$(printf '%s\n' "$changed" | grep -E 'ROUTE_CONTRACT|ledger_annotations|extract_registered|derived_route|ledger_export|route-table\.json|route_ledger' || true)" ]; then
     run "check_route_contract.sh" bash scripts/contract/check_route_contract.sh

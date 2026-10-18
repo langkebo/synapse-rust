@@ -749,6 +749,32 @@ impl SynapseServer {
             });
         }
 
+        // B-7：部署形态的隐私事实必须在启动时就喊出来。
+        // `server.megolm_device_id` 一旦配置，服务端就以该设备身份持有房间密钥，
+        // **能读所有加密房间** —— 端到端加密对该部署不成立。
+        // 之前这条事实只存在于配置文件里：日志安静、探针看不到，于是
+        // 「我们的私聊是 E2EE」与「这台机器握着所有房间密钥」可以同时成立而无人察觉。
+        {
+            let server_config = self.app_state.services.core.config.server.clone();
+            if server_config.server_holds_room_keys() {
+                ::tracing::error!(
+                    target: "security_audit",
+                    event = "server_holds_room_keys",
+                    megolm_device_id = server_config.megolm_device_id.as_deref().unwrap_or(""),
+                    "SECURITY: server-side Megolm is ENABLED — this deployment holds room keys and \
+                     CAN READ every encrypted room. End-to-end encryption does NOT hold against the \
+                     server. Exclude this deployment from any E2EE privacy claim. \
+                     Unset server.megolm_device_id to turn it off."
+                );
+            } else {
+                ::tracing::info!(
+                    target: "security_audit",
+                    event = "server_holds_no_room_keys",
+                    "Server-side Megolm is disabled: this deployment does not hold room keys"
+                );
+            }
+        }
+
         if run_global_maintenance {
             // Megolm session expiry cleanup: periodically delete expired megolm
             // sessions to prevent unbounded growth of the megolm_sessions table.
