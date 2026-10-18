@@ -355,4 +355,26 @@ curl -s -X POST $B/_matrix/client/v3/login -H 'Content-Type: application/json' \
 ### 6.11 本轮未做
 
 - 全量集成套件（~2h）与 live 联邦互操作（需双主机名 + 互信 CA）。
-- 活体复验（`--all` 一键部署后按 §5 探测）：待部署完成后执行，结果回填本节。
+- live 联邦互操作依赖双主机名与互信 CA，本轮不启动。
+
+### 6.12 活体复验结果（2026-10-18 部署后）
+
+部署：`bash docker/deploy/deploy.sh --all`（构建 27m41s）→ 23/23 步通过；随后
+`--skip-build` 复跑亦 23/23 通过（日志 `docker/deploy/logs/deploy_20261018_120259.log`）。
+
+| 项 | 探针 | 实测 |
+| --- | --- | --- |
+| I-01 | 投影两向 `EXCEPT`（`room_summary_members` ↔ `room_memberships`，均限 `join`/`invite`） | stale=0，missing=0 |
+| I-02a | `createRoom` 带 `Content-Type: text/plain` | **400** `application/json` + `M_NOT_JSON` |
+| I-02b | `createRoom` 带坏 JSON | **400** `application/json` + `M_NOT_JSON` |
+| I-02c | `summaries/batch` 类型错误 | **400** `application/json` + `M_BAD_JSON` |
+| I-03 | 错误密码登录 | **403** `application/json` + `M_FORBIDDEN`（测试阶段锁定关闭，无 429，符合 §6.5） |
+| I-04 | `{"name":123,"preset":"private_chat"}` | **400** `M_BAD_JSON`（`name: invalid type: integer`） |
+| I-04 | 合法 body `{"preset":"private_chat","name":"verify-legal"}` | **200** |
+| I-07 | 线程创建带非空 `content` | **400** `M_INVALID_PARAM` |
+| I-07 | 线程创建 `content: {}` | **200**（正常建线程） |
+| B-1 | `POST /_matrix/vendor/v1/create_dm` 后读 `m.room.encryption` | `{"algorithm":"m.megolm.v1.aes-sha2"}` |
+
+> 说明：I-03 的「第 6 次 429」判据依赖登录锁定；测试/联调阶段 `security.login_lockout_enabled: false`
+> 显式关闭（§6.5），因此本轮只验 403 同族，429 分支由单元用例
+> `lockout_backoff_escalates_then_caps` 覆盖，恢复开关后生效。
