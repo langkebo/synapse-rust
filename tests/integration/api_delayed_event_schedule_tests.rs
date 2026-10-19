@@ -388,12 +388,11 @@ async fn dedicated_endpoint_refuses_non_members_and_unknown_rooms() {
     assert_eq!(status, StatusCode::OK, "{response}");
 }
 
-/// MSC4354's sticky duration is refused with 501 rather than silently dropped:
-/// this server pins sticky events through a separate per-user endpoint, so the
-/// field cannot be honoured, and a client that asked for a pinned event must not
-/// be handed an unpinned one that looks like success.
+/// MSC4354's sticky duration is accepted and persisted on the delayed-event row
+/// (same field as upstream PR #19354); the dispatcher applies it when firing, so
+/// the hint is neither dropped nor refused.
 #[tokio::test]
-async fn dedicated_endpoint_refuses_the_sticky_duration_hint() {
+async fn dedicated_endpoint_accepts_the_sticky_duration_hint() {
     let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
@@ -413,11 +412,12 @@ async fn dedicated_endpoint_refuses_the_sticky_duration_hint() {
         }),
     )
     .await;
-    assert_eq!(status, StatusCode::NOT_IMPLEMENTED, "the sticky hint must be refused loudly: {body}");
-    assert_eq!(body["errcode"].as_str(), Some("M_UNKNOWN"), "501 has no dedicated Matrix errcode: {body}");
+    assert_eq!(status, StatusCode::OK, "the sticky hint must be accepted: {body}");
+    assert!(body["delay_id"].is_number(), "accepted schedule must return delay_id: {body}");
 
-    // Control: the same request without the hint succeeds. This is what makes the
-    // assertion above about the field rather than about the request being broken.
+    // Control: the same request without the hint succeeds too, so the assertion
+    // above is about the field being tolerated rather than about the request
+    // only working with it.
     let (status, body) = schedule(
         &app,
         &alice,

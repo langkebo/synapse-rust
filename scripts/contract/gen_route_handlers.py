@@ -42,6 +42,12 @@ Row model (per route, sorted by `(path, method)`):
 * `unsupported` — the ledger declaration from `ledger_annotations.txt`: the
   route is reachable but its documented response is not implemented (today the
   vendor keys endpoint answers a placeholder `keys: []`).
+* `dynamic` — the ledger declaration from `ledger_annotations.txt`: the route
+  exists but no single handler definition can be named statically *by
+  construction* (fallback chain, `{*path}` runtime proxy, non-unique handler
+  name). The declared set and the `confidence: none` set are required to be
+  identical in both directions, so a new blind spot and a stale exemption are
+  both RED — the "static blind spot" count can no longer drift unnoticed.
 
 `file`/`handler`/`candidates[].file`/`hint.file` are relative to `file_root`
 (`synapse-web/src/routes`) so the sidecar stays readable without repeating a
@@ -211,6 +217,46 @@ def derived_table_counts() -> dict:
     return counts
 
 
+def check_dynamic_allowlist(rows, annotations) -> None:
+    """`confidence: none` must equal the `dynamic=true` declarations, both ways.
+
+    The 17 rows where the static parser cannot name a handler are a *known,
+    finite* list, not a free-running counter: every new blind spot has to be
+    declared (and justified) in `ledger_annotations.txt`, and every declaration
+    that the extractor can now resolve has to be removed. A one-directional
+    allowlist could only grow, silently absorbing the next regression.
+    """
+    none_rows = {(r["method"], r["path"]) for r in rows if r["confidence"] == "none"}
+    declared = {
+        (method, path)
+        for (method, path), row in annotations.items()
+        if row.get("dynamic")
+    }
+    undeclared = sorted(none_rows - declared)
+    stale = sorted(declared - none_rows)
+    if not undeclared and not stale:
+        return
+    lines = [
+        "gen_route_handlers: dynamic allowlist drift — `confidence: none` and "
+        "`dynamic=true` must coincide in both directions."
+    ]
+    if undeclared:
+        lines.append(f"  blind spots without `dynamic=true` ({len(undeclared)}):")
+        lines += [f"    - {m} {p}" for m, p in undeclared]
+        lines.append(
+            "  Fix: add `dynamic=true` to scripts/contract/ledger_annotations.txt "
+            "(and to EXPECTED_ANNOTATIONS in extract_registered.py)."
+        )
+    if stale:
+        lines.append(f"  stale `dynamic=true` declarations ({len(stale)}):")
+        lines += [f"    - {m} {p}" for m, p in stale]
+        lines.append(
+            "  Fix: the extractor resolves these now (or the path is gone) — "
+            "remove the line; a stale exemption only hides the next regression."
+        )
+    raise SystemExit("\n".join(lines))
+
+
 def build() -> dict:
     res = ex.Resolver(ex.load_sources())
     routes = res.all_routes()  # populates `handlers` and `registrars`
@@ -223,7 +269,10 @@ def build() -> dict:
         ann = annotations.get((method, path), {})
         row["body_opaque"] = bool(ann.get("body_opaque"))
         row["unsupported"] = bool(ann.get("unsupported"))
+        row["dynamic"] = bool(ann.get("dynamic"))
         rows.append(row)
+
+    check_dynamic_allowlist(rows, annotations)
 
     status_counts = Counter(r["status"] for r in rows)
     body_counts = Counter(r["body"] for r in rows)
@@ -244,6 +293,7 @@ def build() -> dict:
             "body": dict(sorted(body_counts.items())),
             "body_opaque_declared": sum(1 for r in rows if r["body_opaque"]),
             "unsupported": sum(1 for r in rows if r["unsupported"]),
+            "dynamic_declared": sum(1 for r in rows if r["dynamic"]),
             "derived_tables": derived,
         },
         "counts_note": {

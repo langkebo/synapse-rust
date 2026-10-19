@@ -115,11 +115,9 @@ async fn create_thread(app: &axum::Router, token: &str, room_id: &str, root_even
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
-            json!({
-                "root_event_id": root_event_id,
-                "content": { "body": "thread" }
-            })
-            .to_string(),
+            // Thread creation takes the content from the root event; a non-empty
+            // `content` is rejected on purpose (audit I-07).
+            json!({ "root_event_id": root_event_id }).to_string(),
         ))
         .unwrap();
 
@@ -615,7 +613,7 @@ async fn test_key_rotation_management_contract_rejects_client_access() {
         ("PUT", "/_matrix/vendor/v1/keys/rotation/config"),
     ] {
         let body = match method {
-            "PUT" => json!({ "enabled": true, "interval_days": 30 }).to_string(),
+            "PUT" => json!({ "enabled": true, "rotation_interval_days": 30 }).to_string(),
             _ => "{}".to_string(),
         };
 
@@ -643,7 +641,7 @@ async fn test_key_rotation_management_contract_rejects_client_access() {
         ("PUT", "/_matrix/vendor/v1/keys/rotation/config"),
     ] {
         let body = match method {
-            "PUT" => json!({ "enabled": true, "interval_days": 30 }).to_string(),
+            "PUT" => json!({ "enabled": true, "rotation_interval_days": 30 }).to_string(),
             _ => "{}".to_string(),
         };
 

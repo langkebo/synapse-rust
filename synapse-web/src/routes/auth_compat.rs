@@ -295,11 +295,24 @@ fn honest_request_token_error(purpose: RequestTokenPurpose) -> ApiError {
     }
 }
 
+/// Request body shared by the three email `requestToken` endpoints
+/// (`/register`, `/account/password`, `/account/3pid`).
+///
+/// All fields are `Option` so a missing field keeps producing the Matrix-shaped
+/// error message below instead of a serde rejection, and unknown upstream fields
+/// stay ignored (no `deny_unknown_fields`).
+#[derive(Debug, Deserialize)]
+pub struct RequestEmailTokenBody {
+    pub email: Option<String>,
+    pub client_secret: Option<String>,
+    pub send_attempt: Option<u64>,
+}
+
 /// See [`request_email_verification`].
 pub(crate) async fn request_email_verification(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<RequestEmailTokenBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     request_email_verification_with_submit_path(
@@ -331,27 +344,22 @@ pub(crate) async fn request_email_verification(
 /// caller cannot tell the two registration states apart from this endpoint.
 pub(crate) async fn request_email_verification_with_submit_path(
     ctx: &AuthContext,
-    body: &Value,
+    body: &RequestEmailTokenBody,
     submit_path: &str,
     actor_user_id: Option<&str>,
     purpose: RequestTokenPurpose,
     request_id: &str,
 ) -> Result<Json<Value>, ApiError> {
-    let email = body
-        .get("email")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Email is required".to_string()))?;
+    let email = body.email.as_deref().ok_or_else(|| ApiError::bad_request("Email is required".to_string()))?;
 
     if ctx.validator.validate_email(email).is_err() {
         return Err(ApiError::bad_request("Invalid email address format".to_string()));
     }
 
-    let client_secret = body
-        .get("client_secret")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("client_secret is required".to_string()))?;
+    let client_secret =
+        body.client_secret.as_deref().ok_or_else(|| ApiError::bad_request("client_secret is required".to_string()))?;
 
-    let _send_attempt = body.get("send_attempt").and_then(|v| v.as_u64()).unwrap_or(1);
+    let _send_attempt = body.send_attempt.unwrap_or(1);
 
     // ── Anti-enumeration gate ────────────────────────────────────────────────
     // Resolve the address once, then decide whether what we learned is something

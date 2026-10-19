@@ -102,24 +102,29 @@ migrate-audit:
 	@$(DC) exec -T $(DB_SERVICE) psql -U $(DB_USER) -d $(DB_NAME) -c "SELECT version, name, description, execution_time_ms, applied_ts, executed_at, is_success FROM schema_migrations ORDER BY COALESCE(applied_ts, executed_at) DESC NULLS LAST, id DESC LIMIT 20;" || { echo "$(DB_CONNECT_HINT)"; exit 1; }
 
 # Test Commands
+#
+# feature 口径必须与 CI 一致（.github/workflows/ci.yml 的 integration 步骤用的是
+# `--all-features`）。本地若只开 [[test]] 里 required-features 列出的六项，则
+# `login_flows_v3` 快照里的 cas / sso 分支没有编译，快照比对必红 —— 这不是回归，
+# 而是本地口径分叉。故此处统一加 `--all-features`，不要在此处再抄一份 feature 列表。
 test:
 	@echo "Running all tests..."
-	@cargo test --locked
+	@cargo test --all-features --locked
 
 test-unit:
 	@echo "Running unit tests..."
-	@cargo test --lib --locked
+	@cargo test --all-features --lib --locked
 
 test-integration:
 	@echo "Running integration tests..."
-	@cargo test --locked --test '*'
+	@cargo test --all-features --locked --test '*'
 
 # 日常快速迭代：nextest（不插桩）。注意 DB 集成测试的 schema pool 复用（方案 B）
 # 是进程内优化，nextest 默认 process-per-test 不会跨进程复用，故 DB 集成测试仍
 # 用 `cargo test <filter>` 更快；nextest 适合 lib/unit 纯逻辑测试。
 test-fast:
 	@echo "Running tests with nextest (fast, no coverage)..."
-	@cargo nextest run --profile test --features "test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications,cas-sso,saml-sso" --locked
+	@cargo nextest run --profile test --all-features --locked
 
 # 覆盖率测量：cargo llvm-cov 两步（storage 单独单线程 + rest），唯一实现在
 # `scripts/ci/run_coverage.sh`（CI 调用的同一条命令，口径不分叉）。

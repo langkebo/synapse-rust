@@ -67,9 +67,15 @@ ANNOTATION_KEYS = (
     "query_params",
     "body_opaque",
     "unsupported",
+    "dynamic",
 )
 # Annotation keys whose value is a bare `true`/`false`.
-BOOLEAN_ANNOTATION_KEYS = ("rate_limit_exempt", "body_opaque", "unsupported")
+BOOLEAN_ANNOTATION_KEYS = (
+    "rate_limit_exempt",
+    "body_opaque",
+    "unsupported",
+    "dynamic",
+)
 
 HTTP_METHODS = ("get", "post", "put", "delete", "patch", "head", "options")
 HTTP_METHODS_SET = set(HTTP_METHODS)
@@ -1071,6 +1077,11 @@ def load_ledger_annotations() -> dict:
       endpoint returns an empty `keys: []`). Marking it keeps the gap visible
       on the contract surface instead of letting a placeholder 200 masquerade
       as a working feature. Not serialized into the fixtures.
+    * `dynamic` — the route exists but no single handler definition can be
+      named statically *by construction* (fallback chain, `{*path}` wildcard
+      proxy, or a handler name with no unique definition). The set must equal
+      the sidecar's `confidence: none` set in both directions; see
+      `gen_route_handlers.py`. Not serialized into the fixtures.
 
     Format: `METHOD PATH<TAB>key=value [key=value ...]`, exactly one tab.
     Unknown keys / bad booleans / tab-in-path / conflicting duplicates all
@@ -1143,26 +1154,10 @@ EXPECTED_ANNOTATIONS = {
     # of `load_ledger_annotations`). Event content, account data, filter,
     # room-key backup payloads, UIA `Value` bodies and federation
     # PDUs/transactions deliberately have no addressable field list.
-    ("POST", "/_matrix/client/v1/account/3pid/add"): {"body_opaque": True},
-    ("POST", "/_matrix/client/v1/account/3pid/bind"): {"body_opaque": True},
-    ("POST", "/_matrix/client/v1/account/3pid/email/requestToken"): {
-        "body_opaque": True
-    },
-    ("POST", "/_matrix/client/v1/account/password/email/requestToken"): {
-        "body_opaque": True
-    },
     ("POST", "/_matrix/client/v1/room_keys/import"): {"body_opaque": True},
     ("POST", "/_matrix/client/v1/room_keys/import/{version}"): {"body_opaque": True},
     ("POST", "/_matrix/client/v1/room_keys/request"): {"body_opaque": True},
     ("POST", "/_matrix/client/v1/room_keys/version"): {"body_opaque": True},
-    ("POST", "/_matrix/client/v3/account/3pid/add"): {"body_opaque": True},
-    ("POST", "/_matrix/client/v3/account/3pid/bind"): {"body_opaque": True},
-    ("POST", "/_matrix/client/v3/account/3pid/email/requestToken"): {
-        "body_opaque": True
-    },
-    ("POST", "/_matrix/client/v3/account/password/email/requestToken"): {
-        "body_opaque": True
-    },
     ("POST", "/_matrix/client/v3/keys/backup/secure/{backup_id}/keys"): {
         "body_opaque": True
     },
@@ -1261,9 +1256,6 @@ EXPECTED_ANNOTATIONS = {
     ("POST", "/_matrix/client/unstable/io.element.msc4512/appservice/fed_proxy"): {
         "body_opaque": True
     },
-    ("POST", "/_matrix/client/v1/account/3pid"): {"body_opaque": True},
-    ("POST", "/_matrix/client/v1/account/deactivate"): {"body_opaque": True},
-    ("POST", "/_matrix/client/v1/account/password"): {"body_opaque": True},
     ("POST", "/_matrix/client/v1/appservice/fed_proxy"): {"body_opaque": True},
     ("POST", "/_matrix/client/v1/keys/claim"): {"body_opaque": True},
     ("POST", "/_matrix/client/v1/keys/device_list/update"): {"body_opaque": True},
@@ -1275,9 +1267,6 @@ EXPECTED_ANNOTATIONS = {
     ("POST", "/_matrix/client/v1/sendToDevice/{event_type}/{transaction_id}"): {
         "body_opaque": True
     },
-    ("POST", "/_matrix/client/v3/account/3pid"): {"body_opaque": True},
-    ("POST", "/_matrix/client/v3/account/deactivate"): {"body_opaque": True},
-    ("POST", "/_matrix/client/v3/account/password"): {"body_opaque": True},
     ("POST", "/_matrix/client/v3/delete_devices"): {"body_opaque": True},
     ("POST", "/_matrix/client/v3/keys/backup/secure"): {"body_opaque": True},
     ("POST", "/_matrix/client/v3/keys/claim"): {"body_opaque": True},
@@ -1289,7 +1278,6 @@ EXPECTED_ANNOTATIONS = {
     ("POST", "/_matrix/client/v3/keys/upload/{device_id}"): {"body_opaque": True},
     ("POST", "/_matrix/client/v3/login"): {"body_opaque": True},
     ("POST", "/_matrix/client/v3/oidc/login"): {"body_opaque": True},
-    ("POST", "/_matrix/client/v3/register/email/requestToken"): {"body_opaque": True},
     ("POST", "/_matrix/client/v3/sendToDevice/{event_type}/{transaction_id}"): {
         "body_opaque": True
     },
@@ -1650,6 +1638,28 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/vendor/v1/rooms/{room_id}/keys/{event_id}"): {
         "unsupported": True
     },
+    # -- dynamic: routes whose handler cannot be named statically by
+    # construction (fallback chain / `{*path}` runtime proxy / non-unique
+    # handler name). This set is the pinned counterpart of the sidecar's
+    # `confidence: none`; `gen_route_handlers.py` fails if the two diverge in
+    # either direction.
+    ("GET", "/"): {"dynamic": True},
+    ("DELETE", "/_matrix/app/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
+    ("GET", "/_matrix/app/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
+    ("HEAD", "/_matrix/app/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
+    ("OPTIONS", "/_matrix/app/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
+    ("PATCH", "/_matrix/app/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
+    ("POST", "/_matrix/app/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
+    ("PUT", "/_matrix/app/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
+    ("DELETE", "/_matrix/client/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
+    ("GET", "/_matrix/client/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
+    ("HEAD", "/_matrix/client/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
+    ("OPTIONS", "/_matrix/client/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
+    ("PATCH", "/_matrix/client/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
+    ("POST", "/_matrix/client/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
+    ("PUT", "/_matrix/client/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
+    ("GET", "/_matrix/server_version"): {"dynamic": True},
+    ("GET", "/health"): {"dynamic": True},
 }
 
 # Counted debt for `body_opaque`: routes whose handler deserializes a bare

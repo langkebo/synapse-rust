@@ -1,0 +1,18 @@
+# Allowlist for scripts/contract/check_suspicious_empty_response.py (F-4.1).
+#
+# Format: <path>::<fn>\treason=<why this constant empty body is intentional>
+#
+# 只有"确实做了事、或规范明确要求返回空"的常量空响应可以登记；"端点其实没实现"
+# 不在豁免范围（那是 C-1，应标注 unsupported 或直接补实现）。门禁双向校验：
+# 新命中不登记 = 红，登记过期（handler 已不再返回常量空 body）= 红。
+
+synapse-web/src/routes/admin/room/mod.rs::shutdown_room	reason=房间确实被关闭并移除成员；service 返回 ApiResult<()>，不回传被踢用户清单，响应中的空列表只表示"未统计"而非未执行
+synapse-web/src/routes/e2ee/devices.rs::send_to_device	reason=to-device 消息已投递；ToDeviceService 不返回按设备维度的失败明细，failures 为空是协议允许的"无失败上报"
+synapse-web/src/routes/e2ee/keys.rs::upload_keys	reason=P-050：/keys/upload 允许空 body；此分支只回 200 + 空的 one_time_key_counts（DeviceKeyService 目前没有 counts 查询接口，属已知简化）
+synapse-web/src/routes/e2ee/keys.rs::claim_keys	reason=空请求的规范响应：one_time_keys 为空、failures 带 M_EMPTY_REQUEST 说明，属上游定义的错误形状
+synapse-web/src/routes/federation/keys.rs::key_query_batch	reason=规范原文：请求未给出 server_keys 时必须返回空 server_keys 数组（两个分支都对应空请求）
+synapse-web/src/routes/federation/transaction.rs::send_transaction	reason=事务去重命中：同一 txn_id 已处理过，按规范重放返回空 results（没有新的 per-PDU 错误）
+synapse-web/src/routes/handlers/room/management/metadata.rs::get_room_turn_server	reason=未配置 TURN 时返回空凭据 + ttl=0 是 200 的约定形状，不是假成功（配置启用后走真实凭据分支）
+synapse-web/src/routes/handlers/rtc_transports.rs::get_rtc_transports	reason=VoIP 未启用或没有可用 STUN/TURN 时返回空 transports 列表；两个分支都对应"确实没有 ICE server"
+synapse-web/src/routes/oidc/builtin.rs::jwks_fallback	reason=/.well-known/jwks.json 的兜底：内置 OIDC 未启用时返回空 JWKS；契约面已标 unsupported=true
+synapse-web/src/routes/push.rs::get_push_rules_scope	reason=防御性分支：merge_default_push_rules 对对象内容总会注入 global，只有存储内容不是对象时才回落到全空 scope

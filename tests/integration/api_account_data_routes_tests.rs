@@ -756,7 +756,7 @@ async fn test_dehydrated_device_events_is_get_with_null_cursor_when_empty() {
     assert_eq!(get_json["events"], json!([]), "空队列应返回空 events");
     assert!(get_json["next_batch"].is_null(), "空页时 next_batch 必须为 null，实际 {get_json}");
 
-    // 旧形态必须消失：POST 同一路径应为 405 Method Not Allowed。
+    // MSC3814 规范形态是 POST（body 游标），GET 是 Synapse v1.157 兼容别名，两者都必须可用。
     let post_events = Request::builder()
         .method("POST")
         .uri(&events_path)
@@ -765,5 +765,9 @@ async fn test_dehydrated_device_events_is_get_with_null_cursor_when_empty() {
         .body(Body::from(json!({ "next_batch": "0" }).to_string()))
         .unwrap();
     let post_response = ServiceExt::<Request<Body>>::oneshot(app, post_events).await.unwrap();
-    assert_eq!(post_response.status(), StatusCode::METHOD_NOT_ALLOWED, "POST 形态必须已移除（MSC3814 规定 GET）");
+    assert_eq!(post_response.status(), StatusCode::OK, "POST 形态（MSC3814 规范）必须保留");
+    let post_body = axum::body::to_bytes(post_response.into_body(), 4096).await.unwrap();
+    let post_json: Value = serde_json::from_slice(&post_body).unwrap();
+    assert_eq!(post_json["events"], json!([]), "空队列应返回空 events");
+    assert!(post_json["next_batch"].is_null(), "空页时 next_batch 必须为 null，实际 {post_json}");
 }

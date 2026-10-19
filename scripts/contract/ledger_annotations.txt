@@ -59,23 +59,27 @@
 #     handler behaviour is unchanged by design (ruling: keep 200, do not turn
 #     it into a 501 — a hard error would break clients that call it today).
 #
+#   * `dynamic` — the `(method, path)` exists but the static extractor cannot
+#     name a single handler definition, *by construction* rather than because
+#     of a parser gap: `GET /` is served by the fallback chain, the 14
+#     app_service proxy rows are `{*path}` wildcards handed to a runtime
+#     dispatcher, and `/health` / `/_matrix/server_version` register handlers
+#     whose names have more than one definition in the tree (no unique tail).
+#     Declaring it turns "static blind spot" into a finite, reviewable list:
+#     `gen_route_handlers.py` requires `confidence: none` and `dynamic=true` to
+#     be the *same* set in both directions, so a new blind spot (or a stale
+#     declaration) is RED. It never asserts the handler is useless — the route
+#     is still real and reachable at runtime.
+#
 # This table is the single source of truth for annotations, mirroring
 # `ledger_origins.txt` for `registered_by`. Deleting a line and observing a RED
 # fidelity test is the self-proof that the guard is real, not a tautology.
 
 # -- body_opaque: protocol-arbitrary JSON bodies with no addressable field list.
-POST /_matrix/client/v1/account/3pid/add	body_opaque=true
-POST /_matrix/client/v1/account/3pid/bind	body_opaque=true
-POST /_matrix/client/v1/account/3pid/email/requestToken	body_opaque=true
-POST /_matrix/client/v1/account/password/email/requestToken	body_opaque=true
 POST /_matrix/client/v1/room_keys/import	body_opaque=true
 POST /_matrix/client/v1/room_keys/import/{version}	body_opaque=true
 POST /_matrix/client/v1/room_keys/request	body_opaque=true
 POST /_matrix/client/v1/room_keys/version	body_opaque=true
-POST /_matrix/client/v3/account/3pid/add	body_opaque=true
-POST /_matrix/client/v3/account/3pid/bind	body_opaque=true
-POST /_matrix/client/v3/account/3pid/email/requestToken	body_opaque=true
-POST /_matrix/client/v3/account/password/email/requestToken	body_opaque=true
 POST /_matrix/client/v3/keys/backup/secure/{backup_id}/keys	body_opaque=true
 POST /_matrix/client/v3/keys/backup/secure/{backup_id}/verify	body_opaque=true
 POST /_matrix/client/v3/register	body_opaque=true
@@ -116,9 +120,6 @@ PUT /_matrix/federation/v2/send_leave/{room_id}/{event_id}	body_opaque=true
 PUT /_matrix/vendor/v1/rooms/{room_id}/room_keys/keys	body_opaque=true
 DELETE /_matrix/client/v3/devices/{device_id}	body_opaque=true
 POST /_matrix/client/unstable/io.element.msc4512/appservice/fed_proxy	body_opaque=true
-POST /_matrix/client/v1/account/3pid	body_opaque=true
-POST /_matrix/client/v1/account/deactivate	body_opaque=true
-POST /_matrix/client/v1/account/password	body_opaque=true
 POST /_matrix/client/v1/appservice/fed_proxy	body_opaque=true
 POST /_matrix/client/v1/keys/claim	body_opaque=true
 POST /_matrix/client/v1/keys/device_list/update	body_opaque=true
@@ -128,9 +129,6 @@ POST /_matrix/client/v1/keys/signatures/upload	body_opaque=true
 POST /_matrix/client/v1/keys/upload	body_opaque=true
 POST /_matrix/client/v1/keys/upload/{device_id}	body_opaque=true
 POST /_matrix/client/v1/sendToDevice/{event_type}/{transaction_id}	body_opaque=true
-POST /_matrix/client/v3/account/3pid	body_opaque=true
-POST /_matrix/client/v3/account/deactivate	body_opaque=true
-POST /_matrix/client/v3/account/password	body_opaque=true
 POST /_matrix/client/v3/delete_devices	body_opaque=true
 POST /_matrix/client/v3/keys/backup/secure	body_opaque=true
 POST /_matrix/client/v3/keys/claim	body_opaque=true
@@ -142,7 +140,6 @@ POST /_matrix/client/v3/keys/upload	body_opaque=true
 POST /_matrix/client/v3/keys/upload/{device_id}	body_opaque=true
 POST /_matrix/client/v3/login	body_opaque=true
 POST /_matrix/client/v3/oidc/login	body_opaque=true
-POST /_matrix/client/v3/register/email/requestToken	body_opaque=true
 POST /_matrix/client/v3/sendToDevice/{event_type}/{transaction_id}	body_opaque=true
 POST /_matrix/federation/unstable/org.matrix.msc3720/account_status	body_opaque=true
 POST /_matrix/federation/v1/publicRooms	body_opaque=true
@@ -317,3 +314,25 @@ POST /_matrix/vendor/v1/keys/rotation/check	query_params=key_id
 
 # -- unsupported: registered, reachable, documented response not implemented.
 GET /_matrix/vendor/v1/rooms/{room_id}/keys/{event_id}	unsupported=true
+
+# -- dynamic: static extraction cannot name a single handler definition. This
+# list must equal the sidecar's `confidence: none` set in both directions
+# (`gen_route_handlers.py` enforces it), so it is the authoritative, finite
+# statement of "these 17 rows are blind spots by construction".
+GET /	dynamic=true
+DELETE /_matrix/app/v1/proxy/{as_id}/{*path}	dynamic=true
+GET /_matrix/app/v1/proxy/{as_id}/{*path}	dynamic=true
+HEAD /_matrix/app/v1/proxy/{as_id}/{*path}	dynamic=true
+OPTIONS /_matrix/app/v1/proxy/{as_id}/{*path}	dynamic=true
+PATCH /_matrix/app/v1/proxy/{as_id}/{*path}	dynamic=true
+POST /_matrix/app/v1/proxy/{as_id}/{*path}	dynamic=true
+PUT /_matrix/app/v1/proxy/{as_id}/{*path}	dynamic=true
+DELETE /_matrix/client/v1/proxy/{as_id}/{*path}	dynamic=true
+GET /_matrix/client/v1/proxy/{as_id}/{*path}	dynamic=true
+HEAD /_matrix/client/v1/proxy/{as_id}/{*path}	dynamic=true
+OPTIONS /_matrix/client/v1/proxy/{as_id}/{*path}	dynamic=true
+PATCH /_matrix/client/v1/proxy/{as_id}/{*path}	dynamic=true
+POST /_matrix/client/v1/proxy/{as_id}/{*path}	dynamic=true
+PUT /_matrix/client/v1/proxy/{as_id}/{*path}	dynamic=true
+GET /_matrix/server_version	dynamic=true
+GET /health	dynamic=true

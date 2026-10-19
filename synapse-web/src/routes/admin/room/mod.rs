@@ -287,8 +287,10 @@ pub async fn get_room_aliases_admin(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
+    let aliases = ctx.room_service.state().get_room_aliases(&room_id).await?;
+
     Ok(Json(json!({
-        "aliases": []
+        "aliases": aliases
     })))
 }
 

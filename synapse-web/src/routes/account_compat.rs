@@ -1,4 +1,6 @@
-use super::auth_compat::{request_email_verification_with_submit_path, session_client_secret, RequestTokenPurpose};
+use super::auth_compat::{
+    request_email_verification_with_submit_path, session_client_secret, RequestEmailTokenBody, RequestTokenPurpose,
+};
 use crate::routes::context::AuthContext;
 use crate::routes::extractors::UserId;
 use crate::routes::extractors::{AuthenticatedUser, MatrixJson, OptionalAuthenticatedUser};
@@ -305,20 +307,30 @@ async fn take_rc_profile_token(
     Ok(())
 }
 
+/// Request body for [`change_password_uia`].
+///
+/// `auth` stays `Value`: UIA stages are an open protocol (`m.login.*` with
+/// per-stage payloads), so only the envelope is addressable here.
+#[derive(Debug, Deserialize)]
+pub(crate) struct ChangePasswordBody {
+    #[serde(default)]
+    new_password: Option<String>,
+    #[serde(default)]
+    auth: Option<Value>,
+}
+
 /// See [`change_password_uia`].
 pub(crate) async fn change_password_uia(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
     auth_user: OptionalAuthenticatedUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<ChangePasswordBody>,
 ) -> Result<axum::response::Response, ApiError> {
     let request_id = resolve_request_id(&headers);
-    let new_password = body
-        .get("new_password")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("New password required".to_string()))?;
+    let new_password =
+        body.new_password.as_deref().ok_or_else(|| ApiError::bad_request("New password required".to_string()))?;
 
-    let auth = body.get("auth").cloned().unwrap_or(serde_json::json!({}));
+    let auth = body.auth.unwrap_or_else(|| serde_json::json!({}));
     let auth_type = auth.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
     if auth_type.is_empty() {
@@ -465,7 +477,7 @@ pub(crate) async fn change_password_uia(
 pub(crate) async fn request_password_email_verification(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<RequestEmailTokenBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
 
@@ -486,13 +498,23 @@ pub(crate) async fn request_password_email_verification(
     .await
 }
 
+/// Request body for [`deactivate_account`].
+///
+/// Only the UIA envelope is addressable; `auth` stages stay `Value` (open
+/// protocol, same rationale as [`ChangePasswordBody`]).
+#[derive(Debug, Deserialize)]
+pub(crate) struct DeactivateAccountBody {
+    #[serde(default)]
+    auth: Option<Value>,
+}
+
 /// See [`deactivate_account`].
 pub(crate) async fn deactivate_account(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<DeactivateAccountBody>,
 ) -> Result<axum::response::Response, ApiError> {
-    let auth = body.get("auth");
+    let auth = body.auth.as_ref();
     if let Err(uia_response) = ctx
         .account_identity_service
         .require_deactivate_account_uia(
@@ -551,25 +573,41 @@ pub(crate) async fn get_threepids(
     })))
 }
 
+/// Request body for [`add_threepid`] (`/account/3pid`,
+/// `/account/3pid/add`, `/account/3pid/bind`).
+///
+/// The `is_*` fields carry the *identity-server* session credentials, which are
+/// deliberately separate from the homeserver `sid` / `client_secret`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct AddThreepidBody {
+    #[serde(default)]
+    sid: Option<String>,
+    #[serde(default)]
+    client_secret: Option<String>,
+    #[serde(default)]
+    id_server: Option<String>,
+    #[serde(default)]
+    is_sid: Option<String>,
+    #[serde(default)]
+    id_access_token: Option<String>,
+    #[serde(default)]
+    is_client_secret: Option<String>,
+}
+
 /// See [`add_threepid`].
 pub(crate) async fn add_threepid(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<AddThreepidBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     let user_id = &auth_user.user_id;
     let now = current_timestamp_millis();
 
-    let sid = body
-        .get("sid")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Session ID (sid) is required".to_string()))?;
-    let client_secret = body
-        .get("client_secret")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Client secret is required".to_string()))?;
+    let sid = body.sid.as_deref().ok_or_else(|| ApiError::bad_request("Session ID (sid) is required".to_string()))?;
+    let client_secret =
+        body.client_secret.as_deref().ok_or_else(|| ApiError::bad_request("Client secret is required".to_string()))?;
 
     let sid_int: i64 = sid.parse().map_err(|_| ApiError::bad_request("Invalid session ID format".to_string()))?;
 
@@ -664,10 +702,10 @@ pub(crate) async fn add_threepid(
     // 仅在本地校验通过后，才可选地把 3PID 推到身份服务器。这里使用与本地校验
     // 解耦的独立 IS 会话凭证 (is_sid / is_client_secret)，避免误把 HS 的 sid
     // 当成 IS 的 sid 来用。
-    let id_server = body.get("id_server").and_then(|v| v.as_str());
-    let is_sid = body.get("is_sid").and_then(|v| v.as_str());
-    let id_access_token = body.get("id_access_token").and_then(|v| v.as_str());
-    let is_client_secret = body.get("is_client_secret").and_then(|v| v.as_str());
+    let id_server = body.id_server.as_deref();
+    let is_sid = body.is_sid.as_deref();
+    let id_access_token = body.id_access_token.as_deref();
+    let is_client_secret = body.is_client_secret.as_deref();
     if let (Some(id_server), Some(is_sid), Some(id_access_token), Some(is_client_secret)) =
         (id_server, is_sid, id_access_token, is_client_secret)
     {
@@ -694,7 +732,7 @@ pub(crate) async fn request_3pid_add_email_verification(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<RequestEmailTokenBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     request_email_verification_with_submit_path(

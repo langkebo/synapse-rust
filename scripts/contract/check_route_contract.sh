@@ -76,6 +76,14 @@ python3 scripts/contract/gen_derived_routes.py --check
 echo "==> Drift gate for ROUTE_HANDLERS.json (gen_route_handlers.py) ..."
 python3 scripts/contract/gen_route_handlers.py --check
 
+# F-4.1 (second half): catch "fake success" bodies that are entirely constants and
+# carry an empty array/object (e.g. `{"keys": []}`). Cheap static scan, so it runs
+# here rather than in review. Exemptions live in
+# scripts/contract/suspicious_empty_response_allowlist.txt and must state why.
+echo "==> suspicious-empty-response lint (F-4.1, check_suspicious_empty_response.py) ..."
+python3 scripts/contract/check_suspicious_empty_response.py --mutation-check
+python3 scripts/contract/check_suspicious_empty_response.py
+
 # B2-4b: the extractor guards "后端已服务 ⊆ 已登记"; this guards the OPPOSITE
 # direction — "SDK 真实调用的 ⊆ 后端已登记" (后端别欠 SDK 端点). It reads the SDK
 # manager source literals, NOT the generated route-table (which is "只增不减" and

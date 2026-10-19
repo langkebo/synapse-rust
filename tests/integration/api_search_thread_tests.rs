@@ -52,13 +52,9 @@ async fn create_thread(app: &axum::Router, token: &str, room_id: &str, root_even
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
-            json!({
-                "root_event_id": root_event_id,
-                "content": {
-                    "body": "thread"
-                }
-            })
-            .to_string(),
+            // Thread creation takes the content from the root event; a non-empty
+            // `content` here is rejected on purpose (audit I-07).
+            json!({ "root_event_id": root_event_id }).to_string(),
         ))
         .unwrap();
 
@@ -408,12 +404,11 @@ async fn test_global_thread_routes_return_real_data() {
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(
+            // Same contract as the per-room route: content comes from the root
+            // event, so a non-empty `content` is rejected (audit I-07).
             json!({
                 "room_id": room_id,
                 "root_event_id": root_event_id,
-                "content": {
-                    "body": "global thread"
-                }
             })
             .to_string(),
         ))
