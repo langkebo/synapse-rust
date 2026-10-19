@@ -402,26 +402,29 @@ async function refresh(base: string, refreshToken: string) {
 ```json
 {
   "new_password": "s3cret-new",
+  "logout_devices": true,
   "auth": {
     "type": "m.login.password",
     "password": "<当前密码>",
-    "session": "<可选>",
-    "logout_devices": true
+    "session": "<可选>"
   }
 }
 ```
 
-> ⚠️ `logout_devices` 读的是 **`auth` 对象内部**，不是顶层字段
-> （`account_compat.rs`：`auth.get("logout_devices")`）。放在顶层会被忽略。
-> 默认 `true`（吊销所有其它会话）；置 `false` 仅改密码、保留其它设备登录态。
+> `logout_devices` 是 **body 顶层字段**（规范位置），默认 `true`（吊销所有会话）；
+> 置 `false` 仅改密码、保留当前设备登录态。放在 `auth` 内部不会被读取。
 
 **UIA 语义（本仓实测行为）**
 
 - 不带 `auth.type` → **401**，体为 `{errcode: "M_UIA_REQUIRED", error: "...", flows, params, session}`
   （`UiaService::get_password_change_flows()` 决定 `flows`）。
-- `auth.type = "m.login.password"` 时校验 `auth.password`；`auth.identifier.user` /
+- `auth.type = m.login.password` 时校验 `auth.password`；`auth.identifier.user` /
   `auth.user` / `auth.user_id` 三种写法都接受，用于确定要改哪个账户。
-- `auth.logout_devices`（默认 `true`）决定是否吊销其它设备。
+- `logout_devices`（顶层，默认 `true`）决定是否吊销其它设备。
+- 邮箱 UIA（`m.login.email.identity`）同样读顶层 `logout_devices`；
+  `false` 仅在调用方以**被重置账户本人**的 access token（带 device）发起时保留该设备，
+  否则返回 400（不会静默地把全部会话踢下线）。该校验在验证会话被消费**之前**完成，
+  客户端可直接带 `logout_devices: true` 重试，无需重新 `requestToken`。
 
 | 场景 | 状态 | errcode |
 |---|---|---|
@@ -429,6 +432,7 @@ async function refresh(base: string, refreshToken: string) {
 | 未完成 UIA | 401 | `M_UIA_REQUIRED` |
 | 当前密码错 | 403 | `M_FORBIDDEN` |
 | 新密码不达策略 | 400 | `M_INVALID_PARAM` |
+| `logout_devices: false` 但无可用设备上下文 | 400 | `M_BAD_JSON` |
 
 邮箱辅助流程：`POST /account/password/email/requestToken` → `.../submitToken`。
 
@@ -457,6 +461,7 @@ async function refresh(base: string, refreshToken: string) {
 |---|---|---|
 | 未完成 UIA | 401 | UIA 体（`flows` + `session`） |
 | 已是停用状态 | 403 | `M_USER_DEACTIVATED` |
+| `erase: true` | 501 | `M_UNKNOWN`（不实现内容擦除，明确拒绝而非静默忽略） |
 
 ---
 

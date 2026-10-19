@@ -306,6 +306,9 @@ pub struct RequestEmailTokenBody {
     pub email: Option<String>,
     pub client_secret: Option<String>,
     pub send_attempt: Option<u64>,
+    /// Optional post-verification redirect target (spec `next_link`). Persisted
+    /// with the session so the link can be echoed to downstream consumers.
+    pub next_link: Option<String>,
 }
 
 /// See [`request_email_verification`].
@@ -407,10 +410,15 @@ pub(crate) async fn request_email_verification_with_submit_path(
         e
     })?;
 
-    let session_data = serde_json::json!({
+    let mut session_data = serde_json::json!({
         "client_secret": client_secret,
         "purpose": purpose_marker,
     });
+    // `next_link` has no dedicated column; it rides along in the session payload
+    // so the redirect target is not lost between requestToken and submitToken.
+    if let Some(next_link) = body.next_link.as_deref() {
+        session_data["next_link"] = serde_json::json!(next_link);
+    }
 
     let token_id = ctx
         .email_verification_service
@@ -1226,5 +1234,33 @@ mod request_token_anti_enumeration_tests {
         assert_eq!(RequestTokenPurpose::PasswordReset.as_str(), "password_reset");
         assert_eq!(RequestTokenPurpose::Register.as_str(), "register");
         assert_eq!(RequestTokenPurpose::ThreePidAdd.as_str(), "3pid_add");
+    }
+}
+
+/// B-4: the shared `requestToken` body must declare the optional `next_link`.
+#[cfg(test)]
+mod email_token_body_tests {
+    use super::RequestEmailTokenBody;
+
+    #[test]
+    fn next_link_is_accepted_and_optional() {
+        let body: RequestEmailTokenBody = serde_json::from_value(serde_json::json!({
+            "email": "alice@example.com",
+            "client_secret": "secret",
+            "send_attempt": 1,
+            "next_link": "https://app.example.com/done"
+        }))
+        .expect("next_link must be accepted");
+
+        assert_eq!(body.next_link.as_deref(), Some("https://app.example.com/done"));
+
+        let without: RequestEmailTokenBody = serde_json::from_value(serde_json::json!({
+            "email": "alice@example.com",
+            "client_secret": "secret",
+            "send_attempt": 1
+        }))
+        .unwrap();
+
+        assert_eq!(without.next_link, None, "next_link 是可选字段");
     }
 }

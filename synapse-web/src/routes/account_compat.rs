@@ -311,12 +311,17 @@ async fn take_rc_profile_token(
 ///
 /// `auth` stays `Value`: UIA stages are an open protocol (`m.login.*` with
 /// per-stage payloads), so only the envelope is addressable here.
+///
+/// `logout_devices` is a **top-level** body field per the spec (bool, default
+/// `true`); it is not part of the `auth` envelope.
 #[derive(Debug, Deserialize)]
 pub(crate) struct ChangePasswordBody {
     #[serde(default)]
     new_password: Option<String>,
     #[serde(default)]
     auth: Option<Value>,
+    #[serde(default)]
+    logout_devices: Option<bool>,
 }
 
 /// See [`change_password_uia`].
@@ -383,9 +388,10 @@ pub(crate) async fn change_password_uia(
                 return Err(ApiError::forbidden("User mismatch".to_string()));
             }
 
-            // MSC4204 / Matrix v1.3: logout_devices defaults to true (revoke all
-            // sessions). Clients can set it to false to keep the current session.
-            let logout_devices = auth.get("logout_devices").and_then(|v| v.as_bool()).unwrap_or(true);
+            // MSC4204 / Matrix v1.3: `logout_devices` is a top-level body field
+            // (not part of `auth`) defaulting to true (revoke all sessions).
+            // Clients set it to false to keep their current session alive.
+            let logout_devices = body.logout_devices.unwrap_or(true);
 
             ctx.registration_service
                 .change_password(
@@ -412,6 +418,55 @@ pub(crate) async fn change_password_uia(
 
             let sid_int: i64 =
                 sid.parse().map_err(|_| ApiError::bad_request("Invalid session ID format".to_string()))?;
+
+            // Email-based reset honours the top-level `logout_devices` too
+            // (spec default true). A device may only be preserved when the
+            // caller is authenticated as the reset target itself — otherwise a
+            // foreign token could keep a session alive.
+            let logout_devices = body.logout_devices.unwrap_or(true);
+            let device_for = |target: &str| -> Option<&str> {
+                if auth_user.user_id.as_deref() == Some(target) {
+                    auth_user.device_id.as_deref()
+                } else {
+                    None
+                }
+            };
+
+            // Pre-flight: `claim_used_token` below physically deletes the
+            // session row, so an unsatisfiable `logout_devices: false` must be
+            // rejected *before* consuming it — otherwise the client would need
+            // to repeat `requestToken` just to retry with `true`.
+            if !logout_devices {
+                let peek = ctx
+                    .email_verification_service
+                    .get_verification_token_by_id(sid_int)
+                    .await
+                    .map_err(|e| {
+                        tracing::error!(
+                            request_id = %request_id,
+                            sid = sid_int,
+                            error = %e,
+                            "Failed to load verification token"
+                        );
+                        e
+                    })?
+                    .filter(|t| {
+                        t.is_used && t.expires_at.is_some_and(|expires_at| expires_at > current_timestamp_millis())
+                    })
+                    .ok_or_else(|| {
+                        ApiError::bad_request(
+                            "Verification session is invalid, expired, or has not been submitted".to_string(),
+                        )
+                    })?;
+                let target_user_id = peek.user_id.ok_or_else(|| {
+                    ApiError::bad_request("Verification session is not valid for password reset".to_string())
+                })?;
+                if device_for(&target_user_id).is_none() {
+                    return Err(ApiError::bad_request(
+                        "logout_devices=false requires an access token with a device ID".to_string(),
+                    ));
+                }
+            }
 
             let verification_token = ctx
                 .email_verification_service
@@ -447,10 +502,16 @@ pub(crate) async fn change_password_uia(
                 ApiError::bad_request("Verification session is not valid for password reset".to_string())
             })?;
 
-            // m.login.email.identity path: no current device context, must
-            // revoke ALL sessions per MSC4204 spec. The "true" argument is
-            // non-negotiable — email-reset clients cannot keep any session.
-            ctx.registration_service.change_password(&user_id, None, new_password, None, true).await?;
+            // Email-based reset honours the top-level `logout_devices` too
+            // (spec default true). A device may only be preserved when the
+            // caller is authenticated as the reset target itself — otherwise a
+            // foreign token could keep a session alive. The pre-flight above
+            // already rejects this case before the session is consumed; the
+            // `None` here is only a backstop for the service-side check.
+            let current_device_id = device_for(&user_id);
+            ctx.registration_service
+                .change_password(&user_id, None, new_password, current_device_id, logout_devices)
+                .await?;
 
             Ok(Json(json!({})).into_response())
         }
@@ -502,10 +563,16 @@ pub(crate) async fn request_password_email_verification(
 ///
 /// Only the UIA envelope is addressable; `auth` stages stay `Value` (open
 /// protocol, same rationale as [`ChangePasswordBody`]).
+///
+/// `erase` (spec v1.10) requests best-effort erasure of the user's content. This
+/// server does not implement content erasure, so `erase: true` is rejected with
+/// 501 rather than silently deactivating without erasing.
 #[derive(Debug, Deserialize)]
 pub(crate) struct DeactivateAccountBody {
     #[serde(default)]
     auth: Option<Value>,
+    #[serde(default)]
+    erase: Option<bool>,
 }
 
 /// See [`deactivate_account`].
@@ -527,6 +594,15 @@ pub(crate) async fn deactivate_account(
         .await
     {
         return Ok((StatusCode::UNAUTHORIZED, Json(uia_response)).into_response());
+    }
+
+    // Checked before any side effect: accepting `erase: true` and deactivating
+    // without erasing would answer "success" to an instruction we never carried
+    // out, which is worse than an honest 501.
+    if body.erase == Some(true) {
+        return Err(ApiError::not_supported(
+            "erase=true is not supported by this server; the account was not deactivated".to_string(),
+        ));
     }
 
     let user_id = auth_user.user_id.clone();
@@ -884,5 +960,48 @@ mod rc_profile_limit_tests {
         let config = synapse_common::config::RateLimitConfig::default();
         assert_eq!(config.rc_profile.per_second, 1, "rc_profile.per_second 默认值必须为 1");
         assert_eq!(config.rc_profile.burst_size, 5, "rc_profile.burst_size 默认值必须为 5");
+    }
+}
+
+// ============================================================================
+// B-4: spec body fields that were read from the wrong place / not declared
+// ============================================================================
+#[cfg(test)]
+mod spec_body_field_tests {
+    use super::{ChangePasswordBody, DeactivateAccountBody};
+
+    /// `logout_devices` is a top-level body field, defaulting to true.
+    #[test]
+    fn change_password_reads_top_level_logout_devices() {
+        let body: ChangePasswordBody =
+            serde_json::from_value(serde_json::json!({"new_password": "pw", "logout_devices": false}))
+                .expect("logout_devices must be accepted at the top level");
+        assert_eq!(body.logout_devices, Some(false), "顶层 logout_devices=false 必须被读到");
+
+        let defaulted: ChangePasswordBody = serde_json::from_value(serde_json::json!({"new_password": "pw"})).unwrap();
+        assert_eq!(defaulted.logout_devices, None, "缺省时交给调用点按规范默认 true");
+
+        // A copy inside the `auth` envelope is not the spec location and must not
+        // be mistaken for the top-level field.
+        let nested: ChangePasswordBody = serde_json::from_value(serde_json::json!({
+            "new_password": "pw",
+            "auth": {"type": "m.login.password", "logout_devices": false}
+        }))
+        .unwrap();
+        assert_eq!(nested.logout_devices, None, "auth 内部的 logout_devices 不是规范字段位置");
+    }
+
+    /// `erase` is declared so `erase: true` can be rejected instead of ignored.
+    #[test]
+    fn deactivate_declares_erase() {
+        let body: DeactivateAccountBody =
+            serde_json::from_value(serde_json::json!({"erase": true})).expect("erase must be accepted");
+        assert_eq!(body.erase, Some(true));
+
+        let defaulted: DeactivateAccountBody = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(defaulted.erase, None);
+
+        let off: DeactivateAccountBody = serde_json::from_value(serde_json::json!({"erase": false})).unwrap();
+        assert_eq!(off.erase, Some(false), "erase=false 仍按常规停用流程处理");
     }
 }

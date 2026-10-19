@@ -535,6 +535,48 @@ async fn test_password_reset_email_flow_consumes_sid_after_success() {
     assert_eq!(submit_token_response.status(), StatusCode::OK);
 
     let new_password = "RecoveredPassword123!";
+
+    // An unsatisfiable `logout_devices: false` (no authenticated device for the
+    // reset target) must be rejected *before* the verification session is
+    // consumed, so the client can retry with `true` without repeating
+    // `requestToken`.
+    assert_matrix_error_with_body(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/_matrix/client/v3/account/password")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({
+                    "new_password": new_password,
+                    "logout_devices": false,
+                    "auth": {
+                        "type": "m.login.email.identity",
+                        "threepid_creds": {
+                            "sid": sid,
+                            "client_secret": client_secret
+                        }
+                    }
+                })
+                .to_string(),
+            ))
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "M_BAD_JSON",
+    )
+    .await;
+    let session_after_rejection = services
+        .admin
+        .user
+        .email_verification_service
+        .get_verification_token_by_id(sid_int)
+        .await
+        .expect("failed to fetch verification session after rejected change");
+    assert!(
+        session_after_rejection.is_some(),
+        "an unsatisfiable logout_devices=false must not consume the verification session"
+    );
+
     let change_password_response = ServiceExt::<Request<Body>>::oneshot(
         app.clone(),
         Request::builder()
