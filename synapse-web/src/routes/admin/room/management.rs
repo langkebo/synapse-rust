@@ -393,22 +393,30 @@ pub async fn kick_user_by_body(
 
 // Internal helpers
 
+/// Shared precondition for the admin membership-moderation endpoints: the room
+/// must exist and the target must be an account able to hold membership.
+///
+/// U-2: this must be the active predicate (row-existence would let deactivated
+/// accounts be force-joined / banned / kicked).
+async fn ensure_room_and_active_user(ctx: &AdminContext, room_id: &str, user_id: &str) -> Result<(), ApiError> {
+    if !ctx.room_service.state().room_exists(room_id).await? {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
+    if !ctx.account_identity_service.active_user_exists(user_id).await? {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
+
+    Ok(())
+}
+
 async fn join_room_member_internal(
     ctx: &AdminContext,
     room_id: &str,
     user_id: &str,
     _request_id: &str,
 ) -> Result<Value, ApiError> {
-    if !ctx.room_service.state().room_exists(room_id).await? {
-        return Err(ApiError::not_found("Room not found".to_string()));
-    }
-
-    // U-2: this admin membership-moderation target must be an account able to
-    // hold membership ⇒ active predicate (row-existence would let deactivated
-    // accounts be force-joined / banned / kicked).
-    if !ctx.account_identity_service.active_user_exists(user_id).await? {
-        return Err(ApiError::not_found("User not found".to_string()));
-    }
+    ensure_room_and_active_user(ctx, room_id, user_id).await?;
 
     let existing_membership = ctx.room_service.membership().get_room_membership(room_id, user_id).await?;
 
@@ -429,16 +437,7 @@ async fn remove_room_member_internal(
     user_id: &str,
     _request_id: &str,
 ) -> Result<Value, ApiError> {
-    if !ctx.room_service.state().room_exists(room_id).await? {
-        return Err(ApiError::not_found("Room not found".to_string()));
-    }
-
-    // U-2: this admin membership-moderation target must be an account able to
-    // hold membership ⇒ active predicate (row-existence would let deactivated
-    // accounts be force-joined / banned / kicked).
-    if !ctx.account_identity_service.active_user_exists(user_id).await? {
-        return Err(ApiError::not_found("User not found".to_string()));
-    }
+    ensure_room_and_active_user(ctx, room_id, user_id).await?;
 
     let existing_membership = ctx.room_service.membership().get_room_membership(room_id, user_id).await?;
 
@@ -462,27 +461,11 @@ async fn ban_user_internal(
 ) -> Result<Value, ApiError> {
     validate_moderation_reason(reason)?;
 
-    if !ctx.room_service.state().room_exists(room_id).await? {
-        return Err(ApiError::not_found("Room not found".to_string()));
-    }
-
-    // U-2: this admin membership-moderation target must be an account able to
-    // hold membership ⇒ active predicate (row-existence would let deactivated
-    // accounts be force-joined / banned / kicked).
-    if !ctx.account_identity_service.active_user_exists(user_id).await? {
-        return Err(ApiError::not_found("User not found".to_string()));
-    }
+    ensure_room_and_active_user(ctx, room_id, user_id).await?;
 
     let existing_membership = ctx.room_service.membership().get_room_membership(room_id, user_id).await?;
 
-    let actor_is_admin =
-        ctx.account_identity_service.get_user_by_id(actor_user_id).await?.is_some_and(|user| user.is_admin);
-
-    if actor_is_admin {
-        ctx.room_service.membership().admin_ban_user_membership(room_id, user_id, actor_user_id, reason).await?;
-    } else {
-        ctx.room_service.membership().ban_user(room_id, user_id, actor_user_id, reason).await?;
-    }
+    ctx.room_service.membership().admin_ban_user_membership(room_id, user_id, actor_user_id, reason).await?;
 
     if existing_membership.as_deref() == Some("join") {
         ctx.room_service.membership().decrement_member_count(room_id).await?;
@@ -501,16 +484,7 @@ async fn unban_user_internal(
     user_id: &str,
     actor_user_id: &str,
 ) -> Result<Value, ApiError> {
-    if !ctx.room_service.state().room_exists(room_id).await? {
-        return Err(ApiError::not_found("Room not found".to_string()));
-    }
-
-    // U-2: this admin membership-moderation target must be an account able to
-    // hold membership ⇒ active predicate (row-existence would let deactivated
-    // accounts be force-joined / banned / kicked).
-    if !ctx.account_identity_service.active_user_exists(user_id).await? {
-        return Err(ApiError::not_found("User not found".to_string()));
-    }
+    ensure_room_and_active_user(ctx, room_id, user_id).await?;
 
     ctx.room_service.membership().admin_unban_user_membership(room_id, user_id, actor_user_id).await?;
 
@@ -530,16 +504,7 @@ async fn kick_user_internal(
 ) -> Result<Value, ApiError> {
     validate_moderation_reason(reason)?;
 
-    if !ctx.room_service.state().room_exists(room_id).await? {
-        return Err(ApiError::not_found("Room not found".to_string()));
-    }
-
-    // U-2: this admin membership-moderation target must be an account able to
-    // hold membership ⇒ active predicate (row-existence would let deactivated
-    // accounts be force-joined / banned / kicked).
-    if !ctx.account_identity_service.active_user_exists(user_id).await? {
-        return Err(ApiError::not_found("User not found".to_string()));
-    }
+    ensure_room_and_active_user(ctx, room_id, user_id).await?;
 
     ctx.room_service.membership().admin_kick_user_membership(room_id, user_id, actor_user_id, reason).await?;
 
