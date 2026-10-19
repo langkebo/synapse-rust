@@ -1,7 +1,6 @@
 use crate::infra::{DatabaseInitMode, DatabaseInitService};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -63,7 +62,6 @@ async fn attach_schema_lease(conn: &mut sqlx::PgConnection, schema: &str) -> Res
 }
 /// Static `TEST_ENV_LOCK`.
 pub static TEST_ENV_LOCK: LazyLock<TokioMutex<()>> = LazyLock::new(|| TokioMutex::new(()));
-static TEST_SCHEMA_COUNTER: AtomicU64 = AtomicU64::new(1);
 static TEMPLATE_SCHEMA_NAME: OnceCell<String> = OnceCell::const_new();
 static SHARED_CLONE_SEMAPHORE: LazyLock<Semaphore> =
     LazyLock::new(|| Semaphore::new(configured_shared_clone_concurrency()));
@@ -698,12 +696,7 @@ fn candidate_database_urls() -> Vec<String> {
 }
 
 fn next_test_schema_name() -> String {
-    #[allow(clippy::expect_used)]
-    let timestamp_nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system clock before unix epoch")
-        .as_nanos();
-    format!("test_{}_{}_{}", std::process::id(), TEST_SCHEMA_COUNTER.fetch_add(1, Ordering::SeqCst), timestamp_nanos,)
+    synapse_common::test_schema_orphans::next_stamped_schema_name()
 }
 
 async fn ensure_test_schema_contract(pool: &Arc<PgPool>) -> Result<(), String> {

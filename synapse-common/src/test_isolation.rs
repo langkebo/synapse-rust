@@ -1866,7 +1866,10 @@ impl IsolatedTestPool {
 
         let template = ensure_template_schema(&db_url, baseline_sql).await.map_err(sqlx::Error::Protocol)?;
 
-        let schema = format!("test_{}", uuid::Uuid::new_v4().as_simple());
+        // Stamped name, not a uuid: the timestamp is the only creation record a
+        // schema has, and the orphan sweep needs it to tell a live schema from
+        // one whose process died (see `test_schema_orphans`).
+        let schema = crate::test_schema_orphans::next_stamped_schema_name();
 
         // One round trip per baseline-table chunk, plus the unowned-sequence and
         // global phase-2 statements: every table, index, constraint, function,

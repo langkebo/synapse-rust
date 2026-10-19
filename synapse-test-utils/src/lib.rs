@@ -12,7 +12,7 @@
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::fs;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
 use std::sync::{Arc, Mutex, Once};
 use std::time::Duration;
@@ -39,7 +39,6 @@ use tokio::sync::{Mutex as TokioMutex, RwLock as TokioRwLock, Semaphore};
 static RESOLVED_TEST_DB_URL: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
 /// Static `TEST_ENV_LOCK`.
 pub static TEST_ENV_LOCK: LazyLock<TokioMutex<()>> = LazyLock::new(|| TokioMutex::new(()));
-static TEST_SCHEMA_COUNTER: AtomicU64 = AtomicU64::new(1);
 static TEMPLATE_SCHEMA_NAME: OnceCell<String> = OnceCell::const_new();
 // Cached table names for the template schema. The template is created once and
 // never modified, so these are populated lazily on first use and reused across
@@ -164,7 +163,13 @@ fn test_schema_pool_reuse_enabled() -> bool {
 // initialization is retried after a runtime cancellation.
 static TEMPLATE_RW_LOCK: TokioRwLock<()> = TokioRwLock::const_new(());
 
-const DEFAULT_TEST_DB_MAX_CONNECTIONS: u32 = 40;
+// Lowered 40 → 10 on 2026-10-19. The 40 ceiling was never demand (see the
+// model below), but it let a single fixture hold up to 40 server backends at
+// ~10 MB each, and the 16 GB host swapped out with 10 test processes before
+// `max_connections` was ever reached. 10 still exceeds what any fixture asks
+// for (queries are serial) while bounding the worst case to
+// `test-threads × 10`.
+const DEFAULT_TEST_DB_MAX_CONNECTIONS: u32 = 10;
 const DEFAULT_TEST_DB_MIN_CONNECTIONS: u32 = 0;
 const DEFAULT_TEST_DB_CONNECT_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_TEST_DB_ACQUIRE_TIMEOUT_SECS: u64 = 30;
@@ -1936,14 +1941,8 @@ fn candidate_database_urls() -> Vec<String> {
 }
 
 fn next_test_schema_name() -> String {
-    #[allow(clippy::expect_used)]
-    let timestamp_nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system clock before unix epoch")
-        .as_nanos();
-    format!("test_{}_{}_{}", std::process::id(), TEST_SCHEMA_COUNTER.fetch_add(1, Ordering::SeqCst), timestamp_nanos,)
+    synapse_common::test_schema_orphans::next_stamped_schema_name()
 }
-
 async fn ensure_test_schema_contract(pool: &Arc<PgPool>) -> Result<(), String> {
     sqlx::raw_sql(ensure_test_schema_contract_sql())
         .execute(&**pool)

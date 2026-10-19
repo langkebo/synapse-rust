@@ -246,6 +246,33 @@ TEST_DB_TEMPLATE_SCHEMA=public cargo test --locked --features test-utils --test 
 
 - 若模板 schema 不可用，测试框架仍会退回到 isolated schema 初始化路径，但本地运行时间会明显增加。
 
+### 3.3 本地全量的前置检查与健康指标
+
+本地集成测试库固定用 **`127.0.0.1:55432/synapse_test`**（容器 `synapse-test-db`，
+`bash scripts/dev-test-setup.sh up` 起）。**不要**把 `TEST_DATABASE_URL` 指向
+`:5432`：那是 dev/deploy 栈（应用与监控在跑），测试会与它抢内存/连接，迁移也有打到
+应用库的风险。
+
+每条测试都要 clone 一次 schema（约 1000 条 catalog 写）。残留 schema 一多，每条
+DDL 都要从磁盘重读 `pg_attribute`：实测同一个测试在 10 GB / 765 个残留 schema 的库上
+**95 s**，在重建后的 37 MB 库上 **11 s**。所以全量前后各跑一次健康检查：
+
+```bash
+bash scripts/test_db_health.sh            # 库体 / pg_attribute / 残留 schema / 单测 P95
+bash scripts/cleanup_test_schemas.sh      # 预演，确认后加 --apply
+cargo nextest run --profile ci --all-features --test integration
+```
+
+- 全量默认 `--profile ci`（4 线程）。`profile.test` 也已从 12 降到 4：clone 的吞吐
+  不随线程数扩展，但 10 个进程各带一份 `AppState`/`CacheManager`/Argon2 初始化会把
+  16 GB 机器的 swap 打满，进程被 SIGKILL 后又会制造更多 schema 泄漏。非 DB 的快速
+  迭代可显式 `--test-threads 12` 覆盖。
+- 测试进程启动时会自动回收「超过 10 分钟且无连接租约」的孤儿 schema（按 schema 名字
+  里的纳秒时间戳判龄）。积压超过 200 个时默认**拒绝开跑**并打印清理命令；
+  `TEST_SCHEMA_LEAK_GUARD=warn|off` 可放宽，`TEST_SCHEMA_LEAK_BACKLOG_LIMIT` 调阈值。
+- 不要在跑测试的同时执行 `cargo build`/`cargo clean`：共享 `target/` 的构建锁会把
+  测试卡在编译阶段，看起来像"数据库很慢"（实测一次误判就是这么来的）。
+
 ### 2.2 代码覆盖率
 
 覆盖率用 **cargo llvm-cov**（tarpaulin 已弃用，见下方注）：

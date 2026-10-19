@@ -5,13 +5,10 @@
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use synapse_common::test_schema_guard::{schema_lease_key, SchemaCleanup, TestSchemaGuard};
-
-static TEST_SCHEMA_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 // ============================================================================
 // Schema lifecycle
@@ -185,12 +182,7 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<TestSchemaGuard, Strin
 }
 
 fn next_test_schema_name() -> String {
-    #[allow(clippy::expect_used)]
-    let timestamp_nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system clock before unix epoch")
-        .as_nanos();
-    format!("test_{}_{}_{}", std::process::id(), TEST_SCHEMA_COUNTER.fetch_add(1, Ordering::SeqCst), timestamp_nanos,)
+    synapse_common::test_schema_orphans::next_stamped_schema_name()
 }
 
 /// Connect a shared pool to the default test database (no schema isolation).

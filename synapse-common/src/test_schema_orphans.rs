@@ -18,9 +18,19 @@
 //! Age comes from the schema **name** — `test_<pid>_<counter>_<nanos>` embeds
 //! the creation instant in nanoseconds — because PostgreSQL records no creation
 //! time for a schema and `pg_class.relfilenode` mtimes are not a stable
-//! contract. Schemas whose names carry no timestamp (`test_<32 hex>`, the two
-//! shared-template families) are never reclaimed here; only the stamped family
-//! is.
+//! contract. **The name is the manifest**: it is written by the creator, stored
+//! by the catalog, survives SIGKILL, and is read back by the next run, so no
+//! side file and no atexit hook is needed for a schema to be reclaimable.
+//! Schemas whose names carry no timestamp (`test_<32 hex>`, the two
+//! shared-template families) cannot be aged; the uuid family is counted as
+//! backlog rather than quietly ignored, and [`next_stamped_schema_name`] exists
+//! so no fixture creates it any more.
+//!
+//! The sweep never borrows a test pool: [`run_orphan_guard`] opens its own
+//! single-connection pool, so a pool that is being torn down at process exit
+//! cannot block the `DROP`. That is the failure this module exists to undo —
+//! the janitor's release cleanup is lease-guarded, and the lease belongs to the
+//! very pool that is going away.
 //!
 //! Env knobs:
 //!
@@ -68,15 +78,39 @@ pub struct OrphanReclaimReport {
 }
 
 impl OrphanReclaimReport {
-    /// Abandoned schemas still present after this pass (dropped ones excluded).
+    /// Abandoned schemas still present after this pass.
+    ///
+    /// `unageable` counts too: a `test_<uuid>` schema cannot be aged from its
+    /// name, so this sweep will never reclaim it and it is backlog by
+    /// definition. Counting only `deferred` let a database fill with that
+    /// family while the guard reported a clean bill of health.
     pub fn backlog(&self) -> usize {
-        self.deferred
+        self.deferred + self.unageable
     }
 
     /// True when this pass changed anything, i.e. a message is worth printing.
     pub fn reclaimed_any(&self) -> bool {
         !self.dropped.is_empty()
     }
+}
+
+/// Name for a per-test schema: `test_<pid>_<counter>_<unix nanos>`.
+///
+/// **The name is the cleanup manifest.** It carries the creation instant, and
+/// the catalog persists it, so a schema survives its process and is still
+/// reclaimable by the next run — no atexit hook, no side file, and nothing to
+/// lose when the process is SIGKILLed. Every fixture must use this (or the
+/// identical helper in `synapse-test-utils`) so the sweep can age the schema;
+/// the uuid-named family used before 2026-10-19 carries no timestamp and is
+/// permanently unreclaimable by [`reclaim_orphan_test_schemas`].
+pub fn next_stamped_schema_name() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(1);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or_default();
+    format!("test_{}_{}_{}", std::process::id(), COUNTER.fetch_add(1, Ordering::SeqCst), nanos)
 }
 
 /// Creation instant embedded in a `test_<pid>_<counter>_<nanos>` schema name.
@@ -304,20 +338,33 @@ mod tests {
     /// A report with deferred work must be distinguishable from a clean pass:
     /// the caller turns `backlog()` into a refusal, and an off-by-one here
     /// would either block a clean run or hide a 10 GB catalog in the making.
+    /// `unageable` counts as backlog — the sweep can never reclaim that family.
     #[test]
-    fn backlog_counts_only_deferred_orphans() {
+    fn backlog_counts_deferred_and_unageable_orphans() {
         let report = OrphanReclaimReport {
             scanned: 7,
             dropped: vec!["test_1_1_1792413865684199000".to_string()],
             leased: 2,
             too_young: 1,
             deferred: 3,
-            unageable: 0,
+            unageable: 2,
         };
-        assert_eq!(report.backlog(), 3);
+        assert_eq!(report.backlog(), 5);
         assert!(report.reclaimed_any());
 
         assert_eq!(OrphanReclaimReport::default().backlog(), 0);
         assert!(!OrphanReclaimReport::default().reclaimed_any());
+    }
+
+    /// The stamped name must round-trip through the age parser: a generator
+    /// change that breaks the format would silently make every schema
+    /// unageable and disable the whole sweep.
+    #[test]
+    fn generated_names_are_ageable() {
+        let first = next_stamped_schema_name();
+        let second = next_stamped_schema_name();
+        assert_ne!(first, second);
+        assert!(stamped_schema_created_nanos(&first).is_some(), "not ageable: {first}");
+        assert!(stamped_schema_created_nanos(&second).is_some(), "not ageable: {second}");
     }
 }

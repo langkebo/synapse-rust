@@ -67,5 +67,9 @@ slow-timeout = { period = "30s", terminate-after = 1 }
 [profile.test]
 fail-fast = true
 retries = 0
-# P1: dev profile uses higher parallelism for local iteration speed
-test-threads = 12
+# 2026-10-19：12 → 4。DB 车道的吞吐并不随线程数扩展（clone 是 catalog 写，
+# 4 并发实测 29 s/wall 与单条相同），但内存会：10 个进程各带
+# AppState/CacheManager/Argon2 初始化，16 GB 机器 swap 打满后测试被 SIGKILL，
+# 而 SIGKILL 又制造 schema 泄漏。CI 早已因 `53200 out of shared memory` 定为 4；
+# 本地沿用同一口径，非 DB 的快速迭代可显式 `--test-threads 12` 覆盖。
+test-threads = 4
