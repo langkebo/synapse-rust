@@ -16,6 +16,9 @@ expression: body
     "m.forget_forced_upon_leave": {
       "enabled": true
     },
+    "m.hula.privacy": {
+      "server_holds_room_keys": false
+    },
     "m.preview_url": {
       "enabled": false
     },
