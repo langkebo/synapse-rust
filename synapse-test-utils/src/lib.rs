@@ -1883,6 +1883,7 @@ pub async fn resolve_test_database_url() -> Result<String, String> {
             Err(_) => errors.push(format!("{database_url} -> connect timed out after {connect_timeout:?}")),
             Ok(Ok(pool)) => {
                 drop(pool);
+                synapse_common::test_schema_orphans::run_orphan_guard(&database_url).await?;
                 let url = database_url.clone();
                 *RESOLVED_TEST_DB_URL.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(url.clone());
                 return Ok(url);

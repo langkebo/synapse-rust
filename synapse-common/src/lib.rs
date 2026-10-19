@@ -103,6 +103,9 @@ pub mod test_isolation;
 /// `test-utils`) so that `#[cfg(test)]` fixture code in dependent crates can
 /// register cleanups even when built without the feature.
 pub mod test_schema_guard;
+/// Module `test_schema_orphans`. Reclaims `test_*` schemas abandoned by earlier
+/// test processes, which otherwise bloat the catalog ~17x per suite.
+pub mod test_schema_orphans;
 /// Module `time`.
 pub mod time;
 /// Module `tracing`.
