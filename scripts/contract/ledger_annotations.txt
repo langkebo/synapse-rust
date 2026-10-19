@@ -51,6 +51,14 @@
 #     counted ratchet (`EXPECTED_OPAQUE_UNANNOTATED`), so burning debt must
 #     lower the pin while a *new* opaque body is RED.
 #
+#   * `unsupported` — the route is registered and reachable, but the documented
+#     response is not implemented yet. Today this is exactly one endpoint: the
+#     vendor `GET /rooms/{room_id}/keys/{event_id}` answers 200 with a
+#     placeholder `"keys": []` (C-1), which a client cannot distinguish from
+#     "no keys". The annotation records the gap on the contract surface; the
+#     handler behaviour is unchanged by design (ruling: keep 200, do not turn
+#     it into a 501 — a hard error would break clients that call it today).
+#
 # This table is the single source of truth for annotations, mirroring
 # `ledger_origins.txt` for `registered_by`. Deleting a line and observing a RED
 # fidelity test is the self-proof that the guard is real, not a tautology.
@@ -306,3 +314,6 @@ GET /_matrix/media/v1/preview_url	query_params=ts,url
 GET /_matrix/media/v3/preview_url	query_params=ts,url
 GET /_matrix/vendor/v1/keys/rotation/check	query_params=key_id
 POST /_matrix/vendor/v1/keys/rotation/check	query_params=key_id
+
+# -- unsupported: registered, reachable, documented response not implemented.
+GET /_matrix/vendor/v1/rooms/{room_id}/keys/{event_id}	unsupported=true

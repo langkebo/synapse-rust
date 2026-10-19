@@ -94,7 +94,7 @@ pub(super) async fn invite_user(
     State(ctx): State<RoomContext>,
     Path(space_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<InviteUserBody>,
+    MatrixJson(body): MatrixJson<SpaceInviteUserBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_request(&body)?;
 
@@ -167,7 +167,7 @@ mod tests {
 
     #[test]
     fn test_invite_user_body_keeps_matrix_user_shape() {
-        let body = InviteUserBody { user_id: "@alice:example.com".to_string() };
+        let body = SpaceInviteUserBody { user_id: "@alice:example.com".to_string() };
 
         assert!(body.user_id.starts_with('@'));
         assert!(body.user_id.contains(':'));

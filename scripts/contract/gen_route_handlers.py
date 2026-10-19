@@ -19,6 +19,16 @@ Row model (per route, sorted by `(path, method)`):
                    raw `(file, handler)` registration sites, if any.
   * `ambiguous`  — more than one distinct definition matches; `candidates`
                    lists all of them. Never guessed down to one.
+* `registered_by` — the ledger label from `ledger_origins.txt` (the same value
+  the SDK contract-sync uses to pick a directory). `null` when undecidable.
+* `confidence` / `hint`
+  * `high` — `status == "exact"`.
+  * `low`  — `ambiguous`, or `unresolved` with a `hint`: a candidate registered
+             under a fully-qualified name (`assembly.rs` registers
+             `handlers::foo`) whose *tail* resolves to exactly one definition.
+             The hint is a lead for a consumer, never a replacement for
+             `status == "exact"`.
+  * `none` — `unresolved` with no lead.
 * `body`
   * `typed`    — `Json<T>` / `MatrixJson<T>` with a resolvable `T` (`body_type`).
   * `opaque`   — bare `Json<Value>` / `MatrixJson<Value>`: protocol-arbitrary.
@@ -29,6 +39,13 @@ Row model (per route, sorted by `(path, method)`):
 * `body_opaque` — the ledger declaration from `ledger_annotations.txt`. This is
   author intent, not inference; `body == "opaque"` without the flag is the
   counted debt pinned by `EXPECTED_OPAQUE_UNANNOTATED`.
+* `unsupported` — the ledger declaration from `ledger_annotations.txt`: the
+  route is reachable but its documented response is not implemented (today the
+  vendor keys endpoint answers a placeholder `keys: []`).
+
+`file`/`handler`/`candidates[].file`/`hint.file` are relative to `file_root`
+(`synapse-web/src/routes`) so the sidecar stays readable without repeating a
+long prefix on every row.
 
 Determinism: routes are sorted, keys have a fixed order, there is no timestamp
 and no locale-dependent formatting. The explicit `schema_version` lets a
@@ -48,6 +65,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import sys
 from collections import Counter
 
@@ -59,13 +77,42 @@ _spec = importlib.util.spec_from_file_location(
 ex = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ex)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 OUT = os.path.join(ROOT, "docs", "synapse-rust", "ROUTE_HANDLERS.json")
+# Every `file` in this sidecar is relative to this root.
+FILE_ROOT = "synapse-web/src/routes"
+ROUTES_DIR = os.path.join(ROOT, FILE_ROOT)
+DERIVED_TABLES = {
+    "always": "derived_route_table_always.inc.rs",
+    "worker": "derived_route_table_worker.inc.rs",
+    "oidc": "derived_route_table_oidc.inc.rs",
+}
+_DERIVED_ROW_RE = re.compile(r"\bRouteEntry::new\s*\(")
 
 
 def _defs_named(res, name: str) -> list:
     """Every `(file, fn)` definition of `name`, sorted for determinism."""
     return sorted({(f, n) for (f, n, _body) in res.fn_all if n == name})
+
+
+def _hint_for(res, candidates) -> dict | None:
+    """Best-effort lead for an `unresolved` row, or `None`.
+
+    `assembly.rs` registers handlers under fully-qualified paths
+    (`handlers::get_well_known_client`), which the import graph cannot resolve.
+    The tail after the last `::` often names exactly one definition; when every
+    candidate agrees on that single definition it is safe to publish as a hint.
+    """
+    hits = set()
+    for _file, qualified in candidates:
+        tail = qualified.rsplit("::", 1)[-1]
+        matches = _defs_named(res, tail)
+        if len(matches) == 1:
+            hits.add(matches[0])
+    if len(hits) != 1:
+        return None
+    file, handler = next(iter(hits))
+    return {"file": file, "handler": handler}
 
 
 def resolve_route(res, method: str, path: str) -> dict:
@@ -82,6 +129,7 @@ def resolve_route(res, method: str, path: str) -> dict:
             file, fname, _body = res.fn_all[idx]
             resolved.add((file, fname))
 
+    hint = None
     if len(resolved) == 1:
         status = "exact"
         file, handler = next(iter(resolved))
@@ -98,6 +146,15 @@ def resolve_route(res, method: str, path: str) -> dict:
         names = {fn for (_f, fn) in entries}
         ambiguous = any(len(_defs_named(res, n)) > 1 for n in names)
         status = "ambiguous" if ambiguous else "unresolved"
+        if status == "unresolved":
+            hint = _hint_for(res, candidates)
+
+    if status == "exact":
+        confidence = "high"
+    elif status == "ambiguous" or hint is not None:
+        confidence = "low"
+    else:
+        confidence = "none"
 
     body, body_type = (
         res.handler_body_kind(method, path)
@@ -108,28 +165,70 @@ def resolve_route(res, method: str, path: str) -> dict:
         "status": status,
         "file": file,
         "handler": handler,
+        "registered_by": ex.resolve_label(
+            path, res.registrars.get((method, path), set()), res.origin_table
+        ),
+        "confidence": confidence,
+        "hint": hint,
         "candidates": [{"file": f, "handler": h} for f, h in candidates],
         "body": body,
         "body_type": body_type,
     }
 
 
+def derived_table_counts() -> dict:
+    """Row counts of the three profile tables, plus their distinct routes.
+
+    These are a *different* count from `counts.routes`: the tables are per
+    profile, so a route served at two ranks is present twice. Publishing both
+    next to each other is what makes the 1048-vs-1046 discrepancy explainable
+    instead of looking like an off-by-two bug.
+    """
+    counts = {}
+    distinct: set = set()
+    row_re = re.compile(
+        r"RouteEntry::new\(\s*axum::http::Method::(\w+),\s*\"([^\"]+)\""
+    )
+    for profile, name in DERIVED_TABLES.items():
+        path = os.path.join(ROUTES_DIR, name)
+        try:
+            text = open(path, encoding="utf-8").read()
+        except OSError as exc:
+            raise SystemExit(
+                f"gen_route_handlers: cannot read {name}: {exc}. "
+                "Run scripts/contract/gen_derived_routes.py first."
+            ) from exc
+        n = len(_DERIVED_ROW_RE.findall(text))
+        if n == 0:
+            raise SystemExit(
+                f"gen_route_handlers: {name} has no RouteEntry::new rows — "
+                "the table layout changed; refusing to publish a bogus count."
+            )
+        counts[profile] = n
+        distinct |= set(row_re.findall(text))
+    counts["total"] = sum(counts[p] for p in DERIVED_TABLES)
+    counts["distinct"] = len(distinct)
+    return counts
+
+
 def build() -> dict:
     res = ex.Resolver(ex.load_sources())
-    routes = res.all_routes()  # populates `handlers`
+    routes = res.all_routes()  # populates `handlers` and `registrars`
     annotations = ex.load_ledger_annotations()
 
     rows = []
     for method, path in sorted(routes, key=lambda k: (k[1], k[0])):
         row = {"method": method, "path": path}
         row.update(resolve_route(res, method, path))
-        row["body_opaque"] = bool(
-            annotations.get((method, path), {}).get("body_opaque")
-        )
+        ann = annotations.get((method, path), {})
+        row["body_opaque"] = bool(ann.get("body_opaque"))
+        row["unsupported"] = bool(ann.get("unsupported"))
         rows.append(row)
 
     status_counts = Counter(r["status"] for r in rows)
     body_counts = Counter(r["body"] for r in rows)
+    confidence_counts = Counter(r["confidence"] for r in rows)
+    derived = derived_table_counts()
     return {
         "schema_version": SCHEMA_VERSION,
         "generator": "scripts/contract/gen_route_handlers.py",
@@ -137,11 +236,33 @@ def build() -> dict:
             "Resolved handler definition and JSON-body kind per registered route. "
             "Generated from the real `.route(...)` surface; do not edit by hand."
         ),
+        "file_root": FILE_ROOT,
         "counts": {
             "routes": len(rows),
             "status": dict(sorted(status_counts.items())),
+            "confidence": dict(sorted(confidence_counts.items())),
             "body": dict(sorted(body_counts.items())),
             "body_opaque_declared": sum(1 for r in rows if r["body_opaque"]),
+            "unsupported": sum(1 for r in rows if r["unsupported"]),
+            "derived_tables": derived,
+        },
+        "counts_note": {
+            "routes": (
+                "distinct (method, path) pairs this sidecar resolves; compare "
+                "with status/confidence/body, which are per-route buckets."
+            ),
+            "derived_tables": (
+                "row counts of the three per-profile tables. `total` is their "
+                "sum; `distinct` de-duplicates by (method, path). The gap is "
+                "the two `/.well-known/{openid-configuration,jwks.json}` OIDC "
+                "twins, which ship as an Always row plus an Oidc row."
+            ),
+            "sdk_ledger": (
+                "the SDK-side ledger is a cross-repo view and is intentionally "
+                "not duplicated here — copying it would drift on every SDK "
+                "change and turn this backend artifact into a mirror of another "
+                "repository."
+            ),
         },
         "routes": rows,
     }
@@ -154,8 +275,12 @@ def render(doc: dict) -> str:
         f'  "schema_version": {doc["schema_version"]},',
         f'  "generator": {json.dumps(doc["generator"], ensure_ascii=False)},',
         f'  "description": {json.dumps(doc["description"], ensure_ascii=False)},',
+        f'  "file_root": {json.dumps(doc["file_root"], ensure_ascii=False)},',
         '  "counts": '
         + json.dumps(doc["counts"], ensure_ascii=False, sort_keys=True)
+        + ",",
+        '  "counts_note": '
+        + json.dumps(doc["counts_note"], ensure_ascii=False, sort_keys=True)
         + ",",
         '  "routes": [',
     ]

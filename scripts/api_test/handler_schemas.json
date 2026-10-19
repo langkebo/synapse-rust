@@ -186,12 +186,6 @@
         "post"
       ]
     ],
-    "shadow_ban_user": [
-      [
-        "/_synapse/admin/v1/users/{user_id}/shadow_ban",
-        "post"
-      ]
-    ],
     "set_user_rate_limit": [
       [
         "/_synapse/admin/v1/users/{user_id}/rate_limit",
@@ -210,6 +204,18 @@
         "post"
       ]
     ],
+    "add_global_invite_blocklist_user": [
+      [
+        "/_synapse/admin/v1/invite/blocklist/{user_id}",
+        "post"
+      ]
+    ],
+    "add_global_invite_allowlist_user": [
+      [
+        "/_synapse/admin/v1/invite/allowlist/{user_id}",
+        "post"
+      ]
+    ],
     "create_registration_token": [
       [
         "/_synapse/admin/v1/registration_tokens",
@@ -220,12 +226,6 @@
       [
         "/_synapse/admin/v1/registration_tokens/{token}",
         "post"
-      ]
-    ],
-    "set_admin": [
-      [
-        "/_synapse/admin/v1/users/{user_id}/admin",
-        "put"
       ]
     ],
     "evict_user": [
@@ -306,6 +306,16 @@
         "put"
       ]
     ],
+    "crate::routes::msc4512_proxy::fed_proxy": [
+      [
+        "/_matrix/client/v1/appservice/fed_proxy",
+        "post"
+      ],
+      [
+        "/_matrix/client/unstable/io.element.msc4512/appservice/fed_proxy",
+        "post"
+      ]
+    ],
     "register_app_service": [
       [
         "/_synapse/admin/v1/appservices",
@@ -378,6 +388,18 @@
         "post"
       ]
     ],
+    "one_time_invite::create_one_time_invite": [
+      [
+        "/invites/one-time",
+        "post"
+      ]
+    ],
+    "one_time_invite::claim_one_time_invite": [
+      [
+        "/invites/claim",
+        "post"
+      ]
+    ],
     "handlers::account_status::client_account_status": [
       [
         "/_matrix/client/unstable/org.matrix.msc3720/account_status",
@@ -425,6 +447,12 @@
     "auth_compat::generate_qr_login_token": [
       [
         "/_matrix/client/v1/login/qr_token",
+        "post"
+      ]
+    ],
+    "auth_compat::get_login_token": [
+      [
+        "/_matrix/client/v1/login/get_token",
         "post"
       ]
     ],
@@ -1590,12 +1618,18 @@
     ]
   },
   "handler_signatures": {
+    "update_displayname": "UpdateDisplaynameBody",
+    "update_avatar": "UpdateAvatarBody",
     "delete_threepid": "DeleteThreepidRequest",
     "unbind_threepid": "DeleteThreepidRequest",
     "create_audit_event": "CreateAuditEventBody",
+    "cleanup_all": "CleanupRequest",
+    "cleanup_rooms": "CleanupRequest",
     "rewrite_federation": "RewriteRequest",
     "resolve_federation": "ResolveRequest",
     "confirm_federation": "ConfirmRequest",
+    "set_global_invite_blocklist_admin": "InviteListWriteBody",
+    "set_global_invite_allowlist_admin": "InviteListWriteBody",
     "quarantine_room_media": "QuarantineRoomMediaRequest",
     "unquarantine_room_media": "QuarantineRoomMediaRequest",
     "delete_media_by_policy": "DeleteMediaByPolicyRequest",
@@ -1608,17 +1642,24 @@
     "set_retention_policy": "RetentionPolicyRequest",
     "set_room_retention_policy": "RetentionPolicyRequest",
     "run_retention": "RunRetentionRequest",
+    "cleanup_abnormal_rooms": "CleanupAbnormalRoomsRequest",
     "block_room": "BlockRoomRequest",
     "make_room_admin": "MakeRoomAdminRequest",
-    "ban_user": "BanRequest",
+    "purge_history": "PurgeHistoryRequest",
+    "purge_history_by_room": "PurgeHistoryByRoomRequest",
+    "backfill_room": "BackfillRoomRequest",
+    "purge_room": "PurgeRoomRequest",
+    "admin_join_room": "AdminJoinRoomRequest",
+    "admin_ban_user": "BanRequest",
     "ban_user_by_body": "RoomUserActionRequest",
-    "kick_user": "BanRequest",
+    "admin_kick_user": "BanRequest",
     "kick_user_by_body": "RoomUserActionRequest",
+    "redact_room_events": "RedactRoomEventsRequest",
     "set_user_rate_limit": "RateLimitRequest",
-    "set_global_invite_blocklist_admin": "InviteListWriteBody",
-    "set_global_invite_allowlist_admin": "InviteListWriteBody",
+    "restart_server": "RestartServerRequest",
     "create_registration_token": "CreateTokenRequest",
     "update_registration_token": "UpdateTokenRequest",
+    "set_admin": "SetAdminRequest",
     "reset_user_password": "ResetPasswordBody",
     "create_or_update_user_v2": "CreateUpdateUserRequest",
     "batch_create_users": "BatchCreateUsersRequest",
@@ -1629,13 +1670,28 @@
     "set_app_service_state": "SetStateBody",
     "register_virtual_user": "RegisterVirtualUserBody",
     "push_event": "PushEventBody",
+    "submit_email_token": "SubmitEmailTokenBody",
+    "refresh_token": "RefreshTokenBody",
     "create_update": "CreateUpdateBody",
     "update_progress": "UpdateProgressBody",
     "fail_update": "FailUpdateBody",
+    "enable_burn": "EnableBurnRequest",
+    "set_global_burn_config": "SetGlobalBurnConfigRequest",
     "send_captcha": "SendCaptchaBody",
     "verify_captcha": "VerifyCaptchaBody",
     "register_service": "RegisterServiceBody",
     "set_user_attribute": "SetAttributeBody",
+    "manage_delayed_event": "ManageDelayedEventBody",
+    "update_device": "UpdateDeviceBody",
+    "get_device_list_updates": "GetDeviceListUpdatesBody",
+    "search_user_directory": "SearchUserDirectoryBody",
+    "list_user_directory": "ListUserDirectoryBody",
+    "report_event": "ReportEventBody",
+    "update_report_score": "UpdateReportScoreBody",
+    "report_room": "ReportRoomBody",
+    "report_user": "ReportUserBody",
+    "set_room_alias_direct": "SetRoomAliasBody",
+    "query_public_rooms": "PublicRoomsBody",
     "create_dm_room": "CreateDmRequest",
     "update_dm_room": "UpdateDmRequest",
     "restore_secure_backup": "RestoreSecureBackupRequest",
@@ -1657,7 +1713,23 @@
     "create_friend_group": "CreateGroupRequest",
     "rename_friend_group": "RenameGroupRequest",
     "upgrade_guest": "UpgradeGuestRequest",
+    "put_dehydrated_device": "PutDehydratedDeviceBody",
+    "set_presence": "SetPresenceBody",
+    "presence_list": "PresenceListBody",
+    "sign_room_event": "SignRoomEventRequest",
+    "verify_room_event": "VerifyRoomEventRequest",
+    "translate_room_event": "TranslateRequest",
+    "translate_text": "TranslateRequest",
+    "create_room": "CreateRoomBody",
     "upgrade_room": "UpgradeRoomRequest",
+    "set_room_visibility": "SetRoomVisibilityBody",
+    "knock_room": "KnockRoomBody",
+    "invite_user": "InviteUserBody",
+    "get_membership_events": "MembershipEventsRequest",
+    "kick_user": "KickUserBody",
+    "ban_user": "BanUserBody",
+    "unban_user": "UnbanUserBody",
+    "set_read_markers": "SetReadMarkersBody",
     "search": "SearchRequest",
     "search_recipients": "SearchRecipientsRequest",
     "search_rooms": "SearchRoomsRequest",
@@ -1673,6 +1745,14 @@
     "put_room_keys_for_room_legacy": "RoomSessionsBody",
     "recover_keys": "RecoverKeysBody",
     "batch_recover_keys": "BatchRecoverBody",
+    "rotate_keys": "RotateKeysRequest",
+    "revoke_old_keys": "RevokeOldKeysRequest",
+    "configure_key_rotation": "ConfigureKeyRotationRequest",
+    "configure_key_rotation_post": "ConfigureKeyRotationRequest",
+    "chunked_upload_start": "ChunkedUploadStartBody",
+    "chunked_upload_complete": "ChunkedUploadIdBody",
+    "chunked_upload_cancel": "ChunkedUploadIdBody",
+    "create_upload_token": "CreateUploadTokenBody",
     "create_module": "CreateModuleBody",
     "update_module_config": "UpdateModuleConfigBody",
     "enable_module": "EnableModuleBody",
@@ -1685,10 +1765,18 @@
     "create_account_data_callback": "CreateAccountDataCallbackBody",
     "oidc_token": "OidcTokenRequest",
     "oidc_logout": "OidcLogoutRequest",
+    "claim_one_time_invite": "ClaimOneTimeInviteRequest",
     "pin_event": "PinRequest",
+    "set_pusher": "SetPusherBody",
+    "set_push_rule": "SetPushRuleBody",
+    "create_push_rule": "SetPushRuleBody",
+    "set_push_rule_enabled": "SetPushRuleEnabledBody",
     "register_device": "RegisterDeviceBody",
     "send_notification": "SendNotificationBody",
     "put_push_config": "SetPushConfigBody",
+    "create_session": "CreateSessionBody",
+    "update_session": "UpdateSessionBody",
+    "send_message": "SendMessageBody",
     "set_anti_screenshot": "AntiScreenshotPayload",
     "create_room_summary": "CreateRoomSummaryRequest",
     "create_internal_room_summary": "CreateRoomSummaryRequest",
@@ -1704,8 +1792,9 @@
     "add_child": "AddChildBody",
     "create_space": "CreateSpaceBody",
     "update_space": "UpdateSpaceBody",
-    "invite_user": "InviteUserBody",
     "put_tag": "TagContent",
+    "set_typing": "SetTypingBody",
+    "bulk_get_typing": "BulkGetTypingBody",
     "register_encrypted_voice": "RegisterEncryptedVoiceRequest",
     "call_invite": "CallInviteEvent",
     "call_candidates": "CallCandidatesEvent",
@@ -1726,6 +1815,44 @@
     "update_replication_position": "StreamPosition"
   },
   "type_schemas": {
+    "UpdateDisplaynameBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "displayname": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/account_compat.rs",
+      "field_count": 1
+    },
+    "UpdateAvatarBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "avatar_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/account_compat.rs",
+      "field_count": 1
+    },
     "CreateAuditEventBody": {
       "schema": {
         "type": "object",
@@ -1771,6 +1898,26 @@
       },
       "file": "synapse-web/src/routes/admin/audit.rs",
       "field_count": 7
+    },
+    "CleanupRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "min_age_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/admin/cleanup.rs",
+      "field_count": 1
     },
     "RewriteRequest": {
       "schema": {
@@ -1824,6 +1971,24 @@
       },
       "file": "synapse-web/src/routes/admin/federation.rs",
       "field_count": 2
+    },
+    "InviteListWriteBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "user_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "user_ids"
+        ]
+      },
+      "file": "synapse-web/src/routes/admin/invite_lists.rs",
+      "field_count": 1
     },
     "QuarantineRoomMediaRequest": {
       "schema": {
@@ -2119,6 +2284,202 @@
       "file": "synapse-web/src/routes/admin/retention.rs",
       "field_count": 1
     },
+    "CleanupAbnormalRoomsRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "min_age_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/admin/room/management.rs",
+      "field_count": 1
+    },
+    "PurgeHistoryRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "room_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "purge_up_to_ts": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dry_run": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/admin/room/management.rs",
+      "field_count": 3
+    },
+    "PurgeHistoryByRoomRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "purge_up_to_ts": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dry_run": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/admin/room/management.rs",
+      "field_count": 2
+    },
+    "PurgeRoomRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "room_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/admin/room/management.rs",
+      "field_count": 1
+    },
+    "BackfillRoomRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "uint64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/admin/room/management.rs",
+      "field_count": 1
+    },
+    "AdminJoinRoomRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      },
+      "file": "synapse-web/src/routes/admin/room/management.rs",
+      "field_count": 1
+    },
+    "RedactRoomEventsRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "before_ts": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "after_ts": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/admin/room/management.rs",
+      "field_count": 4
+    },
     "BlockRoomRequest": {
       "schema": {
         "type": "object",
@@ -2234,20 +2595,22 @@
       "file": "synapse-web/src/routes/admin/security.rs",
       "field_count": 2
     },
-    "InviteListWriteBody": {
+    "RestartServerRequest": {
       "schema": {
         "type": "object",
         "properties": {
-          "user_ids": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
+          "timeout_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "uint64"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
-        },
-        "required": [
-          "user_ids"
-        ]
+        }
       },
       "file": "synapse-web/src/routes/admin/server.rs",
       "field_count": 1
@@ -2333,6 +2696,21 @@
       },
       "file": "synapse-web/src/routes/admin/token.rs",
       "field_count": 2
+    },
+    "SetAdminRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "admin": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "admin"
+        ]
+      },
+      "file": "synapse-web/src/routes/admin/user.rs",
+      "field_count": 1
     },
     "ResetPasswordBody": {
       "schema": {
@@ -2756,6 +3134,64 @@
       "file": "synapse-web/src/routes/app_service.rs",
       "field_count": 5
     },
+    "SubmitEmailTokenBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "sid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "client_secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/auth_compat.rs",
+      "field_count": 3
+    },
+    "RefreshTokenBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "refresh_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/auth_compat.rs",
+      "field_count": 1
+    },
     "CreateUpdateBody": {
       "schema": {
         "type": "object",
@@ -2904,6 +3340,56 @@
       "file": "synapse-web/src/routes/background_update.rs",
       "field_count": 1
     },
+    "EnableBurnRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "burn_after_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/burn_after_read.rs",
+      "field_count": 2
+    },
+    "SetGlobalBurnConfigRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "default_burn_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/burn_after_read.rs",
+      "field_count": 1
+    },
     "SendCaptchaBody": {
       "schema": {
         "type": "object",
@@ -2951,6 +3437,310 @@
       },
       "file": "synapse-web/src/routes/captcha.rs",
       "field_count": 2
+    },
+    "UpdateDeviceBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/device.rs",
+      "field_count": 1
+    },
+    "GetDeviceListUpdatesBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "users": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "from": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "to": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "users"
+        ]
+      },
+      "file": "synapse-web/src/routes/device.rs",
+      "field_count": 4
+    },
+    "SearchUserDirectoryBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "search_term": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "uint64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/directory_reporting.rs",
+      "field_count": 2
+    },
+    "ListUserDirectoryBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "uint64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/directory_reporting.rs",
+      "field_count": 2
+    },
+    "ReportEventBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/directory_reporting.rs",
+      "field_count": 2
+    },
+    "UpdateReportScoreBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "score": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/directory_reporting.rs",
+      "field_count": 1
+    },
+    "ReportRoomBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/directory_reporting.rs",
+      "field_count": 2
+    },
+    "ReportUserBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "file": "synapse-web/src/routes/directory_reporting.rs",
+      "field_count": 1
+    },
+    "SetRoomAliasBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "room_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/directory_reporting.rs",
+      "field_count": 1
+    },
+    "PublicRoomsBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "uint64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "filter": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "include_all_networks": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "third_party_instance_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/directory_reporting.rs",
+      "field_count": 5
     },
     "CreateDmRequest": {
       "schema": {
@@ -3018,11 +3808,21 @@
                 "type": "null"
               }
             ]
+          },
+          "allow_plaintext": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
       "file": "synapse-web/src/routes/dm.rs",
-      "field_count": 6
+      "field_count": 7
     },
     "UpdateDmRequest": {
       "schema": {
@@ -3410,6 +4210,393 @@
       "file": "synapse-web/src/routes/friend_room.rs",
       "field_count": 1
     },
+    "PutDehydratedDeviceBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "device_data": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "device_keys": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "algorithm": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "account": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "initial_device_display_name": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "extra": {
+            "type": "object",
+            "description": "rust: serde_json::Map<String, serde_json::Value>",
+            "x-unknown-rust-type": "serde_json::Map<String, serde_json::Value>"
+          }
+        },
+        "required": [
+          "extra"
+        ]
+      },
+      "file": "synapse-web/src/routes/handlers/dehydrated_device.rs",
+      "field_count": 8
+    },
+    "SetPresenceBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "presence": {
+            "type": "string"
+          },
+          "status_msg": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "presence"
+        ]
+      },
+      "file": "synapse-web/src/routes/handlers/presence.rs",
+      "field_count": 2
+    },
+    "PresenceListBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "subscribe": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unsubscribe": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/handlers/presence.rs",
+      "field_count": 2
+    },
+    "SetRoomVisibilityBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "visibility": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/handlers/room/management/visibility.rs",
+      "field_count": 1
+    },
+    "KnockRoomBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "via_servers": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/handlers/room/members.rs",
+      "field_count": 2
+    },
+    "InviteUserBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id_server": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id_access_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "medium": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/handlers/room/members.rs",
+      "field_count": 5
+    },
+    "KickUserBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      },
+      "file": "synapse-web/src/routes/handlers/room/members.rs",
+      "field_count": 2
+    },
+    "BanUserBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      },
+      "file": "synapse-web/src/routes/handlers/room/members.rs",
+      "field_count": 2
+    },
+    "UnbanUserBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      },
+      "file": "synapse-web/src/routes/handlers/room/members.rs",
+      "field_count": 1
+    },
+    "SetReadMarkersBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "allow_backward": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "m.fully_read": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "m.private_read": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "m.marked_unread": {
+            "anyOf": [
+              {
+                "type": "object",
+                "description": "rust: MarkedUnreadBody",
+                "x-unknown-rust-type": "MarkedUnreadBody"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "m.read": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/handlers/room/receipts.rs",
+      "field_count": 5
+    },
     "UpdateBackupVersionBody": {
       "schema": {
         "type": "object",
@@ -3490,6 +4677,150 @@
       },
       "file": "synapse-web/src/routes/key_backup.rs",
       "field_count": 3
+    },
+    "RotateKeysRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "key_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/key_rotation.rs",
+      "field_count": 1
+    },
+    "RevokeOldKeysRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "key_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/key_rotation.rs",
+      "field_count": 2
+    },
+    "ConfigureKeyRotationRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "interval_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rotation_interval_days": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rotation_threshold_days": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "grace_period_minutes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "olm_rotation_days": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "megolm_rotation_messages": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max_session_age_days": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/key_rotation.rs",
+      "field_count": 8
     },
     "CreateModuleBody": {
       "schema": {
@@ -3888,6 +5219,163 @@
       "file": "synapse-web/src/routes/pinned.rs",
       "field_count": 1
     },
+    "SetPusherBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "pushkey": {
+            "type": "string"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "app_id": {
+            "type": "string"
+          },
+          "app_display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "device_display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "profile_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lang": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "data": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "append": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "pushkey",
+          "app_id"
+        ]
+      },
+      "file": "synapse-web/src/routes/push.rs",
+      "field_count": 9
+    },
+    "SetPushRuleBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "actions": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "conditions": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pattern": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/push.rs",
+      "field_count": 3
+    },
+    "SetPushRuleEnabledBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/push.rs",
+      "field_count": 1
+    },
     "RegisterDeviceBody": {
       "schema": {
         "type": "object",
@@ -4068,6 +5556,88 @@
       },
       "file": "synapse-web/src/routes/push_notification.rs",
       "field_count": 1
+    },
+    "CreateSessionBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "intent": {
+            "type": "string"
+          },
+          "transport": {
+            "type": "string"
+          },
+          "transport_data": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expires_in_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "intent",
+          "transport"
+        ]
+      },
+      "file": "synapse-web/src/routes/rendezvous.rs",
+      "field_count": 4
+    },
+    "UpdateSessionBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "file": "synapse-web/src/routes/rendezvous.rs",
+      "field_count": 1
+    },
+    "SendMessageBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "file": "synapse-web/src/routes/rendezvous.rs",
+      "field_count": 2
     },
     "UpdateSummaryBody": {
       "schema": {
@@ -4483,21 +6053,6 @@
       "file": "synapse-web/src/routes/space/types.rs",
       "field_count": 6
     },
-    "InviteUserBody": {
-      "schema": {
-        "type": "object",
-        "properties": {
-          "user_id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "user_id"
-        ]
-      },
-      "file": "synapse-web/src/routes/space/types.rs",
-      "field_count": 1
-    },
     "TagContent": {
       "schema": {
         "type": "object",
@@ -4516,6 +6071,59 @@
         }
       },
       "file": "synapse-web/src/routes/tags.rs",
+      "field_count": 1
+    },
+    "SetTypingBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "timeout": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "typing": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/typing.rs",
+      "field_count": 2
+    },
+    "BulkGetTypingBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "rooms": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/typing.rs",
       "field_count": 1
     },
     "RegisterEncryptedVoiceRequest": {
@@ -4619,46 +6227,6 @@
       "file": "synapse-web/src/routes/widget.rs",
       "field_count": 2
     },
-    "CreateSessionBody": {
-      "schema": {
-        "type": "object",
-        "properties": {
-          "widget_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "device_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "expires_in_ms": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "format": "int64"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        }
-      },
-      "file": "synapse-web/src/routes/widget.rs",
-      "field_count": 3
-    },
     "WidgetCapabilitiesBody": {
       "schema": {
         "type": "object",
@@ -4676,6 +6244,74 @@
       },
       "file": "synapse-web/src/routes/widget.rs",
       "field_count": 1
+    },
+    "HeartbeatBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "load_stats": {
+            "anyOf": [
+              {
+                "type": "object",
+                "description": "rust: WorkerLoadStatsUpdate",
+                "x-unknown-rust-type": "WorkerLoadStatsUpdate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "worker_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "worker_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "port": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "uint16"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "file": "synapse-web/src/routes/worker/worker_self_announce.rs",
+      "field_count": 6
     },
     "RegisterWorkerBody": {
       "schema": {
@@ -4740,33 +6376,6 @@
       },
       "file": "synapse-web/src/routes/worker.rs",
       "field_count": 8
-    },
-    "HeartbeatBody": {
-      "schema": {
-        "type": "object",
-        "properties": {
-          "status": {
-            "type": "string"
-          },
-          "load_stats": {
-            "anyOf": [
-              {
-                "type": "object",
-                "description": "rust: WorkerLoadStatsUpdate",
-                "x-unknown-rust-type": "WorkerLoadStatsUpdate"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "status"
-        ]
-      },
-      "file": "synapse-web/src/routes/worker.rs",
-      "field_count": 2
     },
     "SendCommandBody": {
       "schema": {
@@ -4923,15 +6532,45 @@
       "post",
       "DeleteThreepidRequest"
     ],
-    "post /_matrix/client/v3/rooms/{room_id}/ban": [
-      "/rooms/{room_id}/ban",
+    "post /_matrix/client/v3/register/email/submitToken": [
+      "/register/email/submitToken",
       "post",
-      "BanRequest"
+      "SubmitEmailTokenBody"
     ],
-    "post /_matrix/client/v3/rooms/{room_id}/kick": [
-      "/rooms/{room_id}/kick",
+    "post /_matrix/client/v3/account/password/email/submitToken": [
+      "/account/password/email/submitToken",
       "post",
-      "BanRequest"
+      "SubmitEmailTokenBody"
+    ],
+    "post /_matrix/client/v1/account/password/email/submitToken": [
+      "/account/password/email/submitToken",
+      "post",
+      "SubmitEmailTokenBody"
+    ],
+    "post /_matrix/client/v3/account/3pid/email/submitToken": [
+      "/account/3pid/email/submitToken",
+      "post",
+      "SubmitEmailTokenBody"
+    ],
+    "post /_matrix/client/v1/account/3pid/email/submitToken": [
+      "/account/3pid/email/submitToken",
+      "post",
+      "SubmitEmailTokenBody"
+    ],
+    "post /_matrix/client/v3/refresh": [
+      "/refresh",
+      "post",
+      "RefreshTokenBody"
+    ],
+    "put /_matrix/vendor/v1/rooms/{room_id}/burn": [
+      "/_matrix/vendor/v1/rooms/{room_id}/burn",
+      "put",
+      "EnableBurnRequest"
+    ],
+    "put /_matrix/vendor/v1/user/burn/config": [
+      "/_matrix/vendor/v1/user/burn/config",
+      "put",
+      "SetGlobalBurnConfigRequest"
     ],
     "post /_matrix/client/v3/register/captcha/send": [
       "/_matrix/client/v3/register/captcha/send",
@@ -4942,6 +6581,41 @@
       "/_matrix/client/v3/register/captcha/verify",
       "post",
       "VerifyCaptchaBody"
+    ],
+    "post /_matrix/client/v3/keys/device_list_updates": [
+      "/keys/device_list_updates",
+      "post",
+      "GetDeviceListUpdatesBody"
+    ],
+    "post /_matrix/client/v3/user_directory/search": [
+      "/user_directory/search",
+      "post",
+      "SearchUserDirectoryBody"
+    ],
+    "post /_matrix/client/v3/user_directory/list": [
+      "/user_directory/list",
+      "post",
+      "ListUserDirectoryBody"
+    ],
+    "post /_matrix/client/v3/rooms/{room_id}/report/{event_id}": [
+      "/rooms/{room_id}/report/{event_id}",
+      "post",
+      "ReportEventBody"
+    ],
+    "post /_matrix/client/v1/rooms/{room_id}/report/{event_id}": [
+      "/rooms/{room_id}/report/{event_id}",
+      "post",
+      "ReportEventBody"
+    ],
+    "post /_matrix/client/v3/rooms/{room_id}/report": [
+      "/rooms/{room_id}/report",
+      "post",
+      "ReportRoomBody"
+    ],
+    "post /_matrix/client/v3/users/{user_id}/report": [
+      "/users/{user_id}/report",
+      "post",
+      "ReportUserBody"
     ],
     "post /_matrix/vendor/v1/create_dm": [
       "/_matrix/vendor/v1/create_dm",
@@ -4982,6 +6656,46 @@
       "/_matrix/client/v3/account/guest/upgrade",
       "post",
       "UpgradeGuestRequest"
+    ],
+    "post /_matrix/client/v3/presence/list": [
+      "/_matrix/client/v3/presence/list",
+      "post",
+      "PresenceListBody"
+    ],
+    "post /_matrix/client/v3/createRoom": [
+      "/createRoom",
+      "post",
+      "CreateRoomBody"
+    ],
+    "post /_matrix/client/v3/knock/{room_id_or_alias}": [
+      "/knock/{room_id_or_alias}",
+      "post",
+      "KnockRoomBody"
+    ],
+    "post /_matrix/client/v3/rooms/{room_id}/invite": [
+      "/rooms/{room_id}/invite",
+      "post",
+      "InviteUserBody"
+    ],
+    "post /_matrix/client/v3/rooms/{room_id}/kick": [
+      "/rooms/{room_id}/kick",
+      "post",
+      "KickUserBody"
+    ],
+    "post /_matrix/client/v3/rooms/{room_id}/ban": [
+      "/rooms/{room_id}/ban",
+      "post",
+      "BanUserBody"
+    ],
+    "post /_matrix/client/v3/rooms/{room_id}/unban": [
+      "/rooms/{room_id}/unban",
+      "post",
+      "UnbanUserBody"
+    ],
+    "post /_matrix/client/v3/rooms/{room_id}/read_markers": [
+      "/rooms/{room_id}/read_markers",
+      "post",
+      "SetReadMarkersBody"
     ],
     "post /_matrix/vendor/v1/rooms/{room_id}/threads": [
       "/_matrix/vendor/v1/rooms/{room_id}/threads",
@@ -5028,6 +6742,26 @@
       "post",
       "BatchRecoverBody"
     ],
+    "post /_matrix/vendor/v1/keys/rotation/rotate": [
+      "/_matrix/vendor/v1/keys/rotation/rotate",
+      "post",
+      "RotateKeysRequest"
+    ],
+    "post /_matrix/vendor/v1/keys/rotation/revoke": [
+      "/_matrix/vendor/v1/keys/rotation/revoke",
+      "post",
+      "RevokeOldKeysRequest"
+    ],
+    "put /_matrix/vendor/v1/keys/rotation/config": [
+      "/_matrix/vendor/v1/keys/rotation/config",
+      "put",
+      "ConfigureKeyRotationRequest"
+    ],
+    "post /_matrix/client/v3/pushers/set": [
+      "/pushers/set",
+      "post",
+      "SetPusherBody"
+    ],
     "post /_matrix/vendor/v1/push/devices": [
       "/_matrix/vendor/v1/push/devices",
       "post",
@@ -5037,6 +6771,31 @@
       "/_matrix/vendor/v1/push/send",
       "post",
       "SendNotificationBody"
+    ],
+    "post /_matrix/client/unstable/org.matrix.msc4108/rendezvous": [
+      "/_matrix/client/unstable/org.matrix.msc4108/rendezvous",
+      "post",
+      "CreateSessionBody"
+    ],
+    "post /_matrix/client/v1/rendezvous": [
+      "/_matrix/client/v1/rendezvous",
+      "post",
+      "CreateSessionBody"
+    ],
+    "put /_matrix/client/v1/rendezvous/{session_id}": [
+      "/_matrix/client/v1/rendezvous/{session_id}",
+      "put",
+      "UpdateSessionBody"
+    ],
+    "post /_matrix/client/v1/rendezvous/{session_id}/messages": [
+      "/_matrix/client/v1/rendezvous/{session_id}/messages",
+      "post",
+      "SendMessageBody"
+    ],
+    "put /_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}": [
+      "/rooms/{room_id}/send/{event_type}/{txn_id}",
+      "put",
+      "SendMessageBody"
     ],
     "post /_matrix/client/v3/login/sso/redirect/saml": [
       "/_matrix/client/v3/login/sso/redirect/saml",
@@ -5048,15 +6807,20 @@
       "post",
       "SamlCallbackBody"
     ],
-    "post /_matrix/client/v3/rooms/{room_id}/invite": [
-      "/rooms/{room_id}/invite",
-      "post",
-      "InviteUserBody"
-    ],
     "put /_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags/{tag}": [
       "/user/{user_id}/rooms/{room_id}/tags/{tag}",
       "put",
       "TagContent"
+    ],
+    "put /_matrix/client/v3/rooms/{room_id}/typing/{user_id}": [
+      "/_matrix/client/v3/rooms/{room_id}/typing/{user_id}",
+      "put",
+      "SetTypingBody"
+    ],
+    "post /_matrix/client/v3/rooms/typing": [
+      "/_matrix/client/v3/rooms/typing",
+      "post",
+      "BulkGetTypingBody"
     ],
     "post /_matrix/vendor/v1/voice/register": [
       "/_matrix/vendor/v1/voice/register",

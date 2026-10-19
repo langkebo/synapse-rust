@@ -124,10 +124,14 @@ impl UpdateSpaceBody {
     }
 }
 
-/// The `InviteUserBody` struct.
+/// The `SpaceInviteUserBody` struct.
+///
+/// Named with a `Space` prefix because `handlers::room::members` already
+/// defines an `InviteUserBody` with a wider 3PID surface; two distinct
+/// definitions sharing one name made the handler/body mapping ambiguous.
 #[derive(Debug, Deserialize, Validate)]
 #[serde(deny_unknown_fields)]
-pub struct InviteUserBody {
+pub struct SpaceInviteUserBody {
     #[validate(length(min = 1, max = 255))]
     /// The `user_id` field.
     pub user_id: String,
@@ -506,7 +510,7 @@ mod tests {
 
     #[test]
     fn test_invite_user_body() {
-        let body = InviteUserBody { user_id: "@alice:example.com".to_string() };
+        let body = SpaceInviteUserBody { user_id: "@alice:example.com".to_string() };
 
         assert!(body.user_id.starts_with('@'));
     }

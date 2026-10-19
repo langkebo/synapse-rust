@@ -61,9 +61,15 @@ UNRESOLVED_ALLOWLIST = os.environ.get("EXTRACT_UNRESOLVED_ALLOWLIST") or os.path
 )
 # Allowed annotation keys. Rejecting an unknown key turns a typo in a field
 # name into a RED gate instead of a silently-ignored line.
-ANNOTATION_KEYS = ("rate_limit_exempt", "auth", "query_params", "body_opaque")
+ANNOTATION_KEYS = (
+    "rate_limit_exempt",
+    "auth",
+    "query_params",
+    "body_opaque",
+    "unsupported",
+)
 # Annotation keys whose value is a bare `true`/`false`.
-BOOLEAN_ANNOTATION_KEYS = ("rate_limit_exempt", "body_opaque")
+BOOLEAN_ANNOTATION_KEYS = ("rate_limit_exempt", "body_opaque", "unsupported")
 
 HTTP_METHODS = ("get", "post", "put", "delete", "patch", "head", "options")
 HTTP_METHODS_SET = set(HTTP_METHODS)
@@ -1060,6 +1066,11 @@ def load_ledger_annotations() -> dict:
       route whose handler does not actually take a dynamically-typed JSON body
       is RED; the remaining unannotated opaque routes are ratcheted by count
       (see `check_annotation_fidelity`). Not serialized into the fixtures.
+    * `unsupported` — the route is registered and reachable but its documented
+      response is not implemented yet (today: the vendor `.../keys/{event_id}`
+      endpoint returns an empty `keys: []`). Marking it keeps the gap visible
+      on the contract surface instead of letting a placeholder 200 masquerade
+      as a working feature. Not serialized into the fixtures.
 
     Format: `METHOD PATH<TAB>key=value [key=value ...]`, exactly one tab.
     Unknown keys / bad booleans / tab-in-path / conflicting duplicates all
@@ -1632,6 +1643,13 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/media/v3/preview_url"): {"query_params": "ts,url"},
     ("GET", "/_matrix/vendor/v1/keys/rotation/check"): {"query_params": "key_id"},
     ("POST", "/_matrix/vendor/v1/keys/rotation/check"): {"query_params": "key_id"},
+    # -- unsupported: registered, reachable, but the documented response is not
+    # implemented. The handler currently answers 200 with a placeholder
+    # (`"keys": []`), which looks like success to a client; the annotation is
+    # what makes that gap visible on the contract surface (C-1).
+    ("GET", "/_matrix/vendor/v1/rooms/{room_id}/keys/{event_id}"): {
+        "unsupported": True
+    },
 }
 
 # Counted debt for `body_opaque`: routes whose handler deserializes a bare
