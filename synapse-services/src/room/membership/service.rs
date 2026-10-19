@@ -93,6 +93,15 @@ pub struct MembershipService {
     /// a refusal leaves no "member but no event" residue. A gate that can be
     /// absent is a gate that can be skipped.
     pub(crate) event_admission_gate: Arc<dyn crate::module_service::EventAdmissionGate>,
+    /// Best-effort mirroring of ban / kick / unban into friend DMs.
+    ///
+    /// Installed after construction (see [`Self::install_friend_dm_sync`])
+    /// because `FriendRoomService` itself depends on `RoomService`, which owns
+    /// this service. A [`Weak`](std::sync::Weak) keeps that from becoming a
+    /// strong `Arc` cycle.
+    #[cfg(feature = "friends")]
+    pub(crate) friend_dm_sync:
+        Arc<std::sync::OnceLock<std::sync::Weak<dyn super::friend_dm_sync::FriendDmMembershipSync>>>,
 }
 
 /// Configuration for constructing a [`MembershipService`].
@@ -164,6 +173,52 @@ impl MembershipService {
             policy_service: config.policy_service,
             invite_policy_gate: config.invite_policy_gate,
             event_admission_gate: config.event_admission_gate,
+            #[cfg(feature = "friends")]
+            friend_dm_sync: Arc::new(std::sync::OnceLock::new()),
+        }
+    }
+
+    /// Install the friend-DM mirroring hook.
+    ///
+    /// Called once from the wiring layer, after `FriendRoomService` exists.
+    /// The hook is stored as a [`Weak`](std::sync::Weak) reference: the friend
+    /// service owns a strong reference to `RoomService` (and therefore to this
+    /// service), so a strong back-reference would leak both.
+    #[cfg(feature = "friends")]
+    pub fn install_friend_dm_sync(&self, hook: Arc<dyn super::friend_dm_sync::FriendDmMembershipSync>) {
+        if self.friend_dm_sync.set(Arc::downgrade(&hook)).is_err() {
+            ::tracing::warn!("Friend-DM membership sync hook installed more than once; keeping the first");
+        }
+    }
+
+    /// Mirror a moderation transition into the target's friend DM, best-effort.
+    ///
+    /// Failures are logged and swallowed on purpose: the moderation already
+    /// happened, and reporting an error would invite the client to retry a ban
+    /// that is already in place. When no hook is installed, or the friend
+    /// service has been dropped, this is a no-op.
+    #[cfg(feature = "friends")]
+    pub(crate) async fn sync_friend_dm_moderation(
+        &self,
+        room_id: &str,
+        affected_user_id: &str,
+        state: super::friend_dm_sync::ModerationState,
+        changed_by: &str,
+        reason: Option<&str>,
+    ) {
+        let Some(hook) = self.friend_dm_sync.get().and_then(|weak| weak.upgrade()) else {
+            return;
+        };
+        if let Err(error) = hook.sync_membership_state(room_id, affected_user_id, state, Some(changed_by), reason).await
+        {
+            ::tracing::warn!(
+                room_id = %room_id,
+                user_id = %affected_user_id,
+                actor_user_id = %changed_by,
+                state = state.as_str(),
+                error = %error,
+                "Failed to sync friend DM moderation state"
+            );
         }
     }
 

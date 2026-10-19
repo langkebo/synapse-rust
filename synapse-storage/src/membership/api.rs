@@ -206,7 +206,7 @@ pub trait MemberStoreApi: Send + Sync {
     async fn unban_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error>;
 
     /// See [`set_ban_reason`].
-    async fn set_ban_reason(&self, room_id: &str, user_id: &str, reason: &str) -> Result<(), sqlx::Error>;
+    async fn set_ban_reason(&self, room_id: &str, user_id: &str, reason: Option<&str>) -> Result<(), sqlx::Error>;
 
     /// See [`force_leave_membership`].
     async fn force_leave_membership(&self, room_id: &str, user_id: &str, now: i64) -> Result<(), sqlx::Error>;
@@ -433,7 +433,7 @@ impl MemberStoreApi for super::RoomMemberStorage {
         self.unban_member(room_id, user_id).await
     }
 
-    async fn set_ban_reason(&self, room_id: &str, user_id: &str, reason: &str) -> Result<(), sqlx::Error> {
+    async fn set_ban_reason(&self, room_id: &str, user_id: &str, reason: Option<&str>) -> Result<(), sqlx::Error> {
         self.set_ban_reason(room_id, user_id, reason).await
     }
 

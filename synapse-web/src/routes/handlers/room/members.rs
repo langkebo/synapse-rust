@@ -3,8 +3,8 @@ use crate::routes::context::RoomContext;
 use crate::routes::MatrixJson;
 use crate::routes::{
     extractors::{RoomId, UserId},
-    is_member_ctx, is_member_or_creator_ctx, validate_membership, validate_room_id, validate_user_id,
-    AuthenticatedUser,
+    is_member_ctx, is_member_or_creator_ctx, validate_membership, validate_moderation_reason, validate_room_id,
+    validate_user_id, AuthenticatedUser,
 };
 use crate::utils::auth::resolve_request_id;
 use axum::{
@@ -620,16 +620,12 @@ pub struct KickUserBody {
 }
 
 /// See [`kick_user`].
-// 同 `leave_room`。
-#[cfg_attr(not(feature = "friends"), allow(unused_variables))]
 pub(crate) async fn kick_user(
     State(ctx): State<RoomContext>,
-    headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
     MatrixJson(body): MatrixJson<KickUserBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
 
     let target = body.user_id.as_str();
@@ -637,29 +633,9 @@ pub(crate) async fn kick_user(
     validate_user_id(target)?;
 
     let reason = body.reason.as_deref();
-    if let Some(r) = reason {
-        if r.len() > 512 {
-            return Err(ApiError::bad_request("Reason too long".to_string()));
-        }
-    }
+    validate_moderation_reason(reason)?;
 
     ctx.room_service.membership().kick_user(&room_id, target, &auth_user.user_id, reason).await?;
-
-    #[cfg(feature = "friends")]
-    if let Err(error) = ctx
-        .friend_room_service
-        .sync_dm_room_membership_change(&room_id, target, "kicked", Some(&auth_user.user_id), reason)
-        .await
-    {
-        ::tracing::warn!(
-            request_id = %request_id,
-            room_id = %room_id,
-            user_id = %auth_user.user_id,
-            target_user_id = %target,
-            error = %error,
-            "Failed to sync friend DM kick state"
-        );
-    }
 
     Ok(Json(json!({})))
 }
@@ -673,16 +649,12 @@ pub struct BanUserBody {
 }
 
 /// See [`ban_user`].
-// 同 `leave_room`。
-#[cfg_attr(not(feature = "friends"), allow(unused_variables))]
 pub(crate) async fn ban_user(
     State(ctx): State<RoomContext>,
-    headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
     MatrixJson(body): MatrixJson<BanUserBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
 
     let target = body.user_id.as_str();
@@ -690,29 +662,9 @@ pub(crate) async fn ban_user(
     validate_user_id(target)?;
 
     let reason = body.reason.as_deref();
-    if let Some(r) = reason {
-        if r.len() > 512 {
-            return Err(ApiError::bad_request("Reason too long".to_string()));
-        }
-    }
+    validate_moderation_reason(reason)?;
 
     ctx.room_service.membership().ban_user(&room_id, target, &auth_user.user_id, reason).await?;
-
-    #[cfg(feature = "friends")]
-    if let Err(error) = ctx
-        .friend_room_service
-        .sync_dm_room_membership_change(&room_id, target, "banned", Some(&auth_user.user_id), reason)
-        .await
-    {
-        ::tracing::warn!(
-            request_id = %request_id,
-            room_id = %room_id,
-            user_id = %auth_user.user_id,
-            target_user_id = %target,
-            error = %error,
-            "Failed to sync friend DM ban state"
-        );
-    }
 
     Ok(Json(json!({})))
 }
@@ -728,16 +680,12 @@ pub struct UnbanUserBody {
 }
 
 /// See [`unban_user`].
-// 同 `ban_user`：`request_id` 只在 `friends` 打开时的 DM 同步失败日志里被使用。
-#[cfg_attr(not(feature = "friends"), allow(unused_variables))]
 pub(crate) async fn unban_user(
     State(ctx): State<RoomContext>,
-    headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
     MatrixJson(body): MatrixJson<UnbanUserBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
 
     let target = body.user_id.as_str();
@@ -745,25 +693,6 @@ pub(crate) async fn unban_user(
     validate_user_id(target)?;
 
     ctx.room_service.membership().unban_user(&room_id, target, &auth_user.user_id).await?;
-
-    // Symmetry with ban/kick (and the admin-side path): an unban leaves the
-    // target at membership `leave`, so the DM is no longer active. Without
-    // this the friend list would stay at `"banned"` after a C-S unban.
-    #[cfg(feature = "friends")]
-    if let Err(error) = ctx
-        .friend_room_service
-        .sync_dm_room_membership_change(&room_id, target, "unbanned", Some(&auth_user.user_id), None)
-        .await
-    {
-        ::tracing::warn!(
-            request_id = %request_id,
-            room_id = %room_id,
-            user_id = %auth_user.user_id,
-            target_user_id = %target,
-            error = %error,
-            "Failed to sync friend DM unban state"
-        );
-    }
 
     Ok(Json(json!({})))
 }

@@ -130,6 +130,11 @@ impl ExtensionServices {
             },
             Arc::new(federation.key_rotation_manager.clone()),
         ));
+        // The friend service depends on `RoomService` (which owns
+        // `MembershipService`), so the moderation mirroring hook is installed
+        // after construction and held weakly by the membership service.
+        #[cfg(feature = "friends")]
+        rooms.room_service.membership.install_friend_dm_sync(friend_room_service.clone());
         // Suppress unused-variable warnings when `friends` feature is disabled:
         // rooms/presence_storage/federation/user_storage are only consumed by the block above.
         #[cfg(not(feature = "friends"))]

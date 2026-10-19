@@ -2,6 +2,7 @@ use super::types::*;
 use crate::routes::admin::audit::{record_audit_event, resolve_request_id};
 use crate::routes::context::AdminContext;
 use crate::routes::extractors::{RoomId, UserId};
+use crate::routes::validate_moderation_reason;
 use crate::routes::AdminUser;
 use crate::routes::MatrixJson;
 use axum::{
@@ -341,12 +342,10 @@ pub async fn remove_room_member(
 pub async fn admin_ban_user(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    headers: HeaderMap,
     Path((room_id, user_id)): Path<(RoomId, UserId)>,
     MatrixJson(body): MatrixJson<BanRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let request_id = resolve_request_id(&headers);
-    Ok(Json(ban_user_internal(&ctx, &room_id, &user_id, &admin.user_id, body.reason.as_deref(), &request_id).await?))
+    Ok(Json(ban_user_internal(&ctx, &room_id, &user_id, &admin.user_id, body.reason.as_deref()).await?))
 }
 
 /// See [`ban_user_by_body`].
@@ -355,13 +354,9 @@ pub async fn ban_user_by_body(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(room_id): Path<RoomId>,
-    headers: HeaderMap,
     MatrixJson(body): MatrixJson<RoomUserActionRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let request_id = resolve_request_id(&headers);
-    Ok(Json(
-        ban_user_internal(&ctx, &room_id, &body.user_id, &admin.user_id, body.reason.as_deref(), &request_id).await?,
-    ))
+    Ok(Json(ban_user_internal(&ctx, &room_id, &body.user_id, &admin.user_id, body.reason.as_deref()).await?))
 }
 
 /// Unban a user from a room
@@ -369,11 +364,9 @@ pub async fn ban_user_by_body(
 pub async fn admin_unban_user(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    headers: HeaderMap,
     Path((room_id, user_id)): Path<(RoomId, UserId)>,
 ) -> Result<Json<Value>, ApiError> {
-    let request_id = resolve_request_id(&headers);
-    Ok(Json(unban_user_internal(&ctx, &room_id, &user_id, &admin.user_id, &request_id).await?))
+    Ok(Json(unban_user_internal(&ctx, &room_id, &user_id, &admin.user_id).await?))
 }
 
 /// Kick a user from a room
@@ -381,12 +374,10 @@ pub async fn admin_unban_user(
 pub async fn admin_kick_user(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    headers: HeaderMap,
     Path((room_id, user_id)): Path<(RoomId, UserId)>,
     MatrixJson(body): MatrixJson<BanRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let request_id = resolve_request_id(&headers);
-    Ok(Json(kick_user_internal(&ctx, &room_id, &user_id, &admin.user_id, body.reason.as_deref(), &request_id).await?))
+    Ok(Json(kick_user_internal(&ctx, &room_id, &user_id, &admin.user_id, body.reason.as_deref()).await?))
 }
 
 /// See [`kick_user_by_body`].
@@ -395,13 +386,9 @@ pub async fn kick_user_by_body(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(room_id): Path<RoomId>,
-    headers: HeaderMap,
     MatrixJson(body): MatrixJson<RoomUserActionRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let request_id = resolve_request_id(&headers);
-    Ok(Json(
-        kick_user_internal(&ctx, &room_id, &body.user_id, &admin.user_id, body.reason.as_deref(), &request_id).await?,
-    ))
+    Ok(Json(kick_user_internal(&ctx, &room_id, &body.user_id, &admin.user_id, body.reason.as_deref()).await?))
 }
 
 // Internal helpers
@@ -466,18 +453,15 @@ async fn remove_room_member_internal(
     }))
 }
 
-// `request_id` 只在 `friends` 打开时的 DM 同步失败日志（下方 `#[cfg(feature = "friends")]`
-// 块）里被使用；feature-off（`core-matrix-min` 车道）下它必然未使用。用 cfg_attr 精确放行
-// 这个配置下的 `unused_variables`，而不是无条件 `#[allow]`、也不是删掉参数。
-#[cfg_attr(not(feature = "friends"), allow(unused_variables))]
 async fn ban_user_internal(
     ctx: &AdminContext,
     room_id: &str,
     user_id: &str,
     actor_user_id: &str,
     reason: Option<&str>,
-    request_id: &str,
 ) -> Result<Value, ApiError> {
+    validate_moderation_reason(reason)?;
+
     if !ctx.room_service.state().room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
@@ -495,33 +479,13 @@ async fn ban_user_internal(
         ctx.account_identity_service.get_user_by_id(actor_user_id).await?.is_some_and(|user| user.is_admin);
 
     if actor_is_admin {
-        ctx.room_service.membership().admin_ban_user_membership(room_id, user_id, actor_user_id).await?;
+        ctx.room_service.membership().admin_ban_user_membership(room_id, user_id, actor_user_id, reason).await?;
     } else {
         ctx.room_service.membership().ban_user(room_id, user_id, actor_user_id, reason).await?;
     }
 
     if existing_membership.as_deref() == Some("join") {
         ctx.room_service.membership().decrement_member_count(room_id).await?;
-    }
-
-    if let Some(reason) = reason {
-        ctx.room_service.membership().set_ban_reason(room_id, user_id, reason).await?;
-    }
-
-    #[cfg(feature = "friends")]
-    if let Err(error) = ctx
-        .friend_room_service
-        .sync_dm_room_membership_change(room_id, user_id, "banned", Some(actor_user_id), reason)
-        .await
-    {
-        ::tracing::warn!(
-            request_id = %request_id,
-            room_id = %room_id,
-            user_id = %user_id,
-            actor_user_id = %actor_user_id,
-            error = %error,
-            "Failed to sync friend DM ban state"
-        );
     }
 
     Ok(json!({
@@ -531,14 +495,11 @@ async fn ban_user_internal(
     }))
 }
 
-// 同 `ban_user_internal`：`actor_user_id`/`request_id` 只在该 `friends` 块里使用。
-#[cfg_attr(not(feature = "friends"), allow(unused_variables))]
 async fn unban_user_internal(
     ctx: &AdminContext,
     room_id: &str,
     user_id: &str,
     actor_user_id: &str,
-    request_id: &str,
 ) -> Result<Value, ApiError> {
     if !ctx.room_service.state().room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -551,26 +512,7 @@ async fn unban_user_internal(
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
-    ctx.room_service.membership().admin_unban_user_membership(room_id, user_id).await?;
-
-    // P3 ruling: admin-side ban/kick/unban all sync the friend-DM membership
-    // state. Unban leaves the target at membership `leave`, so the DM is no
-    // longer active; the state string mirrors the ban/kick vocabulary.
-    #[cfg(feature = "friends")]
-    if let Err(error) = ctx
-        .friend_room_service
-        .sync_dm_room_membership_change(room_id, user_id, "unbanned", Some(actor_user_id), None)
-        .await
-    {
-        ::tracing::warn!(
-            request_id = %request_id,
-            room_id = %room_id,
-            user_id = %user_id,
-            actor_user_id = %actor_user_id,
-            error = %error,
-            "Failed to sync friend DM unban state"
-        );
-    }
+    ctx.room_service.membership().admin_unban_user_membership(room_id, user_id, actor_user_id).await?;
 
     Ok(json!({
         "user_id": user_id,
@@ -579,17 +521,14 @@ async fn unban_user_internal(
     }))
 }
 
-// 同 `ban_user_internal`：`actor_user_id`/`request_id` 只在该 `friends` 块里使用。
-#[cfg_attr(not(feature = "friends"), allow(unused_variables))]
 async fn kick_user_internal(
     ctx: &AdminContext,
     room_id: &str,
     user_id: &str,
     actor_user_id: &str,
     reason: Option<&str>,
-    request_id: &str,
 ) -> Result<Value, ApiError> {
-    let existing_membership = ctx.room_service.membership().get_room_membership(room_id, user_id).await?;
+    validate_moderation_reason(reason)?;
 
     if !ctx.room_service.state().room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -602,32 +541,7 @@ async fn kick_user_internal(
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
-    match existing_membership.as_deref() {
-        Some("join") => {
-            ctx.room_service.membership().leave_room(room_id, user_id).await?;
-        }
-        Some(_) => {
-            let now = current_timestamp_millis();
-            ctx.room_service.membership().force_leave_membership(room_id, user_id, now).await?;
-        }
-        None => {}
-    }
-
-    #[cfg(feature = "friends")]
-    if let Err(error) = ctx
-        .friend_room_service
-        .sync_dm_room_membership_change(room_id, user_id, "kicked", Some(actor_user_id), reason)
-        .await
-    {
-        ::tracing::warn!(
-            request_id = %request_id,
-            room_id = %room_id,
-            user_id = %user_id,
-            actor_user_id = %actor_user_id,
-            error = %error,
-            "Failed to sync friend DM kick state"
-        );
-    }
+    ctx.room_service.membership().admin_kick_user_membership(room_id, user_id, actor_user_id, reason).await?;
 
     Ok(json!({
         "user_id": user_id,

@@ -568,15 +568,18 @@ impl crate::membership::api::MemberStoreApi for InMemoryMemberStore {
                 member.membership = "leave".to_string();
                 member.banned_by = None;
                 member.is_banned = Some(false);
+                // Mirrors `MembershipStorage::unban_member`: the reason must not
+                // outlive the ban.
+                member.ban_reason = None;
             }
         }
         Ok(())
     }
 
-    async fn set_ban_reason(&self, room_id: &str, user_id: &str, reason: &str) -> Result<(), sqlx::Error> {
+    async fn set_ban_reason(&self, room_id: &str, user_id: &str, reason: Option<&str>) -> Result<(), sqlx::Error> {
         let mut members = self.members.write().await;
         if let Some(member) = members.get_mut(&(room_id.to_string(), user_id.to_string())) {
-            member.ban_reason = Some(reason.to_string());
+            member.ban_reason = reason.map(str::to_string);
         }
         Ok(())
     }

@@ -466,7 +466,7 @@ impl RoomMemberStorage {
 
     /// See [`unban_member`].
     pub async fn unban_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query!(
+        let result = sqlx::query!(
             r"
             UPDATE room_memberships SET membership = 'leave', banned_by = NULL
             WHERE room_id = $1 AND user_id = $2 AND membership = 'ban'
@@ -476,6 +476,13 @@ impl RoomMemberStorage {
         )
         .execute(&*self.pool)
         .await?;
+
+        // An unban ends the ban, so its reason must not outlive it — otherwise a
+        // later `ban` without a reason would inherit the previous one. Only
+        // clear when the UPDATE actually lifted a ban.
+        if result.rows_affected() > 0 {
+            self.set_ban_reason(room_id, user_id, None).await?;
+        }
         Ok(())
     }
 
@@ -1061,7 +1068,10 @@ impl RoomMemberStorage {
     }
 
     /// See [`set_ban_reason`].
-    pub async fn set_ban_reason(&self, room_id: &str, user_id: &str, reason: &str) -> Result<(), sqlx::Error> {
+    ///
+    /// `None` clears the column; the bound parameter is nullable, so this is
+    /// the same statement either way.
+    pub async fn set_ban_reason(&self, room_id: &str, user_id: &str, reason: Option<&str>) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r"
             UPDATE room_memberships

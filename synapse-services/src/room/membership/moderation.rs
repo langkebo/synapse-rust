@@ -6,6 +6,8 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::{generate_event_id, is_legal, JoinRule, Membership, TransitionCtx};
 use synapse_storage::CreateEventParams;
 
+#[cfg(feature = "friends")]
+use super::friend_dm_sync::ModerationState;
 use super::service::MembershipService;
 
 impl MembershipService {
@@ -295,6 +297,17 @@ impl MembershipService {
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to ban user", e))?;
 
+        // The ban reason belongs on the membership row as well as in the event
+        // content. Recording it here (rather than in each HTTP handler) keeps
+        // every `ban_user` caller consistent; the admin power-bypass path skips
+        // this method and writes the column itself.
+        if let Some(reason) = reason {
+            self.member_storage
+                .set_ban_reason(room_id, user_id, Some(reason))
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to record ban reason", e))?;
+        }
+
         // I-01: a banned user must disappear from the room summary projection.
         self.remove_summary_member_projection(room_id, user_id, None).await?;
 
@@ -328,6 +341,9 @@ impl MembershipService {
                 "Failed to sign and broadcast ban event"
             );
         }
+
+        #[cfg(feature = "friends")]
+        self.sync_friend_dm_moderation(room_id, user_id, ModerationState::Banned, banned_by, reason).await;
 
         Ok(())
     }
@@ -391,6 +407,11 @@ impl MembershipService {
                 "Failed to sign and broadcast unban event"
             );
         }
+
+        // Symmetry with ban/kick: the target is now at `leave`, so the friend
+        // DM is no longer active.
+        #[cfg(feature = "friends")]
+        self.sync_friend_dm_moderation(room_id, user_id, ModerationState::Unbanned, unbanned_by, None).await;
 
         Ok(())
     }
@@ -480,6 +501,9 @@ impl MembershipService {
                 "Failed to sign and broadcast kick event"
             );
         }
+
+        #[cfg(feature = "friends")]
+        self.sync_friend_dm_moderation(room_id, target_user_id, ModerationState::Kicked, kicked_by, reason).await;
 
         Ok(())
     }
@@ -647,6 +671,12 @@ mod tests {
 
         let member = mem_store.get_room_member(room_id, target).await.expect("get_room_member");
         assert!(member.as_ref().is_some_and(|m| m.membership == "ban"), "target should be banned, got: {member:?}");
+        // The reason is persisted on the membership row, not only in the event.
+        assert_eq!(
+            member.as_ref().and_then(|m| m.ban_reason.as_deref()),
+            Some("repeated spam"),
+            "ban reason should be recorded on the membership row"
+        );
     }
 
     #[tokio::test]
@@ -685,6 +715,7 @@ mod tests {
         room_store.create_room(room_id, unbanner, "invite", "1", false).await.expect("create_room");
         mem_store.add_member(room_id, unbanner, "join", None, None, None, None).await.expect("admin join");
         mem_store.add_member(room_id, target, "ban", None, None, None, None).await.expect("ban target");
+        svc.set_ban_reason(room_id, target, Some("stale reason")).await.expect("seed ban reason");
 
         svc.unban_user(room_id, target, unbanner).await.expect("unban_user should succeed");
 
@@ -693,6 +724,13 @@ mod tests {
         assert!(
             member.as_ref().is_some_and(|m| m.membership == "leave"),
             "unbanned user should have leave membership (mock converts ban→leave), got: {member:?}"
+        );
+        // The reason is cleared with the ban, so a later reasonless ban cannot
+        // inherit it.
+        assert_eq!(
+            member.as_ref().and_then(|m| m.ban_reason.as_deref()),
+            None,
+            "unban should clear the recorded ban reason"
         );
     }
 
@@ -898,5 +936,210 @@ mod tests {
             members.iter().all(|m| m.user_id != target),
             "a kicked user must disappear from the summary projection, got: {members:?}"
         );
+    }
+
+    // =========================================================================
+    // friend-DM moderation mirroring hook
+    // =========================================================================
+
+    #[cfg(feature = "friends")]
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct RecordedSync {
+        room_id: String,
+        user_id: String,
+        state: &'static str,
+        changed_by: Option<String>,
+        reason: Option<String>,
+    }
+
+    #[cfg(feature = "friends")]
+    #[derive(Default)]
+    struct RecordingFriendDmSync {
+        calls: std::sync::Mutex<Vec<RecordedSync>>,
+        fail: bool,
+    }
+
+    #[cfg(feature = "friends")]
+    impl RecordingFriendDmSync {
+        fn calls(&self) -> Vec<RecordedSync> {
+            self.calls.lock().expect("lock").clone()
+        }
+    }
+
+    #[cfg(feature = "friends")]
+    #[async_trait::async_trait]
+    impl crate::room::membership::friend_dm_sync::FriendDmMembershipSync for RecordingFriendDmSync {
+        async fn sync_membership_state(
+            &self,
+            room_id: &str,
+            affected_user_id: &str,
+            state: crate::room::membership::friend_dm_sync::ModerationState,
+            changed_by: Option<&str>,
+            reason: Option<&str>,
+        ) -> Result<usize, String> {
+            self.calls.lock().expect("lock").push(RecordedSync {
+                room_id: room_id.to_string(),
+                user_id: affected_user_id.to_string(),
+                state: state.as_str(),
+                changed_by: changed_by.map(str::to_string),
+                reason: reason.map(str::to_string),
+            });
+            if self.fail {
+                Err("hook failure".to_string())
+            } else {
+                Ok(1)
+            }
+        }
+    }
+
+    #[cfg(feature = "friends")]
+    async fn seed_moderation_fixture(
+        svc: &MembershipService,
+        user_store: &synapse_storage::test_mocks::FakeUserStore,
+        room_id: &str,
+        target: &str,
+        actor: &str,
+    ) {
+        svc.room_storage.create_room(room_id, actor, "invite", "1", false).await.expect("create_room");
+        svc.member_storage.add_member(room_id, actor, "join", None, None, None, None).await.expect("actor join");
+        svc.member_storage.add_member(room_id, target, "join", None, None, None, None).await.expect("target join");
+        let username = target.trim_start_matches('@').split(':').next().unwrap_or(target).to_string();
+        user_store.create_user(target, &username, None, false).await.expect("create_user");
+    }
+
+    #[cfg(feature = "friends")]
+    #[tokio::test]
+    async fn ban_and_unban_dispatch_friend_dm_sync() {
+        let (svc, user_store) = build_membership_service();
+        let hook = Arc::new(RecordingFriendDmSync::default());
+        svc.install_friend_dm_sync(hook.clone());
+
+        let room_id = "!hook-ban:test.localhost";
+        let target = "@hookbad:test.localhost";
+        let actor = "@mod:test.localhost";
+        seed_moderation_fixture(&svc, &user_store, room_id, target, actor).await;
+
+        svc.ban_user(room_id, target, actor, Some("spam")).await.expect("ban_user");
+        svc.unban_user(room_id, target, actor).await.expect("unban_user");
+
+        assert_eq!(
+            hook.calls(),
+            vec![
+                RecordedSync {
+                    room_id: room_id.to_string(),
+                    user_id: target.to_string(),
+                    state: "banned",
+                    changed_by: Some(actor.to_string()),
+                    reason: Some("spam".to_string()),
+                },
+                RecordedSync {
+                    room_id: room_id.to_string(),
+                    user_id: target.to_string(),
+                    state: "unbanned",
+                    changed_by: Some(actor.to_string()),
+                    reason: None,
+                },
+            ]
+        );
+    }
+
+    #[cfg(feature = "friends")]
+    #[tokio::test]
+    async fn kick_dispatch_friend_dm_sync() {
+        let (svc, user_store) = build_membership_service();
+        let hook = Arc::new(RecordingFriendDmSync::default());
+        svc.install_friend_dm_sync(hook.clone());
+
+        let room_id = "!hook-kick:test.localhost";
+        let target = "@hookkicked:test.localhost";
+        let actor = "@mod:test.localhost";
+        seed_moderation_fixture(&svc, &user_store, room_id, target, actor).await;
+
+        svc.kick_user(room_id, target, actor, Some("behaving badly")).await.expect("kick_user");
+
+        assert_eq!(
+            hook.calls(),
+            vec![RecordedSync {
+                room_id: room_id.to_string(),
+                user_id: target.to_string(),
+                state: "kicked",
+                changed_by: Some(actor.to_string()),
+                reason: Some("behaving badly".to_string()),
+            }]
+        );
+    }
+
+    #[cfg(feature = "friends")]
+    #[tokio::test]
+    async fn admin_moderation_dispatches_friend_dm_sync() {
+        let (svc, user_store) = build_membership_service();
+        let hook = Arc::new(RecordingFriendDmSync::default());
+        svc.install_friend_dm_sync(hook.clone());
+
+        let room_id = "!hook-admin:test.localhost";
+        let target = "@hooktarget:test.localhost";
+        let admin = "@admin:test.localhost";
+        seed_moderation_fixture(&svc, &user_store, room_id, target, admin).await;
+
+        svc.admin_ban_user_membership(room_id, target, admin, Some("admin ban")).await.expect("admin ban");
+        svc.admin_unban_user_membership(room_id, target, admin).await.expect("admin unban");
+        svc.admin_kick_user_membership(room_id, target, admin, Some("admin kick")).await.expect("admin kick");
+
+        assert_eq!(
+            hook.calls(),
+            vec![
+                RecordedSync {
+                    room_id: room_id.to_string(),
+                    user_id: target.to_string(),
+                    state: "banned",
+                    changed_by: Some(admin.to_string()),
+                    reason: Some("admin ban".to_string()),
+                },
+                RecordedSync {
+                    room_id: room_id.to_string(),
+                    user_id: target.to_string(),
+                    state: "unbanned",
+                    changed_by: Some(admin.to_string()),
+                    reason: None,
+                },
+                RecordedSync {
+                    room_id: room_id.to_string(),
+                    user_id: target.to_string(),
+                    state: "kicked",
+                    changed_by: Some(admin.to_string()),
+                    reason: Some("admin kick".to_string()),
+                },
+            ]
+        );
+    }
+
+    #[cfg(feature = "friends")]
+    #[tokio::test]
+    async fn moderation_survives_absent_or_failing_hook() {
+        // No hook installed: moderation must be a no-op for the mirror, not an error.
+        let (svc, user_store) = build_membership_service();
+        let room_id = "!hook-absent:test.localhost";
+        let target = "@hookabsent:test.localhost";
+        let actor = "@mod:test.localhost";
+        seed_moderation_fixture(&svc, &user_store, room_id, target, actor).await;
+        svc.ban_user(room_id, target, actor, None).await.expect("ban without hook");
+
+        // Failing hook: the moderation write already happened, so the error is swallowed.
+        let (svc, user_store) = build_membership_service();
+        let hook = Arc::new(RecordingFriendDmSync { fail: true, ..Default::default() });
+        svc.install_friend_dm_sync(hook.clone());
+        let room_id = "!hook-failing:test.localhost";
+        let target = "@hookfailing:test.localhost";
+        seed_moderation_fixture(&svc, &user_store, room_id, target, actor).await;
+        svc.admin_ban_user_membership(room_id, target, actor, None).await.expect("admin ban with failing hook");
+
+        assert_eq!(hook.calls().len(), 1, "the failing hook must still have been invoked");
+        let member = svc
+            .member_storage
+            .get_room_member(room_id, target)
+            .await
+            .expect("get_room_member")
+            .expect("member present");
+        assert_eq!(member.membership, "ban", "moderation must persist despite hook failure");
     }
 }

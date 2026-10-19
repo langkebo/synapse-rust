@@ -160,6 +160,27 @@ pub fn validate_membership(membership: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// Maximum length of a moderation `reason` (ban / kick), in bytes.
+///
+/// The Matrix spec imposes no bound on this field, but the client API has
+/// always rejected anything longer than 512 bytes. The admin API shares this
+/// helper so the two doors cannot disagree on the limit or the error.
+pub const MAX_MODERATION_REASON_LEN: usize = 512;
+
+/// See [`validate_moderation_reason`].
+///
+/// `None` (no reason supplied) is always valid; an empty string is valid too —
+/// only the upper bound is enforced, matching the C-S behaviour that predates
+/// this helper.
+pub fn validate_moderation_reason(reason: Option<&str>) -> Result<(), ApiError> {
+    if let Some(reason) = reason {
+        if reason.len() > MAX_MODERATION_REASON_LEN {
+            return Err(ApiError::bad_request("Reason too long".to_string()));
+        }
+    }
+    Ok(())
+}
+
 /// Validate a Matrix homeserver name (e.g. `matrix.org`).
 ///
 /// This is the lightweight counterpart of `Path<ServerName>`: the typed ID
@@ -317,6 +338,14 @@ mod tests {
         assert!(validate_membership("banned").is_err());
         assert!(validate_membership("").is_err());
         assert!(validate_membership("pending").is_err());
+    }
+
+    #[test]
+    fn test_validate_moderation_reason() {
+        assert!(validate_moderation_reason(None).is_ok());
+        assert!(validate_moderation_reason(Some("")).is_ok());
+        assert!(validate_moderation_reason(Some(&"x".repeat(MAX_MODERATION_REASON_LEN))).is_ok());
+        assert!(validate_moderation_reason(Some(&"x".repeat(MAX_MODERATION_REASON_LEN + 1))).is_err());
     }
 
     #[test]

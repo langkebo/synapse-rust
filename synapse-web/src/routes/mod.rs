@@ -257,8 +257,8 @@ pub use tags::create_tags_router;
 pub use telemetry::create_telemetry_router;
 pub use thirdparty::create_thirdparty_router;
 pub use validators::{
-    validate_event_id, validate_membership, validate_presence_status, validate_receipt_type, validate_room_alias,
-    validate_room_id, validate_user_id,
+    validate_event_id, validate_membership, validate_moderation_reason, validate_presence_status,
+    validate_receipt_type, validate_room_alias, validate_room_id, validate_user_id,
 };
 #[cfg(feature = "voice-extended")]
 pub use voice::create_voice_router;

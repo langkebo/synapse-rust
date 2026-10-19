@@ -8,6 +8,8 @@ pub mod groups;
 pub mod models;
 /// The `sharding` module.
 pub mod sharding;
+/// Membership-moderation mirroring hook implementation.
+mod sync;
 use self::models::{
     ensure_room_in_direct_map, get_room_direct_users, merge_direct_links, remove_room_from_direct_map, sort_letter_for,
     FriendListSortCacheV6,

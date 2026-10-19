@@ -10,6 +10,9 @@ pub mod actions;
 pub mod error;
 /// The `federation` module.
 pub mod federation;
+/// Friend-DM mirroring hook for ban / kick / unban.
+#[cfg(feature = "friends")]
+pub mod friend_dm_sync;
 /// The `moderation` module.
 pub mod moderation;
 /// The `service` module.
@@ -20,6 +23,8 @@ use crate::common::error::{ApiError, ApiResult};
 use crate::*;
 use serde_json::json;
 
+#[cfg(feature = "friends")]
+use friend_dm_sync::ModerationState;
 use service::MembershipService;
 
 impl MembershipService {
@@ -234,23 +239,80 @@ impl MembershipService {
     }
 
     /// See [`admin_ban_user_membership`].
-    pub async fn admin_ban_user_membership(&self, room_id: &str, user_id: &str, banned_by: &str) -> ApiResult<()> {
+    ///
+    /// The admin path bypasses `ban_user`'s authorization gate but keeps the
+    /// same side effects: the reason is persisted on the membership row and the
+    /// transition is mirrored into the target's friend DM.
+    pub async fn admin_ban_user_membership(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        banned_by: &str,
+        reason: Option<&str>,
+    ) -> ApiResult<()> {
         self.member_storage
             .ban_member(room_id, user_id, banned_by)
             .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to ban user", e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to ban user", e))?;
+
+        if let Some(reason) = reason {
+            self.member_storage
+                .set_ban_reason(room_id, user_id, Some(reason))
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to record ban reason", e))?;
+        }
+
+        #[cfg(feature = "friends")]
+        self.sync_friend_dm_moderation(room_id, user_id, ModerationState::Banned, banned_by, reason).await;
+
+        Ok(())
     }
 
     /// See [`admin_unban_user_membership`].
-    pub async fn admin_unban_user_membership(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
+    #[cfg_attr(not(feature = "friends"), allow(unused_variables))]
+    pub async fn admin_unban_user_membership(&self, room_id: &str, user_id: &str, unbanned_by: &str) -> ApiResult<()> {
         self.member_storage
             .unban_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to unban user", e))
+            .map_err(|e| ApiError::internal_with_cause("Failed to unban user", e))?;
+
+        #[cfg(feature = "friends")]
+        self.sync_friend_dm_moderation(room_id, user_id, ModerationState::Unbanned, unbanned_by, None).await;
+
+        Ok(())
+    }
+
+    /// See [`admin_kick_user_membership`].
+    ///
+    /// A joined member leaves through the regular `leave_room` path (state
+    /// event, summary, key rotation); any other present state is force-left.
+    /// The transition is mirrored into the target's friend DM either way.
+    #[cfg_attr(not(feature = "friends"), allow(unused_variables))]
+    pub async fn admin_kick_user_membership(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        kicked_by: &str,
+        reason: Option<&str>,
+    ) -> ApiResult<()> {
+        match self.get_room_membership(room_id, user_id).await?.as_deref() {
+            Some("join") => self.leave_room(room_id, user_id).await?,
+            Some(_) => {
+                self.force_leave_membership(room_id, user_id, synapse_common::current_timestamp_millis()).await?
+            }
+            None => {}
+        }
+
+        #[cfg(feature = "friends")]
+        self.sync_friend_dm_moderation(room_id, user_id, ModerationState::Kicked, kicked_by, reason).await;
+
+        Ok(())
     }
 
     /// See [`set_ban_reason`].
-    pub async fn set_ban_reason(&self, room_id: &str, user_id: &str, reason: &str) -> ApiResult<()> {
+    ///
+    /// `None` clears a previously recorded reason.
+    pub async fn set_ban_reason(&self, room_id: &str, user_id: &str, reason: Option<&str>) -> ApiResult<()> {
         self.member_storage
             .set_ban_reason(room_id, user_id, reason)
             .await
@@ -911,7 +973,7 @@ mod coverage_tests {
         let ctx = build_service().await;
         ctx.member_store.add_member(ROOM, "@spammer:localhost", "join", None).await.unwrap();
 
-        ctx.svc.admin_ban_user_membership(ROOM, "@spammer:localhost", "@admin:localhost").await.unwrap();
+        ctx.svc.admin_ban_user_membership(ROOM, "@spammer:localhost", "@admin:localhost", None).await.unwrap();
 
         let member = ctx.member_store.get_member(ROOM, "@spammer:localhost").await.unwrap().expect("member present");
         assert_eq!(member.membership, "ban");
@@ -927,7 +989,7 @@ mod coverage_tests {
         ctx.member_store.add_member(ROOM, "@user:localhost", "join", None).await.unwrap();
         ctx.member_store.ban_member(ROOM, "@user:localhost", "@admin:localhost").await.unwrap();
 
-        ctx.svc.admin_unban_user_membership(ROOM, "@user:localhost").await.unwrap();
+        ctx.svc.admin_unban_user_membership(ROOM, "@user:localhost", "@admin:localhost").await.unwrap();
 
         // InMemoryMemberStore.unban_member sets membership to "leave" and is_banned to false.
         let member = ctx.member_store.get_member(ROOM, "@user:localhost").await.unwrap().expect("member present");
@@ -1142,10 +1204,15 @@ mod coverage_tests {
         let ctx = build_service().await;
         ctx.member_store.add_member(ROOM, "@alice:localhost", "ban", None).await.unwrap();
 
-        ctx.svc.set_ban_reason(ROOM, "@alice:localhost", "spam").await.unwrap();
+        ctx.svc.set_ban_reason(ROOM, "@alice:localhost", Some("spam")).await.unwrap();
 
         let member = ctx.svc.get_room_member_record(ROOM, "@alice:localhost").await.unwrap().unwrap();
         assert_eq!(member.ban_reason.as_deref(), Some("spam"));
+
+        // `None` clears it, so a later reasonless ban cannot inherit this one.
+        ctx.svc.set_ban_reason(ROOM, "@alice:localhost", None).await.unwrap();
+        let member = ctx.svc.get_room_member_record(ROOM, "@alice:localhost").await.unwrap().unwrap();
+        assert_eq!(member.ban_reason, None);
     }
 
     #[tokio::test]
