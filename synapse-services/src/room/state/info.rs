@@ -311,6 +311,20 @@ impl RoomStateService {
             .map_err(|e| ApiError::internal_with_cause("Failed to purge history", e))
     }
 
+    /// Resolve the `origin_server_ts` of `event_id` **when it belongs to `room_id`**.
+    ///
+    /// Supports the upstream-compatible `purge_up_to_event_id` request field: the
+    /// purge primitive takes a millisecond timestamp, while upstream Synapse lets
+    /// callers name an event as the boundary.
+    pub async fn event_origin_server_ts_in_room(&self, room_id: &str, event_id: &str) -> ApiResult<Option<i64>> {
+        let event = self
+            .event_reader
+            .get_event(event_id)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to look up purge boundary event", e))?;
+        Ok(event.filter(|event| event.room_id == room_id).map(|event| event.origin_server_ts))
+    }
+
     /// See [`get_room_version`].
     pub async fn get_room_version(&self, room_id: &str) -> Result<Option<String>, RoomStateError> {
         self.room_storage.get_room_version_only(room_id).await.map_err(RoomStateError::Database)

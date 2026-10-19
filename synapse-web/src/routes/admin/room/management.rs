@@ -30,7 +30,15 @@ pub struct PurgeHistoryRequest {
     /// Room to purge; required in the body for the un-scoped endpoint.
     pub room_id: Option<String>,
     /// Purge events older than this millisecond timestamp.
+    ///
+    /// Mutually exclusive with `purge_up_to_event_id`; one of the two is required.
     pub purge_up_to_ts: Option<i64>,
+    /// Purge events older than this event (upstream-compatible alternative to
+    /// `purge_up_to_ts`).
+    pub purge_up_to_event_id: Option<String>,
+    /// Upstream flag, accepted for compatibility but **not honoured**: only
+    /// remote/federated events are purged, local events are always preserved.
+    pub delete_local_events: Option<bool>,
     /// Only report what would be deleted.
     pub dry_run: Option<bool>,
 }
@@ -40,7 +48,15 @@ pub struct PurgeHistoryRequest {
 #[serde(deny_unknown_fields)]
 pub struct PurgeHistoryByRoomRequest {
     /// Purge events older than this millisecond timestamp.
+    ///
+    /// Mutually exclusive with `purge_up_to_event_id`; one of the two is required.
     pub purge_up_to_ts: Option<i64>,
+    /// Purge events older than this event (upstream-compatible alternative to
+    /// `purge_up_to_ts`).
+    pub purge_up_to_event_id: Option<String>,
+    /// Upstream flag, accepted for compatibility but **not honoured**: only
+    /// remote/federated events are purged, local events are always preserved.
+    pub delete_local_events: Option<bool>,
     /// Only report what would be deleted.
     pub dry_run: Option<bool>,
 }
@@ -190,11 +206,45 @@ pub async fn purge_history(
     let request_id = resolve_request_id(&headers);
     let room_id =
         body.room_id.as_deref().ok_or_else(|| ApiError::bad_request("Missing 'room_id' field".to_string()))?;
-    let timestamp = body.purge_up_to_ts.unwrap_or_else(|| current_timestamp_millis() - (30 * 24 * 60 * 60 * 1000));
+    match (body.purge_up_to_ts, body.purge_up_to_event_id.as_deref()) {
+        (Some(_), Some(_)) => {
+            return Err(ApiError::bad_request(
+                "Only one of 'purge_up_to_ts' and 'purge_up_to_event_id' may be provided".to_string(),
+            ))
+        }
+        (None, None) => {
+            return Err(ApiError::bad_request(
+                "One of 'purge_up_to_ts' or 'purge_up_to_event_id' is required".to_string(),
+            ))
+        }
+        _ => {}
+    }
     let dry_run = body.dry_run.unwrap_or(false);
+    let delete_local_events = body.delete_local_events.unwrap_or(false);
 
     if !ctx.room_service.state().room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
+    let timestamp = match (body.purge_up_to_ts, body.purge_up_to_event_id.as_deref()) {
+        (Some(timestamp), None) => timestamp,
+        (None, Some(event_id)) => ctx
+            .room_service
+            .state()
+            .event_origin_server_ts_in_room(room_id, event_id)
+            .await?
+            .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?,
+        _ => unreachable!("boundary arguments were validated above"),
+    };
+
+    if delete_local_events {
+        tracing::warn!(
+            request_id = %request_id,
+            action = "admin.purge_history",
+            admin_user_id = %admin.user_id,
+            target_room_id = %room_id,
+            "delete_local_events=true is not supported; only remote/federated events are purged"
+        );
     }
 
     // P2 #33: 审计日志 - purge_history 操作
@@ -204,6 +254,8 @@ pub async fn purge_history(
         admin_user_id = %admin.user_id,
         target_room_id = %room_id,
         purge_up_to_ts = timestamp,
+        purge_up_to_event_id = body.purge_up_to_event_id.as_deref(),
+        delete_local_events = delete_local_events,
         dry_run = dry_run,
         timestamp_ms = current_timestamp_millis(),
         "Admin purge history operation"
@@ -230,6 +282,8 @@ pub async fn purge_history_by_room(
     let merged_body = PurgeHistoryRequest {
         room_id: Some(room_id.to_string()),
         purge_up_to_ts: body.purge_up_to_ts,
+        purge_up_to_event_id: body.purge_up_to_event_id,
+        delete_local_events: body.delete_local_events,
         dry_run: body.dry_run,
     };
 

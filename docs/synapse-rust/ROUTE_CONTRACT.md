@@ -1677,3 +1677,45 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
   （`moderation.rs` 只有两处 invite 写投影）。
 - **I-02 规模低估约 4 倍**：裸 `Json` 提取器实测 **254 处 / 82 文件**，`MatrixJson` 22 处。
 - **I-04 同源补一条**：`createRoom` 的未知字段也被静默接受（`Json<Value>` 既无类型校验也无未知字段拒绝）。
+
+## 附录 C — purge_history 与上游 Synapse 的已知差异（2026-10-19）
+
+本节为人工维护的**实现口径说明**，重新生成契约时原样保留。上游参考：Synapse
+`POST /_synapse/admin/v1/purge_history/{room_id}` + `GET /_synapse/admin/v1/purge_history_status/{purge_id}`。
+
+### C.1 端点
+
+| 方法 | 路径 | 请求体 | handler |
+|---|---|---|---|
+| POST | `/_synapse/admin/v1/purge_history` | `room_id` + 截断点 | `synapse-web/src/routes/admin/room/management.rs` `purge_history` |
+| POST | `/_synapse/admin/v1/rooms/{room_id}/purge_history` | 仅截断点（房间取自路径） | 同上 `purge_history_by_room` |
+
+### C.2 请求字段
+
+| 字段 | 类型 | 必填 | 本项目行为 |
+|---|---|---|---|
+| `room_id` | string | 仅无路径版本必填 | 缺失 → 400 |
+| `purge_up_to_ts` | integer（毫秒时间戳） | 与 `purge_up_to_event_id` 二选一 | 直接作为截断点 |
+| `purge_up_to_event_id` | string | 与 `purge_up_to_ts` 二选一 | 解析该事件的 `origin_server_ts` 作为截断点；事件不存在或不属于该房间 → 404 `M_NOT_FOUND` |
+| `delete_local_events` | boolean（默认 false） | 否 | **接受但不生效**：仅记录告警日志，实际仍只清远端/联邦事件 |
+| `dry_run` | boolean（默认 false） | 否 | 只统计不删除（本项目扩展字段，上游无此字段） |
+
+校验顺序：`room_id` 必填(400) → 截断点互斥/必填(400) → 房间存在(404) → 事件解析(404)。
+
+**截断点口径（与上游一致）**：必须显式提供 `purge_up_to_ts` 或 `purge_up_to_event_id` 之一；
+两者同时提供 → 400。不再使用早期的「缺省 = 当前时间 − 30 天」隐式默认值。
+
+### C.3 与上游的行为差异
+
+1. **同步实现**：请求在事务内同步完成删除后才返回，**没有** `purge_id`，也**没有**
+   `GET /_synapse/admin/v1/purge_history_status/{purge_id}` 轮询端点。上游返回
+   `{"purge_id": "..."}`，本项目返回如下响应，调用方不能按上游流程轮询状态。
+   ```json
+   { "success": true, "deleted_events": 42, "dry_run": false }
+   ```
+2. **只删远端事件**：无论 `delete_local_events` 取值如何，SQL 始终限定
+   `origin != 'self'`，且永远保留 `m.room.create`；`delete_local_events=true` 只在日志中告警。
+3. **截断点语义**：删除 `origin_server_ts < 截断点` 的事件（严格小于），与上游一致。
+4. **路径形态**：上游带房间的版本是 `/_synapse/admin/v1/purge_history/{room_id}`，本项目为
+   `/_synapse/admin/v1/rooms/{room_id}/purge_history`；按上游路径调用会得到 404。
+   上游兼容调用请改用 `/_synapse/admin/v1/purge_history` 并在 body 中传 `room_id`。

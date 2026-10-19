@@ -212,7 +212,7 @@
 | `GET` | `/rooms/{room_id}` | 详情 |
 | `DELETE` | `/rooms/{room_id}` | 删除房间 |
 | `POST` | `/rooms/{room_id}/purge_history` | 按房间清理历史 |
-| `POST` | `/purge_history` | 清理历史（兼容入口，体含 `room_id` + `purge_up_to_ts`） |
+| `POST` | `/purge_history` | 清理历史（体含 `room_id` + 截断点） |
 | `POST` | `/shutdown_room` | 关闭房间并移除成员 |
 | `POST` | `/purge_room` | 彻底清除房间 |
 | `GET` | `/rooms/{room_id}/members` | 成员列表 |
@@ -242,6 +242,15 @@
 ```json
 { "room_id": "!x:matrix.test", "purge_up_to_ts": 1760000000000, "dry_run": false }
 ```
+
+- 截断点 `purge_up_to_ts` 与 `purge_up_to_event_id` **二选一且必须给其一**：都缺省 → 400，
+  同时提供 → 400。给 `purge_up_to_event_id` 时服务端解析该事件的 `origin_server_ts`
+  （事件不存在或不属于该房间 → 404）。
+- `delete_local_events`（上游字段）可传但**不生效**：始终只清远端/联邦事件，且永不删
+  `m.room.create`。
+- 同步实现：无 `purge_id`，也无 `purge_history_status` 轮询端点。上游路径
+  `/_synapse/admin/v1/purge_history/{room_id}` 本项目未实现，请用 `/purge_history` 并在体内传
+  `room_id`。
 
 响应：`{"success": true, "deleted_events": 1234, "dry_run": false}`
 

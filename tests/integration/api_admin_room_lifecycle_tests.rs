@@ -238,6 +238,24 @@ async fn test_admin_room_history_purge() {
         "History purge should succeed"
     );
 
+    // 4b. 上游兼容字段 purge_up_to_event_id 指向不存在的事件 → 404
+    let purge_by_unknown_event_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_synapse/admin/v1/rooms/{}/purge_history", encoded_room_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "purge_up_to_event_id": "$nonexistent:localhost",
+                "delete_local_events": true
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), purge_by_unknown_event_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
     // 5. 验证历史已被清理（可选，取决于实现）
     // 这里可以查询房间消息，验证旧消息已被删除
 }
@@ -268,6 +286,60 @@ async fn test_admin_purge_history_requires_existing_room() {
     let response = ServiceExt::<Request<Body>>::oneshot(app, purge_history_request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+/// 截断点既未给 `purge_up_to_ts` 也未给 `purge_up_to_event_id` → 400（上游口径：必须给其一）
+#[tokio::test]
+async fn test_admin_purge_history_requires_boundary() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let (admin_token, _) = super::get_super_admin_token(&app).await;
+
+    let room_id = format!("!noboundary{}:localhost", rand::random::<u32>());
+    let encoded_room_id = room_id.replace('!', "%21").replace(':', "%3A");
+
+    let purge_history_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_synapse/admin/v1/rooms/{}/purge_history", encoded_room_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "dry_run": true }).to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, purge_history_request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+/// 同时给两种截断点 → 400
+#[tokio::test]
+async fn test_admin_purge_history_rejects_duplicate_boundaries() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let (admin_token, _) = super::get_super_admin_token(&app).await;
+
+    let room_id = format!("!twoboundary{}:localhost", rand::random::<u32>());
+    let encoded_room_id = room_id.replace('!', "%21").replace(':', "%3A");
+
+    let purge_history_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_synapse/admin/v1/rooms/{}/purge_history", encoded_room_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "purge_up_to_ts": current_timestamp_millis(),
+                "purge_up_to_event_id": "$event:localhost"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, purge_history_request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
 /// 测试批量房间查询和搜索

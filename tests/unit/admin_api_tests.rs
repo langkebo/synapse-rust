@@ -165,6 +165,35 @@ fn test_purge_history_dry_run_option() {
     assert_eq!(options.get("dry_run").and_then(|v| v.as_bool()), Some(true));
 }
 
+// Test 13c: Purge history accepts the upstream `purge_up_to_event_id` field
+#[test]
+fn test_purge_history_accepts_upstream_event_id_boundary() {
+    use synapse_web::routes::admin::room::management::PurgeHistoryRequest;
+
+    let body: PurgeHistoryRequest = serde_json::from_value(json!({
+        "room_id": "!room:localhost",
+        "purge_up_to_event_id": "$event:localhost"
+    }))
+    .expect("upstream boundary field must deserialize");
+
+    assert_eq!(body.purge_up_to_event_id.as_deref(), Some("$event:localhost"));
+    assert!(body.purge_up_to_ts.is_none());
+}
+
+// Test 13d: Purge history accepts the upstream `delete_local_events` field
+#[test]
+fn test_purge_history_accepts_upstream_delete_local_events() {
+    use synapse_web::routes::admin::room::management::PurgeHistoryByRoomRequest;
+
+    let body: PurgeHistoryByRoomRequest = serde_json::from_value(json!({
+        "purge_up_to_ts": 1700000000000_i64,
+        "delete_local_events": true
+    }))
+    .expect("upstream delete_local_events field must deserialize");
+
+    assert_eq!(body.delete_local_events, Some(true));
+}
+
 // Test 14: Shutdown room options
 #[test]
 fn test_shutdown_room_options() {
