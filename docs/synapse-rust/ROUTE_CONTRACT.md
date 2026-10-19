@@ -1515,9 +1515,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 > 本附录为人工维护，基于 **SDK Manager 源码 + 后端 handler 源码双侧实读**，逐条核对「已封装后端功能」的完整性；重新生成脚本不覆盖本段。
 > **审计对象**：`@langkebo/matrix-js-sdk@40.2.0-langkebo.5`（`/Users/ljf/Desktop/hu_ts/matrix-js-sdk`）。
-> **后端事实源**：本文件路由面（**1041** 条路由 / **51** 个模块）+ `synapse-web/src/routes/**` handler 源码。
-> 　· 计数口径（2026-10-18 复核）：**1041** = `all` profile 去重后的 `method + path` 条目数（`tests/unit/fixtures/ledger_export_sdk/all.json` 的 `entry_count`，与 `derived_route_table_*.inc.rs` 生成表逐条一致）；
-> 　· **51** = 按 `registered_by` 首段归并的模块数（细粒度 `registered_by` 共 **74** 个；旧文本写的「65 模块」是更早的目录分桶口径，已废弃）。
+> **后端事实源**：本文件路由面（**1046** 条路由 / **66** 个模块）+ `synapse-web/src/routes/**` handler 源码。
+> 　· 计数口径（2026-10-19 复核）：**1046** = `all` profile 去重后的 `method + path` 条目数（`tests/unit/fixtures/ledger_export_sdk/all.json` 的 `entry_count`，与 `derived_route_table_*.inc.rs` 生成表逐条一致）；
+> 　· **66** = 含路由注册的模块文件数（细粒度 `registered_by` 共 **75** 个；旧文本写的「51 模块 / 74 标签」「65 模块」是更早口径，已废弃）。
 > **证据产物**：`artifacts/sdk-contract-gap-report.md`、`artifacts/sdk-contract-gap.json`、`scripts/quality/path-contract-coverage.json`；镜像 commit **`2946e19eb`**（2026-10-17）。
 > ⚠️ **时点提示**：本节 B.1–B.7 的**所有数字**（覆盖率、分桶、缺口条数）都是 **2026-10-09 审计时点**的口径，此后后端与 SDK 均有前进；
 > 　　需要当前值请以 `compare-routes.mjs` 的当次输出为准。**结论层面的复核见 B.8（2026-10-17）**。
@@ -1612,7 +1612,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 4. **复现命令**（在 `/Users/ljf/Desktop/hu_ts/matrix-js-sdk`）：
    - 审计：`pnpm contract:sync && pnpm contract:codegen && node scripts/audit/compare-routes.mjs`
    - 门禁：`pnpm quality:path-contract`（另有 `quality:admin-response-contract` / `quality:contract-drift` / `quality:sdk-contracts` / `quality:route-set-parity`）。
-5. **口径提示**：`generate_sdk_ledger_fixtures.sh` 注释称 “all-extensions all=1407” 为**陈旧注释**，与实测 **1041**（2026-10-18 口径；2026-10-17 时为 1038、2026-10-09 时为 1030）不符；一律以本文件头部计数与 `sdk-contract-gap.json` 当次实测为准。
+5. **口径提示**：`generate_sdk_ledger_fixtures.sh` 注释称 “all-extensions all=1407” 为**陈旧注释**，与实测 **1046**（2026-10-19 口径；2026-10-18 时为 1041、2026-10-17 时为 1038、2026-10-09 时为 1030）不符；一律以本文件头部计数与 `sdk-contract-gap.json` 当次实测为准。
 
 ### B.8 复核结论（2026-10-17，双侧源码 + 真实后端联调）
 

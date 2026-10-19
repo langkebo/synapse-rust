@@ -146,7 +146,6 @@ fn test_admin_set_response() {
 fn test_purge_history_options() {
     let options = json!({
         "room_id": "!room:localhost",
-        "delete_local_events": true,
         "purge_up_to_ts": 1700000000000_i64
     });
 

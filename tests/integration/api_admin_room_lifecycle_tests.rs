@@ -224,7 +224,6 @@ async fn test_admin_room_history_purge() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
-                "delete_local_events": true,
                 "purge_up_to_ts": (current_timestamp_millis() - 1000) // 1秒前
             })
             .to_string(),
@@ -260,7 +259,6 @@ async fn test_admin_purge_history_requires_existing_room() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
-                "delete_local_events": true,
                 "purge_up_to_ts": current_timestamp_millis()
             })
             .to_string(),
