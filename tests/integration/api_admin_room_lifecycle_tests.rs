@@ -688,6 +688,79 @@ async fn test_admin_moderation_syncs_friend_dm_membership_state() {
     assert_eq!(entry["dm_room_active"], false, "a kicked DM is not active: {entry}");
 }
 
+/// The C-S `unban` handler must mirror the admin path: an unban leaves the
+/// target at membership `leave`, so the friend's `dm_room_state` must become
+/// `"unbanned"`. Before the fix the handler never called the friend-DM
+/// notifier, so the friend list stayed at `"banned"` after a C-S unban.
+#[tokio::test]
+async fn test_client_unban_syncs_friend_dm_membership_state() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let (alice_token, alice_id) = admin_room_register_user(&app, "dm_unban_a").await;
+    let (bob_token, bob_id) = admin_room_register_user(&app, "dm_unban_b").await;
+
+    // alice -> bob 好友请求，bob 接受。
+    let (status, body) =
+        admin_room_call(&app, "POST", "/_matrix/vendor/v1/friends", &alice_token, Some(json!({ "user_id": bob_id })))
+            .await;
+    assert_eq!(status, StatusCode::OK, "send friend request failed: {body}");
+    let (status, body) = admin_room_call(
+        &app,
+        "POST",
+        &format!("/_matrix/vendor/v1/friends/request/{}/accept", admin_room_encode_segment(&alice_id)),
+        &bob_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "accept friend request failed: {body}");
+
+    let (status, body) = admin_room_call(
+        &app,
+        "POST",
+        &format!("/_matrix/vendor/v1/friends/dm/{}", admin_room_encode_segment(&bob_id)),
+        &alice_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "friend DM creation failed: {body}");
+    let room_id = body["room_id"].as_str().expect("room_id").to_string();
+    let room_segment = admin_room_encode_segment(&room_id);
+
+    // The DM room is created by the accepter (bob) in `execute_accept_flow`, so
+    // bob is the room creator (power 100) and alice is a plain member (power 0).
+    // A C-S ban therefore has to be issued by bob — alice's attempt is correctly
+    // rejected with 403 by `can_ban_user`.
+    //
+    // C-S ban -> "banned"
+    let (status, body) = admin_room_call(
+        &app,
+        "POST",
+        &format!("/_matrix/client/v3/rooms/{room_segment}/ban"),
+        &bob_token,
+        Some(json!({ "user_id": alice_id, "reason": "policy" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "client ban failed: {body}");
+    let entry = admin_room_friend_entry(&app, &alice_token, &bob_id).await;
+    assert_eq!(entry["dm_room_state"], "banned", "client ban must sync the DM state: {entry}");
+    assert_eq!(entry["dm_room_affected_user_id"], alice_id, "affected user must be recorded: {entry}");
+
+    // C-S unban -> "unbanned" (this was the gap)
+    let (status, body) = admin_room_call(
+        &app,
+        "POST",
+        &format!("/_matrix/client/v3/rooms/{room_segment}/unban"),
+        &bob_token,
+        Some(json!({ "user_id": alice_id })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "client unban failed: {body}");
+    let entry = admin_room_friend_entry(&app, &alice_token, &bob_id).await;
+    assert_eq!(entry["dm_room_state"], "unbanned", "client unban must sync the DM state: {entry}");
+    assert_eq!(entry["dm_room_active"], false, "an unbanned DM stays inactive: {entry}");
+}
+
 /// `POST /_matrix/client/v3/admin/room/{room_id}/redact` (batch redact) has the
 /// same FK contract as the cascade endpoint: NULL `redacted_by`.
 ///
