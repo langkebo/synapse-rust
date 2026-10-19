@@ -336,9 +336,9 @@ pub async fn remove_room_member(
     Ok(Json(remove_room_member_internal(&ctx, &room_id, &user_id, &request_id).await?))
 }
 
-/// See [`ban_user`].
+/// Ban a user from a room (admin API).
 #[axum::debug_handler]
-pub async fn ban_user(
+pub async fn admin_ban_user(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
@@ -366,7 +366,7 @@ pub async fn ban_user_by_body(
 
 /// Unban a user from a room
 #[axum::debug_handler]
-pub async fn unban_user(
+pub async fn admin_unban_user(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
@@ -378,7 +378,7 @@ pub async fn unban_user(
 
 /// Kick a user from a room
 #[axum::debug_handler]
-pub async fn kick_user(
+pub async fn admin_kick_user(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
     headers: HeaderMap,

@@ -210,7 +210,7 @@ pub fn create_room_router(_state: AppState) -> Router<AppState> {
         )
         .route(
             "/_synapse/admin/v1/rooms/{room_id}/ban/{user_id}",
-            post(management::ban_user),
+            post(management::admin_ban_user),
         )
         .route(
             "/_synapse/admin/v1/rooms/{room_id}/ban",
@@ -218,11 +218,11 @@ pub fn create_room_router(_state: AppState) -> Router<AppState> {
         )
         .route(
             "/_synapse/admin/v1/rooms/{room_id}/unban/{user_id}",
-            post(management::unban_user),
+            post(management::admin_unban_user),
         )
         .route(
             "/_synapse/admin/v1/rooms/{room_id}/kick/{user_id}",
-            post(management::kick_user),
+            post(management::admin_kick_user),
         )
         .route(
             "/_synapse/admin/v1/rooms/{room_id}/kick",
