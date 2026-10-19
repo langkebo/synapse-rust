@@ -10,7 +10,7 @@
     "worker_enabled": false,
     "saml_enabled": false
   },
-  "total_routes": 962,
+  "total_routes": 967,
   "_meta": {
     "generated_by": "gen_route_table.py",
     "note": "本文件由 CI 自动生成，禁止手改。如需刷新: python3 scripts/api_test/gen_route_table.py"
@@ -693,6 +693,14 @@
       "path_params": [
         "device_id"
       ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v1/login/get_token",
+      "registered_by": "assembly::auth_router",
+      "path_params": [],
       "query_params": [],
       "auth": null
     },
@@ -7510,6 +7518,16 @@
       "auth": null
     },
     {
+      "method": "DELETE",
+      "path": "/_synapse/admin/v1/feature-flags/{flag_key}",
+      "registered_by": "feature_flags",
+      "path_params": [
+        "flag_key"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
       "method": "GET",
       "path": "/_synapse/admin/v1/feature-flags/{flag_key}",
       "registered_by": "feature_flags",
@@ -7764,6 +7782,16 @@
       "path": "/_synapse/admin/v1/jitsi/config",
       "registered_by": "admin::server",
       "path_params": [],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/join/{room_id_or_alias}",
+      "registered_by": "admin::room",
+      "path_params": [
+        "room_id_or_alias"
+      ],
       "query_params": [],
       "auth": null
     },
@@ -8978,6 +9006,16 @@
       "auth": null
     },
     {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/users/{user_id}/admin",
+      "registered_by": "admin::user",
+      "path_params": [
+        "user_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
       "method": "PUT",
       "path": "/_synapse/admin/v1/users/{user_id}/admin",
       "registered_by": "admin::user",
@@ -9182,6 +9220,16 @@
     },
     {
       "method": "DELETE",
+      "path": "/_synapse/admin/v1/users/{user_id}/shadow_ban",
+      "registered_by": "admin::security",
+      "path_params": [
+        "user_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "GET",
       "path": "/_synapse/admin/v1/users/{user_id}/shadow_ban",
       "registered_by": "admin::security",
       "path_params": [

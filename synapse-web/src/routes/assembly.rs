@@ -369,6 +369,11 @@ fn create_auth_router() -> Router<AppState> {
             "/_matrix/client/v1/login/qr_token",
             post(auth_compat::generate_qr_login_token),
         )
+        // MSC3882: UIA-protected generation of an `m.login.token` login token.
+        .route(
+            "/_matrix/client/v1/login/get_token",
+            post(auth_compat::get_login_token),
+        )
 }
 
 fn create_account_compat_router() -> Router<AppState> {

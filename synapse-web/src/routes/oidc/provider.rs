@@ -2,7 +2,9 @@
 
 use crate::routes::context::SsoContext;
 use crate::routes::AuthenticatedUser;
+use axum::http::{header, HeaderMap};
 use axum::{extract::State, Json};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 use synapse_common::error::ApiError;
 use synapse_services::oidc_service::OidcService;
@@ -35,6 +37,9 @@ pub(crate) struct OidcTokenRequest {
     #[validate(length(min = 43, max = 128))]
     /// The `code_verifier` field.
     pub code_verifier: Option<String>,
+    #[validate(length(max = 1024))]
+    /// The `client_secret` field (`client_secret_post` auth, RFC 6749 §2.3.1).
+    pub client_secret: Option<String>,
 }
 
 /// OIDC Token Response
@@ -103,13 +108,43 @@ pub(crate) struct OidcAuthorizeRequest {
     pub nonce: Option<String>,
 }
 
+/// Parse `Authorization: Basic <base64(client_id:client_secret)>`.
+///
+/// Returns `Ok(None)` when no Basic credentials are present. Malformed headers
+/// are rejected per RFC 6749 §2.3.1.
+fn basic_client_credentials(headers: &HeaderMap) -> Result<Option<(String, String)>, ApiError> {
+    let Some(value) = headers.get(header::AUTHORIZATION) else {
+        return Ok(None);
+    };
+    let value = value.to_str().map_err(|_| ApiError::bad_request("Malformed Authorization header".to_string()))?;
+    let Some(encoded) = value.strip_prefix("Basic ") else {
+        return Ok(None);
+    };
+    let decoded =
+        BASE64.decode(encoded.trim()).map_err(|_| ApiError::bad_request("Malformed Basic credentials".to_string()))?;
+    let decoded =
+        String::from_utf8(decoded).map_err(|_| ApiError::bad_request("Malformed Basic credentials".to_string()))?;
+    let (client_id, client_secret) =
+        decoded.split_once(':').ok_or_else(|| ApiError::bad_request("Malformed Basic credentials".to_string()))?;
+    Ok(Some((client_id.to_string(), client_secret.to_string())))
+}
+
 /// OIDC Token endpoint — handles authorization code exchange and refresh token
 pub(crate) async fn oidc_token(
     State(ctx): State<SsoContext>,
+    headers: HeaderMap,
     MatrixJson(body): MatrixJson<OidcTokenRequest>,
 ) -> Result<Json<OidcTokenResponse>, ApiError> {
     // Validate input
     body.validate().map_err(|e| ApiError::bad_request(format!("Validation error: {e}")))?;
+
+    // RFC 6749 §2.3.1: client credentials may arrive via HTTP Basic or as body
+    // parameters. Basic takes precedence when both are supplied.
+    #[cfg_attr(not(feature = "builtin-oidc"), allow(unused_variables))]
+    let (client_id, client_secret) = match basic_client_credentials(&headers)? {
+        Some((id, secret)) => (Some(id), Some(secret)),
+        None => (body.client_id.clone(), body.client_secret.clone()),
+    };
 
     // Prefer the built-in OIDC Provider when available
     #[cfg(feature = "builtin-oidc")]
@@ -119,10 +154,11 @@ pub(crate) async fn oidc_token(
             grant_type: body.grant_type.clone(),
             code: body.code.clone(),
             redirect_uri: body.redirect_uri.clone(),
-            client_id: body.client_id.clone(),
+            client_id,
             code_verifier: body.code_verifier.clone(),
             refresh_token: body.refresh_token.clone(),
             scope: body.scope.clone(),
+            client_secret,
         };
 
         let token_response = builtin_provider

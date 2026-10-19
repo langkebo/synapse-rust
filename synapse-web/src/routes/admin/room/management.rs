@@ -313,6 +313,42 @@ pub async fn purge_room(
     })))
 }
 
+/// Request body for [`admin_join_room`].
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdminJoinRoomRequest {
+    /// The user to force-join into the room.
+    pub user_id: String,
+}
+
+/// Force-join a user into a room addressed by room ID or alias.
+///
+/// Mirrors upstream Synapse `POST /_synapse/admin/v1/join/{room_id_or_alias}`.
+#[axum::debug_handler]
+pub async fn admin_join_room(
+    _admin: AdminUser,
+    State(ctx): State<AdminContext>,
+    Path(room_id_or_alias): Path<String>,
+    headers: HeaderMap,
+    MatrixJson(body): MatrixJson<AdminJoinRoomRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
+
+    let room_id = if room_id_or_alias.starts_with('!') {
+        room_id_or_alias
+    } else if room_id_or_alias.starts_with('#') {
+        ctx.room_service
+            .state()
+            .get_room_by_alias(&room_id_or_alias)
+            .await?
+            .ok_or_else(|| ApiError::not_found("Room alias not found".to_string()))?
+    } else {
+        return Err(ApiError::bad_request("room_id_or_alias must start with '!' or '#'".to_string()));
+    };
+
+    Ok(Json(join_room_member_internal(&ctx, &room_id, &body.user_id, &request_id).await?))
+}
+
 /// Join a user to a room (force join)
 #[axum::debug_handler]
 pub async fn join_room_member(

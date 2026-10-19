@@ -157,7 +157,7 @@ pub(crate) async fn openid_discovery(State(ctx): State<SsoContext>) -> Result<Js
         response_types_supported: vec!["code".to_string()],
         response_modes_supported: vec!["query".to_string(), "fragment".to_string()],
         grant_types_supported: vec!["authorization_code".to_string(), "refresh_token".to_string()],
-        token_endpoint_auth_methods_supported: vec!["client_secret_basic".to_string()],
+        token_endpoint_auth_methods_supported: vec!["none".to_string()],
         claims_supported: vec!["sub".to_string(), "name".to_string(), "picture".to_string(), "email".to_string()],
         ui_locales_supported: vec!["en".to_string()],
         subject_types_supported: vec!["public".to_string()],

@@ -33,7 +33,10 @@ pub fn create_user_router() -> Router<crate::routes::AppState> {
         .route("/_synapse/admin/v1/users", get(get_users))
         .route("/_synapse/admin/v1/users/{user_id}", get(get_user))
         .route("/_synapse/admin/v1/users/{user_id}", delete(delete_user))
-        .route("/_synapse/admin/v1/users/{user_id}/admin", put(set_admin))
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/admin",
+            get(get_admin_status).put(set_admin),
+        )
         .route("/_synapse/admin/v1/users/{user_id}/evict", post(evict_user))
         .route(
             "/_synapse/admin/v1/users/{user_id}/deactivate",
@@ -308,6 +311,18 @@ async fn delete_user(
         "user_id": user.user_id,
         "deleted": true
     })))
+}
+
+/// See [`get_admin_status`].
+#[axum::debug_handler]
+pub async fn get_admin_status(
+    _admin: AdminUser,
+    State(ctx): State<AdminContext>,
+    Path(user_id): Path<UserId>,
+) -> Result<Json<Value>, ApiError> {
+    let user = resolve_user(&ctx, &user_id).await?;
+
+    Ok(Json(json!({ "admin": user.is_admin })))
 }
 
 /// See [`set_admin`].

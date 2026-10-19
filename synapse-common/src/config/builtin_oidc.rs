@@ -1,10 +1,12 @@
 use educe::Educe;
 use serde::Deserialize;
+use std::collections::HashMap;
 
 /// 服务器配置结构。
 ///
 /// 内置 OIDC Provider 配置
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize, Educe)]
+#[educe(Debug)]
 /// Represents BuiltinOidcConfig.
 pub struct BuiltinOidcConfig {
     #[serde(default)]
@@ -21,6 +23,13 @@ pub struct BuiltinOidcConfig {
     #[serde(default)]
     /// `allow_client_ids` field.
     pub allow_client_ids: Vec<String>,
+    /// 机密客户端密钥表（client_id → client_secret）。
+    /// 命中该表的客户端必须在下发令牌时通过 `client_secret_post` 或
+    /// `client_secret_basic` 提供正确密钥；未登记的客户端按公共客户端处理。
+    #[serde(default)]
+    #[educe(Debug(ignore))]
+    /// `client_secrets` field.
+    pub client_secrets: HashMap<String, String>,
     #[serde(default)]
     /// `users` field.
     pub users: Vec<BuiltinOidcUser>,
@@ -79,6 +88,7 @@ impl Default for BuiltinOidcConfig {
             client_id: default_builtin_oidc_client_id(),
             allow_redirect_uris: vec![],
             allow_client_ids: vec![],
+            client_secrets: HashMap::new(),
             users: vec![],
             allow_plaintext_passwords: false,
             signing_key_path: None,
@@ -106,6 +116,7 @@ mod tests {
         assert_eq!(config.client_id, "builtin-oidc-client");
         assert!(config.allow_redirect_uris.is_empty());
         assert!(config.allow_client_ids.is_empty());
+        assert!(config.client_secrets.is_empty());
         assert!(config.users.is_empty());
         assert!(config.signing_key_path.is_none());
         assert!(config.signing_key_ec_path.is_none());

@@ -17,6 +17,13 @@ fn oidc_available(config: &synapse_common::config::Config) -> bool {
 /// Build an OpenID Connect discovery response from the server config.
 fn build_oidc_discovery(config: &synapse_common::config::Config) -> serde_json::Value {
     let issuer = config.server.get_public_baseurl();
+    // RFC 8414 §2 / RFC 6749 §2.3.1: `none` covers public clients; secret-based
+    // methods are only advertised once confidential clients are registered.
+    let mut auth_methods = vec!["none"];
+    if !config.builtin_oidc.client_secrets.is_empty() {
+        auth_methods.push("client_secret_basic");
+        auth_methods.push("client_secret_post");
+    }
     json!({
         "issuer": issuer,
         "authorization_endpoint": format!("{issuer}/_matrix/client/v3/oidc/authorize"),
@@ -30,7 +37,7 @@ fn build_oidc_discovery(config: &synapse_common::config::Config) -> serde_json::
         "response_types_supported": ["code"],
         "response_modes_supported": ["query", "fragment"],
         "grant_types_supported": ["authorization_code", "refresh_token"],
-        "token_endpoint_auth_methods_supported": ["client_secret_basic"],
+        "token_endpoint_auth_methods_supported": auth_methods,
         "claims_supported": ["sub", "name", "picture", "email"],
         "ui_locales_supported": ["en"],
         "subject_types_supported": ["public"],

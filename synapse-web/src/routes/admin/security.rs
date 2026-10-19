@@ -16,7 +16,7 @@ use synapse_common::ApiError;
 /// See [`create_security_router`].
 pub fn create_security_router() -> Router<crate::routes::AppState> {
     Router::new()
-        .route("/_synapse/admin/v1/users/{user_id}/shadow_ban", post(shadow_ban_user))
+        .route("/_synapse/admin/v1/users/{user_id}/shadow_ban", get(get_shadow_ban_user).post(shadow_ban_user))
         .route("/_synapse/admin/v1/users/{user_id}/shadow_ban", delete(unshadow_ban_user))
         .route("/_synapse/admin/v1/users/{user_id}/rate_limit", get(get_user_rate_limit))
         .route("/_synapse/admin/v1/users/{user_id}/rate_limit", put(set_user_rate_limit))
@@ -44,6 +44,18 @@ async fn ensure_user_exists(ctx: &AdminContext, user_id: &str) -> Result<(), Api
     }
 
     Ok(())
+}
+
+/// See [`get_shadow_ban_user`].
+#[axum::debug_handler]
+pub async fn get_shadow_ban_user(
+    _admin: AdminUser,
+    State(ctx): State<AdminContext>,
+    Path(user_id): Path<UserId>,
+) -> Result<Json<Value>, ApiError> {
+    let shadow_banned = ctx.admin_security_service.get_shadow_ban(&user_id).await?;
+
+    Ok(Json(json!({ "shadow_banned": shadow_banned })))
 }
 
 /// See [`shadow_ban_user`].

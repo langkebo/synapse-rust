@@ -92,6 +92,18 @@ pub async fn update_feature_flag(
     Ok(Json(flag))
 }
 
+/// See [`delete_feature_flag`].
+pub async fn delete_feature_flag(
+    State(ctx): State<AdminContext>,
+    headers: HeaderMap,
+    admin_user: AdminUser,
+    Path(flag_key): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let request_id = request_id(&headers);
+    ctx.feature_flag_service.delete_flag(&admin_user.user_id, &request_id, &flag_key).await?;
+    Ok(Json(serde_json::json!({})))
+}
+
 /// See [`get_feature_flag`].
 pub async fn get_feature_flag(
     State(ctx): State<AdminContext>,
@@ -134,7 +146,10 @@ pub fn create_feature_flags_router(state: AppState) -> axum::Router<AppState> {
 
     axum::Router::new()
         .route("/_synapse/admin/v1/feature-flags", post(create_feature_flag).get(list_feature_flags))
-        .route("/_synapse/admin/v1/feature-flags/{flag_key}", get(get_feature_flag).patch(update_feature_flag))
+        .route(
+            "/_synapse/admin/v1/feature-flags/{flag_key}",
+            get(get_feature_flag).patch(update_feature_flag).delete(delete_feature_flag),
+        )
         .route_layer(axum::middleware::from_fn_with_state(
             <crate::routes::context::AdminContext as axum::extract::FromRef<crate::routes::AppState>>::from_ref(&state),
             crate::middleware::admin_auth_middleware,

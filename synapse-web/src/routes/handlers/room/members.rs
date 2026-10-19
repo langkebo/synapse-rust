@@ -306,9 +306,20 @@ pub(crate) async fn knock_room(
 }
 
 /// Request body for [`invite_user`].
+///
+/// The spec allows two mutually exclusive shapes:
+///
+/// * `{"user_id": "@bob:example.org"}` — invite a known Matrix ID;
+/// * `{"id_server", "id_access_token", "medium", "address"}` — invite a
+///   third-party identifier (email / phone number), resolved through the
+///   identity server.
 #[derive(Debug, Deserialize)]
 pub struct InviteUserBody {
-    pub user_id: String,
+    pub user_id: Option<String>,
+    pub id_server: Option<String>,
+    pub id_access_token: Option<String>,
+    pub medium: Option<String>,
+    pub address: Option<String>,
 }
 
 /// See [`invite_user`].
@@ -320,7 +331,9 @@ pub(crate) async fn invite_user(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let invitee = body.user_id.as_str();
+    let Some(invitee) = body.user_id.as_deref() else {
+        return invite_by_3pid(&ctx, &auth_user.user_id, &room_id, &body).await;
+    };
 
     validate_user_id(invitee)?;
 
@@ -348,6 +361,57 @@ pub(crate) async fn invite_user(
         "invited_user_id": invitee,
         "invited_ts": current_timestamp_millis()
     })))
+}
+
+/// Third-party-identifier branch of [`invite_user`].
+///
+/// Mirrors upstream Synapse's `RoomMemberHandler.do_3pid_invite`: resolve the
+/// 3PID to an MXID first (local bindings, then the identity server's `invite`
+/// endpoint) and issue a normal `m.room.member` invite for the resulting user.
+///
+/// The `m.room.third_party_invite` fallback (identity-server `store-invite`)
+/// is not implemented; when no Matrix ID can be resolved the request fails
+/// with `M_NOT_FOUND` instead of silently succeeding.
+async fn invite_by_3pid(
+    ctx: &RoomContext,
+    inviter: &str,
+    room_id: &RoomId,
+    body: &InviteUserBody,
+) -> Result<Json<Value>, ApiError> {
+    let (Some(id_server), Some(id_access_token), Some(medium), Some(address)) =
+        (body.id_server.as_deref(), body.id_access_token.as_deref(), body.medium.as_deref(), body.address.as_deref())
+    else {
+        return Err(ApiError::bad_request(
+            "Request must contain either user_id or id_server, id_access_token, medium and address".to_string(),
+        ));
+    };
+
+    if id_server.is_empty() || id_access_token.is_empty() || medium.is_empty() || address.is_empty() {
+        return Err(ApiError::bad_request(
+            "id_server, id_access_token, medium and address must not be empty".to_string(),
+        ));
+    }
+
+    if medium != "email" && medium != "msisdn" {
+        return Err(ApiError::bad_request("medium must be 'email' or 'msisdn'".to_string()));
+    }
+
+    ctx.room_auth.can_invite_user(room_id, inviter).await?;
+
+    let invitee = match ctx.identity_service.lookup_3pid(medium, address).await? {
+        Some(user_id) => user_id,
+        None => {
+            let invitation =
+                ctx.identity_service.invite_3pid(room_id, inviter, medium, address, id_server, id_access_token).await?;
+            invitation.user_id.ok_or_else(|| {
+                ApiError::not_found("No Matrix user is bound to the given third-party identifier".to_string())
+            })?
+        }
+    };
+
+    ctx.room_service.membership().invite_user(room_id, inviter, &invitee).await?;
+
+    Ok(Json(json!({ "room_id": room_id })))
 }
 
 /// See [`get_room_members`].

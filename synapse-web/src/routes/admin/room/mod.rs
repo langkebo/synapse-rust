@@ -201,6 +201,10 @@ pub fn create_room_router(_state: AppState) -> Router<AppState> {
         )
         // Room membership management
         .route(
+            "/_synapse/admin/v1/join/{room_id_or_alias}",
+            post(management::admin_join_room),
+        )
+        .route(
             "/_synapse/admin/v1/rooms/{room_id}/members/{user_id}",
             put(management::join_room_member),
         )

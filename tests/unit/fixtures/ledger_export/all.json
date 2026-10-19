@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": false
   },
-  "entry_count": 980,
+  "entry_count": 985,
   "entries": [
     {
       "method": "GET",
@@ -621,6 +621,13 @@
       "path_params": [
         "device_id"
       ],
+      "query_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v1/login/get_token",
+      "registered_by": "assembly::auth_router",
+      "path_params": [],
       "query_params": []
     },
     {
@@ -6827,6 +6834,15 @@
       "query_params": []
     },
     {
+      "method": "DELETE",
+      "path": "/_synapse/admin/v1/feature-flags/{flag_key}",
+      "registered_by": "feature_flags",
+      "path_params": [
+        "flag_key"
+      ],
+      "query_params": []
+    },
+    {
       "method": "GET",
       "path": "/_synapse/admin/v1/feature-flags/{flag_key}",
       "registered_by": "feature_flags",
@@ -7055,6 +7071,15 @@
       "path": "/_synapse/admin/v1/jitsi/config",
       "registered_by": "admin::server",
       "path_params": [],
+      "query_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/join/{room_id_or_alias}",
+      "registered_by": "admin::room",
+      "path_params": [
+        "room_id_or_alias"
+      ],
       "query_params": []
     },
     {
@@ -8141,6 +8166,15 @@
       "query_params": []
     },
     {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/users/{user_id}/admin",
+      "registered_by": "admin::user",
+      "path_params": [
+        "user_id"
+      ],
+      "query_params": []
+    },
+    {
       "method": "PUT",
       "path": "/_synapse/admin/v1/users/{user_id}/admin",
       "registered_by": "admin::user",
@@ -8325,6 +8359,15 @@
     },
     {
       "method": "DELETE",
+      "path": "/_synapse/admin/v1/users/{user_id}/shadow_ban",
+      "registered_by": "admin::security",
+      "path_params": [
+        "user_id"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "GET",
       "path": "/_synapse/admin/v1/users/{user_id}/shadow_ban",
       "registered_by": "admin::security",
       "path_params": [

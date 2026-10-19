@@ -88,6 +88,17 @@ impl UiaService {
         ]
     }
 
+    /// UIA flows accepted by `POST /_matrix/client/v1/login/get_token`.
+    ///
+    /// A login token must not be usable to mint another login token, so the
+    /// `m.login.token` stage is deliberately excluded here.
+    pub fn get_login_token_flows() -> Vec<UiaFlow> {
+        vec![
+            UiaFlow { stages: vec!["m.login.password".to_string()] },
+            UiaFlow { stages: vec!["m.login.email.identity".to_string()] },
+        ]
+    }
+
     /// See [`get_cross_signing_flows`].
     pub fn get_cross_signing_flows() -> Vec<UiaFlow> {
         vec![

@@ -97,6 +97,9 @@ pub struct OidcTokenRequest {
     pub refresh_token: Option<String>,
     /// The `scope` field.
     pub scope: Option<String>,
+    /// The `client_secret` field (`client_secret_post` auth method, RFC 6749 §2.3.1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_secret: Option<String>,
 }
 
 /// The `OidcTokenResponse` struct.
@@ -453,10 +456,17 @@ impl BuiltinOidcProvider {
             subject_types_supported: vec!["public".to_string()],
             id_token_signing_alg_values_supported: vec!["RS256".to_string(), "ES256".to_string()],
             scopes_supported: vec!["openid".to_string(), "profile".to_string(), "email".to_string()],
-            token_endpoint_auth_methods_supported: vec![
-                "client_secret_basic".to_string(),
-                "client_secret_post".to_string(),
-            ],
+            token_endpoint_auth_methods_supported: {
+                // Public clients are always supported (`none`). Secret-based
+                // methods are only advertised once at least one confidential
+                // client is registered (RFC 8414 §2).
+                let mut methods = vec!["none".to_string()];
+                if !self.config.client_secrets.is_empty() {
+                    methods.push("client_secret_basic".to_string());
+                    methods.push("client_secret_post".to_string());
+                }
+                methods
+            },
             claims_supported: vec![
                 "sub".to_string(),
                 "iss".to_string(),
@@ -556,6 +566,20 @@ impl BuiltinOidcProvider {
         Ok(code)
     }
 
+    /// RFC 6749 §2.3.1: confidential clients registered in `client_secrets`
+    /// must present the matching secret. Clients absent from the map are
+    /// public clients, so no secret is required.
+    fn authenticate_client(&self, client_id: &str, provided: Option<&str>) -> Result<(), ApiError> {
+        let Some(expected) = self.config.client_secrets.get(client_id) else {
+            return Ok(());
+        };
+        let provided = provided.ok_or_else(|| ApiError::unauthorized("Missing client_secret".to_string()))?;
+        if !synapse_common::crypto::secure_compare(provided, expected) {
+            return Err(ApiError::unauthorized("Invalid client_secret".to_string()));
+        }
+        Ok(())
+    }
+
     /// 处理令牌请求
     pub async fn token(&self, request: OidcTokenRequest) -> Result<OidcTokenResponse, ApiError> {
         let grant_type = &request.grant_type;
@@ -572,6 +596,9 @@ impl BuiltinOidcProvider {
         let redirect_uri =
             request.redirect_uri.as_ref().ok_or(ApiError::bad_request("Missing redirect_uri".to_string()))?;
         let client_id = request.client_id.as_ref().ok_or(ApiError::bad_request("Missing client_id".to_string()))?;
+
+        // Authenticate the confidential client before consuming the code.
+        self.authenticate_client(client_id, request.client_secret.as_deref())?;
 
         // 提取会话
         let session = self
@@ -664,6 +691,15 @@ impl BuiltinOidcProvider {
         if token_data.expires_at < now {
             self.refresh_tokens.write().await.remove(refresh_token);
             return Err(ApiError::unauthorized("Refresh token expired".to_string()));
+        }
+
+        // RFC 6749 §6: confidential clients must authenticate on refresh as
+        // well, using the client the refresh token was originally issued to.
+        self.authenticate_client(&token_data.client_id, request.client_secret.as_deref())?;
+        if let Some(requested_client_id) = request.client_id.as_deref() {
+            if requested_client_id != token_data.client_id {
+                return Err(ApiError::unauthorized("Client ID mismatch".to_string()));
+            }
         }
 
         // 获取用户
@@ -955,6 +991,7 @@ mod tests {
             client_id: "test-client".to_string(),
             allow_redirect_uris: vec!["https://app.test/callback".to_string()],
             allow_client_ids: vec!["test-client".to_string()],
+            client_secrets: std::collections::HashMap::new(),
             users: vec![BuiltinOidcUser {
                 id: "@testuser:synapse.test".to_string(),
                 username: "testuser".to_string(),
@@ -971,6 +1008,12 @@ mod tests {
 
     fn create_provider() -> BuiltinOidcProvider {
         BuiltinOidcProvider::new(test_config()).expect("Failed to create provider")
+    }
+
+    fn create_provider_with_secret() -> BuiltinOidcProvider {
+        let mut config = (*test_config()).clone();
+        config.client_secrets.insert("test-client".to_string(), "s3cret".to_string());
+        BuiltinOidcProvider::new(Arc::new(config)).expect("Failed to create provider")
     }
 
     #[test]
@@ -1178,6 +1221,7 @@ mod tests {
             code_verifier: None,
             refresh_token: None,
             scope: None,
+            client_secret: None,
         };
 
         let result = provider.token(token_request).await;
@@ -1197,9 +1241,69 @@ mod tests {
             code_verifier: None,
             refresh_token: None,
             scope: None,
+            client_secret: None,
         };
         let result2 = provider.token(token_request2).await;
         assert!(result2.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_confidential_client_secret_required() {
+        let provider = create_provider_with_secret();
+        let request = AuthorizeRequest {
+            client_id: "test-client".to_string(),
+            redirect_uri: "https://app.test/callback".to_string(),
+            scope: "openid".to_string(),
+            state: "state".to_string(),
+            nonce: None,
+            code_verifier: None,
+            username: "testuser".to_string(),
+            password: "password123".to_string(),
+        };
+        let code = provider.authorize(request).await.unwrap();
+
+        let make_request = |secret: Option<&str>| OidcTokenRequest {
+            grant_type: "authorization_code".to_string(),
+            code: Some(code.clone()),
+            redirect_uri: Some("https://app.test/callback".to_string()),
+            client_id: Some("test-client".to_string()),
+            code_verifier: None,
+            refresh_token: None,
+            scope: None,
+            client_secret: secret.map(str::to_string),
+        };
+
+        // Missing / wrong secret → rejected, and the code must not be consumed.
+        assert!(provider.token(make_request(None)).await.is_err());
+        assert!(provider.token(make_request(Some("wrong"))).await.is_err());
+
+        let tokens = provider.token(make_request(Some("s3cret"))).await.expect("matching secret must succeed");
+        let refresh_token = tokens.refresh_token.expect("refresh token issued");
+
+        // RFC 6749 §6: refresh also requires client authentication.
+        let refresh_without = OidcTokenRequest {
+            grant_type: "refresh_token".to_string(),
+            code: None,
+            redirect_uri: None,
+            client_id: None,
+            code_verifier: None,
+            refresh_token: Some(refresh_token.clone()),
+            scope: None,
+            client_secret: None,
+        };
+        assert!(provider.token(refresh_without).await.is_err());
+
+        let refresh_with = OidcTokenRequest {
+            grant_type: "refresh_token".to_string(),
+            code: None,
+            redirect_uri: None,
+            client_id: None,
+            code_verifier: None,
+            refresh_token: Some(refresh_token),
+            scope: None,
+            client_secret: Some("s3cret".to_string()),
+        };
+        assert!(provider.token(refresh_with).await.is_ok());
     }
 
     #[tokio::test]
@@ -1227,6 +1331,7 @@ mod tests {
             code_verifier: None,
             refresh_token: None,
             scope: None,
+            client_secret: None,
         };
         let initial = provider.token(token_request).await.unwrap();
         let refresh_token = initial.refresh_token.unwrap();
@@ -1240,6 +1345,7 @@ mod tests {
             code_verifier: None,
             refresh_token: Some(refresh_token),
             scope: None,
+            client_secret: None,
         };
         let refreshed = provider.token(refresh_request).await.unwrap();
         assert!(!refreshed.access_token.is_empty());
@@ -1273,6 +1379,7 @@ mod tests {
             code_verifier: None,
             refresh_token: None,
             scope: None,
+            client_secret: None,
         };
         let tokens = provider.token(token_request).await.unwrap();
         let refresh_token = tokens.refresh_token.unwrap();
@@ -1420,6 +1527,7 @@ mod tests {
             code_verifier: None,
             refresh_token: Some("fresh-token".to_string()),
             scope: None,
+            client_secret: None,
         };
         let _ = provider.token(request).await.expect("fresh token must succeed");
 
@@ -1447,6 +1555,7 @@ mod tests {
             code_verifier: None,
             refresh_token: Some("stale-token-2".to_string()),
             scope: None,
+            client_secret: None,
         };
         let result = provider.token(stale_request).await;
         assert!(result.is_err(), "stale token refresh must fail");

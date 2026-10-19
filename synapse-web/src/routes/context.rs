@@ -94,6 +94,8 @@ pub struct RoomContext {
     pub retention_service: Arc<synapse_services::retention_service::RetentionService>,
     /// The `translation_service` field.
     pub translation_service: Arc<synapse_services::translation_service::TranslationService>,
+    /// 3PID lookups / invites for `POST /rooms/{room_id}/invite`.
+    pub identity_service: Arc<synapse_services::identity::IdentityService>,
     /// The `federation_client` field.
     pub federation_client: Arc<dyn synapse_federation::client_api::FederationClientApi>,
     /// The `rtc_domain_service` field.
@@ -166,6 +168,7 @@ impl FromRef<AppState> for RoomContext {
             search_service: state.services.core.search_service.clone(),
             retention_service: state.services.admin.modules.retention_service.clone(),
             translation_service: state.services.extensions.translation_service.clone(),
+            identity_service: state.services.extensions.identity_service.clone(),
             federation_client: state.services.federation.federation_client.clone(),
             rtc_domain_service: state.services.extensions.rtc_domain_service.clone(),
             e2ee_backup_service: state.services.e2ee.backup_service.clone(),

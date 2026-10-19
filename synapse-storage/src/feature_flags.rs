@@ -259,6 +259,23 @@ impl FeatureFlagStorage {
         Ok(Some(flag))
     }
 
+    /// See [`delete_flag`].
+    pub async fn delete_flag(&self, flag_key: &str) -> Result<bool, sqlx::Error> {
+        // Targets are removed by the `ON DELETE CASCADE` foreign key.
+        let deleted = sqlx::query!("DELETE FROM feature_flags WHERE flag_key = $1", flag_key)
+            .execute(&*self.pool)
+            .await?
+            .rows_affected()
+            > 0;
+
+        if deleted {
+            self.cache.delete(&Self::flag_cache_key(flag_key)).await;
+            self.cache.delete_with_invalidation(FEATURE_FLAG_LIST_CACHE_PREFIX, InvalidationType::Prefix).await;
+        }
+
+        Ok(deleted)
+    }
+
     /// See [`get_flag`].
     pub async fn get_flag(&self, flag_key: &str) -> Result<Option<FeatureFlag>, sqlx::Error> {
         let cache_key = Self::flag_cache_key(flag_key);

@@ -48,6 +48,18 @@ impl AdminSecurityService {
         Ok(())
     }
 
+    /// See [`get_shadow_ban`].
+    #[instrument(skip(self))]
+    pub async fn get_shadow_ban(&self, user_id: &str) -> Result<bool, ApiError> {
+        let user = self
+            .user_storage
+            .get_user_by_id(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
+
+        user.map(|u| u.is_shadow_banned).ok_or_else(|| ApiError::not_found("User not found".to_string()))
+    }
+
     /// See [`get_user_rate_limit`].
     #[instrument(skip(self))]
     pub async fn get_user_rate_limit(&self, user_id: &str) -> Result<UserRateLimit, ApiError> {

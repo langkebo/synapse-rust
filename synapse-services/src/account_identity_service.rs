@@ -232,6 +232,27 @@ impl AccountIdentityService {
             .await
     }
 
+    /// UIA gate for `POST /_matrix/client/v1/login/get_token` (MSC3882).
+    pub async fn require_login_token_uia(
+        &self,
+        uia_service: &UiaService,
+        auth: Option<&Value>,
+        user_id: &str,
+        token_auth: &Arc<dyn TokenAuth>,
+        credential_auth: &Arc<dyn CredentialAuth>,
+    ) -> Result<(), Value> {
+        uia_service
+            .require_uia(
+                auth,
+                user_id,
+                UiaService::get_login_token_flows(),
+                token_auth,
+                credential_auth,
+                &*self.threepid_storage,
+            )
+            .await
+    }
+
     /// See [`require_cross_signing_uia`].
     pub async fn require_cross_signing_uia(
         &self,

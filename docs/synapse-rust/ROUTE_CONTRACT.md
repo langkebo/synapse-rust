@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1041**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1046**
 - 含路由注册的模块文件：**66**
 - `derived_routes.rs` 中的 `registered_by` 标签：**75**
 - 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
@@ -69,7 +69,7 @@
 **逐模块清单里的两种标注**（都从派生表反解，不是人工维护）：
 
 - 〔仅 `X` profile〕 —— 该路由**只**在 profile `X` 下注册，默认构建里不存在（即上表成员）；
-- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1043 行去重为 1041 条的来源。
+- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1048 行去重为 1046 条的来源。
 
 当前共 **2** 条双档注册：
 
@@ -831,10 +831,11 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_matrix/client/v1/sync`
 - `POST` `/_matrix/client/v4/sync`
 
-### 特性开关 （4 条）
+### 特性开关 （5 条）
 
-#### `feature_flags.rs` — 4 条 ✅派生表
+#### `feature_flags.rs` — 5 条 ✅派生表
 
+- `DELETE` `/_synapse/admin/v1/feature-flags/{flag_key}`
 - `GET` `/_synapse/admin/v1/feature-flags`
 - `GET` `/_synapse/admin/v1/feature-flags/{flag_key}`
 - `PATCH` `/_synapse/admin/v1/feature-flags/{flag_key}`
@@ -942,9 +943,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/client/v3/thirdparty/user`
 - `GET` `/_matrix/client/v3/thirdparty/user/{protocol}`
 
-### 管理 (Admin) （146 条）
+### 管理 (Admin) （149 条）
 
-#### `admin/room/mod.rs` — 45 条 ✅派生表
+#### `admin/room/mod.rs` — 46 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/rooms/{room_id}`
 - `DELETE` `/_synapse/admin/v1/rooms/{room_id}/listings/public`
@@ -971,6 +972,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_synapse/admin/v1/spaces/{space_id}/stats`
 - `GET` `/_synapse/admin/v1/spaces/{space_id}/users`
 - `POST` `/_matrix/client/v3/admin/room/{room_id}/redact`
+- `POST` `/_synapse/admin/v1/join/{room_id_or_alias}`
 - `POST` `/_synapse/admin/v1/purge_history`
 - `POST` `/_synapse/admin/v1/purge_room`
 - `POST` `/_synapse/admin/v1/rooms/cleanup`
@@ -992,7 +994,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_synapse/admin/v1/rooms/{room_id}/make_admin`
 - `PUT` `/_synapse/admin/v1/rooms/{room_id}/members/{user_id}`
 
-#### `admin/user.rs` — 25 条 ✅派生表
+#### `admin/user.rs` — 26 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/users/{user_id}`
 - `DELETE` `/_synapse/admin/v1/users/{user_id}/devices/{device_id}`
@@ -1002,6 +1004,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_synapse/admin/v1/user_stats`
 - `GET` `/_synapse/admin/v1/users`
 - `GET` `/_synapse/admin/v1/users/{user_id}`
+- `GET` `/_synapse/admin/v1/users/{user_id}/admin`
 - `GET` `/_synapse/admin/v1/users/{user_id}/devices`
 - `GET` `/_synapse/admin/v1/users/{user_id}/rooms`
 - `GET` `/_synapse/admin/v1/users/{user_id}/stats`
@@ -1062,6 +1065,18 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_synapse/admin/v1/notifications/{notification_id}/deactivate`
 - `PUT` `/_synapse/admin/v1/users/{user_id}/notification`
 
+#### `admin/security.rs` — 9 条 ✅派生表
+
+- `DELETE` `/_synapse/admin/v1/users/{user_id}/override_ratelimit`
+- `DELETE` `/_synapse/admin/v1/users/{user_id}/rate_limit`
+- `DELETE` `/_synapse/admin/v1/users/{user_id}/shadow_ban`
+- `GET` `/_synapse/admin/v1/users/{user_id}/override_ratelimit`
+- `GET` `/_synapse/admin/v1/users/{user_id}/rate_limit`
+- `GET` `/_synapse/admin/v1/users/{user_id}/shadow_ban`
+- `POST` `/_synapse/admin/v1/users/{user_id}/override_ratelimit`
+- `POST` `/_synapse/admin/v1/users/{user_id}/shadow_ban`
+- `PUT` `/_synapse/admin/v1/users/{user_id}/rate_limit`
+
 #### `admin/token.rs` — 9 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/registration_tokens/{token}`
@@ -1073,17 +1088,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_synapse/admin/v1/users/{user_id}/tokens`
 - `POST` `/_synapse/admin/v1/registration_tokens`
 - `POST` `/_synapse/admin/v1/registration_tokens/{token}`
-
-#### `admin/security.rs` — 8 条 ✅派生表
-
-- `DELETE` `/_synapse/admin/v1/users/{user_id}/override_ratelimit`
-- `DELETE` `/_synapse/admin/v1/users/{user_id}/rate_limit`
-- `DELETE` `/_synapse/admin/v1/users/{user_id}/shadow_ban`
-- `GET` `/_synapse/admin/v1/users/{user_id}/override_ratelimit`
-- `GET` `/_synapse/admin/v1/users/{user_id}/rate_limit`
-- `POST` `/_synapse/admin/v1/users/{user_id}/override_ratelimit`
-- `POST` `/_synapse/admin/v1/users/{user_id}/shadow_ban`
-- `PUT` `/_synapse/admin/v1/users/{user_id}/rate_limit`
 
 #### `admin/report.rs` — 6 条 ✅派生表
 
@@ -1210,9 +1214,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_matrix/federation/v2/send_join/{room_id}/{event_id}`
 - `PUT` `/_matrix/federation/v2/send_leave/{room_id}/{event_id}`
 
-### 装配 (Assembly) （106 条）
+### 装配 (Assembly) （107 条）
 
-#### `assembly.rs` — 106 条 ✅派生表
+#### `assembly.rs` — 107 条 ✅派生表
 
 - `DELETE` `/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}`
 - `DELETE` `/_matrix/client/v3/directory/room/{room_alias}`
@@ -1278,6 +1282,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_matrix/client/v1/account/password`
 - `POST` `/_matrix/client/v1/account/password/email/requestToken`
 - `POST` `/_matrix/client/v1/account/password/email/submitToken`
+- `POST` `/_matrix/client/v1/login/get_token`
 - `POST` `/_matrix/client/v1/login/qr_token`
 - `POST` `/_matrix/client/v3/account/3pid`
 - `POST` `/_matrix/client/v3/account/3pid/add`

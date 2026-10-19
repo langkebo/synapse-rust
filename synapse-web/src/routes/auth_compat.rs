@@ -488,7 +488,12 @@ pub(crate) async fn submit_email_token(
 
 /// See [`get_login_flows`].
 pub(crate) async fn get_login_flows(State(ctx): State<AuthContext>) -> Json<Value> {
-    let mut flows = vec![json!({"type": "m.login.password"}), json!({"type": "m.login.token"})];
+    let mut flows = vec![
+        json!({"type": "m.login.password"}),
+        // `get_login_token` tells clients this server can mint tokens via
+        // POST /_matrix/client/v1/login/get_token (MSC3882).
+        json!({"type": "m.login.token", "get_login_token": true}),
+    ];
 
     let mut sso_providers = Vec::new();
 
@@ -761,6 +766,40 @@ pub(crate) async fn generate_qr_login_token(
         "login_token": token,
         "expires_in_ms": ctx.login_token_service.ttl_ms()
     })))
+}
+
+/// Generate a login token for the `m.login.token` flow (MSC3882).
+/// POST /_matrix/client/v1/login/get_token
+///
+/// Requires an authenticated user plus UIA on every call: unlike other UIA
+/// endpoints, a recently completed session must not be reused, because each
+/// token grants another client full access to the account.
+pub(crate) async fn get_login_token(
+    State(ctx): State<AuthContext>,
+    auth_user: AuthenticatedUser,
+    MatrixJson(body): MatrixJson<Value>,
+) -> Result<Response, ApiError> {
+    if let Err(uia_response) = ctx
+        .account_identity_service
+        .require_login_token_uia(
+            &ctx.uia_service,
+            body.get("auth"),
+            &auth_user.user_id,
+            &ctx.token_auth,
+            &ctx.credential_auth,
+        )
+        .await
+    {
+        return Ok((StatusCode::UNAUTHORIZED, Json(uia_response)).into_response());
+    }
+
+    let token = ctx.login_token_service.generate(&auth_user.user_id, auth_user.device_id.as_deref()).await?;
+
+    Ok(Json(json!({
+        "login_token": token,
+        "expires_in_ms": ctx.login_token_service.ttl_ms()
+    }))
+    .into_response())
 }
 
 /// See [`logout`].

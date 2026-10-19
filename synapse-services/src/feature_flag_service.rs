@@ -90,6 +90,30 @@ impl FeatureFlagService {
         Ok(flag)
     }
 
+    /// See [`delete_flag`].
+    pub async fn delete_flag(&self, actor_id: &str, request_id: &str, flag_key: &str) -> Result<(), ApiError> {
+        validate_flag_key(flag_key)?;
+        let deleted = self.storage.delete_flag(flag_key).await.map_err(map_storage_error)?;
+
+        if !deleted {
+            return Err(ApiError::not_found(format!("feature flag not found: {flag_key}")));
+        }
+
+        self.audit_service
+            .create_event(synapse_storage::CreateAuditEventRequest {
+                actor_id: actor_id.to_string(),
+                action: "admin.feature_flag.delete".to_string(),
+                resource_type: "feature_flag".to_string(),
+                resource_id: flag_key.to_string(),
+                result: "success".to_string(),
+                request_id: request_id.to_string(),
+                details: Some(json!({})),
+            })
+            .await?;
+
+        Ok(())
+    }
+
     /// See [`get_flag`].
     pub async fn get_flag(&self, flag_key: &str) -> Result<FeatureFlag, ApiError> {
         validate_flag_key(flag_key)?;

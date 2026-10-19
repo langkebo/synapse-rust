@@ -2194,8 +2194,14 @@ BASELINE_DYNAMIC_PRODUCTION=96
 BASELINE_DYNAMIC_TEST_INFRA=769
 BASELINE_STATIC=1380
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1343
+SQLX_CACHE_ENTRIES=1344
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-19 更新（A-3：删除 feature flag）**，数字块一项按实测同步：
+> - `SQLX_CACHE_ENTRIES` **1343 → 1344**（+1）：`feature_flags` 存储层新增
+>   `sqlx::query!("DELETE FROM feature_flags WHERE flag_key = $1")`（`delete_flag` 走静态宏，
+>   不再使用运行期校验），经唯一入口 `scripts/ci/sqlx_prepare.sh` 重生成后新增 1 条缓存，无缩容。
+>   `BASELINE_DYNAMIC_*` / `BASELINE_STATIC` / `BASELINE_QUERY_BUILDER` 不变。
 
 > **2026-10-18 更新（卫生债巡检：棘轮漂移收敛）**，数字块三项按实测同步：
 > - `SQLX_CACHE_ENTRIES` **1342 → 1343**（+1）：B-9 批次里 `device_keys/storage.rs::
