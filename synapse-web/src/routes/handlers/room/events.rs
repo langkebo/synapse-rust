@@ -8,6 +8,7 @@ use axum::{
     extract::{Json, Path, Query, State},
     http::HeaderMap,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use synapse_common::current_timestamp_millis;
@@ -669,12 +670,48 @@ pub(crate) async fn get_room_event_url(
     })))
 }
 
+/// Request body for [`sign_room_event`].
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SignRoomEventRequest {
+    /// Device that produced the signature (defaults to `default`).
+    pub device_id: Option<String>,
+    /// Signing key identifier (defaults to `ed25519:<device_id>`).
+    pub key_id: Option<String>,
+    /// Base64 signature; required.
+    pub signature: Option<String>,
+    /// Algorithm echoed back to the caller (derived from `key_id` when absent).
+    pub algorithm: Option<String>,
+}
+
+/// Request body for [`verify_room_event`].
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct VerifyRoomEventRequest {
+    /// Only return signatures from this user.
+    pub user_id: Option<String>,
+    /// Only return signatures from this device.
+    pub device_id: Option<String>,
+}
+
+/// Request body shared by the translation endpoints.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct TranslateRequest {
+    /// Target language; defaults to the configured language.
+    pub target_lang: Option<String>,
+    /// Optional source language hint.
+    pub source_lang: Option<String>,
+    /// Text to translate (otherwise the event body is used).
+    pub text: Option<String>,
+}
+
 /// See [`sign_room_event`].
 pub(crate) async fn sign_room_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(RoomId, EventId)>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<SignRoomEventRequest>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
@@ -686,23 +723,21 @@ pub(crate) async fn sign_room_event(
 
     let _event = ctx.room_service.messaging().get_event(&room_id, &event_id).await?;
 
-    let device_id = body.get("device_id").and_then(|v| v.as_str()).unwrap_or("default");
+    let device_id = body.device_id.as_deref().unwrap_or("default");
 
     let default_key_id = format!("ed25519:{device_id}");
-    let key_id = body.get("key_id").and_then(|v| v.as_str()).unwrap_or(&default_key_id);
+    let key_id = body.key_id.as_deref().unwrap_or(&default_key_id);
 
-    let signature = body
-        .get("signature")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("signature is required".to_string()))?;
+    let signature =
+        body.signature.as_deref().ok_or_else(|| ApiError::bad_request("signature is required".to_string()))?;
 
     // D-99：`algorithm` 只是**回显**给调用方（客户端声明的算法，缺省取 `key_id` 前缀）。
     // 它原先还被写进 `event_signatures.algorithm`，但那一列从来没有人读、且与 `key_id` 前缀
     // 语义重复 ⇒ 列与写入参数已删除，这里保留推导仅用于响应。
-    let algorithm = body.get("algorithm").and_then(|v| v.as_str()).map_or_else(
-        || key_id.split(':').next().filter(|value| !value.is_empty()).unwrap_or("ed25519").to_string(),
-        str::to_owned,
-    );
+    let algorithm = body
+        .algorithm
+        .clone()
+        .unwrap_or_else(|| key_id.split(':').next().filter(|value| !value.is_empty()).unwrap_or("ed25519").to_string());
 
     let created_ts = current_timestamp_millis();
 
@@ -728,7 +763,7 @@ pub(crate) async fn verify_room_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(RoomId, EventId)>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<VerifyRoomEventRequest>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
@@ -742,8 +777,8 @@ pub(crate) async fn verify_room_event(
 
     let signatures = ctx.room_service.messaging().get_event_signatures(&event_id).await?;
 
-    let verify_user_id = body.get("user_id").and_then(|v| v.as_str());
-    let verify_device_id = body.get("device_id").and_then(|v| v.as_str());
+    let verify_user_id = body.user_id.as_deref();
+    let verify_device_id = body.device_id.as_deref();
 
     let verified_signatures: Vec<serde_json::Value> = signatures
         .iter()
@@ -778,7 +813,7 @@ pub(crate) async fn translate_room_event(
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(RoomId, EventId)>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<TranslateRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
@@ -789,14 +824,13 @@ pub(crate) async fn translate_room_event(
     let source_text = event.get("content").and_then(|c| c.get("body")).and_then(|value| value.as_str()).unwrap_or("");
 
     // Extract target language from request body, falling back to config default
-    let target_lang =
-        body.get("target_lang").and_then(|v| v.as_str()).unwrap_or(&ctx.config.translate.default_target_lang);
+    let target_lang = body.target_lang.as_deref().unwrap_or(&ctx.config.translate.default_target_lang);
 
     // Extract optional source language from request body
-    let source_lang = body.get("source_lang").and_then(|v| v.as_str());
+    let source_lang = body.source_lang.as_deref();
 
     // Use the text field if provided, otherwise use the event body
-    let text_to_translate = body.get("text").and_then(|v| v.as_str()).unwrap_or(source_text);
+    let text_to_translate = body.text.as_deref().unwrap_or(source_text);
 
     // Call the translation service
     let translation_result =
@@ -827,10 +861,10 @@ pub(crate) async fn translate_text(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
     _auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<TranslateRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
-    let text = body.get("text").and_then(|v| v.as_str()).unwrap_or("");
+    let text = body.text.as_deref().unwrap_or("");
 
     if text.is_empty() {
         return Ok(Json(json!({
@@ -847,10 +881,9 @@ pub(crate) async fn translate_text(
         return Err(ApiError::bad_request(format!("Text too long: {} bytes (max: {})", text.len(), max_len)));
     }
 
-    let target_lang =
-        body.get("target_lang").and_then(|v| v.as_str()).unwrap_or(&ctx.config.translate.default_target_lang);
+    let target_lang = body.target_lang.as_deref().unwrap_or(&ctx.config.translate.default_target_lang);
 
-    let source_lang = body.get("source_lang").and_then(|v| v.as_str());
+    let source_lang = body.source_lang.as_deref();
 
     let translation_result = ctx.translation_service.translate(text, target_lang, source_lang).await.map_err(|e| {
         ::tracing::warn!(

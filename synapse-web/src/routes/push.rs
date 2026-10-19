@@ -124,38 +124,75 @@ async fn get_pushers(State(ctx): State<AdminContext>, auth_user: AuthenticatedUs
     })))
 }
 
+/// Deserializes a present field into `Some`, so a missing field (`None`) stays
+/// distinguishable from an explicit `null` (`Some(None)`).
+fn deserialize_some<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Deserialize::deserialize(deserializer).map(Some)
+}
+
+/// Request body for [`set_pusher`].
+#[derive(Debug, Deserialize)]
+pub struct SetPusherBody {
+    /// Push key identifying the pusher.
+    pub pushkey: String,
+    /// Pusher kind; `null` removes the pusher. The key itself is required.
+    #[serde(default, deserialize_with = "deserialize_some")]
+    pub kind: Option<Option<String>>,
+    /// Application ID.
+    pub app_id: String,
+    /// Human-readable application name.
+    #[serde(default)]
+    pub app_display_name: Option<String>,
+    /// Human-readable device name.
+    #[serde(default)]
+    pub device_display_name: Option<String>,
+    /// Profile tag.
+    #[serde(default)]
+    pub profile_tag: Option<String>,
+    /// Language for notifications.
+    #[serde(default)]
+    pub lang: Option<String>,
+    /// Pusher-specific data.
+    #[serde(default)]
+    pub data: Option<Value>,
+    /// Whether to append to the pusher list.
+    #[serde(default)]
+    pub append: Option<bool>,
+}
+
 async fn set_pusher(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    MatrixJson(raw): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<SetPusherBody>,
 ) -> Result<Json<Value>, ApiError> {
     // P-053: Validate required fields up front so missing/empty fields return
     // 400 M_BAD_JSON instead of axum's 422 deserialization error.
     // Note: `kind` may be null (to delete a pusher); `app_display_name` and
     // `lang` are only required when kind is non-null.
-    for field in ["pushkey", "app_id"] {
-        let present_non_empty = raw.get(field).and_then(|v| v.as_str()).is_some_and(|s| !s.is_empty());
+    for (field, present_non_empty) in [("pushkey", !body.pushkey.is_empty()), ("app_id", !body.app_id.is_empty())] {
         if !present_non_empty {
             return Err(ApiError::bad_request(format!("Missing required field: {field}")));
         }
     }
     // kind must be present (key exists) but may be null
-    if raw.get("kind").is_none() {
+    let Some(kind) = body.kind else {
         return Err(ApiError::bad_request("Missing required field: kind".to_string()));
-    }
+    };
     // app_display_name and lang required only when kind is non-null
-    let kind_is_null = raw.get("kind").and_then(|v| v.as_null()).is_some();
-    if !kind_is_null {
-        for field in ["app_display_name", "lang"] {
-            let present_non_empty = raw.get(field).and_then(|v| v.as_str()).is_some_and(|s| !s.is_empty());
+    if kind.is_some() {
+        for (field, present_non_empty) in [
+            ("app_display_name", body.app_display_name.as_deref().is_some_and(|s| !s.is_empty())),
+            ("lang", body.lang.as_deref().is_some_and(|s| !s.is_empty())),
+        ] {
             if !present_non_empty {
                 return Err(ApiError::bad_request(format!("Missing required field: {field}")));
             }
         }
     }
-
-    let body: SetPusherRequest =
-        serde_json::from_value(raw).map_err(|e| ApiError::bad_request(format!("Invalid request body: {e}")))?;
 
     // P2 #32: 验证 access_token 必须关联 device_id，防止无设备用户设置 pusher
     let device_id: String = auth_user
@@ -164,7 +201,7 @@ async fn set_pusher(
         .ok_or_else(|| ApiError::forbidden("Device ID required for pusher operations".to_string()))?;
 
     let kind: String =
-        body.kind.unwrap_or_else(|| if body.data.is_some() { "http".to_string() } else { "null".to_string() });
+        kind.unwrap_or_else(|| if body.data.is_some() { "http".to_string() } else { "null".to_string() });
 
     if kind != "null" {
         // PUSH-01: When user registers an http-kind pusher, the `data.url` is
@@ -298,15 +335,29 @@ async fn get_push_rule(
     }
 }
 
+/// Request body for [`set_push_rule`] and [`create_push_rule`].
+#[derive(Debug, Deserialize)]
+pub struct SetPushRuleBody {
+    /// Rule actions; defaults to an empty array.
+    #[serde(default)]
+    pub actions: Option<Value>,
+    /// Rule conditions.
+    #[serde(default)]
+    pub conditions: Option<Value>,
+    /// Rule pattern.
+    #[serde(default)]
+    pub pattern: Option<String>,
+}
+
 async fn set_push_rule(
     Path((scope, kind, rule_id)): Path<(String, String, String)>,
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<SetPushRuleBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let actions: serde_json::Value = body.get("actions").cloned().unwrap_or(json!([]));
-    let conditions: Option<serde_json::Value> = body.get("conditions").cloned();
-    let pattern: Option<String> = body.get("pattern").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let actions: serde_json::Value = body.actions.unwrap_or(json!([]));
+    let conditions: Option<serde_json::Value> = body.conditions;
+    let pattern: Option<String> = body.pattern;
 
     let created_ts: i64 = ctx
         .client_push_service
@@ -333,11 +384,11 @@ async fn create_push_rule(
     Path((scope, kind, rule_id)): Path<(String, String, String)>,
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<SetPushRuleBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let actions: serde_json::Value = body.get("actions").cloned().unwrap_or(json!([]));
-    let conditions: Option<serde_json::Value> = body.get("conditions").cloned();
-    let pattern: Option<String> = body.get("pattern").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let actions: serde_json::Value = body.actions.unwrap_or(json!([]));
+    let conditions: Option<serde_json::Value> = body.conditions;
+    let pattern: Option<String> = body.pattern;
 
     let created_ts: i64 = ctx
         .client_push_service
@@ -408,13 +459,21 @@ async fn get_push_rule_enabled(
     }
 }
 
+/// Request body for [`set_push_rule_enabled`].
+#[derive(Debug, Deserialize)]
+pub struct SetPushRuleEnabledBody {
+    /// Whether the rule is enabled; defaults to `true`.
+    #[serde(default)]
+    pub enabled: Option<bool>,
+}
+
 async fn set_push_rule_enabled(
     Path((scope, kind, rule_id)): Path<(String, String, String)>,
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<SetPushRuleEnabledBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let enabled: bool = body.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+    let enabled: bool = body.enabled.unwrap_or(true);
 
     ctx.client_push_service.set_push_rule_enabled(&auth_user.user_id, &scope, &kind, &rule_id, enabled).await?;
 

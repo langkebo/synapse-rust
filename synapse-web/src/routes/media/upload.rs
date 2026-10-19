@@ -214,16 +214,29 @@ pub(crate) struct ChunkProgressQuery {
     pub upload_id: String,
 }
 
+/// Body of `POST /_matrix/media/v1/upload/chunk/start`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct ChunkedUploadStartBody {
+    #[serde(default)]
+    pub filename: Option<String>,
+    #[serde(default)]
+    pub content_type: Option<String>,
+    #[serde(default)]
+    pub total_size: Option<i64>,
+    #[serde(default)]
+    pub total_chunks: Option<i64>,
+}
+
 /// POST /_matrix/media/v1/upload/chunk/start
 pub(crate) async fn chunked_upload_start(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<ChunkedUploadStartBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let filename = body.get("filename").and_then(|v| v.as_str());
-    let content_type = body.get("content_type").and_then(|v| v.as_str());
-    let total_size = body.get("total_size").and_then(|v| v.as_i64());
-    let total_chunks = body.get("total_chunks").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
+    let filename = body.filename.as_deref();
+    let content_type = body.content_type.as_deref();
+    let total_size = body.total_size;
+    let total_chunks = body.total_chunks.unwrap_or(1) as i32;
 
     if total_chunks < 1 {
         return Err(ApiError::bad_request("total_chunks must be at least 1".to_string()));
@@ -286,16 +299,19 @@ pub(crate) async fn chunked_upload_chunk(
     })))
 }
 
+/// Body of `POST /_matrix/media/v1/upload/chunk/{complete,cancel}`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct ChunkedUploadIdBody {
+    pub upload_id: String,
+}
+
 /// POST /_matrix/media/v1/upload/chunk/complete
 pub(crate) async fn chunked_upload_complete(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<ChunkedUploadIdBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let upload_id = body
-        .get("upload_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("upload_id is required".to_string()))?;
+    let upload_id = body.upload_id.as_str();
 
     let response = ctx.media_domain_service.complete_chunked_upload(upload_id, &auth_user.user_id).await?;
 
@@ -310,12 +326,9 @@ pub(crate) async fn chunked_upload_complete(
 pub(crate) async fn chunked_upload_cancel(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<ChunkedUploadIdBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let upload_id = body
-        .get("upload_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("upload_id is required".to_string()))?;
+    let upload_id = body.upload_id.as_str();
 
     ctx.media_domain_service.cancel_chunked_upload(upload_id, &auth_user.user_id).await?;
 
@@ -354,14 +367,23 @@ pub(crate) async fn chunked_upload_progress(
 // Upload provider handlers
 // ---------------------------------------------------------------------------
 
+/// Body of `POST /_matrix/client/v3/upload/token`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct CreateUploadTokenBody {
+    #[serde(default)]
+    pub filename: Option<String>,
+    #[serde(default)]
+    pub content_type: Option<String>,
+}
+
 /// POST /_matrix/client/v3/upload/token
 pub(crate) async fn create_upload_token(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<CreateUploadTokenBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let filename = body.get("filename").and_then(|v| v.as_str()).unwrap_or("upload");
-    let content_type = body.get("content_type").and_then(|v| v.as_str()).unwrap_or("application/octet-stream");
+    let filename = body.filename.as_deref().unwrap_or("upload");
+    let content_type = body.content_type.as_deref().unwrap_or("application/octet-stream");
 
     let token = format!("upload_{}_{}", auth_user.user_id, current_timestamp_millis());
 

@@ -11,6 +11,7 @@ use axum::{
     extract::{Json, Path, Query, State},
     http::HeaderMap,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
@@ -100,6 +101,16 @@ pub(crate) async fn join_room(
     })))
 }
 
+/// Request body for [`join_room_by_id_or_alias`].
+///
+/// The body is optional; `via_servers` is only a back-compat fallback for the
+/// spec's `?via=` query parameter.
+#[derive(Debug, Deserialize)]
+pub struct JoinRoomByIdOrAliasBody {
+    #[serde(default)]
+    pub via_servers: Option<Value>,
+}
+
 /// See [`join_room_by_id_or_alias`].
 pub(crate) async fn join_room_by_id_or_alias(
     State(ctx): State<RoomContext>,
@@ -107,14 +118,14 @@ pub(crate) async fn join_room_by_id_or_alias(
     auth_user: AuthenticatedUser,
     Path(room_id_or_alias): Path<String>,
     Query(query): Query<Vec<(String, String)>>,
-    body: Option<MatrixJson<serde_json::Value>>,
+    body: Option<MatrixJson<JoinRoomByIdOrAliasBody>>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
 
     // Spec-defined `via` hint (`?via=srv`), with the pre-fix body key
     // `via_servers` kept as a back-compat fallback. See
     // [`extract_via_servers`].
-    let legacy_via = body.as_ref().and_then(|b| b.get("via_servers"));
+    let legacy_via = body.as_ref().and_then(|b| b.via_servers.as_ref());
     let via_servers = extract_via_servers(&query, legacy_via);
 
     let room_id = if room_id_or_alias.starts_with('!') {
@@ -176,6 +187,14 @@ pub(crate) async fn join_room_by_id_or_alias(
     })))
 }
 
+/// Request body for [`leave_room`].
+#[derive(Debug, Deserialize)]
+pub struct LeaveRoomBody {
+    /// MSC4267: leave the room and forget it in one transaction.
+    #[serde(default)]
+    pub forget: Option<bool>,
+}
+
 /// See [`leave_room`].
 // `request_id`（以及为它而读的 `headers`）只在 `friends` 打开时的 DM 同步失败日志里使用；
 // feature-off（`core-matrix-min` 车道）下必然未使用，故按配置精确放行该 lint。
@@ -185,7 +204,7 @@ pub(crate) async fn leave_room(
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    body: Option<MatrixJson<Value>>,
+    body: Option<MatrixJson<LeaveRoomBody>>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
@@ -194,7 +213,7 @@ pub(crate) async fn leave_room(
     // and defaults to `false`, so Element Web's plain leave requests are
     // unaffected. When `true`, the server runs leave + forget in a single
     // transaction so a subsequent explicit /forget cannot race in between.
-    let forget = body.as_ref().and_then(|MatrixJson(v)| v.get("forget")).and_then(|v| v.as_bool()).unwrap_or(false);
+    let forget = body.as_ref().and_then(|b| b.forget).unwrap_or(false);
 
     if forget {
         ctx.room_service.membership().leave_and_forget(&room_id, &auth_user.user_id).await?;
@@ -219,6 +238,16 @@ pub(crate) async fn leave_room(
     Ok(Json(json!({})))
 }
 
+/// Request body for [`knock_room`].
+#[derive(Debug, Deserialize)]
+pub struct KnockRoomBody {
+    /// Legacy back-compat fallback for the spec's `?via=` query parameter.
+    #[serde(default)]
+    pub via_servers: Option<Value>,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
 /// See [`knock_room`].
 pub(crate) async fn knock_room(
     State(ctx): State<RoomContext>,
@@ -226,7 +255,7 @@ pub(crate) async fn knock_room(
     auth_user: AuthenticatedUser,
     Path(room_id_or_alias): Path<String>,
     Query(query): Query<Vec<(String, String)>>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<KnockRoomBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
 
@@ -237,7 +266,7 @@ pub(crate) async fn knock_room(
     // *accepted* rather than silently dropped, and logged so an operator can
     // see that a client asked for federated knock. When federated knocking is
     // implemented, thread this into the service call.
-    let via_servers = extract_via_servers(&query, body.get("via_servers"));
+    let via_servers = extract_via_servers(&query, body.via_servers.as_ref());
 
     let room_id = if room_id_or_alias.starts_with('!') {
         validate_room_id(&room_id_or_alias)?;
@@ -259,7 +288,7 @@ pub(crate) async fn knock_room(
             .ok_or_else(|| ApiError::not_found("Room ID not found for alias".to_string()))?
     };
 
-    let reason = body.get("reason").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let reason = body.reason;
 
     ::tracing::info!(
         request_id = %request_id,
@@ -276,19 +305,22 @@ pub(crate) async fn knock_room(
     })))
 }
 
+/// Request body for [`invite_user`].
+#[derive(Debug, Deserialize)]
+pub struct InviteUserBody {
+    pub user_id: String,
+}
+
 /// See [`invite_user`].
 pub(crate) async fn invite_user(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<InviteUserBody>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let invitee = body
-        .get("user_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("User ID required".to_string()))?;
+    let invitee = body.user_id.as_str();
 
     validate_user_id(invitee)?;
 
@@ -494,18 +526,26 @@ pub(crate) async fn get_room_membership(
     })))
 }
 
+/// Request body for [`get_membership_events`].
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MembershipEventsRequest {
+    /// Maximum number of membership events to return (defaults to 100, capped at 1000).
+    pub limit: Option<u64>,
+}
+
 /// See [`get_membership_events`].
 pub(crate) async fn get_membership_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<MembershipEventsRequest>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(100).min(1000) as i64;
+    let limit = body.limit.unwrap_or(100).min(1000) as i64;
 
     let memberships = ctx.room_service.membership().get_membership_history(&room_id, limit).await?;
 
@@ -571,6 +611,14 @@ pub(crate) async fn get_room_invites(
     })))
 }
 
+/// Request body for [`kick_user`].
+#[derive(Debug, Deserialize)]
+pub struct KickUserBody {
+    pub user_id: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
 /// See [`kick_user`].
 // 同 `leave_room`。
 #[cfg_attr(not(feature = "friends"), allow(unused_variables))]
@@ -579,19 +627,16 @@ pub(crate) async fn kick_user(
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<KickUserBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
 
-    let target = body
-        .get("user_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("User ID required".to_string()))?;
+    let target = body.user_id.as_str();
 
     validate_user_id(target)?;
 
-    let reason = body.get("reason").and_then(|v| v.as_str());
+    let reason = body.reason.as_deref();
     if let Some(r) = reason {
         if r.len() > 512 {
             return Err(ApiError::bad_request("Reason too long".to_string()));
@@ -619,6 +664,14 @@ pub(crate) async fn kick_user(
     Ok(Json(json!({})))
 }
 
+/// Request body for [`ban_user`].
+#[derive(Debug, Deserialize)]
+pub struct BanUserBody {
+    pub user_id: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
 /// See [`ban_user`].
 // 同 `leave_room`。
 #[cfg_attr(not(feature = "friends"), allow(unused_variables))]
@@ -627,19 +680,16 @@ pub(crate) async fn ban_user(
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<BanUserBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
 
-    let target = body
-        .get("user_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("User ID required".to_string()))?;
+    let target = body.user_id.as_str();
 
     validate_user_id(target)?;
 
-    let reason = body.get("reason").and_then(|v| v.as_str());
+    let reason = body.reason.as_deref();
     if let Some(r) = reason {
         if r.len() > 512 {
             return Err(ApiError::bad_request("Reason too long".to_string()));
@@ -671,19 +721,22 @@ pub(crate) async fn ban_user(
 // Public API
 // ---------------------------------------------------------------------------
 
+/// Request body for [`unban_user`].
+#[derive(Debug, Deserialize)]
+pub struct UnbanUserBody {
+    pub user_id: String,
+}
+
 /// See [`unban_user`].
 pub(crate) async fn unban_user(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<UnbanUserBody>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let target = body
-        .get("user_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("User ID required".to_string()))?;
+    let target = body.user_id.as_str();
 
     validate_user_id(target)?;
 

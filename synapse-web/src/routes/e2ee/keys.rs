@@ -6,6 +6,7 @@ use axum::{
     routing::{delete, get, post, put},
     Json, Router,
 };
+use serde::Deserialize;
 use serde_json::Value;
 use synapse_common::types::DeviceId;
 use synapse_common::ApiError;
@@ -484,14 +485,25 @@ async fn claim_keys(
     })))
 }
 
+/// Query parameters accepted by [`key_changes`].
+///
+/// Deliberately **not** `deny_unknown_fields`: the handler used to take a bare
+/// `Query<Value>` and ignored unknown parameters.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct KeyChangesParams {
+    from: Option<String>,
+    to: Option<String>,
+}
+
 #[axum::debug_handler]
 async fn key_changes(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
-    Query(params): Query<Value>,
+    Query(params): Query<KeyChangesParams>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
-    let from = params.get("from").and_then(|v| v.as_str()).and_then(parse_stream_id).unwrap_or(0);
-    let to = params.get("to").and_then(|v| v.as_str()).and_then(parse_stream_id);
+    let KeyChangesParams { from, to } = params;
+    let from = from.as_deref().and_then(parse_stream_id).unwrap_or(0);
+    let to = to.as_deref().and_then(parse_stream_id);
 
     let max_stream_id = ctx.account_device_list_service.get_max_stream_id().await?;
 

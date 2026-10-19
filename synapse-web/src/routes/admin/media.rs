@@ -14,6 +14,7 @@ use synapse_services::admin_media_service::decode_media_cursor;
 
 /// Request body for room-level media quarantine/unquarantine.
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct QuarantineRoomMediaRequest {
     /// Optional user_id to filter which media to act on.
     #[serde(default)]
@@ -24,6 +25,7 @@ pub struct QuarantineRoomMediaRequest {
 ///
 /// Either or both of `before_ts` and `max_size` may be provided.
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct DeleteMediaByPolicyRequest {
     /// Delete local media whose `created_ts` is before this Unix
     /// timestamp in milliseconds. `0` or omitted means "no time filter".

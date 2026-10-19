@@ -9,6 +9,7 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
@@ -29,25 +30,33 @@ pub fn create_rendezvous_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+/// Request body for [`create_session`].
+#[derive(Debug, Deserialize)]
+pub struct CreateSessionBody {
+    /// Rendezvous intent, e.g. `login.start`.
+    pub intent: String,
+    /// Rendezvous transport, e.g. `http.v1`.
+    pub transport: String,
+    /// Opaque transport-specific data.
+    #[serde(default)]
+    pub transport_data: Option<Value>,
+    /// Requested session lifetime in milliseconds.
+    #[serde(default)]
+    pub expires_in_ms: Option<i64>,
+}
+
 async fn create_session(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<CreateSessionBody>,
     // Note: the router is Router<AppState> — AuthContext extracted via FromRef
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
-    let intent = body
-        .get("intent")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("intent required".to_string()))?;
+    let intent = body.intent.as_str();
+    let transport = body.transport.as_str();
 
-    let transport = body
-        .get("transport")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("transport required".to_string()))?;
-
-    let transport_data = body.get("transport_data").cloned();
-    let expires_in_ms = body.get("expires_in_ms").and_then(|v| v.as_i64());
+    let transport_data = body.transport_data;
+    let expires_in_ms = body.expires_in_ms;
 
     let intent_enum = match intent {
         "login.reciprocate" => RendezvousIntent::LoginReciprocate,
@@ -116,20 +125,24 @@ async fn get_session(
     })))
 }
 
+/// Request body for [`update_session`].
+#[derive(Debug, Deserialize)]
+pub struct UpdateSessionBody {
+    /// New session status, e.g. `connected` or `completed`.
+    pub status: String,
+}
+
 async fn update_session(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
     auth_user: OptionalAuthenticatedUser,
     Path(session_id): Path<SessionId>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<UpdateSessionBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     ensure_rendezvous_session_access(&ctx, &request_id, &headers, &auth_user, &session_id, "update").await?;
 
-    let status = body
-        .get("status")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("status required".to_string()))?;
+    let status = body.status.as_str();
 
     ctx.rendezvous_service.update_status(&session_id, status).await?;
     ::tracing::info!(request_id = %request_id, session_id = %session_id, status, "Updated rendezvous session");
@@ -185,20 +198,30 @@ async fn delete_session(
     Ok(Json(json!({})))
 }
 
+/// Request body for [`send_message`].
+#[derive(Debug, Deserialize)]
+pub struct SendMessageBody {
+    /// Opaque message type.
+    #[serde(rename = "type")]
+    pub message_type: String,
+    /// Opaque message payload.
+    #[serde(default)]
+    pub content: Option<Value>,
+}
+
 async fn send_message(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
     auth_user: OptionalAuthenticatedUser,
     Path(session_id): Path<SessionId>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<SendMessageBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     ensure_rendezvous_session_access(&ctx, &request_id, &headers, &auth_user, &session_id, "send messages").await?;
 
-    let message_type =
-        body.get("type").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("type required".to_string()))?;
+    let message_type = body.message_type.as_str();
 
-    let content = body.get("content").cloned().unwrap_or(json!({}));
+    let content = body.content.unwrap_or_else(|| json!({}));
 
     let message = RendezvousMessage { message_type: message_type.to_string(), content };
 

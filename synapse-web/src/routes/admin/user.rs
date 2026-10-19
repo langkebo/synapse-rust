@@ -19,6 +19,14 @@ use synapse_services::admin_user_service::{decode_user_cursor, encode_user_curso
 use synapse_services::user_service::User as AdminUserRecord;
 use validator::Validate;
 
+/// Request body for [`set_admin`].
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SetAdminRequest {
+    /// Whether the target user should be an administrator.
+    pub admin: bool,
+}
+
 /// See [`create_user_router`].
 pub fn create_user_router() -> Router<crate::routes::AppState> {
     Router::new()
@@ -309,14 +317,11 @@ pub async fn set_admin(
     State(ctx): State<AdminContext>,
     Path(user_id): Path<UserId>,
     headers: HeaderMap,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<SetAdminRequest>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_super_admin_for_privilege_change(&admin)?;
 
-    let admin_status = body
-        .get("admin")
-        .and_then(|v| v.as_bool())
-        .ok_or_else(|| ApiError::bad_request("Missing 'admin' field".to_string()))?;
+    let admin_status = body.admin;
 
     let user = resolve_user(&ctx, &user_id).await?;
 

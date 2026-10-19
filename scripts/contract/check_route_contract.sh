@@ -68,6 +68,14 @@ python3 scripts/contract/check_route_surface_reconciliation.py
 echo "==> Drift gate for derived_routes.rs (gen_derived_routes.py) ..."
 python3 scripts/contract/gen_derived_routes.py --check
 
+# P0-1b: the resolved handler sidecar. Independent of the markdown doc: it is
+# the machine-readable answer to "which fn serves this route, and what kind of
+# JSON body does it take?", so consumers stop re-deriving it heuristically.
+# `--check` renders in memory and never writes (a check that regenerates can
+# never fail).
+echo "==> Drift gate for ROUTE_HANDLERS.json (gen_route_handlers.py) ..."
+python3 scripts/contract/gen_route_handlers.py --check
+
 # B2-4b: the extractor guards "后端已服务 ⊆ 已登记"; this guards the OPPOSITE
 # direction — "SDK 真实调用的 ⊆ 后端已登记" (后端别欠 SDK 端点). It reads the SDK
 # manager source literals, NOT the generated route-table (which is "只增不减" and

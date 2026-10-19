@@ -1,6 +1,7 @@
 use crate::routes::extractors::RoomId;
 use crate::routes::{ensure_room_member_ctx, AuthenticatedUser, OptionalAuthenticatedUser};
 use axum::extract::{Json, Path, State};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::map_internal;
@@ -32,22 +33,26 @@ pub(crate) async fn get_room_visibility(
     })))
 }
 
+/// Request body for [`set_room_visibility`].
+#[derive(Debug, Deserialize)]
+pub struct SetRoomVisibilityBody {
+    pub visibility: Option<String>,
+}
+
 /// See [`set_room_visibility`].
 #[axum::debug_handler]
 pub(crate) async fn set_room_visibility(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<SetRoomVisibilityBody>,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let visibility = body
-        .get("visibility")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Missing visibility field".to_string()))?;
+    let visibility =
+        body.visibility.as_deref().ok_or_else(|| ApiError::bad_request("Missing visibility field".to_string()))?;
 
     if visibility != "public" && visibility != "private" {
         return Err(ApiError::bad_request("visibility must be 'public' or 'private'".to_string()));

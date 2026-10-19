@@ -61,7 +61,9 @@ UNRESOLVED_ALLOWLIST = os.environ.get("EXTRACT_UNRESOLVED_ALLOWLIST") or os.path
 )
 # Allowed annotation keys. Rejecting an unknown key turns a typo in a field
 # name into a RED gate instead of a silently-ignored line.
-ANNOTATION_KEYS = ("rate_limit_exempt", "auth", "query_params")
+ANNOTATION_KEYS = ("rate_limit_exempt", "auth", "query_params", "body_opaque")
+# Annotation keys whose value is a bare `true`/`false`.
+BOOLEAN_ANNOTATION_KEYS = ("rate_limit_exempt", "body_opaque")
 
 HTTP_METHODS = ("get", "post", "put", "delete", "patch", "head", "options")
 HTTP_METHODS_SET = set(HTTP_METHODS)
@@ -507,6 +509,9 @@ _SERDE_RENAME_ALL = re.compile(r'rename_all(?:_deserialize)?\s*=\s*"([^"]+)"')
 _FIELD_NAME = re.compile(r"^(?:pub(?:\s*\([^)]*\))?\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*:")
 _SERDE_SKIP = re.compile(r"(?:^|[(,\s])(skip|skip_deserializing)(?=[,)\s])")
 _QUERY_HEAD = re.compile(r"\bQuery\s*<")
+# `Json<T>` and the project's `MatrixJson<T>` share the same body semantics.
+# The negative lookbehind matters: `MatrixJson<` also contains `Json<`.
+_JSON_BODY_HEAD = re.compile(r"(?<![A-Za-z0-9_])(?:Json|MatrixJson)\s*<")
 
 
 def _apply_rename_all(name: str, rule: str) -> str:
@@ -658,6 +663,21 @@ def query_extractor_types(params: str) -> list:
     return out
 
 
+def json_body_extractor_types(params: str) -> list:
+    """Every `Json<T>` / `MatrixJson<T>` type argument in a signature, in order.
+
+    Same angle-bracket matching as [`query_extractor_types`] so nested generics
+    (`Json<Option<Value>>`) are not truncated.
+    """
+    out: list = []
+    for m in _JSON_BODY_HEAD.finditer(params):
+        lt = params.index("<", m.start())
+        gt = _match_angle(params, lt)
+        if gt != -1:
+            out.append(params[lt + 1 : gt].strip())
+    return out
+
+
 def bare_type_name(text: str) -> str:
     """`crate::a::Foo<T>` -> `Foo`; a non-path type yields the text verbatim."""
     t = text.strip()
@@ -701,6 +721,12 @@ def _is_dynamic_query_type(text: str) -> bool:
         bare_type_name(text) in _NON_STRUCT_QUERY_TYPES
         or generic_base_name(text) in _NON_STRUCT_QUERY_TYPES
     )
+
+
+# A JSON *body* is opaque only when it is a bare `Value`; unlike queries there
+# is no `HashMap`/`String` body extractor in this tree today, so keep the set
+# narrow — widening it would let a `Json<SomeStruct>` slip through as opaque.
+_DYNAMIC_JSON_BODY_TYPES = frozenset({"Value", "serde_json::Value"})
 
 
 _USE_RE = re.compile(r"(?:pub(?:\s*\([^)]*\))?\s+)?use\s+([^;]+);")
@@ -1026,6 +1052,14 @@ def load_ledger_annotations() -> dict:
       Validated as a sorted, comma-joined, duplicate-free list and cross-checked
       against the handler source and the fixtures (see
       `check_annotation_fidelity`).
+    * `body_opaque` — the route's request body is protocol-arbitrary JSON on
+      purpose (event content, account data, federation PDUs/transactions,
+      UIA `Value` bodies …), so there is no addressable field list to declare.
+      Registering it here keeps the route out of the "unknown body" debt
+      instead of pretending a struct exists. Positive guard only: a declared
+      route whose handler does not actually take a dynamically-typed JSON body
+      is RED; the remaining unannotated opaque routes are ratcheted by count
+      (see `check_annotation_fidelity`). Not serialized into the fixtures.
 
     Format: `METHOD PATH<TAB>key=value [key=value ...]`, exactly one tab.
     Unknown keys / bad booleans / tab-in-path / conflicting duplicates all
@@ -1063,10 +1097,10 @@ def load_ledger_annotations() -> dict:
                         f"{LEDGER_ANNOTATIONS}:{lineno}: unknown annotation key {key!r} "
                         f"(allowed: {ANNOTATION_KEYS})"
                     )
-                if key == "rate_limit_exempt":
+                if key in BOOLEAN_ANNOTATION_KEYS:
                     if value not in ("true", "false"):
                         raise SystemExit(
-                            f"{LEDGER_ANNOTATIONS}:{lineno}: rate_limit_exempt must be true|false, got {value!r}"
+                            f"{LEDGER_ANNOTATIONS}:{lineno}: {key} must be true|false, got {value!r}"
                         )
                     row[key] = value == "true"
                 elif key == "query_params":
@@ -1094,6 +1128,194 @@ def load_ledger_annotations() -> dict:
 # the generated table's own test; the behavioural cross-check is the Rust
 # golden test `route_ledger::tests::rate_limit_exempt_surface_matches_ledger`.
 EXPECTED_ANNOTATIONS = {
+    # -- body_opaque: protocol-arbitrary JSON bodies (see the module docstring
+    # of `load_ledger_annotations`). Event content, account data, filter,
+    # room-key backup payloads, UIA `Value` bodies and federation
+    # PDUs/transactions deliberately have no addressable field list.
+    ("POST", "/_matrix/client/v1/account/3pid/add"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v1/account/3pid/bind"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v1/account/3pid/email/requestToken"): {
+        "body_opaque": True
+    },
+    ("POST", "/_matrix/client/v1/account/password/email/requestToken"): {
+        "body_opaque": True
+    },
+    ("POST", "/_matrix/client/v1/room_keys/import"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v1/room_keys/import/{version}"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v1/room_keys/request"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v1/room_keys/version"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/account/3pid/add"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/account/3pid/bind"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/account/3pid/email/requestToken"): {
+        "body_opaque": True
+    },
+    ("POST", "/_matrix/client/v3/account/password/email/requestToken"): {
+        "body_opaque": True
+    },
+    ("POST", "/_matrix/client/v3/keys/backup/secure/{backup_id}/keys"): {
+        "body_opaque": True
+    },
+    ("POST", "/_matrix/client/v3/keys/backup/secure/{backup_id}/verify"): {
+        "body_opaque": True
+    },
+    ("POST", "/_matrix/client/v3/register"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/room_keys/import"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/room_keys/import/{version}"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/room_keys/request"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/room_keys/version"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/rooms/{room_id}/redact/{event_id}/{txn_id}"): {
+        "body_opaque": True
+    },
+    ("POST", "/_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}"): {
+        "body_opaque": True
+    },
+    ("POST", "/_matrix/client/v3/rooms/{room_id}/state/{event_type}"): {
+        "body_opaque": True
+    },
+    ("POST", "/_matrix/client/v3/user/{user_id}/account_data/{type}"): {
+        "body_opaque": True
+    },
+    ("POST", "/_matrix/client/v3/user/{user_id}/filter"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{type}"): {
+        "body_opaque": True
+    },
+    ("POST", "/_matrix/federation/v1/get_missing_events/{room_id}"): {
+        "body_opaque": True
+    },
+    ("POST", "/_matrix/federation/v1/knock/{room_id}/{user_id}"): {"body_opaque": True},
+    ("PUT", "/_matrix/client/v1/room_keys/{version}/keys/{room_id}/{session_id}"): {
+        "body_opaque": True
+    },
+    ("PUT", "/_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/"): {
+        "body_opaque": True
+    },
+    ("PUT", "/_matrix/client/v3/room_keys/{version}/keys/{room_id}/{session_id}"): {
+        "body_opaque": True
+    },
+    ("PUT", "/_matrix/client/v3/rooms/{room_id}/account_data/{type}"): {
+        "body_opaque": True
+    },
+    ("PUT", "/_matrix/client/v3/rooms/{room_id}/redact/{event_id}/{txn_id}"): {
+        "body_opaque": True
+    },
+    ("PUT", "/_matrix/client/v3/rooms/{room_id}/send/m.reaction/{txn_id}"): {
+        "body_opaque": True
+    },
+    ("PUT", "/_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}"): {
+        "body_opaque": True
+    },
+    ("PUT", "/_matrix/client/v3/rooms/{room_id}/state/m.room.power_levels/"): {
+        "body_opaque": True
+    },
+    ("PUT", "/_matrix/client/v3/rooms/{room_id}/state/{event_type}"): {
+        "body_opaque": True
+    },
+    ("PUT", "/_matrix/client/v3/rooms/{room_id}/state/{event_type}/"): {
+        "body_opaque": True
+    },
+    ("PUT", "/_matrix/client/v3/rooms/{room_id}/state/{event_type}/{state_key}"): {
+        "body_opaque": True
+    },
+    ("PUT", "/_matrix/client/v3/user/{user_id}/account_data/{type}"): {
+        "body_opaque": True
+    },
+    ("PUT", "/_matrix/client/v3/user/{user_id}/filter"): {"body_opaque": True},
+    ("PUT", "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{type}"): {
+        "body_opaque": True
+    },
+    ("PUT", "/_matrix/federation/v1/exchange_third_party_invite/{room_id}"): {
+        "body_opaque": True
+    },
+    ("PUT", "/_matrix/federation/v1/invite/{room_id}/{event_id}"): {
+        "body_opaque": True
+    },
+    ("PUT", "/_matrix/federation/v1/send/{txn_id}"): {"body_opaque": True},
+    ("PUT", "/_matrix/federation/v1/send_join/{room_id}/{event_id}"): {
+        "body_opaque": True
+    },
+    ("PUT", "/_matrix/federation/v1/send_leave/{room_id}/{event_id}"): {
+        "body_opaque": True
+    },
+    ("PUT", "/_matrix/federation/v2/invite/{room_id}/{event_id}"): {
+        "body_opaque": True
+    },
+    ("PUT", "/_matrix/federation/v2/send_join/{room_id}/{event_id}"): {
+        "body_opaque": True
+    },
+    ("PUT", "/_matrix/federation/v2/send_leave/{room_id}/{event_id}"): {
+        "body_opaque": True
+    },
+    ("PUT", "/_matrix/vendor/v1/rooms/{room_id}/room_keys/keys"): {"body_opaque": True},
+    ("DELETE", "/_matrix/client/v3/devices/{device_id}"): {"body_opaque": True},
+    ("POST", "/_matrix/client/unstable/io.element.msc4512/appservice/fed_proxy"): {
+        "body_opaque": True
+    },
+    ("POST", "/_matrix/client/v1/account/3pid"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v1/account/deactivate"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v1/account/password"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v1/appservice/fed_proxy"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v1/keys/claim"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v1/keys/device_list/update"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v1/keys/device_signing/upload"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v1/keys/query"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v1/keys/signatures/upload"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v1/keys/upload"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v1/keys/upload/{device_id}"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v1/sendToDevice/{event_type}/{transaction_id}"): {
+        "body_opaque": True
+    },
+    ("POST", "/_matrix/client/v3/account/3pid"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/account/deactivate"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/account/password"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/delete_devices"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/keys/backup/secure"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/keys/claim"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/keys/device_list/update"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/keys/device_signing/upload"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/keys/query"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/keys/signatures/upload"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/keys/upload"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/keys/upload/{device_id}"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/login"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/oidc/login"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/register/email/requestToken"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/sendToDevice/{event_type}/{transaction_id}"): {
+        "body_opaque": True
+    },
+    ("POST", "/_matrix/federation/unstable/org.matrix.msc3720/account_status"): {
+        "body_opaque": True
+    },
+    ("POST", "/_matrix/federation/v1/publicRooms"): {"body_opaque": True},
+    ("POST", "/_matrix/federation/v1/thirdparty/invite"): {"body_opaque": True},
+    ("POST", "/_matrix/federation/v1/user/keys/claim"): {"body_opaque": True},
+    ("POST", "/_matrix/federation/v1/user/keys/query"): {"body_opaque": True},
+    ("POST", "/_matrix/federation/v1/user/keys/upload"): {"body_opaque": True},
+    ("POST", "/_matrix/federation/v2/user/keys/query"): {"body_opaque": True},
+    ("POST", "/_matrix/key/v2/query"): {"body_opaque": True},
+    ("POST", "/_matrix/vendor/v1/rooms/{room_id}/keys/claim"): {"body_opaque": True},
+    ("POST", "/_matrix/vendor/v1/rooms/{room_id}/search"): {"body_opaque": True},
+    ("POST", "/_matrix/vendor/v1/widgets"): {"body_opaque": True},
+    ("POST", "/_synapse/federation/v1/keys/claim"): {"body_opaque": True},
+    ("POST", "/_synapse/federation/v1/keys/query"): {"body_opaque": True},
+    ("POST", "/_synapse/federation/v1/keys/upload"): {"body_opaque": True},
+    ("POST", "/_synapse/federation/v2/key/clone"): {"body_opaque": True},
+    ("PUT", "/_matrix/app/v1/transactions/{as_id}/{txn_id}"): {"body_opaque": True},
+    ("PUT", "/_matrix/client/v1/sendToDevice/{event_type}/{transaction_id}"): {
+        "body_opaque": True
+    },
+    ("PUT", "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/actions"): {
+        "body_opaque": True
+    },
+    ("PUT", "/_matrix/client/v3/sendToDevice/{event_type}/{transaction_id}"): {
+        "body_opaque": True
+    },
+    (
+        "PUT",
+        "/_matrix/vendor/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}",
+    ): {"body_opaque": True},
+    ("PUT", "/_matrix/vendor/v1/rooms/{room_id}/vault_data"): {"body_opaque": True},
+    ("PUT", "/_synapse/admin/v1/saml/config"): {"body_opaque": True},
+    # -- query_params / auth / rate_limit_exempt.
     ("GET", "/_synapse/cas/login"): {"query_params": "gateway,renew,service"},
     ("GET", "/_synapse/cas/logout"): {"query_params": "service"},
     ("GET", "/_synapse/cas/p3/serviceValidate"): {
@@ -1375,24 +1597,56 @@ EXPECTED_ANNOTATIONS = {
     (
         "PUT",
         "/_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}",
-    ): {"auth": "user"},
+    ): {"auth": "user", "body_opaque": True},
     ("PUT", "/_matrix/client/v1/room_keys/keys"): {"query_params": "version"},
     ("PUT", "/_matrix/client/v1/room_keys/keys/{room_id}"): {"query_params": "version"},
     ("PUT", "/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}"): {
-        "query_params": "version"
+        "query_params": "version",
+        "body_opaque": True,
     },
     ("PUT", "/_matrix/client/v3/room_keys/keys"): {"query_params": "version"},
     ("PUT", "/_matrix/client/v3/room_keys/keys/{room_id}"): {"query_params": "version"},
     ("PUT", "/_matrix/client/v3/room_keys/keys/{room_id}/{session_id}"): {
-        "query_params": "version"
+        "query_params": "version",
+        "body_opaque": True,
     },
+    # P1: handlers that used to deserialize a bare `Query<Value>` /
+    # `Query<HashMap<..>>` now take a named struct. The values are that
+    # struct's wire names (sorted, comma-joined) — the guard re-derives them
+    # from the Rust source, so adding a field without updating this line fails.
+    (
+        "GET",
+        "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events",
+    ): {"query_params": "limit,next_batch"},
+    ("GET", "/_matrix/client/v1/keys/changes"): {"query_params": "from,to"},
+    ("GET", "/_matrix/client/v1/media/preview_url"): {"query_params": "ts,url"},
+    ("GET", "/_matrix/client/v3/events"): {"query_params": "from,timeout"},
+    ("GET", "/_matrix/client/v3/keys/changes"): {"query_params": "from,to"},
+    ("GET", "/_matrix/client/v3/register/available"): {"query_params": "username"},
+    ("GET", "/_matrix/client/v3/rooms/{room_id}/initialSync"): {
+        "query_params": "from,limit"
+    },
+    ("GET", "/_matrix/federation/v1/query/directory"): {"query_params": "room_alias"},
+    ("GET", "/_matrix/media/r0/preview_url"): {"query_params": "ts,url"},
+    ("GET", "/_matrix/media/v1/preview_url"): {"query_params": "ts,url"},
+    ("GET", "/_matrix/media/v3/preview_url"): {"query_params": "ts,url"},
+    ("GET", "/_matrix/vendor/v1/keys/rotation/check"): {"query_params": "key_id"},
+    ("POST", "/_matrix/vendor/v1/keys/rotation/check"): {"query_params": "key_id"},
 }
+
+# Counted debt for `body_opaque`: routes whose handler deserializes a bare
+# `Json<Value>` / `MatrixJson<Value>` body but that this table has not yet
+# declared. The count is pinned so a *new* opaque body cannot land silently;
+# it may only be *lowered*, and only together with new `body_opaque=true`
+# rows. Deliberately an equality check, not `<=`: otherwise a regression that
+# introduces fresh opaque bodies would hide behind the existing debt.
+EXPECTED_OPAQUE_UNANNOTATED = 0
 
 
 def check_annotation_fidelity(res=None) -> list:
     """Return a list of failure strings (empty == green).
 
-    Five layers, each with an independent source of truth:
+    Six layers, each with an independent source of truth:
 
     * shape vs `EXPECTED_ANNOTATIONS` — the table must equal the pinned rows
       exactly (a dropped or extra line fails here, not silently).
@@ -1412,6 +1666,14 @@ def check_annotation_fidelity(res=None) -> list:
       parsed-but-undeclared both fail. `res` is the already-evaluated resolver;
       when omitted a fresh union resolver is built (the handler map is only
       populated by an evaluation pass).
+    * `body_opaque` <-> the handler source. The forward guard rejects a
+      declaration on a route whose body is not a bare `Json<Value>` /
+      `MatrixJson<Value>` (typed/none/ambiguous bodies cannot be opaque). The
+      reverse guard is a counted debt instead of a hard failure: today's
+      unannotated opaque bodies must equal `EXPECTED_OPAQUE_UNANNOTATED`, so a
+      new one turns the gate RED while existing ones can be burned down in
+      batches. Deliberate asymmetry: an opaque body is a legitimate protocol
+      shape, unlike a `Query<Value>` that silently drops fields.
     """
     failures: list = []
     annotations = load_ledger_annotations()
@@ -1565,6 +1827,36 @@ def check_annotation_fidelity(res=None) -> list:
         failures.append(
             f"{key[0]} {key[1]} parses query params {parsed[key]} but "
             f"ledger_annotations.txt declares none"
+        )
+
+    # layer 6: body_opaque <-> the handler source. Forward: every declaration
+    # must name a route whose handler really deserializes a bare `Value`. The
+    # reverse direction is the counted debt `EXPECTED_OPAQUE_UNANNOTATED`;
+    # see the docstring for why opaque bodies get a ratchet and `Query<Value>`
+    # gets a hard failure.
+    annotated_opaque = {
+        key for key, row in annotations.items() if row.get("body_opaque")
+    }
+    opaque_routes: set = set()
+    body_kinds: dict = {}
+    for key in sorted(routes):
+        status, btype = guard_res.handler_body_kind(key[0], key[1])
+        body_kinds[key] = (status, btype)
+        if status == "opaque":
+            opaque_routes.add(key)
+    for key in sorted(annotated_opaque):
+        status, btype = body_kinds.get(key, ("unregistered", None))
+        if status != "opaque":
+            failures.append(
+                f"body_opaque declared for {key[0]} {key[1]} but its handler body is "
+                f"{status!r} ({btype}), not `Json<Value>`/`MatrixJson<Value>`"
+            )
+    unannotated_opaque = opaque_routes - annotated_opaque
+    if len(unannotated_opaque) != EXPECTED_OPAQUE_UNANNOTATED:
+        failures.append(
+            f"opaque-body routes without a `body_opaque` annotation: "
+            f"{len(unannotated_opaque)} (pinned {EXPECTED_OPAQUE_UNANNOTATED}); "
+            f"lower the pin only when burning debt, never to absorb a new one"
         )
 
     return failures
@@ -2430,6 +2722,52 @@ class Resolver:
         if fields is None:
             return ("ambiguous", None)
         return ("ok", sorted(fields))
+
+    def handler_body_kind(self, method: str, path: str):
+        """`(status, type_name)` for the JSON request body a route's handler takes.
+
+        status is one of:
+          * `"opaque"`    — exactly one `Json<Value>` / `MatrixJson<Value>`
+                            extractor: the body is protocol-arbitrary JSON by
+                            design and has no addressable field list. This is
+                            what a `body_opaque=true` annotation asserts.
+          * `"typed"`     — exactly one `Json<Struct>` / `MatrixJson<Struct>`
+                            whose fields resolve in the route tree.
+          * `"foreign"`   — exactly one named struct the extractor cannot see
+                            (usually defined in another member crate).
+          * `"none"`      — no JSON body extractor at all.
+          * `"ambiguous"` — unresolvable handler, several handlers, or more
+                            than one JSON body extractor.
+
+        Mirrors [`handler_query_fields`]: the route must first be populated by
+        [`all_routes`], and `resolve_handler_def` follows `use` imports.
+        """
+        entries = self.handlers.get((method, path), set())
+        if len(entries) != 1:
+            return ("ambiguous", None)
+        owner, handler = next(iter(entries))
+        idx = self.resolve_handler_def(handler, owner)
+        if idx is None:
+            return ("ambiguous", None)
+        file, fname, _body = self.fn_all[idx]
+        sigs = self.fn_sigs.get((file, fname), [])
+        if len(sigs) != 1:
+            return ("ambiguous", None)
+        types = json_body_extractor_types(sigs[0])
+        if not types:
+            return ("none", None)
+        if len(types) > 1:
+            return ("ambiguous", None)
+        btype = types[0]
+        if (
+            btype in _DYNAMIC_JSON_BODY_TYPES
+            or bare_type_name(btype) in _DYNAMIC_JSON_BODY_TYPES
+        ):
+            return ("opaque", btype)
+        tname = bare_type_name(btype)
+        if self.lookup_struct_fields(tname, file) is None:
+            return ("foreign", tname)
+        return ("typed", tname)
 
     def lookup_struct_fields(self, name: str, owner: str):
         """Same-file struct, then a `use`-imported one, then a globally unique

@@ -20,6 +20,7 @@ use synapse_services::voice_service::VoiceMessageUploadParams;
 
 /// Request body for `POST /voice/register` - registering an encrypted voice attachment.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RegisterEncryptedVoiceRequest {
     /// The media_id of the uploaded voice (from mxc:// URL)
     pub media_id: String,

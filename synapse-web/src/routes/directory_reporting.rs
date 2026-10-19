@@ -12,6 +12,7 @@ use axum::{
     extract::{Json, Path, Query, State},
     http::HeaderMap,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
@@ -74,15 +75,22 @@ pub(crate) async fn get_user_directory_profile(
     })))
 }
 
+/// Request body for [`search_user_directory`].
+#[derive(Debug, Deserialize)]
+pub struct SearchUserDirectoryBody {
+    pub search_term: Option<String>,
+    pub limit: Option<u64>,
+}
+
 /// See [`search_user_directory`].
 pub(crate) async fn search_user_directory(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<SearchUserDirectoryBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let search_query = body.get("search_term").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let search_query = body.search_term.unwrap_or_default();
 
-    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(10).clamp(1, 100) as i64;
+    let limit = body.limit.unwrap_or(10).clamp(1, 100) as i64;
 
     let results = ctx.account_identity_service.search_users(&search_query, limit).await?;
 
@@ -124,14 +132,21 @@ fn encode_user_cursor(created_ts: i64, user_id: &str) -> String {
     format!("{created_ts}|{user_id}")
 }
 
+/// Request body for [`list_user_directory`].
+#[derive(Debug, Deserialize)]
+pub struct ListUserDirectoryBody {
+    pub limit: Option<u64>,
+    pub since: Option<String>,
+}
+
 /// See [`list_user_directory`].
 pub(crate) async fn list_user_directory(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<ListUserDirectoryBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(50).clamp(1, 200) as i64;
-    let cursor = decode_user_cursor(body.get("since").and_then(|v| v.as_str()));
+    let limit = body.limit.unwrap_or(50).clamp(1, 200) as i64;
+    let cursor = decode_user_cursor(body.since.as_deref());
 
     let total_count = ctx.account_identity_service.get_user_count().await?;
 
@@ -171,13 +186,24 @@ pub(crate) async fn list_user_directory(
     })))
 }
 
+/// Request body for [`report_event`].
+#[derive(Debug, Deserialize)]
+pub struct ReportEventBody {
+    /// Free-form reason supplied by the reporter.
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// Optional report score; defaults to `-100`.
+    #[serde(default)]
+    pub score: Option<i64>,
+}
+
 /// See [`report_event`].
 pub(crate) async fn report_event(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(String, String)>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<ReportEventBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
@@ -190,8 +216,8 @@ pub(crate) async fn report_event(
         return Err(ApiError::not_found("Event not found".to_string()));
     };
 
-    let reason = body.get("reason").and_then(|v| v.as_str());
-    let score = body.get("score").and_then(|v| v.as_i64()).unwrap_or(-100) as i32;
+    let reason = body.reason.as_deref();
+    let score = body.score.unwrap_or(-100) as i32;
 
     let report_id = ctx
         .room_service
@@ -213,15 +239,33 @@ pub(crate) async fn report_event(
     })))
 }
 
+/// Request body for [`update_report_score`].
+#[derive(Debug, Default, Deserialize)]
+pub struct UpdateReportScoreBody {
+    #[allow(dead_code)]
+    pub score: Option<i64>,
+}
+
 /// See [`update_report_score`].
 pub(crate) async fn update_report_score(
     State(_ctx): State<AdminContext>,
     _auth_user: AuthenticatedUser,
     Path((_room_id, event_id)): Path<(String, String)>,
-    MatrixJson(_body): MatrixJson<Value>,
+    MatrixJson(_body): MatrixJson<UpdateReportScoreBody>,
 ) -> Result<Json<Value>, ApiError> {
     validate_event_id(&event_id)?;
     Err(ApiError::forbidden("Report score updates are not available via the client API".to_string()))
+}
+
+/// Request body for [`report_room`].
+#[derive(Debug, Deserialize)]
+pub struct ReportRoomBody {
+    /// Free-form reason supplied by the reporter.
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// Optional longer description of the issue.
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 /// See [`report_room`].
@@ -230,15 +274,15 @@ pub(crate) async fn report_room(
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<ReportRoomBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
     take_rc_reports_token(&ctx.cache, &auth_user.user_id, &ctx.config.rate_limit.rc_reports).await?;
     ensure_room_member_admin(&ctx, &auth_user, &room_id, "You must be a room member to report this room").await?;
 
-    let reason = body.get("reason").and_then(|v| v.as_str()).map(str::to_string);
-    let description = body.get("description").and_then(|v| v.as_str()).map(str::to_string);
+    let reason = body.reason;
+    let description = body.description;
 
     let request = synapse_services::event_report_service::CreateEventReportRequest {
         event_id: format!("room_report:{room_id}"),
@@ -268,6 +312,13 @@ pub(crate) async fn report_room(
     })))
 }
 
+/// Request body for [`report_user`].
+#[derive(Debug, Deserialize)]
+pub struct ReportUserBody {
+    /// Required report reason; may be an empty string.
+    pub reason: String,
+}
+
 /// MSC4260 — Report a user (POST /_matrix/client/v3/users/{userId}/report).
 ///
 /// Spec (merged in Matrix v1.14):
@@ -288,21 +339,15 @@ pub(crate) async fn report_user(
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(reported_user_id): Path<UserId>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<ReportUserBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_user_id(&reported_user_id)?;
     take_rc_reports_token(&ctx.cache, &auth_user.user_id, &ctx.config.rate_limit.rc_reports).await?;
 
     // MSC4260: `reason` is a REQUIRED field (the key must be present). The
-    // value may be an empty string. Missing key → M_BAD_JSON.
-    let Some(reason_value) = body.get("reason") else {
-        return Err(ApiError::bad_request("Missing required field: reason".to_string()));
-    };
-    let reason = reason_value
-        .as_str()
-        .ok_or_else(|| ApiError::bad_request("Field 'reason' must be a string".to_string()))?
-        .to_string();
+    // value may be an empty string.
+    let reason = body.reason;
 
     // Fail-closed: verify the reported user exists before storing the report.
     // The spec allows servers to mask existence by always returning 200, but
@@ -446,6 +491,12 @@ pub(crate) async fn get_room_by_alias(
     }
 }
 
+/// Request body for [`set_room_alias_direct`].
+#[derive(Debug, Deserialize)]
+pub struct SetRoomAliasBody {
+    pub room_id: Option<String>,
+}
+
 /// See [`set_room_alias_direct`].
 #[axum::debug_handler]
 pub(crate) async fn set_room_alias_direct(
@@ -453,14 +504,11 @@ pub(crate) async fn set_room_alias_direct(
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_alias): Path<RoomAlias>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<SetRoomAliasBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_room_alias(&room_alias)?;
-    let room_id = body
-        .get("room_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Missing room_id field".to_string()))?;
+    let room_id = body.room_id.as_deref().ok_or_else(|| ApiError::bad_request("Missing room_id field".to_string()))?;
 
     if !room_id.starts_with('!') {
         return Err(ApiError::bad_request("Invalid room_id format".to_string()));
@@ -592,19 +640,38 @@ mod cursor_tests {
     }
 }
 
+/// Request body for [`query_public_rooms`].
+#[derive(Debug, Default, Deserialize)]
+pub struct PublicRoomsBody {
+    pub limit: Option<u64>,
+    pub since: Option<String>,
+    /// Client-Server `Filter`; validated field-by-field by
+    /// [`parse_public_rooms_filter`] (unknown members are rejected there).
+    pub filter: Option<Value>,
+    pub include_all_networks: Option<bool>,
+    pub third_party_instance_id: Option<String>,
+}
+
 /// See [`query_public_rooms`].
 #[axum::debug_handler]
 pub(crate) async fn query_public_rooms(
     State(ctx): State<AdminContext>,
     _auth_user: OptionalAuthenticatedUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<PublicRoomsBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(20).clamp(1, 1000) as i64;
-    let cursor = decode_public_rooms_cursor(body.get("since").and_then(|v| v.as_str()));
+    let limit = body.limit.unwrap_or(20).clamp(1, 1000) as i64;
+    let cursor = decode_public_rooms_cursor(body.since.as_deref());
 
     // Client-Server API 的 `filter`（D-108 接线 `generic_search_term`，D-109 接线 `room_types`
     // 并对其余字段**显式拒绝**）。解析规则与错误语义见 [`parse_public_rooms_filter`]。
-    let filter = parse_public_rooms_filter(&body)?;
+    // 解析器消费原始的 `Value` 形状（含顶层 `include_all_networks` /
+    // `third_party_instance_id` 的"不支持即拒绝"语义），故在此重组出等价对象。
+    let raw = json!({
+        "include_all_networks": body.include_all_networks,
+        "third_party_instance_id": body.third_party_instance_id,
+        "filter": body.filter,
+    });
+    let filter = parse_public_rooms_filter(&raw)?;
     let room_types = filter.room_types.as_deref();
 
     let (rooms, total) = if let Some(term) = filter.search_term.as_deref() {

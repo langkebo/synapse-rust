@@ -11,7 +11,26 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
+
+/// Request body for [`enable_burn`].
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EnableBurnRequest {
+    /// Whether burn-after-read is enabled for the room (defaults to true).
+    pub enabled: Option<bool>,
+    /// Explicit burn-after duration in milliseconds.
+    pub burn_after_ms: Option<i64>,
+}
+
+/// Request body for [`set_global_burn_config`].
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SetGlobalBurnConfigRequest {
+    /// Default burn-after duration in milliseconds.
+    pub default_burn_ms: Option<i64>,
+}
 
 /// See [`create_burn_after_read_router`].
 pub fn create_burn_after_read_router(state: AppState) -> Router<AppState> {
@@ -43,7 +62,7 @@ pub async fn enable_burn(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<EnableBurnRequest>,
 ) -> Result<Json<Value>, ApiError> {
     validators::validate_room_id(&room_id)?;
     let room_exists: bool = ctx
@@ -60,11 +79,11 @@ pub async fn enable_burn(
     ensure_room_member_ctx(&ctx, &auth_user, &room_id, "You must be a room member to configure burn-after-read")
         .await?;
 
-    let enabled = body.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+    let enabled = body.enabled.unwrap_or(true);
 
     // Explicit `burn_after_ms` wins; otherwise use the reader's stored default
     // (`PUT /user/burn/config`); otherwise one minute.
-    let explicit_burn_after_ms = body.get("burn_after_ms").and_then(|v| v.as_i64());
+    let explicit_burn_after_ms = body.burn_after_ms;
     // Propagate `ApiError` as-is: the service already maps storage failures to
     // 500 and returns 400 for an out-of-range delay. Wrapping it here would
     // turn that validation error into an opaque 500.
@@ -270,12 +289,10 @@ pub async fn cancel_burn(
 pub async fn set_global_burn_config(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<SetGlobalBurnConfigRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let default_burn_ms = body
-        .get("default_burn_ms")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(synapse_services::burn_after_read_service::DEFAULT_BURN_AFTER_MS);
+    let default_burn_ms =
+        body.default_burn_ms.unwrap_or(synapse_services::burn_after_read_service::DEFAULT_BURN_AFTER_MS);
 
     // Keep the service's 400 for an out-of-range value instead of wrapping it.
     ctx.burn_after_read.set_user_default(&auth_user.user_id, default_burn_ms).await?;

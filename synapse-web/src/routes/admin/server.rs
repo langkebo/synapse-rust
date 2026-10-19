@@ -13,9 +13,18 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::types::{DeviceId, UserId};
 use synapse_common::ApiError;
+
+/// Request body for [`restart_server`].
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RestartServerRequest {
+    /// Graceful-shutdown delay in milliseconds (defaults to 100, capped at 10000).
+    pub timeout_ms: Option<u64>,
+}
 
 /// See [`create_server_router`].
 pub fn create_server_router(_state: AppState) -> Router<crate::routes::AppState> {
@@ -108,11 +117,11 @@ pub async fn get_server_version(_admin: AdminUser, State(ctx): State<AdminContex
 pub async fn restart_server(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<RestartServerRequest>,
 ) -> Result<Json<Value>, ApiError> {
     // Optional graceful shutdown delay (ms). Defaults to 100ms to let the
     // HTTP response flush before the process exits.
-    let delay_ms = body.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(100).min(10_000);
+    let delay_ms = body.timeout_ms.unwrap_or(100).min(10_000);
 
     let shutdown_tx = ctx
         .shutdown_signal

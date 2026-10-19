@@ -2,8 +2,17 @@ use crate::routes::context::AdminContext;
 use crate::routes::MatrixJson;
 use crate::routes::{AdminUser, AppState};
 use axum::{extract::State, routing::post, Json, Router};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::ApiError;
+
+/// Request body shared by the cleanup endpoints (all fields optional).
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CleanupRequest {
+    /// Only clean up rooms older than this many milliseconds.
+    pub min_age_ms: Option<i64>,
+}
 
 /// See [`create_cleanup_router`].
 pub fn create_cleanup_router(state: AppState) -> Router<crate::routes::AppState> {
@@ -19,9 +28,9 @@ pub fn create_cleanup_router(state: AppState) -> Router<crate::routes::AppState>
 pub async fn cleanup_all(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<CleanupRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let min_age_ms = body.get("min_age_ms").and_then(|v| v.as_i64());
+    let min_age_ms = body.min_age_ms;
 
     let mut results = serde_json::Map::new();
 
@@ -54,9 +63,9 @@ pub async fn cleanup_all(
 pub async fn cleanup_rooms(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<CleanupRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let min_age_ms = body.get("min_age_ms").and_then(|v| v.as_i64());
+    let min_age_ms = body.min_age_ms;
     let results = ctx.room_service.state().cleanup_abnormal_data(min_age_ms).await?;
     Ok(Json(results))
 }

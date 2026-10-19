@@ -78,6 +78,7 @@ struct P3ServiceValidateQuery {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RegisterServiceBody {
     service_id: String,
     name: String,
@@ -90,6 +91,7 @@ struct RegisterServiceBody {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SetAttributeBody {
     attribute_name: String,
     attribute_value: String,

@@ -42,6 +42,7 @@ struct NonceResponse {
 }
 
 #[derive(Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
 struct RegisterRequest {
     #[validate(length(min = 1, max = 255))]
     nonce: String,

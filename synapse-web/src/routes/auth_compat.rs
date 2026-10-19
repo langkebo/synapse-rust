@@ -10,6 +10,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::{ApiError, MatrixErrorCode};
 /// See [`register`].
@@ -176,15 +177,23 @@ async fn register_appservice_user(
     .into_response())
 }
 
+/// Query parameters accepted by [`check_username_availability`].
+///
+/// Deliberately **not** `deny_unknown_fields`: the handler used to take a bare
+/// `Query<Value>` and ignored unknown parameters. `username` stays optional at
+/// the serde layer so the missing-parameter answer keeps its Matrix
+/// `M_BAD_REQUEST` body.
+#[derive(Debug, Deserialize)]
+pub(crate) struct RegisterAvailableParams {
+    username: Option<String>,
+}
+
 /// See [`check_username_availability`].
 pub(crate) async fn check_username_availability(
     State(ctx): State<AuthContext>,
-    Query(params): Query<Value>,
+    Query(params): Query<RegisterAvailableParams>,
 ) -> Result<Json<Value>, ApiError> {
-    let username = params
-        .get("username")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Username required".to_string()))?;
+    let username = params.username.as_deref().ok_or_else(|| ApiError::bad_request("Username required".to_string()))?;
 
     if let Err(e) = ctx.validator.validate_username(username) {
         return Err(e.into());
@@ -441,25 +450,26 @@ pub(crate) fn session_client_secret(session_data: Option<&Value>) -> Option<&str
     }
 }
 
+/// Request body for [`submit_email_token`].
+#[derive(Debug, Deserialize)]
+pub struct SubmitEmailTokenBody {
+    pub sid: Option<String>,
+    pub client_secret: Option<String>,
+    pub token: Option<String>,
+}
+
 /// See [`submit_email_token`].
 pub(crate) async fn submit_email_token(
     State(ctx): State<AuthContext>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<SubmitEmailTokenBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let sid = body
-        .get("sid")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Session ID (sid) is required".to_string()))?;
+    let sid = body.sid.as_deref().ok_or_else(|| ApiError::bad_request("Session ID (sid) is required".to_string()))?;
 
-    let client_secret = body
-        .get("client_secret")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Client secret is required".to_string()))?;
+    let client_secret =
+        body.client_secret.as_deref().ok_or_else(|| ApiError::bad_request("Client secret is required".to_string()))?;
 
-    let token = body
-        .get("token")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Verification token is required".to_string()))?;
+    let token =
+        body.token.as_deref().ok_or_else(|| ApiError::bad_request("Verification token is required".to_string()))?;
 
     let sid_int: i64 = sid.parse().map_err(|_| ApiError::bad_request("Invalid session ID format".to_string()))?;
 
@@ -796,15 +806,19 @@ pub(crate) async fn logout_all(
     Ok(Json(json!({})))
 }
 
+/// Request body for [`refresh_token`].
+#[derive(Debug, Deserialize)]
+pub struct RefreshTokenBody {
+    pub refresh_token: Option<String>,
+}
+
 /// See [`refresh_token`].
 pub(crate) async fn refresh_token(
     State(ctx): State<AuthContext>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<RefreshTokenBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let refresh_token = body
-        .get("refresh_token")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Refresh token required".to_string()))?;
+    let refresh_token =
+        body.refresh_token.as_deref().ok_or_else(|| ApiError::bad_request("Refresh token required".to_string()))?;
 
     let (new_access, new_refresh, device_id) = ctx.token_auth.refresh_token(refresh_token).await?;
 

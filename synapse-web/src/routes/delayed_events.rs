@@ -35,6 +35,7 @@ use axum::{
     routing::{get, post, put},
     Router,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use synapse_common::ApiError;
@@ -253,6 +254,12 @@ pub(crate) async fn list_delayed_events(
     Ok(Json(json!({ "delayed_events": listed })))
 }
 
+/// Body of `POST …/delayed_events/{delay_id}`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct ManageDelayedEventBody {
+    pub action: String,
+}
+
 /// MSC4140 Gen 1 — Manage a delayed event.
 ///
 /// `POST /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}`
@@ -265,15 +272,11 @@ pub(crate) async fn manage_delayed_event(
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(delay_id): Path<i64>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<ManageDelayedEventBody>,
 ) -> Result<Json<Value>, ApiError> {
-    // Parse action from untyped JSON so missing/invalid fields return M_BAD_JSON
-    // (400) rather than axum's default 422 deserialization rejection.
-    let action_str = body
-        .get("action")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Missing or invalid 'action' field (must be a string)".to_string()))?;
-    let action = DelayedEventAction::parse(action_str)?;
+    // A missing or non-string `action` is a typed deserialization failure, which
+    // `MatrixJson` maps to M_BAD_JSON (400) rather than axum's default 422.
+    let action = DelayedEventAction::parse(&body.action)?;
 
     apply_action(&ctx, &headers, &auth_user.user_id, delay_id, action).await
 }

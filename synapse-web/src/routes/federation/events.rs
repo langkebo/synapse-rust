@@ -386,16 +386,25 @@ pub(super) async fn post_public_rooms(
     })))
 }
 
+/// Query parameters accepted by [`query_directory`].
+///
+/// Deliberately **not** `deny_unknown_fields`: the handler used to take a bare
+/// `Query<Value>` and ignored unknown parameters. `room_alias` stays optional
+/// at the serde layer so the missing-parameter answer keeps its Matrix
+/// `M_BAD_REQUEST` body.
+#[derive(Debug, Deserialize)]
+pub(super) struct DirectoryQueryParams {
+    room_alias: Option<String>,
+}
+
 /// See [`query_directory`].
 pub(super) async fn query_directory(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Query(params): Query<Value>,
+    Query(params): Query<DirectoryQueryParams>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_alias = params
-        .get("room_alias")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Missing room_alias parameter"))?;
+    let room_alias =
+        params.room_alias.as_deref().ok_or_else(|| ApiError::bad_request("Missing room_alias parameter"))?;
     validate_room_alias(room_alias)?;
 
     let Some((_, alias_server_name)) = room_alias[1..].rsplit_once(':') else {

@@ -224,6 +224,7 @@ mod tests {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct AntiScreenshotPayload {
     enabled: bool,
 }

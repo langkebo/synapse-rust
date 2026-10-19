@@ -15,6 +15,7 @@ use axum::{
     routing::{delete, get, post, put},
     Json, Router,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::{current_timestamp_millis, ApiError};
 use synapse_common::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
@@ -101,6 +102,26 @@ mod cursor_tests {
         assert_eq!(decode_room_token_sync_cursor(Some("bad-cursor")), None);
         assert_eq!(decode_room_token_sync_cursor(Some("123|")), None);
     }
+}
+
+/// Request body for [`shutdown_room`].
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShutdownRoomRequest {
+    /// Room to shut down; required in the body.
+    pub room_id: Option<String>,
+}
+
+/// Request body for [`cascade_redact_event`].
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CascadeRedactEventRequest {
+    /// Event to redact; required in the body.
+    pub event_id: Option<String>,
+    /// Maximum redaction depth (capped at 10, defaults to 5).
+    pub max_depth: Option<u32>,
+    /// Optional audit reason.
+    pub reason: Option<String>,
 }
 
 /// See [`create_room_router`].
@@ -515,12 +536,10 @@ pub async fn get_room_messages_admin(
 pub async fn shutdown_room(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<ShutdownRoomRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_id = body
-        .get("room_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Missing 'room_id' field".to_string()))?;
+    let room_id =
+        body.room_id.as_deref().ok_or_else(|| ApiError::bad_request("Missing 'room_id' field".to_string()))?;
 
     if !ctx.room_service.state().room_exists(room_id).await.map_err(ApiError::from)? {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -794,14 +813,12 @@ pub async fn cascade_redact_event(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(room_id): Path<RoomId>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<CascadeRedactEventRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let event_id = body
-        .get("event_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Missing 'event_id' field".to_string()))?;
-    let max_depth = body.get("max_depth").and_then(|v| v.as_u64()).map_or(5, |n| n.min(10) as u32);
-    let reason = body.get("reason").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let event_id =
+        body.event_id.as_deref().ok_or_else(|| ApiError::bad_request("Missing 'event_id' field".to_string()))?;
+    let max_depth = body.max_depth.map_or(5, |n| n.min(10));
+    let reason = body.reason.clone();
 
     // Verify room exists
     if !ctx.room_service.state().room_exists(&room_id).await.map_err(ApiError::from)? {

@@ -9,18 +9,65 @@ use axum::{
     http::HeaderMap,
     Json,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
+
+/// Request body for the abnormal-room cleanup endpoints.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CleanupAbnormalRoomsRequest {
+    /// Only clean up rooms older than this many milliseconds.
+    pub min_age_ms: Option<i64>,
+}
+
+/// Request body for [`purge_history`].
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PurgeHistoryRequest {
+    /// Room to purge; required in the body for the un-scoped endpoint.
+    pub room_id: Option<String>,
+    /// Purge events older than this millisecond timestamp.
+    pub purge_up_to_ts: Option<i64>,
+    /// Only report what would be deleted.
+    pub dry_run: Option<bool>,
+}
+
+/// Request body for the path-scoped purge-history endpoint.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PurgeHistoryByRoomRequest {
+    /// Purge events older than this millisecond timestamp.
+    pub purge_up_to_ts: Option<i64>,
+    /// Only report what would be deleted.
+    pub dry_run: Option<bool>,
+}
+
+/// Request body for [`purge_room`].
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PurgeRoomRequest {
+    /// Room to delete; required in the body.
+    pub room_id: Option<String>,
+}
+
+/// Request body for [`backfill_room`].
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BackfillRoomRequest {
+    /// Maximum number of events to backfill.
+    pub limit: Option<u64>,
+}
 
 /// See [`cleanup_abnormal_rooms`].
 #[axum::debug_handler]
 pub async fn cleanup_abnormal_rooms(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<CleanupAbnormalRoomsRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let min_age_ms = body.get("min_age_ms").and_then(|v| v.as_i64());
+    let min_age_ms = body.min_age_ms;
 
     let results = ctx.room_service.state().cleanup_abnormal_data(min_age_ms).await?;
 
@@ -137,18 +184,13 @@ pub async fn purge_history(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<PurgeHistoryRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
-    let room_id = body
-        .get("room_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Missing 'room_id' field".to_string()))?;
-    let timestamp = body
-        .get("purge_up_to_ts")
-        .and_then(|v| v.as_i64())
-        .unwrap_or_else(|| current_timestamp_millis() - (30 * 24 * 60 * 60 * 1000));
-    let dry_run = body.get("dry_run").and_then(|v| v.as_bool()).unwrap_or(false);
+    let room_id =
+        body.room_id.as_deref().ok_or_else(|| ApiError::bad_request("Missing 'room_id' field".to_string()))?;
+    let timestamp = body.purge_up_to_ts.unwrap_or_else(|| current_timestamp_millis() - (30 * 24 * 60 * 60 * 1000));
+    let dry_run = body.dry_run.unwrap_or(false);
 
     if !ctx.room_service.state().room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -182,14 +224,12 @@ pub async fn purge_history_by_room(
     State(ctx): State<AdminContext>,
     Path(room_id): Path<RoomId>,
     headers: HeaderMap,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<PurgeHistoryByRoomRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let merged_body = match body {
-        Value::Object(mut map) => {
-            map.insert("room_id".to_string(), Value::String(room_id.to_string()));
-            Value::Object(map)
-        }
-        _ => json!({ "room_id": room_id.to_string() }),
+    let merged_body = PurgeHistoryRequest {
+        room_id: Some(room_id.to_string()),
+        purge_up_to_ts: body.purge_up_to_ts,
+        dry_run: body.dry_run,
     };
 
     purge_history(admin, State(ctx), headers, MatrixJson(merged_body)).await
@@ -220,13 +260,13 @@ pub async fn backfill_room(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(room_id): Path<RoomId>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<BackfillRoomRequest>,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let limit = body.get("limit").and_then(|v| v.as_u64()).map(|n| n.min(u64::from(u32::MAX)) as u32);
+    let limit = body.limit.map(|n| n.min(u64::from(u32::MAX)) as u32);
 
     let outcome = ctx.room_service.backfill_room_history(&ctx.federation_client, &room_id, limit).await?;
 
@@ -244,13 +284,11 @@ pub async fn purge_room(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<PurgeRoomRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
-    let room_id = body
-        .get("room_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Missing 'room_id' field".to_string()))?;
+    let room_id =
+        body.room_id.as_deref().ok_or_else(|| ApiError::bad_request("Missing 'room_id' field".to_string()))?;
 
     if !ctx.room_service.state().room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -329,13 +367,13 @@ pub async fn ban_user_by_body(
 /// Unban a user from a room
 #[axum::debug_handler]
 pub async fn unban_user(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     Path((room_id, user_id)): Path<(RoomId, UserId)>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
-    Ok(Json(unban_user_internal(&ctx, &room_id, &user_id, &request_id).await?))
+    Ok(Json(unban_user_internal(&ctx, &room_id, &user_id, &admin.user_id, &request_id).await?))
 }
 
 /// Kick a user from a room
@@ -493,11 +531,14 @@ async fn ban_user_internal(
     }))
 }
 
+// 同 `ban_user_internal`：`actor_user_id`/`request_id` 只在该 `friends` 块里使用。
+#[cfg_attr(not(feature = "friends"), allow(unused_variables))]
 async fn unban_user_internal(
     ctx: &AdminContext,
     room_id: &str,
     user_id: &str,
-    _request_id: &str,
+    actor_user_id: &str,
+    request_id: &str,
 ) -> Result<Value, ApiError> {
     if !ctx.room_service.state().room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -511,6 +552,25 @@ async fn unban_user_internal(
     }
 
     ctx.room_service.membership().admin_unban_user_membership(room_id, user_id).await?;
+
+    // P3 ruling: admin-side ban/kick/unban all sync the friend-DM membership
+    // state. Unban leaves the target at membership `leave`, so the DM is no
+    // longer active; the state string mirrors the ban/kick vocabulary.
+    #[cfg(feature = "friends")]
+    if let Err(error) = ctx
+        .friend_room_service
+        .sync_dm_room_membership_change(room_id, user_id, "unbanned", Some(actor_user_id), None)
+        .await
+    {
+        ::tracing::warn!(
+            request_id = %request_id,
+            room_id = %room_id,
+            user_id = %user_id,
+            actor_user_id = %actor_user_id,
+            error = %error,
+            "Failed to sync friend DM unban state"
+        );
+    }
 
     Ok(json!({
         "user_id": user_id,
@@ -577,6 +637,16 @@ async fn kick_user_internal(
     }))
 }
 
+/// Request body for [`redact_room_events`].
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RedactRoomEventsRequest {
+    pub before_ts: Option<i64>,
+    pub after_ts: Option<i64>,
+    pub limit: Option<i64>,
+    pub reason: Option<String>,
+}
+
 /// `POST /_matrix/client/v3/admin/room/{room_id}/redact`
 ///
 /// Admin Redact API with time filter: batch-redact events in a room within
@@ -593,12 +663,12 @@ pub async fn redact_room_events(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     Path(room_id): Path<RoomId>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<RedactRoomEventsRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let before_ts = body.get("before_ts").and_then(|v| v.as_i64());
-    let after_ts = body.get("after_ts").and_then(|v| v.as_i64());
-    let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(1000);
-    let reason = body.get("reason").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let before_ts = body.before_ts;
+    let after_ts = body.after_ts;
+    let limit = body.limit.unwrap_or(1000);
+    let reason = body.reason.clone();
 
     // Validate limit is positive and bounded (prevent excessive batch sizes)
     if limit <= 0 || limit > 10_000 {

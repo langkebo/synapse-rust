@@ -77,11 +77,36 @@ pub async fn get_dehydrated_device(
     }
 }
 
+/// Body of `PUT …/dehydrated_device`.
+///
+/// `device_keys` and `device_data` stay opaque: the service accepts either a
+/// top-level `device_keys` or one nested inside `device_data`. Unknown
+/// top-level fields are preserved and forwarded to the stored payload.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct PutDehydratedDeviceBody {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_data: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_keys: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub algorithm: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_device_display_name: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<i64>,
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
 /// See [`put_dehydrated_device`].
 pub async fn put_dehydrated_device(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<serde_json::Value>,
+    MatrixJson(body): MatrixJson<PutDehydratedDeviceBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // P0: Precondition checks (MSC3814)
     // 1. Check if user has cross-signing keys
@@ -108,6 +133,10 @@ pub async fn put_dehydrated_device(
         ));
     }
 
+    // The service normalises an untyped payload; round-trip the named body back
+    // to JSON so `extra` (and the opaque nested fields) reach it unchanged.
+    let body = serde_json::to_value(&body)
+        .map_err(|e| ApiError::internal_with_cause("Failed to encode dehydrated device body", e))?;
     let device_id = ctx.dehydrated_device_service.put_device(&auth_user.user_id, body).await?;
 
     Ok(Json(json!({
@@ -136,6 +165,18 @@ pub async fn delete_dehydrated_device(
     }
 }
 
+/// Query parameters accepted by the GET alias of
+/// [`get_dehydrated_device_events`].
+///
+/// Deliberately **not** `deny_unknown_fields`: the handler used to take a bare
+/// `Query<Value>` and ignored unknown parameters. `limit` stays a raw string so
+/// an unparsable value keeps falling back to the default.
+#[derive(Debug, Default, serde::Deserialize)]
+pub struct DehydratedDeviceEventsQuery {
+    next_batch: Option<String>,
+    limit: Option<String>,
+}
+
 /// MSC3814 — claim pending to-device events addressed to a dehydrated device.
 ///
 /// Clients call this after restoring a session backed by a dehydrated device,
@@ -158,11 +199,11 @@ pub async fn get_dehydrated_device_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(device_id): Path<DeviceId>,
-    Query(query): Query<serde_json::Value>,
+    Query(query): Query<DehydratedDeviceEventsQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // Synapse v1.157 #19896 (兼容别名): GET 把游标与页长都放 query
-    let next_batch = query.get("next_batch").and_then(|v| v.as_str());
-    let limit = query.get("limit").and_then(|v| v.as_i64()).unwrap_or(100);
+    let next_batch = query.next_batch.as_deref();
+    let limit = query.limit.as_deref().and_then(|raw| raw.parse::<i64>().ok()).unwrap_or(100);
     let response =
         ctx.dehydrated_device_service.claim_events(&auth_user.user_id, device_id.as_str(), next_batch, limit).await?;
     Ok(Json(response))

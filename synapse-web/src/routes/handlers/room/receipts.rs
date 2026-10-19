@@ -6,6 +6,7 @@ use crate::routes::{
     AuthenticatedUser,
 };
 use axum::extract::{Json, Path, State};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
@@ -74,12 +75,34 @@ pub(crate) async fn get_receipts(
     })))
 }
 
+/// `m.marked_unread` payload for [`set_read_markers`].
+#[derive(Debug, Deserialize, Serialize)]
+pub struct MarkedUnreadBody {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub events: Option<Vec<String>>,
+}
+
+/// Request body for [`set_read_markers`].
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SetReadMarkersBody {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_backward: Option<bool>,
+    #[serde(rename = "m.fully_read", default, skip_serializing_if = "Option::is_none")]
+    pub m_fully_read: Option<String>,
+    #[serde(rename = "m.private_read", default, skip_serializing_if = "Option::is_none")]
+    pub m_private_read: Option<String>,
+    #[serde(rename = "m.marked_unread", default, skip_serializing_if = "Option::is_none")]
+    pub m_marked_unread: Option<MarkedUnreadBody>,
+    #[serde(rename = "m.read", default, skip_serializing_if = "Option::is_none")]
+    pub m_read: Option<String>,
+}
+
 /// See [`set_read_markers`].
 pub(crate) async fn set_read_markers(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<SetReadMarkersBody>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -93,6 +116,8 @@ pub(crate) async fn set_read_markers(
         return Err(ApiError::forbidden("You are not a member of this room".to_string()));
     }
 
+    let body = serde_json::to_value(&body)
+        .map_err(|e| ApiError::internal_with_cause("Failed to serialize read markers body", e))?;
     ctx.room_service.messaging().set_read_markers(&room_id, &auth_user.user_id, &body).await?;
 
     Ok(Json(json!({

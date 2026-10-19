@@ -19,6 +19,7 @@ use synapse_services::thread_service::{
 };
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CreateThreadBody {
     #[serde(default)]
     room_id: Option<String>,
@@ -64,6 +65,7 @@ struct SubscribeBody {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct MarkReadBody {
     event_id: String,
     origin_server_ts: i64,

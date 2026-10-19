@@ -10,6 +10,7 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 async fn ensure_typing_room_access(
@@ -21,13 +22,24 @@ async fn ensure_typing_room_access(
         .await
 }
 
+/// Request body for [`set_typing`].
+#[derive(Debug, Deserialize)]
+pub struct SetTypingBody {
+    /// Typing timeout in milliseconds; defaults to `30000`.
+    #[serde(default)]
+    pub timeout: Option<i64>,
+    /// Whether the user is typing; defaults to `true`.
+    #[serde(default)]
+    pub typing: Option<bool>,
+}
+
 /// Set typing indicator
 /// PUT /_matrix/client/v3/rooms/{room_id}/typing/{user_id}
 pub async fn set_typing(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, user_id)): Path<(String, String)>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<SetTypingBody>,
 ) -> Result<Json<Value>, ApiError> {
     if user_id != auth_user.user_id {
         return Err(ApiError::forbidden("Cannot set typing for other users".to_string()));
@@ -35,9 +47,9 @@ pub async fn set_typing(
 
     ensure_typing_room_access(&ctx, &auth_user, &room_id).await?;
 
-    let timeout = body.get("timeout").and_then(|v| v.as_i64()).unwrap_or(30000) as u64;
+    let timeout = body.timeout.unwrap_or(30000) as u64;
 
-    let is_typing = body.get("typing").and_then(|v| v.as_bool()).unwrap_or(true);
+    let is_typing = body.typing.unwrap_or(true);
 
     if is_typing {
         ctx.typing_service.set_typing(&room_id, &user_id, timeout).await?;
@@ -117,18 +129,23 @@ pub async fn get_user_typing(
     Ok(Json(json!({ "typing": is_typing })))
 }
 
+/// Request body for [`bulk_get_typing`].
+#[derive(Debug, Deserialize)]
+pub struct BulkGetTypingBody {
+    /// Room IDs to query; non-string entries are ignored.
+    #[serde(default)]
+    pub rooms: Option<Vec<Value>>,
+}
+
 /// Bulk get typing status
 /// POST /_matrix/client/v3/rooms/typing
 pub async fn bulk_get_typing(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<BulkGetTypingBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_ids = body
-        .get("rooms")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>())
-        .unwrap_or_default();
+    let room_ids =
+        body.rooms.unwrap_or_default().iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>();
 
     let mut result = serde_json::Map::new();
     for room_id in room_ids {

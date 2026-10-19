@@ -34,12 +34,24 @@ pub(crate) struct RoomSyncQueryDto {
     since: Option<String>,
 }
 
+/// Query parameters accepted by [`room_initial_sync`].
+///
+/// Deliberately **not** `deny_unknown_fields`: the handler used to take a bare
+/// `Query<HashMap<..>>` and ignored unknown parameters. Both values stay raw
+/// strings so an unparsable `from`/`limit` keeps its previous
+/// "ignore and fall back to the default" behaviour.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct RoomInitialSyncQueryDto {
+    from: Option<String>,
+    limit: Option<String>,
+}
+
 /// See [`room_initial_sync`].
 pub(crate) async fn room_initial_sync(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Query(params): Query<std::collections::HashMap<String, String>>,
+    Query(params): Query<RoomInitialSyncQueryDto>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -53,12 +65,12 @@ pub(crate) async fn room_initial_sync(
 
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let from = params.get("from").and_then(|value| {
+    let from = params.from.as_deref().and_then(|value| {
         synapse_common::parse_pagination_token(value)
             .or_else(|| synapse_common::parse_stream_token(value).map(|ts| (ts, None)))
             .or_else(|| value.parse::<i64>().ok().map(|ts| (ts, None)))
     });
-    let limit = params.get("limit").and_then(|value| value.parse::<i64>().ok()).unwrap_or(10).clamp(1, 100);
+    let limit = params.limit.as_deref().and_then(|value| value.parse::<i64>().ok()).unwrap_or(10).clamp(1, 100);
 
     let state_events = ctx
         .room_service

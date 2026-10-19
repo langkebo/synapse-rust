@@ -5,15 +5,15 @@
   "profiles": {
     "all": {
       "entry_count": 1041,
-      "route_surface_sha256": "c7f95a58779d5e6e460b04100c7179c409de13449ee1824b7849d66858c48271"
+      "route_surface_sha256": "6565d6031e12f6685cee22b1b46ece89a2582ae8bfef27213da0d3e692ad7f77"
     },
     "default": {
       "entry_count": 1022,
-      "route_surface_sha256": "67875df7c86c09f5d2e02ec4fa1529df547664876535a0165277ebe16077c2dd"
+      "route_surface_sha256": "5272ceb425c52e1dd6e03b0116a0dd7b2cad1f01709fd8b30b96a09a2b63ffa9"
     },
     "worker": {
       "entry_count": 1033,
-      "route_surface_sha256": "d5fc346ebc9fda693313fef0b1b2341f524f56701556c270d5343d362e242b79"
+      "route_surface_sha256": "9015ff5c9de0b917ca69983ac8993bdc6ddafa5da1807bed6418c52fea422e06"
     }
   }
 }

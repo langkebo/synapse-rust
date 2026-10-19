@@ -41,10 +41,123 @@
 #     not parse is RED, and a handler `Query<Struct>` with no annotation is RED
 #     too. The committed ledger fixtures are the second, independent oracle.
 #
+#   * `body_opaque` — the route's JSON request body is protocol-arbitrary on
+#     purpose (event content, account data, filters, room-key backups, UIA
+#     `Value` bodies, federation PDUs/transactions), so there is no addressable
+#     field list. Declaring it keeps the route out of the "unknown body" debt.
+#     Guarded only in the positive direction by `check_annotation_fidelity`:
+#     declaring it on a route whose handler body is not a bare
+#     `Json<Value>`/`MatrixJson<Value>` is RED. The unannotated remainder is a
+#     counted ratchet (`EXPECTED_OPAQUE_UNANNOTATED`), so burning debt must
+#     lower the pin while a *new* opaque body is RED.
+#
 # This table is the single source of truth for annotations, mirroring
 # `ledger_origins.txt` for `registered_by`. Deleting a line and observing a RED
 # fidelity test is the self-proof that the guard is real, not a tautology.
 
+# -- body_opaque: protocol-arbitrary JSON bodies with no addressable field list.
+POST /_matrix/client/v1/account/3pid/add	body_opaque=true
+POST /_matrix/client/v1/account/3pid/bind	body_opaque=true
+POST /_matrix/client/v1/account/3pid/email/requestToken	body_opaque=true
+POST /_matrix/client/v1/account/password/email/requestToken	body_opaque=true
+POST /_matrix/client/v1/room_keys/import	body_opaque=true
+POST /_matrix/client/v1/room_keys/import/{version}	body_opaque=true
+POST /_matrix/client/v1/room_keys/request	body_opaque=true
+POST /_matrix/client/v1/room_keys/version	body_opaque=true
+POST /_matrix/client/v3/account/3pid/add	body_opaque=true
+POST /_matrix/client/v3/account/3pid/bind	body_opaque=true
+POST /_matrix/client/v3/account/3pid/email/requestToken	body_opaque=true
+POST /_matrix/client/v3/account/password/email/requestToken	body_opaque=true
+POST /_matrix/client/v3/keys/backup/secure/{backup_id}/keys	body_opaque=true
+POST /_matrix/client/v3/keys/backup/secure/{backup_id}/verify	body_opaque=true
+POST /_matrix/client/v3/register	body_opaque=true
+POST /_matrix/client/v3/room_keys/import	body_opaque=true
+POST /_matrix/client/v3/room_keys/import/{version}	body_opaque=true
+POST /_matrix/client/v3/room_keys/request	body_opaque=true
+POST /_matrix/client/v3/room_keys/version	body_opaque=true
+POST /_matrix/client/v3/rooms/{room_id}/redact/{event_id}/{txn_id}	body_opaque=true
+POST /_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}	body_opaque=true
+POST /_matrix/client/v3/rooms/{room_id}/state/{event_type}	body_opaque=true
+POST /_matrix/client/v3/user/{user_id}/account_data/{type}	body_opaque=true
+POST /_matrix/client/v3/user/{user_id}/filter	body_opaque=true
+POST /_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{type}	body_opaque=true
+POST /_matrix/federation/v1/get_missing_events/{room_id}	body_opaque=true
+POST /_matrix/federation/v1/knock/{room_id}/{user_id}	body_opaque=true
+PUT /_matrix/client/v1/room_keys/{version}/keys/{room_id}/{session_id}	body_opaque=true
+PUT /_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/	body_opaque=true
+PUT /_matrix/client/v3/room_keys/{version}/keys/{room_id}/{session_id}	body_opaque=true
+PUT /_matrix/client/v3/rooms/{room_id}/account_data/{type}	body_opaque=true
+PUT /_matrix/client/v3/rooms/{room_id}/redact/{event_id}/{txn_id}	body_opaque=true
+PUT /_matrix/client/v3/rooms/{room_id}/send/m.reaction/{txn_id}	body_opaque=true
+PUT /_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}	body_opaque=true
+PUT /_matrix/client/v3/rooms/{room_id}/state/m.room.power_levels/	body_opaque=true
+PUT /_matrix/client/v3/rooms/{room_id}/state/{event_type}	body_opaque=true
+PUT /_matrix/client/v3/rooms/{room_id}/state/{event_type}/	body_opaque=true
+PUT /_matrix/client/v3/rooms/{room_id}/state/{event_type}/{state_key}	body_opaque=true
+PUT /_matrix/client/v3/user/{user_id}/account_data/{type}	body_opaque=true
+PUT /_matrix/client/v3/user/{user_id}/filter	body_opaque=true
+PUT /_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{type}	body_opaque=true
+PUT /_matrix/federation/v1/exchange_third_party_invite/{room_id}	body_opaque=true
+PUT /_matrix/federation/v1/invite/{room_id}/{event_id}	body_opaque=true
+PUT /_matrix/federation/v1/send/{txn_id}	body_opaque=true
+PUT /_matrix/federation/v1/send_join/{room_id}/{event_id}	body_opaque=true
+PUT /_matrix/federation/v1/send_leave/{room_id}/{event_id}	body_opaque=true
+PUT /_matrix/federation/v2/invite/{room_id}/{event_id}	body_opaque=true
+PUT /_matrix/federation/v2/send_join/{room_id}/{event_id}	body_opaque=true
+PUT /_matrix/federation/v2/send_leave/{room_id}/{event_id}	body_opaque=true
+PUT /_matrix/vendor/v1/rooms/{room_id}/room_keys/keys	body_opaque=true
+DELETE /_matrix/client/v3/devices/{device_id}	body_opaque=true
+POST /_matrix/client/unstable/io.element.msc4512/appservice/fed_proxy	body_opaque=true
+POST /_matrix/client/v1/account/3pid	body_opaque=true
+POST /_matrix/client/v1/account/deactivate	body_opaque=true
+POST /_matrix/client/v1/account/password	body_opaque=true
+POST /_matrix/client/v1/appservice/fed_proxy	body_opaque=true
+POST /_matrix/client/v1/keys/claim	body_opaque=true
+POST /_matrix/client/v1/keys/device_list/update	body_opaque=true
+POST /_matrix/client/v1/keys/device_signing/upload	body_opaque=true
+POST /_matrix/client/v1/keys/query	body_opaque=true
+POST /_matrix/client/v1/keys/signatures/upload	body_opaque=true
+POST /_matrix/client/v1/keys/upload	body_opaque=true
+POST /_matrix/client/v1/keys/upload/{device_id}	body_opaque=true
+POST /_matrix/client/v1/sendToDevice/{event_type}/{transaction_id}	body_opaque=true
+POST /_matrix/client/v3/account/3pid	body_opaque=true
+POST /_matrix/client/v3/account/deactivate	body_opaque=true
+POST /_matrix/client/v3/account/password	body_opaque=true
+POST /_matrix/client/v3/delete_devices	body_opaque=true
+POST /_matrix/client/v3/keys/backup/secure	body_opaque=true
+POST /_matrix/client/v3/keys/claim	body_opaque=true
+POST /_matrix/client/v3/keys/device_list/update	body_opaque=true
+POST /_matrix/client/v3/keys/device_signing/upload	body_opaque=true
+POST /_matrix/client/v3/keys/query	body_opaque=true
+POST /_matrix/client/v3/keys/signatures/upload	body_opaque=true
+POST /_matrix/client/v3/keys/upload	body_opaque=true
+POST /_matrix/client/v3/keys/upload/{device_id}	body_opaque=true
+POST /_matrix/client/v3/login	body_opaque=true
+POST /_matrix/client/v3/oidc/login	body_opaque=true
+POST /_matrix/client/v3/register/email/requestToken	body_opaque=true
+POST /_matrix/client/v3/sendToDevice/{event_type}/{transaction_id}	body_opaque=true
+POST /_matrix/federation/unstable/org.matrix.msc3720/account_status	body_opaque=true
+POST /_matrix/federation/v1/publicRooms	body_opaque=true
+POST /_matrix/federation/v1/thirdparty/invite	body_opaque=true
+POST /_matrix/federation/v1/user/keys/claim	body_opaque=true
+POST /_matrix/federation/v1/user/keys/query	body_opaque=true
+POST /_matrix/federation/v1/user/keys/upload	body_opaque=true
+POST /_matrix/federation/v2/user/keys/query	body_opaque=true
+POST /_matrix/key/v2/query	body_opaque=true
+POST /_matrix/vendor/v1/rooms/{room_id}/keys/claim	body_opaque=true
+POST /_matrix/vendor/v1/rooms/{room_id}/search	body_opaque=true
+POST /_matrix/vendor/v1/widgets	body_opaque=true
+POST /_synapse/federation/v1/keys/claim	body_opaque=true
+POST /_synapse/federation/v1/keys/query	body_opaque=true
+POST /_synapse/federation/v1/keys/upload	body_opaque=true
+POST /_synapse/federation/v2/key/clone	body_opaque=true
+PUT /_matrix/app/v1/transactions/{as_id}/{txn_id}	body_opaque=true
+PUT /_matrix/client/v1/sendToDevice/{event_type}/{transaction_id}	body_opaque=true
+PUT /_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/actions	body_opaque=true
+PUT /_matrix/client/v3/sendToDevice/{event_type}/{transaction_id}	body_opaque=true
+PUT /_matrix/vendor/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}	body_opaque=true
+PUT /_matrix/vendor/v1/rooms/{room_id}/vault_data	body_opaque=true
+PUT /_synapse/admin/v1/saml/config	body_opaque=true
 DELETE /_matrix/client/v1/room_keys/keys	query_params=version
 DELETE /_matrix/client/v1/room_keys/keys/{room_id}	query_params=version
 DELETE /_matrix/client/v1/room_keys/keys/{room_id}/{session_id}	query_params=version
@@ -162,13 +275,13 @@ POST /_matrix/vendor/v1/friends/search	query_params=limit,mode,q,query
 POST /_synapse/admin/v1/push/cleanup	query_params=days
 POST /_synapse/admin/v1/push/process	query_params=batch_size
 POST /_synapse/room_summary/v1/updates/process	query_params=limit
-PUT /_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}	auth=user
+PUT /_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}	auth=user body_opaque=true
 PUT /_matrix/client/v1/room_keys/keys	query_params=version
 PUT /_matrix/client/v1/room_keys/keys/{room_id}	query_params=version
-PUT /_matrix/client/v1/room_keys/keys/{room_id}/{session_id}	query_params=version
+PUT /_matrix/client/v1/room_keys/keys/{room_id}/{session_id}	query_params=version body_opaque=true
 PUT /_matrix/client/v3/room_keys/keys	query_params=version
 PUT /_matrix/client/v3/room_keys/keys/{room_id}	query_params=version
-PUT /_matrix/client/v3/room_keys/keys/{room_id}/{session_id}	query_params=version
+PUT /_matrix/client/v3/room_keys/keys/{room_id}/{session_id}	query_params=version body_opaque=true
 
 GET /_synapse/cas/login	query_params=gateway,renew,service
 GET /_synapse/cas/logout	query_params=service
@@ -176,3 +289,20 @@ GET /_synapse/cas/p3/serviceValidate	query_params=pgt_url,renew,service,ticket
 GET /_synapse/cas/proxy	query_params=pgt,target_service
 GET /_synapse/cas/proxyValidate	query_params=pgt_url,service,ticket
 GET /_synapse/cas/serviceValidate	query_params=pgt_url,renew,service,ticket
+
+# -- P1: handlers that used to take a bare Query<Value>/Query<HashMap<..>> and now
+# take a named struct. The names below are that struct's wire names; the
+# fidelity guard re-derives them from the Rust source.
+GET /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events	query_params=limit,next_batch
+GET /_matrix/client/v1/keys/changes	query_params=from,to
+GET /_matrix/client/v1/media/preview_url	query_params=ts,url
+GET /_matrix/client/v3/events	query_params=from,timeout
+GET /_matrix/client/v3/keys/changes	query_params=from,to
+GET /_matrix/client/v3/register/available	query_params=username
+GET /_matrix/client/v3/rooms/{room_id}/initialSync	query_params=from,limit
+GET /_matrix/federation/v1/query/directory	query_params=room_alias
+GET /_matrix/media/r0/preview_url	query_params=ts,url
+GET /_matrix/media/v1/preview_url	query_params=ts,url
+GET /_matrix/media/v3/preview_url	query_params=ts,url
+GET /_matrix/vendor/v1/keys/rotation/check	query_params=key_id
+POST /_matrix/vendor/v1/keys/rotation/check	query_params=key_id

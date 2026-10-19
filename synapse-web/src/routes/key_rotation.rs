@@ -2,13 +2,54 @@ use crate::routes::context::DeviceContext;
 use crate::routes::MatrixJson;
 use crate::routes::{AdminUser, ApiError, AppState};
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     routing::{get, post, put},
     Json, Router,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::types::DeviceId;
+
+/// Request body for [`rotate_keys`].
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RotateKeysRequest {
+    /// Optional key identifier to rotate.
+    pub key_id: Option<String>,
+}
+
+/// Request body for [`revoke_old_keys`].
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RevokeOldKeysRequest {
+    /// Key identifier to revoke.
+    pub key_id: Option<String>,
+    /// Optional audit reason.
+    pub reason: Option<String>,
+}
+
+/// Request body for [`configure_key_rotation`].
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConfigureKeyRotationRequest {
+    /// Whether automatic key rotation is enabled.
+    pub enabled: Option<bool>,
+    /// Rotation interval in milliseconds.
+    pub interval_ms: Option<i64>,
+    /// Rotation interval in days.
+    pub rotation_interval_days: Option<i64>,
+    /// Rotation threshold in days.
+    pub rotation_threshold_days: Option<i64>,
+    /// Grace period in minutes.
+    pub grace_period_minutes: Option<i64>,
+    /// Olm rotation interval in days.
+    pub olm_rotation_days: Option<i64>,
+    /// Megolm rotation interval in messages.
+    pub megolm_rotation_messages: Option<i64>,
+    /// Maximum session age in days.
+    pub max_session_age_days: Option<i64>,
+}
 
 /// Resolve the rotation interval (milliseconds) used by the admin key-rotation
 /// surface.
@@ -64,9 +105,9 @@ pub async fn get_key_rotation_status_post(
 pub async fn rotate_keys(
     State(ctx): State<DeviceContext>,
     _admin: AdminUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<RotateKeysRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let requested_key_id = body.get("key_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let requested_key_id = body.key_id;
 
     match ctx.key_rotation_service.rotate_keys(requested_key_id).await {
         Ok(has_new_key) => Ok(Json(json!({
@@ -113,17 +154,17 @@ pub async fn get_rotation_history(
 pub async fn revoke_old_keys(
     State(ctx): State<DeviceContext>,
     _admin: AdminUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<RevokeOldKeysRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let key_id = body.get("key_id").and_then(|v| v.as_str()).unwrap_or("");
+    let key_id = body.key_id.unwrap_or_default();
 
-    let reason = body.get("reason").and_then(|v| v.as_str());
+    let reason = body.reason.as_deref();
 
     if key_id.is_empty() {
         return Err(ApiError::bad_request("key_id is required for key revocation".to_string()));
     }
 
-    match ctx.key_rotation_service.revoke_key(key_id, reason).await {
+    match ctx.key_rotation_service.revoke_key(&key_id, reason).await {
         Ok(revoked_count) => Ok(Json(json!({
             "success": true,
             "revoked": revoked_count,
@@ -144,16 +185,16 @@ pub async fn revoke_old_keys(
 pub async fn configure_key_rotation(
     State(ctx): State<DeviceContext>,
     admin_user: AdminUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<ConfigureKeyRotationRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let enabled = body.get("enabled").and_then(|v| v.as_bool());
-    let interval_ms = body.get("interval_ms").and_then(|v| v.as_i64());
-    let rotation_interval_days = body.get("rotation_interval_days").and_then(|v| v.as_i64());
-    let rotation_threshold_days = body.get("rotation_threshold_days").and_then(|v| v.as_i64());
-    let grace_period_minutes = body.get("grace_period_minutes").and_then(|v| v.as_i64());
-    let olm_rotation_days = body.get("olm_rotation_days").and_then(|v| v.as_i64());
-    let megolm_rotation_messages = body.get("megolm_rotation_messages").and_then(|v| v.as_i64());
-    let max_session_age_days = body.get("max_session_age_days").and_then(|v| v.as_i64());
+    let enabled = body.enabled;
+    let interval_ms = body.interval_ms;
+    let rotation_interval_days = body.rotation_interval_days;
+    let rotation_threshold_days = body.rotation_threshold_days;
+    let grace_period_minutes = body.grace_period_minutes;
+    let olm_rotation_days = body.olm_rotation_days;
+    let megolm_rotation_messages = body.megolm_rotation_messages;
+    let max_session_age_days = body.max_session_age_days;
 
     if let Some(enabled_val) = enabled {
         ctx.key_rotation_service.set_rotation_enabled(enabled_val).await;
@@ -232,19 +273,30 @@ pub async fn configure_key_rotation(
 pub async fn configure_key_rotation_post(
     State(ctx): State<DeviceContext>,
     admin_user: AdminUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<ConfigureKeyRotationRequest>,
 ) -> Result<Json<Value>, ApiError> {
     configure_key_rotation(State(ctx), admin_user, MatrixJson(body)).await
+}
+
+/// Query parameters shared by the `GET` and `POST` variants of
+/// [`check_needs_rotation`].
+///
+/// Deliberately **not** `deny_unknown_fields`: both handlers used to take a
+/// bare `Query<HashMap<..>>`, so unknown parameters were ignored. Keeping that
+/// behaviour means a client adding `?foo=1` must keep getting a 200.
+#[derive(Debug, Default, Deserialize)]
+pub struct KeyRotationCheckParams {
+    key_id: Option<String>,
 }
 
 /// See [`check_needs_rotation`].
 pub async fn check_needs_rotation(
     State(ctx): State<DeviceContext>,
     admin_user: AdminUser,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    Query(params): Query<KeyRotationCheckParams>,
 ) -> Result<Json<Value>, ApiError> {
     // If key_id is provided, check if that specific key needs rotation
-    let key_id_filter = params.get("key_id").map(|s| s.as_str());
+    let key_id_filter = params.key_id.as_deref();
 
     let last_rotation: Option<i64> = if let Some(key_id) = key_id_filter {
         ctx.key_rotation_service.get_last_rotation_for_key(&admin_user.user_id, key_id).await.map_err(|e| {
@@ -288,9 +340,9 @@ pub async fn check_needs_rotation(
 pub async fn check_needs_rotation_post(
     State(ctx): State<DeviceContext>,
     admin_user: AdminUser,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    Query(params): Query<KeyRotationCheckParams>,
 ) -> Result<Json<Value>, ApiError> {
-    check_needs_rotation(State(ctx), admin_user, axum::extract::Query(params)).await
+    check_needs_rotation(State(ctx), admin_user, Query(params)).await
 }
 
 /// See [`create_key_rotation_router`].

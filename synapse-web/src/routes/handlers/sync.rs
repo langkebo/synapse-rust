@@ -4,6 +4,7 @@ use axum::{
     extract::{Json, Query, State},
     http::HeaderMap,
 };
+use serde::Deserialize;
 use serde_json::Value;
 use synapse_common::rate_limit_config::RateLimitConfigFile;
 use synapse_common::ApiError;
@@ -206,14 +207,27 @@ async fn execute_sync(params: SyncParams) -> Result<Json<Value>, ApiError> {
     }
 }
 
+/// Query parameters accepted by [`get_events`].
+///
+/// Deliberately **not** `deny_unknown_fields`: the handler used to take a bare
+/// `Query<Value>` and ignored unknown parameters. `timeout` stays a raw string
+/// so a malformed value keeps falling back to the default instead of turning
+/// into an extractor rejection.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct EventsParams {
+    from: Option<String>,
+    timeout: Option<String>,
+}
+
 /// See [`get_events`].
 pub(crate) async fn get_events(
     State(ctx): State<SyncContext>,
     auth_user: AuthenticatedUser,
-    Query(params): Query<Value>,
+    Query(params): Query<EventsParams>,
 ) -> Result<Json<Value>, ApiError> {
-    let from = params.get("from").and_then(|v| v.as_str()).unwrap_or("0");
-    let timeout = parse_u64_query_param(&params, "timeout").unwrap_or(30000);
+    let EventsParams { from, timeout } = params;
+    let from = from.as_deref().unwrap_or("0");
+    let timeout = timeout.as_deref().and_then(|raw| raw.parse::<u64>().ok()).unwrap_or(30000);
 
     let result = ctx.sync_service.get_events(&auth_user.user_id, from, timeout).await?;
 

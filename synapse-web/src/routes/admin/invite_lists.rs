@@ -73,6 +73,7 @@ pub struct InviteListParams {
 
 /// Request body for setting the global invite list.
 #[derive(Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct InviteListWriteBody {
     /// User IDs to include in the global list.
     pub user_ids: Vec<String>,

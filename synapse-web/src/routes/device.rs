@@ -9,6 +9,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::types::DeviceId;
@@ -324,14 +325,22 @@ pub async fn get_device(
     }
 }
 
+/// Request body for [`update_device`].
+#[derive(Debug, Deserialize)]
+pub struct UpdateDeviceBody {
+    /// New human-readable display name for the device.
+    #[serde(default)]
+    pub display_name: Option<String>,
+}
+
 /// See [`update_device`].
 pub async fn update_device(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     Path(device_id): Path<DeviceId>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<UpdateDeviceBody>,
 ) -> Result<Response, ApiError> {
-    let display_name = body.get("display_name").and_then(|v| v.as_str());
+    let display_name = body.display_name.as_deref();
     if let Some(display_name) = display_name {
         if display_name.len() > 100 {
             return Err(ApiError::bad_request("display_name must not exceed 100 characters".to_string()));
@@ -459,26 +468,36 @@ pub async fn delete_devices(
     Ok(Json(json!({})).into_response())
 }
 
+/// Request body for [`get_device_list_updates`].
+#[derive(Debug, Deserialize)]
+pub struct GetDeviceListUpdatesBody {
+    /// User IDs whose device lists are requested.
+    pub users: Vec<String>,
+    /// Stream token to start from.
+    #[serde(default)]
+    pub since: Option<Value>,
+    /// Legacy alias for `since`.
+    #[serde(default)]
+    pub from: Option<Value>,
+    /// Stream token to stop at.
+    #[serde(default)]
+    pub to: Option<Value>,
+}
+
 /// See [`get_device_list_updates`].
 pub async fn get_device_list_updates(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<GetDeviceListUpdatesBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let requested_users = body
-        .get("users")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| ApiError::bad_request("Missing users array".to_string()))?
-        .iter()
-        .filter_map(|v| v.as_str().map(String::from))
-        .collect::<Vec<String>>();
+    let requested_users = body.users;
 
     let users: Vec<String> = filter_users_with_shared_rooms(&ctx.room_service, &auth_user.user_id, &requested_users)
         .await
         .into_iter()
         .collect();
 
-    let since = body.get("since").or_else(|| body.get("from")).and_then(parse_stream_id);
+    let since = body.since.as_ref().or(body.from.as_ref()).and_then(parse_stream_id);
 
     if since.is_none() {
         let snapshot = ctx.account_device_list_service.get_device_list_snapshot(&users).await?;
@@ -504,7 +523,7 @@ pub async fn get_device_list_updates(
     }
 
     let since = since.unwrap_or(0);
-    let to = body.get("to").and_then(parse_stream_id).unwrap_or(0);
+    let to = body.to.as_ref().and_then(parse_stream_id).unwrap_or(0);
     let delta = ctx
         .account_device_list_service
         .get_device_list_delta(since, if to > 0 { Some(to) } else { None }, &users)

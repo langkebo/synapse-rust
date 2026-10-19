@@ -8,6 +8,7 @@ use axum::{
     extract::{Json, Path, State},
     http::HeaderMap,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use synapse_common::current_timestamp_millis;
@@ -104,30 +105,35 @@ pub(crate) async fn get_presence(
     }
 }
 
+/// Request body for [`set_presence`].
+#[derive(Debug, Deserialize)]
+pub struct SetPresenceBody {
+    /// One of `online`, `offline`, `unavailable`.
+    pub presence: String,
+    /// Optional status message.
+    #[serde(default)]
+    pub status_msg: Option<String>,
+}
+
 /// See [`set_presence`].
 pub(crate) async fn set_presence(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(user_id): Path<UserId>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<SetPresenceBody>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_presence_enabled(&ctx)?;
     validate_user_id(&user_id)?;
     ensure_presence_access(&auth_user, &user_id)?;
 
-    let presence_str = body
-        .get("presence")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Presence required".to_string()))?;
-
-    let presence_state = PresenceState::from_str_opt(presence_str).ok_or_else(|| {
+    let presence_state = PresenceState::from_str_opt(&body.presence).ok_or_else(|| {
         ApiError::invalid_input(format!(
             "Invalid presence status. Must be one of: {}",
             PresenceState::valid_strs().join(", ")
         ))
     })?;
 
-    let status_msg = body.get("status_msg").and_then(|v| v.as_str());
+    let status_msg = body.status_msg.as_deref();
 
     if let Some(msg) = status_msg {
         if msg.len() > MAX_MESSAGE_LENGTH {
@@ -142,24 +148,33 @@ pub(crate) async fn set_presence(
     Ok(Json(json!({})))
 }
 
+/// Request body for [`presence_list`].
+#[derive(Debug, Deserialize)]
+pub struct PresenceListBody {
+    /// User IDs to subscribe to.
+    #[serde(default)]
+    pub subscribe: Option<Vec<String>>,
+    /// User IDs to unsubscribe from.
+    #[serde(default)]
+    pub unsubscribe: Option<Vec<String>>,
+}
+
 /// See [`presence_list`].
 pub(crate) async fn presence_list(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<PresenceListBody>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_presence_enabled(&ctx)?;
     let request_id = resolve_request_id(&headers);
     let user_id = &auth_user.user_id;
 
-    if let Some(subscribe) = body.get("subscribe").and_then(|v| v.as_array()) {
+    if let Some(subscribe) = body.subscribe {
         let mut requested_targets = Vec::new();
-        for target in subscribe {
-            if let Some(target_id) = target.as_str() {
-                validate_user_id(target_id)?;
-                requested_targets.push(target_id.to_string());
-            }
+        for target_id in subscribe {
+            validate_user_id(&target_id)?;
+            requested_targets.push(target_id);
         }
 
         let visible_targets = filter_visible_presence_targets(&ctx, user_id, &requested_targets).await;
@@ -177,20 +192,18 @@ pub(crate) async fn presence_list(
         }
     }
 
-    if let Some(unsubscribe) = body.get("unsubscribe").and_then(|v| v.as_array()) {
-        for target in unsubscribe {
-            if let Some(target_id) = target.as_str() {
-                validate_user_id(target_id)?;
+    if let Some(unsubscribe) = body.unsubscribe {
+        for target_id in &unsubscribe {
+            validate_user_id(target_id)?;
 
-                if let Err(e) = ctx.presence_service.remove_subscription(user_id, target_id).await {
-                    ::tracing::warn!(
-                        request_id = %request_id,
-                        user_id = %user_id,
-                        target_user_id = %target_id,
-                        error = %e,
-                        "Failed to remove presence subscription"
-                    );
-                }
+            if let Err(e) = ctx.presence_service.remove_subscription(user_id, target_id).await {
+                ::tracing::warn!(
+                    request_id = %request_id,
+                    user_id = %user_id,
+                    target_user_id = %target_id,
+                    error = %e,
+                    "Failed to remove presence subscription"
+                );
             }
         }
     }

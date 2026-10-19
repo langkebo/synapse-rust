@@ -192,12 +192,18 @@ async fn try_fetch_remote_profile(ctx: &AuthContext, user_id: &str) -> Result<Op
     Ok(Some(Value::Object(profile_json)))
 }
 
+/// Request body for [`update_displayname`].
+#[derive(Debug, Deserialize)]
+pub struct UpdateDisplaynameBody {
+    pub displayname: Option<String>,
+}
+
 /// See [`update_displayname`].
 pub(crate) async fn update_displayname(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
     Path(user_id): Path<UserId>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<UpdateDisplaynameBody>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
     let user_id = user_id.as_str();
@@ -205,10 +211,8 @@ pub(crate) async fn update_displayname(
     // O-5: Rate limit per-caller for profile writes (authenticated caller).
     take_rc_profile_token(&ctx.cache, &auth_user.user_id, &ctx.config.rate_limit.rc_profile).await?;
 
-    let displayname = body
-        .get("displayname")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Displayname required".to_string()))?;
+    let displayname =
+        body.displayname.as_deref().ok_or_else(|| ApiError::bad_request("Displayname required".to_string()))?;
 
     if displayname.len() > 255 {
         return Err(ApiError::bad_request("Displayname too long (max 255 characters)".to_string()));
@@ -224,12 +228,18 @@ pub(crate) async fn update_displayname(
     Ok(Json(json!({})))
 }
 
+/// Request body for [`update_avatar`].
+#[derive(Debug, Deserialize)]
+pub struct UpdateAvatarBody {
+    pub avatar_url: Option<String>,
+}
+
 /// See [`update_avatar`].
 pub(crate) async fn update_avatar(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
     Path(user_id): Path<UserId>,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<UpdateAvatarBody>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
     let user_id = user_id.as_str();
@@ -237,10 +247,8 @@ pub(crate) async fn update_avatar(
     // O-5: Rate limit per-caller for profile writes.
     take_rc_profile_token(&ctx.cache, &auth_user.user_id, &ctx.config.rate_limit.rc_profile).await?;
 
-    let avatar_url = body
-        .get("avatar_url")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Avatar URL required".to_string()))?;
+    let avatar_url =
+        body.avatar_url.as_deref().ok_or_else(|| ApiError::bad_request("Avatar URL required".to_string()))?;
 
     if avatar_url.len() > 255 {
         return Err(ApiError::bad_request("Avatar URL too long (max 255 characters)".to_string()));

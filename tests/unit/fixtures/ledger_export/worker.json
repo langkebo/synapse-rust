@@ -240,7 +240,10 @@
       "path_params": [
         "device_id"
       ],
-      "query_params": []
+      "query_params": [
+        "limit",
+        "next_batch"
+      ]
     },
     {
       "method": "POST",
@@ -564,7 +567,10 @@
       "path": "/_matrix/client/v1/keys/changes",
       "registered_by": "e2ee",
       "path_params": [],
-      "query_params": []
+      "query_params": [
+        "from",
+        "to"
+      ]
     },
     {
       "method": "POST",
@@ -657,7 +663,10 @@
       "path": "/_matrix/client/v1/media/preview_url",
       "registered_by": "media",
       "path_params": [],
-      "query_params": []
+      "query_params": [
+        "ts",
+        "url"
+      ]
     },
     {
       "method": "GET",
@@ -1753,7 +1762,10 @@
       "path": "/_matrix/client/v3/events",
       "registered_by": "sync",
       "path_params": [],
-      "query_params": []
+      "query_params": [
+        "from",
+        "timeout"
+      ]
     },
     {
       "method": "POST",
@@ -1835,7 +1847,10 @@
       "path": "/_matrix/client/v3/keys/changes",
       "registered_by": "e2ee",
       "path_params": [],
-      "query_params": []
+      "query_params": [
+        "from",
+        "to"
+      ]
     },
     {
       "method": "POST",
@@ -2282,7 +2297,9 @@
       "path": "/_matrix/client/v3/register/available",
       "registered_by": "assembly::auth_compat",
       "path_params": [],
-      "query_params": []
+      "query_params": [
+        "username"
+      ]
     },
     {
       "method": "DELETE",
@@ -2797,7 +2814,10 @@
       "path_params": [
         "room_id"
       ],
-      "query_params": []
+      "query_params": [
+        "from",
+        "limit"
+      ]
     },
     {
       "method": "POST",
@@ -3794,7 +3814,9 @@
       "path": "/_matrix/federation/v1/query/directory",
       "registered_by": "federation",
       "path_params": [],
-      "query_params": []
+      "query_params": [
+        "room_alias"
+      ]
     },
     {
       "method": "GET",
@@ -4079,7 +4101,10 @@
       "path": "/_matrix/media/r0/preview_url",
       "registered_by": "media",
       "path_params": [],
-      "query_params": []
+      "query_params": [
+        "ts",
+        "url"
+      ]
     },
     {
       "method": "POST",
@@ -4152,7 +4177,10 @@
       "path": "/_matrix/media/v1/preview_url",
       "registered_by": "media",
       "path_params": [],
-      "query_params": []
+      "query_params": [
+        "ts",
+        "url"
+      ]
     },
     {
       "method": "GET",
@@ -4289,7 +4317,10 @@
       "path": "/_matrix/media/v3/preview_url",
       "registered_by": "media",
       "path_params": [],
-      "query_params": []
+      "query_params": [
+        "ts",
+        "url"
+      ]
     },
     {
       "method": "GET",
@@ -4650,14 +4681,18 @@
       "path": "/_matrix/vendor/v1/keys/rotation/check",
       "registered_by": "key_rotation",
       "path_params": [],
-      "query_params": []
+      "query_params": [
+        "key_id"
+      ]
     },
     {
       "method": "POST",
       "path": "/_matrix/vendor/v1/keys/rotation/check",
       "registered_by": "key_rotation",
       "path_params": [],
-      "query_params": []
+      "query_params": [
+        "key_id"
+      ]
     },
     {
       "method": "POST",

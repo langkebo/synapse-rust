@@ -96,6 +96,7 @@ pub struct BlacklistQuery {
 ///   且无 body 时它**不会**设 `Content-Type: application/json` ⇒ `Option<Json<..>>` 取到 `None`。
 ///   若写成必选的 `Json<..>`，那条"不带 body"的调用会直接 415。
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AddBlacklistBody {
     /// The `reason` field.
     pub reason: Option<String>,
