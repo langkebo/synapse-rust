@@ -521,6 +521,12 @@ impl TestContext {
 
     async fn build(isolated: bool) -> Option<Self> {
         init_tracing();
+        // The atexit drain is what actually drops this test's schema: the
+        // release path is lease-guarded and reports `Retry` while the pool is
+        // closing, and nextest exits right after. Without this call the drain
+        // is never registered in this process and **every** test leaks a
+        // `test_*` schema (measured 2026-10-20: 13 tests -> 13 residual).
+        crate::common::ensure_schema_exit_hook();
 
         // 2026-10-18：数据库不可达时 **panic**，不再 `return None`。
         // 以前 `None` 会让每个用例走 `else { return; }`，libtest 记为 `ok`
@@ -627,6 +633,7 @@ where
     use synapse_services::ServiceContainer;
     use synapse_web::routes::state::AppState;
 
+    crate::common::ensure_schema_exit_hook();
     let pool = synapse_test_utils::prepare_shared_test_pool().await.ok()?;
     let cache = std::sync::Arc::new(CacheManager::new(&CacheConfig::default()));
     let mut container = ServiceContainer::new_test_with_pool_and_cache(pool, cache.clone()).await;

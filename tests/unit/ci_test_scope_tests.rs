@@ -969,12 +969,19 @@ fn every_db_test_binary_registers_the_exit_drain() {
     );
     let common_calls = common.matches("ensure_schema_exit_hook();").count();
     let integration = fs::read_to_string(root.join("tests/integration/mod.rs")).expect("read tests/integration/mod.rs");
-    let integration_calls = integration.matches("ensure_schema_exit_hook()").count();
+    let integration_calls = integration.matches("ensure_schema_exit_hook();").count();
+    // Three entry points in the integration binary, and the count is a ratchet:
+    // `require_test_pool`, `TestContext::build` and
+    // `setup_fresh_test_app_with_config` each build a per-test schema, and the
+    // last one bypasses the first two — dropping its call leaked one schema per
+    // test for a whole suite (measured 2026-10-20: 13 tests -> 13 residual,
+    // 0 after the fix). A new pooling entry point must add its own call.
     assert!(
-        common_calls >= 1 && integration_calls >= 1,
-        "注册必须被真正调用：tests/common/mod.rs 的 `get_test_pool_async` 至少调一次、\
-         tests/integration/mod.rs 的 `require_test_pool` 至少调一次（定义行的写法不以分号结尾，\
-         因此不计入 `ensure_schema_exit_hook();` 的调用计数）\
+        common_calls >= 1 && integration_calls >= 3,
+        "注册必须被真正调用：tests/common/mod.rs 的 `get_test_pool_async` 至少一次；\
+         tests/integration/mod.rs 的 `require_test_pool`、`TestContext::build`、\
+         `setup_fresh_test_app_with_config` **各**一次（三个入口都会建 per-test schema，\
+         最后一个绕开前两个 —— 少一处就每条测试漏一个 schema）\
          （common_calls={common_calls}, integration_calls={integration_calls}）"
     );
 
