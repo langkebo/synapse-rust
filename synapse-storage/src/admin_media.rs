@@ -121,7 +121,12 @@ pub trait AdminMediaStoreApi: Send + Sync {
     /// See [`get_media_quota`].
     async fn get_media_quota(&self) -> Result<AdminMediaQuotaSummary, ApiError>;
     /// See [`get_user_media`].
-    async fn get_user_media(&self, user_id: &str) -> Result<Vec<AdminMediaInfo>, ApiError>;
+    async fn get_user_media(
+        &self,
+        user_id: &str,
+        limit: i64,
+        cursor: Option<MediaCursor>,
+    ) -> Result<AdminMediaPage, ApiError>;
     /// See [`delete_user_media`].
     async fn delete_user_media(&self, user_id: &str) -> Result<u64, ApiError>;
     /// See [`get_room_media`].
@@ -331,21 +336,46 @@ impl AdminMediaStorage {
     }
 
     /// See [`get_user_media`].
-    pub async fn get_user_media(&self, user_id: &str) -> Result<Vec<AdminMediaInfo>, ApiError> {
+    ///
+    /// Keyset pagination on `(created_ts, media_id)`; `limit + 1` rows are fetched so
+    /// `next_batch` is only returned when another page provably exists.
+    pub async fn get_user_media(
+        &self,
+        user_id: &str,
+        limit: i64,
+        cursor: Option<MediaCursor>,
+    ) -> Result<AdminMediaPage, ApiError> {
         // 后两列是 `NULL::BIGINT` / `NULL::TEXT` 常量（R4 ①：无关系来源 ⇒ 可空），
         // 与 `AdminMediaRow` 的 `Option` 字段一致。
-        let media: Vec<AdminMediaRow> = sqlx::query_as!(
-            AdminMediaRow,
+        let mut media: Vec<AdminMediaRow> = sqlx::query_as::<_, AdminMediaRow>(
             r#"SELECT media_id, content_type, file_name, size, uploader_user_id, created_ts,
                NULL::BIGINT AS last_accessed_at, NULL::TEXT AS quarantine_status
-               FROM media_metadata WHERE uploader_user_id = $1 ORDER BY created_ts DESC, media_id DESC"#,
-            user_id,
+               FROM media_metadata WHERE uploader_user_id = $1
+                 AND (($2::BIGINT IS NULL AND $3::TEXT IS NULL) OR created_ts < $2
+                      OR (created_ts = $2 AND media_id < $3))
+               ORDER BY created_ts DESC, media_id DESC LIMIT $4"#,
         )
+        .bind(user_id)
+        .bind(cursor.as_ref().map(|cursor| cursor.created_ts))
+        .bind(cursor.as_ref().map(|cursor| cursor.media_id.as_str()))
+        .bind(limit + 1)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
-        Ok(media.into_iter().map(map_media_row).collect())
+        let has_more = media.len() as i64 > limit;
+        if has_more {
+            media.pop();
+        }
+        let next_batch = if has_more {
+            media.last().map(|row| {
+                encode_media_cursor(&MediaCursor { created_ts: row.created_ts, media_id: row.media_id.clone() })
+            })
+        } else {
+            None
+        };
+
+        Ok(AdminMediaPage { media: media.into_iter().map(map_media_row).collect(), next_batch })
     }
 
     /// See [`delete_user_media`].
@@ -548,8 +578,13 @@ impl AdminMediaStoreApi for AdminMediaStorage {
         self.get_media_quota().await
     }
 
-    async fn get_user_media(&self, user_id: &str) -> Result<Vec<AdminMediaInfo>, ApiError> {
-        self.get_user_media(user_id).await
+    async fn get_user_media(
+        &self,
+        user_id: &str,
+        limit: i64,
+        cursor: Option<MediaCursor>,
+    ) -> Result<AdminMediaPage, ApiError> {
+        self.get_user_media(user_id, limit, cursor).await
     }
 
     async fn delete_user_media(&self, user_id: &str) -> Result<u64, ApiError> {
@@ -1144,13 +1179,15 @@ mod admin_read_paths_db_tests {
         insert_media_row(&pool, &format!("m_u_new_{s}"), &mine, 1, 300, Some(5), None).await;
         insert_media_row(&pool, &format!("m_other_{s}"), "@someone:test", 1, 200, None, None).await;
 
-        let mine_rows = storage.get_user_media(&mine).await.expect("get_user_media");
-        let ids: Vec<&str> = mine_rows.iter().map(|m| m.media_id.as_str()).collect();
+        let page = storage.get_user_media(&mine, 100, None).await.expect("get_user_media");
+        let ids: Vec<&str> = page.media.iter().map(|m| m.media_id.as_str()).collect();
         assert_eq!(ids, vec![format!("m_u_new_{s}"), format!("m_u_old_{s}")], "created_ts DESC 且只含该用户");
+        assert!(page.next_batch.is_none(), "two rows under limit 100 must not advertise a next page");
         // 该查询的两列是 `NULL::BIGINT` / `NULL::TEXT` 常量 ⇒ 必须落成 None / false
-        assert!(mine_rows.iter().all(|m| m.last_accessed_at.is_none() && !m.quarantined));
+        assert!(page.media.iter().all(|m| m.last_accessed_at.is_none() && !m.quarantined));
 
-        assert!(storage.get_user_media(&format!("@nobody_{s}:test")).await.expect("nobody").is_empty());
+        let nobody = storage.get_user_media(&format!("@nobody_{s}:test"), 100, None).await.expect("nobody");
+        assert!(nobody.media.is_empty());
     }
 
     #[tokio::test]
@@ -1164,7 +1201,8 @@ mod admin_read_paths_db_tests {
         insert_media_row(&pool, &format!("m_keep_{s}"), "@keep:test", 1, 3, None, None).await;
 
         assert_eq!(storage.delete_user_media(&mine).await.expect("delete_user_media"), 2);
-        assert!(storage.get_user_media(&mine).await.expect("after").is_empty());
+        let remaining = storage.get_user_media(&mine, 100, None).await.expect("after");
+        assert!(remaining.media.is_empty());
         assert!(storage.get_media_info(&format!("m_keep_{s}")).await.expect("other user").is_some());
 
         // 幂等：没有行时返回 0

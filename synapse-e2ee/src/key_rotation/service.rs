@@ -491,12 +491,18 @@ impl KeyRotationService {
 pub trait KeyRotationStorageApi: Send + Sync {
     /// Get the last key-rotation timestamp for a user (millis since epoch).
     async fn get_user_last_rotation_ts(&self, user_id: &str) -> Result<Option<i64>, ApiError>;
-    /// Get the rotation history for a single device.
+    /// Get one page of rotation history for a single device.
+    ///
+    /// `cursor` is the `(rotated_at, id)` pair carried by a previous page's
+    /// `next_batch`; the second half of the return value is the cursor for the
+    /// following page (`None` when this is the last page).
     async fn get_device_rotation_history(
         &self,
         user_id: &str,
         device_id: &str,
-    ) -> Result<Vec<(Option<String>, Option<i64>)>, ApiError>;
+        limit: i64,
+        cursor: Option<(i64, i64)>,
+    ) -> Result<(Vec<(Option<String>, Option<i64>)>, Option<String>), ApiError>;
     /// Set a rotation configuration value.
     async fn set_rotation_config(&self, key: &str, value: &str) -> Result<(), ApiError>;
     /// Get a rotation configuration value.
@@ -850,29 +856,48 @@ impl KeyRotationStorage {
         Ok(result)
     }
 
-    /// Get the rotation history for a specific user and device, limited to the
-    /// most recent 10 entries.
+    /// Get one page of rotation history for a specific user and device.
+    ///
+    /// Keyset pagination on `(rotated_at, id)`: `key_rotation_log.id` is a
+    /// `BIGSERIAL`, so it breaks ties between rows written in the same
+    /// millisecond. `LIMIT limit + 1` probes for a following page; the extra row
+    /// is dropped and its predecessor becomes `next_batch` (`"{rotated_at}|{id}"`).
     pub async fn get_device_rotation_history(
         &self,
         user_id: &str,
         device_id: &str,
-    ) -> Result<Vec<(Option<String>, Option<i64>)>, ApiError> {
-        let rows = sqlx::query!(
+        limit: i64,
+        cursor: Option<(i64, i64)>,
+    ) -> Result<(Vec<(Option<String>, Option<i64>)>, Option<String>), ApiError> {
+        let limit = limit.clamp(1, 500);
+        let mut rows = sqlx::query_as::<_, (i64, Option<String>, i64)>(
             r"
-            SELECT new_key_id AS key_id, rotated_at AS rotated_ts
+            SELECT id, new_key_id, rotated_at
             FROM key_rotation_log
-            WHERE user_id = $1 AND device_id = $2
-            ORDER BY rotated_at DESC
-            LIMIT 10
+            WHERE user_id = $1
+              AND device_id = $2
+              AND ($3::BIGINT IS NULL OR rotated_at < $3 OR (rotated_at = $3 AND id < $4))
+            ORDER BY rotated_at DESC, id DESC
+            LIMIT $5
             ",
-            user_id,
-            device_id,
         )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(cursor.map(|(ts, _)| ts))
+        .bind(cursor.map(|(_, id)| id))
+        .bind(limit + 1)
         .fetch_all(&*self.pool)
         .await
         .map_err(map_database!("Failed to get rotation history"))?;
 
-        Ok(rows.into_iter().map(|row| (row.key_id, Some(row.rotated_ts))).collect())
+        let has_more = rows.len() as i64 > limit;
+        if has_more {
+            rows.pop();
+        }
+        let next_batch =
+            if has_more { rows.last().map(|(id, _, rotated_at)| format!("{}|{}", rotated_at, id)) } else { None };
+
+        Ok((rows.into_iter().map(|(_, key_id, rotated_at)| (key_id, Some(rotated_at))).collect(), next_batch))
     }
 
     /// Get the last rotation timestamp for a specific key id.
@@ -965,8 +990,10 @@ impl KeyRotationStorageApi for KeyRotationStorage {
         &self,
         user_id: &str,
         device_id: &str,
-    ) -> Result<Vec<(Option<String>, Option<i64>)>, ApiError> {
-        self.get_device_rotation_history(user_id, device_id).await
+        limit: i64,
+        cursor: Option<(i64, i64)>,
+    ) -> Result<(Vec<(Option<String>, Option<i64>)>, Option<String>), ApiError> {
+        self.get_device_rotation_history(user_id, device_id, limit, cursor).await
     }
 
     async fn set_rotation_config(&self, key: &str, value: &str) -> Result<(), ApiError> {

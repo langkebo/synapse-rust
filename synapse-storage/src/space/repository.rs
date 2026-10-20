@@ -942,13 +942,34 @@ impl SpaceStorage {
     }
 
     /// See [`get_all_spaces_for_admin`].
-    pub async fn get_all_spaces_for_admin(&self) -> Result<Vec<Space>, sqlx::Error> {
-        sqlx::query_as!(
-            Space,
-            r#"SELECT space_id, room_id AS "room_id!", name, topic, avatar_url, creator, join_rule AS "join_rule!", visibility, created_ts, updated_ts, is_public AS "is_public!", parent_space_id, room_type FROM spaces ORDER BY created_ts DESC, space_id DESC"#,
+    ///
+    /// Keyset pagination on `(created_ts, space_id)`; `limit + 1` rows are fetched so
+    /// `next_batch` is only returned when another page provably exists.
+    pub async fn get_all_spaces_for_admin(
+        &self,
+        limit: i64,
+        cursor: Option<(i64, String)>,
+    ) -> Result<(Vec<Space>, Option<String>), sqlx::Error> {
+        let cursor_ts = cursor.as_ref().map(|(ts, _)| *ts);
+        let cursor_space_id = cursor.as_ref().map(|(_, space_id)| space_id.as_str());
+
+        let mut rows = sqlx::query_as::<_, Space>(
+            r#"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type FROM spaces WHERE ($1::BIGINT IS NULL OR created_ts < $1 OR (created_ts = $1 AND space_id < $2)) ORDER BY created_ts DESC, space_id DESC LIMIT $3"#,
         )
+        .bind(cursor_ts)
+        .bind(cursor_space_id)
+        .bind(limit + 1)
         .fetch_all(&*self.pool)
-        .await
+        .await?;
+
+        let has_more = rows.len() as i64 > limit;
+        if has_more {
+            rows.pop();
+        }
+        let next_batch =
+            if has_more { rows.last().map(|space| format!("{}|{}", space.created_ts, space.space_id)) } else { None };
+
+        Ok((rows, next_batch))
     }
 
     /// See [`get_space_by_identifier`].
@@ -963,23 +984,57 @@ impl SpaceStorage {
     }
 
     /// See [`get_space_user_ids`].
-    pub async fn get_space_user_ids(&self, space_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        let rows: Vec<String> = sqlx::query_scalar!(
-            r"SELECT user_id FROM space_members WHERE space_id = $1 AND membership = 'join'",
-            space_id,
+    ///
+    /// Keyset pagination on `user_id`; `limit + 1` rows are fetched to prove a next page.
+    pub async fn get_space_user_ids(
+        &self,
+        space_id: &str,
+        limit: i64,
+        after_user_id: Option<&str>,
+    ) -> Result<(Vec<String>, Option<String>), sqlx::Error> {
+        let mut rows: Vec<String> = sqlx::query_scalar(
+            r"SELECT user_id FROM space_members WHERE space_id = $1 AND membership = 'join' AND ($2::TEXT IS NULL OR user_id > $2) ORDER BY user_id ASC LIMIT $3",
         )
+        .bind(space_id)
+        .bind(after_user_id)
+        .bind(limit + 1)
         .fetch_all(&*self.pool)
         .await?;
-        Ok(rows)
+
+        let has_more = rows.len() as i64 > limit;
+        if has_more {
+            rows.pop();
+        }
+        let next_batch = if has_more { rows.last().cloned() } else { None };
+
+        Ok((rows, next_batch))
     }
 
     /// See [`get_space_room_ids`].
-    pub async fn get_space_room_ids(&self, space_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        let rows: Vec<String> =
-            sqlx::query_scalar!(r"SELECT room_id FROM space_children WHERE space_id = $1", space_id,)
-                .fetch_all(&*self.pool)
-                .await?;
-        Ok(rows)
+    ///
+    /// Keyset pagination on `room_id`; `limit + 1` rows are fetched to prove a next page.
+    pub async fn get_space_room_ids(
+        &self,
+        space_id: &str,
+        limit: i64,
+        after_room_id: Option<&str>,
+    ) -> Result<(Vec<String>, Option<String>), sqlx::Error> {
+        let mut rows: Vec<String> = sqlx::query_scalar(
+            r"SELECT room_id FROM space_children WHERE space_id = $1 AND ($2::TEXT IS NULL OR room_id > $2) ORDER BY room_id ASC LIMIT $3",
+        )
+        .bind(space_id)
+        .bind(after_room_id)
+        .bind(limit + 1)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let has_more = rows.len() as i64 > limit;
+        if has_more {
+            rows.pop();
+        }
+        let next_batch = if has_more { rows.last().cloned() } else { None };
+
+        Ok((rows, next_batch))
     }
 
     /// See [`get_space_member_and_child_count`].

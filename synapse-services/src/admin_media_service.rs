@@ -59,9 +59,14 @@ impl AdminMediaService {
 
     /// See [`get_user_media`].
     #[instrument(skip(self))]
-    pub async fn get_user_media(&self, identifier: &str) -> Result<(String, Vec<AdminMediaInfo>), ApiError> {
+    pub async fn get_user_media(
+        &self,
+        identifier: &str,
+        limit: i64,
+        cursor: Option<MediaCursor>,
+    ) -> Result<(String, AdminMediaPage), ApiError> {
         let user = self.user_service.get_user_or_not_found(identifier).await?;
-        let media = self.storage.get_user_media(&user.user_id).await?;
+        let media = self.storage.get_user_media(&user.user_id, limit, cursor).await?;
         Ok((user.user_id, media))
     }
 
@@ -471,7 +476,7 @@ mod tests {
     #[tokio::test]
     async fn get_user_media_user_not_found() {
         let (svc, _store, _q) = test_service();
-        let err = svc.get_user_media("@unknown:example.com").await.unwrap_err();
+        let err = svc.get_user_media("@unknown:example.com", 100, None).await.unwrap_err();
         assert!(err.to_string().contains("not found"));
     }
 

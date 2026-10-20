@@ -289,17 +289,18 @@ async fn test_get_rotation_history_returns_seeded_entries() {
     storage.seed_device_history("@dave:example.com", "DEV_X", history).await;
     let svc = FederationKeyRotationService::new(Arc::new(manager), Arc::new(storage));
 
-    let result = svc.get_rotation_history("@dave:example.com", "DEV_X").await.expect("get_rotation_history");
-    assert_eq!(result.len(), 2);
-    assert_eq!(result[0].0.as_deref(), Some("ed25519:1"));
-    assert_eq!(result[1].1, Some(1_700_010_000_000));
+    let result = svc.get_rotation_history("@dave:example.com", "DEV_X", 100, None).await.expect("get_rotation_history");
+    assert_eq!(result.0.len(), 2);
+    assert_eq!(result.0[0].0.as_deref(), Some("ed25519:1"));
+    assert_eq!(result.0[1].1, Some(1_700_010_000_000));
 }
 
 #[tokio::test]
 async fn test_get_rotation_history_empty_for_unknown_device() {
     let (svc, _manager, _storage) = service_with_mocks();
-    let result = svc.get_rotation_history("@dave:example.com", "UNKNOWN").await.expect("get_rotation_history");
-    assert!(result.is_empty());
+    let result =
+        svc.get_rotation_history("@dave:example.com", "UNKNOWN", 100, None).await.expect("get_rotation_history");
+    assert!(result.0.is_empty());
 }
 
 #[tokio::test]

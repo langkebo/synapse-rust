@@ -856,14 +856,15 @@ impl ModuleService {
         &self,
         sender: &str,
         limit: i64,
-    ) -> Result<Vec<SpamCheckResult>, ApiError> {
-        let results = self
+        cursor: Option<(i64, i64)>,
+    ) -> Result<(Vec<SpamCheckResult>, Option<String>), ApiError> {
+        let (results, next_batch) = self
             .storage
-            .get_spam_check_results_by_sender(sender, limit)
+            .get_spam_check_results_by_sender(sender, limit, cursor)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get spam check results", e))?;
 
-        Ok(results)
+        Ok((results, next_batch))
     }
 
     /// See [`get_third_party_rule_results`].
@@ -934,14 +935,16 @@ impl ModuleService {
 
     /// See [`get_execution_logs`].
     #[instrument(skip(self))]
-    pub async fn get_execution_logs(&self, module_name: &str, limit: i64) -> Result<Vec<ModuleExecutionLog>, ApiError> {
-        let logs = self
-            .storage
-            .get_execution_logs(module_name, limit)
+    pub async fn get_execution_logs(
+        &self,
+        module_name: &str,
+        limit: i64,
+        cursor: Option<(i64, i64)>,
+    ) -> Result<(Vec<ModuleExecutionLog>, Option<String>), ApiError> {
+        self.storage
+            .get_execution_logs(module_name, limit, cursor)
             .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to get execution logs", e))?;
-
-        Ok(logs)
+            .map_err(|e| ApiError::internal_with_cause("Failed to get execution logs", e))
     }
 }
 

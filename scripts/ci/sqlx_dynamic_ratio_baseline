@@ -1,3 +1,21 @@
+# 2026-10-20: admin 列表端点 keyset 分页（B-10 / B-11 / B-12）按实测重设。
+#   dynamic_production 96 -> 106（+10），static 1380 -> 1373（-7）。
+#   其中 **+3 是入账前既有的漂移**（基线 96 停留在 2026-10-18，之后
+#   `synapse-common/src/test_schema_orphans.rs`（2 处）与
+#   `synapse-storage/src/push/mod.rs`（1 处）各自新增，由 HEAD 实测实为 99）。
+#   本批自身 **+7 / -7**，全部是「静态宏改运行时」，逐处如下：
+#     · `synapse-storage/src/module.rs`（2）：`get_spam_check_results_by_sender` /
+#       `get_execution_logs` 加 keyset 游标（`(ts,id)` + `LIMIT limit+1`）；
+#     · `synapse-storage/src/space/repository.rs`（3）：`get_all_spaces_for_admin` /
+#       `get_space_user_ids` / `get_space_room_ids` 加游标；
+#     · `synapse-storage/src/admin_media.rs`（1）：`get_user_media` 加游标；
+#     · `synapse-e2ee/src/key_rotation/service.rs`（1）：`get_rotation_history` 加游标。
+#   为什么不能保持静态：游标比较（`$n::bigint IS NULL OR ts < $n`）改变了 SQL 文本，
+#   `.sqlx` 条目按 SQL 文本哈希索引 ⇒ 必须 `cargo sqlx prepare` 重生成；本机无
+#   PostgreSQL，`SQLX_OFFLINE=true` 下新文本必然 `no cached data` 编译失败。
+#   收紧方向：接入 CI 的 PG 服务后把上述 7 处改回 `query_as!` / `query_scalar!`
+#   并 `cargo sqlx prepare --workspace`，然后同步回调 production 与 static。
+#
 # 2026-10-18: 卫生债巡检把漂移的红门禁重新收敛。
 #   dynamic_test 768 -> 769（+1）：
 #     (+1) `synapse-storage/src/one_time_invite.rs` 的 `db_tests::ensure_test_user`
@@ -3295,7 +3313,7 @@
 #   需同步下调基线并说明（先例 C55-0 的 1303 → 1301、C57-0 的 163 → 162）——
 #   这是有意设计（防"静态换动态"），不是缺陷。
 BASELINE_QUERY_BUILDER=17
-BASELINE_DYNAMIC_PRODUCTION=96
+BASELINE_DYNAMIC_PRODUCTION=106
 # 2026-10-15: 769 → 768（按实测收紧；棘轮是**上限**，留着 1 个空位等于允许一次静默回归）。
 #   本批（方案 B4.3）只新增了**静态**查询，这一项是复核实测时发现的既有余量。
 # 2026-10-16: 768 → **769**（+1，B1/UG-5 lazy-load 位置列）。
@@ -3355,9 +3373,9 @@ BASELINE_DYNAMIC_TEST_INFRA=769
 #      `get_prev_state_events`（1 条）。**这是有意的删除**，不是"静态换动态"，
 #      所以按"只禁减"的规则必须同步下调基线并写明来源（先例：C55-0 的 1303 → 1301）。
 #   最终 1367 + 8 + 2 − 4 = 1373 = 实测值，零余量。
-BASELINE_STATIC=1380
-# 兼容旧接口：总数 = 生产 + 测试基础设施（96 + 769 = 865；本项不入棘轮，仅保持一致）
-BASELINE_DYNAMIC=865
+BASELINE_STATIC=1373
+# 兼容旧接口：总数 = 生产 + 测试基础设施（106 + 769 = 875；本项不入棘轮，仅保持一致）
+BASELINE_DYNAMIC=875
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

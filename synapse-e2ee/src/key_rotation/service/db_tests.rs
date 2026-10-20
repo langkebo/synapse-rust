@@ -35,22 +35,25 @@ async fn test_log_rotation_round_trips_through_the_device_scoped_reader() {
     // Aborted with a NOT NULL violation while `device_id` was bound as SQL NULL.
     storage.log_rotation(user, device, room, "megolm").await.expect("log_rotation must insert");
 
-    let history = storage.get_device_rotation_history(user, device).await.expect("history read");
+    let (history, next_batch) =
+        storage.get_device_rotation_history(user, device, 100, None).await.expect("history read");
     assert_eq!(history.len(), 1, "the row must be readable back through the device-scoped reader: {history:?}");
+    assert_eq!(next_batch, None, "a single row fits in one page");
     let (key_id, rotated_ts) = &history[0];
     assert!(key_id.is_some(), "`log_rotation` writes `new_key_id`, so it must come back non-NULL: {history:?}");
     assert!(rotated_ts.is_some_and(|ts| ts > 0), "`rotated_at` must be a real millisecond stamp, not 0: {history:?}");
 
     // The row carries the device that performed the rotation, not merely *some*
     // non-NULL value: another device must not see it.
-    let other_device = storage.get_device_rotation_history(user, "DEVICEBOB").await.expect("history read");
+    let other_device = storage.get_device_rotation_history(user, "DEVICEBOB", 100, None).await.expect("history read").0;
     assert!(
         other_device.is_empty(),
         "history is device-scoped — a different device must see nothing: {other_device:?}"
     );
 
     // ...and the same device id under another user must not either.
-    let other_user = storage.get_device_rotation_history("@bob:example.com", device).await.expect("history read");
+    let other_user =
+        storage.get_device_rotation_history("@bob:example.com", device, 100, None).await.expect("history read").0;
     assert!(other_user.is_empty(), "history is user-scoped too: {other_user:?}");
 }
 
@@ -119,13 +122,14 @@ async fn sweep_rotates_a_due_session_and_the_device_scoped_reader_sees_the_audit
     assert_eq!(sweep, RotationSweep { candidates: 1, rotated: 1, failed: 0 });
 
     // 审计行必须能被那个"曾经恒为空"的读者读出来（端到端）。
-    let history = h.storage.get_device_rotation_history(owner, DEVICE).await.expect("history read");
+    let history = h.storage.get_device_rotation_history(owner, DEVICE, 100, None).await.expect("history read").0;
     assert_eq!(history.len(), 1, "a sweep must write exactly one key_rotation_log row: {history:?}");
     assert!(history[0].0.is_some(), "the audit row carries `new_key_id`: {history:?}");
     assert!(history[0].1.is_some_and(|ts| ts > 0), "…and a real millisecond stamp: {history:?}");
 
     // 记的是**这台**设备，不是别的。
-    let other_device = h.storage.get_device_rotation_history(owner, "OTHER_DEVICE").await.expect("history read");
+    let other_device =
+        h.storage.get_device_rotation_history(owner, "OTHER_DEVICE", 100, None).await.expect("history read").0;
     assert!(other_device.is_empty(), "the audit row is device-scoped: {other_device:?}");
 
     // 轮换状态确实被翻转（`mark_session_as_rotated`）。
@@ -163,7 +167,7 @@ async fn sweep_leaves_a_fresh_session_alone() {
 
     assert_eq!(h.service.sweep_rotations(DEVICE).await.expect("sweep"), RotationSweep::default());
     assert!(
-        h.storage.get_device_rotation_history(owner, DEVICE).await.expect("history read").is_empty(),
+        h.storage.get_device_rotation_history(owner, DEVICE, 100, None).await.expect("history read").0.is_empty(),
         "a fresh session must not be rotated (and therefore must not be logged)"
     );
 }
@@ -179,7 +183,7 @@ async fn sweep_is_a_no_op_when_auto_rotation_is_disabled() {
 
     assert_eq!(h.service.sweep_rotations(DEVICE).await.expect("sweep"), RotationSweep::default());
     assert!(
-        h.storage.get_device_rotation_history(owner, DEVICE).await.expect("history read").is_empty(),
+        h.storage.get_device_rotation_history(owner, DEVICE, 100, None).await.expect("history read").0.is_empty(),
         "`enable_auto_rotation = false` must stop the executor before it writes anything"
     );
 }

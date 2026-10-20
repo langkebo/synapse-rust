@@ -4855,7 +4855,10 @@
       "path_params": [
         "device_id"
       ],
-      "query_params": []
+      "query_params": [
+        "from",
+        "limit"
+      ]
     },
     {
       "method": "POST",
@@ -5217,7 +5220,9 @@
       "path_params": [
         "room_id"
       ],
-      "query_params": []
+      "query_params": [
+        "limit"
+      ]
     },
     {
       "method": "GET",
@@ -7347,6 +7352,7 @@
         "module_name"
       ],
       "query_params": [
+        "from",
         "limit"
       ]
     },
@@ -7358,6 +7364,7 @@
         "sender"
       ],
       "query_params": [
+        "from",
         "limit"
       ]
     },
@@ -8103,7 +8110,10 @@
       "path": "/_synapse/admin/v1/spaces",
       "registered_by": "admin::room",
       "path_params": [],
-      "query_params": []
+      "query_params": [
+        "from",
+        "limit"
+      ]
     },
     {
       "method": "DELETE",
@@ -8130,7 +8140,10 @@
       "path_params": [
         "space_id"
       ],
-      "query_params": []
+      "query_params": [
+        "from",
+        "limit"
+      ]
     },
     {
       "method": "GET",
@@ -8148,7 +8161,10 @@
       "path_params": [
         "space_id"
       ],
-      "query_params": []
+      "query_params": [
+        "from",
+        "limit"
+      ]
     },
     {
       "method": "GET",
@@ -8388,7 +8404,10 @@
       "path_params": [
         "user_id"
       ],
-      "query_params": []
+      "query_params": [
+        "from",
+        "limit"
+      ]
     },
     {
       "method": "DELETE",

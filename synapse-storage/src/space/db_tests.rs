@@ -1217,7 +1217,8 @@ async fn test_get_all_spaces_for_admin() {
     };
     let space = storage.create_space(request).await.unwrap();
 
-    let all = storage.get_all_spaces_for_admin().await.expect("get_all_spaces_for_admin should succeed");
+    let (all, _next_batch) =
+        storage.get_all_spaces_for_admin(100, None).await.expect("get_all_spaces_for_admin should succeed");
     assert!(all.iter().any(|s| s.space_id == space.space_id), "admin listing should include the created space");
 
     cleanup(&pool, &space.space_id).await;
@@ -1317,7 +1318,8 @@ async fn test_get_space_user_ids() {
     // Add another member
     storage.add_space_member(&space.space_id, "@uids_other:example.com", "join", None).await.unwrap();
 
-    let user_ids = storage.get_space_user_ids(&space.space_id).await.expect("get_space_user_ids should succeed");
+    let (user_ids, _next_batch) =
+        storage.get_space_user_ids(&space.space_id, 100, None).await.expect("get_space_user_ids should succeed");
     assert!(user_ids.contains(&"@uids_creator:example.com".to_string()), "should contain creator");
     assert!(user_ids.contains(&"@uids_other:example.com".to_string()), "should contain added member");
 
@@ -1359,7 +1361,8 @@ async fn test_get_space_room_ids() {
             .unwrap();
     }
 
-    let room_ids = storage.get_space_room_ids(&space.space_id).await.expect("get_space_room_ids should succeed");
+    let (room_ids, _next_batch) =
+        storage.get_space_room_ids(&space.space_id, 100, None).await.expect("get_space_room_ids should succeed");
     assert!(room_ids.contains(&child_room_1), "should contain child room 1");
     assert!(room_ids.contains(&child_room_2), "should contain child room 2");
 

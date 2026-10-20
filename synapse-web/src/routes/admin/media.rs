@@ -2,7 +2,7 @@ use crate::routes::context::AdminContext;
 use crate::routes::AdminUser;
 use crate::routes::MatrixJson;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     routing::{delete, get, post},
     Json, Router,
 };
@@ -217,10 +217,15 @@ pub async fn get_user_media(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(user_id): Path<UserId>,
+    Query(params): Query<MediaPageQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let (_canonical_user_id, media) = ctx.admin_media_service.get_user_media(&user_id).await?;
+    let limit = params.limit.as_deref().and_then(|v| v.parse().ok()).unwrap_or(100_i64).clamp(1, 500);
+    let cursor = decode_media_cursor(params.from.as_deref());
 
-    let media_list: Vec<Value> = media
+    let (_canonical_user_id, page) = ctx.admin_media_service.get_user_media(&user_id, limit, cursor).await?;
+
+    let media_list: Vec<Value> = page
+        .media
         .iter()
         .map(|row| {
             json!({
@@ -233,7 +238,7 @@ pub async fn get_user_media(
         })
         .collect();
 
-    Ok(Json(json!({ "media": media_list, "total": media_list.len() })))
+    Ok(Json(json!({ "media": media_list, "total": media_list.len(), "next_batch": page.next_batch })))
 }
 
 /// See [`delete_user_media`].

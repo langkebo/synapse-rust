@@ -1699,6 +1699,12 @@ EXPECTED_ANNOTATIONS = {
         "body_opaque": True,
     },
     ("GET", "/_matrix/vendor/v1/friends/suggestions"): {"query_params": "limit"},
+    ("GET", "/_matrix/vendor/v1/keys/rotation/history/{device_id}"): {
+        "query_params": "from,limit"
+    },
+    ("GET", "/_matrix/vendor/v1/rooms/{room_id}/message_queue"): {
+        "query_params": "limit"
+    },
     ("GET", "/_matrix/vendor/v1/voice/room/{room_id}"): {"query_params": "from,limit"},
     ("GET", "/_matrix/vendor/v1/voice/user/{user_id}"): {"query_params": "from,limit"},
     ("GET", "/_synapse/admin/v1/appservices/query/alias"): {"query_params": "alias"},
@@ -1738,9 +1744,11 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_synapse/admin/v1/invite/allowlist"): {"query_params": "limit,offset"},
     ("GET", "/_synapse/admin/v1/invite/blocklist"): {"query_params": "limit,offset"},
     ("GET", "/_synapse/admin/v1/modules"): {"query_params": "from,limit"},
-    ("GET", "/_synapse/admin/v1/modules/logs/{module_name}"): {"query_params": "limit"},
+    ("GET", "/_synapse/admin/v1/modules/logs/{module_name}"): {
+        "query_params": "from,limit"
+    },
     ("GET", "/_synapse/admin/v1/modules/spam_check/sender/{sender}"): {
-        "query_params": "limit"
+        "query_params": "from,limit"
     },
     ("GET", "/_synapse/admin/v1/notifications"): {
         "query_params": "audience,from,limit"
@@ -1754,9 +1762,17 @@ EXPECTED_ANNOTATIONS = {
     },
     ("GET", "/_synapse/admin/v1/saml/mappings"): {"query_params": "from,limit"},
     ("GET", "/_synapse/admin/v1/server_notices"): {"query_params": "from,limit"},
+    ("GET", "/_synapse/admin/v1/spaces"): {"query_params": "from,limit"},
+    ("GET", "/_synapse/admin/v1/spaces/{space_id}/rooms"): {
+        "query_params": "from,limit"
+    },
+    ("GET", "/_synapse/admin/v1/spaces/{space_id}/users"): {
+        "query_params": "from,limit"
+    },
     ("GET", "/_synapse/admin/v1/telemetry/alerts"): {
         "query_params": "refresh,severity,status"
     },
+    ("GET", "/_synapse/admin/v1/users/{user_id}/media"): {"query_params": "from,limit"},
     ("GET", "/_synapse/worker/v1/events"): {"query_params": "stream_id"},
     ("GET", "/_synapse/worker/v1/replication/{worker_id}/position"): {
         "query_params": "stream_name"

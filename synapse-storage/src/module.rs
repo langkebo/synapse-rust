@@ -20,6 +20,11 @@ fn encode_module_cursor(module_type: &str, priority: i32, module_name: &str) -> 
     format!("{module_type}|{priority}|{module_name}")
 }
 
+/// Encodes the `(ts, id)` keyset cursor shared by the module log/history listings.
+fn encode_ts_id_cursor(ts: i64, id: i64) -> String {
+    format!("{ts}|{id}")
+}
+
 #[cfg(test)]
 mod cursor_tests {
     use super::{decode_module_cursor, encode_module_cursor};
@@ -663,22 +668,38 @@ impl ModuleStorage {
         &self,
         sender: &str,
         limit: i64,
-    ) -> Result<Vec<SpamCheckResult>, sqlx::Error> {
-        sqlx::query_as!(
-            SpamCheckResult,
+        cursor: Option<(i64, i64)>,
+    ) -> Result<(Vec<SpamCheckResult>, Option<String>), sqlx::Error> {
+        // `limit + 1` probes for a next page so `next_batch` is only set when
+        // there is provably more data (same contract as `/notifications`).
+        let rows = sqlx::query_as::<_, SpamCheckResult>(
             r#"
             SELECT id, event_id, room_id, sender, event_type, content, result, score,
                 reason, checker_module, checked_ts, action_taken
             FROM spam_check_results
             WHERE sender = $1
+              AND ($2::BIGINT IS NULL OR checked_ts < $2::BIGINT
+                   OR (checked_ts = $2::BIGINT AND id < $3::BIGINT))
             ORDER BY checked_ts DESC, id DESC
-            LIMIT $2
+            LIMIT $4
             "#,
-            sender,
-            limit
         )
+        .bind(sender)
+        .bind(cursor.map(|c| c.0))
+        .bind(cursor.map(|c| c.1))
+        .bind(limit + 1)
         .fetch_all(&*self.pool)
-        .await
+        .await?;
+
+        let has_more = rows.len() as i64 > limit;
+        let mut rows = rows;
+        if has_more {
+            rows.pop();
+        }
+        let next_batch =
+            if has_more { rows.last().map(|row| encode_ts_id_cursor(row.checked_ts, row.id)) } else { None };
+
+        Ok((rows, next_batch))
     }
 
     /// See [`create_third_party_rule_result`].
@@ -774,21 +795,36 @@ impl ModuleStorage {
         &self,
         module_name: &str,
         limit: i64,
-    ) -> Result<Vec<ModuleExecutionLog>, sqlx::Error> {
-        let rows = sqlx::query_as!(
-            ModuleExecutionLog,
+        cursor: Option<(i64, i64)>,
+    ) -> Result<(Vec<ModuleExecutionLog>, Option<String>), sqlx::Error> {
+        let rows = sqlx::query_as::<_, ModuleExecutionLog>(
             r#"
             SELECT id, module_name, module_type, event_id, room_id, execution_time_ms,
                 is_success, error_message, metadata, executed_ts
-            FROM module_execution_logs WHERE module_name = $1 ORDER BY executed_ts DESC, id DESC LIMIT $2
+            FROM module_execution_logs
+            WHERE module_name = $1
+              AND ($2::BIGINT IS NULL OR executed_ts < $2::BIGINT
+                   OR (executed_ts = $2::BIGINT AND id < $3::BIGINT))
+            ORDER BY executed_ts DESC, id DESC
+            LIMIT $4
             "#,
-            module_name,
-            limit
         )
+        .bind(module_name)
+        .bind(cursor.map(|c| c.0))
+        .bind(cursor.map(|c| c.1))
+        .bind(limit + 1)
         .fetch_all(&*self.pool)
         .await?;
 
-        Ok(rows)
+        let has_more = rows.len() as i64 > limit;
+        let mut rows = rows;
+        if has_more {
+            rows.pop();
+        }
+        let next_batch =
+            if has_more { rows.last().map(|row| encode_ts_id_cursor(row.executed_ts, row.id)) } else { None };
+
+        Ok((rows, next_batch))
     }
 
     /// See [`create_account_validity`].
@@ -1565,12 +1601,21 @@ mod d15_db_tests {
                 .expect("create_execution_log must succeed");
         }
 
-        let logs = storage.get_execution_logs(&name, 10).await.expect("get_execution_logs");
+        let (logs, next_batch) = storage.get_execution_logs(&name, 10, None).await.expect("get_execution_logs");
         assert_eq!(logs.len(), 2);
+        assert!(next_batch.is_none(), "2 rows under limit 10 must not advertise a next page");
         assert!(!logs[0].is_success, "newest first");
         assert_eq!(logs[0].error_message.as_deref(), Some("later failure"));
         assert_eq!(logs[0].metadata, Some(serde_json::json!({"detail": "x"})));
-        assert_eq!(storage.get_execution_logs(&name, 1).await.expect("limit 1").len(), 1);
+
+        let (first_page, next) = storage.get_execution_logs(&name, 1, None).await.expect("limit 1");
+        assert_eq!(first_page.len(), 1);
+        let next = next.expect("limit 1 with 2 rows must advertise a next page");
+        let cursor = next.split_once('|').map(|(ts, id)| (ts.parse::<i64>().unwrap(), id.parse::<i64>().unwrap()));
+        let (second_page, next_after) = storage.get_execution_logs(&name, 1, cursor).await.expect("page 2");
+        assert_eq!(second_page.len(), 1);
+        assert_ne!(second_page[0].id, first_page[0].id, "cursor must not repeat the last row");
+        assert!(next_after.is_none(), "second page is the last page");
     }
 
     /// `create_account_validity` is an upsert whose `RETURNING` carries two conversions the

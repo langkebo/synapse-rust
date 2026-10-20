@@ -50,12 +50,31 @@ impl AdminMediaStoreApi for InMemoryAdminMediaStore {
         Ok(AdminMediaQuotaSummary { total_size, total_count: media.len() as i64 })
     }
 
-    async fn get_user_media(&self, user_id: &str) -> Result<Vec<AdminMediaInfo>, ApiError> {
+    async fn get_user_media(
+        &self,
+        user_id: &str,
+        limit: i64,
+        cursor: Option<MediaCursor>,
+    ) -> Result<AdminMediaPage, ApiError> {
         let media = self.media.read().await;
         let mut results: Vec<AdminMediaInfo> =
             media.values().filter(|m| m.uploader_user_id.as_deref() == Some(user_id)).cloned().collect();
-        results.sort_by(|a, b| b.created_ts.cmp(&a.created_ts));
-        Ok(results)
+        results.sort_by(|a, b| b.created_ts.cmp(&a.created_ts).then_with(|| b.media_id.cmp(&a.media_id)));
+
+        if let Some(ref cursor) = cursor {
+            results.retain(|m| (m.created_ts, m.media_id.as_str()) < (cursor.created_ts, cursor.media_id.as_str()));
+        }
+
+        let next_batch = if results.len() > limit as usize {
+            results
+                .get(limit as usize)
+                .map(|m| encode_media_cursor(&MediaCursor { created_ts: m.created_ts, media_id: m.media_id.clone() }))
+        } else {
+            None
+        };
+
+        results.truncate(limit as usize);
+        Ok(AdminMediaPage { media: results, next_batch })
     }
 
     async fn delete_user_media(&self, user_id: &str) -> Result<u64, ApiError> {

@@ -122,14 +122,40 @@ pub async fn rotate_keys(
     }
 }
 
+/// Query parameters for [`get_rotation_history`].
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RotationHistoryQuery {
+    /// Maximum number of entries to return (1-500, default 100).
+    pub limit: Option<i64>,
+    /// Opaque keyset cursor taken from a previous response's `next_batch`.
+    pub from: Option<String>,
+}
+
+fn parse_rotation_cursor(from: Option<&str>) -> Result<Option<(i64, i64)>, ApiError> {
+    let Some(raw) = from.filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    let (ts, id) = raw.split_once('|').ok_or_else(|| ApiError::invalid_param("Invalid `from` cursor"))?;
+    let ts = ts.parse::<i64>().map_err(|_| ApiError::invalid_param("Invalid `from` cursor"))?;
+    let id = id.parse::<i64>().map_err(|_| ApiError::invalid_param("Invalid `from` cursor"))?;
+    Ok(Some((ts, id)))
+}
+
 /// See [`get_rotation_history`].
 pub async fn get_rotation_history(
     State(ctx): State<DeviceContext>,
     admin_user: AdminUser,
     Path(device_id): Path<DeviceId>,
+    Query(query): Query<RotationHistoryQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let history_rows =
-        ctx.key_rotation_service.get_rotation_history(&admin_user.user_id, device_id.as_str()).await.map_err(|e| {
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
+    let cursor = parse_rotation_cursor(query.from.as_deref())?;
+    let (history_rows, next_batch) = ctx
+        .key_rotation_service
+        .get_rotation_history(&admin_user.user_id, device_id.as_str(), limit, cursor)
+        .await
+        .map_err(|e| {
             tracing::error!("Failed to get rotation history: {e}");
             ApiError::internal("Internal server error".to_string())
         })?;
@@ -147,6 +173,7 @@ pub async fn get_rotation_history(
     Ok(Json(json!({
         "device_id": device_id.as_str(),
         "rotations": history,
+        "next_batch": next_batch,
     })))
 }
 

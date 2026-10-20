@@ -460,12 +460,21 @@ pub struct ListQuery {
     pub from: Option<String>,
 }
 
-/// The `SpamCheckQuery` struct.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SpamCheckQuery {
-    /// The `limit` field.
-    pub limit: Option<i64>,
+/// Decodes the opaque `"{ts}|{id}"` keyset cursor used by the log/history listings.
+///
+/// An absent or empty `from` means "first page"; anything else must round-trip the
+/// exact shape emitted in `next_batch`, otherwise the caller gets `400 M_INVALID_PARAM`
+/// instead of silently restarting from page one.
+fn parse_ts_id_cursor(from: Option<&str>) -> Result<Option<(i64, i64)>, ApiError> {
+    let Some(raw) = from.filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+
+    let (ts, id) = raw.split_once('|').ok_or_else(|| ApiError::invalid_param("Invalid `from` cursor"))?;
+    let ts = ts.parse::<i64>().map_err(|_| ApiError::invalid_param("Invalid `from` cursor"))?;
+    let id = id.parse::<i64>().map_err(|_| ApiError::invalid_param("Invalid `from` cursor"))?;
+
+    Ok(Some((ts, id)))
 }
 
 /// See [`create_module`].
@@ -626,15 +635,20 @@ pub async fn get_spam_check_results_by_sender(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(sender): Path<String>,
-    Query(query): Query<SpamCheckQuery>,
+    Query(query): Query<ListQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let limit = query.limit.unwrap_or(100);
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
+    let cursor = parse_ts_id_cursor(query.from.as_deref())?;
 
-    let results = ctx.module_service.get_spam_check_results_by_sender(&sender, limit).await?;
+    let (results, next_batch) = ctx.module_service.get_spam_check_results_by_sender(&sender, limit, cursor).await?;
 
     let responses: Vec<SpamCheckResultResponse> = results.into_iter().map(SpamCheckResultResponse::from).collect();
 
-    Ok(Json(responses))
+    Ok(Json(serde_json::json!({
+        "checks": responses,
+        "total": responses.len(),
+        "next_batch": next_batch
+    })))
 }
 
 /// See [`get_third_party_rule_results`].
@@ -656,13 +670,18 @@ pub async fn get_execution_logs(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(module_name): Path<String>,
-    Query(query): Query<SpamCheckQuery>,
+    Query(query): Query<ListQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let limit = query.limit.unwrap_or(100);
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
+    let cursor = parse_ts_id_cursor(query.from.as_deref())?;
 
-    let logs = ctx.module_service.get_execution_logs(&module_name, limit).await?;
+    let (logs, next_batch) = ctx.module_service.get_execution_logs(&module_name, limit, cursor).await?;
 
-    Ok(Json(logs))
+    Ok(Json(serde_json::json!({
+        "logs": logs,
+        "total": logs.len(),
+        "next_batch": next_batch
+    })))
 }
 
 /// See [`create_account_validity`].

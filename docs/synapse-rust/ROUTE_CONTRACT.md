@@ -1548,6 +1548,37 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - 现在返回 **501 `M_UNKNOWN`**，`error` 明确说明未实现；鉴权与房间可见性校验仍在返回 501 之前执行（无权限仍是 403/404）。
 - SDK 侧请把该状态识别为 `Unsupported`，不要当成空结果。
 
+### A.6 2026-10-20 admin 列表端点分页语义（B-10 / B-11 / B-12）
+
+之前这批端点的 sidecar 要么是 `query: none`（没有 `Query` 提取器，SDK 发的 `from`/`limit` 被静默忽略），要么复用只认 `limit` 的 `SpamCheckQuery`（发 `from` 直接 400）。现已统一为「`limit` + 不透明 keyset 游标 `from`」协议。
+
+**通用协议**（下列每条 `query_params=from,limit` 的端点都适用）：
+
+- `limit`：默认 **100**，夹紧到 **1..=500**；非整数或负数 → **400 `M_INVALID_PARAM`**。
+- `from`：**不透明游标**，只能原样回填上一页响应里的 `next_batch`；缺省或空串 = 首页。
+  - cursor 形态非法（分段/整型解析失败）→ **400 `M_INVALID_PARAM`**（不再静默从头开始）。
+  - 内部按 `limit + 1` 探测是否还有下一页，因此 `next_batch` **仅在确认有下一页时非 null**。
+- 响应统一为对象：数组字段 + `total`（本页条数）+ `next_batch`（string \| null）。
+- SDK 侧 `toPaginatedResult` 已认 `next_batch`，无需改代码；TS 类型补 `next_batch` 即可。
+
+| Method | Path | `from` 游标语义 | 响应字段 | 排序 |
+|---|---|---|---|---|
+| `GET` | `/_synapse/admin/v1/modules/logs/{module_name}` | `"{executed_at}\|{id}"` | `logs` / `total` / `next_batch` | `executed_at DESC, id DESC` |
+| `GET` | `/_synapse/admin/v1/modules/spam_check/sender/{sender}` | `"{checked_at}\|{id}"` | `checks` / `total` / `next_batch` | `checked_at DESC, id DESC` |
+| `GET` | `/_synapse/admin/v1/spaces` | `"{created_ts}\|{space_id}"` | `spaces` / `total` / `next_batch` | `created_ts DESC, space_id DESC` |
+| `GET` | `/_synapse/admin/v1/spaces/{space_id}/users` | 裸 `user_id`（**非**复合游标） | `users` / `total` / `next_batch` | `user_id ASC` |
+| `GET` | `/_synapse/admin/v1/spaces/{space_id}/rooms` | 裸 `room_id`（**非**复合游标） | `rooms` / `total` / `next_batch` | `room_id ASC` |
+| `GET` | `/_synapse/admin/v1/users/{user_id}/media` | `"{created_ts}\|{media_id}"`（与 `/media` 同源） | `media` / `total` / `next_batch` | `created_ts DESC, media_id DESC` |
+| `GET` | `/_matrix/vendor/v1/keys/rotation/history/{device_id}` | `"{rotated_at}\|{id}"` | `device_id` / `rotations` / `next_batch` | `rotated_at DESC, id DESC` |
+
+补充说明：
+
+1. **B-10 / B-11**：`SpamCheckQuery` 已删除。`/modules`、`/modules/logs/{module_name}`、`/modules/spam_check/sender/{sender}` 现在共用同一个 `ListQuery { limit, from }`（`deny_unknown_fields`），两条列表路由都真做 keyset 翻页。响应由裸数组改为上表对象；旧 SDK 若按数组消费需同步改。
+2. **`/spaces/{space_id}/users|rooms` 的 `from` 是裸标识符**，不是 `"{ts}|{id}"`。传 `"{ts}|{id}"` 形状会当作字面 id 参与比较（返回空页），因此**只回填 `next_batch`**。
+3. **`/users/{user_id}/media` 的 `limit`/`from` 解析沿用历史宽松行为**：`limit` 非整数回落默认 100（不 400），`from` 形态非法视为首页（不 400）。这是为兼容既有调用方刻意保留的，其余端点均为严格 400。
+4. **`GET /_synapse/admin/v1/room_stats` 不分页**：该端点返回全局概览对象（单条 `{...}`，不是列表），不接受 `from`/`limit`（契约 `query: none`）；`GET /_synapse/admin/v1/room_stats/{room_id}` 同。
+5. **`GET /_matrix/vendor/v1/rooms/{room_id}/message_queue` 不分页**：它是实时发送队列的**快照**（无稳定 tiebreaker），只接受 `limit`（默认 100，1..=500）；传 `from` 会因 `deny_unknown_fields` 返回 **400**，SDK 请删除该参数。
+
 ---
 
 *本文件由 `scripts/contract/extract_registered.py` + `gen_contract_doc.py` 生成。路由面随代码变化，请定期重新生成。附录 A / 附录 B 为人工维护增补。*

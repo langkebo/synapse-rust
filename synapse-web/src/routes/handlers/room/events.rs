@@ -385,11 +385,25 @@ pub(crate) async fn send_message(
     Ok(Json(result))
 }
 
+/// Query parameters for [`get_room_message_queue`].
+///
+/// The endpoint exposes a **snapshot** of the live send queue, not a paged
+/// collection: the pending rows are the ones awaiting delivery right now, so
+/// they are consumed as they are sent and a keyset cursor would skip or repeat
+/// rows. Only `limit` is accepted; `from` is rejected rather than ignored.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MessageQueueQuery {
+    /// Maximum number of pending events to include (1-500, default 100).
+    pub limit: Option<i64>,
+}
+
 /// See [`get_room_message_queue`].
 pub(crate) async fn get_room_message_queue(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
+    Query(query): Query<MessageQueueQuery>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await? {
@@ -398,7 +412,8 @@ pub(crate) async fn get_room_message_queue(
 
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let pending_events = ctx.room_service.messaging().get_pending_events(&room_id, 100).await?;
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
+    let pending_events = ctx.room_service.messaging().get_pending_events(&room_id, limit).await?;
 
     let pending_events_json: Vec<serde_json::Value> = pending_events
         .into_iter()

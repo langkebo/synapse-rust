@@ -66,9 +66,20 @@ impl KeyRotationStorageApi for InMemoryKeyRotationStorage {
         &self,
         user_id: &str,
         device_id: &str,
-    ) -> Result<Vec<(Option<String>, Option<i64>)>, ApiError> {
+        limit: i64,
+        cursor: Option<(i64, i64)>,
+    ) -> Result<(Vec<(Option<String>, Option<i64>)>, Option<String>), ApiError> {
         let key = format!("{}:{}", user_id, device_id);
-        Ok(self.rotation_history.read().await.get(&key).cloned().unwrap_or_default())
+        let stored = self.rotation_history.read().await.get(&key).cloned().unwrap_or_default();
+        // The mock has no `BIGSERIAL`; the seeded position stands in for the `id` half of the cursor.
+        let limit = usize::try_from(limit.max(1)).unwrap_or(usize::MAX);
+        let start = cursor.and_then(|(_, id)| usize::try_from(id.saturating_add(1)).ok()).unwrap_or(0);
+        let mut page: Vec<_> = stored.into_iter().enumerate().skip(start).collect();
+        let has_more = page.len() > limit;
+        page.truncate(limit);
+        let next_batch =
+            has_more.then(|| page.last().map(|(p, (_, ts))| format!("{}|{}", ts.unwrap_or(0), p)).unwrap_or_default());
+        Ok((page.into_iter().map(|(_, entry)| entry).collect(), next_batch))
     }
 
     async fn set_rotation_config(&self, key: &str, value: &str) -> Result<(), ApiError> {

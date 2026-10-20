@@ -274,9 +274,13 @@ impl SpaceService {
 
     /// See [`get_all_spaces_for_admin`].
     #[instrument(skip(self))]
-    pub async fn get_all_spaces_for_admin(&self) -> Result<Vec<Space>, ApiError> {
+    pub async fn get_all_spaces_for_admin(
+        &self,
+        limit: i64,
+        cursor: Option<(i64, String)>,
+    ) -> Result<(Vec<Space>, Option<String>), ApiError> {
         self.space_storage
-            .get_all_spaces_for_admin()
+            .get_all_spaces_for_admin(limit, cursor)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get spaces", e))
     }
@@ -301,18 +305,28 @@ impl SpaceService {
 
     /// See [`get_space_user_ids`].
     #[instrument(skip(self))]
-    pub async fn get_space_user_ids(&self, space_id: &str) -> Result<Vec<String>, ApiError> {
+    pub async fn get_space_user_ids(
+        &self,
+        space_id: &str,
+        limit: i64,
+        after_user_id: Option<&str>,
+    ) -> Result<(Vec<String>, Option<String>), ApiError> {
         self.space_storage
-            .get_space_user_ids(space_id)
+            .get_space_user_ids(space_id, limit, after_user_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get space users", e))
     }
 
     /// See [`get_space_room_ids`].
     #[instrument(skip(self))]
-    pub async fn get_space_room_ids(&self, space_id: &str) -> Result<Vec<String>, ApiError> {
+    pub async fn get_space_room_ids(
+        &self,
+        space_id: &str,
+        limit: i64,
+        after_room_id: Option<&str>,
+    ) -> Result<(Vec<String>, Option<String>), ApiError> {
         self.space_storage
-            .get_space_room_ids(space_id)
+            .get_space_room_ids(space_id, limit, after_room_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get space rooms", e))
     }

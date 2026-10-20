@@ -2,11 +2,47 @@ use crate::routes::context::AdminContext;
 use crate::routes::extractors::RoomId;
 use crate::routes::AdminUser;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::ApiError;
+
+/// Query for the paginated admin space listings.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpaceListQuery {
+    /// Page size; clamped to `1..=500`, defaults to 100.
+    pub limit: Option<i64>,
+    /// Opaque keyset cursor taken from the previous page's `next_batch`.
+    pub from: Option<String>,
+}
+
+/// Decodes the `"{created_ts}|{space_id}"` cursor used by `GET /spaces`.
+fn parse_space_cursor(from: Option<&str>) -> Result<Option<(i64, String)>, ApiError> {
+    let Some(raw) = from.filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+
+    let (ts, space_id) = raw.split_once('|').ok_or_else(|| ApiError::invalid_param("Invalid `from` cursor"))?;
+    let ts = ts.parse::<i64>().map_err(|_| ApiError::invalid_param("Invalid `from` cursor"))?;
+    if space_id.is_empty() {
+        return Err(ApiError::invalid_param("Invalid `from` cursor"));
+    }
+
+    Ok(Some((ts, space_id.to_owned())))
+}
+
+/// Decodes the bare-identifier cursor used by the space member/child listings.
+fn parse_id_cursor(from: Option<&str>) -> Option<&str> {
+    from.filter(|value| !value.is_empty())
+}
+
+/// Clamps a caller-supplied page size into the supported range.
+fn page_limit(limit: Option<i64>) -> i64 {
+    limit.unwrap_or(100).clamp(1, 500)
+}
 
 async fn resolve_space_id(ctx: &AdminContext, identifier: &str) -> Result<String, ApiError> {
     ctx.space_service
@@ -17,8 +53,15 @@ async fn resolve_space_id(ctx: &AdminContext, identifier: &str) -> Result<String
 
 /// See [`get_spaces`].
 #[axum::debug_handler]
-pub async fn get_spaces(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
-    let spaces = ctx.space_service.get_all_spaces_for_admin().await?;
+pub async fn get_spaces(
+    _admin: AdminUser,
+    State(ctx): State<AdminContext>,
+    Query(query): Query<SpaceListQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let limit = page_limit(query.limit);
+    let cursor = parse_space_cursor(query.from.as_deref())?;
+
+    let (spaces, next_batch) = ctx.space_service.get_all_spaces_for_admin(limit, cursor).await?;
 
     let space_list: Vec<Value> = spaces
         .iter()
@@ -34,7 +77,7 @@ pub async fn get_spaces(_admin: AdminUser, State(ctx): State<AdminContext>) -> R
         })
         .collect();
 
-    Ok(Json(json!({ "spaces": space_list, "total": space_list.len() })))
+    Ok(Json(json!({ "spaces": space_list, "total": space_list.len(), "next_batch": next_batch })))
 }
 
 /// See [`get_space`].
@@ -82,12 +125,15 @@ pub async fn get_space_users(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(space_id): Path<RoomId>,
+    Query(query): Query<SpaceListQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let resolved_space_id = resolve_space_id(&ctx, &space_id).await?;
+    let limit = page_limit(query.limit);
+    let cursor = parse_id_cursor(query.from.as_deref());
 
-    let user_list = ctx.space_service.get_space_user_ids(&resolved_space_id).await?;
+    let (user_list, next_batch) = ctx.space_service.get_space_user_ids(&resolved_space_id, limit, cursor).await?;
 
-    Ok(Json(json!({ "users": user_list, "total": user_list.len() })))
+    Ok(Json(json!({ "users": user_list, "total": user_list.len(), "next_batch": next_batch })))
 }
 
 /// See [`get_space_rooms`].
@@ -96,12 +142,15 @@ pub async fn get_space_rooms(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(space_id): Path<RoomId>,
+    Query(query): Query<SpaceListQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let resolved_space_id = resolve_space_id(&ctx, &space_id).await?;
+    let limit = page_limit(query.limit);
+    let cursor = parse_id_cursor(query.from.as_deref());
 
-    let room_list = ctx.space_service.get_space_room_ids(&resolved_space_id).await?;
+    let (room_list, next_batch) = ctx.space_service.get_space_room_ids(&resolved_space_id, limit, cursor).await?;
 
-    Ok(Json(json!({ "rooms": room_list, "total": room_list.len() })))
+    Ok(Json(json!({ "rooms": room_list, "total": room_list.len(), "next_batch": next_batch })))
 }
 
 /// See [`get_space_stats`].

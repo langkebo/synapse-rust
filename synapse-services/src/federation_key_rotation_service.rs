@@ -35,8 +35,10 @@ impl FederationKeyRotationService {
         &self,
         user_id: &str,
         device_id: &str,
-    ) -> Result<Vec<(Option<String>, Option<i64>)>, ApiError> {
-        self.storage.get_device_rotation_history(user_id, device_id).await
+        limit: i64,
+        cursor: Option<(i64, i64)>,
+    ) -> Result<(Vec<(Option<String>, Option<i64>)>, Option<String>), ApiError> {
+        self.storage.get_device_rotation_history(user_id, device_id, limit, cursor).await
     }
 
     /// See [`revoke_key`].
@@ -141,16 +143,16 @@ mod tests {
         storage.seed_device_history("@alice:example.com", "DEV1", history.clone()).await;
         let svc = test_service_with(InMemoryKeyRotationManager::new(), storage);
 
-        let result = svc.get_rotation_history("@alice:example.com", "DEV1").await.unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].0.as_deref(), Some("key1"));
+        let result = svc.get_rotation_history("@alice:example.com", "DEV1", 100, None).await.unwrap();
+        assert_eq!(result.0.len(), 1);
+        assert_eq!(result.0[0].0.as_deref(), Some("key1"));
     }
 
     #[tokio::test]
     async fn get_rotation_history_returns_empty_for_unknown_device() {
         let svc = test_service();
-        let result = svc.get_rotation_history("@alice:example.com", "UNKNOWN").await.unwrap();
-        assert!(result.is_empty());
+        let result = svc.get_rotation_history("@alice:example.com", "UNKNOWN", 100, None).await.unwrap();
+        assert!(result.0.is_empty());
     }
 
     // ── revoke_key ─────────────────────────────────────────────────────
