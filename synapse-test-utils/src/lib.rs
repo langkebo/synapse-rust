@@ -66,15 +66,9 @@ static SHARED_CLONE_SEMAPHORE: LazyLock<Semaphore> =
 //
 // Expected speedup: 35-60s → 1-3s per test (15-20x faster).
 //
-// Design notes:
-// - SCHEMA_POOL stores only schema NAMES (Strings), not PgPools, to avoid
-//   cross-runtime pool issues (each test runtime is short-lived; a pool
-//   created on one runtime breaks when that runtime is dropped).
-// - Cleanup (TRUNCATE + re-seed) runs on a dedicated CLEANUP_RUNTIME that
-//   persists for the whole process lifetime, since `Drop::drop` is sync and
-//   cannot await. The cleanup task creates its own admin connection.
-// - Schemas corrupted by destructive tests (DROP TABLE, ALTER) are detected
-//   by a table-count safety check and DROPped instead of pooled.
+// Design notes: the pool stores names, not `PgPool`s (a pool dies with its
+// runtime); cleanup runs on a process-lifetime runtime because `Drop::drop` is
+// sync; corrupted schemas (DROP TABLE / ALTER) are DROPped instead of pooled.
 
 static SCHEMA_POOL: TokioMutex<Vec<ParkedSchema>> = TokioMutex::const_new(Vec::new());
 
@@ -431,6 +425,9 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     #[cfg(test)]
     crate::test_exit_hook::ensure();
     let database_url = resolve_test_database_url().await?;
+    if db_isolation::enabled() {
+        return db_isolation::prepare_pool(&database_url).await;
+    }
     let schema_name = next_test_schema_name();
 
     // Cleanup is owned by the shared janitor (`synapse_common::test_schema_guard`):
@@ -1593,16 +1590,17 @@ pub async fn acquire_pooled_schema() -> Result<LeasedSchema, String> {
     #[cfg(test)]
     crate::test_exit_hook::ensure();
     let database_url = resolve_test_database_url().await?;
+    // A cloned database is never reused, so `poison()` has nothing to mark.
+    if db_isolation::enabled() {
+        let pool = db_isolation::prepare_pool(&database_url).await?;
+        return Ok(LeasedSchema { pool, inner: None });
+    }
     let template_name = get_template_schema_name(&database_url).await?;
 
-    // Fast path: reuse a TRUNCATEd schema from the pool.
-    // Schemas in the pool were already validated by truncate_and_reseed_schema
-    // (which checks table count before TRUNCATE-ing). TRUNCATE doesn't drop
-    // tables, so the count is still correct. Skip the redundant COUNT query here
-    // — under parallel test load, pg_catalog queries take 1.6-8s due to lock
-    // contention, and this check was the #1 source of slow-statement warnings.
-    // `ParkedSchema` is a name plus its park timestamp; only the name travels
-    // from here on, so the reclaimer can tell how long it has been idle.
+    // Fast path: reuse a TRUNCATEd schema. Pooled schemas were already validated
+    // by `truncate_and_reseed_schema`; skipping the COUNT here removes the
+    // pg_catalog query that used to take 1.6-8 s under parallel load (the #1
+    // source of slow-statement warnings). Only the name travels from here on.
     if let Some(schema_name) = SCHEMA_POOL.lock().await.pop().map(|parked| parked.name) {
         let pool = create_pool_for_schema(&database_url, &schema_name).await?;
         let poisoned = Arc::new(AtomicBool::new(false));
