@@ -1,7 +1,7 @@
 # 测试库隔离：从 schema clone 换到 database clone（设计稿）
 
 - 日期：2026-10-20
-- 状态：**P0 已交付**（`1e77cbae7`，`scripts/test_db_template.sh`）；P1–P4 未开始
+- 状态：**P0 / P1 已交付**（`1e77cbae7` 脚本、`157a911d0` 选池接入）；P2–P4 未开始
 - 前置：`562a58d4e`（index 改名）、`3909daddd`（atexit 泄漏修复）、`69eeb090e`（健康守卫）
 - 实测环境：Mac mini / PostgreSQL 16.15 容器（`127.0.0.1:55432`），基线 221 张业务表 / 20 MB
 
@@ -59,6 +59,11 @@ B 的主要吸引力不只是快，而是**删掉了整块"重建后修正"的�
   实测禁连后 clone 仍可用（0.44 s）。
 - 一次性成本 15.1 s，由 `OnceCell` + 指纹判定，跨进程复用。
 
+> **实测修正（2026-10-20）**：最初的设计是在测试进程内按需建模板。实测发现
+> `CREATE DATABASE` 会先提交、迁移后跑，四个进程竞争时会把半成品当就绪模板
+> （每条 6.4 s、留下 9 MB 半成品）。因此模板改为**进程外预置**
+> （`scripts/test_db_template.sh ensure`），`datallowconn = false` 即就绪标记。
+
 ### 4.2 取池
 
 1. `pg_try_advisory_lock(template_lock_key)`（会话级，长驻到 clone 结束）——
@@ -114,7 +119,7 @@ B 的主要吸引力不只是快，而是**删掉了整块"重建后修正"的�
 | 阶段 | 内容 | 验收 |
 |---|---|---|
 | P0 ✅ | 模板库创建 + 禁连 + `CHECKPOINT`，暴露为独立脚本 | 已验收：`ensure` 幂等、`datallowconn=false`、`clone` 0.117 s / 221 表、非测试集群 exit 2 |
-| P1 | `TEST_DB_ISOLATION=database` 只接 `prepare_shared_test_pool` | 13 条 `api_account_data` + 286 条 `room_` 全绿；残留 = 0 |
+| P1 ✅ | `TEST_DB_ISOLATION=database` 只接 `prepare_shared_test_pool` | 已验收：13 条 4.1 s（schema 11.9–15.3 s）、286 条 **193.6 s**（schema 421.3 s）、残留 0 |
 | P2 | 接 `acquire_pooled_schema` / `prepare_isolated_test_pool` | 同上，且 `test_db_health.sh` 无新增残留 |
 | P3 | CI 双跑一个周期（A 与 B 各一遍） | 两边全绿；B 的墙钟低于 A 的 60% |
 | P4 | 默认切 B，保留 A 一个版本 | 文档/脚本更新，回落路径有测试覆盖 |
@@ -128,3 +133,5 @@ B 的主要吸引力不只是快，而是**删掉了整块"重建后修正"的�
   但要重新引入 TRUNCATE 列表维护（现有 `truncate_and_reseed_schema` 可复用）。
 - `pg_database` 行数在多轮长跑后的 catalog 膨胀，是否也需要 `VACUUM FULL pg_database`？
 - 模板指纹变化时，旧模板库的回收策略（现在 schema 模板靠 marker 文件判定，库版本同样需要）。
+- **模板命名统一**：脚本按 baseline 的 sha256 命名，crate 内 `template_schema_fingerprint()`
+  是另一套哈希；当前靠"取最新 sealed 模板"绕开，P4 应统一为单一指纹并由脚本写入。
