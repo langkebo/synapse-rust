@@ -215,8 +215,17 @@ interface PusherSet {
 
 | 方法 | 端点 | 说明 |
 |---|---|---|
-| `GET` | `/notifications?limit=N` | 列通知，`limit` 默认 **100** |
+| `GET` | `/notifications?limit=N&from=C&only=...` | 列通知；`limit` 默认 **50**、上限 500；`from` 为上一页的 `next_token`；`only` 可重复 |
 | `POST` | `/notifications/{notification_id}/ack` | 标记已读 |
+
+`only` 支持三类过滤器（可重复，同类取并集）：
+
+- `room_id:!room:server`
+- `type:m.room.message`
+- `sender:@user:server`
+
+缺 `:`、值为空或使用其它 key（`highlight` / `is_encrypted` / `is_one_to_one` / `contains_user_name:`）
+→ 400 `M_INVALID_PARAM`（后端不会静默忽略）。`limit` 非整数/负数 → 400；`>500` 夹紧到 500。
 
 **响应**：
 
@@ -233,12 +242,13 @@ interface PusherSet {
       "read": false
     }
   ],
-  "next_token": null
+  "next_token": "1760700000000_42"
 }
 ```
 
-> ⚠️ **`next_token` 恒为 `null`**——该端点在本仓**不做分页**，`notifications` 就是
-> "最近 `limit` 条"。不要写 `while (next_token)` 的翻页循环，会死循环或漏数据。
+> `next_token` 现在是**真实可用**的分页游标：仅当后端确认还有下一页时才非 `null`。
+> 回填到下一次请求的 `from` 即可；不要解析或自行构造（内部是 `(ts, id)` keyset）。
+> 翻页终止条件是 `next_token === null`（不是 `notifications.length === 0`）。
 
 **ack 响应**：`{"notification_id": 42, "is_read": true, "updated_ts": 1760700000000}`；
 不属于本人的通知 → 404 `M_NOT_FOUND`。

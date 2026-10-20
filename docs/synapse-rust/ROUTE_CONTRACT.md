@@ -1446,24 +1446,28 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 #### 1. `POST /knock/{room_id_or_alias}`
 - **注册**：`room.rs` manifest ✅（路径 `POST /knock/{room_id_or_alias}`，位于 `/_matrix/client/v3`）
-- **Handler**：`handlers/room/members.rs::knock_room`（L130）
-- **请求**：path 取 `room_id_or_alias`（支持 `!room`、`#alias`、裸 alias→`#alias:server`）；**body 仅读 `reason`（可选）**；`via` / `server_name` **完全忽略**（不读、不传 federation）
+- **Handler**：`handlers/room/members.rs::knock_room`
+- **请求**：path 取 `room_id_or_alias`（支持 `!room`、`#alias`、裸 alias→`#alias:server`）；**query 读重复参数 `via`（`?via=srv1&via=srv2`，percent-decode）**；body 读 `reason`（可选）与历史兼容键 `via_servers`（仅在 query 无 `via` 时生效）
 - **响应**：`{ "room_id": "<resolved room id>" }`
-- **迁移结论**：matrix-js-sdk `knockRoom()` 把 `viaServers` 作为 **query 参数** 发送，后端忽略；原裸调把 `via` 放 body 同样被忽略 → 迁移无回归。⚠️ knock 的 via 服务器路由本就不生效（后端不消费）。
+- **迁移结论**：matrix-js-sdk `knockRoom()` 把 `viaServers` 作为 **query 参数** 发送 → 现在会被消费。⚠️ 该端点契约类别为 `query: literal`（`Query<Vec<(String,String)>>`，键名由 `k == "via"` 字面量证明），见 A.4。
 
 #### 2. `POST /join/{room_id_or_alias}`
 - **注册**：`room.rs` manifest ✅
-- **Handler**：`handlers/room/members.rs::join_room_by_id_or_alias`（L29）
-- **请求**：path 取 `room_id_or_alias`；**body 仅读 `via_servers`（数组）**；`reason`、`third_party_signed`、`server_name` **均不读/不使用**
+- **Handler**：`handlers/room/members.rs::join_room_by_id_or_alias`
+- **请求**：path 取 `room_id_or_alias`；**query 读重复参数 `via`**；body 读历史兼容键 `via_servers`（仅 query 无 `via` 时生效）；`reason`、`third_party_signed`、`server_name` **均不读/不使用**
 - **响应**：`{ "room_id": "<resolved room id>" }`
-- **🔴 已知历史 bug（与本次迁移无关）**：原前端裸调发送 `server_name`（body），与后端期望的 `via_servers` 键不匹配 → `via_servers` 始终为空；matrix-js-sdk `joinRoom()` 把 `viaServers` 作为 query 参数发送，同样被后端忽略 → 迁移前后行为等价（均为空）。要真正修复 via 路由需前后端协同（前端改发 `via_servers` body 字段，或后端改读 query）。
+- **迁移结论**：原「`via` 被忽略」的历史 bug 已修复——`?via=` 优先，body `via_servers` 作为回退。该端点契约类别同为 `query: literal`（见 A.4）。
 
 #### 3. `POST /_matrix/client/v3/oidc/logout`
 - **注册**：`oidc/mod.rs` manifest ✅（r0 + v3）
-- **Handler**：`oidc/provider.rs::oidc_logout`（L340）
-- **请求**：body `OidcLogoutRequest { device_id?, refresh_token? }`，二者均可选；空 `{}` 合法
-- **响应**：`{ "success": true }`
-- **迁移结论**：SDK `OidcManager.logout()` POST `/oidc/logout` body `{}` → 命中，返回 boolean。✅
+- **Handler**：`oidc/provider.rs::oidc_logout`
+- **请求**：body 同时接受两族字段（全部可选）——
+  - 会话族：`refresh_token`、`device_id`（矩阵客户端注销）
+  - RP-Initiated Logout 族（MSC2964 / OIDC RP-Initiated Logout）：`client_id`、`id_token_hint`、`post_logout_redirect_uri`、`state`
+- **语义**：`device_id` → 撤销该设备；`refresh_token` → 校验归属后撤销（已过期/已撤销视为幂等成功）；两者都不传（含空 `{}`）→ **400 `M_MISSING_PARAM`**，不再返回假的 `{"success":true}`。非本人 `refresh_token` → 403。
+- **响应**：`{ "success": true, "device_revoked": <bool>, "refresh_token_revoked": <bool> }`
+  （RP 字段目前只做读取与日志，不改响应形状；`post_logout_redirect_uri` 的跳转由客户端自行完成。`refresh_token` 已过期/已撤销时按幂等成功处理：`success=true` 且 `refresh_token_revoked=false`。）
+- **迁移结论**：SDK `OidcManager.logout()` 若发送空 `{}`，现在会拿到 400 `M_MISSING_PARAM`；须至少传 `device_id` 或 `refresh_token`（RP 三字段可与它们同时传，但不能替代）。
 
 #### 4. `DELETE /_matrix/client/v3/register/captcha/clean`
 - **注册**：路由树已注册（`captcha.rs` L121）且 **已纳入 `captcha_route_manifest()`**（漂移已于 2026-08-17 修复）
@@ -1492,7 +1496,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 |---|---|---|---|---|
 | 1 | `RoomManager.knockRoom()` | `POST /_matrix/client/v3/knock/{id}` | ✅ `room.rs` | 命中 |
 | 2 | `RoomManager.joinRoom()` | `POST /_matrix/client/v3/join/{id}` | ✅ `room.rs` | 命中 |
-| 3 | `OidcManager.logout()` | `POST /_matrix/client/v3/oidc/logout` | ✅ `oidc/mod.rs` | 命中 |
+| 3 | `OidcManager.logout()` | `POST /_matrix/client/v3/oidc/logout` | ✅ `oidc/mod.rs` | 命中（空 body 现为 400 `M_MISSING_PARAM`） |
 | 4 | `CaptchaManager.deleteExpiredCaptchas()` | `DELETE /_matrix/client/v3/register/captcha/clean` | ✅ `captcha.rs`（漂移已修复） | 命中 |
 | 5 | `E2EEManager.listRoomKeyRequests()` | `GET /_matrix/client/v3/room_keys/request` | ✅ `e2ee/keys.rs` | 命中（须解包 `.requests`） |
 | 6 | `E2EEManager.deleteRoomKeyRequest(id)` | `DELETE /_matrix/client/v3/room_keys/request/{id}` | ✅ `e2ee/keys.rs` | 命中 |
@@ -1504,6 +1508,45 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 ### A.3 已知漂移（manifest vs 路由树）
 
 - `captcha_route_manifest()`（`captcha.rs` L135–L147）**曾缺少** `DELETE /_matrix/client/v3/register/captcha/clean`：该路由已在 `create_captcha_router()`（L121）注册，但 manifest 仅列 7 条（6 client + 1 admin），漏了这条 client DELETE。后果：`route_ledger` 启动校验与集成测试 `api_route_ledger_tests.rs` 的 PATCH 探测**不覆盖**该端点。**已于 2026-08-17 修复**——已在 manifest 中补 `(Method::DELETE, ".../v3/register/captcha/clean")`，现为 8 条（7 client + 1 admin），与路由树、本文档三者一致。（本文档由路由树生成，始终已正确列出该路由。）
+
+### A.4 契约可判定性：`query: literal` 与「不可判」的区别（2026-10-20）
+
+`ROUTE_HANDLERS.json` 的 `query` 分类是**给下游判定用的**，不是猜的。与本文档相关的三类要分清：
+
+| 分类 | 含义 | 下游能做什么 |
+|---|---|---|
+| `typed` | `Query<T>` 单一 struct，`query_params` 是 `T` 的 wire 名全集 | 可逐字段比对 SDK 是否发错/漏发 |
+| `literal` | 动态提取器（如 `Query<Vec<(String, String)>>`），但键名可由 handler 内的字符串字面量证明 | **键名可比对**（`query_params` 是证明出来的键集）；值类型不可比 |
+| `opaque` / `ambiguous` | 键集在运行时决定，或无单一 handler 定义 | 记为「不可判」，不要当成「后端未声明」 |
+
+当前 `query: literal` 恰好 **2** 条，均为「重复 key」语义，**不是**「未知」：
+
+| Method | Path | 提取器 | 可证明键 |
+|---|---|---|---|
+| `POST` | `/_matrix/client/v3/join/{room_id_or_alias}` | `Query<Vec<(String,String)>>` → `extract_via_servers` | `via`（可重复） |
+| `POST` | `/_matrix/client/v3/knock/{room_id_or_alias}` | 同上 | `via`（可重复） |
+
+说明：这两条之所以不是 `typed`，是因为 `serde_urlencoded` 无法把**重复 key** 反序列化进 `Vec<T>` 字段之外的形状，handler 用 pair 向量自行聚合；除 `via` 外的 query key 会被忽略（不报错）。SDK 只需保证 `viaServers` 以 `?via=a&via=b` 形式发送，不要发 `via[]=` 或 JSON。
+
+### A.5 2026-10-20 语义补齐（`/notifications` 与 vendor keys）
+
+#### 1. `GET /_matrix/client/v3/notifications`（B-7）
+
+- **query**：`from`（cursor）、`limit`（默认 **50**，上限 **500**）、`only`（可重复）。
+  - `limit` 非整数 / 负数 → 400 `M_INVALID_PARAM`；`> 500` 夹紧到 500。
+  - `from` 为空串视为首页；格式非法 → 400 `M_INVALID_PARAM`。
+  - `only` 支持三类，形如 `room_id:!a:b`、`type:m.room.message`、`sender:@u:s`；可重复（同类取并集）。
+    缺 `:`、值为空、未知 key（`highlight` / `is_encrypted` / `is_one_to_one` / `contains_user_name:`）→ **400 `M_INVALID_PARAM`**（不再静默忽略）。
+- **响应**：`{ "notifications": [...], "next_token": <string|null> }`
+  - `next_token` 仅在**确认还有下一页**时非 null（内部按 `limit+1` 探测），可直接回填到下一次 `from`。
+  - cursor 是不透明字符串（`"{ts}_{id}"` 的 keyset），调用方**不要解析或构造**，只回填。
+- **翻页**：`while (next_token) { GET ?from=<next_token>&limit=... }`；空 `notifications` + `next_token=null` 才是真正的末页。
+
+#### 2. `GET /_matrix/vendor/v1/rooms/{room_id}/keys/{event_id}`（C-1）
+
+- 之前返回 `200 {"keys": []}`，客户端无法区分「没有密钥」与「没实现」。
+- 现在返回 **501 `M_UNKNOWN`**，`error` 明确说明未实现；鉴权与房间可见性校验仍在返回 501 之前执行（无权限仍是 403/404）。
+- SDK 侧请把该状态识别为 `Unsupported`，不要当成空结果。
 
 ---
 

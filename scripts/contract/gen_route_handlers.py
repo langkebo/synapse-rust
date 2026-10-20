@@ -67,13 +67,14 @@ Row model (per route, sorted by `(path, method)`):
                  `literal`.
 * `unsupported` — the ledger declaration from `ledger_annotations.txt`: the
   route is reachable but its documented response is not implemented (today the
-  vendor keys endpoint answers a placeholder `keys: []`).
+  vendor keys endpoint answers 501 `M_UNKNOWN` instead of a placeholder
+  `keys: []`).
 * `dynamic` — the ledger declaration from `ledger_annotations.txt`: the route
   exists but no single handler definition can be named statically *by
-  construction* (fallback chain, `{*path}` runtime proxy, non-unique handler
-  name). The declared set and the `confidence: none` set are required to be
-  identical in both directions, so a new blind spot and a stale exemption are
-  both RED — the "static blind spot" count can no longer drift unnoticed.
+  construction* (fallback chain). The declared set and the `confidence: none`
+  set are required to be identical in both directions, so a new blind spot and
+  a stale exemption are both RED — the "static blind spot" count can no longer
+  drift unnoticed.
 
 `file`/`handler`/`candidates[].file`/`hint.file` are relative to `file_root`
 (`synapse-web/src/routes`) so the sidecar stays readable without repeating a

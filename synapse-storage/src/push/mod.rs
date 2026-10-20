@@ -83,7 +83,7 @@ pub struct PushRuleScopedRow {
 }
 
 /// A `notifications` row as returned by [`PushStorage::get_notifications`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct NotificationRow {
     /// The `id` field.
     pub id: i64,
@@ -101,6 +101,35 @@ pub struct NotificationRow {
     pub profile_tag: Option<String>,
     /// The `is_read` field.
     pub is_read: Option<bool>,
+}
+
+/// Filters and cursor for one page of a user's notification inbox
+/// (`GET /_matrix/client/v3/notifications`).
+///
+/// Keyset pagination is `(ts, id)` descending: `(ts, id)` is unique per row and
+/// both columns are non-null, so the cursor never skips or repeats a row when new
+/// notifications arrive between two page reads.
+#[derive(Debug, Clone, Default)]
+pub struct NotificationPageQuery {
+    /// Maximum number of rows to return. Callers that need `next_token` ask for
+    /// `limit + 1` and drop the probe row themselves.
+    pub limit: i64,
+    /// `(ts, id)` of the last row of the previous page — strict `<` continuation.
+    pub cursor: Option<(i64, i64)>,
+    /// `only=room_id:<room>` filters. Empty means "any room".
+    pub room_ids: Vec<String>,
+    /// `only=type:<event type>` filters (matched against `events.event_type`,
+    /// not against `notifications.notification_type`). Empty means "any type".
+    pub event_types: Vec<String>,
+    /// `only=sender:<user id>` filters. Empty means "any sender".
+    pub senders: Vec<String>,
+}
+
+impl NotificationPageQuery {
+    /// First page of `limit` rows with no filters.
+    pub fn first(limit: i64) -> Self {
+        Self { limit, ..Self::default() }
+    }
 }
 
 /// Trait abstraction over [`PushStorage`] for testability and service wiring.
@@ -217,7 +246,11 @@ pub trait PushStoreApi: Send + Sync {
     async fn get_all_push_rules(&self, user_id: &str) -> Result<Vec<PushRuleScopedRow>, sqlx::Error>;
 
     /// See [`get_notifications`].
-    async fn get_notifications(&self, user_id: &str, limit: i64) -> Result<Vec<NotificationRow>, sqlx::Error>;
+    async fn get_notifications(
+        &self,
+        user_id: &str,
+        query: &NotificationPageQuery,
+    ) -> Result<Vec<NotificationRow>, sqlx::Error>;
 
     /// See [`record_notification`].
     async fn record_notification(
@@ -544,16 +577,46 @@ impl PushStorage {
     // ── notifications ────────────────────────────────────────────────────
 
     /// See [`get_notifications`].
-    pub async fn get_notifications(&self, user_id: &str, limit: i64) -> Result<Vec<NotificationRow>, sqlx::Error> {
-        sqlx::query_as!(
-            NotificationRow,
+    ///
+    /// Keyset pagination on `(ts, id)` descending plus the inbox filters from
+    /// `GET /_matrix/client/v3/notifications`. `only=type:` and `only=sender:`
+    /// are matched against the backing event (`events.event_type` /
+    /// `events.sender`), not against `notifications.notification_type`: the
+    /// former is "what the event is", the latter is "which push rule fired".
+    ///
+    /// Written with the runtime `query_as` form (not `query_as!`) so the SQL can
+    /// carry `= ANY($n)` array filters without a new `.sqlx` offline-cache entry.
+    pub async fn get_notifications(
+        &self,
+        user_id: &str,
+        query: &NotificationPageQuery,
+    ) -> Result<Vec<NotificationRow>, sqlx::Error> {
+        let (cursor_ts, cursor_id) = match query.cursor {
+            Some((ts, id)) => (Some(ts), Some(id)),
+            None => (None, None),
+        };
+
+        sqlx::query_as::<_, NotificationRow>(
             r#"
-            SELECT id, event_id, room_id, ts, notification_type, profile_tag, is_read
-            FROM notifications WHERE user_id = $1 ORDER BY ts DESC LIMIT $2
+            SELECT n.id, n.event_id, n.room_id, n.ts, n.notification_type, n.profile_tag, n.is_read
+            FROM notifications n
+            LEFT JOIN events e ON e.event_id = n.event_id
+            WHERE n.user_id = $1
+              AND ($2::bigint IS NULL OR n.ts < $2 OR (n.ts = $2 AND n.id < $3))
+              AND (cardinality($4::text[]) = 0 OR n.room_id = ANY($4))
+              AND (cardinality($5::text[]) = 0 OR e.event_type = ANY($5))
+              AND (cardinality($6::text[]) = 0 OR e.sender = ANY($6))
+            ORDER BY n.ts DESC, n.id DESC
+            LIMIT $7
             "#,
-            user_id,
-            limit,
         )
+        .bind(user_id)
+        .bind(cursor_ts)
+        .bind(cursor_id)
+        .bind(&query.room_ids)
+        .bind(&query.event_types)
+        .bind(&query.senders)
+        .bind(query.limit)
         .fetch_all(&*self.pool)
         .await
     }
@@ -739,8 +802,12 @@ impl PushStoreApi for PushStorage {
         self.get_all_push_rules(user_id).await
     }
 
-    async fn get_notifications(&self, user_id: &str, limit: i64) -> Result<Vec<NotificationRow>, sqlx::Error> {
-        self.get_notifications(user_id, limit).await
+    async fn get_notifications(
+        &self,
+        user_id: &str,
+        query: &NotificationPageQuery,
+    ) -> Result<Vec<NotificationRow>, sqlx::Error> {
+        self.get_notifications(user_id, query).await
     }
 
     async fn record_notification(
@@ -1257,7 +1324,10 @@ mod db_tests {
         insert_notification(&pool, &user_id, "$ev1", "!room1:test.com", now, "message", false, now).await;
         insert_notification(&pool, &user_id, "$ev2", "!room1:test.com", now + 1, "invite", false, now).await;
 
-        let rows = storage.get_notifications(&user_id, 10).await.expect("get_notifications should succeed");
+        let rows = storage
+            .get_notifications(&user_id, &NotificationPageQuery::first(10))
+            .await
+            .expect("get_notifications should succeed");
         assert_eq!(rows.len(), 2, "should return both notifications");
         // Results ordered by ts DESC, so newest (ev2) first
         assert_eq!(rows[0].event_id.as_deref(), Some("$ev2"));
@@ -1279,7 +1349,10 @@ mod db_tests {
                 .await;
         }
 
-        let rows = storage.get_notifications(&user_id, 3).await.expect("get_notifications should succeed");
+        let rows = storage
+            .get_notifications(&user_id, &NotificationPageQuery::first(3))
+            .await
+            .expect("get_notifications should succeed");
         assert_eq!(rows.len(), 3, "should respect limit");
 
         cleanup_notifications(&pool, &user_id).await;
@@ -1291,7 +1364,10 @@ mod db_tests {
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@unknown");
 
-        let rows = storage.get_notifications(&user_id, 10).await.expect("get_notifications should succeed");
+        let rows = storage
+            .get_notifications(&user_id, &NotificationPageQuery::first(10))
+            .await
+            .expect("get_notifications should succeed");
         assert!(rows.is_empty(), "unknown user should have no notifications");
     }
 
@@ -1310,7 +1386,8 @@ mod db_tests {
             .await
             .expect("record_notification must succeed");
 
-        let rows = storage.get_notifications(&user_id, 10).await.expect("get_notifications");
+        let rows =
+            storage.get_notifications(&user_id, &NotificationPageQuery::first(10)).await.expect("get_notifications");
         assert_eq!(rows.len(), 1, "the recorded notification must be readable");
         assert_eq!(rows[0].event_id.as_deref(), Some("$ev_record"));
         assert_eq!(rows[0].room_id.as_deref(), Some("!room1:test.com"));
@@ -1336,7 +1413,8 @@ mod db_tests {
                 .await
                 .expect("record_notification must succeed");
         }
-        let rows = storage.get_notifications(&user_id, 10).await.expect("get_notifications");
+        let rows =
+            storage.get_notifications(&user_id, &NotificationPageQuery::first(10)).await.expect("get_notifications");
         assert_eq!(rows.len(), 1, "repeated attempts for one unread event must not duplicate");
 
         storage.ack_notification(rows[0].id, &user_id, now + 10).await.expect("ack_notification");
@@ -1344,7 +1422,8 @@ mod db_tests {
             .record_notification(&user_id, Some("$ev_dup"), Some("!room1:test.com"), "message", now + 11)
             .await
             .expect("record_notification after ack must succeed");
-        let rows = storage.get_notifications(&user_id, 10).await.expect("get_notifications");
+        let rows =
+            storage.get_notifications(&user_id, &NotificationPageQuery::first(10)).await.expect("get_notifications");
         assert_eq!(rows.len(), 2, "after ack the event may notify again");
 
         cleanup_notifications(&pool, &user_id).await;
@@ -1368,7 +1447,8 @@ mod db_tests {
             .await
             .expect("record_notification must succeed");
 
-        let rows = storage.get_notifications(&user_id, 10).await.expect("get_notifications");
+        let rows =
+            storage.get_notifications(&user_id, &NotificationPageQuery::first(10)).await.expect("get_notifications");
         assert_eq!(rows.len(), 2, "notifications without an event_id must never be merged");
 
         cleanup_notifications(&pool, &user_id).await;

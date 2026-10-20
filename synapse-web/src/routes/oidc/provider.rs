@@ -77,12 +77,32 @@ pub(crate) struct OidcUserInfoResponse {
 }
 
 /// OIDC Logout Request
+///
+/// Accepts two families of fields:
+///
+/// * `refresh_token` / `device_id` — the revocation targets this server can act on.
+///   At least one of them is required (400 `M_MISSING_PARAM` otherwise): the
+///   endpoint must not answer `{"success": true}` without revoking anything.
+/// * `client_id` / `id_token_hint` / `post_logout_redirect_uri` / `state` — the
+///   OpenID Connect RP-Initiated Logout 1.0 payload. They are accepted for wire
+///   compatibility (clients that follow the RP spec send them) but cannot be
+///   resolved to a server-side session: there is no `id_token_hint` → session
+///   index, and this endpoint is a JSON API rather than a browser redirect flow,
+///   so `post_logout_redirect_uri` is not used for redirecting either.
 #[derive(Debug, Deserialize)]
 pub(crate) struct OidcLogoutRequest {
     /// The `refresh_token` field.
     pub refresh_token: Option<String>,
     /// The `device_id` field.
     pub device_id: Option<String>,
+    /// The `client_id` field (RP-Initiated Logout).
+    pub client_id: Option<String>,
+    /// The `id_token_hint` field (RP-Initiated Logout).
+    pub id_token_hint: Option<String>,
+    /// The `post_logout_redirect_uri` field (RP-Initiated Logout).
+    pub post_logout_redirect_uri: Option<String>,
+    /// The `state` field (RP-Initiated Logout).
+    pub state: Option<String>,
 }
 
 /// OIDC Authorize Request
@@ -383,26 +403,70 @@ pub(crate) async fn oidc_userinfo(
     Ok(Json(OidcUserInfoResponse { sub: user_id.clone(), name, picture, email }))
 }
 
-/// OIDC Logout — deletes device and/or revokes refresh token
+/// OIDC Logout — revokes the named device and/or refresh token
+///
+/// Semantics (see [`OidcLogoutRequest`]): the endpoint acts on `device_id` and/or
+/// `refresh_token`; with neither field present it answers 400 `M_MISSING_PARAM`
+/// instead of a success that did nothing. Both revocations are scoped to the
+/// authenticated user, so a token/device belonging to somebody else is 403.
+/// Revoking an already-dead refresh token is an idempotent success, mirroring
+/// `POST /_matrix/client/v3/logout`.
 pub(crate) async fn oidc_logout(
     State(ctx): State<SsoContext>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<OidcLogoutRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    // If a device ID is provided, delete that device
-    if let Some(device_id) = body.device_id {
-        ctx.account_device_list_service.delete_device(&device_id).await?;
+    let OidcLogoutRequest { refresh_token, device_id, client_id, id_token_hint, post_logout_redirect_uri, state } =
+        body;
+
+    if refresh_token.is_none() && device_id.is_none() {
+        return Err(ApiError::missing_param(
+            "oidc logout requires `refresh_token` or `device_id`; the RP-Initiated Logout \
+             fields (`client_id` / `id_token_hint` / `post_logout_redirect_uri` / `state`) \
+             alone do not identify a session on this server",
+        ));
     }
 
-    // If a refresh token is provided, revoke it
-    if let Some(refresh_token) = body.refresh_token {
-        ctx.refresh_token_service.revoke_token(&refresh_token, "OIDC logout").await?;
+    let mut device_revoked = false;
+    if let Some(device_id) = device_id {
+        // Owned-device revocation: deletes the device, its access tokens, its
+        // refresh tokens and its device keys, and writes a security audit entry.
+        device_revoked = ctx.token_auth.revoke_device(&auth_user.user_id, &device_id).await? > 0;
     }
 
-    tracing::info!("OIDC logout for user: {}", auth_user.user_id);
+    let mut refresh_token_revoked = false;
+    if let Some(refresh_token) = refresh_token {
+        match ctx.refresh_token_service.validate_token(&refresh_token).await {
+            Ok(record) => {
+                if record.user_id != auth_user.user_id {
+                    return Err(ApiError::forbidden("refresh_token does not belong to the authenticated user"));
+                }
+                ctx.refresh_token_service.revoke_token(&refresh_token, "OIDC logout").await?;
+                refresh_token_revoked = true;
+            }
+            // Already expired / revoked / blacklisted: logout is idempotent.
+            Err(err) if err.is_unauthorized() => {}
+            Err(err) => return Err(err),
+        }
+    }
+
+    tracing::info!(
+        user_id = %auth_user.user_id,
+        device_revoked = device_revoked,
+        refresh_token_revoked = refresh_token_revoked,
+        // Accepted for RP-Initiated Logout wire compatibility; recorded so the
+        // fields are visibly consumed rather than silently dropped.
+        client_id = ?client_id,
+        has_id_token_hint = id_token_hint.is_some(),
+        post_logout_redirect_uri = ?post_logout_redirect_uri,
+        state = ?state,
+        "OIDC logout"
+    );
 
     Ok(Json(serde_json::json!({
-        "success": true
+        "success": true,
+        "device_revoked": device_revoked,
+        "refresh_token_revoked": refresh_token_revoked
     })))
 }
 

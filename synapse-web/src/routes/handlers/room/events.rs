@@ -42,6 +42,12 @@ pub(crate) async fn get_single_event(
 }
 
 /// See [`get_event_keys`].
+///
+/// C-1: this endpoint has no key storage behind it. It used to answer
+/// `200 {"keys": []}`, which is indistinguishable from "this event has no keys"
+/// — a caller would conclude the feature works and the event simply carries
+/// nothing. Answer 501 `M_UNKNOWN` instead, so the caller knows the endpoint is
+/// not implemented here.
 pub(crate) async fn get_event_keys(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -55,13 +61,7 @@ pub(crate) async fn get_event_keys(
 
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let event = ctx.room_service.messaging().get_event(&room_id, &event_id).await?;
-
-    Ok(Json(json!({
-        "event_id": event.get("event_id"),
-        "room_id": event.get("room_id"),
-        "keys": []
-    })))
+    Err(ApiError::not_supported("Event keys are not implemented by this server"))
 }
 
 /// See [`get_room_thread`].
@@ -1223,24 +1223,12 @@ mod tests {
     }
 
     #[test]
-    fn test_event_keys_response_structure() {
-        let event = json!({
-            "event_id": "$event123",
-            "room_id": "!room123:example.com",
-            "sender": "@user:example.com",
-            "type": "m.room.message"
-        });
-
-        let keys_response = json!({
-            "event_id": event.get("event_id"),
-            "room_id": event.get("room_id"),
-            "keys": []
-        });
-
-        assert!(keys_response.get("event_id").is_some());
-        assert!(keys_response.get("room_id").is_some());
-        assert!(keys_response.get("keys").unwrap().is_array());
-        assert_eq!(keys_response.get("keys").unwrap().as_array().unwrap().len(), 0);
+    fn test_event_keys_semantics_are_not_a_success_shaped_empty_array() {
+        // C-1: `GET /rooms/{room_id}/keys/{event_id}` has no storage behind it.
+        // Answering `200 {"keys": []}` reads as "this event has no keys", so the
+        // handler answers 501 `M_UNKNOWN` instead.
+        let err = ApiError::not_supported("Event keys are not implemented by this server");
+        assert!(err.code_is(synapse_common::MatrixErrorCode::Unknown));
     }
 
     #[test]

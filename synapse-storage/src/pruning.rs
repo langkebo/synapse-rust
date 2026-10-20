@@ -588,7 +588,11 @@ mod db_tests {
 
         let storage = crate::push::PushStorage::new(Arc::clone(&pool));
         assert_eq!(
-            storage.get_notifications(&expired_user, 10).await.expect("read expired user").len(),
+            storage
+                .get_notifications(&expired_user, &crate::push::NotificationPageQuery::first(10))
+                .await
+                .expect("read expired user")
+                .len(),
             1,
             "the out-of-window row must exist before pruning"
         );
@@ -596,11 +600,19 @@ mod db_tests {
         let deleted = prune_old_notifications(&pool).await.expect("prune_old_notifications");
         assert_eq!(deleted, 1, "only the out-of-window row is deleted");
         assert!(
-            storage.get_notifications(&expired_user, 10).await.expect("read expired user").is_empty(),
+            storage
+                .get_notifications(&expired_user, &crate::push::NotificationPageQuery::first(10))
+                .await
+                .expect("read expired user")
+                .is_empty(),
             "the expired row must be gone"
         );
         assert_eq!(
-            storage.get_notifications(&recent_user, 10).await.expect("read recent user").len(),
+            storage
+                .get_notifications(&recent_user, &crate::push::NotificationPageQuery::first(10))
+                .await
+                .expect("read recent user")
+                .len(),
             2,
             "in-window rows survive pruning and stay readable through the production reader"
         );

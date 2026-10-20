@@ -1871,7 +1871,7 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/client/v1/rooms/{room_id}/timestamp_to_event"): {
         "query_params": "dir,ts"
     },
-    ("GET", "/_matrix/client/v3/notifications"): {"query_params": "limit"},
+    ("GET", "/_matrix/client/v3/notifications"): {"query_params": "from,limit,only"},
     ("GET", "/_matrix/client/v3/publicRooms"): {"query_params": "limit,since"},
     ("GET", "/_matrix/client/v3/rooms/{room_id}/context/{event_id}"): {
         "query_params": "limit"
@@ -1953,32 +1953,20 @@ EXPECTED_ANNOTATIONS = {
     ("POST", "/_matrix/client/v3/join/{room_id_or_alias}"): {"query_params": "via"},
     ("POST", "/_matrix/client/v3/knock/{room_id_or_alias}"): {"query_params": "via"},
     # -- unsupported: registered, reachable, but the documented response is not
-    # implemented. The handler currently answers 200 with a placeholder
-    # (`"keys": []`), which looks like success to a client; the annotation is
-    # what makes that gap visible on the contract surface (C-1).
+    # implemented. The handler now answers 501 `M_UNKNOWN` (C-1) instead of a
+    # placeholder 200 with `"keys": []`, which a client could not distinguish
+    # from a real empty result; the annotation keeps the gap visible on the
+    # contract surface.
     ("GET", "/_matrix/vendor/v1/rooms/{room_id}/keys/{event_id}"): {
         "unsupported": True
     },
     # -- dynamic: routes whose handler cannot be named statically by
-    # construction (fallback chain / `{*path}` runtime proxy / non-unique
-    # handler name). This set is the pinned counterpart of the sidecar's
-    # `confidence: none`; `gen_route_handlers.py` fails if the two diverge in
-    # either direction.
+    # construction (fallback chain). This set is the pinned counterpart of the
+    # sidecar's `confidence: none`; `gen_route_handlers.py` fails if the two
+    # diverge in either direction. The 14 `app_service` proxy rows are gone:
+    # `_handler_calls` now expands `any(proxy_to_as)` to every HTTP method, so
+    # those rows resolve to a handler definition.
     ("GET", "/"): {"dynamic": True},
-    ("DELETE", "/_matrix/app/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
-    ("GET", "/_matrix/app/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
-    ("HEAD", "/_matrix/app/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
-    ("OPTIONS", "/_matrix/app/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
-    ("PATCH", "/_matrix/app/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
-    ("POST", "/_matrix/app/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
-    ("PUT", "/_matrix/app/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
-    ("DELETE", "/_matrix/client/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
-    ("GET", "/_matrix/client/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
-    ("HEAD", "/_matrix/client/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
-    ("OPTIONS", "/_matrix/client/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
-    ("PATCH", "/_matrix/client/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
-    ("POST", "/_matrix/client/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
-    ("PUT", "/_matrix/client/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
 }
 
 # Counted debt for `body_opaque`: routes whose handler deserializes a bare
@@ -2844,25 +2832,34 @@ class Resolver:
         `handler_path` keeps any module qualifier (`events::get_state`), because
         dropping it cannot distinguish two same-named handlers in one file. The
         argument must be a bare (possibly qualified) function path for the
-        *reverse query guard* to resolve it; a closure, `any()`, or a method
-        call yields `None` and the route is left unverifiable rather than
-        guessed at.
+        *reverse query guard* to resolve it; a closure or a method call yields
+        `None` and the route is left unverifiable rather than guessed at.
+
+        `any(handler)` is expanded to every HTTP method, mirroring
+        [`_methods_of`]: the route is registered once per method, so each one
+        must carry the same handler. Skipping `any` here used to leave those
+        routes handler-less, which surfaced as `status: unresolved` and
+        `body: ambiguous`.
         """
         out: dict = {}
         for m in re.finditer(r"(?:^|[.:\s(])([a-z]+)\s*\(", text):
             meth = m.group(1)
-            if meth not in HTTP_METHODS_SET or meth.upper() in out:
+            if meth != "any" and meth not in HTTP_METHODS_SET:
                 continue
             open_idx = text.index("(", m.end() - 1)
             close = match_delim(text, open_idx)
             arg = text[open_idx + 1 : close].strip() if close != -1 else ""
             arg = split_top_level(arg)[0].strip() if arg else ""
-            if re.fullmatch(
-                r"(?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Za-z_][A-Za-z0-9_]*", arg
-            ):
-                out[meth.upper()] = arg
-            elif arg:
-                out[meth.upper()] = None
+            methods = HTTP_METHODS if meth == "any" else (meth,)
+            for method in methods:
+                if method.upper() in out:
+                    continue
+                if re.fullmatch(
+                    r"(?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Za-z_][A-Za-z0-9_]*", arg
+                ):
+                    out[method.upper()] = arg
+                elif arg:
+                    out[method.upper()] = None
         return out
 
     # -- roots -------------------------------------------------------------

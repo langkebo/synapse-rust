@@ -795,7 +795,10 @@ mod db_tests {
         request.room_id = Some("!notif_room:test".to_string());
         service.send_notification(request).await.expect("send_notification must succeed");
 
-        let rows = push_store.get_notifications(&user_id, 10).await.expect("get_notifications");
+        let rows = push_store
+            .get_notifications(&user_id, &synapse_storage::push::NotificationPageQuery::first(10))
+            .await
+            .expect("get_notifications");
         assert_eq!(rows.len(), 1, "the push decision must be recorded exactly once");
         assert_eq!(rows[0].event_id.as_deref(), Some("$notif_ev"));
         assert_eq!(rows[0].room_id.as_deref(), Some("!notif_room:test"));

@@ -26,7 +26,7 @@ use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use synapse_services::client_push_service::{ClientPushService, UpsertPushRuleRequest, UpsertPusherRequest};
 use synapse_storage::push::PushStoreApi;
-use synapse_storage::push::{NotificationRow, PushRuleRow, PushRuleScopedRow, PusherRow};
+use synapse_storage::push::{NotificationPageQuery, NotificationRow, PushRuleRow, PushRuleScopedRow, PusherRow};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mock: PushStoreApi
@@ -250,7 +250,11 @@ impl PushStoreApi for MockPushStore {
         Ok(Vec::new())
     }
 
-    async fn get_notifications(&self, _user_id: &str, _limit: i64) -> Result<Vec<NotificationRow>, sqlx::Error> {
+    async fn get_notifications(
+        &self,
+        _user_id: &str,
+        _query: &NotificationPageQuery,
+    ) -> Result<Vec<NotificationRow>, sqlx::Error> {
         let state = self.state.lock().unwrap().clone();
         if state.fail_all {
             return Err(storage_error());

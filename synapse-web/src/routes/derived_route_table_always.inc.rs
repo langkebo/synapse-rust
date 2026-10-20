@@ -1411,7 +1411,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/notifications", "push")
-            .with_query_params(&["limit"]);
+            .with_query_params(&["from", "limit", "only"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {

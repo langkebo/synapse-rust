@@ -4301,7 +4301,10 @@ echo "342. Room Event Keys"
 echo "=========================================="
 echo "342. Get Event Keys"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/keys/$TEST_EVENT_ID_ENC" "$TOKEN"
-if [[ "$HTTP_STATUS" == 2* ]] || echo "$HTTP_BODY" | grep -q -E "M_UNRECOGNIZED|M_NOT_FOUND"; then
+if [[ "$HTTP_STATUS" == 501 ]]; then
+    # C-1: the endpoint has no key storage; 501 is the correct answer.
+    pass "Get Event Keys (correctly not implemented)"
+elif echo "$HTTP_BODY" | grep -q -E "M_UNRECOGNIZED|M_NOT_FOUND"; then
     pass "Get Event Keys"
 else
     skip "Room Event Keys (not found)"
@@ -6286,7 +6289,10 @@ if [ -n "$REPRESENTATIVE_ROOM_ID" ] && [ -n "$MSG_EVENT_ID" ]; then
     MSG_ENC=$(echo "$MSG_EVENT_ID" | sed 's/\$/%24/g')
     http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$REPRESENTATIVE_ROOM_ID/keys/$MSG_ENC" "$TOKEN"
     EVENT_KEYS_RESP="$HTTP_BODY"
-    if check_success_json "$EVENT_KEYS_RESP" "$HTTP_STATUS"; then
+    if [[ "$HTTP_STATUS" == 501 ]]; then
+        # C-1: the endpoint has no key storage; 501 is the correct answer.
+        pass "Get Event Keys (correctly not implemented)"
+    elif check_success_json "$EVENT_KEYS_RESP" "$HTTP_STATUS"; then
         pass "Get Event Keys"
     else
         if echo "$ASSERT_ERROR" | grep -q '^HTTP 5'; then

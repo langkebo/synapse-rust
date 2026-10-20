@@ -60,17 +60,18 @@
 #
 #   * `unsupported` — the route is registered and reachable, but the documented
 #     response is not implemented yet. Today this is exactly one endpoint: the
-#     vendor `GET /rooms/{room_id}/keys/{event_id}` answers 200 with a
-#     placeholder `"keys": []` (C-1), which a client cannot distinguish from
-#     "no keys". The annotation records the gap on the contract surface; the
-#     handler behaviour is unchanged by design (ruling: keep 200, do not turn
-#     it into a 501 — a hard error would break clients that call it today).
+#     vendor `GET /rooms/{room_id}/keys/{event_id}` (C-1). It used to answer
+#     200 with a placeholder `"keys": []`, which a client cannot distinguish
+#     from "no keys"; it now answers 501 `M_UNKNOWN` so the gap is visible on
+#     the wire instead of being disguised as success.
 #
 #   * `dynamic` — the `(method, path)` exists but the static extractor cannot
 #     name a single handler definition, *by construction* rather than because
-#     of a parser gap: `GET /` is served by the fallback chain and the 14
-#     app_service proxy rows are `{*path}` wildcards handed to a runtime
-#     dispatcher.
+#     of a parser gap: `GET /` is served by the fallback chain. The 14
+#     `app_service` proxy rows used to be listed here because `_handler_calls`
+#     skipped `any(proxy_to_as)`; the extractor now expands `any(..)` to every
+#     HTTP method, so those rows resolve to `proxy_to_as` and no longer belong
+#     in this list.
 #     Declaring it turns "static blind spot" into a finite, reviewable list:
 #     `gen_route_handlers.py` requires `confidence: none` and `dynamic=true` to
 #     be the *same* set in both directions, so a new blind spot (or a stale
@@ -338,7 +339,7 @@ GET /_matrix/client/v1/media/thumbnail/{server_name}/{media_id}	query_params=ani
 GET /_matrix/client/v1/rooms/{room_id}/context/{event_id}	query_params=limit
 GET /_matrix/client/v1/rooms/{room_id}/hierarchy	query_params=limit,max_depth
 GET /_matrix/client/v1/rooms/{room_id}/timestamp_to_event	query_params=dir,ts
-GET /_matrix/client/v3/notifications	query_params=limit
+GET /_matrix/client/v3/notifications	query_params=from,limit,only
 GET /_matrix/client/v3/publicRooms	query_params=limit,since
 GET /_matrix/client/v3/rooms/{room_id}/context/{event_id}	query_params=limit
 GET /_matrix/client/v3/rooms/{room_id}/hierarchy	query_params=from,limit,max_depth,suggested_only
@@ -389,19 +390,5 @@ GET /_matrix/vendor/v1/rooms/{room_id}/keys/{event_id}	unsupported=true
 # -- dynamic: static extraction cannot name a single handler definition. This
 # list must equal the sidecar's `confidence: none` set in both directions
 # (`gen_route_handlers.py` enforces it), so it is the authoritative, finite
-# statement of "these 17 rows are blind spots by construction".
+# statement of "these rows are blind spots by construction".
 GET /	dynamic=true
-DELETE /_matrix/app/v1/proxy/{as_id}/{*path}	dynamic=true
-GET /_matrix/app/v1/proxy/{as_id}/{*path}	dynamic=true
-HEAD /_matrix/app/v1/proxy/{as_id}/{*path}	dynamic=true
-OPTIONS /_matrix/app/v1/proxy/{as_id}/{*path}	dynamic=true
-PATCH /_matrix/app/v1/proxy/{as_id}/{*path}	dynamic=true
-POST /_matrix/app/v1/proxy/{as_id}/{*path}	dynamic=true
-PUT /_matrix/app/v1/proxy/{as_id}/{*path}	dynamic=true
-DELETE /_matrix/client/v1/proxy/{as_id}/{*path}	dynamic=true
-GET /_matrix/client/v1/proxy/{as_id}/{*path}	dynamic=true
-HEAD /_matrix/client/v1/proxy/{as_id}/{*path}	dynamic=true
-OPTIONS /_matrix/client/v1/proxy/{as_id}/{*path}	dynamic=true
-PATCH /_matrix/client/v1/proxy/{as_id}/{*path}	dynamic=true
-POST /_matrix/client/v1/proxy/{as_id}/{*path}	dynamic=true
-PUT /_matrix/client/v1/proxy/{as_id}/{*path}	dynamic=true

@@ -2,7 +2,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
-use synapse_storage::push::{PushRuleScopedRow, PushStoreApi};
+use synapse_storage::push::{NotificationPageQuery, NotificationRow, PushRuleScopedRow, PushStoreApi};
 
 /// Maximum UTF-8 byte length of a push rule ID. Mirrors upstream Synapse's
 /// `push_rules.rule_id_length` (ELEMENTSEC-2026-1071).
@@ -15,6 +15,109 @@ const MAX_PUSH_RULE_SIZE: usize = 1024;
 /// Maximum number of push rules a single user may store. Mirrors upstream
 /// Synapse's `push_rules.rule_count`.
 const MAX_PUSH_RULES_PER_USER: i64 = 10_000;
+
+/// Page size used by `GET /_matrix/client/v3/notifications` when the caller
+/// omits `limit` (Matrix Client-Server API default).
+pub const DEFAULT_NOTIFICATIONS_LIMIT: i64 = 50;
+
+/// Upper bound on one notifications page. Requests above it are clamped rather
+/// than rejected, matching upstream Synapse's behaviour for oversized limits.
+pub const MAX_NOTIFICATIONS_LIMIT: i64 = 500;
+
+/// One page of a user's notification inbox.
+#[derive(Debug, Clone)]
+pub struct NotificationsPage {
+    /// The `notifications` array of the response body.
+    pub notifications: Vec<Value>,
+    /// Cursor for the next page: the `next_token` of the response. `None` means
+    /// this is the last page — callers must not loop on an absent token.
+    pub next_token: Option<String>,
+}
+
+/// The `only` filters of `GET /_matrix/client/v3/notifications`.
+///
+/// Only the three enumerable filters are supported. The remaining Matrix
+/// filters (`highlight`, `is_encrypted`, `is_one_to_one`,
+/// `contains_user_name:`) are rejected with 400 instead of being silently
+/// ignored: answering with an unfiltered page would make a caller believe the
+/// filter matched.
+#[derive(Debug, Clone, Default)]
+pub struct NotificationFilters {
+    /// `only=room_id:<room id>` — repeated values are OR-ed.
+    pub room_ids: Vec<String>,
+    /// `only=type:<event type>` — repeated values are OR-ed.
+    pub event_types: Vec<String>,
+    /// `only=sender:<user id>` — repeated values are OR-ed.
+    pub senders: Vec<String>,
+}
+
+impl NotificationFilters {
+    /// Parses the repeatable `only` query parameter.
+    ///
+    /// # Errors
+    ///
+    /// Returns 400 `M_INVALID_PARAM` for a value without `:`, an empty value,
+    /// or an unsupported filter key.
+    pub fn from_only_params(only: &[String]) -> Result<Self, ApiError> {
+        let mut filters = Self::default();
+        for raw in only {
+            let (key, value) = raw
+                .split_once(':')
+                .ok_or_else(|| ApiError::invalid_param(format!("`only` filter `{raw}` must be `<key>:<value>`")))?;
+            if value.is_empty() {
+                return Err(ApiError::invalid_param(format!("`only` filter `{key}` has an empty value")));
+            }
+            match key {
+                "room_id" => filters.room_ids.push(value.to_owned()),
+                "type" => filters.event_types.push(value.to_owned()),
+                "sender" => filters.senders.push(value.to_owned()),
+                other => {
+                    return Err(ApiError::invalid_param(format!(
+                        "unsupported `only` filter `{other}`; this server supports \
+                         `room_id:`, `type:` and `sender:`"
+                    )));
+                }
+            }
+        }
+        Ok(filters)
+    }
+}
+
+/// Normalises the `limit` of a notifications request.
+fn normalize_notifications_limit(limit: Option<i64>) -> Result<i64, ApiError> {
+    match limit {
+        None => Ok(DEFAULT_NOTIFICATIONS_LIMIT),
+        Some(limit) if limit < 0 => Err(ApiError::invalid_param("`limit` must not be negative")),
+        Some(limit) => Ok(limit.min(MAX_NOTIFICATIONS_LIMIT)),
+    }
+}
+
+/// Parses a `from` cursor produced by [`NotificationsPage::next_token`].
+fn parse_notification_cursor(from: &str) -> Result<(i64, i64), ApiError> {
+    let invalid = || {
+        ApiError::invalid_param(format!("invalid `from` token `{from}`; pass back the `next_token` of a previous page"))
+    };
+    let (ts, id) = from.split_once('_').ok_or_else(invalid)?;
+    let ts = ts.parse::<i64>().map_err(|_| invalid())?;
+    let id = id.parse::<i64>().map_err(|_| invalid())?;
+    Ok((ts, id))
+}
+
+/// Serialises one inbox row as the Matrix notification object.
+fn notification_json(row: &NotificationRow) -> Value {
+    json!({
+        "notification_id": row.id,
+        "event_id": row.event_id,
+        "room_id": row.room_id,
+        "ts": row.ts,
+        // D-62 修法①：`profile_tag` 取自同名真列（规范语义："命中的推送规则的
+        // profile tag"），`notification_type` 作为**独立键**并列暴露 —— 信息是
+        // 旧形状的超集，不再用错了语义的键承载通知类型。
+        "profile_tag": row.profile_tag,
+        "notification_type": row.notification_type,
+        "read": row.is_read.unwrap_or(false)
+    })
+}
 
 /// Combined UTF-8 byte size of a rule's serialised `conditions` + `actions`,
 /// the quantity bounded by [`MAX_PUSH_RULE_SIZE`].
@@ -417,31 +520,57 @@ impl ClientPushService {
         Ok(())
     }
 
-    /// See [`get_notifications`].
-    pub async fn get_notifications(&self, user_id: &str, limit: i64) -> Result<Vec<Value>, ApiError> {
-        let notifications = self
+    /// One page of `GET /_matrix/client/v3/notifications`.
+    ///
+    /// `from` is the opaque `next_token` of a previous page; an absent or empty
+    /// value starts at the newest row. `filters` comes from
+    /// [`NotificationFilters::from_only_params`].
+    ///
+    /// The response cursor is derived from one extra probe row: the store is
+    /// asked for `limit + 1` rows and the extra row is dropped, so `next_token`
+    /// is `Some` exactly when another page exists. A caller that loops until it
+    /// sees `null` therefore never misses rows, and never loops forever.
+    pub async fn get_notifications_page(
+        &self,
+        user_id: &str,
+        limit: Option<i64>,
+        from: Option<&str>,
+        filters: NotificationFilters,
+    ) -> Result<NotificationsPage, ApiError> {
+        let limit = normalize_notifications_limit(limit)?;
+        let cursor = match from {
+            Some(from) if !from.is_empty() => Some(parse_notification_cursor(from)?),
+            _ => None,
+        };
+
+        let query = NotificationPageQuery {
+            // Clamped to <= MAX_NOTIFICATIONS_LIMIT above, so `+ 1` cannot overflow.
+            limit: limit + 1,
+            cursor,
+            room_ids: filters.room_ids,
+            event_types: filters.event_types,
+            senders: filters.senders,
+        };
+
+        let mut rows = self
             .push_storage
-            .get_notifications(user_id, limit)
+            .get_notifications(user_id, &query)
             .await
             .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 
-        Ok(notifications
-            .into_iter()
-            .map(|row| {
-                json!({
-                    "notification_id": row.id,
-                    "event_id": row.event_id,
-                    "room_id": row.room_id,
-                    "ts": row.ts,
-                    // D-62 修法①：`profile_tag` 取自同名真列（规范语义："命中的推送规则的
-                    // profile tag"），`notification_type` 作为**独立键**并列暴露 —— 信息是
-                    // 旧形状的超集，不再用错了语义的键承载通知类型。
-                    "profile_tag": row.profile_tag,
-                    "notification_type": row.notification_type,
-                    "read": row.is_read.unwrap_or(false)
-                })
-            })
-            .collect())
+        let has_more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > limit;
+        rows.truncate(usize::try_from(limit).unwrap_or(0));
+        let next_token = if has_more { rows.last().map(|row| format!("{}_{}", row.ts, row.id)) } else { None };
+
+        Ok(NotificationsPage { notifications: rows.iter().map(notification_json).collect(), next_token })
+    }
+
+    /// See [`get_notifications_page`].
+    ///
+    /// Convenience wrapper for internal callers that want the first page with no
+    /// filters and do not paginate.
+    pub async fn get_notifications(&self, user_id: &str, limit: i64) -> Result<Vec<Value>, ApiError> {
+        Ok(self.get_notifications_page(user_id, Some(limit), None, NotificationFilters::default()).await?.notifications)
     }
 
     /// See [`ack_notification`].
@@ -878,5 +1007,152 @@ mod tests {
         let notifications = svc.get_notifications("@quinn:example.com", 10).await.expect("get_notifications");
         assert!(notifications.is_empty());
         assert!(!svc.ack_notification(4242, "@quinn:example.com").await.expect("ack_notification"));
+    }
+
+    // ── B-7: `/notifications` 分页与 `only` 过滤 ────────────────────────────
+
+    fn build_service_with_store() -> (ClientPushService, Arc<InMemoryPushStore>) {
+        let store = Arc::new(InMemoryPushStore::new());
+        (ClientPushService::new(store.clone()), store)
+    }
+
+    async fn seed_three(store: &InMemoryPushStore) {
+        for (event_id, room_id, ts) in [
+            ("$e1", "!r1:example.com", 1_000_i64),
+            ("$e2", "!r2:example.com", 2_000),
+            ("$e3", "!r1:example.com", 3_000),
+        ] {
+            store
+                .record_notification("@quinn:example.com", Some(event_id), Some(room_id), "highlight", ts)
+                .await
+                .expect("seed notification");
+        }
+    }
+
+    #[test]
+    fn test_from_only_params_parses_supported_filters() {
+        let filters = NotificationFilters::from_only_params(&[
+            "room_id:!r1:example.com".to_string(),
+            "room_id:!r2:example.com".to_string(),
+            "type:m.room.message".to_string(),
+            "sender:@alice:example.com".to_string(),
+        ])
+        .expect("supported filters must parse");
+        assert_eq!(filters.room_ids, vec!["!r1:example.com", "!r2:example.com"]);
+        assert_eq!(filters.event_types, vec!["m.room.message"]);
+        assert_eq!(filters.senders, vec!["@alice:example.com"]);
+    }
+
+    #[test]
+    fn test_from_only_params_rejects_missing_colon() {
+        let err = NotificationFilters::from_only_params(&["highlight".to_string()])
+            .expect_err("a filter without `:` must be rejected");
+        assert!(err.code_is(MatrixErrorCode::InvalidParam), "must be 400 M_INVALID_PARAM, got {err:?}");
+    }
+
+    #[test]
+    fn test_from_only_params_rejects_empty_value() {
+        let err = NotificationFilters::from_only_params(&["type:".to_string()])
+            .expect_err("an empty filter value must be rejected");
+        assert!(err.code_is(MatrixErrorCode::InvalidParam), "must be 400 M_INVALID_PARAM, got {err:?}");
+    }
+
+    /// 未实现的过滤器必须 400，而不是静默返回未过滤的一页。
+    #[test]
+    fn test_from_only_params_rejects_unsupported_key() {
+        let err = NotificationFilters::from_only_params(&["highlight:true".to_string()])
+            .expect_err("unsupported filters must be rejected, not ignored");
+        assert!(err.code_is(MatrixErrorCode::InvalidParam), "must be 400 M_INVALID_PARAM, got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn test_notifications_page_reports_next_token_only_when_more_rows_exist() {
+        let (svc, store) = build_service_with_store();
+        seed_three(&store).await;
+
+        let first = svc
+            .get_notifications_page("@quinn:example.com", Some(2), None, NotificationFilters::default())
+            .await
+            .unwrap();
+        assert_eq!(first.notifications.len(), 2);
+        assert_eq!(first.notifications[0]["event_id"], "$e3");
+        assert_eq!(first.notifications[1]["event_id"], "$e2");
+        // 游标是页内最后一行，而不是"还有更多"之外的东西。
+        assert_eq!(first.next_token.as_deref(), Some("2000_2"));
+
+        let second = svc
+            .get_notifications_page(
+                "@quinn:example.com",
+                Some(2),
+                first.next_token.as_deref(),
+                NotificationFilters::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(second.notifications.len(), 1);
+        assert_eq!(second.notifications[0]["event_id"], "$e1");
+        assert_eq!(second.next_token, None, "last page must not advertise a cursor");
+    }
+
+    #[tokio::test]
+    async fn test_notifications_page_exact_page_size_has_no_next_token() {
+        let (svc, store) = build_service_with_store();
+        seed_three(&store).await;
+
+        let page = svc
+            .get_notifications_page("@quinn:example.com", Some(3), None, NotificationFilters::default())
+            .await
+            .unwrap();
+        assert_eq!(page.notifications.len(), 3);
+        assert_eq!(page.next_token, None, "limit == row count must not fabricate a next page");
+    }
+
+    #[tokio::test]
+    async fn test_notifications_page_filters_by_room_id() {
+        let (svc, store) = build_service_with_store();
+        seed_three(&store).await;
+
+        let filters = NotificationFilters::from_only_params(&["room_id:!r1:example.com".to_string()]).unwrap();
+        let page = svc.get_notifications_page("@quinn:example.com", Some(10), None, filters).await.unwrap();
+        let event_ids: Vec<_> = page.notifications.iter().map(|n| n["event_id"].as_str().unwrap()).collect();
+        assert_eq!(event_ids, vec!["$e3", "$e1"]);
+        assert_eq!(page.next_token, None);
+    }
+
+    #[tokio::test]
+    async fn test_notifications_page_rejects_invalid_cursor() {
+        let svc = build_service();
+        let err = svc
+            .get_notifications_page(
+                "@quinn:example.com",
+                Some(10),
+                Some("not-a-cursor"),
+                NotificationFilters::default(),
+            )
+            .await
+            .expect_err("a malformed `from` must be rejected");
+        assert!(err.code_is(MatrixErrorCode::InvalidParam), "must be 400 M_INVALID_PARAM, got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn test_notifications_page_rejects_negative_limit() {
+        let svc = build_service();
+        let err = svc
+            .get_notifications_page("@quinn:example.com", Some(-1), None, NotificationFilters::default())
+            .await
+            .expect_err("a negative `limit` must be rejected");
+        assert!(err.code_is(MatrixErrorCode::InvalidParam), "must be 400 M_INVALID_PARAM, got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn test_notifications_page_empty_from_is_first_page() {
+        let (svc, store) = build_service_with_store();
+        seed_three(&store).await;
+        let page = svc
+            .get_notifications_page("@quinn:example.com", Some(2), Some(""), NotificationFilters::default())
+            .await
+            .unwrap();
+        assert_eq!(page.notifications[0]["event_id"], "$e3");
+        assert_eq!(page.next_token.as_deref(), Some("2000_2"));
     }
 }

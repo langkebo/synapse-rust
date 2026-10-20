@@ -5489,8 +5489,10 @@ echo "342. Room Event Keys"
 echo "=========================================="
 echo "342. Get Event Keys"
 http_json GET "$SERVER_URL/_matrix/vendor/v1/rooms/$ROOM_ID/keys/$TEST_EVENT_ID_ENC" "$TOKEN"
-if [[ "$HTTP_STATUS" == 2* ]]; then
-    pass "Get Event Keys"
+if [[ "$HTTP_STATUS" == 501 ]]; then
+    # C-1: no key storage behind this endpoint; 501 signals "not implemented"
+    # instead of a success-shaped `{"keys": []}`.
+    pass "Get Event Keys (correctly not implemented)"
 elif last_body_is_unrecognized; then
     missing "Get Event Keys" "M_UNRECOGNIZED"
 else

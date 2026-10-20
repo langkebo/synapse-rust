@@ -11,9 +11,58 @@ use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
-#[derive(Debug, Default, Deserialize)]
+/// Query parameters of `GET /_matrix/client/v3/notifications`.
+///
+/// `from` / `limit` are single-valued. `only` is **repeatable** in the Matrix
+/// spec (`?only=room_id:!a:b&only=type:m.room.message`), and the
+/// `serde_urlencoded` deserializer behind `axum::extract::Query` rejects a
+/// repeated key in a *derived* struct with "duplicate field". Hence the
+/// hand-written `Deserialize` below: one field name may carry several values,
+/// while the field names stay visible to the route-contract scanner.
+#[derive(Debug, Default)]
 pub(crate) struct NotificationsQuery {
+    pub(crate) from: Option<String>,
     pub(crate) limit: Option<String>,
+    pub(crate) only: Vec<String>,
+}
+
+impl<'de> Deserialize<'de> for NotificationsQuery {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct NotificationsQueryVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for NotificationsQueryVisitor {
+            type Value = NotificationsQuery;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("the query string of GET /_matrix/client/v3/notifications")
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<NotificationsQuery, A::Error>
+            where
+                A: serde::de::MapAccess<'de>,
+            {
+                let mut query = NotificationsQuery::default();
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "from" => query.from = map.next_value()?,
+                        "limit" => query.limit = map.next_value()?,
+                        "only" => query.only.push(map.next_value()?),
+                        // Unknown parameters are ignored, as Matrix requires for
+                        // query strings.
+                        _ => {
+                            map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(query)
+            }
+        }
+
+        deserializer.deserialize_map(NotificationsQueryVisitor)
+    }
 }
 
 fn create_push_compat_router() -> Router<AppState> {
@@ -494,14 +543,23 @@ async fn get_notifications(
     auth_user: AuthenticatedUser,
     axum::extract::Query(query): axum::extract::Query<NotificationsQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit: i64 = query.limit.as_deref().and_then(|v| v.parse().ok()).unwrap_or(100);
+    let limit = match query.limit.as_deref() {
+        Some(raw) => Some(
+            raw.parse::<i64>()
+                .map_err(|_| ApiError::invalid_param(format!("invalid `limit` query parameter `{raw}`")))?,
+        ),
+        None => None,
+    };
+    let filters = synapse_services::client_push_service::NotificationFilters::from_only_params(&query.only)?;
 
-    let notifications_list: Vec<serde_json::Value> =
-        ctx.client_push_service.get_notifications(&auth_user.user_id, limit).await?;
+    let page = ctx
+        .client_push_service
+        .get_notifications_page(&auth_user.user_id, limit, query.from.as_deref(), filters)
+        .await?;
 
     Ok(Json(json!({
-        "notifications": notifications_list,
-        "next_token": None::<String>
+        "notifications": page.notifications,
+        "next_token": page.next_token
     })))
 }
 
@@ -664,5 +722,50 @@ mod tests {
 
         assert!(response.get("notifications").is_some());
         assert!(response.get("next_token").is_some());
+    }
+
+    // ── B-7: `GET /notifications` query parsing ─────────────────────────────
+
+    fn parse_notifications_query(query: &str) -> NotificationsQuery {
+        let uri: axum::http::Uri = format!("/_matrix/client/v3/notifications{query}").parse().unwrap();
+        axum::extract::Query::<NotificationsQuery>::try_from_uri(&uri)
+            .expect("notifications query should deserialize")
+            .0
+    }
+
+    #[test]
+    fn test_notifications_query_defaults_are_empty() {
+        let query = parse_notifications_query("");
+        assert_eq!(query.from, None);
+        assert_eq!(query.limit, None);
+        assert!(query.only.is_empty());
+    }
+
+    /// `only` 在规范里可重复；派生的 `Deserialize` 会报 "duplicate field"，
+    /// 手写实现必须把每个值都收集起来。
+    #[test]
+    fn test_notifications_query_collects_repeated_only_filters() {
+        let query = parse_notifications_query(
+            "?from=2000_2&limit=10&only=room_id:!a:b&only=room_id:!c:d&only=type:m.room.message",
+        );
+        assert_eq!(query.from.as_deref(), Some("2000_2"));
+        assert_eq!(query.limit.as_deref(), Some("10"));
+        assert_eq!(query.only, vec!["room_id:!a:b", "room_id:!c:d", "type:m.room.message"]);
+    }
+
+    /// Matrix 要求忽略未知查询参数，而不是 400。
+    #[test]
+    fn test_notifications_query_ignores_unknown_parameters() {
+        let query = parse_notifications_query("?limit=5&set_presence=offline");
+        assert_eq!(query.limit.as_deref(), Some("5"));
+        assert_eq!(query.from, None);
+        assert!(query.only.is_empty());
+    }
+
+    /// `limit` 以字符串形式取出，由 handler 统一转成 i64 并给出 400 语义。
+    #[test]
+    fn test_notifications_query_keeps_raw_limit() {
+        let query = parse_notifications_query("?limit=not-a-number");
+        assert_eq!(query.limit.as_deref(), Some("not-a-number"));
     }
 }

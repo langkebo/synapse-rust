@@ -2,7 +2,7 @@ use super::*;
 
 use serde_json::Value;
 
-use crate::push::{NotificationRow, PushRuleRow, PushRuleScopedRow, PushStoreApi, PusherRow};
+use crate::push::{NotificationPageQuery, NotificationRow, PushRuleRow, PushRuleScopedRow, PushStoreApi, PusherRow};
 
 /// Stored push-rule state for the in-memory mock, mirroring the mutable columns
 /// of the `push_rules` table that the typed trait methods touch.
@@ -331,11 +331,36 @@ impl PushStoreApi for InMemoryPushStore {
         Ok(())
     }
 
-    async fn get_notifications(&self, _user_id: &str, _limit: i64) -> Result<Vec<NotificationRow>, sqlx::Error> {
+    async fn get_notifications(
+        &self,
+        _user_id: &str,
+        query: &NotificationPageQuery,
+    ) -> Result<Vec<NotificationRow>, sqlx::Error> {
+        // `only=type:` / `only=sender:` are resolved by joining `events`, which
+        // this fake does not model. Fail loudly instead of silently returning an
+        // unfiltered page — the DB-backed `db_tests` cover those predicates.
+        if !query.event_types.is_empty() || !query.senders.is_empty() {
+            return Err(sqlx::Error::Protocol(
+                "InMemoryPushStore cannot evaluate only=type:/only=sender: filters".into(),
+            ));
+        }
+
         let mut rows = self.notifications.read().await.clone();
-        // Mirrors `ORDER BY ts DESC`. This mock has a single implicit user (the
-        // fixture API never scopes notifications by user).
-        rows.sort_by(|a, b| b.ts.cmp(&a.ts));
+        // Mirrors `ORDER BY ts DESC, id DESC`. This mock has a single implicit
+        // user (the fixture API never scopes notifications by user).
+        rows.sort_by(|a, b| b.ts.cmp(&a.ts).then(b.id.cmp(&a.id)));
+
+        if !query.room_ids.is_empty() {
+            rows.retain(|row| {
+                row.room_id.as_deref().is_some_and(|room_id| query.room_ids.iter().any(|r| r == room_id))
+            });
+        }
+
+        if let Some((cursor_ts, cursor_id)) = query.cursor {
+            rows.retain(|row| row.ts < cursor_ts || (row.ts == cursor_ts && row.id < cursor_id));
+        }
+
+        rows.truncate(usize::try_from(query.limit.max(0)).unwrap_or(usize::MAX));
         Ok(rows)
     }
 
