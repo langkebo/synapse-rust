@@ -19,6 +19,7 @@
 set -euo pipefail
 
 BASELINE="migrations/00000000_unified_schema_v12.sql"
+CONTRACT_SQL="test-support/test_schema_contract.sql"
 REVISION=2
 TEMPLATE_NAME=""
 
@@ -83,7 +84,15 @@ if [ -z "${TEMPLATE_NAME}" ]; then
         echo "找不到基线 SQL：${BASELINE}" >&2
         exit 2
     fi
-    fp="$(shasum -a 256 "${BASELINE}" | cut -c1-16)"
+    # 指纹覆盖 migrations/*.sql（按路径排序）+ 契约 SQL，与
+    # `synapse_test_utils::db_isolation::expected_template_database()` **逐字节**一致：
+    # 迁移或契约一变，模板名就变，旧模板不可能被悄悄复用。
+    fp="$(
+        {
+            find migrations -maxdepth 1 -name '*.sql' | sort
+            echo "${CONTRACT_SQL}"
+        } | while read -r f; do cat "${f}"; done | shasum -a 256 | cut -c1-16
+    )"
     TEMPLATE_NAME="synapse_tmpl_v${REVISION}_${fp}"
 fi
 
@@ -104,6 +113,9 @@ case "${ACTION}" in
         q "${MURL}" "CREATE DATABASE \"${TEMPLATE_NAME}\" TEMPLATE template0"
         turl="$(printf '%s' "${DATABASE_URL}" | sed -E "s#/[^/?]+(\\?|\$)#/${TEMPLATE_NAME}\\1#")"
         psql "${turl}" -q -v ON_ERROR_STOP=1 -f "${BASELINE}" >/dev/null
+        # 与 schema 路径一样补上契约列：Rust 的 `ensure_test_schema_contract_sql()`
+        # 就 include_str! 这个文件，两边共用一份文本。
+        psql "${turl}" -q -v ON_ERROR_STOP=1 -f "${CONTRACT_SQL}" >/dev/null
         q "${turl}" "ANALYZE" >/dev/null
         # 把迁移写脏的 shared_buffers 先刷掉：否则第一次 DROP DATABASE 会替它买单
         # （实测 26.4 s，其后每次 0.3 s）。

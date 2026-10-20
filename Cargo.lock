@@ -5110,6 +5110,7 @@ name = "synapse-test-utils"
 version = "6.2.0"
 dependencies = [
  "libc",
+ "sha2 0.10.9",
  "sqlx",
  "synapse-common",
  "synapse-services",

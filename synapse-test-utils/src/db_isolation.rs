@@ -57,38 +57,66 @@ pub async fn prepare_pool(base_url: &str) -> Result<Arc<PgPool>, String> {
     Ok(pool)
 }
 
+/// Expected template database name for the current sources.
+///
+/// `synapse_tmpl_v<REVISION>_<sha256 前 16 位>`, where the hash covers every
+/// `migrations/*.sql` **and** `test-support/test_schema_contract.sql`, in sorted
+/// path order — exactly what `scripts/test_db_template.sh` hashes. One
+/// derivation, two consumers: a migration or contract change renames the
+/// template, so a stale template cannot be picked up silently.
+pub fn expected_template_database() -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    let root = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."));
+    let migrations = root.join("migrations");
+    let contract = root.join("test-support/test_schema_contract.sql");
+    let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(&migrations)
+        .map_err(|error| format!("could not read {}: {error}", migrations.display()))?
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.extension().is_some_and(|ext| ext == "sql"))
+        .collect();
+    files.sort();
+    files.push(contract);
+    let mut hasher = Sha256::new();
+    for file in files {
+        let bytes = std::fs::read(&file).map_err(|error| format!("could not read {}: {error}", file.display()))?;
+        hasher.update(&bytes);
+    }
+    let digest = hasher.finalize();
+    let hex: String = digest.iter().take(8).map(|byte| format!("{byte:02x}")).collect();
+    Ok(format!("synapse_tmpl_v{}_{hex}", crate::TEST_TEMPLATE_SCHEMA_REVISION))
+}
+
 /// Pick the template database to clone.
 ///
-/// The operator may pin one with `TEST_DB_TEMPLATE_DATABASE`. Otherwise the
-/// newest **sealed** (`datallowconn = false`) `synapse_tmpl_*` database wins:
-/// templates are created by `scripts/test_db_template.sh`, whose default name
-/// carries a hash of the baseline SQL, while this crate's own fingerprint is a
-/// different hash — resolving by name here would demand both sides agree on a
-/// derivation neither owns. Newest-by-OID is the closest safe approximation;
-/// the honest fix is one shared fingerprint (design doc, P4).
+/// The name is [`expected_template_database`] unless the operator pins one with
+/// `TEST_DB_TEMPLATE_DATABASE`. Existence **and** `datallowconn = false` are
+/// both required: the flag is the "fully built" marker, and it also guarantees
+/// `CREATE DATABASE … TEMPLATE` cannot fail with "being accessed".
 async fn resolve_template_database(base_url: &str) -> Result<String, String> {
-    if let Ok(pinned) = std::env::var("TEST_DB_TEMPLATE_DATABASE") {
-        let pinned = pinned.trim().to_string();
-        if !pinned.is_empty() {
-            return Ok(pinned);
-        }
-    }
+    let expected = expected_template_database()?;
+    let wanted = match std::env::var("TEST_DB_TEMPLATE_DATABASE") {
+        Ok(pinned) if !pinned.trim().is_empty() => pinned.trim().to_string(),
+        _ => expected.clone(),
+    };
     let maintenance_url = synapse_common::test_database_guard::with_database_name(base_url, "postgres");
     let admin = connect_admin(&maintenance_url).await?;
-    let found: Option<String> = sqlx::query_scalar(
-        "SELECT datname FROM pg_database WHERE datname LIKE 'synapse_tmpl_%' AND NOT datallowconn \
-         ORDER BY oid DESC LIMIT 1",
-    )
-    .fetch_optional(&*admin)
-    .await
-    .map_err(|error| format!("could not look up a template database: {error}"))?;
+    let ready: Option<bool> = sqlx::query_scalar("SELECT NOT datallowconn FROM pg_database WHERE datname = $1")
+        .bind(&wanted)
+        .fetch_optional(&*admin)
+        .await
+        .map_err(|error| format!("could not look up template database {wanted}: {error}"))?;
     admin.close().await;
-    found.ok_or_else(|| {
-        "no sealed template database found. Create one once with:\n  \
-         bash scripts/test_db_template.sh ensure\n\
-         (or pin an existing one with TEST_DB_TEMPLATE_DATABASE)"
-            .to_string()
-    })
+    match ready {
+        Some(true) => Ok(wanted),
+        Some(false) => Err(format!(
+            "template database {wanted} exists but is not sealed (datallowconn = true); \
+             it is half-built or being rebuilt. Re-run: bash scripts/test_db_template.sh ensure"
+        )),
+        None => Err(format!(
+            "template database {expected} is missing. Create it once with:\n  \
+             bash scripts/test_db_template.sh ensure"
+        )),
+    }
 }
 
 /// `CREATE DATABASE "<database>" TEMPLATE "<template>"`, serialized by an
@@ -141,4 +169,25 @@ async fn connect_plain(url: &str) -> Result<Arc<PgPool>, String> {
     .map_err(|_| format!("timed out connecting to {url}"))?
     .map(Arc::new)
     .map_err(|error| format!("could not connect to {url}: {error}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The name is a published contract with `scripts/test_db_template.sh`:
+    /// `synapse_tmpl_v<REVISION>_<16 hex chars>`. A drift here would surface as
+    /// "template database … is missing", which is loud, but pinning the shape
+    /// keeps the two derivations comparable when someone edits either side.
+    #[test]
+    fn template_name_shape_is_stable() {
+        let name = expected_template_database().expect("fingerprint");
+        let prefix = format!("synapse_tmpl_v{}_", crate::TEST_TEMPLATE_SCHEMA_REVISION);
+        let suffix = name.strip_prefix(&prefix).expect("revision prefix");
+        assert_eq!(suffix.len(), 16, "{name} must carry 16 hex characters");
+        assert!(suffix.chars().all(|c| c.is_ascii_hexdigit()), "{name} must be hex");
+        // Stable within a process: the hash reads files, it must not depend on
+        // iteration order.
+        assert_eq!(name, expected_template_database().expect("fingerprint"));
+    }
 }
