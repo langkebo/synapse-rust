@@ -1,7 +1,7 @@
 # 测试库隔离：从 schema clone 换到 database clone（设计稿）
 
 - 日期：2026-10-20
-- 状态：**P0 / P1 已交付**（`1e77cbae7` 脚本、`157a911d0` 选池接入）；P2–P4 未开始
+- 状态：**P0 / P1 / P2 已交付**（`1e77cbae7` 脚本、`157a911d0` 选池入口、`ee9a96b0d` 另两个入口）；P3–P4 未开始
 - 前置：`562a58d4e`（index 改名）、`3909daddd`（atexit 泄漏修复）、`69eeb090e`（健康守卫）
 - 实测环境：Mac mini / PostgreSQL 16.15 容器（`127.0.0.1:55432`），基线 221 张业务表 / 20 MB
 
@@ -120,7 +120,7 @@ B 的主要吸引力不只是快，而是**删掉了整块"重建后修正"的�
 |---|---|---|
 | P0 ✅ | 模板库创建 + 禁连 + `CHECKPOINT`，暴露为独立脚本 | 已验收：`ensure` 幂等、`datallowconn=false`、`clone` 0.117 s / 221 表、非测试集群 exit 2 |
 | P1 ✅ | `TEST_DB_ISOLATION=database` 只接 `prepare_shared_test_pool` | 已验收：13 条 4.1 s（schema 11.9–15.3 s）、286 条 **193.6 s**（schema 421.3 s）、残留 0 |
-| P2 | 接 `acquire_pooled_schema` / `prepare_isolated_test_pool` | 同上，且 `test_db_health.sh` 无新增残留 |
+| P2 ✅ | 接 `acquire_pooled_schema` / `prepare_isolated_test_pool` | 已验收：41 条（`nullable_decode`/`cleanup_`/`api_one_time_invite`） database 模式 7.6 s vs schema 41.6 s，两边 41/41，残留库 0 |
 | P3 | CI 双跑一个周期（A 与 B 各一遍） | 两边全绿；B 的墙钟低于 A 的 60% |
 | P4 | 默认切 B，保留 A 一个版本 | 文档/脚本更新，回落路径有测试覆盖 |
 
