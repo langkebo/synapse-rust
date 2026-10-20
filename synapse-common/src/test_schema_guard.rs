@@ -134,8 +134,10 @@ pub type CleanupFn = Box<dyn Fn() -> CleanupOutcome + Send + 'static>;
 ///   reuse pool is pointless once the process ends, so the exit variant is
 ///   always the cheap one — a plain `DROP SCHEMA`.
 pub struct SchemaCleanup {
-    on_release: CleanupFn,
-    on_exit: CleanupFn,
+    // `pub(crate)` so `test_database_guard` can build the non-schema variant
+    // (DROP DATABASE + cluster-wide "in use?" check) without a second type.
+    pub(crate) on_release: CleanupFn,
+    pub(crate) on_exit: CleanupFn,
 }
 
 impl SchemaCleanup {
@@ -602,15 +604,11 @@ fn collect_released_entries(exiting: bool) -> Vec<PendingCleanup> {
 /// Run each collected entry's `on_release` cleanup (panics are caught and
 /// reported, never propagated into the janitor thread).
 ///
-/// **Exit hand-off**: the entries here were collected *before* `EXITING` was
-/// set, so without the check below the whole batch would be processed serially,
-/// one `DROP SCHEMA … CASCADE` at a time, while the `atexit` handler blocks in
-/// `join()`. Measured 2026-09-19 on a full integration run: 377 leftover schemas
-/// turned process shutdown into >19 minutes of serial drops (sampled stack:
-/// `exit → janitor_exit_handler → JoinHandle::join` blocked, janitor inside
-/// `run_release_cleanups`). Once the process is exiting, reuse-oriented
-/// `on_release` work is pointless anyway, so hand the current entry **and the
-/// rest** to the bounded-parallel exit drain instead.
+/// **Exit hand-off**: entries collected *before* `EXITING` was set would else be
+/// drained serially while the `atexit` handler blocks in `join()` — measured
+/// 2026-09-19: 377 leftovers turned shutdown into >19 minutes. Once exiting,
+/// reuse-oriented work is pointless, so hand the entry **and the rest** to the
+/// bounded-parallel exit drain.
 fn run_release_cleanups(ready: Vec<PendingCleanup>) {
     run_release_cleanups_with(ready, || EXITING.load(Ordering::SeqCst));
 }

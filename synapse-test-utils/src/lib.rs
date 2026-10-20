@@ -28,6 +28,7 @@ use tokio::sync::{Mutex as TokioMutex, RwLock as TokioRwLock, Semaphore};
 
 mod memory_guard;
 use memory_guard::is_low_memory_environment;
+mod db_isolation;
 
 /// Process-wide cache of the resolved test database URL.
 ///
@@ -89,11 +90,9 @@ static SCHEMA_POOL: TokioMutex<Vec<ParkedSchema>> = TokioMutex::const_new(Vec::n
 // the local test database reached 23,662 leftover schemas
 // (docs/audit/P5_test_schema_accumulation_2026-09-12.md).
 //
-// Cleanup is now owned by the shared engine in `synapse_common::test_schema_guard`:
-// the janitor watches each pool's weak reference and runs the cleanup as soon
-// as the last `Arc<PgPool>` is released, with an `atexit` join as the
-// deterministic backstop. This works identically under `cargo test` (many tests
-// per process) and nextest (one test per process).
+// Cleanup is owned by `synapse_common::test_schema_guard`: the janitor watches
+// each pool's weak reference (atexit join as backstop), identically under
+// `cargo test` (many tests per process) and nextest (one per process).
 //
 // The P0 TRUNCATE-and-reuse optimization is preserved via `SchemaCleanup::
 // release_or_exit_drop`: under `cargo test` the `on_release` path TRUNCATEs the
@@ -532,6 +531,9 @@ pub async fn prepare_shared_test_pool() -> Result<Arc<PgPool>, String> {
     #[cfg(test)]
     crate::test_exit_hook::ensure();
     let database_url = resolve_test_database_url().await?;
+    if db_isolation::enabled() {
+        return db_isolation::prepare_pool(&database_url).await;
+    }
     let template = get_template_schema_name(&database_url).await?;
 
     if test_schema_pool_reuse_enabled() {

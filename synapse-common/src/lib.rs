@@ -96,6 +96,9 @@ pub mod server_metrics;
 pub mod task_queue;
 /// Module `telemetry_config`.
 pub mod telemetry_config;
+/// Module `test_database_guard`. Cleanup for database-level isolation
+/// (`DROP DATABASE` + cluster-wide "in use?" check).
+pub mod test_database_guard;
 /// Module `test_isolation`. Compiled unconditionally (not gated behind
 /// `cfg(test)`), because sibling crates' `#[cfg(test)]` fixtures call it.
 pub mod test_isolation;
