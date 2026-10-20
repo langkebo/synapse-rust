@@ -26,6 +26,9 @@ use synapse_services::database_initializer::{DatabaseInitMode, DatabaseInitServi
 use tokio::sync::OnceCell;
 use tokio::sync::{Mutex as TokioMutex, RwLock as TokioRwLock, Semaphore};
 
+mod memory_guard;
+use memory_guard::is_low_memory_environment;
+
 /// Process-wide cache of the resolved test database URL.
 ///
 /// Mirrors `synapse_services::test_utils::RESOLVED_TEST_DB_URL`. Each isolated
@@ -292,46 +295,6 @@ fn env_usize(key: &str) -> Option<usize> {
 
 fn env_string(key: &str) -> Option<String> {
     std::env::var(key).ok().map(|value| value.trim().to_string()).filter(|value| !value.is_empty())
-}
-
-// ============================================================================
-// Low-memory environment detection (2026-09-23, SIGTERM root-cause fix)
-// ============================================================================
-//
-// On constrained hosts (sandboxed CLI tools, small CI runners, laptops), the
-// historical defaults — 12-way parallel schema clones, 40-connection pool
-// ceilings — drive RSS past the OOM limit and the test process dies to a
-// SIGKILL/SIGTERM before the first assertion. Detect physical RAM once per
-// process and scale the *defaults* down; explicit env vars still win, so CI
-// machines keep their calibrated numbers.
-
-/// Threshold below which the host counts as "low memory".
-const LOW_MEMORY_THRESHOLD_BYTES: u64 = 6 * 1024 * 1024 * 1024;
-
-fn detect_physical_memory_bytes() -> Option<u64> {
-    #[cfg(target_os = "macos")]
-    {
-        let output = std::process::Command::new("sysctl").args(["-n", "hw.memsize"]).output().ok()?;
-        let stdout = String::from_utf8(output.stdout).ok()?;
-        stdout.trim().parse::<u64>().ok()
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let meminfo = std::fs::read_to_string("/proc/meminfo").ok()?;
-        let line = meminfo.lines().find(|l| l.starts_with("MemTotal:"))?;
-        let kb = line.split_whitespace().nth(1)?.parse::<u64>().ok()?;
-        Some(kb.saturating_mul(1024))
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    None
-}
-
-/// True when the host has less than [`LOW_MEMORY_THRESHOLD_BYTES`] of RAM.
-/// Detection failures default to `false` (keep the calibrated defaults).
-fn is_low_memory_environment() -> bool {
-    use std::sync::OnceLock;
-    static FLAG: OnceLock<bool> = OnceLock::new();
-    *FLAG.get_or_init(|| detect_physical_memory_bytes().is_some_and(|bytes| bytes < LOW_MEMORY_THRESHOLD_BYTES))
 }
 
 /// See [`configured_test_pool_max_connections`].

@@ -267,6 +267,9 @@ cargo nextest run --profile ci --all-features --test integration
   不随线程数扩展，但 10 个进程各带一份 `AppState`/`CacheManager`/Argon2 初始化会把
   16 GB 机器的 swap 打满，进程被 SIGKILL 后又会制造更多 schema 泄漏。非 DB 的快速
   迭代可显式 `--test-threads 12` 覆盖。
+- 并发默认值按内存状况降档：总内存 < 6 GB **或可用内存 < 4 GB**（macOS 取 `vm_stat`
+  的 free+inactive+speculative）时，共享 clone 并发从 12 降到 6。只看物理内存总量的旧判据
+  在 16 GB 机器上永远不触发，而正是这类机器在 swap 打满后被 SIGKILL。
 - 测试进程启动时会自动回收「超过 10 分钟且无连接租约」的孤儿 schema（按 schema 名字
   里的纳秒时间戳判龄）。积压超过 200 个时默认**拒绝开跑**并打印清理命令；
   `TEST_SCHEMA_LEAK_GUARD=warn|off` 可放宽，`TEST_SCHEMA_LEAK_BACKLOG_LIMIT` 调阈值。

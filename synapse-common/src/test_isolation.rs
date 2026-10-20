@@ -871,11 +871,18 @@ pub fn clone_statements(
 ///   `validate_clone`.
 ///   Measured on a two-table probe: template `idx_t_v_named,uq_c_pid_named` ->
 ///   clone `t_v_idx,c_pid_key`. An index that backs a constraint cannot be
-///   dropped or renamed independently of it, so those are renamed in place;
-///   plain indexes are dropped and rebuilt from the template's own definition
-///   (which preserves expression / partial / opclass details that
-///   reconstructing the DDL by hand would lose). Pairing is by ORDINALITY
-///   within the table, which the chunk filter does not disturb.
+///   renamed independently of it, so those are renamed with their constraint in
+///   phase 1e; plain indexes are **renamed** in phase 1d, never rebuilt —
+///   `LIKE ... INCLUDING ALL` already copied the template's exact definition
+///   (expression / partial predicate / opclass / INCLUDE), so only the name is
+///   wrong. The earlier DROP + CREATE rebuilt 577 indexes per clone over the
+///   rows phase 1b had just copied — measured 6.3 s of an 11.3 s clone on a
+///   catalog-bloated database. A rename is catalog-only; on a fresh database
+///   the wall time is within noise (3.5 s vs 3.7 s), because an index build is
+///   cheap when the catalog is small. The gain is 577 fewer DDL statements and
+///   577 fewer index builds per clone, i.e. a lower catalog and CPU floor.
+///   Pairing is by ORDINALITY within the table, which the chunk filter does not
+///   disturb.
 fn clone_table_chunk_statement(schema: &str, template: &str, seed_where: &str, tables: &[String]) -> String {
     let chunk = table_array_literal(tables);
     format!(
@@ -885,6 +892,9 @@ fn clone_table_chunk_statement(schema: &str, template: &str, seed_where: &str, t
             r RECORD;
             seq_q TEXT;
             max_id BIGINT;
+            park_oids BIGINT[];
+            park_names TEXT[];
+            i INT;
         BEGIN
             -- Phase 1: this chunk's baseline tables, with indexes / defaults /
             -- CHECK / PK. The chunk list is built from pg_tables, so the
@@ -984,21 +994,16 @@ fn clone_table_chunk_statement(schema: &str, template: &str, seed_where: &str, t
                 END IF;
             END LOOP;
 
-            -- Phase 1d: restore index and UNIQUE-constraint NAMES for this
-            -- chunk's tables. See the doc comment on
-            -- `clone_table_chunk_statement`.
-            FOR r IN
-                -- `FOR r IN` requires a SELECT: a top-level WITH is a syntax
-                -- error in PL/pgSQL, so the CTEs are wrapped in a subquery.
-                SELECT * FROM (
-                -- Pair by ORDINALITY within the table: `LIKE` copies the
-                -- template's indexes in that order, so `row_number()` over the
-                -- same ordering lines them up. Pairing on names alone cannot
-                -- work (the clone's names are auto-generated, which is the very
-                -- thing being fixed). Verified: the paired definitions match
-                -- modulo the name (`users_email_idx` <-> `idx_users_email`, both
-                -- `USING btree (email)`). The `= ANY(...)` filter keeps the
-                -- pairing per table, so it is unaffected by chunking.
+            -- Phase 1d: restore index NAMES (see `clone_table_chunk_statement`).
+            -- Rename, never rebuild: `LIKE ... INCLUDING ALL` already copied the
+            -- template's definition, only the auto-generated name is wrong.
+            -- Two phases so a canonical name held by another clone index's auto
+            -- name cannot collide: park all, then move onto canonical names.
+            SELECT array_agg(indexrelid ORDER BY tbl_name, rn),
+                   array_agg(tmpl_idx_name ORDER BY tbl_name, rn)
+              INTO park_oids, park_names
+              FROM (
+                -- Pair by ORDINALITY within the table, the order `LIKE` copies.
                 WITH clone_idx AS (
                     SELECT ci.indexrelid,
                            ct.relname AS tbl_name,
@@ -1010,20 +1015,13 @@ fn clone_table_chunk_statement(schema: &str, template: &str, seed_where: &str, t
                     JOIN pg_namespace cn ON cn.oid = ct.relnamespace
                     WHERE cn.nspname = '{schema}'
                       AND ct.relname = ANY({chunk})
-                      AND NOT EXISTS (
-                          SELECT 1 FROM pg_constraint cc
-                          WHERE cc.conindid = ci.indexrelid
-                      )
+                      AND NOT EXISTS (SELECT 1 FROM pg_constraint cc WHERE cc.conindid = ci.indexrelid)
                 ),
                 tmpl_idx AS (
+                    -- Constraint-backed indexes belong to phase 1e (D-80).
                     SELECT ti.indexrelid,
                            tt.relname AS tbl_name,
                            tidx.relname AS tmpl_idx_name,
-                           ti.indisunique AS is_unique,
-                           pg_get_indexdef(tidx.oid) AS idx_def,
-                           -- Everything after `ON <schema>.<table>` — i.e. the
-                           -- USING clause and any WHERE/INCLUDE tail.
-                           format('%I.%I', tn.nspname, tt.relname) AS tmpl_tbl,
                            row_number() OVER (PARTITION BY tt.relname ORDER BY tidx.relname) AS rn
                     FROM pg_index ti
                     JOIN pg_class tidx ON tidx.oid = ti.indexrelid
@@ -1031,37 +1029,29 @@ fn clone_table_chunk_statement(schema: &str, template: &str, seed_where: &str, t
                     JOIN pg_namespace tn ON tn.oid = tt.relnamespace
                     WHERE tn.nspname = '{template}'
                       AND tt.relname = ANY({chunk})
-                      -- Constraint-backed indexes (PK/UNIQUE/EXCLUDE) are
-                      -- handled by phase 1e, which renames the CONSTRAINT
-                      -- (and therefore its index) — `LIKE` does **not**
-                      -- preserve those names (D-80, measured). Only plain
-                      -- indexes are normalised here.
-                      AND NOT EXISTS (
-                          SELECT 1 FROM pg_constraint cc
-                          WHERE cc.conindid = ti.indexrelid
-                      )
+                      AND NOT EXISTS (SELECT 1 FROM pg_constraint cc WHERE cc.conindid = ti.indexrelid)
                 )
-                SELECT c.tbl_name,
-                       c.idx_name,
-                       t.tmpl_idx_name,
-                       t.is_unique,
-                       -- Drop the leading `CREATE [UNIQUE] INDEX <name> ON <tbl>`
-                       -- so the tail can be re-prefixed with the canonical name;
-                       -- `pg_get_indexdef` already returns a complete statement,
-                       -- so appending to it would produce `... ON tbl CREATE INDEX`.
-                       split_part(t.idx_def, t.tmpl_tbl, 2) AS idx_tail
+                SELECT c.indexrelid, c.tbl_name, c.rn, t.tmpl_idx_name
                 FROM clone_idx c
                 JOIN tmpl_idx t ON t.tbl_name = c.tbl_name AND t.rn = c.rn
                 WHERE c.idx_name <> t.tmpl_idx_name
-                ) AS paired
-            LOOP
-                EXECUTE format('DROP INDEX %I.%I', '{schema}', r.idx_name);
-                EXECUTE format(
-                    'CREATE %s INDEX %I ON %I.%I %s',
-                    CASE WHEN r.is_unique THEN 'UNIQUE' ELSE '' END,
-                    r.tmpl_idx_name, '{schema}', r.tbl_name, r.idx_tail
-                );
-            END LOOP;
+              ) AS paired;
+
+            IF park_oids IS NOT NULL THEN
+                -- The OID is rename-stable and schema-unique; an index name is
+                -- capped at 63 bytes while table names are not.
+                FOR i IN 1 .. array_length(park_oids, 1) LOOP
+                    EXECUTE format('ALTER INDEX %s RENAME TO %I', park_oids[i]::regclass, 'zz_parked_idx_' || park_oids[i]);
+                END LOOP;
+                FOR i IN 1 .. array_length(park_oids, 1) LOOP
+                    EXECUTE format(
+                        'ALTER INDEX %I.%I RENAME TO %I',
+                        '{schema}',
+                        'zz_parked_idx_' || park_oids[i],
+                        park_names[i]
+                    );
+                END LOOP;
+            END IF;
 
             -- Phase 1e (D-80): restore PK / UNIQUE / EXCLUDE constraint NAMES for
             -- this chunk's tables. Phase 1d deliberately skips constraint-backed
