@@ -934,7 +934,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/rooms/{room_id}/threads", "thread")
-            .with_query_params(&["from", "include_all", "limit"]);
+            .with_query_params(&["from", "include", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -952,7 +952,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies",
             "thread",
         )
-        .with_query_params(&["from", "include_all", "limit"]);
+        .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -3916,11 +3916,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/threads", "thread").with_query_params(&[
-            "from",
-            "include_all",
-            "limit",
-        ]);
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/threads", "thread")
+            .with_query_params(&["from", "include", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -3929,7 +3926,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/threads/subscribed", "thread")
-            .with_query_params(&["from", "include_all", "limit"]);
+            .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -3965,7 +3962,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             "/_matrix/vendor/v1/user/{user_id}/rooms/{room_id}/threads",
             "thread",
         )
-        .with_query_params(&["from", "include_all", "limit"]);
+        .with_query_params(&["from", "include", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "voice-extended")]
@@ -5516,7 +5513,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/users", "admin::user")
-            .with_query_params(&["limit", "offset", "since"]);
+            .with_query_params(&["from", "limit", "offset", "since"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {

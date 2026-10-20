@@ -1576,7 +1576,8 @@ EXPECTED_ANNOTATIONS = {
         "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
     ): {"query_params": "dir,from,limit,org.matrix.msc3981.recurse,recurse,to"},
     ("GET", "/_matrix/client/v1/rooms/{room_id}/threads"): {
-        "query_params": "from,include_all,limit"
+        # B-20（2026-10-20）：`include_all`(bool) 换成规范的 `include=all|participated`。
+        "query_params": "from,include,limit"
     },
     ("GET", "/_matrix/vendor/v1/rooms/{room_id}/threads/search"): {
         # Q5（2026-10-15）给该 handler 加了 `from` 游标：handler 解析
@@ -1587,7 +1588,8 @@ EXPECTED_ANNOTATIONS = {
         "query_params": "include_replies,reply_limit"
     },
     ("GET", "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies"): {
-        "query_params": "from,include_all,limit"
+        # B-20（2026-10-20）：回复列表不消费 `include`，提取器拆成 `ThreadPageQuery`。
+        "query_params": "from,limit"
     },
     ("GET", "/_matrix/vendor/v1/spaces/public"): {"query_params": "from,limit"},
     ("GET", "/_matrix/vendor/v1/spaces/search"): {
@@ -1606,10 +1608,8 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/vendor/v1/spaces/{space_id}/rooms"): {
         "query_params": "from,limit"
     },
-    ("GET", "/_matrix/vendor/v1/threads"): {"query_params": "from,include_all,limit"},
-    ("GET", "/_matrix/vendor/v1/threads/subscribed"): {
-        "query_params": "from,include_all,limit"
-    },
+    ("GET", "/_matrix/vendor/v1/threads"): {"query_params": "from,include,limit"},
+    ("GET", "/_matrix/vendor/v1/threads/subscribed"): {"query_params": "from,limit"},
     ("GET", "/_matrix/client/v3/appservice/alias"): {"query_params": "alias"},
     ("GET", "/_matrix/client/v3/appservice/user"): {"query_params": "user_id"},
     ("GET", "/_matrix/client/v3/keys/history"): {"query_params": "from,limit"},
@@ -1686,7 +1686,7 @@ EXPECTED_ANNOTATIONS = {
     },
     ("GET", "/_matrix/media/v1/upload/chunk/progress"): {"query_params": "upload_id"},
     ("GET", "/_matrix/vendor/v1/user/{user_id}/rooms/{room_id}/threads"): {
-        "query_params": "from,include_all,limit"
+        "query_params": "from,include,limit"
     },
     ("GET", "/_matrix/federation/v1/hierarchy/{room_id}"): {
         "query_params": "from,limit,max_depth,suggested_only"
@@ -1965,7 +1965,7 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_synapse/admin/v1/rooms/{room_id}/reports"): {
         "query_params": "limit,offset,since_id,since_ts"
     },
-    ("GET", "/_synapse/admin/v1/users"): {"query_params": "limit,offset,since"},
+    ("GET", "/_synapse/admin/v1/users"): {"query_params": "from,limit,offset,since"},
     ("GET", "/_synapse/admin/v1/users/{user_id}/rooms"): {"query_params": "from,limit"},
     ("GET", "/_synapse/admin/v2/users"): {"query_params": "from,limit,name,offset"},
     ("POST", "/_matrix/client/v3/search"): {"query_params": "next_batch"},

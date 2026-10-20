@@ -1757,7 +1757,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 | M-02 | cas 服务列表 | `src/cas/index.ts:57-60`（`CasServiceListResponse { services: CasService[] }`）、`listServices` 调用 `:149-155` | `synapse-web/src/routes/cas.rs:307-311` `list_services` 返回**裸数组** `Vec<ServiceResponse>` | SDK 期望 `{services:[]}`，实际收到数组 → `response.services` 为 `undefined`，列表恒为空 | P1 |
 | M-05 | thread 搜索 | `src/thread/index.ts:180-198`（`searchThreads` 发 query `term`） | `synapse-web/src/routes/handlers/thread.rs:53-57`（`SearchQuery { q: String, limit }`，`q` **必填**） | 后端读 `q`、缺 `q` 反序列化失败 → 搜索请求 400；`term` 被忽略 | P1 |
 | M-06 | e2ee 密钥请求字段名 | `src/room-keys/index.ts:35-43`（`RoomKeyRequest.state`，值域 `pending/approved/rejected`） | `synapse-web/src/routes/e2ee/devices.rs:395-414`（`serialize_room_key_request` 输出 **`status`**，值域 `pending/cancelled/fulfilled`） | 字段名与值域双重不符 → 前端无法正确渲染密钥请求状态 | P1 |
-| M-04 | thread 房间话题列表 | `src/thread/index.ts:136-152`（`getRoomThreads` 发 query `include`） | `synapse-web/src/routes/handlers/thread.rs:59-64`（`ListQuery` 读 `include_all`） | `include` 被忽略 → `include_all` 恒为默认，全部话题拉取行为与预期不符（静默） | P2 |
+| M-04 | thread 房间话题列表 | `src/thread/index.ts:136-152`（`getRoomThreads` 发 query `include`） | `synapse-web/src/routes/handlers/thread.rs`（`ListQuery` 读 `include`，见附录 D.2） | ~~`include` 被忽略，`include_all` 恒为默认~~ → **2026-10-20 已修复（B-20）**：`include=all\|participated` 真正生效，SQL 下推过滤 | ~~P2~~ ✅ |
 | M-07 | oidc 发现回退 | `src/client-auth.ts:59-61`（回退分支请求 `GET /auth_issuer`） | `synapse-web/src/routes/assembly.rs:198-204`（仅注册 `auth_metadata`，**无 `auth_issuer` 路由**） | 正常路径不触发；一旦落入 MSC2965 旧变体回退分支即 404 | P2 |
 
 ### B.4 参数传递错误（body / query 键名或必填缺失）
@@ -1914,3 +1914,68 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 4. **路径形态**：上游带房间的版本是 `/_synapse/admin/v1/purge_history/{room_id}`，本项目为
    `/_synapse/admin/v1/rooms/{room_id}/purge_history`；按上游路径调用会得到 404。
    上游兼容调用请改用 `/_synapse/admin/v1/purge_history` 并在 body 中传 `room_id`。
+
+## 附录 D — 请求参数契约修复（2026-10-20，B-19 / B-20 / B-21）
+
+本节记录 2026-10-19 后端缺口台账 §N 三条的落地口径，**同为人工维护段，重新生成契约时原样保留**。
+三条的共同根因是「handler 声明了参数但没消费」或「消费了非规范参数名」，客户端侧表现为
+**请求被静默接受却毫无效果**（没有错误码、没有日志）。
+
+### D.1 B-19 管理面用户列表的 `from` 分页
+
+| 端点 | `from` | `since` | `offset` | `limit` |
+|---|---|---|---|---|
+| `GET /_synapse/admin/v1/users` | ✅ 规范参数 | ✅ 历史别名（`from` 优先） | ⚠️ 仅接受 `0`；`>0` → 400 | ✅ |
+| `GET /_synapse/admin/v2/users` | ✅（此前已支持） | ❌ 不声明 | ⚠️ 仅接受 `0`；`>0` → 400 | ✅ |
+
+1. **游标形状与上游不同（重要）**：本项目 `from` 是 **keyset 游标** `"{created_ts}|{user_id}"`，
+   即上一页响应里的 `next_batch`，客户端只需原样回传；上游 Synapse 的 `from` 是整数偏移量。
+   把上游的 `"0"` / `"100"` 直接塞进 `from` 不会 400，而是被当作无法解析的游标 ⇒ 退化为第一页。
+2. **`offset` 不再静默生效**：此前 `offset` 被解析但翻页结果错误（永远第一页）。现在 `offset>0`
+   直接返回 **400**（`Legacy offset pagination is no longer supported; use the from cursor`），
+   避免「200 + 错页」这种最难排查的形态。`offset=0` / 缺省视为未提供。
+3. **`since` 保留为别名**：为兼容旧调用方，`from` 缺失时回退到 `since`；两者都给时只认 `from`。
+4. **与台账原文的差异（事实修正）**：台账称「v1/v2 共用 `AdminUsersQuery`」不成立——v1 用
+   `AdminUsersQuery`、v2 用 `AdminUsersV2Query`，且 **v2 早已接受 `from`**；本轮真正缺 `from`
+   的只有 v1（`synapse-web/src/routes/admin/user.rs` 见两处结构体定义）。
+
+### D.2 B-20 房间话题列表的 `include`
+
+| 端点 | 接受的 query | `include` 是否生效 |
+|---|---|---|
+| `GET /_matrix/client/v1/rooms/{room_id}/threads` | `from`、`limit`、`include` | ✅ |
+| `GET /_matrix/vendor/v1/threads` | `from`、`limit`、`include` | ✅ |
+| `GET /_matrix/vendor/v1/user/{user_id}/rooms/{room_id}/threads` | `from`、`limit`、`include` | ✅ |
+| `GET /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies` | `from`、`limit` | —（不声明，见下） |
+| `GET /_matrix/vendor/v1/threads/subscribed` | `from`、`limit` | —（同上） |
+
+1. **取值**：`include=all`（缺省，等价于不传）返回房间内全部话题；`include=participated`
+   只返回**请求者本人参与过**的话题。其它取值 → **400 `M_INVALID_PARAM`**
+   （不再被静默当成 `all`）。历史布尔参数 `include_all` **已移除且不保留别名**。
+2. **「参与」的判据**：`thread_roots.participants`（根事件发送者 + 全部回复者的并集），
+   因此「只发过回复、没发根事件」的用户也算参与。
+3. **下推位置**：过滤在 SQL 内完成（`participants @> to_jsonb($n::TEXT)`），不是取出后内存过滤，
+   `limit` 语义因此保持「本页最多 N 条 participated」。存储层见
+   `synapse-storage/src/thread/storage.rs` 的 `list_thread_roots` 两个分支。
+4. **`dir` / `filter` 登记为「接受但忽略」**：二者**不是** threads 端点的规范参数（规范只有
+   `from` / `limit` / `include`），SDK 沿用 `/messages` 的形状多传了它们。服务端按 serde
+   默认行为忽略未知 query 参数，不报错；排序固定为 `origin_server_ts DESC, event_id DESC`。
+   契约提取器只登记实际消费的三个参数，**不要把 `dir`/`filter` 写进注解**。
+5. **`/replies` 与 `/threads/subscribed` 不声明 `include`**：它们不消费该参数，因此提取器
+   按 `ThreadPageQuery` 只登记 `from,limit`——这是刻意拆分，不是遗漏。
+
+### D.3 B-21 `POST /rooms/{room_id}/invite` 的 `reason`
+
+| 字段 | 类型 | 必填 | 行为 |
+|---|---|---|---|
+| `reason` | string | 否 | 原样写入 `m.room.member` 事件的 `content.reason`；缺省则**不产生该键**（与上游一致，不写空串占位） |
+
+1. **三条路径都透传**：本地邀请（`moderation.rs` 直接拼 content）、联邦邀请
+   （`federation.rs` 在**签名前**写入 invite PDU 的 content）、3PID 邀请分支
+   （解析出 MXID 后走同一条本地/联邦路径）。
+2. **长度上限 512 字节**：与 ban/kick 共用 `validate_moderation_reason`，超限 → **400**
+   （错误文本 `Reason too long`）。空串合法。
+3. **联邦路径的顺序约束**：`reason` 必须在 `sign_and_hash_event` **之前**写入 content——
+   content 参与签名，签名后再补键会使本方签名自校验失败。
+4. **入站邀请同样保留 `reason`**：远端推来的 `m.room.member`(invite) 按原事件持久化，
+   不做剥离。

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT id, room_id, root_event_id, sender, thread_id, reply_count,\n                       last_reply_event_id, last_reply_sender, last_reply_ts,\n                       participants, is_fetched AS \"is_fetched!\", created_ts, updated_ts\n                FROM thread_roots\n                WHERE room_id = $1\n                ORDER BY thread_id ASC\n                LIMIT $2\n                ",
+  "query": "\n                SELECT id, room_id, root_event_id, sender, thread_id, reply_count,\n                       last_reply_event_id, last_reply_sender, last_reply_ts,\n                       participants, is_fetched AS \"is_fetched!\", created_ts, updated_ts\n                FROM thread_roots\n                WHERE room_id = $1\n                  AND ($2::TEXT IS NULL OR participants @> to_jsonb($2::TEXT))\n                ORDER BY thread_id ASC\n                LIMIT $3\n                ",
   "describe": {
     "columns": [
       {
@@ -72,6 +72,7 @@
     "parameters": {
       "Left": [
         "Text",
+        "Text",
         "Int8"
       ]
     },
@@ -91,5 +92,5 @@
       true
     ]
   },
-  "hash": "67d1b542af3aeac1fa7652a36dac295cda09b11517d6b0d85d3c623dc9d5e098"
+  "hash": "da3213c6797f6d84929af69d9c3b908e0272f8573a934eee1a9f9be36343b5f8"
 }

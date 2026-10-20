@@ -335,6 +335,9 @@ pub(crate) async fn knock_room(
 /// * `{"id_server", "id_access_token", "medium", "address"}` — invite a
 ///   third-party identifier (email / phone number), resolved through the
 ///   identity server.
+///
+/// Both shapes may carry an optional `reason`, which the spec copies into the
+/// `m.room.member` invite event.
 #[derive(Debug, Deserialize)]
 pub struct InviteUserBody {
     pub user_id: Option<String>,
@@ -342,6 +345,7 @@ pub struct InviteUserBody {
     pub id_access_token: Option<String>,
     pub medium: Option<String>,
     pub address: Option<String>,
+    pub reason: Option<String>,
 }
 
 /// See [`invite_user`].
@@ -352,6 +356,7 @@ pub(crate) async fn invite_user(
     MatrixJson(body): MatrixJson<InviteUserBody>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
+    validate_moderation_reason(body.reason.as_deref())?;
 
     let Some(invitee) = body.user_id.as_deref() else {
         return invite_by_3pid(&ctx, &auth_user.user_id, &room_id, &body).await;
@@ -376,7 +381,7 @@ pub(crate) async fn invite_user(
 
     ctx.room_auth.can_invite_user(&room_id, &auth_user.user_id).await?;
 
-    ctx.room_service.membership().invite_user(&room_id, &auth_user.user_id, invitee).await?;
+    ctx.room_service.membership().invite_user(&room_id, &auth_user.user_id, invitee, body.reason.as_deref()).await?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -431,7 +436,7 @@ async fn invite_by_3pid(
         }
     };
 
-    ctx.room_service.membership().invite_user(room_id, inviter, &invitee).await?;
+    ctx.room_service.membership().invite_user(room_id, inviter, &invitee, body.reason.as_deref()).await?;
 
     Ok(Json(json!({ "room_id": room_id })))
 }

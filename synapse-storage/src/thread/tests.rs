@@ -81,11 +81,11 @@ fn test_thread_subscription_creation() {
 #[test]
 fn test_thread_list_params_defaults() {
     let params =
-        ThreadListParams { room_id: "!test:example.com".to_string(), from: None, limit: None, include_all: false };
+        ThreadListParams { room_id: "!test:example.com".to_string(), from: None, limit: None, participated_by: None };
     assert_eq!(params.room_id, "!test:example.com");
     assert!(params.from.is_none());
     assert!(params.limit.is_none());
-    assert!(!params.include_all);
+    assert!(params.participated_by.is_none());
 }
 
 #[test]

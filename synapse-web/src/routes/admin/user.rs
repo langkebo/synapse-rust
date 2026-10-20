@@ -179,6 +179,12 @@ use super::ensure_super_admin_for_privilege_change;
 #[derive(Debug, Default, Deserialize)]
 pub struct AdminUsersQuery {
     limit: Option<String>,
+    /// 规范参数（上游 `GET /_synapse/admin/v1/users?from=…`）。
+    ///
+    /// 本服务返回的是 **keyset 游标** `"{created_ts}|{user_id}"`（即上一页响应里的
+    /// `next_batch`），不是上游的整数 offset —— 客户端只需原样回传该字符串。
+    from: Option<String>,
+    /// 历史别名，等价于 `from`（`from` 优先，缺失时回退到它）。
     since: Option<String>,
     offset: Option<String>,
 }
@@ -212,11 +218,12 @@ pub async fn get_users(
         .and_then(|v| v.parse().ok())
         .unwrap_or(100)
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
-    let cursor = decode_user_cursor(params.since.as_deref());
+    // 规范参数是 `from`；`since` 仅为历史别名保留（`from` 优先）。
+    let cursor = decode_user_cursor(params.from.as_deref().or(params.since.as_deref()));
 
     if params.offset.as_deref().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0) > 0 {
         return Err(ApiError::bad_request(
-            "Legacy offset pagination is no longer supported; use since cursor".to_string(),
+            "Legacy offset pagination is no longer supported; use the from cursor".to_string(),
         ));
     }
 

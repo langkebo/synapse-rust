@@ -336,8 +336,8 @@ pub struct ThreadListParams {
     pub limit: Option<i32>,
     /// The `from` field.
     pub from: Option<String>,
-    /// The `include_all` field.
-    pub include_all: bool,
+    /// `include=participated` 时的过滤用户（`None` = 不限制参与者）。
+    pub participated_by: Option<String>,
 }
 
 /// `search_threads` 的参数。

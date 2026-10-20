@@ -63,8 +63,11 @@ pub struct ListThreadsRequest {
     pub limit: Option<i32>,
     /// The `from` field.
     pub from: Option<String>,
-    /// The `include_all` field.
-    pub include_all: bool,
+    /// `include=participated` 时的过滤用户（`None` = `include=all`，不限制参与者）。
+    ///
+    /// 语义：只返回该用户参与过的话题（发过根事件或回复）。过滤必须留在 SQL 里，
+    /// 否则 `limit` 会先截断再过滤，分页结果与 `total` 都会失真。
+    pub participated_by: Option<String>,
 }
 
 /// The `SearchThreadsRequest` struct.
@@ -425,7 +428,7 @@ impl ThreadService {
             room_id: request.room_id,
             limit: request.limit,
             from: request.from,
-            include_all: request.include_all,
+            participated_by: request.participated_by,
         };
 
         let roots = self
@@ -813,10 +816,10 @@ mod tests {
             room_id: "!room:example.com".to_string(),
             limit: Some(50),
             from: Some("batch_token".to_string()),
-            include_all: false,
+            participated_by: Some("@alice:example.com".to_string()),
         };
         assert_eq!(request.limit, Some(50));
-        assert!(!request.include_all);
+        assert_eq!(request.participated_by.as_deref(), Some("@alice:example.com"));
     }
 
     #[test]

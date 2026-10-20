@@ -12,7 +12,17 @@ use super::service::MembershipService;
 
 impl MembershipService {
     /// See [`invite_user`].
-    pub async fn invite_user(&self, room_id: &str, inviter_id: &str, invitee_id: &str) -> ApiResult<()> {
+    ///
+    /// `reason` is the optional `reason` from the request body; when present it
+    /// is copied into the `m.room.member` content verbatim (upstream Synapse
+    /// only emits the key when the client supplied one).
+    pub async fn invite_user(
+        &self,
+        room_id: &str,
+        inviter_id: &str,
+        invitee_id: &str,
+        reason: Option<&str>,
+    ) -> ApiResult<()> {
         if !self
             .room_storage
             .room_exists(room_id)
@@ -31,7 +41,7 @@ impl MembershipService {
         // If the invitee is on a remote server, use the federation invite
         // flow instead of the local invite path.
         if self.is_remote_user(invitee_id) {
-            return self.invite_user_via_federation(room_id, inviter_id, invitee_id).await;
+            return self.invite_user_via_federation(room_id, inviter_id, invitee_id, reason).await;
         }
 
         // U-2: moderation ⇒ active predicate. A deactivated account must not be
@@ -57,10 +67,13 @@ impl MembershipService {
         // Third-party event admission (Synapse `check_event_allowed`), consulted
         // *before* the membership state change so a refusal leaves no residue.
         let event_id = generate_event_id(&self.server_name);
-        let invite_content = json!({
+        let mut invite_content = json!({
             "membership": "invite",
             "displayname": invitee_id.trim_start_matches('@').split(':').next().unwrap_or(invitee_id),
         });
+        if let Some(reason) = reason {
+            invite_content["reason"] = json!(reason);
+        }
         let invite_content =
             self.admit_membership_event(room_id, &event_id, inviter_id, invitee_id, invite_content, true).await?;
 
@@ -763,7 +776,7 @@ mod tests {
         svc.unban_user(room_id, target, admin, None).await.expect("unban");
 
         // After unban, invite should succeed (FakeRoomAuth allows it).
-        svc.invite_user(room_id, admin, target).await.expect("invite after unban");
+        svc.invite_user(room_id, admin, target, None).await.expect("invite after unban");
 
         let member = mem_store.get_room_member(room_id, target).await.expect("get_room_member");
         assert!(
@@ -818,7 +831,7 @@ mod tests {
         let username = invitee.trim_start_matches('@').split(':').next().unwrap_or(invitee).to_string();
         user_store.create_user(invitee, &username, None, false).await.expect("create_user");
 
-        svc.invite_user(room_id, inviter, invitee).await.expect("invite_user should succeed");
+        svc.invite_user(room_id, inviter, invitee, None).await.expect("invite_user should succeed");
 
         let member = mem_store.get_room_member(room_id, invitee).await.expect("get_room_member");
         assert!(
@@ -845,8 +858,10 @@ mod tests {
         let username = invitee.trim_start_matches('@').split(':').next().unwrap_or(invitee).to_string();
         user_store.create_user(invitee, &username, None, false).await.expect("create_user");
 
-        let err =
-            svc.invite_user(room_id, inviter, invitee).await.expect_err("the policy gate must reject this invite");
+        let err = svc
+            .invite_user(room_id, inviter, invitee, None)
+            .await
+            .expect_err("the policy gate must reject this invite");
         assert_eq!(err.code, synapse_common::MatrixErrorCode::Forbidden, "expected M_FORBIDDEN, got: {err:?}");
 
         let member = mem_store.get_room_member(room_id, invitee).await.expect("get_room_member");
@@ -868,7 +883,7 @@ mod tests {
         svc.room_storage.create_room(room_id, inviter, "invite", "1", false).await.expect("create_room");
 
         let err = svc
-            .invite_user(room_id, inviter, "@remote:other.example")
+            .invite_user(room_id, inviter, "@remote:other.example", None)
             .await
             .expect_err("a remote invitee must not bypass the policy gate");
         assert_eq!(

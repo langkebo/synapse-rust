@@ -772,7 +772,13 @@ impl MembershipService {
     /// 3. Call `invite` on the invitee's home server.
     /// 4. The remote server signs the event and returns it.
     /// 5. Persist the signed event locally.
-    pub async fn invite_user_via_federation(&self, room_id: &str, inviter_id: &str, invitee_id: &str) -> ApiResult<()> {
+    pub async fn invite_user_via_federation(
+        &self,
+        room_id: &str,
+        inviter_id: &str,
+        invitee_id: &str,
+        reason: Option<&str>,
+    ) -> ApiResult<()> {
         let destination = Self::user_server_name(invitee_id)
             .ok_or_else(|| ApiError::bad_request("Invalid invitee ID: missing server name".to_string()))?
             .to_string();
@@ -835,7 +841,7 @@ impl MembershipService {
             self.event_reader.calculate_event_depth(room_id, &extremities).await.map_err(|e| {
                 ApiError::internal_with_cause("Failed to calculate event depth for federated invite", e)
             })?;
-        let invite_content = json!({
+        let mut invite_content = json!({
             "membership": "invite",
             "displayname": invitee_id
                 .trim_start_matches('@')
@@ -843,6 +849,9 @@ impl MembershipService {
                 .next()
                 .unwrap_or(invitee_id),
         });
+        if let Some(reason) = reason {
+            invite_content["reason"] = json!(reason);
+        }
 
         // The auth chain carried by the outbound PDU must be the *canonical*
         // selection for this event — the same one the local write path derives

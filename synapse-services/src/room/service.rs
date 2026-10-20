@@ -567,7 +567,7 @@ impl RoomService {
                 let old_room_id = old_room_id_owned.clone();
                 let invitee_id = invitee_id.clone();
                 async move {
-                    if let Err(e) = membership.invite_user(&new_room_id, &inviter_id, &invitee_id).await {
+                    if let Err(e) = membership.invite_user(&new_room_id, &inviter_id, &invitee_id, None).await {
                         ::tracing::warn!(
                             old_room_id = %old_room_id,
                             new_room_id = %new_room_id,
@@ -601,7 +601,7 @@ impl RoomService {
                 let old_room_id = old_room_id_owned.clone();
                 let invitee_id = invitee_id.clone();
                 async move {
-                    if let Err(e) = membership.invite_user(&new_room_id, &inviter_id, &invitee_id).await {
+                    if let Err(e) = membership.invite_user(&new_room_id, &inviter_id, &invitee_id, None).await {
                         ::tracing::warn!(
                             old_room_id = %old_room_id,
                             new_room_id = %new_room_id,

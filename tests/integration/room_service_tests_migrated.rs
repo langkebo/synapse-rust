@@ -592,7 +592,7 @@ async fn test_invite_user_success() {
     let room_val = room_service.lifecycle.create_room(&alice_id, config).await.unwrap();
     let room_id = room_val["room_id"].as_str().unwrap();
 
-    let result = room_service.membership.invite_user(room_id, &alice_id, &bob_id).await;
+    let result = room_service.membership.invite_user(room_id, &alice_id, &bob_id, None).await;
     assert!(result.is_ok(), "invite_user failed: {:?}", result.err());
 
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
@@ -633,7 +633,7 @@ async fn test_invite_user_enqueues_appservice_membership_event() {
         .filter(|event| event.event_type == "m.room.member")
         .count();
 
-    room_service.membership.invite_user(room_id, &alice_id, &bob_id).await.expect("invite_user should succeed");
+    room_service.membership.invite_user(room_id, &alice_id, &bob_id, None).await.expect("invite_user should succeed");
 
     let after_member_events = storage
         .get_pending_events(&as_id, 64)
@@ -693,7 +693,7 @@ async fn test_invite_banned_user_is_rejected() {
 
     room_service.membership.ban_user(room_id, &bob_id, &alice_id, Some("spam")).await.expect("ban should succeed");
 
-    let result = room_service.membership.invite_user(room_id, &alice_id, &bob_id).await;
+    let result = room_service.membership.invite_user(room_id, &alice_id, &bob_id, None).await;
     assert!(result.is_err(), "inviting a banned user must be rejected, got: {result:?}");
 }
 
@@ -1096,7 +1096,11 @@ async fn test_bridge_e2e_membership_events_deliver_real_room_member_payloads() {
     .await;
     let bridge_room_service = create_room_service_with_appservice(&pool, cache, manager.clone());
 
-    bridge_room_service.membership.invite_user(&room_id, &alice_id, &bob_id).await.expect("invite_user should succeed");
+    bridge_room_service
+        .membership
+        .invite_user(&room_id, &alice_id, &bob_id, None)
+        .await
+        .expect("invite_user should succeed");
     bridge_room_service.membership.join_room(&room_id, &bob_id).await.expect("join_room should succeed");
 
     let dispatched =

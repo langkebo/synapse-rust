@@ -90,11 +90,36 @@ struct SearchQuery {
     from: Option<String>,
 }
 
+/// 话题列表的分页 + `include` 参数（`/threads`、全局 `/threads` 与用户级列表共用）。
 #[derive(Debug, Deserialize)]
 struct ListQuery {
     limit: Option<i32>,
     from: Option<String>,
-    include_all: Option<bool>,
+    /// 规范取值 `all`（缺省）或 `participated`；其它值一律 400 `M_INVALID_PARAM`。
+    include: Option<String>,
+}
+
+/// 只接受分页参数的查询串（`/replies`、已订阅列表）。
+///
+/// 与 [`ListQuery`] 分开，是为了不把 `include` 声明到不消费它的端点上。
+#[derive(Debug, Deserialize)]
+struct ThreadPageQuery {
+    limit: Option<i32>,
+    from: Option<String>,
+}
+
+/// 把 `include` 解析成存储层的参与者过滤条件。
+///
+/// 返回 `Some(user_id)` 表示只看该用户参与过的话题（发过根事件或回复 ——
+/// `thread_roots.participants` 同时包含根发送者与全部回复者），`None` 表示不限制。
+fn resolve_thread_participant_filter(include: Option<&str>, user_id: &str) -> Result<Option<String>, ApiError> {
+    match include {
+        None | Some("all") => Ok(None),
+        Some("participated") => Ok(Some(user_id.to_string())),
+        Some(other) => {
+            Err(ApiError::invalid_param(format!("Invalid include value '{other}': expected 'all' or 'participated'")))
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -271,6 +296,7 @@ async fn list_visible_threads(
     user_id: &str,
     limit: Option<i32>,
     from: Option<&str>,
+    participated_by: Option<&str>,
 ) -> Result<ThreadListResponse, ApiError> {
     let room_ids = ctx.room_service.membership().get_joined_rooms(user_id).await?;
 
@@ -278,7 +304,12 @@ async fn list_visible_threads(
     for room_id in room_ids {
         let mut response = ctx
             .thread_service
-            .list_threads(ListThreadsRequest { room_id, limit: None, from: None, include_all: true })
+            .list_threads(ListThreadsRequest {
+                room_id,
+                limit: None,
+                from: None,
+                participated_by: participated_by.map(str::to_string),
+            })
             .await?;
         threads.append(&mut response.threads);
     }
@@ -331,7 +362,7 @@ async fn list_threads(
         room_id: room_id.to_string(),
         limit: query.limit,
         from: query.from,
-        include_all: query.include_all.unwrap_or(false),
+        participated_by: resolve_thread_participant_filter(query.include.as_deref(), &auth_user.user_id)?,
     };
 
     let response = ctx.thread_service.list_threads(request).await?;
@@ -351,7 +382,7 @@ async fn list_threads_legacy_search(
         room_id: room_id.to_string(),
         limit: query.limit,
         from: query.from,
-        include_all: query.include_all.unwrap_or(false),
+        participated_by: resolve_thread_participant_filter(query.include.as_deref(), &auth_user.user_id)?,
     };
 
     let response = ctx.thread_service.list_threads(request).await?;
@@ -455,7 +486,7 @@ async fn add_reply(
 async fn get_replies(
     State(ctx): State<RoomContext>,
     Path((room_id, thread_id)): Path<(RoomId, String)>,
-    Query(query): Query<ListQuery>,
+    Query(query): Query<ThreadPageQuery>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Vec<ReplyResponse>>, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, room_id.as_str()).await?;
@@ -610,7 +641,10 @@ async fn list_threads_global(
     auth_user: AuthenticatedUser,
     query: Query<ListQuery>,
 ) -> Result<Json<ThreadListResponse>, ApiError> {
-    let response = list_visible_threads(&ctx, &auth_user.user_id, query.limit, query.from.as_deref()).await?;
+    let participated_by = resolve_thread_participant_filter(query.include.as_deref(), &auth_user.user_id)?;
+    let response =
+        list_visible_threads(&ctx, &auth_user.user_id, query.limit, query.from.as_deref(), participated_by.as_deref())
+            .await?;
     Ok(Json(response))
 }
 
@@ -633,7 +667,7 @@ async fn create_thread_global(
 
 async fn get_subscribed_threads(
     State(ctx): State<RoomContext>,
-    Query(query): Query<ListQuery>,
+    Query(query): Query<ThreadPageQuery>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<SubscribedThreadsResponse>, ApiError> {
     let response = ctx.thread_service.get_subscribed_threads(&auth_user.user_id, query.limit, query.from).await?;
@@ -721,5 +755,42 @@ mod tests {
             .expect_err("non-empty content must be rejected rather than silently dropped");
         assert!(error.is_bad_request());
         assert_eq!(error.matrix_code(), synapse_common::error::MatrixErrorCode::InvalidParam);
+    }
+
+    #[test]
+    fn test_thread_include_absent_or_all_means_no_participant_filter() {
+        // 规范默认值是 `all`：缺省与显式 `all` 必须等价（都不限制参与者）。
+        assert!(resolve_thread_participant_filter(None, "@alice:localhost")
+            .expect("absent include is valid")
+            .is_none());
+        assert!(resolve_thread_participant_filter(Some("all"), "@alice:localhost")
+            .expect("include=all is valid")
+            .is_none());
+    }
+
+    #[test]
+    fn test_thread_include_participated_filters_by_requesting_user() {
+        assert_eq!(
+            resolve_thread_participant_filter(Some("participated"), "@alice:localhost")
+                .expect("include=participated is valid")
+                .as_deref(),
+            Some("@alice:localhost")
+        );
+    }
+
+    #[test]
+    fn test_thread_include_rejects_unknown_value() {
+        let error = resolve_thread_participant_filter(Some("bogus"), "@alice:localhost")
+            .expect_err("unknown include values must be rejected instead of silently treating as all");
+        assert!(error.is_bad_request());
+        assert_eq!(error.matrix_code(), synapse_common::error::MatrixErrorCode::InvalidParam);
+    }
+
+    #[test]
+    fn test_thread_list_query_parses_spec_include() {
+        let query: ListQuery = serde_json::from_value(json!({ "limit": 10, "include": "participated" }))
+            .expect("ListQuery should deserialize include");
+        assert_eq!(query.include.as_deref(), Some("participated"));
+        assert_eq!(query.limit, Some(10));
     }
 }

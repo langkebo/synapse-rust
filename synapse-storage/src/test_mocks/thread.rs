@@ -94,7 +94,16 @@ impl crate::thread::ThreadStoreApi for InMemoryThreadStore {
         let mut filtered: Vec<&crate::thread::ThreadRoot> = roots
             .iter()
             .filter(|r| r.room_id == params.room_id)
-            .filter(|r| if params.include_all { true } else { !r.is_fetched })
+            .filter(|r| match &params.participated_by {
+                // include=participated：与真实 SQL 同义 —— 根发送者或任一回复者在
+                // `participants` 里即算参与过。
+                Some(user_id) => r
+                    .participants
+                    .as_ref()
+                    .and_then(|value| value.as_array())
+                    .is_some_and(|participants| participants.iter().any(|p| p.as_str() == Some(user_id.as_str()))),
+                None => true,
+            })
             .filter(|r| match (&params.from, &r.thread_id) {
                 (Some(from), Some(tid)) => tid.as_str() > from.as_str(),
                 _ => true,

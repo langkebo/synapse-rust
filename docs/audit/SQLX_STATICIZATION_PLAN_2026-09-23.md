@@ -2194,8 +2194,17 @@ BASELINE_DYNAMIC_PRODUCTION=106
 BASELINE_DYNAMIC_TEST_INFRA=769
 BASELINE_STATIC=1373
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1344
+SQLX_CACHE_ENTRIES=1336
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-20 更新（B-19/B-20/B-21：请求参数契约修复）**，数字块一项按实测同步：
+> - `SQLX_CACHE_ENTRIES` **1344 → 1336**（净 −8）：`list_thread_roots` 为支持
+>   `include=participated` 重写了 SQL 文本，旧哈希条目被 2 条新条目取代（−2/+2，净 0）；
+>   同时清理 8 条已无源码引用的历史死条目（`space_members`/`space_children` 无游标版、
+>   `spam_check_results`、`media_metadata` NULL 版、`key_rotation_log` 非游标版、`spaces`
+>   无游标版、`module_execution_logs`、`notifications`），经唯一入口 `scripts/ci/sqlx_prepare.sh`
+>   重生成（`ALLOW_CACHE_SHRINK=1` 放行缩容，逐条核对后确认无源码引用）。
+>   `BASELINE_DYNAMIC_*` / `BASELINE_STATIC`（1373）/ `BASELINE_QUERY_BUILDER` 不变。
 
 > **2026-10-20 更新（B-10/B-11/B-12：admin 列表端点 keyset 分页）**，数字块两项按实测同步：
 > - `BASELINE_DYNAMIC_PRODUCTION` **96 → 106**（+10，其中 +3 是入账前既有漂移：

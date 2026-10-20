@@ -214,7 +214,7 @@ async fn test_list_thread_roots() {
             room_id: room_id.clone(),
             limit: Some(10),
             from: None,
-            include_all: false,
+            participated_by: None,
         })
         .await
         .expect("should list roots");
@@ -1445,7 +1445,7 @@ async fn test_list_thread_roots_with_from_cursor() {
             room_id: room_id.clone(),
             limit: Some(1),
             from: None,
-            include_all: false,
+            participated_by: None,
         })
         .await
         .expect("first page should succeed");
@@ -1458,7 +1458,7 @@ async fn test_list_thread_roots_with_from_cursor() {
             room_id: room_id.clone(),
             limit: Some(10),
             from: Some(first_tid.clone()),
-            include_all: false,
+            participated_by: None,
         })
         .await
         .expect("second page should succeed");

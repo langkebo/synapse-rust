@@ -100,12 +100,18 @@ impl ThreadStorage {
                        last_reply_event_id, last_reply_sender, last_reply_ts,
                        participants, is_fetched AS "is_fetched!", created_ts, updated_ts
                 FROM thread_roots
-                WHERE room_id = $1 AND thread_id > $2
+                WHERE room_id = $1
+                  AND thread_id > $2
+                  -- include=participated：$3 非空时只保留该用户发过根事件或回复的话题。
+                  -- `participants` 由 create_thread_root / create_thread_reply 维护，
+                  -- 同时包含根发送者与全部回复者，所以一个包含判定就够。
+                  AND ($3::TEXT IS NULL OR participants @> to_jsonb($3::TEXT))
                 ORDER BY thread_id ASC
-                LIMIT $3
+                LIMIT $4
                 "#,
                 &params.room_id,
                 from,
+                params.participated_by,
                 limit
             )
             .fetch_all(&*self.pool)
@@ -122,10 +128,12 @@ impl ThreadStorage {
                        participants, is_fetched AS "is_fetched!", created_ts, updated_ts
                 FROM thread_roots
                 WHERE room_id = $1
+                  AND ($2::TEXT IS NULL OR participants @> to_jsonb($2::TEXT))
                 ORDER BY thread_id ASC
-                LIMIT $2
+                LIMIT $3
                 "#,
                 &params.room_id,
+                params.participated_by,
                 limit
             )
             .fetch_all(&*self.pool)
