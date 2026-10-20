@@ -349,7 +349,13 @@ impl MembershipService {
     }
 
     /// See [`unban_user`].
-    pub async fn unban_user(&self, room_id: &str, user_id: &str, unbanned_by: &str) -> ApiResult<()> {
+    pub async fn unban_user(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        unbanned_by: &str,
+        reason: Option<&str>,
+    ) -> ApiResult<()> {
         self.room_auth.can_unban_user(room_id, unbanned_by, user_id).await?;
 
         // State-machine precondition: unban only applies to a currently-banned
@@ -365,7 +371,8 @@ impl MembershipService {
         // *before* the membership state change so a refusal leaves no residue.
         let event_id = generate_event_id(&self.server_name);
         let content = json!({
-            "membership": "leave"
+            "membership": "leave",
+            "reason": reason.unwrap_or("")
         });
         let content = self.admit_membership_event(room_id, &event_id, unbanned_by, user_id, content, true).await?;
 
@@ -411,7 +418,7 @@ impl MembershipService {
         // Symmetry with ban/kick: the target is now at `leave`, so the friend
         // DM is no longer active.
         #[cfg(feature = "friends")]
-        self.sync_friend_dm_moderation(room_id, user_id, ModerationState::Unbanned, unbanned_by, None).await;
+        self.sync_friend_dm_moderation(room_id, user_id, ModerationState::Unbanned, unbanned_by, reason).await;
 
         Ok(())
     }
@@ -717,7 +724,7 @@ mod tests {
         mem_store.add_member(room_id, target, "ban", None, None, None, None).await.expect("ban target");
         svc.set_ban_reason(room_id, target, Some("stale reason")).await.expect("seed ban reason");
 
-        svc.unban_user(room_id, target, unbanner).await.expect("unban_user should succeed");
+        svc.unban_user(room_id, target, unbanner, None).await.expect("unban_user should succeed");
 
         let member = mem_store.get_room_member(room_id, target).await.expect("get_room_member");
         // After unban, membership row is deleted (not present).
@@ -753,7 +760,7 @@ mod tests {
         let username = target.trim_start_matches('@').split(':').next().unwrap_or(target).to_string();
         user_store.create_user(target, &username, None, false).await.expect("create_user");
 
-        svc.unban_user(room_id, target, admin).await.expect("unban");
+        svc.unban_user(room_id, target, admin, None).await.expect("unban");
 
         // After unban, invite should succeed (FakeRoomAuth allows it).
         svc.invite_user(room_id, admin, target).await.expect("invite after unban");
@@ -1020,7 +1027,7 @@ mod tests {
         seed_moderation_fixture(&svc, &user_store, room_id, target, actor).await;
 
         svc.ban_user(room_id, target, actor, Some("spam")).await.expect("ban_user");
-        svc.unban_user(room_id, target, actor).await.expect("unban_user");
+        svc.unban_user(room_id, target, actor, None).await.expect("unban_user");
 
         assert_eq!(
             hook.calls(),

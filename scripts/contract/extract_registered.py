@@ -1891,13 +1891,13 @@ EXPECTED_ANNOTATIONS = {
         "query_params": "filter,limit"
     },
     ("GET", "/_matrix/client/v1/rooms/{room_id}/hierarchy"): {
-        "query_params": "limit,max_depth"
+        "query_params": "from,limit,max_depth,suggested_only"
     },
     ("GET", "/_matrix/client/v1/rooms/{room_id}/timestamp_to_event"): {
         "query_params": "dir,ts"
     },
     ("GET", "/_matrix/client/v3/notifications"): {"query_params": "from,limit,only"},
-    ("GET", "/_matrix/client/v3/publicRooms"): {"query_params": "limit,since"},
+    ("GET", "/_matrix/client/v3/publicRooms"): {"query_params": "limit,server,since"},
     ("GET", "/_matrix/client/v3/rooms/{room_id}/aggregations/{event_id}/{rel_type}"): {
         "query_params": "from,limit"
     },

@@ -6,6 +6,7 @@ use crate::routes::MatrixJson;
 use crate::routes::{
     account_compat::{can_view_profile_for_requester_batch, enforce_profile_visibility},
     ensure_room_member_admin, validate_event_id, validate_room_alias, validate_room_id, validate_user_id,
+    validators::validate_server_name,
 };
 use crate::utils::auth::resolve_request_id;
 use axum::{
@@ -21,6 +22,48 @@ use synapse_common::ApiError;
 pub(crate) struct PublicRoomsQuery {
     pub(crate) limit: Option<String>,
     pub(crate) since: Option<String>,
+    /// B-17: fetch another homeserver's directory (relayed through our own
+    /// federation client instead of being silently ignored).
+    pub(crate) server: Option<String>,
+}
+
+/// B-17: decide whether a `/publicRooms` request targets a remote directory.
+///
+/// Mirrors upstream `RoomListRestServlet`: the server name is structurally
+/// validated first, our own server name means "local directory" (a relay to
+/// ourselves would loop), and any remote relay requires an authenticated
+/// requester — an anonymous caller must not be able to make this homeserver
+/// issue signed federation requests to arbitrary destinations.
+fn resolve_remote_directory(
+    server: Option<&str>,
+    auth_user: &OptionalAuthenticatedUser,
+    local_server_name: &str,
+) -> Result<Option<String>, ApiError> {
+    let Some(server) = server else {
+        return Ok(None);
+    };
+    validate_server_name(server)?;
+    if server.eq_ignore_ascii_case(local_server_name) {
+        return Ok(None);
+    }
+    if auth_user.user_id.is_none() {
+        return Err(ApiError::missing_token());
+    }
+    Ok(Some(server.to_string()))
+}
+
+/// B-17: refuse to relay to a server the local federation blacklist blocks or
+/// quarantines (the counterpart of upstream's domain-whitelist check).
+///
+/// The federation client's own SSRF guard only rejects IP-literal destinations
+/// and private address ranges; this check is what lets an operator keep a
+/// malicious-but-publicly-resolvable homeserver out of the relay path.
+async fn ensure_relay_target_allowed(ctx: &AdminContext, server: &str) -> Result<(), ApiError> {
+    let check = ctx.federation_blacklist_service.check_server(server).await?;
+    if check.is_blocked || check.is_quarantined {
+        return Err(ApiError::forbidden(format!("Federation denied with {server}")));
+    }
+    Ok(())
 }
 
 /// Decode a `since` pagination token (`<created_ts>|<room_id>`).
@@ -570,10 +613,21 @@ pub(crate) async fn delete_room_alias_direct(
 /// See [`get_public_rooms`].
 pub(crate) async fn get_public_rooms(
     State(ctx): State<AdminContext>,
-    _auth_user: OptionalAuthenticatedUser,
+    auth_user: OptionalAuthenticatedUser,
     Query(query): Query<PublicRoomsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = query.limit.as_deref().and_then(|v| v.parse::<u64>().ok()).unwrap_or(20).clamp(1, 1000) as i64;
+
+    // B-17: `server` is a spec field on both variants. Relaying it (rather than
+    // ignoring it) is what upstream `get_remote_public_room_list` does; the
+    // federation client signs the outbound request and applies SSRF checks.
+    if let Some(server) = resolve_remote_directory(query.server.as_deref(), &auth_user, &ctx.server_name)? {
+        ensure_relay_target_allowed(&ctx, &server).await?;
+        return Ok(Json(
+            ctx.federation_client.get_public_rooms(&server, Some(limit as u32), query.since.as_deref()).await?,
+        ));
+    }
+
     let cursor = decode_public_rooms_cursor(query.since.as_deref());
 
     // 按 spec，GET 变体的参数只有 `limit` / `since` / `server` —— `filter`（含
@@ -651,6 +705,72 @@ mod cursor_tests {
     }
 }
 
+/// B-17: `server` handling on `/publicRooms` (both variants share this helper).
+#[cfg(test)]
+mod relay_tests {
+    use super::resolve_remote_directory;
+    use crate::routes::extractors::OptionalAuthenticatedUser;
+    use synapse_common::error::MatrixErrorCode;
+
+    const LOCAL: &str = "example.com";
+
+    fn anonymous() -> OptionalAuthenticatedUser {
+        OptionalAuthenticatedUser {
+            user_id: None,
+            device_id: None,
+            is_admin: false,
+            is_shadow_banned: false,
+            is_guest: false,
+            appservice_id: None,
+            access_token: None,
+        }
+    }
+
+    fn authenticated() -> OptionalAuthenticatedUser {
+        OptionalAuthenticatedUser {
+            user_id: Some("@alice:example.com".to_string()),
+            device_id: Some("DEV".to_string()),
+            is_admin: false,
+            is_shadow_banned: false,
+            is_guest: false,
+            appservice_id: None,
+            access_token: Some("token".to_string()),
+        }
+    }
+
+    #[test]
+    fn absent_server_stays_local() {
+        assert_eq!(resolve_remote_directory(None, &anonymous(), LOCAL).unwrap(), None);
+    }
+
+    #[test]
+    fn own_server_name_stays_local_case_insensitively() {
+        assert_eq!(resolve_remote_directory(Some("EXAMPLE.COM"), &anonymous(), LOCAL).unwrap(), None);
+    }
+
+    #[test]
+    fn structurally_invalid_server_name_is_rejected() {
+        for bad in ["", "evil.example/../admin", "evil\0.example"] {
+            let err = resolve_remote_directory(Some(bad), &authenticated(), LOCAL).unwrap_err();
+            assert_eq!(err.code(), &MatrixErrorCode::InvalidParam, "{bad:?} must be a 400");
+        }
+    }
+
+    #[test]
+    fn anonymous_remote_relay_requires_a_token() {
+        let err = resolve_remote_directory(Some("remote.example"), &anonymous(), LOCAL).unwrap_err();
+        assert_eq!(err.code(), &MatrixErrorCode::MissingToken);
+    }
+
+    #[test]
+    fn authenticated_remote_relay_is_resolved() {
+        assert_eq!(
+            resolve_remote_directory(Some("remote.example"), &authenticated(), LOCAL).unwrap(),
+            Some("remote.example".to_string())
+        );
+    }
+}
+
 /// Request body for [`query_public_rooms`].
 #[derive(Debug, Default, Deserialize)]
 pub struct PublicRoomsBody {
@@ -661,16 +781,47 @@ pub struct PublicRoomsBody {
     pub filter: Option<Value>,
     pub include_all_networks: Option<bool>,
     pub third_party_instance_id: Option<String>,
+    /// B-17: relay target for a remote directory (same semantics as the query
+    /// parameter on the `GET` variant).
+    pub server: Option<String>,
 }
 
 /// See [`query_public_rooms`].
 #[axum::debug_handler]
 pub(crate) async fn query_public_rooms(
     State(ctx): State<AdminContext>,
-    _auth_user: OptionalAuthenticatedUser,
+    auth_user: OptionalAuthenticatedUser,
     MatrixJson(body): MatrixJson<PublicRoomsBody>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = body.limit.unwrap_or(20).clamp(1, 1000) as i64;
+
+    // B-17: the `POST` variant carries `server` in the body (the SDK does the
+    // same). `filter` is relayed verbatim: the remote server owns its semantics,
+    // and rejecting it locally would make remote directories unsearchable.
+    if let Some(server) = resolve_remote_directory(body.server.as_deref(), &auth_user, &ctx.server_name)? {
+        ensure_relay_target_allowed(&ctx, &server).await?;
+        let mut relay = serde_json::Map::new();
+        if let Some(limit) = body.limit {
+            relay.insert("limit".to_string(), json!(limit));
+        }
+        if let Some(since) = body.since.as_deref() {
+            relay.insert("since".to_string(), json!(since));
+        }
+        if let Some(filter) = body.filter.as_ref() {
+            relay.insert("filter".to_string(), filter.clone());
+        }
+        if let Some(include_all_networks) = body.include_all_networks {
+            relay.insert("include_all_networks".to_string(), json!(include_all_networks));
+        }
+        if let Some(third_party_instance_id) = body.third_party_instance_id.as_deref() {
+            relay.insert("third_party_instance_id".to_string(), json!(third_party_instance_id));
+        }
+
+        // The federation `/publicRooms` response schema matches the client one,
+        // so the body is relayed unchanged.
+        return Ok(Json(ctx.federation_client.post_public_rooms(&server, &Value::Object(relay)).await?));
+    }
+
     let cursor = decode_public_rooms_cursor(body.since.as_deref());
 
     // Client-Server API 的 `filter`（D-108 接线 `generic_search_term`，D-109 接线 `room_types`

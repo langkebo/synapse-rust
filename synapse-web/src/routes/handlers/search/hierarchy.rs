@@ -10,6 +10,8 @@ use crate::routes::extractors::RoomId;
 pub(crate) struct RoomHierarchyQuery {
     pub(crate) limit: Option<String>,
     pub(crate) max_depth: Option<String>,
+    pub(crate) suggested_only: Option<String>,
+    pub(crate) from: Option<String>,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -249,8 +251,20 @@ pub(crate) async fn get_room_hierarchy(
 
     let max_depth = query.max_depth.as_deref().and_then(|v| v.parse().ok()).unwrap_or(3);
 
-    let mut response =
-        build_room_hierarchy_response(&ctx, &room_id, &auth_user.user_id, max_depth, false, limit, None).await?;
+    // MSC2946: `suggested_only` and `from` are part of the v1 contract too; a
+    // client paging the hierarchy must not silently get page one forever.
+    let suggested_only = query.suggested_only.as_deref() == Some("true");
+
+    let mut response = build_room_hierarchy_response(
+        &ctx,
+        &room_id,
+        &auth_user.user_id,
+        max_depth,
+        suggested_only,
+        limit,
+        query.from.as_deref(),
+    )
+    .await?;
 
     if let Some(object) = response.as_object_mut() {
         object.insert("max_depth".to_string(), json!(max_depth));

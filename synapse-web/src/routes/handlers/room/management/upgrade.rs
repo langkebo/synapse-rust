@@ -1,6 +1,6 @@
 use super::super::{ensure_room_state_write_access, UpgradeRoomRequest, UpgradeRoomResponse};
 use crate::routes::extractors::RoomId;
-use crate::routes::{validate_room_id, AuthenticatedUser};
+use crate::routes::{validate_room_id, validate_user_id, AuthenticatedUser};
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
@@ -20,7 +20,15 @@ pub(crate) async fn upgrade_room(
 
     ensure_room_state_write_access(&ctx, &auth_user, &room_id, "m.room.tombstone", &serde_json::Value::Null).await?;
 
-    let new_room_id = ctx.room_service.upgrade_room(&room_id, &body.new_version, &auth_user.user_id).await?;
+    // MSC4289: `additional_creators` are new creators of the replacement room,
+    // so they must be syntactically valid user IDs before anything is created.
+    let additional_creators = body.additional_creators.as_deref().unwrap_or(&[]);
+    for creator in additional_creators {
+        validate_user_id(creator)?;
+    }
+
+    let new_room_id =
+        ctx.room_service.upgrade_room(&room_id, &body.new_version, &auth_user.user_id, additional_creators).await?;
 
     Ok(Json(UpgradeRoomResponse { replacement_room: new_room_id }))
 }

@@ -184,6 +184,14 @@ pub trait FederationClientApi: Send + Sync {
         since: Option<&str>,
     ) -> Result<serde_json::Value, FederationClientError>;
 
+    /// Query public rooms from a remote server with a request body (the client
+    /// `POST /publicRooms` relay path, which carries a `filter`).
+    async fn post_public_rooms(
+        &self,
+        destination: &str,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value, FederationClientError>;
+
     /// Send a knock event to a remote server.
     async fn knock_room(
         &self,
@@ -432,6 +440,14 @@ impl FederationClientApi for FederationClient {
         since: Option<&str>,
     ) -> Result<serde_json::Value, FederationClientError> {
         FederationClient::get_public_rooms(self, destination, limit, since).await
+    }
+
+    async fn post_public_rooms(
+        &self,
+        destination: &str,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value, FederationClientError> {
+        FederationClient::post_public_rooms(self, destination, body).await
     }
 
     async fn knock_room(

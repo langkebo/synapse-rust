@@ -1292,6 +1292,18 @@ impl FederationClient {
         self.handle_response(response).await
     }
 
+    /// See [`post_public_rooms`].
+    pub async fn post_public_rooms(
+        &self,
+        destination: &str,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value, FederationClientError> {
+        let body = serde_json::to_string(body).map_err(|e| FederationClientError::InvalidResponse(e.to_string()))?;
+        let response =
+            self.send_signed_request("POST", "/_matrix/federation/v1/publicRooms", destination, Some(&body)).await?;
+        self.handle_response(response).await
+    }
+
     /// See [`knock_room`.
     pub async fn knock_room(
         &self,

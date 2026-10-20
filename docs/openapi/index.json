@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "generated_at": "2026-10-16T03:29:17Z",
+  "generated_at": "2026-10-20T09:12:21Z",
   "primary_profile": "default",
   "specs": {
     "default": {
@@ -11,9 +11,9 @@
         "worker_enabled": false,
         "saml_enabled": false
       },
-      "ledger_generated_at": "2026-10-16T03:29:17Z",
-      "client_server_endpoints": 391,
-      "operations": 391,
+      "ledger_generated_at": "2026-10-20T09:12:21Z",
+      "client_server_endpoints": 394,
+      "operations": 394,
       "tags": 42
     }
   }

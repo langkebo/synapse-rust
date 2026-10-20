@@ -345,10 +345,10 @@ GET /_matrix/client/unstable/uk.half-shot.msc2666/user/mutual_rooms	query_params
 GET /_matrix/client/v1/media/thumbnail/{server_name}/{media_id}	query_params=animated,height,method,width
 GET /_matrix/client/v1/rooms/{room_id}/aggregations/{event_id}/{rel_type}	query_params=from,limit
 GET /_matrix/client/v1/rooms/{room_id}/context/{event_id}	query_params=filter,limit
-GET /_matrix/client/v1/rooms/{room_id}/hierarchy	query_params=limit,max_depth
+GET /_matrix/client/v1/rooms/{room_id}/hierarchy	query_params=from,limit,max_depth,suggested_only
 GET /_matrix/client/v1/rooms/{room_id}/timestamp_to_event	query_params=dir,ts
 GET /_matrix/client/v3/notifications	query_params=from,limit,only
-GET /_matrix/client/v3/publicRooms	query_params=limit,since
+GET /_matrix/client/v3/publicRooms	query_params=limit,server,since
 GET /_matrix/client/v3/rooms/{room_id}/aggregations/{event_id}/{rel_type}	query_params=from,limit
 GET /_matrix/client/v3/rooms/{room_id}/context/{event_id}	query_params=filter,limit
 GET /_matrix/client/v3/rooms/{room_id}/hierarchy	query_params=from,limit,max_depth,suggested_only

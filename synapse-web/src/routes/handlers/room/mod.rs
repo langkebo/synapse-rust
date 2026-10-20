@@ -475,6 +475,10 @@ pub(crate) async fn get_room_event(
 #[derive(Debug, Deserialize)]
 pub(crate) struct UpgradeRoomRequest {
     pub(crate) new_version: String,
+    /// MSC4289: extra creators for the replacement room's `m.room.create`.
+    /// Only honoured by room versions that define the rule (v12+).
+    #[serde(default)]
+    pub(crate) additional_creators: Option<Vec<String>>,
 }
 
 /// The `UpgradeRoomResponse` struct.

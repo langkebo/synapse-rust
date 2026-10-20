@@ -397,6 +397,14 @@ impl crate::client_api::FederationClientApi for MockFederationClient {
         Err(FederationClientError::InvalidResponse("mock: get_public_rooms not configured".into()))
     }
 
+    async fn post_public_rooms(
+        &self,
+        _destination: &str,
+        _body: &serde_json::Value,
+    ) -> Result<serde_json::Value, FederationClientError> {
+        Err(FederationClientError::InvalidResponse("mock: post_public_rooms not configured".into()))
+    }
+
     async fn knock_room(
         &self,
         _destination: &str,

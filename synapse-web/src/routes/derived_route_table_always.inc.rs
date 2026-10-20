@@ -864,7 +864,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/rooms/{room_id}/hierarchy", "search")
-            .with_query_params(&["limit", "max_depth"]);
+            .with_query_params(&["from", "limit", "max_depth", "suggested_only"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -1511,7 +1511,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     {
         let e =
             RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/publicRooms", "assembly::directory_compat")
-                .with_query_params(&["limit", "since"]);
+                .with_query_params(&["limit", "server", "since"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {

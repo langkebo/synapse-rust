@@ -1410,8 +1410,10 @@
         "room_id"
       ],
       "query_params": [
+        "from",
         "limit",
-        "max_depth"
+        "max_depth",
+        "suggested_only"
       ],
       "auth": null
     },
@@ -2396,6 +2398,7 @@
       "path_params": [],
       "query_params": [
         "limit",
+        "server",
         "since"
       ],
       "auth": null

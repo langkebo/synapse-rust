@@ -1271,8 +1271,10 @@
         "room_id"
       ],
       "query_params": [
+        "from",
         "limit",
-        "max_depth"
+        "max_depth",
+        "suggested_only"
       ]
     },
     {
@@ -2159,6 +2161,7 @@
       "path_params": [],
       "query_params": [
         "limit",
+        "server",
         "since"
       ]
     },

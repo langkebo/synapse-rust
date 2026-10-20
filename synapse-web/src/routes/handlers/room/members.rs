@@ -785,6 +785,8 @@ pub(crate) async fn ban_user(
 #[derive(Debug, Deserialize)]
 pub struct UnbanUserBody {
     pub user_id: String,
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 /// See [`unban_user`].
@@ -800,7 +802,10 @@ pub(crate) async fn unban_user(
 
     validate_user_id(target)?;
 
-    ctx.room_service.membership().unban_user(&room_id, target, &auth_user.user_id).await?;
+    let reason = body.reason.as_deref();
+    validate_moderation_reason(reason)?;
+
+    ctx.room_service.membership().unban_user(&room_id, target, &auth_user.user_id, reason).await?;
 
     Ok(Json(json!({})))
 }

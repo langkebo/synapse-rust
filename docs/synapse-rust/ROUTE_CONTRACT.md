@@ -1665,6 +1665,41 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
   - `GET /_matrix/vendor/v1/spaces/room/{room_id}/parents`
 - 若未来要给它们加 `max_depth` / 过滤，必须同时更新 sidecar，避免 SDK 只能靠猜。
 
+### A.9 2026-10-20 语义缺口修复（B-15 / B-16 / B-17 / B-18）
+
+#### 1. `POST /_matrix/client/v3/rooms/{room_id}/unban` 接受 `reason`（B-15）
+
+- body：`{ "user_id": "...", "reason": "..." }`，`reason` **可选**（`serde(default)`）。
+- 写入 `m.room.member` 的 leave content：`{"membership":"leave","reason":"…"}`；未传时与 kick 一致写 `""`（不是省略）。
+- 长度/内容校验与 ban / kick 共用同一套（超限 → 400 `M_INVALID_PARAM`）。
+- 兼容性：旧客户端不传 `reason` → 行为不变。
+
+#### 2. `POST /_matrix/client/v3/rooms/{room_id}/upgrade` 接受 `additional_creators`（B-16，MSC4289）
+
+- body：`{ "new_version": "12", "additional_creators": ["@a:h"] }`，`additional_creators` **可选**。
+- 每个元素按 user ID 语法校验，不合法 → **400**（在创建任何房间之前失败）。
+- **仅当目标房间版本实现了该规则（v12+）**才写入替代房间 `m.room.create` 的 `additional_creators`；旧版本目标会**丢弃**该字段（写入旧版本 create 事件等于制造不可解释的状态）。当前 `SUPPORTED_ROOM_VERSIONS` 只有 v12，故可创建目标均生效。
+- 回源语义：替代房间由服务端 `create_room` 创建，发起人始终在 creator 集合内；`additional_creators` 只是**追加**。
+- 兼容性：不传 → 行为不变。
+
+#### 3. `GET /_matrix/client/v1/rooms/{room_id}/hierarchy` 的 query 与 v3 对齐（B-18）
+
+- v1 现在接受 `from` / `limit` / `max_depth` / `suggested_only`，与 v3 同一集合；此前只认 `limit` / `max_depth`，`suggested_only` / `from` 被**静默丢弃**（过滤失效、分页永远第一页）。
+- 默认值差异**保留**：v1 的 `max_depth` 缺省为 **3**，v3 为 **1**（历史行为，未改动）。
+- 契约侧该端点现为 `query: from,limit,max_depth,suggested_only`。
+
+#### 4. `GET|POST /_matrix/client/v3/publicRooms` 的 `server` 实现 relay（B-17）
+
+- 两个变体都接受 `server`（GET 在 query，POST 在 body）；此前该规范字段被**静默忽略**，永远返回本机目录。
+- 语义对齐上游 `RoomListRestServlet.get_remote_public_room_list`：
+  1. `server` 先做结构校验（空 / 超长 / 含 `/`、`\`、空字符 → 400 `M_INVALID_PARAM`）；
+  2. `server` 与本机 `server_name` 相同（大小写不敏感）→ 视作本机目录，不转发（避免自环）；
+  3. 远端目标 + **未认证** → 401 `M_MISSING_TOKEN`：匿名调用者不得让本机代签出站联邦请求；
+  4. 命中本机联邦黑名单 / 隔离区（`FederationBlacklistService::check_server`）→ 403 `M_FORBIDDEN`。
+- 出站请求走本机 federation client（`/_matrix/federation/v1/publicRooms`，由客户端签名），并受其既有 SSRF 防线约束（拒绝 IP 字面量与私有网段）。
+- 转发字段：GET 转发 `limit` / `since`；POST 转发 `limit` / `since` / `filter` / `include_all_networks` / `third_party_instance_id`。响应体原样返回（联邦 `/publicRooms` 与客户端变体同构）。
+- 契约侧：`GET .../publicRooms` 的 query 现为 `limit,server,since`；POST 的 `server` 在 body 中（body 不逐字段登记）。
+
 ---
 
 *本文件由 `scripts/contract/extract_registered.py` + `gen_contract_doc.py` 生成。路由面随代码变化，请定期重新生成。附录 A / 附录 B 为人工维护增补。*

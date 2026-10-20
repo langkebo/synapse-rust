@@ -422,7 +422,18 @@ impl RoomService {
     }
 
     /// See [`upgrade_room`].
-    pub async fn upgrade_room(&self, old_room_id: &str, new_version: &str, user_id: &str) -> ApiResult<String> {
+    ///
+    /// `additional_creators` carries MSC4289's extra creators for the
+    /// replacement room. The field only exists in room versions that define the
+    /// rule (v12+), so it is dropped for older targets rather than written into
+    /// a create event that cannot interpret it.
+    pub async fn upgrade_room(
+        &self,
+        old_room_id: &str,
+        new_version: &str,
+        user_id: &str,
+        additional_creators: &[String],
+    ) -> ApiResult<String> {
         let old_room = self
             .room_storage
             .get_room(old_room_id)
@@ -475,10 +486,13 @@ impl RoomService {
         };
 
         // Replacement first: its id comes from the create event.
-        let replacement_room = self
-            .lifecycle
-            .create_room(user_id, make_config(json!({ "predecessor": { "room_id": old_room_id } })))
-            .await?;
+        let mut replacement_content = json!({ "predecessor": { "room_id": old_room_id } });
+        if !additional_creators.is_empty()
+            && synapse_federation::event_auth::rules::enforces_additional_creators_rule(new_version)
+        {
+            replacement_content["additional_creators"] = json!(additional_creators);
+        }
+        let replacement_room = self.lifecycle.create_room(user_id, make_config(replacement_content)).await?;
         let new_room_id = replacement_room
             .get("room_id")
             .and_then(|value| value.as_str())

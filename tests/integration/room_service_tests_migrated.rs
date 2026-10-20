@@ -735,7 +735,7 @@ async fn test_unban_non_banned_user_is_rejected() {
     let room_val = room_service.lifecycle.create_room(&alice_id, CreateRoomConfig::default()).await.unwrap();
     let room_id = room_val["room_id"].as_str().unwrap();
 
-    let result = room_service.membership.unban_user(room_id, &bob_id, &alice_id).await;
+    let result = room_service.membership.unban_user(room_id, &bob_id, &alice_id, None).await;
     assert!(result.is_err(), "unbanning a non-banned user must be rejected, got: {result:?}");
 }
 
@@ -794,7 +794,7 @@ async fn test_upgrade_room_invites_all_former_local_members() {
     // Upgrade the room. With the concurrent path, the upgrade completes
     // and all former local members end up invited to the replacement room.
     let new_room_id =
-        room_service.upgrade_room(&old_room_id, "12", &alice_id).await.expect("upgrade_room should succeed");
+        room_service.upgrade_room(&old_room_id, "12", &alice_id, &[]).await.expect("upgrade_room should succeed");
 
     let pool_arc = Arc::clone(&pool);
     let member_storage = RoomMemberStorage::new(&pool_arc, "localhost");
@@ -837,7 +837,7 @@ async fn test_upgrade_room_enqueues_tombstone_and_replacement_create_events() {
     let before_tombstone_events = before_pending.iter().filter(|event| event.event_type == "m.room.tombstone").count();
 
     let new_room_id =
-        room_service.upgrade_room(&old_room_id, "12", &alice_id).await.expect("upgrade_room should succeed");
+        room_service.upgrade_room(&old_room_id, "12", &alice_id, &[]).await.expect("upgrade_room should succeed");
 
     let after_pending = storage.get_pending_events(&as_id, 256).await.expect("pending events should load");
     let after_create_events = after_pending.iter().filter(|event| event.event_type == "m.room.create").count();
@@ -4789,7 +4789,7 @@ async fn test_upgrade_room_not_found() {
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let room_service = create_room_service(&pool, cache.clone());
 
-    let result = room_service.upgrade_room("!nonexistent:localhost", "11", &alice_id).await;
+    let result = room_service.upgrade_room("!nonexistent:localhost", "11", &alice_id, &[]).await;
 
     assert!(result.is_err());
 }
@@ -5157,7 +5157,8 @@ async fn test_upgrade_to_v12_derives_the_replacement_id_and_omits_predecessor_ev
         .expect("the old room must be created");
     let old_room_id = old_val["room_id"].as_str().unwrap().to_string();
 
-    let new_room_id = room_service.upgrade_room(&old_room_id, "12", &alice_id).await.expect("upgrade must succeed");
+    let new_room_id =
+        room_service.upgrade_room(&old_room_id, "12", &alice_id, &[]).await.expect("upgrade must succeed");
 
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
 
