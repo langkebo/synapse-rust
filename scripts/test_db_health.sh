@@ -21,6 +21,7 @@ set -euo pipefail
 
 RESIDUAL_LIMIT=50
 JUNIT_PATH="artifacts/nextest-junit.xml"
+VACUUM_CATALOG=0
 
 while [ $# -gt 0 ]; do
     case "${1}" in
@@ -31,6 +32,10 @@ while [ $# -gt 0 ]; do
         --junit)
             JUNIT_PATH="${2:?--junit 需要参数}"
             shift 2
+            ;;
+        --vacuum-catalog)
+            VACUUM_CATALOG=1
+            shift
             ;;
         *)
             echo "未知参数：${1}" >&2
@@ -56,6 +61,7 @@ q() {
 db_name="$(q "SELECT current_database()")"
 db_size="$(q "SELECT pg_size_pretty(pg_database_size(current_database()))")"
 attr_size="$(q "SELECT pg_size_pretty(pg_relation_size('pg_attribute'))")"
+catalog_size="$(q "SELECT pg_size_pretty(sum(pg_relation_size(oid))) FROM pg_class WHERE relnamespace = 'pg_catalog'::regnamespace AND relkind = 'r'")"
 class_rows="$(q "SELECT count(*) FROM pg_class")"
 public_tables="$(q "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")"
 stamped="$(q "SELECT count(*) FROM pg_namespace WHERE nspname ~ '^test_[0-9]+_[0-9]+_[0-9]+$'")"
@@ -86,6 +92,7 @@ echo "  数据库              ${db_name}"
 echo "  基线表（public）    ${public_tables}   （0 或明显偏少 = 迁移没打到这个库）"
 echo "  库体大小            ${db_size}"
 echo "  pg_attribute        ${attr_size}   （>256 MB 起 clone 明显变慢）"
+echo "  catalog 合计        ${catalog_size}   （跑完大批测试后可 --vacuum-catalog 压回）"
 echo "  pg_class 行数       ${class_rows}"
 echo "  残留 stamped schema ${stamped}   （最老：${oldest_age}）"
 echo "  残留 uuid schema    ${uuid_family}   （无时间戳，守卫不收，需脚本清理）"
@@ -118,6 +125,30 @@ fi
 echo "  单测 P95            ${p95}"
 
 residual_total=$((stamped + uuid_family))
+
+# 每轮全量都会 CREATE/DROP 上千个 schema，catalog 的高水位只涨不落：实测 286 条
+# 测试后 `pg_attribute` 52 MB / `pg_class` 22 MB（真实行数只有几千行），而
+# VACUUM FULL 把它们压回 6.5 MB / 3 MB，总耗时 <2 s。clone 的 DDL 要读这些页，
+# 所以跑完大批测试后压一次比反复清 schema 更省。
+if [ "${VACUUM_CATALOG}" -eq 1 ]; then
+    case "${db_name}" in
+        *test*) ;;
+        *)
+            echo "拒绝执行 --vacuum-catalog：当前库 ${db_name} 不像测试库（名字里没有 test）。" >&2
+            exit 2
+            ;;
+    esac
+    catalog_size_sql="SELECT pg_size_pretty(sum(pg_relation_size(oid))) FROM pg_class WHERE relnamespace = 'pg_catalog'::regnamespace AND relkind = 'r'"
+    before="$(q "${catalog_size_sql}")"
+    echo ""
+    echo "压缩 catalog 高水位（VACUUM FULL 会短暂持排他锁，测试库空闲时执行）..."
+    for rel in pg_attribute pg_class pg_depend pg_index pg_constraint pg_attrdef pg_type pg_trigger; do
+        psql "${DATABASE_URL}" -q -v ON_ERROR_STOP=1 -c "VACUUM (FULL, ANALYZE) ${rel}" >/dev/null
+        echo "  ok ${rel}"
+    done
+    after="$(q "${catalog_size_sql}")"
+    echo "  catalog 合计：${before} -> ${after}"
+fi
 
 # 迁移没打到这个库时，每条测试都会在建表前报 500「relation users does not
 # exist」——看起来像代码坏了，实际是库被清空/指错了实例（2026-10-20 实测：
