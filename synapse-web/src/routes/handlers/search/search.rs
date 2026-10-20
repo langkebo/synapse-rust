@@ -194,7 +194,7 @@ pub(crate) async fn search(
     });
 
     if let Some(room_events) = &body.search_categories.room_events {
-        let room_events_next_batch = room_events.next_batch.as_deref().or_else(|| query.next_batch.as_deref());
+        let room_events_next_batch = room_events.next_batch.as_deref().or(query.next_batch.as_deref());
         let search_future = search_room_events(&ctx, &auth_user.user_id, room_events, room_events_next_batch);
 
         let room_results = timeout(Duration::from_secs(SEARCH_TIMEOUT_SECS), search_future)

@@ -80,7 +80,7 @@ pub(crate) async fn register(
     // checking that `auth` exists let forged stages (`m.login.registration_token`
     // with an arbitrary token, `m.login.terms`, …) skip UIA entirely.
     if let Err(challenge) = check_registration_auth(auth) {
-        return Ok(challenge);
+        return Ok(*challenge);
     }
 
     // Auth field is present. Password is always required for non-guest
@@ -149,15 +149,22 @@ fn registration_uia_challenge(errcode: &str, error: &str) -> Response {
 /// Registration has no account to authenticate against, so the only thing to
 /// enforce is that the client did not invent a stage: anything outside the
 /// advertised flows gets a fresh 401 challenge instead of a registered user.
-fn check_registration_auth(auth: &Value) -> Result<(), Response> {
+///
+/// The challenge is boxed: `Response` is large enough to trip
+/// `clippy::result_large_err`, and this helper's only caller immediately
+/// unwraps the box to return it.
+fn check_registration_auth(auth: &Value) -> Result<(), Box<Response>> {
     let Some(auth_type) = auth.get("type").and_then(Value::as_str) else {
-        return Err(registration_uia_challenge("M_UIA_REQUIRED", "User-Interactive Authentication required"));
+        return Err(Box::new(registration_uia_challenge("M_UIA_REQUIRED", "User-Interactive Authentication required")));
     };
 
     let flows = registration_uia_flows();
     let advertised: Vec<&str> = flows.iter().flat_map(|flow| flow.stages.iter().map(String::as_str)).collect();
     if !advertised.contains(&auth_type) {
-        return Err(registration_uia_challenge("M_UIA_REQUIRED", &format!("Unrecognised auth type: {auth_type}")));
+        return Err(Box::new(registration_uia_challenge(
+            "M_UIA_REQUIRED",
+            &format!("Unrecognised auth type: {auth_type}"),
+        )));
     }
 
     Ok(())
