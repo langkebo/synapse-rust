@@ -779,9 +779,29 @@ jobs:
   # ──────────────────────────────────────────────────────────
 
   integration-test:
-    name: Integration Tests
+    # 双跑（P3）：同一套步骤跑两遍隔离实现 —— `schema` 是今天的默认路径，`database`
+    # 是 `TEST_DB_ISOLATION=database`（整库 `CREATE DATABASE … TEMPLATE`；本机实测
+    # 286 条 421 s → 193.6 s）。矩阵只改隔离方式，其余环境逐字相同，否则"两边都绿"
+    # 就不再证明差异来自隔离实现。
+    #
+    # 第二个 leg 用 `if: matrix.isolation == 'schema'` 把 e2e/snapshot/perf 关掉：
+    # 那三条与隔离方式无关，重复跑只是把 CI 时间翻倍。
+    #
+    # 超时预算按实测定：schema 全车道 ~42 min ⇒ 90；database 只跑 integration 且
+    # 本机快 2.2× ⇒ 60。都留余量，但不至于把挂死的 job 拖到 GitHub 默认的 360 分钟。
+    name: Integration Tests (${{ matrix.isolation }})
     runs-on: ubuntu-latest
     needs: [test, changes]
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      # 一个 leg 红不能掩盖另一个：双跑的意义就是两个答案都拿到。
+      fail-fast: false
+      matrix:
+        include:
+          - isolation: schema
+            timeout: 90
+          - isolation: database
+            timeout: 60
     if: >-
       github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.run_slow_tier == 'true') ||
@@ -900,6 +920,17 @@ jobs:
           TEST_DB_TEMPLATE_SCHEMA: test_template_ci
         run: bash scripts/ci/prepare_test_db.sh
 
+      # 模板必须在测试进程**之外**预置：`CREATE DATABASE` 先提交、迁移后跑，进程内
+      # 按需建会让其它进程把半成品当就绪模板（本地实测退化成每条 6.4 s）。
+      # 脚本以 `datallowconn = false` 作为"已就绪"标记，并自带"库名不含 test 就
+      # 拒绝执行"的护栏。
+      - name: Provision database-isolation template
+        if: matrix.isolation == 'database'
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+        run: bash scripts/test_db_template.sh ensure
+
       # P6 fix: run admin registration integration tests serially to avoid deadlock.
       # Multiple tests sharing the same nonce key + concurrent writes to users table
       # cause PostgreSQL deadlock at --test-threads > 1.
@@ -913,6 +944,7 @@ jobs:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
           TEST_DB_TEMPLATE_SCHEMA: test_template_ci
+          TEST_DB_ISOLATION: ${{ matrix.isolation }}
           REDIS_URL: redis://localhost:6379
           RUST_BACKTRACE: 1
           RUST_LOG: info
@@ -937,10 +969,30 @@ jobs:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
           TEST_DB_TEMPLATE_SCHEMA: test_template_ci
+          TEST_DB_ISOLATION: ${{ matrix.isolation }}
           REDIS_URL: redis://localhost:6379
           RUST_BACKTRACE: 1
           RUST_LOG: info
         run: cargo nextest run --test integration --all-features --locked --test-threads 4 --no-fail-fast
+
+      # 隔离单元是整库，"漏一个"就是 20 MB + 一行 `pg_database`。把本地验收的
+      # "残留 0"带进 CI：非零即红。挂在 `always()` 上，测试失败时也能分清是
+      # "跑挂了"还是"顺手漏了库"。
+      - name: Assert no leftover test databases
+        if: always() && matrix.isolation == 'database'
+        env:
+          PGPASSWORD: synapse
+        run: |
+          set -euo pipefail
+          left="$(psql -h localhost -U synapse -d postgres -tAc \
+            "SELECT count(*) FROM pg_database WHERE datname LIKE 'test\_%'")"
+          if [ "${left}" -ne 0 ]; then
+            echo "::error::${left} leftover test database(s) — the janitor did not reclaim them"
+            psql -h localhost -U synapse -d postgres -tAc \
+              "SELECT datname FROM pg_database WHERE datname LIKE 'test\_%'" >&2
+            exit 1
+          fi
+          echo "no leftover test databases"
 
       # e2e 目标此前**没有任何 workflow 调用**（`grep -rn "test e2e" .github/workflows/` 无命中），
       # 而 CLAUDE.md 把它记为可用命令 —— 未被执行的测试会静默腐坏。
@@ -951,6 +1003,7 @@ jobs:
       # 因此本步骤实际执行的是"模拟步骤大纲"，其价值在于**防止编译/链接腐坏**，
       # 而不是验证端到端行为 —— 后者由上面的 integration 步骤承担。
       - name: Run e2e target (simulated scenarios compile + run)
+        if: matrix.isolation == 'schema'
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
@@ -978,6 +1031,7 @@ jobs:
       # `--test-threads 4`：与其它车道同一锁预算理由（§14.13 ③）。
       # 守卫：`tests/unit/ci_test_scope_tests.rs::snapshot_gate_is_insta_assert_only`。
       - name: Snapshot gate (insta assert-only, unit snapshots, no .snap.new)
+        if: matrix.isolation == 'schema'
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
@@ -1016,6 +1070,7 @@ jobs:
       # 守卫：`performance_smoke_step_declares_required_features`（feature 齐全）+
       # `performance_smoke_step_excludes_manual_load_tests`（不得带 `--ignored`）。
       - name: Run performance smoke gate
+        if: matrix.isolation == 'schema'
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
@@ -1029,7 +1084,7 @@ jobs:
           cargo test --test performance_manual --features performance-tests,test-utils --locked -- --nocapture 2>&1 | tee artifacts/perf_smoke.log
 
       - name: Upload performance smoke log
-        if: always()
+        if: always() && matrix.isolation == 'schema'
         uses: actions/upload-artifact@v4
         with:
           name: perf-smoke-log

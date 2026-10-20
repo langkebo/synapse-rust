@@ -1280,3 +1280,51 @@ fn ci_backend_validation_runs_the_ci_batches_verbatim() {
         missing.join("\n")
     );
 }
+
+/// 双跑矩阵守卫（P3）：`integration-test` 必须同时跑 schema 与 database 两种隔离。
+///
+/// 为什么值得钉：`TEST_DB_ISOLATION=database` 是 opt-in 的，一旦矩阵腿被删掉或
+/// 环境变量没传下去，CI 会**照样全绿**——只是悄悄只剩一种隔离方式，"两边都绿"
+/// 这条结论就失效了。和本文件其它用例同一个套路：读 workflow 文本，锚定必需片段。
+#[test]
+fn integration_matrix_runs_both_isolation_modes() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workflow = fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("read ci.yml");
+    // 只取该 job 的正文：按行切，遇到下一个"恰好两个空格缩进的 job 名"就停。
+    let mut job = String::new();
+    let mut inside = false;
+    for line in workflow.lines() {
+        if line == "  integration-test:" {
+            inside = true;
+            continue;
+        }
+        if inside && line.starts_with("  ") && !line.starts_with("   ") && line.ends_with(':') {
+            break;
+        }
+        if inside {
+            job.push_str(line);
+            job.push('\n');
+        }
+    }
+    let job = job.as_str();
+
+    for required in
+        ["- isolation: schema", "- isolation: database", "timeout-minutes: ${{ matrix.timeout }}", "fail-fast: false"]
+    {
+        assert!(job.contains(required), "integration-test 缺少 `{required}`（双跑矩阵被削掉了？）");
+    }
+    // 两个 nextest 步骤都必须把矩阵值传进环境，否则 database 腿其实还在跑 schema。
+    let isolation_env = job.matches("TEST_DB_ISOLATION: ${{ matrix.isolation }}").count();
+    assert_eq!(
+        isolation_env, 2,
+        "`TEST_DB_ISOLATION: ${{{{ matrix.isolation }}}}` 必须出现在两条 nextest 步骤里（实际 {isolation_env} 处）"
+    );
+    // 与隔离方式无关的车道只在 schema 腿跑，避免把 CI 时间翻倍。
+    let schema_only = job.matches("if: matrix.isolation == 'schema'").count();
+    assert!(
+        schema_only >= 3,
+        "e2e/snapshot/perf 应各有一条 `if: matrix.isolation == 'schema'`（实际 {schema_only} 处）"
+    );
+    // 整库隔离的残留必须显式断言，否则"漏库"只会在下一次运行里体现。
+    assert!(job.contains("Assert no leftover test databases"), "database 腿必须断言残留测试库为 0");
+}
