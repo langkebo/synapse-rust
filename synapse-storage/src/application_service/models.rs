@@ -62,6 +62,12 @@ pub struct ApplicationServiceState {
 /// The `ApplicationServiceEvent` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct ApplicationServiceEvent {
+    /// Storage stream position (`application_service_events.id`).
+    ///
+    /// B-28: not part of the wire format; it only drives `next_token`
+    /// pagination on `GET /appservices/{as_id}/events`.
+    #[serde(default, skip_serializing)]
+    pub id: i64,
     /// The `event_id` field.
     pub event_id: String,
     /// The `as_id` field.

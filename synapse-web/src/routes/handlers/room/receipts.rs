@@ -89,7 +89,10 @@ pub struct SetReadMarkersBody {
     pub allow_backward: Option<bool>,
     #[serde(rename = "m.fully_read", default, skip_serializing_if = "Option::is_none")]
     pub m_fully_read: Option<String>,
-    #[serde(rename = "m.private_read", default, skip_serializing_if = "Option::is_none")]
+    // B-24: the spec key is `m.read.private` (MSC2285). `m.private_read` was a
+    // typo that no client sends; keep it as an input-only alias so any caller
+    // that adopted the old name keeps working.
+    #[serde(rename = "m.read.private", alias = "m.private_read", default, skip_serializing_if = "Option::is_none")]
     pub m_private_read: Option<String>,
     #[serde(rename = "m.marked_unread", default, skip_serializing_if = "Option::is_none")]
     pub m_marked_unread: Option<MarkedUnreadBody>,

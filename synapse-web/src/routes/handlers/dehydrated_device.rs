@@ -203,7 +203,9 @@ pub async fn get_dehydrated_device_events(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // Synapse v1.157 #19896 (兼容别名): GET 把游标与页长都放 query
     let next_batch = query.next_batch.as_deref();
-    let limit = query.limit.as_deref().and_then(|raw| raw.parse::<i64>().ok()).unwrap_or(100);
+    // 双端钳制：`claim_events` 内部同样 clamp 到 1..=100（服务层是真正的边界），
+    // 这里显式写出来，避免服务层钳制被重构掉后 `?limit=-1` 直达 SQL 的负 LIMIT。
+    let limit = query.limit.as_deref().and_then(|raw| raw.parse::<i64>().ok()).unwrap_or(100).clamp(1, 100);
     let response =
         ctx.dehydrated_device_service.claim_events(&auth_user.user_id, device_id.as_str(), next_batch, limit).await?;
     Ok(Json(response))

@@ -21,7 +21,16 @@ fn all_derived_oidc_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/oidc/authorize", "oidc")
-            .with_query_params(&["client_id", "nonce", "redirect_uri", "response_type", "scope", "state"]);
+            .with_query_params(&[
+                "client_id",
+                "code_challenge",
+                "code_challenge_method",
+                "nonce",
+                "redirect_uri",
+                "response_type",
+                "scope",
+                "state",
+            ]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Oidc });
     }
     {

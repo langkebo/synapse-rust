@@ -915,6 +915,9 @@ pub struct SsoContext {
     pub oidc_user_mapping_service: Arc<synapse_services::oidc_user_mapping_service::OidcUserMappingService>,
     /// The `oidc_session_service` field.
     pub oidc_session_service: Arc<synapse_services::oidc_session_service::OidcSessionService>,
+    /// Registered OAuth/OIDC clients (`oauth_clients` table), used to validate
+    /// `client_id` / `redirect_uri` before redirecting to the IdP.
+    pub oauth_client_storage: Arc<synapse_services::storage::oauth_client_storage::OAuthClientStorage>,
     #[cfg(feature = "builtin-oidc")]
     /// The `builtin_oidc_provider` field.
     pub builtin_oidc_provider: Option<Arc<synapse_services::builtin_oidc_provider::BuiltinOidcProvider>>,
@@ -948,6 +951,7 @@ impl FromRef<AppState> for SsoContext {
             oidc_service: state.services.sso.oidc_service.clone(),
             oidc_user_mapping_service: state.services.sso.oidc_user_mapping_service.clone(),
             oidc_session_service: state.services.sso.oidc_session_service.clone(),
+            oauth_client_storage: state.services.sso.oauth_client_storage.clone(),
             #[cfg(feature = "builtin-oidc")]
             builtin_oidc_provider: state.services.sso.builtin_oidc_provider.clone(),
             #[cfg(not(feature = "builtin-oidc"))]

@@ -8,7 +8,8 @@
 | --- | --- |
 | `client.yaml` | **主 spec（生成物，不入库）** — 当前 profile (default) 的完整 Client-Server API。由 `scripts/api_test/gen_client_yaml.py` 生成，CI 作 artifact 上传（见 `.github/workflows/ci.yml` 的 `openapi-artifact` job）；本地不入库、按需重生成 |
 | `index.json` | Manifest 索引 — 所有 profile 的 spec 路径 + 元数据 |
-| `route-table.json` | 路由表（入库，CI 对账 drift） |
+| `route-table.json` | 路由表（入库，CI 对账 drift）— golden lane × default profile |
+| `route-table-sdk.json` | 路由表超集（入库，对账 drift）— sdk lane × all profile，含全部 feature-gated 路由 |
 
 ## 权威口径与 (lane, profile) 坐标轴
 
@@ -24,10 +25,10 @@
 
   | 维度 | 取值 | 定义 |
   | --- | --- | --- |
-  | lane（编译期 `#[cfg(feature = "…")]`） | `golden` / `sdk` | golden = 默认特性闭包；sdk = `default + all-extensions`。差值不是单一开关，而是整组 `all-extensions` 编译进来的门控路由：sdk 相对 golden 在 default profile 多 60 条（`saml-sso` 16 / `server-notifications` 15 / `cas-sso` 12 / `voice-extended` 12 / `voip-tracking` 5），在 all profile 多 61 条 |
+  | lane（编译期 `#[cfg(feature = "…")]`） | `golden` / `sdk` | golden = 默认特性闭包；sdk = `default + all-extensions`。差值不是单一开关，而是整组 `all-extensions` 编译进来的门控路由：sdk 相对 golden 在 default profile 多 61 条（`saml-sso` 16 / `server-notifications` 15 / `cas-sso` 12 / `voice-extended` 13 / `voip-tracking` 5），在 all profile 多 62 条 |
   | profile（运行期 guard） | `default ⊂ worker ⊂ all` | 由 `ProfileFlags` 的 `worker_enabled`/`oidc_enabled`/`saml_enabled` 决定，派生表按 `RouteProfile` 单调过滤（按 `(method,path)`；高 rank 的碰撞孪生会**替换**低 rank 条目，不新增 path） |
 
-- **权威计数** = sdk lane × all profile = **1041**（最大完整面，SDK 实际摄入的 lane；
+- **权威计数** = sdk lane × all profile = **1048**（最大完整面，SDK 实际摄入的 lane；
   等于 `tests/unit/fixtures/ledger_export_sdk/all.json` 的 `entry_count`，也等于
   `ROUTE_CONTRACT.md` 的总览计数）。其余数字都是该坐标的**子集**，不是并列权威。
 - 6 个合法坐标的 fixture 落在 `tests/unit/fixtures/ledger_export{,_sdk}/{default,worker,all}.json`。
@@ -37,6 +38,21 @@
   `schema_version` 无关）。该坐标一致性由
   [`scripts/contract/check_route_surface_reconciliation.py`](../../scripts/contract/check_route_surface_reconciliation.py)
   对账，**禁止手改**。
+- `docs/openapi/route-table-sdk.json` 是 **sdk lane × all profile** 的同形扁平视图，即
+  **最大完整面**（D-15）。它以 `tests/unit/fixtures/ledger_export_sdk/all.json` 为源生成，
+  由同一 reconciler 的 R6 逐条对账。**它以 `route-table.json` 为宇宙的消费者必须改读这个
+  文件**：`route-table.json` 来自默认特性导出，按定义不可能包含 `#[cfg(feature = "…")]`
+  路由族（`/voice/*`、SAML/CAS 回调、`server-notifications` 等），把 golden 视图当全集会把
+  整族"已服务"路由误判为 `route-not-resolved`。
+
+```bash
+# 刷新两个视图（golden 需要 fresh default-feature 导出；sdk 直接取已入库的 sdk×all fixture）
+python3 scripts/api_test/gen_route_table.py --ledger "$RUNNER_TEMP/ledger_default_ci.json"
+python3 scripts/api_test/gen_route_table.py \
+    --ledger tests/unit/fixtures/ledger_export_sdk/all.json \
+    --output docs/openapi/route-table-sdk.json
+python3 scripts/contract/check_route_surface_reconciliation.py
+```
 
 ## client.yaml 概况 (default profile)
 

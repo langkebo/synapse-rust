@@ -1173,7 +1173,7 @@ impl RoomStorage {
     }
 
     /// Update read marker with specific marker type
-    /// Supports: m.fully_read, m.private_read, m.marked_unread
+    /// Supports: m.fully_read, m.read, m.read.private, m.marked_unread
     pub async fn update_read_marker_with_type(
         &self,
         room_id: &str,

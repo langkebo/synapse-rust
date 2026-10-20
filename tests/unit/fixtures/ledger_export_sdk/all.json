@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": true
   },
-  "entry_count": 1046,
+  "entry_count": 1048,
   "entries": [
     {
       "method": "GET",
@@ -2120,6 +2120,8 @@
       "path_params": [],
       "query_params": [
         "client_id",
+        "code_challenge",
+        "code_challenge_method",
         "nonce",
         "redirect_uri",
         "response_type",
@@ -2308,7 +2310,11 @@
       "path": "/_matrix/client/v3/publicRooms",
       "registered_by": "assembly::directory_compat",
       "path_params": [],
-      "query_params": []
+      "query_params": [
+        "limit",
+        "server",
+        "since"
+      ]
     },
     {
       "method": "GET",
@@ -5806,7 +5812,8 @@
       "query_params": [
         "full_state",
         "since",
-        "timeout"
+        "timeout",
+        "timeout_ms"
       ]
     },
     {
@@ -6406,6 +6413,15 @@
       "query_params": []
     },
     {
+      "method": "DELETE",
+      "path": "/_matrix/vendor/v1/voice/{media_id}",
+      "registered_by": "voice",
+      "path_params": [
+        "media_id"
+      ],
+      "query_params": []
+    },
+    {
       "method": "GET",
       "path": "/_matrix/vendor/v1/voice/{media_id}",
       "registered_by": "voice",
@@ -6686,6 +6702,7 @@
         "as_id"
       ],
       "query_params": [
+        "from",
         "limit"
       ]
     },
@@ -7027,6 +7044,15 @@
       "path": "/_synapse/admin/v1/config",
       "registered_by": "admin::server",
       "path_params": [],
+      "query_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/deactivate/{user_id}",
+      "registered_by": "admin::user",
+      "path_params": [
+        "user_id"
+      ],
       "query_params": []
     },
     {
@@ -7949,6 +7975,7 @@
         "media_id"
       ],
       "query_params": [
+        "from",
         "limit",
         "since"
       ]
@@ -8024,6 +8051,7 @@
       "registered_by": "admin::report",
       "path_params": [],
       "query_params": [
+        "from",
         "limit",
         "offset",
         "since_id",
@@ -8426,6 +8454,7 @@
         "room_id"
       ],
       "query_params": [
+        "from",
         "limit",
         "offset",
         "since_id",
@@ -9237,6 +9266,7 @@
       "path_params": [],
       "query_params": [
         "pgt_url",
+        "renew",
         "service",
         "ticket"
       ]

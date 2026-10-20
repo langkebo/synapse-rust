@@ -1,5 +1,5 @@
 fn all_derived_always_rows() -> Vec<DerivedRoute> {
-    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1027);
+    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(1029);
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/", "assembly::create_router");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
@@ -1516,7 +1516,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e =
-            RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/publicRooms", "assembly::directory_compat");
+            RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/publicRooms", "assembly::directory_compat")
+                .with_query_params(&["limit", "server", "since"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -3667,7 +3668,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/rooms/{room_id}/sync", "room")
-            .with_query_params(&["full_state", "since", "timeout"]);
+            .with_query_params(&["full_state", "since", "timeout", "timeout_ms"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -4009,6 +4010,11 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     #[cfg(feature = "voice-extended")]
     {
+        let e = RouteEntry::new(axum::http::Method::DELETE, "/_matrix/vendor/v1/voice/{media_id}", "voice");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    #[cfg(feature = "voice-extended")]
+    {
         let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/voice/{media_id}", "voice");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
@@ -4164,7 +4170,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     {
         let e =
             RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/appservices/{as_id}/events", "app_service")
-                .with_query_params(&["limit"]);
+                .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -4410,6 +4416,10 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/config", "admin::server");
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(axum::http::Method::POST, "/_synapse/admin/v1/deactivate/{user_id}", "admin::user");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -5007,7 +5017,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             "/_synapse/admin/v1/quarantine_media/{media_id}/changes",
             "admin::media",
         )
-        .with_query_params(&["limit", "since"]);
+        .with_query_params(&["from", "limit", "since"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -5051,7 +5061,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/reports", "admin::report")
-            .with_query_params(&["limit", "offset", "since_id", "since_score", "since_ts"]);
+            .with_query_params(&["from", "limit", "offset", "since_id", "since_score", "since_ts"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -5291,7 +5301,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/admin/v1/rooms/{room_id}/reports", "admin::report")
-            .with_query_params(&["limit", "offset", "since_id", "since_ts"]);
+            .with_query_params(&["from", "limit", "offset", "since_id", "since_ts"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -5791,7 +5801,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     #[cfg(feature = "cas-sso")]
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/cas/proxyValidate", "cas")
-            .with_query_params(&["pgt_url", "service", "ticket"]);
+            .with_query_params(&["pgt_url", "renew", "service", "ticket"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "cas-sso")]

@@ -10,7 +10,7 @@ use crate::routes::extractors::UserId;
 use crate::routes::MatrixJson;
 use axum::{
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use serde::Deserialize;
@@ -103,6 +103,7 @@ pub fn create_voice_router(state: &AppState) -> Router<AppState> {
         .route("/_matrix/vendor/v1/voice/room/{room_id}", get(get_room_voice_messages))
         .route("/_matrix/vendor/v1/voice/user/{user_id}", get(get_user_voice_messages))
         .route("/_matrix/vendor/v1/voice/{media_id}", get(get_voice_message_content))
+        .route("/_matrix/vendor/v1/voice/{media_id}", delete(delete_voice_message))
         .route("/_matrix/vendor/v1/voice/{media_id}/convert", post(convert_voice_message))
         .route("/_matrix/vendor/v1/voice/{media_id}/optimize", post(optimize_voice_message))
         .route("/_matrix/vendor/v1/voice/{media_id}/transcription", post(transcribe_voice_message))
@@ -348,6 +349,18 @@ async fn get_voice_message_content(
         return Err(ApiError::forbidden("You do not have permission to access this voice message"));
     }
 
+    Ok(Json(result))
+}
+
+/// B-31: `DELETE /_matrix/vendor/v1/voice/{media_id}` — owner or admin only.
+#[axum::debug_handler]
+async fn delete_voice_message(
+    State(ctx): State<RoomContext>,
+    auth_user: AuthenticatedUser,
+    Path(media_id): Path<MediaId>,
+) -> Result<Json<Value>, ApiError> {
+    let result =
+        ctx.voice_service.delete_voice_message(&media_id, auth_user.user_id.as_str(), auth_user.is_admin).await?;
     Ok(Json(result))
 }
 

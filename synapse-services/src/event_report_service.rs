@@ -293,6 +293,18 @@ impl EventReportService {
         Ok(count)
     }
 
+    /// See [`count_reports_by_room`].
+    #[instrument(skip(self))]
+    pub async fn count_reports_by_room(&self, room_id: &str) -> Result<i64, ApiError> {
+        let count = self
+            .storage
+            .count_reports_by_room(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to count reports", e))?;
+
+        Ok(count)
+    }
+
     /// See [`get_aggregate_stats`].
     #[instrument(skip(self))]
     pub async fn get_aggregate_stats(&self) -> Result<EventReportAggregateStats, ApiError> {

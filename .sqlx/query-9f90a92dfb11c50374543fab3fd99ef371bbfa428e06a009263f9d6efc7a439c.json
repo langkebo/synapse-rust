@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM voice_usage_stats WHERE media_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9f90a92dfb11c50374543fab3fd99ef371bbfa428e06a009263f9d6efc7a439c"
+}

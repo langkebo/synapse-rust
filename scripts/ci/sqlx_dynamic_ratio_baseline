@@ -1,3 +1,38 @@
+# 2026-10-20: 契约批 B-26 / B-28 / B-31 静态化 + 库级隔离测试夹具带来的生产动态漂移。
+#   dynamic_production 106 -> **114**（+8）。**这 8 处一行都不是本批写的**：基线 106 钉在
+#   `5eb4f36b3`（B-10/B-11/B-12 那批），此后 test-harness 的库级隔离三连提交
+#   `157a911d0`（P1）/ `ee9a96b0d`（P2）/ `ae11e342c`（P4）新增了逐处如下：
+#     · `synapse-common/src/test_database_guard.rs`（3）：两条
+#       `DROP DATABASE IF EXISTS "{database}" WITH (FORCE)`（janitor 的两条回收路径）
+#       + 一条 `pg_stat_activity` 会话计数（`datname = $1`）；
+#     · `synapse-test-utils/src/db_isolation.rs`（4）：模板库 `datallowconn` 探测、
+#       `pg_advisory_lock` / `pg_advisory_unlock` 配对、`CREATE DATABASE ... TEMPLATE ...`；
+#     · `synapse-test-utils/src/lib.rs`（1）：隔离池 `after_connect` 里的
+#       `SET search_path TO {schema}, public` 切换。
+#   为什么计入 production：两个 crate 的测试基础设施都是**无条件编译**的
+#   （`synapse-common/src/lib.rs` 顶部 `pub mod test_database_guard;` 等，`synapse-test-utils`
+#   本身就被非 test target 依赖），而 census 只按 `#[cfg(test)]` 切分区。
+#   为什么不能静态化：DDL 的两个库名与 `SET search_path` 的 schema 名单都是**标识符**，
+#   PostgreSQL 不允许参数化标识符；`query!` 家族又要求连接活库做校验（本机无 PG，
+#   `SQLX_OFFLINE=true` 下必然 `no cached data`）。剩下的 catalog 查询技术上可静态化，
+#   但归属同上：它们是**测试基础设施**，不是生产请求路径。
+#   收紧方向：把「无条件编译的测试基础设施」单列为 test 分区属 census **口径变更**
+#   （会连带影响 `test_schema_guard.rs` / `lib.rs` 既有的同类站点），需独立批次评估，
+#   本批不做；在那之前按实测值入账，不留静默余量。
+#   dynamic_test 769 -> **768**（-1）：P4 抽取把 `synapse-test-utils/src/lib.rs` 测试区内
+#   一处自建 schema 的夹具 SQL 一并搬进 `db_isolation.rs`，该站点随之进入生产区（见上）。
+#   方向是「test 区减少」，按棘轮口径同步下调，不留余量。
+#   static 1373 -> **1376**（+3，全部是本批新增的静态查询，均已 `cargo sqlx prepare`，
+#   `.sqlx` 1336 -> 1339）：
+#     · `synapse-storage/src/application_service/repository.rs`（+1）：B-28
+#       `{from,limit}` 游标分页（`query_as!`）；
+#     · `synapse-storage/src/event_report/repository.rs`（+1）：B-26
+#       `count_reports_by_room`（`query_scalar!`，让 `total` 返回真实总数）；
+#     · `synapse-storage/src/voice.rs`（+1）：B-31 `DELETE FROM voice_usage_stats
+#       WHERE media_id = $1`（`query!`，voice DELETE 的所有者校验后清理）。
+#   BASELINE_DYNAMIC 875 -> 882（= 114 + 768，兼容旧接口，不入棘轮）。
+#   query_builder 17 未动。
+#
 # 2026-10-20: admin 列表端点 keyset 分页（B-10 / B-11 / B-12）按实测重设。
 #   dynamic_production 96 -> 106（+10），static 1380 -> 1373（-7）。
 #   其中 **+3 是入账前既有的漂移**（基线 96 停留在 2026-10-18，之后
@@ -3313,7 +3348,7 @@
 #   需同步下调基线并说明（先例 C55-0 的 1303 → 1301、C57-0 的 163 → 162）——
 #   这是有意设计（防"静态换动态"），不是缺陷。
 BASELINE_QUERY_BUILDER=17
-BASELINE_DYNAMIC_PRODUCTION=106
+BASELINE_DYNAMIC_PRODUCTION=114
 # 2026-10-15: 769 → 768（按实测收紧；棘轮是**上限**，留着 1 个空位等于允许一次静默回归）。
 #   本批（方案 B4.3）只新增了**静态**查询，这一项是复核实测时发现的既有余量。
 # 2026-10-16: 768 → **769**（+1，B1/UG-5 lazy-load 位置列）。
@@ -3337,7 +3372,7 @@ BASELINE_DYNAMIC_PRODUCTION=106
 #   （默认 target 集），而 `--all-targets` 会 E0432（本文件上方 2026-09-22 条目已实测），
 #   全仓 `static_test = 0` 正是这条约束的一致结果。
 #   按"零余量"收紧到实测值：留 1 点余量等于允许一次静默回归。
-BASELINE_DYNAMIC_TEST_INFRA=769
+BASELINE_DYNAMIC_TEST_INFRA=768
 # 2026-10-15: 1353 → 1354（+1，方案 B4.3）。新增
 #   `synapse-storage/src/schema_health_check.rs` 的 `check_invalid_indexes()` —— 它让
 #   **半建索引**（`pg_index.indisvalid = false`）可见；此前只查"缺表/缺列/缺索引名"，
@@ -3373,9 +3408,9 @@ BASELINE_DYNAMIC_TEST_INFRA=769
 #      `get_prev_state_events`（1 条）。**这是有意的删除**，不是"静态换动态"，
 #      所以按"只禁减"的规则必须同步下调基线并写明来源（先例：C55-0 的 1303 → 1301）。
 #   最终 1367 + 8 + 2 − 4 = 1373 = 实测值，零余量。
-BASELINE_STATIC=1373
-# 兼容旧接口：总数 = 生产 + 测试基础设施（106 + 769 = 875；本项不入棘轮，仅保持一致）
-BASELINE_DYNAMIC=875
+BASELINE_STATIC=1376
+# 兼容旧接口：总数 = 生产 + 测试基础设施（114 + 768 = 882；本项不入棘轮，仅保持一致）
+BASELINE_DYNAMIC=882
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

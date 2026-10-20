@@ -4,6 +4,16 @@ gen_route_table.py — 生成 docs/openapi/route-table.json（CI artifact）
 
 从 ledger JSON 读取所有端点，输出扁平 JSON 路由表。
 
+入库的两个视图（D-15，坐标定义见 docs/openapi/README.md）:
+  * `docs/openapi/route-table.json`     — golden lane × default profile
+    （CI 用 fresh default-feature 导出生成并 --check 对账）
+  * `docs/openapi/route-table-sdk.json` — sdk lane × all profile（最大完整面）
+    源 = `tests/unit/fixtures/ledger_export_sdk/all.json`，由
+    `scripts/contract/check_route_surface_reconciliation.py` 的 R6 对账
+
+只给 golden 视图会让消费者把整族 feature-gated 路由（`/voice/*` 等）判成未解析 —— 因此
+SDK 消费方必须用 sdk 视图。
+
 用法:
   python3 scripts/api_test/gen_route_table.py --ledger PATH [--output PATH]   # --ledger 必填
 """

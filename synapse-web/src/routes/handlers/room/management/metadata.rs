@@ -26,7 +26,9 @@ fn remove_null_keys(obj: &mut serde_json::Map<String, Value>, keys: &[&str]) {
 /// The `RoomSyncQueryDto` struct.
 #[derive(Debug, Deserialize, Default)]
 pub(crate) struct RoomSyncQueryDto {
-    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    /// B-29: upstream calls this `timeout`; `timeout_ms` is kept as an alias for
+    /// one release so clients written against the old name keep working.
+    #[serde(default, alias = "timeout_ms", deserialize_with = "deserialize_optional_u64")]
     timeout: Option<u64>,
     #[serde(default, deserialize_with = "deserialize_optional_bool")]
     full_state: Option<bool>,

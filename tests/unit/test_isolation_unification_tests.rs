@@ -254,7 +254,14 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // baseline 由 `236554` 增到 `239515` 字节 ⇒ FNV-1a 64 = `639e79110cb63fd3`。
 // 自检：用**改动前**的常量 `16a162d3c01f87ce` 复算 `HEAD:migrations/…v12.sql`（236554 字节）
 // 逐字节吻合，证明哈希实现未变后才取新值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "639e79110cb63fd3";
+// 2026-10-20（闭环 R-1…R-6 之后的两笔迁移改动 `ff56f3638`（B-9 一次性邀请 +
+// 私密 DM 默认 retention）与 `0b845fe0b`（thread `redact_reply` 保留 reason 的
+// sidecar body 手动解析））：两笔都改了基线却**都没同步本常量**，于是 HEAD 上的
+// `--test unit` 又是红的（复现：left=0055b1f8de02eeda / right=639e79110cb63fd3）。
+// 按 R10 第①条独立复算 FNV-1a 64：当前文件 `240985` 字节 ⇒ `0055b1f8de02eeda`。
+// 自检：`9df1f1d31`（I-01 最后一次同步常量的提交）的基线 `239515` 字节 ⇒
+// `639e79110cb63fd3`，与改动前的实际常量逐字节吻合，证明哈希实现未变后才取新值。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "0055b1f8de02eeda";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

@@ -246,8 +246,8 @@ def derived_table_counts() -> dict:
 
     These are a *different* count from `counts.routes`: the tables are per
     profile, so a route served at two ranks is present twice. Publishing both
-    next to each other is what makes the 1048-vs-1046 discrepancy explainable
-    instead of looking like an off-by-two bug.
+    next to each other is what makes the table-rows-vs-distinct-routes
+    discrepancy explainable instead of looking like an off-by-N bug.
     """
     counts = {}
     distinct: set = set()

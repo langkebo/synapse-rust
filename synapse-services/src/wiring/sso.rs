@@ -30,6 +30,9 @@ pub struct SsoServices {
     pub oidc_user_mapping_service: Arc<crate::oidc_user_mapping_service::OidcUserMappingService>,
     /// The `oidc_session_service` field.
     pub oidc_session_service: Arc<crate::oidc_session_service::OidcSessionService>,
+    /// Registered OAuth/OIDC clients, used to validate `client_id` / `redirect_uri`
+    /// before the server redirects the user agent to the IdP.
+    pub oauth_client_storage: Arc<synapse_storage::oauth_client_storage::OAuthClientStorage>,
     #[cfg(feature = "builtin-oidc")]
     /// The `builtin_oidc_provider` field.
     pub builtin_oidc_provider: Option<Arc<crate::builtin_oidc_provider::BuiltinOidcProvider>>,
@@ -114,6 +117,7 @@ impl SsoServices {
         let oidc_session_storage: Arc<dyn synapse_storage::oidc_session_storage::OidcSessionStoreApi> =
             Arc::new(synapse_storage::oidc_session_storage::OidcSessionStorage::new(pool));
         let oidc_session_service = Arc::new(crate::oidc_session_service::OidcSessionService::new(oidc_session_storage));
+        let oauth_client_storage = Arc::new(synapse_storage::oauth_client_storage::OAuthClientStorage::new(pool));
 
         Self {
             #[cfg(feature = "saml-sso")]
@@ -128,6 +132,7 @@ impl SsoServices {
             builtin_oidc_provider,
             oidc_user_mapping_service,
             oidc_session_service,
+            oauth_client_storage,
         }
     }
 }

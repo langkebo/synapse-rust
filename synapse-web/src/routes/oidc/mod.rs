@@ -31,6 +31,16 @@ pub(crate) fn validate_state_pkce_binding(auth_session: &OidcAuthSession) -> Res
     if auth_session.code_challenge_method != "S256" {
         return Err(ApiError::unauthorized("Unsupported OIDC PKCE challenge method".to_string()));
     }
+    // A public client supplied its own challenge and keeps the verifier, so
+    // there is nothing server-side to verify — the IdP performs the check when
+    // the code is exchanged. All we can (and must) assert is that a challenge
+    // is present.
+    if auth_session.code_verifier.is_empty() {
+        if auth_session.code_challenge.is_empty() {
+            return Err(ApiError::unauthorized("OIDC PKCE material is missing".to_string()));
+        }
+        return Ok(());
+    }
     if auth_session.code_verifier.len() < 43 || auth_session.code_verifier.len() > 128 {
         return Err(ApiError::unauthorized("Invalid OIDC PKCE verifier length".to_string()));
     }

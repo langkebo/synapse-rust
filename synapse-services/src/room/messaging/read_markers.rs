@@ -37,9 +37,14 @@ impl MessagingService {
             }
         }
 
-        if let Some(event_id) = body.get("m.private_read").and_then(|v| v.as_str()) {
+        // B-24: the spec key is `m.read.private` (MSC2285). Accept the legacy
+        // `m.private_read` spelling as a fallback, but always persist the
+        // canonical marker type so rows written before the fix stay readable.
+        if let Some(event_id) =
+            body.get("m.read.private").or_else(|| body.get("m.private_read")).and_then(|v| v.as_str())
+        {
             if event_id.starts_with('$') {
-                self.update_read_marker(room_id, user_id, event_id, "m.private_read").await?;
+                self.update_read_marker(room_id, user_id, event_id, "m.read.private").await?;
             }
         }
 
@@ -77,7 +82,8 @@ mod tests {
     //! Coverage focus:
     //! - update_read_marker happy path
     //! - set_read_markers: m.fully_read with allow_backward=true/false
-    //! - set_read_markers: m.private_read (non-monotonic marker type)
+    //! - set_read_markers: m.read.private (non-monotonic marker type)
+    //! - set_read_markers: legacy m.private_read spelling still accepted
     //! - set_read_markers: m.marked_unread.events[] (array, multiple values)
     //! - set_read_markers: m.read (always allow_backward=false)
     //! - set_read_markers: empty body → Ok(()) (all branches skipped)
@@ -159,10 +165,30 @@ mod tests {
 
     #[tokio::test]
     async fn set_read_markers_private_read() {
-        // m.private_read → calls update_read_marker (not monotonic)
-        let svc = make_service().await;
+        // m.read.private → calls update_read_marker (not monotonic)
+        let (svc, store) = make_service_with_store().await;
+        let body = serde_json::json!({"m.read.private": "$e1:ex.com"});
+        svc.set_read_markers("!room:ex.com", "@alice:ex.com", &body).await.expect("m.read.private should succeed");
+
+        assert_eq!(
+            store.recorded_read_marker("!room:ex.com", "@alice:ex.com", "m.read.private").await.as_deref(),
+            Some("$e1:ex.com")
+        );
+    }
+
+    #[tokio::test]
+    async fn set_read_markers_legacy_private_read_spelling_accepted() {
+        // B-24: clients that still send the old `m.private_read` key keep working.
+        let (svc, store) = make_service_with_store().await;
         let body = serde_json::json!({"m.private_read": "$e1:ex.com"});
-        svc.set_read_markers("!room:ex.com", "@alice:ex.com", &body).await.expect("m.private_read should succeed");
+        svc.set_read_markers("!room:ex.com", "@alice:ex.com", &body)
+            .await
+            .expect("legacy m.private_read should succeed");
+
+        assert_eq!(
+            store.recorded_read_marker("!room:ex.com", "@alice:ex.com", "m.read.private").await.as_deref(),
+            Some("$e1:ex.com")
+        );
     }
 
     #[tokio::test]
@@ -222,7 +248,7 @@ mod tests {
         let svc = make_service().await;
         let body = serde_json::json!({
             "m.fully_read": "not_an_event_id",
-            "m.private_read": "also_invalid",
+            "m.read.private": "also_invalid",
             "m.read": "nope"
         });
         // All get skipped, result is still Ok
@@ -237,7 +263,7 @@ mod tests {
         let svc = make_service().await;
         let body = serde_json::json!({
             "m.fully_read": "$e1:ex.com",
-            "m.private_read": "$e2:ex.com",
+            "m.read.private": "$e2:ex.com",
             "m.read": "$e3:ex.com",
             "m.marked_unread": {"events": ["$e4:ex.com"]}
         });

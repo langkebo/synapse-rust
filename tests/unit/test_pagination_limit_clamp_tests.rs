@@ -58,8 +58,18 @@ fn limit_parsing_lines() -> Vec<(String, usize, String)> {
                     continue;
                 }
                 // The pattern we care about: reading the "limit" query param and
-                // parsing it to an integer type.
-                if line.contains(r#".get("limit")"#) && line.contains("parse::<") {
+                // parsing it to an integer type. Two shapes exist:
+                // * raw query maps — `.get("limit")` (pre-2026-10-20 handlers);
+                // * typed `Query<Struct>` wrappers (`e287b8592` moved almost every
+                //   handler to this) — `query.limit` / `params.limit` followed by
+                //   `.parse::<..>()`. Only matching the first shape made this guard
+                //   vacuous: it found zero sites and failed its own non-vacuity
+                //   assertion on HEAD (2026-10-20).
+                let parses_limit = line.contains("parse::<")
+                    && (line.contains(r#".get("limit")"#)
+                        || line.contains("query.limit")
+                        || line.contains("params.limit"));
+                if parses_limit {
                     let rel = path.strip_prefix(&root).unwrap_or(&path).display().to_string();
                     hits.push((rel, idx + 1, line.trim().to_string()));
                 }

@@ -233,7 +233,7 @@ pub(crate) async fn get_messages(
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
     let from = parse_room_messages_from_token(query.from.as_deref())?;
-    let limit = query.limit.as_deref().and_then(|s| s.parse::<u64>().ok()).unwrap_or(10).min(1000) as i64;
+    let limit = query.limit.as_deref().and_then(|s| s.parse::<u64>().ok()).unwrap_or(10).clamp(1, 1000) as i64;
     let direction = parse_pagination_direction(query.dir.as_deref())?;
 
     // A9: `/messages` `filter` is not implemented on this server. Reject it
@@ -464,7 +464,7 @@ pub(crate) async fn get_room_timeline(
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
     let from = parse_room_messages_from_token(query.from.as_deref())?;
-    let limit = query.limit.as_deref().and_then(|s| s.parse::<u64>().ok()).unwrap_or(10) as i64;
+    let limit = query.limit.as_deref().and_then(|s| s.parse::<u64>().ok()).unwrap_or(10).clamp(1, 1000) as i64;
     let direction = parse_pagination_direction(query.dir.as_deref())?;
 
     Ok(Json(

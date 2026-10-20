@@ -2190,12 +2190,28 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 <!-- sqlx-plan-numbers:start -->
 <!-- 以下数字由 `scripts/ci/check_plan_numbers_fresh.sh` 与基线/实测现算比对；改基线必须同步改这里。 -->
-BASELINE_DYNAMIC_PRODUCTION=106
-BASELINE_DYNAMIC_TEST_INFRA=769
-BASELINE_STATIC=1373
+BASELINE_DYNAMIC_PRODUCTION=114
+BASELINE_DYNAMIC_TEST_INFRA=768
+BASELINE_STATIC=1376
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1336
+SQLX_CACHE_ENTRIES=1339
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-20 更新（B-26/B-28/B-31：报表/应用服务分页、voice 删除）**，数字块四项按实测同步：
+> - `BASELINE_DYNAMIC_PRODUCTION` **106 → 114**（+8，**全部是入账前既有漂移，本批未新增动态 SQL**）：
+>   基线 106 钉在 `5eb4f36b3`，此后测试夹具的库级隔离三连提交 `157a911d0`/`ee9a96b0d`/`ae11e342c`
+>   新增 `synapse-common/src/test_database_guard.rs` 3 处、`synapse-test-utils/src/db_isolation.rs`
+>   4 处、`synapse-test-utils/src/lib.rs` 1 处。两个 crate 的测试基础设施是**无条件编译**的
+>   （`pub mod test_database_guard;` 等），而 census 只按 `#[cfg(test)]` 分区，故计入 production。
+>   DDL 的库名与 `SET search_path` 的 schema 名单都是标识符（PostgreSQL 不允许参数化标识符），
+>   `query!` 又需活库校验。收紧方向：把无条件编译的测试基础设施单列为 test 分区属口径变更，
+>   需独立批次评估。
+> - `BASELINE_DYNAMIC_TEST_INFRA` **769 → 768**（−1）：P4 抽取把 `lib.rs` 测试区一处夹具 SQL
+>   搬进 `db_isolation.rs` 生产区，test 区净减，按棘轮同步下调。
+> - `BASELINE_STATIC` **1373 → 1376**（+3，本批新增静态查询）：`application_service/repository.rs`
+>   B-28 `{from,limit}` 游标分页、`event_report/repository.rs` B-26 `count_reports_by_room`、
+>   `voice.rs` B-31 按 `media_id` 清理用量统计。
+> - `SQLX_CACHE_ENTRIES` **1336 → 1339**（+3，与上条一一对应）。`BASELINE_QUERY_BUILDER` 不变。
 
 > **2026-10-20 更新（B-19/B-20/B-21：请求参数契约修复）**，数字块一项按实测同步：
 > - `SQLX_CACHE_ENTRIES` **1344 → 1336**（净 −8）：`list_thread_roots` 为支持

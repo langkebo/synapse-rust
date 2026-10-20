@@ -67,6 +67,11 @@ struct ProxyValidateQuery {
     ticket: String,
     #[serde(rename = "pgt_url")]
     _pgt_url: Option<String>,
+    /// B-30: CAS `proxyValidate` accepts `renew` alongside `service`/`ticket`.
+    /// Declared so the parameter is part of the contract instead of being
+    /// silently dropped by the query extractor.
+    #[serde(rename = "renew")]
+    _renew: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]

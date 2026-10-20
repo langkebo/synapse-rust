@@ -507,6 +507,16 @@ impl EventReportStorage {
         Ok(count)
     }
 
+    /// See [`count_reports_by_room`].
+    pub async fn count_reports_by_room(&self, room_id: &str) -> Result<i64, sqlx::Error> {
+        let count: i64 =
+            sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!" FROM event_reports WHERE room_id = $1"#, room_id)
+                .fetch_one(&*self.pool)
+                .await?;
+
+        Ok(count)
+    }
+
     /// 实时聚合 `event_reports`（取代从未落库的 `event_report_stats` 预计算表）。
     ///
     /// 静态 SQL：一条 `query!`，无绑定参数、无动态拼接。`COUNT(*) FILTER` 直接按

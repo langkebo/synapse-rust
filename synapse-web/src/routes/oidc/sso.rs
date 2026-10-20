@@ -23,7 +23,7 @@ pub(crate) struct SsoRedirectQuery {
     redirect_url_compat: Option<String>,
 }
 
-fn is_safe_redirect_url(url: &str, allowlist: &[String]) -> bool {
+pub(crate) fn is_safe_redirect_url(url: &str, allowlist: &[String]) -> bool {
     // Block dangerous URL schemes
     if url.starts_with("javascript:") || url.starts_with("data:") {
         return false;
@@ -189,9 +189,11 @@ pub(crate) async fn oidc_callback(
         auth_session.redirect_uri.clone()
     };
 
-    // Exchange code for tokens
+    // Exchange code for tokens. A public client holds the verifier itself, so
+    // the server must not send an empty one (the IdP would reject the request).
+    let code_verifier = Some(auth_session.code_verifier.as_str()).filter(|v| !v.is_empty());
     let token_response: synapse_services::oidc_service::OidcTokenResponse = oidc_service
-        .exchange_code(&code, &callback_url, Some(auth_session.code_verifier.as_str()), Some(&auth_session.nonce))
+        .exchange_code(&code, &callback_url, code_verifier, Some(&auth_session.nonce))
         .await
         .map_err(|e| ApiError::internal_with_cause("Token exchange failed", e))?;
 

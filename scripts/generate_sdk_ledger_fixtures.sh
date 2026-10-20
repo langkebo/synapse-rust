@@ -11,9 +11,11 @@
 #   tests/unit/fixtures/ledger_export_sdk/   THIS lane. The SDK ingests the
 #       `all-extensions` compile, so this lane MUST be generated with
 #       `--features all-extensions`.
-# Same file names, different feature sets -> different entry counts
-# (default-feature `all` = 1320; all-extensions `all` = 1407). Conflating the
-# two is what made the SDK mirror look "87 routes ahead" of the backend.
+# Same file names, different feature sets -> different entry counts. The counts
+# drift with every route change (as of 2026-10-20: default-feature `all` = 986;
+# all-extensions `all` = 1048), so treat them as historical illustration only —
+# the authoritative value is the fixture's own `entry_count`. Conflating the
+# two lanes is what made the SDK mirror look "87 routes ahead" of the backend.
 #
 # The defaults below use the SAME fixed timestamp/commit as the golden fixtures
 # so a regeneration is byte-stable and reviewable as a diff. Export

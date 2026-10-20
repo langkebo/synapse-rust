@@ -1533,7 +1533,9 @@ EXPECTED_ANNOTATIONS = {
         "query_params": "pgt_url,renew,service,ticket"
     },
     ("GET", "/_synapse/cas/proxy"): {"query_params": "pgt,target_service"},
-    ("GET", "/_synapse/cas/proxyValidate"): {"query_params": "pgt_url,service,ticket"},
+    ("GET", "/_synapse/cas/proxyValidate"): {
+        "query_params": "pgt_url,renew,service,ticket"
+    },
     ("GET", "/_synapse/cas/serviceValidate"): {
         "query_params": "pgt_url,renew,service,ticket"
     },
@@ -1629,7 +1631,7 @@ EXPECTED_ANNOTATIONS = {
         "query_params": "RelayState,SAMLRequest,SAMLResponse,relay_state,saml_request,saml_response"
     },
     ("GET", "/_matrix/client/v3/oidc/authorize"): {
-        "query_params": "client_id,nonce,redirect_uri,response_type,scope,state"
+        "query_params": "client_id,code_challenge,code_challenge_method,nonce,redirect_uri,response_type,scope,state"
     },
     ("GET", "/_matrix/client/v3/oidc/callback"): {
         "query_params": "code,error,error_description,state"
@@ -1660,7 +1662,7 @@ EXPECTED_ANNOTATIONS = {
         "query_params": "event_id,room_version"
     },
     ("GET", "/_matrix/vendor/v1/rooms/{room_id}/sync"): {
-        "query_params": "full_state,since,timeout"
+        "query_params": "full_state,since,timeout,timeout_ms"
     },
     ("GET", "/_matrix/client/v3/spaces/{space_id}/hierarchy"): {
         "query_params": "max_depth"
@@ -1715,7 +1717,9 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/vendor/v1/voice/user/{user_id}"): {"query_params": "from,limit"},
     ("GET", "/_synapse/admin/v1/appservices/query/alias"): {"query_params": "alias"},
     ("GET", "/_synapse/admin/v1/appservices/query/user"): {"query_params": "user_id"},
-    ("GET", "/_synapse/admin/v1/appservices/{as_id}/events"): {"query_params": "limit"},
+    ("GET", "/_synapse/admin/v1/appservices/{as_id}/events"): {
+        "query_params": "from,limit"
+    },
     ("GET", "/_synapse/admin/v1/audit/events"): {
         "query_params": "action,actor_id,from,limit,resource_id,resource_type,result"
     },
@@ -1898,6 +1902,7 @@ EXPECTED_ANNOTATIONS = {
     },
     ("GET", "/_matrix/client/v3/notifications"): {"query_params": "from,limit,only"},
     ("GET", "/_matrix/client/v3/publicRooms"): {"query_params": "limit,server,since"},
+    ("POST", "/_matrix/client/v3/publicRooms"): {"query_params": "limit,server,since"},
     ("GET", "/_matrix/client/v3/rooms/{room_id}/aggregations/{event_id}/{rel_type}"): {
         "query_params": "from,limit"
     },
@@ -1949,10 +1954,10 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_synapse/admin/v1/media"): {"query_params": "from,limit"},
     ("GET", "/_synapse/admin/v1/media/quarantine_changes"): {"query_params": "from"},
     ("GET", "/_synapse/admin/v1/quarantine_media/{media_id}/changes"): {
-        "query_params": "limit,since"
+        "query_params": "from,limit,since"
     },
     ("GET", "/_synapse/admin/v1/reports"): {
-        "query_params": "limit,offset,since_id,since_score,since_ts"
+        "query_params": "from,limit,offset,since_id,since_score,since_ts"
     },
     ("GET", "/_synapse/admin/v1/rooms"): {"query_params": "from,limit,offset,order_by"},
     ("GET", "/_synapse/admin/v1/rooms/{room_id}/media"): {"query_params": "from,limit"},
@@ -1963,7 +1968,7 @@ EXPECTED_ANNOTATIONS = {
         "query_params": "dir,from,limit"
     },
     ("GET", "/_synapse/admin/v1/rooms/{room_id}/reports"): {
-        "query_params": "limit,offset,since_id,since_ts"
+        "query_params": "from,limit,offset,since_id,since_ts"
     },
     ("GET", "/_synapse/admin/v1/users"): {"query_params": "from,limit,offset,since"},
     ("GET", "/_synapse/admin/v1/users/{user_id}/rooms"): {"query_params": "from,limit"},

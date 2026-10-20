@@ -420,6 +420,7 @@ impl ApplicationServiceStorage {
                 room_id = EXCLUDED.room_id,
                 event_type = EXCLUDED.event_type
             RETURNING
+                id,
                 event_id,
                 as_id,
                 room_id AS "room_id!",
@@ -447,30 +448,79 @@ impl ApplicationServiceStorage {
         as_id: &str,
         limit: i64,
     ) -> Result<Vec<ApplicationServiceEvent>, sqlx::Error> {
-        sqlx::query_as!(
-            ApplicationServiceEvent,
-            r#"
-            SELECT
-                event_id,
-                as_id,
-                room_id AS "room_id!",
-                event_type AS "event_type!",
-                ''::text AS "sender!",
-                '{}'::jsonb AS "content!",
-                NULL::text AS state_key,
-                created_ts AS origin_server_ts,
-                processed_ts,
-                NULL::text AS transaction_id
-            FROM application_service_events
-            WHERE as_id = $1 AND is_processed = FALSE
-            ORDER BY created_ts ASC, id ASC
-            LIMIT $2
-            "#,
-            as_id,
-            limit,
-        )
-        .fetch_all(&*self.pool)
-        .await
+        self.get_pending_events_after(as_id, None, limit).await
+    }
+
+    /// Pending events for an appservice, resuming after `after`.
+    ///
+    /// B-28: `after` is the `(created_ts, id)` pair encoded in the
+    /// `next_token` of the previous page, matching the
+    /// `ORDER BY created_ts ASC, id ASC` ordering exactly.
+    pub async fn get_pending_events_after(
+        &self,
+        as_id: &str,
+        after: Option<(i64, i64)>,
+        limit: i64,
+    ) -> Result<Vec<ApplicationServiceEvent>, sqlx::Error> {
+        match after {
+            Some((created_ts, id)) => {
+                sqlx::query_as!(
+                    ApplicationServiceEvent,
+                    r#"
+                    SELECT
+                        id,
+                        event_id,
+                        as_id,
+                        room_id AS "room_id!",
+                        event_type AS "event_type!",
+                        ''::text AS "sender!",
+                        '{}'::jsonb AS "content!",
+                        NULL::text AS state_key,
+                        created_ts AS origin_server_ts,
+                        processed_ts,
+                        NULL::text AS transaction_id
+                    FROM application_service_events
+                    WHERE as_id = $1 AND is_processed = FALSE
+                      AND (created_ts > $2 OR (created_ts = $2 AND id > $3))
+                    ORDER BY created_ts ASC, id ASC
+                    LIMIT $4
+                    "#,
+                    as_id,
+                    created_ts,
+                    id,
+                    limit,
+                )
+                .fetch_all(&*self.pool)
+                .await
+            }
+            None => {
+                sqlx::query_as!(
+                    ApplicationServiceEvent,
+                    r#"
+                    SELECT
+                        id,
+                        event_id,
+                        as_id,
+                        room_id AS "room_id!",
+                        event_type AS "event_type!",
+                        ''::text AS "sender!",
+                        '{}'::jsonb AS "content!",
+                        NULL::text AS state_key,
+                        created_ts AS origin_server_ts,
+                        processed_ts,
+                        NULL::text AS transaction_id
+                    FROM application_service_events
+                    WHERE as_id = $1 AND is_processed = FALSE
+                    ORDER BY created_ts ASC, id ASC
+                    LIMIT $2
+                    "#,
+                    as_id,
+                    limit,
+                )
+                .fetch_all(&*self.pool)
+                .await
+            }
+        }
     }
 
     /// See [`count_pending_events`].

@@ -168,6 +168,48 @@ impl VoiceService {
         self.media_service.delete_media(&self.server_name, media_id).await
     }
 
+    /// Delete a voice message on behalf of `requesting_user_id`.
+    ///
+    /// B-31: only the uploader may delete their own message; admins may delete
+    /// any message; everyone else gets `403 M_FORBIDDEN`. The usage row is
+    /// authoritative for ownership, and the stored media file is removed
+    /// best-effort — an encrypted voice registered via
+    /// `register_encrypted_voice` has no row in the media store, so a missing
+    /// file must not turn a successful deletion into an error.
+    pub async fn delete_voice_message(
+        &self,
+        media_id: &str,
+        requesting_user_id: &str,
+        is_admin: bool,
+    ) -> ApiResult<serde_json::Value> {
+        let record = self
+            .voice_storage
+            .get_by_media_id(media_id)
+            .await
+            .map_err(|e| ApiError::internal(e.to_string()))?
+            .ok_or_else(|| ApiError::not_found(format!("Voice message not found: {}", media_id)))?;
+
+        if !is_admin && record.user_id != requesting_user_id {
+            return Err(ApiError::forbidden("You do not have permission to delete this voice message"));
+        }
+
+        match self.delete_voice_media(media_id).await {
+            Ok(()) => {}
+            Err(e) if e.is_not_found() => {}
+            Err(e) => return Err(e),
+        }
+
+        self.voice_storage
+            .delete_by_media_id(media_id)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to delete voice message: {}", e)))?;
+
+        Ok(json!({
+            "deleted": true,
+            "message_id": media_id,
+        }))
+    }
+
     /// See [`get_voice_stats`].
     pub async fn get_voice_stats(&self, user_id: &str) -> ApiResult<serde_json::Value> {
         match self.voice_storage.get_user_stats(user_id).await {

@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1046**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1048**
 - 含路由注册的模块文件：**66**
 - `derived_routes.rs` 中的 `registered_by` 标签：**75**
 - 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
@@ -69,7 +69,7 @@
 **逐模块清单里的两种标注**（都从派生表反解，不是人工维护）：
 
 - 〔仅 `X` profile〕 —— 该路由**只**在 profile `X` 下注册，默认构建里不存在（即上表成员）；
-- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1048 行去重为 1046 条的来源。
+- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1050 行去重为 1048 条的来源。
 
 当前共 **2** 条双档注册：
 
@@ -943,7 +943,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/client/v3/thirdparty/user`
 - `GET` `/_matrix/client/v3/thirdparty/user/{protocol}`
 
-### 管理 (Admin) （149 条）
+### 管理 (Admin) （150 条）
 
 #### `admin/room/mod.rs` — 46 条 ✅派生表
 
@@ -994,7 +994,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_synapse/admin/v1/rooms/{room_id}/make_admin`
 - `PUT` `/_synapse/admin/v1/rooms/{room_id}/members/{user_id}`
 
-#### `admin/user.rs` — 26 条 ✅派生表
+#### `admin/user.rs` — 27 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/users/{user_id}`
 - `DELETE` `/_synapse/admin/v1/users/{user_id}/devices/{device_id}`
@@ -1011,6 +1011,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_synapse/admin/v2/users`
 - `GET` `/_synapse/admin/v2/users/{user_id}`
 - `POST` `/_synapse/admin/v1/account/{user_id}`
+- `POST` `/_synapse/admin/v1/deactivate/{user_id}`
 - `POST` `/_synapse/admin/v1/user_sessions/{user_id}/invalidate`
 - `POST` `/_synapse/admin/v1/users/batch`
 - `POST` `/_synapse/admin/v1/users/batch_deactivate`
@@ -1354,10 +1355,11 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_matrix/client/v3/account/guest/upgrade`
 - `POST` `/_matrix/client/v3/register/guest`
 
-### 语音 (Voice) （12 条）
+### 语音 (Voice) （13 条）
 
-#### `voice.rs` — 12 条 ✅派生表
+#### `voice.rs` — 13 条 ✅派生表
 
+- `DELETE` `/_matrix/vendor/v1/voice/{media_id}`
 - `GET` `/_matrix/vendor/v1/voice/config`
 - `GET` `/_matrix/vendor/v1/voice/room/{room_id}`
 - `GET` `/_matrix/vendor/v1/voice/room/{room_id}/stats`
@@ -1710,8 +1712,8 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 > 本附录为人工维护，基于 **SDK Manager 源码 + 后端 handler 源码双侧实读**，逐条核对「已封装后端功能」的完整性；重新生成脚本不覆盖本段。
 > **审计对象**：`@langkebo/matrix-js-sdk@40.2.0-langkebo.5`（`/Users/ljf/Desktop/hu_ts/matrix-js-sdk`）。
-> **后端事实源**：本文件路由面（**1046** 条路由 / **66** 个模块）+ `synapse-web/src/routes/**` handler 源码。
-> 　· 计数口径（2026-10-19 复核）：**1046** = `all` profile 去重后的 `method + path` 条目数（`tests/unit/fixtures/ledger_export_sdk/all.json` 的 `entry_count`，与 `derived_route_table_*.inc.rs` 生成表逐条一致）；
+> **后端事实源**：本文件路由面（**1048** 条路由 / **66** 个模块）+ `synapse-web/src/routes/**` handler 源码。
+> 　· 计数口径（2026-10-20 复核）：**1048** = `all` profile 去重后的 `method + path` 条目数（`tests/unit/fixtures/ledger_export_sdk/all.json` 的 `entry_count`，与 `derived_route_table_*.inc.rs` 生成表逐条一致）；
 > 　· **66** = 含路由注册的模块文件数（细粒度 `registered_by` 共 **75** 个；旧文本写的「51 模块 / 74 标签」「65 模块」是更早口径，已废弃）。
 > **证据产物**：`artifacts/sdk-contract-gap-report.md`、`artifacts/sdk-contract-gap.json`、`scripts/quality/path-contract-coverage.json`；镜像 commit **`2946e19eb`**（2026-10-17）。
 > ⚠️ **时点提示**：本节 B.1–B.7 的**所有数字**（覆盖率、分桶、缺口条数）都是 **2026-10-09 审计时点**的口径，此后后端与 SDK 均有前进；
@@ -1807,7 +1809,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 4. **复现命令**（在 `/Users/ljf/Desktop/hu_ts/matrix-js-sdk`）：
    - 审计：`pnpm contract:sync && pnpm contract:codegen && node scripts/audit/compare-routes.mjs`
    - 门禁：`pnpm quality:path-contract`（另有 `quality:admin-response-contract` / `quality:contract-drift` / `quality:sdk-contracts` / `quality:route-set-parity`）。
-5. **口径提示**：`generate_sdk_ledger_fixtures.sh` 注释称 “all-extensions all=1407” 为**陈旧注释**，与实测 **1046**（2026-10-19 口径；2026-10-18 时为 1041、2026-10-17 时为 1038、2026-10-09 时为 1030）不符；一律以本文件头部计数与 `sdk-contract-gap.json` 当次实测为准。
+5. **口径提示**：`generate_sdk_ledger_fixtures.sh` 头部注释里的条数只是**示例历史值**，请以当次实测为准：**1048**（2026-10-20 口径；2026-10-19 时为 1046、2026-10-18 时为 1041、2026-10-17 时为 1038、2026-10-09 时为 1030）；一律以本文件头部计数与 `sdk-contract-gap.json` 当次实测为准。
 
 ### B.8 复核结论（2026-10-17，双侧源码 + 真实后端联调）
 
@@ -1979,3 +1981,202 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
    content 参与签名，签名后再补键会使本方签名自校验失败。
 4. **入站邀请同样保留 `reason`**：远端推来的 `m.room.member`(invite) 按原事件持久化，
    不做剥离。
+
+## 附录 E — 请求参数/响应契约修复（2026-10-20，B-22 ~ B-32 / D-15）
+
+本节记录后端缺口台账 §O 共 12 条的落地口径，**同为人工维护段，重新生成契约时原样保留**。
+与附录 D 同源，根因仍是三类：**参数声明但未消费**、**消费了非规范名**、**路由整体缺失**。
+所有 `alias` 都只做「输入兼容」，响应侧只输出规范名。
+
+### E.1 B-22 OIDC authorize 的 PKCE（RFC 7636）
+
+端点：`GET /_matrix/client/v3/oidc/authorize`（`synapse-web/src/routes/oidc/provider.rs`）。
+
+| 参数 | 必填 | 行为 |
+|---|---|---|
+| `response_type` | ✅ | 仅 `code`；其它 → 400 |
+| `client_id` | ✅ | 已注册客户端按其 `redirect_uris` 校验；未注册客户端仅接受本服务器回调或 allowlist 内的 URI |
+| `redirect_uri` | ✅ | 必须属于该 `client_id`，否则 400（否则是开放重定向） |
+| `scope` | ❌ | 必须是配置 `scopes` 的子集 |
+| `state` / `nonce` | ❌ | 缺省由服务端生成，并在响应中原样返回 |
+| `code_challenge` | ❌ | 客户端自带时**必须**随后带 `code_verifier` 换 token |
+| `code_challenge_method` | ❌ | 仅 `S256`；缺省按 `plain` 处理并拒绝（400 `M_INVALID_PARAM`） |
+
+1. **不再下发 verifier（安全修复）**：响应固定为
+   `{"authorization_url", "state", "nonce"}`，**没有** `code_verifier` 字段。此前下发 verifier
+   等于让任何调用方都能在 token 端点冒充客户端，PKCE 形同虚设。
+2. **challenge 长度校验**：43–128 个 unreserved 字符，越界 → 400。
+3. **服务端代生成仅限机密客户端**：只有请求里**完全没有** `code_challenge` 时，服务端才生成
+   `(verifier, challenge=S256(verifier))` 并把 verifier 只留在会话存储里（`oidc_sessions`），
+   永不回传；客户端自带 challenge 时服务端**不生成** verifier，token 端点用会话里的
+   challenge 校验客户端提交的 verifier。
+4. **会话存储形状不变**：仍是 `(state, nonce, code_verifier, code_challenge, code_challenge_method, redirect_uri)`，
+   区别只在「自带 challenge 的会话 `code_verifier` 为空串」。
+
+### E.2 B-23 `publicRooms` 的 `server`
+
+| 端点 | `server` 来源 | 优先级 |
+|---|---|---|
+| `GET /_matrix/client/v3/publicRooms` | query | — |
+| `POST /_matrix/client/v3/publicRooms` | query + body | **query 优先**，body 仅作兼容 |
+
+1. 此前 POST 只读 body 的 `server`，客户端按规范放 query 时被静默忽略（退化为本服务器目录）。
+2. 现在 `query.server.as_deref().or(body.server.as_deref())`；两者都给时用 query，
+   避免「body 覆盖 query」的歧义。
+
+### E.3 B-24 已读标记的私有键名
+
+端点：`POST /_matrix/client/v3/rooms/{room_id}/read_markers`。
+
+| 键 | 角色 |
+|---|---|
+| `m.read.private` | ✅ 规范键（MSC2285），**唯一**会写库的键 |
+| `m.private_read` | 仅输入别名（`alias`），不参与输出 |
+
+1. 台账核实：spec 是 `m.read.private`，此前实现写成了 `m.private_read` 且**两个都读**，
+   导致按规范发的客户端读不到私有已读位置。
+2. 现在的处理：`#[serde(rename = "m.read.private", alias = "m.private_read")]`；
+   **只发规范键**，旧名仅作输入兼容。两个键同时出现在同一 JSON 对象里会被 serde 判为
+   duplicate field → 400（`M_BAD_JSON`），客户端不应同时发送。
+
+### E.4 B-25 `join` 的 `third_party_signed` 与 `via`
+
+| 端点 | 新增/修复 | 行为 |
+|---|---|---|
+| `POST /rooms/{room_id}/join` | `third_party_signed` | 透传给 `join_room_with_reason`，用于 3PID 签名校验 |
+| `POST /_matrix/client/v3/join/{room_id_or_alias}` | `third_party_signed` + `via` | 同上；`via` 为可重复 query 参数 |
+
+1. **`via` 是 query 参数**：`?via=srv1&via=srv2`，此前只读 body 的 `via_servers`，
+   标准客户端载荷 `{"via":[...]}`（以及 query）全被丢弃。现在 `via`（query，可重复）优先，
+   `via_servers`（body）仅在 `via` 缺失时回退，且兼容单值字符串 / 数组两种写法。
+2. `third_party_signed` 原样进入成员事件校验路径；缺省不产生该键。
+
+### E.5 B-26 举报列表的 `from` / `next_token` / `total`
+
+| 端点 | `from` 游标形状 | `next_token` | `total` |
+|---|---|---|---|
+| `GET /_synapse/admin/v1/event_reports` | `{score}\|{received_ts}\|{id}` | 仅满页时下发 | 全表匹配总数 |
+| `GET /_synapse/admin/v1/event_reports/room/{room_id}` | `{received_ts}\|{id}` | 仅满页时下发 | 该房间匹配总数 |
+
+1. **对齐上游键名**：上游用 `from` 翻页，本项目此前只有 `since_score`/`since_ts`/`since_id`，
+   SDK 传 `from` 时永远第一页。现在 `from` 优先，旧的 `since_*` 三/两个参数保留为过渡别名。
+2. **`next_token` 只在满页时非 null**：不满页即表示没有下一页，客户端据此终止循环；
+   这个「只在满页给游标」的口径与 B-28 一致。
+3. **`total` 改为真实总数**：此前是被 `limit` 截断后的本页条数，客户端据此算总页数会少算。
+4. `offset > 0` → **400**（与附录 D.1 同一策略），不再静默返回错误页。
+
+### E.6 B-27 媒体隔离变更的 `from` / `since`
+
+| 端点 | `from` | `since` | 值语义 |
+|---|---|---|---|
+| `GET /_synapse/admin/v1/quarantine_media/{media_id}/changes` | ✅ | ✅ 别名 | `stream_id`（默认 0） |
+| `GET /_synapse/admin/v1/media/quarantine_changes` | ✅ | ❌ | `stream_id`（默认 0） |
+
+1. 上游把游标叫 `from`，本项目此前只认 `since`；`MediaQuarantineChangesQuery` 现在
+   `#[serde(alias = "since")] from`，两者同义，`from` 优先。
+2. 游标不是时间戳，是单调递增的 `stream_id`；无法解析时按 0 处理（回到第一页），不报 400。
+3. 全局视图的 `next_batch` = 本页最后一条的 `stream_id`，空页时回显请求传入的 `from`。
+
+### E.7 B-28 应用服务事件的分页
+
+端点：`GET /_synapse/admin/v1/appservices/{as_id}/events`。
+
+| 参数/字段 | 说明 |
+|---|---|
+| `limit` | 1–500，缺省 100 |
+| `from` | 游标 `{origin_server_ts}\|{id}`，与存储排序键一一对应 |
+| `events` | 本页事件数组 |
+| `next_token` | 仅满页时非 null；否则 `null` 表示已到末尾 |
+
+1. 此前响应是裸数组，没有游标，`limit` 之外的参数全部无效 ⇒ 永远只能取第一页。
+2. `from` 解析失败 → 400 `M_INVALID_PARAM`（错误文本给出期望形状）。
+3. 用 `(created_ts, id)` 而不是单纯的 ts 做 keyset，保证页边界既不跳行也不重复。
+
+### E.8 B-29 房间同步的 `timeout` / `timeout_ms`
+
+端点：`GET /_matrix/vendor/v1/rooms/{room_id}/sync`（`RoomSyncQueryDto`）。
+
+| 名字 | 角色 |
+|---|---|
+| `timeout` | ✅ 后端结构体字段名（上游口径） |
+| `timeout_ms` | 仅输入别名（`alias`） |
+
+1. 以**后端 struct 为准**：规范参数是 `timeout`（毫秒），`timeout_ms` 作为过渡别名保留；
+   两者都给时 serde 取先出现的那个键，不做额外合并。
+2. 值域：无符号整数；不可解析时按缺省处理（与既有 `full_state` / `since` 的宽松策略一致）。
+
+### E.9 B-30 CAS `proxyValidate` 的 `renew`
+
+| 端点 | `service` | `ticket` | `renew` | `pgt_url` |
+|---|---|---|---|---|
+| `GET /_synapse/cas/proxyValidate` | ✅ | ✅ | ✅ | ✅ |
+| `GET /_synapse/cas/serviceValidate` | ✅ | ✅ | ✅ | ✅ |
+| `GET /_synapse/cas/p3/serviceValidate` | ✅ | ✅ | ✅ | ✅ |
+
+1. 此前 `proxyValidate` 声明了 `service`/`ticket` 却漏了 `renew`，按 CAS 协议带 `renew` 的调用
+   会因 `Query` 反序列化失败而 400（`renew` 是可选布尔，缺省 false）。
+2. 三个端点现在都接受并解析 `renew`（`#[serde(rename = "renew")] _renew: Option<bool>`），
+   当前实现不使用其值，但**不再因为多传一个合法参数而拒绝请求**。
+3. CAS 协议面统一挂在 `/_synapse/cas` 下（避免占用根级 `/login`、`/logout`）；
+   Matrix 侧的 SSO 入口是 `/_matrix/client/v3/login/sso/redirect/cas`，不在此列表。
+
+### E.10 B-31 语音消息删除路由
+
+| 项 | 值 |
+|---|---|
+| 端点 | `DELETE /_matrix/vendor/v1/voice/{media_id}` |
+| 鉴权 | 已登录用户 |
+| 权限 | 记录所有者，或 `is_admin`；其他 → **403** |
+| 不存在 | **404** |
+| 成功响应 | `{"deleted": true, "message_id": "<media_id>"}` |
+| lane | 仅 `sdk`（`voice-extended` feature），golden lane 不注册 |
+
+1. **选「后端补路由」而非改 SDK**：服务层 `delete_voice_message` 早已实现 owner/admin 语义，
+   只是没挂路由；缺路由时客户端只能 404/405。
+2. **响应字段稳定**：`deleted` 恒为 `true`（失败走错误码），`message_id` 回显请求的 media_id，
+   SDK 可据此更新本地缓存而不必二次查询。
+3. **幂等性边界**：底层媒体文件已不存在时视为删除成功（`is_not_found` 被吞掉），
+   但**路由记录**必须存在，否则仍是 404——避免「删不存在的消息」被当成成功。
+
+### E.11 B-32 停用用户的 legacy 路径
+
+| 端点 | 关系 |
+|---|---|
+| `POST /_synapse/admin/v1/users/{user_id}/deactivate` | 规范/A 面路径 |
+| `POST /_synapse/admin/v1/deactivate/{user_id}` | **legacy 别名**，内部转调同一 handler |
+
+1. 上游保留 `/_synapse/admin/v1/deactivate/{user_id}`，Element Admin 等工具仍按它调用；
+   本项目此前只有 `/users/{user_id}/deactivate`，按上游路径调用会 404。
+2. 两条路径**共用** `deactivate_user`：鉴权（`AdminUser`）、请求体
+   （`erase`、`by_admin` 等）与响应完全一致，不存在行为分叉。
+3. 别名不是 feature-gated，`golden` 与 `sdk` 两个 lane 都注册（见 E.12 的双视图对账）。
+
+### E.12 D-15 路由表的两个坐标视图
+
+| 产物 | 坐标 | 条数 | 用途 |
+|---|---|---|---|
+| `docs/openapi/route-table.json` | golden × default | **968** | CI drift 基线、`placeholder_scan_tests` 的唯一输入 |
+| `docs/openapi/route-table-sdk.json` | sdk × all | **1048** | SDK 实际摄入的最大完整面 |
+| `tests/unit/fixtures/ledger_export{,_sdk}/{default,worker,all}.json` | 两 lane × 三 profile，共 6 份 | 968/979/986、1029/1040/1048 | 契约提取的输入 |
+
+1. **不把派生路由标 `derived: true`**：`voice` 在 golden 视图里为 0，根因是 `voice-extended`
+   只编进 sdk lane，不是「派生表不同源」。打标记只会掩盖 lane 差异，故改为**同一生成器的第二个
+   坐标视图**。
+2. **门禁 R6**：`scripts/contract/check_route_surface_reconciliation.py` 断言
+   `route-table-sdk.json` 的 `lane=sdk`、`profile=all`、`total_routes` 与
+   `ledger_export_sdk/all.json` 的 `entry_count` 一致且路由集合完全相同；
+   `--mutation-check` 的 **Mutation 3** 会从该视图删一条路由，要求 R6 必须变红，
+   以证明这条断言真的会失败。
+3. **两视图都由 `gen_route_table.py` 生成**，命令分别指向对应 fixture；任何一份 fixture 重导后
+   都要重跑两视图，否则 R6 报 drift。
+4. **不要拿 golden 视图当全集**：它刻意不含 feature-gated 路由族（`/voice/*`、SAML/CAS 回调、
+   `server-notifications` 等）；SDK 侧对账请用 `route-table-sdk.json`。
+
+### E.13 本轮计数变化
+
+| 指标 | 修复前 | 修复后 | 差值来源 |
+|---|---|---|---|
+| sdk × all 路由数 | 1046 | **1048** | `+DELETE /_matrix/vendor/v1/voice/{media_id}`、`+POST /_synapse/admin/v1/deactivate/{user_id}` |
+| golden × default 路由数 | 967 | **968** | `+POST /_synapse/admin/v1/deactivate/{user_id}`（voice 仅 sdk） |
+| ledger fixture（sdk all） | 1046 | **1048** | 同上 |
+| `.sqlx` 查询缓存 | 1336 | **1339** | B-22 的 client 查询与 B-26 的 `count_*` 新增语句 |

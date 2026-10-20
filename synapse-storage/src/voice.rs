@@ -156,6 +156,17 @@ impl VoiceStorage {
         Ok(result.rows_affected())
     }
 
+    /// See [`delete_by_media_id`].
+    ///
+    /// B-31: backs `DELETE /_matrix/vendor/v1/voice/{media_id}`. Returns the
+    /// number of rows removed so the caller can distinguish "already gone" from
+    /// "a different user's row was deleted".
+    pub async fn delete_by_media_id(&self, media_id: &str) -> Result<u64, sqlx::Error> {
+        let result =
+            sqlx::query!("DELETE FROM voice_usage_stats WHERE media_id = $1", media_id).execute(&*self.pool).await?;
+        Ok(result.rows_affected())
+    }
+
     /// See [`get_room_messages`].
     pub async fn get_room_messages(
         &self,

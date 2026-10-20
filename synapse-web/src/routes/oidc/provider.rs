@@ -126,6 +126,96 @@ pub(crate) struct OidcAuthorizeRequest {
     #[validate(length(max = 512))]
     /// The `nonce` field.
     pub nonce: Option<String>,
+    #[validate(length(max = 128))]
+    /// PKCE `code_challenge` supplied by the client (RFC 7636 §4.2).
+    ///
+    /// When present the server forwards it to the IdP and never issues a
+    /// `code_verifier`: only the client that generated the verifier can
+    /// complete the code exchange.
+    pub code_challenge: Option<String>,
+    #[validate(length(max = 10))]
+    /// PKCE `code_challenge_method`. Only `S256` is accepted.
+    pub code_challenge_method: Option<String>,
+}
+
+/// Validate the client-supplied PKCE challenge (RFC 7636 §4.2).
+///
+/// Returns `Ok(None)` when the client did not send a challenge — that is a
+/// confidential client, for which the server generates the PKCE pair itself.
+/// Returns the (normalised) challenge method otherwise.
+fn validate_client_pkce(
+    code_challenge: Option<&str>,
+    code_challenge_method: Option<&str>,
+) -> Result<Option<String>, ApiError> {
+    let Some(challenge) = code_challenge.map(str::trim).filter(|c| !c.is_empty()) else {
+        return Ok(None);
+    };
+    // RFC 7636 §4.3: an absent method means `plain`, which this server does not
+    // advertise. Reject it explicitly instead of silently downgrading.
+    let method = code_challenge_method.unwrap_or("plain");
+    if method != "S256" {
+        return Err(ApiError::invalid_param("Unsupported code_challenge_method: only 'S256' is supported"));
+    }
+    let well_formed = (43..=128).contains(&challenge.len())
+        && challenge.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~'));
+    if !well_formed {
+        return Err(ApiError::invalid_param("Invalid code_challenge: expected 43-128 unreserved characters"));
+    }
+    Ok(Some(method.to_string()))
+}
+
+/// Validate `redirect_uri` against the registered client (open-redirect guard).
+///
+/// * registered client → the URI must be one of its `redirect_uris`;
+/// * unknown client → only the server's own callback or an allowlisted origin
+///   is accepted (same rule as `/_matrix/client/v3/login/sso/redirect`).
+async fn validate_authorize_redirect_uri(
+    ctx: &SsoContext,
+    client_id: &str,
+    redirect_uri: &str,
+) -> Result<(), ApiError> {
+    let registered = ctx
+        .oauth_client_storage
+        .get_client(client_id)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Failed to look up OAuth client", e))?;
+
+    match registered {
+        Some(client) => {
+            if client.redirect_uris_vec().iter().any(|uri| uri == redirect_uri) {
+                Ok(())
+            } else {
+                Err(ApiError::invalid_param("redirect_uri is not registered for this client_id"))
+            }
+        }
+        None => {
+            let own_callback = format!("{}/_matrix/client/v3/oidc/callback", ctx.config.server.get_public_baseurl());
+            let configured_callback = ctx.oidc_service.as_ref().and_then(|s| s.get_config().callback_url.clone());
+            if redirect_uri == own_callback
+                || configured_callback.as_deref() == Some(redirect_uri)
+                || super::sso::is_safe_redirect_url(redirect_uri, &ctx.config.sso_redirect_allowlist)
+            {
+                Ok(())
+            } else {
+                Err(ApiError::invalid_param("redirect_uri is not registered for this client_id"))
+            }
+        }
+    }
+}
+
+/// Requested `scope` must be a subset of the scopes the homeserver is configured for.
+fn validate_authorize_scope(requested: Option<&str>, configured: &[String]) -> Result<(), ApiError> {
+    let Some(requested) = requested.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(());
+    };
+    if configured.is_empty() {
+        return Ok(());
+    }
+    if let Some(unknown) = requested.split_whitespace().find(|scope| !configured.iter().any(|allowed| allowed == scope))
+    {
+        return Err(ApiError::invalid_param(format!("Unsupported scope '{unknown}'")));
+    }
+    Ok(())
 }
 
 /// Parse `Authorization: Basic <base64(client_id:client_secret)>`.
@@ -340,37 +430,68 @@ pub(crate) async fn oidc_authorize(
     let oidc_service: &synapse_services::oidc_service::OidcService =
         ctx.oidc_service.as_ref().ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
 
-    let OidcAuthorizeRequest { response_type, client_id: _, redirect_uri, scope: _, state: auth_state, nonce } =
-        query.0;
+    let OidcAuthorizeRequest {
+        response_type,
+        client_id,
+        redirect_uri,
+        scope,
+        state: auth_state,
+        nonce,
+        code_challenge,
+        code_challenge_method,
+    } = query.0;
 
     // Validate response_type
     if response_type != "code" {
         return Err(ApiError::bad_request("Only 'code' response type is supported".to_string()));
     }
 
+    // RFC 6749 §3.1.2 / OIDC Core §3.1.2.1: `redirect_uri` must belong to the
+    // client. Without this check the endpoint is an open redirector.
+    validate_authorize_redirect_uri(&ctx, &client_id, &redirect_uri).await?;
+    validate_authorize_scope(scope.as_deref(), &oidc_service.get_config().scopes)?;
+
+    // RFC 7636: a public client brings its own challenge and later its own
+    // verifier. Only a confidential client (no challenge) may let the server
+    // generate the pair — and even then the verifier never leaves the server.
+    let client_challenge_method = validate_client_pkce(code_challenge.as_deref(), code_challenge_method.as_deref())?;
+    let (code_verifier, code_challenge, code_challenge_method) =
+        match (code_challenge.map(|c| c.trim().to_string()).filter(|c| !c.is_empty()), client_challenge_method) {
+            (Some(challenge), Some(method)) => (String::new(), challenge, method),
+            _ => {
+                let (verifier, challenge) = OidcService::generate_pkce();
+                (verifier, challenge, "S256".to_string())
+            }
+        };
+
     // Generate state and nonce
     let state_value: String = auth_state.unwrap_or_else(OidcService::generate_state);
     let nonce_value: String = nonce.unwrap_or_else(OidcService::generate_state);
 
-    // Generate PKCE code_verifier and code_challenge
-    let (code_verifier, code_challenge): (String, String) = OidcService::generate_pkce();
     ctx.oidc_session_service
-        .store(&state_value, &nonce_value, &code_verifier, &code_challenge, "S256", &redirect_uri)
+        .store(&state_value, &nonce_value, &code_verifier, &code_challenge, &code_challenge_method, &redirect_uri)
         .await?;
 
     // Generate authorization URL (with PKCE)
     let authorization_url: String = oidc_service
-        .get_authorization_url(&state_value, &redirect_uri, Some(&code_challenge), Some("S256"), Some(&nonce_value))
+        .get_authorization_url(
+            &state_value,
+            &redirect_uri,
+            Some(&code_challenge),
+            Some(&code_challenge_method),
+            Some(&nonce_value),
+        )
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to generate authorization URL", e))?;
 
     tracing::info!("OIDC authorization redirect_uri: {}, using PKCE", redirect_uri);
 
+    // Never return the verifier: doing so would let any caller impersonate the
+    // client at the token endpoint and defeat PKCE entirely.
     Ok(Json(serde_json::json!({
         "authorization_url": authorization_url,
         "state": state_value,
         "nonce": nonce_value,
-        "code_verifier": code_verifier,  // returned to client for later verification
     })))
 }
 
@@ -485,5 +606,38 @@ mod tests {
 
         assert_eq!(response.sub, "@test:example.com");
         assert_eq!(response.name, Some("Test User".to_string()));
+    }
+
+    #[test]
+    fn client_pkce_accepts_s256_challenge() {
+        let challenge = "a".repeat(43);
+        assert_eq!(validate_client_pkce(Some(&challenge), Some("S256")).unwrap(), Some("S256".to_string()));
+    }
+
+    #[test]
+    fn client_pkce_absent_challenge_means_confidential_client() {
+        assert_eq!(validate_client_pkce(None, None).unwrap(), None);
+        assert_eq!(validate_client_pkce(Some("   "), Some("S256")).unwrap(), None);
+    }
+
+    #[test]
+    fn client_pkce_rejects_plain_and_malformed_challenges() {
+        let challenge = "a".repeat(43);
+        // RFC 7636 §4.3: an absent method defaults to `plain`, which is not advertised.
+        assert!(validate_client_pkce(Some(&challenge), None).is_err());
+        assert!(validate_client_pkce(Some(&challenge), Some("plain")).is_err());
+        assert!(validate_client_pkce(Some("short"), Some("S256")).is_err());
+        assert!(validate_client_pkce(Some(&"a".repeat(129)), Some("S256")).is_err());
+        assert!(validate_client_pkce(Some(&format!("{}!", "a".repeat(42))), Some("S256")).is_err());
+    }
+
+    #[test]
+    fn authorize_scope_must_be_subset_of_configured_scopes() {
+        let configured = vec!["openid".to_string(), "profile".to_string(), "email".to_string()];
+        assert!(validate_authorize_scope(None, &configured).is_ok());
+        assert!(validate_authorize_scope(Some("openid profile"), &configured).is_ok());
+        assert!(validate_authorize_scope(Some("openid admin"), &configured).is_err());
+        // No configured scopes ⇒ nothing to constrain against.
+        assert!(validate_authorize_scope(Some("anything"), &[]).is_ok());
     }
 }

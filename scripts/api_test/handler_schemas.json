@@ -238,6 +238,10 @@
       [
         "/_synapse/admin/v1/users/{user_id}/deactivate",
         "post"
+      ],
+      [
+        "/_synapse/admin/v1/deactivate/{user_id}",
+        "post"
       ]
     ],
     "reset_user_password": [
@@ -1620,6 +1624,11 @@
   "handler_signatures": {
     "update_displayname": "UpdateDisplaynameBody",
     "update_avatar": "UpdateAvatarBody",
+    "change_password_uia": "ChangePasswordBody",
+    "request_password_email_verification": "RequestEmailTokenBody",
+    "deactivate_account": "DeactivateAccountBody",
+    "add_threepid": "AddThreepidBody",
+    "request_3pid_add_email_verification": "RequestEmailTokenBody",
     "delete_threepid": "DeleteThreepidRequest",
     "unbind_threepid": "DeleteThreepidRequest",
     "create_audit_event": "CreateAuditEventBody",
@@ -1670,6 +1679,7 @@
     "set_app_service_state": "SetStateBody",
     "register_virtual_user": "RegisterVirtualUserBody",
     "push_event": "PushEventBody",
+    "request_email_verification": "RequestEmailTokenBody",
     "submit_email_token": "SubmitEmailTokenBody",
     "refresh_token": "RefreshTokenBody",
     "create_update": "CreateUpdateBody",
@@ -2329,30 +2339,20 @@
               }
             ]
           },
-          "dry_run": {
+          "purge_up_to_event_id": {
             "anyOf": [
               {
-                "type": "boolean"
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ]
-          }
-        }
-      },
-      "file": "synapse-web/src/routes/admin/room/management.rs",
-      "field_count": 3
-    },
-    "PurgeHistoryByRoomRequest": {
-      "schema": {
-        "type": "object",
-        "properties": {
-          "purge_up_to_ts": {
+          },
+          "delete_local_events": {
             "anyOf": [
               {
-                "type": "integer",
-                "format": "int64"
+                "type": "boolean"
               },
               {
                 "type": "null"
@@ -2372,7 +2372,57 @@
         }
       },
       "file": "synapse-web/src/routes/admin/room/management.rs",
-      "field_count": 2
+      "field_count": 5
+    },
+    "PurgeHistoryByRoomRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "purge_up_to_ts": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "purge_up_to_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "delete_local_events": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dry_run": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/admin/room/management.rs",
+      "field_count": 4
     },
     "PurgeRoomRequest": {
       "schema": {
@@ -3134,6 +3184,56 @@
       "file": "synapse-web/src/routes/app_service.rs",
       "field_count": 5
     },
+    "RequestEmailTokenBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "client_secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "send_attempt": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "uint64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "synapse-web/src/routes/auth_compat.rs",
+      "field_count": 4
+    },
     "SubmitEmailTokenBody": {
       "schema": {
         "type": "object",
@@ -3736,11 +3836,21 @@
                 "type": "null"
               }
             ]
+          },
+          "server": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
       "file": "synapse-web/src/routes/directory_reporting.rs",
-      "field_count": 5
+      "field_count": 6
     },
     "CreateDmRequest": {
       "schema": {
@@ -4465,11 +4575,21 @@
                 "type": "null"
               }
             ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
       "file": "synapse-web/src/routes/handlers/room/members.rs",
-      "field_count": 5
+      "field_count": 6
     },
     "KickUserBody": {
       "schema": {
@@ -4527,6 +4647,16 @@
         "properties": {
           "user_id": {
             "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -4534,7 +4664,7 @@
         ]
       },
       "file": "synapse-web/src/routes/handlers/room/members.rs",
-      "field_count": 1
+      "field_count": 2
     },
     "SetReadMarkersBody": {
       "schema": {
@@ -4560,7 +4690,7 @@
               }
             ]
           },
-          "m.private_read": {
+          "m.read.private": {
             "anyOf": [
               {
                 "type": "string"
@@ -4601,6 +4731,16 @@
       "schema": {
         "type": "object",
         "properties": {
+          "algorithm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "auth_data": {
             "anyOf": [
               {
@@ -4611,11 +4751,21 @@
                 "type": "null"
               }
             ]
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
       "file": "synapse-web/src/routes/key_backup.rs",
-      "field_count": 1
+      "field_count": 3
     },
     "RecoverKeysBody": {
       "schema": {
@@ -6512,6 +6662,66 @@
     }
   },
   "joined_mapping": {
+    "post /_matrix/client/v3/account/password": [
+      "/account/password",
+      "post",
+      "ChangePasswordBody"
+    ],
+    "post /_matrix/client/v1/account/password": [
+      "/account/password",
+      "post",
+      "ChangePasswordBody"
+    ],
+    "post /_matrix/client/v3/account/password/email/requestToken": [
+      "/account/password/email/requestToken",
+      "post",
+      "RequestEmailTokenBody"
+    ],
+    "post /_matrix/client/v1/account/password/email/requestToken": [
+      "/account/password/email/requestToken",
+      "post",
+      "RequestEmailTokenBody"
+    ],
+    "post /_matrix/client/v3/account/deactivate": [
+      "/account/deactivate",
+      "post",
+      "DeactivateAccountBody"
+    ],
+    "post /_matrix/client/v1/account/deactivate": [
+      "/account/deactivate",
+      "post",
+      "DeactivateAccountBody"
+    ],
+    "post /_matrix/client/v3/account/3pid/add": [
+      "/account/3pid/add",
+      "post",
+      "AddThreepidBody"
+    ],
+    "post /_matrix/client/v1/account/3pid/add": [
+      "/account/3pid/add",
+      "post",
+      "AddThreepidBody"
+    ],
+    "post /_matrix/client/v3/account/3pid/bind": [
+      "/account/3pid/bind",
+      "post",
+      "AddThreepidBody"
+    ],
+    "post /_matrix/client/v1/account/3pid/bind": [
+      "/account/3pid/bind",
+      "post",
+      "AddThreepidBody"
+    ],
+    "post /_matrix/client/v3/account/3pid/email/requestToken": [
+      "/account/3pid/email/requestToken",
+      "post",
+      "RequestEmailTokenBody"
+    ],
+    "post /_matrix/client/v1/account/3pid/email/requestToken": [
+      "/account/3pid/email/requestToken",
+      "post",
+      "RequestEmailTokenBody"
+    ],
     "post /_matrix/client/v3/account/3pid/delete": [
       "/account/3pid/delete",
       "post",
@@ -6531,6 +6741,11 @@
       "/account/3pid/unbind",
       "post",
       "DeleteThreepidRequest"
+    ],
+    "post /_matrix/client/v3/register/email/requestToken": [
+      "/register/email/requestToken",
+      "post",
+      "RequestEmailTokenBody"
     ],
     "post /_matrix/client/v3/register/email/submitToken": [
       "/register/email/submitToken",

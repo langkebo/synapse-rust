@@ -126,7 +126,7 @@ mod tests {
     //! - m.fully_read path with `allow_backward=true` (allow backward move)
     //! - m.fully_read path with `allow_backward=false` and `updated=false`
     //!   (MSC4446 silent drop)
-    //! - m.private_read / m.read.private 接收类型 → straight to add_receipt
+    //! - m.read.private / m.private_read (legacy alias) 接收类型 → straight to add_receipt
     //! - get_receipts success path
 
     use crate::room::messaging::service::{MessagingService, MessagingServiceConfig};
@@ -242,14 +242,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn send_receipt_m_private_read_skips_monotonic() {
-        // m.private_read is neither m.read nor m.fully_read → straight to
-        // add_receipt + add_ephemeral_event. No monotonic check.
+    async fn send_receipt_m_read_private_skips_monotonic() {
+        // m.read.private (MSC2285) is neither m.read nor m.fully_read → straight
+        // to add_receipt + add_ephemeral_event. No monotonic check.
         let svc = make_service().await;
         let body = serde_json::json!({});
-        svc.send_receipt("!room:ex.com", "@alice:ex.com", "$e1:ex.com", "m.private_read", &body)
+        svc.send_receipt("!room:ex.com", "@alice:ex.com", "$e1:ex.com", "m.read.private", &body)
             .await
-            .expect("m.private_read send should succeed");
+            .expect("m.read.private send should succeed");
     }
 
     #[tokio::test]

@@ -156,6 +156,11 @@ pub struct PushEventBody {
 pub struct QueryLimit {
     /// The `limit` field.
     pub limit: Option<i64>,
+    /// Opaque `next_token` cursor returned by the previous page.
+    ///
+    /// B-28: only `GET /appservices/{as_id}/events` reads it; other handlers
+    /// sharing this struct simply ignore the key.
+    pub from: Option<String>,
 }
 
 /// The `QueryUser` struct.
@@ -539,6 +544,19 @@ pub async fn get_namespaces(
     Ok(Json(namespaces))
 }
 
+/// Decode the `from` cursor of `GET /_synapse/admin/v1/appservices/{as_id}/events`.
+///
+/// The token is `"{origin_server_ts}|{id}"` — the same `(created_ts, id)` pair the
+/// storage layer orders by, so a page boundary can never skip or duplicate a row.
+fn parse_event_cursor(raw: &str) -> Result<(i64, i64), ApiError> {
+    let invalid = || ApiError::invalid_param("Invalid `from` cursor; expected `{origin_server_ts}|{id}`".to_string());
+
+    let (ts, id) = raw.split_once('|').ok_or_else(invalid)?;
+    let ts = ts.parse::<i64>().map_err(|_| invalid())?;
+    let id = id.parse::<i64>().map_err(|_| invalid())?;
+    Ok((ts, id))
+}
+
 /// See [`get_pending_events`].
 pub async fn get_pending_events(
     State(ctx): State<AdminContext>,
@@ -548,9 +566,21 @@ pub async fn get_pending_events(
 ) -> Result<impl IntoResponse, ApiError> {
     validate_as_id(&as_id)?;
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
-    let events = ctx.app_service_manager.get_pending_events(&as_id, limit).await?;
+    let after = query.from.as_deref().map(parse_event_cursor).transpose()?;
+    let events = ctx.app_service_manager.get_pending_events_after(&as_id, after, limit).await?;
 
-    Ok(Json(events))
+    // B-28: only emit a cursor when the page was full; otherwise there is
+    // nothing left to fetch and `next_token: null` ends the loop.
+    let next_token = if events.len() as i64 == limit {
+        events.last().map(|event| format!("{}|{}", event.origin_server_ts, event.id))
+    } else {
+        None
+    };
+
+    Ok(Json(serde_json::json!({
+        "events": events,
+        "next_token": next_token,
+    })))
 }
 
 /// See [`push_event`].
@@ -879,5 +909,18 @@ mod tests {
         assert_eq!(request.is_rate_limited, Some(false));
         assert_eq!(request.protocols, Some(vec!["slack".to_string(), "irc".to_string()]));
         assert_eq!(request.is_enabled, Some(true));
+    }
+
+    #[test]
+    fn test_parse_event_cursor_round_trips() {
+        assert_eq!(parse_event_cursor("1700000000000|42").expect("valid cursor"), (1700000000000, 42));
+    }
+
+    #[test]
+    fn test_parse_event_cursor_rejects_malformed_input() {
+        for raw in ["", "42", "abc|1", "1|abc", "1|2|3"] {
+            let error = parse_event_cursor(raw).expect_err("malformed cursor must be rejected");
+            assert!(error.is_bad_request(), "`{raw}` 应返回 400，实际：{error:?}");
+        }
     }
 }

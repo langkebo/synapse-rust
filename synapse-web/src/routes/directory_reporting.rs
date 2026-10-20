@@ -791,14 +791,17 @@ pub struct PublicRoomsBody {
 pub(crate) async fn query_public_rooms(
     State(ctx): State<AdminContext>,
     auth_user: OptionalAuthenticatedUser,
+    Query(query): Query<PublicRoomsQuery>,
     MatrixJson(body): MatrixJson<PublicRoomsBody>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = body.limit.unwrap_or(20).clamp(1, 1000) as i64;
 
-    // B-17: the `POST` variant carries `server` in the body (the SDK does the
-    // same). `filter` is relayed verbatim: the remote server owns its semantics,
-    // and rejecting it locally would make remote directories unsearchable.
-    if let Some(server) = resolve_remote_directory(body.server.as_deref(), &auth_user, &ctx.server_name)? {
+    // B-23: the spec puts `server` in the **query string** for both variants
+    // (upstream `RoomListRestServlet` reads it from the request parameters).
+    // The body field is kept as a compatibility fallback for older clients but
+    // must not shadow the spec placement.
+    let server = query.server.as_deref().or(body.server.as_deref());
+    if let Some(server) = resolve_remote_directory(server, &auth_user, &ctx.server_name)? {
         ensure_relay_target_allowed(&ctx, &server).await?;
         let mut relay = serde_json::Map::new();
         if let Some(limit) = body.limit {

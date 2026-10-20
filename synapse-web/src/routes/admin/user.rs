@@ -42,6 +42,12 @@ pub fn create_user_router() -> Router<crate::routes::AppState> {
             "/_synapse/admin/v1/users/{user_id}/deactivate",
             post(deactivate_user),
         )
+        // B-32: upstream keeps the legacy `deactivate/{user_id}` path (Element
+        // Admin and other tooling still call it); dispatch to the same handler.
+        .route(
+            "/_synapse/admin/v1/deactivate/{user_id}",
+            post(deactivate_user),
+        )
         .route(
             "/_synapse/admin/v1/users/{user_id}/password",
             post(reset_user_password),

@@ -335,6 +335,20 @@ impl ApplicationServiceManager {
             .map_err(|e| ApiError::internal_with_cause("Failed to get pending events", e))
     }
 
+    /// See [`get_pending_events_after`].
+    #[instrument(skip(self))]
+    pub async fn get_pending_events_after(
+        &self,
+        as_id: &str,
+        after: Option<(i64, i64)>,
+        limit: i64,
+    ) -> Result<Vec<ApplicationServiceEvent>, ApiError> {
+        self.storage
+            .get_pending_events_after(as_id, after, limit)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to get pending events", e))
+    }
+
     /// See [`count_pending_events`].
     #[instrument(skip(self))]
     pub async fn count_pending_events(&self, as_id: &str) -> Result<i64, ApiError> {

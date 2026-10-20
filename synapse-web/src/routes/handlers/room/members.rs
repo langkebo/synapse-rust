@@ -88,12 +88,15 @@ pub(crate) fn extract_via_servers(query: &[(String, String)], legacy_body_via_se
 
 /// Request body for [`join_room`].
 ///
-/// The spec makes the body optional and only defines `reason`, which is copied
-/// into the `m.room.member` event content.
+/// The spec makes the body optional and defines `reason`, which is copied into
+/// the `m.room.member` event content, plus `third_party_signed` (B-25), the
+/// identity-server signature object for 3PID invitations.
 #[derive(Debug, Deserialize)]
 pub struct JoinRoomBody {
     #[serde(default)]
     pub reason: Option<String>,
+    #[serde(default)]
+    pub third_party_signed: Option<Value>,
 }
 
 /// See [`join_room`].
@@ -107,8 +110,12 @@ pub(crate) async fn join_room(
 
     let reason = body.as_ref().and_then(|b| b.reason.as_deref());
     validate_moderation_reason(reason)?;
+    let third_party_signed = body.as_ref().and_then(|b| b.third_party_signed.as_ref());
 
-    ctx.room_service.membership().join_room_with_reason(&room_id, &auth_user.user_id, reason).await?;
+    ctx.room_service
+        .membership()
+        .join_room_with_reason(&room_id, &auth_user.user_id, reason, third_party_signed)
+        .await?;
     Ok(Json(json!({
         "room_id": room_id,
         "joined_ts": current_timestamp_millis()
@@ -118,14 +125,17 @@ pub(crate) async fn join_room(
 /// Request body for [`join_room_by_id_or_alias`].
 ///
 /// The body is optional; `via_servers` is only a back-compat fallback for the
-/// spec's `?via=` query parameter, and `reason` is copied into the
-/// `m.room.member` event content.
+/// spec's `?via=` query parameter, `reason` is copied into the
+/// `m.room.member` event content, and `third_party_signed` (B-25) is the
+/// identity-server signature object for 3PID invitations.
 #[derive(Debug, Deserialize)]
 pub struct JoinRoomByIdOrAliasBody {
     #[serde(default)]
     pub via_servers: Option<Value>,
     #[serde(default)]
     pub reason: Option<String>,
+    #[serde(default)]
+    pub third_party_signed: Option<Value>,
 }
 
 /// See [`join_room_by_id_or_alias`].
@@ -146,6 +156,7 @@ pub(crate) async fn join_room_by_id_or_alias(
     let via_servers = extract_via_servers(&query, legacy_via);
     let reason = body.as_ref().and_then(|b| b.reason.as_deref());
     validate_moderation_reason(reason)?;
+    let third_party_signed = body.as_ref().and_then(|b| b.third_party_signed.as_ref());
 
     let room_id = if room_id_or_alias.starts_with('!') {
         validate_room_id(&room_id_or_alias)?;
@@ -201,7 +212,7 @@ pub(crate) async fn join_room_by_id_or_alias(
 
     ctx.room_service
         .membership()
-        .join_room_with_via_servers_and_reason(&room_id, &auth_user.user_id, &via_servers, reason)
+        .join_room_with_via_servers_and_reason(&room_id, &auth_user.user_id, &via_servers, reason, third_party_signed)
         .await?;
 
     Ok(Json(json!({

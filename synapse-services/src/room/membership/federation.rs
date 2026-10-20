@@ -125,14 +125,14 @@ impl MembershipService {
     /// 5. Persist the returned state events and auth chain.
     /// 6. Add the user as a joined member.
     pub async fn join_room_via_federation(&self, destination: &str, room_id: &str, user_id: &str) -> ApiResult<()> {
-        self.join_room_via_federation_with_reason(destination, room_id, user_id, None).await
+        self.join_room_via_federation_with_reason(destination, room_id, user_id, None, None).await
     }
 
     /// [`join_room_via_federation`](Self::join_room_via_federation) plus the
-    /// optional client-supplied `reason`.
+    /// optional client-supplied `reason` and `third_party_signed` object.
     ///
-    /// The reason must be written into the make_join template **before**
-    /// signing: `content` is part of the signed bytes, so adding it after
+    /// Both must be written into the make_join template **before** signing:
+    /// `content` is part of the signed bytes, so adding them after
     /// `sign_and_hash_event` would invalidate our own signature.
     pub async fn join_room_via_federation_with_reason(
         &self,
@@ -140,6 +140,7 @@ impl MembershipService {
         room_id: &str,
         user_id: &str,
         reason: Option<&str>,
+        third_party_signed: Option<&Value>,
     ) -> ApiResult<()> {
         ::tracing::info!(
             destination = %destination,
@@ -203,15 +204,21 @@ impl MembershipService {
             obj.entry("origin_server_ts").or_insert_with(|| json!(current_timestamp_millis()));
         }
 
-        // The client's optional join `reason` belongs to `content`, which is
-        // covered by the event signature ⇒ apply it before signing.
-        if let Some(reason) = reason.map(str::trim).filter(|reason| !reason.is_empty()) {
+        // The client's optional join `reason` / `third_party_signed` belong to
+        // `content`, which is covered by the event signature ⇒ apply them
+        // before signing.
+        if reason.map(str::trim).filter(|reason| !reason.is_empty()).is_some() || third_party_signed.is_some() {
             let content = event_template
                 .as_object_mut()
                 .and_then(|obj| obj.get_mut("content"))
                 .and_then(Value::as_object_mut)
                 .ok_or_else(|| ApiError::bad_request("make_join template has no event content".to_string()))?;
-            content.insert("reason".to_string(), Value::String(reason.to_string()));
+            if let Some(reason) = reason.map(str::trim).filter(|reason| !reason.is_empty()) {
+                content.insert("reason".to_string(), Value::String(reason.to_string()));
+            }
+            if let Some(third_party_signed) = third_party_signed {
+                content.insert("third_party_signed".to_string(), third_party_signed.clone());
+            }
         }
 
         // 2. Sign the template event locally.

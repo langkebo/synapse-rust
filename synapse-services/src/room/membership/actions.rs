@@ -21,19 +21,20 @@ impl MembershipService {
         user_id: &str,
         via_servers: &[String],
     ) -> ApiResult<()> {
-        self.join_room_with_via_servers_and_reason(room_id, user_id, via_servers, None).await
+        self.join_room_with_via_servers_and_reason(room_id, user_id, via_servers, None, None).await
     }
 
     /// [`join_room_with_via_servers`](Self::join_room_with_via_servers) plus the
-    /// optional client-supplied `reason`, which the spec places in the join
-    /// event's `content`.
-    #[::tracing::instrument(skip(self, via_servers))]
+    /// optional client-supplied `reason` and `third_party_signed` object, both
+    /// of which the spec places in the join event's `content`.
+    #[::tracing::instrument(skip(self, via_servers, third_party_signed))]
     pub async fn join_room_with_via_servers_and_reason(
         &self,
         room_id: &str,
         user_id: &str,
         via_servers: &[String],
         reason: Option<&str>,
+        third_party_signed: Option<&serde_json::Value>,
     ) -> ApiResult<()> {
         // If the room already exists locally, use the local join path.
         let room_exists = self
@@ -43,7 +44,7 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_cause("Failed to check room existence", e))?;
 
         if room_exists {
-            return self.join_room_with_reason(room_id, user_id, reason).await;
+            return self.join_room_with_reason(room_id, user_id, reason, third_party_signed).await;
         }
 
         // Room doesn't exist locally — try federation join.
@@ -70,19 +71,26 @@ impl MembershipService {
                 }
             })?;
 
-        self.join_room_via_federation_with_reason(&destination, room_id, user_id, reason).await
+        self.join_room_via_federation_with_reason(&destination, room_id, user_id, reason, third_party_signed).await
     }
 
     /// See [`join_room`].
     #[::tracing::instrument(skip(self))]
     pub async fn join_room(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
-        self.join_room_with_reason(room_id, user_id, None).await
+        self.join_room_with_reason(room_id, user_id, None, None).await
     }
 
     /// [`join_room`](Self::join_room) with the optional client-supplied `reason`
-    /// recorded in the `m.room.member` event content.
-    #[::tracing::instrument(skip(self))]
-    pub async fn join_room_with_reason(&self, room_id: &str, user_id: &str, reason: Option<&str>) -> ApiResult<()> {
+    /// and `third_party_signed` object recorded in the `m.room.member` event
+    /// content.
+    #[::tracing::instrument(skip(self, third_party_signed))]
+    pub async fn join_room_with_reason(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        reason: Option<&str>,
+        third_party_signed: Option<&serde_json::Value>,
+    ) -> ApiResult<()> {
         if !self
             .room_storage
             .room_exists(room_id)
@@ -149,6 +157,12 @@ impl MembershipService {
         });
         if let Some(reason) = reason.map(str::trim).filter(|reason| !reason.is_empty()) {
             join_content["reason"] = serde_json::Value::String(reason.to_string());
+        }
+        // B-25: the spec's `third_party_signed` object is opaque signature
+        // material issued by the identity server; it belongs in the join
+        // event content so other servers can verify the 3PID invitation.
+        if let Some(third_party_signed) = third_party_signed {
+            join_content["third_party_signed"] = third_party_signed.clone();
         }
         let join_content =
             self.admit_membership_event(room_id, &event_id, user_id, user_id, join_content, true).await?;

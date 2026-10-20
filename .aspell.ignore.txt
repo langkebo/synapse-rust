@@ -732,6 +732,7 @@ readreceipts
 readreceiptsmanager
 reasonless
 rebase
+reconciler
 recurse
 redactions
 redirecturl
@@ -1041,6 +1042,7 @@ vec
 vendored
 vendorprefix
 venv
+verifier
 vh
 victoriametrics
 vite

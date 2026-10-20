@@ -48,9 +48,13 @@ pub struct MediaPageQuery {
 }
 
 /// Query parameters accepted by [`get_media_quarantine_changes`].
+///
+/// B-27: upstream names the cursor `from`; `since` is kept as an alias for one
+/// release so existing admin tooling does not silently fall back to page one.
 #[derive(Debug, Default, Deserialize)]
 pub struct MediaQuarantineChangesQuery {
-    since: Option<String>,
+    #[serde(alias = "since")]
+    from: Option<String>,
     limit: Option<String>,
 }
 
@@ -261,7 +265,7 @@ pub async fn get_media_quarantine_changes(
     Path(media_id): Path<MediaId>,
     axum::extract::Query(params): axum::extract::Query<MediaQuarantineChangesQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let since = params.since.as_deref().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0).max(0);
+    let since = params.from.as_deref().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0).max(0);
     let limit = params.limit.as_deref().and_then(|v| v.parse().ok()).unwrap_or(100_i64).clamp(1, 500);
 
     let changes = ctx.admin_media_service.get_media_quarantine_changes(&media_id, since, limit).await?;
