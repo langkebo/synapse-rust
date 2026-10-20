@@ -34,6 +34,11 @@ pub(crate) struct RoomSyncQueryDto {
     full_state: Option<bool>,
     #[serde(default)]
     since: Option<String>,
+    /// Filter is not implemented on this endpoint: a non-empty value is rejected
+    /// with 400 rather than silently ignored (which would deliver the full room
+    /// state to a client that asked for a narrow subset).
+    #[serde(default)]
+    filter: Option<String>,
 }
 
 /// Query parameters accepted by [`room_initial_sync`].
@@ -134,6 +139,12 @@ pub(crate) async fn get_room_sync(
     }
 
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
+
+    if let Some(filter) = params.filter.as_deref() {
+        if !filter.is_empty() {
+            return Err(ApiError::invalid_param("The 'filter' parameter is not supported on this endpoint"));
+        }
+    }
 
     let timeout = params.timeout.unwrap_or(30000);
     let full_state = params.full_state.unwrap_or(false);

@@ -112,6 +112,9 @@ pub struct RoomContext {
     pub account_device_list_service: Arc<synapse_services::account_device_list_service::AccountDeviceListService>,
     /// The `push_notification_service` field.
     pub push_notification_service: Arc<synapse_services::push_notification_service::PushNotificationService>,
+    /// Inbox queries of `GET /rooms/{room_id}/notifications` (`only` filters and
+    /// keyset cursor share the global notifications implementation).
+    pub client_push_service: Arc<synapse_services::client_push_service::ClientPushService>,
     /// The `event_broadcaster` field.
     pub event_broadcaster: Arc<synapse_federation::EventBroadcaster>,
     /// The `cross_signing_service` field.
@@ -177,6 +180,7 @@ impl FromRef<AppState> for RoomContext {
             account_identity_service: state.services.account.account_identity_service.clone(),
             account_device_list_service: state.services.account.account_device_list_service.clone(),
             push_notification_service: state.services.admin.modules.push_notification_service.clone(),
+            client_push_service: state.services.core.client_push_service.clone(),
             event_broadcaster: state.services.core.event_broadcaster.clone(),
             cross_signing_service: state.services.e2ee.cross_signing_service.clone(),
             #[cfg(feature = "friends")]

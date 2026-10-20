@@ -550,6 +550,26 @@ impl MessagingService {
         limit: i64,
         direction: &str,
     ) -> ApiResult<serde_json::Value> {
+        self.get_room_messages_bounded(room_id, user_id, from, None, limit, direction).await
+    }
+
+    /// Same as [`Self::get_room_messages`] with an optional exclusive `to` bound.
+    ///
+    /// `to` closes the pagination interval: `dir=b` keeps only positions strictly
+    /// **after** `to`, `dir=f` only positions strictly **before** it. The bound is
+    /// applied in memory to the returned page (the storage cursor keeps advancing
+    /// on the unfiltered page), and a truncated page reports `to` as its `end`
+    /// token, so a client that keeps `to` fixed gets an empty final chunk instead
+    /// of events outside the interval.
+    pub async fn get_room_messages_bounded(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        from: Option<(i64, Option<i64>)>,
+        to: Option<(i64, Option<i64>)>,
+        limit: i64,
+        direction: &str,
+    ) -> ApiResult<serde_json::Value> {
         let is_member = self
             .member_storage
             .is_member(room_id, user_id)
@@ -599,6 +619,32 @@ impl MessagingService {
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get messages", e))?;
 
+        // `to` closes the interval. Applied to the returned page only, for the same
+        // reason as the history cut below: the cursor must keep advancing so a
+        // client pinned to the same `to` reaches an empty chunk instead of looping.
+        // A missing `stream_ordering` normalises to `i64::MIN`, so a legacy
+        // timestamp-only token sorts before every event in that millisecond.
+        let fetched_len = events.len();
+        let (events, truncated) = match to {
+            Some((to_ts, to_stream)) => {
+                let to_pos = (to_ts, to_stream.unwrap_or(i64::MIN));
+                let kept: Vec<_> = events
+                    .into_iter()
+                    .filter(|e| {
+                        let pos = (e.origin_server_ts, e.stream_ordering.unwrap_or(i64::MIN));
+                        if normalized_direction == "f" {
+                            pos < to_pos
+                        } else {
+                            pos > to_pos
+                        }
+                    })
+                    .collect();
+                let truncated = kept.len() != fetched_len;
+                (kept, truncated)
+            }
+            None => (events, false),
+        };
+
         // `m.room.history_visibility`: hide whatever happened before the caller was
         // involved in the room. The cut is applied to the **returned page only** —
         // the pagination cursor below is derived from the unfiltered page, so a
@@ -620,11 +666,16 @@ impl MessagingService {
             })
             .collect();
 
-        // 页尾事件带出 stream_ordering，生成复合游标，同毫秒事件不再丢失（ISSUE-06）
-        let end_token = events.last().map_or_else(
-            || start_token.clone(),
-            |event| generate_pagination_token(event.origin_server_ts, event.stream_ordering),
-        );
+        // 页尾事件带出 stream_ordering，生成复合游标，同毫秒事件不再丢失（ISSUE-06）。
+        // 被 `to` 截断时改报 bound 本身：下一次仍带同一个 `to` 的请求会得到空页，
+        // 客户端据此判定区间已走完，而不是继续拿到区间外的事件。
+        let end_token = match (truncated, to) {
+            (true, Some((to_ts, to_stream))) => generate_pagination_token(to_ts, to_stream),
+            _ => events.last().map_or_else(
+                || start_token.clone(),
+                |event| generate_pagination_token(event.origin_server_ts, event.stream_ordering),
+            ),
+        };
 
         Ok(json!({
             "chunk": event_list,

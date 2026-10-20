@@ -39,6 +39,20 @@ _spec.loader.exec_module(ex)
 FAILURES: list[str] = []
 CHECKS = 0
 
+# The P3 fixture: a dynamically typed `Query<..>` whose keys are only provable
+# from a same-file helper. Kept at module scope so both the positive check and
+# mutation#11 exercise the exact same source.
+P3_PROBE_SRC = """
+pub async fn via_probe(Query(query): Query<Vec<(String, String)>>) -> &'static str {
+    let _ = collect_via(&query);
+    "ok"
+}
+
+fn collect_via(pairs: &[(String, String)]) -> Vec<String> {
+    pairs.iter().filter(|(key, _)| key == "via").map(|(_, value)| value.clone()).collect()
+}
+"""
+
 
 def check(label: str, cond: bool, detail: str = "") -> None:
     global CHECKS
@@ -374,19 +388,20 @@ def check_bytes_manual_json_body(res: "ex.Resolver") -> None:
 
 
 def check_literal_query_evidence(res: "ex.Resolver") -> None:
-    """P3: a dynamic `Query<..>` handler is annotated only when a literal proves it.
+    """Query-key evidence: join/knock are typed, P3 literals still resolve.
 
-    `join_room_by_id_or_alias` and `knock_room` both take
-    `Query<Vec<(String, String)>>` and hand it to the same-file helper
-    `extract_via_servers`, which compares the pair's key against `"via"`. The
-    extractor must follow that hand-off, otherwise the two routes sit in the
-    `opaque` bucket as "key set decided at runtime" even though the key set is
-    perfectly provable from the source.
+    `join_room_by_id_or_alias` and `knock_room` used to take
+    `Query<Vec<(String, String)>>`, which forced the extractor to fall back to
+    string-literal evidence in the same-file helper `extract_via_servers`. They
+    now take the typed `Query<ViaQuery>` (the hand-written `Deserialize` visitor
+    is what lets one key repeat), so the key set must come from the struct —
+    `ok`, not `literal`. The SDK contract gate only compares key sets for
+    `typed` handlers, and `literal` degrades to "unknown", which is why the
+    struct is the contract-visible shape.
 
-    The second assertion pins *how* the evidence was obtained: the handler body
-    itself contains no `via` literal, so a pass can only come from the helper
-    walk. If a refactor inlines the literal, that assertion fails loudly instead
-    of silently weakening what this test proves.
+    The synthetic half keeps the P3 literal machinery itself under test: it is
+    still the mechanism for any future dynamic `Query<..>` handler, so it needs
+    a lock that does not depend on the real routes staying dynamic.
     """
     routes = (
         ("POST", "/_matrix/client/v3/join/{room_id_or_alias}"),
@@ -394,18 +409,25 @@ def check_literal_query_evidence(res: "ex.Resolver") -> None:
     )
     got = {key: res.handler_query_info(*key) for key in routes}
     check(
-        "dynamic `Query<..>` handlers expose provable literal keys (P3)",
+        "join/knock expose a typed `Query<ViaQuery>` key set",
         all(
-            status == "literal" and fields == ["via"]
+            status == "ok" and fields == ["via"]
             for status, fields, _type in got.values()
         ),
         str(got),
     )
-    handler_body = res._fn_body_in_file(
-        "handlers/room/members.rs", "join_room_by_id_or_alias"
-    )
+
+    probe = ex.Resolver({"probe_synthetic.rs": P3_PROBE_SRC})
+    probe.handlers[("GET", "/_synthetic/via")] = {("probe_synthetic.rs", "via_probe")}
+    probe_got = probe.handler_query_info("GET", "/_synthetic/via")
     check(
-        "the `via` evidence comes from the same-file helper, not the handler body",
+        "a dynamic `Query<..>` handler still exposes provable literal keys (P3)",
+        probe_got[0] == "literal" and probe_got[1] == ["via"],
+        f"got {probe_got!r}",
+    )
+    handler_body = probe._fn_body_in_file("probe_synthetic.rs", "via_probe")
+    check(
+        "the `via` P3 evidence comes from the same-file helper, not the handler body",
         handler_body is not None and not ex._literal_keys_of(handler_body, "query"),
         "the handler body is expected to hold no query-key literal of its own",
     )
@@ -1608,31 +1630,30 @@ def mutation_check() -> int:
     finally:
         ex._BYTES_EXTRACTOR = orig_bytes
 
-    # Mutation 11 — P3 literal evidence removed. With `_literal_keys_of`
-    # neutered, join/knock fall back to `manual` (opaque debt), so their pinned
-    # `query_params=via` rows must turn RED. A guard that still passed here
-    # would be accepting annotations with nothing behind them, which is exactly
-    # the `unknown:query` waiver P3 is not allowed to become.
+    # Mutation 11 — P3 literal evidence removed. join/knock are now typed
+    # (`Query<ViaQuery>`), so the live probe is the synthetic dynamic-query
+    # route: with `_literal_keys_of` neutered it must demote from `literal` to
+    # `manual`, exactly the status layer 5 of `check_annotation_fidelity`
+    # rejects for a route that declares `query_params=via`. A guard that still
+    # reported `literal` here would be inventing keys nothing can prove, which
+    # is the `unknown:query` waiver P3 is not allowed to become.
     orig_literal_keys_of = ex._literal_keys_of
     ex._literal_keys_of = lambda body, var: set()
     try:
-        res = resolve()
-        res.all_routes()
-        probe = (
-            ("POST", "/_matrix/client/v3/join/{room_id_or_alias}"),
-            ("POST", "/_matrix/client/v3/knock/{room_id_or_alias}"),
-        )
-        got = {key: res.handler_query_info(*key)[0] for key in probe}
-        failures = ex.check_annotation_fidelity(res)
-        if set(got.values()) == {"manual"} and failures:
+        probe = ex.Resolver({"probe_synthetic.rs": P3_PROBE_SRC})
+        probe.handlers[("GET", "/_synthetic/via")] = {
+            ("probe_synthetic.rs", "via_probe")
+        }
+        status = probe.handler_query_info("GET", "/_synthetic/via")[0]
+        if status == "manual":
             print(
-                f"  ok   mutation#11 (no literal evidence) turns the annotations RED "
-                f"({len(failures)} check(s) failed)"
+                "  ok   mutation#11 (no literal evidence) demotes the P3 route to "
+                "`manual`, which layer 5 rejects"
             )
         else:
             print(
                 "  FAIL mutation#11 did NOT turn the suite red — the P3 evidence "
-                f"guard is self-proving: {got}"
+                f"guard is self-proving: {status}"
             )
             bad += 1
     finally:

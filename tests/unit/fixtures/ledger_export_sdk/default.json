@@ -1389,6 +1389,7 @@
         "room_id"
       ],
       "query_params": [
+        "dir",
         "from",
         "include",
         "limit"
@@ -4072,7 +4073,9 @@
       "path": "/_matrix/federation/v1/query/destination",
       "registered_by": "federation",
       "path_params": [],
-      "query_params": []
+      "query_params": [
+        "destination"
+      ]
     },
     {
       "method": "GET",
@@ -5201,7 +5204,10 @@
       "path_params": [
         "room_id"
       ],
-      "query_params": []
+      "query_params": [
+        "from",
+        "limit"
+      ]
     },
     {
       "method": "GET",
@@ -5395,7 +5401,8 @@
       ],
       "query_params": [
         "from",
-        "limit"
+        "limit",
+        "only"
       ]
     },
     {
@@ -5737,6 +5744,7 @@
         "room_id"
       ],
       "query_params": [
+        "filter",
         "full_state",
         "since",
         "timeout",
@@ -5853,8 +5861,10 @@
       ],
       "query_params": [
         "dir",
+        "filter",
         "from",
-        "limit"
+        "limit",
+        "to"
       ]
     },
     {
@@ -6184,6 +6194,7 @@
       "registered_by": "thread",
       "path_params": [],
       "query_params": [
+        "dir",
         "from",
         "include",
         "limit"
@@ -6264,6 +6275,7 @@
         "room_id"
       ],
       "query_params": [
+        "dir",
         "from",
         "include",
         "limit"
@@ -7371,7 +7383,10 @@
       "path_params": [
         "destination"
       ],
-      "query_params": []
+      "query_params": [
+        "from",
+        "limit"
+      ]
     },
     {
       "method": "GET",

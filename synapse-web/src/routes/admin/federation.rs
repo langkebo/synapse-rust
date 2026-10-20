@@ -214,16 +214,45 @@ pub async fn delete_destination(
     Ok(Json(json!({})))
 }
 
+/// Query parameters accepted by [`get_destination_rooms`].
+///
+/// `from` is a plain offset (the SDK sends the `next_batch` value straight
+/// back). `limit` is clamped to the platform pagination bounds; a non-numeric
+/// value is rejected by the typed extractor with `400`.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DestinationRoomsQuery {
+    /// The `from` offset field.
+    pub from: Option<i64>,
+    /// The `limit` field.
+    pub limit: Option<i64>,
+}
+
 /// See [`get_destination_rooms`].
 #[axum::debug_handler]
 pub async fn get_destination_rooms(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(destination): Path<ServerName>,
+    Query(query): Query<DestinationRoomsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let room_list = ctx.admin_federation_service.get_destination_rooms(&destination).await?;
+    let total = room_list.len();
 
-    Ok(Json(json!({ "rooms": room_list, "total": room_list.len() })))
+    let limit = query.limit.unwrap_or(100).clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
+    let offset = query.from.unwrap_or(0);
+    if offset < 0 {
+        return Err(ApiError::invalid_param("from must be a non-negative offset"));
+    }
+
+    let start = usize::try_from(offset).unwrap_or(usize::MAX).min(total);
+    let take = usize::try_from(limit).unwrap_or(0);
+    let end = start.saturating_add(take).min(total);
+    let page: Vec<String> = room_list[start..end].to_vec();
+
+    let next_batch = if end < total { Some(end.to_string()) } else { None };
+
+    Ok(Json(json!({ "rooms": page, "total": total, "next_batch": next_batch })))
 }
 
 /// See [`rewrite_federation`].

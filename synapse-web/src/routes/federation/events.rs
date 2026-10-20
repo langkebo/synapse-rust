@@ -483,13 +483,28 @@ pub(super) async fn query_directory(
     })))
 }
 
+/// Query parameters accepted by [`query_destination`].
+///
+/// `destination` selects the remote server whose capabilities are reported;
+/// it defaults to this server. Unknown keys are ignored (the endpoint has
+/// always been tolerant), but the key set is typed so the contract can see it.
+#[derive(Debug, Default, Deserialize)]
+pub(super) struct QueryDestinationQuery {
+    #[serde(default)]
+    destination: Option<String>,
+}
+
 /// See [`query_destination`].
-pub(super) async fn query_destination(State(ctx): State<FederationContext>) -> Result<Json<Value>, ApiError> {
+pub(super) async fn query_destination(
+    State(ctx): State<FederationContext>,
+    Query(params): Query<QueryDestinationQuery>,
+) -> Result<Json<Value>, ApiError> {
     // Spec shape `{default, available}` — the builder already carries `default`.
     let room_versions = federation_room_versions_capability();
+    let destination = params.destination.filter(|d| !d.is_empty()).unwrap_or_else(|| ctx.server_name.clone());
     Ok(Json(json!({
         "server_name": ctx.server_name,
-        "destination": ctx.server_name,
+        "destination": destination,
         "retry_last_ts": 0,
         "retry_interval_ms": 0,
         "capabilities": {

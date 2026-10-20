@@ -1579,7 +1579,8 @@ EXPECTED_ANNOTATIONS = {
     ): {"query_params": "dir,from,limit,org.matrix.msc3981.recurse,recurse,to"},
     ("GET", "/_matrix/client/v1/rooms/{room_id}/threads"): {
         # B-20（2026-10-20）：`include_all`(bool) 换成规范的 `include=all|participated`。
-        "query_params": "from,include,limit"
+        # B-20 残留（2026-10-21）：`dir` 由「接受但忽略」改为真排序（`f`/`b`，其它 400）。
+        "query_params": "dir,from,include,limit"
     },
     ("GET", "/_matrix/vendor/v1/rooms/{room_id}/threads/search"): {
         # Q5（2026-10-15）给该 handler 加了 `from` 游标：handler 解析
@@ -1610,7 +1611,7 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/vendor/v1/spaces/{space_id}/rooms"): {
         "query_params": "from,limit"
     },
-    ("GET", "/_matrix/vendor/v1/threads"): {"query_params": "from,include,limit"},
+    ("GET", "/_matrix/vendor/v1/threads"): {"query_params": "dir,from,include,limit"},
     ("GET", "/_matrix/vendor/v1/threads/subscribed"): {"query_params": "from,limit"},
     ("GET", "/_matrix/client/v3/appservice/alias"): {"query_params": "alias"},
     ("GET", "/_matrix/client/v3/appservice/user"): {"query_params": "user_id"},
@@ -1662,7 +1663,7 @@ EXPECTED_ANNOTATIONS = {
         "query_params": "event_id,room_version"
     },
     ("GET", "/_matrix/vendor/v1/rooms/{room_id}/sync"): {
-        "query_params": "full_state,since,timeout,timeout_ms"
+        "query_params": "filter,full_state,since,timeout,timeout_ms"
     },
     ("GET", "/_matrix/client/v3/spaces/{space_id}/hierarchy"): {
         "query_params": "max_depth"
@@ -1688,10 +1689,13 @@ EXPECTED_ANNOTATIONS = {
     },
     ("GET", "/_matrix/media/v1/upload/chunk/progress"): {"query_params": "upload_id"},
     ("GET", "/_matrix/vendor/v1/user/{user_id}/rooms/{room_id}/threads"): {
-        "query_params": "from,include,limit"
+        "query_params": "dir,from,include,limit"
     },
     ("GET", "/_matrix/federation/v1/hierarchy/{room_id}"): {
         "query_params": "from,limit,max_depth,suggested_only"
+    },
+    ("GET", "/_matrix/federation/v1/query/destination"): {
+        "query_params": "destination"
     },
     ("GET", "/_matrix/federation/v1/query/profile"): {"query_params": "field,user_id"},
     ("GET", "/_matrix/federation/v1/query/profile/{user_id}"): {
@@ -1749,6 +1753,9 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_synapse/admin/v1/federation/blacklist"): {"query_params": "from,limit"},
     ("GET", "/_synapse/admin/v1/federation/destinations"): {
         "query_params": "from,limit,offset"
+    },
+    ("GET", "/_synapse/admin/v1/federation/destinations/{destination}/rooms"): {
+        "query_params": "from,limit"
     },
     ("GET", "/_synapse/admin/v1/federation/pending"): {"query_params": "from,limit"},
     ("GET", "/_synapse/admin/v1/invite/allowlist"): {"query_params": "limit,offset"},
@@ -1942,11 +1949,14 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/vendor/v1/rooms/{room_id}/members/recent"): {
         "query_params": "from,limit"
     },
-    ("GET", "/_matrix/vendor/v1/rooms/{room_id}/notifications"): {
+    ("GET", "/_matrix/vendor/v1/rooms/{room_id}/encrypted_events"): {
         "query_params": "from,limit"
     },
+    ("GET", "/_matrix/vendor/v1/rooms/{room_id}/notifications"): {
+        "query_params": "from,limit,only"
+    },
     ("GET", "/_matrix/vendor/v1/rooms/{room_id}/timeline"): {
-        "query_params": "dir,from,limit"
+        "query_params": "dir,filter,from,limit,to"
     },
     ("GET", "/_matrix/vendor/v1/user/mutual_rooms"): {
         "query_params": "batch_token,from,limit,user_id"
@@ -1981,11 +1991,11 @@ EXPECTED_ANNOTATIONS = {
     ("PUT", "/_matrix/media/v3/upload/{server_name}/{media_id}"): {
         "query_params": "content_type,filename"
     },
-    # P3: dynamic extractors (`Query<Vec<(String, String)>>`) whose key set is
-    # *proven* by string literals compared against the query key — here in the
-    # same-file helper `extract_via_servers`. These are evidence, not a struct:
-    # the guard re-derives the set from the literal comparison, so dropping or
-    # renaming that literal is RED, as is an undeclared literal key.
+    # join / knock: `via` is a repeated query key. The handlers take the typed
+    # `Query<ViaQuery>` whose hand-written `Deserialize` visitor pushes every
+    # occurrence (serde_urlencoded cannot derive `Vec<String>` from a repeated
+    # key), so the key set comes from the struct field — no literal-evidence
+    # fallback needed any more.
     ("POST", "/_matrix/client/v3/join/{room_id_or_alias}"): {"query_params": "via"},
     ("POST", "/_matrix/client/v3/knock/{room_id_or_alias}"): {"query_params": "via"},
     # -- unsupported: registered, reachable, but the documented response is not

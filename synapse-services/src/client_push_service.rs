@@ -34,6 +34,16 @@ pub struct NotificationsPage {
     pub next_token: Option<String>,
 }
 
+/// One page of a single room's notification list
+/// (`GET /_matrix/vendor/v1/rooms/{room_id}/notifications`).
+#[derive(Debug, Clone)]
+pub struct RoomNotificationsPage {
+    /// Room-shaped notification objects (legacy response shape of this endpoint).
+    pub notifications: Vec<Value>,
+    /// `next_token` of the response; `None` means this is the last page.
+    pub next_token: Option<String>,
+}
+
 /// The `only` filters of `GET /_matrix/client/v3/notifications`.
 ///
 /// Only the three enumerable filters are supported. The remaining Matrix
@@ -571,6 +581,72 @@ impl ClientPushService {
     /// filters and do not paginate.
     pub async fn get_notifications(&self, user_id: &str, limit: i64) -> Result<Vec<Value>, ApiError> {
         Ok(self.get_notifications_page(user_id, Some(limit), None, NotificationFilters::default()).await?.notifications)
+    }
+
+    /// One page of a **single room's** notifications, with the same `only`
+    /// filters and keyset cursor as the global inbox.
+    ///
+    /// The legacy room query could only order by `ts`, so `only=type:` /
+    /// `only=sender:` had nothing to match against (`notifications` has no event
+    /// type); reusing the inbox query gives those filters the backing event.
+    /// A `room_id:` filter that does not include `room_id` yields an empty page
+    /// instead of leaking other rooms into a room-scoped endpoint.
+    pub async fn get_room_notifications_page(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        limit: i64,
+        from: Option<&str>,
+        filters: NotificationFilters,
+    ) -> Result<RoomNotificationsPage, ApiError> {
+        if !filters.room_ids.is_empty() && !filters.room_ids.iter().any(|id| id == room_id) {
+            return Ok(RoomNotificationsPage { notifications: Vec::new(), next_token: None });
+        }
+
+        let limit = limit.clamp(1, MAX_NOTIFICATIONS_LIMIT);
+        let cursor = match from {
+            Some(from) if !from.is_empty() => Some(parse_notification_cursor(from)?),
+            _ => None,
+        };
+
+        let query = NotificationPageQuery {
+            // Clamped above, so `+ 1` cannot overflow.
+            limit: limit + 1,
+            cursor,
+            room_ids: vec![room_id.to_owned()],
+            event_types: filters.event_types,
+            senders: filters.senders,
+        };
+
+        let mut rows = self
+            .push_storage
+            .get_notifications(user_id, &query)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
+
+        let has_more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > limit;
+        rows.truncate(usize::try_from(limit).unwrap_or(0));
+        let next_token = if has_more { rows.last().map(|row| format!("{}_{}", row.ts, row.id)) } else { None };
+
+        let notifications = rows
+            .iter()
+            .map(|row| {
+                json!({
+                    "event_id": row.event_id,
+                    "room_id": row.room_id,
+                    "ts": row.ts,
+                    "profile_tag": row.profile_tag,
+                    "notification_type": row.notification_type,
+                    "read": row.is_read.unwrap_or(false),
+                    "room_name": Value::Null,
+                    "sender": Value::Null,
+                    "prio": "high",
+                    "client_action": "notify"
+                })
+            })
+            .collect();
+
+        Ok(RoomNotificationsPage { notifications, next_token })
     }
 
     /// See [`ack_notification`].

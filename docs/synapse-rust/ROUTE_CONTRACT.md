@@ -1,6 +1,6 @@
 # synapse-rust 路由契约（Route Contract）
 
-> 自动生成于 2026-10-20，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含按 profile 拆分的 `derived_route_table_{always,worker,oidc}.inc.rs`）派生覆盖。
+> 自动生成于 2026-10-21，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含按 profile 拆分的 `derived_route_table_{always,worker,oidc}.inc.rs`）派生覆盖。
 >
 > 本文件是后端 HTTP 契约的**事实来源之一**（机器侧权威为 `derived_routes.rs` 生成的 `RouteLedger`，启动时校验、集成测试 PATCH 探测）。人工文档（INDEX.md / API_COVERAGE_REPORT.md）须与之保持一致。
 >
@@ -1521,14 +1521,21 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 | `literal` | 动态提取器（如 `Query<Vec<(String, String)>>`），但键名可由 handler 内的字符串字面量证明 | **键名可比对**（`query_params` 是证明出来的键集）；值类型不可比 |
 | `opaque` / `ambiguous` | 键集在运行时决定，或无单一 handler 定义 | 记为「不可判」，不要当成「后端未声明」 |
 
-当前 `query: literal` 恰好 **2** 条，均为「重复 key」语义，**不是**「未知」：
+当前 `query: literal` 为 **0** 条：原先仅有的两条（join/knock）已改为类型化
+`Query<ViaQuery>`（手写 `Deserialize` 的 `visit_map` 逐次 `push`，以满足重复 key），
+因此现在是 `typed`，键集为 `via`。`literal` 机制本身仍保留给任何未来的动态提取器，
+并由 `test_extract_registered.py` 的合成 probe（含 mutation#11）锁定。
 
 | Method | Path | 提取器 | 可证明键 |
 |---|---|---|---|
-| `POST` | `/_matrix/client/v3/join/{room_id_or_alias}` | `Query<Vec<(String,String)>>` → `extract_via_servers` | `via`（可重复） |
+| `POST` | `/_matrix/client/v3/join/{room_id_or_alias}` | `Query<ViaQuery>`（手写 `Deserialize`） | `via`（可重复） |
 | `POST` | `/_matrix/client/v3/knock/{room_id_or_alias}` | 同上 | `via`（可重复） |
 
-说明：这两条之所以不是 `typed`，是因为 `serde_urlencoded` 无法把**重复 key** 反序列化进 `Vec<T>` 字段之外的形状，handler 用 pair 向量自行聚合；除 `via` 外的 query key 会被忽略（不报错）。SDK 只需保证 `viaServers` 以 `?via=a&via=b` 形式发送，不要发 `via[]=` 或 JSON。
+说明：之所以手写 `Deserialize` 而不是 `#[derive(Deserialize)]`，是因为
+`serde_urlencoded` 对 `Vec<String>` 字段遇到重复 key 会报 duplicate field；`visit_map`
+里逐次 `push` 才能让 `?via=a&via=b` 成立，同时字段名对契约扫描器可见。
+除 `via` 外的 query key 会被忽略（不报错）。SDK 只需保证 `viaServers` 以
+`?via=a&via=b` 形式发送，不要发 `via[]=` 或 JSON。
 
 ### A.5 2026-10-20 语义补齐（`/notifications` 与 vendor keys）
 
@@ -2180,3 +2187,54 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 | golden × default 路由数 | 967 | **968** | `+POST /_synapse/admin/v1/deactivate/{user_id}`（voice 仅 sdk） |
 | ledger fixture（sdk all） | 1046 | **1048** | 同上 |
 | `.sqlx` 查询缓存 | 1336 | **1339** | B-22 的 client 查询与 B-26 的 `count_*` 新增语句 |
+
+### E.14 2026-10-21 B-29 / B-20 残留与工具面类型化 query
+
+本轮**不改路由数**（仍为 golden × default 968、sdk × all 1048），只补齐三处可选参数的
+真实语义、一处「接受但忽略」，并把 5 条动态 query 提取器改为类型化 `Query<T>`。
+口径统一为：**能力要么真实现，要么显式 400**，不存在「接受后静默丢弃」。
+
+#### 1. room-summary 的三个可选参数（B-29 残留）
+
+| 端点 | 参数 | 语义 |
+|---|---|---|
+| `GET /_matrix/vendor/v1/rooms/{room_id}/timeline` | `to` | `[from, to]` 区间上界（**exclusive**）；位置元组 `(origin_server_ts, stream_ordering)`；`dir` 决定保留哪一侧。被 `to` 截断时响应 `end` 回显 `to` 的 token，客户端保持 `to` 不变再请求会得到空 chunk |
+| 同上 | `filter` | **不实现**：非空即 **400 `M_INVALID_PARAM`**（与 `/messages` 同一口径） |
+| `GET /_matrix/vendor/v1/rooms/{room_id}/sync` | `filter` | **不实现**：先做房间可见性校验，非空即 **400 `M_INVALID_PARAM`** |
+| `GET /_matrix/vendor/v1/rooms/{room_id}/notifications` | `only` | **可重复**，与全局 `/notifications` 同口径：`room_id:` / `type:` / `sender:`；未知 key、缺 `:`、空值 → 400。`from` 游标与 `next_token` 也改用同一套 keyset 实现，条目字段形状不变 |
+
+1. `timeline` 的 `to` 是**内存截断**，不额外打一次 SQL：先按原分页取数，再按位置元组
+   切掉区间外的事件；`dir=f` 保留 `pos < to`，`dir=b` 保留 `pos > to`。
+2. `only=room_id:<其它房间>` 在房间级端点上返回**空页**而不是 400——这是过滤条件，
+   不是语法错误。
+3. 选择「显式 400」而不是「接受并忽略」：客户端依赖 `filter` 时会拿到未过滤的全量数据，
+   静默丢弃比报错更危险。
+
+#### 2. threads 的 `dir`（B-20 残留）
+
+| 端点 | `dir` |
+|---|---|
+| `GET /_matrix/client/v1/rooms/{room_id}/threads` | ✅ `b`（缺省）/ `f` |
+| `GET /_matrix/vendor/v1/threads` | ✅ 同上 |
+| `GET /_matrix/vendor/v1/user/{user_id}/rooms/{room_id}/threads` | ✅ 同上 |
+
+1. `b` = 最近活跃优先（`updated_ts` 降序 → `created_ts` 降序 → `thread_id` 升序），
+   这是历史实际顺序；`f` 是整条比较链的严格逆序。
+2. 其它取值 → **400 `M_INVALID_PARAM`**，不再「接受但忽略」。
+3. 实现方式是**扫全量 + 内存排序分页**（每次向存储要 500 条直到游标耗尽），因为存储层
+   的 `list_thread_roots` 以 `thread_id` 升序做 keyset，改排序方向需要新的静态 SQL 文本。
+   `next_batch` 仍是同一条活动序列上的游标，`dir` 只改方向不改游标形状。
+
+#### 3. 工具面 5 条改为类型化 `Query<T>`
+
+| 端点 | 结构体 | 键 | 备注 |
+|---|---|---|---|
+| `POST /_matrix/client/v3/join/{room_id_or_alias}` | `ViaQuery` | `via`（可重复） | 手写 `Deserialize`；`via` 优先于 body 的 `via_servers` |
+| `POST /_matrix/client/v3/knock/{room_id_or_alias}` | `ViaQuery` | 同上 | 同上 |
+| `GET /_matrix/federation/v1/query/destination` | `QueryDestinationQuery` | `destination` | 缺省为本服务器 |
+| `GET /_synapse/admin/v1/federation/destinations/{destination}/rooms` | `DestinationRoomsQuery` | `from`, `limit` | `from` 为非负偏移（传 `next_batch` 回填）；`limit` 夹紧到平台上下限；响应含 `next_batch`（仅当还有更多） |
+| `GET /_matrix/vendor/v1/rooms/{room_id}/encrypted_events` | `EncryptedEventsQuery` | `from`, `limit` | `from` 为最新优先时间线上的偏移；内部多取 1 条以判定 `next_batch` |
+
+改类型化的目的不只是「让契约生成器有键集」：`Query<HashMap>` 的键在运行时才确定，
+SDK 门禁只能落到 `backend-query-unknown`；类型化后 `query` 分类为 `typed`，键集可逐字段
+比对，并且非数字的 `from` / `limit` 会由提取器直接 **400**，而不是被静默忽略。

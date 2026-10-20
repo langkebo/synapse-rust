@@ -16,50 +16,56 @@ use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
-/// Percent-decodes a single application/x-www-form-urlencoded component.
-///
-/// `+` is decoded as a space (form encoding), and malformed `%` sequences are
-/// passed through verbatim rather than rejected — a bad `via` hint must not
-/// turn a join into a 400.
-fn percent_decode_component(raw: &str) -> String {
-    let bytes = raw.as_bytes();
-    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'+' => {
-                out.push(b' ');
-                i += 1;
-            }
-            b'%' if i + 2 < bytes.len() => {
-                let hi = (bytes[i + 1] as char).to_digit(16);
-                let lo = (bytes[i + 2] as char).to_digit(16);
-                match (hi, lo) {
-                    (Some(hi), Some(lo)) => {
-                        out.push((hi * 16 + lo) as u8);
-                        i += 3;
-                    }
-                    _ => {
-                        out.push(bytes[i]);
-                        i += 1;
-                    }
-                }
-            }
-            b => {
-                out.push(b);
-                i += 1;
-            }
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
-/// Extracts the spec-defined `via` server list for join/knock.
+/// Query string of `join` / `knock`: the spec's repeated `via` hint.
 ///
 /// Matrix `POST /_matrix/client/v3/join/{roomIdOrAlias}` and
 /// `POST /_matrix/client/v3/knock/{roomIdOrAlias}` take `via` as a **repeated
 /// query parameter** (`?via=srv1&via=srv2`), not as a JSON body field — see
 /// ruma's `join_room_by_id_or_alias` and MSC4156 (`server_name` → `via`).
+///
+/// The visitor is hand-written because the form decoder behind `Query` cannot
+/// map repeated keys onto a `Vec` through a derived `Deserialize` (it reports a
+/// duplicate field instead). Unknown keys are ignored; percent-decoding
+/// (`%3A`, `+`) already happened in the decoding layer.
+#[derive(Debug, Default)]
+pub(crate) struct ViaQuery {
+    pub(crate) via: Vec<String>,
+}
+
+impl<'de> Deserialize<'de> for ViaQuery {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct ViaQueryVisitor;
+        impl<'de> serde::de::Visitor<'de> for ViaQueryVisitor {
+            type Value = ViaQuery;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("the query string of POST /join/{room_id_or_alias} or /knock/{room_id_or_alias}")
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<ViaQuery, A::Error>
+            where
+                A: serde::de::MapAccess<'de>,
+            {
+                let mut query = ViaQuery::default();
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "via" => query.via.push(map.next_value()?),
+                        _ => {
+                            map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(query)
+            }
+        }
+        deserializer.deserialize_map(ViaQueryVisitor)
+    }
+}
+
+/// Extracts the spec-defined `via` server list for join/knock.
 ///
 /// Before this fix the join handler read a non-standard body key
 /// `via_servers`, so the standard client payload `{"via":[...]}` was silently
@@ -68,13 +74,8 @@ fn percent_decode_component(raw: &str) -> String {
 ///
 /// `legacy_body_via_servers` is retained as a back-compat fallback so
 /// deployments already sending the old shape keep working; `via` always wins.
-pub(crate) fn extract_via_servers(query: &[(String, String)], legacy_body_via_servers: Option<&Value>) -> Vec<String> {
-    let from_query: Vec<String> = query
-        .iter()
-        .filter(|(k, _)| k == "via")
-        .map(|(_, v)| percent_decode_component(v))
-        .filter(|v| !v.is_empty())
-        .collect();
+pub(crate) fn extract_via_servers(query_via: &[String], legacy_body_via_servers: Option<&Value>) -> Vec<String> {
+    let from_query: Vec<String> = query_via.iter().filter(|v| !v.is_empty()).cloned().collect();
 
     if !from_query.is_empty() {
         return from_query;
@@ -144,7 +145,7 @@ pub(crate) async fn join_room_by_id_or_alias(
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id_or_alias): Path<String>,
-    Query(query): Query<Vec<(String, String)>>,
+    Query(query): Query<ViaQuery>,
     body: Option<MatrixJson<JoinRoomByIdOrAliasBody>>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -153,7 +154,7 @@ pub(crate) async fn join_room_by_id_or_alias(
     // `via_servers` kept as a back-compat fallback. See
     // [`extract_via_servers`].
     let legacy_via = body.as_ref().and_then(|b| b.via_servers.as_ref());
-    let via_servers = extract_via_servers(&query, legacy_via);
+    let via_servers = extract_via_servers(&query.via, legacy_via);
     let reason = body.as_ref().and_then(|b| b.reason.as_deref());
     validate_moderation_reason(reason)?;
     let third_party_signed = body.as_ref().and_then(|b| b.third_party_signed.as_ref());
@@ -287,7 +288,7 @@ pub(crate) async fn knock_room(
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id_or_alias): Path<String>,
-    Query(query): Query<Vec<(String, String)>>,
+    Query(query): Query<ViaQuery>,
     MatrixJson(body): MatrixJson<KnockRoomBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -299,7 +300,7 @@ pub(crate) async fn knock_room(
     // *accepted* rather than silently dropped, and logged so an operator can
     // see that a client asked for federated knock. When federated knocking is
     // implemented, thread this into the service call.
-    let via_servers = extract_via_servers(&query, body.via_servers.as_ref());
+    let via_servers = extract_via_servers(&query.via, body.via_servers.as_ref());
 
     let room_id = if room_id_or_alias.starts_with('!') {
         validate_room_id(&room_id_or_alias)?;
@@ -839,39 +840,42 @@ mod via_servers_tests {
     //! Reference: ruma `join_room_by_id_or_alias` (via is a repeated query
     //! parameter) and MSC4156 ("Migrate server_name to via").
 
-    use super::{extract_via_servers, percent_decode_component};
+    use super::{extract_via_servers, ViaQuery};
+    use axum::extract::Query;
     use serde_json::json;
 
-    fn q(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
-        pairs.iter().map(|(k, v)| ((*k).to_string(), (*v).to_string())).collect()
+    /// Parses a query string the way Axum does for the handlers under test.
+    fn parse_via_query(query: &str) -> Vec<String> {
+        let uri: axum::http::Uri = format!("/_matrix/client/v3/join/x{query}").parse().expect("valid uri");
+        Query::<ViaQuery>::try_from_uri(&uri).expect("query parses").0.via
     }
 
     // ------------------------------------------------------------------
-    // percent decoding
+    // typed query decoding
     // ------------------------------------------------------------------
 
     #[test]
-    fn percent_decode_leaves_plain_text_untouched() {
-        assert_eq!(percent_decode_component("matrix.org"), "matrix.org");
+    fn reads_repeated_via_query_parameter() {
+        assert_eq!(parse_via_query("?via=srv1.example&via=srv2.example"), vec!["srv1.example", "srv2.example"]);
     }
 
     #[test]
-    fn percent_decode_handles_encoded_characters() {
-        assert_eq!(percent_decode_component("a%2Eb"), "a.b");
-        // `%3A` is ':' — a port-bearing server name would arrive encoded.
-        assert_eq!(percent_decode_component("srv%3A8448"), "srv:8448");
+    fn percent_decodes_encoded_via_values() {
+        assert_eq!(parse_via_query("?via=srv%3A8448"), vec!["srv:8448"]);
+        // `+` is form-encoded space; a bad hint must not turn a join into a 400.
+        assert_eq!(parse_via_query("?via=a+b"), vec!["a b"]);
+        assert_eq!(parse_via_query("?via=100%"), vec!["100%"]);
+        assert_eq!(parse_via_query("?via=%zz"), vec!["%zz"]);
     }
 
     #[test]
-    fn percent_decode_treats_plus_as_space() {
-        assert_eq!(percent_decode_component("a+b"), "a b");
+    fn unrelated_query_parameters_are_ignored_by_the_extractor_type() {
+        assert_eq!(parse_via_query("?limit=10&dir=f&via=srv1.example"), vec!["srv1.example"]);
     }
 
     #[test]
-    fn percent_decode_passes_malformed_sequences_through() {
-        // A bad `via` hint must not turn a join into a 400.
-        assert_eq!(percent_decode_component("100%"), "100%");
-        assert_eq!(percent_decode_component("%zz"), "%zz");
+    fn absent_via_yields_no_values() {
+        assert!(parse_via_query("").is_empty());
     }
 
     // ------------------------------------------------------------------
@@ -879,21 +883,8 @@ mod via_servers_tests {
     // ------------------------------------------------------------------
 
     #[test]
-    fn reads_repeated_via_query_parameter() {
-        let query = q(&[("via", "srv1.example"), ("via", "srv2.example")]);
-        assert_eq!(extract_via_servers(&query, None), vec!["srv1.example", "srv2.example"]);
-    }
-
-    #[test]
-    fn reads_percent_encoded_via_query_parameter() {
-        let query = q(&[("via", "srv%3A8448")]);
-        assert_eq!(extract_via_servers(&query, None), vec!["srv:8448"]);
-    }
-
-    #[test]
-    fn empty_via_values_are_dropped() {
-        let query = q(&[("via", ""), ("via", "srv1.example")]);
-        assert_eq!(extract_via_servers(&query, None), vec!["srv1.example"]);
+    fn drops_empty_via_values() {
+        assert_eq!(extract_via_servers(&["".to_string(), "srv1.example".to_string()], None), vec!["srv1.example"]);
     }
 
     // ------------------------------------------------------------------
@@ -908,10 +899,9 @@ mod via_servers_tests {
 
     #[test]
     fn query_via_wins_over_legacy_body_key() {
-        let query = q(&[("via", "query.example")]);
         let legacy = json!(["legacy.example"]);
         assert_eq!(
-            extract_via_servers(&query, Some(&legacy)),
+            extract_via_servers(&["query.example".to_string()], Some(&legacy)),
             vec!["query.example"],
             "规范参数 `via` 必须优先于遗留 body 键 `via_servers`"
         );
@@ -937,11 +927,5 @@ mod via_servers_tests {
     fn returns_empty_when_no_via_anywhere() {
         assert!(extract_via_servers(&[], None).is_empty());
         assert!(extract_via_servers(&[], Some(&json!([]))).is_empty());
-    }
-
-    #[test]
-    fn unrelated_query_parameters_are_ignored() {
-        let query = q(&[("limit", "10"), ("dir", "f"), ("via", "srv1.example")]);
-        assert_eq!(extract_via_servers(&query, None), vec!["srv1.example"]);
     }
 }

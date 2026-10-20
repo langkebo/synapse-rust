@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use synapse_common::current_timestamp_millis;
 use synapse_common::map_internal;
-use synapse_common::ApiError;
+use synapse_common::{ApiError, MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use synapse_services::event::CreateEventParams;
 
 /// See [`get_single_event`].
@@ -144,12 +144,53 @@ pub(crate) async fn get_room_thread(
 
 /// The `GET /rooms/{roomId}/notifications` query parameters.
 ///
-/// Deliberately **not** `deny_unknown_fields`: the handler used to take a bare
-/// query map and ignored unknown parameters.
-#[derive(Debug, Default, Deserialize)]
+/// `only` is **repeatable** (`?only=type:m.room.message&only=sender:@a:b`), and
+/// the `serde_urlencoded` deserializer behind `axum::extract::Query` rejects a
+/// repeated key in a derived struct with "duplicate field" — hence the
+/// hand-written `Deserialize` (same pattern as `routes/push.rs`). Unknown
+/// parameters are ignored, as Matrix requires for query strings.
+#[derive(Debug, Default)]
 pub(crate) struct RoomNotificationsQuery {
     pub(crate) from: Option<String>,
     pub(crate) limit: Option<String>,
+    pub(crate) only: Vec<String>,
+}
+
+impl<'de> Deserialize<'de> for RoomNotificationsQuery {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct RoomNotificationsQueryVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for RoomNotificationsQueryVisitor {
+            type Value = RoomNotificationsQuery;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("the query string of GET /rooms/{room_id}/notifications")
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<RoomNotificationsQuery, A::Error>
+            where
+                A: serde::de::MapAccess<'de>,
+            {
+                let mut query = RoomNotificationsQuery::default();
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "from" => query.from = map.next_value()?,
+                        "limit" => query.limit = map.next_value()?,
+                        "only" => query.only.push(map.next_value()?),
+                        _ => {
+                            map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(query)
+            }
+        }
+
+        deserializer.deserialize_map(RoomNotificationsQueryVisitor)
+    }
 }
 
 /// The `GET /rooms/{roomId}/messages` query parameters.
@@ -167,11 +208,17 @@ pub(crate) struct RoomMessagesQuery {
 }
 
 /// The `GET /rooms/{roomId}/timeline` query parameters.
+///
+/// `to` closes the `[from, to]` pagination interval (exclusive bound); `filter`
+/// is accepted by the spec shape but not implemented here, so the handler
+/// rejects a non-empty value instead of silently returning unfiltered events.
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct RoomTimelineQuery {
     pub(crate) from: Option<String>,
+    pub(crate) to: Option<String>,
     pub(crate) limit: Option<String>,
     pub(crate) dir: Option<String>,
+    pub(crate) filter: Option<String>,
 }
 
 /// See [`get_room_notifications`].
@@ -183,37 +230,17 @@ pub(crate) async fn get_room_notifications(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let limit = query.limit.as_deref().and_then(|v| v.parse().ok()).unwrap_or(20);
+    let limit = query.limit.as_deref().and_then(|v| v.parse::<i64>().ok()).unwrap_or(20);
+    let filters = synapse_services::client_push_service::NotificationFilters::from_only_params(&query.only)?;
 
-    let _from = query.from;
-
-    let notifications = ctx
-        .push_notification_service
-        .get_room_notifications(&auth_user.user_id, &room_id, limit)
-        .await
-        .map_err(map_internal!("Database error"))?;
-
-    let notifications_list: Vec<Value> = notifications
-        .iter()
-        .map(|n| {
-            json!({
-                "event_id": n.event_id,
-                "room_id": n.room_id,
-                "ts": n.ts,
-                "profile_tag": n.profile_tag,
-                "notification_type": n.notification_type,
-                "read": n.is_read.unwrap_or(false),
-                "room_name": None::<Value>,
-                "sender": None::<Value>,
-                "prio": "high",
-                "client_action": "notify"
-            })
-        })
-        .collect();
+    let page = ctx
+        .client_push_service
+        .get_room_notifications_page(&auth_user.user_id, &room_id, limit, query.from.as_deref(), filters)
+        .await?;
 
     Ok(Json(json!({
-        "notifications": notifications_list,
-        "next_token": None::<String>
+        "notifications": page.notifications,
+        "next_token": page.next_token
     })))
 }
 
@@ -464,11 +491,23 @@ pub(crate) async fn get_room_timeline(
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
     let from = parse_room_messages_from_token(query.from.as_deref())?;
+    let to = parse_room_messages_from_token(query.to.as_deref())?;
     let limit = query.limit.as_deref().and_then(|s| s.parse::<u64>().ok()).unwrap_or(10).clamp(1, 1000) as i64;
     let direction = parse_pagination_direction(query.dir.as_deref())?;
 
+    // Same stance as `/messages`: an unimplemented `filter` is rejected instead
+    // of being accepted and dropped.
+    if let Some(filter) = query.filter.as_deref() {
+        if !filter.is_empty() {
+            return Err(ApiError::invalid_param("The 'filter' parameter is not supported on this endpoint"));
+        }
+    }
+
     Ok(Json(
-        ctx.room_service.messaging().get_room_messages(&room_id, &auth_user.user_id, from, limit, direction).await?,
+        ctx.room_service
+            .messaging()
+            .get_room_messages_bounded(&room_id, &auth_user.user_id, from, to, limit, direction)
+            .await?,
     ))
 }
 
@@ -495,11 +534,23 @@ pub(crate) async fn get_room_unread_count(
     })))
 }
 
+/// Query parameters accepted by [`get_room_encrypted_events`].
+///
+/// `from` is a plain offset into the newest-first encrypted timeline and
+/// `limit` is clamped to the platform pagination bounds. A non-numeric value is
+/// rejected by the typed extractor with `400`.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct EncryptedEventsQuery {
+    pub from: Option<i64>,
+    pub limit: Option<i64>,
+}
+
 /// See [`get_room_encrypted_events`].
 pub(crate) async fn get_room_encrypted_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
+    Query(query): Query<EncryptedEventsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await.map_err(map_internal!("Failed to check room existence"))? {
@@ -508,15 +559,32 @@ pub(crate) async fn get_room_encrypted_events(
 
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
+    let limit = query.limit.unwrap_or(100).clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
+    let offset = query.from.unwrap_or(0);
+    if offset < 0 {
+        return Err(ApiError::invalid_param("from must be a non-negative offset"));
+    }
+
+    // Fetch one extra row so `next_batch` reflects whether more events remain
+    // rather than whether this page happened to be exactly full.
+    let fetch_limit = offset.saturating_add(limit).saturating_add(1);
     let encrypted_events = ctx
         .room_service
         .messaging()
-        .get_room_events_by_type(&room_id, "m.room.encrypted", 100)
+        .get_room_events_by_type(&room_id, "m.room.encrypted", fetch_limit)
         .await
         .map_err(map_internal!("Failed to get encrypted events"))?;
 
+    let total_fetched = encrypted_events.len();
+    let start = usize::try_from(offset).unwrap_or(usize::MAX).min(total_fetched);
+    let take = usize::try_from(limit).unwrap_or(0);
+    let end = start.saturating_add(take).min(total_fetched);
+    let has_more = end < total_fetched;
+
     let events: Vec<serde_json::Value> = encrypted_events
         .into_iter()
+        .skip(start)
+        .take(end.saturating_sub(start))
         .map(|e| {
             serde_json::json!({
                 "event_id": e.event_id,
@@ -529,10 +597,13 @@ pub(crate) async fn get_room_encrypted_events(
         })
         .collect();
 
+    let next_batch = if has_more { Some(end.to_string()) } else { None };
+
     Ok(Json(serde_json::json!({
         "room_id": room_id,
         "events": events,
-        "total": events.len()
+        "total": events.len(),
+        "next_batch": next_batch
     })))
 }
 

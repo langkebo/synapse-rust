@@ -90,13 +90,66 @@ struct SearchQuery {
     from: Option<String>,
 }
 
-/// 话题列表的分页 + `include` 参数（`/threads`、全局 `/threads` 与用户级列表共用）。
+/// 话题列表的分页 + `include` + `dir` 参数（`/threads`、全局 `/threads` 与用户级列表共用）。
 #[derive(Debug, Deserialize)]
 struct ListQuery {
     limit: Option<i32>,
     from: Option<String>,
     /// 规范取值 `all`（缺省）或 `participated`；其它值一律 400 `M_INVALID_PARAM`。
     include: Option<String>,
+    /// 排序方向：`b`（缺省，最近活跃优先）或 `f`（最早活跃优先）；其它值 400 `M_INVALID_PARAM`。
+    dir: Option<String>,
+}
+
+/// 扫全量话题时单页请求的条数（存储层以 `thread_id` 升序做游标）。
+const THREAD_SCAN_PAGE_SIZE: i32 = 500;
+
+/// 把 `dir` 解析成排序方向。
+///
+/// `b`（backward）是规范缺省值，也是历史上实际返回的顺序（最近活跃优先）；
+/// `f` 是它的严格逆序。其它取值一律 400，而不是静默按缺省值处理（审计 B-20）。
+fn resolve_thread_direction(dir: Option<&str>) -> Result<&'static str, ApiError> {
+    match dir {
+        None | Some("b") => Ok("b"),
+        Some("f") => Ok("f"),
+        Some(other) => Err(ApiError::invalid_param(format!("Invalid dir value '{other}': expected 'f' or 'b'"))),
+    }
+}
+
+/// 按"最近活跃优先"排序（`updated_ts` 降序 → `created_ts` 降序 → `thread_id` 升序）。
+///
+/// `dir=f` 时取整条比较链的逆序，因此 `f` 与 `b` 的分页游标是同一条序列上的两个方向。
+fn sort_threads_by_activity(threads: &mut [synapse_services::thread_service::ThreadSummary], direction: &str) {
+    threads.sort_by(|a, b| {
+        let ordering = b
+            .updated_ts
+            .cmp(&a.updated_ts)
+            .then_with(|| b.created_ts.cmp(&a.created_ts))
+            .then_with(|| a.thread_id.cmp(&b.thread_id));
+        if direction == "f" {
+            ordering.reverse()
+        } else {
+            ordering
+        }
+    });
+}
+
+/// 以 `from`（上一页最后一个 `thread_id`）为锚点，从已排序的话题里切出一页。
+fn paginate_threads(
+    threads: Vec<synapse_services::thread_service::ThreadSummary>,
+    limit: Option<i32>,
+    from: Option<&str>,
+) -> (Vec<synapse_services::thread_service::ThreadSummary>, Option<String>, i32) {
+    let start =
+        from.and_then(|token| threads.iter().position(|thread| thread.thread_id == token)).map_or(0, |idx| idx + 1);
+
+    let total = threads.len() as i32;
+    let page_size = limit.unwrap_or(20).max(1) as usize;
+    let page: Vec<_> = threads.into_iter().skip(start).take(page_size).collect();
+    let next_batch =
+        if start + page.len() < total as usize { page.last().map(|thread| thread.thread_id.clone()) } else { None };
+
+    (page, next_batch, total)
 }
 
 /// 只接受分页参数的查询串（`/replies`、已订阅列表）。
@@ -297,6 +350,7 @@ async fn list_visible_threads(
     limit: Option<i32>,
     from: Option<&str>,
     participated_by: Option<&str>,
+    direction: &str,
 ) -> Result<ThreadListResponse, ApiError> {
     let room_ids = ctx.room_service.membership().get_joined_rooms(user_id).await?;
 
@@ -314,21 +368,56 @@ async fn list_visible_threads(
         threads.append(&mut response.threads);
     }
 
-    threads.sort_by(|a, b| {
-        b.updated_ts
-            .cmp(&a.updated_ts)
-            .then_with(|| b.created_ts.cmp(&a.created_ts))
-            .then_with(|| a.thread_id.cmp(&b.thread_id))
-    });
+    sort_threads_by_activity(&mut threads, direction);
+    let (page, next_batch, total) = paginate_threads(threads, limit, from);
 
-    let start =
-        from.and_then(|token| threads.iter().position(|thread| thread.thread_id == token)).map_or(0, |idx| idx + 1);
+    Ok(ThreadListResponse { threads: page, next_batch, total })
+}
 
-    let total = threads.len() as i32;
-    let page_size = limit.unwrap_or(20).max(1) as usize;
-    let page: Vec<_> = threads.into_iter().skip(start).take(page_size).collect();
-    let next_batch =
-        if start + page.len() < total as usize { page.last().map(|thread| thread.thread_id.clone()) } else { None };
+/// 拉取房间内**全部**话题后再排序分页。
+///
+/// 存储层的游标是 `thread_id` 升序（`thread_id > $from`），无法表达 `dir=b` 的
+/// "最近活跃优先"顺序；而 SQL 改动需要新的 `.sqlx` 缓存。这里按 `thread_id`
+/// 游标把房间话题逐页扫完，再在内存里用与全局列表相同的比较链排序 —— 两个端点的
+/// `dir` 语义因此完全一致（审计 B-20）。
+async fn list_room_threads(
+    ctx: &RoomContext,
+    room_id: &str,
+    limit: Option<i32>,
+    from: Option<&str>,
+    participated_by: Option<&str>,
+    direction: &str,
+) -> Result<ThreadListResponse, ApiError> {
+    let mut threads = Vec::new();
+    let mut cursor: Option<String> = None;
+
+    loop {
+        let response = ctx
+            .thread_service
+            .list_threads(ListThreadsRequest {
+                room_id: room_id.to_string(),
+                limit: Some(THREAD_SCAN_PAGE_SIZE),
+                from: cursor.clone(),
+                participated_by: participated_by.map(str::to_string),
+            })
+            .await?;
+
+        let next = response.next_batch.clone();
+        let fetched = response.threads.len();
+        threads.extend(response.threads);
+
+        // 存储层无论是否满页都会给 `next_batch`；只有满页且游标确实推进时才继续，
+        // 否则会多打一次空查询（甚至死循环）。
+        match next {
+            Some(token) if fetched >= THREAD_SCAN_PAGE_SIZE as usize && Some(&token) != cursor.as_ref() => {
+                cursor = Some(token);
+            }
+            _ => break,
+        }
+    }
+
+    sort_threads_by_activity(&mut threads, direction);
+    let (page, next_batch, total) = paginate_threads(threads, limit, from);
 
     Ok(ThreadListResponse { threads: page, next_batch, total })
 }
@@ -358,14 +447,19 @@ async fn list_threads(
 ) -> Result<Json<ThreadListResponse>, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, &room_id).await?;
 
-    let request = ListThreadsRequest {
-        room_id: room_id.to_string(),
-        limit: query.limit,
-        from: query.from,
-        participated_by: resolve_thread_participant_filter(query.include.as_deref(), &auth_user.user_id)?,
-    };
+    let direction = resolve_thread_direction(query.dir.as_deref())?;
+    let participated_by = resolve_thread_participant_filter(query.include.as_deref(), &auth_user.user_id)?;
 
-    let response = ctx.thread_service.list_threads(request).await?;
+    let response = list_room_threads(
+        &ctx,
+        room_id.as_str(),
+        query.limit,
+        query.from.as_deref(),
+        participated_by.as_deref(),
+        direction,
+    )
+    .await?;
+
     Ok(Json(response))
 }
 
@@ -378,14 +472,19 @@ async fn list_threads_legacy_search(
     ensure_thread_user_matches(&auth_user, user_id.as_str())?;
     ensure_thread_room_access(&ctx, &auth_user, room_id.as_str()).await?;
 
-    let request = ListThreadsRequest {
-        room_id: room_id.to_string(),
-        limit: query.limit,
-        from: query.from,
-        participated_by: resolve_thread_participant_filter(query.include.as_deref(), &auth_user.user_id)?,
-    };
+    let direction = resolve_thread_direction(query.dir.as_deref())?;
+    let participated_by = resolve_thread_participant_filter(query.include.as_deref(), &auth_user.user_id)?;
 
-    let response = ctx.thread_service.list_threads(request).await?;
+    let response = list_room_threads(
+        &ctx,
+        room_id.as_str(),
+        query.limit,
+        query.from.as_deref(),
+        participated_by.as_deref(),
+        direction,
+    )
+    .await?;
+
     Ok(Json(build_legacy_threads_response(response)))
 }
 
@@ -642,9 +741,16 @@ async fn list_threads_global(
     query: Query<ListQuery>,
 ) -> Result<Json<ThreadListResponse>, ApiError> {
     let participated_by = resolve_thread_participant_filter(query.include.as_deref(), &auth_user.user_id)?;
-    let response =
-        list_visible_threads(&ctx, &auth_user.user_id, query.limit, query.from.as_deref(), participated_by.as_deref())
-            .await?;
+    let direction = resolve_thread_direction(query.dir.as_deref())?;
+    let response = list_visible_threads(
+        &ctx,
+        &auth_user.user_id,
+        query.limit,
+        query.from.as_deref(),
+        participated_by.as_deref(),
+        direction,
+    )
+    .await?;
     Ok(Json(response))
 }
 
@@ -792,5 +898,68 @@ mod tests {
             .expect("ListQuery should deserialize include");
         assert_eq!(query.include.as_deref(), Some("participated"));
         assert_eq!(query.limit, Some(10));
+    }
+
+    #[test]
+    fn test_thread_dir_absent_or_b_means_backward() {
+        assert_eq!(resolve_thread_direction(None).expect("absent dir is valid"), "b");
+        assert_eq!(resolve_thread_direction(Some("b")).expect("dir=b is valid"), "b");
+    }
+
+    #[test]
+    fn test_thread_dir_f_means_forward() {
+        assert_eq!(resolve_thread_direction(Some("f")).expect("dir=f is valid"), "f");
+    }
+
+    #[test]
+    fn test_thread_dir_rejects_unknown_value() {
+        let error = resolve_thread_direction(Some("up")).expect_err("unknown dir values must be rejected");
+        assert!(error.is_bad_request());
+        assert_eq!(error.matrix_code(), synapse_common::error::MatrixErrorCode::InvalidParam);
+    }
+
+    fn summary(thread_id: &str, updated_ts: i64) -> synapse_services::thread_service::ThreadSummary {
+        synapse_services::thread_service::ThreadSummary {
+            id: 0,
+            room_id: "!room:localhost".to_string(),
+            thread_id: thread_id.to_string(),
+            root_event_id: format!("{thread_id}-root"),
+            root_sender: "@alice:localhost".to_string(),
+            root_content: json!({}),
+            root_origin_server_ts: updated_ts,
+            latest_event_id: None,
+            latest_sender: None,
+            latest_content: None,
+            latest_origin_server_ts: None,
+            reply_count: 0,
+            participants: json!([]),
+            is_frozen: false,
+            created_ts: updated_ts,
+            updated_ts,
+        }
+    }
+
+    #[test]
+    fn test_thread_list_dir_orders_by_latest_activity() {
+        let mut threads = vec![summary("$a", 10), summary("$b", 30), summary("$c", 20)];
+
+        sort_threads_by_activity(&mut threads, "b");
+        let backward: Vec<_> = threads.iter().map(|thread| thread.thread_id.as_str()).collect();
+        assert_eq!(backward, vec!["$b", "$c", "$a"]);
+
+        sort_threads_by_activity(&mut threads, "f");
+        let forward: Vec<_> = threads.iter().map(|thread| thread.thread_id.as_str()).collect();
+        assert_eq!(forward, vec!["$a", "$c", "$b"]);
+    }
+
+    #[test]
+    fn test_thread_list_dir_forward_cursor_continues_on_same_sequence() {
+        let mut threads = vec![summary("$a", 10), summary("$b", 30), summary("$c", 20)];
+        sort_threads_by_activity(&mut threads, "f");
+
+        let (page, next_batch, total) = paginate_threads(threads, Some(2), None);
+        assert_eq!(total, 3);
+        assert_eq!(page.iter().map(|thread| thread.thread_id.as_str()).collect::<Vec<_>>(), vec!["$a", "$c"]);
+        assert_eq!(next_batch.as_deref(), Some("$c"));
     }
 }
