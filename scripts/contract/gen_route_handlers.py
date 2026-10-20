@@ -47,15 +47,24 @@ Row model (per route, sorted by `(path, method)`):
   `Query<..>` *extractor* instead of the body:
   * `typed`    — one struct `Query<T>`; `query_params` is `T`'s sorted
                  accepted-wire-name list (`[]` for a fieldless struct).
+  * `literal`  — a dynamic extractor (`Query<Vec<(String, String)>>` etc.)
+                 whose key set is nonetheless provable: the handler, or a
+                 same-file helper it passes the query to, compares string
+                 literals against the query's key. `query_params` is that
+                 literal set. It is evidence, not a struct — an unannotated
+                 literal or an annotation with no literal behind it is RED.
   * `opaque`   — `Query<Value>` / `Query<HashMap<..>>`: the key set is decided
-                 at runtime, so there is nothing to enumerate.
+                 at runtime and no key literal is provable in the handler, so
+                 there is nothing to enumerate. Counted debt: it must be
+                 declared in `ledger_annotations.txt` rather than guessed.
   * `foreign`  — a named `Query<T>` defined outside the scanned route tree
                  (usually another member crate); `query_type` names it.
   * `none`     — no `Query<..>` extractor: the route takes no query params.
   * `ambiguous`— unresolvable handler, several disagreeing handlers, several
                  `Query<..>` extractors, or competing struct definitions.
                  Rows whose handler is not `exact` are also `ambiguous` here,
-                 mirroring `body`. `query_params` is `null` unless `typed`.
+                 mirroring `body`. `query_params` is `null` unless `typed` or
+                 `literal`.
 * `unsupported` — the ledger declaration from `ledger_annotations.txt`: the
   route is reachable but its documented response is not implemented (today the
   vendor keys endpoint answers a placeholder `keys: []`).
@@ -142,6 +151,7 @@ _QUERY_KIND = {
     "ok": "typed",
     "none": "none",
     "manual": "opaque",
+    "literal": "literal",
     "foreign": "foreign",
     "ambiguous": "ambiguous",
 }
@@ -354,10 +364,13 @@ def build() -> dict:
             ),
             "query": (
                 "per-route `Query<..>` extractor kind. `query_params` is populated "
-                "only for `typed`; `opaque` (Value/HashMap) and `foreign` (struct "
-                "outside the scanned tree) have no addressable field list, and "
-                "`ambiguous` includes every row whose handler cannot be named "
-                "statically (the declared dynamic set)."
+                "for `typed` and `literal`; `literal` is a dynamic extractor whose "
+                "key set is proven by string literals compared against the query "
+                "key in the handler (or a same-file helper), while `opaque` "
+                "(Value/HashMap with no such literal) and `foreign` (struct outside "
+                "the scanned tree) have no addressable field list, and `ambiguous` "
+                "includes every row whose handler cannot be named statically (the "
+                "declared dynamic set)."
             ),
             "derived_tables": (
                 "row counts of the three per-profile tables. `total` is their "

@@ -2005,7 +2005,9 @@
       "path_params": [
         "room_id_or_alias"
       ],
-      "query_params": [],
+      "query_params": [
+        "via"
+      ],
       "auth": null
     },
     {
@@ -2177,7 +2179,9 @@
       "path_params": [
         "room_id_or_alias"
       ],
-      "query_params": [],
+      "query_params": [
+        "via"
+      ],
       "auth": null
     },
     {

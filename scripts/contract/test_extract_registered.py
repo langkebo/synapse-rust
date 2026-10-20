@@ -373,6 +373,44 @@ def check_bytes_manual_json_body(res: "ex.Resolver") -> None:
     )
 
 
+def check_literal_query_evidence(res: "ex.Resolver") -> None:
+    """P3: a dynamic `Query<..>` handler is annotated only when a literal proves it.
+
+    `join_room_by_id_or_alias` and `knock_room` both take
+    `Query<Vec<(String, String)>>` and hand it to the same-file helper
+    `extract_via_servers`, which compares the pair's key against `"via"`. The
+    extractor must follow that hand-off, otherwise the two routes sit in the
+    `opaque` bucket as "key set decided at runtime" even though the key set is
+    perfectly provable from the source.
+
+    The second assertion pins *how* the evidence was obtained: the handler body
+    itself contains no `via` literal, so a pass can only come from the helper
+    walk. If a refactor inlines the literal, that assertion fails loudly instead
+    of silently weakening what this test proves.
+    """
+    routes = (
+        ("POST", "/_matrix/client/v3/join/{room_id_or_alias}"),
+        ("POST", "/_matrix/client/v3/knock/{room_id_or_alias}"),
+    )
+    got = {key: res.handler_query_info(*key) for key in routes}
+    check(
+        "dynamic `Query<..>` handlers expose provable literal keys (P3)",
+        all(
+            status == "literal" and fields == ["via"]
+            for status, fields, _type in got.values()
+        ),
+        str(got),
+    )
+    handler_body = res._fn_body_in_file(
+        "handlers/room/members.rs", "join_room_by_id_or_alias"
+    )
+    check(
+        "the `via` evidence comes from the same-file helper, not the handler body",
+        handler_body is not None and not ex._literal_keys_of(handler_body, "query"),
+        "the handler body is expected to hold no query-key literal of its own",
+    )
+
+
 def check_non_namespace_bucket(per: dict) -> None:
     """The non-namespace bucket must be exactly the intentional root surface.
 
@@ -1523,6 +1561,36 @@ def mutation_check() -> int:
     finally:
         ex._BYTES_EXTRACTOR = orig_bytes
 
+    # Mutation 11 — P3 literal evidence removed. With `_literal_keys_of`
+    # neutered, join/knock fall back to `manual` (opaque debt), so their pinned
+    # `query_params=via` rows must turn RED. A guard that still passed here
+    # would be accepting annotations with nothing behind them, which is exactly
+    # the `unknown:query` waiver P3 is not allowed to become.
+    orig_literal_keys_of = ex._literal_keys_of
+    ex._literal_keys_of = lambda body, var: set()
+    try:
+        res = resolve()
+        res.all_routes()
+        probe = (
+            ("POST", "/_matrix/client/v3/join/{room_id_or_alias}"),
+            ("POST", "/_matrix/client/v3/knock/{room_id_or_alias}"),
+        )
+        got = {key: res.handler_query_info(*key)[0] for key in probe}
+        failures = ex.check_annotation_fidelity(res)
+        if set(got.values()) == {"manual"} and failures:
+            print(
+                f"  ok   mutation#11 (no literal evidence) turns the annotations RED "
+                f"({len(failures)} check(s) failed)"
+            )
+        else:
+            print(
+                "  FAIL mutation#11 did NOT turn the suite red — the P3 evidence "
+                f"guard is self-proving: {got}"
+            )
+            bad += 1
+    finally:
+        ex._literal_keys_of = orig_literal_keys_of
+
     return bad
 
 
@@ -1544,6 +1612,8 @@ def main() -> int:
     check_positive_contract(per)
     print("== Bytes + manual JSON body (B-9) ==")
     check_bytes_manual_json_body(res)
+    print("== literal query-key evidence (P3) ==")
+    check_literal_query_evidence(res)
     print("== non-namespace surface ==")
     check_non_namespace_bucket(per)
     print("== standard-prefix private surface (ISSUE-13) ==")

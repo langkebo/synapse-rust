@@ -32,14 +32,19 @@
 #
 #   * `query_params` — the wire names of the axum `Query<Struct>` extractor the
 #     route's handler deserializes, as a comma-joined, sorted, duplicate-free
-#     list (`#[serde(rename)]` and `#[serde(alias)]` are both applied; manual
-#     `Query<Value>` / `Query<HashMap<..>>` handlers are deliberately absent).
+#     list (`#[serde(rename)]` and `#[serde(alias)]` are both applied). A
+#     dynamically typed extractor (`Query<Vec<(String, String)>>`,
+#     `Query<HashMap<..>>`, `Query<Value>`) has no struct to enumerate, so it
+#     is listed only when the handler — or a same-file helper it passes the
+#     query to — compares string literals against the query key; that literal
+#     set is the falsifiable evidence, never a guess.
 #     Exported by `ledger_export.rs:156` and consumed downstream by
 #     `scripts/api_test/gen_route_table.py` -> `docs/openapi/route-table.json`.
 #     Guarded in *both* directions by `check_annotation_fidelity` in
 #     `scripts/contract/extract_registered.py`: a declared name the handler does
-#     not parse is RED, and a handler `Query<Struct>` with no annotation is RED
-#     too. The committed ledger fixtures are the second, independent oracle.
+#     not parse (or never compares a literal against) is RED, and a handler
+#     with `Query<Struct>` fields or query-key literals but no annotation is
+#     RED too. The committed ledger fixtures are the second, independent oracle.
 #
 #   * `body_opaque` — the route's JSON request body is protocol-arbitrary on
 #     purpose (event content, account data, filters, room-key backups, UIA
@@ -369,6 +374,14 @@ POST /_matrix/media/v1/upload	query_params=content_type,filename
 POST /_matrix/media/v3/upload	query_params=content_type,filename
 POST /_synapse/admin/v1/purge_media_cache	query_params=before_ts
 PUT /_matrix/media/v3/upload/{server_name}/{media_id}	query_params=content_type,filename
+
+# -- P3: dynamically typed extractors whose key set is *provable*.
+# Both handlers take `Query<Vec<(String, String)>>` and forward it to
+# `extract_via_servers` (handlers/room/members.rs), which compares the pair key
+# against the literal "via". The annotation therefore restates evidence the
+# fidelity guard re-derives; drop that literal and both rows go RED.
+POST /_matrix/client/v3/join/{room_id_or_alias}	query_params=via
+POST /_matrix/client/v3/knock/{room_id_or_alias}	query_params=via
 
 # -- unsupported: registered, reachable, documented response not implemented.
 GET /_matrix/vendor/v1/rooms/{room_id}/keys/{event_id}	unsupported=true

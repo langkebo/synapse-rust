@@ -1243,7 +1243,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/join/{room_id_or_alias}", "room");
+        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/join/{room_id_or_alias}", "room")
+            .with_query_params(&["via"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -1331,7 +1332,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/knock/{room_id_or_alias}", "room");
+        let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/knock/{room_id_or_alias}", "room")
+            .with_query_params(&["via"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {

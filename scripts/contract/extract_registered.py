@@ -509,6 +509,13 @@ def iter_consts(src: str):
 #   * declared but not parsed  -> RED (stale/false annotation)
 #   * parsed but not declared  -> RED (the route silently gained params)
 #
+# A dynamically typed extractor (`Query<Value>`, `Query<HashMap<..>>`,
+# `Query<Vec<(String, String)>>`) has no struct to read, so the same two
+# directions are applied to the *string literals* the handler compares against
+# the query's key (`_literal_keys_of`). That evidence is narrower than a struct
+# and only accepted when the literal is provably the query's key; a handler
+# with no such evidence stays `manual` and is not held to an annotation.
+#
 # Structs are keyed by `(defining_file, name)` because several modules define a
 # same-named `QueryParams`/`QueryLimit`; resolution mirrors `lookup_fn`
 # (same-file first, then a globally unique definition).
@@ -733,6 +740,165 @@ def _is_dynamic_query_type(text: str) -> bool:
         bare_type_name(text) in _NON_STRUCT_QUERY_TYPES
         or generic_base_name(text) in _NON_STRUCT_QUERY_TYPES
     )
+
+
+# -- P3: literal key evidence for dynamically typed `Query<..>` handlers ------
+#
+# `Query<Vec<(String, String)>>` / `Query<HashMap<..>>` / `Query<Value>` carries
+# no field list, so the struct-based guard has nothing to compare against. The
+# keys are still *in the source* as string literals, though, and a guard that
+# can point at them is falsifiable in both directions:
+#   * an annotated key with no literal in the handler -> RED
+#   * a literal key with no annotation                 -> RED
+# The extraction is deliberately narrow: a literal only counts when it is
+# compared against a value provably derived from the query — the first element
+# of a pair destructured in a closure over that query, or a
+# `get`/`contains_key`/`remove`/index access on it, including through a
+# same-file helper that receives the query value. Anything else stays `manual`
+# with no evidence, so the route's debt stays visible instead of being papered
+# over by a guessed key set.
+
+_QUERY_BINDING = re.compile(
+    r"\bQuery\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*:\s*"
+    r"(?:[A-Za-z_][A-Za-z0-9_]*\s*::\s*)*Query\s*<"
+)
+_PARAM_NAME = re.compile(r"^\s*(?:mut\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*:")
+_CLOSURE_PAIR_HEAD = re.compile(r"\|\s*(?:&\s*)?\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,")
+
+
+def query_binding_name(params: str) -> str | None:
+    """The binding of the single `Query(..)` extractor in a signature, if named.
+
+    `Query(query): Query<Vec<(String, String)>>` -> `query`. A destructuring
+    pattern (`Query(QueryParams { a, b })`) yields `None`: there is no single
+    identifier to chase through the body.
+    """
+    m = _QUERY_BINDING.search(params)
+    return m.group(1) if m else None
+
+
+def param_names(params: str) -> list[str]:
+    """Bare parameter names of a signature's `( ... )` slice, in order.
+
+    A non-identifier pattern (destructuring, `_`) yields `""` so the caller can
+    tell "no name to follow" from "named parameter".
+    """
+    inner = params.strip()
+    if inner.startswith("(") and inner.endswith(")"):
+        inner = inner[1:-1]
+    names = []
+    for chunk in split_top_level(inner):
+        m = _PARAM_NAME.match(chunk)
+        names.append(m.group(1) if m else "")
+    return names
+
+
+def _chain_root_of_call(body: str, open_paren: int) -> str | None:
+    """Identifier at the root of the method chain whose call opens at `open_paren`.
+
+    `query.iter().filter(..)` -> `query`. Returns `None` for a free function
+    call (`filter(..)`) or anything that is not a plain identifier chain.
+    """
+    i = open_paren
+    while True:
+        # `i` indexes the `(` of a call; its name ends at `i - 1`.
+        k = i - 1
+        while k >= 0 and body[k] in " \t\r\n":
+            k -= 1
+        end = k + 1
+        while k >= 0 and (body[k].isalnum() or body[k] == "_"):
+            k -= 1
+        if k + 1 == end:
+            return None
+        j = k
+        while j >= 0 and body[j] in " \t\r\n":
+            j -= 1
+        if j < 0 or body[j] != ".":
+            return None  # free function call, not a method chain
+        r = j
+        while r > 0 and body[r - 1] in " \t\r\n":
+            r -= 1
+        if r == 0:
+            return None
+        if body[r - 1] == ")":
+            depth, q = 0, r - 1
+            while q >= 0:
+                ch = body[q]
+                if ch == ")":
+                    depth += 1
+                elif ch == "(":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                q -= 1
+            if q < 0:
+                return None
+            i = q
+            continue
+        e = r
+        while r > 0 and (body[r - 1].isalnum() or body[r - 1] == "_"):
+            r -= 1
+        ident = body[r:e]
+        return ident or None
+
+
+def _pair_key_vars(body: str, query_vars: set) -> set:
+    """Closure bindings that destructure the *key* of a query pair.
+
+    `.iter().filter(|(k, _)| k == "via")` over a `Vec<(String, String)>` binds
+    `k` to the key; it counts only when the closure is attached to a chain
+    rooted at one of `query_vars`, so an unrelated `|(k, v)|` cannot inject a
+    key.
+    """
+    out = set()
+    for m in _CLOSURE_PAIR_HEAD.finditer(body):
+        i = m.start()
+        while i > 0 and body[i - 1] in " \t\r\n":
+            i -= 1
+        if i == 0 or body[i - 1] != "(":
+            continue
+        if _chain_root_of_call(body, i - 1) in query_vars:
+            out.add(m.group(1))
+    return out
+
+
+def _literal_keys_of(body: str, var: str) -> set:
+    """String literals the body compares against `var` as a query key."""
+    esc = re.escape(var)
+    patterns = (
+        rf"\b{esc}\s*(?:\.\s*as_str\s*\(\s*\))?\s*==\s*\"([^\"]+)\"",
+        rf"\"([^\"]+)\"\s*==\s*&?\s*{esc}\s*(?:\.\s*as_str\s*\(\s*\))?",
+        rf"\b{esc}\s*\.\s*eq\s*\(\s*\"([^\"]+)\"\s*\)",
+        rf"\b{esc}\s*\.\s*(?:get|contains_key|remove)\s*\(\s*\"([^\"]+)\"",
+        rf"\b{esc}\s*\[\s*\"([^\"]+)\"\s*\]",
+    )
+    keys: set = set()
+    for pat in patterns:
+        keys.update(re.findall(pat, body))
+    return keys
+
+
+def _calls_passing(body: str, var: str) -> list:
+    """`(callee, arg_index)` for calls that pass `var` (or `&var`) by value.
+
+    The same-file helper recursion needs the position so the helper's own
+    parameter name can be followed. Only a bare pass-through counts —
+    `query.iter()` or `query.len()` says nothing about the callee's keys.
+    """
+    out = []
+    esc = re.escape(var)
+    arg_re = re.compile(
+        rf"^&?\s*(?:mut\s+)?{esc}\s*(?:\.\s*as_slice\s*\(\s*\)|\[\s*\.\.\s*\])?$"
+    )
+    for m in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", body):
+        open_paren = m.end() - 1
+        close = match_delim(body, open_paren)
+        if close == -1:
+            continue
+        for idx, arg in enumerate(split_top_level(body[open_paren + 1 : close])):
+            if arg_re.match(arg.strip()):
+                out.append((m.group(1), idx))
+    return out
 
 
 # A JSON *body* is opaque only when it is a bare `Value`; unlike queries there
@@ -1779,6 +1945,13 @@ EXPECTED_ANNOTATIONS = {
     ("PUT", "/_matrix/media/v3/upload/{server_name}/{media_id}"): {
         "query_params": "content_type,filename"
     },
+    # P3: dynamic extractors (`Query<Vec<(String, String)>>`) whose key set is
+    # *proven* by string literals compared against the query key — here in the
+    # same-file helper `extract_via_servers`. These are evidence, not a struct:
+    # the guard re-derives the set from the literal comparison, so dropping or
+    # renaming that literal is RED, as is an undeclared literal key.
+    ("POST", "/_matrix/client/v3/join/{room_id_or_alias}"): {"query_params": "via"},
+    ("POST", "/_matrix/client/v3/knock/{room_id_or_alias}"): {"query_params": "via"},
     # -- unsupported: registered, reachable, but the documented response is not
     # implemented. The handler currently answers 200 with a placeholder
     # (`"keys": []`), which looks like success to a client; the annotation is
@@ -1986,13 +2159,20 @@ def check_annotation_fidelity(res=None) -> list:
     parsed: dict = {}
     for key in sorted(routes):
         status, fields = guard_res.handler_query_fields(key[0], key[1])
-        if status == "ok" and fields:
+        # `ok` is a struct field list; `literal` is the P3 evidence set for a
+        # dynamically typed `Query<..>`. Both are derived from the handler
+        # source, so both are held to the same two-way comparison. `manual`
+        # (dynamic type, no literal evidence) deliberately stays out: there is
+        # nothing to prove, and requiring an annotation would only invite a
+        # guessed one.
+        if status in ("ok", "literal") and fields:
             parsed[key] = fields
     for key in sorted(annotated_query):
         if key not in parsed:
             failures.append(
                 f"query_params declared for {key[0]} {key[1]} but its handler has no "
-                f"unambiguous `Query<Struct>` (manual/Value parse, or unresolvable handler)"
+                f"unambiguous `Query<Struct>` and no literal key evidence in its body "
+                f"(manual/Value parse, or unresolvable handler)"
             )
         elif parsed[key] != sorted(annotated_query[key]):
             failures.append(
@@ -2906,6 +3086,47 @@ class Resolver:
         """
         return any(n == name for (_f, n) in self.query_structs)
 
+    def _fn_body_in_file(self, file: str, name: str) -> str | None:
+        """The single `fn name` body defined in `file`, or `None` if ambiguous."""
+        bodies = [b for (f, n, b) in self.fn_all if f == file and n == name]
+        return bodies[0] if len(bodies) == 1 else None
+
+    def manual_query_keys(
+        self, file: str, fn_name: str, body: str, binding: str
+    ) -> set:
+        """String-literal query keys the handler *provably* compares against.
+
+        Used for dynamically typed `Query<..>` handlers, where no struct field
+        list exists. Only evidence counts: a literal compared against the
+        query's own key (pair destructuring, `get`/`contains_key`/`remove`,
+        indexing), including through a same-file helper that receives the query
+        value. An empty set means "no evidence found", never "no params".
+        """
+        return self._manual_query_keys_from(file, fn_name, body, binding, set())
+
+    def _manual_query_keys_from(self, file, fn_name, body, binding, visited) -> set:
+        mark = (file, fn_name, binding)
+        if mark in visited:
+            return set()
+        visited = visited | {mark}
+        keys = set(_literal_keys_of(body, binding))
+        for key_var in _pair_key_vars(body, {binding}):
+            keys |= _literal_keys_of(body, key_var)
+        for callee, arg_index in _calls_passing(body, binding):
+            helper = self._fn_body_in_file(file, callee)
+            if helper is None:
+                continue
+            sigs = self.fn_sigs.get((file, callee), [])
+            if len(sigs) != 1:
+                continue
+            names = param_names(sigs[0])
+            if arg_index >= len(names) or not names[arg_index]:
+                continue
+            keys |= self._manual_query_keys_from(
+                file, callee, helper, names[arg_index], visited
+            )
+        return keys
+
     def _handler_query_fields(self, owner: str, handler: str):
         """`(status, fields, type_name)` for one handler definition."""
         idx = self.resolve_handler_def(handler, owner)
@@ -2923,6 +3144,14 @@ class Resolver:
         qtype = types[0]
         tname = bare_type_name(qtype)
         if _is_dynamic_query_type(qtype):
+            binding = query_binding_name(sigs[0])
+            keys = (
+                self.manual_query_keys(file, fname, _body, binding)
+                if binding
+                else set()
+            )
+            if keys:
+                return ("literal", tuple(sorted(keys)), tname)
             return ("manual", None, tname)
         fields = self.lookup_struct_fields(tname, file)
         if fields is None:
@@ -2940,8 +3169,16 @@ class Resolver:
           * `"none"`     — the handler resolves and has no `Query<..>` extractor
                            at all (the route genuinely takes no query params).
           * `"manual"`   — the handler's only `Query<..>` is dynamically typed
-                           (`Value` / `HashMap<..>`); no field list exists, so
-                           the guard deliberately leaves the route alone.
+                           (`Value` / `HashMap<..>` / `Vec<(String, String)>`)
+                           and the handler body holds no provable key literal,
+                           so no field list exists and the guard leaves the
+                           route alone.
+          * `"literal"`  — the same dynamic extractor, but the handler (or a
+                           same-file helper it passes the query to) compares
+                           string literals against the query's key. `fields`
+                           is that literal set — falsifiable evidence, not a
+                           struct: an unannotated literal or an annotation with
+                           no literal behind it is RED.
           * `"foreign"`  — a named `Query<T>` whose `T` is defined outside the
                            scanned route tree (usually another member crate), so
                            no field list can be read here.
