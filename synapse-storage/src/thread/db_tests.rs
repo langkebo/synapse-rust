@@ -1057,13 +1057,18 @@ async fn test_mark_reply_redacted() {
     assert!(!reply.is_redacted);
 
     // Mark as redacted
-    storage.mark_reply_redacted(&room_id, &event_id).await.expect("should mark redacted");
+    storage.mark_reply_redacted(&room_id, &event_id, Some("duplicate")).await.expect("should mark redacted");
 
     // Verify redacted and content cleared
     let replies = storage.get_thread_replies(&room_id, &thread_id, Some(10), None).await.unwrap();
     let reply = replies.iter().find(|r| r.event_id == event_id).unwrap();
     assert!(reply.is_redacted, "reply should be marked as redacted");
     assert_eq!(reply.content, serde_json::json!({}), "content should be cleared to empty object");
+    assert_eq!(
+        reply.redaction_reason.as_deref(),
+        Some("duplicate"),
+        "client-supplied reason must be persisted, not dropped (audit B-9)"
+    );
 
     cleanup_thread_data(&pool, &room_id, &thread_id).await;
 }

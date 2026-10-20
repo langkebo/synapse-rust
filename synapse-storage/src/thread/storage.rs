@@ -192,7 +192,8 @@ impl ThreadStorage {
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING id, room_id, thread_id, event_id, root_event_id, sender,
-                      in_reply_to_event_id, content, origin_server_ts, is_edited, is_redacted, created_ts
+                      in_reply_to_event_id, content, origin_server_ts, is_edited, is_redacted,
+                      redaction_reason, created_ts
             "#,
             &params.room_id,
             &params.thread_id,
@@ -257,7 +258,8 @@ impl ThreadStorage {
                 ThreadReply,
                 r#"
                 SELECT id, room_id, thread_id, event_id, root_event_id, sender,
-                       in_reply_to_event_id, content, origin_server_ts, is_edited, is_redacted, created_ts
+                       in_reply_to_event_id, content, origin_server_ts, is_edited, is_redacted,
+                       redaction_reason, created_ts
                 FROM thread_replies
                 WHERE room_id = $1 AND thread_id = $2 AND event_id > $3
                 ORDER BY origin_server_ts ASC
@@ -275,7 +277,8 @@ impl ThreadStorage {
                 ThreadReply,
                 r#"
                 SELECT id, room_id, thread_id, event_id, root_event_id, sender,
-                       in_reply_to_event_id, content, origin_server_ts, is_edited, is_redacted, created_ts
+                       in_reply_to_event_id, content, origin_server_ts, is_edited, is_redacted,
+                       redaction_reason, created_ts
                 FROM thread_replies
                 WHERE room_id = $1 AND thread_id = $2
                 ORDER BY origin_server_ts ASC
@@ -645,15 +648,21 @@ impl ThreadStorage {
     }
 
     /// See [`mark_reply_redacted`].
-    pub async fn mark_reply_redacted(&self, room_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
+    pub async fn mark_reply_redacted(
+        &self,
+        room_id: &str,
+        event_id: &str,
+        reason: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
             UPDATE thread_replies
-            SET is_redacted = TRUE, content = '{}'
+            SET is_redacted = TRUE, content = '{}', redaction_reason = $3
             WHERE room_id = $1 AND event_id = $2 AND is_redacted = FALSE
             "#,
             room_id,
-            event_id
+            event_id,
+            reason
         )
         .execute(&*self.pool)
         .await?;
@@ -1139,7 +1148,8 @@ pub trait ThreadStoreApi: Send + Sync {
     /// See [`mark_reply_edited`].
     async fn mark_reply_edited(&self, room_id: &str, event_id: &str) -> Result<(), sqlx::Error>;
     /// See [`mark_reply_redacted`].
-    async fn mark_reply_redacted(&self, room_id: &str, event_id: &str) -> Result<(), sqlx::Error>;
+    async fn mark_reply_redacted(&self, room_id: &str, event_id: &str, reason: Option<&str>)
+        -> Result<(), sqlx::Error>;
     /// See [`delete_thread`].
     async fn delete_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error>;
     /// See [`get_threads_with_unread`].
@@ -1298,8 +1308,13 @@ impl ThreadStoreApi for ThreadStorage {
         self.mark_reply_edited(room_id, event_id).await
     }
 
-    async fn mark_reply_redacted(&self, room_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
-        self.mark_reply_redacted(room_id, event_id).await
+    async fn mark_reply_redacted(
+        &self,
+        room_id: &str,
+        event_id: &str,
+        reason: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        self.mark_reply_redacted(room_id, event_id, reason).await
     }
 
     async fn delete_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error> {

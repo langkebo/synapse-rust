@@ -346,6 +346,33 @@ def check_positive_contract(per: dict) -> None:
     )
 
 
+def check_bytes_manual_json_body(res: "ex.Resolver") -> None:
+    """A `Bytes` extractor + hand-written `serde_json` parse is an opaque body.
+
+    `search_friend_directory` (registered for GET and POST) reads
+    `from`/`limit`/`mode` out of a raw buffer, so the sidecar used to classify
+    the route as `body: none` and the SDK gate reported every field as silently
+    dropped — a false positive (backend-issues §B-9). The negative half is just
+    as important: a binary endpoint takes `Bytes` but never parses JSON, and
+    folding it into "opaque JSON" would trade one false signal for another.
+    """
+    routes = res.all_routes()
+    for method in ("GET", "POST"):
+        key = (method, "/_matrix/vendor/v1/friends/search")
+        status, btype = res.handler_body_kind(*key)
+        check(
+            f"{method} friends/search body is opaque",
+            key in routes and status == "opaque",
+            f"got {status!r} ({btype})",
+        )
+    status, btype = res.handler_body_kind("POST", "/_matrix/media/v3/upload")
+    check(
+        "media upload stays `none` (Bytes without a JSON parse)",
+        status == "none",
+        f"got {status!r} ({btype})",
+    )
+
+
 def check_non_namespace_bucket(per: dict) -> None:
     """The non-namespace bucket must be exactly the intentional root surface.
 
@@ -1471,6 +1498,31 @@ def mutation_check() -> int:
     finally:
         FAILURES[:] = twin_failures_snapshot
 
+    # Mutation 10 — the `Bytes` + manual-JSON rule removed (B-9). The
+    # friends/search routes must fall back to `none`, i.e. the exact false
+    # positive the rule exists to prevent.
+    orig_bytes = ex._BYTES_EXTRACTOR
+    ex._BYTES_EXTRACTOR = re.compile(r"(?!x)x")
+    try:
+        res = resolve()
+        res.all_routes()
+        got = {
+            m: res.handler_body_kind(m, "/_matrix/vendor/v1/friends/search")[0]
+            for m in ("GET", "POST")
+        }
+        if got != {"GET": "opaque", "POST": "opaque"}:
+            print(
+                f"  ok   mutation#10 (no Bytes+serde_json rule) turns the suite RED: {got}"
+            )
+        else:
+            print(
+                "  FAIL mutation#10 did NOT turn the suite red — "
+                "check_bytes_manual_json_body is self-proving"
+            )
+            bad += 1
+    finally:
+        ex._BYTES_EXTRACTOR = orig_bytes
+
     return bad
 
 
@@ -1490,6 +1542,8 @@ def main() -> int:
     check_oracles(per)
     print("== positive contract (S-14) ==")
     check_positive_contract(per)
+    print("== Bytes + manual JSON body (B-9) ==")
+    check_bytes_manual_json_body(res)
     print("== non-namespace surface ==")
     check_non_namespace_bucket(per)
     print("== standard-prefix private surface (ISSUE-13) ==")

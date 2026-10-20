@@ -139,6 +139,7 @@ impl crate::thread::ThreadStoreApi for InMemoryThreadStore {
             origin_server_ts: params.origin_server_ts,
             is_edited: false,
             is_redacted: false,
+            redaction_reason: None,
             created_ts: now,
         };
         self.replies.write().await.push(reply.clone());
@@ -394,11 +395,18 @@ impl crate::thread::ThreadStoreApi for InMemoryThreadStore {
         Ok(())
     }
 
-    async fn mark_reply_redacted(&self, room_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
+    async fn mark_reply_redacted(
+        &self,
+        room_id: &str,
+        event_id: &str,
+        reason: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
         let mut replies = self.replies.write().await;
         for reply in replies.iter_mut() {
             if reply.room_id == room_id && reply.event_id == event_id {
                 reply.is_redacted = true;
+                reply.content = serde_json::json!({});
+                reply.redaction_reason = reason.map(ToOwned::to_owned);
             }
         }
         Ok(())

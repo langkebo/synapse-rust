@@ -72,6 +72,14 @@ struct MarkReadBody {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RedactReplyBody {
+    /// 客户端撤回原因，落库到 `thread_replies.redaction_reason`。
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct SearchQuery {
     q: String,
     limit: Option<i32>,
@@ -585,10 +593,15 @@ async fn redact_reply(
     State(ctx): State<RoomContext>,
     Path((room_id, event_id)): Path<(RoomId, String)>,
     auth_user: AuthenticatedUser,
+    // body 可省略（老客户端/`{}`），但一旦给了 `reason` 就必须落库：
+    // 原先没有 body 提取器，SDK 的 `redactReply(roomId, eventId, reason)`
+    // 传的原因被静默丢弃（审计 B-9）。
+    body: Option<MatrixJson<RedactReplyBody>>,
 ) -> Result<StatusCode, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, room_id.as_str()).await?;
 
-    ctx.thread_service.redact_reply(room_id.as_str(), &event_id).await?;
+    let reason = body.and_then(|MatrixJson(body)| body.reason);
+    ctx.thread_service.redact_reply(room_id.as_str(), &event_id, reason.as_deref()).await?;
     Ok(StatusCode::OK)
 }
 

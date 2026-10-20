@@ -31,10 +31,13 @@ Row model (per route, sorted by `(path, method)`):
   * `none` — `unresolved` with no lead.
 * `body`
   * `typed`    — `Json<T>` / `MatrixJson<T>` with a resolvable `T` (`body_type`).
-  * `opaque`   — bare `Json<Value>` / `MatrixJson<Value>`: protocol-arbitrary.
+  * `opaque`   — bare `Json<Value>` / `MatrixJson<Value>`, or a raw `Bytes`
+                 extractor the handler parses itself
+                 (`serde_json::from_slice`/`from_str`): protocol-arbitrary.
   * `foreign`  — `Json<T>` whose `T` is defined outside the scanned modules
                  (`body_type` still carries the name).
-  * `none`     — no JSON body extractor.
+  * `none`     — no JSON body extractor (a `Bytes` handler that never parses
+                 JSON is a binary body, not a JSON one).
   * `ambiguous`— several signatures / no single definition.
 * `body_opaque` — the ledger declaration from `ledger_annotations.txt`. This is
   author intent, not inference; `body == "opaque"` without the flag is the

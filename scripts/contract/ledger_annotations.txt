@@ -43,11 +43,13 @@
 #
 #   * `body_opaque` — the route's JSON request body is protocol-arbitrary on
 #     purpose (event content, account data, filters, room-key backups, UIA
-#     `Value` bodies, federation PDUs/transactions), so there is no addressable
-#     field list. Declaring it keeps the route out of the "unknown body" debt.
-#     Guarded only in the positive direction by `check_annotation_fidelity`:
-#     declaring it on a route whose handler body is not a bare
-#     `Json<Value>`/`MatrixJson<Value>` is RED. The unannotated remainder is a
+#     `Value` bodies, federation PDUs/transactions, or a raw `Bytes` extractor
+#     the handler parses with `serde_json::from_slice`/`from_str`), so there is
+#     no addressable field list. Declaring it keeps the route out of the
+#     "unknown body" debt. Guarded only in the positive direction by
+#     `check_annotation_fidelity`: declaring it on a route whose handler body is
+#     neither a bare `Json<Value>`/`MatrixJson<Value>` nor a `Bytes` +
+#     manual-JSON-parse handler is RED. The unannotated remainder is a
 #     counted ratchet (`EXPECTED_OPAQUE_UNANNOTATED`), so burning debt must
 #     lower the pin while a *new* opaque body is RED.
 #
@@ -230,7 +232,7 @@ GET /_matrix/federation/v1/query/profile/{user_id}	query_params=field
 GET /_matrix/federation/v1/state/{room_id}	query_params=event_id
 GET /_matrix/federation/v1/state_ids/{room_id}	query_params=event_id
 GET /_matrix/vendor/v1/friends	query_params=from,limit,offset,sort_by
-GET /_matrix/vendor/v1/friends/search	query_params=limit,mode,q,query
+GET /_matrix/vendor/v1/friends/search	query_params=limit,mode,q,query body_opaque=true
 GET /_matrix/vendor/v1/friends/suggestions	query_params=limit
 GET /_matrix/vendor/v1/voice/room/{room_id}	query_params=from,limit
 GET /_matrix/vendor/v1/voice/user/{user_id}	query_params=from,limit
@@ -276,7 +278,7 @@ POST /_matrix/client/unstable/org.matrix.simplified_msc3575/sync	rate_limit_exem
 POST /_matrix/client/v1/sync	rate_limit_exempt=true query_params=pos,timeout,txn_id
 POST /_matrix/client/v4/sync	rate_limit_exempt=true query_params=pos,timeout,txn_id
 POST /_matrix/media/v1/upload/chunk	query_params=chunk_index,filename,total_chunks,total_size,upload_id
-POST /_matrix/vendor/v1/friends/search	query_params=limit,mode,q,query
+POST /_matrix/vendor/v1/friends/search	query_params=limit,mode,q,query body_opaque=true
 POST /_synapse/admin/v1/push/cleanup	query_params=days
 POST /_synapse/admin/v1/push/process	query_params=batch_size
 POST /_synapse/room_summary/v1/updates/process	query_params=limit

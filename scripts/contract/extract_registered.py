@@ -740,6 +740,17 @@ def _is_dynamic_query_type(text: str) -> bool:
 # narrow — widening it would let a `Json<SomeStruct>` slip through as opaque.
 _DYNAMIC_JSON_BODY_TYPES = frozenset({"Value", "serde_json::Value"})
 
+# A raw `Bytes` extractor followed by a hand-written `serde_json` parse is the
+# same protocol-arbitrary shape as `Json<Value>`: the extractor only sees an
+# opaque buffer. Requiring *both* halves keeps binary endpoints (media upload,
+# AS proxy forwarding) classified as `none` — they take `Bytes` but never parse
+# JSON, so their body has no JSON field list to report either way.
+_BYTES_EXTRACTOR = re.compile(
+    r"\b[A-Za-z_][A-Za-z0-9_]*\s*:\s*(?:Option\s*<\s*)?"
+    r"(?:[A-Za-z_][A-Za-z0-9_]*\s*::\s*)*Bytes\s*>?"
+)
+_MANUAL_JSON_PARSE = re.compile(r"\b(?:serde_json\s*::\s*)?from_(?:slice|str)\b")
+
 
 _USE_RE = re.compile(r"(?:pub(?:\s*\([^)]*\))?\s+)?use\s+([^;]+);")
 
@@ -1152,8 +1163,9 @@ def load_ledger_annotations() -> dict:
 EXPECTED_ANNOTATIONS = {
     # -- body_opaque: protocol-arbitrary JSON bodies (see the module docstring
     # of `load_ledger_annotations`). Event content, account data, filter,
-    # room-key backup payloads, UIA `Value` bodies and federation
-    # PDUs/transactions deliberately have no addressable field list.
+    # room-key backup payloads, UIA `Value` bodies, federation
+    # PDUs/transactions, and `Bytes` bodies the handler parses itself
+    # (`friends/search`) deliberately have no addressable field list.
     ("POST", "/_matrix/client/v1/room_keys/import"): {"body_opaque": True},
     ("POST", "/_matrix/client/v1/room_keys/import/{version}"): {"body_opaque": True},
     ("POST", "/_matrix/client/v1/room_keys/request"): {"body_opaque": True},
@@ -1483,7 +1495,8 @@ EXPECTED_ANNOTATIONS = {
         "query_params": "from,limit,offset,sort_by"
     },
     ("GET", "/_matrix/vendor/v1/friends/search"): {
-        "query_params": "limit,mode,q,query"
+        "query_params": "limit,mode,q,query",
+        "body_opaque": True,
     },
     ("GET", "/_matrix/vendor/v1/friends/suggestions"): {"query_params": "limit"},
     ("GET", "/_matrix/vendor/v1/voice/room/{room_id}"): {"query_params": "from,limit"},
@@ -1588,7 +1601,8 @@ EXPECTED_ANNOTATIONS = {
         "query_params": "chunk_index,filename,total_chunks,total_size,upload_id"
     },
     ("POST", "/_matrix/vendor/v1/friends/search"): {
-        "query_params": "limit,mode,q,query"
+        "query_params": "limit,mode,q,query",
+        "body_opaque": True,
     },
     ("POST", "/_synapse/admin/v1/push/cleanup"): {"query_params": "days"},
     ("POST", "/_synapse/admin/v1/push/process"): {"query_params": "batch_size"},
@@ -1663,8 +1677,9 @@ EXPECTED_ANNOTATIONS = {
 }
 
 # Counted debt for `body_opaque`: routes whose handler deserializes a bare
-# `Json<Value>` / `MatrixJson<Value>` body but that this table has not yet
-# declared. The count is pinned so a *new* opaque body cannot land silently;
+# `Json<Value>` / `MatrixJson<Value>` body (or a `Bytes` body it parses with
+# `serde_json` itself) but that this table has not yet declared. The count is
+# pinned so a *new* opaque body cannot land silently;
 # it may only be *lowered*, and only together with new `body_opaque=true`
 # rows. Deliberately an equality check, not `<=`: otherwise a regression that
 # introduces fresh opaque bodies would hide behind the existing debt.
@@ -1695,8 +1710,9 @@ def check_annotation_fidelity(res=None) -> list:
       when omitted a fresh union resolver is built (the handler map is only
       populated by an evaluation pass).
     * `body_opaque` <-> the handler source. The forward guard rejects a
-      declaration on a route whose body is not a bare `Json<Value>` /
-      `MatrixJson<Value>` (typed/none/ambiguous bodies cannot be opaque). The
+      declaration on a route whose body is neither a bare `Json<Value>` /
+      `MatrixJson<Value>` nor a `Bytes` extractor with a manual
+      `serde_json` parse (typed/none/ambiguous bodies cannot be opaque). The
       reverse guard is a counted debt instead of a hard failure: today's
       unannotated opaque bodies must equal `EXPECTED_OPAQUE_UNANNOTATED`, so a
       new one turns the gate RED while existing ones can be burned down in
@@ -1877,7 +1893,8 @@ def check_annotation_fidelity(res=None) -> list:
         if status != "opaque":
             failures.append(
                 f"body_opaque declared for {key[0]} {key[1]} but its handler body is "
-                f"{status!r} ({btype}), not `Json<Value>`/`MatrixJson<Value>`"
+                f"{status!r} ({btype}), not `Json<Value>`/`MatrixJson<Value>` or "
+                f"`Bytes` + manual `serde_json` parse"
             )
     unannotated_opaque = opaque_routes - annotated_opaque
     if len(unannotated_opaque) != EXPECTED_OPAQUE_UNANNOTATED:
@@ -2756,14 +2773,17 @@ class Resolver:
 
         status is one of:
           * `"opaque"`    — exactly one `Json<Value>` / `MatrixJson<Value>`
-                            extractor: the body is protocol-arbitrary JSON by
+                            extractor, or a raw `Bytes` extractor followed by a
+                            manual `serde_json::from_slice`/`from_str` in the
+                            handler body: the body is protocol-arbitrary JSON by
                             design and has no addressable field list. This is
                             what a `body_opaque=true` annotation asserts.
           * `"typed"`     — exactly one `Json<Struct>` / `MatrixJson<Struct>`
                             whose fields resolve in the route tree.
           * `"foreign"`   — exactly one named struct the extractor cannot see
                             (usually defined in another member crate).
-          * `"none"`      — no JSON body extractor at all.
+          * `"none"`      — no JSON body extractor at all (including a `Bytes`
+                            handler that never parses it as JSON).
           * `"ambiguous"` — unresolvable handler, several handlers, or more
                             than one JSON body extractor.
 
@@ -2783,6 +2803,8 @@ class Resolver:
             return ("ambiguous", None)
         types = json_body_extractor_types(sigs[0])
         if not types:
+            if _BYTES_EXTRACTOR.search(sigs[0]) and _MANUAL_JSON_PARSE.search(_body):
+                return ("opaque", "Bytes")
             return ("none", None)
         if len(types) > 1:
             return ("ambiguous", None)

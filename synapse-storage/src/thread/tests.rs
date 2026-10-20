@@ -32,6 +32,7 @@ fn create_test_thread_reply() -> ThreadReply {
         origin_server_ts: 1234567891,
         is_edited: false,
         is_redacted: false,
+        redaction_reason: None,
         created_ts: 1234567891,
     }
 }

@@ -750,8 +750,8 @@ impl ThreadService {
     }
 
     /// See [`redact_reply`].
-    pub async fn redact_reply(&self, room_id: &str, event_id: &str) -> Result<(), ApiError> {
-        self.storage.mark_reply_redacted(room_id, event_id).await.map_err(|e| {
+    pub async fn redact_reply(&self, room_id: &str, event_id: &str, reason: Option<&str>) -> Result<(), ApiError> {
+        self.storage.mark_reply_redacted(room_id, event_id, reason).await.map_err(|e| {
             warn!(error = %e, "Failed to redact reply");
             ApiError::internal_with_cause("Failed to redact reply", e)
         })
@@ -900,6 +900,7 @@ mod tests {
             origin_server_ts: 1234567890,
             is_redacted: false,
             is_edited: false,
+            redaction_reason: None,
             created_ts: 1234567890,
         };
         assert!(!reply.is_redacted);

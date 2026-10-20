@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT id, room_id, thread_id, event_id, root_event_id, sender,\n                       in_reply_to_event_id, content, origin_server_ts, is_edited, is_redacted, created_ts\n                FROM thread_replies\n                WHERE room_id = $1 AND thread_id = $2\n                ORDER BY origin_server_ts ASC\n                LIMIT $3\n                ",
+  "query": "\n                SELECT id, room_id, thread_id, event_id, root_event_id, sender,\n                       in_reply_to_event_id, content, origin_server_ts, is_edited, is_redacted,\n                       redaction_reason, created_ts\n                FROM thread_replies\n                WHERE room_id = $1 AND thread_id = $2\n                ORDER BY origin_server_ts ASC\n                LIMIT $3\n                ",
   "describe": {
     "columns": [
       {
@@ -60,6 +60,11 @@
       },
       {
         "ordinal": 11,
+        "name": "redaction_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
         "name": "created_ts",
         "type_info": "Int8"
       }
@@ -83,8 +88,9 @@
       false,
       false,
       false,
+      true,
       false
     ]
   },
-  "hash": "39e5d53e1c458ca5269235e0a702cea4dc74762b439339ec1b208bd717157768"
+  "hash": "de8d8884cddc98b8d24c895590cedcfd0ebb705efbcfbe8916d354974ae4c4f0"
 }

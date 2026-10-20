@@ -2721,10 +2721,15 @@ CREATE TABLE IF NOT EXISTS thread_replies (
     origin_server_ts BIGINT NOT NULL,
     is_edited BOOLEAN NOT NULL DEFAULT FALSE,
     is_redacted BOOLEAN NOT NULL DEFAULT FALSE,
+    redaction_reason TEXT,
     created_ts BIGINT NOT NULL,
     CONSTRAINT uq_thread_replies_room_event UNIQUE (room_id, event_id),
     CONSTRAINT fk_thread_replies_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
 );
+
+-- ⚠️ 同 global_invite_blocklist 的先例：`CREATE TABLE IF NOT EXISTS` 对已存在
+-- `thread_replies` 的库不会加列，必须再补一次幂等 ALTER（全新库上是 no-op）。
+ALTER TABLE thread_replies ADD COLUMN IF NOT EXISTS redaction_reason TEXT;
 
 CREATE TABLE IF NOT EXISTS thread_relations (
     id BIGSERIAL PRIMARY KEY,

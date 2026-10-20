@@ -61,6 +61,8 @@ pub struct ThreadReply {
     pub is_edited: bool,
     /// The `is_redacted` field.
     pub is_redacted: bool,
+    /// The `redaction_reason` field.
+    pub redaction_reason: Option<String>,
     /// The `created_ts` field.
     pub created_ts: i64,
 }

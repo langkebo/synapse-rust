@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT id, room_id, thread_id, event_id, root_event_id, sender,\n                       in_reply_to_event_id, content, origin_server_ts, is_edited, is_redacted, created_ts\n                FROM thread_replies\n                WHERE room_id = $1 AND thread_id = $2 AND event_id > $3\n                ORDER BY origin_server_ts ASC\n                LIMIT $4\n                ",
+  "query": "\n            INSERT INTO thread_replies (\n                room_id, thread_id, event_id, root_event_id, sender,\n                in_reply_to_event_id, content, origin_server_ts, created_ts\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n            RETURNING id, room_id, thread_id, event_id, root_event_id, sender,\n                      in_reply_to_event_id, content, origin_server_ts, is_edited, is_redacted,\n                      redaction_reason, created_ts\n            ",
   "describe": {
     "columns": [
       {
@@ -60,6 +60,11 @@
       },
       {
         "ordinal": 11,
+        "name": "redaction_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
         "name": "created_ts",
         "type_info": "Int8"
       }
@@ -69,6 +74,11 @@
         "Text",
         "Text",
         "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Int8",
         "Int8"
       ]
     },
@@ -84,8 +94,9 @@
       false,
       false,
       false,
+      true,
       false
     ]
   },
-  "hash": "50ad8ca9ffa27c48c1c55f065c6c4ae93bc8032cdb6f4508989f4c2538b6d85b"
+  "hash": "98e873e5dd02d23a40ee375f80c6d41b59a6805524318b466b927f4dc199cc96"
 }
