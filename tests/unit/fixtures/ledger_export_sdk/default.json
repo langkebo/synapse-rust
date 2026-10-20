@@ -1245,7 +1245,10 @@
         "event_id",
         "rel_type"
       ],
-      "query_params": []
+      "query_params": [
+        "from",
+        "limit"
+      ]
     },
     {
       "method": "GET",
@@ -1256,6 +1259,7 @@
         "event_id"
       ],
       "query_params": [
+        "filter",
         "limit"
       ]
     },
@@ -2854,7 +2858,10 @@
         "event_id",
         "rel_type"
       ],
-      "query_params": []
+      "query_params": [
+        "from",
+        "limit"
+      ]
     },
     {
       "method": "GET",
@@ -2893,6 +2900,7 @@
         "event_id"
       ],
       "query_params": [
+        "filter",
         "limit"
       ]
     },
@@ -3888,7 +3896,11 @@
       "path_params": [
         "room_id"
       ],
-      "query_params": []
+      "query_params": [
+        "from",
+        "limit",
+        "v"
+      ]
     },
     {
       "method": "GET",

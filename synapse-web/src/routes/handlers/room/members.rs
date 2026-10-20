@@ -86,15 +86,29 @@ pub(crate) fn extract_via_servers(query: &[(String, String)], legacy_body_via_se
         .unwrap_or_default()
 }
 
+/// Request body for [`join_room`].
+///
+/// The spec makes the body optional and only defines `reason`, which is copied
+/// into the `m.room.member` event content.
+#[derive(Debug, Deserialize)]
+pub struct JoinRoomBody {
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
 /// See [`join_room`].
 pub(crate) async fn join_room(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
+    body: Option<MatrixJson<JoinRoomBody>>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    ctx.room_service.membership().join_room(&room_id, &auth_user.user_id).await?;
+    let reason = body.as_ref().and_then(|b| b.reason.as_deref());
+    validate_moderation_reason(reason)?;
+
+    ctx.room_service.membership().join_room_with_reason(&room_id, &auth_user.user_id, reason).await?;
     Ok(Json(json!({
         "room_id": room_id,
         "joined_ts": current_timestamp_millis()
@@ -104,11 +118,14 @@ pub(crate) async fn join_room(
 /// Request body for [`join_room_by_id_or_alias`].
 ///
 /// The body is optional; `via_servers` is only a back-compat fallback for the
-/// spec's `?via=` query parameter.
+/// spec's `?via=` query parameter, and `reason` is copied into the
+/// `m.room.member` event content.
 #[derive(Debug, Deserialize)]
 pub struct JoinRoomByIdOrAliasBody {
     #[serde(default)]
     pub via_servers: Option<Value>,
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 /// See [`join_room_by_id_or_alias`].
@@ -127,6 +144,8 @@ pub(crate) async fn join_room_by_id_or_alias(
     // [`extract_via_servers`].
     let legacy_via = body.as_ref().and_then(|b| b.via_servers.as_ref());
     let via_servers = extract_via_servers(&query, legacy_via);
+    let reason = body.as_ref().and_then(|b| b.reason.as_deref());
+    validate_moderation_reason(reason)?;
 
     let room_id = if room_id_or_alias.starts_with('!') {
         validate_room_id(&room_id_or_alias)?;
@@ -180,7 +199,10 @@ pub(crate) async fn join_room_by_id_or_alias(
         "User joining room by id or alias"
     );
 
-    ctx.room_service.membership().join_room_with_via_servers(&room_id, &auth_user.user_id, &via_servers).await?;
+    ctx.room_service
+        .membership()
+        .join_room_with_via_servers_and_reason(&room_id, &auth_user.user_id, &via_servers, reason)
+        .await?;
 
     Ok(Json(json!({
         "room_id": room_id

@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
-use synapse_services::relations_service::RelationQuery;
+use synapse_services::relations_service::{AggregationItem, RelationQuery};
 
 /// Client (`/_matrix/client/{v1,v3}`) relations **read** surface.
 ///
@@ -85,8 +85,10 @@ pub fn create_relations_router(state: AppState) -> Router<AppState> {
 }
 
 /// The `RelationsQuery` struct.
+///
+/// Not `deny_unknown_fields`: the spec requires servers to ignore unrecognised
+/// query parameters, and a hard 400 broke clients that append their own.
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct RelationsQuery {
     limit: Option<i64>,
     from: Option<String>,
@@ -369,13 +371,32 @@ async fn send_relation(
     }))
 }
 
+/// The `AggregationsQuery` struct.
+///
+/// `from` / `limit` were previously not extracted at all, so a paginating client
+/// silently received the whole aggregation set on every page.
+#[derive(Debug, Default, Deserialize)]
+pub struct AggregationsQuery {
+    from: Option<String>,
+    limit: Option<usize>,
+}
+
+/// The `AggregationsResponse` struct.
+#[derive(Debug, Serialize)]
+struct AggregationsResponse {
+    chunk: Vec<AggregationItem>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next_batch: Option<String>,
+}
+
 /// Get aggregations for relations
 /// This endpoint is used to get aggregated data about relations (e.g., reaction counts)
 async fn get_aggregations(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id, rel_type)): Path<(RoomId, EventId, String)>,
-) -> Result<Json<synapse_services::relations_service::AggregationResponse>, ApiError> {
+    Query(query): Query<AggregationsQuery>,
+) -> Result<Json<AggregationsResponse>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
 
@@ -385,11 +406,25 @@ async fn get_aggregations(
         return Err(ApiError::bad_request("Aggregation is only supported for m.annotation rel_type".to_string()));
     }
 
+    // The service aggregates the whole event; pagination is applied to that
+    // (already grouped) list, using the `from` token as an offset.
+    let offset = query
+        .from
+        .as_deref()
+        .map(str::parse::<usize>)
+        .transpose()
+        .map_err(|_| ApiError::bad_request("Invalid from parameter".to_string()))?
+        .unwrap_or(0);
+    let limit = query.limit.unwrap_or(100).clamp(1, 1000);
+
     tracing::debug!("Getting aggregations for event {} in room {}", event_id, room_id);
 
     let response = ctx.relations_service.get_aggregations(&room_id, &event_id).await?;
+    let total = response.chunk.len();
+    let chunk: Vec<AggregationItem> = response.chunk.into_iter().skip(offset).take(limit).collect();
+    let next_batch = (offset + chunk.len() < total).then(|| (offset + chunk.len()).to_string());
 
-    Ok(Json(response))
+    Ok(Json(AggregationsResponse { chunk, next_batch }))
 }
 
 #[cfg(test)]
@@ -455,14 +490,17 @@ mod tests {
     }
 
     /// The stable spelling wins when both are sent, and unknown parameters are
-    /// still rejected (the strictness that caught `recurse` in the first place
-    /// must not be dropped wholesale to fix it).
+    /// ignored rather than rejected: a hard `deny_unknown_fields` 400 broke
+    /// clients that append their own parameters, and Synapse never rejects
+    /// them either.
     #[test]
-    fn msc3981_recurse_prefers_the_stable_spelling_and_keeps_rejecting_junk() {
+    fn msc3981_recurse_prefers_the_stable_spelling_and_ignores_unknown_parameters() {
         assert_eq!(
             parse(serde_json::json!({"recurse": false, "org.matrix.msc3981.recurse": true})).recurse_flag(),
             Some(false)
         );
-        assert!(serde_json::from_value::<RelationsQuery>(serde_json::json!({"recursion_depth": 3})).is_err());
+        let unknown = parse(serde_json::json!({"recursion_depth": 3}));
+        assert_eq!(unknown.recurse_flag(), None);
+        assert_eq!(unknown.limit, None);
     }
 }

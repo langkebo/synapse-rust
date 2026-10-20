@@ -23,7 +23,11 @@ pub(crate) struct PublicRoomsQuery {
     pub(crate) since: Option<String>,
 }
 
-fn decode_public_rooms_cursor(cursor: Option<&str>) -> Option<(i64, &str)> {
+/// Decode a `since` pagination token (`<created_ts>|<room_id>`).
+///
+/// Shared with the federation `/publicRooms` handlers so both sides accept the
+/// same opaque cursor.
+pub(crate) fn decode_public_rooms_cursor(cursor: Option<&str>) -> Option<(i64, &str)> {
     let cursor = cursor?;
     let (ts, room_id) = cursor.split_once('|')?;
     let ts = ts.parse::<i64>().ok()?;
@@ -33,7 +37,8 @@ fn decode_public_rooms_cursor(cursor: Option<&str>) -> Option<(i64, &str)> {
     Some((ts, room_id))
 }
 
-fn encode_public_rooms_cursor(created_ts: i64, room_id: &str) -> String {
+/// Encode a `since` pagination token for the next `/publicRooms` page.
+pub(crate) fn encode_public_rooms_cursor(created_ts: i64, room_id: &str) -> String {
     format!("{created_ts}|{room_id}")
 }
 

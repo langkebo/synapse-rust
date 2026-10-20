@@ -182,7 +182,11 @@ impl crate::auth::CredentialAuth for FakeCredentialAuth {
         Err(ApiError::unauthorized("mock credential_auth: verify_user_credentials not configured"))
     }
 
-    async fn register_guest_account(&self) -> ApiResult<(User, String, String)> {
+    async fn register_guest_account(
+        &self,
+        _device_id: Option<&str>,
+        _display_name: Option<&str>,
+    ) -> ApiResult<(User, String, String)> {
         Err(ApiError::unauthorized("mock credential_auth: register_guest_account not configured"))
     }
 

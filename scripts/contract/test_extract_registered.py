@@ -411,6 +411,53 @@ def check_literal_query_evidence(res: "ex.Resolver") -> None:
     )
 
 
+def check_raw_query_is_opaque() -> None:
+    """D-7: a `RawQuery` handler exposes query params and must not read `none`.
+
+    `GET /_matrix/federation/v1/backfill/{room_id}` parsed `?v=&from=&limit=`
+    by hand and was recorded as `query: none`, so the SDK gate and the Tjg
+    mirror concluded the endpoint took no query params at all. `RawQuery` only
+    appears in this one handler, and D-9 converted it to a typed `Query`, so the
+    lock is synthetic: without it nothing would keep the extractor honest.
+
+    The two negative halves matter just as much: a handler with no extractor at
+    all stays `none` (otherwise every route becomes opaque), and `Query<T>` plus
+    `RawQuery` in one signature stays `ambiguous` (two competing contracts).
+    """
+    src = """
+pub async fn raw_probe(State(ctx): State<ProbeContext>, RawQuery(raw): RawQuery) -> &'static str {
+    raw.unwrap_or_default()
+}
+
+pub async fn no_query_probe(State(ctx): State<ProbeContext>) -> &'static str {
+    "none"
+}
+
+pub async fn mixed_probe(
+    State(ctx): State<ProbeContext>,
+    Query(q): Query<ProbeQuery>,
+    RawQuery(raw): RawQuery,
+) -> &'static str {
+    "mixed"
+}
+"""
+    probe = ex.Resolver({"probe_synthetic.rs": src})
+    cases = {
+        ("GET", "/_synthetic/raw"): ("raw_probe", ("manual", None, "RawQuery")),
+        ("GET", "/_synthetic/none"): ("no_query_probe", ("none", None, None)),
+        ("GET", "/_synthetic/mixed"): ("mixed_probe", ("ambiguous", None, None)),
+    }
+    for key, (handler, _want) in cases.items():
+        probe.handlers[key] = {("probe_synthetic.rs", handler)}
+    got = {key: probe.handler_query_info(*key) for key in cases}
+    for key, (_handler, want) in cases.items():
+        check(
+            f"synthetic {key[1]} query is {want[0]!r} (D-7)",
+            got[key] == want,
+            f"got {got[key]!r}, want {want!r}",
+        )
+
+
 def check_non_namespace_bucket(per: dict) -> None:
     """The non-namespace bucket must be exactly the intentional root surface.
 
@@ -1614,6 +1661,8 @@ def main() -> int:
     check_bytes_manual_json_body(res)
     print("== literal query-key evidence (P3) ==")
     check_literal_query_evidence(res)
+    print("== RawQuery is an opaque query (D-7) ==")
+    check_raw_query_is_opaque()
     print("== non-namespace surface ==")
     check_non_namespace_bucket(per)
     print("== standard-prefix private surface (ISSUE-13) ==")

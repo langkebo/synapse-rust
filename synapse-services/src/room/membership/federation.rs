@@ -125,6 +125,22 @@ impl MembershipService {
     /// 5. Persist the returned state events and auth chain.
     /// 6. Add the user as a joined member.
     pub async fn join_room_via_federation(&self, destination: &str, room_id: &str, user_id: &str) -> ApiResult<()> {
+        self.join_room_via_federation_with_reason(destination, room_id, user_id, None).await
+    }
+
+    /// [`join_room_via_federation`](Self::join_room_via_federation) plus the
+    /// optional client-supplied `reason`.
+    ///
+    /// The reason must be written into the make_join template **before**
+    /// signing: `content` is part of the signed bytes, so adding it after
+    /// `sign_and_hash_event` would invalidate our own signature.
+    pub async fn join_room_via_federation_with_reason(
+        &self,
+        destination: &str,
+        room_id: &str,
+        user_id: &str,
+        reason: Option<&str>,
+    ) -> ApiResult<()> {
         ::tracing::info!(
             destination = %destination,
             room_id = %room_id,
@@ -185,6 +201,17 @@ impl MembershipService {
         if let Some(obj) = event_template.as_object_mut() {
             obj.entry("room_id").or_insert_with(|| Value::String(room_id.to_string()));
             obj.entry("origin_server_ts").or_insert_with(|| json!(current_timestamp_millis()));
+        }
+
+        // The client's optional join `reason` belongs to `content`, which is
+        // covered by the event signature ⇒ apply it before signing.
+        if let Some(reason) = reason.map(str::trim).filter(|reason| !reason.is_empty()) {
+            let content = event_template
+                .as_object_mut()
+                .and_then(|obj| obj.get_mut("content"))
+                .and_then(Value::as_object_mut)
+                .ok_or_else(|| ApiError::bad_request("make_join template has no event content".to_string()))?;
+            content.insert("reason".to_string(), Value::String(reason.to_string()));
         }
 
         // 2. Sign the template event locally.

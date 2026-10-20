@@ -303,7 +303,8 @@ impl crate::client_api::FederationClientApi for MockFederationClient {
         &self,
         _destination: &str,
         room_id: &str,
-        _event_ids: &[String],
+        _room_version: &str,
+        _from_event_id: &str,
         _limit: u32,
     ) -> Result<BackfillResponse, FederationClientError> {
         self.backfill_responses

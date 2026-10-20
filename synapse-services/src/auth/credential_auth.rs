@@ -68,7 +68,14 @@ pub trait CredentialAuth: Send + Sync {
     }
 
     /// See [`register_guest_account`].
-    async fn register_guest_account(&self) -> ApiResult<(User, String, String)>;
+    ///
+    /// `device_id` / `display_name` are the optional `device_id` and
+    /// `initial_device_display_name` fields of the guest registration body.
+    async fn register_guest_account(
+        &self,
+        device_id: Option<&str>,
+        display_name: Option<&str>,
+    ) -> ApiResult<(User, String, String)>;
 
     /// See [`require_guest_user`].
     async fn require_guest_user(&self, user_id: &str) -> ApiResult<User>;

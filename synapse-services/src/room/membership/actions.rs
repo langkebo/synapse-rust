@@ -21,6 +21,20 @@ impl MembershipService {
         user_id: &str,
         via_servers: &[String],
     ) -> ApiResult<()> {
+        self.join_room_with_via_servers_and_reason(room_id, user_id, via_servers, None).await
+    }
+
+    /// [`join_room_with_via_servers`](Self::join_room_with_via_servers) plus the
+    /// optional client-supplied `reason`, which the spec places in the join
+    /// event's `content`.
+    #[::tracing::instrument(skip(self, via_servers))]
+    pub async fn join_room_with_via_servers_and_reason(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        via_servers: &[String],
+        reason: Option<&str>,
+    ) -> ApiResult<()> {
         // If the room already exists locally, use the local join path.
         let room_exists = self
             .room_storage
@@ -29,7 +43,7 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_cause("Failed to check room existence", e))?;
 
         if room_exists {
-            return self.join_room(room_id, user_id).await;
+            return self.join_room_with_reason(room_id, user_id, reason).await;
         }
 
         // Room doesn't exist locally — try federation join.
@@ -56,12 +70,19 @@ impl MembershipService {
                 }
             })?;
 
-        self.join_room_via_federation(&destination, room_id, user_id).await
+        self.join_room_via_federation_with_reason(&destination, room_id, user_id, reason).await
     }
 
     /// See [`join_room`].
     #[::tracing::instrument(skip(self))]
     pub async fn join_room(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
+        self.join_room_with_reason(room_id, user_id, None).await
+    }
+
+    /// [`join_room`](Self::join_room) with the optional client-supplied `reason`
+    /// recorded in the `m.room.member` event content.
+    #[::tracing::instrument(skip(self))]
+    pub async fn join_room_with_reason(&self, room_id: &str, user_id: &str, reason: Option<&str>) -> ApiResult<()> {
         if !self
             .room_storage
             .room_exists(room_id)
@@ -122,10 +143,13 @@ impl MembershipService {
         // Third-party event admission (Synapse `check_event_allowed`), consulted
         // *before* the membership state change so a refusal leaves no residue.
         let event_id = generate_event_id(&self.server_name);
-        let join_content = json!({
+        let mut join_content = json!({
             "membership": "join",
             "displayname": user_id.trim_start_matches('@').split(':').next().unwrap_or(user_id),
         });
+        if let Some(reason) = reason.map(str::trim).filter(|reason| !reason.is_empty()) {
+            join_content["reason"] = serde_json::Value::String(reason.to_string());
+        }
         let join_content =
             self.admit_membership_event(room_id, &event_id, user_id, user_id, join_content, true).await?;
 

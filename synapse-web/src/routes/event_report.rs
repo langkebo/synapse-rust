@@ -74,6 +74,18 @@ pub struct DismissReportBody {
     pub reason: String,
 }
 
+/// The `EscalateReportBody` struct.
+///
+/// Escalation used to take no body at all, so the reason an admin supplied was
+/// dropped before it reached the handler (D-12). The body stays permissive
+/// (no `deny_unknown_fields`): escalation is a best-effort annotation, and an
+/// extra field must not turn a successful escalation into a 400.
+#[derive(Debug, Default, Deserialize)]
+pub struct EscalateReportBody {
+    /// The `reason` field — why the report is being escalated.
+    pub reason: Option<String>,
+}
+
 /// The `BlockUserBody` struct.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -296,8 +308,10 @@ pub async fn escalate_report(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(id): Path<i64>,
+    body: Option<MatrixJson<EscalateReportBody>>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let report = ctx.event_report_service.escalate_report(id, &_auth_user.user_id).await?;
+    let body = body.map(|MatrixJson(body)| body).unwrap_or_default();
+    let report = ctx.event_report_service.escalate_report(id, &_auth_user.user_id, body.reason.as_deref()).await?;
 
     Ok(Json(ReportResponse::from(report)))
 }

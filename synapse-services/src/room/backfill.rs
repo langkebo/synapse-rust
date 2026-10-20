@@ -158,7 +158,21 @@ impl RoomService {
             });
         }
 
-        // 3. Iterate candidates.  The first server that returns a non-empty
+        // 3. Room version — the federation `backfill` request needs it as the
+        //    spec's required `v` parameter. Read once, before the candidate
+        //    loop (it used to be read inside, after the response arrived).
+        let room_version = self
+            .room_storage
+            .get_room_version_only(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to read room version for backfill", e))?
+            .ok_or_else(|| ApiError::bad_request(format!("Backfill requested for unknown room {room_id}")))?;
+
+        // The spec's `from` is a single pagination cursor, so walk backwards
+        // from the newest locally-known event.
+        let from_event_id = &seed_event_ids[0];
+
+        // 4. Iterate candidates.  The first server that returns a non-empty
         //    PDU batch wins; remaining candidates are not tried.
         //
         //    Synapse additionally ranks candidates by absolute depth
@@ -171,23 +185,24 @@ impl RoomService {
             ::tracing::debug!(
                 room_id = %room_id,
                 candidate = %candidate,
-                seed_count = seed_event_ids.len(),
+                from_event_id = %from_event_id,
                 limit = limit,
                 "Requesting backfill from candidate"
             );
 
-            let response = match federation_client.backfill(&candidate, room_id, &seed_event_ids, limit).await {
-                Ok(response) => response,
-                Err(error) => {
-                    ::tracing::info!(
-                        room_id = %room_id,
-                        candidate = %candidate,
-                        error = %error,
-                        "Backfill candidate failed; trying next"
-                    );
-                    continue;
-                }
-            };
+            let response =
+                match federation_client.backfill(&candidate, room_id, &room_version, from_event_id, limit).await {
+                    Ok(response) => response,
+                    Err(error) => {
+                        ::tracing::info!(
+                            room_id = %room_id,
+                            candidate = %candidate,
+                            error = %error,
+                            "Backfill candidate failed; trying next"
+                        );
+                        continue;
+                    }
+                };
 
             if response.pdus.is_empty() {
                 ::tracing::debug!(
@@ -209,14 +224,7 @@ impl RoomService {
             //    推导。此前这里（以及 `compute_missing_event_ids`）只读
             //    `event_id` 字段 ⇒ v3+ 的每个回填 PDU 都被当成"缺 ID"跳过，
             //    回填对现代房间等于完全不工作；而签名校验也必须按房间版本
-            //    的 redaction 取签名字节，所以房间版本在这里解析一次。
-            let room_version = self
-                .room_storage
-                .get_room_version_only(room_id)
-                .await
-                .map_err(|e| ApiError::internal_with_cause("Failed to read room version for backfill", e))?
-                .ok_or_else(|| ApiError::bad_request(format!("Backfill requested for unknown room {room_id}")))?;
-
+            //    的 redaction 取签名字节（房间版本在候选循环前已解析一次）。
             let resolved: Vec<(String, &serde_json::Value)> = response
                 .pdus
                 .iter()

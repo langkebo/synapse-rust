@@ -852,13 +852,14 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             axum::http::Method::GET,
             "/_matrix/client/v1/rooms/{room_id}/aggregations/{event_id}/{rel_type}",
             "relations",
-        );
+        )
+        .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
         let e =
             RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/rooms/{room_id}/context/{event_id}", "search")
-                .with_query_params(&["limit"]);
+                .with_query_params(&["filter", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -1894,7 +1895,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             axum::http::Method::GET,
             "/_matrix/client/v3/rooms/{room_id}/aggregations/{event_id}/{rel_type}",
             "relations",
-        );
+        )
+        .with_query_params(&["from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -1917,7 +1919,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     {
         let e =
             RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/rooms/{room_id}/context/{event_id}", "search")
-                .with_query_params(&["limit"]);
+                .with_query_params(&["filter", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
@@ -2543,7 +2545,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/federation/v1/backfill/{room_id}", "federation");
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/federation/v1/backfill/{room_id}", "federation")
+            .with_query_params(&["from", "limit", "v"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {

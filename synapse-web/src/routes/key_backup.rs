@@ -89,30 +89,30 @@ pub fn create_key_backup_router(state: AppState) -> Router<AppState> {
 }
 
 /// The `VersionQuery` struct.
+///
+/// Not `deny_unknown_fields`: unrecognised query parameters are ignored, as the
+/// spec requires.
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct VersionQuery {
     /// The `version` field.
     pub version: String,
 }
 
-/// The `CreateBackupVersionBody` struct.
+/// The `UpdateBackupVersionBody` struct.
+///
+/// The spec's body carries `algorithm` **and** `auth_data`; declaring only
+/// `auth_data` (with `deny_unknown_fields`) turned every compliant request into
+/// a 400. Unknown keys are ignored, as the spec requires.
 #[derive(Debug, Deserialize, Validate)]
-#[serde(deny_unknown_fields)]
-pub struct CreateBackupVersionBody {
+pub struct UpdateBackupVersionBody {
+    /// The `algorithm` field — accepted and validated, but the algorithm of an
+    /// existing version is immutable.
     #[validate(length(max = 255, message = "Algorithm name too long"))]
-    /// The `algorithm` field.
     pub algorithm: Option<String>,
     /// The `auth_data` field.
     pub auth_data: Option<Value>,
-}
-
-/// The `UpdateBackupVersionBody` struct.
-#[derive(Debug, Deserialize, Validate)]
-#[serde(deny_unknown_fields)]
-pub struct UpdateBackupVersionBody {
-    /// The `auth_data` field.
-    pub auth_data: Option<Value>,
+    /// The `version` field — optional echo of the version in the path.
+    pub version: Option<String>,
 }
 
 #[axum::debug_handler]

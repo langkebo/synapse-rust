@@ -528,6 +528,9 @@ _SERDE_RENAME_ALL = re.compile(r'rename_all(?:_deserialize)?\s*=\s*"([^"]+)"')
 _FIELD_NAME = re.compile(r"^(?:pub(?:\s*\([^)]*\))?\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*:")
 _SERDE_SKIP = re.compile(r"(?:^|[(,\s])(skip|skip_deserializing)(?=[,)\s])")
 _QUERY_HEAD = re.compile(r"\bQuery\s*<")
+# `RawQuery` is a query extractor with no addressable field list (the handler
+# parses the raw `&k=v` string itself). It must not be reported as `query: none`.
+_RAW_QUERY_HEAD = re.compile(r"\bRawQuery\b")
 # `Json<T>` and the project's `MatrixJson<T>` share the same body semantics.
 # The negative lookbehind matters: `MatrixJson<` also contains `Json<`.
 _JSON_BODY_HEAD = re.compile(r"(?<![A-Za-z0-9_])(?:Json|MatrixJson)\s*<")
@@ -1878,8 +1881,11 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/client/v1/media/thumbnail/{server_name}/{media_id}"): {
         "query_params": "animated,height,method,width"
     },
+    ("GET", "/_matrix/client/v1/rooms/{room_id}/aggregations/{event_id}/{rel_type}"): {
+        "query_params": "from,limit"
+    },
     ("GET", "/_matrix/client/v1/rooms/{room_id}/context/{event_id}"): {
-        "query_params": "limit"
+        "query_params": "filter,limit"
     },
     ("GET", "/_matrix/client/v1/rooms/{room_id}/hierarchy"): {
         "query_params": "limit,max_depth"
@@ -1889,8 +1895,11 @@ EXPECTED_ANNOTATIONS = {
     },
     ("GET", "/_matrix/client/v3/notifications"): {"query_params": "from,limit,only"},
     ("GET", "/_matrix/client/v3/publicRooms"): {"query_params": "limit,since"},
+    ("GET", "/_matrix/client/v3/rooms/{room_id}/aggregations/{event_id}/{rel_type}"): {
+        "query_params": "from,limit"
+    },
     ("GET", "/_matrix/client/v3/rooms/{room_id}/context/{event_id}"): {
-        "query_params": "limit"
+        "query_params": "filter,limit"
     },
     ("GET", "/_matrix/client/v3/rooms/{room_id}/hierarchy"): {
         "query_params": "from,limit,max_depth,suggested_only"
@@ -1902,6 +1911,9 @@ EXPECTED_ANNOTATIONS = {
         "query_params": "dir,filter,from,limit"
     },
     ("GET", "/_matrix/client/v3/rooms/{room_id}/state"): {"query_params": "type"},
+    ("GET", "/_matrix/federation/v1/backfill/{room_id}"): {
+        "query_params": "from,limit,v"
+    },
     ("GET", "/_matrix/federation/v1/media/thumbnail/{server_name}/{media_id}"): {
         "query_params": "height,method,width"
     },
@@ -3150,10 +3162,18 @@ class Resolver:
         if len(sigs) != 1:
             return ("ambiguous", None, None)
         types = query_extractor_types(sigs[0])
-        if not types:
-            return ("none", None, None)
-        if len(types) > 1:
+        # `RawQuery` is not generic, so the pattern `RawQuery(raw): RawQuery`
+        # names it twice; presence, not occurrence count, is what matters.
+        has_raw_query = bool(_RAW_QUERY_HEAD.search(sigs[0]))
+        if len(types) > 1 or (types and has_raw_query):
             return ("ambiguous", None, None)
+        if not types:
+            if has_raw_query:
+                # The handler parses the raw query string itself: the route
+                # takes query params we cannot enumerate, so record it as an
+                # opaque query instead of claiming `query: none`.
+                return ("manual", None, "RawQuery")
+            return ("none", None, None)
         qtype = types[0]
         tname = bare_type_name(qtype)
         if _is_dynamic_query_type(qtype):
@@ -3179,13 +3199,16 @@ class Resolver:
           * `"ok"`       — the handler resolves to a struct `Query<T>`;
                            `fields` is its sorted accepted-wire-name list
                            (possibly empty for a fieldless struct).
-          * `"none"`     — the handler resolves and has no `Query<..>` extractor
-                           at all (the route genuinely takes no query params).
-          * `"manual"`   — the handler's only `Query<..>` is dynamically typed
-                           (`Value` / `HashMap<..>` / `Vec<(String, String)>`)
-                           and the handler body holds no provable key literal,
-                           so no field list exists and the guard leaves the
-                           route alone.
+          * `"none"`     — the handler resolves and exposes no query extractor
+                           at all (no `Query<..>`, no `RawQuery`), so the route
+                           genuinely takes no query params.
+          * `"manual"`   — the handler's query contract has no enumerable field
+                           list: either a `RawQuery` extractor (the handler
+                           parses the raw string itself) or a single
+                           dynamically typed `Query<..>` (`Value` /
+                           `HashMap<..>` / `Vec<(String, String)>`) with no
+                           provable key literal in the handler body. The guard
+                           leaves the route alone.
           * `"literal"`  — the same dynamic extractor, but the handler (or a
                            same-file helper it passes the query to) compares
                            string literals against the query's key. `fields`

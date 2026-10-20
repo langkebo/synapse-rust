@@ -317,8 +317,16 @@ impl EventReportService {
     }
 
     /// See [`escalate_report`].
+    ///
+    /// `reason`, when supplied, is recorded in `resolution_reason` — the only
+    /// free-text admin annotation column on `event_reports`.
     #[instrument(skip(self))]
-    pub async fn escalate_report(&self, id: i64, actor_user_id: &str) -> Result<EventReport, ApiError> {
+    pub async fn escalate_report(
+        &self,
+        id: i64,
+        actor_user_id: &str,
+        reason: Option<&str>,
+    ) -> Result<EventReport, ApiError> {
         let old_report = self
             .storage
             .get_report(id)
@@ -330,7 +338,7 @@ impl EventReportService {
             status: Some("investigating".to_string()),
             score: Some(old_report.score + 10),
             resolved_by: None,
-            resolution_reason: None,
+            resolution_reason: reason.map(str::to_owned),
         };
 
         let updated = self

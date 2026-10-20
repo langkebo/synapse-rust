@@ -993,11 +993,25 @@ async fn test_register_guest_account_success() {
     let h = super::test_harness::build_test_auth_service();
 
     let (user, device_id, access_token) =
-        h.service.register_guest_account().await.expect("guest register should succeed");
+        h.service.register_guest_account(None, None).await.expect("guest register should succeed");
 
     assert!(user.user_id.starts_with("@guest_"));
     assert!(device_id.starts_with("guest_device_"));
     assert!(!access_token.is_empty());
+}
+
+#[tokio::test]
+async fn test_register_guest_account_honours_requested_device() {
+    let h = super::test_harness::build_test_auth_service();
+
+    let (user, device_id, _) = h
+        .service
+        .register_guest_account(Some("CLIENTDEVICE"), Some("Guest Phone"))
+        .await
+        .expect("guest register with caller device should succeed");
+
+    assert_eq!(device_id, "CLIENTDEVICE", "D-10: body `device_id` must be used as-is");
+    assert!(user.user_id.starts_with("@guest_"));
 }
 
 // ============================================================================

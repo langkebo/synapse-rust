@@ -1,9 +1,10 @@
 use crate::middleware::FederationRequestAuth;
 use crate::routes::context::FederationContext;
+use crate::routes::directory_reporting::{decode_public_rooms_cursor, encode_public_rooms_cursor};
 use crate::routes::extractors::UserId;
 use crate::routes::public_rooms_filter::parse_public_rooms_filter;
 use crate::routes::validate_room_alias;
-use axum::extract::{Extension, Json, Path, Query, RawQuery, State};
+use axum::extract::{Extension, Json, Path, Query, State};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
@@ -316,64 +317,35 @@ pub(super) async fn get_public_rooms(
     State(ctx): State<FederationContext>,
     Query(params): Query<PublicRoomsQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit = params.limit.as_deref().and_then(|v| v.parse().ok()).unwrap_or(10).min(1000);
-    let _since = params.since;
+    let limit = params.limit.as_deref().and_then(|v| v.parse::<u64>().ok()).unwrap_or(20).clamp(1, 1000) as i64;
+    // `since` 与客户端 `/publicRooms` 共用同一个 keyset 游标（`<created_ts>|<room_id>`）；
+    // 以前的实现把它读进 `_since` 后丢弃，于是对端永远从第一页重新开始。
+    let cursor = decode_public_rooms_cursor(params.since.as_deref());
 
     // GET 变体按 spec 只接受 `limit` / `since` / `server`：`filter`（含
     // `generic_search_term`）是 **POST 变体**的字段（MSC2197），故这里按 `None` 取值。
     // POST 变体的接线见 [`post_public_rooms`]。
-    let rooms = ctx.room_service.state().get_public_rooms_paginated(limit, None, None, None, false).await?;
+    let (rooms, total) = tokio::try_join!(
+        async {
+            ctx.room_service
+                .state()
+                .get_public_rooms_paginated(
+                    limit,
+                    cursor.map(|(ts, _)| ts),
+                    cursor.map(|(_, room_id)| room_id),
+                    None,
+                    false,
+                )
+                .await
+        },
+        async { ctx.room_service.state().count_public_rooms(None, false).await }
+    )?;
 
-    let total = ctx.room_service.state().count_public_rooms(None, false).await?;
-
-    let mut room_list = Vec::new();
-    for room in rooms {
-        room_list.push(json!({
-            "room_id": room.room_id,
-            "name": room.name,
-            "topic": room.topic,
-            "avatar_url": room.avatar_url,
-            "num_joined_members": room.member_count,
-            "world_readable": room.is_public,
-            "guest_can_join": false
-        }));
-    }
-
-    Ok(Json(json!({
-        "chunk": room_list,
-        "total_room_count_estimate": total,
-        "next_batch": null
-    })))
-}
-
-/// See [`post_public_rooms`].
-pub(super) async fn post_public_rooms(
-    State(ctx): State<FederationContext>,
-    MatrixJson(body): MatrixJson<Value>,
-) -> Result<Json<Value>, ApiError> {
-    let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(20).min(1000);
-    // D-110（2026-09-30 裁定 ①）：federation 侧按 MSC2197 接线 `filter.generic_search_term`，
-    // 与 client 侧**共用同一个解析器**（[`parse_public_rooms_filter`]）—— 解析规则、错误语义
-    // （形状非法一律 400 `M_INVALID_PARAM` 而不是静默忽略）与 `room_types` 行为都保持一致。
-    //
-    // 为什么这里仍然不发游标：搜索路径是 `WHERE … LIKE` + `ORDER BY name`，与 keyset 游标
-    // （`created_ts, room_id`）**不同构**，发游标会让对端续传跳进未过滤的列表；而本响应体本来
-    // 就没有 `next_batch` 字段（federation 的 POST 变体只回 chunk + 计数）。
-    let filter = parse_public_rooms_filter(&body)?;
-    let room_types = filter.room_types.as_deref();
-
-    let (rooms, total) = if let Some(term) = filter.search_term.as_deref() {
-        ctx.room_service.state().search_public_rooms(term, limit, room_types, filter.include_room_type_null).await?
+    // 只有返回满页时才有下一页，语义与客户端侧一致。
+    let next_batch = if rooms.len() as i64 == limit {
+        rooms.last().map(|room| encode_public_rooms_cursor(room.created_ts, &room.room_id))
     } else {
-        tokio::try_join!(
-            async {
-                ctx.room_service
-                    .state()
-                    .get_public_rooms_paginated(limit, None, None, room_types, filter.include_room_type_null)
-                    .await
-            },
-            async { ctx.room_service.state().count_public_rooms(room_types, filter.include_room_type_null).await }
-        )?
+        None
     };
 
     let mut room_list = Vec::new();
@@ -391,7 +363,71 @@ pub(super) async fn post_public_rooms(
 
     Ok(Json(json!({
         "chunk": room_list,
-        "total_room_count_estimate": total
+        "total_room_count_estimate": total,
+        "next_batch": next_batch
+    })))
+}
+
+/// See [`post_public_rooms`].
+pub(super) async fn post_public_rooms(
+    State(ctx): State<FederationContext>,
+    MatrixJson(body): MatrixJson<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(20).clamp(1, 1000);
+    // `since` 与 GET 变体 / 客户端侧共用同一个 keyset 游标（`<created_ts>|<room_id>`）。
+    let cursor = decode_public_rooms_cursor(body.get("since").and_then(Value::as_str));
+    // D-110（2026-09-30 裁定 ①）：federation 侧按 MSC2197 接线 `filter.generic_search_term`，
+    // 与 client 侧**共用同一个解析器**（[`parse_public_rooms_filter`]）—— 解析规则、错误语义
+    // （形状非法一律 400 `M_INVALID_PARAM` 而不是静默忽略）与 `room_types` 行为都保持一致。
+    //
+    // 搜索路径是 `WHERE … LIKE` + `ORDER BY name`，与 keyset 游标（`created_ts, room_id`）
+    // **不同构**：该路径仍不发游标（否则对端续传会跳进未过滤的列表）。
+    let filter = parse_public_rooms_filter(&body)?;
+    let room_types = filter.room_types.as_deref();
+
+    let (rooms, total) = if let Some(term) = filter.search_term.as_deref() {
+        ctx.room_service.state().search_public_rooms(term, limit, room_types, filter.include_room_type_null).await?
+    } else {
+        tokio::try_join!(
+            async {
+                ctx.room_service
+                    .state()
+                    .get_public_rooms_paginated(
+                        limit,
+                        cursor.map(|(ts, _)| ts),
+                        cursor.map(|(_, room_id)| room_id),
+                        room_types,
+                        filter.include_room_type_null,
+                    )
+                    .await
+            },
+            async { ctx.room_service.state().count_public_rooms(room_types, filter.include_room_type_null).await }
+        )?
+    };
+
+    let next_batch = if filter.search_term.is_none() && rooms.len() as i64 == limit {
+        rooms.last().map(|room| encode_public_rooms_cursor(room.created_ts, &room.room_id))
+    } else {
+        None
+    };
+
+    let mut room_list = Vec::new();
+    for room in rooms {
+        room_list.push(json!({
+            "room_id": room.room_id,
+            "name": room.name,
+            "topic": room.topic,
+            "avatar_url": room.avatar_url,
+            "num_joined_members": room.member_count,
+            "world_readable": room.is_public,
+            "guest_can_join": false
+        }));
+    }
+
+    Ok(Json(json!({
+        "chunk": room_list,
+        "total_room_count_estimate": total,
+        "next_batch": next_batch
     })))
 }
 
@@ -559,59 +595,59 @@ pub(super) async fn get_room_hierarchy(
     Ok(Json(response))
 }
 
+/// Query parameters for [`backfill`], per the Matrix S2S spec.
+///
+/// `from` is a *single* event id (the pagination cursor), not a list, and `v`
+/// is the room version. Before D-9 the handler ignored `from` altogether and
+/// read `v` as a list of event ids, so a spec-compliant caller silently got
+/// the newest events back instead of the ones preceding its cursor.
+#[derive(Debug, Deserialize)]
+pub(super) struct BackfillQuery {
+    /// Room version the caller expects (required by the spec).
+    pub(super) v: String,
+    /// Return events immediately preceding (and excluding) this event id.
+    pub(super) from: String,
+    pub(super) limit: Option<i64>,
+}
+
 /// See [`backfill`].
 pub(super) async fn backfill(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path(room_id): Path<RoomId>,
-    RawQuery(raw_query): RawQuery,
+    Query(query): Query<BackfillQuery>,
 ) -> Result<Json<Value>, ApiError> {
     super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 
-    let (v, limit) = parse_backfill_query(raw_query)?;
-
-    ::tracing::info!("Backfilling room {} from event(s) {:?} with limit {}", room_id, v, limit);
-
-    let mut backfill_before_ts = i64::MAX;
-    for event_id in &v {
-        match get_room_event_in_room(&ctx, &room_id, event_id).await {
-            Ok(event) => {
-                backfill_before_ts = backfill_before_ts.min(event.origin_server_ts);
-            }
-            Err(_) => {
-                ::tracing::warn!("Backfill: event {} not found in room {}, skipping", event_id, room_id);
-            }
-        }
+    let room_version = query.v.trim();
+    if room_version.is_empty() {
+        return Err(ApiError::bad_request("Missing `v` (room version) query parameter".to_string()));
     }
+    let limit = backfill_limit(query.limit);
 
-    if backfill_before_ts == i64::MAX {
-        let recent_events = ctx
-            .room_service
-            .messaging()
-            .get_room_events_paginated_admin(&room_id, None, 1, "b")
-            .await
-            .map_err(ApiError::from)?;
-        if let Some(latest) = recent_events.first() {
-            backfill_before_ts = latest.origin_server_ts;
-        } else {
-            backfill_before_ts = current_timestamp_millis();
-        }
-    }
+    ::tracing::info!("Backfilling room {} (v{}) from {} with limit {}", room_id, room_version, query.from, limit);
+
+    // `from` is the pagination cursor: the response starts immediately before
+    // it and never includes it. An unknown cursor is a client error — silently
+    // falling back to the newest events (the pre-D-9 behaviour) fabricated a
+    // pagination window the caller never asked for.
+    let from_ts = get_room_event_in_room(&ctx, &room_id, &query.from)
+        .await
+        .map_err(|_| {
+            ApiError::not_found(format!("Backfill cursor event {} not found in room {}", query.from, room_id))
+        })?
+        .origin_server_ts;
 
     let mut events = ctx
         .room_service
         .messaging()
-        .get_room_events_paginated_admin(&room_id, Some(backfill_before_ts), limit, "b")
+        .get_room_events_paginated_admin(&room_id, Some(from_ts), limit, "b")
         .await
         .map_err(ApiError::from)?;
     sort_room_events_stably(&mut events);
 
-    let mut auth_events = ctx
-        .room_service
-        .messaging()
-        .get_state_events_at_or_before(&room_id, backfill_before_ts)
-        .await
-        .map_err(ApiError::from)?;
+    let mut auth_events =
+        ctx.room_service.messaging().get_state_events_at_or_before(&room_id, from_ts).await.map_err(ApiError::from)?;
     let (_, auth_chain) = build_federation_state_payload(&ctx, &mut auth_events).await;
 
     let mut pdus: Vec<Value> =
@@ -803,25 +839,9 @@ fn topological_sort(pdus: &mut Vec<Value>) {
     }
 }
 
-fn parse_backfill_query(raw_query: Option<String>) -> Result<(Vec<String>, i64), ApiError> {
-    let mut event_ids = Vec::new();
-    let mut limit = 10_i64;
-
-    if let Some(raw_query) = raw_query {
-        for (key, value) in url::form_urlencoded::parse(raw_query.as_bytes()) {
-            match key.as_ref() {
-                "v" if !value.is_empty() => event_ids.push(value.into_owned()),
-                "limit" => {
-                    limit = value
-                        .parse::<i64>()
-                        .map_err(|_| ApiError::bad_request("Invalid limit query parameter".to_string()))?;
-                }
-                _ => {}
-            }
-        }
-    }
-
-    Ok((event_ids, limit.clamp(1, 100)))
+/// The spec leaves `limit` optional; default to 10 and clamp to `1..=100`.
+fn backfill_limit(limit: Option<i64>) -> i64 {
+    limit.unwrap_or(10).clamp(1, 100)
 }
 
 #[cfg(test)]
@@ -829,38 +849,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_backfill_query_none_returns_defaults() {
-        let (event_ids, limit) = parse_backfill_query(None).unwrap();
-        assert!(event_ids.is_empty());
-        assert_eq!(limit, 10);
+    fn backfill_query_requires_v_and_from() {
+        let query: BackfillQuery = serde_json::from_value(json!({"v": "10", "from": "$abc"})).unwrap();
+        assert_eq!(query.v, "10");
+        assert_eq!(query.from, "$abc");
+        assert_eq!(query.limit, None);
+
+        assert!(
+            serde_json::from_value::<BackfillQuery>(json!({"from": "$abc"})).is_err(),
+            "`v` (room version) is required"
+        );
+        assert!(
+            serde_json::from_value::<BackfillQuery>(json!({"v": "10"})).is_err(),
+            "`from` (pagination cursor) is required"
+        );
     }
 
     #[test]
-    fn parse_backfill_query_extracts_event_ids_and_limit() {
-        let (event_ids, limit) = parse_backfill_query(Some("v=event1&v=event2&limit=50".to_string())).unwrap();
-        assert_eq!(event_ids, vec!["event1".to_string(), "event2".to_string()]);
-        assert_eq!(limit, 50);
-    }
-
-    #[test]
-    fn parse_backfill_query_clamps_limit_to_range() {
-        let (_, high) = parse_backfill_query(Some("limit=999".to_string())).unwrap();
-        assert_eq!(high, 100);
-        let (_, low) = parse_backfill_query(Some("limit=0".to_string())).unwrap();
-        assert_eq!(low, 1);
-        let (_, neg) = parse_backfill_query(Some("limit=-5".to_string())).unwrap();
-        assert_eq!(neg, 1);
-    }
-
-    #[test]
-    fn parse_backfill_query_invalid_limit_returns_error() {
-        assert!(parse_backfill_query(Some("limit=abc".to_string())).is_err());
-    }
-
-    #[test]
-    fn parse_backfill_query_skips_empty_v() {
-        let (event_ids, _) = parse_backfill_query(Some("v=&v=event1".to_string())).unwrap();
-        assert_eq!(event_ids, vec!["event1".to_string()]);
+    fn backfill_limit_defaults_and_clamps() {
+        assert_eq!(backfill_limit(None), 10);
+        assert_eq!(backfill_limit(Some(50)), 50);
+        assert_eq!(backfill_limit(Some(999)), 100);
+        assert_eq!(backfill_limit(Some(0)), 1);
+        assert_eq!(backfill_limit(Some(-5)), 1);
     }
 
     #[test]

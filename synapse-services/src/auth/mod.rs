@@ -269,11 +269,18 @@ fn auth_generate_token(length: usize) -> String {
 // impls can delegate without ambiguity.
 
 impl AuthService {
-    async fn register_guest_account(&self) -> ApiResult<(User, String, String)> {
+    /// `device_id` / `display_name` come straight from the registration body;
+    /// when absent we mint a device id and fall back to the legacy name.
+    async fn register_guest_account(
+        &self,
+        device_id: Option<&str>,
+        display_name: Option<&str>,
+    ) -> ApiResult<(User, String, String)> {
         let guest_num = rand::random::<u64>();
         let username = format!("guest_{guest_num}");
         let user_id = format!("@{}:{}", username, self.server_name);
-        let device_id = format!("guest_device_{guest_num}");
+        let device_id = device_id.map(str::to_owned).unwrap_or_else(|| format!("guest_device_{guest_num}"));
+        let display_name = display_name.unwrap_or("Guest Device");
 
         let user = self.user_storage.create_user(&user_id, &username, None, false).await.map_err(|e| {
             if e.to_string().contains("duplicate key") || e.to_string().contains("unique constraint") {
@@ -289,7 +296,7 @@ impl AuthService {
             .map_err(|e| ApiError::internal_with_cause("Failed to mark guest user", e))?;
 
         self.device_storage
-            .create_device(&device_id, &user.user_id, Some("Guest Device"))
+            .create_device(&device_id, &user.user_id, Some(display_name))
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to create device", e))?;
 
@@ -453,8 +460,12 @@ impl crate::auth::CredentialAuth for AuthService {
         AuthService::register_without_login(self, username, displayname).await
     }
 
-    async fn register_guest_account(&self) -> ApiResult<(User, String, String)> {
-        self.register_guest_account().await
+    async fn register_guest_account(
+        &self,
+        device_id: Option<&str>,
+        display_name: Option<&str>,
+    ) -> ApiResult<(User, String, String)> {
+        AuthService::register_guest_account(self, device_id, display_name).await
     }
 
     async fn require_guest_user(&self, user_id: &str) -> ApiResult<User> {

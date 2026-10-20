@@ -102,11 +102,16 @@ pub trait FederationClientApi: Send + Sync {
     async fn get_state_ids(&self, destination: &str, room_id: &str) -> Result<StateIdsResponse, FederationClientError>;
 
     /// Backfill events from a remote server.
+    ///
+    /// `room_version` becomes the spec's required `v` parameter and
+    /// `from_event_id` its `from` pagination cursor — the response starts
+    /// immediately before that event.
     async fn backfill(
         &self,
         destination: &str,
         room_id: &str,
-        event_ids: &[String],
+        room_version: &str,
+        from_event_id: &str,
         limit: u32,
     ) -> Result<BackfillResponse, FederationClientError>;
 
@@ -338,10 +343,11 @@ impl FederationClientApi for FederationClient {
         &self,
         destination: &str,
         room_id: &str,
-        event_ids: &[String],
+        room_version: &str,
+        from_event_id: &str,
         limit: u32,
     ) -> Result<BackfillResponse, FederationClientError> {
-        FederationClient::backfill(self, destination, room_id, event_ids, limit).await
+        FederationClient::backfill(self, destination, room_id, room_version, from_event_id, limit).await
     }
 
     async fn get_missing_events(

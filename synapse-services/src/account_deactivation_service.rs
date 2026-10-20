@@ -693,7 +693,11 @@ mod tests {
             Err(ApiError::internal("not configured"))
         }
 
-        async fn register_guest_account(&self) -> ApiResult<(User, String, String)> {
+        async fn register_guest_account(
+            &self,
+            _device_id: Option<&str>,
+            _display_name: Option<&str>,
+        ) -> ApiResult<(User, String, String)> {
             Err(ApiError::internal("not configured"))
         }
 

@@ -32,7 +32,13 @@ pub(crate) async fn register(
         if !ctx.config.server.enable_registration {
             return Err(ApiError::forbidden("Registration is disabled".to_string()));
         }
-        let (user, device_id, access_token) = ctx.credential_auth.register_guest_account().await?;
+        // D-10: `POST /register?kind=guest` takes the same optional device
+        // fields as `POST /register/guest`; passing them through keeps a
+        // client's pre-allocated E2EE device id intact.
+        let guest_device_id = body.get("device_id").and_then(|v| v.as_str());
+        let guest_display_name = body.get("initial_device_display_name").and_then(|v| v.as_str());
+        let (user, device_id, access_token) =
+            ctx.credential_auth.register_guest_account(guest_device_id, guest_display_name).await?;
 
         return Ok(Json(json!({
             "access_token": access_token,
@@ -58,8 +64,6 @@ pub(crate) async fn register(
         return register_appservice_user(&ctx, &service, &body).await;
     }
 
-    let auth = body.get("auth").cloned();
-
     let username = body.get("username").and_then(|v| v.as_str());
     let password = body.get("password").and_then(|v| v.as_str());
 
@@ -68,19 +72,15 @@ pub(crate) async fn register(
     // flows so the client can start the User-Interactive Authentication flow.
     // Returning 200 makes Element interpret the body as a successful
     // registration and crash reading a missing user_id.
-    if auth.is_none() {
-        return Ok((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({
-                "flows": [
-                    { "stages": ["m.login.dummy"] },
-                    { "stages": ["m.login.password"] }
-                ],
-                "params": {},
-                "session": uuid::Uuid::new_v4().to_string()
-            })),
-        )
-            .into_response());
+    let Some(auth) = body.get("auth") else {
+        return Ok(registration_uia_challenge("M_UIA_REQUIRED", "User-Interactive Authentication required"));
+    };
+
+    // The `auth` object must name a stage that we actually advertised. Merely
+    // checking that `auth` exists let forged stages (`m.login.registration_token`
+    // with an arbitrary token, `m.login.terms`, …) skip UIA entirely.
+    if let Err(challenge) = check_registration_auth(auth) {
+        return Ok(challenge);
     }
 
     // Auth field is present. Password is always required for non-guest
@@ -115,6 +115,52 @@ pub(crate) async fn register(
         ctx.registration_service.register_user(&username, password, displayname, initial_device_display_name).await?,
     )
     .into_response())
+}
+
+/// UIA flows advertised by `POST /register`.
+///
+/// Single source of truth for both the 401 challenge body and the stage
+/// allow-list, so the two can never drift apart.
+fn registration_uia_flows() -> Vec<synapse_services::uia_service::UiaFlow> {
+    vec![
+        synapse_services::uia_service::UiaFlow { stages: vec!["m.login.dummy".to_string()] },
+        synapse_services::uia_service::UiaFlow { stages: vec!["m.login.password".to_string()] },
+    ]
+}
+
+/// 401 UIA challenge for `POST /register`.
+fn registration_uia_challenge(errcode: &str, error: &str) -> Response {
+    let flows: Vec<Value> = registration_uia_flows().iter().map(|flow| json!({ "stages": flow.stages })).collect();
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(json!({
+            "errcode": errcode,
+            "error": error,
+            "flows": flows,
+            "params": {},
+            "session": uuid::Uuid::new_v4().to_string()
+        })),
+    )
+        .into_response()
+}
+
+/// Verify that `auth` names a stage we advertise for registration.
+///
+/// Registration has no account to authenticate against, so the only thing to
+/// enforce is that the client did not invent a stage: anything outside the
+/// advertised flows gets a fresh 401 challenge instead of a registered user.
+fn check_registration_auth(auth: &Value) -> Result<(), Response> {
+    let Some(auth_type) = auth.get("type").and_then(Value::as_str) else {
+        return Err(registration_uia_challenge("M_UIA_REQUIRED", "User-Interactive Authentication required"));
+    };
+
+    let flows = registration_uia_flows();
+    let advertised: Vec<&str> = flows.iter().flat_map(|flow| flow.stages.iter().map(String::as_str)).collect();
+    if !advertised.contains(&auth_type) {
+        return Err(registration_uia_challenge("M_UIA_REQUIRED", &format!("Unrecognised auth type: {auth_type}")));
+    }
+
+    Ok(())
 }
 
 /// 若请求携带的 token 属于某个应用服务，返回该服务（MSC4190 的注册身份判据）。
@@ -1267,5 +1313,43 @@ mod email_token_body_tests {
         .unwrap();
 
         assert_eq!(without.next_link, None, "next_link 是可选字段");
+    }
+}
+
+/// UIA stage allow-list for `POST /register`.
+#[cfg(test)]
+mod registration_uia_tests {
+    use super::{check_registration_auth, registration_uia_flows};
+    use serde_json::json;
+
+    fn advertised_stages() -> Vec<String> {
+        registration_uia_flows().into_iter().flat_map(|flow| flow.stages).collect()
+    }
+
+    #[test]
+    fn advertised_flows_match_the_challenge_body() {
+        assert_eq!(advertised_stages(), vec!["m.login.dummy".to_string(), "m.login.password".to_string()]);
+    }
+
+    #[test]
+    fn advertised_stage_is_accepted() {
+        assert!(check_registration_auth(&json!({ "type": "m.login.dummy" })).is_ok());
+        assert!(check_registration_auth(&json!({ "type": "m.login.password" })).is_ok());
+    }
+
+    #[test]
+    fn forged_stage_is_rejected() {
+        // A stage we never advertised must not satisfy UIA, otherwise a bogus
+        // registration token would be enough to create accounts.
+        assert!(check_registration_auth(&json!({ "type": "m.login.registration_token", "token": "x" })).is_err());
+        assert!(check_registration_auth(&json!({ "type": "m.login.terms", "terms": {} })).is_err());
+        assert!(check_registration_auth(&json!({ "type": "m.login.recaptcha" })).is_err());
+    }
+
+    #[test]
+    fn missing_type_is_rejected() {
+        assert!(check_registration_auth(&json!({})).is_err());
+        assert!(check_registration_auth(&json!({ "session": "abc" })).is_err());
+        assert!(check_registration_auth(&json!("m.login.dummy")).is_err());
     }
 }

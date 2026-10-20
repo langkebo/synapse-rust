@@ -1579,6 +1579,56 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 4. **`GET /_synapse/admin/v1/room_stats` 不分页**：该端点返回全局概览对象（单条 `{...}`，不是列表），不接受 `from`/`limit`（契约 `query: none`）；携带这两个参数会被**静默忽略**（仍 200，不报错、结果不变），SDK 请勿再传；`GET /_synapse/admin/v1/room_stats/{room_id}` 同。
 5. **`GET /_matrix/vendor/v1/rooms/{room_id}/message_queue` 不分页**：它是实时发送队列的**快照**（无稳定 tiebreaker），只接受 `limit`（默认 100，1..=500）；传 `from` 会因 `deny_unknown_fields` 返回 **400**，SDK 请删除该参数。
 
+### A.7 2026-10-20 语义缺口修复（D-7 ~ D-12 + 联邦 `/publicRooms` 游标）
+
+这批端点的共同症状是「**返回成功但没做事**」：解析器或 handler 把调用方真正发出的参数/body 丢掉，契约侧也看不出缺口。以下逐条给出修复后的 wire-format。
+
+#### 1. `POST /_matrix/client/v3/register/guest`（D-10）
+
+- 现在读取**可选** body：`{"device_id"?: string, "initial_device_display_name"?: string}`。
+- 两个字段都缺省时行为不变（服务端分配 `guest_device_<n>` / 显示名 `Guest Device`）。
+- 传入的 `device_id` 会原样登记到新游客账号上（E2EE 设备身份不再丢失）；`initial_device_display_name` 用于设备显示名。
+
+#### 2. `POST /_matrix/client/v3/account/guest/upgrade`（D-11）
+
+- 现在走 UIA：接受 `{"username", "password", "auth"?: {...}}`。
+- 不带 `auth`（或 `auth` 未完成）→ **401** + `flows` / `params` / `session`，与 `/register` 同一套 UIA 方言。
+- 当前可满足的 stage 只有 **`m.login.dummy`**（游客尚无密码/3PID，`m.login.password`、`m.login.email.identity` 无法完成）。
+- 注意：此前 `auth` 字段被 `deny_unknown_fields` 判为未知字段 → 直接 400；现在不再报错。
+
+#### 3. `POST /_synapse/admin/v1/event_reports/{id}/escalate`（D-12）
+
+- 现在接受**可选** body：`{"reason"?: string}`，写入举报的 `resolution_reason`。
+- 省略 body 仍然 200（保持向后兼容）；此前 body 完全不被读取。
+
+#### 4. `GET /_matrix/client/{v1,v3}/rooms/{room_id}/context/{event_id}`（D-8）
+
+- 新增 `filter` query 参数（JSON 编码的 `RoomEventFilter`，与 `/messages`、`/sync` 同一个类型）。
+- 过滤是**后置**的：先按 `limit`（默认 10，夹紧 1..=100）取窗口，再按 `types` / `senders` / `not_types` / `not_senders` / `contains_url` 收窄。因此 `events_before` / `events_after` **可能少于** `limit` 条 —— 这是规范的允许行为，不要用长度判断是否还有更多。
+- `filter` 含 `"lazy_load_members": true` 时，`state` 只返回相关发送者的 `m.room.member` 事件；不带该标志时 `state` 维持原有语义（仅与该事件相关的 state 子集）。
+- `filter` 不是合法 JSON 对象 → **400 `M_BAD_JSON`**。
+
+#### 5. `GET /_matrix/federation/v1/backfill/{room_id}`（D-9）
+
+- 查询参数改为符合 S2S 规范的 `?v=<room_version>&from=<event_id>&limit=<n>`：
+  - `v`：房间版本，**必填**，空串 → 400。
+  - `from`：**事件 id**（不是时间戳、不是 id 列表），**必填**；响应从它**之前**开始且不含它。未知事件 id → **404**（以前会静默退化成「返回最新事件」，凭空造出一个调用方没要的分页窗口）。
+  - `limit`：默认 **10**，夹紧 **1..=100**。
+- 旧实现把 `v` 当成「事件 id 列表」、把 `from` 读进变量后丢弃，两者均已修正。契约侧该端点现在是 `query: from,limit,v`。
+
+#### 6. 联邦 `/publicRooms` 游标（GET 与 POST 一致）
+
+- `GET /_matrix/federation/v1/publicRooms?limit&since&include_all_networks&third_party_instance_id` 与 `POST /_matrix/federation/v1/publicRooms`（body `limit` / `since` / `filter`）现在都真正消费 `since`，并返回 `next_batch`。
+- 游标与客户端 `/publicRooms` **同源**：`"{created_ts}|{room_id}"` 不透明字符串，只回填、不要解析。
+- `limit` 统一默认 **20**，夹紧 **1..=1000**（GET 以前是 10 且无下限）。
+- `next_batch` **仅在返回满页时非 null**；搜索路径（`filter.generic_search_term`，`ORDER BY name`）与 keyset 游标不同构，**不发** `next_batch`（续传会跳进未过滤的列表）。
+- 响应同时带 `total_room_count_estimate`；POST 变体现在也返回 `next_batch`（此前响应体里根本没有这个字段）。
+
+#### 7. 契约工具：`RawQuery` 不再被记成 `query: none`（D-7）
+
+- `scripts/contract/extract_registered.py` 现在识别 `RawQuery` 提取器，把这类端点记为「**不可判定（opaque）**」而不是「没有 query」。
+- 区分这两者很重要：`query: none` 断言「服务端不读任何 query」，而 `RawQuery` 只是「无法静态列出键名」。SDK 不要再把前者当成后者的证据。
+
 ---
 
 *本文件由 `scripts/contract/extract_registered.py` + `gen_contract_doc.py` 生成。路由面随代码变化，请定期重新生成。附录 A / 附录 B 为人工维护增补。*

@@ -1135,13 +1135,20 @@ impl FederationClient {
         &self,
         destination: &str,
         room_id: &str,
-        event_ids: &[String],
+        room_version: &str,
+        from_event_id: &str,
         limit: u32,
     ) -> Result<BackfillResponse, FederationClientError> {
-        let ids_param =
-            event_ids.iter().map(|id| format!("v={}", urlencoding::encode(id))).collect::<Vec<_>>().join("&");
-        let path =
-            format!("/_matrix/federation/v1/backfill/{}?{}&limit={}", urlencoding::encode(room_id), ids_param, limit);
+        // The spec's `from` is a single pagination cursor and `v` the room
+        // version; sending event ids under `v` (pre-D-9) made spec-compliant
+        // servers 400 the request.
+        let path = format!(
+            "/_matrix/federation/v1/backfill/{}?v={}&from={}&limit={}",
+            urlencoding::encode(room_id),
+            urlencoding::encode(room_version),
+            urlencoding::encode(from_event_id),
+            limit
+        );
         let response = self.send_signed_request("GET", &path, destination, None).await?;
         self.handle_response(response).await
     }
