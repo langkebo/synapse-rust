@@ -1567,6 +1567,7 @@
         "thread_id"
       ],
       "query_params": [
+        "dir",
         "from",
         "limit"
       ],

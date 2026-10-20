@@ -1591,8 +1591,9 @@ EXPECTED_ANNOTATIONS = {
         "query_params": "include_replies,reply_limit"
     },
     ("GET", "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies"): {
-        # B-20（2026-10-20）：回复列表不消费 `include`，提取器拆成 `ThreadPageQuery`。
-        "query_params": "from,limit"
+        # B-20（2026-10-20）：回复列表不消费 `include`，提取器拆成 `RepliesQuery`。
+        # B-20 残留（2026-10-21）：`dir` 由「接受但忽略」改为真排序（`f` 缺省 / `b`，其它 400）。
+        "query_params": "dir,from,limit"
     },
     ("GET", "/_matrix/vendor/v1/spaces/public"): {"query_params": "from,limit"},
     ("GET", "/_matrix/vendor/v1/spaces/search"): {

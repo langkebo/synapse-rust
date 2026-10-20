@@ -1955,7 +1955,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 | `GET /_matrix/client/v1/rooms/{room_id}/threads` | `from`、`limit`、`include` | ✅ |
 | `GET /_matrix/vendor/v1/threads` | `from`、`limit`、`include` | ✅ |
 | `GET /_matrix/vendor/v1/user/{user_id}/rooms/{room_id}/threads` | `from`、`limit`、`include` | ✅ |
-| `GET /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies` | `from`、`limit` | —（不声明，见下） |
+| `GET /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies` | `from`、`limit`、`dir` | —（不声明，见下） |
 | `GET /_matrix/vendor/v1/threads/subscribed` | `from`、`limit` | —（同上） |
 
 1. **取值**：`include=all`（缺省，等价于不传）返回房间内全部话题；`include=participated`
@@ -1966,12 +1966,13 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 3. **下推位置**：过滤在 SQL 内完成（`participants @> to_jsonb($n::TEXT)`），不是取出后内存过滤，
    `limit` 语义因此保持「本页最多 N 条 participated」。存储层见
    `synapse-storage/src/thread/storage.rs` 的 `list_thread_roots` 两个分支。
-4. **`dir` / `filter` 登记为「接受但忽略」**：二者**不是** threads 端点的规范参数（规范只有
-   `from` / `limit` / `include`），SDK 沿用 `/messages` 的形状多传了它们。服务端按 serde
-   默认行为忽略未知 query 参数，不报错；排序固定为 `origin_server_ts DESC, event_id DESC`。
-   契约提取器只登记实际消费的三个参数，**不要把 `dir`/`filter` 写进注解**。
+4. **`filter` 登记为「接受但忽略」**：它不是 threads 端点的规范参数，SDK 沿用
+   `/messages` 的形状多传了它。服务端按 serde 默认行为忽略未知 query 参数，不报错。
+   `dir` 则**已在本轮真实现**（话题列表见 E.14 §2，回复列表见 E.15），不再属于忽略项。
+   契约提取器只登记实际消费的参数，**不要把 `filter` 写进注解**。
 5. **`/replies` 与 `/threads/subscribed` 不声明 `include`**：它们不消费该参数，因此提取器
-   按 `ThreadPageQuery` 只登记 `from,limit`——这是刻意拆分，不是遗漏。
+   拆分结构体：`/replies` 登记 `dir,from,limit`（`RepliesQuery`），`/threads/subscribed`
+   登记 `from,limit`（`ThreadPageQuery`）——这是刻意拆分，不是遗漏。
 
 ### D.3 B-21 `POST /rooms/{room_id}/invite` 的 `reason`
 
@@ -2238,3 +2239,31 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 改类型化的目的不只是「让契约生成器有键集」：`Query<HashMap>` 的键在运行时才确定，
 SDK 门禁只能落到 `backend-query-unknown`；类型化后 `query` 分类为 `typed`，键集可逐字段
 比对，并且非数字的 `from` / `limit` 会由提取器直接 **400**，而不是被静默忽略。
+
+### E.15 2026-10-21 `/replies` 的 `dir`（B-20 最后一条残项）
+
+`GET /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies` 是 MSC3856 的
+**非规范扩展端点**（规范只定义 `/threads` 根列表），因此 `dir` 的语义由本仓定义，
+但仍与线程列表保持同一套取值词汇。
+
+| 取值 | 行为 |
+|---|---|
+| 缺省 / `f` | **时间升序**（最早回复在前）——与该端点历史返回顺序一致，不产生行为回归 |
+| `b` | 时间降序（最新回复在前） |
+| 其它 | **400 `M_INVALID_PARAM`** |
+
+1. **缺省是 `f` 而不是 `b`**：线程列表的缺省是 `b`（最近活跃优先），但本端点历史上一直
+   按 `origin_server_ts ASC` 返回；把缺省改成 `b` 会让所有不传 `dir` 的客户端翻页顺序反转。
+   两个端点的解析函数因此独立（`resolve_reply_direction` / `resolve_thread_direction`）。
+2. **排序键**是 `(origin_server_ts, event_id)`，`b` 取整条比较链的严格逆序，保证
+   同一毫秒内的多条回复也有稳定顺序。
+3. **内存排序 + 内存分页**：存储层的 `get_thread_replies` 固定 `ORDER BY origin_server_ts ASC`，
+   改方向需要新的静态 SQL 文本（本机无 PostgreSQL，无法生成 `.sqlx` 缓存）。因此 handler
+   先以 `limit = i32::MAX` 一次取回线程内全部回复，再排序、再按 `from` 锚点切页。
+   复用存储层 `event_id > $from` 游标不可行：`event_id` 由客户端提供、非单调，
+   会漏掉 `event_id` 小于已取最大值的行。
+4. **`from` 语义不变**：仍是上一页最后一条的 `event_id`，只作为切页锚点在已排序序列上
+   定位；`limit` 缺省 50、下限 1。
+5. **契约同步**：`ledger_annotations.txt` 与 `EXPECTED_ANNOTATIONS` 均登记为
+   `dir,from,limit`，提取器产出 `query_params: ["dir","from","limit"]` /
+   `query_type: "RepliesQuery"`。SDK 门禁的 `query-param-ignored` 桶由 1 归零。

@@ -116,6 +116,19 @@ fn resolve_thread_direction(dir: Option<&str>) -> Result<&'static str, ApiError>
     }
 }
 
+/// 把 `/replies` 的 `dir` 解析成时间序方向。
+///
+/// 与 [`resolve_thread_direction`] 的差别只在缺省值：该端点的历史返回顺序是
+/// **时间升序**（最早回复在前），因此缺省映射为 `f`，`b` 是它的严格逆序。
+/// 其它取值同样一律 400。
+fn resolve_reply_direction(dir: Option<&str>) -> Result<&'static str, ApiError> {
+    match dir {
+        None | Some("f") => Ok("f"),
+        Some("b") => Ok("b"),
+        Some(other) => Err(ApiError::invalid_param(format!("Invalid dir value '{other}': expected 'f' or 'b'"))),
+    }
+}
+
 /// 按"最近活跃优先"排序（`updated_ts` 降序 → `created_ts` 降序 → `thread_id` 升序）。
 ///
 /// `dir=f` 时取整条比较链的逆序，因此 `f` 与 `b` 的分页游标是同一条序列上的两个方向。
@@ -152,14 +165,77 @@ fn paginate_threads(
     (page, next_batch, total)
 }
 
-/// 只接受分页参数的查询串（`/replies`、已订阅列表）。
+/// 按时间排序回复：`(origin_server_ts, event_id)` 升序，`dir=b` 取整条比较链的逆序。
+fn sort_replies_by_time(replies: &mut [synapse_services::thread_service::ThreadReply], direction: &str) {
+    replies.sort_by(|a, b| {
+        let ordering = a.origin_server_ts.cmp(&b.origin_server_ts).then_with(|| a.event_id.cmp(&b.event_id));
+        if direction == "b" {
+            ordering.reverse()
+        } else {
+            ordering
+        }
+    });
+}
+
+/// 以 `from`（上一页最后一个 `event_id`）为锚点，从已排序的回复里切出一页。
+fn paginate_replies(
+    replies: Vec<synapse_services::thread_service::ThreadReply>,
+    limit: Option<i32>,
+    from: Option<&str>,
+) -> Vec<synapse_services::thread_service::ThreadReply> {
+    let start =
+        from.and_then(|token| replies.iter().position(|reply| reply.event_id == token)).map_or(0, |idx| idx + 1);
+
+    let page_size = limit.unwrap_or(50).max(1) as usize;
+    replies.into_iter().skip(start).take(page_size).collect()
+}
+
+/// 取回线程内全部回复，按 `dir` 排序后切页。
 ///
-/// 与 [`ListQuery`] 分开，是为了不把 `include` 声明到不消费它的端点上。
+/// 存储层固定 `ORDER BY origin_server_ts ASC`，改排序方向需要新的静态 SQL 文本
+/// （本机无 PostgreSQL，无法生成 `.sqlx` 缓存），因此排序与分页都在内存完成。
+async fn list_thread_replies(
+    ctx: &RoomContext,
+    room_id: &str,
+    thread_id: &str,
+    limit: Option<i32>,
+    from: Option<&str>,
+    direction: &str,
+) -> Result<Vec<synapse_services::thread_service::ThreadReply>, ApiError> {
+    let mut replies =
+        ctx.thread_service.get_thread_replies(room_id, thread_id, Some(REPLIES_FETCH_LIMIT), None).await?;
+
+    sort_replies_by_time(&mut replies, direction);
+    Ok(paginate_replies(replies, limit, from))
+}
+
+/// 只接受分页参数的查询串（已订阅列表）。
+///
+/// 与 [`ListQuery`] 分开，是为了不把 `include` 声明到不消费它的端点上；
+/// 与 [`RepliesQuery`] 分开，是因为该端点不排序、不消费 `dir`。
 #[derive(Debug, Deserialize)]
 struct ThreadPageQuery {
     limit: Option<i32>,
     from: Option<String>,
 }
+
+/// 线程内回复列表的查询串（分页 + `dir`）。
+///
+/// `dir` 只声明在真正排序的端点上：`/threads/subscribed` 不排序，故仍用
+/// [`ThreadPageQuery`]，避免重演「声明了却不消费」（审计 B-20）。
+#[derive(Debug, Deserialize)]
+struct RepliesQuery {
+    limit: Option<i32>,
+    from: Option<String>,
+    /// 排序方向：`f`（缺省，最早回复优先）或 `b`（最新回复优先）；其它值 400 `M_INVALID_PARAM`。
+    dir: Option<String>,
+}
+
+/// 一次性取回线程内全部回复时的 `limit`：排序与分页都在内存里做。
+///
+/// 存储层固定 `ORDER BY origin_server_ts ASC`，且以 `event_id > $from` 做游标 ——
+/// 用该游标翻页可能漏掉 `event_id` 小于已取最大值的行，因此这里只取一次。
+const REPLIES_FETCH_LIMIT: i32 = i32::MAX;
 
 /// 把 `include` 解析成存储层的参与者过滤条件。
 ///
@@ -585,12 +661,14 @@ async fn add_reply(
 async fn get_replies(
     State(ctx): State<RoomContext>,
     Path((room_id, thread_id)): Path<(RoomId, String)>,
-    Query(query): Query<ThreadPageQuery>,
+    Query(query): Query<RepliesQuery>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Vec<ReplyResponse>>, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, room_id.as_str()).await?;
 
-    let replies = ctx.thread_service.get_thread_replies(room_id.as_str(), &thread_id, query.limit, query.from).await?;
+    let direction = resolve_reply_direction(query.dir.as_deref())?;
+    let replies =
+        list_thread_replies(&ctx, room_id.as_str(), &thread_id, query.limit, query.from.as_deref(), direction).await?;
 
     Ok(Json(replies.into_iter().map(ReplyResponse::from).collect()))
 }
@@ -961,5 +1039,65 @@ mod tests {
         assert_eq!(total, 3);
         assert_eq!(page.iter().map(|thread| thread.thread_id.as_str()).collect::<Vec<_>>(), vec!["$a", "$c"]);
         assert_eq!(next_batch.as_deref(), Some("$c"));
+    }
+
+    fn reply(event_id: &str, origin_server_ts: i64) -> synapse_services::thread_service::ThreadReply {
+        synapse_services::thread_service::ThreadReply {
+            id: 0,
+            room_id: "!room:localhost".to_string(),
+            thread_id: "$thread".to_string(),
+            event_id: event_id.to_string(),
+            root_event_id: "$root".to_string(),
+            sender: "@alice:localhost".to_string(),
+            in_reply_to_event_id: None,
+            content: json!({}),
+            origin_server_ts,
+            is_edited: false,
+            is_redacted: false,
+            redaction_reason: None,
+            created_ts: origin_server_ts,
+        }
+    }
+
+    #[test]
+    fn test_reply_dir_absent_keeps_historical_ascending_order() {
+        assert_eq!(resolve_reply_direction(None).expect("absent dir is valid"), "f");
+        assert_eq!(resolve_reply_direction(Some("f")).expect("dir=f is valid"), "f");
+        assert_eq!(resolve_reply_direction(Some("b")).expect("dir=b is valid"), "b");
+    }
+
+    #[test]
+    fn test_reply_dir_rejects_unknown_value() {
+        let error = resolve_reply_direction(Some("up")).expect_err("unknown dir values must be rejected");
+        assert!(error.is_bad_request());
+        assert_eq!(error.matrix_code(), synapse_common::error::MatrixErrorCode::InvalidParam);
+    }
+
+    #[test]
+    fn test_reply_list_dir_orders_by_time() {
+        let mut replies = vec![reply("$a", 10), reply("$b", 30), reply("$c", 20)];
+
+        sort_replies_by_time(&mut replies, "f");
+        assert_eq!(replies.iter().map(|reply| reply.event_id.as_str()).collect::<Vec<_>>(), vec!["$a", "$c", "$b"]);
+
+        sort_replies_by_time(&mut replies, "b");
+        assert_eq!(replies.iter().map(|reply| reply.event_id.as_str()).collect::<Vec<_>>(), vec!["$b", "$c", "$a"]);
+    }
+
+    #[test]
+    fn test_reply_list_pagination_uses_event_id_anchor() {
+        let mut replies = vec![reply("$a", 10), reply("$b", 20), reply("$c", 30)];
+        sort_replies_by_time(&mut replies, "b");
+
+        let page = paginate_replies(replies, Some(2), Some("$b"));
+        assert_eq!(page.iter().map(|reply| reply.event_id.as_str()).collect::<Vec<_>>(), vec!["$a"]);
+    }
+
+    #[test]
+    fn test_replies_query_parses_spec_dir() {
+        let query: RepliesQuery =
+            serde_json::from_value(json!({ "limit": 10, "dir": "b" })).expect("RepliesQuery should deserialize dir");
+        assert_eq!(query.dir.as_deref(), Some("b"));
+        assert_eq!(query.limit, Some(10));
     }
 }

@@ -952,7 +952,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
             "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies",
             "thread",
         )
-        .with_query_params(&["from", "limit"]);
+        .with_query_params(&["dir", "from", "limit"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
