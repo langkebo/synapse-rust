@@ -1,7 +1,7 @@
 # 测试库隔离：从 schema clone 换到 database clone（设计稿）
 
 - 日期：2026-10-20
-- 状态：**设计，未实施**
+- 状态：**P0 已交付**（`1e77cbae7`，`scripts/test_db_template.sh`）；P1–P4 未开始
 - 前置：`562a58d4e`（index 改名）、`3909daddd`（atexit 泄漏修复）、`69eeb090e`（健康守卫）
 - 实测环境：Mac mini / PostgreSQL 16.15 容器（`127.0.0.1:55432`），基线 221 张业务表 / 20 MB
 
@@ -113,7 +113,7 @@ B 的主要吸引力不只是快，而是**删掉了整块"重建后修正"的�
 
 | 阶段 | 内容 | 验收 |
 |---|---|---|
-| P0 | 模板库创建 + 禁连 + `CHECKPOINT`，暴露为独立脚本 | 重复执行幂等；模板上 `datallowconn=false` |
+| P0 ✅ | 模板库创建 + 禁连 + `CHECKPOINT`，暴露为独立脚本 | 已验收：`ensure` 幂等、`datallowconn=false`、`clone` 0.117 s / 221 表、非测试集群 exit 2 |
 | P1 | `TEST_DB_ISOLATION=database` 只接 `prepare_shared_test_pool` | 13 条 `api_account_data` + 286 条 `room_` 全绿；残留 = 0 |
 | P2 | 接 `acquire_pooled_schema` / `prepare_isolated_test_pool` | 同上，且 `test_db_health.sh` 无新增残留 |
 | P3 | CI 双跑一个周期（A 与 B 各一遍） | 两边全绿；B 的墙钟低于 A 的 60% |
