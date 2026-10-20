@@ -172,21 +172,49 @@ async fn resolve_user(ctx: &AdminContext, identifier: &str) -> Result<AdminUserR
 // Moved to admin/mod.rs
 use super::ensure_super_admin_for_privilege_change;
 
+/// Query parameters accepted by [`get_users`].
+///
+/// Deliberately **not** `deny_unknown_fields`: the handler used to take a bare
+/// `HashMap<String, String>` and ignored unknown parameters.
+#[derive(Debug, Default, Deserialize)]
+pub struct AdminUsersQuery {
+    limit: Option<String>,
+    since: Option<String>,
+    offset: Option<String>,
+}
+
+/// Query parameters accepted by [`get_user_rooms_admin`].
+#[derive(Debug, Default, Deserialize)]
+pub struct UserRoomsQuery {
+    limit: Option<String>,
+    from: Option<String>,
+}
+
+/// Query parameters accepted by [`get_users_v2`].
+#[derive(Debug, Default, Deserialize)]
+pub struct AdminUsersV2Query {
+    limit: Option<String>,
+    from: Option<String>,
+    offset: Option<String>,
+    name: Option<String>,
+}
+
 /// See [`get_users`].
 #[axum::debug_handler]
 pub async fn get_users(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Query(params): axum::extract::Query<AdminUsersQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params
-        .get("limit")
+        .limit
+        .as_deref()
         .and_then(|v| v.parse().ok())
         .unwrap_or(100)
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
-    let cursor = decode_user_cursor(params.get("since").map(String::as_str));
+    let cursor = decode_user_cursor(params.since.as_deref());
 
-    if params.contains_key("offset") && params.get("offset").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0) > 0 {
+    if params.offset.as_deref().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0) > 0 {
         return Err(ApiError::bad_request(
             "Legacy offset pagination is no longer supported; use since cursor".to_string(),
         ));
@@ -496,12 +524,12 @@ pub async fn get_user_rooms_admin(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(user_id): Path<UserId>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Query(params): axum::extract::Query<UserRoomsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
 
-    let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(100).clamp(1, 500);
-    let from = params.get("from").map(|s| s.as_str());
+    let limit = params.limit.as_deref().and_then(|v| v.parse().ok()).unwrap_or(100).clamp(1, 500);
+    let from = params.from.as_deref();
 
     let room_ids = ctx.admin_user_service.get_user_rooms_paginated(&user.user_id, limit, from).await?;
 
@@ -702,22 +730,23 @@ pub async fn logout_user_devices(
 pub async fn get_users_v2(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Query(params): axum::extract::Query<AdminUsersV2Query>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params
-        .get("limit")
+        .limit
+        .as_deref()
         .and_then(|v| v.parse().ok())
         .unwrap_or(100)
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
-    let cursor = decode_user_cursor(params.get("from").map(String::as_str));
+    let cursor = decode_user_cursor(params.from.as_deref());
 
-    if params.contains_key("offset") && params.get("offset").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0) > 0 {
+    if params.offset.as_deref().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0) > 0 {
         return Err(ApiError::bad_request(
             "Legacy offset pagination is no longer supported; use from cursor".to_string(),
         ));
     }
 
-    let page = ctx.admin_user_service.list_users_v2(limit, cursor, params.get("name").map(String::as_str)).await?;
+    let page = ctx.admin_user_service.list_users_v2(limit, cursor, params.name.as_deref()).await?;
 
     let users: Vec<Value> = page
         .users

@@ -301,13 +301,23 @@ async fn build_profile_query_response(
     Ok(Json(response))
 }
 
+/// Query parameters accepted by [`get_public_rooms`].
+///
+/// Deliberately **not** `deny_unknown_fields`: the handler used to take a bare
+/// `HashMap<String, String>` and ignored unknown parameters.
+#[derive(Debug, Default, Deserialize)]
+pub(super) struct PublicRoomsQuery {
+    limit: Option<String>,
+    since: Option<String>,
+}
+
 /// See [`get_public_rooms`].
 pub(super) async fn get_public_rooms(
     State(ctx): State<FederationContext>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    Query(params): Query<PublicRoomsQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(10).min(1000);
-    let _since = params.get("since").cloned();
+    let limit = params.limit.as_deref().and_then(|v| v.parse().ok()).unwrap_or(10).min(1000);
+    let _since = params.since;
 
     // GET 变体按 spec 只接受 `limit` / `since` / `server`：`filter`（含
     // `generic_search_term`）是 **POST 变体**的字段（MSC2197），故这里按 `None` 取值。
@@ -339,7 +349,6 @@ pub(super) async fn get_public_rooms(
 /// See [`post_public_rooms`].
 pub(super) async fn post_public_rooms(
     State(ctx): State<FederationContext>,
-    Query(_params): Query<Value>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(20).min(1000);
@@ -454,12 +463,22 @@ pub(super) async fn query_destination(State(ctx): State<FederationContext>) -> R
     })))
 }
 
+/// Query parameters accepted by [`timestamp_to_event`].
+///
+/// Deliberately **not** `deny_unknown_fields`: the handler used to take a bare
+/// `Query<Value>` and ignored unknown parameters. `ts` stays optional at the
+/// serde layer so the missing-parameter answer keeps its `M_BAD_REQUEST` body.
+#[derive(Debug, Default, Deserialize)]
+pub(super) struct TimestampToEventQuery {
+    ts: Option<String>,
+}
+
 /// See [`timestamp_to_event`].
 pub(super) async fn timestamp_to_event(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path(room_id): Path<RoomId>,
-    Query(params): Query<Value>,
+    Query(params): Query<TimestampToEventQuery>,
 ) -> Result<Json<Value>, ApiError> {
     if !synapse_common::room_id::is_well_formed_room_id(&room_id) {
         return Err(ApiError::bad_request("Invalid room_id format"));
@@ -467,16 +486,8 @@ pub(super) async fn timestamp_to_event(
 
     super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 
-    let timestamp = match params.get("ts") {
-        Some(v) => {
-            if let Some(ts) = v.as_i64() {
-                ts
-            } else if let Some(s) = v.as_str() {
-                s.parse::<i64>().map_err(|_| ApiError::bad_request("Invalid 'ts' parameter"))?
-            } else {
-                return Err(ApiError::bad_request("Invalid 'ts' parameter"));
-            }
-        }
+    let timestamp = match params.ts.as_deref() {
+        Some(raw) => raw.parse::<i64>().map_err(|_| ApiError::bad_request("Invalid 'ts' parameter"))?,
         None => return Err(ApiError::bad_request("Missing 'ts' parameter")),
     };
 

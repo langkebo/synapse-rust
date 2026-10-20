@@ -24,9 +24,19 @@ const ASYNC_CHUNK_SIZE_BYTES: i64 = 5 * 1024 * 1024; // 5 MB
 // Shared upload helpers
 // ---------------------------------------------------------------------------
 
+/// Query parameters accepted by the media upload handlers.
+///
+/// Deliberately **not** `deny_unknown_fields`: the handlers used to take a bare
+/// `Query<Value>` and ignored unknown parameters.
+#[derive(Debug, Default, serde::Deserialize)]
+pub(crate) struct UploadQuery {
+    filename: Option<String>,
+    content_type: Option<String>,
+}
+
 /// Extract an upload filename from query params or the Content-Disposition header.
-pub(crate) fn parse_upload_filename(headers: &HeaderMap, query_params: &Value) -> Option<String> {
-    if let Some(filename) = query_params.get("filename").and_then(|v| v.as_str()) {
+pub(crate) fn parse_upload_filename(headers: &HeaderMap, query_params: &UploadQuery) -> Option<String> {
+    if let Some(filename) = query_params.filename.as_deref() {
         if !filename.is_empty() {
             return Some(filename.to_string());
         }
@@ -59,13 +69,13 @@ pub(crate) fn ensure_local_media_server_name(ctx: &MediaContext, server_name: &s
 pub(crate) async fn upload_media_common(
     ctx: &MediaContext,
     user_id: &str,
-    params: &Value,
+    params: &UploadQuery,
     headers: &HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
     let content_type = params
-        .get("content_type")
-        .and_then(|v| v.as_str())
+        .content_type
+        .as_deref()
         .filter(|s| !s.is_empty())
         .or_else(|| headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()))
         .unwrap_or("application/octet-stream");
@@ -106,7 +116,7 @@ pub(crate) async fn upload_media_with_id_common(
     user_id: &str,
     server_name: &str,
     media_id: &str,
-    params: &Value,
+    params: &UploadQuery,
     headers: &HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
@@ -115,8 +125,8 @@ pub(crate) async fn upload_media_with_id_common(
     }
 
     let content_type = params
-        .get("content_type")
-        .and_then(|v| v.as_str())
+        .content_type
+        .as_deref()
         .filter(|s| !s.is_empty())
         .or_else(|| headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()))
         .unwrap_or("application/octet-stream");
@@ -160,7 +170,7 @@ pub(crate) async fn upload_media_with_id_common(
 pub(crate) async fn upload_media_v3(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
-    Query(params): Query<Value>,
+    Query(params): Query<UploadQuery>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
@@ -171,7 +181,7 @@ pub(crate) async fn upload_media_v3(
 pub(crate) async fn upload_media_v1(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
-    Query(params): Query<Value>,
+    Query(params): Query<UploadQuery>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
@@ -183,7 +193,7 @@ pub(crate) async fn upload_media_with_id(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
     Path((server_name, media_id)): Path<(ServerName, MediaId)>,
-    Query(params): Query<Value>,
+    Query(params): Query<UploadQuery>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
@@ -428,14 +438,14 @@ mod tests {
     fn test_parse_upload_filename_from_header() {
         let mut headers = HeaderMap::new();
         headers.insert("Content-Disposition", "attachment; filename=\"test.jpg\"".parse().unwrap());
-        let result = parse_upload_filename(&headers, &serde_json::Value::Null);
+        let result = parse_upload_filename(&headers, &UploadQuery::default());
         assert_eq!(result, Some("test.jpg".to_string()));
     }
 
     #[test]
     fn test_parse_upload_filename_from_query() {
         let headers = HeaderMap::new();
-        let params = serde_json::json!({"filename": "photo.png"});
+        let params = UploadQuery { filename: Some("photo.png".to_string()), ..Default::default() };
         let result = parse_upload_filename(&headers, &params);
         assert_eq!(result, Some("photo.png".to_string()));
     }
@@ -444,7 +454,7 @@ mod tests {
     fn test_parse_upload_filename_query_takes_priority() {
         let mut headers = HeaderMap::new();
         headers.insert("Content-Disposition", "attachment; filename=\"header.jpg\"".parse().unwrap());
-        let params = serde_json::json!({"filename": "query.png"});
+        let params = UploadQuery { filename: Some("query.png".to_string()), ..Default::default() };
         let result = parse_upload_filename(&headers, &params);
         assert_eq!(result, Some("query.png".to_string()));
     }
@@ -452,7 +462,7 @@ mod tests {
     #[test]
     fn test_parse_upload_filename_none_when_missing() {
         let headers = HeaderMap::new();
-        let result = parse_upload_filename(&headers, &serde_json::Value::Null);
+        let result = parse_upload_filename(&headers, &UploadQuery::default());
         assert_eq!(result, None);
     }
 

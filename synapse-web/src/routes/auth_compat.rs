@@ -13,15 +13,20 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::{ApiError, MatrixErrorCode};
+
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct RegisterQuery {
+    pub(crate) kind: Option<String>,
+}
+
 /// See [`register`].
 pub(crate) async fn register(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
-    Query(query): Query<Value>,
+    Query(query): Query<RegisterQuery>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Response, ApiError> {
-    let is_guest = query.get("kind").and_then(|v| v.as_str()) == Some("guest")
-        || body.get("kind").and_then(|v| v.as_str()) == Some("guest");
+    let is_guest = query.kind.as_deref() == Some("guest") || body.get("kind").and_then(|v| v.as_str()) == Some("guest");
 
     if is_guest {
         if !ctx.config.server.enable_registration {

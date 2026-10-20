@@ -66,38 +66,49 @@ fn resolve_rate_limit_override(ctx: &SyncContext) -> (bool, bool, u32, u32, u32,
     }
 }
 
+/// Query parameters accepted by [`sync`].
+///
+/// Deliberately **not** `deny_unknown_fields`: the handler used to take a bare
+/// `Query<Value>` and ignored unknown parameters. Every field stays a raw
+/// string so a malformed value keeps falling back to the default instead of
+/// turning into an extractor rejection.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct SyncQuery {
+    timeout: Option<String>,
+    full_state: Option<String>,
+    set_presence: Option<String>,
+    filter: Option<String>,
+    since: Option<String>,
+    #[serde(rename = "org.matrix.msc4222.use_state_after")]
+    unstable_use_state_after: Option<String>,
+    use_state_after: Option<String>,
+}
+
 /// See [`sync`].
 pub(crate) async fn sync(
     State(ctx): State<SyncContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Query(params): Query<Value>,
+    Query(query): Query<SyncQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = auth_user.user_id;
     let device_id = auth_user.device_id;
 
-    let timeout = parse_u64_query_param(&params, "timeout").unwrap_or(30000);
-    let is_full_state = parse_bool_query_param(&params, "full_state").unwrap_or(false);
+    let timeout = parse_u64_query_param(query.timeout.as_deref()).unwrap_or(30000);
+    let is_full_state = parse_bool_query_param(query.full_state.as_deref()).unwrap_or(false);
     let request_id = crate::utils::auth::resolve_request_id(&headers);
-    let set_presence = params.get("set_presence").and_then(|v| v.as_str()).unwrap_or("online").to_string();
-    let filter = params.get("filter").and_then(|v| v.as_str()).map(|s| s.to_string());
-    let mut since = params.get("since").and_then(|v| v.as_str()).map(|s| s.to_string());
-    let (use_state_after, state_after_is_unstable) = resolve_use_state_after(&params);
+    let set_presence = query.set_presence.clone().unwrap_or_else(|| "online".to_string());
+    let filter = query.filter.clone();
+    let mut since = query.since.clone();
+    let (use_state_after, state_after_is_unstable) = resolve_use_state_after(&query);
 
     // P-049: Validate timeout is non-negative. `parse_u64_query_param` already
     // rejects negative values (u64 cannot represent them) but silently falls
     // back to the default. Detect a present-but-negative value and reject it
     // with M_BAD_JSON instead of silently using the default.
-    if let Some(raw) = params.get("timeout") {
-        let as_i64 = match raw {
-            Value::Number(n) => n.as_i64(),
-            Value::String(s) => s.parse::<i64>().ok(),
-            _ => None,
-        };
-        if let Some(t) = as_i64 {
-            if t < 0 {
-                return Err(ApiError::bad_request("timeout must be a non-negative integer".to_string()));
-            }
+    if let Some(t) = query.timeout.as_deref().and_then(|raw| raw.parse::<i64>().ok()) {
+        if t < 0 {
+            return Err(ApiError::bad_request("timeout must be a non-negative integer".to_string()));
         }
     }
 
@@ -234,13 +245,8 @@ pub(crate) async fn get_events(
     Ok(Json(result))
 }
 
-fn parse_u64_query_param(params: &Value, key: &str) -> Option<u64> {
-    let value = params.get(key)?;
-    match value {
-        Value::Number(number) => number.as_u64(),
-        Value::String(raw) => raw.parse::<u64>().ok(),
-        _ => None,
-    }
+fn parse_u64_query_param(raw: Option<&str>) -> Option<u64> {
+    raw?.parse::<u64>().ok()
 }
 
 /// MSC4222: 解析 `use_state_after` 的 opt-in。
@@ -248,22 +254,17 @@ fn parse_u64_query_param(params: &Value, key: &str) -> Option<u64> {
 /// 稳定名与不稳定名都接受；**不稳定名优先**（客户端若明确用了 unstable 拼写，
 /// 响应就回 `org.matrix.msc4222.state_after`，这符合 MSC 的 unstable-prefix 约定）。
 /// 返回 `(是否启用, 是否不稳定拼写)`。
-fn resolve_use_state_after(params: &Value) -> (bool, bool) {
-    if parse_bool_query_param(params, "org.matrix.msc4222.use_state_after").unwrap_or(false) {
+fn resolve_use_state_after(params: &SyncQuery) -> (bool, bool) {
+    if parse_bool_query_param(params.unstable_use_state_after.as_deref()).unwrap_or(false) {
         return (true, true);
     }
-    (parse_bool_query_param(params, "use_state_after").unwrap_or(false), false)
+    (parse_bool_query_param(params.use_state_after.as_deref()).unwrap_or(false), false)
 }
 
-fn parse_bool_query_param(params: &Value, key: &str) -> Option<bool> {
-    let value = params.get(key)?;
-    match value {
-        Value::Bool(v) => Some(*v),
-        Value::String(raw) => match raw.trim().to_ascii_lowercase().as_str() {
-            "1" | "true" | "yes" => Some(true),
-            "0" | "false" | "no" => Some(false),
-            _ => None,
-        },
+fn parse_bool_query_param(raw: Option<&str>) -> Option<bool> {
+    match raw?.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" => Some(true),
+        "0" | "false" | "no" => Some(false),
         _ => None,
     }
 }
@@ -271,7 +272,6 @@ fn parse_bool_query_param(params: &Value, key: &str) -> Option<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     // S26 / B-2: 429 计数器独立于慢请求计数器。
     // 若 sync_rate_limited_total > 0，说明 v2 /sync 触发限流，
@@ -291,29 +291,33 @@ mod tests {
     /// 稳定与不稳定两种拼写都接受；不稳定拼写**优先**（响应字段要镜像它）。
     #[test]
     fn msc4222_use_state_after_accepts_both_spellings() {
-        let unstable = json!({ "org.matrix.msc4222.use_state_after": "true" });
+        let unstable = SyncQuery { unstable_use_state_after: Some("true".to_string()), ..Default::default() };
         assert_eq!(resolve_use_state_after(&unstable), (true, true), "不稳定拼写 ⇒ (启用, 不稳定=true)");
 
-        let stable = json!({ "use_state_after": true });
+        let stable = SyncQuery { use_state_after: Some("true".to_string()), ..Default::default() };
         assert_eq!(resolve_use_state_after(&stable), (true, false), "稳定拼写 ⇒ (启用, 不稳定=false)");
 
-        let both = json!({ "use_state_after": false, "org.matrix.msc4222.use_state_after": "1" });
+        let both = SyncQuery {
+            use_state_after: Some("false".to_string()),
+            unstable_use_state_after: Some("1".to_string()),
+            ..Default::default()
+        };
         assert_eq!(resolve_use_state_after(&both), (true, true), "两种都给时不稳定名优先");
 
-        let absent = json!({});
+        let absent = SyncQuery::default();
         assert_eq!(resolve_use_state_after(&absent), (false, false), "缺省不启用");
     }
 
     /// 只有真值才启用：`false`/`0`/乱码都不算 opt-in（避免拼错就静默改变响应形状）。
     #[test]
     fn msc4222_use_state_after_requires_a_truthy_value() {
-        for falsy in [json!("false"), json!("0"), json!(false), json!("yes-please")] {
-            let params = json!({ "use_state_after": falsy });
-            assert_eq!(resolve_use_state_after(&params), (false, false), "非真值不得启用：{params}");
+        for falsy in ["false", "0", "yes-please"] {
+            let params = SyncQuery { use_state_after: Some(falsy.to_string()), ..Default::default() };
+            assert_eq!(resolve_use_state_after(&params), (false, false), "非真值不得启用：{falsy}");
         }
-        for truthy in [json!("1"), json!("true"), json!("YES"), json!(true)] {
-            let params = json!({ "use_state_after": truthy });
-            assert_eq!(resolve_use_state_after(&params), (true, false), "真值应启用：{params}");
+        for truthy in ["1", "true", "YES"] {
+            let params = SyncQuery { use_state_after: Some(truthy.to_string()), ..Default::default() };
+            assert_eq!(resolve_use_state_after(&params), (true, false), "真值应启用：{truthy}");
         }
     }
 }

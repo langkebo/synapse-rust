@@ -5,7 +5,20 @@ use serde_json::{json, Value};
 use synapse_common::ApiError;
 
 use crate::routes::extractors::RoomId;
-use std::collections::HashMap;
+
+#[derive(Debug, Default, serde::Deserialize)]
+pub(crate) struct RoomHierarchyQuery {
+    pub(crate) limit: Option<String>,
+    pub(crate) max_depth: Option<String>,
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+pub(crate) struct RoomHierarchyV3Query {
+    pub(crate) limit: Option<String>,
+    pub(crate) max_depth: Option<String>,
+    pub(crate) suggested_only: Option<String>,
+    pub(crate) from: Option<String>,
+}
 
 /// E10: extract `content.type` from the `m.room.create` state event, defaulting
 /// to JSON `null` when the event (or its `type`) is absent.
@@ -228,13 +241,13 @@ pub(crate) async fn get_room_hierarchy(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Query(params): Query<HashMap<String, String>>,
+    Query(query): Query<RoomHierarchyQuery>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(50);
+    let limit = query.limit.as_deref().and_then(|v| v.parse().ok()).unwrap_or(50);
 
-    let max_depth = params.get("max_depth").and_then(|v| v.parse().ok()).unwrap_or(3);
+    let max_depth = query.max_depth.as_deref().and_then(|v| v.parse().ok()).unwrap_or(3);
 
     let mut response =
         build_room_hierarchy_response(&ctx, &room_id, &auth_user.user_id, max_depth, false, limit, None).await?;
@@ -252,13 +265,13 @@ pub(crate) async fn get_room_hierarchy_v3(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Query(params): Query<HashMap<String, String>>,
+    Query(query): Query<RoomHierarchyV3Query>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(50);
+    let limit = query.limit.as_deref().and_then(|v| v.parse().ok()).unwrap_or(50);
 
-    let max_depth = params.get("max_depth").and_then(|v| v.parse().ok()).unwrap_or(1);
+    let max_depth = query.max_depth.as_deref().and_then(|v| v.parse().ok()).unwrap_or(1);
 
-    let suggested_only = params.get("suggested_only").is_some_and(|v| v == "true");
+    let suggested_only = query.suggested_only.as_deref() == Some("true");
 
     let mut response = build_room_hierarchy_response(
         &ctx,
@@ -267,7 +280,7 @@ pub(crate) async fn get_room_hierarchy_v3(
         max_depth,
         suggested_only,
         limit,
-        params.get("from").map(|value| value.as_str()),
+        query.from.as_deref(),
     )
     .await?;
 

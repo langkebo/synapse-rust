@@ -1176,7 +1176,10 @@ EXPECTED_ANNOTATIONS = {
     ("POST", "/_matrix/client/v3/keys/backup/secure/{backup_id}/verify"): {
         "body_opaque": True
     },
-    ("POST", "/_matrix/client/v3/register"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/register"): {
+        "query_params": "kind",
+        "body_opaque": True,
+    },
     ("POST", "/_matrix/client/v3/room_keys/import"): {"body_opaque": True},
     ("POST", "/_matrix/client/v3/room_keys/import/{version}"): {"body_opaque": True},
     ("POST", "/_matrix/client/v3/room_keys/request"): {"body_opaque": True},
@@ -1185,10 +1188,12 @@ EXPECTED_ANNOTATIONS = {
         "body_opaque": True
     },
     ("POST", "/_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}"): {
-        "body_opaque": True
+        "query_params": "org.matrix.msc4140.delay,org.matrix.msc4354.sticky_duration_ms,sticky_duration_ms",
+        "body_opaque": True,
     },
     ("POST", "/_matrix/client/v3/rooms/{room_id}/state/{event_type}"): {
-        "body_opaque": True
+        "query_params": "org.matrix.msc4140.delay,org.matrix.msc4354.sticky_duration_ms,sticky_duration_ms",
+        "body_opaque": True,
     },
     ("POST", "/_matrix/client/v3/user/{user_id}/account_data/{type}"): {
         "body_opaque": True
@@ -1205,7 +1210,8 @@ EXPECTED_ANNOTATIONS = {
         "body_opaque": True
     },
     ("PUT", "/_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/"): {
-        "body_opaque": True
+        "query_params": "org.matrix.msc4140.delay,org.matrix.msc4354.sticky_duration_ms,sticky_duration_ms",
+        "body_opaque": True,
     },
     ("PUT", "/_matrix/client/v3/room_keys/{version}/keys/{room_id}/{session_id}"): {
         "body_opaque": True
@@ -1220,19 +1226,24 @@ EXPECTED_ANNOTATIONS = {
         "body_opaque": True
     },
     ("PUT", "/_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}"): {
-        "body_opaque": True
+        "query_params": "org.matrix.msc4140.delay,org.matrix.msc4354.sticky_duration_ms,sticky_duration_ms",
+        "body_opaque": True,
     },
     ("PUT", "/_matrix/client/v3/rooms/{room_id}/state/m.room.power_levels/"): {
-        "body_opaque": True
+        "query_params": "org.matrix.msc4140.delay,org.matrix.msc4354.sticky_duration_ms,sticky_duration_ms",
+        "body_opaque": True,
     },
     ("PUT", "/_matrix/client/v3/rooms/{room_id}/state/{event_type}"): {
-        "body_opaque": True
+        "query_params": "org.matrix.msc4140.delay,org.matrix.msc4354.sticky_duration_ms,sticky_duration_ms",
+        "body_opaque": True,
     },
     ("PUT", "/_matrix/client/v3/rooms/{room_id}/state/{event_type}/"): {
-        "body_opaque": True
+        "query_params": "org.matrix.msc4140.delay,org.matrix.msc4354.sticky_duration_ms,sticky_duration_ms",
+        "body_opaque": True,
     },
     ("PUT", "/_matrix/client/v3/rooms/{room_id}/state/{event_type}/{state_key}"): {
-        "body_opaque": True
+        "query_params": "org.matrix.msc4140.delay,org.matrix.msc4354.sticky_duration_ms,sticky_duration_ms",
+        "body_opaque": True,
     },
     ("PUT", "/_matrix/client/v3/user/{user_id}/account_data/{type}"): {
         "body_opaque": True
@@ -1326,6 +1337,26 @@ EXPECTED_ANNOTATIONS = {
     ): {"body_opaque": True},
     ("PUT", "/_matrix/vendor/v1/rooms/{room_id}/vault_data"): {"body_opaque": True},
     ("PUT", "/_synapse/admin/v1/saml/config"): {"body_opaque": True},
+    # P2: opaque bodies that only became visible once handler resolution
+    # stopped dropping `Json<Value>` routes (P0).
+    ("POST", "/_matrix/client/unstable/org.matrix.msc3720/account_status"): {
+        "body_opaque": True
+    },
+    (
+        "POST",
+        "/_matrix/client/unstable/org.matrix.msc4354/rooms/{room_id}/sticky_events",
+    ): {"body_opaque": True},
+    ("POST", "/_matrix/client/v1/login/get_token"): {"body_opaque": True},
+    ("POST", "/_matrix/vendor/v1/rooms/{room_id}/invite_allowlist"): {
+        "body_opaque": True
+    },
+    ("POST", "/_matrix/vendor/v1/rooms/{room_id}/invite_blocklist"): {
+        "body_opaque": True
+    },
+    ("PUT", "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}"): {
+        "body_opaque": True
+    },
+    ("PUT", "/_matrix/client/v3/profile/{user_id}/{key_name}"): {"body_opaque": True},
     # -- query_params / auth / rate_limit_exempt.
     ("GET", "/_synapse/cas/login"): {"query_params": "gateway,renew,service"},
     ("GET", "/_synapse/cas/logout"): {"query_params": "service"},
@@ -1465,7 +1496,10 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/client/v3/spaces/{space_id}/hierarchy/v1"): {
         "query_params": "from,limit,max_depth,suggested_only"
     },
-    ("GET", "/_matrix/client/v3/sync"): {"rate_limit_exempt": True},
+    ("GET", "/_matrix/client/v3/sync"): {
+        "query_params": "filter,full_state,org.matrix.msc4222.use_state_after,set_presence,since,timeout,use_state_after",
+        "rate_limit_exempt": True,
+    },
     ("GET", "/_matrix/client/v3/thirdparty/location"): {
         "query_params": "alias,channel,search,server"
     },
@@ -1610,7 +1644,11 @@ EXPECTED_ANNOTATIONS = {
     (
         "PUT",
         "/_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}",
-    ): {"auth": "user", "body_opaque": True},
+    ): {
+        "query_params": "org.matrix.msc4140.delay,org.matrix.msc4354.sticky_duration_ms,sticky_duration_ms",
+        "auth": "user",
+        "body_opaque": True,
+    },
     ("PUT", "/_matrix/client/v1/room_keys/keys"): {"query_params": "version"},
     ("PUT", "/_matrix/client/v1/room_keys/keys/{room_id}"): {"query_params": "version"},
     ("PUT", "/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}"): {
@@ -1645,6 +1683,102 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/media/v3/preview_url"): {"query_params": "ts,url"},
     ("GET", "/_matrix/vendor/v1/keys/rotation/check"): {"query_params": "key_id"},
     ("POST", "/_matrix/vendor/v1/keys/rotation/check"): {"query_params": "key_id"},
+    # P2: the same treatment for the remaining handlers that used to accept a
+    # bare `Query<Value>` / `Query<HashMap<..>>`. Values are the struct's wire
+    # names (sorted, comma-joined); the guard re-derives them from the source.
+    (
+        "GET",
+        "/_matrix/client/unstable/org.matrix.msc4354/rooms/{room_id}/sticky_events",
+    ): {"query_params": "event_type"},
+    ("GET", "/_matrix/client/unstable/uk.half-shot.msc2666/user/mutual_rooms"): {
+        "query_params": "batch_token,from,limit,user_id"
+    },
+    ("GET", "/_matrix/client/v1/media/thumbnail/{server_name}/{media_id}"): {
+        "query_params": "animated,height,method,width"
+    },
+    ("GET", "/_matrix/client/v1/rooms/{room_id}/context/{event_id}"): {
+        "query_params": "limit"
+    },
+    ("GET", "/_matrix/client/v1/rooms/{room_id}/hierarchy"): {
+        "query_params": "limit,max_depth"
+    },
+    ("GET", "/_matrix/client/v1/rooms/{room_id}/timestamp_to_event"): {
+        "query_params": "dir,ts"
+    },
+    ("GET", "/_matrix/client/v3/notifications"): {"query_params": "limit"},
+    ("GET", "/_matrix/client/v3/publicRooms"): {"query_params": "limit,since"},
+    ("GET", "/_matrix/client/v3/rooms/{room_id}/context/{event_id}"): {
+        "query_params": "limit"
+    },
+    ("GET", "/_matrix/client/v3/rooms/{room_id}/hierarchy"): {
+        "query_params": "from,limit,max_depth,suggested_only"
+    },
+    ("GET", "/_matrix/client/v3/rooms/{room_id}/members"): {
+        "query_params": "at,dir,limit,membership,not_membership"
+    },
+    ("GET", "/_matrix/client/v3/rooms/{room_id}/messages"): {
+        "query_params": "dir,filter,from,limit"
+    },
+    ("GET", "/_matrix/client/v3/rooms/{room_id}/state"): {"query_params": "type"},
+    ("GET", "/_matrix/federation/v1/media/thumbnail/{server_name}/{media_id}"): {
+        "query_params": "height,method,width"
+    },
+    ("GET", "/_matrix/federation/v1/openid/userinfo"): {"query_params": "access_token"},
+    ("GET", "/_matrix/federation/v1/publicRooms"): {"query_params": "limit,since"},
+    ("GET", "/_matrix/federation/v1/timestamp_to_event/{room_id}"): {
+        "query_params": "ts"
+    },
+    ("GET", "/_matrix/media/v3/download_signed/{server_name}/{media_id}"): {
+        "query_params": "expires,signature"
+    },
+    ("GET", "/_matrix/media/v3/download_signed/{server_name}/{media_id}/{filename}"): {
+        "query_params": "expires,signature"
+    },
+    ("GET", "/_matrix/media/v3/thumbnail/{server_name}/{media_id}"): {
+        "query_params": "animated,height,method,width"
+    },
+    ("GET", "/_matrix/vendor/v1/rooms/{room_id}/members/recent"): {
+        "query_params": "from,limit"
+    },
+    ("GET", "/_matrix/vendor/v1/rooms/{room_id}/notifications"): {
+        "query_params": "from,limit"
+    },
+    ("GET", "/_matrix/vendor/v1/rooms/{room_id}/timeline"): {
+        "query_params": "dir,from,limit"
+    },
+    ("GET", "/_matrix/vendor/v1/user/mutual_rooms"): {
+        "query_params": "batch_token,from,limit,user_id"
+    },
+    ("GET", "/_synapse/admin/v1/media"): {"query_params": "from,limit"},
+    ("GET", "/_synapse/admin/v1/media/quarantine_changes"): {"query_params": "from"},
+    ("GET", "/_synapse/admin/v1/quarantine_media/{media_id}/changes"): {
+        "query_params": "limit,since"
+    },
+    ("GET", "/_synapse/admin/v1/reports"): {
+        "query_params": "limit,offset,since_id,since_score,since_ts"
+    },
+    ("GET", "/_synapse/admin/v1/rooms"): {"query_params": "from,limit,offset,order_by"},
+    ("GET", "/_synapse/admin/v1/rooms/{room_id}/media"): {"query_params": "from,limit"},
+    ("GET", "/_synapse/admin/v1/rooms/{room_id}/members"): {
+        "query_params": "from,limit"
+    },
+    ("GET", "/_synapse/admin/v1/rooms/{room_id}/messages"): {
+        "query_params": "dir,from,limit"
+    },
+    ("GET", "/_synapse/admin/v1/rooms/{room_id}/reports"): {
+        "query_params": "limit,offset,since_id,since_ts"
+    },
+    ("GET", "/_synapse/admin/v1/users"): {"query_params": "limit,offset,since"},
+    ("GET", "/_synapse/admin/v1/users/{user_id}/rooms"): {"query_params": "from,limit"},
+    ("GET", "/_synapse/admin/v2/users"): {"query_params": "from,limit,name,offset"},
+    ("POST", "/_matrix/client/v3/search"): {"query_params": "next_batch"},
+    ("POST", "/_matrix/media/r0/upload"): {"query_params": "content_type,filename"},
+    ("POST", "/_matrix/media/v1/upload"): {"query_params": "content_type,filename"},
+    ("POST", "/_matrix/media/v3/upload"): {"query_params": "content_type,filename"},
+    ("POST", "/_synapse/admin/v1/purge_media_cache"): {"query_params": "before_ts"},
+    ("PUT", "/_matrix/media/v3/upload/{server_name}/{media_id}"): {
+        "query_params": "content_type,filename"
+    },
     # -- unsupported: registered, reachable, but the documented response is not
     # implemented. The handler currently answers 200 with a placeholder
     # (`"keys": []`), which looks like success to a client; the annotation is
@@ -1672,8 +1806,6 @@ EXPECTED_ANNOTATIONS = {
     ("PATCH", "/_matrix/client/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
     ("POST", "/_matrix/client/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
     ("PUT", "/_matrix/client/v1/proxy/{as_id}/{*path}"): {"dynamic": True},
-    ("GET", "/_matrix/server_version"): {"dynamic": True},
-    ("GET", "/health"): {"dynamic": True},
 }
 
 # Counted debt for `body_opaque`: routes whose handler deserializes a bare
@@ -2075,6 +2207,8 @@ class Resolver:
         self.unresolved: set[str] = set()
         # Whole-tree `{file: {name: {defining_file}}}` visibility map memo.
         self._visible_all: dict | None = None
+        # `{file: {child module names}}` memo for bare-path disambiguation.
+        self._mod_decls: dict | None = None
         # Memo key is the *content* of the definition, not `id(body)`.
         # `id()` is reused once a temporary string is collected, so an
         # id-keyed cache can hand a fresh block body a stale `[]` result —
@@ -2580,6 +2714,31 @@ class Resolver:
             parts.pop()
         return parts
 
+    def _file_for(self, parts: list):
+        """`["handlers","room"]` -> the source file backing that module."""
+        rel = "/".join(parts)
+        for cand in ([rel + ".rs"] if rel else []) + [
+            rel + "/mod.rs" if rel else "mod.rs"
+        ]:
+            if cand in self.files:
+                return cand
+        return None
+
+    def _declares_mod(self, file: str, name: str) -> bool:
+        """Whether `file` itself declares `mod name;` (a child module)."""
+        if self._mod_decls is None:
+            self._mod_decls = {}
+        if file not in self._mod_decls:
+            text = self.files.get(file, "")
+            self._mod_decls[file] = {
+                m.group(1)
+                for m in re.finditer(
+                    r"(?m)^\s*(?:pub(?:\s*\([^)]*\))?\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)\s*;",
+                    text,
+                )
+            }
+        return name in self._mod_decls[file]
+
     def _module_file(self, parts: list, owner_file: str):
         """Resolve a Rust module path to a route-dir source file, or `None`."""
         parts = list(parts)
@@ -2591,26 +2750,38 @@ class Resolver:
                 parts = parts[1:]
             else:
                 return None  # outside the route tree; no handler there
-        elif parts[0] in ("self", "super"):
+            return self._file_for(parts)
+        if parts[0] in ("self", "super"):
             base = self._module_path_of(owner_file)
             while parts and parts[0] in ("self", "super"):
                 if parts[0] == "super":
                     base = base[:-1]
                 parts = parts[1:]
-            parts = base + parts
-        else:
-            # A bare `use handlers::room::…` is a 2018 uniform path: the first
-            # segment resolves to a child module of the current one (or an
-            # extern crate, whose file simply is not in `self.files`, so the
-            # lookup below returns None for `serde::…` and friends).
-            parts = self._module_path_of(owner_file) + parts
-        rel = "/".join(parts)
-        for cand in ([rel + ".rs"] if rel else []) + [
-            rel + "/mod.rs" if rel else "mod.rs"
-        ]:
-            if cand in self.files:
-                return cand
-        return None
+            return self._file_for(base + parts)
+        # A bare `use handlers::room::…` resolves its first segment against
+        # items in scope, which in this tree are *siblings* declared by
+        # `routes/mod.rs` (`pub mod handlers;`) and re-imported as
+        # `use crate::routes::handlers;`. Restricting the lookup to child
+        # modules silently mis-resolved every such handler (`assembly.rs`'s
+        # `handlers::get_well_known_client`, `room.rs`'s
+        # `sticky_event::clear_sticky_event`) into "ambiguous".
+        #
+        # A `mod x;` declaration in the owner file is authoritative: inside
+        # `handlers/room/management/mod.rs`, `account_data` is the *child*
+        # module it declares, even though an unrelated `account_data.rs` sits
+        # at the route root. Without this the visibility edge broke and every
+        # handler re-exported through it disappeared.
+        base = self._module_path_of(owner_file)
+        if self._declares_mod(owner_file, parts[0]):
+            child = self._file_for(base + parts)
+            return child if child is not None else self._file_for(parts)
+        child = self._file_for(base + parts)
+        root = self._file_for(parts)
+        if child is not None and root is not None and child != root:
+            # Both readings exist and disagree: genuinely ambiguous. Another
+            # file's `use` decides it, not this resolver.
+            return None
+        return child if child is not None else root
 
     def _visible_names(self, file: str) -> dict:
         """`{name: {defining_file}}` visible at `file`, following `use` re-exports.
@@ -2726,11 +2897,44 @@ class Resolver:
                     self.handlers[(meth, path)].add((own, handler))
         return out
 
-    def handler_query_fields(self, method: str, path: str):
-        """`(status, fields)` for the query struct a route's handler deserializes.
+    def _struct_known(self, name: str) -> bool:
+        """Whether any scanned file defines a struct called `name`.
+
+        Distinguishes "the type lives outside the route tree" from "the type is
+        here but not resolvable to one definition" (duplicates, competing
+        imports). `lookup_struct_fields` collapses both into `None`.
+        """
+        return any(n == name for (_f, n) in self.query_structs)
+
+    def _handler_query_fields(self, owner: str, handler: str):
+        """`(status, fields, type_name)` for one handler definition."""
+        idx = self.resolve_handler_def(handler, owner)
+        if idx is None:
+            return ("ambiguous", None, None)
+        file, fname, _body = self.fn_all[idx]
+        sigs = self.fn_sigs.get((file, fname), [])
+        if len(sigs) != 1:
+            return ("ambiguous", None, None)
+        types = query_extractor_types(sigs[0])
+        if not types:
+            return ("none", None, None)
+        if len(types) > 1:
+            return ("ambiguous", None, None)
+        qtype = types[0]
+        tname = bare_type_name(qtype)
+        if _is_dynamic_query_type(qtype):
+            return ("manual", None, tname)
+        fields = self.lookup_struct_fields(tname, file)
+        if fields is None:
+            status = "ambiguous" if self._struct_known(tname) else "foreign"
+            return (status, None, tname)
+        return ("ok", tuple(sorted(fields)), tname)
+
+    def handler_query_info(self, method: str, path: str):
+        """`(status, fields, type_name)` for the query a route's handler takes.
 
         status is one of:
-          * `"ok"`       — exactly one handler resolved to a struct `Query<T>`;
+          * `"ok"`       — the handler resolves to a struct `Query<T>`;
                            `fields` is its sorted accepted-wire-name list
                            (possibly empty for a fieldless struct).
           * `"none"`     — the handler resolves and has no `Query<..>` extractor
@@ -2738,35 +2942,39 @@ class Resolver:
           * `"manual"`   — the handler's only `Query<..>` is dynamically typed
                            (`Value` / `HashMap<..>`); no field list exists, so
                            the guard deliberately leaves the route alone.
-          * `"ambiguous"`— two handlers, an unresolved handler name, more than
-                           one `Query<..>` extractor, or a `Query<T>` whose `T`
-                           does not resolve to one struct definition. The guard
-                           fails for annotated routes and skips unannotated ones.
+          * `"foreign"`  — a named `Query<T>` whose `T` is defined outside the
+                           scanned route tree (usually another member crate), so
+                           no field list can be read here.
+          * `"ambiguous"`— an unresolved handler name, more than one `Query<..>`
+                           extractor, a `Query<T>` with several competing
+                           definitions, or several handler definitions that
+                           disagree about the query contract. The guard fails
+                           for annotated routes and skips unannotated ones.
+          * `"unhandled"`— the route carries no handler at all (`Router::fallback`
+                           wildcards, `/`). This is not a contract defect and
+                           must stay distinct from `"ambiguous"`: folding both
+                           together hid a real resolver bug (44 routes) behind
+                           15 fallbacks that can never have a query contract.
+
+        A path mounted twice from mutually exclusive routers (OIDC enabled vs
+        fallback) keeps *one* contract only if every handler agrees; otherwise
+        it is `"ambiguous"`.
         """
         entries = self.handlers.get((method, path), set())
-        if len(entries) != 1:
-            return ("ambiguous", None)
-        owner, handler = next(iter(entries))
-        idx = self.resolve_handler_def(handler, owner)
-        if idx is None:
-            return ("ambiguous", None)
-        file, fname, _body = self.fn_all[idx]
-        sigs = self.fn_sigs.get((file, fname), [])
-        if len(sigs) != 1:
-            return ("ambiguous", None)
-        types = query_extractor_types(sigs[0])
-        if not types:
-            return ("none", None)
-        if len(types) > 1:
-            return ("ambiguous", None)
-        qtype = types[0]
-        if _is_dynamic_query_type(qtype):
-            return ("manual", None)
-        tname = bare_type_name(qtype)
-        fields = self.lookup_struct_fields(tname, file)
-        if fields is None:
-            return ("ambiguous", None)
-        return ("ok", sorted(fields))
+        if not entries:
+            return ("unhandled", None, None)
+        results = {
+            self._handler_query_fields(owner, handler) for owner, handler in entries
+        }
+        if len(results) != 1:
+            return ("ambiguous", None, None)
+        status, fields, type_name = next(iter(results))
+        return (status, list(fields) if fields is not None else None, type_name)
+
+    def handler_query_fields(self, method: str, path: str):
+        """`(status, fields)` — [`handler_query_info`] without the type name."""
+        status, fields, _type_name = self.handler_query_info(method, path)
+        return (status, fields)
 
     def handler_body_kind(self, method: str, path: str):
         """`(status, type_name)` for the JSON request body a route's handler takes.

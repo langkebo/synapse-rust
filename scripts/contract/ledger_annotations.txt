@@ -63,10 +63,9 @@
 #
 #   * `dynamic` — the `(method, path)` exists but the static extractor cannot
 #     name a single handler definition, *by construction* rather than because
-#     of a parser gap: `GET /` is served by the fallback chain, the 14
+#     of a parser gap: `GET /` is served by the fallback chain and the 14
 #     app_service proxy rows are `{*path}` wildcards handed to a runtime
-#     dispatcher, and `/health` / `/_matrix/server_version` register handlers
-#     whose names have more than one definition in the tree (no unique tail).
+#     dispatcher.
 #     Declaring it turns "static blind spot" into a finite, reviewable list:
 #     `gen_route_handlers.py` requires `confidence: none` and `dynamic=true` to
 #     be the *same* set in both directions, so a new blind spot (or a stale
@@ -84,30 +83,30 @@ POST /_matrix/client/v1/room_keys/request	body_opaque=true
 POST /_matrix/client/v1/room_keys/version	body_opaque=true
 POST /_matrix/client/v3/keys/backup/secure/{backup_id}/keys	body_opaque=true
 POST /_matrix/client/v3/keys/backup/secure/{backup_id}/verify	body_opaque=true
-POST /_matrix/client/v3/register	body_opaque=true
+POST /_matrix/client/v3/register	query_params=kind body_opaque=true
 POST /_matrix/client/v3/room_keys/import	body_opaque=true
 POST /_matrix/client/v3/room_keys/import/{version}	body_opaque=true
 POST /_matrix/client/v3/room_keys/request	body_opaque=true
 POST /_matrix/client/v3/room_keys/version	body_opaque=true
 POST /_matrix/client/v3/rooms/{room_id}/redact/{event_id}/{txn_id}	body_opaque=true
-POST /_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}	body_opaque=true
-POST /_matrix/client/v3/rooms/{room_id}/state/{event_type}	body_opaque=true
+POST /_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}	query_params=org.matrix.msc4140.delay,org.matrix.msc4354.sticky_duration_ms,sticky_duration_ms body_opaque=true
+POST /_matrix/client/v3/rooms/{room_id}/state/{event_type}	query_params=org.matrix.msc4140.delay,org.matrix.msc4354.sticky_duration_ms,sticky_duration_ms body_opaque=true
 POST /_matrix/client/v3/user/{user_id}/account_data/{type}	body_opaque=true
 POST /_matrix/client/v3/user/{user_id}/filter	body_opaque=true
 POST /_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{type}	body_opaque=true
 POST /_matrix/federation/v1/get_missing_events/{room_id}	body_opaque=true
 POST /_matrix/federation/v1/knock/{room_id}/{user_id}	body_opaque=true
 PUT /_matrix/client/v1/room_keys/{version}/keys/{room_id}/{session_id}	body_opaque=true
-PUT /_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/	body_opaque=true
+PUT /_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/	query_params=org.matrix.msc4140.delay,org.matrix.msc4354.sticky_duration_ms,sticky_duration_ms body_opaque=true
 PUT /_matrix/client/v3/room_keys/{version}/keys/{room_id}/{session_id}	body_opaque=true
 PUT /_matrix/client/v3/rooms/{room_id}/account_data/{type}	body_opaque=true
 PUT /_matrix/client/v3/rooms/{room_id}/redact/{event_id}/{txn_id}	body_opaque=true
 PUT /_matrix/client/v3/rooms/{room_id}/send/m.reaction/{txn_id}	body_opaque=true
-PUT /_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}	body_opaque=true
-PUT /_matrix/client/v3/rooms/{room_id}/state/m.room.power_levels/	body_opaque=true
-PUT /_matrix/client/v3/rooms/{room_id}/state/{event_type}	body_opaque=true
-PUT /_matrix/client/v3/rooms/{room_id}/state/{event_type}/	body_opaque=true
-PUT /_matrix/client/v3/rooms/{room_id}/state/{event_type}/{state_key}	body_opaque=true
+PUT /_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}	query_params=org.matrix.msc4140.delay,org.matrix.msc4354.sticky_duration_ms,sticky_duration_ms body_opaque=true
+PUT /_matrix/client/v3/rooms/{room_id}/state/m.room.power_levels/	query_params=org.matrix.msc4140.delay,org.matrix.msc4354.sticky_duration_ms,sticky_duration_ms body_opaque=true
+PUT /_matrix/client/v3/rooms/{room_id}/state/{event_type}	query_params=org.matrix.msc4140.delay,org.matrix.msc4354.sticky_duration_ms,sticky_duration_ms body_opaque=true
+PUT /_matrix/client/v3/rooms/{room_id}/state/{event_type}/	query_params=org.matrix.msc4140.delay,org.matrix.msc4354.sticky_duration_ms,sticky_duration_ms body_opaque=true
+PUT /_matrix/client/v3/rooms/{room_id}/state/{event_type}/{state_key}	query_params=org.matrix.msc4140.delay,org.matrix.msc4354.sticky_duration_ms,sticky_duration_ms body_opaque=true
 PUT /_matrix/client/v3/user/{user_id}/account_data/{type}	body_opaque=true
 PUT /_matrix/client/v3/user/{user_id}/filter	body_opaque=true
 PUT /_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{type}	body_opaque=true
@@ -165,6 +164,16 @@ PUT /_matrix/client/v3/sendToDevice/{event_type}/{transaction_id}	body_opaque=tr
 PUT /_matrix/vendor/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}	body_opaque=true
 PUT /_matrix/vendor/v1/rooms/{room_id}/vault_data	body_opaque=true
 PUT /_synapse/admin/v1/saml/config	body_opaque=true
+# -- P2: opaque bodies that only became visible once handler resolution
+# stopped dropping `Json<Value>` routes (P0).
+POST /_matrix/client/unstable/org.matrix.msc3720/account_status	body_opaque=true
+POST /_matrix/client/unstable/org.matrix.msc4354/rooms/{room_id}/sticky_events	body_opaque=true
+POST /_matrix/client/v1/login/get_token	body_opaque=true
+POST /_matrix/vendor/v1/rooms/{room_id}/invite_allowlist	body_opaque=true
+POST /_matrix/vendor/v1/rooms/{room_id}/invite_blocklist	body_opaque=true
+PUT /_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}	body_opaque=true
+PUT /_matrix/client/v3/profile/{user_id}/{key_name}	body_opaque=true
+
 DELETE /_matrix/client/v1/room_keys/keys	query_params=version
 DELETE /_matrix/client/v1/room_keys/keys/{room_id}	query_params=version
 DELETE /_matrix/client/v1/room_keys/keys/{room_id}/{session_id}	query_params=version
@@ -219,7 +228,7 @@ GET /_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_ty
 GET /_matrix/vendor/v1/rooms/{room_id}/sync	query_params=full_state,since,timeout
 GET /_matrix/client/v3/spaces/{space_id}/hierarchy	query_params=max_depth
 GET /_matrix/client/v3/spaces/{space_id}/hierarchy/v1	query_params=from,limit,max_depth,suggested_only
-GET /_matrix/client/v3/sync	rate_limit_exempt=true
+GET /_matrix/client/v3/sync	query_params=filter,full_state,org.matrix.msc4222.use_state_after,set_presence,since,timeout,use_state_after rate_limit_exempt=true
 GET /_matrix/client/v3/thirdparty/location	query_params=alias,channel,search,server
 GET /_matrix/client/v3/thirdparty/location/{protocol}	query_params=alias,channel,search,server
 GET /_matrix/client/v3/thirdparty/user	query_params=nickname,search,server,userid
@@ -282,7 +291,7 @@ POST /_matrix/vendor/v1/friends/search	query_params=limit,mode,q,query body_opaq
 POST /_synapse/admin/v1/push/cleanup	query_params=days
 POST /_synapse/admin/v1/push/process	query_params=batch_size
 POST /_synapse/room_summary/v1/updates/process	query_params=limit
-PUT /_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}	auth=user body_opaque=true
+PUT /_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}	query_params=org.matrix.msc4140.delay,org.matrix.msc4354.sticky_duration_ms,sticky_duration_ms auth=user body_opaque=true
 PUT /_matrix/client/v1/room_keys/keys	query_params=version
 PUT /_matrix/client/v1/room_keys/keys/{room_id}	query_params=version
 PUT /_matrix/client/v1/room_keys/keys/{room_id}/{session_id}	query_params=version body_opaque=true
@@ -314,6 +323,53 @@ GET /_matrix/media/v3/preview_url	query_params=ts,url
 GET /_matrix/vendor/v1/keys/rotation/check	query_params=key_id
 POST /_matrix/vendor/v1/keys/rotation/check	query_params=key_id
 
+# -- P2: the remaining handlers that used to take a bare
+# `Query<Value>`/`Query<HashMap<..>>` now take a named struct. Same rules as
+# P1: the names are the struct's wire names and the fidelity guard re-derives
+# them from the Rust source.
+GET /_matrix/client/unstable/org.matrix.msc4354/rooms/{room_id}/sticky_events	query_params=event_type
+GET /_matrix/client/unstable/uk.half-shot.msc2666/user/mutual_rooms	query_params=batch_token,from,limit,user_id
+GET /_matrix/client/v1/media/thumbnail/{server_name}/{media_id}	query_params=animated,height,method,width
+GET /_matrix/client/v1/rooms/{room_id}/context/{event_id}	query_params=limit
+GET /_matrix/client/v1/rooms/{room_id}/hierarchy	query_params=limit,max_depth
+GET /_matrix/client/v1/rooms/{room_id}/timestamp_to_event	query_params=dir,ts
+GET /_matrix/client/v3/notifications	query_params=limit
+GET /_matrix/client/v3/publicRooms	query_params=limit,since
+GET /_matrix/client/v3/rooms/{room_id}/context/{event_id}	query_params=limit
+GET /_matrix/client/v3/rooms/{room_id}/hierarchy	query_params=from,limit,max_depth,suggested_only
+GET /_matrix/client/v3/rooms/{room_id}/members	query_params=at,dir,limit,membership,not_membership
+GET /_matrix/client/v3/rooms/{room_id}/messages	query_params=dir,filter,from,limit
+GET /_matrix/client/v3/rooms/{room_id}/state	query_params=type
+GET /_matrix/federation/v1/media/thumbnail/{server_name}/{media_id}	query_params=height,method,width
+GET /_matrix/federation/v1/openid/userinfo	query_params=access_token
+GET /_matrix/federation/v1/publicRooms	query_params=limit,since
+GET /_matrix/federation/v1/timestamp_to_event/{room_id}	query_params=ts
+GET /_matrix/media/v3/download_signed/{server_name}/{media_id}	query_params=expires,signature
+GET /_matrix/media/v3/download_signed/{server_name}/{media_id}/{filename}	query_params=expires,signature
+GET /_matrix/media/v3/thumbnail/{server_name}/{media_id}	query_params=animated,height,method,width
+GET /_matrix/vendor/v1/rooms/{room_id}/members/recent	query_params=from,limit
+GET /_matrix/vendor/v1/rooms/{room_id}/notifications	query_params=from,limit
+GET /_matrix/vendor/v1/rooms/{room_id}/timeline	query_params=dir,from,limit
+GET /_matrix/vendor/v1/user/mutual_rooms	query_params=batch_token,from,limit,user_id
+GET /_synapse/admin/v1/media	query_params=from,limit
+GET /_synapse/admin/v1/media/quarantine_changes	query_params=from
+GET /_synapse/admin/v1/quarantine_media/{media_id}/changes	query_params=limit,since
+GET /_synapse/admin/v1/reports	query_params=limit,offset,since_id,since_score,since_ts
+GET /_synapse/admin/v1/rooms	query_params=from,limit,offset,order_by
+GET /_synapse/admin/v1/rooms/{room_id}/media	query_params=from,limit
+GET /_synapse/admin/v1/rooms/{room_id}/members	query_params=from,limit
+GET /_synapse/admin/v1/rooms/{room_id}/messages	query_params=dir,from,limit
+GET /_synapse/admin/v1/rooms/{room_id}/reports	query_params=limit,offset,since_id,since_ts
+GET /_synapse/admin/v1/users	query_params=limit,offset,since
+GET /_synapse/admin/v1/users/{user_id}/rooms	query_params=from,limit
+GET /_synapse/admin/v2/users	query_params=from,limit,name,offset
+POST /_matrix/client/v3/search	query_params=next_batch
+POST /_matrix/media/r0/upload	query_params=content_type,filename
+POST /_matrix/media/v1/upload	query_params=content_type,filename
+POST /_matrix/media/v3/upload	query_params=content_type,filename
+POST /_synapse/admin/v1/purge_media_cache	query_params=before_ts
+PUT /_matrix/media/v3/upload/{server_name}/{media_id}	query_params=content_type,filename
+
 # -- unsupported: registered, reachable, documented response not implemented.
 GET /_matrix/vendor/v1/rooms/{room_id}/keys/{event_id}	unsupported=true
 
@@ -336,5 +392,3 @@ OPTIONS /_matrix/client/v1/proxy/{as_id}/{*path}	dynamic=true
 PATCH /_matrix/client/v1/proxy/{as_id}/{*path}	dynamic=true
 POST /_matrix/client/v1/proxy/{as_id}/{*path}	dynamic=true
 PUT /_matrix/client/v1/proxy/{as_id}/{*path}	dynamic=true
-GET /_matrix/server_version	dynamic=true
-GET /health	dynamic=true

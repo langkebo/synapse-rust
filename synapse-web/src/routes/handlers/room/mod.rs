@@ -25,7 +25,6 @@ use crate::routes::context::RoomContext;
 use crate::routes::sticky_event::MSC4354_STICKY_DURATION_FIELD;
 use crate::routes::{ensure_room_member_strict_ctx, AuthenticatedUser};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use synapse_common::{parse_pagination_token, parse_stream_token, ApiError};
 use synapse_services::delayed_event_service::CreateDelayedEventRequest;
 use synapse_services::room::MAX_STICKY_DURATION_MS;
@@ -39,12 +38,9 @@ type MessagesCursor = (i64, Option<i64>);
 /// 无 `from` 参数（或空串）时返回 `Ok(None)`（从最新/最旧一页开始）；
 /// 参数存在但无法解析为上述任一形式时返回 `M_INVALID_PARAM`，不再把非法游标
 /// 静默当作「无游标」处理（否则会悄悄从房间最新一页重新开始）。
-fn parse_room_messages_from_token(params: &serde_json::Value) -> Result<Option<MessagesCursor>, ApiError> {
-    let Some(raw) = params.get("from") else {
+fn parse_room_messages_from_token(raw: Option<&str>) -> Result<Option<MessagesCursor>, ApiError> {
+    let Some(token) = raw else {
         return Ok(None);
-    };
-    let Some(token) = raw.as_str() else {
-        return Err(ApiError::invalid_param("The 'from' parameter must be a string pagination token"));
     };
     if token.is_empty() {
         return Ok(None);
@@ -60,15 +56,35 @@ fn parse_room_messages_from_token(params: &serde_json::Value) -> Result<Option<M
 ///
 /// 仅接受 `f`（forward）与 `b`（backward）；缺省时为 `b`。任何其他取值都返回
 /// `M_INVALID_PARAM`，避免非法方向被静默回退成 `b` 而返回相反顺序的结果。
-fn parse_pagination_direction(params: &serde_json::Value) -> Result<&'static str, ApiError> {
-    let Some(value) = params.get("dir") else {
+fn parse_pagination_direction(dir: Option<&str>) -> Result<&'static str, ApiError> {
+    let Some(dir) = dir else {
         return Ok("b");
     };
-    match value.as_str() {
-        Some("f") => Ok("f"),
-        Some("b") => Ok("b"),
+    match dir {
+        "f" => Ok("f"),
+        "b" => Ok("b"),
         _ => Err(ApiError::invalid_param("The 'dir' parameter must be 'f' or 'b'")),
     }
+}
+
+/// The MSC4140/MSC4354 transport hints carried in the query string of every
+/// room **write** request (`/send`, `/state`, …).
+///
+/// Both hints travel as `Option<String>` rather than a parsed integer: the
+/// parsing errors are `M_INVALID_PARAM` with helper-specific messages, and the
+/// helpers stay the single place that validates them.
+///
+/// Deliberately **not** `deny_unknown_fields`: these handlers used to take a
+/// bare `Query<...>` map and ignored every other parameter, so an unknown
+/// parameter must keep being ignored (a 200 rather than a 400).
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct RoomWriteQuery {
+    #[serde(rename = "org.matrix.msc4140.delay")]
+    pub(crate) delay: Option<String>,
+    #[serde(rename = "org.matrix.msc4354.sticky_duration_ms")]
+    pub(crate) sticky_duration_ms: Option<String>,
+    #[serde(rename = "sticky_duration_ms")]
+    pub(crate) sticky_duration_ms_short: Option<String>,
 }
 
 /// See [`ensure_room_view_access`].
@@ -126,8 +142,8 @@ pub(crate) const MSC4140_MAX_DELAY_MS: i64 = 86_400_000;
 ///
 /// `trim` before parsing mirrors Python's `int(str)`, which tolerates
 /// surrounding whitespace.
-pub(crate) fn msc4140_query_delay_ms(query: &HashMap<String, String>) -> Result<Option<i64>, ApiError> {
-    let Some(raw) = query.get(MSC4140_DELAY_QUERY_PARAM) else {
+pub(crate) fn msc4140_query_delay_ms(query: &RoomWriteQuery) -> Result<Option<i64>, ApiError> {
+    let Some(raw) = query.delay.as_deref() else {
         return Ok(None);
     };
     raw.trim()
@@ -160,9 +176,8 @@ pub(crate) const MSC4354_STICKY_TTL_UNSIGNED_FIELD: &str = synapse_services::roo
 /// rather than a silent no-op, and the bound (`0 < n <= MAX_STICKY_DURATION_MS`)
 /// is enforced here so an out-of-range duration can never reach the event's
 /// `unsigned`.
-pub(crate) fn msc4354_query_sticky_duration_ms(query: &HashMap<String, String>) -> Result<Option<i64>, ApiError> {
-    let Some(raw) = query.get(MSC4354_STICKY_DURATION_FIELD).or_else(|| query.get(MSC4354_STICKY_DURATION_SHORT_FIELD))
-    else {
+pub(crate) fn msc4354_query_sticky_duration_ms(query: &RoomWriteQuery) -> Result<Option<i64>, ApiError> {
+    let Some(raw) = query.sticky_duration_ms.as_deref().or(query.sticky_duration_ms_short.as_deref()) else {
         return Ok(None);
     };
     let duration_ms = raw.trim().parse::<i64>().map_err(|_| {
@@ -203,7 +218,7 @@ fn validate_sticky_bounds(duration_ms: i64) -> Result<(), ApiError> {
 /// `Absent` sentinel, and a serialised optional field conveys the same thing).
 pub(crate) fn msc4354_sticky_duration(
     body: Option<&serde_json::Value>,
-    query: &HashMap<String, String>,
+    query: &RoomWriteQuery,
 ) -> Result<Option<i64>, ApiError> {
     let from_query = msc4354_query_sticky_duration_ms(query)?;
     let from_body = body.map(msc4354_sticky_duration_from_body).transpose()?.flatten();
@@ -286,7 +301,7 @@ pub(crate) async fn schedule_delayed_event_if_requested(
     event_type: &str,
     state_key: Option<String>,
     body: &serde_json::Value,
-    query: &HashMap<String, String>,
+    query: &RoomWriteQuery,
     txn_id: Option<&str>,
 ) -> Result<Option<axum::extract::Json<serde_json::Value>>, ApiError> {
     let query_delay_ms = msc4140_query_delay_ms(query)?;
@@ -472,15 +487,26 @@ pub(crate) struct UpgradeRoomResponse {
 mod tests {
     use super::{
         msc4354_query_sticky_duration_ms, msc4354_sticky_duration, parse_pagination_direction,
-        parse_room_messages_from_token, state_event_content_response, MSC4354_STICKY_DURATION_FIELD,
-        MSC4354_STICKY_DURATION_SHORT_FIELD,
+        parse_room_messages_from_token, state_event_content_response, RoomWriteQuery, MSC4140_DELAY_QUERY_PARAM,
+        MSC4354_STICKY_DURATION_FIELD, MSC4354_STICKY_DURATION_SHORT_FIELD,
     };
     use serde_json::json;
-    use std::collections::HashMap;
     use synapse_common::error::ApiErrorKind;
 
-    fn query(pairs: &[(&str, &str)]) -> HashMap<String, String> {
-        pairs.iter().map(|(k, v)| ((*k).to_string(), (*v).to_string())).collect()
+    /// Build the query struct the way `serde_urlencoded` would: recognised keys
+    /// land in their field, everything else is ignored (no `deny_unknown_fields`).
+    fn query(pairs: &[(&str, &str)]) -> RoomWriteQuery {
+        let mut query = RoomWriteQuery::default();
+        for (key, value) in pairs {
+            let value = Some((*value).to_string());
+            match *key {
+                MSC4140_DELAY_QUERY_PARAM => query.delay = value,
+                MSC4354_STICKY_DURATION_FIELD => query.sticky_duration_ms = value,
+                MSC4354_STICKY_DURATION_SHORT_FIELD => query.sticky_duration_ms_short = value,
+                _ => {}
+            }
+        }
+        query
     }
 
     /// MSC4354 on the **delayed** surfaces: the hint is accepted from the request
@@ -568,48 +594,39 @@ mod tests {
 
     #[test]
     fn test_parse_pagination_direction_defaults_to_backward() {
-        let params = json!({});
-        assert_eq!(parse_pagination_direction(&params).unwrap(), "b");
+        assert_eq!(parse_pagination_direction(None).unwrap(), "b");
     }
 
     #[test]
     fn test_parse_pagination_direction_accepts_f_and_b() {
-        assert_eq!(parse_pagination_direction(&json!({ "dir": "f" })).unwrap(), "f");
-        assert_eq!(parse_pagination_direction(&json!({ "dir": "b" })).unwrap(), "b");
+        assert_eq!(parse_pagination_direction(Some("f")).unwrap(), "f");
+        assert_eq!(parse_pagination_direction(Some("b")).unwrap(), "b");
     }
 
     #[test]
     fn test_parse_pagination_direction_rejects_invalid_values() {
-        for invalid in [
-            json!({ "dir": "sideways" }),
-            json!({ "dir": "" }),
-            json!({ "dir": "F" }),
-            json!({ "dir": 1 }),
-            json!({ "dir": null }),
-        ] {
-            let err = parse_pagination_direction(&invalid).unwrap_err();
-            assert!(err.is_bad_request(), "expected M_INVALID_PARAM for {invalid}");
+        for invalid in [Some("sideways"), Some(""), Some("F")] {
+            let err = parse_pagination_direction(invalid).unwrap_err();
+            assert!(err.is_bad_request(), "expected M_INVALID_PARAM for {invalid:?}");
         }
     }
 
     #[test]
     fn test_parse_room_messages_from_token_absent_or_empty_is_none() {
-        assert!(parse_room_messages_from_token(&json!({})).unwrap().is_none());
-        assert!(parse_room_messages_from_token(&json!({ "from": "" })).unwrap().is_none());
+        assert!(parse_room_messages_from_token(None).unwrap().is_none());
+        assert!(parse_room_messages_from_token(Some("")).unwrap().is_none());
     }
 
     #[test]
     fn test_parse_room_messages_from_token_accepts_bare_timestamp() {
-        let cursor = parse_room_messages_from_token(&json!({ "from": "12345" })).unwrap();
+        let cursor = parse_room_messages_from_token(Some("12345")).unwrap();
         assert_eq!(cursor, Some((12345, None)));
     }
 
     #[test]
     fn test_parse_room_messages_from_token_rejects_invalid_values() {
-        for invalid in [json!({ "from": "not-a-token" }), json!({ "from": 42 }), json!({ "from": null })] {
-            let err = parse_room_messages_from_token(&invalid).unwrap_err();
-            assert!(err.is_bad_request(), "expected M_INVALID_PARAM for {invalid}");
-        }
+        let err = parse_room_messages_from_token(Some("not-a-token")).unwrap_err();
+        assert!(err.is_bad_request(), "expected M_INVALID_PARAM for a non-numeric token");
     }
 
     #[test]

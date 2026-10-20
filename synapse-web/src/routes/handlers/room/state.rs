@@ -1,7 +1,7 @@
 use super::{
     apply_msc4354_sticky_ttl, ensure_room_state_write_access, ensure_room_view_access,
     msc4354_query_sticky_duration_ms, normalize_room_event_type, schedule_delayed_event_if_requested,
-    state_event_content_response,
+    state_event_content_response, RoomWriteQuery,
 };
 use crate::routes::context::RoomContext;
 use crate::routes::extractors::RoomId;
@@ -9,7 +9,6 @@ use crate::routes::MatrixJson;
 use crate::routes::{validate_room_id, AuthenticatedUser};
 use axum::extract::{Json, Path, Query, State};
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use synapse_common::current_timestamp_millis;
 use synapse_common::map_internal;
 use synapse_common::ApiError;
@@ -17,12 +16,22 @@ use synapse_common::ApiError;
 use synapse_services::beacon_service::CreateBeaconInfoParams;
 use synapse_services::event::CreateEventParams;
 
+/// The `GET /rooms/{roomId}/state` query parameters (MSC4497 `?type=`).
+///
+/// Deliberately **not** `deny_unknown_fields`: the handler used to take a bare
+/// `Query<HashMap<..>>` and ignored unknown parameters.
+#[derive(Debug, Default, serde::Deserialize)]
+pub(crate) struct GetRoomStateQuery {
+    #[serde(rename = "type")]
+    pub(crate) event_type: Option<String>,
+}
+
 /// See [`get_room_state`].
 pub(crate) async fn get_room_state(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    Query(query): Query<GetRoomStateQuery>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -37,7 +46,7 @@ pub(crate) async fn get_room_state(
     let state_events = ctx.room_service.messaging().get_state_events(&room_id).await?;
 
     // MSC4497: optional `type` query parameter filters state events by event type.
-    let filtered_events = match params.get("type") {
+    let filtered_events = match query.event_type.as_deref() {
         Some(event_type) if !event_type.is_empty() => filter_state_events_by_type(&state_events, event_type),
         _ => state_events,
     };
@@ -195,7 +204,7 @@ pub(crate) async fn send_state_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_type)): Path<(RoomId, String)>,
-    Query(query): Query<HashMap<String, String>>,
+    Query(query): Query<RoomWriteQuery>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -308,7 +317,7 @@ pub(crate) async fn put_state_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_type, state_key)): Path<(RoomId, String, String)>,
-    Query(query): Query<HashMap<String, String>>,
+    Query(query): Query<RoomWriteQuery>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -449,7 +458,7 @@ pub(crate) async fn put_power_levels(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Query(query): Query<HashMap<String, String>>,
+    Query(query): Query<RoomWriteQuery>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     // Delegate to put_state_event_empty_key with event_type hardcoded
@@ -468,7 +477,7 @@ pub(crate) async fn put_state_event_empty_key(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_type)): Path<(RoomId, String)>,
-    Query(query): Query<HashMap<String, String>>,
+    Query(query): Query<RoomWriteQuery>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -537,7 +546,7 @@ pub(crate) async fn put_state_event_no_key(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_type)): Path<(RoomId, String)>,
-    Query(query): Query<HashMap<String, String>>,
+    Query(query): Query<RoomWriteQuery>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;

@@ -39,23 +39,46 @@ fn report_to_json(report: &EventReport) -> Value {
     })
 }
 
+/// Query parameters accepted by [`get_all_reports`].
+///
+/// Deliberately **not** `deny_unknown_fields`: the handler used to take a bare
+/// `HashMap<String, String>` and ignored unknown parameters.
+#[derive(Debug, Default, serde::Deserialize)]
+pub struct ReportsQuery {
+    limit: Option<String>,
+    since_score: Option<String>,
+    since_ts: Option<String>,
+    since_id: Option<String>,
+    offset: Option<String>,
+}
+
+/// Query parameters accepted by [`get_room_reports`].
+#[derive(Debug, Default, serde::Deserialize)]
+pub struct RoomReportsQuery {
+    limit: Option<String>,
+    since_ts: Option<String>,
+    since_id: Option<String>,
+    offset: Option<String>,
+}
+
 /// See [`get_all_reports`].
 #[axum::debug_handler]
 pub async fn get_all_reports(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Query(params): axum::extract::Query<ReportsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params
-        .get("limit")
+        .limit
+        .as_deref()
         .and_then(|v| v.parse().ok())
         .unwrap_or(100)
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
-    let since_score = params.get("since_score").and_then(|v| v.parse::<i32>().ok());
-    let since_ts = params.get("since_ts").and_then(|v| v.parse::<i64>().ok());
-    let since_id = params.get("since_id").and_then(|v| v.parse::<i64>().ok());
+    let since_score = params.since_score.as_deref().and_then(|v| v.parse::<i32>().ok());
+    let since_ts = params.since_ts.as_deref().and_then(|v| v.parse::<i64>().ok());
+    let since_id = params.since_id.as_deref().and_then(|v| v.parse::<i64>().ok());
 
-    if params.contains_key("offset") && params.get("offset").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0) > 0 {
+    if params.offset.as_deref().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0) > 0 {
         return Err(ApiError::bad_request(
             "Legacy offset pagination is no longer supported; use since_ts/since_id cursors".to_string(),
         ));
@@ -100,7 +123,7 @@ pub async fn get_room_reports(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(room_id): Path<RoomId>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Query(params): axum::extract::Query<RoomReportsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let room_exists = ctx.room_service.state().room_exists(&room_id).await?;
 
@@ -109,14 +132,15 @@ pub async fn get_room_reports(
     }
 
     let limit = params
-        .get("limit")
+        .limit
+        .as_deref()
         .and_then(|v| v.parse().ok())
         .unwrap_or(100)
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
-    let since_ts = params.get("since_ts").and_then(|v| v.parse::<i64>().ok());
-    let since_id = params.get("since_id").and_then(|v| v.parse::<i64>().ok());
+    let since_ts = params.since_ts.as_deref().and_then(|v| v.parse::<i64>().ok());
+    let since_id = params.since_id.as_deref().and_then(|v| v.parse::<i64>().ok());
 
-    if params.contains_key("offset") && params.get("offset").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0) > 0 {
+    if params.offset.as_deref().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0) > 0 {
         return Err(ApiError::bad_request(
             "Legacy offset pagination is no longer supported; use since_ts/since_id cursors".to_string(),
         ));

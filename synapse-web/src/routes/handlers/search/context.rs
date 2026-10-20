@@ -5,15 +5,30 @@ use serde_json::{json, Value};
 use synapse_common::ApiError;
 use synapse_services::search_service::TimestampDirection;
 
-use std::collections::HashMap;
-
 use crate::routes::extractors::{EventId, RoomId};
+
+/// The `GET /rooms/{roomId}/context/{eventId}` query parameters.
+///
+/// Deliberately **not** `deny_unknown_fields`: the handler used to take a bare
+/// query map and ignored unknown parameters.
+#[derive(Debug, Default, serde::Deserialize)]
+pub(crate) struct EventContextQuery {
+    pub(crate) limit: Option<String>,
+}
+
+/// The `GET /rooms/{roomId}/timestamp_to_event` query parameters.
+#[derive(Debug, Default, serde::Deserialize)]
+pub(crate) struct TimestampToEventQuery {
+    pub(crate) ts: Option<String>,
+    pub(crate) dir: Option<String>,
+}
+
 /// See [`get_event_context`].
 pub(crate) async fn get_event_context(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(RoomId, EventId)>,
-    Query(params): Query<HashMap<String, String>>,
+    Query(query): Query<EventContextQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let room_id = room_id.replace("%21", "!").replace("%3A", ":");
     let event_id = event_id.replace("%24", "$");
@@ -21,7 +36,7 @@ pub(crate) async fn get_event_context(
     crate::routes::validate_room_id(&room_id)?;
     crate::routes::validate_event_id(&event_id)?;
 
-    let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(10).clamp(1, 100);
+    let limit = query.limit.as_deref().and_then(|v| v.parse::<i32>().ok()).unwrap_or(10).clamp(1, 100);
 
     ensure_room_member_strict_ctx(&ctx, &auth_user, &room_id, "Not a member of this room").await?;
 
@@ -84,14 +99,15 @@ pub(crate) async fn timestamp_to_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Query(params): Query<HashMap<String, String>>,
+    Query(query): Query<TimestampToEventQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let ts: i64 = params
-        .get("ts")
+    let ts: i64 = query
+        .ts
+        .as_deref()
         .and_then(|v| v.parse().ok())
         .ok_or_else(|| ApiError::bad_request("Missing ts parameter".to_string()))?;
 
-    let dir = params.get("dir").map_or("f", |v| v.as_str());
+    let dir = query.dir.as_deref().unwrap_or("f");
 
     ensure_room_member_strict_ctx(&ctx, &auth_user, &room_id, "Not a member of this room").await?;
 

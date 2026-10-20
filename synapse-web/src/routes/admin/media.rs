@@ -37,6 +37,35 @@ pub struct DeleteMediaByPolicyRequest {
     pub max_size: Option<i64>,
 }
 
+/// Query parameters accepted by [`get_all_media`] and [`get_room_media`].
+///
+/// Deliberately **not** `deny_unknown_fields`: the handlers used to take a bare
+/// `HashMap<String, String>` and ignored unknown parameters.
+#[derive(Debug, Default, Deserialize)]
+pub struct MediaPageQuery {
+    limit: Option<String>,
+    from: Option<String>,
+}
+
+/// Query parameters accepted by [`get_media_quarantine_changes`].
+#[derive(Debug, Default, Deserialize)]
+pub struct MediaQuarantineChangesQuery {
+    since: Option<String>,
+    limit: Option<String>,
+}
+
+/// Query parameters accepted by [`get_global_media_quarantine_changes`].
+#[derive(Debug, Default, Deserialize)]
+pub struct GlobalMediaQuarantineChangesQuery {
+    from: Option<String>,
+}
+
+/// Query parameters accepted by [`purge_media_cache`].
+#[derive(Debug, Default, Deserialize)]
+pub struct PurgeMediaCacheQuery {
+    before_ts: Option<String>,
+}
+
 /// See [`create_media_router`].
 pub fn create_media_router() -> Router<crate::routes::AppState> {
     Router::new()
@@ -74,10 +103,10 @@ pub fn create_media_router() -> Router<crate::routes::AppState> {
 pub async fn get_all_media(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Query(params): axum::extract::Query<MediaPageQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(100_i64).clamp(1, 500);
-    let cursor = decode_media_cursor(params.get("from").map(String::as_str));
+    let limit = params.limit.as_deref().and_then(|v| v.parse().ok()).unwrap_or(100_i64).clamp(1, 500);
+    let cursor = decode_media_cursor(params.from.as_deref());
 
     let page = ctx.admin_media_service.get_all_media(limit, cursor).await?;
 
@@ -225,10 +254,10 @@ pub async fn get_media_quarantine_changes(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(media_id): Path<MediaId>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Query(params): axum::extract::Query<MediaQuarantineChangesQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let since = params.get("since").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0).max(0);
-    let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(100_i64).clamp(1, 500);
+    let since = params.since.as_deref().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0).max(0);
+    let limit = params.limit.as_deref().and_then(|v| v.parse().ok()).unwrap_or(100_i64).clamp(1, 500);
 
     let changes = ctx.admin_media_service.get_media_quarantine_changes(&media_id, since, limit).await?;
 
@@ -259,9 +288,9 @@ pub async fn get_media_quarantine_changes(
 pub async fn get_global_media_quarantine_changes(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Query(params): axum::extract::Query<GlobalMediaQuarantineChangesQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let from_id = params.get("from").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0).max(0);
+    let from_id = params.from.as_deref().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0).max(0);
     let limit = 100_i64;
 
     let changes = ctx.admin_media_service.get_global_media_quarantine_changes(from_id, limit).await?;
@@ -332,10 +361,10 @@ pub async fn get_room_media(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(room_id): Path<RoomId>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Query(params): axum::extract::Query<MediaPageQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(100_i64).clamp(1, 500);
-    let cursor = decode_media_cursor(params.get("from").map(String::as_str));
+    let limit = params.limit.as_deref().and_then(|v| v.parse().ok()).unwrap_or(100_i64).clamp(1, 500);
+    let cursor = decode_media_cursor(params.from.as_deref());
 
     let page = ctx.admin_media_service.get_room_media(&room_id, limit, cursor).await?;
 
@@ -536,9 +565,9 @@ pub async fn unprotect_media_by_id(
 pub async fn purge_media_cache(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Query(params): axum::extract::Query<PurgeMediaCacheQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let before_ts = params.get("before_ts").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0).max(0);
+    let before_ts = params.before_ts.as_deref().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0).max(0);
 
     let purged = ctx.admin_media_service.purge_media_cache(before_ts).await?;
 

@@ -2,9 +2,10 @@
 """Generate `docs/synapse-rust/ROUTE_HANDLERS.json` from the route extractor.
 
 The contract surface had no machine-readable answer to "which Rust function
-serves this `(method, path)`, and what kind of JSON body does it take?". The
-extractor already resolves that internally (`Resolver.resolve_handler_def`,
-`Resolver.handler_body_kind`), but never exported it, so every downstream
+serves this `(method, path)`, what kind of JSON body does it take, and which
+query parameters does it deserialize?". The extractor already resolves that
+internally (`Resolver.resolve_handler_def`, `Resolver.handler_body_kind`,
+`Resolver.handler_query_info`), but never exported it, so every downstream
 consumer re-implemented its own heuristics. This sidecar publishes the
 resolved answer once, as a deterministic artifact.
 
@@ -42,6 +43,19 @@ Row model (per route, sorted by `(path, method)`):
 * `body_opaque` — the ledger declaration from `ledger_annotations.txt`. This is
   author intent, not inference; `body == "opaque"` without the flag is the
   counted debt pinned by `EXPECTED_OPAQUE_UNANNOTATED`.
+* `query` / `query_params` / `query_type` — the same classification for the
+  `Query<..>` *extractor* instead of the body:
+  * `typed`    — one struct `Query<T>`; `query_params` is `T`'s sorted
+                 accepted-wire-name list (`[]` for a fieldless struct).
+  * `opaque`   — `Query<Value>` / `Query<HashMap<..>>`: the key set is decided
+                 at runtime, so there is nothing to enumerate.
+  * `foreign`  — a named `Query<T>` defined outside the scanned route tree
+                 (usually another member crate); `query_type` names it.
+  * `none`     — no `Query<..>` extractor: the route takes no query params.
+  * `ambiguous`— unresolvable handler, several disagreeing handlers, several
+                 `Query<..>` extractors, or competing struct definitions.
+                 Rows whose handler is not `exact` are also `ambiguous` here,
+                 mirroring `body`. `query_params` is `null` unless `typed`.
 * `unsupported` — the ledger declaration from `ledger_annotations.txt`: the
   route is reachable but its documented response is not implemented (today the
   vendor keys endpoint answers a placeholder `keys: []`).
@@ -86,7 +100,7 @@ _spec = importlib.util.spec_from_file_location(
 ex = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ex)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 OUT = os.path.join(ROOT, "docs", "synapse-rust", "ROUTE_HANDLERS.json")
 # Every `file` in this sidecar is relative to this root.
 FILE_ROOT = "synapse-web/src/routes"
@@ -122,6 +136,31 @@ def _hint_for(res, candidates) -> dict | None:
         return None
     file, handler = next(iter(hits))
     return {"file": file, "handler": handler}
+
+
+_QUERY_KIND = {
+    "ok": "typed",
+    "none": "none",
+    "manual": "opaque",
+    "foreign": "foreign",
+    "ambiguous": "ambiguous",
+}
+
+
+def _query_contract(res, method: str, path: str, exact: bool):
+    """`(query, query_params, query_type)`, mirroring the `body` model.
+
+    `exact=False` keeps the whole row `ambiguous`: when the handler itself
+    cannot be named, publishing a query kind (even "none") would turn a
+    resolver blind spot into a false contract.
+    """
+    if not exact:
+        return ("ambiguous", None, None)
+    status, params, type_name = res.handler_query_info(method, path)
+    kind = _QUERY_KIND.get(status, "ambiguous")
+    if kind == "ambiguous":
+        return (kind, None, None)
+    return (kind, params, type_name)
 
 
 def resolve_route(res, method: str, path: str) -> dict:
@@ -170,6 +209,9 @@ def resolve_route(res, method: str, path: str) -> dict:
         if status == "exact"
         else ("ambiguous", None)
     )
+    query, query_params, query_type = _query_contract(
+        res, method, path, status == "exact"
+    )
     return {
         "status": status,
         "file": file,
@@ -182,6 +224,9 @@ def resolve_route(res, method: str, path: str) -> dict:
         "candidates": [{"file": f, "handler": h} for f, h in candidates],
         "body": body,
         "body_type": body_type,
+        "query": query,
+        "query_params": query_params,
+        "query_type": query_type,
     }
 
 
@@ -223,7 +268,7 @@ def derived_table_counts() -> dict:
 def check_dynamic_allowlist(rows, annotations) -> None:
     """`confidence: none` must equal the `dynamic=true` declarations, both ways.
 
-    The 17 rows where the static parser cannot name a handler are a *known,
+    The 15 rows where the static parser cannot name a handler are a *known,
     finite* list, not a free-running counter: every new blind spot has to be
     declared (and justified) in `ledger_annotations.txt`, and every declaration
     that the extractor can now resolve has to be removed. A one-directional
@@ -279,14 +324,16 @@ def build() -> dict:
 
     status_counts = Counter(r["status"] for r in rows)
     body_counts = Counter(r["body"] for r in rows)
+    query_counts = Counter(r["query"] for r in rows)
     confidence_counts = Counter(r["confidence"] for r in rows)
     derived = derived_table_counts()
     return {
         "schema_version": SCHEMA_VERSION,
         "generator": "scripts/contract/gen_route_handlers.py",
         "description": (
-            "Resolved handler definition and JSON-body kind per registered route. "
-            "Generated from the real `.route(...)` surface; do not edit by hand."
+            "Resolved handler definition, JSON-body kind and query-extractor kind "
+            "per registered route. Generated from the real `.route(...)` surface; "
+            "do not edit by hand."
         ),
         "file_root": FILE_ROOT,
         "counts": {
@@ -294,6 +341,7 @@ def build() -> dict:
             "status": dict(sorted(status_counts.items())),
             "confidence": dict(sorted(confidence_counts.items())),
             "body": dict(sorted(body_counts.items())),
+            "query": dict(sorted(query_counts.items())),
             "body_opaque_declared": sum(1 for r in rows if r["body_opaque"]),
             "unsupported": sum(1 for r in rows if r["unsupported"]),
             "dynamic_declared": sum(1 for r in rows if r["dynamic"]),
@@ -303,6 +351,13 @@ def build() -> dict:
             "routes": (
                 "distinct (method, path) pairs this sidecar resolves; compare "
                 "with status/confidence/body, which are per-route buckets."
+            ),
+            "query": (
+                "per-route `Query<..>` extractor kind. `query_params` is populated "
+                "only for `typed`; `opaque` (Value/HashMap) and `foreign` (struct "
+                "outside the scanned tree) have no addressable field list, and "
+                "`ambiguous` includes every row whose handler cannot be named "
+                "statically (the declared dynamic set)."
             ),
             "derived_tables": (
                 "row counts of the three per-profile tables. `total` is their "

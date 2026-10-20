@@ -1,4 +1,6 @@
-use super::{ensure_room_view_access, get_room_event, parse_pagination_direction, parse_room_messages_from_token};
+use super::{
+    ensure_room_view_access, get_room_event, parse_pagination_direction, parse_room_messages_from_token, RoomWriteQuery,
+};
 use crate::routes::context::RoomContext;
 use crate::routes::extractors::{EventId, RoomId, UserId};
 use crate::routes::MatrixJson;
@@ -140,18 +142,50 @@ pub(crate) async fn get_room_thread(
     })))
 }
 
+/// The `GET /rooms/{roomId}/notifications` query parameters.
+///
+/// Deliberately **not** `deny_unknown_fields`: the handler used to take a bare
+/// query map and ignored unknown parameters.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct RoomNotificationsQuery {
+    pub(crate) from: Option<String>,
+    pub(crate) limit: Option<String>,
+}
+
+/// The `GET /rooms/{roomId}/messages` query parameters.
+///
+/// `limit` / `filter` stay `Option<String>` because the handler used to read
+/// them off a JSON query value (where every urlencoded value is a string) and
+/// parsed them itself; a bad `limit` must keep falling back to the default
+/// rather than turning into a 400.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct RoomMessagesQuery {
+    pub(crate) from: Option<String>,
+    pub(crate) limit: Option<String>,
+    pub(crate) dir: Option<String>,
+    pub(crate) filter: Option<String>,
+}
+
+/// The `GET /rooms/{roomId}/timeline` query parameters.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct RoomTimelineQuery {
+    pub(crate) from: Option<String>,
+    pub(crate) limit: Option<String>,
+    pub(crate) dir: Option<String>,
+}
+
 /// See [`get_room_notifications`].
 pub(crate) async fn get_room_notifications(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    Query(query): Query<RoomNotificationsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(20);
+    let limit = query.limit.as_deref().and_then(|v| v.parse().ok()).unwrap_or(20);
 
-    let _from = params.get("from").cloned();
+    let _from = query.from;
 
     let notifications = ctx
         .push_notification_service
@@ -188,7 +222,7 @@ pub(crate) async fn get_messages(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Query(params): Query<Value>,
+    Query(query): Query<RoomMessagesQuery>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -198,21 +232,16 @@ pub(crate) async fn get_messages(
 
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let from = parse_room_messages_from_token(&params)?;
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
-        .unwrap_or(10)
-        .min(1000) as i64;
-    let direction = parse_pagination_direction(&params)?;
+    let from = parse_room_messages_from_token(query.from.as_deref())?;
+    let limit = query.limit.as_deref().and_then(|s| s.parse::<u64>().ok()).unwrap_or(10).min(1000) as i64;
+    let direction = parse_pagination_direction(query.dir.as_deref())?;
 
     // A9: `/messages` `filter` is not implemented on this server. Reject it
     // explicitly instead of silently returning unfiltered events (a client
     // that relies on `filter` would otherwise receive too much data without
     // any signal that its constraint was dropped).
-    if let Some(filter) = params.get("filter") {
-        let is_absent = filter.is_null() || filter.as_str().is_some_and(str::is_empty);
-        if !is_absent {
+    if let Some(filter) = query.filter.as_deref() {
+        if !filter.is_empty() {
             return Err(ApiError::invalid_param("The 'filter' parameter is not supported on this endpoint"));
         }
     }
@@ -269,7 +298,7 @@ pub(crate) async fn send_message(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_type, txn_id)): Path<(RoomId, String, String)>,
-    Query(query): Query<HashMap<String, String>>,
+    Query(query): Query<RoomWriteQuery>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -409,7 +438,7 @@ pub(crate) async fn get_room_timeline(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
-    Query(params): Query<Value>,
+    Query(query): Query<RoomTimelineQuery>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -419,9 +448,9 @@ pub(crate) async fn get_room_timeline(
 
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let from = parse_room_messages_from_token(&params)?;
-    let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as i64;
-    let direction = parse_pagination_direction(&params)?;
+    let from = parse_room_messages_from_token(query.from.as_deref())?;
+    let limit = query.limit.as_deref().and_then(|s| s.parse::<u64>().ok()).unwrap_or(10) as i64;
+    let direction = parse_pagination_direction(query.dir.as_deref())?;
 
     Ok(Json(
         ctx.room_service.messaging().get_room_messages(&room_id, &auth_user.user_id, from, limit, direction).await?,

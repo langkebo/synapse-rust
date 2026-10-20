@@ -305,14 +305,18 @@ async fn federation_discovery(State(ctx): State<FederationContext>) -> Json<Valu
     }))
 }
 
+/// Query parameters accepted by [`openid_userinfo`].
+#[derive(Debug, Default, serde::Deserialize)]
+pub(crate) struct OpenIdUserinfoQuery {
+    access_token: Option<String>,
+}
+
 async fn openid_userinfo(
     State(ctx): State<FederationContext>,
-    Query(params): Query<Value>,
+    Query(params): Query<OpenIdUserinfoQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let access_token = params
-        .get("access_token")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Missing access_token parameter"))?;
+    let access_token =
+        params.access_token.as_deref().ok_or_else(|| ApiError::bad_request("Missing access_token parameter"))?;
 
     let token = ctx
         .account_data_service

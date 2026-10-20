@@ -124,6 +124,33 @@ pub struct CascadeRedactEventRequest {
     pub reason: Option<String>,
 }
 
+/// Query parameters accepted by [`get_rooms`].
+///
+/// Deliberately **not** `deny_unknown_fields`: the handler used to take a bare
+/// `HashMap<String, String>` and ignored unknown parameters.
+#[derive(Debug, Default, Deserialize)]
+pub struct RoomsQuery {
+    offset: Option<String>,
+    limit: Option<String>,
+    order_by: Option<String>,
+    from: Option<String>,
+}
+
+/// Query parameters accepted by [`get_room_members_admin`].
+#[derive(Debug, Default, Deserialize)]
+pub struct RoomMembersQuery {
+    limit: Option<String>,
+    from: Option<String>,
+}
+
+/// Query parameters accepted by [`get_room_messages_admin`].
+#[derive(Debug, Default, Deserialize)]
+pub struct RoomMessagesQuery {
+    limit: Option<String>,
+    from: Option<String>,
+    dir: Option<String>,
+}
+
 /// See [`create_room_router`].
 pub fn create_room_router(_state: AppState) -> Router<AppState> {
     Router::new()
@@ -299,18 +326,19 @@ pub async fn get_room_aliases_admin(
 pub async fn get_rooms(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Query(params): axum::extract::Query<RoomsQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let legacy_offset = params.get("offset").and_then(|v| v.parse::<i64>().ok());
+    let legacy_offset = params.offset.as_deref().and_then(|v| v.parse::<i64>().ok());
     let limit = params
-        .get("limit")
+        .limit
+        .as_deref()
         .and_then(|v| v.parse().ok())
         .unwrap_or(100)
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
-    let order = RoomSearchOrder::from_query(params.get("order_by").map(String::as_str));
-    let cursor = decode_room_search_cursor(params.get("from").map(String::as_str));
+    let order = RoomSearchOrder::from_query(params.order_by.as_deref());
+    let cursor = decode_room_search_cursor(params.from.as_deref());
 
-    if params.contains_key("from") && cursor.is_none() {
+    if params.from.is_some() && cursor.is_none() {
         return Err(ApiError::bad_request("Invalid from cursor".to_string()));
     }
     if legacy_offset.unwrap_or(0) > 0 && cursor.is_none() {
@@ -414,18 +442,19 @@ pub async fn get_room_members_admin(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(room_id): Path<RoomId>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Query(params): axum::extract::Query<RoomMembersQuery>,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await.map_err(ApiError::from)? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
     let limit = params
-        .get("limit")
+        .limit
+        .as_deref()
         .and_then(|v| v.parse().ok())
         .unwrap_or(100)
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
-    let from = params.get("from").map(|s| s.as_str());
+    let from = params.from.as_deref();
 
     let members = ctx
         .room_service
@@ -492,19 +521,20 @@ pub async fn get_room_messages_admin(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(room_id): Path<RoomId>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Query(params): axum::extract::Query<RoomMessagesQuery>,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await.map_err(ApiError::from)? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
     let limit = params
-        .get("limit")
+        .limit
+        .as_deref()
         .and_then(|v| v.parse().ok())
         .unwrap_or(100)
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
-    let from = params.get("from").and_then(|v| v.parse::<i64>().ok());
-    let dir = params.get("dir").map_or("b", |s| s.as_str());
+    let from = params.from.as_deref().and_then(|v| v.parse::<i64>().ok());
+    let dir = params.dir.as_deref().unwrap_or("b");
 
     let events = ctx
         .room_service

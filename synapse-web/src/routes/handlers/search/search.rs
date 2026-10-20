@@ -8,7 +8,6 @@ use synapse_common::ApiError;
 use synapse_services::search_service::RoomEventsSearchFilter;
 
 use crate::routes::MatrixJson;
-use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::timeout;
 
@@ -20,6 +19,11 @@ const MAX_SEARCH_LIMIT: u32 = 100;
 const DEFAULT_SEARCH_LIMIT: u32 = 10;
 const SEARCH_TIMEOUT_SECS: u64 = 30;
 const SEARCH_CACHE_TTL_SECS: u64 = 30;
+
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct SearchQuery {
+    pub(crate) next_batch: Option<String>,
+}
 
 fn default_order_by() -> String {
     "rank".to_string()
@@ -180,7 +184,7 @@ pub(crate) fn validate_search_request(body: &SearchRequest) -> Result<(), ApiErr
 pub(crate) async fn search(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Query(params): Query<HashMap<String, String>>,
+    Query(query): Query<SearchQuery>,
     MatrixJson(body): MatrixJson<SearchRequest>,
 ) -> Result<Json<Value>, ApiError> {
     validate_search_request(&body)?;
@@ -190,8 +194,7 @@ pub(crate) async fn search(
     });
 
     if let Some(room_events) = &body.search_categories.room_events {
-        let room_events_next_batch =
-            room_events.next_batch.as_deref().or_else(|| params.get("next_batch").map(String::as_str));
+        let room_events_next_batch = room_events.next_batch.as_deref().or_else(|| query.next_batch.as_deref());
         let search_future = search_room_events(&ctx, &auth_user.user_id, room_events, room_events_next_batch);
 
         let room_results = timeout(Duration::from_secs(SEARCH_TIMEOUT_SECS), search_future)

@@ -7,9 +7,25 @@ use axum::{
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
 };
-use serde_json::{json, Value};
+use serde_json::json;
 use synapse_common::ApiError;
 use tokio_util::io::ReaderStream;
+
+/// Query parameters for signed media download URLs.
+#[derive(Debug, Default, serde::Deserialize)]
+pub(crate) struct SignedMediaQuery {
+    pub(crate) signature: Option<String>,
+    pub(crate) expires: Option<String>,
+}
+
+/// Query parameters for thumbnail requests.
+#[derive(Debug, Default, serde::Deserialize)]
+pub(crate) struct ThumbnailQuery {
+    pub(crate) width: Option<String>,
+    pub(crate) height: Option<String>,
+    pub(crate) method: Option<String>,
+    pub(crate) animated: Option<String>,
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -258,12 +274,14 @@ pub(crate) async fn download_media_stream_common(
 }
 
 /// See [`thumbnail_request_params`].
-pub(crate) fn thumbnail_request_params(params: &Value) -> (u32, u32, &str, bool) {
-    let width = params.get("width").and_then(|v| v.as_u64()).filter(|&w| w <= 10000).unwrap_or(800) as u32;
-    let height = params.get("height").and_then(|v| v.as_u64()).filter(|&h| h <= 10000).unwrap_or(600) as u32;
-    let method = params.get("method").and_then(|v| v.as_str()).unwrap_or("scale");
+pub(crate) fn thumbnail_request_params(query: &ThumbnailQuery) -> (u32, u32, &str, bool) {
+    let width =
+        query.width.as_deref().and_then(|v| v.parse::<u64>().ok()).filter(|&w| w <= 10000).unwrap_or(800) as u32;
+    let height =
+        query.height.as_deref().and_then(|v| v.parse::<u64>().ok()).filter(|&h| h <= 10000).unwrap_or(600) as u32;
+    let method = query.method.as_deref().unwrap_or("scale");
     // Animated thumbnail support (Phase 1: detection + first-frame fallback)
-    let animated = params.get("animated").and_then(|v| v.as_bool()).unwrap_or(false);
+    let animated = query.animated.as_deref().and_then(|v| v.parse::<bool>().ok()).unwrap_or(false);
     (width, height, method, animated)
 }
 
@@ -272,10 +290,10 @@ pub(crate) async fn thumbnail_response_common(
     ctx: &MediaContext,
     server_name: &str,
     media_id: &str,
-    params: &Value,
+    params: &ThumbnailQuery,
 ) -> Result<synapse_services::media::MediaResponsePayload, ApiError> {
-    let has_width = params.get("width").is_some();
-    let has_height = params.get("height").is_some();
+    let has_width = params.width.is_some();
+    let has_height = params.height.is_some();
     if !has_width && !has_height {
         return Err(ApiError::bad_request(
             "Missing width and height query parameters: at least one must be provided".to_string(),
@@ -320,14 +338,12 @@ pub(crate) async fn download_media_with_filename(
 pub(crate) async fn download_media_signed(
     State(ctx): State<MediaContext>,
     Path((server_name, media_id)): Path<(ServerName, MediaId)>,
-    Query(params): Query<Value>,
+    Query(query): Query<SignedMediaQuery>,
 ) -> Result<Response, ApiError> {
-    let signature = params
-        .get("signature")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::unauthorized("Missing signature parameter".to_string()))?;
+    let signature =
+        query.signature.as_deref().ok_or_else(|| ApiError::unauthorized("Missing signature parameter".to_string()))?;
 
-    let expires: u64 = params.get("expires").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let expires: u64 = query.expires.as_deref().and_then(|s| s.parse().ok()).unwrap_or(0);
 
     if !ctx.media_domain_service.verify_media_download_url(&server_name, &media_id, signature, expires) {
         return Err(ApiError::unauthorized("Invalid or expired media signature".to_string()));
@@ -344,14 +360,12 @@ pub(crate) async fn download_media_signed(
 pub(crate) async fn download_media_signed_with_filename(
     State(ctx): State<MediaContext>,
     Path((server_name, media_id, filename)): Path<(ServerName, MediaId, String)>,
-    Query(params): Query<Value>,
+    Query(query): Query<SignedMediaQuery>,
 ) -> Result<Response, ApiError> {
-    let signature = params
-        .get("signature")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::unauthorized("Missing signature parameter".to_string()))?;
+    let signature =
+        query.signature.as_deref().ok_or_else(|| ApiError::unauthorized("Missing signature parameter".to_string()))?;
 
-    let expires: u64 = params.get("expires").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let expires: u64 = query.expires.as_deref().and_then(|s| s.parse().ok()).unwrap_or(0);
 
     if !ctx.media_domain_service.verify_media_download_url(&server_name, &media_id, signature, expires) {
         return Err(ApiError::unauthorized("Invalid or expired media signature".to_string()));
@@ -437,10 +451,10 @@ pub(crate) async fn get_thumbnail(
     State(ctx): State<MediaContext>,
     auth_user: OptionalAuthenticatedUser,
     Path((server_name, media_id)): Path<(ServerName, MediaId)>,
-    Query(params): Query<Value>,
+    Query(query): Query<ThumbnailQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.media_domain_service.ensure_media_not_quarantined(auth_user.is_admin, &server_name, &media_id).await?;
-    let response = thumbnail_response_common(&ctx, &server_name, &media_id, &params).await?;
+    let response = thumbnail_response_common(&ctx, &server_name, &media_id, &query).await?;
     let headers = media_response_headers(&response.headers);
     Ok((StatusCode::OK, headers, response.content))
 }
@@ -450,10 +464,10 @@ pub(crate) async fn get_thumbnail_authenticated(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
     Path((server_name, media_id)): Path<(ServerName, MediaId)>,
-    Query(params): Query<Value>,
+    Query(query): Query<ThumbnailQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.media_domain_service.ensure_media_not_quarantined(auth_user.is_admin, &server_name, &media_id).await?;
-    let response = thumbnail_response_common(&ctx, &server_name, &media_id, &params).await?;
+    let response = thumbnail_response_common(&ctx, &server_name, &media_id, &query).await?;
     let headers = media_response_headers(&response.headers);
     Ok((StatusCode::OK, headers, response.content))
 }

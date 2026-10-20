@@ -17,6 +17,12 @@ use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct PublicRoomsQuery {
+    pub(crate) limit: Option<String>,
+    pub(crate) since: Option<String>,
+}
+
 fn decode_public_rooms_cursor(cursor: Option<&str>) -> Option<(i64, &str)> {
     let cursor = cursor?;
     let (ts, room_id) = cursor.split_once('|')?;
@@ -560,10 +566,10 @@ pub(crate) async fn delete_room_alias_direct(
 pub(crate) async fn get_public_rooms(
     State(ctx): State<AdminContext>,
     _auth_user: OptionalAuthenticatedUser,
-    Query(params): Query<Value>,
+    Query(query): Query<PublicRoomsQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(20).clamp(1, 1000) as i64;
-    let cursor = decode_public_rooms_cursor(params.get("since").and_then(|v| v.as_str()));
+    let limit = query.limit.as_deref().and_then(|v| v.parse::<u64>().ok()).unwrap_or(20).clamp(1, 1000) as i64;
+    let cursor = decode_public_rooms_cursor(query.since.as_deref());
 
     // 按 spec，GET 变体的参数只有 `limit` / `since` / `server` —— `filter`（含
     // `generic_search_term` / `room_types`）是 **POST 变体**（`query_public_rooms`）的字段，故本函数

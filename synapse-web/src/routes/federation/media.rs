@@ -4,8 +4,15 @@ use axum::{
     extract::{Path, Query, State},
     response::IntoResponse,
 };
-use serde_json::Value;
 use synapse_common::*;
+
+/// Query parameters accepted by [`media_thumbnail`].
+#[derive(Debug, Default, serde::Deserialize)]
+pub(crate) struct FederationThumbnailQuery {
+    width: Option<String>,
+    height: Option<String>,
+    method: Option<String>,
+}
 
 fn validate_federation_media_server_name(ctx: &FederationContext, server_name: &str) -> Result<(), ApiError> {
     if server_name != ctx.server_name {
@@ -15,15 +22,9 @@ fn validate_federation_media_server_name(ctx: &FederationContext, server_name: &
     Ok(())
 }
 
-fn parse_federation_query_i64(params: &Value, key: &str, default: i64) -> Result<i64, ApiError> {
-    match params.get(key) {
-        Some(Value::Number(value)) => {
-            value.as_i64().ok_or_else(|| ApiError::bad_request(format!("Invalid '{key}' parameter")))
-        }
-        Some(Value::String(value)) => {
-            value.parse::<i64>().map_err(|_| ApiError::bad_request(format!("Invalid '{key}' parameter")))
-        }
-        Some(_) => Err(ApiError::bad_request(format!("Invalid '{key}' parameter"))),
+fn parse_federation_query_i64(raw: Option<&str>, key: &str, default: i64) -> Result<i64, ApiError> {
+    match raw {
+        Some(value) => value.parse::<i64>().map_err(|_| ApiError::bad_request(format!("Invalid '{key}' parameter"))),
         None => Ok(default),
     }
 }
@@ -46,13 +47,13 @@ pub(super) async fn media_download(
 pub(super) async fn media_thumbnail(
     State(ctx): State<FederationContext>,
     Path((server_name, media_id)): Path<(ServerName, MediaId)>,
-    Query(params): Query<Value>,
+    Query(query): Query<FederationThumbnailQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_federation_media_server_name(&ctx, &server_name)?;
 
-    let width = parse_federation_query_i64(&params, "width", 100)?;
-    let height = parse_federation_query_i64(&params, "height", 100)?;
-    let method = params.get("method").and_then(|v| v.as_str()).unwrap_or("scale");
+    let width = parse_federation_query_i64(query.width.as_deref(), "width", 100)?;
+    let height = parse_federation_query_i64(query.height.as_deref(), "height", 100)?;
+    let method = query.method.as_deref().unwrap_or("scale");
 
     const MAX_FEDERATION_THUMBNAIL_DIMENSION: i64 = 4096;
     if width < 1
@@ -114,7 +115,6 @@ mod tests {
     use super::*;
     use crate::routes::assembly::declared_ledger_all;
     use crate::routes::route_ledger::RouteEntry;
-    use serde_json::json;
 
     /// Helper: extract media routes from the real derived route ledger
     fn media_route_manifest() -> Vec<RouteEntry> {
@@ -149,35 +149,30 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_federation_query_i64_with_integer_value() {
-        let params = json!({ "width": 200 });
-        assert_eq!(parse_federation_query_i64(&params, "width", 100).unwrap(), 200);
+    fn test_parse_federation_query_i64_parses_numeric_string() {
+        assert_eq!(parse_federation_query_i64(Some("200"), "width", 100).unwrap(), 200);
     }
 
     #[test]
-    fn test_parse_federation_query_i64_with_string_value() {
-        let params = json!({ "width": "300" });
-        assert_eq!(parse_federation_query_i64(&params, "width", 100).unwrap(), 300);
+    fn test_parse_federation_query_i64_parses_other_numeric_string() {
+        assert_eq!(parse_federation_query_i64(Some("300"), "width", 100).unwrap(), 300);
     }
 
     #[test]
     fn test_parse_federation_query_i64_with_default_when_missing() {
-        let params = json!({});
-        assert_eq!(parse_federation_query_i64(&params, "width", 100).unwrap(), 100);
+        assert_eq!(parse_federation_query_i64(None, "width", 100).unwrap(), 100);
     }
 
     #[test]
-    fn test_parse_federation_query_i64_rejects_non_number() {
-        let params = json!({ "width": [1, 2] });
-        let result = parse_federation_query_i64(&params, "width", 100);
+    fn test_parse_federation_query_i64_rejects_bracketed_value() {
+        let result = parse_federation_query_i64(Some("[1, 2]"), "width", 100);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().http_status(), http::StatusCode::BAD_REQUEST);
     }
 
     #[test]
     fn test_parse_federation_query_i64_rejects_invalid_string() {
-        let params = json!({ "width": "abc" });
-        let result = parse_federation_query_i64(&params, "width", 100);
+        let result = parse_federation_query_i64(Some("abc"), "width", 100);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().http_status(), http::StatusCode::BAD_REQUEST);
     }

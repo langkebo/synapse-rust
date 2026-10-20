@@ -24,7 +24,7 @@ use crate::routes::context::{AdminContext, RoomContext};
 use crate::routes::extractors::{AuthenticatedUser, RoomId};
 use crate::routes::handlers::room::{
     ensure_message_write_access, ensure_room_state_write_access, msc4354_sticky_duration, normalize_room_event_type,
-    schedule_delayed_event_core, MSC4140_MAX_DELAY_MS, MSC4140_SCHEDULE_TXN_NAMESPACE,
+    schedule_delayed_event_core, RoomWriteQuery, MSC4140_MAX_DELAY_MS, MSC4140_SCHEDULE_TXN_NAMESPACE,
 };
 use crate::routes::validate_room_id;
 use crate::routes::AppState;
@@ -37,7 +37,6 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use synapse_common::ApiError;
 use synapse_services::delayed_event_service::{DelayedEvent, DelayedEventAction};
 
@@ -65,7 +64,7 @@ pub(crate) async fn schedule_delayed_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_type, txn_id)): Path<(RoomId, String, String)>,
-    Query(query): Query<HashMap<String, String>>,
+    Query(query): Query<RoomWriteQuery>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -140,7 +139,7 @@ struct ScheduleRequest {
 /// Unevaluated JSON rather than a `Deserialize` struct, so a missing or mistyped
 /// field yields 400 `M_BAD_JSON` (this module's style — see
 /// `manage_delayed_event`) instead of axum's 422 deserialization rejection.
-fn parse_schedule_request(body: &Value, query: &HashMap<String, String>) -> Result<ScheduleRequest, ApiError> {
+fn parse_schedule_request(body: &Value, query: &RoomWriteQuery) -> Result<ScheduleRequest, ApiError> {
     // MSC4354: a sticky duration **is** accepted here (upstream PR #19354 carries
     // the same field as a body key). It is stored on the row and applied by the
     // dispatcher right after the send — see
@@ -365,7 +364,7 @@ pub fn create_delayed_events_router() -> Router<AppState> {
 mod tests {
     /// Parse a body with no query-string hints (the common case).
     fn parse(body: &Value) -> Result<ScheduleRequest, ApiError> {
-        parse_schedule_request(body, &HashMap::new())
+        parse_schedule_request(body, &RoomWriteQuery::default())
     }
 
     use super::*;

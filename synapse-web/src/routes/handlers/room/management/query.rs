@@ -6,6 +6,14 @@ use synapse_common::ApiError;
 
 use crate::routes::context::RoomContext;
 
+#[derive(Debug, Default, serde::Deserialize)]
+pub(crate) struct MutualRoomsQuery {
+    pub(crate) user_id: Option<String>,
+    pub(crate) limit: Option<String>,
+    pub(crate) from: Option<String>,
+    pub(crate) batch_token: Option<String>,
+}
+
 /// See [`get_room_info`].
 pub(crate) async fn get_room_info(
     State(ctx): State<RoomContext>,
@@ -126,12 +134,10 @@ pub(crate) async fn get_user_rooms(
 pub(crate) async fn get_mutual_rooms(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Query(query): axum::extract::Query<MutualRoomsQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let other_user_id = params
-        .get("user_id")
-        .map(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("Missing user_id query parameter".to_string()))?;
+    let other_user_id =
+        query.user_id.as_deref().ok_or_else(|| ApiError::bad_request("Missing user_id query parameter".to_string()))?;
 
     validate_user_id(other_user_id)?;
 
@@ -154,10 +160,10 @@ pub(crate) async fn get_mutual_rooms(
     // rows and reports has_more, so 0 returned an empty page *with* a
     // next_batch_token, inviting an infinite client pagination loop.
     // `metadata.rs` already uses `.clamp(1, 100)` for the same reason.
-    let limit: i64 = params.get("limit").and_then(|v| v.parse::<i64>().ok()).unwrap_or(100).clamp(1, 1000);
+    let limit: i64 = query.limit.as_deref().and_then(|v| v.parse::<i64>().ok()).unwrap_or(100).clamp(1, 1000);
 
     // Pagination: supports both `from` and `batch_token` query param names
-    let after = params.get("from").or_else(|| params.get("batch_token")).map(|s| s.as_str());
+    let after = query.from.as_deref().or(query.batch_token.as_deref());
 
     let result = ctx.room_service.membership().get_mutual_rooms_between(user_id, other, limit, after).await?;
 

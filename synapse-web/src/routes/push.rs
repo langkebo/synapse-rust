@@ -11,6 +11,11 @@ use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct NotificationsQuery {
+    pub(crate) limit: Option<String>,
+}
+
 fn create_push_compat_router() -> Router<AppState> {
     Router::new()
         .route("/pushers", get(get_pushers).post(set_pusher))
@@ -487,9 +492,9 @@ async fn set_push_rule_enabled(
 async fn get_notifications(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Query(query): axum::extract::Query<NotificationsQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit: i64 = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(100);
+    let limit: i64 = query.limit.as_deref().and_then(|v| v.parse().ok()).unwrap_or(100);
 
     let notifications_list: Vec<serde_json::Value> =
         ctx.client_push_service.get_notifications(&auth_user.user_id, limit).await?;
