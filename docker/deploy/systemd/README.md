@@ -26,6 +26,32 @@ systemctl list-timers synapse-backup.timer
 30 2 * * * BACKUP_DIR=/var/backups/synapse KEEP_DAYS=7 /opt/synapse-rust/scripts/backup_database.sh >> /var/log/synapse-backup.log 2>&1
 ```
 
+## 方式 C：launchd（macOS，本机在用）
+
+plist 见 `docker/deploy/launchd/com.synapse-rust.backup.plist`（含 `BACKUP_DIR`、
+`BACKUP_PUSHGATEWAY_URL` 与显式 `PATH`）。不要与方式 A/B 同时启用。
+
+```bash
+# 1) 先建好备份目录：launchd 负责重定向 stdout，目录不存在会直接报 "Could not open log file"
+mkdir -p /Users/ljf/Desktop/hu_ts/synapse-rust/docker/deploy/backups/daily
+
+# 2) 安装并加载（LaunchAgent，仅当前用户）
+cp docker/deploy/launchd/com.synapse-rust.backup.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.synapse-rust.backup.plist
+
+# 3) 立即跑一次验证（不必等到 02:30）
+launchctl kickstart -k gui/$(id -u)/com.synapse-rust.backup
+sleep 30
+ls -lh docker/deploy/backups/daily/
+tail -5 docker/deploy/backups/daily/backup.log
+curl -s http://127.0.0.1:9091/metrics | grep synapse_backup_
+
+# 4) 确认已注册
+launchctl print gui/$(id -u)/com.synapse-rust.backup | grep -E 'state|next fire'
+```
+
+卸载：`launchctl bootout gui/$(id -u)/com.synapse-rust.backup`。
+
 ## 必须同时满足的三件事（否则"有定时任务"不等于"有备份"）
 
 1. **退出码要被看见**：脚本失败即非零退出；systemd 会把失败记成 `failed`（`systemctl --failed` 能看到），

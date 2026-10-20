@@ -56,6 +56,11 @@ services:
       #   Bind for 127.0.0.1:9090 failed: port is already allocated
       # 9092 与 grafana 数据源注释（datasources.yml）以及本站文档保持一致。
       - "127.0.0.1:${PROMETHEUS_UI_PORT:-9092}:9090"
+    # coturn 在**独立 compose 项目**（../coturn，网络 coturn_turn_net）里，与
+    # synapse_network 不互通；它把 9641 发布到宿主，prometheus.yml 因此经此别名抓取。
+    # 显式声明 host-gateway，避免依赖 Docker Desktop/OrbStack 的隐式 DNS。
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: [ "CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9090/-/healthy || exit 1" ]
       interval: 30s

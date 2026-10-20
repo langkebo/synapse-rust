@@ -7,7 +7,7 @@
 # 抓取目标：
 #   1. synapse-rust :9090    — 后端指标（回环内访问）
 #   2. synapse-worker       — Worker 指标（需 bearer_token）
-#   3. coturn :9641         — TURN/STUN 指标
+#   3. host.docker.internal:9641 — coturn TURN/STUN 指标（跨 compose 项目，见下）
 #   4. node-exporter :9100  — 宿主机系统指标
 #
 # 历史数据保留：30天
@@ -70,10 +70,15 @@ scrape_configs:
   #   # Worker 端口当前未在 compose 中暴露，标记为 down 待配置
 
   # === 3. coturn TURN/STUN ===
+  # ⚠️ 不能写 `coturn:9641`：coturn 由**独立 compose 项目**（../coturn）启动，只挂
+  # `coturn_turn_net`，与 Prometheus 所在的 `synapse_network` 不互通，容器内 DNS
+  # 解析 coturn 会直接失败（实测报错 `lookup coturn ... no such host`）。
+  # 该栈已把 9641 发布到宿主，故经宿主网关访问；compose 里为 prometheus 配了
+  # `extra_hosts: host.docker.internal:host-gateway`，Linux/macOS 行为一致。
   - job_name: coturn
     static_configs:
       - targets:
-          - coturn:9641
+          - host.docker.internal:9641
         labels:
           role: turn-server
           service: coturn

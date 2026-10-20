@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.synapse-rust.backup</string>
+
+    <!-- macOS 无 systemd，用 LaunchAgent 替代 systemd/synapse-backup.timer。
+         安装：cp 到 ~/Library/LaunchAgents/ 后 launchctl bootstrap gui/$(id -u)。
+         日期路径必须与安装位置一致；仓库路径改了要同步改这里。 -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/ljf/Desktop/hu_ts/synapse-rust/scripts/backup_database.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/ljf/Desktop/hu_ts/synapse-rust</string>
+
+    <!-- launchd 不继承登录 shell 的 PATH，必须显式给出 docker/curl/gzip 所在目录，
+         否则脚本第一步 `docker ps` 就 not found。 -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/ljf/.orbstack/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <!-- 每日备份与 deploy 的回滚快照分目录存放，避免两类产物混在一起。 -->
+        <key>BACKUP_DIR</key>
+        <string>/Users/ljf/Desktop/hu_ts/synapse-rust/docker/deploy/backups/daily</string>
+        <key>KEEP_DAYS</key>
+        <string>7</string>
+        <!-- 备份新鲜度上报：deploy 栈的 pushgateway 只绑回环，宿主可直连。 -->
+        <key>BACKUP_PUSHGATEWAY_URL</key>
+        <string>http://127.0.0.1:9091</string>
+    </dict>
+
+    <!-- 每天 02:30，与 systemd timer 保持一致。 -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>2</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <!-- 脚本自身的结构化日志在 $BACKUP_DIR/backup.log；这里只兜住启动期错误。 -->
+    <key>StandardOutPath</key>
+    <string>/tmp/synapse-backup.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/synapse-backup.err.log</string>
+</dict>
+</plist>
