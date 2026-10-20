@@ -57,6 +57,7 @@ db_name="$(q "SELECT current_database()")"
 db_size="$(q "SELECT pg_size_pretty(pg_database_size(current_database()))")"
 attr_size="$(q "SELECT pg_size_pretty(pg_relation_size('pg_attribute'))")"
 class_rows="$(q "SELECT count(*) FROM pg_class")"
+public_tables="$(q "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")"
 stamped="$(q "SELECT count(*) FROM pg_namespace WHERE nspname ~ '^test_[0-9]+_[0-9]+_[0-9]+$'")"
 uuid_family="$(q "SELECT count(*) FROM pg_namespace WHERE nspname ~ '^test_[0-9a-f]{32}$'")"
 templates="$(q "SELECT count(*) FROM pg_namespace WHERE nspname ~ '^test_(template_v[0-9]+_|isolation_template_)'")"
@@ -82,6 +83,7 @@ fi
 
 echo "测试库健康指标"
 echo "  数据库              ${db_name}"
+echo "  基线表（public）    ${public_tables}   （0 或明显偏少 = 迁移没打到这个库）"
 echo "  库体大小            ${db_size}"
 echo "  pg_attribute        ${attr_size}   （>256 MB 起 clone 明显变慢）"
 echo "  pg_class 行数       ${class_rows}"
@@ -116,6 +118,20 @@ fi
 echo "  单测 P95            ${p95}"
 
 residual_total=$((stamped + uuid_family))
+
+# 迁移没打到这个库时，每条测试都会在建表前报 500「relation users does not
+# exist」——看起来像代码坏了，实际是库被清空/指错了实例（2026-10-20 实测：
+# 另一个会话清空 public 后，一条集成测试以 500 失败）。
+if [ "${public_tables}" -eq 0 ]; then
+    echo "" >&2
+    echo "ERROR: public 里没有表，迁移没有打到 ${db_name}。" >&2
+    echo "       DATABASE_URL=\"\${DATABASE_URL}\" bash docker/db_migrate.sh migrate" >&2
+    exit 1
+fi
+if [ "${public_tables}" -lt 200 ]; then
+    echo "WARN: public 只有 ${public_tables} 张表（基线约 221），迁移可能不完整。" >&2
+fi
+
 if [ "${residual_total}" -gt "${RESIDUAL_LIMIT}" ]; then
     echo ""
     echo "WARN: 残留 ${residual_total} 个，超过阈值 ${RESIDUAL_LIMIT}。" >&2
@@ -123,4 +139,4 @@ if [ "${residual_total}" -gt "${RESIDUAL_LIMIT}" ]; then
     exit 1
 fi
 echo ""
-echo "OK: 残留 ${residual_total} 个，阈值 ${RESIDUAL_LIMIT}。"
+echo "OK: 残留 ${residual_total} 个，阈值 ${RESIDUAL_LIMIT}。public 表 ${public_tables}。"
