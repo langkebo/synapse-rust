@@ -1629,6 +1629,42 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `scripts/contract/extract_registered.py` 现在识别 `RawQuery` 提取器，把这类端点记为「**不可判定（opaque）**」而不是「没有 query」。
 - 区分这两者很重要：`query: none` 断言「服务端不读任何 query」，而 `RawQuery` 只是「无法静态列出键名」。SDK 不要再把前者当成后者的证据。
 
+### A.8 2026-10-20 收尾：D-13 / D-14 与 Space 查询能力边界（§L）
+
+#### 1. `GET /_matrix/vendor/v1/rooms/{room_id}/event_perspective`（D-14，**行为变更**）
+
+- 现在**必须**带 `?event_id=<事件 id>`：缺失 → **400**（`Query` 提取失败）。以前只按房间聚合，`event_id` / `room_version` 都被静默忽略。
+- `?room_version=` 可选；传了服务端不支持的版本 → **400 `M_UNSUPPORTED_ROOM_VERSION`**。
+- 响应由「房间级聚合」改为「**该事件的视角窗口**」：
+  - 顶层平铺 anchor 事件的客户端 JSON：`event_id` / `sender` / `type` / `content` / `room_id` / `origin_server_ts` / `state_key` / `unsigned`；
+  - 追加 `perspective` 对象：`{ "event_count": n, "latest_event_id": "…", "sender_activity": { "@u:h": n }, "event_types": { "m.room.message": n } }`（`latest_event_id` 即 anchor 的 `event_id`）；
+  - 窗口 = anchor **之前** 99 条 + anchor 本身，`event_count` 含 anchor（最小 1）。
+- anchor 同样受 history visibility 约束：调用方看不到的事件 → **404**（不泄漏窗口）。
+- 契约侧该端点现为 `query: event_id,room_version`。
+
+#### 2. `GET /_synapse/worker/v1/workers`、`GET /_synapse/worker/v1/workers/type/{worker_type}`（D-13，**形状不变**）
+
+- 这两个列表**不分页**，返回**裸数组** `[ {…}, … ]`；`limit` / `from` 会被**静默忽略**（不 400）。
+- 刻意保持数组形状：现有 SDK `worker-admin` 已按数组解构，改成 `{items,total}` 会让调用方再次静默拿到空列表。需要总量请用 `array.length`。
+
+#### 3. worker 任务/命令列表响应形状修正（本轮横向排查，后端单侧）
+
+- `GET /_synapse/worker/v1/tasks`：裸数组 → **`{"tasks": [...], "total": n}`**。
+- `GET /_synapse/worker/v1/workers/{worker_id}/commands`：裸数组 → **`{"commands": [...], "total": n}`**。
+- 原因：SDK 的 `WorkerManager.listTasks()` / `WorkerBodyManager.listPendingCommands()` 读的是对象字段；裸数组下它们永远得到 `[]`（静默）。SDK 无需改动。
+- 两者均支持 `?limit=`（默认 100）。
+
+#### 4. Space 查询能力边界（§L，文档项）
+
+- `GET /_matrix/client/{v1,v3}/spaces/{space_id}/hierarchy`：**不分页**，只接受 `max_depth`（1..=20）；`HierarchyQuery` 是 `deny_unknown_fields`，传 `from` / `limit` / `since` / `suggested_only` / `server` / `search_term` → **400**。
+- 需要分页请用 `GET /_matrix/client/v1/spaces/{space_id}/hierarchy/v1`（`from` / `limit` / `max_depth` / `suggested_only`）。
+- 以下端点**没有 query 能力**（无 `Query` 提取器，携带任何 query 都被**静默忽略**，不 400）：
+  - `GET|POST /_matrix/vendor/v1/spaces/{space_id}/children`、`DELETE .../children/{room_id}`
+  - `GET /_matrix/vendor/v1/spaces/{space_id}/summary`、`GET .../summary/with_children`
+  - `GET /_matrix/vendor/v1/spaces/{space_id}/tree_path`
+  - `GET /_matrix/vendor/v1/spaces/room/{room_id}/parents`
+- 若未来要给它们加 `max_depth` / 过滤，必须同时更新 sidecar，避免 SDK 只能靠猜。
+
 ---
 
 *本文件由 `scripts/contract/extract_registered.py` + `gen_contract_doc.py` 生成。路由面随代码变化，请定期重新生成。附录 A / 附录 B 为人工维护增补。*

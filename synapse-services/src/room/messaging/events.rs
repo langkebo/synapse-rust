@@ -817,6 +817,23 @@ impl MessagingService {
             .map_err(RoomMessagingError::Database)
     }
 
+    /// The events immediately before `before_ts` in `room_id`, newest first.
+    ///
+    /// The anchor itself is excluded — the underlying query is a strict
+    /// `origin_server_ts < before_ts` — so callers that want a window ending at
+    /// the anchor must add it back themselves.
+    pub async fn get_events_before_context(
+        &self,
+        room_id: &str,
+        before_ts: i64,
+        limit: i64,
+    ) -> ApiResult<Vec<serde_json::Value>> {
+        self.event_reader
+            .get_events_before_context(room_id, before_ts, limit)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to get events before context", e))
+    }
+
     /// See [`get_event_context_admin`].
     pub async fn get_event_context_admin(
         &self,

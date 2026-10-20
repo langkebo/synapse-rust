@@ -392,7 +392,11 @@ pub async fn get_pending_commands(
     let limit: i64 = query.limit.unwrap_or(100);
     let commands: Vec<WorkerCommand> = ctx.worker_manager.get_pending_commands(&worker_id, limit).await?;
 
-    Ok(json_vec_from::<_, WorkerCommandResponse>(commands))
+    // `{commands: [...]}` (not a bare array): the worker-body client reads the
+    // `commands` field, so an array made every listing silently empty.
+    let commands: Vec<WorkerCommandResponse> = commands.into_iter().map(WorkerCommandResponse::from).collect();
+    let total = commands.len();
+    Ok(Json(serde_json::json!({ "commands": commands, "total": total })))
 }
 
 /// See [`complete_command`].
@@ -438,7 +442,11 @@ pub async fn get_pending_tasks(
     let limit: i64 = query.limit.unwrap_or(100);
     let tasks: Vec<WorkerTaskAssignment> = ctx.worker_manager.get_pending_tasks(limit).await?;
 
-    Ok(json_vec_from::<_, WorkerTaskResponse>(tasks))
+    // `{tasks: [...]}` (not a bare array): both worker clients read the `tasks`
+    // field, so an array made every listing silently empty.
+    let tasks: Vec<WorkerTaskResponse> = tasks.into_iter().map(WorkerTaskResponse::from).collect();
+    let total = tasks.len();
+    Ok(Json(serde_json::json!({ "tasks": tasks, "total": total })))
 }
 
 /// See [`claim_next_task`].

@@ -5214,7 +5214,10 @@
       "path_params": [
         "room_id"
       ],
-      "query_params": []
+      "query_params": [
+        "event_id",
+        "room_version"
+      ]
     },
     {
       "method": "GET",

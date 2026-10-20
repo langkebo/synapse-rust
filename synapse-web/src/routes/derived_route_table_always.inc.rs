@@ -3351,7 +3351,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e =
-            RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/rooms/{room_id}/event_perspective", "room");
+            RouteEntry::new(axum::http::Method::GET, "/_matrix/vendor/v1/rooms/{room_id}/event_perspective", "room")
+                .with_query_params(&["event_id", "room_version"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {

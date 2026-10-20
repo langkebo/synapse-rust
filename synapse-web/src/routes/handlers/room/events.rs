@@ -536,42 +536,83 @@ pub(crate) async fn get_room_encrypted_events(
     })))
 }
 
+/// Query parameters for [`get_room_event_perspective`].
+///
+/// `event_id` is required: the endpoint reports the perspective **of an event**,
+/// not of the room. It used to take only the room id, so both parameters were
+/// silently ignored and every caller got the same room-level aggregate.
+#[derive(Debug, Deserialize)]
+pub(crate) struct EventPerspectiveQuery {
+    pub event_id: String,
+    pub room_version: Option<String>,
+}
+
 /// See [`get_room_event_perspective`].
 pub(crate) async fn get_room_event_perspective(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<RoomId>,
+    Query(query): Query<EventPerspectiveQuery>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
+    validate_event_id(&query.event_id)?;
+    if let Some(room_version) = query.room_version.as_deref() {
+        if !synapse_common::is_supported_room_version(room_version) {
+            return Err(ApiError::unsupported_room_version(format!(
+                "Room version {room_version} is not supported by this server"
+            )));
+        }
+    }
+
     if !ctx.room_service.state().room_exists(&room_id).await.map_err(map_internal!("Failed to check room existence"))? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let events = ctx
+    // History visibility applies to the anchor as well: an event from before the
+    // caller was involved in the room must 404 instead of leaking into the window.
+    let anchor =
+        ctx.room_service.messaging().get_event_for_client(&room_id, &auth_user.user_id, &query.event_id).await?;
+
+    let anchor_ts = anchor.get("origin_server_ts").and_then(Value::as_i64).unwrap_or_default();
+    let events_before = ctx
         .room_service
         .messaging()
-        .get_room_events(&room_id, 100)
+        .get_events_before_context(&room_id, anchor_ts, 99)
         .await
-        .map_err(map_internal!("Failed to get room events"))?;
+        .map_err(map_internal!("Failed to get events before context"))?;
 
     let mut senders: HashMap<String, usize> = HashMap::new();
     let mut event_types: HashMap<String, usize> = HashMap::new();
-    for event in &events {
-        *senders.entry(event.user_id.clone()).or_insert(0) += 1;
-        *event_types.entry(event.event_type.clone()).or_insert(0) += 1;
+    let mut record = |event: &Value| {
+        if let Some(sender) = event.get("sender").and_then(Value::as_str) {
+            *senders.entry(sender.to_string()).or_insert(0) += 1;
+        }
+        if let Some(event_type) = event.get("type").and_then(Value::as_str) {
+            *event_types.entry(event_type.to_string()).or_insert(0) += 1;
+        }
+    };
+    for event in &events_before {
+        record(event);
     }
+    record(&anchor);
 
-    Ok(Json(json!({
-        "room_id": room_id,
-        "perspective": {
-            "event_count": events.len(),
-            "latest_event_id": events.first().map(|event| event.event_id.clone()),
+    let Value::Object(mut response) = anchor else {
+        return Err(ApiError::internal("Unexpected event representation"));
+    };
+    let latest_event_id = response.get("event_id").cloned();
+    response.insert(
+        "perspective".to_string(),
+        json!({
+            "event_count": events_before.len() + 1,
+            "latest_event_id": latest_event_id,
             "sender_activity": senders,
             "event_types": event_types
-        }
-    })))
+        }),
+    );
+
+    Ok(Json(Value::Object(response)))
 }
 
 /// See [`get_room_user_fragments`].
@@ -1244,6 +1285,31 @@ mod tests {
         // handler answers 501 `M_UNKNOWN` instead.
         let err = ApiError::not_supported("Event keys are not implemented by this server");
         assert!(err.code_is(synapse_common::MatrixErrorCode::Unknown));
+    }
+
+    #[test]
+    fn event_perspective_query_requires_event_id() {
+        // D-14: the endpoint is about one event, so `event_id` is required. It
+        // used to be absent from the extractor entirely and silently ignored.
+        let query: EventPerspectiveQuery = serde_json::from_value(json!({
+            "event_id": "$abc:example.com",
+            "room_version": "10",
+            "unrelated": "ignored"
+        }))
+        .expect("query should parse");
+        assert_eq!(query.event_id, "$abc:example.com");
+        assert_eq!(query.room_version.as_deref(), Some("10"));
+
+        assert!(serde_json::from_value::<EventPerspectiveQuery>(json!({ "room_version": "10" })).is_err());
+    }
+
+    #[test]
+    fn event_perspective_rejects_unsupported_room_version() {
+        assert!(synapse_common::is_supported_room_version("10"));
+        assert!(!synapse_common::is_supported_room_version("not-a-version"));
+
+        let err = ApiError::unsupported_room_version("Room version not-a-version is not supported by this server");
+        assert!(err.code_is(synapse_common::MatrixErrorCode::UnsupportedRoomVersion));
     }
 
     #[test]
