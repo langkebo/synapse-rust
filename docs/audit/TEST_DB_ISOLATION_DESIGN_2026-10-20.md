@@ -1,7 +1,7 @@
 # 测试库隔离：从 schema clone 换到 database clone（设计稿）
 
 - 日期：2026-10-20
-- 状态：**P0 / P1 / P2 已交付**（`1e77cbae7` 脚本、`157a911d0` 选池入口、`ee9a96b0d` 另两个入口）；P3–P4 未开始
+- 状态：**P0 / P1 / P2 / P4 已交付**（`1e77cbae7`、`157a911d0`、`ee9a96b0d`、`ae11e342c`）；仅剩 P3（CI 双跑后切默认）
 - 前置：`562a58d4e`（index 改名）、`3909daddd`（atexit 泄漏修复）、`69eeb090e`（健康守卫）
 - 实测环境：Mac mini / PostgreSQL 16.15 容器（`127.0.0.1:55432`），基线 221 张业务表 / 20 MB
 
@@ -121,8 +121,8 @@ B 的主要吸引力不只是快，而是**删掉了整块"重建后修正"的�
 | P0 ✅ | 模板库创建 + 禁连 + `CHECKPOINT`，暴露为独立脚本 | 已验收：`ensure` 幂等、`datallowconn=false`、`clone` 0.117 s / 221 表、非测试集群 exit 2 |
 | P1 ✅ | `TEST_DB_ISOLATION=database` 只接 `prepare_shared_test_pool` | 已验收：13 条 4.1 s（schema 11.9–15.3 s）、286 条 **193.6 s**（schema 421.3 s）、残留 0 |
 | P2 ✅ | 接 `acquire_pooled_schema` / `prepare_isolated_test_pool` | 已验收：41 条（`nullable_decode`/`cleanup_`/`api_one_time_invite`） database 模式 7.6 s vs schema 41.6 s，两边 41/41，残留库 0 |
-| P3 | CI 双跑一个周期（A 与 B 各一遍） | 两边全绿；B 的墙钟低于 A 的 60% |
-| P4 | 默认切 B，保留 A 一个版本 | 文档/脚本更新，回落路径有测试覆盖 |
+| P3 | CI 双跑一个周期（A 与 B 各一遍） | 两边全绿；B 的墙钟低于 A 的 60%（本地已证明 ~50%，需 CI 复现） |
+| P4 ✅ | 模板命名收敛 + 契约 SQL 共享 | 已交付 `ae11e342c`：指纹 = sha256(排序后的 migrations/*.sql + test-support/test_schema_contract.sql) 前 16 位，脚本与 crate 逐字节一致；契约 SQL 抽成共享文件，两边各用一份（`psql -f` / `include_str!`） |
 
 性能验收：286 条 `room_` 子集墙钟从 **421 s**（当前）降到 **≤ 240 s**；单条摊销
 ≤ 0.8 s。
@@ -133,5 +133,5 @@ B 的主要吸引力不只是快，而是**删掉了整块"重建后修正"的�
   但要重新引入 TRUNCATE 列表维护（现有 `truncate_and_reseed_schema` 可复用）。
 - `pg_database` 行数在多轮长跑后的 catalog 膨胀，是否也需要 `VACUUM FULL pg_database`？
 - 模板指纹变化时，旧模板库的回收策略（现在 schema 模板靠 marker 文件判定，库版本同样需要）。
-- **模板命名统一**：脚本按 baseline 的 sha256 命名，crate 内 `template_schema_fingerprint()`
-  是另一套哈希；当前靠"取最新 sealed 模板"绕开，P4 应统一为单一指纹并由脚本写入。
+- **模板命名已统一**（`ae11e342c`）：单一指纹覆盖迁移与契约 SQL，`resolve_template_database`
+  严格匹配期望名字，旧模板会以"不存在"报错而不是被静默复用。
