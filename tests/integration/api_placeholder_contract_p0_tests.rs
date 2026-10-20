@@ -448,6 +448,70 @@ async fn test_change_password_uia_rejects_dummy_auth() {
 }
 
 #[tokio::test]
+async fn test_add_threepid_requires_uia() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+
+    let username = format!("add_threepid_uia_{}", rand::random::<u32>());
+    let (token, user_id) = register_user(&app, &username).await;
+
+    let post_add = |body: Value| {
+        Request::builder()
+            .method("POST")
+            .uri("/_matrix/client/v3/account/3pid/add")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    };
+
+    // No `auth` ⇒ UIA challenge. The sid must not be consumed by the failed
+    // attempt (the gate runs before `claim_used_token`).
+    let response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), post_add(json!({ "sid": "1", "client_secret": "abc" })))
+            .await
+            .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let challenge: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(challenge["errcode"], "M_UIA_REQUIRED");
+    let stages: Vec<String> = challenge["flows"]
+        .as_array()
+        .expect("UIA response missing flows")
+        .iter()
+        .flat_map(|flow| flow["stages"].as_array().cloned().unwrap_or_default())
+        .filter_map(|stage| stage.as_str().map(str::to_string))
+        .collect();
+    assert!(stages.iter().any(|stage| stage == "m.login.password"), "flows: {stages:?}");
+    let session = challenge["session"].as_str().expect("UIA response missing session").to_string();
+
+    // Completing the password stage gets past the gate; the dummy sid then
+    // fails its own validation, which is what proves UIA was satisfied.
+    let response = ServiceExt::<Request<Body>>::oneshot(
+        app,
+        post_add(json!({
+            "auth": {
+                "type": "m.login.password",
+                "identifier": { "type": "m.id.user", "user": user_id },
+                "password": "Password123!",
+                "session": session,
+            },
+            "sid": "1",
+            "client_secret": "abc",
+        })),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_REQUEST,
+        "UIA should pass and sid validation should be the next failure"
+    );
+}
+
+#[tokio::test]
 async fn test_password_reset_email_flow_consumes_sid_after_success() {
     use synapse_storage::CreateThreepidRequest;
 

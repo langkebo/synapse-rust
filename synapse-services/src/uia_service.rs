@@ -99,6 +99,18 @@ impl UiaService {
         ]
     }
 
+    /// UIA flows accepted by the 3PID endpoints (`POST /account/3pid`,
+    /// `/account/3pid/add`, `/account/3pid/bind`).
+    ///
+    /// The `sid` proves control of the address, not of the account: without
+    /// UIA a stolen access token alone would be enough to attach a new 3PID.
+    pub fn get_add_threepid_flows() -> Vec<UiaFlow> {
+        vec![
+            UiaFlow { stages: vec!["m.login.password".to_string()] },
+            UiaFlow { stages: vec!["m.login.email.identity".to_string()] },
+        ]
+    }
+
     /// See [`get_cross_signing_flows`].
     pub fn get_cross_signing_flows() -> Vec<UiaFlow> {
         vec![
@@ -609,6 +621,13 @@ mod tests {
     fn test_get_deactivate_account_flows() {
         let flows = UiaService::get_deactivate_account_flows();
         assert!(flows.iter().any(|f| f.stages.contains(&"m.login.password".to_string())));
+    }
+
+    #[test]
+    fn test_get_add_threepid_flows() {
+        let flows = UiaService::get_add_threepid_flows();
+        assert!(flows.iter().any(|f| f.stages.contains(&"m.login.password".to_string())));
+        assert!(flows.iter().any(|f| f.stages.contains(&"m.login.email.identity".to_string())));
     }
 
     #[test]

@@ -470,15 +470,20 @@ async function refresh(base: string, refreshToken: string) {
 | 方法 | 端点 | 说明 |
 |---|---|---|
 | `GET` | `/account/3pid` | 列出已绑定标识 → `{threepids: [{medium, address, validated_ts, added_at}]}` |
-| `POST` | `/account/3pid` | 兼容入口（新增） |
-| `POST` | `/account/3pid/add` | 用 `sid` 完成新增（体：`{"sid": "...", "client_secret": "..."}`） |
-| `POST` | `/account/3pid/bind` | 绑定到当前账户 |
+| `POST` | `/account/3pid` | 兼容入口（新增，**UIA 必需**） |
+| `POST` | `/account/3pid/add` | 用 `sid` 完成新增（**UIA 必需**，体：`{"auth": {...}, "sid": "...", "client_secret": "..."}`） |
+| `POST` | `/account/3pid/bind` | 绑定到当前账户（**UIA 必需**） |
 | `POST` | `/account/3pid/delete` | 删除（推荐用 `/unbind` 语义） |
 | `POST` | `/account/3pid/unbind` | 解绑 |
 | `POST` | `/account/3pid/email/requestToken` | 发验证邮件 |
 | `POST` | `/account/3pid/email/submitToken` | 提交邮件里的 token |
 
 `medium` 取 `email`。`GET` 的 `validated_ts` 未验证时为 `0`（不是 `null`）。
+
+三个新增/绑定挂载共用同一 handler，统一经 `require_add_threepid_uia` 做 UIA，可接受
+`m.login.password` 或 `m.login.email.identity` 单阶段流。`sid` 只证明对地址的控制权、不证明
+对账户的控制权，因此不能替代 UIA。不带 `auth`（或只有 `auth.session`）→ 401 + `flows`/`session`，
+需两次往返；UIA 校验在消费 `sid` 之前，失败不会烧掉验证会话。
 
 能力门控：`capabilities.m.3pid_changes.enabled`。
 

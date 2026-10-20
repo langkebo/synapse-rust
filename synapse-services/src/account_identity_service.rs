@@ -274,6 +274,28 @@ impl AccountIdentityService {
             .await
     }
 
+    /// UIA gate for the 3PID mounts (`POST /account/3pid`,
+    /// `/account/3pid/add`, `/account/3pid/bind`).
+    pub async fn require_add_threepid_uia(
+        &self,
+        uia_service: &UiaService,
+        auth: Option<&Value>,
+        user_id: &str,
+        token_auth: &Arc<dyn TokenAuth>,
+        credential_auth: &Arc<dyn CredentialAuth>,
+    ) -> Result<(), Value> {
+        uia_service
+            .require_uia(
+                auth,
+                user_id,
+                UiaService::get_add_threepid_flows(),
+                token_auth,
+                credential_auth,
+                &*self.threepid_storage,
+            )
+            .await
+    }
+
     /// See [`get_user_threepids`].
     pub async fn get_user_threepids(&self, user_id: &str) -> Result<Vec<UserThreepid>, ApiError> {
         self.threepid_storage.get_threepids_by_user(user_id).await

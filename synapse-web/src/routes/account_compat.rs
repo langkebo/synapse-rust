@@ -654,8 +654,13 @@ pub(crate) async fn get_threepids(
 ///
 /// The `is_*` fields carry the *identity-server* session credentials, which are
 /// deliberately separate from the homeserver `sid` / `client_secret`.
+///
+/// `auth` is the UIA envelope (`m.login.*` stages stay `Value`, same rationale
+/// as [`ChangePasswordBody`]); all three mounts require it.
 #[derive(Debug, Deserialize)]
 pub(crate) struct AddThreepidBody {
+    #[serde(default)]
+    auth: Option<Value>,
     #[serde(default)]
     sid: Option<String>,
     #[serde(default)]
@@ -676,10 +681,23 @@ pub(crate) async fn add_threepid(
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<AddThreepidBody>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<axum::response::Response, ApiError> {
     let request_id = resolve_request_id(&headers);
     let user_id = &auth_user.user_id;
     let now = current_timestamp_millis();
+
+    // Spec: `/account/3pid`, `/account/3pid/add` and `/account/3pid/bind` all
+    // use User-Interactive Authentication. The `sid` only proves control of the
+    // address, so without UIA a stolen access token alone could attach a 3PID.
+    // Gated before the sid is claimed: a failed UIA attempt must not burn the
+    // verification session.
+    if let Err(uia_response) = ctx
+        .account_identity_service
+        .require_add_threepid_uia(&ctx.uia_service, body.auth.as_ref(), user_id, &ctx.token_auth, &ctx.credential_auth)
+        .await
+    {
+        return Ok((StatusCode::UNAUTHORIZED, Json(uia_response)).into_response());
+    }
 
     let sid = body.sid.as_deref().ok_or_else(|| ApiError::bad_request("Session ID (sid) is required".to_string()))?;
     let client_secret =
@@ -800,7 +818,7 @@ pub(crate) async fn add_threepid(
         }
     }
 
-    Ok(Json(json!({})))
+    Ok(Json(json!({})).into_response())
 }
 
 /// See [`request_3pid_add_email_verification`].
