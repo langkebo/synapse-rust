@@ -1,7 +1,7 @@
 # 测试库隔离：从 schema clone 换到 database clone（设计稿）
 
 - 日期：2026-10-20
-- 状态：**P0 / P1 / P2 / P4 已交付**（`1e77cbae7`、`157a911d0`、`ee9a96b0d`、`ae11e342c`）；仅剩 P3（CI 双跑后切默认）
+- 状态：**P0–P4 全部接线**（`1e77cbae7`、`157a911d0`、`ee9a96b0d`、`ae11e342c`、`2575dfa6f`）；P3 的矩阵已进 CI，**待首轮结果**再决定是否把默认切到 database
 - 前置：`562a58d4e`（index 改名）、`3909daddd`（atexit 泄漏修复）、`69eeb090e`（健康守卫）
 - 实测环境：Mac mini / PostgreSQL 16.15 容器（`127.0.0.1:55432`），基线 221 张业务表 / 20 MB
 
@@ -121,7 +121,7 @@ B 的主要吸引力不只是快，而是**删掉了整块"重建后修正"的�
 | P0 ✅ | 模板库创建 + 禁连 + `CHECKPOINT`，暴露为独立脚本 | 已验收：`ensure` 幂等、`datallowconn=false`、`clone` 0.117 s / 221 表、非测试集群 exit 2 |
 | P1 ✅ | `TEST_DB_ISOLATION=database` 只接 `prepare_shared_test_pool` | 已验收：13 条 4.1 s（schema 11.9–15.3 s）、286 条 **193.6 s**（schema 421.3 s）、残留 0 |
 | P2 ✅ | 接 `acquire_pooled_schema` / `prepare_isolated_test_pool` | 已验收：41 条（`nullable_decode`/`cleanup_`/`api_one_time_invite`） database 模式 7.6 s vs schema 41.6 s，两边 41/41，残留库 0 |
-| P3 | CI 双跑一个周期（A 与 B 各一遍） | 两边全绿；B 的墙钟低于 A 的 60%（本地已证明 ~50%，需 CI 复现） |
+| P3 🔧 | CI 双跑一个周期（A 与 B 各一遍） | 已接线 `2575dfa6f`：`integration-test` 矩阵 `schema`(90 min, 全车道) / `database`(60 min, 仅 integration)，`fail-fast: false`，database 腿额外断言残留库为 0。**待首轮 CI 结果**：两边全绿 + B 墙钟 < A 的 60% |
 | P4 ✅ | 模板命名收敛 + 契约 SQL 共享 | 已交付 `ae11e342c`：指纹 = sha256(排序后的 migrations/*.sql + test-support/test_schema_contract.sql) 前 16 位，脚本与 crate 逐字节一致；契约 SQL 抽成共享文件，两边各用一份（`psql -f` / `include_str!`） |
 
 性能验收：286 条 `room_` 子集墙钟从 **421 s**（当前）降到 **≤ 240 s**；单条摊销
