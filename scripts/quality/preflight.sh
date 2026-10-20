@@ -116,6 +116,9 @@ if [ -z "$(printf '%s\n' "$changed" | grep -E 'ROUTE_CONTRACT|ledger_annotations
 else
     echo "SKIP 本次改动了契约链文件 ⇒ 该 gate 在提交前构造性红（它把重生成的 ROUTE_CONTRACT.md 与 HEAD 比），"
     echo "     改在提交后复核（参见 docs/audit/OPTIMIZATION_EXECUTION_PLAN_2026-09-15.md §8.3 L-6）"
+    # D-5：sidecar 新鲜度不依赖 HEAD（只把源码抽取结果与已提交的 ROUTE_HANDLERS.json 比），
+    # 因此必须在这里也跑。跳过的恰好是「改了路由/ledger 注解但忘了同提交重生成」这一形态。
+    run "gen_route_handlers.py --check" python3 scripts/contract/gen_route_handlers.py --check
 fi
 
 # 文档可信度守卫：`docs/synapse-rust-vs-synapse-comparison.md` 的计数必须等于

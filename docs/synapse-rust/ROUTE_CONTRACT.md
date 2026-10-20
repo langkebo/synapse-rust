@@ -1576,7 +1576,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 1. **B-10 / B-11**：`SpamCheckQuery` 已删除。`/modules`、`/modules/logs/{module_name}`、`/modules/spam_check/sender/{sender}` 现在共用同一个 `ListQuery { limit, from }`（`deny_unknown_fields`），两条列表路由都真做 keyset 翻页。响应由裸数组改为上表对象；旧 SDK 若按数组消费需同步改。
 2. **`/spaces/{space_id}/users|rooms` 的 `from` 是裸标识符**，不是 `"{ts}|{id}"`。传 `"{ts}|{id}"` 形状会当作字面 id 参与比较（返回空页），因此**只回填 `next_batch`**。
 3. **`/users/{user_id}/media` 的 `limit`/`from` 解析沿用历史宽松行为**：`limit` 非整数回落默认 100（不 400），`from` 形态非法视为首页（不 400）。这是为兼容既有调用方刻意保留的，其余端点均为严格 400。
-4. **`GET /_synapse/admin/v1/room_stats` 不分页**：该端点返回全局概览对象（单条 `{...}`，不是列表），不接受 `from`/`limit`（契约 `query: none`）；`GET /_synapse/admin/v1/room_stats/{room_id}` 同。
+4. **`GET /_synapse/admin/v1/room_stats` 不分页**：该端点返回全局概览对象（单条 `{...}`，不是列表），不接受 `from`/`limit`（契约 `query: none`）；携带这两个参数会被**静默忽略**（仍 200，不报错、结果不变），SDK 请勿再传；`GET /_synapse/admin/v1/room_stats/{room_id}` 同。
 5. **`GET /_matrix/vendor/v1/rooms/{room_id}/message_queue` 不分页**：它是实时发送队列的**快照**（无稳定 tiebreaker），只接受 `limit`（默认 100，1..=500）；传 `from` 会因 `deny_unknown_fields` 返回 **400**，SDK 请删除该参数。
 
 ---
