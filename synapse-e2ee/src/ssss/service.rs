@@ -29,7 +29,9 @@
 
 use super::models::*;
 use super::storage::SecretStorage;
-use aes::cipher::{generic_array::GenericArray, KeyIvInit, StreamCipher};
+// cipher 0.5 用 hybrid-array：`generic_array` 不再导出，`Key`/`Iv` 就是 `Array`。
+// `Array::from([u8; N])` 是**不可失败**的转换，正好避免为"长度恒为 32/16"写错误分支。
+use aes::cipher::{Array, KeyIvInit, StreamCipher};
 use base64::engine::general_purpose::{STANDARD as BASE64, STANDARD_NO_PAD as BASE64_NO_PAD};
 use base64::Engine;
 use rand::RngCore;
@@ -335,7 +337,7 @@ fn derive_keys(key: &[u8], info: &str) -> Result<DerivedKeys, ApiError> {
 
 /// Apply AES-256-CTR (128-bit big-endian counter) to `data`.
 fn aes_ctr_apply(key: &[u8; 32], iv: &[u8; SSSS_IV_LENGTH], data: &[u8]) -> Vec<u8> {
-    let mut cipher = Aes256Ctr::new(GenericArray::from_slice(key), GenericArray::from_slice(iv));
+    let mut cipher = Aes256Ctr::new(&Array::from(*key), &Array::from(*iv));
     let mut buffer = data.to_vec();
     cipher.apply_keystream(&mut buffer);
     buffer
@@ -380,6 +382,49 @@ mod tests {
 
         assert_eq!(aes_ctr_apply(&key, &iv, &plaintext), expected.to_vec());
     }
+
+    // ── 跨版本：升级前写进库的 secret 必须还能解开 ─────────────────────
+    //
+    // `aes` / `ctr` 从 0.8/0.9 升到 0.9/0.10 会换掉整个 `cipher` 底座
+    // （`generic-array` → `hybrid-array`）。CTR 模式本身已由上面那条 NIST 向量钉住，
+    // 这条钉的是**组合层**：unpadded base64、16 字节 IV、MAC 覆盖密文而非明文。
+    // 若升级后这条红，说明存量 SSSS（跨签名密钥、密钥备份口令）全部不可读。
+
+    #[test]
+    fn secret_encrypted_before_the_upgrade_still_decrypts() {
+        let raw = [0x5au8; 32];
+        let encrypted = AesHmacSha2EncryptedData {
+            iv: LEGACY_SSSS_IV.to_string(),
+            ciphertext: LEGACY_SSSS_CIPHERTEXT.to_string(),
+            mac: LEGACY_SSSS_MAC.to_string(),
+        };
+        let plaintext =
+            SecretStorageService::decrypt_secret(&encrypted, "m.cross_signing.master", &key_description(&raw))
+                .expect("a secret written before the upgrade must still decrypt");
+        assert_eq!(plaintext, LEGACY_SSSS_PLAINTEXT);
+    }
+
+    /// 用 **当前（升级前）** 实现产出一个 `{iv,ciphertext,mac}`，一次性取常量用：
+    /// `cargo nextest run -p synapse-e2ee --lib -E 'test(emit_legacy_ssss_blob)' --run-ignored only --no-capture`
+    #[test]
+    #[ignore = "generator: prints the pre-upgrade SSSS blob"]
+    fn emit_legacy_ssss_blob() {
+        let raw = [0x5au8; 32];
+        let encrypted = SecretStorageService::encrypt_secret(
+            LEGACY_SSSS_PLAINTEXT,
+            "m.cross_signing.master",
+            &key_description(&raw),
+        )
+        .expect("encrypt");
+        println!("LEGACY_SSSS_IV={}", encrypted.iv);
+        println!("LEGACY_SSSS_CIPHERTEXT={}", encrypted.ciphertext);
+        println!("LEGACY_SSSS_MAC={}", encrypted.mac);
+    }
+
+    const LEGACY_SSSS_PLAINTEXT: &str = "legacy-secret-value-before-the-aes-upgrade";
+    const LEGACY_SSSS_IV: &str = "RHfDI3ALuA9s4yuVniAm+g";
+    const LEGACY_SSSS_CIPHERTEXT: &str = "Cp4mh2D8vv/sbhNTLWSMslt3ZHULqb92U+qDb5NOuYlt0OWTU4t8RjDr";
+    const LEGACY_SSSS_MAC: &str = "cJ62Mj+UOOeIJlUR6cyKi6hROD4vXNEqal/LgMxr+Bs";
 
     // ── IV rule ──────────────────────────────────────────────────────
 
