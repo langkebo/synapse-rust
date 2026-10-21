@@ -1,0 +1,36 @@
+# admin 面「有意不校验未知字段」的 DTO 登记表。
+#
+# 背景：`docs/audit/BACKEND_CONTRACT_SURFACE_VERIFICATION_2026-10-19.md` 的 N-1 指出
+# 「有 struct ≠ 有校验」——`#[derive(Deserialize)]` 默认**静默丢弃**未知字段，于是
+#   ① SDK 侧写错字段名时没有任何信号；
+#   ② 同一请求里外层 `deny_unknown_fields`、内层没有，等于"严格外壳 + 宽松内核"。
+#
+# 裁决（P2-C，2026-10-21）不是"admin 面一律补 deny"，而是**每条都要有显式决定**：
+#
+#   * **Body 面**（POST/PUT 的 JSON）：与外壳保持一致 —— 外壳 denial 了，内层也必须 deny。
+#     拼错字段名在 body 里代价高（配置静默不生效），这一面**默认 deny**。
+#   * **Query 面**：旧 handler 是 `Query<HashMap<String, String>>`，语义上就忽略未知参数；
+#     上游 Synapse 同样忽略。收紧会让现有 admin 工具（带 `_=`、缓存穿透参数、未来参数）
+#     直接 422 —— 属"比上游更严"，所以**保持开放**，但必须显式登记在下面这张表里，
+#     不能再靠"默认值"蒙过去。
+#
+# 判据（`routes/admin/dto_guard_tests.rs` 双向断言）：
+#   · admin 面每个 `Deserialize` struct 必须 **deny 或登记**，二者必居其一；
+#   · 登记了却已经 deny（或 struct 已删）⇒ 红，要求删掉这行。
+#
+# 格式：每行一个 struct 名，`#` 开头为注释。名字必须与 `routes/admin/**` 里的定义一致。
+
+# --- Query 面：忽略未知参数是历史语义（旧 `Query<HashMap>`），保持开放 ---
+InviteListParams
+MediaPageQuery
+MediaQuarantineChangesQuery
+GlobalMediaQuarantineChangesQuery
+PurgeMediaCacheQuery
+ReportsQuery
+RoomReportsQuery
+RoomsQuery
+RoomMembersQuery
+RoomMessagesQuery
+AdminUsersQuery
+UserRoomsQuery
+AdminUsersV2Query

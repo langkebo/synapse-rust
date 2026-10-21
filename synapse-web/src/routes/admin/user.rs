@@ -196,6 +196,7 @@ pub struct AdminUsersQuery {
 }
 
 /// Query parameters accepted by [`get_user_rooms_admin`].
+/// 有意开放未知字段：旧 handler 是 `Query<HashMap>`，忽略未知参数（P2-C 裁决）。
 #[derive(Debug, Default, Deserialize)]
 pub struct UserRoomsQuery {
     limit: Option<String>,
@@ -203,6 +204,7 @@ pub struct UserRoomsQuery {
 }
 
 /// Query parameters accepted by [`get_users_v2`].
+/// 有意开放未知字段：旧 handler 是 `Query<HashMap>`，忽略未知参数（P2-C 裁决）。
 #[derive(Debug, Default, Deserialize)]
 pub struct AdminUsersV2Query {
     limit: Option<String>,
@@ -916,6 +918,7 @@ pub struct BatchCreateUsersRequest {
 
 /// The `BatchCreateUser` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BatchCreateUser {
     /// The `username` field.
     pub username: String,

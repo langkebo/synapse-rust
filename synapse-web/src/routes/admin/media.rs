@@ -51,6 +51,7 @@ pub struct MediaPageQuery {
 ///
 /// B-27: upstream names the cursor `from`; `since` is kept as an alias for one
 /// release so existing admin tooling does not silently fall back to page one.
+/// 有意开放未知字段：旧 handler 是 `Query<HashMap>`，忽略未知参数（P2-C 裁决）。
 #[derive(Debug, Default, Deserialize)]
 pub struct MediaQuarantineChangesQuery {
     #[serde(alias = "since")]
@@ -59,12 +60,14 @@ pub struct MediaQuarantineChangesQuery {
 }
 
 /// Query parameters accepted by [`get_global_media_quarantine_changes`].
+/// 有意开放未知字段：旧 handler 是 `Query<HashMap>`，忽略未知参数（P2-C 裁决）。
 #[derive(Debug, Default, Deserialize)]
 pub struct GlobalMediaQuarantineChangesQuery {
     from: Option<String>,
 }
 
 /// Query parameters accepted by [`purge_media_cache`].
+/// 有意开放未知字段：旧 handler 是 `Query<HashMap>`，忽略未知参数（P2-C 裁决）。
 #[derive(Debug, Default, Deserialize)]
 pub struct PurgeMediaCacheQuery {
     before_ts: Option<String>,

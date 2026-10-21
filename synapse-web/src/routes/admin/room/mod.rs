@@ -137,6 +137,7 @@ pub struct RoomsQuery {
 }
 
 /// Query parameters accepted by [`get_room_members_admin`].
+/// 有意开放未知字段：旧 handler 是 `Query<HashMap>`，忽略未知参数（P2-C 裁决）。
 #[derive(Debug, Default, Deserialize)]
 pub struct RoomMembersQuery {
     limit: Option<String>,
@@ -144,6 +145,7 @@ pub struct RoomMembersQuery {
 }
 
 /// Query parameters accepted by [`get_room_messages_admin`].
+/// 有意开放未知字段：旧 handler 是 `Query<HashMap>`，忽略未知参数（P2-C 裁决）。
 #[derive(Debug, Default, Deserialize)]
 pub struct RoomMessagesQuery {
     limit: Option<String>,

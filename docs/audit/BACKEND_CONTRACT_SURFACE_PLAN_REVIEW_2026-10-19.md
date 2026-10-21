@@ -224,7 +224,108 @@ route-not-resolved:27 → SDK 侧另立票 (F9)
 
 ## 7. 复审边界
 
-- F2 的「反向债走计数棘轮」是设计建议，棘轮初值需在 P0-1a 落地时按实测数写入。
+- F2 的「反向债走计数棘轮」是设计建议，棘轮初值需在 P0-1a 落地时按实测数写入
+  （已于 §8.6 落地：`scripts/ci/check_deny_unknown_fields_ratchet.py`）。
 - v2 未重新实跑 SDK 全量门禁组合（sidecar 尚不存在，跑了也是现状）；所有「必红/必退」
   结论来自对门禁源码与政策的静态阅读（引文均在 §2 各条内）。
 - P2-C 的 51 条三分类清单未逐条列出，落地时先产分类表再动手。
+
+## 8. P2-C 裁决与落地（2026-10-21）
+
+v2 的 P2-C 写的是「N-1 的 51 条既有 struct 逐条三分类 —— **admin/vendor 面 ⇒ 补
+`deny_unknown_fields`**」。落地时按实际存量重新量了一遍，结论要改一半。
+
+### 8.1 存量（实测，不是估）
+
+`synapse-web/src` 下 `pub struct` + `Deserialize` 共 **240** 个，其中 **86** 个没有
+`deny_unknown_fields`（v2 说的"51 条"是 2026-10-19 的口径，两天里涨了）。按落在哪一面分：
+
+| 面 | 数量 | 说明 |
+|---|---|---|
+| `routes/admin/**` | **15** | 本次处理对象（13 个 Query + 2 个嵌套 Body） |
+| client / federation 面 | 66 | 协议规定"任意 JSON"或上游本就忽略未知字段 |
+| 响应/工件结构（`module.rs`、`ledger_export.rs`、`push.rs` 的 `PushRule` 等） | 18 | 服务端自己构造，deny 无意义 |
+
+**P1 状态同步更新**：B-3 已收口——全仓已无活的 `Query<HashMap>` / `Query<Value>`
+（只剩 doc 注释在讲历史），`ledger_annotations.txt` 里 204 条 `query_params` 注解，
+sidecar 的 `query: typed` 覆盖 203 条。
+
+### 8.2 裁决：不是"一律补 deny"，而是"每条都要有决定"
+
+原方案会让 admin 面比上游更严——`MediaPageQuery` 等 4 个 struct 的代码里就写着：
+
+> Deliberately **not** `deny_unknown_fields`: the handlers used to take a bare
+> `HashMap<String, String>` and ignored unknown parameters.
+
+也就是说旧 handler 的语义**就是**忽略未知参数，上游 Synapse 同样如此。收紧会让现有
+admin 工具（带 `_=` 缓存穿透、带未来参数、带前端表单多余字段）直接 **422** —— 这正是
+这几批一直在收敛的"收紧过头"形态。所以按面分开：
+
+| 面 | 裁决 | 依据 |
+|---|---|---|
+| **Body**（POST/PUT 的 JSON） | **默认 deny**，且**内层必须与外壳一致** | body 里拼错字段名 = 配置静默不生效，代价高 |
+| **Query**（GET 的查询参数） | **保持开放**，但必须逐条登记 | 旧语义=忽略，上游=忽略；收紧只带来 422 |
+
+### 8.3 本次落地
+
+**① 修 2 处"严格外壳 + 宽松内核"**（自洽性缺陷，不是政策）：
+
+| 外壳（已 deny） | 内层（原先没有） | 后果 |
+|---|---|---|
+| `ServerNoticeRequest` | `NoticeContent` | 外层承诺"未知字段会被拒绝"，实际在 content 里被静默丢弃 |
+| `BatchCreateUsersRequest` | `BatchCreateUser` | 同上：`users[]` 每一项的拼错字段无声消失 |
+
+**② 9 个静默默认的 Query 补显式说明**（0 行为变化）：`InviteListParams`、
+`MediaQuarantineChangesQuery`、`GlobalMediaQuarantineChangesQuery`、`PurgeMediaCacheQuery`、
+`RoomReportsQuery`、`RoomMembersQuery`、`RoomMessagesQuery`、`UserRoomsQuery`、
+`AdminUsersV2Query` —— 每个加一行"有意开放未知字段"的 rustdoc，理由与已写明的 4 个一致。
+
+**③ 登记表 + 双向断言**（`test-support/admin_dto_open_fields.txt` +
+`synapse-web/src/routes/admin/dto_guard_tests.rs`）：
+
+- admin 面每个 `Deserialize` struct 必须 **deny 或登记**，二者必居其一；
+- 登记了却已 deny（或 struct 已删）⇒ 红（登记过期）。
+
+**④ 变异自证**：从登记表删掉 `RoomMessagesQuery` ⇒ 红并精确报
+`src/routes/admin/room/mod.rs:150 RoomMessagesQuery — no deny_unknown_fields, not registered` ⇒ 还原后绿。
+
+### 8.4 守卫自己踩过的坑（值得记）
+
+第一版判据是"属性块里**字符串**含 `deny_unknown_fields`"。而 4 个"有意不加"的 struct
+文档里写的正是 *Deliberately **not** `deny_unknown_fields`* —— 于是它们被判成"已经加了"，
+登记表被报 4 条"过期条目"。**按文本匹配代码属性时，必须排除注释行**：现在只看 `#[` 开头的真属性。
+
+### 8.5 仍未做（与 v2 一致）
+
+- **P2-B**（B 桶 82 条请求体加 struct）：跨仓（后端加 struct + SDK pin bump），本仓单方面做没有意义；
+- **P3**（N-2 同名 handler 双实现的行为一致性）：**仍需用户裁决**——admin 面
+  `ban`/`kick`/`unban` 是否要同步 friend-DM 房间的成员状态；
+- **P5**（pin 稳定后删启发式 fallback）：后置。
+
+### 8.6 deny 覆盖率的反向棘轮（2026-10-21）
+
+§8.3 只解决"这一次补齐"。重构合文件、挪模块、删一个看似没用的属性，都会让覆盖静默
+回退而没有任何测试会红——所以补一道**只许升不许降**的计数棘轮：
+
+| 落点 | 作用 |
+|---|---|
+| `scripts/ci/check_deny_unknown_fields_ratchet.py` | 唯一实现（扫描、判红、`--update`、`--self-test`） |
+| `scripts/ci/deny_unknown_fields_baseline` | 每行 `<count> <path>`，基线值由 `--update` 写入，**本文件不手写明细** |
+| `.github/workflows/ci.yml`（Clippy-allow 之后） | 接线；缺基线/扫到 0 站点均 fail-closed |
+
+**口径**（写在脚本 docstring，不复述）：容器级 `#[serde(… deny_unknown_fields …)]`
+算 1 个站点；先剥注释与字符串（否则 §8.4 的 15 处"Deliberately **not**"会被算成已 deny）；
+只扫与其它棘轮相同的 9 个生产源码根（`tests/`、`benches/` 里的属性是夹具，不计）；
+按文件比对，**站点数下降或文件消失** ⇒ 红，上升 ⇒ 绿并提示 `--update` 收紧。
+
+**关于"68 个文件"**：2026-10-21 实测，没有任何一种口径复现 68 ——
+工作树含 token 75 文件 / tracked 74 文件 / 剥掉注释与字符串后 57 文件（含 `tests/`）/
+其中落在 9 个生产源码根的 56 文件。差异不在"取整"，而在口径本身（是否含注释、
+是否含 `tests/`、按站点还是按文件），且近 12 个提交的 tracked 文件数在 72–74 之间波动，
+从未落到 68。
+因此基线**以脚本口径跑出来的值为准**（`--update` 生成），不取任何口头数字：
+这与第三批-1 把覆盖率三口径收敛到 `route_metrics.py` 是同一条原则——度量只能有一个来源。
+
+**红证明**：删掉 `routes/admin/cleanup.rs` 唯一的那一个属性 → `178/56 → 177/55`、exit 1
+且点名该文件；还原 → exit 0。`--self-test` 另含正样本（单行/组合/跨行写法）、三个负样本
+（行注释、块注释、字符串字面量）、以及临时树端到端（删 1 个属性必翻红）。

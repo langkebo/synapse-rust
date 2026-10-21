@@ -29,6 +29,9 @@ pub mod token;
 /// The `user` module.
 pub mod user;
 
+#[cfg(test)]
+mod dto_guard_tests;
+
 use crate::routes::AppState;
 use axum::middleware;
 use axum::Router;

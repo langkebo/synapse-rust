@@ -55,6 +55,7 @@ pub struct ReportsQuery {
 }
 
 /// Query parameters accepted by [`get_room_reports`].
+/// 有意开放未知字段：旧 handler 是 `Query<HashMap>`，忽略未知参数（P2-C 裁决）。
 #[derive(Debug, Default, serde::Deserialize)]
 pub struct RoomReportsQuery {
     limit: Option<String>,

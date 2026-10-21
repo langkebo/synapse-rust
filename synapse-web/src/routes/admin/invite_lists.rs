@@ -61,6 +61,7 @@ pub async fn get_invite_allowlist_admin(
 }
 
 /// Pagination parameters for the invite blocklist/allowlist admin endpoints.
+/// 有意开放未知字段：旧 handler 是 `Query<HashMap>`，忽略未知参数（P2-C 裁决）。
 #[derive(Deserialize, Debug, Clone, Copy)]
 pub struct InviteListParams {
     /// Maximum number of rows to return. Defaults to 100.

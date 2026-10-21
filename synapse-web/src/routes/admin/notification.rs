@@ -136,6 +136,7 @@ pub struct ServerNoticeRequest {
 /// The `NoticeContent` struct.
 #[cfg(feature = "server-notifications")]
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NoticeContent {
     /// The `msgtype` field.
     pub msgtype: String,
