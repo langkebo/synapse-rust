@@ -884,3 +884,176 @@ async fn test_admin_batch_redact_succeeds_and_records_no_redaction_event() {
         );
     }
 }
+
+/// `(membership, sender)` for one user's `m.room.member` events in a room,
+/// oldest first.
+async fn admin_room_membership_events(pool: &sqlx::PgPool, room_id: &str, user_id: &str) -> Vec<(String, String)> {
+    let rows = sqlx::query(
+        "SELECT content->>'membership' AS membership, sender FROM events \
+         WHERE room_id = $1 AND event_type = 'm.room.member' AND state_key = $2 \
+         ORDER BY origin_server_ts, event_id",
+    )
+    .bind(room_id)
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+    .expect("membership events must be queryable");
+    rows.into_iter()
+        .map(|row| (row.get::<Option<String>, _>("membership").unwrap_or_default(), row.get::<String, _>("sender")))
+        .collect()
+}
+
+/// Get an admin, a room owner and a target who is actually **joined** — the
+/// precondition for the ban/kick paths.
+async fn admin_room_with_joined_target(app: &axum::Router, prefix: &str) -> (String, String, String, String) {
+    let (admin_token, admin_id) = super::get_admin_token(app).await;
+    let (owner_token, _owner_id) = admin_room_register_user(app, &format!("{prefix}_own")).await;
+    let (target_token, target_id) = admin_room_register_user(app, &format!("{prefix}_tgt")).await;
+    let room_id = admin_room_create_room(app, &owner_token, prefix).await;
+
+    let (status, body) = admin_room_call(
+        app,
+        "POST",
+        &format!("/_matrix/client/v3/rooms/{}/invite", admin_room_encode_segment(&room_id)),
+        &owner_token,
+        Some(json!({ "user_id": target_id })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "invite failed: {body}");
+
+    let (status, body) = admin_room_call(
+        app,
+        "POST",
+        &format!("/_matrix/client/v3/rooms/{}/join", admin_room_encode_segment(&room_id)),
+        &target_token,
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "join failed: {body}");
+
+    (admin_token, admin_id, room_id, target_id)
+}
+
+/// An admin ban must land an `m.room.member` event, not just a
+/// `room_memberships` row.
+///
+/// The client path (`ban_user`) creates the event, lets the event writer
+/// persist it and best-effort broadcasts it to federation peers. The admin path
+/// (`admin_ban_user_membership`) only wrote the membership row plus the friend
+/// DM — so the ban never existed from another server's or client's point of
+/// view, and a restart re-derives room state without it.
+#[tokio::test]
+async fn test_admin_ban_emits_membership_event() {
+    let Some((app, pool, _cache)) = super::setup_fresh_test_app_with_pool().await else {
+        return;
+    };
+    let (admin_token, admin_id, room_id, target_id) = admin_room_with_joined_target(&app, "evt_ban").await;
+
+    let (status, body) = admin_room_call(
+        &app,
+        "POST",
+        &format!(
+            "/_synapse/admin/v1/rooms/{}/ban/{}",
+            admin_room_encode_segment(&room_id),
+            admin_room_encode_segment(&target_id)
+        ),
+        &admin_token,
+        Some(json!({ "reason": "policy" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "admin ban failed: {body}");
+
+    let events = admin_room_membership_events(&pool, &room_id, &target_id).await;
+    let memberships: Vec<&str> = events.iter().map(|(membership, _)| membership.as_str()).collect();
+    assert_eq!(
+        memberships.last().copied(),
+        Some("ban"),
+        "admin ban must persist m.room.member(ban); actual sequence: {memberships:?}"
+    );
+    assert!(
+        events.last().expect("ban event").1.starts_with(&format!("@{admin_id}:")),
+        "the ban event must be sent by the admin who performed it, got {}",
+        events.last().expect("ban event").1
+    );
+}
+
+/// An admin unban must land `m.room.member(leave)` for the same reason: without
+/// the event, peers keep the user banned.
+#[tokio::test]
+async fn test_admin_unban_emits_membership_event() {
+    let Some((app, pool, _cache)) = super::setup_fresh_test_app_with_pool().await else {
+        return;
+    };
+    let (admin_token, admin_id, room_id, target_id) = admin_room_with_joined_target(&app, "evt_unban").await;
+    let room_segment = admin_room_encode_segment(&room_id);
+    let target_segment = admin_room_encode_segment(&target_id);
+
+    let (status, body) = admin_room_call(
+        &app,
+        "POST",
+        &format!("/_synapse/admin/v1/rooms/{room_segment}/ban/{target_segment}"),
+        &admin_token,
+        Some(json!({ "reason": "policy" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "admin ban failed: {body}");
+
+    let (status, body) = admin_room_call(
+        &app,
+        "POST",
+        &format!("/_synapse/admin/v1/rooms/{room_segment}/unban/{target_segment}"),
+        &admin_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "admin unban failed: {body}");
+
+    let events = admin_room_membership_events(&pool, &room_id, &target_id).await;
+    let memberships: Vec<&str> = events.iter().map(|(membership, _)| membership.as_str()).collect();
+    assert_eq!(
+        memberships.last().copied(),
+        Some("leave"),
+        "admin unban must persist m.room.member(leave); actual sequence: {memberships:?}"
+    );
+    assert!(
+        events.last().expect("unban event").1.starts_with(&format!("@{admin_id}:")),
+        "the unban event must be sent by the admin, got {}",
+        events.last().expect("unban event").1
+    );
+}
+
+/// An admin kick must land `m.room.member(leave)` as well.
+#[tokio::test]
+async fn test_admin_kick_emits_membership_event() {
+    let Some((app, pool, _cache)) = super::setup_fresh_test_app_with_pool().await else {
+        return;
+    };
+    let (admin_token, admin_id, room_id, target_id) = admin_room_with_joined_target(&app, "evt_kick").await;
+
+    let (status, body) = admin_room_call(
+        &app,
+        "POST",
+        &format!(
+            "/_synapse/admin/v1/rooms/{}/kick/{}",
+            admin_room_encode_segment(&room_id),
+            admin_room_encode_segment(&target_id)
+        ),
+        &admin_token,
+        Some(json!({ "reason": "spam" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "admin kick failed: {body}");
+
+    let events = admin_room_membership_events(&pool, &room_id, &target_id).await;
+    let memberships: Vec<&str> = events.iter().map(|(membership, _)| membership.as_str()).collect();
+    assert_eq!(
+        memberships.last().copied(),
+        Some("leave"),
+        "admin kick must persist m.room.member(leave); actual sequence: {memberships:?}"
+    );
+    assert!(
+        events.last().expect("kick event").1.starts_with(&format!("@{admin_id}:")),
+        "the kick event must be sent by the admin, got {}",
+        events.last().expect("kick event").1
+    );
+}

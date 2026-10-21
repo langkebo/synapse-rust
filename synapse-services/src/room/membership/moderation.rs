@@ -64,8 +64,7 @@ impl MembershipService {
             TransitionCtx::state_only(JoinRule::Invite, /* actor_is_target */ false, target_is_banned, false);
         is_legal(from, Membership::Invite, &ctx)?;
 
-        // Third-party event admission (Synapse `check_event_allowed`), consulted
-        // *before* the membership state change so a refusal leaves no residue.
+        // Admission runs before the state change so a refusal leaves no residue.
         let event_id = generate_event_id(&self.server_name);
         let mut invite_content = json!({
             "membership": "invite",
@@ -266,7 +265,8 @@ impl MembershipService {
         Ok(())
     }
 
-    /// See [`ban_user`].
+    /// See [`ban_user`]. Gates run here; persistence/event/broadcast live in
+    /// [`Self::apply_moderation_transition`], shared with the admin endpoint.
     pub async fn ban_user(&self, room_id: &str, user_id: &str, banned_by: &str, reason: Option<&str>) -> ApiResult<()> {
         if !self
             .room_storage
@@ -305,60 +305,18 @@ impl MembershipService {
         });
         let content = self.admit_membership_event(room_id, &event_id, banned_by, user_id, content, true).await?;
 
-        self.member_storage
-            .ban_member(room_id, user_id, banned_by)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to ban user", e))?;
-
-        // The ban reason belongs on the membership row as well as in the event
-        // content. Recording it here (rather than in each HTTP handler) keeps
-        // every `ban_user` caller consistent; the admin power-bypass path skips
-        // this method and writes the column itself.
-        if let Some(reason) = reason {
-            self.member_storage
-                .set_ban_reason(room_id, user_id, Some(reason))
-                .await
-                .map_err(|e| ApiError::internal_with_cause("Failed to record ban reason", e))?;
-        }
-
-        // I-01: a banned user must disappear from the room summary projection.
-        self.remove_summary_member_projection(room_id, user_id, None).await?;
-
-        let ban_event = self
-            .event_writer
-            .create_event(
-                CreateEventParams {
-                    event_id,
-                    room_id: room_id.to_string(),
-                    user_id: banned_by.to_string(),
-                    event_type: "m.room.member".to_string(),
-                    content,
-                    state_key: Some(user_id.to_string()),
-                    origin_server_ts: current_timestamp_millis(),
-                    redacts: None,
-                },
-                None,
-            )
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to record m.room.member ban event", e))?;
-
-        // Invalidate room-state cache after membership state change.
-        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
-
-        // Best-effort: sign and broadcast the ban event to federation peers.
-        if let Err(e) = self.sign_and_broadcast_event(&ban_event).await {
-            ::tracing::warn!(
-                room_id = %room_id,
-                user_id = %user_id,
-                error = %e,
-                "Failed to sign and broadcast ban event"
-            );
-        }
-
-        #[cfg(feature = "friends")]
-        self.sync_friend_dm_moderation(room_id, user_id, ModerationState::Banned, banned_by, reason).await;
-
-        Ok(())
+        self.apply_moderation_transition(
+            room_id,
+            ModerationAction {
+                target: user_id,
+                actor: banned_by,
+                transition: ModerationTransition::Ban,
+                reason,
+                content,
+                event_id,
+            },
+        )
+        .await
     }
 
     /// See [`unban_user`].
@@ -371,10 +329,8 @@ impl MembershipService {
     ) -> ApiResult<()> {
         self.room_auth.can_unban_user(room_id, unbanned_by, user_id).await?;
 
-        // State-machine precondition: unban only applies to a currently-banned
-        // user. `to = leave` is ambiguous between unban and kick, so the
-        // transition rulebook cannot enforce this on its own — the client
-        // endpoint's intent supplies the precondition.
+        // `to = leave` cannot tell unban from kick, so the endpoint's intent
+        // supplies the precondition: only a banned user can be unbanned.
         let (_from, target_is_banned) = self.resolve_membership_from(room_id, user_id).await?;
         if !target_is_banned {
             return Err(ApiError::bad_request("User is not banned from this room".to_string()));
@@ -389,51 +345,18 @@ impl MembershipService {
         });
         let content = self.admit_membership_event(room_id, &event_id, unbanned_by, user_id, content, true).await?;
 
-        self.member_storage
-            .unban_member(room_id, user_id)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to unban user", e))?;
-
-        // I-01: clear any projection row left over from before the ban.
-        self.remove_summary_member_projection(room_id, user_id, None).await?;
-
-        let unban_event = self
-            .event_writer
-            .create_event(
-                CreateEventParams {
-                    event_id,
-                    room_id: room_id.to_string(),
-                    user_id: unbanned_by.to_string(),
-                    event_type: "m.room.member".to_string(),
-                    content,
-                    state_key: Some(user_id.to_string()),
-                    origin_server_ts: current_timestamp_millis(),
-                    redacts: None,
-                },
-                None,
-            )
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to record m.room.member unban event", e))?;
-
-        // Invalidate room-state cache after membership state change.
-        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
-
-        // Best-effort: sign and broadcast the unban event to federation peers.
-        if let Err(e) = self.sign_and_broadcast_event(&unban_event).await {
-            ::tracing::warn!(
-                room_id = %room_id,
-                user_id = %user_id,
-                error = %e,
-                "Failed to sign and broadcast unban event"
-            );
-        }
-
-        // Symmetry with ban/kick: the target is now at `leave`, so the friend
-        // DM is no longer active.
-        #[cfg(feature = "friends")]
-        self.sync_friend_dm_moderation(room_id, user_id, ModerationState::Unbanned, unbanned_by, reason).await;
-
-        Ok(())
+        self.apply_moderation_transition(
+            room_id,
+            ModerationAction {
+                target: user_id,
+                actor: unbanned_by,
+                transition: ModerationTransition::Unban,
+                reason,
+                content,
+                event_id,
+            },
+        )
+        .await
     }
 
     /// See [`kick_user`].
@@ -465,10 +388,8 @@ impl MembershipService {
 
         self.room_auth.can_kick_user(room_id, kicked_by, target_user_id).await?;
 
-        // State-machine precondition: kick only applies to a user currently in
-        // the room (join / invite / knock). A banned user must be unbanned, and
-        // an absent user cannot be kicked. `to = leave` is ambiguous between
-        // kick and unban, so the client endpoint's intent supplies this.
+        // Kick only applies to join / invite / knock; a banned user must be
+        // unbanned first, and `to = leave` cannot tell kick from unban.
         let (from, _) = self.resolve_membership_from(room_id, target_user_id).await?;
         if !matches!(from, Some(Membership::Join | Membership::Invite | Membership::Knock)) {
             return Err(ApiError::bad_request("User is not currently in the room".to_string()));
@@ -483,50 +404,129 @@ impl MembershipService {
         });
         let content = self.admit_membership_event(room_id, &event_id, kicked_by, target_user_id, content, true).await?;
 
-        self.member_storage
-            .remove_member(room_id, target_user_id, None)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to kick user", e))?;
+        self.apply_moderation_transition(
+            room_id,
+            ModerationAction {
+                target: target_user_id,
+                actor: kicked_by,
+                transition: ModerationTransition::Kick,
+                reason,
+                content,
+                event_id,
+            },
+        )
+        .await
+    }
 
-        // I-01: a kicked user must disappear from the room summary projection.
-        self.remove_summary_member_projection(room_id, target_user_id, None).await?;
+    /// Persist **and** broadcast one moderation transition — the tail the client
+    /// endpoints reach after their gates and the admin endpoints reach directly.
+    /// One `m.room.member` event sent by `actor`, one counter/summary update,
+    /// one broadcast, one friend-DM sync, for both callers.
+    #[cfg_attr(not(feature = "friends"), allow(unused_variables))]
+    pub(super) async fn apply_moderation_transition(
+        &self,
+        room_id: &str,
+        action: ModerationAction<'_>,
+    ) -> ApiResult<()> {
+        let ModerationAction { target, actor, transition, reason, content, event_id } = action;
+        let was_joined = self.get_room_membership(room_id, target).await?.as_deref() == Some("join");
 
-        let kick_event = self
+        match transition {
+            ModerationTransition::Ban => {
+                self.member_storage
+                    .ban_member(room_id, target, actor)
+                    .await
+                    .map_err(|e| ApiError::internal_with_cause("Failed to ban user", e))?;
+                // `/rooms/{id}/members` reports the reason from this column.
+                if let Some(reason) = reason {
+                    self.member_storage
+                        .set_ban_reason(room_id, target, Some(reason))
+                        .await
+                        .map_err(|e| ApiError::internal_with_cause("Failed to record ban reason", e))?;
+                }
+            }
+            ModerationTransition::Unban => {
+                self.member_storage
+                    .unban_member(room_id, target)
+                    .await
+                    .map_err(|e| ApiError::internal_with_cause("Failed to unban user", e))?;
+            }
+            ModerationTransition::Kick => {
+                self.member_storage
+                    .remove_member(room_id, target, None)
+                    .await
+                    .map_err(|e| ApiError::internal_with_cause("Failed to kick user", e))?;
+            }
+        }
+
+        // Only a transition out of `join` moves the counter (unban cannot).
+        if was_joined && matches!(transition, ModerationTransition::Ban | ModerationTransition::Kick) {
+            self.decrement_member_count(room_id).await?;
+        }
+        // I-01: a banned/kicked user must leave the room summary projection.
+        self.remove_summary_member_projection(room_id, target, None).await?;
+
+        let event = self
             .event_writer
             .create_event(
                 CreateEventParams {
                     event_id,
                     room_id: room_id.to_string(),
-                    user_id: kicked_by.to_string(),
+                    user_id: actor.to_string(),
                     event_type: "m.room.member".to_string(),
                     content,
-                    state_key: Some(target_user_id.to_string()),
+                    state_key: Some(target.to_string()),
                     origin_server_ts: current_timestamp_millis(),
                     redacts: None,
                 },
                 None,
             )
             .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to record m.room.member kick event", e))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to record m.room.member moderation event", e))?;
 
         // Invalidate room-state cache after membership state change.
         let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
 
-        // Best-effort: sign and broadcast the kick event to federation peers.
-        if let Err(e) = self.sign_and_broadcast_event(&kick_event).await {
+        // Best-effort: sign and broadcast to federation peers.
+        if let Err(e) = self.sign_and_broadcast_event(&event).await {
             ::tracing::warn!(
                 room_id = %room_id,
-                target_user_id = %target_user_id,
+                target = %target,
                 error = %e,
-                "Failed to sign and broadcast kick event"
+                "Failed to sign and broadcast moderation event"
             );
         }
 
         #[cfg(feature = "friends")]
-        self.sync_friend_dm_moderation(room_id, target_user_id, ModerationState::Kicked, kicked_by, reason).await;
+        {
+            let state = match transition {
+                ModerationTransition::Ban => ModerationState::Banned,
+                ModerationTransition::Unban => ModerationState::Unbanned,
+                ModerationTransition::Kick => ModerationState::Kicked,
+            };
+            self.sync_friend_dm_moderation(room_id, target, state, actor, reason).await;
+        }
 
         Ok(())
     }
+}
+
+/// The intent behind a transition (`Unban` also stores `leave`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ModerationTransition {
+    Ban,
+    Unban,
+    Kick,
+}
+
+/// One transition's inputs — bundled so the helper keeps a small signature.
+pub(super) struct ModerationAction<'a> {
+    pub target: &'a str,
+    pub actor: &'a str,
+    pub transition: ModerationTransition,
+    pub reason: Option<&'a str>,
+    pub content: serde_json::Value,
+    pub event_id: String,
 }
 
 #[cfg(test)]

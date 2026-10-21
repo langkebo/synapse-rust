@@ -553,13 +553,10 @@ async fn ban_user_internal(
 
     ensure_room_and_active_user(ctx, room_id, user_id).await?;
 
-    let existing_membership = ctx.room_service.membership().get_room_membership(room_id, user_id).await?;
-
+    // The member counter is moved by the service's shared moderation tail (it
+    // has to know the previous membership anyway); decrementing here as well
+    // would count a single ban twice.
     ctx.room_service.membership().admin_ban_user_membership(room_id, user_id, actor_user_id, reason).await?;
-
-    if existing_membership.as_deref() == Some("join") {
-        ctx.room_service.membership().decrement_member_count(room_id).await?;
-    }
 
     Ok(json!({
         "user_id": user_id,

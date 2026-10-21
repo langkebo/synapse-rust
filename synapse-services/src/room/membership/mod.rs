@@ -23,9 +23,9 @@ use crate::common::error::{ApiError, ApiResult};
 use crate::*;
 use serde_json::json;
 
-#[cfg(feature = "friends")]
-use friend_dm_sync::ModerationState;
+use moderation::{ModerationAction, ModerationTransition};
 use service::MembershipService;
+use synapse_common::generate_event_id;
 
 impl MembershipService {
     /// See [`get_room_members`].
@@ -253,9 +253,7 @@ impl MembershipService {
 
     /// See [`admin_ban_user_membership`].
     ///
-    /// The admin path bypasses `ban_user`'s authorization gate but keeps the
-    /// same side effects: the reason is persisted on the membership row and the
-    /// transition is mirrored into the target's friend DM.
+    /// Bypasses `ban_user`'s gate but keeps every side effect, event included.
     pub async fn admin_ban_user_membership(
         &self,
         room_id: &str,
@@ -263,44 +261,44 @@ impl MembershipService {
         banned_by: &str,
         reason: Option<&str>,
     ) -> ApiResult<()> {
-        self.member_storage
-            .ban_member(room_id, user_id, banned_by)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to ban user", e))?;
-
-        if let Some(reason) = reason {
-            self.member_storage
-                .set_ban_reason(room_id, user_id, Some(reason))
-                .await
-                .map_err(|e| ApiError::internal_with_cause("Failed to record ban reason", e))?;
-        }
-
-        #[cfg(feature = "friends")]
-        self.sync_friend_dm_moderation(room_id, user_id, ModerationState::Banned, banned_by, reason).await;
-
-        Ok(())
+        let event_id = generate_event_id(&self.server_name);
+        let content = json!({ "membership": "ban", "reason": reason.unwrap_or("") });
+        self.apply_moderation_transition(
+            room_id,
+            ModerationAction {
+                target: user_id,
+                actor: banned_by,
+                transition: ModerationTransition::Ban,
+                reason,
+                content,
+                event_id,
+            },
+        )
+        .await
     }
 
     /// See [`admin_unban_user_membership`].
-    #[cfg_attr(not(feature = "friends"), allow(unused_variables))]
     pub async fn admin_unban_user_membership(&self, room_id: &str, user_id: &str, unbanned_by: &str) -> ApiResult<()> {
-        self.member_storage
-            .unban_member(room_id, user_id)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to unban user", e))?;
-
-        #[cfg(feature = "friends")]
-        self.sync_friend_dm_moderation(room_id, user_id, ModerationState::Unbanned, unbanned_by, None).await;
-
-        Ok(())
+        let event_id = generate_event_id(&self.server_name);
+        let content = json!({ "membership": "leave", "reason": "" });
+        self.apply_moderation_transition(
+            room_id,
+            ModerationAction {
+                target: user_id,
+                actor: unbanned_by,
+                transition: ModerationTransition::Unban,
+                reason: None,
+                content,
+                event_id,
+            },
+        )
+        .await
     }
 
     /// See [`admin_kick_user_membership`].
     ///
-    /// A joined member leaves through the regular `leave_room` path (state
-    /// event, summary, key rotation); any other present state is force-left.
-    /// The transition is mirrored into the target's friend DM either way.
-    #[cfg_attr(not(feature = "friends"), allow(unused_variables))]
+    /// Used to delegate to `leave_room`, which emitted the event with the
+    /// **target** as sender (a voluntary leave) and dropped the reason.
     pub async fn admin_kick_user_membership(
         &self,
         room_id: &str,
@@ -308,18 +306,20 @@ impl MembershipService {
         kicked_by: &str,
         reason: Option<&str>,
     ) -> ApiResult<()> {
-        match self.get_room_membership(room_id, user_id).await?.as_deref() {
-            Some("join") => self.leave_room(room_id, user_id).await?,
-            Some(_) => {
-                self.force_leave_membership(room_id, user_id, synapse_common::current_timestamp_millis()).await?
-            }
-            None => {}
-        }
-
-        #[cfg(feature = "friends")]
-        self.sync_friend_dm_moderation(room_id, user_id, ModerationState::Kicked, kicked_by, reason).await;
-
-        Ok(())
+        let event_id = generate_event_id(&self.server_name);
+        let content = json!({ "membership": "leave", "reason": reason.unwrap_or("") });
+        self.apply_moderation_transition(
+            room_id,
+            ModerationAction {
+                target: user_id,
+                actor: kicked_by,
+                transition: ModerationTransition::Kick,
+                reason,
+                content,
+                event_id,
+            },
+        )
+        .await
     }
 
     /// See [`set_ban_reason`].
