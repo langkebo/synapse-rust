@@ -1,10 +1,10 @@
 //! Cryptographic helpers: base64/hex codecs, HMAC, password hashing, token generation, signing keys.
 
 use crate::current_timestamp_millis;
-use argon2::{
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
-    Argon2,
-};
+// argon2 0.6 起 `password_hash::PasswordHash` 是**已弃用**的别名（真身迁到 `phc`），
+// 而 `argon2::PasswordHash` 是非弃用的 re-export；`SaltString` 已被移除
+// （password-hash 0.6 改用"自动生成盐 / 原始字节盐"）。
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use base64::{
     engine::general_purpose::{STANDARD_NO_PAD, URL_SAFE_NO_PAD},
     Engine as _,
@@ -27,11 +27,14 @@ pub fn hash_password(password: &str) -> Result<String, String> {
 
 /// hash password with config.
 pub fn hash_password_with_config(password: &str, config: &Argon2Config) -> Result<String, String> {
-    let salt = SaltString::generate(argon2::password_hash::rand_core::OsRng);
     let params = config.to_argon2_params().map_err(|e| e.to_string())?;
     let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
 
-    let password_hash = argon2.hash_password(password.as_bytes(), &salt).map_err(|e| e.to_string())?.to_string();
+    // password-hash 0.6：盐不再由调用方传入（`SaltString` 已删除）。`hash_password`
+    // 自己取 16 字节随机盐（`getrandom` feature，argon2 0.6 默认启用），
+    // 生成的 PHC 串格式与 0.5 一致 —— 这点由 KAT
+    // `password_hash_produced_before_the_upgrade_still_verifies` 反向钉住。
+    let password_hash = argon2.hash_password(password.as_bytes()).map_err(|e| e.to_string())?.to_string();
 
     Ok(password_hash)
 }

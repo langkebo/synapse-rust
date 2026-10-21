@@ -4,9 +4,7 @@ use std::env;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use argon2::password_hash::rand_core::OsRng;
-use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
-use argon2::Argon2;
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 
@@ -220,9 +218,8 @@ impl PasswordHashPool {
         let argon2 = self.argon2.clone();
 
         let result = tokio::task::spawn_blocking(move || {
-            let salt = SaltString::generate(&mut OsRng);
             argon2
-                .hash_password(password.as_bytes(), &salt)
+                .hash_password(password.as_bytes())
                 .map(|hash| hash.to_string())
                 .map_err(|e| PasswordHashError::HashFailed(e.to_string()))
         })
@@ -363,9 +360,8 @@ impl PasswordHashPool {
             metrics.total_hash_operations.inc();
 
             let result = tokio::task::spawn_blocking(move || {
-                let salt = SaltString::generate(&mut OsRng);
                 argon2
-                    .hash_password(password.as_bytes(), &salt)
+                    .hash_password(password.as_bytes())
                     .map(|hash| hash.to_string())
                     .map_err(|e| PasswordHashError::HashFailed(e.to_string()))
             })

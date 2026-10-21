@@ -19,7 +19,7 @@
 //!
 //! 两者不应同时启用。启动时会检测冲突并发出警告。
 
-use argon2::{password_hash::PasswordHash, Argon2, PasswordVerifier};
+use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use p256::elliptic_curve::sec1::ToSec1Point;
