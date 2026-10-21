@@ -380,18 +380,21 @@ impl SearchService {
         Ok(SearchResult { results, total_count, next_batch })
     }
 
-    /// 创建 PostgreSQL 全文搜索索引
-    pub async fn create_fts_index(&self) -> ApiResult<()> {
+    /// 校验 PostgreSQL 全文搜索索引（由 `migrations/` 创建，启动不再建索引）。
+    ///
+    /// 之前这里在 `events` 上 `CREATE INDEX CONCURRENTLY`，改用 `event_search`
+    /// 物化索引后那条索引无人使用，继续建只是给 `events` 的写入加放大。
+    pub async fn verify_fts_index(&self) -> ApiResult<()> {
         let event_storage = self.event_storage()?;
         event_storage
-            .create_postgres_fts_index()
+            .verify_postgres_search_index()
             .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to create FTS index", e))?;
+            .map_err(|e| ApiError::internal_with_cause("Full-text search index is not usable", e))?;
 
         ::tracing::info!(
             provider = %"postgres",
-            index_name = %"events_fts_idx",
-            "PostgreSQL FTS index created successfully"
+            index_name = %"event_search_fts_idx",
+            "PostgreSQL FTS index verified"
         );
         Ok(())
     }
@@ -1047,7 +1050,7 @@ impl SearchService {
         let event_storage = self.event_storage()?;
         let search_pattern = format!("%{}%", search_term.to_lowercase());
         let rows = event_storage
-            .search_room_messages_admin(room_id, &search_pattern, limit)
+            .search_room_messages_admin(room_id, &search_pattern, limit, None, None)
             .await
             .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
 

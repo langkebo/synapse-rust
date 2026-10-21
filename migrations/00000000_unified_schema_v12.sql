@@ -5715,3 +5715,111 @@ WHERE rs.room_id = counts.room_id
       OR rs.joined_member_count IS DISTINCT FROM counts.joined_member_count
       OR rs.invited_member_count IS DISTINCT FROM counts.invited_member_count
   );
+
+-- 2026-10-21: B-34 —— `PUT /_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}`
+-- 的 `before` / `after` 查询参数要求规则在**同类内**有可变次序。
+--
+-- 上面的 `CREATE TABLE IF NOT EXISTS push_rules` 只对**新库**生效；存量库的表已存在，
+-- `IF NOT EXISTS` 是 no-op，因此新列必须由幂等 ALTER 补上。
+-- 默认 `0` 使存量行全部落在同一次序，读路径 `ORDER BY priority ASC, rule_id ASC`
+-- 退化为改动前的 `ORDER BY rule_id ASC`：升级不改变任何可见次序。
+ALTER TABLE push_rules ADD COLUMN IF NOT EXISTS priority BIGINT NOT NULL DEFAULT 0;
+
+-- 读路径与写路径（`FOR UPDATE` 快照）都按键 `(user_id, scope, kind)` 再按 priority
+-- 取整组，故补一条覆盖索引，避免每写一条规则都回表排序整张 `push_rules`。
+CREATE INDEX IF NOT EXISTS idx_push_rules_user_scope_kind_priority
+    ON push_rules(user_id, scope, kind, priority, rule_id);
+
+-- 2026-10-21: 全文检索改为物化的 `event_search`（对齐上游 Synapse）。
+--
+-- 改动前搜索直接对 `events.content`（jsonb）求 `to_tsvector`，索引 `events_fts_idx`
+-- 用同一表达式，所以**查询走得了索引**；问题在别处：
+--   1) `to_tsvector(regconfig, jsonb)` 会把 content 里**所有**字符串值都切成词元
+--      （`msgtype` 的值 `m.text`、`format`、`url` 等），搜 "m.text" 会命中全部文本消息；
+--   2) 该索引由 `SearchService` 在**启动时** `CREATE INDEX CONCURRENTLY` 创建，不在迁移里
+--      ⇒ 测试库 / CI / 任何未走 wiring 的环境根本没有索引。实测 2026-10-21：
+--      `synapse_test.events` 上 377 个索引里没有 `events_fts_idx`。
+--
+-- `event_search` 只物化三个**语义字段**（`content.body` / `content.topic` /
+-- `content.name`），与上游 `event_search(event_id, room_id, key, vector,
+-- stream_ordering, origin_server_ts)` 同构；`key` 记住字段来源，为将来按字段搜索与
+-- 多语言（`lang` 列）留位置。
+--
+-- 写入由**触发器**维护而不是应用层：`INSERT INTO events` 在生产代码里分散在 11 处
+-- （`event/create.rs` ×3、`room/mod.rs` ×2、`federation`、`state_groups`、`retention`、
+-- `voice`、`sticky_event`、`monitoring`），应用层写必漏；触发器对测试里直接
+-- `INSERT INTO events` 同样生效。
+CREATE TABLE IF NOT EXISTS event_search (
+    event_id TEXT NOT NULL,
+    room_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    vector tsvector NOT NULL,
+    stream_ordering BIGINT NOT NULL,
+    origin_server_ts BIGINT NOT NULL,
+    CONSTRAINT pk_event_search PRIMARY KEY (event_id, key),
+    -- 删房间 / 删事件时随 `events` 一起清理，因此不需要 DELETE 触发器。
+    CONSTRAINT fk_event_search_event FOREIGN KEY (event_id) REFERENCES events(event_id) ON DELETE CASCADE
+);
+
+COMMENT ON TABLE event_search IS
+    '物化的全文检索索引；由 sync_event_search 触发器从 events 维护，只索引 content.body/topic/name';
+
+-- 一个函数服务 INSERT 与 UPDATE：先删后插天然覆盖「内容被改 / 被 redact」两种情况，
+-- 不满足条件时只剩删除，语义正确。
+CREATE OR REPLACE FUNCTION sync_event_search() RETURNS TRIGGER AS $$
+BEGIN
+    DELETE FROM event_search WHERE event_id = NEW.event_id;
+    IF NOT COALESCE(NEW.is_redacted, FALSE) AND COALESCE(NEW.stream_ordering, 0) > 0 THEN
+        INSERT INTO event_search (event_id, room_id, key, vector, stream_ordering, origin_server_ts)
+        SELECT NEW.event_id, NEW.room_id, src.field,
+               to_tsvector('english', src.value),
+               COALESCE(NEW.stream_ordering, 0), COALESCE(NEW.origin_server_ts, 0)
+        FROM (VALUES
+            ('content.body',  NEW.content->>'body'),
+            ('content.topic', NEW.content->>'topic'),
+            ('content.name',  NEW.content->>'name')
+        ) AS src(field, value)
+        WHERE src.value IS NOT NULL AND btrim(src.value) <> '';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- `WHEN` 让不相关的事件类型根本不进函数体（每次 INSERT 都进 plpgsql 是有成本的）。
+DROP TRIGGER IF EXISTS trg_event_search_insert ON events;
+CREATE TRIGGER trg_event_search_insert
+    AFTER INSERT ON events
+    FOR EACH ROW
+    WHEN (NEW.event_type IN ('m.room.message', 'm.room.name', 'm.room.topic'))
+    EXECUTE FUNCTION sync_event_search();
+
+-- UPDATE 只在这几个字段真的变了时才跑：`status` / `processed_at` 这类高频更新不触发。
+DROP TRIGGER IF EXISTS trg_event_search_update ON events;
+CREATE TRIGGER trg_event_search_update
+    AFTER UPDATE ON events
+    FOR EACH ROW
+    WHEN (OLD.content IS DISTINCT FROM NEW.content
+          OR OLD.is_redacted IS DISTINCT FROM NEW.is_redacted
+          OR OLD.event_type IS DISTINCT FROM NEW.event_type)
+    EXECUTE FUNCTION sync_event_search();
+
+CREATE INDEX IF NOT EXISTS event_search_fts_idx ON event_search USING GIN (vector);
+CREATE INDEX IF NOT EXISTS idx_event_search_room_stream ON event_search(room_id, stream_ordering);
+
+-- 存量库 backfill（新库为空，此语句是 no-op，故放在基线里也安全）：
+-- 幂等，可重复执行；大表建议在低峰期单独跑，避免长事务。
+INSERT INTO event_search (event_id, room_id, key, vector, stream_ordering, origin_server_ts)
+SELECT e.event_id, e.room_id, src.field,
+       to_tsvector('english', src.value),
+       COALESCE(e.stream_ordering, 0), COALESCE(e.origin_server_ts, 0)
+FROM events e
+CROSS JOIN LATERAL (VALUES
+    ('content.body',  e.content->>'body'),
+    ('content.topic', e.content->>'topic'),
+    ('content.name',  e.content->>'name')
+) AS src(field, value)
+WHERE e.event_type IN ('m.room.message', 'm.room.name', 'm.room.topic')
+  AND NOT COALESCE(e.is_redacted, FALSE)
+  AND COALESCE(e.stream_ordering, 0) > 0
+  AND src.value IS NOT NULL AND btrim(src.value) <> ''
+ON CONFLICT (event_id, key) DO NOTHING;

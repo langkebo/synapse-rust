@@ -12,34 +12,42 @@ impl EventStorage {
         room_id: &str,
         search_pattern: &str,
         limit: i64,
+        start_ts: Option<i64>,
+        end_ts: Option<i64>,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        // 五列都来自 `events` 的 NOT NULL 列 ⇒ 宏给 `String` / `Value` / `i64`，
-        // 不再需要运行期 `row.get`（也就不再需要 `use sqlx::Row;`）。
-        let rows = sqlx::query!(
+        // 运行时 `query_as` 而非 `query!`：2026-10-21 新增 `start_ts` / `end_ts` 可选时间窗
+        // （管理端 `start_date` / `end_date` 此前被 `deny_unknown_fields` 接受却从未生效），
+        // 宏查询需要同步 `.sqlx` 离线缓存（本机 `SQLX_OFFLINE=true`），故改为运行时绑定。
+        // `$4::bigint IS NULL` 让未传时间窗时谓词恒真，保持原有行为不变。
+        let rows = sqlx::query_as::<_, (String, String, String, serde_json::Value, i64)>(
             r#"
             SELECT event_id, event_type, sender, content, origin_server_ts
             FROM events
             WHERE room_id = $1 AND event_type = 'm.room.message' AND LOWER(content::text) LIKE $2
               AND is_redacted = false AND soft_failed = FALSE
+              AND ($4::bigint IS NULL OR origin_server_ts >= $4)
+              AND ($5::bigint IS NULL OR origin_server_ts <= $5)
             ORDER BY origin_server_ts DESC
             LIMIT $3
             "#,
-            room_id,
-            search_pattern,
-            limit
         )
+        .bind(room_id)
+        .bind(search_pattern)
+        .bind(limit)
+        .bind(start_ts)
+        .bind(end_ts)
         .fetch_all(&*self.pool)
         .await?;
 
         Ok(rows
             .into_iter()
-            .map(|r| {
+            .map(|(event_id, event_type, sender, content, origin_server_ts)| {
                 serde_json::json!({
-                    "event_id": r.event_id,
-                    "type": r.event_type,
-                    "sender": r.sender,
-                    "content": r.content,
-                    "origin_server_ts": r.origin_server_ts
+                    "event_id": event_id,
+                    "type": event_type,
+                    "sender": sender,
+                    "content": content,
+                    "origin_server_ts": origin_server_ts
                 })
             })
             .collect())
@@ -167,10 +175,11 @@ impl EventStorage {
         if let (Some(rank), Some(origin_server_ts), Some(event_id)) =
             (rank_cursor, origin_server_ts_cursor, event_id_cursor)
         {
-            // R6 ⑤：`query_as!` 不能构造元组 ⇒ 用 `query!` 按字段读再组装。
-            // `ts_rank(...)::float8` 是无关系来源的函数调用 ⇒ Describe 推可空，
-            // 但 `ts_rank` 恒返回非 NULL 的 float ⇒ 按 R4 断言 `AS "rank!"`。
-            let rows = sqlx::query!(
+            // 运行时 `query_as` 而非 `query!`：`event_search` 的 JOIN 是 2026-10-21 才
+            // 引入的，宏查询需要同步 `.sqlx` 离线缓存（本机 `SQLX_OFFLINE=true`），
+            // 而元组行本身就是 `query!` 的变通写法；改用元组 `FromRow` 后直接拿到
+            // `(.., rank: f64)`，不必逐字段断言可空性。
+            let rows = sqlx::query_as::<_, (String, String, String, String, serde_json::Value, i64, f64)>(
                 r#"
                 SELECT
                     e.event_id,
@@ -179,51 +188,52 @@ impl EventStorage {
                     e.event_type,
                     e.content,
                     e.origin_server_ts,
-                    ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2))::float8 as "rank!"
+                    ts_rank(es.vector, plainto_tsquery('english', $2))::float8 as "rank!"
                 FROM events e
                 INNER JOIN room_memberships rm ON e.room_id = rm.room_id AND rm.user_id = $1 AND rm.membership = 'join'
+                -- `key = 'content.body'` 而不是只 join event_id：event_search 每个事件最多
+                -- 三行（body/topic/name），这里的 WHERE 已限定 m.room.message，取 body 行
+                -- 既避免笛卡尔重复，也让 GIN 只扫一个 key。
+                INNER JOIN event_search es ON es.event_id = e.event_id AND es.key = 'content.body'
                 WHERE e.event_type = 'm.room.message'
                     AND e.stream_ordering > 0
                     AND e.soft_failed = FALSE
-                    AND to_tsvector('english', e.content) @@ plainto_tsquery('english', $2)
+                    AND es.vector @@ plainto_tsquery('english', $2)
                     -- `$3::float8` 是**必须**的：`ts_rank(...)` 的返回类型是 `real`，若直接与
                     -- `$3` 比较，PG 会把参数定型成 `real`，宏因此要求 `f32`，而本方法的游标参数
                     -- （以及上面 `::float8 as "rank!"` 的输出）都是 `f64`（D-74 同族：动态路径靠隐式
                     -- 放宽，宏把参数定型暴露出来）。显式转 `float8` 既保持 API 与精度，也让比较在同一
                     -- 精度域里进行。
                     AND (
-                        ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) < $3::float8
+                        ts_rank(es.vector, plainto_tsquery('english', $2)) < $3::float8
                         OR (
-                            ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) = $3::float8
+                            ts_rank(es.vector, plainto_tsquery('english', $2)) = $3::float8
                             AND e.origin_server_ts < $4
                         )
                         OR (
-                            ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) = $3::float8
+                            ts_rank(es.vector, plainto_tsquery('english', $2)) = $3::float8
                             AND e.origin_server_ts = $4
                             AND e.event_id < $5
                         )
                     )
                 -- R6 的陷阱：断言别名 `rank!` 是**真列名**，`ORDER BY rank` 会解析不到 ⇒ 重复表达式。
-                ORDER BY ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) DESC,
+                ORDER BY ts_rank(es.vector, plainto_tsquery('english', $2)) DESC,
                          e.origin_server_ts DESC, e.event_id DESC
                 LIMIT $6
                 "#,
-                user_id,
-                query,
-                rank,
-                origin_server_ts,
-                event_id,
-                limit
             )
+            .bind(user_id)
+            .bind(query)
+            .bind(rank)
+            .bind(origin_server_ts)
+            .bind(event_id)
+            .bind(limit)
             .fetch_all(&*self.pool)
             .await?;
 
-            Ok(rows
-                .into_iter()
-                .map(|r| (r.event_id, r.room_id, r.sender, r.event_type, r.content, r.origin_server_ts, r.rank))
-                .collect())
+            Ok(rows)
         } else {
-            let rows = sqlx::query!(
+            let rows = sqlx::query_as::<_, (String, String, String, String, serde_json::Value, i64, f64)>(
                 r#"
                 SELECT
                     e.event_id,
@@ -232,101 +242,72 @@ impl EventStorage {
                     e.event_type,
                     e.content,
                     e.origin_server_ts,
-                    ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2))::float8 as "rank!"
+                    ts_rank(es.vector, plainto_tsquery('english', $2))::float8 as "rank!"
                 FROM events e
                 INNER JOIN room_memberships rm ON e.room_id = rm.room_id AND rm.user_id = $1 AND rm.membership = 'join'
+                -- `key = 'content.body'` 而不是只 join event_id：event_search 每个事件最多
+                -- 三行（body/topic/name），这里的 WHERE 已限定 m.room.message，取 body 行
+                -- 既避免笛卡尔重复，也让 GIN 只扫一个 key。
+                INNER JOIN event_search es ON es.event_id = e.event_id AND es.key = 'content.body'
                 WHERE e.event_type = 'm.room.message'
                     AND e.stream_ordering > 0
                     AND e.soft_failed = FALSE
-                    AND to_tsvector('english', e.content) @@ plainto_tsquery('english', $2)
-                ORDER BY ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) DESC,
+                    AND es.vector @@ plainto_tsquery('english', $2)
+                ORDER BY ts_rank(es.vector, plainto_tsquery('english', $2)) DESC,
                          e.origin_server_ts DESC, e.event_id DESC
                 LIMIT $3
                 "#,
-                user_id,
-                query,
-                limit
             )
+            .bind(user_id)
+            .bind(query)
+            .bind(limit)
             .fetch_all(&*self.pool)
             .await?;
 
-            Ok(rows
-                .into_iter()
-                .map(|r| (r.event_id, r.room_id, r.sender, r.event_type, r.content, r.origin_server_ts, r.rank))
-                .collect())
+            Ok(rows)
         }
     }
 
-    /// Create the PostgreSQL FTS index on `events` if it is missing.
+    /// Verify that the full-text index used by search exists and is valid.
     ///
-    /// `CONCURRENTLY` as of 2026-09-19: this is called from `SearchService`
-    /// during wiring/startup (`synapse-services/src/wiring/core.rs`) and `events`
-    /// is the hot table. A plain `CREATE INDEX` holds a write lock for the whole
-    /// build, so the first startup against a large existing database blocks
-    /// every write to `events` until it finishes. `CONCURRENTLY` builds without
-    /// blocking writes.
+    /// The index is created by the schema migration (`event_search_fts_idx` on
+    /// `event_search`), **not** at startup. It used to be a startup
+    /// `CREATE INDEX CONCURRENTLY ... ON events (to_tsvector('english', content))`,
+    /// which had two problems: it added write amplification to `events` for an
+    /// index that no query uses any more, and it never ran in test/CI databases
+    /// (measured 2026-10-21: `synapse_test.events` had 377 indexes and none of
+    /// them was `events_fts_idx`).
     ///
-    /// The trade-off is that a concurrent build which fails leaves an **INVALID**
-    /// index behind, and `IF NOT EXISTS` then skips it forever — search would
-    /// stay unindexed while startup reported success. So this checks
-    /// `pg_index.indisvalid` and returns an explicit error naming the remedy
-    /// instead of trusting "the statement did not error".
-    ///
-    /// sqlx runs a bare `execute` in autocommit, which is what `CONCURRENTLY`
-    /// requires (it cannot run inside a transaction block).
-    pub async fn create_postgres_fts_index(&self) -> Result<(), sqlx::Error> {
-        // Checked BEFORE the create: with an invalid leftover of the same name,
-        // `IF NOT EXISTS` skips the build (or PostgreSQL rejects it), and either
-        // way startup would otherwise look successful while search stays
-        // unindexed.
-        self.fail_if_fts_index_invalid().await?;
-
-        // R6 ④：DDL 可以宏化（`describe.columns == []`，`query!` 只给 `.execute()`）；
-        // `CONCURRENTLY` 仍走 autocommit（宏不改变执行方式）。
-        sqlx::query!(
-            r#"
-            CREATE INDEX CONCURRENTLY IF NOT EXISTS events_fts_idx
-            ON events
-            USING GIN (to_tsvector('english', content))
-            WHERE event_type = 'm.room.message' AND stream_ordering > 0
-            "#,
-        )
-        .execute(&*self.pool)
-        .await?;
-
-        // And again after: a build that reports no error but leaves the index
-        // invalid must not be treated as success either.
-        self.fail_if_fts_index_invalid().await
-    }
-
-    /// Error out when `events_fts_idx` exists but is not valid.
-    ///
-    /// PostgreSQL leaves such an index behind when a `CONCURRENTLY` build fails
-    /// (the classic cause is a duplicate value during a concurrent UNIQUE
-    /// build). `IF NOT EXISTS` will then skip the name forever, so the only
-    /// recovery is an explicit `DROP INDEX CONCURRENTLY` — which the message
-    /// spells out.
-    async fn fail_if_fts_index_invalid(&self) -> Result<(), sqlx::Error> {
-        // `to_regclass` resolves the name through the session `search_path`, i.e.
-        // it names the index this connection would actually use. Matching on
-        // `pg_class.relname` alone is wrong: `pg_class` is database-wide, so an
-        // unrelated index with the same name in another schema (e.g. a leftover
-        // `public.events_fts_idx`) would satisfy the check. Measured 2026-09-19:
-        // that made the first version of this guard look at the wrong index.
-        let invalid: Option<String> = sqlx::query_scalar!(
-            r#"SELECT c.relname FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid
-               WHERE i.indexrelid = to_regclass('events_fts_idx') AND NOT i.indisvalid"#,
+    /// What startup still owns is the failure mode: a `CONCURRENTLY` build that
+    /// dies leaves an INVALID index behind, and `IF NOT EXISTS` then skips that
+    /// name forever — every search silently degrades to a sequential scan. So this
+    /// reports a missing or invalid index instead of trusting "the migration ran".
+    pub async fn verify_postgres_search_index(&self) -> Result<(), sqlx::Error> {
+        // Bind the index to the `event_search` table **this connection resolves**,
+        // not to a bare name: `to_regclass('event_search_fts_idx')` resolves
+        // through `search_path` and can land on a same-named index in another
+        // schema (measured 2026-10-21: an isolated test schema whose index was
+        // dropped still looked healthy because `public` had one). Matching on
+        // `pg_class.relname` alone is worse still — `pg_class` is database-wide.
+        let state: Option<(String, bool)> = sqlx::query_as(
+            "SELECT c.relname, i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid \
+             WHERE i.indrelid = to_regclass('event_search') AND c.relname = 'event_search_fts_idx'",
         )
         .fetch_optional(&*self.pool)
         .await?;
-        if let Some(name) = invalid {
-            return Err(sqlx::Error::Protocol(format!(
+        match state {
+            Some((_, true)) => Ok(()),
+            Some((name, false)) => Err(sqlx::Error::Protocol(format!(
                 "index {name} exists but is INVALID: a concurrent build did not finish. \
-                 Drop it with `DROP INDEX CONCURRENTLY {name}` and retry — `IF NOT EXISTS` \
-                 would otherwise skip it forever and full-text search stays unindexed."
-            )));
+                 Drop it with `DROP INDEX CONCURRENTLY {name}` and retry — search would \
+                 otherwise silently fall back to a sequential scan."
+            ))),
+            None => Err(sqlx::Error::Protocol(
+                "index event_search_fts_idx is missing: the schema migration that creates \
+                 `event_search` has not been applied to this database."
+                    .to_string(),
+            )),
         }
-        Ok(())
     }
 
     /// Room-scoped postgres full-text search.
@@ -338,29 +319,31 @@ impl EventStorage {
         search_term: &str,
         limit: i64,
     ) -> Result<Vec<RoomEvent>, sqlx::Error> {
-        // R4 ①：`COALESCE(…)` 无关系来源、Describe 不透传 NOT NULL，而第二个实参保证结果永不为
-        // NULL ⇒ 逐列断言。R6：`query_as!` **不认** `#[sqlx(rename = "processed_at")]`，
-        // 必须按**真实字段名** `processed_ts` 起别名（否则 E0560/E0063）。
-        let events = sqlx::query_as!(
-            RoomEvent,
+        // 运行时 `query_as`：理由同 `search_postgres_messages`（`event_search` 是新的
+        // 物理结构，宏查询需要 `.sqlx` 离线缓存）。别名必须按 `RoomEvent` 的
+        // `#[sqlx(rename)]` 起名（`processed_at`），运行时 `FromRow` 认 rename，
+        // 与 `query_as!` 的行为相反。
+        let events = sqlx::query_as::<_, RoomEvent>(
             r#"
-            SELECT event_id, room_id, COALESCE(user_id, sender) AS "user_id!", event_type, content, state_key,
-                   COALESCE(depth, 0) AS "depth!", COALESCE(origin_server_ts, 0) AS "origin_server_ts!",
-                   COALESCE(origin_server_ts, 0) AS "processed_ts!",
-                   COALESCE(not_before, 0) AS "not_before!", status, COALESCE(origin, 'self') AS "origin!",
-                   stream_ordering, redacts, unsigned
-            FROM events
-            WHERE room_id = $1
-              AND event_type = 'm.room.message'
-              AND soft_failed = FALSE
-              AND to_tsvector('english', content) @@ plainto_tsquery('english', $2)
-            ORDER BY origin_server_ts DESC
+            SELECT e.event_id, e.room_id, COALESCE(e.user_id, e.sender) AS user_id, e.event_type, e.content,
+                   e.state_key, COALESCE(e.depth, 0) AS depth,
+                   COALESCE(e.origin_server_ts, 0) AS origin_server_ts,
+                   COALESCE(e.origin_server_ts, 0) AS processed_at,
+                   COALESCE(e.not_before, 0) AS not_before, e.status, COALESCE(e.origin, 'self') AS origin,
+                   e.stream_ordering, e.redacts, e.unsigned
+            FROM events e
+            INNER JOIN event_search es ON es.event_id = e.event_id AND es.key = 'content.body'
+            WHERE e.room_id = $1
+              AND e.event_type = 'm.room.message'
+              AND e.soft_failed = FALSE
+              AND es.vector @@ plainto_tsquery('english', $2)
+            ORDER BY e.origin_server_ts DESC
             LIMIT $3
             "#,
-            room_id,
-            search_term,
-            limit
         )
+        .bind(room_id)
+        .bind(search_term)
+        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
         Ok(events)

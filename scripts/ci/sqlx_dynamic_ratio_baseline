@@ -3394,7 +3394,34 @@ BASELINE_QUERY_BUILDER=17
 #   为什么不能写成静态宏：本机无 PG（`SQLX_OFFLINE=true`），新 SQL 文本没有 `.sqlx`
 #   缓存条目；且方向必须拆成两条文本 —— `CASE WHEN $n` 排序会破坏索引可用性。
 #   与 `sqlx_literal_production_baseline` 同批登记（`thread/storage.rs` 1 → 4）。
-BASELINE_DYNAMIC_PRODUCTION=122
+# ── 2026-10-21 B-34 / FTS 收尾（本项 122 → **131**；+9 处）────────────────────
+#   ① +5 `synapse-storage/src/push/mod.rs`：B-34 让 push rules 的 `before` / `after`
+#      排序参数真正生效（此前被静默忽略）。写路径需要「先取同 (user, scope) 下的
+#      priority 序列 → 定位插入点 → 整体重编号」，三步都必须在同一事务里完成：
+#        · `SELECT rule_id, priority … WHERE user_id/scope/kind = … FOR UPDATE`
+#        · `INSERT … ON CONFLICT (…) DO UPDATE`（带上 priority）
+#        · `UPDATE push_rules … FROM unnest($4::text[]) WITH ORDINALITY`（一次重编号）
+#      读路径两处 `query_as::<_, PushRuleRow / PushRuleScopedRow>` 改为显式列 + 按
+#      `(priority, rule_id)` 排序（原来靠隐式顺序，等于把插入位置丢掉）。
+#   ② +4 `synapse-storage/src/event/search.rs`：`event_search` 物化 FTS 改造。
+#      3 处检索查询从 `query_as!` 改为运行时 `query_as`（列集合在游标/非游标两条
+#      分支里不同，宏无法复用同一缓存条目）；另 +1 `verify_postgres_search_index()`
+#      （`to_regclass` + `pg_index.indisvalid`，启动时校验索引是否半建）。
+#   为什么不能写成静态宏：本机无 PG（`SQLX_OFFLINE=true`），上述新 SQL 文本
+#   （`FOR UPDATE` 行锁 / `unnest … WITH ORDINALITY` / `to_regclass` 校验）在
+#   `.sqlx` 缓存里没有对应条目。与 `sqlx_literal_production_baseline` 同批登记
+#   （`push/mod.rs` 1 → 6、`event/search.rs` 0 → 4）。**收紧方向**：接入 CI PG 后
+#   把可固定文本的几条改回 `query_as!`（`FOR UPDATE` 与 `unnest` 需先验证缓存生成）
+#   并同步下调本项。
+# 2026-10-21: 131 → **132**（+1，同类缺口修复：`search_room_messages_admin` 时间窗）。
+#   管理端 `POST /_synapse/admin/v1/rooms/{room_id}/search` 的 `start_date` / `end_date`
+#   （`SearchRoomMessagesRequest` 带 `deny_unknown_fields`，即对外正式接受）此前**只解析
+#   不生效**。落地需要把 `origin_server_ts` 上下界写进 WHERE，SQL 文本随之改变 ⇒ 宏的
+#   `.sqlx` 条目必须重生成（本机 `SQLX_OFFLINE=true` 无 PG），故改运行时 `query_as`
+#   并同步 `.sqlx` 删除旧条目（1331 → 1330）。同一处同时计入本项与
+#   `sqlx_literal_production_baseline`（`event/search.rs` 4 → 5）。
+#   **收紧方向**：接入 CI PG 后改回 `query_as!`，本项 −1、静态 +1。
+BASELINE_DYNAMIC_PRODUCTION=132
 # 2026-10-15: 769 → 768（按实测收紧；棘轮是**上限**，留着 1 个空位等于允许一次静默回归）。
 #   本批（方案 B4.3）只新增了**静态**查询，这一项是复核实测时发现的既有余量。
 # 2026-10-16: 768 → **769**（+1，B1/UG-5 lazy-load 位置列）。
@@ -3418,7 +3445,16 @@ BASELINE_DYNAMIC_PRODUCTION=122
 #   （默认 target 集），而 `--all-targets` 会 E0432（本文件上方 2026-09-22 条目已实测），
 #   全仓 `static_test = 0` 正是这条约束的一致结果。
 #   按"零余量"收紧到实测值：留 1 点余量等于允许一次静默回归。
-BASELINE_DYNAMIC_TEST_INFRA=768
+# 2026-10-21: 768 → **770**（+2，FTS 索引校验的 `#[cfg(test)]` 夹具）。
+#   来源：`synapse-storage/src/event/db_tests.rs` 把
+#   `test_create_postgres_fts_index_idempotent` 改为
+#   `test_verify_postgres_search_index_passes_on_migrated_schema` 后，要造两种状态：
+#   ① `DROP INDEX event_search_fts_idx`（缺索引）；
+#   ② `CREATE UNIQUE INDEX CONCURRENTLY event_search_fts_idx ON fts_invalid_probe (a)`
+#      （CONCURRENTLY 半建后 `indisvalid = false` 的真实形态）。
+#   为什么不能改静态宏：`#[cfg(test)]` 内的 `query!` 不进 `cargo sqlx prepare`
+#   （默认 target 集），`--all-targets` 会 E0432 —— 同上一条。
+BASELINE_DYNAMIC_TEST_INFRA=770
 # 2026-10-15: 1353 → 1354（+1，方案 B4.3）。新增
 #   `synapse-storage/src/schema_health_check.rs` 的 `check_invalid_indexes()` —— 它让
 #   **半建索引**（`pg_index.indisvalid = false`）可见；此前只查"缺表/缺列/缺索引名"，
@@ -3454,13 +3490,34 @@ BASELINE_DYNAMIC_TEST_INFRA=768
 #      `get_prev_state_events`（1 条）。**这是有意的删除**，不是"静态换动态"，
 #      所以按"只禁减"的规则必须同步下调基线并写明来源（先例：C55-0 的 1303 → 1301）。
 #   最终 1367 + 8 + 2 − 4 = 1373 = 实测值，零余量。
-BASELINE_STATIC=1376
-# 兼容旧接口：总数 = 生产 + 测试基础设施（122 + 768 = 890；本项不入棘轮，仅保持一致）
+# 2026-10-21: 1376 → **1368**（−8，宏改运行时；**不是** "静态换动态" 的静默回归，
+#   已按下述逐处登记并可复核）。
+#   ① −5 `synapse-storage/src/event/search.rs`：`event_search` 物化 FTS 改造后，
+#      检索列集合随「有/无游标」两条分支不同，且新增 `to_regclass`/`indisvalid`
+#      校验 —— 宏需要各自独立的 `.sqlx` 条目，本机无 PG 无法生成，故改运行时
+#      `query_as`/`query`（对应 `BASELINE_DYNAMIC_PRODUCTION` 的 +4）。
+#   ② −3 `synapse-storage/src/push/mod.rs`：B-34 的 priority 写路径需要
+#      `FOR UPDATE` 行锁与 `unnest … WITH ORDINALITY` 重编号，宏无法覆盖，改运行时
+#      静态文本（对应 `BASELINE_DYNAMIC_PRODUCTION` 的 +5，其中 2 处是读路径）。
+#   **收缩方向**：接入 CI PG 并 `cargo sqlx prepare` 后逐步改回宏，本项与
+#   `BASELINE_DYNAMIC_PRODUCTION` 同步回升。
+# 2026-10-21: 1368 → **1367**（−1，同一处宏改运行时，**不是**静默回归）。
+#   `synapse-storage/src/event/search.rs::search_room_messages_admin` 支持
+#   `start_ts` / `end_ts` 时间窗（管理端 `start_date` / `end_date` 此前只解析不生效），
+#   SQL 文本变化导致 `.sqlx` 离线条目失效 ⇒ 改运行时 `query_as` 并从 `.sqlx` 删除旧条目。
+#   与本文件 `BASELINE_DYNAMIC_PRODUCTION` 的 +1 为同一次改动（一减一增），
+#   逐处登记见 `sqlx_literal_production_baseline`（`event/search.rs` 4 → 5）。
+BASELINE_STATIC=1367
+# 兼容旧接口：总数 = 生产 + 测试基础设施（132 + 770 = 902；本项不入棘轮，仅保持一致）
 # 2026-10-21: 883 → 884，随 `BASELINE_DYNAMIC_PRODUCTION` 的 +1（`get_space_visibility_batch`）同步。
 # 2026-10-21: 884 → 887，随 `BASELINE_DYNAMIC_PRODUCTION` 的 +3（`get_rooms_batch` 与两条
 #   media 隔离批量写）同步。
 # 2026-10-21: 887 → 890，随 `BASELINE_DYNAMIC_PRODUCTION` 的 +3（P0-2 `/replies` 下推）同步。
-BASELINE_DYNAMIC=890
+# 2026-10-21: 890 → **901**，随 `BASELINE_DYNAMIC_PRODUCTION` 的 +9（B-34 priority +5、
+#   FTS 改造 +4）与 `BASELINE_DYNAMIC_TEST_INFRA` 的 +2（FTS 校验夹具）同步。
+# 2026-10-21: 901 → **902**，随 `BASELINE_DYNAMIC_PRODUCTION` 的 +1
+#   （`search_room_messages_admin` 时间窗，132 + 770 = 902）同步。
+BASELINE_DYNAMIC=902
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

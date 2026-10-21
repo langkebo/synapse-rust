@@ -1920,10 +1920,59 @@ async fn test_search_room_messages_admin_matches() {
 
     let pattern = format!("%{}%", needle.to_lowercase());
     let results = storage
-        .search_room_messages_admin(&room_id, &pattern, 10)
+        .search_room_messages_admin(&room_id, &pattern, 10, None, None)
         .await
         .expect("search_room_messages_admin should succeed");
     assert!(!results.is_empty());
+
+    let _ = storage.delete_room_events(&room_id).await;
+}
+
+/// `start_date` / `end_date`（管理端 `POST …/rooms/{room_id}/search`）此前被
+/// `deny_unknown_fields` 接受却从未参与查询；本测试锁定时间窗真的生效。
+#[tokio::test]
+async fn test_search_room_messages_admin_date_window() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+    let room_id = format!("!adminsearchwin_{}:example.com", uuid::Uuid::new_v4());
+    let user_id = "@adminsearchwin:example.com";
+    let needle = format!("windowneedle_{}", uuid::Uuid::new_v4());
+
+    ensure_test_room(&pool, &room_id).await;
+    ensure_test_user(&pool, user_id).await;
+
+    let base = current_timestamp_millis() - 10_000;
+    for offset in [0_i64, 1_000, 2_000] {
+        let params = CreateEventParams {
+            event_id: format!("$asw_{}_{}:example.com", offset, uuid::Uuid::new_v4()),
+            room_id: room_id.clone(),
+            user_id: user_id.to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({"body": needle.clone()}),
+            state_key: None,
+            origin_server_ts: base + offset,
+            redacts: None,
+        };
+        storage.create_event(params, None).await.unwrap();
+    }
+
+    let pattern = format!("%{}%", needle.to_lowercase());
+
+    let unbounded =
+        storage.search_room_messages_admin(&room_id, &pattern, 10, None, None).await.expect("unbounded search");
+    assert_eq!(unbounded.len(), 3, "未传时间窗时必须返回全部命中");
+
+    let windowed = storage
+        .search_room_messages_admin(&room_id, &pattern, 10, Some(base + 1_000), Some(base + 2_000))
+        .await
+        .expect("windowed search");
+    assert_eq!(windowed.len(), 2, "start_date / end_date 必须按 origin_server_ts 过滤");
+
+    let before_window = storage
+        .search_room_messages_admin(&room_id, &pattern, 10, None, Some(base - 1))
+        .await
+        .expect("end-only search");
+    assert!(before_window.is_empty(), "end_date 早于全部事件时必须过滤掉全部命中");
 
     let _ = storage.delete_room_events(&room_id).await;
 }
@@ -2060,62 +2109,6 @@ async fn test_search_room_postgres_messages_matches() {
     assert!(results.iter().any(|e| e.event_type == "m.room.message"));
 
     let _ = storage.delete_room_events(&room_id).await;
-}
-
-#[tokio::test]
-async fn test_create_postgres_fts_index_idempotent() {
-    let (_isolated, pool) = test_pool().await;
-    let storage = EventStorage::new(&pool, test_server_name());
-    // Creating the FTS index twice should not error (idempotent).
-    storage.create_postgres_fts_index().await.expect("create_postgres_fts_index first call should succeed");
-    storage.create_postgres_fts_index().await.expect("create_postgres_fts_index second call should succeed");
-}
-
-/// A `CONCURRENTLY` build that fails leaves an **INVALID** index behind, and
-/// `IF NOT EXISTS` then skips that name forever — so `create_postgres_fts_index`
-/// must not report success in that state.
-///
-/// The INVALID state is reproduced the way PostgreSQL actually produces it: a
-/// concurrent UNIQUE build over a table with duplicate rows fails and keeps the
-/// index. This runs on a **per-test isolated schema** (not the shared
-/// `test_pool()`), because the leftover index would otherwise outlive the test
-/// and break `test_create_postgres_fts_index_idempotent`, which shares that
-/// schema.
-#[tokio::test]
-async fn test_create_postgres_fts_index_reports_invalid_leftover() {
-    let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated pool");
-    let pool = isolated.pool();
-    let storage = EventStorage::new(&pool, test_server_name());
-
-    // Two duplicate rows in one statement, via CTAS: an `INSERT INTO <scratch>`
-    // would also register the throwaway table name with
-    // `scripts/check_schema_table_coverage.py`, which scans SQL literals for
-    // table references and (correctly) expects them to exist in migrations.
-    // `CREATE TABLE … AS SELECT` references nothing, so the gate stays quiet
-    // about a table that only exists inside this test's isolated schema.
-    sqlx::query("CREATE TABLE fts_invalid_probe AS SELECT 1 AS a UNION ALL SELECT 1")
-        .execute(&*pool)
-        .await
-        .expect("scratch table with duplicate rows");
-
-    // Fails with a unique violation and leaves `events_fts_idx` INVALID.
-    let build =
-        sqlx::query("CREATE UNIQUE INDEX CONCURRENTLY events_fts_idx ON fts_invalid_probe (a)").execute(&*pool).await;
-    assert!(build.is_err(), "a concurrent UNIQUE build over duplicate rows must fail");
-
-    let invalid: bool = sqlx::query_scalar(
-        "SELECT NOT i.indisvalid FROM pg_index i WHERE i.indexrelid = to_regclass('events_fts_idx')",
-    )
-    .fetch_one(&*pool)
-    .await
-    .expect("the failed build must leave the index present");
-    assert!(invalid, "precondition: the leftover index must be INVALID");
-
-    let err = storage
-        .create_postgres_fts_index()
-        .await
-        .expect_err("an INVALID leftover index must not be reported as success");
-    assert!(err.to_string().contains("INVALID"), "the error must name the INVALID state and the remedy, got: {err}");
 }
 
 #[tokio::test]
@@ -2661,8 +2654,10 @@ async fn test_soft_failed_events_hidden_from_all_consumer_read_paths() {
         .expect("search_joined_room_events");
     assert_hidden("search_joined_room_events", joined.iter().map(|row| row.0.clone()).collect());
 
-    let admin =
-        storage.search_room_messages_admin(&room_id, &like_pattern, 10).await.expect("search_room_messages_admin");
+    let admin = storage
+        .search_room_messages_admin(&room_id, &like_pattern, 10, None, None)
+        .await
+        .expect("search_room_messages_admin");
     let ids: Vec<String> = admin.iter().filter_map(|v| v.get("event_id")?.as_str().map(str::to_string)).collect();
     assert_hidden("search_room_messages_admin", ids);
 

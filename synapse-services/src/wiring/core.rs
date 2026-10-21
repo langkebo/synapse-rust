@@ -107,12 +107,14 @@ impl CoreServices {
         if infra.config.search.provider == "postgres" && infra.config.search.enabled {
             let search_service_clone = search_service.clone();
             tokio::spawn(async move {
-                if let Err(e) = search_service_clone.create_fts_index().await {
+                // 索引由迁移创建，这里只确认它存在且有效：缺失意味着迁移没跑到这个库，
+                // 搜索会静默退化成顺序扫 —— 所以按 warn 记录并把原因带在 error 里。
+                if let Err(e) = search_service_clone.verify_fts_index().await {
                     ::tracing::warn!(
                         error = %e,
                         search_provider = %"postgres",
                         search_enabled = true,
-                        "Failed to create FTS index"
+                        "Full-text search index is missing or invalid; search will fall back to a sequential scan"
                     );
                 }
             });

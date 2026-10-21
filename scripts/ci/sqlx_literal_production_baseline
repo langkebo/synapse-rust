@@ -348,6 +348,25 @@
 #   的全量拉取 + 内存排序。与 ratio 基线同日段同批登记；`.sqlx` 缓存无法在本机重建
 #   （`SQLX_OFFLINE=true`），故按运行时字面量入账。
 #   恒等式同步为 `122 − 57 − 0 = 65`（runtime 不变）。
+# ── 2026-10-21 B-34 / FTS 收尾 + 同类缺口（本表 +6 处 / +1 文件；19 → 20 文件）────
+#   ① `synapse-storage/src/event/search.rs` 0 → **5**（新增文件行）：`event_search`
+#     物化 FTS 改造 —— 3 处检索查询（游标/非游标两条分支的列集合不同）改运行时
+#     `query_as`，另 +1 `verify_postgres_search_index()`（`to_regclass('event_search_fts_idx')`
+#     + `pg_index.indisvalid`，供服务启动时校验「索引存在且可用」）；
+#     再 +1 `search_room_messages_admin` 的时间窗（见 ③）。
+#   ② `synapse-storage/src/push/mod.rs` 1 → **6**（+5）：B-34 让 push rules 的
+#     `before` / `after` 排序参数真正生效（此前被静默忽略）。写路径必须在同一事务内
+#     「锁定同 (user, scope, kind) 的 priority 序列 → 定位插入点 → 重编号」：
+#     `SELECT … FOR UPDATE`、带 priority 的 UPSERT、`UPDATE … FROM unnest($4::text[])
+#     WITH ORDINALITY`；读路径两处改为显式列 + 按 `(priority, rule_id)` 排序。
+#   ③ +1 `search_room_messages_admin`（同类缺口）：管理端
+#     `POST /_synapse/admin/v1/rooms/{room_id}/search` 的 `start_date` / `end_date`
+#     被 `deny_unknown_fields` 正式接受却从未参与查询；SQL 文本新增
+#     `($4::bigint IS NULL OR …)` 上下界后 `.sqlx` 条目失效 ⇒ 改运行时 `query_as`
+#     （ratio 基线 `BASELINE_DYNAMIC_PRODUCTION` +1、`BASELINE_STATIC` −1，同一次改动）。
+#   为什么不改成宏：本机无 PostgreSQL（`SQLX_OFFLINE=true`），上述新 SQL 文本在
+#   `.sqlx` 缓存里没有对应条目（与 ratio 基线同日段同批登记）。
+#   恒等式同步为 `132 − 67 − 0 = 65`（runtime 不变）。
 synapse-common/src/test_database_guard.rs	1
 synapse-common/src/test_isolation.rs	9
 synapse-common/src/test_schema_orphans.rs	1
@@ -355,12 +374,13 @@ synapse-common/src/test_schema_guard.rs	2
 synapse-e2ee/src/key_rotation/service.rs	1
 synapse-storage/src/admin_media.rs	1
 synapse-storage/src/event/pagination.rs	6
+synapse-storage/src/event/search.rs	5
 synapse-storage/src/media/quarantine_stream.rs	2
 synapse-storage/src/migration_checks.rs	1
 synapse-storage/src/module.rs	2
 synapse-storage/src/monitoring.rs	1
 synapse-storage/src/presence/mod.rs	1
-synapse-storage/src/push/mod.rs	1
+synapse-storage/src/push/mod.rs	6
 synapse-storage/src/room_summary/repository.rs	2
 synapse-storage/src/sliding_sync/repository.rs	1
 synapse-storage/src/space/repository.rs	4
@@ -369,7 +389,7 @@ synapse-test-utils/src/db_isolation.rs	3
 synapse-test-utils/src/lib.rs	14
 # ── 当前「运行期拼装」残差清单（**允许**，不入棘轮；仅作可读性摘要）────────────
 # 合计 **65 处 / 15 文件**（2026-10-20 按实测重算；与 ratio 棘轮的
-# `dynamic_production − literal − param` = 119 − 54 − 0 = 65 一致）：
+# `dynamic_production − literal − param` = 132 − 67 − 0 = 65 一致）：
 #    16  synapse-common/src/test_isolation.rs
 #    15  synapse-test-utils/src/lib.rs
 #     9  synapse-storage/src/event/state.rs

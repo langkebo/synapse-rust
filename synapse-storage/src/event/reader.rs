@@ -278,6 +278,8 @@ pub trait EventReader: Send + Sync {
         room_id: &str,
         search_pattern: &str,
         limit: i64,
+        start_ts: Option<i64>,
+        end_ts: Option<i64>,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error>;
 
     /// See [`check_room_has_encryption`].
@@ -595,8 +597,10 @@ impl crate::event::reader::EventReader for super::EventStorage {
         room_id: &str,
         search_pattern: &str,
         limit: i64,
+        start_ts: Option<i64>,
+        end_ts: Option<i64>,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        self.search_room_messages_admin(room_id, search_pattern, limit).await
+        self.search_room_messages_admin(room_id, search_pattern, limit, start_ts, end_ts).await
     }
 
     async fn check_room_has_encryption(&self, room_id: &str) -> Result<bool, sqlx::Error> {

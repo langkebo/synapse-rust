@@ -887,9 +887,11 @@ impl MessagingService {
         room_id: &str,
         search_pattern: &str,
         limit: i64,
+        start_ts: Option<i64>,
+        end_ts: Option<i64>,
     ) -> ApiResult<Vec<serde_json::Value>> {
         self.event_reader
-            .search_room_messages_admin(room_id, search_pattern, limit)
+            .search_room_messages_admin(room_id, search_pattern, limit, start_ts, end_ts)
             .await
             .map_err(|e| ApiError::internal_with_cause("Search failed", e))
     }
@@ -1281,7 +1283,8 @@ mod tests {
     #[tokio::test]
     async fn search_room_messages_admin_returns_empty_when_no_matches() {
         let svc = make_service().await;
-        let result = svc.search_room_messages_admin("!room:ex.com", "nonexistent_pattern", 10).await.unwrap();
+        let result =
+            svc.search_room_messages_admin("!room:ex.com", "nonexistent_pattern", 10, None, None).await.unwrap();
         assert!(result.is_empty());
     }
 

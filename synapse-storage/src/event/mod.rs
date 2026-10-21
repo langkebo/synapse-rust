@@ -76,3 +76,6 @@ mod tests;
 
 #[cfg(test)]
 mod db_tests;
+
+#[cfg(test)]
+mod search_index_tests;

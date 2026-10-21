@@ -261,7 +261,11 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // 按 R10 第①条独立复算 FNV-1a 64：当前文件 `240985` 字节 ⇒ `0055b1f8de02eeda`。
 // 自检：`9df1f1d31`（I-01 最后一次同步常量的提交）的基线 `239515` 字节 ⇒
 // `639e79110cb63fd3`，与改动前的实际常量逐字节吻合，证明哈希实现未变后才取新值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "0055b1f8de02eeda";
+// 2026-10-21（`event_search` 物化 FTS 索引）：基线 241317 → 247241 字节 ⇒
+// `a7a511c0179c92e0`。复算时发现 HEAD 上常量已与文件脱节（241317 字节的实际指纹是
+// `9d1a3c08514b3bb0`，常量仍是 `0055b1f8de02eeda`）—— 又有一笔改基线的提交没同步本
+// 常量，本行同时修掉这个既有红。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "a7a511c0179c92e0";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))
