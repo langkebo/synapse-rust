@@ -46,6 +46,16 @@
 #     with `Query<Struct>` fields or query-key literals but no annotation is
 #     RED too. The committed ledger fixtures are the second, independent oracle.
 #
+#   * `query_ignored` — the query names a route *accepts but never reads*.
+#     Two shapes: `*` when the handler has no query extractor at all (axum
+#     accepts any query string and drops it), or a sorted name list when a
+#     `Query<Struct>` exists but those names are not among its fields. This is
+#     the machine-readable copy of the "接受但忽略" prose in ROUTE_CONTRACT.md.
+#     Guarded by `check_annotation_fidelity`: `*` is RED once the handler grows
+#     a query extractor, and a named entry is RED if the struct now parses it
+#     or if the struct denies unknown fields (that would be a 400, not an
+#     ignore). Not serialized into the fixtures.
+#
 #   * `body_opaque` — the route's JSON request body is protocol-arbitrary on
 #     purpose (event content, account data, filters, room-key backups, UIA
 #     `Value` bodies, federation PDUs/transactions, or a raw `Bytes` extractor
@@ -59,19 +69,20 @@
 #     lower the pin while a *new* opaque body is RED.
 #
 #   * `unsupported` — the route is registered and reachable, but the documented
-#     response is not implemented yet. Today this is exactly one endpoint: the
-#     vendor `GET /rooms/{room_id}/keys/{event_id}` (C-1). It used to answer
-#     200 with a placeholder `"keys": []`, which a client cannot distinguish
-#     from "no keys"; it now answers 501 `M_UNKNOWN` so the gap is visible on
-#     the wire instead of being disguised as success.
+#     response is deliberately not implemented. Today: the vendor
+#     `GET /rooms/{room_id}/keys/{event_id}` (C-1, 501 `M_UNKNOWN` — it used to
+#     answer 200 with a placeholder `"keys": []`, which a client cannot
+#     distinguish from "no keys") and the three voice media-processing POSTs
+#     (501 `M_UNRECOGNIZED`, matching `server_side_processing: false`).
 #
 #   * `dynamic` — the `(method, path)` exists but the static extractor cannot
 #     name a single handler definition, *by construction* rather than because
-#     of a parser gap: `GET /` is served by the fallback chain. The 14
-#     `app_service` proxy rows used to be listed here because `_handler_calls`
-#     skipped `any(proxy_to_as)`; the extractor now expands `any(..)` to every
-#     HTTP method, so those rows resolve to `proxy_to_as` and no longer belong
-#     in this list.
+#     of a parser gap. The 14 `app_service` proxy rows used to be listed here
+#     because `_handler_calls` skipped `any(proxy_to_as)`; the extractor now
+#     expands `any(..)` to every HTTP method, so those rows resolve to
+#     `proxy_to_as` and no longer belong in this list. `GET /` (an inline
+#     closure) is now pinned with evidence in `EXPLICIT_ROUTE_HANDLERS`
+#     (`gen_route_handlers.py`) instead of being excused here.
 #     Declaring it turns "static blind spot" into a finite, reviewable list:
 #     `gen_route_handlers.py` requires `confidence: none` and `dynamic=true` to
 #     be the *same* set in both directions, so a new blind spot (or a stale
@@ -128,20 +139,14 @@ PUT /_matrix/vendor/v1/rooms/{room_id}/room_keys/keys	body_opaque=true
 DELETE /_matrix/client/v3/devices/{device_id}	body_opaque=true
 POST /_matrix/client/unstable/io.element.msc4512/appservice/fed_proxy	body_opaque=true
 POST /_matrix/client/v1/appservice/fed_proxy	body_opaque=true
-POST /_matrix/client/v1/keys/claim	body_opaque=true
 POST /_matrix/client/v1/keys/device_list/update	body_opaque=true
-POST /_matrix/client/v1/keys/device_signing/upload	body_opaque=true
-POST /_matrix/client/v1/keys/query	body_opaque=true
 POST /_matrix/client/v1/keys/signatures/upload	body_opaque=true
 POST /_matrix/client/v1/keys/upload	body_opaque=true
 POST /_matrix/client/v1/keys/upload/{device_id}	body_opaque=true
 POST /_matrix/client/v1/sendToDevice/{event_type}/{transaction_id}	body_opaque=true
 POST /_matrix/client/v3/delete_devices	body_opaque=true
 POST /_matrix/client/v3/keys/backup/secure	body_opaque=true
-POST /_matrix/client/v3/keys/claim	body_opaque=true
 POST /_matrix/client/v3/keys/device_list/update	body_opaque=true
-POST /_matrix/client/v3/keys/device_signing/upload	body_opaque=true
-POST /_matrix/client/v3/keys/query	body_opaque=true
 POST /_matrix/client/v3/keys/signatures/upload	body_opaque=true
 POST /_matrix/client/v3/keys/upload	body_opaque=true
 POST /_matrix/client/v3/keys/upload/{device_id}	body_opaque=true
@@ -399,11 +404,41 @@ PUT /_matrix/media/v3/upload/{server_name}/{media_id}	query_params=content_type,
 POST /_matrix/client/v3/join/{room_id_or_alias}	query_params=via
 POST /_matrix/client/v3/knock/{room_id_or_alias}	query_params=via
 
+# -- query_ignored: accepted but never read. `*` = the handler has no query
+# extractor at all, so any query string is a no-op (200, unchanged result).
+# A named entry = a `Query<Struct>` exists but the name is not one of its
+# fields, so serde drops it. Every row is re-checked against the handler source
+# by `check_annotation_fidelity`, so this list cannot drift into fiction.
+GET /_synapse/admin/v1/room_stats	query_ignored=*
+GET /_synapse/admin/v1/room_stats/{room_id}	query_ignored=*
+GET /_synapse/worker/v1/workers	query_ignored=*
+GET /_synapse/worker/v1/workers/type/{worker_type}	query_ignored=*
+GET /_matrix/vendor/v1/spaces/{space_id}/children	query_ignored=*
+POST /_matrix/vendor/v1/spaces/{space_id}/children	query_ignored=*
+DELETE /_matrix/vendor/v1/spaces/{space_id}/children/{room_id}	query_ignored=*
+GET /_matrix/vendor/v1/spaces/{space_id}/summary	query_ignored=*
+GET /_matrix/vendor/v1/spaces/{space_id}/summary/with_children	query_ignored=*
+GET /_matrix/vendor/v1/spaces/{space_id}/tree_path	query_ignored=*
+GET /_matrix/vendor/v1/spaces/room/{room_id}/parents	query_ignored=*
+# `/threads` is not a spec endpoint for `filter`; SDKs that reuse the
+# `/messages` shape send it, and `ListQuery` has no such field.
+GET /_matrix/client/v1/rooms/{room_id}/threads	query_ignored=filter
+GET /_matrix/vendor/v1/threads	query_ignored=filter
+
 # -- unsupported: registered, reachable, documented response not implemented.
 GET /_matrix/vendor/v1/rooms/{room_id}/keys/{event_id}	unsupported=true
+# MSC3245 keeps media processing client-side: the three POSTs answer 501
+# M_UNRECOGNIZED, and `get_voice_config` advertises `server_side_processing:
+# false` for the same three capabilities. Marking them keeps the capability
+# declaration and the contract surface in sync.
+POST /_matrix/vendor/v1/voice/{media_id}/convert	unsupported=true
+POST /_matrix/vendor/v1/voice/{media_id}/optimize	unsupported=true
+POST /_matrix/vendor/v1/voice/{media_id}/transcription	unsupported=true
 
 # -- dynamic: static extraction cannot name a single handler definition. This
 # list must equal the sidecar's `confidence: none` set in both directions
 # (`gen_route_handlers.py` enforces it), so it is the authoritative, finite
 # statement of "these rows are blind spots by construction".
-GET /	dynamic=true
+# Currently empty: `GET /` (the last entry) is an inline closure and is now
+# pinned in `EXPLICIT_ROUTE_HANDLERS` (gen_route_handlers.py) with evidence,
+# instead of being excused here. An empty list is the intended steady state.

@@ -47,6 +47,12 @@ ROOT = os.environ.get("SYNAPSE_RUST_ROOT") or os.path.dirname(
     os.path.dirname(SCRIPT_DIR)
 )
 ROUTES_DIR = os.path.join(ROOT, "synapse-web", "src", "routes")
+# Structs the route tree imports from other workspace crates. Only the *type*
+# index is fed from these files (`query_structs` / `query_struct_deny`), never
+# the handler index: their purpose is to turn a signature's `body: foreign`
+# (or a query type defined outside the route tree) into `body: typed` by
+# teaching the extractor the wire field names.
+EXTERNAL_TYPE_FILES = ("synapse-storage/src/sliding_sync/models.rs",)
 # `registered_by` overrides — the routes whose ledger origin is not derivable
 # from their file path. See `load_ledger_origins`.
 LEDGER_ORIGINS = os.path.join(SCRIPT_DIR, "ledger_origins.txt")
@@ -65,6 +71,7 @@ ANNOTATION_KEYS = (
     "rate_limit_exempt",
     "auth",
     "query_params",
+    "query_ignored",
     "body_opaque",
     "unsupported",
     "dynamic",
@@ -527,6 +534,7 @@ _SERDE_ALIAS = re.compile(r'alias\s*=\s*"([^"]+)"')
 _SERDE_RENAME_ALL = re.compile(r'rename_all(?:_deserialize)?\s*=\s*"([^"]+)"')
 _FIELD_NAME = re.compile(r"^(?:pub(?:\s*\([^)]*\))?\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*:")
 _SERDE_SKIP = re.compile(r"(?:^|[(,\s])(skip|skip_deserializing)(?=[,)\s])")
+_SERDE_DENY_UNKNOWN = re.compile(r"(?:^|[(,\s])deny_unknown_fields(?=[,)\s]|$)")
 _QUERY_HEAD = re.compile(r"\bQuery\s*<")
 # `RawQuery` is a query extractor with no addressable field list (the handler
 # parses the raw `&k=v` string itself). It must not be reported as `query: none`.
@@ -654,6 +662,36 @@ def parse_struct_fields(src: str) -> dict:
             out[name] = None
         else:
             out[name] = names
+    return out
+
+
+def parse_struct_deny_unknown(src: str) -> dict:
+    """`{struct_name: bool|None}` — does the struct deny unknown fields?
+
+    Reads the *container* serde attributes sitting between `#[derive(..)]` and
+    `struct`, the same region `parse_struct_fields` scans for `rename_all`.
+    `#[serde(deny_unknown_fields, rename_all = "...")]` and the split form
+    (`#[serde(deny_unknown_fields)]` + `#[serde(rename_all = "...")]`) both
+    count; `deny_unknown_fields` inside a field's own attribute does not.
+
+    `None` marks a same-file duplicate definition — mirroring
+    `parse_struct_fields` — so the consumer refuses instead of guessing.
+    """
+    out: dict = {}
+    for m in _STRUCT_HEAD.finditer(src):
+        name = m.group(1)
+        brace = m.end() - 1
+        if match_delim(src, brace) == -1:
+            continue
+        deny = any(
+            _SERDE_DENY_UNKNOWN.search(a)
+            for a in _attrs_before(src, m.start())
+            if a.strip().startswith("serde")
+        )
+        if name in out and out[name] != deny:
+            out[name] = None
+        else:
+            out[name] = deny
     return out
 
 
@@ -1225,6 +1263,28 @@ def parse_query_param_list(value: str, where: str) -> list:
     return names
 
 
+def parse_query_ignored(value: str, where: str) -> str:
+    """Validate one `query_ignored=*` / `query_ignored=a,b` value.
+
+    Two shapes only, and the distinction is meaningful:
+
+    * `*` — the handler has no query extractor at all, so axum accepts **any**
+      query string and drops it on the floor (200, unchanged result).
+    * a sorted name list — the handler has a `Query<Struct>`, but these names
+      are not among its fields and are silently dropped by serde.
+
+    A wildcard mixed with names (`*,a`) is rejected rather than normalised:
+    either everything is ignored or a specific set is, never both.
+    """
+    if value == "*":
+        return "*"
+    if "*" in value:
+        raise SystemExit(
+            f"{where}: query_ignored wildcard `*` cannot be combined with names: {value!r}"
+        )
+    return ",".join(parse_query_param_list(value, where))
+
+
 def load_ledger_annotations() -> dict:
     """`{(METHOD, path): {key: value}}` from `ledger_annotations.txt`.
 
@@ -1244,6 +1304,14 @@ def load_ledger_annotations() -> dict:
       Validated as a sorted, comma-joined, duplicate-free list and cross-checked
       against the handler source and the fixtures (see
       `check_annotation_fidelity`).
+    * `query_ignored` — the query names the route *accepts but never reads*:
+      `*` when the handler has no query extractor at all, or a sorted name list
+      when a `Query<Struct>` exists but those names are not its fields. This is
+      the machine-readable form of the "接受但忽略" prose in
+      `ROUTE_CONTRACT.md`; the guard refuses a stale row (a `*` route that grew
+      a `Query<..>`, a name the handler now parses, or a route whose struct
+      carries `deny_unknown_fields` and would 400 instead of ignoring). Not
+      serialized into the fixtures.
     * `body_opaque` — the route's request body is protocol-arbitrary JSON on
       purpose (event content, account data, federation PDUs/transactions,
       UIA `Value` bodies …), so there is no addressable field list to declare.
@@ -1253,10 +1321,13 @@ def load_ledger_annotations() -> dict:
       is RED; the remaining unannotated opaque routes are ratcheted by count
       (see `check_annotation_fidelity`). Not serialized into the fixtures.
     * `unsupported` — the route is registered and reachable but its documented
-      response is not implemented yet (today: the vendor `.../keys/{event_id}`
-      endpoint returns an empty `keys: []`). Marking it keeps the gap visible
-      on the contract surface instead of letting a placeholder 200 masquerade
-      as a working feature. Not serialized into the fixtures.
+      response is not implemented on purpose (today: the vendor
+      `.../keys/{event_id}` endpoint returns 501 `M_UNKNOWN` by the C-1
+      ruling, and voice `convert`/`optimize`/`transcription` return 501
+      `M_UNRECOGNIZED` behind `server_side_processing: false`). Marking it
+      keeps the gap visible on the contract surface instead of letting a
+      placeholder 200 masquerade as a working feature. Not serialized into
+      the fixtures.
     * `dynamic` — the route exists but no single handler definition can be
       named statically *by construction* (fallback chain, `{*path}` wildcard
       proxy, or a handler name with no unique definition). The set must equal
@@ -1310,14 +1381,25 @@ def load_ledger_annotations() -> dict:
                         value, f"{LEDGER_ANNOTATIONS}:{lineno}"
                     )
                     row[key] = ",".join(names)
+                elif key == "query_ignored":
+                    row[key] = parse_query_ignored(
+                        value, f"{LEDGER_ANNOTATIONS}:{lineno}"
+                    )
                 else:
                     row[key] = value
             addr = (method, path)
-            if addr in table and table[addr] != row:
-                raise SystemExit(
-                    f"{LEDGER_ANNOTATIONS}:{lineno}: conflicting annotation for {addr!r} "
-                    f"(already {table[addr]!r})"
-                )
+            if addr in table:
+                # A route may legitimately carry both `query_params` and
+                # `query_ignored` (typed extractor for the names it reads, plus
+                # the names SDKs send that it drops), so disjoint keys merge.
+                # Overlapping keys are still a hard conflict.
+                clash = sorted(set(table[addr]) & set(row))
+                if clash:
+                    raise SystemExit(
+                        f"{LEDGER_ANNOTATIONS}:{lineno}: conflicting annotation for "
+                        f"{addr!r} on {clash} (already {table[addr]!r})"
+                    )
+                row = {**table[addr], **row}
             table[addr] = row
     return table
 
@@ -1449,10 +1531,7 @@ EXPECTED_ANNOTATIONS = {
         "body_opaque": True
     },
     ("POST", "/_matrix/client/v1/appservice/fed_proxy"): {"body_opaque": True},
-    ("POST", "/_matrix/client/v1/keys/claim"): {"body_opaque": True},
     ("POST", "/_matrix/client/v1/keys/device_list/update"): {"body_opaque": True},
-    ("POST", "/_matrix/client/v1/keys/device_signing/upload"): {"body_opaque": True},
-    ("POST", "/_matrix/client/v1/keys/query"): {"body_opaque": True},
     ("POST", "/_matrix/client/v1/keys/signatures/upload"): {"body_opaque": True},
     ("POST", "/_matrix/client/v1/keys/upload"): {"body_opaque": True},
     ("POST", "/_matrix/client/v1/keys/upload/{device_id}"): {"body_opaque": True},
@@ -1461,10 +1540,7 @@ EXPECTED_ANNOTATIONS = {
     },
     ("POST", "/_matrix/client/v3/delete_devices"): {"body_opaque": True},
     ("POST", "/_matrix/client/v3/keys/backup/secure"): {"body_opaque": True},
-    ("POST", "/_matrix/client/v3/keys/claim"): {"body_opaque": True},
     ("POST", "/_matrix/client/v3/keys/device_list/update"): {"body_opaque": True},
-    ("POST", "/_matrix/client/v3/keys/device_signing/upload"): {"body_opaque": True},
-    ("POST", "/_matrix/client/v3/keys/query"): {"body_opaque": True},
     ("POST", "/_matrix/client/v3/keys/signatures/upload"): {"body_opaque": True},
     ("POST", "/_matrix/client/v3/keys/upload"): {"body_opaque": True},
     ("POST", "/_matrix/client/v3/keys/upload/{device_id}"): {"body_opaque": True},
@@ -1580,7 +1656,10 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/client/v1/rooms/{room_id}/threads"): {
         # B-20（2026-10-20）：`include_all`(bool) 换成规范的 `include=all|participated`。
         # B-20 残留（2026-10-21）：`dir` 由「接受但忽略」改为真排序（`f`/`b`，其它 400）。
-        "query_params": "dir,from,include,limit"
+        "query_params": "dir,from,include,limit",
+        # `/threads` 不是规范端点；SDK 复用 `/messages` 的形状会带 `filter`，
+        # 而 `ListQuery` 没有该字段 —— 接受但忽略。
+        "query_ignored": "filter",
     },
     ("GET", "/_matrix/vendor/v1/rooms/{room_id}/threads/search"): {
         # Q5（2026-10-15）给该 handler 加了 `from` 游标：handler 解析
@@ -1612,7 +1691,11 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/vendor/v1/spaces/{space_id}/rooms"): {
         "query_params": "from,limit"
     },
-    ("GET", "/_matrix/vendor/v1/threads"): {"query_params": "dir,from,include,limit"},
+    ("GET", "/_matrix/vendor/v1/threads"): {
+        "query_params": "dir,from,include,limit",
+        # 同 `/_matrix/client/v1/.../threads`：`filter` 接受但忽略。
+        "query_ignored": "filter",
+    },
     ("GET", "/_matrix/vendor/v1/threads/subscribed"): {"query_params": "from,limit"},
     ("GET", "/_matrix/client/v3/appservice/alias"): {"query_params": "alias"},
     ("GET", "/_matrix/client/v3/appservice/user"): {"query_params": "user_id"},
@@ -1999,6 +2082,27 @@ EXPECTED_ANNOTATIONS = {
     # fallback needed any more.
     ("POST", "/_matrix/client/v3/join/{room_id_or_alias}"): {"query_params": "via"},
     ("POST", "/_matrix/client/v3/knock/{room_id_or_alias}"): {"query_params": "via"},
+    # -- query_ignored: accepted but never read. `*` = no query extractor at
+    # all, so any query string is a 200 no-op. A named entry = a
+    # `Query<Struct>` exists but the name is not one of its fields, so serde
+    # drops it. Layer 7 of `check_annotation_fidelity` re-derives both facts
+    # from the handler source, so a route that grows an extractor, starts
+    # parsing a listed name, or starts denying unknown fields turns this RED.
+    ("GET", "/_synapse/admin/v1/room_stats"): {"query_ignored": "*"},
+    ("GET", "/_synapse/admin/v1/room_stats/{room_id}"): {"query_ignored": "*"},
+    ("GET", "/_synapse/worker/v1/workers"): {"query_ignored": "*"},
+    ("GET", "/_synapse/worker/v1/workers/type/{worker_type}"): {"query_ignored": "*"},
+    ("GET", "/_matrix/vendor/v1/spaces/{space_id}/children"): {"query_ignored": "*"},
+    ("POST", "/_matrix/vendor/v1/spaces/{space_id}/children"): {"query_ignored": "*"},
+    ("DELETE", "/_matrix/vendor/v1/spaces/{space_id}/children/{room_id}"): {
+        "query_ignored": "*"
+    },
+    ("GET", "/_matrix/vendor/v1/spaces/{space_id}/summary"): {"query_ignored": "*"},
+    ("GET", "/_matrix/vendor/v1/spaces/{space_id}/summary/with_children"): {
+        "query_ignored": "*"
+    },
+    ("GET", "/_matrix/vendor/v1/spaces/{space_id}/tree_path"): {"query_ignored": "*"},
+    ("GET", "/_matrix/vendor/v1/spaces/room/{room_id}/parents"): {"query_ignored": "*"},
     # -- unsupported: registered, reachable, but the documented response is not
     # implemented. The handler now answers 501 `M_UNKNOWN` (C-1) instead of a
     # placeholder 200 with `"keys": []`, which a client could not distinguish
@@ -2007,13 +2111,23 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/vendor/v1/rooms/{room_id}/keys/{event_id}"): {
         "unsupported": True
     },
+    # MSC3245 media processing is client-side by design: these three POSTs answer
+    # 501 `M_UNRECOGNIZED` and `get_voice_config` declares
+    # `server_side_processing: {convert,optimize,transcription}: false`. Pinning
+    # them keeps the capability declaration and the contract surface in sync.
+    ("POST", "/_matrix/vendor/v1/voice/{media_id}/convert"): {"unsupported": True},
+    ("POST", "/_matrix/vendor/v1/voice/{media_id}/optimize"): {"unsupported": True},
+    ("POST", "/_matrix/vendor/v1/voice/{media_id}/transcription"): {
+        "unsupported": True
+    },
     # -- dynamic: routes whose handler cannot be named statically by
     # construction (fallback chain). This set is the pinned counterpart of the
     # sidecar's `confidence: none`; `gen_route_handlers.py` fails if the two
     # diverge in either direction. The 14 `app_service` proxy rows are gone:
     # `_handler_calls` now expands `any(proxy_to_as)` to every HTTP method, so
-    # those rows resolve to a handler definition.
-    ("GET", "/"): {"dynamic": True},
+    # those rows resolve to a handler definition. Empty is the steady state:
+    # `GET /` was the last entry and is now pinned in
+    # `EXPLICIT_ROUTE_HANDLERS` (gen_route_handlers.py) with evidence instead.
 }
 
 # Counted debt for `body_opaque`: routes whose handler deserializes a bare
@@ -2029,7 +2143,7 @@ EXPECTED_OPAQUE_UNANNOTATED = 0
 def check_annotation_fidelity(res=None) -> list:
     """Return a list of failure strings (empty == green).
 
-    Six layers, each with an independent source of truth:
+    Seven layers, each with an independent source of truth:
 
     * shape vs `EXPECTED_ANNOTATIONS` — the table must equal the pinned rows
       exactly (a dropped or extra line fails here, not silently).
@@ -2058,6 +2172,11 @@ def check_annotation_fidelity(res=None) -> list:
       new one turns the gate RED while existing ones can be burned down in
       batches. Deliberate asymmetry: an opaque body is a legitimate protocol
       shape, unlike a `Query<Value>` that silently drops fields.
+    * `query_ignored` <-> the handler source. `*` is only valid while the
+      handler still has no query extractor; a named entry must be absent from
+      the struct's field list and must not sit behind `deny_unknown_fields`
+      (which would 400 rather than ignore). This is what makes the
+      "接受但忽略" table falsifiable instead of documentation.
     """
     failures: list = []
     annotations = load_ledger_annotations()
@@ -2251,6 +2370,48 @@ def check_annotation_fidelity(res=None) -> list:
             f"lower the pin only when burning debt, never to absorb a new one"
         )
 
+    # layer 7: query_ignored <-> the handler source. Both shapes must still be
+    # true of the resolved handler, which is what stops the "接受但忽略" list from
+    # rotting into prose: `*` requires no extractor at all, and a named entry
+    # must (a) not be one of the struct's fields and (b) not sit behind
+    # `deny_unknown_fields` (that would be a 400, not an ignore).
+    annotated_ignored = {
+        key: row["query_ignored"]
+        for key, row in annotations.items()
+        if row.get("query_ignored")
+    }
+    for key in sorted(annotated_ignored):
+        declared = annotated_ignored[key]
+        status, fields = guard_res.handler_query_fields(key[0], key[1])
+        if declared == "*":
+            if status != "none":
+                failures.append(
+                    f"query_ignored=* declared for {key[0]} {key[1]} but its handler "
+                    f"now has a query contract ({status!r}); declare the consumed "
+                    f"names in `query_params` instead"
+                )
+            continue
+        names = declared.split(",")
+        if status not in ("ok", "literal"):
+            failures.append(
+                f"query_ignored={declared} declared for {key[0]} {key[1]} but its "
+                f"handler query is {status!r} — use `query_ignored=*` when there is "
+                f"no extractor"
+            )
+            continue
+        consumed = sorted(set(names) & set(fields or []))
+        if consumed:
+            failures.append(
+                f"query_ignored lists {consumed} for {key[0]} {key[1]} but the "
+                f"handler parses them — the annotation is stale"
+            )
+        if guard_res.handler_query_unknown(key[0], key[1]) == "reject":
+            failures.append(
+                f"query_ignored={declared} declared for {key[0]} {key[1]} but its "
+                f"Query struct has `deny_unknown_fields`, so unknown names are a 400, "
+                f"not an ignored no-op"
+            )
+
     return failures
 
 
@@ -2402,6 +2563,10 @@ class Resolver:
         # `(file, struct_name) -> [accepted wire names]`; the value is `None`
         # when a file defines the same struct name twice with different fields.
         self.query_structs: dict[tuple[str, str], list] = {}
+        # `(file, struct_name) -> bool|None`: whether the struct carries the
+        # container-level `#[serde(deny_unknown_fields)]`. Parallel to
+        # `query_structs`; `None` on a same-file duplicate, like the field list.
+        self.query_struct_deny: dict[tuple[str, str], bool | None] = {}
         self.consts: dict[str, list[tuple[str, str]]] = defaultdict(list)
         for rel, src in files.items():
             for name, params, body, preds in iter_fn_defs(src):
@@ -2414,8 +2579,28 @@ class Resolver:
                 self.fn_sigs[(rel, name)].append(params)
             for sname, names in parse_struct_fields(src).items():
                 self.query_structs[(rel, sname)] = names
+            for sname, deny in parse_struct_deny_unknown(src).items():
+                self.query_struct_deny[(rel, sname)] = deny
             for name, val in iter_consts(src):
                 self.consts[name].append((rel, val))
+        # External type roots: indexed by definition, not by Rust visibility.
+        # A name the route tree already defines is skipped so the route-tree
+        # definition keeps winning — a second definition would read as
+        # `ambiguous`, which `lookup_struct_fields` reports as unresolvable.
+        tree_struct_names = {n for (_f, n) in self.query_structs}
+        for rel in EXTERNAL_TYPE_FILES:
+            path = os.path.join(ROOT, rel)
+            if not os.path.isfile(path):
+                continue
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                external_src = strip_comments(fh.read())
+            for sname, names in parse_struct_fields(external_src).items():
+                if sname in tree_struct_names:
+                    continue
+                self.query_structs[(rel, sname)] = names
+            for sname, deny in parse_struct_deny_unknown(external_src).items():
+                if (rel, sname) in self.query_structs:
+                    self.query_struct_deny[(rel, sname)] = deny
         self.fn_defs: dict[str, list[tuple[str, str]]] = defaultdict(list)
         for rel, name, body in self.fn_all:
             self.fn_defs[name].append((rel, name, body))
@@ -3268,6 +3453,48 @@ class Resolver:
         status, fields, _type_name = self.handler_query_info(method, path)
         return (status, fields)
 
+    def handler_query_unknown(self, method: str, path: str):
+        """`"reject" | "ignore" | None` — what happens to an *unknown* query param.
+
+        * `"reject"` — the handler's `Query<T>` carries
+          `#[serde(deny_unknown_fields)]`, so an undeclared name is a 400.
+        * `"ignore"` — a query extractor exists (`ok` / `literal` / `manual`)
+          but does not deny unknown fields: serde drops the extra name and the
+          request still succeeds unchanged.
+        * `None`  — no query contract to report (`none` / `foreign` /
+          `ambiguous` / `unhandled`). Distinct from `"ignore"` on purpose: a
+          route with no extractor makes no promise at all, whereas a struct
+          without `deny_unknown_fields` promises to swallow extras.
+
+        This is a *reporting* field, not a behaviour switch: it publishes what
+        the deserializer already does so an SDK generator can stop guessing.
+        """
+        entries = self.handlers.get((method, path), set())
+        if len(entries) != 1:
+            return None
+        answers = {
+            self._handler_query_unknown(owner, handler) for owner, handler in entries
+        }
+        if len(answers) != 1:
+            return None
+        return next(iter(answers))
+
+    def _handler_query_unknown(self, owner: str, handler: str):
+        status, _fields, type_name = self._handler_query_fields(owner, handler)
+        if status == "ok" and type_name:
+            idx = self.resolve_handler_def(handler, owner)
+            if idx is None:
+                return None
+            deny = self.lookup_struct_deny(type_name, self.fn_all[idx][0])
+            if deny is None:
+                return None
+            return "reject" if deny else "ignore"
+        if status in ("literal", "manual"):
+            # Dynamic extractors (`Value` / `HashMap` / `RawQuery`) never deny
+            # unknown names: the handler picks the keys it knows.
+            return "ignore"
+        return None
+
     def handler_body_kind(self, method: str, path: str):
         """`(status, type_name)` for the JSON request body a route's handler takes.
 
@@ -3340,6 +3567,33 @@ class Resolver:
         if len(imported) > 1:
             return None
         hits = [v for (f, n), v in self.query_structs.items() if n == name]
+        if len(hits) == 1:
+            return hits[0]
+        return None
+
+    def lookup_struct_deny(self, name: str, owner: str):
+        """`bool|None` for the `deny_unknown_fields` flag of `Query<name>`.
+
+        Resolves exactly like [`lookup_struct_fields`] — same-file, then a
+        `use`-imported definition, then a globally unique one — so the field
+        list and the flag always describe the same struct. `None` means the
+        struct is ambiguous (several competing definitions), which the caller
+        must treat as "unknown", never as `false`.
+        """
+        same = self.query_struct_deny.get((owner, name), "__missing__")
+        if same != "__missing__":
+            return same
+        imported_files = self._visible_names(owner).get(name, set())
+        imported = [
+            v
+            for (f, n), v in self.query_struct_deny.items()
+            if n == name and f in imported_files
+        ]
+        if len(imported) == 1:
+            return imported[0]
+        if len(imported) > 1:
+            return None
+        hits = [v for (f, n), v in self.query_struct_deny.items() if n == name]
         if len(hits) == 1:
             return hits[0]
         return None

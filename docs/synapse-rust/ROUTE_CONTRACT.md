@@ -1519,7 +1519,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 |---|---|---|
 | `typed` | `Query<T>` 单一 struct，`query_params` 是 `T` 的 wire 名全集 | 可逐字段比对 SDK 是否发错/漏发 |
 | `literal` | 动态提取器（如 `Query<Vec<(String, String)>>`），但键名可由 handler 内的字符串字面量证明 | **键名可比对**（`query_params` 是证明出来的键集）；值类型不可比 |
-| `opaque` / `ambiguous` | 键集在运行时决定，或无单一 handler 定义 | 记为「不可判」，不要当成「后端未声明」 |
+| `opaque` | 键集在运行时决定 | 记为「不可判」，不要当成「后端未声明」 |
+
+（v3 里还有 `ambiguous` 一档，表示无单一 handler 定义；schema v4 起该桶已归零，见 A.10。）
 
 当前 `query: literal` 为 **0** 条：原先仅有的两条（join/knock）已改为类型化
 `Query<ViaQuery>`（手写 `Deserialize` 的 `visit_map` 逐次 `push`，以满足重复 key），
@@ -1585,7 +1587,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 1. **B-10 / B-11**：`SpamCheckQuery` 已删除。`/modules`、`/modules/logs/{module_name}`、`/modules/spam_check/sender/{sender}` 现在共用同一个 `ListQuery { limit, from }`（`deny_unknown_fields`），两条列表路由都真做 keyset 翻页。响应由裸数组改为上表对象；旧 SDK 若按数组消费需同步改。
 2. **`/spaces/{space_id}/users|rooms` 的 `from` 是裸标识符**，不是 `"{ts}|{id}"`。传 `"{ts}|{id}"` 形状会当作字面 id 参与比较（返回空页），因此**只回填 `next_batch`**。
 3. **`/users/{user_id}/media` 的 `limit`/`from` 解析沿用历史宽松行为**：`limit` 非整数回落默认 100（不 400），`from` 形态非法视为首页（不 400）。这是为兼容既有调用方刻意保留的，其余端点均为严格 400。
-4. **`GET /_synapse/admin/v1/room_stats` 不分页**：该端点返回全局概览对象（单条 `{...}`，不是列表），不接受 `from`/`limit`（契约 `query: none`）；携带这两个参数会被**静默忽略**（仍 200，不报错、结果不变），SDK 请勿再传；`GET /_synapse/admin/v1/room_stats/{room_id}` 同。
+4. **`GET /_synapse/admin/v1/room_stats` 不分页**：该端点返回全局概览对象（单条 `{...}`，不是列表），不接受 `from`/`limit`（契约 `query: none`）；携带这两个参数会被**静默忽略**（仍 200，不报错、结果不变），SDK 请勿再传；`GET /_synapse/admin/v1/room_stats/{room_id}` 同。该「接受但忽略」已登记为 `query_ignored=*`（§A.11），不再是散落的散文。
 5. **`GET /_matrix/vendor/v1/rooms/{room_id}/message_queue` 不分页**：它是实时发送队列的**快照**（无稳定 tiebreaker），只接受 `limit`（默认 100，1..=500）；传 `from` 会因 `deny_unknown_fields` 返回 **400**，SDK 请删除该参数。
 
 ### A.7 2026-10-20 语义缺口修复（D-7 ~ D-12 + 联邦 `/publicRooms` 游标）
@@ -1653,7 +1655,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 #### 2. `GET /_synapse/worker/v1/workers`、`GET /_synapse/worker/v1/workers/type/{worker_type}`（D-13，**形状不变**）
 
-- 这两个列表**不分页**，返回**裸数组** `[ {…}, … ]`；`limit` / `from` 会被**静默忽略**（不 400）。
+- 这两个列表**不分页**，返回**裸数组** `[ {…}, … ]`；`limit` / `from` 会被**静默忽略**（不 400，已登记为 `query_ignored=*`，见 §A.11）。
 - 刻意保持数组形状：现有 SDK `worker-admin` 已按数组解构，改成 `{items,total}` 会让调用方再次静默拿到空列表。需要总量请用 `array.length`。
 
 #### 3. worker 任务/命令列表响应形状修正（本轮横向排查，后端单侧）
@@ -1667,7 +1669,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 - `GET /_matrix/client/{v1,v3}/spaces/{space_id}/hierarchy`：**不分页**，只接受 `max_depth`（1..=20）；`HierarchyQuery` 是 `deny_unknown_fields`，传 `from` / `limit` / `since` / `suggested_only` / `server` / `search_term` → **400**。
 - 需要分页请用 `GET /_matrix/client/v1/spaces/{space_id}/hierarchy/v1`（`from` / `limit` / `max_depth` / `suggested_only`）。
-- 以下端点**没有 query 能力**（无 `Query` 提取器，携带任何 query 都被**静默忽略**，不 400）：
+- 以下端点**没有 query 能力**（无 `Query` 提取器，携带任何 query 都被**静默忽略**，不 400；已逐条登记为 `query_ignored=*`，见 §A.11）：
   - `GET|POST /_matrix/vendor/v1/spaces/{space_id}/children`、`DELETE .../children/{room_id}`
   - `GET /_matrix/vendor/v1/spaces/{space_id}/summary`、`GET .../summary/with_children`
   - `GET /_matrix/vendor/v1/spaces/{space_id}/tree_path`
@@ -1708,6 +1710,135 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - 出站请求走本机 federation client（`/_matrix/federation/v1/publicRooms`，由客户端签名），并受其既有 SSRF 防线约束（拒绝 IP 字面量与私有网段）。
 - 转发字段：GET 转发 `limit` / `since`；POST 转发 `limit` / `since` / `filter` / `include_all_networks` / `third_party_instance_id`。响应体原样返回（联邦 `/publicRooms` 与客户端变体同构）。
 - 契约侧：`GET .../publicRooms` 的 query 现为 `limit,server,since`；POST 的 `server` 在 body 中（body 不逐字段登记）。
+
+### A.10 2026-10-21 sidecar schema v4：per-route `profile` 与显式归属
+
+`ROUTE_HANDLERS.json` 的 `schema_version` 由 **3 → 4**，纯增量：新增两个字段，既有字段语义不变，v3 消费者可继续按原字段读取。
+
+#### 1. `profile`：每条路由的**边际**部署档位（P1-4）
+
+| 取值 | 含义 |
+|---|---|
+| `[]` | 默认部署即可达（`always` 路由器） |
+| `["worker"]` | 仅当合并 `worker_enabled` 路由器（`worker.enabled = true`）时可达 |
+| `["oidc"]` | 仅当合并 `oidc_enabled` 路由器（`oidc.enabled = true`）时可达 |
+
+- 推导自提取器的 `guards`，其累积集合是 `default ⊆ worker ⊆ all`；本字段发布的是**边际**（最小可服务档位），因此与本文档 §「运行时 Profile 门控」的 19 条门控路由（worker 11 + oidc 8）逐条对应。
+- 实测分布：`"" = 1029` / `worker = 11` / `oidc = 8`，合计 1048。
+- 下游用途：端点生成器/SDK 门禁可直接过滤掉默认部署下必然 404 的 worker / oidc 路由，不再需要自己解析 `derived_route_table_*.inc.rs`。
+- 守卫：某条路由若不属于三个档位中的任何一档（被一个没有任何部署会合并的 cfg 守卫包住），生成器**直接失败**而不是发布 `[]`（那等于谎称可达）。
+
+#### 2. `attribution` / `attribution_note`：归属是「推导」还是「钉死」（P2-10）
+
+- `derived`（1045 条）：`file` / `handler` 由注册点静态解析得到。
+- `explicit`（3 条）：解析器**按构造**无法给出唯一定义，在 `gen_route_handlers.py` 的 `EXPLICIT_ROUTE_HANDLERS` 中带证据钉死，`attribution_note` 说明原因：
+
+| Method | Path | `file` / `handler` | 原因 |
+|---|---|---|---|
+| `GET` | `/` | `assembly.rs` / `create_router` | 服务横幅是 `create_router` 里的**内联闭包**，没有命名函数 |
+| `GET` | `/.well-known/jwks.json` | `oidc/builtin.rs` / `jwks` | 主 router 与 fallback router 双注册（`jwks_fallback` 为关闭 builtin-oidc 时的同路径变体） |
+| `GET` | `/.well-known/openid-configuration` | `oidc/builtin.rs` / `openid_discovery` | 同上（`get_openid_configuration` 为 fallback 变体） |
+
+守卫：钉死的路径若已不再注册，生成器失败（stale pin 不允许静默保留）。
+
+#### 3. 结果：`status` / `confidence` 不再有不确定档
+
+- `status`：`exact = 1048`（`ambiguous` 0、`unresolved` 0）；`confidence`：`high = 1048`（`low` 0、`none` 0）。
+- 因此 `ledger_annotations.txt` 的 `dynamic=true` 清单与 `EXPECTED_ANNOTATIONS` 中的对应项**已清空**（原唯一成员就是 `GET /`）。`check_dynamic_allowlist()` 的双向相等约束保留，空集是预期稳态。
+- `body` / `query` 的 `ambiguous` 桶随之归零（`body: none` 690 / `opaque` 99 / `typed` 240 / `foreign` 19；`query: typed` 201 / `none` 847）。
+
+### A.11 2026-10-21 sidecar schema v5：`query_unknown` / `query_ignored`（P2-7 + P2-8）
+
+`ROUTE_HANDLERS.json` 的 `schema_version` 由 **4 → 5**，仍是纯增量：新增一个 per-route 字段与一个 ledger 镜像字段，既有字段语义不变。
+
+#### 1. `query_unknown`：未知 query 名是 400 还是静默丢弃
+
+对每条路由发布 `reject` / `ignore` / `null`，由解析器读 `Query<..>` 结构体是否带 `#[serde(deny_unknown_fields)]` 得出：
+
+| 取值 | 含义 | 实测 |
+|---|---|---|
+| `reject` | 未知名字 → **400**（结构体开了 `deny_unknown_fields`） | **0** |
+| `ignore` | 未知名字被 serde 静默丢弃 → **200，结果不变** | **201** |
+| `null` | 无可判定对象：无 `Query` 提取器，或 handler 无法静态定位 | 847 |
+
+- `reject = 0` 是这轮最值得记下的结论：**整个路由树里没有任何一个 `Query<T>` 开了 `deny_unknown_fields`**（树内共 7 个结构体开了该属性，全是 body，不是 query）。也就是说，此前所有 typed query 路由对拼错的参数名都是「200 + 无变化」，这正是 `query-param-ignored` 缺陷桶的机制。
+- 语义边界：`literal` / `opaque`（动态提取器）恒为 `ignore`——handler 自己挑键，serde 不参与拒绝。
+- **本字段只报告，不改行为**：给 113 个 Query 结构体统一加 `deny_unknown_fields` 会让任何多传参数的既有客户端从 200 变 400，属破坏性变更，未在本次执行（裁决见 §A.11.3）。
+
+#### 2. `query_ignored`：把「接受但忽略」从散文变成可校验登记
+
+`ledger_annotations.txt` 新增注解键 `query_ignored`，sidecar 逐条镜像（`null` 表示未声明）。两种形状：
+
+| 形状 | 含义 | 今日条数 |
+|---|---|---|
+| `*` | handler **没有** `Query` 提取器，任何 query 串都是 no-op | 11 |
+| `name,name` | 有 `Query<Struct>`，但名字不在结构体字段里，被 serde 丢弃 | 2（两条 `/threads` 的 `filter`） |
+
+登记清单：
+
+| Method | Path | 声明 |
+|---|---|---|
+| `GET` | `/_synapse/admin/v1/room_stats`、`.../room_stats/{room_id}` | `*` |
+| `GET` | `/_synapse/worker/v1/workers`、`.../workers/type/{worker_type}` | `*` |
+| `GET` | `/_matrix/vendor/v1/spaces/{space_id}/children` | `*` |
+| `POST` | `/_matrix/vendor/v1/spaces/{space_id}/children` | `*` |
+| `DELETE` | `/_matrix/vendor/v1/spaces/{space_id}/children/{room_id}` | `*` |
+| `GET` | `/_matrix/vendor/v1/spaces/{space_id}/summary`、`.../summary/with_children` | `*` |
+| `GET` | `/_matrix/vendor/v1/spaces/{space_id}/tree_path` | `*` |
+| `GET` | `/_matrix/vendor/v1/spaces/room/{room_id}/parents` | `*` |
+| `GET` | `/_matrix/client/v1/rooms/{room_id}/threads`、`/_matrix/vendor/v1/threads` | `filter` |
+
+#### 3. 守卫：`check_annotation_fidelity` 第 7 层
+
+P2-7 的原始形态（「`query_params` 非空则 handler 必须有 `Query<`」）是同义反复——`query_params` 本就由 handler 推导。真正缺失的是**「接受但忽略」的机器登记**，所以守卫改为三条可证伪断言：
+
+1. 声明 `*` 的路由，其 handler 若长出 `Query<..>` 提取器 → **RED**（声明已过期，应改登记 `query_params`）。
+2. 声明具名的路由，该名字若出现在结构体字段里 → **RED**（已被解析，不是忽略）。
+3. 声明具名的路由，其结构体若开了 `deny_unknown_fields` → **RED**（那是 400，不是忽略）。
+
+三条都读 handler 源码，因此这份清单无法腐化成散文：新增端点不能「声明了却不读」，改写 handler 也不能让旧登记静默失效。注解表同时与 `EXPECTED_ANNOTATIONS` 双向相等（第 1 层），ledger 与常量必须同步改。
+
+### A.12 2026-10-21 body 收编：E2EE 三条 + sliding sync（P1-5）
+
+`counts.body` 由 `{opaque: 99, foreign: 19, typed: 240}` 变为 **`{opaque: 93, foreign: 15, typed: 250}`**。没有任何路由语义改变，只把 `serde_json::Value` 换成声明了字段名的结构体，让契约拿到字段集。
+
+#### 1. 收编的 10 条路由
+
+| 路由 | 原 `body_type` | 现 `body_type` |
+|---|---|---|
+| `POST /_matrix/client/{v1,v3}/keys/query` | `opaque` | `KeysQueryBody` |
+| `POST /_matrix/client/{v1,v3}/keys/claim` | `opaque` | `KeysClaimBody` |
+| `POST /_matrix/client/{v1,v3}/keys/device_signing/upload` | `opaque` | `DeviceSigningUploadBody` |
+| `POST /_matrix/client/{v1,v4}/sync` + `unstable/org.matrix.msc3575/sync` + `unstable/org.matrix.simplified_msc3575/sync` | `foreign` | `SlidingSyncRequest` |
+
+`/keys/query`、`/keys/claim`、`/keys/device_signing/upload` 是 E2EE 最关键的上传/查询入口——字段名写错过去只会在运行期静默失败，现在是可静态校验的 `typed`。
+
+#### 2. 刻意**不**开 `deny_unknown_fields`
+
+四条新结构体都不带 `#[serde(deny_unknown_fields)]`：
+
+- Matrix 规范要求端点忽略不认识的字段，开 `deny` 会让「多传一个字段」从 200 变 400，直接打断客户端 E2EE 初始化；
+- 与 §A.11.3「只登记不改行为」的裁决一致——body 的未知字段策略不在本轮变更范围内。
+
+因此这 10 条路由的 `query_unknown` 语义不受影响（这是 body，不是 query）。
+
+#### 3. 内层 `Value` 仍然是 `Value`
+
+`KeysQueryBody.device_keys`、`KeysClaimBody.one_time_keys`、`DeviceSigningUploadBody` 的三个 key 对象都是 `Option<Value>`/`Value`：整张 per-user / per-device map 是**原样转发**给 `device_keys_service` 的（`/keys/query` 的死循环根因即来自提前裁剪这张 map），拆成 typed 结构会改变转发语义。收编的目标是**顶层字段名可校验**，不是重写转发路径。
+
+#### 4. `foreign` 的消除机制：`EXTERNAL_TYPE_FILES`
+
+`SlidingSyncRequest` 定义在 `synapse-storage/src/sliding_sync/models.rs`（由 `synapse-services` 再导出），不在路由树的扫描面内，因此过去只能报 `foreign`。解析器新增常量：
+
+```python
+EXTERNAL_TYPE_FILES = ("synapse-storage/src/sliding_sync/models.rs",)
+```
+
+它只喂**类型索引**（`query_structs` / `query_struct_deny`），不喂 handler 索引（`fn_all`）；且与路由树同名的结构体会被跳过——否则重名会让 `lookup_struct_fields` 读到多个定义而退回「不可判定」，静默变回 `foreign`。
+
+#### 5. 剩余 15 条 `foreign` 与 93 条 `opaque`
+
+`foreign` 剩下的是类型定义在扫描面之外且未纳入 `EXTERNAL_TYPE_FILES` 的（`m.call.*` 事件、feature-flags、room summary、one-time invite、worker replication 等）；`opaque` 剩下的是 `Value`/`Bytes` 或手动 `from_value` 的端点（`e2ee/devices.rs`、`key_backup.rs`、`federation/keys.rs`、`handlers/room/state.rs`、`account_data.rs` 等）。继续收编按 SDK 实际调用面排序，每收编一条，SDK 门禁的 `backend-body-opaque` 桶自动减一。
 
 ---
 
@@ -1969,7 +2100,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 4. **`filter` 登记为「接受但忽略」**：它不是 threads 端点的规范参数，SDK 沿用
    `/messages` 的形状多传了它。服务端按 serde 默认行为忽略未知 query 参数，不报错。
    `dir` 则**已在本轮真实现**（话题列表见 E.14 §2，回复列表见 E.15），不再属于忽略项。
-   契约提取器只登记实际消费的参数，**不要把 `filter` 写进注解**。
+   契约侧把它登记为 `query_ignored=filter`（**不是** `query_params`）：`query_params` 只列
+   结构体真正声明的字段，`query_ignored` 列「SDK 会发、服务端丢弃」的名字，两者由
+   `check_annotation_fidelity` 的第 7 层分别对照 handler 源码校验（§A.11）。
 5. **`/replies` 与 `/threads/subscribed` 不声明 `include`**：它们不消费该参数，因此提取器
    拆分结构体：`/replies` 登记 `dir,from,limit`（`RepliesQuery`），`/threads/subscribed`
    登记 `from,limit`（`ThreadPageQuery`）——这是刻意拆分，不是遗漏。
@@ -2257,13 +2390,15 @@ SDK 门禁只能落到 `backend-query-unknown`；类型化后 `query` 分类为 
    两个端点的解析函数因此独立（`resolve_reply_direction` / `resolve_thread_direction`）。
 2. **排序键**是 `(origin_server_ts, event_id)`，`b` 取整条比较链的严格逆序，保证
    同一毫秒内的多条回复也有稳定顺序。
-3. **内存排序 + 内存分页**：存储层的 `get_thread_replies` 固定 `ORDER BY origin_server_ts ASC`，
-   改方向需要新的静态 SQL 文本（本机无 PostgreSQL，无法生成 `.sqlx` 缓存）。因此 handler
-   先以 `limit = i32::MAX` 一次取回线程内全部回复，再排序、再按 `from` 锚点切页。
-   复用存储层 `event_id > $from` 游标不可行：`event_id` 由客户端提供、非单调，
-   会漏掉 `event_id` 小于已取最大值的行。
-4. **`from` 语义不变**：仍是上一页最后一条的 `event_id`，只作为切页锚点在已排序序列上
-   定位；`limit` 缺省 50、下限 1。
+3. **排序与分页下推 SQL**（2026-10-21 P0-2）：存储层新增 `get_thread_replies_page`，
+   按 `dir` 二选一两条静态 SQL 文本（`f` 升序 / `b` 降序），游标为复合键
+   `(origin_server_ts, event_id)`，与 `get_room_messages` 的 ISSUE-06 复合游标同口径。
+   每页固定 2 次查询（按 `from` 的 `event_id` 查锚点 `origin_server_ts` + 取本页），
+   复杂度 O(limit)，不再把整条线程拉回内存排序。刻意不用单条 `CASE WHEN $dir`
+   排序，避免表达式排序破坏 `(room_id, thread_id, origin_server_ts, event_id)` 索引可用性。
+4. **`from` 语义不变**：仍是上一页最后一条的 `event_id`，只作为切页锚点；token 形状
+   未变，但缺失锚点时返回 **400 `M_INVALID_PARAM`**（见 E.16），不再静默回到第一页。
+   `limit` 缺省 50、下限 1。
 5. **契约同步**：`ledger_annotations.txt` 与 `EXPECTED_ANNOTATIONS` 均登记为
    `dir,from,limit`，提取器产出 `query_params: ["dir","from","limit"]` /
    `query_type: "RepliesQuery"`。SDK 门禁的 `query-param-ignored` 桶由 1 归零。

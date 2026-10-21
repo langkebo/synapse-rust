@@ -3753,6 +3753,10 @@ CREATE INDEX IF NOT EXISTS idx_thread_roots_room ON thread_roots(room_id);
 CREATE INDEX IF NOT EXISTS idx_thread_roots_root_event ON thread_roots(root_event_id);
 CREATE INDEX IF NOT EXISTS idx_thread_replies_root ON thread_replies(root_event_id);
 CREATE INDEX IF NOT EXISTS idx_thread_replies_room ON thread_replies(room_id);
+-- P0-2: /replies 的排序与 (origin_server_ts, event_id) 复合游标下推到 SQL 后，
+-- 该索引同时覆盖过滤（room_id, thread_id）与排序/游标键，避免每次翻页额外排序。
+CREATE INDEX IF NOT EXISTS idx_thread_replies_thread_time
+    ON thread_replies(room_id, thread_id, origin_server_ts, event_id);
 CREATE INDEX IF NOT EXISTS idx_thread_replies_content_trgm ON thread_replies USING GIN ((content->>'body') gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_thread_relations_relates_to ON event_relations(relates_to_event_id);
 CREATE INDEX IF NOT EXISTS idx_thread_relations_type ON event_relations(relation_type);

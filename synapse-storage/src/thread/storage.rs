@@ -301,6 +301,90 @@ impl ThreadStorage {
         }
     }
 
+    /// 线程内回复的分页查询：排序方向与游标都下推到 SQL。
+    ///
+    /// 与 [`get_thread_replies`] 的区别：
+    /// - `direction = "b"` 时按 `(origin_server_ts, event_id)` 降序返回，无需把整条线程拉回内存排序；
+    /// - 游标是复合的 `(origin_server_ts, event_id)`，同一毫秒的多条回复不会被跳过；
+    /// - 客户端可见的 `from` 仍是 `event_id`：先查锚点的 `origin_server_ts`，再据此翻页。
+    ///
+    /// `from` 指向的回复不存在时返回 `Ok(None)`，由调用方翻译成 400 `M_INVALID_PARAM`；
+    /// 不能静默回落到第一页（客户端会陷入无限翻页）。
+    pub async fn get_thread_replies_page(
+        &self,
+        room_id: &str,
+        thread_id: &str,
+        direction: &str,
+        limit: Option<i32>,
+        from: Option<&str>,
+    ) -> Result<Option<Vec<ThreadReply>>, sqlx::Error> {
+        let limit = i64::from(limit.unwrap_or(50));
+
+        let anchor_ts = match from {
+            Some(event_id) => {
+                let ts = sqlx::query_scalar::<_, i64>(
+                    "SELECT origin_server_ts FROM thread_replies \
+                     WHERE room_id = $1 AND thread_id = $2 AND event_id = $3",
+                )
+                .bind(room_id)
+                .bind(thread_id)
+                .bind(event_id)
+                .fetch_optional(&*self.pool)
+                .await?;
+
+                match ts {
+                    Some(ts) => Some(ts),
+                    None => return Ok(None),
+                }
+            }
+            None => None,
+        };
+
+        let replies = if direction == "b" {
+            sqlx::query_as::<_, ThreadReply>(
+                r#"
+                SELECT id, room_id, thread_id, event_id, root_event_id, sender,
+                       in_reply_to_event_id, content, origin_server_ts, is_edited, is_redacted,
+                       redaction_reason, created_ts
+                FROM thread_replies
+                WHERE room_id = $1 AND thread_id = $2
+                  AND ($3::BIGINT IS NULL OR (origin_server_ts, event_id) < ($3::BIGINT, $4::TEXT))
+                ORDER BY origin_server_ts DESC, event_id DESC
+                LIMIT $5
+                "#,
+            )
+            .bind(room_id)
+            .bind(thread_id)
+            .bind(anchor_ts)
+            .bind(from)
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await?
+        } else {
+            sqlx::query_as::<_, ThreadReply>(
+                r#"
+                SELECT id, room_id, thread_id, event_id, root_event_id, sender,
+                       in_reply_to_event_id, content, origin_server_ts, is_edited, is_redacted,
+                       redaction_reason, created_ts
+                FROM thread_replies
+                WHERE room_id = $1 AND thread_id = $2
+                  AND ($3::BIGINT IS NULL OR (origin_server_ts, event_id) > ($3::BIGINT, $4::TEXT))
+                ORDER BY origin_server_ts ASC, event_id ASC
+                LIMIT $5
+                "#,
+            )
+            .bind(room_id)
+            .bind(thread_id)
+            .bind(anchor_ts)
+            .bind(from)
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await?
+        };
+
+        Ok(Some(replies))
+    }
+
     /// See [`get_reply_count`].
     pub async fn get_reply_count(&self, room_id: &str, thread_id: &str) -> Result<i32, sqlx::Error> {
         let count = sqlx::query_scalar!(
@@ -1178,6 +1262,15 @@ pub trait ThreadStoreApi: Send + Sync {
         limit: Option<i32>,
         from: Option<String>,
     ) -> Result<Vec<ThreadReply>, sqlx::Error>;
+    /// See [`get_thread_replies_page`].
+    async fn get_thread_replies_page(
+        &self,
+        room_id: &str,
+        thread_id: &str,
+        direction: &str,
+        limit: Option<i32>,
+        from: Option<&str>,
+    ) -> Result<Option<Vec<ThreadReply>>, sqlx::Error>;
     /// See [`get_reply_count`].
     async fn get_reply_count(&self, room_id: &str, thread_id: &str) -> Result<i32, sqlx::Error>;
     /// See [`get_thread_participants`].
@@ -1318,6 +1411,17 @@ impl ThreadStoreApi for ThreadStorage {
         from: Option<String>,
     ) -> Result<Vec<ThreadReply>, sqlx::Error> {
         self.get_thread_replies(room_id, thread_id, limit, from).await
+    }
+
+    async fn get_thread_replies_page(
+        &self,
+        room_id: &str,
+        thread_id: &str,
+        direction: &str,
+        limit: Option<i32>,
+        from: Option<&str>,
+    ) -> Result<Option<Vec<ThreadReply>>, sqlx::Error> {
+        self.get_thread_replies_page(room_id, thread_id, direction, limit, from).await
     }
 
     async fn get_reply_count(&self, room_id: &str, thread_id: &str) -> Result<i32, sqlx::Error> {

@@ -226,7 +226,12 @@ pub(crate) async fn get_key_history(
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use super::super::devices::DeviceSigningUploadBody;
+    use serde_json::{json, Value};
+
+    fn signing_body(value: Value) -> DeviceSigningUploadBody {
+        serde_json::from_value(value).expect("body shape is valid")
+    }
 
     #[test]
     fn test_e2ee_routes_structure() {
@@ -298,21 +303,23 @@ mod tests {
 
     #[test]
     fn test_has_upload_device_signing_keys_rejects_empty_payload() {
-        assert!(!super::super::devices::has_upload_device_signing_keys(&json!({})));
-        assert!(!super::super::devices::has_upload_device_signing_keys(&json!({
+        assert!(!signing_body(json!({})).has_signing_keys());
+        assert!(!signing_body(json!({
             "master_key": {},
             "self_signing_key": {},
             "user_signing_key": {}
-        })));
+        }))
+        .has_signing_keys());
     }
 
     #[test]
     fn test_has_upload_device_signing_keys_accepts_non_empty_key() {
-        assert!(super::super::devices::has_upload_device_signing_keys(&json!({
+        assert!(signing_body(json!({
             "master_key": {
                 "usage": ["master"],
                 "keys": { "ed25519:MASTER": "pubkey" }
             }
-        })));
+        }))
+        .has_signing_keys());
     }
 }

@@ -200,6 +200,55 @@ impl crate::thread::ThreadStoreApi for InMemoryThreadStore {
         Ok(filtered.into_iter().take(limit).cloned().collect())
     }
 
+    async fn get_thread_replies_page(
+        &self,
+        room_id: &str,
+        thread_id: &str,
+        direction: &str,
+        limit: Option<i32>,
+        from: Option<&str>,
+    ) -> Result<Option<Vec<crate::thread::ThreadReply>>, sqlx::Error> {
+        let limit = limit.unwrap_or(50) as usize;
+        let replies = self.replies.read().await;
+
+        let mut matched: Vec<crate::thread::ThreadReply> =
+            replies.iter().filter(|r| r.room_id == room_id && r.thread_id == thread_id).cloned().collect();
+        matched.sort_by(|a, b| {
+            let ordering = a.origin_server_ts.cmp(&b.origin_server_ts).then_with(|| a.event_id.cmp(&b.event_id));
+            if direction == "b" {
+                ordering.reverse()
+            } else {
+                ordering
+            }
+        });
+
+        let anchor = match from {
+            Some(event_id) => match matched.iter().find(|r| r.event_id == event_id) {
+                Some(anchor) => Some((anchor.origin_server_ts, anchor.event_id.clone())),
+                None => return Ok(None),
+            },
+            None => None,
+        };
+
+        let page: Vec<crate::thread::ThreadReply> = matched
+            .into_iter()
+            .filter(|r| match &anchor {
+                Some((ts, event_id)) => {
+                    let key = (r.origin_server_ts, r.event_id.as_str());
+                    if direction == "b" {
+                        key < (*ts, event_id.as_str())
+                    } else {
+                        key > (*ts, event_id.as_str())
+                    }
+                }
+                None => true,
+            })
+            .take(limit)
+            .collect();
+
+        Ok(Some(page))
+    }
+
     async fn get_reply_count(&self, room_id: &str, thread_id: &str) -> Result<i32, sqlx::Error> {
         let count =
             self.replies.read().await.iter().filter(|r| r.room_id == room_id && r.thread_id == thread_id).count()

@@ -1659,6 +1659,39 @@ def mutation_check() -> int:
     finally:
         ex._literal_keys_of = orig_literal_keys_of
 
+    # Mutation 12 — layer 7 (`query_ignored` <-> handler source) must bite.
+    # Rewrite the `/threads` row so the "ignored" list names `limit`, which the
+    # `ListQuery` struct really parses. That is exactly the staleness the
+    # annotation exists to prevent; a guard that stayed green here would be
+    # prose with extra steps.
+    real_loader = ex.load_ledger_annotations
+
+    def stale_loader():
+        table = real_loader()
+        key = ("GET", "/_matrix/client/v1/rooms/{room_id}/threads")
+        if key in table:
+            table[key] = {**table[key], "query_ignored": "filter,limit"}
+        return table
+
+    ex.load_ledger_annotations = stale_loader
+    try:
+        got = [
+            f for f in ex.check_annotation_fidelity(resolve()) if "query_ignored" in f
+        ]
+        if got:
+            print(
+                "  ok   mutation#12 (a parsed name declared as ignored) turns "
+                f"layer 7 RED: {got[0].split(' — ')[0]}"
+            )
+        else:
+            print(
+                "  FAIL mutation#12 did NOT turn layer 7 red — the `query_ignored` "
+                "guard is self-proving"
+            )
+            bad += 1
+    finally:
+        ex.load_ledger_annotations = real_loader
+
     return bad
 
 

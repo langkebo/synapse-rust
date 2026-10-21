@@ -207,19 +207,56 @@ pub(crate) async fn upload_signatures(
     Ok(Json(response))
 }
 
+/// Wire body of `POST /_matrix/client/{v1,v3}/keys/device_signing/upload`.
+///
+/// Declaring the names is what makes the body checkable (the sidecar reports
+/// `body: typed` instead of `opaque`). Not `deny_unknown_fields`: unknown names
+/// are ignored per the Matrix spec, so a client that adds a field keeps working.
+/// The three key objects stay raw [`Value`]s — they are signed JSON forwarded
+/// verbatim to the cross-signing service.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct DeviceSigningUploadBody {
+    #[serde(default)]
+    master_key: Option<Value>,
+    #[serde(default)]
+    self_signing_key: Option<Value>,
+    #[serde(default)]
+    user_signing_key: Option<Value>,
+    /// UIA `auth` dict, passed to the cross-signing UIA gate verbatim.
+    #[serde(default)]
+    auth: Option<Value>,
+}
+
+impl DeviceSigningUploadBody {
+    /// The three key objects, in upload order.
+    fn signing_keys(&self) -> [Option<&Value>; 3] {
+        [self.master_key.as_ref(), self.self_signing_key.as_ref(), self.user_signing_key.as_ref()]
+    }
+
+    /// Whether at least one of the three keys is a non-empty object.
+    pub(crate) fn has_signing_keys(&self) -> bool {
+        self.signing_keys().into_iter().flatten().any(|key| key.as_object().is_some_and(|key_obj| !key_obj.is_empty()))
+    }
+}
+
 /// See [`upload_device_signing`].
 #[axum::debug_handler]
 pub(crate) async fn upload_device_signing(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<DeviceSigningUploadBody>,
 ) -> Result<axum::response::Response, ApiError> {
     // UIA (User-Interactive Authentication) is required for cross-signing key upload
     // per Matrix spec: POST /_matrix/client/v3/keys/device_signing/upload requires UIA
-    let auth = body.get("auth");
     if let Err(uia_response) = ctx
         .account_identity_service
-        .require_cross_signing_uia(&ctx.uia_service, auth, &auth_user.user_id, &ctx.token_auth, &ctx.credential_auth)
+        .require_cross_signing_uia(
+            &ctx.uia_service,
+            body.auth.as_ref(),
+            &auth_user.user_id,
+            &ctx.token_auth,
+            &ctx.credential_auth,
+        )
         .await
     {
         return Ok((StatusCode::UNAUTHORIZED, Json(uia_response)).into_response());
@@ -228,37 +265,15 @@ pub(crate) async fn upload_device_signing(
     // UIA passed, proceed with business logic
     let device_id =
         auth_user.device_id.as_ref().ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
-    if !has_upload_device_signing_keys(&body) {
+    if !body.has_signing_keys() {
         return Err(ApiError::bad_request(
             "At least one of master_key, self_signing_key, or user_signing_key is required".to_string(),
         ));
     }
 
-    if let Some(master_key) = body.get("master_key") {
-        if let Some(key_obj) = master_key.as_object() {
-            if !key_obj.is_empty() {
-                ctx.cross_signing_service.upload_device_signing_key(&auth_user.user_id, device_id, master_key).await?;
-            }
-        }
-    }
-
-    if let Some(self_signing_key) = body.get("self_signing_key") {
-        if let Some(key_obj) = self_signing_key.as_object() {
-            if !key_obj.is_empty() {
-                ctx.cross_signing_service
-                    .upload_device_signing_key(&auth_user.user_id, device_id, self_signing_key)
-                    .await?;
-            }
-        }
-    }
-
-    if let Some(user_signing_key) = body.get("user_signing_key") {
-        if let Some(key_obj) = user_signing_key.as_object() {
-            if !key_obj.is_empty() {
-                ctx.cross_signing_service
-                    .upload_device_signing_key(&auth_user.user_id, device_id, user_signing_key)
-                    .await?;
-            }
+    for key in body.signing_keys().into_iter().flatten() {
+        if key.as_object().is_some_and(|key_obj| !key_obj.is_empty()) {
+            ctx.cross_signing_service.upload_device_signing_key(&auth_user.user_id, device_id, key).await?;
         }
     }
 
@@ -267,13 +282,6 @@ pub(crate) async fn upload_device_signing(
     ctx.event_notifier.notify_user(&auth_user.user_id);
 
     Ok(Json(json!({})).into_response())
-}
-
-/// See [`has_upload_device_signing_keys`].
-pub(crate) fn has_upload_device_signing_keys(body: &Value) -> bool {
-    ["master_key", "self_signing_key", "user_signing_key"]
-        .iter()
-        .any(|field| body.get(*field).and_then(Value::as_object).is_some_and(|key_obj| !key_obj.is_empty()))
 }
 
 /// See [`create_room_key_request`].

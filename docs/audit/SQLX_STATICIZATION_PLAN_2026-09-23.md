@@ -2190,12 +2190,23 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 <!-- sqlx-plan-numbers:start -->
 <!-- 以下数字由 `scripts/ci/check_plan_numbers_fresh.sh` 与基线/实测现算比对；改基线必须同步改这里。 -->
-BASELINE_DYNAMIC_PRODUCTION=119
+BASELINE_DYNAMIC_PRODUCTION=122
 BASELINE_DYNAMIC_TEST_INFRA=768
 BASELINE_STATIC=1376
 BASELINE_QUERY_BUILDER=17
 SQLX_CACHE_ENTRIES=1339
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-21 更新（P0-2：`/replies` 排序分页下推 SQL）**，数字块一项按实测同步：
+> - `BASELINE_DYNAMIC_PRODUCTION` **119 → 122**（+3）：`get_thread_replies_page`
+>   新增锚点查询 1 条 + `dir=f` / `dir=b` 两条静态 SQL 文本（不用 `CASE WHEN`
+>   排序，避免破坏 `(room_id, thread_id, origin_server_ts, event_id)` 索引可用性）。
+>   每页固定 2 次查询、复杂度 O(limit)，取代原先把整条线程拉回内存再排序切页。
+>   三条均为字符串字面量实参的运行时 `sqlx::query*`（本机无 PostgreSQL，无法生成
+>   `.sqlx` 缓存条目）。收紧方向：CI 接入 PG 后回退为静态宏并把基线落回 119。
+>   逐文件 literal 棘轮同步 `synapse-storage/src/thread/storage.rs` 1 → 4
+>   （合计 54 → 57）；`BASELINE_DYNAMIC`（兼容行）887 → 890；其余四项不变。
+>   恒等式同步为 `122 − 57 − 0 = 65`（runtime 残差不变）。
 
 > **2026-10-21 更新（P0-1 续：空间列表 N+1 消除）**，数字块一项按实测同步：
 > - `BASELINE_DYNAMIC_PRODUCTION` **115 → 116**（+1）：`/spaces/statistics`、

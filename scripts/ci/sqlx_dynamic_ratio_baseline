@@ -3386,7 +3386,15 @@ BASELINE_QUERY_BUILDER=17
 #   与 `unnest(…)` 在 `.sqlx` 缓存里没有对应条目。与 `sqlx_literal_production_baseline`
 #   同批登记（`sliding_sync/repository.rs` 0 → 1、`media/quarantine_stream.rs` 0 → 2）。
 #   **收紧方向**：接入 CI PG 后改回 `query_as!` / `query!` 并回落 116，同时删除上述行。
-BASELINE_DYNAMIC_PRODUCTION=119
+# ── 2026-10-21 P0-2（本项 119 → **122**；+3 处）──────────────────────────────
+#   `synapse-storage/src/thread/storage.rs` 新增 `get_thread_replies_page()`：
+#   ① 一条 `query_scalar::<_, i64>` 解析 `from` 锚点的 `origin_server_ts`；
+#   ②③ 两条静态文本 SQL（`dir=f` / `dir=b` 各一条），把 `ORDER BY (origin_server_ts,
+#   event_id)` 与复合游标下推，取代 `/replies` 的"整条线程拉回内存 + 排序 + 切页"。
+#   为什么不能写成静态宏：本机无 PG（`SQLX_OFFLINE=true`），新 SQL 文本没有 `.sqlx`
+#   缓存条目；且方向必须拆成两条文本 —— `CASE WHEN $n` 排序会破坏索引可用性。
+#   与 `sqlx_literal_production_baseline` 同批登记（`thread/storage.rs` 1 → 4）。
+BASELINE_DYNAMIC_PRODUCTION=122
 # 2026-10-15: 769 → 768（按实测收紧；棘轮是**上限**，留着 1 个空位等于允许一次静默回归）。
 #   本批（方案 B4.3）只新增了**静态**查询，这一项是复核实测时发现的既有余量。
 # 2026-10-16: 768 → **769**（+1，B1/UG-5 lazy-load 位置列）。
@@ -3447,11 +3455,12 @@ BASELINE_DYNAMIC_TEST_INFRA=768
 #      所以按"只禁减"的规则必须同步下调基线并写明来源（先例：C55-0 的 1303 → 1301）。
 #   最终 1367 + 8 + 2 − 4 = 1373 = 实测值，零余量。
 BASELINE_STATIC=1376
-# 兼容旧接口：总数 = 生产 + 测试基础设施（119 + 768 = 887；本项不入棘轮，仅保持一致）
+# 兼容旧接口：总数 = 生产 + 测试基础设施（122 + 768 = 890；本项不入棘轮，仅保持一致）
 # 2026-10-21: 883 → 884，随 `BASELINE_DYNAMIC_PRODUCTION` 的 +1（`get_space_visibility_batch`）同步。
 # 2026-10-21: 884 → 887，随 `BASELINE_DYNAMIC_PRODUCTION` 的 +3（`get_rooms_batch` 与两条
 #   media 隔离批量写）同步。
-BASELINE_DYNAMIC=887
+# 2026-10-21: 887 → 890，随 `BASELINE_DYNAMIC_PRODUCTION` 的 +3（P0-2 `/replies` 下推）同步。
+BASELINE_DYNAMIC=890
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

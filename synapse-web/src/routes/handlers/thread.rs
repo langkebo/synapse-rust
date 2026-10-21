@@ -178,43 +178,18 @@ fn paginate_threads(
     Ok((page, next_batch, total))
 }
 
-/// 按时间排序回复：`(origin_server_ts, event_id)` 升序，`dir=b` 取整条比较链的逆序。
-fn sort_replies_by_time(replies: &mut [synapse_services::thread_service::ThreadReply], direction: &str) {
-    replies.sort_by(|a, b| {
-        let ordering = a.origin_server_ts.cmp(&b.origin_server_ts).then_with(|| a.event_id.cmp(&b.event_id));
-        if direction == "b" {
-            ordering.reverse()
-        } else {
-            ordering
-        }
-    });
+/// 把存储层「`from` 锚点不存在」（`None`）翻译成 400 `M_INVALID_PARAM`。
+///
+/// 与 [`paginate_threads`] 同一口径：锚点失效必须显式报错，不能静默回落到第一页 ——
+/// 否则客户端会反复拉第一页且拿不到任何失败信号。
+fn require_reply_anchor<T>(page: Option<Vec<T>>, from: Option<&str>) -> Result<Vec<T>, ApiError> {
+    page.ok_or_else(|| ApiError::invalid_param(format!("Unknown from token '{}'", from.unwrap_or_default())))
 }
 
-/// 以 `from`（上一页最后一个 `event_id`）为锚点，从已排序的回复里切出一页。
+/// 线程内回复的分页查询：排序方向与游标都由存储层下推 SQL 完成。
 ///
-/// 与 [`paginate_threads`] 同样的口径：锚点缺失时 400 `M_INVALID_PARAM`，不静默回落。
-fn paginate_replies(
-    replies: Vec<synapse_services::thread_service::ThreadReply>,
-    limit: Option<i32>,
-    from: Option<&str>,
-) -> Result<Vec<synapse_services::thread_service::ThreadReply>, ApiError> {
-    let start = match from {
-        Some(token) => replies
-            .iter()
-            .position(|reply| reply.event_id == token)
-            .map(|idx| idx + 1)
-            .ok_or_else(|| ApiError::invalid_param(format!("Unknown from token '{token}'")))?,
-        None => 0,
-    };
-
-    let page_size = limit.unwrap_or(50).max(1) as usize;
-    Ok(replies.into_iter().skip(start).take(page_size).collect())
-}
-
-/// 取回线程内全部回复，按 `dir` 排序后切页。
-///
-/// 存储层固定 `ORDER BY origin_server_ts ASC`，改排序方向需要新的静态 SQL 文本
-/// （本机无 PostgreSQL，无法生成 `.sqlx` 缓存），因此排序与分页都在内存完成。
+/// 每页最多两条查询（锚点 `origin_server_ts` + 本页数据），与线程长度无关；
+/// 不再把整条线程拉回内存排序。
 async fn list_thread_replies(
     ctx: &RoomContext,
     room_id: &str,
@@ -223,11 +198,9 @@ async fn list_thread_replies(
     from: Option<&str>,
     direction: &str,
 ) -> Result<Vec<synapse_services::thread_service::ThreadReply>, ApiError> {
-    let mut replies =
-        ctx.thread_service.get_thread_replies(room_id, thread_id, Some(REPLIES_FETCH_LIMIT), None).await?;
+    let page = ctx.thread_service.get_thread_replies_page(room_id, thread_id, direction, limit, from).await?;
 
-    sort_replies_by_time(&mut replies, direction);
-    paginate_replies(replies, limit, from)
+    require_reply_anchor(page, from)
 }
 
 /// 只接受分页参数的查询串（已订阅列表）。
@@ -251,12 +224,6 @@ struct RepliesQuery {
     /// 排序方向：`f`（缺省，最早回复优先）或 `b`（最新回复优先）；其它值 400 `M_INVALID_PARAM`。
     dir: Option<String>,
 }
-
-/// 一次性取回线程内全部回复时的 `limit`：排序与分页都在内存里做。
-///
-/// 存储层固定 `ORDER BY origin_server_ts ASC`，且以 `event_id > $from` 做游标 ——
-/// 用该游标翻页可能漏掉 `event_id` 小于已取最大值的行，因此这里只取一次。
-const REPLIES_FETCH_LIMIT: i32 = i32::MAX;
 
 /// 把 `include` 解析成存储层的参与者过滤条件。
 ///
@@ -503,20 +470,32 @@ async fn list_room_threads(
         let fetched = response.threads.len();
         threads.extend(response.threads);
 
-        // 存储层无论是否满页都会给 `next_batch`；只有满页且游标确实推进时才继续，
-        // 否则会多打一次空查询（甚至死循环）。
-        match next {
-            Some(token) if fetched >= THREAD_SCAN_PAGE_SIZE as usize && Some(&token) != cursor.as_ref() => {
-                cursor = Some(token);
-            }
-            _ => break,
+        if !should_continue_scan(next.as_deref(), cursor.as_deref(), fetched) {
+            break;
         }
+        cursor = next;
     }
 
     sort_threads_by_activity(&mut threads, direction);
     let (page, next_batch, total) = paginate_threads(threads, limit, from)?;
 
     Ok(ThreadListResponse { threads: page, next_batch, total })
+}
+
+/// 是否继续扫描下一页话题。
+///
+/// 继续条件只依赖「还有下一页」这一显式信号（`next_batch`）与游标是否真的推进，
+/// **不再依赖「本页必须满 `THREAD_SCAN_PAGE_SIZE` 条」**：那个前提一旦被存储层或
+/// 服务层的 `limit` 钳制打破（`/messages` 有先例），扫描会静默截断，`total` 也只
+/// 反映已扫到的数量。空页（`fetched == 0`）同样视为结束。
+fn should_continue_scan(next: Option<&str>, cursor: Option<&str>, fetched: usize) -> bool {
+    if fetched == 0 {
+        return false;
+    }
+    match next {
+        Some(token) => Some(token) != cursor,
+        None => false,
+    }
 }
 
 async fn create_thread(
@@ -1073,22 +1052,37 @@ mod tests {
         assert_eq!(error.matrix_code(), synapse_common::error::MatrixErrorCode::InvalidParam);
     }
 
-    fn reply(event_id: &str, origin_server_ts: i64) -> synapse_services::thread_service::ThreadReply {
-        synapse_services::thread_service::ThreadReply {
-            id: 0,
-            room_id: "!room:localhost".to_string(),
-            thread_id: "$thread".to_string(),
-            event_id: event_id.to_string(),
-            root_event_id: "$root".to_string(),
-            sender: "@alice:localhost".to_string(),
-            in_reply_to_event_id: None,
-            content: json!({}),
-            origin_server_ts,
-            is_edited: false,
-            is_redacted: false,
-            redaction_reason: None,
-            created_ts: origin_server_ts,
-        }
+    #[test]
+    fn test_thread_scan_continues_without_full_page() {
+        // 存储层若把 `limit` 钳制得比扫描页小，本页必然不满；扫描仍须继续 ——
+        // 这正是原先 `fetched >= THREAD_SCAN_PAGE_SIZE` 会静默截断的场景。
+        assert!(should_continue_scan(Some("$t2"), None, 1));
+        assert!(should_continue_scan(Some("$t2"), Some("$t1"), 1));
+    }
+
+    #[test]
+    fn test_thread_scan_stops_on_empty_page_missing_cursor_or_stalled_cursor() {
+        assert!(!should_continue_scan(Some("$t2"), None, 0), "empty page must stop");
+        assert!(!should_continue_scan(None, Some("$t1"), 500), "missing next_batch must stop");
+        assert!(!should_continue_scan(Some("$t1"), Some("$t1"), 500), "stalled cursor must stop");
+    }
+
+    #[test]
+    fn test_reply_list_rejects_unknown_from_anchor() {
+        let error =
+            require_reply_anchor::<()>(None, Some("$missing")).expect_err("unknown from token must be rejected");
+        assert!(error.is_bad_request());
+        assert_eq!(error.matrix_code(), synapse_common::error::MatrixErrorCode::InvalidParam);
+    }
+
+    #[test]
+    fn test_reply_list_passes_known_anchor_page_through() {
+        let page = require_reply_anchor(Some(vec!["$a".to_string()]), Some("$anchor"))
+            .expect("known from token must not fail");
+        assert_eq!(page, vec!["$a".to_string()]);
+
+        let first_page = require_reply_anchor(Some(Vec::<String>::new()), None).expect("no from token must not fail");
+        assert!(first_page.is_empty());
     }
 
     #[test]
@@ -1101,36 +1095,6 @@ mod tests {
     #[test]
     fn test_reply_dir_rejects_unknown_value() {
         let error = resolve_reply_direction(Some("up")).expect_err("unknown dir values must be rejected");
-        assert!(error.is_bad_request());
-        assert_eq!(error.matrix_code(), synapse_common::error::MatrixErrorCode::InvalidParam);
-    }
-
-    #[test]
-    fn test_reply_list_dir_orders_by_time() {
-        let mut replies = vec![reply("$a", 10), reply("$b", 30), reply("$c", 20)];
-
-        sort_replies_by_time(&mut replies, "f");
-        assert_eq!(replies.iter().map(|reply| reply.event_id.as_str()).collect::<Vec<_>>(), vec!["$a", "$c", "$b"]);
-
-        sort_replies_by_time(&mut replies, "b");
-        assert_eq!(replies.iter().map(|reply| reply.event_id.as_str()).collect::<Vec<_>>(), vec!["$b", "$c", "$a"]);
-    }
-
-    #[test]
-    fn test_reply_list_pagination_uses_event_id_anchor() {
-        let mut replies = vec![reply("$a", 10), reply("$b", 20), reply("$c", 30)];
-        sort_replies_by_time(&mut replies, "b");
-
-        let page = paginate_replies(replies, Some(2), Some("$b")).expect("known from token must not fail");
-        assert_eq!(page.iter().map(|reply| reply.event_id.as_str()).collect::<Vec<_>>(), vec!["$a"]);
-    }
-
-    #[test]
-    fn test_reply_list_rejects_unknown_from_anchor() {
-        let replies = vec![reply("$a", 10), reply("$b", 20)];
-
-        let error =
-            paginate_replies(replies, Some(2), Some("$missing")).expect_err("unknown from token must be rejected");
         assert!(error.is_bad_request());
         assert_eq!(error.matrix_code(), synapse_common::error::MatrixErrorCode::InvalidParam);
     }

@@ -244,6 +244,23 @@ impl ThreadService {
             .map_err(|e| ApiError::internal_with_cause("Failed to get replies", e))
     }
 
+    /// See [`get_thread_replies_page`].
+    ///
+    /// 返回 `None` 表示 `from` 锚点在该线程内不存在，调用方应回 400 `M_INVALID_PARAM`。
+    pub async fn get_thread_replies_page(
+        &self,
+        room_id: &str,
+        thread_id: &str,
+        direction: &str,
+        limit: Option<i32>,
+        from: Option<&str>,
+    ) -> Result<Option<Vec<ThreadReply>>, ApiError> {
+        self.storage
+            .get_thread_replies_page(room_id, thread_id, direction, limit, from)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to get replies", e))
+    }
+
     /// See [`get_thread_participants`].
     pub async fn get_thread_participants(&self, room_id: &str, thread_id: &str) -> Result<Vec<String>, ApiError> {
         self.storage

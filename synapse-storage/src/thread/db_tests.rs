@@ -1578,3 +1578,95 @@ async fn test_get_thread_replies_with_from_cursor() {
 
     cleanup_thread_data(&pool, &room_id, &thread_id).await;
 }
+
+// 39. test_get_thread_replies_page_direction_and_anchor
+//
+// `get_thread_replies_page` 把排序方向与 `(origin_server_ts, event_id)` 复合游标下推到
+// SQL：`dir=b` 不再需要整条线程回内存排序，锚点缺失必须返回 `None`（调用方回 400），
+// 而不是静默回落到第一页。
+#[tokio::test]
+async fn test_get_thread_replies_page_direction_and_anchor() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = ThreadStorage::new(&pool);
+    let suffix = uuid::Uuid::new_v4();
+    let room_id = format!("!room_gtrp_{suffix}:localhost");
+    let thread_id = format!("thread-gtrp-{suffix}");
+
+    ensure_test_room(&pool, &room_id).await;
+    cleanup_thread_data(&pool, &room_id, &thread_id).await;
+
+    storage
+        .create_thread_root(CreateThreadRootParams {
+            room_id: room_id.clone(),
+            root_event_id: format!("$root_{suffix}:localhost"),
+            sender: "@sender:localhost".to_string(),
+            thread_id: Some(thread_id.clone()),
+        })
+        .await
+        .expect("should create root");
+
+    // event_id 字典序与 origin_server_ts 相反，用来证明排序键是时间而不是 event_id。
+    let ts = current_timestamp_millis();
+    let replies = [
+        (format!("ccc_reply_{suffix}"), ts + 10),
+        (format!("bbb_reply_{suffix}"), ts + 20),
+        (format!("aaa_reply_{suffix}"), ts + 30),
+    ];
+    for (eid, origin_server_ts) in &replies {
+        storage
+            .create_thread_reply(CreateThreadReplyParams {
+                room_id: room_id.clone(),
+                thread_id: thread_id.clone(),
+                event_id: eid.clone(),
+                root_event_id: format!("$root_{suffix}:localhost"),
+                sender: "@replier:localhost".to_string(),
+                in_reply_to_event_id: None,
+                content: serde_json::json!({"body": "reply"}),
+                origin_server_ts: *origin_server_ts,
+            })
+            .await
+            .expect("should create reply");
+    }
+
+    let forward = storage
+        .get_thread_replies_page(&room_id, &thread_id, "f", Some(2), None)
+        .await
+        .expect("forward page should succeed")
+        .expect("no anchor means the first page");
+    assert_eq!(
+        forward.iter().map(|r| r.event_id.clone()).collect::<Vec<_>>(),
+        vec![replies[0].0.clone(), replies[1].0.clone()]
+    );
+
+    let next = storage
+        .get_thread_replies_page(&room_id, &thread_id, "f", Some(2), Some(&replies[1].0))
+        .await
+        .expect("forward cursor should succeed")
+        .expect("known anchor must not be rejected");
+    assert_eq!(next.iter().map(|r| r.event_id.clone()).collect::<Vec<_>>(), vec![replies[2].0.clone()]);
+
+    let backward = storage
+        .get_thread_replies_page(&room_id, &thread_id, "b", Some(2), None)
+        .await
+        .expect("backward page should succeed")
+        .expect("no anchor means the first page");
+    assert_eq!(
+        backward.iter().map(|r| r.event_id.clone()).collect::<Vec<_>>(),
+        vec![replies[2].0.clone(), replies[1].0.clone()]
+    );
+
+    let older = storage
+        .get_thread_replies_page(&room_id, &thread_id, "b", Some(2), Some(&replies[1].0))
+        .await
+        .expect("backward cursor should succeed")
+        .expect("known anchor must not be rejected");
+    assert_eq!(older.iter().map(|r| r.event_id.clone()).collect::<Vec<_>>(), vec![replies[0].0.clone()]);
+
+    let missing = storage
+        .get_thread_replies_page(&room_id, &thread_id, "f", Some(2), Some("$missing:localhost"))
+        .await
+        .expect("unknown anchor is not a database error");
+    assert!(missing.is_none(), "unknown anchor must be reported, not silently reset to page one");
+
+    cleanup_thread_data(&pool, &room_id, &thread_id).await;
+}

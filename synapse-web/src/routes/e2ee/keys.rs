@@ -144,16 +144,35 @@ async fn upload_keys(
     })))
 }
 
+/// Wire body of `POST /_matrix/client/{v1,v3}/keys/query`.
+///
+/// Declaring the names is what makes the body checkable (the sidecar reports
+/// `body: typed` with this struct's name) instead of protocol-arbitrary JSON.
+///
+/// Deliberately **not** `deny_unknown_fields`: the Matrix spec requires
+/// endpoints to ignore names they do not understand, and a rejected body would
+/// break an otherwise valid `/keys/query` (E2EE then fails silently on the
+/// client). `device_keys` stays a [`Value`] because the whole per-user map is
+/// forwarded verbatim — see the shared-room note in [`query_keys`].
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct KeysQueryBody {
+    #[serde(default)]
+    device_keys: Value,
+    #[serde(default)]
+    timeout: Option<u64>,
+    #[serde(default)]
+    token: Option<String>,
+}
+
 #[axum::debug_handler]
 async fn query_keys(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<KeysQueryBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let mut request: synapse_e2ee::device_keys::KeyQueryRequest = serde_json::from_value(body.clone())
-        .map_err(|e| synapse_common::error::ApiError::bad_request(format!("Invalid request: {e}")))?;
+    let KeysQueryBody { device_keys, timeout, token } = body;
 
-    let device_keys_raw = body.get("device_keys").cloned().unwrap_or(serde_json::json!({}));
+    let device_keys_raw = if device_keys.is_null() { serde_json::json!({}) } else { device_keys };
 
     let requested_users: Vec<String> =
         device_keys_raw.as_object().map(|map| map.keys().cloned().collect()).unwrap_or_default();
@@ -183,7 +202,7 @@ async fn query_keys(
         device_keys_raw.clone()
     };
 
-    request.device_keys = device_keys;
+    let request = synapse_e2ee::device_keys::KeyQueryRequest { timeout, device_keys, token };
 
     let response = ctx.device_keys_service.query_keys(request).await?;
 
@@ -326,14 +345,30 @@ async fn query_keys(
     })))
 }
 
+/// Wire body of `POST /_matrix/client/{v1,v3}/keys/claim`.
+///
+/// Declaring the names is what makes the body checkable (the sidecar reports
+/// `body: typed` instead of `opaque`). Not `deny_unknown_fields`: unknown names
+/// are ignored per the Matrix spec, matching reference Synapse.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct KeysClaimBody {
+    #[serde(default)]
+    one_time_keys: Value,
+    #[serde(default)]
+    timeout: Option<u64>,
+}
+
 #[axum::debug_handler]
 async fn claim_keys(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<Value>,
+    MatrixJson(body): MatrixJson<KeysClaimBody>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
-    let request: synapse_e2ee::device_keys::KeyClaimRequest = serde_json::from_value(body)
-        .map_err(|e| synapse_common::error::ApiError::bad_request(format!("Invalid request: {e}")))?;
+    let KeysClaimBody { one_time_keys, timeout } = body;
+    let request = synapse_e2ee::device_keys::KeyClaimRequest {
+        timeout,
+        one_time_keys: if one_time_keys.is_null() { serde_json::json!({}) } else { one_time_keys },
+    };
 
     let requested_users =
         request.one_time_keys.as_object().map(|map| map.keys().cloned().collect::<Vec<_>>()).unwrap_or_default();
