@@ -808,26 +808,72 @@ validate_schema() {
     log_success "数据库架构验证通过"
 }
 
+# `cleanup_stale_connections` 的判定条件。**只此一份**：计数与终止必须用同一谓词，
+# 否则会出现"数出来 3 个、杀掉 5 个"这种对不上的日志（也违反"同一职责只有一份实现"）。
+#
+# 为什么要收紧（DB_REVIEW_2026-10-15 §6.4-5）：原谓词是
+#   state = 'idle in transaction' AND query_start < NOW() - INTERVAL '5 minutes'
+# 它会把**部署窗口内应用自己合法的长事务**当作泄漏杀掉（`pg_terminate_backend`
+# 之后客户端拿到 57P01，表现为 500 + 重试风暴）。现在分两段：
+#
+#   1. `state = 'idle in transaction (aborted)'`：事务已经出错、只等回滚，
+#      连接端无论如何都要重来，杀掉无副作用 —— **无条件清理，不设时间门槛**。
+#   2. 普通 `idle in transaction` 超过 5 分钟：**仅**在 `application_name` 命中
+#      白名单时清理。白名单默认空（`string_to_array('', ',')` = `{}`，
+#      `= ANY('{}')` 恒 false）⇒ 默认行为退化成"只清 aborted"，
+#      不会碰任何"看起来像泄漏"的普通事务。需要放开时显式设置
+#      `SYNAPSE_STALE_CONN_APP_ALLOWLIST="synapse-rust,synapse-worker"`。
+#      逗号分隔；**不做 trim**，`" a"` 与 `"a"` 不等价（实测），所以别在逗号后加空格。
+#
+#   两段都排除自身会话（`pid <> pg_backend_pid()`），否则终止语句会杀掉执行它的连接。
+#
+# 注意：`:'allowlist'` 只能在 psql **读 stdin** 时展开，`psql -c` 不做变量替换
+# （实测 `psql -c "SELECT :'x'"` 报 `syntax error at or near ":"`），所以下面两个
+# 调用点都用 heredoc 喂 stdin，而不是 `-c`。
+stale_connection_predicate() {
+    cat <<'SQL'
+    pid <> pg_backend_pid()
+AND datname = current_database()
+AND (
+      state = 'idle in transaction (aborted)'
+      OR (
+            state = 'idle in transaction'
+        AND query_start < NOW() - INTERVAL '5 minutes'
+        AND :'allowlist' <> ''
+        AND application_name = ANY (string_to_array(:'allowlist', ','))
+      )
+    )
+SQL
+}
+
 cleanup_stale_connections() {
     log_info "检查并清理异常连接..."
+    local allowlist="${SYNAPSE_STALE_CONN_APP_ALLOWLIST:-}"
+    local predicate
+    predicate="$(stale_connection_predicate)"
+
+    if [ -n "$allowlist" ]; then
+        log_info "idle in transaction 清理白名单: ${allowlist}"
+    else
+        log_info "未设置 SYNAPSE_STALE_CONN_APP_ALLOWLIST：只清理已中止事务（aborted），不动存活中的 idle in transaction"
+    fi
+
     local stale_count
-    stale_count="$(psql_db -v ON_ERROR_STOP=1 -tAc "
-        SELECT COUNT(*)
-        FROM pg_stat_activity
-        WHERE state = 'idle in transaction'
-          AND query_start < NOW() - INTERVAL '5 minutes'
-          AND datname = current_database()
-    " 2>/dev/null | tr -d '[:space:]' || true)"
+    stale_count="$(
+        psql_db -v ON_ERROR_STOP=1 -v allowlist="$allowlist" -tA 2>/dev/null <<SQL | tr -d '[:space:]' || true
+SELECT COUNT(*)
+FROM pg_stat_activity
+WHERE $predicate;
+SQL
+    )"
 
     if [ -n "${stale_count:-}" ] && [[ "$stale_count" =~ ^[0-9]+$ ]] && [ "$stale_count" -gt 0 ]; then
-        log_warning "发现 $stale_count 个空闲事务连接，正在清理..."
-        psql_db -c "
-            SELECT pg_terminate_backend(pid)
-            FROM pg_stat_activity
-            WHERE state = 'idle in transaction'
-              AND query_start < NOW() - INTERVAL '5 minutes'
-              AND datname = current_database()
-        " >/dev/null 2>&1 || true
+        log_warning "发现 $stale_count 个待清理连接，正在清理..."
+        psql_db -v ON_ERROR_STOP=1 -v allowlist="$allowlist" >/dev/null 2>&1 <<SQL || true
+SELECT pg_terminate_backend(pid)
+FROM pg_stat_activity
+WHERE $predicate;
+SQL
         log_success "异常连接已清理"
     else
         log_info "没有发现异常连接"
