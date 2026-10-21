@@ -74,6 +74,20 @@ pub(crate) fn ensure_super_admin_when_target_is_admin(
     }
 }
 
+/// 同 [`ensure_super_admin_when_target_is_admin`]，但按 `user_id` 自行查一次 `is_admin`。
+///
+/// 用于只拿到路径参数、没有现成用户记录的 handler（吊销 refresh token、shadow ban）。
+/// 目标不存在时返回 `Ok`——"用户不存在"由调用方按自己的语义（404 或幂等成功）处理，
+/// 这里只回答"权限够不够"。
+pub(crate) async fn ensure_super_admin_when_target_user_is_admin(
+    ctx: &crate::routes::context::AdminContext,
+    target_user_id: &str,
+    admin: &crate::routes::AdminUser,
+) -> Result<(), synapse_common::ApiError> {
+    let target_is_admin = ctx.user_service.get_user(target_user_id).await?.is_some_and(|user| user.is_admin);
+    ensure_super_admin_when_target_is_admin(target_is_admin, admin)
+}
+
 /// See [`create_admin_module_router`].
 pub fn create_admin_module_router(state: AppState) -> Router<crate::routes::AppState> {
     let admin_router = Router::new()

@@ -87,7 +87,7 @@
 1151 synapse-storage/src/rendezvous.rs
 1132 synapse-web/src/routes/federation/transaction.rs
 1118 synapse-services/src/server_notification_service.rs
-1113 synapse-web/src/routes/admin/user.rs
+1136 synapse-web/src/routes/admin/user.rs
 1109 synapse-web/src/routes/handlers/thread.rs
 1100 synapse-web/src/middleware/federation_auth.rs
 1097 synapse-storage/src/user/db_tests.rs

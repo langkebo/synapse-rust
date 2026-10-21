@@ -92,6 +92,38 @@ pub(super) fn is_super_admin_only_endpoint(method: &Method, path: &str) -> bool 
         return true;
     }
 
+    // ── 2026-10-21 第二批（A 级 30 条的裁决，见同一文档 §4）──────────────
+    // 只收紧「与已收紧的同族」两类：全局集成配置（凭据/放行身份）与不可逆清理。
+
+    // CAS 服务是 SSO 集成配置：改错可致全站登不上，改对可放行未授权身份
+    // ——与 `saml/config` 同一类。用户属性（`cas/users/{id}/attributes`）可逆，保留。
+    if path.starts_with("/_synapse/admin/v1/cas/services") && is_write {
+        return true;
+    }
+
+    // 外部服务带 `webhook_url` + `api_key`：可把事件外发到任意地址、也可伪造回调
+    // ——与 `appservices` 同一类后门。`/{as_id}/health/check` 只是探测，保留。
+    if path.starts_with("/_synapse/admin/v1/external_services") && is_write && !path.ends_with("/health/check") {
+        return true;
+    }
+
+    // SAML 身份映射：决定 IdP 的 name_id 落到哪个本地账号，改对即可放行他人身份。
+    // 同族的 `saml/config` 已收紧，这里保持一致。
+    if path.starts_with("/_synapse/admin/v1/saml/mapping/") && is_write {
+        return true;
+    }
+
+    // `cleanup/all` 收紧后仍留着它的破坏性主体 `cleanup/rooms`（删异常房间数据），
+    // 等于没收紧——普通 admin 直接调组成端点即可。`cleanup/tokens` 只清过期令牌，保留。
+    if path == "/_synapse/admin/v1/cleanup/rooms" {
+        return true;
+    }
+
+    // 媒体回调：把媒体事件外发到注册的 URL，与外部服务同类。
+    if path == "/_synapse/admin/v1/media_callbacks" && is_write {
+        return true;
+    }
+
     // 级联撤回、关闭房间、删房间：不可逆且影响全体成员。
     if path.ends_with("/cascade_redact") || path == "/_synapse/admin/v1/shutdown_room" {
         return true;

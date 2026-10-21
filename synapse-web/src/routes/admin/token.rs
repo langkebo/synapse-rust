@@ -258,11 +258,14 @@ pub async fn get_user_refresh_tokens(
 /// See [`delete_refresh_token`].
 #[axum::debug_handler]
 pub async fn delete_refresh_token(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path((user_id, token_id)): Path<(UserId, i64)>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&ctx, user_id.as_str()).await?;
+
+    // 吊销 super_admin 的 refresh token 会让其会话无法续期（踢下线的一半效果）。
+    super::ensure_super_admin_when_target_user_is_admin(&ctx, user_id.as_str(), &admin).await?;
 
     ctx.admin_token_service.delete_refresh_token(user_id.as_str(), token_id).await?;
 

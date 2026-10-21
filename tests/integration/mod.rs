@@ -4,6 +4,7 @@ mod api_account_status_tests;
 mod api_admin_audit_tests;
 mod api_admin_federation_tests;
 mod api_admin_room_lifecycle_tests;
+mod api_admin_target_guard_tests;
 mod api_admin_user_lifecycle_tests;
 mod api_appservice_p1_tests;
 mod api_appservice_tests;

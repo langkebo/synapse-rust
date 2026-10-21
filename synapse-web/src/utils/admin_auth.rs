@@ -312,6 +312,14 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
             || path == "/_synapse/admin/v1/captcha/cleanup"
             || path.starts_with("/_synapse/admin/v1/server_notices")
             || path.starts_with("/_synapse/admin/v1/reports/")
+
+            // 2026-10-21（第二批）：同一操作的两条**路径别名**判定不一致，一并收敛。
+            // `deactivate/{user_id}` 与 `users/{user_id}/deactivate` 共用同一个 handler
+            // 且现已带目标级守卫；`user/{user_id}/media/quarantine` 与
+            // `media/quarantine/{server_name}/{media_id}` 同为媒体隔离（可逆）。
+            // 两处在收紧前是"整条拒绝"，属过严；判定按路径字面量的框架下只能逐条补。
+            || path.starts_with("/_synapse/admin/v1/deactivate/")
+            || (path.starts_with("/_synapse/admin/v1/user/") && path.ends_with("/media/quarantine"))
         }
         "auditor" => {
             is_read

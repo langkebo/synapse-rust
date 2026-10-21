@@ -66,6 +66,9 @@ pub async fn shadow_ban_user(
     Path(user_id): Path<UserId>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
+    // 对管理员 shadow ban 等于让其静默失声（消息对他人不可见），可逆但不该由同级 admin 决定。
+    super::ensure_super_admin_when_target_user_is_admin(&ctx, user_id.as_str(), &admin).await?;
+
     ctx.admin_security_service.set_shadow_ban(&user_id, true).await?;
 
     record_audit_event(
@@ -90,6 +93,9 @@ pub async fn unshadow_ban_user(
     Path(user_id): Path<UserId>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
+    // 与 shadow ban 对称：普通 admin 也不该替管理员解除/重设这一状态。
+    super::ensure_super_admin_when_target_user_is_admin(&ctx, user_id.as_str(), &admin).await?;
+
     ctx.admin_security_service.set_shadow_ban(&user_id, false).await?;
 
     record_audit_event(

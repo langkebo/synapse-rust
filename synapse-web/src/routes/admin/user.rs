@@ -307,6 +307,10 @@ async fn delete_user(
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
 
+    // 硬删账号是"可用性族"里最彻底的一步：删掉 super_admin 既能让他消失，也能在部分
+    // 部署里把 localpart 重新放出来。与改密码同一守卫——见文档 §4.2。
+    ensure_super_admin_when_target_is_admin(user.is_admin, &admin)?;
+
     tracing::info!(
         admin_user = %admin.user_id,
         target_user = %user.user_id,
@@ -446,6 +450,9 @@ pub async fn deactivate_user(
     }
 
     let user = resolve_user(&ctx, &user_id).await?;
+
+    // 停用管理员同样是"可用性族"：单 super_admin 部署里被停用后无人能恢复。
+    ensure_super_admin_when_target_is_admin(user.is_admin, &admin)?;
 
     // P2 #33: 审计日志 - deactivate_user 操作
     tracing::warn!(
@@ -706,11 +713,15 @@ pub async fn login_as_user(
 /// See [`logout_user_devices`].
 #[axum::debug_handler]
 pub async fn logout_user_devices(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
+
+    // 把 super_admin 全端踢下线并清掉其设备密钥：可让唯一的超级管理员再也连不上，
+    // 且会丢 OTK/密钥材料。与改密码同一守卫——见文档 §4.2。
+    ensure_super_admin_when_target_is_admin(user.is_admin, &admin)?;
 
     let device_count = ctx.admin_user_service.get_user_device_count(&user.user_id).await?;
 
@@ -962,12 +973,20 @@ pub struct BatchDeactivateRequest {
 /// See [`batch_deactivate_users`].
 #[axum::debug_handler]
 pub async fn batch_deactivate_users(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(ctx): State<AdminContext>,
     MatrixJson(body): MatrixJson<BatchDeactivateRequest>,
 ) -> Result<Json<Value>, ApiError> {
     if body.users.len() > 100 {
         return Err(ApiError::bad_request("Too many users in batch request (max 100)".to_string()));
+    }
+
+    // 批量停用对普通 admin 是**有意保留**的运维能力（见文档 §4），但目标里只要有一个
+    // 管理员，就必须是 super_admin —— 否则这条批量通道能绕过单条 deactivate 的守卫。
+    if admin.role != "super_admin" {
+        for target in &body.users {
+            super::ensure_super_admin_when_target_user_is_admin(&ctx, target, &admin).await?;
+        }
     }
 
     let result = ctx.admin_user_service.batch_deactivate_users(&body.users).await?;
@@ -1013,11 +1032,15 @@ pub async fn get_user_sessions(
 /// Invalidate all user sessions
 #[axum::debug_handler]
 pub async fn invalidate_user_sessions(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
+
+    // 与踢下线同族：批量吊销会话同样能让 super_admin 失去管理能力。
+    ensure_super_admin_when_target_is_admin(user.is_admin, &admin)?;
+
     let canonical_user_id = user.user_id;
     let sessions_removed = ctx.admin_user_service.get_user_device_count(&canonical_user_id).await?;
 

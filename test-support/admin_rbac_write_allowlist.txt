@@ -1,7 +1,7 @@
 # 普通 admin 角色**可以**调用的 admin 写路由（显式登记表）。
 #
 # 为什么需要这份清单：`is_role_allowed("admin", …)` 的允许面是一条按前缀的 OR 链
-# （`/_synapse/admin/v1/users`、`/rooms`、`/media` …），黑名单只从里面挖了 11 个洞。
+# （`/_synapse/admin/v1/users`、`/rooms`、`/media` …），黑名单只从里面挖掉一些洞。
 # 于是**任何新增的、落在这些前缀下的写端点都会自动对普通 admin 开放**，没有任何
 # 东西会提醒你。本清单把它变成显式声明：`admin_rbac_tests` 断言
 # 「普通 admin 可执行的写路由」与「本文件」**双向相等** ——
@@ -37,13 +37,17 @@ POST /_synapse/admin/v1/background_updates/{job_name}/start
 POST /_synapse/admin/v1/captcha/cleanup
 
 # --- cas ---
-DELETE /_synapse/admin/v1/cas/services/{service_id}
-POST /_synapse/admin/v1/cas/services
+# 服务增删（`cas/services`）已收紧到 super_admin：SSO 集成配置，与 `saml/config` 同类。
 POST /_synapse/admin/v1/cas/users/{user_id}/attributes
 
 # --- cleanup ---
-POST /_synapse/admin/v1/cleanup/rooms
+# `cleanup/all` 与其破坏性主体 `cleanup/rooms` 都已收紧；这里只剩清过期令牌。
 POST /_synapse/admin/v1/cleanup/tokens
+
+# --- deactivate（旧路径别名）---
+# 与 `POST /_synapse/admin/v1/users/{user_id}/deactivate` 共用同一 handler（含目标级守卫），
+# 上游 Element Admin 仍在用这条路径。
+POST /_synapse/admin/v1/deactivate/{user_id}
 
 # --- event_reports ---
 DELETE /_synapse/admin/v1/event_reports/{id}
@@ -56,10 +60,8 @@ POST /_synapse/admin/v1/event_reports/{id}/resolve
 PUT /_synapse/admin/v1/event_reports/{id}
 
 # --- external_services ---
-DELETE /_synapse/admin/v1/external_services/{as_id}
-POST /_synapse/admin/v1/external_services
+# 注册/改/删（带 `webhook_url` + `api_key`）已收紧到 super_admin；只剩只读探测。
 POST /_synapse/admin/v1/external_services/{as_id}/health/check
-PUT /_synapse/admin/v1/external_services/{as_id}
 
 # --- federation ---
 DELETE /_synapse/admin/v1/federation/cache/{key}
@@ -86,7 +88,7 @@ POST /_synapse/admin/v1/media/unprotect/{media_id}
 POST /_synapse/admin/v1/media/unquarantine/{server_name}/{media_id}
 
 # --- media_callbacks ---
-POST /_synapse/admin/v1/media_callbacks
+# `POST media_callbacks` 已收紧到 super_admin：注册的 URL 会把媒体事件外发出去。
 
 # --- modules ---
 POST /_synapse/admin/v1/modules/check_spam
@@ -97,6 +99,10 @@ DELETE /_synapse/admin/v1/notifications/{notification_id}
 POST /_synapse/admin/v1/notifications
 PUT /_synapse/admin/v1/notifications/{notification_id}
 PUT /_synapse/admin/v1/notifications/{notification_id}/deactivate
+
+# --- media（按用户隔离的旧路径别名）---
+# 与 `POST /_synapse/admin/v1/media/quarantine/{server_name}/{media_id}` 同为可逆隔离。
+POST /_synapse/admin/v1/user/{user_id}/media/quarantine
 
 # --- reports ---
 DELETE /_synapse/admin/v1/reports/{report_id}
@@ -122,10 +128,9 @@ PUT /_synapse/admin/v1/rooms/{room_id}/listings/public
 PUT /_synapse/admin/v1/rooms/{room_id}/members/{user_id}
 
 # --- saml ---
-DELETE /_synapse/admin/v1/saml/mapping/{name_id}
+# `saml/mapping/{name_id}` 增改删已收紧到 super_admin（身份映射，与 `saml/config` 同类）。
 POST /_synapse/admin/v1/saml/logout
 POST /_synapse/admin/v1/saml/metadata/refresh
-PUT /_synapse/admin/v1/saml/mapping/{name_id}
 
 # --- server_notices ---
 DELETE /_synapse/admin/v1/server_notices/{notice_id}
