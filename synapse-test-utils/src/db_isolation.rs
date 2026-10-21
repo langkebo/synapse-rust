@@ -52,6 +52,9 @@ pub async fn prepare_pool(base_url: &str) -> Result<Arc<PgPool>, String> {
             return Err(error);
         }
     };
+    // 与 schema 隔离同一个出口检查：克隆出来的库也必须真的带基线表，
+    // 否则下游只会看到一堆 `relation ... does not exist` 的 500。
+    crate::ensure_schema_has_baseline(&pool, &database, base_url).await?;
     let cleanup = synapse_common::test_database_guard::database_cleanup(base_url, &database);
     synapse_common::test_schema_guard::register_schema_cleanup(&pool, &database, cleanup);
     Ok(pool)

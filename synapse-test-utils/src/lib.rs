@@ -1694,7 +1694,64 @@ async fn create_pool_for_schema(database_url: &str, schema_name: &str) -> Result
     .map_err(|_| format!("failed to connect pooled schema {schema_name}: timed out after {connect_timeout:?}"))?
     .map_err(|error| format!("failed to connect pooled schema {schema_name}: {error}"))?;
 
-    Ok(Arc::new(pool))
+    let pool = Arc::new(pool);
+    ensure_schema_has_baseline(&pool, schema_name, database_url).await?;
+    Ok(pool)
+}
+
+/// 断言"这个池真的能看见基线表"。
+///
+/// 2026-10-21 实测：本机 shell 里残留 `TEST_DATABASE_URL=…:55432/synapse_test`，那个端口上
+/// 确实有个同名库、但 `public` 是 **0 表**。测试栈一路"成功"连上去，于是每个用例拿到一个
+/// 空 schema：handler 报 `relation "users" does not exist` 的 **500**，看起来完全像应用 bug
+/// （实际排查花了 20 分钟，最后靠 `psql` 数表才发现库是空的）。
+///
+/// "连上了"不等于"库是迁移过的"。这里是所有 schema 池的唯一出口，就在这一层喊出来，
+/// 错误信息带上**脱敏后的**连接串，直接指向该跑哪条命令。
+pub(crate) async fn ensure_schema_has_baseline(
+    pool: &PgPool,
+    schema_name: &str,
+    database_url: &str,
+) -> Result<(), String> {
+    let probe: Option<String> = sqlx::query_scalar("SELECT to_regclass('users')::text")
+        .fetch_one(pool)
+        .await
+        .map_err(|error| format!("could not probe schema {schema_name} for the baseline table `users`: {error}"))?;
+
+    if probe.is_some() {
+        return Ok(());
+    }
+
+    Err(format!(
+        "the test schema `{schema_name}` has no `users` table — this database was never migrated \
+         (or the template it was cloned from is empty).\n  \
+         database: {}\n  \
+         fix: bash scripts/db_migrate.sh migrate   (or rebuild the template: \
+         bash scripts/test_db_template.sh ensure)\n  \
+         also check TEST_DATABASE_URL: it must point at the throwaway test database \
+         (port 5432 by default). A stale value from an old worktree (e.g. port 55432) is the \
+         classic cause — that database exists but is empty.",
+        redact_db_url(database_url)
+    ))
+}
+
+/// `postgresql://user:password@host/db` → `postgresql://user:***@host/db`。
+///
+/// 错误信息会进 CI 日志，口令不能跟着进去。
+fn redact_db_url(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url.to_string();
+    };
+    let Some((credentials, tail)) = rest.rsplit_once('@') else {
+        return url.to_string();
+    };
+    // 必须是**第一个**冒号：`user:pa:ss` 用 rsplit 会算出 `user:pa:***`，把口令前半段留在
+    // 日志里。用户名里不允许冒号（RFC 3986 userinfo），所以第一次切分就是对的边界。
+    let masked = match credentials.split_once(':') {
+        Some((user, _password)) => format!("{user}:***"),
+        None => credentials.to_string(),
+    };
+    format!("{scheme}://{masked}@{tail}")
 }
 
 /// TRUNCATE all tables in the schema and re-seed reference/config tables from
@@ -1919,6 +1976,35 @@ fn ensure_test_schema_contract_sql() -> &'static str {
     // Shared with `scripts/test_db_template.sh`, which applies the same file when
     // building the database template: one text, two consumers, no drift.
     include_str!("../../test-support/test_schema_contract.sql")
+}
+
+#[cfg(test)]
+mod redact_db_url_tests {
+    use super::redact_db_url;
+
+    #[test]
+    fn password_is_masked_but_the_rest_survives() {
+        assert_eq!(
+            redact_db_url("postgresql://synapse:s3cr3t@localhost:5432/synapse_test"),
+            "postgresql://synapse:***@localhost:5432/synapse_test"
+        );
+    }
+
+    #[test]
+    fn urls_without_credentials_or_scheme_pass_through() {
+        // 没有 `@`：整串原样返回（不能把库名当口令吞掉）。
+        assert_eq!(redact_db_url("postgresql://localhost/synapse_test"), "postgresql://localhost/synapse_test");
+        assert_eq!(redact_db_url("not-a-url"), "not-a-url");
+    }
+
+    #[test]
+    fn a_password_containing_colons_is_still_masked() {
+        // `rsplit_once(':')`：口令里带 `:` 也只把最后一段替换掉，用户名保留。
+        assert_eq!(
+            redact_db_url("postgres://user:pa:ss@db.example.com:5432/x"),
+            "postgres://user:***@db.example.com:5432/x"
+        );
+    }
 }
 
 #[cfg(test)]
