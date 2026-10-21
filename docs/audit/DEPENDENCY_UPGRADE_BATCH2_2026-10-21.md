@@ -3,7 +3,9 @@
 > 本文件回答"第二批 5 项能不能做、先做什么、各会自动碰哪些东西"。
 > 所有版本号都是 **2026-10-21 用 crates.io API 实测**，不是记忆；影响面是 `*.rs` 实测计数
 > （排除 `target/`、`vendor/`、`.worktrees/`）。
-> **现状：本文件只有第 3 项（CI 双跑）的前置已完成，其余都还没动手** —— 原因见 §6。
+> **现状（2026-10-22 更新）**：第 1 项（RustCrypto）已按 P-A…P-E 全部落地；第 2 项（redis）已完成；
+> 第 3 项的 §5.4 已在静默窗口复测（结论见 §3）；第 4 项（A3 路由退役）**仍被外部占用挡住**；
+> 第 5 项（L-7 全量）已在夜间启动。执行记录与提交号见 §7。
 
 ## 1. RustCrypto 六族
 
@@ -108,6 +110,28 @@
 2. `cargo update -p redis -p deadpool-redis`
 3. 编译 → 按报错改（预计集中在 `deadpool_redis::Config` 与 `Pool::get().await`）
 4. `cargo tree -i socket2` 确认只剩 0.6；`cargo tree -d` 看还有没有重复的 redis
+
+### 2.5 执行结果（2026-10-22 01:2x，已在本机跑通）
+
+改了两行 `Cargo.toml`（`redis = "1.7"`、`deadpool-redis = "0.23"`）+ `cargo update`，
+编译只报**两类**错，共 **12 处**：
+
+| 处数 | 位置 | 原因 | 改法 |
+|---|---|---|---|
+| 2 | `synapse-common/src/task_queue.rs:353,449` | `redis::from_redis_value` 收**所有权 `Value`**（1.0 的 breaking） | 353 行把 payload 从 `stream_id.map` **`remove` 出来**（不 clone，消费热路径）；449 行去掉 `&` |
+| 10 | `synapse-cache/src/{error.rs,remote.rs}` | `ErrorKind::IoError` → **`ErrorKind::Io`**（变体改名，本仓此前没在文档里记这条） | 直接改名 |
+
+lock 变化：`redis 0.29.5 → 1.7.1`、`deadpool-redis 0.20.0 → 0.23.1`（带进 `deadpool 0.13.1` /
+`deadpool-runtime 0.3.1` / `arcstr` / `xxhash-rust`），**`socket2 0.5.10` 被移除** ——
+`cargo tree -i socket2` 现在只剩 `socket2 v0.6.5`（经 `dns-lookup`），用户要的"顺带消 socket2 0.5"达成。
+
+验证：`cargo check --workspace --all-features` 通过；
+`cargo clippy --workspace --all-targets --features test-utils --all-features -- -D warnings` **exit 0**；
+`cargo nextest run -p synapse-cache --all-features` **93/93 通过**（含连真 redis 的
+pub/sub、EVAL、MGET、TTL 用例）。
+
+遗留（非本批）：`cargo tree -d` 里 `deadpool 0.12.3` 与 `0.13.1` 并存，但 0.12.3 的唯一来源是
+**`wiremock 0.6.5`（dev-dependency，测试用 HTTP mock）**，不在生产树里 —— 不动。
 5. 跑 redis/cache 相关集成子集 + `cargo deny check`
 
 ## 3. CI 双跑切默认
@@ -155,6 +179,34 @@ bash scripts/test_db_template.sh ensure   # 幂等，已含 CHECKPOINT
 所以 CHECKPOINT 应该有效。但本轮"干净克隆立即 DROP"比"写脏后 DROP"**慢两个数量级**，
 方向与上述归因相反 —— 静默窗口重测时务必把这两组分开测，否则会把 IO 争抢误读成机制问题。
 
+### 3.1 静默窗口复测（2026-10-22 04:44，**结果可用**）
+
+前置条件全部核过：**10 核**、`pgrep -fl "cargo|rustc|nextest"` 无命中、
+55432 集群 `pg_stat_activity` 计数为 **0**、`load average` 7.07（下降中）。
+
+| 动作 | 实测 | 对比设计文档 |
+|---|---|---|
+| `CREATE DATABASE … TEMPLATE`（冷 / 热 / 热） | **612 ms / 157 ms / 134 ms** | 0.29–0.79 s ⇒ 同量级，热路径更快 |
+| 干净克隆**立即** `DROP DATABASE`（3 次） | **3.09 s**（冷）/ **36.8 ms** / **30.8 ms** | 26.4 s ⇒ **不复现** |
+| 写脏 ~40 MB 后**不** CHECKPOINT 直接 DROP | 43.6 ms | — |
+| 写脏 ~40 MB → `CHECKPOINT` → DROP | 129.9 ms | — |
+
+**结论**：
+
++ **26.4 s 的主要成分是负载，不是"没 CHECKPOINT"**。同一台机器、同一模板，空闲时
+  DROP 是 **30–130 ms**；之前那次 19.8 s 与本次 3.09 s 的冷启动都远高于热路径，
+  说明剩余方差来自文件系统冷缓存，而不是 shared_buffers 里没刷的脏页。
++ 写脏后再 `CHECKPOINT` 反而**更慢**（130 ms vs 44 ms）—— 因为 CHECKPOINT 自己要把
+  40 MB 刷盘，而 DROP 只需删掉文件。所以模板构建里的 `CHECKPOINT`（`test_db_template.sh:122`）
+  对**克隆出来的**库意义有限；它的价值在**模板自身**：保证模板里没有未刷的脏页，
+  从而让克隆（`CREATE DATABASE … TEMPLATE` 是文件级拷贝）拿到一致的、不触发额外刷盘的状态。
++ 因此 §3 的验收标准应写成"**空闲机器上克隆 ≤ 0.2 s、DROP ≤ 0.15 s**"，
+  而不是拿 26.4 s 当基线去比。
+
+顺带一条运维观察：55432 上现有 **4 个** `synapse_tmpl_v2_*` 模板（各 20 MB，
+`datallowconn=false`），是不同指纹下 `ensure` 反复生成的残留 —— 归 janitor
+（`test_db_template.sh` 的 prune 路径）管，本轮未动，避免撞上其它会话正在用的那个。
+
 ## 4. A3 v1 路由退役（112 处 / 79 路径）
 
 **当前不能动。** 工作区正被另一会话的契约链重生成占用：`scripts/contract/extract_registered.py`、
@@ -185,21 +237,79 @@ TEST_DATABASE_URL="postgresql://synapse:$(bash scripts/lib/db_credentials.sh pas
 
 **别和别的活并行**：它独占 `target/` 锁与 PG 连接池，并行只会两边都慢（§3 的计时实验同理）。
 
-## 6. 阻塞与建议顺序
+## 6. 阻塞与残留（2026-10-22 更新）
 
-当前真正挡住一切的是一件事：**工作区被另一会话占着**。未提交的 `ci.yml`、`docker/db_migrate.sh`、
-`scripts/contract/*`、`ROUTE_HANDLERS.json`、`route_summary.rs`、`worker.rs` 等，
-其中 3 个新 py 脚本还没过 `black` ⇒ preflight 必红 ⇒ 我这边**任何提交都进不去**（也不该 `--no-verify`）。
+**已解除**：原先挡住一切的是"另一会话的在飞改动让 preflight 必红"（3 个新 py 脚本没过 `black`）。
+对方陆续提交后（`022cbd67f` / `7fae7ad14` 等），提交链恢复，本轮 7 个提交全部通过 preflight。
 
-顺带一个需要裁决的重叠：对方新增的 `scripts/ci/check_deny_unknown_fields_ratchet.py` 是
-**按文件的 deny 站点计数棘轮**（只许升不许降），我待提交的 `routes/admin/dto_guard_tests.rs` 是
-**按 struct 的"deny 或登记"双向断言**。两者管的是同一件事的不同侧面（一个是"全局不许减"，
-一个是"每个 DTO 必须有决定"），可以共存，但**得先定谁是主口径**，否则两套登记都要维护。
+**仍阻塞**：契约链（`scripts/contract/*`、`ROUTE_HANDLERS.json`、`ROUTE_CONTRACT.md`、
+`API_COVERAGE_REPORT.md`、`ci.yml`、`room_summary.rs`、`worker.rs`）**还在对方索引里未提交**
+⇒ A3（改路由字面量）动不了，理由与解挡条件见 §7.4。
 
-建议顺序（全程串行，不要并行）：
+**一个仍待裁决的口径重叠**：对方新增的 `scripts/ci/check_deny_unknown_fields_ratchet.py` 是
+**按文件的 deny 站点计数棘轮**（只许升不许降）；`741f8647f` 提交的
+`routes/admin/dto_guard_tests.rs` 是**按 struct 的"deny 或登记"双向断言**。
+两者管同一件事的不同侧面（"全局不许减" vs "每个 DTO 必须有决定"），能共存，
+但两套登记都要维护 ⇒ 建议以 `dto_guard_tests` 为**主口径**（它带理由登记），
+文件级棘轮降级为"总量护栏"。
 
-1. 解开工作区占用：对方提交契约链 + CI 批；我的 P2-C 紧随其后（已就绪，等 preflight 能过）
-2. RustCrypto **P-A → P-B → P-C → P-D**（P-C 前先补/确认 KAT）
-3. redis 0.29 → 1.x（独立一批，改 `Cargo.toml` 一处 + lock）
-4. A3 v1 路由退役分批（1 → 2 → 3），每批都跑契约 gate
-5. 最后：夜间起 L-7 全量套件（跑完再复测 §5.4 的首次 DROP，那时数据库最"脏"、数据最真实）
+## 7. 执行结果汇总（2026-10-22）
+
+### 7.1 提交
+
+| 批次 | 提交 | 内容 |
+|---|---|---|
+| redis | `022cbd67f` | `redis 0.29 → 1.7`、`deadpool-redis 0.20 → 0.23`（详见 §2.5） |
+| P-A | `1ced60cd5` | `sha1 0.11` / `sha2 0.11` / `hmac 0.13` / **`hkdf 0.13`（被迫同批）** |
+| P-B | `681bdd40a` | `argon2 0.6`（连带 `password-hash 0.6`、`blake2 0.11`，并新增一个口令哈希串解析 crate） |
+| P-C | `cb9165f5d` | `aes-gcm 0.11` / `chacha20poly1305 0.11`（`aead 0.6` / hybrid-array） |
+| P-D | `f42893bb2` | `aes 0.9` / `ctr 0.10`（SSSS 的 AES-256-CTR） |
+| P-E | `615004f7f` | 三族"不动"的理由写进 Cargo.toml；删掉已无用的 `generic-array` |
+
+### 7.2 一个反复踩的坑：**同名不同版本的类型**
+
+`rsa 0.9` 停在旧一代 trait 上，凡与它交互都必须用**它自带的 re-export**：
+
+| 场景 | 错误写法（能看懂但不编译） | 正确写法 |
+|---|---|---|
+| `SigningKey::<Sha256>::new` 探测 RSA-SHA256 | `sha2::Sha256`（digest 0.11） | `rsa::sha2::Sha256`（digest 0.10） |
+| `RsaPrivateKey::new(&mut rng, 2048)` | `aes_gcm::aead::OsRng` / `rand::rngs::OsRng` | `rsa::rand_core::OsRng`（rand_core 0.6） |
+
+同理 `hkdf 0.12` 绑 digest 0.10 的 `Sha256`，与 `sha2 0.11` 混用会在
+`Kdf::<sha2::Sha256>::new` 处报 `OutputSizeUser` 不满足 —— 所以 P-A 里 hkdf 只能同批升。
+
+**判据**：升级某一族之后如果报"某个 trait 没实现（`OutputSizeUser` / `FixedOutput` /
+`CryptoRngCore`）"，先查那个 API 属于哪个 crate、它依赖的底层是第几代；不要试图
+`use` 另一个版本的类型去凑，那会得到"两个同名类型"的报错或静默不匹配。
+
+### 7.3 验收矩阵（全部实测）
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 编译 | `cargo check --workspace --all-targets --all-features` | exit 0（P-A…P-E 每批各一次） |
+| 静态检查 | `cargo clippy --workspace --all-targets --features test-utils --all-features --locked -- -D warnings` | exit 0（每批） |
+| hash/mac/kdf 跨版本 | 4 条 KAT（NIST / RFC 4231 / RFC 6238 / argon2 旧版哈希串） | 4/4 升级前后各一次 |
+| 口令哈希 | `nextest -p synapse-common --lib -E 'test(crypto::tests) \| test(password_hash_pool)'` | 104/104 |
+| AEAD 存量密文 | `legacy_{aes_gcm,xchacha}_ciphertext_still_decrypts` | 2/2（0.10 产物在 0.11 下可解） |
+| SSSS 存量数据 | `secret_encrypted_before_the_upgrade_still_decrypts` + NIST CTR 向量 | 22/22 |
+| 单元车道 | `nextest --test unit --features test-utils --no-fail-fast` | 1891/1895（4 条失败**全是树上别人的在飞改动**，见 §6） |
+| SQL 棘轮 + 占位符扫描 | `nextest --test unit -E 'test(sqlx_ratio_gate) \| test(no_new_production_literal_dynamic_sql) \| test(placeholder_scan_tests)'` | 22/22 |
+
+### 7.4 仍然没做：A3 v1 路由退役
+
+**没有开工，是被外部条件挡住的**，不是漏了：另一会话的工作区里未提交地改着
+`scripts/contract/{extract_registered.py,check_route_contract.sh,test_extract_registered.py}`、
+`docs/synapse-rust/{ROUTE_HANDLERS.json,ROUTE_CONTRACT.md,API_COVERAGE_REPORT.md}`、
+`synapse-web/src/routes/{room_summary.rs,worker.rs}` 与 `.github/workflows/ci.yml`。
+A3 要改**路由字面量**，而契约链是"路由源码 → `extract_registered.py` → 三张派生表 →
+6 个 fixture → 两份 ledger 快照 → `ROUTE_CONTRACT.md` → `route-table.json`"的单向链；
+现在动它等于和对方在**同一批生成物**上互相覆盖。
+
+**解挡条件**：对方把契约链这批提交掉（`git status` 里那些 `M/A` 行消失）。
+之后按文档 §4 的分批（纯 v1 组 → v2 孪生组 → 文档收尾），每批跑
+`bash scripts/contract/check_route_contract.sh` 复核。
+
+### 7.5 L-7 全量套件
+
+已在夜间（04:47）按 §5 的命令启动，日志 `/tmp/l7_full.log`。
+它独占 `target/` 锁与 PG 连接池，跑完之前**不要并行做任何需要编译的事**。
