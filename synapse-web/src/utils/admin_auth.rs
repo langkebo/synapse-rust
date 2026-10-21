@@ -11,6 +11,10 @@ use synapse_services::account::UserService;
 use synapse_services::admin_audit_service::CreateAuditEventRequest;
 use synapse_services::user_service::User;
 
+mod privileged;
+
+use privileged::is_super_admin_only_endpoint;
+
 type HmacSha1 = Hmac<Sha1>;
 
 /// The `AuthorizedAdmin` struct.
@@ -188,63 +192,6 @@ pub(crate) fn should_require_admin_mfa(security: &SecurityConfig, method: &Metho
         && is_sensitive_admin_request(method, path)
 }
 
-fn is_super_admin_only_endpoint(method: &Method, path: &str) -> bool {
-    let is_write = matches!(*method, Method::POST | Method::PUT | Method::PATCH | Method::DELETE);
-
-    // Setting another user's admin status
-    if path.ends_with("/admin") && is_write {
-        return true;
-    }
-    if path.contains("/make_admin") {
-        return true;
-    }
-
-    // Batch user creation (not batch_deactivate which admin can do)
-    if path == "/_synapse/admin/v1/users/batch" {
-        return true;
-    }
-
-    // Batch device deletion. P1-1 (2026-10-05): the real routes are
-    // `…/devices/delete` and `…/devices/{device_id}/delete`; the old
-    // `/delete_devices` pattern never matched, so plain admin slipped through.
-    if path.ends_with("/devices/delete") || (path.contains("/devices/") && path.ends_with("/delete")) {
-        return true;
-    }
-
-    if path.contains("/purge") {
-        return true;
-    }
-
-    if path.contains("/retention") {
-        return true;
-    }
-
-    // Server info (internal)
-    if path == "/_synapse/admin/info" {
-        return true;
-    }
-
-    // Send server notice
-    if path.contains("/send_server_notice") {
-        return true;
-    }
-
-    // Registration tokens write operations
-    if path.contains("/registration_tokens") && is_write {
-        return true;
-    }
-
-    // Sensitive federation operations
-    if path == "/_synapse/admin/v1/federation/resolve"
-        || path.contains("/federation/blacklist")
-        || path == "/_synapse/admin/v1/federation/cache/clear"
-    {
-        return true;
-    }
-
-    false
-}
-
 fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
     if role == "super_admin" {
         return true;
@@ -358,6 +305,13 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
 
             // Whois
             || path.starts_with("/_synapse/admin/v1/whois")
+
+            // 2026-10-21：这四类此前没有任何前缀覆盖 ⇒ 普通 admin 完全不可用（过严，
+            // 见 docs/audit/ADMIN_RBAC_SURFACE_2026-10-21.md §6）。都是可逆的日常运维。
+            || path.starts_with("/_synapse/admin/v1/invite/")
+            || path == "/_synapse/admin/v1/captcha/cleanup"
+            || path.starts_with("/_synapse/admin/v1/server_notices")
+            || path.starts_with("/_synapse/admin/v1/reports/")
         }
         "auditor" => {
             is_read

@@ -176,7 +176,7 @@ async fn resolve_user(ctx: &AdminContext, identifier: &str) -> Result<AdminUserR
 }
 
 // Moved to admin/mod.rs
-use super::ensure_super_admin_for_privilege_change;
+use super::{ensure_super_admin_for_privilege_change, ensure_super_admin_when_target_is_admin};
 
 /// Query parameters accepted by [`get_users`].
 ///
@@ -437,10 +437,8 @@ pub async fn deactivate_user(
     Path(user_id): Path<UserId>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
-    // A4 (API 路由审计 2026-09-04): 拒绝 admin 停用自己。
-    // 单 admin 部署中，admin 停用自己会失去所有管理能力且无回退；
-    // 多 admin 部署中应要求另一个 admin 来执行。返回 400 而不是 403，
-    // 因为这是业务约束而非权限不足。
+    // A4 (API 路由审计 2026-09-04): 拒绝 admin 停用自己——单 admin 部署会失去全部管理
+    // 能力且无回退。返回 400 而非 403：这是业务约束，不是权限不足。
     if admin.user_id == user_id.as_str() {
         return Err(ApiError::bad_request(
             "Cannot deactivate your own admin account; ask another admin to perform this action".to_string(),
@@ -513,6 +511,7 @@ pub async fn reset_user_password(
     ctx.validator.validate_password(&body.new_password)?;
 
     let user = resolve_user(&ctx, &user_id).await?;
+    ensure_super_admin_when_target_is_admin(user.is_admin, &admin)?;
 
     // P2 #33: 审计日志 - reset_password 操作
     tracing::warn!(
@@ -648,10 +647,8 @@ pub async fn login_as_user(
     let device_id = synapse_common::random_string(10);
     let is_admin = user.is_admin;
 
-    // P0-1 (权限审查 2026-10-05): 禁止普通 admin 互登录到其它管理员账户。
-    // login_as_user 会用目标用户的身份签发 token（含 is_admin 位），
-    // 若目标是 admin/super_admin，普通 admin 可借此获得同级或更高权限的 token。
-    // 因此仅允许 super_admin 对管理员账户执行互登录。
+    // P0-1 (权限审查 2026-10-05): 禁止普通 admin 互登录其它管理员账户——会签发出含
+    // `is_admin` 位的 token，等同获得同级或更高权限。仅 super_admin 可对管理员账户互登录。
     if is_admin {
         crate::routes::admin::ensure_super_admin_for_privilege_change(&admin)?;
     }
@@ -670,10 +667,8 @@ pub async fn login_as_user(
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to generate token", e))?;
 
-    // A1 (API 路由审计 2026-09-04): 显式记录 admin 互登录事件。
-    // `admin_auth_middleware` 会在 HTTP 层面记一次 (POST .../login)，
-    // 但 actor_id 来自最终生效的 token（即 target user），无法溯源到发起 admin。
-    // 这里用发起 admin 的 user_id 记一条独立 action，便于合规审计。
+    // A1 (API 路由审计 2026-09-04): 显式记录 admin 互登录事件。中间件那一次记的 actor_id
+    // 来自最终生效的 token（即 target user），溯源不到发起的 admin，故单独记一条。
     // `record_audit_event` 内部已 warn-兜底，不会因审计失败阻塞 API 响应。
     let request_id = resolve_request_id(&headers);
     if let Err(e) = record_audit_event(
@@ -838,6 +833,11 @@ pub async fn create_or_update_user_v2(
 ) -> Result<Json<Value>, ApiError> {
     if body.admin.is_some() || body.user_type.is_some() {
         ensure_super_admin_for_privilege_change(&admin)?;
+    }
+    // 改密码是另一条接管路径：目标已存在且是管理员时同样要求 super_admin。
+    if body.password.is_some() {
+        let target_is_admin = ctx.user_service.get_user(&user_id).await?.is_some_and(|user| user.is_admin);
+        ensure_super_admin_when_target_is_admin(target_is_admin, &admin)?;
     }
 
     ctx.admin_user_service

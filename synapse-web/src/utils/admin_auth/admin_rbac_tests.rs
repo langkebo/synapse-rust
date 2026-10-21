@@ -75,20 +75,25 @@ fn plain_admin_write_surface_matches_the_register() {
         actual.len()
     );
 
+    // 两类差异一起报：先报 unregistered 再报 stale 的话，每次修完一个方向才能看到另一个，
+    // 而一次收紧几十条规则时这会把反馈循环拖成三四轮。
     let unregistered: Vec<_> = actual.difference(&declared).collect();
-    assert!(
-        unregistered.is_empty(),
-        "these admin write routes are reachable by a plain admin but are **not** registered in \
-         test-support/admin_rbac_write_allowlist.txt:\n{unregistered:#?}\n\
-         Decide explicitly: register them (deliberate) or add them to \
-         `is_super_admin_only_endpoint` (restrict)."
-    );
-
     let stale: Vec<_> = declared.difference(&actual).collect();
-    assert!(
-        stale.is_empty(),
-        "these routes are registered as plain-admin-writable but no longer are — the rule was \
-         tightened or the route was removed:\n{stale:#?}\n\
-         Drop them from test-support/admin_rbac_write_allowlist.txt."
-    );
+    let mut problems: Vec<String> = Vec::new();
+    if !unregistered.is_empty() {
+        problems.push(format!(
+            "reachable by a plain admin but **not** registered in \
+             test-support/admin_rbac_write_allowlist.txt:\n{unregistered:#?}\n\
+             Decide explicitly: register them (deliberate) or add them to \
+             `is_super_admin_only_endpoint` (restrict)."
+        ));
+    }
+    if !stale.is_empty() {
+        problems.push(format!(
+            "registered as plain-admin-writable but no longer reachable (rule tightened or route \
+             removed):\n{stale:#?}\n\
+             Drop them from test-support/admin_rbac_write_allowlist.txt."
+        ));
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n\n"));
 }

@@ -57,6 +57,23 @@ pub(crate) fn ensure_super_admin_for_privilege_change(
     Ok(())
 }
 
+/// 目标是**管理员**时，要求操作者是 super_admin。
+///
+/// 专用于"改密码"这类跨级敏感操作：普通 admin 给普通用户重置密码是合理运维，但目标
+/// 一旦本身是管理员，改密码就等于接管其账号——`/login` 会按目标用户的 `is_admin`
+/// 签发 token，而 `should_require_admin_mfa` 只覆盖 `/_synapse/admin/**`，不拦 `/login`。
+/// 见 `docs/audit/ADMIN_RBAC_SURFACE_2026-10-21.md` §2。
+pub(crate) fn ensure_super_admin_when_target_is_admin(
+    target_is_admin: bool,
+    admin: &crate::routes::AdminUser,
+) -> Result<(), synapse_common::ApiError> {
+    if target_is_admin {
+        ensure_super_admin_for_privilege_change(admin)
+    } else {
+        Ok(())
+    }
+}
+
 /// See [`create_admin_module_router`].
 pub fn create_admin_module_router(state: AppState) -> Router<crate::routes::AppState> {
     let admin_router = Router::new()

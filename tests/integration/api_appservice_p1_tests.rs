@@ -3,7 +3,7 @@ use hyper::{Request, StatusCode};
 use serde_json::json;
 use tower::ServiceExt;
 
-use crate::{get_admin_token, setup_fresh_test_app};
+use crate::{get_admin_token, get_super_admin_token, setup_fresh_test_app};
 
 /// P1-1: 事务推送与事件处理闭环
 /// 验证：AppService 可以接收事件推送，事件正确存储到数据库
@@ -399,7 +399,8 @@ async fn test_appservice_admin_push_event_requires_namespace_ownership() {
         return;
     };
 
-    let (admin_token, _) = get_admin_token(&app).await;
+    // 2026-10-21：`POST /appservices` 与 `…/events` 等同后门，已收紧到 super_admin。
+    let (admin_token, _) = get_super_admin_token(&app).await;
     let as_id = format!("test_as_push_guard_{}", rand::random::<u32>());
     let register_request = Request::builder()
         .method("POST")

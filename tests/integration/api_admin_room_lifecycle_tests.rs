@@ -13,7 +13,8 @@ async fn test_admin_room_lifecycle_management() {
     let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
-    let (admin_token, _) = super::get_admin_token(&app).await;
+    let (admin_token, _) = // 2026-10-21：本用例覆盖 `DELETE /rooms/{room_id}`（不可逆），已收紧到 super_admin。
+    super::get_super_admin_token(&app).await;
 
     // 1. 创建测试用户
     let username = format!("roomowner_{}", rand::random::<u32>());
@@ -589,7 +590,8 @@ async fn test_admin_cascade_redact_succeeds_and_records_no_redaction_event() {
     let Some((app, pool, _cache)) = super::setup_fresh_test_app_with_pool().await else {
         return;
     };
-    let (admin_token, _) = super::get_admin_token(&app).await;
+    let (admin_token, _) = // 2026-10-21：级联撤回不可逆，已收紧到 super_admin（ADMIN_RBAC_SURFACE §3）。
+    super::get_super_admin_token(&app).await;
     let (user_token, _user_id) = admin_room_register_user(&app, "admincascade").await;
     let room_id = admin_room_create_room(&app, &user_token, "Admin cascade redact").await;
 

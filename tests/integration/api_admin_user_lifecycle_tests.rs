@@ -493,3 +493,69 @@ async fn test_admin_login_as_user_writes_audit_event() {
     assert_eq!(row.2, "user");
     assert_eq!(row.3, user_id, "resource_id must be the target user_id");
 }
+
+/// 普通 admin **不能**改 super_admin 的密码。
+///
+/// 改密码是接管账号的捷径：`/login` 按目标用户的 `is_admin` 签发 token，而
+/// `should_require_admin_mfa` 只覆盖 `/_synapse/admin/**`，不拦 `/login`。见
+/// `docs/audit/ADMIN_RBAC_SURFACE_2026-10-21.md` §2。
+#[tokio::test]
+async fn test_plain_admin_cannot_reset_super_admin_password() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let (plain_admin_token, _) = super::get_admin_token(&app).await;
+    let (_super_token, super_localpart) = super::get_super_admin_token(&app).await;
+    let super_id = format!("@{super_localpart}:localhost").replace('@', "%40").replace(':', "%3A");
+
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_synapse/admin/v1/users/{super_id}/password"))
+        .header("Authorization", format!("Bearer {plain_admin_token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "new_password": "NewPassw0rd!" }).to_string()))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "a plain admin resetting a super_admin's password would be a privilege escalation"
+    );
+}
+
+/// 同一守卫不能把正常运维也堵掉：普通 admin 改**普通用户**的密码仍应成功。
+#[tokio::test]
+async fn test_plain_admin_can_reset_plain_user_password() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let (plain_admin_token, _) = super::get_admin_token(&app).await;
+
+    let username = format!("pwd_target_{}", rand::random::<u32>());
+    let register = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "username": username,
+                "password": "Password123!",
+                "auth": { "type": "m.login.dummy" }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let registered = ServiceExt::<Request<Body>>::oneshot(app.clone(), register).await.unwrap();
+    assert_eq!(registered.status(), StatusCode::OK);
+
+    let user_id = format!("@{username}:localhost").replace('@', "%40").replace(':', "%3A");
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_synapse/admin/v1/users/{user_id}/password"))
+        .header("Authorization", format!("Bearer {plain_admin_token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "new_password": "AnotherPassw0rd!" }).to_string()))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "resetting a plain user's password is legitimate admin work");
+}

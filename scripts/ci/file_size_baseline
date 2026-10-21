@@ -202,7 +202,6 @@
 628 synapse-web/src/routes/handlers/search/search.rs
 627 synapse-federation/src/event_auth/state_map_auth.rs
 626 synapse-services/src/admin_federation_service.rs
-625 synapse-web/src/utils/admin_auth.rs
 624 synapse-storage/src/room/api.rs
 624 synapse-storage/src/test_mocks/thread.rs
 623 synapse-services/src/sync_service/types.rs
