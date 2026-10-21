@@ -97,7 +97,6 @@ ipnet = "2.12.0"
 # production build (see test_schema_guard's module docs).
 libc = "0.2"
 criterion = { version = "0.5", features = ["async_tokio"] }
-fake = "2.9"
 quickcheck = "1.0"
 quickcheck_macros = "1.0"
 tempfile = "3"

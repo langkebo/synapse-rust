@@ -1,7 +1,7 @@
 # DEPENDENCY_UPGRADE_TRACKER.md
 
 > 深层重复依赖跟踪表，记录无法通过本地 `[patch]` 解决的 SemVer 不兼容重复依赖。
-> 最后更新: 2026-10-04
+> 最后更新: 2026-10-21
 > 基线: `cargo tree -d --workspace`（在 `cargo update` 后、无本地 `[patch]` 覆盖）
 > 权威口径: 本文件是「SemVer 不兼容深层重复依赖」的**唯一权威来源**；`project_rules.md §17.5` 仅作摘要与指引。
 
@@ -17,7 +17,10 @@ cargo tree -d --workspace
 cargo tree -i <crate>@<version> --depth 1 --workspace
 ```
 
-**当前基线统计（2026-10-04 实测）：**
+**当前基线统计（2026-10-21 复核）：**
+
+> 复核方式：`cargo tree -d --workspace` 按 crate 名聚合。产出 54 个 crate 名，其中 **38 个真正多版本**、**16 个同版本多来源** —— 与 2026-10-04 的 38 / 16 一致。
+> ⚠️ 不要用 `Cargo.lock` 直接数「同名包的 major.minor 不同」来复算本表：该口径会把「同版本多来源」和 tree 的目标差异化结果混进来（实测会得到 51，是错的）。
 
 | 指标 | 值 |
 |------|-----|
@@ -122,7 +125,7 @@ cargo tree -i <crate>@<version> --depth 1 --workspace
 
 | crate | 版本 | 主要引入者 |
 |-------|------|-----------|
-| `rand` | 0.8.7 | `sqlx-postgres 0.8.6`、`num-bigint-dig 0.8.6`、`fake 2.10.0`（dev） |
+| `rand` | 0.8.7 | `sqlx-postgres 0.8.6`、`num-bigint-dig 0.8.6`（via `rsa 0.9.10`） |
 | | 0.9.5 | `opentelemetry_sdk 0.31.0`、● 多个 workspace crate |
 | | 0.10.2 | `quickcheck 1.1.0`（dev）、`vodozemac 0.11.0` |
 | `rand_core` | 0.6.4 | `crypto-common 0.1.7`、`password-hash 0.5.0`、`rand 0.8.7`、`rand_chacha 0.3.1`、`rsa 0.9.10`、`signature 2.2.0` |
@@ -134,7 +137,15 @@ cargo tree -i <crate>@<version> --depth 1 --workspace
 | | 0.3.4 | `rand_core 0.9.5` |
 | | 0.4.3 | `crypto-bigint`、`crypto-common 0.2.2`、`hpke 0.14.1`、`rand 0.10.2`、`tempfile`、`uuid`、`vodozemac 0.11.0` |
 
-**消除路径**：`rand` 0.8（旧一代 RustCrypto/sqlx）与 0.10（新一代码）不受本项目控制；本项目可先把直连的 `rand` 统一到与 `vodozemac 0.11` 相同的 **0.10**（或等 `opentelemetry` 支持）。0.8 分支须待 `sqlx` / `rsa` / `argon2` 迁移。`getrandom` 随 `rand` 链自动收敛。
+**消除路径**：`rand` 0.8（旧一代 RustCrypto/sqlx）与 0.10（新一代码）不受本项目控制；本项目可先把直连的 `rand` 统一到与 `vodozemac 0.11` 相同的 **0.10**（或等 `opentelemetry` 支持）。`getrandom` 随 `rand` 链自动收敛。
+
+**0.8 分支的父节点全在上游手里（2026-10-21 实测）**：
+
+- `fake 2.10.0` 曾是本族第三个父节点，但**全仓没有任何代码引用它**（`fake::`、`use fake`、`Dummy` derive 全部零命中，只有本项目自有的 `FakeUserStore` 同名前缀）。已作为未使用 dev-dependency 删除，连带的 `deunicode` 一并消失（包总数 623 → 621）；`rand 0.8.7` 的父节点因此只剩 `num-bigint-dig`（via `rsa 0.9.10`）与 `sqlx-postgres 0.8.6`。
+- `sqlx 0.9.0` 已经切到 `rand 0.10.1` 与 `rsa 0.10.0-rc.18`（上游注明 `FIXME: when rsa 0.10 is released`），但 **MSRV = 1.94.0**，高于本项目 `rust-toolchain.toml` 的 1.93.0 —— 升 `sqlx` 前必须先升工具链，且 0.9 是大版本（feature 名重排、`sqlite` 拆成 `sqlite-bundled`/`sqlite-unbundled`）。
+- `rsa` 稳定版仍是 0.9.10（0.10 只有 `0.10.0-rc.19` 预发布）。本项目 `rsa` 是 `synapse-services` 的直接依赖，升到 rc 需自行承担 API 稳定性风险。
+
+`argon2` **不是** `rand 0.8` 的直接父节点（它经由 `password-hash` 落在 `rand_core 0.6`），因此升级 `argon2` 不会缩短 0.8 这一代。
 
 **检查频率**：每月
 

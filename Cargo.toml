@@ -131,7 +131,6 @@ tikv-jemallocator = { version = "0.6", features = ["profiling", "unprefixed_mall
 # (B' — keeps the `unsafe` out of the production build).
 libc = "0.2"
 criterion = { version = "0.5", features = ["async_tokio"] }
-fake = "2.9"
 quickcheck = "1.0"
 quickcheck_macros = "1.0"
 tempfile = "3"
