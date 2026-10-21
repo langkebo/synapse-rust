@@ -204,20 +204,17 @@ fn is_super_admin_only_endpoint(method: &Method, path: &str) -> bool {
         return true;
     }
 
-    // Batch device deletion (different from single device deletion)
-    // P1-1 (权限审查 2026-10-05): 真实路由为 `/users/{user_id}/devices/delete`
-    // （批量注销）与 `/users/{user_id}/devices/{device_id}/delete`（兼容版单设备删除），
-    // 原先按 `/delete_devices` 匹配与实际注册路径错位，导致普通 admin 可穿透 RBAC。
+    // Batch device deletion. P1-1 (2026-10-05): the real routes are
+    // `…/devices/delete` and `…/devices/{device_id}/delete`; the old
+    // `/delete_devices` pattern never matched, so plain admin slipped through.
     if path.ends_with("/devices/delete") || (path.contains("/devices/") && path.ends_with("/delete")) {
         return true;
     }
 
-    // Purge room history
     if path.contains("/purge") {
         return true;
     }
 
-    // Retention policy management
     if path.contains("/retention") {
         return true;
     }
@@ -488,6 +485,9 @@ fn decode_base32_secret(secret: &str) -> Option<Vec<u8>> {
         Some(output)
     }
 }
+
+#[cfg(test)]
+mod admin_rbac_tests;
 
 #[cfg(test)]
 mod tests {
