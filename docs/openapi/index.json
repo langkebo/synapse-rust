@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "generated_at": "2026-10-20T09:12:21Z",
+  "generated_at": "2026-10-21T04:54:20Z",
   "primary_profile": "default",
   "specs": {
     "default": {
@@ -11,10 +11,62 @@
         "worker_enabled": false,
         "saml_enabled": false
       },
-      "ledger_generated_at": "2026-10-20T09:12:21Z",
+      "ledger_generated_at": "2026-10-21T04:54:11Z",
       "client_server_endpoints": 394,
       "operations": 394,
       "tags": 42
+    },
+    "oidc": {
+      "file": "openapi/client-oidc.yaml",
+      "ledger_file": "scripts/api_test/reports/ledger_oidc.json",
+      "profile_flags": {
+        "oidc_enabled": true,
+        "worker_enabled": false,
+        "saml_enabled": false
+      },
+      "ledger_generated_at": "2026-10-21T04:54:14Z",
+      "client_server_endpoints": 402,
+      "operations": 402,
+      "tags": 43
+    },
+    "worker": {
+      "file": "openapi/client-worker.yaml",
+      "ledger_file": "scripts/api_test/reports/ledger_worker.json",
+      "profile_flags": {
+        "oidc_enabled": false,
+        "worker_enabled": true,
+        "saml_enabled": false
+      },
+      "ledger_generated_at": "2026-10-21T04:54:17Z",
+      "client_server_endpoints": 394,
+      "operations": 394,
+      "tags": 42
+    },
+    "saml": {
+      "file": "openapi/client-saml.yaml",
+      "ledger_file": "scripts/api_test/reports/ledger_saml.json",
+      "profile_flags": {
+        "oidc_enabled": true,
+        "worker_enabled": false,
+        "saml_enabled": true
+      },
+      "ledger_generated_at": "2026-10-21T04:54:18Z",
+      "client_server_endpoints": 402,
+      "operations": 402,
+      "tags": 43
+    },
+    "all": {
+      "file": "openapi/client-all.yaml",
+      "ledger_file": "scripts/api_test/reports/ledger_all.json",
+      "profile_flags": {
+        "oidc_enabled": true,
+        "worker_enabled": true,
+        "saml_enabled": true
+      },
+      "ledger_generated_at": "2026-10-21T04:54:20Z",
+      "client_server_endpoints": 402,
+      "operations": 402,
+      "tags": 43
     }
   }
 }
