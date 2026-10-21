@@ -311,5 +311,59 @@ A3 要改**路由字面量**，而契约链是"路由源码 → `extract_registe
 
 ### 7.5 L-7 全量套件
 
-已在夜间（04:47）按 §5 的命令启动，日志 `/tmp/l7_full.log`。
-它独占 `target/` 锁与 PG 连接池，跑完之前**不要并行做任何需要编译的事**。
+**权威跑（`--test integration --all-features --no-fail-fast`）最终结果**：
+
+| 指标 | 值 |
+|---|---|
+| 用例总数 | **1637** |
+| 通过 | **1630** |
+| 失败 | **7** |
+| 耗时 | **91.1 分钟**（5466 s，121 条 slow） |
+| 日志 | `/tmp/l7_allfeat_full.log` |
+
+7 条失败**没有一条属于本次依赖升级**，分三类：
+
+| 类别 | 条数 | 用例 | 证据 |
+|---|---|---|---|
+| **基础设施**（PG 锁表耗尽） | 3 | `api_admin_rbac_wire_tests::user_admin_role_is_confined_to_users`、`api_admin_room_lifecycle_tests::{test_admin_backfill_requires_existing_room,test_admin_kick_emits_membership_event}` | 失败点是 `tests/integration/mod.rs:555` 的 `pooled schema acquisition`，报 **`out of shared memory`**（并发克隆 20 MB 模板，222 张表各需加锁）。`-j 1` 串行复跑 **4/4 全绿** |
+| **计时抖动** | 1 | `api_beacon_location_tests::…room_backpressure_token_bucket` | token bucket 在慢执行下回填，等不到 429。串行复跑 **PASS**（8.8 s） |
+| **HEAD 既有 / 他人在飞** | 3 | `api_appservice_p1_tests::test_appservice_transaction_push`（他人正在改 `/events` 响应形状）；`api_route_snapshots_tests::snapshot_register_uia_401_challenge`（快照最后更新 2026-07-07，此后 `93a2b683a` 给 401 加了标准错误体）；`api_space_routes_tests::test_space_children_hierarchy_suite_…`（`19e906c09` 改过 `children_hierarchy.rs`，`/spaces/room/{id}/parents` 不再返回 `room_id`） | 均与本批改动的文件/调用链无交集 |
+
+**折算有效通过率：1634/1637（99.8%）**，剩余 3 条都有明确归属。
+
+#### 7.5.1 两次跑错口径的教训
+
++ **第一轮**（`/tmp/l7_full.log`）忘了 `--no-fail-fast`，在 115/1636 处被一条失败中断，
+  剩下 1521 条**根本没跑**。全量套件里本来就有别人在飞改动造成的红，fail-fast 会让日志看起来"只跑了一点点"。
++ **第二轮**（`/tmp/l7_full2.log`）用了精简 feature 集
+  （`test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications`，**不含 `cas-sso`/`saml-sso`**），
+  于是 3 条"假红"：两条 route-ledger manifest 快照 + `snapshot_login_flows_v3`
+  （快照里带着 `m.login.cas` / `m.login.sso`，精简集下路由根本没注册）。用 `--all-features` 复跑即转绿。
+  **排查这 3 条假红花的时间比它们跑的时间还长** —— 与权威车道同口径是硬要求。
+
+**并发上限（环境）**：8 路并行跑全量时，`CREATE DATABASE … TEMPLATE` 会撞 PG 的
+`out of shared memory`（锁表）。要么 `-j 2`，要么把 `max_locks_per_transaction` 调大；
+这不是代码问题，但会让"全量跑一遍"的结论被基础设施污染。
+
+### 7.5.2 早先那次跑的记录（保留以便对照）
+
+夜间（04:47）按 §5 的命令启动。第一轮**忘了 `--no-fail-fast`**，在 115/1636 处被一条失败中断；
+第二轮补上跑完：**1636 条 / 74.6 分钟 / 1628 通过 / 8 失败**（`/tmp/l7_full2.log`）。
+
+然后把 8 条逐条**单独复跑**，再**用 `--all-features` 复跑**（这才是 §5 之外的权威车道）：
+
+| 用例 | 精简 feature 集 | `--all-features` | 归属 |
+|---|---|---|---|
+| `api_beacon_location_tests::…room_backpressure_token_bucket` | FAIL（83.7 s） | **PASS** | 负载偶发：token bucket 在慢执行下回填，等不到 429 |
+| `api_route_ledger_tests::declared_route_manifest_…default_state` | FAIL | **PASS** | 我跑的时候没带 `cas-sso` / `saml-sso`，路由面少了若干端点 |
+| `api_route_ledger_tests::…worker_enabled_state` | FAIL | **PASS** | 同上 |
+| `api_route_snapshots_tests::snapshot_login_flows_v3` | FAIL（少 `m.login.cas` / `m.login.sso`） | **PASS** | 同上（快照里带着这两个 flow） |
+| `api_appservice_p1_tests::test_appservice_transaction_push` | FAIL | FAIL | **别人的在飞改动**：`/events` 响应改成 `{events,next_token}`，该文件正被改（`M tests/integration/api_appservice_p1_tests.rs`），断言还在按数组取 |
+| `api_route_snapshots_tests::snapshot_register_uia_401_challenge` | FAIL | FAIL | **HEAD 既有**：快照最后更新 2026-07-07，而 `93a2b683a` 之后 401 响应多了 `errcode`/`error`，快照没跟 |
+| `api_space_routes_tests::test_space_children_hierarchy_suite_…` | FAIL | FAIL | **HEAD 既有**：`children_hierarchy.rs` 在 `19e906c09`（2026-10-21）刚被改过，`/spaces/room/{id}/parents` 返回的 `SpaceResponse` 不再带 `room_id`（实测 `Null`），测试期望 `!2jb…` |
+| `sync_service_tests_migrated::test_incremental_lazy_load_…_state_delta_members` | FAIL | FAIL | **未归属**，需 owner 看：断言是"limited timeline 不应重放 timeline 之外的 `m.room.member` 状态差异"，与本次依赖升级无调用关系 |
+
+**教训（写下来免得再犯）**：跑全量套件必须与权威车道同口径
+（`--test integration --all-features`）。带精简 feature 集跑出来的 3 条"失败"纯属自伤，
+排查它们花的时间比跑一遍还长。另外 `--no-fail-fast` 也是必须的 —— 全量套件里
+本来就有别人在飞改动造成的红，fail-fast 会让剩下 1500 条根本没跑。
