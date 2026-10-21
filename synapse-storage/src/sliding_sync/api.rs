@@ -97,6 +97,14 @@ pub trait SlidingSyncStoreApi: Send + Sync {
         room_id: &str,
         conn_id: Option<&str>,
     ) -> Result<Option<SlidingSyncRoom>, sqlx::Error>;
+    /// See [`get_rooms_batch`].
+    async fn get_rooms_batch(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        room_ids: &[String],
+        conn_id: Option<&str>,
+    ) -> Result<std::collections::HashMap<String, SlidingSyncRoom>, sqlx::Error>;
     /// See [`materialize_room_from_activity`].
     async fn materialize_room_from_activity(
         &self,
@@ -303,6 +311,15 @@ impl SlidingSyncStoreApi for SlidingSyncStorage {
         conn_id: Option<&str>,
     ) -> Result<Option<SlidingSyncRoom>, sqlx::Error> {
         self.get_room(user_id, device_id, room_id, conn_id).await
+    }
+    async fn get_rooms_batch(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        room_ids: &[String],
+        conn_id: Option<&str>,
+    ) -> Result<std::collections::HashMap<String, SlidingSyncRoom>, sqlx::Error> {
+        self.get_rooms_batch(user_id, device_id, room_ids, conn_id).await
     }
     async fn materialize_room_from_activity(
         &self,

@@ -115,6 +115,44 @@ impl RoomSummaryService {
         Ok(content.as_ref().and_then(extract_allowed_room_ids))
     }
 
+    /// Batch variant of [`resolve_allowed_room_ids`] that resolves the
+    /// restricted join-rule parents for many rooms with a single state query.
+    /// Rooms with no `allowed_room_ids` (non-restricted join rule, or a storage
+    /// error surfaced as fail-closed) are simply absent from the map.
+    pub async fn resolve_allowed_room_ids_batch(
+        &self,
+        room_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, Vec<String>>, ApiError> {
+        if room_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let events_res = self.event_reader.get_state_events_by_type_batch(room_ids, "m.room.join_rules").await;
+
+        let events_map = match events_res {
+            Ok(events) => events,
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "Failed to load m.room.join_rules batch for allowed_room_ids; returning empty map"
+                );
+                return Ok(std::collections::HashMap::new());
+            }
+        };
+
+        Ok(events_map
+            .into_iter()
+            .filter_map(|(room_id, events)| {
+                events
+                    .into_iter()
+                    .find(|event| event.state_key.as_deref().unwrap_or_default().is_empty())
+                    .map(|event| event.content)
+                    .and_then(|content| extract_allowed_room_ids(&content))
+                    .map(|allowed| (room_id, allowed))
+            })
+            .collect())
+    }
+
     /// Batch variant of [`get_heroes`] that fetches heroes for multiple rooms
     /// in a single query, returning heroes keyed by `room_id`.
     pub(crate) async fn get_heroes_batch(

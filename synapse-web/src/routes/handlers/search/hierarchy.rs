@@ -223,12 +223,24 @@ async fn annotate_allowed_room_ids(ctx: &RoomContext, response: &mut Value) -> R
         return Ok(());
     };
 
+    let room_ids: Vec<String> = rooms
+        .iter()
+        .filter_map(|room| room.get("room_id").and_then(|value| value.as_str()).map(str::to_owned))
+        .collect();
+
+    if room_ids.is_empty() {
+        return Ok(());
+    }
+
+    // One state query for the whole page instead of one per room.
+    let allowed_by_room = ctx.room_summary_service.resolve_allowed_room_ids_batch(&room_ids).await?;
+
     for room in rooms.iter_mut() {
-        let Some(room_id) = room.get("room_id").and_then(|value| value.as_str()).map(str::to_owned) else {
+        let Some(room_id) = room.get("room_id").and_then(|value| value.as_str()) else {
             continue;
         };
 
-        if let Some(allowed_room_ids) = ctx.room_summary_service.resolve_allowed_room_ids(&room_id).await? {
+        if let Some(allowed_room_ids) = allowed_by_room.get(room_id) {
             if let Some(object) = room.as_object_mut() {
                 object.insert("allowed_room_ids".to_string(), json!(allowed_room_ids));
             }

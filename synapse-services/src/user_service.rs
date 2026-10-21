@@ -297,11 +297,11 @@ impl UserService {
             match joined_rooms {
                 Ok(rooms) => {
                     let mut destinations: std::collections::HashSet<String> = std::collections::HashSet::new();
-                    for room_id in &rooms {
-                        let members = ms.get_joined_members(room_id).await;
-                        match members {
-                            Ok(m) => {
-                                for member in m {
+                    // One query for all shared rooms instead of one per room.
+                    match ms.get_members_batch(&rooms, "join").await {
+                        Ok(members_by_room) => {
+                            for members in members_by_room.into_values() {
+                                for member in members {
                                     if let Some(pos) = member.user_id.find(':') {
                                         let server = &member.user_id[pos + 1..];
                                         if server != server_name {
@@ -310,9 +310,9 @@ impl UserService {
                                     }
                                 }
                             }
-                            Err(e) => {
-                                ::tracing::warn!(%e, %room_id, %user_id, "MSC4262: failed to get room members for profile update EDU");
-                            }
+                        }
+                        Err(e) => {
+                            ::tracing::warn!(%e, %user_id, "MSC4262: failed to get room members for profile update EDU");
                         }
                     }
 
@@ -359,19 +359,19 @@ impl UserService {
 
             let mut notified_users: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-            for room_id in joined_rooms {
-                let members = match ms.get_joined_members(&room_id).await {
-                    Ok(m) => m,
-                    Err(e) => {
-                        ::tracing::warn!(%e, %room_id, %user_id, "MSC4204: failed to get room members for profile update notification");
-                        continue;
+            // One query for all shared rooms instead of one per room.
+            match ms.get_members_batch(&joined_rooms, "join").await {
+                Ok(members_by_room) => {
+                    for members in members_by_room.into_values() {
+                        for member in members {
+                            if member.user_id != user_id && notified_users.insert(member.user_id.clone()) {
+                                self.with_event_notifier(|en| en.notify_user(&member.user_id));
+                            }
+                        }
                     }
-                };
-
-                for member in members {
-                    if member.user_id != user_id && notified_users.insert(member.user_id.clone()) {
-                        self.with_event_notifier(|en| en.notify_user(&member.user_id));
-                    }
+                }
+                Err(e) => {
+                    ::tracing::warn!(%e, user_id, "MSC4204: failed to get room members for profile update notification");
                 }
             }
 

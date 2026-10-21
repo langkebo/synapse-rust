@@ -161,6 +161,19 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_cause("Failed to get room members", e))
     }
 
+    /// See [`get_members_batch`]：一次查询覆盖多个房间，供列表类调用方替代
+    /// 「逐房间 `get_room_members_by_membership`」的 N+1。
+    pub async fn get_members_batch(
+        &self,
+        room_ids: &[String],
+        membership: &str,
+    ) -> ApiResult<std::collections::HashMap<String, Vec<storage::RoomMember>>> {
+        self.member_storage
+            .get_members_batch(room_ids, membership)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to get room members batch", e))
+    }
+
     /// See [`has_any_non_banned_member_from_server`].
     pub async fn has_any_non_banned_member_from_server(&self, room_id: &str, server_name: &str) -> ApiResult<bool> {
         self.member_storage

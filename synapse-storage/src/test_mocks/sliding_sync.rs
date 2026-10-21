@@ -264,6 +264,25 @@ impl crate::sliding_sync::SlidingSyncStoreApi for InMemorySlidingSyncStore {
             .cloned())
     }
 
+    async fn get_rooms_batch(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        room_ids: &[String],
+        conn_id: Option<&str>,
+    ) -> Result<std::collections::HashMap<String, crate::sliding_sync::SlidingSyncRoom>, sqlx::Error> {
+        let rooms = self.rooms.read().await;
+        let cid = conn_id.map(|s| s.to_string());
+        Ok(room_ids
+            .iter()
+            .filter_map(|room_id| {
+                rooms
+                    .get(&(user_id.to_string(), device_id.to_string(), cid.clone(), room_id.clone()))
+                    .map(|room| (room_id.clone(), room.clone()))
+            })
+            .collect())
+    }
+
     async fn materialize_room_from_activity(
         &self,
         user_id: &str,

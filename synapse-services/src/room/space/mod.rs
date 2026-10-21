@@ -398,6 +398,19 @@ impl SpaceService {
             .map_err(|e| ApiError::internal_with_cause("Failed to check space visibility", e))
     }
 
+    /// See [`get_space_visibility_batch`].
+    #[instrument(skip(self))]
+    pub async fn get_space_visibility_batch(
+        &self,
+        space_ids: &[String],
+        user_id: Option<&str>,
+    ) -> Result<std::collections::HashMap<String, bool>, ApiError> {
+        self.space_storage
+            .get_space_visibility_batch(space_ids, user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to check space visibility batch", e))
+    }
+
     // ── Access helpers ──
 
     /// See [`ensure_room_creator_access`].

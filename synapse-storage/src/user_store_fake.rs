@@ -424,8 +424,9 @@ impl UserStore for FakeUserStore {
         Ok(HashMap::new())
     }
 
-    async fn get_users_batch(&self, _user_ids: &[String]) -> Result<Vec<User>, sqlx::Error> {
-        Ok(vec![])
+    async fn get_users_batch(&self, user_ids: &[String]) -> Result<Vec<User>, sqlx::Error> {
+        let users = self.users.read().await;
+        Ok(user_ids.iter().filter_map(|user_id| users.get(user_id).cloned()).collect())
     }
 
     async fn get_users_map(&self, _user_ids: &[String]) -> Result<HashMap<String, User>, sqlx::Error> {

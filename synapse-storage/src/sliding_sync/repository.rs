@@ -376,6 +376,42 @@ impl SlidingSyncStorage {
         .await
     }
 
+    /// See [`get_rooms_batch`].
+    ///
+    /// Batch variant of [`get_room`]: resolves every requested room in one
+    /// query. Rooms that were never materialised are absent from the map, so
+    /// callers can fall back to [`materialize_room_from_activity`] only for
+    /// the misses.
+    pub async fn get_rooms_batch(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        room_ids: &[String],
+        conn_id: Option<&str>,
+    ) -> Result<std::collections::HashMap<String, SlidingSyncRoom>, sqlx::Error> {
+        if room_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let rows = sqlx::query_as::<_, SlidingSyncRoom>(
+            r#"
+            SELECT id, user_id, device_id, room_id, conn_id, list_key, bump_stamp,
+                highlight_count, notification_count, is_dm, is_encrypted, is_tombstoned,
+                is_invited, name, avatar, timestamp, created_ts, updated_ts FROM sliding_sync_rooms
+            WHERE user_id = $1 AND device_id = $2 AND room_id = ANY($3)
+                AND (conn_id = $4 OR ($4 IS NULL AND conn_id IS NULL))
+            "#,
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(room_ids)
+        .bind(conn_id)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(|room| (room.room_id.clone(), room)).collect())
+    }
+
     /// See [`materialize_room_from_activity`].
     pub async fn materialize_room_from_activity(
         &self,

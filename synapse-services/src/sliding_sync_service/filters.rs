@@ -125,12 +125,20 @@ impl SlidingSyncService {
 
         if let Some(subscriptions) = &request.room_subscriptions {
             if let Some(subs_obj) = subscriptions.as_object() {
+                // One query resolves every subscribed room; only the misses
+                // (never materialised) fall back to the per-room materialiser.
+                let subscribed_ids: Vec<String> = subs_obj.keys().cloned().collect();
+                let mut rooms = self.storage.get_rooms_batch(user_id, device_id, &subscribed_ids, conn_id).await?;
+
                 for (room_id, config_value) in subs_obj {
                     room_configs.insert(room_id.clone(), Self::subscription_config_from_value(Some(config_value)));
-                    let room = if let Some(room) = self.storage.get_room(user_id, device_id, room_id, conn_id).await? {
-                        Some(room)
-                    } else {
-                        self.storage.materialize_room_from_activity(user_id, device_id, room_id, conn_id, None).await?
+                    let room = match rooms.remove(room_id) {
+                        Some(room) => Some(room),
+                        None => {
+                            self.storage
+                                .materialize_room_from_activity(user_id, device_id, room_id, conn_id, None)
+                                .await?
+                        }
                     };
 
                     if let Some(room) = room {

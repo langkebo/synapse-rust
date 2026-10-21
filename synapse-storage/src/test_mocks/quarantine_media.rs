@@ -54,6 +54,33 @@ impl QuarantinedMediaChangeStoreApi for InMemoryQuarantineMediaChangeStore {
         Ok(stream_id)
     }
 
+    async fn record_media_quarantine_changes_batch(
+        &self,
+        media_ids: &[String],
+        server_name: &str,
+        change_type: &str,
+        changed_by: &str,
+        now_ts: i64,
+    ) -> Result<Option<i64>, ApiError> {
+        let mut last_stream_id = None;
+        for media_id in media_ids {
+            let stream_id =
+                self.record_media_quarantine_change(media_id, server_name, change_type, changed_by, now_ts).await?;
+            last_stream_id = Some(stream_id);
+        }
+        Ok(last_stream_id)
+    }
+
+    async fn set_media_quarantine_status_batch(
+        &self,
+        media_ids: &[String],
+        _server_name: &str,
+        _quarantine_status: &str,
+    ) -> Result<u64, ApiError> {
+        // No media_metadata table in this in-memory double; report as no-op.
+        Ok(media_ids.len() as u64)
+    }
+
     async fn get_quarantined_media_changes(
         &self,
         since_stream_id: i64,

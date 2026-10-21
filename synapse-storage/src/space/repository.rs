@@ -898,13 +898,51 @@ impl SpaceStorage {
         }
     }
 
+    /// See [`get_space_visibility_batch`].
+    ///
+    /// Batch variant of [`check_user_can_see_space`]: one query resolves the
+    /// public flag and the caller's membership for many spaces at once. Spaces
+    /// that no longer exist are absent from the map, so callers that need the
+    /// existence check get it for free.
+    pub async fn get_space_visibility_batch(
+        &self,
+        space_ids: &[String],
+        user_id: Option<&str>,
+    ) -> Result<HashMap<String, bool>, sqlx::Error> {
+        if space_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let rows: Vec<(String, bool, bool)> = sqlx::query_as(
+            r#"
+            SELECT
+                s.space_id,
+                s.is_public,
+                EXISTS (
+                    SELECT 1 FROM space_members sm
+                    WHERE sm.space_id = s.space_id AND sm.user_id = $2 AND sm.membership = 'join'
+                ) AS is_member
+            FROM spaces s
+            WHERE s.space_id = ANY($1)
+            "#,
+        )
+        .bind(space_ids)
+        .bind(user_id)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(|(space_id, is_public, is_member)| (space_id, is_public || is_member)).collect())
+    }
+
     /// See [`get_parent_spaces`].
     pub async fn get_parent_spaces(&self, room_id: &str) -> Result<Vec<Space>, sqlx::Error> {
         let children = self.get_child_spaces(room_id).await?;
-        let mut parent_spaces = Vec::new();
+        let child_room_ids: Vec<String> = children.iter().map(|child| child.room_id.clone()).collect();
+        let mut spaces_by_room = self.get_spaces_by_rooms_batch(&child_room_ids).await?;
 
+        let mut parent_spaces = Vec::new();
         for child in children {
-            if let Some(space) = self.get_space(&child.space_id).await? {
+            if let Some(space) = spaces_by_room.remove(&child.room_id) {
                 parent_spaces.push(space);
             }
         }

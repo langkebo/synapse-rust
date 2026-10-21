@@ -2190,12 +2190,40 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 <!-- sqlx-plan-numbers:start -->
 <!-- 以下数字由 `scripts/ci/check_plan_numbers_fresh.sh` 与基线/实测现算比对；改基线必须同步改这里。 -->
-BASELINE_DYNAMIC_PRODUCTION=115
+BASELINE_DYNAMIC_PRODUCTION=119
 BASELINE_DYNAMIC_TEST_INFRA=768
 BASELINE_STATIC=1376
 BASELINE_QUERY_BUILDER=17
 SQLX_CACHE_ENTRIES=1339
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-21 更新（P0-1 续：空间列表 N+1 消除）**，数字块一项按实测同步：
+> - `BASELINE_DYNAMIC_PRODUCTION` **115 → 116**（+1）：`/spaces/statistics`、
+>   `/spaces/{id}/children` 的父空间列表、`/rooms/{id}/hierarchy` 路径三处原先
+>   逐条调 `get_space` + `check_user_can_see_space`（一页最多 500 次 × 2）。
+>   新增 `SpaceStorage::get_space_visibility_batch(space_ids, user_id)`，一条
+>   `WHERE s.space_id = ANY($1)` + `EXISTS(space_members …)` 覆盖整页；同时
+>   `get_parent_spaces` 改为复用既有 `get_spaces_by_rooms_batch`（零新增 SQL）。
+>   `ANY($1)` 数组绑定同样无法离线由 `query_as!` 校验，沿用运行时 `sqlx::query_as`。
+>   收紧方向：CI 接入 PG 后回退为静态宏并把基线落回 115。
+>   逐文件 literal 棘轮同步 `synapse-storage/src/space/repository.rs` 3 → 4。
+>   `BASELINE_DYNAMIC`（兼容行）883 → 884；其余四项不变。
+
+> **2026-10-21 更新（P0-1 同类：sliding sync 订阅与 admin media 房间隔离）**：
+> - `BASELINE_DYNAMIC_PRODUCTION` **116 → 119**（+3）：
+>   ① `sliding_sync_service::build_rooms_response` 原先对每个 `room_subscriptions`
+>   条目调一次 `get_room`，现由 `SlidingSyncStorage::get_rooms_batch` 一条
+>   `room_id = ANY($3)` + `conn_id` 可空匹配覆盖整页，仅未物化的房间回落
+>   `materialize_room_from_activity`；
+>   ②③ `AdminMediaService::{quarantine,unquarantine}_room_media` 原对最多 1000 条
+>   media 各做一次 INSERT + 一次 UPDATE，现由
+>   `record_media_quarantine_changes_batch`（`INSERT … SELECT … FROM unnest($1)`）
+>   与 `set_media_quarantine_status_batch`（`media_id = ANY($3)`）各一次完成。
+>   `ANY(…)` / `unnest(…)` 同样无法离线由静态宏校验，沿用运行时 `sqlx::query*`。
+>   收紧方向：CI 接入 PG 后回退为静态宏并把基线落回 116。
+>   逐文件 literal 棘轮新增 `sliding_sync/repository.rs` 1 与
+>   `media/quarantine_stream.rs` 2（合计 51 → 54）；`BASELINE_DYNAMIC`（兼容行）
+>   884 → 887；其余四项不变。
 
 > **2026-10-21 更新（P0-1：threads 列表 N+1 消除）**，数字块一项按实测同步：
 > - `BASELINE_DYNAMIC_PRODUCTION` **114 → 115**（+1）：`list_threads` / `list_all_threads`

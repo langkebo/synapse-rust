@@ -117,6 +117,19 @@ pub(super) async fn get_space_hierarchy_v1(
     .await
 }
 
+/// Drops spaces the caller may not see, resolving visibility for the whole list
+/// in one query instead of one round trip per space.
+async fn retain_visible_spaces(
+    ctx: &RoomContext,
+    spaces: Vec<synapse_services::room::space::Space>,
+    auth_user: &OptionalAuthenticatedUser,
+) -> Result<Vec<synapse_services::room::space::Space>, ApiError> {
+    let space_ids: Vec<String> = spaces.iter().map(|space| space.space_id.clone()).collect();
+    let visible = ctx.space_service.get_space_visibility_batch(&space_ids, auth_user.user_id.as_deref()).await?;
+
+    Ok(spaces.into_iter().filter(|space| visible.get(&space.space_id).copied().unwrap_or(false)).collect())
+}
+
 /// See [`get_parent_spaces`].
 pub(super) async fn get_parent_spaces(
     State(ctx): State<RoomContext>,
@@ -124,13 +137,7 @@ pub(super) async fn get_parent_spaces(
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let spaces = ctx.space_service.get_parent_spaces(&room_id).await?;
-
-    let mut visible_spaces = Vec::new();
-    for space in spaces {
-        if can_user_view_space(&ctx, &space, &auth_user).await? {
-            visible_spaces.push(space);
-        }
-    }
+    let visible_spaces = retain_visible_spaces(&ctx, spaces, &auth_user).await?;
 
     Ok(json_vec_from::<_, SpaceResponse>(visible_spaces))
 }
@@ -143,13 +150,7 @@ pub(super) async fn get_space_tree_path(
 ) -> Result<impl IntoResponse, ApiError> {
     with_visible_space(ctx, space_id.to_string(), auth_user, |ctx, space, auth_user| async move {
         let path = ctx.space_service.get_space_tree_path(&space.space_id).await?;
-
-        let mut visible_path = Vec::new();
-        for ancestor in path {
-            if can_user_view_space(&ctx, &ancestor, &auth_user).await? {
-                visible_path.push(ancestor);
-            }
-        }
+        let visible_path = retain_visible_spaces(&ctx, path, &auth_user).await?;
 
         Ok(json_vec_from::<_, SpaceResponse>(visible_path))
     })

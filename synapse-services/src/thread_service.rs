@@ -633,17 +633,30 @@ impl ThreadService {
 
         let next_batch = if has_more { page.last().map(|s| s.thread_id.clone()) } else { None };
 
-        let mut threads = Vec::new();
+        let mut ids_by_room: HashMap<&str, Vec<String>> = HashMap::new();
         for subscription in &page {
-            if let Some(summary) = self
+            ids_by_room.entry(subscription.room_id.as_str()).or_default().push(subscription.thread_id.clone());
+        }
+
+        let mut summaries_by_key: HashMap<(String, String), ThreadSummary> = HashMap::new();
+        for (room_id, thread_ids) in ids_by_room {
+            let rows = self
                 .storage
-                .get_thread_summary(&subscription.room_id, &subscription.thread_id)
+                .get_thread_summaries(room_id, &thread_ids)
                 .await
-                .map_err(|e| ApiError::internal_with_cause("Failed to get subscribed thread", e))?
-            {
-                threads.push(summary);
+                .map_err(|e| ApiError::internal_with_cause("Failed to get subscribed threads", e))?;
+            for row in rows {
+                summaries_by_key.insert((row.room_id.clone(), row.thread_id.clone()), row);
             }
         }
+
+        // 与逐条查询语义一致：摘要缺失的订阅只保留在 `subscribed`，不进 `threads`。
+        let threads = page
+            .iter()
+            .filter_map(|subscription| {
+                summaries_by_key.remove(&(subscription.room_id.clone(), subscription.thread_id.clone()))
+            })
+            .collect();
 
         Ok(SubscribedThreadsResponse { threads, subscribed: page, next_batch })
     }

@@ -178,22 +178,26 @@ pub(super) async fn get_space_statistics(
 ) -> Result<impl IntoResponse, ApiError> {
     let limit: i64 = query.limit.unwrap_or(100).clamp(1, 500);
     let stats: Vec<serde_json::Value> = ctx.space_service.get_space_statistics(limit).await?;
-    let mut visible_stats: Vec<serde_json::Value> = Vec::new();
 
-    for stat in stats {
-        let Some(space_id) = stat.get("space_id").and_then(serde_json::Value::as_str) else {
-            continue;
-        };
+    // One visibility query for the whole page (public, or joined by the caller)
+    // replaces the previous per-row `get_space` + `check_user_can_see_space`.
+    let space_ids: Vec<String> = stats
+        .iter()
+        .filter_map(|stat| stat.get("space_id").and_then(serde_json::Value::as_str))
+        .map(ToOwned::to_owned)
+        .collect();
+    let visible = ctx.space_service.get_space_visibility_batch(&space_ids, auth_user.user_id.as_deref()).await?;
 
-        let space_opt: Option<synapse_services::room::space::Space> = ctx.space_service.get_space(space_id).await?;
-        let Some(space) = space_opt else {
-            continue;
-        };
-
-        if can_user_view_space(&ctx, &space, &auth_user).await? {
-            visible_stats.push(stat);
-        }
-    }
+    let visible_stats: Vec<serde_json::Value> = stats
+        .into_iter()
+        .filter(|stat| {
+            stat.get("space_id")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|space_id| visible.get(space_id))
+                .copied()
+                .unwrap_or(false)
+        })
+        .collect();
 
     Ok(Json(visible_stats))
 }

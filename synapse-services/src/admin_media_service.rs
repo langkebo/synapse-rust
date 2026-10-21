@@ -198,33 +198,21 @@ impl AdminMediaService {
         // Get all media in the room
         let page = self.storage.get_room_media(room_id, 1000, None).await?;
 
-        let mut last_stream_id = 0i64;
         let now_ts = current_timestamp_millis();
+        let media_ids = Self::room_media_ids(&page, user_id);
+        let server_name = self.server_name.as_str();
 
-        for media in &page.media {
-            // Filter by user_id if specified
-            if let Some(uid) = user_id {
-                if media.uploader_user_id.as_deref() != Some(uid) {
-                    continue;
-                }
-            }
-
-            let server_name = self.server_name.as_str();
-            let stream_id = self
-                .quarantine_change_storage
-                .record_media_quarantine_change(&media.media_id, server_name, "quarantine", changed_by, now_ts)
-                .await?;
-
-            self.quarantine_change_storage
-                .set_media_quarantine_status(&media.media_id, server_name, "quarantined")
-                .await?;
-
-            last_stream_id = stream_id;
-        }
-
-        if last_stream_id == 0 {
+        let Some(last_stream_id) = self
+            .quarantine_change_storage
+            .record_media_quarantine_changes_batch(&media_ids, server_name, "quarantine", changed_by, now_ts)
+            .await?
+        else {
             return Err(ApiError::not_found("No media found in room".to_string()));
-        }
+        };
+
+        self.quarantine_change_storage
+            .set_media_quarantine_status_batch(&media_ids, server_name, "quarantined")
+            .await?;
 
         Ok(last_stream_id)
     }
@@ -246,33 +234,30 @@ impl AdminMediaService {
         // Get all media in the room
         let page = self.storage.get_room_media(room_id, 1000, None).await?;
 
-        let mut last_stream_id = 0i64;
         let now_ts = current_timestamp_millis();
+        let media_ids = Self::room_media_ids(&page, user_id);
+        let server_name = self.server_name.as_str();
 
-        for media in &page.media {
-            // Filter by user_id if specified
-            if let Some(uid) = user_id {
-                if media.uploader_user_id.as_deref() != Some(uid) {
-                    continue;
-                }
-            }
-
-            let server_name = self.server_name.as_str();
-            let stream_id = self
-                .quarantine_change_storage
-                .record_media_quarantine_change(&media.media_id, server_name, "unquarantine", changed_by, now_ts)
-                .await?;
-
-            self.quarantine_change_storage.set_media_quarantine_status(&media.media_id, server_name, "").await?;
-
-            last_stream_id = stream_id;
-        }
-
-        if last_stream_id == 0 {
+        let Some(last_stream_id) = self
+            .quarantine_change_storage
+            .record_media_quarantine_changes_batch(&media_ids, server_name, "unquarantine", changed_by, now_ts)
+            .await?
+        else {
             return Err(ApiError::not_found("No media found in room".to_string()));
-        }
+        };
+
+        self.quarantine_change_storage.set_media_quarantine_status_batch(&media_ids, server_name, "").await?;
 
         Ok(last_stream_id)
+    }
+
+    /// Media ids from a room page, optionally narrowed to one uploader.
+    fn room_media_ids(page: &AdminMediaPage, user_id: Option<&str>) -> Vec<String> {
+        page.media
+            .iter()
+            .filter(|media| user_id.is_none_or(|uid| media.uploader_user_id.as_deref() == Some(uid)))
+            .map(|media| media.media_id.clone())
+            .collect()
     }
 
     /// Protect media from automatic quarantine.

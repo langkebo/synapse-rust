@@ -3358,7 +3358,35 @@ BASELINE_QUERY_BUILDER=17
 #   没有任何对应条目；与动态棘轮同批登记在 `sqlx_literal_production_baseline`。
 #   **收紧方向**：接入 CI PG 并把该查询改回 `query_as!` 后回落 114，同时删除
 #   `sqlx_literal_production_baseline` 里 `thread/storage.rs` 的那一行。
-BASELINE_DYNAMIC_PRODUCTION=115
+# 2026-10-21: 115 → **116**（+1，P0-1 同类：消除 `/spaces/statistics`、`/spaces/room/{id}/parents`
+#   与 `/spaces/{id}/tree_path` 的逐条可见性校验）。
+#   新增 `synapse-storage/src/space/repository.rs` 的 `get_space_visibility_batch()` ——
+#   一条 `sqlx::query_as::<_, (String, bool, bool)>(…)`（`spaces.space_id = ANY($1)` +
+#   `EXISTS(space_members … user_id = $2)`），一次返回整页「公开 或 已加入」。
+#   取代三处 N+1：statistics 每行 `get_space` + `check_user_can_see_space`（后者内部
+#   又 `get_space` 一次）、`/parents` 与 `/tree_path` 每空间一次 `can_user_view_space`
+#   （内部 `get_space` + `is_space_member`）。`get_parent_spaces` 同时改用既有的
+#   `get_spaces_by_rooms_batch`，零新增 SQL。
+#   为什么不能写成静态宏：同 `get_thread_summaries` —— 本机无 PG（`SQLX_OFFLINE=true`），
+#   `ANY($1)` 数组绑定在 `.sqlx` 缓存里没有对应条目。与 `sqlx_literal_production_baseline`
+#   同批登记（`space/repository.rs` 3 → 4）。**收紧方向**：接入 CI PG 后改回 `query_as!`
+#   并回落 115，同时删除该文件的字面量新增行。
+# 2026-10-21: 116 → **119**（+3，P0-1 同类：消除 sliding sync 订阅读取与
+#   admin media 房间隔离的 N+1）。
+#   ① +1 `synapse-storage/src/sliding_sync/repository.rs` 的 `get_rooms_batch()` ——
+#     一条 `sqlx::query_as`（`room_id = ANY($3)` + `conn_id` 可空匹配），
+#     取代 `build_rooms_response` 对每个 `room_subscriptions` 条目一次 `get_room`。
+#   ② +1 `synapse-storage/src/media/quarantine_stream.rs` 的
+#     `record_media_quarantine_changes_batch()` —— `INSERT … SELECT … FROM unnest($1)`
+#     一次写入整页（原为每 media 一次 INSERT）。
+#   ③ +1 同文件的 `set_media_quarantine_status_batch()` —— `media_id = ANY($3)` 一次
+#     更新整页（原为每 media 一次 UPDATE）。②③ 让 `/admin/media/room/{id}/quarantine`
+#     的最多 1000 条 × 2 次写降为 2 次。
+#   为什么不能写成静态宏：同前 —— 本机无 PG（`SQLX_OFFLINE=true`），`ANY(…)` 数组绑定
+#   与 `unnest(…)` 在 `.sqlx` 缓存里没有对应条目。与 `sqlx_literal_production_baseline`
+#   同批登记（`sliding_sync/repository.rs` 0 → 1、`media/quarantine_stream.rs` 0 → 2）。
+#   **收紧方向**：接入 CI PG 后改回 `query_as!` / `query!` 并回落 116，同时删除上述行。
+BASELINE_DYNAMIC_PRODUCTION=119
 # 2026-10-15: 769 → 768（按实测收紧；棘轮是**上限**，留着 1 个空位等于允许一次静默回归）。
 #   本批（方案 B4.3）只新增了**静态**查询，这一项是复核实测时发现的既有余量。
 # 2026-10-16: 768 → **769**（+1，B1/UG-5 lazy-load 位置列）。
@@ -3419,9 +3447,11 @@ BASELINE_DYNAMIC_TEST_INFRA=768
 #      所以按"只禁减"的规则必须同步下调基线并写明来源（先例：C55-0 的 1303 → 1301）。
 #   最终 1367 + 8 + 2 − 4 = 1373 = 实测值，零余量。
 BASELINE_STATIC=1376
-# 兼容旧接口：总数 = 生产 + 测试基础设施（115 + 768 = 883；本项不入棘轮，仅保持一致）
-# 2026-10-21: 882 → 883，随 `BASELINE_DYNAMIC_PRODUCTION` 的 +1（`get_thread_summaries`）同步。
-BASELINE_DYNAMIC=883
+# 兼容旧接口：总数 = 生产 + 测试基础设施（119 + 768 = 887；本项不入棘轮，仅保持一致）
+# 2026-10-21: 883 → 884，随 `BASELINE_DYNAMIC_PRODUCTION` 的 +1（`get_space_visibility_batch`）同步。
+# 2026-10-21: 884 → 887，随 `BASELINE_DYNAMIC_PRODUCTION` 的 +3（`get_rooms_batch` 与两条
+#   media 隔离批量写）同步。
+BASELINE_DYNAMIC=887
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

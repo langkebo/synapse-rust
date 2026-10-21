@@ -323,6 +323,24 @@
 #   `scripts/ci/sqlx_prepare.sh` 在真实 PG 上生成，而 `ANY($2)` 的数组绑定在现有缓存里
 #   没有对应条目 —— 与 ratio 基线同批登记。这是**新代码引入的新站点**（非历史漂移）。
 #   恒等式同步为 `115 − 50 − 0 = 65`（runtime 不变；收紧方向见 ratio 基线同日段）。
+# ── 2026-10-21 P0-1 同类（本表 +1 处；17 → 17 文件）──────────────────────────────
+#   `synapse-storage/src/space/repository.rs` 3 → **4**：新增
+#   `get_space_visibility_batch()`（`spaces.space_id = ANY($1)` + `EXISTS(space_members …)`），
+#   一次覆盖 `/spaces/statistics`、`/spaces/room/{id}/parents`、`/spaces/{id}/tree_path`
+#   三处的逐条可见性校验。与 ratio 基线同日段同批登记；`.sqlx` 缓存无法在本机重建
+#   （`SQLX_OFFLINE=true`），故按运行时字面量入账。
+#   恒等式同步为 `116 − 51 − 0 = 65`（runtime 不变）。
+# ── 2026-10-21 P0-1 同类（本表 +2 文件 / +3 处；17 → 19 文件）────────────────────
+#   ① `synapse-storage/src/sliding_sync/repository.rs` 0 → **1**：新增
+#     `get_rooms_batch()`（`room_id = ANY($3)` + `conn_id` 可空匹配），取代
+#     `build_rooms_response` 对每个 `room_subscriptions` 条目一次 `get_room`。
+#   ② `synapse-storage/src/media/quarantine_stream.rs` 0 → **2**：新增
+#     `record_media_quarantine_changes_batch()`（`INSERT … SELECT … FROM unnest($1)`）
+#     与 `set_media_quarantine_status_batch()`（`media_id = ANY($3)`），把
+#     `/admin/media/room/{id}/quarantine` 的最多 1000 条 × 2 次写压到 2 次。
+#   与 ratio 基线同日段同批登记；`.sqlx` 缓存无法在本机重建（`SQLX_OFFLINE=true`），
+#   故按运行时字面量入账。
+#   恒等式同步为 `119 − 54 − 0 = 65`（runtime 不变）。
 synapse-common/src/test_database_guard.rs	1
 synapse-common/src/test_isolation.rs	9
 synapse-common/src/test_schema_orphans.rs	1
@@ -330,19 +348,21 @@ synapse-common/src/test_schema_guard.rs	2
 synapse-e2ee/src/key_rotation/service.rs	1
 synapse-storage/src/admin_media.rs	1
 synapse-storage/src/event/pagination.rs	6
+synapse-storage/src/media/quarantine_stream.rs	2
 synapse-storage/src/migration_checks.rs	1
 synapse-storage/src/module.rs	2
 synapse-storage/src/monitoring.rs	1
 synapse-storage/src/presence/mod.rs	1
 synapse-storage/src/push/mod.rs	1
 synapse-storage/src/room_summary/repository.rs	2
-synapse-storage/src/space/repository.rs	3
+synapse-storage/src/sliding_sync/repository.rs	1
+synapse-storage/src/space/repository.rs	4
 synapse-storage/src/thread/storage.rs	1
 synapse-test-utils/src/db_isolation.rs	3
 synapse-test-utils/src/lib.rs	14
 # ── 当前「运行期拼装」残差清单（**允许**，不入棘轮；仅作可读性摘要）────────────
 # 合计 **65 处 / 15 文件**（2026-10-20 按实测重算；与 ratio 棘轮的
-# `dynamic_production − literal − param` = 114 − 49 − 0 = 65 一致）：
+# `dynamic_production − literal − param` = 119 − 54 − 0 = 65 一致）：
 #    16  synapse-common/src/test_isolation.rs
 #    15  synapse-test-utils/src/lib.rs
 #     9  synapse-storage/src/event/state.rs

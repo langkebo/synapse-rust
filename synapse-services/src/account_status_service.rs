@@ -122,20 +122,40 @@ impl AccountStatusService {
         let mut statuses: BTreeMap<String, AccountStatus> = BTreeMap::new();
         let mut failures: Vec<String> = Vec::new();
         let mut remote_by_destination: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        let mut local_users: Vec<String> = Vec::new();
 
+        // Validate and partition the whole request before touching storage, so
+        // malformed / disallowed IDs still fail the call without any lookup.
         for raw_user_id in user_ids {
             if !is_well_formed_user_id(raw_user_id) {
                 return Err(AccountStatusError::InvalidUserId(raw_user_id.clone()));
             }
 
             if self.is_local(raw_user_id) {
-                statuses.insert(raw_user_id.clone(), self.local_status(raw_user_id).await?);
+                local_users.push(raw_user_id.clone());
             } else if allow_remote {
                 let destination = user_id_domain(raw_user_id).unwrap_or_default();
                 remote_by_destination.entry(destination.to_string()).or_default().push(raw_user_id.clone());
             } else {
                 return Err(AccountStatusError::NotLocalUser(raw_user_id.clone()));
             }
+        }
+
+        // One batch lookup for all local IDs instead of one query per ID.
+        let local_map: HashMap<String, bool> = self
+            .user_store
+            .get_users_batch(&local_users)
+            .await?
+            .into_iter()
+            .map(|user| (user.user_id, user.is_deactivated))
+            .collect();
+
+        for user_id in local_users {
+            let status = match local_map.get(&user_id) {
+                Some(is_deactivated) => AccountStatus { exists: true, deactivated: Some(*is_deactivated) },
+                None => AccountStatus { exists: false, deactivated: None },
+            };
+            statuses.insert(user_id, status);
         }
 
         for (destination, users) in remote_by_destination {
@@ -150,14 +170,6 @@ impl AccountStatusService {
     /// Whether `user_id` belongs to one of this server's accepted names.
     fn is_local(&self, user_id: &str) -> bool {
         user_id_domain(user_id).is_some_and(|domain| self.local_server_names.iter().any(|name| name == domain))
-    }
-
-    /// Status of a local account: `exists`, plus `deactivated` when it exists.
-    async fn local_status(&self, user_id: &str) -> Result<AccountStatus, AccountStatusError> {
-        match self.user_store.get_user_by_id(user_id).await? {
-            Some(user) => Ok(AccountStatus { exists: true, deactivated: Some(user.is_deactivated) }),
-            None => Ok(AccountStatus { exists: false, deactivated: None }),
-        }
     }
 
     /// Fetch the statuses of `users` (all on `destination`) over federation.

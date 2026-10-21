@@ -689,23 +689,22 @@ impl MembershipService {
     /// handles replication gaps separately.
     pub(crate) async fn is_restricted_join_authorized(&self, room_id: &str, user_id: &str) -> ApiResult<bool> {
         let (rule, allowed_rooms) = self.resolve_join_rule_and_allow(room_id).await?;
-        if !matches!(rule, JoinRule::Restricted | JoinRule::KnockRestricted) {
+        if !matches!(rule, JoinRule::Restricted | JoinRule::KnockRestricted) || allowed_rooms.is_empty() {
             return Ok(false);
         }
-        for space_id in allowed_rooms {
-            let Some(member) = self
-                .member_storage
-                .get_room_member(&space_id, user_id)
-                .await
-                .map_err(|e| ApiError::internal_with_cause("Failed to check space member", e))?
-            else {
-                continue;
-            };
-            if member.membership == "join" {
-                return Ok(true);
-            }
-        }
-        Ok(false)
+
+        // One query for the user's joined rooms, then an in-memory intersection
+        // with the (typically small) `allow` list — replaces one membership
+        // lookup per allowed room.
+        let joined_rooms: std::collections::HashSet<String> = self
+            .member_storage
+            .get_joined_rooms(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to check space member", e))?
+            .into_iter()
+            .collect();
+
+        Ok(allowed_rooms.iter().any(|space_id| joined_rooms.contains(space_id)))
     }
 
     /// Authorize an inbound federation `m.room.member` transition against our

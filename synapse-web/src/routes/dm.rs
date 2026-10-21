@@ -172,12 +172,20 @@ fn parse_dm_users(value: &Value) -> Result<Vec<String>, ApiError> {
 async fn build_direct_map_from_memberships(ctx: &RoomContext, user_id: &str) -> Result<Map<String, Value>, ApiError> {
     let rooms = ctx.room_service.membership().get_joined_rooms(user_id).await?;
 
+    if rooms.is_empty() {
+        return Ok(Map::new());
+    }
+
+    // 一次批量查两个 membership，取代「逐房间 × 2」的 N+1。
+    let membership = ctx.room_service.membership();
+    let mut joined = membership.get_members_batch(&rooms, "join").await?;
+    let mut invited = membership.get_members_batch(&rooms, "invite").await?;
+
     let mut direct_map = Map::new();
 
     for room_id in rooms {
-        let join_members = ctx.room_service.membership().get_room_members_by_membership(&room_id, "join").await?;
-
-        let invited_members = ctx.room_service.membership().get_room_members_by_membership(&room_id, "invite").await?;
+        let join_members = joined.remove(&room_id).unwrap_or_default();
+        let invited_members = invited.remove(&room_id).unwrap_or_default();
 
         let total_members = join_members.len() + invited_members.len();
         if total_members != 2 {

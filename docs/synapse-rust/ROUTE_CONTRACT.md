@@ -2270,15 +2270,19 @@ SDK 门禁只能落到 `backend-query-unknown`；类型化后 `query` 分类为 
 
 ### E.16 2026-10-21 threads 分页锚点缺失改为 400（P0-3）
 
-适用端点（`from` 语义相同）：
+适用端点（`from` 是位置锚点，缺失锚点返回 400）：
 
 | Method | Path | 锚点 | `next_batch` |
 |---|---|---|---|
 | `GET` | `/_matrix/client/v1/rooms/{room_id}/threads` | `thread_id` | 本页最后一条的 `thread_id` |
 | `GET` | `/_matrix/vendor/v1/threads` | `thread_id` | 同上 |
-| `GET` | `/_matrix/vendor/v1/threads/subscribed` | `thread_id` | 同上 |
 | `GET` | `/_matrix/vendor/v1/user/{user_id}/rooms/{room_id}/threads` | `thread_id` | 同上 |
 | `GET` | `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies` | `event_id` | 本页最后一条的 `event_id` |
+
+**例外：`/_matrix/vendor/v1/threads/subscribed` 是 keyset 游标，不是位置锚点。**
+它用 `thread_id > $from ORDER BY thread_id ASC` 直接下推给 SQL，`from` 不在订阅集里时
+返回 **200 + 空页**（`threads: []`、无 `next_batch`），既不会回落到第一页，也不会死循环，
+因此**不适用下面第 2 条的 400**。
 
 1. **`from` 是位置锚点，必须原样回填上一页的 `next_batch`**。服务端在**本次结果集**中
    查找该锚点，取其后一页。
@@ -2293,3 +2297,6 @@ SDK 门禁只能落到 `backend-query-unknown`；类型化后 `query` 分类为 
 5. **实现位置**：`synapse-web/src/routes/handlers/thread.rs` 的 `paginate_threads` /
    `paginate_replies`（两者都返回 `Result`，`ApiError::invalid_param`）。单测：
    `test_thread_list_rejects_unknown_from_anchor`、`test_reply_list_rejects_unknown_from_anchor`。
+6. **`/threads/subscribed` 的批量补全**：`get_subscribed_threads` 对整页订阅做一次
+   `get_thread_summaries`（按 room 分组），取代原先每条订阅一次 `get_thread_summary`；
+   摘要缺失的订阅只出现在 `subscribed` 里，不进 `threads`，与原语义一致。

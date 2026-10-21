@@ -20,6 +20,24 @@ pub trait QuarantinedMediaChangeStoreApi: Send + Sync {
         now_ts: i64,
     ) -> Result<i64, ApiError>;
 
+    /// See [`record_media_quarantine_changes_batch`].
+    async fn record_media_quarantine_changes_batch(
+        &self,
+        media_ids: &[String],
+        server_name: &str,
+        change_type: &str,
+        changed_by: &str,
+        now_ts: i64,
+    ) -> Result<Option<i64>, ApiError>;
+
+    /// See [`set_media_quarantine_status_batch`].
+    async fn set_media_quarantine_status_batch(
+        &self,
+        media_ids: &[String],
+        server_name: &str,
+        quarantine_status: &str,
+    ) -> Result<u64, ApiError>;
+
     /// See [`get_quarantined_media_changes`].
     async fn get_quarantined_media_changes(
         &self,
@@ -96,6 +114,40 @@ impl QuarantinedMediaChangeStorage {
         .map_err(|e| ApiError::internal_with_cause("Failed to record media quarantine change", e))?;
 
         Ok(row.stream_id)
+    }
+
+    /// Record one quarantine/unquarantine change row per media in a single
+    /// statement and return the highest `stream_id` written (the same value the
+    /// per-row loop used to report last). `None` when `media_ids` is empty.
+    pub async fn record_media_quarantine_changes_batch(
+        &self,
+        media_ids: &[String],
+        server_name: &str,
+        change_type: &str,
+        changed_by: &str,
+        now_ts: i64,
+    ) -> Result<Option<i64>, ApiError> {
+        if media_ids.is_empty() {
+            return Ok(None);
+        }
+
+        let stream_ids: Vec<i64> = sqlx::query_scalar(
+            r#"
+            INSERT INTO quarantined_media_changes (media_id, server_name, change_type, changed_by, created_ts)
+            SELECT media_id, $2, $3, $4, $5 FROM unnest($1::text[]) AS media_id
+            RETURNING stream_id
+            "#,
+        )
+        .bind(media_ids)
+        .bind(server_name)
+        .bind(change_type)
+        .bind(changed_by)
+        .bind(now_ts)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Failed to record media quarantine changes batch", e))?;
+
+        Ok(stream_ids.into_iter().max())
     }
 
     /// Get incremental quarantine changes since the given stream_id.
@@ -175,6 +227,35 @@ impl QuarantinedMediaChangeStorage {
         Ok(result.rows_affected() > 0)
     }
 
+    /// Set the quarantine status of many media rows in one statement. Returns
+    /// the number of rows updated.
+    pub async fn set_media_quarantine_status_batch(
+        &self,
+        media_ids: &[String],
+        server_name: &str,
+        quarantine_status: &str,
+    ) -> Result<u64, ApiError> {
+        if media_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let result = sqlx::query(
+            r#"
+            UPDATE media_metadata
+            SET quarantine_status = $1
+            WHERE server_name = $2 AND media_id = ANY($3)
+            "#,
+        )
+        .bind(quarantine_status)
+        .bind(server_name)
+        .bind(media_ids)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Failed to update media quarantine status batch", e))?;
+
+        Ok(result.rows_affected())
+    }
+
     /// Check whether the media row's `quarantine_status` column equals
     /// `"quarantined"`. Returns `Ok(false)` when the media row does not exist
     /// (download path will surface its own 404).
@@ -221,6 +302,26 @@ impl QuarantinedMediaChangeStoreApi for QuarantinedMediaChangeStorage {
         now_ts: i64,
     ) -> Result<i64, ApiError> {
         self.record_media_quarantine_change(media_id, server_name, change_type, changed_by, now_ts).await
+    }
+
+    async fn record_media_quarantine_changes_batch(
+        &self,
+        media_ids: &[String],
+        server_name: &str,
+        change_type: &str,
+        changed_by: &str,
+        now_ts: i64,
+    ) -> Result<Option<i64>, ApiError> {
+        self.record_media_quarantine_changes_batch(media_ids, server_name, change_type, changed_by, now_ts).await
+    }
+
+    async fn set_media_quarantine_status_batch(
+        &self,
+        media_ids: &[String],
+        server_name: &str,
+        quarantine_status: &str,
+    ) -> Result<u64, ApiError> {
+        self.set_media_quarantine_status_batch(media_ids, server_name, quarantine_status).await
     }
 
     async fn get_quarantined_media_changes(
