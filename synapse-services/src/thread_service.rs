@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_common::error::ApiError;
 use synapse_common::MAX_PAGINATION_LIMIT;
@@ -437,36 +438,7 @@ impl ThreadService {
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to list threads", e))?;
 
-        let mut summaries = Vec::new();
-        for root in &roots {
-            if let Some(summary) = self
-                .storage
-                .get_thread_summary(&root.room_id, root.thread_id.as_deref().unwrap_or_default())
-                .await
-                .map_err(|e| ApiError::internal_with_cause("Failed to get summary", e))?
-            {
-                summaries.push(summary);
-            } else {
-                summaries.push(ThreadSummary {
-                    id: root.id,
-                    room_id: root.room_id.clone(),
-                    thread_id: root.thread_id.clone().unwrap_or_default(),
-                    root_event_id: root.root_event_id.clone(),
-                    root_sender: root.sender.clone(),
-                    root_content: serde_json::json!({}),
-                    root_origin_server_ts: root.created_ts,
-                    latest_event_id: root.last_reply_event_id.clone(),
-                    latest_sender: root.last_reply_sender.clone(),
-                    latest_content: None,
-                    latest_origin_server_ts: root.last_reply_ts,
-                    reply_count: root.reply_count.unwrap_or(0) as i32,
-                    participants: root.participants.clone().unwrap_or(serde_json::json!([])),
-                    is_frozen: root.is_fetched,
-                    created_ts: root.created_ts,
-                    updated_ts: root.updated_ts.unwrap_or(root.created_ts),
-                });
-            }
-        }
+        let summaries = self.hydrate_summaries(&roots).await?;
 
         let next_batch = roots.last().and_then(|r| r.thread_id.clone());
         let total = summaries.len() as i32;
@@ -486,42 +458,69 @@ impl ThreadService {
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to list global threads", e))?;
 
-        let mut summaries = Vec::new();
-        for root in &roots {
-            let thread_id = root.thread_id.clone().unwrap_or_default();
-            if let Some(summary) = self
-                .storage
-                .get_thread_summary(&root.room_id, &thread_id)
-                .await
-                .map_err(|e| ApiError::internal_with_cause("Failed to get thread summary", e))?
-            {
-                summaries.push(summary);
-            } else {
-                summaries.push(ThreadSummary {
-                    id: root.id,
-                    room_id: root.room_id.clone(),
-                    thread_id,
-                    root_event_id: root.root_event_id.clone(),
-                    root_sender: root.sender.clone(),
-                    root_content: serde_json::json!({}),
-                    root_origin_server_ts: root.created_ts,
-                    latest_event_id: root.last_reply_event_id.clone(),
-                    latest_sender: root.last_reply_sender.clone(),
-                    latest_content: None,
-                    latest_origin_server_ts: root.last_reply_ts,
-                    reply_count: root.reply_count.unwrap_or(0) as i32,
-                    participants: root.participants.clone().unwrap_or(serde_json::json!([])),
-                    is_frozen: root.is_fetched,
-                    created_ts: root.created_ts,
-                    updated_ts: root.updated_ts.unwrap_or(root.created_ts),
-                });
-            }
-        }
+        let summaries = self.hydrate_summaries(&roots).await?;
 
         let next_batch = roots.last().and_then(|r| r.thread_id.clone());
         let total = summaries.len() as i32;
 
         Ok(ThreadListResponse { threads: summaries, next_batch, total })
+    }
+
+    /// 把一页 [`ThreadRoot`] 补全为 [`ThreadSummary`]：**按房间分组做批量摘要查询**
+    /// （每页每个房间一条 SQL），再按 `roots` 的原顺序回填。
+    ///
+    /// 此前是"每个 root 调一次 `get_thread_summary`"的 N+1：`/threads` 每页最多扫
+    /// 500 个 root，等于每页多出 500 次往返。批量查询缺失的行（`thread_id` 为 NULL
+    /// 的 root 不参与查询）回落到 [`Self::fallback_summary`]，与逐条查询时代一致。
+    async fn hydrate_summaries(&self, roots: &[ThreadRoot]) -> Result<Vec<ThreadSummary>, ApiError> {
+        let mut ids_by_room: HashMap<&str, Vec<String>> = HashMap::new();
+        for root in roots {
+            if let Some(thread_id) = root.thread_id.as_deref() {
+                ids_by_room.entry(root.room_id.as_str()).or_default().push(thread_id.to_string());
+            }
+        }
+
+        let mut summaries_by_key: HashMap<(String, String), ThreadSummary> = HashMap::new();
+        for (room_id, thread_ids) in ids_by_room {
+            let rows = self
+                .storage
+                .get_thread_summaries(room_id, &thread_ids)
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to get thread summaries", e))?;
+            for row in rows {
+                summaries_by_key.insert((row.room_id.clone(), row.thread_id.clone()), row);
+            }
+        }
+
+        Ok(roots
+            .iter()
+            .map(|root| {
+                let key = (root.room_id.clone(), root.thread_id.clone().unwrap_or_default());
+                summaries_by_key.remove(&key).unwrap_or_else(|| Self::fallback_summary(root))
+            })
+            .collect())
+    }
+
+    /// 摘要查询缺失时的保底构造：只用 `thread_roots` 自带的列，不补 root 事件内容。
+    fn fallback_summary(root: &ThreadRoot) -> ThreadSummary {
+        ThreadSummary {
+            id: root.id,
+            room_id: root.room_id.clone(),
+            thread_id: root.thread_id.clone().unwrap_or_default(),
+            root_event_id: root.root_event_id.clone(),
+            root_sender: root.sender.clone(),
+            root_content: serde_json::json!({}),
+            root_origin_server_ts: root.created_ts,
+            latest_event_id: root.last_reply_event_id.clone(),
+            latest_sender: root.last_reply_sender.clone(),
+            latest_content: None,
+            latest_origin_server_ts: root.last_reply_ts,
+            reply_count: root.reply_count.unwrap_or(0) as i32,
+            participants: root.participants.clone().unwrap_or(serde_json::json!([])),
+            is_frozen: root.is_fetched,
+            created_ts: root.created_ts,
+            updated_ts: root.updated_ts.unwrap_or(root.created_ts),
+        }
     }
 
     /// See [`subscribe`].

@@ -147,14 +147,27 @@ fn sort_threads_by_activity(threads: &mut [synapse_services::thread_service::Thr
     });
 }
 
+/// `paginate_threads` 的返回：(本页话题, 下一页游标, 结果集总数)。
+type ThreadPage = (Vec<synapse_services::thread_service::ThreadSummary>, Option<String>, i32);
+
 /// 以 `from`（上一页最后一个 `thread_id`）为锚点，从已排序的话题里切出一页。
+///
+/// 锚点在本页结果集里**必须存在**：找不到时返回 400 `M_INVALID_PARAM`，而不是静默
+/// 回落到第一页。静默回落会让客户端在（例如）被引用的那条话题已不可见时"翻页翻回
+/// 开头"，形成无限循环；规范的 `from` 语义要求客户端重头开始前先被告知 token 失效。
 fn paginate_threads(
     threads: Vec<synapse_services::thread_service::ThreadSummary>,
     limit: Option<i32>,
     from: Option<&str>,
-) -> (Vec<synapse_services::thread_service::ThreadSummary>, Option<String>, i32) {
-    let start =
-        from.and_then(|token| threads.iter().position(|thread| thread.thread_id == token)).map_or(0, |idx| idx + 1);
+) -> Result<ThreadPage, ApiError> {
+    let start = match from {
+        Some(token) => threads
+            .iter()
+            .position(|thread| thread.thread_id == token)
+            .map(|idx| idx + 1)
+            .ok_or_else(|| ApiError::invalid_param(format!("Unknown from token '{token}'")))?,
+        None => 0,
+    };
 
     let total = threads.len() as i32;
     let page_size = limit.unwrap_or(20).max(1) as usize;
@@ -162,7 +175,7 @@ fn paginate_threads(
     let next_batch =
         if start + page.len() < total as usize { page.last().map(|thread| thread.thread_id.clone()) } else { None };
 
-    (page, next_batch, total)
+    Ok((page, next_batch, total))
 }
 
 /// 按时间排序回复：`(origin_server_ts, event_id)` 升序，`dir=b` 取整条比较链的逆序。
@@ -178,16 +191,24 @@ fn sort_replies_by_time(replies: &mut [synapse_services::thread_service::ThreadR
 }
 
 /// 以 `from`（上一页最后一个 `event_id`）为锚点，从已排序的回复里切出一页。
+///
+/// 与 [`paginate_threads`] 同样的口径：锚点缺失时 400 `M_INVALID_PARAM`，不静默回落。
 fn paginate_replies(
     replies: Vec<synapse_services::thread_service::ThreadReply>,
     limit: Option<i32>,
     from: Option<&str>,
-) -> Vec<synapse_services::thread_service::ThreadReply> {
-    let start =
-        from.and_then(|token| replies.iter().position(|reply| reply.event_id == token)).map_or(0, |idx| idx + 1);
+) -> Result<Vec<synapse_services::thread_service::ThreadReply>, ApiError> {
+    let start = match from {
+        Some(token) => replies
+            .iter()
+            .position(|reply| reply.event_id == token)
+            .map(|idx| idx + 1)
+            .ok_or_else(|| ApiError::invalid_param(format!("Unknown from token '{token}'")))?,
+        None => 0,
+    };
 
     let page_size = limit.unwrap_or(50).max(1) as usize;
-    replies.into_iter().skip(start).take(page_size).collect()
+    Ok(replies.into_iter().skip(start).take(page_size).collect())
 }
 
 /// 取回线程内全部回复，按 `dir` 排序后切页。
@@ -206,7 +227,7 @@ async fn list_thread_replies(
         ctx.thread_service.get_thread_replies(room_id, thread_id, Some(REPLIES_FETCH_LIMIT), None).await?;
 
     sort_replies_by_time(&mut replies, direction);
-    Ok(paginate_replies(replies, limit, from))
+    paginate_replies(replies, limit, from)
 }
 
 /// 只接受分页参数的查询串（已订阅列表）。
@@ -445,7 +466,7 @@ async fn list_visible_threads(
     }
 
     sort_threads_by_activity(&mut threads, direction);
-    let (page, next_batch, total) = paginate_threads(threads, limit, from);
+    let (page, next_batch, total) = paginate_threads(threads, limit, from)?;
 
     Ok(ThreadListResponse { threads: page, next_batch, total })
 }
@@ -493,7 +514,7 @@ async fn list_room_threads(
     }
 
     sort_threads_by_activity(&mut threads, direction);
-    let (page, next_batch, total) = paginate_threads(threads, limit, from);
+    let (page, next_batch, total) = paginate_threads(threads, limit, from)?;
 
     Ok(ThreadListResponse { threads: page, next_batch, total })
 }
@@ -1035,10 +1056,21 @@ mod tests {
         let mut threads = vec![summary("$a", 10), summary("$b", 30), summary("$c", 20)];
         sort_threads_by_activity(&mut threads, "f");
 
-        let (page, next_batch, total) = paginate_threads(threads, Some(2), None);
+        let (page, next_batch, total) =
+            paginate_threads(threads, Some(2), None).expect("absent from token must not fail");
         assert_eq!(total, 3);
         assert_eq!(page.iter().map(|thread| thread.thread_id.as_str()).collect::<Vec<_>>(), vec!["$a", "$c"]);
         assert_eq!(next_batch.as_deref(), Some("$c"));
+    }
+
+    #[test]
+    fn test_thread_list_rejects_unknown_from_anchor() {
+        let threads = vec![summary("$a", 10), summary("$b", 30)];
+
+        let error =
+            paginate_threads(threads, Some(2), Some("$missing")).expect_err("unknown from token must be rejected");
+        assert!(error.is_bad_request());
+        assert_eq!(error.matrix_code(), synapse_common::error::MatrixErrorCode::InvalidParam);
     }
 
     fn reply(event_id: &str, origin_server_ts: i64) -> synapse_services::thread_service::ThreadReply {
@@ -1089,8 +1121,18 @@ mod tests {
         let mut replies = vec![reply("$a", 10), reply("$b", 20), reply("$c", 30)];
         sort_replies_by_time(&mut replies, "b");
 
-        let page = paginate_replies(replies, Some(2), Some("$b"));
+        let page = paginate_replies(replies, Some(2), Some("$b")).expect("known from token must not fail");
         assert_eq!(page.iter().map(|reply| reply.event_id.as_str()).collect::<Vec<_>>(), vec!["$a"]);
+    }
+
+    #[test]
+    fn test_reply_list_rejects_unknown_from_anchor() {
+        let replies = vec![reply("$a", 10), reply("$b", 20)];
+
+        let error =
+            paginate_replies(replies, Some(2), Some("$missing")).expect_err("unknown from token must be rejected");
+        assert!(error.is_bad_request());
+        assert_eq!(error.matrix_code(), synapse_common::error::MatrixErrorCode::InvalidParam);
     }
 
     #[test]

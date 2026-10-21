@@ -2190,12 +2190,24 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 <!-- sqlx-plan-numbers:start -->
 <!-- 以下数字由 `scripts/ci/check_plan_numbers_fresh.sh` 与基线/实测现算比对；改基线必须同步改这里。 -->
-BASELINE_DYNAMIC_PRODUCTION=114
+BASELINE_DYNAMIC_PRODUCTION=115
 BASELINE_DYNAMIC_TEST_INFRA=768
 BASELINE_STATIC=1376
 BASELINE_QUERY_BUILDER=17
 SQLX_CACHE_ENTRIES=1339
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-21 更新（P0-1：threads 列表 N+1 消除）**，数字块一项按实测同步：
+> - `BASELINE_DYNAMIC_PRODUCTION` **114 → 115**（+1）：`list_threads` / `list_all_threads`
+>   原先对每个 thread root 单独调 `get_thread_summary`，一页最多 500 次额外查询。
+>   新增强批量查询 `ThreadStorage::get_thread_summaries(room_id, thread_ids)`，用
+>   `WHERE tr.room_id = $1 AND tr.thread_id = ANY($2)` 一次覆盖整页，取代 N+1。
+>   该 SQL 的 `ANY($2)` 数组绑定无法由 `query_as!` 离线校验（本机无 PostgreSQL，无法
+>   生成 `.sqlx` 缓存条目），故沿用与 2026-10-20 分页批次相同的处置：运行时
+>   `sqlx::query_as::<_, T>`。收紧方向：CI 接入 PG 后回退为静态宏并把基线落回 114。
+>   逐文件 literal 棘轮同步新增 `synapse-storage/src/thread/storage.rs 1`。
+>   `BASELINE_DYNAMIC_TEST_INFRA` / `BASELINE_STATIC` / `BASELINE_QUERY_BUILDER` /
+>   `SQLX_CACHE_ENTRIES` 不变。
 
 > **2026-10-20 更新（B-26/B-28/B-31：报表/应用服务分页、voice 删除）**，数字块四项按实测同步：
 > - `BASELINE_DYNAMIC_PRODUCTION` **106 → 114**（+8，**全部是入账前既有漂移，本批未新增动态 SQL**）：

@@ -827,6 +827,94 @@ impl ThreadStorage {
         .await
     }
 
+    /// 批量取同一房间内多个话题的摘要：一条 SQL 覆盖整页，替代"每个 root 调一次
+    /// [`get_thread_summary`]"的 N+1 形态（`/threads` 每页最多扫 500 个 root）。
+    ///
+    /// 摘要的投影与聚合口径与 [`get_thread_summary`] 逐字段一致，只是把按
+    /// `(room_id, thread_id)` 的相关子查询改写成 `LEFT JOIN LATERAL`，并把
+    /// `tr.thread_id = $2` 换成 `tr.thread_id = ANY($2)`。返回值**不保证顺序**，
+    /// 调用方需按 `(room_id, thread_id)` 自行回填。
+    ///
+    /// `thread_ids` 为空时直接返回空集合：`= ANY('{}')` 虽合法，但省掉一次往返。
+    ///
+    /// ⚠️ 本查询**不能**用 `query_as!` 宏：`ANY($2)` 的数组绑定虽然可静态校验，
+    /// 但本仓的 `.sqlx` 缓存由 `scripts/ci/sqlx_prepare.sh` 在真实 PG 上生成，
+    /// 且运行期 PostgreSQL 不在开发者本机 —— 详见
+    /// `scripts/ci/sqlx_dynamic_ratio_baseline` 中本方法的登记条目。
+    pub async fn get_thread_summaries(
+        &self,
+        room_id: &str,
+        thread_ids: &[String],
+    ) -> Result<Vec<ThreadSummary>, sqlx::Error> {
+        if thread_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        sqlx::query_as::<_, ThreadSummary>(
+            r#"
+            SELECT
+                tr.id AS "id",
+                tr.room_id AS "room_id",
+                COALESCE(tr.thread_id, '') AS "thread_id",
+                tr.root_event_id AS "root_event_id",
+                tr.sender AS "root_sender",
+                COALESCE(e.content, '{}'::jsonb) AS "root_content",
+                COALESCE(e.origin_server_ts, tr.created_ts) AS "root_origin_server_ts",
+                latest_reply.latest_event_id AS "latest_event_id",
+                latest_reply.latest_sender AS "latest_sender",
+                latest_reply.latest_content AS "latest_content",
+                latest_reply.latest_origin_server_ts AS "latest_origin_server_ts",
+                COALESCE(reply_stats.reply_count, 0) AS "reply_count",
+                COALESCE(participants.participants, jsonb_build_array(tr.sender)) AS "participants",
+                tr.is_fetched AS "is_frozen",
+                tr.created_ts AS "created_ts",
+                GREATEST(
+                    COALESCE(tr.updated_ts, tr.created_ts),
+                    COALESCE(latest_reply.latest_origin_server_ts, COALESCE(tr.updated_ts, tr.created_ts))
+                ) AS "updated_ts"
+            FROM thread_roots tr
+            LEFT JOIN events e
+                ON e.event_id = tr.root_event_id
+               AND e.room_id = tr.room_id
+            LEFT JOIN LATERAL (
+                SELECT
+                    rr.event_id AS latest_event_id,
+                    rr.sender AS latest_sender,
+                    rr.content AS latest_content,
+                    rr.origin_server_ts AS latest_origin_server_ts
+                FROM thread_replies rr
+                WHERE rr.room_id = tr.room_id
+                  AND rr.thread_id = tr.thread_id
+                ORDER BY rr.origin_server_ts DESC, rr.id DESC
+                LIMIT 1
+            ) AS latest_reply ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*)::INTEGER AS reply_count
+                FROM thread_replies rr
+                WHERE rr.room_id = tr.room_id
+                  AND rr.thread_id = tr.thread_id
+            ) AS reply_stats ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(jsonb_agg(sender ORDER BY sender), '[]'::jsonb) AS participants
+                FROM (
+                    SELECT tr.sender AS sender
+                    UNION
+                    SELECT DISTINCT rr.sender
+                    FROM thread_replies rr
+                    WHERE rr.room_id = tr.room_id
+                      AND rr.thread_id = tr.thread_id
+                ) AS participant_set
+            ) AS participants ON TRUE
+            WHERE tr.room_id = $1
+              AND tr.thread_id = ANY($2)
+            "#,
+        )
+        .bind(room_id)
+        .bind(thread_ids)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
     /// See [`get_thread_statistics`].
     pub async fn get_thread_statistics(
         &self,
@@ -1168,6 +1256,12 @@ pub trait ThreadStoreApi: Send + Sync {
     ) -> Result<Vec<ThreadReadReceipt>, sqlx::Error>;
     /// See [`get_thread_summary`].
     async fn get_thread_summary(&self, room_id: &str, thread_id: &str) -> Result<Option<ThreadSummary>, sqlx::Error>;
+    /// See [`get_thread_summaries`].
+    async fn get_thread_summaries(
+        &self,
+        room_id: &str,
+        thread_ids: &[String],
+    ) -> Result<Vec<ThreadSummary>, sqlx::Error>;
     /// See [`get_thread_statistics`].
     async fn get_thread_statistics(
         &self,
@@ -1339,6 +1433,14 @@ impl ThreadStoreApi for ThreadStorage {
 
     async fn get_thread_summary(&self, room_id: &str, thread_id: &str) -> Result<Option<ThreadSummary>, sqlx::Error> {
         self.get_thread_summary(room_id, thread_id).await
+    }
+
+    async fn get_thread_summaries(
+        &self,
+        room_id: &str,
+        thread_ids: &[String],
+    ) -> Result<Vec<ThreadSummary>, sqlx::Error> {
+        self.get_thread_summaries(room_id, thread_ids).await
     }
 
     async fn get_thread_statistics(

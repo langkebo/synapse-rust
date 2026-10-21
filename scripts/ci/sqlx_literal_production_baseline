@@ -315,6 +315,14 @@
 #   下新文本必然 `no cached data`。收紧方向与 ratio 基线一致（单列「无条件编译的
 #   测试基础设施」分区，需独立批次），在那之前按实测值入账，不留静默余量。
 #   恒等式同步为 `114 − 49 − 0 = 65`（runtime 见文末清单）。
+# ── 2026-10-21 P0-1（本表补登 1 行 / +1 处；16 → 17 文件）──────────────────────
+#   `synapse-storage/src/thread/storage.rs` 新增 `get_thread_summaries()` —— 一条
+#   `sqlx::query_as::<_, ThreadSummary>(…)`（`WHERE tr.thread_id = ANY($2)`）覆盖整页
+#   thread root，取代 `ThreadService::{list_threads,list_all_threads}` 的 N+1。
+#   为什么不能改成宏：本机没有 PostgreSQL（`SQLX_OFFLINE=true`），`.sqlx` 缓存由
+#   `scripts/ci/sqlx_prepare.sh` 在真实 PG 上生成，而 `ANY($2)` 的数组绑定在现有缓存里
+#   没有对应条目 —— 与 ratio 基线同批登记。这是**新代码引入的新站点**（非历史漂移）。
+#   恒等式同步为 `115 − 50 − 0 = 65`（runtime 不变；收紧方向见 ratio 基线同日段）。
 synapse-common/src/test_database_guard.rs	1
 synapse-common/src/test_isolation.rs	9
 synapse-common/src/test_schema_orphans.rs	1
@@ -329,6 +337,7 @@ synapse-storage/src/presence/mod.rs	1
 synapse-storage/src/push/mod.rs	1
 synapse-storage/src/room_summary/repository.rs	2
 synapse-storage/src/space/repository.rs	3
+synapse-storage/src/thread/storage.rs	1
 synapse-test-utils/src/db_isolation.rs	3
 synapse-test-utils/src/lib.rs	14
 # ── 当前「运行期拼装」残差清单（**允许**，不入棘轮；仅作可读性摘要）────────────

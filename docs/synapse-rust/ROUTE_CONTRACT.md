@@ -2267,3 +2267,29 @@ SDK 门禁只能落到 `backend-query-unknown`；类型化后 `query` 分类为 
 5. **契约同步**：`ledger_annotations.txt` 与 `EXPECTED_ANNOTATIONS` 均登记为
    `dir,from,limit`，提取器产出 `query_params: ["dir","from","limit"]` /
    `query_type: "RepliesQuery"`。SDK 门禁的 `query-param-ignored` 桶由 1 归零。
+
+### E.16 2026-10-21 threads 分页锚点缺失改为 400（P0-3）
+
+适用端点（`from` 语义相同）：
+
+| Method | Path | 锚点 | `next_batch` |
+|---|---|---|---|
+| `GET` | `/_matrix/client/v1/rooms/{room_id}/threads` | `thread_id` | 本页最后一条的 `thread_id` |
+| `GET` | `/_matrix/vendor/v1/threads` | `thread_id` | 同上 |
+| `GET` | `/_matrix/vendor/v1/threads/subscribed` | `thread_id` | 同上 |
+| `GET` | `/_matrix/vendor/v1/user/{user_id}/rooms/{room_id}/threads` | `thread_id` | 同上 |
+| `GET` | `/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies` | `event_id` | 本页最后一条的 `event_id` |
+
+1. **`from` 是位置锚点，必须原样回填上一页的 `next_batch`**。服务端在**本次结果集**中
+   查找该锚点，取其后一页。
+2. **锚点不在当前结果集 → 400 `M_INVALID_PARAM`**，`error` 为 `Unknown from token '<原样回显>'`。
+   此前实现是 `position().map_or(0, |i| i + 1)`：锚点找不到就**静默回落第一页**，
+   客户端 `while (next_batch)` 循环永远翻不回末尾，表现为死循环。
+3. **何时会命中 400（正常客户端操作也会）**：同一个 `from` 换到不同的 `dir` 或
+   `include=participated` 组合下求解时，锚点可能不在结果集里；上一页的根事件被 redact
+   或线程被删除也会。客户端拿到 400 应**从首页重新开始**（丢弃 `next_batch`），
+   不要把 400 当成可重试错误原地重试。
+4. **空结果仍返回 200**：只有「明确给了 `from` 且找不到锚点」才 400；`from` 缺省 / 空串 = 首页。
+5. **实现位置**：`synapse-web/src/routes/handlers/thread.rs` 的 `paginate_threads` /
+   `paginate_replies`（两者都返回 `Result`，`ApiError::invalid_param`）。单测：
+   `test_thread_list_rejects_unknown_from_anchor`、`test_reply_list_rejects_unknown_from_anchor`。

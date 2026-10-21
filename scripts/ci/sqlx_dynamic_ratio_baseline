@@ -3348,7 +3348,17 @@
 #   需同步下调基线并说明（先例 C55-0 的 1303 → 1301、C57-0 的 163 → 162）——
 #   这是有意设计（防"静态换动态"），不是缺陷。
 BASELINE_QUERY_BUILDER=17
-BASELINE_DYNAMIC_PRODUCTION=114
+# 2026-10-21: 114 → **115**（+1，P0-1 消除 `/threads` 的 N+1）。
+#   新增 `synapse-storage/src/thread/storage.rs` 的 `get_thread_summaries()` —— 一条
+#   `sqlx::query_as::<_, ThreadSummary>(…)`（`WHERE tr.thread_id = ANY($2)`）覆盖整页 root，
+#   取代 `ThreadService::{list_threads,list_all_threads}` 里"每个 root 调一次
+#   `get_thread_summary`"的 N+1（`/threads` 每页最多 500 个 root ⇒ 每页 500 次额外往返）。
+#   为什么不能写成静态宏：本机没有 PostgreSQL（`SQLX_OFFLINE=true`），`.sqlx` 缓存由
+#   `scripts/ci/sqlx_prepare.sh` 在真实 PG 上生成，而 `ANY($2)` 的数组绑定在当前缓存里
+#   没有任何对应条目；与动态棘轮同批登记在 `sqlx_literal_production_baseline`。
+#   **收紧方向**：接入 CI PG 并把该查询改回 `query_as!` 后回落 114，同时删除
+#   `sqlx_literal_production_baseline` 里 `thread/storage.rs` 的那一行。
+BASELINE_DYNAMIC_PRODUCTION=115
 # 2026-10-15: 769 → 768（按实测收紧；棘轮是**上限**，留着 1 个空位等于允许一次静默回归）。
 #   本批（方案 B4.3）只新增了**静态**查询，这一项是复核实测时发现的既有余量。
 # 2026-10-16: 768 → **769**（+1，B1/UG-5 lazy-load 位置列）。
@@ -3409,8 +3419,9 @@ BASELINE_DYNAMIC_TEST_INFRA=768
 #      所以按"只禁减"的规则必须同步下调基线并写明来源（先例：C55-0 的 1303 → 1301）。
 #   最终 1367 + 8 + 2 − 4 = 1373 = 实测值，零余量。
 BASELINE_STATIC=1376
-# 兼容旧接口：总数 = 生产 + 测试基础设施（114 + 768 = 882；本项不入棘轮，仅保持一致）
-BASELINE_DYNAMIC=882
+# 兼容旧接口：总数 = 生产 + 测试基础设施（115 + 768 = 883；本项不入棘轮，仅保持一致）
+# 2026-10-21: 882 → 883，随 `BASELINE_DYNAMIC_PRODUCTION` 的 +1（`get_thread_summaries`）同步。
+BASELINE_DYNAMIC=883
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

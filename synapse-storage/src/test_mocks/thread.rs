@@ -465,6 +465,18 @@ impl crate::thread::ThreadStoreApi for InMemoryThreadStore {
         Ok(self.summaries.read().await.get(&(room_id.to_string(), thread_id.to_string())).cloned())
     }
 
+    async fn get_thread_summaries(
+        &self,
+        room_id: &str,
+        thread_ids: &[String],
+    ) -> Result<Vec<crate::thread::ThreadSummary>, sqlx::Error> {
+        let summaries = self.summaries.read().await;
+        Ok(thread_ids
+            .iter()
+            .filter_map(|thread_id| summaries.get(&(room_id.to_string(), thread_id.clone())).cloned())
+            .collect())
+    }
+
     async fn get_thread_statistics(
         &self,
         room_id: &str,
