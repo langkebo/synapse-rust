@@ -11,6 +11,7 @@ use synapse_services::account::UserService;
 use synapse_services::admin_audit_service::CreateAuditEventRequest;
 use synapse_services::user_service::User;
 
+mod allowlist;
 mod privileged;
 
 use privileged::is_super_admin_only_endpoint;
@@ -197,166 +198,12 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
         return true;
     }
 
-    let is_read = matches!(*method, Method::GET | Method::HEAD);
-
+    // 黑名单**先于**角色匹配：所有角色（含 auditor / security_admin）都受它约束。
     if is_super_admin_only_endpoint(method, path) {
         return false;
     }
 
-    match role {
-        "admin" => {
-            // User management - full access
-            path.starts_with("/_synapse/admin/v1/users")
-                || path.starts_with("/_synapse/admin/v2/users")
-
-            // User sessions
-            || path.starts_with("/_synapse/admin/v1/user_sessions")
-
-            // User statistics
-            || path.starts_with("/_synapse/admin/v1/user_stats")
-
-            // Account details
-            || path.starts_with("/_synapse/admin/v1/account/")
-
-            // Notifications
-            || path.starts_with("/_synapse/admin/v1/notifications")
-
-            // Media management
-            || path.starts_with("/_synapse/admin/v1/media")
-
-            // Room management - full access including shutdown and delete
-            || path.starts_with("/_synapse/admin/v1/rooms")
-            || path == "/_synapse/admin/v1/shutdown_room"
-
-            // Room statistics
-            || path.starts_with("/_synapse/admin/v1/room_stats/")
-
-            // Registration tokens (read only)
-            || (path.contains("/registration_tokens") && is_read)
-
-            // System statistics
-            || path.starts_with("/_synapse/admin/v1/statistics")
-            || path.starts_with("/_synapse/admin/v1/stats")
-
-            // Cleanup
-            || path.starts_with("/_synapse/admin/v1/cleanup")
-
-            // Background tasks
-            || path.starts_with("/_synapse/admin/v1/background_updates")
-
-            // Event reports
-            || path.starts_with("/_synapse/admin/v1/event_reports")
-
-            // Space management
-            || path.starts_with("/_synapse/admin/v1/spaces")
-
-            // Feature flags
-            || path.starts_with("/_synapse/admin/v1/experimental_features")
-            || path.starts_with("/_synapse/admin/v1/feature_flags")
-            || path.starts_with("/_synapse/admin/v1/feature-flags")
-
-            // Application services
-            || path.starts_with("/_synapse/admin/v1/appservices")
-
-            // Audit logs (read only)
-            || (path.starts_with("/_synapse/admin/v1/audit") && is_read)
-
-            // Device management - single device operations
-            || (path.contains("/users/") && path.contains("/devices")
-                && !path.ends_with("/delete")
-                && (is_read || *method == Method::DELETE))
-
-            // Federation management - full access
-            || path.starts_with("/_synapse/admin/v1/federation")
-
-            // CAS management
-            || path.starts_with("/_synapse/admin/v1/cas")
-
-            // Worker and room summary
-            || path.starts_with("/_synapse/worker/v1/")
-            || path.starts_with("/_synapse/room_summary/v1/")
-
-            // Vendor key rotation management (was gated only by is_admin).
-            // ISSUE-13: the `/_matrix/client/v1/keys/rotation` twin was a dead
-            // alias deleted on 2026-10-08; keeping it here would have left a
-            // security allowlist entry that can never match a real request.
-            || path.starts_with("/_matrix/vendor/v1/keys/rotation")
-
-            // Server version and health
-            || path.starts_with("/_synapse/admin/v1/server_version")
-            || path.starts_with("/_synapse/admin/v1/health")
-            || path.starts_with("/_synapse/admin/v1/status")
-
-            // Module inventory (read only)
-            || path.starts_with("/_synapse/admin/v1/modules")
-
-            // Account validity
-            || path.starts_with("/_synapse/admin/v1/account_validity")
-
-            // SAML management
-            || path.starts_with("/_synapse/admin/v1/saml")
-
-            // External services and webhooks
-            || path.starts_with("/_synapse/admin/v1/external_services")
-            || path.starts_with("/_synapse/admin/v1/external_webhook")
-
-            // Telemetry/observability
-            || path.starts_with("/_synapse/admin/v1/telemetry")
-
-            // Whois
-            || path.starts_with("/_synapse/admin/v1/whois")
-
-            // 2026-10-21：这四类此前没有任何前缀覆盖 ⇒ 普通 admin 完全不可用（过严，
-            // 见 docs/audit/ADMIN_RBAC_SURFACE_2026-10-21.md §6）。都是可逆的日常运维。
-            || path.starts_with("/_synapse/admin/v1/invite/")
-            || path == "/_synapse/admin/v1/captcha/cleanup"
-            || path.starts_with("/_synapse/admin/v1/server_notices")
-            || path.starts_with("/_synapse/admin/v1/reports/")
-
-            // 2026-10-21（第二批）：同一操作的两条**路径别名**判定不一致，一并收敛。
-            // `deactivate/{user_id}` 与 `users/{user_id}/deactivate` 共用同一个 handler
-            // 且现已带目标级守卫；`user/{user_id}/media/quarantine` 与
-            // `media/quarantine/{server_name}/{media_id}` 同为媒体隔离（可逆）。
-            // 两处在收紧前是"整条拒绝"，属过严；判定按路径字面量的框架下只能逐条补。
-            || path.starts_with("/_synapse/admin/v1/deactivate/")
-            || (path.starts_with("/_synapse/admin/v1/user/") && path.ends_with("/media/quarantine"))
-
-            // 2026-10-21（读面）：结尾斜杠把**集合端点**挡在外面（`/reports` vs
-            // `/reports/{id}`）——能取单条却不能列，自相矛盾；`quarantine_media/{id}/changes`
-            // 是 `media/quarantine_changes` 的旧别名。三处原为整条拒绝（见文档 §9.2）。
-            || path.starts_with("/_synapse/admin/v1/room_stats")
-            || path == "/_synapse/admin/v1/reports"
-            || path.starts_with("/_synapse/admin/v1/quarantine_media/")
-
-            // 只回调用者自己的身份/限流状态/策略开关，此前无前缀覆盖。
-            || path == "/_synapse/admin/v1/whoami"
-            || path == "/_synapse/admin/v1/rate-limit-status"
-            || path == "/_synapse/admin/v1/policy/status"
-        }
-        "auditor" => {
-            is_read
-                && (path.starts_with("/_synapse/admin/v1/audit")
-                    || path.starts_with("/_synapse/admin/v1/event_reports")
-                    || path.starts_with("/_synapse/admin/v1/security"))
-        }
-        "security_admin" => {
-            path.starts_with("/_synapse/admin/v1/security")
-                || path.starts_with("/_synapse/admin/v1/audit")
-                || path.starts_with("/_synapse/admin/v1/event_reports")
-                || path.starts_with("/_synapse/admin/v1/server")
-        }
-        "user_admin" => {
-            if is_super_admin_only_endpoint(method, path) {
-                return false;
-            }
-
-            path.starts_with("/_synapse/admin/v1/users")
-                || path.starts_with("/_synapse/admin/v2/users")
-                || path.starts_with("/_synapse/admin/v1/notifications")
-        }
-        "media_admin" => path.starts_with("/_synapse/admin/v1/media"),
-        _ => false,
-    }
+    allowlist::role_allows(role, method, path)
 }
 
 fn is_sensitive_admin_request(method: &Method, path: &str) -> bool {

@@ -353,3 +353,57 @@ MFA 是在**每个请求**上校验的，而现有 admin 前端只在写请求�
 + 登记了但已不可达 ⇒ 红。
 
 写面那张表防的是"悄悄获得破坏能力"，这张表防的是"**悄悄开始输出数据**"。
+
+## 10. 允许面从 `||` 链改成数据表（2026-10-21）
+
+§9.5 之后 `admin_auth.rs` 到了 599 行（阈值 600）——这条 `||` 链已经加不进规则了。
+本次做的是**纯结构重构，判定不变**。
+
+### 10.1 为什么必须改
+
++ **加规则和拆文件互相打架**：每加一个端点就要往函数体塞条件，而文件压在行数棘轮上；
++ **`||` 链读不出结构**："`media_admin` 能碰什么"只能从头顺着读；"`/media` 都有谁能碰"
+  只能靠 `grep` 前缀；
++ 更要紧的是：`auditor` / `security_admin` / `user_admin` / `media_admin` 这四支
+  **此前没有任何测试**——改一行 `||` 就可能悄悄放开或堵死它们，而三张登记表只覆盖 `admin`。
+
+### 10.2 改成什么
+
+`utils/admin_auth/allowlist.rs`：每行一个 `(方法类别, 路径形态)` 三元组，顺序无关、可 grep、可 diff。
+
+```rust
+g(Any, Prefix("/_synapse/admin/v1/rooms")),
+g(Read, Contains("/registration_tokens")),        // 令牌只读
+g(ReadOrDelete, UserDevices),                     // 单设备读/删，批量删除除外
+g(Any, PrefixAndSuffix("/_synapse/admin/v1/user/", "/media/quarantine")),
+```
+
+`is_role_allowed` 缩成 8 行：`super_admin` 短路 → 黑名单 → 查表。
+`admin_auth.rs` **599 → 446 行**，表本体 215 行，两者都在阈值内。
+
+### 10.3 怎么证明"判定不变"
+
+先抓 golden 再重构：
+
+1. 用**旧实现**生成 `test-support/admin_rbac_decision_matrix.txt`：
+   `角色 × 每条 admin 路由` 的 allow/deny 全量快照，7 个角色 × 299 条路由 = **2093 行**；
+2. 换成数据表后重跑 → 三张 golden（写面 96、读面 131、矩阵 2093 行）**逐行相同**。
+
+矩阵顺带暴露了这些角色真实的可及面（此前无人知道）：
+
+| 角色 | allow / deny（共 299 条） |
+|---|---|
+| `super_admin` | 299 / 0（黑名单对它也短路） |
+| `admin` | 227 / 72（= 写 96 + 读 131） |
+| `user_admin` | 44 / 255 |
+| `security_admin` | 26 / 273 |
+| `media_admin` | 14 / 285 |
+| `auditor` | 12 / 287 |
+| `none`（未设 `user_type`） | 0 / 299 |
+
+### 10.4 以后怎么改权限
+
++ 改表 → 跑矩阵断言，失败信息**只列差异行**（曾经的整体 `assert_eq!` 会把 2093 行刷满终端）；
++ 确认差异是想要的那几行 → `cargo nextest run -E 'test(regenerate_role_decision_matrix)' --run-ignored`
+  重新生成，并把 golden 的 diff 当作**一次权限变更**审阅；
++ 若改动落在 `admin` 角色上，写面/读面登记表会同时报错，要求你显式增删登记项。
