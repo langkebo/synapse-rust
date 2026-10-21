@@ -26,7 +26,9 @@ use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use synapse_services::client_push_service::{ClientPushService, UpsertPushRuleRequest, UpsertPusherRequest};
 use synapse_storage::push::PushStoreApi;
-use synapse_storage::push::{NotificationPageQuery, NotificationRow, PushRuleRow, PushRuleScopedRow, PusherRow};
+use synapse_storage::push::{
+    NotificationPageQuery, NotificationRow, PushRuleRow, PushRuleScopedRow, PushRuleWriteError, PusherRow,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mock: PushStoreApi
@@ -54,6 +56,8 @@ struct MockPushStoreState {
     ack_returns_some: bool,
     /// Configured return value for `count_push_rules_excluding`.
     rule_count: i64,
+    /// When set, `upsert_push_rule` reports that this anchor rule is missing.
+    missing_anchor: Option<String>,
 }
 
 impl MockPushStore {
@@ -82,6 +86,13 @@ impl MockPushStore {
     fn with_enabled(value: Option<bool>) -> Self {
         let store = Self::new();
         *store.state.lock().unwrap() = MockPushStoreState { enabled_value: value, ..Default::default() };
+        store
+    }
+
+    fn with_missing_anchor(anchor: &str) -> Self {
+        let store = Self::new();
+        *store.state.lock().unwrap() =
+            MockPushStoreState { missing_anchor: Some(anchor.to_string()), ..Default::default() };
         store
     }
 }
@@ -148,11 +159,16 @@ impl PushStoreApi for MockPushStore {
         _pattern: &Option<String>,
         _conditions: &Option<Value>,
         _actions: &Value,
+        _before: Option<&str>,
+        _after: Option<&str>,
         _now: i64,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<(), PushRuleWriteError> {
         let state = self.state.lock().unwrap().clone();
         if state.fail_all {
-            return Err(storage_error());
+            return Err(PushRuleWriteError::Sqlx(storage_error()));
+        }
+        if let Some(anchor) = state.missing_anchor {
+            return Err(PushRuleWriteError::AnchorNotFound { anchor });
         }
         Ok(())
     }
@@ -321,6 +337,8 @@ fn sample_upsert_push_rule_request() -> UpsertPushRuleRequest {
         pattern: Some("spam".to_string()),
         conditions: Some(json!([{"kind": "event_match"}])),
         actions: json!(["notify"]),
+        before: None,
+        after: None,
     }
 }
 
@@ -568,6 +586,31 @@ async fn upsert_push_rule_maps_storage_error_to_internal() {
     let service = build_service(MockPushStore::with_failure());
     let err = service.upsert_push_rule(sample_upsert_push_rule_request()).await.expect_err("should propagate error");
     assert!(err.is_internal());
+}
+
+#[tokio::test]
+async fn upsert_push_rule_rejects_before_and_after_together() {
+    // Both order parameters are mutually exclusive; the service must reject the
+    // request with 400 before touching storage.
+    let service = build_service(MockPushStore::with_failure());
+    let mut req = sample_upsert_push_rule_request();
+    req.before = Some("rule_a".to_string());
+    req.after = Some("rule_b".to_string());
+
+    let err = service.upsert_push_rule(req).await.expect_err("should reject both order params");
+    assert!(err.is_bad_request(), "expected 400 invalid_param, got {err:?}");
+}
+
+#[tokio::test]
+async fn upsert_push_rule_maps_unknown_anchor_to_bad_request() {
+    // Spec: `before`/`after` must name an existing rule of the same kind;
+    // anything else is a client error, not a 500.
+    let service = build_service(MockPushStore::with_missing_anchor("nope"));
+    let mut req = sample_upsert_push_rule_request();
+    req.before = Some("nope".to_string());
+
+    let err = service.upsert_push_rule(req).await.expect_err("should reject unknown anchor");
+    assert!(err.is_bad_request(), "expected 400 invalid_param, got {err:?}");
 }
 
 #[tokio::test]

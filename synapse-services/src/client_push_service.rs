@@ -2,7 +2,9 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
-use synapse_storage::push::{NotificationPageQuery, NotificationRow, PushRuleScopedRow, PushStoreApi};
+use synapse_storage::push::{
+    NotificationPageQuery, NotificationRow, PushRuleScopedRow, PushRuleWriteError, PushStoreApi,
+};
 
 /// Maximum UTF-8 byte length of a push rule ID. Mirrors upstream Synapse's
 /// `push_rules.rule_id_length` (ELEMENTSEC-2026-1071).
@@ -181,8 +183,8 @@ fn rule_to_json(
 /// Rebuild the `GET /pushrules` document from persisted rows.
 ///
 /// Shape: `{"global": {<kind>: [rule, ...]}, "devices": {<device_id>: {<kind>: [rule, ...]}}}`.
-/// The rows arrive pre-sorted (`scope, kind, rule_id`), so a single pass preserves
-/// the deterministic within-kind order the spec requires.
+/// The rows arrive pre-sorted (`scope, kind, priority, rule_id`), so a single pass
+/// preserves the user-defined within-kind order (`before` / `after`) the spec requires.
 ///
 /// Only `global` and `device/<device_id>` scopes are recognised — the same
 /// constraint the HTTP layer enforces (`get_push_rules_scope` rejects anything
@@ -253,6 +255,12 @@ pub struct UpsertPushRuleRequest {
     pub conditions: Option<Value>,
     /// The `actions` field.
     pub actions: Value,
+    /// `?before=<rule_id>` — make this rule the next-most important of its kind
+    /// (place it immediately before the anchor). Mutually exclusive with [`Self::after`].
+    pub before: Option<String>,
+    /// `?after=<rule_id>` — make this rule the next-less important of its kind
+    /// (place it immediately after the anchor). Mutually exclusive with [`Self::before`].
+    pub after: Option<String>,
 }
 
 /// The `ClientPushService` struct.
@@ -379,12 +387,20 @@ impl ClientPushService {
     }
 
     /// See [`upsert_push_rule`].
+    ///
+    /// `before` / `after` position the rule within its `(scope, kind)` group (B-34).
+    /// Giving both is contradictory and an unknown anchor is client input we cannot
+    /// honour, so both surface as `400 M_INVALID_PARAM` rather than a silent pick or
+    /// a 500.
     pub async fn upsert_push_rule(&self, request: UpsertPushRuleRequest) -> Result<i64, ApiError> {
         // ELEMENTSEC-2026-1071: bound rule count and per-rule size before touching
         // storage, so an abusive client cannot exhaust disk/memory. The cheap
         // in-memory checks run first; the per-user count (one indexed `COUNT(*)`)
         // runs last so it is only paid when the request is otherwise well-formed.
         ensure_push_rule_within_limits(&request.rule_id, request.conditions.as_ref(), &request.actions)?;
+        if request.before.is_some() && request.after.is_some() {
+            return Err(ApiError::invalid_param("Cannot specify both `before` and `after`"));
+        }
         let existing = self
             .push_storage
             .count_push_rules_excluding(&request.user_id, &request.scope, &request.kind, &request.rule_id)
@@ -405,10 +421,20 @@ impl ClientPushService {
                 &request.pattern,
                 &request.conditions,
                 &request.actions,
+                request.before.as_deref(),
+                request.after.as_deref(),
                 now,
             )
             .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to save push rule", e))?;
+            .map_err(|e| match e {
+                PushRuleWriteError::ConflictingPosition => {
+                    ApiError::invalid_param("Cannot specify both `before` and `after`")
+                }
+                PushRuleWriteError::AnchorNotFound { anchor } => {
+                    ApiError::invalid_param(format!("Unknown push rule `{anchor}` in this kind"))
+                }
+                PushRuleWriteError::Sqlx(e) => ApiError::internal_with_cause("Failed to save push rule", e),
+            })?;
         // OBS-01 (P1): Push rule 控制通知过滤策略（房间/关键词/事件类型），是
         // 用户可控制的通知行为边界。记录操作类型和规则 ID；不记录 pattern/conditions
         // 内容（可能含关键词等用户数据）。

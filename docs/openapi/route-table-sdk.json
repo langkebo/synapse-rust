@@ -2690,7 +2690,10 @@
         "kind",
         "rule_id"
       ],
-      "query_params": [],
+      "query_params": [
+        "after",
+        "before"
+      ],
       "auth": null
     },
     {
@@ -2702,7 +2705,10 @@
         "kind",
         "rule_id"
       ],
-      "query_params": [],
+      "query_params": [
+        "after",
+        "before"
+      ],
       "auth": null
     },
     {

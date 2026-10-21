@@ -40,7 +40,7 @@ pub struct PusherRow {
 }
 
 /// A `push_rules` row as returned by [`PushStorage::get_user_push_rules`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct PushRuleRow {
     /// The `rule_id` field.
     pub rule_id: String,
@@ -55,13 +55,17 @@ pub struct PushRuleRow {
     pub is_enabled: bool,
     /// The `is_default` field. Asserted non-null: the INSERT always writes literal `false`.
     pub is_default: bool,
+    /// The `priority` field — position within this `(scope, kind)` group, ascending.
+    /// Written by [`PushStorage::upsert_push_rule`], which renumbers the whole group
+    /// on every positioned write; rows inserted before B-34 all carry the default `0`.
+    pub priority: i64,
 }
 
 /// A `push_rules` row carrying its `scope`/`kind` classification, as returned by
 /// [`PushStorage::get_all_push_rules`]. Unlike [`PushRuleRow`] (which is already
 /// scoped by the caller's `scope`/`kind` arguments), this row is the input needed
 /// to rebuild the full `GET /pushrules` document.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct PushRuleScopedRow {
     /// The `scope` field (`global` or `device/<device_id>`).
     pub scope: String,
@@ -80,6 +84,56 @@ pub struct PushRuleScopedRow {
     pub is_enabled: bool,
     /// The `is_default` field. Asserted non-null: the INSERT always writes literal `false`.
     pub is_default: bool,
+    /// The `priority` field — position within this `(scope, kind)` group, ascending.
+    /// See [`PushRuleRow::priority`].
+    pub priority: i64,
+}
+
+/// Failure modes of a position-aware push-rule write
+/// ([`PushStorage::upsert_push_rule`]).
+///
+/// The Matrix client-server API lets `PUT /pushrules/{scope}/{kind}/{rule_id}` name
+/// a sibling via `before` / `after`. Both are client input, so "the anchor does not
+/// exist" is a **400**, not a server fault — it must be distinguishable from a
+/// database error instead of being flattened into `sqlx::Error`.
+#[derive(Debug)]
+pub enum PushRuleWriteError {
+    /// `before` and `after` were both supplied; a rule cannot occupy two positions.
+    ConflictingPosition,
+    /// The rule named by `before` / `after` is not a rule of this `(user, scope, kind)`
+    /// group. Server defaults live outside this table, so naming one lands here too —
+    /// the spec forbids positioning a user rule relative to a default rule.
+    AnchorNotFound {
+        /// The `before` / `after` value the client sent.
+        anchor: String,
+    },
+    /// The database rejected the write.
+    Sqlx(sqlx::Error),
+}
+
+impl std::fmt::Display for PushRuleWriteError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ConflictingPosition => write!(f, "`before` and `after` cannot both be given"),
+            Self::AnchorNotFound { anchor } => write!(f, "push rule `{anchor}` not found in this kind"),
+            Self::Sqlx(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for PushRuleWriteError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Sqlx(e) => Some(e),
+            Self::ConflictingPosition | Self::AnchorNotFound { .. } => None,
+        }
+    }
+}
+
+impl From<sqlx::Error> for PushRuleWriteError {
+    fn from(e: sqlx::Error) -> Self {
+        Self::Sqlx(e)
+    }
 }
 
 /// A `notifications` row as returned by [`PushStorage::get_notifications`].
@@ -180,8 +234,10 @@ pub trait PushStoreApi: Send + Sync {
         pattern: &Option<String>,
         conditions: &Option<Value>,
         actions: &Value,
+        before: Option<&str>,
+        after: Option<&str>,
         now: i64,
-    ) -> Result<(), sqlx::Error>;
+    ) -> Result<(), PushRuleWriteError>;
 
     /// See [`delete_push_rule`].
     async fn delete_push_rule(&self, user_id: &str, scope: &str, kind: &str, rule_id: &str)
@@ -380,6 +436,25 @@ impl PushStorage {
     // ── push_rules ───────────────────────────────────────────────────────
 
     /// See [`upsert_push_rule`].
+    ///
+    /// Positioned write for `PUT /_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}`:
+    ///
+    /// * `before` — the rule becomes the **next-most important** rule of its kind
+    ///   (immediately before the anchor).
+    /// * `after` — the rule becomes the **next-less important** rule (immediately
+    ///   after the anchor).
+    /// * neither — a *new* rule is appended to the end of its kind; an **existing**
+    ///   rule keeps its current position, so a plain body update never reorders it.
+    ///
+    /// Anchors resolve only inside the same `(user, scope, kind)` group: server
+    /// defaults are merged at read time and are not rows here, which is exactly why
+    /// the spec forbids positioning relative to them — naming one yields
+    /// [`PushRuleWriteError::AnchorNotFound`].
+    ///
+    /// The read-modify-write runs in one transaction. `SELECT … FOR UPDATE` locks the
+    /// group's rows, so two concurrent writers to the same kind serialise instead of
+    /// computing positions from the same stale list. A still-empty group has nothing
+    /// to lock; its writers both land at index 0 and `rule_id` breaks the tie.
     #[allow(clippy::too_many_arguments)]
     pub async fn upsert_push_rule(
         &self,
@@ -390,9 +465,60 @@ impl PushStorage {
         pattern: &Option<String>,
         conditions: &Option<Value>,
         actions: &Value,
+        before: Option<&str>,
+        after: Option<&str>,
         now: i64,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
+    ) -> Result<(), PushRuleWriteError> {
+        if before.is_some() && after.is_some() {
+            return Err(PushRuleWriteError::ConflictingPosition);
+        }
+
+        let mut tx = self.pool.begin().await?;
+
+        let existing: Vec<(String, i64)> = sqlx::query_as(
+            r#"
+            SELECT rule_id, priority FROM push_rules
+            WHERE user_id = $1 AND scope = $2 AND kind = $3
+            ORDER BY priority ASC, rule_id ASC
+            FOR UPDATE
+            "#,
+        )
+        .bind(user_id)
+        .bind(scope)
+        .bind(kind)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        let mut order: Vec<String> = existing.into_iter().map(|(rule_id, _)| rule_id).collect();
+        // Taking the rule out first lets `before`/`after` resolve against the list it
+        // will actually be inserted into, and makes "anchor is the rule itself" a
+        // not-found instead of a no-op (spec: anchors are *other* rules).
+        let current_index = order.iter().position(|id| id == rule_id);
+        if current_index.is_some() {
+            order.retain(|id| id != rule_id);
+        }
+
+        let insert_at = match (before, after) {
+            (Some(anchor), None) => order
+                .iter()
+                .position(|id| id == anchor)
+                .ok_or_else(|| PushRuleWriteError::AnchorNotFound { anchor: anchor.to_string() })?,
+            (None, Some(anchor)) => {
+                order
+                    .iter()
+                    .position(|id| id == anchor)
+                    .ok_or_else(|| PushRuleWriteError::AnchorNotFound { anchor: anchor.to_string() })?
+                    + 1
+            }
+            (None, None) => current_index.unwrap_or(order.len()),
+            (Some(_), Some(_)) => return Err(PushRuleWriteError::ConflictingPosition),
+        };
+        order.insert(insert_at, rule_id.to_string());
+
+        // Body upsert only: `priority` is assigned by the renumbering statement below,
+        // which needs a row to exist for every id in `order`. Keeping `ON CONFLICT`
+        // limited to the body preserves the pre-B-34 update semantics.
+        sqlx::query(
             r#"
             INSERT INTO push_rules (user_id, scope, kind, rule_id, pattern, conditions, actions,
              is_enabled, is_default, created_ts)
@@ -400,17 +526,41 @@ impl PushStorage {
             ON CONFLICT (user_id, scope, kind, rule_id) DO UPDATE SET
              pattern = $5, conditions = $6, actions = $7
             "#,
-            user_id,
-            scope,
-            kind,
-            rule_id,
-            pattern.as_deref(),
-            conditions.as_ref(),
-            actions,
-            now,
         )
-        .execute(&*self.pool)
+        .bind(user_id)
+        .bind(scope)
+        .bind(kind)
+        .bind(rule_id)
+        .bind(pattern.as_deref())
+        .bind(conditions.as_ref())
+        .bind(actions)
+        .bind(now)
+        .execute(&mut *tx)
         .await?;
+
+        // Renumber the whole group in one round trip: `unnest(…) WITH ORDINALITY`
+        // turns the computed order into a `(rule_id, index)` relation and the UPDATE
+        // joins it on the unique key. One statement instead of N keeps a group at the
+        // per-user cap (10 000) from turning every insert into 10 000 round trips.
+        sqlx::query(
+            r#"
+            UPDATE push_rules AS p
+            SET priority = v.idx
+            FROM (
+                SELECT rule_id, ordinality - 1 AS idx
+                FROM unnest($4::text[]) WITH ORDINALITY AS t(rule_id, ordinality)
+            ) AS v
+            WHERE p.user_id = $1 AND p.scope = $2 AND p.kind = $3 AND p.rule_id = v.rule_id
+            "#,
+        )
+        .bind(user_id)
+        .bind(scope)
+        .bind(kind)
+        .bind(&order)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
         Ok(())
     }
 
@@ -523,32 +673,32 @@ impl PushStorage {
 
     /// See [`get_user_push_rules`].
     ///
-    /// Results are ordered by `rule_id` ascending — the Matrix push-rule order
-    /// *within* a kind (the spec ranks kinds
-    /// override → content → room → sender → underride, and within a kind the
-    /// client must see a deterministic, rule-ID order). The previous
-    /// `ORDER BY priority DESC, created_ts ASC` was meaningless: no writer ever
-    /// set `priority` (every row carried the column default `0`), so the order
-    /// silently degenerated to insertion time.
+    /// Results are ordered by `priority` ascending, `rule_id` breaking ties — the
+    /// Matrix push-rule order *within* a kind. The spec ranks kinds
+    /// override → content → room → sender → underride, and within a kind the client
+    /// must see the order the user built with `before` / `after`
+    /// ([`Self::upsert_push_rule`]). `rule_id` is the deterministic tiebreaker for
+    /// rows that share a `priority` (all pre-B-34 rows default to `0`).
+    ///
+    /// Written with the runtime `query_as` form (not `query_as!`) because the read
+    /// now selects `priority`, which the `.sqlx` offline cache does not know about.
     pub async fn get_user_push_rules(
         &self,
         user_id: &str,
         scope: &str,
         kind: &str,
     ) -> Result<Vec<PushRuleRow>, sqlx::Error> {
-        sqlx::query_as!(
-            PushRuleRow,
+        sqlx::query_as::<_, PushRuleRow>(
             r#"
-            SELECT rule_id, pattern, conditions, actions,
-                   is_enabled AS "is_enabled!", is_default AS "is_default!"
+            SELECT rule_id, pattern, conditions, actions, is_enabled, is_default, priority
             FROM push_rules
             WHERE user_id = $1 AND scope = $2 AND kind = $3
-            ORDER BY rule_id ASC
+            ORDER BY priority ASC, rule_id ASC
             "#,
-            user_id,
-            scope,
-            kind,
         )
+        .bind(user_id)
+        .bind(scope)
+        .bind(kind)
         .fetch_all(&*self.pool)
         .await
     }
@@ -556,20 +706,19 @@ impl PushStorage {
     /// See [`get_all_push_rules`].
     ///
     /// Returns every rule for `user_id` across all scopes/kinds — the raw input for
-    /// rebuilding `GET /pushrules`. Ordered `scope, kind, rule_id` so the caller can
-    /// group in a single pass with a deterministic within-kind order.
+    /// rebuilding `GET /pushrules`. Ordered `scope, kind, priority, rule_id` so the
+    /// caller can group in a single pass and preserve the user-defined within-kind
+    /// order.
     pub async fn get_all_push_rules(&self, user_id: &str) -> Result<Vec<PushRuleScopedRow>, sqlx::Error> {
-        sqlx::query_as!(
-            PushRuleScopedRow,
+        sqlx::query_as::<_, PushRuleScopedRow>(
             r#"
-            SELECT scope, kind, rule_id, pattern, conditions, actions,
-                   is_enabled AS "is_enabled!", is_default AS "is_default!"
+            SELECT scope, kind, rule_id, pattern, conditions, actions, is_enabled, is_default, priority
             FROM push_rules
             WHERE user_id = $1
-            ORDER BY scope ASC, kind ASC, rule_id ASC
+            ORDER BY scope ASC, kind ASC, priority ASC, rule_id ASC
             "#,
-            user_id,
         )
+        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
     }
@@ -732,9 +881,11 @@ impl PushStoreApi for PushStorage {
         pattern: &Option<String>,
         conditions: &Option<Value>,
         actions: &Value,
+        before: Option<&str>,
+        after: Option<&str>,
         now: i64,
-    ) -> Result<(), sqlx::Error> {
-        self.upsert_push_rule(user_id, scope, kind, rule_id, pattern, conditions, actions, now).await
+    ) -> Result<(), PushRuleWriteError> {
+        self.upsert_push_rule(user_id, scope, kind, rule_id, pattern, conditions, actions, before, after, now).await
     }
 
     async fn delete_push_rule(
@@ -1073,7 +1224,18 @@ mod db_tests {
         cleanup_push_rules(&pool, &user_id).await;
 
         storage
-            .upsert_push_rule(&user_id, "global", "override", "rule1", &None, &None, &json!(["notify"]), now)
+            .upsert_push_rule(
+                &user_id,
+                "global",
+                "override",
+                "rule1",
+                &None,
+                &None,
+                &json!(["notify"]),
+                None,
+                None,
+                now,
+            )
             .await
             .expect("upsert_push_rule should succeed");
 
@@ -1123,6 +1285,8 @@ mod db_tests {
                 &Some("original".to_string()),
                 &None,
                 &json!(["notify"]),
+                None,
+                None,
                 now,
             )
             .await
@@ -1137,6 +1301,8 @@ mod db_tests {
                 &Some("updated".to_string()),
                 &None,
                 &json!(["dont_notify"]),
+                None,
+                None,
                 now,
             )
             .await
@@ -1162,7 +1328,18 @@ mod db_tests {
         cleanup_push_rules(&pool, &user_id).await;
 
         storage
-            .upsert_push_rule(&user_id, "global", "override", "rule_actions", &None, &None, &json!(["notify"]), now)
+            .upsert_push_rule(
+                &user_id,
+                "global",
+                "override",
+                "rule_actions",
+                &None,
+                &None,
+                &json!(["notify"]),
+                None,
+                None,
+                now,
+            )
             .await
             .expect("upsert should succeed");
 
@@ -1198,7 +1375,18 @@ mod db_tests {
         cleanup_push_rules(&pool, &user_id).await;
 
         storage
-            .upsert_push_rule(&user_id, "global", "override", "rule_del", &None, &None, &json!(["notify"]), now)
+            .upsert_push_rule(
+                &user_id,
+                "global",
+                "override",
+                "rule_del",
+                &None,
+                &None,
+                &json!(["notify"]),
+                None,
+                None,
+                now,
+            )
             .await
             .expect("upsert should succeed");
 
@@ -1240,7 +1428,18 @@ mod db_tests {
         cleanup_push_rules(&pool, &user_id).await;
 
         storage
-            .upsert_push_rule(&user_id, "global", "override", "rule_toggle", &None, &None, &json!(["notify"]), now)
+            .upsert_push_rule(
+                &user_id,
+                "global",
+                "override",
+                "rule_toggle",
+                &None,
+                &None,
+                &json!(["notify"]),
+                None,
+                None,
+                now,
+            )
             .await
             .expect("upsert should succeed");
 
@@ -1280,15 +1479,26 @@ mod db_tests {
 
         // Create rules in different scope/kind combinations
         storage
-            .upsert_push_rule(&user_id, "global", "override", "r1", &None, &None, &json!(["notify"]), now)
+            .upsert_push_rule(&user_id, "global", "override", "r1", &None, &None, &json!(["notify"]), None, None, now)
             .await
             .expect("upsert r1");
         storage
-            .upsert_push_rule(&user_id, "global", "content", "r2", &None, &None, &json!(["notify"]), now)
+            .upsert_push_rule(&user_id, "global", "content", "r2", &None, &None, &json!(["notify"]), None, None, now)
             .await
             .expect("upsert r2");
         storage
-            .upsert_push_rule(&user_id, "devices/DEV1", "override", "r3", &None, &None, &json!(["notify"]), now)
+            .upsert_push_rule(
+                &user_id,
+                "devices/DEV1",
+                "override",
+                "r3",
+                &None,
+                &None,
+                &json!(["notify"]),
+                None,
+                None,
+                now,
+            )
             .await
             .expect("upsert r3");
 
@@ -1507,47 +1717,128 @@ mod db_tests {
             .expect("ack_notification should succeed");
         assert!(result.is_none(), "non-existent notification id should return None");
     }
-    /// The spec orders push rules *within a kind* deterministically; this
-    /// implementation uses `rule_id` ascending. Regression guard for the old
-    /// `ORDER BY priority DESC, created_ts ASC`, which degenerated to insertion
-    /// order because no writer ever set `priority`.
+    /// B-34: `before` / `after` define the order within a kind; with neither, a
+    /// **new** rule appends to the end of its kind while an **existing** rule keeps
+    /// its position (a plain body update must not reorder the list).
     #[tokio::test]
-    async fn test_get_user_push_rules_orders_by_rule_id_not_insertion_time() {
+    async fn test_upsert_push_rule_positions_rules_within_kind() {
         let (_isolated, pool) = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@pushorder");
         cleanup_push_rules(&pool, &user_id).await;
 
-        // Insert deliberately OUT of rule_id order, with descending created_ts,
-        // so an insertion-time sort would produce a different answer.
-        let base = current_timestamp_millis();
-        for (idx, rule_id) in [".m.rule.zzz", ".m.rule.aaa", ".m.rule.mmm"].into_iter().enumerate() {
+        async fn put(storage: &PushStorage, user_id: &str, rule_id: &str, before: Option<&str>, after: Option<&str>) {
             storage
                 .upsert_push_rule(
-                    &user_id,
+                    user_id,
                     "global",
                     "override",
                     rule_id,
                     &None,
                     &None,
                     &json!(["notify"]),
-                    base + (10 - idx as i64),
+                    before,
+                    after,
+                    current_timestamp_millis(),
                 )
                 .await
-                .expect("upsert should succeed");
+                .expect("positioned upsert should succeed");
         }
 
-        let rows = storage
-            .get_user_push_rules(&user_id, "global", "override")
-            .await
-            .expect("get_user_push_rules should succeed");
-        let got: Vec<String> = rows.iter().map(|r| r.rule_id.clone()).collect();
-        assert_eq!(
-            got,
-            vec![".m.rule.aaa", ".m.rule.mmm", ".m.rule.zzz"],
-            "rules must come back in rule_id order regardless of insertion time"
-        );
+        async fn order(storage: &PushStorage, user_id: &str) -> Vec<String> {
+            storage
+                .get_user_push_rules(user_id, "global", "override")
+                .await
+                .expect("get_user_push_rules should succeed")
+                .into_iter()
+                .map(|r| r.rule_id)
+                .collect()
+        }
+
+        // No anchor: each new rule appends, so the order is insertion order — not
+        // `rule_id` order (the pre-B-34 behaviour this feature replaces).
+        put(&storage, &user_id, "zzz", None, None).await;
+        put(&storage, &user_id, "aaa", None, None).await;
+        put(&storage, &user_id, "mmm", None, None).await;
+        assert_eq!(order(&storage, &user_id).await, vec!["zzz", "aaa", "mmm"]);
+
+        // `after` = next-less important → immediately after the anchor.
+        put(&storage, &user_id, "d", None, Some("zzz")).await;
+        assert_eq!(order(&storage, &user_id).await, vec!["zzz", "d", "aaa", "mmm"]);
+
+        // `before` = next-most important → immediately before the anchor.
+        put(&storage, &user_id, "e", Some("aaa"), None).await;
+        assert_eq!(order(&storage, &user_id).await, vec!["zzz", "d", "e", "aaa", "mmm"]);
+
+        // Updating an existing rule without anchors leaves its position untouched.
+        put(&storage, &user_id, "aaa", None, None).await;
+        assert_eq!(order(&storage, &user_id).await, vec!["zzz", "d", "e", "aaa", "mmm"]);
+
+        // An existing rule may be moved: it is removed before the anchor is resolved.
+        put(&storage, &user_id, "zzz", Some("mmm"), None).await;
+        assert_eq!(order(&storage, &user_id).await, vec!["d", "e", "aaa", "zzz", "mmm"]);
 
         cleanup_push_rules(&pool, &user_id).await;
+    }
+
+    /// `before` + `after` together is client input we cannot honour → typed error
+    /// (the service maps it to `400 M_INVALID_PARAM`), not a silent pick.
+    #[tokio::test]
+    async fn test_upsert_push_rule_rejects_conflicting_position() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = PushStorage::new(Arc::clone(&pool));
+        let user_id = unique_user_id("@pushorder");
+        cleanup_push_rules(&pool, &user_id).await;
+
+        let err = storage
+            .upsert_push_rule(
+                &user_id,
+                "global",
+                "override",
+                "conflict",
+                &None,
+                &None,
+                &json!(["notify"]),
+                Some("a"),
+                Some("b"),
+                current_timestamp_millis(),
+            )
+            .await
+            .expect_err("both anchors must be rejected");
+        assert!(matches!(err, PushRuleWriteError::ConflictingPosition), "unexpected error: {err}");
+    }
+
+    /// An unknown anchor — including a server default rule, which is not a row in
+    /// this table — is a client error, not a database error.
+    #[tokio::test]
+    async fn test_upsert_push_rule_rejects_unknown_anchor() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = PushStorage::new(Arc::clone(&pool));
+        let user_id = unique_user_id("@pushorder");
+        cleanup_push_rules(&pool, &user_id).await;
+
+        let err = storage
+            .upsert_push_rule(
+                &user_id,
+                "global",
+                "override",
+                "orphan",
+                &None,
+                &None,
+                &json!(["notify"]),
+                Some(".m.rule.master"),
+                None,
+                current_timestamp_millis(),
+            )
+            .await
+            .expect_err("unknown anchor must be rejected");
+        match err {
+            PushRuleWriteError::AnchorNotFound { anchor } => assert_eq!(anchor, ".m.rule.master"),
+            other => panic!("expected AnchorNotFound, got {other}"),
+        }
+
+        // The rejected write must not leave a partial row behind.
+        let rows = storage.get_user_push_rules(&user_id, "global", "override").await.expect("get_user_push_rules");
+        assert!(rows.is_empty(), "a failed positioned write must not insert the rule");
     }
 }

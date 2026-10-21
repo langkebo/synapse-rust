@@ -403,16 +403,32 @@ pub struct SetPushRuleBody {
     pub pattern: Option<String>,
 }
 
-async fn set_push_rule(
-    Path((scope, kind, rule_id)): Path<(String, String, String)>,
-    State(ctx): State<AdminContext>,
-    auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<SetPushRuleBody>,
-) -> Result<Json<Value>, ApiError> {
-    let actions: serde_json::Value = body.actions.unwrap_or(json!([]));
-    let conditions: Option<serde_json::Value> = body.conditions;
-    let pattern: Option<String> = body.pattern;
+/// Query parameters of `PUT` / `POST /_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}`.
+///
+/// `before` and `after` position the rule relative to a sibling of the same kind
+/// (B-34). Both are optional; supplying both is rejected by the service with
+/// `400 M_INVALID_PARAM`, as is naming an anchor that does not exist in this kind.
+#[derive(Debug, Default, Deserialize)]
+pub struct PushRuleOrderQuery {
+    /// `?before=<rule_id>` — the rule becomes the next-most important of its kind.
+    #[serde(default)]
+    pub before: Option<String>,
+    /// `?after=<rule_id>` — the rule becomes the next-less important of its kind.
+    #[serde(default)]
+    pub after: Option<String>,
+}
 
+/// Shared implementation of `PUT` and `POST` on a single push rule: both verbs
+/// create-or-update, and both accept `before` / `after` to set the position.
+async fn upsert_push_rule_from_body(
+    ctx: AdminContext,
+    auth_user: AuthenticatedUser,
+    scope: String,
+    kind: String,
+    rule_id: String,
+    order: PushRuleOrderQuery,
+    body: SetPushRuleBody,
+) -> Result<Json<Value>, ApiError> {
     let created_ts: i64 = ctx
         .client_push_service
         .upsert_push_rule(synapse_services::client_push_service::UpsertPushRuleRequest {
@@ -420,9 +436,11 @@ async fn set_push_rule(
             scope: scope.clone(),
             kind: kind.clone(),
             rule_id: rule_id.clone(),
-            pattern,
-            conditions,
-            actions,
+            pattern: body.pattern,
+            conditions: body.conditions,
+            actions: body.actions.unwrap_or(json!([])),
+            before: order.before,
+            after: order.after,
         })
         .await?;
 
@@ -434,35 +452,24 @@ async fn set_push_rule(
     })))
 }
 
+async fn set_push_rule(
+    Path((scope, kind, rule_id)): Path<(String, String, String)>,
+    State(ctx): State<AdminContext>,
+    auth_user: AuthenticatedUser,
+    axum::extract::Query(order): axum::extract::Query<PushRuleOrderQuery>,
+    MatrixJson(body): MatrixJson<SetPushRuleBody>,
+) -> Result<Json<Value>, ApiError> {
+    upsert_push_rule_from_body(ctx, auth_user, scope, kind, rule_id, order, body).await
+}
+
 async fn create_push_rule(
     Path((scope, kind, rule_id)): Path<(String, String, String)>,
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
+    axum::extract::Query(order): axum::extract::Query<PushRuleOrderQuery>,
     MatrixJson(body): MatrixJson<SetPushRuleBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let actions: serde_json::Value = body.actions.unwrap_or(json!([]));
-    let conditions: Option<serde_json::Value> = body.conditions;
-    let pattern: Option<String> = body.pattern;
-
-    let created_ts: i64 = ctx
-        .client_push_service
-        .upsert_push_rule(synapse_services::client_push_service::UpsertPushRuleRequest {
-            user_id: auth_user.user_id,
-            scope: scope.clone(),
-            kind: kind.clone(),
-            rule_id: rule_id.clone(),
-            pattern,
-            conditions,
-            actions,
-        })
-        .await?;
-
-    Ok(Json(json!({
-        "rule_id": rule_id,
-        "scope": scope,
-        "kind": kind,
-        "created_ts": created_ts
-    })))
+    upsert_push_rule_from_body(ctx, auth_user, scope, kind, rule_id, order, body).await
 }
 
 async fn delete_push_rule(

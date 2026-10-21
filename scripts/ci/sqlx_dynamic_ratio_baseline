@@ -3454,7 +3454,11 @@ BASELINE_DYNAMIC_PRODUCTION=132
 #      （CONCURRENTLY 半建后 `indisvalid = false` 的真实形态）。
 #   为什么不能改静态宏：`#[cfg(test)]` 内的 `query!` 不进 `cargo sqlx prepare`
 #   （默认 target 集），`--all-targets` 会 E0432 —— 同上一条。
-BASELINE_DYNAMIC_TEST_INFRA=770
+# 2026-10-21: 770 → **767**（按实测收紧）。`HEAD` 与当前工作树用
+#   `scripts/ci/sqlx_query_census.py --json` 实测均为 767 ⇒ 上一版基线存在
+#   3 点静默余量，违反本文件"零余量"原则（留 1 点余量 = 允许一次静默回归）。
+#   本条只把测量值与基线对齐，不声称那 3 处属于某一批次。
+BASELINE_DYNAMIC_TEST_INFRA=767
 # 2026-10-15: 1353 → 1354（+1，方案 B4.3）。新增
 #   `synapse-storage/src/schema_health_check.rs` 的 `check_invalid_indexes()` —— 它让
 #   **半建索引**（`pg_index.indisvalid = false`）可见；此前只查"缺表/缺列/缺索引名"，
@@ -3508,7 +3512,7 @@ BASELINE_DYNAMIC_TEST_INFRA=770
 #   与本文件 `BASELINE_DYNAMIC_PRODUCTION` 的 +1 为同一次改动（一减一增），
 #   逐处登记见 `sqlx_literal_production_baseline`（`event/search.rs` 4 → 5）。
 BASELINE_STATIC=1367
-# 兼容旧接口：总数 = 生产 + 测试基础设施（132 + 770 = 902；本项不入棘轮，仅保持一致）
+# 兼容旧接口：总数 = 生产 + 测试基础设施（132 + 767 = 899；本项不入棘轮，仅保持一致）
 # 2026-10-21: 883 → 884，随 `BASELINE_DYNAMIC_PRODUCTION` 的 +1（`get_space_visibility_batch`）同步。
 # 2026-10-21: 884 → 887，随 `BASELINE_DYNAMIC_PRODUCTION` 的 +3（`get_rooms_batch` 与两条
 #   media 隔离批量写）同步。
@@ -3517,7 +3521,9 @@ BASELINE_STATIC=1367
 #   FTS 改造 +4）与 `BASELINE_DYNAMIC_TEST_INFRA` 的 +2（FTS 校验夹具）同步。
 # 2026-10-21: 901 → **902**，随 `BASELINE_DYNAMIC_PRODUCTION` 的 +1
 #   （`search_room_messages_admin` 时间窗，132 + 770 = 902）同步。
-BASELINE_DYNAMIC=902
+# 2026-10-21: 902 → **899**，随 `BASELINE_DYNAMIC_TEST_INFRA` 按实测收紧 770 → 767
+#   （132 + 767 = 899；见上方 TEST_INFRA 条目）。
+BASELINE_DYNAMIC=899
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

@@ -2,7 +2,9 @@ use super::*;
 
 use serde_json::Value;
 
-use crate::push::{NotificationPageQuery, NotificationRow, PushRuleRow, PushRuleScopedRow, PushStoreApi, PusherRow};
+use crate::push::{
+    NotificationPageQuery, NotificationRow, PushRuleRow, PushRuleScopedRow, PushRuleWriteError, PushStoreApi, PusherRow,
+};
 
 /// Stored push-rule state for the in-memory mock, mirroring the mutable columns
 /// of the `push_rules` table that the typed trait methods touch.
@@ -14,6 +16,9 @@ struct PushRuleEntry {
     is_enabled: bool,
     /// Mirrors the table's `is_default`; the INSERT always writes `false`.
     is_default: bool,
+    /// Mirrors the table's `priority` — position within the `(user, scope, kind)`
+    /// group, ascending. Every write renumbers the group, as the DB does (B-34).
+    priority: i64,
 }
 
 /// Stored pusher state for the in-memory mock.
@@ -144,10 +149,51 @@ impl PushStoreApi for InMemoryPushStore {
         pattern: &Option<String>,
         conditions: &Option<Value>,
         actions: &Value,
+        before: Option<&str>,
+        after: Option<&str>,
         _now: i64,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<(), PushRuleWriteError> {
+        if before.is_some() && after.is_some() {
+            return Err(PushRuleWriteError::ConflictingPosition);
+        }
+
         let key = (user_id.to_string(), scope.to_string(), kind.to_string(), rule_id.to_string());
         let mut rules = self.push_rules.write().await;
+
+        // Snapshot of this group in `priority, rule_id` order — the mock's stand-in
+        // for the real implementation's `SELECT … FOR UPDATE` inside a transaction.
+        let mut group: Vec<(String, i64)> = rules
+            .iter()
+            .filter(|((user, rule_scope, rule_kind, _), _)| user == user_id && rule_scope == scope && rule_kind == kind)
+            .map(|((_, _, _, existing_id), entry)| (existing_id.clone(), entry.priority))
+            .collect();
+        group.sort_by(|(a_id, a_prio), (b_id, b_prio)| a_prio.cmp(b_prio).then_with(|| a_id.cmp(b_id)));
+        let mut order: Vec<String> = group.into_iter().map(|(existing_id, _)| existing_id).collect();
+
+        // Same rule as the DB implementation: remove self first so an anchor equal
+        // to `rule_id` resolves as "not found" and an existing rule can be moved.
+        let current_index = order.iter().position(|id| id == rule_id);
+        if current_index.is_some() {
+            order.retain(|id| id != rule_id);
+        }
+
+        let insert_at = match (before, after) {
+            (Some(anchor), None) => order
+                .iter()
+                .position(|id| id == anchor)
+                .ok_or_else(|| PushRuleWriteError::AnchorNotFound { anchor: anchor.to_string() })?,
+            (None, Some(anchor)) => {
+                order
+                    .iter()
+                    .position(|id| id == anchor)
+                    .ok_or_else(|| PushRuleWriteError::AnchorNotFound { anchor: anchor.to_string() })?
+                    + 1
+            }
+            (None, None) => current_index.unwrap_or(order.len()),
+            (Some(_), Some(_)) => return Err(PushRuleWriteError::ConflictingPosition),
+        };
+        order.insert(insert_at, rule_id.to_string());
+
         match rules.get_mut(&key) {
             Some(existing) => {
                 // ON CONFLICT DO UPDATE only touches pattern/conditions/actions.
@@ -164,8 +210,18 @@ impl PushStoreApi for InMemoryPushStore {
                         actions: actions.clone(),
                         is_enabled: true,
                         is_default: false,
+                        priority: 0,
                     },
                 );
+            }
+        }
+
+        // Mirrors the real renumbering UPDATE: the whole group becomes `0..n-1`.
+        for (idx, existing_id) in order.iter().enumerate() {
+            if let Some(entry) =
+                rules.get_mut(&(user_id.to_string(), scope.to_string(), kind.to_string(), existing_id.clone()))
+            {
+                entry.priority = idx as i64;
             }
         }
         Ok(())
@@ -269,10 +325,11 @@ impl PushStoreApi for InMemoryPushStore {
                 actions: Some(entry.actions.clone()),
                 is_enabled: entry.is_enabled,
                 is_default: entry.is_default,
+                priority: entry.priority,
             })
             .collect();
-        // Mirrors `ORDER BY rule_id ASC`.
-        rows.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));
+        // Mirrors `ORDER BY priority ASC, rule_id ASC`.
+        rows.sort_by(|a, b| a.priority.cmp(&b.priority).then_with(|| a.rule_id.cmp(&b.rule_id)));
         Ok(rows)
     }
 
@@ -290,10 +347,13 @@ impl PushStoreApi for InMemoryPushStore {
                 actions: Some(entry.actions.clone()),
                 is_enabled: entry.is_enabled,
                 is_default: entry.is_default,
+                priority: entry.priority,
             })
             .collect();
-        // Mirrors `ORDER BY scope ASC, kind ASC, rule_id ASC`.
-        rows.sort_by(|a, b| (&a.scope, &a.kind, &a.rule_id).cmp(&(&b.scope, &b.kind, &b.rule_id)));
+        // Mirrors `ORDER BY scope ASC, kind ASC, priority ASC, rule_id ASC`.
+        rows.sort_by(|a, b| {
+            (&a.scope, &a.kind, a.priority, &a.rule_id).cmp(&(&b.scope, &b.kind, b.priority, &b.rule_id))
+        });
         Ok(rows)
     }
 

@@ -1576,12 +1576,14 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     }
     {
         let e =
-            RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}", "push");
+            RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}", "push")
+                .with_query_params(&["after", "before"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
         let e =
-            RouteEntry::new(axum::http::Method::PUT, "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}", "push");
+            RouteEntry::new(axum::http::Method::PUT, "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}", "push")
+                .with_query_params(&["after", "before"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {

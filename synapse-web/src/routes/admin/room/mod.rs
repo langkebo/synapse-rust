@@ -713,7 +713,12 @@ pub async fn search_room_messages_admin(
     let limit = body.limit.unwrap_or(50).min(200) as i64;
     let search_pattern = format!("%{}%", body.search_term.to_lowercase());
 
-    let events = ctx.room_service.messaging().search_room_messages_admin(&room_id, &search_pattern, limit).await?;
+    // `start_date` / `end_date`（毫秒时间戳）此前只解析不生效，见 2026-10-21 修复。
+    let events = ctx
+        .room_service
+        .messaging()
+        .search_room_messages_admin(&room_id, &search_pattern, limit, body.start_date, body.end_date)
+        .await?;
 
     let results: Vec<Value> = events
         .iter()

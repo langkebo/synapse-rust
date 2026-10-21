@@ -2191,7 +2191,7 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 <!-- sqlx-plan-numbers:start -->
 <!-- 以下数字由 `scripts/ci/check_plan_numbers_fresh.sh` 与基线/实测现算比对；改基线必须同步改这里。 -->
 BASELINE_DYNAMIC_PRODUCTION=132
-BASELINE_DYNAMIC_TEST_INFRA=770
+BASELINE_DYNAMIC_TEST_INFRA=767
 BASELINE_STATIC=1367
 BASELINE_QUERY_BUILDER=17
 SQLX_CACHE_ENTRIES=1334
@@ -2207,18 +2207,19 @@ SQLX_CACHE_ENTRIES=1334
 >   `synapse-storage/src/event/search.rs` —— 游标/非游标两条分支列集合不同，
 >   3 处检索改运行时 `query_as`，另 +1 `verify_postgres_search_index()`
 >   （`to_regclass` + `pg_index.indisvalid`，替代原先的 `CREATE INDEX IF NOT EXISTS`）。
-> - `SQLX_CACHE_ENTRIES` **1339 → 1334**（−5，无新增）：`search.rs` 现在全部走运行时
->   `query_as`，旧表达式 SQL（3 条）、旧 DDL（1 条）与已删除的 `fail_if_fts_index_invalid`
->   查询（1 条）对应的宏条目不再被任何代码引用，已从 `.sqlx` 删除。
->   全部为新 SQL 文本，本机无 PostgreSQL（`SQLX_OFFLINE=true`）无法生成 `.sqlx` 条目。
->   收紧方向：CI 接入 PG 后把可固定文本的几条改回 `query_as!` 并落回 122。
+>   收紧方向：CI 接入 PG 后把可固定文本的几条改回 `query_as!`。
 > - `BASELINE_DYNAMIC_TEST_INFRA` **768 → 770**（+2）：`event/db_tests.rs` 的 FTS 校验
 >   夹具需要 `DROP INDEX event_search_fts_idx` 与
 >   `CREATE UNIQUE INDEX CONCURRENTLY … ON fts_invalid_probe`（半建索引的真实形态）。
+>   **2026-10-21 复测收紧**：`HEAD` 与工作树实测均为 **767**，即 770 留有 3 点
+>   静默余量 ⇒ 已按"零余量"原则下调到 767（`132 + 767 = 899`）。
 > - `BASELINE_STATIC` **1376 → 1368**（−8，宏改运行时）：`event/search.rs` −5、
 >   `push/mod.rs` −3。**不是**「静态换动态」的静默回归 —— 与上面 +9 逐处对应，
 >   已登记在 `sqlx_literal_production_baseline`。
-> - `SQLX_CACHE_ENTRIES` **1339 → 1331**（−8）：上述宏改写后失效的 `.sqlx` 条目已删除。
+> - `SQLX_CACHE_ENTRIES` **1339 → 1334**（−5，无新增）：`event/search.rs` 现在全部走运行时
+>   `query_as`，3 条旧检索表达式、1 条旧 DDL 与已删除的 `fail_if_fts_index_invalid`
+>   查询对应的宏条目不再被任何代码引用，已从 `.sqlx` 删除。
+>   `.sqlx` 只允许经 `scripts/ci/sqlx_prepare.sh` 重生成。
 > - 逐文件 literal 棘轮同步：新增 `synapse-storage/src/event/search.rs 4`、
 >   `synapse-storage/src/push/mod.rs` 1 → 6（合计 57 → 66、19 → 20 文件）；
 >   `BASELINE_DYNAMIC`（兼容行）890 → 901。恒等式仍为 `131 − 66 − 0 = 65`。
@@ -2228,14 +2229,13 @@ SQLX_CACHE_ENTRIES=1334
 > `SearchRoomMessagesRequest` 带 `#[serde(deny_unknown_fields)]`，即 `start_date` /
 > `end_date` 是**对外正式接受**的参数，但 handler 只读 `search_term` / `limit`，
 > 存储层 SQL 里也没有任何时间谓词 —— 与 B-34 同属「规范参数被静默忽略」。
-> 落地后数字块三项同步：
+> 落地后数字块两项同步：
 > - `BASELINE_DYNAMIC_PRODUCTION` **131 → 132**（+1）、`BASELINE_STATIC` **1368 → 1367**（−1）：
 >   同一次改动（该查询原本是 `query!` 宏，SQL 文本加
 >   `($4::bigint IS NULL OR origin_server_ts >= $4)` 上下界后 `.sqlx` 条目失效 ⇒ 转运行时 `query_as`）。
-> - `SQLX_CACHE_ENTRIES` **1331 → 1330**（−1）：失效的宏条目已从 `.sqlx` 删除。
 > - 逐文件 literal 棘轮：`synapse-storage/src/event/search.rs` 4 → **5**
 >   （合计 66 → 67、文件数仍 20）；`BASELINE_DYNAMIC`（兼容行）901 → 902。
->   恒等式改为 `132 − 67 − 0 = 65`。
+>   恒等式改为 `132 − 67 − 0 = 65`（兼容行随后又随 `TEST_INFRA` 收紧到 899）。
 > 收紧方向：CI 接入 PG 后改回 `query_as!`，本项 −1、静态 +1、缓存 +1。
 
 > **2026-10-21 更新（P0-2：`/replies` 排序分页下推 SQL）**，数字块一项按实测同步：

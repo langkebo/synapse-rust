@@ -2349,7 +2349,10 @@
         "kind",
         "rule_id"
       ],
-      "query_params": []
+      "query_params": [
+        "after",
+        "before"
+      ]
     },
     {
       "method": "PUT",
@@ -2360,7 +2363,10 @@
         "kind",
         "rule_id"
       ],
-      "query_params": []
+      "query_params": [
+        "after",
+        "before"
+      ]
     },
     {
       "method": "PUT",

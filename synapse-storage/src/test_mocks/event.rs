@@ -958,6 +958,8 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
         _room_id: &str,
         _search_pattern: &str,
         _limit: i64,
+        _start_ts: Option<i64>,
+        _end_ts: Option<i64>,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
         Ok(Vec::new())
     }

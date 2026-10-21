@@ -1427,6 +1427,9 @@ EXPECTED_ANNOTATIONS = {
     ("POST", "/_matrix/client/v3/keys/backup/secure/{backup_id}/verify"): {
         "body_opaque": True
     },
+    ("POST", "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}"): {
+        "query_params": "after,before"
+    },
     ("POST", "/_matrix/client/v3/register"): {
         "query_params": "kind",
         "body_opaque": True,
@@ -1569,6 +1572,9 @@ EXPECTED_ANNOTATIONS = {
     ("PUT", "/_matrix/app/v1/transactions/{as_id}/{txn_id}"): {"body_opaque": True},
     ("PUT", "/_matrix/client/v1/sendToDevice/{event_type}/{transaction_id}"): {
         "body_opaque": True
+    },
+    ("PUT", "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}"): {
+        "query_params": "after,before"
     },
     ("PUT", "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/actions"): {
         "body_opaque": True

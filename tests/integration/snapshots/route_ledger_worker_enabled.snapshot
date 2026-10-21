@@ -1,5 +1,5 @@
 # route-ledger snapshot: worker-enabled
-count: 1038
+count: 1040
 
 DELETE /_matrix/app/v1/proxy/{as_id}/{*path} [app_service]
 DELETE /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device [dehydrated_device]
@@ -47,6 +47,7 @@ DELETE /_matrix/vendor/v1/rooms/{room_id}/summary/members/{user_id} [room_summar
 DELETE /_matrix/vendor/v1/rooms/{room_id}/threads/{thread_id} [thread]
 DELETE /_matrix/vendor/v1/spaces/{space_id} [space]
 DELETE /_matrix/vendor/v1/spaces/{space_id}/children/{room_id} [space]
+DELETE /_matrix/vendor/v1/voice/{media_id} [voice]
 DELETE /_matrix/vendor/v1/widgets/sessions/{session_id} [widget]
 DELETE /_matrix/vendor/v1/widgets/{widget_id} [widget]
 DELETE /_matrix/vendor/v1/widgets/{widget_id}/permissions/{user_id} [widget]
@@ -835,6 +836,7 @@ POST /_synapse/admin/v1/cas/users/{user_id}/attributes [cas]
 POST /_synapse/admin/v1/cleanup/all [admin::cleanup]
 POST /_synapse/admin/v1/cleanup/rooms [admin::cleanup]
 POST /_synapse/admin/v1/cleanup/tokens [admin::cleanup]
+POST /_synapse/admin/v1/deactivate/{user_id} [admin::user]
 POST /_synapse/admin/v1/event_reports [event_report]
 POST /_synapse/admin/v1/event_reports/rate_limit/{user_id}/block [event_report]
 POST /_synapse/admin/v1/event_reports/rate_limit/{user_id}/unblock [event_report]

@@ -56,9 +56,9 @@ pub struct SearchRoomMessagesRequest {
     pub search_term: String,
     /// The `limit` field.
     pub limit: Option<u32>,
-    /// The `start_date` field.
+    /// 命中事件的最小 `origin_server_ts`（毫秒时间戳，闭区间）。
     pub start_date: Option<i64>,
-    /// The `end_date` field.
+    /// 命中事件的最大 `origin_server_ts`（毫秒时间戳，闭区间）。
     pub end_date: Option<i64>,
 }
 
