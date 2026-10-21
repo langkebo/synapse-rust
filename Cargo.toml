@@ -287,6 +287,12 @@ serde_json = "1.0"
 # `Value`/`Error`），底层换成维护中的 `unsafe-libyaml-norway` ⇒ 无需 waiver 即消除该条。
 serde_norway = "0.9"
 rand = "0.9"
+# ── RustCrypto：2026-10-22 已升到 digest 0.11 世代（P-A 批）───────────────────
+# `sha1 0.10→0.11` / `sha2 0.10→0.11` / `hmac 0.12→0.13`，`hkdf 0.12→0.13` 在
+# `synapse-common` 与 `synapse-e2ee` 就地声明（它俩绑 digest 0.11 的 `Sha256`）。
+# **升级时必须整族一起动**：`hkdf 0.12` 绑 digest 0.10，与 `sha2 0.11` 的 `Sha256`
+# 同名不同型，混用直接编译失败。`digest 0.11` 的 `finalize()` 返回
+# `hybrid_array::Array`（**无 `LowerHex`**）⇒ 原 `format!("{:x}", …)` 必须改逐字节。
 sha1 = "0.11"
 sha2 = { version = "0.11" }
 hmac = "0.13"

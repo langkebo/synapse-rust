@@ -4857,7 +4857,6 @@ dependencies = [
  "ctr",
  "dashmap",
  "ed25519-dalek 2.2.0",
- "generic-array",
  "hkdf 0.13.0",
  "rand 0.9.5",
  "serde",

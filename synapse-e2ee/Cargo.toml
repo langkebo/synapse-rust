@@ -46,8 +46,11 @@ aes = "0.9"
 ctr = "0.10"
 chacha20poly1305 = "0.11"
 ed25519-dalek = "2.0"
-generic-array = "0.14"
 
+# ⚠️ vendored 上游库，**不随本仓升级节奏走**：`vodozemac 0.11` 自带自己的
+# `ed25519-dalek 3` / `sha2 0.11` / `p256` 版本组合（它已经是 digest 0.11 世代）。
+# 强行对齐只会制造重复依赖或版本冲突 ⇒ 本项目对 megolm/olm 的密码学**只用它的 API**，
+# 不直接碰它内部的 RustCrypto 类型。
 vodozemac = "0.11"
 
 dashmap = { version = "6.2", features = ["serde"] }
