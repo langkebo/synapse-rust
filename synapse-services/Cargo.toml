@@ -58,7 +58,7 @@ hmac = { workspace = true }
 base64 = { workspace = true }
 
 argon2 = "0.6"
-aes-gcm = "0.10"
+aes-gcm = "0.11"
 jsonwebtoken = "9"
 rsa = { version = "0.9", features = ["pem", "sha2"] }
 # P-256 (NIST secp256r1) ECDSA for OIDC ES256 signing (RFC 7518 §3.4).

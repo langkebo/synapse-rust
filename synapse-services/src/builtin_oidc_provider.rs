@@ -398,7 +398,10 @@ impl BuiltinOidcProvider {
             has_signing_key_path = path.is_some(),
             "Generating new signing key for builtin OIDC provider"
         );
-        let mut rng = aes_gcm::aead::OsRng;
+        // `aes_gcm::aead::OsRng` 在 aead 0.6 已移除。这里必须用 **rsa 自带的那份**
+        // `rand_core 0.6`（`rsa::rand_core`）：`RsaPrivateKey::new` 要求它的
+        // `CryptoRngCore`，而本仓 `rand 0.9` 对应 rand_core 0.9，两者不是同一 trait。
+        let mut rng = rsa::rand_core::OsRng;
         let key =
             RsaPrivateKey::new(&mut rng, 2048).map_err(|e| ApiError::internal_with_cause("OIDC RSA generate", e))?;
 

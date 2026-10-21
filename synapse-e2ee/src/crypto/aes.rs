@@ -4,13 +4,11 @@ use base64::Engine;
 #[cfg(test)]
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use dashmap::DashSet;
-use generic_array::GenericArray;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use typenum::U32;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Maximum number of nonces retained in the tracker before pruning.
@@ -464,12 +462,15 @@ impl Aes256GcmCipher {
             Aes256GcmNonce::generate()
         };
 
-        let cipher_key = GenericArray::<u8, U32>::from_slice(&key.bytes);
-        let cipher = Aes256Gcm::new(cipher_key);
-        let nonce_bytes = Nonce::from_slice(&nonce.bytes);
+        // aead 0.6 / hybrid-array：`GenericArray::from_slice` 换成 `new_from_slice`。
+        // 密钥长度恒为 32，`InvalidLength` 不可达，但仍显式映射（本仓禁 `unwrap/expect`）。
+        let cipher = Aes256Gcm::new_from_slice(&key.bytes).map_err(|e| CryptoError::EncryptionError(e.to_string()))?;
+        // `Array::from_slice` 已弃用（hybrid-array），改 `TryFrom`：长度是常量 12，
+        // 失败不可达，但仍映射成本模块的错误类型（本仓禁 `unwrap/expect`）。
+        let nonce_bytes = Nonce::try_from(nonce.bytes.as_slice()).map_err(|_| CryptoError::InvalidNonceLength)?;
 
         let ciphertext = cipher
-            .encrypt(nonce_bytes, plaintext)
+            .encrypt(&nonce_bytes, plaintext)
             .map_err(|e: aes_gcm::aead::Error| CryptoError::EncryptionError(e.to_string()))?;
 
         let mut result = Vec::with_capacity(nonce.bytes.len() + ciphertext.len());
@@ -490,12 +491,11 @@ impl Aes256GcmCipher {
 
     /// See [`decrypt`].
     pub fn decrypt(key: &Aes256GcmKey, nonce: &Aes256GcmNonce, encrypted: &[u8]) -> Result<Vec<u8>, CryptoError> {
-        let cipher_key = GenericArray::<u8, U32>::from_slice(&key.bytes);
-        let cipher = Aes256Gcm::new(cipher_key);
-        let nonce_bytes = Nonce::from_slice(&nonce.bytes);
+        let cipher = Aes256Gcm::new_from_slice(&key.bytes).map_err(|e| CryptoError::DecryptionError(e.to_string()))?;
+        let nonce_bytes = Nonce::try_from(nonce.bytes.as_slice()).map_err(|_| CryptoError::InvalidNonceLength)?;
 
         let plaintext =
-            cipher.decrypt(nonce_bytes, encrypted).map_err(|e| CryptoError::DecryptionError(e.to_string()))?;
+            cipher.decrypt(&nonce_bytes, encrypted).map_err(|e| CryptoError::DecryptionError(e.to_string()))?;
 
         Ok(plaintext)
     }
@@ -530,11 +530,11 @@ impl XChaCha20Poly1305Cipher {
             XChaCha20Poly1305Nonce::generate()
         };
 
-        let cipher = XChaCha20Poly1305::new(key.into());
-        let nonce_bytes = XNonce::from_slice(nonce.as_bytes());
+        let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|e| CryptoError::EncryptionError(e.to_string()))?;
+        let nonce_bytes = XNonce::try_from(nonce.as_bytes()).map_err(|_| CryptoError::InvalidNonceLength)?;
 
         let ciphertext = cipher
-            .encrypt(nonce_bytes, plaintext)
+            .encrypt(&nonce_bytes, plaintext)
             .map_err(|e: chacha20poly1305::aead::Error| CryptoError::EncryptionError(e.to_string()))?;
 
         let mut result = Vec::with_capacity(nonce.as_bytes().len() + ciphertext.len());
@@ -545,11 +545,11 @@ impl XChaCha20Poly1305Cipher {
 
     /// See [`decrypt`].
     pub fn decrypt(key: &[u8; 32], nonce: &XChaCha20Poly1305Nonce, encrypted: &[u8]) -> Result<Vec<u8>, CryptoError> {
-        let cipher = XChaCha20Poly1305::new(key.into());
-        let nonce_bytes = XNonce::from_slice(nonce.as_bytes());
+        let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|e| CryptoError::DecryptionError(e.to_string()))?;
+        let nonce_bytes = XNonce::try_from(nonce.as_bytes()).map_err(|_| CryptoError::InvalidNonceLength)?;
 
         let plaintext =
-            cipher.decrypt(nonce_bytes, encrypted).map_err(|e| CryptoError::DecryptionError(e.to_string()))?;
+            cipher.decrypt(&nonce_bytes, encrypted).map_err(|e| CryptoError::DecryptionError(e.to_string()))?;
 
         Ok(plaintext)
     }

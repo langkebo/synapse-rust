@@ -1,6 +1,8 @@
 //! PEM/key encryption helpers (decrypt_key, encrypt_key, is_encrypted).
 
-use aes_gcm::aead::{Aead, KeyInit, OsRng};
+// aead 0.6 移除了 `OsRng` 再导出与 `AeadCore::generate_nonce`；
+// 随机 nonce 改由 `Generate` trait 提供（内部走 getrandom）。
+use aes_gcm::aead::{Aead, Generate, KeyInit};
 use aes_gcm::{AeadCore, Aes256Gcm, Nonce};
 use base64::Engine;
 
@@ -41,7 +43,7 @@ pub fn encrypt_key(plaintext: &str, master_key: &[u8]) -> Result<String, String>
     let key = derive_key(master_key, KEY_DERIVATION_INFO);
     let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| format!("Invalid key length: {e}"))?;
 
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let nonce = Nonce::<<Aes256Gcm as AeadCore>::NonceSize>::generate();
     let ciphertext = cipher.encrypt(&nonce, plaintext.as_bytes()).map_err(|e| format!("Encryption failed: {e}"))?;
 
     // Concatenate nonce + ciphertext (ciphertext already includes the tag)
@@ -70,7 +72,10 @@ pub fn decrypt_key(ciphertext: &str, master_key: &[u8]) -> Result<String, String
     }
 
     let (nonce_bytes, encrypted_data) = combined.split_at(NONCE_SIZE);
-    let nonce = Nonce::from_slice(nonce_bytes);
+    // hybrid-array 起 `Array::from_slice` 已弃用（`-D warnings` 会拦），改 `TryFrom`；
+    // 长度刚由上面的 `len() < NONCE_SIZE` 保证，这里失败即数据损坏。
+    let nonce = Nonce::try_from(nonce_bytes).map_err(|_| "Invalid nonce length".to_string())?;
+    let nonce = &nonce;
 
     let key = derive_key(master_key, KEY_DERIVATION_INFO);
     let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| format!("Invalid key length: {e}"))?;
