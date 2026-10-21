@@ -3,6 +3,7 @@ mod api_account_data_routes_tests;
 mod api_account_status_tests;
 mod api_admin_audit_tests;
 mod api_admin_federation_tests;
+mod api_admin_rbac_wire_tests;
 mod api_admin_room_lifecycle_tests;
 mod api_admin_target_guard_tests;
 mod api_admin_user_lifecycle_tests;
@@ -712,6 +713,13 @@ pub async fn get_admin_token(app: &axum::Router) -> (String, String) {
 
 pub async fn get_super_admin_token(app: &axum::Router) -> (String, String) {
     register_admin_token(app, Some("super_admin")).await
+}
+
+/// 按 `user_type` 注册一个 admin（`auditor` / `security_admin` / `user_admin` /
+/// `media_admin` 这些细粒度角色只在 `is_role_allowed` 里出现，想在线路上验证它们
+/// 就得能造出对应角色的 token）。
+pub async fn get_admin_token_with_role(app: &axum::Router, role: &str) -> (String, String) {
+    register_admin_token(app, Some(role)).await
 }
 
 async fn register_admin_token(app: &axum::Router, user_type: Option<&str>) -> (String, String) {

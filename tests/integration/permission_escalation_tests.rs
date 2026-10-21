@@ -200,19 +200,15 @@ fn test_missing_power_levels_uses_defaults() {
     assert!(invite_result.is_ok(), "Default invite threshold (0) should allow user with power 0");
 }
 
-#[test]
-fn test_rbac_super_admin_can_modify_admin_status() {
-    let role = "super_admin";
-    assert_eq!(role, "super_admin", "Only super_admin should modify admin status");
-}
-
-#[test]
-fn test_rbac_non_super_admin_cannot_modify_admin_status() {
-    let roles = vec!["auditor", "security_admin", "user_admin", "media_admin"];
-    for role in roles {
-        assert_ne!(role, "super_admin", "Non-super_admin roles should not modify admin status");
-    }
-}
+// 这里原有两条 `test_rbac_*`：
+//
+//     let role = "super_admin";
+//     assert_eq!(role, "super_admin", "Only super_admin should modify admin status");
+//
+// 它们只是在比较一个字面量和它自己，**一条 HTTP 请求都没发过**，却让"RBAC 有测试覆盖"
+// 看起来成立。已删除：RBAC 的线上链路（中间件 → token → user_type → 判定 → 403）
+// 现在由 `api_admin_rbac_wire_tests.rs` 断言（403/404 对比、auditor / media_admin /
+// user_admin 三个角色的可及面边界）；判定表本身由 `admin_rbac_tests` 的三张 golden 断言。
 
 #[test]
 fn test_deactivated_user_token_refresh_blocked() {
