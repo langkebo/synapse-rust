@@ -193,7 +193,10 @@ assertion `left == right` failed  left: 403  right: 201
 | `api_appservice_p1_tests::test_appservice_as_token_authentication` | `left: 403, right: 201` | `role=admin method=POST path=/_synapse/admin/v1/appservices allowed=false rbac_enabled=true` |
 | `api_feature_flags_tests::test_feature_flag_create_get_list_and_update` | `left: 403, right: 200` | `role=admin method=POST path=/_synapse/admin/v1/feature-flags allowed=false` |
 
-结论：**16 条 403 与隔离方式无关**，是 RBAC 收紧后测试未跟着改类型（或收紧本身需产品裁决）。
+结论：**16 条 403 与隔离方式无关**，是 RBAC 收紧后测试未跟着改类型。
+
+**产品裁决（2026-10-22）：不放宽放行面**，让测试使用正确的身份 —— 写面改用
+`get_super_admin_token`，读面/自服务面保持 `get_admin_token`。落地与实测见 §8.6 第 1 条。
 
 ### 8.5 验收判定
 
@@ -204,14 +207,26 @@ assertion `left == right` failed  left: 403  right: 201
 | B 腿残留库为 0 | 0 | 本机未单独断言，留给 CI 那一步 | — |
 | 隔离模式自身的失败 | 0 | B 腿 21 条中 0 条可归因于 database 隔离 | ✅ 未发现 |
 
+> 注：B 腿 21 条中的 16 条 RBAC 类已随 `2c9743df6` 修复（§8.6 第 1 条，子集实测
+> 19/20 通过），上表数字保留为**首轮双跑的原始快照**，不随修复回填。
+
 ### 8.6 结论与后续
 
 1. **database 方案本身没有被证伪**：P1/P2 的小样本对照（41/41、286 条）仍成立，本轮也没有
    出现任何"只在 database 模式复现"的隔离缺陷。
 2. **但 P3 未通过**，原因不在隔离层：两腿代码版本不同 + 仓库里既有的 RBAC 收紧没有同步
    测试。要做有效的模式对比，必须先让两条腿跑同一份代码。
-3. 下一步顺序：
-   - 先修 16 条 RBAC 测试（`appservices`/`feature-flags` 写操作改用 `get_super_admin_token`，
-     或为普通 admin 显式放行——**需产品裁决**，不是纯测试改动）；
-   - 再修 4 条两腿共有的真 bug 与 1 条 beacon 时序；
-   - 然后同一提交上重跑两腿，再按 §6 的三条验收项判定是否把默认切到 `database`。
+3. 下一步顺序（第 1 步已完成）：
+   - [x] **修 16 条 RBAC 测试** —— 产品裁决：不放宽放行面，测试改用 `get_super_admin_token`。
+     落地 `2c9743df6`：`api_appservice_p1_tests`（含共享 helper，覆盖 14 条）、
+     `api_appservice_tests` 2 条写面、`api_feature_flags_tests` 1 条；读面/自服务面仍用
+     `get_admin_token`。实测 `TEST_DB_ISOLATION=database` 跑这 20 条：
+     **19 passed / 1 failed**，唯一失败 `api_appservice_transaction_push` 正是 §8.3 的
+     "两腿共有"真 bug，已单列在下方第 4 条；
+   - [ ] 再修 4 条两腿共有的真 bug 与 1 条 beacon 时序；
+   - [ ] 然后同一提交上重跑两腿，再按 §6 的三条验收项判定是否把默认切到 `database`。
+4. 剩余 5 条真 bug（与本轮改动无关，待单独排期）：`snapshot_register_uia_401_challenge`、
+   `test_space_children_hierarchy_suite_keeps_nested_chain_verified`、
+   `test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta_members`、
+   `test_appservice_transaction_push`，以及 A 腿独有的 appservice 调度时序与 B 腿独有的
+   beacon 令牌桶时序。
