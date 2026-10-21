@@ -278,8 +278,8 @@ tower-http = { version = "0.6" }
 hyper = "1"
 http = "1"
 sqlx = { version = "0.8" }
-redis = { version = "0.29" }
-deadpool-redis = "0.20"
+redis = { version = "1.7" }
+deadpool-redis = "0.23"
 serde = { version = "1.0" }
 serde_json = "1.0"
 # serde_yaml 0.9 已随其底层 `unsafe-libyaml` 一起被上游归档（RUSTSEC-2024-0449）；

@@ -64,31 +64,31 @@ impl From<OperationFailed> for CacheError {
 
 impl From<CircuitBreakerOpen> for redis::RedisError {
     fn from(_: CircuitBreakerOpen) -> Self {
-        redis::RedisError::from((redis::ErrorKind::IoError, "Circuit breaker is open"))
+        redis::RedisError::from((redis::ErrorKind::Io, "Circuit breaker is open"))
     }
 }
 
 impl From<ConnectionTimeout> for redis::RedisError {
     fn from(_: ConnectionTimeout) -> Self {
-        redis::RedisError::from((redis::ErrorKind::IoError, "Redis connection timeout"))
+        redis::RedisError::from((redis::ErrorKind::Io, "Redis connection timeout"))
     }
 }
 
 impl From<PoolExhaustion> for redis::RedisError {
     fn from(e: PoolExhaustion) -> Self {
-        redis::RedisError::from((redis::ErrorKind::IoError, "Redis pool exhaustion", e.source))
+        redis::RedisError::from((redis::ErrorKind::Io, "Redis pool exhaustion", e.source))
     }
 }
 
 impl From<CommandTimeout> for redis::RedisError {
     fn from(_: CommandTimeout) -> Self {
-        redis::RedisError::from((redis::ErrorKind::IoError, "Redis command timeout"))
+        redis::RedisError::from((redis::ErrorKind::Io, "Redis command timeout"))
     }
 }
 
 impl From<OperationFailed> for redis::RedisError {
     fn from(e: OperationFailed) -> Self {
-        redis::RedisError::from((redis::ErrorKind::IoError, "Redis operation failed", e.detail))
+        redis::RedisError::from((redis::ErrorKind::Io, "Redis operation failed", e.detail))
     }
 }
 

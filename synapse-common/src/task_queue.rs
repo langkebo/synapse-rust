@@ -348,8 +348,11 @@ impl RedisTaskQueue {
             match result {
                 Ok(reply) => {
                     for stream_key in reply.keys {
-                        for stream_id in stream_key.ids {
-                            if let Some(payload_val) = stream_id.map.get("payload") {
+                        // `mut` + `remove`：redis 1.0 起 `from_redis_value` 收**所有权**的
+                        // `Value`（此前是 `&Value`）。这里把 payload 从 map 里搬出来，
+                        // 而不是 clone 一份 —— 每个 job 一次分配，消费热路径上不该多付。
+                        for mut stream_id in stream_key.ids {
+                            if let Some(payload_val) = stream_id.map.remove("payload") {
                                 if let Ok(payload_str) = redis::from_redis_value::<String>(payload_val) {
                                     if let Ok(job) = serde_json::from_str::<BackgroundJob>(&payload_str) {
                                         let stream_id_val = stream_id.id;
@@ -446,7 +449,7 @@ impl RedisTaskQueue {
 
         // Parse the summary response: [count, min_id, max_id, [[consumer, count], ...]]
         let (count, _min, _max, consumers_list): (u64, String, String, Vec<(String, u64)>) =
-            redis::from_redis_value(&info_val)
+            redis::from_redis_value(info_val)
                 .map_err(|e| TaskQueueError::SubmissionError(format!("Failed to parse pending info: {e}")))?;
 
         Ok(QueueMetrics { queue_length, consumer_lag: count, consumers: consumers_list })

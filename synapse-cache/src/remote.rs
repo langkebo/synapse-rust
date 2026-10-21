@@ -29,7 +29,7 @@ impl RedisCache {
 
         let pool = cfg
             .create_pool(Some(Runtime::Tokio1))
-            .map_err(|e| redis::RedisError::from((redis::ErrorKind::IoError, "Pool creation failed", e.to_string())))?;
+            .map_err(|e| redis::RedisError::from((redis::ErrorKind::Io, "Pool creation failed", e.to_string())))?;
 
         let connection_timeout = Duration::from_millis(config.connection_timeout_ms);
         let command_timeout = Duration::from_millis(config.command_timeout_ms);
@@ -467,16 +467,15 @@ return {count, redis.call("PTTL", KEYS[1])}
     ) -> Result<RateLimitDecision, redis::RedisError> {
         if !self.circuit_breaker.is_call_allowed() {
             self.degradation_metrics.write().record_circuit_breaker_rejection();
-            return Err(redis::RedisError::from((redis::ErrorKind::IoError, "Circuit breaker is open")));
+            return Err(redis::RedisError::from((redis::ErrorKind::Io, "Circuit breaker is open")));
         }
 
         let conn_result = timeout(self.connection_timeout, self.pool.get())
             .await
-            .map_err(|_| redis::RedisError::from((redis::ErrorKind::IoError, "Redis connection timeout")))?;
+            .map_err(|_| redis::RedisError::from((redis::ErrorKind::Io, "Redis connection timeout")))?;
 
-        let mut conn = conn_result.map_err(|e| {
-            redis::RedisError::from((redis::ErrorKind::IoError, "Redis pool exhaustion", e.to_string()))
-        })?;
+        let mut conn = conn_result
+            .map_err(|e| redis::RedisError::from((redis::ErrorKind::Io, "Redis pool exhaustion", e.to_string())))?;
 
         let script = redis::Script::new(
             r#"
@@ -535,7 +534,7 @@ return {allowed, retry_after, remaining}
                 .invoke_async::<(i64, i64, i64)>(&mut conn),
         )
         .await
-        .map_err(|_| redis::RedisError::from((redis::ErrorKind::IoError, "Redis script timeout")))?;
+        .map_err(|_| redis::RedisError::from((redis::ErrorKind::Io, "Redis script timeout")))?;
 
         match cmd_result {
             Ok((allowed, retry_after_seconds, remaining)) => {
