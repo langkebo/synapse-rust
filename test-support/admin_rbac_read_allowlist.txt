@@ -1,0 +1,219 @@
+# 普通 admin 角色**可以**调用的 admin 读路由（显式登记表）。
+#
+# 与 `admin_rbac_write_allowlist.txt` 同一套断言（`admin_rbac_tests`），但目的不同：
+# 写面那张表防的是「普通 admin 悄悄获得破坏能力」，这张表防的是「**新读端点悄悄开始
+# 输出数据**」——读面没有"收紧到 super_admin"这个选项，因为读本来就是审核工作的主体。
+# 所以这里不判"该不该给"，只记录"现在给了哪些"，让每一次增加都成为一次显式决定。
+#
+# 同一条判定的两个已知副作用（详见 docs/audit/ADMIN_RBAC_SURFACE_2026-10-21.md §9）：
+#   · 前缀匹配**不认结尾斜杠**：`/reports/` 覆盖 `/reports/{id}` 却不覆盖 `/reports`，
+#     于是"能取单条、不能列"这种自相矛盾会以登记项的形式暴露出来；
+#   · 路径别名拿到不同判定（`quarantine_media/{id}/changes` vs `media/quarantine_changes`）。
+#
+# 格式：`<METHOD> <path>`，`#` 开头为注释。路径用 ROUTE_HANDLERS.json 的原样形式。
+# 变更规则：新增读端点 ⇒ 要么登记在这里，要么加进 `is_super_admin_only_endpoint`。
+
+# --- v1/account ---
+GET /_synapse/admin/v1/account/{user_id}
+
+# --- v1/account_validity ---
+GET /_synapse/admin/v1/account_validity/{user_id}
+
+# --- v1/appservices ---
+GET /_synapse/admin/v1/appservices
+GET /_synapse/admin/v1/appservices/query/alias
+GET /_synapse/admin/v1/appservices/query/user
+GET /_synapse/admin/v1/appservices/statistics
+GET /_synapse/admin/v1/appservices/{as_id}
+GET /_synapse/admin/v1/appservices/{as_id}/events
+GET /_synapse/admin/v1/appservices/{as_id}/namespaces
+GET /_synapse/admin/v1/appservices/{as_id}/state
+GET /_synapse/admin/v1/appservices/{as_id}/state/{state_key}
+GET /_synapse/admin/v1/appservices/{as_id}/users
+
+# --- v1/audit ---
+GET /_synapse/admin/v1/audit/events
+GET /_synapse/admin/v1/audit/events/{event_id}
+
+# --- v1/background_updates ---
+GET /_synapse/admin/v1/background_updates
+GET /_synapse/admin/v1/background_updates/count
+GET /_synapse/admin/v1/background_updates/next
+GET /_synapse/admin/v1/background_updates/pending
+GET /_synapse/admin/v1/background_updates/running
+GET /_synapse/admin/v1/background_updates/stats
+GET /_synapse/admin/v1/background_updates/status
+GET /_synapse/admin/v1/background_updates/status/{status}/count
+GET /_synapse/admin/v1/background_updates/{job_name}
+GET /_synapse/admin/v1/background_updates/{job_name}/history
+
+# --- v1/cas ---
+GET /_synapse/admin/v1/cas/services
+GET /_synapse/admin/v1/cas/users/{user_id}/attributes
+
+# --- v1/event_reports ---
+GET /_synapse/admin/v1/event_reports
+GET /_synapse/admin/v1/event_reports/count
+GET /_synapse/admin/v1/event_reports/event/{event_id}
+GET /_synapse/admin/v1/event_reports/rate_limit/{user_id}
+GET /_synapse/admin/v1/event_reports/reporter/{reporter_user_id}
+GET /_synapse/admin/v1/event_reports/room/{room_id}
+GET /_synapse/admin/v1/event_reports/stats
+GET /_synapse/admin/v1/event_reports/status/{status}
+GET /_synapse/admin/v1/event_reports/status/{status}/count
+GET /_synapse/admin/v1/event_reports/{id}
+
+# --- v1/experimental_features ---
+GET /_synapse/admin/v1/experimental_features
+
+# --- v1/external_services ---
+GET /_synapse/admin/v1/external_services
+GET /_synapse/admin/v1/external_services/health
+GET /_synapse/admin/v1/external_services/{as_id}/health
+
+# --- v1/feature-flags ---
+GET /_synapse/admin/v1/feature-flags
+GET /_synapse/admin/v1/feature-flags/{flag_key}
+
+# --- v1/federation ---
+GET /_synapse/admin/v1/federation/cache
+GET /_synapse/admin/v1/federation/destinations
+GET /_synapse/admin/v1/federation/destinations/{destination}
+GET /_synapse/admin/v1/federation/destinations/{destination}/rooms
+GET /_synapse/admin/v1/federation/pending
+
+# --- v1/health ---
+GET /_synapse/admin/v1/health
+
+# --- v1/invite ---
+GET /_synapse/admin/v1/invite/allowlist
+GET /_synapse/admin/v1/invite/blocklist
+
+# --- v1/media ---
+GET /_synapse/admin/v1/media
+GET /_synapse/admin/v1/media/quarantine_changes
+GET /_synapse/admin/v1/media/quota
+GET /_synapse/admin/v1/media/{media_id}
+GET /_synapse/admin/v1/media/{server_name}/{media_id}
+
+# --- v1/media_callbacks ---
+GET /_synapse/admin/v1/media_callbacks
+GET /_synapse/admin/v1/media_callbacks/{callback_type}
+
+# --- v1/modules ---
+GET /_synapse/admin/v1/modules
+GET /_synapse/admin/v1/modules/logs/{module_name}
+GET /_synapse/admin/v1/modules/spam_check/sender/{sender}
+GET /_synapse/admin/v1/modules/spam_check/{event_id}
+GET /_synapse/admin/v1/modules/third_party_rule/{event_id}
+GET /_synapse/admin/v1/modules/type/{module_type}
+GET /_synapse/admin/v1/modules/{module_name}
+
+# --- v1/notifications ---
+GET /_synapse/admin/v1/notifications
+GET /_synapse/admin/v1/notifications/active
+GET /_synapse/admin/v1/notifications/{notification_id}
+
+# --- v1/policy ---
+GET /_synapse/admin/v1/policy/status
+
+# --- v1/quarantine_media ---
+GET /_synapse/admin/v1/quarantine_media/{media_id}/changes
+
+# --- v1/rate-limit-status ---
+GET /_synapse/admin/v1/rate-limit-status
+
+# --- v1/registration_tokens ---
+GET /_synapse/admin/v1/registration_tokens
+GET /_synapse/admin/v1/registration_tokens/{token}
+
+# --- v1/reports ---
+GET /_synapse/admin/v1/reports
+GET /_synapse/admin/v1/reports/{report_id}
+
+# --- v1/room_stats ---
+GET /_synapse/admin/v1/room_stats
+GET /_synapse/admin/v1/room_stats/{room_id}
+
+# --- v1/rooms ---
+GET /_synapse/admin/v1/rooms
+GET /_synapse/admin/v1/rooms/search
+GET /_synapse/admin/v1/rooms/{room_id}
+GET /_synapse/admin/v1/rooms/{room_id}/aliases
+GET /_synapse/admin/v1/rooms/{room_id}/block
+GET /_synapse/admin/v1/rooms/{room_id}/event_context/{event_id}
+GET /_synapse/admin/v1/rooms/{room_id}/forward_extremities
+GET /_synapse/admin/v1/rooms/{room_id}/listings
+GET /_synapse/admin/v1/rooms/{room_id}/media
+GET /_synapse/admin/v1/rooms/{room_id}/members
+GET /_synapse/admin/v1/rooms/{room_id}/messages
+GET /_synapse/admin/v1/rooms/{room_id}/reports
+GET /_synapse/admin/v1/rooms/{room_id}/reports/{report_id}
+GET /_synapse/admin/v1/rooms/{room_id}/state
+GET /_synapse/admin/v1/rooms/{room_id}/token_sync
+GET /_synapse/admin/v1/rooms/{room_id}/version
+
+# --- v1/saml ---
+GET /_synapse/admin/v1/saml/config
+GET /_synapse/admin/v1/saml/mapping/{name_id}
+GET /_synapse/admin/v1/saml/mappings
+
+# --- v1/server_notices ---
+GET /_synapse/admin/v1/server_notices
+GET /_synapse/admin/v1/server_notices/{notice_id}
+
+# --- v1/server_version ---
+GET /_synapse/admin/v1/server_version
+
+# --- v1/spaces ---
+GET /_synapse/admin/v1/spaces
+GET /_synapse/admin/v1/spaces/{space_id}
+GET /_synapse/admin/v1/spaces/{space_id}/rooms
+GET /_synapse/admin/v1/spaces/{space_id}/stats
+GET /_synapse/admin/v1/spaces/{space_id}/users
+
+# --- v1/statistics ---
+GET /_synapse/admin/v1/statistics
+
+# --- v1/status ---
+GET /_synapse/admin/v1/status
+
+# --- v1/telemetry ---
+GET /_synapse/admin/v1/telemetry/alerts
+GET /_synapse/admin/v1/telemetry/attributes
+GET /_synapse/admin/v1/telemetry/health
+GET /_synapse/admin/v1/telemetry/metrics
+GET /_synapse/admin/v1/telemetry/status
+
+# --- v1/user_sessions ---
+GET /_synapse/admin/v1/user_sessions/{user_id}
+
+# --- v1/user_stats ---
+GET /_synapse/admin/v1/user_stats
+
+# --- v1/users ---
+GET /_synapse/admin/v1/users
+GET /_synapse/admin/v1/users/{user_id}
+GET /_synapse/admin/v1/users/{user_id}/admin
+GET /_synapse/admin/v1/users/{user_id}/devices
+GET /_synapse/admin/v1/users/{user_id}/media
+GET /_synapse/admin/v1/users/{user_id}/notification
+GET /_synapse/admin/v1/users/{user_id}/override_ratelimit
+GET /_synapse/admin/v1/users/{user_id}/pushers
+GET /_synapse/admin/v1/users/{user_id}/rate_limit
+GET /_synapse/admin/v1/users/{user_id}/refresh_tokens
+GET /_synapse/admin/v1/users/{user_id}/rooms
+GET /_synapse/admin/v1/users/{user_id}/shadow_ban
+GET /_synapse/admin/v1/users/{user_id}/stats
+GET /_synapse/admin/v1/users/{user_id}/tokens
+
+# --- v1/whoami ---
+GET /_synapse/admin/v1/whoami
+
+# --- v1/whois ---
+GET /_synapse/admin/v1/whois/{user_id}
+GET /_synapse/admin/v1/whois/{user_id}/{device_id}
+
+# --- v2/users ---
+GET /_synapse/admin/v2/users
+GET /_synapse/admin/v2/users/{user_id}

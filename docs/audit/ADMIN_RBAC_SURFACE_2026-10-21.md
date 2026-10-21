@@ -9,7 +9,8 @@
 
 ## 1. 结论
 
-普通 admin 角色可执行的写操作共 **115 条**（读操作为 120 条，未在此列）。按影响分为三级：
+普通 admin 角色可执行的写操作共 **115 条**（读操作另计：143 条读路由中普通 admin 可读 131 条，
+见 §9）。按影响分为三级：
 
 | 级别 | 条数 | 处置（2026-10-21） |
 |---|---|---|
@@ -271,7 +272,84 @@ super_admin，并在此文件留一行记录。
 
 ## 8. 本文件的边界
 
-+ 只覆盖**写操作**。读操作（120 条）未分级——普通 admin 可读的内容包括房间消息、
-  用户资料、审计日志等，属另一个议题（数据可见性），不在本文范围。
++ 写面见 §2–§7，读面见 §9。读面**不做角色收紧**（读就是审核工作的主体），只做分级、
+  结构修正与登记。
 + 判定为"当前实现的行为"，不含 `admin_rbac_enabled = false` 的情况（那时所有已认证 admin 直通，
   RBAC 完全不生效）。
+
+## 9. 读面：143 条读路由的分级与结构修正（2026-10-21）
+
+写面按"能不能造成破坏"分级；读面不能照搬——**读本身不是提权**，但读会泄露数据。
+所以读面的问题分两种：数据面该不该给（分级，§9.1），以及判定本身有没有不自洽（§9.2）。
+
+### 9.1 现状与分级
+
+`/_synapse/admin/**` 下共 **143 条**读路由（GET/HEAD），其中普通 admin 可读 **131 条**、
+被拒绝 **12 条**。按"读到什么"分三级：
+
+| 级别 | 读到什么 | 结论 |
+|---|---|---|
+| **R-1 用户数据** | 房间消息 / 状态 / 事件上下文 / 媒体 / 用户资料与设备（含最后 IP）/ 推送端点 / 举报内容 / 审计日志 | **保留**。这是审核能力的本体，收走它就等于取消普通 admin 这个角色 |
+| **R-2 治理与运维** | 后台任务、统计、联邦目的地、空间、媒体隔离记录、通知、系统公告、邀请名单 | 保留 |
+| **R-3 配置面** | appservices / external_services / CAS / SAML / modules / media_callbacks / registration_tokens / feature-flags | 保留，但需逐个确认**不返回凭据**（见下） |
+
+（三档按资源域粗分，边界有交叉——房间的 `messages` / `state` 归 R-1，`/rooms` 列表与
+`/rooms/search` 归 R-2。所以这里只给总数 131，不给分档条数。）
+
+**关键核对**：写面收紧的那批配置端点，如果读接口把同一个密钥吐回来，收紧就是装饰。
+逐个查过序列化结构，结论是**只有一处会回明文凭据**：
+
+| 读接口 | 返回字段 | 结论 |
+|---|---|---|
+| `GET /appservices`、`/{as_id}` | `AppServiceResponse`：无 `as_token` / `hs_token` | 已裁剪 |
+| `GET /external_services`、`/{as_id}/health` | `ExternalServiceResponse`：无 `api_key` / `webhook_url` | 已裁剪 |
+| `GET /saml/config` | `sanitized_base_config()`：只给 `has_sp_private_key` / `has_sp_certificate` 布尔 | 已裁剪 |
+| `GET /cas/services` | `ServiceResponse`：无 shared secret 字段 | 已裁剪 |
+| `GET /registration_tokens`、`/{token}` | **返回明文 `token`** | 与上游 Synapse 同款；拿到可自注册账号，但调用者已是 admin，增量有限。**记录在案，不改** |
+
+### 9.2 判定不自洽：三处已修（2026-10-21）
+
+读面这次没有"收紧"，只有"修判定"——三处都属于**失败方向是拒绝**（fail-closed）的过严，
+不改会出现"能做 A 不能做 B"的怪状态：
+
+| 现象 | 具体 | 处置 |
+|---|---|---|
+| **结尾斜杠把集合端点挡在外面** | 第一批放宽写了 `path.starts_with("/_synapse/admin/v1/reports/")` ⇒ 能取 `GET /reports/{id}`，不能 `GET /reports`（列全部）；`room_stats` 同理（`/room_stats/{room_id}` 可读，`/room_stats` 不可读） | `reports` 改成精确集合 + 前缀两种形态；`room_stats` 去掉结尾斜杠 |
+| **路径别名判定不同** | `GET /quarantine_media/{media_id}/changes`（旧路径）整条拒绝，`GET /media/quarantine_changes`（新路径）允许 | 补 `quarantine_media/` 前缀 |
+| **无前缀覆盖的只读端点** | `GET /whoami`（只回调用者自己的身份）、`GET /rate-limit-status`（自己的限流状态）、`GET /policy/status`（`enabled` / `endpoint` / `fail_mode` 三个字段） | 三条各自补精确路径 |
+
+`GET /reports` 的修复顺带说明一件事：**"放宽一个前缀"时要同时检查它的集合形态**，
+否则得到的是"知道 id 才能读"的半开放状态——比全拒更像 bug。
+
+### 9.3 仍被拒绝的 12 条（都是配置/密钥面）
+
+`GET /_synapse/admin/info`、`/v1/server`、`/v1/config`、`/v1/jitsi/config`、`/v1/push/config`、
+`/v1/account_data_callbacks`、`/v1/password_auth_providers`、`/v1/federation/blacklist`、
+`/v1/retention/policy`、`/v1/retention/policy/{room_id}`、`/v1/retention/status`、
+`/v1/register/nonce`。
+
+前十个是全局配置（部分直接含连接串/密钥），后两个是"已被拒绝的写操作的前置"——
+`register/nonce` 只用于计算 `POST /v1/register` 的 HMAC，写端既然只给 super_admin，
+nonce 也不该给普通 admin。**这 12 条保持拒绝。**
+
+### 9.4 MFA 覆盖：写全量，读只有三类
+
+`is_sensitive_admin_request` 的现行规则：**所有写方法**都算敏感；读只有
+`/v1/security`、`/v1/server`、`/v1/media/quarantine` 三类。
+也就是说开了 `admin_mfa_required` 之后，普通 admin 读**房间消息、用户 IP、举报内容、审计日志**
+仍不需要 TOTP。
+
+**建议（未实施）**：把这些内容型读取纳入敏感集合。**没有直接改**的原因很实际——
+MFA 是在**每个请求**上校验的，而现有 admin 前端只在写请求上带 `x-admin-mfa-code`；
+贸然把读纳入会让开了 MFA 的部署**整个管理界面打不开**。真要推进，顺序是：
+前端先支持读请求带码 → 再改判定 → 再在文档里标注 `admin_mfa_required` 的兼容性变化。
+
+### 9.5 读面也进登记表
+
+新增 `test-support/admin_rbac_read_allowlist.txt`（131 条），与写面共用同一套双向断言
+（`admin_rbac_tests::plain_admin_read_surface_matches_the_register`）：
+
++ 新读端点落进宽前缀却没登记 ⇒ 红；
++ 登记了但已不可达 ⇒ 红。
+
+写面那张表防的是"悄悄获得破坏能力"，这张表防的是"**悄悄开始输出数据**"。

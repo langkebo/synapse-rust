@@ -320,6 +320,18 @@ fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
             // 两处在收紧前是"整条拒绝"，属过严；判定按路径字面量的框架下只能逐条补。
             || path.starts_with("/_synapse/admin/v1/deactivate/")
             || (path.starts_with("/_synapse/admin/v1/user/") && path.ends_with("/media/quarantine"))
+
+            // 2026-10-21（读面）：结尾斜杠把**集合端点**挡在外面（`/reports` vs
+            // `/reports/{id}`）——能取单条却不能列，自相矛盾；`quarantine_media/{id}/changes`
+            // 是 `media/quarantine_changes` 的旧别名。三处原为整条拒绝（见文档 §9.2）。
+            || path.starts_with("/_synapse/admin/v1/room_stats")
+            || path == "/_synapse/admin/v1/reports"
+            || path.starts_with("/_synapse/admin/v1/quarantine_media/")
+
+            // 只回调用者自己的身份/限流状态/策略开关，此前无前缀覆盖。
+            || path == "/_synapse/admin/v1/whoami"
+            || path == "/_synapse/admin/v1/rate-limit-status"
+            || path == "/_synapse/admin/v1/policy/status"
         }
         "auditor" => {
             is_read
