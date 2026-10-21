@@ -420,7 +420,12 @@ impl BuiltinOidcProvider {
             );
         }
 
-        let _ = SigningKey::<Sha256>::new(key.clone()); // 探测 SHA256 sign 可用
+        // 这里必须用 **rsa 自带的** `sha2::Sha256`（`rsa::sha2`），不能用本仓
+        // `sha2::Sha256`：`rsa 0.9` 绑定 digest 0.10，而本仓已升到 digest 0.11，
+        // 两个 `Sha256` 是**不同的类型**（同名不同版）。用 `rsa::sha2::Sha256`
+        // 让这层耦合在代码里显式可见 —— 等 `rsa 0.10` 正式发版、也切到 digest 0.11
+        // 之后，这一处才能改回 `Sha256`。
+        let _ = SigningKey::<rsa::sha2::Sha256>::new(key.clone()); // 探测 SHA256 sign 可用
         Ok(key)
     }
 

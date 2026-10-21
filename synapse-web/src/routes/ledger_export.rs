@@ -235,7 +235,22 @@ pub fn route_surface_sha256(entries: &[LedgerEntryJson]) -> String {
     for e in entries {
         hasher.update(entry_fingerprint_line(e).as_bytes());
     }
-    format!("{:x}", hasher.finalize())
+    hex_lower(&hasher.finalize())
+}
+
+/// 小写十六进制（无前缀、无分隔符）。
+///
+/// 这个格式是**持久化并对外**的：`route_surface_sha256` 的值写进
+/// `docs/synapse-rust/route-table.json` 等指纹文件，跨版本必须逐字符一致。
+/// `digest 0.11` 起 `finalize()` 返回 `hybrid_array::Array` 且不再实现 `LowerHex`，
+/// 所以显式逐字节格式化，而不是靠某个容器类型的 `Debug`/`Display` 碰巧一致。
+fn hex_lower(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
 }
 
 #[cfg(test)]

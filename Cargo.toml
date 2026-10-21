@@ -287,9 +287,9 @@ serde_json = "1.0"
 # `Value`/`Error`），底层换成维护中的 `unsafe-libyaml-norway` ⇒ 无需 waiver 即消除该条。
 serde_norway = "0.9"
 rand = "0.9"
-sha1 = "0.10"
-sha2 = { version = "0.10" }
-hmac = "0.12"
+sha1 = "0.11"
+sha2 = { version = "0.11" }
+hmac = "0.13"
 base64 = "0.22"
 chrono = { version = "0.4" }
 thiserror = "2.0"

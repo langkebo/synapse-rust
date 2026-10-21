@@ -3421,7 +3421,10 @@ BASELINE_QUERY_BUILDER=17
 #   并同步 `.sqlx` 删除旧条目（1331 → 1330）。同一处同时计入本项与
 #   `sqlx_literal_production_baseline`（`event/search.rs` 4 → 5）。
 #   **收紧方向**：接入 CI PG 后改回 `query_as!`，本项 −1、静态 +1。
-BASELINE_DYNAMIC_PRODUCTION=132
+# 2026-10-22: 132 → **133**（+1，与 `sqlx_literal_production_baseline` 的
+#   `synapse-test-utils/src/lib.rs` 14 → 15 同批同向）：`ensure_schema_has_baseline`
+#   的 `to_regclass` 探针，理由见该文件的同名条目。棘轮仍为零余量（133 = 实测）。
+BASELINE_DYNAMIC_PRODUCTION=133
 # 2026-10-15: 769 → 768（按实测收紧；棘轮是**上限**，留着 1 个空位等于允许一次静默回归）。
 #   本批（方案 B4.3）只新增了**静态**查询，这一项是复核实测时发现的既有余量。
 # 2026-10-16: 768 → **769**（+1，B1/UG-5 lazy-load 位置列）。

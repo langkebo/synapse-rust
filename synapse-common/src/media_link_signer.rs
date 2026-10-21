@@ -7,7 +7,7 @@
 //! URL format:
 //!   /_matrix/media/v3/download/{server_name}/{media_id}?signature={hex}&expires={timestamp}
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 use std::time::{SystemTime, UNIX_EPOCH};
 

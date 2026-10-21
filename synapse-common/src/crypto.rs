@@ -9,7 +9,7 @@ use base64::{
     engine::general_purpose::{STANDARD_NO_PAD, URL_SAFE_NO_PAD},
     Engine as _,
 };
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use rand::Rng;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -883,5 +883,71 @@ mod tests {
         let hash = hash_token(token);
         assert!(verify_token_hash(token, &hash));
         assert!(verify_token_hash(token, &hash));
+    }
+
+    // --- RustCrypto 大版本升级的跨版本 KAT ---------------------------------
+    //
+    // 这些向量**不是**"记录当前实现输出"，而是规范值（NIST FIPS 180-4 /
+    // RFC 4231），因此它们同时约束升级前后两侧：任何一侧算错都会红。
+    //
+    // 为什么必须单独钉：`digest` 0.11 把 `finalize()` 的返回类型换成了
+    // `hybrid_array::Array`，**不再实现 `LowerHex`**。仓库里原本有三处
+    // `format!("{:x}", hasher.finalize())`，那种写法会从"编译通过"变成
+    // "编译失败"；更危险的是有人为了让它编译过去而改成
+    // `format!("{:x}", hasher.finalize().as_slice())` 之类的变形 —— 那会静默
+    // 改变输出格式（大端/小端、大小写、是否带分隔符），而 `state_record` 的
+    // 房间状态哈希与 `ledger_export` 的路由面指纹都是**持久化/对外**的值。
+    // 所以这里把 hex 的**逐字符**形态也钉住。
+
+    #[test]
+    fn sha256_matches_nist_vectors_and_hex_lowercase() {
+        assert_eq!(
+            hex_lower(&Sha256::digest(b"")),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "SHA-256 of the empty input (FIPS 180-4)"
+        );
+        assert_eq!(
+            hex_lower(&Sha256::digest(b"abc")),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            "SHA-256(\"abc\") — lowercase, no separators, big-endian byte order"
+        );
+    }
+
+    #[test]
+    fn hmac_sha256_matches_rfc4231() {
+        // RFC 4231 test case 1: key = 0x0b repeated 20 times, data = "Hi There".
+        let mut mac = HmacSha256::new_from_slice(&[0x0bu8; 20]).expect("HMAC accepts any key length");
+        mac.update(b"Hi There");
+        assert_eq!(
+            hex_lower(&mac.finalize().into_bytes()),
+            "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7",
+            "RFC 4231 §4.2 test case 1"
+        );
+    }
+
+    /// 升级 `argon2` 之后，**库里已有的口令哈希必须仍然可验证**。
+    ///
+    /// 这条向量是用 argon2 0.5 + 固定盐生成的 PHC 串（不是随机哈希），所以它的
+    /// 期望结论是"永远能验过"。如果 0.6 改了默认参数、编码方式或解析器行为，
+    /// 这里会红 —— 否则症状会出现在线上：所有老用户登录失败。
+    #[test]
+    fn password_hash_produced_before_the_upgrade_still_verifies() {
+        const LEGACY_PHC: &str =
+            "$argon2id$v=19$m=19456,t=2,p=1$a2F0LWZpeGVkLXNhbHQtMTY$XrzqQZ+XcIaigagA5qEH3yK7FXtYJ9NFh6460PTPNds";
+        assert!(
+            verify_password("correct horse battery staple", LEGACY_PHC, false).unwrap(),
+            "an Argon2id hash written by the previous dependency version must still verify"
+        );
+    }
+
+    /// 小写十六进制，无前缀、无分隔符 —— 与 `serde_json` 之外的持久化格式一致。
+    fn hex_lower(bytes: &[u8]) -> String {
+        use std::fmt::Write as _;
+        let mut out = String::with_capacity(bytes.len() * 2);
+        for byte in bytes {
+            // `write!` 到 `String` 不会失败（`fmt::Write for String` 的 `Err` 不可达）。
+            let _ = write!(out, "{byte:02x}");
+        }
+        out
     }
 }

@@ -2190,7 +2190,7 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 <!-- sqlx-plan-numbers:start -->
 <!-- 以下数字由 `scripts/ci/check_plan_numbers_fresh.sh` 与基线/实测现算比对；改基线必须同步改这里。 -->
-BASELINE_DYNAMIC_PRODUCTION=132
+BASELINE_DYNAMIC_PRODUCTION=133
 BASELINE_DYNAMIC_TEST_INFRA=767
 BASELINE_STATIC=1367
 BASELINE_QUERY_BUILDER=17
@@ -2223,6 +2223,15 @@ SQLX_CACHE_ENTRIES=1334
 > - 逐文件 literal 棘轮同步：新增 `synapse-storage/src/event/search.rs 4`、
 >   `synapse-storage/src/push/mod.rs` 1 → 6（合计 57 → 66、19 → 20 文件）；
 >   `BASELINE_DYNAMIC`（兼容行）890 → 901。恒等式仍为 `131 − 66 − 0 = 65`。
+>
+> **2026-10-22 更新（RustCrypto 升级批次 P-A，只 +1）**
+> - `BASELINE_DYNAMIC_PRODUCTION` **132 → 133**（+1）：`synapse-test-utils/src/lib.rs`
+>   的生产区字面量探针 `SELECT to_regclass('users')::text`（`ensure_schema_has_baseline`，
+>   提交 `8c897cfd6`）。它的职责是"测试池拿到空 schema 时立刻报错"，因此不能写成
+>   `query!` 宏 —— 宏会把 SQL 与某一份 schema 在编译期绑死，而它要对**任意**运行期
+>   schema 判断 `users` 是否存在；`to_regclass` 返回 `regclass`，离线缓存里也无条目。
+>   逐文件 literal 棘轮同步 `synapse-test-utils/src/lib.rs` 14 → 15。
+> - 其余四项不变（`767` / `1367` / `17` / `1334`）。**零余量**：133 = 现算实测。
 
 > **2026-10-21 补充（同类缺口：`search_room_messages_admin` 的 `start_date` / `end_date`）**：
 > 管理端 `POST /_synapse/admin/v1/rooms/{room_id}/search` 的请求体

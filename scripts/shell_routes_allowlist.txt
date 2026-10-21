@@ -33,6 +33,10 @@
 # 650/669/688 → 680/699/718。同时跟上两处历史漂移（本批未改这两个文件，
 # 是此前提交插入代码后漏跟改）：`voip.rs` 247/308 → 248/309（+1），
 # `e2ee/devices.rs` 372 → 378（+6）。
+#
+# 2026-10-22：`e2ee/devices.rs` 378 → 386（+8）。`721e71e1f` 在该文件的
+# `cancel_request` 段上方插入了 8 行（契约 sidecar 治理），未同步本清单；
+# 这条在我做 RustCrypto 升级跑 `--test unit` 时才暴露 —— 与本轮依赖升级无关。
 app_service.rs:680
 app_service.rs:699
 app_service.rs:718
@@ -52,4 +56,4 @@ voip.rs:309
 # E2EE routes (real ACK after persisted send-to-device, cross-signing, or
 # key-request cancellation)
 e2ee/backup.rs:179
-e2ee/devices.rs:378
+e2ee/devices.rs:386

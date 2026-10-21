@@ -50,7 +50,7 @@ serde_norway = { workspace = true }
 rand = { workspace = true }
 sha2 = { workspace = true, features = ["oid"] }
 hmac = { workspace = true }
-hkdf = "0.12"
+hkdf = "0.13"
 base64 = { workspace = true }
 educe = { workspace = true }
 

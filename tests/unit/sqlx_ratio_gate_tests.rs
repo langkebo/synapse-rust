@@ -408,7 +408,16 @@ fn sha256_hex(input: &str) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(input.as_bytes());
-    format!("{:x}", hasher.finalize())
+    // `digest 0.11` 的 `Output` 是 `hybrid_array::Array`，不再实现 `LowerHex`；
+    // 显式逐字节格式化，保证与升级前 `format!("{:x}", …)` 的输出逐字符相同
+    // （这个值参与 `.sqlx` 条目指纹比对，格式一变就会全量假红）。
+    let digest = hasher.finalize();
+    let mut out = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        use std::fmt::Write as _;
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
 }
 
 /// 建一棵只含 `src/lib.rs` + 指定 `.sqlx` 条目的临时树，返回根目录。

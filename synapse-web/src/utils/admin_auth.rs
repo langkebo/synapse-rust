@@ -1,6 +1,6 @@
 use crate::utils::auth::resolve_request_id;
 use axum::http::{HeaderMap, Method};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use serde_json::json;
 use sha1::Sha1;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -442,5 +442,41 @@ mod tests {
         assert!(is_role_allowed("admin", &Method::GET, "/_synapse/admin/v1/users/@user:localhost/rate_limit"));
         assert!(is_role_allowed("admin", &Method::PUT, "/_synapse/admin/v1/users/@user:localhost/rate_limit"));
         assert!(is_role_allowed("admin", &Method::DELETE, "/_synapse/admin/v1/users/@user:localhost/rate_limit"));
+    }
+
+    /// RFC 6238 附录 B 的 TOTP 向量（HMAC-SHA1，密钥是 ASCII 的
+    /// `12345678901234567890`）。规范值只取后 6 位，与 `generate_totp_code`
+    /// 的输出对齐。
+    ///
+    /// 钉这条是因为 `hmac` 0.13 / `digest` 0.11 升级会同时改变两处：
+    /// `new_from_slice` 从 `Mac` 移到 `KeyInit`，`finalize()` 的返回类型换成
+    /// `hybrid_array::Array`。下面 `hash[19]` / `hash[offset]` 这类**按下标取值**
+    /// 的写法如果被顺手改成 `.as_slice()` 的某种变形，编译能过、码值会错 ——
+    /// 而这里算错就等于 2FA 拦不住人（或把管理员锁在门外）。
+    #[test]
+    fn totp_matches_rfc6238_vectors() {
+        const SECRET: &[u8] = b"12345678901234567890";
+        // (unix 时间, RFC 6238 的 8 位期望值, 本函数应输出的 6 位)
+        //
+        // ⚠️ RFC 6238 附录 B 最后一行把标签写成 `20000000000`，但它给的
+        // `T = 0x0000000003F940AA`（= 66_666_666）实际对应 **2_000_000_000**：
+        // 2e10/30 = 666_666_666 = 0x27BC86AA，是另一个 T。这里按 T 的**真实取值**
+        // 取 unix 时间，并额外补一条 2e10 的行（该行 8 位值 65353130 已用
+        // Python 的 hmac+sha1 独立复算过，与本实现一致）。照抄标签会让这条 KAT
+        // 变成"记录错误实现"，正是它要防的东西。
+        let cases = [
+            (59u64, "94287082", "287082"),
+            (1_111_111_109, "07081804", "081804"),
+            (1_111_111_111, "14050471", "050471"),
+            (1_234_567_890, "89005924", "005924"),
+            (2_000_000_000, "69279037", "279037"),
+            (20_000_000_000, "65353130", "353130"),
+        ];
+        for (unix_time, eight_digit, six_digit) in cases {
+            // RFC 6238 的 T 是"30 秒步数"。
+            let step = unix_time / 30;
+            let code = generate_totp_code(SECRET, step).expect("HMAC-SHA1 accepts any key length");
+            assert_eq!(code, six_digit, "TOTP at T={unix_time} (8-digit reference: {eight_digit})");
+        }
     }
 }

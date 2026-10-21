@@ -4381,6 +4381,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha1"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.0",
+ "digest 0.11.3",
+]
+
+[[package]]
 name = "sha1_smol"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4669,7 +4680,7 @@ dependencies = [
  "rand 0.8.7",
  "rsa",
  "serde",
- "sha1",
+ "sha1 0.10.7",
  "sha2 0.10.9",
  "smallvec",
  "sqlx-core",
@@ -4872,8 +4883,8 @@ dependencies = [
  "educe",
  "futures",
  "hex",
- "hkdf 0.12.4",
- "hmac 0.12.1",
+ "hkdf 0.13.0",
+ "hmac 0.13.0",
  "http",
  "ipnet",
  "libc",
@@ -4892,7 +4903,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_norway",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "sqlx",
  "tempfile",
  "thiserror",
@@ -4922,11 +4933,11 @@ dependencies = [
  "dashmap",
  "ed25519-dalek 2.2.0",
  "generic-array",
- "hkdf 0.12.4",
+ "hkdf 0.13.0",
  "rand 0.9.5",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "sqlx",
  "synapse-cache",
  "synapse-common",
@@ -4955,7 +4966,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "sqlx",
  "synapse-cache",
  "synapse-common",
@@ -4984,7 +4995,7 @@ dependencies = [
  "ed25519-dalek 2.2.0",
  "futures",
  "hex",
- "hmac 0.12.1",
+ "hmac 0.13.0",
  "http",
  "hyper",
  "image",
@@ -5002,7 +5013,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_norway",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "sqlx",
  "synapse-cache",
  "synapse-common",
@@ -5040,7 +5051,7 @@ dependencies = [
  "dashmap",
  "deadpool-redis",
  "futures",
- "hmac 0.12.1",
+ "hmac 0.13.0",
  "image",
  "infer",
  "jsonwebtoken",
@@ -5061,8 +5072,8 @@ dependencies = [
  "serde_json",
  "serde_norway",
  "serial_test",
- "sha1",
- "sha2 0.10.9",
+ "sha1 0.11.0",
+ "sha2 0.11.0",
  "sqlx",
  "synapse-cache",
  "synapse-common",
@@ -5108,7 +5119,7 @@ name = "synapse-test-utils"
 version = "6.2.0"
 dependencies = [
  "libc",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "sqlx",
  "synapse-common",
  "synapse-services",
@@ -5127,7 +5138,7 @@ dependencies = [
  "deadpool-redis",
  "ed25519-dalek 2.2.0",
  "futures",
- "hmac 0.12.1",
+ "hmac 0.13.0",
  "http",
  "infer",
  "ipnetwork",
@@ -5136,8 +5147,8 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_norway",
- "sha1",
- "sha2 0.10.9",
+ "sha1 0.11.0",
+ "sha2 0.11.0",
  "synapse-cache",
  "synapse-common",
  "synapse-e2ee",

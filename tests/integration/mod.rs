@@ -742,7 +742,7 @@ async fn register_admin_token(app: &axum::Router, user_type: Option<&str>) -> (S
     let shared_secret =
         std::env::var("REGISTRATION_SHARED_SECRET").unwrap_or_else(|_| "test_shared_secret".to_string());
 
-    use hmac::{Hmac, Mac};
+    use hmac::{Hmac, KeyInit, Mac};
     use sha2::Sha256;
     type HmacSha256 = Hmac<Sha256>;
 

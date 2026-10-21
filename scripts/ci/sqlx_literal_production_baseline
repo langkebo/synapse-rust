@@ -24,13 +24,22 @@
 # …）**从未进入迁移范围**，其生产动态调用仍是字面量形态。逐条消除它们属于
 # C11+ 的工作量（876 处 / 98 文件），不在 Phase D（结构性收敛）范围内。
 # 另外 `synapse-common/src/test_isolation.rs`（9）、
-# `synapse-common/src/test_schema_guard.rs`（2）、`synapse-test-utils/src/lib.rs`（14）
+# `synapse-common/src/test_schema_guard.rs`（2）、`synapse-test-utils/src/lib.rs`（15）
 # 是**无条件编译**的测试基础设施模块（`synapse-common/src/lib.rs` 明确
 # "Compiled unconditionally"），因此按口径计入生产区，合共 25 处字面量。
 #
 # 生成命令（唯一实现，勿手工编辑计数）：
 #   python3 scripts/ci/sqlx_query_census.py --list-production-dynamic . \
 #     | grep ':literal$' | cut -d: -f1 | LC_ALL=C sort | uniq -c | awk '{print $2"\t"$1}' | LC_ALL=C sort
+# 2026-10-22: 14 → **15**（+1）—— `ensure_schema_has_baseline` 的
+#   `SELECT to_regclass('users')::text` 探针（测试池拿到空 schema 时立刻报错，
+#   见 `8c897cfd6`）。**为什么不写成 `query!` 宏**：这个探针的职责就是在
+#   "schema 还没迁移好"时报警，宏会把 SQL 与某一份 schema 在编译期绑死，而它要
+#   对**任意**运行期 schema 判断 `users` 是否存在；且 `to_regclass` 返回 `regclass`，
+#   离线缓存里也没有对应条目。与 `sqlx_dynamic_ratio_baseline` 同批登记
+#   （`BASELINE_DYNAMIC_PRODUCTION` 132 → 133），两处必须同向改动。
+#   **收紧方向**：若将来探针改成读 `information_schema` 的静态列查询并进 `.sqlx`，
+#   本项与 ratio 各 −1。
 # ⚠️ 两处 `LC_ALL=C` 是必须的、不是装饰：默认 locale 下 `_` 与 `/` 的次序不同，同一份
 #   实测表会得到两种排序（实测：`room/models.rs` 与 `room_account_data.rs` 互换位置）。
 #   逐行 diff 时那会伪装成"内容漂移"，让人以为抽取器变了。
@@ -386,7 +395,7 @@ synapse-storage/src/sliding_sync/repository.rs	1
 synapse-storage/src/space/repository.rs	4
 synapse-storage/src/thread/storage.rs	4
 synapse-test-utils/src/db_isolation.rs	3
-synapse-test-utils/src/lib.rs	14
+synapse-test-utils/src/lib.rs	15
 # ── 当前「运行期拼装」残差清单（**允许**，不入棘轮；仅作可读性摘要）────────────
 # 合计 **65 处 / 15 文件**（2026-10-20 按实测重算；与 ratio 棘轮的
 # `dynamic_production − literal − param` = 132 − 67 − 0 = 65 一致）：

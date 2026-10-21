@@ -1229,4 +1229,84 @@ mod tests {
         assert!(cipher.is_nonce_used(nonce_bytes), "Default cipher must track nonce reuse");
         assert_eq!(cipher.nonce_counter(), 1);
     }
+
+    // --- RustCrypto 升级的密文兼容向量（P-C 硬要求）---------------------------
+    //
+    // `aes-gcm` / `chacha20poly1305` 从 0.10 升到 0.11 会换掉整个 `aead` 底座
+    // （`generic-array` → `hybrid-array`）。这类升级"能编译、能自解密"不足以说明
+    // 问题：真正要证明的是**升级前写进库里的密文，升级后还解得开**。
+    //
+    // 下面两条把"升级前产出的密文"以固定常量钉住（密钥、明文、整段
+    // `nonce || ciphertext` 都是常量）。若升级后任一条解不开，就是**存量数据
+    // 不可读**——这是必须回滚的信号，不是可以"顺手改一下常量"的失败。
+    //
+    // 生成方式见 `emit_legacy_ciphertext_vectors`（`#[ignore]`，本次升级期间用过一次）。
+
+    const LEGACY_AES_GCM_KEY: [u8; 32] = [0x11; 32];
+    const LEGACY_AES_GCM_PLAINTEXT: &[u8] = b"synapse-e2ee upgrade KAT: aes-256-gcm";
+    /// base64(`nonce || ciphertext || tag`)，由 aes-gcm 0.10 产出。
+    const LEGACY_AES_GCM_BLOB_B64: &str =
+        "ejmM3HYFcElBNWx2s/m0ZX1kH98KRdC4RxhWLNKQxQBmDIBtpdNDIjCMDGeJcLwVsV2xYGyffJp3NG1BsfA+JfM=";
+
+    const LEGACY_XCHACHA_KEY: [u8; 32] = [0x22; 32];
+    const LEGACY_XCHACHA_PLAINTEXT: &[u8] = b"synapse-e2ee upgrade KAT: xchacha20-poly1305";
+    /// base64(`nonce || ciphertext || tag`)，由 chacha20poly1305 0.10 产出。
+    const LEGACY_XCHACHA_BLOB_B64: &str = "kys0DqaMqkRMi8stXYPBnqXWAWM0RGYO7c8CPlvU4ZHLtgF6b8D/yHIrX33TMSZwd33cdsXfWpMDE0XVJhH2CTle14IU5IlCipUhYvIuDkJN9yWf";
+
+    #[test]
+    fn legacy_aes_gcm_ciphertext_still_decrypts() {
+        use base64::Engine as _;
+        let blob = base64::engine::general_purpose::STANDARD
+            .decode(LEGACY_AES_GCM_BLOB_B64)
+            .expect("vector must be valid base64");
+        let (nonce, ciphertext) = Aes256GcmCipher::split_encrypted_data(&blob).expect("blob carries a 12-byte nonce");
+        let key = Aes256GcmKey::from_bytes(LEGACY_AES_GCM_KEY);
+        let plaintext = Aes256GcmCipher::decrypt(&key, &nonce, ciphertext)
+            .expect("ciphertext written before the upgrade must decrypt");
+        assert_eq!(plaintext, LEGACY_AES_GCM_PLAINTEXT);
+    }
+
+    #[test]
+    fn legacy_xchacha_ciphertext_still_decrypts() {
+        use base64::Engine as _;
+        let blob = base64::engine::general_purpose::STANDARD
+            .decode(LEGACY_XCHACHA_BLOB_B64)
+            .expect("vector must be valid base64");
+        // XChaCha 的 nonce 是 24 字节，与 AES-GCM 的 12 字节不同 —— 这条同时钉住
+        // `XNonce::from_slice` 的长度语义。
+        let nonce = XChaCha20Poly1305Nonce::from_bytes(&blob[0..24]).expect("24-byte XChaCha nonce");
+        let plaintext = XChaCha20Poly1305Cipher::decrypt(&LEGACY_XCHACHA_KEY, &nonce, &blob[24..])
+            .expect("ciphertext written before the upgrade must decrypt");
+        assert_eq!(plaintext, LEGACY_XCHACHA_PLAINTEXT);
+    }
+
+    /// 生成上面两个常量。只在升级期间手动跑一次：
+    /// `cargo nextest run -p synapse-e2ee --lib -E 'test(emit_legacy_ciphertext_vectors)' --run-ignored only --no-capture`
+    #[test]
+    #[ignore = "generator: prints the pre-upgrade ciphertext vectors"]
+    fn emit_legacy_ciphertext_vectors() {
+        use base64::Engine as _;
+        let engine = base64::engine::general_purpose::STANDARD;
+
+        let key = Aes256GcmKey::from_bytes(LEGACY_AES_GCM_KEY);
+        let aes_blob = Aes256GcmCipher::default().encrypt_with_nonce(&key, LEGACY_AES_GCM_PLAINTEXT).expect("encrypt");
+        println!("AES_B64={}", engine.encode(&aes_blob));
+        println!("AES_NONCE_HEX={}", NonceHex(&aes_blob[..12]));
+
+        let xchacha_blob =
+            XChaCha20Poly1305Cipher::new().encrypt(&LEGACY_XCHACHA_KEY, LEGACY_XCHACHA_PLAINTEXT).expect("encrypt");
+        println!("XCHACHA_B64={}", engine.encode(&xchacha_blob));
+    }
+
+    /// 只为把 nonce 也打成可比对的形态（nonce 是随机的，记下来便于人工核对长度）。
+    struct NonceHex<'a>(&'a [u8]);
+
+    impl std::fmt::Display for NonceHex<'_> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            for byte in self.0 {
+                write!(f, "{byte:02x}")?;
+            }
+            Ok(())
+        }
+    }
 }

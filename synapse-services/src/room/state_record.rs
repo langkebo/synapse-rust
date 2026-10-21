@@ -637,7 +637,20 @@ fn state_hash(room_id: &str, entries: &[StateGroupStateEntry]) -> String {
         hasher.update(b"\x1f");
         hasher.update(entry.event_id.as_bytes());
     }
-    format!("{:x}", hasher.finalize())
+    hex_lower(&hasher.finalize())
+}
+
+/// 小写十六进制（无前缀、无分隔符）—— `member_state_hash` 的输出是**持久化**的，
+/// 格式必须逐字符稳定：`digest 0.11` 起 `finalize()` 返回 `hybrid_array::Array`，
+/// 不再实现 `LowerHex`，所以原来那句 `format!("{:x}", ...)` 从"能编译"变成"编不过"。
+/// 顺手改成显式逐字节格式化，避免有人用 `.as_slice()` 之类的变形蒙过编译而改了输出。
+fn hex_lower(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
 }
 
 #[cfg(test)]
