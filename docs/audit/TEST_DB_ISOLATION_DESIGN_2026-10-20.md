@@ -121,7 +121,7 @@ B 的主要吸引力不只是快，而是**删掉了整块"重建后修正"的�
 | P0 ✅ | 模板库创建 + 禁连 + `CHECKPOINT`，暴露为独立脚本 | 已验收：`ensure` 幂等、`datallowconn=false`、`clone` 0.117 s / 221 表、非测试集群 exit 2 |
 | P1 ✅ | `TEST_DB_ISOLATION=database` 只接 `prepare_shared_test_pool` | 已验收：13 条 4.1 s（schema 11.9–15.3 s）、286 条 **193.6 s**（schema 421.3 s）、残留 0 |
 | P2 ✅ | 接 `acquire_pooled_schema` / `prepare_isolated_test_pool` | 已验收：41 条（`nullable_decode`/`cleanup_`/`api_one_time_invite`） database 模式 7.6 s vs schema 41.6 s，两边 41/41，残留库 0 |
-| P3 🔧 | CI 双跑一个周期（A 与 B 各一遍） | 已接线 `2575dfa6f`：`integration-test` 矩阵 `schema`(90 min, 全车道) / `database`(60 min, 仅 integration)，`fail-fast: false`，database 腿额外断言残留库为 0。**待首轮 CI 结果**：两边全绿 + B 墙钟 < A 的 60% |
+| P3 🔧 | CI 双跑一个周期（A 与 B 各一遍） | 已接线 `2575dfa6f`：`integration-test` 矩阵 `schema`(90 min, 全车道) / `database`(60 min, 仅 integration)，`fail-fast: false`，database 腿额外断言残留库为 0。**首轮本机双跑已做（结果与判定见 §8）：未达标**；目标仍是两边全绿 + B 墙钟 < A 的 60% |
 | P4 ✅ | 模板命名收敛 + 契约 SQL 共享 | 已交付 `ae11e342c`：指纹 = sha256(排序后的 migrations/*.sql + test-support/test_schema_contract.sql) 前 16 位，脚本与 crate 逐字节一致；契约 SQL 抽成共享文件，两边各用一份（`psql -f` / `include_str!`） |
 
 性能验收：286 条 `room_` 子集墙钟从 **421 s**（当前）降到 **≤ 240 s**；单条摊销
@@ -135,3 +135,83 @@ B 的主要吸引力不只是快，而是**删掉了整块"重建后修正"的�
 - 模板指纹变化时，旧模板库的回收策略（现在 schema 模板靠 marker 文件判定，库版本同样需要）。
 - **模板命名已统一**（`ae11e342c`）：单一指纹覆盖迁移与契约 SQL，`resolve_template_database`
   严格匹配期望名字，旧模板会以"不存在"报错而不是被静默复用。
+
+## 8. P3 首轮双跑结果（2026-10-21 本机）
+
+### 8.1 原始数据
+
+两腿都是 `cargo nextest run --test integration --all-features --locked --test-threads 4`，
+只改 `TEST_DB_ISOLATION`；`TEST_DATABASE_URL` 指向本机 55432 的一次性库。
+
+| 腿 | `TEST_DB_ISOLATION` | 起止（CST） | nextest 墙钟 | tests run | passed | failed | exit |
+|---|---|---|---|---|---|---|---|
+| A | `schema` | 18:10:39 → 18:57:10 | 2786.8 s | 1624 | 1619 | **5** | 100 |
+| B | `database` | 21:50:10 → 22:43:47 | 1795.5 s | 1637 | 1616 | **21** | 100 |
+
+### 8.2 先说一个前提：两腿跑的不是同一份代码
+
+**这轮数据不能直接做"模式 vs 模式"的对比。** A 腿启动于 18:10，早于当天
+`90a0ebecf`（19:30）/ `325c1ef16`（20:17）两次 admin-RBAC 收紧；B 腿启动于 21:50，
+包含它们以及 `8d7bc3a97`（21:21）。
+
+测试清单本身就是证据（逐条 diff `PASS/FAIL` 行）：
+
+- **B 有、A 无 15 条**：`api_admin_rbac_wire_tests` 5 条、`api_admin_target_guard_tests` 8 条、
+  `api_admin_user_lifecycle_tests` 2 条 —— 都是 21:21 那次提交新增的。
+- **A 有、B 无 2 条**：`permission_escalation_tests::test_rbac_{super,non_super}_admin_can_modify_admin_status`
+  —— 同一次提交删掉的空转用例。
+- 1624 − 2 + 15 = 1637 ✓。也就是说 A 腿的数字属于**旧二进制**，B 腿才是当前 HEAD。
+
+### 8.3 21 条失败逐条归因
+
+| 类别 | 条数 | 用例 | 判定 |
+|---|---|---|---|
+| 两腿共有 | 4 | `api_route_snapshots_tests::snapshot_register_uia_401_challenge`、`api_space_routes_tests::test_space_children_hierarchy_suite_keeps_nested_chain_verified`、`sync_service_tests_migrated::test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta_members`、`api_appservice_p1_tests::test_appservice_transaction_push` | **与隔离模式无关的真 bug**：两腿 panic 点与断言值一致（`left: Null`、insta 快照不一致等） |
+| A 腿独有 | 1 | `room_service_tests_migrated::test_appservice_scheduler_long_window_mixed_backlog_preserves_fairness_and_prevents_event_starvation` | 4 线程下的调度时序敏感，未定根因 |
+| B 腿独有（已定位） | 16 | 15 条 `api_appservice_*` + `api_feature_flags_tests::test_feature_flag_create_get_list_and_update` | **RBAC 收紧与测试口径不一致**，与隔离模式无关（见 8.4） |
+| B 腿独有（未定） | 1 | `api_beacon_location_tests::test_beacon_location_applies_room_backpressure_token_bucket`（期望 429 未拿到） | 令牌桶依赖墙钟，疑似时间敏感，未定根因 |
+
+B 腿日志里的 16 条 403 形态完全一致：
+
+```
+RBAC check result role=admin method=POST path=/_synapse/admin/v1/appservices
+                 allowed=false rbac_enabled=true rbac_allowed=false
+assertion `left == right` failed  left: 403  right: 201
+```
+
+对应 [privileged.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-web/src/utils/admin_auth/privileged.rs#L55-L75)：
+`appservices` 与 `feature-flags` 的写操作在 2026-10-21 被列为 **super_admin-only**，
+而这些用例仍用 `get_admin_token`（`user_type='admin'`）。
+
+### 8.4 关键对照：schema 模式下同样 403
+
+为排除"是不是 database 隔离导致的"，在**当前代码**上用 `TEST_DB_ISOLATION=schema`
+单跑两条（`--test-threads 1`）：
+
+| 用例 | 结果 | 日志 |
+|---|---|---|
+| `api_appservice_p1_tests::test_appservice_as_token_authentication` | `left: 403, right: 201` | `role=admin method=POST path=/_synapse/admin/v1/appservices allowed=false rbac_enabled=true` |
+| `api_feature_flags_tests::test_feature_flag_create_get_list_and_update` | `left: 403, right: 200` | `role=admin method=POST path=/_synapse/admin/v1/feature-flags allowed=false` |
+
+结论：**16 条 403 与隔离方式无关**，是 RBAC 收紧后测试未跟着改类型（或收紧本身需产品裁决）。
+
+### 8.5 验收判定
+
+| 验收项（§6 P3） | 目标 | 实测 | 判定 |
+|---|---|---|---|
+| 两腿全绿 | 0 failed | A 5 / B 21 | ❌ 未达标 |
+| B 墙钟 < A 墙钟的 60% | ≤ 1672 s | 1795.5 s（64.4%） | ❌ 差 123 s（B 还多跑了 13 条） |
+| B 腿残留库为 0 | 0 | 本机未单独断言，留给 CI 那一步 | — |
+| 隔离模式自身的失败 | 0 | B 腿 21 条中 0 条可归因于 database 隔离 | ✅ 未发现 |
+
+### 8.6 结论与后续
+
+1. **database 方案本身没有被证伪**：P1/P2 的小样本对照（41/41、286 条）仍成立，本轮也没有
+   出现任何"只在 database 模式复现"的隔离缺陷。
+2. **但 P3 未通过**，原因不在隔离层：两腿代码版本不同 + 仓库里既有的 RBAC 收紧没有同步
+   测试。要做有效的模式对比，必须先让两条腿跑同一份代码。
+3. 下一步顺序：
+   - 先修 16 条 RBAC 测试（`appservices`/`feature-flags` 写操作改用 `get_super_admin_token`，
+     或为普通 admin 显式放行——**需产品裁决**，不是纯测试改动）；
+   - 再修 4 条两腿共有的真 bug 与 1 条 beacon 时序；
+   - 然后同一提交上重跑两腿，再按 §6 的三条验收项判定是否把默认切到 `database`。

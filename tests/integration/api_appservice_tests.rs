@@ -3,7 +3,7 @@ use hyper::{Request, StatusCode};
 use serde_json::json;
 use tower::ServiceExt;
 
-use crate::{get_admin_token, setup_fresh_test_app};
+use crate::{get_admin_token, get_super_admin_token, setup_fresh_test_app};
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
     let request = Request::builder()
@@ -56,7 +56,7 @@ async fn test_appservice_register_and_query() {
         return;
     };
 
-    let (admin_token, _) = get_admin_token(&app).await;
+    let (admin_token, _) = get_super_admin_token(&app).await;
 
     // 1. Register AppService
     let as_id = format!("test_as_{}", rand::random::<u32>());
@@ -112,7 +112,7 @@ async fn test_appservice_virtual_user() {
         return;
     };
 
-    let (admin_token, _) = get_admin_token(&app).await;
+    let (admin_token, _) = get_super_admin_token(&app).await;
 
     // 1. Register AppService
     let as_id = format!("test_as_{}", rand::random::<u32>());

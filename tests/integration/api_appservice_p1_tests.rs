@@ -3,7 +3,7 @@ use hyper::{Request, StatusCode};
 use serde_json::json;
 use tower::ServiceExt;
 
-use crate::{get_admin_token, get_super_admin_token, setup_fresh_test_app};
+use crate::{get_super_admin_token, setup_fresh_test_app};
 
 /// P1-1: 事务推送与事件处理闭环
 /// 验证：AppService 可以接收事件推送，事件正确存储到数据库
@@ -13,7 +13,7 @@ async fn test_appservice_transaction_push() {
         return;
     };
 
-    let (admin_token, _) = get_admin_token(&app).await;
+    let (admin_token, _) = get_super_admin_token(&app).await;
 
     // 1. Register AppService
     let as_id = format!("test_as_txn_{}", rand::random::<u32>());
@@ -98,7 +98,7 @@ async fn test_appservice_as_token_authentication() {
         return;
     };
 
-    let (admin_token, _) = get_admin_token(&app).await;
+    let (admin_token, _) = get_super_admin_token(&app).await;
 
     // 1. Register AppService with specific as_token
     let as_id = format!("test_as_auth_{}", rand::random::<u32>());
@@ -161,7 +161,7 @@ async fn test_appservice_hs_token_storage() {
         return;
     };
 
-    let (admin_token, _) = get_admin_token(&app).await;
+    let (admin_token, _) = get_super_admin_token(&app).await;
 
     // 1. Register AppService with specific hs_token
     let as_id = format!("test_as_hs_{}", rand::random::<u32>());
@@ -212,7 +212,7 @@ async fn test_appservice_namespace_exclusivity() {
         return;
     };
 
-    let (admin_token, _) = get_admin_token(&app).await;
+    let (admin_token, _) = get_super_admin_token(&app).await;
 
     // 1. Register first AppService with exclusive namespace
     let as_id_1 = format!("test_as_ns1_{}", rand::random::<u32>());
@@ -330,7 +330,7 @@ async fn test_appservice_virtual_user_requires_exclusive_local_namespace() {
         return;
     };
 
-    let (admin_token, _) = get_admin_token(&app).await;
+    let (admin_token, _) = get_super_admin_token(&app).await;
     let as_id = format!("test_as_virtual_guard_{}", rand::random::<u32>());
     let register_request = Request::builder()
         .method("POST")
@@ -479,7 +479,7 @@ async fn test_appservice_statistics_expose_scheduler_summary() {
         return;
     };
 
-    let (admin_token, _) = get_admin_token(&app).await;
+    let (admin_token, _) = get_super_admin_token(&app).await;
     let as_id = format!("test_as_scheduler_stats_{}", rand::random::<u32>());
     let register_request = Request::builder()
         .method("POST")
@@ -566,7 +566,7 @@ async fn test_appservice_namespace_query() {
         return;
     };
 
-    let (admin_token, _) = get_admin_token(&app).await;
+    let (admin_token, _) = get_super_admin_token(&app).await;
 
     // 1. Register AppService with user and alias namespaces
     let as_id = format!("test_as_query_{}", rand::random::<u32>());
@@ -663,7 +663,7 @@ async fn test_appservice_query_requires_as_token() {
     let Some(app) = setup_fresh_test_app().await else {
         return;
     };
-    let (admin_token, _) = get_admin_token(&app).await;
+    let (admin_token, _) = get_super_admin_token(&app).await;
 
     let as_id = format!("test_as_query_{}", rand::random::<u32>());
     let as_token = format!("test_as_query_token_{}", rand::random::<u32>());
@@ -751,7 +751,7 @@ async fn test_appservice_login_impersonates_exclusive_namespace_user() {
     let Some(app) = setup_fresh_test_app().await else {
         return;
     };
-    let (admin_token, _) = get_admin_token(&app).await;
+    let (admin_token, _) = get_super_admin_token(&app).await;
 
     let suffix = rand::random::<u32>();
     let username = format!("aslogin{suffix}");
@@ -891,7 +891,7 @@ async fn test_appservice_device_management_skips_uia_msc4190() {
     let Some(app) = setup_fresh_test_app().await else {
         return;
     };
-    let (admin_token, _) = get_admin_token(&app).await;
+    let (admin_token, _) = get_super_admin_token(&app).await;
 
     let suffix = rand::random::<u32>();
     let username = format!("asdev{suffix}");
@@ -1069,7 +1069,7 @@ async fn test_appservice_pusher_management_via_login() {
     let Some(app) = setup_fresh_test_app().await else {
         return;
     };
-    let (admin_token, _) = get_admin_token(&app).await;
+    let (admin_token, _) = get_super_admin_token(&app).await;
 
     let suffix = rand::random::<u32>();
     let username = format!("aspush{suffix}");
@@ -1224,7 +1224,7 @@ async fn test_appservice_pusher_management_via_login() {
 
 /// 注册一个带 `users` 命名空间的 AS，返回 `(as_token, 命名空间前缀)`。
 async fn register_appservice_with_user_namespace(app: &axum::Router) -> (String, String) {
-    let (admin_token, _) = get_admin_token(app).await;
+    let (admin_token, _) = get_super_admin_token(app).await;
     let suffix = rand::random::<u32>();
     let as_token = format!("as_token_register_{suffix}");
     let namespace_pattern = format!("@asbot_{suffix}.*:localhost");

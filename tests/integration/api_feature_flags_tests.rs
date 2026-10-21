@@ -15,7 +15,7 @@ async fn test_feature_flag_create_get_list_and_update() {
     let Some(app) = setup_test_app().await else {
         return;
     };
-    let (admin_token, _) = super::get_admin_token(&app).await;
+    let (admin_token, _) = super::get_super_admin_token(&app).await;
     let flag_key = format!("room.summary.realtime_sync.{}", rand::random::<u32>());
 
     let request = Request::builder()
