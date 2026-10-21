@@ -20,7 +20,11 @@ use synapse_services::room::summary::{
 };
 
 /// The `QueryLimit` struct.
+///
+/// Internal admin-triggered update process: no external client talks to this
+/// endpoint, so an unexpected query parameter is rejected rather than ignored.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct QueryLimit {
     /// The `limit` field.
     pub limit: Option<i64>,

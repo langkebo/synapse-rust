@@ -144,7 +144,11 @@ pub struct FailTaskBody {
 }
 
 /// The `QueryLimit` struct.
+///
+/// Internal worker protocol: the only callers are this project's own workers,
+/// so an unexpected query parameter is a caller bug and is rejected.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct QueryLimit {
     /// The `limit` field.
     pub limit: Option<i64>,
@@ -152,6 +156,7 @@ pub struct QueryLimit {
 
 /// The `QueryStream` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct QueryStream {
     /// The `stream_id` field.
     pub stream_id: Option<i64>,
@@ -159,6 +164,7 @@ pub struct QueryStream {
 
 /// The `QueryPosition` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct QueryPosition {
     /// The `stream_name` field.
     pub stream_name: String,

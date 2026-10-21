@@ -1695,6 +1695,88 @@ def mutation_check() -> int:
     return bad
 
 
+def check_struct_container_attrs() -> None:
+    """`pub struct` must keep its container-level `#[serde(...)]` attributes.
+
+    `_attrs_before` walks backwards from the `struct` keyword, so a visibility
+    qualifier sits *between* the attributes and `pos`. The original scan
+    stopped there and returned `[]`, which made:
+      * `parse_struct_deny_unknown` report `False` for every `pub struct` — so
+        the sidecar's `query_unknown` was `ignore` for 203 routes regardless of
+        the real attribute (`reject` never appeared at all), and
+      * `parse_struct_fields` drop `rename_all`, publishing snake_case wire
+        names for structs that actually accept camelCase.
+    Both are measurement errors, so this lock is synthetic: the in-tree corpus
+    cannot prove the negative half (a `pub` struct without deny must stay
+    `False`).
+    """
+    deny_cases = {
+        "pub struct": (
+            "#[derive(Deserialize)]\n#[serde(deny_unknown_fields)]\n"
+            "pub struct A { pub x: u8 }\n",
+            True,
+        ),
+        "private struct": (
+            "#[derive(Deserialize)]\n#[serde(deny_unknown_fields)]\n"
+            "struct B { x: u8 }\n",
+            True,
+        ),
+        "pub(crate) struct": (
+            "#[derive(Deserialize)]\n#[serde(deny_unknown_fields)]\n"
+            "pub(crate) struct C { x: u8 }\n",
+            True,
+        ),
+        "pub(in path) struct": (
+            "#[serde(deny_unknown_fields)]\npub(in crate::routes) struct D { x: u8 }\n",
+            True,
+        ),
+        "pub struct without deny": (
+            "#[derive(Deserialize)]\npub struct E { x: u8 }\n",
+            False,
+        ),
+        "deny on a field only": (
+            "pub struct F {\n    #[serde(deny_unknown_fields)]\n    pub x: u8,\n}\n",
+            False,
+        ),
+    }
+    for label, (src, want) in deny_cases.items():
+        got = ex.parse_struct_deny_unknown(src)
+        got = next(iter(got.values())) if got else None
+        check(
+            f"container deny_unknown_fields on a {label}", got is want, f"got {got!r}"
+        )
+
+    fields = ex.parse_struct_fields(
+        '#[serde(rename_all = "camelCase")]\npub struct H { pub some_field: u8 }\n'
+    )
+    check(
+        "container rename_all survives on a pub struct",
+        fields.get("H") == ["someField"],
+        f"got {fields.get('H')!r}",
+    )
+
+    # End to end: the flag must reach `query_unknown`, i.e. the reporting
+    # surface the sidecar publishes.
+    src = """
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProbeQuery {
+    pub from: Option<String>,
+}
+
+pub async fn probe(Query(_q): Query<ProbeQuery>) -> &'static str {
+    "probe"
+}
+"""
+    probe = ex.Resolver({"probe_attrs.rs": src})
+    probe.handlers[("GET", "/_synthetic/attrs")] = {("probe_attrs.rs", "probe")}
+    check(
+        "a pub Query struct with deny reports query_unknown=reject",
+        probe.handler_query_unknown("GET", "/_synthetic/attrs") == "reject",
+        f"got {probe.handler_query_unknown('GET', '/_synthetic/attrs')!r}",
+    )
+
+
 def main() -> int:
     mutation = "--mutation-check" in sys.argv
 
@@ -1717,6 +1799,8 @@ def main() -> int:
     check_literal_query_evidence(res)
     print("== RawQuery is an opaque query (D-7) ==")
     check_raw_query_is_opaque()
+    print("== container attrs on pub structs ==")
+    check_struct_container_attrs()
     print("== non-namespace surface ==")
     check_non_namespace_bucket(per)
     print("== standard-prefix private surface (ISSUE-13) ==")

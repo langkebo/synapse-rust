@@ -1755,15 +1755,71 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 对每条路由发布 `reject` / `ignore` / `null`，由解析器读 `Query<..>` 结构体是否带 `#[serde(deny_unknown_fields)]` 得出：
 
-| 取值 | 含义 | 实测 |
-|---|---|---|
-| `reject` | 未知名字 → **400**（结构体开了 `deny_unknown_fields`） | **0** |
-| `ignore` | 未知名字被 serde 静默丢弃 → **200，结果不变** | **201** |
-| `null` | 无可判定对象：无 `Query` 提取器，或 handler 无法静态定位 | 847 |
+| 取值 | 含义 |
+|---|---|
+| `reject` | 未知名字 → **400**（结构体开了 `deny_unknown_fields`） |
+| `ignore` | 未知名字被 serde 静默丢弃 → **200，结果不变** |
+| `null` | 无可判定对象：无 `Query` 提取器，或 handler 无法静态定位 |
 
-- `reject = 0` 是这轮最值得记下的结论：**整个路由树里没有任何一个 `Query<T>` 开了 `deny_unknown_fields`**（树内共 7 个结构体开了该属性，全是 body，不是 query）。也就是说，此前所有 typed query 路由对拼错的参数名都是「200 + 无变化」，这正是 `query-param-ignored` 缺陷桶的机制。
+> 各桶条数**不在本文手抄**。唯一出处是
+> `python3 scripts/contract/check_query_unknown_decisions.py` 的输出（它同时校验
+> `scripts/contract/query_unknown_decisions.txt` 与 sidecar 双向一致）。任何写进
+> 散文的数字都会在下一轮改动后变成第二个口径。
+
 - 语义边界：`literal` / `opaque`（动态提取器）恒为 `ignore`——handler 自己挑键，serde 不参与拒绝。
-- **本字段只报告，不改行为**：给 113 个 Query 结构体统一加 `deny_unknown_fields` 会让任何多传参数的既有客户端从 200 变 400，属破坏性变更，未在本次执行（裁决见 §A.11.3）。
+- **本字段只报告推导结果，裁决另存一处**：给 113 个 Query 结构体统一加
+  `deny_unknown_fields` 会让任何多传参数的既有客户端从 200 变 400，属破坏性变更
+  （裁决见 §A.11.3）。因此「应该是 reject 还是 ignore」不写在本文，而是逐条写进
+  `scripts/contract/query_unknown_decisions.txt`（每个 typed 路由一行：裁决 + 理由类 +
+  结构体 + 备注），由 `check_query_unknown_decisions.py` 强制与 sidecar 一致并接入
+  `check_route_contract.sh`。
+
+#### 1a. 2026-10-21 更正：旧版「`reject = 0`」是度量缺陷，不是代码现状
+
+P2-7 首次发布 `query_unknown` 时给出 `reject = 0 / ignore = 201 / null = 847`，并据此写下
+「整个路由树里没有任何一个 `Query<T>` 开了 `deny_unknown_fields`」。**该结论是错的。**
+
+根因在 `scripts/contract/extract_registered.py` 的 `_attrs_before()`：它从 `struct`
+关键字**往前**逐 token 扫属性，遇到 `pub` 就判定「前面没有属性」并返回空表。于是
+**所有 `pub struct` 的容器级 `#[serde(..)]` 全部丢失**——`parse_struct_deny_unknown`
+恒为 `False`、`rename_all` 一并丢失。修法是让 `_attrs_before` 跳过可见性修饰
+（`pub` / `pub(crate)` / `pub(super)` / `pub(in path)`）后继续扫，并在
+`scripts/contract/test_extract_registered.py` 加 `check_struct_container_attrs()`
+（6 个 deny 夹具 + `rename_all` 夹具 + 一条端到端 `handler_query_unknown == "reject"`）。
+
+修复后重生成 sidecar：**路由集不变、`query_params` 零漂移、`body_type` 零漂移**，
+203 条 typed 路由里有一批自动从 `ignore` 变成 `reject`——它们本来就是 `reject`，
+只是度量看不见。所以「本轮新增了 reject 桶」的说法也不准确：**桶一直在，是尺子坏了**。
+
+#### 1b. 逐条裁决的结果：只收紧项目私有的内部端点
+
+`scripts/contract/query_unknown_decisions.txt` 给每条 typed 路由定了一个裁决与理由类。
+理由类分两族：
+
+| 裁决 | 理由类 | 适用面 |
+|---|---|---|
+| `reject` | `already-deny` | 早于本轮就带 `deny_unknown_fields` 的 struct |
+| `reject` | `internal-strict` | 项目私有端点（worker 协议 / 内部 admin 触发器），无外部客户端 |
+| `ignore` | `matrix-cs-ignore` | C-S 协议：规范要求忽略未知 query |
+| `ignore` | `vendor-open` | `_matrix/vendor` 扩展，已部署客户端要能跨服务端版本存活 |
+| `ignore` | `federation-forward-compat` | S2S：对端版本未知 |
+| `ignore` | `upstream-admin-parity` | 对齐上游 Synapse admin，上游本就在忽略 |
+| `ignore` | `external-idp` | CAS 重定向参数由外部 IdP 决定 |
+| `ignore` | `shared-struct` | 结构体与 client 面路由共用，收紧会改 client API |
+| `ignore` | `manual-deserialize` | 手写 `Deserialize`，serde 属性是死代码且会让 sidecar 说谎 |
+| `ignore` | `compat-alias` | 有明确 back-compat 别名，代码注释已声明保持开放 |
+
+本轮唯一从 `ignore` 转成 `reject` 的是 `internal-strict` 这一类：
+
+| 结构体 | 路由 | 依据 |
+|---|---|---|
+| `worker::QueryLimit` | `GET /_synapse/worker/v1/statistics`、`/tasks`、`/workers/{worker_id}/commands` | 项目自有 worker 协议；仓内调用方（`src/worker/heartbeat.rs`、`examples/worker_demo.rs`）不带额外参数 |
+| `worker::QueryStream` | `GET /_synapse/worker/v1/events` | 同上 |
+| `worker::QueryPosition` | `GET /_synapse/worker/v1/replication/{worker_id}/position` | 同上 |
+| `room_summary::QueryLimit` | `POST /_synapse/room_summary/v1/updates/process` | 全仓无 Rust/REST 调用方，仅 `AdminUser` 触发的内部作业 |
+
+其余保持 `ignore`，理由逐条写在登记表的最后一列。**没有一刀切**：`shared-struct`
+与 `manual-deserialize` 两类是「想拒也不能拒」，`compat-alias` 是「代码已明确决定不拒」。
 
 #### 2. `query_ignored`：把「接受但忽略」从散文变成可校验登记
 

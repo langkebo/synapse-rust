@@ -1,0 +1,252 @@
+# Query-unknown policy registry
+#
+# Purpose
+#   Single source of truth for the sidecar field `query_unknown` in
+#   docs/synapse-rust/ROUTE_HANDLERS.json. Every route whose handler extracts a
+#   typed `Query<..>` must carry exactly one line here, so the decision is
+#   reviewed once instead of being re-derived from whatever serde attributes
+#   happen to exist today.
+#
+#   Enforced by scripts/contract/check_query_unknown_decisions.py:
+#     - coverage      every typed route in the sidecar has exactly one line
+#     - consistency   decision "reject" <=> sidecar query_unknown == "reject"
+#     - staleness     a line whose route is gone or no longer typed is RED
+#     - vocabulary    reason must come from the closed set documented below
+#
+# Columns (tab separated)
+#   method  path  decision  reason  struct  note
+#
+# Decisions
+#   reject   unknown query parameter -> 400 (axum/serde rejection)
+#   ignore   unknown query parameter -> silently dropped, request proceeds
+#
+# Reason vocabulary
+#   already-deny            struct already carried #[serde(deny_unknown_fields)]
+#                           before this registry existed
+#   internal-strict         project-private endpoint (worker / internal admin
+#                           trigger); no external client, so extra params are a
+#                           caller bug and are rejected
+#   matrix-cs-ignore        Matrix client-server API: the spec requires unknown
+#                           query parameters to be ignored
+#   vendor-open             _matrix/vendor extension: kept open so already
+#                           deployed clients survive a server-side rollout
+#   federation-forward-compat  server-server API: older/newer peers must be able
+#                           to send parameters this build does not know
+#   upstream-admin-parity   _synapse/admin endpoint mirroring upstream Synapse,
+#                           which ignores unknown parameters
+#   external-idp            parameter set dictated by an external CAS identity
+#                           provider's redirect, not by us
+#   shared-struct           struct is also used by a client-facing route, so it
+#                           cannot be tightened without changing the client API
+#   manual-deserialize      struct has a hand-written Deserialize impl; a serde
+#                           attribute would be dead code and make the sidecar lie
+#   compat-alias            struct deliberately stays open because of a
+#                           documented back-compatibility alias
+#
+# Regenerate the skeleton after an intentional policy change:
+#   python3 scripts/contract/check_query_unknown_decisions.py --print
+# then edit the affected lines by hand. Do not copy numbers into prose.
+
+POST	/_matrix/client/unstable/org.matrix.msc3575/sync	ignore	matrix-cs-ignore	SlidingSyncQuery
+GET	/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events	ignore	matrix-cs-ignore	DehydratedDeviceEventsQuery
+PUT	/_matrix/client/unstable/org.matrix.msc4140/rooms/{room_id}/delayed_event/{event_type}/{txn_id}	ignore	matrix-cs-ignore	RoomWriteQuery
+GET	/_matrix/client/unstable/org.matrix.msc4354/rooms/{room_id}/sticky_events	reject	already-deny	StickyEventQuery
+POST	/_matrix/client/unstable/org.matrix.simplified_msc3575/sync	ignore	matrix-cs-ignore	SlidingSyncQuery
+GET	/_matrix/client/unstable/uk.half-shot.msc2666/user/mutual_rooms	ignore	shared-struct	MutualRoomsQuery
+GET	/_matrix/client/v1/keys/changes	ignore	matrix-cs-ignore	KeyChangesParams
+GET	/_matrix/client/v1/media/preview_url	ignore	matrix-cs-ignore	PreviewUrlParams
+GET	/_matrix/client/v1/media/thumbnail/{server_name}/{media_id}	ignore	matrix-cs-ignore	ThumbnailQuery
+DELETE	/_matrix/client/v1/room_keys/keys	ignore	matrix-cs-ignore	VersionQuery
+GET	/_matrix/client/v1/room_keys/keys	ignore	matrix-cs-ignore	VersionQuery
+PUT	/_matrix/client/v1/room_keys/keys	ignore	matrix-cs-ignore	VersionQuery
+DELETE	/_matrix/client/v1/room_keys/keys/{room_id}	ignore	matrix-cs-ignore	VersionQuery
+GET	/_matrix/client/v1/room_keys/keys/{room_id}	ignore	matrix-cs-ignore	VersionQuery
+PUT	/_matrix/client/v1/room_keys/keys/{room_id}	ignore	matrix-cs-ignore	VersionQuery
+DELETE	/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}	ignore	matrix-cs-ignore	VersionQuery
+GET	/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}	ignore	matrix-cs-ignore	VersionQuery
+PUT	/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}	ignore	matrix-cs-ignore	VersionQuery
+GET	/_matrix/client/v1/room_keys/request	ignore	matrix-cs-ignore	GetRoomKeyRequestsQuery
+GET	/_matrix/client/v1/rooms/{room_id}/aggregations/{event_id}/{rel_type}	ignore	matrix-cs-ignore	AggregationsQuery
+GET	/_matrix/client/v1/rooms/{room_id}/context/{event_id}	ignore	matrix-cs-ignore	EventContextQuery
+GET	/_matrix/client/v1/rooms/{room_id}/hierarchy	ignore	matrix-cs-ignore	RoomHierarchyQuery
+GET	/_matrix/client/v1/rooms/{room_id}/relations/{event_id}	ignore	matrix-cs-ignore	RelationsQuery
+GET	/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}	ignore	matrix-cs-ignore	RelationsQuery
+GET	/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}	ignore	matrix-cs-ignore	RelationsQuery
+PUT	/_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/	ignore	matrix-cs-ignore	RoomWriteQuery
+GET	/_matrix/client/v1/rooms/{room_id}/threads	ignore	shared-struct	ListQuery	ListQuery also serves /_matrix/vendor/v1/threads
+GET	/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}	ignore	matrix-cs-ignore	ThreadQuery
+GET	/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies	ignore	matrix-cs-ignore	RepliesQuery
+GET	/_matrix/client/v1/rooms/{room_id}/timestamp_to_event	ignore	matrix-cs-ignore	TimestampToEventQuery
+GET	/_matrix/client/v1/spaces/{space_id}/hierarchy	reject	already-deny	HierarchyQuery
+GET	/_matrix/client/v1/spaces/{space_id}/hierarchy/v1	ignore	matrix-cs-ignore	HierarchyV1Query
+POST	/_matrix/client/v1/sync	ignore	matrix-cs-ignore	SlidingSyncQuery
+GET	/_matrix/client/v3/appservice/alias	ignore	shared-struct	QueryAlias
+GET	/_matrix/client/v3/appservice/user	ignore	shared-struct	QueryUser
+GET	/_matrix/client/v3/capabilities	reject	already-deny	EmptyQuery
+GET	/_matrix/client/v3/events	ignore	matrix-cs-ignore	EventsParams
+POST	/_matrix/client/v3/join/{room_id_or_alias}	ignore	matrix-cs-ignore	ViaQuery
+GET	/_matrix/client/v3/keys/changes	ignore	matrix-cs-ignore	KeyChangesParams
+GET	/_matrix/client/v3/keys/history	ignore	matrix-cs-ignore	AuditPaginationQuery
+POST	/_matrix/client/v3/knock/{room_id_or_alias}	ignore	matrix-cs-ignore	ViaQuery
+GET	/_matrix/client/v3/login/saml/callback	reject	already-deny	SamlCallbackQuery
+GET	/_matrix/client/v3/login/sso/redirect	ignore	matrix-cs-ignore	SsoRedirectQuery
+GET	/_matrix/client/v3/login/sso/redirect/cas	ignore	matrix-cs-ignore	SsoRedirectQuery
+GET	/_matrix/client/v3/login/sso/redirect/saml	reject	already-deny	SamlLoginQuery
+GET	/_matrix/client/v3/logout/saml/callback	reject	already-deny	SamlCallbackQuery
+GET	/_matrix/client/v3/notifications	ignore	matrix-cs-ignore	NotificationsQuery
+GET	/_matrix/client/v3/oidc/authorize	ignore	matrix-cs-ignore	OidcAuthorizeRequest
+GET	/_matrix/client/v3/oidc/callback	ignore	matrix-cs-ignore	OidcCallbackRequest
+GET	/_matrix/client/v3/publicRooms	ignore	matrix-cs-ignore	PublicRoomsQuery
+POST	/_matrix/client/v3/publicRooms	ignore	matrix-cs-ignore	PublicRoomsQuery
+POST	/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}	ignore	matrix-cs-ignore	PushRuleOrderQuery
+PUT	/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}	ignore	matrix-cs-ignore	PushRuleOrderQuery
+POST	/_matrix/client/v3/register	ignore	matrix-cs-ignore	RegisterQuery
+GET	/_matrix/client/v3/register/available	ignore	matrix-cs-ignore	RegisterAvailableParams
+GET	/_matrix/client/v3/register/captcha/status	reject	already-deny	CaptchaIdQuery
+DELETE	/_matrix/client/v3/room_keys/keys	ignore	matrix-cs-ignore	VersionQuery
+GET	/_matrix/client/v3/room_keys/keys	ignore	matrix-cs-ignore	VersionQuery
+PUT	/_matrix/client/v3/room_keys/keys	ignore	matrix-cs-ignore	VersionQuery
+DELETE	/_matrix/client/v3/room_keys/keys/{room_id}	ignore	matrix-cs-ignore	VersionQuery
+GET	/_matrix/client/v3/room_keys/keys/{room_id}	ignore	matrix-cs-ignore	VersionQuery
+PUT	/_matrix/client/v3/room_keys/keys/{room_id}	ignore	matrix-cs-ignore	VersionQuery
+DELETE	/_matrix/client/v3/room_keys/keys/{room_id}/{session_id}	ignore	matrix-cs-ignore	VersionQuery
+GET	/_matrix/client/v3/room_keys/keys/{room_id}/{session_id}	ignore	matrix-cs-ignore	VersionQuery
+PUT	/_matrix/client/v3/room_keys/keys/{room_id}/{session_id}	ignore	matrix-cs-ignore	VersionQuery
+GET	/_matrix/client/v3/room_keys/request	ignore	matrix-cs-ignore	GetRoomKeyRequestsQuery
+GET	/_matrix/client/v3/rooms/{room_id}/aggregations/{event_id}/{rel_type}	ignore	matrix-cs-ignore	AggregationsQuery
+GET	/_matrix/client/v3/rooms/{room_id}/context/{event_id}	ignore	matrix-cs-ignore	EventContextQuery
+GET	/_matrix/client/v3/rooms/{room_id}/ephemeral	reject	already-deny	EphemeralParams
+GET	/_matrix/client/v3/rooms/{room_id}/hierarchy	ignore	matrix-cs-ignore	RoomHierarchyV3Query
+GET	/_matrix/client/v3/rooms/{room_id}/initialSync	ignore	compat-alias	RoomInitialSyncQueryDto	code comment: deliberately not deny_unknown_fields
+GET	/_matrix/client/v3/rooms/{room_id}/members	ignore	matrix-cs-ignore	RoomMembersQuery
+GET	/_matrix/client/v3/rooms/{room_id}/messages	ignore	matrix-cs-ignore	RoomMessagesQuery
+GET	/_matrix/client/v3/rooms/{room_id}/relations/{event_id}	ignore	matrix-cs-ignore	RelationsQuery
+GET	/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}	ignore	matrix-cs-ignore	RelationsQuery
+GET	/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}	ignore	matrix-cs-ignore	RelationsQuery
+POST	/_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}	ignore	matrix-cs-ignore	RoomWriteQuery
+PUT	/_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}	ignore	matrix-cs-ignore	RoomWriteQuery
+GET	/_matrix/client/v3/rooms/{room_id}/state	ignore	matrix-cs-ignore	GetRoomStateQuery
+PUT	/_matrix/client/v3/rooms/{room_id}/state/m.room.power_levels/	ignore	matrix-cs-ignore	RoomWriteQuery
+POST	/_matrix/client/v3/rooms/{room_id}/state/{event_type}	ignore	matrix-cs-ignore	RoomWriteQuery
+PUT	/_matrix/client/v3/rooms/{room_id}/state/{event_type}	ignore	matrix-cs-ignore	RoomWriteQuery
+PUT	/_matrix/client/v3/rooms/{room_id}/state/{event_type}/	ignore	matrix-cs-ignore	RoomWriteQuery
+PUT	/_matrix/client/v3/rooms/{room_id}/state/{event_type}/{state_key}	ignore	matrix-cs-ignore	RoomWriteQuery
+POST	/_matrix/client/v3/search	ignore	matrix-cs-ignore	SearchQuery
+GET	/_matrix/client/v3/spaces/{space_id}/hierarchy	reject	already-deny	HierarchyQuery
+GET	/_matrix/client/v3/spaces/{space_id}/hierarchy/v1	ignore	matrix-cs-ignore	HierarchyV1Query
+GET	/_matrix/client/v3/sync	ignore	matrix-cs-ignore	SyncQuery
+GET	/_matrix/client/v3/thirdparty/location	reject	already-deny	LocationQuery
+GET	/_matrix/client/v3/thirdparty/location/{protocol}	reject	already-deny	LocationQuery
+GET	/_matrix/client/v3/thirdparty/user	reject	already-deny	UserQuery
+GET	/_matrix/client/v3/thirdparty/user/{protocol}	reject	already-deny	UserQuery
+POST	/_matrix/client/v4/sync	ignore	matrix-cs-ignore	SlidingSyncQuery
+GET	/_matrix/federation/v1/backfill/{room_id}	ignore	federation-forward-compat	BackfillQuery
+GET	/_matrix/federation/v1/hierarchy/{room_id}	ignore	federation-forward-compat	FederationHierarchyQueryParams
+GET	/_matrix/federation/v1/media/thumbnail/{server_name}/{media_id}	ignore	federation-forward-compat	FederationThumbnailQuery
+GET	/_matrix/federation/v1/openid/userinfo	ignore	federation-forward-compat	OpenIdUserinfoQuery
+GET	/_matrix/federation/v1/publicRooms	ignore	federation-forward-compat	PublicRoomsQuery
+GET	/_matrix/federation/v1/query/destination	ignore	federation-forward-compat	QueryDestinationQuery
+GET	/_matrix/federation/v1/query/directory	ignore	federation-forward-compat	DirectoryQueryParams
+GET	/_matrix/federation/v1/query/profile	ignore	federation-forward-compat	FederationProfileQueryParams
+GET	/_matrix/federation/v1/query/profile/{user_id}	ignore	federation-forward-compat	FederationProfileFieldQuery
+GET	/_matrix/federation/v1/state/{room_id}	ignore	federation-forward-compat	FederationStateAtEventQuery
+GET	/_matrix/federation/v1/state_ids/{room_id}	ignore	federation-forward-compat	FederationStateAtEventQuery
+GET	/_matrix/federation/v1/timestamp_to_event/{room_id}	ignore	federation-forward-compat	TimestampToEventQuery
+GET	/_matrix/media/r0/preview_url	ignore	matrix-cs-ignore	PreviewUrlParams
+POST	/_matrix/media/r0/upload	ignore	matrix-cs-ignore	UploadQuery
+GET	/_matrix/media/v1/preview_url	ignore	matrix-cs-ignore	PreviewUrlParams
+POST	/_matrix/media/v1/upload	ignore	matrix-cs-ignore	UploadQuery
+POST	/_matrix/media/v1/upload/chunk	ignore	matrix-cs-ignore	ChunkUploadQuery
+GET	/_matrix/media/v1/upload/chunk/progress	ignore	matrix-cs-ignore	ChunkProgressQuery
+GET	/_matrix/media/v3/download_signed/{server_name}/{media_id}	ignore	matrix-cs-ignore	SignedMediaQuery
+GET	/_matrix/media/v3/download_signed/{server_name}/{media_id}/{filename}	ignore	matrix-cs-ignore	SignedMediaQuery
+GET	/_matrix/media/v3/preview_url	ignore	matrix-cs-ignore	PreviewUrlParams
+GET	/_matrix/media/v3/thumbnail/{server_name}/{media_id}	ignore	matrix-cs-ignore	ThumbnailQuery
+POST	/_matrix/media/v3/upload	ignore	matrix-cs-ignore	UploadQuery
+PUT	/_matrix/media/v3/upload/{server_name}/{media_id}	ignore	matrix-cs-ignore	UploadQuery
+GET	/_matrix/vendor/v1/friends	reject	already-deny	FriendListQueryParams
+GET	/_matrix/vendor/v1/friends/search	reject	already-deny	FriendSearchQuery
+POST	/_matrix/vendor/v1/friends/search	reject	already-deny	FriendSearchQuery
+GET	/_matrix/vendor/v1/friends/suggestions	reject	already-deny	FriendSuggestionsQuery
+GET	/_matrix/vendor/v1/keys/rotation/check	ignore	compat-alias	KeyRotationCheckParams	code comment: deliberately not deny_unknown_fields
+POST	/_matrix/vendor/v1/keys/rotation/check	ignore	compat-alias	KeyRotationCheckParams	code comment: deliberately not deny_unknown_fields
+GET	/_matrix/vendor/v1/keys/rotation/history/{device_id}	reject	already-deny	RotationHistoryQuery
+GET	/_matrix/vendor/v1/rooms/{room_id}/encrypted_events	ignore	vendor-open	EncryptedEventsQuery
+GET	/_matrix/vendor/v1/rooms/{room_id}/event_perspective	ignore	vendor-open	EventPerspectiveQuery
+GET	/_matrix/vendor/v1/rooms/{room_id}/members/recent	ignore	vendor-open	RoomMembersRecentQuery
+GET	/_matrix/vendor/v1/rooms/{room_id}/message_queue	reject	already-deny	MessageQueueQuery
+GET	/_matrix/vendor/v1/rooms/{room_id}/notifications	ignore	manual-deserialize	RoomNotificationsQuery	hand-written Deserialize impl; a serde attribute would not apply
+GET	/_matrix/vendor/v1/rooms/{room_id}/sync	ignore	compat-alias	RoomSyncQueryDto	RoomSyncQueryDto keeps the timeout_ms back-compat alias
+GET	/_matrix/vendor/v1/rooms/{room_id}/threads/search	ignore	vendor-open	SearchQuery
+GET	/_matrix/vendor/v1/rooms/{room_id}/timeline	ignore	vendor-open	RoomTimelineQuery
+GET	/_matrix/vendor/v1/spaces/public	reject	already-deny	PaginationQuery
+GET	/_matrix/vendor/v1/spaces/search	reject	already-deny	SearchQuery
+GET	/_matrix/vendor/v1/spaces/statistics	reject	already-deny	StatisticsQuery
+GET	/_matrix/vendor/v1/spaces/{space_id}/members	reject	already-deny	PaginationQuery
+GET	/_matrix/vendor/v1/spaces/{space_id}/rooms	reject	already-deny	PaginationQuery
+GET	/_matrix/vendor/v1/threads	ignore	shared-struct	ListQuery	ListQuery shared with /_matrix/client/v1/rooms/{room_id}/threads
+GET	/_matrix/vendor/v1/threads/subscribed	ignore	vendor-open	ThreadPageQuery
+GET	/_matrix/vendor/v1/user/mutual_rooms	ignore	shared-struct	MutualRoomsQuery	MutualRoomsQuery shared with /_matrix/client/unstable/uk.half-shot.msc2666/user/mutual_rooms
+GET	/_matrix/vendor/v1/user/{user_id}/rooms/{room_id}/threads	ignore	shared-struct	ListQuery	ListQuery shared with /_matrix/client/v1/rooms/{room_id}/threads
+GET	/_matrix/vendor/v1/voice/room/{room_id}	reject	already-deny	VoiceListQuery
+GET	/_matrix/vendor/v1/voice/user/{user_id}	reject	already-deny	VoiceListQuery
+GET	/_synapse/admin/v1/appservices/query/alias	ignore	shared-struct	QueryAlias	QueryAlias shared with /_matrix/client/v3/appservice/user
+GET	/_synapse/admin/v1/appservices/query/user	ignore	shared-struct	QueryUser	QueryUser shared with /_matrix/client/v3/appservice/user
+GET	/_synapse/admin/v1/appservices/{as_id}/events	ignore	upstream-admin-parity	QueryLimit
+GET	/_synapse/admin/v1/audit/events	reject	already-deny	AuditEventQueryParams
+GET	/_synapse/admin/v1/background_updates	reject	already-deny	QueryParams
+GET	/_synapse/admin/v1/background_updates/stats	reject	already-deny	QueryParams
+GET	/_synapse/admin/v1/background_updates/{job_name}/history	reject	already-deny	QueryParams
+GET	/_synapse/admin/v1/event_reports	reject	already-deny	QueryParams
+GET	/_synapse/admin/v1/event_reports/reporter/{reporter_user_id}	reject	already-deny	QueryParams
+GET	/_synapse/admin/v1/event_reports/room/{room_id}	reject	already-deny	QueryParams
+GET	/_synapse/admin/v1/event_reports/status/{status}	reject	already-deny	QueryParams
+GET	/_synapse/admin/v1/external_services	reject	already-deny	ListServicesQuery
+GET	/_synapse/admin/v1/feature-flags	reject	already-deny	FeatureFlagListQuery
+GET	/_synapse/admin/v1/federation/blacklist	reject	already-deny	BlacklistQuery
+GET	/_synapse/admin/v1/federation/destinations	reject	already-deny	DestinationsQuery
+GET	/_synapse/admin/v1/federation/destinations/{destination}/rooms	reject	already-deny	DestinationRoomsQuery
+GET	/_synapse/admin/v1/federation/pending	reject	already-deny	ListPendingQuery
+GET	/_synapse/admin/v1/invite/allowlist	ignore	upstream-admin-parity	InviteListParams
+GET	/_synapse/admin/v1/invite/blocklist	ignore	upstream-admin-parity	InviteListParams
+GET	/_synapse/admin/v1/media	ignore	upstream-admin-parity	MediaPageQuery
+GET	/_synapse/admin/v1/media/quarantine_changes	ignore	upstream-admin-parity	GlobalMediaQuarantineChangesQuery
+GET	/_synapse/admin/v1/modules	reject	already-deny	ListQuery
+GET	/_synapse/admin/v1/modules/logs/{module_name}	reject	already-deny	ListQuery
+GET	/_synapse/admin/v1/modules/spam_check/sender/{sender}	reject	already-deny	ListQuery
+GET	/_synapse/admin/v1/notifications	reject	already-deny	NotificationQuery
+POST	/_synapse/admin/v1/purge_media_cache	ignore	upstream-admin-parity	PurgeMediaCacheQuery
+POST	/_synapse/admin/v1/push/cleanup	reject	already-deny	CleanupQuery
+POST	/_synapse/admin/v1/push/process	reject	already-deny	ProcessQueueQuery
+GET	/_synapse/admin/v1/quarantine_media/{media_id}/changes	ignore	upstream-admin-parity	MediaQuarantineChangesQuery
+GET	/_synapse/admin/v1/registration_tokens	reject	already-deny	RegistrationTokenListQuery
+GET	/_synapse/admin/v1/reports	ignore	upstream-admin-parity	ReportsQuery
+GET	/_synapse/admin/v1/rooms	ignore	upstream-admin-parity	RoomsQuery
+GET	/_synapse/admin/v1/rooms/search	reject	already-deny	SearchAllRoomsRequest
+GET	/_synapse/admin/v1/rooms/{room_id}/media	ignore	upstream-admin-parity	MediaPageQuery
+GET	/_synapse/admin/v1/rooms/{room_id}/members	ignore	upstream-admin-parity	RoomMembersQuery
+GET	/_synapse/admin/v1/rooms/{room_id}/messages	ignore	upstream-admin-parity	RoomMessagesQuery
+GET	/_synapse/admin/v1/rooms/{room_id}/reports	ignore	upstream-admin-parity	RoomReportsQuery
+GET	/_synapse/admin/v1/rooms/{room_id}/token_sync	reject	already-deny	RoomTokenSyncQueryParams
+GET	/_synapse/admin/v1/saml/mappings	reject	already-deny	SamlMappingListQuery
+GET	/_synapse/admin/v1/server_notices	reject	already-deny	ServerNoticesQuery
+GET	/_synapse/admin/v1/spaces	reject	already-deny	SpaceListQuery
+GET	/_synapse/admin/v1/spaces/{space_id}/rooms	reject	already-deny	SpaceListQuery
+GET	/_synapse/admin/v1/spaces/{space_id}/users	reject	already-deny	SpaceListQuery
+GET	/_synapse/admin/v1/telemetry/alerts	reject	already-deny	TelemetryAlertQuery
+GET	/_synapse/admin/v1/users	ignore	upstream-admin-parity	AdminUsersQuery
+GET	/_synapse/admin/v1/users/{user_id}/media	ignore	upstream-admin-parity	MediaPageQuery
+GET	/_synapse/admin/v1/users/{user_id}/rooms	ignore	upstream-admin-parity	UserRoomsQuery
+GET	/_synapse/admin/v2/users	ignore	upstream-admin-parity	AdminUsersV2Query
+GET	/_synapse/cas/login	ignore	external-idp	ServiceTicketQuery
+GET	/_synapse/cas/logout	ignore	external-idp	LogoutQuery
+GET	/_synapse/cas/p3/serviceValidate	ignore	external-idp	P3ServiceValidateQuery
+GET	/_synapse/cas/proxy	ignore	external-idp	ProxyQuery
+GET	/_synapse/cas/proxyValidate	ignore	external-idp	ProxyValidateQuery
+GET	/_synapse/cas/serviceValidate	ignore	external-idp	ValidateQuery
+POST	/_synapse/room_summary/v1/updates/process	reject	internal-strict	QueryLimit	project-private AdminUser endpoint, no in-repo caller sends extra params
+GET	/_synapse/worker/v1/events	reject	internal-strict	QueryStream	project-private AdminUser endpoint, in-repo callers send no extra params
+GET	/_synapse/worker/v1/replication/{worker_id}/position	reject	internal-strict	QueryPosition	project-private AdminUser endpoint, in-repo callers send no extra params
+GET	/_synapse/worker/v1/statistics	reject	internal-strict	QueryLimit	project-private AdminUser endpoint, in-repo callers send no extra params
+GET	/_synapse/worker/v1/tasks	reject	internal-strict	QueryLimit	project-private AdminUser endpoint, in-repo callers send no extra params
+GET	/_synapse/worker/v1/workers/{worker_id}/commands	reject	internal-strict	QueryLimit	project-private AdminUser endpoint, in-repo callers send no extra params

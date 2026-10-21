@@ -1,0 +1,63 @@
+# `deny_unknown_fields` 反向棘轮基线（只许升，不许降）。
+# 生成/收紧：python3 scripts/ci/check_deny_unknown_fields_ratchet.py --update
+# 口径：容器级 `#[serde(… deny_unknown_fields …)]` 属性算 1 个站点；
+#       已剥离注释与字符串；扫描 9 个生产源码根（不含 tests/、benches/）。
+# 实测：182 个站点 / 56 个文件。
+# 格式：<count> <path>
+
+11 synapse-web/src/routes/friend_room.rs
+11 synapse-web/src/routes/module.rs
+9 synapse-web/src/routes/worker.rs
+8 synapse-web/src/routes/admin/federation.rs
+8 synapse-web/src/routes/admin/room/types.rs
+8 synapse-web/src/routes/space/types.rs
+7 synapse-web/src/routes/admin/room/management.rs
+7 synapse-web/src/routes/admin/user.rs
+7 synapse-web/src/routes/saml.rs
+6 synapse-web/src/routes/admin/notification.rs
+6 synapse-web/src/routes/event_report.rs
+5 synapse-web/src/routes/app_service.rs
+5 synapse-web/src/routes/push_notification.rs
+5 synapse-web/src/routes/room_summary.rs
+4 synapse-common/src/rate_limit_config.rs
+4 synapse-web/src/routes/background_update.rs
+4 synapse-web/src/routes/captcha.rs
+4 synapse-web/src/routes/handlers/room/events.rs
+4 synapse-web/src/routes/key_rotation.rs
+4 synapse-web/src/routes/widget.rs
+3 synapse-web/src/routes/admin/token.rs
+3 synapse-web/src/routes/external_service.rs
+3 synapse-web/src/routes/handlers/thread.rs
+3 synapse-web/src/routes/thirdparty.rs
+2 synapse-services/src/one_time_invite_service.rs
+2 synapse-web/src/routes/admin/audit.rs
+2 synapse-web/src/routes/admin/invite_lists.rs
+2 synapse-web/src/routes/admin/media.rs
+2 synapse-web/src/routes/admin/retention.rs
+2 synapse-web/src/routes/admin/room/mod.rs
+2 synapse-web/src/routes/burn_after_read.rs
+2 synapse-web/src/routes/cas.rs
+2 synapse-web/src/routes/dm.rs
+2 synapse-web/src/routes/key_backup.rs
+2 synapse-web/src/routes/voice.rs
+1 synapse-common/src/config/mod.rs
+1 synapse-common/src/config/rate_limit.rs
+1 synapse-web/src/routes/admin/cleanup.rs
+1 synapse-web/src/routes/admin/policy.rs
+1 synapse-web/src/routes/admin/register.rs
+1 synapse-web/src/routes/admin/room/spaces.rs
+1 synapse-web/src/routes/admin/security.rs
+1 synapse-web/src/routes/admin/server.rs
+1 synapse-web/src/routes/ephemeral.rs
+1 synapse-web/src/routes/feature_flags.rs
+1 synapse-web/src/routes/guest.rs
+1 synapse-web/src/routes/handlers/room/management/create.rs
+1 synapse-web/src/routes/handlers/room/management/metadata.rs
+1 synapse-web/src/routes/handlers/room/members.rs
+1 synapse-web/src/routes/handlers/versions.rs
+1 synapse-web/src/routes/pinned.rs
+1 synapse-web/src/routes/push.rs
+1 synapse-web/src/routes/room.rs
+1 synapse-web/src/routes/sticky_event.rs
+1 synapse-web/src/routes/telemetry.rs
+1 synapse-web/src/routes/worker/worker_self_announce.rs

@@ -535,6 +535,10 @@ _SERDE_RENAME_ALL = re.compile(r'rename_all(?:_deserialize)?\s*=\s*"([^"]+)"')
 _FIELD_NAME = re.compile(r"^(?:pub(?:\s*\([^)]*\))?\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*:")
 _SERDE_SKIP = re.compile(r"(?:^|[(,\s])(skip|skip_deserializing)(?=[,)\s])")
 _SERDE_DENY_UNKNOWN = re.compile(r"(?:^|[(,\s])deny_unknown_fields(?=[,)\s]|$)")
+# Visibility qualifier directly before a `struct` keyword: `pub`,
+# `pub(crate)`, `pub(super)`, `pub(in crate::foo)`. Stepped over by
+# [`_attrs_before`] so container attributes are still found.
+_VIS_TAIL = re.compile(r"(?:\bpub\s*(?:\([^()]*\))?)\s*$")
 _QUERY_HEAD = re.compile(r"\bQuery\s*<")
 # `RawQuery` is a query extractor with no addressable field list (the handler
 # parses the raw `&k=v` string itself). It must not be reported as `query: none`.
@@ -569,6 +573,13 @@ def _attrs_before(src: str, pos: int) -> list:
 
     Needed for the container-level `#[serde(rename_all = ...)]`, which sits
     before `struct`, not inside its body.
+
+    `pos` is the `struct` keyword, so a visibility qualifier (`pub`,
+    `pub(crate)`, `pub(in path)`) sits between the attributes and `pos`:
+    `#[derive(..)] pub struct X { .. }`. It must be stepped over, otherwise
+    every `pub struct` reads as "no container attributes at all" — which
+    silently reported `deny_unknown_fields = false` and dropped `rename_all`
+    for the overwhelming majority of query/body structs.
     """
     attrs: list = []
     i = pos
@@ -577,7 +588,11 @@ def _attrs_before(src: str, pos: int) -> list:
         while j > 0 and src[j - 1] in " \t\r\n":
             j -= 1
         if j == 0 or src[j - 1] != "]":
-            return attrs
+            vis = _VIS_TAIL.search(src[:j])
+            if vis is None:
+                return attrs
+            i = vis.start()
+            continue
         depth, k = 0, j - 1
         while k >= 0:
             if src[k] == "]":
