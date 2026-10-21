@@ -1811,6 +1811,7 @@ mod db_tests {
     /// An unknown anchor — including a server default rule, which is not a row in
     /// this table — is a client error, not a database error.
     #[tokio::test]
+    #[allow(clippy::panic)]
     async fn test_upsert_push_rule_rejects_unknown_anchor() {
         let (_isolated, pool) = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));

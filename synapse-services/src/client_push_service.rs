@@ -743,6 +743,10 @@ mod tests {
             pattern: Some("!room:example.com".to_string()),
             conditions: None,
             actions,
+            // `?before=` / `?after=` 排序锚点（575a2d5b8）加字段时漏了这个 crate 内测试
+            // 辅助函数——`--workspace --lib --all-features` 车道因此整个编译不过（E0063）。
+            before: None,
+            after: None,
         }
     }
 
