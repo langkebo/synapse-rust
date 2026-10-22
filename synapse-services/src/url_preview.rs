@@ -13,9 +13,10 @@
 //! 1. **No SSRF window between check and fetch.** Every hop is resolved with
 //!    [`synapse_common::check_url_and_resolve`] and then fetched through
 //!    [`synapse_common::http_client::pinned_client_for_url`] with `no_redirect`,
-//!    so the connection goes to the address that was checked. Redirects are
-//!    followed *manually*, re-checking each hop — letting `reqwest` follow them
-//!    would re-open the hole for every hop after the first.
+//!    so the connection goes to the address that was checked. The first hop reuses
+//!    the caller's resolution ([`VerifiedFirstHop`]) instead of resolving twice.
+//!    Redirects are followed *manually*, re-checking each hop — letting `reqwest`
+//!    follow them would re-open the hole for every hop after the first.
 //! 2. **Bounded work.** Redirects, wall-clock time and body size all have hard
 //!    ceilings: this endpoint takes an attacker-chosen URL from an authenticated
 //!    user, so an unbounded fetch is a free amplification primitive.
@@ -87,17 +88,67 @@ impl OpenGraphPreview {
     }
 }
 
+/// A first hop the caller has already checked with
+/// [`synapse_common::check_url_and_resolve`] (PERF-13).
+///
+/// The HTTP layer resolves the URL to decide 403 vs 200; without this pair the
+/// fetch resolves it a second time, which both costs a DNS round trip per preview
+/// and lets the two answers disagree (TOCTOU). Passing the answer down makes the
+/// first hop use exactly what was checked; redirects still resolve every new hop.
+///
+/// Only build this from the output of `check_url_and_resolve` **for the same
+/// `url`**: the host and addresses are trusted as-is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedFirstHop {
+    /// The URL that was resolved.
+    pub url: String,
+    /// Host the URL resolved to (used in error messages).
+    pub host: String,
+    /// Addresses that passed the blacklist; these are what the fetch connects to.
+    pub ips: Vec<IpAddr>,
+}
+
+impl VerifiedFirstHop {
+    /// Pair a checked URL with the resolution that was checked for it.
+    #[must_use]
+    pub fn new(url: impl Into<String>, host: impl Into<String>, ips: Vec<IpAddr>) -> Self {
+        Self { url: url.into(), host: host.into(), ips }
+    }
+}
+
+/// Host and addresses to fetch `current` from.
+///
+/// Reuses the caller's resolution only when the URL is **byte-identical** to the
+/// one that was checked; anything else (in particular a redirect target) is
+/// resolved and validated here.
+fn resolve_hop(
+    current: &str,
+    blacklist: &[String],
+    first_hop: Option<&VerifiedFirstHop>,
+) -> Result<(String, Vec<IpAddr>), String> {
+    match first_hop.filter(|hop| hop.url == current) {
+        Some(hop) => Ok((hop.host.clone(), hop.ips.clone())),
+        None => synapse_common::check_url_and_resolve(current, blacklist),
+    }
+}
+
 /// Fetch `url` and return its OpenGraph preview.
 ///
 /// `blacklist` is the configured `url_preview.ip_range_blacklist`. Callers are
 /// expected to have rejected anything that does not pass
-/// [`synapse_common::check_url_and_resolve`] with a 403 already; this function
-/// re-checks every hop because a redirect can point somewhere new.
+/// [`synapse_common::check_url_and_resolve`] with a 403 already, and to pass that
+/// resolution as `first_hop` so it is not repeated; this function re-checks every
+/// *redirect* hop because a redirect can point somewhere new.
 ///
 /// Returns `{}` (never an error) when the page cannot be fetched, is not HTML, or
 /// carries no usable metadata.
-pub async fn fetch_open_graph(url: &str, blacklist: &[String], limits: PreviewLimits) -> serde_json::Value {
-    match fetch_html(url, blacklist, limits).await {
+pub async fn fetch_open_graph(
+    url: &str,
+    first_hop: Option<&VerifiedFirstHop>,
+    blacklist: &[String],
+    limits: PreviewLimits,
+) -> serde_json::Value {
+    match fetch_html(url, first_hop, blacklist, limits).await {
         Ok(Some(html)) => extract_open_graph(&html).into_json(),
         Ok(None) => serde_json::Value::Object(serde_json::Map::new()),
         Err(reason) => {
@@ -113,10 +164,15 @@ pub async fn fetch_open_graph(url: &str, blacklist: &[String], limits: PreviewLi
 
 /// Walk the redirect chain and return the final HTML body, or `None` when the
 /// response is not HTML.
-async fn fetch_html(url: &str, blacklist: &[String], limits: PreviewLimits) -> Result<Option<String>, String> {
+async fn fetch_html(
+    url: &str,
+    first_hop: Option<&VerifiedFirstHop>,
+    blacklist: &[String],
+    limits: PreviewLimits,
+) -> Result<Option<String>, String> {
     let mut current = url.to_string();
     for _hop in 0..=limits.max_redirects {
-        let (host, verified_ips) = synapse_common::check_url_and_resolve(&current, blacklist)?;
+        let (host, verified_ips) = resolve_hop(&current, blacklist, first_hop)?;
         let client = synapse_common::http_client::pinned_client_for_url(
             &current,
             &verified_ips,
@@ -388,6 +444,25 @@ pub fn ip_is_blacklisted(ip: IpAddr, blacklist: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_first_hop_uses_the_pre_verified_resolution() {
+        // PERF-13: the HTTP layer already resolves the first hop to decide 403 vs 200,
+        // and the fetch used to resolve it again — two chances to disagree (TOCTOU)
+        // plus a second DNS round trip per preview. The caller's answer must be used
+        // as-is; note the address is blacklisted here, so re-checking would refuse a
+        // target the caller already allowed.
+        let hop =
+            VerifiedFirstHop::new("http://127.0.0.1:8080/preview", "127.0.0.1", vec![IpAddr::from([127, 0, 0, 1])]);
+        let blacklist = synapse_common::security::ssrf_blacklist();
+
+        let (host, ips) = resolve_hop(&hop.url, &blacklist, Some(&hop)).expect("the first hop must not be re-resolved");
+        assert_eq!(host, "127.0.0.1");
+        assert_eq!(ips, hop.ips);
+
+        // Every other URL — a redirect target above all — is resolved and checked.
+        assert!(resolve_hop("http://127.0.0.1:9090/other", &blacklist, Some(&hop)).is_err());
+    }
 
     #[test]
     fn reads_standard_open_graph_tags() {

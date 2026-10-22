@@ -70,15 +70,25 @@ enum DirectMapUpdateAction {
     OverwriteMap(Map<String, Value>),
 }
 
+/// Decode the stored `m.direct` account data into a map (CODE-07).
+///
+/// `m.direct` is client-owned account data: a body of the wrong shape is the
+/// caller's mistake, so it must surface as a 400. Answering 500 makes clients
+/// retry the same invalid request and trips server-fault alerts.
+#[cfg(any(test, not(feature = "friends")))]
+fn direct_map_from_account_data(content: Option<Value>) -> Result<Map<String, Value>, ApiError> {
+    match content {
+        Some(Value::Object(map)) => Ok(map),
+        Some(_) => Err(ApiError::bad_request("Invalid m.direct account data format")),
+        None => Ok(Map::new()),
+    }
+}
+
 #[cfg(not(feature = "friends"))]
 async fn load_direct_map(ctx: &RoomContext, user_id: &str) -> Result<Map<String, Value>, ApiError> {
     let content = ctx.account_data_service.get_account_data(user_id, "m.direct").await?;
 
-    match content {
-        Some(Value::Object(map)) => Ok(map),
-        Some(_) => Err(ApiError::internal("Invalid m.direct account data format")),
-        None => Ok(Map::new()),
-    }
+    direct_map_from_account_data(content)
 }
 
 #[cfg(not(feature = "friends"))]
@@ -714,6 +724,22 @@ mod tests {
         remove_room_from_direct_map(&mut direct_map, "!room1:example.com");
         assert!(direct_map.get("@bob:example.com").is_none());
         assert!(direct_map.get("@carol:example.com").is_some());
+    }
+
+    #[test]
+    fn test_direct_map_from_account_data_maps_non_object_to_bad_request() {
+        // CODE-07: `m.direct` is client-owned account data, so a body of the wrong
+        // shape is the caller's mistake. Answering 500 makes clients retry the same
+        // invalid request and trips server-fault alerts.
+        assert_eq!(direct_map_from_account_data(None).unwrap(), Map::new());
+        assert_eq!(
+            direct_map_from_account_data(Some(json!({"@bob:example.com": ["!r:example.com"]}))).unwrap().len(),
+            1
+        );
+
+        let error =
+            direct_map_from_account_data(Some(json!(["@bob:example.com"]))).expect_err("non-object must be rejected");
+        assert!(error.is_bad_request(), "expected a 400, got {:?}", error.kind);
     }
 
     #[test]

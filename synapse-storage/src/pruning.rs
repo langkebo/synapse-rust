@@ -3,9 +3,13 @@
 //! Several tables in the homeserver schema are append-only or accumulate
 //! stale rows over time. Without periodic pruning they grow indefinitely,
 //! causing disk bloat on long-running instances. The functions in this
-//! module perform simple `DELETE` operations against those tables and are
+//! module perform batched `DELETE` operations against those tables and are
 //! intended to be invoked by a scheduled background task (see
 //! `src/server.rs`).
+//!
+//! Every job deletes in [`PRUNE_BATCH_SIZE`]-sized batches (PERF-06) so a large
+//! backlog is drained as a series of short transactions instead of one
+//! long-running statement that holds locks and floods WAL/replication.
 
 use sqlx::PgPool;
 use synapse_common::current_timestamp_millis;
@@ -92,14 +96,60 @@ pub const QUARANTINED_MEDIA_CHANGES_RETENTION_DAYS: i64 = 30;
 /// counts in `/sync` are computed from `events` + `read_markers`, not from here.
 pub const NOTIFICATIONS_RETENTION_DAYS: i64 = 30;
 
+/// Rows removed per statement by every `prune_*` job (PERF-06).
+///
+/// The prune jobs used to issue a single unbounded `DELETE`, so a backlog that
+/// had built up for months was removed in one transaction: one long-lived lock
+/// on the table, one oversized WAL flush, and a matching replication spike. The
+/// same work is now done as a sequence of short transactions of at most this
+/// many rows, which keeps each lock and WAL record bounded while still draining
+/// the backlog in a single run.
+pub const PRUNE_BATCH_SIZE: u64 = 1000;
+
+/// Delete rows in batches until fewer than `batch_size` rows come back.
+///
+/// `delete_batch` receives the batch size, deletes at most that many rows and
+/// returns how many it actually removed. A short batch means the predicate no
+/// longer matches anything, so there is no point issuing another statement.
+///
+/// The return value is the **total** across batches: callers log it as the
+/// number of pruned rows, so it must not collapse to "rows in the last batch".
+pub(crate) async fn prune_in_batches<F, Fut>(batch_size: u64, mut delete_batch: F) -> Result<u64, sqlx::Error>
+where
+    F: FnMut(u64) -> Fut,
+    Fut: std::future::Future<Output = Result<u64, sqlx::Error>>,
+{
+    let mut total: u64 = 0;
+
+    loop {
+        let deleted = delete_batch(batch_size).await?;
+        total += deleted;
+
+        if deleted < batch_size {
+            return Ok(total);
+        }
+    }
+}
+
 /// Prune old device list change entries.
 ///
 /// Deletes rows from `device_lists_changes` whose `created_ts` is older
 /// than `retention_days` days. Returns the number of rows deleted.
 pub async fn prune_old_device_list_changes(pool: &PgPool, retention_days: i64) -> Result<u64, sqlx::Error> {
     let cutoff = current_timestamp_millis() - (retention_days * 86400 * 1000);
-    let result = sqlx::query!("DELETE FROM device_lists_changes WHERE created_ts < $1", cutoff).execute(pool).await?;
-    Ok(result.rows_affected())
+
+    prune_in_batches(PRUNE_BATCH_SIZE, |batch| async move {
+        let result = sqlx::query!(
+            "DELETE FROM device_lists_changes WHERE ctid IN (SELECT ctid FROM device_lists_changes WHERE created_ts < $1 LIMIT $2)",
+            cutoff,
+            batch as i64
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    })
+    .await
 }
 
 /// Prune old rows from the `notifications` store (D-68).
@@ -113,8 +163,19 @@ pub async fn prune_old_device_list_changes(pool: &PgPool, retention_days: i64) -
 /// Returns the number of rows deleted.
 pub async fn prune_old_notifications(pool: &PgPool) -> Result<u64, sqlx::Error> {
     let cutoff = current_timestamp_millis() - (NOTIFICATIONS_RETENTION_DAYS * 86400 * 1000);
-    let result = sqlx::query!("DELETE FROM notifications WHERE ts < $1", cutoff).execute(pool).await?;
-    Ok(result.rows_affected())
+
+    prune_in_batches(PRUNE_BATCH_SIZE, |batch| async move {
+        let result = sqlx::query!(
+            "DELETE FROM notifications WHERE ctid IN (SELECT ctid FROM notifications WHERE ts < $1 LIMIT $2)",
+            cutoff,
+            batch as i64
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    })
+    .await
 }
 
 /// Prune old entries from the device list sync stream.
@@ -127,8 +188,19 @@ pub async fn prune_old_notifications(pool: &PgPool) -> Result<u64, sqlx::Error> 
 /// Returns the number of rows deleted.
 pub async fn prune_old_device_lists_stream(pool: &PgPool) -> Result<u64, sqlx::Error> {
     let cutoff = current_timestamp_millis() - (DEVICE_LIST_STREAM_RETENTION_DAYS * 86400 * 1000);
-    let result = sqlx::query!("DELETE FROM device_lists_stream WHERE created_ts < $1", cutoff).execute(pool).await?;
-    Ok(result.rows_affected())
+
+    prune_in_batches(PRUNE_BATCH_SIZE, |batch| async move {
+        let result = sqlx::query!(
+            "DELETE FROM device_lists_stream WHERE ctid IN (SELECT ctid FROM device_lists_stream WHERE created_ts < $1 LIMIT $2)",
+            cutoff,
+            batch as i64
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    })
+    .await
 }
 
 /// Prune old worker bus events.
@@ -142,8 +214,19 @@ pub async fn prune_old_device_lists_stream(pool: &PgPool) -> Result<u64, sqlx::E
 /// Returns the number of rows deleted.
 pub async fn prune_old_worker_events(pool: &PgPool) -> Result<u64, sqlx::Error> {
     let cutoff = current_timestamp_millis() - (WORKER_EVENTS_RETENTION_DAYS * 86400 * 1000);
-    let result = sqlx::query!("DELETE FROM worker_events WHERE created_ts < $1", cutoff).execute(pool).await?;
-    Ok(result.rows_affected())
+
+    prune_in_batches(PRUNE_BATCH_SIZE, |batch| async move {
+        let result = sqlx::query!(
+            "DELETE FROM worker_events WHERE ctid IN (SELECT ctid FROM worker_events WHERE created_ts < $1 LIMIT $2)",
+            cutoff,
+            batch as i64
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    })
+    .await
 }
 
 /// Prune expired presence records.
@@ -152,8 +235,19 @@ pub async fn prune_old_worker_events(pool: &PgPool) -> Result<u64, sqlx::Error> 
 /// [`PRESENCE_PRUNE_TIMEOUT_MS`]. Returns the number of rows deleted.
 pub async fn prune_expired_presence(pool: &PgPool) -> Result<u64, sqlx::Error> {
     let cutoff = current_timestamp_millis() - PRESENCE_PRUNE_TIMEOUT_MS;
-    let result = sqlx::query!("DELETE FROM presence WHERE last_active_ts < $1", cutoff).execute(pool).await?;
-    Ok(result.rows_affected())
+
+    prune_in_batches(PRUNE_BATCH_SIZE, |batch| async move {
+        let result = sqlx::query!(
+            "DELETE FROM presence WHERE ctid IN (SELECT ctid FROM presence WHERE last_active_ts < $1 LIMIT $2)",
+            cutoff,
+            batch as i64
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    })
+    .await
 }
 
 /// Prune expired or used one-time keys.
@@ -163,9 +257,19 @@ pub async fn prune_expired_presence(pool: &PgPool) -> Result<u64, sqlx::Error> {
 /// number of rows deleted.
 pub async fn prune_expired_one_time_keys(pool: &PgPool) -> Result<u64, sqlx::Error> {
     let cutoff = current_timestamp_millis() - (ONE_TIME_KEYS_RETENTION_DAYS * 86400 * 1000);
-    let result =
-        sqlx::query!("DELETE FROM one_time_keys WHERE is_used = true OR created_ts < $1", cutoff).execute(pool).await?;
-    Ok(result.rows_affected())
+
+    prune_in_batches(PRUNE_BATCH_SIZE, |batch| async move {
+        let result = sqlx::query!(
+            "DELETE FROM one_time_keys WHERE ctid IN (SELECT ctid FROM one_time_keys WHERE is_used = true OR created_ts < $1 LIMIT $2)",
+            cutoff,
+            batch as i64
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    })
+    .await
 }
 
 /// Prune old to-device transaction dedup records.
@@ -177,8 +281,19 @@ pub async fn prune_expired_one_time_keys(pool: &PgPool) -> Result<u64, sqlx::Err
 /// Returns the number of rows deleted.
 pub async fn prune_old_to_device_transactions(pool: &PgPool) -> Result<u64, sqlx::Error> {
     let cutoff = current_timestamp_millis() - TO_DEVICE_TRANSACTIONS_RETENTION_MS;
-    let result = sqlx::query!("DELETE FROM to_device_transactions WHERE created_ts < $1", cutoff).execute(pool).await?;
-    Ok(result.rows_affected())
+
+    prune_in_batches(PRUNE_BATCH_SIZE, |batch| async move {
+        let result = sqlx::query!(
+            "DELETE FROM to_device_transactions WHERE ctid IN (SELECT ctid FROM to_device_transactions WHERE created_ts < $1 LIMIT $2)",
+            cutoff,
+            batch as i64
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    })
+    .await
 }
 
 /// Prune expired token blacklist entries.
@@ -190,13 +305,19 @@ pub async fn prune_old_to_device_transactions(pool: &PgPool) -> Result<u64, sqlx
 /// Returns the number of rows deleted.
 pub async fn prune_expired_token_blacklist(pool: &PgPool) -> Result<u64, sqlx::Error> {
     let now = current_timestamp_millis();
-    let result = sqlx::query!(
-        "DELETE FROM token_blacklist WHERE expires_at IS NOT NULL AND expires_at > 0 AND expires_at < $1",
-        now
-    )
-    .execute(pool)
-    .await?;
-    Ok(result.rows_affected())
+
+    prune_in_batches(PRUNE_BATCH_SIZE, |batch| async move {
+        let result = sqlx::query!(
+            "DELETE FROM token_blacklist WHERE ctid IN (SELECT ctid FROM token_blacklist WHERE expires_at IS NOT NULL AND expires_at > 0 AND expires_at < $1 LIMIT $2)",
+            now,
+            batch as i64
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    })
+    .await
 }
 
 /// Prune old federation queue entries.
@@ -208,11 +329,19 @@ pub async fn prune_expired_token_blacklist(pool: &PgPool) -> Result<u64, sqlx::E
 /// Returns the number of rows deleted.
 pub async fn prune_old_federation_queue(pool: &PgPool) -> Result<u64, sqlx::Error> {
     let cutoff = current_timestamp_millis() - (FEDERATION_QUEUE_RETENTION_DAYS * 86400 * 1000);
-    let result =
-        sqlx::query!("DELETE FROM federation_queue WHERE status IN ('sent', 'failed') AND created_ts < $1", cutoff)
-            .execute(pool)
-            .await?;
-    Ok(result.rows_affected())
+
+    prune_in_batches(PRUNE_BATCH_SIZE, |batch| async move {
+        let result = sqlx::query!(
+            "DELETE FROM federation_queue WHERE ctid IN (SELECT ctid FROM federation_queue WHERE status IN ('sent', 'failed') AND created_ts < $1 LIMIT $2)",
+            cutoff,
+            batch as i64
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    })
+    .await
 }
 
 /// Prune old entries from the quarantined-media change stream.
@@ -231,9 +360,19 @@ pub async fn prune_old_federation_queue(pool: &PgPool) -> Result<u64, sqlx::Erro
 /// Returns the number of rows deleted.
 pub async fn prune_old_quarantined_media_changes(pool: &PgPool) -> Result<u64, sqlx::Error> {
     let cutoff = current_timestamp_millis() - (QUARANTINED_MEDIA_CHANGES_RETENTION_DAYS * 86400 * 1000);
-    let result =
-        sqlx::query!("DELETE FROM quarantined_media_changes WHERE created_ts < $1", cutoff).execute(pool).await?;
-    Ok(result.rows_affected())
+
+    prune_in_batches(PRUNE_BATCH_SIZE, |batch| async move {
+        let result = sqlx::query!(
+            "DELETE FROM quarantined_media_changes WHERE ctid IN (SELECT ctid FROM quarantined_media_changes WHERE created_ts < $1 LIMIT $2)",
+            cutoff,
+            batch as i64
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    })
+    .await
 }
 
 #[cfg(test)]
@@ -274,6 +413,49 @@ mod tests {
         // a long absence could see dangling stream_ids that reference pruned
         // change records.
         assert_eq!(DEVICE_LIST_STREAM_RETENTION_DAYS, DEVICE_LIST_CHANGES_RETENTION_DAYS);
+    }
+
+    #[tokio::test]
+    async fn prune_batches_never_ask_for_more_than_the_batch_size() {
+        // PERF-06: the prune jobs used to issue one unbounded `DELETE`, so a
+        // backlog built up over months was removed in a single transaction —
+        // one long lock, one huge WAL flush, and a replication spike. Deleting
+        // in bounded batches turns that into a series of short transactions.
+        //
+        // The contract this test pins: every request asks for at most
+        // `batch_size` rows, the loop keeps going until a short batch comes
+        // back, and the return value is the *total* deleted (callers log it).
+        let remaining = std::rc::Rc::new(std::cell::Cell::new(1200u64));
+        let asked = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+
+        let (remaining_for_closure, asked_for_closure) = (remaining.clone(), asked.clone());
+        let total = prune_in_batches(500, move |limit| {
+            asked_for_closure.borrow_mut().push(limit);
+            let deleted = remaining_for_closure.get().min(limit);
+            remaining_for_closure.set(remaining_for_closure.get() - deleted);
+            async move { Ok::<u64, sqlx::Error>(deleted) }
+        })
+        .await
+        .expect("the fake deletes never fail");
+
+        assert_eq!(total, 1200, "the return value must stay the total, not the last batch");
+        assert_eq!(*asked.borrow(), vec![500, 500, 500], "no batch may exceed the batch size");
+    }
+
+    #[tokio::test]
+    async fn prune_batches_stop_on_an_empty_backlog() {
+        let calls = std::rc::Rc::new(std::cell::Cell::new(0u64));
+        let calls_for_closure = calls.clone();
+
+        let total = prune_in_batches(500, move |_limit| {
+            calls_for_closure.set(calls_for_closure.get() + 1);
+            async { Ok::<u64, sqlx::Error>(0) }
+        })
+        .await
+        .expect("the fake delete never fails");
+
+        assert_eq!(total, 0);
+        assert_eq!(calls.get(), 1, "an empty table must cost exactly one statement");
     }
 
     #[test]
@@ -379,6 +561,24 @@ mod db_tests {
         let deleted = prune_old_device_list_changes(&pool, DEVICE_LIST_CHANGES_RETENTION_DAYS).await.unwrap();
         assert_eq!(deleted, 3, "only pre-cutoff rows deleted");
         assert_eq!(count(&pool, "device_lists_changes").await, 2);
+    }
+
+    /// PERF-06: a backlog larger than one batch is drained across batches, and
+    /// the returned count is the total across them rather than the last batch.
+    #[tokio::test]
+    async fn prune_drains_a_backlog_larger_than_one_batch() {
+        let Some(pool) = test_pool().await else { return };
+        let day_ms = 86_400_000;
+        let old_ts = current_timestamp_millis() - 40 * day_ms;
+        let backlog = PRUNE_BATCH_SIZE + 1;
+        // Reuses the existing seeding helper (and its allowlisted projection of
+        // `device_lists_changes`) rather than building a second schema.
+        seed_changes(&pool, old_ts, backlog as i64).await;
+
+        let deleted = prune_old_device_list_changes(&pool, DEVICE_LIST_CHANGES_RETENTION_DAYS).await.unwrap();
+
+        assert_eq!(deleted, backlog, "the loop must finish the backlog, not stop after one batch");
+        assert_eq!(count(&pool, "device_lists_changes").await, 0);
     }
 
     /// device_lists_stream: same 30-day window, created_ts only.

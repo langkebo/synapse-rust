@@ -956,6 +956,10 @@ impl MediaService {
     /// touching media storage (`og:title`, `og:description`); see
     /// [`crate::url_preview`] for the SSRF pinning, redirect and size rules.
     ///
+    /// `first_hop` is the caller's own resolution of `url` (PERF-13): passing it in
+    /// means the address that was checked is the address fetched, without a second
+    /// DNS lookup. Redirect hops are always resolved here.
+    ///
     /// **History worth keeping**: this used to be a stub that echoed the caller's
     /// own `url` back. Before that it fabricated `og:title` / `og:description` and
     /// an `og:image` of `format!("{url}/preview.png")` — a resource that does not
@@ -968,9 +972,20 @@ impl MediaService {
     /// it when it hashes to quarantined content**. Until that pipeline exists,
     /// emitting a remote `http(s)` URL would violate the response shape (clients
     /// expect `mxc://`) and emitting a half-checked `mxc://` would be worse.
-    pub async fn preview_url(&self, url: &str, blacklist: &[String]) -> ApiResult<serde_json::Value> {
+    pub async fn preview_url(
+        &self,
+        url: &str,
+        first_hop: Option<&crate::url_preview::VerifiedFirstHop>,
+        blacklist: &[String],
+    ) -> ApiResult<serde_json::Value> {
         crate::url_preview::ensure_http_scheme(url)?;
-        Ok(crate::url_preview::fetch_open_graph(url, blacklist, crate::url_preview::PreviewLimits::default()).await)
+        Ok(crate::url_preview::fetch_open_graph(
+            url,
+            first_hop,
+            blacklist,
+            crate::url_preview::PreviewLimits::default(),
+        )
+        .await)
     }
 
     /// See [`get_media_info`].
@@ -1343,7 +1358,7 @@ mod tests {
         let blacklist = synapse_common::security::ssrf_blacklist();
 
         let json = service
-            .preview_url("http://127.0.0.1:9/", &blacklist)
+            .preview_url("http://127.0.0.1:9/", None, &blacklist)
             .await
             .expect("an unfetchable preview is an empty preview, not an error");
         assert_eq!(json, serde_json::json!({}));
@@ -1358,7 +1373,7 @@ mod tests {
         let service = MediaService::new(media_path, None, "test.server").await;
         let blacklist = synapse_common::security::ssrf_blacklist();
 
-        assert!(service.preview_url("file:///etc/passwd", &blacklist).await.is_err());
+        assert!(service.preview_url("file:///etc/passwd", None, &blacklist).await.is_err());
     }
 
     // B14: 首次查找回填进程内缓存；后续查找命中缓存，不再全量扫描目录。

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM quarantined_media_changes WHERE ctid IN (SELECT ctid FROM quarantined_media_changes WHERE created_ts < $1 LIMIT $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "61e7f61622ee4f798f582ed834e82db8022c2e7ec27499bdf97812824b450f4a"
+}

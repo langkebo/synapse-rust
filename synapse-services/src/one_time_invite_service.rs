@@ -75,6 +75,31 @@ impl OneTimeInviteService {
         URL_SAFE_NO_PAD.encode(Sha256::digest(token.as_bytes()))
     }
 
+    /// Decode the room config stored at mint time (CODE-04).
+    ///
+    /// `room_config` is a `jsonb` blob this server wrote earlier, not client input
+    /// for the current request, so a decode failure is a server-side problem: it
+    /// means the stored shape no longer matches [`CreateRoomConfig`]. Returning a
+    /// 500 with a cause keeps the failure visible instead of silently creating a
+    /// room that ignores every term of the invite.
+    fn parse_stored_room_config(value: Value) -> ApiResult<CreateRoomConfig> {
+        serde_json::from_value(value)
+            .map_err(|e| ApiError::internal_with_context("stored one-time invite room config is not decodable", &e))
+    }
+
+    /// Give a claimed token back after a failure that happened *before* the room
+    /// was created, so a transient or operator-fixable problem does not burn the
+    /// invite. A failed release is logged rather than returned: it must not mask
+    /// the original failure.
+    async fn release_claim_after_failure(&self, token_hash: &str, claimer: &str) {
+        if let Err(release_error) = self.storage.release_claim(token_hash, claimer).await {
+            tracing::error!(
+                error = %release_error,
+                "failed to release one-time invite claim after a pre-creation failure"
+            );
+        }
+    }
+
     /// Mint an invite token for `creator`.
     ///
     /// Returns the plaintext token exactly once — it is not recoverable later,
@@ -133,10 +158,18 @@ impl OneTimeInviteService {
             ClaimOutcome::AlreadyClaimed => return Err(ApiError::forbidden("Invite token has already been used")),
         };
 
-        // A config written by an older server version may not deserialize after
-        // a schema change; falling back to defaults still yields a usable room
-        // rather than failing the claim with an opaque error.
-        let mut config: CreateRoomConfig = serde_json::from_value(claimed.room_config).unwrap_or_default();
+        // A config written by an older server version may not deserialize after a
+        // schema change. Falling back to defaults would create the room with none
+        // of the invite's terms while the claimer believes otherwise (CODE-04), so
+        // the claim fails loudly and is released: the token stays usable once the
+        // stored blob is fixed.
+        let mut config = match Self::parse_stored_room_config(claimed.room_config) {
+            Ok(config) => config,
+            Err(error) => {
+                self.release_claim_after_failure(&token_hash, claimer).await;
+                return Err(error);
+            }
+        };
         if config.preset.is_none() {
             config.preset = Some("private_chat".to_string());
         }
@@ -189,5 +222,20 @@ mod tests {
         let error = serde_json::from_str::<ClaimOneTimeInviteRequest>(r#"{"token":"a","extra":1}"#)
             .expect_err("unknown fields must be rejected");
         assert!(error.to_string().contains("unknown field"), "unexpected error: {error}");
+    }
+
+    #[test]
+    fn stored_room_config_that_no_longer_decodes_is_an_error_not_a_default() {
+        // CODE-04: falling back to `CreateRoomConfig::default()` would create the
+        // room with none of the invite's terms (preset, encryption, invites) while
+        // the claimer believes otherwise. The stored blob is server-side data, so
+        // the failure must surface as a 500 with a cause, not as a silent default.
+        let error = OneTimeInviteService::parse_stored_room_config(json!({"preset": 42}))
+            .expect_err("an undecodable stored config must not be replaced by defaults");
+        assert!(error.is_internal(), "expected a 500, got {:?}", error.kind);
+
+        let parsed = OneTimeInviteService::parse_stored_room_config(json!({"preset": "private_chat"}))
+            .expect("a well-formed config must still decode");
+        assert_eq!(parsed.preset.as_deref(), Some("private_chat"));
     }
 }

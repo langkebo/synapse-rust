@@ -261,22 +261,42 @@ impl RetentionStorage {
     }
 
     /// See [`delete_local_messages_before`].
+    ///
+    /// Expired events are removed in `PRUNE_BATCH_SIZE`-sized batches (PERF-06).
+    /// A long-lived room can hold millions of expired events, and a single
+    /// unbounded `DELETE` would hold its lock and flush WAL for all of them at
+    /// once. The returned count is the total across batches, so the admin API's
+    /// `events_deleted` keeps its meaning. Interrupting a run part-way is
+    /// harmless: every batch only removes events that are already past the
+    /// retention cutoff, so a re-run simply continues the sweep.
     pub async fn delete_local_messages_before(&self, room_id: &str, cutoff_ts: i64) -> Result<i64, sqlx::Error> {
-        let result = sqlx::query!(
-            r#"
-            DELETE FROM events
-            WHERE room_id = $1
-            AND origin_server_ts < $2
-            AND event_type NOT IN ('m.room.create', 'm.room.power_levels', 'm.room.join_rules', 'm.room.history_visibility')
-            AND state_key IS NULL
-            "#,
-            room_id,
-            cutoff_ts,
-        )
-        .execute(&*self.pool)
+        let pool: &PgPool = self.pool.as_ref();
+
+        let deleted = crate::pruning::prune_in_batches(crate::pruning::PRUNE_BATCH_SIZE, |batch| async move {
+            let result = sqlx::query!(
+                r#"
+                DELETE FROM events
+                WHERE ctid IN (
+                    SELECT ctid FROM events
+                    WHERE room_id = $1
+                    AND origin_server_ts < $2
+                    AND event_type NOT IN ('m.room.create', 'm.room.power_levels', 'm.room.join_rules', 'm.room.history_visibility')
+                    AND state_key IS NULL
+                    LIMIT $3
+                )
+                "#,
+                room_id,
+                cutoff_ts,
+                batch as i64,
+            )
+            .execute(pool)
+            .await?;
+
+            Ok(result.rows_affected())
+        })
         .await?;
 
-        Ok(result.rows_affected() as i64)
+        Ok(deleted as i64)
     }
 
     /// See [`get_rooms_with_policies`].

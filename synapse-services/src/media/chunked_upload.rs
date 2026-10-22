@@ -184,6 +184,20 @@ impl ChunkedUploadService {
         self.max_file_size as i64
     }
 
+    /// Total size of the chunks, rejecting before the caller allocates (PERF-14).
+    ///
+    /// Returns the summed length so the reassembly buffer can be reserved in one
+    /// go instead of grown chunk by chunk.
+    fn checked_chunk_total(chunks: &[Vec<u8>], max_file_size: usize) -> Result<usize, ApiError> {
+        let total: usize = chunks.iter().map(Vec::len).sum();
+
+        if total > max_file_size {
+            return Err(ApiError::bad_request(format!("File size {total} exceeds maximum {max_file_size}")));
+        }
+
+        Ok(total)
+    }
+
     /// Bytes already held by the user's in-flight uploads, optionally excluding
     /// one upload (the one currently being converted from pending to used).
     pub async fn pending_bytes(&self, user_id: &str, exclude_upload_id: Option<&str>) -> Result<i64, ApiError> {
@@ -217,17 +231,14 @@ impl ChunkedUploadService {
             )));
         }
 
-        let mut combined_data = Vec::new();
+        // PERF-14: decide the size from the chunk lengths, before anything is
+        // concatenated. The ceiling used to be checked on the assembled buffer, so
+        // an oversized upload was fully materialised before being rejected.
+        let total_size = Self::checked_chunk_total(&chunk_rows, self.max_file_size)?;
+
+        let mut combined_data = Vec::with_capacity(total_size);
         for chunk_data in chunk_rows {
             combined_data.extend_from_slice(&chunk_data);
-        }
-
-        if combined_data.len() > self.max_file_size {
-            return Err(ApiError::bad_request(format!(
-                "File size {} exceeds maximum {}",
-                combined_data.len(),
-                self.max_file_size
-            )));
         }
 
         Ok(CompletedUploadData {
@@ -266,5 +277,24 @@ impl ChunkedUploadService {
     /// See [`cleanup_expired`].
     pub async fn cleanup_expired(&self) -> Result<u64, ApiError> {
         self.storage.cleanup_expired().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn oversized_assembly_is_rejected_before_the_buffer_is_allocated() {
+        // PERF-14: the ceiling used to be checked on the concatenated buffer, so an
+        // oversized upload was fully materialised before being rejected. The size
+        // must be decided from the chunk lengths alone.
+        let chunks = vec![vec![0u8; 4], vec![0u8; 4]];
+        let error = ChunkedUploadService::checked_chunk_total(&chunks, 7).expect_err("8 > 7 must be rejected");
+        assert!(error.is_bad_request(), "expected a 400, got {:?}", error.kind);
+
+        // Exactly at the ceiling is allowed, and the sum doubles as the capacity.
+        assert_eq!(ChunkedUploadService::checked_chunk_total(&chunks, 8).expect("8 == 8"), 8);
+        assert_eq!(ChunkedUploadService::checked_chunk_total(&[], 8).expect("empty"), 0);
     }
 }

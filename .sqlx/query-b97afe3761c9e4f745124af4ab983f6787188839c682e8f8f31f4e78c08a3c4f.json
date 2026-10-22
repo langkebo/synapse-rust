@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM federation_queue WHERE ctid IN (SELECT ctid FROM federation_queue WHERE status IN ('sent', 'failed') AND created_ts < $1 LIMIT $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b97afe3761c9e4f745124af4ab983f6787188839c682e8f8f31f4e78c08a3c4f"
+}

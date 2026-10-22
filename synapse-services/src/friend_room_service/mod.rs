@@ -666,7 +666,9 @@ impl FriendRoomService {
 
         match content {
             Some(Value::Object(map)) => Ok(map),
-            Some(_) => Err(FriendRoomError::Internal("Invalid m.direct account data format".to_string())),
+            // CODE-07: `m.direct` is client-owned account data, so a wrong shape
+            // is the caller's mistake and must map to 400 rather than 500.
+            Some(_) => Err(FriendRoomError::InvalidInput("Invalid m.direct account data format".to_string())),
             None => Ok(Map::new()),
         }
     }

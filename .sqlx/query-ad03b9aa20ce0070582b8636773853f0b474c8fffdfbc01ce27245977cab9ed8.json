@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM presence WHERE ctid IN (SELECT ctid FROM presence WHERE last_active_ts < $1 LIMIT $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ad03b9aa20ce0070582b8636773853f0b474c8fffdfbc01ce27245977cab9ed8"
+}

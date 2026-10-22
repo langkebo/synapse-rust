@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM worker_events WHERE ctid IN (SELECT ctid FROM worker_events WHERE created_ts < $1 LIMIT $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "743f535c3865a53170f2a52990c01686852a3252265c3f717ac29aa5a9400f32"
+}

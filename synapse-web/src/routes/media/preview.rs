@@ -58,17 +58,19 @@ pub(crate) async fn preview_url(
     let blacklist = &ctx.config.url_preview.ip_range_blacklist;
     // The first hop is validated here so a blacklisted target is a **403** (a policy
     // decision) rather than an empty preview (which would look like "the site had no
-    // metadata"). Every hop after a redirect is re-validated inside the service —
-    // that is where the DNS-rebinding pinning lives
-    // (`synapse_services::url_preview::fetch_html`).
-    if let Err(e) = synapse_common::check_url_and_resolve(url, blacklist) {
-        return Err(ApiError::forbidden(format!("URL not allowed: {e}")));
-    }
+    // metadata"). The resolution is then handed to the service so the fetch connects
+    // to the address that was checked instead of resolving again (PERF-13). Every hop
+    // after a redirect is re-validated inside the service — that is where the
+    // DNS-rebinding pinning lives (`synapse_services::url_preview::fetch_html`).
+    let first_hop = match synapse_common::check_url_and_resolve(url, blacklist) {
+        Ok((host, ips)) => synapse_services::url_preview::VerifiedFirstHop::new(url, host, ips),
+        Err(e) => return Err(ApiError::forbidden(format!("URL not allowed: {e}"))),
+    };
 
     // `ts` is accepted for API compatibility with the historical shape and no
     // longer used: the response now reflects what the page says, not a cached
     // snapshot keyed by a client-supplied timestamp.
     let _ = ts.unwrap_or_else(current_timestamp_millis);
 
-    Ok(Json(ctx.media_domain_service.preview_url(url, blacklist).await?))
+    Ok(Json(ctx.media_domain_service.preview_url(url, Some(&first_hop), blacklist).await?))
 }

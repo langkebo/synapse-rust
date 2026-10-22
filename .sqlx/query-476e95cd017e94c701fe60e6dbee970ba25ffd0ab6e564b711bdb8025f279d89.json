@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM one_time_keys WHERE ctid IN (SELECT ctid FROM one_time_keys WHERE is_used = true OR created_ts < $1 LIMIT $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "476e95cd017e94c701fe60e6dbee970ba25ffd0ab6e564b711bdb8025f279d89"
+}

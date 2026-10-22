@@ -1,6 +1,7 @@
 use super::*;
 use std::sync::Arc;
 
+use axum::http::Method;
 use axum::http::StatusCode;
 use axum::routing::{any, get};
 use axum::Router;

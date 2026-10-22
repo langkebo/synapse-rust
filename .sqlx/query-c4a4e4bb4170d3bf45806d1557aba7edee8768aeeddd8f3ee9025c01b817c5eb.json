@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM token_blacklist WHERE ctid IN (SELECT ctid FROM token_blacklist WHERE expires_at IS NOT NULL AND expires_at > 0 AND expires_at < $1 LIMIT $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c4a4e4bb4170d3bf45806d1557aba7edee8768aeeddd8f3ee9025c01b817c5eb"
+}

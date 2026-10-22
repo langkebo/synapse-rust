@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM device_lists_stream WHERE ctid IN (SELECT ctid FROM device_lists_stream WHERE created_ts < $1 LIMIT $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1192b1bd74716437c8a02b00362c55dba9b08e349874497403ccbcd6e0274b80"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM notifications WHERE ctid IN (SELECT ctid FROM notifications WHERE ts < $1 LIMIT $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7e83f433626d1de5e58dd5264bb144f7e315d18d9f9f0b9a109b27c73bd51631"
+}

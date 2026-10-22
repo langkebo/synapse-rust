@@ -265,7 +265,11 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // `a7a511c0179c92e0`。复算时发现 HEAD 上常量已与文件脱节（241317 字节的实际指纹是
 // `9d1a3c08514b3bb0`，常量仍是 `0055b1f8de02eeda`）—— 又有一笔改基线的提交没同步本
 // 常量，本行同时修掉这个既有红。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "a7a511c0179c92e0";
+// 2026-10-22（W4 第一层 `2358c0f5a`：房间/消息搜索改 ILIKE + `pg_trgm` 表达式索引，
+// `event_search` 补 trgm 索引）：基线 247241 → 247716 字节 ⇒ FNV-1a 64 = `f151aaa3c500793e`。
+// 自检：复算改动前的 `2358c0f5a^:migrations/…v12.sql`（247241 字节）得 `a7a511c0179c92e0`，
+// 与改动前常量逐字节吻合，证明哈希实现未变后才取新值。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "f151aaa3c500793e";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))
