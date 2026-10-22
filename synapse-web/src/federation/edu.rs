@@ -782,7 +782,7 @@ async fn handle_profile_update_edu(
     if !updated {
         // Unknown remote user: still drop any stale negative cache entry so a
         // later profile read re-queries the origin server, then count as processed.
-        let _ = ctx.cache.delete(&format!("user:profile:{user_id}")).await;
+        ctx.cache.delete(&format!("user:profile:{user_id}")).await;
         ::tracing::debug!(
             user_id = %user_id,
             origin = %origin,

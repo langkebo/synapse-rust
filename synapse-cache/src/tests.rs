@@ -858,3 +858,83 @@ async fn overwriting_a_key_keeps_its_per_key_ttl() {
         "overwrite must keep the per-key ttl (1s); losing it falls back to the builder ttl (3600s)"
     );
 }
+
+// ---------------------------------------------------------------------------
+// CODE-02: a failed L2 delete must not resurrect the value on the next read.
+// ---------------------------------------------------------------------------
+//
+// `CacheManager::delete` removes L1 first, then DELs L2. When the DEL fails the
+// local copy is already gone, so the next `get` falls through to Redis, reads
+// the entry the caller asked to drop, and `backfill_l1` writes it back into
+// L1 — where it survives until the Redis TTL expires (up to an hour).
+//
+// These two tests pin the fix from both sides: the stale value must not come
+// back, and a Redis outage must not make fresh writes unreadable.
+
+/// A failed L2 delete leaves a stale entry in Redis. Reading it back is exactly
+/// the bug: the call to `delete` must remain effective until the key is written
+/// again.
+#[tokio::test]
+#[allow(missing_docs)]
+async fn failed_l2_delete_does_not_resurrect_the_stale_value() {
+    use crate::error::CacheError;
+    use redis::AsyncCommands;
+
+    let Some((manager, pool, key)) = redis_backed_manager("tombstone").await else {
+        eprintln!("skip: local redis unavailable");
+        return;
+    };
+
+    // Model the failure directly: L2 holds the value and the DEL that was
+    // supposed to remove it failed. L1 is empty because `delete` clears it
+    // before touching Redis. The payload is JSON because that is what `set`
+    // stores — a bare string would fail to deserialize and mask the bug.
+    {
+        let mut conn = pool.get().await.expect("redis conn");
+        let stale = serde_json::to_string("stale_value").expect("serialize");
+        let _: () = conn.set_ex(&key, stale, 300).await.expect("seed redis");
+    }
+    manager.record_delete_outcome(&key, Err(CacheError::OperationFailed("simulated DEL failure".to_string())));
+
+    let read_back: Option<String> = manager.get(&key).await.expect("get");
+    assert_eq!(read_back, None, "a tombstoned key must not be read back from L2");
+    assert_eq!(manager.get_raw(&key), None, "the stale value must not have been backfilled into L1");
+
+    // A successful write overwrites the stale entry, so the tombstone is no
+    // longer needed and reads return the fresh value.
+    manager.set(&key, &"fresh_value".to_string(), 300).await.expect("set");
+    let read_back: Option<String> = manager.get(&key).await.expect("get");
+    assert_eq!(read_back.as_deref(), Some("fresh_value"), "a successful set must clear the tombstone");
+
+    let mut conn = pool.get().await.expect("redis conn");
+    let _: () = conn.del(&key).await.expect("cleanup");
+}
+
+/// The tombstone must gate L2 only. If it also gated L1, a Redis outage would
+/// make every write unreadable for as long as the outage lasted.
+#[tokio::test]
+#[allow(missing_docs)]
+async fn tombstone_does_not_hide_fresh_local_writes_during_redis_outage() {
+    use deadpool_redis::{Config as RedisPoolConfig, Runtime as RedisRuntime};
+
+    const BROKEN_URL: &str = "redis://127.0.0.1:1";
+    let pool = RedisPoolConfig::from_url(BROKEN_URL)
+        .create_pool(Some(RedisRuntime::Tokio1))
+        .expect("failed to build Redis pool for broken-backend test");
+    let manager = CacheManager::with_redis_pool_and_url(pool, &CacheConfig::default(), BROKEN_URL);
+    let key = "code02:outage:probe";
+
+    manager.set(key, &"v1".to_string(), 60).await.expect("set");
+    // L1 cleared, L2 DEL fails → tombstone.
+    manager.delete(key).await;
+    assert_eq!(manager.get::<String>(key).await.unwrap(), None, "the delete must take effect");
+
+    // The re-write cannot reach Redis either, so the tombstone stays — but the
+    // fresh value lives in L1 and must remain readable.
+    manager.set(key, &"v2".to_string(), 60).await.expect("set");
+    assert_eq!(
+        manager.get::<String>(key).await.unwrap().as_deref(),
+        Some("v2"),
+        "a tombstone must gate L2 reads only; a Redis outage must not blank fresh L1 writes"
+    );
+}

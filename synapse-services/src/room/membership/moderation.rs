@@ -120,7 +120,7 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_cause("Failed to record m.room.member invite event", e))?;
 
         // Invalidate room-state cache after membership state change.
-        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+        crate::room_state_cache::invalidate_room_state(&self.cache, room_id).await;
 
         // Enqueue the invite event for matching application services.
         self.dispatch_appservice_event(&invite_event).await;
@@ -180,7 +180,8 @@ impl MembershipService {
             );
         }
 
-        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+        // Invalidate room-state cache after membership state change.
+        crate::room_state_cache::invalidate_room_state(&self.cache, room_id).await;
 
         Ok(())
     }
@@ -250,7 +251,7 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_cause("Failed to record m.room.member knock event", e))?;
 
         // Invalidate room-state cache after membership state change.
-        self.cache.delete(&format!("room_state:{room_id}")).await;
+        crate::room_state_cache::invalidate_room_state(&self.cache, room_id).await;
 
         // Best-effort: sign and broadcast the knock event to federation peers.
         if let Err(e) = self.sign_and_broadcast_event(&knock_event).await {
@@ -485,7 +486,7 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_cause("Failed to record m.room.member moderation event", e))?;
 
         // Invalidate room-state cache after membership state change.
-        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+        crate::room_state_cache::invalidate_room_state(&self.cache, room_id).await;
 
         // Best-effort: sign and broadcast to federation peers.
         if let Err(e) = self.sign_and_broadcast_event(&event).await {

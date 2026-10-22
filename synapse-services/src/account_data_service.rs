@@ -19,6 +19,26 @@ type AccountDataWithTimestamp = (Value, Option<i64>);
 /// are talking about.
 pub const EXTENDED_PROFILE_DATA_TYPE: &str = "uk.tcpip.msc4133.profile";
 
+/// Cache key for the per-user account-data list served to `/sync`.
+pub(crate) fn account_data_cache_key(user_id: &str) -> String {
+    format!("account_data:{user_id}")
+}
+
+/// Invalidates the cached account data of `user_id`.
+///
+/// The single delete site for that key: `/sync` reads it through
+/// [`account_data_cache_key`], and every account-data write (here, plus
+/// `m.direct` in [`crate::friend_room_service`]) goes through this helper, so the
+/// key format cannot drift between readers and writers.
+///
+/// Returns nothing on purpose: a failed L2 delete is handled inside
+/// [`CacheManager::delete`], which tombstones the key so the next read falls
+/// back to the database. There is nothing useful for a caller to do with the
+/// outcome, and surfacing it would fail a write that already succeeded.
+pub async fn invalidate_account_data(cache: &CacheManager, user_id: &str) {
+    cache.delete(&account_data_cache_key(user_id)).await;
+}
+
 /// The `AccountDataService` struct.
 pub struct AccountDataService {
     cache: Arc<CacheManager>,
@@ -59,7 +79,7 @@ impl AccountDataService {
 
         // Invalidate the account-data cache for this user so the next /sync
         // will re-read the fresh data (OPT-015-b, audit 04 §5).
-        let _ = self.cache.delete(&format!("account_data:{user_id}")).await;
+        invalidate_account_data(&self.cache, user_id).await;
 
         Ok(())
     }
@@ -104,7 +124,7 @@ impl AccountDataService {
 
         // Invalidate the account-data cache for this user so the next /sync
         // will re-read the fresh data (OPT-015-b, audit 04 §5).
-        let _ = self.cache.delete(&format!("account_data:{user_id}")).await;
+        invalidate_account_data(&self.cache, user_id).await;
 
         Ok(result)
     }

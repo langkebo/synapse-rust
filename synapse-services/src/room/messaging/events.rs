@@ -361,7 +361,7 @@ impl MessagingService {
         // Invalidate room-state cache when a state event is written.
         // Best-effort: failure to delete is non-fatal.
         if state_key.is_some() {
-            let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+            crate::room_state_cache::invalidate_room_state(&self.cache, room_id).await;
         }
 
         if should_update_summary && event_type == "m.room.canonical_alias" && state_key == Some("") {
@@ -455,7 +455,7 @@ impl MessagingService {
         // Invalidate room-state cache when a state event is written.
         // Best-effort: failure to delete is non-fatal.
         if state_key.is_some() {
-            let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+            crate::room_state_cache::invalidate_room_state(&self.cache, &room_id).await;
         }
 
         // Maintain the room's resolved-state record (MSC4297 v2.1, F-1). Only
@@ -559,7 +559,7 @@ impl MessagingService {
             .map_err(|e| ApiError::internal_with_cause("Failed to create outlier event", e))?;
 
         if state_key.is_some() {
-            let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+            crate::room_state_cache::invalidate_room_state(&self.cache, &room_id).await;
         }
 
         if should_update_summary {

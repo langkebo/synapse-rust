@@ -1,4 +1,4 @@
-use super::error::CacheConfig;
+use super::error::{CacheConfig, CacheError};
 use super::local::LocalCache;
 use super::remote::RedisCache;
 use crate::invalidation::{
@@ -10,7 +10,7 @@ use deadpool_redis::Pool;
 use moka::ops::compute::Op;
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use synapse_common::claims::Claims;
@@ -42,6 +42,12 @@ pub struct CacheManager {
     rate_limit_metrics: OnceLock<RateLimitMetrics>,
     /// W7+: 熔断器指标是否已注入（幂等标记，不持有数据）。
     circuit_breaker_metrics_attached: OnceLock<()>,
+    /// 删除失败后打上墓碑的 key 集合（见 [`CacheManager::record_delete_outcome`]）。
+    ///
+    /// 无 TTL 是刻意的：墓碑唯一的摘除条件是「该键的 L2 旧值确实被覆盖或删除」，
+    /// 也就是下一次成功的 `set`/`delete`。若用固定 TTL，过期后残留的 L2 旧值会
+    /// 被再次读回——那只是把问题推迟了 TTL 那么久。
+    tombstones: Arc<parking_lot::RwLock<HashSet<String>>>,
 }
 
 impl CacheManager {
@@ -57,6 +63,7 @@ impl CacheManager {
             in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             rate_limit_metrics: OnceLock::new(),
             circuit_breaker_metrics_attached: OnceLock::new(),
+            tombstones: Arc::new(parking_lot::RwLock::new(HashSet::new())),
         }
     }
 
@@ -89,6 +96,7 @@ impl CacheManager {
                     in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                     rate_limit_metrics: OnceLock::new(),
                     circuit_breaker_metrics_attached: OnceLock::new(),
+                    tombstones: Arc::new(parking_lot::RwLock::new(HashSet::new())),
                 })
             }
             Err(e) => {
@@ -103,6 +111,7 @@ impl CacheManager {
                     in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                     rate_limit_metrics: OnceLock::new(),
                     circuit_breaker_metrics_attached: OnceLock::new(),
+                    tombstones: Arc::new(parking_lot::RwLock::new(HashSet::new())),
                 })
             }
         }
@@ -136,6 +145,7 @@ impl CacheManager {
             in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             rate_limit_metrics: OnceLock::new(),
             circuit_breaker_metrics_attached: OnceLock::new(),
+            tombstones: Arc::new(parking_lot::RwLock::new(HashSet::new())),
         }
     }
 
@@ -158,6 +168,7 @@ impl CacheManager {
             in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             rate_limit_metrics: OnceLock::new(),
             circuit_breaker_metrics_attached: OnceLock::new(),
+            tombstones: Arc::new(parking_lot::RwLock::new(HashSet::new())),
         }
     }
 
@@ -446,7 +457,13 @@ impl CacheManager {
                     %error,
                     "Failed to write cache entry to Redis; L1 updated, other instances will not see it"
                 );
+            } else {
+                // The stale L2 entry (if any) has been overwritten, so a
+                // tombstone is no longer needed.
+                self.tombstones.write().remove(key);
             }
+        } else {
+            self.tombstones.write().remove(key);
         }
     }
 
@@ -490,8 +507,9 @@ impl CacheManager {
             return Some(val);
         }
 
-        // L2: Redis Cache
-        if self.use_redis {
+        // L2: Redis Cache — a tombstoned key means the last L2 delete failed,
+        // so the entry still in Redis is the one the caller asked to drop.
+        if self.use_redis && !self.is_tombstoned(key) {
             if let Some(redis) = &self.redis {
                 if let Some((val, remaining_ttl)) = redis.get_with_ttl(key).await {
                     // Populate L1 so subsequent synchronous reads hit locally,
@@ -505,18 +523,54 @@ impl CacheManager {
     }
 
     /// Removes a key from both cache layers.
+    ///
+    /// A failed L2 delete is **not** a no-op: the local copy is already gone, so
+    /// the next read would fall through to Redis, read the entry that failed to
+    /// delete, and backfill it into L1 — resurrecting the value the caller asked
+    /// to drop. [`record_delete_outcome`](Self::record_delete_outcome) prevents
+    /// that by tombstoning the key.
     pub async fn delete(&self, key: &str) {
         self.local.remove(key);
         if let Some(redis) = &self.redis {
-            if let Err(e) = redis.delete(key).await {
-                self.note_cache_operation(key, "delete", "error");
-                ::tracing::warn!(target: "cache", cache_key = %key, error = %e, "Failed to delete cache entry from Redis");
-            } else {
-                self.note_cache_operation(key, "delete", "success");
-            }
+            self.record_delete_outcome(key, redis.delete(key).await);
         }
         if let Err(e) = self.broadcast_invalidation(key, InvalidationType::Key).await {
             tracing::warn!("Failed to broadcast key invalidation: {}", e);
+        }
+    }
+
+    /// Whether `key` is tombstoned, i.e. an L2 delete failed and the stale entry
+    /// may still be readable from Redis.
+    fn is_tombstoned(&self, key: &str) -> bool {
+        self.tombstones.read().contains(key)
+    }
+
+    /// Records the outcome of an L2 delete for one key, tombstoning it on failure.
+    ///
+    /// The tombstone is cleared only by a successful `delete` or a successful
+    /// `set` for that key — i.e. exactly when the stale L2 value is known to be
+    /// gone or overwritten. See the `tombstones` field docs for why there is no
+    /// TTL.
+    ///
+    /// `pub(crate)` so the tombstone regression test can drive the exact
+    /// failure this exists for without needing a Redis instance that accepts
+    /// writes and then rejects deletes.
+    pub(crate) fn record_delete_outcome(&self, key: &str, outcome: Result<(), CacheError>) {
+        match outcome {
+            Ok(()) => {
+                self.tombstones.write().remove(key);
+                self.note_cache_operation(key, "delete", "success");
+            }
+            Err(e) => {
+                self.note_cache_operation(key, "delete", "error");
+                ::tracing::warn!(
+                    target: "cache",
+                    cache_key = %key,
+                    error = %e,
+                    "Failed to delete cache entry from Redis; tombstoning key until a fresh write"
+                );
+                self.tombstones.write().insert(key.to_owned());
+            }
         }
     }
 
@@ -534,13 +588,32 @@ impl CacheManager {
             self.local.remove(key);
         }
         if let Some(redis) = &self.redis {
-            if let Err(e) = redis.delete_batch(keys).await {
-                ::tracing::warn!(
-                    target: "cache",
-                    count = keys.len(),
-                    error = %e,
-                    "Failed to batch-delete cache entries from Redis"
-                );
+            match redis.delete_batch(keys).await {
+                Ok(()) => {
+                    let mut tombstones = self.tombstones.write();
+                    for key in keys {
+                        tombstones.remove(key);
+                    }
+                }
+                Err(e) => {
+                    ::tracing::warn!(
+                        target: "cache",
+                        count = keys.len(),
+                        error = %e,
+                        "Failed to batch-delete cache entries from Redis; tombstoning keys until a fresh write"
+                    );
+                    // One pipeline failure leaves *every* key's L2 entry in
+                    // place, so every key gets a tombstone.
+                    let mut tombstones = self.tombstones.write();
+                    for key in keys {
+                        tombstones.insert(key.clone());
+                    }
+                }
+            }
+        } else {
+            let mut tombstones = self.tombstones.write();
+            for key in keys {
+                tombstones.remove(key);
             }
         }
         for key in keys {
@@ -556,9 +629,7 @@ impl CacheManager {
             InvalidationType::Key => {
                 self.local.remove(key);
                 if let Some(redis) = &self.redis {
-                    if let Err(e) = redis.delete(key).await {
-                        ::tracing::warn!(target: "cache", cache_key = %key, error = %e, "Failed to delete cache entry from Redis (with invalidation)");
-                    }
+                    self.record_delete_outcome(key, redis.delete(key).await);
                 }
             }
             InvalidationType::Pattern | InvalidationType::Prefix => {
@@ -619,8 +690,9 @@ impl CacheManager {
             }
         }
 
-        // L2: Redis Cache
-        if self.use_redis {
+        // L2: Redis Cache — a tombstoned key means the last L2 delete failed,
+        // so the entry still in Redis is the one the caller asked to drop.
+        if self.use_redis && !self.is_tombstoned(&key) {
             if let Some(redis) = &self.redis {
                 if let Some((val, remaining_ttl)) = redis.get_with_ttl(&key).await {
                     if let Ok(result) = serde_json::from_str(&val) {
@@ -651,8 +723,10 @@ impl CacheManager {
             }
         }
 
-        // L2: Redis Cache — propagate errors (fail closed)
-        if self.use_redis {
+        // L2: Redis Cache — propagate errors (fail closed). A tombstoned key
+        // means the last L2 delete failed, so the entry still in Redis is the
+        // one the caller asked to drop; report a miss instead of reading it.
+        if self.use_redis && !self.is_tombstoned(&key) {
             if let Some(redis) = &self.redis {
                 let val = match redis.get_checked_with_ttl(&key).await {
                     Ok(val) => val,
@@ -699,6 +773,11 @@ impl CacheManager {
                 }
             }
             results.push(None);
+            // Tombstoned keys must not reach the MGET below: the stale L2
+            // entry is still there, so fetching it would undo the delete.
+            if self.is_tombstoned(key) {
+                continue;
+            }
             missing_indices.push(i);
             missing_keys.push(key.clone());
         }
@@ -748,11 +827,15 @@ impl CacheManager {
                     if let Err(e) = redis.set(key, &val, ttl).await {
                         self.note_cache_operation(key, "set", "error");
                         ::tracing::debug!(target: "cache", cache_key = %key, error = %e, "Best-effort Redis SET failed");
+                        // Keep any tombstone: the stale L2 entry was not
+                        // overwritten, so it must stay unreadable.
                     } else {
+                        self.tombstones.write().remove(key);
                         self.note_cache_operation(key, "set", "success");
                     }
                 }
             } else {
+                self.tombstones.write().remove(key);
                 self.note_cache_operation(key, "set", "success");
             }
         } else {
@@ -775,6 +858,9 @@ impl CacheManager {
                 }
             }
         }
+        // L2 now holds the fresh value (or is not in use), so any tombstone
+        // recorded by a failed delete has served its purpose.
+        self.tombstones.write().remove(key);
         self.note_cache_operation(key, "set", "success");
         Ok(())
     }

@@ -477,7 +477,7 @@ impl MembershipService {
         }
 
         // Invalidate room-state cache after persisting federated state events.
-        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+        crate::room_state_cache::invalidate_room_state(&self.cache, room_id).await;
 
         // Persist the join event itself **before** claiming membership, so that a
         // persistence failure cannot leave membership tables (or the member
@@ -528,7 +528,7 @@ impl MembershipService {
         }
 
         // Invalidate room-state cache after membership state change.
-        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+        crate::room_state_cache::invalidate_room_state(&self.cache, room_id).await;
 
         // 6. Claim membership only once the event graph is durable.
         self.member_storage
@@ -745,7 +745,7 @@ impl MembershipService {
         }
 
         // Invalidate room-state cache after membership state change.
-        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+        crate::room_state_cache::invalidate_room_state(&self.cache, room_id).await;
 
         // 4. Update local membership.
         let existing_member = self
@@ -998,7 +998,7 @@ impl MembershipService {
             ::tracing::warn!(error = %e, "Failed to persist invite event after federation invite");
         } else {
             // Invalidate room-state cache after membership state change.
-            let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+            crate::room_state_cache::invalidate_room_state(&self.cache, room_id).await;
         }
 
         Ok(())
@@ -1107,7 +1107,7 @@ impl MembershipService {
             ::tracing::warn!(error = %e, "Failed to persist third-party invite event");
         } else {
             // Invalidate room-state cache after membership state change.
-            let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+            crate::room_state_cache::invalidate_room_state(&self.cache, room_id).await;
         }
 
         Ok(signed_event)

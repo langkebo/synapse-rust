@@ -610,7 +610,7 @@ async fn bench_friend_list_100_limit_50() {
     // 为测 cold 必须清掉 cache key。key 模板：
     // friends:list:v4:sort:{user}:{room}:{version}:{sort_by}
     let sort_cache_key = format!("friends:list:v4:sort:{}:{}:{}:alphabet", owner_user_id, friend_room_id, 1);
-    let _ = container.core.cache.delete(&sort_cache_key).await;
+    container.core.cache.delete(&sort_cache_key).await;
 
     // cold：cache miss
     let cold_start = std::time::Instant::now();

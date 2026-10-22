@@ -555,7 +555,7 @@ impl LifecycleService {
         let room_alias = self.format_room_alias(config.room_alias_name.as_deref());
 
         // Invalidate room-state cache after room creation writes initial state.
-        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+        crate::room_state_cache::invalidate_room_state(&self.cache, &room_id).await;
 
         // After the transaction commits, enqueue the initial state events for
         // any matching application services.  Events created inside the

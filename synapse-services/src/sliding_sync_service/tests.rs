@@ -650,7 +650,7 @@ async fn room_state_cache_invalidation_clears_on_write() {
         .unwrap();
 
     // Manually invalidate the cache (simulating what a state-event write does).
-    let _ = svc.cache.delete(&format!("room_state:{room_id}")).await;
+    crate::room_state_cache::invalidate_room_state(&svc.cache, room_id).await;
 
     // Third call — cache miss → should return the newly added event from storage.
     let result =

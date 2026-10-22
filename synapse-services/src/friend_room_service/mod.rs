@@ -680,7 +680,7 @@ impl FriendRoomService {
 
         // Invalidate the account-data cache for this user so the next /sync
         // will re-read the fresh m.direct data (OPT-015-b, audit 04 §5).
-        let _ = self.cache.delete(&format!("account_data:{user_id}")).await;
+        crate::account_data_service::invalidate_account_data(&self.cache, user_id).await;
 
         Ok(())
     }

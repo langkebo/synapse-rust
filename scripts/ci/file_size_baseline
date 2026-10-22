@@ -12,7 +12,7 @@
 2466 synapse-storage/src/refresh_token/mod.rs
 2442 synapse-common/src/error.rs
 2332 synapse-common/src/config/mod.rs
-2301 synapse-storage/src/device/mod.rs
+2327 synapse-storage/src/device/mod.rs
 2106 synapse-test-utils/src/lib.rs
 2086 synapse-federation/src/client.rs
 1851 synapse-storage/src/user/storage.rs
@@ -81,8 +81,8 @@
 1188 synapse-services/src/sync_service/response.rs
 1185 synapse-common/src/test_schema_guard.rs
 1184 synapse-e2ee/src/backup/storage.rs
-1181 synapse-cache/src/manager.rs
-1167 synapse-services/src/room/membership/moderation.rs
+1267 synapse-cache/src/manager.rs
+1168 synapse-services/src/room/membership/moderation.rs
 1156 synapse-federation/src/event_broadcaster.rs
 1151 synapse-storage/src/rendezvous.rs
 1132 synapse-web/src/routes/federation/transaction.rs
@@ -148,7 +148,7 @@
 884 synapse-web/src/routes/module.rs
 874 synapse-common/src/security.rs
 865 synapse-storage/src/worker/repository.rs
-860 synapse-cache/src/tests.rs
+940 synapse-cache/src/tests.rs
 857 synapse-services/src/identity/service.rs
 857 synapse-services/src/refresh_token_service.rs
 854 synapse-storage/src/registration_token/db_tests.rs
@@ -186,7 +186,7 @@
 695 synapse-web/src/routes/admin/room/management.rs
 689 synapse-storage/src/openid_token.rs
 688 synapse-storage/src/migration_checks.rs
-683 synapse-services/src/account_data_service.rs
+703 synapse-services/src/account_data_service.rs
 672 synapse-services/src/notifying_event_writer.rs
 670 src/bin/synapse_worker.rs
 663 synapse-storage/src/event/reader.rs

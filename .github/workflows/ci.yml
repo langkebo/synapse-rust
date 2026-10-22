@@ -130,6 +130,14 @@ jobs:
       - name: Route ↔ storage boundary gate
         run: bash scripts/ci/check_route_storage_boundary.sh
 
+      # CODE-02: `CacheManager::delete` returns `()` (a failed L2 DEL is handled
+      # inside the manager by tombstoning the key), so `let _ = ...cache.delete(...)`
+      # discards nothing and only invites divergent delete sites for the same key.
+      # Each key now has a single invalidation helper; this gate keeps it that way.
+      # Red-proved 2026-10-22: reinstating one `let _ =` line → exit 1; removing it → exit 0.
+      - name: No silent cache invalidation
+        run: bash scripts/ci/check_no_silent_cache_delete.sh
+
       # Workflow 自身的健全性：每个 Actions step 必须有 `run:` 或 `uses:`。
       # 缺了两者会让**整个 workflow 文件**校验失败，该 workflow 的所有步骤一起
       # 不生效（db-migration-gate.yml 在 2026-09-15 曾真实如此 —— Phase 0 删掉了

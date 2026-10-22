@@ -3,7 +3,9 @@
 > 审查日期：2026-10-22
 > 审查基线：HEAD `d3d41618b`（工作区另有并发会话未提交改动，**未纳入审查、未触碰**）
 > **复核基线：HEAD `bf15f173a`**（同日第二轮逐条复核；更正见 §0.1，被改写的条目正文带 `> **复核**：` 标记）
-> 审查方式：静态审查（逐文件阅读 + 全仓 grep 计数 + 定点交叉复核）；**未运行完整测试套件**，因此除 §0.1 明确标注"已修/已实测"者外，下文所有"行为"结论均为代码事实推断，不含运行时实测
+> **第三轮基线：HEAD `88554436b`**（同日第三轮；更正见 §0.2，新增 4 条缺陷，规划见 §十）
+> 审查方式：静态审查（逐文件阅读 + 全仓 grep 计数 + 定点交叉复核）；**未运行完整测试套件**，因此除 §0.1/§0.2 明确标注"已修/已实测"者外，下文所有"行为"结论均为代码事实推断，不含运行时实测
+> 计数口径：所有 grep 计数均以 `git ls-files` 的受版本控制文件为域（**排除 `target/`**）。直接 `grep -rn .` 会把构建产物算进去，历史踩过
 > 严重度定义：
 > - **P0**：导致数据丢失/服务不可用/认证绕过，须立即修
 > - **P1**：破坏规范语义、产生不可见数据、或形成系统性安全/一致性问题，本迭代必修
@@ -15,18 +17,26 @@
 | 维度 | P0 | P1 | P2 | P3 | 小计 |
 |---|---|---|---|---|---|
 | 架构设计 | 0 | 1 | 4 | 1 | 6 |
-| 代码质量 | 0 | 3 | 6 | 2 | 11 |
-| 功能完整性 | 0 | 1 | 2 | 2 | 5 |
-| 性能表现（含数据层） | 0 | 1 | 8 | 3 | 12 |
+| 代码质量 | 0 | 3 | 6 | **3** | **12** |
+| 功能完整性 | 0 | **2** | 2 | 2 | **6** |
+| 性能表现（含数据层） | 0 | 1 | **9** | **4** | **14** |
 | 安全性 | 0 | 1 | 7 | 7 | 15 |
 | 可维护性 | 0 | 0 | 4 | 4 | 8 |
 | 测试覆盖 | 0 | 1 | 5 | 1 | 7 |
 | 文档完整性 | 0 | 0 | 3 | 6 | 9 |
-| **八维度小计** | **0** | **8** | **39** | **26** | **73** |
+| **八维度小计** | **0** | **9** | **40** | **28** | **77** |
 | 九、专项：冗余与过度开发 | 0 | 0 | 10 | 17 | 27 |
-| **合计** | **0** | **8** | **49** | **43** | **100** |
+| **合计** | **0** | **9** | **50** | **45** | **104** |
 
-**结论摘要**：无 P0；8 条 P1 中有 3 条会直接造成"数据写进库但对客户端不可见/不可达"（ARCH-01、FUNC-03、PERF-02），3 条是认证与缓存一致性（SEC-01、CODE-02、CODE-03），1 条是测试替身泄漏到生产 API（CODE-05），1 条是联邦信任根缺测试（TEST-01）。
+> 加粗数字为第三轮新增（CODE-12、FUNC-06、PERF-13、PERF-14）。第三轮未新增 P0/P1 以外的高危项，但把 **CODE-02 的影响面从 5 处修正为 19 处**——结论等级不变，处置规模翻近 4 倍。
+
+**结论摘要**：无 P0；9 条 P1 中有 4 条会直接造成"数据写进库但对客户端不可见/不可达"（ARCH-01、FUNC-03、FUNC-06、PERF-02），3 条是认证与缓存一致性（SEC-01、CODE-02、CODE-03），1 条是测试替身泄漏到生产 API（CODE-05），1 条是联邦信任根缺测试（TEST-01）。
+
+**三条主干风险（按"修复后收益/成本"排序）**：
+
+1. **缓存失效被静默吞掉**（CODE-02 / CODE-03，19+6 处）——一致性缺陷，现象偶发、难复现，但会让"已退房用户仍能读写"。修法单一、可机械替换，是本轮性价比最高的一项。
+2. **配额与事务边界不可信**（FUNC-03 / FUNC-06 / PERF-02）——分片上传完全不计配额且可谎报大小；注册流程 5-6 次独立提交。前者是绕过，后者是"半注册"脏数据。
+3. **Thread 影子表**（ARCH-01）——非规范 API 写入的数据对 `/sync`、`/messages`、联邦全部不可见，是唯一"写了等于没写"的结构性问题。
 
 ## 0.1 第二轮复核：改了哪些结论
 
@@ -45,6 +55,38 @@
 | 其余带数字论断 | ARCH-05（7 文件 >2000 行）、ARCH-06、CODE-02（5 处）、CODE-03（6 处）、CODE-09、RD-01、RD-12、RD-14（4189 行）、RD-20~22、PERF-03/04/05、TEST-03（7 条）、TEST-04（8 脚本）、SEC-04/07/08 | **✅ 逐条实测成立**（行数、计数、SQL 形态全部对上） | 保留 |
 
 复核同时新增 1 条初审遗漏的冗余项（**RD-27**：to_device 的 4 个存储方法零调用），并订正 3 处自引用矛盾（附录 B、RD-14 标题、CODE-11 计数），见各条目下的 `> **复核**：`。
+
+## 0.2 第三轮复核：改了哪些结论
+
+第三轮的范围与前两轮不同：**不再逐条重读**（第二轮已覆盖），而是只做三件事——① 重跑全部"带数字/行号"的论断；② 对 P1 做"影响面是否被低估"的扩散扫描；③ 补做第二轮明确列为未覆盖的维度。
+
+基线 `88554436b` 相对复核基线 `bf15f173a` 只多了两个提交（`369706979` SEC-10 修复、`88554436b` 文档复核），**代码主体未变**，故第二轮结论整体仍成立。以下只列**变化**：
+
+| 条目 | 原结论 | 第三轮实测 | 处置 |
+|---|---|---|---|
+| **CODE-02** | P1：**5 处**静默吞掉 `room_state` 失效（仅 `membership/federation.rs`） | **⚠️ 严重低估**。生产路径 `let _ = …cache.delete(…)` 实测 **19 处**：`room_state:` **15 处**（`room/lifecycle/create.rs:558`；`room/membership/actions.rs:240,339,613`；`room/membership/federation.rs:480,531,748,1001,1110`；`room/membership/moderation.rs:123,183,488`；`room/messaging/events.rs:364,458,562`），另有 `account_data:` **3 处**（`account_data_service.rs:62,107`、`friend_room_service/mod.rs:683`）与 `user:profile:` **1 处**（`synapse-web/src/federation/edu.rs:785`） | 等级不变（P1），**影响面改述为 19 处**；修法从"改 5 行"升级为"建 helper + 全量替换 + 门禁" |
+| **CODE-10** | P2：全仓 **1411 处 / 300 文件** | **⚠️ 口径错**。按 `git ls-files` 统计实为 **1593 处 / 337 文件**；剔除测试文件（`tests/`、`*/tests.rs`、`*_tests.rs`）后**生产代码 905 处 / 244 文件**。原数字既非全仓也非生产，来源不明 | 改为**双口径**：生产 905 / 全仓 1593，并给出可复现命令 |
+| **ARCH-05** | P2：**7 个**文件 >2000 行 | ✅ 7 个仍成立，但清单不完整。另有生成文件 `synapse-web/src/routes/derived_route_table_always.inc.rs`（5476 行）与 3 个测试文件（`event/db_tests.rs` 3466、`test_isolation.rs` 3191、`sync_service/tests.rs` 2509）也超线 | 保留 7 个生产文件；补一句"生成文件与测试文件不计入拆分目标" |
+| **TEST-07** | P3：实测 **277**（unit 126 + integration 146 + e2e 2 + perf 3） | **⚠️ 数字已漂移**。实测 **283**（unit **128** + integration **147** + e2e **3** + perf **5**） | 三处文档口径统一改为 283，并给出分项 |
+| 附录 A `#[ignore]` | "16 处 / 7 文件" | **⚠️ 口径混入**。裸 `grep '#\[ignore'` 得 34 处，但其中多数是 `e2e_honesty_tests.rs` / `ci_test_scope_tests.rs` 里的**字符串与扫描器断言**（它们本身就在禁止裸 ignore）。真实属性为 **11 条**：`tests/e2e/user_flow_tests.rs` 7 条、`tests/performance/*` 4 条，**全部带理由** | 改为"11 条真实属性，全部带理由"；字符串匹配不计入 |
+| **FUNC-03** | P1：完成时分片上传绕过 `record_upload_usage` | ✅ 成立，且**比原描述更严重**——见新增 **FUNC-06**：`total_size` 为 `None` 时连预检都不做，且该值由客户端声明、与实际大小无关 | 保留 FUNC-03；新增 FUNC-06 覆盖"预检与上界"两条独立缺口 |
+| **SEC-01** | P1：RBAC 关闭时超管黑名单失效 | ✅ 复现成立（`admin_auth.rs:66-67` 短路 `allowed`，黑名单在 `is_role_allowed` 内部） | 保留 |
+| **SEC-04** | P2：未设 `PROMETHEUS_AUTH_TOKEN` 时 `/metrics` 匿名 | ✅ 成立（`src/server/mod.rs:1091` 显式 `.filter(\|s\| !s.is_empty())`，空值即关闭鉴权） | 保留 |
+| **SEC-03** | P2：MFA 只校验"非空" | ✅ 成立（`validation.rs:17` 仅判 `is_empty()`，无占位符/长度/Base32 校验） | 保留 |
+| **SEC-10** | P3，已修 | ✅ 已修确认：`loggable_url()` 只留 `scheme://host` + ≤64 字符 path（按 char boundary 截断），query/fragment 全丢；用例 `logged_url_drops_the_query_and_caps_the_path` 在库 | 关闭 |
+| **RD-20 / RD-21** | P2：`notification_delivery_log` 只写不读；`user_locks` 生产零调用 | ✅ 成立。前者全仓唯一 `INSERT` 在 `server_notification/repository.rs:514`，无任何 `FROM`；后者仅 storage 自身方法 + 测试夹具 | 保留 |
+| **PERF-12** | P3：`INDEXES.md` 342 vs SQL 347 | ✅ 成立，且 347 个 `CREATE INDEX` **索引名互不重复**（不是重复计数） | 保留 |
+
+**第三轮新增 4 条**（详见正文）：
+
+| 编号 | 级别 | 一句话 |
+|---|---|---|
+| CODE-12 | P3 | `preview.rs:71` 有一句无副作用的死表达式，每次请求白算一次时间戳，并误导读者以为它是缓存键 |
+| FUNC-06 | **P1** | 分片上传的 `total_size` 由客户端声明：可为 `None`（跳过预检），也可谎报（预检失效）；实际大小只在合并后才校验 |
+| PERF-13 | P3 | URL 预览首跳被解析两次（调用方 `check_url_and_resolve` + service 内 `fetch_html`），每次预览多一次 DNS |
+| PERF-14 | P2 | `load_completed_upload` 先 `extend_from_slice` 拼完全部 chunk，**之后**才比 `max_file_size`，峰值内存 ≈ 文件大小（最大可到配额上限） |
+
+**第三轮明确"不改结论"的部分**：P1 的其余 7 条、全部 P0=0 判定、§9.11 剔除的 9 条误报，均未发现新反证。附录 B 的"未覆盖项"仍然有效（本机未跑全量套件与 benchmark）。
 
 ---
 
@@ -99,6 +141,7 @@
 - **类型**：可维护性
 - **影响范围**：单文件承载多个职责，改动冲突率高、审查成本高、编译增量大。
 - **修法**：按已有域边界拆分（`refresh_token` 可拆 storage/repository/rotation；`error.rs` 可拆 error + code + mapping）。
+- **范围边界（第三轮补充）**：另有 4 个文件也 >2000 行，但**不列入拆分目标**——`synapse-web/src/routes/derived_route_table_always.inc.rs`（5476 行，生成文件，改生成器而非改产物）；测试文件 `synapse-storage/src/event/db_tests.rs`（3466）、`tests/…/test_isolation.rs`（3191）、`synapse-services/src/sync_service/tests.rs`（2509）。
 
 ### ARCH-06（P3）Schema 规范漂移：44 处 `updated_ts BIGINT NOT NULL`、2 处可空 `created_ts`、3 处列名 `timestamp`
 - **位置**：`migrations/00000000_unified_schema_v12.sql:1672`、`:1872`（可空 `created_ts`）；`:1094`、`:2684`、`:3235`（列名 `timestamp`）
@@ -116,17 +159,23 @@
 - **影响范围**：`hash_token` 在 release 构建且未设置 `TOKEN_HASH_SECRET` 时直接 panic。主服务启动有 `validate_token_hash_secret`（`src/server/mod.rs:182`）兜底，但库函数本身对任意其他进程（worker/工具/新增二进制）都是硬 panic；`src/bin` 下 8 个可执行入口均未校验。
 - **修法**：改为返回 `Result`，或把 secret 在进程启动时注入为不可变 `OnceCell` 并让 `hash_token` 只做取值。
 
-### CODE-02（P1）联邦成员变更路径 5 处静默吞掉缓存失效
-- **位置**：`synapse-services/src/room/membership/federation.rs:480,531,748,1001,1110`（`let _ = self.cache.delete(&format!("room_state:{room_id}")).await;`）
+### CODE-02（P1）生产路径 19 处静默吞掉缓存失效（`room_state` 15 / `account_data` 3 / `user:profile` 1）
+> **第三轮更正（2026-10-22）**：原文只统计了 `membership/federation.rs` 的 5 处，**低估了近 4 倍**。
+> 全量扫描 `let _ = …cache.delete(…)` 得 19 处，其中真正影响鉴权的 `room_state:` 有 15 处，
+> 分布在 6 个文件——即"联邦面修完、本地面和消息面照旧"的半修复状态，比"全都没修"更难发现。
+- **位置（`room_state:` 15 处）**：`room/lifecycle/create.rs:558`；`room/membership/actions.rs:240,339,613`；`room/membership/federation.rs:480,531,748,1001,1110`；`room/membership/moderation.rs:123,183,488`；`room/messaging/events.rs:364,458,562`
+- **位置（其他前缀 4 处）**：`account_data_service.rs:62,107`、`friend_room_service/mod.rs:683`（`account_data:`）；`synapse-web/src/federation/edu.rs:785`（`user:profile:`）
 - **类型**：错误吞噬 / 一致性
-- **影响范围**：远端 join/leave/ban 后若删除失败，本节点继续用旧 `room_state` 判定成员资格与事件鉴权，最长到 TTL 到期；期间可能对已退房用户放行、对已加入用户拒绝。
-- **修法**：失效失败记 `warn!` 并降级为短暂本地标记（或重试队列），不得 `let _ =`；与 CODE-03、PERF-08 统一为一处 `invalidate_room_state` helper。
+- **影响范围**：本地建房间、成员变更、消息写入、审核操作都会在删除失败后继续用旧 `room_state` 判定成员资格与事件鉴权，最长到 TTL 到期；期间可能对已退房用户放行、对已加入用户拒绝。`account_data` 失效丢失则表现为跨设备已读/标签不同步。
+- **修法**：引入单一 `invalidate_room_state(&cache, &room_id)`（内部 `warn!` + 本地短 TTL 墓碑 + 失败重试队列），**全量替换 19 处**；再加一条 clippy `let_underscore_must_use` 或 CI 扫描禁止对 `cache.delete` 使用 `let _ =`。分批推进：先 15 处 `room_state`，再 4 处其他前缀。
+- **状态：W0 已修（2026-10-22）**。实现与本条原写法不同：`CacheManager::delete` 返回 `()` 且内部已 `warn!`，所以问题不在吞错，而在 **L2 DEL 失败 → 下次读从 L2 回填把旧值复活**；修复落在 `synapse-cache/src/manager.rs` 的墓碑机制（实例字段、无 TTL、只拦 L2 读）。services 侧按 key 收敛为 2 个 helper（`room_state_cache::invalidate_room_state`、`account_data_service::invalidate_account_data`），19 处全部替换；`synapse-web/src/federation/edu.rs:785` 只有一处删除点，直接去掉 `let _ =`。门禁 `scripts/ci/check_no_silent_cache_delete.sh` 已接入 CI，红/绿均实测。详见 §10.2。
 
 ### CODE-03（P1）设备删除路径 6 处吞掉懒加载成员清理失败
 - **位置**：`synapse-storage/src/device/mod.rs:494,634,673,730,770,794`
 - **类型**：错误吞噬
 - **影响范围**：设备/用户删除后残留 `lazy_loaded_members` 行，`/sync` 会把这些成员当作"客户端已知"而抑制状态事件，表现为客户端看不到本应出现的成员变更。D-37 只修了 `:566` 一处，同类问题仍在。
 - **修法**：与 `:566` 同样的处理方式统一 6 处；并给该族函数加"返回值必须被处理"的 lint（`must_use`）。
+- **状态：W0 已修（2026-10-22）**。按"事务内 / 已提交"分流：事务内的 `:494`、`:673` 改为 `.await?` 向上传播（事务回滚，不留半删状态）；事务已提交的 `:634`、`:730`、`:770`、`:794` 回滚无意义，改为 `warn!` 并带 `user_id`/`device_id`，与 `:566` 的 D-37 措辞一致。`must_use` lint 未加（这些函数在测试与事务内均有合法忽略场景，收益低于噪声）。详见 §10.2。
 
 ### CODE-04（P2）邀请认领时静默丢弃房间配置
 - **位置**：`synapse-services/src/one_time_invite_service.rs:139`
@@ -164,11 +213,23 @@
 - **影响范围**：以注释为准的实现方会误判 TTL。
 - **修法**：改正注释或取值。
 
-### CODE-10（P2）全仓 1411 处 `let _ =` / `if let Ok(` / `unwrap_or_default()`，无收敛策略
-- **位置**：300 个文件（分布统计见本次 grep 结果）
+### CODE-10（P2）生产 905 处 / 全仓 1593 处 `let _ =` / `if let Ok(` / `unwrap_or_default()`，无收敛策略
+> **第三轮更正（2026-10-22）**：原文"1411 处 / 300 文件"**口径不明且不可复现**。按受版本控制文件重测：
+> 全仓 **1593 处 / 337 文件**；剔除测试文件（`tests/`、`*/tests.rs`、`*_tests.rs`）后生产代码
+> **905 处 / 244 文件**。差异主要来自是否把 `target/` 与测试代码计入。
+- **位置**：全仓；复现命令见下
 - **类型**：错误吞噬面
-- **影响范围**：CODE-02/03/04 都是这一模式的实例；没有 lint 或棘轮，新增静默失败无法被拦截。
-- **修法**：对"必须处理"的返回值加 `#[must_use]`；引入 clippy `let_underscore_must_use` 并设基线棘轮。
+- **影响范围**：CODE-02/03/04 都是这一模式的实例；没有 lint 或棘轮，新增静默失败无法被拦截。但**不能用"总数"做验收**——其中大量是 `unwrap_or_default()` 处理 `Option` 的合法用法，逐个清理会制造噪音。
+- **修法**：按**危险性**而非数量治理：① 对 `cache.delete` / `storage.delete` / `mark_finalized` 这类"失败即状态不一致"的调用，禁止 `let _ =`（CI 扫描 + 白名单）；② 对 `#[must_use]` 返回值启用 clippy `let_underscore_must_use`；③ 总数只做趋势记录，不设下降配额。
+- **复现**：
+
+```bash
+# 全仓（1593 处 / 337 文件）
+git ls-files -z '*.rs' | xargs -0 grep -cE 'let _ =|if let Ok\(|unwrap_or_default\(\)' | awk -F: '{s+=$2} END {print s}'
+# 生产代码，剔除 tests/、*/tests.rs、*_tests.rs（905 处 / 244 文件）
+git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
+  | xargs grep -hcE 'let _ =|if let Ok\(|unwrap_or_default\(\)' | awk '{s+=$1} END {print s}'
+```
 
 ### CODE-11（P3）268 处 `#[allow(...)]` / 117 文件，**无 `// reason:` 强制**
 > **复核（2026-10-22 第二轮）**：两处更正。① 文件数是 **117**（原文 128，偏多 11）；
@@ -181,6 +242,19 @@
   "已知例外（如 `clippy::unused_async` 用于必须保持签名的 stub）"与"当年为了过门禁随手加的"。
 - **修法**：在 `check_clippy_allow_ratchet.py` 上再加一条：新条目必须在同行或上一行带
   `// reason: …`；老条目按白名单惰性迁移。**不要**重做棘轮本身——它已经在工作。
+
+### CODE-12（P3，第三轮新增）URL 预览 handler 里有一句无副作用的死表达式
+- **位置**：`synapse-web/src/routes/media/preview.rs:71`
+- **证据**：
+  ```rust
+  let _ = ts.unwrap_or_else(current_timestamp_millis);
+  ```
+  `ts` 是上游传下来的 `Option<i64>`；无论 `Some/None`，结果都被丢弃。这行每次请求都会在
+  `None` 分支调用一次 `current_timestamp_millis()`，然后什么都不做。
+- **类型**：死代码 / 误导性代码
+- **影响范围**：无功能影响（不产生错误行为），但会让读者误以为它是缓存键或时间戳校验；
+  这类"看起来在做事"的语句比明显的死代码更有害——下一个改这里的人会以为删掉它会改变行为。
+- **修法**：直接删除该行；若原意是做缓存旁路，则改为显式 `if let Some(ts) = ts { ... }` 并补测试。
 
 ---
 
@@ -216,8 +290,9 @@
 ### FUNC-03（P1）分片上传完成时绕过配额记账
 - **位置**：`synapse-services/src/media/mod.rs:377-412`（调用 `media_service.upload_media_with_id`，未经 `record_upload_usage`）
 - **类型**：配额逃逸
-- **影响范围**：所有走分片上传的媒体不计入用户/房间配额，配额限制可被绕过；与整块上传的记账口径不一致。
-- **修法**：在分片完成路径复用 `record_upload_usage`，并把"记账"下沉到 `upload_media_with_id` 内部，消除调用方分歧。
+- **影响范围**：所有走分片上传的媒体不计入用户/房间配额，配额限制可被绕过；与整块上传的记账口径不一致。整块上传路径 `upload_media_with_id` 是 `ensure_upload_allowed` → 上传 → `record_upload_usage`，分片路径**只做了第一步的一部分**。
+- **修法**：在分片完成路径复用 `record_upload_usage`；更好的做法是把"记账"下沉到 `upload_media_with_id` 内部（用参数区分"已记账/待记账"），消除调用方分歧——否则下一条新增上传路径还会漏。
+- **回归用例**：分片上传 N MB 后，断言 `quota_used` 增加 N；再继续上传直到超限，断言被 `ensure_upload_allowed` 拒绝。
 
 ### FUNC-04（P2）`API_COVERAGE_REPORT.md` 两处能力标注与实现相反
 - **位置**：`docs/synapse-rust/API_COVERAGE_REPORT.md:384`（称 `animated` 未实现，实际 `synapse-web/src/routes/media/download.rs:27,190,284,302-308` 已实现）、`:399`（称 `M_APPSERVICE_LOGIN_UNSUPPORTED` 不存在，实际 `synapse-common/src/error/code.rs:46,140,266`）
@@ -230,6 +305,27 @@
 - **类型**：能力台账与实现边界不清
 - **影响范围**：审查者/客户端会误判为遗漏。
 - **修法**：在 ROUTE_CONTRACT 增"有意不实现"清单及理由。
+
+### FUNC-06（P1，第三轮新增）分片上传的 `total_size` 由客户端声明，配额预检可被完全跳过
+- **位置**：`synapse-services/src/media/mod.rs:337-346`（`start_chunked_upload`）、`synapse-services/src/media/chunked_upload.rs:83-140`（`start_upload` / `upload_chunk`）
+- **类型**：配额逃逸 / 输入不可信
+- **证据**：
+  ```rust
+  // media/mod.rs — total_size 为 None 时整段跳过预检
+  if let Some(size) = total_size {
+      if size > 0 { self.ensure_upload_allowed(user_id, size).await?; }
+  }
+  // chunked_upload.rs — upload_chunk 只校验单块 ≤ chunk_size_limit(10MB)
+  if chunk.len() > self.chunk_size_limit { return Err(...) }
+  // 不校验 uploaded_size + chunk.len() 是否超过 total_size，也不校验是否超过 max_file_size
+  ```
+- **影响范围**：与 FUNC-03 是**两条独立缺口**——FUNC-03 是"上传完了不记账"，本条是"上传前不拦住"。
+  ① 不传 `total_size` ⇒ 完全不预检；② 传 `total_size = 1` 而实际传 1 GiB ⇒ 预检通过，
+  累计大小直到 `load_completed_upload` 才用 `max_file_size` 拦截（此时磁盘与内存已被占用）；
+  ③ 两者叠加后，配额形同虚设。
+- **与 FUNC-03 的关系**：FUNC-03 修好（记账）后本条仍然成立（超额已发生，记账只是事后统计）。
+- **修法**：① `total_size` 改为**必填**，或服务端在 `start_upload` 时用 `total_size` 预占配额（reservation）；② `upload_chunk` 增加累计校验：`uploaded_size + chunk.len() > total_size.max_limit` 立即 413；③ 完成时若实际大小与 `total_size` 偏差超过阈值，记 `warn!` 并按实际值调整配额。
+- **回归用例**：`total_size=None` 时必须 400；声明 1 KiB 传 2 KiB 时第 2 块即失败；声明的值超 `max_upload_size` 时 `start` 即失败。
 
 ---
 
@@ -333,6 +429,33 @@
 - **类型**：台账失真
 - **影响范围**：无法用台账做索引变更审计。
 - **修法**：台账由 SQL 解析脚本生成。
+- **第三轮补充**：347 个 `CREATE INDEX` 的**索引名互不重复**，因此不是"重复计数"造成的差异，确实是台账少记了 5 条。
+
+### PERF-13（P3，第三轮新增）URL 预览首跳被 DNS 解析两次
+- **位置**：调用方 `synapse-web/src/routes/media/preview.rs:64`（`check_url_and_resolve`）→ service `synapse-services/src/url_preview.rs` 的 `fetch_html`（内部再次解析首跳）
+- **类型**：重复外部调用
+- **影响范围**：每次预览多一次 DNS 查询（含超时风险）；若两次解析结果不同（DNS 轮询 / 记录变更），
+  还会出现"校验的 IP 与实际连接的 IP 不同"的 TOCTOU 窗口——SSRF 防护依赖的就是这条链路。
+- **修法**：让 `check_url_and_resolve` 返回已解析的 `IpAddr` 列表，`fetch_html` 复用该结果
+  （即"解析一次、钉住复用"），使校验目标与连接目标严格同一。
+- **注意**：这是**正确性**修复而非纯性能优化，优先级可上调。
+
+### PERF-14（P2，第三轮新增）分片上传在内存中拼完整个文件后才校验大小上限
+- **位置**：`synapse-services/src/media/chunked_upload.rs`（`load_completed_upload`）
+- **证据**：
+  ```rust
+  let mut combined_data = Vec::new();
+  for chunk in chunks { combined_data.extend_from_slice(&chunk.data); }   // 先全量拼接
+  if combined_data.len() as i64 > self.max_file_size { return Err(...) }  // 后校验
+  ```
+  单块上限 10 MiB，但块数不限；`max_file_size` 来自 `config.server.max_upload_size`。
+- **类型**：内存放大 / 资源耗尽
+- **影响范围**：一次分片上传的峰值内存 ≈ **文件总大小**（而非单块大小）。若 `max_upload_size`
+  配成数百 MiB 或 GiB，N 个并发分片上传可把进程打满——这是**可从外部触发**的 OOM 面。
+- **修法**：① 拼接前用 `chunks.iter().map(|c| c.data.len()).sum()` 预检总量（O(块数)，不分配）；
+  ② 更彻底的做法是 `Vec::with_capacity(total)` + 边拼边比，或直接流式写入对象存储不拼接；
+  ③ 与 FUNC-06 的累计校验联动——在 `upload_chunk` 阶段就拦住，让这条路径根本走不到超限。
+- **回归用例**：构造"单块合规、总量超限"的分片序列，断言在**拼接之前**就返回错误（用内存分配断言或 `with_capacity` 未被调用）。
 
 ---
 
@@ -516,10 +639,11 @@
 - **修法**：CI 增加 feature 组合 job，或把用例改为运行时跳过并计入统计。
 
 ### TEST-07（P3）测试规模口径三处不一致
-- **位置**：`docs/synapse-rust-vs-synapse-comparison.md:413`（238 个 `.rs`）vs 实测 277（unit 126 + integration 146 + e2e 2 + perf 3）；`.trae/rules/project_rules.md` §9.1（115/130/3/5）vs 实测 126/146/2/3
+> **第三轮更新（2026-10-22）**：实测数字已从 277 漂移到 **283**，三处文档需同步。
+- **位置**：`docs/synapse-rust-vs-synapse-comparison.md:413`（238 个 `.rs`）vs 实测 **283**（unit **128** + integration **147** + e2e **3** + performance **5**）；`.trae/rules/project_rules.md` §9.1（115/130/3/5）vs 实测 128/147/3/5（unit、integration 两项过时）
 - **类型**：度量漂移
 - **影响范围**：无法用文档判断覆盖趋势。
-- **修法**：接入已有的度量脚本，文档只引用。
+- **修法**：接入已有的度量脚本，文档只引用。建议脚本输出固定为 `unit/integration/e2e/perf = N/N/N/N` 单行，文档直接粘贴该行。
 
 ---
 
@@ -841,7 +965,7 @@
 | 业务表 `SELECT *` | 0 处 |
 | 4 个规则必需复合索引 | 4/4 存在（`access_tokens` 为 `WHERE is_revoked = FALSE` 部分索引，满足查询形态） |
 | `events.content` GIN | 已建 `jsonb_path_ops` |
-| `#[ignore]` 真实属性 | 16 处 / 7 文件，全部带理由，无"无理由 ignore"、无"引用未建 issue" |
+| `#[ignore]` 真实属性 | **11 条**（`tests/e2e/user_flow_tests.rs` 7 + `tests/performance/*` 4），全部带理由，无"无理由 ignore"、无"引用未建 issue" |
 | 主车道门禁（doc tests、`--workspace --lib`、unit/integration/e2e、insta assert-only、missing_docs ratchet） | 均为真门禁（可失败） |
 | `dbg!` | 0 处 |
 | `#[deprecated]` | 0 处 |
@@ -879,3 +1003,262 @@
 | `docs/audit/TEST_DB_ISOLATION_DESIGN_2026-10-20.md` §8.6 | 4 条真 bug 已修并提交（`d3d41618b`），不计入本清单 |
 | `docs/audit/ADMIN_RBAC_SURFACE_2026-10-21.md` | SEC-01 为其未闭环项，本次独立复现 |
 | `docs/audit/DEPENDENCY_UPGRADE_BATCH2_2026-10-21.md` | 依赖治理进展，不在本次八维度口径内 |
+
+---
+
+## 十、优化方案（分阶段、可执行）
+
+### 10.0 排序原则
+
+不是按"P1 先做、P2 后做"排，而是按**三个正交维度**排，因为按级别排会连续三个批次都在改缓存、无法并行评审：
+
+| 维度 | 判据 | 为什么重要 |
+|---|---|---|
+| **风险** | 不修会不会造成用户可见的错误数据/越权 | 决定"能不能等" |
+| **爆炸半径** | 改动是否只是机械替换，还是触及 API/DB/契约 | 决定"要几个人评审" |
+| **可验证性** | 能否写出一条**先红后绿**的测试 | 决定"能不能证明修好了" |
+
+**铁律：每个批次必须先提交"能失败的验证"，再提交修复。** 拿不出可失败验证的条目，一律降级为"登记项"而不是"任务项"——否则修完无法证明修好了，下一轮审查还会把它重新列出来（本文件前三轮已经出现过这种循环：CODE-11 的"无收敛策略"其实就是没先确认棘轮是否已存在）。
+
+### 10.1 批次总表
+
+| 批次 | 主题 | 条目 | 改动性质 | 预估评审面 | 依赖 |
+|---|---|---|---|---|---|
+| **W0** | P1 一致性收口 | CODE-02、CODE-03 | 根因修复（cache 墓碑）+ 2 个失效 helper + CI 扫描（19+6 处） | 中（但模式统一，见 §10.2） | 无 |
+| **W1** | P1 配额与事务 | FUNC-06 → FUNC-03、PERF-02 | 契约微调 + 事务包裹 | 中 | 无 |
+| **W2** | P1 授权与信任根 | SEC-01、CODE-05、TEST-01 | 单点逻辑 + cfg 门禁 + 补测试 | 小 | 无 |
+| **W3** | P1 结构决策 | ARCH-01 | **需要决策**（下架/打通），不是纯修 bug | **大** | 需先定方案 |
+| **W4** | P2 资源与性能 | PERF-14、PERF-13、PERF-03/04/05、PERF-07/08/09、PERF-06、CODE-04、CODE-07 | 索引/查询/分批 | 中 | W1（FUNC-06 累计校验） |
+| **W5** | P2 安全一致性 | SEC-02…SEC-08 | 配置校验 + 默认值 | 小 | 无 |
+| **W6** | P3 冗余与文档 | 全部 P3 + §9.12 五批 | 删除/合壳/文档 | 小但量大 | W0（避免删到正在改的文件） |
+
+**建议并行度**：W0 / W2 / W5 三者互不重叠，可并行；W1 与 W4 串行；W3 单独走设计评审；W6 最后收尾（它会删文件，先做会和前面所有分支冲突）。
+
+---
+
+### 10.2 W0：P1 一致性收口（CODE-02 + CODE-03）
+
+> **落地状态（2026-10-22，本批次已实现）**。本节原计划与实际实现有 3 处偏差，以实际为准：
+> ① 不新建 `cache_invalidation.rs`（`room_state` 的 key/失效契约本就声明在 `synapse-services/src/room_state_cache.rs` 文件头，在那里加 helper 才符合"同一 key 只有一处实现"）；
+> ② 墓碑从"全局静态 + 短 TTL"改为 `CacheManager` 的**实例字段、无 TTL**（短 TTL 只是把旧值复活推迟一个 TTL，不是修复）；
+> ③ 签名是 `&CacheManager`（仓里没有 `Cache` 这个类型），且 `CacheManager::delete` 返回 `()`，真实缺陷不在返回值丢失，而在**L1 已删、L2 DEL 失败、下一次读从 L2 回填把旧值复活**。
+
+**根因（为什么不是机械替换就能修好）**
+
+`CacheManager::delete` 内部对 Redis 失败已经 `warn!` 过，所以 19 处 `let _ =` 丢掉的并不是错误——真正的故障链是：
+
+```
+delete() → local.remove(key) 成功 → redis.delete(key) 失败（Redis 抖动/熔断）
+        → 下一次 get() → L1 miss → L2 命中旧值 → backfill_l1(旧值)
+        → L1 重新持有旧值，直到 L2 的 TTL（最长 3600s）到期
+```
+
+因此修复必须落在 `synapse-cache` 的读路径上，services 层换 helper 只解决"同一个 key 不要在 15 个地方各自拼字符串"。
+
+**改动 1：`synapse-cache/src/manager.rs` 墓碑机制**
+
+- 新增字段 `tombstones: Arc<parking_lot::RwLock<HashSet<String>>>`（5 个构造函数全部初始化）。
+- `record_delete_outcome(&self, key, outcome: Result<(), CacheError>)`：成功 → 摘墓碑 + `note_cache_operation(..., "success")`；失败 → `warn!` + 打墓碑。
+- `set` / `set_raw` / `set_checked` 在 L2 写成功后摘墓碑（这是墓碑唯一的正常摘除条件）。
+- `get` / `get_checked` / `get_raw_shared` 的 L2 分支加 `!self.is_tombstoned(key)`；`get_batch` 对墓碑 key 跳过 MGET。
+- **`get_raw` 不加墓碑判断**：墓碑只拦 L2 读，不拦 L1 读。否则 Redis 长时间故障时，新写入在 L1 里也读不到，等于用可用性换一致性。
+- `delete_batch` / `delete_with_invalidation` 同样接入（部分失败 → 批量打墓碑）。
+
+**改动 2：key 的单一失效点（不新建文件）**
+
+| key | 唯一实现 | 替换处 |
+|---|---|---|
+| `room_state:{room_id}` | `room_state_cache.rs::invalidate_room_state(cache, room_id)` | 15 处（create/actions/federation/moderation/events + sliding_sync 测试） |
+| `account_data:{user_id}` | `account_data_service.rs::{account_data_cache_key, invalidate_account_data}` | 3 处（account_data_service ×2、friend_room_service ×1）；`sync_service/data_fetch.rs` 的读 key 也切到 `account_data_cache_key`，读写不再各拼一份 |
+| `user:profile:{user_id}` | 仅 `synapse-web/src/federation/edu.rs:785` 一处 | 直接去掉 `let _ =`，不建 helper（唯一删除点，抽 helper 是过度抽象） |
+
+**改动 3：CODE-03 `synapse-storage/src/device/mod.rs` 6 处**
+
+与 D-37 的 `:566` 对齐，但按"事务内 / 提交后"分流：
+
+- 事务内（`:494`、`:673`）→ `.await?` 向上传播，事务回滚，不留半删状态；
+- 事务已提交（`:634`、`:730`、`:770`、`:794`）→ 行已经删掉，回滚无意义，改为 `warn!` 记录 `user_id`/`device_id`，不把已成功的删除变成用户可见错误。
+
+**门禁（均已实测"能红"）**
+
+| 门禁 | 形态 | 红态证据 |
+|---|---|---|
+| `failed_l2_delete_does_not_resurrect_the_stale_value` | 用 `record_delete_outcome(key, Err(...))` 精确构造"L2 有值但 DEL 失败"，断言随后 `get` 为 `None`、`set` 新值后能读到新值 | 移除墓碑判断 → 读回 `stale_value` |
+| `tombstone_does_not_hide_fresh_local_writes_during_redis_outage` | 指向坏 Redis（`127.0.0.1:1`）：`set v1` → `delete` → `get` 必须 `None` → `set v2` → `get` 必须 `Some("v2")` | 把墓碑判断加进 `get_raw` → 第二条断言失败（可用性回归） |
+| `scripts/ci/check_no_silent_cache_delete.sh`（接入 `ci.yml`） | 扫 `git ls-files '*.rs'` 中的 `let _ = …cache.delete(_batch)?(`，剔除纯注释行，命中即 exit 1 | 2026-10-22 实测：把 `edu.rs:785` 改回 `let _ =` → `FAIL` + exit 1；还原 → `OK` |
+| 回归 | `cargo test -p synapse-cache`（95 passed）；`cargo check -p synapse-services/-storage/-web --all-targets`（+`--features test-utils`）均 exit 0；`cargo clippy --workspace --all-targets --features test-utils -- -D warnings` exit 0；成员集成回归（`--test integration … membership`）**85 passed / 0 failed**（join/leave/ban/unban 用例全绿，未改断言） | — |
+
+> 集成回归需 `TEST_DB_ISOLATION=database`（从模板库克隆；`bash scripts/test_db_template.sh ensure` 先备好模板）。直连空库 `synapse_test` 会以 `42P01 relation "users" does not exist` 全线失败——那是环境问题，不是本批次回归。
+>
+> 另注：`scripts/ci/check_file_size_ratchet.py` **在本批次之前就已失配**（HEAD 上 24 个文件的 baseline 落后于实际行数，如 `push/mod.rs` 1553→1845）。本批次只上调了自己触达的 5 个条目（`device/mod.rs`、`manager.rs`、`moderation.rs`、`cache/src/tests.rs`、`account_data_service.rs`），未 `--update`，以免把 24 条无关增长一并"批准"。该既有债务需单独立项处理。
+
+**回滚**：墓碑是纯内存结构，无持久化副作用；三处改动（cache 墓碑、helper 替换、device 吞错）互相独立，可分别 revert。回滚后 CI 扫描会立刻变红，这正是期望的失败信号。
+
+**验收标准**：扫描为 0；两条墓碑用例绿（Redis 不可用时第一条 skip，第二条用坏后端恒可跑）；成员 join/leave/ban 的既有集成测试全绿（不得修改断言）。
+
+---
+
+### 10.3 W1：P1 配额与事务（FUNC-06 → FUNC-03 → PERF-02）
+
+顺序很重要：**先堵住"多传"（FUNC-06），再补"记账"（FUNC-03）**。反过来做，中间态会出现"记账了但没拦住"的更糟组合。
+
+**FUNC-06 改动**
+
+- `start_chunked_upload`：`total_size` 改为必填（缺失 → 400 `M_MISSING_PARAM`）；`total_size > max_upload_size` → 413。
+- 预占配额（reservation）：`start` 时按 `total_size` 记 `pending_bytes`，`complete` 时转成 `used_bytes`，`abort`/过期时释放。
+- `upload_chunk`：`uploaded_size + chunk.len() > total_size` → 413 并终止 upload。
+
+**FUNC-03 改动**
+
+- 把 `record_upload_usage` 下沉进 `upload_media_with_id`（或用 `UploadAccounting::{Record, Skip}` 参数显式区分），使"新增上传路径忘记记账"在类型层面不可能。
+
+**PERF-02 改动**
+
+- `register_user` 外层包 `sqlx::Transaction`：`create_user` + `update_displayname` + `create_device` + `access_token` + `refresh_token` 一个事务；失败整体回滚。
+- 注意：`update_displayname` 当前"失败仅 warn"，进事务后必须改为传播错误，否则事务内 warn 无意义。
+
+**门禁**
+
+| 门禁 | 红的方式 |
+|---|---|
+| `chunked_upload_rejects_lying_total_size`（声明 1 KiB 传 2 KiB，第 2 块 413） | 去掉累计校验即失败 |
+| `chunked_upload_requires_total_size` | 允许 `None` 即失败 |
+| `chunked_upload_counts_toward_quota`（上传后 `quota_used` 增加） | 保持现状即失败 |
+| `register_is_atomic`（在 `refresh_token` 插入处注入失败，断言 `users` 表无残留行） | 去掉事务即失败 |
+
+**回滚**：FUNC-06 是请求校验加严，属**契约变更**——需在 `ROUTE_CONTRACT.md` 标注 `total_size` 必填，并在发布说明中提示客户端。其余两项无契约影响。
+
+**验收标准**：4 条用例先红后绿；`ROUTE_CONTRACT.md` 与实际校验一致（用 `api_route_ledger_tests` 兜底）。
+
+---
+
+### 10.4 W2：P1 授权与信任根（SEC-01 / CODE-05 / TEST-01）
+
+| 条目 | 改动 | 门禁（能红） |
+|---|---|---|
+| SEC-01 | 把 `is_super_admin_only_endpoint` 提到 `admin_rbac_enabled` 判断之外，成为无条件拒绝 | 表驱动测试：`admin_rbac_enabled=false` × 全部超管专属端点 ⇒ 非超管一律 403；删掉提取即红 |
+| CODE-05 | `user_store_fake` 加 `#[cfg(any(test, feature = "test-utils"))]`；`pool()` 改为 `Err` | `cargo build --workspace`（默认 feature）后 `nm`/`grep` 确认符号不存在；`--features test-utils` 时存在 |
+| TEST-01 | 为联邦签名补 4 类用例：合法签名、时钟漂移超容差、未知 key id、签名体篡改 | 用例先以 `assert!(false)` 占位跑红，实现后转绿；覆盖率工具确认 `signing.rs` 分支覆盖上升 |
+
+**回滚**：均为局部改动；SEC-01 若引发误拒，可单独 revert 该提交（不牵连其他两条）。
+
+---
+
+### 10.5 W3：ARCH-01（Thread 影子表）—— 需要决策，不要直接动手
+
+这是全清单里唯一"写了等于没写"的结构性问题，也是最容易被误修的一条：直接删表会丢数据，直接暴露会破坏 `/sync` 语义。
+
+**先做决策，三选一**：
+
+| 方案 | 做法 | 代价 | 适用前提 |
+|---|---|---|---|
+| A. 打通 | 把 `thread_roots`/`thread_replies` 的写入改为规范事件（`m.thread` rel），影子表降级为索引 | 需要事件回填迁移 + 联邦兼容测试 | 有真实客户端在用非规范 API |
+| B. 下架 | 非规范 API 返回 404 并登记为"有意不实现"，影子表只读保留 90 天 | 可能破坏现有客户端 | 确认无外部依赖 |
+| C. 冻结 | 停止写入，保留读取，文档标注 deprecated | 数据继续陈旧 | 需要时间观察 |
+
+**决策依据（必须先采集，不能拍脑袋）**：`SELECT count(*) FROM thread_roots`、`MIN/MAX(created_ts)`，以及访问日志中该 API 的调用量。采集脚本输出后再进评审。
+
+**门禁**：无论选哪个方案，都必须有"影子表行数不再增长"的断言（A 方案则是"每写一条 thread 必然产生一条规范事件"）。
+
+---
+
+### 10.6 W4：P2 资源与性能（按"索引 → 查询 → 分批"三层推进）
+
+**第一层：索引（零代码风险，先做）**
+
+| 条目 | 改动 | 验证 |
+|---|---|---|
+| PERF-03 | 房间名搜索：给 `LOWER(name)` 建表达式索引，或改写查询用 `ILIKE` 前缀 | `EXPLAIN ANALYZE` 前后对比，必须从 Seq Scan 变 Index Scan |
+| PERF-04 | `content::text LIKE` → `content @> jsonb_build_object(...)` 或 `jsonb_path_query` | 同上，必须命中 `jsonb_path_ops` |
+| PERF-05 | `LIKE '%:%'` 前导通配 → 改用 `position(':' in x) > 0` 或 `right(x, n)` | 必须消除 Seq Scan |
+
+> 索引类改动的验收**只能看 `EXPLAIN`**，不能看"测试通过"——测试通过不代表走了索引。建议加一个 `scripts/quality/explain_check.sh`，把三条关键查询的计划写进快照。
+
+**第二层：查询形态**
+
+- PERF-07（3 处无 `LIMIT`）：加硬上限，超限返回 `M_TOO_LARGE` 而非截断（截断会静默丢数据）。
+- PERF-08（5 处 OFFSET 深分页）：改 keyset 分页（`WHERE (ts, id) < ($1, $2)`）。**这是契约变更**：响应里的 `next_batch` 语义要同步。
+- PERF-09（邀请黑名单 upsert 竞态）：`INSERT … ON CONFLICT` 前加 `SELECT … FOR UPDATE`，或直接用 `ON CONFLICT DO NOTHING` + 行数判断。
+
+**第三层：分批与资源**
+
+- PERF-06（10 个 prune 无分批）：统一 `DELETE … WHERE ctid IN (SELECT ctid … LIMIT $batch)` 循环，每批 sleep 可配。
+- PERF-14：拼接前先 `sum(len)` 预检；与 FUNC-06 的累计校验联动后，此路径应不可达（保留预检作为纵深防御）。
+- PERF-13：`check_url_and_resolve` 返回 `Vec<IpAddr>` 并由 `fetch_html` 复用，消除双解析 + TOCTOU。
+- CODE-04：`unwrap_or_default()` → `map_err` 显式错误。
+- CODE-07：客户端格式错误 → 400 而非 500。
+
+**门禁**：`cargo nextest run --workspace`；外加 `EXPLAIN` 快照（新增）；prune 用例需断言"单批行数 ≤ batch_size"。
+
+---
+
+### 10.7 W5：P2 安全一致性（SEC-02…SEC-08）
+
+| 条目 | 改动 | 门禁 |
+|---|---|---|
+| SEC-02 | 5 处硬编码口令改环境变量 + `TEST_ONLY` 前缀 | CI 扫描 `Admin@123` 在 `scripts/`、`docker/` 下为 0 |
+| SEC-03 | MFA secret 校验：非空 + 长度 ≥16 + Base32 可解码 + 拒绝 `changeme`/`xxx` 类占位符 | 表驱动：`"changeme"` 必须启动失败 |
+| SEC-04 | 未设 token 时 `/metrics` 默认拒绝（与"空值即关闭"相反），仅当显式 `PROMETHEUS_AUTH_DISABLED=true` 才匿名 | 不设 env 时 `GET /metrics` 401 |
+| SEC-05 | MFA 敏感操作判定改为"读接口也覆盖"（按资源而非方法），至少覆盖凭据导出/密钥读取类路径 | 无 MFA 读凭据端点必须 403 |
+| SEC-06 | 审计 IP 默认取 `ConnectInfo` 的 peer addr；仅当配置了可信代理列表才解析 `X-Forwarded-For` | 伪造 XFF 不改变审计记录 |
+| SEC-07 | 重放缓存窗口 ≥ 签名容差（24h），或把容差降到与缓存同量级 | 跨 6 分钟重放的同一签名必须被拒 |
+| SEC-08 | 监控栈默认口令移除，改为启动必填 | `docker compose config` 在缺 env 时失败 |
+
+> SEC-04 是**行为变更**（默认从"匿名"变"拒绝"），需在发布说明中标注；这也是"安全默认值"应有的方向。
+
+---
+
+### 10.8 W6：P3 冗余与文档（复用 §9.12 五批）
+
+直接执行 [§9.12 分阶段清理建议](#912-统计与分阶段清理建议)，不重复。补两条本轮的：
+
+| 条目 | 改动 | 门禁 |
+|---|---|---|
+| CODE-12 | 删除 `preview.rs:71` 死表达式 | `cargo clippy -p synapse-web -- -D warnings` |
+| CODE-10 / CODE-11 | 只加"危险性扫描"（缓存/存储删除禁止 `let _`）+ `// reason:` 强制；**不设总数下降配额** | `check_clippy_allow_ratchet.py` 扩展后故意新增一条无 reason 的 allow 必须红 |
+| TEST-07 / DOC-02 / DOC-09 | 统一为 283（128/147/3/5）；数字由脚本输出，文档只引用 | 文档数字与脚本输出不一致时 CI 红（需新增 `check_doc_metrics.py`） |
+| PERF-12 / DOC-07 | `INDEXES.md` 由 SQL 解析生成 | 生成结果与文件不一致时 CI 红 |
+
+---
+
+### 10.9 门禁总表（落地时按此勾选）
+
+| # | 门禁 | 现状 | 由哪一批引入 |
+|---|---|---|---|
+| 1 | `cargo build --workspace --all-targets` | 已有 | 全部 |
+| 2 | `cargo nextest run --workspace` | 已有 | W0/W1/W2 |
+| 3 | `scripts/ci/check_clippy_allow_ratchet.py` | 已有 | W6 扩展 |
+| 4 | `check_missing_docs_ratchet.sh` | 已有 | W6 |
+| 5 | `api_route_ledger_tests` | 已有 | W1/W4（契约变更） |
+| 6 | `no_silent_cache_delete` 扫描 | **W0 已落地**：`scripts/ci/check_no_silent_cache_delete.sh`，已接入 `ci.yml` | W0 |
+| 7 | `EXPLAIN` 计划快照 | **新增** | W4 |
+| 8 | 文档数字一致性（测试数/索引数） | **新增** | W6 |
+| 9 | `check_feature_matrix.py` 接入 CI | 脚本存在但**未接入** | W6（RD-14） |
+
+> 第 6/7/8 条是本次方案的**关键增量**：前三轮审查暴露的根因不是"没发现问题"，而是"修完无法证明修好了"。这三条把"一次性的审查结论"变成"持续可失败的门禁"，否则下一轮还会重新审出同样的条目。
+
+---
+
+### 10.10 明确不做（防止过度开发）
+
+| 不做 | 理由 |
+|---|---|
+| 为 CODE-10 的总数设下降配额 | 大部分是 `unwrap_or_default()` 的合法用法，配额会诱导写 `unwrap()` 来"减少计数" |
+| 重写 clippy allow 棘轮 | 它已经在工作（CODE-11 第二轮已更正） |
+| 拆分测试文件（`db_tests.rs` 等 3 个 >2000 行） | 测试文件不承担生产职责，拆分的收益（并行编译）远低于冲突成本 |
+| 删除 voice 三端点 / `/_synapse/admin/v1/backups` | MSC3245 与"有意不实现"，只登记不下架（FUNC-02、FUNC-05） |
+| 把 `sync` 与 `sliding_sync` 强行合并 | ARCH-02 已改述为"共享语义基座缺失"，合并是重写而非重构 |
+| 在 W3 决策前动 Thread 代码 | 三个方案代价相差一个数量级，先采集用量再决策 |
+
+---
+
+### 10.11 验收口径（怎么算"这一轮收口了"）
+
+一轮审查的收口标准不是"条目清零"，而是**这四条同时成立**：
+
+1. **P1 = 0 且新增 P1 有门禁拦截**：W0–W3 完成后，重新跑本文件的 P1 清单，必须 0 命中；且门禁表第 6 条能拦住同类回归。
+2. **每个已修条目都有"先红后绿"的记录**：提交历史里能看到测试先失败的 commit（或 PR 描述中贴红/绿两次输出）。
+3. **度量可复现**：本文件所有数字（268/117、905/244、1593/337、283、347）都能用文中给出的命令一次跑出来；跑不出来就说明口径又漂了。
+4. **未覆盖项被显式承认**：附录 B 的口径保持——没跑的 benchmark、没跑的全量集成套件，继续写"未覆盖"，不拿静态推断冒充实测。
+
+> 建议把本节作为下一轮审查的**输入模板**：下一轮只需在 §0.2 追加一节同样格式的表格，并复核 §10 各批次的完成情况。

@@ -1,9 +1,11 @@
 # `worker.stream_writers` 写转发设计（W-I）
 
-> 状态：**第 0–4 阶段全部落地**（八路真转发 + 联邦面 + 指标 + 客户端 IP 传递）。
-> 仅剩三处**有意的**不覆盖，逐条记在 §5.3：`/_synapse/admin/*` 面、delayed-event
-> 后台派发（改由进程归属决定，已实施）、以及"既有 handler 后来开始写事件"这一类
-> 行为漂移（棘轮盲区，靠评审而非门禁）。
+> 状态：**第 0–4 阶段全部落地**（八路真转发 + 联邦面 + 指标 + 客户端 IP 传递），提交
+> `f31c0a422`。**第 5 阶段（收口）待做**，清单见 §9 —— 其中两条是"配置开着、保证却不成立"：
+> `events`/`to_device` 转发隐含 Redis 前置条件且**未被校验**（§4.5），以及
+> `/_synapse/admin/*` 里**有 11 条路由真的写受管流**却不在映射内（§5.3）。
+> 另有 §5.3 记录的两处结构性边界：delayed-event 派发（已改由进程归属决定）与
+> "既有 handler 后来开始写事件"这类行为漂移（棘轮盲区，靠评审而非门禁）。
 > 相关：`WORKER_TOPOLOGY_VERIFICATION_AUDIT_2026-10-16.md`（W-A…W-H）、
 > `synapse-services/src/worker/runtime_topology.rs`、`synapse-services/src/worker/write_streams.rs`。
 
@@ -122,9 +124,38 @@ writer 收到带 `x-synapse-write-stream` **且** secret 正确的请求 ⇒ **�
 其余语义损失：
 
 - **超时叠加**：转发层用 120 s 的 client 超时，比外层
-  `request_timeout_middleware` 长，所以客户端看到的仍是原有超时预算。
+  `request_timeout_middleware` 长，所以客户端看到的仍是原有超时预算 —— **预算不变，但
+  见 §4.5：跨实例唤醒需要 Redis，否则"多久拿到数据"会退化到等满这个预算**。
 - **响应体上限**：writer 的响应被整段读回（<= `server.max_upload_size`）后才回给
   客户端，超过则 `503` 而不是半截输出。
+
+### 4.5 跨实例 `/sync` 唤醒需要 Redis（`events` / `to_device` 的隐含前置条件）
+
+`events` 与 `to_device` 转发之后，写发生在 writer 上，而"把长轮询叫醒"这一步仍然是
+**进程内 `Notify` + Redis pub/sub**：
+
+- 落事件后 `notifying_event_writer` 调 `notify_room`（`synapse-services/src/event_notifier.rs:242`）；
+  `sendToDevice` 处理器对每个收件人调 `notify_user`（`synapse-web/src/routes/e2ee/devices.rs:191`）；
+- 两者都是「本地 `notify_waiters()` + `publish_redis()`」，而 `publish_redis` 在没有
+  Redis pool 时**直接 return**（`event_notifier.rs:463-466`），pool 只在
+  `container.rs:432` 的 `if config.redis.enabled` 分支里装配；
+- `/sync` 的等待端（`sync_service/event_fetch.rs:172-192`）只有在**没有** notifier 时才退化
+  成周期轮询；有 notifier 时只等 `Notify` 或 `remaining` 超时，**没有兜底轮询**。
+
+⇒ `write_forwarding: true` + `redis.enabled: false` 时，writer 上的写**不会**唤醒 reader 上的
+长轮询，客户端要等自己的 `timeout`（典型 30 s 量级）才拿到数据。**数据不丢**，但延迟从
+"立刻"退化到"等满一个 timeout"。
+
+W-I 之前不存在这个问题：每个实例自己写、自己唤醒。这是"把写集中到一台"必然带出来的新
+前置条件 —— 它不改变响应内容，只改变**什么时候**响应，所以 §4.4 那句"超时预算不变"单独看
+是正确的、合起来看会误导。
+
+`device_lists` 不在此列：设备列表变更本来就只发 `m.device_list_update` EDU、没有本地
+`notify_user`，`/sync` 侧一直是"下次醒来时带走"，与是否转发无关。
+
+**现状：未校验。** `validate_worker_config` 不看 `redis.enabled`，这条组合目前会静默降级。
+待做：`events` 或 `to_device` 非默认 + `redis.enabled = false` ⇒ 启动 error（与
+`strict` 同通道）。
 
 ## 5. 哪几路能转发
 
@@ -217,9 +248,27 @@ writer 收到带 `x-synapse-write-stream` **且** secret 正确的请求 ⇒ **�
 
 | 不覆盖的东西 | 为什么 | 现状 |
 |---|---|---|
-| `/_synapse/admin/*` 的写（如 `admin/user/*/devices` 删设备、`admin/room/*/redact`） | 不在 `declared_ledger_all()` 冻结的范围里，纳入就得给 150+ 条 admin 写路由逐条做归属决定，而这套棘轮比对不了它们 | **已知缺口**，admin 触发的房间/设备写不转发 |
+| `/_synapse/admin/*` 的写 | 不在 `declared_ledger_all()` 冻结的范围里。该命名空间有 **156 条写路由**，纳入就得逐条做归属决定，而这套棘轮只比对"客户端 + vendor + 联邦"三段 | **已知缺口，且不是无害的**：其中 **11 条真的写受管流**（见下表）⇒ 这 11 条路径上"单写者"目前**不成立** |
 | delayed-event 派发 | 见 §5.1 | 已用进程归属关闭 |
 | "既有路由**开始**写事件" | 棘轮比的是 `(method, path)` 集合，不是 handler 行为。`v1/invite` 将来补落库、`m.call.hangup` 将来补发事件，清单都不会变红 | **棘轮盲区**，已写进 `write_stream_map.txt` 头部，改这类 handler 时必须回来重看那一列 |
+
+admin 面的这 11 条（逐 handler 追到 `create_event` / `delete_all_devices` 得出，不是按
+路径名猜；`/rooms/*/cascade_redact` 之类**不**在此列 —— 它明确不持久化
+`m.room.redaction`，只写自己的表）：
+
+| 流 | 路由 |
+|---|---|
+| `events`（7） | `POST /_synapse/admin/v1/rooms/{id}/ban`、`POST …/ban/{u}`、`POST …/kick`、`POST …/kick/{u}`、`POST …/unban/{u}`、`PUT /_synapse/admin/v1/rooms/{id}/members/{u}`、`DELETE …/members/{u}` —— 落点在 `membership::admin_{ban,kick,unban}_user_membership` 与 `join_room`，都 `generate_event_id` 后写 DAG |
+| `device_lists`（4） | `DELETE /_synapse/admin/v1/users/{u}/devices/{d}`、`POST …/devices/{d}/delete`（同一 handler 的兼容别名）、`POST /_synapse/admin/v1/users/{u}/logout`、`POST /_synapse/admin/v1/user_sessions/{u}/invalidate` —— 落点是 `token_auth.revoke_device` / `logout_all` → `delete_user_device(s)` |
+
+> ⚠️ 一个容易搞错的对照：`POST /_matrix/client/v3/admin/room/{room_id}/redact` 虽然在
+> 名字里带 admin，但它住在**客户端命名空间**、在账本里，所以**已经**归 `events`（§5 表）。
+> §5.3 说的"admin 面"专指 `/_synapse/admin/*`。
+
+补法（未做）：这 11 条数量固定、判据清楚，可以单独冻进 `write_stream_map.txt` 的
+admin 段 + 在 `stream_for_write` 里加 `/_synapse/admin/` 前缀解析；代价是账本来源要从
+`declared_ledger_all()` 扩到 admin 路由表 —— 这是"要不要为 11 条路由扩账本"的决定，
+不是"捎带做掉"的改动。
 
 ### 5.4 与 `worker.surface_gate` 的冲突（重要）
 
@@ -252,6 +301,7 @@ gate 等于让每个实例都能应答所有写）。授权集由 `WriteForwardi
 | 2 | `events`：客户端面 + vendor 面 + 联邦面映射、delayed-event 归属、体积上限跟随上传上限 | ✅ |
 | 3 | `device_lists`：设备管理面整体归属 + 与 `events` 的耦合约束 | ✅ |
 | 4 | 指标 + 客户端 IP 传递（secret 门控的专用头） | ✅ |
+| 5 | **收口**：Redis 前置条件校验（§4.5）、admin 面 11 条路由纳入映射（§5.3）、`topology/validate` 的 `write_forwarding` 响应段、两进程 e2e | ⛔ 待做 |
 
 ## 8. 与既有守卫的关系
 
@@ -265,3 +315,16 @@ gate 等于让每个实例都能应答所有写）。授权集由 `WriteForwardi
   的清单里；新增写路由而不做决定 ⇒ 测试红。第二个方向是第三列必须与
   `stream_for_write()` 一致，第三个方向是每条映射的命名空间必须被该流
   `mapped_surfaces()` 声明过。
+
+## 9. 剩余待做（按严重度）
+
+前两项是"配置开着、保证却不成立"，与文档早先"已全部落地"的说法冲突，故单列：
+
+| 项 | 是什么 | 为什么必须做 | 代价 |
+|---|---|---|---|
+| P1 Redis 前置条件 | `events` / `to_device` 非默认 + `redis.enabled = false` ⇒ 启动 error（§4.5） | 否则跨实例 `/sync` 唤醒静默失效，延迟退化到客户端 timeout，且**没有任何门禁或指标**能看出来 | 校验器里 +1 条判断，半天含测试 |
+| P1 admin 面 11 条 | 把 `/_synapse/admin/*` 里真写受管流的 11 条纳入映射（§5.3 有清单） | 否则这 11 条路径上"单写者"不成立，与 §5 的穷尽声明矛盾 | 要把账本来源从 `declared_ledger_all()` 扩到 admin 路由表，并新增一段冻结清单 |
+| P2 观测面 | `topology/validate` 增 `write_forwarding` 段（解析到哪个 `base_url`、为何 `Unavailable`、运行期是否可达）；`worker_write_forward_total` 进 dashboard + 告警 | writer 宕机时 reader 的 `/health` 仍绿，只有写请求 503；没有告警就只能等用户报障 | 响应结构 + 前端约定同步改，1–2 天 |
+| P2 reader 健康 | 让 reader 的 `/_health` 反映其 writer 不可用 | 同上：现在的健康检查对"写路径已死"完全沉默 | 依赖上一项的数据 |
+| P3 两进程 e2e | 真起两个进程 + 真 `instance_map` + 真 secret，覆盖 `events`/`federation send` 与 `surface_gate` 组合 | 现有测试全部用桩上游（`spawn_echo_upstream`），最容易互相抵消的 `surface_gate` × 转发组合从未真实联调 | 一个脚本 + CI job，1 天 |
+| P3 流式转发 | 现在整段 buffer（上限 `server.max_upload_size`，50 MB），N 个并发联邦事务 = N×50 MB 峰值 | 只在联邦大事务压测下暴露；当前无证据说明会触发 | 需重写 framing，成本高，**等压测证据** |

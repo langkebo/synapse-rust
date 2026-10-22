@@ -336,7 +336,7 @@ impl SyncService {
         // Cache-through: account data changes infrequently, so a 600 s TTL
         // with write-through invalidation is safe (OPT-015-b, audit 04 §5).
         const ACCOUNT_DATA_CACHE_TTL_SECS: u64 = 600;
-        let cache_key = format!("account_data:{user_id}");
+        let cache_key = crate::account_data_service::account_data_cache_key(user_id);
         if let Ok(Some(cached)) = self.cache.get::<Vec<serde_json::Value>>(&cache_key).await {
             return Ok(cached);
         }

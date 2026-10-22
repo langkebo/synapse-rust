@@ -491,7 +491,7 @@ impl DeviceStorage {
         .fetch_one(&mut **tx)
         .await?;
 
-        let _ = Self::delete_lazy_loaded_members_for_device_tx(tx, user_id, device_id).await;
+        Self::delete_lazy_loaded_members_for_device_tx(tx, user_id, device_id).await?;
 
         let stream_id: i64 = sqlx::query_scalar!(
             r#"
@@ -631,10 +631,18 @@ impl DeviceStorage {
             Ok(res) => {
                 if res.rows_affected() > 0 {
                     if let Some(device) = existing {
-                        let _ = self.delete_lazy_loaded_members_for_device(&device.user_id, device_id).await;
                         // D-37: logged rather than propagated — the row is already deleted, so a
                         // retry would find `existing == None` and could never re-record the
                         // change; failing the request would just strand the client.
+                        if let Err(error) = self.delete_lazy_loaded_members_for_device(&device.user_id, device_id).await
+                        {
+                            tracing::warn!(
+                                %error,
+                                user_id = %device.user_id,
+                                device_id,
+                                "device deleted but its lazy-loaded member rows were not cleaned up"
+                            );
+                        }
                         if let Err(error) =
                             self.record_device_list_change(&device.user_id, Some(device_id), "deleted").await
                         {
@@ -670,7 +678,7 @@ impl DeviceStorage {
         .map(|result| result.rows_affected())?;
 
         if rows_affected > 0 {
-            let _ = Self::delete_lazy_loaded_members_for_device_tx(&mut tx, user_id, device_id).await;
+            Self::delete_lazy_loaded_members_for_device_tx(&mut tx, user_id, device_id).await?;
 
             let now = current_timestamp_millis();
             let stream_id: i64 = sqlx::query_scalar!(
@@ -727,9 +735,15 @@ impl DeviceStorage {
         match result {
             Ok(res) => {
                 if res.rows_affected() > 0 {
-                    let _ = self.delete_lazy_loaded_members_for_user(user_id).await;
                     // D-37: same "rows already gone, retry cannot re-record" reasoning as
                     // `delete_device`, so the failure is logged instead of propagated.
+                    if let Err(error) = self.delete_lazy_loaded_members_for_user(user_id).await {
+                        tracing::warn!(
+                            %error,
+                            %user_id,
+                            "devices deleted but their lazy-loaded member rows were not cleaned up"
+                        );
+                    }
                     if let Err(error) = self.record_device_list_changes_batch(user_id, &device_ids, "deleted").await {
                         tracing::warn!(%error, %user_id, "devices deleted but their device-list changes were not recorded");
                     }
@@ -767,8 +781,14 @@ impl DeviceStorage {
                 by_user.entry(row.user_id.as_str()).or_default().push(row.device_id.clone());
             }
             for (user_id, user_device_ids) in &by_user {
-                let _ = self.delete_lazy_loaded_members_for_devices_batch(user_id, user_device_ids).await;
                 // D-37: logged, not propagated (rows already deleted).
+                if let Err(error) = self.delete_lazy_loaded_members_for_devices_batch(user_id, user_device_ids).await {
+                    tracing::warn!(
+                        %error,
+                        %user_id,
+                        "devices deleted but their lazy-loaded member rows were not cleaned up"
+                    );
+                }
                 if let Err(error) = self.record_device_list_changes_batch(user_id, user_device_ids, "deleted").await {
                     tracing::warn!(%error, %user_id, "devices deleted but their device-list changes were not recorded");
                 }
@@ -791,8 +811,14 @@ impl DeviceStorage {
                 .map(|result| result.rows_affected())?;
 
         if rows_affected > 0 {
-            let _ = self.delete_lazy_loaded_members_for_devices_batch(user_id, device_ids).await;
             // D-37: logged, not propagated (rows already deleted).
+            if let Err(error) = self.delete_lazy_loaded_members_for_devices_batch(user_id, device_ids).await {
+                tracing::warn!(
+                    %error,
+                    %user_id,
+                    "devices deleted but their lazy-loaded member rows were not cleaned up"
+                );
+            }
             if let Err(error) = self.record_device_list_changes_batch(user_id, device_ids, "deleted").await {
                 tracing::warn!(%error, %user_id, "devices deleted but their device-list changes were not recorded");
             }

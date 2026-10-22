@@ -43,6 +43,21 @@ pub fn room_state_cache_key(room_id: &str) -> String {
     format!("room_state:{room_id}")
 }
 
+/// Invalidates the cached full state of `room_id`.
+///
+/// This is the **only** place that key is deleted from; every state write listed
+/// in the invalidation contract above calls it, so the key format cannot drift
+/// between writers.
+///
+/// Returns nothing on purpose: a failed L2 delete is handled inside
+/// [`CacheManager::delete`], which tombstones the key so the next read goes back
+/// to the database. There is nothing useful for a caller to do with the outcome,
+/// and turning it into a user-visible error would fail a write that already
+/// succeeded.
+pub async fn invalidate_room_state(cache: &CacheManager, room_id: &str) {
+    cache.delete(&room_state_cache_key(room_id)).await;
+}
+
 /// Full room state for `room_id`, served from `cache` when present.
 ///
 /// The read is best-effort cached: a cache write failure is non-fatal, because the
