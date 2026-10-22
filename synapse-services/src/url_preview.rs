@@ -101,7 +101,11 @@ pub async fn fetch_open_graph(url: &str, blacklist: &[String], limits: PreviewLi
         Ok(Some(html)) => extract_open_graph(&html).into_json(),
         Ok(None) => serde_json::Value::Object(serde_json::Map::new()),
         Err(reason) => {
-            tracing::info!(url = %url, reason = %reason, "URL preview unavailable");
+            // Never log the caller's raw URL: its query string is under the caller's
+            // control and routinely carries session tokens and private document ids, so
+            // an ordinary "preview unavailable" line would become a credential leak into
+            // centralized logs. Host + a capped path keeps it diagnosable.
+            tracing::info!(url = %loggable_url(url), reason = %reason, "URL preview unavailable");
             serde_json::Value::Object(serde_json::Map::new())
         }
     }
@@ -164,6 +168,41 @@ fn is_html(content_type: Option<&reqwest::header::HeaderValue>) -> bool {
     };
     let lowered = value.to_ascii_lowercase();
     lowered.starts_with("text/html") || lowered.starts_with("application/xhtml")
+}
+
+/// The part of `url` that is safe to put in a log line.
+///
+/// A preview target comes from the caller, and its query string routinely carries
+/// session tokens and private document ids. Logging the whole URL turns an ordinary
+/// "preview unavailable" line into a credential leak into centralized logs, so this
+/// keeps `scheme://host` plus a length-capped path and **drops the query and fragment
+/// entirely**.
+fn loggable_url(url: &str) -> String {
+    const MAX_PATH: usize = 64;
+
+    let without_query = url.split(['?', '#']).next().unwrap_or(url);
+    let (authority, path) = match without_query.split_once("://") {
+        Some((scheme, rest)) => match rest.find('/') {
+            Some(index) => (format!("{scheme}://{}", &rest[..index]), &rest[index..]),
+            None => (format!("{scheme}://{rest}"), ""),
+        },
+        // No scheme: keep whatever path-ish text there is, still without the query.
+        None => (String::new(), without_query),
+    };
+
+    let path = if path.len() > MAX_PATH {
+        // Truncate on a char boundary: a multi-byte character split in half would
+        // panic here, and this runs on the failure path where panicking is worst.
+        let mut end = MAX_PATH;
+        while end > 0 && !path.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}…", &path[..end])
+    } else {
+        path.to_string()
+    };
+
+    format!("{authority}{path}")
 }
 
 /// Read at most `max_bytes` of the body.
@@ -359,6 +398,27 @@ mod tests {
         let preview = extract_open_graph(html);
         assert_eq!(preview.title.as_deref(), Some("Hello & welcome"));
         assert_eq!(preview.description.as_deref(), Some("A description"));
+    }
+
+    #[test]
+    fn logged_url_drops_the_query_and_caps_the_path() {
+        // SEC-10: the caller controls this URL, and its query is where session tokens
+        // and private document ids end up. Only host + a short path may be logged.
+        assert_eq!(
+            loggable_url("https://files.example.com/report.pdf?token=s3cret&x=1"),
+            "https://files.example.com/report.pdf"
+        );
+        assert_eq!(loggable_url("https://example.com?secret=1"), "https://example.com");
+        assert!(!loggable_url("https://example.com/a?access_token=abc#frag").contains("access_token"));
+
+        let long = format!("https://example.com/{}?q=1", "a".repeat(500));
+        let logged = loggable_url(&long);
+        assert!(logged.len() <= 64 + "https://example.com/".len() + 3, "got {} chars", logged.len());
+        assert!(!logged.contains("?q=1"));
+
+        // A multi-byte path must not be split mid-character (that would panic).
+        let cjk = format!("https://example.com/{}", "中文路径".repeat(20));
+        assert!(loggable_url(&cjk).starts_with("https://example.com/"));
     }
 
     #[test]
