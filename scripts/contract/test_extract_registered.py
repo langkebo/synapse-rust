@@ -179,12 +179,14 @@ def check_nest_prefixes(per: dict) -> None:
         f"sample: {sorted(hier)[:6]}",
     )
 
-    # Heterogeneous prefixes: e2ee compat -> v1+v3, v3-only -> v3 only.
+    # Heterogeneous prefixes: e2ee 的兼容面**只在 v3 上**（A3 已于 2026-10-22 退役 v1 双注册，
+    # 见 docs/audit/A3_v1_deprecation_strategy.md 的 A 族）；v3-only 的 /keys/history 一直只有 v3。
+    # 这里两个方向都要断：v3 必须有，v1 必须没有 —— 只断前者会漏掉"双注册又长回来"。
     e2ee = per.get("e2ee/keys.rs", set())
     check(
-        "e2ee /keys/upload is v1 + v3",
-        {"/_matrix/client/v1/keys/upload", "/_matrix/client/v3/keys/upload"}
-        <= {p for _m, p in e2ee},
+        "e2ee /keys/upload is v3-only (A3 retired the v1 twin)",
+        "/_matrix/client/v3/keys/upload" in {p for _m, p in e2ee}
+        and "/_matrix/client/v1/keys/upload" not in {p for _m, p in e2ee},
         f"sample: {sorted(p for _m, p in e2ee)[:4]}",
     )
     check(

@@ -1432,10 +1432,6 @@ EXPECTED_ANNOTATIONS = {
     # room-key backup payloads, UIA `Value` bodies, federation
     # PDUs/transactions, and `Bytes` bodies the handler parses itself
     # (`friends/search`) deliberately have no addressable field list.
-    ("POST", "/_matrix/client/v1/room_keys/import"): {"body_opaque": True},
-    ("POST", "/_matrix/client/v1/room_keys/import/{version}"): {"body_opaque": True},
-    ("POST", "/_matrix/client/v1/room_keys/request"): {"body_opaque": True},
-    ("POST", "/_matrix/client/v1/room_keys/version"): {"body_opaque": True},
     ("POST", "/_matrix/client/v3/keys/backup/secure/{backup_id}/keys"): {
         "body_opaque": True
     },
@@ -1475,9 +1471,6 @@ EXPECTED_ANNOTATIONS = {
         "body_opaque": True
     },
     ("POST", "/_matrix/federation/v1/knock/{room_id}/{user_id}"): {"body_opaque": True},
-    ("PUT", "/_matrix/client/v1/room_keys/{version}/keys/{room_id}/{session_id}"): {
-        "body_opaque": True
-    },
     ("PUT", "/_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/"): {
         "query_params": "org.matrix.msc4140.delay,org.matrix.msc4354.sticky_duration_ms,sticky_duration_ms",
         "body_opaque": True,
@@ -1549,13 +1542,6 @@ EXPECTED_ANNOTATIONS = {
         "body_opaque": True
     },
     ("POST", "/_matrix/client/v1/appservice/fed_proxy"): {"body_opaque": True},
-    ("POST", "/_matrix/client/v1/keys/device_list/update"): {"body_opaque": True},
-    ("POST", "/_matrix/client/v1/keys/signatures/upload"): {"body_opaque": True},
-    ("POST", "/_matrix/client/v1/keys/upload"): {"body_opaque": True},
-    ("POST", "/_matrix/client/v1/keys/upload/{device_id}"): {"body_opaque": True},
-    ("POST", "/_matrix/client/v1/sendToDevice/{event_type}/{transaction_id}"): {
-        "body_opaque": True
-    },
     ("POST", "/_matrix/client/v3/delete_devices"): {"body_opaque": True},
     ("POST", "/_matrix/client/v3/keys/backup/secure"): {"body_opaque": True},
     ("POST", "/_matrix/client/v3/keys/device_list/update"): {"body_opaque": True},
@@ -1585,9 +1571,6 @@ EXPECTED_ANNOTATIONS = {
     ("POST", "/_synapse/federation/v1/keys/upload"): {"body_opaque": True},
     ("POST", "/_synapse/federation/v2/key/clone"): {"body_opaque": True},
     ("PUT", "/_matrix/app/v1/transactions/{as_id}/{txn_id}"): {"body_opaque": True},
-    ("PUT", "/_matrix/client/v1/sendToDevice/{event_type}/{transaction_id}"): {
-        "body_opaque": True
-    },
     ("PUT", "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}"): {
         "query_params": "after,before"
     },
@@ -1636,13 +1619,6 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_synapse/cas/serviceValidate"): {
         "query_params": "pgt_url,renew,service,ticket"
     },
-    ("DELETE", "/_matrix/client/v1/room_keys/keys"): {"query_params": "version"},
-    ("DELETE", "/_matrix/client/v1/room_keys/keys/{room_id}"): {
-        "query_params": "version"
-    },
-    ("DELETE", "/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}"): {
-        "query_params": "version"
-    },
     ("DELETE", "/_matrix/client/v3/room_keys/keys"): {"query_params": "version"},
     ("DELETE", "/_matrix/client/v3/room_keys/keys/{room_id}"): {
         "query_params": "version"
@@ -1656,24 +1632,6 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}"): {
         "auth": "user"
     },
-    ("GET", "/_matrix/client/v1/room_keys/keys"): {"query_params": "version"},
-    ("GET", "/_matrix/client/v1/room_keys/keys/{room_id}"): {"query_params": "version"},
-    ("GET", "/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}"): {
-        "query_params": "version"
-    },
-    ("GET", "/_matrix/client/v1/room_keys/request"): {
-        "query_params": "from,limit,room_id,session_id,status"
-    },
-    ("GET", "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}"): {
-        "query_params": "dir,from,limit,org.matrix.msc3981.recurse,recurse,to"
-    },
-    ("GET", "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}"): {
-        "query_params": "dir,from,limit,org.matrix.msc3981.recurse,recurse,to"
-    },
-    (
-        "GET",
-        "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
-    ): {"query_params": "dir,from,limit,org.matrix.msc3981.recurse,recurse,to"},
     ("GET", "/_matrix/client/v1/rooms/{room_id}/threads"): {
         # B-20（2026-10-20）：`include_all`(bool) 换成规范的 `include=all|participated`。
         # B-20 残留（2026-10-21）：`dir` 由「接受但忽略」改为真排序（`f`/`b`，其它 400）。
@@ -1953,12 +1911,6 @@ EXPECTED_ANNOTATIONS = {
         "auth": "user",
         "body_opaque": True,
     },
-    ("PUT", "/_matrix/client/v1/room_keys/keys"): {"query_params": "version"},
-    ("PUT", "/_matrix/client/v1/room_keys/keys/{room_id}"): {"query_params": "version"},
-    ("PUT", "/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}"): {
-        "query_params": "version",
-        "body_opaque": True,
-    },
     ("PUT", "/_matrix/client/v3/room_keys/keys"): {"query_params": "version"},
     ("PUT", "/_matrix/client/v3/room_keys/keys/{room_id}"): {"query_params": "version"},
     ("PUT", "/_matrix/client/v3/room_keys/keys/{room_id}/{session_id}"): {
@@ -1973,7 +1925,6 @@ EXPECTED_ANNOTATIONS = {
         "GET",
         "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events",
     ): {"query_params": "limit,next_batch"},
-    ("GET", "/_matrix/client/v1/keys/changes"): {"query_params": "from,to"},
     ("GET", "/_matrix/client/v1/media/preview_url"): {"query_params": "ts,url"},
     ("GET", "/_matrix/client/v3/events"): {"query_params": "from,timeout"},
     ("GET", "/_matrix/client/v3/keys/changes"): {"query_params": "from,to"},
@@ -1999,9 +1950,6 @@ EXPECTED_ANNOTATIONS = {
     },
     ("GET", "/_matrix/client/v1/media/thumbnail/{server_name}/{media_id}"): {
         "query_params": "animated,height,method,width"
-    },
-    ("GET", "/_matrix/client/v1/rooms/{room_id}/aggregations/{event_id}/{rel_type}"): {
-        "query_params": "from,limit"
     },
     ("GET", "/_matrix/client/v1/rooms/{room_id}/context/{event_id}"): {
         "query_params": "filter,limit"

@@ -73,7 +73,7 @@ pub fn create_relations_router(state: AppState) -> Router<AppState> {
     let with_event_router = create_relations_with_event_router();
 
     Router::new()
-        .nest("/_matrix/client/v1", with_event_router.clone())
+        // A3：v1 双注册退役（A 族：同一 router 已在 v3 上）。
         .nest("/_matrix/client/v3", with_event_router)
         // 关系写入是非标准方法（spec 只有 GET 读），按 ISSUE-13 挂 vendor 前缀。
         // 刻意**在本文件里 nest**（而不是让 assembly 的 vendor router 去 merge）：

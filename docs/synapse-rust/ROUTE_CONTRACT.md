@@ -8,7 +8,7 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**1048**
+- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**997**
 - 含路由注册的模块文件：**66**
 - `derived_routes.rs` 中的 `registered_by` 标签：**75**
 - 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
@@ -69,7 +69,7 @@
 **逐模块清单里的两种标注**（都从派生表反解，不是人工维护）：
 
 - 〔仅 `X` profile〕 —— 该路由**只**在 profile `X` 下注册，默认构建里不存在（即上表成员）；
-- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 1050 行去重为 1048 条的来源。
+- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 999 行去重为 997 条的来源。
 
 当前共 **2** 条双档注册：
 
@@ -233,14 +233,10 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_synapse/admin/v1/event_reports/{id}/resolve`
 - `PUT` `/_synapse/admin/v1/event_reports/{id}`
 
-### 关联 (Relations) （9 条）
+### 关联 (Relations) （5 条）
 
-#### `relations.rs` — 9 条 ✅派生表
+#### `relations.rs` — 5 条 ✅派生表
 
-- `GET` `/_matrix/client/v1/rooms/{room_id}/aggregations/{event_id}/{rel_type}`
-- `GET` `/_matrix/client/v1/rooms/{room_id}/relations/{event_id}`
-- `GET` `/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}`
-- `GET` `/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/aggregations/{event_id}/{rel_type}`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/relations/{event_id}`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}`
@@ -453,17 +449,10 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_matrix/client/v3/users/{user_id}/report`
 - `PUT` `/_matrix/vendor/v1/rooms/{room_id}/report/{event_id}/score`
 
-### 密钥备份 (Key Backup) （66 条）
+### 密钥备份 (Key Backup) （33 条）
 
-#### `key_backup.rs` — 66 条 ✅派生表
+#### `key_backup.rs` — 33 条 ✅派生表
 
-- `DELETE` `/_matrix/client/v1/room_keys/keys`
-- `DELETE` `/_matrix/client/v1/room_keys/keys/{room_id}`
-- `DELETE` `/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}`
-- `DELETE` `/_matrix/client/v1/room_keys/version/{version}`
-- `DELETE` `/_matrix/client/v1/room_keys/{version}/keys`
-- `DELETE` `/_matrix/client/v1/room_keys/{version}/keys/{room_id}`
-- `DELETE` `/_matrix/client/v1/room_keys/{version}/keys/{room_id}/{session_id}`
 - `DELETE` `/_matrix/client/v3/room_keys/keys`
 - `DELETE` `/_matrix/client/v3/room_keys/keys/{room_id}`
 - `DELETE` `/_matrix/client/v3/room_keys/keys/{room_id}/{session_id}`
@@ -471,20 +460,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `DELETE` `/_matrix/client/v3/room_keys/{version}/keys`
 - `DELETE` `/_matrix/client/v3/room_keys/{version}/keys/{room_id}`
 - `DELETE` `/_matrix/client/v3/room_keys/{version}/keys/{room_id}/{session_id}`
-- `GET` `/_matrix/client/v1/room_keys/export`
-- `GET` `/_matrix/client/v1/room_keys/export/{version}`
-- `GET` `/_matrix/client/v1/room_keys/keys`
-- `GET` `/_matrix/client/v1/room_keys/keys/{room_id}`
-- `GET` `/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}`
-- `GET` `/_matrix/client/v1/room_keys/recover/{version}/{room_id}`
-- `GET` `/_matrix/client/v1/room_keys/recover/{version}/{room_id}/{session_id}`
-- `GET` `/_matrix/client/v1/room_keys/recovery/{version}/progress`
-- `GET` `/_matrix/client/v1/room_keys/verify/{version}`
-- `GET` `/_matrix/client/v1/room_keys/version`
-- `GET` `/_matrix/client/v1/room_keys/version/{version}`
-- `GET` `/_matrix/client/v1/room_keys/{version}/keys`
-- `GET` `/_matrix/client/v1/room_keys/{version}/keys/{room_id}`
-- `GET` `/_matrix/client/v1/room_keys/{version}/keys/{room_id}/{session_id}`
 - `GET` `/_matrix/client/v3/room_keys/export`
 - `GET` `/_matrix/client/v3/room_keys/export/{version}`
 - `GET` `/_matrix/client/v3/room_keys/keys`
@@ -499,23 +474,11 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/client/v3/room_keys/{version}/keys`
 - `GET` `/_matrix/client/v3/room_keys/{version}/keys/{room_id}`
 - `GET` `/_matrix/client/v3/room_keys/{version}/keys/{room_id}/{session_id}`
-- `POST` `/_matrix/client/v1/room_keys/batch_recover`
-- `POST` `/_matrix/client/v1/room_keys/import`
-- `POST` `/_matrix/client/v1/room_keys/import/{version}`
-- `POST` `/_matrix/client/v1/room_keys/recover`
-- `POST` `/_matrix/client/v1/room_keys/version`
 - `POST` `/_matrix/client/v3/room_keys/batch_recover`
 - `POST` `/_matrix/client/v3/room_keys/import`
 - `POST` `/_matrix/client/v3/room_keys/import/{version}`
 - `POST` `/_matrix/client/v3/room_keys/recover`
 - `POST` `/_matrix/client/v3/room_keys/version`
-- `PUT` `/_matrix/client/v1/room_keys/keys`
-- `PUT` `/_matrix/client/v1/room_keys/keys/{room_id}`
-- `PUT` `/_matrix/client/v1/room_keys/keys/{room_id}/{session_id}`
-- `PUT` `/_matrix/client/v1/room_keys/version/{version}`
-- `PUT` `/_matrix/client/v1/room_keys/{version}/keys`
-- `PUT` `/_matrix/client/v1/room_keys/{version}/keys/{room_id}`
-- `PUT` `/_matrix/client/v1/room_keys/{version}/keys/{room_id}/{session_id}`
 - `PUT` `/_matrix/client/v3/room_keys/keys`
 - `PUT` `/_matrix/client/v3/room_keys/keys/{room_id}`
 - `PUT` `/_matrix/client/v3/room_keys/keys/{room_id}/{session_id}`
@@ -891,31 +854,18 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/vendor/v1/spaces/{space_id}/summary`
 - `GET` `/_matrix/vendor/v1/spaces/{space_id}/summary/with_children`
 
-### 端到端加密 (E2EE) （36 条）
+### 端到端加密 (E2EE) （22 条）
 
-#### `e2ee/keys.rs` — 36 条 ✅派生表
+#### `e2ee/keys.rs` — 22 条 ✅派生表
 
-- `DELETE` `/_matrix/client/v1/room_keys/request/{request_id}`
 - `DELETE` `/_matrix/client/v3/keys/backup/secure/{backup_id}`
 - `DELETE` `/_matrix/client/v3/room_keys/request/{request_id}`
-- `GET` `/_matrix/client/v1/keys/changes`
-- `GET` `/_matrix/client/v1/room_keys/request`
-- `GET` `/_matrix/client/v1/rooms/{room_id}/keys/distribution`
 - `GET` `/_matrix/client/v3/keys/backup/secure`
 - `GET` `/_matrix/client/v3/keys/backup/secure/{backup_id}`
 - `GET` `/_matrix/client/v3/keys/changes`
 - `GET` `/_matrix/client/v3/keys/history`
 - `GET` `/_matrix/client/v3/room_keys/request`
 - `GET` `/_matrix/client/v3/rooms/{room_id}/keys/distribution`
-- `POST` `/_matrix/client/v1/keys/claim`
-- `POST` `/_matrix/client/v1/keys/device_list/update`
-- `POST` `/_matrix/client/v1/keys/device_signing/upload`
-- `POST` `/_matrix/client/v1/keys/query`
-- `POST` `/_matrix/client/v1/keys/signatures/upload`
-- `POST` `/_matrix/client/v1/keys/upload`
-- `POST` `/_matrix/client/v1/keys/upload/{device_id}`
-- `POST` `/_matrix/client/v1/room_keys/request`
-- `POST` `/_matrix/client/v1/sendToDevice/{event_type}/{transaction_id}`
 - `POST` `/_matrix/client/v3/keys/backup/secure`
 - `POST` `/_matrix/client/v3/keys/backup/secure/{backup_id}/keys`
 - `POST` `/_matrix/client/v3/keys/backup/secure/{backup_id}/restore`
@@ -929,7 +879,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_matrix/client/v3/keys/upload/{device_id}`
 - `POST` `/_matrix/client/v3/room_keys/request`
 - `POST` `/_matrix/client/v3/sendToDevice/{event_type}/{transaction_id}`
-- `PUT` `/_matrix/client/v1/sendToDevice/{event_type}/{transaction_id}`
 - `PUT` `/_matrix/client/v3/sendToDevice/{event_type}/{transaction_id}`
 
 ### 第三方 (Third-party) （6 条）
@@ -1724,7 +1673,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 | `["oidc"]` | 仅当合并 `oidc_enabled` 路由器（`oidc.enabled = true`）时可达 |
 
 - 推导自提取器的 `guards`，其累积集合是 `default ⊆ worker ⊆ all`；本字段发布的是**边际**（最小可服务档位），因此与本文档 §「运行时 Profile 门控」的 19 条门控路由（worker 11 + oidc 8）逐条对应。
-- 实测分布：`"" = 1029` / `worker = 11` / `oidc = 8`，合计 1048。
+- 实测分布：`"" = 978` / `worker = 11` / `oidc = 8`，合计 997。
 - 下游用途：端点生成器/SDK 门禁可直接过滤掉默认部署下必然 404 的 worker / oidc 路由，不再需要自己解析 `derived_route_table_*.inc.rs`。
 - 守卫：某条路由若不属于三个档位中的任何一档（被一个没有任何部署会合并的 cfg 守卫包住），生成器**直接失败**而不是发布 `[]`（那等于谎称可达）。
 
@@ -1743,7 +1692,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 #### 3. 结果：`status` / `confidence` 不再有不确定档
 
-- `status`：`exact = 1048`（`ambiguous` 0、`unresolved` 0）；`confidence`：`high = 1048`（`low` 0、`none` 0）。
+- `status`：`exact = 997`（`ambiguous` 0、`unresolved` 0）；`confidence`：`high = 997`（`low` 0、`none` 0）。
 - 因此 `ledger_annotations.txt` 的 `dynamic=true` 清单与 `EXPECTED_ANNOTATIONS` 中的对应项**已清空**（原唯一成员就是 `GET /`）。`check_dynamic_allowlist()` 的双向相等约束保留，空集是预期稳态。
 - `body` / `query` 的 `ambiguous` 桶随之归零（`body: none` 690 / `opaque` 99 / `typed` 240 / `foreign` 19；`query: typed` 201 / `none` 847）。
 
@@ -1906,8 +1855,8 @@ EXTERNAL_TYPE_FILES = ("synapse-storage/src/sliding_sync/models.rs",)
 
 > 本附录为人工维护，基于 **SDK Manager 源码 + 后端 handler 源码双侧实读**，逐条核对「已封装后端功能」的完整性；重新生成脚本不覆盖本段。
 > **审计对象**：`@langkebo/matrix-js-sdk@40.2.0-langkebo.5`（`/Users/ljf/Desktop/hu_ts/matrix-js-sdk`）。
-> **后端事实源**：本文件路由面（**1048** 条路由 / **66** 个模块）+ `synapse-web/src/routes/**` handler 源码。
-> 　· 计数口径（2026-10-20 复核）：**1048** = `all` profile 去重后的 `method + path` 条目数（`tests/unit/fixtures/ledger_export_sdk/all.json` 的 `entry_count`，与 `derived_route_table_*.inc.rs` 生成表逐条一致）；
+> **后端事实源**：本文件路由面（**997** 条路由 / **66** 个模块）+ `synapse-web/src/routes/**` handler 源码。
+> 　· 计数口径（2026-10-20 复核）：**997** = `all` profile 去重后的 `method + path` 条目数（`tests/unit/fixtures/ledger_export_sdk/all.json` 的 `entry_count`，与 `derived_route_table_*.inc.rs` 生成表逐条一致）；
 > 　· **66** = 含路由注册的模块文件数（细粒度 `registered_by` 共 **75** 个；旧文本写的「51 模块 / 74 标签」「65 模块」是更早口径，已废弃）。
 > **证据产物**：`artifacts/sdk-contract-gap-report.md`、`artifacts/sdk-contract-gap.json`、`scripts/quality/path-contract-coverage.json`；镜像 commit **`2946e19eb`**（2026-10-17）。
 > ⚠️ **时点提示**：本节 B.1–B.7 的**所有数字**（覆盖率、分桶、缺口条数）都是 **2026-10-09 审计时点**的口径，此后后端与 SDK 均有前进；
@@ -2003,7 +1952,7 @@ EXTERNAL_TYPE_FILES = ("synapse-storage/src/sliding_sync/models.rs",)
 4. **复现命令**（在 `/Users/ljf/Desktop/hu_ts/matrix-js-sdk`）：
    - 审计：`pnpm contract:sync && pnpm contract:codegen && node scripts/audit/compare-routes.mjs`
    - 门禁：`pnpm quality:path-contract`（另有 `quality:admin-response-contract` / `quality:contract-drift` / `quality:sdk-contracts` / `quality:route-set-parity`）。
-5. **口径提示**：`generate_sdk_ledger_fixtures.sh` 头部注释里的条数只是**示例历史值**，请以当次实测为准：**1048**（2026-10-20 口径；2026-10-19 时为 1046、2026-10-18 时为 1041、2026-10-17 时为 1038、2026-10-09 时为 1030）；一律以本文件头部计数与 `sdk-contract-gap.json` 当次实测为准。
+5. **口径提示**：`generate_sdk_ledger_fixtures.sh` 头部注释里的条数只是**示例历史值**，请以当次实测为准：**997**（2026-10-22 A3 第一批后；2026-10-20 时为 1048；2026-10-19 时为 1046、2026-10-18 时为 1041、2026-10-17 时为 1038、2026-10-09 时为 1030）；一律以本文件头部计数与 `sdk-contract-gap.json` 当次实测为准。
 
 ### B.8 复核结论（2026-10-17，双侧源码 + 真实后端联调）
 
@@ -2353,7 +2302,7 @@ EXTERNAL_TYPE_FILES = ("synapse-storage/src/sliding_sync/models.rs",)
 | 产物 | 坐标 | 条数 | 用途 |
 |---|---|---|---|
 | `docs/openapi/route-table.json` | golden × default | **968** | CI drift 基线、`placeholder_scan_tests` 的唯一输入 |
-| `docs/openapi/route-table-sdk.json` | sdk × all | **1048** | SDK 实际摄入的最大完整面 |
+| `docs/openapi/route-table-sdk.json` | sdk × all | **997** | SDK 实际摄入的最大完整面 |
 | `tests/unit/fixtures/ledger_export{,_sdk}/{default,worker,all}.json` | 两 lane × 三 profile，共 6 份 | 968/979/986、1029/1040/1048 | 契约提取的输入 |
 
 1. **不把派生路由标 `derived: true`**：`voice` 在 golden 视图里为 0，根因是 `voice-extended`

@@ -51,7 +51,7 @@ pub fn create_e2ee_router(state: AppState) -> Router<AppState> {
     let v3_only_router = create_e2ee_v3_only_router();
 
     Router::new()
-        .nest("/_matrix/client/v1", compat_router.clone())
+        // A3：v1 双注册退役（A 族：同一 router 已在 v3 上）。
         .nest("/_matrix/client/v3", compat_router)
         .nest("/_matrix/client/v3", v3_only_router)
         .with_state(state)

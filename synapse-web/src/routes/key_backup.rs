@@ -85,7 +85,9 @@ pub fn create_key_backup_router(state: AppState) -> Router<AppState> {
         .route("/room_keys/import/{version}", post(import_keys_by_version));
     // Note: /keys/backup/secure routes are handled in e2ee_routes.rs
 
-    Router::new().nest("/_matrix/client/v1", router.clone()).nest("/_matrix/client/v3", router).with_state(state)
+    // A3：`/v1` 双注册已退役（33 条历史兼容尾巴，v3 与 v1 用的是同一 router）。
+    // 依据 docs/audit/A3_v1_deprecation_strategy.md「2026-10-22 复核纠正」的 A 族。
+    Router::new().nest("/_matrix/client/v3", router).with_state(state)
 }
 
 /// The `VersionQuery` struct.
