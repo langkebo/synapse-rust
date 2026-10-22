@@ -410,7 +410,7 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 - **影响范围**：单用户/单房间的积压数据直接决定响应体大小与内存占用，可被构造为内存放大攻击面。
 - **修法**：强制 `LIMIT` 上限并从配置读取。
 
-> **落地状态（2026-10-22，W4 第二层已实现）**。原文 3 处全部复核，但只有 1 处真正需要"加 `LIMIT`"：
+> **落地状态（2026-10-22，W4 第二层已实现，提交 `0d18fede0`）**。原文 3 处全部复核，但只有 1 处真正需要"加 `LIMIT`"：
 >
 > | 原站点 | 复核结论 | 处置 |
 > |---|---|---|
@@ -431,7 +431,7 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 - **影响范围**：页码越深越慢，且内存切片版会在服务端把已跳过的行也读出来。
 - **修法**：改 keyset（`WHERE (ts, id) < (:ts, :id)`）分页；`events.rs` 直接用 SQL 的 `OFFSET/LIMIT` 或游标。
 
-> **落地状态（2026-10-22，W4 第二层已实现）**。5 处逐点定性，**只有 1 处真的退化，其余是既有契约**：
+> **落地状态（2026-10-22，W4 第二层已实现，提交 `0d18fede0`）**。5 处逐点定性，**只有 1 处真的退化，其余是既有契约**：
 >
 > | 站点 | 定性 | 处置 |
 > |---|---|---|
@@ -454,7 +454,7 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 - **影响范围**：并发重复拉黑/解除会读到旧行并覆盖对方写入，导致计数或状态丢失。
 - **修法**：`SELECT ... FOR UPDATE` 或改为单条 `INSERT ... ON CONFLICT DO UPDATE`。
 
-> **落地状态（2026-10-22，W4 第二层已实现）**。实际写法是"事务 + 按房间行锁 + 批量 `ON CONFLICT DO NOTHING`"：
+> **落地状态（2026-10-22，W4 第二层已实现，提交 `0d18fede0`）**。实际写法是"事务 + 按房间行锁 + 批量 `ON CONFLICT DO NOTHING`"：
 >
 > - `set_invite_blocklist` / `set_invite_allowlist` 各自开事务，先 `lock_room_row(tx, room_id)` 把同房间的写者串行化；
 > - `DELETE` 与 `INSERT` 在同一事务内 ⇒ 读者不会看到"先清后插"之间的空窗（那个空窗会被读成"无限制"，直接放行被拉黑者）；
@@ -1098,7 +1098,7 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 | **W1** | P1 配额与事务 | FUNC-06 → FUNC-03、PERF-02 | 契约微调 + 事务包裹 | 中 | 无 | ✅ 已提交 `cc364bd6f`（见 §10.3） |
 | **W2** | P1 授权与信任根 | SEC-01、CODE-05、TEST-01 | 单点逻辑 + cfg 门禁 + 补测试 | 小 | 无 | ✅ 已提交 `85180061c`（见 §10.4） |
 | **W3** | P1 结构决策 | ARCH-01 | 方案 A「打通」：写路径改走规范事件，影子表降级为索引 | **大** | 需先定方案 | ✅ 已提交 `3789583ef`（见 §10.5） |
-| **W4** | P2 资源与性能 | PERF-14、PERF-13、PERF-03/04/05、PERF-07/08/09、PERF-06、CODE-04、CODE-07 | 索引/查询/分批 | 中 | W1（FUNC-06 累计校验） | 🟡 第一层 `2358c0f5a`；第二层（PERF-07/08/09）已实现未提交（见 §10.6）；第三层待做 |
+| **W4** | P2 资源与性能 | PERF-14、PERF-13、PERF-03/04/05、PERF-07/08/09、PERF-06、CODE-04、CODE-07 | 索引/查询/分批 | 中 | W1（FUNC-06 累计校验） | 🟡 第一层 `2358c0f5a`；第二层 `0d18fede0`（见 §10.6）；第三层待做 |
 | **W5** | P2 安全一致性 | SEC-02…SEC-08 | 配置校验 + 默认值 | 小 | 无 | ✅ 已提交 `ca6980c51`（见 §10.7） |
 | **W6** | P3 冗余与文档 | 全部 P3 + §9.12 五批 | 删除/合壳/文档 | 小但量大 | W0（避免删到正在改的文件） | 待开始 |
 
@@ -1328,7 +1328,7 @@ fn is_admin_request_allowed(role: &str, method: &Method, path: &str, rbac_enable
 - PERF-08（5 处 OFFSET 深分页）：改 keyset 分页（`WHERE (ts, id) < ($1, $2)`）。**这是契约变更**：响应里的 `next_batch` 语义要同步。
 - PERF-09（邀请黑名单 upsert 竞态）：`INSERT … ON CONFLICT` 前加 `SELECT … FOR UPDATE`，或直接用 `ON CONFLICT DO NOTHING` + 行数判断。
 
-> **落地状态（2026-10-22，第二层已实现）**。三条都做完，但**没有一条按原计划照抄**：
+> **落地状态（2026-10-22，第二层已实现，提交 `0d18fede0`）**。三条都做完，但**没有一条按原计划照抄**：
 >
 > - **PERF-07**：3 处里只有 1 处真需要加 `LIMIT`（`load_chunk_data`），另 2 处是死代码/已分页路径。且**不加 `M_TOO_LARGE`**——超限发生在写侧就拒绝（`total_chunks + 1` 预检），读侧的上限是纵深防御，不是对外错误码。
 > - **PERF-08**：5 处里只有 `handlers/room/events.rs` 真退化，但它**不能改 keyset**（`from` 在 doc comment 与响应里就是 plain offset，换语义即破契约），改为把窗口下推到 SQL。`sliding_sync` 的 `range` 是 MSC3575 位置窗口，保留 `OFFSET` 但补 `room_id` 决胜键（`bump_stamp` 不唯一，页边界会重/漏）。另外 3 处是 admin wire 分页参数，排序已全序，不动。
