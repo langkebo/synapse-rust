@@ -93,6 +93,10 @@
 ## 一、架构设计
 
 ### ARCH-01（P1）Thread 双实现：非规范 API 写入影子表，数据对 `/sync`、`/messages`、联邦不可见
+> **修复（2026-10-22，W3 方案 A，提交 `3789583ef`）**：采用下方"最小修法"——vendor thread API
+> 改为写真实 `m.thread` 事件（经 `RelationsService::send_reference`），影子表降级为索引；
+> 建线程要求根事件真实存在（否则 404）。存量影子行未回填，详见 §10.5 落地状态。
+>
 > **复核（2026-10-22 第二轮）**：核心结论 ✅ 成立，且比原文更硬：除 `thread/storage.rs` 外
 > **全仓没有任何代码写 `thread_roots`/`thread_replies`**（实测 `grep -rn thread_roots\|thread_replies
 > synapse-{services,storage,web}/src` 去掉 storage/test/mock 后为 0），因此规范 `m.thread` 路径
@@ -1039,7 +1043,7 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 | **W0** | P1 一致性收口 | CODE-02、CODE-03 | 根因修复（cache 墓碑）+ 2 个失效 helper + CI 扫描（19+6 处） | 中（但模式统一，见 §10.2） | 无 | ✅ 已提交 `8b8505ff5` |
 | **W1** | P1 配额与事务 | FUNC-06 → FUNC-03、PERF-02 | 契约微调 + 事务包裹 | 中 | 无 | ✅ 已提交 `cc364bd6f`（见 §10.3） |
 | **W2** | P1 授权与信任根 | SEC-01、CODE-05、TEST-01 | 单点逻辑 + cfg 门禁 + 补测试 | 小 | 无 | ✅ 已提交 `85180061c`（见 §10.4） |
-| **W3** | P1 结构决策 | ARCH-01 | **需要决策**（下架/打通），不是纯修 bug | **大** | 需先定方案 | 待决策 |
+| **W3** | P1 结构决策 | ARCH-01 | 方案 A「打通」：写路径改走规范事件，影子表降级为索引 | **大** | 需先定方案 | ✅ 已提交 `3789583ef`（见 §10.5） |
 | **W4** | P2 资源与性能 | PERF-14、PERF-13、PERF-03/04/05、PERF-07/08/09、PERF-06、CODE-04、CODE-07 | 索引/查询/分批 | 中 | W1（FUNC-06 累计校验） | 待开始 |
 | **W5** | P2 安全一致性 | SEC-02…SEC-08 | 配置校验 + 默认值 | 小 | 无 | ✅ 已提交 `ca6980c51`（见 §10.7） |
 | **W6** | P3 冗余与文档 | 全部 P3 + §9.12 五批 | 删除/合壳/文档 | 小但量大 | W0（避免删到正在改的文件） | 待开始 |
@@ -1214,6 +1218,19 @@ fn is_admin_request_allowed(role: &str, method: &Method, path: &str, rbac_enable
 ---
 
 ### 10.5 W3：ARCH-01（Thread 影子表）—— 需要决策，不要直接动手
+
+> **落地状态（2026-10-22，已实现，提交 `3789583ef`）**。选定 **方案 A「打通」**（产品侧确认有客户端在用非规范 API，B「下架」会直接破客户端）。实际实现与本节的偏差，以实际为准：
+> ① **未做存量事件回填**。计划里的"事件回填迁移"不是一条 `INSERT … SELECT` 能完成的：影子行的 `event_id` 是客户端随手给的，`events` 里从来没有过对应事件，要补就得重新走写入口定稿 id 并参与联邦签名与摘要链，属于独立迁移工程。本批只止住**新增长**，存量行原样保留（它们本来就是旧实现的产物，回填是另一件事）。
+> ② **门禁从"行数不增长"改为"每写一条 thread 必然产生一条规范事件"**：`test_thread_reply_writes_canonical_m_thread_event` 直接查 `thread_replies.event_id` 回指的 `events.content.m.relates_to`。
+> ③ **建线程的根事件校验是新增门禁的必然结果**：既然影子表只能索引真实事件，`root_event_id` 不存在就必须 404（`test_create_thread_rejects_unknown_root_event`），否则仍能在影子表里造出指向空气的线程行。
+> ④ **回复请求体删掉了 `event_id` / `root_event_id`**（契约变更，见 `ROUTE_CONTRACT.md` E.18）。保留字段但不用，等于留下"收了不认"的兼容 shim。
+> ⑤ **未处理**：`thread_relations` 仍只写不读（与 `event_relations` 重复）；`thread_roots.sender` 记的是 API 调用者而非根事件真实 sender。
+>
+> 红证（同一用例在修前失败）：
+> - `test_thread_reply_writes_canonical_m_thread_event` → `thread_replies.event_id = $canonical_reply_… 在 events 表里不存在`；
+> - `test_create_thread_rejects_unknown_root_event` → `left: 200 right: 404`。
+>
+> 绿证：`--test integration api_search_thread_tests` 12 passed；`api_placeholder_contract_p0_tests` 34 passed；`-p synapse-services --lib thread_service` 24 passed。
 
 这是全清单里唯一"写了等于没写"的结构性问题，也是最容易被误修的一条：直接删表会丢数据，直接暴露会破坏 `/sync` 语义。
 
