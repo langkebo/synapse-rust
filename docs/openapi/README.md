@@ -28,7 +28,7 @@
   | lane（编译期 `#[cfg(feature = "…")]`） | `golden` / `sdk` | golden = 默认特性闭包；sdk = `default + all-extensions`。差值不是单一开关，而是整组 `all-extensions` 编译进来的门控路由：sdk 相对 golden 在 default profile 多 61 条（`saml-sso` 16 / `server-notifications` 15 / `cas-sso` 12 / `voice-extended` 13 / `voip-tracking` 5），在 all profile 多 62 条 |
   | profile（运行期 guard） | `default ⊂ worker ⊂ all` | 由 `ProfileFlags` 的 `worker_enabled`/`oidc_enabled`/`saml_enabled` 决定，派生表按 `RouteProfile` 单调过滤（按 `(method,path)`；高 rank 的碰撞孪生会**替换**低 rank 条目，不新增 path） |
 
-- **权威计数** = sdk lane × all profile = **997**（最大完整面，SDK 实际摄入的 lane；
+- **权威计数** = sdk lane × all profile = **975**（最大完整面，SDK 实际摄入的 lane；
   等于 `tests/unit/fixtures/ledger_export_sdk/all.json` 的 `entry_count`，也等于
   `ROUTE_CONTRACT.md` 的总览计数）。其余数字都是该坐标的**子集**，不是并列权威。
 - 6 个合法坐标的 fixture 落在 `tests/unit/fixtures/ledger_export{,_sdk}/{default,worker,all}.json`。

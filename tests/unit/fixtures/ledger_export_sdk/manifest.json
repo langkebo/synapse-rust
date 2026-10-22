@@ -4,16 +4,16 @@
   "ledger_schema_version": "4",
   "profiles": {
     "all": {
-      "entry_count": 997,
-      "route_surface_sha256": "4b633bdac10e260babd02bb22758e79b3572700b8792a626c71172e451188b8b"
+      "entry_count": 975,
+      "route_surface_sha256": "57cb6cd95d3dbe65721cd14d969c6df10bf85632dbf3abf8b033c68091ce29bd"
     },
     "default": {
-      "entry_count": 978,
-      "route_surface_sha256": "1feb10232a8f344dc92740cf7ff75ed13b1ce7a162c39574d9802b71a9baefff"
+      "entry_count": 956,
+      "route_surface_sha256": "37682b19f9cfbad6b5a7636aaf734b4e5982bcb480b29741a9993cb9100f7e2f"
     },
     "worker": {
-      "entry_count": 989,
-      "route_surface_sha256": "845e733ca4fea45edb2e5b489dc6f20fc5d8a9c05ebd602b8c4b2b02e6327ed2"
+      "entry_count": 967,
+      "route_surface_sha256": "c7c16b1b851498255244bb931e941b6fb681b0af3a878a855f4ef9030a05c0a0"
     }
   }
 }

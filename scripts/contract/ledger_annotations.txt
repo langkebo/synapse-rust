@@ -110,7 +110,6 @@ POST /_matrix/client/v3/user/{user_id}/filter	body_opaque=true
 POST /_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{type}	body_opaque=true
 POST /_matrix/federation/v1/get_missing_events/{room_id}	body_opaque=true
 POST /_matrix/federation/v1/knock/{room_id}/{user_id}	body_opaque=true
-PUT /_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/	query_params=org.matrix.msc4140.delay,org.matrix.msc4354.sticky_duration_ms,sticky_duration_ms body_opaque=true
 PUT /_matrix/client/v3/room_keys/{version}/keys/{room_id}/{session_id}	body_opaque=true
 PUT /_matrix/client/v3/rooms/{room_id}/account_data/{type}	body_opaque=true
 PUT /_matrix/client/v3/rooms/{room_id}/redact/{event_id}/{txn_id}	body_opaque=true
@@ -326,7 +325,6 @@ POST /_matrix/vendor/v1/keys/rotation/check	query_params=key_id
 GET /_matrix/client/unstable/org.matrix.msc4354/rooms/{room_id}/sticky_events	query_params=event_type
 GET /_matrix/client/unstable/uk.half-shot.msc2666/user/mutual_rooms	query_params=batch_token,from,limit,user_id
 GET /_matrix/client/v1/media/thumbnail/{server_name}/{media_id}	query_params=animated,height,method,width
-GET /_matrix/client/v1/rooms/{room_id}/context/{event_id}	query_params=filter,limit
 GET /_matrix/client/v1/rooms/{room_id}/hierarchy	query_params=from,limit,max_depth,suggested_only
 GET /_matrix/client/v1/rooms/{room_id}/timestamp_to_event	query_params=dir,ts
 GET /_matrix/client/v3/notifications	query_params=from,limit,only

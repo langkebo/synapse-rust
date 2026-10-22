@@ -137,18 +137,16 @@ fn test_declared_manifest_includes_auth_standalone_routes() {
 }
 
 #[test]
-fn test_declared_manifest_includes_account_compat_under_three_prefixes() {
+fn test_declared_manifest_includes_account_compat_only_under_v3() {
     let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
-    // whoami and password are exposed under v1 and v3.
-    for prefix in ["/_matrix/client/v1", "/_matrix/client/v3", "/_matrix/client/v3"] {
-        assert!(paths.contains(&format!("{prefix}/account/whoami").as_str()), "{prefix}/account/whoami missing");
-        assert!(paths.contains(&format!("{prefix}/account/password").as_str()), "{prefix}/account/password missing");
-        assert!(
-            paths.contains(&format!("{prefix}/account/deactivate").as_str()),
-            "{prefix}/account/deactivate missing"
-        );
-        assert!(paths.contains(&format!("{prefix}/account/3pid").as_str()), "{prefix}/account/3pid missing");
+    // A3（2026-10-22）：`create_account_compat_router()` 以前挂 v1+v3，v1 那半句已退役。
+    // 反向断言与正向断言同等重要 —— 见 account_compat_route_tests 里的同类说明。
+    for suffix in ["/account/whoami", "/account/password", "/account/deactivate", "/account/3pid"] {
+        let v3 = format!("/_matrix/client/v3{suffix}");
+        let v1 = format!("/_matrix/client/v1{suffix}");
+        assert!(paths.contains(v3.as_str()), "{v3} missing");
+        assert!(!paths.contains(v1.as_str()), "{v1} must be retired by A3 (only v3 may serve it)");
     }
 }
 

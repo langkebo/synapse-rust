@@ -396,9 +396,8 @@ fn create_account_compat_router() -> Router<AppState> {
 }
 
 fn create_account_router() -> Router<AppState> {
-    Router::new()
-        .nest("/_matrix/client/v1", create_account_compat_router())
-        .nest("/_matrix/client/v3", create_account_compat_router())
+    // A3：v1 双注册退役（A 族：同一 router 已在 v3 上）。
+    Router::new().nest("/_matrix/client/v3", create_account_compat_router())
 }
 
 fn create_directory_compat_router() -> Router<AppState> {

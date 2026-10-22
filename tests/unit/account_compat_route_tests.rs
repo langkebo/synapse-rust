@@ -84,14 +84,19 @@ fn test_account_compat_full_route_surface_under_v3() {
 }
 
 #[test]
-fn test_account_compat_routes_also_under_r0_and_v1() {
-    // The account_compat router is merged under v1, r0, and v3 (with
-    // r0 adding the deprecated /account/profile/{user_id}* extras).
+fn test_account_compat_routes_are_v3_only_after_a3() {
+    // A3 决定（2026-10-22）：`account_compat` 是"历史双注册"里的 A 族尾巴 ——
+    // 同一 router 以前同时挂 v1 与 v3。v1 那半句已退役，只留 v3。
+    //
+    // 两个方向都断：只断"v3 在"会漏掉"双注册又长回来"（那正是 A3 想消灭的形态）；
+    // 只断"v1 不在"会在 v3 被误删时仍然绿。
     let ledger = declared_ledger_for_profile(&ProfileFlags::DEFAULT);
     let paths: std::collections::HashSet<&str> = ledger.iter().map(|e| e.path).collect();
-    for prefix in ["/_matrix/client/v1", "/_matrix/client/v3", "/_matrix/client/v3"] {
-        assert!(paths.contains(&format!("{prefix}/account/whoami").as_str()), "{prefix}/account/whoami missing");
-        assert!(paths.contains(&format!("{prefix}/account/password").as_str()), "{prefix}/account/password missing");
+    for suffix in ["/account/whoami", "/account/password", "/account/deactivate", "/account/3pid"] {
+        let v3 = format!("/_matrix/client/v3{suffix}");
+        let v1 = format!("/_matrix/client/v1{suffix}");
+        assert!(paths.contains(v3.as_str()), "{v3} missing");
+        assert!(!paths.contains(v1.as_str()), "{v1} must be retired by A3 (only v3 may serve it)");
     }
 }
 

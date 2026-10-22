@@ -10,7 +10,7 @@
     "worker_enabled": true,
     "saml_enabled": true
   },
-  "total_routes": 997,
+  "total_routes": 975,
   "_meta": {
     "generated_by": "gen_route_table.py",
     "note": "本文件由 CI 自动生成，禁止手改。如需刷新: python3 scripts/api_test/gen_route_table.py"
@@ -511,110 +511,6 @@
       "auth": null
     },
     {
-      "method": "GET",
-      "path": "/_matrix/client/v1/account/3pid",
-      "registered_by": "assembly::account_compat",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/account/3pid",
-      "registered_by": "assembly::account_compat",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/account/3pid/add",
-      "registered_by": "assembly::account_compat",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/account/3pid/bind",
-      "registered_by": "assembly::account_compat",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/account/3pid/delete",
-      "registered_by": "assembly::account_compat",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/account/3pid/email/requestToken",
-      "registered_by": "assembly::account_compat",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/account/3pid/email/submitToken",
-      "registered_by": "assembly::account_compat",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/account/3pid/unbind",
-      "registered_by": "assembly::account_compat",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/account/deactivate",
-      "registered_by": "assembly::account_compat",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/account/password",
-      "registered_by": "assembly::account_compat",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/account/password/email/requestToken",
-      "registered_by": "assembly::account_compat",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/account/password/email/submitToken",
-      "registered_by": "assembly::account_compat",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/account/whoami",
-      "registered_by": "assembly::account_compat",
-      "path_params": [],
-      "query_params": [],
-      "auth": null
-    },
-    {
       "method": "POST",
       "path": "/_matrix/client/v1/appservice/fed_proxy",
       "registered_by": "app_service",
@@ -736,56 +632,6 @@
       "method": "PUT",
       "path": "/_matrix/client/v1/presence/{user_id}/status",
       "registered_by": "presence",
-      "path_params": [
-        "user_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/profile/{user_id}",
-      "registered_by": "assembly::account_compat",
-      "path_params": [
-        "user_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/profile/{user_id}/avatar_url",
-      "registered_by": "assembly::account_compat",
-      "path_params": [
-        "user_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/v1/profile/{user_id}/avatar_url",
-      "registered_by": "assembly::account_compat",
-      "path_params": [
-        "user_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/profile/{user_id}/displayname",
-      "registered_by": "assembly::account_compat",
-      "path_params": [
-        "user_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/v1/profile/{user_id}/displayname",
-      "registered_by": "assembly::account_compat",
       "path_params": [
         "user_id"
       ],
@@ -929,20 +775,6 @@
     },
     {
       "method": "GET",
-      "path": "/_matrix/client/v1/rooms/{room_id}/context/{event_id}",
-      "registered_by": "search",
-      "path_params": [
-        "room_id",
-        "event_id"
-      ],
-      "query_params": [
-        "filter",
-        "limit"
-      ],
-      "auth": null
-    },
-    {
-      "method": "GET",
       "path": "/_matrix/client/v1/rooms/{room_id}/hierarchy",
       "registered_by": "search",
       "path_params": [
@@ -953,41 +785,6 @@
         "limit",
         "max_depth",
         "suggested_only"
-      ],
-      "auth": null
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/rooms/{room_id}/report/{event_id}",
-      "registered_by": "moderation",
-      "path_params": [
-        "room_id",
-        "event_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/",
-      "registered_by": "room",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": [],
-      "auth": null
-    },
-    {
-      "method": "PUT",
-      "path": "/_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/",
-      "registered_by": "room",
-      "path_params": [
-        "room_id"
-      ],
-      "query_params": [
-        "org.matrix.msc4140.delay",
-        "org.matrix.msc4354.sticky_duration_ms",
-        "sticky_duration_ms"
       ],
       "auth": null
     },

@@ -20,10 +20,6 @@ fn create_moderation_vendor_router() -> Router<AppState> {
         .route("/rooms/{room_id}/report/{event_id}/scanner_info", get(get_scanner_info))
 }
 
-fn create_moderation_v1_router() -> Router<AppState> {
-    create_room_report_standard_router()
-}
-
 fn create_moderation_v3_router() -> Router<AppState> {
     create_room_report_standard_router()
         .route("/rooms/{room_id}/report", post(report_room))
@@ -35,7 +31,7 @@ fn create_moderation_v3_router() -> Router<AppState> {
 /// See [`create_moderation_router`].
 pub fn create_moderation_router() -> Router<AppState> {
     Router::new()
-        .nest("/_matrix/client/v1", create_moderation_v1_router())
+        // A3：v1 双注册退役 —— 它只是 v3 的子集（report/{event_id}），无独有端点。
         .nest("/_matrix/client/v3", create_moderation_v3_router())
         .nest("/_matrix/vendor/v1", create_moderation_vendor_router())
 }

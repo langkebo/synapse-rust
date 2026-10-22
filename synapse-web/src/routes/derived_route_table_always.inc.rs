@@ -1,5 +1,5 @@
 fn all_derived_always_rows() -> Vec<DerivedRoute> {
-    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(978);
+    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(956);
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/", "assembly::create_router");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
@@ -345,100 +345,6 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/account/3pid", "assembly::account_compat");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e =
-            RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v1/account/3pid", "assembly::account_compat");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v1/account/3pid/add",
-            "assembly::account_compat",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v1/account/3pid/bind",
-            "assembly::account_compat",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v1/account/3pid/delete",
-            "assembly::account_compat",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v1/account/3pid/email/requestToken",
-            "assembly::account_compat",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v1/account/3pid/email/submitToken",
-            "assembly::account_compat",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v1/account/3pid/unbind",
-            "assembly::account_compat",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v1/account/deactivate",
-            "assembly::account_compat",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v1/account/password",
-            "assembly::account_compat",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v1/account/password/email/requestToken",
-            "assembly::account_compat",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v1/account/password/email/submitToken",
-            "assembly::account_compat",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e =
-            RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/account/whoami", "assembly::account_compat");
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
         let e = RouteEntry::new(axum::http::Method::POST, "/_matrix/client/v1/appservice/fed_proxy", "app_service");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
@@ -506,46 +412,6 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e = RouteEntry::new(
-            axum::http::Method::GET,
-            "/_matrix/client/v1/profile/{user_id}",
-            "assembly::account_compat",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::GET,
-            "/_matrix/client/v1/profile/{user_id}/avatar_url",
-            "assembly::account_compat",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::PUT,
-            "/_matrix/client/v1/profile/{user_id}/avatar_url",
-            "assembly::account_compat",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::GET,
-            "/_matrix/client/v1/profile/{user_id}/displayname",
-            "assembly::account_compat",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::PUT,
-            "/_matrix/client/v1/profile/{user_id}/displayname",
-            "assembly::account_compat",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
         let e = RouteEntry::new(axum::http::Method::DELETE, "/_matrix/client/v1/proxy/{as_id}/{*path}", "app_service");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
@@ -606,43 +472,8 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
-        let e =
-            RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/rooms/{room_id}/context/{event_id}", "search")
-                .with_query_params(&["filter", "limit"]);
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
         let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/rooms/{room_id}/hierarchy", "search")
             .with_query_params(&["from", "limit", "max_depth", "suggested_only"]);
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::POST,
-            "/_matrix/client/v1/rooms/{room_id}/report/{event_id}",
-            "moderation",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::GET,
-            "/_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/",
-            "room",
-        );
-        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
-    }
-    {
-        let e = RouteEntry::new(
-            axum::http::Method::PUT,
-            "/_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/",
-            "room",
-        )
-        .with_query_params(&[
-            "org.matrix.msc4140.delay",
-            "org.matrix.msc4354.sticky_duration_ms",
-            "sticky_duration_ms",
-        ]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {

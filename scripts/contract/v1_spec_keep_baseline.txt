@@ -1,0 +1,18 @@
+# 规范指定用 `/v1` 的端点：**即使另有 v3 别名，v1 这一份也必须保留**。
+#
+# 为什么单独一份而不是并进 `v1_no_twin_baseline.txt`：后者是"没有 v3 孪生"的集合，
+# 而这里这 8 条**恰好有** v3 孪生 —— 于是"有孪生 ⇒ 可删"这条推断会把它们一起扫掉。
+# 2026-10-22 A3 第二批之前，棘轮正是这么算的（可退队列 29 条里混了这 8 条）。
+#
+# 判据：Matrix 规范把该端点的稳定前缀定为 v1；仓库里那个 v3 路径是别名，
+# 不是"规范正典 + 历史兼容尾巴"。删除 v1 会让按规范实现的客户端 404。
+#
+# 格式：METHOD <TAB> path <TAB> 依据（三列都必须有）
+GET	/_matrix/client/v1/rooms/{room_id}/hierarchy	MSC2946 稳定版即 v1；v3 孪生是别名（且默认 max_depth 不同：v1 为 3、v3 为 1）
+GET	/_matrix/client/v1/spaces/{space_id}/hierarchy	MSC2946；治理文档 §12 把 hierarchy 与 hierarchy/v1 列为 keep，整组 nest 到 v1+v3
+GET	/_matrix/client/v1/spaces/{space_id}/hierarchy/v1	同上（MSC2946 的分页形态）
+GET	/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}	MSC3856 稳定版即 v1；v3 孪生归 room 模块、响应形状不同
+GET	/_matrix/client/v1/presence/{user_id}/status	治理文档 §13.5 明确列为「规范多挂载（应保留）：v1/v3 presence」
+POST	/_matrix/client/v1/presence/{user_id}/status	同上
+PUT	/_matrix/client/v1/presence/{user_id}/status	同上
+GET	/_matrix/client/v1/media/config	Matrix v1.11 媒体配置端点的稳定前缀就是 v1（见 docs/sdk/media.md §媒体配置）；v3 是别名

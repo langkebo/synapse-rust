@@ -18,7 +18,6 @@
 #
 # 格式：  <源文件> <METHOD> <完整路径> # <标签> <理由>
 
-room.rs GET /_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/ # spec Matrix C-S 规范端点
 room.rs GET /_matrix/client/v3/rooms/{room_id} # spec Matrix C-S 规范端点
 room.rs GET /_matrix/client/v3/rooms/{room_id}/account_data/{type} # spec Matrix C-S 规范端点
 room.rs GET /_matrix/client/v3/rooms/{room_id}/aliases # spec Matrix C-S 规范端点
@@ -49,7 +48,6 @@ room.rs POST /_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id} # spe
 room.rs POST /_matrix/client/v3/rooms/{room_id}/state/{event_type} # spec Matrix C-S 规范端点
 room.rs POST /_matrix/client/v3/rooms/{room_id}/unban # spec Matrix C-S 规范端点
 room.rs POST /_matrix/client/v3/rooms/{room_id}/upgrade # spec Matrix C-S 规范端点
-room.rs PUT /_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/ # spec Matrix C-S 规范端点
 room.rs PUT /_matrix/client/v3/rooms/{room_id}/account_data/{type} # spec Matrix C-S 规范端点
 room.rs PUT /_matrix/client/v3/rooms/{room_id}/read_markers # spec Matrix C-S 规范端点
 room.rs PUT /_matrix/client/v3/rooms/{room_id}/redact/{event_id}/{txn_id} # spec Matrix C-S 规范端点
@@ -58,7 +56,6 @@ room.rs PUT /_matrix/client/v3/rooms/{room_id}/state/m.room.power_levels/ # spec
 room.rs PUT /_matrix/client/v3/rooms/{room_id}/state/{event_type} # spec Matrix C-S 规范端点
 room.rs PUT /_matrix/client/v3/rooms/{room_id}/state/{event_type}/ # spec Matrix C-S 规范端点
 room.rs PUT /_matrix/client/v3/rooms/{room_id}/state/{event_type}/{state_key} # spec Matrix C-S 规范端点
-moderation.rs POST /_matrix/client/v1/rooms/{room_id}/report/{event_id} # spec Matrix C-S 规范端点（v1 孪生；规范现用 v3）
 moderation.rs POST /_matrix/client/v3/rooms/{room_id}/report # spec Matrix C-S 规范端点（已 deprecated，规范仍收录）
 moderation.rs POST /_matrix/client/v3/rooms/{room_id}/report/{event_id} # spec Matrix C-S 规范端点
 moderation.rs POST /_matrix/client/v3/users/{user_id}/report # spec Matrix C-S 规范端点

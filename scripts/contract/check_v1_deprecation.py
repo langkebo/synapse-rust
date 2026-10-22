@@ -13,7 +13,12 @@
 1. 冻结当前规模：`/_matrix/client/v1` 的 (method, path) 条数与去重路径数**只减不增**；
 2. 逐条锁住**没有 v3 孪生**的那批：它们是"删了就真断"的端点（客户端没有替代品），
    基线里每消失一条都必须显式改基线 —— 让删除成为可见决策，而不是随手一带；
-3. 报出**可以退的队列**：有 v3 孪生且 handler 相同的条数，即阶段 5 的候选集。
+3. 逐条锁住**规范指定用 v1、只是另有 v3 别名**的那批（`v1_spec_keep_baseline.txt`）。
+   ⚠️ 这一条是 2026-10-22 A3 第二批补的：此前"有 v3 孪生 ⇒ 可删"的推断把
+   `rooms/{id}/hierarchy`（MSC2946）、`media/config`（v1.11）、`presence/{id}/status`、
+   `threads/{thread_id}`（MSC3856）都算进了候选队列 —— 删了就是让按规范实现的客户端 404。
+4. 报出**可以退的队列**：有 v3 孪生、且**不在保留名单里**、且 handler 相同的条数，
+   即阶段 5 的候选集。
 
 数据源
 ------
@@ -38,6 +43,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 ROUTE_HANDLERS = ROOT / "docs" / "synapse-rust" / "ROUTE_HANDLERS.json"
 SURFACE_BASELINE = ROOT / "scripts" / "contract" / "v1_surface_baseline"
 NO_TWIN_BASELINE = ROOT / "scripts" / "contract" / "v1_no_twin_baseline.txt"
+SPEC_KEEP_BASELINE = ROOT / "scripts" / "contract" / "v1_spec_keep_baseline.txt"
 
 CLIENT = "/_matrix/client/"
 V1 = CLIENT + "v1/"
@@ -94,6 +100,30 @@ def read_no_twin_baseline() -> list[str]:
         for line in NO_TWIN_BASELINE.read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.strip().startswith("#")
     ]
+
+
+def read_spec_keep_baseline() -> dict[str, str]:
+    """规范指定 v1 的端点 ⇒ 保留理由。
+
+    三列（METHOD / path / 理由）缺一不可：没有理由的保留条目与"忘了删"无法区分，
+    而这正是本文件要防的东西。
+    """
+    kept: dict[str, str] = {}
+    if not SPEC_KEEP_BASELINE.is_file():
+        return kept
+    for lineno, raw in enumerate(
+        SPEC_KEEP_BASELINE.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        line = raw.rstrip()
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        cols = line.split("\t")
+        if len(cols) < 3 or not cols[2].strip():
+            sys.exit(
+                f"FAIL {SPEC_KEEP_BASELINE.name}:{lineno} 必须是「METHOD<TAB>path<TAB>理由」三列：{raw!r}",
+            )
+        kept[f"{cols[0].strip()} {cols[1].strip()}"] = cols[2].strip()
+    return kept
 
 
 def write_baselines(paired: list[dict], lone: list[dict]) -> None:
@@ -203,6 +233,24 @@ def main() -> int:
         )
 
     twin_index = {(r["method"], r["path"]): r for r in routes}
+    spec_keep = read_spec_keep_baseline()
+    # 规范保留名单里的端点必须**还在**：它们有 v3 别名，最容易被"有孪生就删"扫掉。
+    for entry, reason in sorted(spec_keep.items()):
+        if entry not in present:
+            failures.append(
+                f"删掉了规范指定用 v1 的端点：{entry}\n"
+                f"    保留依据：{reason}\n"
+                "    这一条有 v3 别名，但规范的稳定前缀是 v1 —— 删了按规范实现的客户端会 404。\n"
+                "    若确要退役，先改规范依据并同步本文件",
+            )
+
+    deletable = [
+        r
+        for r in paired
+        if f"{r['method']} {r['path']}" not in spec_keep
+        and twin_index[(r["method"], V3 + r["path"][len(V1) :])]["registered_by"]
+        == r["registered_by"]
+    ]
     paired_same_handler = sum(
         1
         for r in paired
@@ -214,7 +262,13 @@ def main() -> int:
         f"client/v1 现状：{routes_now} 条 / {paths_now} 路径"
         f"（基线 {baseline['V1_ROUTES_MAX']} / {baseline['V1_PATHS_MAX']}）",
     )
-    print(f"  有 v3 孪生（阶段 5 的候选队列）: {paired_same_handler} 条")
+    print(
+        f"  有 v3 孪生                    : {len(paired)} 条（其中同 handler {paired_same_handler} 条）"
+    )
+    print(
+        f"    其中规范指定 v1、必须保留   : {len(spec_keep)} 条（见 {SPEC_KEEP_BASELINE.name}）"
+    )
+    print(f"  可退队列（阶段 5 候选）       : {len(deletable)} 条")
     print(f"  无孪生（不可退役）            : {len(lone)} 条")
 
     if routes_now < baseline["V1_ROUTES_MAX"] or paths_now < baseline["V1_PATHS_MAX"]:

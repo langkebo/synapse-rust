@@ -26,8 +26,11 @@ fn create_room_context_router() -> Router<AppState> {
 
 /// See [`create_search_router`].
 pub fn create_search_router(state: AppState) -> Router<AppState> {
+    // A3：`context` 的 v1 双注册已退役（同一 router 已在 v3 上）。
+    // ⚠️ 同文件里 `hierarchy` 与 `timestamp_to_event` 的 v1 **必须留**：
+    // 前者是 MSC2946 的稳定前缀、后者是 spec v1.6 —— 见
+    // `scripts/contract/v1_spec_keep_baseline.txt`。
     let v1_router = Router::new()
-        .merge(create_room_context_router())
         .route("/rooms/{room_id}/hierarchy", get(hierarchy::get_room_hierarchy))
         .route("/rooms/{room_id}/timestamp_to_event", get(context::timestamp_to_event));
 

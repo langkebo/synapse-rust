@@ -1471,10 +1471,6 @@ EXPECTED_ANNOTATIONS = {
         "body_opaque": True
     },
     ("POST", "/_matrix/federation/v1/knock/{room_id}/{user_id}"): {"body_opaque": True},
-    ("PUT", "/_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/"): {
-        "query_params": "org.matrix.msc4140.delay,org.matrix.msc4354.sticky_duration_ms,sticky_duration_ms",
-        "body_opaque": True,
-    },
     ("PUT", "/_matrix/client/v3/room_keys/{version}/keys/{room_id}/{session_id}"): {
         "body_opaque": True
     },
@@ -1950,9 +1946,6 @@ EXPECTED_ANNOTATIONS = {
     },
     ("GET", "/_matrix/client/v1/media/thumbnail/{server_name}/{media_id}"): {
         "query_params": "animated,height,method,width"
-    },
-    ("GET", "/_matrix/client/v1/rooms/{room_id}/context/{event_id}"): {
-        "query_params": "filter,limit"
     },
     ("GET", "/_matrix/client/v1/rooms/{room_id}/hierarchy"): {
         "query_params": "from,limit,max_depth,suggested_only"

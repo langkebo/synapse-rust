@@ -153,8 +153,8 @@ Tjg 专有 v1 (60):
 
 | 族 | 条数 | 性质 | 正确动作 |
 |---|---|---|---|
-| **A. 历史双注册** | 81 条（58 路径） | 同一 handler 同时注册 v1 与 v3，纯兼容尾巴 | 客户端迁完后**删除 v1 注册**（原阶段 5） |
-| **B. 规范指定 v1** | 20 条 | MSC3266 / MSC3856 / MSC3916 / MSC4108 / MSC2965 / spec v1.6 | **永久保留 v1**，不得造 v3 孪生 |
+| **A. 历史双注册** | 73 条 | 同一 handler 同时注册 v1 与 v3，纯兼容尾巴 | 客户端迁完后**删除 v1 注册**（原阶段 5） |
+| **B. 规范指定 v1** | 28 条 | MSC3266 / MSC3856 / MSC3916 / MSC4108 / MSC2965 / MSC2946 / spec v1.6 / 媒体配置 | **永久保留 v1**，不得造 v3 孪生 |
 | **C. 私有扩展** | 11 条 | proxy/*、appservice/fed_proxy、user/{id}/appservice、config/client、login/{get_token,qr_token}、`POST v1/sync` | 迁 `/_matrix/vendor/v1`（ISSUE-13），不是 v3 |
 
 B 族的逐条依据：
@@ -167,6 +167,10 @@ B 族的逐条依据：
 | `GET /v1/media/{download,thumbnail,preview_url}`（4 条） | MSC3916 |
 | `GET /v1/auth_metadata` | MSC2965 |
 | `POST /v1/rendezvous`、`…/{session_id}`（4 条）、`…/messages`（2 条） | MSC4108 |
+| `GET /v1/rooms/{room_id}/hierarchy`、`/v1/spaces/{space_id}/hierarchy{,/v1}`（3 条） | MSC2946（治理文档 §12 列为 keep） |
+| `GET/POST/PUT /v1/presence/{user_id}/status`（3 条） | 治理文档 §13.5「规范多挂载（应保留）：v1/v3 presence」 |
+| `GET /v1/rooms/{room_id}/threads/{thread_id}` | MSC3856（v3 孪生归 `room` 模块、响应形状不同） |
+| `GET /v1/media/config` | Matrix v1.11 媒体配置端点（`docs/sdk/media.md` §媒体配置） |
 
 **结论：原阶段 2（"给标准 v1 补 v3 双注册"）作废。** 对 B 族造 v3 只会凭空多出一套
 非标准路径，扩大 API 面与测试面；对 C 族造 v3 更糟 —— 等于把私有端点再污染一次标准命名空间。
@@ -189,3 +193,60 @@ B 族的逐条依据：
 
 这条守卫的意义是防"为了让 A3 的数字好看"而做错误操作 —— 数字变好看的最快办法
 恰恰是给 B 族造 v3 孪生，而那会让整个 API 面变差。
+
+---
+
+## 2026-10-22 第二批：A 族清零（v1 面只剩规范端点与私有扩展）
+
+### 一个必须先纠的判据错误
+
+第一版棘轮把「有 v3 孪生」等同于「可删」。**这条推断是错的**：有 8 条端点的稳定前缀
+**本来就是 v1**，仓库里那个 v3 路径反而是别名。
+
+| 端点 | 为什么 v1 是正典 |
+|---|---|
+| `GET /v1/rooms/{room_id}/hierarchy` | MSC2946 稳定版即 v1；v3 孪生默认 `max_depth=1`、v1 默认 3，行为不同 |
+| `GET /v1/spaces/{space_id}/hierarchy{,/v1}` | MSC2946；治理文档 §12 把整组列为 keep |
+| `GET/POST/PUT /v1/presence/{user_id}/status` | 治理文档 §13.5「规范多挂载（应保留）：v1/v3 presence」 |
+| `GET /v1/rooms/{room_id}/threads/{thread_id}` | MSC3856；v3 孪生归 `room` 模块，响应形状不同 |
+| `GET /v1/media/config` | Matrix v1.11 媒体配置端点的稳定前缀就是 v1（`docs/sdk/media.md` 同口径） |
+
+所以新增 `scripts/contract/v1_spec_keep_baseline.txt`（`METHOD<TAB>path<TAB>依据`，三列缺一即报错），
+门禁判定改成：
+
+- 名单里的端点**消失 ⇒ 红**（"删掉了规范指定用 v1 的端点"，并打印保留依据）；
+- 可退队列 = 有 v3 孪生 **且不在名单里** **且同 handler**。
+
+这条守卫挡的是最容易发生的错误动作：为了让 A3 数字好看，把规范端点当成"历史尾巴"一起扫掉。
+
+### 本批删除（22 条 / 4 处挂载）
+
+| 位置 | 删法 | 条数 | 为什么安全 |
+|---|---|---|---|
+| `assembly.rs::create_account_router` | 同一 router 的 v1 nest 去掉 | 18 | `create_account_compat_router()` 原样挂在 v3；含 `account/3pid/*`、`account/{deactivate,password,whoami}`、`profile/*` |
+| `handlers/search/mod.rs` | 只从 `v1_router` 去掉 `create_room_context_router()` | 1 | 同一 router 已在 `v3_router`；同文件 `hierarchy` 与 `timestamp_to_event` 的 v1 **保留** |
+| `moderation.rs` | 删整个 v1 nest（v1 只是 v3 的子集） | 1 | `report/{event_id}` 在 v3 上同 handler |
+| `room.rs` | 删 v1 nest 与 `create_room_v1_router()` | 2 | v1 只有 `state/m.room.power_levels/` 的 GET/PUT，v3 router 已 merge 同一 router |
+
+交叉验证：被删的 22 条与保留名单（8）/ 无孪生名单（31）**交集均为空**；
+路由条目 997 → **975**（三张派生表合计 977 行，`gen_derived_routes.py --check` 实测），
+`client/v1` 由 61 条 / 45 路径降到 **39 条 / 27 路径**。
+
+### 终态：A 族 = 0
+
+| 族 | 条数 | 处置 |
+|---|---|---|
+| A 历史双注册 | **0**（原 73 条已全部退役：第一批 51 + 本批 22） | 完成 |
+| B 规范指定 v1 | 28 | 永久保留 |
+| C 私有扩展 | 11 | 待迁 `/_matrix/vendor/v1`（ISSUE-13） |
+
+`check_v1_deprecation.py` 现在报 `可退队列: 0 条`。也就是说**后端侧 A3 的"退役"已无可删对象**：
+剩下的 39 条 v1 要么是规范正典（28），要么是私有扩展（11，方向是 vendor 而不是删除）。
+
+### 下一步（不是删 v1）
+
+1. C 族 11 条迁 `/_matrix/vendor/v1`：`proxy/*`（7）、`appservice/fed_proxy`、
+   `user/{id}/appservice`、`config/client`、`login/{get_token,qr_token}`、`POST v1/sync`。
+   迁移后 `v1_no_twin_baseline.txt` 收窄到 28 条（只剩 B 族）。
+2. 客户端/SDK 侧同步：现在 `client/v1` 上已无"历史双注册"可调，客户端若仍打 v1 的
+   `account/*`、`profile/*`、`context`、`report`、`power_levels`，会 404 —— 需要它们改调 v3。

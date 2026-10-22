@@ -66,10 +66,6 @@ fn create_room_shared_compat_router() -> Router<AppState> {
         .route("/rooms/{room_id}/event/{event_id}", get(get_single_event))
 }
 
-fn create_room_v1_router() -> Router<AppState> {
-    create_room_power_levels_compat_router()
-}
-
 fn create_room_v3_router() -> Router<AppState> {
     create_room_shared_compat_router()
         .merge(create_room_power_levels_compat_router())
@@ -164,7 +160,7 @@ fn create_room_vendor_router() -> Router<AppState> {
 /// See [`create_room_router`].
 pub fn create_room_router() -> Router<AppState> {
     Router::new()
-        .nest("/_matrix/client/v1", create_room_v1_router())
+        // A3：v1 双注册退役 —— v1 只有 power_levels compat，v3 已 merge 同一 router。
         .nest("/_matrix/client/v3", create_room_v3_router())
         .nest("/_matrix/vendor/v1", create_room_vendor_router())
         .nest("/_matrix/client/unstable/org.matrix.msc4354", create_room_msc4354_router())
