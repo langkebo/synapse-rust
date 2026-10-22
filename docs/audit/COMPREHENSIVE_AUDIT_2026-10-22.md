@@ -186,6 +186,7 @@
 - **类型**：错误吞噬
 - **影响范围**：`serde_json::from_value(claimed.room_config).unwrap_or_default()` 在配置结构演进/字段不匹配时退化为默认配置，房间以错误参数创建且无任何日志。
 - **修法**：`map_err` 成显式错误（或 `warn!` + 保留原始 JSON 落库以便重放）。
+- **状态：已修（2026-10-22，W4 第三层）**。`unwrap_or_default()` 换成 `parse_stored_room_config`：反序列化失败返回 `internal_with_context`（500 + cause），不再退化为默认配置。配套补 `release_claim_after_failure`——认领发生在解析**之前**，若不释放，一条坏 blob 会把邀请永久钉死在 claimed 状态；释放失败只 `error!` 记录，不掩盖原始错误（令牌仍可用，修好 blob 后可重试）。用例 `stored_room_config_that_no_longer_decodes_is_an_error_not_a_default`（坏形态 → 500，好形态仍可解码）。
 
 ### CODE-05（P1）`FakeUserStore` 的 `unimplemented!` 未做测试门禁即对外导出
 - **位置**：`synapse-storage/src/user_store_fake.rs:64`；导出点 `synapse-storage/src/lib.rs:160-161,230`
@@ -205,6 +206,7 @@
 - **类型**：HTTP 语义错误
 - **影响范围**：客户端拿到 `M_UNKNOWN`/500 会当作服务端故障重试，放大无效请求；监控误报。
 - **修法**：改 `ApiError::bad_request` / `invalid_param`。
+- **状态：已修（2026-10-22，W4 第三层）**。`m.direct` 的解码抽成纯函数 `direct_map_from_account_data`：`Some(对象)` → 原样返回，`Some(非对象)` → `bad_request("Invalid m.direct account data format")`（`M_INVALID_PARAM`），`None` → 空 map（"从未设置"不是客户端错误）。同类站点一处：`friend_room_service` 的 `Some(_)` 分支原为 `Internal`，一并改为 `FriendRoomError::InvalidInput`。用例 `test_direct_map_from_account_data_maps_non_object_to_bad_request`。
 
 ### CODE-08（P2）已注册端点恒返回 403，且以无理由 `#[allow(dead_code)]` 掩盖
 - **位置**：`synapse-web/src/routes/directory_reporting.rs:299-311`
@@ -403,6 +405,7 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 - **类型**：长事务 / 锁放大
 - **影响范围**：首次清理或积压后单条 `DELETE` 形成长时间锁与巨量死元组，期间写入抖动、复制延迟上升。
 - **修法**：统一 `DELETE ... WHERE id IN (SELECT id ... LIMIT :batch)` 循环 + `VACUUM` 触发。
+- **状态：已修（2026-10-22，W4 第三层）**。新增 `PRUNE_BATCH_SIZE = 1000` 与 `prune_in_batches`，10 个 `prune_*` 统一为 `DELETE … WHERE ctid IN (SELECT ctid … LIMIT $n)` 轮询（`id` 不通用：`presence`/`one_time_keys` 等表并非以 `id` 为唯一键，`ctid` 对整表成立）。返回值仍是**跨批总数**，调用方日志语义不变。`retention::delete_local_messages_before`（管理端保留策略的单条删除）同样改为分批，返回 `events_deleted` 总数；中途打断只会留下部分已过期行，重跑继续。**未实现"每批 sleep 可配"**：限流由批大小承担，后台任务先做完再睡只会拉长积压。两条零 DB 用例锁契约（`prune_batches_never_ask_for_more_than_the_batch_size` 断言每批 ≤ batch_size 且返回总数、`prune_batches_stop_on_an_empty_backlog`）+ 一条真库用例 `prune_drains_a_backlog_larger_than_one_batch`（播 `PRUNE_BATCH_SIZE + 1` 行，断言全删且计数为总数）。
 
 ### PERF-07（P2）3 处列表查询无 `LIMIT`
 - **位置**：`synapse-services/src/media/chunked_upload.rs:294,302`、`synapse-services/src/invite_blocklist.rs:150`
@@ -498,6 +501,7 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 - **修法**：让 `check_url_and_resolve` 返回已解析的 `IpAddr` 列表，`fetch_html` 复用该结果
   （即"解析一次、钉住复用"），使校验目标与连接目标严格同一。
 - **注意**：这是**正确性**修复而非纯性能优化，优先级可上调。
+- **状态：已修（2026-10-22，W4 第三层）**。改法与原计划不同：**没有改 `check_url_and_resolve` 的签名**（它是 `synapse-common` 的公共工具，加返回值会把"校验"和"连接钉住"两件事绑进公共 API），改为在 `url_preview` 侧新增 `VerifiedFirstHop { url, host, ips }`，由 HTTP 层用 `check_url_and_resolve` 的输出构造后透传（`media_service::preview_url(.., Option<&VerifiedFirstHop>, ..)`）。`resolve_hop` 仅当 `current` 与 `first_hop.url` **逐字节相同**时才复用地址，否则照常解析——重定向的每一跳仍重新校验，DNS-rebinding 的钉住逻辑没有变弱。用例 `the_first_hop_uses_the_pre_verified_resolution`（该组 19 passed）。
 
 ### PERF-14（P2，第三轮新增）分片上传在内存中拼完整个文件后才校验大小上限
 - **位置**：`synapse-services/src/media/chunked_upload.rs`（`load_completed_upload`）
@@ -515,6 +519,7 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
   ② 更彻底的做法是 `Vec::with_capacity(total)` + 边拼边比，或直接流式写入对象存储不拼接；
   ③ 与 FUNC-06 的累计校验联动——在 `upload_chunk` 阶段就拦住，让这条路径根本走不到超限。
 - **回归用例**：构造"单块合规、总量超限"的分片序列，断言在**拼接之前**就返回错误（用内存分配断言或 `with_capacity` 未被调用）。
+- **状态：已修（2026-10-22，W4 第三层）**。取 ①②：抽出 `checked_chunk_total(&[Vec<u8>], max_file_size) -> Result<usize, ApiError>`（只做 `map(Vec::len).sum()`，不分配），`load_completed_upload` 先校验再用返回值 `Vec::with_capacity(total)` 一次预留，边拼边不再增长。**没有取 ③ 的"根本走不到"**：FUNC-06 的累计校验在 `upload_chunk` 侧，二者是纵深防御的两层，保留 ② 是有意为之。用例 `oversized_assembly_is_rejected_before_the_buffer_is_allocated`。诚实说明：修复前后对外行为都是 400，无法取得行为级红，红证是"提取纯函数后旧调用点编译失败"这一个结构红。
 
 ---
 
@@ -1098,7 +1103,7 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 | **W1** | P1 配额与事务 | FUNC-06 → FUNC-03、PERF-02 | 契约微调 + 事务包裹 | 中 | 无 | ✅ 已提交 `cc364bd6f`（见 §10.3） |
 | **W2** | P1 授权与信任根 | SEC-01、CODE-05、TEST-01 | 单点逻辑 + cfg 门禁 + 补测试 | 小 | 无 | ✅ 已提交 `85180061c`（见 §10.4） |
 | **W3** | P1 结构决策 | ARCH-01 | 方案 A「打通」：写路径改走规范事件，影子表降级为索引 | **大** | 需先定方案 | ✅ 已提交 `3789583ef`（见 §10.5） |
-| **W4** | P2 资源与性能 | PERF-14、PERF-13、PERF-03/04/05、PERF-07/08/09、PERF-06、CODE-04、CODE-07 | 索引/查询/分批 | 中 | W1（FUNC-06 累计校验） | 🟡 第一层 `2358c0f5a`；第二层 `0d18fede0`（见 §10.6）；第三层待做 |
+| **W4** | P2 资源与性能 | PERF-14、PERF-13、PERF-03/04/05、PERF-07/08/09、PERF-06、CODE-04、CODE-07 | 索引/查询/分批 | 中 | W1（FUNC-06 累计校验） | ✅ 三层全部落地：第一层 `2358c0f5a`、第二层 `0d18fede0`、第三层 `3cf5c006a`（见 §10.6） |
 | **W5** | P2 安全一致性 | SEC-02…SEC-08 | 配置校验 + 默认值 | 小 | 无 | ✅ 已提交 `ca6980c51`（见 §10.7） |
 | **W6** | P3 冗余与文档 | 全部 P3 + §9.12 五批 | 删除/合壳/文档 | 小但量大 | W0（避免删到正在改的文件） | 待开始 |
 
@@ -1343,6 +1348,35 @@ fn is_admin_request_allowed(role: &str, method: &Method, path: &str, rbac_enable
 - PERF-13：`check_url_and_resolve` 返回 `Vec<IpAddr>` 并由 `fetch_html` 复用，消除双解析 + TOCTOU。
 - CODE-04：`unwrap_or_default()` → `map_err` 显式错误。
 - CODE-07：客户端格式错误 → 400 而非 500。
+
+> **落地状态（2026-10-22，第三层已实现，提交 `3cf5c006a`）**。五条都做完，四条改法与计划不同（逐条偏差见上文各自的落地引用）：
+>
+> - **PERF-06**：分批键用 `ctid` 而非 `id`——`presence`/`one_time_keys` 等表没有可作唯一键的 `id`，`ctid` 对整表成立。**未实现"每批 sleep 可配"**：限流由批大小（1000）承担，后台任务先做完再睡只会拉长积压。返回值仍是跨批总数，调用方日志语义不变。
+> - **PERF-14**：只取 ①②（`checked_chunk_total` 预检 + `with_capacity` 预留），**不取 ③**——FUNC-06 的累计校验在写侧，读侧预检是独立的第二层纵深防御，二者不是替代关系。诚实说明：修复前后对外都是 400，拿不到行为级红，红证是结构性的（抽出纯函数后旧调用点编译失败）。
+> - **PERF-13**：**没改 `check_url_and_resolve` 的签名**——它是 `synapse-common` 的公共工具，把"解析"和"连接钉住"绑进公共 API 会把两件事耦合死；改为 `url_preview` 侧新增 `VerifiedFirstHop { url, host, ips }` 由 HTTP 层构造透传。复用条件是首跳 URL 逐字节相同，重定向的每一跳照常重新解析校验。
+> - **CODE-04**：`unwrap_or_default()` → `parse_stored_room_config` 显式报错，并补 `release_claim_after_failure`——认领发生在解析**之前**，不释放会把邀请永久钉在 claimed 状态。
+> - **CODE-07**：`direct_map_from_account_data` 三态（对象 / 非对象 / 从未设置），顺手把 `friend_room_service` 同类的 `Internal` 改为 `InvalidInput`。
+>
+> 门禁侧三点交代：
+>
+> - **`EXPLAIN` 快照没有新增**。"外加 EXPLAIN 快照"针对的是索引层，第一层已接入 `schema-health-check.yml`（`EXPLAIN_CHECK_EXISTING_DB=1` 复用该车道的基线库）；第三层全是分批与错误码，没有新增查询形态。现有 `scripts/ci/pagination_perf_gate.sh` 只覆盖 `/messages` keyset 分页，本层不涉及——不为凑门禁造快照。
+> - **"单批行数 ≤ batch_size"的断言已落地**：`prune_batches_never_ask_for_more_than_the_batch_size` 直接断言每批上限（不依赖真库），`prune_batches_stop_on_an_empty_backlog` 锁终止条件，`prune_drains_a_backlog_larger_than_one_batch` 用 `PRUNE_BATCH_SIZE + 1` 行证明跨批推进。`test(prune)` 过滤 12 条全绿。
+> - **全量门禁实测**（`E2EE_INTEROP=1 cargo nextest run --workspace --all-features --no-fail-fast`）：**10736 tests run: 10720 passed, 16 failed, 16 skipped**。16 条逐条甄别如下——本批次自身引入的两条红已在本批次内修掉（基线指纹常量、我在真库用例里自建 `CREATE TABLE`），其余均可在纯 HEAD `e5153b376` 工作树或环境层面复现：
+>
+> | 失败用例 | 判定 |
+> |---|---|
+> | `api_beacon_location_tests::test_beacon_location_applies_room_backpressure_token_bucket` | 抖动（单跑通过） |
+> | `api_key_backup_route_table_tests::key_backup_routes_are_wired_under_v1_and_r0` | HEAD 既有（纯 HEAD 工作树复现） |
+> | `api_placeholder_contract_p1p2_tests::test_power_levels_contract_rejects_non_members` | HEAD 既有 |
+> | `api_relations_authorization_tests::relations_event_type_route_filters_over_http` | HEAD 既有 |
+> | `api_route_ledger_tests::declared_route_manifest_full_snapshot_matches_{default,worker_enabled}_state`（2 条） | HEAD 既有；实测快照漂移 928 → 956 **全部是 `saml`/`cas` 命名空间路由**，与 W4 无关 |
+> | `sqlx_cache_tooling_guard_tests::converge_{drops_the_frozen_list_and_never_re_consults_the_reference, rejects_a_vacuous_post_check_when_the_reference_collapses_mid_apply}`（2 条） | HEAD 既有；沙箱桩脚本与测试期望脱节（`d57_probe` 是桩的 seed 数据，不是真表） |
+> | `sqlx_ratio_gate_tests`（4 条）+ `sqlx_dynamic_literal_guard_tests::no_new_production_literal_dynamic_sql` | HEAD 既有计数漂移（纯 HEAD 工作树同样红） |
+> | `test_ddl_guard_tests::no_unallowlisted_self_built_schema_in_tests_dir` | HEAD 既有：指向 `tests/integration/registration_service_tests_migrated.rs::register_is_atomic:189`，本批次未触碰该文件 |
+> | `monitoring::db_tests::database_monitor_round_trip_on_the_migration_template` | 环境：`pg_stat_database.deadlocks` 是库级累计值，并行历史累积（实测 5） |
+> | `worker::tests::test_worker_type_owned_route_prefixes` | HEAD 既有：`a796b7e67`（W-F）改了 `worker/models.rs` 的前缀表未同步该用例 |
+>
+> 另：`.sqlx` 净增 0（删 11 增 11，条目仍 1327），`scripts/ci/check_sqlx_cache_fresh.sh --compile` 通过。
 
 **门禁**：`cargo nextest run --workspace`；外加 `EXPLAIN` 快照（新增）；prune 用例需断言"单批行数 ≤ batch_size"。
 
