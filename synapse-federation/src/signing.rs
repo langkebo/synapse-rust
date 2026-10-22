@@ -1199,4 +1199,185 @@ mod tests {
             "v11 stops protecting `origin`, so the signed bytes must differ from v10"
         );
     }
+
+    // ── TEST-01: canonical-JSON / freshness / key-id / tamper coverage ──
+
+    use synapse_common::SecurityValidator;
+
+    /// A room-version-11 `m.room.create` PDU carrying the canonical-JSON edges
+    /// this file's coverage was missing: key order, unicode, nested arrays.
+    ///
+    /// `m.room.create` is deliberate.  Under `updated_redaction_rules` (v11) the
+    /// redaction step that builds the signature material keeps **all** of
+    /// `content`, so these values end up inside the *signed* bytes.  An
+    /// `m.room.message` body would be cleared by redaction and only covered by
+    /// `hashes.sha256`.
+    fn edge_content_create_pdu() -> Value {
+        serde_json::json!({
+            "type": "m.room.create",
+            "room_id": "!edges:example.com",
+            "sender": "@u:example.com",
+            "origin": "example.com",
+            "origin_server_ts": 1_700_000_000_000_i64,
+            "depth": 1,
+            "prev_events": [],
+            "auth_events": [],
+            "content": {
+                "creator": "@u:example.com",
+                "room_version": "11",
+                "name": "Ünïcødé — 𝕳𝖊𝖑𝖑𝖔 🎉 \"q\" \\ \n",
+                "nested": [1, [2, [3, [4]]], [], {"z": [true, null, [5]]}],
+            },
+        })
+    }
+
+    /// Positive case: a signature over content that exercises canonical-JSON
+    /// edges must verify, and those edges must be *inside* the signed material.
+    #[tokio::test]
+    async fn test01_valid_signature_over_canonical_edge_content() {
+        let (secret_b64, signing_key) = generate_test_key();
+        let server_name = "example.com";
+        let key_id = "ed25519:1";
+
+        // The same event, written with its keys in a different order.  Canonical
+        // JSON sorts keys, so both spellings must reduce to identical bytes —
+        // otherwise a peer that serialises identically-valued JSON differently
+        // could not verify our signature.
+        let text_a = r#"{"type":"m.room.create","room_id":"!edges:example.com","sender":"@u:example.com","origin":"example.com","origin_server_ts":1700000000000,"depth":1,"prev_events":[],"auth_events":[],"content":{"creator":"@u:example.com","room_version":"11","name":"Ünïcødé — 𝕳𝖊𝖑𝖑𝖔 🎉 \"q\" \\ \n","nested":[1,[2,[3,[4]]],[],{"z":[true,null,[5]]}]}}"#;
+        let text_b = r#"{"content":{"nested":[1,[2,[3,[4]]],[],{"z":[true,null,[5]]}],"name":"Ünïcødé — 𝕳𝖊𝖑𝖑𝖔 🎉 \"q\" \\ \n","room_version":"11","creator":"@u:example.com"},"auth_events":[],"prev_events":[],"depth":1,"origin_server_ts":1700000000000,"origin":"example.com","sender":"@u:example.com","room_id":"!edges:example.com","type":"m.room.create"}"#;
+
+        let mut a: Value = serde_json::from_str(text_a).expect("key-order variant A must be valid JSON");
+        let mut b: Value = serde_json::from_str(text_b).expect("key-order variant B must be valid JSON");
+        assert_eq!(
+            canonical_json(&a).expect("variant A must canonicalise"),
+            canonical_json(&b).expect("variant B must canonicalise"),
+            "canonical JSON must be key-order independent"
+        );
+
+        sign_and_hash_event("11", server_name, key_id, &secret_b64, &mut a).expect("signing variant A must succeed");
+        sign_and_hash_event("11", server_name, key_id, &secret_b64, &mut b).expect("signing variant B must succeed");
+        assert_eq!(a["hashes"], b["hashes"], "content hash must be key-order independent");
+        assert_eq!(
+            a["signatures"][server_name][key_id], b["signatures"][server_name][key_id],
+            "signature must be key-order independent"
+        );
+
+        // The unicode / nested-array values are not decoration: they are part of
+        // the bytes the signature covers (v11 keeps create content verbatim).
+        let material = signature_material_bytes("11", &a).expect("signature material must build");
+        let material_text = String::from_utf8(material).expect("signature material must be UTF-8 canonical JSON");
+        assert!(material_text.contains("Ünïcødé"), "unicode must stay in the signed material: {material_text}");
+        assert!(material_text.contains("𝕳𝖊𝖑𝖑𝖔"), "astral-plane unicode must stay in the signed material");
+        assert!(
+            material_text.contains(r#"[1,[2,[3,[4]]],[],{"z":[true,null,[5]]}]"#),
+            "nested arrays must stay in the signed material: {material_text}"
+        );
+
+        let mock = MockFederationClient::new("local.test");
+        mock.seed_server_keys(server_name, make_server_keys(server_name, key_id, &signing_key)).await;
+
+        let result = verify_pdu_signature_with_client(&mock, "11", &a).await;
+        assert!(result.is_ok(), "edge-content PDU must verify: {:?}", result.err());
+        let result = verify_pdu_signature_with_client(&mock, "11", &b).await;
+        assert!(result.is_ok(), "reordered-but-equal PDU must verify too: {:?}", result.err());
+    }
+
+    /// Freshness is a *separate* gate: the crypto layer accepts a stale event, so
+    /// `validate_federation_timestamp` is the only thing that rejects it — on
+    /// both the past and the future side.
+    #[tokio::test]
+    async fn test01_clock_drift_outside_tolerance_is_rejected() {
+        let now = synapse_common::current_timestamp_millis();
+        let tolerance_ms = 60_000;
+
+        let past = now - tolerance_ms - 5_000;
+        let err = SecurityValidator::validate_federation_timestamp(past, tolerance_ms)
+            .expect_err("a signature timestamped well in the past must be rejected");
+        assert!(err.contains("out of tolerance"), "unexpected error: {err}");
+
+        let future = now + tolerance_ms + 5_000;
+        let err = SecurityValidator::validate_federation_timestamp(future, tolerance_ms)
+            .expect_err("a signature timestamped well in the future must be rejected");
+        assert!(err.contains("out of tolerance"), "unexpected error: {err}");
+
+        // Control: inside the window both sides pass, so the two assertions above
+        // are not just "reject everything".
+        assert!(SecurityValidator::validate_federation_timestamp(now - tolerance_ms / 2, tolerance_ms).is_ok());
+        assert!(SecurityValidator::validate_federation_timestamp(now + tolerance_ms / 2, tolerance_ms).is_ok());
+
+        // A genuinely signed but stale PDU still verifies cryptographically —
+        // this is why the timestamp check is load-bearing rather than redundant.
+        let (secret_b64, signing_key) = generate_test_key();
+        let mut stale = edge_content_create_pdu();
+        sign_and_hash_event("11", "example.com", "ed25519:1", &secret_b64, &mut stale)
+            .expect("signing the stale PDU must succeed");
+        let mock = MockFederationClient::new("local.test");
+        mock.seed_server_keys("example.com", make_server_keys("example.com", "ed25519:1", &signing_key)).await;
+        assert!(
+            verify_pdu_signature_with_client(&mock, "11", &stale).await.is_ok(),
+            "signature verification must not be doing freshness checking"
+        );
+        let stale_ts = stale["origin_server_ts"].as_i64().expect("origin_server_ts must be an integer");
+        assert!(
+            SecurityValidator::validate_federation_timestamp(stale_ts, tolerance_ms).is_err(),
+            "the stale timestamp must be rejected by the freshness gate"
+        );
+    }
+
+    /// A signature carried under a key id the sender does not publish must not
+    /// verify, and the error must name the key id (not a generic failure).
+    #[tokio::test]
+    async fn test01_unknown_key_id_is_rejected() {
+        let (secret_b64, signing_key) = generate_test_key();
+        let server_name = "example.com";
+
+        let mut pdu = edge_content_create_pdu();
+        sign_and_hash_event("11", server_name, "ed25519:2", &secret_b64, &mut pdu)
+            .expect("signing under an unpublished key id must still produce a signature");
+
+        let mock = MockFederationClient::new("local.test");
+        mock.seed_server_keys(server_name, make_server_keys(server_name, "ed25519:1", &signing_key)).await;
+
+        let err = verify_pdu_signature_with_client(&mock, "11", &pdu)
+            .await
+            .expect_err("a signature under an unknown key id must not verify");
+        assert!(err.contains("No verify key for ed25519:2"), "unexpected error: {err}");
+
+        // Control: the same PDU signed under the published key id verifies, so the
+        // rejection above is about the key id alone.
+        let mut control = edge_content_create_pdu();
+        sign_and_hash_event("11", server_name, "ed25519:1", &secret_b64, &mut control)
+            .expect("control signing must succeed");
+        assert!(verify_pdu_signature_with_client(&mock, "11", &control).await.is_ok());
+    }
+
+    /// Tampering with a *signed* body field must be caught by both integrity
+    /// layers: `hashes.sha256` and the PDU signature.
+    #[tokio::test]
+    async fn test01_tampered_body_fails_hash_and_signature() {
+        let (secret_b64, signing_key) = generate_test_key();
+        let server_name = "example.com";
+        let key_id = "ed25519:1";
+
+        let mut pdu = edge_content_create_pdu();
+        sign_and_hash_event("11", server_name, key_id, &secret_b64, &mut pdu).expect("signing must succeed");
+
+        let mock = MockFederationClient::new("local.test");
+        mock.seed_server_keys(server_name, make_server_keys(server_name, key_id, &signing_key)).await;
+
+        // Untampered control: both checks pass, so the failures below are caused
+        // by the tampering and not by a broken fixture.
+        assert!(verify_event_content_hash(&pdu).is_ok(), "freshly signed PDU must hash-match");
+        assert!(verify_pdu_signature_with_client(&mock, "11", &pdu).await.is_ok());
+
+        pdu["content"]["name"] = serde_json::json!("tampered");
+
+        let hash_err = verify_event_content_hash(&pdu).expect_err("a tampered body must fail the content hash");
+        assert!(hash_err.contains("content hash mismatch"), "unexpected error: {hash_err}");
+
+        let sig_err = verify_pdu_signature_with_client(&mock, "11", &pdu)
+            .await
+            .expect_err("a tampered body must fail signature verification");
+        assert!(sig_err.contains("Signature verification failed"), "unexpected error: {sig_err}");
+    }
 }

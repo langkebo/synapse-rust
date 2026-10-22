@@ -158,6 +158,9 @@ pub mod user;
 /// The `user_deactivation` module.
 pub mod user_deactivation;
 /// The `user_store_fake` module.
+///
+/// 测试替身，不得进入默认构建产物（CODE-05）：与 [`test_mocks`] 同一道门禁。
+#[cfg(any(test, feature = "test-utils"))]
 pub mod user_store_fake;
 /// The `worker` module.
 pub mod worker;
@@ -227,6 +230,7 @@ pub mod url_preview_storage;
 
 // auth domain types (user, device, token, threepid, captcha, openid_token) are
 // re-exported via `pub use auth::*;` below.
+#[cfg(any(test, feature = "test-utils"))]
 pub use user_store_fake::FakeUserStore;
 
 #[cfg(test)]

@@ -9,10 +9,39 @@ use crate::user::{
 
 /// In-memory adapter for UserStore — used in unit tests.
 /// Stores locked users in a Vec behind RwLock.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct FakeUserStore {
     locked_users: Arc<RwLock<Vec<LockedUser>>>,
     users: Arc<RwLock<HashMap<String, User>>>,
+    pool: Arc<sqlx::PgPool>,
+}
+
+/// 满足 [`UserStore::pool`] 签名的**惰性、永不连接**的连接池（CODE-05）。
+///
+/// [`UserStore::pool`] 返回 `&Arc<PgPool>` 而不是 `Result`，所以「本适配器没有数据库」
+/// 只能这样表达：真正 `acquire()` 时得到 `sqlx::Error`，而不是让调用方 panic。
+///
+/// `max_lifetime` / `idle_timeout` 必须显式关掉：`PoolInner::new_arc` 只有在
+/// `max_lifetime`、`idle_timeout` 至少一个有值（默认都是 `Some`），或
+/// `min_connections > 0` 时才会 `rt::spawn` 后台维护任务，而
+/// `FakeUserStore::new()` 常在**没有 Tokio runtime** 的同步上下文里被调用。
+fn lazy_unconnected_pool() -> Arc<sqlx::PgPool> {
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_lifetime(None)
+        .idle_timeout(None)
+        .connect_lazy_with(sqlx::postgres::PgConnectOptions::new_without_pgpass());
+    Arc::new(pool)
+}
+
+impl Default for FakeUserStore {
+    /// 与 `#[derive(Default)]` 时的行为一致：空 store，不预置任何用户。
+    fn default() -> Self {
+        Self {
+            locked_users: Arc::new(RwLock::new(Vec::new())),
+            users: Arc::new(RwLock::new(HashMap::new())),
+            pool: lazy_unconnected_pool(),
+        }
+    }
 }
 
 impl FakeUserStore {
@@ -50,7 +79,11 @@ impl FakeUserStore {
                 must_change_password: false,
             },
         );
-        Self { locked_users: Arc::new(RwLock::new(Vec::new())), users: Arc::new(RwLock::new(users)) }
+        Self {
+            locked_users: Arc::new(RwLock::new(Vec::new())),
+            users: Arc::new(RwLock::new(users)),
+            pool: lazy_unconnected_pool(),
+        }
     }
 
     /// Insert (or replace) a user in the in-memory store for test setup.
@@ -62,7 +95,7 @@ impl FakeUserStore {
 #[async_trait]
 impl UserStore for FakeUserStore {
     fn pool(&self) -> &Arc<sqlx::PgPool> {
-        unimplemented!("FakeUserStore does not provide a database pool")
+        &self.pool
     }
 
     async fn lock_user(

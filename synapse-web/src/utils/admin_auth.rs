@@ -64,7 +64,7 @@ pub(crate) async fn authorize_admin_from_services(
     let allowed = is_role_allowed(&role, method, path);
 
     let rbac_enabled = security.admin_rbac_enabled;
-    let rbac_allowed = !rbac_enabled || allowed;
+    let rbac_allowed = is_admin_request_allowed(&role, method, path, rbac_enabled);
 
     // OBS-04 (P2): RBAC 日志需携带 request_id，便于与 audit 落库和 span 链路串联。
     let request_id = resolve_request_id(headers);
@@ -193,14 +193,32 @@ pub(crate) fn should_require_admin_mfa(security: &SecurityConfig, method: &Metho
         && is_sensitive_admin_request(method, path)
 }
 
+/// RBAC 开启时的角色判定（golden 决策矩阵以此为准）。
 fn is_role_allowed(role: &str, method: &Method, path: &str) -> bool {
+    is_admin_request_allowed(role, method, path, true)
+}
+
+/// 把「超管专属黑名单」与「角色 allowlist + `admin_rbac_enabled` 开关」合成**一个**判定入口。
+///
+/// `rbac_enabled` 的语义是「关闭角色细分」，而不是「解除超管专属限制」：
+/// 开关关闭后普通 admin 回到「所有非超管专属端点都放行」，但
+/// [`is_super_admin_only_endpoint`] 命中的端点仍然只属于 `super_admin`（SEC-01）。
+///
+/// 因此黑名单必须**先于**开关判定，成为独立、无条件的拒绝——否则
+/// `admin_rbac_enabled=false` 会让任意 `is_admin` 账号拿到超管专属高危端点。
+fn is_admin_request_allowed(role: &str, method: &Method, path: &str, rbac_enabled: bool) -> bool {
     if role == "super_admin" {
         return true;
     }
 
-    // 黑名单**先于**角色匹配：所有角色（含 auditor / security_admin）都受它约束。
+    // 黑名单**先于**角色匹配与开关：所有非超管角色（含 auditor / security_admin）都受它约束。
     if is_super_admin_only_endpoint(method, path) {
         return false;
+    }
+
+    // 开关只关闭「角色细分」，不放宽上面的黑名单。
+    if !rbac_enabled {
+        return true;
     }
 
     allowlist::role_allows(role, method, path)
@@ -214,6 +232,16 @@ fn is_sensitive_admin_request(method: &Method, path: &str) -> bool {
     path.starts_with("/_synapse/admin/v1/security")
         || path.starts_with("/_synapse/admin/v1/server")
         || path.starts_with("/_synapse/admin/v1/media/quarantine")
+        || is_credential_returning_admin_read(path)
+}
+
+/// 读方法里**响应体含凭据**的端点（SEC-05）。
+///
+/// 判据是响应语义而不是 HTTP 方法：`GET /registration_tokens` 与
+/// `GET /registration_tokens/{token}` 都会把注册 token 的明文放进响应体，
+/// 一旦管理 access token 泄漏，攻击者无需 MFA 就能把这些凭据复制走。
+fn is_credential_returning_admin_read(path: &str) -> bool {
+    path.starts_with("/_synapse/admin/v1/registration_tokens")
 }
 
 fn verify_totp_code(security: &SecurityConfig, provided_code: &str, user: Option<&User>) -> Result<(), ApiError> {
@@ -266,13 +294,14 @@ fn generate_totp_code(secret: &[u8], step: u64) -> Option<String> {
     Some(format!("{:06}", binary % 1_000_000))
 }
 
+/// 解码 TOTP 共享密钥。
+///
+/// 只接受 Base32（SEC-03）。此前非法输入会退化成"原始字节当密钥"，
+/// 于是 `CHANGE_ME` 这类配置错误仍然"能用"，没人会发现 MFA 的实际密钥是公开的。
+/// 现在非法密钥在启动时就被 [`synapse_common::config::Config::validate`] 拒绝，
+/// 这里再兜一层：解不出就返回 403，而不是拿一个错密钥去比码。
 fn decode_secret(secret: &str) -> Option<Vec<u8>> {
-    let trimmed = secret.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-
-    decode_base32_secret(trimmed).or_else(|| Some(trimmed.as_bytes().to_vec()))
+    decode_base32_secret(secret.trim())
 }
 
 fn decode_base32_secret(secret: &str) -> Option<Vec<u8>> {
@@ -363,10 +392,14 @@ mod tests {
         assert!(is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/users/@u:localhost/login"));
         // Admin should be able to logout user
         assert!(is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/users/@u:localhost/logout"));
-        // Admin should be able to shutdown rooms
-        assert!(is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/shutdown_room"));
-        // Admin should be able to delete rooms
-        assert!(is_role_allowed("admin", &Method::DELETE, "/_synapse/admin/v1/rooms/!room:localhost"));
+        // 关闭房间不可逆且影响全体成员 → 超管专属（`privileged.rs:128`）。
+        // 本条断言在 HEAD 上就已与实现矛盾（`role_decision_matrix_matches_the_golden`
+        // 与 `plain_admin_write_surface_matches_the_register` 均按"拒绝"通过），
+        // 这里按实现与金标一致的方向修正，未改动任何生产代码。
+        assert!(!is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/shutdown_room"));
+        // 删房间与关闭房间同属不可逆破坏性操作 → 超管专属（`privileged.rs:128-140`：
+        // 写方法 + `rooms/` + 恰好 5 个斜杠）。golden 矩阵同为 `deny`。
+        assert!(!is_role_allowed("admin", &Method::DELETE, "/_synapse/admin/v1/rooms/!room:localhost"));
         // Admin should be able to reset user password
         assert!(is_role_allowed("admin", &Method::POST, "/_synapse/admin/v1/users/@u:localhost/password"));
         // Admin should be able to reset federation connection
@@ -478,5 +511,70 @@ mod tests {
             let code = generate_totp_code(SECRET, step).expect("HMAC-SHA1 accepts any key length");
             assert_eq!(code, six_digit, "TOTP at T={unix_time} (8-digit reference: {eight_digit})");
         }
+    }
+
+    fn mfa_enabled_security() -> SecurityConfig {
+        SecurityConfig {
+            admin_mfa_required: true,
+            admin_mfa_shared_secret: "JBSWY3DPEHPK3PXP".to_string(),
+            ..Default::default()
+        }
+    }
+
+    /// SEC-05 门禁：读方法里**返回凭据**的端点也必须要求 MFA。
+    ///
+    /// 这两个 GET 会把注册 token 明文放进响应体；管理 access token 一旦泄漏，
+    /// 无 MFA 的读接口就是凭据的第二条外流通道。
+    #[test]
+    fn credential_returning_reads_require_admin_mfa() {
+        let security = mfa_enabled_security();
+        for path in ["/_synapse/admin/v1/registration_tokens", "/_synapse/admin/v1/registration_tokens/some-token"] {
+            assert!(
+                should_require_admin_mfa(&security, &Method::GET, path),
+                "GET {path} returns registration tokens in plaintext and must require MFA"
+            );
+        }
+    }
+
+    /// 反向断言，防止用"所有 GET 都要 MFA"的空转方式通过上一条。
+    #[test]
+    fn ordinary_admin_reads_do_not_require_admin_mfa() {
+        let security = mfa_enabled_security();
+        for path in [
+            "/_synapse/admin/v1/users",
+            "/_synapse/admin/v1/rooms",
+            "/_synapse/admin/v1/users/@u:localhost/tokens",
+            "/_synapse/admin/v1/statistics",
+        ] {
+            assert!(
+                !should_require_admin_mfa(&security, &Method::GET, path),
+                "GET {path} is not credential-returning and must stay MFA-free"
+            );
+        }
+    }
+
+    /// SEC-03 的运行期兜底：非法 Base32 密钥不能退化成"原始字节当密钥"继续校验，
+    /// 而应直接 403。启动校验已经拦下这类配置，这里是第二道闸。
+    #[test]
+    fn invalid_base32_mfa_secret_is_rejected_at_verification_time() {
+        let mut security = mfa_enabled_security();
+        security.admin_mfa_shared_secret = "CHANGE_ME".to_string();
+
+        let err = verify_totp_code(&security, "123456", None).unwrap_err();
+        assert!(
+            err.message.contains("no valid TOTP secret"),
+            "invalid Base32 must fail closed instead of being used as raw bytes: {err:?}"
+        );
+    }
+
+    /// 合法 Base32 密钥仍能正常校验（防"一律 403"的假绿）。
+    #[test]
+    fn valid_base32_mfa_secret_still_verifies() {
+        let security = mfa_enabled_security();
+        let secret = decode_base32_secret("JBSWY3DPEHPK3PXP").expect("valid base32");
+        let step = SystemTime::now().duration_since(UNIX_EPOCH).expect("clock").as_secs() / 30;
+        let code = generate_totp_code(&secret, step).expect("totp");
+
+        assert!(verify_totp_code(&security, &code, None).is_ok());
     }
 }

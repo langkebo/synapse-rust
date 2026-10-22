@@ -22,7 +22,7 @@ use std::collections::BTreeSet;
 
 use axum::http::Method;
 
-use super::{is_role_allowed, NO_ADMIN_ROLE};
+use super::{is_admin_request_allowed, is_role_allowed, NO_ADMIN_ROLE};
 
 /// Methods that mutate. `is_role_allowed` treats GET/HEAD as reads.
 const WRITE_METHODS: [&str; 4] = ["POST", "PUT", "PATCH", "DELETE"];
@@ -214,4 +214,92 @@ fn role_decision_matrix_matches_the_golden() {
 #[ignore = "writes the golden file; run explicitly when a permission change is intended"]
 fn regenerate_role_decision_matrix() {
     std::fs::write(matrix_path(), decision_matrix()).expect("the decision matrix golden must be writable");
+}
+
+// ── SEC-01：`admin_rbac_enabled=false` 不得重开超管专属端点 ─────────────────────
+//
+// 开关的语义是「关闭角色细分」。修复前的实现是 `!rbac_enabled || allowed`——
+// 短路掉了 `allowed`（含黑名单判定）⇒ 关闭 RBAC 后，任何 `is_admin = true` 的
+// 账号都能调用 `…/make_admin`、`DELETE /rooms/{id}`、`…/purge` 这类提权端点。
+//
+// 下面两条测试是一对：
+// + 第一条钉住「黑名单在开关之外」，覆盖**全部**超管专属路由（不手抄，直接从
+//   `ROUTE_HANDLERS.json` × 生产黑名单判定里取）；
+// + 第二条钉住「开关仍然有效」——否则把判定改成恒 `false` 也能让第一条通过，
+//   测试就空转了。
+
+/// `ROUTE_HANDLERS.json` 中被生产黑名单判为「仅 super_admin」的 `(path, method)`。
+fn super_admin_only_routes() -> Vec<(String, Method)> {
+    let mut routes: Vec<(String, Method)> = all_admin_routes()
+        .into_iter()
+        .filter_map(|(path, method)| {
+            let method = Method::from_bytes(method.as_bytes()).ok()?;
+            super::privileged::is_super_admin_only_endpoint(&method, &path).then_some((path, method))
+        })
+        .collect();
+    routes.sort_by(|a, b| (a.0.as_str(), a.1.as_str()).cmp(&(b.0.as_str(), b.1.as_str())));
+    routes.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1);
+    routes
+}
+
+#[test]
+fn rbac_switch_does_not_reopen_super_admin_only_endpoints() {
+    let routes = super_admin_only_routes();
+    // 读空/读少 ⇒ 断言变成空转：路由表路径写错、`routes` 为空、黑名单被整体删掉。
+    assert!(
+        routes.len() >= 20,
+        "只识别出 {} 条超管专属路由 — ROUTE_HANDLERS.json 或黑名单判定失效，这条测试会空转通过",
+        routes.len()
+    );
+
+    let mut leaked: Vec<String> = Vec::new();
+    for (path, method) in &routes {
+        for role in MATRIX_ROLES {
+            if role == "super_admin" {
+                // 正控：开关不改变 super_admin 的可及面。
+                assert!(
+                    is_admin_request_allowed(role, method, path, false),
+                    "{method} {path} 在 admin_rbac_enabled=false 下也必须仍然允许 super_admin"
+                );
+                continue;
+            }
+            if is_admin_request_allowed(role, method, path, false) {
+                leaked.push(format!("{role:<14} {method:<6} {path}"));
+            }
+        }
+    }
+
+    assert!(
+        leaked.is_empty(),
+        "admin_rbac_enabled=false 下仍有 {} 个「非超管角色 × 超管专属端点」组合被放行（应为 403）：\n{}",
+        leaked.len(),
+        leaked.iter().take(25).cloned().collect::<Vec<_>>().join("\n")
+    );
+}
+
+#[test]
+fn rbac_switch_still_disables_role_splitting() {
+    // 找一个「普通 admin 能到、无角色（none）到不了」且不在黑名单里的端点：
+    // 它证明 allowlist 仍然起作用，从而证明开关确实做了事。
+    let (path, method) = all_admin_routes()
+        .into_iter()
+        .filter_map(|(path, method)| {
+            let method = Method::from_bytes(method.as_bytes()).ok()?;
+            (!super::privileged::is_super_admin_only_endpoint(&method, &path)
+                && is_role_allowed("admin", &method, &path)
+                && !is_role_allowed(NO_ADMIN_ROLE, &method, &path))
+            .then_some((path, method))
+        })
+        .next()
+        .expect("必须存在一个仅靠 allowlist 收紧的端点，否则 allowlist 等于没生效");
+
+    assert!(
+        !is_admin_request_allowed(NO_ADMIN_ROLE, &method, &path, true),
+        "RBAC 开启时 {method} {path} 必须拒绝无角色"
+    );
+    assert!(
+        is_admin_request_allowed(NO_ADMIN_ROLE, &method, &path, false),
+        "RBAC 关闭时 {method} {path} 必须放行（开关只关闭角色细分）——\
+         否则上一条测试可能因为「整片拒绝」而空转通过"
+    );
 }
