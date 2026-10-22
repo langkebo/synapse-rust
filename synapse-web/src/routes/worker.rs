@@ -826,7 +826,7 @@ mod tests {
         config.replication.http.enabled = true;
         config.replication.http.secret = Some("test-secret".to_string());
 
-        let response = build_topology_validation_response(&config, &runtime_snapshot(&["event_persister"]));
+        let response = build_topology_validation_response(&config, true, &runtime_snapshot(&["event_persister"]));
 
         assert!(response.validation.valid);
         assert!(response.known_instances.iter().any(|name| name == "master"));
@@ -874,6 +874,7 @@ mod tests {
 
         let response = build_topology_validation_response(
             &config,
+            true,
             &runtime_snapshot(&["sync_worker", "media_repository", "federation_reader"]),
         );
 
@@ -898,7 +899,7 @@ mod tests {
         // is supposed to write the event stream never started.
         let config = split_configuration();
 
-        let response = build_topology_validation_response(&config, &runtime_snapshot(&[]));
+        let response = build_topology_validation_response(&config, true, &runtime_snapshot(&[]));
 
         assert!(response.validation.valid, "the static verdict must not change with runtime state");
         assert!(!response.runtime.valid);
@@ -910,7 +911,7 @@ mod tests {
     fn test_topology_validation_runtime_is_valid_when_every_declared_instance_runs() {
         let config = split_configuration();
 
-        let response = build_topology_validation_response(&config, &runtime_snapshot(&["event_persister"]));
+        let response = build_topology_validation_response(&config, true, &runtime_snapshot(&["event_persister"]));
 
         assert!(response.runtime.valid, "unexpected errors: {:?}", response.runtime.errors);
         assert_eq!(response.runtime.live_instances, vec!["event_persister".to_string()]);
@@ -923,7 +924,7 @@ mod tests {
         // field must not turn into a permanent alarm there.
         let config = WorkerConfig::default();
 
-        let response = build_topology_validation_response(&config, &runtime_snapshot(&[]));
+        let response = build_topology_validation_response(&config, true, &runtime_snapshot(&[]));
 
         assert!(response.runtime.valid);
         assert!(response.runtime.errors.is_empty());

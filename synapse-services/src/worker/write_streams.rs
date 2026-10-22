@@ -140,6 +140,24 @@ impl WriteStream {
         }
         .as_slice()
     }
+
+    /// Does this stream reach `/sync` through the **notifier fan-out** rather than
+    /// through the database alone?
+    ///
+    /// Two streams do: room events and to-device messages are pushed to the waiter by
+    /// `EventNotifier` (`notifying_event_writer.rs` → `notify_room`, and the
+    /// `sendToDevice` handler → `notify_user`). That notifier is process-local `Notify`
+    /// plus a Redis publish; without Redis it cannot reach another instance, and a
+    /// reader's long-poll then waits out its own timeout
+    /// ([`missing_notify_fan_out`], design doc §4.5).
+    ///
+    /// `device_lists` is deliberately **not** in this set even though `/sync` carries a
+    /// device-list section: nothing calls `notify_user` on a device-list change, so that
+    /// section has always been "picked up at the next wake-up" and forwarding does not
+    /// change it.
+    pub fn notify_bound(self) -> bool {
+        matches!(self, Self::Events | Self::ToDevice)
+    }
 }
 
 /// The request namespace a write arrives in.
@@ -345,6 +363,54 @@ pub fn coupled_stream_conflicts(config: &WorkerConfig) -> Vec<String> {
     conflicts
 }
 
+/// Forwarding configurations that cannot wake a reader's `/sync` long-poll, as
+/// startup-error messages.
+///
+/// # The gap this closes
+///
+/// [`WriteStream::notify_bound`] streams are pushed to the waiter by `EventNotifier`,
+/// which is process-local `Notify` **plus** a Redis publish; the Redis publish is the
+/// only half that crosses instances, and `publish_redis` returns early when no pool was
+/// configured (`event_notifier.rs`). Meanwhile the `/sync` waiter registers its slots
+/// unconditionally — the notifier always exists, Redis or not — so it never falls back
+/// to the periodic-poll branch. Result: with `write_forwarding: true` and Redis off, a
+/// write executed on the writer wakes that process's waiters only, and a client parked
+/// on a reader learns about it when its own `timeout` expires (typically 30 s).
+///
+/// Nothing is lost — `/sync` still returns the events on the next iteration — so this
+/// cannot be detected by a correctness test, which is exactly why it is a **startup
+/// error** rather than a warning: the deployment would otherwise look healthy while
+/// every push is late.
+///
+/// `redis_enabled` is `redis.enabled` from the server config, which is not part of
+/// [`WorkerConfig`]; callers that only have the worker block must pass `true` (the
+/// pre-W-I behaviour, and what the single-process default implies).
+pub fn missing_notify_fan_out(config: &WorkerConfig, redis_enabled: bool) -> Vec<String> {
+    if redis_enabled || !config.write_forwarding || !config.enabled {
+        return Vec::new();
+    }
+    let mut messages = Vec::new();
+    for stream in WriteStream::all().iter().copied().filter(|stream| stream.notify_bound()) {
+        // Only a *forwarded* stream is affected: when this instance is the writer it does
+        // both halves in-process, and an `Unavailable` target already has its own error
+        // (the write fails outright, so there is no silent latency to report).
+        if let WriteRoute::Forward { instance, .. } = write_route(config, stream) {
+            messages.push(format!(
+                "worker.write_forwarding = true 且 worker.stream_writers.{} = {:?}，但 redis.enabled = false：\
+                 {} 的写入会在实例 '{instance}' 上执行，而唤醒 /sync 长轮询只靠进程内 Notify + Redis 扇出 ⇒ \
+                 落在本实例的长轮询要等客户端自己的 timeout（典型 30 s）才拿到数据（数据不丢，只是变慢）。\
+                 要么打开 redis.enabled（跨实例唤醒的唯一通道），要么把 {} 设回 [\"master\"]\
+                 （docs/audit/WORKER_STREAM_WRITE_FORWARDING_DESIGN_2026-10-22.md §4.5）。",
+                stream.stream_name(),
+                stream.owners(config),
+                stream.stream_name(),
+                stream.stream_name(),
+            ));
+        }
+    }
+    messages
+}
+
 // ── (method, path) → stream ────────────────────────────────────────────────────
 
 /// Which stream does this write touch? `None` means "not a stream-owned write".
@@ -542,7 +608,6 @@ fn is_msc_namespace(segment: &str) -> bool {
 }
 
 /// Does *this* instance run the MSC4140 delayed-event dispatcher?
-///
 /// The dispatcher injects due events without an HTTP request, so no route mapping can
 /// reach it — ownership has to be decided by process. It returns `true` whenever
 /// forwarding is off (the default), so a deployment that never opts in keeps the

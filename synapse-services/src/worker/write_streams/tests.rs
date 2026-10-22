@@ -263,7 +263,6 @@ fn writes_that_touch_no_stream_stay_unmapped() {
     // (threads, spaces, friends, delayed-event queue) or another stream entirely.
     for (method, path) in [
         ("POST", "/_matrix/client/v3/rooms/!r/forget"),
-        ("POST", "/_matrix/client/v3/rooms/!r/threads/$t/read"),
         ("POST", "/_matrix/vendor/v1/rooms/!r/threads"),
         ("POST", "/_matrix/vendor/v1/spaces/!s/join"),
         ("POST", "/_matrix/vendor/v1/rooms/!r/summary"),
@@ -337,4 +336,75 @@ fn the_delayed_event_dispatcher_runs_only_on_the_events_writer() {
 
     config.instance_name = "event_persister".to_string();
     assert!(owns_events_dispatch(&config), "the configured writer dispatches");
+}
+
+#[test]
+fn forwarding_a_notify_bound_stream_without_redis_is_reported() {
+    // `events` reaches `/sync` through `EventNotifier`, whose only cross-instance half
+    // is the Redis publish. Forwarding it with Redis off leaves every long-poll on a
+    // reader waiting for its own timeout — a latency defect no correctness test sees,
+    // which is why it is surfaced at startup.
+    let mut config = with_instance(config_with(true, "client_reader"), "event_persister", "persister.internal", false);
+    config.stream_writers.events = vec!["event_persister".to_string()];
+    config.stream_writers.device_lists = vec!["event_persister".to_string()];
+
+    let messages = missing_notify_fan_out(&config, false);
+    assert_eq!(messages.len(), 1, "{messages:?}");
+    assert!(messages[0].contains("events"), "{}", messages[0]);
+    assert!(messages[0].contains("redis.enabled"), "the remedy must be named: {}", messages[0]);
+
+    // Negative control: the same configuration with Redis on is fine.
+    assert!(missing_notify_fan_out(&config, true).is_empty());
+}
+
+#[test]
+fn a_notify_bound_stream_written_locally_never_needs_redis() {
+    // This instance is the writer: it does both halves in-process.
+    let mut config = config_with(true, "event_persister");
+    config.stream_writers.events = vec!["event_persister".to_string()];
+    assert!(missing_notify_fan_out(&config, false).is_empty());
+}
+
+#[test]
+fn only_the_notify_bound_streams_are_reported() {
+    // `device_lists` has a `/sync` section but no `notify_user` call on change, and the
+    // six light streams are pulled from the database; forwarding either without Redis
+    // costs nothing extra, so reporting them would be noise.
+    let mut config = with_instance(config_with(true, "client_reader"), "event_persister", "persister.internal", false);
+    config.stream_writers.device_lists = vec!["event_persister".to_string()];
+    config.stream_writers.receipts = vec!["event_persister".to_string()];
+    config.stream_writers.typing = vec!["event_persister".to_string()];
+    assert!(missing_notify_fan_out(&config, false).is_empty(), "only events/to_device are notify-bound");
+
+    assert!(WriteStream::Events.notify_bound());
+    assert!(WriteStream::ToDevice.notify_bound());
+    for stream in [
+        WriteStream::Typing,
+        WriteStream::AccountData,
+        WriteStream::Receipts,
+        WriteStream::Presence,
+        WriteStream::PushRules,
+        WriteStream::DeviceLists,
+    ] {
+        assert!(!stream.notify_bound(), "{} must not be treated as notify-bound", stream.stream_name());
+    }
+}
+
+#[test]
+fn to_device_is_reported_too() {
+    let mut config = with_instance(config_with(true, "client_reader"), "event_persister", "persister.internal", false);
+    config.stream_writers.to_device = vec!["event_persister".to_string()];
+    let messages = missing_notify_fan_out(&config, false);
+    assert_eq!(messages.len(), 1, "{messages:?}");
+    assert!(messages[0].contains("to_device"), "{}", messages[0]);
+}
+
+#[test]
+fn an_unusable_writer_is_not_double_reported_as_a_redis_problem() {
+    // When the target cannot be resolved the write fails outright, so the notifier gap
+    // is moot — that case already has its own error and must not be reported twice.
+    let mut config = config_with(true, "client_reader");
+    config.stream_writers.events = vec!["event_persister".to_string()];
+    config.stream_writers.device_lists = vec!["event_persister".to_string()];
+    assert!(missing_notify_fan_out(&config, false).is_empty(), "no instance_map entry ⇒ Unavailable, not Forward");
 }

@@ -55,8 +55,15 @@ where
 /// A configuration problem that only produces *warnings* is reported as valid
 /// (`TOPOLOGY_OK`), matching the startup path, which also treats warnings as
 /// non-fatal.
-pub fn topology_exit_code(worker: &WorkerConfig) -> i32 {
-    let validation = validate_worker_config(worker);
+pub fn topology_exit_code(worker: &WorkerConfig, redis_enabled: bool) -> i32 {
+    let mut validation = validate_worker_config(worker);
+    // Same extra check as the startup path (`check_startup_topology`): a notify-bound
+    // stream cannot be forwarded without Redis, and the two verdicts must not disagree
+    // about whether a configuration is deployable (design doc §4.5).
+    for message in synapse_services::worker::write_streams::missing_notify_fan_out(worker, redis_enabled) {
+        validation.valid = false;
+        validation.errors.push(message);
+    }
     validation.log();
 
     for warning in &validation.warnings {
@@ -87,7 +94,7 @@ pub fn topology_exit_code(worker: &WorkerConfig) -> i32 {
 /// environment, which a test should not have to fake.
 pub fn run_offline_topology_check() -> i32 {
     match Config::load() {
-        Ok(config) => topology_exit_code(&config.worker),
+        Ok(config) => topology_exit_code(&config.worker, config.redis.enabled),
         Err(error) => {
             eprintln!("Failed to load configuration: {error}");
             TOPOLOGY_CONFIG_ERROR

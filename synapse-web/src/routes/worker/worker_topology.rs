@@ -147,6 +147,7 @@ async fn read_worker_registry(
 /// the response without standing up a registry.
 pub(crate) fn build_topology_validation_response(
     config: &WorkerConfig,
+    redis_enabled: bool,
     snapshot: &RuntimeTopologySnapshot,
 ) -> WorkerTopologyValidationResponse {
     let mut known_instances = vec!["master".to_string(), config.instance_name.clone()];
@@ -179,7 +180,14 @@ pub(crate) fn build_topology_validation_response(
         known_instances,
         replication_enabled: config.replication.enabled,
         replication_http_enabled: config.replication.http.enabled,
-        validation: validate_worker_config(config),
+        validation: {
+            let mut validation = validate_worker_config(config);
+            for message in synapse_services::worker::write_streams::missing_notify_fan_out(config, redis_enabled) {
+                validation.valid = false;
+                validation.errors.push(message);
+            }
+            validation
+        },
         stream_writers,
         route_owner_expectations,
         runtime: evaluate_runtime_topology(config, snapshot),
@@ -203,5 +211,5 @@ pub async fn get_topology_validation(
 ) -> Result<impl IntoResponse, ApiError> {
     let (_, snapshot) = read_worker_registry(&ctx).await?;
 
-    Ok(Json(build_topology_validation_response(&ctx.config.worker, &snapshot)))
+    Ok(Json(build_topology_validation_response(&ctx.config.worker, ctx.config.redis.enabled, &snapshot)))
 }

@@ -205,7 +205,11 @@ impl SynapseServer {
 
         // Startup topology validation — ensures worker configuration is consistent before proceeding
         {
-            let topology = synapse_services::worker::topology_gate::check_startup_topology(&config.worker);
+            // `redis.enabled` is passed separately: it lives outside `WorkerConfig`, and
+            // it decides whether a forwarded `events` / `to_device` write can still wake
+            // a reader's `/sync` long-poll (design doc §4.5).
+            let topology =
+                synapse_services::worker::topology_gate::check_startup_topology(&config.worker, config.redis.enabled);
             topology.validation.log();
             if let Some(reason) = &topology.fatal {
                 // W-B: `worker.topology.strict` escalates the advisory verdict to a

@@ -55,12 +55,12 @@ fn a_deployable_configuration_exits_zero() {
     // A monolith deployment is valid by construction, and is also the case where
     // the check matters least — pinned because exit 0 is what lets a pipeline
     // proceed.
-    assert_eq!(topology_exit_code(&WorkerConfig::default()), TOPOLOGY_OK);
+    assert_eq!(topology_exit_code(&WorkerConfig::default(), true), TOPOLOGY_OK);
 }
 
 #[test]
 fn a_broken_configuration_exits_non_zero() {
-    assert_eq!(topology_exit_code(&invalid_config()), TOPOLOGY_INVALID);
+    assert_eq!(topology_exit_code(&invalid_config(), true), TOPOLOGY_INVALID);
 }
 
 #[test]

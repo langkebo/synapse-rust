@@ -39,8 +39,20 @@ pub struct StartupTopologyCheck {
 /// exactly when there is an error — so the pre-deploy check
 /// (`--validate-topology`) and the startup path cannot disagree about whether a
 /// given configuration is deployable.
-pub fn check_startup_topology(config: &WorkerConfig) -> StartupTopologyCheck {
-    let validation = validate_worker_config(config);
+///
+/// `redis_enabled` is `redis.enabled`, which lives outside [`WorkerConfig`] and is
+/// therefore passed in. It participates in one check only: a stream that reaches
+/// `/sync` through the notifier fan-out cannot be forwarded without Redis, because the
+/// fan-out half is the only thing that crosses instances
+/// ([`crate::worker::write_streams::missing_notify_fan_out`], design doc §4.5). Callers
+/// that only have the worker block pass `true`, which keeps the pre-W-I verdict.
+pub fn check_startup_topology(config: &WorkerConfig, redis_enabled: bool) -> StartupTopologyCheck {
+    let mut validation = validate_worker_config(config);
+
+    for message in crate::worker::write_streams::missing_notify_fan_out(config, redis_enabled) {
+        validation.valid = false;
+        validation.errors.push(message);
+    }
 
     // `valid` is false iff `errors` is non-empty, so this single condition cannot
     // fire on a warning-only report.
@@ -96,7 +108,7 @@ mod tests {
     #[test]
     fn an_invalid_configuration_is_fatal_under_strict() {
         // The positive control for W-B: this is the behaviour the switch exists for.
-        let check = check_startup_topology(&invalid_config(true));
+        let check = check_startup_topology(&invalid_config(true), true);
 
         assert!(!check.validation.valid, "the fixture must actually be invalid");
         let reason = check.fatal.expect("strict must refuse to start on an invalid topology");
@@ -107,7 +119,7 @@ mod tests {
     fn an_invalid_configuration_only_warns_by_default() {
         // The negative control: without the switch, behaviour is exactly what it
         // is today — the report is produced, and startup continues.
-        let check = check_startup_topology(&invalid_config(false));
+        let check = check_startup_topology(&invalid_config(false), true);
 
         assert!(!check.validation.valid);
         assert!(check.fatal.is_none(), "strict is off, so startup must not be refused");
@@ -115,7 +127,7 @@ mod tests {
 
     #[test]
     fn a_valid_configuration_is_never_fatal_even_under_strict() {
-        let check = check_startup_topology(&valid_config(true));
+        let check = check_startup_topology(&valid_config(true), true);
 
         assert!(check.validation.valid, "fixture must be valid, errors: {:?}", check.validation.errors);
         assert!(check.fatal.is_none());
@@ -137,10 +149,51 @@ mod tests {
             },
         );
 
-        let check = check_startup_topology(&config);
+        let check = check_startup_topology(&config, true);
 
         assert!(check.validation.valid, "warnings must not make the report invalid");
         assert!(!check.validation.warnings.is_empty(), "the fixture must produce a warning");
+        assert!(check.fatal.is_none());
+    }
+
+    #[test]
+    fn forwarding_without_redis_is_fatal_under_strict_and_a_hard_error_without_it() {
+        // `events` cannot be forwarded without Redis (design doc §4.5): the write lands on
+        // the writer and the only cross-instance wake-up for `/sync` is unavailable. It is
+        // an *error* — not a warning — because the deployment looks healthy otherwise.
+        let mut config = valid_config(false);
+        config.write_forwarding = true;
+        // `events` 与 `device_lists` 必须同实例（联邦 `send` 一个请求写两路），否则
+        // `coupled_stream_conflicts` 会先报错，这条测试就测不到 Redis 那一条。
+        config.stream_writers.device_lists = vec!["event_persister".to_string()];
+
+        for strict in [true, false] {
+            config.topology.strict = strict;
+            let check = check_startup_topology(&config, false);
+            assert!(!check.validation.valid, "strict={strict}: the report must be invalid");
+            assert!(
+                check.validation.errors.iter().any(|error| error.contains("redis.enabled")),
+                "strict={strict}: the error must name the fix, got {:?}",
+                check.validation.errors
+            );
+            assert_eq!(check.fatal.is_some(), strict, "only `strict` refuses to start");
+        }
+
+        // Negative control: with Redis the same configuration is valid.
+        config.topology.strict = true;
+        let check = check_startup_topology(&config, true);
+        assert!(check.validation.valid, "{:?}", check.validation.errors);
+        assert!(check.fatal.is_none());
+    }
+
+    #[test]
+    fn the_monolith_default_never_needs_redis_even_though_forwarding_is_off() {
+        // Guards against the new check leaking into the default deployment: forwarding is
+        // off, so no stream is routed anywhere and Redis is irrelevant.
+        let mut config = WorkerConfig::default();
+        config.topology.strict = true;
+        let check = check_startup_topology(&config, false);
+        assert!(check.validation.valid);
         assert!(check.fatal.is_none());
     }
 
@@ -150,7 +203,7 @@ mod tests {
         let mut config = WorkerConfig::default();
         config.topology.strict = true;
 
-        let check = check_startup_topology(&config);
+        let check = check_startup_topology(&config, true);
 
         assert!(check.validation.valid);
         assert!(check.fatal.is_none());

@@ -1,11 +1,10 @@
 # `worker.stream_writers` 写转发设计（W-I）
 
 > 状态：**第 0–4 阶段全部落地**（八路真转发 + 联邦面 + 指标 + 客户端 IP 传递），提交
-> `f31c0a422`。**第 5 阶段（收口）待做**，清单见 §9 —— 其中两条是"配置开着、保证却不成立"：
-> `events`/`to_device` 转发隐含 Redis 前置条件且**未被校验**（§4.5），以及
-> `/_synapse/admin/*` 里**有 11 条路由真的写受管流**却不在映射内（§5.3）。
-> 另有 §5.3 记录的两处结构性边界：delayed-event 派发（已改由进程归属决定）与
-> "既有 handler 后来开始写事件"这类行为漂移（棘轮盲区，靠评审而非门禁）。
+> `f31c0a422`；**第 5 阶段（收口）部分完成** —— Redis 前置条件已校验（§4.5），
+> admin 面 14 条、`write_forwarding` 响应段、两进程 e2e 仍未做（§9）。
+> 三条结构性边界记在 §5.3：`/_synapse/admin/*` 的 14 条真写者、delayed-event 派发
+> （已改由进程归属决定）、"既有 handler 后来开始写事件"这类行为漂移（棘轮盲区）。
 > 相关：`WORKER_TOPOLOGY_VERIFICATION_AUDIT_2026-10-16.md`（W-A…W-H）、
 > `synapse-services/src/worker/runtime_topology.rs`、`synapse-services/src/worker/write_streams.rs`。
 
@@ -153,9 +152,17 @@ W-I 之前不存在这个问题：每个实例自己写、自己唤醒。这是"
 `device_lists` 不在此列：设备列表变更本来就只发 `m.device_list_update` EDU、没有本地
 `notify_user`，`/sync` 侧一直是"下次醒来时带走"，与是否转发无关。
 
-**现状：未校验。** `validate_worker_config` 不看 `redis.enabled`，这条组合目前会静默降级。
-待做：`events` 或 `to_device` 非默认 + `redis.enabled = false` ⇒ 启动 error（与
-`strict` 同通道）。
+**现状：已校验（error）。** `write_streams::missing_notify_fan_out(config, redis_enabled)`
+给出消息，三个判定入口共用它，所以不会出现"启动拒绝、`--validate-topology` 放行"的分歧：
+
+| 入口 | 位置 |
+|---|---|
+| 启动 | `topology_gate::check_startup_topology(&config.worker, config.redis.enabled)`（`worker.topology.strict` 下直接拒绝启动） |
+| 预检 CLI | `cli::topology_exit_code(&config.worker, config.redis.enabled)` ⇒ `--validate-topology` 退出码 |
+| 运维视图 | `GET /_synapse/worker/v1/topology/validate` 的 `validation.errors` |
+
+只对 `events` / `to_device` 报告，且只在这条流**真的被转发**（`WriteRoute::Forward`）时报：
+本实例就是 writer 时两半都在进程内做完；目标不可解析时写请求直接失败，另有自己的 error。
 
 ## 5. 哪几路能转发
 
@@ -248,27 +255,32 @@ W-I 之前不存在这个问题：每个实例自己写、自己唤醒。这是"
 
 | 不覆盖的东西 | 为什么 | 现状 |
 |---|---|---|
-| `/_synapse/admin/*` 的写 | 不在 `declared_ledger_all()` 冻结的范围里。该命名空间有 **156 条写路由**，纳入就得逐条做归属决定，而这套棘轮只比对"客户端 + vendor + 联邦"三段 | **已知缺口，且不是无害的**：其中 **11 条真的写受管流**（见下表）⇒ 这 11 条路径上"单写者"目前**不成立** |
+| `/_synapse/admin/*` 的写 | 不在 `declared_ledger_all()` 冻结的范围里。该命名空间有 **156 条写路由**，纳入就得逐条做归属决定，而这套棘轮只比对"客户端 + vendor + 联邦"三段 | **已知缺口，且不是无害的**：其中至少 **14 条真的写受管流**（见下表）⇒ 这些路径上"单写者"目前**不成立** |
 | delayed-event 派发 | 见 §5.1 | 已用进程归属关闭 |
 | "既有路由**开始**写事件" | 棘轮比的是 `(method, path)` 集合，不是 handler 行为。`v1/invite` 将来补落库、`m.call.hangup` 将来补发事件，清单都不会变红 | **棘轮盲区**，已写进 `write_stream_map.txt` 头部，改这类 handler 时必须回来重看那一列 |
 
-admin 面的这 11 条（逐 handler 追到 `create_event` / `delete_all_devices` 得出，不是按
-路径名猜；`/rooms/*/cascade_redact` 之类**不**在此列 —— 它明确不持久化
-`m.room.redaction`，只写自己的表）：
+admin 面的这 14 条（逐 handler 追到 `create_event` / `upsert_power_levels_event` /
+`delete_user_device(s)` 得出，不是按路径名猜；`/rooms/*/cascade_redact` 之类**不**在此列 ——
+它明确不持久化 `m.room.redaction`，只写自己的表）：
 
 | 流 | 路由 |
 |---|---|
-| `events`（7） | `POST /_synapse/admin/v1/rooms/{id}/ban`、`POST …/ban/{u}`、`POST …/kick`、`POST …/kick/{u}`、`POST …/unban/{u}`、`PUT /_synapse/admin/v1/rooms/{id}/members/{u}`、`DELETE …/members/{u}` —— 落点在 `membership::admin_{ban,kick,unban}_user_membership` 与 `join_room`，都 `generate_event_id` 后写 DAG |
-| `device_lists`（4） | `DELETE /_synapse/admin/v1/users/{u}/devices/{d}`、`POST …/devices/{d}/delete`（同一 handler 的兼容别名）、`POST /_synapse/admin/v1/users/{u}/logout`、`POST /_synapse/admin/v1/user_sessions/{u}/invalidate` —— 落点是 `token_auth.revoke_device` / `logout_all` → `delete_user_device(s)` |
+| `events`（10） | `POST /_synapse/admin/v1/rooms/{id}/ban`、`POST …/ban/{u}`、`POST …/kick`、`POST …/kick/{u}`、`POST …/unban/{u}`、`PUT`/`POST …/make_admin`、`PUT /_synapse/admin/v1/rooms/{id}/members/{u}`、`DELETE …/members/{u}`、`POST /_synapse/admin/v1/join/{room_id_or_alias}` —— 落点 `membership::admin_{ban,kick,unban}_user_membership`、`join_room`、`leave_room`、`state::grant_room_admin`（后者 `upsert_power_levels_event`，写的是一条 `m.room.power_levels` 状态事件） |
+| `device_lists`（4） | `DELETE /_synapse/admin/v1/users/{u}/devices/{d}`、`POST …/devices/{d}/delete`（同一 handler 的兼容别名）、`POST /_synapse/admin/v1/users/{u}/logout`、`POST /_synapse/admin/v1/user_sessions/{u}/invalidate` —— 落点 `token_auth.revoke_device` / `logout_all` → `delete_user_device(s)` |
+
+> ⚠️ **这个数字本身是"还没穷尽"的证据**：第一遍按正则扫 handler 得到 11 条，第二遍按
+> "helper 间接调用 + 传递闭包"扫出 14 条（补上 `make_admin` 的两种拼写与
+> `/join/{room_id_or_alias}`）。手工清单每扫一遍就长一点 ⇒ 补法必须是**账本 + 棘轮**，
+> 而不是再手写一份更长的表。
 
 > ⚠️ 一个容易搞错的对照：`POST /_matrix/client/v3/admin/room/{room_id}/redact` 虽然在
 > 名字里带 admin，但它住在**客户端命名空间**、在账本里，所以**已经**归 `events`（§5 表）。
 > §5.3 说的"admin 面"专指 `/_synapse/admin/*`。
 
-补法（未做）：这 11 条数量固定、判据清楚，可以单独冻进 `write_stream_map.txt` 的
-admin 段 + 在 `stream_for_write` 里加 `/_synapse/admin/` 前缀解析；代价是账本来源要从
-`declared_ledger_all()` 扩到 admin 路由表 —— 这是"要不要为 11 条路由扩账本"的决定，
-不是"捎带做掉"的改动。
+补法（未做）：把 `/_synapse/admin/` 加进 `mapped_path`（新增 `WriteSurface::Admin`），
+再把这 156 条按"是否真写受管流"逐条冻进 `write_stream_map.txt` 的 admin 段 —— 其中 14 条
+归流、其余 142 条填 `-`。代价是要把棘轮的账本来源从 `declared_ledger_all()` 扩到
+admin 路由表；这是"要不要为 156 条路由扩账本"的决定，不是"捎带做掉"的改动。
 
 ### 5.4 与 `worker.surface_gate` 的冲突（重要）
 
@@ -301,7 +313,7 @@ gate 等于让每个实例都能应答所有写）。授权集由 `WriteForwardi
 | 2 | `events`：客户端面 + vendor 面 + 联邦面映射、delayed-event 归属、体积上限跟随上传上限 | ✅ |
 | 3 | `device_lists`：设备管理面整体归属 + 与 `events` 的耦合约束 | ✅ |
 | 4 | 指标 + 客户端 IP 传递（secret 门控的专用头） | ✅ |
-| 5 | **收口**：Redis 前置条件校验（§4.5）、admin 面 11 条路由纳入映射（§5.3）、`topology/validate` 的 `write_forwarding` 响应段、两进程 e2e | ⛔ 待做 |
+| 5 | **收口**：Redis 前置条件校验（§4.5 ✅）、admin 面 14 条纳入映射（§5.3）、`topology/validate` 的 `write_forwarding` 响应段、两进程 e2e | 🚧 部分完成（§4.5 已做） |
 
 ## 8. 与既有守卫的关系
 
@@ -322,8 +334,8 @@ gate 等于让每个实例都能应答所有写）。授权集由 `WriteForwardi
 
 | 项 | 是什么 | 为什么必须做 | 代价 |
 |---|---|---|---|
-| P1 Redis 前置条件 | `events` / `to_device` 非默认 + `redis.enabled = false` ⇒ 启动 error（§4.5） | 否则跨实例 `/sync` 唤醒静默失效，延迟退化到客户端 timeout，且**没有任何门禁或指标**能看出来 | 校验器里 +1 条判断，半天含测试 |
-| P1 admin 面 11 条 | 把 `/_synapse/admin/*` 里真写受管流的 11 条纳入映射（§5.3 有清单） | 否则这 11 条路径上"单写者"不成立，与 §5 的穷尽声明矛盾 | 要把账本来源从 `declared_ledger_all()` 扩到 admin 路由表，并新增一段冻结清单 |
+| ~~P1 Redis 前置条件~~ | ✅ **已做**：`missing_notify_fan_out` 接进启动 / CLI / admin 视图（§4.5） | — | — |
+| P1 admin 面 14 条 | 把 `/_synapse/admin/*` 里真写受管流的 14 条纳入映射（§5.3 有清单 + 补法） | 否则这些路径上"单写者"不成立；且该清单每扫一遍就变长，说明手工枚举不可靠 | 要把账本来源从 `declared_ledger_all()` 扩到 admin 路由表（156 行），并新增 `WriteSurface::Admin` |
 | P2 观测面 | `topology/validate` 增 `write_forwarding` 段（解析到哪个 `base_url`、为何 `Unavailable`、运行期是否可达）；`worker_write_forward_total` 进 dashboard + 告警 | writer 宕机时 reader 的 `/health` 仍绿，只有写请求 503；没有告警就只能等用户报障 | 响应结构 + 前端约定同步改，1–2 天 |
 | P2 reader 健康 | 让 reader 的 `/_health` 反映其 writer 不可用 | 同上：现在的健康检查对"写路径已死"完全沉默 | 依赖上一项的数据 |
 | P3 两进程 e2e | 真起两个进程 + 真 `instance_map` + 真 secret，覆盖 `events`/`federation send` 与 `surface_gate` 组合 | 现有测试全部用桩上游（`spawn_echo_upstream`），最容易互相抵消的 `surface_gate` × 转发组合从未真实联调 | 一个脚本 + CI job，1 天 |

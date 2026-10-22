@@ -615,18 +615,21 @@ mod tests {
         assert!(result.errors.is_empty());
     }
 
-    /// L-3：`stream_writers` 是**纯声明面**，偏离默认值时必须给出可见提示。
+    /// L-3：`stream_writers` 偏离默认值、但 `write_forwarding` 关着时必须给出可见提示。
     ///
-    /// 为什么需要：它被解析、被基数/实例校验、被 topology 端点暴露，但写入路径没有
-    /// 消费者。运维按上游习惯配了 `events: [event_persister]` 后看不到任何变化，
-    /// 归因很容易落到"分流没生效"而不是"这个配置还没接"。
+    /// 为什么需要：配置被解析、被基数/实例校验、被 topology 端点暴露，但转发关着时写入
+    /// 仍由接请求的实例自己处理。运维按上游习惯配了 `events: [event_persister]` 后看不到
+    /// 任何变化，归因很容易落到"分流没生效"而不是"这个开关没开"。
     ///
     /// 双向断言：默认配置**不得**有这条 warning（否则等于噪声，所有人都会忽略它）；
     /// 偏离默认时必须有，且即使 `worker.enabled = false` 也要有 —— 关着 worker 却
     /// 配了分流的场景同样需要提示。
+    ///
+    /// 判别串用当前文案里的 `worker.write_forwarding`，而不是旧版的「纯声明」：
+    /// W-I 之后这个配置**已经有**消费者，提示语也随之从"还没接"改成"开关没开"。
     #[test]
     fn topology_flags_stream_writers_as_declarative_only() {
-        const MARKER: &str = "纯声明";
+        const MARKER: &str = "worker.write_forwarding";
 
         let default_config = WorkerConfig::default();
         let default_result = validate_worker_config(&default_config);
@@ -945,19 +948,40 @@ mod tests {
         }
     }
 
-    /// P2-15: All non-events streams must reject non-master owners.
-    /// Synapse v1.156 clarified that only `events` may be owned by
-    /// `event_persister`; all other streams are master-only.
+    /// P2-15：非 `events` 的流仍然只允许 `master` —— **`device_lists` 除外**。
+    ///
+    /// 上游 v1.156 的口径是"只有 `events` 可以挂在 `event_persister`"，本仓在 W-I
+    /// 阶段**有意**为 `device_lists` 开了这个口子，理由是可执行的约束而非偏好：
+    /// `PUT /_matrix/federation/v1/send/{txn}` 一个请求既写 `events`（PDU）又写
+    /// `device_lists`（`m.signing_key_update` EDU），而它按 `events` 归属执行
+    /// （`coupled_stream_conflicts` 因此要求两路同实例）。若 `device_lists` 只允许
+    /// `master`，那么"`events` 挂在 persister"就必然违反耦合约束 ⇒ `events` 的单写者
+    /// 在分流拓扑里不可表达。详见
+    /// `docs/audit/WORKER_STREAM_WRITE_FORWARDING_DESIGN_2026-10-22.md` §5.2。
     #[test]
-    fn test_p2_15_device_lists_stream_rejects_non_master_owner() {
+    fn test_p2_15_device_lists_may_follow_events_to_the_persister() {
         let config = build_config_with_stream_owner("device_lists", "event_persister");
         let result = validate_worker_config(&config);
-        assert!(!result.valid, "device_lists owned by event_persister must be rejected");
         assert!(
-            result.errors.iter().any(|e| e.contains("device_lists") && e.contains("only allows: master")),
-            "expected device_lists rejection error, got: {:?}",
+            !result.errors.iter().any(|e| e.contains("only allows: master")),
+            "device_lists on the persister is deliberate (coupled with events), got: {:?}",
             result.errors
         );
+    }
+
+    /// The other half of P2-15 still holds: a stream that is neither `events` nor
+    /// `device_lists` may not be owned by a non-master role.
+    #[test]
+    fn test_p2_15_other_streams_still_reject_non_master_owners() {
+        for stream in ["typing", "receipts", "presence", "push_rules", "account_data", "to_device"] {
+            let config = build_config_with_stream_owner(stream, "event_persister");
+            let result = validate_worker_config(&config);
+            assert!(
+                result.errors.iter().any(|e| e.contains(stream) && e.contains("only allows: master")),
+                "{stream} owned by event_persister must still be rejected, got: {:?}",
+                result.errors
+            );
+        }
     }
 
     #[test]
