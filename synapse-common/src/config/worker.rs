@@ -42,6 +42,20 @@ pub struct WorkerConfig {
     #[serde(default)]
     /// `stream_writers` field.
     pub stream_writers: StreamWriters,
+    /// Enforce `worker.stream_writers` by forwarding writes to the configured owner.
+    ///
+    /// Off by default, so no existing deployment changes behaviour. When on, an
+    /// instance that is **not** the configured writer for a stream hands the write to
+    /// that writer instead of executing it locally (`synapse_services::worker::
+    /// write_streams`). Without it, `stream_writers` remains a declaration that is
+    /// parsed, validated and reported — and changes nothing.
+    ///
+    /// Only six of the eight streams can be forwarded in this build; `events` and
+    /// `device_lists` are refused at startup rather than silently ignored. See
+    /// `docs/audit/WORKER_STREAM_WRITE_FORWARDING_DESIGN_2026-10-22.md`.
+    #[serde(default)]
+    /// `write_forwarding` field.
+    pub write_forwarding: bool,
     #[serde(default)]
     /// `replication` field.
     pub replication: ReplicationConfig,
@@ -147,6 +161,7 @@ impl Default for WorkerConfig {
             surface_gate: false,
             instance_map: HashMap::new(),
             stream_writers: StreamWriters::default(),
+            write_forwarding: false,
             replication: ReplicationConfig::default(),
             lock_max_retry_interval_ms: default_lock_max_retry_interval_ms(),
             lock_max_retries: default_lock_max_retries(),

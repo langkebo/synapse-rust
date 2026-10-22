@@ -479,8 +479,11 @@ groups:
           summary: "有复制流没有在活的属主"
           description: |-
             {{ $value }} 条流（typing / receipts / events …）配置的属主实例**全部**不在活。
-            注意：本仓 `stream_writers` 目前只是声明面，写入路径不会因此中断 ——
-            这条告警说明的是"配置描述的分工与实际部署不符"，而不是"数据正在丢失"。
+            2026-10-22（W-I）起这条告警的含义取决于配置：
+            `worker.write_forwarding: true` 时写请求会被**转发**给该流的 writer，
+            属主全灭 ⇒ 那一路上所有写都会 503（真的中断，按 outage 处理）；
+            `write_forwarding: false`（默认）时写入仍由接请求的实例自己处理，不会中断 ——
+            那说明的是"配置描述的分工与实际部署不符"，而不是"数据正在丢失"。
 
       - alert: WorkerInstanceHeartbeatStale
         expr: synapse_worker_instance_last_heartbeat_age_seconds > 300

@@ -16,6 +16,8 @@ pub mod rate_limit;
 pub mod security;
 /// The worker HTTP surface gate (W-F).
 pub mod worker_surface;
+/// `worker.stream_writers` enforcement (W-I).
+pub mod write_forwarding;
 
 pub use auth::*;
 pub use cors::*;
@@ -26,6 +28,7 @@ pub use http_metrics::*;
 pub use rate_limit::*;
 pub use security::*;
 pub use worker_surface::*;
+pub use write_forwarding::*;
 
 use axum::http::{HeaderMap, Method};
 use regex::Regex;

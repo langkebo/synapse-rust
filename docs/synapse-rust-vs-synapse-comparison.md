@@ -2098,6 +2098,15 @@ W-B 为严格模式 + 离线 `--validate-topology` 入口）。本节改动只�
    `healthcheck` ⇒ 容器化的多进程栈**根本起不来**（`/app/synapse_worker` not found）。已补。
 3. **`stream_writers` 目前是纯声明面**：全仓没有按它决定"谁来写这条流"的代码
    （与 `instance_map` 不同——后者至少被拓扑校验与运行时对账消费）。⇒ 声明它不会改变写入行为。
+   > **2026-10-22 更新（W-I）**：默认仍是纯声明面，但**不再是"只能声明"**。
+   > `worker.write_forwarding: true` 时，非 writer 实例会把该路的写**原样转发**给配置的 writer
+   > （`synapse-web/src/middleware/write_forwarding.rs`）。本版本开六路
+   > （typing / to_device / account_data / receipts / presence / push_rules）；
+   > `events` / `device_lists` **配成非默认值直接启动报错**，不再静默无效。
+   > 另需纠正一条此处隐含的理由：本仓 `events.stream_ordering` 是 DB 序列
+   > （`nextval('events_stream_ordering_seq')`），多写者**不会**打乱流顺序 ——
+   > 单写者要防的是提交后 fan-out（联邦广播 / appservice / 房间摘要）被多实例各做一遍。
+   > 设计见 `docs/audit/WORKER_STREAM_WRITE_FORWARDING_DESIGN_2026-10-22.md`。
 
 ⇒ 因此本仓**不应**再写作「Worker 拓扑仍在建设中」；准确表述是
 「**控制面已成型并可观测；请求面的准入已可执行（W-F，2026-10-17），但参考栈的进程选型尚未切到根二进制实例**」。

@@ -356,6 +356,66 @@ fn stream_writers_deviate_from_default(config: &WorkerConfig) -> bool {
     .any(|owners| owners.as_slice() != default.as_slice())
 }
 
+/// Startup verdict for `worker.write_forwarding = true`.
+///
+/// Two things can make an otherwise well-formed `stream_writers` block unusable, and
+/// both used to be invisible until a write silently happened on the wrong instance:
+///
+/// 1. **the stream cannot be forwarded at all** (`events`, `device_lists`) — the route
+///    mapping is not exhaustive, so claiming single-writer would be a lie;
+/// 2. **the target cannot be reached** — no `instance_map` entry, or no shared secret
+///    to distinguish a forwarded request from a client one (which is what breaks the
+///    forwarding loop).
+///
+/// Both are returned as errors rather than warnings on purpose: a warning is exactly
+/// what the previous "pure declaration" state produced, and it did not stop anyone from
+/// believing the configuration was in effect.
+fn validate_write_forwarding(config: &WorkerConfig) -> Vec<String> {
+    let mut errors = Vec::new();
+
+    if !config.enabled {
+        errors.push(
+            "worker.write_forwarding = true 但 worker.enabled = false：关掉 worker 模式时本进程就是单进程 master，\
+             没有可转发的对端。要么打开 worker.enabled，要么把 write_forwarding 设回 false。"
+                .to_string(),
+        );
+    }
+
+    for stream in crate::worker::write_streams::WriteStream::all().iter().copied() {
+        let owners = stream.owners(config);
+        let is_default = owners.len() == 1 && owners.first().is_some_and(|owner| owner == DEFAULT_STREAM_WRITER);
+
+        if !stream.is_forwardable() {
+            if !is_default {
+                errors.push(format!(
+                    "worker.stream_writers.{} 指向 {:?}，但本版本的写转发**不支持** {}：{}\n\
+                     把它设回 [\"master\"]，或等该阶段落地\
+                     （docs/audit/WORKER_STREAM_WRITE_FORWARDING_DESIGN_2026-10-22.md §5）。",
+                    stream.stream_name(),
+                    owners,
+                    stream.stream_name(),
+                    stream.forwardable_rationale(),
+                ));
+            }
+            continue;
+        }
+
+        if let crate::worker::write_streams::WriteRoute::Unavailable { instance, reason } =
+            crate::worker::write_streams::write_route(config, stream)
+        {
+            errors.push(format!(
+                "worker.stream_writers.{} 的 writer '{instance}' 不可用：{reason}",
+                stream.stream_name()
+            ));
+        }
+    }
+
+    errors
+}
+
+/// The default owner of every stream: the single-process instance.
+const DEFAULT_STREAM_WRITER: &str = "master";
+
 /// This supplements `validate_topology(...)` by checking:
 /// 1. stream writer owners reference known instances
 /// 2. multi-worker setups enable replication
@@ -365,26 +425,37 @@ pub fn validate_worker_config(config: &WorkerConfig) -> TopologyValidation {
     let inferred_workers = configured_worker_types(config);
     let mut validation = TopologyValidation::new();
 
-    // L-3（2026-10-17）：`worker.stream_writers` 目前是**纯声明面**。
+    // W-I（2026-10-22）：`worker.stream_writers` 从"纯声明面"变成了**可执行的写归属**，
+    // 但只覆盖六路。这里落的是那条边界：
     //
-    // 它被解析、被校验（基数 / 实例存在性）、被 `/_synapse/worker/v1/topology/validate`
-    // 暴露，但**没有任何写入路径消费者** —— 把 `events` 指给 `event_persister`
-    // 不会把事件写入搬到那个实例上，写入仍然由本进程处理。
+    // + `write_forwarding = true` 时，能转发的流必须目标可达，**不可转发的流不许配成非默认**
+    //   —— 直接报 error。旧行为（warn 一句"没有消费者"、然后照常启动）正是"配了不生效"
+    //   的温床；宁可启动失败，也不要再让人以为 `events` 已经单写者。
+    // + `write_forwarding = false`（默认）时保留那条 warning，但改成指向这个开关。
     //
-    // 一条 warning 比沉默好：运维按上游 Synapse 的习惯配了 `stream_writers`，
-    // 却看不到任何效果时，错误会被归因到"分流没生效"而不是"这个配置还没接"。
-    // 放在 `!enabled` 早退**之前**，这样即使 worker 关着也能看到这条提示。
-    if stream_writers_deviate_from_default(config) {
+    // 放在 `!enabled` 早退**之前**：worker 关着也能看到，且下面合并时会带上 errors
+    // （原实现只 append warnings，会把这里新增的 error 悄悄丢掉）。
+    if config.write_forwarding {
+        for message in validate_write_forwarding(config) {
+            validation.add_error(message);
+        }
+    } else if stream_writers_deviate_from_default(config) {
         validation.add_warning(concat!(
-            "worker.stream_writers 已偏离默认值（每路仅 master），但本版本的写入路径仍由本实例处理。\n",
-            "该配置目前是纯声明（被解析、校验并在 /_synapse/worker/v1/topology/validate 暴露），",
-            "没有消费者。不要据此认为事件/回执等写入已经分流。"
+            "worker.stream_writers 已偏离默认值（每路仅 master），但 worker.write_forwarding 为 false ⇒\n",
+            "写入仍由接请求的实例自己处理，该配置目前不产生任何效果。\n",
+            "要让它生效请同时设 worker.write_forwarding: true（详见",
+            "docs/audit/WORKER_STREAM_WRITE_FORWARDING_DESIGN_2026-10-22.md）。"
         ));
     }
 
     if !config.enabled {
         let mut disabled = validate_topology(&[WorkerType::Master]);
         disabled.warnings.append(&mut validation.warnings);
+        disabled.errors.append(&mut validation.errors);
+        // `add_error` is what normally flips this flag, and the disabled branch builds
+        // its verdict from a *fresh* validation, so the append above has to restate it
+        // or the report would say "valid" while carrying errors.
+        disabled.valid = disabled.errors.is_empty();
         return disabled;
     }
 

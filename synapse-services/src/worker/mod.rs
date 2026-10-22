@@ -24,6 +24,8 @@ pub mod topology_metrics;
 pub mod topology_validator;
 /// The `types` module.
 pub mod types;
+/// The write-forwarding decision layer (W-I): `stream_writers` made executable.
+pub mod write_streams;
 
 pub use event_sink::{WorkerEventSink, WorkerManagerEventSink};
 pub use health::{HealthCheckConfig, HealthCheckResult, HealthChecker, HealthStatus};
@@ -49,4 +51,8 @@ pub use types::{
     WorkerCommandRow, WorkerConnection, WorkerEvent, WorkerEventRow, WorkerInfo, WorkerLoadStatsUpdate,
     WorkerResponsibilitySummary, WorkerRow, WorkerRuntimeConfig, WorkerStatus, WorkerTaskAssignment,
     WorkerTopologyEntry, WorkerTopologyPreset, WorkerTopologyPresetInstance, WorkerTopologySummary, WorkerType,
+};
+pub use write_streams::{
+    instance_base_url, non_local_routes, stream_for_write, write_route, WriteRoute, WriteStream,
+    WRITE_FORWARD_SECRET_HEADER, WRITE_FORWARD_STREAM_HEADER,
 };

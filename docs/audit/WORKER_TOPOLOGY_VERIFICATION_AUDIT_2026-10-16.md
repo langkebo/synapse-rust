@@ -637,6 +637,28 @@ W-F 把 `owned_route_prefixes` 变成了可执行准入，W-G 让 worker 能自�
 另一个 bash 坑：`$media_code` 紧跟全角括号 `（` 会被并入变量名 ⇒ `unbound variable`。
 终端文案里变量一律写 `${var}`。
 
+### W-I（2026-10-22）：`stream_writers` 从声明面变成可执行的写归属
+
+完整设计见 `WORKER_STREAM_WRITE_FORWARDING_DESIGN_2026-10-22.md`。要点：
+
+- **纠正了照搬上游的理由**：上游需要单写者是因为流位置在进程内分配；本仓
+  `events.stream_ordering` 默认 `nextval('events_stream_ordering_seq')`，多写者不打乱顺序。
+  真正要防的是**重复的提交后 fan-out**（`run_post_commit_fan_out`：联邦广播、appservice 派发、
+  房间摘要刷新）。
+- **做法**：路由层透明转发（`synapse-web/src/middleware/write_forwarding.rs`）——
+  方法/路径/query/body/`Authorization` 原样转给 writer，由它执行自己的鉴权与写入；
+  加 `x-synapse-write-stream` + `x-synapse-worker-secret` 两个头，writer 见到即**就地执行**（防环）。
+  装在其内层的是 `surface_gate`，所以"不归这个角色"的路径仍然 404、不会被转发掩盖。
+- **只开六路**（typing / to_device / account_data / receipts / presence / push_rules）。
+  `events`（联邦写面 + delayed-event 后台派发绕过 HTTP）与 `device_lists`（是整片设备管理面的副作用）
+  **配置成非默认值直接启动报错**——那两路的映射不穷尽，假装支持会让重复广播继续存在。
+- **守卫**：`scripts/contract/write_stream_map.txt`（276 条客户端写路由逐条标流名或 `-`）与真实路由表
+  双向棘轮，`tests/unit/worker_write_stream_tests.rs` 9 条用例；另需 `--features all-extensions`
+  才编译进来的家族（SAML/OIDC/voice/`m.call.*`）在精简 feature 车道里按 `cfg!` 豁免，不会被误删。
+- **状态**：决策层 + 中间件 + 守卫 + 校验收紧已落地；`worker.write_forwarding` 默认 `false`，
+  单进程与既有部署**零行为变化**。e2e（两个真实进程互转）尚待阶段 2 一并做 —— 现在的证据是
+  中间件对桩上游的真实 HTTP 往返（7 条用例，含伪造回路头被忽略）。
+
 ### 排期与其他批次的冲突面
 
 W-A 只动 `synapse-services/src/worker/` 与 `synapse-web/src/routes/worker.rs`，与 §19.5 的 B3（AS 临时数据）、

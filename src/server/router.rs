@@ -7,7 +7,7 @@ use synapse_services::worker::topology_validator::current_instance_worker_type;
 use synapse_services::worker::types::WorkerType;
 use synapse_web::middleware::{
     http_metrics_middleware, payload_too_large_json_middleware, request_debug_middleware, request_timeout_middleware,
-    worker_surface_middleware, RequestTimeouts, WorkerSurfaceGate,
+    worker_surface_middleware, write_forwarding_middleware, RequestTimeouts, WorkerSurfaceGate, WriteForwarding,
 };
 use synapse_web::routes::create_router;
 use synapse_web::AppState;
@@ -57,7 +57,22 @@ pub fn build_router(app_state: AppState, config: &Config) -> Router {
     };
     let surface_gate = WorkerSurfaceGate::new(effective_role);
 
+    // W-I: make `worker.stream_writers` executable.
+    //
+    // Built once (the policy resolves `instance_map` targets and reads the replication
+    // secret file), and installed **inside** the surface gate on purpose: the gate
+    // narrows what this instance answers, so a request outside its role is still a 404
+    // and is never forwarded. Forwarding only moves a request between two instances that
+    // are both allowed to serve it.
+    //
+    // Off by default (`worker.write_forwarding: false`), in which case the policy reports
+    // itself disabled and the layer is a single boolean check per request.
+    let write_forwarding = WriteForwarding::from_config(&config.worker);
+
     create_router(app_state)
+        // Innermost layer: a write for a stream owned by another instance is handed
+        // there before the local handler can execute it.
+        .layer(axum::middleware::from_fn_with_state(write_forwarding, write_forwarding_middleware))
         // Innermost layer: a refused path still passes through the HTTP metrics,
         // timeout and 413-rewriting layers outside it, so refusals are counted
         // and never masquerade as infrastructure errors.

@@ -106,6 +106,7 @@ mod worker_surface_gate_tests;
 mod worker_topology_cli_tests;
 mod worker_topology_deployment_tests;
 mod worker_topology_metrics_tests;
+mod worker_write_stream_tests;
 
 mod room_domain_refactor_tests;
 mod schema_lifecycle_guard_tests;

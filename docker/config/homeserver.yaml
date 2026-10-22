@@ -265,6 +265,18 @@ worker:
   #   ⚠️ master 永不受限；参考栈里的 `synapse_worker` 进程**只开 /metrics、不读这个开关**。
   #   要做请求分流，必须以**根二进制**起每个角色（各自 port + WORKER_INSTANCE_NAME）。
   surface_gate: false
+  # W-I：让 `stream_writers` 真的生效 —— 非 writer 实例把写**转发**给配置的 writer。
+  #   默认 false ⇒ 与既有部署完全一致（谁接到请求谁写，`stream_writers` 只是声明）。
+  #   设 true 后：本实例不是某一路流的 writer ⇒ 该路的写请求原样转发给 writer，
+  #   由它执行自己的鉴权/校验/提交后 fan-out（联邦广播、appservice 派发、房间摘要）。
+  #   为什么需要它：本仓 `events.stream_ordering` 是 DB 序列，多写者**不会**打乱顺序；
+  #   单写者要防的是上面那些 fan-out 被多个实例各做一遍。
+  #   ⚠️ 本版本只支持六路：typing / to_device / account_data / receipts / presence / push_rules。
+  #     把 events 或 device_lists 配成非 master 会**启动即报错**（映射尚不穷尽，
+  #     见 docs/audit/WORKER_STREAM_WRITE_FORWARDING_DESIGN_2026-10-22.md §5）。
+  #   ⚠️ 打开后 writer 必须出现在 `instance_map`（含 `master` 自己），且需要
+  #     `replication.http.enabled: true` + 共享密钥 —— 转发请求靠它防回路。
+  write_forwarding: false
   # ── 参考多进程拓扑（W-D）─────────────────────────────────────────────────
   # 以下键**只在 SYNAPSE__WORKER__ENABLED=true 时生效**：单进程部署走
   # `worker.enabled: false` 的早退分支（校验直接 valid），instance_map 没有消费者。
@@ -280,6 +292,9 @@ worker:
   #
   # host/port 是**声明**而非连接参数：本仓 instance_map 的消费者只有拓扑校验与运行时
   # 对账（谁"应该在场"），没有按它建连的代码；容器栈里写服务名便于运维对照。
+  # ⚠️ 2026-10-22 起多了一个消费者：`worker.write_forwarding: true` 时会按这些
+  #    host/port 真的**建连**（把写转发给该流的 writer）。届时 `tls` 必须与实际监听一致
+  #    （容器内是明文 ⇒ false），否则表现为握手失败，看起来像"writer 挂了"。
   instance_map:
     client_reader:
       host: "client_reader"
