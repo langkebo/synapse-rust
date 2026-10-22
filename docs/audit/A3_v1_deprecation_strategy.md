@@ -237,16 +237,55 @@ B 族的逐条依据：
 | 族 | 条数 | 处置 |
 |---|---|---|
 | A 历史双注册 | **0**（原 73 条已全部退役：第一批 51 + 本批 22） | 完成 |
-| B 规范指定 v1 | 28 | 永久保留 |
-| C 私有扩展 | 11 | 待迁 `/_matrix/vendor/v1`（ISSUE-13） |
+| B 规范/MSC 指定 v1 | 28 | 永久保留 |
+| B2 MSC4512 的 AS 协议路径 | 8 | 保留在 `client/v1`（见第三批复核） |
+| C 真私有扩展 | 3 | 见第三批：只有 `config/client` 是干净候选 |
 
 `check_v1_deprecation.py` 现在报 `可退队列: 0 条`。也就是说**后端侧 A3 的"退役"已无可删对象**：
 剩下的 39 条 v1 要么是规范正典（28），要么是私有扩展（11，方向是 vendor 而不是删除）。
 
 ### 下一步（不是删 v1）
 
-1. C 族 11 条迁 `/_matrix/vendor/v1`：`proxy/*`（7）、`appservice/fed_proxy`、
-   `user/{id}/appservice`、`config/client`、`login/{get_token,qr_token}`、`POST v1/sync`。
-   迁移后 `v1_no_twin_baseline.txt` 收窄到 28 条（只剩 B 族）。
-2. 客户端/SDK 侧同步：现在 `client/v1` 上已无"历史双注册"可调，客户端若仍打 v1 的
+1. 客户端/SDK 侧同步：现在 `client/v1` 上已无"历史双注册"可调，客户端若仍打 v1 的
    `account/*`、`profile/*`、`context`、`report`、`power_levels`，会 404 —— 需要它们改调 v3。
+2. C 族只剩 3 条，且**都不是"删掉就好"**：见下面「第三批」。
+
+---
+
+## 2026-10-22 第三批：C 族逐条裁定（**不动代码**，先把"迁 vendor"这个结论本身核掉）
+
+第二批结束时留了一句"C 族 11 条迁 `/_matrix/vendor/v1`"。真去逐条核出处时发现
+**这句话把 11 条里 8 条判错了**，与第一、二批踩的是同一个坑：把"看着不像 v3 的东西"
+一律当私有扩展。
+
+| 路由 | 真实归属 | 依据 |
+|---|---|---|
+| `proxy/{as_id}/{*path}`（7 方法） | **MSC4512** AS 协议路径，就该在 `client/v1` | 治理文档 §13.24 的原文是「**移出客户端面**，归入 AS/服务端排除组…改判『不封装』」—— 那是说 **SDK 不要包它**，不是改 URL |
+| `POST appservice/fed_proxy` | 同上（MSC4512），另有 unstable 别名 `io.element.msc4512` | `docs/sdk/appservices.md` §AS 出站联邦代理 |
+| `GET user/{user_id}/appservice` | 已发布客户端的探测面 | `docs/sdk/appservices.md`：「普通 App 只需要 `GET …/user/{id}/appservice` 这类无害探测」 |
+| `POST login/get_token` | **MSC3882**，稳定前缀就是 v1 | `auth_compat.rs:567/845` 自述 |
+| `POST login/qr_token` | MSC3882 令牌家族的私有派生（QR 登录） | `auth_compat.rs:831` |
+| `POST v1/sync` | sliding sync 稳定路径族（与 `v4/sync` 同 handler） | 治理文档 §13.5「规范多挂载（应保留）：`msc3575`/`simplified_msc3575`/`v1`/`v4`」；`sliding_sync.rs:27-36` 自述 stable 走 v4、v1 是兼容位 |
+| `GET config/client` | **唯一没有 MSC/规范出处**的一条 | 只有 API 集成测试（`api-integration_test.sh:4606`）与一条 route 测试引用；`docs/sdk/` 未文档化 |
+
+### 结论
+
+1. **`proxy/*` 与 `appservice/fed_proxy` 不要挪 vendor**。它们的 URL 由 MSC4512 定义；
+   挪了等于让按 MSC 实现的 AS 找不到入口，而且 `{*path}` 通配符没法在 vendor 下重建语义。
+2. **`user/{id}/appservice` 不要挪**：它已作为客户端探测面写进 SDK 文档，属"已发布契约"。
+3. **`config/client` 是唯一干净候选**，但**它没有回退路径**（不像前两批有 v3 孪生），
+   迁移 = 客户端当场 404。要动必须与客户端同步，并把
+   `api-integration_test.sh:4606`、`tests/unit/assembly_route_tests.rs:393` 一起改。
+   本轮**不动**，把它登记为"待客户端同步后迁 vendor"。
+4. `v1_no_twin_baseline.txt` 的表头已按三类改写（原表头把 `login/*` 与 `v1/sync`
+   写成"私有扩展，去 vendor"，会把下一个人引到错误方向）。
+
+### 判据沉淀
+
+看到一条 `client/v1` 私有端点，**先问三句**再决定去向：
+
+1. 有没有 MSC 编号？（有 ⇒ 路径由提案定，别改）
+2. 本仓治理文档 / SDK 文档有没有把它当客户端面写过？（有 ⇒ 属已发布契约，动要同步客户端）
+3. 有没有可回退的替代路径？（没有 ⇒ 不能"后端先做、客户端后同步"）
+
+三条都不成立，才是 ISSUE-13 的迁移对象。
