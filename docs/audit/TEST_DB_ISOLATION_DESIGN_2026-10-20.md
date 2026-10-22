@@ -223,10 +223,24 @@ assertion `left == right` failed  left: 403  right: 201
      `get_admin_token`。实测 `TEST_DB_ISOLATION=database` 跑这 20 条：
      **19 passed / 1 failed**，唯一失败 `api_appservice_transaction_push` 正是 §8.3 的
      "两腿共有"真 bug，已单列在下方第 4 条；
-   - [ ] 再修 4 条两腿共有的真 bug 与 1 条 beacon 时序；
+   - [x] **修 4 条两腿共有的真 bug**（2026-10-22，根因与验证见下方第 4 条）；
+   - [ ] 两条时序用例（appservice 调度、beacon 令牌桶）仍未定根因，见下方第 5 条；
    - [ ] 然后同一提交上重跑两腿，再按 §6 的三条验收项判定是否把默认切到 `database`。
-4. 剩余 5 条真 bug（与本轮改动无关，待单独排期）：`snapshot_register_uia_401_challenge`、
-   `test_space_children_hierarchy_suite_keeps_nested_chain_verified`、
-   `test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta_members`、
-   `test_appservice_transaction_push`，以及 A 腿独有的 appservice 调度时序与 B 腿独有的
-   beacon 令牌桶时序。
+4. **4 条两腿共有的真 bug 已修**（2026-10-22，与隔离模式无关）：
+
+   | 用例 | 根因 | 修复面 |
+   |---|---|---|
+   | `snapshot_register_uia_401_challenge` | 401 UIA 体按设计含 `errcode`/`error`（`docs/sdk/authentication.md`），`.snap` 停留在旧版 | 接受快照（删 `.snap.new`） |
+   | `test_space_children_hierarchy_suite_keeps_nested_chain_verified` | `get_parent_spaces` 拿 `space_children.room_id` 去匹配 `spaces.room_id`，返回空数组 ⇒ `parents_json[0]` 为 `Null` | `synapse-storage/src/space/repository.rs` 改用 `space_id` 查父空间 |
+   | `test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta_members` | `1e801b33e` 把 event-id 抑制语义扩散到 limited 重建分支，已变更的成员 leave 被重放 | `synapse-services/src/sync_service/lazy_load.rs`：重建分支按成员抑制，`state_after`/非 limited 分支保留 event-id 语义（#20289 不回退） |
+   | `test_appservice_transaction_push` | B-28 已改为 `{events, next_token}`，测试仍按裸数组读 | `tests/integration/api_appservice_p1_tests.rs` 改读 `events` 并断言 `next_token` 为 `null` |
+
+   实测（`TEST_DB_ISOLATION=database`）：4 条单跑 **4 passed**；关联回归
+   `api_space_routes_tests`/`api_appservice_p1_tests`/`sync_service_tests_migrated`/
+   `api_route_snapshots_tests` 全量 **78 passed**；`synapse-services` 懒加载/空间单测
+   **54 passed**；`cargo fmt --all --check` 通过。
+5. **两条时序用例未定位根因**：A 腿独有的 appservice 调度
+   （`test_appservice_scheduler_long_window_mixed_backlog_preserves_fairness_and_prevents_event_starvation`）
+   与 B 腿独有的 beacon 令牌桶
+   （`test_beacon_location_applies_room_backpressure_token_bucket`）在修复后的两次复跑中均
+   PASS（单独复跑 3.8 s / 9.3 s），仍按**时序敏感疑似 flake** 记录，**不声称已修**。

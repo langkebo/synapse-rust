@@ -936,13 +936,14 @@ impl SpaceStorage {
 
     /// See [`get_parent_spaces`].
     pub async fn get_parent_spaces(&self, room_id: &str) -> Result<Vec<Space>, sqlx::Error> {
+        // Each `space_children` row links the *parent* space (`space_id`) to the
+        // queried room (`room_id`), so the parent is looked up by `space_id` —
+        // matching on `room_id` returns the child, never the parent.
         let children = self.get_child_spaces(room_id).await?;
-        let child_room_ids: Vec<String> = children.iter().map(|child| child.room_id.clone()).collect();
-        let mut spaces_by_room = self.get_spaces_by_rooms_batch(&child_room_ids).await?;
 
         let mut parent_spaces = Vec::new();
         for child in children {
-            if let Some(space) = spaces_by_room.remove(&child.room_id) {
+            if let Some(space) = self.get_space(&child.space_id).await? {
                 parent_spaces.push(space);
             }
         }

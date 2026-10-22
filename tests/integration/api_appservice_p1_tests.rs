@@ -84,10 +84,11 @@ async fn test_appservice_transaction_push() {
 
     let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     let events_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let events = events_json.as_array().unwrap();
+    let events = events_json["events"].as_array().unwrap();
     assert!(!events.is_empty(), "Should have at least one pending event");
     assert_eq!(events[0]["as_id"], as_id);
     assert_eq!(events[0]["event_type"], "m.room.message");
+    assert!(events_json["next_token"].is_null(), "a page shorter than the limit has no next_token");
 }
 
 /// P1-2: as_token 认证验证

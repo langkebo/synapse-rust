@@ -80,6 +80,16 @@ impl LazyLoadedMemberState {
         self.sent.get(member).is_some_and(|entry| entry.event_id.as_deref().is_none_or(|sent| sent == event_id))
     }
 
+    /// Whether the client holds *any* membership event of `member`.
+    ///
+    /// The reconstruction form only asks that question: the block describes the
+    /// state at the start of the window, so a member the client already knows is
+    /// not replayed regardless of which event id the client saw — a change inside
+    /// the window rides the timeline, and one outside it would be a lie.
+    fn has_member(&self, member: &str) -> bool {
+        self.sent.contains_key(member)
+    }
+
     /// Record that membership `event_id` of `member` rides the response ending at
     /// position `at`.
     pub(crate) fn mark_sent(&mut self, member: &str, event_id: &str, at: i64) {
@@ -311,10 +321,11 @@ impl SyncService {
                     continue;
                 };
                 let event_id = event.get("event_id").and_then(|value| value.as_str());
-                // No event id ⇒ nothing proves the client has it. Sending it is the
-                // safe direction and costs one redundant membership.
-                let deliver =
-                    include_redundant_members || event_id.is_none_or(|event_id| !known.was_sent(state_key, event_id));
+                // The client already holds a membership for this member ⇒ it is not
+                // replayed here, whatever event id it saw: changes inside the window
+                // ride the timeline, and changes outside it must not appear at all
+                // (the block describes the window's *start*).
+                let deliver = include_redundant_members || !known.has_member(state_key);
                 if deliver {
                     if let Some(event_id) = event_id {
                         sent_now.push((state_key.to_string(), event_id.to_string()));
