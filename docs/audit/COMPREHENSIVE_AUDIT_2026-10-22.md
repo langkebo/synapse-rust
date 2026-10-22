@@ -4,6 +4,7 @@
 > 审查基线：HEAD `d3d41618b`（工作区另有并发会话未提交改动，**未纳入审查、未触碰**）
 > **复核基线：HEAD `bf15f173a`**（同日第二轮逐条复核；更正见 §0.1，被改写的条目正文带 `> **复核**：` 标记）
 > **第三轮基线：HEAD `88554436b`**（同日第三轮；更正见 §0.2，新增 4 条缺陷，规划见 §十）
+> **第四轮基线：HEAD `d86d825fd`**（次日复核；只核验 §10 各批次的落地情况 + 3 条更正，见 §0.3）
 > 审查方式：静态审查（逐文件阅读 + 全仓 grep 计数 + 定点交叉复核）；**未运行完整测试套件**，因此除 §0.1/§0.2 明确标注"已修/已实测"者外，下文所有"行为"结论均为代码事实推断，不含运行时实测
 > 计数口径：所有 grep 计数均以 `git ls-files` 的受版本控制文件为域（**排除 `target/`**）。直接 `grep -rn .` 会把构建产物算进去，历史踩过
 > 严重度定义：
@@ -68,7 +69,7 @@
 | **CODE-10** | P2：全仓 **1411 处 / 300 文件** | **⚠️ 口径错**。按 `git ls-files` 统计实为 **1593 处 / 337 文件**；剔除测试文件（`tests/`、`*/tests.rs`、`*_tests.rs`）后**生产代码 905 处 / 244 文件**。原数字既非全仓也非生产，来源不明 | 改为**双口径**：生产 905 / 全仓 1593，并给出可复现命令 |
 | **ARCH-05** | P2：**7 个**文件 >2000 行 | ✅ 7 个仍成立，但清单不完整。另有生成文件 `synapse-web/src/routes/derived_route_table_always.inc.rs`（5476 行）与 3 个测试文件（`event/db_tests.rs` 3466、`test_isolation.rs` 3191、`sync_service/tests.rs` 2509）也超线 | 保留 7 个生产文件；补一句"生成文件与测试文件不计入拆分目标" |
 | **TEST-07** | P3：实测 **277**（unit 126 + integration 146 + e2e 2 + perf 3） | **⚠️ 数字已漂移**。实测 **283**（unit **128** + integration **147** + e2e **3** + perf **5**） | 三处文档口径统一改为 283，并给出分项 |
-| 附录 A `#[ignore]` | "16 处 / 7 文件" | **⚠️ 口径混入**。裸 `grep '#\[ignore'` 得 34 处，但其中多数是 `e2e_honesty_tests.rs` / `ci_test_scope_tests.rs` 里的**字符串与扫描器断言**（它们本身就在禁止裸 ignore）。真实属性为 **11 条**：`tests/e2e/user_flow_tests.rs` 7 条、`tests/performance/*` 4 条，**全部带理由** | 改为"11 条真实属性，全部带理由"；字符串匹配不计入 |
+| 附录 A `#[ignore]` | "16 处 / 7 文件" | **⚠️ 口径混入**。裸 `grep '#\[ignore'` 得 34 处，但其中多数是 `e2e_honesty_tests.rs` / `ci_test_scope_tests.rs` 里的**字符串与扫描器断言**（它们本身就在禁止裸 ignore）。真实属性为 **11 条**：`tests/e2e/user_flow_tests.rs` 7 条、`tests/performance/*` 4 条，**全部带理由** | 改为"11 条真实属性，全部带理由"；字符串匹配不计入 —— **⚠️ 第四轮复核推翻此更正，实为 16 条 / 7 文件，见 §0.3** |
 | **FUNC-03** | P1：完成时分片上传绕过 `record_upload_usage` | ✅ 成立，且**比原描述更严重**——见新增 **FUNC-06**：`total_size` 为 `None` 时连预检都不做，且该值由客户端声明、与实际大小无关 | 保留 FUNC-03；新增 FUNC-06 覆盖"预检与上界"两条独立缺口 |
 | **SEC-01** | P1：RBAC 关闭时超管黑名单失效 | ✅ 复现成立（`admin_auth.rs:66-67` 短路 `allowed`，黑名单在 `is_role_allowed` 内部） | 保留 |
 | **SEC-04** | P2：未设 `PROMETHEUS_AUTH_TOKEN` 时 `/metrics` 匿名 | ✅ 成立（`src/server/mod.rs:1091` 显式 `.filter(\|s\| !s.is_empty())`，空值即关闭鉴权） | 保留 |
@@ -87,6 +88,40 @@
 | PERF-14 | P2 | `load_completed_upload` 先 `extend_from_slice` 拼完全部 chunk，**之后**才比 `max_file_size`，峰值内存 ≈ 文件大小（最大可到配额上限） |
 
 **第三轮明确"不改结论"的部分**：P1 的其余 7 条、全部 P0=0 判定、§9.11 剔除的 9 条误报，均未发现新反证。附录 B 的"未覆盖项"仍然有效（本机未跑全量套件与 benchmark）。
+
+---
+
+## 0.3 第四轮复核：批次落地核验（2026-10-23）
+
+这一轮**不重读缺陷**，只回答一个问题：§10.1 声称"已完成"的批次，在 HEAD 上是否真的成立。
+方法是逐批回代码/门禁取证（文件行号、脚本退出码、用例计数），不采信本文件的自我陈述。
+
+| 批次 | 本文件 | 实测判定 | 关键证据 |
+|---|---|---|---|
+| W0 `8b8505ff5` | ✅ | **成立** | `let _ = …cache.delete` 残留 0；`check_no_silent_cache_delete.sh` exit 0 且接 `ci.yml:139`；墓碑 `get_raw` 只读 L1（`manager.rs`）；`-p synapse-cache --lib` 95/95 |
+| W1 `cc364bd6f` | ✅ | **成立** | `media/mod.rs:386` `missing_param` + 超限 413；`complete_chunked_upload` 走 `upload_media_with_id_accounted(…, Some(upload_id))`；`create_registration` 真事务；契约 E.17 在位 |
+| W2 `85180061c` | ✅ | **成立** | `admin_auth.rs:209-225` 顺序＝超管→黑名单→开关→角色；`user_store_fake` 的 `mod`/`pub use` 双门禁、`unimplemented!`=0；`test01_*` 4/4 |
+| W3 `3789583ef` | ✅ | **成立** | `thread_service` → `RelationsService::send_reference`（`m.thread`），根事件缺失 404；E.18 在位 |
+| W4 `2358c0f5a` | 🟡 第一层 | **成立**（第二/三层随后由 `0d18fede0` / `3cf5c006a` 补齐） | 6 处 `ILIKE` + `POSITION(...)>0`；`prune_in_batches` + `PRUNE_BATCH_SIZE=1000`；`explain_check.sh` 接 `schema-health-check.yml:82` |
+| W5 `ca6980c51` | ✅ | **代码成立，门禁当时是红的** | 三态 `PrometheusAuth`、`validate_admin_mfa_secret`、窗口从容差推导、`:?` 必填均实；但 `check_no_default_admin_credential.sh` **自匹配自身注释 ⇒ exit 1**，见下 |
+| W6 | 待开始 | **一致**（本文件未虚报） | `preview.rs:71` 死表达式、`one_time_invite_service.rs:139`、`dm.rs` 的 `internal` 均在；`check_doc_metrics.py` 不存在 |
+
+**P1 = 0 的自述成立**：9 条 P1 全部有实现 + 能失败的门禁（上表 W0–W3 覆盖 8 条，TEST-01 4/4）。
+
+**本轮更正 3 条**（前两条是"把正确的数字改错"，方向与前几轮相反）：
+
+| 条目 | 本文件现有说法 | 实测 |
+|---|---|---|
+| 附录 A / §0.2 `#[ignore]` | 11 条（第三轮把 16/7"更正"成 11） | **16 条 / 7 文件**。第三轮只数了 `tests/e2e` + `tests/performance`，漏掉 `tests/unit/pagination_gate_tests.rs`×2、`admin_auth/admin_rbac_tests.rs`×1、`synapse-e2ee/src/{crypto/aes.rs,ssss/service.rs}` 各 1 —— 即第二轮的 16/7 本是对的 |
+| PERF-01 | "该表没有任何保留/清理任务"（取证 `grep -rn to_device_messages synapse-services/src src/`） | 取证命令跳过了 `synapse-storage`：`dehydrated_device.rs:153,184` 是生产路径的 `DELETE FROM to_device_messages`（脱水设备删除/过期）。结论应为"**普通设备**无按龄清理" |
+| §10.7 门禁表 SEC-02 行 | `check_no_default_admin_credential.sh` "OK" | **自 `ca6980c51` 起恒红**：脚本自己第 5/22 行注释写了默认口令字面值，扫描面无自我排除；`PATTERN='Admin@12[3]'` 只护住模式那一行。**已修（`d86d825fd`）**：注释改为不含字面值的表述 + 在 `PATTERN` 上方写明该纪律；修后 exit 0，变异自证（注入真默认值 → exit 1 → 删除 → exit 0）通过 |
+
+**口径漂移（可复现，属正常老化）**：`#[allow]` 268→**270**/117；CODE-10 全仓 1593→**1573**/338、
+生产 905→**882**/243；测试文件 283→**284**（unit 128→129，147/3/5 未变）；`CREATE INDEX` 347→**349**。
+§10.11 的"数字可复现"仍然成立——变的是代码，不是口径。
+
+**方法教训**：`git show <sha>:<path>` 在 zsh 里会被当成 `:s` 修饰符而静默返回空，
+本轮据此一度误判"该字面值从未进过脚本"。追溯单文件历史要写 `git show HEAD:<path>` 或引号包裹。
 
 ---
 
@@ -344,11 +379,16 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 > SQL 为 `WHERE stream_id > $3 … LIMIT $4`（`synapse-e2ee/src/to_device/storage.rs:365-390`），
 > 上限来自 `performance.sync_to_device_limit`。被原文点名的 `get_messages`（`:332`，无 LIMIT）
 > 与 `get_and_delete_messages`（`:461`）**全仓零调用方**（见 RD-27）。
-> 仍然成立、且更值得修的是**另一半**：该表**没有任何保留/清理任务**。
+> 仍然成立、且更值得修的是**另一半**：该表没有按龄（retention）清理。
+> **复核（第四轮，2026-10-23）**：第二轮的"没有任何清理代码"**说过头了**，取证命令也把范围写窄了
+> —— `grep -rn to_device_messages synapse-services/src src/` 恰好跳过了 `synapse-storage`。生产路径上
+> **有**两处 `DELETE FROM to_device_messages`：`synapse-storage/src/dehydrated_device.rs:153`
+> （`delete_by_user`）与 `:184`（`sweep_expired`），都只在**脱水设备**被删除/过期时清理该设备的行。
+> 所以准确表述是"**普通设备**的队列无按龄清理"，第二轮的结论方向不变、影响面收窄。
 - **位置**
-  - 无清理：`synapse-storage/src/pruning.rs` 有 10 个 `prune_*`，其中 `prune_old_to_device_transactions`
-    清的是**去重事务表**，**没有**针对 `to_device_messages` 的条目；服务层与 `src/` 中也没有任何
-    引用该表的清理代码（实测 `grep -rn to_device_messages synapse-services/src src/` 为 0）
+  - 无按龄清理：`synapse-storage/src/pruning.rs` 有 10 个 `prune_*`，其中 `prune_old_to_device_transactions`
+    清的是**去重事务表**，**没有**针对 `to_device_messages` 的条目；唯一的清理是脱水设备删除/过期时的
+    顺手删除（`dehydrated_device.rs:153,184`，见上方第四轮复核）
   - 死 API：`synapse-e2ee/src/to_device/storage.rs:332`（`get_messages`）、`:461`
     （`get_and_delete_messages`）、`:504`（`delete_messages`）、`:520`（`delete_messages_up_to`）
 - **类型**：生命周期缺失 + 死 API
@@ -1040,7 +1080,7 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 | 业务表 `SELECT *` | 0 处 |
 | 4 个规则必需复合索引 | 4/4 存在（`access_tokens` 为 `WHERE is_revoked = FALSE` 部分索引，满足查询形态） |
 | `events.content` GIN | 已建 `jsonb_path_ops` |
-| `#[ignore]` 真实属性 | **11 条**（`tests/e2e/user_flow_tests.rs` 7 + `tests/performance/*` 4），全部带理由，无"无理由 ignore"、无"引用未建 issue" |
+| `#[ignore]` 真实属性 | **16 条 / 7 文件**（`tests/e2e/user_flow_tests.rs` 7、`tests/performance/*` 4、`tests/unit/pagination_gate_tests.rs` 2、`synapse-web/src/utils/admin_auth/admin_rbac_tests.rs` 1、`synapse-e2ee/src/{crypto/aes.rs,ssss/service.rs}` 各 1），全部带 `#[ignore = "…"]` 理由，无"无理由 ignore"、无"引用未建 issue"。**第三轮的"11 条"只数了 `tests/` 下的两个目录，漏了 `src/` 与 `tests/unit/`，见 §0.3** |
 | 主车道门禁（doc tests、`--workspace --lib`、unit/integration/e2e、insta assert-only、missing_docs ratchet） | 均为真门禁（可失败） |
 | `dbg!` | 0 处 |
 | `#[deprecated]` | 0 处 |
