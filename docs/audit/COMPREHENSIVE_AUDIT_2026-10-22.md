@@ -381,6 +381,20 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 - **影响范围**：无法走 B-tree，成员多的房间上每次调用都是全表/全索引扫。
 - **修法**：用 `POSITION(':' IN user_id) > 0` 或增加 `is_local BOOLEAN` 派生列并建索引。
 
+> **落地状态（2026-10-22，W4 第一层已实现，提交 `2358c0f5a`）**。三条的修法都与原文不同：
+>
+> | 条目 | 实际做法与偏差 |
+> |---|---|
+> | PERF-03 | 选「查询去掉 `LOWER()`」而非「索引改 `LOWER(name)`」。原因：`CREATE INDEX IF NOT EXISTS` 对**同名**索引不会替换定义，已在真实库迁移过的 `idx_rooms_name_trgm` 会静默保持旧定义，改索引在线上等于没改。搜索词在 service 层已统一 `to_lowercase()`（`search_service.rs` 三处 `format!("%{}%", term.to_lowercase())`、`admin/room/mod.rs` 一处），故 `col ILIKE $1` 与原写法**语义等价**，且只有它能用上建在原始列上的 trgm 索引。另补 `idx_rooms_topic_trgm` —— 两处查询都有 `topic` 谓词，但当时只有 name/canonical_alias 两条索引 |
+> | PERF-04 | 原建议的 `content @> ...` 与 `tsvector` 都**不适用**：`@>` 是键值包含、不是子串匹配，满足不了 `search_term` 的语义；`tsvector` 会改掉检索语义（分词 + 语言依赖）。落地改为 `content::text ILIKE $2` + 表达式索引 `idx_events_content_trgm`（`GIN ((content::text) gin_trgm_ops)`）。原 `jsonb_path_ops` 保留（它服务的是 `@>`，两者不互相替代） |
+> | PERF-05 | **影响面判断偏高**：行集本已被 `(room_id, membership)` 收窄并走 `idx_room_memberships_joined`，`LIKE '%:%'` 只是行内 `textlike` 过滤，不存在"全表/全索引扫"。改动价值在于去掉前导通配的模式匹配与转义路径，并把"含冒号"这一意图写显式 |
+>
+> **门禁**：新增 `scripts/quality/explain_check.sh`，双层断言——源码形态 4 条（防"代码改回去而索引仍在、计划断言仍绿"）+ 计划 5 条（`idx_rooms_{name,topic,canonical_alias}_trgm`、`idx_events_content_trgm`、`idx_room_memberships_joined`）。已接入 `schema-health-check.yml`（复用该车道刚灌好的库，`EXPLAIN_CHECK_EXISTING_DB=1`）。**PERF-04 的门禁必须额外关 `enable_indexscan`/`enable_indexonlyscan`**：空表下 `idx_events_sync_covering`（Index Only Scan，不回表）代价低于 trgm 的 Bitmap Heap Scan，规划器会先选它——那是代价差异、不是索引不可用。
+>
+> **实测证据**：门禁红态 = 改回 `LOWER(...) LIKE` 时源码断言即 FAIL，且计划退化为 `Seq Scan on rooms`；绿态 = `Bitmap Index Scan on idx_rooms_name_trgm` / `idx_events_content_trgm`。测试面 `api_public_rooms_tests` 3 passed、`api_search_thread_tests` 15 passed、`cargo test -p synapse-storage --lib search_` 36 passed。
+>
+> **`.sqlx` 连带**：4 条宏查询文本变更 ⇒ 1334 → 1330（删 8 增 4），其中 4 条是**既有孤儿**（旧宏版 `search_room_messages_admin` + 3 条 `push_rules`），此前只是没人跑过写模式。
+
 ### PERF-06（P2）10 个 prune 全部无分批；保留策略单条删除
 > **复核（2026-10-22 第二轮）**：条目数 ✅（实测 10 个 `prune_*`），但**原文路径不存在**：
 > `synapse-services/src/tasks/pruning.rs` 无此文件（`synapse-services/src/tasks/` 目录本身不存在），
@@ -1044,7 +1058,7 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 | **W1** | P1 配额与事务 | FUNC-06 → FUNC-03、PERF-02 | 契约微调 + 事务包裹 | 中 | 无 | ✅ 已提交 `cc364bd6f`（见 §10.3） |
 | **W2** | P1 授权与信任根 | SEC-01、CODE-05、TEST-01 | 单点逻辑 + cfg 门禁 + 补测试 | 小 | 无 | ✅ 已提交 `85180061c`（见 §10.4） |
 | **W3** | P1 结构决策 | ARCH-01 | 方案 A「打通」：写路径改走规范事件，影子表降级为索引 | **大** | 需先定方案 | ✅ 已提交 `3789583ef`（见 §10.5） |
-| **W4** | P2 资源与性能 | PERF-14、PERF-13、PERF-03/04/05、PERF-07/08/09、PERF-06、CODE-04、CODE-07 | 索引/查询/分批 | 中 | W1（FUNC-06 累计校验） | 待开始 |
+| **W4** | P2 资源与性能 | PERF-14、PERF-13、PERF-03/04/05、PERF-07/08/09、PERF-06、CODE-04、CODE-07 | 索引/查询/分批 | 中 | W1（FUNC-06 累计校验） | 🟡 第一层已提交 `2358c0f5a`（见 §10.6） |
 | **W5** | P2 安全一致性 | SEC-02…SEC-08 | 配置校验 + 默认值 | 小 | 无 | ✅ 已提交 `ca6980c51`（见 §10.7） |
 | **W6** | P3 冗余与文档 | 全部 P3 + §9.12 五批 | 删除/合壳/文档 | 小但量大 | W0（避免删到正在改的文件） | 待开始 |
 
@@ -1259,6 +1273,14 @@ fn is_admin_request_allowed(role: &str, method: &Method, path: &str, rbac_enable
 | PERF-05 | `LIKE '%:%'` 前导通配 → 改用 `position(':' in x) > 0` 或 `right(x, n)` | 必须消除 Seq Scan |
 
 > 索引类改动的验收**只能看 `EXPLAIN`**，不能看"测试通过"——测试通过不代表走了索引。建议加一个 `scripts/quality/explain_check.sh`，把三条关键查询的计划写进快照。
+
+> **落地状态（2026-10-22，第一层已实现，提交 `2358c0f5a`）**。逐条偏差见上文 PERF-05 之后的落地引用。三点计划层面的修正：
+>
+> - 计划写"给 `LOWER(name)` 建表达式索引"，已否决：`CREATE INDEX IF NOT EXISTS` 对同名索引不替换定义，真实库上会被静默跳过；改为"查询侧去掉 `LOWER()`"（service 层已统一小写 ⇒ 语义等价）。顺带发现 `topic` 这一列**一直没索引**。
+> - 计划写 PERF-04 改 `content @> ...` 或 `tsvector`，两者都不满足"任意子串匹配"的语义；改为 `content::text ILIKE` + 表达式 trgm 索引。
+> - 门禁形态从"计划快照"改为"断言索引名/谓词形态"：逐字快照对 PG 小版本敏感，会把一次正常升级变成一次无意义的重录。另外补了 4 条**源码形态断言**——只断言计划的话，把代码改回 `LOWER(...)` 时索引仍在、计划断言依然绿。
+>
+> 已接入 `schema-health-check.yml`（该车道本就把基线灌进一个专用库，`EXPLAIN_CHECK_EXISTING_DB=1` 直接复用，不额外建库）。
 
 **第二层：查询形态**
 
