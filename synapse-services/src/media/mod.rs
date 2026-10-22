@@ -265,8 +265,20 @@ impl MediaDomainService {
         Ok(())
     }
 
-    async fn ensure_upload_allowed(&self, user_id: &str, file_size: i64) -> Result<(), ApiError> {
-        let quota_check = self.media_quota_service.check_upload_quota(user_id, file_size).await?;
+    /// Check the upload against the quota, counting the bytes already reserved by
+    /// the user's in-flight chunked uploads.
+    ///
+    /// `exclude_upload_id` is set when finalizing a chunked upload: that upload's
+    /// own reservation must not be counted against itself.
+    async fn ensure_upload_allowed(
+        &self,
+        user_id: &str,
+        file_size: i64,
+        exclude_upload_id: Option<&str>,
+    ) -> Result<(), ApiError> {
+        let reserved_bytes = self.chunked_upload_service.pending_bytes(user_id, exclude_upload_id).await?;
+        let quota_check =
+            self.media_quota_service.check_upload_quota_with_reserved(user_id, file_size, reserved_bytes).await?;
 
         if !quota_check.is_allowed {
             return Err(quota_error(&quota_check));
@@ -309,7 +321,7 @@ impl MediaDomainService {
         filename: Option<&str>,
     ) -> Result<Value, ApiError> {
         let file_size = content.len() as i64;
-        self.ensure_upload_allowed(user_id, file_size).await?;
+        self.ensure_upload_allowed(user_id, file_size, None).await?;
 
         let response = self.media_service.upload_media(user_id, content, content_type, filename).await?;
 
@@ -333,8 +345,24 @@ impl MediaDomainService {
         content_type: &str,
         filename: Option<&str>,
     ) -> Result<Value, ApiError> {
+        self.upload_media_with_id_accounted(user_id, media_id, content, content_type, filename, None).await
+    }
+
+    /// The only place that stores a file under a known id **and** bills it.
+    ///
+    /// FUNC-03: keeping the quota check and the usage record together means a new
+    /// upload path cannot store bytes without being billed.
+    async fn upload_media_with_id_accounted(
+        &self,
+        user_id: &str,
+        media_id: &str,
+        content: &[u8],
+        content_type: &str,
+        filename: Option<&str>,
+        exclude_upload_id: Option<&str>,
+    ) -> Result<Value, ApiError> {
         let file_size = content.len() as i64;
-        self.ensure_upload_allowed(user_id, file_size).await?;
+        self.ensure_upload_allowed(user_id, file_size, exclude_upload_id).await?;
 
         let response =
             self.media_service.upload_media_with_id(user_id, media_id, content, content_type, filename).await?;
@@ -353,16 +381,23 @@ impl MediaDomainService {
         total_size: Option<i64>,
         total_chunks: i32,
     ) -> Result<String, ApiError> {
-        if let Some(size) = total_size {
-            if size < 0 {
-                return Err(ApiError::bad_request("total_size must not be negative".to_string()));
-            }
-            if size > 0 {
-                self.ensure_upload_allowed(user_id, size).await?;
-            }
+        // FUNC-06: the declared size is the only hook for a quota reservation,
+        // so an upload without one must not start at all.
+        let total_size = total_size.ok_or_else(|| ApiError::missing_param("total_size is required".to_string()))?;
+        if total_size < 0 {
+            return Err(ApiError::bad_request("total_size must not be negative".to_string()));
+        }
+        if total_size > self.chunked_upload_service.max_file_size() {
+            return Err(ApiError::too_large(format!(
+                "total_size {total_size} exceeds the maximum upload size {}",
+                self.chunked_upload_service.max_file_size()
+            )));
+        }
+        if total_size > 0 {
+            self.ensure_upload_allowed(user_id, total_size, None).await?;
         }
 
-        self.chunked_upload_service.start_upload(user_id, filename, content_type, total_size, total_chunks).await
+        self.chunked_upload_service.start_upload(user_id, filename, content_type, Some(total_size), total_chunks).await
     }
 
     /// See [`upload_chunk`].
@@ -386,9 +421,18 @@ impl MediaDomainService {
         let content_type = completed.content_type.as_deref().unwrap_or("application/octet-stream");
         let size = completed.data.len() as i64;
 
+        // FUNC-03: finalizing is an upload, so it goes through the same
+        // check-and-bill path as every other upload. The upload's own reservation
+        // is excluded because these bytes are the very bytes it reserved.
         let upload_response = self
-            .media_service
-            .upload_media_with_id(user_id, &media_id, &completed.data, content_type, completed.filename.as_deref())
+            .upload_media_with_id_accounted(
+                user_id,
+                &media_id,
+                &completed.data,
+                content_type,
+                completed.filename.as_deref(),
+                Some(upload_id),
+            )
             .await?;
 
         if let Err(e) = self.chunked_upload_service.mark_upload_finalized(upload_id).await {

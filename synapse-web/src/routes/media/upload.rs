@@ -252,14 +252,15 @@ pub(crate) async fn chunked_upload_start(
         return Err(ApiError::bad_request("total_chunks must be at least 1".to_string()));
     }
 
-    // ISSUE-04: early rejection if declared total_size exceeds server max_upload_size
+    // ISSUE-04: early rejection if declared total_size exceeds server max_upload_size.
+    // FUNC-06: 超限必须回 413 `M_TOO_LARGE`（而非 400），与普通上传的语义一致。
     if let Some(size) = total_size {
         if size < 0 {
             return Err(ApiError::bad_request("total_size must not be negative".to_string()));
         }
         let max = ctx.config.server.max_upload_size as i64;
         if size > max {
-            return Err(ApiError::bad_request(format!("total_size ({size}) exceeds server max_upload_size ({max})")));
+            return Err(ApiError::too_large(format!("total_size ({size}) exceeds server max_upload_size ({max})")));
         }
     }
 

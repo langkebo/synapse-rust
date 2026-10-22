@@ -244,7 +244,12 @@ impl AuthService {
 
     /// See [`generate_access_token`].
     pub async fn generate_access_token(&self, user_id: &str, device_id: &str, admin: bool) -> ApiResult<String> {
-        self.generate_access_token_with_appservice(user_id, device_id, admin, None).await
+        let (token, expires_at) = self.build_access_token(user_id, device_id, admin, None)?;
+        self.token_storage
+            .create_token(&token, user_id, Some(device_id), Some(expires_at))
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to store token", e))?;
+        Ok(token)
     }
 
     /// MSC4190: mint an access token that records the impersonating
@@ -257,16 +262,26 @@ impl AuthService {
         admin: bool,
         appservice_id: &str,
     ) -> ApiResult<String> {
-        self.generate_access_token_with_appservice(user_id, device_id, admin, Some(appservice_id.to_string())).await
+        let (token, expires_at) =
+            self.build_access_token(user_id, device_id, admin, Some(appservice_id.to_string()))?;
+        self.token_storage
+            .create_token(&token, user_id, Some(device_id), Some(expires_at))
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to store token", e))?;
+        Ok(token)
     }
 
-    async fn generate_access_token_with_appservice(
+    /// 只生成访问令牌、不落库（PERF-02）。
+    ///
+    /// 返回 `(令牌明文, 过期时间毫秒戳)`。注册路径需要在**开启事务之前**拿到令牌，
+    /// 事务内只做 INSERT，因此把"生成"与"落库"拆开。
+    pub(crate) fn build_access_token(
         &self,
         user_id: &str,
         device_id: &str,
         admin: bool,
         appservice_id: Option<String>,
-    ) -> ApiResult<String> {
+    ) -> ApiResult<(String, i64)> {
         let now = Utc::now();
         let claims = super::ClaimsBuilder::new()
             .sub(user_id.to_string())
@@ -288,12 +303,7 @@ impl AuthService {
 
         let expires_at = (now + Duration::seconds(self.token_expiry)).timestamp_millis();
 
-        self.token_storage
-            .create_token(&token, user_id, Some(device_id), Some(expires_at))
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to store token", e))?;
-
-        Ok(token)
+        Ok((token, expires_at))
     }
 
     /// Generate a new refresh token, linked to `access_token` for cache
@@ -310,12 +320,32 @@ impl AuthService {
         device_id: &str,
         access_token: &str,
     ) -> ApiResult<String> {
+        let (token, request) = self.build_refresh_token(user_id, device_id, access_token);
+
+        self.refresh_token_storage
+            .create_token(request)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to store refresh token", e))?;
+
+        Ok(token)
+    }
+
+    /// 只生成刷新令牌、不落库（PERF-02）。
+    ///
+    /// 返回 `(令牌明文, 落库请求)`；调用方可以在事务内用
+    /// [`RefreshTokenStorage::create_token_tx`] 写入请求体。
+    pub(crate) fn build_refresh_token(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        access_token: &str,
+    ) -> (String, CreateRefreshTokenRequest) {
         let token = super::auth_generate_token(32);
         let token_hash = Self::hash_token(&token);
         let expiry_ts = current_timestamp_millis() + (self.refresh_token_expiry * 1000);
 
         let request = CreateRefreshTokenRequest {
-            token_hash: token_hash.clone(),
+            token_hash,
             user_id: user_id.to_string(),
             device_id: Some(device_id.to_string()),
             // P2-12: persist the linked access_token so refresh_token() can
@@ -328,12 +358,7 @@ impl AuthService {
             user_agent: None,
         };
 
-        self.refresh_token_storage
-            .create_token(request)
-            .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to store refresh token", e))?;
-
-        Ok(token)
+        (token, request)
     }
 
     /// See [`hash_token`].

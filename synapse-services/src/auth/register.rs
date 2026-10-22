@@ -1,5 +1,6 @@
 use super::AuthService;
 use synapse_common::*;
+use synapse_storage::user::NewRegistration;
 use synapse_storage::User;
 
 impl AuthService {
@@ -80,32 +81,39 @@ impl AuthService {
 
         let user_id = format!("@{username}:{}", self.server_name);
 
-        let user =
-            self.user_storage.create_user(&user_id, username, Some(&password_hash), admin).await.map_err(|e| {
-                if e.to_string().contains("duplicate key") || e.to_string().contains("unique constraint") {
-                    ApiError::user_in_use("Username already exists".to_string())
-                } else {
-                    ApiError::internal_with_cause("Failed to create user", e)
-                }
-            })?;
-
-        if let Some(name) = displayname {
-            if let Err(e) = self.user_service.update_displayname(&user.user_id, Some(name)).await {
-                ::tracing::warn!(
-                    error = %e,
-                    user_id = %user.user_id,
-                    displayname = %name,
-                    "Failed to set displayname during registration"
-                );
-            }
-        }
-
-        let device_id = self.get_or_create_device_id(None, &user, initial_device_display_name).await?;
-
-        let access_token = self.generate_access_token(&user.user_id, &device_id, user.is_admin).await?;
+        // PERF-02：设备 ID 与两枚令牌都必须在**进入事务之前**算好——事务内只做
+        // INSERT。原先这 5 次写各自独立提交，任一步失败都会留下"用户存在但拿不到
+        // 会话"的半成品账号。
+        Self::validate_device_display_name(initial_device_display_name)?;
+        let device_id = super::auth_generate_token(16);
+        let (access_token, access_token_expires_at) = self.build_access_token(&user_id, &device_id, admin, None)?;
         // P2-12: link refresh_token to access_token so rotation can invalidate
         // the old access_token cache entry (Synapse v1.154 #19483).
-        let refresh_token = self.generate_refresh_token(&user.user_id, &device_id, &access_token).await?;
+        let (refresh_token, refresh_request) = self.build_refresh_token(&user_id, &device_id, &access_token);
+
+        let registration = NewRegistration {
+            user_id: user_id.clone(),
+            username: username.to_string(),
+            password_hash: Some(password_hash),
+            is_admin: admin,
+            displayname: displayname.map(str::to_string),
+            device_id: device_id.clone(),
+            device_display_name: initial_device_display_name.map(str::to_string),
+            access_token: access_token.clone(),
+            access_token_expires_at: Some(access_token_expires_at),
+            refresh_token_hash: refresh_request.token_hash,
+            refresh_token_expires_at: refresh_request.expires_at,
+        };
+
+        let user = self.user_storage.create_registration(registration).await.map_err(|e| {
+            if e.to_string().contains("duplicate key") || e.to_string().contains("unique constraint") {
+                ApiError::user_in_use("Username already exists".to_string())
+            } else if e.to_string().contains("too long") {
+                ApiError::bad_request("Displayname too long (max 255 characters)".to_string())
+            } else {
+                ApiError::internal_with_cause("Failed to create user", e)
+            }
+        })?;
 
         ::tracing::info!(
             target: "security_audit",

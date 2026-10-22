@@ -230,13 +230,7 @@ impl AuthService {
         user: &User,
         initial_display_name: Option<&str>,
     ) -> ApiResult<String> {
-        if let Some(name) = initial_display_name {
-            if name.len() > 100 {
-                return Err(ApiError::bad_request(
-                    "initial_device_display_name must not exceed 100 characters".to_string(),
-                ));
-            }
-        }
+        Self::validate_device_display_name(initial_display_name)?;
 
         let device_id = match device_id {
             Some(d) => d.to_string(),
@@ -260,6 +254,21 @@ impl AuthService {
         }
 
         Ok(device_id)
+    }
+
+    /// 校验 `initial_device_display_name` 的长度上限。
+    ///
+    /// 抽成独立函数是因为注册路径（PERF-02）要在**建用户之前**就失败，
+    /// 避免为一个注定失败的请求创建账号。
+    pub(crate) fn validate_device_display_name(name: Option<&str>) -> ApiResult<()> {
+        if let Some(name) = name {
+            if name.len() > 100 {
+                return Err(ApiError::bad_request(
+                    "initial_device_display_name must not exceed 100 characters".to_string(),
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// See [`increment_counter`].

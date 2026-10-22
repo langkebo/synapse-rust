@@ -354,6 +354,150 @@ async fn test_start_chunked_upload_rejects_negative_total_size() {
     assert!(error.message().contains("total_size must not be negative"));
 }
 
+/// FUNC-06 gate: a chunked upload must declare its total size, otherwise the
+/// quota pre-check has nothing to reserve against. Red while `None` is accepted.
+#[tokio::test]
+async fn chunked_upload_requires_total_size() {
+    let (media_domain_service, _media_service, user, _temp_dir) = setup_test_media_domain("chunk_missing_total").await;
+
+    let error = media_domain_service
+        .start_chunked_upload(&user.user_id, Some("unknown.bin"), Some("application/octet-stream"), None, 1)
+        .await
+        .expect_err("start without total_size must be rejected");
+
+    assert_eq!(error.http_status(), axum::http::StatusCode::BAD_REQUEST);
+    assert!(error.code_is(MatrixErrorCode::MissingParam), "expected M_MISSING_PARAM, got {}", error.code_str());
+}
+
+/// FUNC-06 gate: a client may not declare 1 KiB and then stream 2 KiB. The
+/// chunk that crosses the declared total is refused and the session is closed,
+/// instead of holding the excess on disk until completion.
+#[tokio::test]
+async fn chunked_upload_rejects_lying_total_size() {
+    let (media_domain_service, _media_service, user, _temp_dir) = setup_test_media_domain("chunk_lying_total").await;
+
+    let upload_id = media_domain_service
+        .start_chunked_upload(&user.user_id, Some("lie.bin"), Some("application/octet-stream"), Some(1024), 2)
+        .await
+        .expect("start should succeed");
+
+    media_domain_service
+        .upload_chunk(
+            chunked_upload::ChunkUploadRequest {
+                upload_id: Some(upload_id.clone()),
+                chunk_index: 0,
+                total_chunks: 2,
+                chunk_data: vec![b'a'; 1024],
+                filename: None,
+                content_type: None,
+                total_size: Some(1024),
+            },
+            &user.user_id,
+        )
+        .await
+        .expect("first chunk fits the declared size");
+
+    let error = media_domain_service
+        .upload_chunk(
+            chunked_upload::ChunkUploadRequest {
+                upload_id: Some(upload_id.clone()),
+                chunk_index: 1,
+                total_chunks: 2,
+                chunk_data: vec![b'b'; 1024],
+                filename: None,
+                content_type: None,
+                total_size: Some(1024),
+            },
+            &user.user_id,
+        )
+        .await
+        .expect_err("second chunk exceeds the declared total_size");
+
+    assert_eq!(error.http_status(), axum::http::StatusCode::PAYLOAD_TOO_LARGE);
+    assert!(error.code_is(MatrixErrorCode::TooLarge), "expected M_TOO_LARGE, got {}", error.code_str());
+
+    let progress_error = media_domain_service
+        .get_chunked_upload_progress(&upload_id)
+        .await
+        .expect_err("the lying upload must be terminated");
+    assert_eq!(
+        progress_error.http_status(),
+        axum::http::StatusCode::NOT_FOUND,
+        "terminated upload should be gone, got {progress_error:?}"
+    );
+}
+
+/// FUNC-03 gate: completing a chunked upload is still an upload, so it has to be
+/// counted against the user's quota exactly like a single-shot upload.
+#[tokio::test]
+async fn chunked_upload_counts_toward_quota() {
+    let (media_domain_service, _media_service, user, _temp_dir) = setup_test_media_domain("chunk_quota").await;
+
+    let upload_id = media_domain_service
+        .start_chunked_upload(&user.user_id, Some("counted.txt"), Some("text/plain"), Some(11), 2)
+        .await
+        .expect("start should succeed");
+
+    for (chunk_index, chunk_data) in [b"hello ".to_vec(), b"world".to_vec()].into_iter().enumerate() {
+        media_domain_service
+            .upload_chunk(
+                chunked_upload::ChunkUploadRequest {
+                    upload_id: Some(upload_id.clone()),
+                    chunk_index: chunk_index as i32,
+                    total_chunks: 2,
+                    chunk_data,
+                    filename: None,
+                    content_type: None,
+                    total_size: Some(11),
+                },
+                &user.user_id,
+            )
+            .await
+            .expect("chunk should upload");
+    }
+
+    let quota_before = media_domain_service.get_user_quota(&user.user_id).await.expect("failed to load quota");
+    assert_eq!(quota_before.current_storage_bytes, 0, "uncompleted upload must not be billed yet");
+
+    media_domain_service
+        .complete_chunked_upload(&upload_id, &user.user_id)
+        .await
+        .expect("failed to finalize chunked upload");
+
+    let quota_after = media_domain_service.get_user_quota(&user.user_id).await.expect("failed to load quota");
+    assert_eq!(quota_after.current_storage_bytes, 11, "completed chunked upload must be billed");
+    assert_eq!(quota_after.current_files_count, 1);
+}
+
+/// FUNC-06 gate: an in-flight upload already holds its declared size, so a second
+/// upload cannot over-commit the same quota. Cancelling releases the hold.
+#[tokio::test]
+async fn chunked_upload_reserves_pending_quota() {
+    let (media_domain_service, _media_service, user, _temp_dir) =
+        setup_test_media_domain_with_quota("chunk_pending", 10, 10).await;
+
+    let first_upload = media_domain_service
+        .start_chunked_upload(&user.user_id, Some("first.bin"), Some("application/octet-stream"), Some(6), 1)
+        .await
+        .expect("first start should fit the quota");
+
+    let error = media_domain_service
+        .start_chunked_upload(&user.user_id, Some("second.bin"), Some("application/octet-stream"), Some(6), 1)
+        .await
+        .expect_err("second start must not over-commit the quota already held by the first upload");
+    assert_eq!(error.http_status(), axum::http::StatusCode::FORBIDDEN);
+
+    media_domain_service
+        .cancel_chunked_upload(&first_upload, &user.user_id)
+        .await
+        .expect("cancel should release the hold");
+
+    media_domain_service
+        .start_chunked_upload(&user.user_id, Some("second.bin"), Some("application/octet-stream"), Some(6), 1)
+        .await
+        .expect("after the cancel the quota is free again");
+}
+
 #[test]
 fn test_guess_content_type_prefers_detected_bytes_over_filename_extension() {
     let png_bytes = b"\x89PNG\r\n\x1a\nrest";

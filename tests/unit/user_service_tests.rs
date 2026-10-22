@@ -267,6 +267,14 @@ impl UserStore for MockUserStore {
         Err(sqlx::Error::WorkerCrashed)
     }
 
+    async fn create_registration(
+        &self,
+        _registration: synapse_storage::user::NewRegistration,
+    ) -> Result<User, sqlx::Error> {
+        self.fail_all_check()?;
+        Err(sqlx::Error::WorkerCrashed)
+    }
+
     async fn ensure_remote_user(&self, _user_id: &str) -> Result<(), sqlx::Error> {
         self.fail_all_check()?;
         Ok(())

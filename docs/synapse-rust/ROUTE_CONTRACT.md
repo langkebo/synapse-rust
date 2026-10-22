@@ -2418,3 +2418,37 @@ SDK 门禁只能落到 `backend-query-unknown`；类型化后 `query` 分类为 
 6. **`/threads/subscribed` 的批量补全**：`get_subscribed_threads` 对整页订阅做一次
    `get_thread_summaries`（按 room 分组），取代原先每条订阅一次 `get_thread_summary`；
    摘要缺失的订阅只出现在 `subscribed` 里，不进 `threads`，与原语义一致。
+
+### E.17 2026-10-22 分片上传 `total_size` 必填与硬上界（FUNC-06）
+
+分片上传的**契约加严**：`total_size` 从可选改为**必填**，并成为整条上传会话的硬上界。
+变更前它可以省略（整段配额预检被跳过），也可以谎报（预检按 1 B 通过、实际写到
+`complete` 才由 `max_file_size` 拦截，期间磁盘/内存已被占用）。
+
+| 端点 | 参数 | 语义 |
+|---|---|---|
+| `POST /_matrix/media/v1/upload/chunk/start` | `total_size`（body，**必填**） | 缺失 / `null` → **400 `M_MISSING_PARAM`**；负数 → **400 `M_BAD_JSON`**；`> max_upload_size` → **413 `M_TOO_LARGE`** |
+| 同上 | `total_chunks`（可选，缺省 `1`） | `< 1` → **400 `M_BAD_JSON`** |
+| `POST /_matrix/media/v1/upload/chunk` | `upload_id` / `chunk_index`（query） | 必填（不变） |
+| 同上 | 单块上界 | `chunk_size > chunk_size_limit`（10 MiB）→ **400 `M_BAD_JSON`**（不变） |
+| 同上 | 累计上界 | `uploaded_size + chunk_size > total_size` → **413 `M_TOO_LARGE`**，并**删除该 upload 会话** |
+| `POST /_matrix/media/v1/upload/chunk/complete` | — | 按**实际**字节数记账（不按声明值） |
+
+1. **为什么必填**：`total_size` 是唯一可用于配额预占（reservation）的输入。允许 `None`
+   时 `ensure_upload_allowed` 整段被跳过，配额预检形同虚设。
+2. **start 时预占**：`total_size > 0` 时按声明值走与普通上传同一套 `ensure_upload_allowed`，
+   该值计入 `pending_bytes`；`complete` 时转为已用配额，`cancel` / 过期释放。
+3. **谎报也被拦住**：`upload_chunk` 以 `progress.total_size` 为硬上界，越界的那一块直接
+   413，并**同时删除会话**（客户端无法继续往同一 session 追加）。`progress.total_size`
+   为空的遗留 pending 记录回退到 `max_file_size`，不弱于旧行为。
+4. **记账取实际值**：`complete` 走 `upload_media_with_id_accounted`，按实际字节数记账，
+   并排除该会话自身的预占，避免「预占 + 实占」重复计数。声明值小于实际值时以实际值为准
+   （配额不可少记）。
+5. **客户端影响**：这是**加严**——此前省略 `total_size` 能成功，现在会 400。SDK / 客户端
+   必须在 `start` 给出准确的文件总大小；"声明值超 `max_upload_size`"的错误码由 400 改为
+   **413**，按 400 分支处理的调用方需同步调整。
+6. **实现位置**：服务层 `synapse-services/src/media/mod.rs`（`start_chunked_upload`）与
+   `synapse-services/src/media/chunked_upload.rs`（`upload_chunk` 的累计校验）；
+   web 层的早拒绝在 `synapse-web/src/routes/media/upload.rs`（`chunked_upload_start`），
+   与服务层同 errcode。门禁用例：`chunked_upload_requires_total_size`、
+   `chunked_upload_rejects_lying_total_size`、`chunked_upload_counts_toward_quota`。

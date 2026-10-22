@@ -114,6 +114,18 @@ impl ChunkedUploadService {
         let now = current_timestamp_millis();
         let chunk_size = request.chunk_data.len() as i64;
 
+        // FUNC-06: the declared total is a hard ceiling, not a hint. A client that
+        // streams past it would otherwise hold the excess on disk until completion,
+        // so the offending chunk is refused and the session is closed.
+        let declared_total = progress.total_size.unwrap_or(self.max_file_size as i64);
+        if progress.uploaded_size + chunk_size > declared_total {
+            self.storage.delete_upload(&upload_id).await?;
+            return Err(ApiError::too_large(format!(
+                "Chunk would exceed declared total size {declared_total} (already uploaded {})",
+                progress.uploaded_size
+            )));
+        }
+
         self.storage
             .store_chunk(StoreUploadChunkRequest {
                 upload_id: upload_id.clone(),
@@ -145,6 +157,17 @@ impl ChunkedUploadService {
     /// See [`get_progress`].
     pub async fn get_progress(&self, upload_id: &str) -> Result<UploadProgress, ApiError> {
         self.storage.get_progress(upload_id).await?.ok_or_else(|| ApiError::not_found("Upload not found".to_string()))
+    }
+
+    /// The per-file ceiling this service enforces (`config.server.max_upload_size`).
+    pub fn max_file_size(&self) -> i64 {
+        self.max_file_size as i64
+    }
+
+    /// Bytes already held by the user's in-flight uploads, optionally excluding
+    /// one upload (the one currently being converted from pending to used).
+    pub async fn pending_bytes(&self, user_id: &str, exclude_upload_id: Option<&str>) -> Result<i64, ApiError> {
+        self.storage.pending_bytes(user_id, exclude_upload_id).await
     }
 
     /// See [`load_completed_upload`].

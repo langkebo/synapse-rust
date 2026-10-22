@@ -146,6 +146,12 @@ pub trait UserStore: Send + Sync {
         is_admin: bool,
     ) -> Result<User, sqlx::Error>;
 
+    /// 原子地写入一次注册的全部数据（PERF-02）。
+    ///
+    /// 实现方必须保证 user / displayname / device / access_token / refresh_token
+    /// 要么全部成功、要么全部回滚。内存实现没有事务语义，只能按序写入（仅供单测）。
+    async fn create_registration(&self, registration: NewRegistration) -> Result<User, sqlx::Error>;
+
     /// Idempotently create a minimal local record for a remote (federated) user.
     ///
     /// Used when a remote user joins a local room: `room_memberships.user_id`
@@ -254,6 +260,36 @@ pub trait UserStore: Send + Sync {
 
     /// See [`get_users_map`].
     async fn get_users_map(&self, user_ids: &[String]) -> Result<HashMap<String, User>, sqlx::Error>;
+}
+
+/// 一次注册需要原子写入的全部数据（PERF-02）。
+///
+/// 字段全部 owned，以便作为单次调用的入参跨越 `async_trait` 边界；
+/// 访问令牌与刷新令牌的**明文/哈希**由调用方在进入事务前生成。
+#[derive(Debug, Clone)]
+pub struct NewRegistration {
+    /// 完整用户 ID（`@localpart:server_name`）。
+    pub user_id: String,
+    /// 本地部分（唯一约束字段）。
+    pub username: String,
+    /// 已哈希的密码；为 `None` 时创建无密码账号。
+    pub password_hash: Option<String>,
+    /// 是否授予管理员权限。
+    pub is_admin: bool,
+    /// 展示名；为 `None` 时不写 displayname。
+    pub displayname: Option<String>,
+    /// 初始设备 ID。
+    pub device_id: String,
+    /// 设备展示名。
+    pub device_display_name: Option<String>,
+    /// 已签发的访问令牌明文。
+    pub access_token: String,
+    /// 访问令牌过期时间（毫秒时间戳）。
+    pub access_token_expires_at: Option<i64>,
+    /// 刷新令牌的哈希值。
+    pub refresh_token_hash: String,
+    /// 刷新令牌过期时间（毫秒时间戳）。
+    pub refresh_token_expires_at: i64,
 }
 
 #[derive(Clone)]
@@ -366,6 +402,89 @@ impl UserStorage {
         )
         .fetch_one(&mut **tx)
         .await
+    }
+
+    /// 原子地写入一次注册的全部数据（PERF-02）。
+    ///
+    /// 为什么需要它：注册原本是 user → displayname → device → access_token →
+    /// refresh_token 五次独立提交，任一步失败都会留下"用户已存在但拿不到会话"的
+    /// 半成品账号。这里在**同一个事务**里完成全部写入，失败整体回滚。
+    pub async fn create_registration(&self, registration: NewRegistration) -> Result<User, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+
+        let user = self
+            .create_user_tx(
+                &mut tx,
+                &registration.user_id,
+                &registration.username,
+                registration.password_hash.as_deref(),
+                registration.is_admin,
+            )
+            .await?;
+
+        let user = match registration.displayname.as_deref() {
+            Some(name) => {
+                Self::update_displayname_tx(&mut tx, &user.user_id, Some(name)).await?;
+                User { displayname: Some(name.to_string()), ..user }
+            }
+            None => user,
+        };
+
+        crate::device::DeviceStorage::new(&self.pool)
+            .create_device_tx(
+                &mut tx,
+                &registration.device_id,
+                &user.user_id,
+                registration.device_display_name.as_deref(),
+            )
+            .await?;
+
+        crate::token::AccessTokenStorage::new(&self.pool)
+            .create_token_tx(
+                &mut tx,
+                &registration.access_token,
+                &user.user_id,
+                Some(&registration.device_id),
+                registration.access_token_expires_at,
+            )
+            .await?;
+
+        let refresh_request = crate::refresh_token::CreateRefreshTokenRequest {
+            token_hash: registration.refresh_token_hash,
+            user_id: user.user_id.clone(),
+            device_id: Some(registration.device_id),
+            access_token_id: Some(registration.access_token),
+            scope: None,
+            expires_at: registration.refresh_token_expires_at,
+            client_info: None,
+            ip_address: None,
+            user_agent: None,
+        };
+        crate::refresh_token::RefreshTokenStorage::new(&self.pool).create_token_tx(&mut tx, refresh_request).await?;
+
+        tx.commit().await?;
+        Ok(user)
+    }
+
+    /// [`update_displayname`] 的事务版本：只写数据库，**不刷新缓存**。
+    ///
+    /// 缓存必须在事务提交后再写，否则回滚会留下脏缓存；当前唯一调用方是注册路径，
+    /// 它创建的是全新用户，提交前其 profile 不会被任何读路径缓存。
+    pub async fn update_displayname_tx(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        user_id: &str,
+        displayname: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        let now = current_timestamp_millis();
+        sqlx::query!(
+            r#"UPDATE users SET displayname = $1, updated_ts = $2 WHERE user_id = $3"#,
+            displayname,
+            now,
+            user_id
+        )
+        .execute(&mut **tx)
+        .await?;
+        Ok(())
     }
 
     /// See [`get_user_by_id`].
@@ -1730,6 +1849,10 @@ impl UserStore for UserStorage {
         is_admin: bool,
     ) -> Result<User, sqlx::Error> {
         self.create_user(user_id, username, password_hash, is_admin).await
+    }
+
+    async fn create_registration(&self, registration: NewRegistration) -> Result<User, sqlx::Error> {
+        UserStorage::create_registration(self, registration).await
     }
 
     async fn ensure_remote_user(&self, user_id: &str) -> Result<(), sqlx::Error> {

@@ -357,6 +357,18 @@ impl RefreshTokenStorage {
         Self::insert_refresh_token(&mut conn, &request, now).await
     }
 
+    /// [`create_token`] 的事务版本（PERF-02）。
+    ///
+    /// 供注册路径在同一个事务里写入刷新令牌，失败时随外层事务回滚。
+    pub async fn create_token_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        request: CreateRefreshTokenRequest,
+    ) -> Result<RefreshToken, sqlx::Error> {
+        let now = current_timestamp_millis();
+        Self::insert_refresh_token(&mut **tx, &request, now).await
+    }
+
     /// Insert a refresh-token row on a caller-provided connection/transaction.
     ///
     /// Factored out of [`create_token`] so that [`rotate_token_atomic`] can

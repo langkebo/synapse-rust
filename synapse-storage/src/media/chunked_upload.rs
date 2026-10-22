@@ -290,6 +290,26 @@ impl ChunkedUploadStorage {
         Ok(())
     }
 
+    /// Sum of the declared sizes of the user's in-flight uploads.
+    ///
+    /// This is the quota reservation: an in-flight upload already holds its
+    /// declared size, even though nothing has been written to the user's billed
+    /// usage yet. `complete` uploads are still reserved — their bytes only become
+    /// billed usage once finalized. `exclude_upload_id` lets the finalizer ignore
+    /// the upload being converted from pending to used.
+    pub async fn pending_bytes(&self, user_id: &str, exclude_upload_id: Option<&str>) -> Result<i64, ApiError> {
+        sqlx::query_scalar::<_, i64>(
+            r#"SELECT COALESCE(SUM(total_size), 0)::BIGINT
+               FROM upload_progress
+               WHERE user_id = $1 AND status IN ('pending', 'complete') AND ($2::TEXT IS NULL OR upload_id <> $2)"#,
+        )
+        .bind(user_id)
+        .bind(exclude_upload_id)
+        .fetch_one(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Failed to sum pending upload bytes", e))
+    }
+
     /// See [`list_expired_upload_ids`].
     pub async fn list_expired_upload_ids(&self, now_ts: i64) -> Result<Vec<String>, ApiError> {
         sqlx::query_scalar!("SELECT upload_id FROM upload_progress WHERE expires_at < $1", now_ts)

@@ -17,7 +17,22 @@ impl MediaQuotaService {
     /// See [`check_upload_quota`].
     #[instrument(skip(self))]
     pub async fn check_upload_quota(&self, user_id: &str, file_size: i64) -> Result<QuotaCheckResult, ApiError> {
-        info!(user_id = %user_id, file_size, "Checking upload quota");
+        self.check_upload_quota_with_reserved(user_id, file_size, 0).await
+    }
+
+    /// Same check as [`check_upload_quota`], but also accounts for `reserved_bytes`
+    /// already held by in-flight uploads.
+    ///
+    /// The per-file cap still applies to `file_size` alone — a reservation must
+    /// not make a legitimate file look too large.
+    #[instrument(skip(self))]
+    pub async fn check_upload_quota_with_reserved(
+        &self,
+        user_id: &str,
+        file_size: i64,
+        reserved_bytes: i64,
+    ) -> Result<QuotaCheckResult, ApiError> {
+        info!(user_id = %user_id, file_size, reserved_bytes, "Checking upload quota");
 
         let server_quota = self.storage.get_server_quota().await?;
 
@@ -36,7 +51,7 @@ impl MediaQuotaService {
 
         if let Some(max_storage) = server_quota.max_storage_bytes {
             if max_storage > 0 {
-                let new_total = server_quota.current_storage_bytes + file_size;
+                let new_total = server_quota.current_storage_bytes + reserved_bytes + file_size;
                 if new_total > max_storage {
                     return Ok(QuotaCheckResult {
                         is_allowed: false,
@@ -50,7 +65,7 @@ impl MediaQuotaService {
             }
         }
 
-        let result = self.storage.check_quota(user_id, file_size).await?;
+        let result = self.storage.check_quota(user_id, file_size + reserved_bytes).await?;
 
         if result.usage_percent >= 80.0 && result.usage_percent < 100.0 {
             let _ = self

@@ -4,7 +4,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::user::{
-    LockedUser, User, UserDirectorySearchResult, UserProfile, UserSearchResult, UserStatsSummary, UserStore,
+    LockedUser, NewRegistration, User, UserDirectorySearchResult, UserProfile, UserSearchResult, UserStatsSummary,
+    UserStore,
 };
 
 /// In-memory adapter for UserStore — used in unit tests.
@@ -303,6 +304,23 @@ impl UserStore for FakeUserStore {
             must_change_password: false,
         };
         self.users.write().await.insert(user_id.to_string(), user.clone());
+        Ok(user)
+    }
+
+    async fn create_registration(&self, registration: NewRegistration) -> Result<User, sqlx::Error> {
+        // 内存实现没有事务语义：按序写入，仅供单测使用。
+        let mut user = self
+            .create_user(
+                &registration.user_id,
+                &registration.username,
+                registration.password_hash.as_deref(),
+                registration.is_admin,
+            )
+            .await?;
+        if let Some(name) = registration.displayname {
+            user.displayname = Some(name);
+            self.users.write().await.insert(user.user_id.clone(), user.clone());
+        }
         Ok(user)
     }
 

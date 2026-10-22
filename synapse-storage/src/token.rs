@@ -137,6 +137,37 @@ impl AccessTokenStorage {
         Ok(row)
     }
 
+    /// [`create_token`] 的事务版本（PERF-02）。
+    ///
+    /// 供注册路径在同一个事务里写入访问令牌，失败时随外层事务回滚。
+    pub async fn create_token_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        token: &str,
+        user_id: &str,
+        device_id: Option<&str>,
+        expires_at: Option<i64>,
+    ) -> Result<AccessToken, sqlx::Error> {
+        let now = current_timestamp_millis();
+        let token_hash = Self::hash_token(token);
+        let row = sqlx::query_as!(
+            AccessToken,
+            r#"
+            INSERT INTO access_tokens (token_hash, token, user_id, device_id, created_ts, expires_at, last_used_ts, user_agent, ip_address, is_revoked)
+            VALUES ($1, NULL, $2, $3, $4, $5, NULL, NULL, NULL, FALSE)
+            RETURNING id as "id!", token_hash as "token_hash!", user_id as "user_id!", device_id as "device_id?", created_ts as "created_ts!", expires_at as "expires_at?", last_used_ts as "last_used_ts?", user_agent as "user_agent?", ip_address as "ip_address?", is_revoked as "is_revoked!"
+            "#,
+            &token_hash,
+            user_id,
+            device_id,
+            now,
+            expires_at
+        )
+        .fetch_one(&mut **tx)
+        .await?;
+        Ok(row)
+    }
+
     /// See [`get_token`].
     pub async fn get_token(&self, token: &str) -> Result<Option<AccessToken>, sqlx::Error> {
         let token_hash = Self::hash_token(token);
