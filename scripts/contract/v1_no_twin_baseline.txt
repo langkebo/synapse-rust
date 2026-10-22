@@ -1,0 +1,37 @@
+# 没有 v3 孪生的 `/_matrix/client/v1` 端点 —— **删了就真断**（客户端没有替代品）。
+#
+# 每消失一行都必须是刻意决定：先把替代路径（v3 双注册 / vendor 前缀）做实，
+# 再在本文件里删掉该行并写清迁移依据。门禁两个方向都查：
+#   * 真实路由里已不存在的条目 → 红（防止只删代码、忘删基线）；
+#   * 真实路由里新出现、基线未登记的无孪生 v1 端点 → 红（防止退役面反弹）。
+POST /_matrix/client/v1/appservice/fed_proxy
+GET /_matrix/client/v1/auth_metadata
+GET /_matrix/client/v1/config/client
+POST /_matrix/client/v1/login/get_token
+POST /_matrix/client/v1/login/qr_token
+GET /_matrix/client/v1/media/download/{server_name}/{media_id}
+GET /_matrix/client/v1/media/download/{server_name}/{media_id}/{filename}
+GET /_matrix/client/v1/media/preview_url
+GET /_matrix/client/v1/media/thumbnail/{server_name}/{media_id}
+DELETE /_matrix/client/v1/proxy/{as_id}/{*path}
+GET /_matrix/client/v1/proxy/{as_id}/{*path}
+HEAD /_matrix/client/v1/proxy/{as_id}/{*path}
+OPTIONS /_matrix/client/v1/proxy/{as_id}/{*path}
+PATCH /_matrix/client/v1/proxy/{as_id}/{*path}
+POST /_matrix/client/v1/proxy/{as_id}/{*path}
+PUT /_matrix/client/v1/proxy/{as_id}/{*path}
+POST /_matrix/client/v1/rendezvous
+DELETE /_matrix/client/v1/rendezvous/{session_id}
+GET /_matrix/client/v1/rendezvous/{session_id}
+PUT /_matrix/client/v1/rendezvous/{session_id}
+GET /_matrix/client/v1/rendezvous/{session_id}/messages
+POST /_matrix/client/v1/rendezvous/{session_id}/messages
+GET /_matrix/client/v1/rooms/{room_id}/summary
+GET /_matrix/client/v1/rooms/{room_id}/threads
+GET /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies
+POST /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies
+POST /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/subscribe
+POST /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unsubscribe
+GET /_matrix/client/v1/rooms/{room_id}/timestamp_to_event
+POST /_matrix/client/v1/sync
+GET /_matrix/client/v1/user/{user_id}/appservice

@@ -1,0 +1,7 @@
+# `/_matrix/client/v1` 退役面棘轮（A3）。只减不增。
+#
+# V1_ROUTES_MAX = (method, path) 条数；V1_PATHS_MAX = 去重路径数。
+# 刻意收缩（删掉一批 v1 注册）之后，用 --update 重写本文件。
+# 判据与用法见 scripts/contract/check_v1_deprecation.py 的 docstring。
+V1_ROUTES_MAX=112
+V1_PATHS_MAX=79

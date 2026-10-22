@@ -76,6 +76,14 @@ python3 scripts/contract/gen_derived_routes.py --check
 echo "==> Drift gate for ROUTE_HANDLERS.json (gen_route_handlers.py) ..."
 python3 scripts/contract/gen_route_handlers.py --check
 
+# A3: `/_matrix/client/v1` 的退役面棘轮。**数据源就是上一步刚校验过的
+# `ROUTE_HANDLERS.json`**，所以本步必须排在其后（否则读到的是上一轮快照）。
+# 它不删任何路由，只做三件事：冻结规模（只减不增）、逐条锁住"没有 v3 孪生"的端点
+# （删了就真断），并报出阶段 5 的候选队列。理由见脚本 docstring 与
+# `docs/audit/A3_v1_deprecation_strategy.md`。
+echo "==> A3 v1 deprecation surface (check_v1_deprecation.py) ..."
+python3 scripts/contract/check_v1_deprecation.py
+
 # 第三批-3: `query_unknown` 的裁决表（scripts/contract/query_unknown_decisions.txt）。
 # sidecar 只能回答「现在的 serde 属性推导出什么」，回答不了「应该是什么」；这张表
 # 把裁决固定下来，并要求与 sidecar 双向一致：漏登记、给登记为 ignore 的 struct 偷偷
