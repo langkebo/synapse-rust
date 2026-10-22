@@ -52,6 +52,7 @@ const BODY_LIMIT: u64 = 50_000_000;
 #[derive(Debug, Clone, Default)]
 struct SeenRequest {
     path: String,
+    body_len: usize,
     has_stream_header: bool,
     has_secret_header: bool,
     client_ip: Option<String>,
@@ -111,11 +112,19 @@ fn writer_config() -> WorkerConfig {
 
 /// Start one instance: routing table → forwarding (inner) → surface gate (outer), which is
 /// exactly the order `synapse_rust::server::router` installs them in.
-async fn spawn_instance(config: WorkerConfig, role: WorkerType, grant_stream_writes: bool) -> Instance {
+async fn spawn_instance(
+    config: WorkerConfig,
+    role: WorkerType,
+    grant_stream_writes: bool,
+    body_limit: u64,
+) -> Instance {
     let handler_calls = Arc::new(AtomicUsize::new(0));
     let seen = Arc::new(Mutex::new(Vec::new()));
 
-    let policy = WriteForwarding::from_config(&config, BODY_LIMIT);
+    // The limit must reach **both** the outer guard and the forwarding policy: they are
+    // the same `server.max_upload_size` in production, and a harness that used the default
+    // for one of them would test a configuration that cannot exist.
+    let policy = WriteForwarding::from_config(&config, body_limit);
     let mut gate = WorkerSurfaceGate::new(role);
     if grant_stream_writes {
         // Production grants the receiver the writes of the streams it owns — that is what
@@ -130,13 +139,18 @@ async fn spawn_instance(config: WorkerConfig, role: WorkerType, grant_stream_wri
         let recorded = recorded.clone();
         async move {
             calls.fetch_add(1, Ordering::SeqCst);
+            // Drain the body so the test can assert what actually arrived: with streaming
+            // the writer sees the bytes as they were sent, not a re-serialised copy.
+            let path = request.uri().path().to_string();
+            let headers = request.headers().clone();
+            let bytes = axum::body::to_bytes(request.into_body(), 64 * 1024 * 1024).await.unwrap_or_default();
             if let Ok(mut seen) = recorded.lock() {
                 seen.push(SeenRequest {
-                    path: request.uri().path().to_string(),
-                    has_stream_header: request.headers().contains_key(WRITE_FORWARD_STREAM_HEADER),
-                    has_secret_header: request.headers().contains_key(WRITE_FORWARD_SECRET_HEADER),
-                    client_ip: request
-                        .headers()
+                    path,
+                    body_len: bytes.len(),
+                    has_stream_header: headers.contains_key(WRITE_FORWARD_STREAM_HEADER),
+                    has_secret_header: headers.contains_key(WRITE_FORWARD_SECRET_HEADER),
+                    client_ip: headers
                         .get(WRITE_FORWARD_CLIENT_IP_HEADER)
                         .and_then(|value| value.to_str().ok())
                         .map(str::to_string),
@@ -149,7 +163,11 @@ async fn spawn_instance(config: WorkerConfig, role: WorkerType, grant_stream_wri
     let app = Router::new()
         .route("/{*path}", any(handler))
         .layer(from_fn_with_state(policy, write_forwarding_middleware))
-        .layer(from_fn_with_state(gate, worker_surface_middleware));
+        .layer(from_fn_with_state(gate, worker_surface_middleware))
+        // Same outer layer the assembly installs (`synapse_rust::server::router`): the
+        // forwarding middleware streams the body and relies on this guard for the actual
+        // size decision, so a harness without it would not exercise the real path.
+        .layer(tower_http::limit::RequestBodyLimitLayer::new(body_limit as usize));
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let port = listener.local_addr().expect("local addr").port();
@@ -196,8 +214,8 @@ async fn closed_port() -> u16 {
 
 #[tokio::test]
 async fn a_room_send_is_executed_on_the_writer_and_the_envelope_never_reaches_its_handler() {
-    let writer = spawn_instance(writer_config(), WorkerType::EventPersister, true).await;
-    let reader = spawn_instance(reader_config(writer.port), WorkerType::Frontend, true).await;
+    let writer = spawn_instance(writer_config(), WorkerType::EventPersister, true, BODY_LIMIT).await;
+    let reader = spawn_instance(reader_config(writer.port), WorkerType::Frontend, true, BODY_LIMIT).await;
 
     let (status, body) = send(
         &reader,
@@ -226,8 +244,8 @@ async fn without_the_stream_write_grant_the_writer_answers_404_before_its_handle
     // `event_persister` owns only `/_synapse/worker/v1/replication/*`; the forwarded receipt
     // is outside that. With the grant (production) it passes; without it the gate answers
     // 404 and the handler never runs. This is the failure mode the stub upstream cannot see.
-    let writer = spawn_instance(writer_config(), WorkerType::EventPersister, false).await;
-    let reader = spawn_instance(reader_config(writer.port), WorkerType::Frontend, true).await;
+    let writer = spawn_instance(writer_config(), WorkerType::EventPersister, false, BODY_LIMIT).await;
+    let reader = spawn_instance(reader_config(writer.port), WorkerType::Frontend, true, BODY_LIMIT).await;
 
     let (status, body) = send(&reader, "POST", "/_matrix/client/v3/rooms/!r:example.org/receipt/m.read/$e", "{}").await;
 
@@ -245,7 +263,7 @@ async fn a_dead_writer_turns_the_write_into_503_and_shows_up_in_the_report() {
     // repeat the same assertion. Use a distinct stream so the process-wide observation
     // registry cannot make another test order-dependent.
     config.stream_writers.typing = vec!["master".to_string()];
-    let reader = spawn_instance(config.clone(), WorkerType::Frontend, true).await;
+    let reader = spawn_instance(config.clone(), WorkerType::Frontend, true, BODY_LIMIT).await;
 
     let (status, body) =
         send(&reader, "PUT", "/_matrix/client/v3/rooms/!r:example.org/typing/@u:example.org", "{}").await;
@@ -288,7 +306,7 @@ async fn the_writer_executes_a_forwarded_request_locally_even_when_it_would_forw
         "elsewhere".to_string(),
         InstanceLocationConfig { host: "127.0.0.1".to_string(), port: closed_port().await, tls: false },
     );
-    let writer = spawn_instance(config, WorkerType::Master, false).await;
+    let writer = spawn_instance(config, WorkerType::Master, false, BODY_LIMIT).await;
 
     let forwarded = test_client()
         .put(format!("{}/_matrix/client/v3/rooms/!r:example.org/typing/@u:example.org", writer.base_url()))
@@ -335,4 +353,79 @@ fn the_envelope_headers_are_the_ones_the_middleware_reads() {
     assert_eq!(WRITE_FORWARD_STREAM_HEADER, "x-synapse-write-stream");
     assert_eq!(WRITE_FORWARD_SECRET_HEADER, "x-synapse-worker-secret");
     assert_eq!(WRITE_FORWARD_CLIENT_IP_HEADER, "x-synapse-client-ip");
+}
+
+// ── 5. the body is piped, not buffered ──────────────────────────────────────────────────
+//
+// Why these three matter more than they look: the forwarding middleware runs **before**
+// authentication, while every handler authenticates *before* it reads the body
+// (`send_message` takes `AuthenticatedUser`, then `MatrixJson`). Buffering the body here
+// would therefore let an unauthenticated client allocate `server.max_upload_size` per
+// connection — a capability the pre-forwarding path never had. The body is streamed
+// instead, and the size decision is taken twice: once on the declared `content-length`
+// (before touching the body) and once by the outer body guard (which is what a chunked
+// request hits).
+
+#[tokio::test]
+async fn a_large_body_is_piped_through_byte_for_byte() {
+    let writer = spawn_instance(writer_config(), WorkerType::EventPersister, true, BODY_LIMIT).await;
+    let reader = spawn_instance(reader_config(writer.port), WorkerType::Frontend, true, BODY_LIMIT).await;
+
+    // 4 MiB: far above any chunk size, so it can only arrive intact if the bytes are
+    // forwarded rather than reconstructed.
+    let payload = "x".repeat(4 * 1024 * 1024);
+    let (status, _) =
+        send(&reader, "PUT", "/_matrix/client/v3/rooms/!r:example.org/send/m.room.message/t1", &payload).await;
+
+    assert_eq!(status, 200);
+    let seen = writer.last_seen().expect("the writer must have received it");
+    assert_eq!(seen.body_len, payload.len(), "the streamed body must arrive complete and unmodified");
+}
+
+#[tokio::test]
+async fn an_oversized_declared_length_is_refused_before_the_body_is_read() {
+    // A `content-length` above the limit is rejected without reading a single byte, and
+    // without contacting the writer. This is the cheap half: it costs nothing to check a
+    // header, and every ordinary client (and every federation peer) declares one.
+    const SMALL_LIMIT: u64 = 4096;
+    let writer = spawn_instance(writer_config(), WorkerType::EventPersister, true, SMALL_LIMIT).await;
+    let reader = spawn_instance(reader_config(writer.port), WorkerType::Frontend, true, SMALL_LIMIT).await;
+
+    let payload = "y".repeat(SMALL_LIMIT as usize * 2);
+    let (status, _) =
+        send(&reader, "PUT", "/_matrix/client/v3/rooms/!r:example.org/send/m.room.message/t1", &payload).await;
+
+    assert_eq!(status, 413, "an over-limit write must be M_TOO_LARGE, not a transport error");
+    assert_eq!(writer.calls(), 0, "the writer must not be contacted for a request we can refuse locally");
+}
+
+#[tokio::test]
+async fn a_chunked_body_over_the_limit_is_reported_as_413_not_as_an_outage() {
+    // No `content-length` ⇒ the header pre-check cannot help; the outer body guard cuts the
+    // stream while we are piping it. The client must still see 413 (M_TOO_LARGE), not the
+    // 503 that means "the writer is down" — the two are operationally different.
+    const SMALL_LIMIT: u64 = 4096;
+    let writer = spawn_instance(writer_config(), WorkerType::EventPersister, true, SMALL_LIMIT).await;
+    let reader = spawn_instance(reader_config(writer.port), WorkerType::Frontend, true, SMALL_LIMIT).await;
+
+    // Many small chunks rather than one huge one: that is how a real chunked body arrives
+    // (hyper yields transport-sized reads), and it is what makes the byte counter reliable.
+    // `Vec<u8>` rather than `bytes::Bytes`: `wrap_stream` accepts any `Bytes: From<..>`,
+    // and this keeps the test independent of the `bytes` crate.
+    let chunks: Vec<Result<Vec<u8>, std::io::Error>> = (0..16).map(|_| Ok(vec![b'z'; 512])).collect();
+    let body = reqwest::Body::wrap_stream(futures::stream::iter(chunks));
+
+    let response = test_client()
+        .put(format!("{}/_matrix/client/v3/rooms/!r:example.org/send/m.room.message/t1", reader.base_url()))
+        .header("authorization", "Bearer test-token")
+        .body(body)
+        .send()
+        .await
+        .expect("the reader must answer");
+
+    assert_eq!(
+        response.status().as_u16(),
+        413,
+        "a chunked over-limit body must read as M_TOO_LARGE, not as an unreachable writer"
+    );
 }

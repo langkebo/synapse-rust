@@ -1,8 +1,9 @@
 # `worker.stream_writers` 写转发设计（W-I）
 
-> 状态：**第 0–5 阶段全部落地**（八路真转发 + 联邦面 + 管理面 + 指标 + 客户端 IP 传递 +
-> 观测面/健康/告警 + 两实例 e2e），提交 `f31c0a422` / `18b676444` / `8bf1a191b` /
-> `64b62cdb2`。§9 只剩"流式转发"一条 P3（**等压测证据**，见该行理由）。
+> 状态：**第 0–5 阶段全部落地**，§9 无未完成项：八路真转发 + 联邦面 + 管理面 + 指标 +
+> 客户端 IP 传递 + 观测面/健康/告警 + 两实例 e2e + 流式转发（body 不再缓冲）。
+> 提交 `f31c0a422` / `18b676444` / `8bf1a191b` / `64b62cdb2` / `7ac9de11b` / 本轮的
+> 流式转发。
 > 两处结构性边界记在 §5.3：delayed-event 派发（已改由进程归属决定）、
 > "既有 handler 后来开始写事件"这类行为漂移（棘轮盲区）。
 > 相关：`WORKER_TOPOLOGY_VERIFICATION_AUDIT_2026-10-16.md`（W-A…W-H）、
@@ -107,7 +108,8 @@ writer 收到带 `x-synapse-write-stream` **且** secret 正确的请求 ⇒ **�
 | 配置的 writer 不在 `instance_map` | **启动校验报错**；运行期若仍发生 ⇒ `503 M_UNKNOWN` |
 | `replication.http.enabled = false` 或无 secret | 同上（没有密钥就无法防环） |
 | 连接失败 / 超时 / 非 2xx | 把 writer 的响应**原样**返回（含 4xx/5xx body）；连接层失败 ⇒ `503`，**不自动重试** |
-| body 超过 `MAX_FORWARD_BODY` | `413 M_TOO_LARGE`，与 `RequestBodyLimitLayer` 同语义 |
+| 声明的 `content-length` 超过上限 | `413 M_TOO_LARGE`，**不读 body、不联系 writer**（查一个头就够） |
+| chunked body 涨过上限 | 外层 `RequestBodyLimitLayer` 在流上截断 ⇒ `413`（按已转发字节数判定），不是 `503` |
 
 **不自动重试**是设计选择：写请求的幂等由 `room_event_txn_dedup`（事件）和
 各流自身的语义保证，转发层重试会在"writer 已提交、响应丢失"时放大成重复写。
@@ -175,6 +177,35 @@ W-I 之前不存在这个问题：每个实例自己写、自己唤醒。这是"
 
 只对 `events` / `to_device` 报告，且只在这条流**真的被转发**（`WriteRoute::Forward`）时报：
 本实例就是 writer 时两半都在进程内做完；目标不可解析时写请求直接失败，另有自己的 error。
+
+### 4.6 body 不缓冲：转发层跑在鉴权之前
+
+这条不是性能优化，是补一个**引入的**权限差异。
+
+事实（读代码得出，不是推测）：转发中间件在 handler 之前执行，而 handler 的提取器顺序是
+先 `auth_user: AuthenticatedUser`、后 `MatrixJson(body)`
+（`synapse-web/src/routes/handlers/room/events.rs:329`）。axum 按声明顺序跑提取器，所以
+**转发关闭时**，一个没带令牌的 50 MB POST 在鉴权处就被拒了，body 一个字节都不会被读。
+
+转发打开后，中间件若先 `to_bytes(body, limit)` 再转发，就变成"未认证即可让 reader 为每个连接
+分配 `server.max_upload_size`"（默认 50 MB，且全仓没有任何并发/字节预算层）。这是转发**引入**
+的能力，不是既有行为，所以按缺陷处理而不是按性能债处理。
+
+修法：body 直接 pipe 给 writer（`reqwest::Body::wrap_stream`），reader 的占用从"一个 body"
+降到"一个 chunk"，并且背压天然由 socket 传回去。长度决策变成两处：
+
+| 情形 | 判据 | 结果 |
+|---|---|---|
+| 声明了 `content-length` 且超上限 | 只查头，不读 body | `413`，**不联系 writer** |
+| chunked（无 `content-length`）涨过上限 | 外层 `RequestBodyLimitLayer` 在流上截断，按"已转发字节数 ≥ 上限"识别 | `413` |
+
+两个附带的语义变化，都是有意的：
+
+- `content-length` **不再透传**：客户端可能声明一个自己送不到的长度（缓冲时代这个谎被掩盖了），
+  透传会让 writer 按错误的长度解析。转发请求因此走 chunked，由 `reqwest` 分帧。
+- 上游若单个 chunk 就超过上限（hyper 按传输大小读取，实际不可达；只有合成的 body 能构造），
+  会被判成 `503` 而不是 `413`。请求照样被拒，只是状态码不同 —— 这一点在
+  `write_forwarding::streaming_body` 的文档里也写了。
 
 ## 5. 哪几路能转发
 
@@ -466,4 +497,4 @@ redis / schema 的口径一致（只有数据库不可用才是 `unhealthy`）�
 | ~~P2 观测面~~ | ✅ **已做**：`topology/validate` 的 `write_forwarding` 段（§6.1，含 `base_url` / `reason` / `writer_live` / `last_outcome`）＋ 告警两条与两个面板（§6.3） | — | — |
 | ~~P2 reader 健康~~ | ✅ **已做**：`/_health` 的 `checks.write_forwarding`（§6.2，带注册表存活）；`/health` 带配置级片段，HTTP 状态码仍只由数据库决定 | — | — |
 | ~~P3 两实例 e2e~~ | ✅ **已做**：`tests/unit/worker_write_forwarding_two_instance_tests.rs` 起**两个真 HTTP 服务**（各自 `WorkerConfig` + 真 `instance_map` + 同一把 secret，两个中间件按生产顺序叠），覆盖转发落地、§5.4 的 surface gate 组合、防环（含伪造信封）、死 writer 的 503 与报告。⚠️ 是**同进程两个实例**，不是两个 OS 进程 | — | — |
-| P3 流式转发 | 现在整段 buffer（上限 `server.max_upload_size`，50 MB），N 个并发联邦事务 = N×50 MB 峰值 | 只在联邦大事务压测下暴露；当前无证据说明会触发 | 需重写 framing，成本高，**等压测证据** |
+| ~~P3 流式转发~~ | ✅ **已做**：body 直接 pipe 给 writer（`reqwest::Body::wrap_stream`），reader 的内存占用从"一个 body"降到"一个 chunk"；顺带修掉**转发在鉴权之前缓冲 body** 带来的未认证分配（见 §4.6） | — | — |

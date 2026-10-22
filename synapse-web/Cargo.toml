@@ -49,6 +49,10 @@ tokio = { workspace = true, features = ["full", "test-util"] }
 tokio-util = { workspace = true, features = ["io"] }
 
 axum = { workspace = true, features = ["macros", "multipart"] }
+# `stream` is what lets the write-forwarding hop pipe a request body instead of buffering
+# it (see `middleware/write_forwarding::streaming_body`). The root crate already enables it;
+# features are additive, so this only makes the requirement explicit where it is used.
+reqwest = { workspace = true, features = ["stream"] }
 tower = { workspace = true }
 tower-http = { workspace = true, features = ["fs", "cors", "trace", "compression-gzip", "limit"] }
 http = { workspace = true }

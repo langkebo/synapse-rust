@@ -50,8 +50,9 @@ pub(super) mod label {
     pub(in crate::middleware::write_forwarding) const UPSTREAM_ERROR: &str = "upstream_error";
     /// The transport failed (connect, TLS, timeout). Never retried.
     pub(in crate::middleware::write_forwarding) const UNREACHABLE: &str = "unreachable";
-    /// The request was refused here because the configured writer is unusable
-    /// (no secret, no `instance_map` entry). The write did **not** happen.
+    /// The request was refused here: the configured writer is unusable (no secret, no
+    /// `instance_map` entry), or the body exceeded the forward limit. The write did
+    /// **not** happen.
     pub(in crate::middleware::write_forwarding) const REFUSED: &str = "refused";
 }
 
@@ -66,7 +67,8 @@ pub enum LastOutcome {
     UpstreamError,
     /// The transport failed — the writer could not be reached.
     Unreachable,
-    /// Refused here because the writer is unusable. No write happened.
+    /// Refused here: the writer is unusable, or the body exceeded the forward limit.
+    /// No write happened.
     Refused,
 }
 

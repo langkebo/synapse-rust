@@ -5067,6 +5067,7 @@ dependencies = [
  "ipnetwork",
  "rand 0.9.5",
  "regex",
+ "reqwest",
  "serde",
  "serde_json",
  "serde_norway",

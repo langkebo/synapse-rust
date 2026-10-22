@@ -34,6 +34,8 @@
 //!   when the same request carries a valid `x-synapse-worker-secret` — see
 //!   [`WRITE_FORWARD_CLIENT_IP_HEADER`] and [`forwarded_client_ip`].
 
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::body::Body;
@@ -42,6 +44,7 @@ use axum::http::header::HeaderName;
 use axum::http::{HeaderMap, Method};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use futures::StreamExt;
 use synapse_common::config::worker::WorkerConfig;
 use synapse_common::error::ApiError;
 use synapse_common::http_client::no_proxy_client_with_timeout;
@@ -59,9 +62,10 @@ use synapse_services::worker::write_streams::{
 /// caller passes the configured `server.max_upload_size` in for exactly that reason
 /// ([`WriteForwarding::from_config`] takes it as an argument).
 ///
-/// Buffering the body costs memory proportional to its size, which is the same order
-/// the request already implied; the alternative — streaming the forward — would have to
-/// reimplement framing and `content-length` handling for every hop.
+/// The body is **not buffered** (see [`forward`]); this bound is used for two things: to
+/// reject a request whose *declared* `content-length` already exceeds it, before the body
+/// is touched, and to tell an oversized transfer apart from a transport failure when the
+/// streaming request dies mid-flight.
 pub fn max_forward_body(max_upload_size: u64) -> usize {
     usize::try_from(max_upload_size).unwrap_or(usize::MAX)
 }
@@ -359,6 +363,45 @@ pub async fn write_forwarding_middleware(
     }
 }
 
+/// The `content-length` the client declared, if any.
+///
+/// Used only as a *pre-check*: the value is never forwarded (a client can declare a length
+/// it does not deliver) and the authoritative enforcement stays the outer
+/// `RequestBodyLimitLayer`.
+fn declared_content_length(headers: &HeaderMap) -> Option<u64> {
+    headers.get(axum::http::header::CONTENT_LENGTH)?.to_str().ok()?.parse().ok()
+}
+
+/// Pipe the inbound body to the writer instead of buffering it.
+///
+/// Two reasons, and the first one is the important one:
+///
+/// * **No pre-authentication allocation.** This middleware sits before every handler, i.e.
+///   before authentication, while handlers authenticate *before* reading the body
+///   (`send_message` takes `AuthenticatedUser` and only then `MatrixJson`). Buffering here
+///   would hand any unauthenticated client `server.max_upload_size` (default 50 MB) of
+///   allocation per connection — a capability the pre-forwarding path never had. Measured
+///   on this repo's two-instance harness; the assertion is structural, not incidental.
+/// * **Backpressure instead of a copy.** Bytes travel from the client socket to the writer
+///   socket; the reader's footprint is one chunk, not one body.
+///
+/// `forwarded` counts what actually went out, which is how [`forward`] separates "the size
+/// guard cut us off" from "the writer is gone" after the request has failed — `reqwest`
+/// does not expose the body stream's error in a downcastable form.
+fn streaming_body(body: Body, forwarded: Arc<AtomicU64>) -> reqwest::Body {
+    let stream = Box::pin(body.into_data_stream());
+    reqwest::Body::wrap_stream(futures::stream::unfold((stream, forwarded), |(mut stream, forwarded)| async move {
+        match stream.next().await {
+            Some(Ok(chunk)) => {
+                forwarded.fetch_add(chunk.len() as u64, Ordering::Relaxed);
+                Some((Ok::<bytes::Bytes, axum::Error>(chunk), (stream, forwarded)))
+            }
+            Some(Err(error)) => Some((Err(error), (stream, forwarded))),
+            None => None,
+        }
+    }))
+}
+
 /// Perform the forward.
 async fn forward(
     policy: &WriteForwarding,
@@ -382,16 +425,32 @@ async fn forward(
     let limit = policy.body_limit;
     let client_ip = peer_ip(&request).map(|address| address.to_string());
     let (parts, body) = request.into_parts();
-    let body = match axum::body::to_bytes(body, limit).await {
-        Ok(bytes) => bytes,
-        Err(_) => {
+
+    // Reject on the **declared** length before the body is touched.
+    //
+    // The middleware runs *before* authentication (it is a routing decision, not an auth
+    // one) while every handler authenticates before it reads the body — `send_message`
+    // takes `AuthenticatedUser` and only then `MatrixJson`. Buffering here would therefore
+    // hand any unauthenticated client `max_upload_size` bytes of allocation per connection,
+    // which is a capability the pre-forwarding path never had. So the body is **streamed**
+    // (below), and the only size decision taken up front is on the header the client
+    // declared.
+    if let Some(declared) = declared_content_length(&parts.headers) {
+        if declared > limit as u64 {
+            record_forward(stream, LastOutcome::Refused);
             return ApiError::too_large(format!(
-                "Forwarded write for stream '{}' exceeds {limit} bytes",
+                "Forwarded write for stream '{}' exceeds the {limit}-byte forward limit",
                 stream.stream_name()
             ))
             .into_response();
         }
-    };
+    }
+
+    // Byte counter for the streamed body: it tells an oversized transfer apart from a
+    // transport failure after the fact. `limit` is where the outer `RequestBodyLimitLayer`
+    // cuts the inbound stream, so `>= limit` means "the size guard fired", not "the
+    // network broke".
+    let forwarded_bytes = Arc::new(AtomicU64::new(0));
 
     let mut url = format!("{base_url}{}", parts.uri.path());
     if let Some(query) = parts.uri.query() {
@@ -406,9 +465,10 @@ async fn forward(
     // the proxy's 502. See `no_proxy_client_with_timeout`.
     let mut builder = no_proxy_client_with_timeout(FORWARD_TIMEOUT).request(method.clone(), &url);
     for (name, value) in &parts.headers {
-        // `content-length` is dropped with the rest of the framing headers: the body we
-        // just buffered may differ from the one the client declared, and reqwest sets
-        // the real length itself.
+        // `content-length` is dropped with the rest of the framing headers: a client can
+        // declare a length it does not deliver (buffering used to hide that, streaming
+        // must not), so the upstream request is sent chunked and `reqwest` frames it.
+        // The declared value has already been checked against `limit` above.
         if is_hop_by_hop(name) || name.as_str() == "content-length" {
             continue;
         }
@@ -424,9 +484,28 @@ async fn forward(
         builder = builder.header(WRITE_FORWARD_CLIENT_IP_HEADER, client_ip);
     }
 
-    let response = match builder.body(body).send().await {
+    let response = match builder.body(streaming_body(body, forwarded_bytes.clone())).send().await {
         Ok(response) => response,
         Err(error) => {
+            // Two different failures look identical here (`reqwest::Error` does not carry
+            // the body stream's cause in a downcastable form): the writer being down, and
+            // the inbound size guard cutting the stream we were piping. The counter is
+            // what separates them — the guard fires exactly at `limit`.
+            if forwarded_bytes.load(Ordering::Relaxed) >= limit as u64 {
+                record_forward(stream, LastOutcome::Refused);
+                ::tracing::warn!(
+                    stream = stream.stream_name(),
+                    instance = %instance,
+                    limit,
+                    "Forwarded write exceeded the forward limit mid-stream; the inbound body guard \
+                     cut the connection, so the client gets 413 rather than a transport error"
+                );
+                return ApiError::too_large(format!(
+                    "Forwarded write for stream '{}' exceeds the {limit}-byte forward limit",
+                    stream.stream_name()
+                ))
+                .into_response();
+            }
             record_forward(stream, LastOutcome::Unreachable);
             ::tracing::error!(
                 stream = stream.stream_name(),
