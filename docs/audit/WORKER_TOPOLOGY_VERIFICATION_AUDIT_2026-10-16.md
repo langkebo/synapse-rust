@@ -9,7 +9,7 @@
 >
 > **取证方式**：全部为本仓源码实测（标注 `文件:行`）；上游对照取
 > `element-hq/synapse@release-v1.163` 的 `synapse/config/workers.py`（665 行）。
-> 本文件原为**审计与方案**；§4 的 W-A…W-G **七批已全部实施完毕**，每批附「实施记录」
+> 本文件原为**审计与方案**；§4 的 W-A…W-H **八批已全部实施完毕**，每批附「实施记录」
 > （含实测证据与对原设计的修正）。**W-F（按角色收敛 HTTP 面）于 2026-10-17 落地**，见 §4 末。
 
 ---
@@ -552,6 +552,90 @@ room sync 会**同时 404** —— 而这两种形态正是客户端在用的。
   这与上游"每个 worker 跑同一个 app、只是职责不同"的形态一致，而把整套服务容器塞进
   `synapse_worker` 只会让那个进程变成第二份完整服务。
 - `/_synapse/admin/*` **只属 master**：守卫用例对 9 个非 master 角色逐一负控。
+
+### W-H（2026-10-22 新增）：根二进制按角色起实例 —— **分流从"配置上可行"变成"真的可行"**
+
+#### 为什么 W-F 之后仍然分流不了（**代码缺口，不是配置缺口**）
+
+W-F 把 `owned_route_prefixes` 变成了可执行准入，W-G 让 worker 能自注册。看起来只剩
+"把 5 个 `synapse_worker` 换成根二进制实例"，但一换就会撞上两堵墙，且都不会报错：
+
+1. **心跳只有 `synapse_worker` 会发**（`src/bin/synapse_worker.rs:239-295`）。
+   根二进制里根本没有 `HeartbeatSender`。⇒ 换成根二进制后，实例正常服务、
+   却**永远不注册**，`GET /_synapse/worker/v1/topology/validate` 把每个实例都报
+   `runtime.missing` —— 而运维不会把流量分给一个"控制面认为不存在"的实例。
+2. **根二进制不消费 Redis 任务队列**（`BackgroundJob` 只在 `synapse_worker` 里被处理）。
+   5 个全换 ⇒ 邮件/推送等任务**静默不再被消费**，队列只涨不落，无任何错误日志。
+
+#### 交付
+
+- **代码**：`src/worker/heartbeat.rs::spawn_instance_heartbeat`
+  —— 非 master、`worker.enabled = true`、且拿得到 `worker.replication.http` 共享密钥时，
+  为根二进制起一条自注册心跳（`worker_name` / `worker_type` 与 `synapse_worker` 同一套
+  `resolved_current_instance_name` + `current_instance_worker_type`）。
+  接线点 `src/server/mod.rs::run()`，紧跟维护归属评估之后；master 与 `enabled = false`
+  一律返回 `None` ⇒ 单进程部署**零行为变化**。
+  载荷不带 `load_stats`：根二进制的计数在自己 `/metrics` 里，编造数字只会让
+  `worker_statistics` 看起来有数据而实际什么都没测。
+- **部署**（`docker/docker-compose.workers.yml`）：4 个角色实例改跑 `/app/synapse-rust`
+  并加 `SYNAPSE__WORKER__SURFACE_GATE=true`，端口只绑 `127.0.0.1`（供烟测直连证明准入）；
+  **`event_persister` 保留 `synapse_worker`** —— 它是唯一的队列消费者。
+- **反代**（`docker/nginx/worker-routing.conf`）：四个角色 upstream 从注释变成活的；
+  `/_matrix/client/*/sync` 用 `.*` 正则（`([^/]+/)?` 会漏掉房间级
+  `/_matrix/client/v3/rooms/{id}/sync`，那正是 surface_gate 多段通配存在的原因）；
+  `/_matrix/vendor/v1/rooms/*/sync` 单列一条；`/_matrix/client/` → `client_reader`；
+  `/_matrix/media/` → `media_repository`；`/_matrix/federation/` → `federation_reader`；
+  其余 `/_matrix/` 与 `/_synapse/` 仍归 master。
+- **烟测**（`scripts/test/worker_topology_smoke.sh`）：新增 `assert_surface_gate`，
+  判据用 **404 vs 401/405** 而不是"200 与否"：
+
+  | 探测 | 期望 | 含义 |
+  |---|---|---|
+  | `sync_worker:18010/_matrix/client/v3/sync` | **401** | 路由在（缺令牌），未被 gate |
+  | `sync_worker:18010/_matrix/client/v3/createRoom` | **404** | 不归它 ⇒ gate 生效 |
+  | `client_reader:18009/_matrix/client/v3/createRoom` | **405** | 路由在，只是 GET 不允许 |
+  | 任一实例 `/health` | **200** | `INSTANCE_AGNOSTIC_PATHS` |
+
+  这个 404/405 对比是关键：只看"200 或非 200"无法区分"被 gate"与"方法不对"。
+- **离线守卫**（`tests/unit/worker_topology_deployment_tests.rs` 新增 3 条）：
+  4 个角色实例必须跑根二进制且开 gate；**有且只有**一个服务留在 `synapse_worker`；
+  `worker-routing.conf` 必须定义四个 upstream、且**不得**指向 `synapse_worker`。
+
+#### 状态：**已跑通真实多进程栈（2026-10-22，`SKIP_BUILD=1` 复用刚构建的 `tools` 镜像）**
+
+`bash scripts/test/worker_topology_smoke.sh` **exit 0**，逐条证据：
+
+| 断言 | 结果 |
+|---|---|
+| `--validate-topology` 容器内离线校验 | 退出码 0 |
+| 拓扑端点 `static valid + runtime.valid` | `live=['client_reader','event_persister','federation_reader','media_repository','sync_worker']`，**`missing=[]`** |
+| `sync_worker` 答 `/health` | 200 |
+| `client_reader` 答 `/health` | 200 |
+| `sync_worker` 答 `/_matrix/client/v3/sync` | **401**（路由在，缺令牌） |
+| `sync_worker` 对 `/_matrix/client/v3/createRoom` | **404**（surface_gate 生效） |
+| `client_reader` 对 `createRoom` | **405**（路由在，方法不对） |
+| `media_repository` 答 `/_matrix/media/v3/config` | 401 |
+| `federation_reader` 答 `/_matrix/federation/v1/version` | 200 |
+| 建房间 → 发消息 → `/sync` 读回 | 三步全通 |
+
+⇒ **根二进制实例确实注册了（W-H 的心跳生效），且每个实例只答自己角色的面。**
+单进程部署不受影响（`worker.enabled=false` / master ⇒ `spawn_instance_heartbeat` 返回 `None`）。
+
+#### 顺带修掉的三个部署坑（都不是本轮引入，但一直让这个栈跑不起来）
+
+1. **旁挂栈网段撞车**：`docker-compose.yml` 的网段是
+   `${SYNAPSE_NETWORK_SUBNET:-192.168.97.0/24}`，与在跑的生产栈同网段 ⇒
+   `invalid pool request: Pool overlaps`。烟测现在给自己的栈分 `192.168.98.0/24`。
+2. **postgres 宿主端口撞车**：5432 被生产栈占着 ⇒ `port is already allocated`。
+   该端口改为 `${DB_HOST_PORT:-5432}`（默认不变，"`localhost:5432` = 项目库"这条假设保留），
+   烟测用 15432。
+3. **`database.host` 写死 `postgres`**：部署栈的服务名是 `postgres`，dev/多进程栈叫 `db`。
+   应用读 YAML 而不是 `DATABASE_URL`（后者只被 entrypoint 的等待循环使用）⇒ 表现为
+   entrypoint 报 `Database is ready`、应用却 `failed to lookup address information`。
+   改成 `host: "${DB_HOST:-postgres}"`，两个栈各自注入 `DB_HOST`。
+
+另一个 bash 坑：`$media_code` 紧跟全角括号 `（` 会被并入变量名 ⇒ `unbound variable`。
+终端文案里变量一律写 `${var}`。
 
 ### 排期与其他批次的冲突面
 

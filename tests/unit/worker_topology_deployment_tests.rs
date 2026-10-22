@@ -212,3 +212,96 @@ fn background_worker_is_deliberately_not_declared() {
         "{COMPOSE} must not start a `background_worker` it cannot honour"
     );
 }
+
+/// The text of one service block in the compose override.
+///
+/// Blocks start at two-space indentation (`  service_name:`) and run until the next
+/// two-space key or EOF. A YAML parser would be nicer, but this crate deliberately
+/// avoids a YAML dependency (same reason as `config_declared_instances`).
+/// The text of one service block in the compose override.
+///
+/// Service keys sit at **exactly two** spaces; everything belonging to a service is
+/// indented deeper. Scanning for the next `"\n  "` would therefore stop at the
+/// service's own first child line (4 spaces start with 2), so this walks lines and
+/// only treats a two-space key as a block boundary.
+fn service_block(compose: &str, service: &str) -> String {
+    let mut block = String::new();
+    let mut inside = false;
+    let mut found = false;
+    for line in compose.lines() {
+        let is_service_key = line.starts_with("  ") && !line.starts_with("   ") && line.trim_end().ends_with(':');
+        if is_service_key {
+            inside = line.trim().trim_end_matches(':') == service;
+            found |= inside;
+        }
+        if inside {
+            block.push_str(line);
+            block.push('\n');
+        }
+    }
+    assert!(found, "{COMPOSE}: service `{service}` not found");
+    block
+}
+
+#[test]
+fn http_role_instances_run_the_root_binary_with_the_surface_gate_on() {
+    // W-H: a role instance must serve *its* slice of the Matrix API, which needs two
+    // things that were previously missing: the root binary (the only one with those
+    // routes) and `surface_gate: true` (otherwise it serves the whole API and the
+    // proxy split buys nothing but extra copies of every endpoint).
+    let compose = read(COMPOSE);
+    for service in ["client_reader", "sync_worker", "federation_reader", "media_repository"] {
+        let block = service_block(&compose, service);
+        assert!(
+            block.contains("command: [\"/app/synapse-rust\"]"),
+            "{service} must run the root binary; `synapse_worker` has no `/_matrix/*` listener"
+        );
+        assert!(
+            block.contains("SYNAPSE__WORKER__SURFACE_GATE: \"true\""),
+            "{service} must enable the surface gate, otherwise it answers the whole API and the split is pointless"
+        );
+    }
+}
+
+#[test]
+fn exactly_one_service_remains_the_redis_queue_consumer() {
+    // The root binary does **not** run the `BackgroundJob` loop (email/push). If every
+    // service switched to the root binary, those jobs would stop being consumed with
+    // no error anywhere — the queue would just grow. Keep exactly one `synapse_worker`.
+    let compose = read(COMPOSE);
+    let worker_binary_services =
+        ["client_reader", "event_persister", "sync_worker", "federation_reader", "media_repository"]
+            .into_iter()
+            .filter(|service| service_block(&compose, service).contains("/app/synapse_worker"))
+            .collect::<Vec<_>>();
+    assert_eq!(
+        worker_binary_services,
+        vec!["event_persister"],
+        "{COMPOSE}: exactly one service must stay on `synapse_worker` (the only Redis task consumer)"
+    );
+}
+
+#[test]
+fn the_proxy_reference_routes_every_role_upstream_and_never_the_queue_consumer() {
+    // `docker/nginx/worker-routing.conf` is the only place that documents the split.
+    // Two failure modes it must not drift into: pointing an upstream at the queue
+    // consumer (only `/metrics`), or leaving the role upstreams commented out so the
+    // file silently degrades back to "everything to master".
+    let conf = read("docker/nginx/worker-routing.conf");
+    for upstream in [
+        "upstream synapse_sync_worker",
+        "upstream synapse_client_reader",
+        "upstream synapse_federation_reader",
+        "upstream synapse_media_repository",
+    ] {
+        assert!(conf.contains(upstream), "worker-routing.conf must define `{upstream}`");
+    }
+    assert!(
+        !conf.contains("synapse_worker:8008"),
+        "worker-routing.conf must never proxy to a `synapse_worker` container: it only serves /metrics"
+    );
+    assert!(
+        conf.contains("location ~ ^/_matrix/client/.*/sync$"),
+        "the sync location must use a multi-segment wildcard, or room-scoped sync (`/v3/rooms/{{id}}/sync`) bypasses the worker"
+    );
+}

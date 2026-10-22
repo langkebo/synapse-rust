@@ -21,8 +21,11 @@
 use std::time::Duration;
 
 use serde::Serialize;
+use synapse_common::config::WorkerConfig;
 use synapse_common::http_client::default_client;
-use synapse_services::worker::{WorkerLoadStatsUpdate, WorkerStatus};
+use synapse_services::worker::topology_validator::{current_instance_worker_type, resolved_current_instance_name};
+use synapse_services::worker::{WorkerLoadStatsUpdate, WorkerRuntimeConfig, WorkerStatus};
+use synapse_storage::worker::WorkerType;
 use tokio_util::sync::CancellationToken;
 
 /// Header the server's `replication_http_auth_middleware` reads.
@@ -267,6 +270,80 @@ pub fn heartbeat_interval(configured_ms: Option<u64>) -> Duration {
     Duration::from_millis(configured_ms.unwrap_or(DEFAULT_HEARTBEAT_INTERVAL_MS))
 }
 
+/// Spawn the self-registration heartbeat for a **root-binary** instance that is
+/// running as a worker role.
+///
+/// # Why this exists
+///
+/// Until now only `synapse_worker` sent these heartbeats. That made
+/// ["run the root binary per role and turn `worker.surface_gate` on"] a plan that
+/// could never work: the instance would serve exactly the right HTTP surface and
+/// still never appear in the registry, so `GET /_synapse/worker/v1/topology/validate`
+/// would report every such instance as `runtime.missing` — and a reverse proxy
+/// cannot be handed an upstream that the control plane believes is absent.
+///
+/// # Scope
+///
+/// Returns `None` (and stays silent) unless the process is a **non-master**
+/// instance with `worker.enabled = true`. Master keeps the single-process
+/// behaviour byte-for-byte, and a disabled worker block never starts a task.
+/// A missing/blank `worker.replication.http` secret also yields `None` with a
+/// warning rather than a failure: heartbeat loss must never take a server down.
+///
+/// Load stats are `None`: the root binary's useful counters live in its own
+/// `/metrics`, and inventing numbers here would make `worker_statistics` look
+/// populated while measuring nothing.
+pub fn spawn_instance_heartbeat(
+    config: &WorkerConfig,
+    server_port: u16,
+    shutdown: CancellationToken,
+) -> Option<tokio::task::JoinHandle<()>> {
+    if !config.enabled {
+        return None;
+    }
+    let worker_type = current_instance_worker_type(config);
+    if worker_type == WorkerType::Master {
+        // The master is not a registered worker; announcing it would create a row
+        // that nothing ever ages out and make `runtime.missing` meaningless.
+        return None;
+    }
+
+    let secret =
+        resolve_secret(config.replication.http.secret.clone().or_else(|| {
+            config.replication.http.secret_path.as_ref().and_then(|path| std::fs::read_to_string(path).ok())
+        }));
+    let Some(secret) = secret else {
+        tracing::warn!(
+            instance = %resolved_current_instance_name(config),
+            "Worker heartbeat disabled: no usable worker.replication.http secret \
+             (set worker.replication.http.secret / secret_path)"
+        );
+        return None;
+    };
+
+    let worker_id = resolved_current_instance_name(config);
+    let base_url = resolve_base_url(std::env::var("SYNAPSE_WORKER_BASE_URL").ok(), server_port);
+    let interval = heartbeat_interval(WorkerRuntimeConfig::default().heartbeat_interval_ms);
+    let identity = WorkerIdentity {
+        worker_name: worker_id.clone(),
+        worker_type: worker_type.as_str().to_string(),
+        // The registry column is informational ("where it can be reached"); the
+        // container hostname is the only address that is true on every replica.
+        host: std::env::var("HOSTNAME").ok(),
+        port: Some(server_port),
+    };
+
+    tracing::info!(
+        worker_name = %identity.worker_name,
+        worker_type = %identity.worker_type,
+        interval_ms = interval.as_millis() as u64,
+        "Instance self-announcement enabled (root binary in worker role)"
+    );
+
+    let sender = HeartbeatSender::new(base_url, worker_id, secret, interval).with_identity(identity);
+    Some(tokio::spawn(sender.run(shutdown, || async { None })))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -345,6 +422,47 @@ mod tests {
             resolve_base_url(Some("https://master.example.com/".to_string()), 8008),
             "https://master.example.com"
         );
+    }
+
+    fn worker_config(enabled: bool, instance_name: &str, secret: Option<&str>) -> WorkerConfig {
+        let mut config = WorkerConfig { enabled, instance_name: instance_name.to_string(), ..Default::default() };
+        config.replication.http.secret = secret.map(std::string::ToString::to_string);
+        config
+    }
+
+    #[test]
+    fn instance_heartbeat_is_a_no_op_when_the_worker_block_is_disabled() {
+        // Single-process deployments never set `worker.enabled`, so this path must
+        // stay inert — no spawned task, no announcements, no registry rows.
+        let config = worker_config(false, "sync_worker", Some("s3cret"));
+        assert!(spawn_instance_heartbeat(&config, 8008, CancellationToken::new()).is_none());
+    }
+
+    #[test]
+    fn instance_heartbeat_never_announces_the_master() {
+        // Announcing the master would create a registry row nothing ages out,
+        // making `runtime.missing` meaningless.
+        let config = worker_config(true, "master", Some("s3cret"));
+        assert!(spawn_instance_heartbeat(&config, 8008, CancellationToken::new()).is_none());
+    }
+
+    #[test]
+    fn instance_heartbeat_without_a_secret_warns_instead_of_registering_anonymously() {
+        // A worker holding no shared secret cannot authenticate; registering anyway
+        // would look live while every heartbeat 401s.
+        let config = worker_config(true, "sync_worker", None);
+        assert!(spawn_instance_heartbeat(&config, 8008, CancellationToken::new()).is_none());
+    }
+
+    #[tokio::test]
+    async fn instance_heartbeat_spawns_for_a_non_master_role_with_a_secret() {
+        let config = worker_config(true, "sync_worker", Some("s3cret"));
+        let handle = spawn_instance_heartbeat(&config, 8008, CancellationToken::new());
+        let handle = handle.expect("a classified worker role with a secret must announce itself");
+        // The first tick POSTs to the default local base URL (nothing listens in
+        // unit tests) — that failure is logged and retried, never fatal. Abort so
+        // the test leaves no task behind.
+        handle.abort();
     }
 
     #[test]

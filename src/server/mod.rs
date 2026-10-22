@@ -391,6 +391,18 @@ impl SynapseServer {
             "Evaluated global maintenance task ownership"
         );
 
+        // W-H: the root binary can now run *as a worker role* (reverse-proxied
+        // per `owned_route_prefixes`). It must announce itself the same way
+        // `synapse_worker` always has, otherwise `runtime.missing` would list
+        // every such instance and no proxy could be pointed at it. No-op for
+        // master and for `worker.enabled = false`, so single-process deployments
+        // are unchanged.
+        let _instance_heartbeat = crate::worker::heartbeat::spawn_instance_heartbeat(
+            &self.app_state.services.core.config.worker,
+            self.address.port(),
+            self.app_state.services.shutdown_token.clone(),
+        );
+
         if run_global_maintenance {
             self.app_state
                 .services

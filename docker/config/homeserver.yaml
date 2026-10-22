@@ -101,7 +101,12 @@ rate_limit:
       burst_size: 40
 
 database:
-  host: "postgres"
+  # ⚠️ 可替换：部署栈（docker/deploy）的数据库服务叫 `postgres`，而 dev / 多进程栈
+  # 叫 `db`。写死成 `postgres` 时，dev/worker 栈的应用会以
+  # `failed to lookup address information: Name or service not known` 起不来 ——
+  # 而 entrypoint 的等待循环用的是 `DATABASE_URL`（host=db），它会报 "Database is ready"，
+  # 于是失败看起来像"应用自己的 bug"。两个栈各自注入 `DB_HOST` 解决。
+  host: "${DB_HOST:-postgres}"
   port: 5432
   username: "${DB_USER:-synapse}"
   password: "${DB_PASSWORD:?DB_PASSWORD is required}"

@@ -8,11 +8,22 @@
 # 一个应用服务，`docker/nginx/` 里连一份 conf 都没有 ⇒ 多进程拓扑从未端到端跑过。
 #
 # ── 这个栈里"worker"到底是什么（先读这段，否则会误解下面的服务）───────────────
-# 1. 本仓的 worker 进程 = `synapse_worker`：消费 Redis 任务队列、向 master 注册并
-#    持续心跳、自开 `/metrics`。它**不提供 Matrix API**（`src/bin/synapse_worker.rs`
-#    只 mount 了 `/metrics` 一条路由）。因此 HTTP 请求面仍然只有 master 一个实例，
-#    真正的请求分流（nginx 把 `/_matrix/client/*/sync` 打到 sync worker）**今天做不到**
-#    —— 见 docker/nginx/worker-routing.conf 的说明与 `docs/audit/...W-8/W-F`。
+# **两种进程，两种职责**（2026-10-22 / W-H 起）：
+#
+# 1. **HTTP 角色实例** = 根二进制 `synapse-rust`，每个容器一个角色
+#    （`client_reader` / `sync_worker` / `federation_reader` / `media_repository`）。
+#    `SYNAPSE__WORKER__SURFACE_GATE=true` 让非 master 实例对**不属于自己角色的路径**
+#    返回 404 `M_NOT_FOUND`（`synapse-services/src/worker/surface_gate.rs`），
+#    于是 nginx 可以真的把 `/_matrix/client/*/sync` 交给 `sync_worker`。
+#    ⚠️ 此前这一步做不到，原因是**代码缺口而不是配置缺口**：心跳只由
+#    `synapse_worker` 发送，根二进制即使按角色起也不会注册，拓扑端点会把它们全报
+#    `runtime.missing`。W-H 补上了 `spawn_instance_heartbeat`（`src/worker/heartbeat.rs`），
+#    根二进制在非 master 角色下现在会自己announce。
+# 2. **任务消费者** = `synapse_worker`（只保留 `event_persister` 一个）。
+#    它是**唯一**消费 Redis 任务队列（邮件/推送等 BackgroundJob）的进程 ——
+#    根二进制不跑那个循环。把它也换成根二进制 ⇒ 队列静默不消费。
+#    名字沿用 `event_persister` 是历史原因（注册表按 `instance_map` 对账），
+#    它的实际职责是"队列消费者 + 复制控制面"。
 # 2. 5 个 worker 服务跑的是**同一个二进制**，`WORKER_INSTANCE_NAME` 声明"它被期望承担哪个
 #    职责域"。该变量之所以有效，是因为 `docker/config/homeserver.yaml` 里的 `instance_name`
 #    写成了 `${WORKER_INSTANCE_NAME:-master}`（`resolve_env_variables` 才会替换它）——
@@ -56,6 +67,8 @@ x-worker-base: &worker-base
     # 于是每个 worker 的心跳都会宣告 worker_name="master" ⇒ 5 个声明的实例全部仍报 missing。
     # 这是部署级开关（同一份配置每个进程都读），不是"只有 master 才需要"。
     SYNAPSE__WORKER__ENABLED: "true"
+    # HTTP 角色实例必须打开准入（写在每个服务里，避免误加到队列消费者上：
+    # `synapse_worker` 只有 `/metrics`，开不开都一样，但语义上不该开）。
     # worker 进程不做迁移：6 个 worker 抢着建表是并发 DDL，不是"更保险"。
     RUN_MIGRATIONS: "false"
     VERIFY_SCHEMA: "false"
@@ -66,6 +79,8 @@ x-worker-base: &worker-base
     # 由 replication_http_auth_middleware 校验）。留空会让 worker 启动后
     # 只打一条 warn 并且**不发心跳** ⇒ 注册表里没有它，拓扑端点会报 missing。
     WORKER_REPLICATION_SECRET: ${WORKER_REPLICATION_SECRET:?WORKER_REPLICATION_SECRET must be set}
+    # 与 `database.host: "${DB_HOST:-postgres}"` 配套（本栈的库服务叫 `db`）。
+    DB_HOST: db
     DB_USER: ${DB_USER:-synapse}
     DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
     DB_NAME: ${DB_NAME:-synapse}
@@ -116,12 +131,20 @@ services:
   client_reader:
     <<: *worker-base
     container_name: ${COMPOSE_PROJECT_NAME:-synapse}-client-reader
-    command: ["/app/synapse_worker"]
+    # 根二进制：提供本角色的 Matrix 子面（其余路径由 surface_gate 拒 404）。
+    command: ["/app/synapse-rust"]
+    # 只绑回环：端口是给烟测「直接证明准入」用的，不该对外。
+    ports:
+      - "127.0.0.1:${WORKER_CLIENT_READER_PORT:-18009}:8008"
     environment:
       <<: *worker-environment
       WORKER_INSTANCE_NAME: client_reader
       SYNAPSE_WORKER_ID: client_reader
+      SYNAPSE__WORKER__SURFACE_GATE: "true"
 
+  # ⚠️ 唯一保留 `synapse_worker` 的服务：它是**唯一**消费 Redis 任务队列的进程。
+  # 换成根二进制会让 BackgroundJob（邮件、推送外发等）**静默不再被消费** ——
+  # 队列只涨不落，且没有任何错误日志。根二进制的角色 HTTP 面由上面四个实例承担。
   event_persister:
     <<: *worker-base
     container_name: ${COMPOSE_PROJECT_NAME:-synapse}-event-persister
@@ -134,26 +157,41 @@ services:
   sync_worker:
     <<: *worker-base
     container_name: ${COMPOSE_PROJECT_NAME:-synapse}-sync-worker
-    command: ["/app/synapse_worker"]
+    # 根二进制：提供本角色的 Matrix 子面（其余路径由 surface_gate 拒 404）。
+    command: ["/app/synapse-rust"]
+    # 只绑回环：端口是给烟测「直接证明准入」用的，不该对外。
+    ports:
+      - "127.0.0.1:${WORKER_SYNC_WORKER_PORT:-18010}:8008"
     environment:
       <<: *worker-environment
       WORKER_INSTANCE_NAME: sync_worker
       SYNAPSE_WORKER_ID: sync_worker
+      SYNAPSE__WORKER__SURFACE_GATE: "true"
 
   federation_reader:
     <<: *worker-base
     container_name: ${COMPOSE_PROJECT_NAME:-synapse}-federation-reader
-    command: ["/app/synapse_worker"]
+    # 根二进制：提供本角色的 Matrix 子面（其余路径由 surface_gate 拒 404）。
+    command: ["/app/synapse-rust"]
+    # 只绑回环：端口是给烟测「直接证明准入」用的，不该对外。
+    ports:
+      - "127.0.0.1:${WORKER_FEDERATION_READER_PORT:-18011}:8008"
     environment:
       <<: *worker-environment
       WORKER_INSTANCE_NAME: federation_reader
       SYNAPSE_WORKER_ID: federation_reader
+      SYNAPSE__WORKER__SURFACE_GATE: "true"
 
   media_repository:
     <<: *worker-base
     container_name: ${COMPOSE_PROJECT_NAME:-synapse}-media-repository
-    command: ["/app/synapse_worker"]
+    # 根二进制：提供本角色的 Matrix 子面（其余路径由 surface_gate 拒 404）。
+    command: ["/app/synapse-rust"]
+    # 只绑回环：端口是给烟测「直接证明准入」用的，不该对外。
+    ports:
+      - "127.0.0.1:${WORKER_MEDIA_REPOSITORY_PORT:-18012}:8008"
     environment:
       <<: *worker-environment
       WORKER_INSTANCE_NAME: media_repository
       SYNAPSE_WORKER_ID: media_repository
+      SYNAPSE__WORKER__SURFACE_GATE: "true"

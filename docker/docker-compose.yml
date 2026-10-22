@@ -45,6 +45,8 @@ services:
       RATE_LIMIT_CONFIG_PATH: /app/config/rate_limit.yaml
       DB_USER: ${DB_USER:-synapse}
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+      # 与 `database.host: "${DB_HOST:-postgres}"` 配套（本栈的库服务叫 `db`）。
+      DB_HOST: ${DB_HOST:-db}
       DB_NAME: ${DB_NAME:-synapse}
       DATABASE_URL: postgres://${DB_USER:-synapse}:${DB_PASSWORD:?DB_PASSWORD must be set}@db:5432/${DB_NAME:-synapse}
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379
@@ -107,9 +109,11 @@ services:
     pids_limit: ${DB_PIDS_LIMIT:-300}
     # 5432 发布到宿主回环（2026-10-15，与 deploy 栈同一决策）：恢复
     # "`localhost:5432` = 项目库"这一被多处硬编码的假设。**只绑 127.0.0.1**。
-    # 端口写死 5432，理由见 deploy 栈同一处的注释。
+    # 默认仍是 5432（"`localhost:5432` = 项目库"这条假设不变）；参数化只为让**旁挂栈**
+    # （如 `scripts/test/worker_topology_smoke.sh`）能在生产/开发栈运行时并存 ——
+    # 两个栈都会把 postgres 发布到回环，写死就必然 `port is already allocated`。
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:${DB_HOST_PORT:-5432}:5432"
     # [O3-4] dev 栈补 shm_size，与 deploy 对齐，避免大连接数下 shared memory 不足
     shm_size: "256m"
     env_file:
