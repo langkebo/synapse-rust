@@ -16,6 +16,14 @@ pub struct CompleteUploadRequest {
     pub upload_id: String,
 }
 
+/// Upper bound on how many chunks one upload may declare.
+///
+/// `total_chunks` is client-supplied and sizes the read that reassembles the
+/// upload. At 10 MiB per chunk this already allows a 97 GiB file, far above any
+/// configured `max_upload_size`, so the ceiling only exists to stop a single
+/// row from turning into an unbounded allocation.
+pub const MAX_CHUNKS_PER_UPLOAD: i32 = 10_000;
+
 /// The `ChunkedUploadService` struct.
 pub struct ChunkedUploadService {
     storage: ChunkedUploadStorage,
@@ -45,6 +53,18 @@ impl ChunkedUploadService {
         total_size: Option<i64>,
         total_chunks: i32,
     ) -> Result<String, ApiError> {
+        // `total_chunks` is client-supplied and sizes the reassembly read, so it is
+        // validated at this one write entry point rather than trusted downstream.
+        if total_chunks < 1 {
+            return Err(ApiError::bad_request(format!("total_chunks must be at least 1, got {total_chunks}")));
+        }
+
+        if total_chunks > MAX_CHUNKS_PER_UPLOAD {
+            return Err(ApiError::too_large(format!(
+                "total_chunks {total_chunks} exceeds maximum {MAX_CHUNKS_PER_UPLOAD}"
+            )));
+        }
+
         let upload_id = Uuid::new_v4().to_string();
         let now = current_timestamp_millis();
         let expires_at = now + (self.upload_expiry_seconds * 1000);
@@ -185,8 +205,20 @@ impl ChunkedUploadService {
             )));
         }
 
+        // Ask for one row past the declared count: a fuller result can only come from
+        // rows written out of band, and silently dropping them would reassemble a
+        // truncated file.
+        let chunk_rows = self.storage.load_chunk_data(upload_id, i64::from(progress.total_chunks) + 1).await?;
+        if chunk_rows.len() as i64 > i64::from(progress.total_chunks) {
+            return Err(ApiError::internal(format!(
+                "Upload {upload_id} holds {} chunk rows but declared {}",
+                chunk_rows.len(),
+                progress.total_chunks
+            )));
+        }
+
         let mut combined_data = Vec::new();
-        for chunk_data in self.storage.load_chunk_data(upload_id).await? {
+        for chunk_data in chunk_rows {
             combined_data.extend_from_slice(&chunk_data);
         }
 
@@ -234,10 +266,5 @@ impl ChunkedUploadService {
     /// See [`cleanup_expired`].
     pub async fn cleanup_expired(&self) -> Result<u64, ApiError> {
         self.storage.cleanup_expired().await
-    }
-
-    /// See [`list_user_uploads`].
-    pub async fn list_user_uploads(&self, user_id: &str) -> Result<Vec<UploadProgress>, ApiError> {
-        self.storage.list_user_uploads(user_id).await
     }
 }

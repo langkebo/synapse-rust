@@ -259,6 +259,7 @@ pub trait EventReader: Send + Sync {
         room_id: &str,
         event_type: &str,
         limit: i64,
+        offset: i64,
     ) -> Result<Vec<RoomEvent>, sqlx::Error>;
 
     /// See [`get_pending_room_events`].
@@ -576,8 +577,9 @@ impl crate::event::reader::EventReader for super::EventStorage {
         room_id: &str,
         event_type: &str,
         limit: i64,
+        offset: i64,
     ) -> Result<Vec<RoomEvent>, sqlx::Error> {
-        self.get_room_events_by_type(room_id, event_type, limit).await
+        self.get_room_events_by_type(room_id, event_type, limit, offset).await
     }
 
     async fn get_pending_room_events(&self, room_id: &str, limit: i64) -> Result<Vec<RoomEvent>, sqlx::Error> {

@@ -2194,7 +2194,7 @@ BASELINE_DYNAMIC_PRODUCTION=133
 BASELINE_DYNAMIC_TEST_INFRA=767
 BASELINE_STATIC=1367
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1330
+SQLX_CACHE_ENTRIES=1327
 <!-- sqlx-plan-numbers:end -->
 
 > **2026-10-21 更新（B-34 push rules 排序参数 + `event_search` 物化 FTS 收尾）**，
@@ -2243,6 +2243,17 @@ SQLX_CACHE_ENTRIES=1330
 >   `get_all_push_rules` 已转运行时 `query_as`，见 `synapse-storage/src/push/mod.rs` 注释）。
 > - 净变化 −4（删 8 增 4）。逐文件 literal 棘轮与其余四项**不变**（`133` / `767` / `1367` / `17`）——
 >   这 4 条一直是宏、只是文本变了，不涉及宏↔运行时迁移。
+
+> **2026-10-22 更新（W4 第二层：PERF-07 查询形态，`SQLX_CACHE_ENTRIES` 1330 → 1327）**
+> - 净变化 −3（删 5 增 2），全部由 `PERF-07` 引起：
+>   - 删 2：`synapse-storage/src/invite_blocklist.rs` 里两条**无调用方**的全局邀请名单查询
+>     （`global_invite_allowlist` / `global_invite_blocklist` 的无 `LIMIT` 版本）已删除 ——
+>     它们既不被 handler 引用，也都已被分页版本取代。
+>   - 删 1 增 1：`load_chunk_data` 的 SQL 文本加了 `LIMIT` ⇒ 缓存键变化。
+>   - 删 1 增 1：过期上传清理提为 `list_expired_upload_ids`（带 `LIMIT`）⇒ 旧内联文本失效。
+> - 其余四项**不变**（`133` / `767` / `1367` / `17`）：本批没有宏↔运行时迁移。
+> - `.sqlx` 仍只经 `scripts/ci/sqlx_prepare.sh` 重生成（本次用了 `ALLOW_CACHE_SHRINK=1`），
+>   并由 `scripts/ci/check_sqlx_cache_fresh.sh --compile` 离线复核。
 
 > **2026-10-21 补充（同类缺口：`search_room_messages_admin` 的 `start_date` / `end_date`）**：
 > 管理端 `POST /_synapse/admin/v1/rooms/{room_id}/search` 的请求体

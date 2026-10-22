@@ -796,9 +796,10 @@ impl MessagingService {
         room_id: &str,
         event_type: &str,
         limit: i64,
+        offset: i64,
     ) -> ApiResult<Vec<synapse_storage::RoomEvent>> {
         self.event_reader
-            .get_room_events_by_type(room_id, event_type, limit)
+            .get_room_events_by_type(room_id, event_type, limit, offset)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get room events by type", e))
     }
@@ -1232,7 +1233,7 @@ mod tests {
     #[tokio::test]
     async fn get_room_events_by_type_returns_empty_when_no_matches() {
         let svc = make_service().await;
-        let result = svc.get_room_events_by_type("!room:ex.com", "m.room.unknown", 10).await.unwrap();
+        let result = svc.get_room_events_by_type("!room:ex.com", "m.room.unknown", 10, 0).await.unwrap();
         assert!(result.is_empty());
     }
 

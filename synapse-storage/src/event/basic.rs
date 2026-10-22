@@ -110,22 +110,31 @@ impl EventStorage {
     }
 
     /// See [`get_room_events_by_type`].
+    ///
+    /// PERF-08: the page window is applied in SQL. Fetching `offset + limit` rows
+    /// and slicing in the caller made a deep page transfer every skipped row.
+    ///
+    /// The tiebreakers match [`Self::get_room_events`]: `OFFSET` is only stable
+    /// across requests if the ordering is total, otherwise same-millisecond events
+    /// can be duplicated or skipped at a page boundary.
     pub async fn get_room_events_by_type(
         &self,
         room_id: &str,
         event_type: &str,
         limit: i64,
+        offset: i64,
     ) -> Result<Vec<RoomEvent>, sqlx::Error> {
         let events = sqlx::query_as(&format!(
             "SELECT {ROOM_EVENT_COLS}
             FROM events WHERE room_id = $1 AND event_type = $2
-            ORDER BY origin_server_ts DESC
-            LIMIT $3
+            ORDER BY origin_server_ts DESC, stream_ordering DESC NULLS LAST, event_id DESC
+            LIMIT $3 OFFSET $4
             "
         ))
         .bind(room_id)
         .bind(event_type)
         .bind(limit)
+        .bind(offset)
         .fetch_all(&*self.pool)
         .await?;
         Ok(events)

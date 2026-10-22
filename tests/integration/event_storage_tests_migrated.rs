@@ -218,7 +218,7 @@ async fn test_encrypted_event_origin_decode_handles_null_boundary_and_malformed_
     }
 
     let events = storage
-        .get_room_events_by_type(room_id, "m.room.encrypted", 10)
+        .get_room_events_by_type(room_id, "m.room.encrypted", 10, 0)
         .await
         .expect("Failed to fetch encrypted events");
 

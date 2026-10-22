@@ -354,6 +354,97 @@ async fn test_start_chunked_upload_rejects_negative_total_size() {
     assert!(error.message().contains("total_size must not be negative"));
 }
 
+/// PERF-07 gate: `total_chunks` sizes the reassembly read, so an absurd value is
+/// refused instead of being stored and later trusted.
+#[tokio::test]
+async fn chunked_upload_rejects_a_chunk_count_above_the_ceiling() {
+    let (media_domain_service, _media_service, user, _temp_dir) = setup_test_media_domain("chunk_count_ceiling").await;
+
+    let error = media_domain_service
+        .start_chunked_upload(
+            &user.user_id,
+            Some("many.bin"),
+            Some("application/octet-stream"),
+            Some(1),
+            chunked_upload::MAX_CHUNKS_PER_UPLOAD + 1,
+        )
+        .await
+        .expect_err("a chunk count above the ceiling must be rejected");
+
+    assert_eq!(error.http_status(), axum::http::StatusCode::PAYLOAD_TOO_LARGE);
+    assert!(error.code_is(MatrixErrorCode::TooLarge), "expected M_TOO_LARGE, got {}", error.code_str());
+}
+
+/// PERF-07 gate: a zero/negative chunk count can never complete, so it is
+/// refused at the single write entry point rather than only at the HTTP layer.
+#[tokio::test]
+async fn chunked_upload_rejects_a_chunk_count_below_one() {
+    let (media_domain_service, _media_service, user, _temp_dir) = setup_test_media_domain("chunk_count_zero").await;
+
+    let error = media_domain_service
+        .start_chunked_upload(&user.user_id, Some("zero.bin"), Some("application/octet-stream"), Some(1), 0)
+        .await
+        .expect_err("a chunk count below one must be rejected");
+
+    assert_eq!(error.http_status(), axum::http::StatusCode::BAD_REQUEST);
+    assert!(error.message().contains("total_chunks"));
+}
+
+/// PERF-07 gate: a completed upload yields exactly the chunks it declared. A
+/// progress row whose chunk rows outnumber `total_chunks` can only come from an
+/// out-of-band write, so the read refuses it instead of silently dropping rows.
+#[tokio::test]
+async fn test_completed_upload_refuses_more_chunks_than_declared() {
+    let pool = prepare_media_test_pool().await.expect("failed to prepare media test pool");
+    let user_storage =
+        UserStorage::new(&pool, Arc::new(synapse_cache::CacheManager::new(&synapse_cache::CacheConfig::default())));
+    let user = user_storage
+        .create_user("@chunk_overflow:test.server", "chunk_overflow", Some("password"), false)
+        .await
+        .expect("failed to create test user");
+
+    let service = chunked_upload::ChunkedUploadService::new(pool.clone(), 1024 * 1024);
+
+    let upload_id = service
+        .start_upload(&user.user_id, Some("overflow.bin"), Some("application/octet-stream"), Some(2), 1)
+        .await
+        .expect("start should succeed");
+
+    service
+        .upload_chunk(
+            chunked_upload::ChunkUploadRequest {
+                upload_id: Some(upload_id.clone()),
+                chunk_index: 0,
+                total_chunks: 1,
+                chunk_data: b"a".to_vec(),
+                filename: None,
+                content_type: None,
+                total_size: Some(2),
+            },
+            &user.user_id,
+        )
+        .await
+        .expect("the single declared chunk should upload");
+
+    // The upload is already `complete`, so no service path can add this row.
+    sqlx::query(
+        "INSERT INTO upload_chunks (upload_id, chunk_index, chunk_data, chunk_size, created_ts) VALUES ($1, 1, $2, 1, $3)",
+    )
+    .bind(&upload_id)
+    .bind(b"b".to_vec())
+    .bind(synapse_common::current_timestamp_millis())
+    .execute(pool.as_ref())
+    .await
+    .expect("out-of-band chunk insert should succeed");
+
+    let error = service
+        .load_completed_upload(&upload_id, &user.user_id)
+        .await
+        .expect_err("an upload with more chunks than declared must be refused");
+
+    assert_eq!(error.http_status(), axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+}
+
 /// FUNC-06 gate: a chunked upload must declare its total size, otherwise the
 /// quota pre-check has nothing to reserve against. Red while `None` is accepted.
 #[tokio::test]

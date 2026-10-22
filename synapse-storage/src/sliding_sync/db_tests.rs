@@ -361,6 +361,66 @@ async fn test_get_rooms_for_list_pagination() {
     storage.delete_connection_data(&user_id, &device_id, None).await.expect("cleanup");
 }
 
+/// PERF-08: `range` is a positional window, so the ordering has to be total.
+/// `bump_stamp` alone is not unique — equal stamps used to leave the order between
+/// pages undefined, which can duplicate or drop a room at a page boundary.
+#[tokio::test]
+async fn test_get_rooms_for_list_ties_break_on_room_id() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = SlidingSyncStorage::new(pool.clone());
+    let user_id = unique_id("@user");
+    let device_id = unique_id("DEV");
+    let list_key = "main";
+
+    // Inserted largest-to-smallest: without a tiebreaker the returned order falls back
+    // to whatever the scan produced, so this pins the break explicitly.
+    let room_ids: Vec<String> = (0..3).map(|index| format!("!tie{index}:localhost")).collect();
+    for room_id in room_ids.iter().rev() {
+        storage
+            .upsert_room(
+                &user_id,
+                &device_id,
+                room_id,
+                None,
+                Some(list_key),
+                2000,
+                0,
+                0,
+                false,
+                false,
+                false,
+                false,
+                None,
+                None,
+                2000,
+            )
+            .await
+            .unwrap();
+    }
+
+    let mut paged = Vec::new();
+    for position in 0..3u32 {
+        let rooms = storage
+            .get_rooms_for_list(SlidingSyncListQuery {
+                user_id: &user_id,
+                device_id: &device_id,
+                conn_id: None,
+                list_key,
+                start: position,
+                end: position,
+                filters: None,
+            })
+            .await
+            .expect("single-position page should succeed");
+        assert_eq!(rooms.len(), 1, "each position must resolve to exactly one room");
+        paged.push(rooms[0].room_id.clone());
+    }
+
+    assert_eq!(paged, room_ids, "equal bump_stamp rows must page in room_id order");
+
+    storage.delete_connection_data(&user_id, &device_id, None).await.expect("cleanup");
+}
+
 #[tokio::test]
 async fn test_count_rooms_for_list() {
     let (_isolated, pool) = test_pool().await;

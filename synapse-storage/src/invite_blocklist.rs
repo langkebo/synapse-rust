@@ -33,6 +33,17 @@ impl InviteRestriction {
     }
 }
 
+/// Advisory lock key that serialises writers of the two global invite lists.
+///
+/// The per-user `add_to_global_*` writers enforce cross-table exclusion (a user
+/// must not sit on both lists), and the replace-all writers delete every row
+/// before inserting. Neither invariant can be expressed as a lock on one row:
+/// the delete of an empty table takes no lock at all, so two concurrent writers
+/// would each insert their own set and the stored list would become the union of
+/// two writes that each promised to be the complete list. One transaction-scoped
+/// advisory lock covers both tables and releases on commit/rollback.
+pub const GLOBAL_INVITE_LISTS_LOCK_KEY: i64 = 0x474C_4F42_494E_5649_u64 as i64;
+
 /// The `InviteBlocklistStorage` struct.
 #[derive(Clone)]
 pub struct InviteBlocklistStorage {
@@ -45,6 +56,28 @@ impl InviteBlocklistStorage {
         Self { pool }
     }
 
+    /// Serialise writers that rewrite one room's invite lists.
+    ///
+    /// `DELETE` takes no lock when it matches nothing, so two rewrites of an
+    /// empty list would each insert their own set and both commit. Locking the
+    /// owning `rooms` row makes the whole rewrite mutually exclusive, and the
+    /// lock releases with the transaction. A missing room needs no lock — the
+    /// foreign key rejects the insert anyway.
+    async fn lock_room_row(conn: &mut sqlx::PgConnection, room_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query_scalar::<_, i32>("SELECT 1 FROM rooms WHERE room_id = $1 FOR UPDATE")
+            .bind(room_id)
+            .fetch_optional(conn)
+            .await?;
+        Ok(())
+    }
+
+    /// Serialise writers of the global invite lists (see
+    /// [`GLOBAL_INVITE_LISTS_LOCK_KEY`]). Held until the transaction ends.
+    async fn lock_global_invite_lists(conn: &mut sqlx::PgConnection) -> Result<(), sqlx::Error> {
+        sqlx::query("SELECT pg_advisory_xact_lock($1)").bind(GLOBAL_INVITE_LISTS_LOCK_KEY).execute(conn).await?;
+        Ok(())
+    }
+
     /// Set the invite blocklist for a room (users that cannot be invited).
     ///
     /// The clear-then-insert pair runs in one transaction: a reader can never
@@ -53,6 +86,8 @@ impl InviteBlocklistStorage {
     pub async fn set_invite_blocklist(&self, room_id: &str, user_ids: Vec<String>) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
         let mut tx = self.pool.begin().await?;
+
+        Self::lock_room_row(&mut tx, room_id).await?;
 
         sqlx::query!("DELETE FROM room_invite_blocklist WHERE room_id = $1", room_id).execute(&mut *tx).await?;
 
@@ -113,6 +148,8 @@ impl InviteBlocklistStorage {
         let now = current_timestamp_millis();
         let mut tx = self.pool.begin().await?;
 
+        Self::lock_room_row(&mut tx, room_id).await?;
+
         sqlx::query!("DELETE FROM room_invite_allowlist WHERE room_id = $1", room_id).execute(&mut *tx).await?;
 
         if !user_ids.is_empty() {
@@ -144,58 +181,6 @@ impl InviteBlocklistStorage {
         )
         .fetch_all(&*self.pool)
         .await
-    }
-
-    /// Get global invite blocklist (all users).
-    pub async fn get_global_invite_blocklist(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query!(
-            r#"
-            SELECT user_id, created_ts, reason, created_by FROM global_invite_blocklist
-            ORDER BY created_ts DESC, user_id ASC
-            "#,
-        )
-        .fetch_all(&*self.pool)
-        .await?;
-
-        Ok(rows
-            .into_iter()
-            .map(|row| {
-                serde_json::json!({
-                    "user_id": row.user_id,
-                    "created_ts": row.created_ts,
-                    // Q1（2026-10-16）：per-user 端点写入的审计归因。整体替换端点与存量行
-                    // 这两列是 NULL（序列化为 null），消费方必须容忍。
-                    "reason": row.reason,
-                    "created_by": row.created_by
-                })
-            })
-            .collect())
-    }
-
-    /// Get global invite allowlist (all users).
-    pub async fn get_global_invite_allowlist(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query!(
-            r#"
-            SELECT user_id, created_ts, reason, created_by FROM global_invite_allowlist
-            ORDER BY created_ts DESC, user_id ASC
-            "#,
-        )
-        .fetch_all(&*self.pool)
-        .await?;
-
-        Ok(rows
-            .into_iter()
-            .map(|row| {
-                serde_json::json!({
-                    "user_id": row.user_id,
-                    "created_ts": row.created_ts,
-                    // Q1（2026-10-16）：per-user 端点写入的审计归因。整体替换端点与存量行
-                    // 这两列是 NULL（序列化为 null），消费方必须容忍。
-                    "reason": row.reason,
-                    "created_by": row.created_by
-                })
-            })
-            .collect())
     }
 
     /// Check whether `user_id` appears in the global blocklist.
@@ -232,6 +217,8 @@ impl InviteBlocklistStorage {
         let now = current_timestamp_millis();
         let mut tx = self.pool.begin().await?;
 
+        Self::lock_global_invite_lists(&mut tx).await?;
+
         sqlx::query!("DELETE FROM global_invite_blocklist").execute(&mut *tx).await?;
 
         if !user_ids.is_empty() {
@@ -256,6 +243,8 @@ impl InviteBlocklistStorage {
     pub async fn set_global_invite_allowlist(&self, user_ids: Vec<String>) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
         let mut tx = self.pool.begin().await?;
+
+        Self::lock_global_invite_lists(&mut tx).await?;
 
         sqlx::query!("DELETE FROM global_invite_allowlist").execute(&mut *tx).await?;
 
@@ -297,6 +286,8 @@ impl InviteBlocklistStorage {
     ) -> Result<(bool, bool), sqlx::Error> {
         let now = current_timestamp_millis();
         let mut tx = self.pool.begin().await?;
+
+        Self::lock_global_invite_lists(&mut tx).await?;
 
         let deleted =
             sqlx::query!("DELETE FROM global_invite_allowlist WHERE user_id = $1", user_id).execute(&mut *tx).await?;
@@ -341,6 +332,8 @@ impl InviteBlocklistStorage {
     ) -> Result<(bool, bool), sqlx::Error> {
         let now = current_timestamp_millis();
         let mut tx = self.pool.begin().await?;
+
+        Self::lock_global_invite_lists(&mut tx).await?;
 
         let deleted =
             sqlx::query!("DELETE FROM global_invite_blocklist WHERE user_id = $1", user_id).execute(&mut *tx).await?;
@@ -814,7 +807,10 @@ mod db_tests {
             .await
             .expect("set global blocklist should succeed");
 
-        let global = storage.get_global_invite_blocklist().await.expect("get_global_invite_blocklist should succeed");
+        let global = storage
+            .get_global_invite_blocklist_paginated(100, 0)
+            .await
+            .expect("get_global_invite_blocklist_paginated should succeed");
 
         assert_eq!(global.len(), 2, "global blocklist should have exactly 2 entries");
 
@@ -840,7 +836,10 @@ mod db_tests {
             .await
             .expect("set global allowlist should succeed");
 
-        let global = storage.get_global_invite_allowlist().await.expect("get_global_invite_allowlist should succeed");
+        let global = storage
+            .get_global_invite_allowlist_paginated(100, 0)
+            .await
+            .expect("get_global_invite_allowlist_paginated should succeed");
 
         assert_eq!(
             global.len(),
@@ -975,6 +974,164 @@ mod db_tests {
 
         let exists = storage.is_user_in_global_blocklist("@nobody:test.com").await.expect("check");
         assert!(!exists, "global blocklist should be empty");
+
+        cleanup_global_blocklist(&pool).await;
+    }
+
+    // ── PERF-09: two rewrites in flight must not merge ────────────────────
+    //
+    // A rewrite is delete-then-insert inside one transaction. When the list is
+    // empty the `DELETE` matches no rows and therefore takes no lock, so two
+    // writers can each insert their own set and both commit: the stored list
+    // becomes the union of two writes that each promised to be the complete
+    // list. Writers are now serialised — room lists on the `rooms` row, the
+    // global lists on an advisory lock — and the tests below hold those locks
+    // from a second session to prove a writer really waits.
+
+    /// An extra session pinned to the isolated schema.
+    ///
+    /// `IsolatedTestPool` caps its pool at one connection so that dozens of
+    /// parallel per-test schemas cannot exhaust Postgres `max_connections`.
+    /// That cap makes "the writer is still running 200ms later" vacuous — the
+    /// writer would be queued for a connection, not for a lock. Tests that need
+    /// two live sessions therefore open this one by hand, keeping the pool's
+    /// single connection free for the storage call under test.
+    async fn lock_session(isolated: &crate::test_isolation::IsolatedTestPool) -> sqlx::PgConnection {
+        use sqlx::Connection as _;
+
+        let mut conn = sqlx::PgConnection::connect(&synapse_common::test_isolation::test_database_url())
+            .await
+            .expect("lock session must connect");
+        // Unqualified SQL in this session must resolve to the test schema, not
+        // to `public` — otherwise the fixture locks the wrong `rooms` row.
+        sqlx::query(&format!(r#"SET search_path TO "{}", public"#, isolated.schema_name()))
+            .execute(&mut conn)
+            .await
+            .expect("lock session must join the isolated schema");
+        conn
+    }
+
+    #[tokio::test]
+    async fn test_set_invite_blocklist_waits_for_the_room_row_lock() {
+        let (isolated, pool) = test_pool().await;
+        let storage = InviteBlocklistStorage::new(pool.clone());
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = format!("!room_rowlock_{suffix}:test.com");
+        let listed_user = format!("@rowlock_{suffix}:test.com");
+        ensure_test_room(&pool, &room_id).await;
+        storage.set_invite_blocklist(&room_id, vec![listed_user]).await.expect("seed the blocklist");
+
+        let mut blocker = lock_session(&isolated).await;
+        sqlx::query("BEGIN").execute(&mut blocker).await.expect("test fixture: begin blocker transaction");
+        sqlx::query("SELECT 1 FROM rooms WHERE room_id = $1 FOR UPDATE")
+            .bind(&room_id)
+            .fetch_one(&mut blocker)
+            .await
+            .expect("test fixture: the room row lock must be held");
+
+        // The rewrite clears the list to empty. No rows are inserted, so the
+        // foreign-key check on `rooms` takes no lock and cannot be the reason
+        // the writer waits: only an explicit row lock placed by the rewrite
+        // itself can hold it back.
+        let writer = {
+            let storage = storage.clone();
+            let room_id = room_id.clone();
+            tokio::spawn(async move { storage.set_invite_blocklist(&room_id, vec![]).await })
+        };
+
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert!(
+            !writer.is_finished(),
+            "a concurrent rewrite must wait for the room row lock; without it two writers each \
+             insert their own set and the winner is a union neither caller asked for"
+        );
+
+        sqlx::query("ROLLBACK")
+            .execute(&mut blocker)
+            .await
+            .expect("test fixture: the blocker must release the row lock");
+        writer.await.expect("writer task must not panic").expect("rewrite must succeed after the lock is released");
+
+        let after = storage.get_invite_blocklist(&room_id).await.expect("read the blocklist back");
+        assert!(after.is_empty(), "the serialised rewrite must still have cleared the list, got {after:?}");
+
+        cleanup_blocklist(&pool, &room_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_set_invite_allowlist_waits_for_the_room_row_lock() {
+        let (isolated, pool) = test_pool().await;
+        let storage = InviteBlocklistStorage::new(pool.clone());
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = format!("!room_rowlock_al_{suffix}:test.com");
+        let listed_user = format!("@rowlock_al_{suffix}:test.com");
+        ensure_test_room(&pool, &room_id).await;
+        storage.set_invite_allowlist(&room_id, vec![listed_user]).await.expect("seed the allowlist");
+
+        let mut blocker = lock_session(&isolated).await;
+        sqlx::query("BEGIN").execute(&mut blocker).await.expect("test fixture: begin blocker transaction");
+        sqlx::query("SELECT 1 FROM rooms WHERE room_id = $1 FOR UPDATE")
+            .bind(&room_id)
+            .fetch_one(&mut blocker)
+            .await
+            .expect("test fixture: the room row lock must be held");
+
+        let writer = {
+            let storage = storage.clone();
+            let room_id = room_id.clone();
+            tokio::spawn(async move { storage.set_invite_allowlist(&room_id, vec![]).await })
+        };
+
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert!(
+            !writer.is_finished(),
+            "a concurrent allowlist rewrite must wait for the room row lock, for the same reason as \
+             the blocklist rewrite"
+        );
+
+        sqlx::query("ROLLBACK")
+            .execute(&mut blocker)
+            .await
+            .expect("test fixture: the blocker must release the row lock");
+        writer.await.expect("writer task must not panic").expect("rewrite must succeed after the lock is released");
+
+        let after = storage.get_invite_allowlist(&room_id).await.expect("read the allowlist back");
+        assert!(after.is_empty(), "the serialised rewrite must still have cleared the list, got {after:?}");
+
+        cleanup_allowlist(&pool, &room_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_global_list_writers_wait_for_the_advisory_lock() {
+        let (isolated, pool) = test_pool().await;
+        let storage = InviteBlocklistStorage::new(pool.clone());
+        let user_id = format!("@advlock_{}:test.com", uuid::Uuid::new_v4());
+
+        let mut blocker = lock_session(&isolated).await;
+        sqlx::query("BEGIN").execute(&mut blocker).await.expect("test fixture: begin blocker transaction");
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(GLOBAL_INVITE_LISTS_LOCK_KEY)
+            .execute(&mut blocker)
+            .await
+            .expect("test fixture: the global invite-list lock must be held");
+
+        let writer = {
+            let storage = storage.clone();
+            let user_id = user_id.clone();
+            tokio::spawn(async move { storage.add_to_global_invite_blocklist(&user_id, None, None).await })
+        };
+
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert!(
+            !writer.is_finished(),
+            "global list writes must serialise on one lock: add-to-blocklist deletes from the \
+             allowlist and then inserts, so two racing writes can leave a user on both lists"
+        );
+
+        sqlx::query("ROLLBACK").execute(&mut blocker).await.expect("test fixture: the blocker must release the lock");
+        let (inserted, _) =
+            writer.await.expect("writer task must not panic").expect("write must succeed after the lock is released");
+        assert!(inserted, "the user was not on the list, so the write must report an insert");
 
         cleanup_global_blocklist(&pool).await;
     }

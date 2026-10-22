@@ -1667,16 +1667,64 @@ async fn test_get_room_events_by_type_filters() {
         .unwrap();
 
     let messages = storage
-        .get_room_events_by_type(&room_id, "m.room.message", 10)
+        .get_room_events_by_type(&room_id, "m.room.message", 10, 0)
         .await
         .expect("get_room_events_by_type should succeed");
     assert!(messages.iter().all(|e| e.event_type == "m.room.message"));
 
     let members = storage
-        .get_room_events_by_type(&room_id, "m.room.member", 10)
+        .get_room_events_by_type(&room_id, "m.room.member", 10, 0)
         .await
         .expect("get_room_events_by_type member should succeed");
     assert!(members.iter().all(|e| e.event_type == "m.room.member"));
+
+    let _ = storage.delete_room_events(&room_id).await;
+}
+
+/// PERF-08 gate: `offset` is applied in SQL, so a deep page costs one query that
+/// returns only `limit` rows instead of reading every skipped row into memory and
+/// slicing there.
+#[tokio::test]
+async fn test_get_room_events_by_type_applies_offset_in_sql() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+    let room_id = format!("!type_offset_{}:example.com", uuid::Uuid::new_v4());
+    let user_id = "@typer:example.com";
+
+    let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
+    ensure_test_room(&pool, &room_id).await;
+    ensure_test_user(&pool, user_id).await;
+
+    let base_ts = current_timestamp_millis() - 10_000;
+    let mut event_ids = Vec::new();
+    for index in 0..5i64 {
+        let event_id = format!("$off{index}_{}:example.com", uuid::Uuid::new_v4());
+        storage
+            .create_event(
+                CreateEventParams {
+                    event_id: event_id.clone(),
+                    room_id: room_id.clone(),
+                    user_id: user_id.to_string(),
+                    event_type: "m.room.encrypted".to_string(),
+                    content: serde_json::json!({ "index": index }),
+                    state_key: None,
+                    origin_server_ts: base_ts + index,
+                    redacts: None,
+                },
+                None,
+            )
+            .await
+            .unwrap();
+        event_ids.push(event_id);
+    }
+
+    // Newest first: index 4, 3, 2, 1, 0 — so offset 2 / limit 2 is indexes 2 and 1.
+    let page = storage
+        .get_room_events_by_type(&room_id, "m.room.encrypted", 2, 2)
+        .await
+        .expect("get_room_events_by_type should succeed");
+    let page_ids: Vec<&str> = page.iter().map(|event| event.event_id.as_str()).collect();
+    assert_eq!(page_ids, vec![event_ids[2].as_str(), event_ids[1].as_str()]);
 
     let _ = storage.delete_room_events(&room_id).await;
 }

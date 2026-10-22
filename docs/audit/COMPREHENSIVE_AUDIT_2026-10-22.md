@@ -410,17 +410,57 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 - **影响范围**：单用户/单房间的积压数据直接决定响应体大小与内存占用，可被构造为内存放大攻击面。
 - **修法**：强制 `LIMIT` 上限并从配置读取。
 
+> **落地状态（2026-10-22，W4 第二层已实现）**。原文 3 处全部复核，但只有 1 处真正需要"加 `LIMIT`"：
+>
+> | 原站点 | 复核结论 | 处置 |
+> |---|---|---|
+> | `chunked_upload::load_chunk_data` | ✅ 无界，且行数由客户端申报的 `total_chunks` 决定 | 加 `LIMIT`；`start_upload` 侧把 `total_chunks` 夹在 `1..=MAX_CHUNKS_PER_UPLOAD(10_000)`，越界返回 `M_TOO_LARGE` |
+> | `chunked_upload::list_expired_upload_ids`（原 `cleanup_expired` 内联） | ✅ 无界 | 提到独立方法并加 `LIMIT`，`cleanup_expired` 改为**分页循环**（每页 `EXPIRED_UPLOAD_CLEANUP_PAGE=100`），否则加了 `LIMIT` 只会漏删 |
+> | `invite_blocklist.rs:150`（全局邀请名单） | ❌ 该函数**没有调用方** | 删死代码优于给它加一个没人用的 `LIMIT`；同时删掉同样无人调用的 `list_user_uploads` |
+>
+> 两点实现取舍：
+>
+> - **"拒绝"而不是"截断"落到了读侧**：`load_completed_upload` 取 `total_chunks + 1` 行，多出一行即说明有越界写入，返回 500 而非静默拼出半截文件。`start_upload` 的上限只约束诚实客户端，读侧这道才是兜底。
+> - **分页循环的终止条件**：某页一条都没删掉即 `break`（否则同一页会被反复取回形成死循环），短页即视为排空。
+>
+> 测试：storage 3 个新 db_test（行数上限 / 批次上限 / 跨页排空，后者临时把 `loop` 降为单轮可复现 100 vs 101 的红）+ services 3 个（超上限 413、小于 1 返回 400、读侧越界 500）。`.sqlx` 1330 → 1327（删 5 增 2），`check_sqlx_cache_fresh.sh --compile` 通过。
+
 ### PERF-08（P2）5 处 OFFSET 深分页
 - **位置**：`synapse-storage/src/user/storage.rs:1543-1558`、`synapse-storage/src/invite_blocklist.rs:386,419`、`synapse-storage/src/sliding_sync/repository.rs:301`、`synapse-web/src/routes/handlers/room/events.rs:568-593`（先取 `from+limit` 再内存切片）
 - **类型**：深分页退化
 - **影响范围**：页码越深越慢，且内存切片版会在服务端把已跳过的行也读出来。
 - **修法**：改 keyset（`WHERE (ts, id) < (:ts, :id)`）分页；`events.rs` 直接用 SQL 的 `OFFSET/LIMIT` 或游标。
 
+> **落地状态（2026-10-22，W4 第二层已实现）**。5 处逐点定性，**只有 1 处真的退化，其余是既有契约**：
+>
+> | 站点 | 定性 | 处置 |
+> |---|---|---|
+> | `room/events.rs`（`get_room_encrypted_events`） | ✅ 真问题：`fetch_limit = offset + limit + 1` 全量读回再内存 `skip/take` | 窗口下推 SQL：`LIMIT $3 OFFSET $4`，只取 `limit + 1` 行（多 1 行判 `has_more`） |
+> | `sliding_sync/repository.rs:301` | ⚠️ 位置窗口是 MSC3575 的 `range: [start, end]` 语义，不能换成 keyset | `OFFSET` 保留；**补 `room_id` 决胜键**（原 `ORDER BY bump_stamp DESC` 并列时跨页顺序不定） |
+> | `invite_blocklist.rs:382,415` | ❌ 不是问题：已是 `*_paginated(limit, offset)`，`limit`/`offset` 是 admin API 的 **wire 参数**且响应回显 | 保持不变（两处排序 `created_ts DESC, user_id ASC` 已是全序） |
+> | `user/storage.rs:1670` | ❌ 不是问题：`get_locked_users(limit, offset)` 是 admin 分页接口，`user_locks` 有"每用户至多一条 active"的天然上限 | 保持不变（`created_ts DESC, id DESC` 已是全序） |
+>
+> 三点与原文不同的判断：
+>
+> - **没有改 keyset**。该端点 `from` 的契约在 handler 的 doc comment 里写明是 "plain offset"，改 keyset 会换掉 `next_batch` 语义（原文也承认"这是契约变更"）。同样的收益（不再传输被跳过的行）用 `OFFSET` 下推即可拿到，且 wire 契约零变更。
+> - **`OFFSET` 要求排序是全序**，这一点原文没写。原 `get_room_events_by_type` 只有 `ORDER BY origin_server_ts DESC`（毫秒并列时不稳），补成 `origin_server_ts DESC, stream_ordering DESC NULLS LAST, event_id DESC`；`sliding_sync` 同理补 `room_id`。**不补的话，深分页会在页边界重复或漏事件**——这比慢更严重。
+> - **`scripts/ci/check_ts_order_tiebreak.py` 基线因本次修复收缩**（`event/basic.rs` 2→1、`media/chunked_upload.rs` 1→0），按该脚本自身约定跑 `--update` 收紧；这是修复后的必需动作，不是放宽门禁。
+>
+> 测试：storage 新 db_test `test_get_room_events_by_type_applies_offset_in_sql`（先以"忽略 offset"取得行为红：返回最新页而非第二页）、sliding_sync 新 db_test `test_get_rooms_for_list_ties_break_on_room_id`（先取得红：插入序泄漏成页序）。`event::db_tests` 89 passed、`sliding_sync::db_tests` 36 passed、`event_storage_tests_migrated` 6 passed。
+
 ### PERF-09（P2）邀请黑名单 upsert 缺 `FOR UPDATE`，存在并发竞态
 - **位置**：`synapse-storage/src/invite_blocklist.rs:53-76,112-135`
 - **类型**：并发正确性
 - **影响范围**：并发重复拉黑/解除会读到旧行并覆盖对方写入，导致计数或状态丢失。
 - **修法**：`SELECT ... FOR UPDATE` 或改为单条 `INSERT ... ON CONFLICT DO UPDATE`。
+
+> **落地状态（2026-10-22，W4 第二层已实现）**。实际写法是"事务 + 按房间行锁 + 批量 `ON CONFLICT DO NOTHING`"：
+>
+> - `set_invite_blocklist` / `set_invite_allowlist` 各自开事务，先 `lock_room_row(tx, room_id)` 把同房间的写者串行化；
+> - `DELETE` 与 `INSERT` 在同一事务内 ⇒ 读者不会看到"先清后插"之间的空窗（那个空窗会被读成"无限制"，直接放行被拉黑者）；
+> - 插入改 `INSERT ... SELECT $1, unnest($2::text[]), $3 ON CONFLICT DO NOTHING`，一次往返写入整批，重复项不再报错。
+>
+> 原文建议的"`ON CONFLICT` 前加 `SELECT ... FOR UPDATE`"对**整表替换语义**不够：真正要防的是"两个替换交错"，所以锁的是房间而不是单个黑名单行。
 
 ### PERF-10（P3）PostgreSQL **实例级**未设 `statement_timeout`（应用侧已设）
 > **复核（2026-10-22 第二轮）**：原判 P2 称"无全局 `statement_timeout`，连接池可被鲸吞"，
@@ -1058,7 +1098,7 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 | **W1** | P1 配额与事务 | FUNC-06 → FUNC-03、PERF-02 | 契约微调 + 事务包裹 | 中 | 无 | ✅ 已提交 `cc364bd6f`（见 §10.3） |
 | **W2** | P1 授权与信任根 | SEC-01、CODE-05、TEST-01 | 单点逻辑 + cfg 门禁 + 补测试 | 小 | 无 | ✅ 已提交 `85180061c`（见 §10.4） |
 | **W3** | P1 结构决策 | ARCH-01 | 方案 A「打通」：写路径改走规范事件，影子表降级为索引 | **大** | 需先定方案 | ✅ 已提交 `3789583ef`（见 §10.5） |
-| **W4** | P2 资源与性能 | PERF-14、PERF-13、PERF-03/04/05、PERF-07/08/09、PERF-06、CODE-04、CODE-07 | 索引/查询/分批 | 中 | W1（FUNC-06 累计校验） | 🟡 第一层已提交 `2358c0f5a`（见 §10.6） |
+| **W4** | P2 资源与性能 | PERF-14、PERF-13、PERF-03/04/05、PERF-07/08/09、PERF-06、CODE-04、CODE-07 | 索引/查询/分批 | 中 | W1（FUNC-06 累计校验） | 🟡 第一层 `2358c0f5a`；第二层（PERF-07/08/09）已实现未提交（见 §10.6）；第三层待做 |
 | **W5** | P2 安全一致性 | SEC-02…SEC-08 | 配置校验 + 默认值 | 小 | 无 | ✅ 已提交 `ca6980c51`（见 §10.7） |
 | **W6** | P3 冗余与文档 | 全部 P3 + §9.12 五批 | 删除/合壳/文档 | 小但量大 | W0（避免删到正在改的文件） | 待开始 |
 
@@ -1287,6 +1327,14 @@ fn is_admin_request_allowed(role: &str, method: &Method, path: &str, rbac_enable
 - PERF-07（3 处无 `LIMIT`）：加硬上限，超限返回 `M_TOO_LARGE` 而非截断（截断会静默丢数据）。
 - PERF-08（5 处 OFFSET 深分页）：改 keyset 分页（`WHERE (ts, id) < ($1, $2)`）。**这是契约变更**：响应里的 `next_batch` 语义要同步。
 - PERF-09（邀请黑名单 upsert 竞态）：`INSERT … ON CONFLICT` 前加 `SELECT … FOR UPDATE`，或直接用 `ON CONFLICT DO NOTHING` + 行数判断。
+
+> **落地状态（2026-10-22，第二层已实现）**。三条都做完，但**没有一条按原计划照抄**：
+>
+> - **PERF-07**：3 处里只有 1 处真需要加 `LIMIT`（`load_chunk_data`），另 2 处是死代码/已分页路径。且**不加 `M_TOO_LARGE`**——超限发生在写侧就拒绝（`total_chunks + 1` 预检），读侧的上限是纵深防御，不是对外错误码。
+> - **PERF-08**：5 处里只有 `handlers/room/events.rs` 真退化，但它**不能改 keyset**（`from` 在 doc comment 与响应里就是 plain offset，换语义即破契约），改为把窗口下推到 SQL。`sliding_sync` 的 `range` 是 MSC3575 位置窗口，保留 `OFFSET` 但补 `room_id` 决胜键（`bump_stamp` 不唯一，页边界会重/漏）。另外 3 处是 admin wire 分页参数，排序已全序，不动。
+> - **PERF-09**：`SELECT … FOR UPDATE` 对"整表替换"语义不够（锁一行不阻止并发方删掉别的行），实际是**事务 + `lock_room_row(tx, room_id)` + 批量 `unnest` 插入 + `ON CONFLICT DO NOTHING`**。
+>
+> 逐点定性表与偏差细节见上文 PERF-07/08/09 各自的落地引用。门禁侧补了一条：修复会让 `check_ts_order_tiebreak.py` 的逐文件计数**收缩**，按脚本约定必须 `--update` 收紧（当前 67 处 / 28 文件），否则门禁红。
 
 **第三层：分批与资源**
 

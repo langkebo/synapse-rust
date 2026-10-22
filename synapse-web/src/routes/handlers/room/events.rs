@@ -572,25 +572,23 @@ pub(crate) async fn get_room_encrypted_events(
     }
 
     // Fetch one extra row so `next_batch` reflects whether more events remain
-    // rather than whether this page happened to be exactly full.
-    let fetch_limit = offset.saturating_add(limit).saturating_add(1);
+    // rather than whether this page happened to be exactly full. PERF-08: the
+    // window is applied in SQL, so a deep page returns `limit + 1` rows instead of
+    // transferring every skipped row and slicing it away in memory.
+    let fetch_limit = limit.saturating_add(1);
     let encrypted_events = ctx
         .room_service
         .messaging()
-        .get_room_events_by_type(&room_id, "m.room.encrypted", fetch_limit)
+        .get_room_events_by_type(&room_id, "m.room.encrypted", fetch_limit, offset)
         .await
         .map_err(map_internal!("Failed to get encrypted events"))?;
 
-    let total_fetched = encrypted_events.len();
-    let start = usize::try_from(offset).unwrap_or(usize::MAX).min(total_fetched);
     let take = usize::try_from(limit).unwrap_or(0);
-    let end = start.saturating_add(take).min(total_fetched);
-    let has_more = end < total_fetched;
+    let has_more = encrypted_events.len() > take;
 
     let events: Vec<serde_json::Value> = encrypted_events
         .into_iter()
-        .skip(start)
-        .take(end.saturating_sub(start))
+        .take(take)
         .map(|e| {
             serde_json::json!({
                 "event_id": e.event_id,
@@ -603,7 +601,7 @@ pub(crate) async fn get_room_encrypted_events(
         })
         .collect();
 
-    let next_batch = if has_more { Some(end.to_string()) } else { None };
+    let next_batch = if has_more { Some(offset.saturating_add(limit).to_string()) } else { None };
 
     Ok(Json(serde_json::json!({
         "room_id": room_id,

@@ -295,7 +295,10 @@ impl SlidingSyncStorage {
 
         Self::push_room_filters(&mut query, filters);
 
-        query.push(" ORDER BY bump_stamp DESC");
+        // PERF-08: `start..=end` is a positional window, so the ordering must be total.
+        // `bump_stamp` alone is not unique; equal stamps left the order between two
+        // pages undefined, which can repeat or drop a room at a page boundary.
+        query.push(" ORDER BY bump_stamp DESC, room_id ASC");
         query.push(" LIMIT ");
         query.push_bind((end.saturating_sub(start) + 1) as i64);
         query.push(" OFFSET ");

@@ -133,6 +133,14 @@ pub struct ChunkedUploadStorage {
     pool: Arc<PgPool>,
 }
 
+/// How many expired uploads one cleanup page deletes before re-querying.
+///
+/// Each upload is removed in its own transaction, so a page bounds both the ids
+/// held in memory and how long one query's snapshot can go stale. Paging (rather
+/// than fetching every expired id at once) keeps a backlog from becoming a single
+/// unbounded `SELECT`.
+pub const EXPIRED_UPLOAD_CLEANUP_PAGE: i64 = 100;
+
 impl ChunkedUploadStorage {
     /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
@@ -226,10 +234,15 @@ impl ChunkedUploadStorage {
     }
 
     /// See [`load_chunk_data`].
-    pub async fn load_chunk_data(&self, upload_id: &str) -> Result<Vec<Vec<u8>>, ApiError> {
+    ///
+    /// `limit` is a hard row cap. Callers pass the chunk count the upload
+    /// declared, so a progress row that was tampered with or grown out of band
+    /// cannot turn this into an unbounded fetch.
+    pub async fn load_chunk_data(&self, upload_id: &str, limit: i64) -> Result<Vec<Vec<u8>>, ApiError> {
         sqlx::query_scalar!(
-            "SELECT chunk_data FROM upload_chunks WHERE upload_id = $1 ORDER BY chunk_index",
+            "SELECT chunk_data FROM upload_chunks WHERE upload_id = $1 ORDER BY chunk_index LIMIT $2",
             upload_id,
+            limit,
         )
         .fetch_all(&*self.pool)
         .await
@@ -311,23 +324,14 @@ impl ChunkedUploadStorage {
     }
 
     /// See [`list_expired_upload_ids`].
-    pub async fn list_expired_upload_ids(&self, now_ts: i64) -> Result<Vec<String>, ApiError> {
-        sqlx::query_scalar!("SELECT upload_id FROM upload_progress WHERE expires_at < $1", now_ts)
+    ///
+    /// `limit` is a hard row cap so [`Self::cleanup_expired`] can page through a
+    /// backlog instead of holding every expired id in memory at once.
+    pub async fn list_expired_upload_ids(&self, now_ts: i64, limit: i64) -> Result<Vec<String>, ApiError> {
+        sqlx::query_scalar!("SELECT upload_id FROM upload_progress WHERE expires_at < $1 LIMIT $2", now_ts, limit)
             .fetch_all(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to find expired uploads", e))
-    }
-
-    /// See [`list_user_uploads`].
-    pub async fn list_user_uploads(&self, user_id: &str) -> Result<Vec<UploadProgress>, ApiError> {
-        sqlx::query_as!(
-            UploadProgress,
-            "SELECT upload_id, user_id, filename, content_type, total_size, uploaded_size, total_chunks, uploaded_chunks, status, created_ts, updated_ts, expires_at FROM upload_progress WHERE user_id = $1 AND status != 'finalized' ORDER BY created_ts DESC",
-            user_id,
-        )
-        .fetch_all(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to list uploads", e))
     }
 
     /// Delete all uploads whose `expires_at` is before `now_ts`.
@@ -338,15 +342,32 @@ impl ChunkedUploadStorage {
     /// raw `PgPool`.
     pub async fn cleanup_expired(&self) -> Result<u64, ApiError> {
         let now_ts = current_timestamp_millis();
-        let expired = self.list_expired_upload_ids(now_ts).await?;
 
         let mut cleaned = 0u64;
-        for upload_id in expired {
-            match self.delete_upload(&upload_id).await {
-                Ok(()) => cleaned += 1,
-                Err(error) => {
-                    warn!(error = %error, upload_id = %upload_id, "Failed to cleanup expired upload");
+        loop {
+            let expired = self.list_expired_upload_ids(now_ts, EXPIRED_UPLOAD_CLEANUP_PAGE).await?;
+            if expired.is_empty() {
+                break;
+            }
+
+            let batch_len = expired.len();
+            let mut cleared_in_page = 0usize;
+            for upload_id in expired {
+                match self.delete_upload(&upload_id).await {
+                    Ok(()) => {
+                        cleaned += 1;
+                        cleared_in_page += 1;
+                    }
+                    Err(error) => {
+                        warn!(error = %error, upload_id = %upload_id, "Failed to cleanup expired upload");
+                    }
                 }
+            }
+
+            // A page that clears nothing would be returned again unchanged, so stop
+            // rather than spin. A short page means the backlog is drained.
+            if cleared_in_page == 0 || batch_len < EXPIRED_UPLOAD_CLEANUP_PAGE as usize {
+                break;
             }
         }
 
@@ -559,7 +580,7 @@ mod db_tests {
             .await
             .expect("second store_chunk should succeed");
 
-        let chunks = storage.load_chunk_data(&upload_id).await.expect("load_chunk_data should succeed");
+        let chunks = storage.load_chunk_data(&upload_id, 10).await.expect("load_chunk_data should succeed");
 
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0], second_chunk);
@@ -632,7 +653,7 @@ mod db_tests {
             .await
             .expect("store chunk1 should succeed");
 
-        let chunks = storage.load_chunk_data(&upload_id).await.expect("load_chunk_data should succeed");
+        let chunks = storage.load_chunk_data(&upload_id, 3).await.expect("load_chunk_data should succeed");
 
         assert_eq!(chunks.len(), 3);
         assert_eq!(chunks[0], chunk0);
@@ -691,7 +712,7 @@ mod db_tests {
 
         assert_eq!(progress.status, "finalized");
 
-        let chunks = storage.load_chunk_data(&upload_id).await.expect("load_chunk_data should succeed");
+        let chunks = storage.load_chunk_data(&upload_id, 10).await.expect("load_chunk_data should succeed");
 
         assert!(chunks.is_empty(), "chunks should be deleted after finalize");
 
@@ -743,85 +764,98 @@ mod db_tests {
 
         assert!(progress.is_none(), "upload progress should be deleted");
 
-        let chunks = storage.load_chunk_data(&upload_id).await.expect("load_chunk_data should succeed");
+        let chunks = storage.load_chunk_data(&upload_id, 10).await.expect("load_chunk_data should succeed");
 
         assert!(chunks.is_empty(), "upload chunks should be deleted");
     }
 
+    /// PERF-07 gate: `limit` is a hard row cap, not a hint. Red while the
+    /// implementation fetches every chunk row for the upload.
     #[tokio::test]
-    async fn test_list_user_uploads_excludes_finalized() {
+    async fn test_load_chunk_data_respects_the_row_cap() {
         let (_isolated, pool) = test_pool().await;
         let storage = ChunkedUploadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
-        let user_id = format!("@list-test_{suffix}:example.com");
-        let upload_a = format!("upload-list-a-{suffix}");
-        let upload_b = format!("upload-list-b-{suffix}");
-        let upload_c = format!("upload-list-c-{suffix}");
+        let upload_id = format!("upload-capped-{suffix}");
+        let user_id = format!("@capped-test_{suffix}:example.com");
 
         ensure_test_user(&pool, &user_id).await;
-        cleanup_upload(&pool, &upload_a).await;
-        cleanup_upload(&pool, &upload_b).await;
-        cleanup_upload(&pool, &upload_c).await;
+        cleanup_upload(&pool, &upload_id).await;
 
         let now = current_timestamp_millis();
-        let expires_at = now + 3600000;
-
-        // Upload A: pending (should appear)
         storage
             .create_upload(CreateChunkedUploadRequest {
-                upload_id: upload_a.clone(),
-                user_id: user_id.clone(),
+                upload_id: upload_id.clone(),
+                user_id,
                 filename: None,
                 content_type: None,
                 total_size: None,
-                total_chunks: 1,
+                total_chunks: 4,
                 created_ts: now,
-                expires_at,
+                expires_at: now + 3600000,
             })
             .await
-            .expect("create upload_a should succeed");
+            .expect("create_upload should succeed");
 
-        // Upload B: pending (should appear)
-        storage
-            .create_upload(CreateChunkedUploadRequest {
-                upload_id: upload_b.clone(),
-                user_id: user_id.clone(),
-                filename: None,
-                content_type: None,
-                total_size: None,
-                total_chunks: 1,
-                created_ts: now,
-                expires_at,
-            })
-            .await
-            .expect("create upload_b should succeed");
+        for index in 0..4 {
+            let chunk_data = vec![index as u8];
+            storage
+                .store_chunk(StoreUploadChunkRequest {
+                    upload_id: upload_id.clone(),
+                    chunk_index: index,
+                    chunk_size: chunk_data.len() as i64,
+                    chunk_data,
+                    created_ts: now,
+                })
+                .await
+                .expect("store_chunk should succeed");
+        }
 
-        // Upload C: finalized (should NOT appear)
-        storage
-            .create_upload(CreateChunkedUploadRequest {
-                upload_id: upload_c.clone(),
-                user_id: user_id.clone(),
-                filename: None,
-                content_type: None,
-                total_size: None,
-                total_chunks: 1,
-                created_ts: now,
-                expires_at,
-            })
-            .await
-            .expect("create upload_c should succeed");
-        storage.finalize_upload(&upload_c, current_timestamp_millis()).await.expect("finalize upload_c should succeed");
+        let capped = storage.load_chunk_data(&upload_id, 2).await.expect("load_chunk_data should succeed");
 
-        let uploads = storage.list_user_uploads(&user_id).await.expect("list_user_uploads should succeed");
+        assert_eq!(capped, vec![vec![0u8], vec![1u8]], "the cap must bound the rows fetched, in chunk order");
 
-        let upload_ids: Vec<&str> = uploads.iter().map(|u| u.upload_id.as_str()).collect();
-        assert!(upload_ids.contains(&upload_a.as_str()), "should contain pending upload A");
-        assert!(upload_ids.contains(&upload_b.as_str()), "should contain pending upload B");
-        assert!(!upload_ids.contains(&upload_c.as_str()), "should NOT contain finalized upload C");
+        cleanup_upload(&pool, &upload_id).await;
+    }
 
-        cleanup_upload(&pool, &upload_a).await;
-        cleanup_upload(&pool, &upload_b).await;
-        cleanup_upload(&pool, &upload_c).await;
+    /// PERF-07 gate: one cleanup page must never read more than `limit` ids.
+    #[tokio::test]
+    async fn test_list_expired_upload_ids_respects_the_batch_cap() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = ChunkedUploadStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let user_id = format!("@expired-cap_{suffix}:example.com");
+
+        ensure_test_user(&pool, &user_id).await;
+
+        let now = current_timestamp_millis();
+        let mut created = Vec::new();
+        for index in 0..3 {
+            let upload_id = format!("upload-expired-cap-{index}-{suffix}");
+            cleanup_upload(&pool, &upload_id).await;
+            storage
+                .create_upload(CreateChunkedUploadRequest {
+                    upload_id: upload_id.clone(),
+                    user_id: user_id.clone(),
+                    filename: None,
+                    content_type: None,
+                    total_size: None,
+                    total_chunks: 1,
+                    created_ts: now - 7200000,
+                    expires_at: now - 3600000,
+                })
+                .await
+                .expect("create expired upload should succeed");
+            created.push(upload_id);
+        }
+
+        let expired = storage.list_expired_upload_ids(now, 2).await.expect("list_expired_upload_ids should succeed");
+
+        assert_eq!(expired.len(), 2, "the batch cap must bound how many expired ids one page returns");
+
+        for upload_id in &created {
+            cleanup_upload(&pool, upload_id).await;
+        }
     }
 
     #[tokio::test]
@@ -943,7 +977,7 @@ mod db_tests {
         assert_eq!(progress.status, "complete");
 
         // Step 4: Load chunk data and verify content
-        let loaded_chunks = storage.load_chunk_data(&upload_id).await.expect("load_chunk_data should succeed");
+        let loaded_chunks = storage.load_chunk_data(&upload_id, 3).await.expect("load_chunk_data should succeed");
 
         assert_eq!(loaded_chunks.len(), 3);
         assert_eq!(loaded_chunks[0], b"a");
@@ -966,71 +1000,54 @@ mod db_tests {
         assert_eq!(finalized.status, "finalized");
         assert_eq!(finalized.filename.as_deref(), Some("roundtrip.bin"));
 
-        let chunks_after = storage.load_chunk_data(&upload_id).await.expect("load_chunk_data should succeed");
+        let chunks_after = storage.load_chunk_data(&upload_id, 3).await.expect("load_chunk_data should succeed");
 
         assert!(chunks_after.is_empty(), "chunks should be cleaned after finalize");
 
         cleanup_upload(&pool, &upload_id).await;
     }
 
+    /// PERF-07 gate: cleanup must drain the backlog page by page. One row over a
+    /// page proves a single-page implementation leaves expired uploads behind
+    /// while still reporting a partial count.
     #[tokio::test]
-    async fn test_list_user_uploads_isolated_per_user() {
+    async fn test_cleanup_expired_pages_through_every_batch() {
         let (_isolated, pool) = test_pool().await;
         let storage = ChunkedUploadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
-        let user_a = format!("@user-a_{suffix}:example.com");
-        let user_b = format!("@user-b_{suffix}:example.com");
-        let upload_a = format!("upload-isolate-a-{suffix}");
-        let upload_b = format!("upload-isolate-b-{suffix}");
+        let user_id = format!("@expired-backlog_{suffix}:example.com");
 
-        ensure_test_user(&pool, &user_a).await;
-        ensure_test_user(&pool, &user_b).await;
-        cleanup_upload(&pool, &upload_a).await;
-        cleanup_upload(&pool, &upload_b).await;
+        ensure_test_user(&pool, &user_id).await;
 
+        let backlog = EXPIRED_UPLOAD_CLEANUP_PAGE + 1;
         let now = current_timestamp_millis();
-        let expires_at = now + 3600000;
+        let mut created = Vec::new();
+        for index in 0..backlog {
+            let upload_id = format!("upload-backlog-{index}-{suffix}");
+            cleanup_upload(&pool, &upload_id).await;
+            storage
+                .create_upload(CreateChunkedUploadRequest {
+                    upload_id: upload_id.clone(),
+                    user_id: user_id.clone(),
+                    filename: None,
+                    content_type: None,
+                    total_size: None,
+                    total_chunks: 1,
+                    created_ts: now - 7200000,
+                    expires_at: now - 3600000,
+                })
+                .await
+                .expect("create expired upload should succeed");
+            created.push(upload_id);
+        }
 
-        storage
-            .create_upload(CreateChunkedUploadRequest {
-                upload_id: upload_a.clone(),
-                user_id: user_a.clone(),
-                filename: None,
-                content_type: None,
-                total_size: None,
-                total_chunks: 1,
-                created_ts: now,
-                expires_at,
-            })
-            .await
-            .expect("create upload_a should succeed");
+        let cleaned = storage.cleanup_expired().await.expect("cleanup_expired should succeed");
 
-        storage
-            .create_upload(CreateChunkedUploadRequest {
-                upload_id: upload_b.clone(),
-                user_id: user_b.clone(),
-                filename: None,
-                content_type: None,
-                total_size: None,
-                total_chunks: 1,
-                created_ts: now,
-                expires_at,
-            })
-            .await
-            .expect("create upload_b should succeed");
+        assert_eq!(cleaned, backlog as u64, "cleanup must drain every page, not just the first");
 
-        let uploads_a: Vec<String> = storage
-            .list_user_uploads(&user_a)
-            .await
-            .expect("list user_a uploads should succeed")
-            .into_iter()
-            .map(|u| u.upload_id)
-            .collect();
-
-        assert!(uploads_a.contains(&upload_a), "user_a should see own upload");
-        assert!(!uploads_a.contains(&upload_b), "user_a should NOT see user_b upload");
-
-        cleanup_upload(&pool, &upload_a).await;
-        cleanup_upload(&pool, &upload_b).await;
+        for upload_id in &created {
+            let progress = storage.get_progress(upload_id).await.expect("get_progress should succeed");
+            assert!(progress.is_none(), "expired upload {upload_id} should be removed");
+        }
     }
 }

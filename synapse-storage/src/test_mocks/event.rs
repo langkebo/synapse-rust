@@ -922,13 +922,13 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
         room_id: &str,
         event_type: &str,
         limit: i64,
+        offset: i64,
     ) -> Result<Vec<crate::event::RoomEvent>, sqlx::Error> {
         let events = self.events.read().await;
         let mut matched: Vec<_> =
             events.values().filter(|e| e.room_id == room_id && e.event_type == event_type).cloned().collect();
         matched.sort_by_key(|e| std::cmp::Reverse(e.origin_server_ts));
-        matched.truncate(limit as usize);
-        Ok(matched)
+        Ok(matched.into_iter().skip(offset as usize).take(limit as usize).collect())
     }
 
     async fn get_pending_room_events(

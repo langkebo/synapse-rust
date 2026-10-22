@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT upload_id FROM upload_progress WHERE expires_at < $1",
+  "query": "SELECT upload_id FROM upload_progress WHERE expires_at < $1 LIMIT $2",
   "describe": {
     "columns": [
       {
@@ -11,6 +11,7 @@
     ],
     "parameters": {
       "Left": [
+        "Int8",
         "Int8"
       ]
     },
@@ -18,5 +19,5 @@
       false
     ]
   },
-  "hash": "eaf876c8a2eb43b7e2fd1e4362fd95fd7de84895960d0c8ddfab5db875570a4b"
+  "hash": "be9a0370832c16cc0254f2af74852e5274f13fde9bef471aae0a02cd27f503fe"
 }

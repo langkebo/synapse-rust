@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT chunk_data FROM upload_chunks WHERE upload_id = $1 ORDER BY chunk_index",
+  "query": "SELECT chunk_data FROM upload_chunks WHERE upload_id = $1 ORDER BY chunk_index LIMIT $2",
   "describe": {
     "columns": [
       {
@@ -11,12 +11,13 @@
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Text",
+        "Int8"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "870c822a0ab564661f32f470ef508dfb0467b2c5cd640ce26628c480d2f22ad5"
+  "hash": "2ca5d6f7e4018e8d5a9e1d5407d9a318aba9915776f003ab60152ae230d76e31"
 }
