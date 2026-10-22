@@ -2,11 +2,11 @@
 #
 # CI gate: no default administrator credential in shipped scripts/configs (SEC-02).
 #
-# Several helper scripts used to carry `ADMIN_PASS="${ADMIN_PASS:-Admin@123}"`.
-# The fallback made every one of them "work" out of the box against a server
-# whose admin password was never changed — i.e. it shipped a working
-# credential, and it silently turned an unset variable into a successful
-# privileged login instead of a configuration error.
+# Several helper scripts used to fall back to a built-in default password when
+# `ADMIN_PASS` was unset. The fallback made every one of them "work" out of the
+# box against a server whose admin password was never changed — i.e. it shipped
+# a working credential, and it silently turned an unset variable into a
+# successful privileged login instead of a configuration error.
 #
 # The rule that replaced them: the credential is *required*, never defaulted
 # (`${ADMIN_PASS:?…}`, or an explicit empty-check that exits non-zero). This
@@ -19,8 +19,11 @@
 # `*.md` (historical reports quote credentials as evidence, they do not log in).
 # Exits 0 when there is no match, 1 on any violation.
 #
-# Red-proved 2026-10-22: restoring `ADMIN_PASS="${ADMIN_PASS:-Admin@123}"` in a
-# helper script → exit 1; removing it → exit 0.
+# Red-proved 2026-10-22: reinstating that fallback in a helper script → exit 1;
+# removing it → exit 0.
+#
+# This file is inside its own scan surface, so **no comment here may spell the
+# literal out** — see the PATTERN note below for the spelling to use instead.
 
 set -eu
 
@@ -28,6 +31,16 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${ROOT_DIR}"
 
 # Written as `Admin@12[3]` so this file does not match its own pattern.
+#
+# The bracket is load-bearing: as an ERE, `Admin@12[3]` matches the three-digit
+# password, while the *text* `Admin@12[3]` does not match it. Anywhere this file
+# needs to name the old default — including prose in comments — it must use this
+# spelling, otherwise the gate fails on itself (that is what happened between
+# W5's commit and this fix: two comments spelled it out and `ci.yml` was red
+# from the day it landed).
+#
+# Comments in *other* scanned files are **not** exempt on purpose: a commented
+# default in a `.env.example` is one uncomment away from shipping.
 PATTERN='Admin@12[3]'
 
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
