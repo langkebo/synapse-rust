@@ -2452,3 +2452,26 @@ SDK 门禁只能落到 `backend-query-unknown`；类型化后 `query` 分类为 
    web 层的早拒绝在 `synapse-web/src/routes/media/upload.rs`（`chunked_upload_start`），
    与服务层同 errcode。门禁用例：`chunked_upload_requires_total_size`、
    `chunked_upload_rejects_lying_total_size`、`chunked_upload_counts_toward_quota`。
+
+### E.18 2026-10-22 线程回复请求体去掉客户端事件 id（ARCH-01 方案 A）
+
+线程的阴影表（`thread_roots` / `thread_replies`）降级为**规范事件的索引**：每建一个线程、
+每写一条回复，都必须在 `events` 里对应一条真实事件。为此两处语义收紧：
+
+| 端点 | 变更 | 语义 |
+|---|---|---|
+| `POST /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies` | body 不再使用 `event_id` | 回复事件的 id 由服务端写入口定稿（v3+ 房间是引用哈希），响应体 `event_id` 即定稿值 |
+| 同上 | body 不再使用 `root_event_id` | `thread_id` 已唯一确定线程，`m.relates_to.event_id` 取服务端索引里的线程根，客户端无法改写指向 |
+| `POST /_matrix/vendor/v1/rooms/{room_id}/threads` | `root_event_id` 必须是房间内**真实存在**的事件 | 不存在或不属于该房间 → **404 `M_NOT_FOUND`**（此前会在阴影表里造出指向空气的线程行） |
+
+1. **为什么去字段**：旧实现把客户端给的 `event_id` 直接写进 `thread_replies`，`events` 里
+   没有任何事件 —— 线程回复在同步、联邦、搜索、客户端渲染里全都不可见。回复改为走
+   `RelationsService::send_reference`（`rel_type: "m.thread"`）后，事件 id 只能由写入口定稿，
+   客户端再传一个 id 就是"收了但不用"的兼容 shim，因此直接删除。
+2. **兼容性**：`CreateReplyBody` 未启用 `deny_unknown_fields`，老客户端继续发
+   `event_id` / `root_event_id` 会被**忽略**，不会 400；但两者从此不再影响结果。
+3. **实现位置**：`synapse-services/src/thread_service.rs`（`ThreadEventPort` /
+   `CanonicalThreadEvents`、`create_thread` 的根事件校验、`add_reply` 先写事件再写索引）、
+   `synapse-web/src/routes/handlers/thread.rs`（`CreateReplyBody`）。
+   门禁用例：`test_thread_reply_writes_canonical_m_thread_event`、
+   `test_create_thread_rejects_unknown_root_event`。

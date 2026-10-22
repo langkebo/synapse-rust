@@ -264,7 +264,14 @@ impl RoomSyncServices {
 
         let thread_storage: Arc<dyn synapse_storage::thread::ThreadStoreApi> =
             Arc::new(synapse_storage::thread::ThreadStorage::new(&infra.pool));
-        let thread_service = Arc::new(crate::thread_service::ThreadService::new(thread_storage.clone()));
+        // Thread replies are ordinary `m.thread` room messages: the shadow tables
+        // are only indexes, so the service writes through the same event entry as
+        // everything else (see `ThreadEventPort`).
+        let thread_events = Arc::new(crate::thread_service::CanonicalThreadEvents::new(
+            relations_service.clone(),
+            Arc::new(room_service.messaging.clone()),
+        ));
+        let thread_service = Arc::new(crate::thread_service::ThreadService::new(thread_storage.clone(), thread_events));
 
         Self {
             room_storage,

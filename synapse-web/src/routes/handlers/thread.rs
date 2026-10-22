@@ -47,13 +47,15 @@ fn reject_unsupported_thread_content(content: Option<&Value>) -> Result<(), ApiE
     }
 }
 
+/// 回复请求体。
+///
+/// 不带 `event_id` / `root_event_id`：`thread_id` 已经唯一确定线程，回复事件
+/// 的 id 由服务端写入口定稿（v3+ 房间是引用哈希），关联目标取线程根。
 #[derive(Debug, Deserialize)]
 struct CreateReplyBody {
     #[serde(default)]
     #[serde(rename = "thread_id")]
     _thread_id: Option<String>,
-    event_id: String,
-    root_event_id: String,
     content: serde_json::Value,
     in_reply_to_event_id: Option<String>,
     origin_server_ts: Option<i64>,
@@ -647,8 +649,6 @@ async fn add_reply(
     let request = CreateReplyRequest {
         room_id: room_id.to_string(),
         thread_id,
-        event_id: body.event_id,
-        root_event_id: body.root_event_id,
         content: body.content,
         in_reply_to_event_id: body.in_reply_to_event_id,
         origin_server_ts: body.origin_server_ts.unwrap_or_else(current_timestamp_millis),

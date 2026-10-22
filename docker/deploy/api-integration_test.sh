@@ -3097,11 +3097,10 @@ if [ -n "$ROOM_ID" ]; then
             -d "{\"root_event_id\":\"$THREAD_ROOT_ID\"}")
         THREAD_ID=$(echo "$CREATE_THREAD_RESP" | grep -o '"thread_id":"[^"]*"' | cut -d'"' -f4)
         if [ -n "$THREAD_ID" ]; then
-            THREAD_REPLY_ID="\$thread_reply_$(date +%s%N 2>/dev/null || date +%s)"
             curl -s -X POST "$SERVER_URL/_matrix/client/v1/rooms/$ROOM_ID/threads/$THREAD_ID/replies" \
                 -H "Authorization: Bearer $TOKEN" \
                 -H "Content-Type: application/json" \
-                -d "{\"event_id\":\"$THREAD_REPLY_ID\",\"root_event_id\":\"$THREAD_ROOT_ID\",\"content\":{\"msgtype\":\"m.text\",\"body\":\"thread reply\"}}" \
+                -d '{"content":{"msgtype":"m.text","body":"thread reply"}}' \
                 >/dev/null
             THREAD_ENC=$(echo "$THREAD_ID" | sed 's/\$/%24/g' | sed 's/\!/%21/g' | sed 's/:/%3A/g')
             http_json GET "$SERVER_URL/_matrix/client/v1/rooms/$ROOM_ID/threads/$THREAD_ENC" "$TOKEN"

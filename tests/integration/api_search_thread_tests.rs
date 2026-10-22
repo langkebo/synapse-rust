@@ -66,14 +66,9 @@ async fn create_thread(app: &axum::Router, token: &str, room_id: &str, root_even
     json["thread_id"].as_str().unwrap().to_string()
 }
 
-async fn add_reply(
-    app: &axum::Router,
-    token: &str,
-    room_id: &str,
-    thread_id: &str,
-    root_event_id: &str,
-    event_id: &str,
-) {
+/// 发一条线程回复。请求体不带 `event_id` / `root_event_id`：回复事件的 id 由
+/// 服务端写入口定稿，关联目标由 `thread_id` 决定（见 W3 / ARCH-01）。
+async fn add_reply(app: &axum::Router, token: &str, room_id: &str, thread_id: &str) {
     let request = Request::builder()
         .method("POST")
         .uri(format!("/_matrix/client/v1/rooms/{}/threads/{}/replies", room_id, thread_id))
@@ -81,8 +76,6 @@ async fn add_reply(
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
-                "event_id": event_id,
-                "root_event_id": root_event_id,
                 "content": {
                     "msgtype": "m.text",
                     "body": "thread reply"
@@ -279,6 +272,78 @@ async fn test_user_level_thread_route_is_served_under_vendor_prefix() {
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
 
+/// W3 / ARCH-01（方案 A：打通）门禁 —— 线程回复必须落一条**规范** `m.thread` 事件。
+///
+/// 影子表（`thread_replies`）只能是对规范事件的索引：它回指的 `event_id` 必须在
+/// `events` 表里真实存在，且该事件的 `content.m.relates_to` 指向线程根。
+/// 修复前 `ThreadService::add_reply` 只写影子表，`events` 里没有任何事件 ⇒ 这条用例必红。
+#[tokio::test]
+async fn test_thread_reply_writes_canonical_m_thread_event() {
+    let Some((app, pool, _cache)) = super::setup_fresh_test_app_with_pool().await else {
+        return;
+    };
+    let token = super::create_test_user(&app).await;
+    let room_id = create_room(&app, &token).await;
+    let root_event_id = send_message(&app, &token, &room_id, "canonical_thread_root_txn").await;
+    let thread_id = create_thread(&app, &token, &room_id, &root_event_id).await;
+
+    add_reply(&app, &token, &room_id, &thread_id).await;
+
+    let indexed_event_id: String =
+        sqlx::query_scalar("SELECT event_id FROM thread_replies WHERE room_id = $1 AND thread_id = $2")
+            .bind(&room_id)
+            .bind(&thread_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("线程回复必须被索引到 thread_replies");
+
+    let content: Option<Value> = sqlx::query_scalar("SELECT content FROM events WHERE event_id = $1")
+        .bind(&indexed_event_id)
+        .fetch_optional(&*pool)
+        .await
+        .expect("查询 events 失败");
+
+    let content = content.unwrap_or_else(|| {
+        panic!(
+            "thread_replies.event_id = {indexed_event_id} 在 events 表里不存在 —— \
+             影子表只是规范事件的索引，不能凭空造事件"
+        )
+    });
+
+    assert_eq!(content["m.relates_to"]["rel_type"], "m.thread", "回复必须是规范 m.thread 事件");
+    assert_eq!(content["m.relates_to"]["event_id"], root_event_id, "m.thread 必须指向线程根");
+}
+
+/// W3 / ARCH-01（方案 A：打通）门禁 —— 线程根必须是房间里**真实存在**的事件。
+///
+/// 线程根本身就是那条规范事件（客户端不需要再发一条），所以「影子表降级为索引」
+/// 对建线程的要求是：`thread_roots.root_event_id` 必须能在 `events` 里找到。
+/// 修复前 `create_thread` 不校验根事件 ⇒ 传一个不存在的 id 也能建出影子行，必红。
+#[tokio::test]
+async fn test_create_thread_rejects_unknown_root_event() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let token = super::create_test_user(&app).await;
+    let room_id = create_room(&app, &token).await;
+
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/vendor/v1/rooms/{}/threads", room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "root_event_id": "$does_not_exist:localhost" }).to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::NOT_FOUND,
+        "线程根事件不存在时必须 404，而不是在影子表里造一行指向空气的线程"
+    );
+}
+
 #[tokio::test]
 async fn test_get_thread_returns_real_thread_details() {
     let Some(app) = super::setup_fresh_test_app().await else {
@@ -288,9 +353,8 @@ async fn test_get_thread_returns_real_thread_details() {
     let room_id = create_room(&app, &token).await;
     let root_event_id = send_message(&app, &token, &room_id, "thread_root_txn").await;
     let thread_id = create_thread(&app, &token, &room_id, &root_event_id).await;
-    let reply_event_id = format!("$thread_reply_{}", rand::random::<u64>());
 
-    add_reply(&app, &token, &room_id, &thread_id, &root_event_id, &reply_event_id).await;
+    add_reply(&app, &token, &room_id, &thread_id).await;
 
     let response = get_thread_response(&app, &token, &room_id, &thread_id).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -553,7 +617,7 @@ async fn test_room_thread_search_returns_envelope_and_paginates_by_cursor() {
     for i in 0..2 {
         let root_event_id = send_message(&app, &token, &room_id, &format!("search_root_txn_{i}")).await;
         let thread_id = create_thread(&app, &token, &room_id, &root_event_id).await;
-        add_reply(&app, &token, &room_id, &thread_id, &root_event_id, &format!("$search_reply_{i}:localhost")).await;
+        add_reply(&app, &token, &room_id, &thread_id).await;
         expected.push(thread_id);
     }
     expected.sort();

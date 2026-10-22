@@ -129,14 +129,9 @@ async fn create_thread(app: &axum::Router, token: &str, room_id: &str, root_even
     json["thread_id"].as_str().unwrap().to_string()
 }
 
-async fn add_thread_reply(
-    app: &axum::Router,
-    token: &str,
-    room_id: &str,
-    thread_id: &str,
-    root_event_id: &str,
-    event_id: &str,
-) {
+/// 发一条线程回复。请求体不带 `event_id` / `root_event_id`：回复事件的 id 由
+/// 服务端写入口定稿，关联目标由 `thread_id` 决定（见 W3 / ARCH-01）。
+async fn add_thread_reply(app: &axum::Router, token: &str, room_id: &str, thread_id: &str) {
     let request = Request::builder()
         .method("POST")
         .uri(format!("/_matrix/client/v1/rooms/{}/threads/{}/replies", room_id, thread_id))
@@ -144,8 +139,6 @@ async fn add_thread_reply(
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
-                "event_id": event_id,
-                "root_event_id": root_event_id,
                 "content": {
                     "msgtype": "m.text",
                     "body": "thread reply"
@@ -1008,8 +1001,7 @@ async fn test_room_thread_contract_returns_replies_when_thread_exists() {
     let room_id = create_room(&app, &token, "Room Thread Replies Contract").await;
     let root_event_id = send_message(&app, &token, &room_id, "thread_root_txn").await;
     let thread_id = create_thread(&app, &token, &room_id, &root_event_id).await;
-    let reply_event_id = format!("$thread_reply_{}", rand::random::<u64>());
-    add_thread_reply(&app, &token, &room_id, &thread_id, &root_event_id, &reply_event_id).await;
+    add_thread_reply(&app, &token, &room_id, &thread_id).await;
 
     let encoded_room_id = encode_room_id(&room_id);
     let response = ServiceExt::<Request<Body>>::oneshot(

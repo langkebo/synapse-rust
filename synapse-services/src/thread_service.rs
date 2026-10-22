@@ -14,6 +14,9 @@ use tracing::{debug, info, warn};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 
+use crate::relations_service::{RelationsService, SendReferenceRequest};
+use crate::room::messaging::service::MessagingService;
+
 /// The `CreateThreadRequest` struct.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CreateThreadRequest {
@@ -24,16 +27,15 @@ pub struct CreateThreadRequest {
 }
 
 /// The `CreateReplyRequest` struct.
+///
+/// 注意：请求里**没有** `event_id` —— 回复事件的 id 由服务端写入口在落库时定稿
+/// （v3+ 房间是引用哈希）。调用方拿响应里的 `event_id`。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CreateReplyRequest {
     /// The `room_id` field.
     pub room_id: String,
     /// The `thread_id` field.
     pub thread_id: String,
-    /// The `event_id` field.
-    pub event_id: String,
-    /// The `root_event_id` field.
-    pub root_event_id: String,
     /// The `content` field.
     pub content: serde_json::Value,
     /// The `in_reply_to_event_id` field.
@@ -198,16 +200,99 @@ pub struct SubscribedThreadsResponse {
     pub next_batch: Option<String>,
 }
 
+/// 一条线程回复最终落成的规范事件。
+///
+/// `content` 是**落库后**的内容（已注入 `m.relates_to`），影子表照着它抄，
+/// 才能保证索引与事件逐字节一致。
+#[derive(Debug, Clone)]
+pub struct CanonicalThreadEvent {
+    /// 定稿后的 `event_id`。
+    pub event_id: String,
+    /// 落库后的 `content`。
+    pub content: serde_json::Value,
+}
+
+/// 线程服务对事件层的唯一依赖。
+///
+/// 线程在协议上不是新对象：根就是那条既有事件，回复是携带
+/// `m.relates_to: {rel_type: "m.thread", event_id: <root>}` 的普通 `m.room.message`。
+/// 因此 `thread_roots` / `thread_replies` 只能是这些规范事件的**索引**，
+/// 服务层需要事件层提供的也只有两件事：根是否存在、回复落成哪条事件。
+#[async_trait::async_trait]
+pub trait ThreadEventPort: Send + Sync {
+    /// 确认线程根是房间里真实存在的事件；不存在时返回 404。
+    async fn ensure_canonical_root(&self, room_id: &str, root_event_id: &str) -> Result<(), ApiError>;
+
+    /// 把一条回复写成规范 `m.thread` 事件，返回定稿后的事件。
+    async fn send_thread_reply(
+        &self,
+        room_id: &str,
+        sender: &str,
+        root_event_id: &str,
+        content: serde_json::Value,
+        origin_server_ts: i64,
+    ) -> Result<CanonicalThreadEvent, ApiError>;
+}
+
+/// 生产实现：走与其它本地事件同一个写入口
+/// （`RelationsService::send_reference` 内部即 `MessagingService::create_event`），
+/// 因此 id 定稿、房间摘要、广播、`event_relations` 索引都只有一份实现。
+pub struct CanonicalThreadEvents {
+    relations: Arc<RelationsService>,
+    messaging: Arc<MessagingService>,
+}
+
+impl CanonicalThreadEvents {
+    /// See [`new`].
+    pub fn new(relations: Arc<RelationsService>, messaging: Arc<MessagingService>) -> Self {
+        Self { relations, messaging }
+    }
+}
+
+#[async_trait::async_trait]
+impl ThreadEventPort for CanonicalThreadEvents {
+    async fn ensure_canonical_root(&self, room_id: &str, root_event_id: &str) -> Result<(), ApiError> {
+        // `get_event` 在事件缺失或不属于该房间时都回 404，正是这里要的语义。
+        self.messaging.get_event(room_id, root_event_id).await?;
+        Ok(())
+    }
+
+    async fn send_thread_reply(
+        &self,
+        room_id: &str,
+        sender: &str,
+        root_event_id: &str,
+        content: serde_json::Value,
+        origin_server_ts: i64,
+    ) -> Result<CanonicalThreadEvent, ApiError> {
+        let relation = self
+            .relations
+            .send_reference(SendReferenceRequest {
+                room_id: room_id.to_string(),
+                relates_to_event_id: root_event_id.to_string(),
+                sender: sender.to_string(),
+                content,
+                origin_server_ts,
+                relation_type: Some("m.thread".to_string()),
+                txn_id: None,
+            })
+            .await?;
+
+        Ok(CanonicalThreadEvent { event_id: relation.event_id, content: relation.content })
+    }
+}
+
 /// The `ThreadService` struct.
 #[derive(Clone)]
 pub struct ThreadService {
     storage: Arc<dyn ThreadStoreApi>,
+    events: Arc<dyn ThreadEventPort>,
 }
 
 impl ThreadService {
     /// See [`new`].
-    pub fn new(storage: Arc<dyn ThreadStoreApi>) -> Self {
-        Self { storage }
+    pub fn new(storage: Arc<dyn ThreadStoreApi>, events: Arc<dyn ThreadEventPort>) -> Self {
+        Self { storage, events }
     }
 
     /// See [`get_thread_root`].
@@ -280,6 +365,10 @@ impl ThreadService {
 
         let thread_id = format!("${}", uuid::Uuid::new_v4().simple());
 
+        // 线程根不是新建事件，而是那条既有事件；影子行只有在根真实存在时
+        // 才有资格成为它的索引。
+        self.events.ensure_canonical_root(&request.room_id, &request.root_event_id).await?;
+
         let params = CreateThreadRootParams {
             room_id: request.room_id,
             root_event_id: request.root_event_id,
@@ -312,11 +401,13 @@ impl ThreadService {
     }
 
     /// See [`add_reply`].
+    ///
+    /// 先落规范事件、再写影子索引：影子表是事件的索引，索引可以落后，
+    /// 但绝不能凭空造出 `events` 里不存在的事件。
     pub async fn add_reply(&self, sender: &str, request: CreateReplyRequest) -> Result<ThreadReply, ApiError> {
         info!(
             room_id = %request.room_id,
             thread_id = %request.thread_id,
-            event_id = %request.event_id,
             sender = %sender,
             "Adding reply to thread"
         );
@@ -332,14 +423,27 @@ impl ThreadService {
             return Err(ApiError::bad_request("Thread is frozen and cannot accept new replies"));
         }
 
+        // 关联目标取影子根行里的 `root_event_id`，而不是客户端传的值：
+        // `thread_id` 已经唯一确定了线程，客户端无从改写 `m.thread` 的指向。
+        let canonical = self
+            .events
+            .send_thread_reply(
+                &request.room_id,
+                sender,
+                &thread_root.root_event_id,
+                request.content,
+                request.origin_server_ts,
+            )
+            .await?;
+
         let params = CreateThreadReplyParams {
             room_id: request.room_id,
             thread_id: request.thread_id,
-            event_id: request.event_id,
-            root_event_id: request.root_event_id,
+            event_id: canonical.event_id,
+            root_event_id: thread_root.root_event_id,
             sender: sender.to_string(),
             in_reply_to_event_id: request.in_reply_to_event_id,
-            content: request.content,
+            content: canonical.content,
             origin_server_ts: request.origin_server_ts,
         };
 
@@ -801,6 +905,7 @@ impl ThreadService {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use synapse_common::error::ApiError;
 
     #[test]
     fn test_create_thread_request() {
@@ -817,8 +922,6 @@ mod tests {
         let request = super::CreateReplyRequest {
             room_id: "!room:example.com".to_string(),
             thread_id: "$thread:example.com".to_string(),
-            event_id: "$reply:example.com".to_string(),
-            root_event_id: "$root:example.com".to_string(),
             content: serde_json::json!({"msgtype": "m.text", "body": "Reply"}),
             in_reply_to_event_id: Some("$prev:example.com".to_string()),
             origin_server_ts: 1234567890,
@@ -980,11 +1083,49 @@ mod tests {
     // they break silently if the storage layer's freeze flag does not
     // propagate onto `ThreadRoot.is_fetched` (the field the service reads).
 
+    /// 单元测试用的最小事件端口：根永远存在，回复 id 由计数器定稿。
+    struct StubThreadEvents {
+        next_reply: std::sync::atomic::AtomicU64,
+    }
+
+    impl StubThreadEvents {
+        fn new() -> Self {
+            Self { next_reply: std::sync::atomic::AtomicU64::new(0) }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl super::ThreadEventPort for StubThreadEvents {
+        async fn ensure_canonical_root(&self, _room_id: &str, _root_event_id: &str) -> Result<(), ApiError> {
+            Ok(())
+        }
+
+        async fn send_thread_reply(
+            &self,
+            _room_id: &str,
+            _sender: &str,
+            root_event_id: &str,
+            content: serde_json::Value,
+            _origin_server_ts: i64,
+        ) -> Result<super::CanonicalThreadEvent, ApiError> {
+            let n = self.next_reply.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let mut content = content;
+            if let Some(obj) = content.as_object_mut() {
+                obj.insert(
+                    "m.relates_to".to_string(),
+                    serde_json::json!({ "rel_type": "m.thread", "event_id": root_event_id }),
+                );
+            }
+            Ok(super::CanonicalThreadEvent { event_id: format!("$stub_reply_{n}:example.com"), content })
+        }
+    }
+
     fn make_service_with_thread() -> (super::ThreadService, String, String) {
         let rt = tokio::runtime::Runtime::new().expect("tokio runtime for thread service test");
         let storage: Arc<dyn synapse_storage::thread::ThreadStoreApi> =
             Arc::new(synapse_storage::test_mocks::InMemoryThreadStore::new());
-        let service = super::ThreadService::new(storage);
+        let events: Arc<dyn super::ThreadEventPort> = Arc::new(StubThreadEvents::new());
+        let service = super::ThreadService::new(storage, events);
 
         let room_id = "!room:example.com".to_string();
         let request =
@@ -998,8 +1139,6 @@ mod tests {
         super::CreateReplyRequest {
             room_id: room_id.to_string(),
             thread_id: thread_id.to_string(),
-            event_id: "$reply:example.com".to_string(),
-            root_event_id: "$root:example.com".to_string(),
             content: serde_json::json!({"msgtype": "m.text", "body": "reply"}),
             in_reply_to_event_id: None,
             origin_server_ts: 1_700_000_000_000,
@@ -1085,7 +1224,8 @@ mod tests {
     fn make_paginated_service() -> (super::ThreadService, Arc<synapse_storage::test_mocks::InMemoryThreadStore>) {
         let store = Arc::new(synapse_storage::test_mocks::InMemoryThreadStore::new());
         let storage: Arc<dyn synapse_storage::thread::ThreadStoreApi> = store.clone();
-        let service = super::ThreadService::new(storage);
+        let events: Arc<dyn super::ThreadEventPort> = Arc::new(StubThreadEvents::new());
+        let service = super::ThreadService::new(storage, events);
         (service, store)
     }
 
