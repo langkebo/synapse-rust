@@ -226,14 +226,20 @@ bash scripts/test_db_template.sh ensure   # 幂等，已含 CHECKPOINT
 实测锚点：admin 子集 110 条 = **709 s**（4 线程，≈6.4 s/条）。全量 1619 条线性外推 **2–2.5 h**，
 与文档自估的 ~2 h 一致。
 
-夜间跑法：
+夜间跑法（**已固化成脚本，不要手敲**）：
 
 ```bash
-TEST_DATABASE_URL="postgresql://synapse:$(bash scripts/lib/db_credentials.sh password)@localhost:5432/synapse_test" \
-  cargo nextest run --test integration \
-  --features "test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications" \
-  --no-fail-fast > /tmp/full_suite_$(date +%H%M).log 2>&1
+bash scripts/run_full_integration.sh                       # 全量，约 90 min
+JOBS=1 bash scripts/run_full_integration.sh                # PG 锁表打爆时降并发
+bash scripts/run_full_integration.sh -E 'test(api_admin_)'  # 透传给 nextest（别加 `--`）
+bash scripts/run_full_integration.sh --classify /tmp/xxx.log  # 只复核历史日志
 ```
+
+脚本封住的四件事（都是 2026-10-22 那次手工执行踩出来的）：
+`--all-features`（少它出 3 条假红）、`--no-fail-fast`（少它 1500 条根本不跑）、
+`-j 2`（8 路并行把 PG 锁表打爆）、以及**库没准备好就拒跑**（`setup_fresh_test_app()`
+拿不到库时用例静默 return、nextest 记 PASS ⇒ 假绿）。退出码：0 全绿 / 1 有真失败 /
+2 只有基础设施失败 / 3 前置未通过。
 
 **别和别的活并行**：它独占 `target/` 锁与 PG 连接池，并行只会两边都慢（§3 的计时实验同理）。
 
