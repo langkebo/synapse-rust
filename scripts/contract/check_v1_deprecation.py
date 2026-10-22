@@ -111,7 +111,16 @@ def write_baselines(paired: list[dict], lone: list[dict]) -> None:
         encoding="utf-8",
     )
     NO_TWIN_BASELINE.write_text(
-        "# 没有 v3 孪生的 `/_matrix/client/v1` 端点 —— **删了就真断**（客户端没有替代品）。\n"
+        "# 没有 v3 孪生的 `/_matrix/client/v1` 端点。\n"
+        "#\n"
+        "# 这一批**分两类**，都不是缺陷（逐条出处见 docs/audit/A3_v1_deprecation_strategy.md\n"
+        "# 的「2026-10-22 复核」一节）：\n"
+        "#   * 规范指定用 v1 —— MSC3266 summary / MSC3856 threads / MSC3916 media /\n"
+        "#     MSC4108 rendezvous / MSC2965 auth_metadata / spec v1.6 timestamp_to_event；\n"
+        "#   * 私有扩展 —— proxy/*、appservice/fed_proxy、user/{id}/appservice、config/client、\n"
+        "#     login/{get_token,qr_token}、POST v1/sync；正确去路是 /_matrix/vendor/v1，不是 v3。\n"
+        "#\n"
+        "# 因此**不要**给这里任何一条补 v3 孪生：那是凭空扩大非标准 API 面，门禁会直接拦。\n"
         "#\n"
         "# 每消失一行都必须是刻意决定：先把替代路径（v3 双注册 / vendor 前缀）做实，\n"
         "# 再在本文件里删掉该行并写清迁移依据。门禁两个方向都查：\n"
@@ -170,11 +179,23 @@ def main() -> int:
 
     expected = set(read_no_twin_baseline())
     actual = {f"{r['method']} {r['path']}" for r in lone}
+    present = {f"{r['method']} {r['path']}" for r in routes}
     for gone in sorted(expected - actual):
-        failures.append(
-            f"无 v3 孪生的 v1 端点从路由里消失了：{gone}\n"
-            "    客户端没有替代路径 ⇒ 要么先补 v3 双注册，要么把删除理由写进基线再删这一行",
-        )
+        if gone in present:
+            # 路由还在，只是"不再是没有孪生"⇒ 有人给它加了一条 v3 路径。
+            # 这不是退役，而是**给规范指定用 v1 的端点凭空造标准 v3 路径**，
+            # 会扩大非标准 API 面（见 docs/audit/A3_v1_deprecation_strategy.md 的 2026-10-22 复核）。
+            failures.append(
+                f"给「无孪生」端点加了 v3 孪生：{gone}\n"
+                "    这一批是规范指定用 v1 的（MSC3266/MSC3856/MSC3916/MSC4108/spec v1.6）或私有扩展；\n"
+                "    私有扩展的正确去路是 /_matrix/vendor/v1，不是给它们造 v3。若确属规范变更，\n"
+                "    请同步 --update 基线并在 A3 文档里写清依据",
+            )
+        else:
+            failures.append(
+                f"无 v3 孪生的 v1 端点从路由里消失了：{gone}\n"
+                "    客户端没有替代路径 ⇒ 先把替代路径做实，并把删除理由写进基线再删这一行",
+            )
     for added in sorted(actual - expected):
         failures.append(
             f"新出现一个**没有 v3 孪生**的 v1 端点：{added}\n"
