@@ -116,13 +116,18 @@ fn every_stream_declares_the_namespaces_it_is_mapped_in() {
     // `tests/unit/worker_write_stream_tests.rs` derives the surfaces actually used by
     // the frozen map and requires each of them to be declared here.
     let events: Vec<&str> = WriteStream::Events.mapped_surfaces().iter().map(|s| s.as_str()).collect();
-    assert_eq!(events, ["client", "vendor", "federation"], "events is written from all three namespaces");
+    assert_eq!(
+        events,
+        ["client", "vendor", "federation", "admin"],
+        "events is written from all four namespaces (admin membership/power-level writes included)"
+    );
 
     let device_lists: Vec<&str> = WriteStream::DeviceLists.mapped_surfaces().iter().map(|s| s.as_str()).collect();
     assert_eq!(
         device_lists,
-        ["client"],
-        "device_lists has no federation route of its own — the EDUs ride on `events`' send transaction"
+        ["client", "admin"],
+        "device_lists has no federation route of its own — the EDUs ride on `events`' send transaction — \
+         but the admin API revokes devices directly (`revoke_device` / `logout_all`)"
     );
 
     for stream in WriteStream::all() {
@@ -275,14 +280,19 @@ fn writes_that_touch_no_stream_stay_unmapped() {
 }
 
 #[test]
-fn namespaces_outside_the_ledger_are_never_forwarded() {
-    // Admin and media are outside the route ledger this mapping is frozen against;
-    // claiming them would be a guarantee nothing checks.
+fn namespaces_outside_the_mapping_are_never_forwarded() {
+    // Media, appservice and the key API are outside the mapping. `/_synapse/admin/*` used
+    // to be listed here too; it is now mapped per-route (see `admin_routes_*` in
+    // `tests/unit/worker_write_stream_tests.rs`), and only the admin routes that really
+    // write a stream are attributed.
     for path in [
-        "/_synapse/admin/v1/rooms/x/redact/y",
         "/_matrix/media/v3/upload",
         "/_matrix/app/v1/transactions/1",
         "/_matrix/key/v2/query",
+        // An admin path that exists but writes no managed stream.
+        "/_synapse/admin/v1/rooms/x/cascade_redact",
+        // An admin namespace prefix that is not a real version segment.
+        "/_synapse/admin/internal/rooms/x/ban",
     ] {
         assert_eq!(stream_for_write("PUT", path), None, "{path}");
     }

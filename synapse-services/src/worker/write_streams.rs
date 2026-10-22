@@ -38,19 +38,28 @@
 //!   is worse than not doing it at all: the duplicated post-commit fan-out in the
 //!   table above happens on the federation entry points too.
 //!
-//! Two writes deliberately stay outside the mapping, and both are documented where
-//! they live rather than papered over:
+//! One write deliberately stays outside the mapping because it has no route at all:
+//! the **delayed-event dispatcher** (`src/server/mod.rs`) injects due events without
+//! an HTTP request, so [`owns_events_dispatch`] — not a route — decides which instance
+//! runs it.
 //!
-//! * the **delayed-event dispatcher** (`src/server/mod.rs`) injects due events
-//!   without an HTTP request, so [`owns_events_dispatch`] — not a route — decides
-//!   which instance runs it;
-//! * **admin** (`/_synapse/admin/…`) is out of the route ledger this mapping is
-//!   frozen against, so an admin-triggered room write is not forwarded. This is a
-//!   known, recorded gap (audit §5.3), not an oversight.
+//! The **admin** namespace (`/_synapse/admin/…`) *is* mapped (`WriteSurface::Admin`):
+//! 16 of its 156 write routes really write a managed stream (membership, power levels,
+//! backfill, server notices, device revocation), and leaving it out made "single
+//! writer" false on those paths. The other 140 rows are frozen as `-` so a new admin
+//! write route forces a decision instead of slipping through.
 
 use synapse_common::config::worker::WorkerConfig;
 
 use crate::worker::topology_validator::resolved_current_instance_name;
+
+mod admin;
+mod paths;
+
+pub use paths::WriteSurface;
+
+use admin::admin_stream;
+use paths::mapped_path;
 
 /// One of the eight streams `worker.stream_writers` can name.
 ///
@@ -114,14 +123,17 @@ impl WriteStream {
     /// instead of quietly widening the claim.
     pub fn mapped_surfaces(self) -> &'static [WriteSurface] {
         match self {
-            Self::Events => &[WriteSurface::Client, WriteSurface::Vendor, WriteSurface::Federation],
+            Self::Events => {
+                &[WriteSurface::Client, WriteSurface::Vendor, WriteSurface::Federation, WriteSurface::Admin]
+            }
             Self::Receipts => &[WriteSurface::Client, WriteSurface::Vendor],
-            Self::Typing
-            | Self::ToDevice
-            | Self::AccountData
-            | Self::Presence
-            | Self::PushRules
-            | Self::DeviceLists => &[WriteSurface::Client],
+            // `device_lists` is written by the admin surface too: `DELETE
+            // /users/{u}/devices/{d}`, `/users/{u}/logout` and
+            // `/user_sessions/{u}/invalidate` all reach `revoke_device` / `logout_all`.
+            Self::DeviceLists => &[WriteSurface::Client, WriteSurface::Admin],
+            Self::Typing | Self::ToDevice | Self::AccountData | Self::Presence | Self::PushRules => {
+                &[WriteSurface::Client]
+            }
         }
     }
 
@@ -157,33 +169,6 @@ impl WriteStream {
     /// change it.
     pub fn notify_bound(self) -> bool {
         matches!(self, Self::Events | Self::ToDevice)
-    }
-}
-
-/// The request namespace a write arrives in.
-///
-/// One stream can be written from more than one namespace — `events` is written by the
-/// client API *and* by federation — so the classifier keeps them apart instead of
-/// flattening paths: the same segment shape means different things on either side
-/// (`/_matrix/federation/v1/send/{txn}` is a PDU transaction, not a room message).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum WriteSurface {
-    /// `/_matrix/client/{version}/…` — the client-server API.
-    Client,
-    /// `/_matrix/vendor/v1/…` — this server's non-standard extensions.
-    Vendor,
-    /// `/_matrix/federation/{version}/…` — the server-server API.
-    Federation,
-}
-
-impl WriteSurface {
-    /// Stable name, used in diagnostics and by the guard test.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Client => "client",
-            Self::Vendor => "vendor",
-            Self::Federation => "federation",
-        }
     }
 }
 
@@ -447,6 +432,13 @@ pub fn stream_for_write(method: &str, path: &str) -> Option<WriteStream> {
     let (surface, segments) = mapped_path(path)?;
     let segments = segments.as_slice();
 
+    // Admin writes are classified in `admin.rs`, and that module **returns** for every
+    // admin path (including `None`) so shape coincidence with the client routes cannot
+    // decide the attribution. See its module docs for the 16-of-156 breakdown.
+    if surface == WriteSurface::Admin {
+        return admin_stream(segments);
+    }
+
     // ── device_lists: the device-management surface ──────────────────────────
     //
     // Client-only on purpose: federation has no device-management routes, and the
@@ -543,68 +535,6 @@ pub fn stream_for_write(method: &str, path: &str) -> Option<WriteStream> {
 
         _ => None,
     }
-}
-
-/// Split a request path into its namespace and version-independent segments.
-///
-/// `/_matrix/client/v3/rooms/{id}/receipt/x/y` and
-/// `/_matrix/vendor/v1/rooms/{id}/receipt/x/y` must produce the same segments: the same
-/// handler serves both spellings, and a rule keyed on one of them silently misses the
-/// other. Unstable MSC namespaces (`org.matrix.*`, `uk.tcpip.*`, `io.element.*`) are
-/// dropped for the same reason.
-///
-/// **Federation is the exception**: its version segment is kept as the first element,
-/// because `v1/invite` (validates the PDU, writes nothing) and `v2/invite` (persists it)
-/// have the same shape and different write behaviour. Dropping the version there would
-/// claim they are the same write.
-///
-/// Returns `None` for anything outside these three namespaces. `/_synapse/admin/…` is
-/// deliberately out of scope (see the module documentation), and so is `/_matrix/media/…`
-/// (uploads are not stream writes).
-fn mapped_path(path: &str) -> Option<(WriteSurface, Vec<&str>)> {
-    if let Some(rest) = path.strip_prefix("/_matrix/client/") {
-        let (version, tail) = rest.split_once('/')?;
-        if version == "unstable" {
-            let mut segments = split_segments(tail);
-            drop_msc_namespace(&mut segments);
-            return Some((WriteSurface::Client, segments));
-        }
-        if matches!(version, "r0" | "v1" | "v2" | "v3" | "v4" | "v5") {
-            return Some((WriteSurface::Client, split_segments(tail)));
-        }
-        return None;
-    }
-    if let Some(tail) = path.strip_prefix("/_matrix/vendor/v1/") {
-        return Some((WriteSurface::Vendor, split_segments(tail)));
-    }
-    if let Some(rest) = path.strip_prefix("/_matrix/federation/") {
-        let (version, tail) = rest.split_once('/')?;
-        if !matches!(version, "v1" | "v2" | "unstable") {
-            return None;
-        }
-        let mut segments = vec![version];
-        let mut tail_segments = split_segments(tail);
-        if version == "unstable" {
-            drop_msc_namespace(&mut tail_segments);
-        }
-        segments.extend(tail_segments);
-        return Some((WriteSurface::Federation, segments));
-    }
-    None
-}
-
-fn split_segments(rest: &str) -> Vec<&str> {
-    rest.split('/').filter(|segment| !segment.is_empty()).collect()
-}
-
-fn drop_msc_namespace(segments: &mut Vec<&str>) {
-    if segments.first().is_some_and(|segment| is_msc_namespace(segment)) {
-        segments.remove(0);
-    }
-}
-
-fn is_msc_namespace(segment: &str) -> bool {
-    segment.starts_with("org.matrix.") || segment.starts_with("uk.tcpip.") || segment.starts_with("io.element.")
 }
 
 /// Does *this* instance run the MSC4140 delayed-event dispatcher?

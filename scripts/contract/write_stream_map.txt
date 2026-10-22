@@ -7,11 +7,13 @@
 # （这些数据不在房间 DAG 里）。
 #
 # ⚠️ 这份清单是**双向棘轮**（`tests/unit/worker_write_stream_tests.rs`）：
-#   1. 清单里的 (method, path) 必须与真实路由表 `declared_ledger_all()` 的客户端写面
-#      （含联邦面）**完全一致** —— 新增一个写路由而不改这里，测试红（逼你做
-#      "它属于哪一路流"的决定）；
+#   1. 清单里的 (method, path) 必须与真实路由表 `declared_ledger_all()` 的写面
+#      （客户端 + vendor + 联邦 + **管理面**）**完全一致** —— 新增一个写路由而不改这里，
+#      测试红（逼你做"它属于哪一路流"的决定）；
 #   2. 第三列必须与 `stream_for_write()` 的返回值一致
 #      —— 代码里改了匹配规则而不改这里，同样红。
+#   3. 一条流声明了哪些命名空间（`WriteStream::mapped_surfaces`），它的行就必须来自那些
+#      命名空间 —— 给只映射客户端面的流加一行联邦面，同样红。
 #
 # 为什么需要它：`stream_for_write` 漏掉一条本该归流的写路由时，那一路就悄悄回到多写者状态，
 # 而**没有任何运行期症状**。这份清单把"漏掉"变成一次提交时的失败。
@@ -333,3 +335,184 @@ PUT	/_matrix/federation/v2/invite/{room_id}/{event_id}	events
 PUT	/_matrix/federation/v2/send_join/{room_id}/{event_id}	events
 PUT	/_matrix/federation/v2/send_leave/{room_id}/{event_id}	events
 POST	/_matrix/federation/v2/user/keys/query	-
+
+# ── 管理面（`/_synapse/admin/*`，C-S 之外的运营接口）─────────────────────────────
+#
+# 这个命名空间同样在 `declared_ledger_all()` 里（156 条写路由），所以**不需要**换账本
+# 来源，直接逐条判归属即可。只有 **16 条**真的写受管流，其余 140 条记 `-`：它们改的是
+# 服务端表（users / media / tokens / retention / room_directory / audit），不写房间 DAG、
+# 也不写 `device_lists_stream`。
+#
+# 判据是读 handler 得来的（每条都追到 `create_event` / `upsert_power_levels_event` /
+# `create_event_with_graph` / `revoke_device` / `logout_all`），**不是**按路径名猜：
+#   * `events`（12）  —— ban×2 / kick×2 / unban / members PUT|DELETE / make_admin×2 /
+#                      backfill / join / send_server_notice
+#   * `device_lists`（4）—— 删设备两种拼写 / users/{u}/logout / user_sessions/{u}/invalidate
+#
+# ⚠️ 三条看着像、实际**不**归流的（已逐条核实，别再"顺手"加进来）：
+#   * `POST /rooms/{id}/shutdown_room` —— 只 `UPDATE rooms SET is_public=false` + 清成员行，
+#     不发事件、不广播（`synapse-storage/src/room/mod.rs:1023`）；
+#   * `POST /users/{u}/evict` —— 逐房间调**存储层** `remove_member`，不是 `leave_room`，
+#     所以不产生 `m.room.member`（`synapse-services/src/admin_user_service.rs:321`）；
+#   * `PUT|DELETE /rooms/{id}/listings/public` —— 只改 `rooms.is_public` + `room_directory`
+#     （`synapse-storage/src/room/admin.rs:417`），没有 `m.room.join_rules`。
+#
+# ⚠️ 与客户端面**同名不同路**：`/_matrix/client/v3/admin/room/{id}/redact` 住在客户端
+#    命名空间（已归 `events`），而 `/_synapse/admin/v1/rooms/{id}/cascade_redact` **不**
+#    持久化 `m.room.redaction`（只回填 `events.redacted_by`），所以后者是 `-`。
+POST	/_synapse/admin/v1/account/{user_id}	-
+POST	/_synapse/admin/v1/account_data_callbacks	-
+POST	/_synapse/admin/v1/account_validity	-
+POST	/_synapse/admin/v1/account_validity/{user_id}/renew	-
+POST	/_synapse/admin/v1/appservices	-
+DELETE	/_synapse/admin/v1/appservices/{as_id}	-
+PUT	/_synapse/admin/v1/appservices/{as_id}	-
+POST	/_synapse/admin/v1/appservices/{as_id}/events	-
+POST	/_synapse/admin/v1/appservices/{as_id}/ping	-
+POST	/_synapse/admin/v1/appservices/{as_id}/state	-
+POST	/_synapse/admin/v1/appservices/{as_id}/users	-
+POST	/_synapse/admin/v1/audit/events	-
+POST	/_synapse/admin/v1/background_updates	-
+POST	/_synapse/admin/v1/background_updates/cleanup_locks	-
+POST	/_synapse/admin/v1/background_updates/retry_failed	-
+DELETE	/_synapse/admin/v1/background_updates/{job_name}	-
+POST	/_synapse/admin/v1/background_updates/{job_name}/cancel	-
+POST	/_synapse/admin/v1/background_updates/{job_name}/complete	-
+POST	/_synapse/admin/v1/background_updates/{job_name}/fail	-
+POST	/_synapse/admin/v1/background_updates/{job_name}/progress	-
+POST	/_synapse/admin/v1/background_updates/{job_name}/start	-
+POST	/_synapse/admin/v1/captcha/cleanup	-
+POST	/_synapse/admin/v1/cas/services	-
+DELETE	/_synapse/admin/v1/cas/services/{service_id}	-
+POST	/_synapse/admin/v1/cas/users/{user_id}/attributes	-
+POST	/_synapse/admin/v1/cleanup/all	-
+POST	/_synapse/admin/v1/cleanup/rooms	-
+POST	/_synapse/admin/v1/cleanup/tokens	-
+POST	/_synapse/admin/v1/deactivate/{user_id}	-
+POST	/_synapse/admin/v1/event_reports	-
+POST	/_synapse/admin/v1/event_reports/rate_limit/{user_id}/block	-
+POST	/_synapse/admin/v1/event_reports/rate_limit/{user_id}/unblock	-
+DELETE	/_synapse/admin/v1/event_reports/{id}	-
+PUT	/_synapse/admin/v1/event_reports/{id}	-
+POST	/_synapse/admin/v1/event_reports/{id}/dismiss	-
+POST	/_synapse/admin/v1/event_reports/{id}/escalate	-
+POST	/_synapse/admin/v1/event_reports/{id}/resolve	-
+POST	/_synapse/admin/v1/external_services	-
+DELETE	/_synapse/admin/v1/external_services/{as_id}	-
+PUT	/_synapse/admin/v1/external_services/{as_id}	-
+POST	/_synapse/admin/v1/external_services/{as_id}/health/check	-
+POST	/_synapse/admin/v1/feature-flags	-
+DELETE	/_synapse/admin/v1/feature-flags/{flag_key}	-
+PATCH	/_synapse/admin/v1/feature-flags/{flag_key}	-
+DELETE	/_synapse/admin/v1/federation/blacklist/{server_name}	-
+POST	/_synapse/admin/v1/federation/blacklist/{server_name}	-
+POST	/_synapse/admin/v1/federation/cache/clear	-
+DELETE	/_synapse/admin/v1/federation/cache/{key}	-
+POST	/_synapse/admin/v1/federation/confirm	-
+DELETE	/_synapse/admin/v1/federation/destinations/{destination}	-
+POST	/_synapse/admin/v1/federation/destinations/{destination}/reset_connection	-
+POST	/_synapse/admin/v1/federation/resolve	-
+POST	/_synapse/admin/v1/federation/rewrite	-
+POST	/_synapse/admin/v1/invite/allowlist	-
+DELETE	/_synapse/admin/v1/invite/allowlist/{user_id}	-
+POST	/_synapse/admin/v1/invite/allowlist/{user_id}	-
+POST	/_synapse/admin/v1/invite/blocklist	-
+DELETE	/_synapse/admin/v1/invite/blocklist/{user_id}	-
+POST	/_synapse/admin/v1/invite/blocklist/{user_id}	-
+POST	/_synapse/admin/v1/join/{room_id_or_alias}	events
+POST	/_synapse/admin/v1/media/delete	-
+POST	/_synapse/admin/v1/media/protect/{media_id}	-
+POST	/_synapse/admin/v1/media/protect/{server_name}/{media_id}	-
+POST	/_synapse/admin/v1/media/quarantine/{server_name}/{media_id}	-
+POST	/_synapse/admin/v1/media/unprotect/{media_id}	-
+POST	/_synapse/admin/v1/media/unquarantine/{server_name}/{media_id}	-
+DELETE	/_synapse/admin/v1/media/{media_id}	-
+DELETE	/_synapse/admin/v1/media/{server_name}/{media_id}	-
+POST	/_synapse/admin/v1/media_callbacks	-
+POST	/_synapse/admin/v1/modules	-
+POST	/_synapse/admin/v1/modules/check_spam	-
+POST	/_synapse/admin/v1/modules/check_third_party_rule	-
+DELETE	/_synapse/admin/v1/modules/{module_name}	-
+PUT	/_synapse/admin/v1/modules/{module_name}/config	-
+POST	/_synapse/admin/v1/modules/{module_name}/enable	-
+POST	/_synapse/admin/v1/notifications	-
+DELETE	/_synapse/admin/v1/notifications/{notification_id}	-
+PUT	/_synapse/admin/v1/notifications/{notification_id}	-
+PUT	/_synapse/admin/v1/notifications/{notification_id}/deactivate	-
+POST	/_synapse/admin/v1/password_auth_providers	-
+POST	/_synapse/admin/v1/policy/check	-
+POST	/_synapse/admin/v1/purge_history	-
+POST	/_synapse/admin/v1/purge_media_cache	-
+POST	/_synapse/admin/v1/purge_room	-
+POST	/_synapse/admin/v1/push/cleanup	-
+PUT	/_synapse/admin/v1/push/config	-
+POST	/_synapse/admin/v1/push/process	-
+POST	/_synapse/admin/v1/register	-
+POST	/_synapse/admin/v1/registration_tokens	-
+DELETE	/_synapse/admin/v1/registration_tokens/{token}	-
+POST	/_synapse/admin/v1/registration_tokens/{token}	-
+DELETE	/_synapse/admin/v1/reports/{report_id}	-
+POST	/_synapse/admin/v1/restart	-
+POST	/_synapse/admin/v1/retention/policy	-
+POST	/_synapse/admin/v1/retention/policy/{room_id}	-
+POST	/_synapse/admin/v1/retention/run	-
+POST	/_synapse/admin/v1/rooms/cleanup	-
+POST	/_synapse/admin/v1/rooms/search	-
+DELETE	/_synapse/admin/v1/rooms/{room_id}	-
+POST	/_synapse/admin/v1/rooms/{room_id}/backfill	events
+POST	/_synapse/admin/v1/rooms/{room_id}/ban	events
+POST	/_synapse/admin/v1/rooms/{room_id}/ban/{user_id}	events
+POST	/_synapse/admin/v1/rooms/{room_id}/block	-
+POST	/_synapse/admin/v1/rooms/{room_id}/cascade_redact	-
+POST	/_synapse/admin/v1/rooms/{room_id}/kick	events
+POST	/_synapse/admin/v1/rooms/{room_id}/kick/{user_id}	events
+DELETE	/_synapse/admin/v1/rooms/{room_id}/listings/public	-
+PUT	/_synapse/admin/v1/rooms/{room_id}/listings/public	-
+POST	/_synapse/admin/v1/rooms/{room_id}/make_admin	events
+PUT	/_synapse/admin/v1/rooms/{room_id}/make_admin	events
+POST	/_synapse/admin/v1/rooms/{room_id}/media/quarantine	-
+POST	/_synapse/admin/v1/rooms/{room_id}/media/unquarantine	-
+DELETE	/_synapse/admin/v1/rooms/{room_id}/media/{media_id}	-
+DELETE	/_synapse/admin/v1/rooms/{room_id}/members/{user_id}	events
+PUT	/_synapse/admin/v1/rooms/{room_id}/members/{user_id}	events
+POST	/_synapse/admin/v1/rooms/{room_id}/purge_history	-
+DELETE	/_synapse/admin/v1/rooms/{room_id}/reports/{report_id}	-
+POST	/_synapse/admin/v1/rooms/{room_id}/search	-
+POST	/_synapse/admin/v1/rooms/{room_id}/unban/{user_id}	events
+POST	/_synapse/admin/v1/rooms/{room_id}/unblock	-
+PUT	/_synapse/admin/v1/saml/config	-
+POST	/_synapse/admin/v1/saml/logout	-
+DELETE	/_synapse/admin/v1/saml/mapping/{name_id}	-
+PUT	/_synapse/admin/v1/saml/mapping/{name_id}	-
+POST	/_synapse/admin/v1/saml/metadata/refresh	-
+POST	/_synapse/admin/v1/send_server_notice	events
+DELETE	/_synapse/admin/v1/server_notices/{notice_id}	-
+POST	/_synapse/admin/v1/shutdown_room	-
+DELETE	/_synapse/admin/v1/spaces/{space_id}	-
+POST	/_synapse/admin/v1/telemetry/alerts/{alert_id}/ack	-
+POST	/_synapse/admin/v1/user/{user_id}/media/quarantine	-
+POST	/_synapse/admin/v1/user_sessions/{user_id}/invalidate	device_lists
+POST	/_synapse/admin/v1/users/batch	-
+POST	/_synapse/admin/v1/users/batch_deactivate	-
+DELETE	/_synapse/admin/v1/users/{user_id}	-
+PUT	/_synapse/admin/v1/users/{user_id}/admin	-
+POST	/_synapse/admin/v1/users/{user_id}/deactivate	-
+DELETE	/_synapse/admin/v1/users/{user_id}/devices/{device_id}	device_lists
+POST	/_synapse/admin/v1/users/{user_id}/devices/{device_id}/delete	device_lists
+POST	/_synapse/admin/v1/users/{user_id}/evict	-
+POST	/_synapse/admin/v1/users/{user_id}/login	-
+POST	/_synapse/admin/v1/users/{user_id}/logout	device_lists
+DELETE	/_synapse/admin/v1/users/{user_id}/media	-
+PUT	/_synapse/admin/v1/users/{user_id}/notification	-
+DELETE	/_synapse/admin/v1/users/{user_id}/override_ratelimit	-
+POST	/_synapse/admin/v1/users/{user_id}/override_ratelimit	-
+POST	/_synapse/admin/v1/users/{user_id}/password	-
+DELETE	/_synapse/admin/v1/users/{user_id}/pushers/{pushkey}	-
+DELETE	/_synapse/admin/v1/users/{user_id}/rate_limit	-
+PUT	/_synapse/admin/v1/users/{user_id}/rate_limit	-
+DELETE	/_synapse/admin/v1/users/{user_id}/refresh_tokens/{token_id}	-
+DELETE	/_synapse/admin/v1/users/{user_id}/shadow_ban	-
+POST	/_synapse/admin/v1/users/{user_id}/shadow_ban	-
+DELETE	/_synapse/admin/v1/users/{user_id}/tokens/{token_id}	-
+DELETE	/_synapse/admin/v2/users/{user_id}	-
+PUT	/_synapse/admin/v2/users/{user_id}	-
