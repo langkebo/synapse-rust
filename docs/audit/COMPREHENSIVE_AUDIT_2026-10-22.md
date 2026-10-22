@@ -1037,7 +1037,7 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 | 批次 | 主题 | 条目 | 改动性质 | 预估评审面 | 依赖 | 状态 |
 |---|---|---|---|---|---|---|
 | **W0** | P1 一致性收口 | CODE-02、CODE-03 | 根因修复（cache 墓碑）+ 2 个失效 helper + CI 扫描（19+6 处） | 中（但模式统一，见 §10.2） | 无 | ✅ 已提交 `8b8505ff5` |
-| **W1** | P1 配额与事务 | FUNC-06 → FUNC-03、PERF-02 | 契约微调 + 事务包裹 | 中 | 无 | 待开始 |
+| **W1** | P1 配额与事务 | FUNC-06 → FUNC-03、PERF-02 | 契约微调 + 事务包裹 | 中 | 无 | ✅ 已提交 `cc364bd6f`（见 §10.3） |
 | **W2** | P1 授权与信任根 | SEC-01、CODE-05、TEST-01 | 单点逻辑 + cfg 门禁 + 补测试 | 小 | 无 | ✅ 已提交 `85180061c`（见 §10.4） |
 | **W3** | P1 结构决策 | ARCH-01 | **需要决策**（下架/打通），不是纯修 bug | **大** | 需先定方案 | 待决策 |
 | **W4** | P2 资源与性能 | PERF-14、PERF-13、PERF-03/04/05、PERF-07/08/09、PERF-06、CODE-04、CODE-07 | 索引/查询/分批 | 中 | W1（FUNC-06 累计校验） | 待开始 |
@@ -1113,6 +1113,21 @@ delete() → local.remove(key) 成功 → redis.delete(key) 失败（Redis 抖�
 ### 10.3 W1：P1 配额与事务（FUNC-06 → FUNC-03 → PERF-02）
 
 顺序很重要：**先堵住"多传"（FUNC-06），再补"记账"（FUNC-03）**。反过来做，中间态会出现"记账了但没拦住"的更糟组合。
+
+> **落地状态（2026-10-22，本批次已实现，提交 `cc364bd6f`）**。本节原计划与实际实现有 5 处偏差，以实际为准：
+> ① PERF-02 **没有**在 `register_user` 外层包事务（业务层拿不到 `PgPool`），而是把事务下沉到存储层，以 `UserStore::create_registration(NewRegistration)` 作为唯一边界方法——业务层只调一次，五次写入与整体回滚成为该方法的实现细节，`AuthService` 与测试夹具只需各补一个实现；
+> ② 访问/刷新令牌改为**事务外预生成**（`build_access_token` / `build_refresh_token` 返回纯值），事务内只做 INSERT，避免把 CSPRNG 与哈希放进持锁路径；
+> ③ FUNC-03 用「新增带记账语义的变体」而非给既有函数加枚举参数：`upload_media_with_id_accounted(..., exclude_upload_id: Option<&str>)`，`exclude_upload_id` 让 `complete` 排除该会话自身的预占（否则"预占 + 实占"重复计数）；
+> ④ FUNC-06 的 413 在**两层**都做：服务层按 `max_file_size` 判、web 层按 `server.max_upload_size` 早拒绝（同一 errcode），避免超大声明值先把 body 读完才被拒；
+> ⑤ `progress.total_size` 为空的历史 pending 记录保留回退（以 `max_file_size` 作硬上界），加严不会让在途会话卡死。
+>
+> **红/绿证据（`register_is_atomic`）**
+>
+> - 绿（正式实现）：`Creating user in transaction` → `ERROR … violates check constraint "register_is_atomic_no_insert"` → `1 passed`。
+> - 红（临时把用户行改成独立提交，模拟修复前）：`assertion left == right failed: 注册失败后 users 不得残留行 left: 1 right: 0` → `FAILED`；还原注入后重跑恢复 `1 passed`。
+> - 其余三条：`cargo test -p synapse-services --lib --features … chunked_upload` → `6 passed`（含 `chunked_upload_requires_total_size`、`chunked_upload_rejects_lying_total_size`、`chunked_upload_counts_toward_quota`）。
+>
+> **契约**：`ROUTE_CONTRACT.md` 附录 E.17（生成器保留的人工尾段）标注 `total_size` 必填与 400→413；提交后 `check_route_contract.sh` 复核通过（生成物与源码路由面一致）。
 
 **FUNC-06 改动**
 
