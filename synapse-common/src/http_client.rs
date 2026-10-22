@@ -20,11 +20,11 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_CACHED_CLIENTS: usize = 128;
 
 static DEFAULT_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-/// 按 (timeout_ms, no_redirect) 缓存的自定义超时 client，保证连接池复用。
+/// 按 (timeout_ms, no_redirect, no_proxy) 缓存的自定义超时 client，保证连接池复用。
 #[allow(clippy::type_complexity)]
-static TIMEOUT_CLIENTS: OnceLock<Mutex<HashMap<(u64, bool), reqwest::Client>>> = OnceLock::new();
+static TIMEOUT_CLIENTS: OnceLock<Mutex<HashMap<(u64, bool, bool), reqwest::Client>>> = OnceLock::new();
 
-fn build_client(timeout: Duration, no_redirect: bool) -> Result<reqwest::Client, reqwest::Error> {
+fn build_client(timeout: Duration, no_redirect: bool, no_proxy: bool) -> Result<reqwest::Client, reqwest::Error> {
     let mut builder = reqwest::Client::builder()
         .user_agent(USER_AGENT)
         .connect_timeout(DEFAULT_CONNECT_TIMEOUT.min(timeout))
@@ -36,6 +36,12 @@ fn build_client(timeout: Duration, no_redirect: bool) -> Result<reqwest::Client,
         // 联邦密钥抓取的 SSRF 防护依赖禁止重定向（E-1 保留原行为）。
         builder = builder.redirect(reqwest::redirect::Policy::none());
     }
+    if no_proxy {
+        // 进程内/机房间的直连跳**不能**走环境里的 HTTP(S)_PROXY：代理会把请求
+        // 转发给"上游"而不是目标实例（表现为 502），而且会把随请求带的凭据
+        // 交给一个本不该看见它的中间人 —— 见 `no_proxy_client_with_timeout`。
+        builder = builder.no_proxy();
+    }
     builder.build()
 }
 
@@ -44,7 +50,7 @@ fn build_client(timeout: Duration, no_redirect: bool) -> Result<reqwest::Client,
 pub fn default_client() -> reqwest::Client {
     DEFAULT_CLIENT
         .get_or_init(|| {
-            build_client(DEFAULT_TIMEOUT, false).unwrap_or_else(|e| {
+            build_client(DEFAULT_TIMEOUT, false, false).unwrap_or_else(|e| {
                 // builder 失败（如 TLS 后端初始化失败）时绝不静默：记录 warn，
                 // 回退到无配置的 Client（保留 reqwest 内部默认行为）。
                 tracing::warn!(error = %e, "F-1: failed to build shared HTTP client, falling back to reqwest::Client::new()");
@@ -54,8 +60,8 @@ pub fn default_client() -> reqwest::Client {
         .clone()
 }
 
-fn cached_client(timeout: Duration, no_redirect: bool) -> reqwest::Client {
-    let key = (timeout.as_millis() as u64, no_redirect);
+fn cached_client(timeout: Duration, no_redirect: bool, no_proxy: bool) -> reqwest::Client {
+    let key = (timeout.as_millis() as u64, no_redirect, no_proxy);
     let cache = TIMEOUT_CLIENTS.get_or_init(|| Mutex::new(HashMap::new()));
     let mut guard = cache.lock().unwrap_or_else(|p| p.into_inner());
     // 有界防护：超过上限且是新 key 时清空重建（连接池可重新建立），避免无界累积。
@@ -66,13 +72,14 @@ fn cached_client(timeout: Duration, no_redirect: bool) -> reqwest::Client {
     guard
         .entry(key)
         .or_insert_with(|| {
-            build_client(timeout, no_redirect).unwrap_or_else(|e| {
+            build_client(timeout, no_redirect, no_proxy).unwrap_or_else(|e| {
                 // F-1: builder 失败时记录 warn 并回退共享默认 client，不再静默
                 // 退化为无超时的 `Client::new()`。
                 tracing::warn!(
                     error = %e,
                     timeout_ms = key.0,
                     no_redirect = no_redirect,
+                    no_proxy = no_proxy,
                     "F-1: failed to build HTTP client with custom timeout, falling back to shared default client"
                 );
                 default_client()
@@ -83,12 +90,29 @@ fn cached_client(timeout: Duration, no_redirect: bool) -> reqwest::Client {
 
 /// 带自定义总超时的共享 client（F-1）；connect_timeout 取 10s 与 timeout 的较小值。
 pub fn client_with_timeout(timeout: Duration) -> reqwest::Client {
-    cached_client(timeout, false)
+    cached_client(timeout, false, false)
 }
 
 /// 禁止重定向的共享 client（E-1：联邦密钥抓取按 timeout 复用，不再每次新建）。
 pub fn no_redirect_client_with_timeout(timeout: Duration) -> reqwest::Client {
-    cached_client(timeout, true)
+    cached_client(timeout, true, false)
+}
+
+/// 带自定义超时、且**忽略代理环境变量**的共享 client。
+///
+/// 只给"我们自己的实例之间的直连跳"用（当前是 `worker.write_forwarding` 的转发）：
+///
+/// * 语义上这一跳不应该出网 —— `worker.instance_map` 指的是同一部署里的另一个进程；
+///   走 `HTTP_PROXY` 时请求会被交给代理，代理再去连它自己的"上游"，目标根本收不到；
+/// * 安全上更不能走：转发请求带着 `x-synapse-worker-secret`（进程间共享密钥也是
+///   `/worker/v1/*` 的认证凭据）。让一个环境变量把这份凭据送到部署之外的进程里，
+///   等于把集群内部认证交给运维装机时的一个默认值。
+///
+/// 实测（2026-10-22）：在有 `HTTP_PROXY` 的环境里，指向未监听端口的转发拿到的是
+/// **代理的 502** 而不是"连不上"，于是"writer 挂了"和"没人在那个地址上"看起来一样；
+/// 指向存活 writer 的转发则要绕一圈代理才到，多一个失败点。
+pub fn no_proxy_client_with_timeout(timeout: Duration) -> reqwest::Client {
+    cached_client(timeout, false, true)
 }
 
 /// S2 修复（SSRF DNS rebinding）：构造将 URL 主机**钉扎到已验证 IP 集合**的
@@ -155,14 +179,26 @@ mod tests {
         let b = client_with_timeout(Duration::from_secs(5));
         assert_eq!(format!("{:?}", a), format!("{:?}", b));
         let cache = TIMEOUT_CLIENTS.get().expect("cache initialized");
-        assert!(cache.lock().expect("lock").contains_key(&(5000, false)));
+        assert!(cache.lock().expect("lock").contains_key(&(5000, false, false)));
+    }
+
+    #[test]
+    fn no_proxy_client_is_cached_separately_from_the_proxied_one() {
+        // The forwarding hop must not reuse a client that honours HTTP_PROXY: the two
+        // differ only by this flag, so a shared cache key would silently hand the
+        // proxied client to the instance-to-instance hop.
+        let _ = no_proxy_client_with_timeout(Duration::from_millis(4321));
+        let cache = TIMEOUT_CLIENTS.get().expect("cache initialized");
+        let cache = cache.lock().expect("lock");
+        assert!(cache.contains_key(&(4321, false, true)), "the no-proxy variant must have its own entry");
+        assert!(!cache.contains_key(&(4321, false, false)), "and must not be the proxied client");
     }
 
     #[test]
     fn no_redirect_client_cached_separately() {
         let _ = no_redirect_client_with_timeout(Duration::from_millis(1234));
         let cache = TIMEOUT_CLIENTS.get().expect("cache initialized");
-        assert!(cache.lock().expect("lock").contains_key(&(1234, true)));
+        assert!(cache.lock().expect("lock").contains_key(&(1234, true, false)));
     }
 
     // ------------------------------------------------------------------

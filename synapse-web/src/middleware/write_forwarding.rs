@@ -44,7 +44,7 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use synapse_common::config::worker::WorkerConfig;
 use synapse_common::error::ApiError;
-use synapse_common::http_client::client_with_timeout;
+use synapse_common::http_client::no_proxy_client_with_timeout;
 use synapse_common::server_metrics::global_server_metrics;
 use synapse_services::worker::write_streams::{
     instance_base_url, stream_for_write, write_route, WriteRoute, WriteStream, WRITE_FORWARD_SECRET_HEADER,
@@ -400,7 +400,11 @@ async fn forward(
     }
 
     let started = std::time::Instant::now();
-    let mut builder = client_with_timeout(FORWARD_TIMEOUT).request(method.clone(), &url);
+    // **No proxy on this hop.** `instance_map` names another process of *this* deployment;
+    // routing the request through `HTTP_PROXY` would hand it to a third party — including
+    // the `x-synapse-worker-secret` it carries — and would turn "the writer is down" into
+    // the proxy's 502. See `no_proxy_client_with_timeout`.
+    let mut builder = no_proxy_client_with_timeout(FORWARD_TIMEOUT).request(method.clone(), &url);
     for (name, value) in &parts.headers {
         // `content-length` is dropped with the rest of the framing headers: the body we
         // just buffered may differ from the one the client declared, and reqwest sets
