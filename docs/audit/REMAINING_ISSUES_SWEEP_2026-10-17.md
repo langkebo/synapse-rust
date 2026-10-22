@@ -111,7 +111,7 @@ L-4…L-8 的结论不变（其中 L-7 仍需一次专门时段）。
 | **L-1** | MSC4242 存储面**两个零调用方函数** + 一列无写入者 | `create_state_event_with_dag`（`synapse-storage/src/event/create.rs:280`）与 `get_prev_state_events`（`event/dag.rs:265`）在生产 0 调用；`prev_state_events` 列无写入方（`create_event_with_graph` 留 NULL） | 与已删的 `find_events_referencing_missing_state` 同处置：删或加 `msc4242-unstable` feature 门；现在是"看起来像半个功能"的残留 |
 | **L-2** | `worker.worker_app` **配置项从未被读取** | `synapse-common/src/config/worker.rs:19` 定义；全仓除测试无读点 | 要么接线（决定 worker 形态），要么删字段并在示例配置里注明"保留未实现" |
 | **L-3** | `stream_writers` 是**纯声明面** | 只有 `worker_topology.rs` 的解析/校验与测试消费，写路径无消费者 | 明确写成"仅声明，尚无消费者"，或在 `GET /_synapse/worker/v1/topology` 的 `valid` 里降级提示 |
-| **L-4** | `preview_url` 仍是**桩** | `synapse-services/src/media_service.rs:974` 只回 `{"url"}`（不含任何抓取） | 保持诚实桩即可；若要做真抓取，需同时做 DNS 钉扎与 SSRF 白名单（不是小改动） |
+| **L-4** | ~~`preview_url` 仍是**桩**~~ → **已实现（2026-10-22）** | 当时 `media_service.rs:974` 只回 `{"url"}`（不含任何抓取）；现在走 `synapse-services/src/url_preview.rs`：钉扎 IP 抓取 + 逐跳 SSRF 重校验 + 重定向/体积上限，输出 `og:title`/`og:description` | 保持诚实桩即可；若要做真抓取，需同时做 DNS 钉扎与 SSRF 白名单（不是小改动） |
 | **L-5** | MSC4354 sticky **无逐 destination 增量补发** | 有 `EduType::StickyEvent`（`synapse-federation/src/edu.rs:38`）与启动重放，但无 per-destination 位点 | 等上游 MSC 定稿；当前形态已在对比报告登记为残余 |
 | **L-6** | 稳定 `/{keyName}` profile 路由**未注册**，但 `/versions` 已声明 `m.profile_fields` | `capability_governance.rs:154` 自带 `GAP:` 注释；派生表里只有 `unstable/uk.tcpip.msc4133/...` | 二选一：注册稳定路由（契约链要同步），或在能力里改为 `false`。**声明与实现相反**是最该避免的形态 |
 | **L-7** | **全量集成套件从未跑完** | 历次只跑高风险子集（59 条 + 手工 18 条 + 装配 3 条）；文档自认 ~2 h | 拆成"可并行的小 lane"再跑一次全量；否则"没跑过"会一直是无法量化的风险 |
@@ -292,7 +292,7 @@ L-4…L-8 的结论不变（其中 L-7 仍需一次专门时段）。
 
 | ID | 状态 | 为什么不在本轮 |
 | --- | --- | --- |
-| **L-4** `preview_url` 桩 | 保持 | 真抓取要同时做 DNS 钉扎 + SSRF 白名单，是独立特性而不是"修缺陷" |
+| **L-4** `preview_url` 桩 | ~~保持~~ → **已做（2026-10-22）** | 真抓取所需的 DNS 钉扎 + SSRF 白名单已在 `synapse-common`（`check_url_and_resolve` + `pinned_client_for_url`），本轮补上抓取本体与 OG 提取；`og:image` 仍不做（要媒体镜像 + 隔离检查） |
 | **L-5** sticky 无逐 destination 补发 | 保持 | 等上游 MSC 定稿；当前形态已在对比报告登记为残余 |
 | **L-7** 全量集成套件 | 保持 | 需一次专门时段（~2 h 串行）；本轮只跑受影响的子集 |
 | **L-8** `#[ignore]` 20+ 处 | 保持 | 每处都有理由且被 `e2e_honesty_tests` 强制；建议给"需真实 homeserver"那批加 `just e2e` 入口 |

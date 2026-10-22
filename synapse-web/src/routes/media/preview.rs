@@ -56,19 +56,19 @@ pub(crate) async fn preview_url(
     let url = url.as_deref().ok_or_else(|| ApiError::bad_request("URL required".to_string()))?;
 
     let blacklist = &ctx.config.url_preview.ip_range_blacklist;
-    // S2: 使用 check_url_and_resolve（校验黑名单并额外返回已验证 IP）。
-    // 当前 preview_url 为 stub 不发起实际请求；未来实现真实
-    // 抓取时，必须将返回的 verified_ips 经 http_client::pinned_client_for_url 钉扎，
-    // 否则存在 DNS rebinding TOCTOU 风险。
+    // The first hop is validated here so a blacklisted target is a **403** (a policy
+    // decision) rather than an empty preview (which would look like "the site had no
+    // metadata"). Every hop after a redirect is re-validated inside the service —
+    // that is where the DNS-rebinding pinning lives
+    // (`synapse_services::url_preview::fetch_html`).
     if let Err(e) = synapse_common::check_url_and_resolve(url, blacklist) {
         return Err(ApiError::forbidden(format!("URL not allowed: {e}")));
     }
 
-    let ts = ts.unwrap_or_else(current_timestamp_millis);
+    // `ts` is accepted for API compatibility with the historical shape and no
+    // longer used: the response now reflects what the page says, not a cached
+    // snapshot keyed by a client-supplied timestamp.
+    let _ = ts.unwrap_or_else(current_timestamp_millis);
 
-    // The previewer is a stub that cannot fail (it performs no fetch), so there is
-    // no error branch to synthesise a payload for. It used to answer failures with
-    // a hand-built `title`/`description` pair, which was a second place able to
-    // emit fabricated OpenGraph-shaped data — see `preview_url`'s doc comment.
-    Ok(Json(ctx.media_domain_service.preview_url(url, ts)?))
+    Ok(Json(ctx.media_domain_service.preview_url(url, blacklist).await?))
 }

@@ -259,6 +259,12 @@ pub mod external_service_integration;
 /// The `worker` module.
 pub mod worker;
 
+/// URL preview fetching (OpenGraph) for `/_matrix/client/v1/media/preview_url`.
+///
+/// Formerly a stub that echoed the URL back; see the module docs for the SSRF and
+/// bounding rules it now enforces.
+pub mod url_preview;
+
 // Test infrastructure (moved from main crate)
 /// The `test_config` module.
 #[cfg(any(test, feature = "test-utils"))]

@@ -952,27 +952,25 @@ impl MediaService {
 
     /// See [`preview_url`].
     ///
-    /// **Stub, and deliberately a *honest* one**: this does not fetch `url`, so
-    /// it cannot know anything about the page. It therefore returns only the
-    /// caller's own `url` and **no OpenGraph fields at all**.
+    /// Fetches `url` and returns the OpenGraph fields that can be read without
+    /// touching media storage (`og:title`, `og:description`); see
+    /// [`crate::url_preview`] for the SSRF pinning, redirect and size rules.
     ///
-    /// It used to fabricate `title` / `description` / `og:title` /
-    /// `og:description` and — worst of all — an `og:image` built with
-    /// `format!("{url}/preview.png")`, a resource that does not exist. A client
-    /// that trusted those fields rendered a **made-up link preview**, and any
-    /// deployment that turned the endpoint on (it is off by default, see
-    /// `experimental.msc4452_enabled`) would have shipped fabricated metadata
-    /// for every URL. Upstream v1.163.0 (#20211) hardened this area of the
-    /// response instead of widening it, which is the same direction.
+    /// **History worth keeping**: this used to be a stub that echoed the caller's
+    /// own `url` back. Before that it fabricated `og:title` / `og:description` and
+    /// an `og:image` of `format!("{url}/preview.png")` — a resource that does not
+    /// exist — so clients rendered a **made-up link preview** for every URL. That
+    /// is why the empty-preview case now answers `{}` instead of inventing fields:
+    /// "no preview" is a legitimate answer, "wrong preview" is not.
     ///
-    /// A real implementation must, in one place: fetch on the verified IPs
-    /// returned by [`synapse_common::check_url_and_resolve`], pinned via
-    /// `http_client::pinned_client_for_url` (otherwise DNS rebinding re-opens
-    /// the SSRF hole between the check and the request), honour redirect and
-    /// size limits, and **drop the download entirely when the media hashes to
-    /// quarantined content** — never emit `og:image` for it.
-    pub fn preview_url(&self, url: &str, _ts: i64) -> ApiResult<serde_json::Value> {
-        Ok(serde_json::json!({ "url": url }))
+    /// `og:image` is still not emitted, and deliberately so: producing it correctly
+    /// means downloading the image, storing it as media, and **refusing to preview
+    /// it when it hashes to quarantined content**. Until that pipeline exists,
+    /// emitting a remote `http(s)` URL would violate the response shape (clients
+    /// expect `mxc://`) and emitting a half-checked `mxc://` would be worse.
+    pub async fn preview_url(&self, url: &str, blacklist: &[String]) -> ApiResult<serde_json::Value> {
+        crate::url_preview::ensure_http_scheme(url)?;
+        Ok(crate::url_preview::fetch_open_graph(url, blacklist, crate::url_preview::PreviewLimits::default()).await)
     }
 
     /// See [`get_media_info`].
@@ -1333,18 +1331,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_async_preview_url_metadata() {
+    async fn preview_url_never_fabricates_metadata_when_it_cannot_fetch() {
+        // This test used to assert the **stub's** shape (`{"url": <input>}`), and
+        // before that the endpoint invented `og:title` / `og:image`. Neither is
+        // acceptable: a preview must describe the page, and a page that cannot be
+        // fetched yields **no** fields. Loopback is blacklisted, so no request is
+        // made and the result is deterministic offline.
         let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
         let media_path = temp_dir.path().to_str().unwrap();
         let service = MediaService::new(media_path, None, "test.server").await;
+        let blacklist = synapse_common::security::ssrf_blacklist();
 
-        let url = "https://example.com/test";
-        let ts = 1234567890i64;
+        let json = service
+            .preview_url("http://127.0.0.1:9/", &blacklist)
+            .await
+            .expect("an unfetchable preview is an empty preview, not an error");
+        assert_eq!(json, serde_json::json!({}));
+    }
 
-        let result = service.preview_url(url, ts);
-        assert!(result.is_ok());
-        let json = result.unwrap();
-        assert_eq!(json["url"], url);
+    #[tokio::test]
+    async fn preview_url_rejects_a_non_http_scheme() {
+        // `file://` and friends are a policy violation answered with an error (the
+        // route turns it into 403), not an empty preview.
+        let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let media_path = temp_dir.path().to_str().unwrap();
+        let service = MediaService::new(media_path, None, "test.server").await;
+        let blacklist = synapse_common::security::ssrf_blacklist();
+
+        assert!(service.preview_url("file:///etc/passwd", &blacklist).await.is_err());
     }
 
     // B14: 首次查找回填进程内缓存；后续查找命中缓存，不再全量扫描目录。

@@ -556,8 +556,12 @@ impl MediaDomainService {
     }
 
     /// See [`preview_url`].
-    pub fn preview_url(&self, url: &str, ts: i64) -> Result<Value, ApiError> {
-        self.media_service.preview_url(url, ts)
+    ///
+    /// `blacklist` is `url_preview.ip_range_blacklist`; it is applied to the first
+    /// hop by the HTTP layer and to **every redirect hop** inside
+    /// `crate::url_preview`.
+    pub async fn preview_url(&self, url: &str, blacklist: &[String]) -> Result<Value, ApiError> {
+        self.media_service.preview_url(url, blacklist).await
     }
 
     /// See [`delete_media_for_user`].
