@@ -14,10 +14,17 @@ impl Config {
                 .to_string());
         }
 
-        if self.security.admin_mfa_required && self.security.admin_mfa_shared_secret.is_empty() {
-            return Err(
-                "security.admin_mfa_required is true but admin_mfa_shared_secret is not configured.".to_string()
-            );
+        if self.security.admin_mfa_required {
+            if self.security.admin_mfa_shared_secret.is_empty() {
+                return Err(
+                    "security.admin_mfa_required is true but admin_mfa_shared_secret is not configured.".to_string()
+                );
+            }
+
+            // SEC-03：只校验"非空"是不够的 —— 示例值 `CHANGE_ME` 能通过，而 TOTP
+            // 解码器会把任何非法 Base32 字符串**静默**当成原始字节密钥。结果是
+            // 运维以为 MFA 已启用，实际共享的是一个公开的、可预测的密钥。
+            validate_admin_mfa_secret(&self.security.admin_mfa_shared_secret)?;
         }
 
         if self.security.secret.is_empty() {
@@ -145,6 +152,55 @@ impl Config {
 
         Ok(())
     }
+}
+
+/// TOTP 共享密钥的最小长度（Base32 字符数）。16 个字符 = 80 bit。
+const MIN_ADMIN_MFA_SECRET_CHARS: usize = 16;
+
+/// 已知的示例/占位符片段（小写比较）。命中等价于密钥公开。
+const ADMIN_MFA_SECRET_PLACEHOLDERS: &[&str] =
+    &["change_me", "changeme", "change-me", "replace_me", "placeholder", "your-", "xxxx", "todo"];
+
+/// 校验管理员 TOTP 共享密钥（SEC-03）。
+///
+/// 只判"非空"会让 `CHANGE_ME` 这类示例值通过；同时 `synapse-web` 的 TOTP 解码器
+/// 会把非法 Base32 **静默**退化成"原始字节当密钥"。两者叠加 = MFA 形同虚设。
+/// 因此这里要求：非占位符、长度 ≥ 80 bit、且是合法的 RFC 4648 Base32。
+fn validate_admin_mfa_secret(secret: &str) -> Result<(), String> {
+    let trimmed = secret.trim();
+    let lowered = trimmed.to_ascii_lowercase();
+
+    if let Some(placeholder) = ADMIN_MFA_SECRET_PLACEHOLDERS.iter().find(|p| lowered.contains(*p)) {
+        return Err(format!(
+            "security.admin_mfa_shared_secret contains the placeholder {placeholder:?}. \
+             A placeholder secret is publicly known, which makes TOTP useless. \
+             Generate a real Base32 secret with `openssl rand 20 | base32` (or run \
+             docker/deploy/scripts/generate-secrets.sh)."
+        ));
+    }
+
+    // 与 TOTP 解码器同规则：忽略空格与 `-`，`=` 起为填充。
+    let normalized: String =
+        trimmed.chars().take_while(|ch| *ch != '=').filter(|ch| !matches!(ch, ' ' | '-')).collect();
+
+    if normalized.len() < MIN_ADMIN_MFA_SECRET_CHARS {
+        return Err(format!(
+            "security.admin_mfa_shared_secret is too short ({} Base32 characters, at least {} required). \
+             Short TOTP secrets are brute-forceable. Generate one with `openssl rand 20 | base32`.",
+            normalized.len(),
+            MIN_ADMIN_MFA_SECRET_CHARS
+        ));
+    }
+
+    if let Some(bad) = normalized.chars().find(|ch| !matches!(ch.to_ascii_uppercase(), 'A'..='Z' | '2'..='7')) {
+        return Err(format!(
+            "security.admin_mfa_shared_secret is not valid Base32 (unexpected character {bad:?}). \
+             Use the RFC 4648 Base32 alphabet (A-Z and 2-7); a non-Base32 string cannot be \
+             entered into an authenticator app and would be used as a raw-byte secret instead."
+        ));
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -343,7 +399,61 @@ mod tests {
     fn validate_allows_admin_mfa_with_shared_secret() {
         let mut config = valid_config();
         config.security.admin_mfa_required = true;
-        config.security.admin_mfa_shared_secret = "mfa-secret".to_string();
+        // SEC-03 之后密钥必须是合法 Base32 且 ≥16 字符；`mfa-secret` 这类示例值
+        // 会被拒绝（认证器 App 也无法录入）。此处用 RFC 4648 的标准样例密钥。
+        config.security.admin_mfa_shared_secret = "JBSWY3DPEHPK3PXP".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    /// SEC-03 门禁：示例/占位符密钥必须让**启动失败**，而不是被当成真密钥。
+    #[test]
+    fn validate_rejects_placeholder_admin_mfa_secret() {
+        for placeholder in [
+            "CHANGE_ME",
+            "changeme",
+            // docker/deploy/.env.example 用过的值
+            "CHANGE_ME_must_be_base32_at_least_16_chars",
+            "__CHANGE_ME_generate_with_generate_secrets__",
+        ] {
+            let mut config = valid_config();
+            config.security.admin_mfa_required = true;
+            config.security.admin_mfa_shared_secret = placeholder.to_string();
+            let err = config.validate().unwrap_err();
+            assert!(
+                err.contains("placeholder"),
+                "placeholder {placeholder:?} must be rejected as a placeholder, got: {err}"
+            );
+        }
+    }
+
+    /// SEC-03：过短的 Base32 密钥可被穷举，必须拒绝。
+    #[test]
+    fn validate_rejects_short_admin_mfa_secret() {
+        let mut config = valid_config();
+        config.security.admin_mfa_required = true;
+        config.security.admin_mfa_shared_secret = "JBSWY3DP".to_string(); // 8 字符 = 40 bit
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("too short"), "short MFA secret must be rejected: {err}");
+    }
+
+    /// SEC-03：非法 Base32 必须启动失败 —— 此前 `decode_secret` 会把它静默当成
+    /// 原始字节密钥，MFA 仍然"能用"，因而没人发现配置错了。
+    #[test]
+    fn validate_rejects_non_base32_admin_mfa_secret() {
+        let mut config = valid_config();
+        config.security.admin_mfa_required = true;
+        // 长度够、但含 Base32 字母表之外的字符（小写 s / 数字 0 / 数字 1 / `!`）。
+        config.security.admin_mfa_shared_secret = "notbase32secretvalue!".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("not valid Base32"), "non-Base32 MFA secret must be rejected: {err}");
+    }
+
+    /// 未启用 MFA 时不校验密钥（`.env` 里的空占位不应阻止开发环境启动）。
+    #[test]
+    fn validate_ignores_admin_mfa_secret_when_mfa_disabled() {
+        let mut config = valid_config();
+        config.security.admin_mfa_required = false;
+        config.security.admin_mfa_shared_secret = "CHANGE_ME".to_string();
         assert!(config.validate().is_ok());
     }
 

@@ -36,7 +36,13 @@ TEST_USER2="${TEST_USER2:-testuser2}"
 TEST_PASS2="${TEST_PASS2:-Test@123}"
 CURRENT_TEST_PASS="$TEST_PASS"
 ADMIN_USER="${ADMIN_USER:-admin}"
-ADMIN_PASS="${ADMIN_PASS:-Admin@123}"
+# SEC-02：管理员口令没有默认值，缺失时直接失败。
+ADMIN_PASS="${ADMIN_PASS:-}"
+if [ -z "$ADMIN_PASS" ]; then
+    echo "ERROR: 未设置 ADMIN_PASS（管理员口令无默认值）。" >&2
+    echo "       示例：ADMIN_PASS='...' $0" >&2
+    exit 1
+fi
 ADMIN_USER_TYPE="${ADMIN_USER_TYPE:-super_admin}"
 ADMIN_SHARED_SECRET="${ADMIN_SHARED_SECRET:-change-me-admin-shared-secret}"
 DB_CONTAINER="${DB_CONTAINER:-${COMPOSE_PROJECT_NAME:-synapse}-postgres}"

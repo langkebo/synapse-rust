@@ -106,7 +106,8 @@ pub struct SecurityConfig {
     #[serde(default)]
     /// `admin_mfa_required` field.
     pub admin_mfa_required: bool,
-    /// 管理员 TOTP 共享密钥，支持 Base32；解析失败时回退为原始字节
+    /// 管理员 TOTP 共享密钥，必须是 RFC 4648 Base32 且 ≥16 个字符（80 bit）。
+    /// 启动校验拒绝占位符、过短与非法 Base32（SEC-03）；非法密钥不再回退为原始字节。
     #[serde(default)]
     #[educe(Debug(ignore))]
     /// `admin_mfa_shared_secret` field.

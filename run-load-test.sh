@@ -7,7 +7,9 @@ echo ""
 
 export BASE_URL="http://127.0.0.1:8008"
 export ADMIN_USER="admin"
-export ADMIN_PASSWORD="Admin@123"
+# SEC-02：管理员口令不内置默认值（set -u 生效，缺失即退出并提示）。
+: "${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set (no default credential is shipped)}"
+export ADMIN_PASSWORD
 
 # 100 VUs, 持续 30 秒
 mkdir -p load-test-results

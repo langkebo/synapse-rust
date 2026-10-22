@@ -174,7 +174,7 @@ start_monitoring() {
     echo ""
     echo -e "${BLUE}访问地址:${NC}"
     echo "  - Prometheus: http://localhost:9090"
-    echo "  - Grafana:    http://localhost:9091 (admin/admin123)"
+    echo "  - Grafana:    http://localhost:9091 (admin / \$GRAFANA_ADMIN_PASSWORD)"
     echo "  - Alertmanager: http://localhost:9093"
     echo ""
     echo -e "${YELLOW}提示:${NC}"

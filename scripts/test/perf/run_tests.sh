@@ -30,7 +30,12 @@ NC='\033[0m' # No Color
 # 这些可以通过环境变量覆盖
 BASE_URL="${BASE_URL:-http://localhost:8008}"
 TEST_USERNAME="${TEST_USERNAME:-admin}"
-TEST_PASSWORD="${TEST_PASSWORD:-Admin@123}"
+# SEC-02：口令没有默认值，必须由环境变量提供。
+TEST_PASSWORD="${TEST_PASSWORD:-}"
+if [ -z "$TEST_PASSWORD" ]; then
+    echo "ERROR: 未设置 TEST_PASSWORD（性能测试账号口令无默认值）。" >&2
+    exit 1
+fi
 
 # ========== 阶段配置 ==========
 declare -A SCENARIOS=(

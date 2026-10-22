@@ -23,7 +23,7 @@ use std::net::SocketAddr;
 use url::Url;
 
 use crate::routes::AppState;
-use crate::utils::ip::extract_client_ip;
+use crate::utils::ip::deny_only_forwarded_ip;
 
 /// Axum extractor that only allows requests from localhost.
 /// Non-local requests receive 403 with a descriptive error.
@@ -138,9 +138,13 @@ pub(crate) fn register_error_response(status: u16, errcode: &str, error: &str) -
 /// Extract the forwarded client IP from request headers using the standard
 /// x-forwarded-for / x-real-ip / forwarded priority order.
 /// Mirrors `extract_registration_client_ip` from the original admin/register.rs.
+///
+/// SEC-06: this is a **deny-only** guard — the result is only used to reject
+/// non-local callers — so it deliberately keeps reading the headers even though
+/// no peer address is available here.
 fn extract_registration_client_ip(headers: &HeaderMap) -> Option<String> {
     let priority = vec!["x-forwarded-for".to_string(), "x-real-ip".to_string(), "forwarded".to_string()];
-    extract_client_ip(headers, &priority, None, &[])
+    deny_only_forwarded_ip(headers, &priority)
 }
 
 /// Returns true when the supplied string is either the literal "localhost" or

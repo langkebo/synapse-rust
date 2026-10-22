@@ -400,3 +400,8 @@ prometheus:
   enabled: true
   port: 9090
   path: "/metrics"
+  # 抓取默认 fail-closed（SEC-04）：代码里既没 token、也没显式 public 时 /metrics 一律 401。
+  # 部署栈的 Prometheus 走容器内网直连 synapse-app:9090 抓取，因此这里显式声明匿名可读；
+  # 9090 在 compose 里只映射到 127.0.0.1，不要改成对外的端口绑定。
+  # 若改为设置 PROMETHEUS_AUTH_TOKEN，需同步给 prometheus.yml 配 authorization 头。
+  public: true

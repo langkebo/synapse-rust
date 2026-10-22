@@ -141,11 +141,18 @@ pub struct PrometheusConfig {
     pub port: u16,
     /// `path` field.
     pub path: String,
+    /// 显式允许匿名抓取（SEC-04）。
+    ///
+    /// 抓取端口**默认 fail-closed**：既没配 `PROMETHEUS_AUTH_TOKEN`、也没把它设为
+    /// `true` 时，`/metrics` 一律返回 401。指标会暴露房间数、用户数、错误率等业务
+    /// 规模信息，匿名可读应该是运维的显式决定，而不是"忘了配就成了默认"。
+    #[serde(default)]
+    pub public: bool,
 }
 
 impl Default for PrometheusConfig {
     fn default() -> Self {
-        Self { enabled: false, port: 9090, path: "/metrics".to_string() }
+        Self { enabled: false, port: 9090, path: "/metrics".to_string(), public: false }
     }
 }
 

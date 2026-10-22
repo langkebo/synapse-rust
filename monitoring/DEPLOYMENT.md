@@ -121,7 +121,7 @@ docker-compose -f docker/docker-compose.yml \
 | 服务 | 地址 | 默认账号 | 说明 |
 |------|------|----------|------|
 | **Prometheus** | http://localhost:9090 | 无 | 指标查询与告警管理 |
-| **Grafana** | http://localhost:9091 | admin/admin123 | 可视化仪表盘 |
+| **Grafana** | http://localhost:9091 | admin / `$GRAFANA_ADMIN_PASSWORD`（必填，无默认值） | 可视化仪表盘 |
 | **Alertmanager** | http://localhost:9093 | 无 | 告警路由与通知 |
 
 > **注意**: 所有服务默认绑定 `127.0.0.1`，仅本地访问。如需外部访问，请修改 `docker-compose.monitoring.yml` 中的端口映射。

@@ -240,6 +240,34 @@ pub async fn authenticate_federation_request(
             );
             return Err(ApiError::unauthorized("Federation request replay detected".to_string()).into_response());
         }
+
+        // SEC-07：上面的缓存是单实例内存态，多实例部署时同一重放会被每个实例各放行
+        // 一次。这里叠加一层 Redis SET NX，窗口与签名容差对齐。Redis 不可用时
+        // fail-open（本地层已记录），只告警不拦截，避免缓存故障放大成联邦中断。
+        let replay_window_secs = synapse_common::security::ReplayProtectionConfig::federation_window_secs(
+            ctx.config.federation.signing_ts_tolerance_ms,
+        );
+        match ctx.cache.try_acquire_lock(&format!("fed:replay:{sig_hash}"), replay_window_secs).await {
+            Ok(true) => {}
+            Ok(false) => {
+                tracing::warn!(
+                    target: "security_audit",
+                    event = "federation_replay_detected_cluster",
+                    origin = %params.origin,
+                    "Federation request rejected: signature already used on another instance"
+                );
+                return Err(ApiError::unauthorized("Federation request replay detected".to_string()).into_response());
+            }
+            Err(error) => {
+                tracing::warn!(
+                    target: "security_audit",
+                    event = "federation_replay_lock_unavailable",
+                    origin = %params.origin,
+                    %error,
+                    "Cross-instance replay lock unavailable; relying on the in-process replay cache"
+                );
+            }
+        }
     }
 
     let origin_server = &params.origin;

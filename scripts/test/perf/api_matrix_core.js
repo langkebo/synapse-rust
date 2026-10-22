@@ -37,7 +37,11 @@ const errorRate = new Rate('errors');
 // ========== 测试配置 ==========
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:8008';
 const USERNAME = __ENV.TEST_USERNAME || 'admin';
-const PASSWORD = __ ENV.TEST_PASSWORD || 'Admin@123';
+// SEC-02：口令只从环境变量读取，缺失时在 init 阶段直接失败（不再内置默认口令）。
+const PASSWORD = __ENV.TEST_PASSWORD;
+if (!PASSWORD) {
+  throw new Error('TEST_PASSWORD must be set (no default credential is shipped)');
+}
 
 // ========== 全局变量 ==========
 let authTokens = {};

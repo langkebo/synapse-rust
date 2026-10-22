@@ -1107,18 +1107,33 @@ impl SynapseServer {
         });
 
         if let Some(prometheus_listener) = prometheus_listener {
-            let prometheus_path = self.app_state.services.core.config.prometheus.path.clone();
+            let prometheus_config = &self.app_state.services.core.config.prometheus;
+            let prometheus_path = prometheus_config.path.clone();
             let metrics_state = PrometheusMetricsState {
                 metrics: self.app_state.services.core.metrics.clone(),
                 app_service_manager: self.app_state.services.admin.modules.app_service_manager.clone(),
             };
-            // 读取 PROMETHEUS_AUTH_TOKEN 环境变量，为空时不启用鉴权（向后兼容）
-            let prometheus_auth_token = std::env::var("PROMETHEUS_AUTH_TOKEN").ok().filter(|s| !s.is_empty());
+            let prometheus_auth = PrometheusAuth::from_env(prometheus_config.public);
+            match &prometheus_auth {
+                PrometheusAuth::Token(_) => {
+                    ::tracing::info!("Prometheus /metrics 已启用 Bearer Token 鉴权");
+                }
+                PrometheusAuth::Public => {
+                    ::tracing::warn!(
+                        "Prometheus /metrics 允许匿名抓取（prometheus.public = true）—— 指标会暴露业务规模，请确认抓取端口不可从公网访问"
+                    );
+                }
+                PrometheusAuth::Disabled => {
+                    ::tracing::warn!(
+                        "Prometheus /metrics 未配置凭据：所有请求将返回 401。请设置 PROMETHEUS_AUTH_TOKEN，或显式配置 prometheus.public = true 以允许匿名抓取"
+                    );
+                }
+            }
             let prometheus_router = Router::new()
                 .route(&prometheus_path, get(render_prometheus_metrics))
                 .with_state(metrics_state)
                 .layer(middleware::from_fn(prometheus_auth_middleware))
-                .layer(Extension(prometheus_auth_token));
+                .layer(Extension(prometheus_auth));
 
             tokio::spawn(async move {
                 axum::serve(prometheus_listener, prometheus_router.into_make_service())
@@ -1331,27 +1346,69 @@ async fn spawn_shutdown_signal_handler(
     shutdown_token.cancel();
 }
 
+/// `/metrics` 抓取端点的访问策略（SEC-04）。
+///
+/// 三态而不是"有 token 就校验、没 token 就放行"：未配置任何凭据时**默认拒绝**，
+/// 匿名可读必须由 `prometheus.public = true` 显式声明。
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PrometheusAuth {
+    /// 必须携带 `Authorization: Bearer <token>`。
+    Token(String),
+    /// 运维显式声明"允许匿名抓取"。
+    Public,
+    /// 无任何凭据 —— 拒绝所有请求（fail-closed）。
+    Disabled,
+}
+
+impl PrometheusAuth {
+    /// 从进程环境与配置解析策略。
+    ///
+    /// 优先级：`PROMETHEUS_AUTH_TOKEN` > `prometheus.public` > 拒绝。
+    fn from_env(public: bool) -> Self {
+        let token = std::env::var("PROMETHEUS_AUTH_TOKEN").ok().filter(|s| !s.is_empty());
+        Self::resolve(token, public)
+    }
+
+    /// 纯函数形式的决策逻辑（便于测试，不读全局状态）。
+    fn resolve(token: Option<String>, public: bool) -> Self {
+        match token {
+            Some(token) => Self::Token(token),
+            None if public => Self::Public,
+            None => Self::Disabled,
+        }
+    }
+
+    /// 给定请求的 `Authorization` 头，判断是否放行。
+    fn allows(&self, authorization: Option<&str>) -> bool {
+        match self {
+            Self::Token(expected) => authorization
+                .and_then(|header| header.strip_prefix("Bearer "))
+                .is_some_and(|presented| presented == expected),
+            Self::Public => true,
+            Self::Disabled => false,
+        }
+    }
+}
+
 /// Prometheus metrics endpoint middleware — requires Bearer token if configured.
 ///
 /// When `PROMETHEUS_AUTH_TOKEN` env var is set, all `/metrics` requests must include
-/// `Authorization: Bearer <token>` header. Without the token, returns 401.
-/// This prevents unauthenticated access to internal metrics (CPU, memory, request counts).
+/// `Authorization: Bearer <token>` header. Without any credential configured the
+/// endpoint is fail-closed (401) unless `prometheus.public = true` opts in to
+/// anonymous scraping. This prevents unauthenticated access to internal metrics
+/// (CPU, memory, request counts).
 async fn prometheus_auth_middleware(
-    Extension(auth_token): Extension<Option<String>>,
+    Extension(prometheus_auth): Extension<PrometheusAuth>,
     req: axum::http::Request<axum::body::Body>,
     next: Next,
 ) -> Result<impl IntoResponse, StatusCode> {
-    let Some(expected_token) = auth_token else {
-        // No auth configured — allow unauthenticated access (backward compatible)
-        return Ok(next.run(req).await);
-    };
-
-    let auth_header =
+    let authorization =
         req.headers().get(axum::http::header::AUTHORIZATION).and_then(|h| h.to_str().ok()).map(|s| s.to_string());
 
-    match auth_header {
-        Some(ref h) if h.starts_with("Bearer ") && &h[7..] == expected_token.as_str() => Ok(next.run(req).await),
-        _ => Err(StatusCode::UNAUTHORIZED),
+    if prometheus_auth.allows(authorization.as_deref()) {
+        Ok(next.run(req).await)
+    } else {
+        Err(StatusCode::UNAUTHORIZED)
     }
 }
 
@@ -1526,6 +1583,82 @@ mod tests {
             dehydrated_device_cleanup_interval(60),
             Duration::from_secs(MIN_DEHYDRATED_DEVICE_CLEANUP_INTERVAL_SECS)
         );
+    }
+
+    /// SEC-04：没配置任何凭据时必须是 `Disabled`（fail-closed），不能退回"匿名放行"。
+    #[test]
+    fn prometheus_auth_defaults_to_fail_closed() {
+        assert_eq!(PrometheusAuth::resolve(None, false), PrometheusAuth::Disabled);
+        assert!(!PrometheusAuth::Disabled.allows(None));
+        assert!(!PrometheusAuth::Disabled.allows(Some("Bearer anything")));
+    }
+
+    /// SEC-04：`prometheus.public = true` 是唯一的匿名出口，且配置了 token 时 token 优先。
+    #[test]
+    fn prometheus_auth_public_is_explicit_and_token_wins() {
+        assert_eq!(PrometheusAuth::resolve(None, true), PrometheusAuth::Public);
+        assert!(PrometheusAuth::Public.allows(None));
+
+        assert_eq!(
+            PrometheusAuth::resolve(Some("s3cret".to_string()), true),
+            PrometheusAuth::Token("s3cret".to_string())
+        );
+    }
+
+    #[test]
+    fn prometheus_auth_token_requires_exact_bearer() {
+        let auth = PrometheusAuth::resolve(Some("s3cret".to_string()), false);
+
+        assert!(auth.allows(Some("Bearer s3cret")));
+        assert!(!auth.allows(None));
+        assert!(!auth.allows(Some("s3cret")));
+        assert!(!auth.allows(Some("Bearer s3cret ")));
+        assert!(!auth.allows(Some("Bearer wrong")));
+    }
+
+    /// SEC-04 门禁：未配置凭据时 `GET /metrics` 必须 401（而不是 200 明文指标）。
+    #[tokio::test]
+    async fn metrics_endpoint_returns_401_when_no_credential_is_configured() {
+        use tower::ServiceExt;
+
+        let router = Router::new()
+            .route("/metrics", get(|| async { "metrics" }))
+            .layer(middleware::from_fn(prometheus_auth_middleware))
+            .layer(Extension(PrometheusAuth::Disabled));
+
+        let response = router
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/metrics")
+                    .body(axum::body::Body::empty())
+                    .expect("request must build"),
+            )
+            .await
+            .expect("router must respond");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn metrics_endpoint_serves_when_public_is_opted_in() {
+        use tower::ServiceExt;
+
+        let router = Router::new()
+            .route("/metrics", get(|| async { "metrics" }))
+            .layer(middleware::from_fn(prometheus_auth_middleware))
+            .layer(Extension(PrometheusAuth::Public));
+
+        let response = router
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/metrics")
+                    .body(axum::body::Body::empty())
+                    .expect("request must build"),
+            )
+            .await
+            .expect("router must respond");
+
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[test]

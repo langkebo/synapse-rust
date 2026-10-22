@@ -26,6 +26,37 @@ impl Default for ReplayProtectionConfig {
     }
 }
 
+/// Capacity of the inbound-federation replay cache. An entry is a 43-char hash
+/// plus an `Instant`, so even a full cache stays in the low tens of MB.
+const FEDERATION_REPLAY_CACHE_SIZE: u64 = 100_000;
+
+impl ReplayProtectionConfig {
+    /// Derive the inbound-federation replay configuration from the accepted
+    /// signature timestamp tolerance.
+    ///
+    /// SEC-07: a signature remains acceptable for as long as
+    /// `signing_ts_tolerance_ms` allows, so the replay window must be at least
+    /// that wide. The previous fixed 300 s window let a captured request be
+    /// replayed after its entry expired but while its `ts` was still inside the
+    /// tolerance (24 h by default).
+    pub fn for_federation(enabled: bool, signing_ts_tolerance_ms: i64) -> Self {
+        Self {
+            enabled,
+            cache_size: FEDERATION_REPLAY_CACHE_SIZE,
+            window_secs: Self::federation_window_secs(signing_ts_tolerance_ms),
+        }
+    }
+
+    /// The replay window (seconds) that covers `signing_ts_tolerance_ms`.
+    ///
+    /// Single source of truth for both the in-process cache and the
+    /// cross-instance Redis lock, so the two can never drift apart.
+    pub fn federation_window_secs(signing_ts_tolerance_ms: i64) -> u64 {
+        let tolerance_secs = signing_ts_tolerance_ms.max(0) as u64 / 1000;
+        tolerance_secs.max(REPLAY_PROTECTION_WINDOW_SECS)
+    }
+}
+
 /// Represents ReplayProtectionCache.
 pub struct ReplayProtectionCache {
     cache: Cache<String, Instant>,
@@ -466,6 +497,27 @@ mod tests {
         assert!(config.enabled);
         assert_eq!(config.cache_size, 10_000);
         assert_eq!(config.window_secs, 300);
+    }
+
+    #[test]
+    fn federation_replay_window_covers_the_signature_tolerance() {
+        // 24 h tolerance (the shipped default) must be covered by the window:
+        // a fixed 300 s window let a captured request be replayed for almost
+        // the whole day (SEC-07).
+        let config = ReplayProtectionConfig::for_federation(true, 86_400_000);
+        assert!(config.enabled);
+        assert_eq!(config.window_secs, 86_400);
+        assert_eq!(config.cache_size, FEDERATION_REPLAY_CACHE_SIZE);
+        assert_eq!(ReplayProtectionCache::new(config).stats().capacity, 100_000);
+    }
+
+    #[test]
+    fn federation_replay_window_never_shrinks_below_the_default() {
+        for tolerance_ms in [0, -1, 60_000, 299_000] {
+            let config = ReplayProtectionConfig::for_federation(true, tolerance_ms);
+            assert_eq!(config.window_secs, 300, "tolerance_ms={tolerance_ms}");
+        }
+        assert!(!ReplayProtectionConfig::for_federation(false, 86_400_000).enabled);
     }
 
     #[test]

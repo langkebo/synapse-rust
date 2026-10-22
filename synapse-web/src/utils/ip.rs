@@ -63,32 +63,47 @@ pub(crate) fn effective_client_ip(
 /// strings, forwarded headers (X-Forwarded-For, X-Real-IP, Forwarded) are trusted
 /// and their values are used. Otherwise the peer address itself is returned.
 ///
-/// When `peer_addr` is None, forwarded headers are used unconditionally (backward
-/// compatibility for callers that do not have access to ConnectInfo).
+/// When `peer_addr` is None there is **no source to attribute the request to** and
+/// forwarded headers are ignored (returns `None`). That reverses the former
+/// "no peer ⇒ trust the header" fallback, which let any unauthenticated client
+/// pick the IP recorded in admin audit events just by sending `X-Forwarded-For`
+/// (audit SEC-06). Call sites that only *deny* based on the header must use
+/// [`deny_only_forwarded_ip`] instead.
 pub(crate) fn extract_client_ip(
     headers: &HeaderMap,
     priority: &[String],
     peer_addr: Option<SocketAddr>,
     trusted_proxies: &[String],
 ) -> Option<String> {
-    let peer_ip = peer_addr.map(|a| a.ip());
+    let Some(peer_ip) = peer_addr.map(|a| a.ip()) else {
+        // SEC-06: no peer ⇒ "unknown", never the header.
+        return None;
+    };
 
     // If we have a peer address, check whether it comes from a trusted proxy.
-    match peer_ip {
-        Some(ip) if !trusted_proxies.is_empty() && !is_trusted_peer(&ip, trusted_proxies) => {
-            // Untrusted source → ignore forwarded headers, use peer address.
-            return Some(ip.to_string());
-        }
-        Some(ip) if trusted_proxies.is_empty() => {
-            // No trusted proxies configured → ignore forwarded headers, use peer address.
-            return Some(ip.to_string());
-        }
-        _ => {
-            // Trusted proxy OR no peer address → parse headers.
-        }
+    if trusted_proxies.is_empty() || !is_trusted_peer(&peer_ip, trusted_proxies) {
+        // Untrusted source (or forwarding disabled) → ignore forwarded headers.
+        return Some(peer_ip.to_string());
     }
 
-    // Parse forwarded headers (trusted source or no peer info).
+    // Trusted proxy → the headers it appended are authoritative.
+    parse_forwarded_headers(headers, priority, trusted_proxies).or_else(|| Some(peer_ip.to_string()))
+}
+
+/// Read client IPs out of forwarded headers **without** requiring a peer address
+/// or a trust declaration.
+///
+/// Only for deny-only guards (admin registration localhost checks): there a
+/// forged header can at most make the request *more* likely to be rejected, so
+/// ignoring the header would silently weaken the guard. Never use this for rate
+/// limiting, lockouts or audit attribution — those must go through
+/// [`effective_client_ip`] / [`extract_client_ip`].
+pub(crate) fn deny_only_forwarded_ip(headers: &HeaderMap, priority: &[String]) -> Option<String> {
+    parse_forwarded_headers(headers, priority, &[])
+}
+
+/// Walk `priority` and return the first usable forwarded value.
+fn parse_forwarded_headers(headers: &HeaderMap, priority: &[String], trusted_proxies: &[String]) -> Option<String> {
     for name in priority {
         let lower = name.to_ascii_lowercase();
         if lower == "x-forwarded-for" {
@@ -128,8 +143,7 @@ pub(crate) fn extract_client_ip(
         }
     }
 
-    // Fall back to peer address if no header matched.
-    peer_ip.map(|ip| ip.to_string())
+    None
 }
 
 /// Check whether `ip` matches any of the CIDR strings in `networks`.
@@ -203,10 +217,9 @@ fn parse_forwarded_for(value: &str) -> Option<String> {
             // `&original[1..0]`. The previous form tested
             // `starts_with('"') && ends_with('"')`, which are BOTH true for a
             // single quote character, and `1..len - 1` is then `1..0` — a panic.
-            // `extract_client_ip` parses this unconditionally when `peer_addr` is
-            // `None`, and `admin_auth_middleware` passes `None`, so an
-            // unauthenticated request carrying that header panicked the task
-            // (remote DoS).
+            // `deny_only_forwarded_ip` parses this without a peer address (the
+            // admin-registration guard path), so an unauthenticated request
+            // carrying that header panicked the task (remote DoS).
             if let Some(stripped) = original.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
                 original = stripped;
             }
@@ -386,14 +399,26 @@ mod tests {
         assert_eq!(ip, "10.0.0.5");
     }
 
+    /// SEC-06: without a peer address there is nothing to attribute the request
+    /// to, so a client-supplied `X-Forwarded-For` must not become the answer.
+    /// (This assertion is the inverse of the pre-fix behaviour.)
     #[test]
-    fn no_peer_falls_back_to_header() {
+    fn no_peer_does_not_trust_forwarded_headers() {
         let headers = make_headers_with_xff("1.2.3.4");
         let priority = vec!["x-forwarded-for".to_string()];
 
-        // None peer = unknown (backward compat for callers without ConnectInfo)
-        let ip = extract_client_ip(&headers, &priority, None, &[]).unwrap();
-        assert_eq!(ip, "1.2.3.4");
+        let ip = extract_client_ip(&headers, &priority, None, &[]);
+        assert_eq!(ip, None);
+    }
+
+    /// The deny-only helper still reads the header when no peer is known —
+    /// forged values can only make such guards stricter.
+    #[test]
+    fn deny_only_forwarded_ip_works_without_a_peer() {
+        let headers = make_headers_with_xff("1.2.3.4");
+        let priority = vec!["x-forwarded-for".to_string()];
+
+        assert_eq!(deny_only_forwarded_ip(&headers, &priority), Some("1.2.3.4".to_string()));
     }
 
     #[test]
@@ -432,9 +457,9 @@ mod tests {
     ///
     /// `starts_with('"')` and `ends_with('"')` are both true for a single quote
     /// character, so `&original[1..original.len() - 1]` became `&s[1..0]`.
-    /// `extract_client_ip` parses the header unconditionally when `peer_addr` is
-    /// `None`, and `admin_auth_middleware` passes `None`, so an unauthenticated
-    /// request carrying `Forwarded: for="` panicked the request task.
+    /// The deny-only guard parses the header without a peer, and
+    /// `admin_auth_middleware` used to, so an unauthenticated request carrying
+    /// `Forwarded: for="` panicked the request task.
     #[test]
     fn forwarded_header_with_lone_quote_does_not_panic() {
         let priority = vec!["forwarded".to_string()];
@@ -443,9 +468,9 @@ mod tests {
 
         for value in ["for=\"", "for=\"\"", "for=\"\"\"", "for=x\""] {
             let headers = header_map_with(value);
-            // Both entry points: with a peer (the ordinary path) and without one
-            // (the `admin_auth_middleware` path that made this remotely reachable).
-            let _ = extract_client_ip(&headers, &priority, None, &trusted);
+            // Both entry points: the deny-only guard (no peer) and the ordinary
+            // attribution path (with a peer).
+            let _ = deny_only_forwarded_ip(&headers, &priority);
             let _ = extract_client_ip(&headers, &priority, Some(peer), &trusted);
         }
     }

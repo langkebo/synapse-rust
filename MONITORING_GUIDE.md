@@ -189,7 +189,7 @@ docker-compose -f docker/docker-compose.yml \
 
 | 服务 | 地址 | 默认账号 | 说明 |
 |------|------|----------|------|
-| **Grafana** | http://localhost:9091 | admin/admin123 | 可视化仪表盘 ⭐ 主要入口 |
+| **Grafana** | http://localhost:9091 | admin / `$GRAFANA_ADMIN_PASSWORD`（必填，无默认值） | 可视化仪表盘 ⭐ 主要入口 |
 | **Prometheus** | http://localhost:9090 | 无 | 原始指标查询 |
 | **Alertmanager** | http://localhost:9093 | 无 | 告警管理 |
 

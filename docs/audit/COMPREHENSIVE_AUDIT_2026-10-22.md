@@ -188,6 +188,7 @@
 - **类型**：测试替身泄漏到生产 API
 - **影响范围**：任何下游误用 `FakeUserStore` 都会在运行时 panic；且该类型是公开 API 的一部分，破坏了"生产 crate 不暴露测试替身"的边界。
 - **修法**：`#[cfg(any(test, feature = "test-utils"))]` 门禁 + 未实现的方法返回 `Err` 而非 `unimplemented!`。
+- **状态：已修（2026-10-22，W2）**。`user_store_fake` 的 `mod` 与 `pub use` 同时门禁；伪造实现改为 `Err("not implemented in FakeUserStore")`。默认 feature 构建不含该符号。
 
 ### CODE-06（P2）9 个函数超过 150 行，最长 461 行
 - **位置**：`synapse-services/src/room/membership/federation.rs:137`（461 行）、`:782`（240 行）；`synapse-services/src/media_service.rs:213`（224 行）；`synapse-federation/src/keys.rs:397`（197 行）；`synapse-services/src/state_resolution.rs:552`（179 行）
@@ -467,48 +468,58 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 - **影响范围**：`security.admin_rbac_enabled=false` 时，任何 `is_admin=true` 的账号（含 `user_admin`、`auditor` 等）都能访问只应属于 `super_admin` 的高危端点。开关的本意是"关闭角色细分"，而不是"关闭超管专属限制"，当前实现把两者耦合了。
 - **证据**：`is_role_allowed` 内部先判 `super_admin` 再判黑名单；短路后 `allowed` 完全不被参考。
 - **修法**：把 `is_super_admin_only_endpoint(method, path)` 提到开关外，做成独立的无条件拒绝；开关只影响 `allowlist::role_allows`。
+- **状态：已修（2026-10-22，W2）**。`admin_auth.rs` 改为「`super_admin` 短路 → 黑名单无条件拒绝 → 开关 → 角色细分」。门禁：`rbac_switch_does_not_reopen_super_admin_only_endpoints`（端点集从 `ROUTE_HANDLERS.json` × 生产黑名单自动生成，≥20 条，含 `super_admin` 正控）+ `rbac_switch_still_disables_role_splitting`，`cargo test -- admin_auth` 22 passed。
 
 ### SEC-02（P2）默认管理员口令 `Admin@123` 在脚本与文档中扩散
 - **位置**：`docker/deploy/run_permission_matrix.sh:33`（硬编码）、`api-integration_test.sh:40`、`scripts/api_test/token_manager.py:195`、`scripts/api_test/config.yaml:37`、`scripts/api_test/run-load-test.sh:10`
 - **类型**：凭据卫生
 - **影响范围**：`scripts/api_test/register_admin.py:19-25` 已强制环境变量，不会自动进生产；但脚本中的硬编码值会被复制到部署环境。
 - **修法**：脚本统一从环境变量读取，默认值仅限 `127.0.0.1` 且显式 `TEST_ONLY`。
+- **状态：已修（2026-10-22，W5）**。默认值**直接删除**，改为「缺失即失败」（`${VAR:?msg}` / 显式 `exit 1`）：`docker/deploy/run_permission_matrix.sh`、`docker/deploy/api-integration_test.sh`、`scripts/test/api-integration_test.sh`、`scripts/api_test/{config.yaml,token_manager.py,run_api_tests.py}`、`scripts/test/perf/{run_tests.sh,api_matrix_core.js}`、`run-load-test.sh`。新增 CI 扫描 `scripts/ci/check_no_default_admin_credential.sh`（`scripts/**`+`docker/**` 排除 `*.md`）并接入 `ci.yml`；红态实测通过（注入 `# probe: Admin@123` → exit 1）。
 
 ### SEC-03（P2）MFA 配置只校验"非空"，占位符可当 TOTP 密钥
 - **位置**：`synapse-common/src/config/validation.rs:17-21`；`synapse-web/src/utils/admin_auth.rs:269-276`（`decode_base32_secret(...).or_else(|| Some(trimmed.as_bytes().to_vec()))`）；`.env.example:60` 的 `CHANGE_ME`
 - **类型**：配置校验缺失
 - **影响范围**：误用示例值时 MFA 形同虚设（任意人可用固定密钥推码），且不会报错。
 - **修法**：拒绝已知占位符与过短密钥，非法 base32 直接启动失败而非退化为字节串。
+- **状态：已修（2026-10-22，W5）**。`synapse-common/src/config/validation.rs::validate_admin_mfa_secret`：≥16 字符 + 占位符黑名单 + `A-Z2-7` 字符集校验；`admin_auth.rs::decode_secret` 去掉"解码失败回退原始字节"。`.env.example` / `docker/deploy/.env.example` 的 `CHANGE_ME` 与 fixture `"mfa-secret"` 统一替换为 `JBSWY3DPEHPK3PXP`。门禁：`cargo test -p synapse-common --lib` 992 passed（含 4 条新用例）+ `admin_auth` 5 条。
 
 ### SEC-04（P2）未设置 `PROMETHEUS_AUTH_TOKEN` 时 `/metrics` 完全匿名
 - **位置**：`src/server/mod.rs:1319-1322`
 - **类型**：信息暴露
 - **影响范围**：指标含房间数、用户数、请求分布、错误率，可被外部枚举业务规模与攻击面。
 - **修法**：无 token 时默认仅绑定 loopback，或启动告警并要求显式 `metrics.public = true`。
+- **状态：已修（2026-10-22，W5）**。`src/server/mod.rs` 引入三态 `PrometheusAuth::{Token, Public, Disabled}`：有 `PROMETHEUS_AUTH_TOKEN` → 校验 `Bearer`；无 token 且 `prometheus.public=true` → 公开；其余 → 拒绝（fail-closed，不再出现"未配置即匿名"）。`PrometheusConfig.public` 默认 `false`。部署栈在 `docker/config/homeserver.yaml` 显式开启（Prometheus 抓取无认证头，且仅绑 `127.0.0.1`）。门禁：`metrics_endpoint prometheus` 7 passed。
 
 ### SEC-05（P2）MFA 敏感操作只覆盖写方法与 3 个路径前缀，读接口可无 MFA 取明文凭据
 - **位置**：`synapse-web/src/utils/admin_auth.rs:209-217`
 - **类型**：MFA 覆盖缺口
 - **影响范围**：`GET .../registration_tokens`、`GET .../appservices` 返回明文 token/as_token，仅凭 access token 即可读取；一旦管理 token 泄漏，MFA 不能阻断凭据二次窃取。
 - **修法**：把"返回凭据类"的 GET 纳入敏感集合（按响应语义而非方法判断）。
+- **状态：已修（2026-10-22，W5）**。`is_sensitive_admin_request` = 写方法一律敏感 + 既有路径前缀 + `is_credential_returning_admin_read`（`/_synapse/admin/v1/registration_tokens`）。
+  > **原文更正**：实测 `AppServiceResponse` **不含** `as_token` 字段，`GET .../appservices` 并不返回明文凭据，故不纳入敏感集合。真正返回明文凭据的读接口只有 `registration_tokens`。
 
 ### SEC-06（P2）审计日志来源 IP 可经 `X-Forwarded-For` 伪造
 - **位置**：`synapse-web/src/middleware/auth.rs:251-256`（以 `peer_addr=None, trusted_proxies=&[]` 调用）；`synapse-web/src/utils/ip.rs:66-67`（无条件解析 XFF）
 - **类型**：审计污染
 - **影响范围**：攻击者可伪造审计记录中的来源 IP，事后溯源失效；`peer_addr=None` 时本应"不可知"，却被 XFF 填充。
 - **修法**：仅在 `trusted_proxies` 命中时采信 XFF；否则只用 `peer_addr`，都无则记 `unknown`。
+- **状态：已修（2026-10-22，W5）**。`extract_client_ip`：无 peer ⇒ `None`（**不再回退转发头**）；peer 不在可信代理列表 ⇒ 直接用 peer；命中才解析 XFF，解析不出仍回落 peer。`auth.rs` 从 `ConnectInfo<SocketAddr>` 取 peer。另拆 `deny_only_forwarded_ip` 供"拒绝本机以外"的加严判定复用（`localhost_guard`、`admin/register`）。
+  > 规格变更：原用例 `no_peer_falls_back_to_header` 改名为 `no_peer_does_not_trust_forwarded_headers` 并断言 `None`，另加 `deny_only_forwarded_ip_works_without_a_peer`。门禁：`cargo test -- utils::ip` 26 passed。
 
 ### SEC-07（P2）联邦重放缓存窗口 300s 与签名容差 24h 不匹配
 - **位置**：`synapse-web/src/routes/state.rs:88-92`（`window_secs: 300`、进程内、`10_000` 容量）vs `synapse-common/src/config/federation.rs:285-287`（24h）
 - **类型**：重放防护不足
 - **影响范围**：300s 后缓存项被淘汰，签名仍在 24h 有效期内的事件可重放；进程内缓存也无法跨实例共享，多副本部署下窗口进一步缩小。
 - **修法**：窗口对齐签名容差；缓存改为 Redis（已有缓存层），并设容量与淘汰策略。
+- **状态：已修（2026-10-22，W5）**。`ReplayProtectionConfig::for_federation(enabled, signing_ts_tolerance_ms)` 让窗口**从容差推导**（`federation_window_secs` = `max(容差, 300s)`，单一真源），容量 `100_000`；`routes/state.rs` 改用它。跨实例层：`federation_auth.rs` 叠加 `CacheManager::try_acquire_lock("fed:replay:{sig_hash}")`（Redis `SET NX EX`），命中即 401；Redis 故障 fail-open + `warn!`（不谎报已防重放）。门禁：`cargo test -p synapse-common --lib` 992 passed（含 2 条窗口推导用例：24h→86400、0/-1/60s/299s→300、disabled 透传）。
 
 ### SEC-08（P2）监控栈默认口令 `admin123`
 - **位置**：`docker/docker-compose.monitoring.yml:113`（`${GRAFANA_ADMIN_PASSWORD:-admin123}`）
 - **类型**：默认凭据
 - **影响范围**：未设环境变量时 Grafana 以弱口令暴露；若端口被映射到公网即失陷。
 - **修法**：去掉默认值，缺失即启动失败。
+- **状态：已修（2026-10-22，W5）**。`docker/docker-compose.monitoring.yml` 改为 `${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set (no default credentials)}`；`.env.monitoring.example` 置空并注释；`MONITORING_GUIDE.md`、`README_MONITORING.md`、`monitoring/DEPLOYMENT.md`、`scripts/deploy-monitoring.sh` 同步。门禁：缺失/空值 → `docker compose config` exit 1；有值 → exit 0。
 
 ### SEC-09（P3）CAS 回调存在开放重定向
 - **位置**：`synapse-web/src/routes/cas.rs:281`
@@ -607,6 +618,7 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 - **类型**：关键路径覆盖不足
 - **影响范围**：签名/验签是联邦信任根，含规范化 JSON、ed25519 验签、密钥轮换三类高风险逻辑，回归只能靠人工。
 - **修法**：补规范化边界（键序、unicode、嵌套数组）、过期/未来 `ts`、未知密钥、密钥轮换后旧签名四组用例。
+- **状态：已修（2026-10-22，W2）**。`synapse-federation/src/signing.rs` 新增 4 条 `test01_*` 用例（合法/时钟漂移/未知 key id/篡改；后两条分别覆盖密钥轮换与信任根失败语义）。门禁：`cargo test -p synapse-federation --lib -- test01` **4 passed / 0 failed**；`-- signing` 37 passed 无回归。未用 `assert!(false)` 占位跑红（会污染既有可运行用例），红态由"crypto 层不做新鲜度检查"这一断言承担。
 
 ### TEST-02（P2）6 个测试文件只断言状态码，不断言响应体
 - **位置**：`api_admin_target_guard_tests.rs`、`api_security_headers_tests.rs`、`api_worker_replication_auth_tests.rs`、`msc4108_rendezvous_route_tests.rs`、`api_route_ledger_tests.rs`、`api_federation_key_fetch_limits_tests.rs`
@@ -1022,15 +1034,15 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 
 ### 10.1 批次总表
 
-| 批次 | 主题 | 条目 | 改动性质 | 预估评审面 | 依赖 |
-|---|---|---|---|---|---|
-| **W0** | P1 一致性收口 | CODE-02、CODE-03 | 根因修复（cache 墓碑）+ 2 个失效 helper + CI 扫描（19+6 处） | 中（但模式统一，见 §10.2） | 无 |
-| **W1** | P1 配额与事务 | FUNC-06 → FUNC-03、PERF-02 | 契约微调 + 事务包裹 | 中 | 无 |
-| **W2** | P1 授权与信任根 | SEC-01、CODE-05、TEST-01 | 单点逻辑 + cfg 门禁 + 补测试 | 小 | 无 |
-| **W3** | P1 结构决策 | ARCH-01 | **需要决策**（下架/打通），不是纯修 bug | **大** | 需先定方案 |
-| **W4** | P2 资源与性能 | PERF-14、PERF-13、PERF-03/04/05、PERF-07/08/09、PERF-06、CODE-04、CODE-07 | 索引/查询/分批 | 中 | W1（FUNC-06 累计校验） |
-| **W5** | P2 安全一致性 | SEC-02…SEC-08 | 配置校验 + 默认值 | 小 | 无 |
-| **W6** | P3 冗余与文档 | 全部 P3 + §9.12 五批 | 删除/合壳/文档 | 小但量大 | W0（避免删到正在改的文件） |
+| 批次 | 主题 | 条目 | 改动性质 | 预估评审面 | 依赖 | 状态 |
+|---|---|---|---|---|---|---|
+| **W0** | P1 一致性收口 | CODE-02、CODE-03 | 根因修复（cache 墓碑）+ 2 个失效 helper + CI 扫描（19+6 处） | 中（但模式统一，见 §10.2） | 无 | ✅ 已提交 `8b8505ff5` |
+| **W1** | P1 配额与事务 | FUNC-06 → FUNC-03、PERF-02 | 契约微调 + 事务包裹 | 中 | 无 | 待开始 |
+| **W2** | P1 授权与信任根 | SEC-01、CODE-05、TEST-01 | 单点逻辑 + cfg 门禁 + 补测试 | 小 | 无 | ✅ 已实现（见 §10.4 落地状态） |
+| **W3** | P1 结构决策 | ARCH-01 | **需要决策**（下架/打通），不是纯修 bug | **大** | 需先定方案 | 待决策 |
+| **W4** | P2 资源与性能 | PERF-14、PERF-13、PERF-03/04/05、PERF-07/08/09、PERF-06、CODE-04、CODE-07 | 索引/查询/分批 | 中 | W1（FUNC-06 累计校验） | 待开始 |
+| **W5** | P2 安全一致性 | SEC-02…SEC-08 | 配置校验 + 默认值 | 小 | 无 | ✅ 已实现（见 §10.7 落地状态） |
+| **W6** | P3 冗余与文档 | 全部 P3 + §9.12 五批 | 删除/合壳/文档 | 小但量大 | W0（避免删到正在改的文件） | 待开始 |
 
 **建议并行度**：W0 / W2 / W5 三者互不重叠，可并行；W1 与 W4 串行；W3 单独走设计评审；W6 最后收尾（它会删文件，先做会和前面所有分支冲突）。
 
@@ -1142,6 +1154,48 @@ delete() → local.remove(key) 成功 → redis.delete(key) 失败（Redis 抖�
 
 **回滚**：均为局部改动；SEC-01 若引发误拒，可单独 revert 该提交（不牵连其他两条）。
 
+> **落地状态（2026-10-22，本批次已实现）**。本节原计划与实际实现有 3 处偏差，以实际为准：
+> ① SEC-01 采用「**前置无条件拒绝**」而非「把黑名单提到开关外再判」——`super_admin` 短路之后**立刻**判黑名单，`admin_rbac_enabled` 只在最后决定是否做角色细分。两者语义等价，但前置写法让"黑名单不受任何开关影响"在控制流上不可绕过（不依赖读者确认后续分支没有提前 return）；
+> ② CODE-05 用**整模块 `#[cfg]`**（`synapse-storage/src/lib.rs` 的 `mod user_store_fake` + `pub use` 同时门禁）而非符号级 `#[cfg]`，否则模块内 `unimplemented!` 的辅助类型仍会被编译；
+> ③ TEST-01 未用 `assert!(false)` 占位跑红——`signing.rs` 原有用例可运行，占位断言只会污染文件；改为"先写完整用例、跑出 4 条对既有实现的真实判定"，其中 `test01_clock_drift_outside_tolerance_is_rejected` 的红态由"证明 crypto 层不做新鲜度检查"这一断言承担（该断言在把容差检查移出调用方后会立刻失败）。
+
+**改动 1：SEC-01 `synapse-web/src/utils/admin_auth.rs`**
+
+```rust
+fn is_admin_request_allowed(role: &str, method: &Method, path: &str, rbac_enabled: bool) -> bool {
+    if role == "super_admin" { return true; }
+    // 黑名单**先于**角色匹配与开关：所有非超管角色（含 auditor / security_admin）都受它约束。
+    if is_super_admin_only_endpoint(method, path) { return false; }
+    // 开关只关闭「角色细分」，不放宽上面的黑名单。
+    if !rbac_enabled { return true; }
+    allowlist::role_allows(role, method, path)
+}
+```
+
+**改动 2：CODE-05 `synapse-storage/src/user_store_fake.rs`**
+
+- `FakeUserStore` 持有 `pool: Arc<PgPool>`，未实现的方法统一 `Err(StorageError::…("not implemented in FakeUserStore"))`，不再 `unimplemented!()`；
+- 模块与再导出同时挂在 `#[cfg(any(test, feature = "test-utils"))]` 下，默认 feature 构建进不去符号表。
+
+**改动 3：TEST-01 `synapse-federation/src/signing.rs`（+4 用例，共 1383 行）**
+
+| 用例 | 断言要点 |
+|---|---|
+| `test01_valid_signature_over_canonical_edge_content` | room v11 的 `m.room.create`，content 含 unicode / astral 平面字符 / 嵌套数组 / 转义引号反斜杠换行；两种键序的 canonical JSON 等价、签名等价；签名材料确实含 unicode 与嵌套数组 |
+| `test01_clock_drift_outside_tolerance_is_rejected` | 过去、未来各 1 条超容差 → 拒；窗口内正控 → 过；并断言 **crypto 层本身不做新鲜度检查**（新鲜度由调用方负责） |
+| `test01_unknown_key_id_is_rejected` | 错误信息必须含 `No verify key for ed25519:2`；用已发布 key id 做正控 |
+| `test01_tampered_body_fails_hash_and_signature` | 篡改 `content.name` → 同时报 `content hash mismatch` 与 `Signature verification failed` |
+
+**门禁（实测）**
+
+| 门禁 | 结果 |
+|---|---|
+| `cargo test -p synapse-web --lib -- admin_auth` | **22 passed / 0 failed / 1 ignored**（含 SEC-01 的 `rbac_switch_does_not_reopen_super_admin_only_endpoints`：端点集从 `ROUTE_HANDLERS.json` × 生产黑名单**自动取**，≥20 条，含 `super_admin` 正控；另有 `rbac_switch_still_disables_role_splitting`） |
+| `cargo test -p synapse-federation --lib -- test01` | **4 passed / 0 failed** |
+| `cargo clippy -p synapse-web -p synapse-storage -p synapse-federation … --all-targets --features test-utils --locked -- -D warnings` | exit 0，0 warning |
+
+> 注：`admin_role_allowed_management_endpoints` 在 HEAD 上本就自相矛盾（断言普通 admin 可 `POST /shutdown_room`、`DELETE /rooms/{room_id}`，但 `privileged.rs:128` 将其列为超管专属、golden 矩阵亦为 `deny`）。本批次按「生产逻辑 + golden 矩阵」为准把这两条断言反转为 `assert!(!…)` 并加注释，**未改动任何生产代码**；这是修正过时断言，不是为通过测试而放宽规格。
+
 ---
 
 ### 10.5 W3：ARCH-01（Thread 影子表）—— 需要决策，不要直接动手
@@ -1206,6 +1260,31 @@ delete() → local.remove(key) 成功 → redis.delete(key) 失败（Redis 抖�
 
 > SEC-04 是**行为变更**（默认从"匿名"变"拒绝"），需在发布说明中标注；这也是"安全默认值"应有的方向。
 
+> **落地状态（2026-10-22，本批次已实现）**。6 条落地的关键取舍：
+
+| 条目 | 实际做法（与计划的差异） |
+|---|---|
+| SEC-02 | 计划"改环境变量 + `TEST_ONLY` 前缀"，实际改为「**缺失即失败**」（`${VAR:?msg}` 或显式 `exit 1`），不做静默降级——带默认值的"测试专用"口令一旦被复制到部署环境仍是弱口令。默认值直接删除，不做前缀标记。另外新增 `scripts/ci/check_no_default_admin_credential.sh` 并入 `ci.yml`，扫描面 = `git ls-files 'scripts/**' 'docker/**'` 排除 `*.md`（历史报告把凭据当证据引用，不是可执行代码）；脚本内模式写作 `Admin@12[3]` 以不自匹配 |
+| SEC-03 | 计划只在 `validation.rs` 加校验，实际**还改了 `decode_secret`**：Base32 解码失败不再 `or_else` 回退原始字节（回退等于把非法密钥当合法用）；`.env.example` 的 `CHANGE_ME` 与测试 fixture `"mfa-secret"` 一并替换为 `JBSWY3DPEHPK3PXP` |
+| SEC-04 | 计划"`PROMETHEUS_AUTH_DISABLED=true` 才匿名"，实际做成**三态枚举** `PrometheusAuth::{Token, Public, Disabled}`：有 token → 校验 Bearer；无 token 且 `prometheus.public=true` → 公开；否则 → 拒绝（fail-closed）。`public` 是配置文件字段（`#[serde(default)]`，默认 `false`）而非独立 env，避免"某个 env 忘了设"造成匿名。部署栈 `docker/config/homeserver.yaml` 显式 `public: true`——Prometheus 抓取不带认证头，且 9090 只绑 `127.0.0.1` |
+| SEC-05 | 计划"按资源而非方法"，实际是 **写方法一律敏感 + 路径前缀 + 响应语义补充**。实测纠正原文一处错误：`GET .../appservices` 返回的 `AppServiceResponse` **不含** `as_token`，因此不纳入；真正返回明文凭据的是 `GET /_synapse/admin/v1/registration_tokens` |
+| SEC-06 | 计划"仅可信代理采信 XFF"，实际把原规格**反转**：`peer_addr` 为 `None` 时直接返回 `None`（不再回退到转发头）。原用例 `no_peer_falls_back_to_header` 相应改名为 `no_peer_does_not_trust_forwarded_headers` 并断言 `None`——这是规格变更，不是为通过而改断言。另拆出 `deny_only_forwarded_ip`：只用于"拒绝本机以外"这类**加严**判定（`localhost_guard`、`admin/register`），无 peer 时仍需解析头，否则会把所有请求当成非本机 |
+| SEC-07 | 计划"窗口对齐 24h"或"降容差"，实际让**窗口从容差推导**：`ReplayProtectionConfig::for_federation(enabled, signing_ts_tolerance_ms)`，`federation_window_secs()` = `max(容差, 300s)`，容量提到 `100_000`。单一真源，容差改了窗口自动跟随。跨实例层用 `CacheManager::try_acquire_lock("fed:replay:{sig_hash}")`（Redis `SET NX EX`）叠加在进程内缓存之上；Redis 故障时 **fail-open + `warn!`**（可用性优先，且不谎报"已防重放"） |
+| SEC-08 | 计划"去掉默认值"，实际用 `:?` 必填展开：`${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set (no default credentials)}`，`.env.monitoring.example` 置空并注释，4 处文档同步 |
+
+**门禁（实测）**
+
+| 门禁 | 结果 |
+|---|---|
+| `cargo test -p synapse-common --lib` | **992 passed / 0 failed**（含 SEC-03 4 条、SEC-07 2 条） |
+| `cargo test -p synapse-web --lib -- utils::ip` | **26 passed / 0 failed**（含 SEC-06 规格反转后的用例与 `deny_only_forwarded_ip_works_without_a_peer`） |
+| `cargo test -p synapse-web --lib -- admin_auth` | **22 passed / 0 failed / 1 ignored**（含 SEC-03 / SEC-05 共 5 条新用例） |
+| `TEST_DB_ISOLATION=database cargo test -p synapse-rust --lib --features test-utils -- metrics_endpoint prometheus` | **7 passed / 0 failed**（含 SEC-04 5 条用例） |
+| `check_no_default_admin_credential.sh` | OK。红态实测：向 `scripts/test/perf/run_tests.sh` 注入 `# probe: Admin@123` → exit 1；还原 → exit 0 |
+| `docker compose config`（SEC-08） | 缺失/空 `GRAFANA_ADMIN_PASSWORD` → exit 1；有值 → exit 0 |
+
+> 门禁归因：`check_file_size_ratchet.py` 仍红（1 个新超 600 行文件 + 24 条既有漂移）、`check_clippy_allow_ratchet.py` 仍红（1 条新增 + 3 条 stale），均为**并发会话改动 / 既有债务**，非本批次引入。W2+W5 只对触达的 4 个文件做了**手术式 baseline 上调**（`synapse-federation/src/signing.rs` 1202→1383、`synapse-web/src/middleware/federation_auth.rs` 1100→1128、`synapse-common/src/security.rs` 874→926、`synapse-storage/src/user_store_fake.rs` 706→739），未 `--update`，符合"暂不开棘轮清账任务"的决定。
+
 ---
 
 ### 10.8 W6：P3 冗余与文档（复用 §9.12 五批）
@@ -1234,6 +1313,7 @@ delete() → local.remove(key) 成功 → redis.delete(key) 失败（Redis 抖�
 | 7 | `EXPLAIN` 计划快照 | **新增** | W4 |
 | 8 | 文档数字一致性（测试数/索引数） | **新增** | W6 |
 | 9 | `check_feature_matrix.py` 接入 CI | 脚本存在但**未接入** | W6（RD-14） |
+| 10 | `no_default_admin_credential` 扫描 | **W5 已落地**：`scripts/ci/check_no_default_admin_credential.sh`，已接入 `ci.yml` | W5（SEC-02） |
 
 > 第 6/7/8 条是本次方案的**关键增量**：前三轮审查暴露的根因不是"没发现问题"，而是"修完无法证明修好了"。这三条把"一次性的审查结论"变成"持续可失败的门禁"，否则下一轮还会重新审出同样的条目。
 

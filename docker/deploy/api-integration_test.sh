@@ -37,7 +37,14 @@ TEST_USER2="${TEST_USER2:-testuser2}"
 TEST_PASS2="${TEST_PASS2:-Test@123}"
 CURRENT_TEST_PASS="$TEST_PASS"
 ADMIN_USER="${ADMIN_USER:-admin}"
-ADMIN_PASS="${ADMIN_PASS:-Admin@123}"
+# SEC-02：管理员口令没有默认值。内置默认口令会随仓库一起分发，等于把生产凭据
+# 写进源码；缺失时直接失败，让调用方显式提供。
+ADMIN_PASS="${ADMIN_PASS:-}"
+if [ -z "$ADMIN_PASS" ]; then
+    echo "ERROR: 未设置 ADMIN_PASS（管理员口令无默认值）。" >&2
+    echo "       示例：ADMIN_PASS='...' $0" >&2
+    exit 1
+fi
 TEST_ROLE="${TEST_ROLE:-super_admin}"
 # 根据 TEST_ROLE 自动设置 ADMIN_USER_TYPE
 if [ -z "$ADMIN_USER_TYPE" ]; then

@@ -176,6 +176,20 @@ def _coerce_bool(v: Any) -> bool:
     return str(v).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _apply_credential_override(
+    cfg: dict, section: str, field_name: str, env: str
+) -> None:
+    """SEC-02: 凭据可由环境变量注入，仓库里不再存放口令字面量。"""
+    raw = os.environ.get(env)
+    if raw is None:
+        return
+    section_cfg = cfg.get(section)
+    if not isinstance(section_cfg, dict):
+        section_cfg = {}
+        cfg[section] = section_cfg
+    section_cfg[field_name] = raw
+
+
 def load_config(cli: argparse.Namespace) -> dict:
     cfg = load_yaml(DEFAULT_CONFIG)
     # 环境变量覆盖
@@ -185,6 +199,11 @@ def load_config(cli: argparse.Namespace) -> dict:
             cfg[key] = (
                 _coerce_bool(raw) if key in {"verify_tls", "allow_write"} else raw
             )
+    # README 已文档化的凭据变量此前并未接线，导致 config.yaml 只能写死口令（SEC-02）。
+    _apply_credential_override(cfg, "auth", "username", "API_TEST_USER")
+    _apply_credential_override(cfg, "auth", "password", "API_TEST_PASSWORD")
+    _apply_credential_override(cfg, "admin", "username", "API_TEST_ADMIN_USER")
+    _apply_credential_override(cfg, "admin", "password", "API_TEST_ADMIN_PASSWORD")
     # 命令行覆盖
     if cli.env:
         cfg["env"] = cli.env
@@ -420,7 +439,10 @@ def auto_login_admin(
     username = admin_cfg.get("username")
     password = admin_cfg.get("password")
     if not username or not password:
-        return None, "未配置 admin.username/password"
+        return (
+            None,
+            "未配置 admin.password（请设置环境变量 API_TEST_ADMIN_PASSWORD，或配置 admin.auth_token）",
+        )
     payload = {
         "type": "m.login.password",
         "identifier": {"type": "m.id.user", "user": username},
@@ -454,7 +476,8 @@ def auto_login_admin(
 # 敏感 admin 操作还需请求头 x-admin-mfa-code（当前 TOTP）。服务端判定见
 # synapse-web/src/utils/admin_auth.rs::is_sensitive_admin_request：
 #   写方法（POST/PUT/PATCH/DELETE）一律敏感；
-#   读方法仅 /v1/security、/v1/server、/v1/media/quarantine 前缀敏感。
+#   读方法仅 /v1/security、/v1/server、/v1/media/quarantine 前缀，
+#   以及**响应体含凭据**的 /v1/registration_tokens（SEC-05）敏感。
 # 此处复刻该判定，并对敏感读端点自动附带 TOTP，覆盖这层 MFA。
 ADMIN_MFA_SECRET_ENV = "API_TEST_ADMIN_MFA_SECRET"
 DEPLOY_ENV_FILE = PROJECT_ROOT / "docker" / "deploy" / ".env"
@@ -462,6 +485,7 @@ _SENSITIVE_ADMIN_READ_PREFIXES = (
     "/_synapse/admin/v1/security",
     "/_synapse/admin/v1/server",
     "/_synapse/admin/v1/media/quarantine",
+    "/_synapse/admin/v1/registration_tokens",
 )
 
 

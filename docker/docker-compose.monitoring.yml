@@ -109,8 +109,10 @@ services:
       - "127.0.0.1:9091:3000"
     environment:
       # 管理员账户（首次启动时设置）
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin123}
+      # 口令必须由环境变量显式提供；缺失时 docker compose 直接拒绝启动，
+      # 避免以弱默认口令对外暴露 Grafana（见 SEC-08）。
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set (no default credentials)}
       # 禁用匿名访问（生产环境必须）
       - GF_AUTH_ANONYMOUS_ENABLED=false
       # 时区设置

@@ -27,6 +27,7 @@
 # 追加（2026-10-22，W-I 阶段 4 复核）：addr（`peer addr` 被按空格切出的片段，docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md）。
 aarch
 abi
+abnormalroomcreatefailurerate
 acao
 accessexclusivelock
 accessor
@@ -44,6 +45,7 @@ ack
 acl
 acs
 actionlint
+addr
 adminauthsource
 admincontext
 adminfederationservice
@@ -54,7 +56,6 @@ adminserverservice
 adminuser
 adminuserservice
 adr
-addr
 aes
 agentic
 agpl
@@ -296,6 +297,8 @@ echarts
 ecr
 edu
 edus
+eecoveragedrop
+eehandshake
 eeroom
 eeroomcontext
 elementsec
@@ -404,7 +407,12 @@ heapsort
 heredoc
 hgcg
 highcpuusage
+highdatabaseconnectionutilization
+highdatabaseerrorrate
 higherrorrate
+highfederationerrorrate
+highfederationtimeoutrate
+highhttperrorrate
 highmemoryusage
 highpoolutilization
 hir
@@ -532,6 +540,7 @@ logcontext
 logoutresponse
 logrotate
 loopback
+lowcachehitrate
 lru
 lto
 lts
@@ -562,6 +571,7 @@ membershiptransition
 memberstoreapi
 memswap
 mergeable
+messagequeuebacklog
 messagingservice
 messagingserviceconfig
 methodrouter
@@ -752,6 +762,7 @@ redactions
 redirecturl
 redis
 rediscli
+redisconnectionerrors
 refcount
 referer
 refname
@@ -881,6 +892,10 @@ slidingsyncextensions
 slidingsyncservice
 slidingsyncstorage
 slidingsyncstoreapi
+slowe
+slowmessagedelivery
+slowroomcreation
+slowsynclatency
 sls
 sms
 smtp
@@ -888,6 +903,7 @@ soatok
 spaceinfomock
 spaceservice
 spacestorage
+spikeinauthfailures
 splitter
 sqli
 sqlstate
@@ -927,6 +943,7 @@ svc
 svg
 swimlane
 symdiff
+synapseservicedown
 synccontext
 syncdatafetch
 synchrotron

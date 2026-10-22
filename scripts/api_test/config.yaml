@@ -34,7 +34,9 @@ auth:
 # 也可直接注入未过期的 auth_token，或用环境变量 API_TEST_ADMIN_TOKEN 覆盖。
 admin:
   username: "admin"
-  password: "Admin@123"
+  # SEC-02：口令不提交到仓库。请通过环境变量 API_TEST_ADMIN_PASSWORD 提供；
+  # 缺失时 admin token 拿不到，脚本会以「认证降级」失败而不是静默退化为匿名探测。
+  password: ""
   # 留空 → 运行时自动登录签发；如需固定 token 可填入（有效期 24h，过期会触发大量 401 警告）
   auth_token: ""
 

@@ -9,7 +9,7 @@ use crate::routes::context::AdminContext;
 use crate::routes::extractors::localhost_guard::{register_error_response, LocalhostGuard};
 use crate::routes::AppState;
 use crate::routes::MatrixJson;
-use crate::utils::ip::extract_client_ip;
+use crate::utils::ip::deny_only_forwarded_ip;
 use axum::{
     body::Body,
     extract::ConnectInfo,
@@ -94,9 +94,11 @@ fn map_admin_register_service_error(error: &ApiError) -> Response<Body> {
     }
 }
 
+/// SEC-06: deny-only guard — the result can only cause a rejection, so the
+/// forwarded headers are still consulted even though no peer is available here.
 fn extract_registration_client_ip(headers: &HeaderMap) -> Option<String> {
     let priority = vec!["x-forwarded-for".to_string(), "x-real-ip".to_string(), "forwarded".to_string()];
-    extract_client_ip(headers, &priority, None, &[])
+    deny_only_forwarded_ip(headers, &priority)
 }
 
 fn runtime_environment() -> String {

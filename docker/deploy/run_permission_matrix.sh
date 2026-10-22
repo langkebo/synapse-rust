@@ -22,6 +22,14 @@ ROLES="super_admin admin user"
 export SERVER_URL="${SERVER_URL:-http://localhost:8008}"
 export TEST_ENV="${TEST_ENV:-dev}"
 
+# SEC-02：管理员口令不再内置默认值。缺少环境变量时直接失败，避免一个被复制到
+# 生产环境的口令同时出现在本仓库源码里。
+if [ -z "${ADMIN_PASS:-}" ]; then
+    echo "ERROR: 未设置 ADMIN_PASS。" >&2
+    echo "       请显式提供 super_admin 口令，例如：ADMIN_PASS='...' $0" >&2
+    exit 1
+fi
+
 for ROLE in $ROLES; do
     echo "------------------------------------------"
     echo "Running tests for role: $ROLE"
@@ -29,8 +37,8 @@ for ROLE in $ROLES; do
 
     case $ROLE in
         super_admin)
-            USER="admin"
-            PASS="Admin@123"
+            USER="${ADMIN_USER:-admin}"
+            PASS="$ADMIN_PASS"
             ;;
         admin)
             USER="testuser1"

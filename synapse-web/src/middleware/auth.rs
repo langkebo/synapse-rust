@@ -248,10 +248,14 @@ pub async fn admin_auth_middleware(
     let path = request.uri().path().to_string();
     let headers = request.headers().clone();
     let request_id = resolve_request_id(&headers);
+    // SEC-06: attribute the audit event to the real peer; forwarded headers are
+    // only trusted when they come from a declared proxy (none here), so an
+    // unauthenticated caller can no longer choose the recorded IP.
+    let peer_addr = request.extensions().get::<axum::extract::ConnectInfo<std::net::SocketAddr>>().map(|info| info.0);
     let client_ip = extract_client_ip(
         &headers,
         &["x-forwarded-for".to_string(), "x-real-ip".to_string(), "forwarded".to_string()],
-        None,
+        peer_addr,
         &[],
     );
 

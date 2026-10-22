@@ -129,9 +129,10 @@ class TokenManager:
 
     def _load_config(self) -> dict:
         if not self.config_path.exists():
+            # SEC-02: 口令一律来自环境变量，不再内置任何默认口令。
             return {
-                "auth": {"username": "testuser1", "password": "Test@123"},
-                "admin": {"username": "admin", "password": "Admin@123"},
+                "auth": {"username": "testuser1"},
+                "admin": {"username": "admin"},
             }
         with open(self.config_path) as f:
             return yaml.safe_load(f) or {}
@@ -174,7 +175,13 @@ class TokenManager:
             return self._user_token
         creds = self._config.get("auth", {})
         username = creds.get("username", "testuser1")
-        password = creds.get("password", "Test@123")
+        # SEC-02: 口令来自环境变量，缺失时明确报错而不是回落到仓库里的默认口令。
+        password = creds.get("password") or os.environ.get("API_TEST_PASSWORD") or ""
+        if not password:
+            print(
+                "[token] user 口令缺失：请设置环境变量 API_TEST_PASSWORD（或 auth.password）"
+            )
+            return None
         data = self._login(username, password)
         if data:
             self._user_token = data["access_token"]
@@ -192,7 +199,15 @@ class TokenManager:
             return self._admin_token
         creds = self._config.get("admin", {})
         username = creds.get("username", "admin")
-        password = creds.get("password", "Admin@123")
+        # SEC-02: admin 口令同样只能来自环境变量。
+        password = (
+            creds.get("password") or os.environ.get("API_TEST_ADMIN_PASSWORD") or ""
+        )
+        if not password:
+            print(
+                "[token] admin 口令缺失：请设置环境变量 API_TEST_ADMIN_PASSWORD（或 admin.password）"
+            )
+            return None
         # admin 强制 MFA 时登录需附带当前 TOTP；无密钥则不附带（服务器将按未启用处理）
         mfa_secret = _load_admin_mfa_secret(self._config)
         mfa_code = _generate_totp(mfa_secret) if mfa_secret else None

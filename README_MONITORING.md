@@ -51,7 +51,7 @@ docker compose -p synapse-monitoring -f docker-compose.monitoring.yml restart sy
 
 | 服务 | 地址 | 凭据 |
 |------|------|------|
-| **Grafana** | http://localhost:3000 | `admin` / `admin123` |
+| **Grafana** | http://localhost:3000 | `admin` / `$GRAFANA_ADMIN_PASSWORD`（必填，无默认值） |
 | **Prometheus** | http://localhost:9092 | 无 |
 | **Alertmanager** | http://localhost:9093 | 无 |
 | **node-exporter** | http://localhost:9100 | 无 |
@@ -227,7 +227,9 @@ Grafana 10.4.2 用 webpack（产物是 `/public/build/*.js`），**永远不会�
 
 ### Q2: 登录报 "Invalid username or password"
 
-默认账号是 `admin` / `admin123`。若已被改动，用 `grafana-cli admin reset-admin-password`
+管理员账号的用户名由 `GRAFANA_ADMIN_USER`（默认 `admin`）决定，口令必须通过
+`GRAFANA_ADMIN_PASSWORD` 显式提供 —— compose 文件删掉了 `admin123` 默认值，未设置时
+`docker compose` 直接拒绝启动。忘记口令时用 `grafana-cli admin reset-admin-password`
 重置（见上文）。
 
 ### Q3: 启动报 `network synapse_network ... not found`

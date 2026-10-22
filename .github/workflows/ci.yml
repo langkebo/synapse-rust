@@ -138,6 +138,15 @@ jobs:
       - name: No silent cache invalidation
         run: bash scripts/ci/check_no_silent_cache_delete.sh
 
+      # SEC-02: helper scripts used to fall back to a working admin password
+      # (`ADMIN_PASS="${ADMIN_PASS:-Admin@123}"`), which both shipped a
+      # credential and turned "unset variable" into a privileged login. The
+      # credential is now required; this gate keeps any default from creeping
+      # back into `scripts/` or `docker/`.
+      # Red-proved 2026-10-22: restoring the fallback → exit 1; removing it → exit 0.
+      - name: No default admin credential
+        run: bash scripts/ci/check_no_default_admin_credential.sh
+
       # Workflow 自身的健全性：每个 Actions step 必须有 `run:` 或 `uses:`。
       # 缺了两者会让**整个 workflow 文件**校验失败，该 workflow 的所有步骤一起
       # 不生效（db-migration-gate.yml 在 2026-09-15 曾真实如此 —— Phase 0 删掉了

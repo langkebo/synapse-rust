@@ -85,11 +85,12 @@ impl AppState {
             )));
 
         // S1 修复：初始化联邦重放保护缓存。
-        let replay_protection_cache = Arc::new(ReplayProtectionCache::new(ReplayProtectionConfig {
-            enabled: services.core.config.federation.replay_protection_enabled,
-            cache_size: 10_000,
-            window_secs: 300,
-        }));
+        // SEC-07：窗口由签名时间戳容差推导（而非固定 300 s），否则一条被截获的
+        // 请求在缓存条目过期后、而它的 `ts` 仍在容差内时仍可重放。
+        let replay_protection_cache = Arc::new(ReplayProtectionCache::new(ReplayProtectionConfig::for_federation(
+            services.core.config.federation.replay_protection_enabled,
+            services.core.config.federation.signing_ts_tolerance_ms,
+        )));
 
         // Wire federation signature cache to key rotation manager so that
         // cached signature verification results are invalidated on key rotation.
