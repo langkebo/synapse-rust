@@ -23,7 +23,7 @@ impl EventStorage {
             r#"
             SELECT event_id, event_type, sender, content, origin_server_ts
             FROM events
-            WHERE room_id = $1 AND event_type = 'm.room.message' AND LOWER(content::text) LIKE $2
+            WHERE room_id = $1 AND event_type = 'm.room.message' AND content::text ILIKE $2
               AND is_redacted = false AND soft_failed = FALSE
               AND ($4::bigint IS NULL OR origin_server_ts >= $4)
               AND ($5::bigint IS NULL OR origin_server_ts <= $5)
@@ -79,9 +79,9 @@ impl EventStorage {
              WHERE soft_failed = FALSE AND ",
         );
 
-        query_builder.push("(LOWER(content::text) LIKE ");
+        query_builder.push("(content::text ILIKE ");
         query_builder.push_bind(search_pattern);
-        query_builder.push(" OR LOWER(sender) LIKE ");
+        query_builder.push(" OR sender ILIKE ");
         query_builder.push_bind(search_pattern);
         query_builder.push(")");
 
@@ -99,7 +99,7 @@ impl EventStorage {
             // Default search surface: messages plus room name/topic, matching the
             // reindexer's type set (upstream Synapse v1.161 #20119 fixed its
             // reindexer to include `m.room.topic`).  Content is matched with
-            // `LOWER(content::text) LIKE`, so the JSON of these state events is
+            // `content::text ILIKE`, so the JSON of these state events is
             // searchable without any schema change or backfill.
             query_builder.push(" AND event_type IN ('m.room.message', 'm.room.name', 'm.room.topic')");
         }

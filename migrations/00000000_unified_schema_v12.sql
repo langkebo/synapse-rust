@@ -3355,6 +3355,8 @@ CREATE INDEX IF NOT EXISTS idx_rooms_is_public ON rooms(is_public) WHERE is_publ
 CREATE INDEX IF NOT EXISTS idx_rooms_last_activity ON rooms(last_activity_ts DESC) WHERE last_activity_ts IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_rooms_name_trgm ON rooms USING GIN (name gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_rooms_canonical_alias_trgm ON rooms USING GIN (canonical_alias gin_trgm_ops);
+-- PERF-03：`/publicRooms` 与用户房间搜索都对 `topic` 做 ILIKE；缺这条索引则整表扫描。
+CREATE INDEX IF NOT EXISTS idx_rooms_topic_trgm ON rooms USING GIN (topic gin_trgm_ops);
 
 -- Room memberships
 CREATE INDEX IF NOT EXISTS idx_room_memberships_room ON room_memberships(room_id);
@@ -3388,6 +3390,9 @@ CREATE INDEX IF NOT EXISTS idx_events_room_time ON events(room_id, origin_server
 CREATE INDEX IF NOT EXISTS idx_events_room_ts_stream ON events(room_id, origin_server_ts DESC, stream_ordering DESC);
 CREATE INDEX IF NOT EXISTS idx_events_sender_type ON events(sender, event_type);
 CREATE INDEX IF NOT EXISTS idx_events_content_gin ON events USING GIN (content jsonb_path_ops);
+-- PERF-04：消息搜索用 `content::text ILIKE '%term%'`（含 m.room.name/topic），
+-- `jsonb_path_ops` 只服务 `@>`，匹配子串必须走 trgm 表达式索引。
+CREATE INDEX IF NOT EXISTS idx_events_content_trgm ON events USING GIN ((content::text) gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_events_type_state ON events(room_id, event_type, state_key) WHERE event_type LIKE 'm.room.%';
 CREATE INDEX IF NOT EXISTS idx_events_sender_time ON events(sender, origin_server_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_events_stream_ordering ON events(stream_ordering);

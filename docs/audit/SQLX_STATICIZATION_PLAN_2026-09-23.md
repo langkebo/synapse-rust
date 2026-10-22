@@ -2194,7 +2194,7 @@ BASELINE_DYNAMIC_PRODUCTION=133
 BASELINE_DYNAMIC_TEST_INFRA=767
 BASELINE_STATIC=1367
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1334
+SQLX_CACHE_ENTRIES=1330
 <!-- sqlx-plan-numbers:end -->
 
 > **2026-10-21 更新（B-34 push rules 排序参数 + `event_search` 物化 FTS 收尾）**，
@@ -2232,6 +2232,17 @@ SQLX_CACHE_ENTRIES=1334
 >   schema 判断 `users` 是否存在；`to_regclass` 返回 `regclass`，离线缓存里也无条目。
 >   逐文件 literal 棘轮同步 `synapse-test-utils/src/lib.rs` 14 → 15。
 > - 其余四项不变（`767` / `1367` / `17` / `1334`）。**零余量**：133 = 现算实测。
+
+> **2026-10-22 更新（W4 第一层：`LIKE`/`ILIKE` 谓词改造，`SQLX_CACHE_ENTRIES` 1334 → 1330）**
+> - 触发原因：`PERF-03/04/05` 把 4 条宏查询的谓词从 `LOWER(col) LIKE $1` 改为 `col ILIKE $1`
+>   （`room/models.rs` 2 条、`room/mod.rs` 1 条、`membership/mod.rs` 1 条），SQL 文本变化
+>   ⇒ 缓存键变化，4 条旧条目失效、4 条新条目生成。
+> - 同时**清掉 4 条既有孤儿**（本次之前就已无人引用，只是没人跑过写模式）：
+>   ① `search_room_messages_admin` 的旧 `query!` 宏版本（2026-10-21 已转运行时 `query_as`，
+>   见上方同批次记录）；②–④ 3 条 `push_rules` 条目（`get_user_push_rules` /
+>   `get_all_push_rules` 已转运行时 `query_as`，见 `synapse-storage/src/push/mod.rs` 注释）。
+> - 净变化 −4（删 8 增 4）。逐文件 literal 棘轮与其余四项**不变**（`133` / `767` / `1367` / `17`）——
+>   这 4 条一直是宏、只是文本变了，不涉及宏↔运行时迁移。
 
 > **2026-10-21 补充（同类缺口：`search_room_messages_admin` 的 `start_date` / `end_date`）**：
 > 管理端 `POST /_synapse/admin/v1/rooms/{room_id}/search` 的请求体

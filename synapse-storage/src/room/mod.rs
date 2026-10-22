@@ -547,7 +547,7 @@ impl RoomStorage {
             SELECT room_id, name, topic, avatar_url, is_public AS "is_public!"
             FROM rooms
             WHERE
-                (LOWER(name) LIKE $1 OR LOWER(topic) LIKE $1)
+                (name ILIKE $1 OR topic ILIKE $1)
                 AND (
                     is_public = true
                     OR EXISTS (

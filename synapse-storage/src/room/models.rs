@@ -179,10 +179,14 @@ pub const DEFAULT_JOIN_RULE: &str = "invite";
 /// Constant `DEFAULT_HISTORY_VISIBILITY`.
 pub const DEFAULT_HISTORY_VISIBILITY: &str = "joined";
 
-/// `filter.generic_search_term` 的匹配形态：`%term%`（大小写不敏感由 SQL 侧的 `LOWER(...)` 保证）。
+/// `filter.generic_search_term` 的匹配形态：`%term%`（大小写不敏感由 SQL 侧的 `ILIKE` 保证）。
 ///
 /// **只有这一份**：`search_room_directory`（返回集合）与 `count_public_rooms_matching`（总数）
 /// 必须用**同一个**谓词，否则 `total_room_count_estimate` 会与实际 chunk 不一致。
+///
+/// 词条在这里已经 `to_lowercase()`，因此 SQL 侧写 `col ILIKE $1` 与 `LOWER(col) LIKE $1`
+/// 等价，但只有前者能命中建在**原始列**上的 `pg_trgm` GIN 索引（`LOWER(col)` 是另一个
+/// 表达式，与索引定义不匹配 ⇒ 全表扫描）。见 `scripts/quality/explain_check.sh`。
 fn directory_search_pattern(search_term: &str) -> String {
     format!("%{}%", search_term.to_lowercase())
 }
@@ -404,9 +408,9 @@ impl RoomStorage {
             FROM rooms r
             LEFT JOIN room_summaries rs ON rs.room_id = r.room_id
             WHERE r.is_public = TRUE
-              AND (LOWER(r.name) LIKE $1
-                   OR LOWER(r.topic) LIKE $1
-                   OR LOWER(r.canonical_alias) LIKE $1)
+              AND (r.name ILIKE $1
+                   OR r.topic ILIKE $1
+                   OR r.canonical_alias ILIKE $1)
               AND ($3::text[] IS NULL
                    OR rs.room_type = ANY($3)
                    OR ($4::boolean AND rs.room_type IS NULL))
@@ -462,9 +466,9 @@ impl RoomStorage {
             FROM rooms r
             LEFT JOIN room_summaries rs ON rs.room_id = r.room_id
             WHERE r.is_public = TRUE
-              AND (LOWER(r.name) LIKE $1
-                   OR LOWER(r.topic) LIKE $1
-                   OR LOWER(r.canonical_alias) LIKE $1)
+              AND (r.name ILIKE $1
+                   OR r.topic ILIKE $1
+                   OR r.canonical_alias ILIKE $1)
               AND ($2::text[] IS NULL
                    OR rs.room_type = ANY($2)
                    OR ($3::boolean AND rs.room_type IS NULL))

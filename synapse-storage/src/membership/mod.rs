@@ -1125,7 +1125,7 @@ impl RoomMemberStorage {
             FROM room_memberships
             WHERE room_id = $1
               AND membership = 'join'
-              AND user_id LIKE '%:%'
+              AND POSITION(':' IN user_id) > 0
             "#,
             room_id,
         )

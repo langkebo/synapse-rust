@@ -73,6 +73,14 @@ jobs:
           psql -h 127.0.0.1 -U synapse -d synapse_health -v ON_ERROR_STOP=1 \
             -f migrations/00000000_unified_schema_v12.sql
 
+      # W4 第一层（PERF-03/04/05）的验收口径：索引类改动**只能看 EXPLAIN**——
+      # 功能测试全绿也可能一直在顺序扫描。本步复用上面刚灌好的库，不另建库。
+      - name: EXPLAIN plan gate (PERF-03/04/05)
+        env:
+          DATABASE_URL: postgres://synapse:synapse@127.0.0.1:5432/synapse_health
+          EXPLAIN_CHECK_EXISTING_DB: "1"
+        run: bash scripts/quality/explain_check.sh
+
       - name: Build schema_health_check binary
         run: cargo build --bin schema_health_check --locked
 
