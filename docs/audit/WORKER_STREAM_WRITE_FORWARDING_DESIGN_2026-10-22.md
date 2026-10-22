@@ -417,6 +417,17 @@ redis / schema 的口径一致（只有数据库不可用才是 `unhealthy`）�
 两条都不含 `upstream_error`（理由同上）。序列只在 `write_forwarding: true` 时才存在 ⇒
 默认部署不会误报。
 
+面板（`docker/deploy/grafana/dashboards/backend-services.json`，接在 Worker 拓扑两块下面）：
+
+| 面板 | 表达式 | 看什么 |
+|---|---|---|
+| 写转发速率（按流 / 结局） | `sum by (stream, outcome) (rate(worker_write_forward_total[5m]))` | 四路结局的分流；`upstream_error` 抬升 = writer 在拒流量（权限 / 限流），不是网络问题 |
+| 写转发失败（unreachable / refused） | `sum by (stream) (rate(worker_write_forward_total{outcome=~"unreachable\|refused"}[5m]))` | 就是 `WorkerWriteForwardFailed` 的来源，单看「哪一路在丢写」比告警快 |
+
+转发关着时这两块显示 **No data**（序列不存在），与上面两个 Worker 面板的处理一致 ——
+`scripts/ci/check_dashboard_metrics.py` 会校验指标名可达（`worker_write_forward_total` 由
+`create_dynamic_counter_template` 注册，静态门禁认这条路径）。
+
 ## 7. 阶段划分
 
 | 阶段 | 内容 | 状态 |
@@ -452,7 +463,7 @@ redis / schema 的口径一致（只有数据库不可用才是 `unhealthy`）�
 |---|---|---|---|
 | ~~P1 Redis 前置条件~~ | ✅ **已做**：`missing_notify_fan_out` 接进启动 / CLI / admin 视图（§4.5） | — | — |
 | ~~P1 admin 面~~ | ✅ **已做**：156 条全部冻进清单，16 条归流（`events` 12 / `device_lists` 4），`WriteSurface::Admin` 独立分类（§5.3） | — | — |
-| ~~P2 观测面~~ | ✅ **已做**：`topology/validate` 的 `write_forwarding` 段（§6.1，含 `base_url` / `reason` / `writer_live` / `last_outcome`）＋ 告警两条（§6.3） | — | — |
+| ~~P2 观测面~~ | ✅ **已做**：`topology/validate` 的 `write_forwarding` 段（§6.1，含 `base_url` / `reason` / `writer_live` / `last_outcome`）＋ 告警两条与两个面板（§6.3） | — | — |
 | ~~P2 reader 健康~~ | ✅ **已做**：`/_health` 的 `checks.write_forwarding`（§6.2，带注册表存活）；`/health` 带配置级片段，HTTP 状态码仍只由数据库决定 | — | — |
 | ~~P3 两实例 e2e~~ | ✅ **已做**：`tests/unit/worker_write_forwarding_two_instance_tests.rs` 起**两个真 HTTP 服务**（各自 `WorkerConfig` + 真 `instance_map` + 同一把 secret，两个中间件按生产顺序叠），覆盖转发落地、§5.4 的 surface gate 组合、防环（含伪造信封）、死 writer 的 503 与报告。⚠️ 是**同进程两个实例**，不是两个 OS 进程 | — | — |
 | P3 流式转发 | 现在整段 buffer（上限 `server.max_upload_size`，50 MB），N 个并发联邦事务 = N×50 MB 峰值 | 只在联邦大事务压测下暴露；当前无证据说明会触发 | 需重写 framing，成本高，**等压测证据** |

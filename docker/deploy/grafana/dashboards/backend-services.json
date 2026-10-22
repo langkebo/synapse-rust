@@ -251,6 +251,54 @@
           "unit": "short"
         }
       }
+    },
+    {
+      "id": 9,
+      "title": "写转发速率（按流 / 结局）",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "targets": [
+        {
+          "expr": "sum by (stream, outcome) (rate(worker_write_forward_total[5m]))",
+          "refId": "A",
+          "legendFormat": "{{stream}} / {{outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
+      },
+      "description": "worker.write_forwarding = true 时才存在这些序列；关闭时为 No data（与上面两个 Worker 面板同理）。outcome ∈ ok / upstream_error / unreachable / refused：前两者 = writer 答复了（upstream_error 是它的裁决，不是故障），后两者 = 写根本没送到。"
+    },
+    {
+      "id": 10,
+      "title": "写转发失败（unreachable / refused）",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "targets": [
+        {
+          "expr": "sum by (stream) (rate(worker_write_forward_total{outcome=~\"unreachable|refused\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "{{stream}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
+      },
+      "description": "这些流上的写请求全部 503、数据没有落库。对应告警 WorkerWriteForwardFailed（critical，5m）。排查入口：GET /_synapse/worker/v1/topology/validate 的 write_forwarding 段、GET /_health 的 checks.write_forwarding。"
     }
   ],
   "templating": {
