@@ -302,6 +302,14 @@ MSC4306（线程订阅，已实现线程相关读取面）与媒体隔离（`med
 - **路由归属模型没有任何生产消费者**：全仓检索 `owned_route_prefixes` /
   `may_serve_delayed_events_route`，只有拓扑校验器与 `/topology` 响应在用；
   配置项 `worker.worker_app` **从未被读取**（只有定义、默认值与它自己的单测）。
+  > **2026-10-22 更正**：`worker_app` 已于 **2026-10-17（L-2）删除**，不是"待修缺口"。
+  > 上面这段是当时的实测记录，保留以为历史；现状见
+  > `synapse-common/src/config/worker.rs:18-28`（含删除理由）与 §19.12。
+  > **角色来源只有一条**：`worker.instance_name` ↔ `WorkerType::instance_map_keys()`
+  > 前缀匹配（或 `WORKER_INSTANCE_NAME`）；写 `worker_app` 不会改变角色。
+  > `owned_route_prefixes` 自 **W-F（2026-10-17）** 起也已有了消费者
+  > （`worker.surface_gate` 中间件）—— 但参考栈仍用 `synapse_worker`，所以
+  > 「打过去 502」这条**仍然成立**（它压根没有 `/_matrix/*` 监听）。
 - **镜像里没有 worker 二进制**：`docker/Dockerfile` 原先只
   `cargo build .. --bin synapse-rust --bin healthcheck` 并 install 这两个 ⇒
   `command: ["/app/synapse_worker"]` 必然 "not found"。本批补上 build + install。
