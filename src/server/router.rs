@@ -67,7 +67,26 @@ pub fn build_router(app_state: AppState, config: &Config) -> Router {
     //
     // Off by default (`worker.write_forwarding: false`), in which case the policy reports
     // itself disabled and the layer is a single boolean check per request.
-    let write_forwarding = WriteForwarding::from_config(&config.worker);
+    //
+    // The body limit comes from the same field `RequestBodyLimitLayer` uses: a forward
+    // limit below it would silently become a *new* write limit that only appears once
+    // traffic is forwarded.
+    let write_forwarding = WriteForwarding::from_config(&config.worker, config.server.max_upload_size);
+
+    // The rate limiter runs *outside* every layer here, so it cannot see the policy
+    // object; it reads the resolved secret instead, which is what lets a forwarded write
+    // keep its original client address in the limiter's key
+    // (`write_forwarding::forwarded_client_ip`). Process-wide on purpose: one router per
+    // process.
+    synapse_web::middleware::write_forwarding::install_process_secret(write_forwarding.secret().map(str::to_string));
+
+    // The surface gate must also admit the writes this instance owns as a configured
+    // stream writer, otherwise W-F and W-I cancel each other out: forwarding a room send
+    // to `event_persister` would reach a process whose role owns only
+    // `/_synapse/worker/v1/replication/*`, and the gate would answer 404 at the person it
+    // was forwarded to. The grant is empty unless forwarding is on, so the default
+    // deployment's surface is unchanged.
+    let surface_gate = surface_gate.with_stream_writes(write_forwarding.locally_written_streams());
 
     create_router(app_state)
         // Innermost layer: a write for a stream owned by another instance is handed

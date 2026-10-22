@@ -64,6 +64,15 @@ pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Requ
     // Shared with the login lockout (`routes::auth_compat`): both must attribute a
     // request to the same address, or one of them can be steered by a spoofed header.
     let ip = effective_client_ip(request.headers(), peer_addr, trust_forwarded, ip_header_priority, trusted_proxies);
+    // W-I: a write forwarded from another instance carries the original client address in
+    // a header that is only believed when the accompanying worker secret matches. Without
+    // this, per-IP limits would key on the *reader* instance and every forwarded write
+    // from one reader would share a single bucket.
+    let ip = crate::middleware::write_forwarding::forwarded_client_ip(
+        request.headers(),
+        crate::middleware::write_forwarding::process_secret(),
+    )
+    .unwrap_or(ip);
 
     let (endpoint_id, per_second, burst_size) = match &file_config {
         Some(fc) => {

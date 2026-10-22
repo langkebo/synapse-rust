@@ -22,15 +22,31 @@
 //! dispatch, room-summary refresh). That — not ordering — is what these routes
 //! protect. See `docs/audit/WORKER_STREAM_WRITE_FORWARDING_DESIGN_2026-10-22.md` §2.
 //!
-//! # Why only six of the eight streams
+//! # All eight streams, three namespaces
 //!
-//! [`WriteStream::is_forwardable`] is deliberately narrower than the config surface.
-//! A stream may only be forwarded when its **route mapping is exhaustive**; `events`
-//! also has a federation write surface (`/_matrix/federation/v1/send/...`) and a
-//! background delayed-event dispatcher that bypasses HTTP, and `device_lists` is a
-//! *side effect* of the whole device-management surface. Forwarding half of either
-//! would produce a mixed state that looks enforced and is not, so the validator
-//! refuses those configurations outright rather than letting them be ignored.
+//! The mapping in [`stream_for_write`] covers three request namespaces because a
+//! stream's writes do not stop at the client API:
+//!
+//! * **client** (`/_matrix/client/{version}/…`) — the ordinary C-S write surface;
+//! * **vendor** (`/_matrix/vendor/v1/…`) — this server's own extensions, several of
+//!   which write room events (`create_dm`, `pinned_events`, `relations`,
+//!   `anti_screenshot`, sticky events) or create rooms (`rooms/create_private`,
+//!   `friends/dm/{user}`, `invites/claim`);
+//! * **federation** (`/_matrix/federation/{version}/…`) — `send`, `send_join`,
+//!   `send_leave`, `v2/invite`, `knock`, `thirdparty/invite`. Omitting this half
+//!   would leave "client writes single-writer, federation writes everywhere", which
+//!   is worse than not doing it at all: the duplicated post-commit fan-out in the
+//!   table above happens on the federation entry points too.
+//!
+//! Two writes deliberately stay outside the mapping, and both are documented where
+//! they live rather than papered over:
+//!
+//! * the **delayed-event dispatcher** (`src/server/mod.rs`) injects due events
+//!   without an HTTP request, so [`owns_events_dispatch`] — not a route — decides
+//!   which instance runs it;
+//! * **admin** (`/_synapse/admin/…`) is out of the route ledger this mapping is
+//!   frozen against, so an admin-triggered room write is not forwarded. This is a
+//!   known, recorded gap (audit §5.3), not an oversight.
 
 use synapse_common::config::worker::WorkerConfig;
 
@@ -90,13 +106,23 @@ impl WriteStream {
         ]
     }
 
-    /// May this stream's writes be forwarded in this build?
+    /// The request namespaces whose writes for this stream are mapped.
     ///
-    /// `false` means the configuration surface exists but is refused by
-    /// [`crate::worker::topology_validator::validate_worker_config`] — see the module
-    /// documentation for why a half-covered stream is worse than an unsupported one.
-    pub fn is_forwardable(self) -> bool {
-        !matches!(self, Self::Events | Self::DeviceLists)
+    /// This is the machine-checkable half of "the mapping is exhaustive": the guard
+    /// test derives the surfaces actually used by the frozen map from the rows
+    /// themselves, so a row added under a namespace the stream does not declare fails
+    /// instead of quietly widening the claim.
+    pub fn mapped_surfaces(self) -> &'static [WriteSurface] {
+        match self {
+            Self::Events => &[WriteSurface::Client, WriteSurface::Vendor, WriteSurface::Federation],
+            Self::Receipts => &[WriteSurface::Client, WriteSurface::Vendor],
+            Self::Typing
+            | Self::ToDevice
+            | Self::AccountData
+            | Self::Presence
+            | Self::PushRules
+            | Self::DeviceLists => &[WriteSurface::Client],
+        }
     }
 
     /// The configured owner instances of this stream.
@@ -114,20 +140,31 @@ impl WriteStream {
         }
         .as_slice()
     }
+}
 
-    /// Why this stream cannot be forwarded yet — quoted in the validation error so an
-    /// operator does not have to go looking.
-    pub fn forwardable_rationale(self) -> &'static str {
+/// The request namespace a write arrives in.
+///
+/// One stream can be written from more than one namespace — `events` is written by the
+/// client API *and* by federation — so the classifier keeps them apart instead of
+/// flattening paths: the same segment shape means different things on either side
+/// (`/_matrix/federation/v1/send/{txn}` is a PDU transaction, not a room message).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum WriteSurface {
+    /// `/_matrix/client/{version}/…` — the client-server API.
+    Client,
+    /// `/_matrix/vendor/v1/…` — this server's non-standard extensions.
+    Vendor,
+    /// `/_matrix/federation/{version}/…` — the server-server API.
+    Federation,
+}
+
+impl WriteSurface {
+    /// Stable name, used in diagnostics and by the guard test.
+    pub fn as_str(self) -> &'static str {
         match self {
-            Self::Events => {
-                "events 的写入还有联邦面（/_matrix/federation/v1/send 等）与 delayed-event 后台派发，\
-                 只转客户端那一半会得到\"客户端单写者 + 联邦多写者\"的混合态 —— 而重复的联邦广播正是要防的东西"
-            }
-            Self::DeviceLists => {
-                "device_lists 不是端点而是一批设备写操作的副作用（keys/upload、devices/*、logout*、\
-                 delete_devices），把设备管理面整体搬到 writer 上属独立改动"
-            }
-            _ => "",
+            Self::Client => "client",
+            Self::Vendor => "vendor",
+            Self::Federation => "federation",
         }
     }
 }
@@ -258,6 +295,56 @@ pub fn non_local_routes(config: &WorkerConfig) -> Vec<(WriteStream, WriteRoute)>
         .collect()
 }
 
+/// Streams whose writes arrive in the **same request**, and so cannot have different
+/// writers.
+///
+/// `PUT /_matrix/federation/v1/send/{txn}` is one request that writes two streams:
+/// its PDUs go to `events`, and an `m.signing_key_update` EDU makes it record a
+/// `device_lists` change too (and broadcast `m.device_list_update` to every peer that
+/// shares a room). The request is attributed to `events`, so it executes on the
+/// `events` writer — meaning that instance *also* writes `device_lists`.
+///
+/// If the two streams named different writers, the resulting state would be worse than
+/// either extreme: `device_lists` would have two writers (the events writer, which gets
+/// every federation EDU, plus the configured one, which gets every client-side device
+/// change) and the `m.device_list_update` broadcast would be duplicated exactly as the
+/// configuration was meant to prevent.
+pub const COUPLED_STREAM_PAIRS: [(WriteStream, WriteStream); 1] = [(WriteStream::Events, WriteStream::DeviceLists)];
+
+/// Coupled-stream owner lists that disagree, as startup-error messages.
+///
+/// Only reported when forwarding is actually on: with `write_forwarding = false` the
+/// whole block is inert, and the pre-existing warning already says so.
+pub fn coupled_stream_conflicts(config: &WorkerConfig) -> Vec<String> {
+    if !config.write_forwarding || !config.enabled {
+        return Vec::new();
+    }
+    let mut conflicts = Vec::new();
+    for (left, right) in COUPLED_STREAM_PAIRS {
+        let mut left_owners: Vec<&str> = left.owners(config).iter().map(String::as_str).collect();
+        let mut right_owners: Vec<&str> = right.owners(config).iter().map(String::as_str).collect();
+        left_owners.sort_unstable();
+        right_owners.sort_unstable();
+        if left_owners == right_owners {
+            continue;
+        }
+        conflicts.push(format!(
+            "worker.stream_writers.{} = {:?} 与 worker.stream_writers.{} = {:?} 不同：\
+             同一个请求（联邦 `PUT /_matrix/federation/v1/send/{{txn}}` 的 PDU 会写 {}，\
+             其中的 `m.signing_key_update` EDU 还会写 {}）会同时写这两路流 ⇒ 两路必须指向同一实例，\
+             否则 {} 会退化成多写者、`m.device_list_update` 广播会重复。",
+            left.stream_name(),
+            left.owners(config),
+            right.stream_name(),
+            right.owners(config),
+            left.stream_name(),
+            right.stream_name(),
+            right.stream_name(),
+        ));
+    }
+    conflicts
+}
+
 // ── (method, path) → stream ────────────────────────────────────────────────────
 
 /// Which stream does this write touch? `None` means "not a stream-owned write".
@@ -270,13 +357,103 @@ pub fn non_local_routes(config: &WorkerConfig) -> Vec<(WriteStream, WriteRoute)>
 /// single-writer guarantee for the stream whose route was missed, which is why
 /// `tests/unit/worker_write_stream_tests.rs` freezes the mapping against the real
 /// route ledger instead of trusting this table's completeness.
+///
+/// # The classification rule
+///
+/// A route belongs to `events` when its handler ends up **writing the room DAG**
+/// (`create_event` / `send_message` / state / redaction) **or broadcasting a room-scoped
+/// PDU or EDU to federated peers**. Both halves matter: sticky events
+/// (`set_is_sticky_event`) and pinned events write metadata plus an outbound EDU, so two
+/// writers would duplicate the broadcast even though only one of them writes `events`.
+///
+/// A route belongs to `device_lists` when its handler writes `device_lists_stream` /
+/// `device_lists_changes` — i.e. it creates, renames or deletes a device, or changes a
+/// device's keys/cross-signing material. `broadcast_device_list_update` then sends an
+/// `m.device_list_update` EDU to every remote server that shares a room with the user,
+/// which is the fan-out that must not happen twice.
+///
+/// Everything else (receipts, typing, account data, push rules, presence, and the
+/// custom space/thread/friend tables this server keeps outside the DAG) is `None`.
 pub fn stream_for_write(method: &str, path: &str) -> Option<WriteStream> {
     if !matches!(method, "POST" | "PUT" | "DELETE" | "PATCH") {
         return None;
     }
-    let segments = normalized_segments(path)?;
+    let (surface, segments) = mapped_path(path)?;
+    let segments = segments.as_slice();
 
-    match segments.as_slice() {
+    // ── device_lists: the device-management surface ──────────────────────────
+    //
+    // Client-only on purpose: federation has no device-management routes, and the
+    // side effect that *does* ride on a federation request (`m.signing_key_update`
+    // EDUs, handled inside `PUT /_matrix/federation/v1/send/{txn}`) is attributed to
+    // `events` below. `validate_worker_config` then requires both streams to name the
+    // same writer, because one request writes both.
+    if surface == WriteSurface::Client {
+        match segments {
+            ["devices", _device_id] => return Some(WriteStream::DeviceLists),
+            ["delete_devices"] => return Some(WriteStream::DeviceLists),
+            ["logout", "all"] => return Some(WriteStream::DeviceLists),
+            ["account", "deactivate"] => return Some(WriteStream::DeviceLists),
+            ["keys", "upload"] | ["keys", "upload", _] => return Some(WriteStream::DeviceLists),
+            ["keys", "device_signing", "upload"] => return Some(WriteStream::DeviceLists),
+            _ => {}
+        }
+    }
+
+    // ── events: room creation, the DAG, membership, and federation PDU intake ─
+    match segments {
+        // Room creation, however it is spelled.
+        ["createRoom"] | ["rooms", "create_private"] | ["create_dm"] => Some(WriteStream::Events),
+        ["friends", "dm", _user_id] => Some(WriteStream::Events),
+        // One-time invites materialise a deferred room when claimed.
+        ["invites", "claim"] => Some(WriteStream::Events),
+
+        // Joining or knocking by id/alias creates a membership event.
+        ["join", _room_id_or_alias] | ["knock", _room_id_or_alias] => Some(WriteStream::Events),
+
+        // Every `rooms/{id}/…` write that lands a PDU. `read_markers`, `receipt`,
+        // `typing`, `account_data`, `report`, `forget`, `summary/*`, `threads/*` and
+        // the vendor space/thread families are matched further down: they either
+        // belong to another stream or touch no stream at all.
+        //
+        // ⚠️ Two `m.call.*` writes are excluded on purpose: `call_hangup` and
+        // `call_candidates` only touch the local `call_sessions` table — unlike
+        // `call_invite` / `call_answer`, they never call `create_event`, so mapping them
+        // would buy no single-writer guarantee and cost a hop per SDP candidate. That is
+        // a spec deviation in its own right (a conforming server emits `m.call.*` as room
+        // events) and is recorded in the audit document; if the handlers are fixed to
+        // emit, this arm must go with them.
+        ["rooms", _room_id, "send", "m.call.candidates" | "m.call.hangup", _txn_id] => None,
+        ["rooms", _room_id, "send", _event_type, _txn_id] => Some(WriteStream::Events),
+        ["rooms", _room_id, "state", _event_type, ..] => Some(WriteStream::Events),
+        ["rooms", _room_id, "redact", _event_id, _txn_id] => Some(WriteStream::Events),
+        ["rooms", _room_id, "invite" | "join" | "leave" | "kick" | "ban" | "unban" | "upgrade"] => {
+            Some(WriteStream::Events)
+        }
+        // MSC4354 sticky events persist metadata *and* broadcast an EDU to every
+        // federated peer in the room.
+        ["rooms", _room_id, "sticky_events", ..] => Some(WriteStream::Events),
+        // Vendor: these create real room events (`m.room.pinned_events`,
+        // `com.hula.*` state, relation events).
+        ["rooms", _room_id, "pinned_events", ..] => Some(WriteStream::Events),
+        ["rooms", _room_id, "relations", _event_id, _rel_type, _txn_id] => Some(WriteStream::Events),
+        ["rooms", _room_id, "anti_screenshot"] => Some(WriteStream::Events),
+        ["admin", "room", _room_id, "redact"] => Some(WriteStream::Events),
+
+        // ── federation: PDU intake ───────────────────────────────────────────
+        //
+        // `send` is the transaction endpoint: PDUs *and* EDUs, so it writes
+        // `events` (and, for `m.signing_key_update`, `device_lists` — see the note
+        // above).
+        ["v1", "send", _txn_id] => Some(WriteStream::Events),
+        ["v1" | "v2", "send_join" | "send_leave", _room_id, _event_id] => Some(WriteStream::Events),
+        // `v2/invite` persists the invited PDU; `v1/invite` only validates it, so it
+        // is *not* mapped here — see the audit's "ratchet blind spot" note.
+        ["v2", "invite", _room_id, _event_id] => Some(WriteStream::Events),
+        ["v1", "knock", _room_id, _user_id] => Some(WriteStream::Events),
+        ["v1", "thirdparty", "invite"] => Some(WriteStream::Events),
+
+        // ── the six light streams ────────────────────────────────────────────
         ["sendToDevice", _event_type, _txn_id] => Some(WriteStream::ToDevice),
 
         ["presence", "list"] => Some(WriteStream::Presence),
@@ -302,239 +479,81 @@ pub fn stream_for_write(method: &str, path: &str) -> Option<WriteStream> {
     }
 }
 
-/// Split a client-vendor path into its version-independent segments.
+/// Split a request path into its namespace and version-independent segments.
 ///
 /// `/_matrix/client/v3/rooms/{id}/receipt/x/y` and
-/// `/_matrix/vendor/v1/rooms/{id}/receipt/x/y` must produce the same answer: the same
+/// `/_matrix/vendor/v1/rooms/{id}/receipt/x/y` must produce the same segments: the same
 /// handler serves both spellings, and a rule keyed on one of them silently misses the
 /// other. Unstable MSC namespaces (`org.matrix.*`, `uk.tcpip.*`, `io.element.*`) are
 /// dropped for the same reason.
 ///
-/// Returns `None` for anything outside the client-facing namespaces: federation and
-/// the admin API are deliberately not part of this mapping (see the `events` note in
-/// the module documentation).
-fn normalized_segments(path: &str) -> Option<Vec<&str>> {
-    let (rest, drop_msc_namespace) = if let Some(rest) = path.strip_prefix("/_matrix/client/") {
+/// **Federation is the exception**: its version segment is kept as the first element,
+/// because `v1/invite` (validates the PDU, writes nothing) and `v2/invite` (persists it)
+/// have the same shape and different write behaviour. Dropping the version there would
+/// claim they are the same write.
+///
+/// Returns `None` for anything outside these three namespaces. `/_synapse/admin/…` is
+/// deliberately out of scope (see the module documentation), and so is `/_matrix/media/…`
+/// (uploads are not stream writes).
+fn mapped_path(path: &str) -> Option<(WriteSurface, Vec<&str>)> {
+    if let Some(rest) = path.strip_prefix("/_matrix/client/") {
         let (version, tail) = rest.split_once('/')?;
         if version == "unstable" {
-            // `/_matrix/client/unstable/<namespace>/…` — the namespace segment may or
-            // may not be an MSC identifier, and only the MSC one is dropped.
-            (tail, true)
-        } else if matches!(version, "r0" | "v1" | "v2" | "v3" | "v4" | "v5") {
-            (tail, false)
-        } else {
+            let mut segments = split_segments(tail);
+            drop_msc_namespace(&mut segments);
+            return Some((WriteSurface::Client, segments));
+        }
+        if matches!(version, "r0" | "v1" | "v2" | "v3" | "v4" | "v5") {
+            return Some((WriteSurface::Client, split_segments(tail)));
+        }
+        return None;
+    }
+    if let Some(tail) = path.strip_prefix("/_matrix/vendor/v1/") {
+        return Some((WriteSurface::Vendor, split_segments(tail)));
+    }
+    if let Some(rest) = path.strip_prefix("/_matrix/federation/") {
+        let (version, tail) = rest.split_once('/')?;
+        if !matches!(version, "v1" | "v2" | "unstable") {
             return None;
         }
-    } else if let Some(rest) = path.strip_prefix("/_matrix/vendor/v1/") {
-        (rest, false)
-    } else {
-        return None;
-    };
+        let mut segments = vec![version];
+        let mut tail_segments = split_segments(tail);
+        if version == "unstable" {
+            drop_msc_namespace(&mut tail_segments);
+        }
+        segments.extend(tail_segments);
+        return Some((WriteSurface::Federation, segments));
+    }
+    None
+}
 
-    let mut segments: Vec<&str> = rest.split('/').filter(|segment| !segment.is_empty()).collect();
-    if drop_msc_namespace && segments.first().is_some_and(|segment| is_msc_namespace(segment)) {
+fn split_segments(rest: &str) -> Vec<&str> {
+    rest.split('/').filter(|segment| !segment.is_empty()).collect()
+}
+
+fn drop_msc_namespace(segments: &mut Vec<&str>) {
+    if segments.first().is_some_and(|segment| is_msc_namespace(segment)) {
         segments.remove(0);
     }
-    Some(segments)
 }
 
 fn is_msc_namespace(segment: &str) -> bool {
     segment.starts_with("org.matrix.") || segment.starts_with("uk.tcpip.") || segment.starts_with("io.element.")
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn config_with(write_forwarding: bool, instance: &str) -> WorkerConfig {
-        let mut config =
-            WorkerConfig { enabled: true, instance_name: instance.to_string(), write_forwarding, ..Default::default() };
-        config.replication.http.enabled = true;
-        config.replication.http.secret = Some("s".repeat(32));
-        config
-    }
-
-    fn with_instance(mut config: WorkerConfig, name: &str, host: &str, tls: bool) -> WorkerConfig {
-        config.instance_map.insert(
-            name.to_string(),
-            synapse_common::config::worker::InstanceLocationConfig { host: host.to_string(), port: 8008, tls },
-        );
-        config
-    }
-
-    #[test]
-    fn switching_forwarding_off_makes_every_stream_local() {
-        // The switch is the only thing that may change behaviour: a deployment that
-        // never sets it must keep writing locally even with a non-default
-        // `stream_writers` block.
-        let mut config = config_with(false, "client_reader");
-        config.stream_writers.receipts = vec!["event_persister".to_string()];
-        assert_eq!(write_route(&config, WriteStream::Receipts), WriteRoute::Local);
-    }
-
-    #[test]
-    fn a_process_that_is_not_in_worker_mode_never_forwards() {
-        // `worker.enabled = false` means "monolith": there is no peer to hand the write
-        // to, so a stray `write_forwarding: true` must not turn into outbound traffic.
-        let mut config = config_with(true, "client_reader");
-        config.enabled = false;
-        config.stream_writers.receipts = vec!["event_persister".to_string()];
-        let config = with_instance(config, "event_persister", "persister.internal", false);
-        assert_eq!(write_route(&config, WriteStream::Receipts), WriteRoute::Local);
-    }
-
-    #[test]
-    fn the_configured_writer_becomes_the_target() {
-        let mut config = config_with(true, "client_reader");
-        config.stream_writers.receipts = vec!["event_persister".to_string()];
-        let config = with_instance(config, "event_persister", "persister.internal", false);
-
-        assert_eq!(
-            write_route(&config, WriteStream::Receipts),
-            WriteRoute::Forward {
-                instance: "event_persister".to_string(),
-                base_url: "http://persister.internal:8008".to_string(),
-            }
-        );
-    }
-
-    #[test]
-    fn the_writer_itself_writes_locally_instead_of_forwarding_to_itself() {
-        let mut config = config_with(true, "event_persister");
-        config.stream_writers.receipts = vec!["event_persister".to_string()];
-        let config = with_instance(config, "event_persister", "persister.internal", false);
-        assert_eq!(write_route(&config, WriteStream::Receipts), WriteRoute::Local);
-    }
-
-    #[test]
-    fn any_owner_of_a_multi_writer_stream_writes_locally() {
-        // `receipts` is an `AtLeastOne` stream: two owners both legitimately write,
-        // so the second one must not forward to the first.
-        let mut config = config_with(true, "client_reader");
-        config.stream_writers.receipts = vec!["event_persister".to_string(), "client_reader".to_string()];
-        let config = with_instance(config, "event_persister", "persister.internal", false);
-        assert_eq!(write_route(&config, WriteStream::Receipts), WriteRoute::Local);
-    }
-
-    #[test]
-    fn tls_defaults_matter_because_the_scheme_comes_from_the_instance_entry() {
-        let mut config = config_with(true, "client_reader");
-        config.stream_writers.to_device = vec!["event_persister".to_string()];
-        let config = with_instance(config, "event_persister", "persister.internal", true);
-        match write_route(&config, WriteStream::ToDevice) {
-            WriteRoute::Forward { base_url, .. } => assert_eq!(base_url, "https://persister.internal:8008"),
-            other => panic!("expected a forward, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn a_missing_instance_map_entry_is_unavailable_rather_than_local() {
-        // Falling back to local would silently restore multi-writer behaviour — the
-        // exact failure mode `write_forwarding` exists to remove.
-        let mut config = config_with(true, "client_reader");
-        config.stream_writers.receipts = vec!["event_persister".to_string()];
-        match write_route(&config, WriteStream::Receipts) {
-            WriteRoute::Unavailable { instance, reason } => {
-                assert_eq!(instance, "event_persister");
-                assert!(reason.contains("instance_map"), "{reason}");
-            }
-            other => panic!("expected unavailable, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn forwarding_without_a_replication_secret_is_unavailable() {
-        // Without a shared secret the forwarded request cannot be told apart from a
-        // client request, so the loop-break would not work.
-        let mut config = config_with(true, "client_reader");
-        config.stream_writers.receipts = vec!["event_persister".to_string()];
-        config.replication.http.enabled = false;
-        let config = with_instance(config, "event_persister", "persister.internal", false);
-        match write_route(&config, WriteStream::Receipts) {
-            WriteRoute::Unavailable { reason, .. } => assert!(reason.contains("replication"), "{reason}"),
-            other => panic!("expected unavailable, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn only_six_streams_declare_themselves_forwardable() {
-        let forwardable: Vec<&str> =
-            WriteStream::all().iter().filter(|s| s.is_forwardable()).map(|s| s.stream_name()).collect();
-        assert_eq!(forwardable, ["typing", "to_device", "account_data", "receipts", "presence", "push_rules"]);
-        assert!(!WriteStream::Events.forwardable_rationale().is_empty());
-        assert!(!WriteStream::DeviceLists.forwardable_rationale().is_empty());
-    }
-
-    #[test]
-    fn reads_are_never_forwarded() {
-        for method in ["GET", "HEAD", "OPTIONS"] {
-            assert_eq!(stream_for_write(method, "/_matrix/client/v3/rooms/x/receipt/m.read/y"), None);
-        }
-    }
-
-    #[test]
-    fn version_spellings_of_the_same_endpoint_agree() {
-        for path in [
-            "/_matrix/client/v3/rooms/!r/receipt/m.read/$e",
-            "/_matrix/client/v1/rooms/!r/receipt/m.read/$e",
-            "/_matrix/vendor/v1/rooms/!r/receipt/m.read/$e",
-        ] {
-            assert_eq!(stream_for_write("POST", path), Some(WriteStream::Receipts), "{path}");
-        }
-    }
-
-    #[test]
-    fn the_six_supported_families_map_to_their_streams() {
-        let cases = [
-            ("PUT", "/_matrix/client/v3/sendToDevice/m.room_key/abc", WriteStream::ToDevice),
-            ("PUT", "/_matrix/client/v3/presence/@a:b/status", WriteStream::Presence),
-            ("POST", "/_matrix/client/v3/presence/list", WriteStream::Presence),
-            ("PUT", "/_matrix/client/v3/pushrules/global/override/x", WriteStream::PushRules),
-            ("DELETE", "/_matrix/client/v3/pushrules/global/override/x", WriteStream::PushRules),
-            ("PUT", "/_matrix/client/v3/user/@a:b/account_data/m.direct", WriteStream::AccountData),
-            ("PUT", "/_matrix/client/v3/user/@a:b/rooms/!r/account_data/m.tag", WriteStream::AccountData),
-            ("PUT", "/_matrix/client/v3/user/@a:b/rooms/!r/tags/work", WriteStream::AccountData),
-            ("PUT", "/_matrix/client/v3/rooms/!r/account_data/m.fully_read", WriteStream::AccountData),
-            ("POST", "/_matrix/client/v3/rooms/!r/read_markers", WriteStream::Receipts),
-            ("POST", "/_matrix/client/v3/rooms/!r/threads/$t/read", WriteStream::Receipts),
-            ("PUT", "/_matrix/client/v3/rooms/!r/typing/@a:b", WriteStream::Typing),
-        ];
-        for (method, path, expected) in cases {
-            assert_eq!(stream_for_write(method, path), Some(expected), "{method} {path}");
-        }
-    }
-
-    #[test]
-    fn the_unshipped_streams_are_not_mapped_even_though_their_routes_look_obvious() {
-        // If these ever start returning a stream, the mapping would claim single-writer
-        // coverage the design explicitly does not provide (see the module docs).
-        for path in [
-            "/_matrix/client/v3/rooms/!r/send/m.room.message/t1",
-            "/_matrix/client/v3/createRoom",
-            "/_matrix/client/v3/keys/upload",
-            "/_matrix/client/v3/devices/$d",
-        ] {
-            assert_eq!(stream_for_write("PUT", path), None, "{path}");
-        }
-    }
-
-    #[test]
-    fn non_client_namespaces_are_out_of_scope() {
-        for path in [
-            "/_matrix/federation/v1/send/1",
-            "/_synapse/admin/v1/rooms/x/redact/y",
-            "/_matrix/media/v3/upload",
-            "/_matrix/app/v1/transactions/1",
-        ] {
-            assert_eq!(stream_for_write("PUT", path), None, "{path}");
-        }
-    }
-
-    #[test]
-    fn unstable_namespaces_are_stripped_before_matching() {
-        assert_eq!(
-            stream_for_write("PUT", "/_matrix/client/unstable/org.matrix.msc2732/sendToDevice/m.x/t"),
-            Some(WriteStream::ToDevice)
-        );
-    }
+/// Does *this* instance run the MSC4140 delayed-event dispatcher?
+///
+/// The dispatcher injects due events without an HTTP request, so no route mapping can
+/// reach it — ownership has to be decided by process. It returns `true` whenever
+/// forwarding is off (the default), so a deployment that never opts in keeps the
+/// pre-existing "every process may dispatch, the Redis lock arbitrates" behaviour.
+///
+/// With forwarding on, only the `events` writer dispatches: every other instance would
+/// be a second writer of the room DAG, which is exactly what the configuration exists
+/// to remove.
+pub fn owns_events_dispatch(config: &WorkerConfig) -> bool {
+    matches!(write_route(config, WriteStream::Events), WriteRoute::Local)
 }
+
+#[cfg(test)]
+mod tests;

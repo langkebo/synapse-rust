@@ -24,6 +24,7 @@
 # 追加（2026-10-09，冗余审查 §17.5 记录）：extern（Rust `extern crate` 关键字被脚本小写化）、ser（`ser/de` 缩写被斜杠切出）。
 # 追加（2026-10-10，运维巡检 4 项修复）：authed（认证覆盖率术语，scripts/api_test/README.md）。
 # 追加（2026-10-16，对比报告 §19 上游 v1.163.0 重判）：ug（`UG-n` 差距编号被 aspell 按连字符切出的片段）。
+# 追加（2026-10-22，W-I 阶段 4 复核）：addr（`peer addr` 被按空格切出的片段，docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md）。
 aarch
 abi
 acao
@@ -53,6 +54,7 @@ adminserverservice
 adminuser
 adminuserservice
 adr
+addr
 aes
 agentic
 agpl

@@ -224,9 +224,12 @@ pub fn resolved_current_instance_name(config: &WorkerConfig) -> String {
 fn allowed_stream_writer_types(stream_name: &str) -> &'static [WorkerType] {
     match stream_name {
         "events" => &[WorkerType::Master, WorkerType::EventPersister],
-        "typing" | "to_device" | "account_data" | "receipts" | "presence" | "push_rules" | "device_lists" => {
-            &[WorkerType::Master]
-        }
+        // `device_lists` is written by the same request that writes `events` (the
+        // federation transaction), so the process that may own the DAG may own it too.
+        // Before W-I this listed only `Master`, which made the configuration
+        // unrepresentable in exactly the deployment it exists for.
+        "device_lists" => &[WorkerType::Master, WorkerType::EventPersister],
+        "typing" | "to_device" | "account_data" | "receipts" | "presence" | "push_rules" => &[WorkerType::Master],
         _ => &[WorkerType::Master],
     }
 }
@@ -361,11 +364,13 @@ fn stream_writers_deviate_from_default(config: &WorkerConfig) -> bool {
 /// Two things can make an otherwise well-formed `stream_writers` block unusable, and
 /// both used to be invisible until a write silently happened on the wrong instance:
 ///
-/// 1. **the stream cannot be forwarded at all** (`events`, `device_lists`) — the route
-///    mapping is not exhaustive, so claiming single-writer would be a lie;
-/// 2. **the target cannot be reached** — no `instance_map` entry, or no shared secret
+/// 1. **the target cannot be reached** — no `instance_map` entry, or no shared secret
 ///    to distinguish a forwarded request from a client one (which is what breaks the
-///    forwarding loop).
+///    forwarding loop);
+/// 2. **two coupled streams name different writers** — `PUT
+///    /_matrix/federation/v1/send/{txn}` writes `events` *and* `device_lists` in one
+///    request, so the two must resolve to the same instance
+///    ([`crate::worker::write_streams::coupled_stream_conflicts`]).
 ///
 /// Both are returned as errors rather than warnings on purpose: a warning is exactly
 /// what the previous "pure declaration" state produced, and it did not stop anyone from
@@ -382,24 +387,6 @@ fn validate_write_forwarding(config: &WorkerConfig) -> Vec<String> {
     }
 
     for stream in crate::worker::write_streams::WriteStream::all().iter().copied() {
-        let owners = stream.owners(config);
-        let is_default = owners.len() == 1 && owners.first().is_some_and(|owner| owner == DEFAULT_STREAM_WRITER);
-
-        if !stream.is_forwardable() {
-            if !is_default {
-                errors.push(format!(
-                    "worker.stream_writers.{} 指向 {:?}，但本版本的写转发**不支持** {}：{}\n\
-                     把它设回 [\"master\"]，或等该阶段落地\
-                     （docs/audit/WORKER_STREAM_WRITE_FORWARDING_DESIGN_2026-10-22.md §5）。",
-                    stream.stream_name(),
-                    owners,
-                    stream.stream_name(),
-                    stream.forwardable_rationale(),
-                ));
-            }
-            continue;
-        }
-
         if let crate::worker::write_streams::WriteRoute::Unavailable { instance, reason } =
             crate::worker::write_streams::write_route(config, stream)
         {
@@ -410,11 +397,10 @@ fn validate_write_forwarding(config: &WorkerConfig) -> Vec<String> {
         }
     }
 
+    errors.extend(crate::worker::write_streams::coupled_stream_conflicts(config));
+
     errors
 }
-
-/// The default owner of every stream: the single-process instance.
-const DEFAULT_STREAM_WRITER: &str = "master";
 
 /// This supplements `validate_topology(...)` by checking:
 /// 1. stream writer owners reference known instances

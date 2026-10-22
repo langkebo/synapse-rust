@@ -19,18 +19,51 @@ use axum::response::{IntoResponse, Response};
 use synapse_common::error::ApiError;
 use synapse_services::worker::surface_gate::role_owns_path;
 use synapse_services::worker::types::WorkerType;
+use synapse_services::worker::write_streams::{stream_for_write, WriteStream};
 
-/// The role the gate enforces.
-#[derive(Debug, Clone, Copy)]
+/// The role the gate enforces, plus the writes this instance executes as a configured
+/// stream writer.
+#[derive(Debug, Clone)]
 pub struct WorkerSurfaceGate {
     /// This instance's worker type.
     pub role: WorkerType,
+    /// Streams whose writes this instance executes itself, as granted by
+    /// `worker.stream_writers`.
+    ///
+    /// # Why the gate has to know about this
+    ///
+    /// The two features are individually correct and jointly broken without it: W-F
+    /// narrows an instance to its role's prefixes, while W-I forwards a write to the
+    /// instance the configuration names as the stream's writer. For the streams that
+    /// matter most the two disagree — `event_persister` owns only
+    /// `/_synapse/worker/v1/replication/*`, so every room send forwarded to it would be
+    /// answered `404` by the gate before the handler ever ran.
+    ///
+    /// The grant is deliberately narrow: it admits only `(method, path)` pairs that the
+    /// write map attributes to a stream this instance writes, and only when forwarding
+    /// is enabled. It cannot widen the surface to arbitrary paths, and it disappears
+    /// entirely in the default single-process configuration.
+    pub stream_writes: Vec<WriteStream>,
 }
 
 impl WorkerSurfaceGate {
-    /// Build a gate for `role`.
+    /// Build a gate for `role` with no stream-writer grant.
     pub fn new(role: WorkerType) -> Self {
-        Self { role }
+        Self { role, stream_writes: Vec::new() }
+    }
+
+    /// Grant the gate the writes of `streams` (see [`Self::stream_writes`]).
+    pub fn with_stream_writes(mut self, streams: Vec<WriteStream>) -> Self {
+        self.stream_writes = streams;
+        self
+    }
+
+    /// Whether this request is a write for a stream this instance owns.
+    fn owns_stream_write(&self, method: &str, path: &str) -> bool {
+        if self.stream_writes.is_empty() {
+            return false;
+        }
+        stream_for_write(method, path).is_some_and(|stream| self.stream_writes.contains(&stream))
     }
 }
 
@@ -48,6 +81,19 @@ pub async fn worker_surface_middleware(
 ) -> Response {
     let path = request.uri().path();
     if role_owns_path(gate.role, path) {
+        return next.run(request).await;
+    }
+
+    // Second grant: this instance is the configured writer of the stream this write
+    // belongs to (W-I). Without it, forwarding a room send to `event_persister` would
+    // 404 at the person it was forwarded to.
+    if gate.owns_stream_write(request.method().as_str(), path) {
+        ::tracing::debug!(
+            worker_type = gate.role.as_str(),
+            path = %path,
+            method = %request.method(),
+            "Worker surface gate admitted a stream-owned write outside this role's prefixes"
+        );
         return next.run(request).await;
     }
 
@@ -75,6 +121,60 @@ mod tests {
             .route("/_matrix/media/v3/download/a/b", get(|| async { "media" }))
             .route("/health", get(|| async { "ok" }))
             .layer(axum::middleware::from_fn_with_state(WorkerSurfaceGate::new(role), worker_surface_middleware))
+    }
+
+    /// The same app, with the W-I stream-writer grant applied.
+    fn app_with_stream_grant(streams: Vec<WriteStream>) -> Router {
+        let gate = WorkerSurfaceGate::new(WorkerType::EventPersister).with_stream_writes(streams);
+        Router::new()
+            .route(
+                "/_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}",
+                axum::routing::put(|| async { "sent" }),
+            )
+            .route("/_matrix/client/v3/sendToDevice/{event_type}/{txn_id}", axum::routing::put(|| async { "queued" }))
+            .route("/_synapse/worker/v1/replication/events", get(|| async { "repl" }))
+            .layer(axum::middleware::from_fn_with_state(gate, worker_surface_middleware))
+    }
+
+    #[tokio::test]
+    async fn a_stream_writer_admits_the_writes_it_owns() {
+        // Without this grant W-F and W-I cancel each other out: forwarding a room send to
+        // `event_persister` would reach a process whose role owns only
+        // `/_synapse/worker/v1/replication/*`, and the gate would 404 at the person it was
+        // forwarded to.
+        let app = app_with_stream_grant(vec![WriteStream::Events]);
+
+        let request = Request::builder()
+            .method("PUT")
+            .uri("/_matrix/client/v3/rooms/!r:localhost/send/m.room.message/t1")
+            .body(Body::empty())
+            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+        assert_eq!(response.status().as_u16(), 200, "the events writer must be able to execute a send");
+
+        // A write for a stream it does not own is still refused.
+        let request = Request::builder()
+            .method("PUT")
+            .uri("/_matrix/client/v3/sendToDevice/m.room_key/t1")
+            .body(Body::empty())
+            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+        assert_eq!(response.status().as_u16(), 404, "granting events must not grant to_device");
+
+        // Its role prefixes keep working either way.
+        assert_eq!(status_of(&app, "/_synapse/worker/v1/replication/events").await.0, 200);
+    }
+
+    #[tokio::test]
+    async fn without_a_grant_the_gate_is_unchanged() {
+        let app = app_with_stream_grant(Vec::new());
+        let request = Request::builder()
+            .method("PUT")
+            .uri("/_matrix/client/v3/rooms/!r:localhost/send/m.room.message/t1")
+            .body(Body::empty())
+            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+        assert_eq!(response.status().as_u16(), 404, "no grant ⇒ the pre-existing narrowing");
     }
 
     async fn status_of(app: &Router, path: &str) -> (u16, String) {

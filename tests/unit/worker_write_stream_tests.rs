@@ -24,13 +24,35 @@ use std::collections::BTreeSet;
 
 use synapse_services::worker::runtime_topology::stream_writer_sets;
 use synapse_services::worker::topology_validator::validate_worker_config;
-use synapse_services::worker::write_streams::{stream_for_write, WriteStream};
+use synapse_services::worker::write_streams::{stream_for_write, WriteStream, WriteSurface};
 use synapse_web::routes::declared_ledger_all;
 
 const MAP_FILE: &str = "scripts/contract/write_stream_map.txt";
 
 fn is_write_method(method: &str) -> bool {
     matches!(method, "POST" | "PUT" | "DELETE" | "PATCH")
+}
+
+/// The namespaces the map is frozen against.
+///
+/// `/_synapse/admin/…` is **not** here on purpose: it is outside the route ledger this
+/// ratchet compares against, so including it would mean claiming coverage nothing
+/// checks. That gap is recorded in the design document (§5.3), not silently closed.
+fn in_mapped_namespace(path: &str) -> bool {
+    path.starts_with("/_matrix/client/")
+        || path.starts_with("/_matrix/vendor/v1/")
+        || path.starts_with("/_matrix/federation/")
+}
+
+/// Which namespace a path belongs to, mirroring `mapped_path`'s prefix rules.
+fn surface_of(path: &str) -> WriteSurface {
+    if path.starts_with("/_matrix/federation/") {
+        WriteSurface::Federation
+    } else if path.starts_with("/_matrix/vendor/v1/") {
+        WriteSurface::Vendor
+    } else {
+        WriteSurface::Client
+    }
 }
 
 /// One row of the frozen map. `stream: None` is the `-` placeholder.
@@ -65,13 +87,13 @@ fn load_map() -> Vec<Row> {
     rows
 }
 
-/// Every client-surface write route the server actually registers.
+/// Every client, vendor and federation write route the server actually registers.
 fn ledger_writes() -> BTreeSet<(String, String)> {
     let ledger = declared_ledger_all();
     let writes: BTreeSet<(String, String)> = ledger
         .iter()
         .filter(|entry| is_write_method(entry.method.as_str()))
-        .filter(|entry| entry.path.starts_with("/_matrix/client/") || entry.path.starts_with("/_matrix/vendor/v1/"))
+        .filter(|entry| in_mapped_namespace(entry.path))
         .map(|entry| (entry.method.as_str().to_string(), entry.path.to_string()))
         .collect();
     assert!(writes.len() > 100, "the client write surface must not look empty ({})", writes.len());
@@ -146,25 +168,33 @@ fn the_frozen_map_agrees_with_the_matcher() {
 }
 
 #[test]
-fn no_route_is_mapped_to_a_stream_that_cannot_be_forwarded() {
-    // `events` and `device_lists` have no exhaustive route mapping yet. Returning them
-    // would claim single-writer coverage the build does not provide, and the middleware
-    // would then forward a stream it cannot complete.
-    let unforwardable: BTreeSet<&str> = WriteStream::all()
-        .iter()
-        .filter(|stream| !stream.is_forwardable())
-        .map(|stream| stream.stream_name())
-        .collect();
+fn every_mapped_stream_declares_the_namespace_its_rows_come_from() {
+    // The complementary half of "the mapping is exhaustive": each stream publishes the
+    // namespaces it claims (`mapped_surfaces`), and every row attributed to it must come
+    // from one of them. Adding a federation row to a client-only stream — or a stream to
+    // a new namespace without saying so — fails here instead of quietly widening the
+    // claim the design document makes.
+    let mut violations = Vec::new();
     for row in load_map() {
-        if let Some(stream) = row.stream {
-            assert!(
-                !unforwardable.contains(stream.as_str()),
-                "{} {} is mapped to `{stream}`, which this build cannot forward",
+        let Some(declared) = row.stream.as_deref() else {
+            continue;
+        };
+        let surface = surface_of(&row.path);
+        let Some(stream) = WriteStream::all().iter().copied().find(|stream| stream.stream_name() == declared) else {
+            violations.push(format!("{} {} names unknown stream `{declared}`", row.method, row.path));
+            continue;
+        };
+        if !stream.mapped_surfaces().contains(&surface) {
+            violations.push(format!(
+                "{} {} is a {} write, but `{declared}` only declares {:?}",
                 row.method,
-                row.path
-            );
+                row.path,
+                surface.as_str(),
+                stream.mapped_surfaces().iter().map(|s| s.as_str()).collect::<Vec<_>>()
+            ));
         }
     }
+    assert!(violations.is_empty(), "the map claims a namespace its stream does not:\n  {}", violations.join("\n  "));
 }
 
 #[test]
@@ -217,19 +247,50 @@ fn declare_instance(config: &mut synapse_common::config::WorkerConfig, name: &st
 }
 
 #[test]
-fn pointing_events_at_another_instance_is_a_hard_error() {
-    // `events` cannot be forwarded yet (federation writes and the delayed-event
-    // dispatcher bypass the route layer). Accepting the configuration silently is the
-    // exact failure mode this change removes.
+fn pointing_events_at_a_declared_writer_is_accepted() {
+    // `events` and `device_lists` used to be refused outright; they are now forwarded
+    // like any other stream, so the configuration they exist for must start. The other
+    // six streams stay on `master`, which is declared here so their routes resolve.
     let mut config = forwarding_config("client_reader");
+    declare_instance(&mut config, "master");
     declare_instance(&mut config, "event_persister");
     config.stream_writers.events = vec!["event_persister".to_string()];
+    config.stream_writers.device_lists = vec!["event_persister".to_string()];
 
     let validation = validate_worker_config(&config);
-    assert!(!validation.valid, "a non-default `events` writer must not pass validation");
+    assert!(validation.valid, "{:?}", validation.errors);
+}
+
+#[test]
+fn pointing_events_at_an_undeclared_instance_is_a_hard_error() {
+    let mut config = forwarding_config("client_reader");
+    config.stream_writers.events = vec!["event_persister".to_string()];
+    config.stream_writers.device_lists = vec!["event_persister".to_string()];
+
+    let validation = validate_worker_config(&config);
+    assert!(!validation.valid, "an unresolved writer must not pass validation");
     let joined = validation.errors.join("\n");
-    assert!(joined.contains("events"), "{joined}");
-    assert!(joined.contains("不支持"), "the error must say the stream is unsupported: {joined}");
+    assert!(joined.contains("events") && joined.contains("instance_map"), "{joined}");
+}
+
+#[test]
+fn splitting_events_from_device_lists_is_a_hard_error() {
+    // One request (`PUT /_matrix/federation/v1/send/{txn}`) writes both streams, so they
+    // must resolve to the same instance; otherwise `device_lists` silently gets two
+    // writers and the `m.device_list_update` broadcast is duplicated — the exact failure
+    // this configuration exists to prevent.
+    let mut config = forwarding_config("client_reader");
+    declare_instance(&mut config, "master");
+    declare_instance(&mut config, "event_persister");
+    declare_instance(&mut config, "device_writer");
+    config.stream_writers.events = vec!["event_persister".to_string()];
+    config.stream_writers.device_lists = vec!["device_writer".to_string()];
+
+    let validation = validate_worker_config(&config);
+    assert!(!validation.valid, "coupled streams must not name different writers");
+    let joined = validation.errors.join("\n");
+    assert!(joined.contains("device_lists"), "{joined}");
+    assert!(joined.contains("send"), "the error must say which request couples them: {joined}");
 }
 
 #[test]

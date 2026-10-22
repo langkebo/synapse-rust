@@ -259,6 +259,14 @@ pub struct ServerMetrics {
     pub room_operations_total: DynamicCounterTemplate,
     /// Dynamic counter template for cache operations with backend/type/result labels.
     pub cache_operations_total: DynamicCounterTemplate,
+    /// Write forwarding outcomes, labelled by `stream` and `outcome`.
+    ///
+    /// `outcome ∈ ok / upstream_error / unreachable / refused` (W-I,
+    /// `synapse-web::middleware::write_forwarding`). This is the only signal that
+    /// distinguishes "the writer rejected this write" from "the writer was down", and
+    /// with `worker.write_forwarding = true` a burst of `unreachable` means every write
+    /// on that stream is now failing rather than being executed locally.
+    pub worker_write_forward_total: DynamicCounterTemplate,
 
     // Megolm (E2EE) Metrics — Phase 1 vodozemac migration observability.
     // These cover share/get flows; legacy AES-256-GCM path also uses the
@@ -429,6 +437,8 @@ impl ServerMetrics {
                 "cache_operations_total".to_string(),
                 vec!["cache_type", "backend", "operation", "result"],
             ),
+            worker_write_forward_total: collector
+                .create_dynamic_counter_template("worker_write_forward_total".to_string(), vec!["stream", "outcome"]),
 
             megolm_share_total: collector.register_counter("megolm_share_total".to_string()),
             megolm_share_recipients_total: collector.register_counter("megolm_share_recipients_total".to_string()),

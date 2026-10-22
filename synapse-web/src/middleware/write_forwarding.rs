@@ -29,10 +29,10 @@
 //! * **No retry.** Idempotency for writes comes from `room_event_txn_dedup` and the
 //!   per-stream semantics; retrying here would turn "writer committed, response lost"
 //!   into a duplicate write.
-//! * **No `X-Forwarded-For` propagation.** The writer sees this instance's address, so
-//!   per-IP rate limiting aggregates per reader. Fixing that means changing how the
-//!   limiter reads the peer address *and* deciding when to trust the header; it is
-//!   tracked separately rather than half-done here.
+//! * **No `X-Forwarded-For` trust on its own.** The header is appended so the writer can
+//!   recover the real client address for per-IP rate limiting, but it is only *believed*
+//!   when the same request carries a valid `x-synapse-worker-secret` — see
+//!   [`WRITE_FORWARD_CLIENT_IP_HEADER`] and [`forwarded_client_ip`].
 
 use std::time::Duration;
 
@@ -45,21 +45,79 @@ use axum::response::{IntoResponse, Response};
 use synapse_common::config::worker::WorkerConfig;
 use synapse_common::error::ApiError;
 use synapse_common::http_client::client_with_timeout;
+use synapse_common::server_metrics::global_server_metrics;
 use synapse_services::worker::write_streams::{
     instance_base_url, stream_for_write, write_route, WriteRoute, WriteStream, WRITE_FORWARD_SECRET_HEADER,
     WRITE_FORWARD_STREAM_HEADER,
 };
 
-/// Upper bound on a forwarded body.
+/// Upper bound on a forwarded body, derived from `server.max_upload_size`.
 ///
-/// Only the six light streams are forwarded, and none of them carries media; 16 MiB is
-/// far above a `sendToDevice` batch while still keeping this path from becoming an
-/// unbounded proxy. Larger bodies get the same `413 M_TOO_LARGE` the global body-limit
-/// layer produces, so a client cannot tell the two apart.
-pub const MAX_FORWARD_BODY: usize = 16 * 1024 * 1024;
+/// **It must not be smaller than the outer `RequestBodyLimitLayer`**, otherwise the
+/// forward layer becomes a new, invisible write limit: a federation transaction that
+/// the instance would have accepted locally would 413 as soon as it is forwarded. The
+/// caller passes the configured `server.max_upload_size` in for exactly that reason
+/// ([`WriteForwarding::from_config`] takes it as an argument).
+///
+/// Buffering the body costs memory proportional to its size, which is the same order
+/// the request already implied; the alternative — streaming the forward — would have to
+/// reimplement framing and `content-length` handling for every hop.
+pub fn max_forward_body(max_upload_size: u64) -> usize {
+    usize::try_from(max_upload_size).unwrap_or(usize::MAX)
+}
+
+/// Header carrying the client address across the forward hop.
+///
+/// Only honoured together with a valid [`WRITE_FORWARD_SECRET_HEADER`]: without the
+/// shared secret any client could claim to be anyone and escape its own rate limit.
+pub const WRITE_FORWARD_CLIENT_IP_HEADER: &str = "x-synapse-client-ip";
+
+/// Recover the original client address of a forwarded write.
+///
+/// Returns `None` when the request was not forwarded by a trusted peer (no header, or a
+/// header whose accompanying secret does not match), in which case the caller must keep
+/// using its own peer address. This is the *only* place that decision is made, so the
+/// rate limiter cannot accidentally trust an unauthenticated header.
+pub fn forwarded_client_ip(headers: &HeaderMap, secret: Option<&str>) -> Option<String> {
+    let secret = secret?;
+    if !headers.contains_key(WRITE_FORWARD_STREAM_HEADER) {
+        return None;
+    }
+    let presented = headers.get(WRITE_FORWARD_SECRET_HEADER).and_then(|value| value.to_str().ok()).unwrap_or("");
+    if !synapse_common::crypto::secure_compare(presented, secret) {
+        return None;
+    }
+    let value = headers.get(WRITE_FORWARD_CLIENT_IP_HEADER).and_then(|value| value.to_str().ok())?;
+    // The value is a bare socket address. Anything else (a list, a hostname, an empty
+    // string) is a bug in the sender; treat it as absent rather than propagating junk
+    // into a rate-limit key.
+    value.parse::<std::net::IpAddr>().ok().map(|address| address.to_string())
+}
+
+/// The replication secret this process resolved at assembly time.
+///
+/// Installed once by `synapse_rust::server::router::build_router` and read by anything
+/// that must decide whether a forwarded marker can be believed — currently the rate
+/// limiter, which uses [`forwarded_client_ip`] so that per-IP limits follow the client
+/// across the hop instead of aggregating per reader.
+///
+/// A process-wide `OnceLock` rather than a threaded argument because there is exactly
+/// one router per process: the value is a property of the deployment, not of a request.
+/// It is set from the **assembly**, not from [`WriteForwarding::from_config`], so that
+/// building a policy in a test does not mutate global state.
+static PROCESS_SECRET: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+
+/// Record the secret this process uses for forwarded writes. Later calls are ignored.
+pub fn install_process_secret(secret: Option<String>) {
+    let _ = PROCESS_SECRET.set(secret);
+}
+
+/// The secret recorded by [`install_process_secret`], if any.
+pub fn process_secret() -> Option<&'static str> {
+    PROCESS_SECRET.get().and_then(|secret| secret.as_deref())
+}
 
 /// Timeout for the forwarded request.
-///
 /// Longer than the server's own request budget on purpose: this layer must not be the
 /// one that fails first, otherwise a write that used to take 45 s locally would start
 /// failing at whatever the default client timeout is. The outer
@@ -71,6 +129,7 @@ const FORWARD_TIMEOUT: Duration = Duration::from_secs(120);
 pub struct WriteForwarding {
     enabled: bool,
     secret: Option<String>,
+    body_limit: usize,
     /// Only the streams whose writes are not executed here.
     routes: Vec<(WriteStream, WriteRoute)>,
 }
@@ -78,23 +137,27 @@ pub struct WriteForwarding {
 impl WriteForwarding {
     /// Derive the policy from the worker configuration.
     ///
+    /// `max_upload_size` is `server.max_upload_size`, the same field
+    /// `RequestBodyLimitLayer` is built from — see [`max_forward_body`] for why the two
+    /// must not diverge.
+    ///
     /// Every route that needs a peer is resolved here — including reading
     /// `replication.http.secret_path` **once** instead of on the request path (a
     /// per-request file read would block a tokio worker thread). A secret that cannot
     /// be loaded turns every forward into `Unavailable`, which fails closed: writing
     /// locally instead would quietly restore the multi-writer state this feature exists
     /// to remove.
-    pub fn from_config(config: &WorkerConfig) -> Self {
+    pub fn from_config(config: &WorkerConfig, max_upload_size: u64) -> Self {
+        let body_limit = max_forward_body(max_upload_size);
         let enabled = config.write_forwarding && config.enabled;
         if !enabled {
-            return Self { enabled: false, secret: None, routes: Vec::new() };
+            return Self { enabled: false, secret: None, body_limit, routes: Vec::new() };
         }
 
         let secret = resolve_secret(config);
         let mut routes: Vec<(WriteStream, WriteRoute)> = WriteStream::all()
             .iter()
             .copied()
-            .filter(|stream| stream.is_forwardable())
             .map(|stream| (stream, write_route(config, stream)))
             .filter(|(_, route)| !matches!(route, WriteRoute::Local))
             .collect();
@@ -137,12 +200,7 @@ impl WriteForwarding {
             }
         }
 
-        Self { enabled, secret, routes }
-    }
-
-    /// The precomputed route for `stream`, if this instance does not write it.
-    fn target(&self, stream: WriteStream) -> Option<&WriteRoute> {
-        self.routes.iter().find(|(candidate, _)| *candidate == stream).map(|(_, route)| route)
+        Self { enabled, secret, body_limit, routes }
     }
 
     /// Whether this request was forwarded here by another instance.
@@ -162,6 +220,43 @@ impl WriteForwarding {
     /// Whether the middleware should do anything at all for this request.
     pub fn is_enabled(&self) -> bool {
         self.enabled
+    }
+
+    /// The shared secret, for callers that need to validate forwarded markers
+    /// (the surface gate and the rate limiter).
+    pub fn secret(&self) -> Option<&str> {
+        self.secret.as_deref()
+    }
+
+    /// Whether this instance executes `stream`'s writes itself.
+    ///
+    /// `None` (stream not routed anywhere) reads as `true`: this instance is the only
+    /// candidate, which is the pre-forwarding behaviour and must not be narrowed by a
+    /// caller that only wanted to ask.
+    pub fn writes_locally(&self, stream: WriteStream) -> bool {
+        match self.target(stream) {
+            None | Some(WriteRoute::Local) => true,
+            Some(WriteRoute::Forward { .. } | WriteRoute::Unavailable { .. }) => false,
+        }
+    }
+
+    /// The precomputed route for `stream`, if this instance does not write it.
+    fn target(&self, stream: WriteStream) -> Option<&WriteRoute> {
+        self.routes.iter().find(|(candidate, _)| *candidate == stream).map(|(_, route)| route)
+    }
+
+    /// Streams whose writes this instance executes itself **because it is a configured
+    /// writer** — the grant the surface gate needs
+    /// (`synapse_web::middleware::worker_surface::WorkerSurfaceGate::stream_writes`).
+    ///
+    /// Empty when forwarding is off, which is what keeps the default deployment's
+    /// surface unchanged: `write_route` returns `Local` for everything then, and
+    /// handing that to the gate would let every instance answer every write.
+    pub fn locally_written_streams(&self) -> Vec<WriteStream> {
+        if !self.enabled {
+            return Vec::new();
+        }
+        WriteStream::all().iter().copied().filter(|stream| self.writes_locally(*stream)).collect()
     }
 }
 
@@ -183,6 +278,30 @@ fn resolve_secret(config: &WorkerConfig) -> Option<String> {
             ::tracing::error!(path = %path, error = %error, "Write forwarding: cannot read replication secret file");
             None
         }
+    }
+}
+
+/// Outcome labels of `worker_write_forward_total`.
+///
+/// Kept as a closed set so a dashboard cannot silently lose a series: every exit from
+/// [`forward`] records exactly one of these.
+mod outcome {
+    /// The writer answered, and its status is relayed verbatim.
+    pub(super) const OK: &str = "ok";
+    /// The writer answered with a non-2xx; the client sees that status. Recorded
+    /// separately because a burst here is the writer rejecting traffic, not a network
+    /// failure.
+    pub(super) const UPSTREAM_ERROR: &str = "upstream_error";
+    /// The transport failed (connect, TLS, timeout). Never retried.
+    pub(super) const UNREACHABLE: &str = "unreachable";
+    /// The request was refused here because the configured writer is unusable
+    /// (no secret, no `instance_map` entry). The write did **not** happen.
+    pub(super) const REFUSED: &str = "refused";
+}
+
+fn record_forward(stream: WriteStream, outcome: &str) {
+    if let Some(metrics) = global_server_metrics() {
+        metrics.worker_write_forward_total.observe(&[stream.stream_name(), outcome]);
     }
 }
 
@@ -211,6 +330,7 @@ pub async fn write_forwarding_middleware(
     match policy.target(stream) {
         None | Some(WriteRoute::Local) => next.run(request).await,
         Some(WriteRoute::Unavailable { instance, reason }) => {
+            record_forward(stream, outcome::REFUSED);
             ::tracing::error!(
                 stream = stream.stream_name(),
                 instance = %instance,
@@ -242,6 +362,7 @@ async fn forward(
     let Some(secret) = policy.secret.clone() else {
         // `from_config` collapses this case into `Unavailable`, so reaching it means the
         // policy was built by hand. Fail closed rather than write locally.
+        record_forward(stream, outcome::REFUSED);
         return ApiError::service_unavailable(format!(
             "Writes for stream '{}' are owned by instance '{instance}', but no replication secret is available",
             stream.stream_name()
@@ -249,12 +370,14 @@ async fn forward(
         .into_response();
     };
 
+    let limit = policy.body_limit;
+    let client_ip = peer_ip(&request).map(|address| address.to_string());
     let (parts, body) = request.into_parts();
-    let body = match axum::body::to_bytes(body, MAX_FORWARD_BODY).await {
+    let body = match axum::body::to_bytes(body, limit).await {
         Ok(bytes) => bytes,
         Err(_) => {
             return ApiError::too_large(format!(
-                "Forwarded write for stream '{}' exceeds {MAX_FORWARD_BODY} bytes",
+                "Forwarded write for stream '{}' exceeds {limit} bytes",
                 stream.stream_name()
             ))
             .into_response();
@@ -280,10 +403,18 @@ async fn forward(
     }
     builder = builder.header(WRITE_FORWARD_STREAM_HEADER, stream.stream_name());
     builder = builder.header(WRITE_FORWARD_SECRET_HEADER, secret);
+    if let Some(client_ip) = client_ip.as_deref() {
+        // Paired with the secret above, which is what makes the writer believe it
+        // (`forwarded_client_ip`). Without a peer address there is nothing to add and
+        // the writer keeps treating this instance as the client — the pre-existing
+        // behaviour.
+        builder = builder.header(WRITE_FORWARD_CLIENT_IP_HEADER, client_ip);
+    }
 
     let response = match builder.body(body).send().await {
         Ok(response) => response,
         Err(error) => {
+            record_forward(stream, outcome::UNREACHABLE);
             ::tracing::error!(
                 stream = stream.stream_name(),
                 instance = %instance,
@@ -302,6 +433,7 @@ async fn forward(
 
     let status = response.status();
     let headers = response.headers().clone();
+    record_forward(stream, if status.is_success() { outcome::OK } else { outcome::UPSTREAM_ERROR });
     ::tracing::debug!(
         stream = stream.stream_name(),
         instance = %instance,
@@ -319,7 +451,7 @@ async fn forward(
     // the alternative (re-streaming) would have to reimplement framing. The size is
     // checked afterwards so an unexpectedly large answer cannot be relayed blindly.
     match response.bytes().await {
-        Ok(bytes) if bytes.len() <= MAX_FORWARD_BODY => {
+        Ok(bytes) if bytes.len() <= limit => {
             let mut out = Response::new(Body::from(bytes));
             *out.status_mut() = status;
             copy_response_headers(&headers, out.headers_mut());
@@ -382,14 +514,27 @@ fn copy_response_headers(source: &HeaderMap, target: &mut HeaderMap) {
 fn strip_forward_headers(headers: &mut HeaderMap) {
     headers.remove(WRITE_FORWARD_STREAM_HEADER);
     headers.remove(WRITE_FORWARD_SECRET_HEADER);
+    // The client address is part of the same trusted envelope: once it has been read
+    // (or deliberately ignored) it must not travel further, or a handler could mistake
+    // a forwarded value for a peer address.
+    headers.remove(WRITE_FORWARD_CLIENT_IP_HEADER);
+}
+
+/// The address the request arrived from, if the server was built with connect info.
+///
+/// `None` in unit tests and in any embedding that serves the router without
+/// `into_make_service_with_connect_info` — in which case the forward simply omits the
+/// client-address header and the writer falls back to this instance's address.
+fn peer_ip(request: &Request<Body>) -> Option<std::net::SocketAddr> {
+    request.extensions().get::<axum::extract::ConnectInfo<std::net::SocketAddr>>().map(|info| info.0)
 }
 
 /// Build the policy used by the middleware from a worker configuration.
 ///
 /// Exists so the assembly (`synapse_rust::server::router`) does not have to know the
 /// internals, and so tests can build the same object the server would.
-pub fn policy_for(config: &WorkerConfig) -> WriteForwarding {
-    WriteForwarding::from_config(config)
+pub fn policy_for(config: &WorkerConfig, max_upload_size: u64) -> WriteForwarding {
+    WriteForwarding::from_config(config, max_upload_size)
 }
 
 /// Base URL of `instance`, for callers that need to log it (the topology endpoint).
@@ -398,227 +543,4 @@ pub fn base_url_of(config: &WorkerConfig, instance: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Arc;
-
-    use axum::http::StatusCode;
-    use axum::routing::{any, get};
-    use axum::Router;
-    use synapse_common::config::worker::{InstanceLocationConfig, WorkerConfig};
-    use tower::ServiceExt;
-
-    fn config(instance: &str) -> WorkerConfig {
-        let mut config = WorkerConfig {
-            enabled: true,
-            instance_name: instance.to_string(),
-            write_forwarding: true,
-            ..Default::default()
-        };
-        config.replication.http.enabled = true;
-        config.replication.http.secret = Some("k".repeat(32));
-        config
-    }
-
-    fn with_peer(mut config: WorkerConfig, host: &str, port: u16) -> WorkerConfig {
-        config
-            .instance_map
-            .insert("event_persister".to_string(), InstanceLocationConfig { host: host.to_string(), port, tls: false });
-        config
-    }
-
-    /// A stand-in for the writer instance: echoes what it received.
-    async fn spawn_echo_upstream() -> (String, u16) {
-        async fn echo(request: axum::extract::Request) -> (StatusCode, String) {
-            let method = request.method().clone();
-            let path = request.uri().path().to_string();
-            let stream = request
-                .headers()
-                .get(WRITE_FORWARD_STREAM_HEADER)
-                .and_then(|value| value.to_str().ok())
-                .unwrap_or("<none>")
-                .to_string();
-            let body = axum::body::to_bytes(request.into_body(), 1024 * 1024).await.unwrap_or_default();
-            (StatusCode::CREATED, format!("{method} {path} body={} stream={stream}", String::from_utf8_lossy(&body)))
-        }
-        let app = Router::new().route("/{*path}", any(echo));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
-        let port = listener.local_addr().expect("addr").port();
-        tokio::spawn(async move {
-            let _ = axum::serve(listener, app).await;
-        });
-        ("127.0.0.1".to_string(), port)
-    }
-
-    fn app(policy: WriteForwarding, handler_calls: Arc<std::sync::atomic::AtomicUsize>) -> Router {
-        Router::new()
-            .route(
-                "/{*path}",
-                any(move || {
-                    let counter = handler_calls.clone();
-                    async move {
-                        counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                        (StatusCode::OK, "local")
-                    }
-                }),
-            )
-            .route("/health", get(|| async { "ok" }))
-            .layer(axum::middleware::from_fn_with_state(policy, write_forwarding_middleware))
-    }
-
-    async fn send(app: &Router, method: Method, path: &str, headers: &[(&str, &str)], body: &str) -> (u16, String) {
-        let mut builder = Request::builder().method(method).uri(path);
-        for (name, value) in headers {
-            builder = builder.header(*name, *value);
-        }
-        let request = builder.body(Body::from(body.to_string())).expect("request");
-        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.expect("response");
-        let status = response.status().as_u16();
-        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.expect("body");
-        (status, String::from_utf8_lossy(&bytes).to_string())
-    }
-
-    #[tokio::test]
-    async fn a_write_for_another_instances_stream_is_forwarded_verbatim() {
-        let (host, port) = spawn_echo_upstream().await;
-        let mut config = with_peer(config("client_reader"), &host, port);
-        config.stream_writers.to_device = vec!["event_persister".to_string()];
-        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let app = app(WriteForwarding::from_config(&config), calls.clone());
-
-        let (status, body) = send(
-            &app,
-            Method::PUT,
-            "/_matrix/client/v3/sendToDevice/m.room_key/txn1",
-            &[("authorization", "Bearer client-token")],
-            r#"{"messages":{}}"#,
-        )
-        .await;
-
-        assert_eq!(status, 201, "the writer's status must reach the client: {body}");
-        assert!(body.contains("PUT /_matrix/client/v3/sendToDevice/m.room_key/txn1"), "{body}");
-        assert!(body.contains("stream=to_device"), "the loop-break header must name the stream: {body}");
-        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0, "the local handler must not run");
-    }
-
-    #[tokio::test]
-    async fn a_write_the_configured_writer_cannot_serve_is_refused_not_degraded() {
-        // No peer reachable ⇒ 503. Executing locally would silently restore the
-        // multi-writer state this feature exists to remove.
-        let mut config = config("client_reader");
-        config.stream_writers.to_device = vec!["event_persister".to_string()];
-        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let app = app(WriteForwarding::from_config(&config), calls.clone());
-
-        let (status, body) = send(&app, Method::PUT, "/_matrix/client/v3/sendToDevice/m.x/t1", &[], "{}").await;
-        assert_eq!(status, 503, "{body}");
-        assert!(body.contains("M_UNKNOWN") || body.contains("to_device"), "{body}");
-        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
-    }
-
-    #[tokio::test]
-    async fn the_local_writer_does_not_make_a_hop() {
-        let mut config = config("event_persister");
-        config.stream_writers.to_device = vec!["event_persister".to_string()];
-        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let app = app(WriteForwarding::from_config(&config), calls.clone());
-
-        let (status, body) = send(&app, Method::PUT, "/_matrix/client/v3/sendToDevice/m.x/t1", &[], "{}").await;
-        assert_eq!((status, body.as_str()), (200, "local"));
-        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
-    }
-
-    #[tokio::test]
-    async fn a_forwarded_request_executes_locally_instead_of_looping() {
-        let (host, port) = spawn_echo_upstream().await;
-        let mut config = with_peer(config("client_reader"), &host, port);
-        config.stream_writers.to_device = vec!["event_persister".to_string()];
-        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let app = app(WriteForwarding::from_config(&config), calls.clone());
-        let secret = config.replication.http.secret.clone().expect("secret");
-
-        let (status, body) = send(
-            &app,
-            Method::PUT,
-            "/_matrix/client/v3/sendToDevice/m.room_key/txn1",
-            &[(WRITE_FORWARD_STREAM_HEADER, "to_device"), (WRITE_FORWARD_SECRET_HEADER, secret.as_str())],
-            "{}",
-        )
-        .await;
-
-        assert_eq!((status, body.as_str()), (200, "local"), "must not forward again");
-        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
-    }
-
-    #[tokio::test]
-    async fn a_forged_loop_break_header_without_the_secret_is_ignored() {
-        // Otherwise any client could pin its write to whichever instance it reached.
-        let (host, port) = spawn_echo_upstream().await;
-        let mut config = with_peer(config("client_reader"), &host, port);
-        config.stream_writers.to_device = vec!["event_persister".to_string()];
-        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let app = app(WriteForwarding::from_config(&config), calls.clone());
-
-        let (status, body) = send(
-            &app,
-            Method::PUT,
-            "/_matrix/client/v3/sendToDevice/m.room_key/txn1",
-            &[(WRITE_FORWARD_STREAM_HEADER, "to_device"), (WRITE_FORWARD_SECRET_HEADER, "wrong")],
-            "{}",
-        )
-        .await;
-
-        assert_eq!(status, 201, "it must be forwarded, not executed here: {body}");
-        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
-    }
-
-    #[tokio::test]
-    async fn reads_and_unmapped_writes_stay_local() {
-        let (host, port) = spawn_echo_upstream().await;
-        let mut config = with_peer(config("client_reader"), &host, port);
-        for stream in ["typing", "to_device", "account_data", "receipts", "presence", "push_rules"] {
-            set_writer(&mut config, stream, "event_persister");
-        }
-        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let app = app(WriteForwarding::from_config(&config), calls.clone());
-
-        // A read on the same prefix, and a write that is not part of any stream.
-        for (method, path) in [
-            (Method::GET, "/_matrix/client/v3/sendToDevice/m.x/t1"),
-            (Method::POST, "/_matrix/client/v3/createRoom"),
-            (Method::PUT, "/_matrix/client/v3/keys/upload"),
-        ] {
-            let (status, _) = send(&app, method.clone(), path, &[], "{}").await;
-            assert_eq!(status, 200, "{method} {path} must be answered locally");
-        }
-        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 3);
-    }
-
-    #[tokio::test]
-    async fn the_six_forwardable_streams_each_reach_the_writer() {
-        let (host, port) = spawn_echo_upstream().await;
-        let mut config = with_peer(config("client_reader"), &host, port);
-        for stream in ["typing", "to_device", "account_data", "receipts", "presence", "push_rules"] {
-            set_writer(&mut config, stream, "event_persister");
-        }
-        let policy = WriteForwarding::from_config(&config);
-        assert!(policy.is_enabled());
-        for stream in WriteStream::all().iter().copied() {
-            let routed = policy.target(stream).is_some();
-            assert_eq!(routed, stream.is_forwardable(), "{} routing mismatch", stream.stream_name());
-        }
-    }
-
-    fn set_writer(config: &mut WorkerConfig, stream: &str, instance: &str) {
-        let owners = vec![instance.to_string()];
-        match stream {
-            "typing" => config.stream_writers.typing = owners,
-            "to_device" => config.stream_writers.to_device = owners,
-            "account_data" => config.stream_writers.account_data = owners,
-            "receipts" => config.stream_writers.receipts = owners,
-            "presence" => config.stream_writers.presence = owners,
-            "push_rules" => config.stream_writers.push_rules = owners,
-            other => panic!("unknown stream {other}"),
-        }
-    }
-}
+mod tests;

@@ -972,6 +972,27 @@ impl SynapseServer {
 
         // T03 MSC4140: Delayed event dispatcher — polls scheduled events and injects them
         // into the room's message pipeline. Uses Redis distributed lock to prevent duplicate dispatch.
+        //
+        // W-I ownership: the dispatcher writes the room DAG **without an HTTP request**, so
+        // no route mapping can attribute it to `worker.stream_writers.events`. Ownership is
+        // decided by process instead (`owns_events_dispatch`): with forwarding on, only the
+        // configured `events` writer dispatches, because any other instance would be a
+        // second writer of `events` — duplicate federation broadcast included. With
+        // forwarding off (the default) it returns `true` everywhere, so the pre-existing
+        // "every process may dispatch, the Redis lock arbitrates" behaviour is unchanged.
+        //
+        // Implemented as a `select!` guard rather than an `if` around the spawn so the task
+        // keeps exactly one exit path (shutdown) and the diff stays readable: when the
+        // guard is false the tick branch is disabled and the task does nothing but wait.
+        let owns_dispatch =
+            synapse_services::worker::write_streams::owns_events_dispatch(&self.app_state.services.core.config.worker);
+        if !owns_dispatch {
+            ::tracing::info!(
+                "MSC4140 delayed-event dispatcher is inert on this instance: it is not the configured \
+                 `worker.stream_writers.events` writer, and dispatching here would make it a second \
+                 writer of the room DAG"
+            );
+        }
         let delayed_event_storage = self.app_state.services.admin.modules.delayed_event_storage.clone();
         let room_service = self.app_state.services.rooms.room_service.clone();
         let cache = self.app_state.services.core.cache.clone();
@@ -990,7 +1011,7 @@ impl SynapseServer {
 
             loop {
                 tokio::select! {
-                    _ = interval_timer.tick() => {
+                    _ = interval_timer.tick(), if owns_dispatch => {
                         let cycle_start = Instant::now();
                         let now_ms = current_timestamp_millis();
 
