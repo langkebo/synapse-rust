@@ -16,6 +16,10 @@ use std::collections::{HashMap, HashSet};
 use synapse_common::current_timestamp_millis;
 use synapse_common::map_internal;
 use synapse_common::{ApiError, MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
+// 别名只为让 `clamp` 与 `query.limit` 落在**同一物理行**：分页门禁是逐行扫描
+// （`tests/unit/test_pagination_limit_clamp_tests.rs`），而 `max_width = 120`
+// 放不下完整路径。上限仍是 `client_push_service` 的那一个常量，不另立数字。
+use synapse_services::client_push_service::MAX_NOTIFICATIONS_LIMIT as MAX_NOTIFICATIONS;
 use synapse_services::event::CreateEventParams;
 
 /// See [`get_single_event`].
@@ -230,7 +234,9 @@ pub(crate) async fn get_room_notifications(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let limit = query.limit.as_deref().and_then(|v| v.parse::<i64>().ok()).unwrap_or(20);
+    // 边界层自己夹一次：服务层（`get_room_notifications_page`）也会夹，但 `?limit=-1`
+    // 不该靠"下游还会管"来兜 —— 负 LIMIT 直接是 PostgreSQL 错误。
+    let limit = query.limit.as_deref().and_then(|v| v.parse::<i64>().ok()).unwrap_or(20).clamp(1, MAX_NOTIFICATIONS);
     let filters = synapse_services::client_push_service::NotificationFilters::from_only_params(&query.only)?;
 
     let page = ctx

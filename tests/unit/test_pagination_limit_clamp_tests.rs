@@ -97,7 +97,9 @@ fn pagination_limit_is_clamped_on_both_ends() {
         if !seen.insert((file.clone(), *line_no)) {
             continue;
         }
-        // Accept either an explicit clamp, or a documented allowance.
+        // Only an explicit `.clamp(` on the same line counts. (An earlier
+        // version of this comment promised a "documented allowance" path that
+        // was never implemented — don't trust it, the check below is the spec.)
         let clamped = line.contains(".clamp(");
         if !clamped {
             offenders.push(format!("{file}:{line_no}: {line}"));
