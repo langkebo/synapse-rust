@@ -88,6 +88,12 @@ pub fn build_router(app_state: AppState, config: &Config) -> Router {
     // deployment's surface is unchanged.
     let surface_gate = surface_gate.with_stream_writes(write_forwarding.locally_written_streams());
 
+    // Publish the resolved routes for `topology/validate` and `/_health`. Only the
+    // assembly does this: a policy built in a test must not alter what this process
+    // reports (same rule as `install_process_secret` above). Reporting from the config
+    // instead would disagree with the middleware whenever a secret fails to load.
+    write_forwarding.publish_routes();
+
     create_router(app_state)
         // Innermost layer: a write for a stream owned by another instance is handed
         // there before the local handler can execute it.

@@ -1,5 +1,6 @@
 //! 健康检查和根路由处理器
 
+use crate::middleware::write_forwarding::{LastOutcome, WriteForwardingReport};
 use crate::routes::context::AdminContext;
 use axum::extract::State;
 use axum::response::IntoResponse;
@@ -31,15 +32,48 @@ pub async fn health_check(State(ctx): State<AdminContext>) -> impl IntoResponse 
     // 不能靠"运维记得自己开过什么"。
     let server_holds_room_keys = ctx.config.server.server_holds_room_keys();
 
+    // W-I：写转发只要开着，本实例就可能是一条写路径上的"读者"。writer 挂了的时候
+    // 这里以前照样报 ok，唯一症状是写请求 503 —— 也就是运维最后才会看到的那一个。
+    //
+    // 这里**不**读 worker 注册表：`/health` 是容器探针，几秒一次，多一次查询换来的
+    // 只是"writer 进程在不在"，而"转发到底成不成功"由 last_outcome 反映。要注册表级别
+    // 的判据看 `/_health`。
+    let write_forwarding =
+        crate::middleware::write_forwarding::build_report(&ctx.config.worker, ctx.config.redis.enabled, None);
+
     (
         http_status,
         Json(json!({
             "status": status,
             "timestamp": chrono::Utc::now().to_rfc3339(),
             "rate_limit_config": rate_limit,
-            "server_holds_room_keys": server_holds_room_keys
+            "server_holds_room_keys": server_holds_room_keys,
+            "write_forwarding": {
+                "status": write_forwarding.status(),
+                "enabled": write_forwarding.enabled,
+                "unavailable_streams": unavailable_streams(&write_forwarding),
+                "failing_streams": failing_streams(&write_forwarding),
+            }
         })),
     )
+}
+
+/// Streams whose configured writer cannot be used at all (writes there always fail).
+fn unavailable_streams(report: &WriteForwardingReport) -> Vec<&str> {
+    report.streams.iter().filter(|stream| stream.route == "unavailable").map(|stream| stream.stream.as_str()).collect()
+}
+
+/// Streams whose last forwarded write failed at the transport layer, or was refused here.
+///
+/// `upstream_error` is deliberately absent: the writer answered, so the path works and a
+/// 403/429 burst must not read as an outage (see `LastOutcome::is_path_failure`).
+fn failing_streams(report: &WriteForwardingReport) -> Vec<&str> {
+    report
+        .streams
+        .iter()
+        .filter(|stream| matches!(stream.last_outcome, Some(LastOutcome::Unreachable) | Some(LastOutcome::Refused)))
+        .map(|stream| stream.stream.as_str())
+        .collect()
 }
 
 /// Builds the `rate_limit_config` health fragment.
@@ -201,6 +235,45 @@ pub async fn detailed_health_check(State(ctx): State<AdminContext>) -> impl Into
                 } else {
                     "Room keys are held by clients only"
                 }
+            }),
+        );
+    }
+
+    // W-I：写转发的**可执行**判据。这里带注册表快照 —— "配置里写的 writer 到底还在不在"
+    // 是配置本身回答不了的问题，也正是 reader 以前报 healthy 而写请求全 503 的那个缺口。
+    //
+    // `degraded` 而不是 `unhealthy`：本实例的读路径完全正常，把整台 reader 判死会让它被
+    // 摘出负载均衡，而重启一个 writer 挂掉的 reader 也修不好任何东西。这与本文件里
+    // redis / schema 的口径一致（只有数据库不可用才是 unhealthy）。
+    if ctx.config.worker.enabled && ctx.config.worker.write_forwarding {
+        let snapshot =
+            crate::routes::worker::worker_topology::read_worker_registry(&ctx).await.ok().map(|(_, snapshot)| snapshot);
+        let report = crate::middleware::write_forwarding::build_report(
+            &ctx.config.worker,
+            ctx.config.redis.enabled,
+            snapshot.as_ref(),
+        );
+        if report.status() == "degraded" && overall_status == "healthy" {
+            overall_status = "degraded";
+        }
+        checks.insert(
+            "write_forwarding".to_string(),
+            json!({
+                "status": report.status(),
+                "message": report.summary(),
+                "enabled": report.enabled,
+                "instance_name": report.instance_name,
+                // Per-stream detail: resolved target, why it is unusable, whether the
+                // target is registered and heartbeating, and the last observed outcome.
+                "streams": serde_json::to_value(&report.streams).unwrap_or(serde_json::Value::Null)
+            }),
+        );
+    } else {
+        checks.insert(
+            "write_forwarding".to_string(),
+            json!({
+                "status": "disabled",
+                "message": "worker.write_forwarding is off: every instance executes the writes it receives"
             }),
         );
     }

@@ -842,6 +842,69 @@ mod tests {
     }
 
     #[test]
+    fn test_topology_validation_says_where_a_write_is_actually_sent() {
+        // `stream_writers` says who *owns* a stream; this section says what this process
+        // *does* about it. The regression it guards: a reader could report
+        // `events: [event_persister]` while every forwarded write was refused because the
+        // replication secret failed to load, and no endpoint said so.
+        let mut config =
+            WorkerConfig { enabled: true, instance_name: "client_reader".to_string(), ..WorkerConfig::default() };
+        config.instance_map.insert(
+            "event_persister".to_string(),
+            synapse_common::config::worker::InstanceLocationConfig {
+                host: "127.0.0.1".to_string(),
+                port: 9102,
+                tls: false,
+            },
+        );
+        config.stream_writers.events = vec!["event_persister".to_string()];
+        config.replication.enabled = true;
+        config.replication.http.enabled = true;
+        config.replication.http.secret = Some("test-secret".to_string());
+        config.write_forwarding = true;
+
+        // `stream_writers` defaults to `["master"]`, so every stream not listed above
+        // points there; without this entry they would resolve to `Unavailable` and the
+        // assertion below would be testing the wrong branch.
+        config.instance_map.insert(
+            "master".to_string(),
+            synapse_common::config::worker::InstanceLocationConfig {
+                host: "127.0.0.1".to_string(),
+                port: 8008,
+                tls: false,
+            },
+        );
+
+        let response = build_topology_validation_response(&config, true, &runtime_snapshot(&["event_persister"]));
+
+        let events = response
+            .write_forwarding
+            .streams
+            .iter()
+            .find(|stream| stream.stream == "events")
+            .expect("events must be reported");
+        assert_eq!(events.route, "forward");
+        assert_eq!(events.target_instance.as_deref(), Some("event_persister"));
+        assert_eq!(
+            events.target_base_url.as_deref(),
+            Some("http://127.0.0.1:9102"),
+            "the resolved base_url is what an operator curls when a forward fails"
+        );
+        assert_eq!(events.writer_live, Some(true), "the registry knows the target is running");
+
+        // A stream still owned by `master` is not silently local: `write_forwarding` is on,
+        // so it is forwarded to `master` too.
+        let receipts = response
+            .write_forwarding
+            .streams
+            .iter()
+            .find(|stream| stream.stream == "receipts")
+            .expect("receipts must be reported");
+        assert_eq!(receipts.route, "forward");
+        assert_eq!(receipts.target_instance.as_deref(), Some("master"));
+    }
+
+    #[test]
     fn test_build_topology_validation_response_reports_specialized_route_owner_expectations() {
         let mut config = WorkerConfig { enabled: true, instance_name: "master".to_string(), ..WorkerConfig::default() };
         config.instance_map.insert(

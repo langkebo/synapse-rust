@@ -258,6 +258,19 @@ impl WriteForwarding {
         }
         WriteStream::all().iter().copied().filter(|stream| self.writes_locally(*stream)).collect()
     }
+
+    /// Publish the resolved routes so the topology endpoint and `/_health` report what
+    /// this process actually does.
+    ///
+    /// Assembly-only, and deliberately **not** part of [`Self::from_config`]: a test that
+    /// builds a policy must not mutate process-wide state (the same rule
+    /// [`install_process_secret`] follows). Reporting from the config instead would
+    /// disagree with this process exactly when it matters — a replication secret that
+    /// failed to load turns every forward into `Unavailable` here while `write_route`
+    /// still says `Forward`.
+    pub fn publish_routes(&self) {
+        report::install_routes(self.routes.clone());
+    }
 }
 
 /// The configured replication secret, read once.
@@ -281,27 +294,23 @@ fn resolve_secret(config: &WorkerConfig) -> Option<String> {
     }
 }
 
-/// Outcome labels of `worker_write_forward_total`.
+/// Outcome labels of `worker_write_forward_total`, and the runtime view built from the
+/// same four values.
 ///
-/// Kept as a closed set so a dashboard cannot silently lose a series: every exit from
-/// [`forward`] records exactly one of these.
-mod outcome {
-    /// The writer answered, and its status is relayed verbatim.
-    pub(super) const OK: &str = "ok";
-    /// The writer answered with a non-2xx; the client sees that status. Recorded
-    /// separately because a burst here is the writer rejecting traffic, not a network
-    /// failure.
-    pub(super) const UPSTREAM_ERROR: &str = "upstream_error";
-    /// The transport failed (connect, TLS, timeout). Never retried.
-    pub(super) const UNREACHABLE: &str = "unreachable";
-    /// The request was refused here because the configured writer is unusable
-    /// (no secret, no `instance_map` entry). The write did **not** happen.
-    pub(super) const REFUSED: &str = "refused";
-}
+/// The report also answers "where does this stream's write go, and is that target
+/// usable" for the topology endpoint and `/_health` — see [`report`].
+mod report;
 
-fn record_forward(stream: WriteStream, outcome: &str) {
+pub use report::{build_report, LastOutcome, StreamRoute, WriteForwardingReport};
+
+/// Record one forwarding outcome, in the metric and in the process-local report.
+///
+/// Both halves are telemetry: a failure here must never fail the write, which is why the
+/// report's `record` swallows a poisoned lock instead of propagating it.
+fn record_forward(stream: WriteStream, outcome: LastOutcome) {
+    report::record(stream, outcome);
     if let Some(metrics) = global_server_metrics() {
-        metrics.worker_write_forward_total.observe(&[stream.stream_name(), outcome]);
+        metrics.worker_write_forward_total.observe(&[stream.stream_name(), outcome.label()]);
     }
 }
 
@@ -330,7 +339,7 @@ pub async fn write_forwarding_middleware(
     match policy.target(stream) {
         None | Some(WriteRoute::Local) => next.run(request).await,
         Some(WriteRoute::Unavailable { instance, reason }) => {
-            record_forward(stream, outcome::REFUSED);
+            record_forward(stream, LastOutcome::Refused);
             ::tracing::error!(
                 stream = stream.stream_name(),
                 instance = %instance,
@@ -362,7 +371,7 @@ async fn forward(
     let Some(secret) = policy.secret.clone() else {
         // `from_config` collapses this case into `Unavailable`, so reaching it means the
         // policy was built by hand. Fail closed rather than write locally.
-        record_forward(stream, outcome::REFUSED);
+        record_forward(stream, LastOutcome::Refused);
         return ApiError::service_unavailable(format!(
             "Writes for stream '{}' are owned by instance '{instance}', but no replication secret is available",
             stream.stream_name()
@@ -414,7 +423,7 @@ async fn forward(
     let response = match builder.body(body).send().await {
         Ok(response) => response,
         Err(error) => {
-            record_forward(stream, outcome::UNREACHABLE);
+            record_forward(stream, LastOutcome::Unreachable);
             ::tracing::error!(
                 stream = stream.stream_name(),
                 instance = %instance,
@@ -433,7 +442,7 @@ async fn forward(
 
     let status = response.status();
     let headers = response.headers().clone();
-    record_forward(stream, if status.is_success() { outcome::OK } else { outcome::UPSTREAM_ERROR });
+    record_forward(stream, if status.is_success() { LastOutcome::Ok } else { LastOutcome::UpstreamError });
     ::tracing::debug!(
         stream = stream.stream_name(),
         instance = %instance,

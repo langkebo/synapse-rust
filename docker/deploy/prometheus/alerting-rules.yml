@@ -498,3 +498,64 @@ groups:
             实例 {{ $labels.instance }} 距最后一次心跳已 {{ $value }} 秒（阈值 300 秒，
             健康检查的超时是 90 秒）。它仍在注册表里，但很可能已经不可用。
             检查该实例的容器/进程状态与其 `SYNAPSE_WORKER_BASE_URL` 连通性。
+
+  # =========================================================================
+  # Group: 写转发（W-I）
+  # =========================================================================
+  # 数据源：`synapse-web/src/middleware/write_forwarding.rs` 的
+  # `worker_write_forward_total{stream,outcome}`，`outcome ∈ ok | upstream_error |
+  # unreachable | refused`。只有 `worker.write_forwarding: true` 时该序列才存在
+  # ⇒ 默认部署下这些规则不会触发（也不会误报）。
+  #
+  # 为什么必须有告警：写转发失败的症状是**写请求 503**，而读接口、`/sync`、
+  # 健康探针全都正常。没有下面两条规则时，唯一能发现的方式是用户报障。
+  #
+  # 两个 outcome 的区别是本组的判据基础：
+  #   * `unreachable` / `refused` —— 写**没送到** writer（传输失败 / 本地拒发）。
+  #     这是真中断，critical。
+  #   * `upstream_error` —— writer 收到了、答了非 2xx（403 / 429 / 500）。
+  #     这是 writer 对某一次写的裁决，**不**进下面两条规则：把 403 洪峰当 outage
+  #     会把告警训练成噪音。
+  - name: worker-write-forwarding
+    interval: 30s
+    rules:
+      - alert: WorkerWriteForwardFailed
+        expr: |
+          sum by (stream, outcome) (
+            rate(worker_write_forward_total{outcome=~"unreachable|refused"}[5m])
+          ) > 0
+        for: 5m
+        labels:
+          severity: critical
+          category: availability
+          service: synapse-rust
+        annotations:
+          summary: "写转发到 writer 失败（流 {{ $labels.stream }}，{{ $labels.outcome }}）"
+          description: |-
+            过去 5 分钟里流 `{{ $labels.stream }}` 的写一直在 `{{ $labels.outcome }}`
+            （速率 {{ $value }}/s）。`unreachable` = 连不上配置的 writer；
+            `refused` = 本实例拒绝转发（worker.replication.http 密钥读不到，
+            或 `instance_map` 里没有目标实例）。
+            含义：这些路径上的写请求全部 503，**数据没有落库**。
+            排查入口：`GET /_synapse/worker/v1/topology/validate` 的
+            `write_forwarding.streams[]`（看 `route` / `reason` / `writer_live`），
+            以及 `GET /_health` 的 `checks.write_forwarding`。
+
+      - alert: WorkerWriteForwardStalled
+        expr: |
+          sum by (stream) (rate(worker_write_forward_total[5m])) > 0
+          and
+          sum by (stream) (rate(worker_write_forward_total{outcome="ok"}[5m])) == 0
+        for: 10m
+        labels:
+          severity: warning
+          category: availability
+          service: synapse-rust
+        annotations:
+          summary: "流 {{ $labels.stream }} 的转发持续没有一次成功"
+          description: |-
+            过去 10 分钟流 `{{ $labels.stream }}` 有转发尝试、但 `ok` 一次都没有。
+            与上一条的区别：这里**不**区分 outcome —— 若全落在 `upstream_error`，
+            说明 writer 活着但在拒绝流量（权限 / 限流 / 内部错误），而不是网络不通。
+            两条一起看：`WorkerWriteForwardFailed` 管"写根本没送到"，
+            这条管"送到了但从没成功过"。

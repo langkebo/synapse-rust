@@ -21,6 +21,7 @@ use synapse_services::worker::topology_validator::{
 use synapse_services::worker::types::WorkerTopologySummary;
 use synapse_services::worker::HealthCheckConfig;
 
+use crate::middleware::write_forwarding::WriteForwardingReport;
 use crate::routes::context::AdminContext;
 use crate::routes::AdminUser;
 
@@ -67,6 +68,15 @@ pub struct WorkerTopologyValidationResponse {
     /// (W-A). `validation` above only ever reads the configuration; this field is
     /// what says whether the declared instances are actually running.
     pub runtime: RuntimeTopologyReport,
+    /// Where each stream's writes are actually sent, and what the last forward did
+    /// (W-I stage 5).
+    ///
+    /// `stream_writers` above says *who owns* a stream; this says *what this process
+    /// does about it* — resolved target (`base_url`), why a target is unusable, whether
+    /// it is registered and heartbeating, and the last observed outcome. Without it an
+    /// operator seeing `events: [event_persister]` has no way to tell "forwarded there"
+    /// from "refused because the secret file is unreadable".
+    pub write_forwarding: WriteForwardingReport,
 }
 
 /// One running worker as the registry reports it (W-A).
@@ -112,7 +122,7 @@ pub struct WorkerTopologyResponse {
 /// (`synapse-services/src/wiring/admin.rs`), so the shipped default is read here.
 /// If that wiring ever passes a custom config, expose it from the checker instead
 /// of letting the two drift.
-async fn read_worker_registry(
+pub(crate) async fn read_worker_registry(
     ctx: &AdminContext,
 ) -> Result<(Vec<WorkerLiveInstance>, RuntimeTopologySnapshot), ApiError> {
     let now_ms = current_timestamp_millis();
@@ -191,6 +201,9 @@ pub(crate) fn build_topology_validation_response(
         stream_writers,
         route_owner_expectations,
         runtime: evaluate_runtime_topology(config, snapshot),
+        // The registry snapshot is passed in so each forwarded stream can report whether
+        // its target is actually running — the one question the config cannot answer.
+        write_forwarding: crate::middleware::write_forwarding::build_report(config, redis_enabled, Some(snapshot)),
     }
 }
 

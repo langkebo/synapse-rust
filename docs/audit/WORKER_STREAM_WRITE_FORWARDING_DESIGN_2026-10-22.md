@@ -1,9 +1,10 @@
 # `worker.stream_writers` 写转发设计（W-I）
 
 > 状态：**第 0–4 阶段全部落地**（八路真转发 + 联邦面 + 指标 + 客户端 IP 传递），提交
-> `f31c0a422`；**第 5 阶段（收口）部分完成** —— Redis 前置条件已校验（§4.5）、
-> admin 面 156 条写路由已全部纳入映射（其中 16 条归流，§5.3），
-> `write_forwarding` 响应段、两进程 e2e 仍未做（§9）。
+> `f31c0a422`；**第 5 阶段（收口）只差两进程 e2e** —— Redis 前置条件已校验（§4.5）、
+> admin 面 156 条写路由已全部纳入映射（其中 16 条归流，§5.3）、
+> `topology/validate` 的 `write_forwarding` 段与 `/_health` 判据（§6.1/§6.2）、
+> 告警（§6.3）均已落地。
 > 两处结构性边界记在 §5.3：delayed-event 派发（已改由进程归属决定）、
 > "既有 handler 后来开始写事件"这类行为漂移（棘轮盲区）。
 > 相关：`WORKER_TOPOLOGY_VERIFICATION_AUDIT_2026-10-16.md`（W-A…W-H）、
@@ -331,8 +332,80 @@ gate 等于让每个实例都能应答所有写）。授权集由 `WriteForwardi
 |---|---|
 | `worker_write_forward_total{stream,outcome}` | **已接**，`outcome ∈ ok / upstream_error / unreachable / refused`。`upstream_error` = writer 用非 2xx 回了（拒绝），`unreachable` = 传输层失败（**不重试**），`refused` = 本地就拒了（writer 不可用），两者混在一起会让"writer 在拒流量"和"writer 挂了"看起来一样 |
 | 日志 | 每次转发 `debug`（流、目标、耗时、状态）；`unreachable` / `refused` 各打一条 `error`；启动期对被转发的流清单打一条 `info`，每路 `Unavailable` 再各一条 `error` |
-| `GET /_synapse/worker/v1/topology/validate` | 逐条点名哪一路、哪个实例、为什么不可用（本阶段未新增 `write_forwarding` 响应段；要做需同时改响应结构与前端约定） |
+| `GET /_synapse/worker/v1/topology/validate` | **已有 `write_forwarding` 段**（§6.1）：逐流给出解析到的 `base_url`、`Unavailable` 的原因、目标实例是否在注册表里活着、以及最近一次转发的结局 |
+| `GET /_health` | **已反映**（§6.2）：`checks.write_forwarding` 在"目标不可用 / 目标没在跑 / 最近一次转发失败 / 通知绑定流无 Redis"时把整体判成 `degraded` |
+| 告警 | **已加**（§6.3）：`WorkerWriteForwardFailed`（critical）+ `WorkerWriteForwardStalled`（warning） |
 | 启动日志 | 非 `events` 属主的实例会打一条 "Skipping the MSC4140 delayed-event dispatcher…"，这也是"这台不派发"的唯一可见证据 |
+
+### 6.1 `topology/validate` 的 `write_forwarding` 段
+
+响应里新增一段（与 `stream_writers`、`runtime` 并列）：
+
+```json
+"write_forwarding": {
+  "enabled": true,
+  "instance_name": "client_reader",
+  "notify_without_redis": [],
+  "streams": [
+    { "stream": "events", "owners": ["event_persister"],
+      "route": "forward", "target_instance": "event_persister",
+      "target_base_url": "http://event_persister:8008", "reason": null,
+      "requires_redis": true, "last_outcome": "ok", "last_outcome_age_secs": 3,
+      "writer_live": true },
+    { "stream": "typing", "owners": ["client_reader"],
+      "route": "local", "target_instance": null, "target_base_url": null,
+      "reason": null, "requires_redis": false,
+      "last_outcome": null, "last_outcome_age_secs": null, "writer_live": null }
+  ]
+}
+```
+
+三条设计取舍：
+
+1. **路由来源是装配时发布的那一份，不是从配置重算的**。`WriteForwarding::from_config`
+   读密钥文件失败时会把每一路折叠成 `Unavailable`，而 `write_route()`（纯配置函数）
+   仍会说 `Forward` —— 从配置重算就恰好在最该说实话的那个场景里撒谎。所以装配调用
+   `write_forwarding.publish_routes()`，报告读那一份；没跑过装配（测试）才回落到配置。
+2. **`writer_live` 来自注册表**（心跳），不是网络探测。它回答的是"配置里点名的那个
+   实例还在不在跑"，配置本身回答不了这个问题。
+3. **`last_outcome` 是"最近一次真实转发"**，不是计数器累计值：累计值在"启动时错一次、
+   之后一直好"的场景里会永久显示失败。
+
+### 6.2 `/_health` 的判据
+
+`checks.write_forwarding.status` 取四个值，规则都在 `WriteForwardingReport::status()` 里：
+
+| status | 条件 | 对整体 |
+|---|---|---|
+| `disabled` | `worker.write_forwarding` / `worker.enabled` 关着 | 不影响 |
+| `degraded` | 任一路 `route == "unavailable"`（配了但用不了） | 整体降为 `degraded` |
+| `degraded` | 任一路 `writer_live == false`（注册表里没在跑） | 同上 |
+| `degraded` | 任一路 `last_outcome ∈ {unreachable, refused}` | 同上 |
+| `degraded` | `notify_without_redis` 非空（§4.5） | 同上 |
+| `healthy` | 以上都不成立 | 不影响 |
+
+**为什么是 `degraded` 而不是 `unhealthy`**：本实例的读路径完全正常。把整台 reader 判死
+会让它被摘出负载均衡，而"重启一个 writer 挂掉的 reader"修不好任何东西 —— 这与本文件里
+redis / schema 的口径一致（只有数据库不可用才是 `unhealthy`）。
+
+**`upstream_error` 不降级**：writer 答了 403/429/500，说明路径通着，那是它对**某一次写**
+的裁决。把 403 洪峰当 outage 会把这条告警训练成噪音。
+
+`/health`（容器探针）只带配置级判据（不读注册表）：它是几秒一次的探针，为了一条
+"writer 进程还在不在"多打一次数据库不值得；那一半留给 `/_health`。HTTP 状态码仍只由
+数据库决定 —— 探针不该因为写路径坏了而重启容器。
+
+### 6.3 告警
+
+`docker/deploy/prometheus/alerting-rules.yml` 的 `worker-write-forwarding` 组：
+
+| 告警 | 表达式 | 严重度 | 说什么 |
+|---|---|---|---|
+| `WorkerWriteForwardFailed` | `sum by (stream,outcome) (rate(worker_write_forward_total{outcome=~"unreachable\|refused"}[5m])) > 0`，`for: 5m` | critical | 写**没送到** writer，这些路径上的写全 503、数据没落库 |
+| `WorkerWriteForwardStalled` | `sum by (stream) (rate(...[5m])) > 0 and sum by (stream) (rate(...{outcome="ok"}[5m])) == 0`，`for: 10m` | warning | 送到了但一次都没成功（典型：writer 活着但在拒流量） |
+
+两条都不含 `upstream_error`（理由同上）。序列只在 `write_forwarding: true` 时才存在 ⇒
+默认部署不会误报。
 
 ## 7. 阶段划分
 
@@ -343,7 +416,7 @@ gate 等于让每个实例都能应答所有写）。授权集由 `WriteForwardi
 | 2 | `events`：客户端面 + vendor 面 + 联邦面映射、delayed-event 归属、体积上限跟随上传上限 | ✅ |
 | 3 | `device_lists`：设备管理面整体归属 + 与 `events` 的耦合约束 | ✅ |
 | 4 | 指标 + 客户端 IP 传递（secret 门控的专用头） | ✅ |
-| 5 | **收口**：Redis 前置条件校验（§4.5 ✅）、admin 面 156 条纳入映射（§5.3 ✅，16 条归流）、`topology/validate` 的 `write_forwarding` 响应段、两进程 e2e | 🚧 部分完成（§4.5、admin 面已做） |
+| 5 | **收口**：Redis 前置条件校验（§4.5 ✅）、admin 面 156 条纳入映射（§5.3 ✅，16 条归流）、`topology/validate` 的 `write_forwarding` 响应段与 `/_health` 判据（§6.1/§6.2 ✅）、告警（§6.3 ✅）、两进程 e2e | 🚧 只差两进程 e2e |
 
 ## 8. 与既有守卫的关系
 
@@ -369,7 +442,7 @@ gate 等于让每个实例都能应答所有写）。授权集由 `WriteForwardi
 |---|---|---|---|
 | ~~P1 Redis 前置条件~~ | ✅ **已做**：`missing_notify_fan_out` 接进启动 / CLI / admin 视图（§4.5） | — | — |
 | ~~P1 admin 面~~ | ✅ **已做**：156 条全部冻进清单，16 条归流（`events` 12 / `device_lists` 4），`WriteSurface::Admin` 独立分类（§5.3） | — | — |
-| P2 观测面 | `topology/validate` 增 `write_forwarding` 段（解析到哪个 `base_url`、为何 `Unavailable`、运行期是否可达）；`worker_write_forward_total` 进 dashboard + 告警 | writer 宕机时 reader 的 `/health` 仍绿，只有写请求 503；没有告警就只能等用户报障 | 响应结构 + 前端约定同步改，1–2 天 |
-| P2 reader 健康 | 让 reader 的 `/_health` 反映其 writer 不可用 | 同上：现在的健康检查对"写路径已死"完全沉默 | 依赖上一项的数据 |
+| ~~P2 观测面~~ | ✅ **已做**：`topology/validate` 的 `write_forwarding` 段（§6.1，含 `base_url` / `reason` / `writer_live` / `last_outcome`）＋ 告警两条（§6.3） | — | — |
+| ~~P2 reader 健康~~ | ✅ **已做**：`/_health` 的 `checks.write_forwarding`（§6.2，带注册表存活）；`/health` 带配置级片段，HTTP 状态码仍只由数据库决定 | — | — |
 | P3 两进程 e2e | 真起两个进程 + 真 `instance_map` + 真 secret，覆盖 `events`/`federation send` 与 `surface_gate` 组合 | 现有测试全部用桩上游（`spawn_echo_upstream`），最容易互相抵消的 `surface_gate` × 转发组合从未真实联调 | 一个脚本 + CI job，1 天 |
 | P3 流式转发 | 现在整段 buffer（上限 `server.max_upload_size`，50 MB），N 个并发联邦事务 = N×50 MB 峰值 | 只在联邦大事务压测下暴露；当前无证据说明会触发 | 需重写 framing，成本高，**等压测证据** |
