@@ -105,7 +105,7 @@ pub fn template_ready_marker_path(schema_name: &str) -> std::path::PathBuf {
 /// from the v11 baseline (DB-04) and only an `UPDATE ... WHERE username = 'admin'`
 /// over zero rows remains. A freshly migrated database has no users row.
 pub const SEED_REFERENCE_TABLES: &[&str] =
-    &["room_summary_members", "server_media_quota", "server_retention_policy", "sync_stream_id"];
+    &["event_search", "room_summary_members", "server_media_quota", "server_retention_policy", "sync_stream_id"];
 
 /// Which template rows a clone starts with.
 ///
