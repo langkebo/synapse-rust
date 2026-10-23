@@ -152,8 +152,9 @@ pub(crate) async fn restore_secure_backup(
 
 /// See [`verify_secure_backup_passphrase`].
 // by-design: stub 保持 async 签名以匹配 axum Router 的接口契约；恒返回 410，无 await。
+// 此处不加 `#[axum::debug_handler]`：该属性宏展开会吞掉函数上的 `#[allow(clippy::unused_async)]`，
+// 导致 `-D warnings` 下门禁红灯；它只影响编译期错误信息，移除不影响路由行为。
 #[allow(clippy::unused_async)]
-#[axum::debug_handler]
 pub(crate) async fn verify_secure_backup_passphrase(
     _state: State<E2eeRoomContext>,
     _auth_user: AuthenticatedUser,

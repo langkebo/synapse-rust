@@ -523,21 +523,19 @@ pub async fn acquire_connection_with_handshake_retry(
     pool: &PgPool,
 ) -> Result<sqlx::pool::PoolConnection<sqlx::Postgres>, sqlx::Error> {
     const ACQUIRE_ATTEMPTS: u32 = 3;
-    let mut last_error: Option<sqlx::Error> = None;
     for attempt in 1..=ACQUIRE_ATTEMPTS {
         match pool.acquire().await {
             Ok(conn) => return Ok(conn),
             Err(error) => {
                 let message = error.to_string();
-                last_error = Some(error);
                 if attempt == ACQUIRE_ATTEMPTS || !is_transient_handshake_error(&message) {
-                    break;
+                    return Err(error);
                 }
                 tokio::time::sleep(Duration::from_millis(200 * u64::from(attempt))).await;
             }
         }
     }
-    Err(last_error.expect("at least one acquire attempt runs"))
+    unreachable!("ACQUIRE_ATTEMPTS >= 1 always returns from the loop")
 }
 
 /// Take the session-scoped template advisory lock, bounded by `lock_wait`.

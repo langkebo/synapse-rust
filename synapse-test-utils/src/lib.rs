@@ -890,7 +890,7 @@ pub async fn prepare_shared_test_pool() -> Result<Arc<PgPool>, String> {
                 admin_pool.close().await;
             }
             let pool = connected?;
-            register_pending_schema_return(&pool, &schema_name, template.clone(), &database_url);
+            register_pending_schema_return(&pool, &schema_name, &template, &database_url);
             return Ok(pool);
         }
     }
@@ -899,7 +899,7 @@ pub async fn prepare_shared_test_pool() -> Result<Arc<PgPool>, String> {
     let _permit = SHARED_CLONE_SEMAPHORE.acquire().await.map_err(|_| "shared clone semaphore closed".to_string())?;
     let (pool, schema_name) = clone_schema_from_template(&database_url, &template).await?;
     if test_schema_pool_reuse_enabled() {
-        register_pending_schema_return(&pool, &schema_name, template, &database_url);
+        register_pending_schema_return(&pool, &schema_name, &template, &database_url);
     }
     // Note: ensure_test_schema_contract is NOT called here — the template schema
     // already has all contract columns applied during init_template_schema(), and
@@ -1965,10 +1965,10 @@ fn pooled_schema_cleanup(
 /// Register a schema returned by `prepare_shared_test_pool` for deferred return.
 /// The janitor watches the pool's `Weak` and runs [`pooled_schema_cleanup`] once
 /// the last `Arc<PgPool>` is released.
-fn register_pending_schema_return(pool: &Arc<PgPool>, schema_name: &str, template_name: String, database_url: &str) {
+fn register_pending_schema_return(pool: &Arc<PgPool>, schema_name: &str, template_name: &str, database_url: &str) {
     ensure_schema_pool_exit_drain(database_url);
     ensure_schema_pool_idle_reclaimer(database_url);
-    let cleanup = pooled_schema_cleanup(database_url, schema_name, &template_name, Arc::new(AtomicBool::new(false)));
+    let cleanup = pooled_schema_cleanup(database_url, schema_name, template_name, Arc::new(AtomicBool::new(false)));
     register_schema_cleanup(pool, schema_name, cleanup);
 }
 

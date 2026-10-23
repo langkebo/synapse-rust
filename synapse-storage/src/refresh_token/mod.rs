@@ -366,7 +366,7 @@ impl RefreshTokenStorage {
         request: CreateRefreshTokenRequest,
     ) -> Result<RefreshToken, sqlx::Error> {
         let now = current_timestamp_millis();
-        Self::insert_refresh_token(&mut **tx, &request, now).await
+        Self::insert_refresh_token(tx, &request, now).await
     }
 
     /// Insert a refresh-token row on a caller-provided connection/transaction.
