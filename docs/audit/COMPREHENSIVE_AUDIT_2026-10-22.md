@@ -1155,7 +1155,7 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 | **W3** | P1 结构决策 | ARCH-01 | 方案 A「打通」：写路径改走规范事件，影子表降级为索引 | **大** | 需先定方案 | ✅ 已提交 `3789583ef`（见 §10.5） |
 | **W4** | P2 资源与性能 | PERF-14、PERF-13、PERF-03/04/05、PERF-07/08/09、PERF-06、CODE-04、CODE-07 | 索引/查询/分批 | 中 | W1（FUNC-06 累计校验） | ✅ 三层全部落地：第一层 `2358c0f5a`、第二层 `0d18fede0`、第三层 `3cf5c006a`（见 §10.6） |
 | **W5** | P2 安全一致性 | SEC-02…SEC-08 | 配置校验 + 默认值 | 小 | 无 | ✅ 已提交 `ca6980c51`（见 §10.7） |
-| **W6** | P3 冗余与文档 | 全部 P3 + §9.12 五批 | 删除/合壳/文档 | 小但量大 | W0（避免删到正在改的文件） | 🟡 批次 1 已提交 `e4ac05ce0`、批次 2 已提交 `b51aafb00`（见 §10.8），批次 3…5 待开始 |
+| **W6** | P3 冗余与文档 | 全部 P3 + §9.12 五批 | 删除/合壳/文档 | 小但量大 | W0（避免删到正在改的文件） | 🟡 批次 1 已提交 `e4ac05ce0`、批次 2 已提交 `b51aafb00`、批次 3 已提交 `f7bf4eec0`（见 §10.8），批次 4…5 待开始 |
 
 **建议并行度**：W0 / W2 / W5 三者互不重叠，可并行；W1 与 W4 串行；W3 单独走设计评审；W6 最后收尾（它会删文件，先做会和前面所有分支冲突）。
 
@@ -1533,6 +1533,50 @@ fn is_admin_request_allowed(role: &str, method: &Method, path: &str, rbac_enable
   - **16 条与 §10.6（W4 第三层）登记的失败集完全相同**（`api_key_backup_route_table_tests`、`api_placeholder_contract_p1p2_tests`、`api_relations_authorization_tests`、`api_route_ledger_tests`×2、`sqlx_cache_tooling_guard_tests`×2、`sqlx_ratio_gate_tests`×4、`sqlx_dynamic_literal_guard_tests`、`test_ddl_guard_tests`、`monitoring::db_tests`、`worker::tests`、`api_beacon_location_tests`(抖动)），均 HEAD 既有或环境侧，均可在纯 HEAD 工作树复现。
   - **1 条是批次 1 的连带回归，已在本批次内修掉**：`placeholder_scan_tests::test_empty_json_successes_are_allowlisted` 报 `e2ee/backup.rs:177` 未登记。根因是批次 1 的 RD-25 把 `synapse-web/src/routes/e2ee/backup.rs` 的文件级 `#![allow(clippy::unused_async)]` 收窄到单函数，文件净减 2 行，`Ok(empty_json())` 从 `:179` 移到 `:177`，而 `scripts/shell_routes_allowlist.txt` 是**行号键**（其自身文档就写明"fix the line number if the site moved"）。按该口径把条目改成 `:177` 后 `test(placeholder_scan_tests)` 4/4 绿。**教训**：批次 1 的门禁只跑了 `cargo check` + `test --no-run`，没跑全量 nextest，行号型守卫因此漏网——凡改动 `synapse-web/src/routes/**` 的行数，都必须跑 `placeholder_scan_tests`。
 - **sqlx 动态 SQL 棘轮的 3 项违规归因（非本批次引入，不修）**：`check_sqlx_dynamic_ratio` 报生产动态 `133 → 136`、测试基础设施 `767 → 779`、静态 `1367 → 1366`。本批次**零 SQL 改动**（`container.rs` 唯一的 `sqlx::query` 命中是注释）。用 `git archive` 分别导出 HEAD 与基线提交 `1ced60cd5` 跑同一个 census，得到 HEAD `136/779/1366`、`1ced60cd5` `133/767/1367`，逐点差集落在 `synapse-storage/src/invite_blocklist.rs`（6 测试 + 2 生产）、`synapse-storage/src/media/chunked_upload.rs`、`synapse-services/src/media/tests.rs`、`synapse-storage/src/event/db_tests.rs` —— 即 §10.6 已登记的"HEAD 既有计数漂移（纯 HEAD 工作树同样红）"，与 W6 无关。棘轮基线**不下调**（只能因修复而收紧），此项作为独立"棘轮清账"任务挂账。
+
+> **落地状态：批次 3（契约变更）已完成（2026-10-23，提交 `f7bf4eec0`）**。范围 RD-15…RD-19。实际落地与审计原文有 **5 处偏差/补充**，以实际为准：
+>
+> ① **审计漏了 2 条恒定失败端点，静态扫描补出**：`GET /_matrix/client/v3/rooms/{room_id}/keys/distribution`（`e2ee/devices.rs:102` 恒 403，自述"server-internal endpoint"）与 `POST /_matrix/client/v3/keys/backup/secure/{backup_id}/verify`（`e2ee/backup.rs:153` 恒 410 `gone`，文件内已有 `// by-design: stub` 注释）。二者与 RD-15…RD-19 同性质，一并登记。**因此本批实际登记 16 条，而非审计列的 14 条**（RD-15:4 + RD-16:5 + RD-17:1 + RD-18:1 + RD-19:3 + 补充 2）。
+> ② **RD-15/16/17 一律选「登记」，不选「下架」**：下架会把"契约合法但不支持"（404 `M_UNRECOGNIZED` / 501 `M_UNKNOWN`）退化成"路由不存在"（405 + `Allow` 头），反而让 bridge 客户端失去可区分的错误语义，也让 §9.12 的 ledger 探针失去观测面。RD-15 原文建议的"保留并登记"即此路径；RD-16 原文的"若确认无对端依赖则移除"**未采纳**——本批次无法证明"无对端依赖"，而登记 + 双向守卫已消除"悄悄复活/悄悄腐烂"的风险。
+> ③ **RD-18 选「score 用于日志」而非「改用 `Value`」**：删掉 `UpdateReportScoreBody` 会让 `MatrixJson` 退化为不校验的 `Value`，请求体形状不再受 serde 约束；改为在拒绝前把 `event_id` / `requester_user_id` / `requested_score` 记入 `tracing`，既消掉 `#[allow(dead_code)]`，又留下"谁在调这个不可用接口"的运维证据。
+> ④ **「有意不实现」清单是生成物，不是手写段落**：`scripts/contract/gen_contract_doc.py` 直接读 `ledger_annotations.txt` 的 `unsupported=true` 派生表格并写入 `ROUTE_CONTRACT.md`，因此清单与注解表**不可能漂移**。生成段落刻意避开「注册路由条目」字样——`check_route_surface_reconciliation.py` 会把该短语后的数字当总条数校验，误用即红。
+> ⑤ **`API_COVERAGE_REPORT.md` 只加「指针 + 门禁说明」（§6.4），不抄 16 条明细**：抄写必然漂移；条目数的唯一来源是 `ROUTE_CONTRACT.md` 的生成段与 `ROUTE_HANDLERS.json` 的 `counts.unsupported`（本批 4 → **16**）。
+
+**批次 3 落地明细**
+
+| 条目 | 实际改动 |
+|---|---|
+| RD-15 | `scripts/contract/ledger_annotations.txt` 的 4 条 thirdparty（`/thirdparty/{location,user}[/{protocol}]`）在既有 `query_params=` 行上追加 `unsupported=true`（同 `(method,path)` 多行的键必须不相交，故直接续写而非新起一行） |
+| RD-16 | 联邦 5 条登记：`POST /_matrix/federation/v1/user/keys/upload`、`POST /_synapse/federation/v1/keys/{upload,claim,query}`、`GET /_synapse/federation/v1/query/auth` |
+| RD-17 | 无需改代码；`GET /_matrix/client/v3/rooms/{room_id}/event/{event_id}/keys` 早已在册（`ApiError::not_supported` → 501 `M_UNKNOWN`），本批仅把它纳入守卫覆盖 |
+| RD-18 | `synapse-web/src/routes/directory_reporting.rs`：删 `UpdateReportScoreBody.score` 的 `#[allow(dead_code)]`；`_auth_user`/`_body` 改为实参并在 `forbidden` 前 `tracing::info!(event = "report_score_update_rejected", …)` |
+| RD-19 | `synapse-web/src/routes/voice.rs`：`"max_duration_ms": 60_0000` → `600_000`（同值，仅消歧义）；三端点登记 `unsupported=true` |
+| 新增守卫 | `scripts/contract/check_unsupported_endpoints.py`：静态剥注释/字符串后取函数体最后一条顶层语句，判定是否恒为 `Err(...)`（证据 = 构造函数名），与 `unsupported=true` **双向**比对；带 `--self-test`（11 例）。接入 `scripts/contract/check_route_contract.sh` |
+| 契约生成 | `scripts/contract/gen_contract_doc.py` 新增「有意不实现的端点（by-design unsupported）」段（从注解表派生 + 条目数 + 表格）；`docs/synapse-rust/ROUTE_CONTRACT.md` 重新生成 |
+| 镜像同步 | `scripts/contract/extract_registered.py` 的 `EXPECTED_ANNOTATIONS` 逐条镜像新增注解（`check_annotation_fidelity` 第 1 层要求表 == 镜像，逐键逐值），否则 `EXTRACT_STRICT=1` 直接 `SystemExit` |
+| 文档 | `docs/synapse-rust/API_COVERAGE_REPORT.md` 新增 §6.4「有意不实现」（指针 + 双向门禁 + 错误码语义，不抄明细） |
+
+**门禁（§9.12 批次 3 原文：「`api_route_ledger_tests` + 契约文档与代码的路由集合比对脚本」）**
+
+| 门禁 | 结果 |
+|---|---|
+| **红证**（先证守卫能失败） | 补注解前运行新守卫 → `EXIT=1`，逐条报出 **12** 条「handler 恒失败但未登记」（RD-15 4 + RD-16 5 + RD-18 1 + 补充 2，RD-17/RD-19 已在册故不报） |
+| `check_unsupported_endpoints.py --self-test` | `EXIT=0`：11 个分类器/守卫用例全绿 |
+| `check_unsupported_endpoints.py` | `EXIT=0`：`✅ 16 registered route(s) declared by-design unsupported; 16 constant-failure handler(s) match the declaration` |
+| `EXTRACT_STRICT=1 extract_registered.py` | `EXIT=0`：`check_annotation_fidelity` 七层校验通过；`ledger_export` **913** / `ledger_export_sdk` **975** 与 fixture 一致 |
+| `gen_derived_routes.py --check` / `gen_route_handlers.py --check` | `OK`；sidecar `counts.unsupported` = **16** |
+| `bash scripts/contract/check_route_contract.sh` | 除最后一步「`ROUTE_CONTRACT.md` 相对 HEAD 有 drift」（本批新生成段落尚未提交，属预期）外全绿；提交后复跑应为 `EXIT=0` |
+| `cargo check --workspace --all-features --lib --bins` | `EXIT=0`，0 error / 0 warning |
+| `cargo nextest -E 'test(/route_ledger\|api_route_ledger/)'` | 22 tests：20 passed / 2 failed。2 条均为 `declared_route_manifest_full_snapshot_matches_{default,worker_enabled}_state`，**非本批引入**（详见下方归因） |
+| 全量回归（`E2EE_INTEROP=1 cargo nextest run --workspace --all-features --no-fail-fast`） | `EXIT=100`（3,606s）：`10735 tests run: 10720 passed (10 slow), 15 failed, 16 skipped`。**15 条全部落在 §10.6 已登记的 W4 既有失败集内，零新增**（详见下方「全量回归」段） |
+
+- **2 条快照失败的归因（本批不修、不吞）**：用 `UPDATE_ROUTE_LEDGER_SNAPSHOTS=1` 生成后 `git diff` 显示差异**只有 SAML/CAS 的 28 条路由**（`count: 928 → 956`，`[_synapse/admin/v1/cas/*]`、`[_synapse/admin/v1/saml/*]`、`[_matrix/client/v3/login/sso/redirect/*]` 等），与 RD-15…RD-19 **零交集**；本批未改任何路由注册。即 HEAD 上这两份快照早已落后于代码（属 §10.6 登记的 W4 既有失败集 `api_route_ledger_tests`×2）。**快照已还原未提交**——把它一并"修绿"会把其他会话的路由变更混进本批，且掩盖真实的 drift 信号。
+- **踩坑**：`ledger_annotations.txt` 要求「**恰好一个 tab**」（多一个/少一个即 `SystemExit`），手工扩列对齐极易写成空格；同一 `(method, path)` 可多行但**键必须不相交**（重叠即硬失败），因此追加 `unsupported=true` 要续在既有行上。
+- **全量回归**（`E2EE_INTEROP=1 cargo nextest run --workspace --all-features --no-fail-fast`，3,606s）：`10735 tests run: 10720 passed (10 slow), 15 failed, 16 skipped`，`EXIT=100`。15 条逐条甄别，**全部命中 §10.6（W4 第三层）已登记的失败集，零新增**：
+  - 契约/路由面 4 条：`api_route_ledger_tests::declared_route_manifest_full_snapshot_matches_{default,worker_enabled}_state`（即上文 SAML/CAS 快照 drift）、`api_key_backup_route_table_tests::key_backup_routes_are_wired_under_v1_and_r0`、`api_relations_authorization_tests::relations_event_type_route_filters_over_http`、`api_placeholder_contract_p1p2_tests::test_power_levels_contract_rejects_non_members`（后 3 条为 HEAD 既有的占位/契约类红，本批未触及对应 handler）。
+  - sqlx 棘轮与 DDL 守卫 8 条：`sqlx_ratio_gate_tests`×4、`sqlx_cache_tooling_guard_tests`×2、`sqlx_dynamic_literal_guard_tests`、`test_ddl_guard_tests`（§10.6 已归因为 HEAD 既有计数漂移，基线不下调）。
+  - 环境/工具链 2 条：`synapse-storage monitoring::db_tests::database_monitor_round_trip_on_the_migration_template`、`synapse-storage worker::tests::test_worker_type_owned_route_prefixes`。
+  - 相比批次 2 的 17 failed，本次 **−2**：`placeholder_scan_tests::test_empty_json_successes_are_allowlisted`（批次 2 内已修）、`api_beacon_location_tests`（抖动，本轮通过）；**无任何条目因本批从绿转红**。
 
 直接执行 [§9.12 分阶段清理建议](#912-统计与分阶段清理建议)，不重复。补两条本轮的：
 
