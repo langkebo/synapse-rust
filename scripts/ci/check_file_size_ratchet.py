@@ -81,7 +81,19 @@ def scan() -> dict[str, int]:
         if not base.is_dir():
             continue
         for dirpath, _dirnames, filenames in os.walk(base):
-            if any(marker in dirpath + "/" for marker in EXCLUDED):
+            # Every `EXCLUDED` marker is **repo-relative** ("/target/",
+            # "/.worktrees/", ...), so it must be matched against a repo-relative
+            # path. Matching the absolute `dirpath` instead silently breaks the
+            # gate in any checkout whose own location happens to contain one of
+            # those segments — most notably a git worktree at
+            # `<repo>/.worktrees/<name>/`, where **every** file is excluded, the
+            # scan comes back empty and the fail-closed branch at the bottom of
+            # `main()` exits 2. The practical effect was that `git commit` was
+            # impossible inside any isolated worktree, i.e. the only safe way to
+            # avoid touching files another session is editing (measured
+            # 2026-10-23).
+            rel_dir = "/" + (Path(dirpath).relative_to(ROOT).as_posix() + "/")
+            if any(marker in rel_dir for marker in EXCLUDED):
                 continue
             for name in filenames:
                 if not name.endswith(".rs") or _is_generated(name):
