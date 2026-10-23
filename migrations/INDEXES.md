@@ -12,22 +12,39 @@
 > 原 `20260904*_schema_p*.sql` 审计迁移已删除，其对象已**全部**折入 baseline 尾部
 > 的"完整性约束与性能索引折入块"）
 
-> **覆盖率说明（2026-10-06 重测）**：v12 baseline 中共 **342** 条
-> `CREATE (UNIQUE) INDEX [CONCURRENTLY] IF NOT EXISTS` 语句，**342** 个不同索引名，
-> **0** 个重复名。守卫见
-> `tests/unit/migration_consistency_tests.rs::baseline_declares_each_object_exactly_once`。
-> 本文档（两张表去重后）共记录 **134** 个索引名，覆盖核心查询路径。
+> **覆盖率说明**：下面的数字由 `scripts/ci/check_doc_metrics.py` 从**基线 SQL 与本文档人工表
+> 现算**，不是手抄。手改块里的数字必红（审计 PERF-12 / DOC-07 的修法：不允许再出现
+> 一个"看起来权威、其实是过期读数"的计数）。
 >
-> **2026-10-06（CQ-08 订正）**：上列 **342/134** 为按下方"复现命令"实测的权威值，
-> 口径与守卫测试解析器一致（剥除 `--` 注释行后匹配）。此前本行及下方
-> 2026-10-06(PERF-02)/2026-09-25(U-3)/2026-09-18 各注记中的 `351/141`、`350/350`、
-> `349/349`、`358` 均系**历史读数**（baseline 每次增删索引后未同步），仅作沿革保留，
-> **一律以 342/134 为准**。
+> 计数口径与
+> `tests/unit/migration_consistency_tests.rs::baseline_declares_each_object_exactly_once`
+> **逐字一致**：跳过整行 `--` 注释，只认
+> `CREATE [UNIQUE] INDEX [CONCURRENTLY] IF NOT EXISTS` 四种前缀。两处口径一旦分叉，
+> 就会出现两个互相矛盾的"权威数字"——`351 / 349 / 347 / 342` 这串读数就是这么来的。
+>
+> 守卫见 `tests/unit/migration_consistency_tests.rs::baseline_declares_each_object_exactly_once`
+> （重名即红）。
+
+<!-- doc-metrics:start -->
+<!-- 本块由 scripts/ci/check_doc_metrics.py --print 生成；手改必红。 -->
+
+BASELINE_INDEXES=343
+INDEXES_DOC_ROWS=134
+
+<!-- doc-metrics:end -->
+
+> `BASELINE_INDEXES` 是基线 SQL 里的索引**定义数**；`INDEXES_DOC_ROWS` 是下面两张人工表
+> 去重后登记的索引名数——**少的那部分不是遗漏**：人工表只登记核心查询路径，并附上
+> "为什么需要这个索引"的原因，而 SQL 里的用途无法从 DDL 反推。两个数字都要留，但只有
+> 前者能由 SQL 生成，后者只能由人写；因此它们分别受"实测一致"和"表格行数自洽"两条判据约束。
+>
+> **沿革（纯历史，一律以上面的块为准）**：`351`（裸 `grep -c "CREATE INDEX"`，把注释行
+> 也算进去，与守卫口径不同）、`349`、`347`、`342`、`350/350`、`358`、`351/141` 均系历次
+> 手抄或换口径的读数。2026-10-23 起本文件不再手写当前值。
 >
 > **2026-10-06（PERF-02）**：新增复合索引 `idx_events_type_origin_ts`
 > （`events(event_type, origin_server_ts DESC)`），服务 `get_daily_message_count`
-> 的「事件类型等值 + 时间范围」谓词。（原注"计数由 350/140 更正为 351/141"已失效，
-> 见上。）
+> 的「事件类型等值 + 时间范围」谓词。
 > 完整索引清单请直接查看 `00000000_unified_schema_v12.sql` 中的 `CREATE INDEX`
 > 语句，或在数据库中执行 `SELECT indexname FROM pg_indexes WHERE schemaname = 'public'`。
 >

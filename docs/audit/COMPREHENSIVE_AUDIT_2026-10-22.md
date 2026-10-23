@@ -125,6 +125,111 @@
 
 ---
 
+## 0.4 第五轮：W6 收尾（2026-10-23）
+
+范围只有一件事：把 §10.8 里**批次 5 之外**的剩余项做完，并给每项一个可失败的证据。
+批次 5（RD-14）单独说明——它既不是"没做"，也不是"本轮做了"。
+
+| 条目 | 本轮结论 | 证据（可复现） |
+|---|---|---|
+| **CODE-12** | ✅ 修 | `preview.rs` 的死表达式删除；`cargo check -p synapse-web --all-features` → `EXIT=0`、`warning` **0** |
+| **TEST-07 / DOC-02 / DOC-09** | ✅ 修 | 新增 `scripts/ci/check_doc_metrics.py`；先红（报出 300/238/111/116 四处漂移）后绿 |
+| **PERF-12 / DOC-07** | ✅ 修 | 同上脚本校验 `INDEXES.md` 的计数块；实测真值 **343**（原写 342） |
+| **DOC-06** | ✅ 处置 | `UNRESOLVED_ISSUES_SUMMARY.md` 头部加 `STATUS: HISTORICAL` + 指向本文件 |
+| **DOC-08** | ⚠️ **前提不成立** | 见下文第 3 小节 |
+| **批次 5（RD-14）** | 🟡 未由本轮实施 | 见下文第 2 小节 |
+
+### 1. 文档数字从"四处手抄"改成"脚本现算"
+
+`check_doc_metrics.py` 的判据是三条：块内 `KEY=VALUE` 必须等于真源实算值；受管键必须出现
+（防"新增度量忘了写进文档"）；内联锚点的正则**不匹配也算 FAIL**（防"改了文案却把数字留下"）。
+
+先红（改动文档之前，实测漂移四处）：
+
+```
+FAIL 文档度量与真源不一致（6 处）：
+  - TESTING.md: 缺少 <!-- doc-metrics:start --> … <!-- doc-metrics:end --> 块
+  - migrations/INDEXES.md: 缺少 <!-- doc-metrics:start --> … <!-- doc-metrics:end --> 块
+  - docs/synapse-rust-vs-synapse-comparison.md: 受管文件总数 写着 300，实测 375
+  - …其中 .rs 数 写着 238，实测 287
+  - …unit 写着 111，实测 129
+  - …integration 写着 116，实测 147
+```
+
+后绿：`OK 文档度量一致（块内 12 项 / 内联 6 处；测试文件 287 个 = 129/147/3/5；基线索引 343 条）`。
+
+**三处变异自证**（证明它真会红，而不是"从来没红过"）：
+
+| 变异 | 期望 | 实测 |
+|---|---|---|
+| 块内 `TEST_FILES_UNIT` 改成 128 | 报数字不符 | `FAIL … 写着 128，实测 129` |
+| 块里塞 `MADE_UP_METRIC=7` | 报"不是已知度量" | `FAIL … 不许自造数字` |
+| 把 `tests/unit`(129 文件) 的括号改成全角 | 报"锚点失效" | `FAIL … 文案被改写了，请同步更新 spec` |
+| 临时放入 `.trae/rules/project_rules.md` | 报 115/130 过时 | `FAIL … 写着 115，实测 129` / `130 vs 147` |
+
+`.trae/` 被 gitignore（CI checkout 里不存在）⇒ 该文件缺席时打印 `SKIP` 而不是失败。这是
+**刻意的**：写一条永远跳过的守卫等于没有守卫，写一条永远红的守卫会让人把整个门禁关掉。
+
+### 2. 批次 5（RD-14）为什么本轮没做
+
+HEAD（`63f030154`）上，`scripts/ci/check_feature_matrix.py` **存在但未被任何 workflow 调用**：
+
+```
+$ git show HEAD:.github/workflows/ci.yml | grep -c check_feature_matrix
+0
+```
+
+工作区里有一份**另一个会话正在写**的实现（`git diff --numstat`：`check_feature_matrix.py`
+`+409/−115`、`ci.yml` `+37/−0`，含 S1–S5 静态层与 C1–C4 编译车道）。按"不覆盖他人未提交改动"
+的纪律，本轮**不碰这两个文件**：两个会话同时重写一个 18 KB 的门禁脚本，后提交者会把前者
+静默回退，而且这种回退在 diff 里看起来只是"代码变短了"。
+
+因此表里写"未由本轮实施"而不是"未完成"：**这一项的可验收条件仍然有效**，谁的实现先落地
+就按它验收——`check_feature_matrix.py` 必须被 CI 以 `--compile` 调用，且故意破坏一个
+feature-gated 模块的编译时那条车道必须红（RD-14 原文的门禁判据）。
+
+> 时点声明：本小节的"引用数 0""未由本轮实施"都是**编写本节的时点事实**（HEAD `63f030154`），
+> 不是对批次 5 现状的断言。该实现一旦提交，批次状态以**它自己的提交与其所在小节**为准；
+> 本节只负责记录"当时为什么把它排除在本轮之外"。把它读成"批次 5 永远不会落地"是误读——
+> 这正是本文件 §0.1 反复强调的那类错误（把"我没做"当成"没做"）。
+
+### 3. DOC-08 的前提不成立（第三次"把已修当未修"）
+
+`migrations/README.md` 声称两个缺陷"尚未修复"：`typing` 复合主键守卫与 `user` 表约束块
+硬编码 `table_schema = 'public'`、后者还缺 `IF NOT EXISTS`。实测：
+
+```
+$ grep -c "table_schema = 'public'" migrations/00000000_unified_schema_v12.sql
+0
+```
+
+两处都已改成 `WHERE conrelid = 'typing'::regclass AND conname = 'pk_typing'` 这类**按对象名
+判定**的写法（不依赖 schema 名），因此"重复添加主键"和"约束已存在"两个失败模式都不再成立。
+README 那段描述的是**当时**的状态，且没写"已修"。已就地订正为历史记录 —— 这是本文件第三次
+修正"把已实现的能力当成缺失"的方向性错误（前两次见 §0.1 的 FUNC-01/FUNC-02），
+**看到"尚未修复"四个字的论断，先回 HEAD 验一遍再引用**。
+
+### 4. 本轮之后的数字真值（口径与命令）
+
+| 度量 | 真值 | 口径 |
+|---|---|---|
+| `git ls-files tests` 受管文件 | **375** | 含 fixture / SQL / 快照等非 `.rs` |
+| 其中 `.rs` | **287** | |
+| 分层（unit/integration/e2e/performance） | **129 / 147 / 3 / 5** | `tests/<层>/*.rs` |
+| 基线索引定义数 | **343** | 与 `baseline_declares_each_object_exactly_once` 逐字同口径 |
+| `INDEXES.md` 人工表登记数 | **134** | 表格行数，含 1 条划删除线的历史行 |
+| clippy allow（未带理由） | **160 / 96 文件** | 读 `clippy_allow_baseline` |
+
+全部由 `python3 scripts/ci/check_doc_metrics.py --print` 一次输出，文档里不再手写。
+
+### 5. 方法教训（本轮新增）
+
+`grep "a\|b"` 在本机的 toybox `grep` 下**静默返回空**（BRE `\|` 不支持）。本轮据此一度
+判"文档里没有 `批次 5` 与 `RD-14`"，而它们就在 §9.12 表格里。**检索一律用 `grep -E`
+或专用搜索工具** —— 这个坑在本仓已经踩过多次，代价是"以为不存在"进而"重复造一遍"。
+
+---
+
 ## 一、架构设计
 
 ### ARCH-01（P1）Thread 双实现：非规范 API 写入影子表，数据对 `/sync`、`/messages`、联邦不可见
@@ -784,10 +889,22 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 - **类型**：权威清单失效
 - **影响范围**：与本次审查结果（**8 条 P1**，复核后口径见 §0.1）直接矛盾；读者会误判项目状态。
 - **修法**：以本文件为新基线重写摘要，或把旧文件标记 `HISTORICAL`。
+- **状态（2026-10-23）**：✅ **已标记 HISTORICAL**（选择标记而非重写：该文件记录的是 2026-10-06～10-09
+  的闭环过程，重写会把这段沿革抹掉；而"0 P1"的结论必须被显式否定，否则与 §0.3 的"P1 = 0 自述成立"
+  放在一起会被读成"两份文件互相印证"）。
 
 ### DOC-07（P3）`migrations/INDEXES.md` 计数 342 vs 实际 347（详见 PERF-12）
+> **状态（2026-10-23）**：✅ 计数改由脚本现算。实测真值 **343**（口径 = 与
+> `baseline_declares_each_object_exactly_once` 逐字相同的四种 `CREATE … INDEX … IF NOT EXISTS`
+> 前缀；`347/349/351` 都是把注释行或 `CREATE INDEX` 裸 grep 算进去的读数）。
+> 文档里不再手写当前值，改由 `<!-- doc-metrics -->` 块承载，`check_doc_metrics.py` 校验。
+
 ### DOC-08（P3）`migrations/README.md` 描述的两个缺陷已修，文档未同步
 - **类型**：文档滞后
+> **状态（2026-10-23）**：✅ 已订正。原文称 `typing` 复合主键守卫与 `user` 表约束块"尚未修复"，
+> 实测 `grep -c "table_schema = 'public'"` = **0** —— 两处早已改成按对象名判定
+> （`WHERE conrelid = 'typing'::regclass AND conname = 'pk_typing'`），不再依赖 schema 名。
+> 该段已就地标注为历史记录。**"尚未修复"这类论断也必须回 HEAD 验一遍再引用**。
 ### DOC-09（P3）`docs/synapse-rust-vs-synapse-comparison.md` 测试文件数 238 vs 实测 277（详见 TEST-07）
 
 ---
@@ -1627,12 +1744,12 @@ fn is_admin_request_allowed(role: &str, method: &Method, path: &str, rbac_enable
 
 直接执行 [§9.12 分阶段清理建议](#912-统计与分阶段清理建议)，不重复。补两条本轮的：
 
-| 条目 | 改动 | 门禁 |
-|---|---|---|
-| CODE-12 | 删除 `preview.rs:71` 死表达式 | `cargo clippy -p synapse-web -- -D warnings` |
-| CODE-10 / CODE-11 | 只加"危险性扫描"（缓存/存储删除禁止 `let _`）+ `// reason:` 强制；**不设总数下降配额** | `check_clippy_allow_ratchet.py` 扩展后故意新增一条无 reason 的 allow 必须红 |
-| TEST-07 / DOC-02 / DOC-09 | 统一为 283（128/147/3/5）；数字由脚本输出，文档只引用 | 文档数字与脚本输出不一致时 CI 红（需新增 `check_doc_metrics.py`） |
-| PERF-12 / DOC-07 | `INDEXES.md` 由 SQL 解析生成 | 生成结果与文件不一致时 CI 红 |
+| 条目 | 改动 | 门禁 | 状态 |
+|---|---|---|---|
+| CODE-12 | 删除 `preview.rs` 的死表达式 `let _ = ts.unwrap_or_else(current_timestamp_millis)` | `cargo clippy -p synapse-web -- -D warnings` | ✅ **已做**：连同 `PreviewUrlParams.ts` 字段一起删除（只删语句会留下 `field 'ts' is never read`，实测复现），并由集成测试 `test_media_preview_and_delete_boundaries` 带 `&ts=…` 仍期望 200，锁住"接受但忽略"这个兼容面 |
+| CODE-10 / CODE-11 | 只加"危险性扫描"（缓存/存储删除禁止 `let _`）+ `// reason:` 强制；**不设总数下降配额** | `check_clippy_allow_ratchet.py` 扩展后故意新增一条无 reason 的 allow 必须红 | ✅ **已在 W0 落地**：`check_no_silent_cache_delete.sh`（接 `ci.yml:139`）；`check_clippy_allow_ratchet.py` 的 docstring 明写 "New reasonless allows fail"、计数只许下降，实测 `160/96 = baseline` |
+| TEST-07 / DOC-02 / DOC-09 | 统一数字（本轮真值 129/147/3/5，`.rs` 287）；数字由脚本输出，文档只引用 | 文档数字与脚本输出不一致时 CI 红（`check_doc_metrics.py`） | ✅ **已做**：新增 `scripts/ci/check_doc_metrics.py`，接 `docs-quality-gate.yml` 与 preflight；先红后绿 + 4 处变异自证见 §0.4 |
+| PERF-12 / DOC-07 | `INDEXES.md` 的计数由 SQL 解析生成 | 生成结果与文件不一致时 CI 红 | ✅ **已做（有偏差）**：计数与"人工表行数"进入 `doc-metrics` 块，由 `check_doc_metrics.py` 现算校验；**未**把整份文档重生成——人工表里的"为什么需要这个索引"无法从 DDL 反推，生成 343 行会让文档从"索引治理"退化成"索引清单" |
 
 ---
 
@@ -1647,7 +1764,7 @@ fn is_admin_request_allowed(role: &str, method: &Method, path: &str, rbac_enable
 | 5 | `api_route_ledger_tests` | 已有 | W1/W4（契约变更） |
 | 6 | `no_silent_cache_delete` 扫描 | **W0 已落地**：`scripts/ci/check_no_silent_cache_delete.sh`，已接入 `ci.yml` | W0 |
 | 7 | `EXPLAIN` 计划快照 | **新增** | W4 |
-| 8 | 文档数字一致性（测试数/索引数） | **新增** | W6 |
+| 8 | 文档数字一致性（测试数/索引数） | **已落地并接入**：`scripts/ci/check_doc_metrics.py`（块 + 内联锚点），接 `docs-quality-gate.yml` 与 `scripts/quality/preflight.sh` | W6（§0.4） |
 | 9 | `check_feature_matrix.py` 接入 CI | 脚本存在但**未接入** | W6（RD-14） |
 | 10 | `no_default_admin_credential` 扫描 | **W5 已落地**：`scripts/ci/check_no_default_admin_credential.sh`，已接入 `ci.yml` | W5（SEC-02） |
 

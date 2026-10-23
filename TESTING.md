@@ -16,6 +16,32 @@
                  └────────────────┘
 ```
 
+#### 当前规模（脚本生成，勿手改）
+
+数字由 `scripts/ci/check_doc_metrics.py` 从真源（`git ls-files` / 基线 SQL / 棘轮基线）现算，
+本块手改必红。新增测试文件后不要改数字，跑 `python3 scripts/ci/check_doc_metrics.py --print`
+把新块整段粘回来，再跑一次不带参数的版本复验。
+
+<!-- doc-metrics:start -->
+<!-- 本块由 scripts/ci/check_doc_metrics.py --print 生成；手改必红。 -->
+
+BASELINE_INDEXES=343
+CLIPPY_ALLOW_FILES=96
+CLIPPY_ALLOW_SITES=160
+INDEXES_DOC_ROWS=134
+TEST_FILES_E2E=3
+TEST_FILES_INTEGRATION=147
+TEST_FILES_PERFORMANCE=5
+TEST_FILES_TESTS_DIR=375
+TEST_FILES_TESTS_DIR_RS=287
+TEST_FILES_UNIT=129
+
+<!-- doc-metrics:end -->
+
+> 其中 `TEST_FILES_UNIT/INTEGRATION/E2E/PERFORMANCE` 是**分层文件数**（`tests/<层>/*.rs`），
+> `TEST_FILES_TESTS_DIR` 是 `git ls-files tests` 的全部受管文件（含 fixture、SQL、
+> 快照等非 `.rs`）。两者不等，引用时别混用——审计 TEST-07 记录的三处不一致就是这个混淆。
+
 ### 1.2 测试类型说明
 
 | 类型 | 位置 | 目的 | 覆盖率要求 |
