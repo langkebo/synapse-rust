@@ -516,7 +516,7 @@ This project follows Red-Green-Refactor TDD. Before implementing any new behavio
 - CI asserts snapshots with `INSTA_UPDATE=no` plus a committed/leftover `.snap.new` check, and does **not** use cargo-insta at all (its CLI semantics changed twice) — see the `Snapshot gate` step in `ci.yml`.
 
 ### Pre-positioned Mocks
-- `synapse-storage::test_mocks::FakeUserStore` / `SharedFakeUserStore` / `seed_locked_users()`
+- `synapse-storage::test_mocks::FakeUserStore` / `SharedFakeUserStore`
 - `synapse-federation::test_mocks::MockFederationClient` (in-memory, pending trait extraction FED-1..4)
 - `synapse-services::test_mocks::MockSyncServiceDepsBuilder` (scaffolding pending SYNC-1..6)
 

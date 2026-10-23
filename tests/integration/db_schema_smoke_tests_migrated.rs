@@ -37,6 +37,30 @@ async fn assert_view_exists(pool: &sqlx::PgPool, view_name: &str) {
     assert!(regclass.is_some(), "Expected view '{view_name}' to exist in the current schema, got: None");
 }
 
+async fn assert_table_absent(pool: &sqlx::PgPool, table_name: &str) {
+    // 同上：锚定当前 schema，否则长期库 `public` 里的残留表会让断言假绿（§7 D-57）。
+    let regclass: Option<String> =
+        sqlx::query_scalar("SELECT to_regclass(format('%I.%I', current_schema(), $1))::text")
+            .bind(table_name)
+            .fetch_one(pool)
+            .await
+            .expect("Failed to query table existence");
+    assert!(regclass.is_none(), "Expected table '{table_name}' to be dropped, got: {regclass:?}");
+}
+
+async fn assert_column_absent(pool: &sqlx::PgPool, table_name: &str, column_name: &str) {
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM information_schema.columns \
+         WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2",
+    )
+    .bind(table_name)
+    .bind(column_name)
+    .fetch_one(pool)
+    .await
+    .expect("Failed to query column existence");
+    assert_eq!(count, 0, "Expected column '{table_name}.{column_name}' to be dropped");
+}
+
 async fn seed_room(pool: &sqlx::PgPool, suffix: u64, prefix: &str) -> (String, String) {
     let creator = format!("@{prefix}_creator_{suffix}:localhost");
     let room_id = format!("!{prefix}_room_{suffix}:localhost");
@@ -273,6 +297,36 @@ async fn test_retention_and_room_summary_schema_smoke_roundtrip() {
     // roundtrip instead.
 
     cleanup_room(&pool, &room_id, &creator).await;
+}
+
+/// W6 批次 4（RD-20 / RD-21 / RD-22）：三组零引用 schema 对象已从统一基线移除。
+///
+/// 这些对象在删除前三者都"存在但无人读取"：
+/// - `notification_delivery_log`：全仓唯一写入点在 `broadcast_notification`，零 `FROM`；
+/// - `user_locks`：服务层锁定服务已删除，只剩存储层自测；
+/// - `users` 三个密码生命周期列：无任何登录逻辑消费。
+#[tokio::test]
+async fn test_zero_reference_schema_objects_are_dropped() {
+    let pool = crate::require_test_pool().await;
+
+    for table_name in ["notification_delivery_log", "user_locks"] {
+        assert_table_absent(&pool, table_name).await;
+    }
+
+    for column_name in ["is_password_change_required", "must_change_password", "password_expires_at"] {
+        assert_column_absent(&pool, "users", column_name).await;
+    }
+
+    // 正向对照：同属 `users` 且仍在使用中的列必须保留，避免"删多了"。
+    let kept_columns: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM information_schema.columns \
+         WHERE table_schema = current_schema() AND table_name = 'users' \
+           AND column_name IN ('password_hash', 'password_changed_ts', 'failed_login_attempts', 'locked_until')",
+    )
+    .fetch_one(&*pool)
+    .await
+    .expect("Failed to query retained user columns");
+    assert_eq!(kept_columns, 4, "users 的密码/锁定相关既有列不应被误删");
 }
 
 #[tokio::test]

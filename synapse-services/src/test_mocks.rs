@@ -10,11 +10,10 @@
 //! `.trae/documents/TDD落地执行清单.md` Phase 3 for the extension plan.
 
 pub use synapse_storage::test_mocks::{
-    seed_locked_users, shared_fake_user_store, FakeUserStore, InMemoryAccessTokenStore, InMemoryAccountDataStore,
-    InMemoryAdminMediaStore, InMemoryBackgroundUpdateStore, InMemoryDeviceListStore, InMemoryEventStore,
-    InMemoryMemberStore, InMemoryOidcUserMappingStore, InMemoryPushStore, InMemoryRateLimitStore,
-    InMemoryRefreshTokenStore, InMemoryRelationsStore, InMemoryRoomStore, InMemoryRoomTagStore, InMemoryThreepidStore,
-    SharedFakeUserStore,
+    shared_fake_user_store, FakeUserStore, InMemoryAccessTokenStore, InMemoryAccountDataStore, InMemoryAdminMediaStore,
+    InMemoryBackgroundUpdateStore, InMemoryDeviceListStore, InMemoryEventStore, InMemoryMemberStore,
+    InMemoryOidcUserMappingStore, InMemoryPushStore, InMemoryRateLimitStore, InMemoryRefreshTokenStore,
+    InMemoryRelationsStore, InMemoryRoomStore, InMemoryRoomTagStore, InMemoryThreepidStore, SharedFakeUserStore,
 };
 
 use std::collections::HashMap;
@@ -598,7 +597,7 @@ mod tests {
     async fn fake_user_store_reexported_for_service_injection() {
         let store = MockSyncServiceDepsBuilder::new().with_fake_user_store();
         let _trait_ref: Arc<dyn UserStore> = store.clone();
-        assert!(!store.is_user_locked("@nobody:example.com").await.unwrap());
+        assert!(store.get_user_by_id("@nobody:example.com").await.unwrap().is_none());
     }
 
     #[tokio::test]

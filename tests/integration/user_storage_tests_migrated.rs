@@ -256,8 +256,6 @@ async fn test_update_password() {
     let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
     assert_eq!(user.password_hash, Some("new_hash".to_string()));
     assert!(user.password_changed_ts.is_some());
-    assert!(!user.is_password_change_required);
-    assert!(!user.must_change_password);
 }
 
 #[tokio::test]

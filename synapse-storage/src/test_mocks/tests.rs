@@ -13,28 +13,7 @@ use synapse_common::current_timestamp_millis;
 async fn shared_fake_user_store_is_usable_via_trait_object() {
     let store: SharedFakeUserStore = shared_fake_user_store();
     let _trait_ref: Arc<dyn UserStore> = store.clone();
-    assert!(!store.is_user_locked("@nobody:example.com").await.unwrap());
-}
-
-#[tokio::test]
-async fn seed_locked_users_makes_lock_visible() {
-    let store = shared_fake_user_store();
-    seed_locked_users(
-        &store,
-        vec![crate::LockedUser {
-            id: 1,
-            user_id: "@bad:example.com".to_string(),
-            reason: Some("spam".to_string()),
-            locked_by: "@admin:example.com".to_string(),
-            created_ts: 1_700_000_000_000,
-            unlocked_ts: None,
-            is_active: true,
-        }],
-    )
-    .await;
-
-    assert!(store.is_user_locked("@bad:example.com").await.unwrap());
-    assert!(!store.is_user_locked("@innocent:example.com").await.unwrap());
+    assert!(store.get_user_by_id("@nobody:example.com").await.unwrap().is_none());
 }
 
 // ── InMemoryRoomStore tests ──────────────────────────────────────

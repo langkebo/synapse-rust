@@ -18,8 +18,8 @@ pub use crate::threepid::{
 };
 pub use crate::token::{AccessToken, AccessTokenStorage, AccessTokenStoreApi};
 pub use crate::user::{
-    LockedUser, User, UserDirectorySearchResult, UserProfile, UserSearchResult, UserSearchResultWithPresence,
-    UserStatsSummary, UserStorage, UserStore,
+    User, UserDirectorySearchResult, UserProfile, UserSearchResult, UserSearchResultWithPresence, UserStatsSummary,
+    UserStorage, UserStore,
 };
 
 // P7.3: email_verification, refresh_token, registration_token, saml, cas, and

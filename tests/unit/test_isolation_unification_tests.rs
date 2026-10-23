@@ -269,7 +269,11 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // `event_search` 补 trgm 索引）：基线 247241 → 247716 字节 ⇒ FNV-1a 64 = `f151aaa3c500793e`。
 // 自检：复算改动前的 `2358c0f5a^:migrations/…v12.sql`（247241 字节）得 `a7a511c0179c92e0`，
 // 与改动前常量逐字节吻合，证明哈希实现未变后才取新值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "f151aaa3c500793e";
+// 2026-10-23（W6 批次 4：删 `notification_delivery_log`、`user_locks` 两张零引用表与
+// `users` 三个密码生命周期列）：基线 247716 → 245636 字节 ⇒ FNV-1a 64 =
+// `90f2bf165cb2f005`。自检：复算改动前的 `HEAD:migrations/…v12.sql`（247716 字节）得
+// `f151aaa3c500793e`，与改动前常量逐字节吻合，证明哈希实现未变后才取新值。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "90f2bf165cb2f005";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

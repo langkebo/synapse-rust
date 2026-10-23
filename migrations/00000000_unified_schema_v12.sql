@@ -115,9 +115,6 @@ CREATE TABLE IF NOT EXISTS users (
     invalid_update_at BIGINT,
     migration_state TEXT,
     password_changed_ts BIGINT,
-    is_password_change_required BOOLEAN DEFAULT FALSE,
-    must_change_password BOOLEAN DEFAULT FALSE,
-    password_expires_at BIGINT,
     failed_login_attempts INTEGER DEFAULT 0,
     locked_until BIGINT,
     CONSTRAINT pk_users PRIMARY KEY (user_id),
@@ -3183,18 +3180,6 @@ CREATE TABLE IF NOT EXISTS notification_templates (
     updated_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT
 );
 
-CREATE TABLE IF NOT EXISTS notification_delivery_log (
-    id BIGSERIAL PRIMARY KEY,
-    notification_id BIGINT NOT NULL,
-    user_id TEXT,
-    delivery_method TEXT NOT NULL,
-    status TEXT NOT NULL,
-    error_message TEXT,
-    delivered_ts BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT,
-    CONSTRAINT fk_notification_delivery_log_notification FOREIGN KEY (notification_id) REFERENCES server_notifications(id) ON DELETE CASCADE,
-    CONSTRAINT fk_notification_delivery_log_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-);
-
 CREATE TABLE IF NOT EXISTS scheduled_notifications (
     id BIGSERIAL PRIMARY KEY,
     notification_id BIGINT NOT NULL,
@@ -3316,8 +3301,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_matrixrtc_encryption_keys_room_session_idx
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_is_admin ON users(is_admin);
 CREATE INDEX IF NOT EXISTS idx_users_created_ts ON users(created_ts DESC);
-CREATE INDEX IF NOT EXISTS idx_users_must_change_password ON users(must_change_password) WHERE must_change_password = TRUE;
-CREATE INDEX IF NOT EXISTS idx_users_password_expires ON users(password_expires_at) WHERE password_expires_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_users_locked ON users(locked_until) WHERE locked_until IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_users_lower_username ON users(LOWER(username));
 CREATE INDEX IF NOT EXISTS idx_users_lower_displayname ON users(LOWER(COALESCE(displayname, '')));
@@ -4233,9 +4216,6 @@ SELECT
     (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)
 WHERE NOT EXISTS (SELECT 1 FROM server_media_quota WHERE id = 1);
 
--- Force admin to change password on first login
-UPDATE users SET must_change_password = TRUE WHERE username = 'admin';
-
 -- C10: backfill user_type for pre-existing admins.
 -- The fail-closed admin role normalization (normalize_admin_role -> NO_ADMIN_ROLE)
 -- rejects any RBAC-gated endpoint when user_type is NULL/blank. Without this
@@ -4416,23 +4396,6 @@ CREATE TABLE IF NOT EXISTS oidc_consent_sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_oidc_consent_sessions_expires ON oidc_consent_sessions(expires_at);
-
--- ============================================================================
--- MAS 用户锁定状态同步 (Synapse v1.151.0 / #24)
--- ============================================================================
-CREATE TABLE IF NOT EXISTS user_locks (
-    id BIGSERIAL PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    reason TEXT,
-    locked_by TEXT NOT NULL,
-    created_ts BIGINT NOT NULL,
-    unlocked_ts BIGINT,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_user_locks_user_active ON user_locks(user_id, is_active) WHERE is_active = TRUE;
-CREATE INDEX IF NOT EXISTS idx_user_locks_active ON user_locks(is_active, created_ts DESC) WHERE is_active = TRUE;
 
 -- ============================================================================
 -- Quarantined Media Changes Stream (#25)
@@ -5531,8 +5494,6 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_rooms_federated
 CREATE INDEX IF NOT EXISTS idx_blocked_users_blocked_id ON blocked_users(blocked_id);
 CREATE INDEX IF NOT EXISTS idx_friend_categories_user_id ON friend_categories(user_id);
 CREATE INDEX IF NOT EXISTS idx_friends_friend_id ON friends(friend_id);
-CREATE INDEX IF NOT EXISTS idx_notification_delivery_log_notification_id ON notification_delivery_log(notification_id);
-CREATE INDEX IF NOT EXISTS idx_notification_delivery_log_user_id ON notification_delivery_log(user_id);
 CREATE INDEX IF NOT EXISTS idx_presence_subscriptions_target_id ON presence_subscriptions(target_id);
 CREATE INDEX IF NOT EXISTS idx_qr_login_transactions_user_id ON qr_login_transactions(user_id);
 CREATE INDEX IF NOT EXISTS idx_room_summary_update_queue_room_id ON room_summary_update_queue(room_id);

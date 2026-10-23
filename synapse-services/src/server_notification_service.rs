@@ -305,11 +305,12 @@ impl ServerNotificationService {
     }
 
     /// See [`broadcast_notification`].
+    ///
+    /// W6 批次 4（RD-20）：原实现向 `notification_delivery_log` 写一行投递记录，但该表
+    /// 全仓没有任何读取方，因此随表一起删除。广播现在只留结构化日志，不再产生 DB 写入。
     #[instrument(skip(self))]
     pub async fn broadcast_notification(&self, notification_id: i64, delivery_method: &str) -> Result<(), ApiError> {
         info!(notification_id, delivery_method = %delivery_method, "Broadcasting notification");
-
-        self.storage.log_delivery(notification_id, None, delivery_method, "broadcast", None).await?;
 
         Ok(())
     }
@@ -583,24 +584,6 @@ mod tests {
 
         async fn delete_template(&self, name: &str) -> Result<bool, ApiError> {
             Ok(self.templates.lock().await.remove(name).is_some())
-        }
-
-        async fn log_delivery(
-            &self,
-            notification_id: i64,
-            user_id: Option<&str>,
-            delivery_method: &str,
-            status: &str,
-            error_message: Option<&str>,
-        ) -> Result<(), ApiError> {
-            self.delivery_logs.lock().await.push((
-                notification_id,
-                user_id.map(|s| s.to_string()),
-                delivery_method.to_string(),
-                status.to_string(),
-                error_message.map(|s| s.to_string()),
-            ));
-            Ok(())
         }
 
         async fn schedule_notification(
@@ -1055,14 +1038,13 @@ mod tests {
     // ── broadcast_notification ─────────────────────────────────────────
 
     #[tokio::test]
-    async fn broadcast_notification_records_delivery_log() {
+    async fn broadcast_notification_does_not_write_a_delivery_log() {
+        // W6 批次 4（RD-20）：`notification_delivery_log` 已随其唯一写入点一并删除，
+        // 广播退化为纯结构化日志，不得再产生任何投递记录。
         let (store, service) = build_service();
         service.broadcast_notification(7, "email").await.unwrap();
         let logs = store.delivery_logs.lock().await;
-        assert_eq!(logs.len(), 1);
-        assert_eq!(logs[0].0, 7);
-        assert_eq!(logs[0].2, "email");
-        assert_eq!(logs[0].3, "broadcast");
+        assert!(logs.is_empty(), "broadcast must not persist a delivery log after RD-20");
     }
 
     // ── user setting passthrough ───────────────────────────────────────

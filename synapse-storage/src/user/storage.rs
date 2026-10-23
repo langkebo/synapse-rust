@@ -28,29 +28,6 @@ pub trait UserStore: Send + Sync {
     /// [`UserStorage::pool`] field to work through the trait object.
     fn pool(&self) -> &Arc<Pool<Postgres>>;
 
-    // ---- lock operations ----
-
-    /// See [`lock_user`].
-    async fn lock_user(
-        &self,
-        user_id: &str,
-        reason: Option<&str>,
-        locked_by: &str,
-        now_ts: i64,
-    ) -> Result<LockedUser, sqlx::Error>;
-
-    /// See [`unlock_user`].
-    async fn unlock_user(&self, user_id: &str, now_ts: i64) -> Result<(), sqlx::Error>;
-
-    /// See [`is_user_locked`].
-    async fn is_user_locked(&self, user_id: &str) -> Result<bool, sqlx::Error>;
-
-    /// See [`get_active_user_lock`].
-    async fn get_active_user_lock(&self, user_id: &str) -> Result<Option<LockedUser>, sqlx::Error>;
-
-    /// See [`get_locked_users`].
-    async fn get_locked_users(&self, limit: i64, offset: i64) -> Result<Vec<LockedUser>, sqlx::Error>;
-
     // ---- query methods ----
 
     /// See [`get_user_by_id`].
@@ -328,9 +305,8 @@ impl UserStorage {
                       is_deactivated AS "is_deactivated!",
                       created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
                       appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
-                      is_password_change_required AS "is_password_change_required!",
-                      password_expires_at, failed_login_attempts AS "failed_login_attempts!",
-                      locked_until, must_change_password AS "must_change_password!"
+                      failed_login_attempts AS "failed_login_attempts!",
+                      locked_until
             "#,
             user_id,
             username,
@@ -389,9 +365,8 @@ impl UserStorage {
                       is_deactivated AS "is_deactivated!",
                       created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
                       appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
-                      is_password_change_required AS "is_password_change_required!",
-                      password_expires_at, failed_login_attempts AS "failed_login_attempts!",
-                      locked_until, must_change_password AS "must_change_password!"
+                      failed_login_attempts AS "failed_login_attempts!",
+                      locked_until
             "#,
             user_id,
             username,
@@ -498,9 +473,8 @@ impl UserStorage {
                    is_deactivated AS "is_deactivated!",
                    created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
                    appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
-                   is_password_change_required AS "is_password_change_required!",
-                   password_expires_at, failed_login_attempts AS "failed_login_attempts!",
-                   locked_until, must_change_password AS "must_change_password!"
+                   failed_login_attempts AS "failed_login_attempts!",
+                   locked_until
             FROM users
             WHERE user_id = $1
             "#,
@@ -520,9 +494,8 @@ impl UserStorage {
                    is_deactivated AS "is_deactivated!",
                    created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
                    appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
-                   is_password_change_required AS "is_password_change_required!",
-                   password_expires_at, failed_login_attempts AS "failed_login_attempts!",
-                   locked_until, must_change_password AS "must_change_password!"
+                   failed_login_attempts AS "failed_login_attempts!",
+                   locked_until
             FROM users
             WHERE username = $1
             "#,
@@ -542,9 +515,8 @@ impl UserStorage {
                    is_deactivated AS "is_deactivated!",
                    created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
                    appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
-                   is_password_change_required AS "is_password_change_required!",
-                   password_expires_at, failed_login_attempts AS "failed_login_attempts!",
-                   locked_until, must_change_password AS "must_change_password!"
+                   failed_login_attempts AS "failed_login_attempts!",
+                   locked_until
             FROM users
             WHERE email = $1 AND COALESCE(is_deactivated, FALSE) = FALSE
             "#,
@@ -574,9 +546,8 @@ impl UserStorage {
                    created_ts, updated_ts, generation, consent_version,
                    appservice_id, user_type, invalid_update_at, migration_state,
                    email, phone, password_changed_ts,
-                   is_password_change_required AS "is_password_change_required!",
-                   password_expires_at, failed_login_attempts AS "failed_login_attempts!",
-                   locked_until, must_change_password AS "must_change_password!"
+                   failed_login_attempts AS "failed_login_attempts!",
+                   locked_until
             FROM users
             ORDER BY created_ts DESC, user_id DESC
             LIMIT $1
@@ -604,9 +575,8 @@ impl UserStorage {
                        created_ts, updated_ts, generation, consent_version,
                        appservice_id, user_type, invalid_update_at, migration_state,
                        email, phone, password_changed_ts,
-                       is_password_change_required AS "is_password_change_required!",
-                       password_expires_at, failed_login_attempts AS "failed_login_attempts!",
-                       locked_until, must_change_password AS "must_change_password!"
+                       failed_login_attempts AS "failed_login_attempts!",
+                       locked_until
                 FROM users
                 WHERE (created_ts < $2 OR (created_ts = $2 AND user_id < $3))
                 ORDER BY created_ts DESC, user_id DESC
@@ -628,9 +598,8 @@ impl UserStorage {
                        created_ts, updated_ts, generation, consent_version,
                        appservice_id, user_type, invalid_update_at, migration_state,
                        email, phone, password_changed_ts,
-                       is_password_change_required AS "is_password_change_required!",
-                       password_expires_at, failed_login_attempts AS "failed_login_attempts!",
-                       locked_until, must_change_password AS "must_change_password!"
+                       failed_login_attempts AS "failed_login_attempts!",
+                       locked_until
                 FROM users
                 ORDER BY created_ts DESC, user_id DESC
                 LIMIT $1
@@ -655,7 +624,7 @@ impl UserStorage {
             SELECT user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
                    created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
                    appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
-                   is_password_change_required, password_expires_at, failed_login_attempts, locked_until, must_change_password
+                   failed_login_attempts, locked_until
             FROM users WHERE 1=1
             ",
         );
@@ -886,7 +855,7 @@ impl UserStorage {
         tracing::info!(user_id = %user_id, "Updating user password");
         let now = current_timestamp_millis();
         sqlx::query!(
-            r#"UPDATE users SET password_hash = $1, password_changed_ts = $2, is_password_change_required = FALSE, must_change_password = FALSE WHERE user_id = $3"#,
+            r#"UPDATE users SET password_hash = $1, password_changed_ts = $2 WHERE user_id = $3"#,
             password_hash,
             now,
             user_id
@@ -1252,9 +1221,8 @@ impl UserStorage {
                    created_ts, updated_ts, generation, consent_version,
                    appservice_id, user_type, invalid_update_at, migration_state,
                    email, phone, password_changed_ts,
-                   is_password_change_required AS "is_password_change_required!",
-                   password_expires_at, failed_login_attempts AS "failed_login_attempts!",
-                   locked_until, must_change_password AS "must_change_password!"
+                   failed_login_attempts AS "failed_login_attempts!",
+                   locked_until
             FROM users
             WHERE user_id = ANY($1)
             "#,
@@ -1577,105 +1545,6 @@ impl UserStorage {
         Ok(())
     }
 
-    // ========================================================================
-    // MAS 用户锁定状态同步 (Synapse v1.151.0 / #24)
-    // ========================================================================
-
-    /// Lock a user, preventing them from authenticating.
-    ///
-    /// If the user already has an active lock, this updates the existing lock.
-    pub async fn lock_user(
-        &self,
-        user_id: &str,
-        reason: Option<&str>,
-        locked_by: &str,
-        now_ts: i64,
-    ) -> Result<LockedUser, sqlx::Error> {
-        tracing::info!(user_id = %user_id, locked_by = %locked_by, "Locking user");
-        sqlx::query_as!(
-            LockedUser,
-            r#"
-            INSERT INTO user_locks (user_id, reason, locked_by, created_ts, is_active)
-            VALUES ($1, $2, $3, $4, TRUE)
-            ON CONFLICT (user_id, is_active) WHERE is_active = TRUE DO UPDATE SET
-                reason = EXCLUDED.reason,
-                locked_by = EXCLUDED.locked_by,
-                created_ts = EXCLUDED.created_ts
-            RETURNING id, user_id, reason, locked_by, created_ts, unlocked_ts, is_active
-            "#,
-            user_id,
-            reason,
-            locked_by,
-            now_ts
-        )
-        .fetch_one(&*self.pool)
-        .await
-    }
-
-    /// Unlock a user, allowing them to authenticate again.
-    pub async fn unlock_user(&self, user_id: &str, now_ts: i64) -> Result<(), sqlx::Error> {
-        tracing::info!(user_id = %user_id, "Unlocking user");
-        sqlx::query!(
-            r#"
-            UPDATE user_locks
-            SET is_active = FALSE, unlocked_ts = $2
-            WHERE user_id = $1 AND is_active = TRUE
-            "#,
-            user_id,
-            now_ts
-        )
-        .execute(&*self.pool)
-        .await?;
-        Ok(())
-    }
-
-    /// Check whether a user is currently locked.
-    pub async fn is_user_locked(&self, user_id: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query_scalar!(
-            r#"
-            SELECT COUNT(*) as "count!" FROM user_locks
-            WHERE user_id = $1 AND is_active = TRUE
-            "#,
-            user_id
-        )
-        .fetch_one(&*self.pool)
-        .await?;
-        Ok(result > 0)
-    }
-
-    /// Get the active lock record for a user (if any).
-    pub async fn get_active_user_lock(&self, user_id: &str) -> Result<Option<LockedUser>, sqlx::Error> {
-        sqlx::query_as!(
-            LockedUser,
-            r#"
-            SELECT id, user_id, reason, locked_by, created_ts, unlocked_ts, is_active
-            FROM user_locks
-            WHERE user_id = $1 AND is_active = TRUE
-            "#,
-            user_id
-        )
-        .fetch_optional(&*self.pool)
-        .await
-    }
-
-    /// Get a paginated list of currently locked users.
-    pub async fn get_locked_users(&self, limit: i64, offset: i64) -> Result<Vec<LockedUser>, sqlx::Error> {
-        sqlx::query_as!(
-            LockedUser,
-            r#"
-            SELECT id, user_id, reason, locked_by, created_ts, unlocked_ts, is_active
-            FROM user_locks
-            WHERE is_active = TRUE
-            ORDER BY created_ts DESC, id DESC
-            LIMIT $1 OFFSET $2
-            "#,
-            limit,
-            offset
-        )
-        .fetch_all(&*self.pool)
-        .await
-    }
-
     /// See [`set_guest_status`].
     pub async fn set_guest_status(&self, user_id: &str, is_guest: bool) -> Result<(), sqlx::Error> {
         sqlx::query!(r#"UPDATE users SET is_guest = $1 WHERE user_id = $2"#, is_guest, user_id)
@@ -1709,9 +1578,7 @@ impl UserStorage {
             SET username = $1,
                 is_guest = FALSE,
                 password_hash = $2,
-                password_changed_ts = $3,
-                is_password_change_required = FALSE,
-                must_change_password = FALSE
+                password_changed_ts = $3
             WHERE user_id = $4
             "#,
             username,
@@ -1732,34 +1599,6 @@ impl UserStorage {
 impl UserStore for UserStorage {
     fn pool(&self) -> &Arc<Pool<Postgres>> {
         &self.pool
-    }
-
-    // ---- lock operations ----
-
-    async fn lock_user(
-        &self,
-        user_id: &str,
-        reason: Option<&str>,
-        locked_by: &str,
-        now_ts: i64,
-    ) -> Result<LockedUser, sqlx::Error> {
-        self.lock_user(user_id, reason, locked_by, now_ts).await
-    }
-
-    async fn unlock_user(&self, user_id: &str, now_ts: i64) -> Result<(), sqlx::Error> {
-        self.unlock_user(user_id, now_ts).await
-    }
-
-    async fn is_user_locked(&self, user_id: &str) -> Result<bool, sqlx::Error> {
-        self.is_user_locked(user_id).await
-    }
-
-    async fn get_active_user_lock(&self, user_id: &str) -> Result<Option<LockedUser>, sqlx::Error> {
-        self.get_active_user_lock(user_id).await
-    }
-
-    async fn get_locked_users(&self, limit: i64, offset: i64) -> Result<Vec<LockedUser>, sqlx::Error> {
-        self.get_locked_users(limit, offset).await
     }
 
     // ---- query methods ----

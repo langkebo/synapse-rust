@@ -599,11 +599,8 @@ mod tests {
             invalid_update_at: None,
             migration_state: None,
             password_changed_ts: None,
-            is_password_change_required: false,
-            password_expires_at: None,
             failed_login_attempts: 0,
             locked_until: None,
-            must_change_password: false,
         }
     }
 

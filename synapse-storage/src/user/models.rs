@@ -48,16 +48,10 @@ pub struct User {
     pub migration_state: Option<String>,
     /// The `password_changed_ts` field.
     pub password_changed_ts: Option<i64>,
-    /// The `is_password_change_required` field.
-    pub is_password_change_required: bool,
-    /// The `password_expires_at` field.
-    pub password_expires_at: Option<i64>,
     /// The `failed_login_attempts` field.
     pub failed_login_attempts: i32,
     /// The `locked_until` field.
     pub locked_until: Option<i64>,
-    /// The `must_change_password` field.
-    pub must_change_password: bool,
 }
 
 impl User {
@@ -155,23 +149,4 @@ pub struct UserDirectorySearchResult {
     pub match_score: i32,
     /// The `match_type` field.
     pub match_type: String,
-}
-
-/// The `LockedUser` struct.
-#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
-pub struct LockedUser {
-    /// The `id` field.
-    pub id: i64,
-    /// The `user_id` field.
-    pub user_id: String,
-    /// The `reason` field.
-    pub reason: Option<String>,
-    /// The `locked_by` field.
-    pub locked_by: String,
-    /// The `created_ts` field.
-    pub created_ts: i64,
-    /// The `unlocked_ts` field.
-    pub unlocked_ts: Option<i64>,
-    /// The `is_active` field.
-    pub is_active: bool,
 }

@@ -2194,7 +2194,7 @@ BASELINE_DYNAMIC_PRODUCTION=133
 BASELINE_DYNAMIC_TEST_INFRA=767
 BASELINE_STATIC=1367
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1327
+SQLX_CACHE_ENTRIES=1321
 <!-- sqlx-plan-numbers:end -->
 
 > **2026-10-21 更新（B-34 push rules 排序参数 + `event_search` 物化 FTS 收尾）**，
@@ -2254,6 +2254,18 @@ SQLX_CACHE_ENTRIES=1327
 > - 其余四项**不变**（`133` / `767` / `1367` / `17`）：本批没有宏↔运行时迁移。
 > - `.sqlx` 仍只经 `scripts/ci/sqlx_prepare.sh` 重生成（本次用了 `ALLOW_CACHE_SHRINK=1`），
 >   并由 `scripts/ci/check_sqlx_cache_fresh.sh --compile` 离线复核。
+
+> **2026-10-23 更新（W6 批次 4：删零引用 schema 对象，`SQLX_CACHE_ENTRIES` 1327 → 1321）**
+> - 净变化 **−6（删 16 增 10）**，全部由 RD-20/21/22 的 SQL 删除引起：
+>   ① `notification_delivery_log` 的 INSERT 与相关查询整体删除；
+>   ② `user_locks` 的建表/行锁查询随 5 个存储方法一并移除；
+>   ③ `users` 三列（`is_password_change_required` / `must_change_password` /
+>   `password_expires_at`）从 10 处 `SELECT` 列清单与 2 条 `UPDATE` 中移除 ⇒ 文本变化。
+> - 其余四项**不变**（`133` / `767` / `1367` / `17`）：本批没有宏↔运行时迁移。
+>   `BASELINE_STATIC` 实测计数 1367 → 1360 属被删除的静态宏，按「棘轮基线只能因修复而收紧」
+>   的口径**不下调**（归因见 `COMPREHENSIVE_AUDIT_2026-10-22.md` §10.8 W6 批次 4）。
+> - `.sqlx` 仍只经 `scripts/ci/sqlx_prepare.sh` 重生成，`check_sqlx_cache_fresh.sh` 复核 OK
+>   （源码 1360 处静态查询字面量全部命中）。
 
 > **2026-10-21 补充（同类缺口：`search_room_messages_admin` 的 `start_date` / `end_date`）**：
 > 管理端 `POST /_synapse/admin/v1/rooms/{room_id}/search` 的请求体

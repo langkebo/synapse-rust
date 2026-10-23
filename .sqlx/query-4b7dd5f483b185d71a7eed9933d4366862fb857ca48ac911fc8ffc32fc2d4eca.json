@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT user_id, username, password_hash, displayname, avatar_url,\n                       is_admin AS \"is_admin!\", is_deactivated AS \"is_deactivated!\",\n                       is_guest AS \"is_guest!\", is_shadow_banned AS \"is_shadow_banned!\",\n                       created_ts, updated_ts, generation, consent_version,\n                       appservice_id, user_type, invalid_update_at, migration_state,\n                       email, phone, password_changed_ts,\n                       is_password_change_required AS \"is_password_change_required!\",\n                       password_expires_at, failed_login_attempts AS \"failed_login_attempts!\",\n                       locked_until, must_change_password AS \"must_change_password!\"\n                FROM users\n                ORDER BY created_ts DESC, user_id DESC\n                LIMIT $1\n                ",
+  "query": "\n            SELECT user_id, username, password_hash, displayname, avatar_url,\n                   is_admin AS \"is_admin!\", is_deactivated AS \"is_deactivated!\",\n                   is_guest AS \"is_guest!\", is_shadow_banned AS \"is_shadow_banned!\",\n                   created_ts, updated_ts, generation, consent_version,\n                   appservice_id, user_type, invalid_update_at, migration_state,\n                   email, phone, password_changed_ts,\n                   failed_login_attempts AS \"failed_login_attempts!\",\n                   locked_until\n            FROM users\n            WHERE user_id = ANY($1)\n            ",
   "describe": {
     "columns": [
       {
@@ -105,33 +105,18 @@
       },
       {
         "ordinal": 20,
-        "name": "is_password_change_required!",
-        "type_info": "Bool"
-      },
-      {
-        "ordinal": 21,
-        "name": "password_expires_at",
-        "type_info": "Int8"
-      },
-      {
-        "ordinal": 22,
         "name": "failed_login_attempts!",
         "type_info": "Int4"
       },
       {
-        "ordinal": 23,
+        "ordinal": 21,
         "name": "locked_until",
         "type_info": "Int8"
-      },
-      {
-        "ordinal": 24,
-        "name": "must_change_password!",
-        "type_info": "Bool"
       }
     ],
     "parameters": {
       "Left": [
-        "Int8"
+        "TextArray"
       ]
     },
     "nullable": [
@@ -156,11 +141,8 @@
       true,
       true,
       true,
-      true,
-      true,
-      true,
       true
     ]
   },
-  "hash": "241c5c7ea8ce388e8c0a0eecdd6ae82e3f2aeb3c83ff545e3d29657292091695"
+  "hash": "4b7dd5f483b185d71a7eed9933d4366862fb857ca48ac911fc8ffc32fc2d4eca"
 }

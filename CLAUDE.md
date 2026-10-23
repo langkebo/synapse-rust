@@ -230,7 +230,7 @@ This project follows Red-Green-Refactor TDD. Before implementing any new behavio
 - CI asserts snapshots with `INSTA_UPDATE=no` plus a committed/leftover `.snap.new` check, and does **not** use cargo-insta at all (its CLI semantics changed twice) — see the `Snapshot gate` step in `ci.yml`.
 
 ### Pre-positioned Mocks
-- `synapse-storage::test_mocks`: `FakeUserStore` / `SharedFakeUserStore` / `seed_locked_users()`, `InMemoryEventStore`, `InMemoryRoomStore`, `InMemoryMemberStore`
+- `synapse-storage::test_mocks`: `FakeUserStore` / `SharedFakeUserStore`, `InMemoryEventStore`, `InMemoryRoomStore`, `InMemoryMemberStore`
 - `synapse-storage`: `EventStoreApi`, `RoomStoreApi`, `MemberStoreApi`, `PresenceStoreApi` traits with `Arc<dyn Trait>` injection
 - `synapse-federation::test_mocks::MockFederationClient` — implements `FederationClientApi`, seed responses via `seed_*()` methods
 - `synapse-federation::client_api::FederationClientApi` — trait seam, inject `Arc<dyn FederationClientApi>`

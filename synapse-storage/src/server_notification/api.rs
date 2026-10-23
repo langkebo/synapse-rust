@@ -77,16 +77,6 @@ pub trait ServerNotificationStoreApi: Send + Sync {
     /// See [`delete_template`].
     async fn delete_template(&self, name: &str) -> Result<bool, ApiError>;
 
-    /// See [`log_delivery`].
-    async fn log_delivery(
-        &self,
-        notification_id: i64,
-        user_id: Option<&str>,
-        delivery_method: &str,
-        status: &str,
-        error_message: Option<&str>,
-    ) -> Result<(), ApiError>;
-
     /// See [`schedule_notification`].
     async fn schedule_notification(
         &self,
@@ -234,17 +224,6 @@ impl ServerNotificationStoreApi for ServerNotificationStorage {
 
     async fn delete_template(&self, name: &str) -> Result<bool, ApiError> {
         self.delete_template(name).await
-    }
-
-    async fn log_delivery(
-        &self,
-        notification_id: i64,
-        user_id: Option<&str>,
-        delivery_method: &str,
-        status: &str,
-        error_message: Option<&str>,
-    ) -> Result<(), ApiError> {
-        self.log_delivery(notification_id, user_id, delivery_method, status, error_message).await
     }
 
     async fn schedule_notification(

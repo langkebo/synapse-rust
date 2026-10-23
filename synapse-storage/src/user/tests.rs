@@ -60,11 +60,8 @@ fn test_user_struct_fields() {
         invalid_update_at: None,
         migration_state: None,
         password_changed_ts: Some(1700000000000),
-        is_password_change_required: false,
-        password_expires_at: None,
         failed_login_attempts: 0,
         locked_until: None,
-        must_change_password: false,
     };
 
     assert_eq!(user.user_id(), "@alice:example.com");
@@ -98,11 +95,8 @@ fn test_user_struct_minimal() {
         invalid_update_at: None,
         migration_state: None,
         password_changed_ts: None,
-        is_password_change_required: false,
-        password_expires_at: None,
         failed_login_attempts: 0,
         locked_until: None,
-        must_change_password: false,
     };
 
     assert_eq!(user.user_id, "@bob:example.com");
@@ -134,11 +128,8 @@ fn test_user_serde_roundtrip() {
         invalid_update_at: None,
         migration_state: None,
         password_changed_ts: None,
-        is_password_change_required: false,
-        password_expires_at: None,
         failed_login_attempts: 0,
         locked_until: None,
-        must_change_password: false,
     };
 
     let json = serde_json::to_string(&user).unwrap();
@@ -183,25 +174,6 @@ fn test_user_search_result_serde() {
     let deserialized: UserSearchResult = serde_json::from_str(&json).unwrap();
     assert_eq!(deserialized.user_id, result.user_id);
     assert_eq!(deserialized.username, result.username);
-}
-
-#[test]
-fn test_locked_user_serde() {
-    let locked = LockedUser {
-        id: 1,
-        user_id: "@baduser:example.com".to_string(),
-        reason: Some("Too many failed attempts".to_string()),
-        locked_by: "@admin:example.com".to_string(),
-        created_ts: 1700000000000,
-        unlocked_ts: None,
-        is_active: true,
-    };
-
-    let json = serde_json::to_string(&locked).unwrap();
-    let deserialized: LockedUser = serde_json::from_str(&json).unwrap();
-    assert_eq!(deserialized.user_id, locked.user_id);
-    assert_eq!(deserialized.reason, locked.reason);
-    assert!(deserialized.is_active);
 }
 
 #[test]

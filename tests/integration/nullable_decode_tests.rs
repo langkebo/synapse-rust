@@ -237,8 +237,7 @@ async fn user_decodes_null_generation() {
          NULL::text AS avatar_url, NULL::text AS email, NULL::text AS phone, NULL::bigint AS generation, \
          NULL::text AS consent_version, NULL::text AS appservice_id, NULL::text AS user_type, \
          NULL::bigint AS invalid_update_at, NULL::text AS migration_state, NULL::bigint AS password_changed_ts, \
-         false AS is_password_change_required, NULL::bigint AS password_expires_at, 0::int AS failed_login_attempts, \
-         NULL::bigint AS locked_until, false AS must_change_password",
+         0::int AS failed_login_attempts, NULL::bigint AS locked_until",
     )
     .fetch_one(&*ctx.pool)
     .await

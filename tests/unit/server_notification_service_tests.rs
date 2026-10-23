@@ -117,10 +117,6 @@ impl MockServerNotificationStore {
         self.delivery_logs.lock().unwrap().len()
     }
 
-    fn last_delivery_log(&self) -> Option<DeliveryLog> {
-        self.delivery_logs.lock().unwrap().last().cloned()
-    }
-
     fn deleted_room_count(&self) -> usize {
         self.deleted_rooms.lock().unwrap().len()
     }
@@ -311,25 +307,6 @@ impl ServerNotificationStoreApi for MockServerNotificationStore {
     async fn delete_template(&self, name: &str) -> Result<bool, ApiError> {
         self.fail_check()?;
         Ok(self.templates.lock().unwrap().remove(name).is_some())
-    }
-
-    async fn log_delivery(
-        &self,
-        notification_id: i64,
-        user_id: Option<&str>,
-        delivery_method: &str,
-        status: &str,
-        error_message: Option<&str>,
-    ) -> Result<(), ApiError> {
-        self.fail_check()?;
-        self.delivery_logs.lock().unwrap().push((
-            notification_id,
-            user_id.map(|s| s.to_string()),
-            delivery_method.to_string(),
-            status.to_string(),
-            error_message.map(|s| s.to_string()),
-        ));
-        Ok(())
     }
 
     async fn schedule_notification(
@@ -1076,26 +1053,16 @@ async fn process_scheduled_notifications_propagates_error() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn broadcast_notification_logs_delivery() {
-    let store = MockServerNotificationStore::new();
-    let (svc, store_arc) = build_service_with_store(store);
-
-    svc.broadcast_notification(42, "push").await.expect("should succeed");
-
-    assert_eq!(store_arc.delivery_log_count(), 1, "one delivery log should be recorded");
-    let log = store_arc.last_delivery_log().expect("log should exist");
-    assert_eq!(log.0, 42, "notification_id must match");
-    assert_eq!(log.2, "push", "delivery_method must match");
-    assert_eq!(log.3, "broadcast", "status must be 'broadcast'");
-}
-
-#[tokio::test]
-async fn broadcast_notification_propagates_error() {
+async fn broadcast_notification_does_not_touch_storage() {
+    // W6 批次 4（RD-20）：`notification_delivery_log` 与其唯一写入点已删除，
+    // 广播不再访问存储层 —— 即使存储被注入"全失败"也必须成功返回。
     let store = MockServerNotificationStore::new();
     store.set_fail_all(true);
-    let (svc, _) = build_service_with_store(store);
-    let err = svc.broadcast_notification(42, "push").await.expect_err("should error");
-    assert!(err.is_internal());
+    let (svc, store_arc) = build_service_with_store(store);
+
+    svc.broadcast_notification(42, "push").await.expect("broadcast must not touch storage");
+
+    assert_eq!(store_arc.delivery_log_count(), 0, "no delivery log may be recorded");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

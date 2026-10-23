@@ -500,35 +500,6 @@ impl ServerNotificationStorage {
         Ok(result.rows_affected() > 0)
     }
 
-    /// See [`log_delivery`].
-    pub async fn log_delivery(
-        &self,
-        notification_id: i64,
-        user_id: Option<&str>,
-        delivery_method: &str,
-        status: &str,
-        error_message: Option<&str>,
-    ) -> Result<(), ApiError> {
-        sqlx::query!(
-            r#"
-            INSERT INTO notification_delivery_log (
-                notification_id, user_id, delivery_method, status, error_message
-            )
-            VALUES ($1, $2, $3, $4, $5)
-            "#,
-            notification_id,
-            user_id,
-            delivery_method,
-            status,
-            error_message,
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_cause("Failed to log delivery", e))?;
-
-        Ok(())
-    }
-
     /// See [`schedule_notification`].
     pub async fn schedule_notification(
         &self,

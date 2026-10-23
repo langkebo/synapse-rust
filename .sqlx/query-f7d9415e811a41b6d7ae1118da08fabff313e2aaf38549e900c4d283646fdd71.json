@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT user_id, username, password_hash, is_admin AS \"is_admin!\",\n                   is_guest AS \"is_guest!\", is_shadow_banned AS \"is_shadow_banned!\",\n                   is_deactivated AS \"is_deactivated!\",\n                   created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,\n                   appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,\n                   is_password_change_required AS \"is_password_change_required!\",\n                   password_expires_at, failed_login_attempts AS \"failed_login_attempts!\",\n                   locked_until, must_change_password AS \"must_change_password!\"\n            FROM users\n            WHERE username = $1\n            ",
+  "query": "\n            SELECT user_id, username, password_hash, is_admin AS \"is_admin!\",\n                   is_guest AS \"is_guest!\", is_shadow_banned AS \"is_shadow_banned!\",\n                   is_deactivated AS \"is_deactivated!\",\n                   created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,\n                   appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,\n                   failed_login_attempts AS \"failed_login_attempts!\",\n                   locked_until\n            FROM users\n            WHERE email = $1 AND COALESCE(is_deactivated, FALSE) = FALSE\n            ",
   "describe": {
     "columns": [
       {
@@ -105,28 +105,13 @@
       },
       {
         "ordinal": 20,
-        "name": "is_password_change_required!",
-        "type_info": "Bool"
-      },
-      {
-        "ordinal": 21,
-        "name": "password_expires_at",
-        "type_info": "Int8"
-      },
-      {
-        "ordinal": 22,
         "name": "failed_login_attempts!",
         "type_info": "Int4"
       },
       {
-        "ordinal": 23,
+        "ordinal": 21,
         "name": "locked_until",
         "type_info": "Int8"
-      },
-      {
-        "ordinal": 24,
-        "name": "must_change_password!",
-        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -156,11 +141,8 @@
       true,
       true,
       true,
-      true,
-      true,
-      true,
       true
     ]
   },
-  "hash": "7de407e7bfb1d0b8536a5eb307cc4ca847a42e0edcd8d5436c3c1f5b5e217952"
+  "hash": "f7d9415e811a41b6d7ae1118da08fabff313e2aaf38549e900c4d283646fdd71"
 }

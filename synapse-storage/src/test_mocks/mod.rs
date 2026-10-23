@@ -25,35 +25,6 @@ pub fn shared_fake_user_store() -> SharedFakeUserStore {
     Arc::new(FakeUserStore::new())
 }
 
-/// Async seeding helper — applies a list of pre-built `LockedUser` rows
-/// through the public trait method so the fake store's invariants stay
-/// consistent. Use inside `#[tokio::test]` rather than a sync builder.
-///
-/// Example:
-///
-/// ```no_run
-/// # use synapse_storage::test_mocks::{shared_fake_user_store, seed_locked_users};
-/// # use synapse_storage::LockedUser;
-/// # async fn example() {
-/// let store = shared_fake_user_store();
-/// seed_locked_users(&store, vec![
-///     LockedUser {
-///         id: 1, user_id: "@bad:example.com".into(),
-///         reason: Some("spam".into()), locked_by: "@admin:example.com".into(),
-///         created_ts: 1_700_000_000_000, unlocked_ts: None, is_active: true,
-///     },
-/// ]).await;
-/// # }
-/// ```
-pub async fn seed_locked_users(store: &FakeUserStore, users: Vec<crate::LockedUser>) {
-    use crate::user::UserStore;
-    for user in users {
-        // FakeUserStore::lock_user is idempotent for active locks per its
-        // own internal invariant, so re-applying seed rows is safe.
-        let _ = store.lock_user(&user.user_id, user.reason.as_deref(), &user.locked_by, user.created_ts).await;
-    }
-}
-
 // =============================================================================
 // InMemory storage adapters — standalone test doubles (no DB required)
 // =============================================================================

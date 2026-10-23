@@ -8,7 +8,6 @@ use super::*;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use synapse_cache::{CacheConfig, CacheManager};
-use synapse_common::current_timestamp_millis;
 
 /// Each test gets a fresh isolated schema (v11 baseline), so parallel
 /// tests can't pollute each other: several tests insert users with fixed
@@ -357,31 +356,7 @@ async fn test_filter_existing_users() {
     let _ = storage.delete_user(&user_id).await;
 }
 
-// ── lock / unlock / batch / profile / count-messages ────────────
-
-#[tokio::test]
-async fn test_lock_user_flow() {
-    let (_iso, pool) = test_pool().await;
-    let cache = test_cache();
-    let storage = UserStorage::new(&pool, cache);
-    let user_id = format!("@lock_{}:example.com", uuid::Uuid::new_v4());
-    let _ = storage.delete_user(&user_id).await;
-    storage.create_user(&user_id, "lockuser", None, false).await.unwrap();
-    assert!(!storage.is_user_locked(&user_id).await.unwrap());
-
-    let now = current_timestamp_millis();
-    storage.lock_user(&user_id, Some("test_reason"), "system", now).await.expect("lock should succeed");
-    assert!(storage.is_user_locked(&user_id).await.unwrap());
-
-    let locked = storage.get_active_user_lock(&user_id).await.unwrap();
-    assert!(locked.is_some());
-    assert_eq!(locked.unwrap().reason.unwrap(), "test_reason");
-
-    storage.unlock_user(&user_id, current_timestamp_millis()).await.expect("unlock should succeed");
-    assert!(!storage.is_user_locked(&user_id).await.unwrap());
-
-    let _ = storage.delete_user(&user_id).await;
-}
+// ── batch / profile / count-messages ────────────
 
 #[tokio::test]
 async fn test_get_users_batch() {
@@ -923,28 +898,7 @@ async fn test_update_displayname_batch_with_updates() {
     }
 }
 
-// ── get_locked_users / create_user_tx ─────────────────────────
-
-#[tokio::test]
-async fn test_get_locked_users_pagination() {
-    let (_iso, pool) = test_pool().await;
-    let cache = test_cache();
-    let storage = UserStorage::new(&pool, cache);
-    let user_id = format!("@lklist_{}:example.com", uuid::Uuid::new_v4());
-    let _ = storage.delete_user(&user_id).await;
-    storage.create_user(&user_id, "lklistuser", None, false).await.unwrap();
-
-    let now = current_timestamp_millis();
-    storage.lock_user(&user_id, Some("audit"), "system", now).await.unwrap();
-
-    // Page 1 (limit large enough) should include our locked user.
-    let locked = storage.get_locked_users(100, 0).await.expect("get_locked_users should succeed");
-    assert!(locked.iter().any(|l| l.user_id == user_id && l.is_active));
-
-    // Clean up the lock.
-    storage.unlock_user(&user_id, now).await.unwrap();
-    let _ = storage.delete_user(&user_id).await;
-}
+// ── create_user_tx ─────────────────────────
 
 #[tokio::test]
 async fn test_create_user_tx_in_transaction() {

@@ -711,9 +711,6 @@ async fn ensure_test_schema_contract(pool: &Arc<PgPool>) -> Result<(), String> {
         ALTER TABLE users ADD COLUMN IF NOT EXISTS invalid_update_at BIGINT;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS migration_state TEXT;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_ts BIGINT;
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_password_change_required BOOLEAN DEFAULT FALSE;
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT FALSE;
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS password_expires_at BIGINT;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER DEFAULT 0;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until BIGINT;
 

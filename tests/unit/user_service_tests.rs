@@ -28,7 +28,7 @@ use async_trait::async_trait;
 
 use synapse_services::user_service::UserService;
 use synapse_storage::user::{
-    LockedUser, User, UserDirectorySearchResult, UserProfile, UserSearchResult, UserStatsSummary, UserStore,
+    User, UserDirectorySearchResult, UserProfile, UserSearchResult, UserStatsSummary, UserStore,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -96,11 +96,8 @@ fn make_user(user_id: &str, displayname: Option<&str>, avatar_url: Option<&str>)
         invalid_update_at: None,
         migration_state: None,
         password_changed_ts: None,
-        is_password_change_required: false,
-        password_expires_at: None,
         failed_login_attempts: 0,
         locked_until: None,
-        must_change_password: false,
     }
 }
 
@@ -119,37 +116,6 @@ impl UserStore for MockUserStore {
         // UserService never calls this; return a leaked static reference would
         // be unsafe, so we panic to surface any accidental call.
         unimplemented!("MockUserStore does not provide a database pool")
-    }
-
-    async fn lock_user(
-        &self,
-        _user_id: &str,
-        _reason: Option<&str>,
-        _locked_by: &str,
-        _now_ts: i64,
-    ) -> Result<LockedUser, sqlx::Error> {
-        self.fail_all_check()?;
-        Err(sqlx::Error::WorkerCrashed)
-    }
-
-    async fn unlock_user(&self, _user_id: &str, _now_ts: i64) -> Result<(), sqlx::Error> {
-        self.fail_all_check()?;
-        Ok(())
-    }
-
-    async fn is_user_locked(&self, _user_id: &str) -> Result<bool, sqlx::Error> {
-        self.fail_all_check()?;
-        Ok(false)
-    }
-
-    async fn get_active_user_lock(&self, _user_id: &str) -> Result<Option<LockedUser>, sqlx::Error> {
-        self.fail_all_check()?;
-        Ok(None)
-    }
-
-    async fn get_locked_users(&self, _limit: i64, _offset: i64) -> Result<Vec<LockedUser>, sqlx::Error> {
-        self.fail_all_check()?;
-        Ok(Vec::new())
     }
 
     async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, sqlx::Error> {

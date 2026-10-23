@@ -65,8 +65,6 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 
 | 表名 | 索引名 | 索引字段 | WHERE 条件 | 用途说明 |
 |------|--------|----------|------------|----------|
-| users | idx_users_must_change_password | must_change_password | must_change_password = TRUE | 查找需要修改密码的用户 |
-| users | idx_users_password_expires | password_expires_at | password_expires_at IS NOT NULL | 查找密码即将过期的用户 |
 | users | idx_users_locked | locked_until | locked_until IS NOT NULL | 查找被锁定的用户 |
 | users | idx_users_displayname_trgm | displayname (GIN) | — | displayname 模糊搜索（trigram，v11 替换原 v10 的 name 字段） |
 | users | ~~idx_users_name_trgm~~ | ~~name (GIN)~~ | ~~v10 era~~ | **已废弃**：v11 中 `users.name` 字段已移除，改用 `displayname` |
@@ -124,8 +122,6 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | presence | idx_presence_last_active_ts | last_active_ts | last_active_ts IS NOT NULL | 查找有活跃时间的在线状态 |
 | rendezvous_session | idx_rendezvous_session_expires | expires_at | expires_at IS NOT NULL | 查找有过期时间的 Rendezvous 会话（原表名误写为 `rendezvous_sessions`，该表不存在） |
 | qr_login_transactions | idx_qr_login_transactions_expires | expires_at | expires_at IS NOT NULL | 查找有过期时间的二维码登录码（原表名误写为 `qr_login_codes`，该表不存在） |
-| user_locks | idx_user_locks_user_active | user_id, is_active (UNIQUE) | is_active = TRUE | 用户活跃锁定唯一约束 |
-| user_locks | idx_user_locks_active | is_active, created_ts DESC | is_active = TRUE | 查找活跃锁定记录 |
 | rooms_summaries_mv | idx_rooms_summaries_mv_public_activity | is_public, joined_members DESC, last_activity_ts DESC | is_public = TRUE | 物化视图：公开房间排序 |
 | ~~key_rotation_pending~~ | ~~idx_key_rotation_pending_unprocessed~~ | — | — | **不存在**：baseline 中无此索引，全部 Rust 源码里也无创建处；`key_rotation_pending` 只有 `key_rotation_pending_pkey(room_id, triggered_by_user_id)` 与 `idx_key_rotation_pending_room(room_id)` |
 
