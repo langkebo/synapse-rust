@@ -27,7 +27,7 @@ server-notifications = ["synapse-common/server-notifications", "synapse-storage/
 burn-after-read = ["synapse-common/burn-after-read", "synapse-storage/burn-after-read"]
 privacy-ext = ["synapse-common/privacy-ext", "synapse-storage/privacy-ext"]
 external-services = ["synapse-common/external-services", "synapse-storage/external-services"]
-builtin-oidc = ["synapse-common/builtin-oidc", "synapse-storage/builtin-oidc"]
+builtin-oidc = ["synapse-common/builtin-oidc", "synapse-storage/builtin-oidc", "dep:rsa"]
 
 [dependencies]
 synapse-common = { path = "../synapse-common" }
@@ -66,7 +66,9 @@ jsonwebtoken = "9"
 # ⚠️ 与它交互**必须用 rsa 自带的 re-export**：`rsa::sha2::Sha256`（rsa 绑 digest 0.10，
 # 本仓已到 digest 0.11，两个 `Sha256` 同名不同型）、`rsa::rand_core::OsRng`
 # （rsa 绑 rand_core 0.6，本仓 `rand 0.9` 是 rand_core 0.9）。踩过两次。
-rsa = { version = "0.9", features = ["pem", "sha2"] }
+# 只在 `builtin-oidc`（非默认 feature）下需要；`oidc_service` 的测试用 dev-dependency
+# 单独引入，保证默认 `cargo test -p synapse-services` 仍能跑这些用例。
+rsa = { version = "0.9", features = ["pem", "sha2"], optional = true }
 # P-256 (NIST secp256r1) ECDSA for OIDC ES256 signing (RFC 7518 §3.4).
 # - `arithmetic` feature: PublicKey::public_key() + to_sec1_point() for x/y export
 # - `getrandom` feature: SecretKey::generate() via system CSPRNG (no rand_core needed)
@@ -105,3 +107,6 @@ tempfile = "3"
 wiremock = "0.6"
 axum = { workspace = true }
 serial_test = "3"
+# 仅 `oidc_service` 的单元测试使用；`[dependencies]` 里是 builtin-oidc 才启用的
+# optional 依赖，这里显式引入以免默认 feature 下测试构建缺 crate。
+rsa = { version = "0.9", features = ["pem", "sha2"] }

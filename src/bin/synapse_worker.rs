@@ -12,12 +12,12 @@ use std::sync::Arc;
 use synapse_rust::common::config::{Config, SmtpConfig};
 use synapse_rust::common::BackgroundJob;
 use synapse_rust::common::RedisTaskQueue;
-use synapse_rust::storage::event::EventStorage;
 use synapse_rust::worker::heartbeat::{
     collect_load_stats, heartbeat_interval, resolve_base_url, resolve_secret, HeartbeatSender, WorkerIdentity,
 };
 use synapse_rust::worker::topology_validator::{current_instance_worker_type, resolved_current_instance_name};
 use synapse_rust::worker::{WorkerLoadStatsUpdate, WorkerRuntimeConfig};
+use synapse_storage::event::EventStorage;
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
 

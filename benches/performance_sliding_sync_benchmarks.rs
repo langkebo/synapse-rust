@@ -44,13 +44,13 @@ use tokio::runtime::Runtime;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::config::PerformanceConfig;
 use synapse_rust::metrics::MetricsCollector;
-use synapse_rust::storage::device::DeviceStorage;
-use synapse_rust::storage::event::EventStorage;
-use synapse_rust::storage::membership::RoomMemberStorage;
-use synapse_rust::storage::sliding_sync::{SlidingSyncListData, SlidingSyncRequest, SlidingSyncStorage};
 use synapse_rust::PresenceStorage;
 use synapse_services::sliding_sync_service::SlidingSyncService;
 use synapse_services::typing_service::TypingService;
+use synapse_storage::device::DeviceStorage;
+use synapse_storage::event::EventStorage;
+use synapse_storage::membership::RoomMemberStorage;
+use synapse_storage::sliding_sync::{SlidingSyncListData, SlidingSyncRequest, SlidingSyncStorage};
 
 /// Room counts used to parameterise the sync response time benchmark.
 const SYNC_ROOM_COUNTS: [usize; 3] = [10, 100, 500];

@@ -87,6 +87,8 @@ pub use performance::PerformanceConfig;
 /// Re-exported item.
 pub use policy_server::PolicyServerConfig;
 /// Re-exported item.
+pub use push::{ApnsConfig, FcmConfig, PushConfig, WebPushConfig};
+/// Re-exported item.
 pub use rate_limit::{RateLimitConfig, RateLimitEndpointRule, RateLimitMatchType, RateLimitRule, SyncRateLimitConfig};
 /// Re-exported item.
 pub use retention::RetentionConfig;
@@ -105,7 +107,7 @@ pub use task_scheduler::{TaskSchedulerConfig, DEFAULT_MAX_CONCURRENT_TASKS};
 /// Re-exported item.
 pub use translate::TranslateConfig;
 /// Re-exported item.
-pub use voip::{ApnsConfig, FcmConfig, LivekitConfig, PushConfig, UrlPreviewConfig, VoipConfig, WebPushConfig};
+pub use voip::{LivekitConfig, UrlPreviewConfig, VoipConfig};
 /// Re-exported item.
 pub use worker::{InstanceLocationConfig, ReplicationConfig, ReplicationHttpConfig, StreamWriters, WorkerConfig};
 

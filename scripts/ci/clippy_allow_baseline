@@ -46,7 +46,6 @@
 2 synapse-storage/src/threepid.rs
 2 synapse-storage/src/user/db_tests.rs
 2 synapse-storage/src/user/tests.rs
-2 synapse-test-utils/src/lib.rs
 2 synapse-web/src/routes/saml.rs
 1 src/common/config/tests.rs
 1 synapse-common/src/claims.rs
@@ -67,7 +66,6 @@
 1 synapse-services/src/search_service.rs
 1 synapse-services/src/sliding_sync_service/mod.rs
 1 synapse-services/src/sync_service/api_trait.rs
-1 synapse-services/src/test_utils.rs
 1 synapse-services/src/wiring/admin.rs
 1 synapse-services/src/wiring/core.rs
 1 synapse-services/src/wiring/rooms.rs
@@ -90,7 +88,7 @@
 1 synapse-storage/src/test_mocks/tests.rs
 1 synapse-storage/src/test_mocks/thread.rs
 1 synapse-storage/src/test_mocks/worker.rs
-1 synapse-storage/src/test_utils.rs
+1 synapse-test-utils/src/lib.rs
 1 synapse-web/src/middleware/auth.rs
 1 synapse-web/src/routes/admin/policy.rs
 1 synapse-web/src/routes/app_service.rs

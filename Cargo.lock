@@ -4810,7 +4810,6 @@ dependencies = [
  "hex",
  "hkdf 0.13.0",
  "hmac 0.13.0",
- "http",
  "ipnet",
  "libc",
  "mockall",
@@ -4834,13 +4833,11 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-util",
- "tower-http",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
  "url",
  "uuid",
- "validator",
  "wiremock",
 ]
 

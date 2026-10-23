@@ -78,9 +78,6 @@ url = { workspace = true }
 urlencoding = { workspace = true }
 validator = { version = "0.20.0", features = ["derive"] }
 infer = "0.19.0"
-serde_norway = { workspace = true }
-
-deadpool-redis = { workspace = true }
 
 # 单元测试（`#[cfg(test)]`）直接使用 `synapse_test_utils::{env_lock, EnvGuard}`。
 # 生产代码里的 `synapse-test-utils` 是 `test-utils` feature 下的可选依赖，但不带
@@ -88,3 +85,7 @@ deadpool-redis = { workspace = true }
 # 另在 dev-dependencies 中声明（Cargo 会在测试构建中合并两者）。
 [dev-dependencies]
 synapse-test-utils = { path = "../synapse-test-utils" }
+# 仅 `#[cfg(test)]` 使用（health.rs 的限流配置序列化、login_lockout 的故障注入），
+# 放 dev-dependencies 避免进入 release 依赖图。
+serde_norway = { workspace = true }
+deadpool-redis = { workspace = true }

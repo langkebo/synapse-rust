@@ -34,8 +34,6 @@ tokio-util = { workspace = true }
 async-trait = { workspace = true }
 
 axum = { workspace = true, features = ["macros"] }
-tower-http = { workspace = true, features = ["fs", "cors", "trace", "compression-gzip", "limit"] }
-http = { workspace = true }
 
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "chrono", "json", "uuid", "ipnetwork", "migrate"] }
 
@@ -71,14 +69,12 @@ chrono = { workspace = true, features = ["serde"] }
 
 thiserror = { workspace = true }
 uuid = { workspace = true, features = ["v4", "serde"] }
-futures = { workspace = true }
 parking_lot = { workspace = true }
 regex = { workspace = true }
 quick-xml = "0.41"
 url = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 
-validator = { version = "0.20.0", features = ["derive"] }
 # 4.2.3 是安全下限，不是偏好：4.1.4 命中 RUSTSEC-2021-0157（CSS `url("")` 注入）与
 # RUSTSEC-2021-0158（SVG animateMotion/animateTransform/animateColor XSS），
 # 两者都只在 >=4.1.7,<4.2.0 或 >=4.2.3 修好。声明最低版本可防止 `-Z minimal-versions`
@@ -103,3 +99,4 @@ tempfile = "3"
 arbitrary = { version = "1.4", features = ["derive"] }
 mockall = "0.13"
 wiremock = "0.6"
+futures = { workspace = true }

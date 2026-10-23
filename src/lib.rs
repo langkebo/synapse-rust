@@ -22,8 +22,6 @@ pub mod common;
 pub mod e2ee;
 /// The `server` module.
 pub mod server;
-/// The `storage` module.
-pub mod storage;
 
 /// The `tasks` module.
 pub mod tasks;
@@ -42,7 +40,7 @@ pub use e2ee::backup::KeyBackupService;
 pub use e2ee::device_keys::DeviceKeyService;
 pub use e2ee::megolm::{EncryptedEvent, MegolmSession};
 pub use server::SynapseServer;
-pub use storage::presence::PresenceStorage;
 pub use synapse_common::{map_database, map_internal};
 pub use synapse_e2ee::cross_signing;
+pub use synapse_storage::presence::PresenceStorage;
 pub use tasks::ScheduledTasks;

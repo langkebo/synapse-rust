@@ -15,7 +15,7 @@
 //! This benchmark measures the real thing instead:
 //!
 //! * the production keyset query, called through
-//!   [`synapse_rust::storage::event::EventStorage::get_room_events_paginated_cursor`]
+//!   [`synapse_storage::event::EventStorage::get_room_events_paginated_cursor`]
 //!   (the exact SQL `/messages` uses), on a **real migrated `events` table**,
 //!   at a deep cursor;
 //! * the naive `LIMIT/OFFSET` shape that ISSUE-06 replaced, against the same
@@ -126,7 +126,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 
-use synapse_rust::storage::event::{EventStorage, RoomEvent, ROOM_EVENT_COLS};
+use synapse_storage::event::{EventStorage, RoomEvent, ROOM_EVENT_COLS};
 
 /// Room that is deep-paginated.
 const TARGET_ROOM: &str = "!bench_pagination:localhost";
