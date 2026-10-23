@@ -107,7 +107,7 @@ pub use task_scheduler::{TaskSchedulerConfig, DEFAULT_MAX_CONCURRENT_TASKS};
 /// Re-exported item.
 pub use translate::TranslateConfig;
 /// Re-exported item.
-pub use voip::{LivekitConfig, UrlPreviewConfig, VoipConfig};
+pub use voip::{UrlPreviewConfig, VoipConfig};
 /// Re-exported item.
 pub use worker::{InstanceLocationConfig, ReplicationConfig, ReplicationHttpConfig, StreamWriters, WorkerConfig};
 
@@ -172,10 +172,6 @@ pub struct Config {
     #[serde(default)]
     /// `voip` field.
     pub voip: VoipConfig,
-    /// Livekit SFU configuration
-    #[serde(default)]
-    /// `livekit` field.
-    pub livekit: LivekitConfig,
     /// Push notification configuration
     #[serde(default)]
     /// `push` field.
@@ -389,6 +385,41 @@ mod tests {
         assert!(msg.contains("unknown field"), "应报 unknown field，实际：{msg}");
     }
 
+    /// RD-11/RD-12/RD-13 删除配置键后的迁移语义：
+    /// - 顶层 section（如 `livekit`）受 `deny_unknown_fields` 保护 ⇒ 旧配置必须报错，
+    ///   运维不会误以为「配了就生效」；
+    /// - 嵌套字段没有 `deny_unknown_fields` ⇒ 旧配置里的残留键被 serde 静默忽略，
+    ///   不会导致启动失败（迁移期行为，一并锁定）。
+    #[test]
+    fn test_removed_config_keys_are_rejected_or_ignored_as_documented() {
+        let with_livekit = json!({"livekit": {"api_key": "k", "api_secret": "s", "host": "h"}});
+        let err = serde_json::from_value::<Config>(with_livekit).unwrap_err();
+        assert!(err.to_string().contains("unknown field"), "顶层 `livekit` 段应被拒绝，实际：{err}");
+
+        let server: Result<super::server::ServerConfig, _> = serde_json::from_value(json!({
+            "name": "example.com",
+            "enable_registration": true,
+            "enable_registration_captcha": false,
+            "background_tasks_interval": 60,
+            "expire_access_token": true,
+            "expire_access_token_lifetime": 86_400,
+            "refresh_token_sliding_window_size": 3_600,
+            "form_secret": "legacy",
+            "soft_file_limit": 1024,
+            "user_agent_suffix": "legacy",
+            "max_image_resolution": 8_000_000,
+            "warmup_pool": true,
+        }));
+        assert!(server.is_ok(), "嵌套残留键应被静默忽略，实际：{:?}", server.err());
+
+        let logging: Result<super::logging::LoggingConfig, _> = serde_json::from_value(json!({
+            "level": "info",
+            "format": "json",
+            "log_dir": "/var/log",
+        }));
+        assert!(logging.is_ok(), "嵌套残留键应被静默忽略，实际：{:?}", logging.err());
+    }
+
     #[test]
     fn test_config_database_url() {
         let config = Config {
@@ -399,16 +430,12 @@ mod tests {
                 public_baseurl: None,
                 signing_key_path: None,
                 macaroon_secret_key: None,
-                form_secret: None,
                 server_name: None,
                 serve_server_wellknown: false,
-                soft_file_limit: 0,
-                user_agent_suffix: None,
                 web_client_location: None,
                 registration_shared_secret: None,
                 admin_contact: None,
                 max_upload_size: 1000000,
-                max_image_resolution: 1000000,
                 remote_media_lifetime: 2592000,
                 local_media_lifetime: 0,
                 enable_registration: true,
@@ -418,7 +445,6 @@ mod tests {
                 expire_access_token: true,
                 expire_access_token_lifetime: 3600,
                 refresh_token_sliding_window_size: 1000,
-                warmup_pool: true,
                 allow_public_rooms_without_auth: false,
                 allow_public_rooms_over_federation: true,
                 auto_join_rooms: vec![],
@@ -451,12 +477,7 @@ mod tests {
                 command_timeout_ms: 500,
                 circuit_breaker: CircuitBreakerConfig::default(),
             },
-            logging: LoggingConfig {
-                level: "info".to_string(),
-                format: "json".to_string(),
-                log_file: None,
-                log_dir: None,
-            },
+            logging: LoggingConfig { level: "info".to_string(), format: "json".to_string(), log_file: None },
             federation: FederationConfig {
                 enabled: true,
                 allow_ingress: false,
@@ -528,7 +549,6 @@ mod tests {
             },
             smtp: SmtpConfig::default(),
             sms: SmsConfig::default(),
-            livekit: LivekitConfig::default(),
             voip: VoipConfig::default(),
             push: PushConfig::default(),
             url_preview: UrlPreviewConfig::default(),
@@ -560,16 +580,12 @@ mod tests {
                 public_baseurl: None,
                 signing_key_path: None,
                 macaroon_secret_key: None,
-                form_secret: None,
                 server_name: None,
                 serve_server_wellknown: false,
-                soft_file_limit: 0,
-                user_agent_suffix: None,
                 web_client_location: None,
                 registration_shared_secret: None,
                 admin_contact: None,
                 max_upload_size: 1000000,
-                max_image_resolution: 1000000,
                 remote_media_lifetime: 2592000,
                 local_media_lifetime: 0,
                 enable_registration: true,
@@ -579,7 +595,6 @@ mod tests {
                 expire_access_token: true,
                 expire_access_token_lifetime: 3600,
                 refresh_token_sliding_window_size: 1000,
-                warmup_pool: true,
                 allow_public_rooms_without_auth: false,
                 allow_public_rooms_over_federation: true,
                 auto_join_rooms: vec![],
@@ -612,12 +627,7 @@ mod tests {
                 command_timeout_ms: 500,
                 circuit_breaker: CircuitBreakerConfig::default(),
             },
-            logging: LoggingConfig {
-                level: "info".to_string(),
-                format: "json".to_string(),
-                log_file: None,
-                log_dir: None,
-            },
+            logging: LoggingConfig { level: "info".to_string(), format: "json".to_string(), log_file: None },
             federation: FederationConfig {
                 enabled: true,
                 allow_ingress: false,
@@ -689,7 +699,6 @@ mod tests {
             },
             smtp: SmtpConfig::default(),
             sms: SmsConfig::default(),
-            livekit: LivekitConfig::default(),
             voip: VoipConfig::default(),
             push: PushConfig::default(),
             url_preview: UrlPreviewConfig::default(),
@@ -717,16 +726,12 @@ mod tests {
             public_baseurl: None,
             signing_key_path: None,
             macaroon_secret_key: None,
-            form_secret: None,
             server_name: None,
             serve_server_wellknown: false,
-            soft_file_limit: 0,
-            user_agent_suffix: None,
             web_client_location: None,
             registration_shared_secret: Some("secret".to_string()),
             admin_contact: Some("admin@example.com".to_string()),
             max_upload_size: 50000000,
-            max_image_resolution: 8000000,
             remote_media_lifetime: 2592000,
             local_media_lifetime: 0,
             enable_registration: true,
@@ -736,7 +741,6 @@ mod tests {
             expire_access_token: true,
             expire_access_token_lifetime: 86400,
             refresh_token_sliding_window_size: 5000,
-            warmup_pool: true,
             allow_public_rooms_without_auth: false,
             allow_public_rooms_over_federation: true,
             auto_join_rooms: vec![],
@@ -832,16 +836,12 @@ mod tests {
                 public_baseurl: None,
                 signing_key_path: None,
                 macaroon_secret_key: None,
-                form_secret: None,
                 server_name: None,
                 serve_server_wellknown: false,
-                soft_file_limit: 0,
-                user_agent_suffix: None,
                 web_client_location: None,
                 registration_shared_secret: None,
                 admin_contact: None,
                 max_upload_size: 1000000,
-                max_image_resolution: 1000000,
                 remote_media_lifetime: 2592000,
                 local_media_lifetime: 0,
                 enable_registration: true,
@@ -851,7 +851,6 @@ mod tests {
                 expire_access_token: true,
                 expire_access_token_lifetime: 3600,
                 refresh_token_sliding_window_size: 1000,
-                warmup_pool: true,
                 allow_public_rooms_without_auth: false,
                 allow_public_rooms_over_federation: true,
                 auto_join_rooms: vec![],
@@ -887,12 +886,7 @@ mod tests {
                 command_timeout_ms: 500,
                 circuit_breaker: CircuitBreakerConfig::default(),
             },
-            logging: LoggingConfig {
-                level: "info".to_string(),
-                format: "json".to_string(),
-                log_file: None,
-                log_dir: None,
-            },
+            logging: LoggingConfig { level: "info".to_string(), format: "json".to_string(), log_file: None },
             federation: FederationConfig {
                 enabled: true,
                 allow_ingress: false,
@@ -964,7 +958,6 @@ mod tests {
             },
             smtp: SmtpConfig::default(),
             sms: SmsConfig::default(),
-            livekit: LivekitConfig::default(),
             voip: VoipConfig::default(),
             push: PushConfig::default(),
             url_preview: UrlPreviewConfig::default(),
@@ -1044,12 +1037,10 @@ mod tests {
             level: "debug".to_string(),
             format: "text".to_string(),
             log_file: Some("/var/log/synapse.log".to_string()),
-            log_dir: Some("/var/log".to_string()),
         };
 
         assert_eq!(config.level, "debug");
         assert!(config.log_file.is_some());
-        assert!(config.log_dir.is_some());
     }
 
     #[test]
@@ -1227,12 +1218,11 @@ mod tests {
     fn test_request_timeouts_are_optional_and_round_trip() {
         use super::server::{DEFAULT_LONG_POLL_REQUEST_TIMEOUT_SECS, DEFAULT_REQUEST_TIMEOUT_SECS};
 
-        // `ServerConfig` 有几个字段没有 serde 缺省（name / max_image_resolution /
+        // `ServerConfig` 有几个字段没有 serde 缺省（name /
         // enable_registration* / background_tasks_interval / expire_access_token* /
         // refresh_token_sliding_window_size），最小可用 JSON 必须把它们都写上。
         let minimal = json!({
             "name": "example.com",
-            "max_image_resolution": 8_000_000,
             "enable_registration": true,
             "enable_registration_captcha": false,
             "background_tasks_interval": 300,

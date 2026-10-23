@@ -61,13 +61,10 @@ impl Config {
             self.server.signing_key_path.take().map(|v| resolve_env_in_string(&v)).transpose()?;
         self.server.macaroon_secret_key =
             self.server.macaroon_secret_key.take().map(|v| resolve_env_in_string(&v)).transpose()?;
-        self.server.form_secret = self.server.form_secret.take().map(|v| resolve_env_in_string(&v)).transpose()?;
         self.server.server_name = self.server.server_name.take().map(|v| resolve_env_in_string(&v)).transpose()?;
         self.server.registration_shared_secret =
             self.server.registration_shared_secret.take().map(|v| resolve_env_in_string(&v)).transpose()?;
         self.server.admin_contact = self.server.admin_contact.take().map(|v| resolve_env_in_string(&v)).transpose()?;
-        self.server.user_agent_suffix =
-            self.server.user_agent_suffix.take().map(|v| resolve_env_in_string(&v)).transpose()?;
         self.server.web_client_location =
             self.server.web_client_location.take().map(|v| resolve_env_in_string(&v)).transpose()?;
         self.server.map_style_url = self.server.map_style_url.take().map(|v| resolve_env_in_string(&v)).transpose()?;
@@ -88,7 +85,6 @@ impl Config {
         self.logging.level = resolve_env_in_string(&self.logging.level)?;
         self.logging.format = resolve_env_in_string(&self.logging.format)?;
         self.logging.log_file = self.logging.log_file.take().map(|v| resolve_env_in_string(&v)).transpose()?;
-        self.logging.log_dir = self.logging.log_dir.take().map(|v| resolve_env_in_string(&v)).transpose()?;
 
         self.federation.server_name = resolve_env_in_string(&self.federation.server_name)?;
         self.federation.signing_key =

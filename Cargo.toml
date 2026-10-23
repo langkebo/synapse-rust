@@ -36,7 +36,7 @@ redundant_else = "warn"
 #      dependencies in synapse-common's error.rs anyway).
 default = ["core-private-chat", "widgets", "external-services", "beacons"]
 performance-tests = []
-test-utils = ["dep:synapse-test-utils", "synapse-services/test-utils", "synapse-storage/test-utils", "synapse-e2ee/test-utils", "synapse-federation/test-utils", "synapse-web/test-utils"]
+test-utils = ["dep:synapse-test-utils", "synapse-common/test-utils", "synapse-services/test-utils", "synapse-storage/test-utils", "synapse-e2ee/test-utils", "synapse-federation/test-utils", "synapse-web/test-utils"]
 
 # Non-core feature modules (can be disabled to produce a minimal build)
 core-private-chat = ["friends", "burn-after-read", "synapse-web/core-private-chat"]
@@ -68,12 +68,9 @@ all-extensions = [
 # a single version source of truth and prevents the root/member declarations drifting.
 tokio = { workspace = true, features = ["full", "test-util"] }
 tokio-util = { workspace = true, features = ["io"] }
-async-trait = { workspace = true }
 
 axum = { workspace = true, features = ["macros"] }
-tower = { workspace = true }
 tower-http = { workspace = true, features = ["fs", "cors", "trace", "compression-gzip", "limit"] }
-hyper = { workspace = true }
 http = { workspace = true }
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "chrono", "json", "uuid", "ipnetwork", "migrate", "macros", "bigdecimal"] }
 
@@ -82,18 +79,10 @@ deadpool-redis = { workspace = true }
 
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-serde_norway = { workspace = true }
 
-rand = { workspace = true }
-sha2 = { workspace = true, features = ["oid"] }
-hmac = { workspace = true }
 base64 = { workspace = true }
 
 ed25519-dalek = "2.0"
-
-config = { version = "0.14", default-features = false, features = ["yaml", "convert-case"] }
-
-
 
 tracing = { workspace = true, features = ["attributes"] }
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
@@ -102,13 +91,8 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "json"
 chrono = { workspace = true, features = ["serde"] }
 
 uuid = { workspace = true, features = ["v4", "serde"] }
-futures = { workspace = true }
-regex = { workspace = true }
-url = { workspace = true }
-urlencoding = { workspace = true }
 
 reqwest = { workspace = true, features = ["json", "stream"] }
-validator = { version = "0.20.0", features = ["derive"] }
 synapse-common = { path = "synapse-common" }
 synapse-cache = { path = "synapse-cache" }
 synapse-e2ee = { path = "synapse-e2ee", default-features = false }
@@ -118,8 +102,6 @@ synapse-storage = { path = "synapse-storage" }
 synapse-test-utils = { path = "synapse-test-utils", optional = true }
 synapse-web = { path = "synapse-web", default-features = false }
 
-image = "0.25"
-hex = "0.4.3"
 lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls"] }
 
 # jemalloc 全局分配器：profiling feature 用于定位内存泄漏（OOM 排查）。
@@ -127,6 +109,24 @@ lettre = { version = "0.11", default-features = false, features = ["builder", "s
 tikv-jemallocator = { version = "0.6", features = ["profiling", "unprefixed_malloc_on_supported_platforms"] }
 
 [dev-dependencies]
+# RD-01: these crates are used only by `tests/**` (and the `#[cfg(test)]`
+# modules under `src/`), never by the root package's production code. Keeping
+# them here stops them from being compiled into the `bin`/`lib` build graph.
+async-trait = { workspace = true }
+tower = { workspace = true }
+hyper = { workspace = true }
+serde_norway = { workspace = true }
+rand = { workspace = true }
+sha2 = { workspace = true, features = ["oid"] }
+hmac = { workspace = true }
+futures = { workspace = true }
+regex = { workspace = true }
+url = { workspace = true }
+urlencoding = { workspace = true }
+validator = { version = "0.20.0", features = ["derive"] }
+image = "0.25"
+hex = "0.4.3"
+
 # atexit hook for the schema janitor: registered by this crate's **test** build only
 # (B' — keeps the `unsafe` out of the production build).
 libc = "0.2"

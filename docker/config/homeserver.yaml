@@ -5,7 +5,6 @@ server:
   public_baseurl: "${PUBLIC_BASEURL:-http://localhost:8008}"
   signing_key_path: "/app/data/signing.key"
   macaroon_secret_key: "${MACAROON_SECRET:?MACAROON_SECRET is required}"
-  form_secret: "${FORM_SECRET:?FORM_SECRET is required}"
   server_name: "${SERVER_NAME:-localhost}"
   registration_shared_secret: "${REGISTRATION_SECRET:?REGISTRATION_SECRET is required}"
   max_upload_size: 52428800
@@ -15,7 +14,6 @@ server:
   # 调小它要连同媒体上传/大 body 请求与联邦入站一起评估。
   # request_timeout_secs: 30
   # long_poll_request_timeout_secs: 90
-  max_image_resolution: 8000000
   # 生产栈默认**关闭**开放注册：任何人都可自助注册会带来垃圾账号/资源耗尽风险。
   # 需要开放时用 `SYNAPSE__SERVER__ENABLE_REGISTRATION=true` 显式覆盖
   # （bool 字段无法在 YAML 里用 `${VAR}` 插值，只能走 `SYNAPSE__` 环境变量）。
@@ -25,7 +23,6 @@ server:
   expire_access_token: true
   expire_access_token_lifetime: 86400
   refresh_token_sliding_window_size: 3600
-  warmup_pool: true
   # 可选：服务端 megolm at-rest 密钥（保护**本仓库自有扩展**存储的 megolm 会话）。
   # Matrix 规范不要求 homeserver 持有 megolm 密钥（Megolm 是客户端棘轮；服务器只存
   # 不透明密文、key backup 也是客户端加密的 blob），上游 Synapse 无需此键即可启动。

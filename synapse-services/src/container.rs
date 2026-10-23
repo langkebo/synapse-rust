@@ -596,12 +596,12 @@ impl ServiceContainer {
         })
         .await;
 
-        // Account identity service (cfg-gated — privacy-ext adds privacy_storage dep)
+        // Account identity service (cfg-gated — privacy-ext adds a privacy store dep)
         #[cfg(feature = "privacy-ext")]
         let account_identity_service = Arc::new(crate::account_identity_service::AccountIdentityService::new(
             storage.user_service.clone(),
             storage.threepid_storage.clone(),
-            extensions.privacy_storage.clone(),
+            Arc::new(synapse_storage::privacy::PrivacyStorage::new(infra.infra.pool.clone())),
         ));
         #[cfg(not(feature = "privacy-ext"))]
         let account_identity_service = Arc::new(crate::account_identity_service::AccountIdentityService::new(

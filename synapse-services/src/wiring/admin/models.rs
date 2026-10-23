@@ -18,12 +18,8 @@ pub struct AdminUserServices {
     pub email_verification_service: Arc<crate::email_verification_service::EmailVerificationService>,
     /// The `admin_token_service` field.
     pub admin_token_service: Arc<crate::admin_token_service::AdminTokenService>,
-    /// The `refresh_token_storage` field.
-    pub refresh_token_storage: Arc<dyn synapse_storage::refresh_token::RefreshTokenStoreApi>,
     /// The `refresh_token_service` field.
     pub refresh_token_service: Arc<crate::refresh_token_service::RefreshTokenService>,
-    /// The `registration_token_storage` field.
-    pub registration_token_storage: Arc<synapse_storage::registration_token::RegistrationTokenStorage>,
     /// The `registration_token_service` field.
     pub registration_token_service: Arc<crate::registration_token_service::RegistrationTokenService>,
 }
@@ -33,8 +29,6 @@ pub struct AdminUserServices {
 pub struct AdminFederationServices {
     /// The `admin_federation_service` field.
     pub admin_federation_service: Arc<crate::admin_federation_service::AdminFederationService>,
-    /// The `federation_blacklist_storage` field.
-    pub federation_blacklist_storage: Arc<synapse_storage::federation_blacklist::FederationBlacklistStorage>,
     /// The `federation_blacklist_service` field.
     pub federation_blacklist_service: Arc<crate::federation_blacklist_service::FederationBlacklistService>,
 }
@@ -44,8 +38,6 @@ pub struct AdminFederationServices {
 pub struct AdminMediaServices {
     /// The `admin_media_service` field.
     pub admin_media_service: Arc<crate::admin_media_service::AdminMediaService>,
-    /// The `media_quota_storage` field.
-    pub media_quota_storage: Arc<synapse_storage::media_quota::MediaQuotaStorage>,
     /// The `media_quota_service` field.
     pub media_quota_service: Arc<crate::media_quota_service::MediaQuotaService>,
 }
@@ -55,12 +47,8 @@ pub struct AdminMediaServices {
 pub struct AdminSecurityServices {
     /// The `admin_security_service` field.
     pub admin_security_service: Arc<crate::admin_security_service::AdminSecurityService>,
-    /// The `captcha_storage` field.
-    pub captcha_storage: Arc<synapse_storage::captcha::CaptchaStorage>,
     /// The `captcha_service` field.
     pub captcha_service: Arc<crate::captcha_service::CaptchaService>,
-    /// The `audit_storage` field.
-    pub audit_storage: Arc<dyn synapse_storage::audit::AuditEventStoreApi>,
     /// The `admin_audit_service` field.
     pub admin_audit_service: Arc<crate::admin_audit_service::AdminAuditService>,
     /// The `admin_server_service` field.
@@ -72,12 +60,8 @@ pub struct AdminSecurityServices {
 /// The `AdminModuleServices` struct.
 #[derive(Clone)]
 pub struct AdminModuleServices {
-    /// The `feature_flag_storage` field.
-    pub feature_flag_storage: Arc<synapse_storage::feature_flags::FeatureFlagStorage>,
     /// The `feature_flag_service` field.
     pub feature_flag_service: Arc<crate::feature_flag_service::FeatureFlagService>,
-    /// The `event_report_storage` field.
-    pub event_report_storage: Arc<synapse_storage::event_report::EventReportStorage>,
     /// The `event_report_service` field.
     pub event_report_service: Arc<crate::event_report_service::EventReportService>,
     /// MSC4140 — Cancellable delayed events storage.
@@ -86,8 +70,6 @@ pub struct AdminModuleServices {
     pub delayed_event_service: Arc<crate::delayed_event_service::DelayedEventService>,
     /// The `e2ee_audit_service` field.
     pub e2ee_audit_service: Arc<crate::e2ee_audit::E2eeAuditService>,
-    /// The `background_update_storage` field.
-    pub background_update_storage: Arc<dyn synapse_storage::background_update::BackgroundUpdateStoreApi>,
     /// The `background_update_service` field.
     pub background_update_service: Arc<crate::background_update_service::BackgroundUpdateService>,
     /// The `module_storage` field.
@@ -96,18 +78,10 @@ pub struct AdminModuleServices {
     pub module_service: Arc<crate::module_service::ModuleService>,
     /// The `account_validity_service` field.
     pub account_validity_service: Arc<crate::module_service::AccountValidityService>,
-    /// The `retention_storage` field.
-    pub retention_storage: Arc<synapse_storage::retention::RetentionStorage>,
     /// The `retention_service` field.
     pub retention_service: Arc<crate::retention_service::RetentionService>,
-    /// The `push_notification_storage` field.
-    pub push_notification_storage: Arc<synapse_storage::push_notification::PushNotificationStorage>,
     /// The `push_notification_service` field.
     pub push_notification_service: Arc<crate::push_notification_service::PushNotificationService>,
-    /// The `app_service_storage` field.
-    pub app_service_storage: Arc<synapse_storage::application_service::ApplicationServiceStorage>,
-    /// The `app_service_event_reader` field.
-    pub app_service_event_reader: Arc<dyn synapse_storage::event::EventReader>,
     /// The `app_service_manager` field.
     pub app_service_manager: Arc<crate::application_service::ApplicationServiceManager>,
     /// The `app_service_scheduler` field.
@@ -123,8 +97,6 @@ pub struct AdminModuleServices {
     pub login_token_storage: Arc<dyn synapse_storage::login_token::LoginTokenStoreApi>,
     /// The `login_token_service` field.
     pub login_token_service: Arc<crate::login_token_service::LoginTokenService>,
-    /// The `worker_storage` field.
-    pub worker_storage: Arc<dyn synapse_storage::worker::WorkerStoreApi>,
     /// The `worker_manager` field.
     pub worker_manager: Arc<crate::worker::WorkerManager>,
 }
@@ -137,17 +109,15 @@ pub struct AdminModuleServices {
 /// still required — it is injected into individual admin sub-services during
 /// construction.
 ///
-/// Several `*_storage` fields in the sub-structs below are "backing storage":
-/// they are constructed and stored here so that the corresponding `*_service`
-/// field (which wraps the storage via its own `Arc`) remains alive for the
-/// container's lifetime. The storage copies themselves are not accessed via
-/// the container after construction, but are retained for potential direct
-/// access by future route handlers. Verified unused storage fields include:
-/// `registration_token_storage`, `captcha_storage`, `audit_storage`,
+/// RD-09 (2026-10-23): the 14 "backing storage" fields that were retained here
+/// on the theory that "future route handlers" might want direct access are gone.
+/// Every `*_service` already owns its own `Arc` to the backing storage, so the
+/// container-level copies were pure dead weight (never read after construction).
+/// Removed: `registration_token_storage`, `captcha_storage`, `audit_storage`,
 /// `feature_flag_storage`, `event_report_storage`, `background_update_storage`,
 /// `retention_storage`, `push_notification_storage`, `app_service_storage`,
 /// `app_service_event_reader`, `worker_storage`, `refresh_token_storage`,
-/// `federation_blacklist_storage`, and `media_quota_storage`.
+/// `federation_blacklist_storage`, `media_quota_storage`.
 #[derive(Clone)]
 pub struct AdminServices {
     /// The `user` field.

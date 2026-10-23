@@ -236,8 +236,6 @@ pub use rtc::{
     to_matrix_event, CallAnswer, CallAnswerEvent, CallCandidatesEvent, CallHangupEvent, CallInviteEvent, CallOffer,
     CallState, IceCandidate,
 };
-#[cfg(feature = "voip-tracking")]
-pub use synapse_common::config::LivekitConfig;
 
 /// The `widget_service` module.
 #[cfg(feature = "widgets")]

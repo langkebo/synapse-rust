@@ -10,8 +10,11 @@
 //! accessed via the container after construction but are retained:
 //! - `friend_storage`, `server_notification_storage`, `widget_storage` —
 //!   backing storage for the corresponding `*_service`.
-//! - `privacy_storage` — consumed during `AccountIdentityService`
-//!   construction in `container.rs`; the stored copy is not re-read.
+//!
+//! RD-10 (2026-10-23): `privacy_storage` is no longer stored here. It was only
+//! ever read once, when `container.rs` built `AccountIdentityService`, so that
+//! caller now constructs its own instance instead of round-tripping the `Arc`
+//! through this struct.
 //!
 //! Removed in 审查 #23 (YAGNI cleanup): `friend_federation` and
 //! `user_lock_service` (constructed but never wired to a route handler) and
@@ -48,9 +51,6 @@ pub struct ExtensionServices {
     #[cfg(feature = "server-notifications")]
     /// The `server_notification_service` field.
     pub server_notification_service: Arc<crate::server_notification_service::ServerNotificationService>,
-    #[cfg(feature = "privacy-ext")]
-    /// The `privacy_storage` field.
-    pub privacy_storage: Arc<synapse_storage::privacy::PrivacyStorage>,
     #[cfg(feature = "widgets")]
     /// The `widget_storage` field.
     pub widget_storage: Arc<dyn synapse_storage::widget::WidgetStoreApi>,
@@ -179,10 +179,6 @@ impl ExtensionServices {
             infra.config.server.name.clone(),
         ));
 
-        #[cfg(feature = "privacy-ext")]
-        let privacy_storage: Arc<synapse_storage::privacy::PrivacyStorage> =
-            Arc::new(synapse_storage::privacy::PrivacyStorage::new(infra.pool.clone()));
-
         #[cfg(feature = "widgets")]
         let widget_storage: Arc<dyn synapse_storage::widget::WidgetStoreApi> =
             Arc::new(synapse_storage::widget::WidgetStorage::new(infra.pool.clone()));
@@ -240,8 +236,6 @@ impl ExtensionServices {
             server_notification_storage,
             #[cfg(feature = "server-notifications")]
             server_notification_service,
-            #[cfg(feature = "privacy-ext")]
-            privacy_storage,
             #[cfg(feature = "widgets")]
             widget_storage,
             #[cfg(feature = "widgets")]

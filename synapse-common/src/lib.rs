@@ -44,6 +44,9 @@ pub mod event_utils;
 /// Module `feature_flags`.
 pub mod feature_flags;
 /// Module `federation_test_keys`.
+///
+/// 测试替身，不得进入默认构建产物（RD-08）：与 [`test_mocks`] 同一道门禁。
+#[cfg(any(test, feature = "test-utils"))]
 pub mod federation_test_keys;
 /// Module `friend_shard`.
 pub mod friend_shard;
@@ -155,13 +158,12 @@ pub use config::{
     default_allowed_methods, default_cors_max_age, default_dehydrated_device_cleanup_interval_secs,
     default_ui_auth_session_timeout, AdminRegistrationConfig, ApnsConfig, BuiltinOidcConfig, BuiltinOidcUser,
     CircuitBreakerConfig, Config, ConfigError, ConfigManager, CorsConfig, DatabaseConfig, ExperimentalConfig,
-    FcmConfig, FederationConfig, FederationRateLimitConfig, IdentityConfig, InstanceLocationConfig, LivekitConfig,
-    LoggingConfig, MasConfig, OidcAttributeMapping, OidcConfig, PerformanceConfig, PolicyServerConfig,
-    PostgresFtsConfig, PostgresFtsWeights, PushConfig, RedisConfig, ReplicationConfig, ReplicationHttpConfig,
-    RetentionConfig, SamlAttributeMapping, SamlConfig, SearchConfig, SecurityConfig, ServerConfig, SmsConfig,
-    SmtpConfig, StreamWriters, SyncRateLimitConfig, ThirdPartyRuleConfig, ThirdPartyRuleModification,
-    ThirdPartyRulesConfig, TranslateConfig, TrustedKeyServer, UrlPreviewConfig, VoipConfig, WebPushConfig,
-    WorkerConfig,
+    FcmConfig, FederationConfig, FederationRateLimitConfig, IdentityConfig, InstanceLocationConfig, LoggingConfig,
+    MasConfig, OidcAttributeMapping, OidcConfig, PerformanceConfig, PolicyServerConfig, PostgresFtsConfig,
+    PostgresFtsWeights, PushConfig, RedisConfig, ReplicationConfig, ReplicationHttpConfig, RetentionConfig,
+    SamlAttributeMapping, SamlConfig, SearchConfig, SecurityConfig, ServerConfig, SmsConfig, SmtpConfig, StreamWriters,
+    SyncRateLimitConfig, ThirdPartyRuleConfig, ThirdPartyRuleModification, ThirdPartyRulesConfig, TranslateConfig,
+    TrustedKeyServer, UrlPreviewConfig, VoipConfig, WebPushConfig, WorkerConfig,
 };
 /// Re-exported item.
 pub use constants::{

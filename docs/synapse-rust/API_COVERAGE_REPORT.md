@@ -413,7 +413,7 @@
 |---|---|---|
 | 1.157 `exclude_rooms_from_presence` / `presence` 分节新增 `last_active_granularity`、`sync_online_timeout`、`idle_timeout` | **未核对** | 需核对 `synapse-common/src/config` 的 presence 段 |
 | 1.157 存在感禁用后把此前在线用户标记为离线（#19948） | **需关注** | 本仓 presence 语义见 §6 相关条目 |
-| 1.161 弃用 `matrix_rtc.livekit_service_url`，改用 SFU WebSocket URL | **PARTIAL（死配置）** | `LivekitConfig.ws_url`（`config/voip.rs:92`）**全仓无读取点**；`rtc/transports` 只返回 ICE |
+| 1.161 弃用 `matrix_rtc.livekit_service_url`，改用 SFU WebSocket URL | **PARTIAL（能力未实现）** | 本仓的 `LivekitConfig`（`ws_url`/`api_key`/`api_secret`/`host`）**全仓无读取点**，已随审计 RD-11 整体删除（`config/voip.rs` 不再有该结构体）；`rtc/transports` 只返回 ICE，SFU 传输本身未实现 |
 | 1.158 `register_federation_callbacks(...)` 模块 API | **未核对** | — |
 
 ### 5.4 v1.161 → v1.162 增量：Features / Bugfixes（本轮新增）

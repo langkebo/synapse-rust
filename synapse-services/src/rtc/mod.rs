@@ -54,8 +54,6 @@ pub use call::{
 pub use session::to_matrix_event;
 #[cfg(feature = "voip-tracking")]
 pub use session::RtcSessionService;
-#[cfg(feature = "voip-tracking")]
-pub use synapse_common::config::LivekitConfig;
 
 // Re-exports of the RTC domain types (the former `CallService` / `VoipService` /
 // `MatrixRTCService` rename aliases were deleted: nothing consumed them).

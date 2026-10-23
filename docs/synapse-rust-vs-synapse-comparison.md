@@ -651,7 +651,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | #20173 Profile PUT/DELETE 400→403 | ✅ 修复 | ✅ 已正确返回 403 + `M_FORBIDDEN`（`account_compat.rs:195-197,224-226`）；上游触发配置（`enable_set_displayname` 等）本仓不存在 | ✅ 已对齐 |
 | #20036 房间举报端点 `rc_reports` 限流 | ✅ 修复 | ✅ **已实现（Phase 2）**：路径中间件无法表达 `/rooms/{room_id}/report`（只有精确/前缀匹配），故在 `report_room`/`report_user` 内按用户取桶（`ratelimit:rc_reports:{user_id}`），规则可配（`rate_limit.rc_reports`，默认 1/s、burst 10），并有"配置键被删即变红"的守卫测试 | ✅ 已对齐 |
 | #20180 `M_APPSERVICE_LOGIN_UNSUPPORTED` | ✅ 稳定化 | ⚠️ **部分**：`m.login.application_service` 已实现（Phase 2：as_token + 排他命名空间校验 + 设备物化 + 令牌签发，测试覆盖 200/403/401）。但该**错误码本身经复核属 `POST /register`**（MSC4190：appservice 未传 `inhibit_login=true`），不属 `/login`；上游 diff 本地无法取证，故未臆造该码 | ⚠️ 登录已实现，错误码待定 |
-| #20146 LiveKit SFU WebSocket URL | ✅ 弃用 `livekit_service_url` 并新增 SFU URL | ⚠️ `livekit_service_url` 本仓不存在（无可弃用）；曾经的 `LivekitConfig.ws_url` 是**从未被读取**的死配置，**本轮已删除**（`config/voip.rs` 现仅 `api_key`/`api_secret`/`host`）；`rtc/transports` 仍只返回 ICE。**差异未消除**：SFU 传输本身未实现 —— 现在至少不再有一个"看起来可配"的旋钮 | ⚠️ PARTIAL |
+| #20146 LiveKit SFU WebSocket URL | ✅ 弃用 `livekit_service_url` 并新增 SFU URL | ⚠️ `livekit_service_url` 本仓不存在（无可弃用）；`LivekitConfig`（`ws_url`/`api_key`/`api_secret`/`host`）**全部字段从未被读取**，已随审计 RD-11 **整体删除**（`config/voip.rs` 不再有该结构体）；`rtc/transports` 仍只返回 ICE。**差异未消除**：SFU 传输本身未实现 —— 现在至少不再有一个"看起来可配"的旋钮 | ⚠️ PARTIAL |
 
 **v1.2 遗漏的上游条目（同基准期，v1.3 补记）**：
 
@@ -680,7 +680,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | **房间升级** | 有 | ✅ `handlers/room/management/upgrade.rs` 完整实现（`upgrade_room` + `get_room_version`） | ✅ 完整实现 |
 | **Space** | 有 | ✅ `synapse-web/src/routes/space/` 完整实现（children_hierarchy/lifecycle_query/membership_state/summary/types） | ✅ 完整实现 |
 | **Thread** | 有 | ✅ `thread_service.rs` + `synapse-storage/src/thread/` + `handlers/thread.rs` | ✅ 已实现（相对精简） |
-| **LiveKit / RTC** | 有 | ⚠️ **PARTIAL**：`rtc/` 存在；`livekit_service_url` 本仓从未存在，`LivekitConfig.ws_url`（`config/voip.rs:92`）**声明但无读取点**（死配置），`rtc/transports` 仅返回 ICE | ⚠️ 能力不完整 |
+| **LiveKit / RTC** | 有 | ⚠️ **PARTIAL**：`rtc/` 存在；`livekit_service_url` 本仓从未存在，`LivekitConfig`（`ws_url`/`api_key`/`api_secret`/`host`）从未被读取，已随审计 RD-11 整体删除（`config/voip.rs` 不再有该结构体）；`rtc/transports` 仅返回 ICE | ⚠️ 能力不完整 |
 | **Dehydrated Devices** | 有 | ✅ **已对齐（Phase 2）**：`/events` 改为 `GET` + query 参数，`next_batch` 空页返回 `null`（storage `Option<i64>` → service → handler 三层同步）；契约产物（derived 表、6 fixture、2 快照、ROUTE_CONTRACT、route-table、client.yaml、api_test 输入）已再生成；端到端测试断言 GET 200 + `events: []` + `next_batch: null` + 旧 POST 返回 405 | ✅ 已对齐 |
 | **Rendezvous** | 有 | ✅ `rendezvous.rs` + `msc4108_rendezvous.rs` 完整实现 | ✅ 完整实现 |
 | **Key Rotation** | 有 | ✅ `synapse-e2ee/src/key_rotation/` + `synapse-federation/src/key_rotation.rs` 完整实现 | ✅ 完整实现 |

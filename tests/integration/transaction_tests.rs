@@ -6,8 +6,8 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::{
-    AdminRegistrationConfig, Config, CorsConfig, DatabaseConfig, ExperimentalConfig, FederationConfig, LivekitConfig,
-    RateLimitConfig, RedisConfig, SearchConfig, SecurityConfig, ServerConfig, SmtpConfig, VoipConfig, WorkerConfig,
+    AdminRegistrationConfig, Config, CorsConfig, DatabaseConfig, ExperimentalConfig, FederationConfig, RateLimitConfig,
+    RedisConfig, SearchConfig, SecurityConfig, ServerConfig, SmtpConfig, VoipConfig, WorkerConfig,
 };
 use synapse_services::ServiceContainer;
 use synapse_web::routes::create_router;
@@ -27,16 +27,12 @@ fn create_test_config() -> Config {
             // `megolm_encryption_key_path` is unset, so a test container must not leave it
             // empty; fixed non-production value. Same fixture defect as `d8fcedab`.
             macaroon_secret_key: Some("test-macaroon-secret-not-for-production".to_string()),
-            form_secret: None,
             server_name: None,
             serve_server_wellknown: false,
-            soft_file_limit: 0,
-            user_agent_suffix: None,
             web_client_location: None,
             registration_shared_secret: None,
             admin_contact: None,
             max_upload_size: 1000000,
-            max_image_resolution: 1000000,
             remote_media_lifetime: 86400 * 30,
             local_media_lifetime: 0,
             enable_registration: true,
@@ -46,7 +42,6 @@ fn create_test_config() -> Config {
             expire_access_token: true,
             expire_access_token_lifetime: 3600,
             refresh_token_sliding_window_size: 1000,
-            warmup_pool: true,
             allow_public_rooms_without_auth: false,
             allow_public_rooms_over_federation: true,
             auto_join_rooms: vec![],
@@ -83,7 +78,6 @@ fn create_test_config() -> Config {
             level: "warn".to_string(),
             format: "json".to_string(),
             log_file: None,
-            log_dir: None,
         },
         federation: FederationConfig {
             enabled: false,
@@ -157,7 +151,6 @@ fn create_test_config() -> Config {
         smtp: SmtpConfig::default(),
         sms: synapse_rust::common::config::SmsConfig::default(),
         voip: VoipConfig::default(),
-        livekit: LivekitConfig::default(),
         push: synapse_rust::common::config::PushConfig::default(),
         url_preview: synapse_rust::common::config::UrlPreviewConfig::default(),
         oidc: synapse_rust::common::config::OidcConfig::default(),

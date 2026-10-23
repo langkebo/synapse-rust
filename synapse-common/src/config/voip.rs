@@ -78,23 +78,6 @@ impl VoipConfig {
     }
 }
 
-/// Livekit SFU configuration.
-///
-/// NB: there used to be a `ws_url` field here. It was **never read** by any code path
-/// (`rtc/transports` only returns ICE candidates), i.e. a config knob that looked
-/// applied but did nothing — removed under AGENTS.md 铁律 1. Wire it back only
-/// together with the SFU transport that consumes it.
-#[derive(Debug, Clone, Default, Deserialize)]
-/// Represents LivekitConfig.
-pub struct LivekitConfig {
-    /// `api_key` field.
-    pub api_key: String,
-    /// `api_secret` field.
-    pub api_secret: String,
-    /// `host` field.
-    pub host: String,
-}
-
 fn parse_duration(s: &str) -> Option<i64> {
     let s = s.trim();
     if s.is_empty() {

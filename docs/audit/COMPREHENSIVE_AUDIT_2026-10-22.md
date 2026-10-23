@@ -1501,6 +1501,39 @@ fn is_admin_request_allowed(role: &str, method: &Method, path: &str, rbac_enable
 > **踩坑记录**：`--all-features` 不可省。`synapse-services/src/test_mocks.rs` 等模块被 `#[cfg(any(test, feature = "test-utils"))]` 门控，省略该 flag 时 default 构建会报 **331 条 `E0282`/`E0432`/`E0433` 假红**（本次实测复现），与本次改动无关。
 > 另：`cmd | tail -n N` 的退出码是 `tail` 的，恒为 0；门禁一律用 `> /tmp/xx.log 2>&1; echo "EXIT=$?"` 取真实退出码。
 
+> **落地状态：批次 2（需回归）已完成（2026-10-23）**。范围 RD-01/07/08/09/10/11/12/13。实际落地与审计原文有 **7 处偏差/补充**，以实际为准：
+>
+> ① **RD-01 口径修正为「1 删 + 14 迁 `[dev-dependencies]`」**：原文称 15 个依赖在 `src/**` 零引用因而可整体删除；逐条普查后发现其中 14 个仍被 `tests/**` 与 `src/**` 内的 `#[cfg(test)] mod tests` 直接 `use`（删掉会直接编译失败），真正的零引用只有外部 crate `config`（全仓 0 命中；`config::Config` 的命中全部是仓内 `synapse_common::config::Config`）。落地方案：删除 `config`；其余 14 个移入根 crate 的 `[dev-dependencies]`，同样实现"不进 `bin`/`lib` 生产构建图"的原始目的。
+> ② **RD-07 无需改动**：`synapse-storage/src/lib.rs` 的 `user_store_fake` 模块门控与 re-export 门控已由 **W2 的 CODE-05** 落地（`synapse-storage/src/lib.rs:163-164`、`:233-234`），本批次未重复修改。
+> ③ **RD-08 的 re-export 门控原本就在位**：`synapse-common/src/lib.rs:196` 已是 `#[cfg(any(test, feature = "test-utils"))]`；本批次实际只补**模块声明**门控（`synapse-common/src/lib.rs:46-50`）与根 crate `src/common/mod.rs:27-28` 的转发门控，并给根 crate 的 `test-utils` feature 显式追加 `"synapse-common/test-utils"`。原文建议的"`generate_test_keypair` 改走 `synapse-test-utils`"**未采纳**：该二进制早已有 `#[cfg(feature = "test-utils")]` 的双 `main` 形态（有门禁时生成密钥，无门禁时打印用法并 `exit(1)`），改走 `synapse-test-utils` 反而要给库 crate 增加反向依赖。
+> ④ **RD-10 的实现细节与原文不同**：`privacy_storage` 从 `ExtensionServices` 字段改为 `container.rs` 的构造期局部变量；但 `PrivacyStorage::new` 的签名是 `pub fn new(pool: Arc<Pool<Postgres>>) -> Self`，必须传 `infra.infra.pool.clone()` 而非 `&infra.infra.pool`（后者会 `E0308`）。
+> ⑤ **RD-11 推翻了 2026-10-09 的 by-design 裁定**：`docs/前缀命名空间治理方案-2026-10-08.md:3008-3015` 曾以"顶层 `deny_unknown_fields` ⇒ 删除 `[livekit]` 会让既有配置启动失败"为由裁定保留 `Config.livekit`；该文档 `:3281` 同时允许"同步删键 + 迁移说明"这条替代路径。本轮核实全仓 YAML/样例配置**无** `livekit:` 键，按 2026-10-22 审计 RD-11 执行**整体删除**（`LivekitConfig` 结构体 + `Config.livekit` 字段 + 全部 re-export）。**迁移说明：外部部署若在自己的 `homeserver.yaml` 里写了 `[livekit]` 段，升级后会在启动期报 `unknown field`，必须一并删除该段。**
+> ⑥ **RD-12/RD-13 的迁移语义必须写进文档，否则运维会以为"配了就生效"**：`Config` 顶层有 `deny_unknown_fields`，但 `ServerConfig`/`LoggingConfig` 等**嵌套结构体没有**——因此删除嵌套字段后，既有配置里的 `form_secret` / `soft_file_limit` / `user_agent_suffix` / `max_image_resolution` / `warmup_pool` / `log_dir` 会被 serde **静默忽略**（不会启动失败），删除顶层 section（如 `livekit`）则会**报错**。两种行为都已由新测试 `test_removed_config_keys_are_rejected_or_ignored_as_documented` 锁定。
+> ⑦ **`FORM_SECRET` 的部署面遗留（无害，但记录在案）**：配置已不再读取该键，但 `docker/deploy/docker-compose.yml:265`、`docker/deploy/.env.example:36`、`docker/deploy/deploy.sh:1104`、`docker/deploy/scripts/generate-secrets.sh:91,365`、`scripts/validate_config.sh:14`、`.env.example:59`、`README.md:53` 等仍在生成/校验/透传该 env。多余 env 不被读取即无影响，故本批次不动部署面（`docker/federation-test/synapse/entrypoint.sh:116` 的 `form_secret:` 属 Python Synapse 对照容器，**禁止**删除）。
+
+**批次 2 落地明细**
+
+| 条目 | 实际改动 |
+|---|---|
+| RD-01 | 根 `Cargo.toml`：`[dependencies]` 删 15 个（`async-trait`/`tower`/`hyper`/`serde_norway`/`rand`/`sha2`/`hmac`/`config`/`futures`/`regex`/`url`/`urlencoding`/`validator`/`image`/`hex`），其中 14 个同名移入 `[dev-dependencies]`（`sha2` 保留 `features = ["oid"]`），仅 `config` 真删；`test-utils` feature 追加 `"synapse-common/test-utils"` |
+| RD-07 | 无需改动（W2 CODE-05 已完成，偏差 ②） |
+| RD-08 | `synapse-common/src/lib.rs`：`federation_test_keys` 模块加 `#[cfg(any(test, feature = "test-utils"))]`；`src/common/mod.rs` 转发同步加门控（偏差 ③） |
+| RD-09 | `synapse-services/src/wiring/admin/models.rs` + `admin.rs`：删 14 个 storage 字段及对应 struct literal（`refresh_token_storage`、`registration_token_storage`、`federation_blacklist_storage`、`media_quota_storage`、`captcha_storage`、`audit_storage`、`feature_flag_storage`、`event_report_storage`、`background_update_storage`、`retention_storage`、`push_notification_storage`、`app_service_storage`、`app_service_event_reader`、`worker_storage`）；构造期局部变量保留（仍被对应 service 消费），`AdminServices` 上方"留给未来路由"注释改为 RD-09 说明块 |
+| RD-10 | `synapse-services/src/wiring/extensions.rs`：删 `privacy_storage` 字段/局部变量/literal 项；`synapse-services/src/container.rs` 以 `PrivacyStorage::new(infra.infra.pool.clone())` 构造（偏差 ④） |
+| RD-11 | 删 `synapse-common/src/config/voip.rs` 的 `LivekitConfig`、删 `Config.livekit` 字段与 3 处 `LivekitConfig::default()`、删 `synapse-services/src/lib.rs:240` 与 `rtc/mod.rs` 的 re-export；`synapse-services/src/test_config.rs`、`tests/integration/transaction_tests.rs`、`src/common/config/tests.rs` 同步删 literal（偏差 ⑤） |
+| RD-12 | 删 `ServerConfig` 的 `form_secret`（含 `#[educe(Debug(ignore))]` + 6 行 doc）、`soft_file_limit`、`user_agent_suffix`、`max_image_resolution`、`warmup_pool`（含 `default_warmup_pool()`）；删 `loader.rs` 的 `form_secret`/`user_agent_suffix` env 解析；删 `docker/config/homeserver.yaml`、`scripts/run_bench_server.sh`、`synapse-common/src/config/server.rs` 两处测试 YAML 样例中的对应键 |
+| RD-13 | `synapse-common/src/config/logging.rs` 的 `LoggingConfig` 收窄为 `level`/`format`/`log_file` 三项；删 `loader.rs:91` 的 `log_dir` 解析；`test_logging_config_with_file` 改为只断言 `log_file`（原 `log_dir` 断言一并删除，因字段已不存在）；`src/common/config/tests.rs`、`synapse-services/src/test_config.rs`、`tests/integration/transaction_tests.rs` 删 `log_dir: None` |
+| 新增反向测试 | `synapse-common/src/config/mod.rs`：`test_removed_config_keys_are_rejected_or_ignored_as_documented` —— 断言顶层 `livekit` 被 `deny_unknown_fields` 拒绝（错误信息含 `unknown field`）、嵌套残留键被静默忽略（`ServerConfig`/`LoggingConfig` 反序列化均 `Ok`），即 §9.12 要求的"配置字段存在性"反向门禁 |
+| RD-26（顺带，原排后续批次） | `LivekitConfig` 整体删除后，三处"死配置证据"的表述已失效，就地修正为"已删除"：`docs/synapse-rust/API_COVERAGE_REPORT.md:416`、`docs/synapse-rust-vs-synapse-comparison.md:654,683`（不再引用 `config/voip.rs:92` 的 `ws_url` 字段） |
+
+**门禁（§9.12 批次 2 原文）**：`cargo check --workspace --all-targets --all-features` → `EXIT=0`；`cargo nextest run --workspace` 全量 → 见下；"配置字段存在性"反向测试已落地为 `test_removed_config_keys_are_rejected_or_ignored_as_documented`（PASS）。
+
+- **默认 feature 的生产构建图**（RD-01/RD-08 的真正盲区：`--all-features` 会顺带打开 `test-utils`，看不出依赖是否泄漏进 `bin`/`lib`）：`cargo check --workspace --lib --bins --examples` → `EXIT=0`、`warning` 计数 0（3m26s）。
+- **全量回归**（`E2EE_INTEROP=1 cargo nextest run --workspace --all-features --no-fail-fast`，5,501s）：`10735 tests run: 10718 passed, 17 failed, 16 skipped`。17 条逐条甄别：
+  - **16 条与 §10.6（W4 第三层）登记的失败集完全相同**（`api_key_backup_route_table_tests`、`api_placeholder_contract_p1p2_tests`、`api_relations_authorization_tests`、`api_route_ledger_tests`×2、`sqlx_cache_tooling_guard_tests`×2、`sqlx_ratio_gate_tests`×4、`sqlx_dynamic_literal_guard_tests`、`test_ddl_guard_tests`、`monitoring::db_tests`、`worker::tests`、`api_beacon_location_tests`(抖动)），均 HEAD 既有或环境侧，均可在纯 HEAD 工作树复现。
+  - **1 条是批次 1 的连带回归，已在本批次内修掉**：`placeholder_scan_tests::test_empty_json_successes_are_allowlisted` 报 `e2ee/backup.rs:177` 未登记。根因是批次 1 的 RD-25 把 `synapse-web/src/routes/e2ee/backup.rs` 的文件级 `#![allow(clippy::unused_async)]` 收窄到单函数，文件净减 2 行，`Ok(empty_json())` 从 `:179` 移到 `:177`，而 `scripts/shell_routes_allowlist.txt` 是**行号键**（其自身文档就写明"fix the line number if the site moved"）。按该口径把条目改成 `:177` 后 `test(placeholder_scan_tests)` 4/4 绿。**教训**：批次 1 的门禁只跑了 `cargo check` + `test --no-run`，没跑全量 nextest，行号型守卫因此漏网——凡改动 `synapse-web/src/routes/**` 的行数，都必须跑 `placeholder_scan_tests`。
+- **sqlx 动态 SQL 棘轮的 3 项违规归因（非本批次引入，不修）**：`check_sqlx_dynamic_ratio` 报生产动态 `133 → 136`、测试基础设施 `767 → 779`、静态 `1367 → 1366`。本批次**零 SQL 改动**（`container.rs` 唯一的 `sqlx::query` 命中是注释）。用 `git archive` 分别导出 HEAD 与基线提交 `1ced60cd5` 跑同一个 census，得到 HEAD `136/779/1366`、`1ced60cd5` `133/767/1367`，逐点差集落在 `synapse-storage/src/invite_blocklist.rs`（6 测试 + 2 生产）、`synapse-storage/src/media/chunked_upload.rs`、`synapse-services/src/media/tests.rs`、`synapse-storage/src/event/db_tests.rs` —— 即 §10.6 已登记的"HEAD 既有计数漂移（纯 HEAD 工作树同样红）"，与 W6 无关。棘轮基线**不下调**（只能因修复而收紧），此项作为独立"棘轮清账"任务挂账。
+
 直接执行 [§9.12 分阶段清理建议](#912-统计与分阶段清理建议)，不重复。补两条本轮的：
 
 | 条目 | 改动 | 门禁 |

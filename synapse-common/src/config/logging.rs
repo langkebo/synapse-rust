@@ -9,6 +9,4 @@ pub struct LoggingConfig {
     pub format: String,
     /// 日志文件路径
     pub log_file: Option<String>,
-    /// 日志目录
-    pub log_dir: Option<String>,
 }

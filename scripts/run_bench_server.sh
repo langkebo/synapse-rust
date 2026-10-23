@@ -124,11 +124,9 @@ server:
   public_baseurl: "http://localhost:$BENCH_PORT"
   signing_key_path: "$BENCH_SIGNING_KEY"
   macaroon_secret_key: "bench_macaroon_secret_bench_macaroon_secret_01"
-  form_secret: "bench_form_secret_bench_form_secret_bench_01"
   server_name: "localhost"
   registration_shared_secret: "bench_registration_secret_bench_reg_secret_01"
   max_upload_size: 10485760
-  max_image_resolution: 8000000
   enable_registration: true
   enable_registration_captcha: false
   background_tasks_interval: 300
@@ -137,7 +135,6 @@ server:
   refresh_token_lifetime: 604800
   refresh_token_sliding_window_size: 3600
   session_duration: 86400000
-  warmup_pool: true
 
 cors:
   allowed_origins:

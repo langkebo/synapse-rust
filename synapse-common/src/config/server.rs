@@ -74,19 +74,6 @@ pub struct ServerConfig {
     #[educe(Debug(ignore))]
     pub macaroon_secret_key: Option<String>,
 
-    /// 表单密钥
-    ///
-    /// 用于用户交互认证（UIAA）表单的 HMAC 密钥。
-    ///
-    /// 生成方法: `openssl rand -hex 32`
-    ///
-    /// 用途:
-    /// - UIAA 会话签名
-    /// - 防止表单伪造
-    #[serde(default)]
-    #[educe(Debug(ignore))]
-    pub form_secret: Option<String>,
-
     /// 服务器名称（与 name 字段相同）
     ///
     /// 保留此字段是为了与官方 Synapse 配置命名保持一致。
@@ -101,21 +88,6 @@ pub struct ServerConfig {
     #[serde(default)]
     /// `serve_server_wellknown` field.
     pub serve_server_wellknown: bool,
-
-    /// 文件描述符软限制
-    ///
-    /// 设置 synapse 可以使用的文件描述符数量的软限制。
-    /// 设置为 0 表示使用硬限制。
-    #[serde(default)]
-    /// `soft_file_limit` field.
-    pub soft_file_limit: u32,
-
-    /// 用户代理后缀
-    ///
-    /// 附加到 Synapse 用户代理字符串后的后缀。
-    #[serde(default)]
-    /// `user_agent_suffix` field.
-    pub user_agent_suffix: Option<String>,
 
     /// Web 客户端位置
     ///
@@ -162,9 +134,6 @@ pub struct ServerConfig {
     #[serde(default = "default_max_upload_size_value")]
     /// `max_upload_size` field.
     pub max_upload_size: u64,
-
-    /// 最大图片分辨率
-    pub max_image_resolution: u32,
 
     /// 远程媒体缓存保留时间（秒），默认 30 天
     #[serde(default = "default_remote_media_lifetime")]
@@ -237,10 +206,6 @@ pub struct ServerConfig {
 
     /// 刷新令牌滑动窗口大小
     pub refresh_token_sliding_window_size: i64,
-
-    #[serde(default = "default_warmup_pool")]
-    /// `warmup_pool` field.
-    pub warmup_pool: bool,
 
     /// 是否允许未认证用户访问公共房间目录
     #[serde(default)]
@@ -535,10 +500,6 @@ pub fn default_dehydrated_device_cleanup_interval_secs() -> u64 {
     3600
 }
 
-fn default_warmup_pool() -> bool {
-    true
-}
-
 fn default_true() -> bool {
     true
 }
@@ -718,7 +679,6 @@ mod tests {
         // 否则 serde 会先报 `missing field`，测不到本键。
         let yaml = "\
 name: example.com
-max_image_resolution: 1000000
 enable_registration: true
 enable_registration_captcha: false
 background_tasks_interval: 60
@@ -883,7 +843,6 @@ map_style_url: "https://tiles.example.com/style.json"
 name: example.com
 registration_shared_secret: null
 admin_contact: null
-max_image_resolution: 100
 enable_registration: false
 enable_registration_captcha: false
 background_tasks_interval: 60

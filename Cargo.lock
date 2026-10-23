@@ -4909,7 +4909,6 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "chrono",
- "config",
  "criterion",
  "deadpool-redis",
  "ed25519-dalek 2.2.0",
