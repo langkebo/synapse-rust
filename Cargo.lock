@@ -4961,7 +4961,6 @@ dependencies = [
 name = "synapse-services"
 version = "6.2.0"
 dependencies = [
- "aes-gcm",
  "argon2",
  "async-trait",
  "axum",

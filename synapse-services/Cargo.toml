@@ -58,7 +58,6 @@ hmac = { workspace = true }
 base64 = { workspace = true }
 
 argon2 = "0.6"
-aes-gcm = "0.11"
 jsonwebtoken = "9"
 # ⚠️ 停在 0.9：`rsa 0.10` 至今只有 **rc.19**（2026-10-22 实测 crates.io），且它同时换掉
 # `signature` / `pkcs1` / `pkcs8` 三代 trait，风险与其余五族不同量级 ⇒ 本批不动，
