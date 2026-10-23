@@ -16,6 +16,13 @@
 // enforces the same constraint across the whole workspace for non-cleared crates.
 #![deny(missing_docs)]
 
+// Lets `tests-support/exit_hook_impl.rs` name the drain it registers through the
+// same absolute path (`synapse_common::test_schema_guard::drain_schemas_at_exit`)
+// that the sibling crates use when they `#[path = ...]`-include that file. Without
+// this, the shared file would have to say `crate::`, which means the *consumer's*
+// crate once it is expanded there. Standard trick (tokio `loom`, serde's `__private`).
+extern crate self as synapse_common;
+
 /// Module `argon2_config`.
 pub mod argon2_config;
 /// Module `background_job`.

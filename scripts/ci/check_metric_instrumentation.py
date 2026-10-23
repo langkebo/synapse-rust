@@ -63,7 +63,7 @@ EXCLUDED_NAMES = frozenset({"new", "get_collector", "get_summary"})
 # 测试路径豁免（**路径谓词**，不用 glob 字符串）。
 TEST_DIR_SEGMENTS = ("tests", "benches", "test_mocks")
 TEST_FILE_SUFFIXES = ("_tests.rs", "_test.rs")
-TEST_FILE_NAMES = ("tests.rs", "test_utils.rs", "db_tests.rs", "test_exit_hook.rs")
+TEST_FILE_NAMES = ("tests.rs", "test_utils.rs", "db_tests.rs")
 
 # ── 可移植正则（2026-09-22：修掉一次"macOS 假绿 / Linux 假红"） ────────────────
 #

@@ -26,7 +26,11 @@ pub mod server;
 /// The `tasks` module.
 pub mod tasks;
 /// Test-build-only schema-cleanup exit hook (B'). See the module docs.
+///
+/// The implementation is the shared `synapse-common/tests-support/` file — one
+/// copy for all five test builds, not one per crate.
 #[cfg(test)]
+#[path = "../synapse-common/tests-support/exit_hook_impl.rs"]
 mod test_exit_hook;
 /// The `worker` module.
 pub mod worker;
