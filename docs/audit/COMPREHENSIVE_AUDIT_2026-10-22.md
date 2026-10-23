@@ -1009,6 +1009,16 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 - **证据**：`TaskSchedulerConfig` 只有 `max_concurrent_tasks`；唯一业务读取点 `synapse-services/src/wiring/admin.rs:260`。上游对齐理由（#20230）写在 L7-12。
 - **影响**：为 1 个整数维护 22 行反序列化 + 7 个测试，收益比偏低；`DEFAULT_MAX_CONCURRENT_TASKS` 的默认值校验可以用 `#[serde(default = "…")]` + 一行 `assert` 覆盖。
 - **建议**：反序列化改用 `#[serde(default = "default_max_concurrent_tasks")]`，测试收敛为 2 条（默认值、非法值）。若上游配置段必须存在，保留结构体但去掉自定义 deserializer。
+- **状态：已简化（2026-10-23），但与原建议不同 —— 原建议会丢掉 `0` 校验**。
+  `0` 在 serde 眼里是**合法整数**，而唯一消费点（`wiring/admin.rs:260`）拿它当 AS 调度器每 tick 的
+  派发上限 ⇒ `0` 意味着"应用服务永不运行"且不报任何错。所以"去掉自定义 deserializer"不是等价简化。
+  实测（`test_invalid_inputs_are_rejected` 的 6 例表）证明其余非法输入 `true` / 负数 / 浮点 /
+  字符串 / `null` / 数组 **serde 自己就拒**，因此自定义反序列化的真实价值只有两条：`> 0`、
+  以及 `usize` 装得下。据此重写：去掉 `serde_json::Value` 中间层与"拒绝布尔"那条分支
+  （它只多给一句友好文案，不是唯一拦截点），改为直接收 `u64` 再 `try_from`（顺带把 32 位目标的
+  越界语义说清）；测试 7 条 → 5 条，三条单值负控合成一张 6 例表并新增数组一例。
+  行数 111 → 111（文档等量替换），但关键路径少一次 `Value` 物化与一个多余分支。
+  红证：删掉 `> 0` 校验 ⇒ `test_zero_is_rejected` FAILED；还原 ⇒ 5 passed。
 
 #### RD-25（P3）文件级 `#![allow(clippy::unused_async)]` 覆盖整个 handler 文件
 - **位置**：`synapse-web/src/routes/e2ee/backup.rs:3`
@@ -1145,7 +1155,7 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 | **W3** | P1 结构决策 | ARCH-01 | 方案 A「打通」：写路径改走规范事件，影子表降级为索引 | **大** | 需先定方案 | ✅ 已提交 `3789583ef`（见 §10.5） |
 | **W4** | P2 资源与性能 | PERF-14、PERF-13、PERF-03/04/05、PERF-07/08/09、PERF-06、CODE-04、CODE-07 | 索引/查询/分批 | 中 | W1（FUNC-06 累计校验） | ✅ 三层全部落地：第一层 `2358c0f5a`、第二层 `0d18fede0`、第三层 `3cf5c006a`（见 §10.6） |
 | **W5** | P2 安全一致性 | SEC-02…SEC-08 | 配置校验 + 默认值 | 小 | 无 | ✅ 已提交 `ca6980c51`（见 §10.7） |
-| **W6** | P3 冗余与文档 | 全部 P3 + §9.12 五批 | 删除/合壳/文档 | 小但量大 | W0（避免删到正在改的文件） | 待开始 |
+| **W6** | P3 冗余与文档 | 全部 P3 + §9.12 五批 | 删除/合壳/文档 | 小但量大 | W0（避免删到正在改的文件） | 🟡 批次 1 已提交 `e4ac05ce0`（见 §10.8），批次 2…5 待开始 |
 
 **建议并行度**：W0 / W2 / W5 三者互不重叠，可并行；W1 与 W4 串行；W3 单独走设计评审；W6 最后收尾（它会删文件，先做会和前面所有分支冲突）。
 
@@ -1464,6 +1474,32 @@ fn is_admin_request_allowed(role: &str, method: &Method, path: &str, rbac_enable
 ---
 
 ### 10.8 W6：P3 冗余与文档（复用 §9.12 五批）
+
+> **落地状态：批次 1（零风险）已完成（2026-10-23，提交 `e4ac05ce0`）**。范围 RD-02/03/04/05/06/23/24/25。实际落地与审计原文有 **3 处偏差**，以实际为准：
+>
+> ① **RD-03 的 `futures` 不能迁 `[dev-dependencies]`**：原文称 `synapse-web` 的 `futures` 仅测试使用；实测生产在 `synapse-web/src/middleware/write_forwarding/forward.rs:15,49`（`futures::Stream` / `futures::stream::…`）。本批次只迁 `serde_norway`、`deadpool-redis` 两条，**审计原文该结论作废**。
+> ② **RD-04 的 `rsa` 必须同时保留 `[dev-dependencies]`**：`synapse-services/src/oidc_service.rs` 的测试模块直接 `use rsa::…`，只改成 `optional = true` 会让测试构建缺 crate。最终形态：`optional = true` + `builtin-oidc = […, "dep:rsa"]`（生产默认不编译）+ 同名 dev-dependency（测试可用）。
+> ③ **RD-24 按原文建议不采纳**：`synapse-common/src/config/task_scheduler.rs` 的 `deserialize_max_concurrent_tasks` 现会拒绝 `0`/负数/浮点/bool/字符串；换成 `#[serde(default = …)]` 会静默接受 `max_concurrent_tasks: 0`，调度器并发度为 0 等同停摆，属**行为回归**。因此**不删自定义 deserializer**。
+> （同日另做了一次**不改语义**的瘦身：去掉 `serde_json::Value` 中间层与多余的布尔分支、测试 7→5，`0` 拒绝保留 —— 见 §9.9 RD-24 的状态行。）
+
+**批次 1 落地明细**
+
+| 条目 | 实际改动 |
+|---|---|
+| RD-02 | `synapse-common`：删 `tower-http`、`http`、`validator`；`futures` 移入 `[dev-dependencies]` |
+| RD-03 | `synapse-web`：`serde_norway`、`deadpool-redis` 移入 `[dev-dependencies]`；`futures` 保留（偏差 ①） |
+| RD-04 | `synapse-services`：`rsa` 改 `optional = true` 挂到 `builtin-oidc` feature，并补同名 dev-dependency（偏差 ②） |
+| RD-05 | 删除 `src/storage/mod.rs`（65 行纯 re-export 门面）；4 处消费方改直连 `synapse_storage`：`src/bin/synapse_worker.rs:15`、`src/bin/schema_health_check.rs:34`、`benches/performance_pagination_benchmarks.rs:18,129`、`benches/performance_sliding_sync_benchmarks.rs:47-50`；`src/lib.rs` 删 `pub mod storage`，`PresenceStorage` 重导出改向 `synapse_storage::presence::PresenceStorage` |
+| RD-06 | `src/tasks/mod.rs` 删 8 个零调用 pub 访问器（`get_last_{health_status,performance_metrics,integrity_report,maintenance_report}`、`trigger_{health_check,performance_check,integrity_check,maintenance}`） |
+| RD-23 | `synapse-common/src/config/push.rs` 由 6 行 re-export 壳改为承载 `PushConfig`/`ApnsConfig`/`FcmConfig`/`WebPushConfig` 的定义（原在 `voip.rs:121-186`）；`config/mod.rs` 重导出改向（`voip` 只留 `LivekitConfig`/`UrlPreviewConfig`/`VoipConfig`） |
+| RD-25 | `synapse-web/src/routes/e2ee/backup.rs` 的文件级 `#![allow(clippy::unused_async)]` 收窄到 `verify_secure_backup_passphrase` 单函数，并补 `reason` |
+
+**顺带修复（非本批次条目，但必须记录）**：`synapse-storage/src/push/mod.rs:1814` 的 `#[allow(clippy::panic)]` 缺 reason（并发会话引入，HEAD 上棘轮已红），补 `reason = "test-only: …"`；随后 `check_clippy_allow_ratchet.py --update` 把基线从 **163 条 / 98 文件收紧到 160 条 / 96 文件**（同时删除 3 条 stale 条目：`synapse-services/src/test_utils.rs`、`synapse-storage/src/test_utils.rs`、`synapse-test-utils/src/lib.rs`）。
+
+**门禁（§9.12 批次 1 原文）**：`cargo check --workspace --all-targets --all-features` → `EXIT=0`（4m29s）；`cargo test --workspace --all-features --no-run` → `EXIT=0`；`check_clippy_allow_ratchet.py` → `OK: clippy allow suppression at baseline`。删掉 `src/storage/mod.rs` 后无未解析引用，即 §9.12 要求的"stage 人为删除后不得出现未解析引用"成立。
+
+> **踩坑记录**：`--all-features` 不可省。`synapse-services/src/test_mocks.rs` 等模块被 `#[cfg(any(test, feature = "test-utils"))]` 门控，省略该 flag 时 default 构建会报 **331 条 `E0282`/`E0432`/`E0433` 假红**（本次实测复现），与本次改动无关。
+> 另：`cmd | tail -n N` 的退出码是 `tail` 的，恒为 0；门禁一律用 `> /tmp/xx.log 2>&1; echo "EXIT=$?"` 取真实退出码。
 
 直接执行 [§9.12 分阶段清理建议](#912-统计与分阶段清理建议)，不重复。补两条本轮的：
 
