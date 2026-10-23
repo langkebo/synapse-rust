@@ -269,6 +269,7 @@ devops
 dir
 directoryservice
 dirs
+dingtalk
 diskalmostfull
 displayname
 distroless
@@ -1103,6 +1104,7 @@ webpush
 webrtc
 websocket
 webview
+wecom
 whitespace
 whoami
 whois
